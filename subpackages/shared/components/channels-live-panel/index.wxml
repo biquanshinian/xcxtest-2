@@ -1,0 +1,156 @@
+<view class="channels-live-panel">
+  <!-- 低版本兼容 -->
+  <view wx:if="{{!sdkSupported}}" class="channels-live-compat glass-card">
+    <text class="channels-live-compat-text">当前微信基础库版本较低，无法内嵌视频号直播组件（需 ≥ 2.29.0）。请更新微信，或使用下方按钮前往视频号。</text>
+  </view>
+
+  <!-- 加载中 -->
+  <view wx:elif="{{loading || coverLoading}}" class="channels-live-placeholder glass-card">
+    <view class="channels-live-media channels-live-media--skeleton">
+      <view class="channels-live-skeleton-shimmer"></view>
+      <view class="channels-live-skeleton-center">
+        <view class="channels-live-skeleton-ring"></view>
+        <text class="channels-live-skeleton-text">直播信息加载中…</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 错误态（配置/主体/网络等真实异常；「暂未开播」走下方 idle 态） -->
+  <view wx:elif="{{errorText && !feedId && status !== 1 && !showCustomCover}}" class="channels-live-placeholder glass-card channels-live-placeholder--error">
+    <view class="channels-live-media channels-live-media--idle">
+      <view class="channels-live-idle-visual channels-live-idle-visual--error"></view>
+    </view>
+    <view class="channels-live-placeholder-body">
+      <text class="channels-live-placeholder-text">{{errorText}}</text>
+    </view>
+  </view>
+
+  <!-- 直播中：官方 channel-live 组件（不可自拉流） -->
+  <view wx:elif="{{showPlayer}}" class="channels-live-player-wrap glass-card">
+    <view class="channels-live-media">
+      <channel-live
+        class="channels-live-player"
+        feed-id="{{feedId}}"
+        finder-user-name="{{resolvedFinderUserName}}"
+      />
+      <view class="channels-live-live-overlay">
+        <view class="channels-live-live-tag">
+          <view class="channels-live-eq" aria-hidden="true">
+            <view class="channels-live-eq-bar"></view>
+            <view class="channels-live-eq-bar"></view>
+            <view class="channels-live-eq-bar"></view>
+          </view>
+          <text class="channels-live-live-tag-text">直播中</text>
+        </view>
+      </view>
+    </view>
+    <view class="channels-live-player-footer" wx:if="{{description || nickname}}">
+      <text class="channels-live-player-title">{{description || nickname}}</text>
+    </view>
+  </view>
+
+  <!-- 自定义封面（图片 / 视频动效） -->
+  <view wx:elif="{{showCustomCover}}" class="channels-live-custom-wrap glass-card" bindtap="onCustomCoverTap" hover-class="{{showCustomCoverChannelLive ? '' : 'channels-live-custom-hover'}}">
+    <view class="channels-live-media">
+      <video
+        wx:if="{{coverIsVideo}}"
+        class="channels-live-custom-media"
+        src="{{coverMediaUrl}}"
+        poster="{{coverPosterUrl}}"
+        object-fit="cover"
+        autoplay="{{true}}"
+        loop="{{true}}"
+        muted="{{true}}"
+        show-center-play-btn="{{false}}"
+        show-play-btn="{{false}}"
+        controls="{{false}}"
+        enable-progress-gesture="{{false}}"
+        show-fullscreen-btn="{{false}}"
+        show-mute-btn="{{false}}"
+        binderror="onCoverMediaError"
+      ></video>
+      <image
+        wx:else
+        class="channels-live-custom-media"
+        src="{{coverMediaUrl}}"
+        mode="aspectFill"
+        lazy-load="{{true}}"
+        binderror="onCoverMediaError"
+      ></image>
+      <!-- 直播中：透明 channel-live 叠层接收点击，视觉仍显示下层自定义封面 -->
+      <channel-live
+        wx:if="{{showCustomCoverChannelLive}}"
+        class="channels-live-custom-tap-layer"
+        feed-id="{{feedId}}"
+        finder-user-name="{{resolvedFinderUserName}}"
+      />
+      <view class="channels-live-custom-mask"></view>
+      <view class="channels-live-status-overlay">
+        <view class="channels-live-status-badge channels-live-status-badge--{{statusTone}}">{{statusLabel}}</view>
+      </view>
+      <view class="channels-live-live-overlay" wx:if="{{status === 2 && coverShowLiveBadge}}">
+        <view class="channels-live-live-tag">
+          <view class="channels-live-eq" aria-hidden="true">
+            <view class="channels-live-eq-bar"></view>
+            <view class="channels-live-eq-bar"></view>
+            <view class="channels-live-eq-bar"></view>
+          </view>
+          <text class="channels-live-live-tag-text">直播中</text>
+        </view>
+      </view>
+    </view>
+    <view class="channels-live-player-footer">
+      <text class="channels-live-player-title">{{coverTitle || statusHint}}</text>
+      <text class="channels-live-custom-tap-hint" wx:if="{{canOpenLive}}">点击进入直播间</text>
+    </view>
+  </view>
+
+  <!-- 未开播 / 准备中 / 已结束（无自定义封面） -->
+  <view wx:else class="channels-live-placeholder glass-card channels-live-placeholder--{{statusTone}}" bindtap="onIdlePlaceholderTap">
+    <view class="channels-live-media channels-live-media--idle">
+      <view class="channels-live-idle-visual channels-live-idle-visual--{{statusTone}}"></view>
+      <view class="channels-live-status-overlay">
+        <view class="channels-live-status-badge channels-live-status-badge--{{statusTone}}">{{statusLabel}}</view>
+      </view>
+    </view>
+    <view class="channels-live-placeholder-body">
+      <text class="channels-live-status-hint">{{preferFallbackGuide ? '点击查看推荐直播' : statusHint}}</text>
+      <text wx:if="{{description}}" class="channels-live-desc">{{description}}</text>
+    </view>
+  </view>
+
+  <!-- fallback 操作区 -->
+  <view class="channels-live-actions">
+    <view
+      wx:if="{{canRetry}}"
+      class="channels-live-action-btn channels-live-action-btn--ghost channels-live-action-btn--block"
+      bindtap="onRetry"
+      hover-class="channels-live-action-hover"
+    >
+      <text>重试</text>
+    </view>
+    <view class="channels-live-actions-row">
+      <view
+        wx:if="{{canOpenLive && !showCustomCoverChannelLive}}"
+        class="channels-live-action-btn channels-live-action-btn--primary"
+        bindtap="onOpenLive"
+        hover-class="channels-live-action-hover"
+      >
+        <text>进入直播间</text>
+      </view>
+      <view
+        wx:elif="{{showCustomCoverChannelLive}}"
+        class="channels-live-action-btn channels-live-action-btn--ghost channels-live-action-btn--hint"
+      >
+        <text>点击封面进入直播间</text>
+      </view>
+      <view
+        class="channels-live-action-btn channels-live-action-btn--ghost"
+        bindtap="onOpenProfileOrFallbackGuide"
+        hover-class="channels-live-action-hover"
+      >
+        <text>{{preferFallbackGuide ? '推荐观看' : '视频号主页'}}</text>
+      </view>
+    </view>
+  </view>
+</view>

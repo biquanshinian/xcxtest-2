@@ -1,0 +1,33 @@
+<!-- 授权状态确认前的全局禁触遮罩：root-portal 挂到页面最顶层，压过自定义 TabBar，
+     防止隐私弹窗尚未弹出时用户切 Tab / 点击页面其它区域；弹窗弹出后由弹窗自身遮罩接管 -->
+<root-portal wx:if="{{gateBlocking && !visible}}">
+  <view class="privacy-gate-blocker" catchtap="onGateBlock" catchtouchmove="onGateBlock" catchtouchstart="onGateBlock"></view>
+</root-portal>
+
+<view wx:if="{{visible}}" class="privacy-modal-root">
+  <view class="privacy-modal-mask" catchtap="onMaskTap"></view>
+  <view class="privacy-modal-panel glass-card">
+    <view class="privacy-modal-header">
+      <text class="privacy-modal-title">隐私保护说明</text>
+      <text class="privacy-modal-subtitle">为正常使用定位、相机、相册等功能，请先阅读并同意{{contractName}}</text>
+    </view>
+
+    <view class="privacy-modal-body">
+      <view class="privacy-modal-card">
+        <text class="privacy-modal-card-title">我们将使用以下信息/能力</text>
+        <text class="privacy-modal-card-text">位置信息：用于计算卫星过境时间与观测方位</text>
+        <text class="privacy-modal-card-text">摄像头与传感器：用于 AR 观测与方向校准</text>
+        <text class="privacy-modal-card-text">相册/选图：用于保存图片、上传图片进行识别</text>
+      </view>
+
+      <text wx:if="{{referrer}}" class="privacy-modal-scene">当前触发场景：{{referrer}}</text>
+      <text class="privacy-modal-tip">你可以先查看完整隐私指引，再决定是否继续。</text>
+    </view>
+
+    <view class="privacy-modal-actions">
+      <button class="privacy-btn privacy-btn-secondary" plain="true" bindtap="onDisagree">暂不使用</button>
+      <button class="privacy-btn privacy-btn-ghost" plain="true" bindtap="onOpenContract">查看隐私指引</button>
+      <button id="privacy-modal-agree-btn" class="privacy-btn privacy-btn-primary" open-type="agreePrivacyAuthorization" bindagreeprivacyauthorization="onAgree">同意并继续</button>
+    </view>
+  </view>
+</view>

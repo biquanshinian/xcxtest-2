@@ -1,0 +1,42 @@
+<view class="map-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav">
+      <view class="nav-back {{isDirectEntry ? 'nav-back--home' : ''}}" bindtap="goBack"><text>‹</text></view>
+      <text class="nav-title">地球事件位置</text>
+      <view class="nav-placeholder"></view>
+    </view>
+  </view>
+
+  <map
+    class="main-map"
+    latitude="{{latitude}}"
+    longitude="{{longitude}}"
+    scale="{{scale}}"
+    markers="{{markers}}"
+    enable-scroll="true"
+    enable-zoom="true"
+    show-location="{{false}}"
+  ></map>
+
+  <view class="panel glass-card">
+    <view class="panel-header">
+      <text class="panel-category" wx:if="{{category}}">🔥 {{category}}</text>
+      <view class="panel-status panel-status--{{isOpen ? 'open' : 'closed'}}">
+        <text>{{status}}</text>
+      </view>
+    </view>
+    <text class="panel-title">{{title}}</text>
+    <view class="panel-info-row" wx:if="{{date}}">
+      <text class="panel-info-label">时间</text>
+      <text class="panel-info-value">{{date}}</text>
+    </view>
+    <view class="panel-info-row" wx:if="{{magnitude}}">
+      <text class="panel-info-label">规模</text>
+      <text class="panel-info-value">{{magnitude}}</text>
+    </view>
+    <view class="panel-coords-row">
+      <text class="panel-coords-text">{{latitude}}°, {{longitude}}°</text>
+      <view class="panel-copy-btn" bindtap="copyCoords"><text>复制坐标</text></view>
+    </view>
+  </view>
+</view>

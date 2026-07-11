@@ -1,0 +1,376 @@
+/* hardware-list.wxss —— 星舰硬件设施完整列表页（与进度页板块同款卡片样式） */
+page {
+  background: #000;
+  color: #fff;
+}
+
+.list-page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+}
+
+.list-scroll {
+  height: 100vh;
+}
+
+.list-body {
+  padding: 20rpx 30rpx 0;
+}
+
+/* 导航标题包裹层：min-width:0 允许在 grid 中收缩，flex 保证标题始终水平居中 */
+.nav-title-wrap {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 24rpx;
+  overflow: hidden;
+}
+
+.card-hover {
+  transition: transform 0.15s ease;
+}
+.card-hover:active {
+  transform: scale(0.97);
+}
+
+/* 筛选胶囊 */
+.hardware-filter-scroll {
+  width: 100%;
+  white-space: nowrap;
+  margin-bottom: 16rpx;
+}
+
+.hardware-filter-row {
+  display: inline-flex;
+  gap: 14rpx;
+  padding: 0 6rpx;
+}
+
+.hardware-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52rpx;
+  padding: 0 26rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-sizing: border-box;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.hardware-chip text {
+  color: #C7C7CC;
+  font-size: 24rpx;
+  line-height: 1;
+}
+
+.hardware-chip-active {
+  background: rgba(10, 132, 255, 0.2);
+  border-color: rgba(10, 132, 255, 0.55);
+}
+
+.hardware-chip-active text {
+  color: #9FD0FF;
+  font-weight: 600;
+}
+
+/* 搜索框 */
+/* 简洁搜索条：纯色圆角灰底 + 左侧放大镜 + “搜索”占位 */
+.hardware-search {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  padding: 14rpx 24rpx;
+  margin-bottom: 16rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid transparent;
+}
+
+.hardware-search-icon {
+  color: #8E8E93;
+  font-size: 34rpx;
+  line-height: 1;
+}
+
+.hardware-search-input {
+  flex: 1;
+  min-width: 0;
+  color: #FFFFFF;
+  font-size: 26rpx;
+  height: 52rpx;
+  line-height: 52rpx;
+}
+
+.hardware-search-placeholder {
+  color: #636366;
+}
+
+.hardware-search-clear {
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.hardware-search-clear text {
+  color: #C7C7CC;
+  font-size: 30rpx;
+  line-height: 1;
+}
+
+/* 结果计数 */
+.list-count {
+  margin-bottom: 16rpx;
+  padding: 0 6rpx;
+}
+.list-count text {
+  font-size: 22rpx;
+  color: #8E8E93;
+}
+
+/* 卡片网格 */
+.hardware-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20rpx;
+}
+
+.hardware-card {
+  width: calc((100% - 20rpx) / 2);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* 扫光走全局 skeleton-shimmer（app.wxss） */
+.hardware-card-skeleton {
+  height: 380rpx;
+}
+
+.hardware-card-image-wrap {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  position: relative;
+  overflow: hidden;
+  background: rgba(30, 30, 30, 0.35);
+}
+
+.hardware-card-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  background-color: rgba(30, 30, 30, 0.35);
+}
+
+.hardware-card-image-mask {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 55%;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(22, 22, 24, 0.92) 100%);
+  pointer-events: none;
+}
+
+.hardware-card-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 14rpx 18rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+  pointer-events: none;
+}
+
+.hardware-card-status {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.status-dot {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  background: #8E8E93;
+  box-shadow: 0 0 8rpx rgba(142, 142, 147, 0.55);
+}
+
+.status-value {
+  font-size: 20rpx;
+  font-weight: 600;
+  color: #8E8E93;
+  letter-spacing: 1rpx;
+}
+
+.status-active .status-dot {
+  background: #34C759;
+  box-shadow: 0 0 10rpx rgba(52, 199, 89, 0.7);
+}
+.status-active .status-value {
+  color: #34C759;
+}
+.status-destroyed .status-dot {
+  background: #FF3B30;
+  box-shadow: 0 0 10rpx rgba(255, 59, 48, 0.7);
+}
+.status-destroyed .status-value {
+  color: #FF3B30;
+}
+.status-expended .status-dot {
+  background: #FF9500;
+  box-shadow: 0 0 10rpx rgba(255, 149, 0, 0.7);
+}
+.status-expended .status-value {
+  color: #FF9500;
+}
+.status-retired .status-dot {
+  background: #8E8E93;
+}
+.status-retired .status-value {
+  color: #8E8E93;
+}
+
+.hardware-card-name {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #FFFFFF;
+  text-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hardware-card-body {
+  padding: 14rpx 18rpx 18rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  flex: 1;
+}
+
+.hardware-card-type {
+  font-size: 22rpx;
+  color: #8E8E93;
+}
+
+.hardware-card-notes {
+  font-size: 22rpx;
+  color: #AEAEB2;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+/* 空态 */
+.hardware-empty {
+  padding: 40rpx 30rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hardware-empty text {
+  color: #8E8E93;
+  font-size: 26rpx;
+}
+
+/* 数据来源 */
+.source-note {
+  padding: 24rpx 0 0;
+  text-align: center;
+}
+.source-note text {
+  font-size: 22rpx;
+  color: #48484A;
+}
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+.list-page.theme-light {
+  background: var(--color-bg-page);
+}
+.theme-light .glass-card {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-card);
+}
+.theme-light .hardware-chip {
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--color-divider);
+}
+.theme-light .hardware-chip text {
+  color: var(--color-text-secondary);
+}
+.theme-light .hardware-chip-active {
+  background: rgba(10, 132, 255, 0.12);
+  border-color: rgba(10, 132, 255, 0.45);
+}
+.theme-light .hardware-chip-active text {
+  color: #0a6fd6;
+}
+.theme-light .hardware-search {
+  background: #FFFFFF;
+  border: 1px solid var(--color-divider);
+}
+.theme-light .hardware-search-icon {
+  color: var(--color-text-tertiary);
+}
+.theme-light .hardware-search-input {
+  color: var(--color-text-primary);
+}
+.theme-light .hardware-search-placeholder {
+  color: var(--color-text-tertiary);
+}
+.theme-light .hardware-search-clear {
+  background: rgba(0, 0, 0, 0.06);
+}
+.theme-light .hardware-search-clear text {
+  color: var(--color-text-secondary);
+}
+.theme-light .list-count text {
+  color: var(--color-text-tertiary);
+}
+.theme-light .hardware-card {
+  border: 1px solid var(--color-divider);
+}
+/* 骨架屏：深灰闪光 → 浅灰闪光 */
+/* 骨架浅色底色由全局 .theme-light .skeleton-shimmer 提供 */
+.theme-light .hardware-card-image-wrap {
+  background: rgba(0, 0, 0, 0.06);
+}
+.theme-light .hardware-card-image {
+  background-color: rgba(0, 0, 0, 0.06);
+}
+/* hardware-card-image-mask / overlay / name / 状态点压在照片上，保持深色浮层白字 */
+.theme-light .hardware-card-type {
+  color: var(--color-text-tertiary);
+}
+.theme-light .hardware-card-notes {
+  color: var(--color-text-secondary);
+}
+.theme-light .hardware-empty text {
+  color: var(--color-text-secondary);
+}
+.theme-light .source-note text {
+  color: var(--color-text-quaternary);
+}

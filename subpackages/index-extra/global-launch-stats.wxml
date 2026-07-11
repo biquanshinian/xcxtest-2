@@ -1,0 +1,281 @@
+<view class="detail-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view class="detail-scroll" scroll-y="true">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <view class="detail-container">
+      <!-- 顶部筛选 -->
+      <view class="filter-bar glass-card">
+        <view class="filter-btn" bindtap="onOpenCountryPicker">
+          <text class="filter-btn-label">国家</text>
+          <view class="filter-btn-value-row">
+            <text class="filter-btn-value">{{selectedCountryLabel}}</text>
+            <text class="filter-btn-caret">▾</text>
+          </view>
+        </view>
+        <view class="filter-divider"></view>
+        <view class="filter-btn" bindtap="onOpenYearPicker">
+          <text class="filter-btn-label">年份</text>
+          <view class="filter-btn-value-row">
+            <text class="filter-btn-value">{{yearLabel}}</text>
+            <text class="filter-btn-caret">▾</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="loading-state" wx:if="{{loading && !summary.total}}">
+        <view class="loading-spinner"></view>
+        <text class="loading-text">加载中...</text>
+      </view>
+
+      <view class="error-state" wx:elif="{{errorMessage && !summary.total && !breakdownReady}}">
+        <text class="error-title">加载失败</text>
+        <text class="error-text">{{errorMessage}}</text>
+        <button class="retry-btn" bindtap="retryLoad">重新加载</button>
+      </view>
+
+      <block wx:else>
+        <!-- 汇总 -->
+        <view class="summary-card glass-card">
+          <view class="summary-head">
+            <view class="summary-head-text">
+              <text class="summary-label">轨道发射尝试</text>
+              <text class="summary-scope">{{selectedCountryLabel}} · {{yearLabel}}</text>
+            </view>
+            <view class="summary-rate" wx:if="{{summaryRateText}}">
+              <text class="summary-rate-num">{{summaryRateText}}</text>
+              <text class="summary-rate-cap">成功率</text>
+            </view>
+          </view>
+          <view class="summary-main">
+            <text class="summary-value">{{summary.total}}</text>
+            <text class="summary-unit">次</text>
+          </view>
+          <block wx:if="{{!loadingSummary}}">
+            <view class="summary-ratio-bar">
+              <view class="summary-ratio-success" style="width: {{summary.total > 0 ? (summary.success / summary.total * 100) : 0}}%;"></view>
+              <view class="summary-ratio-failure" style="width: {{summary.total > 0 ? (summary.failure / summary.total * 100) : 0}}%;"></view>
+            </view>
+            <view class="summary-chips">
+              <view class="summary-chip summary-chip--success">
+                <view class="summary-chip-dot summary-chip-dot--success"></view>
+                <text>成功 {{summary.success}}</text>
+              </view>
+              <view class="summary-chip summary-chip--failure">
+                <view class="summary-chip-dot summary-chip-dot--failure"></view>
+                <text>失败 {{summary.failure}}</text>
+              </view>
+            </view>
+          </block>
+          <view class="summary-sub--loading" wx:else>
+            <text>统计明细加载中...</text>
+          </view>
+        </view>
+
+        <view class="breakdown-loading glass-card" wx:if="{{loadingBreakdown && !breakdownReady}}">
+          <view class="loading-spinner loading-spinner--sm"></view>
+          <text class="loading-text">正在加载国家/机构/型号明细...</text>
+        </view>
+
+        <view class="inline-error glass-card" wx:if="{{errorMessage && breakdownReady === false && summary.total}}">
+          <text class="inline-error-text">{{errorMessage}}</text>
+          <button class="retry-btn retry-btn--inline" bindtap="retryLoad">重新加载</button>
+        </view>
+
+        <!-- 明细排行：国家 / 机构 / 火箭型号 分段切换 -->
+        <view class="rank-card glass-card" wx:if="{{breakdownReady || byCountry.length || byAgency.length || byRocket.length}}">
+          <view class="rank-head">
+            <text class="rank-title">发射排行</text>
+            <view class="rank-legend">
+              <view class="rank-legend-item"><view class="rank-legend-dot rank-legend-dot--success"></view><text>成功</text></view>
+              <view class="rank-legend-item"><view class="rank-legend-dot rank-legend-dot--failure"></view><text>失败</text></view>
+            </view>
+          </view>
+
+          <view class="rank-tabs">
+            <view class="rank-tab {{activeTab === 'country' ? 'rank-tab--active' : ''}}" bindtap="onSwitchTab" data-tab="country">
+              <text class="rank-tab-name">国家</text>
+              <text class="rank-tab-count">{{byCountry.length}}</text>
+            </view>
+            <view class="rank-tab {{activeTab === 'agency' ? 'rank-tab--active' : ''}}" bindtap="onSwitchTab" data-tab="agency">
+              <text class="rank-tab-name">机构</text>
+              <text class="rank-tab-count">{{byAgency.length}}</text>
+            </view>
+            <view class="rank-tab {{activeTab === 'rocket' ? 'rank-tab--active' : ''}}" bindtap="onSwitchTab" data-tab="rocket">
+              <text class="rank-tab-name">火箭型号</text>
+              <text class="rank-tab-count">{{byRocket.length}}</text>
+            </view>
+          </view>
+
+          <view class="rank-list">
+            <!-- 国家 -->
+            <block wx:if="{{activeTab === 'country'}}">
+              <view class="stat-row" wx:for="{{byCountry}}" wx:key="key" wx:if="{{listExpanded || index < 8}}">
+                <text class="stat-rank">{{index + 1}}</text>
+                <view class="stat-avatar stat-avatar--flag">
+                  <text class="stat-flag">{{item.flag}}</text>
+                </view>
+                <view class="stat-name-block">
+                  <text class="stat-name">{{item.name}}</text>
+                  <view class="stat-bar">
+                    <view class="stat-bar-success" style="width: {{item.successPct}}%;"></view>
+                    <view class="stat-bar-failure" style="width: {{item.failurePct}}%;"></view>
+                  </view>
+                  <text class="stat-sub">{{item.successFailText}}</text>
+                </view>
+                <view class="stat-total-block">
+                  <text class="stat-total">{{item.total}}</text>
+                  <text class="stat-total-cap">次</text>
+                </view>
+              </view>
+              <view class="section-empty" wx:if="{{byCountry.length === 0}}">
+                <text>暂无数据</text>
+              </view>
+            </block>
+
+            <!-- 机构 -->
+            <block wx:elif="{{activeTab === 'agency'}}">
+              <view class="stat-row" wx:for="{{byAgency}}" wx:key="key" wx:if="{{listExpanded || index < 8}}">
+                <text class="stat-rank">{{index + 1}}</text>
+                <view class="stat-avatar stat-avatar--logo" wx:if="{{item.logo}}">
+                  <image
+                    class="stat-avatar-img"
+                    src="{{item.logo}}"
+                    mode="aspectFit"
+                    lazy-load="{{true}}"
+                    data-url="{{item.logoRemote}}"
+                    data-index="{{index}}"
+                    bindload="onAgencyLogoLoad"
+                    binderror="onAgencyLogoError"
+                  />
+                </view>
+                <view class="stat-avatar stat-avatar--placeholder" wx:else>
+                  <text class="stat-avatar-initial">{{item.initial}}</text>
+                </view>
+                <view class="stat-name-block">
+                  <text class="stat-name">{{item.displayName || item.name}}</text>
+                  <view class="stat-bar">
+                    <view class="stat-bar-success" style="width: {{item.successPct}}%;"></view>
+                    <view class="stat-bar-failure" style="width: {{item.failurePct}}%;"></view>
+                  </view>
+                  <text class="stat-sub">{{item.successFailText}}</text>
+                </view>
+                <view class="stat-total-block">
+                  <text class="stat-total">{{item.total}}</text>
+                  <text class="stat-total-cap">次</text>
+                </view>
+              </view>
+              <view class="section-empty" wx:if="{{byAgency.length === 0}}">
+                <text>暂无数据</text>
+              </view>
+            </block>
+
+            <!-- 火箭型号 -->
+            <block wx:else>
+              <view class="stat-row" wx:for="{{byRocket}}" wx:key="key" wx:if="{{listExpanded || index < 8}}">
+                <text class="stat-rank">{{index + 1}}</text>
+                <view class="stat-avatar stat-avatar--rocket" wx:if="{{item.image}}">
+                  <image
+                    class="stat-avatar-img stat-avatar-img--rocket"
+                    src="{{item.image}}"
+                    mode="aspectFill"
+                    lazy-load="{{true}}"
+                    data-index="{{index}}"
+                    binderror="onRocketImageError"
+                  />
+                </view>
+                <view class="stat-avatar stat-avatar--placeholder" wx:else>
+                  <text class="stat-avatar-initial">{{item.initial}}</text>
+                </view>
+                <view class="stat-name-block">
+                  <text class="stat-name">{{item.name}}</text>
+                  <view class="stat-bar">
+                    <view class="stat-bar-success" style="width: {{item.successPct}}%;"></view>
+                    <view class="stat-bar-failure" style="width: {{item.failurePct}}%;"></view>
+                  </view>
+                  <text class="stat-sub">{{item.successFailText}}</text>
+                </view>
+                <view class="stat-total-block">
+                  <text class="stat-total">{{item.total}}</text>
+                  <text class="stat-total-cap">次</text>
+                </view>
+              </view>
+              <view class="section-empty" wx:if="{{byRocket.length === 0}}">
+                <text>暂无数据</text>
+              </view>
+            </block>
+          </view>
+
+          <view
+            class="rank-more"
+            wx:if="{{(activeTab === 'country' ? byCountry.length : (activeTab === 'agency' ? byAgency.length : byRocket.length)) > 8}}"
+            bindtap="onToggleListExpand"
+          >
+            <text>{{listExpanded ? '收起' : '展开全部 ' + (activeTab === 'country' ? byCountry.length : (activeTab === 'agency' ? byAgency.length : byRocket.length)) + ' 项'}}</text>
+            <text class="rank-more-chevron {{listExpanded ? 'rank-more-chevron--up' : ''}}">›</text>
+          </view>
+        </view>
+
+        <!-- 贴图讨论区 -->
+        <view class="discuss-wrap">
+          <official-account-publish-panel topic="全球发射统计" />
+        </view>
+      </block>
+
+      <view style="height: {{tabBarReservedHeight}}px;"></view>
+    </view>
+  </scroll-view>
+
+  <!-- 年份选择弹窗 -->
+  <view class="picker-mask" wx:if="{{showYearPicker}}" bindtap="onCloseYearPicker">
+    <view class="picker-sheet glass-card" catchtap="">
+      <text class="picker-title">选择年份</text>
+      <scroll-view class="picker-list" scroll-y="true">
+        <view
+          class="picker-item {{selectedYear === item ? 'picker-item--active' : ''}}"
+          wx:for="{{yearOptions}}"
+          wx:key="*this"
+          data-year="{{item}}"
+          bindtap="onSelectYear"
+        >
+          <text>{{item}}年</text>
+          <text class="picker-check" wx:if="{{selectedYear === item}}">✓</text>
+        </view>
+      </scroll-view>
+    </view>
+  </view>
+
+  <!-- 国家选择弹窗 -->
+  <view class="picker-mask" wx:if="{{showCountryPicker}}" bindtap="onCloseCountryPicker">
+    <view class="picker-sheet glass-card" catchtap="">
+      <text class="picker-title">选择国家</text>
+      <scroll-view class="picker-list" scroll-y="true">
+        <view
+          class="picker-item {{selectedCountryKey === item.key ? 'picker-item--active' : ''}}"
+          wx:for="{{countryOptions}}"
+          wx:key="key"
+          data-key="{{item.key}}"
+          bindtap="onSelectCountry"
+        >
+          <view class="picker-item-left">
+            <text class="picker-flag">{{item.flag}}</text>
+            <text>{{item.label}}</text>
+          </view>
+          <text class="picker-count">{{item.count}}</text>
+        </view>
+      </scroll-view>
+    </view>
+  </view>
+
+  <share-guide />
+  <share-gate-countdown expire-at="{{shareGateExpireAt}}" />
+</view>

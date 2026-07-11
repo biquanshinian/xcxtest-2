@@ -1,0 +1,18 @@
+{
+  "timeout": 30,
+  "memory": 128,
+  "environment": [
+    {
+      "key": "TMT_SECRET_ID",
+      "value": "FILL_ME"
+    },
+    {
+      "key": "TMT_SECRET_KEY",
+      "value": "FILL_ME"
+    },
+    {
+      "key": "LL2_API_TOKEN",
+      "value": "FILL_ME"
+    }
+  ]
+}

@@ -1,0 +1,142 @@
+<view class="ar-container">
+  <!-- 全屏相机背景 -->
+  <camera class="ar-camera" device-position="back" flash="off" binderror="onCameraError"></camera>
+
+  <!-- AR 画布叠加层 -->
+  <canvas class="ar-overlay" type="2d" id="arCanvas" bindtap="onCanvasTap"></canvas>
+
+  <!-- 离屏合成画布（不可见） -->
+  <canvas class="offscreen-canvas" type="2d" id="mergeCanvas"></canvas>
+
+  <!-- 中心准星 -->
+  <view class="ar-crosshair">
+    <view class="crosshair-h"></view>
+    <view class="crosshair-v"></view>
+  </view>
+
+  <!-- 校准提示 -->
+  <view class="ar-calibrate-hint" wx:if="{{showCalibrate}}">
+    <text>请缓慢转动手机进行罗盘校准 ↻</text>
+  </view>
+
+  <!-- 返回按钮 -->
+  <view class="ar-back-btn {{isDirectEntry ? 'ar-back-btn--home' : ''}}" bindtap="goBack">
+    <text class="back-icon">‹</text>
+  </view>
+
+  <!-- 截图按钮 -->
+  <view class="ar-capture-btn" bindtap="onCapture">
+    <text class="capture-icon"></text>
+    <view class="capture-svg"></view>
+  </view>
+
+  <!-- 卫星详情卡片 -->
+  <view class="sat-card" wx:if="{{showSatCard && satCardData}}" catchtap="closeSatCard">
+    <view class="sat-card-inner">
+      <view class="sat-card-header">
+        <view class="sat-card-dot {{satCardData.sunlit ? 'sat-dot-sunlit' : 'sat-dot-dim'}}"></view>
+        <text class="sat-card-name">{{satCardData.name}}</text>
+        <text class="sat-card-close">×</text>
+      </view>
+      <view class="sat-card-body">
+        <view class="sat-card-row">
+          <text class="sat-card-label">轨道高度</text>
+          <text class="sat-card-value">{{satCardData.altKm}} km</text>
+        </view>
+        <view class="sat-card-row">
+          <text class="sat-card-label">运行速度</text>
+          <text class="sat-card-value">{{satCardData.speedKmh}} km/h</text>
+        </view>
+        <view class="sat-card-row">
+          <text class="sat-card-label">仰角</text>
+          <text class="sat-card-value">{{satCardData.el}}°</text>
+        </view>
+        <view class="sat-card-row">
+          <text class="sat-card-label">方位</text>
+          <text class="sat-card-value">{{satCardData.azDir}} {{satCardData.az}}°</text>
+        </view>
+        <view class="sat-card-row">
+          <text class="sat-card-label">光照状态</text>
+          <view class="sat-status-row">
+            <view class="sat-status-icon {{satCardData.sunlit ? 'sat-icon-sun' : 'sat-icon-shadow'}}"></view>
+            <text class="sat-card-value {{satCardData.sunlit ? 'sat-val-sunlit' : ''}}">{{satCardData.sunlit ? '阳光照射' : '阴影中'}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="ar-diag-panel {{arDiagCollapsed ? 'ar-diag-panel--collapsed' : ''}}">
+    <view class="ar-diag-header" bindtap="toggleArDiagPanel">
+      <text class="ar-diag-title">AR 诊断面板</text>
+      <text class="ar-diag-toggle">{{arDiagCollapsed ? '展开' : '收起'}}</text>
+    </view>
+    <view class="ar-diag-body" wx:if="{{!arDiagCollapsed}}">
+      <view class="ar-diag-grid">
+        <view class="ar-diag-item"><text class="ar-diag-label">系统</text><text class="ar-diag-value">{{arDiag.system}}</text></view>
+        <view class="ar-diag-item"><text class="ar-diag-label">相机</text><text class="ar-diag-value">{{arDiag.camera}}</text></view>
+        <view class="ar-diag-item"><text class="ar-diag-label">定位</text><text class="ar-diag-value">{{arDiag.location}}</text></view>
+        <view class="ar-diag-item"><text class="ar-diag-label">TLE</text><text class="ar-diag-value">{{arDiag.tle}}</text></view>
+        <view class="ar-diag-item"><text class="ar-diag-label">叠加画布</text><text class="ar-diag-value">{{arDiag.overlay}}</text></view>
+        <view class="ar-diag-item"><text class="ar-diag-label">合成画布</text><text class="ar-diag-value">{{arDiag.mergeCanvas}}</text></view>
+        <view class="ar-diag-item"><text class="ar-diag-label">罗盘</text><text class="ar-diag-value">{{arDiag.compass}}</text></view>
+        <view class="ar-diag-item"><text class="ar-diag-label">姿态传感器</text><text class="ar-diag-value">{{arDiag.motion}}</text></view>
+        <view class="ar-diag-item"><text class="ar-diag-label">朝向来源</text><text class="ar-diag-value">{{arDiag.headingSource}}</text></view>
+        <view class="ar-diag-item"><text class="ar-diag-label">罗盘方向值</text><text class="ar-diag-value">{{arDiag.compassRaw}}</text></view>
+        <view class="ar-diag-item"><text class="ar-diag-label">姿态 Alpha</text><text class="ar-diag-value">{{arDiag.motionAlpha}}</text></view>
+        <view class="ar-diag-item"><text class="ar-diag-label">姿态 Beta</text><text class="ar-diag-value">{{arDiag.motionBeta}}</text></view>
+        <view class="ar-diag-item"><text class="ar-diag-label">姿态 Gamma</text><text class="ar-diag-value">{{arDiag.motionGamma}}</text></view>
+        <view class="ar-diag-item"><text class="ar-diag-label">姿态仰角</text><text class="ar-diag-value">{{arDiag.motionPitch}}</text></view>
+        <view class="ar-diag-item"><text class="ar-diag-label">罗盘首包</text><text class="ar-diag-value">{{arDiag.lastCompassAt}}</text></view>
+        <view class="ar-diag-item"><text class="ar-diag-label">姿态首包</text><text class="ar-diag-value">{{arDiag.lastMotionAt}}</text></view>
+      </view>
+      <view class="ar-diag-error" wx:if="{{arDiag.lastError}}">
+        <text class="ar-diag-error-label">最近错误</text>
+        <text class="ar-diag-error-value">{{arDiag.lastError}}</text>
+      </view>
+      <view class="ar-diag-logs" wx:if="{{arDiagLogs.length}}">
+        <text class="ar-diag-logs-title">启动日志</text>
+        <block wx:for="{{arDiagLogs}}" wx:key="*this">
+          <text class="ar-diag-log-line">{{item}}</text>
+        </block>
+      </view>
+    </view>
+  </view>
+
+  <!-- 截图预览悬浮卡片 -->
+  <view class="capture-overlay" wx:if="{{capturePreview}}" catchtap="closeCapturePreview">
+    <view class="capture-card" catchtap="">
+      <image class="capture-preview-img" src="{{capturePreview}}" mode="aspectFit"></image>
+      <view class="capture-actions">
+        <view class="capture-btn capture-btn-save" bindtap="saveCaptureToAlbum">
+          <text>保存到相册</text>
+        </view>
+        <view class="capture-btn capture-btn-close" bindtap="closeCapturePreview">
+          <text>关闭</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 底部信息栏 -->
+  <view class="ar-info-bar">
+    <view class="info-item">
+      <text class="info-label">方位</text>
+      <text class="info-value">{{compassDir}} {{azimuth}}°</text>
+    </view>
+    <view class="info-item">
+      <text class="info-label">仰角</text>
+      <text class="info-value">{{elevation}}°</text>
+    </view>
+    <view class="info-item">
+      <text class="info-label">可见卫星</text>
+      <text class="info-value">{{visibleCount}}</text>
+    </view>
+    <view class="info-item best-dir" wx:if="{{bestDir}}">
+      <text class="info-label">最佳方位</text>
+      <text class="info-value info-value-best">→ {{bestDir}} {{bestAz}}°</text>
+    </view>
+  </view>
+
+  <privacy-modal id="globalPrivacyModal"></privacy-modal>
+</view>

@@ -1,0 +1,82 @@
+<view class="map-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav">
+      <view class="nav-back {{isDirectEntry ? 'nav-back--home' : ''}}" bindtap="goBack"><text>‹</text></view>
+      <text class="nav-title">Starbase 设施图</text>
+      <view class="nav-placeholder"></view>
+    </view>
+    <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" style="top: {{mapActionTop}}px;">
+      <view class="map-action-header">
+        <text class="map-action-title">地图工具</text>
+        <view class="map-action-toggle-btn" bindtap="toggleActionMenuCollapsed"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
+      </view>
+      <view class="map-action-stack" wx:if="{{!actionMenuCollapsed}}">
+        <view class="map-action-btn" bindtap="refreshMapData"><text>{{refreshing ? '刷新中…' : '刷新'}}</text></view>
+        <view class="map-action-btn" bindtap="resetMapView"><text>重置视角</text></view>
+        <view class="map-action-btn" bindtap="copySummary"><text>复制信息</text></view>
+      </view>
+    </view>
+  </view>
+
+  <map class="main-map" latitude="{{latitude}}" longitude="{{longitude}}" scale="{{scale}}" markers="{{markers}}" enable-scroll="true" enable-zoom="true" bindmarkertap="onMarkerTap"></map>
+
+  <view class="panel glass-card {{panelCollapsed ? 'panel--collapsed' : ''}}">
+    <view class="state-card" wx:if="{{loading || errorText || emptyText}}">
+      <text class="state-title">{{loading ? '加载中…' : (errorText ? '加载失败' : '暂无数据')}}</text>
+      <text class="state-desc">{{loading ? '正在同步设施状态' : (errorText || emptyText)}}</text>
+    </view>
+    <view class="panel-header panel-header--with-action">
+      <view>
+        <text class="panel-title">核心设施点位</text>
+        <text class="panel-subtitle">用于串联进度、测试与发射环节</text>
+        <text class="panel-live">实时载具状态：{{liveStatusText}}</text>
+        <text class="panel-live panel-focus">当前工作重心：{{currentFocusText}}</text>
+      </view>
+      <view class="panel-header-actions">
+        <view class="panel-badge panel-badge--green"><text>{{facilities.length}} 个设施</text></view>
+        <view class="panel-toggle-btn" bindtap="togglePanelCollapsed"><text>{{panelCollapsed ? '展开' : '折叠'}}</text></view>
+      </view>
+    </view>
+
+    <block wx:if="{{!panelCollapsed}}">
+      <view class="data-meta-row">
+        <text class="data-meta-text">来源：{{dataSourceText}}</text>
+        <text class="data-meta-text">更新时间：{{dataUpdatedText}}</text>
+      </view>
+      <scroll-view class="facility-list" scroll-x="true" show-scrollbar="false">
+        <view class="facility-row">
+          <view class="facility-chip {{selectedFacility && selectedFacility.id === item.id ? 'facility-chip--active' : ''}} {{item.isKeyFacility ? 'facility-chip--key' : ''}}" wx:for="{{facilities}}" wx:key="id" bindtap="onFacilityTap" data-id="{{item.id}}">
+            <view class="facility-chip-head">
+              <text class="facility-chip-name">{{item.shortName}}</text>
+              <text class="facility-chip-key" wx:if="{{item.isKeyFacility}}">关键</text>
+            </view>
+            <text class="facility-chip-type">{{item.category}}</text>
+          </view>
+        </view>
+      </scroll-view>
+
+      <view class="detail-card" wx:if="{{selectedFacility}}">
+        <view class="detail-top">
+          <view>
+            <text class="detail-name">{{selectedFacility.name}}</text>
+            <text class="detail-category">{{selectedFacility.category}}</text>
+          </view>
+          <view>
+            <view class="detail-status"><text>{{selectedFacility.status}}</text></view>
+            <view class="detail-key-badge" wx:if="{{selectedFacility.isKeyFacility}}"><text>当前关键设施</text></view>
+          </view>
+        </view>
+        <text class="detail-summary">{{selectedFacility.summary}}</text>
+        <view class="detail-pills">
+          <view class="detail-pill" wx:if="{{selectedFacility.focus}}"><text>{{selectedFacility.focus}}</text></view>
+          <view class="detail-pill detail-pill--blue" wx:if="{{selectedFacility.detailTitle}}"><text>{{selectedFacility.detailTitle}}</text></view>
+        </view>
+        <text class="detail-extra" wx:if="{{selectedFacility.detailSummary}}">{{selectedFacility.detailSummary}}</text>
+        <text class="detail-coord">{{selectedFacility.latitude}}, {{selectedFacility.longitude}}</text>
+      </view>
+    </block>
+    <view class="mini-summary-row" wx:else>
+      <text class="mini-summary-text">{{selectedFacility.shortName || '暂无设施'}} · {{selectedFacility.status || '状态待同步'}} · {{selectedFacility.focus || currentFocusText}}</text>
+    </view>
+  </view>
+</view>

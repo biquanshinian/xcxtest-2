@@ -1,0 +1,6 @@
+# 复制为 wrangler.toml 后，在 workers 目录执行 wrangler deploy
+# 密钥：wrangler secret put STARBASE_PROXY_SECRET（与云函数 STARBASE_FETCH_PROXY_SECRET 相同）
+
+name = "starbase-texas-proxy"
+main = "starbase-texas-proxy.js"
+compatibility_date = "2024-09-23"

@@ -1,0 +1,82 @@
+<view class="map-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav">
+      <view class="nav-back {{isDirectEntry ? 'nav-back--home' : ''}}" bindtap="goBack"><text>‹</text></view>
+      <text class="nav-title">全球发射基地</text>
+      <view class="nav-placeholder"></view>
+    </view>
+    <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" style="top: {{mapActionTop}}px;">
+      <view class="map-action-header">
+        <text class="map-action-title">地图工具</text>
+        <view class="map-action-toggle-btn" bindtap="toggleActionMenuCollapsed"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
+      </view>
+      <view class="map-action-stack" wx:if="{{!actionMenuCollapsed}}">
+        <view class="map-action-btn" bindtap="refreshMapData"><text>{{refreshing ? '刷新中…' : '刷新'}}</text></view>
+        <view class="map-action-btn" bindtap="resetWorldView"><text>全局视图</text></view>
+        <view class="map-action-btn" bindtap="copySummary"><text>复制信息</text></view>
+      </view>
+    </view>
+  </view>
+
+  <map class="main-map" latitude="{{latitude}}" longitude="{{longitude}}" scale="{{scale}}" markers="{{markers}}" enable-scroll="true" enable-zoom="true" bindmarkertap="onMarkerTap"></map>
+
+  <view class="panel glass-card {{panelCollapsed ? 'panel--collapsed' : ''}}">
+    <view class="state-card" wx:if="{{loading || errorText || emptyText}}">
+      <text class="state-title">{{loading ? '加载中…' : (errorText ? '加载失败' : '暂无数据')}}</text>
+      <text class="state-desc">{{loading ? '正在整理发射场任务数据' : (errorText || emptyText)}}</text>
+    </view>
+    <view class="panel-header panel-header--with-action">
+      <view>
+        <text class="panel-title">发射场分布</text>
+      </view>
+      <view class="panel-header-actions">
+        <view class="panel-badge"><text>{{launchSites.length}} 个基地</text></view>
+        <view class="panel-toggle-btn" bindtap="togglePanelCollapsed"><text>{{panelCollapsed ? '展开' : '折叠'}}</text></view>
+      </view>
+    </view>
+    <block wx:if="{{!panelCollapsed}}">
+      <view class="data-meta-row">
+        <text class="data-meta-text">来源：{{dataSourceText}}</text>
+        <text class="data-meta-text">更新时间：{{dataUpdatedText}}</text>
+      </view>
+      <scroll-view class="type-list" scroll-x="true" show-scrollbar="false">
+        <view class="type-row">
+          <view class="type-chip {{selectedMissionType === item.id ? 'type-chip--active' : ''}}" wx:for="{{missionTypeOptions}}" wx:key="id" data-type="{{item.id}}" bindtap="onMissionTypeTap">
+            <text>{{item.label}}</text>
+          </view>
+        </view>
+      </scroll-view>
+
+      <scroll-view class="site-list" scroll-x="true" show-scrollbar="false">
+        <view class="site-row">
+          <view class="site-chip {{selectedSite && selectedSite.id === item.id ? 'site-chip--active' : ''}}" wx:for="{{launchSites}}" wx:key="id" bindtap="onSiteTap" data-id="{{item.id}}">
+            <text class="site-chip-name">{{item.shortName}}</text>
+            <text class="site-chip-region">{{item.region}}</text>
+          </view>
+        </view>
+      </scroll-view>
+
+      <view class="detail-card" wx:if="{{selectedSite}}">
+        <text class="detail-name">{{selectedSite.name}}</text>
+        <text class="detail-meta">{{selectedSite.region}} · {{selectedSite.operator}}</text>
+        <text class="detail-vehicle">主要载具：{{selectedSite.rocketSummary || selectedSite.vehicle}}</text>
+        <view class="detail-activity-badge" style="background: {{selectedSite.activityColor}}22; border: 1px solid {{selectedSite.activityColor}};">
+          <text style="color: {{selectedSite.activityColor}};">{{selectedSite.activityLabel}}</text>
+        </view>
+        <view class="detail-stats-row">
+          <view class="detail-stat-chip"><text>总任务 {{selectedSite.totalMissions || 0}}</text></view>
+          <view class="detail-stat-chip"><text>待发 {{selectedSite.upcomingCount || 0}}</text></view>
+          <view class="detail-stat-chip"><text>完成 {{selectedSite.completedCount || 0}}</text></view>
+        </view>
+        <text class="detail-summary">{{selectedSite.summary}}</text>
+        <text class="detail-latest">最近任务：{{selectedSite.latestMission}}</text>
+        <text class="detail-time">最近时间：{{selectedSite.latestTimeText}}</text>
+        <text class="detail-next">下次任务：{{selectedSite.nextMission}}</text>
+        <text class="detail-time">下次时间：{{selectedSite.nextTimeText}}</text>
+      </view>
+    </block>
+    <view class="mini-summary-row" wx:else>
+      <text class="mini-summary-text">{{selectedSite.shortName || '暂无基地'}} · {{selectedSite.nextMission || '暂无待发任务'}} · {{selectedSite.nextTimeText || '暂无'}}</text>
+    </view>
+  </view>
+</view>

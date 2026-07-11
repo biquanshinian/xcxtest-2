@@ -1,0 +1,71 @@
+<view class="map-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav">
+      <view class="nav-back {{isDirectEntry ? 'nav-back--home' : ''}}" bindtap="goBack"><text>‹</text></view>
+      <text class="nav-title">封路地图</text>
+      <view class="nav-placeholder"></view>
+    </view>
+    <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" style="top: {{mapActionTop}}px;">
+      <view class="map-action-header">
+        <text class="map-action-title">地图工具</text>
+        <view class="map-action-toggle-btn" bindtap="toggleActionMenuCollapsed"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
+      </view>
+      <view class="map-action-stack" wx:if="{{!actionMenuCollapsed}}">
+        <view class="map-action-btn" bindtap="refreshMapData"><text>{{refreshing ? '刷新中…' : '刷新'}}</text></view>
+        <view class="map-action-btn" bindtap="resetMapView"><text>重置视角</text></view>
+        <view class="map-action-btn" bindtap="copySummary"><text>复制信息</text></view>
+      </view>
+    </view>
+  </view>
+
+  <map class="main-map" latitude="{{latitude}}" longitude="{{longitude}}" scale="{{scale}}" markers="{{markers}}" polyline="{{polylines}}" polygons="{{polygons}}" enable-scroll="true" enable-zoom="true" bindmarkertap="onMarkerTap"></map>
+
+  <view class="panel glass-card {{panelCollapsed ? 'panel--collapsed' : 'panel--expanded'}}" style="{{panelCollapsed ? '' : panelExpandedStyle}}">
+    <view class="state-card" wx:if="{{loading || errorText || emptyText}}">
+      <text class="state-title">{{loading ? '加载中…' : (errorText ? '加载失败' : '暂无数据')}}</text>
+      <text class="state-desc">{{loading ? '正在同步封路通知' : (errorText || emptyText)}}</text>
+    </view>
+    <view class="panel-header panel-header--with-action">
+      <text class="panel-title">道路封闭区域</text>
+      <view class="panel-header-actions">
+        <view class="panel-badge panel-badge--red"><text>{{source ? source : '静态示意'}}</text></view>
+        <view class="panel-toggle-btn" bindtap="togglePanelCollapsed"><text>{{panelCollapsed ? '展开' : '折叠'}}</text></view>
+      </view>
+    </view>
+    <scroll-view wx:if="{{!panelCollapsed}}" class="panel-scroll" scroll-y enhanced show-scrollbar="{{false}}" style="height: {{panelScrollHeight}}px;">
+      <view class="panel-scroll-inner">
+        <view class="status-row">
+          <view class="status-pill {{statusLabel === '封路生效中' ? 'status-pill--active' : ''}}"><text>{{statusLabel}}</text></view>
+        </view>
+        <view class="data-meta-row">
+          <text class="data-meta-text">来源：{{dataSourceText}}</text>
+          <text class="data-meta-text">更新时间：{{dataUpdatedText}}</text>
+        </view>
+        <text class="panel-summary">{{summary}}</text>
+        <view class="detail-card" wx:if="{{message || timeRange || schedule.length || delays.length || timelineItems.length}}">
+          <text class="detail-label" wx:if="{{message}}">通知内容</text>
+          <text class="detail-text" wx:if="{{message}}">{{message}}</text>
+          <text class="detail-label" wx:if="{{timeRange}}">时间范围</text>
+          <text class="detail-text" wx:if="{{timeRange}}">{{timeRange}}</text>
+          <text class="detail-label" wx:if="{{timelineItems.length}}">时间轴</text>
+          <view class="timeline-list" wx:if="{{timelineItems.length}}">
+            <view class="timeline-item" wx:for="{{timelineItems}}" wx:key="index">
+              <view class="timeline-dot"></view>
+              <view class="timeline-content">
+                <text class="timeline-label">{{item.label}}</text>
+                <text class="timeline-value">{{item.value}}</text>
+              </view>
+            </view>
+          </view>
+          <text class="detail-label" wx:if="{{schedule.length}}">封闭时段</text>
+          <text class="detail-text" wx:for="{{schedule}}" wx:key="index">{{item}}</text>
+          <text class="detail-label" wx:if="{{delays.length}}">道路提醒</text>
+          <text class="detail-text" wx:for="{{delays}}" wx:key="index">{{item}}</text>
+        </view>
+      </view>
+    </scroll-view>
+    <view class="mini-summary-row" wx:else>
+      <text class="mini-summary-text">{{statusLabel || '状态待同步'}} · {{schedule[0] || timeRange || '暂无时段'}} · {{source || '静态示意'}}</text>
+    </view>
+  </view>
+</view>

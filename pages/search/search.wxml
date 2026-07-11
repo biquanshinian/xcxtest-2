@@ -1,0 +1,136 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="search-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+  </view>
+
+  <view class="search-page-main" style="padding-top: {{navPlaceholderHeight}}px;">
+    <view class="search-header">
+      <view class="search-input-wrap">
+        <view class="search-icon-prefix">
+          <text class="search-icon-glass">⌕</text>
+        </view>
+        <input class="search-input" placeholder="搜索" placeholder-class="search-placeholder" value="{{searchKeyword}}" bindinput="onSearchInput" bindfocus="onSearchInputFocus" bindblur="onSearchInputBlur" confirm-type="search" bindconfirm="doSearch" focus="{{searchInputFocus}}"/>
+        <view class="search-input-clear" wx:if="{{searchKeyword}}" bindtap="clearSearchKeyword">
+          <text>✕</text>
+        </view>
+      </view>
+      <text class="search-cancel-btn" bindtap="doSearch">搜索</text>
+    </view>
+
+    <view class="search-scroll-wrap">
+      <scroll-view class="search-results" scroll-y="true" enhanced="{{true}}" bounces="{{true}}" enable-back-to-top="{{true}}" scroll-top="{{searchScrollTop}}" bindscroll="onSearchResultsScroll" wx:if="{{searchLoading || searchKeyword || searchHistory.length || searchSuggestions.length}}">
+        <view class="search-panel" wx:if="{{!searchLoading}}">
+          <view class="search-panel-top" wx:if="{{searchSummary || searchResultCountText || searchContextLabel}}">
+            <text class="search-panel-summary">{{searchSummary}}</text>
+            <text class="search-panel-context" wx:if="{{searchContextLabel}}">{{searchContextLabel}}</text>
+            <text class="search-panel-count" wx:if="{{searchResultCountText}}">{{searchResultCountText}}</text>
+          </view>
+
+          <!-- 搜索历史 -->
+          <view class="search-history" wx:if="{{!searchKeyword && searchHistory.length}}">
+            <view class="search-section-head">
+              <text class="search-section-title">最近搜索</text>
+              <text class="search-section-action" bindtap="clearSearchHistory">清空</text>
+            </view>
+            <view class="search-chip-list">
+              <view class="search-chip" wx:for="{{searchHistory}}" wx:key="*this" bindtap="useSearchSuggestion" data-keyword="{{item}}">
+                <text>{{item}}</text>
+              </view>
+            </view>
+          </view>
+
+          <!-- 热门/推荐搜索 -->
+          <view class="search-suggestions" wx:if="{{searchSuggestions.length}}">
+            <view class="search-section-head">
+              <text class="search-section-title">{{searchKeyword ? '猜你想搜' : '热门搜索'}}</text>
+            </view>
+            <view class="search-chip-list">
+              <view class="search-chip search-chip--hot" wx:for="{{searchSuggestions}}" wx:key="*this" bindtap="useSearchSuggestion" data-keyword="{{item}}">
+                <text class="search-chip-rank" wx:if="{{!searchKeyword && index < 3}}">{{index + 1}}</text>
+                <text>{{item}}</text>
+              </view>
+            </view>
+          </view>
+        </view>
+
+        <!-- 搜索加载中 -->
+        <view class="search-loading" wx:if="{{searchLoading && !aiAnswerLoading && !aiAnswer}}">
+          <view class="search-loading-spinner"></view>
+          <text>智能检索中...</text>
+        </view>
+
+        <!-- AI 智能回答卡片 -->
+        <view class="ai-answer-card" wx:if="{{aiAnswerLoading || aiAnswer || aiAnswerError}}">
+          <view class="ai-answer-head">
+            <view class="ai-answer-icon-wrap">
+              <text class="ai-answer-icon">✦</text>
+            </view>
+            <text class="ai-answer-label">AI 回答</text>
+          </view>
+          <view class="ai-answer-body">
+            <view class="ai-answer-loading" wx:if="{{aiAnswerLoading}}">
+              <view class="ai-answer-dot-group">
+                <view class="ai-answer-dot"></view>
+                <view class="ai-answer-dot"></view>
+                <view class="ai-answer-dot"></view>
+              </view>
+              <text class="ai-answer-loading-text">思考中...</text>
+            </view>
+            <text class="ai-answer-error" wx:elif="{{aiAnswerError}}">{{aiAnswerError}}</text>
+            <text class="ai-answer-text" wx:else user-select>{{aiAnswer}}</text>
+          </view>
+        </view>
+
+        <!-- 相关卡片 -->
+        <view class="search-related-section" wx:if="{{!searchLoading && searchGroupedResults.length > 0}}">
+          <view class="search-related-divider" wx:if="{{aiAnswer || aiAnswerLoading}}">
+            <view class="search-related-line"></view>
+            <text class="search-related-label">相关任务</text>
+            <view class="search-related-line"></view>
+          </view>
+          <view class="search-group" wx:for="{{searchGroupedResults}}" wx:key="key">
+            <view class="search-group-head search-group-head--{{item.key}}">
+              <text class="search-group-title search-group-title--{{item.key}}">{{item.title}}</text>
+              <text class="search-group-subtitle search-group-subtitle--{{item.key}}">{{item.subtitle}}</text>
+            </view>
+            <view class="search-result-item search-result-item--{{result._type}} card-hover" wx:for="{{item.items}}" wx:for-item="result" wx:key="_wxkey" bindtap="onSearchItemTap" data-id="{{result.id}}" data-type="{{result._type}}">
+              <view class="search-result-head">
+                <view class="search-result-title-wrap">
+                  <text wx:for="{{result._titleSegments}}" wx:key="index" wx:for-item="segment" class="{{segment.highlight ? 'search-result-title search-highlight search-highlight--' + result._type : 'search-result-title'}}">{{segment.text}}</text>
+                </view>
+                <text class="search-result-badge search-result-badge--{{result._type}}">{{result._searchHint}}</text>
+              </view>
+              <view class="search-result-meta-wrap">
+                <text wx:for="{{result._metaSegments}}" wx:key="index" wx:for-item="segment" class="{{segment.highlight ? 'search-result-meta search-highlight search-highlight--soft search-highlight--soft-' + result._type : 'search-result-meta'}}">{{segment.text}}</text>
+              </view>
+              <view class="search-result-tags" wx:if="{{result._searchTags && result._searchTags.length}}">
+                <text class="search-result-tag" wx:for="{{result._searchTags}}" wx:key="*this">{{item}}</text>
+              </view>
+              <text class="search-result-reason">{{result._matchReason}}</text>
+              <view class="search-result-footer">
+                <text class="search-result-score">相关度 {{result._searchScore}}</text>
+              </view>
+            </view>
+          </view>
+        </view>
+
+        <!-- 空结果 -->
+        <view class="search-empty" wx:if="{{!searchLoading && searchKeyword && (!searchGroupedResults || !searchGroupedResults.length) && !aiAnswer && !aiAnswerLoading}}">
+          <view class="search-empty-icon">🔍</view>
+          <text class="search-empty-text">{{searchEmptyHint || '未找到相关任务'}}</text>
+          <view class="search-empty-suggestion" wx:if="{{searchSuggestedKeyword}}">
+            <text>试试：</text>
+            <text class="search-empty-link" bindtap="useSearchSuggestion" data-keyword="{{searchSuggestedKeyword}}">{{searchSuggestedKeyword}}</text>
+          </view>
+        </view>
+      </scroll-view>
+    </view>
+  </view>
+</view>

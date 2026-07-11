@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "openapi": []
+  },
+  "timeout": 20,
+  "triggers": [
+    {
+      "name": "morningBriefingTrigger",
+      "type": "timer",
+      "config": "0 0 7 * * * *"
+    }
+  ]
+}

@@ -1,0 +1,400 @@
+/* 发射场详情页 — map-page 布局（导航/工具/面板骨架样式来自 app.wxss .map-page） */
+page {
+  background: #000;
+  overflow: hidden;
+  height: 100vh;
+}
+
+.map-page {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+}
+
+.main-map {
+  width: 100%;
+  height: 100vh;
+}
+
+.glass-card {
+  background: rgba(18, 18, 20, 0.78);
+  backdrop-filter: blur(18rpx);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* ── 无坐标兜底：卫星定位图占满地图区域 ── */
+.no-coords-stage {
+  width: 100%;
+  height: 100vh;
+  background: #0a0a0a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.no-coords-img {
+  width: 100%;
+  height: 100vh;
+}
+
+.no-coords-placeholder text {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 26rpx;
+}
+
+/* ── 状态卡 ── */
+.state-card {
+  margin-bottom: 20rpx;
+  padding: 20rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.state-title {
+  display: block;
+  color: #fff;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.state-desc {
+  display: block;
+  margin-top: 10rpx;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 22rpx;
+  line-height: 1.5;
+}
+
+.retry-btn-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 16rpx;
+  min-height: 56rpx;
+  padding: 0 28rpx;
+  border-radius: 999rpx;
+  background: rgba(10, 132, 255, 0.18);
+  border: 1px solid rgba(10, 132, 255, 0.55);
+}
+
+.retry-btn-inline text {
+  color: #9FD0FF;
+  font-size: 24rpx;
+}
+
+/* ── 面板头部 ── */
+.panel-header {
+  align-items: flex-start;
+}
+
+.panel-header-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.panel-subtitle {
+  display: block;
+  margin-top: 8rpx;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 22rpx;
+}
+
+.panel-badge {
+  flex-shrink: 0;
+  min-height: 48rpx;
+  padding: 0 16rpx;
+  border-radius: 999rpx;
+  background: rgba(52, 199, 89, 0.16);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.panel-badge text {
+  color: #6FDD8B;
+  font-size: 20rpx;
+}
+
+.panel-badge--retired {
+  background: rgba(142, 142, 147, 0.16);
+}
+
+.panel-badge--retired text {
+  color: #AEAEB2;
+}
+
+.data-meta-row {
+  margin-top: 14rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.data-meta-text {
+  color: rgba(255, 255, 255, 0.54);
+  font-size: 20rpx;
+  line-height: 1.4;
+}
+
+/* ── 基础信息卡 ── */
+.detail-card {
+  margin-top: 20rpx;
+  padding: 22rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.site-meta-row {
+  display: flex;
+  align-items: baseline;
+  gap: 16rpx;
+  margin-bottom: 10rpx;
+}
+
+.site-meta-label {
+  flex-shrink: 0;
+  width: 140rpx;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 22rpx;
+}
+
+.site-meta-value {
+  flex: 1;
+  min-width: 0;
+  color: #fff;
+  font-size: 24rpx;
+  word-break: break-all;
+}
+
+.detail-stats-row {
+  margin-top: 14rpx;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.detail-stat-chip {
+  min-height: 44rpx;
+  padding: 0 16rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.06);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.detail-stat-chip text {
+  color: #fff;
+  font-size: 20rpx;
+}
+
+/* ── 工位横滑 chips（沿用 launch-site-map site-chip 设计） ── */
+.site-list {
+  margin-top: 20rpx;
+  white-space: nowrap;
+}
+
+.site-row {
+  display: inline-flex;
+  gap: 16rpx;
+  padding-right: 12rpx;
+}
+
+.site-chip {
+  min-width: 220rpx;
+  max-width: 420rpx;
+  padding: 18rpx 22rpx;
+  border-radius: 22rpx;
+  background: rgba(255, 255, 255, 0.05);
+  box-sizing: border-box;
+}
+
+.site-chip--active {
+  background: rgba(10, 132, 255, 0.14);
+  border: 1px solid rgba(10, 132, 255, 0.55);
+}
+
+.site-chip-name {
+  display: block;
+  color: #fff;
+  font-size: 24rpx;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.site-chip-region {
+  display: block;
+  margin-top: 8rpx;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 20rpx;
+}
+
+.pads-loading-hint {
+  margin-top: 16rpx;
+}
+
+.pads-loading-hint text {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 20rpx;
+}
+
+/* ── 简介 ── */
+.desc-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12rpx;
+}
+
+.desc-head-title {
+  color: #fff;
+  font-size: 26rpx;
+  font-weight: 600;
+}
+
+.detail-summary {
+  display: block;
+  color: rgba(255, 255, 255, 0.64);
+  font-size: 22rpx;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+/* ── 卫星图缩略 ── */
+.site-thumb-card {
+  padding: 16rpx;
+}
+
+.site-thumb-img {
+  width: 100%;
+  height: 240rpx;
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, 0.05);
+  display: block;
+}
+
+.site-thumb-hint {
+  display: block;
+  margin-top: 10rpx;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 20rpx;
+}
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+.theme-light .glass-card {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: var(--color-divider);
+}
+
+.theme-light .no-coords-stage {
+  background: #ECECF1;
+}
+
+.theme-light .no-coords-placeholder text {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .state-card {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.theme-light .state-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .state-desc {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .retry-btn-inline {
+  background: rgba(10, 132, 255, 0.12);
+}
+
+.theme-light .retry-btn-inline text {
+  color: #0A84FF;
+}
+
+.theme-light .panel-subtitle {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .panel-badge {
+  background: rgba(52, 199, 89, 0.14);
+}
+
+.theme-light .panel-badge text {
+  color: #248A3D;
+}
+
+.theme-light .panel-badge--retired {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .panel-badge--retired text {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .data-meta-text {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .detail-card {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.theme-light .site-meta-label {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .site-meta-value {
+  color: var(--color-text-primary);
+}
+
+.theme-light .detail-stat-chip {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.theme-light .detail-stat-chip text {
+  color: var(--color-text-primary);
+}
+
+.theme-light .site-chip {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.theme-light .site-chip--active {
+  background: rgba(10, 132, 255, 0.12);
+}
+
+.theme-light .site-chip-name {
+  color: var(--color-text-primary);
+}
+
+.theme-light .site-chip-region {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .pads-loading-hint text {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .desc-head-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .detail-summary {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .site-thumb-img {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.theme-light .site-thumb-hint {
+  color: var(--color-text-tertiary);
+}

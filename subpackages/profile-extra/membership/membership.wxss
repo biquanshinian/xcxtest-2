@@ -1,0 +1,649 @@
+/* membership.wxss — 星际通行证（金色会员风格，参考腾讯文档会员中心） */
+
+.container {
+  background: #000000;
+}
+
+.content-scroll {
+  padding: 0 30rpx;
+}
+
+/* ═══════════ 金色会员主卡 ═══════════
+   奶油金渐变卡片为设计核心，深浅主题下保持一致（金卡不随主题变色） */
+.gold-hero {
+  margin-top: 24rpx;
+  padding: 36rpx 30rpx 30rpx;
+  border-radius: 32rpx;
+  background: linear-gradient(165deg, #FFFBEE 0%, #FFF3D3 42%, #FFE9B4 100%);
+  border: 1px solid #F2D48A;
+  box-shadow: 0 10rpx 40rpx rgba(220, 165, 60, 0.18);
+  position: relative;
+  overflow: hidden;
+}
+
+/* PRO 用户：金色更饱满 */
+.gold-hero--pro {
+  background: linear-gradient(165deg, #FFF9E4 0%, #FFEDBB 40%, #FFDF95 100%);
+  border-color: #EFC565;
+  box-shadow: 0 12rpx 48rpx rgba(220, 160, 40, 0.28);
+}
+
+/* 状态区 */
+.gold-hero-head {
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+  margin-bottom: 30rpx;
+}
+
+.gold-hero-icon {
+  width: 104rpx;
+  height: 104rpx;
+  flex-shrink: 0;
+  filter: drop-shadow(0 6rpx 14rpx rgba(200, 140, 20, 0.35));
+}
+
+.gold-hero-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.gold-hero-title-row {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  margin-bottom: 10rpx;
+}
+
+.gold-hero-title {
+  font-size: 40rpx;
+  font-weight: 800;
+  color: #5C3A00;
+  letter-spacing: 2rpx;
+}
+
+.gold-hero-badge {
+  flex-shrink: 0;
+  font-size: 20rpx;
+  font-weight: 700;
+  letter-spacing: 2rpx;
+  color: #8A6200;
+  background: rgba(140, 100, 20, 0.12);
+  padding: 4rpx 16rpx;
+  border-radius: 999rpx;
+}
+
+.gold-hero-badge--pro {
+  color: #5C3A00;
+  background: linear-gradient(90deg, #FFDE8F, #F5B93F);
+  box-shadow: 0 4rpx 12rpx rgba(220, 160, 40, 0.35);
+}
+
+.gold-hero-desc {
+  font-size: 24rpx;
+  color: #A97B1E;
+}
+
+/* ═══════════ 订阅计划 ═══════════ */
+.plan-list {
+  display: flex;
+  gap: 16rpx;
+}
+
+.plan-item {
+  flex: 1;
+  padding: 30rpx 12rpx 24rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.75);
+  border: 2rpx solid #F0DCA8;
+  text-align: center;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.plan-item--active {
+  border-color: #E8A93B;
+  background: #FFFFFF;
+  box-shadow: 0 8rpx 24rpx rgba(220, 160, 40, 0.22);
+}
+
+.plan-tag {
+  position: absolute;
+  top: -2rpx;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 18rpx;
+  font-weight: 600;
+  color: #5C3A00;
+  background: linear-gradient(90deg, #FFDE8F, #F5B93F);
+  padding: 4rpx 16rpx;
+  border-radius: 0 0 10rpx 10rpx;
+  white-space: nowrap;
+}
+
+.plan-name {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #6B4A0E;
+  margin-top: 10rpx;
+  margin-bottom: 12rpx;
+}
+
+.plan-price {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 2rpx;
+}
+
+.plan-price-sym {
+  font-size: 24rpx;
+  font-weight: 700;
+  color: #D98E12;
+}
+
+.plan-price-num {
+  font-size: 44rpx;
+  font-weight: 800;
+  color: #D98E12;
+}
+
+.plan-item--active .plan-price-sym,
+.plan-item--active .plan-price-num {
+  color: #C57500;
+}
+
+.plan-save {
+  font-size: 20rpx;
+  color: #B08A3E;
+  margin-top: 8rpx;
+}
+
+/* ═══════════ 金色开通按钮 ═══════════ */
+.subscribe-btn {
+  margin-top: 30rpx;
+  height: 92rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(90deg, #FFE3A0 0%, #F7BE45 55%, #F0AE2C 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #5C3A00;
+  letter-spacing: 2rpx;
+  box-shadow: 0 10rpx 28rpx rgba(230, 165, 40, 0.4), inset 0 2rpx 0 rgba(255, 255, 255, 0.55);
+}
+
+.subscribe-note {
+  margin-top: 18rpx;
+  text-align: center;
+}
+
+.subscribe-note text {
+  font-size: 20rpx;
+  color: #B08A3E;
+}
+
+/* ═══════════ 区块 ═══════════ */
+.section {
+  margin-top: 44rpx;
+}
+
+.section-title {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 22rpx;
+}
+
+/* ═══════════ 会员权益宫格 ═══════════ */
+.benefit-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+
+.benefit-cell {
+  width: calc((100% - 16rpx) / 2);
+  box-sizing: border-box;
+  padding: 30rpx 24rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 200, 100, 0.06);
+  border: 1px solid rgba(255, 200, 100, 0.14);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8rpx;
+}
+
+.benefit-cell-icon {
+  width: 76rpx;
+  height: 76rpx;
+  margin-bottom: 6rpx;
+  border-radius: 18rpx;
+}
+
+.benefit-cell-name {
+  font-size: 27rpx;
+  font-weight: 600;
+  color: #FFD98C;
+}
+
+.benefit-cell-desc {
+  font-size: 21rpx;
+  color: rgba(255, 217, 140, 0.55);
+}
+
+/* ═══════════ 一次性产品 ═══════════ */
+.product-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.product-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 28rpx 26rpx;
+  border-radius: 22rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.product-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+  flex: 1;
+  min-width: 0;
+}
+
+.product-name {
+  font-size: 28rpx;
+  color: #fff;
+  font-weight: 600;
+}
+
+.product-desc {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.product-action {
+  flex-shrink: 0;
+  margin-left: 20rpx;
+}
+
+.product-price {
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #5C3A00;
+  padding: 12rpx 28rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(90deg, #FFE3A0, #F5B93F);
+  box-shadow: 0 4rpx 14rpx rgba(220, 160, 40, 0.3);
+}
+
+.product-owned {
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.35);
+  padding: 10rpx 20rpx;
+}
+
+.product-owned--yes {
+  color: #E2A93C;
+}
+
+/* ═══════════ 账户管理卡（订单记录 + 用户ID） ═══════════ */
+.manage-card {
+  border-radius: 22rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+}
+
+.manage-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.07);
+  margin: 0 26rpx;
+}
+
+.orders-entry {
+  padding: 26rpx;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.orders-entry--pressed {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.orders-entry-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.orders-entry-title {
+  font-size: 27rpx;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.orders-entry-desc {
+  font-size: 21rpx;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.orders-entry-arrow {
+  font-size: 34rpx;
+  color: rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+}
+
+/* 用户ID行 */
+.user-id-row {
+  padding: 22rpx 26rpx;
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.user-id-label {
+  font-size: 23rpx;
+  color: rgba(255, 255, 255, 0.4);
+  flex-shrink: 0;
+}
+
+.user-id-value {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.6);
+  font-family: monospace;
+  flex: 1;
+  min-width: 0;
+}
+
+/* 与 profile「关于我们」.about-copy-btn 相同思路：button 默认 width:100%，须 mini + 收窄 */
+.user-id-copy-btn {
+  margin: 0 0 0 auto !important;
+  margin-right: 0 !important;
+  padding: 0 16rpx !important;
+  height: 52rpx !important;
+  line-height: 50rpx !important;
+  min-height: 52rpx !important;
+  width: auto !important;
+  max-width: 120rpx !important;
+  min-width: 0 !important;
+  flex: 0 0 auto !important;
+  box-sizing: border-box !important;
+  font-size: 22rpx !important;
+  font-weight: 600 !important;
+  color: #5C3A00 !important;
+  background: linear-gradient(90deg, #FFE3A0, #F5B93F) !important;
+  border: none !important;
+  border-radius: 26rpx !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.user-id-copy-btn::after {
+  border: none !important;
+}
+
+.user-id-copy-btn--hover {
+  opacity: 0.65;
+}
+
+/* ═══════════ 底部说明 ═══════════ */
+.footer-note {
+  margin-top: 48rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.footer-note text {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* ═══════════ 折扣挽留弹窗 ═══════════ */
+.discount-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+
+.discount-modal {
+  width: 580rpx;
+  padding: 60rpx 40rpx 40rpx;
+  border-radius: 32rpx;
+  background: linear-gradient(165deg, #FFFBEE 0%, #FFF0C8 60%, #FFE7AC 100%);
+  border: 1px solid #F2D48A;
+  text-align: center;
+  position: relative;
+}
+
+.discount-close {
+  position: absolute;
+  top: 20rpx;
+  right: 24rpx;
+  font-size: 40rpx;
+  color: rgba(120, 85, 20, 0.45);
+  width: 60rpx;
+  height: 60rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.discount-badge {
+  display: inline-block;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(90deg, #FF5A3C, #FF8A00);
+  padding: 6rpx 22rpx;
+  border-radius: 999rpx;
+  margin-bottom: 24rpx;
+  box-shadow: 0 4rpx 14rpx rgba(255, 110, 30, 0.35);
+}
+
+.discount-title {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #5C3A00;
+  margin-bottom: 24rpx;
+}
+
+.discount-price-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 16rpx;
+  margin-bottom: 32rpx;
+}
+
+.discount-original {
+  font-size: 28rpx;
+  color: #B08A3E;
+  text-decoration: line-through;
+}
+
+.discount-now {
+  font-size: 60rpx;
+  font-weight: 800;
+  color: #FF6A00;
+}
+
+.discount-btn {
+  height: 84rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(90deg, #FFE3A0 0%, #F7BE45 55%, #F0AE2C 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #5C3A00;
+  margin-bottom: 20rpx;
+  box-shadow: 0 8rpx 24rpx rgba(230, 165, 40, 0.4);
+}
+
+.discount-skip {
+  font-size: 24rpx;
+  color: #B08A3E;
+  padding: 12rpx;
+}
+
+/* ═══════════ iOS 暂未开放 ═══════════ */
+.ios-notice {
+  background: rgba(200, 130, 20, 0.1);
+  color: #8A5500;
+  padding: 16rpx 20rpx;
+  border-radius: 14rpx;
+  font-size: 24rpx;
+  margin-bottom: 22rpx;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.ios-notice-tip {
+  color: #A5711C;
+  font-size: 22rpx;
+  opacity: 0.85;
+}
+
+/* 金卡外（深色页面背景上）的 iOS 提示：改用亮金文字保证可读性 */
+.section .ios-notice {
+  color: #E8B04A;
+}
+
+.section .ios-notice .ios-notice-tip {
+  color: rgba(232, 176, 74, 0.75);
+}
+
+.theme-light .section .ios-notice {
+  color: #8A5500;
+}
+
+.theme-light .section .ios-notice .ios-notice-tip {
+  color: #A5711C;
+}
+
+.plan-list--disabled,
+.product-list--disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.subscribe-btn--disabled {
+  background: #E5DCC8 !important;
+  color: #A39A85 !important;
+  box-shadow: none !important;
+  pointer-events: none;
+}
+
+/* ══════════════════════════════════════
+   明亮主题（theme-light）覆盖
+   金卡本身不变，仅调整页面底、区块卡片与文字
+   ══════════════════════════════════════ */
+.container.theme-light {
+  background: var(--color-bg);
+}
+
+.theme-light .section-title {
+  color: var(--color-text-primary);
+}
+
+/* 权益宫格：白卡 + 暖金点缀 */
+.theme-light .benefit-cell {
+  background: #FFFCF3;
+  border-color: #F2E3B8;
+  box-shadow: var(--shadow-card);
+}
+
+.theme-light .benefit-cell-name {
+  color: #6B4A0E;
+}
+
+.theme-light .benefit-cell-desc {
+  color: #B08A3E;
+}
+
+/* 产品与账户管理：白卡 */
+.theme-light .product-item {
+  background: var(--color-bg-card);
+  border-color: var(--color-divider);
+  box-shadow: var(--shadow-card);
+}
+
+.theme-light .product-name {
+  color: var(--color-text-primary);
+}
+
+.theme-light .product-desc {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .product-owned {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .product-owned--yes {
+  color: #C57500;
+}
+
+.theme-light .manage-card {
+  background: var(--color-bg-card);
+  border-color: var(--color-divider);
+  box-shadow: var(--shadow-card);
+}
+
+.theme-light .manage-divider {
+  background: var(--color-divider);
+}
+
+.theme-light .orders-entry--pressed {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.theme-light .orders-entry-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .orders-entry-desc {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .orders-entry-arrow {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .user-id-label {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .user-id-value {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .footer-note text {
+  color: var(--color-text-tertiary);
+}

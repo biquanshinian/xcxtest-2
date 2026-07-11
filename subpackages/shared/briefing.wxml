@@ -1,0 +1,28 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="briefing-detail-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">每日太空简报</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+  </view>
+
+  <scroll-view class="briefing-detail-scroll" scroll-y="true">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+    <view class="briefing-detail-container">
+      <morning-briefing mode="page" />
+    </view>
+    <view class="briefing-detail-bottom-space"></view>
+  </scroll-view>
+
+  <view class="briefing-detail-share-bar">
+    <button class="briefing-detail-share-btn" open-type="share" data-share-type="briefing">
+      分享今日简报
+    </button>
+  </view>
+</view>

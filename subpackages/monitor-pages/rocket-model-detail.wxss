@@ -1,0 +1,544 @@
+/* rocket-model-detail.wxss — 火箭型号详情页（暗色毛玻璃，与监控中心一致） */
+page {
+  background: #000;
+  color: #fff;
+}
+.container {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+}
+.detail-scroll {
+  width: 100%;
+  height: 100vh;
+}
+.glass-card {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20rpx);
+  -webkit-backdrop-filter: blur(20rpx);
+}
+
+/* 加载/错误 */
+.loading-wrap, .error-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-top: 200rpx;
+}
+.loading-text {
+  font-size: 28rpx;
+  color: #636366;
+}
+.error-icon {
+  font-size: 64rpx;
+  margin-bottom: 20rpx;
+}
+.error-text {
+  font-size: 28rpx;
+  color: #8E8E93;
+  margin-bottom: 30rpx;
+}
+.error-btn {
+  font-size: 28rpx;
+  color: #007AFF;
+  padding: 12rpx 40rpx;
+  border: 1px solid rgba(0, 122, 255, 0.3);
+  border-radius: 999rpx;
+}
+
+/* Hero */
+.hero-section {
+  position: relative;
+  width: 100%;
+  height: 460rpx;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.03);
+}
+.hero-img {
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transform: scale(1.02);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+.hero-img--loaded {
+  opacity: 1;
+  transform: scale(1);
+}
+.hero-placeholder {
+  opacity: 1;
+  transform: scale(1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.08), rgba(255, 255, 255, 0.02) 72%);
+}
+.hero-placeholder-icon {
+  font-size: 96rpx;
+}
+.hero-gradient {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 160rpx;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
+}
+.hero-credit-btn {
+  position: absolute;
+  bottom: 12rpx;
+  right: 16rpx;
+  padding: 6rpx 18rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(135deg, rgba(0, 122, 255, 0.2), rgba(88, 86, 214, 0.2));
+  border: 1px solid rgba(0, 122, 255, 0.3);
+  backdrop-filter: blur(10rpx);
+  -webkit-backdrop-filter: blur(10rpx);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.hero-credit-text {
+  font-size: 20rpx;
+  color: #007AFF;
+  font-weight: 500;
+  line-height: 1;
+}
+
+/* 贴图讨论区容器 */
+.model-discuss-wrap {
+  padding: 0 30rpx;
+}
+
+/* 信息头 */
+.info-header {
+  padding: 24rpx 30rpx 0;
+}
+.info-name-row {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+}
+.info-name {
+  font-size: 46rpx;
+  font-weight: 800;
+  color: #fff;
+}
+.info-flag {
+  font-size: 40rpx;
+  line-height: 1;
+}
+.info-alias {
+  display: block;
+  font-size: 28rpx;
+  color: rgba(255, 149, 0, 0.9);
+  margin-top: 6rpx;
+}
+.info-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 14rpx;
+}
+.info-tag {
+  font-size: 22rpx;
+  padding: 4rpx 16rpx;
+  border-radius: 6rpx;
+  font-weight: 500;
+}
+.info-tag--mfr {
+  color: #5AC8FA;
+  background: rgba(90, 200, 250, 0.15);
+  border: 1px solid rgba(90, 200, 250, 0.3);
+}
+/* 发射商跳转按钮：胶囊蓝色渐变，全局统一（同首页倒计时 info-jump-btn） */
+.info-tag--link {
+  color: #ffffff;
+  background: linear-gradient(135deg, #007AFF, #5856D6);
+  border: none;
+  border-radius: 999rpx;
+  padding: 5rpx 17rpx 5rpx 19rpx;
+  font-weight: 500;
+}
+.info-tag--link:active {
+  opacity: 0.7;
+  transform: scale(0.96);
+}
+.info-tag-arrow {
+  font-size: 26rpx;
+  margin-left: 2rpx;
+  line-height: 1;
+}
+.info-tag--reusable {
+  color: #34C759;
+  background: rgba(52, 199, 89, 0.15);
+  border: 1px solid rgba(52, 199, 89, 0.3);
+}
+.info-tag--variant {
+  color: #AF52DE;
+  background: rgba(175, 82, 222, 0.15);
+  border: 1px solid rgba(175, 82, 222, 0.3);
+}
+.info-tag--pending {
+  color: #FF9500;
+  background: rgba(255, 149, 0, 0.15);
+  border: 1px solid rgba(255, 149, 0, 0.3);
+}
+
+/* 描述 */
+.desc-section {
+  padding: 20rpx 30rpx 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12rpx;
+}
+/* 标题左 + 翻译按钮右（全局统一布局） */
+.desc-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.desc-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #fff;
+}
+.desc-text {
+  font-size: 26rpx;
+  color: rgba(255, 255, 255, 0.65);
+  line-height: 1.6;
+}
+
+/* 「翻译为中文/显示原文」小按钮 */
+/* 全局 .translate-toggle 样式在 app.wxss */
+
+/* 通用区块标签 */
+.section-label {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #fff;
+  display: block;
+  margin-bottom: 16rpx;
+}
+
+/* 回收方式卡 */
+.recovery-card {
+  margin: 24rpx 30rpx 0;
+  padding: 24rpx;
+  border-radius: 16rpx;
+}
+.recovery-row {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+}
+.recovery-icon {
+  width: 72rpx;
+  height: 72rpx;
+  flex-shrink: 0;
+}
+.recovery-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+.recovery-label {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #34C759;
+}
+.recovery-desc {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1.5;
+}
+
+/* 规格网格 */
+.spec-section {
+  margin: 16rpx 30rpx 0;
+  padding: 24rpx;
+  border-radius: 16rpx;
+}
+.spec-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14rpx;
+}
+.spec-item {
+  display: flex;
+  flex-direction: column;
+  padding: 14rpx 18rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 10rpx;
+}
+.spec-label {
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.4);
+}
+.spec-value {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #fff;
+  margin-top: 4rpx;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 回收战绩 */
+.record-section {
+  margin: 16rpx 30rpx 0;
+  padding: 24rpx;
+  border-radius: 16rpx;
+}
+.record-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 14rpx;
+}
+.record-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16rpx 8rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 10rpx;
+}
+.record-value {
+  font-size: 34rpx;
+  font-weight: 800;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.record-value--turnaround {
+  font-size: 24rpx;
+  color: #5AC8FA;
+}
+.record-label {
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.45);
+  margin-top: 6rpx;
+  text-align: center;
+}
+
+/* 旗下箭实体 */
+.fleet-section {
+  margin: 24rpx 30rpx 0;
+}
+.section-label--fleet {
+  margin-bottom: 16rpx;
+}
+.fleet-count {
+  color: rgba(255, 255, 255, 0.45);
+  font-weight: 500;
+}
+.fleet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+.fleet-card {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 16rpx;
+  border-radius: 16rpx;
+}
+.fleet-img-wrap {
+  flex-shrink: 0;
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 12rpx;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.03);
+}
+.fleet-img {
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+.fleet-img--loaded {
+  opacity: 1;
+}
+.fleet-img--placeholder {
+  opacity: 1;
+  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.08), rgba(255, 255, 255, 0.02) 72%);
+}
+.fleet-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+.fleet-serial-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+.fleet-serial {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #fff;
+}
+.fleet-status {
+  font-size: 18rpx;
+  font-weight: 600;
+  padding: 2rpx 12rpx;
+  border-radius: 6rpx;
+  background: rgba(255, 255, 255, 0.06);
+}
+.fleet-status--active { color: #34C759; }
+.fleet-status--retired { color: #8E8E93; }
+.fleet-status--destroyed { color: #FF3B30; }
+.fleet-status--expended { color: #FF9500; }
+.fleet-status--unknown { color: #8E8E93; }
+.fleet-stats-row {
+  display: flex;
+  gap: 16rpx;
+}
+.fleet-stat {
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.5);
+}
+.fleet-flights-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4rpx;
+}
+.flight-block {
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 3rpx;
+}
+.flight-success {
+  background: rgba(52, 199, 89, 0.55);
+}
+.flight-fail {
+  background: rgba(255, 59, 48, 0.55);
+}
+.flight-pending {
+  background: rgba(255, 149, 0, 0.55);
+}
+.flight-unknown {
+  background: rgba(255, 255, 255, 0.14);
+}
+.fleet-arrow {
+  flex-shrink: 0;
+  font-size: 40rpx;
+  color: rgba(255, 255, 255, 0.25);
+}
+.fleet-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8rpx;
+  padding: 40rpx 24rpx;
+  border-radius: 16rpx;
+}
+.fleet-empty-text {
+  font-size: 26rpx;
+  color: #FF9500;
+  font-weight: 600;
+}
+.fleet-empty-hint {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+.container.theme-light {
+  background: var(--color-bg-page);
+}
+.theme-light .glass-card {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-card);
+}
+.theme-light .loading-text {
+  color: var(--color-text-tertiary);
+}
+.theme-light .error-text {
+  color: var(--color-text-secondary);
+}
+/* Hero 无图占位：深色径向渐变 → 浅灰 */
+.theme-light .hero-placeholder {
+  background: radial-gradient(circle at center, rgba(0, 122, 255, 0.08), rgba(0, 0, 0, 0.03) 72%);
+}
+/* hero-gradient / hero-credit-btn 压在火箭照片上，保持深色浮层 */
+.theme-light .info-name {
+  color: var(--color-text-primary);
+}
+.theme-light .info-alias {
+  color: #C77700;
+}
+.theme-light .desc-title {
+  color: var(--color-text-primary);
+}
+.theme-light .desc-text {
+  color: var(--color-text-secondary);
+}
+.theme-light .section-label {
+  color: var(--color-text-primary);
+}
+.theme-light .recovery-desc {
+  color: var(--color-text-secondary);
+}
+/* 回收方式图标恒为白色中性 SVG（buildLandingIcon neutral），浅色主题反色压深 */
+.theme-light .recovery-icon {
+  filter: invert(0.72);
+}
+.theme-light .spec-item {
+  background: rgba(0, 0, 0, 0.04);
+}
+.theme-light .spec-label {
+  color: var(--color-text-tertiary);
+}
+.theme-light .spec-value {
+  color: var(--color-text-primary);
+}
+.theme-light .record-item {
+  background: rgba(0, 0, 0, 0.04);
+}
+.theme-light .record-value {
+  color: var(--color-text-primary);
+}
+.theme-light .record-value--turnaround {
+  color: #0A84FF;
+}
+.theme-light .record-label {
+  color: var(--color-text-tertiary);
+}
+.theme-light .fleet-count {
+  color: var(--color-text-tertiary);
+}
+.theme-light .fleet-img-wrap {
+  background: rgba(0, 0, 0, 0.03);
+}
+.theme-light .fleet-img--placeholder {
+  background: radial-gradient(circle at center, rgba(0, 122, 255, 0.08), rgba(0, 0, 0, 0.03) 72%);
+}
+.theme-light .fleet-serial {
+  color: var(--color-text-primary);
+}
+.theme-light .fleet-status {
+  background: rgba(0, 0, 0, 0.05);
+}
+.theme-light .fleet-status--retired,
+.theme-light .fleet-status--unknown {
+  color: var(--color-text-tertiary);
+}
+.theme-light .fleet-stat {
+  color: var(--color-text-secondary);
+}
+.theme-light .flight-unknown {
+  background: rgba(0, 0, 0, 0.12);
+}
+.theme-light .fleet-arrow {
+  color: rgba(0, 0, 0, 0.2);
+}
+.theme-light .fleet-empty-hint {
+  color: var(--color-text-tertiary);
+}

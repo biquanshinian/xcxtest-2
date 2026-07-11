@@ -1,0 +1,241 @@
+<!--pages/collect/collect.wxml — 月愿计划 Lunar Wishes-->
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="page {{themeClass}}" wx:if="{{featureAllowed}}">
+
+  <!-- 自定义导航栏 -->
+  <view class="top-nav-wrapper" style="padding-top:{{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">月愿计划</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view class="page-scroll" scroll-y enhanced show-scrollbar="{{false}}"
+               bindscrolltolower="loadMore">
+  <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+  <!-- 头部视觉区 -->
+  <view class="hero-section">
+    <image class="hero-bg-img" src="https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%B9%B3%E9%9D%A2%E8%AE%BE%E8%AE%A1/1776021680811_5gvodk.png" mode="widthFix" />
+    <view class="hero-bg-fade"></view>
+    <!-- 实时统计 -->
+    <view class="stats-bar">
+      <view class="stat-item">
+        <text class="stat-num">{{stats.totalWishes || 0}}</text>
+        <text class="stat-label">份心愿</text>
+      </view>
+      <view class="stat-divider"></view>
+      <view class="stat-item">
+        <text class="stat-num">384,400</text>
+        <text class="stat-label">公里旅程</text>
+      </view>
+      <view class="stat-divider"></view>
+      <view class="stat-item">
+        <text class="stat-num">{{countdown}}</text>
+        <text class="stat-label">天倒计时</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 心愿提交区 -->
+  <view class="submit-section" wx:if="{{!boardingPass && !hasSubmitted && !checkingWish}}">
+    <view class="section-header">
+      <text class="section-icon">✦</text>
+      <text class="section-title">写下你的心愿</text>
+    </view>
+
+    <view class="form-card">
+      <view class="form-item">
+        <text class="form-label">你的名字</text>
+        <input class="form-input" placeholder="匿名探索者" maxlength="20"
+               value="{{formName}}" bindinput="onNameInput" />
+      </view>
+
+      <view class="form-item">
+        <text class="form-label">来自哪里</text>
+        <input class="form-input" placeholder="中国 · 成都" maxlength="50"
+               value="{{formLocation}}" bindinput="onLocationInput" />
+      </view>
+
+      <view class="form-item">
+        <text class="form-label">你的心愿 <text class="char-count">{{wishLength}}/200</text></text>
+        <textarea class="form-textarea" placeholder="写下你想送上月球的话..."
+                  maxlength="200" value="{{formWish}}" bindinput="onWishInput"
+                  auto-height="{{true}}" />
+      </view>
+
+      <button class="submit-btn {{submitting ? 'disabled' : ''}}"
+              bind:tap="onSubmit" disabled="{{submitting}}">
+        <text wx:if="{{!submitting}}">发射心愿到月球</text>
+        <text wx:else>发射中...</text>
+      </button>
+    </view>
+  </view>
+
+  <!-- 登机牌展示（翻转动画） -->
+  <view class="boarding-pass-section" wx:if="{{boardingPass}}">
+    <view class="section-header">
+      <text class="section-icon">🎫</text>
+      <text class="section-title">你的月球登机牌</text>
+    </view>
+
+    <view class="boarding-flip-container {{passRevealed ? (passAnimated ? 'flipped' : 'flipped no-anim') : ''}}" bind:tap="onFlipPass">
+      <!-- 背面（先看到） -->
+      <view class="boarding-flip-back">
+        <view class="flip-back-inner">
+          <text class="flip-back-logo">ARTEMIS IV</text>
+          <text class="flip-back-title">LUNAR BOARDING PASS</text>
+          <text class="flip-back-icon">🌙</text>
+          <text class="flip-back-hint">点击翻转查看</text>
+        </view>
+      </view>
+      <!-- 正面（翻转后） -->
+      <view class="boarding-flip-front">
+        <view class="boarding-card">
+          <view class="boarding-header">
+            <text class="boarding-logo">ARTEMIS IV</text>
+            <text class="boarding-type">LUNAR BOARDING PASS</text>
+          </view>
+          <view class="boarding-body">
+            <view class="boarding-row">
+              <view class="boarding-field">
+                <text class="boarding-label">PASSENGER</text>
+                <text class="boarding-value">{{boardingPass.name}}</text>
+              </view>
+              <view class="boarding-field right">
+                <text class="boarding-label">PASS ID</text>
+                <text class="boarding-value mono">{{boardingPass.boardingPassId}}</text>
+              </view>
+            </view>
+            <view class="boarding-row">
+              <view class="boarding-field">
+                <text class="boarding-label">FROM</text>
+                <text class="boarding-value">EARTH 🌍</text>
+              </view>
+              <view class="boarding-field center">
+                <text class="boarding-arrow">→</text>
+              </view>
+              <view class="boarding-field right">
+                <text class="boarding-label">TO</text>
+                <text class="boarding-value">MOON 🌙</text>
+              </view>
+            </view>
+            <view class="boarding-wish">
+              <text class="boarding-label">MESSAGE</text>
+              <text class="boarding-wish-text">"{{boardingPass.wish}}"</text>
+            </view>
+            <view class="boarding-footer-row">
+              <text class="boarding-date">{{boardingPass.dateText}}</text>
+              <text class="boarding-mission">ARTEMIS IV · NASA</text>
+            </view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view class="boarding-actions" wx:if="{{passRevealed}}">
+      <view class="boarding-pending-tip" wx:if="{{boardingPass.status === 'pending'}}">
+        <text>内容审核中，通过后将点亮星空</text>
+      </view>
+      <button class="action-btn share-btn" open-type="share" wx:if="{{boardingPass.status !== 'pending'}}">分享登机牌</button>
+    </view>
+  </view>
+
+  <!-- 心愿星空 -->
+  <view class="starfield-section">
+    <view class="section-header">
+      <text class="section-title">月球心愿星空</text>
+      <text class="starfield-count">{{wishList.length}} 颗心愿星</text>
+    </view>
+
+    <view class="starfield-container" bind:tap="onFieldTap">
+      <!-- 月球背景图 -->
+      <image class="lunar-bg" src="https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E7%81%B5%E6%84%9F%E6%B5%81%E7%85%A7%E7%89%87%E9%9B%86/1776011555299_5cjd52.jpg" mode="aspectFill" />
+
+      <!-- 音乐按钮 -->
+      <view class="music-btn {{musicPlaying ? 'playing' : ''}}" catch:tap="onToggleMusic">
+        <image class="music-icon" src="/images/icons/ic-music.svg" />
+      </view>
+      <view class="lunar-bg-overlay"></view>
+
+      <!-- 星点 -->
+      <view class="star-point {{item._id === activeWishId ? 'active' : ''}}"
+            wx:for="{{starPoints}}" wx:key="_id"
+            style="left:{{item.x}}%;top:{{item.y}}%;animation-delay:{{item.delay}}s;"
+            data-id="{{item._id}}"
+            catch:tap="onStarTap">
+        <view class="star-glow"></view>
+      </view>
+
+      <!-- 居中心愿弹窗 -->
+      <view class="wish-popup-center {{activeWish ? 'show' : ''}}" wx:if="{{activeWish}}" catch:tap="noop">
+        <view class="popup-card">
+          <view class="popup-close" catch:tap="onClosePopup">✕</view>
+          <view class="popup-tag">WISH FROM THE EARTH</view>
+          <view class="popup-wish-body" catch:longpress="onCopyWish">
+            <text class="popup-wish-text" user-select>"{{activeWish.wish}}"</text>
+          </view>
+          <view class="popup-divider"></view>
+          <view class="popup-meta">
+            <view class="popup-author">
+              <view class="popup-avatar">{{activeWish.name[0] || '?'}}</view>
+              <view class="popup-info">
+                <text class="popup-name">{{activeWish.name}}</text>
+                <text class="popup-location" wx:if="{{activeWish.location}}">{{activeWish.location}}</text>
+              </view>
+            </view>
+            <view class="popup-right">
+              <text class="popup-id">{{activeWish.boardingPassId}}</text>
+              <text class="popup-time">{{activeWish.timeText}}</text>
+            </view>
+          </view>
+          <view class="popup-divider"></view>
+          <view class="popup-actions">
+            <button class="popup-action-btn" open-type="share">
+              <image class="popup-action-icon" src="/images/icons/ic-share-chat.svg" />
+            </button>
+            <view class="popup-action-split"></view>
+            <view class="popup-action-btn" catch:tap="onShareToMoments">
+              <image class="popup-action-icon" src="/images/icons/ic-share-moments.svg" />
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 空状态 -->
+      <view class="starfield-empty" wx:if="{{!wishList.length && !loading}}">
+        <text class="empty-text">还没有心愿星，成为第一颗吧</text>
+      </view>
+    </view>
+
+    <view class="starfield-hint" wx:if="{{wishList.length && !activeWish}}">
+      <text class="hint-text">✦ 点击星点查看心愿 ✦</text>
+    </view>
+  </view>
+
+  <!-- 计划说明 -->
+  <view class="about-section">
+    <view class="about-card">
+      <text class="about-title">关于 Lunar Wishes 计划</text>
+      <text class="about-text">我们计划收集来自中国太空爱好者的心愿，以电子数据形式搭载在 NASA Artemis IV 任务中送达月球。每一份心愿都将被编码、压缩，最终以数字方式抵达月球表面。</text>
+      <text class="about-text">这是纯民间、非政府、非技术性的公众参与项目，用浪漫连接星辰与人心。</text>
+      <view class="about-tags">
+        <text class="about-tag">Artemis IV</text>
+        <text class="about-tag">NASA</text>
+        <text class="about-tag">月球</text>
+        <text class="about-tag">2028</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="page-footer">
+    <text class="footer-text">Ad Lunam · 向月球出发</text>
+  </view>
+
+  </scroll-view>
+  <nasa-float show-ai-chat="{{false}}" />
+  <share-guide />
+</view>

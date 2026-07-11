@@ -1,0 +1,10 @@
+{
+  "name": "syncSpaceDevsData",
+  "version": "1.0.0",
+  "description": "同步 The Space Devs API 数据到云数据库",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3",
+    "cos-nodejs-sdk-v5": "^2.14.6"
+  }
+}

@@ -1,0 +1,32 @@
+<view class="popup-ad-root" wx:if="{{visible}}">
+  <view class="popup-ad-mask" catchtap="onMaskTap"></view>
+  <view class="popup-ad-card-wrap">
+    <view class="popup-ad-card {{leaving ? 'popup-ad-card--leave' : 'popup-ad-card--enter'}}">
+      <view class="popup-ad-close" catchtap="onClose">
+        <text class="popup-ad-close-x">×</text>
+      </view>
+      <view class="popup-ad-header" wx:if="{{shopItem}}">
+        <text class="popup-ad-title">{{shopItem.title}}</text>
+        <text class="popup-ad-desc" wx:if="{{shopItem.desc}}">{{shopItem.desc}}</text>
+      </view>
+      <view class="popup-ad-product-area" wx:if="{{shopItem}}">
+        <view wx:if="{{shopItem.productId}}" class="popup-ad-store-wrap">
+          <store-product
+            class="popup-ad-store-product"
+            appid="{{shopItem.appid || defaultStoreAppid}}"
+            product-id="{{shopItem.productId}}"
+            product-promotion-link="{{shopItem.productPromotionLink}}"
+            media-id="{{shopItem.mediaId}}"
+            custom-style="{{storeCustomStyle}}"
+            bindentersuccess="onStoreEnterSuccess"
+            bindentererror="onStoreEnterError"
+          />
+        </view>
+        <view wx:else class="popup-ad-fallback" bindtap="onFallbackTap">
+          <image class="popup-ad-cover" src="{{shopItem.coverFileID}}" mode="aspectFill" wx:if="{{shopItem.coverFileID}}" />
+          <view class="popup-ad-fallback-tip">商品未配置 ID，请联系管理员</view>
+        </view>
+      </view>
+    </view>
+  </view>
+</view>

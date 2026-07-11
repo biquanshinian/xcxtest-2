@@ -1,0 +1,27 @@
+# 依赖与构建产物（不应纳入 lint/format/git）
+node_modules/
+**/node_modules/
+dist/
+build/
+admin-web/dist/
+*.zip
+
+# 小程序内置 npm 编译产物
+**/miniprogram_npm/
+
+# 本地环境与密钥
+.env
+.env.*
+!.env.example
+*.local
+
+# B 站 Agent 登录态
+workers/bilibili-publisher/.auth/
+
+# 编辑器 / 系统
+.DS_Store
+.idea/
+.vscode/
+
+# 微信开发者工具
+project.private.config.json

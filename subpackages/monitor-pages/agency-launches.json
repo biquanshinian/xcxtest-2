@@ -1,0 +1,13 @@
+{
+  "navigationBarTitleText": "发射任务列表",
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "light",
+  "backgroundColor": "#000000",
+  "navigationStyle": "custom",
+  "usingComponents": {
+    "share-gate-countdown": "/subpackages/shared/components/share-gate-countdown/index"
+  },
+  "componentPlaceholder": {
+    "share-gate-countdown": "view"
+  }
+}

@@ -1,0 +1,105 @@
+<view class="map-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav">
+      <view class="nav-back {{isDirectEntry ? 'nav-back--home' : ''}}" bindtap="goBack"><text>‹</text></view>
+      <text class="nav-title">{{stationName}} 轨道追踪</text>
+      <view class="nav-placeholder"></view>
+    </view>
+    <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" style="top: {{mapActionTop}}px;">
+      <view class="map-action-header">
+        <text class="map-action-title">地图工具</text>
+        <view class="map-action-toggle-btn" bindtap="toggleActionMenu"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
+      </view>
+      <view class="map-action-stack" wx:if="{{!actionMenuCollapsed}}">
+        <view class="map-action-btn" bindtap="centerOnStation"><text>定位空间站</text></view>
+        <view class="map-action-btn" bindtap="refreshOrbitData"><text>{{refreshing ? '刷新中…' : '刷新轨道'}}</text></view>
+        <view class="map-action-btn" bindtap="resetMapView"><text>重置视角</text></view>
+      </view>
+    </view>
+  </view>
+
+  <map
+    class="main-map"
+    id="orbitMap"
+    latitude="{{latitude}}"
+    longitude="{{longitude}}"
+    scale="{{scale}}"
+    markers="{{markers}}"
+    polyline="{{polylines}}"
+    enable-scroll="true"
+    enable-zoom="true"
+    enable-rotate="false"
+    enable-overlooking="false"
+    show-compass="true"
+    layer-style="1"
+  ></map>
+
+  <view class="panel glass-card {{panelCollapsed ? 'panel--collapsed' : ''}}">
+    <view class="panel-header panel-header--with-action">
+      <view>
+        <text class="panel-title">{{stationName}}</text>
+        <text class="panel-live">{{stationCoord}}</text>
+      </view>
+      <view class="panel-header-actions">
+        <view class="panel-badge panel-badge--green"><text>实时追踪</text></view>
+        <view class="panel-toggle-btn" bindtap="togglePanel"><text>{{panelCollapsed ? '展开' : '折叠'}}</text></view>
+      </view>
+    </view>
+
+    <block wx:if="{{!panelCollapsed}}">
+      <view class="orbit-stats-grid">
+        <view class="orbit-stat-card">
+          <text class="orbit-stat-card-value">{{stationAlt}}</text>
+          <text class="orbit-stat-card-label">轨道高度</text>
+        </view>
+        <view class="orbit-stat-card">
+          <text class="orbit-stat-card-value">{{stationSpeed}}</text>
+          <text class="orbit-stat-card-label">飞行速度</text>
+        </view>
+        <view class="orbit-stat-card" wx:if="{{hasUserLocation}}">
+          <text class="orbit-stat-card-value">{{lookRange}}</text>
+          <text class="orbit-stat-card-label">距你距离</text>
+        </view>
+      </view>
+
+      <view class="orbit-detail-card" wx:if="{{orbitReady}}">
+        <view class="orbit-detail-row">
+          <text class="orbit-detail-label">轨道周期</text>
+          <text class="orbit-detail-value">{{orbitPeriod}}</text>
+        </view>
+        <view class="orbit-detail-row">
+          <text class="orbit-detail-label">轨道倾角</text>
+          <text class="orbit-detail-value">{{orbitInclination}}</text>
+        </view>
+        <view class="orbit-detail-row">
+          <text class="orbit-detail-label">远地点</text>
+          <text class="orbit-detail-value">{{orbitApogee}}</text>
+        </view>
+        <view class="orbit-detail-row">
+          <text class="orbit-detail-label">近地点</text>
+          <text class="orbit-detail-value">{{orbitPerigee}}</text>
+        </view>
+      </view>
+
+      <view class="orbit-legend-row">
+        <view class="legend-item">
+          <view class="legend-line legend-line--future"></view>
+          <text class="legend-text">未来轨迹</text>
+        </view>
+        <view class="legend-item">
+          <view class="legend-line legend-line--past"></view>
+          <text class="legend-text">已飞过</text>
+        </view>
+      </view>
+
+      <view class="data-meta-row">
+        <text class="data-meta-text">来源：CelesTrak TLE + SGP4</text>
+        <text class="data-meta-text">更新：{{tleUpdateTime}}</text>
+      </view>
+    </block>
+
+    <view class="mini-summary-row" wx:else>
+      <text class="mini-summary-text">{{stationAlt}} · {{stationSpeed}} · {{stationCoord}}</text>
+    </view>
+  </view>
+</view>

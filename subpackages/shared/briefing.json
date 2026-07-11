@@ -1,0 +1,12 @@
+{
+  "navigationBarTitleText": "每日太空简报",
+  "navigationStyle": "custom",
+  "backgroundTextStyle": "dark",
+  "backgroundColor": "#000000",
+  "backgroundColorContent": "#000000",
+  "backgroundColorTop": "#000000",
+  "backgroundColorBottom": "#000000",
+  "usingComponents": {
+    "morning-briefing": "./components/morning-briefing/index"
+  }
+}

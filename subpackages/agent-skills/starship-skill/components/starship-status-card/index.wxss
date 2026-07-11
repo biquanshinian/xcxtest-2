@@ -1,0 +1,91 @@
+.ssc-root {
+  display: block;
+  padding: 20rpx 24rpx;
+  background-color: var(--color-bg-card);
+  border-radius: 20rpx;
+}
+
+.ssc-header {
+  display: block;
+  padding-bottom: 14rpx;
+}
+
+.ssc-title {
+  font-size: 30rpx;
+  font-weight: bold;
+  color: var(--color-text-primary);
+}
+
+.ssc-vehicles {
+  display: flex;
+  justify-content: space-between;
+}
+
+.ssc-vehicle {
+  display: block;
+  width: 48%;
+  background-color: var(--color-divider-faint);
+  border-radius: 14rpx;
+  padding: 16rpx;
+}
+
+.ssc-vehicle-id {
+  display: block;
+  font-size: 34rpx;
+  font-weight: bold;
+  color: #6ea8ff;
+}
+
+.ssc-vehicle-label {
+  display: block;
+  font-size: 20rpx;
+  color: var(--color-text-secondary);
+  padding-top: 4rpx;
+}
+
+.ssc-vehicle-status {
+  display: block;
+  font-size: 22rpx;
+  color: #7cd992;
+  padding-top: 8rpx;
+}
+
+.ssc-progress-track {
+  display: block;
+  height: 8rpx;
+  background-color: var(--color-divider-strong);
+  border-radius: 999rpx;
+  margin-top: 10rpx;
+}
+
+.ssc-progress-fill {
+  display: block;
+  height: 8rpx;
+  background-color: #6ea8ff;
+  border-radius: 999rpx;
+}
+
+.ssc-checklist {
+  display: block;
+  padding-top: 14rpx;
+}
+
+.ssc-checklist-text {
+  font-size: 22rpx;
+  color: var(--color-text-secondary);
+}
+
+.ssc-footer {
+  display: flex;
+  justify-content: center;
+  padding-top: 12rpx;
+  border-top-width: 1rpx;
+  border-top-style: solid;
+  border-top-color: var(--color-divider-strong);
+  margin-top: 12rpx;
+}
+
+.ssc-footer-text {
+  font-size: 22rpx;
+  color: #6ea8ff;
+}

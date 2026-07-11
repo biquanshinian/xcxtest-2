@@ -1,0 +1,15 @@
+{
+  "name": "bilibili-publisher",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "领取 bilibili_publish_queue 并用 Playwright 发 B 站图文动态",
+  "scripts": {
+    "start": "node src/index.js",
+    "login": "node src/login.js",
+    "once": "node src/index.js --once"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}

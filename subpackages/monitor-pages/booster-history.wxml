@@ -1,0 +1,71 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="detail-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+  </view>
+
+  <scroll-view class="history-scroll" scroll-y="true">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <!-- 加载中 -->
+    <view class="loading-wrap" wx:if="{{loading}}">
+      <text class="loading-text">加载中...</text>
+    </view>
+
+    <!-- 错误 -->
+    <view class="error-wrap" wx:elif="{{errorMessage}}">
+      <text class="error-icon">⚠️</text>
+      <text class="error-text">{{errorMessage}}</text>
+      <view class="error-btn" bindtap="goBack">返回</view>
+    </view>
+
+    <!-- 内容 -->
+    <block wx:else>
+      <!-- 概览 -->
+      <view class="summary-card glass-card">
+        <text class="summary-serial">{{serial}}</text>
+        <text class="summary-count">共执行 {{missions.length}} 次任务</text>
+      </view>
+
+      <!-- 任务列表 -->
+      <view class="mission-list glass-card">
+        <view
+          class="mission-item {{item.hasDetailLink ? '' : 'mission-item--no-link'}}"
+          wx:for="{{missions}}"
+          wx:key="index"
+          data-item="{{item}}"
+          bindtap="onMissionTap"
+        >
+          <view class="mission-seq">
+            <text class="mission-seq-num">{{item.seq}}</text>
+            <text class="mission-seq-label">飞行</text>
+          </view>
+          <view class="mission-body">
+            <text class="mission-name">{{item.name}}</text>
+            <text class="mission-date">{{item.date}}</text>
+          </view>
+          <view class="mission-status mission-status--{{item.statusClass}}">
+            <text class="mission-status-icon">{{item.statusIcon}}</text>
+            <text class="mission-status-text">{{item.statusText}}</text>
+          </view>
+          <view class="mission-arrow" wx:if="{{item.hasDetailLink}}">›</view>
+        </view>
+      </view>
+
+      <!-- 贴图讨论区 -->
+      <view class="discussion-section glass-card">
+        <official-account-publish-panel topic="{{discussionTopic}}" />
+      </view>
+
+      <view style="height: 60rpx;"></view>
+    </block>
+  </scroll-view>
+</view>

@@ -1,0 +1,123 @@
+Subject: Proposal for Public Engagement — Lunar Wishes from China for Artemis IV
+
+Dear NASA Office of Communications / Public Engagement Division,
+
+My name is Yuze Hu, and I am the founder of Mars Explorer Log,
+a space exploration community based in China with 2,000 passionate
+members who share a deep love for humanity's journey to the stars.
+
+First, I would like to express our most sincere gratitude to NASA
+and the outstanding Artemis program team. The successful completion
+of the Artemis II mission has inspired millions of space enthusiasts
+in China and around the world.
+
+I am writing to propose a collaborative public engagement initiative
+for the upcoming Artemis IV mission. The project is called
+"Lunar Wishes" — an effort to collect digital blessings and messages
+from Chinese space enthusiasts and deliver them electronically to the
+Moon as part of the Artemis IV mission.
+
+PROJECT OVERVIEW:
+- We have built a digital platform (WeChat Mini Program) to collect
+  text-based wishes and names from participants across China.
+- All data will be compressed into a minimal-size digital package
+  (text-only, estimated under 1MB even for tens of thousands of
+  entries).
+- We respectfully seek NASA's authorization to include this data
+  package in any publicly accessible digital payload or commemorative
+  data carried on the Artemis IV mission.
+- Each participant receives a personalized digital "boarding pass"
+  as a keepsake, enhancing public engagement and emotional connection.
+
+WHY THIS MATTERS:
+- Space exploration belongs to all of humanity. This project builds
+  a cultural bridge, bringing the enthusiasm of the Chinese public
+  for lunar exploration into the global Artemis narrative.
+- It demonstrates that the wonder of space transcends borders and
+  unites people around the world through shared dreams.
+- Our platform already provides real-time tracking of NASA missions,
+  including Artemis II telemetry data, NASA's Astronomy Picture of
+  the Day (APOD), and Earth Observatory Natural Event Tracker (EONET)
+  data, serving as a bridge between NASA's work and Chinese space
+  enthusiasts.
+
+TECHNICAL DETAILS:
+- Data format: UTF-8 encoded text (name + message + location)
+- Estimated final package size: < 1MB (compressed)
+- No executable code, no binary data — pure text only
+- We can deliver data in any format NASA specifies (JSON, CSV, etc.)
+- All content undergoes both automated and manual moderation
+
+ABOUT OUR PLATFORM:
+- Platform: WeChat Mini Program (火星探索日志 / Mars Explorer Log)
+- Active users: 2,000 space enthusiasts
+- Key features: SpaceX launch tracking, Starlink satellite tracking,
+  Artemis II real-time telemetry, NASA data integration
+- Contact: huyuzetongxue@163.com
+
+We are fully prepared to comply with any NASA guidelines, data format
+requirements, and review processes. We welcome the opportunity to
+discuss this proposal further at your convenience.
+
+IMPORTANT NOTE:
+This is a purely civilian, non-governmental, non-technical public
+engagement initiative. It involves no technology transfer, no
+government-to-government cooperation, and no access to any controlled
+information. Its sole purpose is to carry the dreams and good wishes
+of ordinary people to the Moon.
+
+Thank you for considering this initiative. We firmly believe that the
+next time humans set foot on the Moon, it should carry the dreams of
+as many people as possible — and what could be more romantic than that?
+
+Warm regards,
+
+Yuze Hu
+Social Practitioner
+WeChat Mini Program: Mars Explorer Log (火星探索日志)
+huyuzetongxue@163.com
+
+
+==========================================================
+NASA 联系方式：
+==========================================================
+
+1. 公众参与办公室（首选）
+   Email: public-inquiries@hq.nasa.gov
+   
+2. 国际合作办公室
+   Office of International and Interagency Relations (OIIR)
+   https://www.nasa.gov/oiir/
+
+3. Artemis 项目页面
+   https://www.nasa.gov/artemis
+
+4. NASA 合作提案
+   https://www.nasa.gov/partnerships
+
+5. 邮寄地址
+   NASA Headquarters
+   300 E Street SW
+   Washington, DC 20546
+   United States
+
+==========================================================
+建议联络策略：
+==========================================================
+
+1. 先通过 public-inquiries@hq.nasa.gov 发送此信
+2. 同时联系 OIIR（涉及国际合作）
+3. 关注 Artemis IV 公众参与活动公告
+4. 可通过中国天文学会作为中间桥梁
+5. 备选：联系 ESA/JAXA/CSA 等 Artemis 国际合作伙伴
+6. 备选：联系 SpaceX 等商业航天公司
+
+==========================================================
+注意事项（Wolf Amendment）：
+==========================================================
+
+- 中美航天合作受 Wolf Amendment 限制
+- 但此项目为纯民间公众参与，不涉及技术转让
+- 走 Public Engagement 通道是可行的
+- 信中已明确强调非政府、非技术性质
+- 建议在信中附上平台截图，展示已有的 NASA 数据集成

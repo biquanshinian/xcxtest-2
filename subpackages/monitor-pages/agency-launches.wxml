@@ -1,0 +1,59 @@
+<view class="detail-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+  </view>
+
+  <scroll-view class="detail-scroll" scroll-y="true">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <view class="loading-state" wx:if="{{loading}}">
+      <view class="loading-spinner"></view>
+      <text class="loading-text">加载中...</text>
+    </view>
+
+    <view class="detail-container" wx:else>
+      <!-- 汇总条 -->
+      <view class="summary-bar glass-card" wx:if="{{list.length}}">
+        <text class="summary-count">{{list.length}}</text>
+        <text class="summary-desc">个{{typeLabel}}任务{{isCompleted ? '（按时间倒序）' : '（按时间升序）'}}</text>
+      </view>
+
+      <!-- 任务卡片列表 -->
+      <view class="al-list" wx:if="{{list.length}}">
+        <view class="al-card" hover-class="al-card--pressed" hover-stay-time="120"
+              wx:for="{{list}}" wx:key="id"
+              data-id="{{item.id}}" bindtap="onTapLaunch">
+          <image class="al-thumb" wx:if="{{item.rocketImage}}" src="{{item.rocketImage}}" mode="aspectFill" lazy-load />
+          <view class="al-thumb al-thumb--placeholder" wx:else>🚀</view>
+          <view class="al-body">
+            <text class="al-name">{{item.name}}</text>
+            <text class="al-meta">{{item.rocketName}}{{item.rocketName ? ' · ' : ''}}{{item.timeText}}</text>
+          </view>
+          <text class="al-status al-status--{{item.statusClass}}" wx:if="{{item.statusText}}">{{item.statusText}}</text>
+          <text class="al-arrow">›</text>
+        </view>
+      </view>
+
+      <!-- 空态 -->
+      <view class="empty-state" wx:else>
+        <text class="empty-icon">🛰️</text>
+        <text class="empty-title">暂无任务记录</text>
+        <text class="empty-desc">数据窗口为最近缓存的 100 条任务，该发射商近期没有匹配的{{typeLabel}}记录</text>
+        <button class="retry-btn" bindtap="onRetry">重新加载</button>
+      </view>
+
+      <view class="footer-note" wx:if="{{list.length}}">
+        <text>数据来自 Launch Library 2，由云端定时同步</text>
+      </view>
+    </view>
+  </scroll-view>
+  <share-gate-countdown expire-at="{{shareGateExpireAt}}" />
+</view>

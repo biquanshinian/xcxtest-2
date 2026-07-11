@@ -1,0 +1,8 @@
+{
+  "usingComponents": {
+    "privacy-modal": "/components/privacy-modal/privacy-modal"
+  },
+  "navigationBarTitleText": "AR 星链观测",
+  "navigationStyle": "custom",
+  "disableScroll": true
+}

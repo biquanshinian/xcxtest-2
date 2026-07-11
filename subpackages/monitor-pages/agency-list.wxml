@@ -1,0 +1,114 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="list-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">全球发射商图鉴</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+  </view>
+
+  <scroll-view class="list-scroll" scroll-y="true">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <view class="list-body">
+      <!-- 筛选分类胶囊 -->
+      <scroll-view class="agency-filter-scroll" scroll-x="true" enhanced="true" show-scrollbar="false">
+        <view class="agency-filter-row">
+          <view
+            class="agency-chip {{filter === item.id ? 'agency-chip-active' : ''}}"
+            wx:for="{{filters}}"
+            wx:key="id"
+            data-filter="{{item.id}}"
+            bindtap="onFilterTap"
+          >
+            <text>{{item.label}}</text>
+          </view>
+        </view>
+      </scroll-view>
+
+      <!-- 搜索框 -->
+      <view class="agency-search">
+        <text class="agency-search-icon">⌕</text>
+        <input
+          class="agency-search-input"
+          type="text"
+          confirm-type="search"
+          placeholder="搜索"
+          placeholder-class="agency-search-placeholder"
+          value="{{keyword}}"
+          bindinput="onSearchInput"
+        />
+        <view class="agency-search-clear" wx:if="{{keyword}}" bindtap="onSearchClear">
+          <text>×</text>
+        </view>
+      </view>
+
+      <!-- 结果计数 -->
+      <view class="list-count" wx:if="{{!loading && totalCount > 0}}">
+        <text>共 {{totalCount}} 家机构</text>
+      </view>
+
+      <!-- 加载中骨架 -->
+      <view class="agency-grid" wx:if="{{loading}}">
+        <view class="agency-hw-card glass-card agency-hw-card-skeleton skeleton-shimmer" wx:for="{{[0, 1, 2, 3]}}" wx:key="*this"></view>
+      </view>
+
+      <block wx:else>
+        <!-- 卡片网格 -->
+        <view class="agency-grid" wx:if="{{list.length > 0}}">
+          <view
+            class="agency-hw-card glass-card card-hover {{isProUser ? 'pro-gold-frame' : ''}}"
+            wx:for="{{list}}"
+            wx:key="id"
+            data-id="{{item.id}}"
+            data-index="{{index}}"
+            bindtap="onCardTap"
+          >
+            <view class="agency-hw-card-image-wrap">
+              <image
+                wx:if="{{item.displayImage}}"
+                class="agency-hw-card-image {{item.imageMode === 'aspectFit' ? 'agency-hw-card-image--logo' : ''}}"
+                src="{{item.displayImage}}"
+                mode="{{item.imageMode}}"
+                lazy-load="{{true}}"
+                data-index="{{index}}"
+                binderror="onCardImageError"
+              ></image>
+              <view class="agency-hw-card-image-placeholder" wx:else>
+                <text>{{item.countryFlag || '🛰'}}</text>
+              </view>
+              <view class="agency-hw-card-image-mask"></view>
+              <view class="agency-hw-card-overlay">
+                <view class="agency-hw-card-badge">
+                  <text class="agency-type-tag agency-type--{{item.typeClass}}">{{item.typeZh}}</text>
+                </view>
+                <text class="agency-hw-card-name">{{item.displayName}}</text>
+              </view>
+            </view>
+            <view class="agency-hw-card-body">
+              <text class="agency-hw-card-meta">{{item.countryFlag}} {{item.metaLine}}</text>
+              <text class="agency-hw-card-notes">{{item.description}}</text>
+            </view>
+          </view>
+        </view>
+
+        <!-- 空态 -->
+        <view class="agency-empty glass-card" wx:if="{{list.length === 0}}">
+          <text>{{errorMessage || '未找到相关发射商，试试中文名、英文名称或国家'}}</text>
+        </view>
+      </block>
+
+      <!-- 数据来源 -->
+      <view class="source-note" wx:if="{{!loading && list.length > 0}}">
+        <text>数据来源：Launch Library 2</text>
+      </view>
+    </view>
+
+    <view style="height: 60rpx;"></view>
+  </scroll-view>
+</view>

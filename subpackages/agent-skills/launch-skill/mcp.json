@@ -1,0 +1,210 @@
+{
+  "apis": [
+    {
+      "name": "getUpcomingLaunches",
+      "description": "查询即将进行的火箭发射任务列表。可按未来天数、发射商关键词过滤。适用于「最近有什么发射」「今天/本周有火箭发射吗」「SpaceX 接下来发什么」等问题。不适用于查询已完成的发射（应改用 getRecentLaunches）。",
+      "_meta": {
+        "ui": {
+          "componentPath": "components/launch-list-card/index",
+          "pagePath": "/pages/index/index"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "number",
+            "description": "查询未来多少天内的发射，范围 1-30。用户说「今天」填 1，「本周」填 7，「本月」填 30；未提及时间时不要填写本字段，接口默认 7 天。"
+          },
+          "agencyKeyword": {
+            "type": "string",
+            "description": "发射商过滤关键词，例如『SpaceX』『CASC』『Rocket Lab』『蓝箭』。用户未提及特定发射商时，不要填写本字段（返回全部发射商）。"
+          },
+          "limit": {
+            "type": "number",
+            "description": "返回条数上限，范围 1-20，默认 8。"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "total": { "type": "number", "description": "命中条数" },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "launchId": { "type": "string" },
+                "name": { "type": "string", "description": "任务名（火箭 | 载荷）" },
+                "statusZh": { "type": "string", "description": "发射状态（中文）" },
+                "netBeijing": { "type": "string", "description": "预计发射时间（北京时间）" },
+                "agency": { "type": "string", "description": "发射商" },
+                "rocket": { "type": "string", "description": "火箭型号" },
+                "location": { "type": "string", "description": "发射地点" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "getRecentLaunches",
+      "description": "查询近期已完成的火箭发射任务列表（含成功/失败结果）。可按发射商关键词过滤。适用于「最近发射了什么」「SpaceX 上次发射成功了吗」等回顾类问题。不适用于查询未来的发射（应改用 getUpcomingLaunches）。",
+      "_meta": {
+        "ui": {
+          "componentPath": "components/launch-list-card/index",
+          "pagePath": "/pages/index/index"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "agencyKeyword": {
+            "type": "string",
+            "description": "发射商过滤关键词，例如『SpaceX』『CASC』『蓝箭』。用户未提及特定发射商时，不要填写本字段。"
+          },
+          "limit": {
+            "type": "number",
+            "description": "返回条数上限，范围 1-20，默认 8。"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "total": { "type": "number" },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "launchId": { "type": "string" },
+                "name": { "type": "string" },
+                "statusZh": { "type": "string", "description": "发射结果（成功/失败）" },
+                "netBeijing": { "type": "string" },
+                "agency": { "type": "string" },
+                "rocket": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "getLaunchDetail",
+      "description": "查询单次发射任务的详细信息（任务说明、精确时间、发射场、轨道等），并可接力到小程序任务详情页。launchId 必须取自 getUpcomingLaunches 或 getRecentLaunches 返回的 launchId 原值。",
+      "_meta": {
+        "ui": {
+          "pagePath": "/pages/mission-detail/mission-detail"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "launchId": {
+            "type": "string",
+            "description": "发射任务唯一标识（UUID），取自上游接口 getUpcomingLaunches 或 getRecentLaunches 返回的 launchId 原值。不要从用户自然语言（如『那次星舰发射』）推断，也不要编造。上下文无可用 launchId 时，应先调用 getUpcomingLaunches 或 getRecentLaunches。"
+          }
+        },
+        "required": ["launchId"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "statusZh": { "type": "string" },
+          "netBeijing": { "type": "string" },
+          "agency": { "type": "string" },
+          "rocket": { "type": "string" },
+          "pad": { "type": "string" },
+          "location": { "type": "string" },
+          "orbit": { "type": "string" },
+          "description": { "type": "string", "description": "任务说明" }
+        }
+      }
+    },
+    {
+      "name": "getGlobalLaunchStats",
+      "description": "查询某一年的全球航天发射统计（总发射次数、成功/失败、按国家/发射商/火箭排名）。适用于「今年全球发了多少次火箭」「SpaceX 今年发射了多少次」「哪个国家发射最多」等统计类问题。",
+      "_meta": {
+        "ui": {
+          "componentPath": "components/launch-stats-card/index",
+          "pagePath": "/subpackages/index-extra/global-launch-stats"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "number",
+            "description": "统计年份（UTC 自然年），例如 2026、2025、2024。用户说「今年」时不要填写本字段，接口默认当前年份。"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "year": { "type": "number" },
+          "total": { "type": "number", "description": "全球总发射次数" },
+          "successCount": { "type": "number" },
+          "failureCount": { "type": "number" },
+          "topAgencies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "total": { "type": "number" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "getAgencyInfo",
+      "description": "查询发射商（航天机构/公司）的基本信息与发射战绩（总发射次数、成功/失败、成立年份、国家），并可接力到小程序发射商详情页。适用于「SpaceX 是什么公司」「蓝箭航天发射过多少次」等问题。",
+      "_meta": {
+        "ui": {
+          "pagePath": "/subpackages/monitor-pages/agency-detail"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "发射商名称或缩写关键词，例如『SpaceX』『CASC』『Rocket Lab』『蓝箭航天』『星河动力』。优先使用英文名称或缩写，匹配更准确。"
+          }
+        },
+        "required": ["keyword"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "abbrev": { "type": "string" },
+          "country": { "type": "string" },
+          "foundingYear": { "type": "number" },
+          "totalLaunchCount": { "type": "number" },
+          "successfulLaunches": { "type": "number" },
+          "failedLaunches": { "type": "number" },
+          "description": { "type": "string" }
+        }
+      }
+    }
+  ],
+  "components": [
+    {
+      "path": "components/launch-list-card/index",
+      "relatedPage": "/pages/index/index",
+      "expirable": false
+    },
+    {
+      "path": "components/launch-stats-card/index",
+      "relatedPage": "/subpackages/index-extra/global-launch-stats",
+      "expirable": false
+    }
+  ]
+}

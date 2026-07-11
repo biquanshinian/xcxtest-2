@@ -1,0 +1,9 @@
+{
+  "name": "getLaunchStats",
+  "version": "1.0.0",
+  "description": "LL2 发射统计云函数（全球统计与任务详情统计）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

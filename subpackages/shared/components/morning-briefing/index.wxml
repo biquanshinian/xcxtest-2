@@ -1,0 +1,175 @@
+<!-- 简报内容主体：首页弹窗与简报详情页（/subpackages/shared/briefing）共用 -->
+<template name="briefingBody">
+  <!-- 加载中 -->
+  <view class="briefing-loading-wrap" wx:if="{{loading}}">
+    <view class="briefing-loading-dot"></view>
+    <text class="briefing-loading-text">正在加载简报…</text>
+  </view>
+
+  <!-- 今日发射（排版同「我的太空」近期竞猜 vote-history） -->
+  <view class="briefing-section briefing-section--launch" wx:if="{{briefing.todayLaunches.length > 0}}">
+    <view class="section-content">
+      <text class="section-label">今日发射</text>
+      <view class="vote-history-list">
+        <view
+          class="vote-history-item"
+          hover-class="briefing-row-hover"
+          wx:for="{{briefing.todayLaunches}}"
+          wx:key="id"
+          bindtap="onBriefingMissionTap"
+          data-id="{{item.id}}"
+          data-type="{{item.detailType}}"
+        >
+          <view class="vote-history-icon vote-history-icon--launch">
+            <image class="vote-history-rocket-img" src="{{item.rocketImage}}" mode="aspectFill" />
+          </view>
+          <view class="vote-history-left">
+            <block wx:if="{{item.name}}">
+              <text class="vote-history-name">{{item.name}}</text>
+              <text class="vote-history-rocket" wx:if="{{item.rocket}}">{{item.rocket}}</text>
+            </block>
+            <block wx:else>
+              <text class="vote-history-name">{{item.rocket}}</text>
+            </block>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 昨日回顾 -->
+  <view class="briefing-section briefing-section--launch" wx:if="{{briefing.yesterdayResults.length > 0}}">
+    <view class="section-content">
+      <text class="section-label">昨日回顾</text>
+      <view class="vote-history-list">
+        <view
+          class="vote-history-item vote-history-item--briefing-yesterday"
+          hover-class="briefing-row-hover"
+          wx:for="{{briefing.yesterdayResults}}"
+          wx:key="id"
+          bindtap="onBriefingMissionTap"
+          data-id="{{item.id}}"
+          data-type="{{item.detailType}}"
+        >
+          <view class="vote-history-main">
+            <view class="vote-history-icon vote-history-icon--launch">
+              <image class="vote-history-rocket-img" src="{{item.rocketImage}}" mode="aspectFill" />
+            </view>
+            <view class="vote-history-left">
+              <block wx:if="{{item.name}}">
+                <text class="vote-history-name">{{item.name}}</text>
+                <text class="vote-history-rocket" wx:if="{{item.rocket}}">{{item.rocket}}</text>
+              </block>
+              <block wx:else>
+                <text class="vote-history-name">{{item.rocket}}</text>
+              </block>
+            </view>
+          </view>
+          <view class="vote-history-right">
+            <text class="mission-status-badge status-{{item.statusCategory}}">{{item.statusLabel}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 事件更新（与云函数 getTodayTweetStats 联动；常显，加载完刷新条数） -->
+  <view class="briefing-section briefing-section--tweets">
+    <view class="tweet-briefing-header" hover-class="briefing-row-hover" bindtap="onTweetBriefingHeaderTap">
+      <view class="tweet-briefing-icon-wrap">
+        <image class="tweet-briefing-icon-img" src="/images/icon-x.svg" mode="aspectFit" />
+      </view>
+      <view class="tweet-briefing-head-text">
+        <text class="tweet-briefing-title">事件更新</text>
+        <text class="tweet-briefing-summary" wx:if="{{!tweetEventLoading}}">今日更新 {{tweetTotal}} 条动态</text>
+        <text class="tweet-briefing-summary tweet-briefing-summary--loading" wx:else>正在拉取动态条数…</text>
+      </view>
+    </view>
+    <!-- 与 pages/progress 事件更新「今日各账号更新统计」同款结构 -->
+    <view class="tweet-stats-bar" wx:if="{{tweetStats.length > 0}}">
+      <view
+        class="tweet-stat-item"
+        wx:for="{{tweetStats}}"
+        wx:key="screenName"
+        hover-class="briefing-row-hover"
+        data-index="{{index}}"
+        data-source="{{item.screenName}}"
+        catchtap="onTweetAccountTap"
+      >
+        <image class="tweet-stat-avatar" src="{{item.avatarUrl}}" mode="aspectFill" />
+        <text class="tweet-stat-name">{{item.label}}</text>
+        <text class="tweet-stat-count">{{item.todayCount}}</text>
+      </view>
+    </view>
+    <view class="tweet-stat-briefing-empty" hover-class="briefing-row-hover" bindtap="onTweetBriefingHeaderTap" wx:if="{{!tweetEventLoading && tweetStats.length === 0}}">
+      <text class="tweet-stat-briefing-empty-text">今日暂无各账号新动态</text>
+    </view>
+  </view>
+
+  <!-- 兜底：只有今日发射和昨日回顾都没数据时才显示 -->
+  <view class="briefing-section" wx:if="{{briefing.todayLaunches.length === 0 && briefing.yesterdayResults.length === 0 && briefing.spaceFact}}">
+    <text class="section-icon">💡</text>
+    <view class="section-content">
+      <text class="section-label">太空冷知识</text>
+      <text class="section-fact" user-select="{{true}}">{{briefing.spaceFact.fact}}</text>
+    </view>
+  </view>
+
+  <view class="briefing-section" wx:if="{{briefing.todayLaunches.length === 0 && briefing.yesterdayResults.length === 0 && briefing.astroEvent}}">
+    <text class="section-icon">🌟</text>
+    <view class="section-content">
+      <text class="section-label">天文事件</text>
+      <text class="section-item" user-select="{{true}}">{{briefing.astroEvent.title}} - {{briefing.astroEvent.desc}}</text>
+    </view>
+  </view>
+</template>
+
+<!-- 弹窗模式（首页自动弹出）；挂到页面根节点，避免在 scroll-view 内时 fixed 相对错误导致顶栏挡住关闭钮。
+     root-portal 脱离页面 DOM 树，页面根的 theme-light 变量继承不进来，须在遮罩上自挂主题类 -->
+<root-portal wx:if="{{showPopup}}">
+  <view class="briefing-mask {{themeClass}}" catchtouchmove="preventMove">
+    <view class="briefing-popup" catchtap="">
+    <view class="popup-header">
+      <text class="popup-title">每日太空简报</text>
+      <view class="popup-close" hover-class="popup-close--hover" catchtap="onClosePopup" aria-role="button" aria-label="关闭">
+        <text class="popup-close-icon">✕</text>
+      </view>
+    </view>
+
+    <scroll-view class="popup-body" scroll-y style="height: {{popupScrollHeightPx}}px;">
+      <template is="briefingBody" data="{{loading, briefing, tweetStats, tweetTotal, tweetEventLoading}}" />
+    </scroll-view>
+
+    <button class="popup-share-btn" open-type="share" data-share-type="briefing">
+      分享今日简报
+    </button>
+    </view>
+  </view>
+</root-portal>
+
+<!-- 详情页模式（/subpackages/shared/briefing 页内嵌） -->
+<view class="briefing-page-body" wx:if="{{mode === 'page'}}">
+  <template is="briefingBody" data="{{loading, briefing, tweetStats, tweetTotal, tweetEventLoading}}" />
+</view>
+
+<!-- 内联卡片（profile 页）：点击跳转简报详情页 -->
+<view class="briefing-inline" wx:if="{{mode === 'inline' && !_briefingDisabled}}" bindtap="onShowInline">
+  <view class="inline-left">
+    <image class="inline-icon-img" wx:if="{{icon}}" src="{{icon}}" mode="aspectFit" />
+    <text class="inline-icon" wx:else>📋</text>
+  </view>
+  <view class="inline-body">
+    <text class="inline-title">今日太空简报</text>
+    <view class="inline-summary">
+      <block wx:if="{{hasData}}">
+        <text class="inline-line" wx:if="{{briefing.todayLaunches.length > 0}}">{{briefing.todayLaunches[0].rocket}} | {{briefing.todayLaunches[0].name}}</text>
+        <text class="inline-line" wx:elif="{{briefing.yesterdayResults.length > 0}}">昨日 {{briefing.yesterdayResults[0].rocket}} {{briefing.yesterdayResults[0].statusLabel}}</text>
+        <text class="inline-line" wx:elif="{{briefing.spaceFact}}">💡 {{briefing.spaceFact.fact}}</text>
+        <text class="inline-line" wx:else>点击查看今日太空动态</text>
+        <text class="inline-line" wx:if="{{briefing.astroEvent}}">🌟 {{briefing.astroEvent.title}}</text>
+      </block>
+      <text class="inline-line inline-line--loading" wx:else>加载中…</text>
+    </view>
+  </view>
+  <text class="inline-arrow">›</text>
+</view>

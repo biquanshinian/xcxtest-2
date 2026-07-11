@@ -1,0 +1,306 @@
+<view class="detail-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">Artemis II 实时遥测</text>
+      <view class="nav-right-space top-nav-slot--spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view class="detail-scroll" scroll-y="true">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+    <view class="detail-container">
+
+      <view class="loading-state" wx:if="{{loading}}">
+        <view class="loading-spinner"></view>
+        <text class="loading-text">正在获取遥测数据...</text>
+      </view>
+
+      <view class="error-state glass-card" wx:elif="{{errorMsg}}">
+        <text class="error-text">{{errorMsg}}</text>
+        <view class="retry-btn" bindtap="retryLoad">重试</view>
+      </view>
+
+      <block wx:else>
+        <!-- 任务未开始 / 已结束 -->
+        <view class="phase-card glass-card" wx:if="{{missionPhase !== 'active'}}">
+          <view class="phase-badge" wx:if="{{missionPhase === 'ended'}}">任务圆满完成 ✓</view>
+          <text class="phase-title">{{missionSummary.missionName}}</text>
+          <text class="phase-desc" wx:if="{{missionPhase === 'before'}}">发射时间：{{missionSummary.launchTime}}</text>
+          <view class="phase-summary" wx:if="{{missionPhase === 'ended'}}">
+            <view class="phase-row">
+              <text class="phase-row-label">发射时间</text>
+              <text class="phase-row-val">{{missionSummary.launchTime}}</text>
+            </view>
+            <view class="phase-row">
+              <text class="phase-row-label">返回时间</text>
+              <text class="phase-row-val">{{missionSummary.endTime}}</text>
+            </view>
+            <view class="phase-row" wx:if="{{missionSummary.duration}}">
+              <text class="phase-row-label">任务总时长</text>
+              <text class="phase-row-val">{{missionSummary.duration}}</text>
+            </view>
+          </view>
+          <text class="phase-hint" wx:if="{{missionPhase === 'before'}}">发射后将自动开始实时遥测数据更新</text>
+          <text class="phase-hint" wx:else>下次任务开始后将自动恢复实时数据</text>
+          <view class="arow-link" bindtap="openArowOfficial" style="margin-top: 24rpx;">
+            <text>打开 NASA AROW 官网</text>
+            <text class="link-arrow">›</text>
+          </view>
+        </view>
+
+        <!-- 任务进行中：完整仪表盘 -->
+        <block wx:else>
+        <!-- 2D 轨道示意图 -->
+        <view class="orbit-wrap glass-card">
+          <view class="orbit-canvas-box">
+            <canvas type="2d" id="artemisOrbitCanvas" class="orbit-canvas"></canvas>
+            <!-- 猎户座涟漪（CSS 动画） -->
+            <view class="orion-ripple-anchor" wx:if="{{_orionLeft}}" style="left: {{_orionLeft}}%; top: {{_orionTop}}%;">
+              <view class="orion-ripple-ring orion-ripple-ring--1"></view>
+              <view class="orion-ripple-ring orion-ripple-ring--2"></view>
+            </view>
+          </view>
+          <view class="orbit-legend">
+            <view class="orbit-legend-item"><view class="legend-dot legend-dot--earth"></view><text>地球</text></view>
+            <view class="orbit-legend-item"><view class="legend-dot legend-dot--orion"></view><text>猎户座</text></view>
+            <view class="orbit-legend-item"><view class="legend-dot legend-dot--moon"></view><text>月球</text></view>
+          </view>
+        </view>
+
+        <!-- MET -->
+        <view class="met-bar glass-card">
+          <view class="met-left">
+            <text class="met-label">任务历时 MET</text>
+            <text class="met-hint">天:时:分:秒</text>
+          </view>
+          <text class="met-value">{{met}}</text>
+        </view>
+
+        <!-- 核心数据 2×2 -->
+        <view class="stat-grid">
+          <view class="stat-card glass-card">
+            <view class="stat-icon stat-icon--speed"></view>
+            <text class="stat-value">{{velocityKmh}}</text>
+            <text class="stat-unit">km/h</text>
+            <text class="stat-label">速率</text>
+          </view>
+          <view class="stat-card glass-card">
+            <view class="stat-icon stat-icon--earth"></view>
+            <text class="stat-value">{{distEarthKm}}</text>
+            <text class="stat-unit">km</text>
+            <text class="stat-label">距地球</text>
+          </view>
+          <view class="stat-card glass-card" wx:if="{{altitudeKm && altitudeKm !== '—'}}">
+            <view class="stat-icon stat-icon--alt"></view>
+            <text class="stat-value">{{altitudeKm}}</text>
+            <text class="stat-unit">km</text>
+            <text class="stat-label">轨道高度</text>
+          </view>
+          <view class="stat-card glass-card">
+            <view class="stat-icon stat-icon--moon"></view>
+            <text class="stat-value">{{distMoonKm}}</text>
+            <text class="stat-unit">km</text>
+            <text class="stat-label">距月球</text>
+          </view>
+        </view>
+
+        <!-- 详细遥测（可折叠） -->
+        <view class="collapse-header glass-card" bindtap="toggleDetailExpand">
+          <text class="collapse-title">详细遥测数据</text>
+          <text class="collapse-arrow {{detailExpanded ? 'collapse-arrow--up' : ''}}">›</text>
+        </view>
+
+        <view class="collapse-body" wx:if="{{detailExpanded}}">
+        <!-- 飞船系统状态 -->
+        <view class="status-bar glass-card" wx:if="{{statusItems.length}}">
+          <text class="status-title">飞船系统状态</text>
+          <view class="status-grid">
+            <view class="status-item" wx:for="{{statusItems}}" wx:key="label">
+              <view class="status-dot {{item.active ? 'status-dot--on' : 'status-dot--off'}}"></view>
+              <text class="status-label">{{item.label}}</text>
+            </view>
+          </view>
+        </view>
+
+        <!-- 姿态角速率 -->
+        <view class="rates-bar glass-card" wx:if="{{rates}}">
+          <text class="rates-title">姿态角速率（°/s）</text>
+          <view class="rates-row">
+            <view class="rate-item">
+              <text class="rate-label">滚转</text>
+              <text class="rate-value">{{rates.roll}}</text>
+            </view>
+            <view class="rate-item">
+              <text class="rate-label">俯仰</text>
+              <text class="rate-value">{{rates.pitch}}</text>
+            </view>
+            <view class="rate-item">
+              <text class="rate-label">偏航</text>
+              <text class="rate-value">{{rates.yaw}}</text>
+            </view>
+          </view>
+        </view>
+
+        <!-- 姿态欧拉角 -->
+        <view class="section-block glass-card" wx:if="{{euler}}">
+          <text class="section-block-title">飞船姿态（°）</text>
+          <view class="rates-row">
+            <view class="rate-item">
+              <text class="rate-label">滚转</text>
+              <text class="rate-value">{{euler.roll}}</text>
+            </view>
+            <view class="rate-item">
+              <text class="rate-label">俯仰</text>
+              <text class="rate-value">{{euler.pitch}}</text>
+            </view>
+            <view class="rate-item">
+              <text class="rate-label">偏航</text>
+              <text class="rate-value">{{euler.yaw}}</text>
+            </view>
+          </view>
+        </view>
+
+        <!-- 轨道参数 -->
+        <view class="section-block glass-card" wx:if="{{orbitParams}}">
+          <text class="section-block-title">轨道参数</text>
+          <view class="param-list">
+            <view class="param-row" wx:if="{{orbitParams.latitude !== '—'}}">
+              <text class="param-label">星下点纬度</text>
+              <text class="param-val">{{orbitParams.latitude}}°</text>
+            </view>
+            <view class="param-row" wx:if="{{orbitParams.longitude !== '—'}}">
+              <text class="param-label">星下点经度</text>
+              <text class="param-val">{{orbitParams.longitude}}°</text>
+            </view>
+            <view class="param-row" wx:if="{{orbitParams.heading !== '—'}}">
+              <text class="param-label">航向角</text>
+              <text class="param-val">{{orbitParams.heading}}°</text>
+            </view>
+            <view class="param-row" wx:if="{{orbitParams.flightPathAngle !== '—'}}">
+              <text class="param-label">飞行路径角</text>
+              <text class="param-val">{{orbitParams.flightPathAngle}}°</text>
+            </view>
+            <view class="param-row" wx:if="{{orbitParams.rightAscension !== '—'}}">
+              <text class="param-label">赤经</text>
+              <text class="param-val">{{orbitParams.rightAscension}}°</text>
+            </view>
+            <view class="param-row" wx:if="{{orbitParams.declination !== '—'}}">
+              <text class="param-label">赤纬</text>
+              <text class="param-val">{{orbitParams.declination}}°</text>
+            </view>
+          </view>
+        </view>
+
+        <!-- 电力系统 -->
+        <view class="section-block glass-card" wx:if="{{power}}">
+          <text class="section-block-title">电力系统</text>
+          <view class="rates-row">
+            <view class="rate-item">
+              <text class="rate-label">母线 1</text>
+              <text class="rate-value">{{power.v1}} V</text>
+            </view>
+            <view class="rate-item">
+              <text class="rate-label">母线 2</text>
+              <text class="rate-value">{{power.v2}} V</text>
+            </view>
+            <view class="rate-item">
+              <text class="rate-label">母线 3</text>
+              <text class="rate-value">{{power.v3}} V</text>
+            </view>
+          </view>
+        </view>
+
+        <!-- RCS 姿控推力器 -->
+        <view class="section-block glass-card" wx:if="{{rcsItems.length}}">
+          <text class="section-block-title">RCS 姿控推力器</text>
+          <view class="status-grid">
+            <view class="status-item" wx:for="{{rcsItems}}" wx:key="label">
+              <view class="status-dot {{item.active ? 'status-dot--on' : 'status-dot--off'}}"></view>
+              <text class="status-label">{{item.label}}</text>
+            </view>
+          </view>
+        </view>
+
+        <!-- 太阳能板详细 -->
+        <view class="section-block glass-card" wx:if="{{solarDetail}}">
+          <text class="section-block-title">太阳能板电流（A）</text>
+          <view class="solar-wings">
+            <view class="solar-wing" wx:for="{{solarDetail}}" wx:key="name">
+              <text class="solar-wing-name">{{item.name}}</text>
+              <view class="solar-channels">
+                <text class="solar-ch" wx:for="{{item.channels}}" wx:for-item="ch" wx:for-index="ci" wx:key="ci">{{ch}}</text>
+              </view>
+            </view>
+          </view>
+        </view>
+
+        <!-- 通信链路 -->
+        <view class="section-block glass-card" wx:if="{{commMode}}">
+          <text class="section-block-title">通信链路</text>
+          <view class="param-row">
+            <text class="param-label">通信模式</text>
+            <text class="param-val">{{commMode}}</text>
+          </view>
+        </view>
+        </view><!-- /collapse-body -->
+
+        <!-- NASA 推文追踪 -->
+        <view class="section-block glass-card" wx:if="{{nasaTweets.length}}">
+          <view class="collapse-header--inline" bindtap="toggleNasaTweets">
+            <text class="section-block-title" style="margin-bottom:0;">NASA 动态追踪</text>
+            <text class="collapse-arrow {{nasaTweetsExpanded ? 'collapse-arrow--up' : ''}}">›</text>
+          </view>
+          <view wx:if="{{nasaTweetsExpanded}}" class="nasa-tweets-list">
+            <view class="nasa-tweet-item" wx:for="{{nasaTweets}}" wx:key="_id" bindtap="openNasaTweetDetail" data-id="{{item._id}}">
+              <view class="nasa-tweet-header">
+                <text class="nasa-tweet-time">{{item.publishedAtText}}</text>
+                <text class="nasa-tweet-author">{{item.author}}</text>
+              </view>
+              <text class="nasa-tweet-title" wx:if="{{item.title}}">{{item.title}}</text>
+              <text class="nasa-tweet-content" wx:if="{{item.content}}">{{item.content}}</text>
+              <view class="nasa-tweet-media" wx:if="{{enableEventVideo && item.mediaList && item.mediaList.length}}">
+                <block wx:for="{{item.mediaList}}" wx:for-item="media" wx:for-index="mIdx" wx:key="mIdx">
+                  <image
+                    wx:if="{{media.type === 'image'}}"
+                    class="nasa-tweet-img"
+                    src="{{media.url}}"
+                    mode="aspectFill"
+                    lazy-load="{{true}}"
+                    catchtap="onNasaImagePreview"
+                    data-urls="{{item.imageUrls}}"
+                    data-current="{{media.url}}"
+                  ></image>
+                  <view wx:if="{{media.type === 'video'}}" class="nasa-tweet-video-wrap" catchtap="onNasaVideoTap" data-url="{{media.url}}" data-playurl="{{media.playUrl}}" data-original="{{media.originalUrl || media.url}}" data-videourl="{{media.videoUrl}}" data-islong="{{media.isLongVideo}}" data-thumb="{{media.thumbnailUrl}}" data-eventid="{{item._id}}" data-midx="{{mIdx}}">
+                    <image wx:if="{{media.thumbnailUrl}}" class="nasa-tweet-img" src="{{media.thumbnailUrl}}" mode="aspectFill" lazy-load="{{true}}"></image>
+                    <view class="nasa-tweet-play-icon">▶</view>
+                    <view wx:if="{{media.isLongVideo}}" class="nasa-tweet-link-badge">长视频 · 点击复制链接</view>
+                    <view wx:elif="{{!media.isPlayable}}" class="nasa-tweet-link-badge">外部链接</view>
+                  </view>
+                </block>
+              </view>
+            </view>
+            <view class="nasa-tweets-more" wx:if="{{nasaTweetsHasMore}}" bindtap="loadMoreNasaTweets">
+              <text>加载更多</text>
+            </view>
+          </view>
+        </view>
+
+        <text class="updated-at" wx:if="{{updatedAt}}">更新：{{updatedAt}}</text>
+        <view class="credit" wx:if="{{creditLines.length}}">
+          <text class="credit-line" wx:for="{{creditLines}}" wx:key="index">{{item}}</text>
+        </view>
+        <view class="arow-link" bindtap="openArowOfficial">
+          <text>打开 NASA AROW 官网（3D 实时）</text>
+          <text class="link-arrow">›</text>
+        </view>
+        </block>
+      </block>
+
+    </view>
+    <view style="height: 60rpx;"></view>
+  </scroll-view>
+  <share-guide />
+</view>

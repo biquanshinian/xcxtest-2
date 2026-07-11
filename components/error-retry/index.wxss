@@ -1,0 +1,27 @@
+.error-retry-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48rpx 32rpx;
+  text-align: center;
+}
+.error-retry-message {
+  font-size: 28rpx;
+  color: var(--color-text-secondary);
+  margin-bottom: 24rpx;
+}
+.error-retry-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16rpx 48rpx;
+  border-radius: 32rpx;
+  font-size: 28rpx;
+  color: var(--color-text-primary);
+  background: var(--color-divider);
+  border: 1rpx solid var(--color-divider-strong);
+}
+.error-retry-btn:active {
+  opacity: 0.7;
+}

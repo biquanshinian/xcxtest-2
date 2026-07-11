@@ -1,0 +1,78 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="detail-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+    <page-progress active="{{loading}}" />
+  </view>
+
+  <scroll-view class="detail-scroll" scroll-y="true">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <!-- 加载中：内容区留白，进度由导航栏下方的 page-progress 绿色进度条呈现 -->
+    <block wx:if="{{loading}}"></block>
+
+    <!-- 错误 -->
+    <view class="error-wrap" wx:elif="{{errorMessage}}">
+      <text class="error-icon">⚠️</text>
+      <text class="error-text">{{errorMessage}}</text>
+      <view class="error-btn" bindtap="goBack">返回</view>
+    </view>
+
+    <!-- 内容 -->
+    <block wx:elif="{{detail}}">
+      <view class="detail-body">
+        <view class="detail-status-row">
+          <view class="status-dot status-dot-active"></view>
+          <text class="detail-status-text">{{detail.statusText}}</text>
+        </view>
+        <text class="detail-title">{{detail.title}}</text>
+        <text class="detail-subtitle">{{detail.subtitle}}</text>
+        <text class="detail-summary">{{detail.summary}}</text>
+
+        <!-- 简介图片 -->
+        <view class="detail-hero-wrap" wx:if="{{detail.heroImage}}">
+          <image
+            class="detail-hero-img"
+            src="{{detail.heroImage}}"
+            mode="widthFix"
+            lazy-load="{{true}}"
+            show-menu-by-longpress="{{true}}"
+            binderror="onHeroImageError"
+          ></image>
+        </view>
+
+        <!-- 贴图讨论区 -->
+        <view class="discussion-section glass-card">
+          <official-account-publish-panel topic="{{discussionTopic}}" />
+        </view>
+
+        <!-- 清单 -->
+        <view class="detail-checklist" wx:if="{{detail.showChecklist && detail.checklist.length}}">
+          <view class="checklist-heading"><text>清单</text></view>
+          <view class="checklist-grid">
+            <view class="checklist-item checklist-status-{{item.status || 'normal'}}" wx:for="{{detail.checklist}}" wx:key="id">
+              <text class="checklist-item-title">{{item.title}}</text>
+              <view class="checklist-meta" wx:if="{{item.location}}">
+                <text class="checklist-meta-text">{{item.location}}</text>
+              </view>
+              <view class="checklist-meta" wx:if="{{item.date}}">
+                <text class="checklist-meta-text">{{item.date}}</text>
+              </view>
+              <text class="checklist-desc" user-select="{{true}}">{{item.description}}</text>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <view style="height: 60rpx;"></view>
+    </block>
+  </scroll-view>
+</view>

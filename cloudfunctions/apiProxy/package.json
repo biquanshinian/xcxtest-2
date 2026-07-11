@@ -1,0 +1,9 @@
+{
+  "name": "apiProxy",
+  "version": "1.0.0",
+  "description": "通用 API 代理：合并 getLiveStatus + getTelemetry，通过 action 参数区分",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

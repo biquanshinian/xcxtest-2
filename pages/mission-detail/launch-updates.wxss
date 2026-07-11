@@ -1,0 +1,287 @@
+page {
+  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  overflow: hidden;
+  height: 100vh;
+  width: 100%;
+}
+
+.detail-page {
+  min-height: 100vh;
+  height: 100vh;
+  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  overflow: hidden;
+}
+
+.nav-title-wrap {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4rpx;
+  text-align: center;
+}
+
+.nav-title-sub {
+  max-width: 420rpx;
+  font-size: 20rpx;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.42);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.detail-scroll {
+  height: 100vh;
+}
+
+.detail-container {
+  padding: 32rpx;
+  box-sizing: border-box;
+}
+
+.glass-card {
+  background: rgba(18, 20, 24, 0.62);
+  backdrop-filter: blur(28rpx) saturate(170%);
+  -webkit-backdrop-filter: blur(28rpx) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 28rpx;
+  box-shadow: 0 16rpx 40rpx rgba(0, 0, 0, 0.35), inset 0 1rpx 0 rgba(255, 255, 255, 0.08);
+}
+
+.updates-card {
+  padding: 28rpx 24rpx 20rpx;
+  box-sizing: border-box;
+}
+
+.updates-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 24rpx;
+  padding: 0 4rpx 16rpx;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.updates-head-main {
+  display: flex;
+  align-items: baseline;
+  gap: 12rpx;
+  min-width: 0;
+}
+
+.updates-title {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.updates-count {
+  font-size: 22rpx;
+  color: #8e8e93;
+}
+
+.detail-update-item {
+  display: flex;
+  align-items: stretch;
+}
+
+.detail-update-axis {
+  width: 40rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  margin-right: 16rpx;
+}
+
+.detail-update-line {
+  width: 2rpx;
+  flex: 1;
+  min-height: 12rpx;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.detail-update-line--up {
+  flex: 0 0 14rpx;
+}
+
+.detail-update-line--hidden {
+  background: transparent;
+}
+
+.detail-update-node {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.45);
+  flex-shrink: 0;
+  margin: 4rpx 0;
+}
+
+.detail-update-node--latest {
+  background: #007aff;
+  box-shadow: 0 0 10rpx rgba(0, 122, 255, 0.6);
+}
+
+.detail-update-main {
+  flex: 1;
+  min-width: 0;
+  padding-bottom: 20rpx;
+}
+
+.detail-update-item:last-child .detail-update-main {
+  padding-bottom: 4rpx;
+}
+
+.detail-update-comment {
+  display: block;
+  font-size: 26rpx;
+  line-height: 1.6;
+  color: #e5e5ea;
+  word-break: break-word;
+}
+
+.detail-update-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16rpx;
+  margin-top: 6rpx;
+}
+
+.detail-update-time,
+.detail-update-author {
+  font-size: 22rpx;
+  color: #8e8e93;
+}
+
+.detail-update-link,
+.detail-link {
+  font-size: 22rpx;
+  color: #007aff;
+}
+
+.loading-state,
+.error-state,
+.empty-state {
+  width: 100%;
+  min-height: 50vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18rpx;
+  text-align: center;
+  padding: 48rpx 32rpx;
+  box-sizing: border-box;
+}
+
+.detail-page--moments .error-state,
+.detail-page--moments .empty-state {
+  min-height: calc(100vh - 280rpx);
+}
+
+.error-text {
+  display: block;
+  width: 100%;
+  max-width: 560rpx;
+  font-size: 28rpx;
+  line-height: 1.7;
+  color: #b6b6bb;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.error-title {
+  display: block;
+  width: 100%;
+  max-width: 560rpx;
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #ffffff;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.retry-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  margin-top: 10rpx;
+  margin-left: auto;
+  margin-right: auto;
+  min-width: 220rpx;
+  height: 84rpx;
+  line-height: 1;
+  border-radius: 999rpx;
+  background: linear-gradient(135deg, #0a84ff, #4ea1ff);
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 600;
+  text-align: center;
+  padding: 0 40rpx;
+  box-sizing: border-box;
+}
+
+.retry-btn::after {
+  border: none;
+}
+
+/* ========== 明亮主题（与 mission-detail / event-detail 同款骨架） ========== */
+
+/* 根节点自身挂 theme-light，必须用并列选择器，不能写成 .theme-light .detail-page */
+.detail-page.theme-light {
+  background: var(--color-bg-page);
+}
+
+.theme-light .nav-title-sub {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .glass-card {
+  background: var(--bg-glass);
+  border: 1px solid var(--color-border-glass);
+  box-shadow: var(--shadow-card), inset 0 1rpx 0 rgba(255, 255, 255, 0.85);
+}
+
+.theme-light .updates-head {
+  border-bottom-color: var(--color-divider);
+}
+
+.theme-light .updates-title,
+.theme-light .error-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .updates-count,
+.theme-light .detail-update-time,
+.theme-light .detail-update-author,
+.theme-light .error-text {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .detail-update-comment {
+  color: var(--color-text-primary);
+}
+
+.theme-light .detail-update-line {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.theme-light .detail-update-line--hidden {
+  background: transparent;
+}
+
+.theme-light .detail-update-node {
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.theme-light .detail-update-node--latest {
+  background: #007aff;
+  box-shadow: 0 0 10rpx rgba(0, 122, 255, 0.35);
+}

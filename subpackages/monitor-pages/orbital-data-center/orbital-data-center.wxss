@@ -1,0 +1,1700 @@
+/* 太空轨道数据中心系统 · 超科幻指挥控制台 */
+
+page {
+  background: #000;
+  color: #fff;
+  height: 100vh;
+}
+
+.odc-page {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  background: #000;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+/* ============== 背景视频层 ============== */
+.odc-bg-video-shell {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.odc-bg-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.odc-bg-video-fade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(0, 200, 255, 0.18) 0%, transparent 60%),
+    radial-gradient(120% 80% at 100% 100%, rgba(168, 85, 247, 0.16) 0%, transparent 60%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0.7) 100%);
+}
+
+/* 星空 */
+.odc-stars {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.6;
+}
+
+.odc-star {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 4rpx rgba(255, 255, 255, 0.7);
+  animation: odc-twinkle 3s ease-in-out infinite;
+  opacity: 0.5;
+}
+
+@keyframes odc-twinkle {
+  0%, 100% { opacity: 0.2; transform: scale(0.8); }
+  50%      { opacity: 1;   transform: scale(1.2); }
+}
+
+/* 网格背景 */
+.odc-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.5;
+  background-image:
+    linear-gradient(rgba(0, 200, 255, 0.05) 1rpx, transparent 1rpx),
+    linear-gradient(90deg, rgba(0, 200, 255, 0.05) 1rpx, transparent 1rpx);
+  background-size: 60rpx 60rpx;
+  mask-image: radial-gradient(circle at 50% 30%, #000 0%, transparent 80%);
+  -webkit-mask-image: radial-gradient(circle at 50% 30%, #000 0%, transparent 80%);
+}
+
+/* HUD 顶部 */
+.odc-hud {
+  position: relative;
+  z-index: 5;
+  padding: 0 32rpx 20rpx;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.92) 0%, rgba(0, 0, 0, 0.4) 100%);
+  border-bottom: 1rpx solid rgba(0, 200, 255, 0.2);
+}
+
+/* 自定义导航栏 */
+.odc-navbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.odc-navbar__back {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 64rpx;
+  height: 64rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 200, 255, 0.08);
+  border: 1rpx solid rgba(0, 200, 255, 0.3);
+  transition: background 0.18s, border-color 0.18s, transform 0.12s;
+}
+
+.odc-navbar__back--hover {
+  background: rgba(0, 200, 255, 0.18);
+  border-color: rgba(0, 200, 255, 0.6);
+  transform: translateY(-50%) scale(0.94);
+}
+
+.odc-navbar__back-arrow {
+  font-size: 36rpx;
+  color: #00C8FF;
+  font-weight: 300;
+  line-height: 1;
+  margin-top: -2rpx;
+  text-shadow: 0 0 8rpx rgba(0, 200, 255, 0.6);
+}
+
+.odc-navbar__title {
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 2rpx;
+  font-family: 'SF Pro Display', -apple-system, sans-serif;
+  text-shadow: 0 0 10rpx rgba(0, 200, 255, 0.5);
+  /* 让标题居中，避免被右侧胶囊按钮挤偏 —— 给右侧 padding 让出胶囊空间 */
+  padding-right: 200rpx;
+}
+
+.odc-hud__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16rpx;
+}
+
+.odc-hud__brand {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.odc-hud__brand-mark {
+  position: relative;
+  width: 48rpx;
+  height: 48rpx;
+  flex-shrink: 0;
+}
+
+.odc-hud__brand-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5rpx solid rgba(0, 200, 255, 0.6);
+  border-top-color: transparent;
+  animation: odc-spin 4s linear infinite;
+}
+
+.odc-hud__brand-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 12rpx;
+  height: 12rpx;
+  margin-top: -6rpx;
+  margin-left: -6rpx;
+  border-radius: 50%;
+  background: #00C8FF;
+  box-shadow: 0 0 12rpx #00C8FF;
+}
+
+@keyframes odc-spin {
+  to { transform: rotate(360deg); }
+}
+
+.odc-hud__brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2rpx;
+  min-width: 0;
+}
+
+.odc-hud__brand-title {
+  font-size: 28rpx;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: 1.6rpx;
+  font-family: 'SF Pro Display', -apple-system, sans-serif;
+  text-shadow: 0 0 8rpx rgba(0, 200, 255, 0.4);
+}
+
+.odc-hud__brand-sub {
+  font-size: 18rpx;
+  color: rgba(0, 200, 255, 0.8);
+  letter-spacing: 1rpx;
+  font-family: 'SF Mono', Menlo, monospace;
+}
+
+.odc-hud__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+  padding: 6rpx 14rpx;
+  border-radius: 100rpx;
+  background: rgba(0, 255, 130, 0.12);
+  border: 1rpx solid rgba(0, 255, 130, 0.4);
+  flex-shrink: 0;
+}
+
+.odc-hud__status-dot {
+  width: 8rpx;
+  height: 8rpx;
+  border-radius: 50%;
+  background: #00FF82;
+  box-shadow: 0 0 10rpx #00FF82;
+  animation: odc-blink 1.4s ease-in-out infinite;
+}
+
+@keyframes odc-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.3; }
+}
+
+.odc-hud__status-text {
+  font-size: 18rpx;
+  font-weight: 600;
+  letter-spacing: 1rpx;
+  color: #00FF82;
+  font-family: 'SF Mono', Menlo, monospace;
+}
+
+.odc-hud__ticker {
+  margin-top: 14rpx;
+  padding: 8rpx 14rpx;
+  border-radius: 8rpx;
+  background: rgba(0, 200, 255, 0.06);
+  border-left: 2rpx solid rgba(0, 200, 255, 0.5);
+  overflow: hidden;
+}
+
+.odc-hud__ticker-text {
+  font-size: 20rpx;
+  color: rgba(0, 200, 255, 0.9);
+  font-family: 'SF Mono', Menlo, monospace;
+  letter-spacing: 0.8rpx;
+  white-space: nowrap;
+}
+
+/* 滚动区 */
+.odc-scroll {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding-top: 280rpx;
+  z-index: 4;
+  box-sizing: border-box;
+}
+
+/* 全息地球 · 轨道可视化（高级深空配色） */
+/* tokens: space #06080f · nebula #1e1240 · teal #2dd4bf · blue #38bdf8 · gold #c9a962 · violet #8b5cf6 */
+.odc-globe {
+  position: relative;
+  margin: 40rpx auto 20rpx;
+  width: 520rpx;
+  height: 520rpx;
+  perspective: 900rpx;
+}
+
+.odc-globe__ambience {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 520rpx;
+  height: 520rpx;
+  margin: -260rpx 0 0 -260rpx;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 42%,
+      rgba(45, 212, 191, 0.14) 0%,
+      rgba(56, 189, 248, 0.08) 28%,
+      rgba(30, 18, 64, 0.22) 52%,
+      transparent 72%);
+  animation: odc-ambience-breathe 5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.odc-globe__nebula {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 440rpx;
+  height: 440rpx;
+  margin: -220rpx 0 0 -220rpx;
+  border-radius: 50%;
+  background:
+    radial-gradient(ellipse 80% 60% at 28% 38%, rgba(139, 92, 246, 0.2) 0%, transparent 55%),
+    radial-gradient(ellipse 70% 50% at 72% 62%, rgba(45, 212, 191, 0.12) 0%, transparent 50%);
+  filter: blur(2rpx);
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.odc-globe__scan {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 300rpx;
+  height: 2rpx;
+  margin-left: -150rpx;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(201, 169, 98, 0) 15%,
+    rgba(201, 169, 98, 0.55) 50%,
+    rgba(45, 212, 191, 0.45) 85%,
+    transparent 100%);
+  box-shadow: 0 0 16rpx rgba(45, 212, 191, 0.35);
+  opacity: 0;
+  pointer-events: none;
+  animation: odc-scan-sweep 6s ease-in-out infinite;
+}
+
+@keyframes odc-ambience-breathe {
+  0%, 100% { opacity: 0.75; transform: scale(0.98); }
+  50%      { opacity: 1;    transform: scale(1.02); }
+}
+
+@keyframes odc-scan-sweep {
+  0%   { opacity: 0; transform: translateY(-150rpx) scaleX(0.6); }
+  12%  { opacity: 0.7; }
+  50%  { opacity: 0.35; transform: translateY(150rpx) scaleX(1); }
+  88%  { opacity: 0; }
+  100% { opacity: 0; transform: translateY(-150rpx) scaleX(0.6); }
+}
+
+/* 倾斜轨道面（景深） */
+.odc-globe__planes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.odc-globe__plane {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 50%;
+  border: 1rpx solid transparent;
+  transform-origin: center center;
+}
+
+.odc-globe__plane--1 {
+  width: 440rpx;
+  height: 110rpx;
+  margin: -55rpx 0 0 -220rpx;
+  border-color: rgba(45, 212, 191, 0.22);
+  border-top-color: rgba(45, 212, 191, 0.5);
+  border-bottom-color: rgba(45, 212, 191, 0.08);
+  box-shadow: 0 0 24rpx rgba(45, 212, 191, 0.12);
+  transform: rotateX(68deg);
+  animation: odc-spin 28s linear infinite;
+}
+
+.odc-globe__plane--2 {
+  width: 480rpx;
+  height: 130rpx;
+  margin: -65rpx 0 0 -240rpx;
+  border-color: rgba(56, 189, 248, 0.16);
+  border-right-color: rgba(201, 169, 98, 0.35);
+  box-shadow: 0 0 20rpx rgba(56, 189, 248, 0.1);
+  transform: rotateX(72deg) rotateZ(58deg);
+  animation: odc-spin 36s linear infinite reverse;
+}
+
+.odc-globe__plane--3 {
+  width: 400rpx;
+  height: 96rpx;
+  margin: -48rpx 0 0 -200rpx;
+  border-color: rgba(139, 92, 246, 0.2);
+  border-left-color: rgba(139, 92, 246, 0.45);
+  transform: rotateX(64deg) rotateZ(-42deg);
+  animation: odc-spin 22s linear infinite;
+}
+
+.odc-globe__rings {
+  position: absolute;
+  inset: 0;
+}
+
+.odc-globe__ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 50%;
+  border: 1rpx solid transparent;
+  animation: odc-spin 24s linear infinite;
+}
+
+.odc-globe__ring-glow {
+  position: absolute;
+  inset: -4rpx;
+  border-radius: 50%;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.odc-globe__ring-arc {
+  position: absolute;
+  top: -3rpx;
+  left: 50%;
+  width: 10rpx;
+  height: 10rpx;
+  margin-left: -5rpx;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.odc-globe__ring--1 {
+  width: 360rpx;
+  height: 360rpx;
+  margin-top: -180rpx;
+  margin-left: -180rpx;
+  border-color: rgba(45, 212, 191, 0.12);
+  border-top-color: rgba(45, 212, 191, 0.55);
+  border-right-color: rgba(45, 212, 191, 0.2);
+  box-shadow:
+    0 0 20rpx rgba(45, 212, 191, 0.15),
+    inset 0 0 30rpx rgba(45, 212, 191, 0.04);
+}
+
+.odc-globe__ring--1 .odc-globe__ring-glow {
+  box-shadow:
+    0 0 40rpx rgba(45, 212, 191, 0.2),
+    0 0 80rpx rgba(56, 189, 248, 0.08);
+  animation: odc-ring-glow 4s ease-in-out infinite;
+}
+
+.odc-globe__ring--1 .odc-globe__ring-arc {
+  background: #2dd4bf;
+  box-shadow: 0 0 12rpx #2dd4bf, 0 0 24rpx rgba(45, 212, 191, 0.5);
+}
+
+.odc-globe__ring--2 {
+  width: 420rpx;
+  height: 420rpx;
+  margin-top: -210rpx;
+  margin-left: -210rpx;
+  border-color: rgba(56, 189, 248, 0.1);
+  border-bottom-color: rgba(56, 189, 248, 0.45);
+  border-left-color: rgba(201, 169, 98, 0.28);
+  animation-duration: 32s;
+  animation-direction: reverse;
+  box-shadow: 0 0 24rpx rgba(56, 189, 248, 0.12);
+}
+
+.odc-globe__ring--2 .odc-globe__ring-glow {
+  box-shadow: 0 0 50rpx rgba(56, 189, 248, 0.18);
+  animation: odc-ring-glow 5.5s ease-in-out infinite 0.8s;
+}
+
+.odc-globe__ring--2 .odc-globe__ring-arc {
+  background: #38bdf8;
+  box-shadow: 0 0 12rpx #38bdf8, 0 0 20rpx rgba(56, 189, 248, 0.45);
+}
+
+.odc-globe__ring--3 {
+  width: 500rpx;
+  height: 500rpx;
+  margin-top: -250rpx;
+  margin-left: -250rpx;
+  border: 1rpx dashed rgba(139, 92, 246, 0.22);
+  border-top-color: rgba(139, 92, 246, 0.42);
+  animation-duration: 44s;
+  box-shadow: 0 0 28rpx rgba(139, 92, 246, 0.1);
+}
+
+.odc-globe__ring--3 .odc-globe__ring-glow {
+  box-shadow: 0 0 60rpx rgba(139, 92, 246, 0.15);
+  animation: odc-ring-glow 6.5s ease-in-out infinite 1.6s;
+}
+
+.odc-globe__ring--3 .odc-globe__ring-arc {
+  background: #c9a962;
+  box-shadow: 0 0 10rpx #c9a962, 0 0 22rpx rgba(201, 169, 98, 0.4);
+}
+
+.odc-globe__ring-arc--b { top: auto; bottom: -3rpx; }
+.odc-globe__ring-arc--c { top: 50%; left: -3rpx; margin: -5rpx 0 0 0; }
+
+@keyframes odc-ring-glow {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 0.85; }
+}
+
+.odc-globe__sphere {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 280rpx;
+  height: 280rpx;
+  margin-top: -140rpx;
+  margin-left: -140rpx;
+  border-radius: 50%;
+  background:
+    radial-gradient(130% 110% at 28% 22%,
+      rgba(232, 238, 245, 0.22) 0%,
+      rgba(45, 212, 191, 0.28) 12%,
+      rgba(56, 189, 248, 0.22) 28%,
+      rgba(30, 18, 64, 0.55) 52%,
+      rgba(6, 8, 15, 0.95) 78%,
+      #06080f 100%);
+  border: 1rpx solid rgba(45, 212, 191, 0.25);
+  box-shadow:
+    inset -24rpx -28rpx 70rpx rgba(0, 0, 0, 0.75),
+    inset 12rpx 12rpx 40rpx rgba(45, 212, 191, 0.08),
+    0 0 50rpx rgba(45, 212, 191, 0.25),
+    0 0 100rpx rgba(56, 189, 248, 0.12),
+    0 0 140rpx rgba(139, 92, 246, 0.08);
+  overflow: hidden;
+  animation: odc-globe-rot 28s linear infinite;
+  z-index: 2;
+}
+
+.odc-globe__sphere-shine {
+  position: absolute;
+  top: 8%;
+  left: 14%;
+  width: 38%;
+  height: 28%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 50%,
+    rgba(232, 238, 245, 0.35) 0%,
+    rgba(45, 212, 191, 0.12) 45%,
+    transparent 70%);
+  pointer-events: none;
+  z-index: 3;
+}
+
+@keyframes odc-globe-rot {
+  to { transform: rotate(360deg); }
+}
+
+.odc-globe__meridian,
+.odc-globe__parallel {
+  position: absolute;
+  border: 1rpx solid rgba(45, 212, 191, 0.22);
+  pointer-events: none;
+}
+
+.odc-globe__meridian {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 280rpx;
+  margin-left: -140rpx;
+  border-radius: 50%;
+}
+
+.odc-globe__meridian--1 { border-color: rgba(45, 212, 191, 0.32); }
+.odc-globe__meridian--2 { transform: scaleX(0.6); border-color: rgba(56, 189, 248, 0.2); opacity: 0.75; }
+.odc-globe__meridian--3 { transform: scaleX(0.2); border-color: rgba(139, 92, 246, 0.18); opacity: 0.55; }
+
+.odc-globe__parallel {
+  left: 0;
+  right: 0;
+  height: 280rpx;
+  border-radius: 50%;
+}
+
+.odc-globe__parallel--1 {
+  top: 50%;
+  height: 1rpx;
+  margin-top: -1rpx;
+  border-color: rgba(201, 169, 98, 0.35);
+  box-shadow: 0 0 8rpx rgba(201, 169, 98, 0.2);
+}
+
+.odc-globe__parallel--2 { top: 30%; height: 200rpx; opacity: 0.45; border-color: rgba(56, 189, 248, 0.18); }
+.odc-globe__parallel--3 { top: 65%; height: 120rpx; opacity: 0.4; border-color: rgba(139, 92, 246, 0.16); }
+
+.odc-globe__core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 280rpx;
+  height: 280rpx;
+  margin-top: -140rpx;
+  margin-left: -140rpx;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%,
+      transparent 0%,
+      transparent 62%,
+      rgba(45, 212, 191, 0.1) 72%,
+      rgba(56, 189, 248, 0.28) 84%,
+      rgba(201, 169, 98, 0.15) 92%,
+      transparent 100%);
+  pointer-events: none;
+  animation: odc-pulse 4s ease-in-out infinite;
+}
+
+.odc-globe__glass {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    linear-gradient(145deg,
+      rgba(232, 238, 245, 0.12) 0%,
+      transparent 35%,
+      transparent 65%,
+      rgba(6, 8, 15, 0.35) 100%);
+  border: 1rpx solid rgba(232, 238, 245, 0.08);
+  pointer-events: none;
+  z-index: 4;
+}
+
+@keyframes odc-pulse {
+  0%, 100% { opacity: 0.65; transform: scale(1); }
+  50%      { opacity: 1;   transform: scale(1.04); }
+}
+
+/* 轨道粒子（静态分布 + 漂移动画） */
+.odc-globe__particles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.odc-globe__particle {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(232, 238, 245, 0.85);
+  box-shadow: 0 0 6rpx rgba(45, 212, 191, 0.5);
+  animation: odc-particle-drift 4s ease-in-out infinite;
+}
+
+.odc-globe__particle--1 { width: 4rpx; height: 4rpx; top: 12%; left: 18%; animation-delay: 0s; }
+.odc-globe__particle--2 { width: 3rpx; height: 3rpx; top: 22%; right: 14%; animation-delay: 0.6s; opacity: 0.7; }
+.odc-globe__particle--3 { width: 5rpx; height: 5rpx; bottom: 20%; left: 10%; animation-delay: 1.2s; background: rgba(45, 212, 191, 0.9); }
+.odc-globe__particle--4 { width: 3rpx; height: 3rpx; bottom: 14%; right: 20%; animation-delay: 1.8s; }
+.odc-globe__particle--5 { width: 4rpx; height: 4rpx; top: 48%; left: 4%; animation-delay: 0.4s; background: rgba(201, 169, 98, 0.85); box-shadow: 0 0 8rpx rgba(201, 169, 98, 0.4); }
+.odc-globe__particle--6 { width: 3rpx; height: 3rpx; top: 38%; right: 6%; animation-delay: 2.2s; background: rgba(139, 92, 246, 0.9); box-shadow: 0 0 8rpx rgba(139, 92, 246, 0.35); }
+
+@keyframes odc-particle-drift {
+  0%, 100% { opacity: 0.35; transform: translate(0, 0) scale(0.85); }
+  50%      { opacity: 1;    transform: translate(4rpx, -6rpx) scale(1.15); }
+}
+
+/* 卫星轨道运行 + 粒子尾迹 */
+.odc-globe__satellite {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14rpx;
+  height: 14rpx;
+  margin-top: -7rpx;
+  margin-left: -7rpx;
+  border-radius: 50%;
+  transform-origin: center center;
+  z-index: 5;
+}
+
+.odc-globe__satellite::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 100%;
+  width: 36rpx;
+  height: 3rpx;
+  margin-top: -1.5rpx;
+  border-radius: 3rpx;
+  background: linear-gradient(90deg, transparent 0%, currentColor 100%);
+  opacity: 0.55;
+  filter: blur(1rpx);
+}
+
+.odc-globe__satellite::after {
+  content: '';
+  position: absolute;
+  inset: -8rpx;
+  border-radius: 50%;
+  border: 1rpx solid currentColor;
+  opacity: 0.35;
+  animation: odc-sat-ping 2.4s ease-out infinite;
+}
+
+@keyframes odc-sat-ping {
+  0%   { transform: scale(0.6); opacity: 0.5; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+.odc-globe__satellite--1 {
+  color: #2dd4bf;
+  background: radial-gradient(circle at 35% 35%, #e8eef5 0%, #2dd4bf 55%, #0d9488 100%);
+  box-shadow:
+    0 0 12rpx #2dd4bf,
+    0 0 28rpx rgba(45, 212, 191, 0.45),
+    0 0 48rpx rgba(45, 212, 191, 0.15);
+  animation: odc-orbit-1 7s linear infinite;
+}
+
+.odc-globe__satellite--2 {
+  color: #38bdf8;
+  background: radial-gradient(circle at 35% 35%, #e8eef5 0%, #38bdf8 55%, #1d4ed8 100%);
+  box-shadow:
+    0 0 12rpx #38bdf8,
+    0 0 28rpx rgba(56, 189, 248, 0.4),
+    0 0 40rpx rgba(56, 189, 248, 0.12);
+  animation: odc-orbit-2 10s linear infinite;
+}
+
+.odc-globe__satellite--3 {
+  color: #c9a962;
+  background: radial-gradient(circle at 35% 35%, #f5f0e6 0%, #c9a962 50%, #8b6914 100%);
+  box-shadow:
+    0 0 12rpx #c9a962,
+    0 0 26rpx rgba(201, 169, 98, 0.4),
+    0 0 44rpx rgba(139, 92, 246, 0.12);
+  animation: odc-orbit-3 14s linear infinite;
+}
+
+@keyframes odc-orbit-1 {
+  from { transform: rotate(0deg) translateX(180rpx) rotate(0deg); }
+  to   { transform: rotate(360deg) translateX(180rpx) rotate(-360deg); }
+}
+
+@keyframes odc-orbit-2 {
+  from { transform: rotate(120deg) translateX(210rpx) rotate(-120deg); }
+  to   { transform: rotate(480deg) translateX(210rpx) rotate(-480deg); }
+}
+
+@keyframes odc-orbit-3 {
+  from { transform: rotate(240deg) translateX(250rpx) rotate(-240deg); }
+  to   { transform: rotate(600deg) translateX(250rpx) rotate(-600deg); }
+}
+
+/* 实时遥测数据条（HUD 横排） */
+.odc-coords {
+  position: relative;
+  margin: 0 32rpx 12rpx;
+  padding: 18rpx 22rpx;
+  border-radius: 14rpx;
+  background:
+    linear-gradient(135deg, rgba(0, 200, 255, 0.04) 0%, rgba(0, 0, 0, 0.6) 100%);
+  border: 1rpx solid rgba(0, 200, 255, 0.22);
+  overflow: hidden;
+  backdrop-filter: blur(18rpx) saturate(160%);
+  -webkit-backdrop-filter: blur(18rpx) saturate(160%);
+}
+
+.odc-coords::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 32rpx;
+  height: 1rpx;
+  background: #00C8FF;
+  box-shadow: 0 0 8rpx #00C8FF;
+}
+
+.odc-coords::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 32rpx;
+  height: 1rpx;
+  background: #00C8FF;
+  box-shadow: 0 0 8rpx #00C8FF;
+}
+
+.odc-coords__head {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  margin-bottom: 14rpx;
+}
+
+.odc-coords__head-line {
+  flex: 1;
+  height: 1rpx;
+  background: linear-gradient(90deg,
+    rgba(0, 200, 255, 0.5) 0%,
+    rgba(0, 200, 255, 0.1) 100%);
+}
+
+.odc-coords__head-label {
+  font-size: 18rpx;
+  letter-spacing: 1.6rpx;
+  color: rgba(0, 200, 255, 0.85);
+  font-family: 'SF Mono', Menlo, monospace;
+  font-weight: 600;
+}
+
+.odc-coords__head-pulse {
+  width: 8rpx;
+  height: 8rpx;
+  border-radius: 50%;
+  background: #00FF82;
+  box-shadow: 0 0 8rpx #00FF82;
+  animation: odc-blink 1.4s ease-in-out infinite;
+}
+
+.odc-coords__grid {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 4rpx;
+}
+
+.odc-coord {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4rpx;
+  padding: 0 4rpx;
+  min-width: 0;
+}
+
+.odc-coord__label {
+  font-size: 18rpx;
+  letter-spacing: 1.6rpx;
+  color: rgba(0, 200, 255, 0.7);
+  font-family: 'SF Mono', Menlo, monospace;
+  font-weight: 600;
+}
+
+.odc-coord__value {
+  font-size: 22rpx;
+  color: #fff;
+  font-family: 'SF Mono', Menlo, monospace;
+  letter-spacing: 0.4rpx;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 6rpx rgba(0, 200, 255, 0.35);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  text-align: center;
+}
+
+.odc-coord__hint {
+  font-size: 14rpx;
+  color: rgba(255, 255, 255, 0.32);
+  letter-spacing: 0.6rpx;
+  font-family: 'SF Mono', Menlo, monospace;
+  text-transform: uppercase;
+}
+
+.odc-coord__divider {
+  width: 1rpx;
+  background: linear-gradient(180deg,
+    transparent 0%,
+    rgba(0, 200, 255, 0.25) 50%,
+    transparent 100%);
+}
+
+/* 章节 */
+.odc-section {
+  position: relative;
+  margin: 24rpx 32rpx 0;
+}
+
+.odc-section__head {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-bottom: 18rpx;
+  padding-bottom: 10rpx;
+  border-bottom: 1rpx solid rgba(0, 200, 255, 0.18);
+}
+
+.odc-section__head-line {
+  width: 6rpx;
+  height: 22rpx;
+  background: linear-gradient(180deg, #00C8FF 0%, transparent 100%);
+}
+
+.odc-section__head-num {
+  font-size: 18rpx;
+  color: rgba(0, 200, 255, 0.8);
+  font-family: 'SF Mono', Menlo, monospace;
+  letter-spacing: 0.8rpx;
+}
+
+.odc-section__head-title {
+  font-size: 24rpx;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 1.4rpx;
+  font-family: 'SF Pro Display', -apple-system, sans-serif;
+}
+
+.odc-section__head-sub {
+  margin-left: auto;
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.45);
+  letter-spacing: 0.6rpx;
+}
+
+/* 核心指标 */
+.odc-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16rpx;
+}
+
+.odc-metric {
+  position: relative;
+  padding: 18rpx;
+  border-radius: 14rpx;
+  background:
+    linear-gradient(135deg, rgba(0, 200, 255, 0.06) 0%, rgba(0, 0, 0, 0.4) 100%);
+  border: 1rpx solid rgba(0, 200, 255, 0.2);
+  overflow: hidden;
+}
+
+.odc-metric::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 24rpx;
+  height: 1rpx;
+  background: #00C8FF;
+  box-shadow: 0 0 6rpx #00C8FF;
+}
+
+.odc-metric__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8rpx;
+}
+
+.odc-metric__label {
+  font-size: 18rpx;
+  letter-spacing: 1rpx;
+  color: rgba(255, 255, 255, 0.55);
+  font-family: 'SF Mono', Menlo, monospace;
+}
+
+.odc-metric__trend {
+  font-size: 18rpx;
+  padding: 2rpx 8rpx;
+  border-radius: 4rpx;
+  font-family: 'SF Mono', Menlo, monospace;
+  letter-spacing: 0.5rpx;
+}
+
+.odc-metric__trend--up {
+  background: rgba(0, 255, 130, 0.14);
+  color: #00FF82;
+}
+
+.odc-metric__trend--down {
+  background: rgba(255, 80, 80, 0.14);
+  color: #FF5050;
+}
+
+.odc-metric__trend--flat {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.odc-metric__value {
+  display: block;
+  font-size: 44rpx;
+  font-weight: 700;
+  color: #fff;
+  font-family: 'SF Mono', Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 8rpx rgba(0, 200, 255, 0.4);
+}
+
+.odc-metric__unit {
+  display: block;
+  margin-top: 2rpx;
+  font-size: 18rpx;
+  color: rgba(0, 200, 255, 0.7);
+  letter-spacing: 0.6rpx;
+}
+
+.odc-metric__bar {
+  margin-top: 12rpx;
+  height: 4rpx;
+  border-radius: 2rpx;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.odc-metric__bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #00C8FF 0%, #00FF82 100%);
+  box-shadow: 0 0 8rpx rgba(0, 200, 255, 0.6);
+  transition: width 0.6s ease;
+}
+
+/* 在轨节点 */
+.odc-node-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
+}
+
+.odc-node {
+  position: relative;
+  padding: 18rpx 20rpx;
+  border-radius: 14rpx;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1rpx solid rgba(255, 255, 255, 0.08);
+}
+
+.odc-node__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10rpx;
+}
+
+.odc-node__id {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  min-width: 0;
+}
+
+.odc-node__id-dot {
+  width: 8rpx;
+  height: 8rpx;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.odc-node__id-dot--online {
+  background: #00FF82;
+  box-shadow: 0 0 8rpx #00FF82;
+}
+
+.odc-node__id-dot--warn {
+  background: #FFB020;
+  box-shadow: 0 0 8rpx #FFB020;
+}
+
+.odc-node__id-dot--offline {
+  background: #FF5050;
+  box-shadow: 0 0 6rpx rgba(255, 80, 80, 0.4);
+}
+
+.odc-node__id-text {
+  font-size: 22rpx;
+  font-weight: 600;
+  color: #fff;
+  font-family: 'SF Mono', Menlo, monospace;
+  letter-spacing: 0.5rpx;
+}
+
+.odc-node__type {
+  font-size: 18rpx;
+  padding: 2rpx 8rpx;
+  border-radius: 4rpx;
+  background: rgba(0, 200, 255, 0.1);
+  color: rgba(0, 200, 255, 0.85);
+  letter-spacing: 0.6rpx;
+  font-family: 'SF Mono', Menlo, monospace;
+}
+
+.odc-node__body {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8rpx;
+  padding: 12rpx 0;
+  border-top: 1rpx dashed rgba(255, 255, 255, 0.08);
+  border-bottom: 1rpx dashed rgba(255, 255, 255, 0.08);
+}
+
+.odc-node__row {
+  display: flex;
+  flex-direction: column;
+  gap: 2rpx;
+}
+
+.odc-node__row-label {
+  font-size: 16rpx;
+  color: rgba(255, 255, 255, 0.4);
+  letter-spacing: 1rpx;
+  font-family: 'SF Mono', Menlo, monospace;
+}
+
+.odc-node__row-value {
+  font-size: 22rpx;
+  color: #fff;
+  font-family: 'SF Mono', Menlo, monospace;
+  letter-spacing: 0.4rpx;
+}
+
+.odc-node__footer {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  margin-top: 8rpx;
+}
+
+.odc-node__pulse {
+  width: 8rpx;
+  height: 8rpx;
+  border-radius: 50%;
+}
+
+.odc-node__pulse--online {
+  background: #00FF82;
+  animation: odc-blink 1.6s ease-in-out infinite;
+}
+
+.odc-node__pulse--warn {
+  background: #FFB020;
+  animation: odc-blink 1s ease-in-out infinite;
+}
+
+.odc-node__pulse--offline {
+  background: rgba(255, 80, 80, 0.6);
+}
+
+.odc-node__footer-text {
+  font-size: 18rpx;
+  color: rgba(255, 255, 255, 0.55);
+  letter-spacing: 0.8rpx;
+  font-family: 'SF Mono', Menlo, monospace;
+}
+
+/* 遥测数据柱图 */
+.odc-telemetry {
+  position: relative;
+  padding: 18rpx;
+  border-radius: 14rpx;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1rpx solid rgba(0, 200, 255, 0.18);
+  overflow: hidden;
+}
+
+.odc-telemetry__bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4rpx;
+  height: 140rpx;
+}
+
+.odc-telemetry__bar {
+  flex: 1;
+  background: linear-gradient(180deg, #00C8FF 0%, rgba(0, 200, 255, 0.2) 100%);
+  border-radius: 2rpx 2rpx 0 0;
+  box-shadow: 0 0 4rpx rgba(0, 200, 255, 0.4);
+  animation: odc-bar 1.6s ease-in-out infinite;
+}
+
+@keyframes odc-bar {
+  0%   { transform: scaleY(0.7); }
+  50%  { transform: scaleY(1.05); }
+  100% { transform: scaleY(0.85); }
+}
+
+.odc-telemetry__overlay {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 12rpx;
+  padding-top: 10rpx;
+  border-top: 1rpx dashed rgba(0, 200, 255, 0.18);
+}
+
+.odc-telemetry__overlay-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2rpx;
+  align-items: center;
+}
+
+.odc-telemetry__overlay-label {
+  font-size: 16rpx;
+  color: rgba(0, 200, 255, 0.65);
+  letter-spacing: 1.2rpx;
+  font-family: 'SF Mono', Menlo, monospace;
+}
+
+.odc-telemetry__overlay-value {
+  font-size: 22rpx;
+  color: #fff;
+  font-family: 'SF Mono', Menlo, monospace;
+  letter-spacing: 0.4rpx;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 时间线 */
+.odc-timeline {
+  position: relative;
+  padding-left: 8rpx;
+}
+
+.odc-timeline__item {
+  position: relative;
+  display: flex;
+  gap: 16rpx;
+  padding-bottom: 24rpx;
+}
+
+.odc-timeline__node {
+  position: relative;
+  width: 28rpx;
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.odc-timeline__node-ring {
+  position: absolute;
+  top: 4rpx;
+  width: 24rpx;
+  height: 24rpx;
+  border-radius: 50%;
+  border: 1.5rpx solid rgba(0, 200, 255, 0.5);
+  animation: odc-pulse-ring 2s ease-out infinite;
+}
+
+@keyframes odc-pulse-ring {
+  0%   { transform: scale(0.8); opacity: 0.8; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+.odc-timeline__node-dot {
+  position: absolute;
+  top: 10rpx;
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: #00C8FF;
+  box-shadow: 0 0 10rpx #00C8FF;
+  z-index: 1;
+}
+
+.odc-timeline__node-dot--done {
+  background: #00FF82;
+  box-shadow: 0 0 10rpx #00FF82;
+}
+
+.odc-timeline__node-dot--active {
+  background: #00C8FF;
+  box-shadow: 0 0 12rpx #00C8FF, 0 0 24rpx rgba(0, 200, 255, 0.5);
+}
+
+.odc-timeline__node-dot--pending {
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: none;
+}
+
+.odc-timeline__node-dot--forecast {
+  background: #A855F7;
+  box-shadow: 0 0 10rpx #A855F7;
+}
+
+.odc-timeline__line {
+  position: absolute;
+  top: 24rpx;
+  bottom: 0;
+  left: 13rpx;
+  width: 1rpx;
+  background: linear-gradient(180deg, rgba(0, 200, 255, 0.3), rgba(0, 200, 255, 0.05));
+}
+
+.odc-timeline__item:last-child .odc-timeline__line {
+  display: none;
+}
+
+.odc-timeline__content {
+  flex: 1;
+  padding: 14rpx 16rpx;
+  border-radius: 12rpx;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1rpx solid rgba(255, 255, 255, 0.08);
+}
+
+.odc-timeline__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8rpx;
+  margin-bottom: 6rpx;
+}
+
+.odc-timeline__title {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.4rpx;
+  flex: 1;
+  min-width: 0;
+}
+
+.odc-timeline__tag {
+  flex-shrink: 0;
+  font-size: 16rpx;
+  padding: 2rpx 8rpx;
+  border-radius: 4rpx;
+  letter-spacing: 0.8rpx;
+  font-family: 'SF Mono', Menlo, monospace;
+}
+
+.odc-timeline__tag--done {
+  background: rgba(0, 255, 130, 0.14);
+  color: #00FF82;
+}
+
+.odc-timeline__tag--active {
+  background: rgba(0, 200, 255, 0.14);
+  color: #00C8FF;
+}
+
+.odc-timeline__tag--pending {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.odc-timeline__tag--forecast {
+  background: rgba(168, 85, 247, 0.14);
+  color: #A855F7;
+}
+
+.odc-timeline__date {
+  display: block;
+  font-size: 18rpx;
+  color: rgba(0, 200, 255, 0.7);
+  letter-spacing: 0.8rpx;
+  font-family: 'SF Mono', Menlo, monospace;
+  margin-bottom: 6rpx;
+}
+
+.odc-timeline__desc {
+  display: block;
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.6;
+  letter-spacing: 0.3rpx;
+}
+
+/* 项目简报 */
+.odc-section--brief .odc-brief {
+  padding: 18rpx;
+  border-radius: 12rpx;
+  background: rgba(0, 0, 0, 0.5);
+  border-left: 2rpx solid rgba(0, 200, 255, 0.5);
+}
+
+.odc-brief__text {
+  display: block;
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.7);
+  line-height: 1.8;
+  margin-bottom: 12rpx;
+  letter-spacing: 0.4rpx;
+}
+
+.odc-brief__text--accent {
+  margin-bottom: 0;
+  color: rgba(0, 200, 255, 0.85);
+  font-family: 'SF Mono', Menlo, monospace;
+  letter-spacing: 0.6rpx;
+}
+
+/* 底部签名 */
+.odc-footer {
+  margin: 32rpx 32rpx 0;
+  padding: 16rpx 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+  border-top: 1rpx dashed rgba(0, 200, 255, 0.18);
+}
+
+.odc-footer__text {
+  font-size: 18rpx;
+  color: rgba(255, 255, 255, 0.35);
+  letter-spacing: 0.8rpx;
+  font-family: 'SF Mono', Menlo, monospace;
+}
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+
+/* 页面根：改用浅色页面底 */
+.odc-page.theme-light {
+  background: var(--color-bg, #F2F2F7);
+}
+
+/* 深空背景视频与星空为暗色氛围层，浅色下隐藏（保持页面明亮） */
+.theme-light .odc-bg-video-shell {
+  display: none;
+}
+
+.theme-light .odc-stars {
+  display: none;
+}
+
+/* 网格背景改中性浅灰线 */
+.theme-light .odc-grid {
+  background-image:
+    linear-gradient(rgba(0, 0, 0, 0.045) 1rpx, transparent 1rpx),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.045) 1rpx, transparent 1rpx);
+  opacity: 0.6;
+}
+
+/* 顶部 HUD：浅色玻璃 */
+.theme-light .odc-hud {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.5) 100%);
+  border-bottom: 1rpx solid var(--color-divider, rgba(0, 0, 0, 0.08));
+}
+
+.theme-light .odc-navbar__back {
+  background: rgba(0, 122, 158, 0.10);
+  border-color: rgba(0, 122, 158, 0.3);
+}
+
+.theme-light .odc-navbar__back--hover {
+  background: rgba(0, 122, 158, 0.18);
+  border-color: rgba(0, 122, 158, 0.5);
+}
+
+.theme-light .odc-navbar__back-arrow {
+  color: #007A9E;
+  text-shadow: none;
+}
+
+.theme-light .odc-navbar__title {
+  color: var(--color-text-primary, #1C1C1E);
+  text-shadow: none;
+}
+
+.theme-light .odc-hud__brand-title {
+  color: var(--color-text-primary, #1C1C1E);
+  text-shadow: none;
+}
+
+.theme-light .odc-hud__brand-sub {
+  color: rgba(0, 122, 158, 0.9);
+}
+
+.theme-light .odc-hud__status {
+  background: rgba(5, 150, 105, 0.10);
+  border-color: rgba(5, 150, 105, 0.35);
+}
+
+.theme-light .odc-hud__status-text {
+  color: #059669;
+}
+
+.theme-light .odc-hud__ticker {
+  background: rgba(0, 0, 0, 0.04);
+  border-left-color: rgba(0, 122, 158, 0.55);
+}
+
+.theme-light .odc-hud__ticker-text {
+  color: rgba(0, 122, 158, 0.95);
+}
+
+/* 全息地球：深空球体整体保持深色视觉（例外元素），
+   仅把纯白轨道粒子换成可见的中性深灰 */
+.theme-light .odc-globe__particle--1,
+.theme-light .odc-globe__particle--2,
+.theme-light .odc-globe__particle--4 {
+  background: rgba(71, 85, 105, 0.7);
+  box-shadow: 0 0 6rpx rgba(13, 148, 136, 0.3);
+}
+
+/* 实时遥测数据条 */
+.theme-light .odc-coords {
+  background: linear-gradient(135deg, rgba(0, 200, 255, 0.05) 0%, rgba(255, 255, 255, 0.85) 100%);
+  border-color: rgba(0, 122, 158, 0.25);
+}
+
+.theme-light .odc-coords__head-line {
+  background: linear-gradient(90deg,
+    rgba(0, 122, 158, 0.4) 0%,
+    rgba(0, 122, 158, 0.06) 100%);
+}
+
+.theme-light .odc-coords__head-label {
+  color: rgba(0, 122, 158, 0.9);
+}
+
+.theme-light .odc-coord__label {
+  color: rgba(0, 122, 158, 0.8);
+}
+
+.theme-light .odc-coord__value {
+  color: var(--color-text-primary, #1C1C1E);
+  text-shadow: none;
+}
+
+.theme-light .odc-coord__hint {
+  color: var(--color-text-tertiary, #86868B);
+}
+
+.theme-light .odc-coord__divider {
+  background: linear-gradient(180deg,
+    transparent 0%,
+    rgba(0, 0, 0, 0.15) 50%,
+    transparent 100%);
+}
+
+/* 章节标题 */
+.theme-light .odc-section__head {
+  border-bottom-color: var(--color-divider, rgba(0, 0, 0, 0.08));
+}
+
+.theme-light .odc-section__head-num {
+  color: rgba(0, 122, 158, 0.85);
+}
+
+.theme-light .odc-section__head-title {
+  color: var(--color-text-primary, #1C1C1E);
+}
+
+.theme-light .odc-section__head-sub {
+  color: var(--color-text-tertiary, #86868B);
+}
+
+/* 核心指标卡片 */
+.theme-light .odc-metric {
+  background: linear-gradient(135deg, rgba(0, 200, 255, 0.06) 0%, rgba(255, 255, 255, 0.9) 100%);
+  border-color: rgba(0, 122, 158, 0.22);
+  box-shadow: var(--shadow-card, 0 8rpx 24rpx rgba(0, 0, 0, 0.08));
+}
+
+.theme-light .odc-metric__label {
+  color: var(--color-text-secondary, #6E6E73);
+}
+
+.theme-light .odc-metric__trend--up {
+  background: rgba(5, 150, 105, 0.12);
+  color: #059669;
+}
+
+.theme-light .odc-metric__trend--down {
+  background: rgba(224, 49, 49, 0.10);
+  color: #E03131;
+}
+
+.theme-light .odc-metric__trend--flat {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--color-text-secondary, #6E6E73);
+}
+
+.theme-light .odc-metric__value {
+  color: var(--color-text-primary, #1C1C1E);
+  text-shadow: none;
+}
+
+.theme-light .odc-metric__unit {
+  color: rgba(0, 122, 158, 0.85);
+}
+
+.theme-light .odc-metric__bar {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+/* 在轨节点卡片 */
+.theme-light .odc-node {
+  background: var(--color-bg-card, #FFFFFF);
+  border-color: var(--color-divider, rgba(0, 0, 0, 0.08));
+  box-shadow: var(--shadow-card, 0 8rpx 24rpx rgba(0, 0, 0, 0.08));
+}
+
+.theme-light .odc-node__id-text {
+  color: var(--color-text-primary, #1C1C1E);
+}
+
+.theme-light .odc-node__type {
+  background: rgba(0, 122, 158, 0.10);
+  color: rgba(0, 122, 158, 0.95);
+}
+
+.theme-light .odc-node__body {
+  border-top-color: rgba(0, 0, 0, 0.08);
+  border-bottom-color: rgba(0, 0, 0, 0.08);
+}
+
+.theme-light .odc-node__row-label {
+  color: var(--color-text-tertiary, #86868B);
+}
+
+.theme-light .odc-node__row-value {
+  color: var(--color-text-primary, #1C1C1E);
+}
+
+.theme-light .odc-node__footer-text {
+  color: var(--color-text-secondary, #6E6E73);
+}
+
+/* 遥测柱状图（CSS 图表）：容器转浅卡片，坐标文字改中性色，柱体保持品牌渐变 */
+.theme-light .odc-telemetry {
+  background: var(--color-bg-card, #FFFFFF);
+  border-color: rgba(0, 122, 158, 0.22);
+  box-shadow: var(--shadow-card, 0 8rpx 24rpx rgba(0, 0, 0, 0.08));
+}
+
+.theme-light .odc-telemetry__overlay {
+  border-top-color: rgba(0, 0, 0, 0.1);
+}
+
+.theme-light .odc-telemetry__overlay-label {
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.theme-light .odc-telemetry__overlay-value {
+  color: var(--color-text-primary, #1C1C1E);
+}
+
+/* 任务时间线 */
+.theme-light .odc-timeline__node-dot--pending {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.theme-light .odc-timeline__line {
+  background: linear-gradient(180deg, rgba(0, 122, 158, 0.3), rgba(0, 122, 158, 0.05));
+}
+
+.theme-light .odc-timeline__content {
+  background: var(--color-bg-card, #FFFFFF);
+  border-color: var(--color-divider, rgba(0, 0, 0, 0.08));
+  box-shadow: var(--shadow-card, 0 8rpx 24rpx rgba(0, 0, 0, 0.08));
+}
+
+.theme-light .odc-timeline__title {
+  color: var(--color-text-primary, #1C1C1E);
+}
+
+.theme-light .odc-timeline__tag--done {
+  background: rgba(5, 150, 105, 0.12);
+  color: #059669;
+}
+
+.theme-light .odc-timeline__tag--active {
+  background: rgba(0, 122, 158, 0.12);
+  color: #007A9E;
+}
+
+.theme-light .odc-timeline__tag--pending {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--color-text-secondary, #6E6E73);
+}
+
+.theme-light .odc-timeline__tag--forecast {
+  background: rgba(168, 85, 247, 0.12);
+  color: #9333EA;
+}
+
+.theme-light .odc-timeline__date {
+  color: rgba(0, 122, 158, 0.85);
+}
+
+.theme-light .odc-timeline__desc {
+  color: var(--color-text-secondary, #6E6E73);
+}
+
+/* 项目简报 */
+.theme-light .odc-section--brief .odc-brief {
+  background: var(--color-bg-card, #FFFFFF);
+  border-left-color: rgba(0, 122, 158, 0.55);
+  box-shadow: var(--shadow-card, 0 8rpx 24rpx rgba(0, 0, 0, 0.08));
+}
+
+.theme-light .odc-brief__text {
+  color: var(--color-text-secondary, #6E6E73);
+}
+
+.theme-light .odc-brief__text--accent {
+  color: rgba(0, 122, 158, 0.95);
+}
+
+/* 底部签名 */
+.theme-light .odc-footer {
+  border-top-color: rgba(0, 0, 0, 0.1);
+}
+
+.theme-light .odc-footer__text {
+  color: var(--color-text-tertiary, #86868B);
+}

@@ -1,0 +1,381 @@
+page {
+  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  overflow: hidden;
+  height: 100vh;
+  width: 100%;
+}
+
+.detail-page {
+  min-height: 100vh;
+  height: 100vh;
+  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  overflow: hidden;
+}
+
+.detail-scroll {
+  height: 100vh;
+}
+
+.detail-container {
+  padding: 32rpx;
+  box-sizing: border-box;
+}
+
+.glass-card {
+  background: rgba(18, 20, 24, 0.62);
+  backdrop-filter: blur(28rpx) saturate(170%);
+  -webkit-backdrop-filter: blur(28rpx) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 28rpx;
+  box-shadow: 0 16rpx 40rpx rgba(0, 0, 0, 0.35), inset 0 1rpx 0 rgba(255, 255, 255, 0.08);
+}
+
+.detail-card {
+  padding: 28rpx;
+}
+
+/* 文章头图：与任务卡片详情一致，widthFix + 外层包裹自适应高度 */
+.hero-image-wrap {
+  width: 100%;
+  border-radius: 20rpx;
+  overflow: hidden;
+  background: transparent;
+  margin-bottom: 28rpx;
+  font-size: 0;
+  line-height: 0;
+}
+
+.hero-image {
+  display: block;
+  width: 100%;
+  background: #131313;
+}
+
+
+.article-rich-body {
+  display: block;
+  font-size: 28rpx;
+  line-height: 1.8;
+  color: #d7d7db;
+  word-break: break-word;
+}
+
+.meta-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 20rpx;
+}
+
+.type-badge {
+  max-width: 60%;
+  padding: 8rpx 18rpx;
+  border-radius: 999rpx;
+  background: rgba(0, 122, 255, 0.16);
+  border: 1px solid rgba(0, 122, 255, 0.35);
+  color: #4ea1ff;
+  font-size: 22rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.type-badge.article {
+  background: rgba(100, 210, 255, 0.14);
+  border-color: rgba(100, 210, 255, 0.32);
+  color: #7bd7ff;
+}
+
+.date-text {
+  font-size: 24rpx;
+  color: #8e8e93;
+  text-align: right;
+}
+
+.detail-title {
+  display: block;
+  font-size: 40rpx;
+  line-height: 1.45;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 28rpx;
+}
+
+/* 标题 + 翻译按钮同行（按钮不随标题换行拉伸） */
+.detail-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16rpx;
+  margin-bottom: 28rpx;
+}
+
+.detail-title-row .detail-title {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.detail-title-row .translate-toggle {
+  flex-shrink: 0;
+  margin-top: 8rpx;
+}
+
+.info-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-bottom: 28rpx;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24rpx;
+  padding: 18rpx 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.info-row:last-child {
+  border-bottom: none;
+}
+
+.info-label {
+  font-size: 26rpx;
+  color: #8e8e93;
+  flex-shrink: 0;
+}
+
+.info-value {
+  font-size: 26rpx;
+  line-height: 1.6;
+  color: #ffffff;
+  text-align: right;
+  flex: 1;
+}
+
+.info-value.live {
+  color: #ff4d4f;
+  font-weight: 600;
+}
+
+.section {
+  margin-top: 28rpx;
+}
+
+.section-title {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 18rpx;
+}
+
+.section-text {
+  display: block;
+  font-size: 28rpx;
+  line-height: 1.8;
+  color: #d7d7db;
+  white-space: pre-wrap;
+}
+
+.link-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.link-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  padding: 22rpx;
+  border-radius: 20rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.link-item.single {
+  margin-top: 4rpx;
+}
+
+.link-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.link-title {
+  display: block;
+  font-size: 28rpx;
+  color: #ffffff;
+  line-height: 1.5;
+}
+
+.link-sub {
+  display: block;
+  font-size: 24rpx;
+  line-height: 1.5;
+  color: #8e8e93;
+  margin-top: 6rpx;
+}
+
+.link-action {
+  flex-shrink: 0;
+  font-size: 24rpx;
+  color: #4ea1ff;
+}
+
+.loading-state,
+.error-state {
+  min-height: 50vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18rpx;
+  text-align: center;
+  padding: 48rpx 32rpx;
+  box-sizing: border-box;
+}
+
+.loading-spinner {
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 50%;
+  border: 4rpx solid rgba(0, 122, 255, 0.2);
+  border-top-color: #4ea1ff;
+  animation: spin 0.8s linear infinite;
+}
+
+.loading-text,
+.error-text {
+  font-size: 28rpx;
+  line-height: 1.7;
+  color: #b6b6bb;
+}
+
+.error-title {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.retry-btn {
+  margin-top: 8rpx;
+  padding: 0 28rpx;
+  height: 76rpx;
+  line-height: 76rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(135deg, #1677ff 0%, #55a3ff 100%);
+  color: #ffffff;
+  font-size: 28rpx;
+  border: none;
+}
+
+.retry-btn::after {
+  border: none;
+}
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+
+/* 页面根背景：深渐变 → 浅渐变（page{} 保持深色默认，由根 view 覆盖整屏） */
+.detail-page.theme-light {
+  background: var(--color-bg-page, linear-gradient(180deg, #F2F2F7 0%, #ECECF1 100%));
+}
+
+/* 本页自定义玻璃卡：深玻璃 → 浅玻璃，浅投影 */
+.theme-light .glass-card {
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-card), inset 0 1rpx 0 rgba(255, 255, 255, 0.85);
+}
+
+/* 头图加载占位：深灰 → 浅灰 */
+.theme-light .hero-image {
+  background: #E5E5EA;
+}
+
+/* 正文（富文本 / 纯文本）：浅灰白 → 深主文字 */
+.theme-light .article-rich-body {
+  color: var(--color-text-primary);
+}
+
+.theme-light .section-text {
+  color: var(--color-text-primary);
+}
+
+/* 类型徽章：品牌蓝保持，半透明衬底减淡，文字加深保证对比度 */
+.theme-light .type-badge {
+  background: rgba(0, 122, 255, 0.12);
+  border: 1px solid rgba(0, 122, 255, 0.25);
+  color: var(--color-brand);
+}
+
+.theme-light .type-badge.article {
+  background: rgba(100, 210, 255, 0.18);
+  border-color: rgba(0, 145, 200, 0.35);
+  color: #0071a4;
+}
+
+.theme-light .date-text {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .detail-title {
+  color: var(--color-text-primary);
+}
+
+/* 信息表格 */
+.theme-light .info-row {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .info-row:last-child {
+  border-bottom: none;
+}
+
+.theme-light .info-label {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .info-value {
+  color: var(--color-text-primary);
+}
+
+.theme-light .section-title {
+  color: var(--color-text-primary);
+}
+
+/* 相关信息 / 视频资源链接卡：白透明衬底 → 黑透明浅衬底 */
+.theme-light .link-item {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--color-divider);
+}
+
+.theme-light .link-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .link-sub {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .link-action {
+  color: var(--color-brand);
+}
+
+/* 加载 / 错误状态 */
+.theme-light .loading-spinner {
+  border-top-color: var(--color-brand);
+}
+
+.theme-light .loading-text,
+.theme-light .error-text {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .error-title {
+  color: var(--color-text-primary);
+}
+

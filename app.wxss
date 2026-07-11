@@ -1,0 +1,807 @@
+/* app.wxss */
+@import './styles/tokens.wxss';
+
+page {
+  /* 字面量黑色（= --color-bg）：tab 切换/新 webview 首帧可能先于 CSS 变量解析，
+     用 var() 会短暂回退为白底造成闪白 */
+  background-color: #000000;
+  color: var(--color-text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* 玻璃拟物效果通用类
+ * 性能：不做 backdrop-filter —— 卡片均处于纯色页面背景之上（深色 #000 / 浅色 #F2F2F7），
+ * 对纯色背景做毛玻璃视觉上无差别，但每张卡都会产生一层 GPU 实时合成（长列表滚动时发热主因之一）。
+ * 玻璃质感由半透明底色 + 描边 + 内高光阴影保留；真正悬浮在内容上方的遮罩/导航栏按需单独加 blur。 */
+.glass-card {
+  background: var(--bg-glass);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-card);
+  box-shadow: 
+    var(--shadow-card),
+    var(--shadow-glass-inset);
+  position: relative;
+  overflow: hidden;
+}
+
+.glass-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2rpx;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    rgba(255, 255, 255, 0.4) 20%,
+    rgba(255, 255, 255, 0.5) 50%,
+    rgba(255, 255, 255, 0.4) 80%,
+    transparent 100%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.glass-card::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1rpx;
+  background: rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+}
+
+/* ============== 通用骨架屏扫光（各页共享） ==============
+ * 原先首页/监控/进度/列表/邀请/订单各自重复定义同款 shimmer keyframes，统一收敛到这里。
+ * 用法：骨架节点加 skeleton-shimmer 类；尺寸/圆角仍由各页自己的骨架类控制。 */
+.skeleton-shimmer {
+  background: linear-gradient(110deg, rgba(255, 255, 255, 0.04) 30%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0.04) 70%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.4s ease infinite;
+}
+
+.theme-light .skeleton-shimmer {
+  background: linear-gradient(110deg, rgba(0, 0, 0, 0.04) 30%, rgba(0, 0, 0, 0.08) 50%, rgba(0, 0, 0, 0.04) 70%);
+  background-size: 200% 100%;
+}
+
+@keyframes skeletonShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* 卡片悬浮效果 */
+.card-hover {
+  transition: all 0.3s ease;
+}
+
+.card-hover:active {
+  transform: scale(0.98);
+  opacity: 0.8;
+}
+
+/*
+  布局防回归约束（重要）：
+  1) 主内容滚动容器必须由页面内占位块控制（navPlaceholderHeight/tabBarReservedHeight）
+  2) 禁止在全局给 .main-content-scroll 叠加固定安全区/导航栏/TabBar padding
+  3) 仅保留 0 值重置，防止旧方案残留把滚动容器挤成“非全屏”
+*/
+.main-content-scroll {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+/* 顶部导航基础定义（各页面共享） */
+.top-nav-wrapper {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  background: var(--bg-glass-nav);
+  backdrop-filter: var(--blur-nav);
+  -webkit-backdrop-filter: blur(40rpx) saturate(150%);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+/* 页面容器基础定义 */
+.container {
+  min-height: 100vh;
+  height: 100vh;
+  background: var(--color-bg-page);
+  overflow: hidden;
+}
+
+/* 内容滚动区域基础定义 */
+.content-scroll {
+  height: 100vh;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+/* 任务卡片分享按钮：全局覆盖微信 button 默认边框（部分机型需 app 级样式才生效） */
+button.mission-card-share-btn,
+button.mission-card-share-btn::after,
+button.mission-card-share-btn::before {
+  border: none !important;
+  border-width: 0 !important;
+  border-style: none !important;
+  border-color: transparent !important;
+  border-radius: 0 !important;
+}
+
+.icon-back {
+  font-size: 0;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  color: transparent;
+  line-height: 0;
+}
+
+.icon-back--nav {
+  font-size: 0;
+}
+
+.icon-share {
+  display: block;
+  opacity: 0.95;
+  flex-shrink: 0;
+}
+
+.icon-search {
+  line-height: 1;
+  color: var(--color-text-primary);
+}
+
+.icon-close {
+  line-height: 1;
+  color: var(--color-text-secondary);
+}
+
+.icon-arrow {
+  line-height: 1;
+}
+
+.icon-bell {
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.icon-bell.bell-on {
+  background-image: url("data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMTAyNCAxMDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIj48cGF0aCBkPSJNNTA5LjM1NDY2NyAxMzEuNzEyYzg3Ljg5MzMzMy0xNC40MjEzMzMgMTczLjQ0IDEzLjkwOTMzMyAyMzMuODk4NjY2IDc0LjI0YTI2NS44OTg2NjcgMjY1Ljg5ODY2NyAwIDAgMSA3Ny45OTQ2NjcgMTg4LjcxNDY2N3YxMzYuMTA2NjY2YzAgMjcuODYxMzMzIDEyLjY3MiA1NC4xODY2NjcgMzcuMDM0NjY3IDczLjk4NGwzLjYyNjY2NiAyLjk4NjY2N2MyMy44OTMzMzMgMjIuMDU4NjY3IDM3LjY3NDY2NyA1My4xNjI2NjcgMzcuNjc0NjY3IDg1LjkzMDY2N3YxMC41Mzg2NjZjMCA0MS4xMzA2NjctMzMuMzY1MzMzIDc0LjQ1MzMzMy03NC40NTMzMzMgNzQuNDUzMzM0aC0xNjAuMjEzMzM0djIuOTg2NjY2YzAgNTIuNzM2LTM1LjExNDY2NyA5OS45MjUzMzMtODUuMTIgMTExLjUzMDY2N2wtNi44NjkzMzMgMS4zMjI2NjdhMTEwLjI5MzMzMyAxMTAuMjkzMzMzIDAgMCAxLTEyOC40NjkzMzMtMTA4LjcxNDY2N3YtNy4xNjhsLTE2MC4yNTYgMC4wNDI2NjdhNzQuNDUzMzMzIDc0LjQ1MzMzMyAwIDAgMS03NC4xOTczMzQtNjguMzk0NjY3bC0wLjI1Ni02LjEwMTMzM3YtMTAuNjY2NjY3YTExNi45MDY2NjcgMTE2LjkwNjY2NyAwIDAgMSA0My44MTg2NjctOTEuMDkzMzMzbDUuNjc0NjY3LTQuOTQ5MzM0YzE4LjI2MTMzMy0xNy4yOCAyOC42NzItNDEuMzg2NjY3IDI4LjY3Mi02Ni42NDUzMzNWNDAyLjk0NGMwLTEzMy4yOTA2NjcgOTMuMjI2NjY3LTI1MC4xOTczMzMgMjIxLjQ0LTI3MS4yMzJ6IG05MS41MiA2NDYuOTU0NjY3aC05Mi40NTg2Njd2Ny4xMjUzMzNjMCAyNi43OTQ2NjcgMjIuNDg1MzMzIDQ3LjY1ODY2NyA0OS4xOTQ2NjcgNDYuMDhsNS4wNzczMzMtMC41MTJjMjEuNDYxMzMzLTMuNDk4NjY3IDM4LjIyOTMzMy0yNC45MTczMzMgMzguMjI5MzMzLTQ5LjcwNjY2N2wtMC4wNDI2NjYtMi45ODY2NjZ6IG05Ny4xMDkzMzMtNTI3LjQ0NTMzNGMtNDUuOTk0NjY3LTQ1LjkwOTMzMy0xMTAuODkwNjY3LTY3LjQxMzMzMy0xNzguMjYxMzMzLTU2LjMyLTk2LjQyNjY2NyAxNS43ODY2NjctMTY3LjgwOCAxMDUuMjU4NjY3LTE2Ny44MDggMjA4LjA0MjY2N3YxMjcuODcyYTE1NS45MDQgMTU1LjkwNCAwIDAgMS01OC4zMjUzMzQgMTIxLjU1NzMzMyA1Mi45MDY2NjcgNTIuOTA2NjY3IDAgMCAwLTE5Ljg0IDQxLjE3MzMzNHYxMC42NjY2NjZjMCA1Ljc2IDQuNjkzMzMzIDEwLjQ1MzMzMyAxMC40NTMzMzQgMTAuNDUzMzM0aDU0MC44ODUzMzNjNS44MDI2NjcgMCA5LjQ1MzMzMy00LjY5MzMzMyAxMC40NTMzMzMtMTAuNDUzMzM0di0xMC41Mzg2NjZjMC0xNi4wNDI2NjctNy4yNTMzMzMtMzEuMjMyLTIyLjQ0MjY2Ni00My42MDUzMzRsMi41NiAyLjI2MTMzNGExNTUuNzc2IDE1NS43NzYgMCAwIDEtNTguNDEwNjY3LTEyMS41NTczMzRWMzk0LjY2NjY3YTIwMS44OTg2NjcgMjAxLjg5ODY2NyAwIDAgMC01OS4yNjQtMTQzLjQ0NTMzNHoiIGZpbGw9IiNmZmZmZmYiPjwvcGF0aD48L3N2Zz4=");
+}
+
+.icon-bell.bell-off {
+  background-image: url("data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMTAyNCAxMDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIj48cGF0aCBkPSJNNTA5LjM1NDY2NyAxMzEuNzEyYzg3Ljg5MzMzMy0xNC40MjEzMzMgMTczLjQ0IDEzLjkwOTMzMyAyMzMuODk4NjY2IDc0LjI0YTI2NS44OTg2NjcgMjY1Ljg5ODY2NyAwIDAgMSA3Ny45OTQ2NjcgMTg4LjcxNDY2N3YxMzYuMTA2NjY2YzAgMjcuODYxMzMzIDEyLjY3MiA1NC4xODY2NjcgMzcuMDM0NjY3IDczLjk4NGwzLjYyNjY2NiAyLjk4NjY2N2MyMy44OTMzMzMgMjIuMDU4NjY3IDM3LjY3NDY2NyA1My4xNjI2NjcgMzcuNjc0NjY3IDg1LjkzMDY2N3YxMC41Mzg2NjZjMCA0MS4xMzA2NjctMzMuMzY1MzMzIDc0LjQ1MzMzMy03NC40NTMzMzMgNzQuNDUzMzM0aC0xNjAuMjEzMzM0djIuOTg2NjY2YzAgNTIuNzM2LTM1LjExNDY2NyA5OS45MjUzMzMtODUuMTIgMTExLjUzMDY2N2wtNi44NjkzMzMgMS4zMjI2NjdhMTEwLjI5MzMzMyAxMTAuMjkzMzMzIDAgMCAxLTEyOC40NjkzMzMtMTA4LjcxNDY2N3YtNy4xNjhsLTE2MC4yNTYgMC4wNDI2NjdhNzQuNDUzMzMzIDc0LjQ1MzMzMyAwIDAgMS03NC4xOTczMzQtNjguMzk0NjY3bC0wLjI1Ni02LjEwMTMzM3YtMTAuNjY2NjY3YTExNi45MDY2NjcgMTE2LjkwNjY2NyAwIDAgMSA0My44MTg2NjctOTEuMDkzMzMzbDUuNjc0NjY3LTQuOTQ5MzM0YzE4LjI2MTMzMy0xNy4yOCAyOC42NzItNDEuMzg2NjY3IDI4LjY3Mi02Ni42NDUzMzNWNDAyLjk0NGMwLTEzMy4yOTA2NjcgOTMuMjI2NjY3LTI1MC4xOTczMzMgMjIxLjQ0LTI3MS4yMzJ6IG05MS41MiA2NDYuOTU0NjY3aC05Mi40NTg2Njd2Ny4xMjUzMzNjMCAyNi43OTQ2NjcgMjIuNDg1MzMzIDQ3LjY1ODY2NyA0OS4xOTQ2NjcgNDYuMDhsNS4wNzczMzMtMC41MTJjMjEuNDYxMzMzLTMuNDk4NjY3IDM4LjIyOTMzMy0yNC45MTczMzMgMzguMjI5MzMzLTQ5LjcwNjY2N2wtMC4wNDI2NjYtMi45ODY2NjZ6IG05Ny4xMDkzMzMtNTI3LjQ0NTMzNGMtNDUuOTk0NjY3LTQ1LjkwOTMzMy0xMTAuODkwNjY3LTY3LjQxMzMzMy0xNzguMjYxMzMzLTU2LjMyLTk2LjQyNjY2NyAxNS43ODY2NjctMTY3LjgwOCAxMDUuMjU4NjY3LTE2Ny44MDggMjA4LjA0MjY2N3YxMjcuODcyYTE1NS45MDQgMTU1LjkwNCAwIDAgMS01OC4zMjUzMzQgMTIxLjU1NzMzMyA1Mi45MDY2NjcgNTIuOTA2NjY3IDAgMCAwLTE5Ljg0IDQxLjE3MzMzNHYxMC42NjY2NjZjMCA1Ljc2IDQuNjkzMzMzIDEwLjQ1MzMzMyAxMC40NTMzMzQgMTAuNDUzMzM0aDU0MC44ODUzMzNjNS44MDI2NjcgMCA5LjQ1MzMzMy00LjY5MzMzMyAxMC40NTMzMzMtMTAuNDUzMzM0di0xMC41Mzg2NjZjMC0xNi4wNDI2NjctNy4yNTMzMzMtMzEuMjMyLTIyLjQ0MjY2Ni00My42MDUzMzRsMi41NiAyLjI2MTMzNGExNTUuNzc2IDE1NS43NzYgMCAwIDEtNTguNDEwNjY3LTEyMS41NTczMzRWMzk0LjY2NjY3YTIwMS44OTg2NjcgMjAxLjg5ODY2NyAwIDAgMC01OS4yNjQtMTQzLjQ0NTMzNHoiIGZpbGw9IiNmZmZmZmYiPjwvcGF0aD48bGluZSB4MT0iMTgwIiB5MT0iMTgwIiB4Mj0iODQ0IiB5Mj0iODQ0IiBzdHJva2U9IiNGRjNCMzAiIHN0cm9rZS13aWR0aD0iNjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvc3ZnPg==");
+}
+
+.top-nav--page-grid {
+  display: grid;
+  /* minmax(0, 1fr)：两侧列不受内容最小宽度影响、永远等宽，标题任何时机都严格居中
+     （纯 1fr 时左槽 min-width 88rpx 而右槽为 0，menuButtonWidth 未注入的首帧标题会偏右） */
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  padding: 24rpx 24rpx 0;
+  min-height: 96rpx;
+}
+
+.top-nav-slot--back {
+  justify-self: start;
+  min-width: 88rpx;
+  height: 64rpx;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.top-nav-slot--back::after {
+  content: '';
+  display: block;
+  width: 20rpx;
+  height: 20rpx;
+  border-top: 4rpx solid #ffffff;
+  border-left: 4rpx solid #ffffff;
+  transform: rotate(-45deg);
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+/* 分享卡片直接进入 → 返回按钮变为主页图标 */
+.top-nav-slot--home::after {
+  width: 40rpx;
+  height: 40rpx;
+  border: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3Cpolyline points='9 22 9 12 15 12 15 22'/%3E%3C/svg%3E") no-repeat center / contain;
+  transform: none;
+}
+
+.nav-title--page-grid {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  justify-self: center;
+  max-width: 360rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.top-nav-slot--spacer {
+  justify-self: end;
+  min-width: 88rpx;
+  height: 64rpx;
+}
+
+.top-nav--page-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 70rpx 30rpx 0rpx;
+  gap: 20rpx;
+  min-height: 90rpx;
+}
+
+.nav-title--page-center {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.nav-title--viewer {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  flex: 1;
+  text-align: center;
+}
+
+.top-nav--viewer-balance {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 30rpx 30rpx 0rpx;
+  gap: 20rpx;
+  min-height: 90rpx;
+}
+
+.nav-back--viewer {
+  width: 60rpx;
+  height: 60rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.nav-back--viewer::after {
+  content: '';
+  display: block;
+  width: 20rpx;
+  height: 20rpx;
+  border-top: 4rpx solid #ffffff;
+  border-left: 4rpx solid #ffffff;
+  transform: rotate(-45deg);
+  box-sizing: border-box;
+}
+
+.nav-back--viewer.nav-back--home::after {
+  width: 36rpx;
+  height: 36rpx;
+  border: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3Cpolyline points='9 22 9 12 15 12 15 22'/%3E%3C/svg%3E") no-repeat center / contain;
+  transform: none;
+}
+
+.nav-placeholder--viewer {
+  width: 60rpx;
+  flex-shrink: 0;
+}
+
+/* 地图页顶部导航：4 张地图页共享样式 */
+.map-page .top-nav-wrapper {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+}
+
+.map-page .top-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24rpx 24rpx 0;
+}
+
+.map-page .nav-back,
+.map-page .nav-placeholder {
+  min-width: 80rpx;
+  height: 60rpx;
+  border-radius: 999rpx;
+  background: rgba(18, 18, 20, 0.72);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(16rpx);
+}
+
+.map-page .nav-back {
+  font-size: 0;
+}
+
+.map-page .nav-back text {
+  font-size: 0;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  color: transparent;
+  line-height: 0;
+}
+
+.map-page .nav-back::after {
+  content: '';
+  display: block;
+  width: 20rpx;
+  height: 20rpx;
+  border-top: 4rpx solid #ffffff;
+  border-left: 4rpx solid #ffffff;
+  transform: rotate(-45deg);
+  box-sizing: border-box;
+}
+
+.map-page .nav-back.nav-back--home::after {
+  width: 36rpx;
+  height: 36rpx;
+  border: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3Cpolyline points='9 22 9 12 15 12 15 22'/%3E%3C/svg%3E") no-repeat center / contain;
+  transform: none;
+}
+
+.map-page .nav-placeholder {
+  opacity: 0;
+}
+
+.map-page .nav-title {
+  color: #fff;
+  font-size: 32rpx;
+  font-weight: 600;
+}
+
+/* 地图工具容器：4 张地图页共享样式 */
+.map-page .map-action-container {
+  position: absolute;
+  right: 24rpx;
+  z-index: 21;
+  width: 220rpx;
+  padding: 14rpx;
+  border-radius: 24rpx;
+  box-sizing: border-box;
+}
+
+.map-page .map-action-container--collapsed {
+  padding: 12rpx 14rpx;
+}
+
+.map-page .map-action-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  min-height: 48rpx;
+}
+
+.map-page .map-action-title {
+  flex: 1;
+  min-width: 0;
+  display: block;
+  color: #fff;
+  font-size: 22rpx;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.map-page .map-action-toggle-btn {
+  flex-shrink: 0;
+  min-width: 84rpx;
+  min-height: 48rpx;
+  padding: 0 14rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.map-page .map-action-toggle-btn text {
+  display: block;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 18rpx;
+  line-height: 1;
+  text-align: center;
+}
+
+.map-page .map-action-stack {
+  margin-top: 12rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.map-page .map-action-btn {
+  width: 100%;
+  min-width: 0;
+  height: 60rpx;
+  padding: 0 20rpx;
+  border-radius: 999rpx;
+  background: rgba(18, 18, 20, 0.72);
+  color: #fff;
+  font-size: 22rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  backdrop-filter: blur(16rpx);
+}
+
+.map-page .map-action-btn text {
+  display: block;
+  width: 100%;
+  text-align: center;
+  line-height: 1.2;
+}
+
+/* 地图页底部面板：3 张地图页共享样式 */
+.map-page .panel {
+  position: absolute;
+  left: 20rpx;
+  right: 20rpx;
+  bottom: 24rpx;
+  z-index: 10;
+  border-radius: 30rpx;
+  padding: 24rpx;
+}
+
+.map-page .panel--collapsed {
+  padding: 18rpx 20rpx 16rpx;
+}
+
+.map-page .mini-summary-row {
+  margin-top: 10rpx;
+  padding: 10rpx 14rpx;
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.map-page .mini-summary-text {
+  display: block;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 20rpx;
+  line-height: 1.4;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.map-page .panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 18rpx;
+}
+
+.map-page .panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.map-page .panel-toggle-btn {
+  min-width: 84rpx;
+  min-height: 48rpx;
+  padding: 0 14rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.map-page .panel-toggle-btn text {
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 18rpx;
+  line-height: 1;
+}
+
+.map-page .panel-title {
+  display: block;
+  color: #fff;
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+/* ========== 公共动画 & 加载组件（从各页面提取去重） ========== */
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes triggerFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8rpx);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dotBounce {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translateY(-6rpx);
+    opacity: 1;
+  }
+}
+
+/* 上拉临界进度条 */
+.preload-progress-wrap {
+  padding: 8rpx 0 8rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10rpx;
+  animation: triggerFadeIn 0.18s ease;
+}
+
+.preload-progress-track {
+  width: 360rpx;
+  height: 8rpx;
+  border-radius: 999rpx;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.preload-progress-fill {
+  height: 100%;
+  border-radius: 999rpx;
+  background: linear-gradient(90deg, #2f8fff 0%, #7ec3ff 100%);
+  transition: width 0.12s linear;
+}
+
+.preload-progress-text {
+  font-size: 22rpx;
+  color: #7da6d9;
+}
+
+/* 上拉触发反馈 */
+.load-trigger {
+  padding: 20rpx 0 10rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12rpx;
+  animation: triggerFadeIn 0.22s ease;
+}
+
+.trigger-dots {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.trigger-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: rgba(0, 122, 255, 0.9);
+  animation: dotBounce 0.8s ease-in-out infinite;
+}
+
+.dot-2 {
+  animation-delay: 0.12s;
+}
+
+.dot-3 {
+  animation-delay: 0.24s;
+}
+
+.load-trigger-text {
+  font-size: 22rpx;
+  color: #84b7ff;
+}
+
+/* 行内加载指示器 */
+.loading-spinner {
+  width: 22rpx;
+  height: 22rpx;
+  border-radius: 50%;
+  border: 3rpx solid rgba(0, 122, 255, 0.22);
+  border-top-color: #4da0ff;
+  animation: spin 0.75s linear infinite;
+}
+
+/* PRO 用户金边按钮（描边 + 外发光 + 金光扫描；默认用于绝大多数入口） */
+.pro-gold-frame {
+  position: relative;
+  border: 2rpx solid #ffd27a !important;
+  box-shadow:
+    0 0 0 1rpx rgba(255, 196, 92, 0.35),
+    0 0 18rpx rgba(255, 196, 92, 0.45),
+    inset 0 0 14rpx rgba(255, 196, 92, 0.15) !important;
+}
+
+.pro-gold-frame::after {
+  content: '';
+  position: absolute;
+  left: -2rpx;
+  right: -2rpx;
+  top: -2rpx;
+  bottom: -2rpx;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(120deg, transparent 30%, rgba(255, 220, 140, 0.55) 50%, transparent 70%);
+  background-size: 200% 100%;
+  mix-blend-mode: screen;
+  animation: proGoldShine 3.2s linear infinite;
+  opacity: 0.55;
+}
+
+@keyframes proGoldShine {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* 仅首页「即将推出」筛选胶囊 & Progress「事件更新」账号条：纯色细金边，无扫描、无外发光 */
+.pro-gold-frame-flat {
+  position: relative;
+  border: 2rpx solid #ffd27a !important;
+  box-shadow: none !important;
+}
+
+/* 页面级"翻译/原文"按钮（全局通用，utils/text-translate.js 配套，整体 1.2 倍） */
+.translate-toggle {
+  padding: 3rpx 22rpx;
+  font-size: 26rpx;
+  font-weight: 400;
+  color: #4a9eff;
+  border: 1px solid rgba(74, 158, 255, 0.45);
+  border-radius: 999rpx;
+  line-height: 1.6;
+  letter-spacing: 0;
+}
+
+.translate-toggle--busy {
+  color: #8e8e93;
+  border-color: rgba(142, 142, 147, 0.4);
+}
+
+.translate-toggle--active {
+  color: #ffffff;
+  background: rgba(74, 158, 255, 0.35);
+  border-color: rgba(74, 158, 255, 0.6);
+}
+
+/* 标题行内还有其他右侧元素（箭头/展开）时：翻译按钮靠右并留出间距 */
+.translate-toggle--inline {
+  margin-left: auto;
+  margin-right: 16rpx;
+}
+
+/* ============================================================
+ * 明亮主题：全局公共类覆盖
+ * （变量类样式已由 tokens.wxss 的 .theme-light 变量自动切换，
+ *  这里只补写死颜色的伪元素 / 图标 / 高光）
+ * ============================================================ */
+
+/* 玻璃卡片顶部高光与底部压线：浅色下减淡 */
+.theme-light .glass-card::before {
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.9) 20%,
+    rgba(255, 255, 255, 1) 50%,
+    rgba(255, 255, 255, 0.9) 80%,
+    transparent 100%);
+}
+
+.theme-light .glass-card::after {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+/* 返回箭头（白描边 → 深描边） */
+.theme-light .top-nav-slot--back::after,
+.theme-light .nav-back--viewer::after {
+  border-top-color: #1C1C1E;
+  border-left-color: #1C1C1E;
+}
+
+/* 主页图标（分享冷启动入口） */
+.theme-light .top-nav-slot--home::after,
+.theme-light .nav-back--viewer.nav-back--home::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231C1C1E' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3Cpolyline points='9 22 9 12 15 12 15 22'/%3E%3C/svg%3E");
+}
+
+/* —— 地图页共享 UI（导航胶囊 / 工具按钮 / 底部面板文字）浅色适配 —— */
+.theme-light.map-page .nav-back,
+.theme-light.map-page .nav-placeholder,
+.map-page.theme-light .nav-back,
+.map-page.theme-light .nav-placeholder {
+  background: rgba(255, 255, 255, 0.85);
+  color: #1C1C1E;
+}
+
+.map-page.theme-light .nav-back::after {
+  border-top-color: #1C1C1E;
+  border-left-color: #1C1C1E;
+}
+
+.map-page.theme-light .nav-back.nav-back--home::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231C1C1E' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3Cpolyline points='9 22 9 12 15 12 15 22'/%3E%3C/svg%3E");
+}
+
+.map-page.theme-light .nav-title {
+  color: #1C1C1E;
+}
+
+.map-page.theme-light .map-action-title {
+  color: #1C1C1E;
+}
+
+.map-page.theme-light .map-action-toggle-btn,
+.map-page.theme-light .panel-toggle-btn {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.map-page.theme-light .map-action-toggle-btn text,
+.map-page.theme-light .panel-toggle-btn text {
+  color: rgba(28, 28, 30, 0.82);
+}
+
+.map-page.theme-light .map-action-btn {
+  background: rgba(255, 255, 255, 0.85);
+  color: #1C1C1E;
+}
+
+.map-page.theme-light .mini-summary-row {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.map-page.theme-light .mini-summary-text {
+  color: rgba(28, 28, 30, 0.82);
+}
+
+.map-page.theme-light .panel-title {
+  color: #1C1C1E;
+}
+
+/* 上拉进度条轨道 */
+.theme-light .preload-progress-track {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.theme-light .preload-progress-text {
+  color: #5a7ea8;
+}
+
+.theme-light .load-trigger-text {
+  color: #3a7fd6;
+}

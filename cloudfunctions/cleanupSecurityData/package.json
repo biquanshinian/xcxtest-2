@@ -1,0 +1,9 @@
+{
+  "name": "cleanupSecurityData",
+  "version": "1.0.0",
+  "description": "定时清理 security_rate_limits / security_gateway_cache / security_blacklist / security_daily_usage 中过期或历史数据，避免集合无限增长",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "latest"
+  }
+}

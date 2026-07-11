@@ -1,0 +1,295 @@
+<!-- 太空轨道数据中心系统：超科幻指挥控制台 -->
+<view class="odc-page {{themeClass}}">
+
+  <!-- 背景视频层（与年鉴页同款） -->
+  <view class="odc-bg-video-shell" wx:if="{{odcBgVideoPlaySrc}}" aria-hidden="true">
+    <video
+      id="odcBgVideo"
+      class="odc-bg-video"
+      src="{{odcBgVideoPlaySrc}}"
+      object-fit="cover"
+      autoplay="{{true}}"
+      loop="{{true}}"
+      muted="{{true}}"
+      show-center-play-btn="{{false}}"
+      show-play-btn="{{false}}"
+      controls="{{false}}"
+      enable-progress-gesture="{{false}}"
+      show-fullscreen-btn="{{false}}"
+      show-mute-btn="{{false}}"
+      vslide-gesture-in-fullscreen="{{false}}"
+    />
+    <view class="odc-bg-video-fade"></view>
+  </view>
+
+  <!-- 背景星空层 -->
+  <view class="odc-stars">
+    <view class="odc-star" wx:for="{{starList}}" wx:key="id" style="left:{{item.x}}%;top:{{item.y}}%;animation-delay:{{item.delay}}s;animation-duration:{{item.duration}}s;width:{{item.size}}rpx;height:{{item.size}}rpx;"></view>
+  </view>
+
+  <!-- 顶层网格 -->
+  <view class="odc-grid"></view>
+
+  <!-- 顶部 HUD -->
+  <view class="odc-hud" style="padding-top: {{statusBarHeight}}px;">
+    <!-- 自定义导航栏 -->
+    <view class="odc-navbar" style="height: {{navBarHeight}}px;">
+      <view class="odc-navbar__back" bindtap="onBack" hover-class="odc-navbar__back--hover">
+        <view class="odc-navbar__back-arrow">‹</view>
+      </view>
+      <text class="odc-navbar__title">ORBITAL DATA CENTER</text>
+    </view>
+
+    <!-- 品牌区（在胶囊下方） -->
+    <view class="odc-hud__row">
+      <view class="odc-hud__brand">
+        <view class="odc-hud__brand-mark">
+          <view class="odc-hud__brand-ring"></view>
+          <view class="odc-hud__brand-dot"></view>
+        </view>
+        <view class="odc-hud__brand-text">
+          <text class="odc-hud__brand-title">{{hudTitle}}</text>
+          <text class="odc-hud__brand-sub">{{hudSub}}</text>
+        </view>
+      </view>
+      <view class="odc-hud__status">
+        <view class="odc-hud__status-dot"></view>
+        <text class="odc-hud__status-text">{{statusText}}</text>
+      </view>
+    </view>
+
+    <view class="odc-hud__ticker">
+      <text class="odc-hud__ticker-text">{{tickerText}}</text>
+    </view>
+  </view>
+
+  <scroll-view class="odc-scroll" scroll-y="true" enhanced="true" show-scrollbar="false">
+
+    <!-- 中央全息地球 · 轨道可视化 -->
+    <view class="odc-globe">
+      <view class="odc-globe__ambience" aria-hidden="true"></view>
+      <view class="odc-globe__nebula" aria-hidden="true"></view>
+      <view class="odc-globe__scan" aria-hidden="true"></view>
+      <view class="odc-globe__planes" aria-hidden="true">
+        <view class="odc-globe__plane odc-globe__plane--1"></view>
+        <view class="odc-globe__plane odc-globe__plane--2"></view>
+        <view class="odc-globe__plane odc-globe__plane--3"></view>
+      </view>
+      <view class="odc-globe__rings">
+        <view class="odc-globe__ring odc-globe__ring--1">
+          <view class="odc-globe__ring-glow"></view>
+          <view class="odc-globe__ring-arc odc-globe__ring-arc--a"></view>
+        </view>
+        <view class="odc-globe__ring odc-globe__ring--2">
+          <view class="odc-globe__ring-glow"></view>
+          <view class="odc-globe__ring-arc odc-globe__ring-arc--b"></view>
+        </view>
+        <view class="odc-globe__ring odc-globe__ring--3">
+          <view class="odc-globe__ring-glow"></view>
+          <view class="odc-globe__ring-arc odc-globe__ring-arc--c"></view>
+        </view>
+      </view>
+      <view class="odc-globe__sphere">
+        <view class="odc-globe__sphere-shine" aria-hidden="true"></view>
+        <view class="odc-globe__meridian odc-globe__meridian--1"></view>
+        <view class="odc-globe__meridian odc-globe__meridian--2"></view>
+        <view class="odc-globe__meridian odc-globe__meridian--3"></view>
+        <view class="odc-globe__parallel odc-globe__parallel--1"></view>
+        <view class="odc-globe__parallel odc-globe__parallel--2"></view>
+        <view class="odc-globe__parallel odc-globe__parallel--3"></view>
+        <view class="odc-globe__core"></view>
+        <view class="odc-globe__glass" aria-hidden="true"></view>
+      </view>
+      <view class="odc-globe__particles" aria-hidden="true">
+        <view class="odc-globe__particle odc-globe__particle--1"></view>
+        <view class="odc-globe__particle odc-globe__particle--2"></view>
+        <view class="odc-globe__particle odc-globe__particle--3"></view>
+        <view class="odc-globe__particle odc-globe__particle--4"></view>
+        <view class="odc-globe__particle odc-globe__particle--5"></view>
+        <view class="odc-globe__particle odc-globe__particle--6"></view>
+      </view>
+      <view class="odc-globe__satellite odc-globe__satellite--1"></view>
+      <view class="odc-globe__satellite odc-globe__satellite--2"></view>
+      <view class="odc-globe__satellite odc-globe__satellite--3"></view>
+    </view>
+
+    <!-- 实时遥测数据条（HUD 横排） -->
+    <view class="odc-coords">
+      <view class="odc-coords__head">
+        <view class="odc-coords__head-line"></view>
+        <text class="odc-coords__head-label">LIVE TELEMETRY</text>
+        <view class="odc-coords__head-pulse"></view>
+      </view>
+      <view class="odc-coords__grid">
+        <view class="odc-coord">
+          <text class="odc-coord__label">LAT</text>
+          <text class="odc-coord__value">{{liveCoords.lat}}</text>
+          <text class="odc-coord__hint">latitude</text>
+        </view>
+        <view class="odc-coord__divider"></view>
+        <view class="odc-coord">
+          <text class="odc-coord__label">LON</text>
+          <text class="odc-coord__value">{{liveCoords.lon}}</text>
+          <text class="odc-coord__hint">longitude</text>
+        </view>
+        <view class="odc-coord__divider"></view>
+        <view class="odc-coord">
+          <text class="odc-coord__label">ALT</text>
+          <text class="odc-coord__value">{{liveCoords.alt}}</text>
+          <text class="odc-coord__hint">altitude</text>
+        </view>
+        <view class="odc-coord__divider"></view>
+        <view class="odc-coord">
+          <text class="odc-coord__label">VEL</text>
+          <text class="odc-coord__value">{{liveCoords.vel}}</text>
+          <text class="odc-coord__hint">velocity</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 核心指标矩阵 -->
+    <view class="odc-section">
+      <view class="odc-section__head">
+        <view class="odc-section__head-line"></view>
+        <text class="odc-section__head-num">[01]</text>
+        <text class="odc-section__head-title">CORE METRICS</text>
+        <text class="odc-section__head-sub">核心指标矩阵</text>
+      </view>
+      <view class="odc-metric-grid">
+        <view class="odc-metric" wx:for="{{coreMetrics}}" wx:key="id" wx:for-item="m">
+          <view class="odc-metric__top">
+            <text class="odc-metric__label">{{m.label}}</text>
+            <view class="odc-metric__trend odc-metric__trend--{{m.trend}}">
+              <text>{{m.delta}}</text>
+            </view>
+          </view>
+          <text class="odc-metric__value">{{m.value}}</text>
+          <text class="odc-metric__unit">{{m.unit}}</text>
+          <view class="odc-metric__bar">
+            <view class="odc-metric__bar-fill" style="width:{{m.percent}}%"></view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 在轨节点列表 -->
+    <view class="odc-section">
+      <view class="odc-section__head">
+        <view class="odc-section__head-line"></view>
+        <text class="odc-section__head-num">[02]</text>
+        <text class="odc-section__head-title">ORBITAL NODES</text>
+        <text class="odc-section__head-sub">在轨节点 · 实时遥测</text>
+      </view>
+      <view class="odc-node-list">
+        <view class="odc-node" wx:for="{{nodeList}}" wx:key="id">
+          <view class="odc-node__head">
+            <view class="odc-node__id">
+              <view class="odc-node__id-dot odc-node__id-dot--{{item.status}}"></view>
+              <text class="odc-node__id-text">{{item.code}}</text>
+            </view>
+            <text class="odc-node__type">{{item.type}}</text>
+          </view>
+          <view class="odc-node__body">
+            <view class="odc-node__row">
+              <text class="odc-node__row-label">ORBIT</text>
+              <text class="odc-node__row-value">{{item.orbit}}</text>
+            </view>
+            <view class="odc-node__row">
+              <text class="odc-node__row-label">UPLINK</text>
+              <text class="odc-node__row-value">{{item.uplink}}</text>
+            </view>
+            <view class="odc-node__row">
+              <text class="odc-node__row-label">LATENCY</text>
+              <text class="odc-node__row-value">{{item.latency}}</text>
+            </view>
+          </view>
+          <view class="odc-node__footer">
+            <view class="odc-node__pulse odc-node__pulse--{{item.status}}"></view>
+            <text class="odc-node__footer-text">{{item.statusText}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 数据流脉冲监控 -->
+    <view class="odc-section">
+      <view class="odc-section__head">
+        <view class="odc-section__head-line"></view>
+        <text class="odc-section__head-num">[03]</text>
+        <text class="odc-section__head-title">DATA TELEMETRY</text>
+        <text class="odc-section__head-sub">遥测数据流</text>
+      </view>
+      <view class="odc-telemetry">
+        <view class="odc-telemetry__bars">
+          <view class="odc-telemetry__bar" wx:for="{{telemetryBars}}" wx:key="*this" wx:for-item="h" wx:for-index="i" style="height:{{h}}%;animation-delay:{{i * 0.05}}s;"></view>
+        </view>
+        <view class="odc-telemetry__overlay">
+          <view class="odc-telemetry__overlay-row">
+            <text class="odc-telemetry__overlay-label">TX</text>
+            <text class="odc-telemetry__overlay-value">{{telemetryStats.tx}}</text>
+          </view>
+          <view class="odc-telemetry__overlay-row">
+            <text class="odc-telemetry__overlay-label">RX</text>
+            <text class="odc-telemetry__overlay-value">{{telemetryStats.rx}}</text>
+          </view>
+          <view class="odc-telemetry__overlay-row">
+            <text class="odc-telemetry__overlay-label">PKT</text>
+            <text class="odc-telemetry__overlay-value">{{telemetryStats.pkt}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 任务时间线 -->
+    <view class="odc-section">
+      <view class="odc-section__head">
+        <view class="odc-section__head-line"></view>
+        <text class="odc-section__head-num">[04]</text>
+        <text class="odc-section__head-title">MISSION TIMELINE</text>
+        <text class="odc-section__head-sub">超前部署任务清单</text>
+      </view>
+      <view class="odc-timeline">
+        <view class="odc-timeline__item" wx:for="{{missionList}}" wx:key="id">
+          <view class="odc-timeline__node">
+            <view class="odc-timeline__node-ring"></view>
+            <view class="odc-timeline__node-dot odc-timeline__node-dot--{{item.status}}"></view>
+          </view>
+          <view class="odc-timeline__line"></view>
+          <view class="odc-timeline__content">
+            <view class="odc-timeline__head">
+              <text class="odc-timeline__title">{{item.title}}</text>
+              <view class="odc-timeline__tag odc-timeline__tag--{{item.status}}">
+                <text>{{item.statusText}}</text>
+              </view>
+            </view>
+            <text class="odc-timeline__date">{{item.date}}</text>
+            <text class="odc-timeline__desc">{{item.desc}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 项目说明 -->
+    <view class="odc-section odc-section--brief">
+      <view class="odc-section__head">
+        <view class="odc-section__head-line"></view>
+        <text class="odc-section__head-num">[05]</text>
+        <text class="odc-section__head-title">PROJECT BRIEF</text>
+        <text class="odc-section__head-sub">项目简报</text>
+      </view>
+      <view class="odc-brief">
+        <text wx:for="{{briefLines}}" wx:key="*this" wx:for-item="line" class="odc-brief__text {{line.accent ? 'odc-brief__text--accent' : ''}}">{{line.text}}</text>
+      </view>
+    </view>
+
+    <!-- 底部签名 -->
+    <view class="odc-footer">
+      <text class="odc-footer__text">// 系统时间 {{systemTime}}</text>
+      <text class="odc-footer__text">// 节点同步 {{lastSync}}</text>
+      <text class="odc-footer__text">// © Mars Logs Research · {{currentYear}}</text>
+    </view>
+
+    <view style="height: 40rpx"></view>
+  </scroll-view>
+
+</view>

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "openapi": []
+  },
+  "timeout": 60,
+  "triggers": [
+    {
+      "name": "publishBilibiliTimer",
+      "type": "timer",
+      "config": "0 */10 * * * * *"
+    }
+  ]
+}

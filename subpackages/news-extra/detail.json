@@ -1,0 +1,16 @@
+{
+  "navigationBarTitleText": "航天事件详情",
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "light",
+  "backgroundColor": "#000000",
+  "navigationStyle": "custom",
+  "usingComponents": {
+    "privacy-modal": "/components/privacy-modal/privacy-modal",
+    "share-guide": "/subpackages/shared/components/share-guide/index",
+    "official-account-publish-panel": "/subpackages/shared/components/official-account-publish-panel/index"
+  },
+  "componentPlaceholder": {
+    "share-guide": "view",
+    "official-account-publish-panel": "view"
+  }
+}

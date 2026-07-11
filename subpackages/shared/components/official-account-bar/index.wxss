@@ -1,0 +1,151 @@
+/* 关注公众号 — 深色太空主题外层包装（原生组件内部样式不可改） */
+.official-account-bar {
+  width: 100%;
+  margin: var(--space-md, 20rpx) 0 var(--space-xs, 12rpx);
+  box-sizing: border-box;
+}
+
+.official-account-card {
+  width: 100%;
+  padding: var(--space-sm, 14rpx) var(--space-md, 20rpx) var(--space-xs, 12rpx);
+  border-radius: var(--radius-card, 24rpx);
+  background: var(--bg-glass, rgba(30, 30, 30, 0.35));
+  backdrop-filter: var(--blur-card, blur(30rpx) saturate(180%));
+  -webkit-backdrop-filter: blur(30rpx) saturate(180%);
+  border: 1px solid var(--color-divider, rgba(255, 255, 255, 0.1));
+  box-shadow:
+    var(--shadow-card, 0 8rpx 24rpx rgba(0, 0, 0, 0.3)),
+    var(--shadow-glass-inset, inset 0 1rpx 0 rgba(255, 255, 255, 0.12));
+  box-sizing: border-box;
+  overflow: hidden;
+  position: relative;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.official-account-card--dragging {
+  transition: none;
+}
+
+.official-account-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2rpx;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(0, 122, 255, 0.35) 30%,
+    rgba(120, 192, 255, 0.45) 50%,
+    rgba(0, 122, 255, 0.35) 70%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+/* 关闭按钮 — 简报 popup-close 同款，尺寸缩小 50% */
+.popup-close {
+  box-sizing: border-box;
+  position: absolute;
+  top: 3rpx;
+  right: 3rpx;
+  z-index: 2;
+  width: 44rpx;
+  height: 44rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 22rpx;
+  background: var(--color-divider);
+  flex-shrink: 0;
+}
+
+.popup-close--hover {
+  background: var(--color-divider-strong);
+}
+
+.popup-close-icon {
+  font-size: 14rpx;
+  color: var(--color-text-secondary);
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* 自定义标题区 — 替代原生灰色说明文案的视觉角色 */
+.official-account-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm, 14rpx);
+  padding: 0 40rpx 0 4rpx;
+  padding-bottom: var(--space-sm, 14rpx);
+}
+
+.official-account-icon-wrap {
+  flex-shrink: 0;
+  width: 52rpx;
+  height: 52rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-circle, 50%);
+  background: rgba(0, 122, 255, 0.14);
+  border: 1px solid var(--color-brand-soft);
+}
+
+.official-account-icon {
+  font-size: 26rpx;
+  line-height: 1;
+  color: #7ec3ff;
+}
+
+.official-account-header-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.official-account-title {
+  font-size: var(--font-size-md, 28rpx);
+  font-weight: var(--font-weight-semibold, 600);
+  color: var(--color-text-primary, #ffffff);
+  line-height: var(--line-height-tight, 1.2);
+}
+
+.official-account-subtitle {
+  font-size: var(--font-size-sm, 22rpx);
+  color: var(--color-text-secondary, #8e8e93);
+  line-height: var(--line-height-normal, 1.45);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * 原生组件裁剪区：
+ * - 上移隐藏微信内置灰色说明文案
+ * - 仅露出白色横条，减少与深色背景反差
+ */
+.official-account-native-wrap {
+  position: relative;
+  width: 100%;
+  height: 116rpx;
+  overflow: hidden;
+  border-radius: var(--radius-md, 16rpx);
+  background: var(--bg-glass);
+  border: 1px solid var(--color-divider-faint);
+}
+
+.official-account-native-inner {
+  width: 100%;
+  height: 168rpx;
+  transform: translateY(-52rpx);
+}
+
+.official-account-native-inner official-account {
+  display: block;
+  width: 100%;
+  height: 168rpx;
+}

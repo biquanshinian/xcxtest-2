@@ -1,0 +1,5 @@
+<view wx:if="{{visible}}" class="sgc-pill {{ended ? 'sgc-ended' : ''}}">
+  <view class="sgc-dot"></view>
+  <text class="sgc-label">{{ended ? '限时查看已结束' : '限时查看'}}</text>
+  <text wx:if="{{!ended}}" class="sgc-time">{{timeText}}</text>
+</view>

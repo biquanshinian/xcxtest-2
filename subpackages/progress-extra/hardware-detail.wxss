@@ -1,0 +1,414 @@
+/* hardware-detail.wxss —— 星舰硬件设施详情页（全局深色玻璃风格） */
+page {
+  background: #000;
+  color: #fff;
+}
+
+.detail-page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+}
+
+/* 导航标题包裹层：min-width:0 允许在 grid 中收缩，flex 保证标题始终水平居中 */
+.nav-title-wrap {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.detail-scroll {
+  height: 100vh;
+}
+
+/* 加载/错误 */
+.loading-wrap, .error-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-top: 200rpx;
+}
+.loading-text {
+  font-size: 28rpx;
+  color: #636366;
+}
+.error-icon {
+  font-size: 64rpx;
+  margin-bottom: 20rpx;
+}
+.error-text {
+  font-size: 28rpx;
+  color: #8E8E93;
+  margin-bottom: 30rpx;
+}
+.error-btn {
+  font-size: 28rpx;
+  color: #007AFF;
+  padding: 12rpx 40rpx;
+  border: 1px solid rgba(0, 122, 255, 0.3);
+  border-radius: 999rpx;
+}
+
+.detail-body {
+  padding: 20rpx 32rpx 0;
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 24rpx;
+  overflow: hidden;
+}
+
+/* 头图：widthFix 按原图比例自适应高度，不再固定高裁切（与任务详情页一致） */
+.hero-wrap {
+  position: relative;
+  width: 100%;
+  border-radius: 24rpx;
+  overflow: hidden;
+  background: #131313;
+  margin-bottom: 20rpx;
+  /* 消除 inline image 底部基线缝隙 */
+  font-size: 0;
+  line-height: 0;
+}
+.hero-img {
+  width: 100%;
+  display: block;
+}
+/* 仅底部渐变收边，不再叠信息浮层（与火箭型号详情页一致） */
+.hero-gradient {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 140rpx;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
+  pointer-events: none;
+}
+/* 信息头：状态/名称在头图下方 */
+.info-header {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+  margin-bottom: 20rpx;
+  padding: 0 4rpx;
+}
+.hero-status {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
+.hero-title {
+  font-size: 52rpx;
+  font-weight: 700;
+  color: #FFFFFF;
+  line-height: 1.15;
+  align-self: flex-start;
+}
+
+/* 状态四态 */
+.status-dot {
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 50%;
+  background: #8E8E93;
+  box-shadow: 0 0 8rpx rgba(142, 142, 147, 0.55);
+}
+.status-value {
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #8E8E93;
+  letter-spacing: 1rpx;
+}
+.status-active .status-dot {
+  background: #34C759;
+  box-shadow: 0 0 10rpx rgba(52, 199, 89, 0.7);
+}
+.status-active .status-value {
+  color: #34C759;
+}
+.status-destroyed .status-dot {
+  background: #FF3B30;
+  box-shadow: 0 0 10rpx rgba(255, 59, 48, 0.7);
+}
+.status-destroyed .status-value {
+  color: #FF3B30;
+}
+.status-expended .status-dot {
+  background: #FF9500;
+  box-shadow: 0 0 10rpx rgba(255, 149, 0, 0.7);
+}
+.status-expended .status-value {
+  color: #FF9500;
+}
+.status-retired .status-dot {
+  background: #8E8E93;
+}
+.status-retired .status-value {
+  color: #8E8E93;
+}
+
+/* 贴图讨论区 */
+.discussion-section {
+  padding: 20rpx 24rpx;
+  margin-bottom: 20rpx;
+}
+
+/* 类型徽标 */
+.meta-row {
+  display: flex;
+  gap: 14rpx;
+  margin-bottom: 20rpx;
+}
+.meta-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48rpx;
+  padding: 0 22rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-sizing: border-box;
+}
+.meta-badge text {
+  color: #C7C7CC;
+  font-size: 22rpx;
+  line-height: 1;
+}
+.meta-badge--blue {
+  background: rgba(10, 132, 255, 0.16);
+  border-color: rgba(10, 132, 255, 0.42);
+}
+.meta-badge--blue text {
+  color: #9FD0FF;
+}
+
+/* 简介 */
+.summary-card {
+  padding: 26rpx 28rpx;
+  margin-bottom: 32rpx;
+}
+.summary-text {
+  font-size: 28rpx;
+  color: #C7C7CC;
+  line-height: 1.7;
+  text-align: justify;
+}
+
+/* 测试与飞行记录 */
+.manifest-section {
+  margin-bottom: 24rpx;
+}
+.manifest-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 14rpx;
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #FFFFFF;
+  margin-bottom: 18rpx;
+}
+.manifest-count {
+  font-size: 22rpx;
+  font-weight: 400;
+  color: #8E8E93;
+}
+/* 翻译按钮统一靠标题行最右侧 */
+.manifest-heading .translate-toggle {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.manifest-loading {
+  padding: 30rpx 0;
+  text-align: center;
+}
+.manifest-loading text {
+  font-size: 26rpx;
+  color: #636366;
+}
+.manifest-empty {
+  padding: 40rpx 30rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.manifest-empty text {
+  font-size: 26rpx;
+  color: #8E8E93;
+}
+.manifest-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18rpx;
+}
+.manifest-item {
+  padding: 24rpx 26rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+.manifest-item-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+.manifest-item-name {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #FFFFFF;
+  flex: 1;
+  min-width: 0;
+}
+.manifest-item-date {
+  font-size: 22rpx;
+  color: #8E8E93;
+  flex-shrink: 0;
+}
+.manifest-item-location {
+  font-size: 24rpx;
+  color: #9FD0FF;
+}
+.manifest-item-notes {
+  font-size: 24rpx;
+  color: #AEAEB2;
+  line-height: 1.6;
+}
+.manifest-item-video {
+  margin-top: 6rpx;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  min-height: 48rpx;
+  padding: 0 22rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 69, 58, 0.14);
+  border: 1px solid rgba(255, 69, 58, 0.35);
+  box-sizing: border-box;
+}
+.manifest-item-video text {
+  color: #FFB4AD;
+  font-size: 22rpx;
+  line-height: 1;
+}
+
+/* 数据来源 */
+.source-note {
+  padding: 8rpx 0 0;
+  text-align: center;
+}
+.source-note text {
+  font-size: 22rpx;
+  color: #48484A;
+}
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+.detail-page.theme-light {
+  background: var(--color-bg-page);
+}
+.theme-light .loading-text {
+  color: var(--color-text-tertiary);
+}
+.theme-light .error-text {
+  color: var(--color-text-secondary);
+}
+.theme-light .glass-card {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-card);
+}
+/* hero-wrap 深底占位保持：照片加载前后均为深色内容 */
+/* hero-gradient 压在照片上，保持深色收边 */
+.theme-light .hero-title {
+  color: var(--color-text-primary);
+}
+/* 状态色（active/destroyed/expended）为品牌/状态色，保持；仅中性灰随主题 */
+.theme-light .status-value {
+  color: var(--color-text-secondary);
+}
+.theme-light .status-dot {
+  background: var(--color-text-secondary);
+  box-shadow: 0 0 8rpx rgba(0, 0, 0, 0.12);
+}
+.theme-light .status-active .status-dot {
+  background: #34C759;
+  box-shadow: 0 0 10rpx rgba(52, 199, 89, 0.7);
+}
+.theme-light .status-active .status-value {
+  color: #34C759;
+}
+.theme-light .status-destroyed .status-dot {
+  background: #FF3B30;
+  box-shadow: 0 0 10rpx rgba(255, 59, 48, 0.7);
+}
+.theme-light .status-destroyed .status-value {
+  color: #FF3B30;
+}
+.theme-light .status-expended .status-dot {
+  background: #FF9500;
+  box-shadow: 0 0 10rpx rgba(255, 149, 0, 0.7);
+}
+.theme-light .status-expended .status-value {
+  color: #FF9500;
+}
+.theme-light .status-retired .status-dot {
+  background: var(--color-text-secondary);
+}
+.theme-light .status-retired .status-value {
+  color: var(--color-text-secondary);
+}
+.theme-light .meta-badge {
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--color-divider);
+}
+.theme-light .meta-badge text {
+  color: var(--color-text-secondary);
+}
+.theme-light .meta-badge--blue {
+  background: rgba(10, 132, 255, 0.12);
+  border-color: rgba(10, 132, 255, 0.35);
+}
+.theme-light .meta-badge--blue text {
+  color: #0a6fd6;
+}
+.theme-light .summary-text {
+  color: var(--color-text-secondary);
+}
+.theme-light .manifest-heading {
+  color: var(--color-text-primary);
+}
+.theme-light .manifest-count {
+  color: var(--color-text-tertiary);
+}
+.theme-light .manifest-loading text {
+  color: var(--color-text-tertiary);
+}
+.theme-light .manifest-empty text {
+  color: var(--color-text-secondary);
+}
+.theme-light .manifest-item-name {
+  color: var(--color-text-primary);
+}
+.theme-light .manifest-item-date {
+  color: var(--color-text-tertiary);
+}
+.theme-light .manifest-item-location {
+  color: #0a6fd6;
+}
+.theme-light .manifest-item-notes {
+  color: var(--color-text-secondary);
+}
+.theme-light .manifest-item-video {
+  background: rgba(255, 69, 58, 0.1);
+  border: 1px solid rgba(255, 69, 58, 0.3);
+}
+.theme-light .manifest-item-video text {
+  color: #d70015;
+}
+.theme-light .source-note text {
+  color: var(--color-text-quaternary);
+}

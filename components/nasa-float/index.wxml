@@ -1,0 +1,51 @@
+<!-- NASA 悬浮菜单：可拖拽，点击展开纵向菜单 -->
+
+<!-- 拖拽粒子拖影 -->
+<view wx:for="{{particles}}" wx:key="id" class="drag-particle"
+      style="left:{{item.x}}px; top:{{item.y}}px; opacity:{{item.opacity}}; transform:scale({{item.scale}});"></view>
+
+<!-- 展开时的遮罩 -->
+<view wx:if="{{expanded}}" class="float-mask" catchtap="onMaskTap"></view>
+
+<!-- 展开的菜单项（主按钮上方纵向列表，星问AI在最下方贴近 FAB） -->
+<view wx:if="{{visible && windowWidth > 0 && expanded}}" class="float-menu"
+      style="right: {{windowWidth - btnX - btnSize}}px; bottom: {{windowHeight - btnY + 12}}px;">
+  <scroll-view scroll-y class="float-menu-scroll" enhanced show-scrollbar="{{false}}"
+               style="max-height: {{menuMaxHeight}}px;">
+    <view class="float-menu-list">
+      <view
+        class="float-menu-item {{item.key === 'aichat' ? 'float-menu-item--ai' : ''}}"
+        wx:for="{{menuItems}}"
+        wx:key="key"
+        catchtap="onMenuTap"
+        data-key="{{item.key}}"
+      >
+        <view class="float-menu-item-icon">
+          <image wx:if="{{item.image}}" class="float-menu-img {{item.invert ? 'float-menu-img--invert' : ''}}" src="{{item.image}}" mode="aspectFit" />
+          <text wx:else class="float-menu-icon">{{item.icon}}</text>
+          <view class="float-menu-dot" wx:if="{{dotMap[item.key]}}"></view>
+        </view>
+        <text class="float-menu-label">{{item.label}}</text>
+      </view>
+    </view>
+  </scroll-view>
+</view>
+
+<!-- 主按钮 -->
+<view
+  wx:if="{{visible && windowWidth > 0}}"
+  class="nasa-float-wrap {{expanded ? 'nasa-float-wrap--active' : ''}}"
+  style="left: {{btnX}}px; top: {{btnY}}px;"
+  catchtouchstart="onTouchStart"
+  catchtouchmove="onTouchMove"
+  catchtouchend="onTouchEnd"
+>
+  <view class="nasa-float-icon">
+    <image wx:if="{{!expanded}}" class="nasa-float-svg" src="/images/tabbar/home.svg" mode="aspectFit" />
+    <text wx:else class="nasa-float-close">✕</text>
+  </view>
+  <view class="nasa-float-badge" wx:if="{{badgeCount > 0 && !expanded}}">
+    <text class="nasa-float-badge-text">{{badgeCount > 99 ? '99+' : badgeCount}}</text>
+  </view>
+  <view class="nasa-float-dot" wx:if="{{showDot && !expanded && badgeCount <= 0}}"></view>
+</view>

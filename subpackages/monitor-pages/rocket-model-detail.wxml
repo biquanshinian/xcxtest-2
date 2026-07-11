@@ -1,0 +1,170 @@
+<view class="container {{themeClass}}">
+  <!-- 自定义导航栏 -->
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+    <page-progress active="{{loading}}" />
+  </view>
+  <!-- 全屏滚动骨架：内容从磨砂导航栏下方穿过，加载/错误态也在滚动区内 -->
+  <scroll-view scroll-y class="detail-scroll">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <!-- 加载中：内容区留白，进度由导航栏下方的 page-progress 绿色进度条呈现 -->
+    <block wx:if="{{loading}}"></block>
+
+    <!-- 错误 -->
+    <view class="error-wrap" wx:elif="{{errorMessage}}">
+      <text class="error-icon">⚠️</text>
+      <text class="error-text">{{errorMessage}}</text>
+      <view class="error-btn" bindtap="onRetryLoad">重试</view>
+    </view>
+
+    <!-- 详情内容 -->
+    <block wx:elif="{{model}}">
+
+    <!-- Hero 构型大图 -->
+    <view class="hero-section" bindtap="onHeroImageTap">
+      <image class="hero-img {{heroImageLoaded ? 'hero-img--loaded' : ''}}"
+             wx:if="{{model.imageUrl}}"
+             src="{{model.imageUrl}}"
+             mode="aspectFill"
+             bindload="onHeroImageLoad" />
+      <view class="hero-img hero-placeholder" wx:else>
+        <text class="hero-placeholder-icon"></text>
+      </view>
+      <view class="hero-gradient"></view>
+      <view class="hero-credit-btn" wx:if="{{model.imageCredit}}">
+        <text class="hero-credit-text">{{model.imageCredit}}</text>
+      </view>
+    </view>
+
+    <!-- 贴图讨论区：型号详情头图下方；话题取火箭名称，组件内已截断至 20 字 -->
+    <view class="model-discuss-wrap">
+      <official-account-publish-panel topic="{{model.name || model.fullName || '火箭族谱讨论'}}" />
+    </view>
+
+    <!-- 型号信息头 -->
+    <view class="info-header">
+      <view class="info-name-row">
+        <text class="info-name">{{model.fullName}}</text>
+        <text class="info-flag" wx:if="{{model.countryFlag}}">{{model.countryFlag}}</text>
+      </view>
+      <text class="info-alias" wx:if="{{model.alias}}">{{model.alias}}</text>
+      <view class="info-tags">
+        <text class="info-tag info-tag--mfr info-tag--link" wx:if="{{model.manufacturer}}" bindtap="onTapManufacturer">{{model.manufacturerDisplay || model.manufacturer}}<text class="info-tag-arrow">›</text></text>
+        <text class="info-tag info-tag--reusable" wx:if="{{model.reusable}}">可复用</text>
+        <text class="info-tag info-tag--variant" wx:if="{{model.variant}}">{{model.variant}}</text>
+        <text class="info-tag info-tag--pending" wx:if="{{!model.hasFlown}}">首飞待定</text>
+      </view>
+    </view>
+
+    <!-- 描述 -->
+    <view class="desc-section" wx:if="{{model.description}}">
+      <view class="desc-title-row">
+        <text class="desc-title">型号简介</text>
+        <text class="translate-toggle {{descTranslating ? 'translate-toggle--busy' : ''}}" catchtap="onToggleDescTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
+      </view>
+      <text class="desc-text" user-select="{{true}}">{{descI18n.modelDesc || model.description}}</text>
+    </view>
+
+    <!-- 回收方式卡（数据驱动：reusable + 描述关键词 → landing-icons） -->
+    <view class="recovery-card glass-card" wx:if="{{model.recovery}}">
+      <text class="section-label">回收方式</text>
+      <view class="recovery-row">
+        <image class="recovery-icon" wx:if="{{model.recovery.icon}}" src="{{model.recovery.icon}}" mode="aspectFit" />
+        <view class="recovery-info">
+          <text class="recovery-label">{{model.recovery.label}}</text>
+          <text class="recovery-desc">{{model.recovery.desc}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 规格网格 -->
+    <view class="spec-section glass-card" wx:if="{{model.specs.length > 0}}">
+      <text class="section-label">技术规格</text>
+      <view class="spec-grid">
+        <view class="spec-item" wx:for="{{model.specs}}" wx:for-item="spec" wx:key="label">
+          <text class="spec-label">{{spec.label}}</text>
+          <text class="spec-value">{{spec.value}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 回收战绩（构型级） -->
+    <view class="record-section glass-card" wx:if="{{model.hasRecord}}">
+      <text class="section-label">发射与回收战绩</text>
+      <view class="record-grid">
+        <view class="record-item">
+          <text class="record-value">{{model.record.totalLaunches}}</text>
+          <text class="record-label">总发射</text>
+        </view>
+        <view class="record-item">
+          <text class="record-value">{{model.record.successfulLandings}}</text>
+          <text class="record-label">成功着陆</text>
+        </view>
+        <view class="record-item">
+          <text class="record-value">{{model.record.attemptedLandings}}</text>
+          <text class="record-label">着陆尝试</text>
+        </view>
+        <view class="record-item">
+          <text class="record-value">{{model.record.landingRate || '—'}}</text>
+          <text class="record-label">着陆成功率</text>
+        </view>
+        <view class="record-item">
+          <text class="record-value">{{model.record.consecutiveLandings}}</text>
+          <text class="record-label">连续成功着陆</text>
+        </view>
+        <view class="record-item" wx:if="{{model.record.fastestTurnaroundText}}">
+          <text class="record-value record-value--turnaround">⚡ {{model.record.fastestTurnaroundText}}</text>
+          <text class="record-label">最快周转</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 旗下箭实体 -->
+    <view class="fleet-section">
+      <text class="section-label section-label--fleet">旗下箭实体<text class="fleet-count" wx:if="{{boosterCards.length}}"> · {{boosterCards.length}}</text></text>
+      <view class="fleet-list" wx:if="{{boosterCards.length > 0}}">
+        <view class="fleet-card glass-card" wx:for="{{boosterCards}}" wx:key="serial"
+              data-serial="{{item.serial}}" bindtap="onBoosterCardTap">
+          <view class="fleet-img-wrap">
+            <image class="fleet-img {{imageLoadedMap['f' + index] ? 'fleet-img--loaded' : ''}}"
+                   wx:if="{{item.thumbnailUrl}}" src="{{item.thumbnailUrl}}" mode="aspectFill" lazy-load
+                   data-img-key="f{{index}}" data-index="{{index}}" bindload="onFleetImageLoad" binderror="onFleetImageError" />
+            <view class="fleet-img fleet-img--placeholder" wx:else></view>
+          </view>
+          <view class="fleet-body">
+            <view class="fleet-serial-row">
+              <text class="fleet-serial">{{item.serial}}</text>
+              <text class="fleet-status fleet-status--{{item.status}}">{{item.statusText}}</text>
+            </view>
+            <view class="fleet-stats-row">
+              <text class="fleet-stat">{{item.flights}} 飞行</text>
+              <text class="fleet-stat">{{item.successfulLandings}} 着陆</text>
+              <text class="fleet-stat" wx:if="{{item.fastestTurnaroundText}}">⚡ {{item.fastestTurnaroundText}}</text>
+            </view>
+            <view class="fleet-flights-bar">
+              <view class="flight-block {{flight.pending ? 'flight-pending' : (flight.success ? 'flight-success' : (flight.failed ? 'flight-fail' : 'flight-unknown'))}}"
+                    wx:for="{{item.flightBlocks}}" wx:for-item="flight" wx:key="idx"></view>
+            </view>
+          </view>
+          <view class="fleet-arrow">›</view>
+        </view>
+      </view>
+      <view class="fleet-empty glass-card" wx:else>
+        <text class="fleet-empty-text">暂无箭实体记录 · 首飞待定</text>
+        <text class="fleet-empty-hint">该型号首飞后 LL2 将收录箭体档案，届时自动展示</text>
+      </view>
+    </view>
+
+    <view style="height: {{tabBarReservedHeight + 40}}px;"></view>
+    </block>
+  </scroll-view>
+  <share-guide />
+  <share-gate-countdown expire-at="{{shareGateExpireAt}}" />
+</view>

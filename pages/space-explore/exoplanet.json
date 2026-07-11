@@ -1,0 +1,10 @@
+{
+  "navigationBarTitleText": "系外行星",
+  "navigationStyle": "custom",
+  "usingComponents": {
+    "share-guide": "/subpackages/shared/components/share-guide/index"
+  },
+  "componentPlaceholder": {
+    "share-guide": "view"
+  }
+}

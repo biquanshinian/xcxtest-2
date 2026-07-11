@@ -1,0 +1,121 @@
+<view wx:if="{{visible}}" class="renewal-mask" catchtouchmove="noop">
+  <view class="renewal-popup">
+    <!-- 顶部星空光晕装饰 -->
+    <view class="renewal-glow"></view>
+    <view class="renewal-stars">
+      <view class="renewal-star s1"></view>
+      <view class="renewal-star s2"></view>
+      <view class="renewal-star s3"></view>
+      <view class="renewal-star s4"></view>
+      <view class="renewal-star s5"></view>
+      <view class="renewal-star s6"></view>
+    </view>
+
+    <view class="renewal-close" hover-class="renewal-close--hover" bindtap="onClose">
+      <text class="renewal-close-icon">✕</text>
+    </view>
+
+    <!-- ══ 变体一：PRO 临期续费提醒 ══ -->
+    <view class="renewal-body" wx:if="{{mode === 'renewal'}}">
+      <view class="renewal-badge-wrap">
+        <image class="renewal-badge" src="{{memberIcon}}" mode="aspectFit" />
+        <view class="renewal-badge-ring"></view>
+      </view>
+
+      <view class="renewal-title">
+        {{expired ? '星际通行证已到期' : '星际通行证即将到期'}}
+      </view>
+
+      <view class="renewal-days" wx:if="{{!expired}}">
+        <text class="renewal-days-num">{{daysLeft}}</text>
+        <text class="renewal-days-unit">天后到期</text>
+      </view>
+      <view class="renewal-days renewal-days--expired" wx:else>
+        <text class="renewal-days-unit">PRO 权益已暂停</text>
+      </view>
+
+      <view class="renewal-date">有效期至 {{expireDateText}}</view>
+
+      <view class="renewal-perks">
+        <view class="renewal-perk">
+          <view class="renewal-perk-dot"></view>
+          <text>AI 助手与图像识别不限次</text>
+        </view>
+        <view class="renewal-perk">
+          <view class="renewal-perk-dot"></view>
+          <text>星链 AR·遥测面板等全部功能</text>
+        </view>
+        <view class="renewal-perk">
+          <view class="renewal-perk-dot"></view>
+          <text>续费后有效期自动顺延，不损失一天</text>
+        </view>
+      </view>
+
+      <button class="renewal-btn" hover-class="renewal-btn--hover" bindtap="onRenew">
+        {{expired ? '立即恢复 PRO' : '立即续费'}}
+      </button>
+      <view class="renewal-later" hover-class="renewal-later--hover" bindtap="onClose">暂不需要</view>
+    </view>
+
+    <!-- ══ 变体二：免费用户升级推荐 ══ -->
+    <view class="renewal-body" wx:else>
+      <view class="renewal-badge-wrap">
+        <image class="renewal-badge" src="{{memberIcon}}" mode="aspectFit" />
+        <view class="renewal-badge-ring"></view>
+      </view>
+
+      <view class="renewal-title">升级星际通行证</view>
+      <view class="promo-subtitle">解锁完整的太空探索体验</view>
+
+      <view class="promo-benefits">
+        <view class="promo-benefit">
+          <view class="promo-benefit-icon">
+            <text>∞</text>
+          </view>
+          <view class="promo-benefit-info">
+            <text class="promo-benefit-name">AI 无限对话与识图</text>
+            <text class="promo-benefit-desc">太空助手不限次提问 · 图像识别不限量</text>
+          </view>
+        </view>
+        <view class="promo-benefit">
+          <view class="promo-benefit-icon">
+            <text>◎</text>
+          </view>
+          <view class="promo-benefit-info">
+            <text class="promo-benefit-name">7 天过境预报</text>
+            <text class="promo-benefit-desc">星链卫星未来 7 天精确过境预报</text>
+          </view>
+        </view>
+        <view class="promo-benefit">
+          <view class="promo-benefit-icon">
+            <text>▶</text>
+          </view>
+          <view class="promo-benefit-info">
+            <text class="promo-benefit-name">纯净体验 + 高清下载</text>
+            <text class="promo-benefit-desc">去除弹窗广告 · 图片视频原图下载</text>
+          </view>
+        </view>
+        <view class="promo-benefit">
+          <view class="promo-benefit-icon">
+            <text>★</text>
+          </view>
+          <view class="promo-benefit-info">
+            <text class="promo-benefit-name">会员专属徽章</text>
+            <text class="promo-benefit-desc">专属成就与金色边框，身份一目了然</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="promo-price-row">
+        <text class="promo-price-hint">月卡 ¥{{priceMonthly}} 起</text>
+        <view class="promo-price-divider"></view>
+        <text class="promo-price-hint promo-price-hint--em">年卡 ¥{{priceYearly}} 更划算</text>
+      </view>
+
+      <button class="renewal-btn" hover-class="renewal-btn--hover" bindtap="onRenew">
+        查看会员权益
+      </button>
+      <view class="renewal-later" hover-class="renewal-later--hover" bindtap="onClose">以后再说</view>
+    </view>
+  </view>
+</view>

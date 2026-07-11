@@ -1,0 +1,92 @@
+<view class="container {{themeClass}}">
+  <!-- 顶部导航 -->
+  <view class="top-nav-wrapper" style="padding-top:{{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">邀请得月卡</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view class="content-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <!-- 加载骨架 -->
+    <view class="iv-skeleton" wx:if="{{loading}}">
+      <view class="iv-skeleton-card skeleton-shimmer"></view>
+      <view class="iv-skeleton-card iv-skeleton-card--tall skeleton-shimmer"></view>
+    </view>
+
+    <!-- 加载失败 -->
+    <view class="iv-error" wx:elif="{{errorMessage}}">
+      <text class="iv-error-icon">⚠️</text>
+      <text class="iv-error-text">{{errorMessage}}</text>
+      <view class="iv-retry-btn" bindtap="onRetry">重试</view>
+    </view>
+
+    <block wx:else>
+      <!-- 规则卡：一句话 -->
+      <view class="iv-rule-card">
+        <text class="iv-rule-icon">🎁</text>
+        <text class="iv-rule-text">每邀请 {{threshold}} 位好友点开小程序，自动获得 {{cardDays}} 天星际通行证，可无限叠加</text>
+      </view>
+
+      <!-- 进度卡 -->
+      <view class="iv-progress-card">
+        <view class="iv-progress-head">
+          <text class="iv-progress-title">本轮进度</text>
+          <text class="iv-progress-count">{{roundCount}}<text class="iv-progress-total">/{{threshold}}</text></text>
+        </view>
+        <view class="iv-progress-bar">
+          <view class="iv-progress-fill" style="width: {{progressPercent}}%;"></view>
+        </view>
+        <view class="iv-stat-row">
+          <view class="iv-stat-item">
+            <text class="iv-stat-value">{{validCount}}</text>
+            <text class="iv-stat-label">累计有效邀请</text>
+          </view>
+          <view class="iv-stat-item">
+            <text class="iv-stat-value">{{cardsGranted}}</text>
+            <text class="iv-stat-label">已得月卡</text>
+          </view>
+          <view class="iv-stat-item">
+            <text class="iv-stat-value">{{totalDays}}</text>
+            <text class="iv-stat-label">累计天数</text>
+          </view>
+        </view>
+        <text class="iv-granted-tip" wx:if="{{cardsGranted > 0}}">月卡已自动到账，无需手动领取</text>
+      </view>
+
+      <!-- 邀请按钮 -->
+      <button class="iv-share-btn" open-type="share" hover-class="iv-share-btn--pressed">
+        邀请好友
+      </button>
+
+      <!-- 邀请记录 -->
+      <view class="iv-records">
+        <text class="iv-records-title">邀请记录</text>
+        <view class="iv-record-item" wx:for="{{records}}" wx:key="id">
+          <text class="iv-record-text">好友已进入</text>
+          <text class="iv-record-time">{{item.timeText}}</text>
+        </view>
+        <view class="iv-empty" wx:if="{{records.length === 0}}">
+          <text class="iv-empty-text">暂无记录</text>
+          <text class="iv-empty-hint">分享给好友，对方点开即计入</text>
+        </view>
+      </view>
+
+      <!-- 底部说明 -->
+      <view class="iv-footer-note">
+        <text>· 每位好友一生只计一次，自己邀请自己不计入</text>
+        <text>· 满 {{threshold}} 人后月卡自动发放至你的星际通行证</text>
+      </view>
+    </block>
+
+    <view style="height: 80rpx;"></view>
+  </scroll-view>
+
+  <!-- 分享海报画布：移出可视区，仅用于生成分享缩略图（5:4） -->
+  <canvas type="2d" id="sharePoster" class="iv-poster-canvas"></canvas>
+</view>

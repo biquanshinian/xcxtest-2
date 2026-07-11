@@ -1,0 +1,23 @@
+<view class="video-player-page">
+  <view
+    class="video-close"
+    style="top: {{closeTop}}px; width: {{closeSize}}px; height: {{closeSize}}px;"
+    catchtap="onClose"
+    aria-role="button"
+    aria-label="关闭"
+  >
+    <text class="video-close-icon">✕</text>
+  </view>
+  <video
+    id="player"
+    class="video-player-video"
+    src="{{videoUrl}}"
+    poster="{{poster}}"
+    autoplay="{{true}}"
+    controls="{{true}}"
+    show-fullscreen-btn="{{false}}"
+    show-center-play-btn="{{true}}"
+    object-fit="contain"
+    bindended="onClose"
+  ></video>
+</view>

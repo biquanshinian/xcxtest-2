@@ -1,0 +1,171 @@
+<view class="container {{themeClass}}">
+  <!-- 自定义导航栏 -->
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+    <page-progress active="{{loading}}" />
+  </view>
+  <!-- 全屏滚动骨架：与 rocket-model-detail 对齐，内容从磨砂导航栏下方穿过 -->
+  <scroll-view scroll-y class="detail-scroll">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <!-- 加载中：内容区留白，进度由导航栏下方的 page-progress 绿色进度条呈现 -->
+    <block wx:if="{{loading}}"></block>
+
+    <!-- 错误 -->
+    <view class="error-wrap" wx:elif="{{errorMessage}}">
+      <text class="error-icon">⚠️</text>
+      <text class="error-text">{{errorMessage}}</text>
+      <view class="error-btn" bindtap="onRetryLoad">重试</view>
+    </view>
+
+    <!-- 详情内容 -->
+    <block wx:elif="{{item}}">
+
+    <!-- Hero 图片 -->
+    <view class="hero-section" bindtap="onHeroImageTap">
+      <image class="hero-img {{heroImageLoaded ? 'hero-img--loaded' : ''}}"
+             wx:if="{{item.imageUrl}}"
+             src="{{item.imageUrl}}"
+             mode="aspectFill"
+             bindload="onHeroImageLoad"
+             binderror="onHeroImageError" />
+      <view class="hero-img hero-placeholder" wx:else>
+        <text class="hero-placeholder-icon"></text>
+      </view>
+      <!-- 渐变遮罩 -->
+      <view class="hero-gradient"></view>
+      <!-- 图片来源 -->
+      <view class="hero-credit-btn" wx:if="{{item.imageCredit}}">
+        <text class="hero-credit-text">{{item.imageCredit}}</text>
+      </view>
+      <!-- 状态标签 -->
+      <view class="hero-status" style="color: {{item.statusColor}};">{{item.statusText}}</view>
+    </view>
+
+    <!-- 贴图讨论区：助推器详情头图下方；话题优先火箭名称，组件内已截断至 20 字 -->
+    <view class="booster-discuss-wrap">
+      <official-account-publish-panel topic="{{item.rocketFamily || item.serial || '火箭族谱讨论'}}" />
+    </view>
+
+    <!-- 基本信息头 -->
+    <view class="info-header">
+      <text class="info-serial">{{item.serial}}</text>
+      <view class="info-tags">
+        <text class="info-tag info-tag--family">{{item.rocketFamily}}</text>
+        <text class="info-tag info-tag--mfr info-tag--link" wx:if="{{item.manufacturer}}" bindtap="onTapManufacturer">{{item.manufacturerDisplay || item.manufacturer}}<text class="info-tag-arrow">›</text></text>
+        <text class="info-tag info-tag--block" wx:if="{{item.block}}">Block {{item.block}}</text>
+      </view>
+    </view>
+
+    <!-- 描述 -->
+    <view class="desc-section" wx:if="{{item.details}}">
+      <view class="desc-title-row">
+        <text class="desc-title">助推器简介</text>
+        <text class="translate-toggle {{descTranslating ? 'translate-toggle--busy' : ''}}" catchtap="onToggleDescTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
+      </view>
+      <text class="desc-text" user-select="{{true}}">{{descI18n.boosterDesc || item.details}}</text>
+    </view>
+
+    <!-- 核心数据网格 -->
+    <view class="stats-grid">
+      <view class="stats-card glass-card">
+        <text class="stats-card-value">{{item.flights}}</text>
+        <text class="stats-card-label">总飞行次数</text>
+      </view>
+      <view class="stats-card glass-card">
+        <text class="stats-card-value">{{item.successfulLandings}}</text>
+        <text class="stats-card-label">成功着陆</text>
+      </view>
+      <view class="stats-card glass-card">
+        <text class="stats-card-value">{{item.attemptedLandings}}</text>
+        <text class="stats-card-label">着陆尝试</text>
+      </view>
+      <view class="stats-card glass-card">
+        <text class="stats-card-value">{{item.landingRate || '—'}}</text>
+        <text class="stats-card-label">着陆成功率</text>
+      </view>
+    </view>
+
+    <!-- 着陆方式细分（SpaceX 特有） -->
+    <view class="landing-breakdown glass-card" wx:if="{{item.rtlsLandings > 0 || item.asdsLandings > 0}}">
+      <text class="section-label">着陆方式</text>
+      <view class="landing-row">
+        <view class="landing-item">
+          <text class="landing-value">{{item.rtlsLandings}}</text>
+          <text class="landing-label">RTLS 陆地回收</text>
+        </view>
+        <view class="landing-item">
+          <text class="landing-value">{{item.asdsLandings}}</text>
+          <text class="landing-label">ASDS 海上回收</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 时间线 -->
+    <view class="timeline-section glass-card">
+      <text class="section-label">服役时间线</text>
+      <view class="timeline-grid">
+        <view class="timeline-item">
+          <text class="timeline-label">首飞</text>
+          <text class="timeline-value">{{item.firstFlight}}</text>
+        </view>
+        <view class="timeline-item">
+          <text class="timeline-label">最近飞行</text>
+          <text class="timeline-value">{{item.lastFlight}}</text>
+        </view>
+        <view class="timeline-item">
+          <text class="timeline-label">服役时长</text>
+          <text class="timeline-value">{{item.serviceDays || '—'}}</text>
+        </view>
+        <view class="timeline-item">
+          <text class="timeline-label">复用次数</text>
+          <text class="timeline-value">{{item.reuseCount}}</text>
+        </view>
+        <view class="timeline-item" wx:if="{{item.fastestTurnaroundText}}">
+          <text class="timeline-label">最快周转</text>
+          <text class="timeline-value turnaround-value">⚡ {{item.fastestTurnaroundText}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 飞行记录条 -->
+    <view class="flight-bar-section glass-card" wx:if="{{item.flightBlocks.length > 0}}">
+      <text class="section-label">飞行记录</text>
+      <view class="flight-bar-wrap">
+        <view class="flight-block-detail {{flight.pending ? 'flight-pending' : (flight.success ? 'flight-success' : (flight.failed ? 'flight-fail' : 'flight-unknown'))}}" wx:for="{{item.flightBlocks}}" wx:for-item="flight" wx:key="idx">
+          <text class="flight-block-num">{{flight.idx + 1}}</text>
+        </view>
+      </view>
+      <view class="flight-legend">
+        <view class="legend-item"><view class="legend-dot flight-success"></view><text class="legend-text">成功</text></view>
+        <view class="legend-item"><view class="legend-dot flight-fail"></view><text class="legend-text">失败</text></view>
+        <view class="legend-item"><view class="legend-dot flight-pending"></view><text class="legend-text">待定</text></view>
+        <view class="legend-item"><view class="legend-dot flight-unknown"></view><text class="legend-text">未知</text></view>
+      </view>
+    </view>
+
+    <!-- 飞行历史改由下方「历史任务」组件统一展示（数据源 booster_genealogy.flightHistory） -->
+
+    <!-- 历史任务（可点击跳转详情） -->
+    <view class="history-section glass-card" wx:if="{{item.serial}}">
+      <text class="section-label">{{item.serial}} 历史任务</text>
+      <rocket-history
+        boosterSerial="{{item.serial}}"
+        maxCollapsed="{{2}}"
+        showTitle="{{false}}"
+      />
+    </view>
+
+    <!-- 底部安全区 -->
+    <view style="height: {{tabBarReservedHeight + 40}}px;"></view>
+    </block>
+  </scroll-view>
+  <share-guide />
+  <share-gate-countdown expire-at="{{shareGateExpireAt}}" />
+</view>

@@ -1,0 +1,281 @@
+/* pages/webview/webview.wxss */
+.container {
+  width: 100%;
+  height: 100vh;
+  background: #0a0a0a;
+  position: relative;
+}
+
+.webview {
+  width: 100%;
+  height: 100%;
+}
+
+/* cover-view 底栏：覆盖在 web-view 上，便于操作 */
+.webview-cover-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 100rpx;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  flex-direction: row;
+  justify-content: space-around;
+  align-items: center;
+  z-index: 9999;
+}
+
+.webview-cover-btn {
+  color: #fff;
+  font-size: 30rpx;
+}
+
+/* 加载中遮罩 */
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(10, 10, 10, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 30rpx;
+}
+
+.loading-spinner {
+  width: 60rpx;
+  height: 60rpx;
+  border: 4rpx solid rgba(255, 255, 255, 0.2);
+  border-top-color: #007AFF;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-text {
+  font-size: 28rpx;
+  color: #fff;
+  font-weight: 500;
+}
+
+.loading-tip {
+  font-size: 24rpx;
+  color: #8E8E93;
+  margin-top: 10rpx;
+}
+
+/* 错误遮罩 */
+.error-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(10, 10, 10, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10001;
+  padding: 60rpx;
+  box-sizing: border-box;
+}
+
+.error-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 600rpx;
+  width: 100%;
+}
+
+.error-icon {
+  font-size: 80rpx;
+  margin-bottom: 30rpx;
+}
+
+.error-title {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 20rpx;
+  text-align: center;
+}
+
+.error-message {
+  font-size: 28rpx;
+  color: #8E8E93;
+  text-align: center;
+  line-height: 1.6;
+  margin-bottom: 40rpx;
+}
+
+.error-actions {
+  display: flex;
+  gap: 20rpx;
+  width: 100%;
+  margin-bottom: 40rpx;
+}
+
+.error-btn {
+  flex: 1;
+  padding: 24rpx;
+  background: rgba(0, 122, 255, 0.9);
+  color: #fff;
+  border: none;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+}
+
+.error-btn-secondary {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.error-btn-primary {
+  background: linear-gradient(135deg, #007AFF 0%, #0051D5 100%);
+  box-shadow: 0 4rpx 16rpx rgba(0, 122, 255, 0.3);
+}
+
+.error-tips {
+  width: 100%;
+  padding: 30rpx;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 15rpx;
+}
+
+.tips-title {
+  font-size: 26rpx;
+  color: #007AFF;
+  font-weight: 500;
+  margin-bottom: 10rpx;
+}
+
+.tips-item {
+  font-size: 24rpx;
+  color: #8E8E93;
+  line-height: 1.6;
+}
+
+.tips-note {
+  font-size: 22rpx;
+  color: #007AFF;
+  margin-top: 15rpx;
+  font-style: italic;
+  line-height: 1.6;
+}
+
+.tips-note-bold {
+  font-weight: 600;
+  color: #FF9500;
+}
+
+.placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60rpx;
+  box-sizing: border-box;
+}
+
+.placeholder-icon {
+  font-size: 100rpx;
+  margin-bottom: 30rpx;
+}
+
+.placeholder-title {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 20rpx;
+  text-align: center;
+}
+
+.back-btn {
+  padding: 24rpx 60rpx;
+  background: rgba(0, 122, 255, 0.9);
+  color: #fff;
+  border: none;
+  border-radius: 12rpx;
+  font-size: 30rpx;
+}
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+.container.theme-light {
+  background: var(--color-bg);
+}
+
+/* cover-view 不支持 CSS 变量继承的场景较多，直接用浅色玻璃底 */
+.theme-light .webview-cover-bar {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.theme-light .webview-cover-btn {
+  color: var(--color-text-primary);
+}
+
+.theme-light .loading-overlay {
+  background: rgba(242, 242, 247, 0.95);
+}
+
+.theme-light .loading-spinner {
+  border-color: rgba(0, 0, 0, 0.12);
+  border-top-color: #007AFF;
+}
+
+.theme-light .loading-text {
+  color: var(--color-text-primary);
+}
+
+.theme-light .loading-tip {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .error-overlay {
+  background: rgba(242, 242, 247, 0.95);
+}
+
+.theme-light .error-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .error-message {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .error-btn-secondary {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--color-text-primary);
+}
+
+.theme-light .error-tips {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-card);
+}
+
+.theme-light .tips-item {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .placeholder-title {
+  color: var(--color-text-primary);
+}

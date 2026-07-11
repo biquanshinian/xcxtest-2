@@ -1,0 +1,113 @@
+<view class="map-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav">
+      <view class="nav-back {{isDirectEntry ? 'nav-back--home' : ''}}" bindtap="goBack"><text>‹</text></view>
+      <text class="nav-title">{{site ? (site.nameZh || site.name) : '发射场详情'}}</text>
+      <view class="nav-placeholder"></view>
+    </view>
+    <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" style="top: {{mapActionTop}}px;" wx:if="{{hasCoords}}">
+      <view class="map-action-header">
+        <text class="map-action-title">地图工具</text>
+        <view class="map-action-toggle-btn" bindtap="toggleActionMenuCollapsed"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
+      </view>
+      <view class="map-action-stack" wx:if="{{!actionMenuCollapsed}}">
+        <view class="map-action-btn" bindtap="focusSite"><text>发射场视角</text></view>
+        <view class="map-action-btn" bindtap="resetWorldView"><text>全局视图</text></view>
+        <view class="map-action-btn" bindtap="copyCoords"><text>复制坐标</text></view>
+      </view>
+    </view>
+    <page-progress active="{{loading}}" />
+  </view>
+
+  <!-- 腾讯地图（小程序原生 map 组件）：定位到发射场坐标，工位加载后追加标记 -->
+  <map wx:if="{{hasCoords}}" class="main-map" latitude="{{latitude}}" longitude="{{longitude}}" scale="{{scale}}" markers="{{markers}}" enable-scroll="true" enable-zoom="true" enable-satellite="true" bindmarkertap="onMarkerTap"></map>
+
+  <!-- 无坐标兜底：LL2 卫星定位图占满地图区域 -->
+  <view wx:else class="no-coords-stage">
+    <image wx:if="{{site && site.imageUrl}}" class="no-coords-img" src="{{site.imageUrl}}" mode="aspectFill" bindtap="onPreviewMapImage" />
+    <view wx:else class="no-coords-placeholder"><text>该发射场暂无坐标数据</text></view>
+  </view>
+
+  <view class="panel glass-card {{panelCollapsed ? 'panel--collapsed' : ''}}">
+    <!-- 加载中由导航栏下方的 page-progress 绿色进度条呈现，面板只保留失败态 -->
+    <view class="state-card" wx:if="{{!loading && errorText}}">
+      <text class="state-title">加载失败</text>
+      <text class="state-desc">{{errorText}}</text>
+      <view class="retry-btn-inline" bindtap="onRetryLoad"><text>重试</text></view>
+    </view>
+
+    <view class="panel-header panel-header--with-action" wx:if="{{site}}">
+      <view class="panel-header-text">
+        <text class="panel-title">{{site.nameZh || site.name}}</text>
+        <text class="panel-subtitle" wx:if="{{site.nameZh}}">{{site.fullName || site.name}}</text>
+      </view>
+      <view class="panel-header-actions">
+        <view class="panel-badge {{site.active ? '' : 'panel-badge--retired'}}"><text>{{site.statusText}}</text></view>
+        <view class="panel-toggle-btn" bindtap="togglePanelCollapsed"><text>{{panelCollapsed ? '展开' : '折叠'}}</text></view>
+      </view>
+    </view>
+
+    <block wx:if="{{!panelCollapsed && site}}">
+      <view class="data-meta-row">
+        <text class="data-meta-text">来源：{{dataSourceText}}</text>
+        <text class="data-meta-text">更新时间：{{dataUpdatedText}}</text>
+      </view>
+
+      <!-- 基础信息 -->
+      <view class="detail-card">
+        <view class="site-meta-row" wx:if="{{site.countryLabel}}">
+          <text class="site-meta-label">国家 / 地区</text>
+          <text class="site-meta-value">{{site.countryLabel}}</text>
+        </view>
+        <view class="site-meta-row" wx:if="{{site.timezoneName}}">
+          <text class="site-meta-label">时区</text>
+          <text class="site-meta-value">{{site.timezoneName}}</text>
+        </view>
+        <view class="site-meta-row" wx:if="{{coordsText}}">
+          <text class="site-meta-label">坐标</text>
+          <text class="site-meta-value" bindtap="copyCoords">{{coordsText}}</text>
+        </view>
+        <view class="detail-stats-row">
+          <view class="detail-stat-chip"><text>累计发射 {{site.totalLaunchCount}}</text></view>
+          <view class="detail-stat-chip" wx:if="{{site.totalLandingCount > 0}}"><text>回收着陆 {{site.totalLandingCount}}</text></view>
+          <view class="detail-stat-chip" wx:if="{{pads.length}}"><text>发射工位 {{pads.length}}</text></view>
+        </view>
+      </view>
+
+      <!-- 工位横滑 chips：点按地图聚焦 -->
+      <scroll-view class="site-list" scroll-x="true" show-scrollbar="false" wx:if="{{pads.length}}">
+        <view class="site-row">
+          <view class="site-chip {{selectedPadId === item.id ? 'site-chip--active' : ''}}" wx:for="{{pads}}" wx:key="id" bindtap="onPadChipTap" data-id="{{item.id}}">
+            <text class="site-chip-name">{{item.name}}</text>
+            <text class="site-chip-region">{{item.active ? '活跃' : '停用'}} · 发射 {{item.totalLaunchCount}} 次</text>
+          </view>
+        </view>
+      </scroll-view>
+      <view class="pads-loading-hint" wx:elif="{{padsLoading}}">
+        <text>工位数据加载中…</text>
+      </view>
+
+      <!-- 简介（LL2 英文原文 + 翻译胶囊） -->
+      <view class="detail-card" wx:if="{{site.description}}">
+        <view class="desc-head-row">
+          <text class="desc-head-title">发射场简介</text>
+          <text class="translate-toggle {{descTranslating ? 'translate-toggle--busy' : ''}} {{descTranslated ? 'translate-toggle--active' : ''}}" catchtap="onToggleDescTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
+        </view>
+        <text class="detail-summary" user-select="{{true}}">{{descI18n.siteDesc || site.description}}</text>
+      </view>
+
+      <!-- 卫星定位图缩略（点按预览大图） -->
+      <view class="detail-card site-thumb-card" wx:if="{{hasCoords && site.imageUrl}}" bindtap="onPreviewMapImage">
+        <image class="site-thumb-img" src="{{site.imageUrl}}" mode="aspectFill" lazy-load />
+        <text class="site-thumb-hint">LL2 卫星定位图 · 点按查看大图</text>
+      </view>
+    </block>
+
+    <view class="mini-summary-row" wx:if="{{panelCollapsed && site}}">
+      <text class="mini-summary-text">{{site.nameZh || site.name}} · {{site.countryLabel || '未知地区'}} · 累计发射 {{site.totalLaunchCount}} 次</text>
+    </view>
+  </view>
+
+  <!-- 分享免门控 24h 剩余时间倒计时胶囊 -->
+  <share-gate-countdown expire-at="{{shareGateExpireAt}}" />
+</view>

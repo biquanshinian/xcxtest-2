@@ -1,0 +1,14 @@
+{
+  "navigationBarTitleText": "进展详情",
+  "backgroundTextStyle": "dark",
+  "navigationStyle": "custom",
+  "backgroundColor": "#000000",
+  "backgroundColorTop": "#000000",
+  "backgroundColorBottom": "#000000",
+  "usingComponents": {
+    "official-account-publish-panel": "/subpackages/shared/components/official-account-publish-panel/index"
+  },
+  "componentPlaceholder": {
+    "official-account-publish-panel": "view"
+  }
+}

@@ -1,0 +1,122 @@
+.rocket-history {
+  margin-top: 16rpx;
+}
+.rocket-history--loading {
+  padding: 20rpx 0;
+  text-align: center;
+}
+.rocket-history__loading-text {
+  font-size: 24rpx;
+  color: var(--color-text-tertiary);
+}
+.rocket-history__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12rpx;
+}
+.rocket-history__title {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+.rocket-history__count {
+  font-size: 22rpx;
+  color: var(--color-text-tertiary);
+}
+.rocket-history__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+.rocket-history__item {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 20rpx;
+  background: var(--color-divider-faint);
+  border-radius: 12rpx;
+  border: 1px solid var(--color-divider-faint);
+  transition: background 0.15s;
+}
+.rocket-history__item:active {
+  background: var(--color-divider);
+}
+.rocket-history__status {
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-right: 16rpx;
+}
+.rocket-history__status--success {
+  background: rgba(52, 199, 89, 0.15);
+}
+.rocket-history__status--fail {
+  background: rgba(255, 59, 48, 0.15);
+}
+.rocket-history__status--pending {
+  background: rgba(255, 204, 0, 0.12);
+}
+.rocket-history__status-icon {
+  font-size: 22rpx;
+  line-height: 1;
+}
+.rocket-history__status--success .rocket-history__status-icon {
+  color: #34C759;
+}
+.rocket-history__status--fail .rocket-history__status-icon {
+  color: #FF3B30;
+}
+.rocket-history__status--pending .rocket-history__status-icon {
+  color: #FFCC00;
+}
+.rocket-history__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+.rocket-history__name {
+  font-size: 24rpx;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rocket-history__date {
+  font-size: 20rpx;
+  color: var(--color-text-tertiary);
+}
+.rocket-history__arrow {
+  font-size: 28rpx;
+  color: var(--color-text-tertiary);
+  margin-left: 12rpx;
+  flex-shrink: 0;
+}
+.rocket-history__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  height: 64rpx;
+  margin-top: 16rpx;
+  border-radius: 32rpx;
+  background: linear-gradient(135deg, #5ac8fa 0%, #007aff 100%);
+}
+.rocket-history__toggle:active {
+  opacity: 0.85;
+}
+.rocket-history__toggle-text {
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #ffffff;
+}
+.rocket-history__toggle-icon {
+  font-size: 24rpx;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+}

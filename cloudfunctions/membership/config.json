@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "openapi": [
+      "auth.code2Session",
+      "midasPayment.queryOrder",
+      "midasPayment.refundOrder",
+      "midasPayment.notifyProvideGoods"
+    ]
+  },
+  "triggers": [],
+  "timeout": 20
+}

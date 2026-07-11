@@ -1,0 +1,329 @@
+/* launch-site-gallery.wxss — 独立全屏全球发射场分布页（暗色毛玻璃，骨架镜像飞船图鉴页） */
+page {
+  background: #000;
+  color: #fff;
+}
+.container {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+}
+.page-scroll {
+  width: 100%;
+  height: 100vh;
+}
+.glass-card {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20rpx);
+  -webkit-backdrop-filter: blur(20rpx);
+}
+
+/* 加载 / 错误 / 空态 */
+.loading-wrap, .error-wrap, .empty-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-top: 160rpx;
+}
+.empty-wrap {
+  padding-top: 80rpx;
+  padding-bottom: 80rpx;
+}
+.loading-text {
+  font-size: 28rpx;
+  color: #636366;
+}
+.error-icon, .empty-icon {
+  font-size: 64rpx;
+  margin-bottom: 20rpx;
+}
+.error-text, .empty-text {
+  font-size: 28rpx;
+  color: #8E8E93;
+  margin-bottom: 12rpx;
+}
+.empty-hint {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.35);
+}
+.error-btn {
+  font-size: 28rpx;
+  color: #007AFF;
+  padding: 12rpx 40rpx;
+  border: 1px solid rgba(0, 122, 255, 0.3);
+  border-radius: 999rpx;
+  margin-top: 18rpx;
+}
+
+/* 活跃/国家筛选 chip（固定式，自动换行） */
+.filter-wrap {
+  width: 100%;
+  padding: 20rpx 0 4rpx;
+}
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  padding: 0 30rpx;
+}
+.filter-chip {
+  flex-shrink: 0;
+  padding: 12rpx 30rpx;
+  border-radius: 999rpx;
+  font-size: 26rpx;
+  color: rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.2s ease;
+}
+.filter-chip--active {
+  color: #fff;
+  font-weight: 600;
+  background: linear-gradient(135deg, rgba(0, 122, 255, 0.35), rgba(88, 86, 214, 0.35));
+  border-color: rgba(0, 122, 255, 0.55);
+}
+
+/* 搜索框 */
+/* 简洁搜索条：纯色圆角灰底 + 左侧放大镜 + “搜索”占位 */
+.lsg-search {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin: 16rpx 30rpx 0;
+  padding: 14rpx 24rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid transparent;
+}
+.lsg-search-icon {
+  color: #8E8E93;
+  font-size: 34rpx;
+  line-height: 1;
+}
+.lsg-search-input {
+  flex: 1;
+  min-width: 0;
+  color: #FFFFFF;
+  font-size: 26rpx;
+  height: 52rpx;
+  line-height: 52rpx;
+}
+.lsg-search-placeholder {
+  color: #636366;
+}
+.lsg-search-clear {
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.1);
+}
+.lsg-search-clear text {
+  color: #C7C7CC;
+  font-size: 30rpx;
+  line-height: 1;
+}
+
+/* 汇总条 */
+.summary-bar {
+  display: flex;
+  justify-content: space-around;
+  margin: 16rpx 30rpx 12rpx;
+  padding: 24rpx;
+  border-radius: 20rpx;
+}
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.summary-value {
+  font-size: 40rpx;
+  font-weight: 800;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.summary-label {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.45);
+  margin-top: 4rpx;
+}
+
+/* 发射场网格（两列） */
+.section-block {
+  margin-top: 20rpx;
+}
+.lsg-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20rpx;
+  padding: 0 30rpx;
+}
+.lsg-card {
+  border-radius: 20rpx;
+  overflow: hidden;
+}
+.lsg-img-wrap {
+  position: relative;
+  width: 100%;
+  height: 220rpx;
+  background: rgba(255, 255, 255, 0.03);
+}
+.lsg-img {
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+.lsg-img--loaded {
+  opacity: 1;
+}
+.lsg-img--placeholder {
+  opacity: 1;
+  background: radial-gradient(circle at center, rgba(255, 149, 0, 0.08), rgba(255, 255, 255, 0.02) 72%);
+}
+.lsg-status-badge {
+  position: absolute;
+  top: 10rpx;
+  right: 10rpx;
+  font-size: 18rpx;
+  font-weight: 600;
+  padding: 4rpx 12rpx;
+  border-radius: 6rpx;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(10rpx);
+  -webkit-backdrop-filter: blur(10rpx);
+}
+.lsg-status-badge--active { color: #34C759; }
+.lsg-status-badge--retired { color: #8E8E93; }
+/* 累计发射角标（左上，与右上状态角标对称） */
+.lsg-launch-badge {
+  position: absolute;
+  top: 10rpx;
+  left: 10rpx;
+  font-size: 18rpx;
+  font-weight: 600;
+  padding: 4rpx 12rpx;
+  border-radius: 6rpx;
+  color: #FF9F0A;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(10rpx);
+  -webkit-backdrop-filter: blur(10rpx);
+}
+.lsg-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+  padding: 16rpx 20rpx 20rpx;
+}
+.lsg-name {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lsg-sub-name {
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.45);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 国家标签：可点按筛选（再点一次取消），做成小胶囊提示可交互 */
+.lsg-country {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 4rpx 14rpx;
+  border-radius: 999rpx;
+  font-size: 20rpx;
+  color: #5AC8FA;
+  background: rgba(90, 200, 250, 0.12);
+  border: 1px solid rgba(90, 200, 250, 0.25);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+.lsg-country:active {
+  opacity: 0.7;
+}
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+.container.theme-light {
+  background: var(--color-bg-page);
+}
+.theme-light .glass-card {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-card);
+}
+.theme-light .loading-text {
+  color: var(--color-text-tertiary);
+}
+.theme-light .error-text,
+.theme-light .empty-text {
+  color: var(--color-text-secondary);
+}
+.theme-light .empty-hint {
+  color: var(--color-text-tertiary);
+}
+.theme-light .filter-chip {
+  color: var(--color-text-secondary);
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+/* 激活 chip 保持蓝色渐变白字（实色按钮语义） */
+.theme-light .filter-chip--active {
+  color: #fff;
+  background: linear-gradient(135deg, #007AFF, #5856D6);
+  border-color: rgba(0, 122, 255, 0.55);
+}
+/* 搜索框：外壳走 .theme-light .glass-card（细灰边 + var(--shadow-card)），此处只调文字与按钮衬底 */
+.theme-light .lsg-search {
+  background: #FFFFFF;
+  border: 1px solid var(--color-divider);
+}
+.theme-light .lsg-search-icon {
+  color: var(--color-text-tertiary);
+}
+.theme-light .lsg-search-input {
+  color: var(--color-text-primary);
+}
+.theme-light .lsg-search-placeholder {
+  color: var(--color-text-tertiary);
+}
+.theme-light .lsg-search-clear {
+  background: rgba(0, 0, 0, 0.06);
+}
+.theme-light .lsg-search-clear text {
+  color: var(--color-text-secondary);
+}
+.theme-light .summary-value {
+  color: var(--color-text-primary);
+}
+.theme-light .summary-label {
+  color: var(--color-text-tertiary);
+}
+.theme-light .lsg-img-wrap {
+  background: rgba(0, 0, 0, 0.03);
+}
+.theme-light .lsg-img--placeholder {
+  background: radial-gradient(circle at center, rgba(255, 149, 0, 0.08), rgba(0, 0, 0, 0.03) 72%);
+}
+/* 状态/发射角标压在卫星图上，保持深色衬底彩色文字 */
+.theme-light .lsg-name {
+  color: var(--color-text-primary);
+}
+.theme-light .lsg-sub-name {
+  color: var(--color-text-tertiary);
+}
+.theme-light .lsg-country {
+  color: #0071A4;
+  background: rgba(0, 122, 255, 0.08);
+  border: 1px solid rgba(0, 122, 255, 0.2);
+}

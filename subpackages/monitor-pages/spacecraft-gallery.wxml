@@ -1,0 +1,104 @@
+<view class="container {{themeClass}}">
+  <!-- 自定义导航栏 -->
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+  </view>
+  <!-- 全屏滚动骨架：内容从磨砂导航栏下方穿过，加载/错误态也在滚动区内 -->
+  <scroll-view scroll-y class="page-scroll">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <!-- 加载中 -->
+    <view class="loading-wrap" wx:if="{{loading}}">
+      <text class="loading-text">加载飞船数据...</text>
+    </view>
+
+    <!-- 加载失败 -->
+    <view class="error-wrap" wx:elif="{{loadError}}">
+      <text class="error-icon">⚠️</text>
+      <text class="error-text">飞船数据加载失败</text>
+      <view class="error-btn" bindtap="onRetryLoad">重试</view>
+    </view>
+
+    <block wx:else>
+
+    <!-- 现役/类型筛选 chip（固定式，多行换行全部可见） -->
+    <view class="filter-wrap">
+      <view class="filter-row">
+        <view class="filter-chip {{filter === chip.id ? 'filter-chip--active' : ''}}"
+              wx:for="{{filterChips}}" wx:for-item="chip" wx:key="id"
+              data-filter="{{chip.id}}" bindtap="onFilterTap">
+          <text>{{chip.label}}</text>
+        </view>
+      </view>
+      <!-- 机构筛选 chip（数据驱动，横向滚动） -->
+      <scroll-view class="agency-filter-scroll" scroll-x enable-flex wx:if="{{agencyChips.length}}">
+        <view class="agency-filter-row">
+          <view class="filter-chip filter-chip--agency {{filter === chip.id ? 'filter-chip--active' : ''}}"
+                wx:for="{{agencyChips}}" wx:for-item="chip" wx:key="id"
+                data-filter="{{chip.id}}" bindtap="onFilterTap">
+            <text>{{chip.label}}</text>
+            <text class="agency-chip-count">{{chip.count}}</text>
+          </view>
+        </view>
+      </scroll-view>
+    </view>
+
+    <!-- 汇总条 -->
+    <view class="summary-bar glass-card" wx:if="{{cards.length > 0}}">
+      <view class="summary-item">
+        <text class="summary-value">{{cards.length}}</text>
+        <text class="summary-label">飞船</text>
+      </view>
+      <view class="summary-item">
+        <text class="summary-value">{{stats.inUseCount}}</text>
+        <text class="summary-label">现役</text>
+      </view>
+      <view class="summary-item">
+        <text class="summary-value">{{stats.typeCount}}</text>
+        <text class="summary-label">类型</text>
+      </view>
+      <view class="summary-item">
+        <text class="summary-value">{{stats.agencyCount}}</text>
+        <text class="summary-label">机构</text>
+      </view>
+    </view>
+
+    <!-- 飞船网格（两列） -->
+    <view class="section-block" wx:if="{{cards.length > 0}}">
+      <view class="sc-grid">
+        <view class="scg-card glass-card" wx:for="{{cards}}" wx:key="id"
+              data-id="{{item.id}}" data-name="{{item.name}}" data-img="{{item.imageUrl}}" bindtap="onCardTap">
+          <view class="scg-img-wrap">
+            <image class="scg-img {{imageLoadedMap[index] ? 'scg-img--loaded' : ''}}"
+                   wx:if="{{item.imageUrl}}" src="{{item.imageUrl}}" mode="aspectFill" lazy-load
+                   data-index="{{index}}" bindload="onImageLoad" binderror="onImageError" />
+            <view class="scg-img scg-img--placeholder" wx:else></view>
+            <text class="scg-status-badge {{item.inUse ? 'scg-status-badge--active' : 'scg-status-badge--retired'}}">{{item.statusText}}</text>
+          </view>
+          <view class="scg-card-body">
+            <text class="scg-name">{{item.name}}</text>
+            <text class="scg-type" wx:if="{{item.typeLabel}}">{{item.typeLabel}}</text>
+            <text class="scg-agency" wx:if="{{item.agencyLabel}}" data-agency="{{item.agencyName}}" catchtap="onAgencyTagTap">{{item.agencyLabel}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 筛选空态 -->
+    <view class="empty-wrap" wx:if="{{filterEmpty}}">
+      <text class="empty-icon"></text>
+      <text class="empty-text">该筛选下暂无飞船记录</text>
+      <text class="empty-hint">数据来自 Launch Library 2，同步后自动收录</text>
+    </view>
+
+    <view style="height: {{tabBarReservedHeight + 40}}px;"></view>
+    </block>
+  </scroll-view>
+  <share-guide />
+</view>

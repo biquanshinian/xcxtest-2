@@ -1,0 +1,9 @@
+{
+  "name": "scf-cos-trigger",
+  "version": "1.0.0",
+  "description": "COS 事件触发器：实时同步灵感流媒体到 CloudBase media_feed 数据库",
+  "main": "index.js",
+  "dependencies": {
+    "@cloudbase/node-sdk": "latest"
+  }
+}

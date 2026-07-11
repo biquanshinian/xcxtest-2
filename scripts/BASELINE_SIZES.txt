@@ -1,0 +1,14 @@
+Local source size snapshot (run: node scripts/_analyze_size_node.js; for upload size use WeChat DevTools code quality scan).
+- Main package estimate: ~1254 KB / 1.224 MB source (target <1400 KB, limit 1536 KB)
+- Compiled est (es5+terser): JS ~660 KB + WXSS ~186 + WXML ~123 + img ~58 + json ~10 ≈ 1.04 MB
+- pages/index/index.js ~162.6 KB
+- utils/ (main) ~399 KB
+
+Moved out of main utils: channels-live*, official-account-scene → shared/utils; artemis-arow, starbase-weather → monitor-pages/utils (monitor tab uses require.async); api-news → news-extra/utils (news tab uses require.async, news-extra is preloaded).
+
+Must stay in main utils: landing-icons, aiService, checkin, space-quiz (+ api-request/index core chain).
+
+Key finding: es6:true transpile inflates main JS 466KB(terser-only)→660KB(es5+min) due to async/await across 172 files. Obfuscation now lists only subpackage files (no main bloat). No miniprogram_npm in main. No main JS used only by subpackages.
+
+Regress: tab bar 5 pages, AI chat, morning briefing, check-in, news list + 切换 articles/events + 下拉刷新 + 加载更多, monitor Artemis/weather/channels-live after rescan.
+

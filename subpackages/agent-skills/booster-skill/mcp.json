@@ -1,0 +1,91 @@
+{
+  "apis": [
+    {
+      "name": "getBoosterInfo",
+      "description": "查询单枚可回收火箭助推器的战绩（飞行次数、着陆成功率、首飞/最近飞行日期、最近执行的任务），并可接力到小程序助推器详情页。适用于「B1067 飞了多少次」「B1080 还在服役吗」等按编号查询的问题。serial 为助推器编号，SpaceX 猎鹰系列格式为 B+4 位数字。",
+      "_meta": {
+        "ui": {
+          "pagePath": "/subpackages/monitor-pages/booster-detail"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "serial": {
+            "type": "string",
+            "description": "助推器编号，例如『B1067』『B1080』『B1090』。直接取用户提到的编号原文；用户没有给出编号时，先调用 getRecoveryStats 展示复用排行让用户挑选，不要编造编号。"
+          }
+        },
+        "required": ["serial"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "serial": { "type": "string" },
+          "statusZh": { "type": "string", "description": "状态（现役/已退役/已损毁/已消耗）" },
+          "flights": { "type": "number", "description": "累计飞行次数" },
+          "successfulLandings": { "type": "number" },
+          "attemptedLandings": { "type": "number" },
+          "rocketFamily": { "type": "string", "description": "所属火箭型号" },
+          "firstFlight": { "type": "string" },
+          "lastFlight": { "type": "string" },
+          "recentFlights": {
+            "type": "array",
+            "description": "最近 5 次飞行记录",
+            "items": {
+              "type": "object",
+              "properties": {
+                "mission": { "type": "string" },
+                "date": { "type": "string" },
+                "success": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "getRecoveryStats",
+      "description": "查询全球可回收火箭助推器的回收统计总览：族谱收录总数、现役数量、累计飞行与着陆成功率、复用次数最多的助推器排行。适用于「SpaceX 回收成功率多少」「哪枚助推器复用最多」「火箭回收数据」等统计类问题。不适用于查询单枚助推器（应改用 getBoosterInfo）。",
+      "_meta": {
+        "ui": {
+          "pagePath": "/subpackages/monitor-pages/booster-genealogy"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number",
+            "description": "复用排行返回条数，范围 1-10，默认 5。"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "totalBoosters": { "type": "number", "description": "族谱收录助推器总数" },
+          "activeBoosters": { "type": "number", "description": "现役数量" },
+          "totalFlights": { "type": "number", "description": "累计飞行次数" },
+          "totalLandings": { "type": "number", "description": "着陆成功次数" },
+          "totalAttempts": { "type": "number", "description": "着陆尝试次数" },
+          "landingSuccessRate": { "type": "string", "description": "着陆成功率" },
+          "topReused": {
+            "type": "array",
+            "description": "复用次数排行",
+            "items": {
+              "type": "object",
+              "properties": {
+                "serial": { "type": "string" },
+                "flights": { "type": "number" },
+                "statusZh": { "type": "string" },
+                "rocketFamily": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "components": []
+}

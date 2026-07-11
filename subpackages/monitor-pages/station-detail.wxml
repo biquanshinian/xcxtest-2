@@ -1,0 +1,390 @@
+<view class="detail-page {{themeClass}}">
+  <!-- WXS 观测角插值动画 -->
+  <wxs src="./look-angle-anim.wxs" module="lookAnim" />
+
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      <view class="nav-right-space top-nav-slot--spacer"></view>
+    </view>
+    <page-progress active="{{loading}}" />
+  </view>
+
+  <scroll-view class="detail-scroll" scroll-y="true">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+    <view class="detail-container">
+      <!-- 加载中：内容区留白，进度由导航栏下方的 page-progress 绿色进度条呈现 -->
+      <block wx:if="{{loading}}"></block>
+
+      <view class="error-state glass-card" wx:elif="{{errorMessage}}">
+        <text class="error-title">加载失败</text>
+        <text class="error-text">{{errorMessage}}</text>
+        <button class="retry-btn" bindtap="retryLoad">重新加载</button>
+      </view>
+
+      <view wx:elif="{{item}}" class="detail-card glass-card">
+        <!-- 顶部 Hero 区 -->
+        <view class="hero-wrap">
+          <image wx:if="{{item.image && !heroImageFailed}}" class="hero-image {{heroImageLoaded ? 'hero-image--loaded' : ''}}" src="{{item.image}}" mode="aspectFill" bindload="onHeroImageLoad" binderror="onHeroImageError"></image>
+          <view wx:else class="hero-image hero-image--visual">
+            <view class="hero-visual hero-visual--{{item.id === 18 ? 'tiangong' : 'iss'}}">
+              <view class="hero-orbit hero-orbit--outer"></view>
+              <view class="hero-orbit hero-orbit--inner"></view>
+              <view class="hero-core hero-core--{{item.id === 18 ? 'tiangong' : 'iss'}}"></view>
+              <view class="hero-glow"></view>
+              <text class="hero-fallback-tag">{{item.id === 18 ? 'TIANGONG' : 'ISS'}}</text>
+            </view>
+          </view>
+          <view class="hero-overlay">
+            <view class="hero-name-row">
+              <view class="hero-name-col">
+                <text class="hero-name">{{item.name}}</text>
+                <text class="hero-name-en" wx:if="{{item.nameEn}}">{{item.nameEn}}</text>
+              </view>
+              <text class="hero-status hero-status--{{item.statusTone}}">{{item.statusBadgeText || item.statusText || item.status || '未知'}}</text>
+            </view>
+            <text class="hero-dock-count">{{item.dockedCount || 0}} 艘停靠</text>
+          </view>
+        </view>
+
+        <official-account-publish-panel topic="{{item.name || '空间站讨论'}}" />
+
+        <!-- 核心数据指标 -->
+        <view class="stats-grid">
+          <view class="stat-card">
+            <text class="stat-value">{{item.onboardCrew !== null ? item.onboardCrew : '--'}}</text>
+            <text class="stat-label">在轨人数</text>
+          </view>
+          <view class="stat-card">
+            <text class="stat-value">{{item.dockedCount || 0}}</text>
+            <text class="stat-label">停靠飞船</text>
+          </view>
+          <view class="stat-card">
+            <text class="stat-value">{{item.dockingPortCount || 0}}</text>
+            <text class="stat-label">对接口</text>
+          </view>
+          <view class="stat-card">
+            <text class="stat-value">{{item.expeditionCount || 0}}</text>
+            <text class="stat-label">活跃远征</text>
+          </view>
+          <view class="stat-card">
+            <text class="stat-value">{{item.ownerCount || 0}}</text>
+            <text class="stat-label">参与机构</text>
+          </view>
+          <view class="stat-card" wx:if="{{item.orbit}}">
+            <text class="stat-value">{{item.orbit}}</text>
+            <text class="stat-label">运行轨道</text>
+          </view>
+        </view>
+
+        <!-- ===== 实时轨道追踪 ===== -->
+        <view class="section orbit-section">
+          <view class="section-title-row" bindtap="toggleOrbitMap">
+            <text class="section-title">实时轨道追踪</text>
+            <text class="section-toggle">{{orbitMapExpanded ? '收起' : '展开'}}</text>
+          </view>
+
+          <!-- 轨道加载中 -->
+          <view class="orbit-loading" wx:if="{{orbitLoading}}">
+            <view class="loading-spinner loading-spinner--small"></view>
+            <text class="orbit-loading-text">正在获取轨道数据...</text>
+          </view>
+
+          <!-- 轨道加载失败 -->
+          <view class="orbit-error" wx:elif="{{orbitError}}">
+            <text class="orbit-error-text">{{orbitError}}</text>
+            <view class="orbit-retry-btn" bindtap="retryOrbitLoad"><text>重试</text></view>
+          </view>
+
+          <!-- 轨道数据就绪 -->
+          <block wx:elif="{{orbitReady}}">
+            <!-- 实时数据指标条 -->
+            <view class="orbit-live-bar">
+              <view class="orbit-live-dot"></view>
+              <text class="orbit-live-label">实时</text>
+              <text class="orbit-live-coord">{{stationCoord}}</text>
+            </view>
+
+            <view class="orbit-stats-row">
+              <view class="orbit-stat">
+                <text class="orbit-stat-value">{{stationAlt}}</text>
+                <text class="orbit-stat-label">轨道高度</text>
+              </view>
+              <view class="orbit-stat">
+                <text class="orbit-stat-value">{{stationSpeed}}</text>
+                <text class="orbit-stat-label">飞行速度</text>
+              </view>
+              <view class="orbit-stat" wx:if="{{hasUserLocation}}">
+                <text class="orbit-stat-value">{{lookRange}}</text>
+                <text class="orbit-stat-label">距你距离</text>
+              </view>
+            </view>
+
+            <!-- 地图预览（点击跳转全屏地图页） -->
+            <view class="orbit-map-wrap" wx:if="{{orbitMapExpanded}}" bindtap="openOrbitMap">
+              <map
+                class="orbit-map"
+                id="orbitMapPreview"
+                latitude="{{mapLatitude}}"
+                longitude="{{mapLongitude}}"
+                scale="{{mapScale}}"
+                markers="{{mapMarkers}}"
+                polyline="{{mapPolylines}}"
+                enable-scroll="false"
+                enable-zoom="false"
+                enable-rotate="false"
+                enable-overlooking="false"
+                show-compass="false"
+                layer-style="1"
+              ></map>
+              <view class="orbit-map-tap-hint">
+                <text>点击查看全屏地图</text>
+              </view>
+              <view class="orbit-map-legend">
+                <view class="legend-item">
+                  <view class="legend-line legend-line--future"></view>
+                  <text class="legend-text">未来轨迹</text>
+                </view>
+                <view class="legend-item">
+                  <view class="legend-line legend-line--past"></view>
+                  <text class="legend-text">已飞过</text>
+                </view>
+              </view>
+            </view>
+
+            <!-- 观测者视角（有位置权限时显示） -->
+            <view class="orbit-look-section" wx:if="{{hasUserLocation}}"
+              change:prop="{{lookAnim.onControlChange}}" prop="{{_lookAnimCtrl}}"
+              change:prop="{{lookAnim.onAzimuthChange}}" prop="{{_rawAzimuth}}"
+            >
+              <text class="orbit-subsection-title">你的观测视角</text>
+              <view class="orbit-look-grid"
+                change:prop="{{lookAnim.onElevationChange}}" prop="{{_rawElevation}}"
+              >
+                <view class="orbit-look-item">
+                  <text class="orbit-look-value">{{lookAzimuth}}</text>
+                  <text class="orbit-look-label">方位角</text>
+                </view>
+                <view class="orbit-look-item"
+                  change:prop="{{lookAnim.onRangeChange}}" prop="{{_rawRange}}"
+                >
+                  <text class="orbit-look-value">{{lookElevation}}</text>
+                  <text class="orbit-look-label">仰角</text>
+                </view>
+                <view class="orbit-look-item">
+                  <text class="orbit-look-value">{{lookRange}}</text>
+                  <text class="orbit-look-label">斜距</text>
+                </view>
+              </view>
+            </view>
+
+            <!-- 轨道参数（可折叠） -->
+            <view class="orbit-params-section">
+              <view class="section-title-row" bindtap="toggleOrbitParams">
+                <text class="orbit-subsection-title">轨道参数</text>
+                <text class="section-toggle">{{orbitParamsExpanded ? '收起' : '展开'}}</text>
+              </view>
+              <view class="orbit-params-grid" wx:if="{{orbitParamsExpanded}}">
+                <view class="orbit-param-row">
+                  <text class="orbit-param-label">轨道周期</text>
+                  <text class="orbit-param-value">{{orbitPeriod}}</text>
+                </view>
+                <view class="orbit-param-row">
+                  <text class="orbit-param-label">轨道倾角</text>
+                  <text class="orbit-param-value">{{orbitInclination}}</text>
+                </view>
+                <view class="orbit-param-row">
+                  <text class="orbit-param-label">远地点</text>
+                  <text class="orbit-param-value">{{orbitApogee}}</text>
+                </view>
+                <view class="orbit-param-row">
+                  <text class="orbit-param-label">近地点</text>
+                  <text class="orbit-param-value">{{orbitPerigee}}</text>
+                </view>
+                <view class="orbit-param-row">
+                  <text class="orbit-param-label">每日圈数</text>
+                  <text class="orbit-param-value">{{orbitMeanMotion}}</text>
+                </view>
+                <view class="orbit-param-row">
+                  <text class="orbit-param-label">离心率</text>
+                  <text class="orbit-param-value">{{orbitEccentricity}}</text>
+                </view>
+                <view class="orbit-param-row">
+                  <text class="orbit-param-label">TLE 历元</text>
+                  <text class="orbit-param-value">{{orbitEpoch}}</text>
+                </view>
+              </view>
+            </view>
+
+            <view class="orbit-meta-row">
+              <text class="orbit-meta-text">数据来源：CelesTrak TLE + SGP4</text>
+              <text class="orbit-meta-text">更新：{{tleUpdateTime}}</text>
+            </view>
+          </block>
+        </view>
+
+        <!-- 基本信息 -->
+        <view class="info-grid">
+          <view class="info-row" wx:if="{{item.typeName}}"><text class="info-label">空间站类型</text><text class="info-value">{{item.typeName}}</text></view>
+          <view class="info-row" wx:if="{{item.founded}}"><text class="info-label">建站时间</text><text class="info-value">{{item.founded}}</text></view>
+          <view class="info-row" wx:if="{{item.deorbited}}"><text class="info-label">退役时间</text><text class="info-value">{{item.deorbited}}</text></view>
+          <view class="info-row" wx:if="{{item.height}}"><text class="info-label">长度</text><text class="info-value">{{item.height}}</text></view>
+          <view class="info-row" wx:if="{{item.width}}"><text class="info-label">宽度</text><text class="info-value">{{item.width}}</text></view>
+          <view class="info-row" wx:if="{{item.mass}}"><text class="info-label">质量</text><text class="info-value">{{item.mass}}</text></view>
+          <view class="info-row" wx:if="{{item.volume}}"><text class="info-label">容积</text><text class="info-value">{{item.volume}}</text></view>
+          <view class="info-row" wx:if="{{item.statusSummary}}"><text class="info-label">状态说明</text><text class="info-value">{{item.statusSummary}}</text></view>
+        </view>
+
+        <!-- 空间站简介（折叠） -->
+        <view class="section" wx:if="{{item.description}}">
+          <view class="section-title-row" bindtap="toggleDescription">
+            <text class="section-title">空间站简介</text>
+            <text class="translate-toggle translate-toggle--inline {{descTranslating ? 'translate-toggle--busy' : ''}}" catchtap="onToggleDescTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
+            <text class="section-toggle">{{descExpanded ? '收起' : '展开'}}</text>
+          </view>
+          <text class="section-text" wx:if="{{descExpanded}}" user-select="{{true}}">{{descI18n.stationDesc || item.description}}</text>
+          <text class="section-text section-text--collapsed" wx:else user-select="{{true}}">{{descI18n.stationDesc || item.description}}</text>
+        </view>
+
+        <!-- 远征与团队成员 -->
+        <view class="section" wx:if="{{item.expeditionList && item.expeditionList.length}}">
+          <text class="section-title">远征与团队成员</text>
+          <view class="expedition-list">
+            <view class="expedition-card" wx:for="{{item.expeditionList}}" wx:for-item="exp" wx:key="id">
+              <view class="expedition-header">
+                <text class="expedition-name">{{exp.name}}</text>
+                <text class="expedition-time" wx:if="{{exp.start || exp.end}}">{{exp.start || '未知'}}{{exp.end ? ' 至 ' + exp.end : ' · 进行中'}}</text>
+              </view>
+              <view class="crew-list" wx:if="{{exp.crew && exp.crew.length}}">
+                <view class="crew-item" wx:for="{{exp.crew}}" wx:for-item="member" wx:key="id">
+                  <image class="crew-avatar" wx:if="{{member.image}}" src="{{member.image}}" mode="aspectFill" bindtap="onCrewAvatarTap" data-url="{{member.image}}"></image>
+                  <view class="crew-avatar crew-avatar--placeholder" wx:else>
+                    <text class="crew-avatar__initial">{{member.name[0] || '?'}}</text>
+                  </view>
+                  <view class="crew-info">
+                    <text class="crew-name">{{member.name}}</text>
+                    <text class="crew-role" wx:if="{{member.role}}">{{member.role}}</text>
+                    <view class="crew-detail-grid">
+                      <view class="crew-detail-row" wx:if="{{member.nationality}}">
+                        <text class="crew-detail-label">国籍</text>
+                        <text class="crew-detail-value">{{member.countryFlag}} {{member.nationality}}</text>
+                      </view>
+                      <view class="crew-detail-row" wx:if="{{member.status}}">
+                        <text class="crew-detail-label">状态</text>
+                        <text class="crew-detail-value">{{member.status}}</text>
+                      </view>
+                      <view class="crew-detail-row" wx:if="{{member.agencyAbbrev}}">
+                        <text class="crew-detail-label">机构</text>
+                        <text class="crew-detail-value">{{member.agencyAbbrev}}</text>
+                      </view>
+                      <view class="crew-detail-row" wx:if="{{member.dateOfBirth}}">
+                        <text class="crew-detail-label">出生日期</text>
+                        <text class="crew-detail-value">{{member.dateOfBirth}}</text>
+                      </view>
+                      <view class="crew-detail-row" wx:if="{{member.typeName}}">
+                        <text class="crew-detail-label">类型</text>
+                        <text class="crew-detail-value">{{member.typeName}}</text>
+                      </view>
+                    </view>
+                  </view>
+                </view>
+              </view>
+              <view class="crew-empty" wx:elif="{{!exp.crew || !exp.crew.length}}">
+                <text>暂无公开的成员信息</text>
+              </view>
+            </view>
+          </view>
+        </view>
+
+        <!-- 当前停靠飞船 -->
+        <view class="section">
+          <text class="section-title">当前停靠飞船</text>
+          <view class="link-list" wx:if="{{item.dockedSpacecraft && item.dockedSpacecraft.length}}">
+            <view class="ship-item {{ship.configId ? 'ship-item--tappable' : ''}}" hover-class="{{ship.configId ? 'card-pressed' : ''}}" wx:for="{{item.dockedSpacecraft}}" wx:for-item="ship" wx:key="id"
+                  data-cid="{{ship.configId}}" data-name="{{ship.configName || ship.name}}" bindtap="onShipTap">
+              <image class="ship-image" wx:if="{{ship.image}}" src="{{ship.image}}" mode="aspectFill" catchtap="onShipImageTap" data-url="{{ship.image}}"></image>
+              <view class="ship-image ship-image--placeholder" wx:else></view>
+              <view class="ship-main">
+                <view class="ship-top">
+                  <text class="ship-title">{{ship.name}}</text>
+                  <view class="ship-badge {{ship.isCrew ? 'ship-badge--crew' : 'ship-badge--cargo'}}">
+                    <text>{{ship.humanRated}}</text>
+                  </view>
+                </view>
+                <text class="ship-agency" wx:if="{{ship.agencyName}}">{{ship.agencyName}}</text>
+                <view class="ship-detail-grid">
+                  <view class="ship-detail-row" wx:if="{{ship.dockingTime}}">
+                    <text class="ship-detail-label">对接时间</text>
+                    <text class="ship-detail-value">{{ship.dockingTime}}</text>
+                  </view>
+                  <view class="ship-detail-row" wx:if="{{ship.portName}}">
+                    <text class="ship-detail-label">对接口</text>
+                    <text class="ship-detail-value">{{ship.portName}}</text>
+                  </view>
+                  <view class="ship-detail-row">
+                    <text class="ship-detail-label">在轨时长</text>
+                    <text class="ship-detail-value">{{ship.daysInOrbit}} 天</text>
+                  </view>
+                </view>
+              </view>
+              <view class="card-jump-arrow" wx:if="{{ship.configId}}">›</view>
+            </view>
+          </view>
+          <view class="empty-inline" wx:else>
+            <text>暂无停靠飞船数据</text>
+          </view>
+        </view>
+
+        <!-- 所属机构 -->
+        <view class="section" wx:if="{{item.ownerAgencies && item.ownerAgencies.length}}">
+          <text class="section-title">所属机构</text>
+          <view class="agency-list">
+            <view class="agency-card agency-card--tappable" hover-class="card-pressed" wx:for="{{item.ownerAgencies}}" wx:for-item="agency" wx:key="id"
+                  data-id="{{agency.id}}" data-name="{{agency.name}}" data-abbrev="{{agency.abbrev}}" bindtap="onOwnerAgencyTap">
+              <view class="agency-card__top">
+                <text class="agency-card__name">{{agency.name}}</text>
+                <text class="agency-card__abbr" wx:if="{{agency.abbrev}}">{{agency.abbrev}}</text>
+                <view class="card-jump-arrow card-jump-arrow--inline">›</view>
+              </view>
+              <text class="agency-card__meta" wx:if="{{agency.typeName || agency.countryText}}">{{agency.typeName}}{{agency.typeName && agency.countryText ? ' · ' : ''}}{{agency.countryText}}</text>
+            </view>
+          </view>
+        </view>
+
+        <!-- 对接口状态 -->
+        <view class="section" wx:if="{{item.dockingPorts && item.dockingPorts.length}}">
+          <text class="section-title">对接口状态</text>
+          <view class="tag-list">
+            <text class="tag-item {{port.occupied ? 'tag-item--active' : ''}}" wx:for="{{item.dockingPorts}}" wx:for-item="port" wx:key="id">{{port.name}} · {{port.occupiedText}}</text>
+          </view>
+        </view>
+
+        <!-- 数据与版权 -->
+        <view class="section" wx:if="{{item.imageLicenseLink || item.imageCredit}}">
+          <text class="section-title">数据与版权</text>
+          <view class="link-list">
+            <view class="info-link-card" wx:if="{{item.imageCredit || item.imageLicense}}">
+              <view class="info-link-main">
+                <text class="info-link-name">图片来源</text>
+                <text class="info-link-url">{{item.imageCredit || '未知'}}{{item.imageLicense ? ' / ' + item.imageLicense : ''}}</text>
+              </view>
+            </view>
+            <view class="info-link-card" wx:if="{{item.imageLicenseLink}}" bindtap="copyText" data-text="{{item.imageLicenseLink}}">
+              <view class="info-link-main">
+                <text class="info-link-name">图片许可链接</text>
+                <text class="info-link-url">{{item.imageLicenseLink}}</text>
+              </view>
+              <text class="info-link-action">复制</text>
+            </view>
+          </view>
+        </view>
+      </view>
+      <view style="height: {{tabBarReservedHeight}}px;"></view>
+    </view>
+  </scroll-view>
+  <share-guide />
+  <privacy-modal id="globalPrivacyModal" />
+</view>

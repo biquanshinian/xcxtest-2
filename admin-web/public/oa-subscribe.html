@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>订阅火箭发射提醒 · 火星探索日志</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', sans-serif;
+        background: radial-gradient(120% 120% at 50% 0%, #1c2540 0%, #0a0d1a 60%, #05060c 100%);
+        color: #f5f6fa;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      .card {
+        width: 100%;
+        max-width: 420px;
+        background: rgba(20, 24, 38, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 20px;
+        padding: 32px 24px;
+        backdrop-filter: blur(12px);
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+      }
+      .logo { font-size: 40px; text-align: center; margin-bottom: 8px; }
+      h1 { font-size: 20px; text-align: center; margin: 0 0 6px; }
+      .sub { font-size: 13px; color: #9aa3bd; text-align: center; margin: 0 0 24px; line-height: 1.6; }
+      .field { font-size: 12px; color: #9aa3bd; margin: 18px 0 0; }
+      .field b { color: #cfd6ee; font-weight: 600; }
+      .btn {
+        display: block;
+        width: 100%;
+        margin-top: 20px;
+        padding: 14px 16px;
+        border: none;
+        border-radius: 12px;
+        font-size: 16px;
+        font-weight: 600;
+        color: #fff;
+        background: linear-gradient(135deg, #2f6bff, #6a4bff);
+        cursor: pointer;
+        text-align: center;
+        text-decoration: none;
+      }
+      .btn.secondary { background: rgba(255, 255, 255, 0.1); font-weight: 500; font-size: 14px; }
+      #subscribe-host { margin-top: 20px; }
+      .status {
+        margin-top: 18px;
+        font-size: 13px;
+        line-height: 1.6;
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.05);
+        color: #b9c1da;
+        word-break: break-all;
+      }
+      .status.ok { color: #58e08a; }
+      .status.err { color: #ff7a7a; }
+      .hint { margin-top: 16px; font-size: 11px; color: #6b7392; line-height: 1.6; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="logo">🚀</div>
+      <h1>订阅火箭发射提醒</h1>
+      <p class="sub">订阅后，每个即将发射的任务将在<b style="color:#cfd6ee">发射前约 30 分钟</b>，通过服务号推送提醒给你。</p>
+
+      <div id="subscribe-host"></div>
+
+      <a id="jumpBtn" class="btn secondary" href="#">备用：旧版一次性订阅入口</a>
+
+      <div id="status" class="status">正在初始化订阅组件…</div>
+
+      <div class="field">模板：<b>火箭发射任务提醒</b>（一次性订阅，每次订阅可推送一条）</div>
+      <p class="hint">
+        提示：每点击一次「同意」仅授予一次推送额度。若希望持续收到后续任务提醒，可在收到推送后再次进入本页订阅。
+      </p>
+    </div>
+
+    <script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
+    <script>
+      // ───────────────── 配置区（部署前按服务号信息填写）─────────────────
+      var CONFIG = {
+        // 服务号 AppID（公众平台 → 设置与开发 → 基本配置）
+        OA_APPID: 'wxYOUR_OA_APPID',
+        // 订阅通知模板 ID（与云函数 WECHAT_OA_SUBSCRIBE_TEMPLATE_ID 一致）
+        TEMPLATE_ID: '2-gxvjtGT-SziFYlnMy-JJ8P9Zp7bAxBE1Xp0RXy_Vs',
+        // 场景值 0-10000（旧版跳转链使用）
+        SCENE: 1000,
+        // oaWebhook 云函数 HTTP 触发地址（用于获取 JS-SDK 签名），形如：
+        // https://<env-id>.service.tcloudbase.com/oaWebhook
+        JSSDK_ENDPOINT: 'https://YOUR_ENV.service.tcloudbase.com/oaWebhook',
+        // 旧版一次性订阅授权回调地址（域名须与服务号「业务域名」一致）
+        LEGACY_REDIRECT_URL: location.href
+      }
+      // ──────────────────────────────────────────────────────────────
+
+      var statusEl = document.getElementById('status')
+      function setStatus(text, cls) {
+        statusEl.textContent = text
+        statusEl.className = 'status' + (cls ? ' ' + cls : '')
+      }
+
+      // 备用：旧版一次性订阅消息跳转链（注意：此为旧机制，模板 ID 格式不同，
+      // 通常不会触发 subscribe_msg_popup_event，仅作低版本/兜底入口保留）
+      var jumpUrl =
+        'https://mp.weixin.qq.com/mp/subscribemsg?action=get_confirm' +
+        '&appid=' + encodeURIComponent(CONFIG.OA_APPID) +
+        '&scene=' + encodeURIComponent(CONFIG.SCENE) +
+        '&template_id=' + encodeURIComponent(CONFIG.TEMPLATE_ID) +
+        '&redirect_url=' + encodeURIComponent(CONFIG.LEGACY_REDIRECT_URL) +
+        '&reserved=' + encodeURIComponent('mars' + Date.now()) +
+        '#wechat_redirect'
+      document.getElementById('jumpBtn').setAttribute('href', jumpUrl)
+
+      // 渲染 wx-open-subscribe 开放标签（新版订阅通知正确入口，PopupScene=1）
+      function renderOpenTag() {
+        var host = document.getElementById('subscribe-host')
+        host.innerHTML =
+          '<wx-open-subscribe id="subscribeBtn" template="' + CONFIG.TEMPLATE_ID + '">' +
+          '<script type="text/wxtag-template">' +
+          '<style>.s-btn{display:block;width:100%;padding:14px 16px;border:none;border-radius:12px;' +
+          'font-size:16px;font-weight:600;color:#fff;background:linear-gradient(135deg,#2f6bff,#6a4bff);}</style>' +
+          '<button class="s-btn">点击订阅发射提醒<\/button>' +
+          '<\/script>' +
+          '<\/wx-open-subscribe>'
+
+        var btn = document.getElementById('subscribeBtn')
+        if (!btn) return
+        btn.addEventListener('success', function (e) {
+          var detail = (e && e.detail && e.detail.subscribeDetails) || ''
+          var accepted = detail.indexOf('accept') >= 0
+          if (accepted) {
+            setStatus('订阅成功！发射前约 30 分钟将收到服务号通知。', 'ok')
+          } else {
+            setStatus('你取消了订阅，可随时再次点击订阅。', '')
+          }
+        })
+        btn.addEventListener('error', function (e) {
+          var err = (e && e.detail) || {}
+          setStatus('订阅组件出错：' + (err.errMsg || JSON.stringify(err)) + '。可尝试「备用入口」。', 'err')
+        })
+      }
+
+      // 拉取 JS-SDK 签名并 wx.config（openTagList 必须含 wx-open-subscribe）
+      function initJsSdk() {
+        var pageUrl = location.href.split('#')[0]
+        var api = CONFIG.JSSDK_ENDPOINT + '?action=jssdk&url=' + encodeURIComponent(pageUrl)
+        fetch(api)
+          .then(function (r) { return r.json() })
+          .then(function (cfg) {
+            if (!cfg || cfg.errcode !== 0) {
+              throw new Error((cfg && cfg.errmsg) || '签名接口返回异常')
+            }
+            wx.config({
+              debug: false,
+              appId: cfg.appId,
+              timestamp: cfg.timestamp,
+              nonceStr: cfg.nonceStr,
+              signature: cfg.signature,
+              jsApiList: ['checkJsApi'],
+              openTagList: ['wx-open-subscribe']
+            })
+            wx.ready(function () {
+              renderOpenTag()
+              setStatus('点击上方按钮即可订阅发射提醒。', '')
+            })
+            wx.error(function (err) {
+              setStatus('wx.config 失败：' + JSON.stringify(err) + '。请确认页面在服务号 JS 安全域名下。', 'err')
+            })
+          })
+          .catch(function (err) {
+            setStatus('初始化失败：' + (err.message || err) + '。可使用下方「备用入口」。', 'err')
+          })
+      }
+
+      if (/micromessenger/i.test(navigator.userAgent)) {
+        initJsSdk()
+      } else {
+        setStatus('请在微信中打开本页面以使用订阅功能。', 'err')
+      }
+    </script>
+  </body>
+</html>

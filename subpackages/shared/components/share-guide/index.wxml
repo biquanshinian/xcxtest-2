@@ -1,0 +1,6 @@
+<view wx:if="{{show}}" class="share-guide {{dismissed ? 'share-guide--out' : ''}}" catchtap="onDismiss">
+  <view class="share-guide-bubble">
+    <text class="share-guide-text">点击下方「前往小程序」查看完整内容</text>
+    <view class="share-guide-arrow"></view>
+  </view>
+</view>

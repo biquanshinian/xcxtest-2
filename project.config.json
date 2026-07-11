@@ -1,0 +1,201 @@
+{
+  "setting": {
+    "es6": true,
+    "postcss": false,
+    "compileWorklet": false,
+    "minified": true,
+    "uglifyFileName": false,
+    "uploadWithSourceMap": false,
+    "enhance": true,
+    "packNpmManually": true,
+    "packNpmRelationList": [
+      {
+        "packageJsonPath": "./package.json",
+        "miniprogramNpmDistDir": "./pages/search/"
+      }
+    ],
+    "minifyWXSS": true,
+    "minifyWXML": true,
+    "localPlugins": false,
+    "disableUseStrict": false,
+    "useCompilerPlugins": false,
+    "condition": false,
+    "swc": false,
+    "disableSWC": true,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    }
+  },
+  "compileType": "miniprogram",
+  "simulatorPluginLibVersion": {
+    "wxext14566970e7e9f62": "2.27.3"
+  },
+  "packOptions": {
+    "ignore": [
+      {
+        "value": "admin-web.zip",
+        "type": "glob"
+      },
+      {
+        "value": "**/*.zip",
+        "type": "glob"
+      },
+      {
+        "value": "_weanalysis*",
+        "type": "glob"
+      },
+      {
+        "value": "_analyze_size*",
+        "type": "glob"
+      },
+      {
+        "value": "workers/**",
+        "type": "glob"
+      },
+      {
+        "value": "test/**",
+        "type": "glob"
+      },
+      {
+        "value": "docs/**",
+        "type": "glob"
+      },
+      {
+        "value": "utils/.api-full.backup.js",
+        "type": "glob"
+      },
+      {
+        "value": "cloudflare-worker/**",
+        "type": "glob"
+      },
+      {
+        "value": "cloudflare-worker/.wrangler/**",
+        "type": "glob"
+      },
+      {
+        "value": "admin-web/**",
+        "type": "glob"
+      },
+      {
+        "value": "_error_report_extract/**",
+        "type": "glob"
+      },
+      {
+        "value": "**/*.md",
+        "type": "glob"
+      },
+      {
+        "value": "scf-cos-trigger/**",
+        "type": "glob"
+      },
+      {
+        "value": "scripts/**",
+        "type": "glob"
+      },
+      {
+        "value": "cloudfunctions/**",
+        "type": "glob"
+      },
+      {
+        "value": "cloudfunctionTemplate/**",
+        "type": "glob"
+      },
+      {
+        "value": "project.miniapp.json",
+        "type": "glob"
+      },
+      {
+        "value": "code_obfuscation_config.json",
+        "type": "glob"
+      },
+      {
+        "value": "project.private.config.json",
+        "type": "glob"
+      },
+      {
+        "value": "package-lock.json",
+        "type": "glob"
+      },
+      {
+        "value": "eslint.config.js",
+        "type": "glob"
+      },
+      {
+        "value": "_weanalysis*.py",
+        "type": "glob"
+      },
+      {
+        "value": "_analyze_size.py",
+        "type": "glob"
+      },
+      {
+        "value": "md2wechat*.sh",
+        "type": "glob"
+      },
+      {
+        "value": "utils/api.js",
+        "type": "glob"
+      },
+      {
+        "value": "*.md",
+        "type": "glob"
+      },
+      {
+        "value": "AI*.md",
+        "type": "glob"
+      },
+      {
+        "value": "*说明.md",
+        "type": "glob"
+      },
+      {
+        "value": "*指南.md",
+        "type": "glob"
+      },
+      {
+        "value": "_analyze_size.py",
+        "type": "file"
+      },
+      {
+        "value": "_weanalysis*.py",
+        "type": "glob"
+      },
+      {
+        "value": "md2wechat*.sh",
+        "type": "glob"
+      },
+      {
+        "value": ".prettierrc.json",
+        "type": "file"
+      },
+      {
+        "value": ".prettierignore",
+        "type": "file"
+      },
+      {
+        "value": ".gitignore",
+        "type": "file"
+      },
+      {
+        "value": "package.json",
+        "type": "file"
+      },
+      {
+        "value": ".github/**",
+        "type": "glob"
+      },
+      {
+        "value": "node_modules/**",
+        "type": "glob"
+      }
+    ],
+    "include": []
+  },
+  "appid": "wxf98b58309019771b",
+  "editorSetting": {},
+  "libVersion": "3.16.2",
+  "cloudfunctionRoot": "cloudfunctions/",
+  "cloudfunctionTemplateRoot": "cloudfunctionTemplate/"
+}

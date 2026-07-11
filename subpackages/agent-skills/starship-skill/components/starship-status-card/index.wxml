@@ -1,0 +1,29 @@
+<view class="ssc-root">
+  <view class="ssc-header">
+    <text class="ssc-title">星舰下一飞组合体</text>
+  </view>
+  <view class="ssc-vehicles">
+    <view wx:if="{{booster}}" class="ssc-vehicle">
+      <text class="ssc-vehicle-id">{{booster.id || '待公布'}}</text>
+      <text class="ssc-vehicle-label">超重助推器</text>
+      <text class="ssc-vehicle-status">{{booster.statusZh}}</text>
+      <view wx:if="{{booster.progress != null}}" class="ssc-progress-track">
+        <view class="ssc-progress-fill" style="width: {{booster.progress}}%;"></view>
+      </view>
+    </view>
+    <view wx:if="{{ship}}" class="ssc-vehicle">
+      <text class="ssc-vehicle-id">{{ship.id || '待公布'}}</text>
+      <text class="ssc-vehicle-label">星舰飞船</text>
+      <text class="ssc-vehicle-status">{{ship.statusZh}}</text>
+      <view wx:if="{{ship.progress != null}}" class="ssc-progress-track">
+        <view class="ssc-progress-fill" style="width: {{ship.progress}}%;"></view>
+      </view>
+    </view>
+  </view>
+  <view wx:if="{{checklist}}" class="ssc-checklist">
+    <text class="ssc-checklist-text">飞行准备清单：{{checklist.done}}/{{checklist.total}} 项完成</text>
+  </view>
+  <view class="ssc-footer" bind:tap="onNextFlightTap">
+    <text class="ssc-footer-text">问问下次试飞时间 →</text>
+  </view>
+</view>

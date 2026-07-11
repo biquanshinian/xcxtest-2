@@ -1,0 +1,74 @@
+<view class="container {{themeClass}}">
+  <!-- 顶部导航 -->
+  <view class="top-nav-wrapper" style="padding-top:{{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">提醒偏好</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view class="content-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <!-- 火箭型号 -->
+    <view class="section">
+      <view class="section-title">关注的火箭型号</view>
+      <view class="section-desc">选择后将自动接收相关发射提醒</view>
+      <view class="tag-grid">
+        <view
+          wx:for="{{rocketOptions}}"
+          wx:key="*this"
+          class="tag-item {{rocketMap[item] ? 'tag-active' : ''}}"
+          data-name="{{item}}"
+          bindtap="onToggleRocket"
+        >{{item}}</view>
+      </view>
+    </view>
+
+    <!-- 发射场 -->
+    <view class="section">
+      <view class="section-title">关注的发射场</view>
+      <view class="section-desc">选择后将接收该发射场的任务提醒</view>
+      <view class="tag-grid">
+        <view
+          wx:for="{{siteOptions}}"
+          wx:key="*this"
+          class="tag-item {{siteMap[item] ? 'tag-active' : ''}}"
+          data-name="{{item}}"
+          bindtap="onToggleSite"
+        >{{item}}</view>
+      </view>
+    </view>
+
+    <!-- 提醒时间 -->
+    <view class="section">
+      <view class="section-title">提前提醒时间</view>
+      <view class="radio-group">
+        <view
+          wx:for="{{notifyOptions}}"
+          wx:key="value"
+          class="radio-item {{notifyMinutes === item.value ? 'radio-active' : ''}}"
+          data-value="{{item.value}}"
+          bindtap="onNotifyChange"
+        >{{item.label}}</view>
+      </view>
+    </view>
+
+    <!-- 每日简报开关 -->    <view class="section section-row">
+      <view class="section-title section-title--inline">每日太空简报</view>
+      <switch checked="{{briefingEnabled}}" bindchange="onBriefingToggle" color="#007AFF" />
+    </view>
+
+    <!-- 保存按钮 -->
+    <view class="save-area">
+      <button class="save-btn {{saving ? 'save-btn--loading' : ''}}" bindtap="onSave" disabled="{{saving}}">
+        {{saving ? '保存中...' : '保存设置'}}
+      </button>
+    </view>
+
+    <view style="height: 80rpx;"></view>
+  </scroll-view>
+</view>

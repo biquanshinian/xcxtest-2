@@ -1,0 +1,253 @@
+/* 拖拽粒子拖影 */
+.drag-particle {
+  position: fixed;
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0) 70%);
+  box-shadow: 0 0 6rpx rgba(255, 255, 255, 0.9), 0 0 14rpx rgba(255, 255, 255, 0.5);
+  pointer-events: none;
+  z-index: 9800;
+  transition: opacity 1.6s ease-out, transform 1.6s ease-out;
+}
+
+/* 遮罩 */
+.float-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.42);
+  z-index: 9798;
+  animation: maskFadeIn 0.22s ease-out;
+}
+
+@keyframes maskFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* 展开菜单（主按钮上方纵向胶囊列表） */
+.float-menu {
+  position: fixed;
+  z-index: 9800;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  pointer-events: auto;
+}
+
+.float-menu-scroll {
+  width: 240rpx;
+}
+
+.float-menu-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 16rpx;
+  width: 240rpx;
+  padding-bottom: 4rpx;
+}
+
+.float-menu-item {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12rpx;
+  width: 240rpx;
+  height: 72rpx;
+  padding: 0 20rpx;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-divider);
+  border-radius: 40rpx;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-card);
+  transition: background 0.15s, transform 0.15s;
+  opacity: 0;
+  transform: translateY(12rpx) scale(0.96);
+  animation: menuPopIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  flex-shrink: 0;
+}
+
+.float-menu-item:nth-child(1) { animation-delay: 0s; }
+.float-menu-item:nth-child(2) { animation-delay: 0.04s; }
+.float-menu-item:nth-child(3) { animation-delay: 0.08s; }
+.float-menu-item:nth-child(4) { animation-delay: 0.12s; }
+.float-menu-item:nth-child(5) { animation-delay: 0.16s; }
+
+@keyframes menuPopIn {
+  from {
+    opacity: 0;
+    transform: translateY(12rpx) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.float-menu-item:active {
+  background: var(--color-brand-soft);
+  transform: scale(0.98);
+}
+
+.float-menu-item--ai {
+  background: rgba(45, 31, 94, 0.92);
+  border-color: rgba(167, 139, 250, 0.28);
+  box-shadow: 0 4rpx 20rpx rgba(100, 80, 220, 0.28);
+}
+
+.float-menu-item--ai:active {
+  background: rgba(90, 70, 180, 0.45);
+}
+
+.float-menu-item-icon {
+  position: relative;
+  width: 48rpx;
+  height: 36rpx;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.float-menu-img {
+  width: 36rpx;
+  height: 36rpx;
+  flex-shrink: 0;
+}
+
+/* 纯白单色图标：浅色主题下 --icon-invert=1 反色为深色（变量沿 DOM 继承进组件） */
+.float-menu-img--invert {
+  filter: invert(var(--icon-invert, 0));
+}
+
+.float-menu-icon {
+  font-size: 32rpx;
+  width: 36rpx;
+  text-align: center;
+  flex-shrink: 0;
+  line-height: 1;
+  color: var(--color-text-primary);
+}
+
+.float-menu-item--ai .float-menu-icon {
+  font-size: 34rpx;
+  color: #c4b5fd;
+}
+
+/* AI 项恒为深紫底：文字固定白色，不随主题变量切深（浅色下黑字压紫底看不清） */
+.float-menu-item--ai .float-menu-label {
+  color: #ffffff;
+}
+
+.float-menu-dot {
+  position: absolute;
+  top: -2rpx;
+  right: -2rpx;
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 50%;
+  background: #FF3B30;
+  box-shadow: 0 0 6rpx rgba(255, 59, 48, 0.6);
+}
+
+.float-menu-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 28rpx;
+  color: var(--color-text-primary);
+  font-weight: 500;
+  white-space: nowrap;
+  text-align: left;
+  line-height: 1;
+}
+
+/* 主按钮 */
+.nasa-float-wrap {
+  position: fixed;
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 48rpx;
+  background: var(--bg-glass-strong);
+  border: none;
+  z-index: 9801;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none;
+  backdrop-filter: blur(72rpx) saturate(220%);
+  -webkit-backdrop-filter: blur(72rpx) saturate(220%);
+  transition: background 0.2s;
+}
+
+.nasa-float-wrap:active {
+  box-shadow: none;
+}
+
+.nasa-float-wrap--active {
+  background: rgba(0, 122, 255, 0.9);
+  border: none;
+}
+
+.nasa-float-icon {
+  width: 48rpx;
+  height: 48rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nasa-float-svg {
+  width: 40rpx;
+  height: 40rpx;
+}
+
+.nasa-float-close {
+  font-size: 32rpx;
+  color: #fff;
+  font-weight: 300;
+}
+
+.nasa-float-badge {
+  position: absolute;
+  top: -6rpx;
+  right: -6rpx;
+  min-width: 32rpx;
+  height: 32rpx;
+  border-radius: 16rpx;
+  background: #FF3B30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8rpx;
+}
+
+.nasa-float-badge .nasa-float-badge-text {
+  font-size: 20rpx;
+  color: #fff;
+  font-weight: 600;
+  line-height: 32rpx;
+}
+
+.nasa-float-dot {
+  position: absolute;
+  top: 2rpx;
+  right: 2rpx;
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 50%;
+  background: #FF3B30;
+  box-shadow: 0 0 8rpx rgba(255, 59, 48, 0.6);
+  animation: dotPulse 2s ease-in-out infinite;
+}
+
+@keyframes dotPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.3); }
+}

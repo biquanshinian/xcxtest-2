@@ -1,0 +1,11 @@
+{
+  "navigationBarTitleText": "Orbital Data Center",
+  "navigationStyle": "custom",
+  "navigationBarBackgroundColor": "#000000",
+  "navigationBarTextStyle": "white",
+  "backgroundColor": "#000000",
+  "backgroundTextStyle": "dark",
+  "enablePullDownRefresh": false,
+  "disableScroll": false,
+  "usingComponents": {}
+}

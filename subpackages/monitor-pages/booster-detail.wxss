@@ -1,0 +1,571 @@
+/* booster-detail.wxss */
+page {
+  background: #000;
+  color: #fff;
+}
+
+.container {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+}
+
+
+/* 加载/错误 */
+.loading-wrap, .error-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-top: 200rpx;
+}
+.loading-text {
+  font-size: 28rpx;
+  color: #636366;
+}
+.error-icon {
+  font-size: 64rpx;
+  margin-bottom: 20rpx;
+}
+.error-text {
+  font-size: 28rpx;
+  color: #8E8E93;
+  margin-bottom: 30rpx;
+}
+.error-btn {
+  font-size: 28rpx;
+  color: #007AFF;
+  padding: 12rpx 40rpx;
+  border: 1px solid rgba(0, 122, 255, 0.3);
+  border-radius: 999rpx;
+}
+
+.detail-scroll {
+  width: 100%;
+  height: 100vh;
+}
+
+/* Hero 图片 */
+.hero-section {
+  position: relative;
+  width: 100%;
+  height: 420rpx;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.03);
+}
+.hero-img {
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transform: scale(1.02);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+.hero-img--loaded {
+  opacity: 1;
+  transform: scale(1);
+}
+.hero-placeholder {
+  opacity: 1;
+  transform: scale(1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.08), rgba(255, 255, 255, 0.02) 72%);
+}
+.hero-placeholder-icon {
+  font-size: 96rpx;
+}
+.hero-gradient {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 160rpx;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
+}
+.hero-credit-btn {
+  position: absolute;
+  bottom: 12rpx;
+  right: 16rpx;
+  padding: 6rpx 18rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(135deg, rgba(0, 122, 255, 0.2), rgba(88, 86, 214, 0.2));
+  border: 1px solid rgba(0, 122, 255, 0.3);
+  backdrop-filter: blur(10rpx);
+  -webkit-backdrop-filter: blur(10rpx);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.hero-credit-text {
+  font-size: 20rpx;
+  color: #007AFF;
+  font-weight: 500;
+}
+.hero-status {
+  position: absolute;
+  top: 20rpx;
+  left: 20rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  padding: 6rpx 20rpx;
+  border-radius: 8rpx;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10rpx);
+  -webkit-backdrop-filter: blur(10rpx);
+}
+
+/* 贴图讨论区：与正文区块左右 30rpx 对齐 */
+.booster-discuss-wrap {
+  padding: 0 30rpx;
+}
+
+/* 基本信息头 */
+.info-header {
+  padding: 24rpx 30rpx 0;
+}
+.info-serial {
+  font-size: 48rpx;
+  font-weight: 800;
+  color: #fff;
+  display: block;
+}
+.info-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 12rpx;
+}
+.info-tag {
+  font-size: 22rpx;
+  padding: 4rpx 16rpx;
+  border-radius: 6rpx;
+  font-weight: 500;
+}
+.info-tag--family {
+  color: #FF9500;
+  background: rgba(255, 149, 0, 0.15);
+  border: 1px solid rgba(255, 149, 0, 0.3);
+}
+.info-tag--mfr {
+  color: #5AC8FA;
+  background: rgba(90, 200, 250, 0.15);
+  border: 1px solid rgba(90, 200, 250, 0.3);
+}
+/* 发射商跳转按钮：胶囊蓝色渐变，全局统一（同首页倒计时 info-jump-btn） */
+.info-tag--link {
+  color: #ffffff;
+  background: linear-gradient(135deg, #007AFF, #5856D6);
+  border: none;
+  border-radius: 999rpx;
+  padding: 5rpx 17rpx 5rpx 19rpx;
+  font-weight: 500;
+}
+.info-tag--link:active {
+  opacity: 0.7;
+  transform: scale(0.96);
+}
+.info-tag-arrow {
+  font-size: 26rpx;
+  margin-left: 2rpx;
+  line-height: 1;
+}
+.info-tag--block {
+  color: #AF52DE;
+  background: rgba(175, 82, 222, 0.15);
+  border: 1px solid rgba(175, 82, 222, 0.3);
+}
+
+/* 描述 */
+.desc-section {
+  padding: 20rpx 30rpx 0;
+}
+/* 标题左 + 翻译按钮右（全局统一布局） */
+.desc-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12rpx;
+}
+.desc-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #fff;
+}
+.desc-text {
+  font-size: 26rpx;
+  color: rgba(255, 255, 255, 0.65);
+  line-height: 1.6;
+}
+
+/* 核心数据网格 */
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16rpx;
+  padding: 24rpx 30rpx;
+}
+.stats-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24rpx 16rpx;
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.stats-card-value {
+  font-size: 44rpx;
+  font-weight: 800;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.stats-card-label {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.45);
+  margin-top: 6rpx;
+}
+
+/* 着陆方式 */
+.landing-breakdown {
+  margin: 0 30rpx 16rpx;
+  padding: 24rpx;
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.section-label {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #fff;
+  display: block;
+  margin-bottom: 16rpx;
+}
+.landing-row {
+  display: flex;
+  gap: 24rpx;
+}
+.landing-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16rpx 0;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 12rpx;
+}
+.landing-value {
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.landing-label {
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.45);
+  margin-top: 4rpx;
+}
+
+/* 时间线 */
+.timeline-section {
+  margin: 0 30rpx 16rpx;
+  padding: 24rpx;
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.timeline-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+}
+.timeline-item {
+  flex: 0 0 calc(50% - 8rpx);
+  display: flex;
+  flex-direction: column;
+  padding: 12rpx 16rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 10rpx;
+}
+.timeline-label {
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.4);
+}
+.timeline-value {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #fff;
+  margin-top: 4rpx;
+}
+.turnaround-value {
+  color: #5AC8FA;
+}
+
+/* 飞行记录条 */
+.flight-bar-section {
+  margin: 0 30rpx 16rpx;
+  padding: 24rpx;
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.flight-bar-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx;
+}
+.flight-block-detail {
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 8rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.flight-block-detail .flight-block-num {
+  font-size: 18rpx;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+}
+.flight-success {
+  background: rgba(52, 199, 89, 0.3);
+  border: 1px solid rgba(52, 199, 89, 0.5);
+}
+.flight-fail {
+  background: rgba(255, 59, 48, 0.3);
+  border: 1px solid rgba(255, 59, 48, 0.5);
+}
+.flight-pending {
+  background: rgba(255, 149, 0, 0.3);
+  border: 1px solid rgba(255, 149, 0, 0.5);
+}
+.flight-unknown {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+.flight-legend {
+  display: flex;
+  gap: 24rpx;
+  margin-top: 16rpx;
+  justify-content: center;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+}
+.legend-dot {
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 4rpx;
+}
+.legend-text {
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* 飞行历史列表 */
+.history-section {
+  margin: 0 30rpx 16rpx;
+  padding: 24rpx;
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.history-gap-hint {
+  margin-bottom: 16rpx;
+  padding: 12rpx 16rpx;
+  background: rgba(255, 165, 0, 0.1);
+  border-radius: 8rpx;
+  border: 1px solid rgba(255, 165, 0, 0.2);
+}
+.history-gap-text {
+  font-size: 22rpx;
+  color: rgba(255, 165, 0, 0.85);
+}
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 14rpx 16rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 10rpx;
+}
+.history-index-wrap {
+  flex-shrink: 0;
+}
+.history-index {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 50%;
+  font-size: 22rpx;
+  font-weight: 700;
+}
+.history-index--success {
+  color: #34C759;
+  background: rgba(52, 199, 89, 0.15);
+  border: 1px solid rgba(52, 199, 89, 0.3);
+}
+.history-index--fail {
+  color: #FF3B30;
+  background: rgba(255, 59, 48, 0.15);
+  border: 1px solid rgba(255, 59, 48, 0.3);
+}
+.history-index--pending {
+  color: #FF9500;
+  background: rgba(255, 149, 0, 0.15);
+  border: 1px solid rgba(255, 149, 0, 0.3);
+}
+.history-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.history-mission {
+  font-size: 24rpx;
+  font-weight: 500;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.history-date {
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.4);
+  margin-top: 2rpx;
+}
+.history-result {
+  flex-shrink: 0;
+  font-size: 20rpx;
+  font-weight: 500;
+  padding: 4rpx 14rpx;
+  border-radius: 6rpx;
+}
+.history-result--success {
+  color: #34C759;
+  background: rgba(52, 199, 89, 0.15);
+}
+.history-result--fail {
+  color: #FF3B30;
+  background: rgba(255, 59, 48, 0.15);
+}
+.history-result--pending {
+  color: #FF9500;
+  background: rgba(255, 149, 0, 0.15);
+}
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+.container.theme-light {
+  background: var(--color-bg-page);
+}
+.theme-light .loading-text {
+  color: var(--color-text-tertiary);
+}
+.theme-light .error-text {
+  color: var(--color-text-secondary);
+}
+/* Hero 无图占位：深色径向渐变 → 浅灰 */
+.theme-light .hero-placeholder {
+  background: radial-gradient(circle at center, rgba(0, 122, 255, 0.08), rgba(0, 0, 0, 0.03) 72%);
+}
+/* hero-gradient / hero-status / hero-credit-btn 压在照片上，保持深色浮层 */
+.theme-light .info-serial {
+  color: var(--color-text-primary);
+}
+.theme-light .desc-title {
+  color: var(--color-text-primary);
+}
+.theme-light .desc-text {
+  color: var(--color-text-secondary);
+}
+.theme-light .stats-card {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-card);
+}
+.theme-light .stats-card-value {
+  color: var(--color-text-primary);
+}
+.theme-light .stats-card-label {
+  color: var(--color-text-tertiary);
+}
+.theme-light .landing-breakdown,
+.theme-light .timeline-section,
+.theme-light .flight-bar-section,
+.theme-light .history-section {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-card);
+}
+.theme-light .section-label {
+  color: var(--color-text-primary);
+}
+.theme-light .landing-item {
+  background: rgba(0, 0, 0, 0.04);
+}
+.theme-light .landing-value {
+  color: var(--color-text-primary);
+}
+.theme-light .landing-label {
+  color: var(--color-text-tertiary);
+}
+.theme-light .timeline-item {
+  background: rgba(0, 0, 0, 0.04);
+}
+.theme-light .timeline-label {
+  color: var(--color-text-tertiary);
+}
+.theme-light .timeline-value {
+  color: var(--color-text-primary);
+}
+.theme-light .turnaround-value {
+  color: #0A84FF;
+}
+/* 飞行方块：半透明状态底降透明度，数字用深色文字 */
+.theme-light .flight-success {
+  background: rgba(52, 199, 89, 0.15);
+  border: 1px solid rgba(52, 199, 89, 0.35);
+}
+.theme-light .flight-fail {
+  background: rgba(255, 59, 48, 0.12);
+  border: 1px solid rgba(255, 59, 48, 0.3);
+}
+.theme-light .flight-pending {
+  background: rgba(255, 149, 0, 0.15);
+  border: 1px solid rgba(255, 149, 0, 0.35);
+}
+.theme-light .flight-unknown {
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+.theme-light .flight-block-detail .flight-block-num {
+  color: var(--color-text-primary);
+}
+.theme-light .legend-text {
+  color: var(--color-text-tertiary);
+}
+.theme-light .history-gap-hint {
+  background: rgba(255, 165, 0, 0.1);
+  border: 1px solid rgba(255, 165, 0, 0.25);
+}
+.theme-light .history-gap-text {
+  color: #C77700;
+}
+.theme-light .history-item {
+  background: rgba(0, 0, 0, 0.04);
+}
+.theme-light .history-mission {
+  color: var(--color-text-primary);
+}
+.theme-light .history-date {
+  color: var(--color-text-tertiary);
+}
+

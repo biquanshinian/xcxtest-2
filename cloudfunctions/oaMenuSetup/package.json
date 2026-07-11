@@ -1,0 +1,10 @@
+{
+  "name": "oaMenuSetup",
+  "version": "1.0.0",
+  "description": "一次性：通过接口恢复服务号自定义菜单",
+  "main": "index.js",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "wx-server-sdk": "~2.6.3"
+  }
+}

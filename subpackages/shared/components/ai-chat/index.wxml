@@ -1,0 +1,222 @@
+<!-- AI 太空助手：面板由 NASA 圆盘菜单唤起 -->
+
+
+
+<!-- 聊天面板 -->
+
+<view class="ai-panel {{visible ? 'ai-panel--show' : ''}}" wx:if="{{panelMounted}}">
+
+  <view class="ai-panel-mask" bindtap="closeChat"></view>
+
+  <view class="ai-panel-body {{visible ? 'ai-panel-body--show' : ''}}" style="height: {{panelHeight}}px; bottom: {{keyboardHeight}}px;">
+
+    <!-- 标题栏 -->
+
+    <view class="ai-panel-header">
+
+      <view class="ai-panel-header-left">
+
+        <text class="ai-panel-title">✦ 星问</text>
+
+        <text class="ai-panel-subtitle">AI太空助手</text>
+
+      </view>
+
+      <view class="ai-panel-header-actions">
+
+        <!-- 新对话按钮 -->
+
+        <view class="ai-header-btn ai-new-chat-btn {{!hasHistory || sending ? 'ai-header-btn--disabled' : ''}}" bindtap="clearChat" wx:if="{{hasHistory}}">
+
+          <text class="ai-new-chat-icon">↻</text>
+
+          <text class="ai-new-chat-text">新对话</text>
+
+        </view>
+
+        <!-- 关闭按钮 -->
+
+        <view class="ai-header-btn ai-panel-close" bindtap="closeChat">
+
+          <text>✕</text>
+
+        </view>
+
+      </view>
+
+    </view>
+
+
+
+    <!-- 消息列表 -->
+
+    <scroll-view
+
+      class="ai-messages"
+
+      scroll-y
+
+      enhanced
+
+      show-scrollbar="{{false}}"
+
+      scroll-into-view="{{scrollTarget}}"
+
+      scroll-with-animation
+
+    >
+
+      <!-- 欢迎消息（无历史时显示） -->
+
+      <view class="ai-welcome" wx:if="{{!messages.length}}">
+
+        <view class="ai-welcome-avatar">✦</view>
+
+        <text class="ai-welcome-title">你好，我是星问</text>
+
+        <text class="ai-welcome-desc">你的AI太空助手，有任何关于航天、太空探索的问题都可以问我！</text>
+
+        <view class="ai-quick-wrap">
+
+          <view class="ai-quick-btn" wx:for="{{quickQuestions}}" wx:key="*this" bindtap="onQuickQuestion" data-q="{{item}}">
+
+            <text>{{item}}</text>
+
+          </view>
+
+        </view>
+
+      </view>
+
+
+
+      <!-- 聊天消息 -->
+
+      <block wx:for="{{messages}}" wx:key="id">
+
+        <view class="ai-msg ai-msg--{{item.role === 'user' ? 'user' : 'bot'}}" id="msg-{{item.id}}">
+
+          <!-- 机器人头像 -->
+
+          <view class="ai-bot-avatar" wx:if="{{item.role !== 'user'}}">
+
+            <text>✦</text>
+
+          </view>
+
+          <view class="ai-msg-bubble ai-msg-bubble--{{item.role === 'user' ? 'user' : 'bot'}} {{item.error ? 'ai-msg-bubble--error' : ''}}">
+
+            <text class="ai-msg-text" user-select wx:if="{{item.content}}">{{item.content}}</text>
+
+            <view class="ai-msg-typing" wx:if="{{item.typing}}">
+
+              <view class="typing-dot"></view>
+
+              <view class="typing-dot"></view>
+
+              <view class="typing-dot"></view>
+
+            </view>
+
+          </view>
+
+          <!-- 失败重试按钮 -->
+
+          <view class="ai-retry-btn" wx:if="{{item.error}}" bindtap="retryLastMessage">
+
+            <text class="ai-retry-icon">↻</text>
+
+            <text class="ai-retry-text">重试</text>
+
+          </view>
+
+        </view>
+
+      </block>
+
+
+
+      <!-- 对话中间的快捷建议（有历史且未在发送时） -->
+
+      <view class="ai-mid-quick" wx:if="{{hasHistory && !sending && messages.length > 0 && messages.length < 6}}">
+
+        <view class="ai-mid-quick-inner">
+
+          <view class="ai-quick-btn ai-quick-btn--small" wx:for="{{quickQuestions}}" wx:key="*this" wx:if="{{index < 3}}" bindtap="onQuickQuestion" data-q="{{item}}">
+
+            <text>{{item}}</text>
+
+          </view>
+
+        </view>
+
+      </view>
+
+
+
+      <view id="msg-bottom" style="height: 20rpx;"></view>
+
+    </scroll-view>
+
+
+
+    <!-- AI生成内容声明 -->
+
+    <view class="ai-disclaimer">
+
+      <text class="ai-disclaimer-icon">⚠</text>
+
+      <text class="ai-disclaimer-text">本服务由人工智能(AI)生成内容，结果仅供参考，不代表专业意见</text>
+
+    </view>
+
+    <view class="ai-input-bar {{keyboardHeight > 0 ? 'ai-input-bar--keyboard' : ''}}">
+
+      <input
+
+        class="ai-input"
+
+        placeholder="{{sending ? '星问正在思考...' : '问一个太空问题...'}}"
+
+        placeholder-class="ai-input-placeholder"
+
+        value="{{inputValue}}"
+
+        bindinput="onInput"
+
+        bindconfirm="sendMessage"
+
+        bindfocus="onInputFocus"
+
+        bindblur="onInputBlur"
+
+        bindkeyboardheightchange="onInputKeyboardHeightChange"
+
+        confirm-type="send"
+
+        disabled="{{sending}}"
+
+        focus="{{inputFocus}}"
+
+        adjust-position="{{false}}"
+
+        cursor-spacing="24"
+
+        hold-keyboard="{{true}}"
+
+      />
+
+      <view class="ai-send-btn {{inputValue.length > 0 && !sending ? 'ai-send-btn--active' : ''}} {{sending ? 'ai-send-btn--sending' : ''}}" bindtap="sendMessage">
+
+        <text class="ai-send-icon" wx:if="{{!sending}}">↑</text>
+
+        <view class="ai-send-spinner" wx:else></view>
+
+      </view>
+
+    </view>
+
+  </view>
+
+</view>
+

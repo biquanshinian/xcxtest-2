@@ -1,0 +1,20 @@
+{
+  "navigationBarTitleText": "航天任务详情",
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "light",
+  "navigationStyle": "custom",
+  "backgroundColor": "#000000",
+  "backgroundColorContent": "#000000",
+  "backgroundColorTop": "#000000",
+  "backgroundColorBottom": "#000000",
+  "usingComponents": {
+    "privacy-modal": "/components/privacy-modal/privacy-modal",
+    "share-guide": "/subpackages/shared/components/share-guide/index",
+    "official-account-publish-panel": "/subpackages/shared/components/official-account-publish-panel/index",
+    "rocket-history": "/components/rocket-history/index"
+  },
+  "componentPlaceholder": {
+    "share-guide": "view",
+    "official-account-publish-panel": "view"
+  }
+}

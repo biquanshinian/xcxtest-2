@@ -1,0 +1,21 @@
+{
+  "name": "mars-explore-log",
+  "version": "1.0.0",
+  "private": true,
+  "description": "火星探索日志 微信小程序 — 客户端 + 云函数 质量门禁基线（lint + test）",
+  "scripts": {
+    "lint": "eslint . --max-warnings=-1",
+    "lint:fix": "eslint . --fix",
+    "lint:strict": "eslint . --max-warnings=0",
+    "format": "prettier --check \"**/*.{js,json}\" --ignore-path .prettierignore",
+    "format:fix": "prettier --write \"**/*.{js,json}\" --ignore-path .prettierignore",
+    "test": "node --test test/ cloudfunctions/syncSpaceDevsData/",
+    "test:client": "node --test test/"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.15.0",
+    "eslint": "9.15.0",
+    "globals": "15.12.0",
+    "prettier": "3.3.3"
+  }
+}

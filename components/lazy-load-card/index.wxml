@@ -1,0 +1,5 @@
+<view class="lazy-load-card glass-card" bindtap="onTap">
+  <text class="lazy-load-icon">{{icon}}</text>
+  <text class="lazy-load-text">{{text}}</text>
+  <text class="lazy-load-hint" wx:if="{{hint}}">{{hint}}</text>
+</view>

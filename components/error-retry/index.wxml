@@ -1,0 +1,4 @@
+<view class="error-retry-wrap">
+  <text class="error-retry-message">{{message || '加载失败'}}</text>
+  <view class="error-retry-btn" bindtap="onRetry">重试</view>
+</view>

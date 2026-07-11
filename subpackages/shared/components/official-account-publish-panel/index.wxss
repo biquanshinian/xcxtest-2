@@ -1,0 +1,184 @@
+/* 贴图组件 — 深色玻璃卡片外层（原生组件内部样式不可改） */
+/* 原生组件外壳自带整套主题变量（参照 morning-briefing 弹窗的已验证模式）：
+   组件样式隔离 + 原生组件场景下，页面 page{} / .theme-light 的变量继承并不可靠，
+   故深色默认值直接定义在组件根上、浅色由 --light 修饰类覆盖，彻底不依赖页面继承。 */
+.official-account-publish-panel {
+  --color-text-primary: #FFFFFF;
+  --color-text-secondary: #8E8E93;
+  --color-divider: rgba(255, 255, 255, 0.1);
+  --color-divider-faint: rgba(255, 255, 255, 0.05);
+  --bg-glass: rgba(30, 30, 30, 0.35);
+  --color-brand-soft: rgba(0, 122, 255, 0.3);
+  --shadow-card: 0 8rpx 24rpx rgba(0, 0, 0, 0.3), 0 2rpx 6rpx rgba(0, 0, 0, 0.2);
+  --shadow-glass-inset: inset 0 1rpx 0 rgba(255, 255, 255, 0.12), inset 0 -1rpx 0 rgba(0, 0, 0, 0.2);
+  width: 100%;
+  margin-top: 28rpx;
+  margin-bottom: 32rpx;
+  box-sizing: border-box;
+}
+
+/* 浅色主题变量覆盖（取值对齐 styles/tokens.wxss 的 .theme-light；
+   阴影用全透明零位移而非 none，避免 box-shadow 多值合写整条失效） */
+.official-account-publish-panel--light {
+  --color-text-primary: #1C1C1E;
+  --color-text-secondary: #6E6E73;
+  --color-divider: rgba(0, 0, 0, 0.08);
+  --color-divider-faint: rgba(0, 0, 0, 0.04);
+  --bg-glass: rgba(255, 255, 255, 0.72);
+  --color-brand-soft: rgba(0, 122, 255, 0.14);
+  --shadow-card: 0 0 0 rgba(0, 0, 0, 0);
+  --shadow-glass-inset: inset 0 0 0 rgba(0, 0, 0, 0);
+}
+
+.official-account-publish-card {
+  width: 100%;
+  padding: 20rpx 20rpx 16rpx;
+  border-radius: 24rpx;
+  background: var(--bg-glass);
+  backdrop-filter: blur(28rpx) saturate(170%);
+  -webkit-backdrop-filter: blur(28rpx) saturate(170%);
+  border: 1px solid var(--color-divider);
+  box-shadow:
+    var(--shadow-card),
+    var(--shadow-glass-inset);
+  box-sizing: border-box;
+  overflow: hidden;
+  position: relative;
+}
+
+.official-account-publish-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2rpx;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(0, 122, 255, 0.35) 30%,
+    rgba(120, 192, 255, 0.45) 50%,
+    rgba(0, 122, 255, 0.35) 70%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+.official-account-publish-header {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  padding: 0 4rpx 16rpx;
+}
+
+.official-account-publish-icon-wrap {
+  flex-shrink: 0;
+  width: 52rpx;
+  height: 52rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 122, 255, 0.14);
+  border: 1px solid var(--color-brand-soft);
+}
+
+.official-account-publish-icon {
+  font-size: 26rpx;
+  line-height: 1;
+  color: #7ec3ff;
+}
+
+.official-account-publish-header-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.official-account-publish-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  line-height: 1.2;
+}
+
+.official-account-publish-subtitle {
+  font-size: 22rpx;
+  color: var(--color-text-secondary);
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 原生贴图区：走官方默认样式（浅灰底深色字，深浅主题下都可读），
+   外壳只负责圆角裁切，不再自定义背景色 */
+.official-account-publish-native-wrap {
+  width: 100%;
+  border-radius: 16rpx;
+  overflow: hidden;
+}
+
+.official-account-publish-native-wrap official-account-publish {
+  display: block;
+  width: 100%;
+}
+
+/* 不可见探测实例：参与布局以便测量高度，不响应交互 */
+.official-account-publish-probe-wrap {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
+  overflow: hidden;
+}
+
+.official-account-publish-probe-wrap official-account-publish {
+  display: block;
+  width: 100%;
+}
+
+.official-account-publish-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  margin-top: 12rpx;
+  padding: 16rpx 20rpx;
+  border-radius: 14rpx;
+  background: var(--color-divider-faint);
+  border: 1px solid var(--color-divider);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.06);
+  box-sizing: border-box;
+}
+
+.official-account-publish-toggle-text {
+  font-size: 24rpx;
+  font-weight: 500;
+  color: #7ec3ff;
+  line-height: 1.2;
+}
+
+.official-account-publish-toggle-arrow {
+  font-size: 22rpx;
+  line-height: 1;
+  color: #7ec3ff;
+  opacity: 0.85;
+}
+
+/* ── 浅色主题（修饰类由组件 JS 自挂：样式隔离下页面级 .theme-light 选择器进不了组件）──
+   浅蓝 #7ec3ff 在白底上对比不足，压深为品牌蓝系 */
+.official-account-publish-panel--light .official-account-publish-icon,
+.official-account-publish-panel--light .official-account-publish-toggle-text,
+.official-account-publish-panel--light .official-account-publish-toggle-arrow {
+  color: #0062CC;
+}
+
+.official-account-publish-panel--light .official-account-publish-toggle {
+  box-shadow: none;
+}

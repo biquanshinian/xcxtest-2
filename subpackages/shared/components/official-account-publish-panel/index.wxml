@@ -1,0 +1,44 @@
+<view wx:if="{{show}}" class="official-account-publish-panel {{panelLight ? 'official-account-publish-panel--light' : ''}}">
+  <view class="official-account-publish-card">
+    <view class="official-account-publish-header">
+      <view class="official-account-publish-icon-wrap">
+        <text class="official-account-publish-icon">✦</text>
+      </view>
+      <view class="official-account-publish-header-text">
+        <text class="official-account-publish-title">贴图讨论区</text>
+        <text class="official-account-publish-subtitle">#{{safeTopic}}</text>
+      </view>
+    </view>
+    <!-- 原生贴图组件走官方默认样式（默认浅灰底深色字），不再自定义配色：
+         自定义 background-color / color-unity 在深浅主题切换时表现不可控 -->
+    <view class="official-account-publish-native-wrap">
+      <official-account-publish
+        topic="{{safeTopic}}"
+        limit="{{effectiveLimit}}"
+        path="/pages/index/index"
+        placeholder="说点什么…"
+        binderror="onError"
+        bindempty="onEmpty"
+        bindpublishsuccess="onPublishSuccess"
+      />
+    </view>
+    <!-- 折叠态隐藏探测：limit=collapse+1，与主列表比高度判断是否超过 2 条 -->
+    <view wx:if="{{!expanded}}" class="official-account-publish-probe-wrap">
+      <official-account-publish
+        topic="{{safeTopic}}"
+        limit="{{probeLimit}}"
+        path="/pages/index/index"
+        placeholder="说点什么…"
+        bindempty="onProbeEmpty"
+      />
+    </view>
+    <view
+      wx:if="{{showToggle}}"
+      class="official-account-publish-toggle"
+      bindtap="onToggleExpand"
+    >
+      <text class="official-account-publish-toggle-text">{{expanded ? '收起' : '查看更多贴图'}}</text>
+      <text class="official-account-publish-toggle-arrow">{{expanded ? '⌃' : '⌄'}}</text>
+    </view>
+  </view>
+</view>

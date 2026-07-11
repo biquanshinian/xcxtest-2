@@ -1,0 +1,8 @@
+node_modules/
+**/node_modules/
+dist/
+build/
+admin-web/dist/
+**/miniprogram_npm/
+*.min.js
+pages/search/miniprogram_npm/

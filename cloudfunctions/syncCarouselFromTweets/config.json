@@ -1,0 +1,11 @@
+{
+  "permissions": {},
+  "timeout": 60,
+  "triggers": [
+    {
+      "name": "autoSyncTimer",
+      "type": "timer",
+      "config": "0 */30 * * * * *"
+    }
+  ]
+}

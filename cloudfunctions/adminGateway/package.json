@@ -1,0 +1,12 @@
+{
+  "name": "adminGateway",
+  "version": "1.0.0",
+  "description": "后台管理网关云函数",
+  "main": "index.js",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cos-nodejs-sdk-v5": "^2.14.4",
+    "tencentcloud-cls-sdk-js": "^1.0.6",
+    "wx-server-sdk": "latest"
+  }
+}

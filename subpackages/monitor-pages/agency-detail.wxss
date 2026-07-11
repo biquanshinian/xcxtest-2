@@ -1,0 +1,1760 @@
+page {
+  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  height: 100vh;
+}
+
+.detail-page {
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* 导航标题包裹层：min-width:0 允许在 grid 中收缩，flex 保证标题始终水平居中 */
+.nav-title-wrap {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+
+/* 滚动容器 */
+.detail-scroll {
+  height: 100vh;
+}
+
+.detail-container {
+  padding: 24rpx;
+  padding-bottom: 48rpx;
+}
+
+/* 加载和错误状态 */
+.loading-state,
+.error-state {
+  min-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24rpx;
+  padding: 80rpx 40rpx;
+}
+
+.loading-spinner {
+  width: 56rpx;
+  height: 56rpx;
+  border-radius: 50%;
+  border: 4rpx solid rgba(90, 200, 250, 0.2);
+  border-top-color: #5ac8fa;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-text,
+.error-text {
+  font-size: 28rpx;
+  color: #8e8e93;
+  text-align: center;
+}
+
+.error-title {
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.retry-btn {
+  margin-top: 16rpx;
+  padding: 0 48rpx;
+  height: 80rpx;
+  line-height: 80rpx;
+  border-radius: 40rpx;
+  background: linear-gradient(135deg, #5ac8fa 0%, #007aff 100%);
+  color: #ffffff;
+  font-size: 30rpx;
+  font-weight: 600;
+  border: none;
+}
+
+.retry-btn::after {
+  border: none;
+}
+
+/* 玻璃卡片 */
+.glass-card {
+  background: rgba(28, 28, 30, 0.72);
+  backdrop-filter: blur(40rpx) saturate(180%);
+  -webkit-backdrop-filter: blur(40rpx) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 32rpx;
+  overflow: hidden;
+}
+
+/* ── Hero 全幅大图：原图干净展示 + 底部渐变收边（与火箭型号详情页一致） ── */
+.hero-section {
+  position: relative;
+  width: 100%;
+  height: 460rpx;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.hero-img {
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transform: scale(1.02);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+
+.hero-img--loaded {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.hero-placeholder {
+  opacity: 1;
+  transform: scale(1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.08), rgba(255, 255, 255, 0.02) 72%);
+}
+
+.hero-placeholder-icon {
+  font-size: 96rpx;
+}
+
+/* 仅底部 160rpx 渐变收边，不再整图压暗 */
+.hero-gradient {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 160rpx;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
+}
+
+/* ── 信息头：logo/名称/徽标下移出头图 ── */
+.info-header {
+  padding: 24rpx 32rpx 0;
+}
+
+.info-main-row {
+  display: flex;
+  align-items: center;
+  gap: 22rpx;
+  width: 100%;
+  margin-bottom: 18rpx;
+}
+
+/* logo 白底圆片：无描边，靠柔和投影与照片分层 */
+.agency-logo-chip {
+  flex-shrink: 0;
+  width: 116rpx;
+  height: 116rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 12rpx 36rpx rgba(0, 0, 0, 0.45);
+}
+
+.agency-logo {
+  width: 82rpx;
+  height: 82rpx;
+}
+
+.info-title-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 收藏星标：名称列右侧 */
+.fav-btn {
+  flex-shrink: 0;
+  width: 72rpx;
+  height: 72rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1rpx solid rgba(255, 255, 255, 0.1);
+  transition: transform 0.12s ease;
+}
+
+.fav-btn--pressed {
+  transform: scale(0.9);
+}
+
+.fav-star {
+  font-size: 50rpx;
+  line-height: 72rpx;
+  height: 72rpx;
+  width: 100%;
+  text-align: center;
+  /* ★ 字形无下伸部，文本框预留的 descender 空间会让它在圆内视觉偏上，向下微调做光学居中 */
+  transform: translateY(3rpx);
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.fav-btn--on {
+  background: rgba(255, 170, 0, 0.12);
+  border-color: rgba(255, 170, 0, 0.3);
+}
+
+.fav-btn--on .fav-star {
+  color: #FFAA00;
+}
+
+/* 类型/重点机构徽标行 */
+.info-tags {
+  display: flex;
+  gap: 12rpx;
+  flex-wrap: wrap;
+  margin-bottom: 14rpx;
+}
+
+.type-badge {
+  padding: 10rpx 24rpx;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  backdrop-filter: blur(20rpx);
+  -webkit-backdrop-filter: blur(20rpx);
+}
+
+.agency-type--government {
+  color: #ffd60a;
+  background: rgba(255, 214, 10, 0.18);
+  border: 1px solid rgba(255, 214, 10, 0.35);
+  box-shadow: 0 0 20rpx rgba(255, 214, 10, 0.2);
+}
+
+.agency-type--commercial {
+  color: #30d158;
+  background: rgba(48, 209, 88, 0.18);
+  border: 1px solid rgba(48, 209, 88, 0.35);
+  box-shadow: 0 0 20rpx rgba(48, 209, 88, 0.2);
+}
+
+.agency-type--multinational {
+  color: #5ac8fa;
+  background: rgba(90, 200, 250, 0.18);
+  border: 1px solid rgba(90, 200, 250, 0.35);
+  box-shadow: 0 0 20rpx rgba(90, 200, 250, 0.2);
+}
+
+.featured-badge {
+  padding: 10rpx 24rpx;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #ff9f0a;
+  background: rgba(255, 159, 10, 0.18);
+  border: 1px solid rgba(255, 159, 10, 0.35);
+  backdrop-filter: blur(20rpx);
+  -webkit-backdrop-filter: blur(20rpx);
+}
+
+.info-name {
+  font-size: 46rpx;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1.25;
+  letter-spacing: 1rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.info-abbrev {
+  font-size: 26rpx;
+  color: rgba(142, 189, 255, 0.95);
+  margin-top: 6rpx;
+  font-weight: 600;
+  letter-spacing: 2rpx;
+}
+
+/* 元信息：纯文字 + 圆点分隔 */
+.info-meta {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  flex-wrap: wrap;
+}
+
+.meta-item {
+  font-size: 25rpx;
+  color: rgba(235, 235, 245, 0.72);
+}
+
+.meta-divider {
+  font-size: 25rpx;
+  color: rgba(235, 235, 245, 0.4);
+}
+
+.partial-banner {
+  padding: 28rpx 28rpx 24rpx;
+  margin-bottom: 24rpx;
+  border-color: rgba(90, 200, 250, 0.18);
+  background: linear-gradient(135deg, rgba(90, 200, 250, 0.12), rgba(0, 122, 255, 0.08));
+}
+
+.partial-banner__title {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #8ebdff;
+  margin-bottom: 10rpx;
+}
+
+.partial-banner__desc {
+  display: block;
+  font-size: 24rpx;
+  line-height: 1.7;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+/* 统计区域 */
+.stats-section {
+  margin-bottom: 24rpx;
+}
+
+/* 发射统计 / 回收统计整块可点：轻按反馈（与 al-card--pressed 同风格） */
+.stats-section--pressed {
+  opacity: 0.85;
+}
+
+/* 板块标题右侧轻量跳转箭头（整块可点提示） */
+.section-title-arrow {
+  margin-left: auto;
+  font-size: 36rpx;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.4);
+  padding-right: 8rpx;
+}
+
+.section-title {
+  display: block;
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 20rpx;
+  padding: 0 8rpx;
+}
+
+/* 标题 + 翻译按钮同行 */
+.section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20rpx;
+}
+
+.section-title-row .section-title {
+  margin-bottom: 0;
+}
+
+/* ===== 即将发射 / 历史发射板块 ===== */
+.al-title-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 20rpx;
+}
+
+.al-title-row .section-title {
+  margin-bottom: 0;
+}
+
+.al-count {
+  font-size: 22rpx;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999rpx;
+  padding: 2rpx 14rpx;
+  margin-left: 12rpx;
+}
+
+/* 蓝色渐变胶囊按钮（复用监控中心 booster-view-all 样式） */
+.al-view-all {
+  display: flex;
+  align-items: center;
+  gap: 4rpx;
+  font-size: 24rpx;
+  font-weight: 500;
+  color: #ffffff;
+  padding: 8rpx 20rpx 8rpx 26rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(135deg, #007AFF, #5856D6);
+  border: none;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+  margin-left: auto;
+}
+
+.al-view-all--pressed {
+  transform: scale(0.94);
+  opacity: 0.85;
+}
+
+.al-view-all-arrow {
+  font-size: 30rpx;
+  line-height: 1;
+}
+
+.al-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.al-card {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 20rpx;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1rpx solid rgba(255, 255, 255, 0.08);
+  border-radius: 20rpx;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+
+.al-card--pressed {
+  transform: scale(0.98);
+  opacity: 0.85;
+}
+
+.al-thumb {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 16rpx;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.al-thumb--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 44rpx;
+}
+
+.al-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.al-name {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #ffffff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.al-meta {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.55);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.al-status {
+  flex-shrink: 0;
+  font-size: 20rpx;
+  font-weight: 600;
+  padding: 4rpx 14rpx;
+  border-radius: 999rpx;
+  max-width: 140rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.al-status--success {
+  color: #34C759;
+  background: rgba(52, 199, 89, 0.14);
+}
+
+.al-status--failure {
+  color: #FF5A5F;
+  background: rgba(255, 90, 95, 0.14);
+}
+
+.al-status--neutral {
+  color: #FFAA00;
+  background: rgba(255, 170, 0, 0.14);
+}
+
+.al-arrow {
+  flex-shrink: 0;
+  font-size: 36rpx;
+  color: rgba(255, 255, 255, 0.35);
+  line-height: 1;
+}
+
+.al-empty {
+  padding: 28rpx 20rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1rpx dashed rgba(255, 255, 255, 0.12);
+  border-radius: 20rpx;
+  text-align: center;
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* 紧凑布局：一行 4 列，压缩纵向空间 */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12rpx;
+}
+
+.stat-card {
+  background: rgba(28, 28, 30, 0.72);
+  backdrop-filter: blur(40rpx) saturate(180%);
+  -webkit-backdrop-filter: blur(40rpx) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20rpx;
+  padding: 20rpx 8rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4rpx;
+  opacity: 0.6;
+}
+
+.stat-card--primary::before {
+  background: linear-gradient(90deg, #5ac8fa, #007aff);
+}
+
+.stat-card--success::before {
+  background: linear-gradient(90deg, #30d158, #00c853);
+}
+
+.stat-card--warning::before {
+  background: linear-gradient(90deg, #ff9f0a, #ff6b00);
+}
+
+.stat-card--danger::before {
+  background: linear-gradient(90deg, #ff453a, #ff2d55);
+}
+
+.stat-value {
+  font-size: 38rpx;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1.2;
+  margin-bottom: 6rpx;
+}
+
+.stat-label {
+  font-size: 22rpx;
+  color: #8e8e93;
+  font-weight: 500;
+}
+
+.stat-rate {
+  font-size: 22rpx;
+  color: #30d158;
+  margin-top: 4rpx;
+  font-weight: 600;
+}
+
+/* ========== SpaceX 回收方式统计（自监控中心迁入） ========== */
+.recovery-panel {
+  padding: 28rpx;
+  border-radius: 20rpx;
+  border: 1px solid rgba(0, 230, 118, 0.12);
+  background: linear-gradient(135deg, rgba(28, 28, 30, 0.9), rgba(0, 230, 118, 0.03));
+}
+
+.recovery-layout {
+  display: flex;
+  align-items: center;
+  gap: 28rpx;
+}
+
+.recovery-ring-compact {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.recovery-ring-mini {
+  width: 160rpx;
+  height: 160rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 24rpx rgba(0, 230, 118, 0.15), inset 0 0 12rpx rgba(0, 0, 0, 0.3);
+}
+
+.recovery-ring-core {
+  width: 100rpx;
+  height: 100rpx;
+  border-radius: 50%;
+  background: #1C1C1E;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.recovery-core-num {
+  font-size: 36rpx;
+  font-weight: 800;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+.recovery-ring-sub {
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.4);
+  margin-top: 8rpx;
+}
+
+.recovery-bars {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
+}
+
+.recovery-bar-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.recovery-bar-header {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.recovery-bar-indicator {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  box-shadow: 0 0 6rpx currentColor;
+}
+
+.recovery-bar-name {
+  flex: 1;
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.recovery-bar-count {
+  font-size: 24rpx;
+  font-weight: 700;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+.recovery-bar-track {
+  height: 10rpx;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 5rpx;
+  overflow: hidden;
+}
+
+.recovery-bar-value {
+  height: 100%;
+  border-radius: 5rpx;
+  transition: width 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  box-shadow: 0 0 8rpx rgba(255, 255, 255, 0.1);
+}
+
+.recovery-rate-bar {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-top: 20rpx;
+  padding-top: 18rpx;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.recovery-rate-label {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.5);
+  flex-shrink: 0;
+}
+
+.recovery-rate-track {
+  flex: 1;
+  height: 12rpx;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 6rpx;
+  overflow: hidden;
+}
+
+.recovery-rate-fill {
+  height: 100%;
+  border-radius: 6rpx;
+  background: linear-gradient(90deg, #00E676, #448AFF);
+  box-shadow: 0 0 12rpx rgba(0, 230, 118, 0.3);
+  transition: width 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.recovery-rate-pct {
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #00E676;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 着陆统计（紧凑布局：单行 flex-wrap，最多 4 项并排） */
+.landing-stats {
+  background: rgba(28, 28, 30, 0.72);
+  backdrop-filter: blur(40rpx) saturate(180%);
+  -webkit-backdrop-filter: blur(40rpx) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 24rpx;
+  padding: 20rpx;
+}
+
+.landing-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.landing-item {
+  flex: 1 1 140rpx;
+  min-width: 0;
+  text-align: center;
+  padding: 12rpx 8rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 16rpx;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.landing-label {
+  display: block;
+  font-size: 22rpx;
+  color: #8e8e93;
+  margin-bottom: 4rpx;
+}
+
+.landing-value {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 4rpx;
+}
+
+.landing-rate {
+  display: block;
+  font-size: 22rpx;
+  color: #30d158;
+  font-weight: 600;
+}
+
+/* 信息区域 */
+.info-section,
+.desc-section,
+.vehicles-section,
+.social-section {
+  padding: 32rpx 28rpx;
+  margin-bottom: 24rpx;
+}
+
+.info-grid {
+  display: flex;
+  flex-direction: column;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24rpx;
+  padding: 20rpx 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.info-row:last-child {
+  border-bottom: none;
+}
+
+.info-label {
+  font-size: 26rpx;
+  color: #8e8e93;
+  flex-shrink: 0;
+  font-weight: 500;
+}
+
+.info-value {
+  font-size: 26rpx;
+  color: #ffffff;
+  text-align: right;
+  flex: 1;
+  line-height: 1.6;
+  font-weight: 500;
+}
+
+/* 简介 */
+.desc-text {
+  font-size: 28rpx;
+  line-height: 1.8;
+  color: #d1d1d6;
+  white-space: pre-wrap;
+}
+
+/* 运载工具标签 */
+.tag-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.vehicle-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+  padding: 12rpx 24rpx;
+  border-radius: 999rpx;
+  font-size: 26rpx;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+/* 可跳转标签：加箭头提示，按压反馈 */
+.vehicle-tag--link:active {
+  transform: scale(0.96);
+  opacity: 0.8;
+}
+
+.vehicle-tag-arrow {
+  font-size: 28rpx;
+  font-weight: 600;
+  opacity: 0.7;
+  line-height: 1;
+}
+
+.vehicle-tag--rocket {
+  color: #5ac8fa;
+  background: rgba(90, 200, 250, 0.15);
+  border: 1px solid rgba(90, 200, 250, 0.3);
+}
+
+.vehicle-tag--spacecraft {
+  color: #bf5af2;
+  background: rgba(191, 90, 242, 0.15);
+  border: 1px solid rgba(191, 90, 242, 0.3);
+}
+
+/* 社交媒体 */
+.social-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.social-item {
+  padding: 24rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20rpx;
+  transition: all 0.2s ease;
+}
+
+.social-item:active {
+  background: rgba(255, 255, 255, 0.08);
+  transform: scale(0.98);
+}
+
+.social-name {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #ffffff;
+  margin-bottom: 8rpx;
+}
+
+.social-url {
+  display: block;
+  font-size: 24rpx;
+  color: #5ac8fa;
+  word-break: break-all;
+  line-height: 1.6;
+}
+
+/* ========== NASA 专属：Artemis II 实时遥测（自监控中心迁入） ========== */
+.artemis-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 16rpx;
+  margin-bottom: 20rpx;
+}
+
+.artemis-title-row .section-title {
+  margin-bottom: 0;
+}
+
+.artemis-title-sub {
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.artemis-loading {
+  display: flex;
+  justify-content: center;
+  padding: 36rpx 0;
+  border-radius: 20rpx;
+}
+
+.artemis-loading-text {
+  font-size: 24rpx;
+  color: #636366;
+}
+
+.artemis-error {
+  padding: 32rpx 28rpx;
+  border-radius: 20rpx;
+}
+
+.artemis-error-text {
+  font-size: 26rpx;
+  color: #FF9F0A;
+  line-height: 1.45;
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.artemis-retry-btn {
+  margin-top: 20rpx;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12rpx 28rpx;
+  border-radius: 12rpx;
+  background: rgba(0, 122, 255, 0.35);
+  font-size: 26rpx;
+  color: #FFFFFF;
+}
+
+/* 月牙图标 */
+.artemis-icon-moon-btn {
+  width: 40rpx;
+  height: 40rpx;
+  display: inline-block;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235AC8FA' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'/%3E%3C/svg%3E");
+}
+
+/* Artemis 简要卡片 */
+.artemis-brief-card {
+  padding: 28rpx 24rpx 20rpx;
+  border-radius: 20rpx;
+}
+
+.artemis-brief-top {
+  display: flex;
+  align-items: baseline;
+  gap: 16rpx;
+  margin-bottom: 20rpx;
+}
+
+.artemis-brief-met {
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #FFFFFF;
+  font-variant-numeric: tabular-nums;
+  font-family: 'SF Mono', 'Menlo', 'Courier New', monospace;
+  letter-spacing: 0.03em;
+}
+
+.artemis-brief-met-hint {
+  font-size: 20rpx;
+  color: #48484A;
+}
+
+.artemis-brief-stats {
+  display: flex;
+  gap: 32rpx;
+  margin-bottom: 20rpx;
+}
+
+.artemis-brief-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.artemis-brief-stat-val {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #FFFFFF;
+  font-variant-numeric: tabular-nums;
+  font-family: 'SF Mono', 'Menlo', 'Courier New', monospace;
+}
+
+.artemis-brief-stat-unit {
+  font-size: 20rpx;
+  color: #8E8E93;
+}
+
+.artemis-brief-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 16rpx;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.artemis-brief-hint {
+  font-size: 24rpx;
+  color: #5AC8FA;
+}
+
+.artemis-brief-arrow {
+  font-size: 32rpx;
+  color: #5AC8FA;
+  opacity: 0.8;
+}
+
+/* Artemis 任务阶段卡片（未开始 / 已结束） */
+.artemis-ended-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 28rpx;
+  border-radius: 20rpx;
+}
+
+.artemis-ended-bar-main {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.artemis-ended-badge {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #34C759;
+}
+
+.artemis-ended-name {
+  font-size: 24rpx;
+  color: #8e8e93;
+}
+
+.artemis-ended-arrow {
+  font-size: 36rpx;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 300;
+  transform: rotate(90deg);
+  transition: transform 0.25s ease;
+}
+
+.artemis-ended-arrow--up {
+  transform: rotate(-90deg);
+}
+
+.artemis-phase-card--ended {
+  margin-top: 12rpx;
+  border-radius: 20rpx;
+}
+
+.artemis-phase-card {
+  padding: 32rpx 28rpx;
+  border-radius: 20rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.artemis-phase-icon {
+  margin-bottom: 8rpx;
+}
+
+.artemis-phase-title {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #FFFFFF;
+}
+
+.artemis-phase-desc {
+  font-size: 24rpx;
+  color: #8E8E93;
+}
+
+.artemis-phase-summary {
+  width: 100%;
+  margin-top: 12rpx;
+  padding: 16rpx 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
+}
+
+.artemis-phase-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.artemis-phase-row-label {
+  font-size: 24rpx;
+  color: #8E8E93;
+}
+
+.artemis-phase-row-val {
+  font-size: 24rpx;
+  color: #FFFFFF;
+  font-variant-numeric: tabular-nums;
+}
+
+.artemis-phase-hint {
+  font-size: 22rpx;
+  color: #636366;
+  margin-top: 4rpx;
+}
+
+/* ========== SpaceX 专属：手机直连星链 D2C（自监控中心迁入） ========== */
+.d2c-overview {
+  padding: 28rpx;
+  border-radius: 20rpx;
+  margin-bottom: 20rpx;
+}
+
+.d2c-stat-row {
+  display: flex;
+  justify-content: space-around;
+  margin-bottom: 24rpx;
+}
+
+.d2c-stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.d2c-stat-value {
+  font-size: 40rpx;
+  font-weight: 700;
+  color: #fff;
+}
+
+.d2c-stat-value.accent {
+  color: #5AC8FA;
+}
+
+.d2c-stat-label {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 4rpx;
+}
+
+.d2c-bar-wrapper {
+  margin-top: 8rpx;
+}
+
+.d2c-bar-bg {
+  height: 16rpx;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 8rpx;
+  overflow: hidden;
+}
+
+.d2c-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #5AC8FA, #007AFF);
+  border-radius: 8rpx;
+  transition: width 0.6s ease;
+}
+
+.d2c-bar-legend {
+  display: flex;
+  gap: 24rpx;
+  margin-top: 12rpx;
+}
+
+.d2c-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.d2c-legend-dot {
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 50%;
+}
+
+.d2c-legend-dot.d2c-color {
+  background: #5AC8FA;
+}
+
+.d2c-legend-dot.normal-color {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.d2c-recent-section {
+  margin-top: 20rpx;
+}
+
+.d2c-recent-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16rpx 24rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 14rpx;
+  margin-bottom: 12rpx;
+}
+
+.d2c-recent-toggle-text {
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 500;
+}
+
+.icon-arrow--d2c-toggle {
+  font-size: 30rpx;
+  color: rgba(255, 255, 255, 0.4);
+  transition: transform 0.3s ease;
+  transform: rotate(0deg);
+}
+
+.icon-arrow--d2c-toggle.expanded {
+  transform: rotate(90deg);
+}
+
+.d2c-recent {
+  padding: 24rpx;
+  border-radius: 20rpx;
+}
+
+.d2c-mission-item {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 12rpx 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.d2c-mission-item:last-child {
+  border-bottom: none;
+}
+
+.d2c-mission-img {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 12rpx;
+  flex-shrink: 0;
+  object-fit: cover;
+}
+
+.d2c-mission-placeholder {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 12rpx;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.d2c-mission-placeholder-icon {
+  font-size: 32rpx;
+}
+
+.d2c-mission-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.d2c-mission-name {
+  font-size: 26rpx;
+  color: #fff;
+  font-weight: 500;
+}
+
+.d2c-mission-date {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.4);
+  margin-top: 4rpx;
+}
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+.detail-page.theme-light {
+  background: var(--color-bg-page);
+}
+.theme-light .loading-text,
+.theme-light .error-text {
+  color: var(--color-text-secondary);
+}
+.theme-light .error-title {
+  color: var(--color-text-primary);
+}
+/* retry-btn / al-view-all 为实色渐变按钮，白字保持不变 */
+.theme-light .glass-card {
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-card);
+}
+.theme-light .hero-section {
+  background: rgba(0, 0, 0, 0.04);
+}
+.theme-light .hero-placeholder {
+  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.14), rgba(0, 0, 0, 0.03) 72%);
+}
+/* hero-gradient 压在发射商照片上，保持深色收边 */
+.theme-light .agency-logo-chip {
+  box-shadow: var(--shadow-card);
+}
+.theme-light .fav-btn {
+  background: rgba(0, 0, 0, 0.05);
+  border: 1rpx solid var(--color-divider);
+}
+.theme-light .fav-star {
+  color: rgba(0, 0, 0, 0.3);
+}
+.theme-light .fav-btn--on {
+  background: rgba(255, 170, 0, 0.14);
+  border-color: rgba(255, 170, 0, 0.4);
+}
+.theme-light .fav-btn--on .fav-star {
+  color: #C77700;
+}
+.theme-light .agency-type--government {
+  color: #C77700;
+  background: rgba(255, 214, 10, 0.15);
+  border: 1px solid rgba(255, 214, 10, 0.45);
+  box-shadow: none;
+}
+.theme-light .agency-type--commercial {
+  color: #248A3D;
+  background: rgba(48, 209, 88, 0.12);
+  border: 1px solid rgba(48, 209, 88, 0.3);
+  box-shadow: none;
+}
+.theme-light .agency-type--multinational {
+  color: #0071A4;
+  background: rgba(90, 200, 250, 0.14);
+  border: 1px solid rgba(90, 200, 250, 0.35);
+  box-shadow: none;
+}
+.theme-light .featured-badge {
+  color: #E8590C;
+  background: rgba(255, 159, 10, 0.12);
+  border: 1px solid rgba(255, 159, 10, 0.35);
+}
+.theme-light .info-name {
+  color: var(--color-text-primary);
+}
+.theme-light .info-abbrev {
+  color: var(--color-brand);
+}
+.theme-light .meta-item {
+  color: var(--color-text-secondary);
+}
+.theme-light .meta-divider {
+  color: rgba(0, 0, 0, 0.25);
+}
+.theme-light .partial-banner {
+  border-color: rgba(0, 122, 255, 0.18);
+  background: linear-gradient(135deg, rgba(90, 200, 250, 0.14), rgba(0, 122, 255, 0.08));
+}
+.theme-light .partial-banner__title {
+  color: var(--color-brand);
+}
+.theme-light .partial-banner__desc {
+  color: var(--color-text-secondary);
+}
+.theme-light .section-title {
+  color: var(--color-text-primary);
+}
+.theme-light .al-count {
+  color: var(--color-text-secondary);
+  background: rgba(0, 0, 0, 0.06);
+}
+.theme-light .al-card {
+  background: var(--color-bg-card);
+  border: 1rpx solid var(--color-divider);
+}
+.theme-light .al-thumb {
+  background: rgba(0, 0, 0, 0.05);
+}
+.theme-light .al-name {
+  color: var(--color-text-primary);
+}
+.theme-light .al-meta {
+  color: var(--color-text-tertiary);
+}
+.theme-light .al-arrow {
+  color: rgba(0, 0, 0, 0.25);
+}
+.theme-light .section-title-arrow {
+  color: rgba(0, 0, 0, 0.25);
+}
+.theme-light .al-empty {
+  background: rgba(0, 0, 0, 0.03);
+  border: 1rpx dashed rgba(0, 0, 0, 0.12);
+  color: var(--color-text-tertiary);
+}
+.theme-light .stat-card {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-card);
+}
+.theme-light .stat-value {
+  color: var(--color-text-primary);
+}
+.theme-light .stat-label {
+  color: var(--color-text-secondary);
+}
+.theme-light .stat-rate {
+  color: #248A3D;
+}
+.theme-light .recovery-panel {
+  border: 1px solid rgba(0, 230, 118, 0.2);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(0, 230, 118, 0.05));
+}
+.theme-light .recovery-ring-mini {
+  box-shadow: inset 0 0 12rpx rgba(0, 0, 0, 0.08);
+}
+.theme-light .recovery-ring-core {
+  background: var(--color-bg-card);
+}
+.theme-light .recovery-core-num {
+  color: var(--color-text-primary);
+}
+.theme-light .recovery-ring-sub {
+  color: var(--color-text-tertiary);
+}
+.theme-light .recovery-bar-name {
+  color: var(--color-text-secondary);
+}
+.theme-light .recovery-bar-count {
+  color: var(--color-text-primary);
+}
+.theme-light .recovery-bar-track {
+  background: rgba(0, 0, 0, 0.06);
+}
+.theme-light .recovery-bar-value {
+  box-shadow: none;
+}
+.theme-light .recovery-rate-bar {
+  border-top: 1px solid var(--color-divider);
+}
+.theme-light .recovery-rate-label {
+  color: var(--color-text-tertiary);
+}
+.theme-light .recovery-rate-track {
+  background: rgba(0, 0, 0, 0.06);
+}
+.theme-light .recovery-rate-pct {
+  color: #248A3D;
+}
+.theme-light .landing-stats {
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid var(--color-divider);
+}
+.theme-light .landing-item {
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+.theme-light .landing-label {
+  color: var(--color-text-secondary);
+}
+.theme-light .landing-value {
+  color: var(--color-text-primary);
+}
+.theme-light .landing-rate {
+  color: #248A3D;
+}
+.theme-light .info-row {
+  border-bottom: 1px solid var(--color-divider);
+}
+.theme-light .info-row:last-child {
+  border-bottom: none;
+}
+.theme-light .info-label {
+  color: var(--color-text-secondary);
+}
+.theme-light .info-value {
+  color: var(--color-text-primary);
+}
+.theme-light .desc-text {
+  color: var(--color-text-primary);
+}
+.theme-light .vehicle-tag--rocket {
+  color: #0071A4;
+  background: rgba(90, 200, 250, 0.14);
+  border: 1px solid rgba(90, 200, 250, 0.35);
+}
+.theme-light .vehicle-tag--spacecraft {
+  color: #8944AB;
+  background: rgba(191, 90, 242, 0.12);
+  border: 1px solid rgba(191, 90, 242, 0.3);
+}
+.theme-light .social-item {
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid var(--color-divider);
+}
+.theme-light .social-item:active {
+  background: rgba(0, 0, 0, 0.06);
+}
+.theme-light .social-name {
+  color: var(--color-text-primary);
+}
+.theme-light .social-url {
+  color: #0071A4;
+}
+.theme-light .artemis-title-sub {
+  color: var(--color-text-tertiary);
+}
+.theme-light .artemis-loading-text {
+  color: var(--color-text-tertiary);
+}
+.theme-light .artemis-retry-btn {
+  background: var(--color-brand);
+}
+.theme-light .artemis-brief-met {
+  color: var(--color-text-primary);
+}
+.theme-light .artemis-brief-met-hint {
+  color: var(--color-text-tertiary);
+}
+.theme-light .artemis-brief-stat-val {
+  color: var(--color-text-primary);
+}
+.theme-light .artemis-brief-stat-unit {
+  color: var(--color-text-secondary);
+}
+.theme-light .artemis-brief-footer {
+  border-top: 1px solid var(--color-divider);
+}
+.theme-light .artemis-brief-hint {
+  color: #0071A4;
+}
+.theme-light .artemis-brief-arrow {
+  color: #0071A4;
+}
+.theme-light .artemis-ended-badge {
+  color: #248A3D;
+}
+.theme-light .artemis-ended-name {
+  color: var(--color-text-secondary);
+}
+.theme-light .artemis-ended-arrow {
+  color: rgba(0, 0, 0, 0.25);
+}
+.theme-light .artemis-phase-title {
+  color: var(--color-text-primary);
+}
+.theme-light .artemis-phase-desc {
+  color: var(--color-text-secondary);
+}
+.theme-light .artemis-phase-summary {
+  border-top: 1px solid var(--color-divider);
+  border-bottom: 1px solid var(--color-divider);
+}
+.theme-light .artemis-phase-row-label {
+  color: var(--color-text-secondary);
+}
+.theme-light .artemis-phase-row-val {
+  color: var(--color-text-primary);
+}
+.theme-light .artemis-phase-hint {
+  color: var(--color-text-tertiary);
+}
+.theme-light .d2c-stat-value {
+  color: var(--color-text-primary);
+}
+.theme-light .d2c-stat-value.accent {
+  color: #0071A4;
+}
+.theme-light .d2c-stat-label {
+  color: var(--color-text-tertiary);
+}
+.theme-light .d2c-bar-bg {
+  background: rgba(0, 0, 0, 0.06);
+}
+.theme-light .d2c-legend-item {
+  color: var(--color-text-secondary);
+}
+.theme-light .d2c-legend-dot.normal-color {
+  background: rgba(0, 0, 0, 0.15);
+}
+.theme-light .d2c-recent-toggle {
+  background: rgba(0, 0, 0, 0.04);
+}
+.theme-light .d2c-recent-toggle-text {
+  color: var(--color-text-secondary);
+}
+.theme-light .icon-arrow--d2c-toggle {
+  color: rgba(0, 0, 0, 0.3);
+}
+.theme-light .d2c-mission-item {
+  border-bottom: 1px solid var(--color-divider);
+}
+.theme-light .d2c-mission-item:last-child {
+  border-bottom: none;
+}
+.theme-light .d2c-mission-placeholder {
+  background: rgba(0, 0, 0, 0.05);
+}
+.theme-light .d2c-mission-name {
+  color: var(--color-text-primary);
+}
+.theme-light .d2c-mission-date {
+  color: var(--color-text-tertiary);
+}
+
+/* ========== 事件更新（推文）板块 ========== */
+.atw-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+.atw-card {
+  padding: 22rpx 24rpx;
+  border-radius: 24rpx;
+  transition: transform 0.15s ease;
+}
+.atw-card:active {
+  transform: scale(0.98);
+}
+.atw-head {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  margin-bottom: 12rpx;
+}
+.atw-avatar {
+  width: 60rpx;
+  height: 60rpx;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.08);
+}
+.atw-avatar--placeholder {
+  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.15), rgba(255, 255, 255, 0.04) 72%);
+}
+.atw-head-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2rpx;
+}
+.atw-author {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #FFFFFF;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.atw-time {
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.4);
+}
+.atw-arrow {
+  font-size: 36rpx;
+  color: rgba(255, 255, 255, 0.25);
+  flex-shrink: 0;
+}
+.atw-content {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  font-size: 26rpx;
+  line-height: 40rpx;
+  color: rgba(255, 255, 255, 0.85);
+}
+.atw-media-row {
+  display: flex;
+  gap: 10rpx;
+  margin-top: 14rpx;
+}
+.atw-media-thumb {
+  flex: 1;
+  max-width: calc((100% - 20rpx) / 3);
+  height: 160rpx;
+  border-radius: 12rpx;
+  background: rgba(255, 255, 255, 0.06);
+}
+.atw-loading {
+  padding: 32rpx 24rpx;
+  border-radius: 24rpx;
+  text-align: center;
+}
+.atw-loading-text {
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.4);
+}
+/* --- 事件更新浅色覆盖 --- */
+.theme-light .atw-author {
+  color: var(--color-text-primary);
+}
+.theme-light .atw-time {
+  color: var(--color-text-tertiary);
+}
+.theme-light .atw-arrow {
+  color: rgba(0, 0, 0, 0.25);
+}
+.theme-light .atw-content {
+  color: var(--color-text-secondary);
+}
+.theme-light .atw-avatar {
+  background: rgba(0, 0, 0, 0.05);
+}
+.theme-light .atw-avatar--placeholder {
+  background: radial-gradient(circle at center, rgba(0, 122, 255, 0.10), rgba(0, 0, 0, 0.04) 72%);
+}
+.theme-light .atw-media-thumb {
+  background: rgba(0, 0, 0, 0.05);
+}
+.theme-light .atw-loading-text {
+  color: var(--color-text-tertiary);
+}

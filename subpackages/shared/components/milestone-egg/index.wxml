@@ -1,0 +1,94 @@
+<view class="egg-overlay" wx:if="{{visible}}" catchtouchmove="noop">
+  <view class="egg-mask" bindtap="onClose"></view>
+  <view class="egg-container {{animState}}">
+
+    <!-- 阶段1：金蛋展示 -->
+    <view class="egg-stage egg-stage--egg" wx:if="{{stage === 'egg'}}">
+      <view class="egg-title">{{milestone.title || '恭喜达成里程碑！'}}</view>
+      <view class="egg-body" bindtap="onTapEgg">
+        <image
+          wx:if="{{milestone.eggImage}}"
+          class="egg-image"
+          src="{{milestone.eggImage}}"
+          mode="aspectFit"
+        />
+        <view wx:else class="egg-default">
+          <view class="egg-golden">
+            <view class="egg-golden-highlight"></view>
+          </view>
+          <view class="egg-shine"></view>
+        </view>
+        <view class="egg-hint">点击金蛋领取奖品</view>
+      </view>
+    </view>
+
+    <!-- 阶段2：裂开动画 -->
+    <view class="egg-stage egg-stage--crack" wx:if="{{stage === 'crack'}}">
+      <view class="egg-crack-wrap">
+        <view class="egg-crack-left"><view class="egg-half egg-half--left"></view></view>
+        <view class="egg-crack-right"><view class="egg-half egg-half--right"></view></view>
+        <view class="egg-sparkles">✨</view>
+      </view>
+    </view>
+
+    <!-- 阶段3：奖品展示 -->
+    <view class="egg-stage egg-stage--prize" wx:if="{{stage === 'prize'}}">
+      <view class="prize-badge">🎉</view>
+      <view class="prize-title">恭喜获得奖品！</view>
+      <image
+        wx:if="{{milestone.prizeImage}}"
+        class="prize-image"
+        src="{{milestone.prizeImage}}"
+        mode="aspectFit"
+      />
+      <view wx:else class="prize-emoji">👕</view>
+      <view class="prize-desc">{{milestone.description || '精美奖品一份'}}</view>
+      <view class="prize-ship-note">运费到付</view>
+      <button class="prize-claim-btn" bindtap="onShowForm">立即领取</button>
+    </view>
+
+    <!-- 阶段4：填写地址表单 -->
+    <view class="egg-stage egg-stage--form" wx:if="{{stage === 'form'}}">
+      <view class="form-title">填写收货信息</view>
+      <view class="form-group">
+        <view class="form-label">收件人</view>
+        <input class="form-input" placeholder="请输入姓名" value="{{formName}}" bindinput="onInputName" />
+      </view>
+      <view class="form-group">
+        <view class="form-label">手机号</view>
+        <input class="form-input" type="number" maxlength="11" placeholder="请输入手机号" value="{{formPhone}}" bindinput="onInputPhone" />
+      </view>
+      <view class="form-group">
+        <view class="form-label">收货地址</view>
+        <textarea class="form-textarea" placeholder="请输入详细地址" value="{{formAddress}}" bindinput="onInputAddress" />
+      </view>
+      <view class="form-group" wx:if="{{milestone.customOptions && milestone.customOptions.length > 0}}" wx:for="{{milestone.customOptions}}" wx:key="label" wx:for-item="optGroup">
+        <view class="form-label">{{optGroup.label}}</view>
+        <view class="size-picker">
+          <view
+            wx:for="{{optGroup.options}}"
+            wx:key="*this"
+            wx:for-item="optVal"
+            class="size-item {{formSelections[optGroup.label] === optVal ? 'size-item--active' : ''}}"
+            bindtap="onPickOption"
+            data-label="{{optGroup.label}}"
+            data-value="{{optVal}}"
+          >{{optVal}}</view>
+        </view>
+      </view>
+      <view class="form-note-color" wx:if="{{milestone.customNote}}">* {{milestone.customNote}}</view>
+      <view class="form-note">* 运费到付，请注意查收快递</view>
+      <button class="form-submit-btn" bindtap="onSubmit" loading="{{submitting}}">提交领奖</button>
+    </view>
+
+    <!-- 阶段5：提交成功 -->
+    <view class="egg-stage egg-stage--done" wx:if="{{stage === 'done'}}">
+      <view class="done-icon">🎊</view>
+      <view class="done-title">领取成功！</view>
+      <view class="done-desc">奖品将尽快为您发出，请保持手机畅通</view>
+      <button class="done-btn" bindtap="onClose">知道了</button>
+    </view>
+
+    <view class="egg-close" bindtap="onClose" wx:if="{{stage !== 'crack'}}">✕</view>
+  </view>
+</view>

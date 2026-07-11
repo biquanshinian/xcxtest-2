@@ -1,0 +1,30 @@
+<view class="lsc-root">
+  <view class="lsc-header">
+    <text class="lsc-title">{{year}} 年全球发射统计</text>
+  </view>
+  <view class="lsc-numbers">
+    <view class="lsc-num-block">
+      <text class="lsc-num">{{total}}</text>
+      <text class="lsc-num-label">总发射</text>
+    </view>
+    <view class="lsc-num-block">
+      <text class="lsc-num lsc-num-success">{{successCount}}</text>
+      <text class="lsc-num-label">成功</text>
+    </view>
+    <view class="lsc-num-block">
+      <text class="lsc-num lsc-num-fail">{{failureCount}}</text>
+      <text class="lsc-num-label">失败</text>
+    </view>
+  </view>
+  <view wx:if="{{topAgencies.length}}" class="lsc-top">
+    <text class="lsc-top-title">发射次数 Top{{topAgencies.length}}</text>
+    <view wx:for="{{topAgencies}}" wx:key="name" class="lsc-top-row">
+      <text class="lsc-top-rank">{{index + 1}}</text>
+      <text class="lsc-top-name">{{item.name}}</text>
+      <text class="lsc-top-count">{{item.total}} 次</text>
+    </view>
+  </view>
+  <view class="lsc-footer" bind:tap="onMoreTap">
+    <text class="lsc-footer-text">问问哪个发射商最多 →</text>
+  </view>
+</view>

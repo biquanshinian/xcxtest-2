@@ -1,0 +1,250 @@
+<view class="detail-page yr-scifi">
+  <!-- 底部背景视频：仅进入本页 onReady 后赋值 src，本地缓存命中则不再下载 -->
+  <view class="yr-bg-video-shell" wx:if="{{yearReviewBgVideoPlaySrc}}" aria-hidden="true">
+    <video
+      id="yrBgVideo"
+      class="yr-bg-video"
+      src="{{yearReviewBgVideoPlaySrc}}"
+      object-fit="cover"
+      autoplay="{{true}}"
+      loop="{{true}}"
+      muted="{{true}}"
+      show-center-play-btn="{{false}}"
+      show-play-btn="{{false}}"
+      controls="{{false}}"
+      enable-progress-gesture="{{false}}"
+      show-fullscreen-btn="{{false}}"
+      show-mute-btn="{{false}}"
+      vslide-gesture-in-fullscreen="{{false}}"
+    />
+    <view class="yr-bg-video-fade"></view>
+  </view>
+
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+  </view>
+
+  <scroll-view class="detail-scroll yr-scroll" scroll-y="true" show-scrollbar="{{false}}">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+    <view class="detail-container yr-viz-root">
+      <view class="loading-state viz-loading" wx:if="{{loading}}">
+        <view class="viz-loading-hud">
+          <view class="viz-loading-ring">
+            <view class="viz-loading-arc"></view>
+          </view>
+          <view class="viz-loading-pulse"></view>
+        </view>
+        <text class="loading-text viz-loading-txt">正在校准轨道数据</text>
+        <view class="viz-loading-dots" aria-hidden="true">
+          <view class="viz-loading-dot"></view>
+          <view class="viz-loading-dot"></view>
+          <view class="viz-loading-dot"></view>
+        </view>
+      </view>
+
+      <view class="error-state glass-card viz-error-panel" wx:elif="{{errorMessage}}">
+        <text class="error-title">链路中断</text>
+        <text class="error-text">{{errorMessage}}</text>
+        <button class="retry-btn" bindtap="retryLoad">重新加载</button>
+        <button class="retry-btn retry-btn--ghost" bindtap="goBack">返回</button>
+      </view>
+
+      <view class="yr-stack yr-stack--viz {{entranceActive ? 'yr-entrance-active' : ''}}" wx:else>
+        <view class="viz-grid-bg"></view>
+
+        <!-- HUD 主标题区 -->
+        <view class="viz-hero viz-seq viz-seq--1">
+          <view class="viz-hero-frame">
+            <view class="viz-hero-corner viz-hero-corner--tl"></view>
+            <view class="viz-hero-corner viz-hero-corner--tr"></view>
+            <view class="viz-hero-corner viz-hero-corner--bl"></view>
+            <view class="viz-hero-corner viz-hero-corner--br"></view>
+            <view class="viz-hero-scan"></view>
+            <view class="viz-hero-meta">
+              <text class="viz-hero-chip">YR // {{year}}</text>
+              <text class="viz-hero-chip viz-hero-chip--dim">DEEP SPACE LOG</text>
+            </view>
+            <view class="viz-hero-idrow" wx:if="{{profileId}}">
+              <view class="viz-hero-id-main">
+                <text class="viz-hero-id-label">档案 ID</text>
+                <text class="viz-hero-id-val" user-select="{{true}}" bindlongpress="copyProfileId">{{profileId}}</text>
+                <text class="viz-hero-id-hint">长按复制</text>
+              </view>
+              <view class="viz-hero-id-badge {{memberBadgeText === 'PRO' ? 'viz-hero-id-badge--pro' : 'viz-hero-id-badge--free'}}" wx:if="{{memberIconUrl}}">
+                <image class="viz-hero-id-badge-img" src="{{memberIconUrl}}" mode="aspectFit" />
+                <text class="viz-hero-id-badge-txt">{{memberBadgeText}}</text>
+              </view>
+            </view>
+            <text class="viz-hero-title">{{displayTitle}}</text>
+            <text class="viz-hero-sub" wx:if="{{displaySubtitle}}">{{displaySubtitle}}</text>
+          </view>
+        </view>
+
+        <!-- 年度寄语 -->
+        <view class="viz-panel viz-panel--narr viz-seq viz-seq--2">
+          <view class="viz-panel-hd">
+            <text class="viz-panel-tag">LOG</text>
+            <text class="viz-panel-ttl">年度寄语</text>
+            <view class="viz-panel-glow"></view>
+          </view>
+          <text class="viz-narr-text" user-select="{{true}}">{{summaryIntro}}</text>
+        </view>
+
+        <!-- 个人遥测 -->
+        <view class="viz-panel viz-panel--data viz-seq viz-seq--3">
+          <view class="viz-panel-hd">
+            <text class="viz-panel-tag">P01</text>
+            <text class="viz-panel-ttl">个人遥测</text>
+            <text class="viz-panel-code">PERSONAL TELEMETRY</text>
+          </view>
+
+          <view class="viz-stat-grid">
+            <block wx:for="{{vizPersonal}}" wx:key="key" wx:for-index="pIdx">
+              <view
+                class="viz-stat-card viz-accent--{{item.accent}} viz-stat-in"
+                style="animation-delay: {{pIdx * 50}}ms;"
+              >
+                <view class="viz-stat-top">
+                  <text class="viz-stat-glyph">{{item.glyph}}</text>
+                  <text class="viz-stat-code">{{item.code}}</text>
+                </view>
+                <text class="viz-stat-label">{{item.label}}</text>
+                <text class="viz-stat-subl">{{item.sub}}</text>
+                <view class="viz-stat-numrow">
+                  <text class="viz-stat-val viz-stat-val--num">{{item.display}}</text>
+                  <text class="viz-stat-suf">{{item.suffix}}</text>
+                </view>
+                <view class="viz-bar">
+                  <view class="viz-bar-track"></view>
+                  <view class="viz-bar-fill" style="width: {{item.pct}}%;"></view>
+                </view>
+                <text class="viz-stat-pct">{{item.pct}}%</text>
+              </view>
+            </block>
+          </view>
+
+          <!-- 题库双通道 -->
+          <view class="viz-quiz viz-accent--gold viz-seq viz-seq--3b">
+            <view class="viz-quiz-hd">
+              <text class="viz-quiz-glyph">?</text>
+              <view class="viz-quiz-titles">
+                <text class="viz-quiz-ttl">题库应答</text>
+                <text class="viz-quiz-sub">答对 / 作答</text>
+              </view>
+              <text class="viz-quiz-frac viz-stat-val--num">{{vizQuiz.correct}} / {{vizQuiz.answered}}</text>
+            </view>
+            <view class="viz-quiz-bars">
+              <view class="viz-quiz-barcol">
+                <text class="viz-quiz-barlab">参与量</text>
+                <view class="viz-bar viz-bar--tall">
+                  <view class="viz-bar-track"></view>
+                  <view class="viz-bar-fill viz-bar-fill--vol" style="height: {{vizQuiz.volumePct}}%;"></view>
+                </view>
+              </view>
+              <view class="viz-quiz-barcol">
+                <text class="viz-quiz-barlab">正确率</text>
+                <view class="viz-bar viz-bar--tall">
+                  <view class="viz-bar-track"></view>
+                  <view class="viz-bar-fill viz-bar-fill--acc" style="height: {{vizQuiz.accuracy}}%;"></view>
+                </view>
+              </view>
+            </view>
+            <text class="viz-quiz-foot">命中率 {{vizQuiz.accuracy}}% · 参照年度活跃区间</text>
+          </view>
+        </view>
+
+        <!-- 结语 -->
+        <view class="viz-panel viz-panel--narr viz-seq viz-seq--4" wx:if="{{summaryOutro}}">
+          <view class="viz-panel-hd">
+            <text class="viz-panel-tag">EOF</text>
+            <text class="viz-panel-ttl">结语</text>
+            <view class="viz-panel-glow"></view>
+          </view>
+          <text class="viz-narr-text" user-select="{{true}}">{{summaryOutro}}</text>
+        </view>
+
+        <!-- 全站提示 -->
+        <view class="viz-panel viz-panel--alert viz-seq viz-seq--5" wx:if="{{platformStats && !platformStats.peerDataReady}}">
+          <view class="viz-panel-hd">
+            <text class="viz-panel-tag viz-panel-tag--warn">!</text>
+            <text class="viz-panel-ttl">全站链路</text>
+          </view>
+          <text class="viz-alert-text" wx:if="{{!platformStats.peerDataEnabled}}">当前后台未开启「报告中显示全站/同行数据」，此处仅展示你的个人年鉴。开启后，管理员还需在年度报告页为对应年度「生成/刷新快照」，才会显示发射、新闻、事件流、推文等统计。</text>
+          <text class="viz-alert-text" wx:else>已开启全站数据，但该年度快照尚未生成或不可用。请管理员在后台「年度报告」中为 {{year}} 年点击「生成/刷新该年度快照」后再查看。</text>
+        </view>
+
+        <!-- 同行 / 全站 -->
+        <view class="viz-panel viz-panel--fleet viz-seq viz-seq--6" wx:if="{{platform}}">
+          <view class="viz-panel-hd">
+            <text class="viz-panel-tag">P02</text>
+            <text class="viz-panel-ttl">同行遥测</text>
+            <text class="viz-panel-code">FLEET BENCHMARK</text>
+          </view>
+
+          <view class="viz-booster viz-seq viz-seq--6a" wx:if="{{vizBooster}}">
+            <view class="viz-booster-hd">
+              <text class="viz-booster-tag">BOOSTER</text>
+              <text class="viz-booster-ttl">可回收火箭 · 年度纪录</text>
+            </view>
+            <view class="viz-booster-body" wx:if="{{vizBooster.has}}">
+              <view class="viz-booster-metric">
+                <text class="viz-booster-num viz-stat-val--num">{{vizBooster.count}}</text>
+                <text class="viz-booster-unit">次复用</text>
+              </view>
+              <view class="viz-booster-info">
+                <view class="viz-booster-row">
+                  <text class="viz-booster-k">序列号</text>
+                  <text class="viz-booster-v">{{vizBooster.serial}}</text>
+                </view>
+                <view class="viz-booster-row">
+                  <text class="viz-booster-k">型号</text>
+                  <text class="viz-booster-v">{{vizBooster.model}}</text>
+                </view>
+              </view>
+              <view class="viz-bar viz-bar--booster">
+                <view class="viz-bar-track"></view>
+                <view class="viz-bar-fill viz-bar-fill--boost" style="width: {{vizBooster.pct}}%;"></view>
+              </view>
+            </view>
+            <text class="viz-booster-na" wx:else>暂无助推器复用快照数据</text>
+          </view>
+
+          <view class="viz-stat-grid viz-stat-grid--fleet">
+            <block wx:for="{{vizPlatform}}" wx:key="key" wx:for-index="fIdx">
+              <view
+                class="viz-stat-card viz-stat-card--dense viz-accent--{{item.accent}} {{item.has ? '' : 'viz-stat-card--empty'}} viz-stat-in"
+                style="animation-delay: {{fIdx * 45 + 120}}ms;"
+              >
+                <view class="viz-stat-top">
+                  <text class="viz-stat-glyph">{{item.glyph}}</text>
+                  <text class="viz-stat-code">{{item.code}}</text>
+                </view>
+                <text class="viz-stat-label">{{item.label}}</text>
+                <text class="viz-stat-subl">{{item.sub}}</text>
+                <view class="viz-stat-numrow">
+                  <text class="viz-stat-val viz-stat-val--num">{{item.display}}</text>
+                  <text class="viz-stat-suf" wx:if="{{item.suffix}}">{{item.suffix}}</text>
+                </view>
+                <view class="viz-bar" wx:if="{{item.has}}">
+                  <view class="viz-bar-track"></view>
+                  <view class="viz-bar-fill" style="width: {{item.pct}}%;"></view>
+                </view>
+                <text class="viz-stat-pct" wx:if="{{item.has}}">{{item.pct}}%</text>
+                <text class="viz-stat-pct viz-stat-pct--na" wx:else>等待快照</text>
+              </view>
+            </block>
+          </view>
+        </view>
+
+        <view style="height: {{tabBarReservedHeight}}px;"></view>
+        <view class="yr-bottom-safe"></view>
+      </view>
+    </view>
+  </scroll-view>
+</view>

@@ -1,0 +1,148 @@
+{
+  "apis": [
+    {
+      "name": "getStarshipStatus",
+      "description": "查询 SpaceX 星舰（Starship）下一飞组合体的当前状态：超重助推器与星舰飞船的编号、状态、建造进度，以及飞行准备清单完成度。适用于「星舰最新进展」「星舰造到哪一步了」「B16/S37 状态如何」等问题。不适用于查询试飞时间（应改用 getStarshipNextFlight）。",
+      "_meta": {
+        "ui": {
+          "componentPath": "components/starship-status-card/index",
+          "pagePath": "/pages/progress/progress"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "booster": {
+            "type": "object",
+            "description": "超重助推器状态",
+            "properties": {
+              "id": { "type": "string", "description": "助推器编号，如 B16" },
+              "statusZh": { "type": "string", "description": "状态（中文）" },
+              "progress": { "type": "number", "description": "建造进度百分比" }
+            }
+          },
+          "ship": {
+            "type": "object",
+            "description": "星舰飞船状态",
+            "properties": {
+              "id": { "type": "string", "description": "飞船编号，如 S37" },
+              "statusZh": { "type": "string" },
+              "progress": { "type": "number" }
+            }
+          },
+          "checklist": {
+            "type": "object",
+            "description": "飞行准备清单完成度",
+            "properties": {
+              "done": { "type": "number" },
+              "total": { "type": "number" },
+              "pendingItems": { "type": "array", "items": { "type": "string" }, "description": "未完成事项" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "getStarshipUpdates",
+      "description": "查询星舰计划的最新动态资讯（已翻译为中文，含发布时间与来源）。适用于「星舰最近有什么新闻」「星舰基地最近在干什么」等动态类问题。不适用于查询硬件状态（应改用 getStarshipStatus）。",
+      "_meta": {
+        "ui": {
+          "pagePath": "/pages/progress/progress"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number",
+            "description": "返回条数上限，范围 1-10，默认 5。"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "total": { "type": "number" },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": { "type": "string" },
+                "content": { "type": "string", "description": "动态内容（中文）" },
+                "author": { "type": "string", "description": "消息来源账号" },
+                "publishedAtBeijing": { "type": "string", "description": "发布时间（北京时间）" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "getStarshipNextFlight",
+      "description": "查询下一次星舰试飞任务的时间与详情，并可接力到小程序任务详情页查看倒计时与直播。适用于「星舰下次试飞什么时候」「星舰第几次试飞什么时候发射」等问题。若日程中尚无排期会如实返回未排期。",
+      "_meta": {
+        "ui": {
+          "pagePath": "/pages/mission-detail/mission-detail"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "scheduled": { "type": "boolean", "description": "是否已有排期" },
+          "name": { "type": "string" },
+          "statusZh": { "type": "string" },
+          "netBeijing": { "type": "string", "description": "预计发射时间（北京时间）" },
+          "location": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "getRoadClosures",
+      "description": "查询星舰基地（美国得州 Starbase）当前生效的道路封闭通知。道路封闭通常预示即将进行静态点火测试或试飞。适用于「星舰基地封路了吗」「Starbase 最近有测试吗」等问题。",
+      "_meta": {
+        "ui": {
+          "pagePath": "/pages/progress/progress"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "hasClosure": { "type": "boolean", "description": "当前是否有生效中的封路" },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "message": { "type": "string", "description": "封路通知内容" },
+                "timeRange": { "type": "string", "description": "封闭时间段" },
+                "startBeijing": { "type": "string" },
+                "endBeijing": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "components": [
+    {
+      "path": "components/starship-status-card/index",
+      "relatedPage": "/pages/progress/progress",
+      "expirable": false
+    }
+  ]
+}

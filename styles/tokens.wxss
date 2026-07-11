@@ -1,0 +1,122 @@
+/* styles/tokens.wxss — 全局设计 Token（深色航天 + 玻璃拟物）
+ * 在 page{} 定义，借助 DOM 继承被所有页面与自定义组件共享（不受组件样式隔离影响），分包页面同样可用。
+ * 颜色经 WCAG AA 校准：正文 ≥ 4.5:1，大字 ≥ 3:1（背景以纯黑 #000 估算）。
+ */
+page {
+  /* —— 背景 —— */
+  --color-bg: #000000;
+  --color-bg-page: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  --color-bg-card: #1C1C1E;
+  --color-bg-elevated: #1a1a1a;
+  --bg-glass: rgba(30, 30, 30, 0.35);
+  --bg-glass-nav: rgba(28, 28, 30, 0.18);
+  --bg-glass-strong: rgba(12, 14, 18, 0.06);
+
+  /* —— 文字（已按 WCAG 对黑底校准）—— */
+  --color-text-primary: #FFFFFF;        /* 白，21:1 */
+  --color-text-secondary: #8E8E93;      /* 次要灰，约 6.4:1（达标，保留原值不改观感）*/
+  --color-text-tertiary: #7C7C82;       /* 原 #636366(3.5:1✗) 调亮 → 约 5.1:1 ✓ */
+  --color-text-quaternary: #6C6C70;     /* 原 #48484A(2.3:1✗) 调亮 → 约 4.0:1 ✓ 仅大字/辅助 */
+  --color-text-on-glass: rgba(255, 255, 255, 0.92);
+
+  /* —— 品牌 & 状态 —— */
+  --color-brand: #007AFF;
+  --color-brand-soft: rgba(0, 122, 255, 0.3);
+  --color-success: #34C759;
+  --color-warning: #FF9500;
+  --color-danger: #FF3B30;
+
+  /* —— 分隔线 / 描边（白色不同透明度）—— */
+  --color-divider: rgba(255, 255, 255, 0.1);
+  --color-divider-strong: rgba(255, 255, 255, 0.14);
+  --color-divider-faint: rgba(255, 255, 255, 0.05);
+  --color-border-glass: rgba(255, 255, 255, 0.12);
+  /* —— 字号阶梯（rpx）—— */
+  --font-size-2xs: 18rpx;
+  --font-size-xs: 20rpx;
+  --font-size-sm: 22rpx;
+  --font-size-base: 26rpx;
+  --font-size-md: 28rpx;
+  --font-size-lg: 30rpx;
+  --font-size-xl: 34rpx;
+  --font-size-2xl: 36rpx;
+  --font-size-display: 48rpx;
+  /* —— 行高 & 字重 —— */
+  --line-height-tight: 1.2;
+  --line-height-normal: 1.45;
+  --font-weight-semibold: 600;
+  /* —— 圆角 —— */
+  --radius-sm: 14rpx;
+  --radius-md: 16rpx;
+  --radius-card: 24rpx;
+  --radius-lg: 30rpx;
+  --radius-xl: 40rpx;
+  --radius-pill: 999rpx;
+  --radius-circle: 50%;
+  /* —— 间距梯度 —— */
+  --space-2xs: 8rpx;
+  --space-xs: 12rpx;
+  --space-sm: 14rpx;
+  --space-md: 20rpx;
+  --space-lg: 24rpx;
+  --space-xl: 30rpx;
+  --space-2xl: 40rpx;
+  /* —— 阴影 —— */
+  --shadow-card: 0 8rpx 24rpx rgba(0, 0, 0, 0.3), 0 2rpx 6rpx rgba(0, 0, 0, 0.2);
+  --shadow-glass-inset: inset 0 1rpx 0 rgba(255, 255, 255, 0.12), inset 0 -1rpx 0 rgba(0, 0, 0, 0.2);
+  --shadow-tabbar: 0 -8rpx 24rpx rgba(0, 0, 0, 0.16), inset 0 1rpx 0 rgba(255, 255, 255, 0.18);
+  /* —— 玻璃模糊度 —— */
+  --blur-card: blur(30rpx) saturate(180%);
+  --blur-nav: blur(40rpx) saturate(150%);
+  --blur-strong: blur(72rpx) saturate(220%);
+
+  /* —— 白色单色图标反色开关（浅色主题置 1，配合 filter: invert(var(--icon-invert)) 用） —— */
+  --icon-invert: 0;
+}
+
+/* ============================================================
+ * 明亮主题（iOS 浅色规范）
+ * 应用方式：页面根 view 挂 class="{{themeClass}}"（theme-light），
+ * CSS 变量沿 DOM 继承覆盖整棵页面树（含自定义组件，不受样式隔离影响）。
+ * 深色为默认值（page{} 定义），未接入的页面自动保持深色不受影响。
+ * ============================================================ */
+.theme-light {
+  /* —— 背景 —— */
+  --color-bg: #F2F2F7;
+  --color-bg-page: linear-gradient(180deg, #F2F2F7 0%, #ECECF1 100%);
+  --color-bg-card: #FFFFFF;
+  --color-bg-elevated: #FFFFFF;
+  --bg-glass: rgba(255, 255, 255, 0.68);
+  --bg-glass-nav: rgba(249, 249, 251, 0.72);
+  --bg-glass-strong: rgba(255, 255, 255, 0.6);
+
+  /* —— 文字（对 #F2F2F7 / #FFF 校准）—— */
+  --color-text-primary: #1C1C1E;
+  --color-text-secondary: #6E6E73;
+  --color-text-tertiary: #86868B;
+  --color-text-quaternary: #98989E;
+  --color-text-on-glass: rgba(28, 28, 30, 0.92);
+
+  /* —— 品牌 & 状态（品牌蓝不变，弱化底色调浅）—— */
+  --color-brand: #007AFF;
+  --color-brand-soft: rgba(0, 122, 255, 0.14);
+  --color-success: #34C759;
+  --color-warning: #FF9500;
+  --color-danger: #FF3B30;
+
+  /* —— 分隔线 / 描边（黑色不同透明度）—— */
+  --color-divider: rgba(0, 0, 0, 0.08);
+  --color-divider-strong: rgba(0, 0, 0, 0.12);
+  --color-divider-faint: rgba(0, 0, 0, 0.04);
+  --color-border-glass: rgba(0, 0, 0, 0.07);
+
+  /* —— 阴影（浅色走 iOS 扁平风：卡片一律无投影，仅靠细灰描边分层）——
+     用全透明零位移阴影而非 none：box-shadow 常见「var(--shadow-card), var(--shadow-glass-inset)」
+     多值合写，列表里混入 none 会让整条声明非法失效 —— */
+  --shadow-card: 0 0 0 rgba(0, 0, 0, 0);
+  --shadow-glass-inset: inset 0 0 0 rgba(0, 0, 0, 0);
+  --shadow-tabbar: 0 0 0 rgba(0, 0, 0, 0);
+
+  /* —— 白色单色图标反色（白 → 深）—— */
+  --icon-invert: 1;
+}

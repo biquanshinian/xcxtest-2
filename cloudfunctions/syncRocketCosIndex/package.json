@@ -1,0 +1,10 @@
+{
+  "name": "syncRocketCosIndex",
+  "version": "1.0.0",
+  "description": "扫描 COS 火箭配置图目录并写入 media_assets，供小程序模糊匹配",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3",
+    "cos-nodejs-sdk-v5": "^2.14.6"
+  }
+}

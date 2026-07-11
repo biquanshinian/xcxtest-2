@@ -1,0 +1,490 @@
+<view class="detail-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+    <page-progress active="{{loading}}" />
+  </view>
+
+  <scroll-view class="detail-scroll" scroll-y="true">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <!-- 加载中：内容区留白，进度由导航栏下方的 page-progress 绿色进度条呈现 -->
+    <block wx:if="{{loading}}"></block>
+
+    <view class="error-state" wx:elif="{{errorMessage}}">
+      <text class="error-title">加载失败</text>
+      <text class="error-text">{{errorMessage}}</text>
+      <button class="retry-btn" bindtap="retryLoad">重新加载</button>
+    </view>
+
+    <block wx:elif="{{item}}">
+      <!-- Hero 全幅大图：原图干净展示 + 底部渐变收边（与火箭型号详情页一致），点击预览 -->
+      <view class="hero-section" bindtap="onHeroImageTap">
+        <image wx:if="{{item.imageUrl}}" class="hero-img {{heroImageLoaded ? 'hero-img--loaded' : ''}}" src="{{item.imageUrl}}" mode="aspectFill" bindload="onHeroImageLoad" binderror="onHeroImageError"></image>
+        <view class="hero-img hero-placeholder" wx:else>
+          <text class="hero-placeholder-icon"></text>
+        </view>
+        <view class="hero-gradient"></view>
+      </view>
+
+      <!-- 信息头：logo/名称/徽标下移出头图，不再遮挡照片 -->
+      <view class="info-header">
+        <view class="info-main-row">
+          <view class="agency-logo-chip" wx:if="{{item.logoUrl}}">
+            <image class="agency-logo" src="{{item.logoUrl}}" mode="aspectFit"></image>
+          </view>
+          <view class="info-title-col">
+            <text class="info-name">{{item.name}}</text>
+            <text class="info-abbrev" wx:if="{{item.abbrev}}">{{item.abbrev}}</text>
+          </view>
+          <view class="fav-btn {{isFavorited ? 'fav-btn--on' : ''}}" hover-class="fav-btn--pressed" hover-stay-time="120" catchtap="onToggleFavorite">
+            <text class="fav-star">{{isFavorited ? '★' : '☆'}}</text>
+          </view>
+        </view>
+        <view class="info-tags">
+          <text class="type-badge agency-type--{{item.typeClass}}">{{item.typeName}}</text>
+          <text class="featured-badge" wx:if="{{item.featured}}">重点机构</text>
+        </view>
+        <view class="info-meta">
+          <text class="meta-item">{{item.countryText || '未知地区'}}</text>
+          <text class="meta-divider" wx:if="{{item.foundingYear}}">·</text>
+          <text class="meta-item" wx:if="{{item.foundingYear}}">{{item.foundingYear}}年成立</text>
+        </view>
+      </view>
+
+      <view class="detail-container">
+      <view class="partial-banner glass-card" wx:if="{{partialData && partialMessage}}">
+        <text class="partial-banner__title">部分数据待补全</text>
+        <text class="partial-banner__desc">{{partialMessage}}</text>
+      </view>
+
+      <!-- 贴图讨论区：发射商详情；topic 取自机构名称，组件内已截断至 20 字 -->
+      <official-account-publish-panel topic="{{item.name || '发射商讨论'}}" />
+
+      <!-- 事件更新（推文，仅 SpaceX / 蓝箭等映射机构展示；页内预览 2 条，更多进列表页） -->
+      <view class="stats-section" wx:if="{{agencyTweetsVisible}}">
+        <view class="al-title-row">
+          <text class="section-title">事件更新</text>
+          <view class="al-view-all" hover-class="al-view-all--pressed" hover-stay-time="120"
+                bindtap="onViewAllAgencyTweets" wx:if="{{agencyTweets.length}}">
+            <text>查看更多</text>
+            <text class="al-view-all-arrow">›</text>
+          </view>
+        </view>
+        <view class="atw-list" wx:if="{{agencyTweets.length}}">
+          <view class="atw-card glass-card" wx:for="{{agencyTweets}}" wx:key="_id"
+                data-id="{{item._id}}" bindtap="onAgencyTweetTap">
+            <view class="atw-head">
+              <image class="atw-avatar" wx:if="{{item.authorAvatar}}" src="{{item.authorAvatar}}" mode="aspectFill"></image>
+              <view class="atw-avatar atw-avatar--placeholder" wx:else></view>
+              <view class="atw-head-info">
+                <text class="atw-author">{{item.author}}</text>
+                <text class="atw-time">{{item.publishedAtText}}</text>
+              </view>
+              <text class="atw-arrow">›</text>
+            </view>
+            <text class="atw-content">{{item.content}}</text>
+            <view class="atw-media-row" wx:if="{{item.images.length}}">
+              <image class="atw-media-thumb" wx:for="{{item.images}}" wx:for-item="img" wx:key="*this"
+                     src="{{img}}" mode="aspectFill" lazy-load></image>
+            </view>
+          </view>
+        </view>
+        <view class="atw-loading glass-card" wx:elif="{{agencyTweetsLoading}}">
+          <text class="atw-loading-text">加载事件更新...</text>
+        </view>
+        <view class="atw-loading glass-card" wx:else>
+          <text class="atw-loading-text">暂无相关动态，同步后自动展示</text>
+        </view>
+      </view>
+
+      <!-- 统计数据卡片（整体可点 → 全球发射统计，门控后跳转） -->
+      <view class="stats-section" hover-class="stats-section--pressed" hover-stay-time="120" bindtap="onGoGlobalLaunchStats">
+        <view class="al-title-row">
+          <text class="section-title">发射统计</text>
+          <text class="section-title-arrow">›</text>
+        </view>
+        <view class="stats-grid">
+          <view class="stat-card stat-card--primary">
+            <text class="stat-value">{{item.totalLaunchCount != null ? item.totalLaunchCount : '—'}}</text>
+            <text class="stat-label">总发射次数</text>
+          </view>
+          <view class="stat-card stat-card--success">
+            <text class="stat-value">{{item.successfulLaunches != null ? item.successfulLaunches : '—'}}</text>
+            <text class="stat-label">成功发射</text>
+            <text class="stat-rate" wx:if="{{item.successRate}}">{{item.successRate}}%</text>
+          </view>
+          <view class="stat-card stat-card--warning">
+            <text class="stat-value">{{item.pendingLaunches != null ? item.pendingLaunches : '—'}}</text>
+            <text class="stat-label">待发射</text>
+          </view>
+          <view class="stat-card stat-card--danger">
+            <text class="stat-value">{{item.failedLaunches != null ? item.failedLaunches : '—'}}</text>
+            <text class="stat-label">失败发射</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 即将发射（复用首页缓存按发射商过滤，默认 2 张） -->
+      <view class="stats-section">
+        <view class="al-title-row">
+          <text class="section-title">即将发射</text>
+          <text class="al-count" wx:if="{{agencyUpcoming.length}}">{{agencyUpcoming.length}}</text>
+          <view class="al-view-all" hover-class="al-view-all--pressed" hover-stay-time="120"
+                bindtap="onViewAllUpcoming" wx:if="{{agencyUpcoming.length > 2}}">
+            <text>查看全部</text>
+            <text class="al-view-all-arrow">›</text>
+          </view>
+        </view>
+        <view class="al-list" wx:if="{{upcomingVisible.length}}">
+          <view class="al-card" hover-class="al-card--pressed" hover-stay-time="120"
+                wx:for="{{upcomingVisible}}" wx:key="id"
+                data-id="{{item.id}}" data-type="upcoming" bindtap="onTapAgencyLaunch">
+            <image class="al-thumb" wx:if="{{item.rocketImage}}" src="{{item.rocketImage}}" mode="aspectFill" lazy-load />
+            <view class="al-thumb al-thumb--placeholder" wx:else>🚀</view>
+            <view class="al-body">
+              <text class="al-name">{{item.name}}</text>
+              <text class="al-meta">{{item.rocketName}}{{item.rocketName ? ' · ' : ''}}{{item.timeText}}</text>
+            </view>
+            <text class="al-status al-status--{{item.statusClass}}" wx:if="{{item.statusText}}">{{item.statusText}}</text>
+            <text class="al-arrow">›</text>
+          </view>
+        </view>
+        <view class="al-empty" wx:elif="{{launchesLoading}}">
+          <text>任务数据加载中...</text>
+        </view>
+        <view class="al-empty" wx:else>
+          <text>近期暂无该发射商的待发射任务</text>
+        </view>
+      </view>
+
+      <!-- 历史发射 -->
+      <view class="stats-section">
+        <view class="al-title-row">
+          <text class="section-title">历史发射</text>
+          <text class="al-count" wx:if="{{agencyHistory.length}}">{{agencyHistory.length}}</text>
+          <view class="al-view-all" hover-class="al-view-all--pressed" hover-stay-time="120"
+                bindtap="onViewAllHistory" wx:if="{{agencyHistory.length > 2}}">
+            <text>查看全部</text>
+            <text class="al-view-all-arrow">›</text>
+          </view>
+        </view>
+        <view class="al-list" wx:if="{{historyVisible.length}}">
+          <view class="al-card" hover-class="al-card--pressed" hover-stay-time="120"
+                wx:for="{{historyVisible}}" wx:key="id"
+                data-id="{{item.id}}" data-type="completed" bindtap="onTapAgencyLaunch">
+            <image class="al-thumb" wx:if="{{item.rocketImage}}" src="{{item.rocketImage}}" mode="aspectFill" lazy-load />
+            <view class="al-thumb al-thumb--placeholder" wx:else>🚀</view>
+            <view class="al-body">
+              <text class="al-name">{{item.name}}</text>
+              <text class="al-meta">{{item.rocketName}}{{item.rocketName ? ' · ' : ''}}{{item.timeText}}</text>
+            </view>
+            <text class="al-status al-status--{{item.statusClass}}" wx:if="{{item.statusText}}">{{item.statusText}}</text>
+            <text class="al-arrow">›</text>
+          </view>
+        </view>
+        <view class="al-empty" wx:elif="{{launchesLoading}}">
+          <text>任务数据加载中...</text>
+        </view>
+        <view class="al-empty" wx:else>
+          <text>近期缓存内暂无该发射商的发射记录</text>
+        </view>
+      </view>
+
+      <!-- 回收统计（整体可点 → 助推器族谱，入口不门控） -->
+      <view class="stats-section" wx:if="{{item.hasLandingData}}" hover-class="stats-section--pressed" hover-stay-time="120" bindtap="onGoBoosterGenealogy">
+        <view class="al-title-row">
+          <text class="section-title">回收统计</text>
+          <text class="section-title-arrow">›</text>
+        </view>
+        <view class="landing-stats">
+          <view class="landing-row">
+            <view class="landing-item">
+              <text class="landing-label">助推器着陆</text>
+              <text class="landing-value">{{item.successfulLandings || 0}} / {{item.attemptedLandings || 0}}</text>
+              <text class="landing-rate" wx:if="{{item.landingRate}}">{{item.landingRate}}%</text>
+            </view>
+            <view class="landing-item" wx:if="{{item.consecutiveSuccessfulLandings}}">
+              <text class="landing-label">连续着陆成功</text>
+              <text class="landing-value">{{item.consecutiveSuccessfulLandings}}</text>
+              <text class="landing-rate">次</text>
+            </view>
+            <view class="landing-item" wx:if="{{item.successfulSpacecraftLandings}}">
+              <text class="landing-label">飞船着陆</text>
+              <text class="landing-value">{{item.successfulSpacecraftLandings}} / {{item.attemptedSpacecraftLandings || item.successfulSpacecraftLandings}}</text>
+            </view>
+            <view class="landing-item" wx:if="{{item.successfulPayloadLandings}}">
+              <text class="landing-label">载荷着陆</text>
+              <text class="landing-value">{{item.successfulPayloadLandings}} / {{item.attemptedPayloadLandings || item.successfulPayloadLandings}}</text>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <!-- NASA 专属：Artemis II 实时遥测（自监控中心迁入） -->
+      <view class="stats-section" wx:if="{{artemisSectionVisible}}">
+        <view class="artemis-title-row">
+          <text class="section-title">Artemis II</text>
+          <text class="artemis-title-sub" wx:if="{{artemisMissionPhase === 'active'}}">猎户座 · 实时遥测</text>
+          <text class="artemis-title-sub" wx:elif="{{artemisMissionPhase === 'ended'}}">任务已完成</text>
+          <text class="artemis-title-sub" wx:else>即将发射</text>
+        </view>
+
+        <!-- 任务未开始 -->
+        <view class="artemis-phase-card glass-card" wx:if="{{artemisMissionPhase === 'before'}}">
+          <view class="artemis-phase-icon artemis-icon-moon-btn"></view>
+          <text class="artemis-phase-title">{{artemisMissionSummary.missionName}} 即将发射</text>
+          <text class="artemis-phase-desc">发射时间：{{artemisMissionSummary.launchTime}}</text>
+          <text class="artemis-phase-hint">发射后将自动开始实时遥测数据更新</text>
+        </view>
+
+        <!-- 任务已结束（折叠式） -->
+        <view class="artemis-ended-bar glass-card" wx:elif="{{artemisMissionPhase === 'ended'}}" bindtap="toggleArtemisEnded">
+          <view class="artemis-ended-bar-main">
+            <text class="artemis-ended-badge">任务圆满完成 ✓</text>
+            <text class="artemis-ended-name">{{artemisMissionSummary.missionName}}</text>
+          </view>
+          <text class="artemis-ended-arrow {{artemisEndedExpanded ? 'artemis-ended-arrow--up' : ''}}">›</text>
+        </view>
+        <view class="artemis-phase-card glass-card artemis-phase-card--ended" wx:if="{{artemisMissionPhase === 'ended' && artemisEndedExpanded}}">
+          <view class="artemis-phase-summary">
+            <view class="artemis-phase-row">
+              <text class="artemis-phase-row-label">发射时间</text>
+              <text class="artemis-phase-row-val">{{artemisMissionSummary.launchTime}}</text>
+            </view>
+            <view class="artemis-phase-row">
+              <text class="artemis-phase-row-label">返回时间</text>
+              <text class="artemis-phase-row-val">{{artemisMissionSummary.endTime}}</text>
+            </view>
+            <view class="artemis-phase-row" wx:if="{{artemisMissionSummary.duration}}">
+              <text class="artemis-phase-row-label">任务总时长</text>
+              <text class="artemis-phase-row-val">{{artemisMissionSummary.duration}}</text>
+            </view>
+          </view>
+          <text class="artemis-phase-hint">下次任务开始后将自动恢复实时数据</text>
+        </view>
+
+        <!-- 任务进行中：自动加载遥测 -->
+        <block wx:elif="{{artemisMissionPhase === 'active'}}">
+          <view class="artemis-loading glass-card" wx:if="{{artemisLoading}}">
+            <text class="artemis-loading-text">正在获取遥测数据...</text>
+          </view>
+          <view class="artemis-error glass-card" wx:elif="{{artemisError}}">
+            <text class="artemis-error-text">{{artemisError}}</text>
+            <view class="artemis-retry-btn" bindtap="retryArtemisBriefing">重试</view>
+          </view>
+
+          <!-- 简要卡片：点击跳转详情页 -->
+          <view class="artemis-brief-card glass-card {{isProUser ? 'pro-gold-frame' : ''}}" wx:else bindtap="goArtemisDetail">
+            <view class="artemis-brief-top">
+              <text class="artemis-brief-met">{{artemisMet}}</text>
+              <text class="artemis-brief-met-hint">MET 天:时:分:秒</text>
+            </view>
+            <view class="artemis-brief-stats">
+              <view class="artemis-brief-stat">
+                <text class="artemis-brief-stat-val">{{artemisVelocityKmh}}</text>
+                <text class="artemis-brief-stat-unit">km/h 速率</text>
+              </view>
+              <view class="artemis-brief-stat">
+                <text class="artemis-brief-stat-val">{{artemisDistEarthKm}}</text>
+                <text class="artemis-brief-stat-unit">km 距地球</text>
+              </view>
+            </view>
+            <view class="artemis-brief-footer">
+              <text class="artemis-brief-hint">点击查看完整遥测仪表盘</text>
+              <text class="artemis-brief-arrow">›</text>
+            </view>
+          </view>
+        </block>
+      </view>
+
+      <!-- SpaceX 专属：回收方式统计（自监控中心迁入） -->
+      <view class="stats-section" wx:if="{{spacexRecovery}}">
+        <text class="section-title">回收方式统计</text>
+        <view class="recovery-panel glass-card">
+          <view class="recovery-layout">
+            <view class="recovery-ring-compact">
+              <view class="recovery-ring-mini" style="background: conic-gradient(#00E676 0deg {{spacexRecovery.droneshipDeg}}deg, #448AFF {{spacexRecovery.droneshipDeg}}deg {{spacexRecovery.landingZoneDeg}}deg, #FF6E40 {{spacexRecovery.landingZoneDeg}}deg 360deg);">
+                <view class="recovery-ring-core">
+                  <text class="recovery-core-num">{{spacexRecovery.total}}</text>
+                </view>
+              </view>
+              <text class="recovery-ring-sub">总发射</text>
+            </view>
+            <view class="recovery-bars">
+              <view class="recovery-bar-row">
+                <view class="recovery-bar-header">
+                  <view class="recovery-bar-indicator" style="background: #00E676;"></view>
+                  <text class="recovery-bar-name">海上回收</text>
+                  <text class="recovery-bar-count">{{spacexRecovery.droneship}}</text>
+                </view>
+                <view class="recovery-bar-track">
+                  <view class="recovery-bar-value" style="width: {{spacexRecovery.droneshipPct}}%; background: linear-gradient(90deg, #00E676, #00C853);"></view>
+                </view>
+              </view>
+              <view class="recovery-bar-row">
+                <view class="recovery-bar-header">
+                  <view class="recovery-bar-indicator" style="background: #448AFF;"></view>
+                  <text class="recovery-bar-name">陆地回收</text>
+                  <text class="recovery-bar-count">{{spacexRecovery.landingZone}}</text>
+                </view>
+                <view class="recovery-bar-track">
+                  <view class="recovery-bar-value" style="width: {{spacexRecovery.landingZonePct}}%; background: linear-gradient(90deg, #448AFF, #2962FF);"></view>
+                </view>
+              </view>
+              <view class="recovery-bar-row">
+                <view class="recovery-bar-header">
+                  <view class="recovery-bar-indicator" style="background: #FF6E40;"></view>
+                  <text class="recovery-bar-name">消耗</text>
+                  <text class="recovery-bar-count">{{spacexRecovery.expended}}</text>
+                </view>
+                <view class="recovery-bar-track">
+                  <view class="recovery-bar-value" style="width: {{spacexRecovery.expendedPct}}%; background: linear-gradient(90deg, #FF6E40, #DD2C00);"></view>
+                </view>
+              </view>
+            </view>
+          </view>
+          <view class="recovery-rate-bar">
+            <text class="recovery-rate-label">一级回收率</text>
+            <view class="recovery-rate-track">
+              <view class="recovery-rate-fill" style="width: {{spacexRecovery.recoveryRatePct}}%;"></view>
+            </view>
+            <text class="recovery-rate-pct">{{spacexRecovery.recoveryRatePct}}%</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- SpaceX 专属：手机直连星链 D2C（自监控中心迁入） -->
+      <view class="stats-section" wx:if="{{spacexD2C}}">
+        <text class="section-title">手机直连星链 (D2C)</text>
+        <view class="d2c-overview glass-card">
+          <view class="d2c-stat-row">
+            <view class="d2c-stat-item">
+              <text class="d2c-stat-value">{{spacexD2C.d2cTotal}}</text>
+              <text class="d2c-stat-label">D2C 发射</text>
+            </view>
+            <view class="d2c-stat-item">
+              <text class="d2c-stat-value">{{spacexD2C.starlinkTotal}}</text>
+              <text class="d2c-stat-label">星链总计</text>
+            </view>
+            <view class="d2c-stat-item">
+              <text class="d2c-stat-value accent">{{spacexD2C.ratio}}%</text>
+              <text class="d2c-stat-label">D2C 占比</text>
+            </view>
+          </view>
+          <view class="d2c-bar-wrapper">
+            <view class="d2c-bar-bg">
+              <view class="d2c-bar-fill" style="width: {{spacexD2C.ratio}}%;"></view>
+            </view>
+            <view class="d2c-bar-legend">
+              <view class="d2c-legend-item">
+                <view class="d2c-legend-dot d2c-color"></view>
+                <text>D2C 直连</text>
+              </view>
+              <view class="d2c-legend-item">
+                <view class="d2c-legend-dot normal-color"></view>
+                <text>常规星链</text>
+              </view>
+            </view>
+          </view>
+        </view>
+        <view class="d2c-recent-section" wx:if="{{spacexD2C.recentD2C.length}}">
+          <view class="d2c-recent-toggle" bindtap="toggleD2CRecent">
+            <text class="d2c-recent-toggle-text">最近 D2C 任务 ({{spacexD2C.recentD2C.length}})</text>
+            <text class="icon-arrow icon-arrow--d2c-toggle {{d2cRecentExpanded ? 'expanded' : ''}}">›</text>
+          </view>
+          <view class="d2c-recent glass-card" wx:if="{{d2cRecentExpanded}}">
+            <view class="d2c-mission-item" wx:for="{{spacexD2C.recentD2C}}" wx:key="link">
+              <image class="d2c-mission-img" wx:if="{{item.imageUrl}}" src="{{item.imageUrl}}" mode="aspectFill" lazy-load />
+              <view class="d2c-mission-placeholder" wx:else>
+                <text class="d2c-mission-placeholder-icon"></text>
+              </view>
+              <view class="d2c-mission-info">
+                <text class="d2c-mission-name">{{item.title}}</text>
+                <text class="d2c-mission-date">{{item.launchDate}}</text>
+              </view>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 机构信息 -->
+      <view class="info-section glass-card">
+        <text class="section-title">机构信息</text>
+        <view class="info-grid">
+          <view class="info-row"><text class="info-label">全称</text><text class="info-value">{{item.nameEn}}</text></view>
+          <view class="info-row" wx:if="{{item.abbrev}}"><text class="info-label">缩写</text><text class="info-value">{{item.abbrev}}</text></view>
+          <view class="info-row"><text class="info-label">类型</text><text class="info-value">{{item.typeName}}</text></view>
+          <view class="info-row"><text class="info-label">国家/地区</text><text class="info-value">{{item.countryText || '未知'}}</text></view>
+          <view class="info-row" wx:if="{{item.administrator}}"><text class="info-label">负责人</text><text class="info-value">{{item.administrator}}</text></view>
+          <view class="info-row" wx:if="{{item.parent}}"><text class="info-label">母公司</text><text class="info-value">{{item.parent}}</text></view>
+          <view class="info-row" wx:if="{{item.foundingYear}}"><text class="info-label">成立时间</text><text class="info-value">{{item.foundingYear}}年 ({{item.age}}年历史)</text></view>
+          <view class="info-row" wx:if="{{item.consecutiveSuccessfulLaunches}}"><text class="info-label">连续成功发射</text><text class="info-value">{{item.consecutiveSuccessfulLaunches}} 次</text></view>
+          <view class="info-row"><text class="info-label">运载工具</text><text class="info-value">{{item.launcherCount}}型火箭 · {{item.spacecraftCount}}型飞船</text></view>
+        </view>
+      </view>
+
+      <!-- 简介 -->
+      <view class="desc-section glass-card">
+        <view class="section-title-row">
+          <text class="section-title">机构简介</text>
+          <text class="translate-toggle {{descTranslating ? 'translate-toggle--busy' : ''}}" catchtap="onToggleDescTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
+        </view>
+        <text class="desc-text" user-select="{{true}}">{{descI18n.agencyDesc || item.description}}</text>
+      </view>
+
+      <!-- 火箭型号（有族谱档案的可点跳转） -->
+      <view class="vehicles-section glass-card" wx:if="{{item.launcherList && item.launcherList.length}}">
+        <text class="section-title">火箭型号 ({{item.launcherCount}})</text>
+        <view class="tag-grid">
+          <view class="vehicle-tag vehicle-tag--rocket {{item.hasDetail ? 'vehicle-tag--link' : ''}}" wx:for="{{item.launcherList}}" wx:key="name" bindtap="onTapLauncher" data-cid="{{item.archiveId}}">
+            <text>{{item.name}}</text>
+            <text class="vehicle-tag-arrow" wx:if="{{item.hasDetail}}">›</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 飞船型号（点击跳飞船详情页） -->
+      <view class="vehicles-section glass-card" wx:if="{{item.spacecraftList && item.spacecraftList.length}}">
+        <text class="section-title">飞船型号 ({{item.spacecraftCount}})</text>
+        <view class="tag-grid">
+          <view class="vehicle-tag vehicle-tag--spacecraft {{item.id != null ? 'vehicle-tag--link' : ''}}" wx:for="{{item.spacecraftList}}" wx:key="name" bindtap="onTapSpacecraft" data-cid="{{item.id}}" data-name="{{item.name}}">
+            <text>{{item.name}}</text>
+            <text class="vehicle-tag-arrow" wx:if="{{item.id != null}}">›</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 社交媒体 -->
+      <view class="social-section glass-card" wx:if="{{item.socialLinks && item.socialLinks.length}}">
+        <text class="section-title">社交媒体与链接</text>
+        <view class="social-grid">
+          <view class="social-item" wx:for="{{item.socialLinks}}" wx:key="id" bindtap="copyLink" data-url="{{item.url}}">
+            <text class="social-name">{{item.name}}</text>
+            <text class="social-url" user-select="{{true}}">{{item.url}}</text>
+          </view>
+          <view class="social-item" wx:if="{{item.infoUrl}}" bindtap="copyLink" data-url="{{item.infoUrl}}">
+            <text class="social-name">官方网站</text>
+            <text class="social-url" user-select="{{true}}">{{item.infoUrl}}</text>
+          </view>
+          <view class="social-item" wx:if="{{item.wikiUrl}}" bindtap="copyLink" data-url="{{item.wikiUrl}}">
+            <text class="social-name">维基百科</text>
+            <text class="social-url" user-select="{{true}}">{{item.wikiUrl}}</text>
+          </view>
+        </view>
+      </view>
+
+      <view style="height: {{tabBarReservedHeight}}px;"></view>
+      </view>
+    </block>
+  </scroll-view>
+  <share-guide />
+  <share-gate-countdown expire-at="{{shareGateExpireAt}}" />
+</view>

@@ -1,0 +1,9 @@
+{
+  "name": "aiImageRecognize",
+  "version": "1.0.0",
+  "description": "调用腾讯混元Vision模型识别航天器图片",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

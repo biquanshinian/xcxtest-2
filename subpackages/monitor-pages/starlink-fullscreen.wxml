@@ -1,0 +1,37 @@
+<view class="fullscreen-container">
+  <!-- 全屏 Canvas（绑定触摸事件） -->
+  <canvas type="2d" id="starlinkFullCanvas" class="fullscreen-canvas"
+    disable-scroll="true"
+    bindtouchstart="onCanvasTouchStart"
+    bindtouchmove="onCanvasTouchMove"
+    bindtouchend="onCanvasTouchEnd"
+    bindtouchcancel="onCanvasTouchEnd"></canvas>
+
+  <!-- 顶部控制栏（横屏适配） -->
+  <view class="fs-top-bar">
+    <view class="fs-back-btn {{isDirectEntry ? 'fs-back-btn--home' : ''}}" bindtap="goBack">
+      <text class="fs-back-arrow">‹</text>
+    </view>
+    <view class="fs-title-area">
+      <text class="fs-title">Starlink 实时追踪</text>
+      <text class="fs-subtitle" wx:if="{{satCount}}">{{satCount}} 颗在轨</text>
+    </view>
+    <view class="fs-action-area">
+      <view class="fs-ctrl-btn" bindtap="togglePause">
+        <text>{{paused ? '▶' : '⏸'}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 底部信息栏 -->
+  <view class="fs-bottom-bar">
+    <text class="fs-info-text">数据来源: CelesTrak · 双指缩放 · {{updateTime}}</text>
+  </view>
+
+  <!-- 加载遮罩 -->
+  <view class="fs-loading-mask" wx:if="{{loading}}">
+    <text class="fs-loading-icon"></text>
+    <text class="fs-loading-text">初始化卫星轨道...</text>
+  </view>
+  <share-guide />
+</view>

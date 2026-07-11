@@ -1,0 +1,28 @@
+{
+  "navigationBarTitleText": "SpaceX火箭发射追踪 - 猎鹰9号·星舰·星链实时倒计时",
+  "enablePullDownRefresh": true,
+  "disableSwipeBack": true,
+  "backgroundTextStyle": "light",
+  "backgroundColor": "#000000",
+  "backgroundColorContent": "#000000",
+  "backgroundColorTop": "#000000",
+  "backgroundColorBottom": "#000000",
+  "usingComponents": {
+    "privacy-modal": "/components/privacy-modal/privacy-modal",
+    "nasa-float": "/components/nasa-float/index",
+    "morning-briefing": "/subpackages/shared/components/morning-briefing/index",
+    "ai-chat": "/subpackages/shared/components/ai-chat/index",
+    "demo-overlay": "/subpackages/shared/components/demo-overlay/index",
+    "share-guide": "/subpackages/shared/components/share-guide/index",
+    "official-account-bar": "/subpackages/shared/components/official-account-bar/index",
+    "renewal-reminder": "/subpackages/shared/components/renewal-reminder/index"
+  },
+  "componentPlaceholder": {
+    "ai-chat": "view",
+    "demo-overlay": "view",
+    "morning-briefing": "view",
+    "share-guide": "view",
+    "official-account-bar": "view",
+    "renewal-reminder": "view"
+  }
+}

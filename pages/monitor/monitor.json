@@ -1,0 +1,26 @@
+{
+  "navigationBarTitleText": "星舰基地监控 - SpaceX Starbase太空实时监控",
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "light",
+  "backgroundColor": "#000000",
+  "backgroundColorContent": "#000000",
+  "backgroundColorTop": "#000000",
+  "backgroundColorBottom": "#000000",
+  "usingComponents": {
+    "privacy-modal": "/components/privacy-modal/privacy-modal",
+    "popup-ad": "/components/popup-ad/popup-ad",
+    "nasa-float": "/components/nasa-float/index",
+    "ai-chat": "/subpackages/shared/components/ai-chat/index",
+    "demo-overlay": "/subpackages/shared/components/demo-overlay/index",
+    "share-guide": "/subpackages/shared/components/share-guide/index",
+    "empty-state": "/components/empty-state/index",
+    "lazy-load-card": "/components/lazy-load-card/index",
+    "channels-live-panel": "/subpackages/shared/components/channels-live-panel/index"
+  },
+  "componentPlaceholder": {
+    "ai-chat": "view",
+    "demo-overlay": "view",
+    "share-guide": "view",
+    "channels-live-panel": "view"
+  }
+}

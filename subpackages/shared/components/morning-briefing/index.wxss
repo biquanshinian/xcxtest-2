@@ -1,0 +1,549 @@
+/* ══ 详情页模式（/subpackages/shared/briefing 页内嵌） ══ */
+.briefing-page-body {
+  display: block;
+}
+
+/* ══ 弹窗 ══ */
+/* root-portal 真机上脱离页面 DOM 树，page{} 里定义的主题变量继承不进来（开发者工具能继承、真机不能），
+   深色下 var(--color-text-primary) 等全部解析失败回退成继承色（近黑），黑字压深卡就“看不见”。
+   故弹窗自带整套主题变量：深色直接定义在 .briefing-mask 上，浅色由 .briefing-mask.theme-light 覆盖
+   （themeClass 由组件 JS 挂到遮罩上），彻底不依赖外部继承。 */
+.briefing-mask {
+  --color-bg-card: #1C1C1E;
+  --color-text-primary: #FFFFFF;
+  --color-text-secondary: #8E8E93;
+  --color-text-tertiary: #7C7C82;
+  --color-text-on-glass: rgba(255, 255, 255, 0.92);
+  --color-divider: rgba(255, 255, 255, 0.1);
+  --color-divider-strong: rgba(255, 255, 255, 0.14);
+  --color-divider-faint: rgba(255, 255, 255, 0.05);
+  --color-brand: #007AFF;
+  --color-success: #34C759;
+  --color-warning: #FF9500;
+  --color-danger: #FF3B30;
+  --icon-invert: 0;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.55);
+  /* 高于自定义 TabBar(9999)、NASA/AI 浮动层，低于开屏(99999+) */
+  z-index: 12000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 顶底预留安全区 + 呼吸边距，避免刘海遮挡关闭钮、底部贴 TabBar */
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 20rpx calc(16px + env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+  animation: fadeIn 0.2s ease;
+}
+
+/* 浅色主题变量（须写在组件内：组件选择器与 tokens.wxss 的 .theme-light 同权重时后加载的组件样式会盖掉它） */
+.briefing-mask.theme-light {
+  --color-bg-card: #FFFFFF;
+  --color-text-primary: #1C1C1E;
+  --color-text-secondary: #6E6E73;
+  --color-text-tertiary: #86868B;
+  --color-text-on-glass: rgba(28, 28, 30, 0.92);
+  --color-divider: rgba(0, 0, 0, 0.08);
+  --color-divider-strong: rgba(0, 0, 0, 0.12);
+  --color-divider-faint: rgba(0, 0, 0, 0.04);
+  --icon-invert: 1;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.briefing-popup {
+  width: 92%;
+  max-width: 720rpx;
+  /* 整窗高度上限（mask 已加安全区内边距，此处用 vh 再收一档） */
+  max-height: 70vh;
+  /* 实底卡片色（深 #1C1C1E / 浅 #FFF）：--bg-glass-strong 近全透明，
+     真机 backdrop-filter 在全屏弹层常失效会导致弹窗透底看不清 */
+  background: var(--color-bg-card, #1C1C1E);
+  backdrop-filter: blur(72rpx) saturate(220%);
+  -webkit-backdrop-filter: blur(72rpx) saturate(220%);
+  border-radius: 32rpx;
+  border: 1px solid var(--color-divider-strong);
+  box-shadow:
+    0 24rpx 80rpx rgba(0, 0, 0, 0.4),
+    inset 0 1rpx 0 rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+  animation: slideUp 0.3s ease;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding-bottom: 12rpx;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(60rpx); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* 浅色主题：主题类挂在 briefing-mask 上（root-portal 层脱离页面根，变量继承不到），
+   白卡片改用柔和投影，去掉深色内高光 */
+.theme-light .briefing-popup {
+  box-shadow: 0 24rpx 80rpx rgba(15, 23, 42, 0.16), 0 4rpx 16rpx rgba(15, 23, 42, 0.08);
+}
+
+.popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 36rpx 32rpx 24rpx;
+  border-bottom: 1px solid var(--color-divider);
+  flex-shrink: 0;
+}
+
+.popup-title {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+/* 可点区域 ≥ 约 44pt，整格可点避免点中空档 */
+.popup-close {
+  box-sizing: border-box;
+  position: relative;
+  width: 88rpx;
+  height: 88rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 44rpx;
+  background: var(--color-divider);
+  flex-shrink: 0;
+}
+
+.popup-close--hover {
+  background: var(--color-divider-strong);
+}
+
+.popup-close-icon {
+  font-size: 28rpx;
+  color: var(--color-text-secondary);
+  line-height: 1;
+  pointer-events: none;
+}
+
+.popup-body {
+  padding: 20rpx 32rpx 16rpx;
+  box-sizing: border-box;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.briefing-section {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 24rpx;
+  padding: 20rpx;
+  background: var(--color-divider-faint);
+  border-radius: 14rpx;
+  box-sizing: border-box;
+}
+
+.section-icon {
+  font-size: 28rpx;
+  margin-right: 16rpx;
+  margin-top: 2rpx;
+  flex-shrink: 0;
+  width: 36rpx;
+  text-align: center;
+}
+
+.section-content {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  word-break: break-all;
+  overflow-wrap: break-word;
+}
+
+.section-label {
+  font-size: 22rpx;
+  font-weight: 600;
+  color: var(--color-text-tertiary);
+  margin-bottom: 6rpx;
+  display: block;
+}
+
+.section-item {
+  font-size: 26rpx;
+  color: var(--color-text-on-glass);
+  line-height: 1.6;
+  display: block;
+  word-break: break-all;
+  overflow-wrap: break-word;
+}
+
+.section-fact {
+  font-size: 25rpx;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+  display: block;
+  word-break: break-all;
+  overflow-wrap: break-word;
+}
+
+.popup-share-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin: 8rpx 32rpx 24rpx;
+  height: 80rpx;
+  background: #07C160;
+  border: none;
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 600;
+  border-radius: 40rpx;
+  padding: 0;
+}
+
+.popup-share-btn:active {
+  background: #06AD56;
+}
+
+.popup-share-btn::after {
+  border: none;
+}
+
+/* ══ 事件更新板块 ══ */
+/* ══ 事件更新板块 ══ */
+.briefing-section--launch {
+  flex-direction: column;
+  padding: 20rpx;
+}
+
+.briefing-section--launch .section-content {
+  overflow: visible;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.briefing-section--launch .section-label {
+  margin-bottom: 12rpx;
+}
+
+.briefing-row-hover {
+  opacity: 0.88;
+}
+
+/* ══ 与 pages/profile 「近期竞猜」vote-history 同款排版 ══ */
+.vote-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.vote-history-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 16rpx 0;
+  border-bottom: 1rpx solid var(--color-divider-faint);
+}
+
+.vote-history-item:last-child {
+  border-bottom: none;
+}
+
+/* 昨日回顾：角标贴右（小程序嵌套 flex 时 space-between 常不生效，改用绝对定位） */
+.vote-history-item--briefing-yesterday {
+  position: relative;
+  align-items: flex-start;
+  padding-right: 168rpx;
+  box-sizing: border-box;
+}
+
+.vote-history-item--briefing-yesterday .vote-history-right {
+  position: absolute;
+  right: 0;
+  top: 16rpx;
+  margin-top: 0;
+  margin-left: 0;
+}
+
+.vote-history-main {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.vote-history-icon {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 50%;
+  background: var(--color-divider-faint);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30rpx;
+  margin-right: 16rpx;
+  flex-shrink: 0;
+}
+
+.vote-history-icon--launch {
+  background: var(--color-divider-faint);
+  overflow: hidden;
+  padding: 0;
+}
+
+.vote-history-rocket-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+
+.vote-history-left {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.vote-history-name {
+  font-size: 26rpx;
+  color: var(--color-text-primary);
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vote-history-rocket {
+  font-size: 22rpx;
+  color: var(--color-text-tertiary);
+  display: block;
+  margin-top: 4rpx;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vote-history-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6rpx;
+  flex-shrink: 0;
+}
+
+/* 与首页历史任务卡片 mission-status-badge 一致 */
+.mission-status-badge {
+  font-size: 22rpx;
+  font-weight: 500;
+  padding: 4rpx 12rpx;
+  border-radius: 8rpx;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.mission-status-badge.status-success {
+  color: var(--color-success);
+  background: rgba(52, 199, 89, 0.15);
+  border: 1px solid rgba(52, 199, 89, 0.35);
+}
+
+.mission-status-badge.status-failure {
+  color: var(--color-danger);
+  background: rgba(255, 59, 48, 0.15);
+  border: 1px solid rgba(255, 59, 48, 0.35);
+}
+
+.mission-status-badge.status-partial {
+  color: var(--color-warning);
+  background: rgba(255, 149, 0, 0.15);
+  border: 1px solid rgba(255, 149, 0, 0.35);
+}
+
+.mission-status-badge.status-delayed,
+.mission-status-badge.status-cancelled {
+  color: var(--color-warning);
+  background: rgba(255, 149, 0, 0.12);
+  border: 1px solid rgba(255, 149, 0, 0.3);
+}
+
+.mission-status-badge.status-pending {
+  color: var(--color-brand);
+  background: rgba(0, 122, 255, 0.15);
+  border: 1px solid rgba(0, 122, 255, 0.35);
+}
+
+.briefing-section--tweets {
+  flex-direction: column;
+  padding: 24rpx 22rpx 20rpx;
+  background: var(--color-divider-faint);
+  border-radius: 16rpx;
+  border: 1px solid var(--color-divider-faint);
+  margin-bottom: 8rpx;
+}
+
+.tweet-briefing-header {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 20rpx;
+}
+
+.tweet-briefing-icon-wrap {
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 12rpx;
+  background: var(--color-divider);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 16rpx;
+  flex-shrink: 0;
+}
+
+.tweet-briefing-icon-img {
+  width: 30rpx;
+  height: 30rpx;
+  display: block;
+  /* icon-x.svg 为纯白，浅色主题下反色成深色（--icon-invert 由 tokens 主题变量提供） */
+  filter: invert(var(--icon-invert, 0));
+}
+
+.tweet-briefing-head-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.tweet-briefing-title {
+  font-size: 24rpx;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  display: block;
+  margin-bottom: 8rpx;
+}
+
+.tweet-briefing-summary {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  line-height: 1.35;
+  display: block;
+  letter-spacing: 0.3rpx;
+}
+
+.tweet-briefing-summary--loading {
+  font-size: 26rpx;
+  font-weight: 500;
+  color: var(--color-text-tertiary);
+}
+
+/* ══ 内联卡片 ══ */
+.briefing-inline {
+  margin: 0 24rpx 20rpx;
+  padding: 28rpx;
+  background: var(--color-divider-faint);
+  border-radius: 16rpx;
+  border: 1px solid var(--color-divider-faint);
+  display: flex;
+  align-items: flex-start;
+}
+
+.inline-left {
+  flex-shrink: 0;
+  margin-right: 20rpx;
+  margin-top: 4rpx;
+}
+
+.inline-icon {
+  font-size: 40rpx;
+}
+
+.inline-icon-img {
+  width: 44rpx;
+  height: 44rpx;
+}
+
+.inline-body {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.inline-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  display: block;
+  margin-bottom: 10rpx;
+}
+
+.inline-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.inline-line {
+  font-size: 24rpx;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inline-line--loading {
+  color: var(--color-text-tertiary);
+}
+
+.inline-arrow {
+  font-size: 32rpx;
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
+  margin-left: 12rpx;
+  align-self: center;
+}
+
+.briefing-loading-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80rpx 0;
+}
+
+.briefing-loading-dot {
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 50%;
+  border: 4rpx solid rgba(126, 195, 255, 0.3);
+  border-top-color: #7ec3ff;
+  animation: briefing-spin 0.8s linear infinite;
+}
+
+@keyframes briefing-spin {
+  to { transform: rotate(360deg); }
+}
+
+.briefing-loading-text {
+  margin-top: 20rpx;
+  font-size: 26rpx;
+  color: var(--color-text-secondary);
+}

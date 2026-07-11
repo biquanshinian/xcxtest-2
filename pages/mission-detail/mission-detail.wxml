@@ -1,0 +1,738 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="detail-page {{themeClass}} {{isMomentsPreview ? 'detail-page--moments' : ''}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+        <text class="nav-title-sub" wx:if="{{pageTitle && pageTitle !== navTitle}}">{{pageTitle}}</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+    <page-progress active="{{loading}}" />
+  </view>
+
+  <scroll-view class="detail-scroll" scroll-y="true">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+    <view class="detail-container">
+      <!-- 加载中：内容区留白，进度由导航栏下方的 page-progress 绿色进度条呈现 -->
+      <block wx:if="{{loading}}"></block>
+
+      <view class="error-state glass-card" wx:elif="{{errorMessage}}">
+        <text class="error-title">加载失败</text>
+        <text class="error-text">{{errorMessage}}</text>
+        <button class="retry-btn" bindtap="retryLoad">重新加载</button>
+      </view>
+
+      <view wx:elif="{{mission}}" class="detail-card">
+        <!-- 头部卡片：头图 + 状态徽章行 + 标题 + 讨论入口 -->
+        <view class="detail-section detail-hero-section">
+          <view class="hero-image-wrap">
+            <image class="hero-image" src="{{mission.rocketImage}}" mode="widthFix" binderror="onHeroImageError"></image>
+          </view>
+
+          <view class="meta-top">
+            <text class="type-badge status-{{mission.statusCategory}}">{{mission.statusBadgeText}}</text>
+            <!-- 任务徽章缩略图（LL2 mission_patches，点击预览大图） -->
+            <view class="meta-patches" wx:if="{{mission.missionPatches && mission.missionPatches.length > 0}}">
+              <image class="meta-patch-img" wx:for="{{mission.missionPatches}}" wx:key="_wxkey" src="{{item.imageUrl}}" mode="aspectFit" bindtap="onPreviewPatch" data-index="{{index}}"></image>
+            </view>
+            <text class="date-text">{{mission.launchTimeCST}}</text>
+          </view>
+
+          <text class="detail-title">{{mission.missionName || mission.name || '未知任务'}}</text>
+          <text class="detail-subhead" wx:if="{{mission.rocketName}}">{{mission.rocketName}}</text>
+          <!-- 状态说明（LL2 status.description，对状态徽章的补充解释） -->
+          <text class="detail-status-note detail-status-note--hero" wx:if="{{mission.statusDescription}}">{{descI18n.statusNote || mission.statusDescription}}</text>
+
+          <!-- 贴图讨论区：topic 优先火箭型号+精简任务名 -->
+          <official-account-publish-panel topic="{{mission.discussionTopic || mission.missionName || mission.name || '星舰发射讨论'}}" />
+        </view>
+
+        <!-- 失败原因（LL2 failreason，失败任务置顶显示） -->
+        <view class="detail-section detail-failreason-section" wx:if="{{mission.failReason}}">
+          <view class="detail-section-title-row">
+            <text class="detail-section-title">失败原因</text>
+            <text class="translate-toggle {{descTranslating ? 'translate-toggle--busy' : ''}}" catchtap="onToggleDescTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
+          </view>
+          <view class="detail-failreason-card">
+            <text class="section-text section-text--compact detail-failreason-text" user-select="{{true}}">{{descI18n.failReason || mission.failReason}}</text>
+          </view>
+        </view>
+
+        <!-- 发射动态：独立详情页（会员门控 + 可分享），置于倒计时上方 -->
+        <view class="detail-block" wx:if="{{mission.launchUpdates && mission.launchUpdates.length > 0}}">
+          <view class="detail-block-header" bindtap="onOpenLaunchUpdates">
+            <text class="detail-block-title">发射动态</text>
+            <text class="detail-block-hint">{{mission.launchUpdates.length}} 条动态</text>
+            <text class="icon-arrow icon-arrow--detail-nav">›</text>
+          </view>
+        </view>
+
+        <view class="detail-section" wx:if="{{detailType === 'upcoming' && !missionCountdown.isExpired}}">
+          <text class="detail-section-title">倒计时</text>
+          <view class="countdown-display countdown-display--tech countdown-display--detail">
+            <view class="countdown-item countdown-item--tech countdown-item--detail">
+              <text class="countdown-value countdown-value--detail">{{missionCountdown.days}}</text>
+              <text class="countdown-label countdown-label--tech">天</text>
+            </view>
+            <view class="countdown-item countdown-item--tech countdown-item--detail">
+              <text class="countdown-value countdown-value--detail">{{missionCountdown.hours}}</text>
+              <text class="countdown-label countdown-label--tech">时</text>
+            </view>
+            <view class="countdown-item countdown-item--tech countdown-item--detail">
+              <text class="countdown-value countdown-value--detail">{{missionCountdown.minutes}}</text>
+              <text class="countdown-label countdown-label--tech">分</text>
+            </view>
+            <view class="countdown-item countdown-item--tech countdown-item--seconds countdown-item--detail">
+              <view class="countdown-seconds-window countdown-seconds-window--detail">
+                <view class="countdown-seconds-reel {{missionDetailSecondsRolling ? 'countdown-seconds-reel--rolling' : ''}}">
+                  <block wx:for="{{missionDetailSecondsReel}}" wx:key="index">
+                    <text class="countdown-value countdown-value--detail countdown-value-seconds">{{item}}</text>
+                  </block>
+                </view>
+              </view>
+              <text class="countdown-label countdown-label--tech">秒</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="detail-section" wx:if="{{mission.launchTimelineVisible && mission.launchTimeline}}">
+          <view class="detail-section-title-row">
+            <text class="detail-section-title">发射时间表</text>
+            <view class="lt-status" wx:if="{{mission.launchTimeline.statusText}}">
+              <view class="lt-status-dot {{mission.launchTimeline.inWindow ? 'lt-status-dot--live' : ''}}"></view>
+              <text class="lt-status-text {{mission.launchTimeline.inWindow ? 'lt-status-text--live' : ''}}">{{mission.launchTimeline.statusText}}</text>
+            </view>
+          </view>
+          <view class="lt-card">
+            <!-- 垂直时间线：窗口开始 → 点火 T-0 → 窗口结束 -->
+            <view class="lt-step">
+              <view class="lt-rail">
+                <view class="lt-node lt-node--{{mission.launchTimeline.startState}}"></view>
+                <view class="lt-line lt-line--{{mission.launchTimeline.startState === 'done' ? 'done' : 'pending'}}"></view>
+              </view>
+              <view class="lt-step-body">
+                <text class="lt-step-label">窗口开始</text>
+                <text class="lt-step-time">{{mission.launchTimeline.windowStart}}</text>
+              </view>
+            </view>
+
+            <view class="lt-step lt-step--liftoff">
+              <view class="lt-rail">
+                <view class="lt-node lt-node--rocket lt-node--{{mission.launchTimeline.liftoffState}}">
+                  <image class="lt-node-icon" src="/images/icons/ic-rocket-outline.svg" mode="aspectFit"></image>
+                </view>
+                <view class="lt-line lt-line--{{mission.launchTimeline.liftoffState === 'done' ? 'done' : 'pending'}}"></view>
+              </view>
+              <view class="lt-step-body">
+                <text class="lt-step-label lt-step-label--liftoff">点火 T-0</text>
+                <text class="lt-step-time lt-step-time--liftoff">{{mission.launchTimeline.liftoff}}</text>
+              </view>
+            </view>
+
+            <view class="lt-step lt-step--last">
+              <view class="lt-rail">
+                <view class="lt-node lt-node--{{mission.launchTimeline.endState}}"></view>
+              </view>
+              <view class="lt-step-body">
+                <text class="lt-step-label">窗口结束</text>
+                <text class="lt-step-time">{{mission.launchTimeline.windowEnd}}</text>
+              </view>
+            </view>
+          </view>
+        </view>
+
+        <view class="detail-section detail-livestream-section" wx:if="{{enableLiveEntry && detailType === 'upcoming' && !missionCountdown.isExpired}}">
+          <view class="detail-section-title-row">
+            <text class="detail-section-title">直播观看</text>
+            <view class="livestream-live-pill" wx:if="{{channelsLiveStatus === 2 || mission.webcastLive}}">
+              <view class="cd-live-eq" aria-hidden="true">
+                <view class="cd-live-eq-bar"></view>
+                <view class="cd-live-eq-bar"></view>
+                <view class="cd-live-eq-bar"></view>
+              </view>
+              <text class="livestream-live-text">直播中</text>
+            </view>
+          </view>
+          <view class="livestream-row">
+            <view class="livestream-btn livestream-btn--primary {{showChannelLiveTap ? 'livestream-btn--channel-live' : ''}}" bindtap="openLivestreamSheet" data-source="official">
+              <view class="livestream-btn-icon livestream-btn-icon--live">
+                <image class="livestream-icon-img" src="https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%9B%BE%E6%A0%87/1778430366049_f5kzse.svg" mode="aspectFit"></image>
+              </view>
+              <view class="livestream-btn-info">
+                <text class="livestream-btn-title">直播</text>
+                <text class="livestream-btn-sub">{{showChannelLiveTap ? '前往视频号观看' : (channelsFallbackGuide.enabled ? '推荐：' + channelsFallbackGuide.nickname : '前往视频号观看')}}</text>
+              </view>
+              <text class="icon-arrow icon-arrow--livestream">›</text>
+              <channel-live
+                wx:if="{{showChannelLiveTap}}"
+                class="livestream-btn-tap-layer"
+                feed-id="{{channelsLiveFeedId}}"
+                finder-user-name="{{liveFinderUserName}}"
+              />
+            </view>
+            <view class="livestream-btn livestream-btn--bilibili" bindtap="openLivestreamSheet" data-source="bilibili">
+              <view class="livestream-btn-icon livestream-btn-icon--bilibili">
+                <image class="livestream-icon-img" src="https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%9B%BE%E6%A0%87/1778430483411_43m2pg.svg" mode="aspectFit"></image>
+              </view>
+              <view class="livestream-btn-info">
+                <text class="livestream-btn-title">B站直播</text>
+                <text class="livestream-btn-sub">扫码进入直播间</text>
+              </view>
+              <text class="icon-arrow icon-arrow--livestream">›</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="detail-section detail-subscribe-section" wx:if="{{detailType === 'upcoming'}}">
+          <view class="subscribe-row {{missionSubscribed ? 'subscribe-row--active' : ''}}" bindtap="onSubscribeMission">
+            <view class="subscribe-icon-wrap {{missionSubscribed ? 'subscribe-icon-wrap--active' : ''}}">
+              <view class="icon-bell icon-bell--subscribe {{missionSubscribed ? 'bell-on' : 'bell-off'}}"></view>
+            </view>
+            <view class="subscribe-info">
+              <text class="subscribe-title {{missionSubscribed ? 'subscribe-title--active' : ''}}">{{missionSubscribed ? '已设置提醒' : '发射提醒'}}</text>
+              <text class="subscribe-desc {{missionSubscribed ? 'subscribe-desc--active' : ''}}">{{missionSubscribed ? '含发射前提醒与完成后结果通知' : '发射前约30分钟提醒，完成后推送结果'}}</text>
+            </view>
+            <text class="icon-arrow icon-arrow--subscribe" wx:if="{{!missionSubscribed}}">›</text>
+            <text class="subscribe-check subscribe-check--active" wx:else>✓</text>
+          </view>
+        </view>
+
+        <view class="detail-section" wx:if="{{detailType === 'upcoming' && voteSlotVisible && !missionCountdown.isExpired}}">
+          <text class="detail-section-title">发射竞猜</text>
+          <view class="vote-type-tabs vote-type-tabs--detail" wx:if="{{voteOntimeEnabled && voteOutcomeEnabled}}">
+            <text class="vote-type-tab {{activeVoteType === 'ontime' ? 'vote-type-tab--active' : ''}}" bindtap="onVoteTypeSwitch" data-type="ontime">准时竞猜</text>
+            <text class="vote-type-tab {{activeVoteType === 'outcome' ? 'vote-type-tab--active' : ''}}" bindtap="onVoteTypeSwitch" data-type="outcome">成败竞猜</text>
+          </view>
+          <view class="vote-box vote-box--detail">
+            <block wx:if="{{voteData.result && myVote}}">
+              <view class="vote-result-banner {{myVote === voteData.result ? 'vote-result--correct' : 'vote-result--wrong'}}">
+                <text>{{myVote === voteData.result ? '🎉 恭喜猜对了！' : '😅 很遗憾猜错了'}}</text>
+              </view>
+            </block>
+            <block wx:elif="{{voteData.votingClosed && !myVote}}">
+              <view class="vote-closed-banner">
+                <text>🔒 竞猜已封盘（距发射不足30分钟）</text>
+              </view>
+            </block>
+            <block wx:elif="{{voteData.votingClosed && myVote}}">
+              <view class="vote-closed-banner">
+                <text>🔒 竞猜已封盘（已投票）</text>
+              </view>
+            </block>
+            <block wx:else>
+              <text class="vote-box-label">{{voteData.votingClosed ? '竞猜已封盘' : (voteData.customQuestion || (activeVoteType === 'outcome' ? '会成功吗？' : '会准时吗？'))}}</text>
+              <view class="vote-pill {{myVote === 'ge' || myVote === 'failure' ? 'vote-pill--active-ge' : ''}} {{myVote ? 'vote-pill--voted' : ''}} {{voteData.votingClosed ? 'vote-pill--disabled' : ''}}" bindtap="onVote" data-pill="left">
+                <view class="vote-pill-dot vote-pill-dot--ge"></view>
+                <text class="vote-pill-text">{{activeVoteType === 'outcome' ? (voteData.failureLabel || '失败') : (voteData.geLabel || '鸽')}}</text>
+                <text class="vote-pill-count" wx:if="{{voteData.geCount > 0}}">{{voteData.geCount}}</text>
+              </view>
+              <view class="vote-pill {{myVote === 'buge' || myVote === 'success' ? 'vote-pill--active-buge' : ''}} {{myVote ? 'vote-pill--voted' : ''}} {{voteData.votingClosed ? 'vote-pill--disabled' : ''}}" bindtap="onVote" data-pill="right">
+                <view class="vote-pill-dot vote-pill-dot--buge"></view>
+                <text class="vote-pill-text">{{activeVoteType === 'outcome' ? (voteData.successLabel || '成功') : (voteData.bugeLabel || '不鸽')}}</text>
+                <text class="vote-pill-count" wx:if="{{voteData.buGeCount > 0}}">{{voteData.buGeCount}}</text>
+              </view>
+            </block>
+          </view>
+          <view class="vote-bar-row" wx:if="{{voteTotal > 0}}">
+            <view class="vote-bar" wx:if="{{myVote}}">
+              <view class="vote-bar-ge" style="width: {{voteGePct}}%;"></view>
+              <view class="vote-bar-buge" style="width: {{voteBugePct}}%;"></view>
+            </view>
+            <text class="vote-total">{{voteTotal}} 人参与</text>
+          </view>
+        </view>
+
+        <view class="detail-section" wx:if="{{mission.mapLinkMeta && mission.mapLinkMeta.entries && mission.mapLinkMeta.entries.length > 0}}">
+          <text class="detail-section-title">发射场地图</text>
+          <view class="mission-map-preview-wrap" wx:if="{{mapPreviewReady}}" bindtap="openFirstMapLink">
+            <map
+              class="mission-map-preview"
+              latitude="{{mapPreviewLat}}"
+              longitude="{{mapPreviewLng}}"
+              scale="{{mapPreviewScale}}"
+              markers="{{mapPreviewMarkers}}"
+              enable-scroll="false"
+              enable-zoom="false"
+              enable-rotate="false"
+              enable-overlooking="false"
+              enable-poi="{{false}}"
+              show-compass="false"
+              layer-style="1"
+            ></map>
+            <view class="mission-map-overlay">
+              <view class="mission-map-tap-hint">
+                <text>点击查看详细地图</text>
+              </view>
+            </view>
+          </view>
+          <view class="mission-map-site-caption" wx:if="{{mapPreviewReady && mapPreviewSiteName}}">
+            <view class="mission-map-site-dot"></view>
+            <text class="mission-map-site-name">{{mapPreviewSiteName}}</text>
+          </view>
+          <view class="mission-map-quick-links" wx:if="{{mapPreviewReady && mission.mapLinkMeta.entries.length > 1}}">
+            <view class="mission-map-quick-link" wx:for="{{mission.mapLinkMeta.entries}}" wx:key="key" wx:if="{{index > 0}}" bindtap="openMissionMapLink" data-path="{{item.path}}" data-query="{{item.query}}">
+              <text class="mission-map-quick-link-text">{{item.label}}</text>
+              <text class="mission-map-quick-link-arrow">›</text>
+            </view>
+          </view>
+        </view>
+
+        <!-- 发射统计（型号 / 发射商，LL2 预热数据） -->
+        <view class="detail-section detail-stats-section">
+          <view class="detail-section-title-row">
+            <text class="detail-section-title">发射统计</text>
+            <view class="mission-stats-title-right">
+              <text class="mission-stats-global-link" bindtap="goGlobalLaunchStats">全球统计 ›</text>
+            </view>
+          </view>
+
+          <view class="mission-stats-card glass-card" wx:if="{{missionLaunchStatsLoading && !missionLaunchStats}}">
+            <text class="detail-ll2-muted">正在统计发射数据…</text>
+          </view>
+          <view class="mission-stats-card mission-stats-card--error glass-card" wx:elif="{{missionLaunchStatsError}}">
+            <text class="detail-ll2-error">{{missionLaunchStatsError}}</text>
+            <text class="detail-ll2-retry" bindtap="onRetryMissionLaunchStats">点击重试</text>
+          </view>
+          <view class="mission-stats-card glass-card" wx:elif="{{missionLaunchStats}}" bindtap="goGlobalLaunchStats" hover-class="mission-stats-card--tap">
+            <view class="mission-stats-groups">
+              <view class="mission-stats-group">
+                <text class="mission-stats-group-name">{{missionLaunchStats.rocketLabel || '火箭型号'}}</text>
+                <view class="mission-stats-pair">
+                  <view class="mission-stats-cell">
+                    <text class="mission-stats-num">{{missionLaunchStats.rocketTotal != null ? missionLaunchStats.rocketTotal : '—'}}</text>
+                    <text class="mission-stats-cap">累计发射</text>
+                  </view>
+                  <view class="mission-stats-cell-divider"></view>
+                  <view class="mission-stats-cell">
+                    <text class="mission-stats-num mission-stats-num--accent">{{missionLaunchStats.rocketYear != null ? missionLaunchStats.rocketYear : '—'}}</text>
+                    <text class="mission-stats-cap">本年发射</text>
+                  </view>
+                </view>
+              </view>
+              <view class="mission-stats-group-gap"></view>
+              <view class="mission-stats-group">
+                <text class="mission-stats-group-name">{{missionLaunchStats.providerLabel || '发射商'}}</text>
+                <view class="mission-stats-pair">
+                  <view class="mission-stats-cell">
+                    <text class="mission-stats-num">{{missionLaunchStats.providerTotal != null ? missionLaunchStats.providerTotal : '—'}}</text>
+                    <text class="mission-stats-cap">累计发射</text>
+                  </view>
+                  <view class="mission-stats-cell-divider"></view>
+                  <view class="mission-stats-cell">
+                    <text class="mission-stats-num mission-stats-num--accent">{{missionLaunchStats.providerYear != null ? missionLaunchStats.providerYear : '—'}}</text>
+                    <text class="mission-stats-cap">本年发射</text>
+                  </view>
+                </view>
+              </view>
+            </view>
+          </view>
+
+          <!-- 各维度发射序号（LL2 attempt count，含本次） -->
+          <view class="rocket-spec-grid mission-stats-seq-grid" wx:if="{{mission.launchSequenceRows && mission.launchSequenceRows.length > 0}}">
+            <view class="rocket-spec-cell" wx:for="{{mission.launchSequenceRows}}" wx:key="_wxkey">
+              <text class="rocket-spec-label">{{item.label}}</text>
+              <text class="rocket-spec-value">{{item.line}}</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="detail-section detail-basic">
+          <text class="detail-section-title">基础信息</text>
+          <view class="detail-section-content">
+            <view class="detail-icon-summary-grid" wx:if="{{mission.missionFull.type || mission.missionFull.orbit}}">
+              <view class="detail-icon-summary" wx:if="{{mission.missionFull.type}}">
+                <image class="detail-icon-summary__img" src="/images/icons/ic-mission-shield.svg" mode="aspectFit"></image>
+                <view class="detail-icon-summary__col">
+                  <text class="detail-icon-summary__label">任务类型</text>
+                  <text class="detail-icon-summary__value">{{mission.missionFull.type}}</text>
+                </view>
+              </view>
+              <view class="detail-icon-summary" wx:if="{{mission.missionFull.orbit}}">
+                <image class="detail-icon-summary__img" src="/images/icons/ic-orbit-globe.svg" mode="aspectFit"></image>
+                <view class="detail-icon-summary__col">
+                  <text class="detail-icon-summary__label">任务轨道</text>
+                  <text class="detail-icon-summary__value">{{mission.missionFull.orbit}}</text>
+                </view>
+              </view>
+            </view>
+            <view class="detail-row" wx:if="{{mission.name}}"><text class="detail-label">发射任务</text><text class="detail-value">{{mission.name}}</text></view>
+            <view class="detail-row" wx:if="{{mission.missionName && mission.missionName !== mission.name}}"><text class="detail-label">任务名称</text><text class="detail-value">{{mission.missionName}}</text></view>
+            <view class="detail-row" wx:if="{{mission.rocketName}}"><text class="detail-label">火箭型号</text><text class="detail-value">{{mission.rocketName}}</text></view>
+            <view class="detail-row"><text class="detail-label">标称发射时间</text><text class="detail-value">{{mission.launchTimeCST}}</text></view>
+            <view class="detail-row" wx:if="{{mission.netPrecisionLabel}}"><text class="detail-label">时间精度</text><text class="detail-value">{{mission.netPrecisionLabel}}</text></view>
+            <view class="detail-row" wx:if="{{mission.windowStartCST && mission.windowEndCST}}"><text class="detail-label">窗口期</text><text class="detail-value">{{mission.windowStartCST}} — {{mission.windowEndCST}}</text></view>
+            <view class="detail-row" wx:if="{{mission.padLocation}}"><text class="detail-label">发射台</text><text class="detail-value">{{mission.padLocation}}</text></view>
+            <view class="detail-row" wx:if="{{mission.launchSite}}"><text class="detail-label">发射地点</text><text class="detail-value">{{mission.launchSite}}</text></view>
+            <view class="detail-row" wx:if="{{mission.launchAgency}}">
+              <text class="detail-label">发射商</text>
+              <view class="detail-value detail-value--row">
+                <view class="detail-link-chip" bindtap="openAgencyDetail">
+                  <text class="detail-link-chip-text">{{mission.launchAgency}}</text>
+                  <text class="detail-link-chip-arrow">›</text>
+                </view>
+              </view>
+            </view>
+            <view class="detail-row" wx:if="{{mission.probability != null && mission.probability !== ''}}"><text class="detail-label">发射概率</text><text class="detail-value">{{mission.probability}}%</text></view>
+            <view class="detail-row" wx:if="{{mission.payloadAmount > 0}}"><text class="detail-label">载荷数量</text><text class="detail-value">{{mission.payloadAmount}}</text></view>
+            <view class="detail-row" wx:if="{{mission.weatherConcerns}}"><text class="detail-label">天气顾虑</text><text class="detail-value">{{descI18n.weather || mission.weatherConcerns}}</text></view>
+            <view class="detail-row" wx:if="{{mission.hashtag}}"><text class="detail-label">话题标签</text><text class="detail-value">{{mission.hashtag}}</text></view>
+          </view>
+        </view>
+
+        <!-- 任务信息图（LL2 infographic，少数任务提供） -->
+        <view class="detail-section" wx:if="{{mission.infographicUrl}}">
+          <text class="detail-section-title">任务信息图</text>
+          <image class="detail-infographic-img" src="{{mission.infographicUrl}}" mode="widthFix" show-menu-by-longpress="{{true}}"></image>
+        </view>
+
+        <view class="detail-section rocket-spec-section" wx:if="{{mission.rocketSpecsVisible && mission.rocketSpecs && mission.rocketSpecs.length > 0}}">
+          <text class="detail-section-title">规格</text>
+          <view class="rocket-spec-grid">
+            <view class="rocket-spec-cell" wx:for="{{mission.rocketSpecs}}" wx:key="_wxkey">
+              <text class="rocket-spec-label">{{item.label}}</text>
+              <text class="rocket-spec-value">{{item.line}}</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="detail-section detail-desc-section" wx:if="{{(mission.missionFull && mission.missionFull.description) || mission.missionDetails || mission.description}}">
+          <view class="detail-section-title-row">
+            <text class="detail-section-title">任务说明</text>
+            <text class="translate-toggle {{descTranslating ? 'translate-toggle--busy' : ''}}" catchtap="onToggleDescTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
+          </view>
+          <!-- 隐藏测量节点：渲染完整文本量实际行数，超过 3 行才启用折叠（descOverflow） -->
+          <view class="desc-measure" aria-hidden="{{true}}">
+            <view class="section-text section-text--compact" id="descMeasureLineM">一</view>
+            <view class="section-text section-text--compact" id="descMeasureMission">{{descI18n.missionDesc || (mission.missionFull && mission.missionFull.description) || mission.missionDetails || mission.description}}</view>
+          </view>
+          <!-- 折叠态用 view：text 组件开启 user-select 后 -webkit-line-clamp 截断不生效 -->
+          <view wx:if="{{!detailExpanded.missionDesc && descOverflow.missionDesc}}" class="section-text section-text--compact detail-text-clamp" bindtap="toggleDetailExpand" data-key="missionDesc">{{descI18n.missionDesc || (mission.missionFull && mission.missionFull.description) || mission.missionDetails || mission.description}}</view>
+          <text wx:else class="section-text section-text--compact" user-select="{{true}}">{{descI18n.missionDesc || (mission.missionFull && mission.missionFull.description) || mission.missionDetails || mission.description}}</text>
+          <text class="expand-toggle" wx:if="{{descOverflow.missionDesc}}" bindtap="toggleDetailExpand" data-key="missionDesc">{{detailExpanded.missionDesc ? '收起' : '展开全文'}}</text>
+        </view>
+
+        <view class="detail-section detail-desc-section" wx:if="{{(mission.rocketFull && mission.rocketFull.description) || mission.rocketInfo}}">
+          <view class="detail-section-title-row">
+            <text class="detail-section-title">火箭信息</text>
+            <text class="translate-toggle {{descTranslating ? 'translate-toggle--busy' : ''}}" catchtap="onToggleDescTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
+          </view>
+          <view class="desc-measure" aria-hidden="{{true}}">
+            <view class="section-text section-text--compact" id="descMeasureLineR">一</view>
+            <view class="section-text section-text--compact" id="descMeasureRocket">{{descI18n.rocketDesc || (mission.rocketFull && mission.rocketFull.description) || mission.rocketInfo}}</view>
+          </view>
+          <view wx:if="{{!detailExpanded.rocketDesc && descOverflow.rocketDesc}}" class="section-text section-text--compact detail-text-clamp" bindtap="toggleDetailExpand" data-key="rocketDesc">{{descI18n.rocketDesc || (mission.rocketFull && mission.rocketFull.description) || mission.rocketInfo}}</view>
+          <text wx:else class="section-text section-text--compact" user-select="{{true}}">{{descI18n.rocketDesc || (mission.rocketFull && mission.rocketFull.description) || mission.rocketInfo}}</text>
+          <text class="expand-toggle" wx:if="{{descOverflow.rocketDesc}}" bindtap="toggleDetailExpand" data-key="rocketDesc">{{detailExpanded.rocketDesc ? '收起' : '展开全文'}}</text>
+        </view>
+
+        <!-- 所属计划（LL2 program：如 SpaceX Starship、Artemis 等） -->
+        <view class="detail-section detail-program-section" wx:if="{{mission.programInfo && mission.programInfo.length > 0}}">
+          <view class="detail-section-title-row">
+            <text class="detail-section-title">所属计划</text>
+            <text class="translate-toggle {{descTranslating ? 'translate-toggle--busy' : ''}}" catchtap="onToggleDescTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
+          </view>
+          <view class="detail-program-card" wx:for="{{mission.programInfo}}" wx:key="_wxkey">
+            <image class="detail-program-img" wx:if="{{item.imageUrl}}" src="{{item.imageUrl}}" mode="aspectFill"></image>
+            <view class="detail-program-head">
+              <text class="detail-program-name">{{item.name}}</text>
+              <text class="detail-program-type" wx:if="{{item.typeName}}">{{item.typeName}}</text>
+            </view>
+            <view class="detail-program-meta">
+              <text class="detail-program-meta-item" wx:if="{{item.startYear}}">{{item.startYear}} 年启动{{item.endYear ? '，' + item.endYear + ' 年结束' : '，进行中'}}</text>
+              <text class="detail-program-meta-item" wx:if="{{item.agencies}}">主导机构：{{item.agencies}}</text>
+            </view>
+            <text class="section-text section-text--compact" wx:if="{{item.description}}" user-select="{{true}}">{{descI18n.programs[index] || item.description}}</text>
+            <view class="detail-program-links" wx:if="{{item.wikiUrl || item.infoUrl}}">
+              <text class="detail-link" wx:if="{{item.wikiUrl}}" catchtap="copyLink" data-url="{{item.wikiUrl}}">维基</text>
+              <text class="detail-link" wx:if="{{item.wikiUrl && item.infoUrl}}"> · </text>
+              <text class="detail-link" wx:if="{{item.infoUrl}}" catchtap="copyLink" data-url="{{item.infoUrl}}">官网</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="detail-block" wx:if="{{mission.boosterInfo || (mission.boosterStages && mission.boosterStages.length > 0) || (mission.launcherLanding && mission.launcherLanding.general && mission.launcherLanding.general.flights != null)}}">
+          <view class="detail-block-header" bindtap="toggleDetailBlock" data-key="launcher">
+            <text class="detail-block-title">{{mission.launcherBlockTitle || '箭体与回收'}}</text>
+            <text class="icon-arrow icon-arrow--detail-block">{{detailBlocks.launcher ? '︿' : '﹀'}}</text>
+          </view>
+          <view class="detail-block-body" wx:if="{{detailBlocks.launcher}}">
+            <!-- 只要数据库返回了助推器/飞船返回数据（哪怕只有 1 个）就用统一的分卡显示 -->
+            <block wx:if="{{mission.boosterStages && mission.boosterStages.length >= 1}}">
+              <view class="booster-stage-card" wx:for="{{mission.boosterStages}}" wx:key="index" wx:for-item="stage">
+                <view class="booster-stage-title" wx:if="{{stage.role}}">
+                  <text class="booster-stage-role">{{stage.role}}</text>
+                  <text class="booster-stage-index">#{{index + 1}}</text>
+                </view>
+                <view class="detail-row" wx:if="{{stage.serialNumber}}">
+                  <text class="detail-label">序列号</text>
+                  <view class="detail-value detail-value--row">
+                    <!-- 星舰组合体（Ship 飞船 + Super Heavy 超重助推器）→ 跳 ship-detail；
+                         Falcon 系列助推器（B10xx）→ 跳 booster-detail -->
+                    <view wx:if="{{stage.stageKind === 'ship' || stage.stageKind === 'super_heavy_booster'}}" class="detail-link-chip detail-link-chip--booster" bindtap="openShipDetail" data-serial="{{stage.serialNumber}}" data-index="{{index}}">
+                      <text class="detail-link-chip-text">{{stage.serialNumber}}</text>
+                      <text class="detail-link-chip-arrow">›</text>
+                    </view>
+                    <view wx:else class="detail-link-chip detail-link-chip--booster" bindtap="openBoosterDetail" data-serial="{{stage.serialNumber}}">
+                      <text class="detail-link-chip-text">{{stage.serialNumber}}</text>
+                      <text class="detail-link-chip-arrow">›</text>
+                    </view>
+                  </view>
+                </view>
+                <view class="detail-row" wx:if="{{stage.flights != null}}">
+                  <text class="detail-label">本次飞行</text>
+                  <text class="detail-value">{{stage.flights === 1 ? '首飞' : ('第 ' + stage.flights + ' 次飞行')}}</text>
+                </view>
+                <view class="detail-row" wx:if="{{stage.successfulLandings != null}}"><text class="detail-label">累计成功着陆</text><text class="detail-value">{{stage.successfulLandings}} 次</text></view>
+                <view class="detail-row" wx:if="{{stage.returnStatusLabel}}">
+                  <text class="detail-label">返回状态</text>
+                  <text class="detail-value">{{stage.returnStatusLabel}}</text>
+                </view>
+                <view class="detail-row" wx:if="{{stage.landingTypeLabel || stage.landingLocation || stage.landingIcon}}">
+                  <text class="detail-label">{{stage.isPayloadReturn ? '返回地点' : '回收地点'}}</text>
+                  <view class="detail-value detail-value--row">
+                    <view class="recovery-icon-name recovery-place-inline recovery-icon-name--{{stage.landingStatus || 'neutral'}}">
+                      <image class="recovery-icon {{stage.landingIconClass || ''}}" src="{{stage.landingIcon}}" mode="aspectFit" wx:if="{{stage.landingIcon}}"></image>
+                      <text class="recovery-type-name {{stage.reused === false ? 'recovery-type-name--not-reused' : ''}}" wx:if="{{stage.landingTypeLabel && !stage.isPayloadReturn}}">{{stage.landingTypeLabel}}</text>
+                      <text class="recovery-location-name" wx:if="{{stage.landingLocation}}">{{stage.landingLocation}}</text>
+                      <text class="recovery-type-name" wx:elif="{{stage.landingTypeLabel}}">{{stage.landingTypeLabel}}</text>
+                    </view>
+                  </view>
+                </view>
+                <view class="detail-row" wx:if="{{stage.landingDescription}}">
+                  <text class="detail-label">说明</text>
+                  <text class="detail-value detail-value--wrap">{{stage.landingDescription}}</text>
+                </view>
+                <view class="detail-row" wx:if="{{stage.turnaroundText || stage.turnaroundDays != null}}">
+                  <text class="detail-label">周转时间</text>
+                  <text class="detail-value">{{stage.turnaroundText ? stage.turnaroundText : (stage.turnaroundDays + ' 天周转')}}</text>
+                </view>
+              </view>
+            </block>
+
+            <!-- 单芯火箭：保留原显示，避免影响 Falcon 9 / 长征二号 等任务 -->
+            <block wx:else>
+              <view class="detail-row" wx:if="{{mission.boosterInfo && mission.boosterInfo.serialNumber}}">
+                <text class="detail-label">序列号</text>
+                <view class="detail-value detail-value--row">
+                  <view class="detail-link-chip detail-link-chip--booster" bindtap="openBoosterDetail">
+                    <text class="detail-link-chip-text">{{mission.boosterInfo.serialNumber}}</text>
+                    <text class="detail-link-chip-arrow">›</text>
+                  </view>
+                </view>
+              </view>
+              <view class="detail-row" wx:if="{{(mission.boosterInfo && mission.boosterInfo.flights != null) || (mission.launcherLanding && mission.launcherLanding.general && mission.launcherLanding.general.flights != null)}}"><text class="detail-label">飞行次数</text><text class="detail-value">{{(mission.boosterInfo && mission.boosterInfo.flights != null) ? mission.boosterInfo.flights : mission.launcherLanding.general.flights}}次</text></view>
+              <view class="detail-row" wx:if="{{mission.boosterInfo && mission.boosterInfo.successfulLandings != null}}"><text class="detail-label">成功着陆</text><text class="detail-value">{{mission.boosterInfo.successfulLandings}}次</text></view>
+              <view class="detail-row" wx:if="{{mission.boosterInfo && (mission.boosterInfo.landingType || mission.boosterInfo.landingLocation || mission.boosterInfo.inferredRecovery || mission.boosterInfo.netRecovery || mission.boosterInfo.serialNumber || mission.boosterInfo.flights != null)}}">
+                <text class="detail-label">回收地点</text>
+                <view class="detail-value detail-value--row">
+                  <view class="recovery-icon-name recovery-place-inline">
+                    <image class="recovery-icon recovery-icon--mono recovery-icon--bolz" src="{{mission.boosterInfo.landingTypeIcon}}" mode="aspectFit" wx:if="{{mission.boosterInfo && mission.boosterInfo.landingTypeIcon && mission.boosterInfo.landingType === 'ASDS'}}"></image>
+                    <image class="recovery-icon recovery-icon--mono" src="{{mission.boosterInfo.landingTypeIcon}}" mode="aspectFit" wx:elif="{{mission.boosterInfo && mission.boosterInfo.landingTypeIcon}}"></image>
+                    <image class="recovery-icon recovery-icon--mono" src="/images/landing-asds.svg" mode="aspectFit" wx:elif="{{mission.boosterInfo && mission.boosterInfo.landingType === 'ASDS'}}"></image>
+                    <image class="recovery-icon recovery-icon--mono {{mission.boosterInfo.rtlsIcon ? 'recovery-icon--landspace' : ''}}" src="{{mission.boosterInfo.rtlsIcon || '/images/landing-rtls.svg'}}" mode="aspectFit" wx:elif="{{mission.boosterInfo && (mission.boosterInfo.landingType === 'RTLS' || mission.boosterInfo.landingType === 'VL')}}"></image>
+                    <image class="recovery-icon" src="{{mission.boosterInfo.netRecoveryIcon}}" mode="aspectFit" wx:elif="{{mission.boosterInfo && mission.boosterInfo.netRecovery && mission.boosterInfo.netRecoveryIcon}}"></image>
+                    <text class="recovery-type-name {{(mission.boosterInfo && mission.boosterInfo.reused === false) ? 'recovery-type-name--not-reused' : ''}}">{{(mission.boosterInfo && mission.boosterInfo.reused === false) ? '未复用/首次' : ((mission.boosterInfo && mission.boosterInfo.inferredRecovery) ? '回收信息待确认' : ((mission.boosterInfo && mission.boosterInfo.netRecovery && !mission.boosterInfo.landingType) ? '网系回收' : (mission.boosterInfo.landingType === 'RTLS' ? '陆地回收' : (mission.boosterInfo.landingType === 'ASDS' ? '海上回收' : (mission.boosterInfo.landingType === 'TOWER_CATCH' ? '塔架捕获' : (mission.boosterInfo.landingType === 'SPLASHDOWN' || mission.boosterInfo.landingType === 'RECOVERY' ? '海面溅落' : '回收'))))))}}</text>
+                    <text class="recovery-location-name" wx:if="{{mission.boosterInfo && mission.boosterInfo.landingLocation}}">{{mission.boosterInfo.landingLocation}}</text>
+                    <text class="recovery-location-name" wx:else>未披露</text>
+                  </view>
+                </view>
+              </view>
+              <view class="detail-row" wx:if="{{mission.boosterInfo && (mission.boosterInfo.turnaroundText || mission.boosterInfo.turnaroundDays != null)}}">
+                <text class="detail-label">周转时间</text>
+                <text class="detail-value">{{mission.boosterInfo.turnaroundText ? mission.boosterInfo.turnaroundText : (mission.boosterInfo.turnaroundDays + ' 天周转')}}</text>
+              </view>
+            </block>
+
+            <!-- 未在上方分卡出现的级段（如 Falcon 9 的二级/上面级），去重后并入本块 -->
+            <block wx:if="{{mission.stageInfoExtra && mission.stageInfoExtra.visible}}">
+              <text class="detail-subtitle" wx:if="{{mission.stageInfoExtra.bothReusable}}">一二级均可回收</text>
+              <block wx:if="{{mission.stageInfoExtra.firstStage}}">
+                <text class="detail-subtitle">一级助推器</text>
+                <view class="detail-row" wx:if="{{mission.stageInfoExtra.firstStage.name}}"><text class="detail-label">型号</text><text class="detail-value">{{mission.stageInfoExtra.firstStage.name}}</text></view>
+                <view class="detail-row" wx:if="{{mission.stageInfoExtra.firstStage.serialNumber}}"><text class="detail-label">序列号</text><text class="detail-value">{{mission.stageInfoExtra.firstStage.serialNumber}}</text></view>
+                <view class="detail-row"><text class="detail-label">可回收</text><text class="detail-value">{{mission.stageInfoExtra.firstStage.reusable ? '是' : '否'}}</text></view>
+                <view class="detail-row" wx:if="{{mission.stageInfoExtra.firstStage.landingType || mission.stageInfoExtra.firstStage.landingLocation}}"><text class="detail-label">回收</text><text class="detail-value">{{mission.stageInfoExtra.firstStage.landingType === 'RTLS' ? '陆地' : (mission.stageInfoExtra.firstStage.landingType === 'ASDS' ? '海上' : (mission.stageInfoExtra.firstStage.landingType === 'TOWER_CATCH' ? '塔架捕获' : (mission.stageInfoExtra.firstStage.landingType === 'SPLASHDOWN' ? '海面溅落' : (mission.stageInfoExtra.firstStage.landingType === 'RECOVERY' ? '海面回收' : (mission.stageInfoExtra.firstStage.landingType === 'EXPENDED' ? '一次性' : (mission.stageInfoExtra.firstStage.landingType === 'LOST' ? '未能回收' : ''))))))}}{{mission.stageInfoExtra.firstStage.landingLocation ? ' ' + mission.stageInfoExtra.firstStage.landingLocation : ''}}</text></view>
+              </block>
+              <block wx:if="{{mission.stageInfoExtra.secondStage}}">
+                <text class="detail-subtitle">二级 / 上面级</text>
+                <view class="detail-row" wx:if="{{mission.stageInfoExtra.secondStage.name}}"><text class="detail-label">型号</text><text class="detail-value">{{mission.stageInfoExtra.secondStage.name}}</text></view>
+                <view class="detail-row" wx:if="{{mission.stageInfoExtra.secondStage.serialNumber}}"><text class="detail-label">序列号</text><text class="detail-value">{{mission.stageInfoExtra.secondStage.serialNumber}}</text></view>
+                <view class="detail-row"><text class="detail-label">可回收</text><text class="detail-value">{{mission.stageInfoExtra.secondStage.reusable ? '是' : '否'}}</text></view>
+              </block>
+            </block>
+
+            <!-- 该助推器历史执行任务（仅可复用火箭；组件无数据时自会隐藏） -->
+            <rocket-history
+              wx:if="{{mission.boosterInfo && mission.boosterInfo.serialNumber}}"
+              boosterSerial="{{mission.boosterInfo.serialNumber}}"
+              currentLaunchId="{{mission.id}}"
+              maxCollapsed="{{2}}"
+            />
+          </view>
+        </view>
+
+        <view class="detail-block" wx:if="{{mission.payloadDetails && mission.payloadDetails.length > 0}}">
+          <view class="detail-block-header" bindtap="toggleDetailBlock" data-key="payload">
+            <text class="detail-block-title">有效载荷</text>
+            <text class="translate-toggle translate-toggle--inline {{descTranslating ? 'translate-toggle--busy' : ''}}" catchtap="onToggleDescTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
+            <text class="icon-arrow icon-arrow--detail-block">{{detailBlocks.payload ? '︿' : '﹀'}}</text>
+          </view>
+          <view class="detail-block-body" wx:if="{{detailBlocks.payload}}">
+            <view class="payload-item" wx:for="{{mission.payloadDetails}}" wx:key="_wxkey">
+              <view class="detail-row" wx:if="{{item.name}}"><text class="detail-label">名称</text><text class="detail-value">{{item.name}}</text></view>
+              <view class="detail-row" wx:if="{{item.type}}"><text class="detail-label">类型</text><text class="detail-tag">{{item.type}}</text></view>
+              <view class="detail-row" wx:if="{{item.manufacturer}}"><text class="detail-label">制造商</text><text class="detail-value">{{item.manufacturer}}</text></view>
+              <view class="detail-row" wx:if="{{item.operator}}"><text class="detail-label">运营商</text><text class="detail-value">{{item.operator}}</text></view>
+              <view class="detail-row" wx:if="{{item.description}}"><text class="detail-label">描述</text><view class="detail-value-block"><text class="detail-text" user-select="{{true}}">{{descI18n.payloads[index] || item.description}}</text></view></view>
+              <view class="detail-row" wx:if="{{item.mass != null && item.mass !== ''}}"><text class="detail-label">质量</text><text class="detail-value">{{item.mass}} kg</text></view>
+              <view class="detail-row" wx:if="{{item.cost != null && item.cost !== ''}}"><text class="detail-label">成本</text><text class="detail-value">{{item.cost}}</text></view>
+              <image class="payload-image" wx:if="{{item.imageUrl}}" src="{{item.imageUrl}}" mode="widthFix"></image>
+              <view class="detail-row" wx:if="{{item.wiki_link || item.info_link}}"><text class="detail-label">链接</text><view class="detail-value"><text class="detail-link" wx:if="{{item.wiki_link}}" catchtap="copyLink" data-url="{{item.wiki_link}}">维基</text><text class="detail-link" wx:if="{{item.wiki_link && item.info_link}}"> · </text><text class="detail-link" wx:if="{{item.info_link}}" catchtap="copyLink" data-url="{{item.info_link}}">详情</text></view></view>
+            </view>
+          </view>
+        </view>
+
+        <view class="detail-block" wx:if="{{mission.padDetail && (mission.padDetail.padName || mission.padDetail.locationName)}}">
+          <view class="detail-block-header" bindtap="toggleDetailBlock" data-key="pad">
+            <text class="detail-block-title">发射场地详情</text>
+            <text class="icon-arrow icon-arrow--detail-block">{{detailBlocks.pad ? '︿' : '﹀'}}</text>
+          </view>
+          <view class="detail-block-body" wx:if="{{detailBlocks.pad}}">
+            <view class="detail-row" wx:if="{{mission.padDetail.padName}}"><text class="detail-label">发射台</text><text class="detail-value">{{mission.padDetail.padName}}</text></view>
+            <view class="detail-row" wx:if="{{mission.padDetail.locationName}}"><text class="detail-label">发射场</text><text class="detail-value">{{mission.padDetail.locationName}}</text></view>
+            <view class="detail-row" wx:if="{{mission.padDetail.country}}"><text class="detail-label">国家/地区</text><text class="detail-value">{{mission.padDetail.country}}</text></view>
+            <view class="detail-row" wx:if="{{mission.padDetail.latitude != null && mission.padDetail.longitude != null}}"><text class="detail-label">经纬度</text><text class="detail-value">{{mission.padDetail.latitude}}, {{mission.padDetail.longitude}}</text></view>
+            <view class="detail-row"><text class="detail-label">发射场类型</text><text class="detail-value">{{mission.padDetail.padType || '陆上'}}</text></view>
+            <view class="detail-row" wx:if="{{mission.padDetail.timezoneName}}"><text class="detail-label">当地时区</text><text class="detail-value">{{mission.padDetail.timezoneName}}</text></view>
+            <view class="detail-row" wx:if="{{mission.padDetail.totalLaunchCount != null}}"><text class="detail-label">历史发射次数</text><text class="detail-value">{{mission.padDetail.totalLaunchCount}} 次</text></view>
+            <view class="detail-row" wx:if="{{mission.padDetail.turnaroundText}}"><text class="detail-label">发射台周转</text><text class="detail-value">{{mission.padDetail.turnaroundText}}</text></view>
+            <view class="detail-row" wx:if="{{mission.padDetail.wikiUrl || mission.padDetail.mapUrl}}">
+              <text class="detail-label">链接</text>
+              <view class="detail-value">
+                <text class="detail-link" wx:if="{{mission.padDetail.wikiUrl}}" catchtap="copyLink" data-url="{{mission.padDetail.wikiUrl}}">维基</text>
+                <text class="detail-link" wx:if="{{mission.padDetail.wikiUrl && mission.padDetail.mapUrl}}"> · </text>
+                <text class="detail-link" wx:if="{{mission.padDetail.mapUrl}}" catchtap="copyLink" data-url="{{mission.padDetail.mapUrl}}">地图</text>
+              </view>
+            </view>
+            <block wx:if="{{mission.padDetail.padDescription}}">
+              <view class="detail-subtitle-row">
+                <text class="detail-subtitle">发射台简介</text>
+                <text class="translate-toggle {{descTranslating ? 'translate-toggle--busy' : ''}}" catchtap="onToggleDescTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
+              </view>
+              <view wx:if="{{!detailExpanded.padDesc && mission.padDetail.padDescription.length > 120}}" class="section-text section-text--compact detail-text-clamp" bindtap="toggleDetailExpand" data-key="padDesc">{{descI18n.padDesc || mission.padDetail.padDescription}}</view>
+              <text wx:else class="section-text section-text--compact" user-select="{{true}}">{{descI18n.padDesc || mission.padDetail.padDescription}}</text>
+              <text class="expand-toggle" wx:if="{{mission.padDetail.padDescription.length > 120}}" bindtap="toggleDetailExpand" data-key="padDesc">{{detailExpanded.padDesc ? '收起' : '展开全文'}}</text>
+            </block>
+            <block wx:if="{{mission.padDetail.locationDescription}}">
+              <text class="detail-subtitle">发射场简介</text>
+              <view wx:if="{{!detailExpanded.locDesc && mission.padDetail.locationDescription.length > 120}}" class="section-text section-text--compact detail-text-clamp" bindtap="toggleDetailExpand" data-key="locDesc">{{descI18n.locDesc || mission.padDetail.locationDescription}}</view>
+              <text wx:else class="section-text section-text--compact" user-select="{{true}}">{{descI18n.locDesc || mission.padDetail.locationDescription}}</text>
+              <text class="expand-toggle" wx:if="{{mission.padDetail.locationDescription.length > 120}}" bindtap="toggleDetailExpand" data-key="locDesc">{{detailExpanded.locDesc ? '收起' : '展开全文'}}</text>
+            </block>
+          </view>
+        </view>
+
+        <!-- 相关链接（LL2 info_urls / vid_urls / flightclub_url，点击复制） -->
+        <view class="detail-block" wx:if="{{mission.relatedLinks && mission.relatedLinks.length > 0}}">
+          <view class="detail-block-header" bindtap="toggleDetailBlock" data-key="links">
+            <text class="detail-block-title">相关链接</text>
+            <text class="detail-block-hint">点击复制</text>
+            <text class="icon-arrow icon-arrow--detail-block">{{detailBlocks.links ? '︿' : '﹀'}}</text>
+          </view>
+          <view class="detail-block-body" wx:if="{{detailBlocks.links}}">
+            <view class="detail-related-link" wx:for="{{mission.relatedLinks}}" wx:key="_wxkey" catchtap="copyLink" data-url="{{item.url}}" hover-class="detail-related-link--tap">
+              <text class="detail-related-link-tag" wx:if="{{item.tag}}">{{item.tag}}</text>
+              <text class="detail-related-link-title">{{item.title}}</text>
+              <text class="detail-related-link-copy">复制</text>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 飞行时间线（LL2） -->
+      <view wx:if="{{mission}}" class="detail-ll2-section">
+        <view class="detail-section-title-row detail-ll2-timeline-head">
+          <text class="detail-section-title">飞行时间线</text>
+          <text class="translate-toggle {{tlTranslating ? 'translate-toggle--busy' : ''}}" wx:if="{{ll2FlightTimelineRows.length}}" catchtap="onToggleTimelineTranslate">{{tlTranslating ? '翻译中…' : (tlTranslated ? '原文' : '翻译')}}</text>
+        </view>
+        <view class="detail-ll2-intro glass-card" wx:if="{{ll2FlightTimelineNet}}">
+          <text class="detail-ll2-intro-net">T-0（net）：{{ll2FlightTimelineNet}}</text>
+        </view>
+
+        <view class="detail-ll2-card glass-card" wx:if="{{ll2FlightTimelineLoading && !ll2FlightTimelineRows.length}}">
+          <text class="detail-ll2-muted">正在拉取时间线…</text>
+        </view>
+        <view class="detail-ll2-card glass-card detail-ll2-card--error" wx:elif="{{ll2FlightTimelineError}}">
+          <text class="detail-ll2-error">{{ll2FlightTimelineError}}</text>
+        </view>
+        <view class="detail-ll2-card glass-card detail-ll2-card--body" wx:elif="{{ll2FlightTimelineRows.length}}">
+          <view class="detail-ll2-item" wx:for="{{ll2FlightTimelineRows}}" wx:key="id">
+            <view class="detail-ll2-axis">
+              <view class="detail-ll2-line detail-ll2-line--up" wx:if="{{index !== 0}}"></view>
+              <view class="detail-ll2-node">
+                <view class="detail-ll2-node-mark detail-ll2-node-mark--{{item.iconVariant}}"></view>
+              </view>
+              <view class="detail-ll2-line detail-ll2-line--down" wx:if="{{index !== ll2FlightTimelineRows.length - 1}}"></view>
+            </view>
+            <view class="detail-ll2-main">
+              <text class="{{item.titleClass}}" user-select="{{true}}">{{tlI18n.titles[index] || item.title}}</text>
+              <text class="detail-ll2-desc" wx:if="{{item.description}}" user-select="{{true}}">{{tlI18n.descs[index] || item.description}}</text>
+            </view>
+            <text class="detail-ll2-clock">{{item.timeLabel}}</text>
+          </view>
+        </view>
+        <view class="detail-ll2-card glass-card detail-ll2-card--pad" wx:elif="{{ll2FlightTimelineEmpty}}">
+          <text class="detail-ll2-muted">暂无飞行时间线</text>
+        </view>
+      </view>
+
+      <view style="height: {{tabBarReservedHeight}}px;"></view>
+    </view>
+  </scroll-view>
+
+  <!-- B站直播二维码弹窗（与监控中心同款） -->
+  <view wx:if="{{showBiliQRModal}}" class="qrcode-modal" bindtap="hideBiliQRCode">
+    <view class="qrcode-modal-content" catchtap="">
+      <view class="qrcode-header">
+        <text class="qrcode-title">{{biliLive.title || 'B站直播'}}</text>
+        <view class="qrcode-close" bindtap="hideBiliQRCode">
+          <text class="icon-close icon-close--qrcode">×</text>
+        </view>
+      </view>
+      <view class="qrcode-body">
+        <image class="qrcode-image" src="{{biliLive.qrUrl}}" mode="aspectFit" show-menu-by-longpress="{{true}}" bindtap="onBiliQRImageTap"></image>
+        <text class="qrcode-tip">点击图片可预览，或复制链接在浏览器打开</text>
+        <view class="qrcode-copy-btn" bindtap="onCopyBiliLiveLink">
+          <text>复制直播链接</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 自己未开播：推荐第三方视频号主页二维码 -->
+  <view wx:if="{{showChannelsGuideModal}}" class="qrcode-modal" bindtap="hideChannelsGuideModal">
+    <view class="qrcode-modal-content" catchtap="">
+      <view class="qrcode-header">
+        <text class="qrcode-title">{{channelsFallbackGuide.title || '推荐观看'}}</text>
+        <view class="qrcode-close" bindtap="hideChannelsGuideModal">
+          <text class="icon-close icon-close--qrcode">×</text>
+        </view>
+      </view>
+      <view class="qrcode-body">
+        <text class="qrcode-tip qrcode-tip--name">{{channelsFallbackGuide.nickname}}</text>
+        <image class="qrcode-image" src="{{channelsFallbackGuide.qrDisplayUrl || channelsFallbackGuide.qrUrl}}" mode="aspectFit" show-menu-by-longpress="{{true}}" bindtap="onChannelsGuideQRImageTap"></image>
+        <text class="qrcode-tip">{{channelsFallbackGuide.tip || '扫码前往视频号主页，可预约或观看直播'}}</text>
+        <view class="qrcode-copy-btn" bindtap="onCopyChannelsGuideNickname">
+          <text>复制公众号名称</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <share-guide />
+  <privacy-modal id="globalPrivacyModal"></privacy-modal>
+</view>

@@ -1,0 +1,1 @@
+{"version":3,"file":"","sourceRoot":"","sources":["pages/about/about.js"],"names":["Page"],"mappings":";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;aACAA,KAAK","sourcesContent":["// pages/about/about.js\r\nPage({})\r\n"],"wx":{"version":1,"userVersion":"3.5.0","userNotes":"性能优化。","packageVersion":"6a70f11acbbad646b900a12291446e1a"}}

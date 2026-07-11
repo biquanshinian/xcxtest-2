@@ -1,0 +1,138 @@
+<view class="detail-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+    <page-progress active="{{loading}}" />
+  </view>
+
+  <scroll-view class="detail-scroll" scroll-y="true">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+    <view class="detail-container">
+      <!-- 加载中：内容区留白，进度由导航栏下方的 page-progress 绿色进度条呈现 -->
+      <block wx:if="{{loading}}"></block>
+
+      <view class="error-state glass-card" wx:elif="{{errorMessage}}">
+        <text class="error-title">加载失败</text>
+        <text class="error-text">{{errorMessage}}</text>
+        <button class="retry-btn" bindtap="retryLoad">重新加载</button>
+      </view>
+
+      <view wx:elif="{{item}}" class="detail-card glass-card">
+        <view wx:if="{{detailType === 'article' && item.heroImageUrl}}" class="hero-image-wrap">
+          <image class="hero-image" src="{{item.heroImageUrl}}" mode="widthFix" binderror="onHeroImageError" bindtap="onHeroPreview"></image>
+        </view>
+        <view wx:elif="{{detailType === 'event' && item.image}}" class="hero-image-wrap">
+          <image class="hero-image" src="{{item.image}}" mode="widthFix" binderror="onHeroImageError" bindtap="onHeroPreview"></image>
+        </view>
+
+        <!-- 贴图讨论区：头图下方；topic 取自标题，组件内已截断至 20 字 -->
+        <official-account-publish-panel topic="{{item.title || (detailType === 'article' ? '航天事件' : '即将发生')}}" />
+
+        <view class="meta-top">
+          <text class="type-badge" wx:if="{{detailType === 'event'}}">{{item.type}}</text>
+          <text class="type-badge article" wx:elif="{{detailType === 'article'}}">{{item.newsSite || '文章'}}</text>
+          <text class="date-text">{{detailType === 'article' ? item.formattedDate : item.formattedDate}}</text>
+        </view>
+
+        <view class="detail-title-row">
+          <text class="detail-title">{{descI18n.title || item.title}}</text>
+          <text class="translate-toggle {{descTranslating ? 'translate-toggle--busy' : ''}}" catchtap="onToggleDescTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
+        </view>
+
+        <view class="info-grid">
+          <view class="info-row" wx:if="{{detailType === 'event'}}">
+            <text class="info-label">事件类型</text>
+            <text class="info-value">{{item.type}}</text>
+          </view>
+          <view class="info-row">
+            <text class="info-label">发布时间</text>
+            <text class="info-value">{{detailType === 'article' ? item.formattedDate : item.formattedDate}}</text>
+          </view>
+          <view class="info-row" wx:if="{{detailType === 'article' && item.author}}">
+            <text class="info-label">作者</text>
+            <text class="info-value">{{item.author}}</text>
+          </view>
+          <view class="info-row" wx:if="{{detailType === 'event' && item.location}}">
+            <text class="info-label">地点</text>
+            <text class="info-value">{{item.location}}</text>
+          </view>
+          <view class="info-row" wx:if="{{detailType === 'event' && item.webcastLive}}">
+            <text class="info-label">状态</text>
+            <text class="info-value live">直播中</text>
+          </view>
+        </view>
+
+        <view class="section" wx:if="{{detailType === 'article' && item.summary}}">
+          <text class="section-title">内容摘要</text>
+          <text class="section-text" user-select="{{true}}">{{descI18n.summary || item.summary}}</text>
+        </view>
+
+        <view class="section" wx:if="{{detailType === 'article' && item.contentRich}}">
+          <text class="section-title">正文</text>
+          <rich-text class="article-rich-body" nodes="{{item.contentRichHtml}}" user-select="{{true}}"></rich-text>
+        </view>
+        <view class="section" wx:elif="{{detailType === 'article' && item.content}}">
+          <text class="section-title">正文</text>
+          <text class="section-text" user-select="{{true}}">{{descI18n.content || item.content}}</text>
+        </view>
+
+        <view class="section" wx:if="{{detailType === 'event' && item.description}}">
+          <text class="section-title">事件描述</text>
+          <text class="section-text" user-select="{{true}}">{{descI18n.eventDesc || item.description}}</text>
+        </view>
+
+        <view class="section" wx:if="{{detailType === 'event' && item.infoUrls && item.infoUrls.length}}">
+          <text class="section-title">相关信息</text>
+          <view class="link-list">
+            <view class="link-item" wx:for="{{item.infoUrls}}" wx:key="index" catchtap="copyUrl" data-url="{{item.url}}">
+              <view class="link-main">
+                <text class="link-title">{{item.title || '查看详情'}}</text>
+                <text class="link-sub" wx:if="{{item.source}}">{{item.source}}</text>
+              </view>
+              <text class="link-action">复制</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="section" wx:if="{{detailType === 'event' && item.videoUrls && item.videoUrls.length}}">
+          <text class="section-title">视频资源</text>
+          <view class="link-list">
+            <view class="link-item" wx:for="{{item.videoUrls}}" wx:key="index" catchtap="copyUrl" data-url="{{item.url}}">
+              <view class="link-main">
+                <text class="link-title">{{item.title || '观看视频'}}</text>
+                <text class="link-sub" wx:if="{{item.publisher}}">{{item.publisher}}</text>
+              </view>
+              <text class="link-action">复制</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="section" wx:if="{{detailType === 'article' && item.url}}">
+          <text class="section-title">原文链接</text>
+          <view class="link-item single" wx:if="{{item.isManualArticle}}" catchtap="openManualOriginalUrl" data-url="{{item.url}}">
+            <view class="link-main">
+              <text class="link-title">打开原文</text>
+              <text class="link-sub">在微信中查看来源文章</text>
+            </view>
+            <text class="link-action">打开</text>
+          </view>
+          <view class="link-item single" wx:else catchtap="copyUrl" data-url="{{item.url}}">
+            <view class="link-main">
+              <text class="link-title">复制原文链接</text>
+              <text class="link-sub">在浏览器中打开来源文章</text>
+            </view>
+            <text class="link-action">复制</text>
+          </view>
+        </view>
+      </view>
+      <view style="height: {{tabBarReservedHeight}}px;"></view>
+    </view>
+  </scroll-view>
+  <share-guide />
+  <privacy-modal id="globalPrivacyModal"></privacy-modal>
+</view>

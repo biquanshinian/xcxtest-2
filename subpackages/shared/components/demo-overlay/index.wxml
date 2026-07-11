@@ -1,0 +1,45 @@
+<!-- 直播演示模式覆盖层组件 -->
+<view class="demo-overlay" wx:if="{{visible}}">
+  <!-- 半透明遮罩（聚光灯效果） -->
+  <view class="demo-mask" wx:if="{{showMask}}" catchtap="onMaskTap">
+    <!-- 高亮区域用 CSS 镂空实现 -->
+    <view class="demo-spotlight" style="top:{{spotlightRect.top}}px;left:{{spotlightRect.left}}px;width:{{spotlightRect.width}}px;height:{{spotlightRect.height}}px;border-radius:{{spotlightRadius}}px;"></view>
+  </view>
+
+  <!-- 讲解气泡 -->
+  <view class="demo-bubble {{bubblePosition}}" wx:if="{{bubbleText}}" style="top:{{bubbleTop}}px;left:{{bubbleLeft}}px;">
+    <view class="demo-bubble-arrow"></view>
+    <view class="demo-bubble-content">
+      <text class="demo-bubble-text">{{bubbleText}}</text>
+    </view>
+  </view>
+
+  <!-- 手指点击动画 -->
+  <view class="demo-finger" wx:if="{{showFinger}}" style="top:{{fingerTop}}px;left:{{fingerLeft}}px;">
+    <view class="demo-finger-icon">👆</view>
+    <view class="demo-finger-ripple"></view>
+  </view>
+
+  <!-- 底部控制栏（仅管理员可见） -->
+  <view class="demo-controls" wx:if="{{showControls}}">
+    <view class="demo-ctrl-btn" catchtap="onPrev">
+      <text>◀ 上一步</text>
+    </view>
+    <view class="demo-ctrl-info">
+      <text class="demo-ctrl-title">{{scriptTitle}}</text>
+      <text class="demo-ctrl-step">步骤 {{currentStep + 1}}/{{totalSteps}}</text>
+    </view>
+    <view class="demo-ctrl-btn" catchtap="onNext">
+      <text>下一步 ▶</text>
+    </view>
+    <view class="demo-ctrl-btn demo-ctrl-stop" catchtap="onStop">
+      <text>结束</text>
+    </view>
+  </view>
+
+  <!-- 小程序码展示浮窗 -->
+  <view class="demo-qrcode" wx:if="{{showQrcode}}" catchtap="hideQrcode">
+    <image class="demo-qrcode-img" src="{{qrcodeUrl}}" mode="aspectFit"></image>
+    <text class="demo-qrcode-tip">长按识别小程序码</text>
+  </view>
+</view>

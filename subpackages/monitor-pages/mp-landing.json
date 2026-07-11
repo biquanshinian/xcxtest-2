@@ -1,0 +1,13 @@
+{
+  "navigationBarTitleText": "星舰监控中心",
+  "navigationStyle": "custom",
+  "enablePullDownRefresh": false,
+  "usingComponents": {
+    "custom-tab-bar": "/custom-tab-bar/index",
+    "privacy-modal": "/components/privacy-modal/privacy-modal",
+    "official-account-publish-panel": "/subpackages/shared/components/official-account-publish-panel/index"
+  },
+  "componentPlaceholder": {
+    "official-account-publish-panel": "view"
+  }
+}

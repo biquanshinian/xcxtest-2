@@ -1,0 +1,161 @@
+<view class="detail-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">封路通知</text>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+    <page-progress active="{{loading}}" />
+  </view>
+
+  <scroll-view class="detail-scroll" scroll-y="true">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+    <view class="detail-container">
+
+      <!-- 加载中：黑底页面留白会被误认为黑屏（尤其朋友圈单页），显示提示文案 -->
+      <view class="loading-state glass-card" wx:if="{{loading}}">
+        <text class="loading-text">正在获取封路通知...</text>
+      </view>
+
+      <view class="error-state glass-card" wx:elif="{{errorMessage}}">
+        <text class="error-title">加载失败</text>
+        <text class="error-text">{{errorMessage}}</text>
+        <button class="retry-btn" bindtap="retryLoad">重新加载</button>
+      </view>
+
+      <view class="empty-state glass-card" wx:elif="{{!item}}">
+        <view class="empty-icon"></view>
+        <text class="empty-text">官网当前无封路记录</text>
+        <text class="error-text">Boca Chica 道路/海滩正常通行</text>
+      </view>
+
+      <view wx:else>
+        <view class="meta-top">
+          <text class="source-tag" wx:if="{{item.sourceLabel}}">{{item.sourceLabel}}</text>
+          <text class="date-text" wx:if="{{item.updatedAtText}}">更新 {{item.updatedAtText}}</text>
+        </view>
+
+        <view class="hero-card glass-card">
+          <text class="hero-title" user-select="{{true}}">{{item.statusTitle}}</text>
+          <text class="hero-summary" wx:if="{{item.message}}" user-select="{{true}}">{{item.message}}</text>
+          <view class="status-pills">
+            <view class="pill {{item.beachOpen === false ? 'pill--alert' : item.beachOpen === true ? 'pill--ok' : 'pill--muted'}}" wx:if="{{item.beachOpen !== null && item.beachOpen !== undefined}}">
+              <text class="pill-label">海滩</text>
+              <text class="pill-value">{{item.beachOpen === false ? '封闭' : '开放'}}</text>
+            </view>
+            <view class="pill {{item.roadOpen === false ? 'pill--warn' : item.roadOpen === true ? 'pill--ok' : 'pill--muted'}}" wx:if="{{item.roadOpen !== null && item.roadOpen !== undefined}}">
+              <text class="pill-label">道路</text>
+              <text class="pill-value">{{item.roadOpen === false ? '管制' : '正常'}}</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="section-card glass-card" wx:if="{{item.showBanner}}">
+          <view class="section-head">
+            <view class="section-icon section-icon--notify"></view>
+            <text class="section-title">滚动通知</text>
+          </view>
+          <view class="banner-list">
+            <view class="banner-item" wx:for="{{item.bannerAlerts}}" wx:key="index">
+              <text class="banner-text" user-select="{{true}}">{{item}}</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="section-card glass-card" wx:if="{{item.showBeachSection}}">
+          <view class="section-head">
+            <view class="section-icon section-icon--beach"></view>
+            <view class="section-head-text">
+              <text class="section-title">博卡奇卡海滩封闭</text>
+              <text class="section-sub" wx:if="{{item.beachStatusText}}">{{item.beachStatusText}}</text>
+            </view>
+          </view>
+          <view class="slot-list" wx:if="{{item.beachSlots.length > 0}}">
+            <view class="slot-item slot-item--{{slot.kind}}" wx:for="{{item.beachSlots}}" wx:for-item="slot" wx:key="index">
+              <text class="slot-tag">{{slot.kindLabel}}</text>
+              <text class="slot-time" user-select="{{true}}">{{slot.timeText}}</text>
+            </view>
+          </view>
+          <text class="section-empty" wx:else>官网未列出具体封闭时段，请关注后续更新。</text>
+        </view>
+
+        <view class="section-card glass-card" wx:if="{{item.showRoadSection}}">
+          <view class="section-head">
+            <view class="section-icon section-icon--road"></view>
+            <view class="section-head-text">
+              <text class="section-title">道路封闭 / 延迟</text>
+              <text class="section-sub" wx:if="{{item.roadStatusText}}">{{item.roadStatusText}}</text>
+            </view>
+          </view>
+          <view class="road-list" wx:if="{{item.roadItems.length > 0}}">
+            <view class="road-item" wx:for="{{item.roadItems}}" wx:for-item="road" wx:key="index">
+              <text class="road-desc" user-select="{{true}}">{{road.description}}</text>
+              <text class="road-date" wx:if="{{road.date}}" user-select="{{true}}">{{road.date}}</text>
+            </view>
+          </view>
+          <view class="delay-list" wx:elif="{{item.bannerAlerts.length > 0}}">
+            <view class="delay-item" wx:for="{{item.bannerAlerts}}" wx:key="index">
+              <text class="delay-text" user-select="{{true}}">{{item}}</text>
+            </view>
+          </view>
+          <text class="section-empty" wx:else>当前官网显示无道路延迟记录。</text>
+        </view>
+
+        <view class="section-card glass-card" wx:if="{{item.showPublicNotice}}">
+          <view class="section-head">
+            <view class="section-icon section-icon--doc"></view>
+            <text class="section-title">市长令 / 公告摘要</text>
+          </view>
+          <view class="order-block" wx:for="{{item.publicOrders}}" wx:for-item="order" wx:key="orderNo">
+            <text class="order-no" user-select="{{true}}">{{order.orderNo}}</text>
+            <view class="order-body" wx:if="{{order.bodyTextZh}}">
+              <text class="order-body-text {{order.bodyLong && !order.bodyExpanded ? 'order-body-text--clamped' : ''}}" user-select="{{true}}">{{order.bodyTextZh}}</text>
+              <text class="order-body-toggle" wx:if="{{order.bodyLong}}" bindtap="toggleOrderBody" data-index="{{index}}">{{order.bodyExpanded ? '收起' : '展开全文'}}</text>
+            </view>
+            <view class="order-row" wx:if="{{order.primaryPeriod}}">
+              <text class="order-label">主要封闭期</text>
+              <text class="order-value" user-select="{{true}}">{{order.primaryPeriod}}</text>
+            </view>
+            <view class="order-row" wx:if="{{order.alternateDates}}">
+              <text class="order-label">备选日期</text>
+              <text class="order-value" user-select="{{true}}">{{order.alternateDates}}</text>
+            </view>
+            <view class="order-row" wx:if="{{order.revocation}}">
+              <text class="order-label">解除封闭</text>
+              <text class="order-value" user-select="{{true}}">{{order.revocation}}</text>
+            </view>
+          </view>
+        </view>
+
+        <!-- 朋友圈单页模式下原生 map 渲染异常会导致整页黑屏，直接隐藏 -->
+        <view class="map-section glass-card" wx:if="{{!isMomentsPreview}}">
+          <view class="map-section-head">
+            <text class="map-section-title">管制区域示意</text>
+            <text class="map-section-sub">Boca Chica · SH-4</text>
+          </view>
+          <map
+            class="inline-map"
+            latitude="{{mapLatitude}}"
+            longitude="{{mapLongitude}}"
+            scale="{{mapScale}}"
+            markers="{{mapMarkers}}"
+            polyline="{{mapPolylines}}"
+            polygons="{{mapPolygons}}"
+            enable-scroll="{{true}}"
+            enable-zoom="{{true}}"
+            bindtap="openFullMap"
+          ></map>
+          <view class="map-hint" bindtap="openFullMap">
+            <text>点击查看全屏地图</text>
+            <text class="map-hint-arrow">›</text>
+          </view>
+        </view>
+      </view>
+
+      <view style="height: {{tabBarReservedHeight}}px;"></view>
+    </view>
+  </scroll-view>
+  <share-guide />
+</view>

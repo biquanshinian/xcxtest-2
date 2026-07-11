@@ -1,0 +1,15 @@
+{
+  "navigationBarTitleText": "NASA 数据中心",
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "light",
+  "backgroundColor": "#000000",
+  "navigationStyle": "custom",
+  "usingComponents": {
+    "share-guide": "/subpackages/shared/components/share-guide/index",
+    "official-account-publish-panel": "/subpackages/shared/components/official-account-publish-panel/index"
+  },
+  "componentPlaceholder": {
+    "share-guide": "view",
+    "official-account-publish-panel": "view"
+  }
+}

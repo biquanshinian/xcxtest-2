@@ -1,0 +1,21 @@
+.lazy-load-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48rpx 32rpx;
+  text-align: center;
+}
+.lazy-load-icon {
+  font-size: 56rpx;
+  margin-bottom: 16rpx;
+}
+.lazy-load-text {
+  font-size: 28rpx;
+  color: var(--color-text-primary);
+  margin-bottom: 8rpx;
+}
+.lazy-load-hint {
+  font-size: 24rpx;
+  color: var(--color-text-tertiary);
+}

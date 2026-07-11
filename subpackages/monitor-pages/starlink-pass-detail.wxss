@@ -1,0 +1,485 @@
+page {
+  background: #000;
+  color: #fff;
+}
+
+.pass-detail-page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #000 0%, #0a0a12 55%, #000 100%);
+}
+
+.pass-detail-scroll {
+  height: 100vh;
+}
+
+.pass-detail-body {
+  padding: 16rpx 28rpx 0;
+  padding-top: 20rpx;
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 24rpx;
+}
+
+/* 概览 Hero */
+.pass-hero {
+  padding: 28rpx 28rpx 26rpx;
+  margin-bottom: 20rpx;
+  background: linear-gradient(135deg, rgba(0, 122, 255, 0.12) 0%, rgba(88, 86, 214, 0.08) 100%);
+  border-color: rgba(0, 122, 255, 0.18);
+}
+
+.pass-hero-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 14rpx;
+}
+
+.pass-hero-badge {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.pass-hero-badge-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: #007AFF;
+  box-shadow: 0 0 12rpx rgba(0, 122, 255, 0.8);
+}
+
+.pass-hero-badge-text {
+  font-size: 22rpx;
+  color: #64D2FF;
+  font-weight: 600;
+}
+
+.pass-hero-count {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #fff;
+}
+
+.pass-hero-loc {
+  display: block;
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.55);
+  margin-bottom: 12rpx;
+}
+
+.pass-hero-hint {
+  display: block;
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.42);
+  line-height: 1.55;
+}
+
+/* 最近一场 */
+.pass-next {
+  padding: 24rpx 28rpx;
+  margin-bottom: 20rpx;
+}
+
+.pass-next-label {
+  display: block;
+  font-size: 22rpx;
+  color: #34C759;
+  font-weight: 600;
+  margin-bottom: 10rpx;
+}
+
+.pass-next-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 20rpx;
+}
+
+.pass-next-time {
+  font-size: 56rpx;
+  font-weight: 700;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.pass-next-bright,
+.pass-timeline-bright {
+  font-size: 22rpx;
+  padding: 6rpx 16rpx;
+  border-radius: 999rpx;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.pass-bright--bright {
+  color: #FFD60A;
+  background: rgba(255, 214, 10, 0.14);
+  border: 1px solid rgba(255, 214, 10, 0.28);
+}
+
+.pass-bright--medium {
+  color: #FF9F0A;
+  background: rgba(255, 159, 10, 0.14);
+  border: 1px solid rgba(255, 159, 10, 0.28);
+}
+
+.pass-bright--dim {
+  color: #AEAEB2;
+  background: rgba(142, 142, 147, 0.12);
+  border: 1px solid rgba(142, 142, 147, 0.22);
+}
+
+.pass-next-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16rpx 20rpx;
+}
+
+.pass-metric-val {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  margin-bottom: 4rpx;
+}
+
+.pass-metric-key {
+  display: block;
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.38);
+}
+
+/* 操作按钮 */
+.pass-actions-row {
+  display: flex;
+  gap: 16rpx;
+  margin-bottom: 24rpx;
+}
+
+.pass-action-btn {
+  flex: 1;
+  height: 72rpx;
+  border-radius: 999rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #007AFF 0%, #5856D6 100%);
+  border: none;
+  box-shadow: 0 4rpx 16rpx rgba(0, 122, 255, 0.25);
+}
+
+.pass-action-btn text {
+  font-size: 26rpx;
+  color: #fff;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.pass-action-btn--pro {
+  background: linear-gradient(135deg, #FFD60A 0%, #FF9F0A 100%);
+  box-shadow: 0 4rpx 16rpx rgba(255, 214, 10, 0.2);
+}
+
+.pass-action-btn--pro text {
+  color: #1a1a1a;
+}
+
+/* 时间线 */
+.pass-timeline-section {
+  margin-bottom: 20rpx;
+}
+
+.pass-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 16rpx;
+  padding: 0 4rpx;
+}
+
+.pass-section-title {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #fff;
+}
+
+.pass-section-sub {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.pass-timeline-item {
+  display: flex;
+  gap: 16rpx;
+  margin-bottom: 4rpx;
+}
+
+.pass-timeline-axis {
+  width: 28rpx;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.pass-timeline-line {
+  width: 2rpx;
+  flex: 1;
+  min-height: 12rpx;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.pass-timeline-line--up {
+  flex: 0 0 16rpx;
+}
+
+.pass-timeline-node {
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  border: 2rpx solid rgba(255, 255, 255, 0.15);
+  flex-shrink: 0;
+}
+
+.pass-timeline-node--next {
+  background: #007AFF;
+  border-color: rgba(0, 122, 255, 0.5);
+  box-shadow: 0 0 12rpx rgba(0, 122, 255, 0.55);
+}
+
+.pass-timeline-card {
+  flex: 1;
+  min-width: 0;
+  padding: 20rpx 22rpx;
+  margin-bottom: 14rpx;
+}
+
+.pass-timeline-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  margin-bottom: 14rpx;
+}
+
+.pass-timeline-time {
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+.pass-timeline-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx 24rpx;
+}
+
+.pass-timeline-cell-label {
+  display: block;
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.38);
+  margin-bottom: 2rpx;
+}
+
+.pass-timeline-cell-val {
+  display: block;
+  font-size: 26rpx;
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 500;
+}
+
+.pass-train-pill {
+  margin-top: 12rpx;
+  display: inline-flex;
+  padding: 4rpx 14rpx;
+  border-radius: 999rpx;
+  background: rgba(52, 199, 89, 0.12);
+  border: 1px solid rgba(52, 199, 89, 0.25);
+}
+
+.pass-train-pill text {
+  font-size: 22rpx;
+  color: #34C759;
+}
+
+/* 空态 / 贴士 */
+.pass-empty-block {
+  padding: 36rpx 28rpx;
+  margin-bottom: 20rpx;
+  text-align: center;
+}
+
+.pass-empty-title {
+  display: block;
+  font-size: 28rpx;
+  color: rgba(255, 255, 255, 0.75);
+  margin-bottom: 10rpx;
+}
+
+.pass-empty-desc {
+  display: block;
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.4);
+  line-height: 1.55;
+}
+
+.pass-tips {
+  padding: 24rpx 28rpx;
+  margin-bottom: 20rpx;
+}
+
+.pass-tips-title {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.88);
+  margin-bottom: 16rpx;
+}
+
+.pass-tip-row {
+  display: flex;
+  gap: 14rpx;
+  margin-bottom: 12rpx;
+}
+
+.pass-tip-row:last-child {
+  margin-bottom: 0;
+}
+
+.pass-tip-dot {
+  width: 36rpx;
+  height: 36rpx;
+  border-radius: 50%;
+  background: rgba(0, 122, 255, 0.15);
+  color: #64D2FF;
+  font-size: 22rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.pass-tip-text {
+  flex: 1;
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.55);
+  line-height: 1.55;
+}
+
+.discussion-section {
+  padding: 20rpx 24rpx;
+}
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+.pass-detail-page.theme-light {
+  background: var(--color-bg-page);
+}
+.theme-light .glass-card {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-card);
+}
+/* Hero：品牌蓝渐变衬底降透明度，保持品牌色 */
+.theme-light .pass-hero {
+  background: linear-gradient(135deg, rgba(0, 122, 255, 0.1) 0%, rgba(88, 86, 214, 0.06) 100%);
+  border-color: rgba(0, 122, 255, 0.18);
+}
+.theme-light .pass-hero-badge-text {
+  color: #0071A4;
+}
+.theme-light .pass-hero-count {
+  color: var(--color-text-primary);
+}
+.theme-light .pass-hero-loc {
+  color: var(--color-text-secondary);
+}
+.theme-light .pass-hero-hint {
+  color: var(--color-text-tertiary);
+}
+.theme-light .pass-next-time {
+  color: var(--color-text-primary);
+}
+/* 亮度徽标：状态色保持，较暗档换深色系文字 */
+.theme-light .pass-bright--bright {
+  color: #B8860B;
+  background: rgba(255, 214, 10, 0.15);
+  border: 1px solid rgba(255, 214, 10, 0.35);
+}
+.theme-light .pass-bright--medium {
+  color: #C77700;
+  background: rgba(255, 159, 10, 0.12);
+  border: 1px solid rgba(255, 159, 10, 0.3);
+}
+.theme-light .pass-bright--dim {
+  color: var(--color-text-secondary);
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+.theme-light .pass-metric-val {
+  color: var(--color-text-primary);
+}
+.theme-light .pass-metric-key {
+  color: var(--color-text-tertiary);
+}
+/* 操作按钮为实色渐变白字/深字，保持不变 */
+.theme-light .pass-section-title {
+  color: var(--color-text-primary);
+}
+.theme-light .pass-section-sub {
+  color: var(--color-text-tertiary);
+}
+/* 时间线连线与节点：白系线条 → 黑系浅线 */
+.theme-light .pass-timeline-line {
+  background: rgba(0, 0, 0, 0.15);
+}
+.theme-light .pass-timeline-node {
+  background: rgba(0, 0, 0, 0.2);
+  border: 2rpx solid rgba(0, 0, 0, 0.12);
+}
+.theme-light .pass-timeline-node--next {
+  background: #007AFF;
+  border-color: rgba(0, 122, 255, 0.5);
+  box-shadow: 0 0 12rpx rgba(0, 122, 255, 0.35);
+}
+.theme-light .pass-timeline-time {
+  color: var(--color-text-primary);
+}
+.theme-light .pass-timeline-cell-label {
+  color: var(--color-text-tertiary);
+}
+.theme-light .pass-timeline-cell-val {
+  color: var(--color-text-primary);
+}
+.theme-light .pass-train-pill {
+  background: rgba(52, 199, 89, 0.12);
+  border: 1px solid rgba(52, 199, 89, 0.3);
+}
+.theme-light .pass-train-pill text {
+  color: #248A3D;
+}
+.theme-light .pass-empty-title {
+  color: var(--color-text-primary);
+}
+.theme-light .pass-empty-desc {
+  color: var(--color-text-tertiary);
+}
+.theme-light .pass-tips-title {
+  color: var(--color-text-primary);
+}
+.theme-light .pass-tip-dot {
+  background: rgba(0, 122, 255, 0.12);
+  color: #0071A4;
+}
+.theme-light .pass-tip-text {
+  color: var(--color-text-secondary);
+}

@@ -1,0 +1,140 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top:{{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">系外行星</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view class="page-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <!-- 统计卡 -->
+    <view class="stats-bar">
+      <view class="stat-item">
+        <text class="stat-num">{{stats.total}}</text>
+        <text class="stat-label">精选行星</text>
+      </view>
+      <view class="stat-divider"></view>
+      <view class="stat-item">
+        <text class="stat-num">{{stats.habitable}}</text>
+        <text class="stat-label">可能宜居</text>
+      </view>
+      <view class="stat-divider"></view>
+      <view class="stat-item">
+        <text class="stat-num">{{stats.methods}}</text>
+        <text class="stat-label">发现方法</text>
+      </view>
+    </view>
+
+    <!-- 筛选 -->
+    <view class="section-header">
+      <text class="section-title">行星图鉴</text>
+    </view>
+
+    <scroll-view class="filter-scroll" scroll-x show-scrollbar="{{false}}">
+      <view class="filter-chips-row">
+        <view class="chip {{activeFilter === item.key ? 'chip--active' : ''}}"
+              wx:for="{{typeFilters}}" wx:key="key"
+              bind:tap="onFilterTap" data-key="{{item.key}}">
+          <text>{{item.label}}</text>
+        </view>
+        <view class="chip {{habitableOnly ? 'chip--habitable' : ''}}" bind:tap="onHabitableToggle">
+          <text>🌱 宜居</text>
+        </view>
+      </view>
+    </scroll-view>
+
+    <view class="planet-count">
+      <text>显示 {{filteredPlanets.length}} / {{stats.total}} 颗行星</text>
+    </view>
+
+    <!-- 行星卡片 -->
+    <view class="planet-card" wx:for="{{filteredPlanets}}" wx:key="name"
+          bind:tap="onCardTap" data-name="{{item.name}}">
+      <view class="planet-card-header">
+        <view class="planet-icon-wrap" style="background:{{item.color}}18;border-color:{{item.color}}40;">
+          <text class="planet-icon-text">{{item.icon}}</text>
+        </view>
+        <view class="planet-name-wrap">
+          <text class="planet-name">{{item.nameCN}}</text>
+          <text class="planet-name-en">{{item.name}}</text>
+        </view>
+        <view class="planet-type-badge" style="background:{{item.color}}20;">
+          <text style="color:{{item.color}}">{{item.typeCN}}</text>
+        </view>
+      </view>
+
+      <text class="planet-desc">{{item.desc}}</text>
+
+      <view class="planet-quick-stats">
+        <view class="planet-stat">
+          <text class="planet-stat-label">距离</text>
+          <text class="planet-stat-value">{{item.distance}} {{item.distanceUnit}}</text>
+        </view>
+        <view class="planet-stat">
+          <text class="planet-stat-label">半径</text>
+          <text class="planet-stat-value">{{item.radius}} 地球</text>
+        </view>
+        <view class="planet-stat">
+          <text class="planet-stat-label">公转</text>
+          <text class="planet-stat-value">{{item.period}} {{item.periodUnit}}</text>
+        </view>
+      </view>
+
+      <!-- 展开详情 -->
+      <view class="planet-detail" wx:if="{{expandedName === item.name}}">
+        <view class="planet-detail-row"><text class="pd-label">宿主恒星</text><text class="pd-value">{{item.star}}</text></view>
+        <view class="planet-detail-row"><text class="pd-label">质量</text><text class="pd-value">{{item.mass}} 地球质量</text></view>
+        <view class="planet-detail-row"><text class="pd-label">表面温度</text><text class="pd-value">{{item.temp}}°C</text></view>
+        <view class="planet-detail-row"><text class="pd-label">发现年份</text><text class="pd-value">{{item.discovered}}</text></view>
+        <view class="planet-detail-row"><text class="pd-label">发现方法</text><text class="pd-value">{{item.method}}</text></view>
+        <view class="planet-detail-row">
+          <text class="pd-label">宜居性</text>
+          <text class="pd-value {{item.habitable ? 'pd-value--habitable' : ''}}">{{item.habitable ? '可能宜居 🌱' : '不宜居'}}</text>
+        </view>
+        <!-- 大小对比条 -->
+        <view class="size-compare">
+          <text class="size-compare-label">大小对比 (地球 = 1.0)</text>
+          <view class="size-bar-track">
+            <view class="size-bar-fill" style="width:{{item.radius > 3 ? 100 : item.radius * 33.3}}%;background:{{item.color}};"></view>
+          </view>
+          <view class="size-compare-icons">
+            <text class="size-earth-icon">🌍 ×1.0</text>
+            <text class="size-planet-icon">{{item.icon}} ×{{item.radius}}</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="planet-expand-hint">
+        <text>{{expandedName === item.name ? '收起' : '展开详情'}}</text>
+      </view>
+    </view>
+
+    <!-- 发现方法 -->
+    <view class="section-header">
+      <text class="section-title">发现方法</text>
+    </view>
+
+    <view class="method-card" wx:for="{{discoveryMethods}}" wx:key="method">
+      <text class="method-icon">{{item.icon}}</text>
+      <view class="method-body">
+        <view class="method-header-row">
+          <text class="method-name">{{item.method}}</text>
+          <text class="method-count" wx:if="{{item.count}}">本图鉴 {{item.count}} 颗</text>
+        </view>
+        <text class="method-desc">{{item.desc}}</text>
+      </view>
+    </view>
+
+    <view class="page-footer">
+      <text class="footer-text">Worlds Beyond · 超越世界</text>
+    </view>
+
+  </scroll-view>
+  <share-guide />
+</view>

@@ -1,0 +1,353 @@
+/* orders.wxss — 订单记录（暗色玻璃风格，与星际通行证页一致） */
+.container {
+  background: #000000;
+}
+
+.content-scroll {
+  padding: 0 30rpx;
+}
+
+/* ── 加载骨架 ── */
+.od-skeleton {
+  padding-top: 24rpx;
+}
+
+/* 扫光走全局 skeleton-shimmer（app.wxss） */
+.od-skeleton-summary,
+.od-skeleton-card {
+  border-radius: 20rpx;
+}
+
+.od-skeleton-summary {
+  height: 140rpx;
+  margin-bottom: 24rpx;
+}
+
+.od-skeleton-card {
+  height: 220rpx;
+  margin-bottom: 20rpx;
+}
+
+/* ── 错误 / 空态 ── */
+.od-error,
+.od-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 140rpx 40rpx 60rpx;
+  gap: 16rpx;
+}
+
+.od-error-icon,
+.od-empty-icon {
+  font-size: 72rpx;
+}
+
+.od-error-text,
+.od-empty-text {
+  font-size: 28rpx;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.od-empty-hint {
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.35);
+  text-align: center;
+}
+
+.od-retry-btn {
+  margin-top: 12rpx;
+  padding: 14rpx 52rpx;
+  border-radius: 999rpx;
+  font-size: 26rpx;
+  color: #FFAA00;
+  background: rgba(255, 170, 0, 0.1);
+  border: 1rpx solid rgba(255, 170, 0, 0.35);
+}
+
+.od-retry-btn:active {
+  opacity: 0.65;
+}
+
+/* ── 汇总条 ── */
+.od-summary {
+  margin-top: 24rpx;
+  display: flex;
+  padding: 28rpx 20rpx;
+  border-radius: 20rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1rpx solid rgba(255, 255, 255, 0.08);
+}
+
+.od-summary-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.od-summary-item + .od-summary-item {
+  border-left: 1rpx solid rgba(255, 255, 255, 0.08);
+}
+
+.od-summary-value {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+}
+
+.od-summary-value--paid {
+  color: #30d158;
+}
+
+.od-summary-label {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* ── 月份分组 ── */
+.od-group-title {
+  display: block;
+  margin: 32rpx 4rpx 16rpx;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* ── 订单卡片 ── */
+.od-card {
+  padding: 24rpx;
+  border-radius: 20rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1rpx solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 20rpx;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+
+/* 长按删除的按压反馈 */
+.od-card--pressed {
+  transform: scale(0.98);
+  opacity: 0.85;
+}
+
+.od-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.od-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 状态徽标：绿=已完成，琥珀=进行中，灰=已退款/取消，红=异常 */
+.od-status {
+  flex-shrink: 0;
+  font-size: 22rpx;
+  font-weight: 500;
+  padding: 4rpx 16rpx;
+  border-radius: 999rpx;
+}
+
+.od-status--paid {
+  color: #30d158;
+  background: rgba(48, 209, 88, 0.14);
+  border: 1rpx solid rgba(48, 209, 88, 0.3);
+}
+
+.od-status--pending,
+.od-status--refunding {
+  color: #ffce5d;
+  background: rgba(255, 184, 0, 0.12);
+  border: 1rpx solid rgba(255, 184, 0, 0.3);
+}
+
+.od-status--refunded {
+  color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1rpx solid rgba(255, 255, 255, 0.12);
+}
+
+.od-status--failed {
+  color: #ff6b5a;
+  background: rgba(255, 69, 58, 0.12);
+  border: 1rpx solid rgba(255, 69, 58, 0.3);
+}
+
+.od-card-mid {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-top: 18rpx;
+}
+
+/* 类型标签：金=订阅，蓝=功能解锁 */
+.od-type-tag {
+  font-size: 22rpx;
+  padding: 4rpx 16rpx;
+  border-radius: 8rpx;
+}
+
+.od-type-tag--subscription {
+  color: #FFAA00;
+  background: rgba(255, 170, 0, 0.12);
+  border: 1rpx solid rgba(255, 170, 0, 0.28);
+}
+
+.od-type-tag--product {
+  color: #5ac8fa;
+  background: rgba(90, 200, 250, 0.12);
+  border: 1rpx solid rgba(90, 200, 250, 0.28);
+}
+
+.od-amount-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4rpx;
+}
+
+.od-amount {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+}
+
+.od-refund-note {
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.od-card-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-top: 18rpx;
+  padding-top: 18rpx;
+  border-top: 1rpx solid rgba(255, 255, 255, 0.06);
+}
+
+.od-time {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.4);
+  font-variant-numeric: tabular-nums;
+}
+
+.od-no-row {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  min-width: 0;
+}
+
+.od-no-row:active {
+  opacity: 0.6;
+}
+
+.od-no {
+  max-width: 260rpx;
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.35);
+  font-family: monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.od-no-copy {
+  flex-shrink: 0;
+  font-size: 20rpx;
+  color: #FFAA00;
+  padding: 2rpx 12rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 170, 0, 0.1);
+  border: 1rpx solid rgba(255, 170, 0, 0.3);
+}
+
+/* ── 底部说明 ── */
+.od-footer-note {
+  margin-top: 12rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.od-footer-note text {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+.container.theme-light {
+  background: var(--color-bg);
+}
+/* 骨架屏：深灰闪光 → 浅灰闪光 */
+/* 骨架浅色底色由全局 .theme-light .skeleton-shimmer 提供 */
+.theme-light .od-error-text,
+.theme-light .od-empty-text {
+  color: var(--color-text-secondary);
+}
+.theme-light .od-empty-hint {
+  color: var(--color-text-tertiary);
+}
+.theme-light .od-summary {
+  background: var(--color-bg-card);
+  border-color: var(--color-divider);
+  box-shadow: var(--shadow-card);
+}
+.theme-light .od-summary-item + .od-summary-item {
+  border-left-color: var(--color-divider);
+}
+.theme-light .od-summary-value {
+  color: var(--color-text-primary);
+}
+.theme-light .od-summary-label {
+  color: var(--color-text-tertiary);
+}
+.theme-light .od-group-title {
+  color: var(--color-text-secondary);
+}
+.theme-light .od-card {
+  background: var(--color-bg-card);
+  border-color: var(--color-divider);
+  box-shadow: var(--shadow-card);
+}
+.theme-light .od-name {
+  color: var(--color-text-primary);
+}
+.theme-light .od-status--refunded {
+  color: var(--color-text-tertiary);
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+.theme-light .od-amount {
+  color: var(--color-text-primary);
+}
+.theme-light .od-refund-note {
+  color: var(--color-text-tertiary);
+}
+.theme-light .od-card-bottom {
+  border-top-color: var(--color-divider);
+}
+.theme-light .od-time {
+  color: var(--color-text-tertiary);
+}
+.theme-light .od-no {
+  color: var(--color-text-tertiary);
+}
+.theme-light .od-footer-note text {
+  color: var(--color-text-tertiary);
+}

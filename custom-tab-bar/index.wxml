@@ -1,0 +1,62 @@
+<!--custom-tab-bar/index.wxml-->
+<view class="custom-tab-bar-root {{themeClass}}">
+  <view class="tab-bar {{hidden ? 'tab-bar-hidden' : ''}}">
+    <view wx:if="{{showAddDesktopStrip}}" class="tab-add-desktop-strip">
+      <view class="tab-add-desktop-strip-close" catchtap="onAddDesktopStripClose">
+        <text>✕</text>
+      </view>
+      <text class="tab-add-desktop-strip-text">添加小程序到桌面，方便下次打开。</text>
+      <view class="tab-add-desktop-strip-btn" catchtap="onAddDesktopNow">
+        <text>立即添加</text>
+      </view>
+    </view>
+    <view
+      class="tab-bar-content"
+      bindtouchstart="onTabTouchStart"
+      bindtouchmove="onTabTouchMove"
+      bindtouchend="onTabTouchEnd"
+      bindtouchcancel="onTabTouchEnd">
+      <view
+        class="tab-bar-item {{index === (dragHighlightIndex >= 0 ? dragHighlightIndex : selected) ? 'tab-bar-item-active' : ''}} {{index === 4 ? 'tab-bar-item-profile' : ''}}"
+        wx:for="{{list}}"
+        wx:key="pagePath"
+        data-path="{{item.pagePath}}"
+        data-index="{{index}}"
+        bindtap="switchTab">
+        <view class="icon-wrapper">
+          <image class="tab-bar-icon" src="{{index === (dragHighlightIndex >= 0 ? dragHighlightIndex : selected) ? item.selectedIconPath : item.iconPath}}" mode="aspectFit"></image>
+          <view wx:if="{{index === 2 && showProgressDot}}" class="red-dot"></view>
+          <view wx:if="{{index === 3 && showNewsDot}}" class="red-dot"></view>
+          <view wx:if="{{index === 4 && showProfileDot}}" class="red-dot"></view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{showDesktopGuideImage}}" class="desktop-guide-overlay">
+    <view class="desktop-guide-mask" bindtap="closeDesktopGuideImage"></view>
+    <view class="desktop-guide-stack">
+      <view class="desktop-guide-safe-top" style="height: {{navPlaceholderHeight}}px;"></view>
+      <view class="desktop-guide-center">
+        <view class="desktop-guide-img-frame">
+          <image
+            class="desktop-guide-img"
+            src="{{desktopGuideDisplaySrc}}"
+            mode="widthFix"
+            bindload="onDesktopGuideImageLoaded"
+          />
+        </view>
+        <view class="desktop-guide-close-row">
+          <view
+            class="popup-close"
+            hover-class="popup-close--hover"
+            catchtap="onDesktopGuideCloseButtonTap"
+            aria-role="button"
+            aria-label="关闭">
+            <text class="popup-close-icon">✕</text>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+</view>

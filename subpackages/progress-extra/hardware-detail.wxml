@@ -1,0 +1,118 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="detail-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+    <page-progress active="{{loading}}" />
+  </view>
+
+  <scroll-view class="detail-scroll" scroll-y="true">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <!-- 加载中：内容区留白，进度由导航栏下方的 page-progress 绿色进度条呈现 -->
+    <block wx:if="{{loading}}"></block>
+
+    <!-- 错误 -->
+    <view class="error-wrap" wx:elif="{{errorMessage}}">
+      <text class="error-icon">⚠️</text>
+      <text class="error-text">{{errorMessage}}</text>
+      <view class="error-btn" bindtap="goBack">返回</view>
+    </view>
+
+    <!-- 内容 -->
+    <block wx:elif="{{vehicle}}">
+      <view class="detail-body">
+        <!-- 头图：原图干净展示 + 底部渐变收边（与火箭型号详情页一致） -->
+        <view class="hero-wrap">
+          <image
+            class="hero-img"
+            src="{{vehicle.displayImage}}"
+            mode="widthFix"
+            show-menu-by-longpress="{{true}}"
+            binderror="onHeroImageError"
+          ></image>
+          <view class="hero-gradient"></view>
+        </view>
+
+        <!-- 信息头：状态/名称下移出头图，不再遮挡照片 -->
+        <view class="info-header">
+          <text class="hero-title" user-select="{{true}}">{{vehicle.name}}</text>
+          <view class="hero-status status-{{vehicle.statusType}}">
+            <view class="status-dot"></view>
+            <text class="status-value">{{vehicle.statusZh}}（{{vehicle.status}}）</text>
+          </view>
+        </view>
+
+        <!-- 贴图讨论区：话题为对应型号名称（如 Ship 39） -->
+        <view class="discussion-section glass-card">
+          <official-account-publish-panel topic="{{vehicle.name || '星舰硬件讨论'}}" />
+        </view>
+
+        <!-- 类型徽标 -->
+        <view class="meta-row">
+          <view class="meta-badge">
+            <text>{{vehicle.typeZh}}</text>
+          </view>
+          <view class="meta-badge meta-badge--blue">
+            <text>{{vehicle.categoryZh}}</text>
+          </view>
+        </view>
+
+        <!-- 简介 -->
+        <view class="summary-card glass-card">
+          <text class="summary-text" user-select="{{true}}">{{vehicle.notesZh}}</text>
+        </view>
+
+        <!-- 测试与飞行记录 -->
+        <view class="manifest-section">
+          <view class="manifest-heading">
+            <text>测试与飞行记录</text>
+            <text class="manifest-count" wx:if="{{tests.length > 0}}">{{tests.length}} 条</text>
+            <text class="translate-toggle translate-toggle--inline {{testsTranslating ? 'translate-toggle--busy' : ''}}" wx:if="{{tests.length > 0}}" catchtap="onToggleTestsTranslate">{{testsTranslating ? '翻译中…' : (testsTranslated ? '原文' : '翻译')}}</text>
+          </view>
+
+          <view class="manifest-loading" wx:if="{{testsLoading}}">
+            <text>加载中...</text>
+          </view>
+
+          <view class="manifest-empty glass-card" wx:elif="{{tests.length === 0}}">
+            <text>暂无该硬件的测试记录</text>
+          </view>
+
+          <view class="manifest-list" wx:else>
+            <view class="manifest-item glass-card" wx:for="{{tests}}" wx:key="id">
+              <view class="manifest-item-head">
+                <text class="manifest-item-name" user-select="{{true}}">{{item.nameZh}}</text>
+                <text class="manifest-item-date" user-select="{{true}}">{{item.dateLabel}}</text>
+              </view>
+              <text class="manifest-item-location" user-select="{{true}}">{{item.locationZh}}</text>
+              <text class="manifest-item-notes" wx:if="{{item.notesEn}}" user-select="{{true}}">{{descI18n.testNotes[index] || item.notesEn}}</text>
+              <view class="manifest-item-video" wx:if="{{item.vidUrl}}" data-url="{{item.vidUrl}}" catchtap="onCopyVideoLink">
+                <text>复制视频链接</text>
+              </view>
+            </view>
+          </view>
+        </view>
+
+        <!-- 数据来源 -->
+        <view class="source-note">
+          <text>数据来源：Next Spaceflight</text>
+        </view>
+      </view>
+
+      <view style="height: 60rpx;"></view>
+    </block>
+  </scroll-view>
+
+  <share-gate-countdown expire-at="{{shareGateExpireAt}}" />
+
+  <!-- 剪贴板等隐私接口触发授权时，app.js 会在当前页面找该组件弹窗；缺失会导致 setClipboardData 被挂起无任何回调 -->
+  <privacy-modal id="globalPrivacyModal"></privacy-modal>
+</view>

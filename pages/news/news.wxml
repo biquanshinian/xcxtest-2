@@ -1,0 +1,142 @@
+<!--pages/news/news.wxml-->
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="container {{themeClass}}">
+  <!-- 顶部导航栏（包含状态栏） -->
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav">
+    <view class="nav-button {{contentType === 'articles' ? 'active' : ''}} nav-button--articles" bindtap="switchContentType" data-type="articles">
+      <text>航天事件</text>
+      <view wx:if="{{showArticlesNavDot}}" class="nav-red-dot"></view>
+    </view>
+    <view class="nav-button {{contentType === 'events' ? 'active' : ''}}" bindtap="switchContentType" data-type="events">
+      <text>即将发生</text>
+    </view>
+    </view>
+  </view>
+
+  <!-- 页面级翻译按钮：悬浮于导航栏下方右侧，不占内容行 -->
+  <view class="news-translate-float" style="top: {{navPlaceholderHeight + 8}}px;">
+    <view class="translate-toggle {{newsTranslated ? 'translate-toggle--active' : ''}}" bindtap="onToggleNewsTranslate">
+      <text>{{newsTranslated ? '原文' : '翻译'}}</text>
+    </view>
+  </view>
+
+  <scroll-view class="content-scroll main-content-scroll" scroll-y="true" lower-threshold="{{loadMoreLowerThreshold}}" bindscroll="onNewsScroll" bindscrolltolower="loadMoreNews">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <!-- 内容列表 -->
+    <view class="news-list">
+      <!-- 事件卡片 -->
+      <view class="news-card glass-card card-hover" wx:for="{{newsList}}" wx:key="id" wx:if="{{contentType === 'events'}}">
+        <navigator class="card-link" url="/subpackages/news-extra/detail?id={{item.id}}&type=event">
+          <image class="news-image" wx:if="{{item.image}}" src="{{item.cardImage || item.image}}" mode="aspectFill" lazy-load="{{true}}"></image>
+
+          <view class="news-content">
+            <view class="news-header">
+              <view class="event-type-badge">
+                <text class="event-type-text">{{item.type}}</text>
+              </view>
+              <text class="news-time">{{item.formattedTime}}</text>
+            </view>
+
+            <text class="news-title">{{newsTranslated && item.titleZh ? item.titleZh : item.title}}</text>
+
+            <text class="news-summary" wx:if="{{item.description}}">{{newsTranslated && item.descriptionZh ? item.descriptionZh : item.description}}</text>
+          </view>
+        </navigator>
+
+        <view class="news-bottom-row" catchtap="stopPropagation">
+          <view class="news-meta-inline">
+            <view class="meta-item" wx:if="{{item.location}}">
+              <image class="meta-location-icon" src="/images/icons/icon-location.svg" mode="aspectFit"></image>
+              <text class="meta-text">{{item.location}}</text>
+            </view>
+            <view class="meta-item" wx:if="{{item.webcastLive}}">
+              <text class="meta-icon">🔴</text>
+              <text class="meta-text live-text">直播中</text>
+            </view>
+          </view>
+          <view class="article-actions">
+            <button class="article-share-btn" open-type="share" data-id="{{item.id}}" catchtap="shareEvent">
+              <image class="icon-share icon-share--article" src="/images/share-arrow.svg" mode="aspectFit"></image>
+            </button>
+          </view>
+        </view>
+      </view>
+
+      <!-- 文章卡片（配图区域与「即将发生」同款：整宽 news-image + 下方正文） -->
+      <view class="article-card glass-card card-hover" wx:for="{{newsList}}" wx:key="id" wx:if="{{contentType === 'articles'}}">
+        <navigator class="card-link" url="/subpackages/news-extra/detail?id={{item.id}}&type=article">
+          <image class="news-image" wx:if="{{item.cardImage}}" src="{{item.cardImage}}" mode="aspectFill" lazy-load="{{true}}"></image>
+
+          <view class="news-content">
+            <view class="news-header">
+              <text class="article-site">{{item.newsSite}}</text>
+              <text class="article-time">{{item.formattedTime}}</text>
+            </view>
+
+            <text class="article-title">{{newsTranslated && item.titleZh ? item.titleZh : item.title}}</text>
+
+            <text class="article-summary" wx:if="{{item.summary}}">
+              {{newsTranslated && item.summaryZh ? item.summaryZh : item.summary}}
+            </text>
+          </view>
+        </navigator>
+
+        <view class="article-footer">
+          <view class="article-author">
+            <image class="article-author-icon" src="/images/tabbar/news.svg" mode="aspectFit"></image>
+            <text class="article-author-text">{{item.author}}</text>
+          </view>
+          <view class="article-actions">
+            <button class="article-share-btn" open-type="share" data-id="{{item.id}}" catchtap="shareArticle">
+              <image class="icon-share icon-share--article" src="/images/share-arrow.svg" mode="aspectFit"></image>
+            </button>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 上拉临界进度条 -->
+    <view class="preload-progress-wrap" wx:if="{{hasMore && !loading && preloadProgress > 0 && !loadMoreTriggered}}">
+      <view class="preload-progress-track">
+        <view class="preload-progress-fill" style="width: {{preloadProgress * 100}}%;"></view>
+      </view>
+      <text class="preload-progress-text">{{preloadProgress >= 0.9 ? '松手即可加载' : '继续上拉，准备加载更多'}}</text>
+    </view>
+
+    <!-- 上拉触发加载反馈 -->
+    <view class="load-trigger" wx:if="{{hasMore && !loading && loadMoreTriggered}}">
+      <view class="trigger-dots">
+        <view class="trigger-dot dot-1"></view>
+        <view class="trigger-dot dot-2"></view>
+        <view class="trigger-dot dot-3"></view>
+      </view>
+      <text class="load-trigger-text">已触发加载，内容马上到达</text>
+    </view>
+
+    <!-- 加载更多 -->
+    <view class="load-more" wx:if="{{hasMore && !loading}}">
+      <text class="load-more-text">上拉加载更多</text>
+    </view>
+
+    <!-- 没有更多 -->
+    <view class="no-more" wx:if="{{!hasMore && newsList.length > 0}}">
+      <text>没有更多了</text>
+    </view>
+
+    <!-- 空状态 -->
+    <view class="empty-state" wx:if="{{newsList.length === 0 && !loading}}">
+      <text class="empty-text">暂无数据，下拉刷新试试</text>
+    </view>
+
+    <view style="height: {{tabBarReservedHeight}}px;"></view>
+  </scroll-view>
+
+  <ai-chat id="ai-chat" />
+  <nasa-float show="{{!loading || newsList.length > 0}}" />
+  <popup-ad visible="{{popupAdVisible}}" shop-item="{{popupAdItem}}" bind:close="onPopupAdClose"></popup-ad>
+  <demo-overlay id="demoOverlay" showControls="{{false}}" qrcodeUrl="https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%B0%8F%E7%A8%8B%E5%BA%8F%E4%BA%8C%E7%BB%B4%E7%A0%81/1775323336594_jkl6zv.png" loop="{{true}}" />
+  <share-guide />
+
+</view>

@@ -1,0 +1,155 @@
+/* Starlink 全屏追踪页（横屏） */
+page {
+  background: #000;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+}
+
+.fullscreen-container {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+  overflow: hidden;
+}
+
+.fullscreen-canvas {
+  width: 100vw;
+  height: 100vh;
+  display: block;
+}
+
+/* 顶部控制栏（横屏适配） */
+.fs-top-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  padding: 12rpx 24rpx;
+  padding-left: calc(env(safe-area-inset-left) + 24rpx);
+  padding-right: calc(env(safe-area-inset-right) + 24rpx);
+  background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%);
+}
+
+.fs-back-btn {
+  width: 56rpx;
+  height: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.1);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.fs-back-arrow {
+  font-size: 0;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  color: transparent;
+  line-height: 0;
+}
+
+.fs-back-btn::after {
+  content: '';
+  display: block;
+  width: 20rpx;
+  height: 20rpx;
+  border-top: 4rpx solid #ffffff;
+  border-left: 4rpx solid #ffffff;
+  transform: rotate(-45deg);
+  box-sizing: border-box;
+}
+
+.fs-back-btn--home::after {
+  width: 36rpx;
+  height: 36rpx;
+  border: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3Cpolyline points='9 22 9 12 15 12 15 22'/%3E%3C/svg%3E") no-repeat center / contain;
+  transform: none;
+}
+
+.fs-title-area {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 16rpx;
+}
+
+.fs-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #fff;
+}
+
+.fs-subtitle {
+  font-size: 22rpx;
+  color: #00ff88;
+}
+
+.fs-action-area {
+  flex-shrink: 0;
+}
+
+.fs-ctrl-btn {
+  width: 56rpx;
+  height: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 255, 136, 0.15);
+  border: 1px solid rgba(0, 255, 136, 0.3);
+  border-radius: 50%;
+  font-size: 22rpx;
+  color: #00ff88;
+}
+
+/* 底部信息栏 */
+.fs-bottom-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  padding: 16rpx 30rpx calc(env(safe-area-inset-bottom) + 12rpx);
+  padding-left: calc(env(safe-area-inset-left) + 30rpx);
+  background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%);
+  text-align: center;
+}
+
+.fs-info-text {
+  font-size: 20rpx;
+  color: rgba(255,255,255,0.4);
+}
+
+/* 加载遮罩 */
+.fs-loading-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 200;
+  background: rgba(0,0,0,0.9);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24rpx;
+}
+
+.fs-loading-icon {
+  font-size: 64rpx;
+}
+
+.fs-loading-text {
+  font-size: 28rpx;
+  color: rgba(255,255,255,0.6);
+}

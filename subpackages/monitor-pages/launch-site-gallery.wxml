@@ -1,0 +1,111 @@
+<view class="container {{themeClass}}">
+  <!-- 自定义导航栏 -->
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+  </view>
+  <!-- 全屏滚动骨架：内容从磨砂导航栏下方穿过，加载/错误态也在滚动区内 -->
+  <scroll-view scroll-y class="page-scroll">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <!-- 加载中 -->
+    <view class="loading-wrap" wx:if="{{loading}}">
+      <text class="loading-text">加载发射场数据...</text>
+    </view>
+
+    <!-- 加载失败 -->
+    <view class="error-wrap" wx:elif="{{loadError}}">
+      <text class="error-icon">⚠️</text>
+      <text class="error-text">发射场数据加载失败</text>
+      <view class="error-btn" bindtap="onRetryLoad">重试</view>
+    </view>
+
+    <block wx:else>
+
+    <!-- 活跃/国家筛选 chip（固定式，多行换行全部可见） -->
+    <view class="filter-wrap">
+      <view class="filter-row">
+        <view class="filter-chip {{filter === chip.id ? 'filter-chip--active' : ''}}"
+              wx:for="{{filterChips}}" wx:for-item="chip" wx:key="id"
+              data-filter="{{chip.id}}" bindtap="onFilterTap">
+          <text>{{chip.label}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 搜索框：有关键词时即使搜索结果为空也保持显示，否则无法清除关键词 -->
+    <view class="lsg-search" wx:if="{{cards.length > 0 || siteKeyword}}">
+      <text class="lsg-search-icon">⌕</text>
+      <input
+        class="lsg-search-input"
+        type="text"
+        confirm-type="search"
+        placeholder="搜索"
+        placeholder-class="lsg-search-placeholder"
+        value="{{siteKeyword}}"
+        bindinput="onSiteSearchInput"
+      />
+      <view class="lsg-search-clear" wx:if="{{siteKeyword}}" bindtap="onSiteSearchClear">
+        <text>×</text>
+      </view>
+    </view>
+
+    <!-- 汇总条 -->
+    <view class="summary-bar glass-card" wx:if="{{cards.length > 0}}">
+      <view class="summary-item">
+        <text class="summary-value">{{stats.siteCount}}</text>
+        <text class="summary-label">发射场</text>
+      </view>
+      <view class="summary-item">
+        <text class="summary-value">{{stats.activeCount}}</text>
+        <text class="summary-label">活跃</text>
+      </view>
+      <view class="summary-item">
+        <text class="summary-value">{{stats.countryCount}}</text>
+        <text class="summary-label">国家</text>
+      </view>
+      <view class="summary-item">
+        <text class="summary-value">{{stats.totalLaunches}}</text>
+        <text class="summary-label">累计发射</text>
+      </view>
+    </view>
+
+    <!-- 发射场网格（两列） -->
+    <view class="section-block" wx:if="{{cards.length > 0}}">
+      <view class="lsg-grid">
+        <view class="lsg-card glass-card" wx:for="{{cards}}" wx:key="id"
+              data-id="{{item.id}}" bindtap="onCardTap">
+          <view class="lsg-img-wrap">
+            <image class="lsg-img {{imageLoadedMap[index] ? 'lsg-img--loaded' : ''}}"
+                   wx:if="{{item.imageUrl}}" src="{{item.imageUrl}}" mode="aspectFill" lazy-load
+                   data-index="{{index}}" bindload="onImageLoad" binderror="onImageError" />
+            <view class="lsg-img lsg-img--placeholder" wx:else></view>
+            <text class="lsg-status-badge {{item.active ? 'lsg-status-badge--active' : 'lsg-status-badge--retired'}}">{{item.statusText}}</text>
+            <text class="lsg-launch-badge">{{item.totalLaunchCount}} 次发射</text>
+          </view>
+          <view class="lsg-card-body">
+            <text class="lsg-name">{{item.nameZh || item.name}}</text>
+            <text class="lsg-sub-name" wx:if="{{item.nameZh}}">{{item.name}}</text>
+            <text class="lsg-country" wx:if="{{item.countryLabel}}" data-country="{{item.countryName}}" catchtap="onCountryTagTap">{{item.countryLabel}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 筛选空态 -->
+    <view class="empty-wrap" wx:if="{{filterEmpty}}">
+      <text class="empty-icon"></text>
+      <text class="empty-text">该筛选下暂无发射场记录</text>
+      <text class="empty-hint">数据来自 Launch Library 2，同步后自动收录</text>
+    </view>
+
+    <view style="height: {{tabBarReservedHeight + 40}}px;"></view>
+    </block>
+  </scroll-view>
+  <share-guide />
+</view>

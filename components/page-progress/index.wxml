@@ -1,0 +1,3 @@
+<view class="pp-track" wx:if="{{visible}}">
+  <view class="pp-bar" style="{{barStyle}}"></view>
+</view>

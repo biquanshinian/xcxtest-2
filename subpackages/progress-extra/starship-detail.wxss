@@ -1,0 +1,218 @@
+/* starship-detail.wxss —— 星舰组合体进展详情页（视觉与原半屏弹窗一致） */
+page {
+  background: #000;
+  color: #fff;
+}
+
+.detail-page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+}
+
+.detail-scroll {
+  height: 100vh;
+}
+
+/* 加载/错误 */
+.loading-wrap, .error-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-top: 200rpx;
+}
+.loading-text {
+  font-size: 28rpx;
+  color: #636366;
+}
+.error-icon {
+  font-size: 64rpx;
+  margin-bottom: 20rpx;
+}
+.error-text {
+  font-size: 28rpx;
+  color: #8E8E93;
+  margin-bottom: 30rpx;
+}
+.error-btn {
+  font-size: 28rpx;
+  color: #007AFF;
+  padding: 12rpx 40rpx;
+  border: 1px solid rgba(0, 122, 255, 0.3);
+  border-radius: 999rpx;
+}
+
+.detail-body {
+  padding: 20rpx 32rpx 0;
+}
+
+/* 状态 + 标题 */
+.detail-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  margin-bottom: 12rpx;
+}
+.status-dot {
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 50%;
+}
+.status-dot-active {
+  background: #34C759;
+  box-shadow: 0 0 10rpx rgba(52, 199, 89, 0.7);
+}
+.detail-status-text {
+  font-size: 24rpx;
+  color: #34C759;
+  font-weight: 600;
+}
+
+.detail-title {
+  display: block;
+  font-size: 44rpx;
+  color: #FFFFFF;
+  font-weight: 700;
+  line-height: 1.15;
+  margin-bottom: 8rpx;
+}
+
+.detail-subtitle {
+  display: block;
+  font-size: 24rpx;
+  color: #8E8E93;
+  letter-spacing: 3rpx;
+  font-weight: 500;
+  margin-bottom: 16rpx;
+}
+
+.detail-summary {
+  display: block;
+  font-size: 28rpx;
+  color: #c7c7cc;
+  line-height: 1.6;
+  text-align: justify;
+  margin-bottom: 24rpx;
+}
+
+/* 简介图片：随图片自身比例显示（与任务详情页头图一致），不固定尺寸裁切 */
+.detail-hero-wrap {
+  width: 100%;
+  border-radius: 18rpx;
+  overflow: hidden;
+  margin-bottom: 28rpx;
+  background: transparent;
+  font-size: 0;
+  line-height: 0;
+}
+.detail-hero-img {
+  display: block;
+  width: 100%;
+  background: #131313;
+}
+
+/* 贴图讨论区 */
+.glass-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 24rpx;
+  overflow: hidden;
+}
+.discussion-section {
+  padding: 20rpx 24rpx;
+  margin-bottom: 28rpx;
+}
+
+/* 清单 */
+.detail-checklist {
+  margin-top: 6rpx;
+}
+.checklist-heading {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #FFFFFF;
+  margin-bottom: 16rpx;
+}
+.checklist-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20rpx;
+}
+.checklist-item {
+  padding: 24rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 24rpx;
+  border: 1px solid rgba(52, 199, 89, 0.85);
+  min-height: 240rpx;
+}
+.checklist-status-normal {
+  border-color: rgba(52, 199, 89, 0.85);
+}
+.checklist-status-warning {
+  border-color: rgba(255, 149, 0, 0.85);
+}
+.checklist-status-error {
+  border-color: rgba(255, 59, 48, 0.85);
+}
+.checklist-item-title {
+  font-size: 40rpx;
+  color: #FFFFFF;
+  font-weight: 700;
+  margin-bottom: 16rpx;
+  display: block;
+}
+.checklist-meta {
+  margin-bottom: 8rpx;
+}
+.checklist-meta-text {
+  font-size: 24rpx;
+  color: #b7b7bd;
+}
+.checklist-desc {
+  font-size: 26rpx;
+  color: #d8d8dc;
+  line-height: 1.5;
+  display: block;
+}
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+.detail-page.theme-light {
+  background: var(--color-bg-page);
+}
+.theme-light .loading-text {
+  color: var(--color-text-tertiary);
+}
+.theme-light .error-text {
+  color: var(--color-text-secondary);
+}
+.theme-light .detail-title {
+  color: var(--color-text-primary);
+}
+.theme-light .detail-subtitle {
+  color: var(--color-text-secondary);
+}
+.theme-light .detail-summary {
+  color: var(--color-text-secondary);
+}
+/* 简介图片占位深底保持不动（detail-hero-img 底色仅在照片加载前可见） */
+.theme-light .glass-card {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-card);
+}
+.theme-light .checklist-heading {
+  color: var(--color-text-primary);
+}
+.theme-light .checklist-item {
+  background: var(--color-bg-card);
+  box-shadow: var(--shadow-card);
+}
+.theme-light .checklist-item-title {
+  color: var(--color-text-primary);
+}
+.theme-light .checklist-meta-text {
+  color: var(--color-text-tertiary);
+}
+.theme-light .checklist-desc {
+  color: var(--color-text-secondary);
+}

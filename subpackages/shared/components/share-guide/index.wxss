@@ -1,0 +1,66 @@
+.share-guide {
+  position: fixed;
+  right: 32rpx;
+  bottom: 120rpx;
+  z-index: 10001;
+  animation: guideSlideIn 0.4s ease-out both;
+}
+
+.share-guide--out {
+  animation: guideSlideOut 0.4s ease-in both;
+}
+
+@keyframes guideSlideIn {
+  from { opacity: 0; transform: translateY(24rpx); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes guideSlideOut {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(24rpx); }
+}
+
+.share-guide-bubble {
+  position: relative;
+  background: rgba(0, 122, 255, 0.92);
+  border-radius: 20rpx;
+  padding: 20rpx 28rpx;
+  box-shadow: 0 8rpx 32rpx rgba(0, 122, 255, 0.35);
+  animation: guideBounce 1.6s ease-in-out infinite;
+  max-width: calc(100vw - 64rpx);
+  box-sizing: border-box;
+  text-align: center;
+}
+
+@keyframes guideBounce {
+  0%, 100% {
+    transform: translateY(0);
+    box-shadow: 0 8rpx 32rpx rgba(0, 122, 255, 0.35);
+  }
+  50% {
+    transform: translateY(-20rpx);
+    box-shadow: 0 12rpx 40rpx rgba(0, 122, 255, 0.55);
+  }
+}
+
+.share-guide-text {
+  display: block;
+  font-size: 26rpx;
+  color: #fff;
+  font-weight: 500;
+  line-height: 1.5;
+  text-align: center;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.share-guide-arrow {
+  position: absolute;
+  bottom: -16rpx;
+  right: 40rpx;
+  width: 0;
+  height: 0;
+  border-left: 16rpx solid transparent;
+  border-right: 16rpx solid transparent;
+  border-top: 16rpx solid rgba(0, 122, 255, 0.92);
+}

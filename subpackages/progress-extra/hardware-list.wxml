@@ -1,0 +1,111 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="list-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">星舰硬件设施</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+  </view>
+
+  <scroll-view class="list-scroll" scroll-y="true">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <view class="list-body">
+      <!-- 筛选分类胶囊 -->
+      <scroll-view class="hardware-filter-scroll" scroll-x="true" enhanced="true" show-scrollbar="false">
+        <view class="hardware-filter-row">
+          <view
+            class="hardware-chip {{category === item.id ? 'hardware-chip-active' : ''}}"
+            wx:for="{{categories}}"
+            wx:key="id"
+            data-id="{{item.id}}"
+            bindtap="onCategoryTap"
+          >
+            <text>{{item.label}}</text>
+          </view>
+        </view>
+      </scroll-view>
+
+      <!-- 搜索框 -->
+      <view class="hardware-search">
+        <text class="hardware-search-icon">⌕</text>
+        <input
+          class="hardware-search-input"
+          type="text"
+          confirm-type="search"
+          placeholder="搜索"
+          placeholder-class="hardware-search-placeholder"
+          value="{{keyword}}"
+          bindinput="onSearchInput"
+        />
+        <view class="hardware-search-clear" wx:if="{{keyword}}" bindtap="onSearchClear">
+          <text>×</text>
+        </view>
+      </view>
+
+      <!-- 结果计数 -->
+      <view class="list-count" wx:if="{{!loading && totalCount > 0}}">
+        <text>共 {{totalCount}} 个硬件</text>
+      </view>
+
+      <!-- 加载中骨架 -->
+      <view class="hardware-grid" wx:if="{{loading}}">
+        <view class="hardware-card glass-card hardware-card-skeleton skeleton-shimmer" wx:for="{{[0, 1, 2, 3]}}" wx:key="*this"></view>
+      </view>
+
+      <block wx:else>
+        <!-- 卡片网格 -->
+        <view class="hardware-grid" wx:if="{{list.length > 0}}">
+          <view
+            class="hardware-card glass-card card-hover"
+            wx:for="{{list}}"
+            wx:key="id"
+            data-id="{{item.id}}"
+            data-index="{{index}}"
+            bindtap="onCardTap"
+          >
+            <view class="hardware-card-image-wrap">
+              <image
+                class="hardware-card-image"
+                src="{{item.displayImage}}"
+                mode="aspectFill"
+                lazy-load="{{true}}"
+                data-index="{{index}}"
+                binderror="onCardImageError"
+              ></image>
+              <view class="hardware-card-image-mask"></view>
+              <view class="hardware-card-overlay">
+                <view class="hardware-card-status status-{{item.statusType}}">
+                  <view class="status-dot"></view>
+                  <text class="status-value">{{item.statusZh}}</text>
+                </view>
+                <text class="hardware-card-name">{{item.name}}</text>
+              </view>
+            </view>
+            <view class="hardware-card-body">
+              <text class="hardware-card-type">{{item.typeZh}}</text>
+              <text class="hardware-card-notes">{{item.notesZh}}</text>
+            </view>
+          </view>
+        </view>
+
+        <!-- 空态 -->
+        <view class="hardware-empty glass-card" wx:if="{{list.length === 0}}">
+          <text>{{errorMessage || '没有匹配的硬件，换个关键词试试'}}</text>
+        </view>
+      </block>
+
+      <!-- 数据来源 -->
+      <view class="source-note" wx:if="{{!loading && list.length > 0}}">
+        <text>数据来源：Next Spaceflight</text>
+      </view>
+    </view>
+
+    <view style="height: 60rpx;"></view>
+  </scroll-view>
+</view>

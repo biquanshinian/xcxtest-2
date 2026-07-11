@@ -1,0 +1,139 @@
+<view class="map-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav">
+      <view class="nav-back {{isDirectEntry ? 'nav-back--home' : ''}}" bindtap="goBack"><text>‹</text></view>
+      <text class="nav-title">星链观测地图</text>
+      <view class="nav-placeholder"></view>
+    </view>
+    <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" style="top: {{mapActionTop}}px;">
+      <view class="map-action-header">
+        <text class="map-action-title">地图工具</text>
+        <view class="map-action-toggle-btn" bindtap="toggleActionMenuCollapsed"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
+      </view>
+      <view class="map-action-stack" wx:if="{{!actionMenuCollapsed}}">
+        <view class="map-action-btn" bindtap="previewPassTips"><text>观测指南</text></view>
+        <view class="map-action-btn" bindtap="refreshMapData"><text>{{refreshing ? '刷新中…' : '刷新'}}</text></view>
+        <view class="map-action-btn" bindtap="resetMapView"><text>重置视角</text></view>
+        <view class="map-action-btn" bindtap="copySummary"><text>复制信息</text></view>
+      </view>
+    </view>
+  </view>
+
+  <view class="map-shell">
+    <map
+      class="main-map"
+      latitude="{{latitude}}"
+      longitude="{{longitude}}"
+      scale="{{scale}}"
+      markers="{{mapMarkers}}"
+      polyline="{{mapPolylines}}"
+      show-location="{{hasLocation}}"
+      enable-scroll="true"
+      enable-zoom="true"
+      enable-rotate="false"
+      enable-overlooking="false"
+      bindmarkertap="onMarkerTap"
+    ></map>
+
+    <view class="state-card glass-card" wx:if="{{loading || errorText || emptyText}}" style="{{summaryCardTopStyle}}">
+      <text class="state-title">{{loading ? '加载中…' : (errorText ? '加载失败' : '暂无数据')}}</text>
+      <text class="state-desc">{{loading ? '正在生成观测建议' : (errorText || emptyText)}}</text>
+    </view>
+    <view class="floating-card pass-summary glass-card {{summaryCollapsed ? 'floating-card--collapsed' : ''}}" wx:else style="{{summaryCardTopStyle}}">
+      <view class="summary-header summary-header--with-action">
+        <view class="summary-head-main">
+          <text class="summary-title">观测窗口</text>
+          <text class="summary-location">{{locationText}}</text>
+        </view>
+        <view class="summary-header-actions">
+          <view class="summary-badge" style="color: {{qualityMeta.color}}; border-color: {{qualityMeta.color}};">
+            <text>{{qualityMeta.level}}</text>
+          </view>
+          <view class="panel-toggle-btn" bindtap="toggleSummaryCollapsed"><text>{{summaryCollapsed ? '展开' : '折叠'}}</text></view>
+        </view>
+      </view>
+      <block wx:if="{{!summaryCollapsed}}">
+        <view class="summary-tags" wx:if="{{summaryTips.length}}">
+          <view class="summary-tag" wx:for="{{summaryTips}}" wx:key="index">
+            <text>{{item}}</text>
+          </view>
+        </view>
+        <view class="data-meta-row">
+          <text class="data-meta-text">来源：{{dataSourceText}}</text>
+          <text class="data-meta-text">更新时间：{{dataUpdatedText}}</text>
+        </view>
+        <scroll-view class="pass-option-list" scroll-x="true" show-scrollbar="false" wx:if="{{passOptions.length > 1}}">
+          <view class="pass-option-row">
+            <view class="pass-option-chip {{selectedPassIdx === index ? 'pass-option-chip--active' : ''}}" wx:for="{{passOptions}}" wx:key="index" data-idx="{{index}}" bindtap="onPassOptionTap">
+              <text class="pass-option-time">{{item.startTimeStr}}</text>
+              <text class="pass-option-dir">{{item.startDirection}}→{{item.endDirection}}</text>
+            </view>
+          </view>
+        </scroll-view>
+        <view class="summary-grid">
+          <view class="summary-item">
+            <text class="summary-label">时间</text>
+            <text class="summary-value">{{selectedPass.startTimeStr}}</text>
+          </view>
+          <view class="summary-item">
+            <text class="summary-label">方向</text>
+            <text class="summary-value">{{selectedPass.startDirection}} → {{selectedPass.endDirection}}</text>
+          </view>
+          <view class="summary-item">
+            <text class="summary-label">最高仰角</text>
+            <text class="summary-value">{{selectedPass.maxElev}}°</text>
+          </view>
+          <view class="summary-item">
+            <text class="summary-label">持续</text>
+            <text class="summary-value">{{selectedPass.durationMin}} 分钟</text>
+          </view>
+        </view>
+      </block>
+      <view class="mini-summary-row" wx:else>
+        <text class="mini-summary-text">{{selectedPass.startTimeStr}} · {{selectedPass.maxElev}}° · {{selectedPass.durationMin}} 分钟</text>
+      </view>
+    </view>
+
+    <view class="bottom-sheet glass-card {{candidateSheetCollapsed ? 'bottom-sheet--collapsed' : ''}}">
+      <view class="sheet-header">
+        <view>
+          <text class="sheet-title">推荐观测点</text>
+          <text class="sheet-subtitle">优先选择视野开阔且光污染较低的地点</text>
+        </view>
+        <view class="sheet-header-actions">
+          <view class="sheet-nav-btn" bindtap="openNavigation"><text>导航</text></view>
+          <view class="panel-toggle-btn" bindtap="toggleCandidateSheetCollapsed"><text>{{candidateSheetCollapsed ? '展开' : '折叠'}}</text></view>
+        </view>
+      </view>
+      <block wx:if="{{!candidateSheetCollapsed}}">
+        <view class="candidate-highlight" wx:if="{{selectedCandidate}}">
+          <view class="candidate-highlight-main">
+            <text class="candidate-highlight-title">{{selectedCandidate.title}}</text>
+            <text class="candidate-highlight-score">推荐度 {{selectedCandidate.recommendationScore}}</text>
+          </view>
+          <text class="candidate-highlight-text">{{selectedCandidate.bestFor}} · {{selectedCandidate.obstructionHint}}</text>
+          <text class="candidate-highlight-text">建议朝 {{selectedPass.startDirection}} → {{selectedPass.endDirection}} 方向优先观察</text>
+        </view>
+        <scroll-view class="candidate-list" scroll-x="true" show-scrollbar="false">
+          <view class="candidate-row">
+            <view class="candidate-card {{selectedCandidateId === item.id ? 'candidate-card--active' : ''}}" wx:for="{{candidatePoints}}" wx:key="id" bindtap="onCandidateTap" data-id="{{item.id}}">
+              <view class="candidate-card-top">
+                <text class="candidate-title">{{item.title}}</text>
+                <text class="candidate-score">{{item.recommendationScore}}</text>
+              </view>
+              <text class="candidate-meta">{{item.distanceKm}} km · {{item.etaText}}</text>
+              <text class="candidate-scene">{{item.sceneTag}} · {{item.bestFor}}</text>
+              <text class="candidate-desc">{{item.reason}}</text>
+            </view>
+          </view>
+        </scroll-view>
+        <view class="sheet-tips">
+          <text>{{introText}}</text>
+        </view>
+      </block>
+      <view class="mini-summary-row" wx:else>
+        <text class="mini-summary-text">{{selectedCandidate.title || '暂无观测点'}} · {{selectedCandidate.distanceKm || '-'}} km · {{selectedCandidate.etaText || '待评估'}}</text>
+      </view>
+    </view>
+  </view>
+</view>

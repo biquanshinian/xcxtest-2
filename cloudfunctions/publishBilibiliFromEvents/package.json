@@ -1,0 +1,9 @@
+{
+  "name": "publishBilibiliFromEvents",
+  "version": "1.0.0",
+  "description": "扫 starship_event_updates 入队 B 站图文动态（限流/合并/话题）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

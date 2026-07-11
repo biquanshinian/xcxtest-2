@@ -1,0 +1,28 @@
+<view wx:if="{{show}}" class="official-account-bar">
+  <view
+    class="official-account-card {{dragging ? 'official-account-card--dragging' : ''}}"
+    style="transform: translateX({{dragOffset}}px); opacity: {{cardOpacity}};"
+    bindtouchstart="onTouchStart"
+    bindtouchmove="onTouchMove"
+    bindtouchend="onTouchEnd"
+    bindtouchcancel="onTouchEnd"
+  >
+    <view class="popup-close" hover-class="popup-close--hover" catchtap="onDismiss" aria-role="button" aria-label="关闭">
+      <text class="popup-close-icon">✕</text>
+    </view>
+    <view class="official-account-header">
+      <view class="official-account-icon-wrap">
+        <text class="official-account-icon">◎</text>
+      </view>
+      <view class="official-account-header-text">
+        <text class="official-account-title">关注公众号</text>
+        <text class="official-account-subtitle">空叉火星探索日志 · 发射提醒与独家资讯</text>
+      </view>
+    </view>
+    <view class="official-account-native-wrap" catchtouchstart="onNativeTouchStart">
+      <view class="official-account-native-inner">
+        <official-account bindload="onOfficialAccountLoad" binderror="onOfficialAccountError"></official-account>
+      </view>
+    </view>
+  </view>
+</view>

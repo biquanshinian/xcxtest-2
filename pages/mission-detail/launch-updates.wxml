@@ -1,0 +1,64 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="detail-page {{themeClass}} {{isMomentsPreview ? 'detail-page--moments' : ''}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+        <text class="nav-title-sub" wx:if="{{missionName}}">{{missionName}}</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+    <page-progress active="{{loading}}" />
+  </view>
+
+  <scroll-view class="detail-scroll" scroll-y="true">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+    <view class="detail-container">
+      <block wx:if="{{loading}}"></block>
+
+      <view class="error-state glass-card" wx:elif="{{errorMessage}}">
+        <text class="error-title">加载失败</text>
+        <text class="error-text">{{errorMessage}}</text>
+        <button class="retry-btn" bindtap="retryLoad">重新加载</button>
+      </view>
+
+      <view class="empty-state glass-card" wx:elif="{{!updates.length}}">
+        <text class="error-title">暂无发射动态</text>
+        <text class="error-text">该任务暂未收录官方更新</text>
+      </view>
+
+      <view wx:else class="updates-card glass-card">
+        <view class="updates-head">
+          <view class="updates-head-main">
+            <text class="updates-title">发射动态</text>
+            <text class="updates-count">{{updates.length}} 条</text>
+          </view>
+          <text class="translate-toggle {{descTranslating ? 'translate-toggle--busy' : ''}}" bindtap="onToggleTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
+        </view>
+
+        <view class="detail-update-item" wx:for="{{updates}}" wx:key="_wxkey">
+          <view class="detail-update-axis">
+            <view class="detail-update-line detail-update-line--up {{index === 0 ? 'detail-update-line--hidden' : ''}}"></view>
+            <view class="detail-update-node {{index === 0 ? 'detail-update-node--latest' : ''}}"></view>
+            <view class="detail-update-line detail-update-line--down {{index === updates.length - 1 ? 'detail-update-line--hidden' : ''}}"></view>
+          </view>
+          <view class="detail-update-main">
+            <text class="detail-update-comment" user-select="{{true}}">{{translatedComments[index] || item.comment}}</text>
+            <view class="detail-update-meta">
+              <text class="detail-update-time" wx:if="{{item.createdOnText}}">{{item.createdOnText}}</text>
+              <text class="detail-update-author" wx:if="{{item.createdBy}}">{{item.createdBy}}</text>
+              <text class="detail-link detail-update-link" wx:if="{{item.infoUrl}}" catchtap="copyLink" data-url="{{item.infoUrl}}">复制来源链接</text>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <view style="height: {{tabBarReservedHeight}}px;"></view>
+    </view>
+  </scroll-view>
+
+  <share-gate-countdown expire-at="{{shareGateExpireAt}}" />
+</view>

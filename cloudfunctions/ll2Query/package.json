@@ -1,0 +1,9 @@
+{
+  "name": "ll2Query",
+  "version": "1.0.0",
+  "description": "LL2 实时查询云函数（飞行时间线、发射动态、发射详情）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

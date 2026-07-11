@@ -1,0 +1,204 @@
+/* 直播演示模式覆盖层样式 */
+
+.demo-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+/* ========== 遮罩 & 聚光灯 ========== */
+.demo-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 10000;
+  pointer-events: auto;
+}
+
+.demo-spotlight {
+  position: absolute;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.65);
+  z-index: 10001;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 2px solid rgba(0, 122, 255, 0.6);
+}
+
+/* ========== 讲解气泡 ========== */
+.demo-bubble {
+  position: fixed;
+  z-index: 10002;
+  pointer-events: auto;
+  animation: bubbleFadeIn 0.4s ease-out;
+  max-width: 80vw;
+}
+
+.demo-bubble-content {
+  background: linear-gradient(135deg, rgba(0, 122, 255, 0.95), rgba(88, 86, 214, 0.95));
+  border-radius: 16rpx;
+  padding: 24rpx 32rpx;
+  backdrop-filter: blur(20px);
+  box-shadow: 0 8rpx 32rpx rgba(0, 0, 0, 0.3);
+}
+
+.demo-bubble-text {
+  color: #fff;
+  font-size: 28rpx;
+  line-height: 1.6;
+  letter-spacing: 0.5rpx;
+}
+
+.demo-bubble-arrow {
+  width: 0;
+  height: 0;
+  border-left: 16rpx solid transparent;
+  border-right: 16rpx solid transparent;
+  border-bottom: 16rpx solid rgba(0, 122, 255, 0.95);
+  position: absolute;
+  top: -15rpx;
+  left: 40rpx;
+}
+
+.demo-bubble.bottom .demo-bubble-arrow {
+  top: auto;
+  bottom: -15rpx;
+  border-bottom: none;
+  border-top: 16rpx solid rgba(0, 122, 255, 0.95);
+}
+
+@keyframes bubbleFadeIn {
+  from { opacity: 0; transform: translateY(10rpx); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ========== 手指动画 ========== */
+.demo-finger {
+  position: fixed;
+  z-index: 10003;
+  pointer-events: none;
+  animation: fingerBounce 1.2s ease-in-out infinite;
+}
+
+.demo-finger-icon {
+  font-size: 56rpx;
+  filter: drop-shadow(0 4rpx 8rpx rgba(0, 0, 0, 0.3));
+}
+
+.demo-finger-ripple {
+  position: absolute;
+  top: 0;
+  left: 14rpx;
+  width: 32rpx;
+  height: 32rpx;
+  border-radius: 50%;
+  background: rgba(0, 122, 255, 0.4);
+  animation: rippleExpand 1.2s ease-out infinite;
+}
+
+@keyframes fingerBounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-16rpx); }
+}
+
+@keyframes rippleExpand {
+  0% {
+    transform: scale(0.5);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(3);
+    opacity: 0;
+  }
+}
+
+/* ========== 底部控制栏 ========== */
+.demo-controls {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100vw;
+  height: 120rpx;
+  background: var(--color-bg-card);
+  backdrop-filter: blur(20px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32rpx;
+  padding-bottom: env(safe-area-inset-bottom);
+  z-index: 10004;
+  pointer-events: auto;
+  box-sizing: border-box;
+}
+
+.demo-ctrl-btn {
+  padding: 16rpx 28rpx;
+  background: var(--color-divider);
+  border-radius: 12rpx;
+  color: var(--color-text-primary);
+  font-size: 26rpx;
+  flex-shrink: 0;
+}
+
+.demo-ctrl-btn:active {
+  background: var(--color-divider-strong);
+}
+
+.demo-ctrl-stop {
+  background: rgba(255, 69, 58, 0.3);
+  color: #FF453A;
+}
+
+.demo-ctrl-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.demo-ctrl-title {
+  color: var(--color-text-primary);
+  font-size: 26rpx;
+  font-weight: 500;
+}
+
+.demo-ctrl-step {
+  color: var(--color-text-secondary);
+  font-size: 22rpx;
+  margin-top: 4rpx;
+}
+
+/* ========== 小程序码浮窗 ========== */
+.demo-qrcode {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 10005;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 48rpx;
+  box-shadow: 0 16rpx 64rpx rgba(0, 0, 0, 0.4);
+  animation: bubbleFadeIn 0.3s ease-out;
+}
+
+.demo-qrcode-img {
+  width: 400rpx;
+  height: 400rpx;
+}
+
+.demo-qrcode-tip {
+  margin-top: 24rpx;
+  color: #666;
+  font-size: 26rpx;
+}

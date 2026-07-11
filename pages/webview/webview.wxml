@@ -1,0 +1,56 @@
+<!--pages/webview/webview.wxml-->
+<view class="container {{themeClass}}">
+  <block wx:if="{{url}}">
+    <web-view 
+      src="{{url}}" 
+      class="webview"
+      bindload="onWebViewLoad"
+      binderror="onWebViewError">
+      <cover-view class="webview-cover-bar">
+        <cover-view class="webview-cover-btn" bindtap="goBack">返回</cover-view>
+        <cover-view class="webview-cover-btn" bindtap="onReload">重新加载</cover-view>
+      </cover-view>
+    </web-view>
+    
+    <!-- 加载中提示 -->
+    <view class="loading-overlay" wx:if="{{loading}}">
+      <view class="loading-content">
+        <view class="loading-spinner"></view>
+        <text class="loading-text">正在加载网页...</text>
+        <text class="loading-tip" wx:if="{{loadTimeout}}">加载时间较长，请检查网络连接</text>
+      </view>
+    </view>
+    
+    <!-- 错误提示 -->
+    <view class="error-overlay" wx:if="{{loadError}}">
+      <view class="error-content">
+        <text class="error-icon">⚠️</text>
+        <text class="error-title">加载失败</text>
+        <text class="error-message">{{errorMessage}}</text>
+        <view class="error-actions">
+          <button class="error-btn" bindtap="onReload" wx:if="{{!showEmbedTip}}">重试</button>
+          <button class="error-btn error-btn-primary" bindtap="openInBrowser" wx:if="{{showEmbedTip}}">在浏览器中打开</button>
+          <button class="error-btn error-btn-secondary" bindtap="goBack">返回</button>
+        </view>
+        <view class="error-tips" wx:if="{{loadTimeout || showDomainTip || showEmbedTip}}">
+          <text class="tips-title">可能的原因：</text>
+          <text class="tips-item" wx:if="{{showEmbedTip}}">1. ⚠️ 网页中嵌入了第三方内容（如 MARS），这些第三方域名无法配置为业务域名</text>
+          <text class="tips-item" wx:if="{{showDomainTip && !showEmbedTip}}">1. 域名未在微信公众平台配置业务域名（开发管理 → 开发设置 → 业务域名）</text>
+          <text class="tips-item" wx:if="{{loadTimeout}}">2. 网络连接不稳定或网站服务器响应较慢</text>
+          <text class="tips-item">3. HTTPS证书配置问题</text>
+          <text class="tips-item">4. 网站可能暂时无法访问</text>
+          <text class="tips-note" wx:if="{{showEmbedTip}}">
+            💡 解决方案：<text class="tips-note-bold">点击"在浏览器中打开"按钮，链接将复制到剪贴板，然后在浏览器中粘贴打开即可查看完整内容</text>
+          </text>
+          <text class="tips-note" wx:if="{{showDomainTip && !showEmbedTip}}">提示：业务域名配置后需要等待几分钟生效</text>
+        </view>
+      </view>
+    </view>
+  </block>
+  <view class="placeholder" wx:else>
+    <text class="placeholder-icon">🌐</text>
+    <text class="placeholder-title">网页地址未配置</text>
+    <button class="back-btn" bindtap="goBack">返回监控中心</button>
+  </view>
+  <share-guide />
+</view>

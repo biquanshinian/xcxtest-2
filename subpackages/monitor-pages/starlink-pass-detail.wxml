@@ -1,0 +1,131 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="pass-detail-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+  </view>
+
+  <scroll-view class="pass-detail-scroll" scroll-y="true">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <view class="pass-detail-body">
+      <!-- 概览 -->
+      <view class="pass-hero glass-card">
+        <view class="pass-hero-head">
+          <view class="pass-hero-badge">
+            <text class="pass-hero-badge-dot"></text>
+            <text class="pass-hero-badge-text">未来 24 小时</text>
+          </view>
+          <text class="pass-hero-count">{{passCount}} 次可见过境</text>
+        </view>
+        <text class="pass-hero-loc" wx:if="{{passLocation}}">观测位置 · {{passLocation}}</text>
+        <text class="pass-hero-hint">过境需天色足够暗，且卫星被阳光照射；建议提前 10 分钟抵达开阔、低光污染区域。</text>
+      </view>
+
+      <!-- 最近一场高亮 -->
+      <view class="pass-next glass-card" wx:if="{{nextPass}}">
+        <text class="pass-next-label">最近一场</text>
+        <view class="pass-next-main">
+          <text class="pass-next-time">{{nextPass.startTimeStr}}</text>
+          <text class="pass-next-bright pass-bright--{{nextPass.brightnessText}}">{{nextPass.brightnessLabel}}</text>
+        </view>
+        <view class="pass-next-metrics">
+          <view class="pass-metric">
+            <text class="pass-metric-val">{{nextPass.maxElev}}°</text>
+            <text class="pass-metric-key">最高仰角</text>
+          </view>
+          <view class="pass-metric">
+            <text class="pass-metric-val">{{nextPass.startDirection}} → {{nextPass.endDirection}}</text>
+            <text class="pass-metric-key">可见方向</text>
+          </view>
+          <view class="pass-metric">
+            <text class="pass-metric-val">{{nextPass.durationMin}} 分钟</text>
+            <text class="pass-metric-key">持续时间</text>
+          </view>
+          <view class="pass-metric" wx:if="{{nextPass.trainCount > 1}}">
+            <text class="pass-metric-val">{{nextPass.trainCount}} 颗</text>
+            <text class="pass-metric-key">星链列车</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 快捷操作 -->
+      <view class="pass-actions-row" wx:if="{{passCount > 0}}">
+        <view class="pass-action-btn {{isProUser ? 'pass-action-btn--pro' : ''}}" bindtap="openPassMap">
+          <text>观测地图</text>
+        </view>
+        <view class="pass-action-btn {{isProUser ? 'pass-action-btn--pro' : ''}}" bindtap="openStarlinkAR">
+          <text>AR 观测</text>
+        </view>
+      </view>
+
+      <!-- 时间线列表 -->
+      <view class="pass-timeline-section" wx:if="{{passCount > 0}}">
+        <view class="pass-section-head">
+          <text class="pass-section-title">全部过境</text>
+          <text class="pass-section-sub">按开始时间排序</text>
+        </view>
+        <view class="pass-timeline">
+          <view class="pass-timeline-item" wx:for="{{passList}}" wx:key="index">
+            <view class="pass-timeline-axis">
+              <view class="pass-timeline-line pass-timeline-line--up" wx:if="{{index !== 0}}"></view>
+              <view class="pass-timeline-node {{item.isNext ? 'pass-timeline-node--next' : ''}}"></view>
+              <view class="pass-timeline-line pass-timeline-line--down" wx:if="{{index !== passList.length - 1}}"></view>
+            </view>
+            <view class="pass-timeline-card glass-card">
+              <view class="pass-timeline-card-head">
+                <text class="pass-timeline-time">{{item.startTimeStr}}</text>
+                <text class="pass-timeline-bright pass-bright--{{item.brightnessText}}">{{item.brightnessLabel}}</text>
+              </view>
+              <view class="pass-timeline-grid">
+                <view class="pass-timeline-cell">
+                  <text class="pass-timeline-cell-label">仰角</text>
+                  <text class="pass-timeline-cell-val">{{item.maxElev}}°</text>
+                </view>
+                <view class="pass-timeline-cell">
+                  <text class="pass-timeline-cell-label">方向</text>
+                  <text class="pass-timeline-cell-val">{{item.startDirection}}→{{item.endDirection}}</text>
+                </view>
+                <view class="pass-timeline-cell">
+                  <text class="pass-timeline-cell-label">时长</text>
+                  <text class="pass-timeline-cell-val">{{item.durationMin}} 分</text>
+                </view>
+              </view>
+              <view class="pass-train-pill" wx:if="{{item.trainCount > 1}}">
+                <text>星链列车 · {{item.trainCount}} 颗</text>
+              </view>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 空态 -->
+      <view class="pass-empty-block glass-card" wx:else>
+        <text class="pass-empty-title">未来 24 小时暂无可见过境</text>
+        <text class="pass-empty-desc">可能当前时段天空过亮，或卫星未处于可被阳光照亮的轨道位置。可返回监控页刷新后再试。</text>
+      </view>
+
+      <!-- 观测贴士 -->
+      <view class="pass-tips glass-card">
+        <text class="pass-tips-title">观测小贴士</text>
+        <view class="pass-tip-row"><text class="pass-tip-dot">1</text><text class="pass-tip-text">选择远离城市光害的开阔地，面向预报方向等待。</text></view>
+        <view class="pass-tip-row"><text class="pass-tip-dot">2</text><text class="pass-tip-text">仰角越高越易观察；「极亮」等级通常肉眼可见度更好。</text></view>
+        <view class="pass-tip-row"><text class="pass-tip-dot">3</text><text class="pass-tip-text">星链列车指多颗卫星连续过境，间隔约数分钟。</text></view>
+      </view>
+
+      <!-- 贴图讨论区 -->
+      <view class="discussion-section glass-card">
+        <official-account-publish-panel topic="{{discussionTopic}}" />
+      </view>
+
+      <view style="height: 48rpx;"></view>
+    </view>
+  </scroll-view>
+</view>

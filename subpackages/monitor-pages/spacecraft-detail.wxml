@@ -1,0 +1,135 @@
+<view class="detail-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      <view class="nav-right-space top-nav-slot--spacer"></view>
+    </view>
+    <page-progress active="{{loading}}" />
+  </view>
+
+  <scroll-view class="detail-scroll" scroll-y="true">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+    <view class="detail-container">
+      <!-- 加载中：内容区留白，进度由导航栏下方的 page-progress 绿色进度条呈现 -->
+      <block wx:if="{{loading}}"></block>
+
+      <view class="error-state glass-card" wx:elif="{{errorMessage}}">
+        <text class="error-title">加载失败</text>
+        <text class="error-text">{{errorMessage}}</text>
+        <button class="retry-btn" bindtap="retryLoad">重新加载</button>
+      </view>
+
+      <view wx:elif="{{item}}" class="detail-card glass-card">
+        <!-- Hero：原图干净展示 + 底部渐变收边（与火箭型号详情页一致），点击预览 -->
+        <view class="hero-wrap" bindtap="onHeroImageTap">
+          <image wx:if="{{item.imageUrl}}" class="hero-image {{heroImageLoaded ? 'hero-image--loaded' : ''}}" src="{{item.imageUrl}}" mode="aspectFill" bindload="onHeroImageLoad" binderror="onHeroImageError"></image>
+          <view wx:else class="hero-image hero-image--placeholder"></view>
+          <view class="hero-gradient"></view>
+        </view>
+
+        <!-- 信息头：名称/状态/徽标下移出头图，不再遮挡照片 -->
+        <view class="info-header">
+          <view class="hero-name-row">
+            <view class="hero-name-col">
+              <text class="hero-name">{{item.name}}</text>
+            </view>
+            <text class="hero-status {{item.inUse ? 'hero-status--active' : 'hero-status--inactive'}}">{{item.inUse ? '现役' : '已退役'}}</text>
+          </view>
+          <view class="hero-badge-row">
+            <view class="hero-agency-btn" wx:if="{{item.agencyName}}" catchtap="onTapAgency">
+              <text>{{item.agencyName}}</text>
+              <text class="hero-agency-arrow">›</text>
+            </view>
+            <text class="hero-badge" wx:if="{{item.typeName}}">{{item.typeName}}</text>
+            <text class="hero-badge" wx:if="{{item.familyName}}">{{item.familyName}} 系列</text>
+          </view>
+        </view>
+
+        <!-- 发射战绩 -->
+        <view class="stats-grid" wx:if="{{item.totalLaunchCount !== null}}">
+          <view class="stat-card">
+            <text class="stat-value">{{item.totalLaunchCount}}</text>
+            <text class="stat-label">发射次数</text>
+          </view>
+          <view class="stat-card">
+            <text class="stat-value stat-value--good">{{item.successfulLaunches !== null ? item.successfulLaunches : '--'}}</text>
+            <text class="stat-label">成功</text>
+          </view>
+          <view class="stat-card">
+            <text class="stat-value stat-value--bad">{{item.failedLaunches !== null ? item.failedLaunches : '--'}}</text>
+            <text class="stat-label">失败</text>
+          </view>
+          <view class="stat-card" wx:if="{{item.successRate}}">
+            <text class="stat-value">{{item.successRate}}</text>
+            <text class="stat-label">成功率</text>
+          </view>
+          <view class="stat-card" wx:if="{{item.spacecraftFlown !== null}}">
+            <text class="stat-value">{{item.spacecraftFlown}}</text>
+            <text class="stat-label">飞行器数</text>
+          </view>
+          <view class="stat-card" wx:if="{{item.attemptedLandings}}">
+            <text class="stat-value">{{item.successfulLandings || 0}}/{{item.attemptedLandings}}</text>
+            <text class="stat-label">着陆成功</text>
+          </view>
+        </view>
+
+        <!-- 规格参数 -->
+        <view class="section" wx:if="{{item.specs.length}}">
+          <text class="section-title">规格参数</text>
+          <view class="info-grid">
+            <view class="info-row" wx:for="{{item.specs}}" wx:for-item="spec" wx:key="label">
+              <text class="info-label">{{spec.label}}</text>
+              <text class="info-value">{{spec.value}}</text>
+            </view>
+          </view>
+        </view>
+
+        <!-- 飞船简介 -->
+        <view class="section" wx:if="{{item.hasDesc}}">
+          <view class="section-title-row">
+            <text class="section-title">飞船简介</text>
+            <text class="translate-toggle translate-toggle--inline {{descTranslating ? 'translate-toggle--busy' : ''}}" catchtap="onToggleDescTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
+          </view>
+          <view class="desc-block" wx:if="{{item.capability}}">
+            <text class="desc-label">主要用途</text>
+            <text class="desc-text" user-select="{{true}}">{{descI18n.capability || item.capability}}</text>
+          </view>
+          <view class="desc-block" wx:if="{{item.history}}">
+            <text class="desc-label">发展历史</text>
+            <text class="desc-text" user-select="{{true}}">{{descI18n.history || item.history}}</text>
+          </view>
+          <view class="desc-block" wx:if="{{item.details}}">
+            <text class="desc-label">详细说明</text>
+            <text class="desc-text" user-select="{{true}}">{{descI18n.details || item.details}}</text>
+          </view>
+        </view>
+
+        <!-- 相关链接 -->
+        <view class="section" wx:if="{{item.wikiLink || item.infoLink}}">
+          <text class="section-title">相关链接</text>
+          <view class="link-list">
+            <view class="link-item" wx:if="{{item.infoLink}}" bindtap="copyLink" data-url="{{item.infoLink}}">
+              <text class="link-name">官方介绍</text>
+              <text class="link-url" user-select="{{true}}">{{item.infoLink}}</text>
+            </view>
+            <view class="link-item" wx:if="{{item.wikiLink}}" bindtap="copyLink" data-url="{{item.wikiLink}}">
+              <text class="link-name">维基百科</text>
+              <text class="link-url" user-select="{{true}}">{{item.wikiLink}}</text>
+            </view>
+          </view>
+        </view>
+
+        <view class="data-source">
+          <text>数据来源：Launch Library 2</text>
+        </view>
+      </view>
+      <view style="height: {{tabBarReservedHeight}}px;"></view>
+    </view>
+  </scroll-view>
+  <share-guide />
+  <share-gate-countdown expire-at="{{shareGateExpireAt}}" />
+  <privacy-modal id="globalPrivacyModal" />
+</view>

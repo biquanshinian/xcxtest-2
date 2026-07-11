@@ -1,0 +1,202 @@
+/* booster-history.wxss */
+page {
+  background: #000;
+  color: #fff;
+}
+
+.detail-page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+}
+
+.history-scroll {
+  height: 100vh;
+}
+
+/* 加载/错误 */
+.loading-wrap, .error-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-top: 200rpx;
+}
+.loading-text {
+  font-size: 28rpx;
+  color: #636366;
+}
+.error-icon {
+  font-size: 64rpx;
+  margin-bottom: 20rpx;
+}
+.error-text {
+  font-size: 28rpx;
+  color: #8E8E93;
+  margin-bottom: 30rpx;
+}
+.error-btn {
+  font-size: 28rpx;
+  color: #007AFF;
+  padding: 12rpx 40rpx;
+  border: 1px solid rgba(0, 122, 255, 0.3);
+  border-radius: 999rpx;
+}
+
+.history-scroll {
+  height: 100vh;
+}
+
+.glass-card {
+  margin: 20rpx 24rpx 0;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 24rpx;
+  overflow: hidden;
+}
+
+/* 概览 */
+.summary-card {
+  display: flex;
+  align-items: baseline;
+  gap: 20rpx;
+  padding: 28rpx 30rpx;
+}
+.summary-serial {
+  font-size: 40rpx;
+  font-weight: 700;
+  color: #fff;
+}
+.summary-count {
+  font-size: 26rpx;
+  color: #8E8E93;
+}
+
+/* 任务列表 */
+.mission-list {
+  padding: 8rpx 0;
+}
+.mission-item {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 24rpx 30rpx;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.mission-item:last-child {
+  border-bottom: none;
+}
+.mission-item--no-link {
+  opacity: 0.75;
+}
+.mission-seq {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 72rpx;
+}
+.mission-seq-num {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #0A84FF;
+  line-height: 1.1;
+}
+.mission-seq-label {
+  font-size: 20rpx;
+  color: #636366;
+}
+.mission-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+  overflow: hidden;
+}
+.mission-name {
+  font-size: 28rpx;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mission-date {
+  font-size: 24rpx;
+  color: #8E8E93;
+}
+.mission-status {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  padding: 6rpx 16rpx;
+  border-radius: 999rpx;
+  flex-shrink: 0;
+}
+.mission-status--success {
+  background: rgba(52, 199, 89, 0.12);
+}
+.mission-status--success .mission-status-icon,
+.mission-status--success .mission-status-text {
+  color: #34C759;
+}
+.mission-status--fail {
+  background: rgba(255, 59, 48, 0.12);
+}
+.mission-status--fail .mission-status-icon,
+.mission-status--fail .mission-status-text {
+  color: #FF3B30;
+}
+.mission-status-icon {
+  font-size: 24rpx;
+}
+.mission-status-text {
+  font-size: 22rpx;
+}
+.mission-arrow {
+  font-size: 32rpx;
+  color: #48484A;
+  flex-shrink: 0;
+}
+
+/* 贴图讨论区 */
+.discussion-section {
+  padding: 20rpx 24rpx;
+}
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+.detail-page.theme-light {
+  background: var(--color-bg-page);
+}
+.theme-light .loading-text {
+  color: var(--color-text-tertiary);
+}
+.theme-light .error-text {
+  color: var(--color-text-secondary);
+}
+.theme-light .glass-card {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-card);
+}
+.theme-light .summary-serial {
+  color: var(--color-text-primary);
+}
+.theme-light .summary-count {
+  color: var(--color-text-secondary);
+}
+.theme-light .mission-item {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+.theme-light .mission-item:last-child {
+  border-bottom: none;
+}
+.theme-light .mission-seq-label {
+  color: var(--color-text-tertiary);
+}
+.theme-light .mission-name {
+  color: var(--color-text-primary);
+}
+.theme-light .mission-date {
+  color: var(--color-text-secondary);
+}
+.theme-light .mission-arrow {
+  color: rgba(0, 0, 0, 0.25);
+}

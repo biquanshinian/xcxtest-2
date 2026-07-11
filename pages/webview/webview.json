@@ -1,0 +1,14 @@
+{
+  "navigationBarTitleText": "星舰监控中心",
+  "navigationBarBackgroundColor": "#1C1C1E",
+  "navigationBarTextStyle": "white",
+  "backgroundColor": "#000000",
+  "backgroundTextStyle": "dark",
+  "enablePullDownRefresh": false,
+  "usingComponents": {
+    "share-guide": "/subpackages/shared/components/share-guide/index"
+  },
+  "componentPlaceholder": {
+    "share-guide": "view"
+  }
+}

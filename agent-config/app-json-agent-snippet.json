@@ -1,0 +1,35 @@
+{
+  "_comment": "内测调试 AI 模式时，把下面两段加回 app.json：subPackages 数组里加 agentSkillsSubPackage 这一项，顶层加 agent 字段。提审前再删除。",
+  "agentSkillsSubPackage": {
+    "root": "subpackages/agent-skills",
+    "name": "agent-skills",
+    "independent": true,
+    "pages": []
+  },
+  "agent": {
+    "instruction": "agent-config/AGENTS.md",
+    "pageMetadata": "agent-config/page-meta.json",
+    "skills": [
+      {
+        "name": "launch-tracker",
+        "description": "全球火箭发射查询：SpaceX、中国航天（长征/蓝箭/星河动力等）及各国即将发射与历史发射、星链组网发射、任务详情、发射商信息、年度全球发射统计",
+        "path": "subpackages/agent-skills/launch-skill"
+      },
+      {
+        "name": "starship-tracker",
+        "description": "SpaceX 星舰进度追踪：下一飞组合体状态、最新动态、下次试飞时间、星舰基地道路封闭",
+        "path": "subpackages/agent-skills/starship-skill"
+      },
+      {
+        "name": "station-tracker",
+        "description": "空间站动态：在轨空间站概览、乘组名单、停靠的载人/货运飞行器",
+        "path": "subpackages/agent-skills/station-skill"
+      },
+      {
+        "name": "booster-tracker",
+        "description": "火箭回收与可复用助推器查询：SpaceX 猎鹰及全球可回收火箭的单枚助推器战绩（按编号如 B1067）、火箭回收成功率统计与复用次数排行",
+        "path": "subpackages/agent-skills/booster-skill"
+      }
+    ]
+  }
+}

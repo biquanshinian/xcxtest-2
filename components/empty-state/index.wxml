@@ -1,0 +1,5 @@
+<view class="empty-state glass-card">
+  <text class="empty-state-icon">{{icon}}</text>
+  <text class="empty-state-text">{{text}}</text>
+  <text class="empty-state-hint" wx:if="{{hint}}">{{hint}}</text>
+</view>

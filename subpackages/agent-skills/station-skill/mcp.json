@@ -1,0 +1,94 @@
+{
+  "apis": [
+    {
+      "name": "getSpaceStations",
+      "description": "查询当前在轨运营的空间站概览（国际空间站 ISS、天宫空间站等）：运行状态、在轨人数、当前停靠的载人/货运飞行器。适用于「现在有几个空间站」「天宫上停了几艘飞船」「空间站现状」等问题。不适用于查询具体乘组名单（应改用 getStationCrew）。",
+      "_meta": {
+        "ui": {
+          "pagePath": "/pages/monitor/monitor"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "total": { "type": "number", "description": "在轨空间站数量" },
+          "stations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string", "description": "空间站中文名" },
+                "statusZh": { "type": "string", "description": "运行状态（中文）" },
+                "founded": { "type": "string", "description": "入轨日期" },
+                "crewCount": { "type": "number", "description": "当前在轨人数" },
+                "dockedVehicles": {
+                  "type": "array",
+                  "description": "当前停靠的飞行器",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": { "type": "string" },
+                      "kind": { "type": "string", "description": "载人或货运" },
+                      "dockedSinceBeijing": { "type": "string", "description": "对接时间（北京时间）" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "getStationCrew",
+      "description": "查询空间站当前在轨乘组名单（宇航员姓名、国籍、所属机构、所在任务），并可接力到小程序空间站详情页。适用于「中国空间站现在有几个人」「ISS 上有谁」「天宫乘组是谁」等问题。",
+      "_meta": {
+        "ui": {
+          "pagePath": "/subpackages/monitor-pages/station-detail"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "stationKeyword": {
+            "type": "string",
+            "description": "空间站名称关键词，例如『天宫』『中国空间站』『ISS』『国际空间站』。用户未指明空间站时不要填写本字段（返回全部空间站乘组）。"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "total": { "type": "number" },
+          "stations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string", "description": "空间站中文名" },
+                "crewCount": { "type": "number" },
+                "crew": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": { "type": "string", "description": "宇航员姓名（英文/拼音）" },
+                      "nationality": { "type": "string", "description": "国籍" },
+                      "agency": { "type": "string", "description": "所属航天机构" },
+                      "expedition": { "type": "string", "description": "所在远征任务" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "components": []
+}

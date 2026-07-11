@@ -1,0 +1,59 @@
+name: CI
+
+# 质量门禁：push / PR 时跑 lint + test。
+# 分两个 job 处理不同依赖：
+#   - client-and-cloudfunctions：仓库根依赖（ESLint + node:test）
+#   - admin-web：Vue3 子项目独立依赖（ESLint + 构建）
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  client-and-cloudfunctions:
+    name: 客户端 + 云函数 (lint + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 仓库根尚无 package-lock.json，使用 npm install。
+      # 后续提交 lock 文件后可改为 npm ci 获得可复现安装。
+      - name: Install root dev deps
+        run: npm install
+
+      # lint 抓真 bug；warning 不阻断（--max-warnings=-1 表示不限制 warning 数）。
+      - name: Lint (client + cloudfunctions)
+        run: npm run lint
+
+      # node:test 内置运行器；test/ 目录 + 已有云函数本地测试。
+      - name: Test
+        run: npm test
+
+  admin-web:
+    name: admin-web (lint + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install deps
+        run: npm install
+
+      - name: Lint (Vue3)
+        run: npm run lint
+
+      # 暂无前端单测，先用构建作为冒烟门禁；后续接入 vitest 后改为 npm test。
+      - name: Build (smoke)
+        run: npm run build

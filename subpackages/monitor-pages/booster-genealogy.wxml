@@ -1,0 +1,151 @@
+<view class="container {{themeClass}}">
+  <!-- 自定义导航栏 -->
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+  </view>
+  <!-- 全屏滚动骨架：内容从磨砂导航栏下方穿过，加载/错误态也在滚动区内 -->
+  <scroll-view scroll-y class="page-scroll">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <!-- 加载中 -->
+    <view class="loading-wrap" wx:if="{{loading}}">
+      <text class="loading-text">加载族谱数据...</text>
+    </view>
+
+    <!-- 加载失败 -->
+    <view class="error-wrap" wx:elif="{{loadError}}">
+      <text class="error-icon">⚠️</text>
+      <text class="error-text">族谱数据加载失败</text>
+      <view class="error-btn" bindtap="onRetryLoad">重试</view>
+    </view>
+
+    <block wx:else>
+
+    <!-- 国家/厂商筛选 chip（固定式，多行换行全部可见） -->
+    <view class="filter-wrap">
+      <view class="filter-row">
+        <view class="filter-chip {{filter === chip.id ? 'filter-chip--active' : ''}}"
+              wx:for="{{filterChips}}" wx:for-item="chip" wx:key="id"
+              data-filter="{{chip.id}}" bindtap="onFilterTap">
+          <text>{{chip.label}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 状态筛选 + 排序 -->
+    <view class="sub-filter-bar">
+      <view class="sub-filter-group">
+        <view class="sub-chip {{statusFilter === s.id ? 'sub-chip--active' : ''}}"
+              wx:for="{{statusFilters}}" wx:for-item="s" wx:key="id"
+              data-status="{{s.id}}" bindtap="onStatusFilterTap">
+          <text>{{s.label}}</text>
+        </view>
+      </view>
+      <view class="sub-filter-group sub-filter-group--sort">
+        <view class="sub-chip sub-chip--sort {{sortBy === s.id ? 'sub-chip--active' : ''}}"
+              wx:for="{{sortOptions}}" wx:for-item="s" wx:key="id"
+              data-sort="{{s.id}}" bindtap="onSortTap">
+          <text>{{s.label}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 汇总条 -->
+    <view class="summary-bar glass-card" wx:if="{{boosterCards.length > 0}}">
+      <view class="summary-item">
+        <text class="summary-value">{{stats.activeCount}}</text>
+        <text class="summary-label">现役</text>
+      </view>
+      <view class="summary-item">
+        <text class="summary-value">{{stats.maxFlights}}</text>
+        <text class="summary-label">最高复用</text>
+      </view>
+      <view class="summary-item">
+        <text class="summary-value">{{stats.totalFlights}}</text>
+        <text class="summary-label">总飞行</text>
+      </view>
+      <view class="summary-item" wx:if="{{stats.manufacturerCount > 1}}">
+        <text class="summary-value">{{stats.manufacturerCount}}</text>
+        <text class="summary-label">厂商</text>
+      </view>
+    </view>
+
+    <!-- 型号卡片区（含未首飞型号，两列固定网格） -->
+    <view class="section-block" wx:if="{{modelCards.length > 0}}">
+      <text class="block-title">火箭型号</text>
+      <view class="model-grid">
+          <view class="model-card glass-card" wx:for="{{modelCards}}" wx:for-item="m" wx:key="configId"
+                data-config-id="{{m.configId}}" bindtap="onModelCardTap">
+            <view class="model-img-wrap">
+              <image class="model-img {{imageLoadedMap['m' + index] ? 'model-img--loaded' : ''}}"
+                     wx:if="{{m.thumbnailUrl}}" src="{{m.thumbnailUrl}}" mode="aspectFill" lazy-load
+                     data-img-key="m{{index}}" bindload="onImageLoad" binderror="onImageError" />
+              <view class="model-img model-img--placeholder" wx:else></view>
+              <text class="model-reusable-badge" wx:if="{{m.reusable}}">可复用</text>
+            </view>
+            <view class="model-card-body">
+              <view class="model-name-row">
+                <text class="model-name">{{m.fullName}}</text>
+                <text class="model-flag" wx:if="{{m.countryFlag}}">{{m.countryFlag}}</text>
+              </view>
+              <text class="model-alias" wx:if="{{m.alias}}">{{m.alias}}</text>
+              <text class="model-mfr" wx:if="{{m.manufacturer}}">{{m.manufacturer}}</text>
+              <view class="model-stats-row">
+                <text class="model-stat" wx:if="{{m.hasFlown}}">着陆 {{m.successfulLandings}}/{{m.attemptedLandings}}</text>
+                <text class="model-stat model-stat--pending" wx:else>首飞待定</text>
+              </view>
+            </view>
+          </view>
+      </view>
+    </view>
+
+    <!-- 箭实体网格 -->
+    <view class="section-block" wx:if="{{boosterCards.length > 0}}">
+      <text class="block-title">箭实体 · {{boosterCards.length}}</text>
+      <view class="booster-grid">
+        <view class="bg-card glass-card" wx:for="{{boosterCards}}" wx:key="serial"
+              data-serial="{{item.serial}}" bindtap="onBoosterCardTap">
+          <view class="bg-img-wrap">
+            <image class="bg-img {{imageLoadedMap['b' + index] ? 'bg-img--loaded' : ''}}"
+                   wx:if="{{item.thumbnailUrl}}" src="{{item.thumbnailUrl}}" mode="aspectFill" lazy-load
+                   data-img-key="b{{index}}" bindload="onImageLoad" binderror="onImageError" />
+            <view class="bg-img bg-img--placeholder" wx:else></view>
+            <text class="bg-status-badge bg-status-badge--{{item.status}}">{{item.statusText}}</text>
+          </view>
+          <view class="bg-card-body">
+            <view class="bg-serial-row">
+              <text class="bg-serial">{{item.serial}}</text>
+              <text class="bg-flag" wx:if="{{item.countryFlag}}">{{item.countryFlag}}</text>
+            </view>
+            <text class="bg-family">{{item.rocketFamily}}</text>
+            <view class="bg-stats-row">
+              <text class="bg-stat">{{item.flights}} 飞行</text>
+              <text class="bg-stat">{{item.successfulLandings}} 着陆</text>
+            </view>
+            <view class="bg-flights-bar">
+              <view class="flight-block {{flight.pending ? 'flight-pending' : (flight.success ? 'flight-success' : (flight.failed ? 'flight-fail' : 'flight-unknown'))}}"
+                    wx:for="{{item.flightBlocks}}" wx:for-item="flight" wx:key="idx"></view>
+            </view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 筛选空态 -->
+    <view class="empty-wrap" wx:if="{{filterEmpty}}">
+      <text class="empty-icon"></text>
+      <text class="empty-text">该筛选下暂无记录</text>
+      <text class="empty-hint">新箭实体首飞后将自动收录</text>
+    </view>
+
+    <view style="height: {{tabBarReservedHeight + 40}}px;"></view>
+    </block>
+  </scroll-view>
+  <share-guide />
+</view>

@@ -1,0 +1,277 @@
+page {
+  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  height: 100vh;
+}
+
+.detail-page {
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* 导航标题包裹层：min-width:0 允许在 grid 中收缩，flex 保证标题始终水平居中 */
+.nav-title-wrap {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.detail-scroll {
+  height: 100vh;
+}
+
+.detail-container {
+  padding: 24rpx;
+  padding-bottom: 48rpx;
+}
+
+/* 加载状态 */
+.loading-state {
+  min-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24rpx;
+}
+
+.loading-spinner {
+  width: 56rpx;
+  height: 56rpx;
+  border-radius: 50%;
+  border: 4rpx solid rgba(90, 200, 250, 0.2);
+  border-top-color: #5ac8fa;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-text {
+  font-size: 28rpx;
+  color: #8e8e93;
+}
+
+/* 玻璃卡片 */
+.glass-card {
+  background: rgba(28, 28, 30, 0.72);
+  border: 1rpx solid rgba(255, 255, 255, 0.08);
+  border-radius: 20rpx;
+}
+
+/* 汇总条 */
+.summary-bar {
+  display: flex;
+  align-items: baseline;
+  gap: 10rpx;
+  padding: 24rpx 28rpx;
+  margin-bottom: 20rpx;
+}
+
+.summary-count {
+  font-size: 44rpx;
+  font-weight: 700;
+  color: #5ac8fa;
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-desc {
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* 任务卡片（与发射商详情页板块同款视觉） */
+.al-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.al-card {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 20rpx;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1rpx solid rgba(255, 255, 255, 0.08);
+  border-radius: 20rpx;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+
+.al-card--pressed {
+  transform: scale(0.98);
+  opacity: 0.85;
+}
+
+.al-thumb {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 16rpx;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.al-thumb--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 44rpx;
+}
+
+.al-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.al-name {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #ffffff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.al-meta {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.55);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.al-status {
+  flex-shrink: 0;
+  font-size: 20rpx;
+  font-weight: 600;
+  padding: 4rpx 14rpx;
+  border-radius: 999rpx;
+  max-width: 140rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.al-status--success {
+  color: #34C759;
+  background: rgba(52, 199, 89, 0.14);
+}
+
+.al-status--failure {
+  color: #FF5A5F;
+  background: rgba(255, 90, 95, 0.14);
+}
+
+.al-status--neutral {
+  color: #FFAA00;
+  background: rgba(255, 170, 0, 0.14);
+}
+
+.al-arrow {
+  flex-shrink: 0;
+  font-size: 36rpx;
+  color: rgba(255, 255, 255, 0.35);
+  line-height: 1;
+}
+
+/* 空态 */
+.empty-state {
+  min-height: 50vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16rpx;
+  padding: 0 48rpx;
+  text-align: center;
+}
+
+.empty-icon {
+  font-size: 88rpx;
+}
+
+.empty-title {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.empty-desc {
+  font-size: 24rpx;
+  line-height: 1.7;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.retry-btn {
+  margin-top: 16rpx;
+  padding: 0 48rpx;
+  height: 80rpx;
+  line-height: 80rpx;
+  border-radius: 40rpx;
+  background: linear-gradient(135deg, #5ac8fa 0%, #007aff 100%);
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.retry-btn::after {
+  border: none;
+}
+
+/* 底部说明 */
+.footer-note {
+  margin-top: 32rpx;
+  text-align: center;
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+.detail-page.theme-light {
+  background: var(--color-bg-page);
+}
+.theme-light .loading-text {
+  color: var(--color-text-secondary);
+}
+.theme-light .glass-card {
+  background: rgba(255, 255, 255, 0.62);
+  border: 1rpx solid var(--color-divider);
+}
+.theme-light .summary-count {
+  color: var(--color-brand);
+}
+.theme-light .summary-desc {
+  color: var(--color-text-tertiary);
+}
+.theme-light .al-card {
+  background: var(--color-bg-card);
+  border: 1rpx solid var(--color-divider);
+}
+.theme-light .al-thumb {
+  background: rgba(0, 0, 0, 0.05);
+}
+.theme-light .al-name {
+  color: var(--color-text-primary);
+}
+.theme-light .al-meta {
+  color: var(--color-text-tertiary);
+}
+.theme-light .al-arrow {
+  color: rgba(0, 0, 0, 0.25);
+}
+.theme-light .empty-title {
+  color: var(--color-text-primary);
+}
+.theme-light .empty-desc {
+  color: var(--color-text-tertiary);
+}
+/* retry-btn 为实色渐变按钮，白字保持不变 */
+.theme-light .footer-note {
+  color: rgba(0, 0, 0, 0.3);
+}

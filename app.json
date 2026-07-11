@@ -1,0 +1,246 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/monitor/monitor",
+    "pages/progress/progress",
+    "pages/news/news",
+    "pages/profile/profile"
+  ],
+  "networkTimeout": {
+    "request": 10000,
+    "downloadFile": 60000
+  },
+  "usingComponents": {
+    "page-progress": "/components/page-progress/index"
+  },
+  "darkmode": true,
+  "window": {
+    "navigationBarTitleText": "火星探索日志 - SpaceX马斯克航天太空发射追踪",
+    "navigationBarBackgroundColor": "#1C1C1E",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#000000",
+    "backgroundColorContent": "#000000",
+    "backgroundColorTop": "#000000",
+    "backgroundColorBottom": "#000000",
+    "backgroundTextStyle": "dark",
+    "enablePullDownRefresh": false,
+    "navigationStyle": "custom"
+  },
+  "permission": {
+    "scope.userFuzzyLocation": {
+      "desc": "用于获取当前大致地理位置，以计算卫星过境时间、方位角、仰角及观测方向"
+    }
+  },
+  "tabBar": {
+    "color": "#8E8E93",
+    "selectedColor": "#007AFF",
+    "backgroundColor": "#000000",
+    "borderStyle": "black",
+    "custom": true,
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "主页",
+        "iconPath": "images/tabbar/placeholder.png",
+        "selectedIconPath": "images/tabbar/placeholder.png"
+      },
+      {
+        "pagePath": "pages/monitor/monitor",
+        "text": "监控中心",
+        "iconPath": "images/tabbar/placeholder.png",
+        "selectedIconPath": "images/tabbar/placeholder.png"
+      },
+      {
+        "pagePath": "pages/progress/progress",
+        "text": "星舰进度",
+        "iconPath": "images/tabbar/placeholder.png",
+        "selectedIconPath": "images/tabbar/placeholder.png"
+      },
+      {
+        "pagePath": "pages/news/news",
+        "text": "事件",
+        "iconPath": "images/tabbar/placeholder.png",
+        "selectedIconPath": "images/tabbar/placeholder.png"
+      },
+      {
+        "pagePath": "pages/profile/profile",
+        "text": "我的",
+        "iconPath": "images/tabbar/placeholder.png",
+        "selectedIconPath": "images/tabbar/placeholder.png"
+      }
+    ]
+  },
+  "style": "v2",
+  "cloud": true,
+  "sitemapLocation": "sitemap.json",
+  "__usePrivacyCheck__": true,
+  "requiredPrivateInfos": ["getFuzzyLocation"],
+  "lazyCodeLoading": "requiredComponents",
+  "subPackages": [
+    {
+      "root": "subpackages/shared",
+      "name": "shared",
+      "independent": false,
+      "pages": [
+        "placeholder",
+        "briefing"
+      ]
+    },
+    {
+      "root": "subpackages/index-extra",
+      "name": "index-extra",
+      "pages": [
+        "mission-detail",
+        "global-launch-stats",
+        "worldcup-event"
+      ]
+    },
+    {
+      "root": "subpackages/progress-extra",
+      "name": "progress-extra",
+      "pages": [
+        "event-detail",
+        "starship-detail",
+        "hardware-list",
+        "hardware-detail",
+        "starbase-map",
+        "road-closure-map",
+        "road-closure-detail"
+      ]
+    },
+    {
+      "root": "subpackages/news-extra",
+      "name": "news-extra",
+      "pages": [
+        "detail"
+      ]
+    },
+    {
+      "root": "subpackages/profile-extra",
+      "name": "profile-extra",
+      "pages": [
+        "membership/membership",
+        "membership/orders",
+        "preferences/preferences",
+        "timeline/timeline",
+        "year-review/year-review",
+        "invite/invite"
+      ]
+    },
+    {
+      "root": "subpackages/images",
+      "name": "images",
+      "pages": [
+        "pages/placeholder"
+      ]
+    },
+    {
+      "root": "pages/nasa-data",
+      "name": "nasa-data",
+      "pages": [
+        "nasa-data",
+        "eonet-map"
+      ]
+    },
+    {
+      "root": "pages/about",
+      "name": "about",
+      "pages": [
+        "about"
+      ]
+    },
+    {
+      "root": "pages/collect",
+      "name": "collect",
+      "pages": [
+        "collect"
+      ]
+    },
+    {
+      "root": "pages/space-explore",
+      "name": "space-explore",
+      "pages": [
+        "astro-calendar",
+        "exoplanet"
+      ]
+    },
+    {
+      "root": "pages/webview",
+      "name": "webview",
+      "pages": [
+        "webview"
+      ]
+    },
+    {
+      "root": "pages/mission-detail",
+      "name": "mission-detail",
+      "pages": [
+        "mission-detail",
+        "launch-updates"
+      ]
+    },
+    {
+      "root": "pages/search",
+      "name": "search",
+      "pages": [
+        "search"
+      ]
+    },
+    {
+      "root": "pages/video-player",
+      "name": "video-player",
+      "pages": [
+        "video-player"
+      ]
+    },
+    {
+      "root": "subpackages/monitor-pages",
+      "name": "monitor-pages",
+      "pages": [
+        "mp-landing",
+        "starlink-fullscreen",
+        "starlink-ar/starlink-ar",
+        "pass-map",
+        "starlink-pass-detail",
+        "launch-site-map",
+        "agency-list",
+        "agency-detail",
+        "agency-launches",
+        "spacecraft-detail",
+        "spacecraft-gallery",
+        "launch-site-gallery",
+        "launch-site-detail",
+        "station-detail",
+        "orbit-map",
+        "booster-detail",
+        "booster-history",
+        "booster-genealogy",
+        "rocket-model-detail",
+        "artemis-detail",
+        "orbital-data-center/orbital-data-center"
+      ]
+    }
+  ],
+  "preloadRule": {
+    "pages/index/index": {
+      "network": "all",
+      "packages": ["shared", "index-extra"]
+    },
+    "pages/monitor/monitor": {
+      "network": "all",
+      "packages": ["shared", "monitor-pages"]
+    },
+    "pages/progress/progress": {
+      "network": "all",
+      "packages": ["shared", "progress-extra"]
+    },
+    "pages/news/news": {
+      "network": "all",
+      "packages": ["shared", "news-extra"]
+    },
+    "pages/profile/profile": {
+      "network": "all",
+      "packages": ["shared", "profile-extra"]
+    }
+  }
+}

@@ -1,0 +1,38 @@
+<view class="rocket-history" wx:if="{{!loading && missions.length > 0}}">
+  <view class="rocket-history__header" wx:if="{{showTitle}}">
+    <text class="rocket-history__title">{{boosterSerial}} 历史任务</text>
+    <text class="rocket-history__count">{{missions.length}} 次</text>
+  </view>
+
+  <view class="rocket-history__list">
+    <view
+      class="rocket-history__item {{item.hasDetailLink ? '' : 'rocket-history__item--no-link'}}"
+      wx:for="{{displayMissions}}"
+      wx:key="index"
+      data-item="{{item}}"
+      bindtap="onMissionTap"
+    >
+      <view class="rocket-history__status {{item.statusAbbrev === 'Success' ? 'rocket-history__status--success' : 'rocket-history__status--fail'}}">
+        <text class="rocket-history__status-icon">{{item.statusIcon}}</text>
+      </view>
+      <view class="rocket-history__body">
+        <text class="rocket-history__name">{{item.name}}</text>
+        <text class="rocket-history__date">{{item.date}}</text>
+      </view>
+      <view class="rocket-history__arrow" wx:if="{{item.hasDetailLink}}">›</view>
+    </view>
+  </view>
+
+  <view class="rocket-history__toggle" wx:if="{{hasMore}}" bindtap="toggleExpand">
+    <text class="rocket-history__toggle-text">查看全部 {{missions.length}} 条</text>
+    <text class="rocket-history__toggle-icon">›</text>
+  </view>
+</view>
+
+<view class="rocket-history rocket-history--loading" wx:if="{{loading}}">
+  <text class="rocket-history__loading-text">加载历史任务…</text>
+</view>
+
+<view class="rocket-history rocket-history--empty" wx:if="{{!loading && missions.length === 0 && boosterSerial}}">
+  <text class="rocket-history__loading-text">暂无历史任务数据</text>
+</view>

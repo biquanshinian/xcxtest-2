@@ -1,0 +1,108 @@
+.lsc-root {
+  display: block;
+  padding: 20rpx 24rpx;
+  background-color: var(--color-bg-card);
+  border-radius: 20rpx;
+}
+
+.lsc-header {
+  display: block;
+  padding-bottom: 14rpx;
+}
+
+.lsc-title {
+  font-size: 30rpx;
+  font-weight: bold;
+  color: var(--color-text-primary);
+}
+
+.lsc-numbers {
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 14rpx;
+}
+
+.lsc-num-block {
+  display: block;
+  flex-grow: 1;
+  text-align: center;
+}
+
+.lsc-num {
+  display: block;
+  font-size: 40rpx;
+  font-weight: bold;
+  color: #6ea8ff;
+}
+
+.lsc-num-success {
+  color: #7cd992;
+}
+
+.lsc-num-fail {
+  color: #ff6b6b;
+}
+
+.lsc-num-label {
+  display: block;
+  font-size: 22rpx;
+  color: var(--color-text-secondary);
+  padding-top: 4rpx;
+}
+
+.lsc-top {
+  display: block;
+  border-top-width: 1rpx;
+  border-top-style: solid;
+  border-top-color: var(--color-divider-strong);
+  padding-top: 12rpx;
+}
+
+.lsc-top-title {
+  display: block;
+  font-size: 22rpx;
+  color: var(--color-text-secondary);
+  padding-bottom: 8rpx;
+}
+
+.lsc-top-row {
+  display: flex;
+  align-items: center;
+  padding: 6rpx 0;
+}
+
+.lsc-top-rank {
+  display: block;
+  width: 36rpx;
+  font-size: 22rpx;
+  color: #6ea8ff;
+  font-weight: bold;
+}
+
+.lsc-top-name {
+  display: block;
+  flex-grow: 1;
+  flex-shrink: 1;
+  font-size: 24rpx;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.lsc-top-count {
+  display: block;
+  flex-shrink: 0;
+  font-size: 22rpx;
+  color: var(--color-text-secondary);
+}
+
+.lsc-footer {
+  display: flex;
+  justify-content: center;
+  padding-top: 12rpx;
+}
+
+.lsc-footer-text {
+  font-size: 22rpx;
+  color: #6ea8ff;
+}

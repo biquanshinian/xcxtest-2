@@ -1,0 +1,73 @@
+/* 简报详情页：内容渲染复用 morning-briefing 组件（mode="page"）
+ * 组件 styleIsolation 为 apply-shared，「事件更新」账号栏样式由宿主页提供，必须导入 */
+@import "../../styles/tweet-stats-bar.wxss";
+
+.briefing-detail-page {
+  height: 100vh;
+}
+
+/* 顶部导航标题容器（app.wxss 只有 --page-grid 修饰类，基础类各页自带） */
+.nav-title-wrap {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.briefing-detail-scroll {
+  height: 100vh;
+}
+
+.briefing-detail-container {
+  padding: 24rpx 32rpx 0;
+  box-sizing: border-box;
+}
+
+/* 给底部固定分享条留出空间（按钮 80rpx + 上下边距 + 安全区） */
+.briefing-detail-bottom-space {
+  height: calc(160rpx + env(safe-area-inset-bottom, 0px));
+}
+
+.briefing-detail-share-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 16rpx 32rpx calc(20rpx + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.85) 40%, #000000 100%);
+  z-index: 100;
+}
+
+.briefing-detail-share-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 80rpx;
+  background: #07C160;
+  border: none;
+  color: #ffffff;
+  font-size: 28rpx;
+  font-weight: 600;
+  border-radius: 40rpx;
+  padding: 0;
+}
+
+.briefing-detail-share-btn::after {
+  border: none;
+}
+
+.briefing-detail-share-btn:active {
+  background: #06AD56;
+}
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+.briefing-detail-page.theme-light {
+  background: var(--color-bg);
+}
+
+/* 底部分享条渐变改为浅色底渐变（分享按钮品牌绿保持不变） */
+.theme-light .briefing-detail-share-bar {
+  background: linear-gradient(180deg, rgba(242, 242, 247, 0) 0%, rgba(242, 242, 247, 0.85) 40%, #F2F2F7 100%);
+}

@@ -1,0 +1,258 @@
+page {
+  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  overflow: hidden;
+  height: 100vh;
+  width: 100%;
+}
+
+.detail-page {
+  min-height: 100vh;
+  height: 100vh;
+  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  overflow: hidden;
+}
+
+/* 导航栏（复用 mission-detail 结构） */
+
+.nav-title-wrap { min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+
+.detail-scroll { height: 100vh; }
+
+/* ========== Tab 栏 ========== */
+.nasa-tab-bar {
+  display: flex;
+  margin: 16rpx 24rpx;
+  background: rgba(44, 44, 46, 0.6);
+  border-radius: 20rpx;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.nasa-tab-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20rpx 0 16rpx;
+  position: relative;
+  transition: all 0.2s;
+}
+
+.nasa-tab-item--active { background: rgba(0, 122, 255, 0.12); }
+.nasa-tab-item--active::after { content: ''; position: absolute; bottom: 0; left: 20%; right: 20%; height: 4rpx; border-radius: 2rpx; background: #007AFF; }
+.nasa-tab-icon { font-size: 36rpx; margin-bottom: 4rpx; }
+.nasa-tab-label { font-size: 24rpx; color: #8E8E93; }
+.nasa-tab-item--active .nasa-tab-label { color: #007AFF; font-weight: 600; }
+
+/* ========== 通用 ========== */
+.glass-card {
+  background: rgba(44, 44, 46, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20rpx;
+  margin: 16rpx 24rpx;
+  overflow: hidden;
+}
+
+.filter-bar { display: flex; gap: 24rpx; padding: 16rpx 24rpx 8rpx; flex-wrap: wrap; }
+.filter-group { display: flex; align-items: center; gap: 12rpx; }
+.filter-label { font-size: 24rpx; color: #8E8E93; flex-shrink: 0; }
+.filter-chips { display: flex; gap: 12rpx; }
+.filter-chip { padding: 8rpx 24rpx; border-radius: 24rpx; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; }
+.filter-chip text { font-size: 24rpx; color: #8E8E93; line-height: 1; }
+.filter-chip--active { background: rgba(0,122,255,0.2); border-color: rgba(0,122,255,0.5); }
+.filter-chip--active text { color: #007AFF; font-weight: 600; line-height: 1; }
+
+.section-summary { padding: 12rpx 24rpx 0; }
+.section-summary text { font-size: 24rpx; color: #636366; }
+
+.loading-state { display: flex; flex-direction: column; align-items: center; padding: 120rpx 0; gap: 24rpx; }
+.loading-text { font-size: 26rpx; color: #636366; }
+.loading-spinner { width: 48rpx; height: 48rpx; border: 4rpx solid rgba(255,255,255,0.1); border-top-color: #007AFF; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.error-state { display: flex; flex-direction: column; align-items: center; padding: 60rpx 24rpx; gap: 24rpx; }
+.error-text { font-size: 26rpx; color: #FF453A; text-align: center; }
+.retry-btn { margin-top: 8rpx; padding: 12rpx 48rpx; border-radius: 24rpx; background: rgba(0,122,255,0.2); border: 1px solid rgba(0,122,255,0.4); font-size: 26rpx; color: #007AFF; line-height: 1; display: flex; align-items: center; justify-content: center; }
+
+.list-empty { padding: 80rpx 0; text-align: center; }
+.list-empty text { font-size: 26rpx; color: #636366; }
+
+/* ========== 近地天体 ========== */
+.cad-card { padding: 24rpx; }
+.cad-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16rpx; }
+.cad-name-row { display: flex; align-items: center; gap: 12rpx; flex: 1; min-width: 0; }
+.cad-icon { font-size: 36rpx; flex-shrink: 0; }
+.cad-name { font-size: 30rpx; font-weight: 600; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cad-safe-badge { flex-shrink: 0; padding: 4rpx 16rpx; border-radius: 12rpx; margin-left: 12rpx; display: flex; align-items: center; justify-content: center; }
+.cad-safe-badge text { font-size: 22rpx; font-weight: 600; line-height: 1; }
+.cad-safe-badge--safe { background: rgba(52,199,89,0.15); }
+.cad-safe-badge--safe text { color: #34C759; }
+.cad-safe-badge--warning { background: rgba(255,204,0,0.15); }
+.cad-safe-badge--warning text { color: #FFCC00; }
+.cad-safe-badge--danger { background: rgba(255,59,48,0.15); }
+.cad-safe-badge--danger text { color: #FF3B30; }
+.cad-card-body { display: flex; flex-direction: column; gap: 8rpx; }
+.cad-info-row { display: flex; justify-content: space-between; align-items: center; padding: 6rpx 0; }
+.cad-label { font-size: 24rpx; color: #8E8E93; flex-shrink: 0; }
+.cad-value { font-size: 24rpx; color: #E5E5EA; text-align: right; }
+
+/* ========== 地球事件 ========== */
+.category-bar { padding: 16rpx 0; white-space: nowrap; }
+.category-chips { display: inline-flex; gap: 12rpx; padding: 0 24rpx; }
+
+.eonet-card { padding: 24rpx; }
+.eonet-card-header { display: flex; align-items: flex-start; gap: 16rpx; margin-bottom: 16rpx; }
+.eonet-cat-icon { font-size: 40rpx; flex-shrink: 0; margin-top: 4rpx; }
+.eonet-title-wrap { flex: 1; min-width: 0; }
+.eonet-title { font-size: 28rpx; font-weight: 600; color: #fff; display: block; word-break: break-word; }
+.eonet-desc { font-size: 24rpx; color: #8E8E93; display: block; margin-top: 4rpx; }
+.eonet-status { flex-shrink: 0; padding: 4rpx 16rpx; border-radius: 12rpx; display: flex; align-items: center; justify-content: center; }
+.eonet-status--open { background: rgba(52,199,89,0.15); }
+.eonet-status--open text { font-size: 22rpx; color: #34C759; font-weight: 600; line-height: 1; }
+.eonet-status--closed { background: rgba(142,142,147,0.15); }
+.eonet-status--closed text { font-size: 22rpx; color: #8E8E93; line-height: 1; }
+.eonet-card-body { display: flex; flex-direction: column; gap: 8rpx; }
+.eonet-info-row { display: flex; justify-content: space-between; align-items: center; padding: 4rpx 0; }
+.eonet-label { font-size: 24rpx; color: #8E8E93; flex-shrink: 0; }
+.eonet-value { font-size: 24rpx; color: #E5E5EA; text-align: right; }
+/* 地球事件地图入口 */
+.eonet-map-entry {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  margin-top: 16rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 16rpx;
+  background: rgba(0, 122, 255, 0.08);
+  border: 1px solid rgba(0, 122, 255, 0.18);
+}
+.eonet-map-icon { font-size: 30rpx; flex-shrink: 0; }
+.eonet-map-text { flex: 1; font-size: 26rpx; color: #4ea1ff; font-weight: 500; }
+.eonet-map-arrow { font-size: 36rpx; color: #4ea1ff; flex-shrink: 0; }
+
+/* ========== 火星探索 ========== */
+.rover-switch { display: flex; gap: 16rpx; padding: 16rpx 24rpx 8rpx; }
+.rover-btn { flex: 1; padding: 16rpx 0; border-radius: 16rpx; text-align: center; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; }
+.rover-btn text { font-size: 28rpx; color: #8E8E93; line-height: 1; }
+.rover-btn--active { background: rgba(0,122,255,0.15); border-color: rgba(0,122,255,0.4); }
+.rover-btn--active text { color: #007AFF; font-weight: 600; line-height: 1; }
+
+.rover-info-card { padding: 0; overflow: hidden; }
+.rover-info-body { padding: 20rpx; }
+.rover-info-top { display: flex; align-items: flex-start; gap: 20rpx; margin-bottom: 16rpx; }
+.rover-info-left { flex: 1; min-width: 0; }
+.rover-info-name { font-size: 32rpx; font-weight: 600; color: #fff; display: block; margin-bottom: 8rpx; }
+.rover-info-status { display: flex; align-items: center; gap: 8rpx; }
+.rover-status-dot { width: 12rpx; height: 12rpx; border-radius: 50%; background: #34C759; box-shadow: 0 0 8rpx rgba(52,199,89,0.6); }
+.rover-status-text { font-size: 24rpx; color: #34C759; font-weight: 500; }
+.rover-thumb { width: 160rpx; height: 160rpx; border-radius: 16rpx; flex-shrink: 0; }
+.rover-detail-list { display: flex; flex-direction: column; gap: 1rpx; background: rgba(255,255,255,0.04); border-radius: 12rpx; overflow: hidden; }
+.rover-detail-row { display: flex; align-items: baseline; padding: 12rpx 16rpx; background: rgba(28,28,30,0.6); gap: 12rpx; }
+.rover-detail-label { font-size: 22rpx; color: #636366; flex-shrink: 0; width: 100rpx; }
+.rover-detail-value { font-size: 22rpx; color: #E5E5EA; word-break: break-word; flex: 1; }
+/* 贴图讨论区：与 glass-card 左右 24rpx 对齐 */
+.mars-discuss-wrap {
+  margin: 0 24rpx;
+}
+
+.mars-date-row { display: flex; justify-content: space-between; align-items: center; padding: 16rpx 24rpx; }
+.mars-date-label { font-size: 26rpx; color: #E5E5EA; }
+.mars-date-picker { padding: 8rpx 24rpx; border-radius: 16rpx; background: rgba(0,122,255,0.15); border: 1px solid rgba(0,122,255,0.3); display: flex; align-items: center; justify-content: center; }
+.mars-date-picker text { font-size: 24rpx; color: #007AFF; line-height: 1; }
+
+.mars-photo-count { padding: 8rpx 24rpx 16rpx; }
+.mars-photo-count text { font-size: 24rpx; color: #636366; }
+.mars-photos { display: flex; flex-wrap: wrap; padding: 0 16rpx; justify-content: space-between; }
+.mars-photo-item { width: 49%; border-radius: 16rpx; overflow: hidden; position: relative; background: rgba(44,44,46,0.6); margin-bottom: 12rpx; }
+.mars-photo-img { width: 100%; height: 320rpx; display: block; }
+.mars-photo-label { position: absolute; bottom: 0; left: 0; right: 0; padding: 8rpx 12rpx; background: linear-gradient(transparent, rgba(0,0,0,0.7)); }
+.mars-photo-label text { font-size: 20rpx; color: rgba(255,255,255,0.8); }
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+/* 页面根（page{} 静态底色由 page-meta 的 pageBgColor 接管） */
+.detail-page.theme-light {
+  background: var(--color-bg-page, linear-gradient(180deg, #F2F2F7 0%, #ECECF1 100%));
+}
+
+/* Tab 栏 */
+.theme-light .nasa-tab-bar {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: var(--color-divider);
+  box-shadow: var(--shadow-card);
+}
+.theme-light .nasa-tab-label { color: var(--color-text-secondary); }
+.theme-light .nasa-tab-item--active { background: rgba(0, 122, 255, 0.10); }
+.theme-light .nasa-tab-item--active .nasa-tab-label { color: #007AFF; }
+
+/* 通用玻璃卡片 */
+.theme-light .glass-card {
+  background: rgba(255, 255, 255, 0.62);
+  border-color: var(--color-divider);
+  box-shadow: var(--shadow-card);
+}
+
+/* 筛选胶囊 */
+.theme-light .filter-label { color: var(--color-text-secondary); }
+.theme-light .filter-chip {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: var(--color-divider);
+}
+.theme-light .filter-chip text { color: var(--color-text-secondary); }
+.theme-light .filter-chip--active {
+  background: rgba(0, 122, 255, 0.12);
+  border-color: rgba(0, 122, 255, 0.4);
+}
+.theme-light .filter-chip--active text { color: #007AFF; }
+
+/* 摘要 / 加载 / 空态 */
+.theme-light .section-summary text { color: var(--color-text-tertiary); }
+.theme-light .loading-text { color: var(--color-text-tertiary); }
+.theme-light .loading-spinner { border-color: rgba(0, 0, 0, 0.08); border-top-color: #007AFF; }
+.theme-light .retry-btn {
+  background: rgba(0, 122, 255, 0.12);
+  border-color: rgba(0, 122, 255, 0.35);
+}
+.theme-light .list-empty text { color: var(--color-text-tertiary); }
+
+/* 近地天体 */
+.theme-light .cad-name { color: var(--color-text-primary); }
+.theme-light .cad-label { color: var(--color-text-secondary); }
+.theme-light .cad-value { color: var(--color-text-primary); }
+/* 黄色警示字在浅底上不可读，压深一档（状态语义不变） */
+.theme-light .cad-safe-badge--warning text { color: #C79100; }
+
+/* 地球事件 */
+.theme-light .eonet-title { color: var(--color-text-primary); }
+.theme-light .eonet-desc { color: var(--color-text-secondary); }
+.theme-light .eonet-status--closed { background: rgba(142, 142, 147, 0.12); }
+.theme-light .eonet-status--closed text { color: var(--color-text-secondary); }
+.theme-light .eonet-label { color: var(--color-text-secondary); }
+.theme-light .eonet-value { color: var(--color-text-primary); }
+.theme-light .eonet-map-text { color: #007AFF; }
+.theme-light .eonet-map-arrow { color: #007AFF; }
+
+/* 火星探索 */
+.theme-light .rover-btn {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: var(--color-divider);
+}
+.theme-light .rover-btn text { color: var(--color-text-secondary); }
+.theme-light .rover-btn--active {
+  background: rgba(0, 122, 255, 0.12);
+  border-color: rgba(0, 122, 255, 0.4);
+}
+.theme-light .rover-btn--active text { color: #007AFF; }
+.theme-light .rover-info-name { color: var(--color-text-primary); }
+.theme-light .rover-detail-list { background: rgba(0, 0, 0, 0.06); }
+.theme-light .rover-detail-row { background: rgba(255, 255, 255, 0.85); }
+.theme-light .rover-detail-label { color: var(--color-text-tertiary); }
+.theme-light .rover-detail-value { color: var(--color-text-primary); }
+.theme-light .mars-date-label { color: var(--color-text-primary); }
+.theme-light .mars-date-picker {
+  background: rgba(0, 122, 255, 0.12);
+  border-color: rgba(0, 122, 255, 0.3);
+}
+.theme-light .mars-photo-count text { color: var(--color-text-tertiary); }
+/* 照片占位底：深灰骨架 → 浅灰 */
+.theme-light .mars-photo-item { background: rgba(0, 0, 0, 0.05); }
+/* .mars-photo-label 为压图文字浮层，保持深色渐变不覆盖 */

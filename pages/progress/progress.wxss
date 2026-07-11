@@ -1,0 +1,2370 @@
+/* pages/progress/progress.wxss */
+@import "../../styles/tweet-stats-bar.wxss";
+/* 禁止页面级滚动，避免空白区域下滑触发整页移动；仅由 scroll-view 负责滚动 */
+page {
+  overflow: hidden;
+  height: 100vh;
+  width: 100%;
+}
+
+.container {
+  padding-bottom: 0;
+  padding-top: 0;
+}
+
+/* 顶部导航栏容器（包含状态栏和导航栏） */
+.top-nav-wrapper {
+  background: rgba(12, 14, 18, 0.08);
+  backdrop-filter: blur(48rpx) saturate(170%);
+  -webkit-backdrop-filter: blur(48rpx) saturate(170%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+/* 顶部导航栏 */
+.content-scroll {
+  padding: 30rpx;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #FFFFFF;
+  margin-bottom: 20rpx;
+  padding: 0 10rpx;
+}
+
+.section-title-right {
+  margin-left: auto;
+}
+
+.progress-map-actions {
+  display: flex;
+  gap: 14rpx;
+}
+
+.progress-map-btn {
+  min-width: 92rpx;
+  min-height: 44rpx;
+  padding: 0 14rpx;
+  border-radius: 999rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(52, 199, 89, 0.16);
+  border: 1px solid rgba(52, 199, 89, 0.42);
+  box-sizing: border-box;
+}
+
+.progress-map-btn text {
+  color: #A7FFCA;
+  font-size: 20rpx;
+  line-height: 1;
+}
+
+.progress-map-btn--blue {
+  background: rgba(10, 132, 255, 0.16);
+  border-color: rgba(10, 132, 255, 0.42);
+}
+
+.progress-map-btn--blue text {
+  color: #9FD0FF;
+}
+
+.notice-map-entry {
+  margin-bottom: 18rpx;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44rpx;
+  padding: 0 16rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 69, 58, 0.16);
+  border: 1px solid rgba(255, 69, 58, 0.35);
+  box-sizing: border-box;
+}
+
+.notice-map-entry text {
+  color: #FFD1CC;
+  font-size: 22rpx;
+}
+
+/* 星舰组合体区域 */
+.starship-section {
+  margin-bottom: 24rpx;
+}
+
+.starship-cards {
+  display: flex;
+  flex-direction: row;
+  gap: 20rpx;
+}
+
+.starship-card {
+  flex: 1;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* 数据就绪前的骨架占位（高度与真实卡片接近，避免布局跳动）；扫光走全局 skeleton-shimmer */
+.starship-card-skeleton {
+  height: 240rpx;
+}
+
+.starship-card-error {
+  animation: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.starship-load-error-text {
+  font-size: 26rpx;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.starship-card-active {
+  border-color: rgba(52, 199, 89, 0.8);
+  box-shadow: 0 0 0 1px rgba(52, 199, 89, 0.4), 0 10rpx 28rpx rgba(0, 0, 0, 0.35);
+}
+
+.starship-content {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+/* 图片容器 */
+.starship-image-container {
+  width: 100%;
+  aspect-ratio: 3 / 1;
+  position: relative;
+  overflow: hidden;
+  background: rgba(30, 30, 30, 0.35);
+}
+
+.starship-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background-color: rgba(30, 30, 30, 0.35);
+}
+
+/* 型号覆盖层 */
+.starship-id-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(to bottom,
+    rgba(0, 0, 0, 0.6) 0%,
+    rgba(0, 0, 0, 0.3) 50%,
+    rgba(0, 0, 0, 0) 100%);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.starship-id-text {
+  font-size: 64rpx;
+  font-weight: 700;
+  color: #FFFFFF;
+  text-shadow:
+    0 2rpx 8rpx rgba(0, 0, 0, 0.8),
+    0 0 20rpx rgba(0, 122, 255, 0.5);
+  letter-spacing: 4rpx;
+}
+
+/* 底部信息区域 */
+.starship-info-bottom {
+  padding: 12rpx 20rpx;
+  background: rgba(28, 28, 30, 0.8);
+  backdrop-filter: blur(20rpx);
+  -webkit-backdrop-filter: blur(20rpx);
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+  box-sizing: border-box;
+}
+
+.starship-header {
+  display: flex;
+  align-items: center;
+}
+
+.starship-name {
+  font-size: 24rpx;
+  color: #8E8E93;
+  font-weight: 500;
+  letter-spacing: 2rpx;
+}
+
+.starship-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 4rpx;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.status-label {
+  font-size: 22rpx;
+  color: #8E8E93;
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.status-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: #8E8E93;
+  box-shadow: 0 0 8rpx rgba(142, 142, 147, 0.55);
+}
+
+.status-value {
+  font-size: 24rpx;
+  color: #8E8E93;
+  font-weight: 500;
+}
+
+/* 四态：ACTIVE / DESTROYED / EXPENDED / RETIRED */
+.status-active .status-dot {
+  background: #34C759;
+  box-shadow: 0 0 10rpx rgba(52, 199, 89, 0.7);
+}
+
+.status-active .status-value {
+  color: #34C759;
+}
+
+.status-destroyed .status-dot {
+  background: #FF3B30;
+  box-shadow: 0 0 10rpx rgba(255, 59, 48, 0.7);
+}
+
+.status-destroyed .status-value {
+  color: #FF3B30;
+}
+
+.status-expended .status-dot {
+  background: #FF9500;
+  box-shadow: 0 0 10rpx rgba(255, 149, 0, 0.7);
+}
+
+.status-expended .status-value {
+  color: #FF9500;
+}
+
+.status-retired .status-dot {
+  background: #8E8E93;
+  box-shadow: 0 0 8rpx rgba(142, 142, 147, 0.55);
+}
+
+.status-retired .status-value {
+  color: #8E8E93;
+}
+
+/* ── 星舰硬件设施 ── */
+.hardware-section {
+  margin-bottom: 24rpx;
+}
+
+/* 标题右侧「查看全部」：与监控中心全球发射商图鉴按钮同款 */
+.booster-view-all {
+  display: flex;
+  align-items: center;
+  gap: 4rpx;
+  font-size: 24rpx;
+  font-weight: 500;
+  color: #ffffff;
+  padding: 8rpx 20rpx 8rpx 26rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(135deg, #007AFF, #5856D6);
+  border: none;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+
+.booster-view-all--pressed {
+  transform: scale(0.94);
+  opacity: 0.85;
+}
+
+.booster-view-all-arrow {
+  font-size: 30rpx;
+  line-height: 1;
+}
+
+.hardware-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20rpx;
+}
+
+.hardware-card {
+  width: calc((100% - 20rpx) / 2);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.hardware-card-skeleton {
+  height: 380rpx;
+}
+
+.hardware-card-image-wrap {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  position: relative;
+  overflow: hidden;
+  background: rgba(30, 30, 30, 0.35);
+}
+
+.hardware-card-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  background-color: rgba(30, 30, 30, 0.35);
+}
+
+.hardware-card-image-mask {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 55%;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(22, 22, 24, 0.92) 100%);
+  pointer-events: none;
+}
+
+.hardware-card-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 14rpx 18rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+  pointer-events: none;
+}
+
+.hardware-card-status {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.hardware-card-status .status-value {
+  font-size: 20rpx;
+  font-weight: 600;
+  letter-spacing: 1rpx;
+}
+
+.hardware-card-status .status-dot {
+  width: 10rpx;
+  height: 10rpx;
+}
+
+.hardware-card-name {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #FFFFFF;
+  text-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hardware-card-body {
+  padding: 14rpx 18rpx 18rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  flex: 1;
+}
+
+.hardware-card-type {
+  font-size: 22rpx;
+  color: #8E8E93;
+}
+
+.hardware-card-notes {
+  font-size: 22rpx;
+  color: #AEAEB2;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.hardware-empty {
+  padding: 40rpx 30rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hardware-empty text {
+  color: #8E8E93;
+  font-size: 26rpx;
+}
+
+.detail-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.status-dot-active {
+  background: #34C759;
+  box-shadow: 0 0 10rpx rgba(52, 199, 89, 0.7);
+}
+
+.detail-status-text {
+  font-size: 24rpx;
+  color: #34C759;
+  font-weight: 600;
+}
+
+.detail-title {
+  font-size: 44rpx;
+  color: #FFFFFF;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.detail-summary {
+  text-align: justify;
+  text-justify: inter-ideograph;
+  font-size: 28rpx;
+  color: #c7c7cc;
+  line-height: 1.55;
+}
+
+.detail-checklist {
+  margin-top: 30rpx;
+}
+
+/* ===== 弹窗遮罩 ===== */
+.popup-mask {
+  position: fixed;
+  left: 0; right: 0; top: 0; bottom: 0;
+  z-index: 1200;
+  background: rgba(0, 0, 0, 0);
+  transition: background 260ms ease;
+  pointer-events: none;
+}
+
+.popup-mask-show {
+  background: rgba(0, 0, 0, 0.52);
+  pointer-events: auto;
+}
+
+/* ===== 弹窗面板 ===== */
+.popup-panel {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 1210;
+  height: 74vh;
+  max-height: 80vh;
+  background: rgba(18, 18, 20, 0.98);
+  border-radius: 28rpx 28rpx 0 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 -10rpx 40rpx rgba(0, 0, 0, 0.45);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  will-change: transform, box-shadow;
+}
+
+.popup-enter {
+  animation: popup-slide-up 280ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  transition: transform 180ms cubic-bezier(0.22, 0.61, 0.36, 1), box-shadow 200ms ease;
+}
+
+.popup-dragging {
+  transition: none !important;
+  animation: none !important;
+}
+
+.popup-bounce {
+  transition: transform 400ms cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 400ms ease;
+}
+
+.popup-leave {
+  animation: popup-slide-down 260ms cubic-bezier(0.55, 0, 1, 0.45) both;
+}
+
+@keyframes popup-slide-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+@keyframes popup-slide-down {
+  from { transform: translateY(0);    opacity: 1; }
+  to   { transform: translateY(100%); opacity: 0; }
+}
+
+/* ===== 拖拽热区（手柄 + 固定头部） ===== */
+.popup-drag-zone {
+  flex-shrink: 0;
+  padding: 0 30rpx;
+  cursor: grab;
+}
+
+.popup-handle-bar {
+  padding: 20rpx 0 14rpx;
+  display: flex;
+  justify-content: center;
+}
+
+.popup-handle {
+  width: 80rpx;
+  height: 8rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.30);
+}
+
+.popup-fixed-header {
+  padding: 4rpx 6rpx 18rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.popup-title {
+  font-size: 44rpx;
+  color: #FFFFFF;
+  font-weight: 700;
+  line-height: 1.15;
+  display: block;
+}
+
+/* ===== 可滚动内容 ===== */
+.popup-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0 30rpx;
+  box-sizing: border-box;
+}
+
+.popup-subtitle {
+  display: block;
+  font-size: 24rpx;
+  color: #8E8E93;
+  letter-spacing: 3rpx;
+  font-weight: 500;
+  margin-bottom: 16rpx;
+}
+
+.popup-summary {
+  display: block;
+  font-size: 28rpx;
+  color: #c7c7cc;
+  line-height: 1.6;
+  text-align: justify;
+  margin-bottom: 24rpx;
+}
+
+.popup-hero-wrap {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 18rpx;
+  overflow: hidden;
+  margin-bottom: 28rpx;
+  background: rgba(30, 30, 30, 0.35);
+}
+
+.popup-hero-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.checklist-title {
+  margin-bottom: 16rpx;
+}
+
+.checklist-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20rpx;
+}
+
+.checklist-item {
+  padding: 24rpx;
+  border: 1px solid rgba(52, 199, 89, 0.85);
+  min-height: 240rpx;
+  transition: border-color 0.3s ease;
+}
+
+/* 正常 - 绿色 */
+.checklist-status-normal {
+  border-color: rgba(52, 199, 89, 0.85);
+}
+
+/* 异常 - 橙色 */
+.checklist-status-warning {
+  border-color: rgba(255, 149, 0, 0.85);
+}
+
+/* 失败 - 红色 */
+.checklist-status-error {
+  border-color: rgba(255, 59, 48, 0.85);
+}
+
+.checklist-item-title {
+  font-size: 40rpx;
+  color: #FFFFFF;
+  font-weight: 700;
+  margin-bottom: 16rpx;
+  display: block;
+}
+
+.checklist-meta {
+  margin-bottom: 8rpx;
+}
+
+.checklist-meta-text {
+  font-size: 24rpx;
+  color: #b7b7bd;
+}
+
+.checklist-desc {
+  margin-top: 14rpx;
+  font-size: 29rpx;
+  color: #c7c7cc;
+  line-height: 1.5;
+  display: block;
+}
+
+/* 封路通知区域 */
+.notice-section {
+  margin-bottom: 40rpx;
+}
+
+.notice-card {
+  padding: 30rpx;
+  border-left: 4rpx solid #FF9500;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+}
+
+button.notice-card {
+  display: block !important;
+  width: 100% !important;
+  text-align: left !important;
+  line-height: normal !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+}
+
+.notice-header {
+  display: flex;
+  align-items: center;
+  gap: 15rpx;
+  margin-bottom: 20rpx;
+}
+
+.notice-icon {
+  flex-shrink: 0;
+  width: 36rpx;
+  height: 36rpx;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.notice-icon--closure {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23FF9500' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z'/%3E%3Cline x1='12' y1='9' x2='12' y2='13'/%3E%3Cline x1='12' y1='17' x2='12.01' y2='17'/%3E%3C/svg%3E");
+}
+
+.notice-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #FFFFFF;
+}
+
+.notice-message {
+  font-size: 28rpx;
+  color: #FFFFFF;
+  line-height: 1.6;
+  margin-bottom: 20rpx;
+}
+
+.notice-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  margin-bottom: 10rpx;
+}
+
+.notice-no-data {
+  color: #8E8E93;
+  font-size: 28rpx;
+  font-style: italic;
+}
+
+.notice-hint {
+  font-size: 22rpx;
+  color: rgba(255, 149, 0, 0.6);
+}
+
+/* 飞行检查清单（进度页封路下方） */
+.flight-checklist-section {
+  margin-bottom: 40rpx;
+}
+
+/* 星舰飞行检查清单：进度页仅 3 条预览，「展开」门控进详情 */
+.nsf-checklist-card {
+  padding: 0;
+  border-left: 4rpx solid rgba(52, 199, 89, 0.85);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.nsf-checklist-card-header {
+  padding: 24rpx 28rpx;
+}
+
+.nsf-checklist-expanded {
+  padding: 0 28rpx 24rpx;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.nsf-checklist-rows {
+  padding: 8rpx 0 4rpx;
+}
+
+.nsf-checklist-row:first-child {
+  padding-top: 16rpx;
+}
+
+.nsf-checklist-empty-inner {
+  padding: 20rpx 0 8rpx;
+}
+
+.nsf-checklist-update-footer {
+  display: block;
+  padding-top: 12rpx;
+  margin-bottom: 0;
+}
+
+.nsf-checklist-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.nsf-checklist-summary-title {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.nsf-checklist-summary-ratio {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: rgba(52, 199, 89, 0.95);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.nsf-checklist-summary-row .nsf-checklist-summary-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.nsf-checklist-muted {
+  font-size: 26rpx;
+  color: rgba(142, 142, 147, 0.95);
+}
+
+.nsf-checklist-muted--pad {
+  padding: 0 28rpx 20rpx;
+}
+
+.nsf-checklist-preview-rows {
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.nsf-checklist-preview-rows .nsf-checklist-preview-row:last-child {
+  border-bottom: none;
+}
+
+.nsf-checklist-expand-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  padding: 22rpx 28rpx 24rpx;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.nsf-checklist-expand-row--active {
+  opacity: 0.75;
+}
+
+.nsf-checklist-expand-text {
+  font-size: 28rpx;
+  font-weight: 500;
+  color: rgba(100, 210, 255, 0.95);
+}
+
+.nsf-checklist-expand-chevron {
+  font-size: 34rpx;
+  line-height: 1;
+  color: rgba(100, 210, 255, 0.8);
+}
+
+.nsf-checklist-progress-block {
+  padding: 20rpx 0 8rpx;
+  margin-bottom: 0;
+}
+
+.nsf-checklist-progress-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.nsf-checklist-progress-bar-row .nsf-checklist-progress-track {
+  flex: 1;
+  min-width: 0;
+}
+
+.nsf-checklist-bar-refresh {
+  flex-shrink: 0;
+}
+
+.nsf-checklist-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12rpx;
+}
+
+.nsf-checklist-progress-title {
+  font-size: 26rpx;
+  color: rgba(255, 255, 255, 0.72);
+  font-weight: 500;
+}
+
+.nsf-checklist-progress-ratio {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: rgba(52, 199, 89, 0.95);
+  font-variant-numeric: tabular-nums;
+}
+
+.nsf-checklist-progress-track {
+  height: 16rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.nsf-checklist-progress-fill {
+  height: 100%;
+  border-radius: 999rpx;
+  background: linear-gradient(
+    90deg,
+    rgba(48, 209, 88, 0.85) 0%,
+    rgba(52, 199, 89, 1) 45%,
+    rgba(142, 232, 112, 0.92) 100%
+  );
+  min-width: 0;
+  transition: width 0.35s ease-out;
+}
+
+.flight-checklist-card {
+  padding: 12rpx 0;
+  border-left: 4rpx solid rgba(52, 199, 89, 0.85);
+  box-sizing: border-box;
+}
+
+.flight-checklist-card--empty {
+  padding: 28rpx 30rpx;
+}
+
+.flight-checklist-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.flight-checklist-empty-title {
+  font-size: 28rpx;
+  color: #8e8e93;
+}
+
+.flight-checklist-empty-hint {
+  font-size: 22rpx;
+  color: rgba(142, 142, 147, 0.85);
+  line-height: 1.55;
+}
+
+/* 进度页 · LL2 星舰时间与动态（结构与检查清单预览一致） */
+.ll2-progress-pack {
+  margin-bottom: 40rpx;
+}
+
+.ll2-progress-pack .ll2-progress-card.nsf-checklist-card {
+  border-left-color: rgba(100, 210, 255, 0.85);
+}
+
+.ll2-preview-timeline-rows {
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.ll2-preview-timeline-rows .ll2-timeline-item {
+  padding: 8rpx 12rpx 8rpx 8rpx;
+}
+
+.ll2-update-row--compact {
+  padding-top: 16rpx;
+  padding-bottom: 16rpx;
+}
+
+/* 星舰动态追踪预览：与 nsf-checklist-card-header / flight-checklist-row 左右 28rpx 对齐 */
+.ll2-progress-pack .nsf-checklist-preview-rows:not(.ll2-preview-timeline-rows) .ll2-update-row {
+  padding-left: 28rpx;
+  padding-right: 28rpx;
+}
+
+/* Launch Library 飞行时间线（launch.timeline） */
+.ll2-timeline-section {
+  margin-bottom: 40rpx;
+}
+
+.ll2-timeline-card {
+  padding: 24rpx 28rpx;
+  border-left: 4rpx solid rgba(100, 210, 255, 0.75);
+  box-sizing: border-box;
+}
+
+.ll2-timeline-card--body {
+  padding: 16rpx 12rpx 16rpx 8rpx;
+}
+
+.ll2-timeline-card--error {
+  padding: 28rpx 30rpx;
+}
+
+.ll2-timeline-card--pad {
+  padding: 28rpx 30rpx;
+}
+
+.ll2-timeline-item {
+  display: flex;
+  align-items: stretch;
+  flex-direction: row;
+  min-height: 72rpx;
+}
+
+.ll2-timeline-axis {
+  width: 56rpx;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ll2-timeline-line {
+  width: 3rpx;
+  flex: 1;
+  min-height: 14rpx;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 999rpx;
+}
+
+.ll2-timeline-node {
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 50%;
+  background: rgba(30, 34, 42, 0.95);
+  border: 2rpx solid rgba(255, 255, 255, 0.28);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+/* LL2 时间线节点：单色几何图形（与 utils/ll2-launch-timeline iconVariant 一致） */
+.ll2-timeline-node-mark {
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.ll2-timeline-node-mark--dot {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.ll2-timeline-node-mark--solid {
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.ll2-timeline-node-mark--ring {
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 50%;
+  background: transparent;
+  border: 2rpx solid rgba(255, 255, 255, 0.85);
+}
+
+.ll2-timeline-node-mark--diamond {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 2rpx;
+  background: rgba(255, 255, 255, 0.88);
+  transform: rotate(45deg);
+}
+
+.ll2-timeline-node-mark--square {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 2rpx;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.ll2-timeline-node-mark--lift {
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0 9rpx 15rpx 9rpx;
+  border-color: transparent transparent rgba(255, 255, 255, 0.9) transparent;
+  background: transparent;
+}
+
+.ll2-timeline-main {
+  flex: 1;
+  min-width: 0;
+  padding: 4rpx 16rpx 24rpx 8rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.ll2-timeline-title {
+  font-size: 29rpx;
+  color: rgba(255, 255, 255, 0.92);
+  line-height: 1.45;
+  font-weight: 500;
+}
+
+.ll2-timeline-title--lift {
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.ll2-timeline-desc {
+  font-size: 22rpx;
+  color: rgba(142, 142, 147, 0.95);
+  line-height: 1.45;
+}
+
+.ll2-timeline-clock {
+  flex-shrink: 0;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  font-variant-numeric: tabular-nums;
+  padding-top: 6rpx;
+  padding-left: 8rpx;
+  max-width: 200rpx;
+  text-align: right;
+}
+
+/*星舰动态追踪（LL2 updates） */
+.ll2-updates-section {
+  margin-bottom: 40rpx;
+}
+
+.ll2-updates-sync-btn {
+  font-size: 24rpx;
+  color: #64d2ff;
+  padding: 4rpx 16rpx;
+  border: 1px solid rgba(100, 210, 255, 0.35);
+  border-radius: 8rpx;
+  margin-left: auto;
+}
+
+.ll2-updates-card {
+  padding: 24rpx 28rpx;
+  border-left: 4rpx solid rgba(100, 210, 255, 0.75);
+  box-sizing: border-box;
+}
+
+.ll2-updates-card--pad {
+  padding: 28rpx 30rpx;
+}
+
+.ll2-updates-muted {
+  font-size: 26rpx;
+  color: #8e8e93;
+  line-height: 1.5;
+}
+
+.ll2-updates-error {
+  font-size: 28rpx;
+  color: #ff6b6b;
+  display: block;
+  margin-bottom: 12rpx;
+  line-height: 1.45;
+}
+
+.ll2-updates-retry-hint {
+  display: block;
+  font-size: 22rpx;
+  margin-top: 8rpx;
+}
+
+.ll2-update-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16rpx;
+  padding: 20rpx 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ll2-update-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.ll2-update-row:first-child {
+  padding-top: 0;
+}
+
+.ll2-update-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+
+.ll2-update-comment {
+  font-size: 29rpx;
+  color: #ffffff;
+  line-height: 1.5;
+}
+
+.ll2-update-meta {
+  font-size: 22rpx;
+  color: rgba(142, 142, 147, 0.95);
+}
+
+.ll2-update-chevron {
+  margin-top: 4rpx;
+}
+
+.flight-checklist-row {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 22rpx 28rpx;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.flight-checklist-row:last-child {
+  border-bottom: none;
+}
+
+.flight-checklist-check {
+  flex-shrink: 0;
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 8rpx;
+  border: 2rpx solid rgba(142, 142, 147, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.flight-checklist-check--done {
+  border-color: rgba(52, 199, 89, 0.85);
+  background: rgba(52, 199, 89, 0.18);
+}
+
+.flight-checklist-check-mark {
+  font-size: 26rpx;
+  color: #34c759;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.flight-checklist-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.flight-checklist-category {
+  font-size: 22rpx;
+  color: rgba(142, 142, 147, 0.95);
+}
+
+.flight-checklist-row-title {
+  font-size: 29rpx;
+  color: #ffffff;
+  line-height: 1.45;
+}
+
+.flight-checklist-chevron {
+  flex-shrink: 0;
+  font-size: 44rpx;
+  color: rgba(142, 142, 147, 0.85);
+  font-weight: 300;
+  padding: 8rpx 4rpx 8rpx 16rpx;
+  line-height: 1;
+}
+
+.notice-sync-btn {
+  font-size: 24rpx;
+  color: #FF9500;
+  padding: 4rpx 16rpx;
+  border: 1px solid rgba(255, 149, 0, 0.4);
+  border-radius: 8rpx;
+  margin-left: auto;
+}
+
+.notice-source {
+  font-size: 20rpx;
+  color: rgba(255, 149, 0, 0.7);
+  padding: 2rpx 10rpx;
+  border: 1px solid rgba(255, 149, 0, 0.3);
+  border-radius: 6rpx;
+  margin-left: auto;
+}
+
+.notice-schedule {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  padding-top: 16rpx;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  margin-bottom: 12rpx;
+}
+
+.schedule-label {
+  font-size: 24rpx;
+  color: #8E8E93;
+  margin-bottom: 4rpx;
+}
+
+.schedule-item {
+  font-size: 26rpx;
+  color: #FF9500;
+  line-height: 1.5;
+  padding-left: 16rpx;
+  border-left: 3rpx solid rgba(255, 149, 0, 0.4);
+}
+
+.notice-time {
+  display: flex;
+  flex-direction: column;
+  gap: 5rpx;
+  padding-top: 15rpx;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.time-label {
+  font-size: 24rpx;
+  color: #8E8E93;
+}
+
+.time-value {
+  font-size: 26rpx;
+  color: #FF9500;
+}
+
+/* 事件更新区域 */
+.event-updates-section {
+  margin-bottom: 40rpx;
+}
+
+.event-updates-header-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 14rpx;
+  padding: 0 10rpx;
+  box-sizing: border-box;
+}
+
+.event-updates-heading {
+  flex-shrink: 0;
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+/* progress 标题行内：胶囊单行整体右对齐；账号多时同一行内压缩（省略长昵称） */
+/* 标题下方横向滑动（复用首页发射商胶囊交互：scroll-x + 右侧渐隐提示） */
+.tweet-stats-scroll-wrap {
+  position: relative;
+  margin-bottom: 20rpx;
+  padding: 0 10rpx;
+  box-sizing: border-box;
+}
+
+.tweet-stats-scroll {
+  width: 100%;
+  white-space: nowrap;
+}
+
+.tweet-stats-scroll-fade {
+  position: absolute;
+  top: 0;
+  right: 10rpx;
+  width: 44rpx;
+  height: 100%;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(14, 20, 34, 0), rgba(14, 20, 34, 0.92));
+  border-top-right-radius: 16rpx;
+  border-bottom-right-radius: 16rpx;
+}
+
+.tweet-stats-bar.tweet-stats-chips-row {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 10rpx;
+  align-items: stretch;
+  min-width: 100%;
+  margin-bottom: 0;
+  padding-right: 20rpx;
+  box-sizing: border-box;
+}
+
+.tweet-stat-chip.tweet-stat-item {
+  flex: 0 0 auto;
+  padding: 8rpx 12rpx;
+}
+
+.tweet-stat-chip .tweet-stat-avatar {
+  width: 32rpx;
+  height: 32rpx;
+  margin-right: 6rpx;
+}
+
+.tweet-stat-chip .tweet-stat-name {
+  font-size: 20rpx;
+  margin-right: 6rpx;
+  white-space: nowrap;
+}
+
+.tweet-stat-chip .tweet-stat-count {
+  font-size: 18rpx;
+}
+
+.event-updates-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 4rpx solid #007AFF;
+}
+
+/* scroll-view 需明确高度，否则自定义 refresher 插槽 height:100% 会为 0，看不到转圈与文案 */
+.event-updates-scroll {
+  height: 900rpx;
+  max-height: 900rpx;
+  padding: 24rpx 28rpx;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.event-updates-collapsed {
+  padding: 24rpx 28rpx 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.event-updates-expand-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  height: 64rpx;
+  margin: 16rpx 20rpx 8rpx;
+  border-radius: 32rpx;
+  background: linear-gradient(135deg, #5ac8fa 0%, #007aff 100%);
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.event-updates-expand-btn:active {
+  opacity: 0.85;
+}
+
+.event-updates-expand-btn .expand-arrow {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.event-updates-collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  padding: 16rpx 0;
+  font-size: 26rpx;
+  color: #007AFF;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.expand-arrow {
+  font-size: 32rpx;
+  font-weight: 300;
+  transform: rotate(90deg);
+}
+
+.expand-arrow--up {
+  transform: rotate(-90deg);
+}
+
+.event-refresher-spinner {
+  flex-shrink: 0;
+  width: 36rpx;
+  height: 36rpx;
+  border-radius: 50%;
+  border: 4rpx solid rgba(255, 255, 255, 0.15);
+  border-top-color: #4ea1ff;
+  box-sizing: border-box;
+  animation: event-refresher-spin 0.8s linear infinite;
+}
+
+.event-refresher-text {
+  font-size: 24rpx;
+  color: #8e8e93;
+}
+
+@keyframes event-refresher-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.event-update-item {
+  padding-bottom: 24rpx;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  border-radius: 18rpx;
+  transition: transform 0.18s ease, opacity 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  transform-origin: center center;
+}
+
+.event-update-item--pressed {
+  transform: scale(0.992);
+  opacity: 0.92;
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow: inset 0 0 0 1rpx rgba(255, 255, 255, 0.06);
+}
+
+.event-update-link {
+  display: block;
+}
+
+.event-update-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12rpx;
+}
+
+.event-update-time {
+  font-size: 22rpx;
+  color: #007AFF;
+  font-weight: 500;
+}
+
+.event-update-author-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+  padding: 6rpx 16rpx 6rpx 8rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.event-author-avatar {
+  width: 32rpx;
+  height: 32rpx;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.event-update-author {
+  font-size: 22rpx;
+  color: #d0d0d4;
+}
+
+.event-update-title {
+  display: block;
+  font-size: 30rpx;
+  color: #FFFFFF;
+  font-weight: 600;
+  margin-bottom: 10rpx;
+  line-height: 1.4;
+  width: 100%;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  box-sizing: border-box;
+}
+
+.event-update-content {
+  display: block;
+  font-size: 26rpx;
+  color: #c7c7cc;
+  line-height: 1.65;
+  margin-bottom: 16rpx;
+  text-align: justify;
+  text-justify: inter-ideograph;
+  width: 100%;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  box-sizing: border-box;
+}
+
+.event-update-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14rpx;
+}
+
+.event-update-share-wrap {
+  position: relative;
+  flex: 0 0 44rpx;
+  flex-shrink: 0;
+  min-width: 44rpx;
+  min-height: 44rpx;
+  width: 44rpx;
+  height: 44rpx;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-share--event-update {
+  width: 28rpx;
+  height: 28rpx;
+}
+
+.event-update-share-btn {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-width: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  box-sizing: border-box !important;
+  line-height: 0;
+  font-size: 0;
+  display: block;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.event-update-share-btn::after,
+.event-update-share-btn::before {
+  content: none !important;
+  display: none !important;
+  border: 0 !important;
+  border-width: 0 !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+.event-update-share-btn:active + .icon-share--event-update,
+.event-update-share-wrap:active .icon-share--event-update {
+  opacity: 0.7;
+}
+
+/* 直播卡片 */
+.event-live-card {
+  margin-top: 16rpx;
+  border-radius: 16rpx;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.event-live-cover-wrap {
+  position: relative;
+  width: 100%;
+  height: 320rpx;
+}
+
+.event-live-cover {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.event-live-cover-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+}
+
+.event-live-cover-placeholder-text {
+  font-size: 40rpx;
+  color: rgba(255, 255, 255, 0.2);
+  font-weight: 600;
+}
+
+.event-live-badge {
+  position: absolute;
+  top: 16rpx;
+  left: 16rpx;
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  padding: 6rpx 16rpx;
+  border-radius: 8rpx;
+  background: rgba(0, 0, 0, 0.6);
+  font-size: 22rpx;
+  color: #8E8E93;
+  z-index: 2;
+}
+
+.event-live-badge-on {
+  background: rgba(255, 40, 40, 0.85);
+  color: #fff;
+}
+
+.event-live-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: #fff;
+  animation: livePulse 1.5s ease-in-out infinite;
+}
+
+@keyframes livePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+.event-live-play-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.event-live-play-btn {
+  width: 100rpx;
+  height: 100rpx;
+  line-height: 100rpx;
+  text-align: center;
+  font-size: 44rpx;
+  color: #fff;
+  background: rgba(0, 178, 255, 0.8);
+  border-radius: 50%;
+  box-shadow: 0 4rpx 20rpx rgba(0, 178, 255, 0.4);
+}
+
+.event-live-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18rpx 24rpx;
+}
+
+.event-live-action-text {
+  font-size: 26rpx;
+  color: #00B2FF;
+  font-weight: 500;
+}
+
+.event-live-action-arrow {
+  font-size: 36rpx;
+  color: #00B2FF;
+  font-weight: 300;
+}
+
+.event-media-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 12rpx;
+}
+
+.event-media-image {
+  width: 200rpx;
+  height: 200rpx;
+  border-radius: 12rpx;
+  object-fit: cover;
+  background: rgba(30, 30, 30, 0.35);
+}
+
+.event-media-video {
+  width: 100%;
+  border-radius: 12rpx;
+  margin-top: 8rpx;
+}
+
+.event-media-video-wrap {
+  position: relative;
+  width: 100%;
+  border-radius: 12rpx;
+  overflow: hidden;
+  margin-top: 8rpx;
+}
+
+.event-media-video-thumb {
+  width: 100%;
+  height: 400rpx;
+  border-radius: 12rpx;
+  display: block;
+}
+
+.event-media-play-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 80rpx;
+  height: 80rpx;
+  line-height: 80rpx;
+  text-align: center;
+  font-size: 36rpx;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 50%;
+}
+
+.event-media-link-badge {
+  position: absolute;
+  bottom: 12rpx;
+  right: 12rpx;
+  padding: 4rpx 14rpx;
+  border-radius: 8rpx;
+  background: rgba(0, 0, 0, 0.6);
+  font-size: 20rpx;
+  color: #ccc;
+}
+
+.event-update-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.06);
+  margin-top: 24rpx;
+}
+
+.event-updates-footer {
+  padding: 16rpx 0;
+  text-align: center;
+}
+
+.event-updates-footer-text {
+  font-size: 22rpx;
+  color: #8E8E93;
+}
+
+.event-updates-empty {
+  padding: 40rpx 28rpx;
+}
+
+.event-updates-empty-text {
+  font-size: 28rpx;
+  color: #8E8E93;
+  font-style: italic;
+}
+
+.event-share-sheet-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  background: rgba(0, 0, 0, 0.52);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32rpx;
+  box-sizing: border-box;
+}
+
+.event-share-sheet {
+  width: 100%;
+  max-width: 620rpx;
+  padding: 32rpx 28rpx;
+  box-sizing: border-box;
+  border-radius: 28rpx;
+  background: rgba(18, 20, 24, 0.96);
+  backdrop-filter: blur(24rpx) saturate(160%);
+  -webkit-backdrop-filter: blur(24rpx) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24rpx 80rpx rgba(0, 0, 0, 0.45);
+}
+
+.event-share-sheet-title {
+  display: block;
+  font-size: 32rpx;
+  line-height: 1.4;
+  font-weight: 700;
+  color: #fff;
+  text-align: center;
+}
+
+.event-share-sheet-desc {
+  display: block;
+  margin-top: 12rpx;
+  margin-bottom: 24rpx;
+  font-size: 24rpx;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.62);
+  text-align: center;
+}
+
+.event-share-sheet-btn {
+  width: 100%;
+  min-height: 92rpx;
+  margin: 0 0 16rpx;
+  border-radius: 20rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28rpx;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.event-share-sheet-btn--primary {
+  padding: 0 !important;
+  line-height: 92rpx !important;
+  background: linear-gradient(135deg, #1677ff 0%, #55a3ff 100%) !important;
+  border: none !important;
+  color: #fff !important;
+}
+
+.event-share-sheet-btn--primary::after {
+  border: none;
+}
+
+.event-share-sheet-btn--cancel {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+
+/* ===== OpenClaw 自动追踪提示 ===== */
+.openclaw-badge {
+  position: absolute;
+  right: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  padding: 10rpx 18rpx;
+  background: rgba(255, 149, 0, 0.15);
+  border: 1px solid rgba(255, 149, 0, 0.4);
+  border-radius: 16rpx;
+  white-space: nowrap;
+  z-index: 10;
+  animation: openclawFadeIn 0.35s ease-out, openclawBounce 1.8s ease-in-out 0.4s infinite;
+}
+
+@keyframes openclawFadeIn {
+  from { opacity: 0; transform: translateY(-16rpx); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes openclawBounce {
+  0%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-10rpx); }
+  60% { transform: translateY(-4rpx); }
+}
+
+.openclaw-badge-text {
+  font-size: 20rpx;
+  color: #ff9500;
+  font-weight: 500;
+}
+
+.openclaw-badge-close {
+  font-size: 20rpx;
+  color: rgba(255, 149, 0, 0.6);
+  line-height: 1;
+}
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+
+/* 顶部导航与标题 */
+.theme-light .top-nav-wrapper {
+  background: var(--bg-glass-nav);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.theme-light .section-title {
+  color: var(--color-text-primary);
+}
+
+/* 地图按钮：品牌色保持，衬底降透明度、文字加深 */
+.theme-light .progress-map-btn {
+  background: rgba(52, 199, 89, 0.12);
+  border-color: rgba(52, 199, 89, 0.45);
+}
+
+.theme-light .progress-map-btn text {
+  color: #1D8A46;
+}
+
+.theme-light .progress-map-btn--blue {
+  background: rgba(10, 132, 255, 0.12);
+  border-color: rgba(10, 132, 255, 0.45);
+}
+
+.theme-light .progress-map-btn--blue text {
+  color: #0062CC;
+}
+
+.theme-light .notice-map-entry {
+  background: rgba(255, 69, 58, 0.12);
+  border-color: rgba(255, 69, 58, 0.4);
+}
+
+.theme-light .notice-map-entry text {
+  color: #D70015;
+}
+
+/* 星舰组合体卡片 */
+.theme-light .starship-card {
+  border-color: var(--color-divider);
+}
+
+/* 骨架浅色底色由全局 .theme-light .skeleton-shimmer 提供 */
+
+.theme-light .starship-load-error-text {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .starship-card-active {
+  border-color: rgba(52, 199, 89, 0.8);
+  box-shadow: 0 0 0 1px rgba(52, 199, 89, 0.4);
+}
+
+.theme-light .starship-image-container {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.theme-light .starship-image {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+/* .starship-id-overlay / .starship-id-text 压在星舰照片上，保持深色渐变与白字 */
+
+.theme-light .starship-info-bottom {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.theme-light .starship-name {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .starship-status {
+  border-top: 1px solid var(--color-divider);
+}
+
+.theme-light .status-label {
+  color: var(--color-text-secondary);
+}
+
+/* 状态色（active/destroyed/expended/retired）保持不变 */
+
+/* 星舰硬件设施 */
+.theme-light .hardware-card {
+  border-color: var(--color-divider);
+}
+
+.theme-light .hardware-card-image-wrap {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.theme-light .hardware-card-image {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+/* .hardware-card-image-mask / .hardware-card-overlay / .hardware-card-name 压在硬件照片上，保持深色渐变与白字 */
+
+.theme-light .hardware-card-type {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .hardware-card-notes {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .hardware-empty text {
+  color: var(--color-text-secondary);
+}
+
+/* 封路通知 */
+.theme-light .notice-icon--closure {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23FF9500' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z'/%3E%3Cline x1='12' y1='9' x2='12' y2='13'/%3E%3Cline x1='12' y1='17' x2='12.01' y2='17'/%3E%3C/svg%3E");
+}
+
+.theme-light .notice-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .notice-message {
+  color: var(--color-text-primary);
+}
+
+.theme-light .notice-no-data {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .notice-schedule {
+  border-top: 1px solid var(--color-divider);
+}
+
+.theme-light .schedule-label {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .notice-time {
+  border-top: 1px solid var(--color-divider);
+}
+
+.theme-light .time-label {
+  color: var(--color-text-secondary);
+}
+
+/* 飞行检查清单 */
+.theme-light .nsf-checklist-expanded {
+  border-top: 1px solid var(--color-divider);
+}
+
+.theme-light .nsf-checklist-summary-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .nsf-checklist-muted {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .nsf-checklist-preview-rows {
+  border-top: 1px solid var(--color-divider);
+}
+
+.theme-light .nsf-checklist-expand-row {
+  border-top: 1px solid var(--color-divider);
+}
+
+.theme-light .nsf-checklist-expand-text {
+  color: rgba(0, 122, 255, 0.95);
+}
+
+.theme-light .nsf-checklist-expand-chevron {
+  color: rgba(0, 122, 255, 0.8);
+}
+
+.theme-light .nsf-checklist-progress-title {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .nsf-checklist-progress-track {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .flight-checklist-empty-title {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .flight-checklist-empty-hint {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .flight-checklist-row {
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.theme-light .flight-checklist-row:last-child {
+  border-bottom: none;
+}
+
+.theme-light .flight-checklist-check {
+  border-color: rgba(142, 142, 147, 0.55);
+}
+
+.theme-light .flight-checklist-check--done {
+  border-color: rgba(52, 199, 89, 0.85);
+  background: rgba(52, 199, 89, 0.14);
+}
+
+.theme-light .flight-checklist-category {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .flight-checklist-row-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .flight-checklist-chevron {
+  color: var(--color-text-tertiary);
+}
+
+/* LL2 时间线 / 动态追踪 */
+.theme-light .ll2-preview-timeline-rows {
+  border-top: 1px solid var(--color-divider);
+}
+
+.theme-light .ll2-timeline-line {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.theme-light .ll2-timeline-node {
+  background: var(--color-bg-card);
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+.theme-light .ll2-timeline-node-mark--dot {
+  background: rgba(28, 28, 30, 0.85);
+}
+
+.theme-light .ll2-timeline-node-mark--solid {
+  background: rgba(28, 28, 30, 0.9);
+}
+
+.theme-light .ll2-timeline-node-mark--ring {
+  border-color: rgba(28, 28, 30, 0.75);
+}
+
+.theme-light .ll2-timeline-node-mark--diamond {
+  background: rgba(28, 28, 30, 0.85);
+}
+
+.theme-light .ll2-timeline-node-mark--square {
+  background: rgba(28, 28, 30, 0.85);
+}
+
+.theme-light .ll2-timeline-node-mark--lift {
+  border-color: transparent transparent rgba(28, 28, 30, 0.9) transparent;
+}
+
+.theme-light .ll2-timeline-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .ll2-timeline-title--lift {
+  color: var(--color-text-primary);
+}
+
+.theme-light .ll2-timeline-desc {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .ll2-timeline-clock {
+  color: var(--color-text-primary);
+}
+
+.theme-light .ll2-updates-sync-btn {
+  color: #0071A9;
+  border-color: rgba(0, 113, 169, 0.35);
+}
+
+.theme-light .ll2-updates-muted {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .ll2-update-row {
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.theme-light .ll2-update-row:last-child {
+  border-bottom: none;
+}
+
+.theme-light .ll2-update-comment {
+  color: var(--color-text-primary);
+}
+
+.theme-light .ll2-update-meta {
+  color: var(--color-text-secondary);
+}
+
+/* 事件更新 */
+.theme-light .event-updates-heading {
+  color: var(--color-text-primary);
+}
+
+.theme-light .tweet-stats-scroll-fade {
+  background: linear-gradient(90deg, rgba(242, 242, 247, 0), rgba(242, 242, 247, 0.92));
+}
+
+/* 账号统计胶囊（styles/tweet-stats-bar.wxss 引入，本页覆盖） */
+.theme-light .tweet-stat-item {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: var(--color-divider);
+}
+
+.theme-light .tweet-stat-name {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .tweet-stat-count {
+  color: #0071A9;
+}
+
+.theme-light .event-updates-card {
+  border-color: var(--color-divider);
+  border-left: 4rpx solid #007AFF;
+}
+
+.theme-light .event-update-item--pressed {
+  background: rgba(0, 0, 0, 0.04);
+  box-shadow: inset 0 0 0 1rpx rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .event-update-author-wrap {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: var(--color-divider);
+}
+
+.theme-light .event-update-author {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .event-update-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .event-update-content {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .event-updates-collapse-btn {
+  border-top: 1px solid var(--color-divider);
+}
+
+.theme-light .event-refresher-spinner {
+  border: 4rpx solid rgba(0, 0, 0, 0.1);
+  border-top-color: #007AFF;
+}
+
+.theme-light .event-refresher-text {
+  color: var(--color-text-secondary);
+}
+
+/* 直播卡片外壳转浅色；封面/角标/播放浮层压在视频画面上保持深色 */
+.theme-light .event-live-card {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: var(--color-divider);
+}
+
+.theme-light .event-live-action-text {
+  color: #0071A9;
+}
+
+.theme-light .event-live-action-arrow {
+  color: #0071A9;
+}
+
+.theme-light .event-media-image {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* .event-media-play-icon / .event-media-link-badge 压在图片、视频缩略图上，保持深色 */
+
+.theme-light .event-update-divider {
+  background: var(--color-divider);
+}
+
+.theme-light .event-updates-footer-text {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .event-updates-empty-text {
+  color: var(--color-text-secondary);
+}
+
+/* 分享面板：遮罩保持深色，面板转浅色 */
+.theme-light .event-share-sheet {
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--color-divider);
+  box-shadow: 0 24rpx 80rpx rgba(0, 0, 0, 0.15);
+}
+
+.theme-light .event-share-sheet-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .event-share-sheet-desc {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .event-share-sheet-btn {
+  color: var(--color-text-primary);
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--color-divider);
+}
+
+/* .event-share-sheet-btn--primary 实色蓝底白字保持 */
+
+.theme-light .event-share-sheet-btn--cancel {
+  color: var(--color-text-secondary);
+}
+
+/* 分享箭头（白色 SVG，浅色下反色为深灰，与首页一致） */
+.theme-light .icon-share--event-update {
+  filter: invert(0.72);
+}
+

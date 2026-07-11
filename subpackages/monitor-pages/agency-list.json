@@ -1,0 +1,9 @@
+{
+  "navigationBarTitleText": "全球发射商图鉴",
+  "backgroundTextStyle": "dark",
+  "navigationStyle": "custom",
+  "backgroundColor": "#000000",
+  "backgroundColorTop": "#000000",
+  "backgroundColorBottom": "#000000",
+  "usingComponents": {}
+}

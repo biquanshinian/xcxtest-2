@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "openapi": []
+  },
+  "timeout": 800,
+  "triggers": [
+    {
+      "name": "syncSpaceDevsDataTimer",
+      "type": "timer",
+      "config": "0 0 */6 * * * *"
+    },
+    {
+      "name": "syncNextSpaceflightStarshipHourly",
+      "type": "timer",
+      "config": "0 0 * * * * *"
+    },
+    {
+      "name": "syncLaunchNetHourly",
+      "type": "timer",
+      "config": "0 30 * * * * *"
+    }
+  ],
+  "environment": [
+    {
+      "key": "STARBASE_FETCH_PROXY_URL",
+      "value": "https://api.marsx.com.cn/starbase/beach-road-access"
+    },
+    {
+      "key": "TMT_SECRET_ID",
+      "value": "FILL_ME"
+    },
+    {
+      "key": "TMT_SECRET_KEY",
+      "value": "FILL_ME"
+    },
+    {
+      "key": "LL2_API_TOKEN",
+      "value": "FILL_ME"
+    }
+  ]
+}

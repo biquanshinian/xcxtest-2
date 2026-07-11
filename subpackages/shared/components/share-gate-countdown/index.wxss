@@ -1,0 +1,60 @@
+/* 分享限时查看倒计时胶囊：底部居中悬浮，深色磨砂，不拦截页面手势 */
+.sgc-pill {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom) + 36rpx);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  padding: 12rpx 28rpx;
+  border-radius: 999rpx;
+  background: rgba(18, 22, 36, 0.82);
+  backdrop-filter: blur(24rpx);
+  -webkit-backdrop-filter: blur(24rpx);
+  border: 1rpx solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 8rpx 28rpx rgba(0, 0, 0, 0.38);
+  z-index: 900;
+  pointer-events: none;
+}
+
+.sgc-dot {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  background: #ffb74d;
+  margin-right: 12rpx;
+  animation: sgc-blink 1.6s ease-in-out infinite;
+}
+
+.sgc-label {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.sgc-time {
+  margin-left: 12rpx;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #ffb74d;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 1rpx;
+}
+
+.sgc-ended .sgc-dot {
+  background: rgba(255, 255, 255, 0.35);
+  animation: none;
+}
+
+.sgc-ended .sgc-label {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+@keyframes sgc-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}

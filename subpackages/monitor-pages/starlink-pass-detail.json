@@ -1,0 +1,14 @@
+{
+  "navigationBarTitleText": "星链过境预报",
+  "navigationStyle": "custom",
+  "backgroundTextStyle": "dark",
+  "backgroundColor": "#000000",
+  "backgroundColorTop": "#000000",
+  "backgroundColorBottom": "#000000",
+  "usingComponents": {
+    "official-account-publish-panel": "/subpackages/shared/components/official-account-publish-panel/index"
+  },
+  "componentPlaceholder": {
+    "official-account-publish-panel": "view"
+  }
+}

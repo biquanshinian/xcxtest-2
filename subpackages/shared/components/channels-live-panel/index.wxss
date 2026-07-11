@@ -1,0 +1,384 @@
+.channels-live-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+/* 16:9 媒体框 — 与 monitor 页 glass-card 圆角、边距对齐 */
+.channels-live-media {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.channels-live-player {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.channels-live-compat,
+.channels-live-placeholder,
+.channels-live-player-wrap {
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+}
+
+.channels-live-compat {
+  padding: 24rpx 28rpx;
+}
+
+.channels-live-compat-text,
+.channels-live-placeholder-text {
+  font-size: 24rpx;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+}
+
+.channels-live-placeholder {
+  display: flex;
+  flex-direction: column;
+}
+
+.channels-live-placeholder--error .channels-live-placeholder-text {
+  color: rgba(255, 160, 140, 0.9);
+}
+
+.channels-live-placeholder-body {
+  padding: 16rpx 24rpx 20rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8rpx;
+  text-align: center;
+}
+
+/* 加载骨架 */
+.channels-live-media--skeleton {
+  background: linear-gradient(135deg, rgba(20, 22, 28, 0.9), rgba(30, 30, 30, 0.55));
+}
+
+.channels-live-skeleton-shimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    rgba(90, 200, 250, 0.06) 50%,
+    transparent 60%
+  );
+  animation: channels-live-shimmer 1.8s ease-in-out infinite;
+}
+
+@keyframes channels-live-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.channels-live-skeleton-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.channels-live-skeleton-ring {
+  width: 56rpx;
+  height: 56rpx;
+  border-radius: 50%;
+  border: 3rpx solid rgba(90, 200, 250, 0.25);
+  border-top-color: rgba(90, 200, 250, 0.75);
+  animation: channels-live-spin 0.9s linear infinite;
+}
+
+@keyframes channels-live-spin {
+  to { transform: rotate(360deg); }
+}
+
+.channels-live-skeleton-text {
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* 未开播 / 错误占位视觉 */
+.channels-live-media--idle {
+  background: radial-gradient(ellipse at 50% 35%, rgba(90, 200, 250, 0.08), rgba(0, 0, 0, 0.45) 68%);
+}
+
+.channels-live-idle-visual {
+  position: absolute;
+  inset: 0;
+  opacity: 0.85;
+}
+
+.channels-live-idle-visual::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 88rpx;
+  height: 88rpx;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 2rpx solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 0 24rpx rgba(90, 200, 250, 0.06);
+}
+
+.channels-live-idle-visual::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  transform: translate(-30%, -50%);
+  border-style: solid;
+  border-width: 14rpx 0 14rpx 24rpx;
+  border-color: transparent transparent transparent rgba(255, 255, 255, 0.18);
+}
+
+.channels-live-idle-visual--preparing {
+  background: radial-gradient(ellipse at 50% 40%, rgba(255, 214, 10, 0.08), transparent 60%);
+}
+
+.channels-live-idle-visual--error::before {
+  border-color: rgba(255, 160, 140, 0.25);
+}
+
+.channels-live-status-overlay {
+  position: absolute;
+  top: 16rpx;
+  left: 16rpx;
+  z-index: 2;
+}
+
+.channels-live-status-badge {
+  padding: 8rpx 20rpx;
+  border-radius: 999rpx;
+  font-size: 22rpx;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(12rpx);
+  -webkit-backdrop-filter: blur(12rpx);
+}
+
+.channels-live-status-badge--live {
+  color: #ff453a;
+  background: rgba(0, 0, 0, 0.6);
+  border-color: rgba(255, 59, 48, 0.45);
+}
+
+.channels-live-status-badge--preparing {
+  color: #ffd60a;
+  background: rgba(0, 0, 0, 0.6);
+  border-color: rgba(255, 214, 10, 0.35);
+}
+
+.channels-live-status-badge--ended {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.channels-live-status-hint {
+  font-size: 24rpx;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.channels-live-desc {
+  font-size: 26rpx;
+  color: var(--color-text-on-glass);
+}
+
+/* 直播中角标：与首页倒计时圆图一致（声波 + 直播中） */
+.channels-live-live-overlay {
+  position: absolute;
+  top: 16rpx;
+  left: 16rpx;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.channels-live-live-tag {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 6rpx;
+  height: 36rpx;
+  padding: 0 14rpx;
+  border-radius: 999rpx;
+  white-space: nowrap;
+  box-sizing: border-box;
+  background: linear-gradient(90deg, #ff2d55, #ff453a);
+  box-shadow: 0 4rpx 12rpx rgba(255, 45, 85, 0.35);
+}
+
+.channels-live-live-tag-text {
+  font-size: 20rpx;
+  font-weight: 600;
+  color: #ffffff;
+  line-height: 1;
+  letter-spacing: 0.5rpx;
+}
+
+.channels-live-eq {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 3rpx;
+  height: 18rpx;
+  flex-shrink: 0;
+}
+
+.channels-live-eq-bar {
+  width: 4rpx;
+  height: 100%;
+  border-radius: 999rpx;
+  background: #ffffff;
+  transform-origin: center bottom;
+  animation: channels-live-eq 0.8s ease-in-out infinite;
+}
+
+.channels-live-eq-bar:nth-child(1) { animation-delay: 0s; }
+.channels-live-eq-bar:nth-child(2) { animation-delay: 0.15s; }
+.channels-live-eq-bar:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes channels-live-eq {
+  0%, 100% { transform: scaleY(0.35); }
+  25% { transform: scaleY(1); }
+  50% { transform: scaleY(0.55); }
+  75% { transform: scaleY(0.85); }
+}
+
+.channels-live-player-footer {
+  padding: 14rpx 24rpx 18rpx;
+  border-top: 1px solid var(--color-divider-faint);
+}
+
+.channels-live-player-title {
+  display: block;
+  font-size: 26rpx;
+  color: var(--color-text-on-glass);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 自定义封面 */
+.channels-live-custom-wrap {
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+}
+
+.channels-live-custom-media {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+
+/* 直播中自定义封面：透明 channel-live 覆盖媒体区，点击无弹窗进房 */
+.channels-live-custom-tap-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 3;
+  opacity: 0;
+}
+
+.channels-live-custom-mask {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.08) 0%, rgba(0, 0, 0, 0.42) 100%);
+  pointer-events: none;
+}
+
+.channels-live-custom-tap-hint {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: var(--color-text-secondary);
+}
+
+.channels-live-custom-hover {
+  opacity: 0.92;
+  transform: scale(0.995);
+}
+
+.channels-live-action-btn--hint {
+  flex: 1.15;
+  pointer-events: none;
+  color: var(--color-text-secondary);
+  font-size: 26rpx;
+}
+
+/* 操作按钮：主次分明，热区 ≥ 88rpx（44px） */
+.channels-live-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.channels-live-actions-row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 16rpx;
+}
+
+.channels-live-action-btn {
+  flex: 1;
+  min-height: 88rpx;
+  padding: 0 28rpx;
+  border-radius: 20rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28rpx;
+  font-weight: 500;
+  box-sizing: border-box;
+  transition: all 0.18s ease;
+}
+
+.channels-live-action-btn--primary {
+  flex: 1.15;
+  color: #fff;
+  background: linear-gradient(135deg, #07C160, #06AD56);
+  border: 1px solid rgba(7, 193, 96, 0.45);
+}
+
+.channels-live-action-btn--block {
+  flex: none;
+  width: 100%;
+}
+
+.channels-live-action-btn--ghost {
+  color: var(--color-text-on-glass);
+  background: var(--color-divider-faint);
+  border: 1px solid var(--color-border-glass);
+}
+
+.channels-live-action-hover {
+  opacity: 0.82;
+  transform: scale(0.98);
+}

@@ -1,0 +1,829 @@
+/* pages/news/news.wxss */
+.container {
+  padding-bottom: 0;
+  padding-top: 0;
+}
+
+/* 顶部导航栏容器（包含状态栏和导航栏） */
+.top-nav-wrapper {
+  background: rgba(12, 14, 18, 0.08);
+  backdrop-filter: blur(48rpx) saturate(170%);
+  -webkit-backdrop-filter: blur(48rpx) saturate(170%);
+  /* 导航栏总高度：状态栏 + 40rpx(padding-top) + 80rpx(按钮) + 30rpx(padding-bottom) = 约150rpx + 状态栏 */
+}
+
+/* 顶部导航栏：上内边距加大，避免与右上角胶囊碰撞；整体下移 */
+.top-nav {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 70rpx 30rpx 0rpx;
+  gap: 20rpx;
+  min-height: 90rpx;
+}
+
+.nav-button {
+  flex: 1;
+  height: 60rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 视觉微调：两按钮（航天事件/即将发生）整体下移 3px，与首页导航按钮对齐 */
+  transform: translateY(3px);
+  background: rgba(18, 20, 24, 0.16);
+  backdrop-filter: blur(34rpx) saturate(170%);
+  -webkit-backdrop-filter: blur(34rpx) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16rpx;
+  color: #8E8E93;
+  font-size: 28rpx;
+  transition: all 0.3s ease;
+  box-shadow: 
+    0 4rpx 16rpx rgba(0, 0, 0, 0.3),
+    inset 0 1rpx 0 rgba(255, 255, 255, 0.12);
+  position: relative;
+  overflow: hidden;
+}
+
+.nav-button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1rpx;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    rgba(255, 255, 255, 0.3) 50%, 
+    transparent 100%);
+  pointer-events: none;
+}
+
+.nav-button.active {
+  background: rgba(0, 122, 255, 0.15);
+  border-color: rgba(0, 122, 255, 0.3);
+  color: #007AFF;
+  box-shadow: 
+    0 4rpx 16rpx rgba(0, 122, 255, 0.2),
+    inset 0 1rpx 0 rgba(255, 255, 255, 0.15);
+}
+
+/* 与自定义 TabBar「星舰进度 / 我的太空」红点同款（事件 Tab + 航天事件导航） */
+.nav-button--articles {
+  position: relative;
+}
+
+.nav-red-dot {
+  position: absolute;
+  top: 10rpx;
+  right: 12rpx;
+  width: 16rpx;
+  height: 16rpx;
+  background: #FF3B30;
+  border-radius: 50%;
+  box-shadow: 0 0 8rpx rgba(255, 59, 48, 0.6);
+}
+
+.content-scroll {
+  padding: 30rpx;
+}
+
+.news-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+  margin-top: 0;
+}
+
+.news-card {
+  padding: 30rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+}
+
+.news-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15rpx;
+}
+
+.event-type-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6rpx 16rpx;
+  background: rgba(0, 122, 255, 0.15);
+  border: 1px solid rgba(0, 122, 255, 0.3);
+  border-radius: 12rpx;
+}
+
+.event-type-text {
+  font-size: 22rpx;
+  color: #007AFF;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.news-time {
+  font-size: 24rpx;
+  color: #636366;
+}
+
+.news-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+
+.news-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #FFFFFF;
+  line-height: 1.5;
+}
+
+.news-summary {
+  font-size: 26rpx;
+  color: #8E8E93;
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.news-image {
+  width: 100%;
+  height: 300rpx;
+  border-radius: 12rpx;
+  object-fit: cover;
+  margin-bottom: 20rpx;
+  background-color: #1a1a1a;
+}
+
+.news-bottom-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  margin-top: 15rpx;
+  padding-top: 15rpx;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.news-meta-inline {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  flex: 1;
+  min-width: 0;
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  min-width: 0;
+}
+
+.meta-icon {
+  font-size: 24rpx;
+}
+
+.meta-location-icon {
+  width: 24rpx;
+  height: 24rpx;
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.meta-text {
+  font-size: 24rpx;
+  color: #8E8E93;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-text {
+  color: #FF3B30;
+  font-weight: 500;
+}
+
+/* 文章卡片样式 */
+.article-card {
+  padding: 30rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+}
+
+.article-content {
+  display: flex;
+  flex-direction: column;
+  gap: 15rpx;
+}
+
+.card-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+
+.article-clickable {
+  display: block;
+}
+
+/* 文章卡片头部沿用 news-header 横向布局，站点标签样式见 .article-site */
+
+.article-site {
+  font-size: 24rpx;
+  color: #007AFF;
+  font-weight: 500;
+  padding: 4rpx 12rpx;
+  background: rgba(0, 122, 255, 0.15);
+  border: 1px solid rgba(0, 122, 255, 0.3);
+  border-radius: 8rpx;
+}
+
+.article-time {
+  font-size: 24rpx;
+  color: #636366;
+}
+
+.article-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #FFFFFF;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.article-summary {
+  font-size: 26rpx;
+  color: #8E8E93;
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.article-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding-top: 15rpx;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.article-author {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  min-width: 0;
+  flex: 1;
+}
+
+.article-author-icon {
+  width: 24rpx;
+  height: 24rpx;
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.article-author-text {
+  font-size: 24rpx;
+  color: #8E8E93;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.article-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8rpx;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* 「即将发生」底部分享：保留较宽触控区 */
+.news-bottom-row .article-share-btn {
+  width: 96rpx;
+  height: 50rpx;
+  padding: 0;
+  min-width: 96rpx;
+  flex: 0 0 96rpx;
+  margin-right: -4rpx;
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.22);
+  border-radius: 10rpx;
+  box-shadow: none;
+}
+
+.news-bottom-row .icon-share--article {
+  width: 40rpx;
+  height: 40rpx;
+}
+
+/* 「航天事件」文章卡：箭头贴卡片右侧对齐 */
+.article-footer .article-share-btn {
+  width: 52rpx;
+  height: 52rpx;
+  padding: 0;
+  min-width: 52rpx;
+  max-width: 52rpx;
+  margin: 0;
+  flex: 0 0 52rpx;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  box-sizing: border-box;
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.22);
+  border-radius: 10rpx;
+  box-shadow: none;
+}
+
+.article-footer .icon-share--article {
+  width: 36rpx;
+  height: 36rpx;
+  flex-shrink: 0;
+  display: block;
+}
+
+.article-share-btn::after {
+  border: none;
+}
+
+.article-share-btn:active {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.45);
+  box-shadow: inset 0 0 0 1rpx rgba(255, 255, 255, 0.28);
+  transform: scale(0.97);
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* 加载更多 */
+.load-more {
+  padding: 28rpx 0 40rpx;
+  text-align: center;
+}
+
+.load-more-text {
+  font-size: 24rpx;
+  color: #8E8E93;
+}
+
+/* 没有更多 */
+.no-more {
+  padding: 40rpx 0;
+  text-align: center;
+}
+
+.no-more text {
+  font-size: 24rpx;
+  color: #636366;
+}
+
+/* 空状态 */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 200rpx 0;
+  gap: 24rpx;
+}
+
+.empty-icon {
+  font-size: 80rpx;
+}
+
+.empty-text {
+  font-size: 28rpx;
+  color: rgba(255,255,255,0.4);
+}
+
+.retry-btn {
+  margin-top: 12rpx;
+  padding: 16rpx 48rpx;
+  border-radius: 32rpx;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  font-size: 26rpx;
+  color: rgba(255,255,255,0.7);
+}
+
+.detail-description {
+  font-size: 26rpx;
+  color: #E5E5EA;
+  line-height: 1.8;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.detail-links {
+  display: flex;
+  flex-direction: column;
+  gap: 15rpx;
+}
+
+.detail-link-item {
+  display: flex;
+  align-items: center;
+  padding: 20rpx;
+  background: rgba(0, 122, 255, 0.1);
+  border: 1px solid rgba(0, 122, 255, 0.2);
+  border-radius: 12rpx;
+  gap: 15rpx;
+  box-sizing: border-box;
+}
+
+.link-icon {
+  font-size: 32rpx;
+  flex-shrink: 0;
+}
+
+.link-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5rpx;
+  min-width: 0;
+}
+
+.link-title {
+  font-size: 26rpx;
+  color: #FFFFFF;
+  word-break: break-word;
+}
+
+.link-source {
+  font-size: 22rpx;
+  color: #8E8E93;
+}
+
+.link-arrow {
+  font-size: 36rpx;
+  color: #8E8E93;
+  flex-shrink: 0;
+}
+
+/* 关注入口：位置由 left/top(px) 控制，支持长按拖动 */
+.qrcode-entry-wrap {
+  position: fixed;
+  width: 100rpx;
+  height: 100rpx;
+  border-radius: 50rpx;
+  background: rgba(7, 193, 96, 0.35);
+  border: 1px solid rgba(7, 193, 96, 0.5);
+  z-index: 99999;
+  font-size: 48rpx;
+  line-height: 100rpx;
+  text-align: center;
+}
+
+/* 顶部导航「关注」入口：不受 scroll-view 遮挡，点击稳定 */
+.nav-qrcode-entry {
+  flex-shrink: 0;
+  height: 60rpx;
+  padding: 0 20rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(7, 193, 96, 0.2);
+  border: 1px solid rgba(7, 193, 96, 0.35);
+  border-radius: 16rpx;
+  color: #07c160;
+  font-size: 26rpx;
+}
+
+.nav-qrcode-entry:active {
+  background: rgba(7, 193, 96, 0.3);
+}
+
+/* 二维码弹窗：z-index 高于关注入口(10001)，打开时盖住入口 */
+.qrcode-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(10rpx);
+  -webkit-backdrop-filter: blur(10rpx);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10002;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.qrcode-modal-content {
+  width: 600rpx;
+  max-width: 90%;
+  background: rgba(28, 28, 30, 0.95);
+  backdrop-filter: blur(40rpx) saturate(150%);
+  -webkit-backdrop-filter: blur(40rpx) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 24rpx;
+  overflow: hidden;
+  box-shadow: 
+    0 20rpx 60rpx rgba(0, 0, 0, 0.5),
+    inset 0 1rpx 0 rgba(255, 255, 255, 0.15);
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(50rpx);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.qrcode-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 30rpx 40rpx;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.qrcode-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #FFFFFF;
+}
+
+.qrcode-close {
+  width: 60rpx;
+  height: 60rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  transition: all 0.2s ease;
+}
+
+.qrcode-close:active {
+  background: rgba(255, 255, 255, 0.2);
+  transform: scale(0.95);
+}
+
+.icon-close--qrcode {
+  font-size: 36rpx;
+}
+
+.qrcode-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 50rpx 40rpx;
+  gap: 30rpx;
+}
+
+.qrcode-image {
+  width: 400rpx;
+  height: 400rpx;
+  border-radius: 16rpx;
+  background: #FFFFFF;
+  padding: 20rpx;
+  box-sizing: border-box;
+}
+
+.qrcode-tip {
+  font-size: 24rpx;
+  color: #8E8E93;
+  text-align: center;
+}
+
+/* ===== 页面级翻译按钮（悬浮右上角，不占内容行） ===== */
+.news-translate-float {
+  position: fixed;
+  right: 24rpx;
+  z-index: 1000;
+}
+
+.news-translate-float .translate-toggle {
+  padding: 7rpx 29rpx;
+  background: rgba(20, 20, 22, 0.82);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.35);
+}
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+
+/* 顶部导航玻璃底：深玻璃 → 浅玻璃 */
+.theme-light .top-nav-wrapper {
+  background: var(--bg-glass-nav);
+}
+
+/* 导航切换按钮：深底胶囊 → 浅胶囊 */
+.theme-light .nav-button {
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--color-divider);
+  color: var(--color-text-secondary);
+  box-shadow: var(--shadow-card);
+}
+
+.theme-light .nav-button::before {
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.9) 50%,
+    transparent 100%);
+}
+
+.theme-light .nav-button.active {
+  background: rgba(0, 122, 255, 0.12);
+  border-color: rgba(0, 122, 255, 0.3);
+  color: #007AFF;
+  box-shadow: var(--shadow-card);
+}
+
+/* 卡片内文字层级 */
+.theme-light .news-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .news-summary {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .news-time {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .article-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .article-summary {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .article-time {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .meta-text {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .article-author-text {
+  color: var(--color-text-secondary);
+}
+
+/* 图片加载占位：深灰 → 浅灰 */
+.theme-light .news-image {
+  background-color: #E5E5EA;
+}
+
+/* 卡片内分隔线：白线 → 深线 */
+.theme-light .news-bottom-row {
+  border-top: 1px solid var(--color-divider);
+}
+
+.theme-light .article-footer {
+  border-top: 1px solid var(--color-divider);
+}
+
+/* 站点/事件类型徽标：品牌蓝保持，半透明衬底微降 */
+.theme-light .event-type-badge {
+  background: rgba(0, 122, 255, 0.12);
+}
+
+.theme-light .article-site {
+  background: rgba(0, 122, 255, 0.12);
+}
+
+/* 分享按钮：白描边/白图标 → 深描边/深图标 */
+.theme-light .news-bottom-row .article-share-btn {
+  border-color: rgba(0, 0, 0, 0.15);
+}
+
+.theme-light .article-footer .article-share-btn {
+  border-color: rgba(0, 0, 0, 0.15);
+}
+
+.theme-light .icon-share--article {
+  filter: invert(1);
+  opacity: 0.75;
+}
+
+.theme-light .article-share-btn:active {
+  background: rgba(0, 0, 0, 0.06);
+  border-color: rgba(0, 0, 0, 0.25);
+  box-shadow: inset 0 0 0 1rpx rgba(0, 0, 0, 0.12);
+}
+
+/* 加载/空状态文案 */
+.theme-light .load-more-text {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .no-more text {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .empty-text {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .retry-btn {
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--color-divider);
+  color: var(--color-text-secondary);
+}
+
+/* 详情复用样式（本页 wxss 内定义） */
+.theme-light .detail-description {
+  color: var(--color-text-primary);
+}
+
+.theme-light .link-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .link-source {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .link-arrow {
+  color: var(--color-text-tertiary);
+}
+
+/* 二维码弹窗：遮罩保持深色，弹窗卡片转浅色 */
+.theme-light .qrcode-modal-content {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid var(--color-divider);
+  box-shadow:
+    0 20rpx 60rpx rgba(0, 0, 0, 0.1),
+    inset 0 1rpx 0 rgba(255, 255, 255, 0.9);
+}
+
+.theme-light .qrcode-header {
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.theme-light .qrcode-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .qrcode-close {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .qrcode-close:active {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.theme-light .qrcode-tip {
+  color: var(--color-text-secondary);
+}
+
+/* 悬浮翻译按钮：深玻璃底 → 浅玻璃底 */
+.theme-light .news-translate-float .translate-toggle {
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: var(--shadow-card);
+}
+
+/* 激活态为白字，需保留蓝色实底（本页 .news-translate-float 覆盖了公共类的背景） */
+.theme-light .news-translate-float .translate-toggle--active {
+  background: rgba(74, 158, 255, 0.85);
+}
+

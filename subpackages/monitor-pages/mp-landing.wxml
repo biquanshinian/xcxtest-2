@@ -1,0 +1,63 @@
+<view class="container {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">网站预览</text>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+  </view>
+
+  <scroll-view class="content-scroll main-content-scroll" scroll-y="true">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+    <view class="hero glass-card">
+      <text class="hero-title">网站预览</text>
+      <text class="hero-desc">点击下方预览图可直接查看网站内容。</text>
+      <text class="hero-tip">沙盘交互版请在浏览器访问</text>
+    </view>
+
+    <view class="preview-card glass-card">
+      <image
+        wx:if="{{previewImage}}"
+        class="preview-image"
+        src="{{previewImage}}"
+        mode="aspectFill"
+        lazy-load="true"
+        show-menu-by-longpress="false"
+        bindtap="onPreviewImageTap"
+      ></image>
+      <view wx:else class="preview-empty">
+        <text>暂无预览图</text>
+      </view>
+    </view>
+
+    <view class="action-section glass-card">
+      <view class="action-head">
+        <text class="action-title">在浏览器打开完整页面</text>
+        <text class="action-subtitle">如需查看沙盘交互版，请复制地址在系统浏览器中打开。</text>
+      </view>
+
+      <view class="action-url-wrap">
+        <text class="action-url-label">地址</text>
+        <text class="action-url">{{targetUrl}}</text>
+      </view>
+
+      <view class="action-btn-group">
+        <button class="action-btn primary" bindtap="copyLinkOnly">复制地址</button>
+      </view>
+    </view>
+
+    <view class="compliance-note">
+      <text>提示：小程序内可正常浏览网站内容，Figma沙盘交互版需在系统浏览器中访问。</text>
+    </view>
+
+    <!-- 贴图讨论区 -->
+    <view class="discussion-section glass-card">
+      <official-account-publish-panel topic="星舰基地沙盘监控中心" />
+    </view>
+    <view style="height: {{tabBarReservedHeight}}px;"></view>
+  </scroll-view>
+
+  <privacy-modal id="globalPrivacyModal" />
+</view>

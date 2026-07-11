@@ -1,0 +1,13 @@
+{
+  "navigationBarTitleText": "全球可回收火箭族谱",
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "light",
+  "backgroundColor": "#000000",
+  "navigationStyle": "custom",
+  "usingComponents": {
+    "share-guide": "/subpackages/shared/components/share-guide/index"
+  },
+  "componentPlaceholder": {
+    "share-guide": "view"
+  }
+}

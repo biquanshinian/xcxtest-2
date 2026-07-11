@@ -1,0 +1,29 @@
+<view class="llc-root">
+  <view class="llc-header">
+    <text class="llc-title">{{title}}</text>
+    <text class="llc-count">{{items.length}} 次任务</text>
+  </view>
+  <collapsible-view>
+    <view
+      wx:for="{{items}}"
+      wx:key="launchId"
+      class="llc-item"
+      data-index="{{index}}"
+      bind:tap="onItemTap"
+    >
+      <view class="llc-item-main">
+        <text class="llc-item-name">{{item.name}}</text>
+        <view class="llc-item-meta">
+          <text class="llc-item-agency">{{item.agency}}</text>
+          <text class="llc-item-time">{{item.netBeijing}}</text>
+        </view>
+      </view>
+      <view class="llc-item-badge">
+        <text class="llc-item-status">{{item.statusZh}}</text>
+      </view>
+    </view>
+    <view slot="button" class="llc-expand">
+      <text class="llc-expand-text">展开更多</text>
+    </view>
+  </collapsible-view>
+</view>

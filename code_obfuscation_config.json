@@ -1,0 +1,34 @@
+{
+  "desc": "微信小程序代码加固配置。仅保留分包内敏感算法文件；主包文件一律不加固——加固会显著膨胀编译后体积，导致主包超 1.5MB。",
+  "switch": true,
+  "configs": [
+    {
+      "path": "subpackages/monitor-pages/pass-map.js",
+      "sub_switch": true
+    },
+    {
+      "path": "subpackages/monitor-pages/launch-site-map.js",
+      "sub_switch": true
+    },
+    {
+      "path": "subpackages/monitor-pages/starlink-ar/starlink-ar.js",
+      "sub_switch": true
+    },
+    {
+      "path": "subpackages/monitor-pages/starlink-fullscreen.js",
+      "sub_switch": true
+    },
+    {
+      "path": "subpackages/monitor-pages/utils/starlink-renderer.js",
+      "sub_switch": true
+    },
+    {
+      "path": "subpackages/progress-extra/starbase-map.js",
+      "sub_switch": true
+    },
+    {
+      "path": "subpackages/progress-extra/road-closure-map.js",
+      "sub_switch": true
+    }
+  ]
+}

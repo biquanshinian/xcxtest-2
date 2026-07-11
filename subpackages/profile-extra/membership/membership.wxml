@@ -1,0 +1,161 @@
+<view class="container {{themeClass}}">
+  <!-- 顶部导航 -->
+  <view class="top-nav-wrapper" style="padding-top:{{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">星际通行证</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view class="content-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <!-- ═══ 金色会员主卡：状态 + 订阅计划 + 开通按钮 ═══ -->
+    <view class="gold-hero {{isPro ? 'gold-hero--pro' : ''}}">
+      <!-- 状态区 -->
+      <view class="gold-hero-head">
+        <image class="gold-hero-icon" src="{{cardIcon}}" mode="aspectFit" />
+        <view class="gold-hero-info">
+          <view class="gold-hero-title-row">
+            <text class="gold-hero-title">星际通行证</text>
+            <text class="gold-hero-badge {{isPro ? 'gold-hero-badge--pro' : ''}}">{{isPro ? 'PRO' : isExpired ? '已到期' : 'FREE'}}</text>
+          </view>
+          <text class="gold-hero-desc" wx:if="{{isPro && expireDate === '永久有效'}}">永久有效 · 尊享全部权益</text>
+          <text class="gold-hero-desc" wx:elif="{{isPro}}">有效期至 {{expireDate}}</text>
+          <text class="gold-hero-desc" wx:elif="{{isExpired}}">{{expireDate}} 已到期，续费即刻恢复权益</text>
+          <text class="gold-hero-desc" wx:else>解锁全部高级功能，畅享星际之旅</text>
+        </view>
+      </view>
+
+      <view class="ios-notice" wx:if="{{isIOS}}">
+        <text>iOS 端因苹果 30% 平台税未开通付费。</text>
+        <text class="ios-notice-tip">在 Windows / Mac 电脑微信扫码登录小程序付费，PRO 权益自动同步到 iOS 端，可省 30% 苹果税。</text>
+      </view>
+
+      <!-- 订阅计划 -->
+      <view class="plan-list {{isIOS ? 'plan-list--disabled' : ''}}">
+        <view class="plan-item {{selectedPlan === 'monthly' ? 'plan-item--active' : ''}}" bindtap="{{isIOS ? '' : 'selectPlan'}}" data-plan="monthly">
+          <view class="plan-name">月卡</view>
+          <view class="plan-price"><text class="plan-price-sym">¥</text><text class="plan-price-num">{{monthlyPrice}}</text></view>
+          <view class="plan-save">每月</view>
+        </view>
+        <view class="plan-item {{selectedPlan === 'yearly' ? 'plan-item--active' : ''}}" bindtap="{{isIOS ? '' : 'selectPlan'}}" data-plan="yearly">
+          <view class="plan-tag">限时推荐</view>
+          <view class="plan-name">年卡</view>
+          <view class="plan-price"><text class="plan-price-sym">¥</text><text class="plan-price-num">{{yearlyPrice}}</text></view>
+          <view class="plan-save">省 15%</view>
+        </view>
+        <view class="plan-item {{selectedPlan === 'permanent' ? 'plan-item--active' : ''}}" bindtap="{{isIOS ? '' : 'selectPlan'}}" data-plan="permanent">
+          <view class="plan-tag">最划算</view>
+          <view class="plan-name">永久</view>
+          <view class="plan-price"><text class="plan-price-sym">¥</text><text class="plan-price-num">{{permanentPrice}}</text></view>
+          <view class="plan-save">一次买断</view>
+        </view>
+      </view>
+
+      <!-- 金色开通按钮 -->
+      <view class="subscribe-btn {{isIOS ? 'subscribe-btn--disabled' : ''}}" bindtap="{{isIOS ? '' : 'handleSubscribe'}}">
+        <text>{{isIOS ? 'iOS 暂未开放' : subscribeBtnText}}</text>
+      </view>
+      <view class="subscribe-note">
+        <text>订阅到期自动降级为免费用户，不自动扣费</text>
+      </view>
+    </view>
+
+    <!-- ═══ 账户管理：订单记录 + 用户ID ═══ -->
+    <view class="section">
+      <view class="section-title">账户管理</view>
+      <view class="manage-card">
+        <view class="orders-entry" hover-class="orders-entry--pressed" hover-stay-time="120" bindtap="goOrders">
+          <view class="orders-entry-info">
+            <text class="orders-entry-title">订单记录</text>
+            <text class="orders-entry-desc">订阅与功能解锁的购买历史、支付状态</text>
+          </view>
+          <text class="orders-entry-arrow">›</text>
+        </view>
+        <view class="manage-divider"></view>
+        <view class="user-id-row">
+          <text class="user-id-label">用户ID</text>
+          <text class="user-id-value" catchtap="copyUserId">{{userId}}</text>
+          <button class="user-id-copy-btn" size="mini" catchtap="copyUserId" hover-class="user-id-copy-btn--hover">复制</button>
+        </view>
+      </view>
+    </view>
+
+    <!-- ═══ 会员权益：宫格 ═══ -->
+    <view class="section">
+      <view class="section-title">会员专属权益</view>
+      <view class="benefit-grid">
+        <view class="benefit-cell">
+          <image class="benefit-cell-icon" src="{{benefitIcons[0]}}" mode="aspectFit" />
+          <text class="benefit-cell-name">AI 无限对话</text>
+          <text class="benefit-cell-desc">太空助手不限次提问</text>
+        </view>
+        <view class="benefit-cell">
+          <image class="benefit-cell-icon" src="{{benefitIcons[1]}}" mode="aspectFit" />
+          <text class="benefit-cell-name">去除广告</text>
+          <text class="benefit-cell-desc">无弹窗，纯净体验</text>
+        </view>
+        <view class="benefit-cell">
+          <image class="benefit-cell-icon" src="{{benefitIcons[2]}}" mode="aspectFit" />
+          <text class="benefit-cell-name">7天过境预报</text>
+          <text class="benefit-cell-desc">星链未来7天精确预报</text>
+        </view>
+        <view class="benefit-cell">
+          <image class="benefit-cell-icon" src="{{benefitIcons[4]}}" mode="aspectFit" />
+          <text class="benefit-cell-name">专属徽章</text>
+          <text class="benefit-cell-desc">会员成就与金色边框</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- ═══ 一次性购买 ═══ -->
+    <view class="section">
+      <view class="section-title">独立功能解锁</view>
+      <view class="ios-notice" wx:if="{{isIOS}}">
+        <text>iOS 端因苹果 30% 平台税未开通付费。</text>
+        <text class="ios-notice-tip">在电脑微信扫码登录可付费，权益自动同步。</text>
+      </view>
+      <view class="product-list {{isIOS ? 'product-list--disabled' : ''}}">
+        <view class="product-item" wx:for="{{products}}" wx:key="id" bindtap="{{isIOS ? '' : 'handleBuyProduct'}}" data-id="{{item.id}}">
+          <view class="product-info">
+            <text class="product-name">{{item.name}}</text>
+            <text class="product-desc">{{item.desc}}</text>
+          </view>
+          <view class="product-action">
+            <text class="product-price" wx:if="{{!item.purchased && !isIOS}}">¥{{item.priceText}}</text>
+            <text class="product-owned product-owned--yes" wx:elif="{{item.purchased}}">已拥有</text>
+            <text class="product-owned" wx:else>暂未开放</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 底部说明 -->
+    <view class="footer-note">
+      <text>· 订阅到期后自动降级为免费用户</text>
+      <text>· 一次性购买的功能永久有效</text>
+      <text>· 如有问题请联系客服，提供用户ID</text>
+    </view>
+
+    <view style="height:80rpx"></view>
+  </scroll-view>
+
+  <!-- 折扣挽留弹窗 -->
+  <view class="discount-mask" wx:if="{{showDiscountModal}}" bindtap="closeDiscountModal">
+    <view class="discount-modal" catchtap="">
+      <view class="discount-close" bindtap="closeDiscountModal">×</view>
+      <view class="discount-badge">{{discountLabel}}</view>
+      <view class="discount-title">专属优惠，仅此一次</view>
+      <view class="discount-price-row">
+        <text class="discount-original">¥{{discountOriginalPrice}}</text>
+        <text class="discount-now">¥{{discountPrice}}</text>
+      </view>
+      <view class="discount-btn" bindtap="handleDiscountBuy">立即以优惠价开通</view>
+      <view class="discount-skip" bindtap="closeDiscountModal">暂不需要</view>
+    </view>
+  </view>
+</view>

@@ -1,0 +1,60 @@
+/**
+ * 首页「即将发射」列表左滑操作：位移与按钮生长（WXS）
+ * 提醒 / 置顶选中态由列表项 item.reminderOn、item.pinnedOn（JS）驱动，与倒计时铃铛一致，不在此维护。
+ */
+
+function num0(v) {
+  var n = parseFloat(v)
+  if (isNaN(n)) return 0
+  return n
+}
+
+function translateX(wxkey, openKey, dragKey, dragPx, actionW) {
+  var w = actionW > 0 ? actionW : 88
+  var x = 0
+  var dragging = dragKey && (dragKey === wxkey)
+  if (dragging) {
+    x = num0(dragPx)
+  } else if (openKey && openKey === wxkey) {
+    x = -w
+  }
+  if (x > 0) x = 0
+  if (x < -w) x = -w
+  var dur = dragging ? '0ms' : '260ms'
+  return 'transform:translateX(' + x + 'px);transition:transform ' + dur + ' cubic-bezier(0.22,1,0.36,1);will-change:transform;'
+}
+
+function swipeProgress(wxkey, openKey, dragKey, dragPx, actionW) {
+  var w = actionW > 0 ? actionW : 88
+  var p = 0
+  if (openKey && openKey === wxkey) p = 1
+  if (dragKey && dragKey === wxkey) {
+    var x = Math.abs(num0(dragPx))
+    var pd = w > 0 ? x / w : 0
+    if (pd > 1) pd = 1
+    if (pd > p) p = pd
+  }
+  return p
+}
+
+function btnGrowStyle(wxkey, openKey, dragKey, dragPx, actionW, btnLag, kind) {
+  var k = kind
+  if (!k) k = 'bell'
+  var p = swipeProgress(wxkey, openKey, dragKey, dragPx, actionW)
+  var lag = num0(btnLag)
+  if (lag < 0) lag = 0
+  if (lag > 0.82) lag = 0.82
+  var pp = p <= lag ? 0 : (p - lag) / (1 - lag)
+  if (pp < 0) pp = 0
+  if (pp > 1) pp = 1
+  var e = pp * (2 - pp)
+  var scale = 0.32 + e * 0.68
+  var op = 0.18 + e * 0.82
+  return 'transform:scale(' + scale + ');opacity:' + op + ';'
+}
+
+module.exports = {
+  translateX: translateX,
+  swipeProgress: swipeProgress,
+  btnGrowStyle: btnGrowStyle
+}

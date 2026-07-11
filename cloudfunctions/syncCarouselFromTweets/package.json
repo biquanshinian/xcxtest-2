@@ -1,0 +1,10 @@
+{
+  "name": "syncCarouselFromTweets",
+  "version": "1.0.0",
+  "description": "扫描 COS 推文视频文件夹，自动同步视频到轮播图 (media_assets sourceTag=auto-carousel)",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3",
+    "cos-nodejs-sdk-v5": "^2.14.6"
+  }
+}

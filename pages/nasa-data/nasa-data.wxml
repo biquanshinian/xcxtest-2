@@ -1,0 +1,204 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="detail-page {{themeClass}}">
+  <!-- 导航栏（参考 mission-detail） -->
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">NASA 数据中心</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+  </view>
+
+  <scroll-view class="detail-scroll" scroll-y="true" enhanced="{{true}}" bounces="{{false}}">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <!-- Tab 栏 -->
+    <view class="nasa-tab-bar">
+      <view
+        class="nasa-tab-item {{activeTab === index ? 'nasa-tab-item--active' : ''}}"
+        wx:for="{{tabs}}" wx:key="key"
+        bindtap="onTabTap" data-index="{{index}}"
+      >
+        <text class="nasa-tab-icon">{{item.icon}}</text>
+        <text class="nasa-tab-label">{{item.label}}</text>
+      </view>
+    </view>
+
+    <!-- ========== Tab 0: 火星探索 ========== -->
+    <view wx:if="{{activeTab === 0}}">
+      <view class="rover-switch">
+        <view class="rover-btn {{marsRover === 'curiosity' ? 'rover-btn--active' : ''}}" bindtap="onMarsRoverSwitch" data-value="curiosity"><text>好奇号</text></view>
+        <view class="rover-btn {{marsRover === 'perseverance' ? 'rover-btn--active' : ''}}" bindtap="onMarsRoverSwitch" data-value="perseverance"><text>毅力号</text></view>
+      </view>
+
+      <view class="rover-info-card glass-card">
+        <view class="rover-info-body">
+          <view class="rover-info-top">
+            <view class="rover-info-left">
+              <text class="rover-info-name">{{marsRoverInfo[marsRover].name}}</text>
+              <view class="rover-info-status">
+                <view class="rover-status-dot"></view>
+                <text class="rover-status-text">{{marsRoverInfo[marsRover].status}}</text>
+              </view>
+            </view>
+            <image class="rover-thumb" src="{{marsRoverInfo[marsRover].cover}}" mode="aspectFill" bindtap="onRoverCoverTap" />
+          </view>
+          <view class="rover-detail-list">
+            <view class="rover-detail-row"><text class="rover-detail-label">发射日期</text><text class="rover-detail-value">{{marsRoverInfo[marsRover].launchDate}}</text></view>
+            <view class="rover-detail-row"><text class="rover-detail-label">着陆日期</text><text class="rover-detail-value">{{marsRoverInfo[marsRover].landed}}</text></view>
+            <view class="rover-detail-row"><text class="rover-detail-label">着陆地点</text><text class="rover-detail-value">{{marsRoverInfo[marsRover].landingSite}}</text></view>
+            <view class="rover-detail-row"><text class="rover-detail-label">重量</text><text class="rover-detail-value">{{marsRoverInfo[marsRover].weight}}</text></view>
+            <view class="rover-detail-row"><text class="rover-detail-label">能源</text><text class="rover-detail-value">{{marsRoverInfo[marsRover].power}}</text></view>
+            <view class="rover-detail-row"><text class="rover-detail-label">行驶距离</text><text class="rover-detail-value">{{marsRoverInfo[marsRover].distance}}</text></view>
+            <view class="rover-detail-row"><text class="rover-detail-label">任务目标</text><text class="rover-detail-value">{{marsRoverInfo[marsRover].mission}}</text></view>
+            <view class="rover-detail-row"><text class="rover-detail-label">搭载相机</text><text class="rover-detail-value">{{marsRoverInfo[marsRover].cameras}}</text></view>
+            <view class="rover-detail-row"><text class="rover-detail-label">科学仪器</text><text class="rover-detail-value">{{marsRoverInfo[marsRover].instruments}}</text></view>
+            <view class="rover-detail-row" wx:if="{{marsRoverInfo[marsRover].companion}}"><text class="rover-detail-label">特别搭载</text><text class="rover-detail-value">{{marsRoverInfo[marsRover].companion}}</text></view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 贴图讨论区：火星车简介与照片日期之间；topic 固定，组件内已截断至 20 字 -->
+      <view class="mars-discuss-wrap">
+        <official-account-publish-panel topic="火星探索" />
+      </view>
+
+      <view class="mars-date-row">
+        <text class="mars-date-label">照片日期：{{marsDate}}{{marsSol ? ' · Sol ' + marsSol : ''}}</text>
+        <picker mode="date" value="{{marsDate}}" bindchange="onMarsDateChange">
+          <view class="mars-date-picker"><text>选择日期</text></view>
+        </picker>
+      </view>
+
+      <view class="loading-state" wx:if="{{marsLoading}}">
+        <view class="loading-spinner"></view>
+        <text class="loading-text">正在获取火星车照片...{{marsRetryCount > 0 ? '(回退第' + marsRetryCount + '天)' : ''}}</text>
+      </view>
+      <view class="error-state glass-card" wx:elif="{{marsError}}">
+        <text class="error-text">{{marsError}}</text>
+        <button class="retry-btn" bindtap="loadMarsPhotos">重试</button>
+      </view>
+      <view wx:else>
+        <view class="mars-photo-count" wx:if="{{marsPhotos.length}}">
+          <text>共 {{marsPhotos.length}} 张照片</text>
+        </view>
+        <view class="mars-photos">
+          <view class="mars-photo-item" wx:for="{{marsPhotos}}" wx:key="id" bindtap="onMarsPhotoTap" data-src="{{item.imgSrc}}">
+            <image class="mars-photo-img" src="{{item.imgSrc}}" mode="aspectFill" lazy-load />
+            <view class="mars-photo-label"><text>{{item.cameraCN}}</text></view>
+          </view>
+        </view>
+        <view class="list-empty" wx:if="{{!marsPhotos.length && !marsLoading}}"><text>该日期暂无照片，请选择其他日期</text></view>
+      </view>
+    </view>
+
+    <!-- ========== Tab 1: 地球事件 ========== -->
+    <view wx:if="{{activeTab === 1}}">
+      <scroll-view class="category-bar" scroll-x show-scrollbar="{{false}}">
+        <view class="category-chips">
+          <view class="filter-chip {{eonetCategory === '' ? 'filter-chip--active' : ''}}" bindtap="onEonetCategoryFilter" data-value=""><text>全部</text></view>
+          <view class="filter-chip {{eonetCategory === item.id ? 'filter-chip--active' : ''}}" wx:for="{{eonetCategories}}" wx:key="id" bindtap="onEonetCategoryFilter" data-value="{{item.id}}">
+            <text>{{item.icon}} {{item.title}}</text>
+          </view>
+        </view>
+      </scroll-view>
+
+      <view class="loading-state" wx:if="{{eonetLoading}}">
+        <view class="loading-spinner"></view>
+        <text class="loading-text">正在获取地球事件数据...</text>
+      </view>
+      <view class="error-state glass-card" wx:elif="{{eonetError}}">
+        <text class="error-text">{{eonetError}}</text>
+        <button class="retry-btn" bindtap="loadEONETData">重试</button>
+      </view>
+      <view wx:else>
+        <view class="eonet-card glass-card" wx:for="{{eonetFilteredList}}" wx:key="id">
+          <view class="eonet-card-header">
+            <text class="eonet-cat-icon">🔥</text>
+            <view class="eonet-title-wrap">
+              <text class="eonet-title">{{item.title}}</text>
+              <text class="eonet-desc" wx:if="{{item.description}}">{{item.description}}</text>
+            </view>
+            <view class="eonet-status eonet-status--{{item.isOpen ? 'open' : 'closed'}}">
+              <text>{{item.statusText}}</text>
+            </view>
+          </view>
+          <view class="eonet-card-body">
+            <view class="eonet-info-row" wx:if="{{item.dateFormatted}}"><text class="eonet-label">时间</text><text class="eonet-value">{{item.dateFormatted}}</text></view>
+            <view class="eonet-info-row" wx:if="{{item.coordText}}"><text class="eonet-label">坐标</text><text class="eonet-value">{{item.coordText}}</text></view>
+            <view class="eonet-info-row" wx:if="{{item.magnitudeText}}"><text class="eonet-label">规模</text><text class="eonet-value">{{item.magnitudeText}}</text></view>
+            <view class="eonet-info-row" wx:if="{{item.categoryTitle}}"><text class="eonet-label">类型</text><text class="eonet-value">{{item.categoryTitle}}</text></view>
+          </view>
+          <view class="eonet-map-entry" wx:if="{{item.coordinates.length}}" bindtap="openEonetMap" data-index="{{index}}">
+            <text class="eonet-map-icon">🗺️</text>
+            <text class="eonet-map-text">在地图上查看</text>
+            <text class="eonet-map-arrow">›</text>
+          </view>
+        </view>
+        <view class="list-empty" wx:if="{{!eonetFilteredList.length && !eonetLoading}}"><text>暂无事件数据</text></view>
+      </view>
+    </view>
+
+    <!-- ========== Tab 2: 近地天体 ========== -->
+    <view wx:if="{{activeTab === 2}}">
+      <view class="filter-bar">
+        <view class="filter-group">
+          <text class="filter-label">时间</text>
+          <view class="filter-chips">
+            <view class="filter-chip {{cadTimeRange === '7' ? 'filter-chip--active' : ''}}" bindtap="onCadTimeFilter" data-value="7"><text>7天</text></view>
+            <view class="filter-chip {{cadTimeRange === '30' ? 'filter-chip--active' : ''}}" bindtap="onCadTimeFilter" data-value="30"><text>30天</text></view>
+            <view class="filter-chip {{cadTimeRange === '60' ? 'filter-chip--active' : ''}}" bindtap="onCadTimeFilter" data-value="60"><text>60天</text></view>
+          </view>
+        </view>
+        <view class="filter-group">
+          <text class="filter-label">排序</text>
+          <view class="filter-chips">
+            <view class="filter-chip {{cadSort === 'date' ? 'filter-chip--active' : ''}}" bindtap="onCadSortChange" data-value="date"><text>按日期</text></view>
+            <view class="filter-chip {{cadSort === 'dist' ? 'filter-chip--active' : ''}}" bindtap="onCadSortChange" data-value="dist"><text>按距离</text></view>
+          </view>
+        </view>
+      </view>
+
+      <view class="section-summary" wx:if="{{!cadLoading && cadList.length}}">
+        <text>共 {{cadCount}} 个近地天体将在未来 {{cadTimeRange}} 天内接近地球</text>
+      </view>
+
+      <view class="loading-state" wx:if="{{cadLoading}}">
+        <view class="loading-spinner"></view>
+        <text class="loading-text">正在获取近地天体数据...</text>
+      </view>
+      <view class="error-state glass-card" wx:elif="{{cadError}}">
+        <text class="error-text">{{cadError}}</text>
+        <button class="retry-btn" bindtap="loadCADData">重试</button>
+      </view>
+      <view wx:else>
+        <view class="cad-card glass-card" wx:for="{{cadList}}" wx:key="des">
+          <view class="cad-card-header">
+            <view class="cad-name-row">
+              <text class="cad-icon">☄️</text>
+              <text class="cad-name">{{item.fullnameClean || item.des}}</text>
+            </view>
+            <view class="cad-safe-badge cad-safe-badge--{{item.safeLevel}}">
+              <text>{{item.safeLevelIcon}} {{item.safeLevelText}}</text>
+            </view>
+          </view>
+          <view class="cad-card-body">
+            <view class="cad-info-row"><text class="cad-label">接近时间</text><text class="cad-value">{{item.cd}}</text></view>
+            <view class="cad-info-row"><text class="cad-label">距离</text><text class="cad-value">{{item.distWanKm}} 万公里 ({{item.distLD}} LD)</text></view>
+            <view class="cad-info-row"><text class="cad-label">相对速度</text><text class="cad-value">{{item.vRelFormatted}} km/s</text></view>
+            <view class="cad-info-row"><text class="cad-label">绝对星等</text><text class="cad-value">H = {{item.hFormatted}}</text></view>
+            <view class="cad-info-row"><text class="cad-label">直径</text><text class="cad-value">{{item.diameterText}}</text></view>
+          </view>
+        </view>
+        <view class="list-empty" wx:if="{{!cadList.length}}"><text>暂无近地天体数据</text></view>
+      </view>
+    </view>
+
+    <view style="height: 120rpx;"></view>
+  </scroll-view>
+  <share-guide />
+</view>

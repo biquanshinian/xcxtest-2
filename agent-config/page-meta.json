@@ -1,0 +1,83 @@
+{
+  "pages": [
+    {
+      "path": "pages/index/index",
+      "name": "首页 · 发射追踪",
+      "description": "全球火箭发射追踪首页：SpaceX、中国航天及各国即将发射倒计时、星链发射、发射日历、历史发射记录、发射直播入口"
+    },
+    {
+      "path": "pages/monitor/monitor",
+      "name": "监控中心",
+      "description": "航天科技监控中心：星链卫星过境查询、空间站动态、火箭回收族谱、全球飞船图鉴、全球发射商图鉴入口"
+    },
+    {
+      "path": "pages/progress/progress",
+      "name": "星舰进度",
+      "description": "SpaceX 星舰（Starship）研发进度追踪：动态时间线、硬件清单、星舰基地地图、道路封闭信息"
+    },
+    {
+      "path": "pages/news/news",
+      "name": "航天事件",
+      "description": "航天事件与新闻：即将发生的航天事件、行业新闻资讯"
+    },
+    {
+      "path": "pages/mission-detail/mission-detail",
+      "name": "发射任务详情",
+      "description": "单次火箭发射任务的完整详情：倒计时、任务说明、火箭信息、发射场、直播与回放",
+      "query": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "发射任务唯一标识（Launch Library UUID）"
+          },
+          "type": {
+            "type": "string",
+            "description": "任务类别：upcoming 表示即将发射，completed 表示已完成"
+          }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "path": "subpackages/index-extra/global-launch-stats",
+      "name": "全球发射统计",
+      "description": "全球航天发射年度统计：总发射次数、成功失败、按国家/发射商/火箭型号排行与图表"
+    },
+    {
+      "path": "subpackages/monitor-pages/agency-list",
+      "name": "全球发射商图鉴",
+      "description": "全球航天发射商大全：SpaceX、中国航天科技集团、蓝箭航天等，按发射次数排序，支持按政府/商业航天分类与关键词搜索"
+    },
+    {
+      "path": "subpackages/monitor-pages/agency-detail",
+      "name": "发射商详情",
+      "description": "单个航天发射商的完整档案：发射战绩、成功率、回收统计、旗下火箭与飞船型号",
+      "query": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "发射商唯一标识（Launch Library agency id），如 SpaceX 为 121"
+          }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "path": "subpackages/monitor-pages/spacecraft-gallery",
+      "name": "全球飞船图鉴",
+      "description": "全球载人/货运飞船图鉴：按类型、状态、所属机构筛选浏览"
+    },
+    {
+      "path": "subpackages/monitor-pages/booster-genealogy",
+      "name": "全球可回收火箭族谱",
+      "description": "火箭回收数据中心：SpaceX 猎鹰及全球可回收火箭助推器族谱，飞行次数、复用记录、着陆回收历史与成功率"
+    },
+    {
+      "path": "pages/space-explore/astro-calendar",
+      "name": "天文日历",
+      "description": "天文观测日历：流星雨、日月食、行星冲日等天象事件时间表"
+    }
+  ]
+}

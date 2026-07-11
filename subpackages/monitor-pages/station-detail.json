@@ -1,0 +1,17 @@
+{
+  "navigationBarTitleText": "空间站详情",
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "light",
+  "backgroundColor": "#000000",
+  "navigationStyle": "custom",
+  "initialRenderingCache": "static",
+  "usingComponents": {
+    "share-guide": "/subpackages/shared/components/share-guide/index",
+    "privacy-modal": "/components/privacy-modal/privacy-modal",
+    "official-account-publish-panel": "/subpackages/shared/components/official-account-publish-panel/index"
+  },
+  "componentPlaceholder": {
+    "share-guide": "view",
+    "official-account-publish-panel": "view"
+  }
+}

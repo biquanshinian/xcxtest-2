@@ -1,0 +1,9 @@
+{
+  "name": "syncTLE",
+  "version": "1.0.0",
+  "description": "统一 TLE 同步：合并 syncStarlinkTLE + syncStationTLE，通过 action 参数区分",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

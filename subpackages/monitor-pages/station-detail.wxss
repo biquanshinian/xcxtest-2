@@ -1,0 +1,1552 @@
+page {
+  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  overflow: hidden;
+  height: 100vh;
+  width: 100%;
+}
+
+.detail-page {
+  min-height: 100vh;
+  height: 100vh;
+  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  overflow: hidden;
+}
+
+
+.detail-scroll {
+  height: 100vh;
+}
+
+.detail-container {
+  padding: 32rpx;
+  box-sizing: border-box;
+}
+
+.glass-card {
+  background: rgba(18, 20, 24, 0.62);
+  backdrop-filter: blur(28rpx) saturate(170%);
+  -webkit-backdrop-filter: blur(28rpx) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 28rpx;
+  box-shadow: 0 16rpx 40rpx rgba(0, 0, 0, 0.35), inset 0 1rpx 0 rgba(255, 255, 255, 0.08);
+}
+
+.detail-card {
+  padding: 28rpx;
+}
+
+.hero-wrap {
+  position: relative;
+  width: 100%;
+  height: 360rpx;
+  border-radius: 24rpx;
+  overflow: hidden;
+  margin-bottom: 28rpx;
+  background: #131313;
+}
+
+.hero-image {
+  width: 100%;
+  height: 100%;
+  border-radius: 24rpx;
+  background: #131313;
+  opacity: 0;
+  transform: scale(1.02);
+  transition: opacity 0.36s ease, transform 0.36s ease;
+}
+
+.hero-image--loaded {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.hero-image--visual,
+.hero-image--placeholder,
+.ship-image--placeholder {
+  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.10), rgba(19, 19, 19, 1) 72%);
+}
+
+.hero-visual {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 48%, rgba(104, 195, 255, 0.18), transparent 24%),
+    linear-gradient(180deg, rgba(9, 16, 29, 0.96) 0%, rgba(6, 10, 18, 0.98) 100%);
+}
+
+.hero-visual--tiangong {
+  background:
+    radial-gradient(circle at 50% 48%, rgba(74, 144, 226, 0.22), transparent 24%),
+    linear-gradient(180deg, rgba(8, 18, 38, 0.96) 0%, rgba(5, 10, 24, 0.98) 100%);
+}
+
+.hero-orbit {
+  position: absolute;
+  border: 2rpx solid rgba(132, 194, 255, 0.18);
+  border-radius: 999rpx;
+}
+
+.hero-orbit--outer {
+  width: 540rpx;
+  height: 540rpx;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.hero-orbit--inner {
+  width: 360rpx;
+  height: 360rpx;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-color: rgba(132, 194, 255, 0.28);
+}
+
+.hero-core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 999rpx;
+  z-index: 2;
+}
+
+.hero-core--iss {
+  width: 210rpx;
+  height: 54rpx;
+  background: linear-gradient(90deg, rgba(220, 235, 255, 0.95), rgba(112, 186, 255, 0.9), rgba(220, 235, 255, 0.95));
+  box-shadow: 0 0 32rpx rgba(112, 186, 255, 0.28);
+}
+
+.hero-core--iss::before,
+.hero-core--iss::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 74rpx;
+  height: 150rpx;
+  border-radius: 16rpx;
+  background: linear-gradient(180deg, rgba(74, 144, 226, 0.92), rgba(29, 88, 170, 0.88));
+}
+
+.hero-core--iss::before {
+  left: -82rpx;
+}
+
+.hero-core--iss::after {
+  right: -82rpx;
+}
+
+.hero-core--tiangong {
+  width: 220rpx;
+  height: 72rpx;
+  background: linear-gradient(90deg, rgba(244, 248, 255, 0.96), rgba(134, 198, 255, 0.92), rgba(244, 248, 255, 0.96));
+  box-shadow: 0 0 32rpx rgba(120, 190, 255, 0.3);
+}
+
+.hero-core--tiangong::before,
+.hero-core--tiangong::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 88rpx;
+  height: 136rpx;
+  border-radius: 14rpx;
+  background: linear-gradient(180deg, rgba(70, 137, 226, 0.94), rgba(26, 82, 168, 0.88));
+}
+
+.hero-core--tiangong::before {
+  left: -96rpx;
+}
+
+.hero-core--tiangong::after {
+  right: -96rpx;
+}
+
+.hero-glow {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(108, 188, 255, 0.16), transparent 22%),
+    radial-gradient(circle at 15% 22%, rgba(255, 255, 255, 0.12), transparent 10%),
+    radial-gradient(circle at 85% 18%, rgba(255, 255, 255, 0.08), transparent 8%);
+}
+
+.hero-fallback-tag {
+  position: absolute;
+  left: 28rpx;
+  top: 24rpx;
+  z-index: 3;
+  font-size: 22rpx;
+  letter-spacing: 4rpx;
+  color: rgba(207, 229, 255, 0.82);
+}
+
+.hero-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  padding: 28rpx 24rpx 24rpx;
+  background: linear-gradient(180deg, rgba(3, 6, 12, 0) 0%, rgba(3, 6, 12, 0.82) 100%);
+}
+
+.hero-name-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.hero-name-col {
+  flex: 1;
+  min-width: 0;
+}
+
+.hero-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16rpx;
+  margin-bottom: 14rpx;
+}
+
+.hero-status {
+  max-width: 60%;
+  padding: 8rpx 18rpx;
+  border-radius: 999rpx;
+  font-size: 22rpx;
+  color: #d8e8ff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  flex-shrink: 0;
+  white-space: nowrap;
+  margin-top: 6rpx;
+}
+
+.hero-status--active {
+  color: #34C759;
+  background: rgba(52, 199, 89, 0.15);
+  border: 1px solid rgba(52, 199, 89, 0.35);
+}
+
+.hero-status--inactive {
+  color: #ff9f0a;
+  background: rgba(255, 159, 10, 0.14);
+  border: 1px solid rgba(255, 159, 10, 0.3);
+}
+
+.hero-status--building {
+  color: #5ac8fa;
+  background: rgba(90, 200, 250, 0.14);
+  border: 1px solid rgba(90, 200, 250, 0.28);
+}
+
+.hero-status--unknown {
+  color: #d8e8ff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.hero-dock-count {
+  display: block;
+  font-size: 24rpx;
+  color: #d6deea;
+  text-align: right;
+  margin-top: 8rpx;
+}
+
+.hero-name {
+  display: block;
+  font-size: 40rpx;
+  line-height: 1.4;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.hero-name-en {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: rgba(196, 220, 255, 0.82);
+}
+
+.meta-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 20rpx;
+}
+
+.type-badge {
+  max-width: 60%;
+  padding: 8rpx 18rpx;
+  border-radius: 999rpx;
+  font-size: 22rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.station-badge {
+  color: #34C759;
+  background: rgba(52, 199, 89, 0.15);
+  border: 1px solid rgba(52, 199, 89, 0.35);
+}
+
+.station-badge--inactive {
+  color: #ff9f0a;
+  background: rgba(255, 159, 10, 0.14);
+  border: 1px solid rgba(255, 159, 10, 0.3);
+}
+
+.station-badge--building {
+  color: #5ac8fa;
+  background: rgba(90, 200, 250, 0.14);
+  border: 1px solid rgba(90, 200, 250, 0.28);
+}
+
+.station-badge--unknown {
+  color: #d8e8ff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.date-text {
+  font-size: 24rpx;
+  color: #8e8e93;
+  text-align: right;
+}
+
+.detail-title {
+  display: block;
+  font-size: 40rpx;
+  line-height: 1.45;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 10rpx;
+}
+
+.detail-subtitle {
+  display: block;
+  font-size: 28rpx;
+  line-height: 1.6;
+  color: #8ebdff;
+  margin-bottom: 28rpx;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16rpx;
+  margin-bottom: 24rpx;
+}
+
+.stat-card {
+  padding: 22rpx 18rpx;
+  border-radius: 20rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.stat-value {
+  display: block;
+  font-size: 34rpx;
+  line-height: 1.3;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.stat-label {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #8e8e93;
+}
+
+.info-grid {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 28rpx;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24rpx;
+  padding: 18rpx 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.info-row:last-child {
+  border-bottom: none;
+}
+
+.info-label {
+  font-size: 26rpx;
+  color: #8e8e93;
+  flex-shrink: 0;
+}
+
+.info-value {
+  font-size: 26rpx;
+  line-height: 1.6;
+  color: #ffffff;
+  text-align: right;
+  flex: 1;
+}
+
+.info-value--highlight {
+  color: #4ea1ff;
+}
+
+.section {
+  margin-top: 28rpx;
+}
+
+.section-title {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 18rpx;
+}
+
+.section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 18rpx;
+}
+
+.section-title-row .section-title {
+  margin-bottom: 0;
+  flex: 1;
+}
+
+.section-title-row .translate-toggle {
+  flex-shrink: 0;
+}
+
+.section-toggle {
+  font-size: 24rpx;
+  color: #4ea1ff;
+  flex-shrink: 0;
+}
+
+.section-text--collapsed {
+  max-height: 126rpx;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  text-overflow: ellipsis;
+}
+
+.section-text {
+  display: block;
+  font-size: 28rpx;
+  line-height: 1.8;
+  color: #d7d7db;
+  white-space: pre-wrap;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14rpx;
+}
+
+.tag-item {
+  padding: 10rpx 18rpx;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  color: #d4e8ff;
+  background: rgba(78, 161, 255, 0.12);
+  border: 1px solid rgba(78, 161, 255, 0.22);
+}
+
+.tag-item--active {
+  color: #b8ffd2;
+  background: rgba(52, 199, 89, 0.14);
+  border: 1px solid rgba(52, 199, 89, 0.28);
+}
+
+.agency-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.agency-card {
+  padding: 22rpx;
+  border-radius: 20rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.agency-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.agency-card__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 28rpx;
+  line-height: 1.5;
+  color: #ffffff;
+}
+
+.agency-card__abbr {
+  flex-shrink: 0;
+  padding: 4rpx 14rpx;
+  border-radius: 999rpx;
+  font-size: 22rpx;
+  color: #8ebdff;
+  background: rgba(78, 161, 255, 0.12);
+  border: 1px solid rgba(78, 161, 255, 0.22);
+}
+
+.agency-card__meta {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  line-height: 1.6;
+  color: #8e8e93;
+}
+
+.link-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.ship-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 18rpx;
+  padding: 22rpx;
+  border-radius: 20rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* 可点卡片：跳转箭头 + 按压反馈 */
+.card-jump-arrow {
+  align-self: center;
+  flex-shrink: 0;
+  font-size: 36rpx;
+  color: rgba(255, 255, 255, 0.35);
+  line-height: 1;
+  padding-left: 4rpx;
+}
+
+.card-jump-arrow--inline {
+  align-self: auto;
+}
+
+.card-pressed {
+  background: rgba(255, 255, 255, 0.09);
+  transform: scale(0.985);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.ship-image {
+  width: 140rpx;
+  height: 140rpx;
+  border-radius: 16rpx;
+  background: #131313;
+  flex-shrink: 0;
+}
+
+.ship-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.ship-top,
+.ship-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.ship-title {
+  font-size: 28rpx;
+  color: #ffffff;
+  line-height: 1.5;
+  flex: 1;
+}
+
+.ship-sub,
+.ship-port,
+.ship-days {
+  display: block;
+  font-size: 24rpx;
+  color: #8e8e93;
+  margin-top: 6rpx;
+}
+
+.ship-agency {
+  display: block;
+  font-size: 24rpx;
+  color: #8ebdff;
+  margin-top: 4rpx;
+}
+
+.ship-detail-grid {
+  margin-top: 10rpx;
+}
+
+.ship-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4rpx 0;
+}
+
+.ship-detail-label {
+  font-size: 22rpx;
+  color: #636366;
+  flex-shrink: 0;
+}
+
+.ship-detail-value {
+  font-size: 22rpx;
+  color: #d7d7db;
+  text-align: right;
+}
+
+.ship-badge {
+  padding: 4rpx 14rpx;
+  border-radius: 999rpx;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.ship-badge text {
+  font-size: 22rpx;
+  line-height: 1;
+}
+
+.ship-badge--crew {
+  background: rgba(10, 132, 255, 0.14);
+  border: 1px solid rgba(10, 132, 255, 0.24);
+  color: #5ac8fa;
+}
+
+.ship-badge--cargo {
+  background: rgba(255, 214, 10, 0.12);
+  border: 1px solid rgba(255, 214, 10, 0.22);
+  color: #ffd60a;
+}
+
+.info-link-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18rpx;
+  padding: 22rpx;
+  border-radius: 20rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.info-link-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.info-link-name {
+  display: block;
+  font-size: 26rpx;
+  color: #ffffff;
+}
+
+.info-link-url {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  line-height: 1.6;
+  color: #8e8e93;
+  word-break: break-all;
+}
+
+.info-link-action {
+  flex-shrink: 0;
+  font-size: 24rpx;
+  color: #4ea1ff;
+}
+
+.empty-inline {
+  padding: 28rpx 24rpx;
+  border-radius: 20rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.empty-inline text {
+  font-size: 26rpx;
+  color: #8e8e93;
+}
+
+.loading-state,
+.error-state {
+  min-height: 50vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18rpx;
+  text-align: center;
+  padding: 48rpx 32rpx;
+  box-sizing: border-box;
+}
+
+.loading-spinner {
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 50%;
+  border: 4rpx solid rgba(0, 122, 255, 0.2);
+  border-top-color: #4ea1ff;
+  animation: spin 0.8s linear infinite;
+}
+
+.loading-text,
+.error-text {
+  font-size: 28rpx;
+  line-height: 1.7;
+  color: #b6b6bb;
+}
+
+.error-title {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.retry-btn {
+  margin-top: 8rpx;
+  padding: 0 28rpx;
+  height: 76rpx;
+  line-height: 76rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(135deg, #1677ff 0%, #55a3ff 100%);
+  color: #ffffff;
+  font-size: 28rpx;
+  border: none;
+}
+
+.retry-btn::after {
+  border: none;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ===== 远征卡片 ===== */
+.expedition-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.expedition-card {
+  padding: 24rpx;
+  border-radius: 20rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.expedition-header {
+  margin-bottom: 4rpx;
+}
+
+.expedition-name {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #ffffff;
+  line-height: 1.5;
+}
+
+.expedition-time {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: #8e8e93;
+  line-height: 1.6;
+}
+
+/* ===== 团队成员列表 ===== */
+.crew-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
+  margin-top: 18rpx;
+  padding-top: 16rpx;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.crew-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 18rpx;
+  padding: 16rpx 18rpx;
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.crew-avatar {
+  width: 160rpx;
+  height: 160rpx;
+  border-radius: 16rpx;
+  background: #1c1c1e;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.crew-avatar--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle, rgba(90, 200, 250, 0.12), #1c1c1e 72%);
+  border: 1px solid rgba(90, 200, 250, 0.15);
+  border-radius: 16rpx;
+}
+
+.crew-avatar__initial {
+  font-size: 42rpx;
+  font-weight: 600;
+  color: rgba(90, 200, 250, 0.7);
+}
+
+.crew-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.crew-name {
+  display: block;
+  font-size: 26rpx;
+  color: #ffffff;
+  line-height: 1.5;
+}
+
+.crew-role {
+  display: block;
+  font-size: 22rpx;
+  color: #5ac8fa;
+  margin-top: 4rpx;
+  line-height: 1.5;
+}
+
+.crew-meta {
+  display: block;
+  font-size: 22rpx;
+  color: #8e8e93;
+  margin-top: 2rpx;
+  line-height: 1.5;
+}
+
+.crew-detail-grid {
+  margin-top: 8rpx;
+}
+
+.crew-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3rpx 0;
+}
+
+.crew-detail-label {
+  font-size: 22rpx;
+  color: #636366;
+  flex-shrink: 0;
+}
+
+.crew-detail-value {
+  font-size: 22rpx;
+  color: #d7d7db;
+  text-align: right;
+}
+
+.crew-flag {
+  margin-right: 6rpx;
+  font-size: 24rpx;
+}
+
+.crew-empty {
+  margin-top: 14rpx;
+  padding-top: 12rpx;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.crew-empty text {
+  font-size: 24rpx;
+  color: #636366;
+}
+
+/* ===== 实时轨道追踪 ===== */
+.orbit-section {
+  margin-top: 28rpx;
+  padding-top: 4rpx;
+}
+
+.orbit-loading {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  padding: 24rpx 0;
+}
+
+.loading-spinner--small {
+  width: 32rpx;
+  height: 32rpx;
+  border-width: 3rpx;
+}
+
+.orbit-loading-text {
+  font-size: 26rpx;
+  color: #8e8e93;
+}
+
+.orbit-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 20rpx 22rpx;
+  border-radius: 16rpx;
+  background: rgba(255, 69, 58, 0.08);
+  border: 1px solid rgba(255, 69, 58, 0.2);
+}
+
+.orbit-error-text {
+  font-size: 26rpx;
+  color: #ff6961;
+  flex: 1;
+}
+
+.orbit-retry-btn {
+  flex-shrink: 0;
+  padding: 8rpx 20rpx;
+  border-radius: 999rpx;
+  background: rgba(78, 161, 255, 0.15);
+  border: 1px solid rgba(78, 161, 255, 0.3);
+}
+
+.orbit-retry-btn text {
+  font-size: 24rpx;
+  color: #4ea1ff;
+}
+
+/* 实时数据条 */
+.orbit-live-bar {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  padding: 14rpx 20rpx;
+  border-radius: 16rpx;
+  background: rgba(52, 199, 89, 0.08);
+  border: 1px solid rgba(52, 199, 89, 0.2);
+  margin-bottom: 16rpx;
+}
+
+.orbit-live-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: #34C759;
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+.orbit-live-label {
+  font-size: 22rpx;
+  color: #34C759;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.orbit-live-coord {
+  font-size: 22rpx;
+  color: #d7d7db;
+  flex: 1;
+  text-align: right;
+  font-family: 'Menlo', 'Courier New', monospace;
+}
+
+/* 轨道实时指标 */
+.orbit-stats-row {
+  display: flex;
+  gap: 12rpx;
+  margin-bottom: 16rpx;
+}
+
+.orbit-stat {
+  flex: 1;
+  padding: 18rpx 14rpx;
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: center;
+}
+
+.orbit-stat-value {
+  display: block;
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.3;
+}
+
+.orbit-stat-label {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 20rpx;
+  color: #8e8e93;
+}
+
+/* 地图容器（预览模式） */
+.orbit-map-wrap {
+  position: relative;
+  border-radius: 20rpx;
+  overflow: hidden;
+  margin-bottom: 16rpx;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.orbit-map {
+  width: 100%;
+  height: 360rpx;
+  pointer-events: none;
+}
+
+.orbit-map-tap-hint {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.orbit-map-tap-hint text {
+  padding: 12rpx 28rpx;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(10rpx);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.orbit-map-legend {
+  position: absolute;
+  bottom: 12rpx;
+  left: 16rpx;
+  display: flex;
+  gap: 16rpx;
+  z-index: 10;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  padding: 6rpx 12rpx;
+  border-radius: 8rpx;
+  background: rgba(18, 20, 24, 0.8);
+}
+
+.legend-line {
+  width: 24rpx;
+  height: 4rpx;
+  border-radius: 2rpx;
+}
+
+.legend-line--future {
+  background: #00ff88;
+}
+
+.legend-line--past {
+  background: #4ea1ff;
+  opacity: 0.5;
+}
+
+.legend-text {
+  font-size: 20rpx;
+  color: #d7d7db;
+}
+
+/* 观测者视角 */
+.orbit-look-section {
+  margin-top: 16rpx;
+  margin-bottom: 16rpx;
+}
+
+.orbit-subsection-title {
+  display: block;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #ffffff;
+  margin-bottom: 12rpx;
+}
+
+.orbit-look-grid {
+  display: flex;
+  gap: 12rpx;
+}
+
+.orbit-look-item {
+  flex: 1;
+  padding: 16rpx 12rpx;
+  border-radius: 14rpx;
+  background: rgba(90, 200, 250, 0.06);
+  border: 1px solid rgba(90, 200, 250, 0.15);
+  text-align: center;
+}
+
+.orbit-look-value {
+  display: block;
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #5ac8fa;
+  line-height: 1.3;
+}
+
+.orbit-look-label {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 20rpx;
+  color: #8e8e93;
+}
+
+/* 轨道参数 */
+.orbit-params-section {
+  margin-top: 16rpx;
+}
+
+.orbit-params-grid {
+  display: flex;
+  flex-direction: column;
+}
+
+.orbit-param-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14rpx 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.orbit-param-row:last-child {
+  border-bottom: none;
+}
+
+.orbit-param-label {
+  font-size: 24rpx;
+  color: #8e8e93;
+  flex-shrink: 0;
+}
+
+.orbit-param-value {
+  font-size: 24rpx;
+  color: #ffffff;
+  text-align: right;
+  font-family: 'Menlo', 'Courier New', monospace;
+}
+
+/* 数据来源 */
+.orbit-meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 14rpx;
+  padding-top: 12rpx;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.orbit-meta-text {
+  font-size: 20rpx;
+  color: #636366;
+}
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+
+/* 页面与滚动容器 */
+.detail-page.theme-light {
+  background: var(--color-bg-page);
+}
+
+/* 玻璃卡片：深玻璃 → 浅玻璃 */
+.theme-light .glass-card {
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-card), inset 0 1rpx 0 rgba(255, 255, 255, 0.6);
+}
+
+/* 加载 / 错误态 */
+.theme-light .loading-text,
+.theme-light .error-text {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .error-title {
+  color: var(--color-text-primary);
+}
+
+/* 注：.retry-btn 实色蓝渐变按钮白字保持不变 */
+
+/* 核心指标卡 */
+.theme-light .stat-card {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .stat-value {
+  color: var(--color-text-primary);
+}
+
+.theme-light .stat-label {
+  color: var(--color-text-secondary);
+}
+
+/* 基本信息 */
+.theme-light .info-row {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .info-row:last-child {
+  border-bottom: none;
+}
+
+.theme-light .info-label {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .info-value {
+  color: var(--color-text-primary);
+}
+
+/* 区块标题与正文 */
+.theme-light .section-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .section-toggle {
+  color: #1677ff;
+}
+
+.theme-light .section-text {
+  color: var(--color-text-secondary);
+}
+
+/* 对接口标签 */
+.theme-light .tag-item {
+  color: #1677ff;
+  background: rgba(78, 161, 255, 0.10);
+  border: 1px solid rgba(78, 161, 255, 0.22);
+}
+
+.theme-light .tag-item--active {
+  color: #248a3d;
+  background: rgba(52, 199, 89, 0.12);
+  border: 1px solid rgba(52, 199, 89, 0.28);
+}
+
+/* 所属机构卡 */
+.theme-light .agency-card {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .agency-card__name {
+  color: var(--color-text-primary);
+}
+
+.theme-light .agency-card__abbr {
+  color: #1677ff;
+  background: rgba(78, 161, 255, 0.10);
+  border: 1px solid rgba(78, 161, 255, 0.22);
+}
+
+.theme-light .agency-card__meta {
+  color: var(--color-text-secondary);
+}
+
+/* 停靠飞船卡 */
+.theme-light .ship-item {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .card-jump-arrow {
+  color: rgba(0, 0, 0, 0.25);
+}
+
+.theme-light .card-pressed {
+  background: rgba(0, 0, 0, 0.07);
+}
+
+.theme-light .ship-image {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .ship-image--placeholder {
+  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.12), rgba(0, 0, 0, 0.06) 72%);
+}
+
+.theme-light .ship-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .ship-sub,
+.theme-light .ship-port,
+.theme-light .ship-days {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .ship-agency {
+  color: #1677ff;
+}
+
+.theme-light .ship-detail-label {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .ship-detail-value {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .ship-badge--crew {
+  background: rgba(10, 132, 255, 0.10);
+  border: 1px solid rgba(10, 132, 255, 0.24);
+  color: #0071e3;
+}
+
+.theme-light .ship-badge--cargo {
+  background: rgba(255, 214, 10, 0.15);
+  border: 1px solid rgba(255, 214, 10, 0.35);
+  color: #b36b00;
+}
+
+/* 数据与版权 */
+.theme-light .info-link-card {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .info-link-name {
+  color: var(--color-text-primary);
+}
+
+.theme-light .info-link-url {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .info-link-action {
+  color: #1677ff;
+}
+
+.theme-light .empty-inline {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .empty-inline text {
+  color: var(--color-text-secondary);
+}
+
+/* 远征卡片 */
+.theme-light .expedition-card {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .expedition-name {
+  color: var(--color-text-primary);
+}
+
+.theme-light .expedition-time {
+  color: var(--color-text-secondary);
+}
+
+/* 团队成员 */
+.theme-light .crew-list {
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .crew-item {
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.theme-light .crew-avatar {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .crew-avatar--placeholder {
+  background: radial-gradient(circle, rgba(90, 200, 250, 0.14), #e9e9ee 72%);
+  border: 1px solid rgba(10, 132, 255, 0.18);
+}
+
+.theme-light .crew-avatar__initial {
+  color: rgba(0, 113, 227, 0.7);
+}
+
+.theme-light .crew-name {
+  color: var(--color-text-primary);
+}
+
+.theme-light .crew-role {
+  color: #0071e3;
+}
+
+.theme-light .crew-meta {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .crew-detail-label {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .crew-detail-value {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .crew-empty {
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .crew-empty text {
+  color: var(--color-text-tertiary);
+}
+
+/* 实时轨道追踪 */
+.theme-light .orbit-loading-text {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .orbit-error {
+  background: rgba(255, 69, 58, 0.10);
+  border: 1px solid rgba(255, 69, 58, 0.24);
+}
+
+.theme-light .orbit-error-text {
+  color: #d70015;
+}
+
+.theme-light .orbit-retry-btn {
+  background: rgba(78, 161, 255, 0.12);
+  border: 1px solid rgba(78, 161, 255, 0.3);
+}
+
+.theme-light .orbit-retry-btn text {
+  color: #1677ff;
+}
+
+.theme-light .orbit-live-bar {
+  background: rgba(52, 199, 89, 0.10);
+  border: 1px solid rgba(52, 199, 89, 0.24);
+}
+
+.theme-light .orbit-live-label {
+  color: #248a3d;
+}
+
+.theme-light .orbit-live-coord {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .orbit-stat {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .orbit-stat-value {
+  color: var(--color-text-primary);
+}
+
+.theme-light .orbit-stat-label {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .orbit-map-wrap {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+/* 注：.orbit-map-tap-hint text 与 .legend-item 是压在地图上的深色浮层，保持深底白字 */
+
+.theme-light .orbit-subsection-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .orbit-look-item {
+  background: rgba(10, 132, 255, 0.06);
+  border: 1px solid rgba(10, 132, 255, 0.16);
+}
+
+.theme-light .orbit-look-value {
+  color: #0071e3;
+}
+
+.theme-light .orbit-look-label {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .orbit-param-row {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .orbit-param-row:last-child {
+  border-bottom: none;
+}
+
+.theme-light .orbit-param-label {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .orbit-param-value {
+  color: var(--color-text-primary);
+}
+
+.theme-light .orbit-meta-row {
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .orbit-meta-text {
+  color: var(--color-text-tertiary);
+}
+
+/* 注：Hero 区（.hero-wrap / .hero-image--visual / .hero-overlay / .hero-name /
+   .hero-status 系列 / .hero-dock-count / .hero-fallback-tag）为压在空间站图片
+   或深色宇宙视觉图上的白字浮层，明亮主题下保持深色不覆盖 */

@@ -1,0 +1,48 @@
+/* 今日各账号更新统计：progress 页与 morning-briefing（styleIsolation: apply-shared）共用 */
+
+.tweet-stats-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14rpx;
+  margin-bottom: 20rpx;
+}
+
+.tweet-stat-item {
+  display: flex;
+  align-items: center;
+  padding: 10rpx 16rpx;
+  background: var(--color-divider-faint, rgba(255, 255, 255, 0.06));
+  border-radius: 28rpx;
+  border: 1px solid var(--color-divider, rgba(255, 255, 255, 0.08));
+}
+
+.tweet-stat-avatar {
+  width: 36rpx;
+  height: 36rpx;
+  border-radius: 50%;
+  margin-right: 8rpx;
+  flex-shrink: 0;
+}
+
+.tweet-stat-name {
+  font-size: 22rpx;
+  color: var(--color-text-on-glass, rgba(255, 255, 255, 0.8));
+  margin-right: 8rpx;
+}
+
+.tweet-stat-count {
+  font-size: 20rpx;
+  color: #4FC3F7;
+  font-weight: 600;
+}
+
+/* 简报弹窗内无数据提示（仅 morning-briefing 使用） */
+.tweet-stat-briefing-empty {
+  width: 100%;
+  padding: 8rpx 0 4rpx;
+}
+
+.tweet-stat-briefing-empty-text {
+  font-size: 22rpx;
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.35));
+}

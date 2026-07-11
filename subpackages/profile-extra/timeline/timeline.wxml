@@ -1,0 +1,60 @@
+<view class="container {{themeClass}}">
+  <!-- 顶部导航 -->
+  <view class="top-nav-wrapper" style="padding-top:{{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">我的太空旅程</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view class="content-scroll" scroll-y enhanced show-scrollbar="{{false}}" style="padding-top:{{navPlaceholderHeight}}px;">
+
+    <!-- 空状态 -->
+    <view class="empty-state" wx:if="{{empty}}">
+      <text class="empty-icon"></text>
+      <text class="empty-text">你的太空旅程即将开始</text>
+      <text class="empty-hint">签到、答题、订阅发射提醒都会记录在这里</text>
+    </view>
+
+    <!-- 用户信息编辑 -->
+    <view class="nickname-bar" wx:if="{{!empty}}">
+      <text class="nickname-label">昵称</text>
+      <input class="nickname-input" placeholder="点击设置你的昵称" placeholder-class="nickname-input-placeholder" value="{{nickname}}" bindinput="onNicknameInput" bindblur="onNicknameSave" maxlength="12" />
+    </view>
+
+    <!-- 时间线 -->
+    <view class="timeline" wx:if="{{!empty}}">
+      <view class="timeline-item" wx:for="{{timeline}}" wx:key="timestamp">
+        <!-- 左侧时间轴 -->
+        <view class="timeline-left">
+          <view class="timeline-dot timeline-dot--{{item.icon}}"></view>
+          <view class="timeline-line" wx:if="{{index < timeline.length - 1}}"></view>
+        </view>
+        <!-- 右侧卡片 -->
+        <view class="timeline-card">
+          <view class="timeline-card-header">
+            <text class="timeline-name">{{item.name}}</text>
+            <text class="timeline-time">{{item.timeText}}</text>
+          </view>
+          <text class="timeline-desc">{{item.desc}}</text>
+          <text class="timeline-meta" wx:if="{{item.meta.missionName}}">{{item.meta.missionName}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view style="height: 160rpx;"></view>
+  </scroll-view>
+
+  <!-- 底部生成海报按钮 -->
+  <view class="poster-btn-area" wx:if="{{!empty}}">
+    <button class="poster-btn {{generating ? 'poster-btn--loading' : ''}}" bindtap="onGeneratePoster" disabled="{{generating}}">
+      {{generating ? '生成中...' : '生成我的太空旅程海报'}}
+    </button>
+  </view>
+
+  <!-- 离屏 Canvas -->
+  <canvas type="2d" id="posterCanvas" class="poster-canvas"></canvas>
+</view>

@@ -1,0 +1,25 @@
+/* 贴在固定导航栏底边的细进度条，不拦截任何点击 */
+:host {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 6rpx;
+  z-index: 30;
+  pointer-events: none;
+  display: block;
+}
+
+.pp-track {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.pp-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--color-success, #34C759);
+  border-radius: 0 999rpx 999rpx 0;
+  box-shadow: 0 0 8rpx rgba(52, 199, 89, 0.55);
+}

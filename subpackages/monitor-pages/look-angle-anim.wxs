@@ -1,0 +1,126 @@
+/**
+ * 观测视角数值插值动画（WXS 渲染层 60fps）
+ * 接收逻辑层传来的目标数值，在渲染层做线性插值平滑过渡
+ */
+
+// 当前显示值（插值中间态）
+var currentAz = 0
+var currentEl = 0
+var currentRng = 0
+// 目标值
+var targetAz = 0
+var targetEl = 0
+var targetRng = 0
+// 是否已初始化
+var inited = false
+// 动画帧 owner 引用
+var _owner = null
+var _rafRunning = false
+
+// 插值速度因子（0~1，越大越快跟上目标值）
+var LERP_FACTOR = 0.15
+
+function lerp(current, target, factor) {
+  var diff = target - current
+  if (Math.abs(diff) < 0.05) return target
+  return current + diff * factor
+}
+
+function formatVal(v, suffix) {
+  if (v === 0 && !inited) return '--'
+  return v.toFixed(1) + suffix
+}
+
+function stopAnim() {
+  _rafRunning = false
+  _owner = null
+}
+
+function safeRequestAnimationFrame() {
+  if (!_rafRunning || !_owner) {
+    _rafRunning = false
+    return
+  }
+  if (typeof _owner.requestAnimationFrame !== 'function' || typeof tick !== 'function') {
+    _rafRunning = false
+    return
+  }
+  _owner.requestAnimationFrame(tick)
+}
+
+function tick() {
+  if (!_rafRunning || !_owner) {
+    _rafRunning = false
+    return
+  }
+  currentAz = lerp(currentAz, targetAz, LERP_FACTOR)
+  currentEl = lerp(currentEl, targetEl, LERP_FACTOR)
+  currentRng = lerp(currentRng, targetRng, LERP_FACTOR)
+
+  _owner.callMethod('_wxsUpdateLookAngles', {
+    az: formatVal(currentAz, '°'),
+    el: formatVal(currentEl, '°'),
+    rng: formatVal(currentRng, ' km')
+  })
+
+  // 如果还没到达目标，继续下一帧
+  var done = (currentAz === targetAz && currentEl === targetEl && currentRng === targetRng)
+  if (!done) {
+    safeRequestAnimationFrame()
+  } else {
+    _rafRunning = false
+  }
+}
+
+function startAnim() {
+  if (_rafRunning || !_owner) return
+  _rafRunning = true
+  safeRequestAnimationFrame()
+}
+
+// 逻辑层在 onHide/onUnload 递增 _lookAnimCtrl 以停止渲染层 rAF 循环
+function onControlChange(newVal, oldVal, owner) {
+  if (newVal) stopAnim()
+}
+
+// 方位角变化回调
+function onAzimuthChange(newVal, oldVal, owner) {
+  _owner = owner
+  targetAz = newVal || 0
+  if (!inited && newVal) {
+    currentAz = newVal
+    currentEl = targetEl
+    currentRng = targetRng
+    inited = true
+  }
+  startAnim()
+}
+
+// 仰角变化回调
+function onElevationChange(newVal, oldVal, owner) {
+  _owner = owner
+  targetEl = newVal || 0
+  if (!inited && newVal) {
+    currentEl = newVal
+    inited = true
+  }
+  startAnim()
+}
+
+// 斜距变化回调
+function onRangeChange(newVal, oldVal, owner) {
+  _owner = owner
+  targetRng = newVal || 0
+  if (!inited && newVal) {
+    currentRng = newVal
+    inited = true
+  }
+  startAnim()
+}
+
+module.exports = {
+  onAzimuthChange: onAzimuthChange,
+  onElevationChange: onElevationChange,
+  onRangeChange: onRangeChange,
+  onControlChange: onControlChange
+}

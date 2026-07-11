@@ -1,0 +1,123 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="page {{themeClass}}">
+  <!-- 自定义导航栏 -->
+  <view class="top-nav-wrapper" style="padding-top:{{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">天文日历</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view class="page-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <!-- APOD 每日天文图 -->
+    <view class="section-header">
+      <text class="section-title">NASA 每日天文图</text>
+    </view>
+
+    <!-- 日期选择 -->
+    <view class="date-row">
+      <text class="date-label">{{apodDate}}</text>
+      <picker mode="date" value="{{apodDate}}" end="{{apodDate}}" bindchange="onDateChange">
+        <view class="date-picker-btn"><text>选择日期</text></view>
+      </picker>
+    </view>
+
+    <!-- 加载中 -->
+    <view class="loading-state" wx:if="{{loading}}">
+      <view class="loading-spinner-lg"></view>
+      <text class="loading-text">正在加载每日天文图，高清大图可能需要几秒…</text>
+    </view>
+
+    <!-- 错误 -->
+    <view class="error-card" wx:elif="{{error}}">
+      <text class="error-icon">⚠️</text>
+      <text class="error-text">{{error}}</text>
+      <view class="retry-btn" bind:tap="onRetry"><text>重试</text></view>
+    </view>
+
+    <!-- APOD 内容 -->
+    <view class="apod-card" wx:elif="{{apod}}">
+      <!-- 图片 -->
+      <view class="apod-image-wrap" wx:if="{{apod.mediaType !== 'video'}}" bind:tap="onPreviewImage">
+        <image class="apod-image" src="{{apod.url}}" mode="widthFix" lazy-load />
+        <view class="apod-image-overlay">
+          <text class="apod-image-hint">点击查看高清</text>
+        </view>
+      </view>
+      <!-- 视频提示 -->
+      <view class="apod-video-placeholder" wx:else>
+        <text class="video-hint">今日内容为视频，请在浏览器中查看</text>
+      </view>
+
+      <view class="apod-info">
+        <text class="apod-title">{{apod.title}}</text>
+        <text class="apod-date-text">{{apod.date}}</text>
+        <text class="apod-copyright" wx:if="{{apod.copyright}}">© {{apod.copyright}}</text>
+        <text class="apod-explanation">{{apod.explanation}}</text>
+      </view>
+
+      <!-- 分享操作 -->
+      <view class="share-actions">
+        <button class="share-btn" open-type="share">
+          <text>分享好友</text>
+        </button>
+      </view>
+    </view>
+
+    <!-- 天文事件日历 -->
+    <view class="section-header">
+      <text class="section-title">2026 天象日历</text>
+    </view>
+
+    <!-- 即将到来 -->
+    <view class="sub-header" wx:if="{{upcomingEvents.length}}">
+      <view class="sub-header-dot sub-header-dot--upcoming"></view>
+      <text class="sub-header-text">即将到来 ({{upcomingEvents.length}})</text>
+    </view>
+    <view class="event-card" wx:for="{{upcomingEvents}}" wx:key="date">
+      <view class="event-left">
+        <text class="event-icon">{{item.icon}}</text>
+      </view>
+      <view class="event-body">
+        <text class="event-title">{{item.title}}</text>
+        <text class="event-desc">{{item.desc}}</text>
+      </view>
+      <view class="event-right">
+        <text class="event-date">{{item.date}}</text>
+        <view class="event-remind-btn {{item.reminded ? 'event-remind-btn--active' : ''}}" catchtap="onToggleRemind" data-date="{{item.date}}" data-title="{{item.title}}">
+          <text class="event-remind-icon">{{item.reminded ? '🔔' : '🔕'}}</text>
+          <text class="event-remind-text">{{item.reminded ? '已提醒' : '提醒我'}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 已过去 -->
+    <view class="sub-header" wx:if="{{pastEvents.length}}">
+      <view class="sub-header-dot sub-header-dot--past"></view>
+      <text class="sub-header-text">已过去 ({{pastEvents.length}})</text>
+    </view>
+    <view class="event-card event-card--past" wx:for="{{pastEvents}}" wx:key="date">
+      <view class="event-left">
+        <text class="event-icon">{{item.icon}}</text>
+      </view>
+      <view class="event-body">
+        <text class="event-title">{{item.title}}</text>
+        <text class="event-desc">{{item.desc}}</text>
+      </view>
+      <view class="event-right">
+        <text class="event-date">{{item.date}}</text>
+      </view>
+    </view>
+
+    <view class="page-footer">
+      <text class="footer-text">Per Aspera Ad Astra · 循此苦旅以达星辰</text>
+    </view>
+
+  </scroll-view>
+  <share-guide />
+</view>

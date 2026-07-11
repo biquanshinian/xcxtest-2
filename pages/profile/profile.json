@@ -1,0 +1,25 @@
+{
+  "navigationBarTitleText": "我的",
+  "enablePullDownRefresh": true,
+  "disableSwipeBack": true,
+  "backgroundTextStyle": "light",
+  "backgroundColor": "#000000",
+  "backgroundColorContent": "#000000",
+  "backgroundColorTop": "#000000",
+  "backgroundColorBottom": "#000000",
+  "usingComponents": {
+    "popup-ad": "/components/popup-ad/popup-ad",
+    "nasa-float": "/components/nasa-float/index",
+    "milestone-egg": "/subpackages/shared/components/milestone-egg/index",
+    "privacy-modal": "/components/privacy-modal/privacy-modal",
+    "morning-briefing": "/subpackages/shared/components/morning-briefing/index",
+    "ai-chat": "/subpackages/shared/components/ai-chat/index",
+    "demo-overlay": "/subpackages/shared/components/demo-overlay/index"
+  },
+  "componentPlaceholder": {
+    "ai-chat": "view",
+    "demo-overlay": "view",
+    "milestone-egg": "view",
+    "morning-briefing": "view"
+  }
+}

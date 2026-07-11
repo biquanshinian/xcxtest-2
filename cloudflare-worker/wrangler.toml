@@ -1,0 +1,15 @@
+# 与线上 Worker 子域一致：spacex-proxy.xxx.workers.dev
+name = "spacex-proxy"
+main = "spacex-proxy.js"
+compatibility_date = "2024-09-23"
+workers_dev = true
+
+# 线上自定义域名（原先在控制台配置，wrangler 部署时需在此声明）
+routes = [
+  { pattern = "api.marsx.com.cn", custom_domain = true }
+]
+
+# 线上已有的 KV 绑定（原先在控制台配置，wrangler 部署时必须在此声明否则会被移除）
+kv_namespaces = [
+  { binding = "TLE_KV", id = "1609941aabb645b094a5888863baab04" }
+]
