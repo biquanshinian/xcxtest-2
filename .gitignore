@@ -15,8 +15,9 @@ admin-web/dist/
 !.env.example
 *.local
 
-# B 站 Agent 登录态
+# B 站 Agent 登录态与运行日志
 workers/bilibili-publisher/.auth/
+workers/bilibili-publisher/logs/
 
 # 编辑器 / 系统
 .DS_Store

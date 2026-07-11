@@ -87,12 +87,13 @@ async function getConfig() {
 
 async function saveConfig(patch) {
   const data = { ...patch, updatedAt: now() }
+  delete data._id
   try {
     await db.collection(GLOBAL_COL).doc(CONFIG_ID).update({ data })
   } catch (e) {
     try {
       await db.collection(GLOBAL_COL).doc(CONFIG_ID).set({
-        data: { _id: CONFIG_ID, ...DEFAULT_CONFIG, ...data }
+        data: { ...DEFAULT_CONFIG, ...data }
       })
     } catch (e2) {
       console.warn('[saveConfig]', e2.message || e2)

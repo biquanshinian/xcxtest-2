@@ -108,17 +108,27 @@ function createBilibiliPublishApi({ db, _, ok, fail, now, writeOpLog, cloud }) {
 
   async function writeConfig(patch) {
     const data = { ...patch, updatedAt: now() }
+    delete data._id
+    delete data.health
     try {
       const existing = await db.collection(GLOBAL_COL).doc(CONFIG_ID).get().catch(() => null)
       if (existing && existing.data) {
         await db.collection(GLOBAL_COL).doc(CONFIG_ID).update({ data })
       } else {
         await db.collection(GLOBAL_COL).doc(CONFIG_ID).set({
-          data: { _id: CONFIG_ID, ...DEFAULT_CONFIG, ...data }
+          data: { ...DEFAULT_CONFIG, ...data }
         })
       }
     } catch (e) {
-      return fail(5000, '保存配置失败: ' + (e.message || e))
+      // 若 update 因文档不存在失败，回退 set（仍不写 _id）
+      try {
+        const clean = { ...DEFAULT_CONFIG, ...data }
+        delete clean._id
+        delete clean.health
+        await db.collection(GLOBAL_COL).doc(CONFIG_ID).set({ data: clean })
+      } catch (e2) {
+        return fail(5000, '保存配置失败: ' + (e2.message || e.message || e2))
+      }
     }
     return ok(await readConfig())
   }
