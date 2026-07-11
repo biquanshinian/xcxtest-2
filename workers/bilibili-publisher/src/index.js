@@ -6,8 +6,8 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms))
 }
 
-async function processOnce() {
-  const data = await claimJob()
+async function processOnce(force = false) {
+  const data = await claimJob(force)
   if (!data?.job) {
     console.log('[agent] 无任务:', data?.reason || 'empty')
     return { didWork: false, stop: false }
@@ -47,10 +47,30 @@ async function main() {
   console.log('[agent] 正在启动…')
   await ensureAuthDir()
   const once = process.argv.includes('--once')
-  console.log('[agent] start', { apiBase: cfg.apiBase, pollMs: cfg.pollMs, once, tokenLen: (cfg.token || '').length })
+  const demo = process.argv.includes('--demo')
+  console.log('[agent] start', { apiBase: cfg.apiBase, pollMs: cfg.pollMs, once, demo, headed: cfg.headed, tokenLen: (cfg.token || '').length })
+
+  if (demo) {
+    console.log('[agent] 演示模式：默认用 COS 桶内头像测上传；真实任务请 npm run once（图来自事件 mediaList）')
+    try {
+      // 仅验证上传链路；正式配图由队列 images（事件 COS mediaList）提供
+      const demoImage =
+        process.env.BILI_DEMO_IMAGE ||
+        'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/SpaceX.jpg'
+      const result = await publishDynamic({
+        content: `【Agent 图文发布测试】\n时间 ${new Date().toLocaleString()}\n#火星探索日志#\n—— 火星探索日志`,
+        images: [demoImage]
+      })
+      console.log('[agent] 演示发布完成', result)
+    } catch (e) {
+      console.error('[agent] 演示发布失败', e.errorType || 'other', e.message || e)
+      process.exitCode = 1
+    }
+    return
+  }
 
   if (once) {
-    await processOnce()
+    await processOnce(true)
     return
   }
 

@@ -52,8 +52,8 @@ async function request(path, { method = 'POST', body = {} } = {}) {
   return data.data
 }
 
-export function claimJob() {
-  return request('/bilibili-agent/claim', { method: 'POST', body: {} })
+export function claimJob(force = false) {
+  return request('/bilibili-agent/claim', { method: 'POST', body: { force: !!force } })
 }
 
 export function completeJob(payload) {

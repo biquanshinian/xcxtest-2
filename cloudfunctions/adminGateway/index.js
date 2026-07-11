@@ -837,6 +837,11 @@ async function createStarshipEvent(body, user) {
 
   const res = await db.collection(col).add({ data: payload })
   await writeOpLog({ user, module: col, action: 'create', targetId: res._id, after: payload })
+  if (isPublished) {
+    try {
+      cloud.callFunction({ name: 'publishBilibiliFromEvents', data: { from: 'event_create' } }).catch(() => {})
+    } catch (e) {}
+  }
   return ok({ id: res._id })
 }
 
@@ -866,6 +871,12 @@ async function updateStarshipEvent(id, body, user) {
 
   await ref.update({ data: patch })
   await writeOpLog({ user, module: col, action: 'update', targetId: id, before, after: { ...before, ...patch } })
+  const becamePublished = patch.status === 'published' && before.status !== 'published'
+  if (becamePublished || patch.status === 'published') {
+    try {
+      cloud.callFunction({ name: 'publishBilibiliFromEvents', data: { from: 'event_update' } }).catch(() => {})
+    } catch (e) {}
+  }
   return ok(true)
 }
 
@@ -7355,7 +7366,7 @@ async function route(event, user) {
   // ===== B 站发文 Agent（BILI_AGENT_TOKEN，无需管理员 JWT） =====
   if (path.startsWith('/bilibili-agent/')) {
     if (!biliPublishApi().verifyAgentToken(headers)) return fail(4010, 'Agent 未授权')
-    if (path === '/bilibili-agent/claim' && method === 'POST') return biliPublishApi().agentClaimJob()
+    if (path === '/bilibili-agent/claim' && method === 'POST') return biliPublishApi().agentClaimJob(body)
     if (path === '/bilibili-agent/complete' && method === 'POST') return biliPublishApi().agentCompleteJob(body)
     if (path === '/bilibili-agent/fail' && method === 'POST') return biliPublishApi().agentFailJob(body)
     return fail(4040, `未知 Agent 路由: ${method} ${path}`)

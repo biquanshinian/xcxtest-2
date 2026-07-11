@@ -4,6 +4,7 @@
  */
 const cloud = require('wx-server-sdk')
 const { resolveTopics, formatTopicsLine } = require('./topicEngine')
+const { extractEventImages } = require('./eventMediaImages')
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
@@ -23,7 +24,6 @@ const DEFAULT_CONFIG = {
   maxPerDay: 8,
   textOnlyMaxPerDay: 3,
   topicMax: 5,
-  mergeBurstWindowMin: 60,
   skipIfTooSimilar: true,
   similarWindow: 5,
   onRateLimitCooldownMin: 120,
@@ -105,15 +105,12 @@ function eventSyncStatus(ev) {
   return String(ev.bilibiliSyncStatus || 'idle')
 }
 
-function extractImages(mediaList) {
-  const list = Array.isArray(mediaList) ? mediaList : []
-  const images = []
-  for (const m of list) {
-    if (!m) continue
-    if (m.type === 'image' && m.url) images.push(String(m.url).trim())
-    else if (m.type === 'video' && m.thumbnailUrl) images.push(String(m.thumbnailUrl).trim())
+function extractImages(evOrMediaList) {
+  // 兼容旧调用：传入整条事件，保证图文来自同一条推文/事件的 COS mediaList
+  if (evOrMediaList && !Array.isArray(evOrMediaList) && typeof evOrMediaList === 'object') {
+    return extractEventImages(evOrMediaList, 9)
   }
-  return [...new Set(images.filter(Boolean))].slice(0, 9)
+  return extractEventImages({ mediaList: evOrMediaList }, 9)
 }
 
 function truncate(s, max) {
@@ -158,13 +155,13 @@ function sourceLine(ev) {
 }
 
 async function composeSingle(ev, cfg) {
-  const textBlob = [ev.title, ev.content, ev.originalText].filter(Boolean).join('\n')
+  // 正文只用推文/事件 content（无 content 时退回 originalText），不把 title 写进动态
+  const body = String(ev.content || ev.originalText || '').trim()
+  const textBlob = [body, ev.originalText].filter(Boolean).join('\n')
   const { topics } = await resolveTopics(db, textBlob, cfg)
-  const images = extractImages(ev.mediaList)
+  const images = extractImages(ev)
   const lines = []
-  lines.push(`【${ev.title || '事件更新'}】`)
-  lines.push('')
-  lines.push(truncate(ev.content || '', 900))
+  lines.push(truncate(body, 1000))
   if (ev.liveRoomId) {
     lines.push('')
     lines.push(`直播间：https://live.bilibili.com/${String(ev.liveRoomId).replace(/\D/g, '')}`)
@@ -193,52 +190,6 @@ async function composeSingle(ev, cfg) {
   }
 }
 
-async function composeMerged(events, cfg) {
-  const textBlob = events.map((e) => [e.title, e.content, e.originalText].join('\n')).join('\n')
-  const { topics } = await resolveTopics(db, textBlob, cfg)
-  const images = []
-  for (const ev of events) {
-    for (const u of extractImages(ev.mediaList)) {
-      if (images.length >= 9) break
-      if (!images.includes(u)) images.push(u)
-    }
-  }
-  const lines = []
-  lines.push('【星港近况汇总】')
-  lines.push('')
-  events.forEach((ev, i) => {
-    lines.push(`${i + 1}. ${truncate(ev.title || ev.content || '动态', 80)}`)
-  })
-  lines.push('')
-  const body = events
-    .map((ev) => truncate(ev.content || '', 200))
-    .filter(Boolean)
-    .join('\n\n')
-  lines.push(truncate(body, 700))
-  const live = events.find((e) => e.liveRoomId)
-  if (live) {
-    lines.push('')
-    lines.push(`直播间：https://live.bilibili.com/${String(live.liveRoomId).replace(/\D/g, '')}`)
-  }
-  const topicLine = formatTopicsLine(topics)
-  if (topicLine) {
-    lines.push('')
-    lines.push(topicLine)
-  }
-  if (cfg.footer) {
-    lines.push('')
-    lines.push(cfg.footer)
-  }
-  return {
-    type: 'merged',
-    eventIds: events.map((e) => e._id),
-    title: '星港近况汇总',
-    content: lines.join('\n').trim(),
-    images,
-    topics
-  }
-}
-
 function computeScheduledAt(cfg, hasImages) {
   const ts = now()
   let cfg2 = refreshQuotaCounters(cfg, ts)
@@ -256,16 +207,38 @@ function computeScheduledAt(cfg, hasImages) {
 
 async function loadCandidates(cfg) {
   const syncFromAt = Number(cfg.syncFromAt || 0)
-  const res = await db
-    .collection(EVENTS_COL)
-    .where({
-      status: 'published',
-      publishedAt: _.gte(syncFromAt)
-    })
-    .orderBy('publishedAt', 'asc')
-    .limit(50)
-    .get()
-  const list = res.data || []
+  let list = []
+  try {
+    const res = await db
+      .collection(EVENTS_COL)
+      .where({
+        status: 'published',
+        publishedAt: _.gte(syncFromAt)
+      })
+      .orderBy('publishedAt', 'asc')
+      .limit(50)
+      .get()
+    list = res.data || []
+  } catch (e) {
+    console.warn('[loadCandidates] compound query failed, fallback:', e.message || e)
+    try {
+      const res = await db
+        .collection(EVENTS_COL)
+        .where({ status: 'published' })
+        .orderBy('publishedAt', 'desc')
+        .limit(50)
+        .get()
+      list = (res.data || [])
+        .filter((ev) => Number(ev.publishedAt || ev.createdAt || 0) >= syncFromAt)
+        .sort((a, b) => Number(a.publishedAt || 0) - Number(b.publishedAt || 0))
+    } catch (e2) {
+      console.warn('[loadCandidates] fallback failed:', e2.message || e2)
+      const res = await db.collection(EVENTS_COL).where({ status: 'published' }).limit(50).get()
+      list = (res.data || [])
+        .filter((ev) => Number(ev.publishedAt || ev.createdAt || 0) >= syncFromAt)
+        .sort((a, b) => Number(a.publishedAt || 0) - Number(b.publishedAt || 0))
+    }
+  }
   return list.filter((ev) => {
     const st = eventSyncStatus(ev)
     return st === 'idle' || st === 'failed' || !ev.bilibiliSyncStatus
@@ -285,25 +258,6 @@ async function loadRecentContents(windowSize) {
   } catch (e) {
     return []
   }
-}
-
-function groupBursts(events, windowMin) {
-  const winMs = Math.max(1, Number(windowMin) || 60) * 60 * 1000
-  if (!events.length) return []
-  const groups = []
-  let cur = [events[0]]
-  for (let i = 1; i < events.length; i++) {
-    const prev = cur[cur.length - 1]
-    const t0 = Number(prev.publishedAt || prev.createdAt || 0)
-    const t1 = Number(events[i].publishedAt || events[i].createdAt || 0)
-    if (t1 - t0 <= winMs) cur.push(events[i])
-    else {
-      groups.push(cur)
-      cur = [events[i]]
-    }
-  }
-  groups.push(cur)
-  return groups
 }
 
 async function markEvents(ids, patch) {
@@ -363,38 +317,21 @@ async function runEnqueue(from = 'timer') {
   }
 
   const recent = cfg.skipIfTooSimilar ? await loadRecentContents(cfg.similarWindow) : []
-  const groups = groupBursts(candidates, cfg.mergeBurstWindowMin)
   let enqueued = 0
   let skippedSimilar = 0
   let blockedQuota = 0
 
-  // 每轮最多入队 1 条，配合限流
-  for (const group of groups) {
-    let draft
-    if (group.length === 1) draft = await composeSingle(group[0], cfg)
-    else draft = await composeMerged(group, cfg)
+  // 每条事件单独入队，绝不合并（每轮仍只入 1 条，配合限流）
+  for (const ev of candidates) {
+    const draft = await composeSingle(ev, cfg)
 
     if (cfg.skipIfTooSimilar && recent.some((c) => similarEnough(c, draft.content))) {
-      await markEvents(
-        group.map((e) => e._id),
-        { bilibiliSyncStatus: 'skipped', bilibiliLastError: 'too_similar' }
-      )
+      await markEvents([ev._id], { bilibiliSyncStatus: 'skipped', bilibiliLastError: 'too_similar' })
       skippedSimilar++
       continue
     }
 
     const hasImages = (draft.images || []).length > 0
-    if (!hasImages) {
-      // soft text-only: count pending text in day via publishedToday approximation —
-      // use a dedicated counter if needed; for MVP compare publishedToday against textOnly when no images
-      const textCap = Number(cfg.textOnlyMaxPerDay || 3)
-      if (Number(cfg.publishedToday || 0) >= textCap && Number(cfg.maxPerDay || 8) > textCap) {
-        // still allow if under maxPerDay but prefer images; block only when over textOnlyMaxPerDay for text posts
-      }
-      // Count text-only publishes: if publishedToday already high, still allow until maxPerDay;
-      // additional guard: if we already have textOnlyMaxPerDay successes today for text — tracked loosely
-    }
-
     const sched = computeScheduledAt(cfg, hasImages)
     if (!sched.ok) {
       blockedQuota++
@@ -403,26 +340,21 @@ async function runEnqueue(from = 'timer') {
     cfg = sched.cfg
 
     if (!hasImages) {
-      // estimate text-only usage from queue success today is heavy; use publishedToday vs textOnlyMaxPerDay as hard cap for text
       if (Number(cfg.publishedToday || 0) >= Number(cfg.textOnlyMaxPerDay || 3)) {
-        // allow if under maxPerDay only when mixed — plan says textOnlyMaxPerDay: 3
         blockedQuota++
         continue
       }
     }
 
-    // 若本轮已入队过，后续只算 scheduled 更晚的，但每轮只入 1 条更安全
     if (enqueued >= 1) break
 
     const queueId = await enqueueOne(draft, sched.scheduledAt)
-    const primaryStatus = group.length === 1 ? 'queued' : 'merged'
-    await markEvents(group.map((e) => e._id), {
-      bilibiliSyncStatus: primaryStatus,
+    await markEvents([ev._id], {
+      bilibiliSyncStatus: 'queued',
       bilibiliQueueId: queueId,
       bilibiliTopics: draft.topics || [],
       bilibiliLastError: ''
     })
-    // 合并时：首条 queued 语义用 merged 即可
     recent.unshift(draft.content)
     enqueued++
   }
@@ -438,7 +370,6 @@ async function runEnqueue(from = 'timer') {
     ok: true,
     from,
     candidates: candidates.length,
-    groups: groups.length,
     enqueued,
     skippedSimilar,
     blockedQuota

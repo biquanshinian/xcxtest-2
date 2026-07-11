@@ -35,6 +35,6 @@ export function getConfig() {
     apiBase: String(process.env.BILI_ADMIN_API_BASE || '').replace(/\/$/, ''),
     token: String(process.env.BILI_AGENT_TOKEN || '').trim(),
     pollMs: Math.max(15000, Number(process.env.BILI_POLL_MS || 60000)),
-    headed: String(process.env.BILI_HEADED || 'false').toLowerCase() === 'true'
+    headed: String(process.env.BILI_HEADED || 'true').toLowerCase() !== 'false'
   }
 }

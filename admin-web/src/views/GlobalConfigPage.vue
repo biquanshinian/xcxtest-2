@@ -169,7 +169,6 @@
             <el-form-item label="每小时上限"><el-input-number v-model="biliForm.maxPerHour" :min="1" :max="20" /></el-form-item>
             <el-form-item label="每天上限"><el-input-number v-model="biliForm.maxPerDay" :min="1" :max="50" /></el-form-item>
             <el-form-item label="纯文字每天上限"><el-input-number v-model="biliForm.textOnlyMaxPerDay" :min="0" :max="20" /></el-form-item>
-            <el-form-item label="合并窗口(分钟)"><el-input-number v-model="biliForm.mergeBurstWindowMin" :min="5" :max="240" /></el-form-item>
             <el-form-item label="话题上限"><el-input-number v-model="biliForm.topicMax" :min="1" :max="8" /></el-form-item>
             <el-form-item label="AI 补话题"><el-switch v-model="biliForm.aiTopicEnabled" /></el-form-item>
             <el-form-item label="AI 自动入库"><el-switch v-model="biliForm.aiTopicAutopromote" /></el-form-item>
@@ -179,8 +178,18 @@
         </el-collapse-item>
       </el-collapse>
 
+      <el-alert
+        v-if="biliHealth.syncFromAt"
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom:12px;"
+        :title="`只同步此时间之后的事件：${formatTs(biliHealth.syncFromAt)}（早于此时间的「未同步」不会入队）`"
+      />
+
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
         <el-button :loading="biliEnqueueing" type="warning" @click="onBiliEnqueue">立即扫库入队</el-button>
+        <el-button @click="onBiliBackdate">把起点拨回1小时（纳入刚发的事件）</el-button>
         <el-button @click="loadBili">刷新状态</el-button>
       </div>
     </el-card>
@@ -212,7 +221,6 @@ const biliForm = reactive({
   maxPerHour: 2,
   maxPerDay: 8,
   textOnlyMaxPerDay: 3,
-  mergeBurstWindowMin: 60,
   topicMax: 5,
   aiTopicEnabled: true,
   aiTopicAutopromote: true,
@@ -322,7 +330,6 @@ const loadBili = async () => {
       maxPerHour: Number(data.maxPerHour || 2),
       maxPerDay: Number(data.maxPerDay || 8),
       textOnlyMaxPerDay: Number(data.textOnlyMaxPerDay || 3),
-      mergeBurstWindowMin: Number(data.mergeBurstWindowMin || 60),
       topicMax: Number(data.topicMax || 5),
       aiTopicEnabled: data.aiTopicEnabled !== false,
       aiTopicAutopromote: data.aiTopicAutopromote !== false,
@@ -376,7 +383,6 @@ const saveBiliAdvanced = async () => {
       maxPerHour: biliForm.maxPerHour,
       maxPerDay: biliForm.maxPerDay,
       textOnlyMaxPerDay: biliForm.textOnlyMaxPerDay,
-      mergeBurstWindowMin: biliForm.mergeBurstWindowMin,
       topicMax: biliForm.topicMax,
       aiTopicEnabled: biliForm.aiTopicEnabled,
       aiTopicAutopromote: biliForm.aiTopicAutopromote,
@@ -391,11 +397,27 @@ const saveBiliAdvanced = async () => {
   }
 }
 
+const onBiliBackdate = async () => {
+  try {
+    await ElMessageBox.confirm('将同步起点拨回 1 小时，使最近发布但未同步的事件可以入队。是否继续？', '调整同步起点', { type: 'info' })
+    const ts = Date.now() - 60 * 60 * 1000
+    await api.updateBilibiliAutoPublish({ syncFromAt: ts })
+    ElMessage.success('已拨回 1 小时，请再点「立即扫库入队」')
+    await loadBili()
+  } catch (e) {
+    if (e !== 'cancel' && e?.action !== 'cancel') ElMessage.error(e.message || '操作失败')
+  }
+}
+
 const onBiliEnqueue = async () => {
   biliEnqueueing.value = true
   try {
     const res = await api.enqueueBilibiliPublish()
-    ElMessage.success('已触发扫库入队')
+    const n = Number(res?.enqueued || 0)
+    const reason = res?.reason || res?.skipped
+    if (n > 0) ElMessage.success(`已入队 ${n} 条`)
+    else if (reason) ElMessage.warning(`未入队：${reason}（候选 ${res?.candidates ?? '-'}）`)
+    else ElMessage.info(`未入队新任务（候选 ${res?.candidates ?? 0}，跳过相似 ${res?.skippedSimilar ?? 0}）`)
     console.log('[bili enqueue]', res)
     await loadBili()
   } catch (e) {
