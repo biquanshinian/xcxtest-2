@@ -29,10 +29,18 @@ function resolveCloudAsset(item, keyField, fallbackField) {
   return ''
 }
 
-/** 「星舰S40」/「助推器B20」：随后台 id 字段自动更新 */
+/** 「星舰S40」/「助推器B20」：优先全称，其次短编号 */
 function buildVehicleLabel(item, type) {
+  const fullName = item && item.name ? String(item.name).trim() : ''
+  if (fullName) return fullName
   const id = item && item.id ? String(item.id).trim().toUpperCase() : ''
   return (type === 'ship' ? '星舰' : '助推器') + id
+}
+
+/** 英文状态 → 中文标签（与硬件设施 statusZh 口径一致），映射不到返回空串 */
+function getStatusZh(status) {
+  const map = { ACTIVE: '活跃', DESTROYED: '已损毁', EXPENDED: '已消耗', RETIRED: '已退役' }
+  return map[String(status || '').trim().toUpperCase()] || ''
 }
 
 /** 与 progress 页 normalizeStarshipStatusData 的 detail 部分保持一致 */
@@ -41,23 +49,25 @@ function buildDetail(item, type) {
   const fallbackTitle = buildVehicleLabel(item, type)
   const fallbackSubtitle = type === 'ship' ? 'STARSHIP' : 'SUPER HEAVY'
 
-  // 卡片缩略图作为头图兜底
+  // 自动数据优先：NSF image/images 在前，后台 thumbnail 仅兜底
   const images = []
   if (item) {
+    if (item.image) images.push(item.image)
     if (Array.isArray(item.images)) images.push(...item.images)
     if (Array.isArray(item.previewImages)) images.push(...item.previewImages)
-    if (item.image) images.unshift(item.image)
     const cloudImage = resolveCloudAsset(item, 'thumbnailMediaKey', 'thumbnailFallback')
-    if (cloudImage) images.unshift(cloudImage)
+    if (cloudImage) images.push(cloudImage)
   }
-  const cardImage = images.map(normalizeImageUrl).filter(Boolean)[0] || getFallbackImage(type)
+  const autoImage = [...new Set(images.map(normalizeImageUrl).filter(Boolean))][0] || ''
+  const manualHero = resolveCloudAsset(detail, 'heroMediaKey', 'heroFallback')
 
   return {
     title: detail.title || fallbackTitle,
     subtitle: detail.subtitle || fallbackSubtitle,
-    statusText: detail.statusText || '活跃',
+    statusText: detail.statusText || getStatusZh(item && item.status) || '活跃',
     summary: detail.summary || `${fallbackTitle}正在执行对应阶段的测试与验证任务。`,
-    heroImage: resolveCloudAsset(detail, 'heroMediaKey', 'heroFallback') || cardImage,
+    // 优先级：自动图 > 手动头图 > 静态占位
+    heroImage: autoImage || manualHero || getFallbackImage(type),
     showChecklist: detail.showChecklist === true,
     checklist: Array.isArray(detail.checklist) ? detail.checklist : []
   }
@@ -94,7 +104,7 @@ Page({
         loading: false,
         detail,
         navTitle: detail.title,
-        // 话题固定为「星舰S40」/「助推器B20」格式，随后台 id 自动更新
+        // 话题优先全称（Ship 40），与硬件详情页话题口径一致；缺全称时回退「星舰S40」格式
         discussionTopic: buildVehicleLabel(item, type)
       })
     } catch (e) {

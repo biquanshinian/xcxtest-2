@@ -107,20 +107,49 @@ function vibrateMedium() {
   }
 }
 
+/** 翻译门控产品 id：不在 PRODUCTS 单品表内 → 弹窗只提供开通星际通行证 / 看广告 */
+const TRANSLATE_GATE_PRODUCT_ID = 'text_translate'
+const TRANSLATE_GATE_PRODUCT_NAME = '外文翻译'
+
+/**
+ * 翻译功能门控：PRO / 已购放行；免费用户弹开通引导（含「看广告免费体验10分钟」，
+ * 广告解锁窗口内所有翻译按钮共享免检）。查询异常按现有 gateCheck 语义 fail-open。
+ * @returns {Promise<boolean>} true=放行
+ */
+function translateGateCheck() {
+  try {
+    const { gateCheck } = require('./membership.js')
+    return gateCheck(TRANSLATE_GATE_PRODUCT_ID, TRANSLATE_GATE_PRODUCT_NAME)
+  } catch (e) {
+    return Promise.resolve(true)
+  }
+}
+
 function togglePageTranslation(page, opts) {
   vibrateMedium()
   const switchKey = opts.switchKey
-  const loadingKey = opts.loadingKey
-  const fields = (opts.fields || []).filter((f) => f && f.path && String(f.text || '').trim())
 
-  // 已是译文 → 切回原文（override 字段清空即可露出原文）
+  // 已是译文 → 切回原文（免门控，override 字段清空即可露出原文）
   if (page.data[switchKey]) {
+    const fields = (opts.fields || []).filter((f) => f && f.path)
     const patch = {}
     patch[switchKey] = false
     for (const f of fields) patch[f.path] = f.revert != null ? f.revert : ''
     page.setData(patch)
     return Promise.resolve()
   }
+
+  // 翻译消耗云端 token：切到译文前统一走会员/看广告门控
+  return translateGateCheck().then((allowed) => {
+    if (!allowed) return
+    return _applyTranslation(page, opts)
+  })
+}
+
+function _applyTranslation(page, opts) {
+  const switchKey = opts.switchKey
+  const loadingKey = opts.loadingKey
+  const fields = (opts.fields || []).filter((f) => f && f.path && String(f.text || '').trim())
 
   // 预翻译命中的字段本地直切；剩余英文字段才需要云端翻译
   const localPatch = {}
@@ -198,6 +227,7 @@ function togglePageTranslation(page, opts) {
 module.exports = {
   translateTexts,
   togglePageTranslation,
+  translateGateCheck,
   isMostlyChinese,
   vibrateMedium
 }

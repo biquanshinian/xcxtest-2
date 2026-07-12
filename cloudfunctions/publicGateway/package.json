@@ -1,0 +1,9 @@
+{
+  "name": "publicGateway",
+  "version": "1.0.0",
+  "description": "公众站只读 HTTP 网关",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

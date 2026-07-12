@@ -811,6 +811,21 @@ async function listStarshipEvents(query = {}) {
   return ok({ list, total, page, pageSize })
 }
 
+async function triggerBilibiliEnqueue(from) {
+  try {
+    const res = await cloud.callFunction({
+      name: 'publishBilibiliFromEvents',
+      data: { from, action: 'auto_enqueue' }
+    })
+    const payload = (res && res.result) || res || {}
+    console.log('[triggerBilibiliEnqueue]', from, JSON.stringify(payload))
+    return payload
+  } catch (e) {
+    console.warn('[triggerBilibiliEnqueue] failed', from, e.message || e)
+    return { ok: false, error: e.message || String(e) }
+  }
+}
+
 async function createStarshipEvent(body, user) {
   const col = COLLECTIONS.STARSHIP_EVENT_UPDATES
   const isPublished = body.status === 'published'
@@ -837,12 +852,11 @@ async function createStarshipEvent(body, user) {
 
   const res = await db.collection(col).add({ data: payload })
   await writeOpLog({ user, module: col, action: 'create', targetId: res._id, after: payload })
+  let bilibiliEnqueue = null
   if (isPublished) {
-    try {
-      cloud.callFunction({ name: 'publishBilibiliFromEvents', data: { from: 'event_create' } }).catch(() => {})
-    } catch (e) {}
+    bilibiliEnqueue = await triggerBilibiliEnqueue('event_create')
   }
-  return ok({ id: res._id })
+  return ok({ id: res._id, bilibiliEnqueue })
 }
 
 async function updateStarshipEvent(id, body, user) {
@@ -872,12 +886,12 @@ async function updateStarshipEvent(id, body, user) {
   await ref.update({ data: patch })
   await writeOpLog({ user, module: col, action: 'update', targetId: id, before, after: { ...before, ...patch } })
   const becamePublished = patch.status === 'published' && before.status !== 'published'
-  if (becamePublished || patch.status === 'published') {
-    try {
-      cloud.callFunction({ name: 'publishBilibiliFromEvents', data: { from: 'event_update' } }).catch(() => {})
-    } catch (e) {}
+  let bilibiliEnqueue = null
+  // 仅「首次发布」触发入队，避免每次编辑已发布事件都扫库
+  if (becamePublished) {
+    bilibiliEnqueue = await triggerBilibiliEnqueue('event_update')
   }
-  return ok(true)
+  return ok({ bilibiliEnqueue })
 }
 
 function eventMediaCosKeyFromUrl(url) {
@@ -1882,6 +1896,7 @@ async function updateStarshipStatus(body, user) {
 
     return {
       id: node.id || prev.id || '',
+      name: node.name || prev.name || '',
       status: node.status || prev.status || 'ACTIVE',
       progress: Number(node.progress || 0),
       image: newImage,
@@ -3658,12 +3673,87 @@ async function getStatisticsOverview() {
 }
 
 // ========== 直播管理 ==========
+function extractPublicBiliRoomId(raw) {
+  const s = String(raw || '').trim()
+  if (!s) return ''
+  const m = s.match(/(?:live\.bilibili\.com\/(?:h5\/)?)?(\d{3,})/i)
+  if (m) return m[1]
+  if (/^\d{3,}$/.test(s)) return s
+  return ''
+}
+
+function defaultBiliEmbedUrl(roomId) {
+  // 官方文档参数：mute（不是 muted）；勿传 autoplay，避免活动播放器 92002
+  return `https://www.bilibili.com/blackboard/live/live-activity-player.html?cid=${roomId}&mute=1&danmaku=0&logo=0&recommend=0`
+}
+
+function normalizePublicBiliRooms(rawRooms, legacy = {}) {
+  const list = Array.isArray(rawRooms) ? rawRooms : []
+  const rooms = []
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue
+    const roomId =
+      extractPublicBiliRoomId(item.roomId || item.room_id) ||
+      extractPublicBiliRoomId(item.link) ||
+      ''
+    if (!roomId) continue
+    const link = String(item.link || '').trim() || `https://live.bilibili.com/${roomId}`
+    const embedUrl = String(item.embedUrl || item.embed_url || '').trim() || defaultBiliEmbedUrl(roomId)
+    rooms.push({
+      roomId,
+      title: String(item.title || '').trim(),
+      link,
+      embedUrl
+    })
+  }
+  if (!rooms.length) {
+    const roomId =
+      extractPublicBiliRoomId(legacy.publicBiliRoomId) ||
+      extractPublicBiliRoomId(legacy.roomId) ||
+      '390508'
+    const link = String(legacy.publicBiliLink || '').trim() || `https://live.bilibili.com/${roomId}`
+    rooms.push({
+      roomId,
+      title: String(legacy.publicBiliTitle || '').trim(),
+      link,
+      embedUrl: String(legacy.publicBiliEmbedUrl || '').trim() || defaultBiliEmbedUrl(roomId)
+    })
+  }
+  return rooms
+}
+
 async function getLiveConfig() {
   try {
     const res = await db.collection(COLLECTIONS.LIVE_CONFIG).where({ _id: 'current' }).limit(1).get()
-    return ok(res.data?.[0] || { enabled: false })
+    const data = res.data?.[0] || { enabled: false }
+    const publicBiliRooms = normalizePublicBiliRooms(data.publicBiliRooms, data)
+    const first = publicBiliRooms[0] || {}
+    return ok({
+      enabled: !!data.enabled,
+      roomId: data.roomId || '',
+      platform: data.platform || '',
+      title: data.title || '',
+      coverUrl: data.coverUrl || '',
+      streamUrl: data.streamUrl || '',
+      // 公众网页（marsx 内容站）B 站直播
+      publicBiliEnabled: data.publicBiliEnabled !== false,
+      publicBiliRooms,
+      publicBiliRoomId: first.roomId || data.publicBiliRoomId || data.roomId || '390508',
+      publicBiliLink: first.link || data.publicBiliLink || '',
+      publicBiliEmbedUrl: first.embedUrl || data.publicBiliEmbedUrl || '',
+      publicBiliTitle: first.title || data.publicBiliTitle || '',
+      updatedAt: data.updatedAt || null
+    })
   } catch (e) {
-    return ok({ enabled: false })
+    return ok({
+      enabled: false,
+      publicBiliEnabled: true,
+      publicBiliRooms: [{ roomId: '390508', title: '', link: 'https://live.bilibili.com/390508', embedUrl: defaultBiliEmbedUrl('390508') }],
+      publicBiliRoomId: '390508',
+      publicBiliLink: '',
+      publicBiliEmbedUrl: '',
+      publicBiliTitle: ''
+    })
   }
 }
 
@@ -3671,15 +3761,49 @@ async function updateLiveConfig(body, user) {
   const id = 'current'
   const ref = db.collection(COLLECTIONS.LIVE_CONFIG).doc(id)
   const beforeRes = await ref.get().catch(() => null)
-  const before = beforeRes?.data || null
+  const before = beforeRes?.data || {}
+
+  const pickStr = (key, fallback = '') =>
+    body[key] !== undefined ? String(body[key] == null ? '' : body[key]) : String(before[key] || fallback)
+  const pickBool = (key, fallback = false) => {
+    if (body[key] !== undefined) return !!body[key]
+    if (before[key] !== undefined) return !!before[key]
+    return fallback
+  }
+
+  let publicBiliRooms
+  if (body.publicBiliRooms !== undefined) {
+    publicBiliRooms = normalizePublicBiliRooms(body.publicBiliRooms, {
+      publicBiliRoomId: body.publicBiliRoomId,
+      publicBiliLink: body.publicBiliLink,
+      publicBiliEmbedUrl: body.publicBiliEmbedUrl,
+      publicBiliTitle: body.publicBiliTitle,
+      roomId: before.roomId
+    })
+  } else {
+    publicBiliRooms = normalizePublicBiliRooms(before.publicBiliRooms, {
+      ...before,
+      publicBiliRoomId: body.publicBiliRoomId !== undefined ? body.publicBiliRoomId : before.publicBiliRoomId,
+      publicBiliLink: body.publicBiliLink !== undefined ? body.publicBiliLink : before.publicBiliLink,
+      publicBiliEmbedUrl: body.publicBiliEmbedUrl !== undefined ? body.publicBiliEmbedUrl : before.publicBiliEmbedUrl,
+      publicBiliTitle: body.publicBiliTitle !== undefined ? body.publicBiliTitle : before.publicBiliTitle
+    })
+  }
+  const first = publicBiliRooms[0] || { roomId: '390508', title: '', link: '', embedUrl: '' }
 
   const patch = {
-    enabled: !!body.enabled,
-    roomId: body.roomId || '',
-    platform: body.platform || '',
-    title: body.title || '',
-    coverUrl: body.coverUrl || '',
-    streamUrl: body.streamUrl || '',
+    enabled: pickBool('enabled', false),
+    roomId: pickStr('roomId'),
+    platform: pickStr('platform'),
+    title: pickStr('title'),
+    coverUrl: pickStr('coverUrl'),
+    streamUrl: pickStr('streamUrl'),
+    publicBiliEnabled: pickBool('publicBiliEnabled', true),
+    publicBiliRooms,
+    publicBiliRoomId: first.roomId || '390508',
+    publicBiliLink: first.link || '',
+    publicBiliEmbedUrl: first.embedUrl || '',
+    publicBiliTitle: first.title || '',
     updatedAt: now(),
     updatedBy: user.username
   }
@@ -3778,7 +3902,7 @@ async function listCloudFunctions() {
     { name: 'syncSpaceDevsData', desc: '发射数据同步', type: 'timer' },
     { name: 'syncSpaceXTweets', desc: 'SpaceX推文同步', type: 'timer' },
     { name: 'sendLaunchReminder', desc: '发射提醒推送', type: 'timer' },
-    { name: 'publishBilibiliFromEvents', desc: 'B站事件入队（限流/合并）', type: 'timer' },
+    { name: 'publishBilibiliFromEvents', desc: 'B站事件入队（定时+推文同步触发）', type: 'timer' },
     { name: 'getLiveStatus', desc: '直播状态查询', type: 'callable' }
   ]
   return ok(functions)

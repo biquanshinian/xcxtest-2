@@ -330,10 +330,9 @@ function pickCurrentVehicle(vehicles, category) {
  * 将当前飞船/助推器信息自动写入 starshipStatus/current（组合体进展两张卡片）。
  * 默认数据全自动跟随 NSF 硬件设施；后台手动改数据只是备用（nsfAutoSync=false 切手动模式）。
  * - 文档 nsfAutoSync === false 时完全跳过（后台手动模式）
- * - 载具换代（编号变化）：更新编号/主图，清掉旧载具的图片覆盖字段与标题
- * - 每轮持续对齐：状态、状态文案（statusZh）、简介（notesZh）始终跟随硬件设施数据，
- *   避免卡片/详情页与硬件设施列表脱节
- * - NSF 没有的字段（进度、清单、标题、副标题）仍由后台维护，不触碰
+ * - 每轮持续对齐：编号、全称、状态、状态文案、简介、主图始终跟随硬件设施
+ * - NSF 有镜像图时覆盖手动 thumbnail/hero，避免卡片仍显示旧后台图
+ * - 使用点号路径更新，避免整对象覆盖冲掉进度/清单等后台字段
  */
 async function updateStarshipStatusCard(db, vehicles) {
   let doc = null
@@ -360,61 +359,58 @@ async function updateStarshipStatusCard(db, vehicles) {
     const nodeDetail = node.detail || {}
     const prevMeta = prevAuto[side] || {}
     const newStatus = String(cur.status || '').toUpperCase()
-    const statusChanged = String(node.status || '').toUpperCase() !== newStatus
     const rotated = String(node.id || '').trim().toUpperCase() !== newId
-    // 换代当轮镜像图未就绪时记 imagePending，后续轮次补图
     const imagePending = !rotated && prevMeta.id === newId && prevMeta.imagePending === true
 
     const meta = { id: newId, name: cur.name, status: cur.status, imagePending: false }
-    const patch = {}
-    const detailPatch = {}
+    let sideChanged = false
 
-    if (rotated) {
-      patch.id = newId
-      if (cur.image) {
-        // 换代后旧载具照片已过期：主图切到 NSF 镜像，并清掉后台的图片覆盖字段
-        patch.image = cur.image
-        patch.images = [cur.image]
-        patch.previewImages = []
-        patch.thumbnailMediaKey = ''
-        patch.thumbnailFallback = ''
-        detailPatch.heroMediaKey = ''
-        detailPatch.heroFallback = ''
-      } else {
-        meta.imagePending = true
+    const setField = (key, value) => {
+      updates[`${side}.${key}`] = value
+      sideChanged = true
+    }
+
+    // 编号 / 全称：每轮对齐（换代时自动变成 B21/S41 等）
+    if (String(node.id || '').trim().toUpperCase() !== newId) setField('id', newId)
+    if (String(node.name || '') !== String(cur.name || '')) setField('name', cur.name)
+
+    // 图片：NSF 有镜像则覆盖手动图
+    if (cur.image) {
+      const hasManualOverride = !!(
+        node.thumbnailMediaKey ||
+        node.thumbnailFallback ||
+        nodeDetail.heroMediaKey ||
+        nodeDetail.heroFallback
+      )
+      const imageChanged = String(node.image || '') !== String(cur.image || '')
+      if (rotated || imagePending || imageChanged || hasManualOverride) {
+        setField('image', cur.image)
+        setField('images', [cur.image])
+        setField('previewImages', [])
+        setField('thumbnailMediaKey', '')
+        setField('thumbnailFallback', '')
+        setField('detail.heroMediaKey', '')
+        setField('detail.heroFallback', '')
       }
-      // 标题跟随新载具；留空由客户端按编号生成（星舰S41 / 助推器B21）
-      detailPatch.title = ''
-    } else if (cur.image && (imagePending || (!node.image && !node.thumbnailMediaKey))) {
-      // 补图：换代轮次没镜像成功、或卡片本来没图
-      patch.image = cur.image
-      patch.images = [cur.image]
-      if (imagePending) {
-        patch.thumbnailMediaKey = ''
-        patch.thumbnailFallback = ''
-      }
-    } else if (imagePending && !cur.image) {
+    } else if (rotated || imagePending) {
       meta.imagePending = true
     }
 
-    // 状态 / 状态文案 / 简介：每轮持续对齐硬件设施数据（默认自动）
-    // NSF 有值且与当前不同就覆盖；后台手动改的值仅在 NSF 缺数据或 nsfAutoSync=false 时生效
-    if (statusChanged) patch.status = newStatus
+    if (rotated) {
+      setField('detail.title', '')
+    }
+
+    if (String(node.status || '').toUpperCase() !== newStatus) setField('status', newStatus)
     if (cur.statusZh && nodeDetail.statusText !== cur.statusZh) {
-      detailPatch.statusText = cur.statusZh
+      setField('detail.statusText', cur.statusZh)
     }
     if (cur.notesZh && nodeDetail.summary !== cur.notesZh) {
-      detailPatch.summary = cur.notesZh
+      setField('detail.summary', cur.notesZh)
     }
 
     picked[side] = meta
     if (meta.imagePending !== (prevMeta.imagePending === true) || prevMeta.id !== newId) pickedDirty = true
-
-    if (Object.keys(detailPatch).length > 0) patch.detail = detailPatch
-    if (Object.keys(patch).length > 0) {
-      updates[side] = patch
-      changed.push(rotated ? `${side}:${newId}` : side)
-    }
+    if (sideChanged) changed.push(rotated ? `${side}:${newId}` : side)
   }
 
   if (changed.length === 0 && !pickedDirty) return { skipped: true, reason: 'no_change', picked }

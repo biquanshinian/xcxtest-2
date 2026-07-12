@@ -153,6 +153,9 @@ function createBilibiliPublishApi({ db, _, ok, fail, now, writeOpLog, cloud }) {
         lastError: cfg.lastError || '',
         lastPublishAt: cfg.lastPublishAt || 0,
         syncFromAt: cfg.syncFromAt || 0,
+        lastEnqueueAt: cfg.lastEnqueueAt || 0,
+        lastEnqueueFrom: cfg.lastEnqueueFrom || '',
+        lastEnqueueResult: cfg.lastEnqueueResult || '',
         pendingQueue
       }
     })

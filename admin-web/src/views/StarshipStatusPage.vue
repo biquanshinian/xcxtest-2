@@ -4,7 +4,7 @@
       <div style="display:flex;justify-content:space-between;align-items:center">
         <span>星舰状态管理</span>
         <div style="display:flex;align-items:center;gap:16px;">
-          <el-tooltip content="开启后，云端每 6 小时从 Next Spaceflight 自动跟进当前飞船/助推器的编号、状态与主图；关闭则完全手动维护" placement="bottom">
+          <el-tooltip content="开启后，云端每 6 小时从 Next Spaceflight 自动跟进当前飞船/助推器的编号、全称、状态、简介与主图（自动图优先于手动图）；关闭则完全手动维护" placement="bottom">
             <div style="display:flex;align-items:center;gap:6px;">
               <span style="font-size:13px;opacity:0.75;">NSF 自动跟进</span>
               <el-switch v-model="nsfAutoSync" />
@@ -261,12 +261,17 @@ const StarshipNodeForm = defineComponent({
     return () => h(ElForm, { modelValue: node, labelWidth: '90px', style: 'max-width:1080px' }, () => [
       h(ElDivider, { contentPosition: 'left' }, () => '基本信息'),
       h(ElRow, { gutter: 16 }, () => [
-        h(ElCol, { span: 8 }, () =>
+        h(ElCol, { span: 6 }, () =>
           h(ElFormItem, { label: '编号' }, () =>
-            h(ElInput, { modelValue: node.id, 'onUpdate:modelValue': v => { node.id = v; sync() }, placeholder: '如 B19、S39' })
+            h(ElInput, { modelValue: node.id, 'onUpdate:modelValue': v => { node.id = v; sync() }, placeholder: '如 B19、S39（NSF 自动）' })
           )
         ),
-        h(ElCol, { span: 8 }, () =>
+        h(ElCol, { span: 6 }, () =>
+          h(ElFormItem, { label: '全称' }, () =>
+            h(ElInput, { modelValue: node.name, 'onUpdate:modelValue': v => { node.name = v; sync() }, placeholder: '如 Ship 40（NSF 自动）' })
+          )
+        ),
+        h(ElCol, { span: 6 }, () =>
           h(ElFormItem, { label: '状态' }, () =>
             h(ElSelect, { modelValue: node.status, 'onUpdate:modelValue': v => { node.status = v; sync() }, style: 'width:100%', filterable: true, allowCreate: true }, () => [
               h(ElOption, { label: 'ACTIVE', value: 'ACTIVE' }),
@@ -277,7 +282,7 @@ const StarshipNodeForm = defineComponent({
             ])
           )
         ),
-        h(ElCol, { span: 8 }, () =>
+        h(ElCol, { span: 6 }, () =>
           h(ElFormItem, { label: '进度' }, () =>
             h(ElInputNumber, { modelValue: node.progress, 'onUpdate:modelValue': v => { node.progress = v; sync() }, min: 0, max: 100, style: 'width:100%' })
           )
@@ -412,6 +417,7 @@ const StarshipNodeForm = defineComponent({
 function normalizeNode(raw = {}) {
   return {
     id: raw.id || '',
+    name: raw.name || '',
     status: raw.status || 'ACTIVE',
     progress: Number(raw.progress || 0),
     image: raw.image || '',

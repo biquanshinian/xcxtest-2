@@ -485,17 +485,26 @@ function getRocketName(launch) {
   return String(cfg.full_name || '').trim() || '未知型号'
 }
 
+/**
+ * 展示名 → LL2 configuration.name 形态（Falcon 9 Block 5 → Falcon 9）。
+ * rocket__configuration__name 为精确匹配：传 full_name 形态会得到 count=0；
+ * count 过滤与 count_* 维度缓存 key 必须统一用此归一化形态。
+ */
+function normalizeRocketFilterName(name) {
+  const n = String(name || '').trim()
+  if (!n) return ''
+  const blockIdx = n.indexOf(' Block')
+  if (blockIdx > 0) return n.slice(0, blockIdx).trim()
+  return n
+}
+
 /** 与 LL2 count 过滤 rocket__configuration__name 对齐（Falcon 9 Block 5 → Falcon 9） */
 function rocketFilterNameFromSlimLaunch(launch) {
   const cfg = launch && launch.rocket && launch.rocket.configuration
   if (!cfg) return ''
   const name = String(cfg.name || '').trim()
   if (name) return name
-  const full = String(cfg.full_name || '').trim()
-  if (!full) return ''
-  const blockIdx = full.indexOf(' Block')
-  if (blockIdx > 0) return full.slice(0, blockIdx).trim()
-  return full
+  return normalizeRocketFilterName(cfg.full_name)
 }
 
 function launchMatchesRocketFilter(launch, rocketName) {
@@ -1168,7 +1177,11 @@ function buildRocketFilterParams(rocketName) {
   return { rocket__configuration__name: name }
 }
 
-/** 从 mission 对象解析 LL2 火箭型号名（兼容详情页 rocketConfiguration 快照） */
+/**
+ * 从 mission 对象解析 LL2 火箭型号名（兼容详情页 rocketConfiguration 快照）。
+ * 返回归一化的 configuration.name 形态：mission.rocketName 可能是 full_name
+ * （如「Falcon 9 Block 5」，数据源缺 name 时的展示回退），直接用于精确过滤会 count=0。
+ */
 function resolveMissionRocketName(mission) {
   if (!mission) return ''
   let name = String(mission.rocketName || '').trim()
@@ -1176,7 +1189,8 @@ function resolveMissionRocketName(mission) {
     const cfg = mission.rocketConfiguration
     name = String((cfg && (cfg.name || cfg.full_name)) || '').trim()
   }
-  return name === '未知火箭' ? '' : name
+  if (name === '未知火箭') return ''
+  return normalizeRocketFilterName(name)
 }
 
 function buildAgencyFilterParams(mission) {
@@ -1308,7 +1322,9 @@ async function getMissionStatsAction(event) {
 
   if (!forceRefresh) {
     const cached = await readCache(cacheKey)
-    if (cached && isMissionPayloadValid(cached.payload) && !isMissionStatsStaleAfterLaunch(cached.payload, mission)) {
+    if (cached && isMissionPayloadValid(cached.payload)
+      && !isMissionStatsStaleAfterLaunch(cached.payload, mission)
+      && !hasInconsistentTotals(cached.payload)) {
       const filled = applyAgencyAttemptHints({ ...cached.payload }, mission)
       if (filled.providerTotal !== cached.payload.providerTotal
         || filled.providerYear !== cached.payload.providerYear) {
@@ -1326,6 +1342,7 @@ async function getMissionStatsAction(event) {
   // 3) 都没有 → notReady 占位，等下一轮定时预热。
   if (readOnly) {
     const cachedStale = await readCache(cacheKey, { allowStale: true })
+    if (cachedStale && cachedStale.payload) sanitizeMissionPayload(cachedStale.payload)
     if (cachedStale && isMissionPayloadValid(cachedStale.payload)
       && !isMissionStatsStaleAfterLaunch(cachedStale.payload, mission)) {
       // 完整则直接返回；不完整（累计/序号缺失）时用零 LL2 组装补缺并回写
@@ -1385,6 +1402,33 @@ function isMissionPayloadValid(payload) {
   return payload.rocketTotal != null || payload.providerTotal != null
     || payload.rocketYear != null || payload.providerYear != null
     || payload.yearOrdinal != null
+}
+
+/**
+ * 计数自相矛盾：累计 < 年内（如型号名未归一化时代入 full_name 拿到的脏 0）。
+ * 这类值视为未知（置 null），交由零 LL2 组装 / 预热重算补正。
+ */
+function hasInconsistentTotals(payload) {
+  if (!payload) return false
+  const rBad = payload.rocketTotal != null && payload.rocketYear != null
+    && payload.rocketTotal < payload.rocketYear
+  const pBad = payload.providerTotal != null && payload.providerYear != null
+    && payload.providerTotal < payload.providerYear
+  return rBad || pBad
+}
+
+/** 就地清洗矛盾计数（累计 < 年内 → 累计置 null），返回原对象 */
+function sanitizeMissionPayload(payload) {
+  if (!payload) return payload
+  if (payload.rocketTotal != null && payload.rocketYear != null
+    && payload.rocketTotal < payload.rocketYear) {
+    payload.rocketTotal = null
+  }
+  if (payload.providerTotal != null && payload.providerYear != null
+    && payload.providerTotal < payload.providerYear) {
+    payload.providerTotal = null
+  }
+  return payload
 }
 
 /** payload 是否「完整」：应有的累计字段都已填上（年内字段由 valid 保证），用于预热跳过判断 */
@@ -1983,7 +2027,9 @@ async function prewarmUpcomingMissionStats() {
     const missionId = String(row.id || row._id || '').trim()
     if (!missionId) { out.skipped += 1; continue }
 
-    const rocketConfigName = String(row.rocketName || row.rocketConfigName || '').trim()
+    // 归一化为 configuration.name 形态：launch_data 兜底源可能存 full_name（Falcon 9 Block 5），
+    // 直接用于精确 count 过滤 / dim 缓存 key 会产生脏 0
+    const rocketConfigName = normalizeRocketFilterName(row.rocketName || row.rocketConfigName)
     const launchAgency = String(row.launchAgency || '').trim()
     const launchAgencyId = row.launchAgencyId != null && row.launchAgencyId !== '' ? row.launchAgencyId : ''
     if (!rocketConfigName && !launchAgency && !launchAgencyId) {
@@ -2003,8 +2049,9 @@ async function prewarmUpcomingMissionStats() {
     const cacheKey = `mission_${missionId}_${launchTime || year}`
 
     // 仅当缓存「完整」（含累计与序号）且年内计数与最新 dim count 一致才跳过
-    // 已发射但仍 rocketTotal/Year=0 的脏缓存强制重算
+    // 已发射但仍 rocketTotal/Year=0 的脏缓存强制重算；累计<年内的矛盾值先清洗再补全
     const fresh = await readCache(cacheKey, { maxAgeMs: MISSION_PREWARM_FRESH_MS })
+    if (fresh && fresh.payload) sanitizeMissionPayload(fresh.payload)
     if (fresh && isMissionPayloadComplete(fresh.payload, mission)
       && !isMissionStatsStaleAfterLaunch(fresh.payload, mission)) {
       // 比对 dim count：如果 rocketYear / providerYear 已过时（新发射后 dim 值变化），不跳过

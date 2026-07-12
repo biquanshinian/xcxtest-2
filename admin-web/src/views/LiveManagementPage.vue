@@ -7,6 +7,9 @@
           <el-tag :type="form.enabled ? 'success' : 'info'" size="small" effect="plain">
             基础直播 {{ form.enabled ? '开' : '关' }}
           </el-tag>
+          <el-tag :type="webBiliForm.enabled ? 'success' : 'info'" size="small" effect="plain">
+            网页24小时直播阵列 {{ webBiliForm.enabled ? '开' : '关' }}
+          </el-tag>
           <el-tag :type="coverForm.enabled ? 'success' : 'info'" size="small" effect="plain">
             自定义封面 {{ coverForm.enabled ? '开' : '关' }}
           </el-tag>
@@ -58,6 +61,81 @@
           <el-form-item label="直播流 URL">
             <el-input v-model="form.streamUrl" placeholder="直播流地址" clearable />
           </el-form-item>
+        </el-form>
+      </section>
+
+      <!-- 公众网页 B 站直播 -->
+      <section class="live-card">
+        <div class="live-card-head">
+          <div>
+            <h3 class="live-card-title">公众网页 · 24小时直播阵列</h3>
+            <p class="live-card-desc">内容站「工具 → 24小时直播阵列」按下方房间列表展示（默认一行两个）</p>
+          </div>
+          <el-button type="primary" size="small" :loading="webBiliSaving" @click="onSaveWebBili">保存</el-button>
+        </div>
+        <el-form :model="webBiliForm" label-position="top" class="live-compact-form">
+          <div class="field-row">
+            <el-form-item label="启用嵌入">
+              <el-switch v-model="webBiliForm.enabled" />
+            </el-form-item>
+            <el-form-item label=" ">
+              <el-button size="small" @click="addWebBiliRoom">添加房间</el-button>
+            </el-form-item>
+          </div>
+
+          <div
+            v-for="(room, idx) in webBiliForm.rooms"
+            :key="'web-bili-room-' + idx"
+            class="web-bili-room"
+          >
+            <div class="web-bili-room__head">
+              <span class="web-bili-room__label">机位 {{ idx + 1 }}</span>
+              <el-button
+                link
+                type="danger"
+                size="small"
+                :disabled="webBiliForm.rooms.length <= 1"
+                @click="removeWebBiliRoom(idx)"
+              >
+                删除
+              </el-button>
+            </div>
+            <div class="field-row">
+              <el-form-item label="房间号">
+                <el-input
+                  v-model="room.roomId"
+                  placeholder="如 390508，也可粘贴直播间链接"
+                  @change="onWebBiliRoomChange(idx)"
+                />
+              </el-form-item>
+              <el-form-item label="机位名称">
+                <el-input
+                  v-model="room.title"
+                  placeholder="如 塔架总览 / 海上视角"
+                  clearable
+                  maxlength="60"
+                  show-word-limit
+                />
+              </el-form-item>
+            </div>
+            <el-form-item label="打开链接（可选）">
+              <el-input
+                v-model="room.link"
+                placeholder="默认 https://live.bilibili.com/{房间号}"
+                clearable
+              />
+            </el-form-item>
+            <el-form-item label="嵌入播放地址（可选）">
+              <el-input
+                v-model="room.embedUrl"
+                type="textarea"
+                :rows="2"
+                placeholder="留空则使用 B 站官方嵌入页 + 房间号"
+                clearable
+              />
+            </el-form-item>
+          </div>
+          <div class="form-tip">配置几个机位，内容站就展示几路；机位名称会出现在阵列卡片上。默认一行主画面 + 下方副画面可点「设为主看」。</div>
         </el-form>
       </section>
 
@@ -320,6 +398,69 @@ const form = reactive({
   streamUrl: ''
 })
 
+const webBiliForm = reactive({
+  enabled: true,
+  rooms: [{ roomId: '390508', title: '', link: '', embedUrl: '' }]
+})
+const webBiliSaving = ref(false)
+
+function emptyWebBiliRoom() {
+  return { roomId: '', title: '', link: '', embedUrl: '' }
+}
+
+function extractBiliRoomId(raw) {
+  const s = String(raw || '').trim()
+  if (!s) return ''
+  const m = s.match(/(?:live\.bilibili\.com\/(?:h5\/)?)?(\d{3,})/i)
+  if (m) return m[1]
+  if (/^\d{3,}$/.test(s)) return s
+  return ''
+}
+
+function defaultWebBiliEmbedUrl(roomId) {
+  return `https://www.bilibili.com/blackboard/live/live-activity-player.html?cid=${roomId}&mute=1&danmaku=0&logo=0&recommend=0`
+}
+
+function onWebBiliRoomChange(idx) {
+  const room = webBiliForm.rooms[idx]
+  if (!room) return
+  const extracted = extractBiliRoomId(room.roomId) || extractBiliRoomId(room.link)
+  if (!extracted) return
+  room.roomId = extracted
+  room.link = `https://live.bilibili.com/${extracted}`
+  room.embedUrl = defaultWebBiliEmbedUrl(extracted)
+}
+
+function addWebBiliRoom() {
+  webBiliForm.rooms.push(emptyWebBiliRoom())
+}
+
+function removeWebBiliRoom(idx) {
+  if (webBiliForm.rooms.length <= 1) return
+  webBiliForm.rooms.splice(idx, 1)
+}
+
+function normalizeWebBiliRoomsFromConfig(data) {
+  const list = Array.isArray(data && data.publicBiliRooms) ? data.publicBiliRooms : []
+  const rooms = list
+    .map((r) => ({
+      roomId: String((r && (r.roomId || r.room_id)) || '').trim(),
+      title: String((r && r.title) || '').trim(),
+      link: String((r && r.link) || '').trim(),
+      embedUrl: String((r && (r.embedUrl || r.embed_url)) || '').trim()
+    }))
+    .filter((r) => r.roomId || r.link)
+  if (rooms.length) return rooms
+  return [
+    {
+      roomId: String((data && (data.publicBiliRoomId || data.roomId)) || '390508'),
+      title: String((data && data.publicBiliTitle) || '').trim(),
+      link: String((data && data.publicBiliLink) || '').trim(),
+      embedUrl: String((data && data.publicBiliEmbedUrl) || '').trim()
+    }
+  ]
+}
+
 const fallbackForm = reactive({
   enabled: false,
   title: '推荐观看',
@@ -543,6 +684,8 @@ async function loadConfig() {
       form.title = data.title || ''
       form.coverUrl = data.coverUrl || ''
       form.streamUrl = data.streamUrl || ''
+      webBiliForm.enabled = data.publicBiliEnabled !== false
+      webBiliForm.rooms = normalizeWebBiliRoomsFromConfig(data)
     }
   } catch (e) {
     ElMessage.error(e.message || '加载配置失败')
@@ -731,6 +874,45 @@ async function onSave() {
     ElMessage.error(e.message || '保存失败')
   } finally {
     saving.value = false
+  }
+}
+
+async function onSaveWebBili() {
+  webBiliSaving.value = true
+  try {
+    webBiliForm.rooms.forEach((_, idx) => onWebBiliRoomChange(idx))
+    const rooms = webBiliForm.rooms
+      .map((r) => {
+        const roomId = extractBiliRoomId(r.roomId) || extractBiliRoomId(r.link) || String(r.roomId || '').trim()
+        if (!roomId) return null
+        return {
+          roomId,
+          title: String(r.title || '').trim(),
+          link: String(r.link || '').trim() || `https://live.bilibili.com/${roomId}`,
+          embedUrl: defaultWebBiliEmbedUrl(roomId)
+        }
+      })
+      .filter(Boolean)
+    if (!rooms.length) {
+      ElMessage.warning('请至少填写一个有效房间号')
+      return
+    }
+    const first = rooms[0]
+    await api.updateLiveConfig({
+      publicBiliEnabled: webBiliForm.enabled,
+      publicBiliRooms: rooms,
+      // 兼容旧字段：同步第一个房间
+      publicBiliRoomId: first.roomId,
+      publicBiliLink: first.link,
+      publicBiliEmbedUrl: first.embedUrl,
+      publicBiliTitle: first.title
+    })
+    webBiliForm.rooms = rooms
+    ElMessage.success('公众网页24小时直播阵列配置已保存')
+  } catch (e) {
+    ElMessage.error(e.message || '保存失败')
+  } finally {
+    webBiliSaving.value = false
   }
 }
 
@@ -1016,6 +1198,27 @@ onMounted(loadConfig)
   color: var(--t-text-muted, #86868b);
   margin-top: 4px;
   line-height: 1.4;
+}
+
+.web-bili-room {
+  margin-bottom: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.web-bili-room__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.web-bili-room__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--t-text-primary, #fff);
 }
 
 .form-tip.danger {

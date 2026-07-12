@@ -301,18 +301,22 @@ async function runEnqueue(from = 'timer') {
   const ts = now()
 
   if (!cfg.enabled) {
+    console.log('[runEnqueue] skip disabled', { from })
     return { ok: true, skipped: true, reason: 'disabled', from }
   }
   if (Number(cfg.cooldownUntil || 0) > ts) {
+    console.log('[runEnqueue] skip cooldown', { from, until: cfg.cooldownUntil })
     return { ok: true, skipped: true, reason: 'cooldown', until: cfg.cooldownUntil, from }
   }
   if (!Number(cfg.syncFromAt || 0)) {
+    console.log('[runEnqueue] skip no_syncFromAt', { from })
     return { ok: true, skipped: true, reason: 'no_syncFromAt', from }
   }
 
   cfg = refreshQuotaCounters(cfg, ts)
   const candidates = await loadCandidates(cfg)
   if (!candidates.length) {
+    console.log('[runEnqueue] no candidates', { from, syncFromAt: cfg.syncFromAt })
     return { ok: true, enqueued: 0, candidates: 0, from }
   }
 
@@ -320,6 +324,7 @@ async function runEnqueue(from = 'timer') {
   let enqueued = 0
   let skippedSimilar = 0
   let blockedQuota = 0
+  let blockedReason = ''
 
   // 每条事件单独入队，绝不合并（每轮仍只入 1 条，配合限流）
   for (const ev of candidates) {
@@ -335,6 +340,7 @@ async function runEnqueue(from = 'timer') {
     const sched = computeScheduledAt(cfg, hasImages)
     if (!sched.ok) {
       blockedQuota++
+      blockedReason = sched.reason || 'quota'
       break
     }
     cfg = sched.cfg
@@ -342,6 +348,7 @@ async function runEnqueue(from = 'timer') {
     if (!hasImages) {
       if (Number(cfg.publishedToday || 0) >= Number(cfg.textOnlyMaxPerDay || 3)) {
         blockedQuota++
+        blockedReason = 'text_only_day_limit'
         continue
       }
     }
@@ -363,24 +370,43 @@ async function runEnqueue(from = 'timer') {
     dayKey: cfg.dayKey,
     hourKey: cfg.hourKey,
     publishedToday: cfg.publishedToday,
-    publishedHour: cfg.publishedHour
+    publishedHour: cfg.publishedHour,
+    lastEnqueueAt: ts,
+    lastEnqueueFrom: from,
+    lastEnqueueResult: enqueued > 0 ? 'enqueued' : blockedReason || (skippedSimilar ? 'similar' : 'empty')
   })
 
-  return {
+  const result = {
     ok: true,
     from,
     candidates: candidates.length,
     enqueued,
     skippedSimilar,
-    blockedQuota
+    blockedQuota,
+    blockedReason: blockedReason || undefined
   }
+  console.log('[runEnqueue] done', JSON.stringify(result))
+  return result
 }
 
 exports.main = async (event = {}) => {
-  const from = (event && event.from) || (event.Type === 'Timer' ? 'timer' : 'manual')
+  // 微信云开发定时触发器：Type=Timer / TriggerName；也兼容控制台与 callFunction
+  const isTimer =
+    event.Type === 'Timer' ||
+    !!event.TriggerName ||
+    !!event.triggerName ||
+    event.scheduleAction === 'publishBilibili'
+  const from =
+    (event && event.from) ||
+    (isTimer ? 'timer' : event.action === 'manual_trigger' ? 'admin' : 'manual')
   try {
+    console.log('[publishBilibiliFromEvents] start', {
+      from,
+      isTimer,
+      TriggerName: event.TriggerName || event.triggerName || '',
+      Type: event.Type || ''
+    })
     const result = await runEnqueue(from)
-    console.log('[publishBilibiliFromEvents]', JSON.stringify(result))
     return { code: 0, data: result }
   } catch (e) {
     console.error('[publishBilibiliFromEvents] error', e)

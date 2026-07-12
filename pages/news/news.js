@@ -7,7 +7,7 @@ const { getUiShellLayout } = require('../../utils/layout.js')
 const { getSystemInfo } = require('../../utils/system.js')
 const { getNewsListThumbTargetWidthPx, optimizeNewsThumbUrl } = require('../../utils/news-thumb-url.js')
 const storageCache = require('../../utils/storage-sync-cache.js')
-const { translateTexts, isMostlyChinese, vibrateMedium } = require('../../utils/text-translate.js')
+const { translateTexts, isMostlyChinese, vibrateMedium, translateGateCheck } = require('../../utils/text-translate.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const themeUtil = require('../../utils/theme.js')
 
@@ -248,9 +248,14 @@ Page({
   },
 
   /** 页面级翻译开关：预翻译字段本地秒切；缺译条目再调云端补翻（限流 20 条） */
-  onToggleNewsTranslate() {
+  async onToggleNewsTranslate() {
     vibrateMedium()
     const next = !this.data.newsTranslated
+    if (next) {
+      // 翻译消耗云端 token：开启译文前统一走会员/看广告门控（切回原文免门控）
+      const allowed = await translateGateCheck()
+      if (!allowed) return
+    }
     this.setData({ newsTranslated: next })
     if (next) this._fillMissingNewsTranslations()
   },

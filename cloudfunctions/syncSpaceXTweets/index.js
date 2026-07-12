@@ -1521,6 +1521,21 @@ exports.main = async (event = {}) => {
   const elapsed = Date.now() - startTime
   console.log(`[Sync] 全部完成: ${totalPublished} 条发布, ${totalFailed} 条失败, 补翻译 ${retranslated} 条, 清理 ${cleaned} 条, 预览回填 ${JSON.stringify(videoPreviewBackfill)}, 耗时 ${elapsed}ms`)
 
+  // 有新事件时立刻触发 B 站入队（不等 publishBilibiliFromEvents 定时器）
+  let bilibiliEnqueue = null
+  if (totalPublished > 0) {
+    try {
+      const biliRes = await cloud.callFunction({
+        name: 'publishBilibiliFromEvents',
+        data: { from: 'tweet_sync', published: totalPublished }
+      })
+      bilibiliEnqueue = biliRes && biliRes.result ? biliRes.result : biliRes
+      console.log('[Sync] 已触发 B 站入队', JSON.stringify(bilibiliEnqueue))
+    } catch (e) {
+      console.warn('[Sync] 触发 B 站入队失败（请确认已部署 publishBilibiliFromEvents 及定时触发器）:', e.message || e)
+    }
+  }
+
   return {
     code: 0,
     message: totalPublished > 0 ? 'ok' : '没有新推文',
@@ -1529,6 +1544,7 @@ exports.main = async (event = {}) => {
     retranslated,
     cleaned,
     videoPreviewBackfill,
+    bilibiliEnqueue,
     elapsed
   }
 }

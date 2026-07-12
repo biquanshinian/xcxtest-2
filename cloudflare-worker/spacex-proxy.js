@@ -3,13 +3,20 @@ export default {
     const url = new URL(request.url)
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, Range',
       'Content-Type': 'application/json; charset=utf-8'
     }
     // KV 绑定：env.TLE_KV（需在 wrangler.toml 中配置）
     const KV = env.TLE_KV
 
     if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: corsHeaders })
+      return new Response(null, {
+        headers: {
+          ...corsHeaders,
+          'Access-Control-Max-Age': '86400'
+        }
+      })
     }
 
     try {
@@ -234,20 +241,183 @@ export default {
         }
 
         const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        const biliHeaders = {
+          'User-Agent': ua,
+          Referer: 'https://live.bilibili.com/',
+          Origin: 'https://live.bilibili.com'
+        }
 
-        const infoResp = await fetch(`https://api.live.bilibili.com/room/v1/Room/get_info?room_id=${roomId}`, {
-          headers: { 'User-Agent': ua }
-        })
-        const infoData = await infoResp.json()
-        const info = (infoData && infoData.data) || {}
+        try {
+          const infoResp = await fetch(`https://api.live.bilibili.com/room/v1/Room/get_info?room_id=${roomId}`, {
+            headers: biliHeaders
+          })
+          const ct = infoResp.headers.get('content-type') || ''
+          if (!ct.includes('application/json')) {
+            return new Response(JSON.stringify({
+              code: 0,
+              roomId,
+              liveStatus: 0,
+              title: '',
+              cover: '',
+              message: 'upstream non-json'
+            }), { headers: corsHeaders })
+          }
+          const infoData = await infoResp.json()
+          const info = (infoData && infoData.data) || {}
+          const realId = info.room_id ? String(info.room_id) : roomId
 
-        return new Response(JSON.stringify({
-          code: 0,
-          roomId,
-          liveStatus: info.live_status || 0,
-          title: info.title || '',
-          cover: info.user_cover || info.keyframe || ''
-        }), { headers: corsHeaders })
+          return new Response(JSON.stringify({
+            code: 0,
+            roomId: realId,
+            shortId: info.short_id ? String(info.short_id) : roomId,
+            liveStatus: info.live_status || 0,
+            title: info.title || '',
+            cover: info.user_cover || info.keyframe || ''
+          }), { headers: corsHeaders })
+        } catch (e) {
+          return new Response(JSON.stringify({
+            code: 0,
+            roomId,
+            liveStatus: 0,
+            title: '',
+            cover: '',
+            message: String(e && e.message || e)
+          }), { headers: corsHeaders })
+        }
+      }
+
+      /** B 站直播播放地址（供网页端 mpegts/hls 自建播放，绕过活动页 92002） */
+      if (url.pathname === '/live/playurl') {
+        let roomId = url.searchParams.get('room_id') || ''
+        const m = roomId.match(/(?:live\.bilibili\.com\/(?:h5\/)?)?(\d+)/)
+        if (m) roomId = m[1]
+        if (!roomId || !/^\d+$/.test(roomId)) {
+          return new Response(JSON.stringify({ code: 400, message: 'Missing or invalid room_id' }), { status: 400, headers: corsHeaders })
+        }
+
+        const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        const biliHeaders = {
+          'User-Agent': ua,
+          Referer: 'https://live.bilibili.com/',
+          Origin: 'https://live.bilibili.com'
+        }
+
+        try {
+          // 统一成真实 room_id
+          const infoResp = await fetch(`https://api.live.bilibili.com/room/v1/Room/get_info?room_id=${roomId}`, { headers: biliHeaders })
+          const infoData = await infoResp.json().catch(() => ({}))
+          const info = (infoData && infoData.data) || {}
+          const realId = info.room_id ? String(info.room_id) : roomId
+          const liveStatus = Number(info.live_status || 0)
+
+          const playApi =
+            `https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo` +
+            `?room_id=${realId}&protocol=0,1&format=0,1,2&codec=0,1&qn=10000&platform=web&ptype=8&dolby=5&panorama=1`
+          const playResp = await fetch(playApi, { headers: biliHeaders })
+          const playData = await playResp.json().catch(() => ({}))
+          const streams = (((playData || {}).data || {}).playurl_info || {}).playurl || {}
+          const streamList = Array.isArray(streams.stream) ? streams.stream : []
+
+          const candidates = []
+          for (const st of streamList) {
+            const formats = Array.isArray(st.format) ? st.format : []
+            for (const fmt of formats) {
+              const codecs = Array.isArray(fmt.codec) ? fmt.codec : []
+              for (const codec of codecs) {
+                const baseUrl = codec.base_url || ''
+                const urlInfos = Array.isArray(codec.url_info) ? codec.url_info : []
+                for (const ui of urlInfos) {
+                  const host = ui.host || ''
+                  const extra = ui.extra || ''
+                  if (!host || !baseUrl) continue
+                  const full = `${host}${baseUrl}${extra}`
+                  candidates.push({
+                    url: full,
+                    protocol: st.protocol_name || '',
+                    format: fmt.format_name || '',
+                    codec: codec.codec_name || '',
+                    qn: codec.current_qn || codec.qn || 0
+                  })
+                }
+              }
+            }
+          }
+
+          // 优先 flv，其次 ts/fmp4 hls
+          const pick =
+            candidates.find((c) => /flv/i.test(c.format) || /\.flv(\?|$)/i.test(c.url)) ||
+            candidates.find((c) => /fmp4|ts|hls/i.test(c.format) || /\.m3u8(\?|$)/i.test(c.url)) ||
+            candidates[0] ||
+            null
+
+          const origin = new URL(request.url).origin
+          const proxied = pick
+            ? `${origin}/live/media?u=${encodeURIComponent(pick.url)}`
+            : ''
+
+          return new Response(JSON.stringify({
+            code: 0,
+            roomId: realId,
+            shortId: info.short_id ? String(info.short_id) : roomId,
+            liveStatus,
+            title: info.title || '',
+            cover: info.user_cover || info.keyframe || '',
+            play: pick,
+            proxyUrl: proxied,
+            candidates: candidates.slice(0, 8)
+          }), { headers: corsHeaders })
+        } catch (e) {
+          return new Response(JSON.stringify({
+            code: 500,
+            message: String(e && e.message || e)
+          }), { status: 500, headers: corsHeaders })
+        }
+      }
+
+      /** 代理 B 站直播媒体流（仅允许 bilibili CDN 域名） */
+      if (url.pathname === '/live/media') {
+        const target = url.searchParams.get('u') || ''
+        let parsed
+        try {
+          parsed = new URL(target)
+        } catch {
+          return new Response('bad url', { status: 400, headers: { 'Access-Control-Allow-Origin': '*' } })
+        }
+        const host = parsed.hostname.toLowerCase()
+        const allowed =
+          host.endsWith('.bilivideo.com') ||
+          host.endsWith('.bilivideo.cn') ||
+          host.endsWith('.biliapi.net') ||
+          host.endsWith('.biliapi.com') ||
+          host.endsWith('.acgvideo.com') ||
+          host === 'bilivideo.com' ||
+          host === 'akamaized.net' ||
+          host.endsWith('.akamaized.net')
+        if (!allowed) {
+          return new Response('host not allowed', { status: 403, headers: { 'Access-Control-Allow-Origin': '*' } })
+        }
+
+        const range = request.headers.get('Range') || ''
+        const upstreamHeaders = {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          Referer: 'https://live.bilibili.com/',
+          Origin: 'https://live.bilibili.com'
+        }
+        if (range) upstreamHeaders.Range = range
+
+        const upstream = await fetch(parsed.toString(), { headers: upstreamHeaders })
+        const outHeaders = new Headers()
+        outHeaders.set('Access-Control-Allow-Origin', '*')
+        outHeaders.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges')
+        const pass = ['content-type', 'content-length', 'content-range', 'accept-ranges', 'cache-control']
+        for (const k of pass) {
+          const v = upstream.headers.get(k)
+          if (v) outHeaders.set(k, v)
+        }
+        if (!outHeaders.has('content-type')) {
+          outHeaders.set('Content-Type', 'application/octet-stream')
+        }
+        return new Response(upstream.body, { status: upstream.status, headers: outHeaders })
       }
 
       if (url.pathname === '/health') {
@@ -775,6 +945,93 @@ export default {
           status: resp.status,
           headers: { ...corsHeaders, 'Cache-Control': 'public, max-age=3600' }
         })
+      }
+
+      /**
+       * 公众站只读 API：/public/v1/* → CloudBase publicGateway
+       * - IP 限流（KV，默认 60 req/min）
+       * - 边缘缓存（列表 3min，media map 1h）
+       */
+      if (url.pathname.startsWith('/public/v1/')) {
+        const clientIp = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || 'unknown'
+        if (KV) {
+          const rlKey = `rl:public:${clientIp}`
+          let rl = null
+          try { rl = await KV.get(rlKey, 'json') } catch (e) {}
+          const now = Date.now()
+          const windowMs = 60 * 1000
+          const maxReq = 60
+          if (rl && now - rl.ts < windowMs) {
+            if ((rl.count || 0) >= maxReq) {
+              return new Response(JSON.stringify({ code: 4290, message: 'Too Many Requests' }), {
+                status: 429,
+                headers: { ...corsHeaders, 'Retry-After': '60', 'Cache-Control': 'no-store' }
+              })
+            }
+            rl.count = (rl.count || 0) + 1
+          } else {
+            rl = { ts: now, count: 1 }
+          }
+          try { await KV.put(rlKey, JSON.stringify(rl), { expirationTtl: 120 }) } catch (e) {}
+        }
+
+        const subPath = url.pathname.replace(/^\/public\/v1/, '') || '/'
+        // 直播房间配置需即时生效，禁止边缘/浏览器缓存
+        const noStorePaths = ['/bilibili-live', '/ping']
+        const cacheTtlSec = noStorePaths.indexOf(subPath) >= 0
+          ? 0
+          : (subPath === '/media/map' ? 3600 : (subPath.indexOf('/starship/status') === 0 ? 120 : 180))
+        const cache = caches.default
+        const cacheUrl = new URL(request.url)
+        cacheUrl.searchParams.set('_edge', '1')
+        const cacheKey = new Request(cacheUrl.toString(), { method: 'GET' })
+        if (request.method === 'GET' && cacheTtlSec > 0) {
+          const cached = await cache.match(cacheKey)
+          if (cached) return cached
+        }
+
+        const gatewayBase = (env.PUBLIC_GATEWAY_URL || 'https://cloud1-9gdqgdt5bfaa20fb-1397421562.ap-shanghai.app.tcloudbase.com/public').replace(/\/$/, '')
+        const query = {}
+        url.searchParams.forEach((v, k) => { query[k] = v })
+
+        const upstream = await fetch(gatewayBase, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'MarsXPublicProxy/1.0'
+          },
+          body: JSON.stringify({
+            path: subPath,
+            method: 'GET',
+            query
+          })
+        })
+
+        let payloadText = await upstream.text()
+        // CloudBase HTTP 可能再包一层 { statusCode, body }
+        try {
+          const outer = JSON.parse(payloadText)
+          if (outer && typeof outer.body === 'string' && outer.statusCode != null) {
+            payloadText = outer.body
+          } else if (outer && outer.body && typeof outer.body === 'object') {
+            payloadText = JSON.stringify(outer.body)
+          }
+        } catch (e) {}
+
+        const result = new Response(payloadText, {
+          status: upstream.ok ? 200 : upstream.status,
+          headers: {
+            ...corsHeaders,
+            'Cache-Control': cacheTtlSec > 0
+              ? `public, max-age=${cacheTtlSec}`
+              : 'no-store, no-cache, must-revalidate',
+            'X-Public-Proxy': '1'
+          }
+        })
+        if (upstream.ok && request.method === 'GET' && cacheTtlSec > 0) {
+          try { await cache.put(cacheKey, result.clone()) } catch (e) {}
+        }
+        return result
       }
 
       return new Response(JSON.stringify({ code: 404, message: 'Not Found' }), { status: 404, headers: corsHeaders })

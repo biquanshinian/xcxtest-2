@@ -64,9 +64,26 @@ function applyClientAgencyFallback(stats, mission) {
   return out
 }
 
+/**
+ * 清洗云端/本地缓存里的矛盾计数：累计 < 年内（如型号名未归一化时精确过滤拿到的脏 0）。
+ * 累计置 null（前端显示「—」），待云端预热重算后自动补正；年内计数来自年度明细聚合，可信保留。
+ */
+function sanitizeMissionStats(stats) {
+  if (!stats) return stats
+  const rBad = stats.rocketTotal != null && stats.rocketYear != null
+    && Number(stats.rocketTotal) < Number(stats.rocketYear)
+  const pBad = stats.providerTotal != null && stats.providerYear != null
+    && Number(stats.providerTotal) < Number(stats.providerYear)
+  if (!rBad && !pBad) return stats
+  const out = { ...stats }
+  if (rBad) out.rocketTotal = null
+  if (pBad) out.providerTotal = null
+  return out
+}
+
 async function loadMissionLaunchStats(mission, options = {}) {
   const data = await fetchMissionLaunchStatsFromCloud(mission, options)
-  return applyClientAgencyFallback({
+  return applyClientAgencyFallback(sanitizeMissionStats({
     year: data.year,
     rocketLabel: data.rocketLabel || '',
     providerLabel: data.providerLabel || '',
@@ -77,11 +94,12 @@ async function loadMissionLaunchStats(mission, options = {}) {
     yearOrdinal: data.yearOrdinal,
     staleCache: !!data.staleCache,
     clientStaleFallback: !!data.clientStaleFallback
-  }, mission)
+  }), mission)
 }
 
 module.exports = {
   loadMissionLaunchStats,
   resolveAgencyAttemptHints,
-  applyClientAgencyFallback
+  applyClientAgencyFallback,
+  sanitizeMissionStats
 }

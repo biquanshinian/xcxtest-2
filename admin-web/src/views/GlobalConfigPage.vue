@@ -179,6 +179,14 @@
       </el-collapse>
 
       <el-alert
+        v-if="biliHealth.lastEnqueueAt"
+        type="success"
+        :closable="false"
+        show-icon
+        style="margin-bottom:12px;"
+        :title="`上次自动扫库：${formatTs(biliHealth.lastEnqueueAt)}（来源 ${biliHealth.lastEnqueueFrom || '-'}，结果 ${biliHealth.lastEnqueueResult || '-'}）`"
+      />
+      <el-alert
         v-if="biliHealth.syncFromAt"
         type="info"
         :closable="false"
@@ -212,7 +220,10 @@ const biliHealth = reactive({
   cooling: false,
   cooldownUntil: 0,
   lastError: '',
-  syncFromAt: 0
+  syncFromAt: 0,
+  lastEnqueueAt: 0,
+  lastEnqueueFrom: '',
+  lastEnqueueResult: ''
 })
 const biliForm = reactive({
   enabled: false,
@@ -344,7 +355,10 @@ const loadBili = async () => {
       cooling: !!h.cooling,
       cooldownUntil: h.cooldownUntil || 0,
       lastError: h.lastError || '',
-      syncFromAt: h.syncFromAt || 0
+      syncFromAt: h.syncFromAt || 0,
+      lastEnqueueAt: h.lastEnqueueAt || 0,
+      lastEnqueueFrom: h.lastEnqueueFrom || '',
+      lastEnqueueResult: h.lastEnqueueResult || ''
     })
   } catch (e) {
     ElMessage.error(e.message || '加载 B 站配置失败')
