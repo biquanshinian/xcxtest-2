@@ -3,6 +3,16 @@
  */
 const { storeAppid: DEFAULT_STORE_APPID } = require('./config.js')
 const storageCache = require('./storage-sync-cache.js')
+const { optimizeImageUrl } = require('./cos-url.js')
+
+/** 弹窗封面约全宽展示：https 直链走 medium 压缩；cloud:// fileID 原样（加 query 会失效） */
+function _optimizedCoverUrl(raw) {
+  const u = typeof raw === 'string' ? raw.trim() : ''
+  if (!u) return ''
+  if (!/^https?:\/\//i.test(u)) return u
+  if (/imageMogr2|ci-process=/i.test(u)) return u
+  return optimizeImageUrl(u, 'medium')
+}
 
 const CONFIG_CACHE_KEY = '_popup_ad_config_cache'
 const CONFIG_FRESH_MS = 15 * 1000          // 15s 内视为新鲜，直接返回
@@ -226,7 +236,7 @@ function normalizeShopItem(raw, index) {
     id: raw._id || raw.id || `popup-shop-${index}`,
     title: raw.title || '微信小店',
     desc: raw.desc || '',
-    coverFileID: raw.coverFileID || raw.cover || '',
+    coverFileID: _optimizedCoverUrl(raw.coverFileID || raw.cover || ''),
     appid: raw.appid || raw.storeAppid || DEFAULT_STORE_APPID || '',
     productId,
     productPromotionLink: String(raw.productPromotionLink || raw.product_promotion_link || '').trim(),

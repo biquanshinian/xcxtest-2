@@ -95,12 +95,32 @@ Page({
     const idx = Number(e.currentTarget.dataset.index)
     const item = this.data.list[idx]
     if (!item) return
-    if (item.imageUrl && item.logoUrl && item.displayImage !== item.logoUrl) {
-      this.setData({
-        [`list[${idx}].displayImage`]: item.logoUrl,
-        [`list[${idx}].imageMode`]: 'aspectFit'
-      })
-    } else if (item.displayImage) {
+    const cur = String(item.displayImage || '')
+    const stripCi = (u) => {
+      const s = String(u || '').trim()
+      if (!s) return ''
+      const q = s.indexOf('?')
+      if (q < 0) return s
+      if (!/imageMogr2|ci-process=/i.test(s.slice(q + 1))) return s
+      return s.slice(0, q)
+    }
+    const stripped = stripCi(cur)
+    if (stripped && stripped !== cur) {
+      this.setData({ [`list[${idx}].displayImage`]: stripped })
+      return
+    }
+    const logoCandidates = [item.logoUrl, item.logoUrlRaw].filter(Boolean)
+    for (let i = 0; i < logoCandidates.length; i++) {
+      const next = logoCandidates[i]
+      if (next && next !== cur) {
+        this.setData({
+          [`list[${idx}].displayImage`]: next,
+          [`list[${idx}].imageMode`]: 'aspectFit'
+        })
+        return
+      }
+    }
+    if (item.displayImage) {
       this.setData({ [`list[${idx}].displayImage`]: '' })
     }
   },

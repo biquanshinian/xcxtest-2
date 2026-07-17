@@ -12,12 +12,15 @@ const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { getOrbitalConfig: getOrbitalConfigCached } = require('../../utils/orbital-config-cache.js')
 const { getUiShellLayout } = require('../../utils/layout.js')
 const { getSystemInfo } = require('../../utils/system.js')
-const { gateCheck, isMembershipEnabled, getMembershipState, isProSync, warmMembershipStateSync } = require('../../utils/membership.js')
+const { gateCheck, isMembershipEnabled, getMembershipState, isProSync, canUsePaidCloudSync, warmMembershipStateSync } = require('../../utils/membership.js')
+const { getMemberPolicySync } = require('../../utils/member-policy.js')
 const storageCache = require('../../utils/storage-sync-cache.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { isLiveEntryAllowed, isPlaybackAllowed } = require('../../utils/feature-flags.js')
 const themeUtil = require('../../utils/theme.js')
 const config = require('../../utils/config.js')
+const { optimizeImageUrl, toCdnUrl, isVideoUrl } = require('../../utils/cos-url.js')
+const { getCachedVideo } = require('../../utils/video-cache.js')
 
 const STARLINK_TLE_CACHE_KEY = '_starlink_tle_cache'
 const PASS_DETAIL_STORAGE_KEY = '_starlink_pass_detail_payload'
@@ -191,8 +194,8 @@ Page({
     // 弹窗广告
     tryShowPopupAd(1, this)
 
-    // 每次进入监控页强制拉一次推荐引导，避免换二维码后仍显示旧缓存
-    this.loadChannelsFallbackGuide(true)
+    // 进入监控页走缓存刷新推荐引导（30 分钟 TTL）；打开引导弹窗时才强制拉最新二维码
+    this.loadChannelsFallbackGuide()
 
     setTimeout(function () {
       Promise.all([isMembershipEnabled(), getMembershipState()]).catch(function () {})
@@ -239,7 +242,7 @@ Page({
       bandwidth: '4.8 Tbps',
       uptime: '99.97%'
     },
-    orbitalCardBg: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/SpaceX%E5%A4%AA%E7%A9%BA%E8%BD%A8%E9%81%93%E6%95%B0%E6%8D%AE%E4%B8%AD%E5%BF%83/1779046968216_7douwq.jpg',
+    orbitalCardBg: optimizeImageUrl('https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/SpaceX%E5%A4%AA%E7%A9%BA%E8%BD%A8%E9%81%93%E6%95%B0%E6%8D%AE%E4%B8%AD%E5%BF%83/1779046968216_7douwq.jpg', 'medium'),
     orbitalCardBgIsVideo: false,
     pageDesc: 'SpaceX星舰Starbase基地实时监控·马斯克星链火箭回收太空航天追踪',
     channelsLiveStatus: 0,
@@ -604,19 +607,29 @@ Page({
     const updates = {}
     function isOrbitalBgVideoUrl(url) {
       if (!url || typeof url !== 'string') return false
-      const base = url.trim().split(/[?#]/)[0].toLowerCase()
-      return base.endsWith('.mp4')
+      return isVideoUrl(url)
     }
     if (card) {
       if (card.bgImage) {
-        const asVideo = isOrbitalBgVideoUrl(card.bgImage)
+        const rawBg = String(card.bgImage).trim()
+        const asVideo = isOrbitalBgVideoUrl(rawBg)
         // 过审关闭可播视频时不渲染卡片背景 <video>（未解析前也先不播）
         if (asVideo && this._orbitalBgVideoAllowed !== true) {
           updates.orbitalCardBg = ''
           updates.orbitalCardBgIsVideo = false
+        } else if (asVideo) {
+          // 非会员 / 紧急流量档：不挂轨道卡 mp4（进 Tab 循环拉流是 COS 大头）
+          const emergency = !!(getMemberPolicySync().emergencyMedia)
+          if (!canUsePaidCloudSync() || emergency) {
+            updates.orbitalCardBg = ''
+            updates.orbitalCardBgIsVideo = false
+          } else {
+            updates.orbitalCardBg = getCachedVideo(toCdnUrl(rawBg))
+            updates.orbitalCardBgIsVideo = true
+          }
         } else {
-          updates.orbitalCardBg = card.bgImage
-          updates.orbitalCardBgIsVideo = asVideo
+          updates.orbitalCardBg = optimizeImageUrl(rawBg, 'medium')
+          updates.orbitalCardBgIsVideo = false
         }
       }
       if (card.metrics) {
@@ -911,7 +924,8 @@ Page({
       this.setData({ channelsFallbackGuide: guide })
     }
     return getChannelsLiveFallbackGuide({
-      forceRefresh: forceRefresh !== false,
+      // 仅显式传 true 才强刷（打开二维码弹窗），默认走本地缓存 + TTL
+      forceRefresh: forceRefresh === true,
       onUpdate: (fresh) => apply(fresh)
     })
       .then((guide) => apply(guide))
@@ -964,9 +978,13 @@ Page({
   async loadBoosterGenealogy() {
     this.setData({ boosterLoading: true, boosterLoadError: false })
     try {
-      // 构型元数据用于缺图兜底（本地缓存 30 分钟，失败不阻塞族谱展示）
+      // 非会员 Tab：只预览 2 条 + 最多 1 批库读，全量留给门控后的族谱页
+      var previewOnly = !canUsePaidCloudSync()
+      var previewLimit = boosterDisplay.TAB_PREVIEW_COUNT || 2
       var results = await Promise.all([
-        getBoosterGenealogy(),
+        getBoosterGenealogy(previewOnly
+          ? { previewOnly: true, previewLimit: previewLimit }
+          : undefined),
         getRocketConfigMeta().catch(function () { return { configs: {} } })
       ])
       var list = results[0]
@@ -975,12 +993,17 @@ Page({
         this.setData({ boosterLoading: false })
         return
       }
-      var result = boosterDisplay.processBoosterList(list, configMeta.configs)
+      var result = boosterDisplay.processBoosterList(list, configMeta.configs, {
+        imageCacheLimit: previewLimit
+      })
       // 原始数据只给详情页跳转用，存实例变量，不进 setData（体积大、渲染层用不到）
       this._boosterRawBySerial = result.rawBySerial
       this._boosterAllProcessed = result.processed
+      this._boosterPreviewOnly = previewOnly
       this.setData({
-        boosterFilterChips: boosterDisplay.buildBoosterFilterChips(result.processed),
+        boosterFilterChips: previewOnly
+          ? [{ id: 'all', label: '全部' }]
+          : boosterDisplay.buildBoosterFilterChips(result.processed),
         boosterLoading: false
       })
       this.applyBoosterFilter(this.data.boosterFilter || 'all')
@@ -995,9 +1018,11 @@ Page({
   applyBoosterFilter(filterId) {
     var all = this._boosterAllProcessed || []
     var filtered = boosterDisplay.applyBoosterFilter(all, filterId)
+    var previewLimit = boosterDisplay.TAB_PREVIEW_COUNT || 2
+    var list = this._boosterPreviewOnly ? filtered.slice(0, previewLimit) : filtered
     this.setData({
       boosterFilter: filterId,
-      boosterList: filtered,
+      boosterList: list,
       boosterStats: boosterDisplay.computeBoosterStats(filtered),
       boosterFilterEmpty: all.length > 0 && filtered.length === 0,
       boosterImageLoadedMap: {}
@@ -1010,8 +1035,10 @@ Page({
     this.applyBoosterFilter(filterId)
   },
 
-  /** 「查看全部」→ 独立全屏族谱页（带当前筛选），中度震动反馈 */
-  onViewAllBoosters() {
+  /** 「查看全部」→ 独立全屏族谱页（带当前筛选），中度震动反馈；与卡片点击共用同一门控 */
+  async onViewAllBoosters() {
+    const allowed = await gateCheck('booster_genealogy', '全球可回收火箭族谱')
+    if (!allowed) return
     try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
     var filter = this.data.boosterFilter || 'all'
     navigateTo(ROUTES.BOOSTER_GENEALOGY, filter !== 'all' ? { filter: filter } : undefined)
@@ -1025,15 +1052,23 @@ Page({
   async loadSpacecraftGallery() {
     this.setData({ spacecraftLoading: true, spacecraftLoadError: false })
     try {
+      var previewOnly = !canUsePaidCloudSync()
+      var previewLimit = spacecraftDisplay.TAB_PREVIEW_COUNT || 2
       var list = await spacecraftDisplay.loadSpacecraftList()
       if (!list || list.length === 0) {
         this.setData({ spacecraftLoading: false })
         return
       }
-      var cards = spacecraftDisplay.buildSpacecraftCards(list)
+      // 非会员：只对预览条做图缓存预热，避免进 Tab 全量 COS 下行
+      var cards = spacecraftDisplay.buildSpacecraftCards(list, {
+        imageCacheLimit: previewLimit
+      })
       this._spacecraftAllCards = cards
+      this._spacecraftPreviewOnly = previewOnly
       this.setData({
-        spacecraftFilterChips: spacecraftDisplay.buildSpacecraftFilterChips(cards),
+        spacecraftFilterChips: previewOnly
+          ? [{ id: 'all', label: '全部' }]
+          : spacecraftDisplay.buildSpacecraftFilterChips(cards),
         spacecraftLoading: false
       })
       this.applySpacecraftFilter(this.data.spacecraftFilter || 'all')
@@ -1047,9 +1082,11 @@ Page({
   applySpacecraftFilter(filterId) {
     var all = this._spacecraftAllCards || []
     var filtered = spacecraftDisplay.applySpacecraftFilter(all, filterId)
+    var previewLimit = spacecraftDisplay.TAB_PREVIEW_COUNT || 2
+    var list = this._spacecraftPreviewOnly ? filtered.slice(0, previewLimit) : filtered
     this.setData({
       spacecraftFilter: filterId,
-      spacecraftList: filtered,
+      spacecraftList: list,
       spacecraftStats: spacecraftDisplay.computeSpacecraftStats(filtered),
       spacecraftFilterEmpty: all.length > 0 && filtered.length === 0
     })
@@ -1061,8 +1098,10 @@ Page({
     this.applySpacecraftFilter(filterId)
   },
 
-  /** 「查看全部」→ 独立全屏图鉴页（带当前筛选），中度震动反馈 */
-  onViewAllSpacecraft() {
+  /** 「查看全部」→ 独立全屏图鉴页（带当前筛选），中度震动反馈；与卡片点击共用同一门控 */
+  async onViewAllSpacecraft() {
+    const allowed = await gateCheck('spacecraft_encyclopedia', '全球飞船图鉴')
+    if (!allowed) return
     try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
     var filter = this.data.spacecraftFilter || 'all'
     navigateTo(ROUTES.SPACECRAFT_GALLERY, filter !== 'all' ? { filter: filter } : undefined)
@@ -1107,15 +1146,22 @@ Page({
   async loadLaunchSiteGallery() {
     this.setData({ launchSiteLoading: true, launchSiteLoadError: false })
     try {
+      var previewOnly = !canUsePaidCloudSync()
+      var previewLimit = launchSiteDisplay.TAB_PREVIEW_COUNT || 2
       var list = await launchSiteDisplay.loadLaunchSiteList()
       if (!list || list.length === 0) {
         this.setData({ launchSiteLoading: false })
         return
       }
-      var cards = launchSiteDisplay.buildLaunchSiteCards(list)
+      var cards = launchSiteDisplay.buildLaunchSiteCards(list, {
+        imageCacheLimit: previewLimit
+      })
       this._launchSiteAllCards = cards
+      this._launchSitePreviewOnly = previewOnly
       this.setData({
-        launchSiteFilterChips: launchSiteDisplay.buildLaunchSiteFilterChips(cards),
+        launchSiteFilterChips: previewOnly
+          ? [{ id: 'all', label: '全部' }]
+          : launchSiteDisplay.buildLaunchSiteFilterChips(cards),
         launchSiteLoading: false
       })
       this.applyLaunchSiteFilter(this.data.launchSiteFilter || 'all')
@@ -1129,9 +1175,11 @@ Page({
   applyLaunchSiteFilter(filterId) {
     var all = this._launchSiteAllCards || []
     var filtered = launchSiteDisplay.applyLaunchSiteFilter(all, filterId)
+    var previewLimit = launchSiteDisplay.TAB_PREVIEW_COUNT || 2
+    var list = this._launchSitePreviewOnly ? filtered.slice(0, previewLimit) : filtered
     this.setData({
       launchSiteFilter: filterId,
-      launchSiteList: filtered,
+      launchSiteList: list,
       launchSiteStats: launchSiteDisplay.computeLaunchSiteStats(filtered),
       launchSiteFilterEmpty: all.length > 0 && filtered.length === 0
     })
@@ -1143,8 +1191,10 @@ Page({
     this.applyLaunchSiteFilter(filterId)
   },
 
-  /** 「查看全部」→ 独立全屏发射场页（带当前筛选），中度震动反馈 */
-  onViewAllLaunchSites() {
+  /** 「查看全部」→ 独立全屏发射场页（带当前筛选），中度震动反馈；与卡片点击共用同一门控 */
+  async onViewAllLaunchSites() {
+    const allowed = await gateCheck('launch_site_encyclopedia', '全球发射场分布')
+    if (!allowed) return
     try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
     var filter = this.data.launchSiteFilter || 'all'
     navigateTo(ROUTES.LAUNCH_SITE_GALLERY, filter !== 'all' ? { filter: filter } : undefined)
@@ -1731,23 +1781,48 @@ Page({
     }
   },
 
-  /** 卡片图加载失败：大图失败退 logo，logo 也失败则清空显示占位 */
+  /** 卡片图加载失败：压缩链 → 原图 → logo → 占位，避免默认图空白 */
   onAgencyImageError(e) {
     const idx = Number(e.currentTarget.dataset.index)
     const item = this.data.agencyVisible[idx]
     if (!item) return
-    if (item.imageUrl && item.logoUrl && item.displayImage !== item.logoUrl) {
-      this.setData({
-        [`agencyVisible[${idx}].displayImage`]: item.logoUrl,
-        [`agencyVisible[${idx}].imageMode`]: 'aspectFit'
-      })
-    } else if (item.displayImage) {
+    const cur = String(item.displayImage || '')
+    const stripCi = (u) => {
+      const s = String(u || '').trim()
+      if (!s) return ''
+      const q = s.indexOf('?')
+      if (q < 0) return s
+      if (!/imageMogr2|ci-process=/i.test(s.slice(q + 1))) return s
+      return s.slice(0, q)
+    }
+    // 1) 当前是 imageMogr2/CI 压缩链 → 回退同图原链
+    const stripped = stripCi(cur)
+    if (stripped && stripped !== cur) {
+      this.setData({ [`agencyVisible[${idx}].displayImage`]: stripped })
+      return
+    }
+    // 2) 大图失败 → 换 logo（压缩版或原链）
+    const logoCandidates = [item.logoUrl, item.logoUrlRaw].filter(Boolean)
+    for (let i = 0; i < logoCandidates.length; i++) {
+      const next = logoCandidates[i]
+      if (next && next !== cur) {
+        this.setData({
+          [`agencyVisible[${idx}].displayImage`]: next,
+          [`agencyVisible[${idx}].imageMode`]: 'aspectFit'
+        })
+        return
+      }
+    }
+    // 3) logo 压缩链失败 → 再试 logo 原链（上面循环已覆盖）；都失败则占位
+    if (item.displayImage) {
       this.setData({ [`agencyVisible[${idx}].displayImage`]: '' })
     }
   },
 
-  /** 查看全部 → 完整列表页（全量数据在该页加载，含筛选与搜索） */
-  onViewAllAgencies() {
+  /** 查看全部 → 完整列表页（全量数据在该页加载，含筛选与搜索）；与卡片点击共用同一门控 */
+  async onViewAllAgencies() {
+    const allowed = await gateCheck('agency_encyclopedia', '全球发射商图鉴')
+    if (!allowed) return
     if (wx.vibrateShort) {
       try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
     }

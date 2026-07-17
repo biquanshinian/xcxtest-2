@@ -98,6 +98,8 @@ const { loadMoreInteraction, missionCardCountdown } = require('../../utils/confi
 const config = require('../../utils/config.js')
 const { loadCloudMediaMap, resolveMediaUrl } = require('../../utils/image-config.js')
 const { getCachedMediaImage, preloadRocketConfigMedia } = require('../../utils/icon-cache.js')
+const { getCachedVideo } = require('../../utils/video-cache.js')
+const { eventVideoAdUnlockId, playEventVideo } = require('../../utils/event-video.js')
 
 /** 视频号直播（分包懒加载，与详情页同源） */
 const CHANNELS_LIVE_PATH = '../../subpackages/shared/utils/channels-live.js'
@@ -131,13 +133,15 @@ function getLiveFinderUserNameFromConfig() {
   return String(cfg.finderUserName || '').trim()
 }
 const { pooledDownloadFile } = require('../../utils/download-pool.js')
-const { toCdnUrl, carouselVideoPosterUrl } = require('../../utils/cos-url.js')
+const { toCdnUrl, optimizeImageUrl, carouselVideoPosterUrl } = require('../../utils/cos-url.js')
 const { markDownloadFailed } = require('../../utils/download-fail-cache.js')
 const { getUiShellLayout, getFloatingActionDragBounds } = require('../../utils/layout.js')
 const { getSystemInfo } = require('../../utils/system.js')
 const { subscribeLaunch, unsubscribeLaunch, isSubscribed, getSubscribedMissionIdSet, syncSubscriptionState, warmSubscribedStoreSync, warmSubscribedStoreAsync } = require('../../utils/subscribe.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
-const { getMembershipState, isMembershipEnabled, isProSync, gateCheck, warmMembershipStateSync, warmMembershipStateAsync } = require('../../utils/membership.js')
+const { getMembershipState, isMembershipEnabled, isProSync, canUsePaidCloudSync, canPrefetchVideoSync, gateCheck, warmMembershipStateSync, warmMembershipStateAsync } = require('../../utils/membership.js')
+const { getMemberPolicy, getMemberPolicySync } = require('../../utils/member-policy.js')
+const { fetchMainConfig } = require('../../utils/feature-flags.js')
 const { warmUserPreferencesSync, warmBriefingPopupShownSync } = require('../../utils/user-growth.js')
 const {
   persistAgencyLogoAfterRemoteLoad,
@@ -163,6 +167,10 @@ const LIVE_STATUS_MAX_WAIT_MS = 30 * 60 * 1000
 const LIVE_STATUS_MIN_ROUND_GAP_MS = 30 * 1000
 const LL2_UPDATES_MEM_TTL_MS = 5 * 60 * 1000
 const RECENT_SETTLED_MEM_TTL_MS = 10 * 60 * 1000
+
+// 非会员任务列表免费可见条数（即将发射 / 历史发射各自计）；
+// 会员功能未开启、Pro 用户或广告解锁期内不限制
+const FREE_MISSION_LIST_LIMIT = 10
 
 const CALENDAR_PKG = '../../subpackages/index-extra/utils/index-calendar-page.js'
 const CALENDAR_METHODS = [
@@ -239,7 +247,10 @@ const LOAD_CLOUD_MEDIA_MAP_FIRST_PAINT_BUDGET_MS = 2500
 
 const ROAD_CLOSURE_REFRESH_TTL = 5 * 60 * 1000
 const SPACEX_STATS_REFRESH_TTL = 10 * 60 * 1000
-const VOTE_REFRESH_TTL = 15 * 1000
+// 竞猜刷新间隔：此前 15s，每次切 Tab 回首页都会重新打 adminGateway（skipCache=true 绕过本地缓存）。
+// 投票后的最新票数由 castVote 返回值直接回填 bundle，不依赖这里的定时刷新；
+// 防降级复核路径会先把 loadedAt 归零再触发，也不受该 TTL 影响。
+const VOTE_REFRESH_TTL = 5 * 60 * 1000
 const LAUNCH_STATS_REFRESH_TTL = 5 * 60 * 1000
 
 Page({
@@ -322,9 +333,16 @@ Page({
         warmMembershipStateSync()
         warmUserPreferencesSync()
         warmBriefingPopupShownSync()
+        fetchMainConfig() // 预热会员策略 / 流量档
       } catch (e) {}
       try {
         this._refreshMembershipAndAgencyFilter()
+      } catch (e) {}
+      try {
+        this._updateCarouselAutoplayGate()
+      } catch (e) {}
+      try {
+        this._updateMissionListGate()
       } catch (e) {}
     }, 0)
 
@@ -495,7 +513,9 @@ Page({
         this._voteDeferTimer = setTimeout(() => {
           this._voteDeferTimer = null
           if (this.data.launchData && String(this.data.launchData.id) === String(launchId)) {
-            this.loadVoteData(launchId, true)
+            // onShow 走 5 分钟投票缓存即可（skipCache 会把每次切 Tab 都变成真实云调用）；
+            // 用户提交投票后的即时刷新由 _scheduleVoteRecheck(skipCache=true) 负责
+            this.loadVoteData(launchId, false)
           }
         }, 800)
         syncSubscriptionState(this.data.launchData.id).then((subscribed) => {
@@ -517,6 +537,12 @@ Page({
           .then(() => {
             try {
               this._refreshMembershipAndAgencyFilter()
+            } catch (e) {}
+            try {
+              this._updateCarouselAutoplayGate()
+            } catch (e) {}
+            try {
+              this._updateMissionListGate()
             } catch (e) {}
           })
           .catch(() => {})
@@ -768,6 +794,10 @@ Page({
     missionsOffset: 0,
     missionsHasMore: true,
     missionsLoadingMore: false,
+    /** 非会员任务列表可见条数上限；0 = 不限制。
+     * 初始按「可能开启会员」收紧为免费额度，避免 onLoad 竞态窗口里先拉 50 条 / 可翻页；
+     * _updateMissionListGate 异步确认后会放宽（会员关 / Pro / 广告解锁 → 0） */
+    missionGateLimit: FREE_MISSION_LIST_LIMIT,
     loadMoreLowerThreshold: (loadMoreInteraction && loadMoreInteraction.lowerThreshold) || 120,
     loadMoreTriggerZone: (loadMoreInteraction && loadMoreInteraction.triggerZone) || 280,
     loadMoreTriggered: false,
@@ -2459,10 +2489,15 @@ Page({
 
   buildLoadMoreMissionResult(type, previousList, formatted, res, offset) {
     const merged = mergeMissionPages(type, previousList, formatted, filterExpiredMissions)
+    // 空页兜底：接口原始返回（过滤前）为空说明已到数据尽头（缓存切片越界等），
+    // 强制收尾，避免 hasMore 恒真 + offset 不前进导致触底无限重试。
+    // 注意用 res.list 而非 formatted 判断：upcoming 的 formatted 已过滤过期项，
+    // 「整页都过期」时 offset 仍会前进，不应误判为尽头
+    const isEmptyPage = !(res && Array.isArray(res.list) && res.list.length > 0)
     return buildMissionReadyState({
       ...buildMissionListSetData(type, merged, {
         nextOffset: getMissionNextOffset(res, offset),
-        hasMore: !!res.hasMore
+        hasMore: isEmptyPage ? false : !!res.hasMore
       }, filterExpiredMissions)
     })
   },
@@ -2787,7 +2822,7 @@ Page({
           const tb = Number(b.cosSyncedAt || 0)
           return tb - ta
         })
-        .slice(0, 50)
+        .slice(0, 20)
       if (filtered.length > 0) {
         items = filtered
           .map((doc) => {
@@ -2802,15 +2837,20 @@ Page({
               ? carouselVideoPosterUrl(src, doc.thumbnailUrl || '')
               : ''
             const poster = posterUrl
-              ? getCachedMediaImage(posterUrl, 'medium')
+              ? getCachedMediaImage(posterUrl, 'thumb')
               : ''
             const previewSrc = (doc.previewUrl && String(doc.previewUrl).trim())
               ? toCdnUrl(String(doc.previewUrl).trim())
               : ''
+            // 非会员：默认不预热、不写入可播地址（策略 forceNonMemberVideoPoster）；有权益才预热预览片
+            // 无预览片时也不用原片做内嵌自动播（原片过大），点击全屏再按需播
+            const playSrc = previewSrc && canPrefetchVideoSync()
+              ? getCachedVideo(previewSrc)
+              : ''
             return {
-              src,
-              // 轮播内联优先播压缩预览版；点击仍用原片 src
-              playSrc: previewSrc || src,
+              // 视频项 src 不挂 mp4，避免任何回退路径误拉原片
+              src: isVideo ? (poster || src) : src,
+              playSrc,
               poster: poster || '',
               type: isVideo ? 'video' : 'image',
               caption: doc.caption || '',
@@ -2819,7 +2859,8 @@ Page({
               accountLabel: '',
               accountAvatar: '',
               videoActive: false,
-              videoStarted: false
+              videoStarted: false,
+              lazyPlayUrl: isVideo ? (previewSrc || toCdnUrl(doc.url || rawSrc) || '') : ''
             }
           })
           .filter(Boolean)
@@ -2832,20 +2873,28 @@ Page({
       items = this.getDefaultCarouselImages().map(src => ({ src, type: 'image' }))
     }
 
+    // lazyPlayUrl 只留在实例旁路，不进 setData，避免非会员视图层挂远程 mp4
+    this._carouselLazyPlayUrls = items.map((i) => (i && i.lazyPlayUrl) || '')
+    const viewItems = items.map((i) => {
+      if (!i || !i.lazyPlayUrl) return i
+      const { lazyPlayUrl, ...rest } = i
+      return rest
+    })
+
     this.setData({
-      carouselItems: items,
-      carouselImages: items.map(i => i.src),
-      carouselLoadFailed: !items.length,
+      carouselItems: viewItems,
+      carouselImages: viewItems.map(i => i.src),
+      carouselLoadFailed: !viewItems.length,
       carouselCurrent: 0
     })
 
-    if (items.length > 0) {
+    if (viewItems.length > 0) {
       this._activateCarouselVideos(0)
       this._startCarouselTimer()
     }
 
-    this._enrichCarouselCaptions(items)
-    this._enrichCarouselAccounts(items)
+    this._enrichCarouselCaptions(viewItems)
+    this._enrichCarouselAccounts(viewItems)
   },
 
   /** 按 cosFolder 匹配 tweet_accounts，给轮播项补充账号名 + 头像（左上角胶囊） */
@@ -2955,7 +3004,10 @@ Page({
         }
 
         // 媒体映射与列表接口并行；首屏仍有 2.5s 预算，超时后继续渲染，map 就绪后再统一刷新三处图
-        const FULL_LIMIT = 50
+        // 非会员只拉免费额度（与展示门控 / 后台 freeMissionListLimit 一致）
+        const fullCloud = canUsePaidCloudSync()
+        const freeMissionLimit = getMemberPolicySync().freeMissionListLimit || FREE_MISSION_LIST_LIMIT
+        const FULL_LIMIT = fullCloud ? 50 : freeMissionLimit
         const [, pack] = await Promise.all([
           Promise.race([
             loadCloudMediaMap().catch(() => {}),
@@ -3001,9 +3053,9 @@ Page({
           })
           .catch(() => {})
 
-        try { this._preloadVisibleRocketImages(upcomingList, 8) } catch (e) {}
+        try { this._preloadVisibleRocketImages(upcomingList, fullCloud ? 8 : freeMissionLimit) } catch (e) {}
 
-        this.fetchMissionList('completed', 50, 0)
+        this.fetchMissionList('completed', FULL_LIMIT, 0)
           .then(({ res, list }) => {
             this.handleCompletedMissionLoadSuccess(list, res)
           })
@@ -3350,6 +3402,20 @@ Page({
    */
   async loadMoreMissions() {
     const type = this.getActiveMissionListType()
+
+    // 非会员深度门控：列表只展示前 missionGateLimit 条，
+    // 每次触底都弹开通引导（仅弹窗进行中防重入，关掉后再滑仍会提示）
+    if (this.data.missionGateLimit > 0) {
+      if (this._missionGateChecking) return
+      this._missionGateChecking = true
+      try {
+        await this.onMissionGateTap()
+      } finally {
+        this._missionGateChecking = false
+      }
+      return
+    }
+
     const hasMore = this.hasMoreMissionListByType(type)
     if (!hasMore || this.data.missionsLoadingMore || this._loadingMoreLock) return
 
@@ -4610,16 +4676,76 @@ Page({
   },
 
   /**
-   * 仅激活当前（及下一张）视频的 src，避免多路大视频同时缓冲导致黑屏。
+   * 轮播视频自动播放门控（流量成本控制）：
+   * - 会员功能未开启：所有人保持自动播放（现状）
+   * - 会员功能开启：仅会员自动播放；非会员只显示封面，点击先门控再播（不预加载）
+   * 结果缓存在 this._carouselAutoplayAllowed，onLoad/onShow 异步刷新
+   */
+  _updateCarouselAutoplayGate() {
+    Promise.all([isMembershipEnabled(), getMemberPolicy()])
+      .then(([enabled, policy]) => {
+        // 会员关 / Pro：可自动播；非会员需策略允许且未强制封面
+        let allowed = !enabled || isProSync()
+        if (enabled && !isProSync()) {
+          allowed = !!policy.carouselAllowVideoForNonMember && !policy.forceNonMemberVideoPoster
+        }
+        if (this._carouselAutoplayAllowed !== allowed) {
+          this._carouselAutoplayAllowed = allowed
+          this._activateCarouselVideos(this.data.carouselCurrent || 0)
+        }
+      })
+      .catch(() => {})
+  },
+
+  _isCarouselAutoplayAllowed() {
+    // 默认 false：门控异步返回前不激活 src，避免非会员短暂拉到视频流
+    return this._carouselAutoplayAllowed === true
+  },
+
+  /**
+   * 非会员任务列表翻页深度门控：
+   * - 会员功能未开启 / Pro / 广告解锁期内：不限制（missionGateLimit = 0）
+   * - 其余：即将发射与历史发射列表各只展示前 FREE_MISSION_LIST_LIMIT 条，
+   *   底部出现解锁横幅，继续上拉触发开通引导（gateCheck 弹窗）
+   */
+  _updateMissionListGate() {
+    Promise.all([isMembershipEnabled(), getMemberPolicy()])
+      .then(([enabled, policy]) => {
+        let limit = 0
+        if (enabled && !isProSync() && policy.enableMissionListGate) {
+          limit = policy.freeMissionListLimit || FREE_MISSION_LIST_LIMIT
+          try {
+            const adUnlock = require('../../utils/ad-unlock.js')
+            if (adUnlock.isUnlocked('mission_list_full')) limit = 0
+          } catch (e) {}
+        }
+        if (this.data.missionGateLimit !== limit) {
+          this.setData({ missionGateLimit: limit })
+        }
+      })
+      .catch(() => {})
+  },
+
+  /** 解锁横幅点击 / 触底自动引导共用入口 */
+  async onMissionGateTap() {
+    const allowed = await gateCheck('mission_list_full', '完整发射任务列表')
+    if (!allowed) return
+    // Pro 购买回来 / 广告解锁成功：立即放开
+    this.setData({ missionGateLimit: 0 })
+  },
+
+  /**
+   * 仅激活当前视频的 src，避免多路大视频同时缓冲导致黑屏与预取流量浪费。
    * 非激活项清空 src，封面继续展示 poster。
+   * 非会员（门控开启时）不激活任何视频，点击封面走全屏按需播放。
    */
   _activateCarouselVideos(current) {
     const items = this.data.carouselItems || []
     if (!items.length) return
     const n = items.length
     const cur = Math.max(0, Math.min(Number(current) || 0, n - 1))
-    const want = new Set([cur])
-    if (n > 1) want.add((cur + 1) % n)
+    const autoplayAllowed = this._isCarouselAutoplayAllowed()
+    const want = new Set(autoplayAllowed ? [cur] : [])
 
     const updates = {}
     for (let i = 0; i < n; i++) {
@@ -4646,6 +4772,7 @@ Page({
 
   /** 如果当前项是视频，静音自动播放 */
   _playCurrentVideoIfNeeded() {
+    if (!this._isCarouselAutoplayAllowed()) return
     const items = this.data.carouselItems
     const current = this.data.carouselCurrent || 0
     if (!items || !items[current] || items[current].type !== 'video') return
@@ -4681,20 +4808,8 @@ Page({
 
   /** 视频加载失败（死链/格式不支持）→ 从轮播中移除，避免永久黑屏 */
   onCarouselVideoError(e) {
-    const index = Number(e.currentTarget.dataset.index)
-    const items = this.data.carouselItems || []
-    const item = items[index]
-    // 预览版失败时回退原片再试一次
-    if (item && item.type === 'video' && item.playSrc && item.src && item.playSrc !== item.src && !item._previewFallbackTried) {
-      this.setData({
-        [`carouselItems[${index}].playSrc`]: item.src,
-        [`carouselItems[${index}]._previewFallbackTried`]: true,
-        [`carouselItems[${index}].videoStarted`]: false
-      }, () => {
-        setTimeout(() => this._playCurrentVideoIfNeeded(), 80)
-      })
-      return
-    }
+    // 预览版失败时不再回退原片：原片可达数十 MB，一次回退就会打穿流量预算；
+    // 直接走图片错误路径，只保留 poster 封面
     this.onCarouselImageError(e)
   },
 
@@ -4706,47 +4821,62 @@ Page({
     navigateTo(ROUTES.EVENT_DETAIL, { id: eventId })
   },
 
-  /** 点击视频 → 微信原生全屏播放（下滑关闭、长按菜单） */
-  onCarouselVideoTap(e) {
+  /** 点击视频 → 非会员先门控；通过后全屏播放（不预加载，按需缓存） */
+  async onCarouselVideoTap(e) {
     const dataset = e.currentTarget.dataset || {}
-    const url = dataset.url
     const index = dataset.index
-    if (!url) return
+    const item = (this.data.carouselItems || [])[index]
+    if (!item || item.type !== 'video') return
+
     this._stopCarouselTimer()
     this._stopCarouselVideo(index)
 
-    isPlaybackAllowed().catch(() => false).then((allowed) => {
+    const playbackOk = await isPlaybackAllowed().catch(() => false)
+    if (!playbackOk) {
+      this._startCarouselTimer()
+      return
+    }
+
+    const eventId = item.eventId
+    const raw = item.playSrc
+      || (this._carouselLazyPlayUrls && this._carouselLazyPlayUrls[index])
+      || item.src
+      || dataset.url
+
+    // 非会员且强制封面：点击触发门控，通过前不拉流；一次广告只解锁当前这条视频
+    if (!canPrefetchVideoSync()) {
+      const allowed = await gateCheck('starship_event_list_full', '星舰事件更新 · 视频播放', {
+        adUnlockId: eventVideoAdUnlockId(eventId, 0, raw)
+      })
       if (!allowed) {
         this._startCarouselTimer()
         return
       }
+    }
 
-      // 有关联事件 → 跳转事件详情页并自动播放视频
-      const item = (this.data.carouselItems || [])[index]
-      const eventId = item && item.eventId
-      if (eventId) {
-        navigateTo(ROUTES.EVENT_DETAIL, { id: eventId, autoPlayVideo: 0 })
-        return
-      }
+    if (eventId) {
+      navigateTo(ROUTES.EVENT_DETAIL, { id: eventId, autoPlayVideo: 0 })
+      return
+    }
 
-      // 没有关联事件 → 微信原生全屏播放（始终用原片）
-      wx.previewMedia({
-        sources: [{ url: url, type: 'video' }],
-        current: 0,
-        showmenu: true,
-        fail: () => {
-          wx.setClipboardData({
-            data: url,
-            success() {
-              wx.showToast({ title: '链接已复制，请在浏览器中打开', icon: 'none', duration: 2500 })
-            }
-          })
-        },
-        complete: () => {
-          this._startCarouselTimer()
-        }
-      })
+    if (!raw) {
+      this._startCarouselTimer()
+      return
+    }
+    // 统一走自研播放页：长按菜单在页内做会员门控（原生 previewMedia 的 showmenu 无法按会员身份门控）
+    // raw 可能是本地缓存路径（会员预热），复制链接需用远端地址
+    const remote = /^https?:\/\//i.test(raw)
+      ? raw
+      : ((this._carouselLazyPlayUrls && this._carouselLazyPlayUrls[index]) || '')
+    const playRemote = remote || raw
+    await playEventVideo({
+      url: playRemote,
+      playUrl: getCachedVideo(playRemote),
+      thumb: item.poster || '',
+      canSave: canUsePaidCloudSync(),
+      onSaveHint: () => {}
     })
+    this._startCarouselTimer()
   },
 
   onCarouselImageLoad() {},
@@ -5120,28 +5250,33 @@ Page({
       const normalizeItems = (cfg) => {
         if (!cfg) return []
         if (Array.isArray(cfg.mediaItems) && cfg.mediaItems.length) {
-          return cfg.mediaItems.filter((it) => it && it.mediaUrl).map((it) => ({
-            id: String(it.id || it.mediaUrl || ''),
-            mediaType: it.mediaType || (/\.(mp4|mov|m4v|webm)(\?|#|$)/i.test(it.mediaUrl) ? 'video' : 'image'),
-            mediaUrl: toCdnUrl(it.mediaUrl),
-            previewUrl: it.previewUrl ? toCdnUrl(String(it.previewUrl).trim()) : '',
-            posterUrl: it.posterUrl
-              ? toCdnUrl(String(it.posterUrl).trim())
-              : (it.mediaType === 'video' || /\.mp4/i.test(it.mediaUrl)
-                ? carouselVideoPosterUrl(it.mediaUrl, '')
-                : '')
-          }))
+          return cfg.mediaItems.filter((it) => it && it.mediaUrl).map((it) => {
+            // 与原逻辑一致：显式 mediaType 优先，缺省时按扩展名推断
+            const itemType = it.mediaType || (/\.(mp4|mov|m4v|webm)(\?|#|$)/i.test(it.mediaUrl) ? 'video' : 'image')
+            const isVideoItem = itemType === 'video'
+            return {
+              id: String(it.id || it.mediaUrl || ''),
+              mediaType: itemType,
+              // 图片开屏全屏展示：medium 压缩（960w WebP），原图动辄数 MB
+              mediaUrl: isVideoItem ? toCdnUrl(it.mediaUrl) : optimizeImageUrl(it.mediaUrl, 'medium'),
+              previewUrl: it.previewUrl ? toCdnUrl(String(it.previewUrl).trim()) : '',
+              posterUrl: it.posterUrl
+                ? optimizeImageUrl(String(it.posterUrl).trim(), 'medium')
+                : (isVideoItem ? carouselVideoPosterUrl(it.mediaUrl, '') : '')
+            }
+          })
         }
         // 旧单字段：仅作兜底，不算完整媒体池
         if (cfg.mediaUrl) {
+          const isVideoCfg = cfg.mediaType === 'video'
           return [{
             id: String(cfg.mediaUrl),
             mediaType: cfg.mediaType || 'image',
-            mediaUrl: toCdnUrl(cfg.mediaUrl),
+            mediaUrl: isVideoCfg ? toCdnUrl(cfg.mediaUrl) : optimizeImageUrl(cfg.mediaUrl, 'medium'),
             previewUrl: cfg.previewUrl ? toCdnUrl(String(cfg.previewUrl).trim()) : '',
             posterUrl: cfg.posterUrl
-              ? toCdnUrl(String(cfg.posterUrl).trim())
-              : (cfg.mediaType === 'video' ? carouselVideoPosterUrl(cfg.mediaUrl, '') : '')
+              ? optimizeImageUrl(String(cfg.posterUrl).trim(), 'medium')
+              : (isVideoCfg ? carouselVideoPosterUrl(cfg.mediaUrl, '') : '')
           }]
         }
         return []
@@ -5234,6 +5369,23 @@ Page({
       const resolved = resolvePlay(picked)
       if (!resolved) return
 
+      // 流量门控：非会员默认降级封面；可由 splashAllowVideoForNonMember / 流量档远程调节
+      let splashVideoAllowed = true
+      if (resolved.mediaType === 'video') {
+        try {
+          const memberEnabled = await isMembershipEnabled()
+          const policy = await getMemberPolicy()
+          splashVideoAllowed = !memberEnabled || isProSync()
+            || (policy.splashAllowVideoForNonMember && !policy.forceNonMemberVideoPoster)
+        } catch (e) {}
+        if (!splashVideoAllowed) {
+          if (!resolved.posterUrl) return
+          resolved.mediaType = 'image'
+          resolved.playUrl = resolved.posterUrl
+          resolved.mediaUrl = resolved.posterUrl
+        }
+      }
+
       const localMap = (cached && cached.localPaths && typeof cached.localPaths === 'object')
         ? cached.localPaths
         : {}
@@ -5260,10 +5412,11 @@ Page({
         lastSplashId: resolved.id || resolved.originalUrl || resolved.playUrl,
         mediaType: resolved.mediaType,
         mediaUrl: resolved.originalUrl,
+        originalUrl: resolved.originalUrl,
         playUrl: resolved.playUrl,
         previewUrl: picked && picked.previewUrl ? picked.previewUrl : '',
         posterUrl: resolved.posterUrl
-      }, cached)
+      }, cached, { skipMediaDownload: !splashVideoAllowed })
 
       // 若刚才短等没拿到云端，后台再拉一次补全缓存池
       if (!cloudItems.length && wx.cloud && wx.cloud.database) {
@@ -5280,10 +5433,11 @@ Page({
               lastSplashId: resolved.id || resolved.originalUrl || resolved.playUrl,
               mediaType: resolved.mediaType,
               mediaUrl: resolved.originalUrl,
+              originalUrl: resolved.originalUrl,
               playUrl: resolved.playUrl,
               previewUrl: picked && picked.previewUrl ? picked.previewUrl : '',
               posterUrl: resolved.posterUrl
-            }, wx.getStorageSync(SPLASH_CACHE_KEY) || cached)
+            }, wx.getStorageSync(SPLASH_CACHE_KEY) || cached, { skipMediaDownload: !splashVideoAllowed })
           }
         } catch (e) {}
       }
@@ -5362,29 +5516,15 @@ Page({
     this.setData({ splashVideoReady: true })
   },
 
-  /** 预览版失败时回退原片，避免开屏空白 */
+  /** 预览版失败：不回退原片（原片可达数十 MB），只留封面等倒计时结束 */
   onSplashVideoError() {
     const cfg = this.data.splashConfig || {}
     if (!cfg || cfg.mediaType !== 'video') return
-    if (cfg._fallbackTried) {
-      // 原片也失败：至少留封面，倒计时结束后关闭
-      this.setData({ splashVideoReady: true })
-      return
-    }
-    const fallback = cfg.originalUrl || cfg.mediaUrl
-    if (!fallback || fallback === cfg.mediaUrl) {
-      this.setData({ splashVideoReady: true })
-      return
-    }
-    this.setData({
-      'splashConfig.mediaUrl': fallback,
-      'splashConfig._fallbackTried': true,
-      splashVideoReady: false
-    })
+    this.setData({ splashVideoReady: true })
   },
 
-  /** 缓存完整媒体池；预下载若干压缩预览，供下次冷启动秒开 */
-  _cacheSplashMedia(cfg, prevCached) {
+  /** 缓存完整媒体池；仅预下载本次开屏用的压缩预览（不再预拉池内其它条） */
+  _cacheSplashMedia(cfg, prevCached, opts) {
     const prev = prevCached || {}
     const items = Array.isArray(cfg.mediaItems) ? cfg.mediaItems : []
     const prevLocalPaths = (prev.localPaths && typeof prev.localPaths === 'object') ? { ...prev.localPaths } : {}
@@ -5404,21 +5544,22 @@ Page({
     }
     try { wx.setStorageSync(SPLASH_CACHE_KEY, baseEntry) } catch (e) {}
 
-    // 预下载：本次选中 + 池内另外最多 2 条
+    // 非会员开屏视频已降级为静态图：只缓存配置，跳过视频预下载（省流量）
+    if (opts && opts.skipMediaDownload) return
+
+    // 只预下载本次选中的压缩预览，避免冷启动额外拉未播视频；原片不落盘
     const playUrls = []
-    if (cfg.playUrl) playUrls.push(cfg.playUrl)
-    const shuffled = items
-      .map((it) => it.previewUrl || it.mediaUrl)
-      .filter((u) => u && /^https?:\/\//i.test(u) && playUrls.indexOf(u) < 0)
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1))
-      const t = shuffled[i]; shuffled[i] = shuffled[j]; shuffled[j] = t
+    if (cfg.playUrl && !(cfg.originalUrl && cfg.playUrl === cfg.originalUrl)) {
+      playUrls.push(cfg.playUrl)
+    } else if (cfg.previewUrl) {
+      playUrls.push(cfg.previewUrl)
     }
-    shuffled.slice(0, 2).forEach((u) => playUrls.push(u))
 
     const fs = wx.getFileSystemManager()
     const downloadOne = (playUrl) => {
       if (!playUrl || !/^https?:\/\//i.test(playUrl)) return
+      // 原片不预下（仅缓存 preview 压缩片）
+      if (cfg.originalUrl && playUrl === cfg.originalUrl && cfg.playUrl && cfg.playUrl !== cfg.originalUrl) return
       const existing = prevLocalPaths[playUrl]
       if (existing) {
         try {
@@ -6031,7 +6172,8 @@ Page({
       wx.showToast({ title: '你已经投过啦', icon: 'none' })
       return
     }
-    wx.vibrateShort({ type: 'medium' })
+    // 投票成功路径：中度震动反馈
+    this._vibrateMedium()
     saveLocalVote(launchId, choice, voteType)
     var oldData = this.data.voteData || { geCount: 0, buGeCount: 0 }
     var leftChoice = voteType === 'outcome' ? 'failure' : 'ge'

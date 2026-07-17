@@ -3,8 +3,20 @@
  */
 
 const { runDownload } = require('./download-pool.js')
-const { toCdnUrl } = require('./cos-url.js')
+const { toCdnUrl, optimizeImageUrl, isCosOriginUrl } = require('./cos-url.js')
 const { isDownloadBlacklisted, markDownloadFailed } = require('./download-fail-cache.js')
+
+/**
+ * COS 静图 logo 统一用 thumb 压缩版展示/下载：logo 展示尺寸极小（几十 rpx），
+ * 原图动辄数百 KB～数 MB，是重复出现的下行浪费；非 COS 域名（LL2 等）原样返回
+ */
+function _optimizedLogoUrl(raw) {
+  const u = typeof raw === 'string' ? raw.trim() : ''
+  if (!u) return u
+  if (/imageMogr2|ci-process=/i.test(u)) return toCdnUrl(u)
+  if (isCosOriginUrl(u) && !/\.gif(\?|[&#]|$)/i.test(u)) return optimizeImageUrl(u, 'thumb')
+  return toCdnUrl(u)
+}
 
 const CACHE_DIR = `${wx.env.USER_DATA_PATH}/agency_logo_cache`
 const INDEX_KEY = '_agency_logo_cache_index'
@@ -110,10 +122,10 @@ function getCachedAgencyLogoPath(url) {
   }
 }
 
-/** 展示用：命中缓存则本地路径，否则原 URL（通常为 https） */
+/** 展示用：命中缓存则本地路径，否则压缩版 URL（与落盘下载共用同一 URL，避免双份下行） */
 function resolveAgencyLogoForDisplay(url) {
   if (!url || typeof url !== 'string') return url
-  const trimmed = toCdnUrl(url.trim())
+  const trimmed = _optimizedLogoUrl(url)
   if (!isRemoteAgencyLogoUrl(trimmed)) return trimmed
   const local = getCachedAgencyLogoPath(trimmed)
   return local || trimmed
@@ -135,7 +147,7 @@ function _flushQueue(remoteUrl, localPath) {
  * @param {(localPath: string|null) => void} [onDone]
  */
 function persistAgencyLogoAfterRemoteLoad(remoteUrl, onDone) {
-  const u = typeof remoteUrl === 'string' ? toCdnUrl(remoteUrl.trim()) : ''
+  const u = typeof remoteUrl === 'string' ? _optimizedLogoUrl(remoteUrl) : ''
   const cb = typeof onDone === 'function' ? onDone : function () {}
 
   if (!isRemoteAgencyLogoUrl(u)) {

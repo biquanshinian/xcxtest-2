@@ -47,9 +47,13 @@ async function fetchMissionListData(options) {
     formatDate
   }))
 
+  // 排序兜底：云端小时级 NET 探针只就地 patch 时间不重排缓存，任务大幅改期后
+  // 缓存数组会乱序（首屏出现上千天倒计时的卡片）。渲染前统一按发射时间排序
+  // （复用 mergeMissionPages：upcoming 升序 + 过滤过期，completed 降序），
+  // 保证初始加载 / 下拉刷新 / settle 后刷新所有入口顺序正确。
   return {
     res,
-    list: normalizedType === 'completed' ? list : filterExpiredMissions(list)
+    list: mergeMissionPages(normalizedType, [], list, filterExpiredMissions)
   }
 }
 

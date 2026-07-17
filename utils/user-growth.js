@@ -107,15 +107,27 @@ function syncPreferencesToCloud(prefs) {
   } catch (e) {}
 }
 
-/** 后台「全局配置中心」每日太空简报开关（global_config.main.enableBriefing）。每次实时读库、不缓存，关简报后立刻生效 */
+/**
+ * 后台「全局配置中心」每日太空简报开关（global_config.main.enableBriefing）。
+ * 带 10 分钟内存缓存：此前每次实时读库，简报入口多、读库量大；
+ * 关简报是极低频运营操作，10 分钟内生效完全够用
+ */
+var _briefingEnabledCache = { value: null, expireAt: 0 }
+var BRIEFING_ENABLED_CACHE_TTL = 10 * 60 * 1000
+
 function isBriefingGloballyEnabled() {
   if (!wx.cloud || !wx.cloud.database) {
     return Promise.resolve(true)
   }
+  if (_briefingEnabledCache.value !== null && Date.now() < _briefingEnabledCache.expireAt) {
+    return Promise.resolve(_briefingEnabledCache.value)
+  }
   var db = wx.cloud.database()
   return db.collection('global_config').where({ _id: 'main' }).limit(1).get().then(function (res) {
     var cfg = res.data && res.data[0]
-    return cfg ? (cfg.enableBriefing !== false) : true
+    var enabled = cfg ? (cfg.enableBriefing !== false) : true
+    _briefingEnabledCache = { value: enabled, expireAt: Date.now() + BRIEFING_ENABLED_CACHE_TTL }
+    return enabled
   }).catch(function () {
     return true
   })

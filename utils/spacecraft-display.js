@@ -10,9 +10,11 @@ var { mfrDisplayName } = require('./booster-display.js')
 var { translateAgencyName } = require('./space-terms-i18n.js')
 var { workerProxyUrl } = require('./config.js')
 var { getCachedMediaImage } = require('./icon-cache.js')
+var { optimizeImageUrl } = require('./cos-url.js')
 
 var CACHE_KEY = '_spacecraft_list_v1'
 var CACHE_TTL = 24 * 60 * 60 * 1000
+var TAB_PREVIEW_COUNT = 2
 
 /** 自有 COS / 云存储 CDN 域名：已是国内节点，无需再包 Worker 代理 */
 function isOwnCdnUrl(url) {
@@ -37,11 +39,19 @@ function proxiedImageUrl(url) {
 
 /**
  * 图片本地缓存：命中返回 wxfile:// 本地路径，未命中先展示远程 URL 并后台落盘，
- * 下次进入直接读本地，避免频繁走网络。preset=none：代理 URL 带 query，不做万象二次处理
+ * 下次进入直接读本地，避免频繁走网络。
+ * thumb：COS 静图走 imageMogr2 压缩（卡片仅 ~280rpx，原图浪费下行）；
+ * 代理 URL（/image?url=...）无图片扩展名，optimizeImageUrl 自动跳过不受影响
  */
 function cachedImage(url) {
   if (!url) return ''
-  return getCachedMediaImage(url, 'none')
+  return getCachedMediaImage(url, 'thumb')
+}
+
+function remoteThumbImage(url) {
+  if (!url) return ''
+  if (/imageMogr2|ci-process=/i.test(url)) return url
+  return optimizeImageUrl(url, 'thumb')
 }
 
 /** LL2 飞船类型 → 中文（未命中回退英文原文，数据驱动兜底） */
@@ -120,10 +130,14 @@ async function loadSpacecraftList() {
   }
 }
 
-/** 构型列表 → 展示卡片（现役优先，同状态按名称字母序） */
-function buildSpacecraftCards(list) {
+/** 构型列表 → 展示卡片（现役优先，同状态按名称字母序）
+ * @param {{ imageCacheLimit?: number }} [options] 仅前 N 条（排序后）触发图缓存预热
+ */
+function buildSpacecraftCards(list, options) {
+  var imageCacheLimit = (options && options.imageCacheLimit != null)
+    ? options.imageCacheLimit
+    : Number.MAX_SAFE_INTEGER
   var cards = (list || []).map(function (s) {
-    // 多级兜底链（binderror 逐级切换）：代理缩略图 → 缩略图直连 → 代理原图 → 原图直连
     var chain = []
     ;[proxiedImageUrl(s.imageUrl), s.imageUrl, proxiedImageUrl(s.fullImageUrl), s.fullImageUrl].forEach(function (u) {
       if (u && chain.indexOf(u) < 0) chain.push(u)
@@ -134,20 +148,23 @@ function buildSpacecraftCards(list) {
       typeName: s.typeName || '',
       typeLabel: typeDisplayName(s.typeName),
       agencyName: s.agencyName || '',
-      // 中文名与发射商详情页同源（AGENCY_ZH 词典），未收录回退厂商简表再回退原文
       agencyLabel: translateAgencyName(s.agencyName, s.agencyAbbrev) || mfrDisplayName(s.agencyName || ''),
       agencyAbbrev: s.agencyAbbrev || '',
       inUse: !!s.inUse,
       statusText: s.inUse ? '现役' : '退役',
-      // 首选图走本地缓存（命中秒开）；兜底链保持远程原样，切换时再按需缓存
-      imageUrl: cachedImage(chain[0]),
-      imageFallbacks: chain.slice(1)
+      _imageChain: chain
     }
   })
   cards.sort(function (a, b) {
     if (a.inUse !== b.inUse) return a.inUse ? -1 : 1
     return String(a.name).localeCompare(String(b.name))
   })
+  for (var i = 0; i < cards.length; i++) {
+    var chain = cards[i]._imageChain || []
+    cards[i].imageUrl = i < imageCacheLimit ? cachedImage(chain[0]) : remoteThumbImage(chain[0])
+    cards[i].imageFallbacks = chain.slice(1)
+    delete cards[i]._imageChain
+  }
   return cards
 }
 
@@ -230,5 +247,6 @@ module.exports = {
   buildSpacecraftFilterChips: buildSpacecraftFilterChips,
   buildSpacecraftAgencyChips: buildSpacecraftAgencyChips,
   applySpacecraftFilter: applySpacecraftFilter,
-  computeSpacecraftStats: computeSpacecraftStats
+  computeSpacecraftStats: computeSpacecraftStats,
+  TAB_PREVIEW_COUNT: TAB_PREVIEW_COUNT
 }

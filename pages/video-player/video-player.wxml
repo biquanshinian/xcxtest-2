@@ -1,23 +1,35 @@
+<wxs module="drag" src="./drag.wxs"></wxs>
 <view class="video-player-page">
   <view
     class="video-close"
-    style="top: {{closeTop}}px; width: {{closeSize}}px; height: {{closeSize}}px;"
+    style="top: {{closeTop}}px; left: {{closeLeft}}px; width: {{closeSize}}px; height: {{closeSize}}px;"
     catchtap="onClose"
     aria-role="button"
     aria-label="关闭"
   >
     <text class="video-close-icon">✕</text>
   </view>
-  <video
-    id="player"
-    class="video-player-video"
-    src="{{videoUrl}}"
-    poster="{{poster}}"
-    autoplay="{{true}}"
-    controls="{{true}}"
-    show-fullscreen-btn="{{false}}"
-    show-center-play-btn="{{true}}"
-    object-fit="contain"
-    bindended="onClose"
-  ></video>
+  <view
+    class="video-drag-wrap"
+    bindtouchstart="{{drag.onTouchStart}}"
+    bindtouchmove="{{drag.onTouchMove}}"
+    bindtouchend="{{drag.onTouchEnd}}"
+    bindtouchcancel="{{drag.onTouchEnd}}"
+  >
+    <video
+      id="player"
+      class="video-player-video"
+      src="{{videoUrl}}"
+      poster="{{poster}}"
+      autoplay="{{true}}"
+      controls="{{true}}"
+      show-fullscreen-btn="{{false}}"
+      show-center-play-btn="{{true}}"
+      show-background-playback-button="{{false}}"
+      show-casting-button="{{false}}"
+      object-fit="contain"
+      bindended="onClose"
+      bindlongpress="onVideoLongPress"
+    ></video>
+  </view>
 </view>

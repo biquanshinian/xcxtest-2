@@ -17,7 +17,7 @@ const { isPermissionDenied, getPermissionDeniedMessage } = require('../../utils/
 const { getUiShellLayout } = require('../../utils/layout.js')
 const { getSystemInfo } = require('../../utils/system.js')
 const { isVideoUrl } = require('../../utils/cos-url.js')
-const { enrichVideoMediaItem, playEventVideo, saveEventOriginalVideo } = require('../../utils/event-video.js')
+const { enrichVideoMediaItem, eventVideoAdUnlockId, playEventVideo, saveEventOriginalVideo } = require('../../utils/event-video.js')
 const { getCachedMediaImage } = require('../../utils/icon-cache.js')
 const {
   EMPTY_ROAD_CLOSURE,
@@ -30,7 +30,8 @@ const {
 const { fetchLiveStatusBatch, parseLiveStatus } = require('../../utils/live-status.js')
 const { pickEventShareImageUrl } = require('../../utils/event-share-image.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
-const { gateCheck, isProSync, isMembershipEnabled, getMembershipState, isPro } = require('../../utils/membership.js')
+const { gateCheck, isProSync, isMembershipEnabled, canUsePaidCloudSync, canPrefetchVideoSync, canSaveOriginalVideoSync } = require('../../utils/membership.js')
+const { getMemberPolicy } = require('../../utils/member-policy.js')
 const {
   warmProgressPageStorageSync,
   OPENCLAW_GUIDE_DISMISSED_KEY,
@@ -364,6 +365,7 @@ Page({
     enableEventVideo: false,
     showEventShareSheet: false,
     tweetAccountStats: [],
+    tweetEventTotal: 0,
     tweetStatsChipsHasOverflow: false,
     selectedEventShareId: '',
     pressedEventId: ''
@@ -407,7 +409,11 @@ Page({
       if (!url || typeof url !== 'string') return ''
       const normalized = url.replace(/\\/g, '/')
 
-      if (/^https?:\/\//.test(normalized) || /^cloud:\/\//.test(normalized) || /^wxfile:\/\//.test(normalized)) {
+      if (/^https?:\/\//.test(normalized)) {
+        // 星舰头图全宽展示：COS 直链走 medium 压缩 + 本地缓存，避免每次拉原图
+        return getCachedMediaImage(normalized, 'medium')
+      }
+      if (/^cloud:\/\//.test(normalized) || /^wxfile:\/\//.test(normalized)) {
         return normalized
       }
 
@@ -1126,15 +1132,20 @@ Page({
   async loadStarshipHardware(skipCache) {
     try {
       const res = await getStarshipHardwareFromDB({ skipCache: !!skipCache })
-      const list = (res.vehicles || []).map((item) => {
+      const list = (res.vehicles || []).map((item, idx) => {
         const fallback = item.category === 'booster' || item.category === 'fullstack'
           ? getBoosterFallbackImage()
           : getShipFallbackImage()
+        // 仅预览 2 条触发图缓存预热；其余保留远程 URL，避免进进度 Tab 全量 COS 下行
+        const displayImage = !item.image
+          ? fallback
+          : (idx < HARDWARE_PREVIEW_COUNT
+            ? getCachedMediaImage(item.image, 'thumb')
+            : item.image)
         return {
           ...item,
           statusType: this.getStatusType(item.status),
-          displayImage: item.image || fallback,
-          // 搜索键：原名 + 去空格 + 缩写（booster→b / ship→s / starship→sn 系列直接命中）
+          displayImage,
           searchKey: this._buildHardwareSearchKey(item.name)
         }
       })
@@ -1170,8 +1181,10 @@ Page({
     })
   },
 
-  /** 标题右侧「查看全部」→ 完整列表页 */
-  onHardwareViewAllTap() {
+  /** 标题右侧「查看全部」→ 完整列表页；与卡片点击共用同一门控 */
+  async onHardwareViewAllTap() {
+    const allowed = await gateCheck('starship_hardware', '星舰硬件设施')
+    if (!allowed) return
     if (wx.vibrateShort) {
       try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
     }
@@ -1207,27 +1220,50 @@ Page({
 
   async loadEventVideoConfig() {
     try {
-      const db = wx.cloud.database()
-      const res = await db.collection('global_config').doc('main').get()
-      const cfg = res && res.data ? res.data : null
-      if (cfg) {
-        this.setData({ enableEventVideo: cfg.enableEventVideo !== false })
-      }
+      // 走 feature-flags 的 global_config 共享缓存（5 分钟 + inflight 去重），
+      // 避免每次进页直读一次云库同一文档；fail-closed，读不到配置不放出视频
+      const { isPlaybackAllowed } = require('../../utils/feature-flags.js')
+      const enabled = await isPlaybackAllowed()
+      this.setData({ enableEventVideo: enabled })
     } catch (e) {}
   },
 
   _loadTweetAccountStats() {
     var self = this
     if (!wx.cloud) return
+    var canShowChips = canUsePaidCloudSync()
+    // 非会员不展示账号胶囊，但仍拉今日总数供标题红角标
+    if (!canShowChips && (this.data.tweetAccountStats || []).length) {
+      this.setData({ tweetAccountStats: [] })
+    }
+    // 推文统计为当日聚合数据，10 分钟内进页复用缓存，不重复打云函数
+    var TTL = 10 * 60 * 1000
+    var now = Date.now()
+    var cached = this._tweetStatsCache
+    if (cached && now - cached.at < TTL) {
+      var cachedPatch = { tweetEventTotal: cached.total || 0 }
+      if (canShowChips && cached.stats && cached.stats.length > 0) {
+        cachedPatch.tweetAccountStats = cached.stats
+      }
+      this.setData(cachedPatch)
+      if (canShowChips) this._updateTweetStatsChipsOverflowHint()
+      return
+    }
     wx.cloud.callFunction({
       name: 'userDataGateway',
       data: { action: 'getTodayTweetStats' }
     }).then(function (res) {
       var result = res.result || {}
-      if (result.success && result.tweetStats && result.tweetStats.length > 0) {
-        self.setData({ tweetAccountStats: result.tweetStats })
-        self._updateTweetStatsChipsOverflowHint()
+      if (!result.success) return
+      var total = typeof result.total === 'number' ? result.total : 0
+      var stats = (result.tweetStats && result.tweetStats.length > 0) ? result.tweetStats : []
+      self._tweetStatsCache = { at: Date.now(), stats: stats, total: total }
+      var patch = { tweetEventTotal: total }
+      if (canShowChips && stats.length > 0) {
+        patch.tweetAccountStats = stats
       }
+      self.setData(patch)
+      if (canShowChips) self._updateTweetStatsChipsOverflowHint()
     }).catch(function () {})
   },
 
@@ -1296,11 +1332,12 @@ Page({
     const enrichedMediaList = (item.mediaList || []).map(m => {
       if (m.type !== 'video') {
         if (m.type === 'image' && m.url) {
-          return { ...m, url: getCachedMediaImage(m.url, 'medium') }
+          // 列表卡片用 thumb，避免 medium 全量双拉
+          return { ...m, url: getCachedMediaImage(m.url, 'thumb') }
         }
         return m
       }
-      return enrichVideoMediaItem(m, { getCachedMediaImage, thumbPreset: 'none' })
+      return enrichVideoMediaItem(m, { getCachedMediaImage, thumbPreset: 'thumb' })
     })
 
       // 头像：优先 COS 地址，代理地址视为无效
@@ -1599,13 +1636,17 @@ Page({
     wx.previewImage({ urls, current })
   },
 
-  /** 推文视频保存原片为会员权益；查询失败 fail-open 不影响体验 */
-  async _videoSaveAllowed() {
+  /** 推文视频播放为会员权益；非会员点封面弹开通引导（一次广告只解锁当前这条视频） */
+  async _eventVideoPlayAllowed(opts) {
     try {
       const enabled = await isMembershipEnabled()
       if (!enabled) return true
-      const state = await getMembershipState()
-      return isPro(state)
+      if (isProSync()) return true
+      if (canPrefetchVideoSync()) return true
+      const o = opts || {}
+      return await gateCheck('starship_event_list_full', '星舰事件更新 · 视频播放', {
+        adUnlockId: eventVideoAdUnlockId(o.eventId, o.mediaIndex, o.url)
+      })
     } catch (err) {
       return true
     }
@@ -1619,6 +1660,14 @@ Page({
     const videoUrl = dataset.videourl || ''
     const isLong = !!dataset.islong
     if (!url && !dataset.playurl) return
+
+    // 非会员：只展示封面，点击触发门控，不播放不下载
+    const playAllowed = await this._eventVideoPlayAllowed({
+      eventId,
+      mediaIndex: mIdx,
+      url: dataset.playurl || url
+    })
+    if (!playAllowed) return
 
     // 长视频未存储，点击直接复制视频直链
     if (isLong || videoUrl) {
@@ -1638,8 +1687,6 @@ Page({
           url: `${ROUTES.EVENT_DETAIL}?id=${encodeURIComponent(eventId)}&autoPlayVideo=${mIdx}`
         })
       } else {
-        const canSave = await this._videoSaveAllowed()
-        let hinted = false
         await playEventVideo({
           url,
           playUrl: dataset.playurl || url,
@@ -1648,13 +1695,9 @@ Page({
           videoUrl: '',
           sourceUrl: dataset.sourceurl || '',
           isLong: false,
-          canSave,
-          onSaveHint: (title) => {
-            if (this._videoSaveHintShown || hinted) return
-            this._videoSaveHintShown = true
-            hinted = true
-            wx.showToast({ title, icon: 'none', duration: 1500 })
-          }
+          // 原片保存仅 Pro/已购；广告解锁只放行预览播放
+          canSave: canSaveOriginalVideoSync('starship_event_list_full'),
+          onSaveHint: () => {}
         })
       }
       return
@@ -1674,16 +1717,30 @@ Page({
     const original = dataset.original || dataset.url
     if (!original || !isVideoUrl(original)) return
     if (dataset.islong || dataset.videourl) return
-    const canSave = await this._videoSaveAllowed()
-    if (!canSave) {
-      wx.showToast({ title: '开通会员可保存原视频', icon: 'none' })
-      return
+    // 原片体积大（COS 成本高）：仅 Pro/已购放行，不提供广告通道
+    if (!canUsePaidCloudSync()) {
+      const allowed = await gateCheck('starship_event_list_full', '星舰事件更新 · 原视频下载', { allowAd: false })
+      if (!allowed) return
     }
     await saveEventOriginalVideo(original)
   },
 
-  onEventScrollToLower() {
+  async onEventScrollToLower() {
     if (this.data.eventUpdatesNoMore || this.data.eventUpdatesLoading) return
+    // Tab 展开态翻页：非会员触底弹开通引导（enableEventListGate 关闭则放行）
+    if (!canUsePaidCloudSync()) {
+      const policy = await getMemberPolicy()
+      if (policy.enableEventListGate) {
+        if (this._eventGateChecking) return
+        this._eventGateChecking = true
+        try {
+          const allowed = await gateCheck('starship_event_list_full', '星舰事件更新 · 完整浏览')
+          if (!allowed) return
+        } finally {
+          this._eventGateChecking = false
+        }
+      }
+    }
     this.loadEventUpdates(false)
   },
 
@@ -1695,7 +1752,7 @@ Page({
     this.setData({ eventUpdatesExpanded: !this.data.eventUpdatesExpanded })
   },
 
-  /** 查看更多事件更新 → 进入详情页列表模式完整浏览 */
+  /** 查看更多事件更新 → 进入详情页列表模式；入口不设门控，页内免费前 5 条，翻页/播视频再拦 */
   openEventUpdatesList() {
     const params = { mode: 'list_all' }
     if (this._filterSource) params.source = this._filterSource

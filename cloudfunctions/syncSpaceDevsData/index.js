@@ -414,6 +414,14 @@ exports.main = async (event) => {
       case 'syncLaunchNetHourly': {
         // 小时 NET 探针：仅服务端/定时器；force:true 可在全量同窗小时强制跑（测试用）
         const netRes = await runLaunchNetHourly({ force: !!(event && event.force) })
+        // 附带小时级封路刷新（非 force，靠 syncRoadClosure 内 50 分钟缓存节流）；
+        // 官网封路/延迟窗口常只有数小时，仅靠 6h 全量同步会整窗错过
+        try {
+          const roadRes = await getLegacy().main({ action: 'syncRoadClosureThrottled' })
+          netRes.roadClosure = roadRes && roadRes.roadClosure != null ? roadRes.roadClosure : roadRes
+        } catch (e) {
+          netRes.roadClosure = { success: false, error: e.message || String(e) }
+        }
         return { ...netRes, module: 'launch_net_hourly', elapsed: Date.now() - startTime }
       }
 
@@ -481,6 +489,7 @@ exports.main = async (event) => {
 
       case 'syncStats':
       case 'syncRoadClosure':
+      case 'syncRoadClosureThrottled':
       case 'syncBoosters':
       case 'syncAgencies':
       case 'syncAgencyDetail':

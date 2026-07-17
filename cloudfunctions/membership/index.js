@@ -31,12 +31,13 @@ const ORDER_COLLECTION = 'membership_orders'
 const GLOBAL_CONFIG_DOC = 'global_config'
 const PRO_WHITELIST_FAR_EXPIRE = '2099-12-31T23:59:59.000Z'
 
-// 虚拟支付配置（来自云函数环境变量；不进数据库以避免泄露）
-// VPAY_OFFERID / VPAY_APPKEY_PROD / VPAY_APPKEY_SANDBOX / VPAY_ENV
+// 虚拟支付配置
+// - offerId / env：优先读 global_config.main.vpayConfig（管理后台可改），缺省回退环境变量
+// - AppKey 仍只来自环境变量（不入库，避免泄露）：VPAY_APPKEY_PROD / VPAY_APPKEY_SANDBOX
 const VPAY_OFFER_ID = process.env.VPAY_OFFERID || '1450535433'
 const VPAY_APPKEY_PROD = process.env.VPAY_APPKEY_PROD || ''
 const VPAY_APPKEY_SANDBOX = process.env.VPAY_APPKEY_SANDBOX || ''
-const VPAY_ENV = Number(process.env.VPAY_ENV || 0)
+const VPAY_ENV = Number(process.env.VPAY_ENV || 0) === 1 ? 1 : 0
 const ADMIN_OPENIDS = String(process.env.VPAY_ADMIN_OPENIDS || '')
   .split(/[\s,;]+/)
   .map(s => s.trim())
@@ -94,8 +95,9 @@ const VPAY_PRODUCTS = {
   vp_starship_chk: { kind: 'product', productId: 'starship_flight_checklist', name: '星舰飞行检查清单', goodsPrice: 390 }
 }
 
-// ── 动态价格读取（30s 内存缓存） ──
+// ── 动态价格 / 虚拟支付配置读取（30s 内存缓存） ──
 let _priceCache = { map: null, ts: 0 }
+let _vpayCfgCache = { value: null, ts: 0 }
 const PRICE_CACHE_MS = 30000
 
 async function _loadPriceMap() {
@@ -115,8 +117,54 @@ async function getEffectivePriceMap() {
   return _priceCache.map || {}
 }
 
+async function _loadVPayConfigFromDb() {
+  try {
+    const res = await db.collection(GLOBAL_CONFIG_DOC).doc('main').get()
+    return (res.data && res.data.vpayConfig) || null
+  } catch (e) {
+    return null
+  }
+}
+
+/** 生效中的 offerId / env（管理后台 vpayConfig 优先，否则环境变量） */
+async function getEffectiveVPayConfig() {
+  const now = Date.now()
+  if (!_vpayCfgCache.value || (now - _vpayCfgCache.ts) > PRICE_CACHE_MS) {
+    const fromDb = await _loadVPayConfigFromDb()
+    let offerId = VPAY_OFFER_ID
+    let env = VPAY_ENV
+    if (fromDb) {
+      const dbOffer = String(fromDb.offerId || '').trim()
+      if (dbOffer) offerId = dbOffer
+      const dbEnv = Number(fromDb.env)
+      if (dbEnv === 0 || dbEnv === 1) env = dbEnv
+    }
+    env = env === 1 ? 1 : 0
+    _vpayCfgCache = { value: { offerId, env }, ts: now }
+  }
+  return _vpayCfgCache.value
+}
+
+function resolveOrderOfferId(order, fallbackOfferId) {
+  const fromOrder = order && String(order.offerId || '').trim()
+  if (fromOrder) return fromOrder
+  const fb = String(fallbackOfferId || '').trim()
+  return fb || VPAY_OFFER_ID
+}
+
+function resolveOrderVPayEnv(order, fallbackEnv) {
+  if (order && order.vpayEnv != null) {
+    const n = Number(order.vpayEnv)
+    if (n === 0 || n === 1) return n
+  }
+  const fb = Number(fallbackEnv)
+  if (fb === 0 || fb === 1) return fb
+  return VPAY_ENV
+}
+
 function clearPriceCache() {
   _priceCache = { map: null, ts: 0 }
+  _vpayCfgCache = { value: null, ts: 0 }
 }
 
 async function getEffectivePrice(vpayProductId) {
@@ -491,8 +539,18 @@ async function httpsRefundOrder(openid, outTradeNo, refundOutTradeNo, refundFee,
 
 // ── 创建虚拟支付订单 ──
 async function createVPayOrder(openid, vpayProductId, code) {
-  if (!VPAY_OFFER_ID || !VPAY_APPKEY_PROD) {
-    return { error: '虚拟支付未配置（VPAY_OFFERID / VPAY_APPKEY_PROD）' }
+  const vpayCfg = await getEffectiveVPayConfig()
+  const offerId = vpayCfg.offerId
+  const vpayEnv = vpayCfg.env
+  if (!offerId) {
+    return { error: '虚拟支付未配置（offerId）' }
+  }
+  if (!getAppKey(vpayEnv)) {
+    return {
+      error: vpayEnv === 1
+        ? '虚拟支付未配置（VPAY_APPKEY_SANDBOX）'
+        : '虚拟支付未配置（VPAY_APPKEY_PROD）'
+    }
   }
   const sku = VPAY_PRODUCTS[vpayProductId]
   if (!sku) return { error: '无效的商品 ID' }
@@ -524,8 +582,8 @@ async function createVPayOrder(openid, vpayProductId, code) {
     orderType: sku.kind,
     vpayMode: 'goods',
     vpayProductId,
-    offerId: VPAY_OFFER_ID,
-    vpayEnv: VPAY_ENV,
+    offerId,
+    vpayEnv,
     createdAt: db.serverDate()
   }
   if (sku.kind === 'subscription') {
@@ -539,9 +597,9 @@ async function createVPayOrder(openid, vpayProductId, code) {
   await db.collection(ORDER_COLLECTION).add({ data: orderRecord })
 
   const signObj = {
-    offerId: VPAY_OFFER_ID,
+    offerId,
     buyQuantity: 1,
-    env: VPAY_ENV,
+    env: vpayEnv,
     currencyType: 'CNY',
     outTradeNo,
     productId: vpayProductId,
@@ -550,7 +608,7 @@ async function createVPayOrder(openid, vpayProductId, code) {
   }
   const signData = JSON.stringify(signObj)
 
-  const paySig = calcPaySig('requestVirtualPayment', signData, VPAY_ENV)
+  const paySig = calcPaySig('requestVirtualPayment', signData, vpayEnv)
   const signature = calcSignature(signData, sessionKey)
 
   return {
@@ -586,6 +644,10 @@ async function queryVPayOrder(callerOpenid, outTradeNo, overrideOpenid, fromAdmi
     return { status: order.status, order }
   }
 
+  const vpayCfg = await getEffectiveVPayConfig()
+  const offerId = resolveOrderOfferId(order, vpayCfg.offerId)
+  const vpayEnv = resolveOrderVPayEnv(order, vpayCfg.env)
+
   // 调用官方查单 API（道具直购走 query_order）
   // 路径 1：云调用 cloud.openapi（部分 SDK 环境组合下不可用）
   let remote = null
@@ -593,9 +655,9 @@ async function queryVPayOrder(callerOpenid, outTradeNo, overrideOpenid, fromAdmi
   try {
     if (cloud.openapi && cloud.openapi.midasPayment && cloud.openapi.midasPayment.queryOrder) {
       remote = await cloud.openapi.midasPayment.queryOrder({
-        offerId: VPAY_OFFER_ID,
+        offerId,
         ts: Math.floor(Date.now() / 1000),
-        env: order.vpayEnv != null ? order.vpayEnv : VPAY_ENV,
+        env: vpayEnv,
         outTradeNo,
         userIp: '127.0.0.1'
       })
@@ -608,7 +670,7 @@ async function queryVPayOrder(callerOpenid, outTradeNo, overrideOpenid, fromAdmi
   // 路径 2：HTTPS 直连 /xpay/query_order（道具直购）
   if (remoteStatus == null) {
     try {
-      const res = await httpsQueryOrder(openid, outTradeNo, order.vpayEnv != null ? order.vpayEnv : VPAY_ENV)
+      const res = await httpsQueryOrder(openid, outTradeNo, vpayEnv)
       console.log('[queryVPayOrder] https response:', JSON.stringify(res || {}))
       if (res && res.errcode === 0 && res.order) {
         const o = res.order
@@ -764,6 +826,9 @@ async function vpayRefund(callerOpenid, outTradeNo, refundFee, reason, fromAdmin
   if (!fee || fee <= 0) return { error: '退款金额无效' }
 
   const refundOutTradeNo = 'R' + Date.now() + Math.random().toString(36).slice(2, 8)
+  const vpayCfg = await getEffectiveVPayConfig()
+  const offerId = resolveOrderOfferId(order, vpayCfg.offerId)
+  const vpayEnv = resolveOrderVPayEnv(order, vpayCfg.env)
 
   let apiRes = null
   let apiSuccess = false
@@ -772,9 +837,9 @@ async function vpayRefund(callerOpenid, outTradeNo, refundFee, reason, fromAdmin
   try {
     if (cloud.openapi && cloud.openapi.midasPayment && cloud.openapi.midasPayment.refundOrder) {
       apiRes = await cloud.openapi.midasPayment.refundOrder({
-        offerId: VPAY_OFFER_ID,
+        offerId,
         ts: Math.floor(Date.now() / 1000),
-        env: order.vpayEnv != null ? order.vpayEnv : VPAY_ENV,
+        env: vpayEnv,
         outTradeNo,
         refundOutTradeNo,
         amount: fee,
@@ -799,7 +864,7 @@ async function vpayRefund(callerOpenid, outTradeNo, refundFee, reason, fromAdmin
         refundOutTradeNo,
         fee,
         reason || '人工退款',
-        order.vpayEnv != null ? order.vpayEnv : VPAY_ENV
+        vpayEnv
       )
       console.log('[vpayRefund] https response:', JSON.stringify(httpsRes || {}))
       if (httpsRes && (httpsRes.errcode === 0 || httpsRes.errCode === 0)) {
@@ -850,10 +915,14 @@ async function vpayMessageCallback(event) {
     if (!order) return { errcode: 0, errmsg: 'SUCCESS' }
     if (order.status === 'paid') return { errcode: 0, errmsg: 'SUCCESS' }
 
+    const vpayCfg = await getEffectiveVPayConfig()
+    const offerId = resolveOrderOfferId(order, vpayCfg.offerId)
+    const vpayEnv = resolveOrderVPayEnv(order, vpayCfg.env)
+
     // 发货前向微信侧 query_order 二次确认已支付（防伪造回调）；
     // 查询本身不可用（如未配置 access_token）时信任已验源的推送，不阻塞真实发货
     try {
-      const q = await httpsQueryOrder(order.openid, outTradeNo, order.vpayEnv != null ? order.vpayEnv : VPAY_ENV)
+      const q = await httpsQueryOrder(order.openid, outTradeNo, vpayEnv)
       if (q && q.errcode === 0 && q.order) {
         const o = q.order
         const confirmedPaid = (Number(o.paid_fee || 0) > 0 && Number(o.paid_time) > 0) || o.status === 3
@@ -896,8 +965,8 @@ async function vpayMessageCallback(event) {
     try {
       if (cloud.openapi && cloud.openapi.midasPayment && cloud.openapi.midasPayment.notifyProvideGoods) {
         await cloud.openapi.midasPayment.notifyProvideGoods({
-          offerId: VPAY_OFFER_ID,
-          env: order.vpayEnv != null ? order.vpayEnv : VPAY_ENV,
+          offerId,
+          env: vpayEnv,
           outTradeNo
         })
       }
@@ -1213,7 +1282,7 @@ exports.main = async (event, context) => {
     case 'getEffectivePrices':
       return { prices: await getAllEffectivePrices() }
     case 'clearPriceCache':
-      // 仅云函数间调用（adminGateway 改价后通知）可清缓存
+      // 仅云函数间调用（adminGateway 改价 / 改 offerId·env 后通知）可清缓存
       if (!isServerSideInvocation()) return { error: '无权操作' }
       clearPriceCache()
       return { success: true }

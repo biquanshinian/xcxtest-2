@@ -17,39 +17,26 @@ async function fetchLiveStatusBatch(roomIds) {
   if (!ids.length) return {}
   if (!wx.cloud || !wx.cloud.callFunction) return {}
 
-  try {
-    const res = await wx.cloud.callFunction({
-      name: 'apiProxy',
-      data: { action: 'liveStatusBatch', roomIds: ids },
-      timeout: 12000
-    })
-    const r = res && res.result
-    if (r && r.code === 0 && r.results && typeof r.results === 'object') {
-      return r.results
+  // 批量失败后整体退避重试一次；不再退化为按房间逐个调用（N+1 调用风暴）
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, 1500))
     }
-  } catch (e) {
-    console.warn('[live-status] batch failed:', e.message || e)
-  }
-
-  const entries = await Promise.all(ids.map(async (id) => {
     try {
       const res = await wx.cloud.callFunction({
         name: 'apiProxy',
-        data: { action: 'liveStatus', roomId: id },
-        timeout: 10000
+        data: { action: 'liveStatusBatch', roomIds: ids },
+        timeout: 12000
       })
       const r = res && res.result
-      return [id, r && r.code === 0 ? r : null]
-    } catch (err) {
-      return [id, null]
+      if (r && r.code === 0 && r.results && typeof r.results === 'object') {
+        return r.results
+      }
+    } catch (e) {
+      console.warn('[live-status] batch failed (attempt ' + (attempt + 1) + '):', e.message || e)
     }
-  }))
-
-  const map = {}
-  entries.forEach(([id, v]) => {
-    if (v) map[id] = v
-  })
-  return map
+  }
+  return {}
 }
 
 function parseLiveStatus(statusRes) {

@@ -234,7 +234,9 @@ const SPACEX_STATS_CACHE_KEY = '_spacex_stats_local_cache'
 const SPACEX_STATS_CACHE_TTL = 5 * 60 * 1000
 const BOOSTER_GENEALOGY_CACHE_KEY = '_booster_genealogy'
 const BOOSTER_GENEALOGY_CACHE_TTL = 30 * 60 * 1000
-const VOTE_CACHE_TTL = 30 * 1000
+// 竞猜统计缓存：此前 30s，切 Tab 回首页就会重新打 adminGateway，是首页最高频的云函数来源之一。
+// 票数展示对实时性要求不高，5 分钟足够；用户自己投票后 castVote 会主动失效缓存，不受影响。
+const VOTE_CACHE_TTL = 5 * 60 * 1000
 // 旧缓存最长可用时间：首屏先渲染上次数据（stale-while-revalidate），云端结果回来后覆盖
 const VOTE_STALE_MAX_AGE = 24 * 60 * 60 * 1000
 const { formatCloudError } = require('./launch-stats-cloud.js')
@@ -412,7 +414,7 @@ async function getSpaceXLaunchStats() {
 
 const BOOSTER_META_DOC_IDS = ['_sync_meta', '_img_cos_map', '_ll2_launchers_cache', '_config_meta', '_flight_history_progress']
 
-async function getBoosterGenealogy() {
+async function getBoosterGenealogy(options) {
   const cachedData = await _readCachedAsync(BOOSTER_GENEALOGY_CACHE_KEY, BOOSTER_GENEALOGY_CACHE_TTL)
   if (cachedData) return cachedData
 
@@ -421,7 +423,9 @@ async function getBoosterGenealogy() {
     // 分页拉全量箭实体（含 configId / countryCode 等新字段，文档原样透传）
     const BATCH = 100
     // 与云端同步上限（5 页 × 200 = 1000）对齐；数据不足一批时提前 break，无额外查询
-    const MAX_BATCHES = 10
+    // 预览模式（非会员 Tab）：只拉第 1 批，够 2 张预览卡，避免最多 10 次 DB 读
+    const previewOnly = !!(options && options.previewOnly)
+    const MAX_BATCHES = previewOnly ? 1 : 10
     let all = []
     for (let i = 0; i < MAX_BATCHES; i++) {
       const res = await db.collection('booster_genealogy')
@@ -436,7 +440,10 @@ async function getBoosterGenealogy() {
     const list = all.filter(function (item) {
       return BOOSTER_META_DOC_IDS.indexOf(item._id) === -1
     })
-    _writeCached(BOOSTER_GENEALOGY_CACHE_KEY, list)
+    // 仅全量拉取时写缓存，避免预览半份污染全量缓存
+    if (!previewOnly) {
+      _writeCached(BOOSTER_GENEALOGY_CACHE_KEY, list)
+    }
     return list
   } catch (e) {
     console.error('[Booster] getBoosterGenealogy error:', e)

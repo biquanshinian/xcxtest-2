@@ -1,45 +1,68 @@
 {
   "miniVersion": "v2",
-  "name": "火星探索日志",
-  "version": "1.0.0",
+  "name": "%name%",
+  "version": "0.0.1",
   "versionCode": 100,
+  "i18nFilePath": "i18n",
+  "mini-ohos": {
+    "sdkVersion": "0.5.1"
+  },
   "mini-android": {
+    "resourcePath": "miniapp/android/nativeResources",
+    "sdkVersion": "1.7.0",
+    "toolkitVersion": "0.11.0",
     "useExtendedSdk": {
-      "media": true,
+      "media": false,
       "bluetooth": false,
       "network": false,
       "scanner": false,
-      "xweb": false,
-      "open": false,
-      "nfc": false
+      "xweb": false
     },
-    "privateDescriptions": {
-      "ACCESS_COARSE_LOCATION": "申请位置信息权限，用于获取当前大致地理位置，计算卫星过境时间、方位角、仰角及观测方向。",
-      "CAMERA": "申请相机权限，用于在 AR 观测页面显示实时取景画面，以及在用户主动拍摄或识图时获取图片。",
-      "READ_EXTERNAL_STORAGE": "申请相册读取权限，用于在用户主动选择图片时读取所选图片并进行识别分析。",
-      "WRITE_EXTERNAL_STORAGE": "申请相册写入权限，用于将用户主动导出的图片或 AR 截图保存到系统相册。",
-      "READ_MEDIA_IMAGES": "申请图片读取权限，用于在用户主动选择图片时读取所选图片并进行识别分析。",
-      "READ_MEDIA_VIDEO": "申请视频读取权限，用于兼容 chooseMedia 接口的媒体选择能力。",
-      "READ_MEDIA_VISUAL_USER_SELECTED": "申请访问用户主动选择的媒体文件权限，用于选择图片进行识别分析。",
-      "RECORD_AUDIO": "申请麦克风权限，用于兼容 chooseMedia 接口的系统媒体能力要求，当前主要用于媒体选择场景兼容。"
+    "icons": {
+      "hdpi": "",
+      "xhdpi": "",
+      "xxhdpi": "",
+      "xxxhdpi": ""
+    },
+    "splashscreen": {
+      "hdpi": "",
+      "xhdpi": "",
+      "xxhdpi": ""
+    },
+    "enableVConsole": "open",
+    "privacy": {
+      "enable": true
     }
   },
   "mini-ios": {
+    "sdkVersion": "1.7.0",
+    "toolkitVersion": "0.0.9",
     "useExtendedSdk": {
       "WeAppOpenFuns": true,
       "WeAppNetwork": false,
       "WeAppBluetooth": false,
-      "WeAppMedia": true,
+      "WeAppMedia": false,
       "WeAppLBS": false,
-      "WeAppOthers": false,
-      "WeAppLive": false
+      "WeAppOthers": false
     },
-    "privateDescriptions": {
-      "NSPhotoLibraryUsageDescription": "用于在用户主动选择图片时读取所选图片并进行识别分析。",
-      "NSCameraUsageDescription": "用于在 AR 观测页面显示实时取景画面，以及在用户主动拍摄或识图时获取图片。",
-      "NSMicrophoneUsageDescription": "用于兼容 chooseMedia 接口的系统媒体能力要求，当前主要用于媒体选择场景兼容。",
-      "NSLocationWhenInUseUsageDescription": "用于获取当前大致地理位置，计算卫星过境时间、方位角、仰角及观测方向。",
-      "NSPhotoLibraryAddUsageDescription": "用于将用户主动导出的图片或 AR 截图保存到系统相册。"
-    }
+    "enableVConsole": "open",
+    "icons": {
+      "mainIcon120": "",
+      "mainIcon180": "",
+      "spotlightIcon80": "",
+      "spotlightIcon120": "",
+      "settingsIcon58": "",
+      "settingsIcon87": "",
+      "notificationIcon40": "",
+      "notificationIcon60": "",
+      "appStore1024": ""
+    },
+    "splashScreen": {
+      "customImage": ""
+    },
+    "privacy": {
+      "enable": false
+    },
+    "enableOpenUrlNavigate": true
   }
 }

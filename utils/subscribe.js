@@ -324,11 +324,16 @@ async function subscribeLaunch(mission) {
 
       getRecordMilestone()('FIRST_SUBSCRIBE', { missionName: mission.missionName || mission.name })
 
+      // 结果模板未勾选时如实提示，避免误以为已订阅「任务完成提醒」
+      var resultGranted = !!(perm && perm.result)
+
       if (res.result.data && res.result.data.duplicate) {
 
         wx.showToast({
 
-          title: res.result.data.updated ? '提醒信息已同步' : '已设置过提醒（含结果通知）',
+          title: res.result.data.updated
+            ? '提醒信息已同步'
+            : (resultGranted ? '已设置过提醒（含结果通知）' : '已设置过提醒（结果通知未授权）'),
 
           icon: 'none'
 
@@ -336,7 +341,15 @@ async function subscribeLaunch(mission) {
 
       } else {
 
-        wx.showToast({ title: '提醒已开启（含结果通知）', icon: 'success' })
+        if (resultGranted) {
+
+          wx.showToast({ title: '提醒已开启（含结果通知）', icon: 'success' })
+
+        } else {
+
+          wx.showToast({ title: '提醒已开启（结果通知未授权）', icon: 'none' })
+
+        }
 
       }
 
@@ -588,9 +601,20 @@ async function unsubscribeLaunch(missionId) {
 
 
 
+// 云端订阅状态复查节流：首页每次 onShow 都会调用本函数，
+// 10 分钟内直接返回本地状态（订阅/退订本身都会同步写本地 store，本地值即最新）
+var _syncStateCheckedAt = {}
+var SYNC_STATE_THROTTLE_MS = 10 * 60 * 1000
+
 async function syncSubscriptionState(missionId) {
 
   if (!missionId || !wx.cloud || !wx.cloud.callFunction) return false
+
+  var throttleKey = String(missionId)
+  var lastCheckedAt = _syncStateCheckedAt[throttleKey] || 0
+  if (Date.now() - lastCheckedAt < SYNC_STATE_THROTTLE_MS) {
+    return isSubscribed(missionId)
+  }
 
   try {
 
@@ -609,6 +633,8 @@ async function syncSubscriptionState(missionId) {
     })
 
     var subscribed = !!(res.result && res.result.code === 0 && res.result.data && res.result.data.subscribed)
+
+    _syncStateCheckedAt[throttleKey] = Date.now()
 
     try {
 

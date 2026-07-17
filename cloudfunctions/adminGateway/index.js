@@ -4065,14 +4065,52 @@ async function getGlobalConfig() {
   return ok({ ...main, enableCarousel, enableSplash })
 }
 
+function _clampPolicyInt(v, min, max, fallback) {
+  const n = parseInt(v, 10)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(max, Math.max(min, n))
+}
+
+/** 规范化会员策略 / 流量字段，避免脏值写入 global_config.main */
+function sanitizeMemberPolicyFields(body) {
+  if (!body || typeof body !== 'object') return {}
+  const out = {}
+  if (Object.prototype.hasOwnProperty.call(body, 'mediaTrafficMode')) {
+    const m = String(body.mediaTrafficMode || '').trim().toLowerCase()
+    out.mediaTrafficMode = (m === 'save' || m === 'emergency') ? m : 'normal'
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'freeMissionListLimit')) {
+    out.freeMissionListLimit = _clampPolicyInt(body.freeMissionListLimit, 1, 200, 10)
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'freeEventListLimit')) {
+    out.freeEventListLimit = _clampPolicyInt(body.freeEventListLimit, 1, 100, 5)
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'freeAiChatDaily')) {
+    out.freeAiChatDaily = _clampPolicyInt(body.freeAiChatDaily, 0, 200, 3)
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'freeAiImageDaily')) {
+    out.freeAiImageDaily = _clampPolicyInt(body.freeAiImageDaily, 0, 50, 1)
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'adUnlockMinutes')) {
+    out.adUnlockMinutes = _clampPolicyInt(body.adUnlockMinutes, 1, 1440, 10)
+  }
+  ;['enableMissionListGate', 'enableEventListGate', 'forceNonMemberVideoPoster',
+    'splashAllowVideoForNonMember', 'carouselAllowVideoForNonMember'].forEach((k) => {
+    if (Object.prototype.hasOwnProperty.call(body, k)) out[k] = !!body[k]
+  })
+  return out
+}
+
 async function updateGlobalConfig(body, user) {
   const id = 'main'
   const ref = db.collection(COLLECTIONS.GLOBAL_CONFIG).doc(id)
   const beforeRes = await ref.get().catch(() => null)
   const before = beforeRes?.data || null
 
+  const policyPatch = sanitizeMemberPolicyFields(body || {})
   const patch = {
     ...body,
+    ...policyPatch,
     updatedAt: now(),
     updatedBy: user.username
   }
@@ -7073,6 +7111,10 @@ async function updateVPayConfig(body, user) {
   } catch (e) {
     return fail(5001, '保存配置失败: ' + (e.message || String(e)))
   }
+  // 通知 membership 立即清掉 offerId/env 缓存（与改价共用 clearPriceCache）
+  try {
+    await cloud.callFunction({ name: 'membership', data: { action: 'clearPriceCache' } })
+  } catch (e) {}
   await writeOpLog({ user, module: 'membership', action: 'update_vpay_config', targetId: id, after: { env, offerId } })
   return ok({ env, offerId })
 }

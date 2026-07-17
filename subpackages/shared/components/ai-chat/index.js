@@ -409,7 +409,13 @@ Component({
 
             title: '今日次数已用完',
 
-            content: '免费用户每日可提问 ' + FREE_LIMITS.AI_CHAT + ' 次，升级星际通行证可无限提问',
+            content: '免费用户每日可提问 ' + (function () {
+              try {
+                return require('../../../../utils/member-policy.js').getMemberPolicySync().freeAiChatDaily
+              } catch (e) {
+                return FREE_LIMITS.AI_CHAT
+              }
+            })() + ' 次，升级星际通行证可无限提问',
 
             confirmText: '去升级',
 

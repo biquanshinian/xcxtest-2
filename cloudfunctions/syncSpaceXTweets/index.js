@@ -207,7 +207,7 @@ async function fetchTimelineTweetIds(screenName) {
 /**
  * 付费批量兜底（twitterapi.io 高级搜索，经 Worker 代理）：
  * 一次请求覆盖全部启用账号，返回 { 账号名小写: [推文ID] }。
- * Worker 侧有小时级 KV 节流 + 美东 6–24 点窗口，本函数每 5 分钟调用也只在整点刷新时真正付费。
+ * Worker 侧有小时级 KV 节流 + 美东 6–24 点窗口，本函数每 15 分钟调用也只在整点刷新时真正付费。
  * 失败或未配置 Key 时返回空映射，管线退化为纯 syndication。
  */
 async function fetchBatchNewTweetIds(accounts) {

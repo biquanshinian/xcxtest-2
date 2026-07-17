@@ -399,7 +399,7 @@
           <!-- 图片 -->
           <block wx:if="{{item.type === 'image'}}">
             <view class="carousel-image-wrap">
-              <image class="carousel-image" src="{{item.src}}" mode="aspectFill" lazy-load="{{false}}" binderror="onCarouselImageError" bindload="onCarouselImageLoad" data-index="{{index}}" bindtap="previewCarouselImage" bindlongpress="saveCarouselImage" data-url="{{item.src}}"></image>
+              <image class="carousel-image" src="{{item.src}}" mode="aspectFill" lazy-load="{{true}}" binderror="onCarouselImageError" bindload="onCarouselImageLoad" data-index="{{index}}" bindtap="previewCarouselImage" bindlongpress="saveCarouselImage" data-url="{{item.src}}"></image>
               <view wx:if="{{item.caption}}" class="carousel-video-caption" catchtap="onCarouselCaptionTap" data-eventid="{{item.eventId}}">
                 <text class="carousel-video-caption-text" user-select="{{true}}">{{item.caption}}</text>
               </view>
@@ -407,11 +407,11 @@
           </block>
           <!-- 视频 -->
           <block wx:else>
-            <view class="carousel-video-wrap" bindtap="onCarouselVideoTap" data-index="{{index}}" data-url="{{item.src}}">
+            <view class="carousel-video-wrap" bindtap="onCarouselVideoTap" data-index="{{index}}">
               <video
                 id="carousel-video-{{index}}"
                 class="carousel-video"
-                src="{{item.videoActive ? (item.playSrc || item.src) : ''}}"
+                src="{{item.videoActive && item.playSrc ? item.playSrc : ''}}"
                 poster="{{item.poster}}"
                 muted="{{true}}"
                 autoplay="{{false}}"
@@ -442,9 +442,6 @@
                   </view>
                   <text class="carousel-video-cover-text">{{item.videoActive ? '视频加载中' : '预览'}}</text>
                 </view>
-              </view>
-              <view class="carousel-video-play-icon">
-                <text class="carousel-video-icon-text">▶</text>
               </view>
               <view wx:if="{{item.caption}}" class="carousel-video-caption" catchtap="onCarouselCaptionTap" data-eventid="{{item.eventId}}">
                 <text class="carousel-video-caption-text" user-select="{{true}}">{{item.caption}}</text>
@@ -768,24 +765,42 @@
         </block>
         <block wx:if="{{missionType === 'upcoming'}}">
           <block wx:for="{{displayedUpcomingMissions}}" wx:key="_wxkey">
-            <template
-              is="missionCardUpcoming"
-              data="{{
-                item: item,
-                index: index,
-                swipeOpenKey: missionSwipeOpenWxkey,
-                swipeDragKey: missionSwipeDragWxkey,
-                swipeDragPx: missionSwipeDragPx,
-                swipeActionW: missionSwipeActionWidthPx
-              }}"
-            />
+            <block wx:if="{{!missionGateLimit || index < missionGateLimit}}">
+              <template
+                is="missionCardUpcoming"
+                data="{{
+                  item: item,
+                  index: index,
+                  swipeOpenKey: missionSwipeOpenWxkey,
+                  swipeDragKey: missionSwipeDragWxkey,
+                  swipeDragPx: missionSwipeDragPx,
+                  swipeActionW: missionSwipeActionWidthPx
+                }}"
+              />
+            </block>
           </block>
         </block>
         <block wx:if="{{missionType !== 'upcoming'}}">
           <block wx:for="{{completedMissions}}" wx:key="_wxkey">
-            <template is="missionCard" data="{{item, index}}" />
+            <block wx:if="{{!missionGateLimit || index < missionGateLimit}}">
+              <template is="missionCard" data="{{item, index}}" />
+            </block>
           </block>
         </block>
+
+        <!-- 非会员翻页深度门控：仅展示前 missionGateLimit 条，底部横幅引导解锁 -->
+        <view
+          class="mission-gate-banner"
+          wx:if="{{missionGateLimit > 0 && ((missionType === 'upcoming' && displayedUpcomingMissions.length > missionGateLimit) || (missionType === 'completed' && completedMissions.length > missionGateLimit))}}"
+          bindtap="onMissionGateTap"
+        >
+          <text class="mission-gate-banner-icon">🔒</text>
+          <view class="mission-gate-banner-texts">
+            <text class="mission-gate-banner-title">已展示前 {{missionGateLimit}} 条任务</text>
+            <text class="mission-gate-banner-sub">开通星际通行证解锁完整发射列表，或看广告免费体验</text>
+          </view>
+          <text class="mission-gate-banner-arrow">›</text>
+        </view>
 
         <view class="missions-agency-empty" wx:if="{{missionType === 'upcoming' && isProUser && !missionsLoadError && !showMissionsEmpty && upcomingAgencyFilterEmpty}}">
           <text class="empty-text">当前筛选下暂无任务，可点击「所有任务」查看全部</text>
@@ -799,7 +814,7 @@
           </button>
         </view>
         <!-- 上拉临界进度条 -->
-        <view class="preload-progress-wrap" wx:if="{{(missionType === 'upcoming' ? missionsHasMore : completedMissionsHasMore) && !missionsLoadingMore && preloadProgress > 0 && !loadMoreTriggered}}">
+        <view class="preload-progress-wrap" wx:if="{{!missionGateLimit && (missionType === 'upcoming' ? missionsHasMore : completedMissionsHasMore) && !missionsLoadingMore && preloadProgress > 0 && !loadMoreTriggered}}">
           <view class="preload-progress-track">
             <view class="preload-progress-fill" style="width: {{preloadProgress * 100}}%;"></view>
           </view>
@@ -807,7 +822,7 @@
         </view>
 
         <!-- 上拉触发加载反馈 -->
-        <view class="load-trigger" wx:if="{{(missionType === 'upcoming' ? missionsHasMore : completedMissionsHasMore) && !missionsLoadingMore && loadMoreTriggered}}">
+        <view class="load-trigger" wx:if="{{!missionGateLimit && (missionType === 'upcoming' ? missionsHasMore : completedMissionsHasMore) && !missionsLoadingMore && loadMoreTriggered}}">
           <view class="trigger-dots">
             <view class="trigger-dot dot-1"></view>
             <view class="trigger-dot dot-2"></view>

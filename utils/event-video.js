@@ -4,6 +4,29 @@
 const { toCdnUrl, isVideoUrl, videoSnapshotUrl } = require('./cos-url.js')
 const { ROUTES } = require('./routes.js')
 const { isPlaybackAllowed } = require('./feature-flags.js')
+const { getCachedVideo } = require('./video-cache.js')
+
+/**
+ * 单条视频的广告解锁键：一次广告只解锁当前这条视频（而非整个事件更新版块）
+ * 有 eventId 时键跨页面稳定（轮播 → 详情自动播放共用）；否则回退用归一化 URL
+ * @param {string} eventId 事件 _id
+ * @param {number} mediaIndex 视频在 mediaList 中的下标
+ * @param {string} [url] 兜底用的视频地址（无 eventId 时）
+ * @returns {string} 形如 'evtvid:<eventId>:<idx>' 或 'evtvid:<pathname>'
+ */
+function eventVideoAdUnlockId(eventId, mediaIndex, url) {
+  if (eventId) {
+    var idx = Number(mediaIndex)
+    if (!Number.isFinite(idx) || idx < 0) idx = 0
+    return 'evtvid:' + eventId + ':' + idx
+  }
+  var raw = String(url || '').trim()
+  if (!raw) return 'evtvid:unknown'
+  // 去 query / 去域名取 pathname，同一文件不同 CDN 域名或签名参数也命中同一键
+  var noQuery = raw.split('?')[0].split('#')[0]
+  var path = noQuery.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/]+/, '')
+  return 'evtvid:' + (path || noQuery)
+}
 
 function enrichVideoMediaItem(media, opts) {
   if (!media || media.type !== 'video') return media
@@ -67,8 +90,14 @@ async function playEventVideo(opts) {
     return 'copied'
   }
 
-  const play = playUrl || url
+  let play = playUrl || url
   const original = originalUrl || url
+  // 进缓存前的远端播放地址：getCachedVideo 可能返回本地路径，复制链接需用远端地址
+  const remotePlay = play
+  // 压缩预览片走本地视频缓存：命中零流量，未命中后台落盘供下次复用（原片不缓存）
+  if (play && original && play !== original && isVideoUrl(play)) {
+    play = getCachedVideo(play)
+  }
   if (!play || !isVideoUrl(play)) {
     if (!url) return 'noop'
     await new Promise((resolve) => {
@@ -100,7 +129,10 @@ async function playEventVideo(opts) {
       app.globalData.pendingEventVideo = {
         url: play,
         poster: thumb || '',
-        showmenu
+        showmenu,
+        remoteUrl: remotePlay || '',
+        originalUrl: original || '',
+        sourceUrl: sourceUrl || ''
       }
     }
   } catch (e) {}
@@ -128,18 +160,67 @@ async function playEventVideo(opts) {
 }
 
 /**
- * 下载并保存原视频到相册（会员权益）
+ * 下载（远端地址）或直接（本地路径）保存视频到相册（会员权益）
+ * @param {string} filePathOrUrl 远端 http(s) 地址或本地临时/缓存路径
+ * @param {object} [opts] { loadingTitle, successTitle, emptyTitle }
  */
-function saveEventOriginalVideo(originalUrl) {
+function saveEventVideoToAlbum(filePathOrUrl, opts) {
+  const o = opts || {}
+  const loadingTitle = o.loadingTitle || '保存视频…'
+  const successTitle = o.successTitle || '已保存到相册'
+  const emptyTitle = o.emptyTitle || '无可保存的视频'
+
   return new Promise((resolve) => {
-    if (!originalUrl || !isVideoUrl(originalUrl)) {
-      wx.showToast({ title: '无可保存的原视频', icon: 'none' })
+    const src = String(filePathOrUrl || '').trim()
+    if (!src) {
+      wx.showToast({ title: emptyTitle, icon: 'none' })
       resolve(false)
       return
     }
-    wx.showLoading({ title: '保存原视频…', mask: true })
+
+    function doSave(filePath) {
+      wx.saveVideoToPhotosAlbum({
+        filePath,
+        success() {
+          wx.hideLoading()
+          wx.showToast({ title: successTitle, icon: 'success' })
+          resolve(true)
+        },
+        fail(err) {
+          wx.hideLoading()
+          const msg = (err && err.errMsg) || ''
+          if (/auth deny|authorize|privacy/i.test(msg)) {
+            wx.showModal({
+              title: '需要相册权限',
+              content: '请在设置中允许保存到相册',
+              confirmText: '去设置',
+              success(r) {
+                if (r.confirm) wx.openSetting({})
+              }
+            })
+          } else {
+            wx.showToast({ title: '保存失败', icon: 'none' })
+          }
+          resolve(false)
+        }
+      })
+    }
+
+    const isRemote = /^https?:\/\//i.test(src)
+    if (isRemote && !isVideoUrl(src)) {
+      wx.showToast({ title: emptyTitle, icon: 'none' })
+      resolve(false)
+      return
+    }
+
+    wx.showLoading({ title: loadingTitle, mask: true })
+    if (!isRemote) {
+      // 本地临时/缓存路径直接保存，无需下载
+      doSave(src)
+      return
+    }
     wx.downloadFile({
-      url: originalUrl,
+      url: src,
       success(res) {
         if (!res || res.statusCode !== 200 || !res.tempFilePath) {
           wx.hideLoading()
@@ -147,31 +228,7 @@ function saveEventOriginalVideo(originalUrl) {
           resolve(false)
           return
         }
-        wx.saveVideoToPhotosAlbum({
-          filePath: res.tempFilePath,
-          success() {
-            wx.hideLoading()
-            wx.showToast({ title: '已保存原视频', icon: 'success' })
-            resolve(true)
-          },
-          fail(err) {
-            wx.hideLoading()
-            const msg = (err && err.errMsg) || ''
-            if (/auth deny|authorize|privacy/i.test(msg)) {
-              wx.showModal({
-                title: '需要相册权限',
-                content: '请在设置中允许保存到相册',
-                confirmText: '去设置',
-                success(r) {
-                  if (r.confirm) wx.openSetting({})
-                }
-              })
-            } else {
-              wx.showToast({ title: '保存失败', icon: 'none' })
-            }
-            resolve(false)
-          }
-        })
+        doSave(res.tempFilePath)
       },
       fail() {
         wx.hideLoading()
@@ -182,8 +239,21 @@ function saveEventOriginalVideo(originalUrl) {
   })
 }
 
+/**
+ * 下载并保存原视频到相册（会员权益）
+ */
+function saveEventOriginalVideo(originalUrl) {
+  return saveEventVideoToAlbum(originalUrl, {
+    loadingTitle: '保存原视频…',
+    successTitle: '已保存原视频',
+    emptyTitle: '无可保存的原视频'
+  })
+}
+
 module.exports = {
   enrichVideoMediaItem,
+  eventVideoAdUnlockId,
   playEventVideo,
+  saveEventVideoToAlbum,
   saveEventOriginalVideo
 }

@@ -12,6 +12,9 @@ const config = require('./config.js')
 const STORAGE_KEY = 'channels_live_fallback_guide_v3'
 const CLOUD_COLLECTION = 'channels_live_config'
 const CLOUD_DOC_ID = 'fallback_guide'
+// 缓存新鲜期：期内命中本地后不再后台探云（运营改二维码属低频操作，
+// 打开引导弹窗时仍会强制刷新，不影响二维码及时性）
+const FRESH_TTL_MS = 30 * 60 * 1000
 
 let _memCache = null
 let _inflight = null
@@ -168,19 +171,23 @@ async function getChannelsLiveFallbackGuide(opts) {
   }
 
   if (cached && cached.data && cached.data.qrUrl) {
-    fetchRemote().then((data) => {
-      if (!data || typeof options.onUpdate !== 'function') return
-      const prev = normalizeGuide(cached.data)
-      if (
-        prev.qrUrl === data.qrUrl &&
-        prev.nickname === data.nickname &&
-        prev.title === data.title &&
-        prev.tip === data.tip &&
-        !!prev.enabled === !!data.enabled &&
-        String(prev.updatedAt || '') === String(data.updatedAt || '')
-      ) return
-      try { options.onUpdate(data) } catch (e) {}
-    }).catch(() => {})
+    // 新鲜期内直接用本地，不再后台打云函数（切 Tab 高频场景零调用）
+    const isFresh = typeof cached.ts === 'number' && (Date.now() - cached.ts) < FRESH_TTL_MS
+    if (!isFresh) {
+      fetchRemote().then((data) => {
+        if (!data || typeof options.onUpdate !== 'function') return
+        const prev = normalizeGuide(cached.data)
+        if (
+          prev.qrUrl === data.qrUrl &&
+          prev.nickname === data.nickname &&
+          prev.title === data.title &&
+          prev.tip === data.tip &&
+          !!prev.enabled === !!data.enabled &&
+          String(prev.updatedAt || '') === String(data.updatedAt || '')
+        ) return
+        try { options.onUpdate(data) } catch (e) {}
+      }).catch(() => {})
+    }
     return normalizeGuide(cached.data)
   }
 

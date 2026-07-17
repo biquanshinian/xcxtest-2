@@ -3,6 +3,7 @@
  * 总开关：global_config / bilibili_auto_publish
  */
 const cloud = require('wx-server-sdk')
+const https = require('https')
 const { resolveTopics, formatTopicsLine } = require('./topicEngine')
 const { extractEventImages } = require('./eventMediaImages')
 
@@ -113,6 +114,51 @@ function extractImages(evOrMediaList) {
   return extractEventImages({ mediaList: evOrMediaList }, 9)
 }
 
+/**
+ * HEAD 探测单张图是否仍可下载。
+ * 404/403/410 视为永久失效；网络异常/超时 fail-open（避免抖动误杀好图）。
+ */
+function headImageAlive(url, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    let settled = false
+    const done = (alive) => {
+      if (settled) return
+      settled = true
+      resolve(alive)
+    }
+    try {
+      const req = https.request(url, { method: 'HEAD', timeout: timeoutMs }, (res) => {
+        const code = Number(res.statusCode || 0)
+        res.resume()
+        if (code === 404 || code === 403 || code === 410) return done(false)
+        done(true)
+      })
+      req.on('timeout', () => {
+        try { req.destroy() } catch (e) {}
+        done(true)
+      })
+      req.on('error', () => done(true))
+      req.end()
+    } catch (e) {
+      done(true)
+    }
+  })
+}
+
+/** 剔除已从 COS 删除的死图，保持原顺序 */
+async function filterAliveImages(urls) {
+  const list = Array.isArray(urls) ? urls : []
+  if (!list.length) return { alive: [], dead: [] }
+  const flags = await Promise.all(list.map((u) => headImageAlive(u)))
+  const alive = []
+  const dead = []
+  list.forEach((u, i) => {
+    if (flags[i]) alive.push(u)
+    else dead.push(u)
+  })
+  return { alive, dead }
+}
+
 function truncate(s, max) {
   const t = String(s || '').trim()
   if (t.length <= max) return t
@@ -186,7 +232,8 @@ async function composeSingle(ev, cfg) {
     title: ev.title || '',
     content: lines.join('\n').trim(),
     images,
-    topics
+    topics,
+    eventPublishedAt: Number(ev.publishedAt || ev.createdAt || 0)
   }
 }
 
@@ -205,9 +252,62 @@ function computeScheduledAt(cfg, hasImages) {
   return { ok: true, scheduledAt, cfg: cfg2 }
 }
 
-async function loadCandidates(cfg) {
+/**
+ * 取消积压 pending；keepEventId 对应事件重置为 idle，便于立刻重新入队最新一条
+ * @returns {Promise<number>}
+ */
+async function cancelPendingQueueJobs(reason = 'superseded_by_newer', keepEventId = '') {
+  let total = 0
+  const keep = keepEventId ? String(keepEventId) : ''
+  for (let round = 0; round < 30; round++) {
+    let rows = []
+    try {
+      const res = await db.collection(QUEUE_COL).where({ status: 'pending' }).limit(100).get()
+      rows = res.data || []
+    } catch (e) {
+      console.warn('[cancelPendingQueueJobs]', e.message || e)
+      break
+    }
+    if (!rows.length) break
+    for (const row of rows) {
+      try {
+        await db.collection(QUEUE_COL).doc(row._id).update({
+          data: {
+            status: 'cancelled',
+            lastError: reason,
+            updatedAt: now()
+          }
+        })
+        const ids = Array.isArray(row.eventIds) ? row.eventIds : []
+        for (const eid of ids) {
+          if (keep && String(eid) === keep) {
+            await markEvents([eid], {
+              bilibiliSyncStatus: 'idle',
+              bilibiliLastError: '',
+              bilibiliQueueId: ''
+            })
+          } else {
+            await markEvents([eid], {
+              bilibiliSyncStatus: 'skipped',
+              bilibiliLastError: reason,
+              bilibiliQueueId: ''
+            })
+          }
+        }
+        total++
+      } catch (e) {
+        console.warn('[cancelPendingQueueJobs] row', row._id, e.message || e)
+      }
+    }
+  }
+  if (total) console.log('[cancelPendingQueueJobs]', { total, reason, keepEventId: keep || undefined })
+  return total
+}
+
+/** 拉取 syncFromAt 之后的事件，按 publishedAt 从新到旧 */
+async function loadEventsNewestFirst(cfg, limit = 50) {
   const syncFromAt = Number(cfg.syncFromAt || 0)
-  let list = []
+  const lim = Math.max(1, Math.min(100, Number(limit) || 50))
   try {
     const res = await db
       .collection(EVENTS_COL)
@@ -215,34 +315,38 @@ async function loadCandidates(cfg) {
         status: 'published',
         publishedAt: _.gte(syncFromAt)
       })
-      .orderBy('publishedAt', 'asc')
-      .limit(50)
+      .orderBy('publishedAt', 'desc')
+      .limit(lim)
       .get()
-    list = res.data || []
+    return res.data || []
   } catch (e) {
-    console.warn('[loadCandidates] compound query failed, fallback:', e.message || e)
+    console.warn('[loadEventsNewestFirst] compound query failed, fallback:', e.message || e)
     try {
       const res = await db
         .collection(EVENTS_COL)
         .where({ status: 'published' })
         .orderBy('publishedAt', 'desc')
-        .limit(50)
+        .limit(lim)
         .get()
-      list = (res.data || [])
+      return (res.data || [])
         .filter((ev) => Number(ev.publishedAt || ev.createdAt || 0) >= syncFromAt)
-        .sort((a, b) => Number(a.publishedAt || 0) - Number(b.publishedAt || 0))
+        .sort((a, b) => Number(b.publishedAt || 0) - Number(a.publishedAt || 0))
     } catch (e2) {
-      console.warn('[loadCandidates] fallback failed:', e2.message || e2)
-      const res = await db.collection(EVENTS_COL).where({ status: 'published' }).limit(50).get()
-      list = (res.data || [])
+      console.warn('[loadEventsNewestFirst] fallback failed:', e2.message || e2)
+      const res = await db.collection(EVENTS_COL).where({ status: 'published' }).limit(lim).get()
+      return (res.data || [])
         .filter((ev) => Number(ev.publishedAt || ev.createdAt || 0) >= syncFromAt)
-        .sort((a, b) => Number(a.publishedAt || 0) - Number(b.publishedAt || 0))
+        .sort((a, b) => Number(b.publishedAt || 0) - Number(a.publishedAt || 0))
     }
   }
-  return list.filter((ev) => {
-    const st = eventSyncStatus(ev)
-    return st === 'idle' || st === 'failed' || !ev.bilibiliSyncStatus
-  })
+}
+
+/**
+ * 当时最新一条尚未成功发到 B 站的推文（已 success 的跳过）
+ */
+async function loadLatestPublishableEvent(cfg) {
+  const list = await loadEventsNewestFirst(cfg, 50)
+  return list.find((ev) => eventSyncStatus(ev) !== 'success') || null
 }
 
 async function loadRecentContents(windowSize) {
@@ -314,56 +418,70 @@ async function runEnqueue(from = 'timer') {
   }
 
   cfg = refreshQuotaCounters(cfg, ts)
-  const candidates = await loadCandidates(cfg)
-  if (!candidates.length) {
-    console.log('[runEnqueue] no candidates', { from, syncFromAt: cfg.syncFromAt })
-    return { ok: true, enqueued: 0, candidates: 0, from }
+
+  // 锁定「当时最新」未成功发送的事件，再清掉其余 pending（保留该事件可重入队）
+  const ev = await loadLatestPublishableEvent(cfg)
+  if (!ev) {
+    const cancelledPending = await cancelPendingQueueJobs('superseded_by_newer')
+    console.log('[runEnqueue] no latest publishable', { from, syncFromAt: cfg.syncFromAt, cancelledPending })
+    return { ok: true, enqueued: 0, candidates: 0, cancelledPending, from }
   }
+
+  // 若最新条已在 Agent 领取中，不重复入队，只清掉其它旧 pending
+  if (eventSyncStatus(ev) === 'queued' || eventSyncStatus(ev) === 'merged') {
+    // 下面 cancel 会把 keep 的 queued 重置为 idle；若仍有 claimed 任务对应此事件则由 Agent 完成
+  }
+
+  const cancelledPending = await cancelPendingQueueJobs('superseded_by_newer', ev._id)
 
   const recent = cfg.skipIfTooSimilar ? await loadRecentContents(cfg.similarWindow) : []
   let enqueued = 0
   let skippedSimilar = 0
+  let skippedDeadImages = 0
+  let droppedDeadImages = 0
   let blockedQuota = 0
   let blockedReason = ''
 
-  // 每条事件单独入队，绝不合并（每轮仍只入 1 条，配合限流）
-  for (const ev of candidates) {
-    const draft = await composeSingle(ev, cfg)
+  const draft = await composeSingle(ev, cfg)
 
-    if (cfg.skipIfTooSimilar && recent.some((c) => similarEnough(c, draft.content))) {
-      await markEvents([ev._id], { bilibiliSyncStatus: 'skipped', bilibiliLastError: 'too_similar' })
-      skippedSimilar++
-      continue
+  // 入队前剔除已从 COS 删除的死图（旧事件清理会删文件），避免 Agent 下载 404 反复失败熔断
+  if ((draft.images || []).length) {
+    const { alive, dead } = await filterAliveImages(draft.images)
+    if (dead.length) {
+      droppedDeadImages = dead.length
+      console.warn('[runEnqueue] drop dead images', JSON.stringify({ eventId: ev._id, dead }))
     }
+    draft.images = alive
+  }
+  const bodyText = String(ev.content || ev.originalText || '').trim()
 
+  if ((draft.images || []).length === 0 && droppedDeadImages > 0 && !bodyText) {
+    // 图全部失效且没有正文可发：跳过该事件，流水线继续处理后续更新
+    await markEvents([ev._id], { bilibiliSyncStatus: 'skipped', bilibiliLastError: 'dead_images' })
+    skippedDeadImages++
+  } else if (cfg.skipIfTooSimilar && recent.some((c) => similarEnough(c, draft.content))) {
+    await markEvents([ev._id], { bilibiliSyncStatus: 'skipped', bilibiliLastError: 'too_similar' })
+    skippedSimilar++
+  } else {
     const hasImages = (draft.images || []).length > 0
     const sched = computeScheduledAt(cfg, hasImages)
     if (!sched.ok) {
       blockedQuota++
       blockedReason = sched.reason || 'quota'
-      break
+    } else if (!hasImages && Number(sched.cfg.publishedToday || 0) >= Number(sched.cfg.textOnlyMaxPerDay || 3)) {
+      blockedQuota++
+      blockedReason = 'text_only_day_limit'
+    } else {
+      cfg = sched.cfg
+      const queueId = await enqueueOne(draft, sched.scheduledAt)
+      await markEvents([ev._id], {
+        bilibiliSyncStatus: 'queued',
+        bilibiliQueueId: queueId,
+        bilibiliTopics: draft.topics || [],
+        bilibiliLastError: ''
+      })
+      enqueued++
     }
-    cfg = sched.cfg
-
-    if (!hasImages) {
-      if (Number(cfg.publishedToday || 0) >= Number(cfg.textOnlyMaxPerDay || 3)) {
-        blockedQuota++
-        blockedReason = 'text_only_day_limit'
-        continue
-      }
-    }
-
-    if (enqueued >= 1) break
-
-    const queueId = await enqueueOne(draft, sched.scheduledAt)
-    await markEvents([ev._id], {
-      bilibiliSyncStatus: 'queued',
-      bilibiliQueueId: queueId,
-      bilibiliTopics: draft.topics || [],
-      bilibiliLastError: ''
-    })
-    recent.unshift(draft.content)
-    enqueued++
   }
 
   await saveConfig({
@@ -373,17 +491,24 @@ async function runEnqueue(from = 'timer') {
     publishedHour: cfg.publishedHour,
     lastEnqueueAt: ts,
     lastEnqueueFrom: from,
-    lastEnqueueResult: enqueued > 0 ? 'enqueued' : blockedReason || (skippedSimilar ? 'similar' : 'empty')
+    lastEnqueueResult:
+      enqueued > 0
+        ? 'enqueued'
+        : blockedReason || (skippedSimilar ? 'similar' : skippedDeadImages ? 'dead_images' : 'empty')
   })
 
   const result = {
     ok: true,
     from,
-    candidates: candidates.length,
+    candidates: 1,
     enqueued,
+    cancelledPending,
     skippedSimilar,
+    skippedDeadImages,
+    droppedDeadImages,
     blockedQuota,
-    blockedReason: blockedReason || undefined
+    blockedReason: blockedReason || undefined,
+    latestEventId: ev._id
   }
   console.log('[runEnqueue] done', JSON.stringify(result))
   return result

@@ -52,10 +52,23 @@ const MEMBER_ICONS = {
   PRO: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/通行证图标/1778744106480_5ngzmf.png'
 }
 
-// 免费用户每日限制
+// 免费用户每日限制（默认值；运行时以 global_config 会员策略为准）
 const FREE_LIMITS = {
   AI_CHAT: 3,
   AI_IMAGE: 1
+}
+
+function _freeAiLimits() {
+  try {
+    const { getMemberPolicySync } = require('./member-policy.js')
+    const p = getMemberPolicySync()
+    return {
+      AI_CHAT: p.freeAiChatDaily,
+      AI_IMAGE: p.freeAiImageDaily
+    }
+  } catch (e) {
+    return { AI_CHAT: FREE_LIMITS.AI_CHAT, AI_IMAGE: FREE_LIMITS.AI_IMAGE }
+  }
 }
 
 // 本地缓存 key
@@ -154,7 +167,8 @@ function getAiChatRemaining(state) {
   if (isPro(state)) return -1 // -1 表示无限
   var today = _todayStr()
   var used = (state && state.aiChatUsed && state.aiChatUsed[today]) || 0
-  return Math.max(0, FREE_LIMITS.AI_CHAT - used)
+  var limit = _freeAiLimits().AI_CHAT
+  return Math.max(0, limit - used)
 }
 
 /**
@@ -164,7 +178,8 @@ function getAiImageRemaining(state) {
   if (isPro(state)) return -1
   var today = _todayStr()
   var used = (state && state.aiImageUsed && state.aiImageUsed[today]) || 0
-  return Math.max(0, FREE_LIMITS.AI_IMAGE - used)
+  var limit = _freeAiLimits().AI_IMAGE
+  return Math.max(0, limit - used)
 }
 
 /**
@@ -411,28 +426,31 @@ function warmMembershipStateAsync() {
 
 /**
  * 显示购买引导弹窗；选「看广告」且看完则返回 true（临时放行）
+ * 单品标价走后台 vpaySkuPrices（与管理端一致），失败时才用本地 PRODUCTS 兜底
+ * @param {Object} [opts] { adUnlockId, allowAd } 广告解锁键（缺省用 productId）/ 是否提供广告通道
  */
-function _showPurchaseDialog(productId, productName) {
+async function _showPurchaseDialog(productId, productName, opts) {
   var adUnlock = require('./ad-unlock.js')
+  var allowAd = !opts || opts.allowAd !== false
+  var adUnlockId = (opts && opts.adUnlockId) || productId
+  var meta = _findProductById(productId)
   var priceText = ''
-  var productKeys = Object.keys(PRODUCTS)
-  for (var i = 0; i < productKeys.length; i++) {
-    if (PRODUCTS[productKeys[i]].id === productId) {
-      priceText = (PRODUCTS[productKeys[i]].price / 100).toFixed(1)
-      break
+  if (meta) {
+    try {
+      var cents = await resolveVpayPriceCents(meta.vpayProductId, meta.price)
+      if (cents > 0) priceText = formatPriceYuan(cents)
+    } catch (e) {
+      if (meta.price > 0) priceText = formatPriceYuan(meta.price)
     }
   }
 
-  var itemList = priceText
-    ? [
-        '开通星际通行证（全部解锁）',
-        '永久购买' + (productName || '') + '（¥' + priceText + '）',
-        '看广告免费体验10分钟'
-      ]
-    : [
-        '开通星际通行证（全部解锁）',
-        '看广告免费体验10分钟'
-      ]
+  var itemList = ['开通星际通行证（全部解锁）']
+  if (priceText) {
+    itemList.push('永久购买' + (productName || meta && meta.name || '') + '（¥' + priceText + '）')
+  }
+  if (allowAd) {
+    itemList.push('看广告免费体验')
+  }
 
   return new Promise(function (resolve) {
     wx.showActionSheet({
@@ -440,31 +458,19 @@ function _showPurchaseDialog(productId, productName) {
       itemList: itemList,
       success: function (res) {
         var idx = res.tapIndex
-        if (priceText) {
-          if (idx === 0) {
-            wx.navigateTo({ url: '/subpackages/profile-extra/membership/membership' })
-            resolve(false)
-            return
-          }
-          if (idx === 1) {
-            wx.navigateTo({ url: '/subpackages/profile-extra/membership/membership?buy=' + productId })
-            resolve(false)
-            return
-          }
-          if (idx === 2) {
-            adUnlock.showRewardedAdForUnlock(productId).then(resolve)
-            return
-          }
-        } else {
-          if (idx === 0) {
-            wx.navigateTo({ url: '/subpackages/profile-extra/membership/membership' })
-            resolve(false)
-            return
-          }
-          if (idx === 1) {
-            adUnlock.showRewardedAdForUnlock(productId).then(resolve)
-            return
-          }
+        if (idx === 0) {
+          wx.navigateTo({ url: '/subpackages/profile-extra/membership/membership' })
+          resolve(false)
+          return
+        }
+        if (priceText && idx === 1) {
+          wx.navigateTo({ url: '/subpackages/profile-extra/membership/membership?buy=' + productId })
+          resolve(false)
+          return
+        }
+        if (allowAd && idx === itemList.length - 1) {
+          adUnlock.showRewardedAdForUnlock(adUnlockId).then(resolve)
+          return
         }
         resolve(false)
       },
@@ -475,24 +481,30 @@ function _showPurchaseDialog(productId, productName) {
 
 /**
  * iOS 用户的付费拦截弹窗 — 可看广告试用；开通引导去其他端购买
+ * @param {Object} [opts] { adUnlockId, allowAd }
  */
-function _showIOSPurchaseDialog(productName, productId) {
+function _showIOSPurchaseDialog(productName, productId, opts) {
   var adUnlock = require('./ad-unlock.js')
+  var allowAd = !opts || opts.allowAd !== false
+  var adUnlockId = (opts && opts.adUnlockId) || productId
+  var itemList = allowAd
+    ? ['看广告免费体验', '了解如何开通（其他端）']
+    : ['了解如何开通（其他端）']
+  var guideIdx = allowAd ? 1 : 0
   return new Promise(function (resolve) {
     wx.showActionSheet({
       alertText:
         (productName || '高级功能') +
-        ' · iOS暂不支持订阅\n可看广告试用，或在其他端开通后同账号同步',
-      itemList: [
-        '看广告免费体验10分钟',
-        '了解如何开通（其他端）'
-      ],
+        (allowAd
+          ? ' · iOS暂不支持订阅\n可看广告试用，或在其他端开通后同账号同步'
+          : ' · iOS暂不支持订阅\n可在其他端开通后同账号同步'),
+      itemList: itemList,
       success: function (res) {
-        if (res.tapIndex === 0) {
-          adUnlock.showRewardedAdForUnlock(productId || '_ios_gate').then(resolve)
+        if (allowAd && res.tapIndex === 0) {
+          adUnlock.showRewardedAdForUnlock(adUnlockId || '_ios_gate').then(resolve)
           return
         }
-        if (res.tapIndex === 1) {
+        if (res.tapIndex === guideIdx) {
           wx.showModal({
             title: '如何开通星际通行证',
             content:
@@ -518,12 +530,17 @@ function _showIOSPurchaseDialog(productName, productId) {
  * 付费功能门控检查
  * 会员功能关闭时直接放行；开启时检查是否已购买或是 Pro 会员
  * 优化：缓存命中走 fast-path 不显示 loading；缓存 miss 时 700ms 超时 fail-open
+ * @param {Object} [opts]
+ * @param {string} [opts.adUnlockId] 广告解锁读写键；缺省用 productId。用于把广告权益缩小到单条资源（如单条视频）
+ * @param {boolean} [opts.allowAd] 为 false 时弹窗不提供「看广告」通道（如原视频下载）
  * @returns {boolean} true=允许访问, false=已拦截（弹窗引导购买）
  */
-async function gateCheck(productId, productName) {
+async function gateCheck(productId, productName, opts) {
   var adUnlock = require('./ad-unlock.js')
+  var adUnlockId = (opts && opts.adUnlockId) || productId
+  var allowAd = !opts || opts.allowAd !== false
   // 广告临时解锁（10 分钟）优先于购买引导
-  if (adUnlock.isUnlocked(productId)) return true
+  if (allowAd && adUnlock.isUnlocked(adUnlockId)) return true
 
   // iOS 端：仍走门控，但拦截时弹专属引导（让用户去电脑微信购买，不是直接放行）
   // 注意：PRO 用户（从其他设备买的同账号）应该正常放行，所以这里要先看缓存/查云端
@@ -532,7 +549,7 @@ async function gateCheck(productId, productName) {
     if (cachedStateForIOS !== null) {
       if (isPro(cachedStateForIOS)) return true
       if (hasPurchased(cachedStateForIOS, productId)) return true
-      return _showIOSPurchaseDialog(productName, productId)
+      return _showIOSPurchaseDialog(productName, productId, { adUnlockId: adUnlockId, allowAd: allowAd })
     }
     // 缓存 miss：查一次云端，超时 fail-open
     try {
@@ -561,7 +578,7 @@ async function gateCheck(productId, productName) {
       var s = raceResultIOS.state
       if (isPro(s)) return true
       if (hasPurchased(s, productId)) return true
-      return _showIOSPurchaseDialog(productName, productId)
+      return _showIOSPurchaseDialog(productName, productId, { adUnlockId: adUnlockId, allowAd: allowAd })
     } catch (e) {
       return true
     }
@@ -574,7 +591,7 @@ async function gateCheck(productId, productName) {
     if (!cachedEnabled) return true
     if (isPro(cachedState)) return true
     if (hasPurchased(cachedState, productId)) return true
-    return _showPurchaseDialog(productId, productName)
+    return _showPurchaseDialog(productId, productName, { adUnlockId: adUnlockId, allowAd: allowAd })
   }
 
   // 缓存 miss：等待云端，但加超时 fail-open，避免冷启动卡 UI
@@ -616,7 +633,7 @@ async function gateCheck(productId, productName) {
     try { wx.hideLoading() } catch (e) {}
   }
 
-  return _showPurchaseDialog(productId, productName)
+  return _showPurchaseDialog(productId, productName, { adUnlockId: adUnlockId, allowAd: allowAd })
 }
 
 /**
@@ -652,10 +669,10 @@ async function aiImageGateCheck() {
 
   return new Promise(function (resolve) {
     wx.showActionSheet({
-      alertText: '今日识别次数已用完\n免费用户每日 ' + FREE_LIMITS.AI_IMAGE + ' 次',
+      alertText: '今日识别次数已用完\n免费用户每日 ' + _freeAiLimits().AI_IMAGE + ' 次',
       itemList: [
         '升级星际通行证（无限使用）',
-        '看广告免费体验10分钟'
+        '看广告免费体验'
       ],
       success: function (res) {
         if (res.tapIndex === 0) {
@@ -747,12 +764,38 @@ function isMembershipEnabled() {
   return _membershipEnabledInflight
 }
 
-// ── 动态价格（来自后台 vpaySkuPrices，5 分钟全局缓存） ──
+// ── 动态价格（来自后台 vpaySkuPrices；与云函数 PRICE_CACHE_MS=30s 对齐） ──
 let _priceMapCache = { map: null, ts: 0 }
-const PRICE_MAP_CACHE_MS = 5 * 60 * 1000
+const PRICE_MAP_CACHE_MS = 30 * 1000
 
 function clearPriceCache() {
   _priceMapCache = { map: null, ts: 0 }
+}
+
+function _findProductById(productId) {
+  if (!productId) return null
+  var productKeys = Object.keys(PRODUCTS)
+  for (var i = 0; i < productKeys.length; i++) {
+    var p = PRODUCTS[productKeys[i]]
+    if (p && p.id === productId) return p
+  }
+  return null
+}
+
+/** 价格 map 取值：后台覆盖优先，否则本地默认分 */
+function resolvePriceFromMap(priceMap, vpayId, fallbackCents) {
+  var v = priceMap && priceMap[vpayId]
+  if (Number.isInteger(v) && v > 0) return v
+  var n = Number(fallbackCents)
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
+
+/** 分 → 展示文案（整数元不带小数，否则最多 1 位） */
+function formatPriceYuan(cents) {
+  var n = Number(cents) || 0
+  if (n <= 0) return ''
+  if (n % 100 === 0) return String(n / 100)
+  return (n / 100).toFixed(1)
 }
 
 async function getEffectivePrices(forceRefresh) {
@@ -771,6 +814,20 @@ async function getEffectivePrices(forceRefresh) {
   } catch (e) {
     return _priceMapCache.map || {}
   }
+}
+
+/** 按虚拟支付道具 ID 取生效价（分） */
+async function resolveVpayPriceCents(vpayProductId, fallbackCents) {
+  if (!vpayProductId) return Number(fallbackCents) || 0
+  const map = await getEffectivePrices()
+  return resolvePriceFromMap(map, vpayProductId, fallbackCents)
+}
+
+/** 按业务 productId（如 starlink_ar）取生效价（分） */
+async function resolveProductPriceCents(productId) {
+  const meta = _findProductById(productId)
+  if (!meta) return 0
+  return resolveVpayPriceCents(meta.vpayProductId, meta.price)
 }
 
 /**
@@ -807,6 +864,45 @@ async function deleteMyOrder(orderId) {
   }
 }
 
+/**
+ * 同步判断：是否允许预拉「会员功能」云资源（列表全量 / 图缓存预热等）
+ * - 会员总开关关闭：全体放行（与 gateCheck 一致）
+ * - Pro：放行
+ * - 其余（含开关未知）：不预拉，等用户点开过门控后再加载
+ */
+function canUsePaidCloudSync() {
+  const enabled = _readEnabledFromCache()
+  if (enabled === false) return true
+  if (isProSync()) return true
+  return false
+}
+
+/**
+ * 原视频下载资格（同步）：会员功能关闭、Pro 或已购对应单品时为 true。
+ * 广告临时解锁不算 —— 原片体积大（COS 成本高），不开放广告通道。
+ */
+function canSaveOriginalVideoSync(productId) {
+  const enabled = _readEnabledFromCache()
+  if (enabled === false) return true
+  if (isProSync()) return true
+  const state = _readStateFromCache()
+  return !!(state && hasPurchased(state, productId))
+}
+
+/**
+ * 非会员是否允许预写可播视频地址 / 自动播（受 forceNonMemberVideoPoster 与流量档约束）
+ * 会员关或 Pro：true；否则看策略。
+ */
+function canPrefetchVideoSync() {
+  if (canUsePaidCloudSync()) return true
+  try {
+    const { getMemberPolicySync } = require('./member-policy.js')
+    return !getMemberPolicySync().forceNonMemberVideoPoster
+  } catch (e) {
+    return false
+  }
+}
+
 module.exports = {
   MEMBER_TYPE: MEMBER_TYPE,
   PLANS: PLANS,
@@ -816,6 +912,9 @@ module.exports = {
   getMembershipState: getMembershipState,
   isPro: isPro,
   isProSync: isProSync,
+  canUsePaidCloudSync: canUsePaidCloudSync,
+  canPrefetchVideoSync: canPrefetchVideoSync,
+  canSaveOriginalVideoSync: canSaveOriginalVideoSync,
   warmMembershipStateSync: warmMembershipStateSync,
   warmMembershipStateAsync: warmMembershipStateAsync,
   hasPurchased: hasPurchased,
@@ -831,6 +930,10 @@ module.exports = {
   aiImageGateCheck: aiImageGateCheck,
   getEffectivePrices: getEffectivePrices,
   clearPriceCache: clearPriceCache,
+  resolvePriceFromMap: resolvePriceFromMap,
+  resolveVpayPriceCents: resolveVpayPriceCents,
+  resolveProductPriceCents: resolveProductPriceCents,
+  formatPriceYuan: formatPriceYuan,
   listMyOrders: listMyOrders,
   deleteMyOrder: deleteMyOrder
 }

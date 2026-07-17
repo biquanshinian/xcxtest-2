@@ -1,6 +1,7 @@
 // utils/api-monitor-data.js — monitor tab heavy data
 const { getBoosterGenealogy } = require('./api-app-services.js')
 const { translateAgencyName } = require('./space-terms-i18n.js')
+const { optimizeImageUrl } = require('./cos-url.js')
 const {
   request,
   getCacheKey,
@@ -28,7 +29,9 @@ async function getStationStatus() {
       4: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E7%A9%BA%E9%97%B4%E7%AB%99/1774271719959_6lm45w.jpg',
       18: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E7%A9%BA%E9%97%B4%E7%AB%99/1774271717044_8om5qs.png'
     }
-    return heroMap[stationId] || fallbackImage || ''
+    // 空间站卡片图展示约 140rpx 高，走 thumb 压缩避免拉原图
+    const raw = heroMap[stationId] || fallbackImage || ''
+    return raw ? optimizeImageUrl(raw, 'thumb') : ''
   }
 
   const getStationStatusMeta = (status) => {

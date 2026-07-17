@@ -1,6 +1,10 @@
 const pageBase = require('../../utils/page-base.js')
-const { getStarshipStatusFromDB } = require('../../utils/api-app-services.js')
+const {
+  getStarshipStatusFromDB,
+  getStarshipHardwareFromDB
+} = require('../../utils/api-app-services.js')
 const { resolveMediaUrl } = require('../../utils/image-config.js')
+const { getCachedMediaImage } = require('../../utils/icon-cache.js')
 
 const B19_IMAGE_KEY = '最新版星舰组合体进展一二级图/b19_spacex3.webp'
 const S39_IMAGE_KEY = '最新版星舰组合体进展一二级图/s39_spacex.webp'
@@ -43,14 +47,36 @@ function getStatusZh(status) {
   return map[String(status || '').trim().toUpperCase()] || ''
 }
 
-/** 与 progress 页 normalizeStarshipStatusData 的 detail 部分保持一致 */
-function buildDetail(item, type) {
+/** 与进度页一致：该分类下 Active 且 ordering 最小 */
+function pickCurrentHardwareVehicle(vehicles, category) {
+  const all = Array.isArray(vehicles) ? vehicles : []
+  let best = null
+  for (let i = 0; i < all.length; i++) {
+    const v = all[i]
+    if (!v || v.category !== category) continue
+    if (String(v.status || '').toLowerCase() !== 'active') continue
+    if (!best || v.ordering < best.ordering) best = v
+  }
+  return best
+}
+
+/**
+ * 与 progress 页 normalizeStarshipStatusData 的 detail 部分保持一致；
+ * hardwareImage：首页组合体卡片同源的 NSF 硬件 Active 图，优先于 starshipStatus 旧图
+ */
+function buildDetail(item, type, hardwareVehicle) {
   const detail = (item && item.detail) || {}
-  const fallbackTitle = buildVehicleLabel(item, type)
+  const hwName = hardwareVehicle && hardwareVehicle.name
+  const fallbackTitle = hwName
+    ? buildVehicleLabel({ name: hwName }, type)
+    : buildVehicleLabel(item, type)
   const fallbackSubtitle = type === 'ship' ? 'STARSHIP' : 'SUPER HEAVY'
 
-  // 自动数据优先：NSF image/images 在前，后台 thumbnail 仅兜底
+  // 自动数据优先：硬件 Active 图（与首页 overlay 同源）> NSF status 图 > 后台 thumbnail
   const images = []
+  if (hardwareVehicle && hardwareVehicle.image) {
+    images.push(hardwareVehicle.image)
+  }
   if (item) {
     if (item.image) images.push(item.image)
     if (Array.isArray(item.images)) images.push(...item.images)
@@ -60,14 +86,17 @@ function buildDetail(item, type) {
   }
   const autoImage = [...new Set(images.map(normalizeImageUrl).filter(Boolean))][0] || ''
   const manualHero = resolveCloudAsset(detail, 'heroMediaKey', 'heroFallback')
+  const statusFromHw = hardwareVehicle && (hardwareVehicle.statusZh || getStatusZh(hardwareVehicle.status))
+  const summaryFromHw = hardwareVehicle && hardwareVehicle.notesZh
 
   return {
     title: detail.title || fallbackTitle,
     subtitle: detail.subtitle || fallbackSubtitle,
-    statusText: detail.statusText || getStatusZh(item && item.status) || '活跃',
-    summary: detail.summary || `${fallbackTitle}正在执行对应阶段的测试与验证任务。`,
-    // 优先级：自动图 > 手动头图 > 静态占位
+    statusText: detail.statusText || statusFromHw || getStatusZh(item && item.status) || '活跃',
+    summary: detail.summary || summaryFromHw || `${fallbackTitle}正在执行对应阶段的测试与验证任务。`,
+    // 优先级：硬件/自动图 > 手动头图 > 静态占位
     heroImage: autoImage || manualHero || getFallbackImage(type),
+    rawHeroImage: autoImage || '',
     showChecklist: detail.showChecklist === true,
     checklist: Array.isArray(detail.checklist) ? detail.checklist : []
   }
@@ -97,15 +126,31 @@ Page({
 
   async loadDetail(type) {
     try {
-      const data = await getStarshipStatusFromDB()
+      const [data, hwRes] = await Promise.all([
+        getStarshipStatusFromDB(),
+        getStarshipHardwareFromDB().catch(function () {
+          return { vehicles: [] }
+        })
+      ])
       const item = (data && data[type]) || null
-      const detail = buildDetail(item, type)
+      const hardwareVehicle = pickCurrentHardwareVehicle(
+        (hwRes && hwRes.vehicles) || [],
+        type
+      )
+      const detail = buildDetail(item, type, hardwareVehicle)
+      // HTTPS 可压缩缓存；cloud:// 原样（与首页卡片一致）
+      if (detail.heroImage) {
+        detail.heroImage = getCachedMediaImage(detail.heroImage, 'medium')
+      }
       this.setData({
         loading: false,
         detail,
         navTitle: detail.title,
         // 话题优先全称（Ship 40），与硬件详情页话题口径一致；缺全称时回退「星舰S40」格式
-        discussionTopic: buildVehicleLabel(item, type)
+        discussionTopic: buildVehicleLabel(
+          hardwareVehicle ? { name: hardwareVehicle.name } : item,
+          type
+        )
       })
     } catch (e) {
       this.setData({ loading: false, errorMessage: '数据加载失败，请稍后重试' })
@@ -113,6 +158,12 @@ Page({
   },
 
   onHeroImageError() {
+    const detail = this.data.detail
+    const raw = detail && detail.rawHeroImage
+    if (raw && detail.heroImage !== raw) {
+      this.setData({ 'detail.heroImage': raw })
+      return
+    }
     this.setData({ 'detail.heroImage': getFallbackImage(this.data.type) })
   },
 

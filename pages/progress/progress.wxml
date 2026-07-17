@@ -166,8 +166,16 @@
 
     <!-- 事件更新（爱好者追踪） -->
     <view class="event-updates-section">
-      <view class="event-updates-header-row">
-        <text class="event-updates-heading">事件更新</text>
+      <view class="section-title event-updates-title-row">
+        <text>事件更新</text>
+        <view class="section-badge" wx:if="{{tweetEventTotal}}">{{tweetEventTotal}}</view>
+        <view class="section-title-right">
+          <view class="booster-view-all" hover-class="booster-view-all--pressed" hover-stay-time="120"
+                bindtap="openEventUpdatesList" wx:if="{{eventUpdates.length > 0}}">
+            <text>查看更多</text>
+            <text class="booster-view-all-arrow">›</text>
+          </view>
+        </view>
       </view>
       <!-- 今日各账号更新统计（标题下方横向滑动，复用首页发射商胶囊交互） -->
       <view class="tweet-stats-scroll-wrap" wx:if="{{tweetAccountStats.length > 0}}">
@@ -236,10 +244,6 @@
                 </block>
               </view>
             </view>
-          </view>
-          <view class="event-updates-expand-btn" bindtap="openEventUpdatesList">
-            <text>查看更多</text>
-            <text class="expand-arrow">›</text>
           </view>
         </view>
 

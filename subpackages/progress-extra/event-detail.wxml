@@ -27,6 +27,37 @@
       </view>
 
       <block wx:elif="{{pageMode === 'nsf_checklist' && !errorMessage}}">
+        <!-- 即将发射的星舰任务（与首页即将发射列表同款信息，点击进任务详情） -->
+        <view class="nsf-starship-missions" wx:if="{{nsfStarshipMissions.length > 0}}">
+          <view class="nsf-starship-missions-head">
+            <text class="nsf-starship-missions-title">即将发射 · 星舰</text>
+          </view>
+          <view
+            class="nsf-mission-card glass-card card-hover"
+            wx:for="{{nsfStarshipMissions}}"
+            wx:key="_wxkey"
+            bindtap="onNsfStarshipMissionTap"
+            data-id="{{item.id}}"
+            data-type="{{item._detailType || 'upcoming'}}"
+          >
+            <view class="nsf-mission-rocket-slot">
+              <image class="nsf-mission-rocket-image" wx:if="{{item.rocketImage}}" src="{{item.rocketImage}}" mode="aspectFill"></image>
+              <view wx:else class="nsf-mission-rocket-image nsf-mission-rocket-image--placeholder"></view>
+            </view>
+            <view class="nsf-mission-info">
+              <view class="nsf-mission-info-top">
+                <text class="nsf-mission-status nsf-mission-status--{{item.statusCategory || 'pending'}}">{{item.statusBadgeText || item.status || '计划中'}}</text>
+                <text class="nsf-mission-country" wx:if="{{item.countryDisplay}}">{{item.countryDisplay}}</text>
+              </view>
+              <text class="nsf-mission-name">{{item.missionName || item.name || '未知任务'}}</text>
+              <text class="nsf-mission-meta" wx:if="{{item.rocketName}}">{{item.rocketName}}</text>
+              <text class="nsf-mission-meta">{{item.formattedTime}}</text>
+              <text class="nsf-mission-meta" wx:if="{{item.padLocation}}">{{item.padLocation}}</text>
+            </view>
+            <text class="nsf-mission-chevron">›</text>
+          </view>
+        </view>
+
         <view class="detail-card glass-card nsf-checklist-detail-card">
           <view class="meta-top" wx:if="{{nsfChecklistSourceLastFetch}}">
             <text class="date-text">{{nsfChecklistSourceLastFetch}}</text>
@@ -365,7 +396,7 @@
             <view class="event-media-list" wx:if="{{enableEventVideo && ev.mediaList && ev.mediaList.length > 0}}">
               <block wx:for="{{ev.mediaList}}" wx:for-item="media" wx:for-index="mIdx" wx:key="mIdx">
                 <image wx:if="{{media.type === 'image'}}" class="event-media-image" src="{{media.url}}" mode="aspectFill" lazy-load="{{true}}" show-menu-by-longpress="{{true}}" catchtap="onEventImagePreview" data-urls="{{ev.imageUrls}}" data-current="{{media.url}}" />
-                <view wx:if="{{media.type === 'video'}}" class="event-media-video-wrap" catchtap="onVideoThumbnailTap" catchlongpress="onVideoSaveOriginal" data-url="{{media.url}}" data-playurl="{{media.playUrl}}" data-original="{{media.originalUrl || media.url}}" data-sourceurl="{{media.sourceUrl}}" data-videourl="{{media.videoUrl}}" data-islong="{{media.isLongVideo}}" data-thumb="{{media.thumbnailUrl}}">
+                <view wx:if="{{media.type === 'video'}}" class="event-media-video-wrap" catchtap="onVideoThumbnailTap" catchlongpress="onVideoSaveOriginal" data-url="{{media.url}}" data-playurl="{{media.playUrl}}" data-original="{{media.originalUrl || media.url}}" data-sourceurl="{{media.sourceUrl}}" data-videourl="{{media.videoUrl}}" data-islong="{{media.isLongVideo}}" data-thumb="{{media.thumbnailUrl}}" data-eventid="{{ev._id}}" data-midx="{{mIdx}}">
                   <image wx:if="{{media.thumbnailUrl}}" class="event-media-video-thumb" src="{{media.thumbnailUrl}}" mode="aspectFill" lazy-load="{{true}}" />
                   <image wx:else class="event-media-video-thumb" src="{{media.url}}" mode="aspectFill" lazy-load="{{true}}" />
                   <view class="event-media-play-icon">▶</view>
@@ -433,7 +464,7 @@
               data-urls="{{item.imageUrls}}"
               data-current="{{media.url}}"
             ></image>
-            <view wx:if="{{media.type === 'video'}}" class="event-media-video-wrap" bindtap="onVideoThumbnailTap" bindlongpress="onVideoSaveOriginal" data-url="{{media.url}}" data-playurl="{{media.playUrl}}" data-original="{{media.originalUrl || media.url}}" data-sourceurl="{{media.sourceUrl}}" data-videourl="{{media.videoUrl}}" data-islong="{{media.isLongVideo}}" data-thumb="{{media.thumbnailUrl}}">
+            <view wx:if="{{media.type === 'video'}}" class="event-media-video-wrap" bindtap="onVideoThumbnailTap" bindlongpress="onVideoSaveOriginal" data-url="{{media.url}}" data-playurl="{{media.playUrl}}" data-original="{{media.originalUrl || media.url}}" data-sourceurl="{{media.sourceUrl}}" data-videourl="{{media.videoUrl}}" data-islong="{{media.isLongVideo}}" data-thumb="{{media.thumbnailUrl}}" data-eventid="{{item._id}}" data-midx="{{mIdx}}">
               <image wx:if="{{media.thumbnailUrl}}" class="event-media-video-thumb" src="{{media.thumbnailUrl}}" mode="aspectFill" lazy-load="{{true}}"></image>
               <image wx:else class="event-media-video-thumb" src="{{media.url}}" mode="aspectFill" lazy-load="{{true}}"></image>
               <view class="event-media-play-icon">▶</view>

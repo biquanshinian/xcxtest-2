@@ -1106,7 +1106,8 @@ Page({
       this.setData({ channelsFallbackGuide: guide })
     }
     return getChannelsLiveFallbackGuide({
-      forceRefresh: forceRefresh !== false,
+      // 仅显式传 true 才强刷（打开二维码弹窗），默认走本地缓存 + TTL
+      forceRefresh: forceRefresh === true,
       onUpdate: (fresh) => apply(fresh)
     })
       .then((guide) => apply(guide))

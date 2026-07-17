@@ -399,61 +399,6 @@
           </view>
         </view>
 
-        <view class="detail-section detail-desc-section" wx:if="{{(mission.missionFull && mission.missionFull.description) || mission.missionDetails || mission.description}}">
-          <view class="detail-section-title-row">
-            <text class="detail-section-title">任务说明</text>
-            <text class="translate-toggle {{descTranslating ? 'translate-toggle--busy' : ''}}" catchtap="onToggleDescTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
-          </view>
-          <!-- 隐藏测量节点：渲染完整文本量实际行数，超过 3 行才启用折叠（descOverflow） -->
-          <view class="desc-measure" aria-hidden="{{true}}">
-            <view class="section-text section-text--compact" id="descMeasureLineM">一</view>
-            <view class="section-text section-text--compact" id="descMeasureMission">{{descI18n.missionDesc || (mission.missionFull && mission.missionFull.description) || mission.missionDetails || mission.description}}</view>
-          </view>
-          <!-- 折叠态用 view：text 组件开启 user-select 后 -webkit-line-clamp 截断不生效 -->
-          <view wx:if="{{!detailExpanded.missionDesc && descOverflow.missionDesc}}" class="section-text section-text--compact detail-text-clamp" bindtap="toggleDetailExpand" data-key="missionDesc">{{descI18n.missionDesc || (mission.missionFull && mission.missionFull.description) || mission.missionDetails || mission.description}}</view>
-          <text wx:else class="section-text section-text--compact" user-select="{{true}}">{{descI18n.missionDesc || (mission.missionFull && mission.missionFull.description) || mission.missionDetails || mission.description}}</text>
-          <text class="expand-toggle" wx:if="{{descOverflow.missionDesc}}" bindtap="toggleDetailExpand" data-key="missionDesc">{{detailExpanded.missionDesc ? '收起' : '展开全文'}}</text>
-        </view>
-
-        <view class="detail-section detail-desc-section" wx:if="{{(mission.rocketFull && mission.rocketFull.description) || mission.rocketInfo}}">
-          <view class="detail-section-title-row">
-            <text class="detail-section-title">火箭信息</text>
-            <text class="translate-toggle {{descTranslating ? 'translate-toggle--busy' : ''}}" catchtap="onToggleDescTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
-          </view>
-          <view class="desc-measure" aria-hidden="{{true}}">
-            <view class="section-text section-text--compact" id="descMeasureLineR">一</view>
-            <view class="section-text section-text--compact" id="descMeasureRocket">{{descI18n.rocketDesc || (mission.rocketFull && mission.rocketFull.description) || mission.rocketInfo}}</view>
-          </view>
-          <view wx:if="{{!detailExpanded.rocketDesc && descOverflow.rocketDesc}}" class="section-text section-text--compact detail-text-clamp" bindtap="toggleDetailExpand" data-key="rocketDesc">{{descI18n.rocketDesc || (mission.rocketFull && mission.rocketFull.description) || mission.rocketInfo}}</view>
-          <text wx:else class="section-text section-text--compact" user-select="{{true}}">{{descI18n.rocketDesc || (mission.rocketFull && mission.rocketFull.description) || mission.rocketInfo}}</text>
-          <text class="expand-toggle" wx:if="{{descOverflow.rocketDesc}}" bindtap="toggleDetailExpand" data-key="rocketDesc">{{detailExpanded.rocketDesc ? '收起' : '展开全文'}}</text>
-        </view>
-
-        <!-- 所属计划（LL2 program：如 SpaceX Starship、Artemis 等） -->
-        <view class="detail-section detail-program-section" wx:if="{{mission.programInfo && mission.programInfo.length > 0}}">
-          <view class="detail-section-title-row">
-            <text class="detail-section-title">所属计划</text>
-            <text class="translate-toggle {{descTranslating ? 'translate-toggle--busy' : ''}}" catchtap="onToggleDescTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
-          </view>
-          <view class="detail-program-card" wx:for="{{mission.programInfo}}" wx:key="_wxkey">
-            <image class="detail-program-img" wx:if="{{item.imageUrl}}" src="{{item.imageUrl}}" mode="aspectFill"></image>
-            <view class="detail-program-head">
-              <text class="detail-program-name">{{item.name}}</text>
-              <text class="detail-program-type" wx:if="{{item.typeName}}">{{item.typeName}}</text>
-            </view>
-            <view class="detail-program-meta">
-              <text class="detail-program-meta-item" wx:if="{{item.startYear}}">{{item.startYear}} 年启动{{item.endYear ? '，' + item.endYear + ' 年结束' : '，进行中'}}</text>
-              <text class="detail-program-meta-item" wx:if="{{item.agencies}}">主导机构：{{item.agencies}}</text>
-            </view>
-            <text class="section-text section-text--compact" wx:if="{{item.description}}" user-select="{{true}}">{{descI18n.programs[index] || item.description}}</text>
-            <view class="detail-program-links" wx:if="{{item.wikiUrl || item.infoUrl}}">
-              <text class="detail-link" wx:if="{{item.wikiUrl}}" catchtap="copyLink" data-url="{{item.wikiUrl}}">维基</text>
-              <text class="detail-link" wx:if="{{item.wikiUrl && item.infoUrl}}"> · </text>
-              <text class="detail-link" wx:if="{{item.infoUrl}}" catchtap="copyLink" data-url="{{item.infoUrl}}">官网</text>
-            </view>
-          </view>
-        </view>
-
         <view class="detail-block" wx:if="{{mission.boosterInfo || (mission.boosterStages && mission.boosterStages.length > 0) || (mission.launcherLanding && mission.launcherLanding.general && mission.launcherLanding.general.flights != null)}}">
           <view class="detail-block-header" bindtap="toggleDetailBlock" data-key="launcher">
             <text class="detail-block-title">{{mission.launcherBlockTitle || '箭体与回收'}}</text>
@@ -572,6 +517,61 @@
               currentLaunchId="{{mission.id}}"
               maxCollapsed="{{2}}"
             />
+          </view>
+        </view>
+
+        <view class="detail-section detail-desc-section" wx:if="{{(mission.missionFull && mission.missionFull.description) || mission.missionDetails || mission.description}}">
+          <view class="detail-section-title-row">
+            <text class="detail-section-title">任务说明</text>
+            <text class="translate-toggle {{descTranslating ? 'translate-toggle--busy' : ''}}" catchtap="onToggleDescTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
+          </view>
+          <!-- 隐藏测量节点：渲染完整文本量实际行数，超过 3 行才启用折叠（descOverflow） -->
+          <view class="desc-measure" aria-hidden="{{true}}">
+            <view class="section-text section-text--compact" id="descMeasureLineM">一</view>
+            <view class="section-text section-text--compact" id="descMeasureMission">{{descI18n.missionDesc || (mission.missionFull && mission.missionFull.description) || mission.missionDetails || mission.description}}</view>
+          </view>
+          <!-- 折叠态用 view：text 组件开启 user-select 后 -webkit-line-clamp 截断不生效 -->
+          <view wx:if="{{!detailExpanded.missionDesc && descOverflow.missionDesc}}" class="section-text section-text--compact detail-text-clamp" bindtap="toggleDetailExpand" data-key="missionDesc">{{descI18n.missionDesc || (mission.missionFull && mission.missionFull.description) || mission.missionDetails || mission.description}}</view>
+          <text wx:else class="section-text section-text--compact" user-select="{{true}}">{{descI18n.missionDesc || (mission.missionFull && mission.missionFull.description) || mission.missionDetails || mission.description}}</text>
+          <text class="expand-toggle" wx:if="{{descOverflow.missionDesc}}" bindtap="toggleDetailExpand" data-key="missionDesc">{{detailExpanded.missionDesc ? '收起' : '展开全文'}}</text>
+        </view>
+
+        <view class="detail-section detail-desc-section" wx:if="{{(mission.rocketFull && mission.rocketFull.description) || mission.rocketInfo}}">
+          <view class="detail-section-title-row">
+            <text class="detail-section-title">火箭信息</text>
+            <text class="translate-toggle {{descTranslating ? 'translate-toggle--busy' : ''}}" catchtap="onToggleDescTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
+          </view>
+          <view class="desc-measure" aria-hidden="{{true}}">
+            <view class="section-text section-text--compact" id="descMeasureLineR">一</view>
+            <view class="section-text section-text--compact" id="descMeasureRocket">{{descI18n.rocketDesc || (mission.rocketFull && mission.rocketFull.description) || mission.rocketInfo}}</view>
+          </view>
+          <view wx:if="{{!detailExpanded.rocketDesc && descOverflow.rocketDesc}}" class="section-text section-text--compact detail-text-clamp" bindtap="toggleDetailExpand" data-key="rocketDesc">{{descI18n.rocketDesc || (mission.rocketFull && mission.rocketFull.description) || mission.rocketInfo}}</view>
+          <text wx:else class="section-text section-text--compact" user-select="{{true}}">{{descI18n.rocketDesc || (mission.rocketFull && mission.rocketFull.description) || mission.rocketInfo}}</text>
+          <text class="expand-toggle" wx:if="{{descOverflow.rocketDesc}}" bindtap="toggleDetailExpand" data-key="rocketDesc">{{detailExpanded.rocketDesc ? '收起' : '展开全文'}}</text>
+        </view>
+
+        <!-- 所属计划（LL2 program：如 SpaceX Starship、Artemis 等） -->
+        <view class="detail-section detail-program-section" wx:if="{{mission.programInfo && mission.programInfo.length > 0}}">
+          <view class="detail-section-title-row">
+            <text class="detail-section-title">所属计划</text>
+            <text class="translate-toggle {{descTranslating ? 'translate-toggle--busy' : ''}}" catchtap="onToggleDescTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
+          </view>
+          <view class="detail-program-card" wx:for="{{mission.programInfo}}" wx:key="_wxkey">
+            <image class="detail-program-img" wx:if="{{item.imageUrl}}" src="{{item.imageUrl}}" mode="aspectFill"></image>
+            <view class="detail-program-head">
+              <text class="detail-program-name">{{item.name}}</text>
+              <text class="detail-program-type" wx:if="{{item.typeName}}">{{item.typeName}}</text>
+            </view>
+            <view class="detail-program-meta">
+              <text class="detail-program-meta-item" wx:if="{{item.startYear}}">{{item.startYear}} 年启动{{item.endYear ? '，' + item.endYear + ' 年结束' : '，进行中'}}</text>
+              <text class="detail-program-meta-item" wx:if="{{item.agencies}}">主导机构：{{item.agencies}}</text>
+            </view>
+            <text class="section-text section-text--compact" wx:if="{{item.description}}" user-select="{{true}}">{{descI18n.programs[index] || item.description}}</text>
+            <view class="detail-program-links" wx:if="{{item.wikiUrl || item.infoUrl}}">
+              <text class="detail-link" wx:if="{{item.wikiUrl}}" catchtap="copyLink" data-url="{{item.wikiUrl}}">维基</text>
+              <text class="detail-link" wx:if="{{item.wikiUrl && item.infoUrl}}"> · </text>
+              <text class="detail-link" wx:if="{{item.infoUrl}}" catchtap="copyLink" data-url="{{item.infoUrl}}">官网</text>
+            </view>
           </view>
         </view>
 

@@ -3305,303 +3305,11 @@ async function crossValidateWithSpaceX() {
   }
 }
 
-const { decodeHtmlEntities } = require('./decode-html-entities.js')
-
-function stripHtmlTags(str) {
-  const stripped = String(str || '')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-  return decodeHtmlEntities(stripped)
-}
-
-const { enrichStarbaseParsedForStorage } = require('./starbase-i18n.js')
-
-/** 按页面标题切分 HTML 文本块（对应官网 BEACH Access Status / Road Updates 等区域） */
-function sliceStarbaseSection(html, startLabel, endLabels) {
-  const plain = stripHtmlTags(html)
-  const startIdx = plain.search(new RegExp(startLabel, 'i'))
-  if (startIdx < 0) return ''
-  let endIdx = plain.length
-  for (const label of endLabels) {
-    const i = plain.slice(startIdx + startLabel.length).search(new RegExp(label, 'i'))
-    if (i >= 0) endIdx = Math.min(endIdx, startIdx + startLabel.length + i)
-  }
-  return plain.slice(startIdx, endIdx).trim()
-}
-
-const STARBASE_TIME_RANGE_RE =
-  /((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d{1,2}\s+\d{1,2}:\d{2}\s*(?:AM|PM)\s+to\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d{1,2}\s+\d{1,2}:\d{2}\s*(?:AM|PM))/gi
-
-const STARBASE_OPEN_SEMANTIC_RE =
-  /当前无道路延迟|无道路延迟|无封路|未封路|正常通行|无管制|currently open|no road delays?|no closures?|roads?\s+open|beach\s+open/i
-
-function isStarbaseOpenSemantic(text) {
-  const s = String(text || '').trim()
-  return !!s && STARBASE_OPEN_SEMANTIC_RE.test(s)
-}
-
-function isStarbaseRoadOpen(result) {
-  return result.roadOpen === true || isStarbaseOpenSemantic(result.roadStatusLabel)
-}
-
-function uniqueStrings(list) {
-  const out = []
-  const seen = new Set()
-  for (const item of list || []) {
-    const s = String(item || '').replace(/\s+/g, ' ').trim()
-    if (!s || seen.has(s)) continue
-    seen.add(s)
-    out.push(s)
-  }
-  return out
-}
-
-function parseBeachClosureSlots(sectionText, fullText) {
-  const slots = []
-  let source = String(sectionText || fullText || '').replace(/\s+/g, ' ')
-  if (!source) return []
-
-  // 官网常把时段与下一标签粘在一起，例如 "11:00 PMPrimary: May. 21 ..."
-  source = source.replace(/(\d{1,2}:\d{2}\s*(?:AM|PM))(Primary|Backup)\s*:/gi, '$1 $2:')
-
-  const slotRe = /(Primary|Backup)\s*:\s*([\s\S]*?)(?=\s*(?:Primary|Backup)\s*:|$)/gi
-  let sm
-  while ((sm = slotRe.exec(source)) !== null) {
-    let timeText = sm[2].replace(/\s+/g, ' ').trim()
-    const rangeMatch = timeText.match(STARBASE_TIME_RANGE_RE)
-    if (rangeMatch) {
-      timeText = rangeMatch[0].replace(/\s+/g, ' ').trim()
-    } else if (!/(?:AM|PM)/i.test(timeText)) {
-      continue
-    }
-    const kind = sm[1].charAt(0).toUpperCase() + sm[1].slice(1).toLowerCase()
-    slots.push(`${kind}: ${timeText}`)
-  }
-  if (slots.length > 0) return uniqueStrings(slots)
-
-  const chunks = source.split(/(?=(?:Primary|Backup)\s*:)/i).filter(Boolean)
-  for (const chunk of chunks) {
-    const m = chunk.match(/^(Primary|Backup)\s*:\s*(.+)$/i)
-    if (!m) continue
-    const timeText = m[2].replace(/\s+/g, ' ').trim()
-    if (!timeText) continue
-    slots.push(`${m[1][0].toUpperCase() + m[1].slice(1).toLowerCase()}: ${timeText}`)
-  }
-  if (slots.length > 0) return uniqueStrings(slots)
-
-  const fallback = []
-  let tm
-  const re = new RegExp(STARBASE_TIME_RANGE_RE.source, 'gi')
-  while ((tm = re.exec(source)) !== null) {
-    fallback.push(tm[1].replace(/\s+/g, ' ').trim())
-  }
-  return uniqueStrings(fallback)
-}
-
-function parseRoadUpdateItems(sectionText, fullText) {
-  const items = []
-  const seen = new Set()
-  const sources = [sectionText, fullText].filter((s) => String(s || '').trim())
-  const descRe =
-    /Description\s*:\s*(.+?)\s*Date\s*:\s*((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d{1,2}\s+\d{1,2}:\d{2}\s*(?:AM|PM)\s+to\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d{1,2}\s+\d{1,2}:\d{2}\s*(?:AM|PM))/gi
-
-  for (const source of sources) {
-    descRe.lastIndex = 0
-    let dm
-    while ((dm = descRe.exec(source)) !== null) {
-      const description = dm[1].replace(/\s+/g, ' ').trim()
-      const date = dm[2].replace(/\s+/g, ' ').trim()
-      const key = `${description}|${date}`.toLowerCase()
-      if (!description || seen.has(key)) continue
-      seen.add(key)
-      items.push({ description, date })
-    }
-  }
-  return items
-}
-
-/** 根据 roadUpdates / 页面文案统一道路开放状态，避免「无延迟」与明细矛盾 */
-function resolveStarbaseRoadStatus(result, roadPlain, fullPlain, roadSectionDelays) {
-  const hasUpdates = (result.roadUpdates || []).length > 0
-  const hasRoadSectionDelays = Array.isArray(roadSectionDelays) && roadSectionDelays.length > 0
-  const sectionSaysNoDelay = /no\s+road\s+delays?\.?/i.test(String(roadPlain || ''))
-  const fullSaysNoDelay = /no\s+road\s+delays?\.?/i.test(String(fullPlain || ''))
-  if ((sectionSaysNoDelay || fullSaysNoDelay) && !hasUpdates && !hasRoadSectionDelays) {
-    result.roadOpen = true
-    result.roadStatusLabel = '当前无道路延迟'
-    return
-  }
-
-  const stripNoDelay = (s) => String(s || '').replace(/no\s+road\s+delays?\.?/gi, ' ')
-  const bannerHasRoadDelay = (result.bannerAlerts || []).some((a) => /road\s+delay/i.test(stripNoDelay(a)))
-  const pageHasRoadDelay = /road\s+delay/i.test(stripNoDelay(roadPlain)) || /road\s+delay/i.test(stripNoDelay(fullPlain))
-  const hasActiveDelay = hasUpdates || hasRoadSectionDelays || bannerHasRoadDelay || pageHasRoadDelay
-
-  if (hasActiveDelay) {
-    result.roadOpen = false
-    result.roadStatusLabel = '道路延迟'
-    return
-  }
-
-  if (/road\s+closure/i.test(String(roadPlain || '')) || /road\s+closure/i.test(String(fullPlain || ''))) {
-    result.roadOpen = false
-    result.roadStatusLabel = '道路管制中'
-  }
-}
-
-function parseBannerAlerts(html, fullText) {
-  const alerts = []
-  const ticker = stripHtmlTags(
-    (html.match(/notification-message[^>]*>([\s\S]*?)<\/div>/i) || [])[1] || ''
-  )
-  if (ticker) {
-    ticker.split('|').forEach((part) => {
-      const s = part.replace(/\s+/g, ' ').trim()
-      if (s && /\d{1,2}:\d{2}\s*(?:AM|PM)/i.test(s)) alerts.push(s)
-    })
-  }
-  let tm
-  const re = new RegExp(STARBASE_TIME_RANGE_RE.source, 'gi')
-  const head = fullText.slice(0, 1200)
-  while ((tm = re.exec(head)) !== null) {
-    alerts.push(tm[1].replace(/\s+/g, ' ').trim())
-  }
-  return uniqueStrings(alerts)
-}
-
-/**
- * 解析 starbase.texas.gov/beach-road-access HTML
- * 页面结构：顶部滚动通知 | BEACH Access Status（海滩封闭时段）| Road Updates（道路延迟/更新）
- */
-function parseStarbaseHtml(html) {
-  const result = {
-    success: true,
-    beachOpen: null,
-    roadOpen: null,
-    beachStatus: '',
-    roadDelays: [],
-    beachClosureSchedule: [],
-    roadUpdates: [],
-    publicNotice: '',
-    publicOrders: [],
-    bannerAlerts: [],
-    roadStatusLabel: '',
-    message: '',
-    timeRange: '',
-    fetchedAt: Date.now()
-  }
-
-  const text = stripHtmlTags(html)
-  const beachSection = sliceStarbaseSection(html, 'BEACH Access Status', [
-    'Road Updates',
-    'Public Notice',
-    'OTHER BEACHES'
-  ])
-  const roadSection = sliceStarbaseSection(html, 'Road Updates', [
-    'Public Notice',
-    'OTHER BEACHES',
-    'Surf Report'
-  ])
-
-  result.bannerAlerts = parseBannerAlerts(html, text)
-  result.beachClosureSchedule = parseBeachClosureSlots(beachSection, text)
-  result.roadUpdates = parseRoadUpdateItems(roadSection, text)
-
-  // 海滩开放状态
-  if (/beach\s+is\s+currently\s+closed/i.test(text) || /beach\s+closures?/i.test(beachSection)) {
-    result.beachOpen = false
-    result.beachStatus = 'Boca Chica Beach 当前已关闭'
-  } else if (/beach\s+is\s+currently\s+open/i.test(text)) {
-    result.beachOpen = true
-    result.beachStatus = 'Boca Chica Beach 当前开放'
-  } else if (result.beachClosureSchedule.length > 0) {
-    result.beachOpen = false
-    result.beachStatus = 'Boca Chica Beach 计划封闭时段'
-  }
-
-  // 道路状态（Road Updates 区块）：有具体更新项时优先于页面上的 "No road delays."
-  const roadPlain = roadSection || ''
-  if (roadPlain) {
-    let rm
-    const delayRe = new RegExp(STARBASE_TIME_RANGE_RE.source, 'gi')
-    while ((rm = delayRe.exec(roadPlain)) !== null) {
-      result.roadDelays.push(rm[1].replace(/\s+/g, ' ').trim())
-    }
-  }
-  const roadSectionDelays = uniqueStrings(result.roadDelays.slice())
-  resolveStarbaseRoadStatus(result, roadPlain, text, roadSectionDelays)
-  if (isStarbaseRoadOpen(result) || (result.beachOpen === true && result.roadOpen !== false)) {
-    result.roadDelays = roadSectionDelays
-    result.bannerAlerts = []
-  } else {
-    result.roadDelays = uniqueStrings(result.roadDelays.concat(result.bannerAlerts))
-  }
-
-  // Public Notice — 最新市长令摘要
-  const noticeSection = sliceStarbaseSection(html, 'Public Notice', ['OTHER BEACHES', 'Surf Report', 'Previous Orders'])
-  const orderBlocks = noticeSection.split(/Order\s+No\s+/i).slice(1)
-  for (const block of orderBlocks) {
-    const orderNoMatch = block.match(/^([\d-]+)/)
-    const orderNo = orderNoMatch ? ('Order No ' + orderNoMatch[1].trim()) : 'Mayor Order'
-    const rest = orderNoMatch ? block.slice(orderNoMatch[0].length).trim() : block.trim()
-    const bodyMatch = rest.match(
-      /^([\s\S]*?)(?:Primary\s+Closure\s+Period|Alternate\s+Dates|Revocation\s+of\s+Closure|$)/i
-    )
-    const period = rest.match(
-      /Primary\s+Closure\s+Period\s+([\s\S]*?)(?:Alternate\s+Dates|Revocation\s+of\s+Closure|$)/i
-    )
-    const alt = rest.match(/Alternate\s+Dates?\s+([\s\S]*?)(?:Revocation\s+of\s+Closure|Order\s+No|$)/i)
-    const rev = rest.match(/Revocation\s+of\s+Closure\s+([\s\S]*?)(?=Order\s+No|$)/i)
-    result.publicOrders.push({
-      orderNo,
-      bodyText: bodyMatch ? bodyMatch[1].replace(/\s+/g, ' ').trim() : '',
-      primaryPeriod: period ? period[1].replace(/\s+/g, ' ').trim() : '',
-      alternateDates: alt ? alt[1].replace(/\s+/g, ' ').trim() : '',
-      revocation: rev ? rev[1].replace(/\s+/g, ' ').trim() : ''
-    })
-  }
-  if (result.publicOrders.length > 0) {
-    const latest = result.publicOrders[0]
-    result.publicNotice = [latest.bodyText, latest.primaryPeriod, latest.alternateDates]
-      .filter(Boolean)
-      .join('\n')
-  }
-
-  const msgParts = []
-  if (result.beachStatus) msgParts.push(result.beachStatus)
-  const roadLabelConflictsWithUpdates =
-    result.roadUpdates.length > 0 && /无道路延迟/.test(result.roadStatusLabel || '')
-  if (result.roadStatusLabel && !roadLabelConflictsWithUpdates) {
-    msgParts.push(result.roadStatusLabel)
-  }
-  if (result.beachClosureSchedule.length > 0) {
-    msgParts.push(result.beachClosureSchedule.slice(0, 3).join('；'))
-  }
-  if (result.roadUpdates.length > 0) {
-    const roadLines = result.roadUpdates
-      .slice(0, 2)
-      .map((u) => `${u.description}（${u.date}）`)
-    msgParts.push(roadLines.join('；'))
-  }
-  result.message = msgParts.join('\n') || ''
-
-  if (result.beachClosureSchedule.length > 0) {
-    result.timeRange = result.beachClosureSchedule.join('\n')
-  } else if (result.roadDelays.length > 0 && !isStarbaseRoadOpen(result)) {
-    result.timeRange = result.roadDelays.slice(0, 3).join('\n')
-  } else if (result.publicNotice) {
-    result.timeRange = result.publicNotice
-  }
-
-  // 二次校正：若明细存在则不得标记为无延迟
-  resolveStarbaseRoadStatus(result, roadPlain, text, roadSectionDelays)
-  enrichStarbaseParsedForStorage(result)
-
-  return result
-}
+// starbase.texas.gov HTML 解析已抽出为独立模块（无云 SDK 依赖，可单测），见 starbase-parse.js
+const {
+  isStarbaseOpenSemantic,
+  parseStarbaseHtml
+} = require('./starbase-parse.js')
 
 /**
  * 从 SpaceDevs dashboard/starship 端点获取 road_closures 数据
@@ -3629,15 +3337,16 @@ async function fetchSpaceDevsRoadClosures() {
   }
 }
 
-// 封路数据缓存有效期：6小时
-const ROAD_CLOSURE_CACHE_DURATION = 6 * 60 * 60 * 1000
+// 封路数据缓存有效期：50 分钟（配合小时级触发器实现每小时刷新；
+// 官网封路/延迟窗口常只有 3 小时，旧的 6 小时节流会整窗错过）
+const ROAD_CLOSURE_CACHE_DURATION = 50 * 60 * 1000
 
 /**
  * 同步封路通知到 road_closure_notice 集合
  * 数据源 A：SpaceDevs dashboard/starship 的 road_closures
  * 数据源 B：starbase.texas.gov 道路/海滩实时状态（主要来源）
  * 数据源 C：管理后台手动配置（id='current'）
- * 三者兼容并存，6小时刷新一次
+ * 三者兼容并存，小时级刷新（50 分钟缓存节流）
  */
 async function syncRoadClosure(forceRefresh = false) {
   const now = Date.now()
@@ -3645,7 +3354,7 @@ async function syncRoadClosure(forceRefresh = false) {
 
   const collection = db.collection('road_closure_notice')
 
-  // 检查是否需要刷新（6小时内已同步则跳过，除非是手动强制刷新）
+  // 检查是否需要刷新（缓存期内已同步则跳过，除非是手动强制刷新）
   if (!forceRefresh) {
     try {
       const lastSync = await collection.doc('starbase_gov_live').get().catch(() => null)
@@ -3672,12 +3381,19 @@ async function syncRoadClosure(forceRefresh = false) {
     }
 
     if (sgResult.success) {
-      const isClosed = sgResult.beachOpen === false || sgResult.roadOpen === false
       const roadOpenState = sgResult.roadOpen === true || isStarbaseOpenSemantic(sgResult.roadStatusLabel)
       const hasSchedule = sgResult.beachClosureSchedule && sgResult.beachClosureSchedule.length > 0
       const hasDelays = sgResult.roadDelays && sgResult.roadDelays.length > 0
       const hasRoadUpdates = sgResult.roadUpdates && sgResult.roadUpdates.length > 0
-      const isActive = isClosed || hasSchedule || hasRoadUpdates || (hasDelays && !roadOpenState)
+      // 解析出的真实时间窗（America/Chicago → epoch）；整窗已过期的道路延迟不再激活
+      // （注意：不能再用 isClosed=roadOpen===false 短路，否则过期延迟仍会 isActive=true）
+      const delayWindow = sgResult.delayWindow || null
+      const windowExpired = !!(delayWindow && delayWindow.endAt && delayWindow.endAt < now)
+      const beachActive = sgResult.beachOpen === false || hasSchedule
+      const roadActive =
+        !windowExpired &&
+        (sgResult.roadOpen === false || hasRoadUpdates || (hasDelays && !roadOpenState))
+      const isActive = beachActive || roadActive
       const docId = 'starbase_gov_live'
 
       const doc = {
@@ -3697,8 +3413,9 @@ async function syncRoadClosure(forceRefresh = false) {
         publicOrders: sgResult.publicOrders || [],
         bannerAlerts: sgResult.bannerAlerts || [],
         roadStatusLabel: sgResult.roadStatusLabel || '',
-        startAt: isActive ? now : 0,
-        endAt: isActive ? now + 24 * 60 * 60 * 1000 : 0,
+        // 优先使用解析出的真实窗口；解析不出时保留旧行为（now ~ +24h）
+        startAt: isActive ? (delayWindow && delayWindow.startAt ? delayWindow.startAt : now) : 0,
+        endAt: isActive ? (delayWindow && delayWindow.endAt ? delayWindow.endAt : now + 24 * 60 * 60 * 1000) : 0,
         priority: 100,
         updatedAt: now,
         syncedAt: now
@@ -6235,7 +5952,7 @@ exports.main = async (event, context) => {
   const { action, url, params } = event
 
   // 用于确认云端是否已部署到最新代码（每次改动可更新此标识）
-  const BUILD_TAG = 'syncSpaceDevsData_2026-06-09_v3_spacex_stats_fix'
+  const BUILD_TAG = 'syncSpaceDevsData_2026-07-17_v4_starbase_parse_fix'
 
   try {
     if (action === 'sync') {
@@ -6289,8 +6006,17 @@ exports.main = async (event, context) => {
         timestamp: Date.now()
       }
     } else if (action === 'syncRoadClosure') {
-      // 手动触发同步封路通知（强制刷新，跳过6小时缓存）
+      // 手动触发同步封路通知（强制刷新，跳过缓存节流）
       const roadClosureResult = await syncRoadClosure(true)
+      return {
+        success: true,
+        ...roadClosureResult,
+        roadClosure: roadClosureResult,
+        timestamp: Date.now()
+      }
+    } else if (action === 'syncRoadClosureThrottled') {
+      // 小时级定时器附带触发：不强制，靠 50 分钟缓存节流
+      const roadClosureResult = await syncRoadClosure(false)
       return {
         success: true,
         ...roadClosureResult,

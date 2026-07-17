@@ -8,6 +8,24 @@
  */
 
 var { getRocketImage } = require('./util.js')
+var { getCachedMediaImage } = require('./icon-cache.js')
+var { optimizeImageUrl } = require('./cos-url.js')
+
+/** Tab 预览条数：与发射商图鉴一致，完整列表留给「查看全部」页 */
+var TAB_PREVIEW_COUNT = 2
+
+/** 卡片主图：COS 静图压缩 + 本地缓存；兜底链保持原链（binderror 逐级切换时才拉） */
+function cachedCardImage(url) {
+  if (!url) return ''
+  return getCachedMediaImage(url, 'thumb')
+}
+
+/** 不触发 downloadFile 预热：只返回压缩远程 URL，由 <image> 滚动可见时再拉 */
+function remoteThumbImage(url) {
+  if (!url) return ''
+  if (/imageMogr2|ci-process=/i.test(url)) return url
+  return optimizeImageUrl(url, 'thumb')
+}
 
 var STATUS_TEXT_MAP = { active: '现役', retired: '退役', destroyed: '损毁', expended: '已消耗', unknown: '未知' }
 
@@ -101,8 +119,9 @@ function cosRocketImageOf(rocketFamily) {
  * 单个箭实体文档 → 展示卡片
  * @param {Object} configsMap 可选，_config_meta 的 configs 映射；
  *   传入时打通兜底链：LL2 箭实体图 → LL2 构型图 → COS 火箭配置图库
+ * @param {{ skipImageCache?: boolean }} [options] true 时不触发 getCachedMediaImage 预热
  */
-function processBoosterItem(item, configsMap) {
+function processBoosterItem(item, configsMap, options) {
   var flights = item.flights || 0
   var flightBlocks = []
   var history = item.flightHistory || []
@@ -126,6 +145,8 @@ function processBoosterItem(item, configsMap) {
   ;[item.cosImageUrl, item.thumbnailUrl, item.imageUrl, cfgImage, cosImage].forEach(function (u) {
     if (u && chain.indexOf(u) < 0) chain.push(u)
   })
+  var skipCache = !!(options && options.skipImageCache)
+  var primary = skipCache ? remoteThumbImage(chain[0]) : cachedCardImage(chain[0])
   return {
     serial: item.serialNumber || item.serial || '?',
     flights: flights,
@@ -140,8 +161,8 @@ function processBoosterItem(item, configsMap) {
     flightBlocks: flightBlocks,
     firstFlight: item.firstFlight || '',
     lastFlight: item.lastFlight || '',
-    imageUrl: chain[0] || '',
-    thumbnailUrl: chain[0] || '',
+    imageUrl: primary,
+    thumbnailUrl: primary,
     imageFallbacks: chain.slice(1),
     successfulLandings: item.successfulLandings || 0,
     attemptedLandings: item.attemptedLandings || 0,
@@ -153,13 +174,19 @@ function processBoosterItem(item, configsMap) {
 /**
  * 箭实体文档列表 → { processed: 卡片数组, rawBySerial: 原始文档索引（详情页跳转用） }
  * @param {Object} configsMap 可选，透传给 processBoosterItem 打通构型图兜底
+ * @param {{ imageCacheLimit?: number }} [options] 仅对前 N 条触发本地图缓存预热；其余只返回压缩远程 URL
  */
-function processBoosterList(list, configsMap) {
+function processBoosterList(list, configsMap, options) {
+  var imageCacheLimit = (options && options.imageCacheLimit != null)
+    ? options.imageCacheLimit
+    : Number.MAX_SAFE_INTEGER
   var processed = []
   var rawBySerial = {}
   for (var i = 0; i < (list || []).length; i++) {
     var item = list[i]
-    var card = processBoosterItem(item, configsMap)
+    var card = processBoosterItem(item, configsMap, {
+      skipImageCache: i >= imageCacheLimit
+    })
     processed.push(card)
     rawBySerial[card.serial] = item
   }
@@ -258,8 +285,8 @@ function buildModelCards(configsMap) {
       countryCode: countryCode,
       countryFlag: countryCodeToFlag(countryCode),
       reusable: c.reusable === true,
-      imageUrl: chain[0] || '',
-      thumbnailUrl: chain[0] || '',
+      imageUrl: cachedCardImage(chain[0]),
+      thumbnailUrl: cachedCardImage(chain[0]),
       imageFallbacks: chain.slice(1),
       maidenFlight: c.maiden_flight || '',
       hasFlown: !!(c.maiden_flight || (c.total_launch_count && c.total_launch_count > 0)),
@@ -287,5 +314,6 @@ module.exports = {
   applyBoosterFilter: applyBoosterFilter,
   applyModelFilter: applyModelFilter,
   buildModelCards: buildModelCards,
-  STATUS_TEXT_MAP: STATUS_TEXT_MAP
+  STATUS_TEXT_MAP: STATUS_TEXT_MAP,
+  TAB_PREVIEW_COUNT: TAB_PREVIEW_COUNT
 }

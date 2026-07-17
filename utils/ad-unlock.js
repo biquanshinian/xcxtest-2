@@ -10,8 +10,17 @@
 const { rewardedVideoAdUnitId } = require('./config.js')
 const storageCache = require('./storage-sync-cache.js')
 
-const UNLOCK_TTL_MS = 10 * 60 * 1000
+const DEFAULT_UNLOCK_TTL_MS = 10 * 60 * 1000
 const STORAGE_KEY = '_ad_temp_unlock'
+
+function _unlockTtlMs() {
+  try {
+    const { getMemberPolicySync } = require('./member-policy.js')
+    const mins = getMemberPolicySync().adUnlockMinutes
+    if (mins > 0) return mins * 60 * 1000
+  } catch (e) {}
+  return DEFAULT_UNLOCK_TTL_MS
+}
 const AD_UNIT_ID = rewardedVideoAdUnitId || ''
 
 /** 广告全屏层收起后，给客户端恢复胶囊的时间 */
@@ -20,6 +29,8 @@ const POST_CLOSE_SETTLE_MS = 480
 const TOAST_AFTER_RESOLVE_MS = 120
 /** ActionSheet 收起后再 show，减少叠层冲突 */
 const PRE_SHOW_DELAY_MS = 280
+/** 解锁成功提示先停留再放行跳转，避免提示还没看清页面就跳走 */
+const UNLOCK_TOAST_HOLD_MS = 2000
 
 let _videoAd = null
 let _adRoute = ''
@@ -78,7 +89,7 @@ function grantUnlock(productId) {
   if (!productId) return 0
   const now = Date.now()
   const map = _pruneExpired(_readMap(), now)
-  const expireAt = now + UNLOCK_TTL_MS
+  const expireAt = now + _unlockTtlMs()
   map[productId] = expireAt
   _writeMap(map)
   return expireAt
@@ -181,13 +192,22 @@ function showRewardedAdForUnlock(productId) {
     _busy = true
     var settled = false
 
-    function finish(ok, toastTitle, toastIcon) {
+    function finish(ok, toastTitle, toastIcon, holdMs) {
       if (settled) return
       settled = true
       _busy = false
       _pendingClose = null
       _nudgeCapsuleRestore()
-      // 先放行业务跳转，再 Toast，避免与全屏层收起抢同一帧
+      if (ok && toastTitle && holdMs > 0) {
+        // 解锁成功：先弹提示停留够时长，再放行业务跳转（否则提示还没看清就跳到视频了）
+        // 此时距广告层收起已过 settle 期，同步 Toast 安全；且 2 秒内无 navigateTo，不存在抢帧
+        _safeToast(toastTitle, toastIcon)
+        setTimeout(function () {
+          resolve(true)
+        }, holdMs)
+        return
+      }
+      // 失败/取消不跳转：先 resolve，再 Toast，避免与全屏层收起抢同一帧
       resolve(!!ok)
       if (toastTitle) {
         setTimeout(function () {
@@ -196,11 +216,11 @@ function showRewardedAdForUnlock(productId) {
       }
     }
 
-    function finishAfterSettle(ok, toastTitle, toastIcon) {
+    function finishAfterSettle(ok, toastTitle, toastIcon, holdMs) {
       _nudgeCapsuleRestore()
       setTimeout(function () {
         _nudgeCapsuleRestore()
-        finish(ok, toastTitle, toastIcon)
+        finish(ok, toastTitle, toastIcon, holdMs)
         // 关闭后销毁，下次在「当时所在页」重建，避免跨 Tab/子页复用单例
         try {
           destroyRewardedAd()
@@ -213,7 +233,11 @@ function showRewardedAdForUnlock(productId) {
       var ended = !res || res.isEnded === true
       if (ended) {
         grantUnlock(productId)
-        finishAfterSettle(true, '已解锁 10 分钟', 'success')
+        var mins = Math.max(1, Math.round(_unlockTtlMs() / 60000))
+        // 单条视频解锁键（evtvid:）：明确提示只解锁本条，避免误以为解锁整个版块
+        var isSingleVideo = String(productId).indexOf('evtvid:') === 0
+        var title = isSingleVideo ? '本条视频已解锁 ' + mins + ' 分钟' : '已解锁 ' + mins + ' 分钟'
+        finishAfterSettle(true, title, 'success', UNLOCK_TOAST_HOLD_MS)
       } else {
         finishAfterSettle(false, '需看完广告才能解锁', 'none')
       }
@@ -242,7 +266,8 @@ function showRewardedAdForUnlock(productId) {
 }
 
 module.exports = {
-  UNLOCK_TTL_MS: UNLOCK_TTL_MS,
+  UNLOCK_TTL_MS: DEFAULT_UNLOCK_TTL_MS,
+  getUnlockTtlMs: _unlockTtlMs,
   isUnlocked: isUnlocked,
   getUnlockExpireAt: getUnlockExpireAt,
   grantUnlock: grantUnlock,

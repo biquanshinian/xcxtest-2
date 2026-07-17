@@ -46,7 +46,8 @@
           <view class="plan-tag">限时推荐</view>
           <view class="plan-name">年卡</view>
           <view class="plan-price"><text class="plan-price-sym">¥</text><text class="plan-price-num">{{yearlyPrice}}</text></view>
-          <view class="plan-save">省 15%</view>
+          <view class="plan-save" wx:if="{{yearlySaveText}}">{{yearlySaveText}}</view>
+          <view class="plan-save" wx:else>更划算</view>
         </view>
         <view class="plan-item {{selectedPlan === 'permanent' ? 'plan-item--active' : ''}}" bindtap="{{isIOS ? '' : 'selectPlan'}}" data-plan="permanent">
           <view class="plan-tag">最划算</view>

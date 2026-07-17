@@ -102,7 +102,14 @@ function _urlToFileName(url) {
 /** 小图标展示用 thumb 版下载，避免拉取 MB 级 COS 原图 */
 function _resolveDownloadUrl(url) {
   if (!url || typeof url !== 'string') return url
-  if (/\.gif(\?|[&#]|$)/i.test(url)) return toCdnUrl(url)
+  if (/\.gif(\?|[&#]|$)/i.test(url)) {
+    // GIF 静图缩放会丢动画，改用万象 cgif 抽帧压缩（与 media 缓存链一致）；
+    // 404（桶未开 CI）时下载层会自动回退原图
+    const cdn = toCdnUrl(url)
+    if (/imageMogr2|ci-process=/i.test(cdn)) return cdn
+    const sep = cdn.indexOf('?') === -1 ? '?' : '&'
+    return cdn + sep + 'imageMogr2/cgif/20'
+  }
   return optimizeImageUrl(url, 'thumb')
 }
 
@@ -176,7 +183,8 @@ function getCachedIcon(url) {
   }
 
   _downloadInBackground(url)
-  return url
+  // 未命中时展示与后台下载相同的 thumb 压缩 URL，避免「原图展示 + 压缩下载」双倍下行
+  return _resolveDownloadUrl(url)
 }
 
 function _downloadInBackground(url) {
@@ -261,7 +269,14 @@ function _rocketDownloadKey(url) {
   if (!url || typeof url !== 'string') return ''
   const trimmed = url.trim()
   if (!/^https?:\/\//i.test(trimmed)) return trimmed
-  return toCdnUrl(appendRocketGifCgifCi(trimmed))
+  // GIF：万象 cgif 抽帧（原逻辑）；静态图：medium 压缩。
+  // 原来静态 jpg/png 直接拉 COS 原图（可达数 MB），是首页最高频的下行大头；
+  // 用 medium 而非 thumb 是因为任务详情页头图全宽复用同一份缓存
+  if (/\.gif(\?|[&#]|$)/i.test(trimmed)) {
+    return toCdnUrl(appendRocketGifCgifCi(trimmed))
+  }
+  if (/imageMogr2|ci-process=/i.test(trimmed)) return toCdnUrl(trimmed)
+  return optimizeImageUrl(trimmed, 'medium')
 }
 
 function _getRocketIndex() {
@@ -328,7 +343,13 @@ function _downloadRocketInBackground(url) {
   }
 
   setTimeout(function () {
-    _startRocketDownload(url, finish)
+    _isWifiNetwork().then(function (wifi) {
+      if (!wifi) {
+        finish()
+        return
+      }
+      _startRocketDownload(url, finish)
+    })
   }, ROCKET_BG_DOWNLOAD_DELAY_MS)
 }
 
@@ -407,11 +428,27 @@ function clearRocketConfigCache() {
 const MEDIA_CACHE_DIR = `${wx.env.USER_DATA_PATH}/media_cache`
 const MEDIA_INDEX_KEY = '_media_cache_index'
 const MAX_MEDIA_ENTRIES = 500
-const MEDIA_BG_DOWNLOAD_DELAY_MS = 800
+/** 后台落盘延后：与 <image> 首屏拉取错开；仅 Wi-Fi 落盘，避免蜂窝双计费 */
+const MEDIA_BG_DOWNLOAD_DELAY_MS = 2500
 
 let _mediaIndex = null
 let _mediaDownloading = {}
 let _mediaUrlMemo = Object.create(null)
+
+function _isWifiNetwork() {
+  return new Promise(function (resolve) {
+    try {
+      wx.getNetworkType({
+        success: function (res) {
+          resolve(String((res && res.networkType) || '').toLowerCase() === 'wifi')
+        },
+        fail: function () { resolve(false) }
+      })
+    } catch (e) {
+      resolve(false)
+    }
+  })
+}
 
 function isRemoteCacheableImageUrl(url) {
   if (!url || typeof url !== 'string') return false
@@ -451,7 +488,14 @@ function _saveMediaIndex() {
 function _mediaDownloadUrl(url, preset) {
   if (!url) return url
   if (preset === 'none') return toCdnUrl(url)
-  if (/\.gif(\?|[&#]|$)/i.test(url)) return toCdnUrl(url)
+  // GIF 不能走静图 imageMogr2 缩放（会丢动画），改用万象 cgif 帧抽取压缩，
+  // 原图动辄数 MB，抽帧后体积可降一个量级；404（桶未开 CI）时下载层会自动回退原图
+  if (/\.gif(\?|[&#]|$)/i.test(url)) {
+    const cdn = toCdnUrl(url)
+    if (/imageMogr2|ci-process=/i.test(cdn)) return cdn
+    const sep = cdn.indexOf('?') === -1 ? '?' : '&'
+    return cdn + sep + 'imageMogr2/cgif/20'
+  }
   return optimizeImageUrl(url, preset || 'thumb')
 }
 
@@ -489,7 +533,10 @@ function getCachedMediaImage(url, preset) {
   }
 
   _downloadMediaInBackground(url, preset)
-  return url
+  // 未命中时展示压缩版 URL（与后台下载同一 URL）：
+  // 原来展示原图 + 后台下载压缩版是两个不同 URL，产生「原图大流量 + 压缩版」双倍下行；
+  // 统一后展示流量降为压缩版体积，且与落盘下载共享 CDN/HTTP 缓存
+  return _mediaDownloadUrl(url, preset)
 }
 
 function _downloadMediaInBackground(url, preset) {
@@ -501,7 +548,14 @@ function _downloadMediaInBackground(url, preset) {
   }
 
   setTimeout(function () {
-    _startMediaDownload(url, preset, finish)
+    // 蜂窝下只走 <image> 一次远程拉取，不后台 downloadFile 双计费
+    _isWifiNetwork().then(function (wifi) {
+      if (!wifi) {
+        finish()
+        return
+      }
+      _startMediaDownload(url, preset, finish)
+    })
   }, MEDIA_BG_DOWNLOAD_DELAY_MS)
 }
 

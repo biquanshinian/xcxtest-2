@@ -7,6 +7,7 @@ const {
   getStarshipHardwareTestsFromDB
 } = require('../../utils/api-app-services.js')
 const { resolveMediaUrl } = require('../../utils/image-config.js')
+const { getCachedMediaImage } = require('../../utils/icon-cache.js')
 const { togglePageTranslation } = require('../../utils/text-translate.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
 
@@ -16,6 +17,13 @@ const S39_IMAGE_KEY = '最新版星舰组合体进展一二级图/s39_spacex.web
 function getFallbackImage(category) {
   const key = category === 'booster' || category === 'fullstack' ? B19_IMAGE_KEY : S39_IMAGE_KEY
   return resolveMediaUrl(key, '')
+}
+
+/** 硬件头图：cloud:// 原样返回；HTTPS 走缓存压缩（与进度页列表一致） */
+function resolveHardwareDisplayImage(image, preset) {
+  const raw = String(image || '').trim()
+  if (!raw) return ''
+  return getCachedMediaImage(raw, preset || 'medium')
 }
 
 function getStatusType(statusText) {
@@ -99,10 +107,14 @@ Page({
         this.setData({ loading: false, errorMessage: '未找到该硬件，数据可能尚未同步' })
         return
       }
+      const rawImage = String(raw.image || '').trim()
       const vehicle = {
         ...raw,
         statusType: getStatusType(raw.status),
-        displayImage: raw.image || getFallbackImage(raw.category)
+        rawImage,
+        displayImage: rawImage
+          ? resolveHardwareDisplayImage(rawImage, 'medium')
+          : getFallbackImage(raw.category)
       }
       this.setData({
         loading: false,
@@ -134,6 +146,12 @@ Page({
   onHeroImageError() {
     const vehicle = this.data.vehicle
     if (!vehicle) return
+    // 优先回退未压缩原图（避免 medium 压缩链失败误切成 B19/S39 占位）
+    const raw = String(vehicle.rawImage || '').trim()
+    if (raw && vehicle.displayImage !== raw) {
+      this.setData({ 'vehicle.displayImage': raw })
+      return
+    }
     const fallback = getFallbackImage(vehicle.category)
     if (vehicle.displayImage === fallback) return
     this.setData({ 'vehicle.displayImage': fallback })

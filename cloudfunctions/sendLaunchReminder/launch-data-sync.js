@@ -17,7 +17,9 @@ const UPCOMING_PARAMS = {
   ordering: 'net'
 }
 const UPCOMING_PATH = '/launches/upcoming/'
-const CANDIDATE_SUFFIXES = ['_slim_v5', '_slim_v4', '_slim_v3', '_slim_v2', '_slim', '']
+// 当前云端写入的是 _slim_v6，放最前确保第 1 次 doc 读即命中；
+// 旧后缀仅作历史兜底（此前漏掉 v6 导致每个 tick 白读 6 个 key 后 miss，再兜底全量同步）
+const CANDIDATE_SUFFIXES = ['_slim_v6', '_slim_v5', '_slim_v4', '_slim_v3', '_slim_v2', '_slim', '']
 
 function sortedParamsString(params) {
   const sorted = Object.keys(params)
@@ -196,9 +198,40 @@ async function removeStaleLaunchData(activeIds, nowMs) {
   return removed
 }
 
+/** 业务字段是否与现有文档一致（忽略 syncedAt/updatedAt 等每次都变的时间戳） */
+function isLaunchDataDocUnchanged(existing, payload) {
+  if (!existing) return false
+  const COMPARE_FIELDS = [
+    'id', 'missionName', 'name', 'rocketName', 'launchTime',
+    'padName', 'pad', 'site', 'recoveryMethod', 'status', 'statusId', 'source'
+  ]
+  for (const f of COMPARE_FIELDS) {
+    const a = existing[f] == null ? null : existing[f]
+    const b = payload[f] == null ? null : payload[f]
+    if (a !== b) return false
+  }
+  const aMs = existing.windowStart instanceof Date ? existing.windowStart.getTime() : 0
+  const bMs = payload.windowStart instanceof Date ? payload.windowStart.getTime() : 0
+  return aMs === bMs
+}
+
+/** 一次性读出 launch_data 现有文档（1 次查询），供 diff 用；失败返回 null 走全量写 */
+async function readExistingLaunchDataMap() {
+  try {
+    const res = await db.collection(LAUNCH_DATA_COLLECTION).limit(1000).get()
+    const map = {}
+    for (const row of res.data || []) {
+      map[String(row._id)] = row
+    }
+    return map
+  } catch (e) {
+    return null
+  }
+}
+
 async function syncLaunchDataFromCache() {
   const nowMs = Date.now()
-  const stats = { upserted: 0, skipped: 0, removed: 0, total: 0 }
+  const stats = { upserted: 0, unchanged: 0, skipped: 0, removed: 0, total: 0 }
 
   const raw = await readLaunchResultsFromCache(UPCOMING_PATH, UPCOMING_PARAMS)
   const upcoming = (raw || []).filter(function (l) {
@@ -210,6 +243,9 @@ async function syncLaunchDataFromCache() {
     return { success: true, message: 'no upcoming launches in cache', ...stats }
   }
 
+  // 每 5 分钟定时触发一次：绝大多数任务数据没有变化，
+  // 先用 1 次查询读出现状，只对有实际变化的文档写库，避免每轮 ~100 次盲写
+  const existingMap = await readExistingLaunchDataMap()
   const activeIds = new Set()
 
   for (let i = 0; i < upcoming.length; i++) {
@@ -223,6 +259,10 @@ async function syncLaunchDataFromCache() {
 
     try {
       const payload = mapLaunchToLaunchDataDoc(launch, nowMs)
+      if (existingMap && isLaunchDataDocUnchanged(existingMap[docId], payload)) {
+        stats.unchanged++
+        continue
+      }
       await upsertLaunchDataDoc(docId, payload)
       stats.upserted++
     } catch (e) {

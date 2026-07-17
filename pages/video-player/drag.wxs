@@ -1,0 +1,96 @@
+/**
+ * 下拉跟手关闭：视图层直接改 transform/背景透明度，不经 setData 保证跟手
+ * 纵向下拉才接管（横向让给 video 进度手势）；松手超过阈值 callMethod 关闭，否则弹回
+ */
+var START_THRESHOLD = 12
+var CLOSE_DISTANCE = 130
+
+function _point(e) {
+  var t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0])
+  return t ? { x: t.clientX, y: t.clientY } : null
+}
+
+function _page(owner) {
+  return owner.selectComponent('.video-player-page')
+}
+
+function onTouchStart(e, owner) {
+  var st = e.instance.getState()
+  if (e.touches && e.touches.length > 1) {
+    st.active = false
+    return
+  }
+  var p = _point(e)
+  if (!p) return
+  st.active = true
+  st.dragging = false
+  st.startX = p.x
+  st.startY = p.y
+  st.dy = 0
+  e.instance.setStyle({ transition: 'none' })
+  var page = _page(owner)
+  if (page) page.setStyle({ transition: 'none' })
+}
+
+function onTouchMove(e, owner) {
+  var st = e.instance.getState()
+  if (!st.active) return
+  var p = _point(e)
+  if (!p) return
+  var dx = p.x - st.startX
+  var dy = p.y - st.startY
+
+  if (!st.dragging) {
+    if (dy < START_THRESHOLD) return
+    // 横向为主的滑动让给播放器进度手势
+    if (dy < Math.abs(dx) * 1.2) {
+      st.active = false
+      return
+    }
+    st.dragging = true
+  }
+
+  var move = dy > 0 ? dy : 0
+  st.dy = move
+  var scale = Math.max(0.55, 1 - move / 1200)
+  e.instance.setStyle({
+    transition: 'none',
+    transform: 'translateY(' + move + 'px) scale(' + scale + ')'
+  })
+  var alpha = Math.max(0, 1 - move / 420)
+  var page = _page(owner)
+  if (page) {
+    page.setStyle({ 'background-color': 'rgba(0, 0, 0, ' + alpha.toFixed(3) + ')' })
+  }
+}
+
+function onTouchEnd(e, owner) {
+  var st = e.instance.getState()
+  if (!st.active) return
+  st.active = false
+  if (!st.dragging) return
+  st.dragging = false
+
+  if (st.dy > CLOSE_DISTANCE) {
+    owner.callMethod('onClose')
+    return
+  }
+
+  e.instance.setStyle({
+    transition: 'transform 0.22s ease-out',
+    transform: 'translateY(0px) scale(1)'
+  })
+  var page = _page(owner)
+  if (page) {
+    page.setStyle({
+      transition: 'background-color 0.22s ease-out',
+      'background-color': 'rgba(0, 0, 0, 1)'
+    })
+  }
+}
+
+module.exports = {
+  onTouchStart: onTouchStart,
+  onTouchMove: onTouchMove,
+  onTouchEnd: onTouchEnd
+}

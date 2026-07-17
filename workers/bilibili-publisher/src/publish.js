@@ -28,18 +28,48 @@ function guessImageExt(url, contentType) {
   return 'jpg'
 }
 
+/**
+ * 下载单张配图到临时文件。
+ * 失败不再抛错中断整单：404/403/410 视为图片已从 COS 删除，直接跳过；
+ * 其他网络错误重试 1 次后跳过。返回 null 表示该图放弃。
+ */
 async function downloadToTemp(url, idx) {
   // 本地路径直接复用，便于 demo / 调试
   if (url && !/^https?:\/\//i.test(url) && fs.existsSync(url)) {
     return url
   }
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`下载图片失败 ${res.status}: ${url}`)
-  const buf = Buffer.from(await res.arrayBuffer())
-  const ext = guessImageExt(url, res.headers.get('content-type'))
-  const file = path.join(os.tmpdir(), `bili_pub_${Date.now()}_${idx}.${ext}`)
-  fs.writeFileSync(file, buf)
-  return file
+
+  const tryOnce = async () => {
+    const res = await fetch(url)
+    if (!res.ok) {
+      const err = new Error(`HTTP ${res.status}`)
+      err.status = res.status
+      throw err
+    }
+    const buf = Buffer.from(await res.arrayBuffer())
+    const ext = guessImageExt(url, res.headers.get('content-type'))
+    const file = path.join(os.tmpdir(), `bili_pub_${Date.now()}_${idx}.${ext}`)
+    fs.writeFileSync(file, buf)
+    return file
+  }
+
+  try {
+    return await tryOnce()
+  } catch (e) {
+    const status = Number(e.status || 0)
+    if (status === 404 || status === 403 || status === 410) {
+      console.warn(`[publish] 配图已失效(${status})，跳过: ${url}`)
+      return null
+    }
+    // 非永久失效：重试一次，仍失败则跳过该图（不让整单失败）
+    await sleep(800)
+    try {
+      return await tryOnce()
+    } catch (e2) {
+      console.warn(`[publish] 配图下载失败(${e2.status || e2.message})，跳过: ${url}`)
+      return null
+    }
+  }
 }
 
 async function waitImageUploadReady(page, expectCount) {
@@ -430,7 +460,16 @@ export async function publishDynamic({ content, images = [] }) {
     if (imgs.length) {
       for (let i = 0; i < imgs.length; i++) {
         const local = await downloadToTemp(imgs[i], i)
-        tempFiles.push(local)
+        if (local) tempFiles.push(local)
+      }
+      if (!tempFiles.length) {
+        // 图全部失效：不发成纯文字（推文没图可能看不懂），抛 media 类错误由网关跳过该事件
+        const err = new Error(`全部配图下载失败（${imgs.length} 张，多为 COS 已清理），跳过本条`)
+        err.errorType = 'media'
+        throw err
+      }
+      if (tempFiles.length < imgs.length) {
+        console.warn(`[publish] ${imgs.length - tempFiles.length} 张配图失效已跳过，用剩余 ${tempFiles.length} 张继续`)
       }
       const uploaded = await uploadImages(page, tempFiles)
       if (!uploaded) {

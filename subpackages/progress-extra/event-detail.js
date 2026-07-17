@@ -1,17 +1,23 @@
 const { loadCloudMediaMap } = require('../../utils/image-config.js')
 const { isVideoUrl } = require('../../utils/cos-url.js')
-const { enrichVideoMediaItem, playEventVideo, saveEventOriginalVideo } = require('../../utils/event-video.js')
+const { enrichVideoMediaItem, eventVideoAdUnlockId, playEventVideo, saveEventOriginalVideo } = require('../../utils/event-video.js')
+const { getCachedMediaImage } = require('../../utils/icon-cache.js')
 const { fetchLiveStatusBatch, parseLiveStatus } = require('../../utils/live-status.js')
 const { isPermissionDenied, getPermissionDeniedMessage } = require('../../utils/single-page.js')
 const pageBase = require('../../utils/page-base.js')
 const { pickEventShareImageUrl } = require('../../utils/event-share-image.js')
-const { gateCheck, isMembershipEnabled, getMembershipState, isPro, hasPurchased } = require('../../utils/membership.js')
+const { gateCheck, isMembershipEnabled, getMembershipState, isPro, hasPurchased, canUsePaidCloudSync, canPrefetchVideoSync, canSaveOriginalVideoSync, isProSync } = require('../../utils/membership.js')
+const { getMemberPolicy, getMemberPolicySync } = require('../../utils/member-policy.js')
 const {
   getNsfStarshipChecklistFromDB,
   getStarshipStatusFromDB,
   fetchLl2LaunchTimeline,
   fetchLl2LaunchUpdates
 } = require('../../utils/api-app-services.js')
+const { getUpcomingStarshipMissions } = require('../../utils/api-launch-list.js')
+const { attachMissionDetailMeta, buildMissionDetailUrl } = require('../../utils/index-mission-nav.js')
+const { filterExpiredMissions } = require('../../utils/index-page-helpers.js')
+const { formatDate } = require('../../utils/util.js')
 const { normalizeLl2TimelineList } = require('../../utils/ll2-launch-timeline.js')
 const { getSystemInfo } = require('../../utils/system.js')
 const { togglePageTranslation } = require('../../utils/text-translate.js')
@@ -19,7 +25,25 @@ const { translateAgencyName } = require('../../utils/space-terms-i18n.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { parseShareStamp, SHARE_GATE_TTL_MS } = require('./utils/share-gate.js')
 
+function normalizeNsfStarshipMissionCards(list) {
+  return filterExpiredMissions(Array.isArray(list) ? list : []).map((mission, index) =>
+    attachMissionDetailMeta({
+      ...mission,
+      _wxkey: `nsf-ss-${index}-${mission && mission.id != null ? mission.id : ''}`,
+      formattedTime: mission && mission.launchTime
+        ? formatDate(mission.launchTime, 'MM月DD日 HH:mm')
+        : '时间未知'
+    }, {
+      id: mission && mission.id,
+      detailType: 'upcoming'
+    })
+  )
+}
+
 const NSF_CHECKLIST_GATE_PRODUCT_ID = 'starship_flight_checklist'
+/** 事件更新「查看更多」全量列表：非会员首屏免费条数，触底再门控 */
+const DEFAULT_FREE_EVENT_LIST_LIMIT = 5
+const EVENT_LIST_PAGE_LIMIT = 20
 
 function formatEventTime(ts) {
   if (!ts) return ''
@@ -109,6 +133,7 @@ Page({
     nsfChecklistError: '',
     nsfChecklistSourceLastFetch: '',
     nsfChecklistUpdatedAtMs: 0,
+    nsfStarshipMissions: [],
 
     ll2DetailTimelineRows: [],
     ll2DetailLaunchUpdates: [],
@@ -593,7 +618,10 @@ Page({
     })
 
     try {
-      const nsf = await getNsfStarshipChecklistFromDB({ skipCache: false })
+      const [nsf, starshipRes] = await Promise.all([
+        getNsfStarshipChecklistFromDB({ skipCache: false }),
+        getUpcomingStarshipMissions(10, 0).catch(() => ({ list: [] }))
+      ])
       const nsfItems = nsf.items || []
       this.setData({
         loading: false,
@@ -602,7 +630,8 @@ Page({
         nsfChecklistError: nsf.fetchError || '',
         nsfChecklistSourceLastFetch: nsf.sourceLastFetch || '',
         nsfChecklistUpdatedAtMs: nsf.updatedAtMs || 0,
-        nsfChecklistSyncing: false
+        nsfChecklistSyncing: false,
+        nsfStarshipMissions: normalizeNsfStarshipMissionCards(starshipRes && starshipRes.list)
       })
     } catch (error) {
       const msg = isPermissionDenied(error)
@@ -622,7 +651,10 @@ Page({
     // 只重读云数据库缓存，不触发 NSF 网页抓取——抓取节奏由云函数小时级定时器
     // （syncNextSpaceflightStarshipHourly）自动分配，用户手势不能成为抓取入口
     try {
-      const nsf = await getNsfStarshipChecklistFromDB({ skipCache: true })
+      const [nsf, starshipRes] = await Promise.all([
+        getNsfStarshipChecklistFromDB({ skipCache: true }),
+        getUpcomingStarshipMissions(10, 0).catch(() => ({ list: [] }))
+      ])
       const nsfItems = nsf.items || []
       this.setData({
         nsfChecklistItems: nsfItems,
@@ -630,11 +662,22 @@ Page({
         nsfChecklistError: nsf.fetchError || '',
         nsfChecklistSourceLastFetch: nsf.sourceLastFetch || '',
         nsfChecklistUpdatedAtMs: nsf.updatedAtMs || 0,
-        nsfChecklistSyncing: false
+        nsfChecklistSyncing: false,
+        nsfStarshipMissions: normalizeNsfStarshipMissionCards(starshipRes && starshipRes.list)
       })
     } catch (e2) {
       this.setData({ nsfChecklistSyncing: false })
     }
+  },
+
+  onNsfStarshipMissionTap(e) {
+    const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
+    const id = ds.id == null ? '' : String(ds.id).trim()
+    if (!id) return
+    const detailType = ds.type === 'completed' ? 'completed' : 'upcoming'
+    wx.navigateTo({
+      url: buildMissionDetailUrl({ id, detailType })
+    })
   },
 
   onFlightChecklistDetailTap(e) {
@@ -791,14 +834,12 @@ Page({
 
     await loadCloudMediaMap()
 
-    // 读取视频显示开关
+    // 读取视频显示开关：走 feature-flags 的 global_config 共享缓存（5 分钟 + inflight 去重），
+    // 避免每次进详情页直读一次云库同一文档；fail-closed，读不到配置不放出视频
     try {
-      const cfgDb = wx.cloud.database()
-      const cfgRes = await cfgDb.collection('global_config').doc('main').get()
-      const cfg = cfgRes && cfgRes.data ? cfgRes.data : null
-      if (cfg) {
-        this.setData({ enableEventVideo: cfg.enableEventVideo !== false })
-      }
+      const { isPlaybackAllowed } = require('../../utils/feature-flags.js')
+      const enabled = await isPlaybackAllowed()
+      this.setData({ enableEventVideo: enabled })
     } catch (e) {}
 
     if (options.mode === 'list_all') {
@@ -810,6 +851,9 @@ Page({
         ? safeDecodeOption(options.sources).split(',').map(s => s.trim()).filter(Boolean)
         : []
       this._listAllLabel = options.label ? safeDecodeOption(options.label).trim() : ''
+      // 全量列表入口不设门控：非会员可进，首屏免费 FREE_EVENT_LIST_LIMIT 条，触底/播视频再拦
+      // 多账号（sources=）或按账号（source= 过门控/分享）进入后可完整翻页
+      this._eventListUnlocked = !!(this._listAllSources && this._listAllSources.length)
       // 「按账号查看」为会员功能：分享卡片带 sst 时间戳，24h 内免门控，过期走 gateCheck
       if (this._listAllSource) {
         const sst = parseShareStamp(options)
@@ -828,6 +872,7 @@ Page({
           // 底部「限时查看」倒计时胶囊（静默权益确认为有权益后会隐藏）
           this.setData({ shareGateExpireAt: sst + SHARE_GATE_TTL_MS })
         }
+        this._eventListUnlocked = true
         this._refreshSourceGatePassedSilently()
       }
       await this.loadListAll(true)
@@ -858,8 +903,15 @@ Page({
 
     const mediaList = Array.isArray(safeItem.mediaList) ? safeItem.mediaList : []
     const enrichedMediaList = mediaList.map(media => {
-      if (!media || media.type !== 'video') return media
-      return enrichVideoMediaItem(media)
+      if (!media) return media
+      if (media.type === 'video') {
+        return enrichVideoMediaItem(media, { getCachedMediaImage, thumbPreset: 'thumb' })
+      }
+      if (media.type === 'image' && media.url) {
+        // 列表/详情卡片用 thumb；点开 previewImage 仍可用压缩后的 url
+        return { ...media, url: getCachedMediaImage(media.url, 'thumb') }
+      }
+      return media
     })
 
     // 头像 fallback
@@ -876,6 +928,7 @@ Page({
     let avatar = safeItem.authorAvatar || ''
     if (avatar && !avatar.includes('.cos.')) avatar = ''
     if (!avatar && safeItem.source && avatarFallback[safeItem.source]) avatar = avatarFallback[safeItem.source]
+    if (avatar) avatar = getCachedMediaImage(avatar, 'thumb')
 
     return {
       ...safeItem,
@@ -934,14 +987,21 @@ Page({
       this._scrollDetailToTop()
       this.checkLiveStatus(item)
 
-      // 从列表页点击视频跳转过来，自动播放对应视频（播放压缩预览；原片仅会员长按保存）
+      // 从列表页点击视频跳转过来：先过视频门控，通过后再播（非会员只看封面）
       // 过审关闭 enableEventVideo 时绝不自动进播放页
       if (this.data.enableEventVideo && this._autoPlayVideoIndex >= 0 && item.mediaList) {
-        const media = item.mediaList[this._autoPlayVideoIndex]
+        const mediaIndex = this._autoPlayVideoIndex
+        const media = item.mediaList[mediaIndex]
+        this._autoPlayVideoIndex = -1
         if (media && media.type === 'video' && media.isPlayable) {
           setTimeout(async () => {
-            const canSave = await this._videoSaveAllowed()
-            let hinted = false
+            // 与轮播/列表用同一单条解锁键：来源页刚看完广告则直接放行
+            const playAllowed = await this._eventVideoPlayAllowed({
+              eventId: item._id,
+              mediaIndex,
+              url: media.playUrl || media.url
+            })
+            if (!playAllowed) return
             await playEventVideo({
               url: media.url,
               playUrl: media.playUrl || media.url,
@@ -950,17 +1010,12 @@ Page({
               videoUrl: media.videoUrl || '',
               sourceUrl: media.sourceUrl || '',
               isLong: !!media.isLongVideo,
-              canSave,
-              onSaveHint: (title) => {
-                if (this._videoSaveHintShown || hinted) return
-                this._videoSaveHintShown = true
-                hinted = true
-                wx.showToast({ title, icon: 'none', duration: 1500 })
-              }
+              // 原片保存仅 Pro/已购；广告解锁只放行预览播放
+              canSave: canSaveOriginalVideoSync('starship_event_list_full'),
+              onSaveHint: () => {}
             })
           }, 300)
         }
-        this._autoPlayVideoIndex = -1
       } else if (this._autoPlayVideoIndex >= 0) {
         this._autoPlayVideoIndex = -1
       }
@@ -997,7 +1052,10 @@ Page({
       this.setData({ listLoadingMore: true })
     }
 
-    const limit = 20
+    const policy = getMemberPolicySync()
+    const freePreview = !canUsePaidCloudSync() && !this._eventListUnlocked && policy.enableEventListGate
+    const freeLimit = policy.freeEventListLimit || DEFAULT_FREE_EVENT_LIST_LIMIT
+    const limit = freePreview && refresh ? freeLimit : EVENT_LIST_PAGE_LIMIT
     const skip = refresh ? 0 : (this._listAllSkip || 0)
 
     try {
@@ -1027,6 +1085,11 @@ Page({
         hint = `全部账号 · 共 ${merged.length} 条`
       }
 
+      // 免费预览：拉满免费条数时不标 listNoMore，便于触底触发门控；不足则真无更多
+      const listNoMore = freePreview
+        ? newItems.length < freeLimit
+        : newItems.length < limit
+
       this.setData({
         loading: false,
         listMode: true,
@@ -1038,7 +1101,7 @@ Page({
         listDayHint: hint,
         shareTitle: '星舰事件更新 | 火星探索日志',
         shareImage: merged[0] ? pickEventShareImageUrl(merged[0]) : pickEventShareImageUrl(null),
-        listNoMore: newItems.length < limit,
+        listNoMore,
         listLoadingMore: false,
         avatarError: false
       })
@@ -1060,8 +1123,25 @@ Page({
     }
   },
 
-  onDetailScrollToLower() {
+  async onDetailScrollToLower() {
     if (!this._listAllMode || this.data.listNoMore || this._listAllLoading) return
+    // 非会员触底：弹开通引导，通过后解锁完整翻页（enableEventListGate 关闭则直接放行）
+    if (!canUsePaidCloudSync() && !this._eventListUnlocked) {
+      const policy = await getMemberPolicy()
+      if (!policy.enableEventListGate) {
+        this._eventListUnlocked = true
+      } else {
+        if (this._eventGateChecking) return
+        this._eventGateChecking = true
+        try {
+          const allowed = await gateCheck('starship_event_list_full', '星舰事件更新 · 完整浏览')
+          if (!allowed) return
+          this._eventListUnlocked = true
+        } finally {
+          this._eventGateChecking = false
+        }
+      }
+    }
     this.loadListAll(false)
   },
 
@@ -1301,13 +1381,18 @@ Page({
     wx.previewImage({ urls, current })
   },
 
-  /** 推文视频保存原片为会员权益；查询失败 fail-open 不影响体验 */
-  async _videoSaveAllowed() {
+  /** 推文视频播放为会员权益；非会员点封面弹开通引导（一次广告只解锁当前这条视频） */
+  async _eventVideoPlayAllowed(opts) {
     try {
       const enabled = await isMembershipEnabled()
       if (!enabled) return true
-      const state = await getMembershipState()
-      return isPro(state)
+      if (isProSync()) return true
+      // 后台关闭「强制封面」时非会员也可直接播
+      if (canPrefetchVideoSync()) return true
+      const o = opts || {}
+      return await gateCheck('starship_event_list_full', '星舰事件更新 · 视频播放', {
+        adUnlockId: eventVideoAdUnlockId(o.eventId, o.mediaIndex, o.url)
+      })
     } catch (err) {
       return true
     }
@@ -1318,8 +1403,13 @@ Page({
     const url = dataset.url
     if (!url && !dataset.playurl) return
 
-    const canSave = await this._videoSaveAllowed()
-    let hinted = false
+    const playAllowed = await this._eventVideoPlayAllowed({
+      eventId: dataset.eventid || (this.data.item && this.data.item._id) || '',
+      mediaIndex: dataset.midx,
+      url: dataset.playurl || url
+    })
+    if (!playAllowed) return
+
     await playEventVideo({
       url,
       playUrl: dataset.playurl || url,
@@ -1328,27 +1418,22 @@ Page({
       videoUrl: dataset.videourl || '',
       sourceUrl: dataset.sourceurl || '',
       isLong: !!dataset.islong,
-      canSave,
-      onSaveHint: (title) => {
-        if (this._videoSaveHintShown || hinted) return
-        this._videoSaveHintShown = true
-        hinted = true
-        wx.showToast({ title, icon: 'none', duration: 1500 })
-      }
+      // 原片保存仅 Pro/已购；广告解锁只放行预览播放
+      canSave: canSaveOriginalVideoSync('starship_event_list_full'),
+      onSaveHint: () => {}
     })
   },
 
-  /** 长按封面：会员下载原视频 */
+  /** 长按封面：下载原视频（原片体积大，仅 Pro/已购，无广告通道） */
   async onVideoSaveOriginal(e) {
     const dataset = e.currentTarget.dataset || {}
     const original = dataset.original || dataset.url
     if (!original || !isVideoUrl(original)) return
     if (dataset.islong || dataset.videourl) return
 
-    const canSave = await this._videoSaveAllowed()
-    if (!canSave) {
-      wx.showToast({ title: '开通会员可保存原视频', icon: 'none' })
-      return
+    if (!canUsePaidCloudSync()) {
+      const allowed = await gateCheck('starship_event_list_full', '星舰事件更新 · 原视频下载', { allowAd: false })
+      if (!allowed) return
     }
     await saveEventOriginalVideo(original)
   },

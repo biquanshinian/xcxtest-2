@@ -259,8 +259,37 @@ function getCompletedMissions(limit = 10, offset = 0) {
   })
 }
 
+/**
+ * 即将发射的星舰任务（LL2 rocket__configuration__name=Starship，与进度页自动识别一致）
+ * @param {Number} limit 返回数量，默认 10
+ * @param {Number} offset 偏移量，默认 0
+ */
+function getUpcomingStarshipMissions(limit = 10, offset = 0) {
+  return request('/launches/upcoming/', {
+    limit: limit,
+    offset: offset,
+    ordering: 'net',
+    mode: 'detailed',
+    format: 'json',
+    hide_recent_previous: true,
+    rocket__configuration__name: 'Starship'
+  }).then(data => {
+    if (!data || !data.results || !Array.isArray(data.results)) {
+      return { list: [], hasMore: false, nextOffset: 0 }
+    }
+    const list = data.results.map((launch, index) => mapLaunchToListItem(launch, index, offset, 'upcoming'))
+    const actualReturnedCount = list.length
+    const totalAvailable = typeof data.count === 'number' ? data.count : actualReturnedCount
+    const hasMore = (offset + actualReturnedCount) < totalAvailable || !!(data && data.next)
+    return { list, hasMore, nextOffset: offset + actualReturnedCount }
+  }).catch(error => {
+    throw error
+  })
+}
+
 module.exports = {
   getUpcomingMissions,
   getCompletedMissions,
+  getUpcomingStarshipMissions,
   mapLaunchToListItem
 }

@@ -9,9 +9,13 @@ let _cache = null
 let _cacheAt = 0
 let _inflight = null
 
-function fetchMainConfig() {
+/**
+ * @param {boolean} [forceRefresh]
+ * @returns {Promise<Object>}
+ */
+function fetchMainConfig(forceRefresh) {
   const now = Date.now()
-  if (_cache && now - _cacheAt < TTL) return Promise.resolve(_cache)
+  if (!forceRefresh && _cache && now - _cacheAt < TTL) return Promise.resolve(_cache)
   if (_inflight) return _inflight
   if (!wx.cloud || !wx.cloud.database) return Promise.resolve(_cache || {})
   _inflight = wx.cloud.database()
@@ -39,6 +43,11 @@ function fetchMainConfig() {
     })
     .finally(() => { _inflight = null })
   return _inflight
+}
+
+/** 同步读已缓存的 main（未拉取则为 null） */
+function getCachedMainConfig() {
+  return _cache
 }
 
 /**
@@ -95,5 +104,6 @@ module.exports = {
   isFeatureEnabled,
   isPlaybackAllowed,
   isLiveEntryAllowed,
-  fetchMainConfig
+  fetchMainConfig,
+  getCachedMainConfig
 }

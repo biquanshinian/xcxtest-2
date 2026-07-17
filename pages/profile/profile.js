@@ -108,6 +108,13 @@ function resolveRocketImageUrl(rocketImage, rocketName) {
 const { getUiShellLayout } = require('../../utils/layout.js')
 const { tryShowPopupAd } = require('../../utils/popup-ad.js')
 
+// onShow 高频云调用节流：OA 状态 / 竞猜战绩 / 奖品 / 里程碑数据变化频率极低，
+// 期内直接复用已渲染数据；主动操作（切开关、清记录、领奖、下拉刷新）时强刷
+const OA_ALERT_STATUS_TTL_MS = 10 * 60 * 1000
+const VOTE_STATS_TTL_MS = 5 * 60 * 1000
+const MY_PRIZES_TTL_MS = 10 * 60 * 1000
+const MILESTONE_CHECK_TTL_MS = 10 * 60 * 1000
+
 Page({
   data: {
     themeClass: '',
@@ -335,7 +342,7 @@ Page({
     runPullRefresh(this, () => {
       this.refreshCheckinUI()
       this.loadMyReminders()
-      this.loadOaAlertStatus()
+      this.loadOaAlertStatus(true)
       this.loadDailyQuiz()
       return new Promise((resolve) => setTimeout(resolve, 800))
     })
@@ -455,7 +462,11 @@ Page({
 
   // ── 服务号 B 通道自动提醒 ──
 
-  async loadOaAlertStatus() {
+  async loadOaAlertStatus(force) {
+    // onShow 高频入口节流：状态只会因用户自己切开关/关注服务号而变，10 分钟内不重复查
+    const now = Date.now()
+    if (!force && this._oaAlertStatusAt && now - this._oaAlertStatusAt < OA_ALERT_STATUS_TTL_MS) return
+    this._oaAlertStatusAt = now
     try {
       const status = await getOaAlertStatus()
       this.setData({
@@ -483,7 +494,7 @@ Page({
       }
     } finally {
       this.setData({ oaAlertLoading: false })
-      this.loadOaAlertStatus()
+      this.loadOaAlertStatus(true)
     }
   },
 
@@ -700,8 +711,12 @@ Page({
 
   // ── 竞猜统计 ──
 
-  async loadVoteStats() {
+  async loadVoteStats(force) {
     var self = this
+    // onShow 高频入口节流：战绩只在竞猜结算后变化，5 分钟内复用已渲染数据
+    var throttleNow = Date.now()
+    if (!force && this._voteStatsAt && throttleNow - this._voteStatsAt < VOTE_STATS_TTL_MS) return
+    this._voteStatsAt = throttleNow
     try {
       var serverResults = await getMyVoteResults()
 
@@ -1017,6 +1032,7 @@ Page({
     try {
       await clearMyVoteResults()
       clearLocalVotes()
+      this._voteStatsAt = 0
       this.setData({
         voteStats: { total: 0, settled: 0, correct: 0, accuracy: 0, streak: 0, bestStreak: 0 },
         voteHistory: [],
@@ -1080,14 +1096,18 @@ Page({
       this._refreshProfileDot()
 
       var self = this
-      setTimeout(function () { self.checkMilestones() }, 600)
+      setTimeout(function () { self.checkMilestones(true) }, 600)
     }, 500)
   },
 
   // ── 我的奖品 ──
 
-  loadMyPrizes() {
+  loadMyPrizes(force) {
     if (!wx.cloud || !wx.cloud.callFunction) return
+    // onShow 高频入口节流：奖品列表只在领奖后变化，10 分钟内复用已渲染数据
+    var now = Date.now()
+    if (!force && this._myPrizesAt && now - this._myPrizesAt < MY_PRIZES_TTL_MS) return
+    this._myPrizesAt = now
     var self = this
     wx.cloud.callFunction({
       name: 'adminGateway',
@@ -1319,8 +1339,14 @@ Page({
 
   // ── 里程碑彩蛋 ──
 
-  checkMilestones() {
+  checkMilestones(force) {
     if (this.data.showMilestoneEgg) return
+
+    // onShow 高频入口节流：里程碑配置/领奖记录变化极低频，10 分钟内不重复拉取
+    // （签到/答题后的主动检查传 force=true 绕过）
+    var throttleNow = Date.now()
+    if (!force && this._milestoneCheckAt && throttleNow - this._milestoneCheckAt < MILESTONE_CHECK_TTL_MS) return
+    this._milestoneCheckAt = throttleNow
 
     var self = this
 
@@ -1475,6 +1501,9 @@ Page({
         claims.push({ milestoneId: milestoneId })
         storageCache.persistAsync('_milestone_claims_cache', claims)
       } catch (err) {}
+      // 刚领完奖：立刻强刷奖品列表，绕过 10 分钟节流
+      this._myPrizesAt = 0
+      this.loadMyPrizes(true)
     }
   }
 })

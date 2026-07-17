@@ -321,7 +321,7 @@
         <div class="section-header">
           <div>
             <span class="section-title">虚拟支付配置</span>
-            <span class="section-hint">offerId 与环境（env=0 现网；env=1 沙箱，仅安卓有效）</span>
+            <span class="section-hint">offerId 与环境写入库后由 membership 下单签名读取（env=0 现网；env=1 沙箱，仅安卓）。AppKey 仍用云函数环境变量</span>
           </div>
         </div>
       </template>
@@ -337,7 +337,7 @@
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="vpayConfigSaving" @click="saveVPayConfig">保存配置</el-button>
-          <span style="color:#909399;margin-left:12px;font-size:12px;">AppKey 由云函数环境变量 VPAY_APPKEY_PROD/SANDBOX 配置，不在此页展示</span>
+          <span style="color:#909399;margin-left:12px;font-size:12px;">保存后即时生效于下单签名；AppKey 仍由云函数环境变量 VPAY_APPKEY_PROD/SANDBOX 配置</span>
         </el-form-item>
       </el-form>
     </el-card>

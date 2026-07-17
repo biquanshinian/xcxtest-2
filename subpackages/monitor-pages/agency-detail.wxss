@@ -387,18 +387,19 @@ page {
   margin-left: 12rpx;
 }
 
-/* 蓝色渐变胶囊按钮（复用监控中心 booster-view-all 样式） */
+/* PRO 金色胶囊按钮（与监控中心 booster-view-all 同款，示意会员内容） */
 .al-view-all {
   display: flex;
   align-items: center;
   gap: 4rpx;
   font-size: 24rpx;
-  font-weight: 500;
-  color: #ffffff;
+  font-weight: 600;
+  color: #5C3A00;
   padding: 8rpx 20rpx 8rpx 26rpx;
   border-radius: 999rpx;
-  background: linear-gradient(135deg, #007AFF, #5856D6);
-  border: none;
+  background: linear-gradient(135deg, #FFE3A0 0%, #F7BE45 55%, #F0AE2C 100%);
+  border: 1px solid rgba(255, 210, 122, 0.65);
+  box-shadow: 0 4rpx 14rpx rgba(230, 165, 40, 0.28);
   transition: transform 0.12s ease, opacity 0.12s ease;
   margin-left: auto;
 }
@@ -411,6 +412,7 @@ page {
 .al-view-all-arrow {
   font-size: 30rpx;
   line-height: 1;
+  color: #5C3A00;
 }
 
 .al-list {

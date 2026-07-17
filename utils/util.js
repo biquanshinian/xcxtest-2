@@ -415,7 +415,14 @@ function finalizeRocketDisplaySrc(candidate) {
   const raw = candidate.trim()
   if (!raw) return ''
   if (isRemoteRocketSrc(raw)) {
-    if (/^https?:\/\//i.test(raw)) return appendRocketGifCgifCi(toCdnUrl(raw.trim()))
+    if (/^https?:\/\//i.test(raw)) {
+      // default 占位图保持远程 URL 形态：换成 wxfile 本地路径会让
+      // isDefaultRocketSrc 判断失效，导致占位图无法被真实火箭图升级覆盖
+      if (isDefaultRocketSrc(raw)) return appendRocketGifCgifCi(toCdnUrl(raw.trim()))
+      // 走火箭图缓存链：GIF 加 cgif 抽帧、静态图加 imageMogr2 压缩、命中本地 wxfile 直接复用，
+      // 避免已盖章的远程原图绕过压缩直接交给 <image>
+      return getCachedRocketConfig(raw.trim())
+    }
     return raw
   }
   return resolveRocketImagePath(raw.replace(/^\/+/, ''))

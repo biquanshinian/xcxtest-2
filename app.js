@@ -87,16 +87,8 @@ App({
           traceUser: true
         })
 
-        // 预热 adminGateway 实例：/ping 不查库秒回，让云函数冷启动与首屏渲染并行，
-        // 首页竞猜查询发出时（通常 1~3 秒后）实例已热，消除冷启动带来的十秒级延迟
-        setTimeout(() => {
-          try {
-            wx.cloud.callFunction({
-              name: 'adminGateway',
-              data: { path: '/ping', method: 'GET' }
-            }).catch(() => {})
-          } catch (e) {}
-        }, 0)
+        // 已移除冷启动 /ping 预热：当前日活下 adminGateway 实例常驻为热，
+        // 每次冷启动多打一次纯预热调用只增加计费调用量，收益趋近于零
 
         setTimeout(() => {
           try { require('./utils/user-growth.js').recordMilestone('FIRST_OPEN', null, true) } catch (e) {}
@@ -108,6 +100,7 @@ App({
           require('./utils/membership.js').getMembershipState().then(state => {
             this.globalData.membershipState = state
           }).catch(() => {})
+          try { require('./utils/feature-flags.js').fetchMainConfig() } catch (e) {}
           const demoEngine = require('./utils/demo-engine.js')
           demoEngine.initDemoEngine().then(() => {
             this.globalData.demoMode = demoEngine.isDemoActive()

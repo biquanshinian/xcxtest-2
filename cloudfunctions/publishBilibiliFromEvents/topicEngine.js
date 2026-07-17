@@ -98,15 +98,110 @@ async function bumpHit(db, row) {
   } catch (e) {}
 }
 
-async function callTopicAI(text, cfg) {
-  const base = String(process.env.BILI_TOPIC_AI_BASE || '').replace(/\/$/, '')
-  const key = String(process.env.BILI_TOPIC_AI_KEY || '').trim()
-  if (!base || !key || !cfg.aiTopicEnabled) return []
-
-  const prompt =
+function buildTopicPrompt(text) {
+  return (
     '你是航天资讯话题助手。根据下面文本提取 3 到 5 个适合 B 站动态的短话题（2-6 个汉字或英文专有名词），' +
     '只返回 JSON 数组字符串，例如 ["星舰","SpaceX"]，不要其它说明。\n\n' +
     String(text || '').slice(0, 1200)
+  )
+}
+
+function parseTopicArray(content) {
+  const m = String(content || '').match(/\[[\s\S]*?\]/)
+  if (!m) return []
+  try {
+    const arr = JSON.parse(m[0])
+    if (!Array.isArray(arr)) return []
+    return arr.map(normalizeTopic).filter((t) => t.length >= 2)
+  } catch (e) {
+    return []
+  }
+}
+
+function extractLLMText(res) {
+  if (!res) return ''
+  if (typeof res === 'string') return res.trim()
+  if (res.choices && res.choices[0]) {
+    const msg = res.choices[0].message || res.choices[0].delta
+    if (msg && msg.content) return String(msg.content).trim()
+  }
+  if (res.result && res.result.choices && res.result.choices[0]) {
+    const msg = res.result.choices[0].message
+    if (msg && msg.content) return String(msg.content).trim()
+  }
+  if (res.content) return String(res.content).trim()
+  if (res.text) return String(res.text).trim()
+  return ''
+}
+
+async function collectTextStream(textStream) {
+  if (!textStream || typeof textStream[Symbol.asyncIterator] !== 'function') return ''
+  let out = ''
+  for await (const chunk of textStream) {
+    out += chunk || ''
+  }
+  return out.trim()
+}
+
+/**
+ * 主通道：云开发 AI+ 混元（与小程序「星问AI」、推文翻译同一套能力），零配置可用
+ */
+async function callTopicAIHunyuan(prompt) {
+  if (!(cloud.extend && cloud.extend.AI && cloud.extend.AI.createModel)) return []
+
+  const providers = [
+    { provider: 'cloudbase', model: 'hy3-preview' },
+    { provider: 'hunyuan-v3', model: 'hy3-preview' },
+    { provider: 'hunyuan-open', model: 'hunyuan-lite' }
+  ]
+  const messages = [
+    { role: 'system', content: '只输出 JSON 数组' },
+    { role: 'user', content: prompt }
+  ]
+
+  for (const p of providers) {
+    try {
+      const model = cloud.extend.AI.createModel(p.provider)
+      const res = await Promise.race([
+        model.generateText({ model: p.model, messages, temperature: 0.3, max_tokens: 200 }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('AI timeout')), 12000))
+      ])
+      const topics = parseTopicArray(extractLLMText(res))
+      if (topics.length) {
+        console.log(`[topicAI] hunyuan ok (${p.provider}/${p.model})`, JSON.stringify(topics))
+        return topics
+      }
+    } catch (e) {
+      console.warn(`[topicAI] generateText 失败 (${p.provider}/${p.model}):`, e.message || e)
+    }
+
+    // 部分环境 generateText 不可用，回退 streamText（与 syncSpaceXTweets 翻译一致）
+    try {
+      const model = cloud.extend.AI.createModel(p.provider)
+      if (typeof model.streamText !== 'function') continue
+      const streamRes = await Promise.race([
+        model.streamText({ data: { model: p.model, messages, temperature: 0.3, max_tokens: 200 } }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('AI stream timeout')), 12000))
+      ])
+      const topics = parseTopicArray(await collectTextStream(streamRes && streamRes.textStream))
+      if (topics.length) {
+        console.log(`[topicAI] hunyuan stream ok (${p.provider}/${p.model})`, JSON.stringify(topics))
+        return topics
+      }
+    } catch (e) {
+      console.warn(`[topicAI] streamText 失败 (${p.provider}/${p.model}):`, e.message || e)
+    }
+  }
+  return []
+}
+
+/**
+ * 备用通道：外部 OpenAI 兼容接口（BILI_TOPIC_AI_BASE/KEY），不配则跳过
+ */
+async function callTopicAIExternal(prompt) {
+  const base = String(process.env.BILI_TOPIC_AI_BASE || '').replace(/\/$/, '')
+  const key = String(process.env.BILI_TOPIC_AI_KEY || '').trim()
+  if (!base || !key) return []
 
   try {
     const https = require('https')
@@ -150,16 +245,24 @@ async function callTopicAI(text, cfg) {
       req.end()
     })
     const parsed = JSON.parse(raw)
-    const content = parsed?.choices?.[0]?.message?.content || ''
-    const m = content.match(/\[[\s\S]*?\]/)
-    if (!m) return []
-    const arr = JSON.parse(m[0])
-    if (!Array.isArray(arr)) return []
-    return arr.map(normalizeTopic).filter((t) => t.length >= 2)
+    return parseTopicArray(parsed?.choices?.[0]?.message?.content || '')
   } catch (e) {
-    console.warn('[topicAI]', e.message || e)
+    console.warn('[topicAI] external', e.message || e)
     return []
   }
+}
+
+/**
+ * 话题 AI：混元（星问AI 同款，零配置）优先，外部接口兜底
+ */
+async function callTopicAI(text, cfg) {
+  if (!cfg.aiTopicEnabled) return []
+  const prompt = buildTopicPrompt(text)
+
+  const fromHunyuan = await callTopicAIHunyuan(prompt)
+  if (fromHunyuan.length) return fromHunyuan
+
+  return callTopicAIExternal(prompt)
 }
 
 async function upsertAiTopic(db, topic, blacklist, cfg) {

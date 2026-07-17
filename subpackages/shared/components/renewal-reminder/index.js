@@ -19,8 +19,7 @@ const PROMO_COOLDOWN_DAYS = 2
 const PROMO_DISMISS_KEY = '_pro_promo_dismissed_at'
 
 function fenToYuanText(fen) {
-  const y = Math.round(Number(fen)) / 100
-  return String(Math.round(y * 100) / 100)
+  return membership.formatPriceYuan(fen) || '0'
 }
 
 function isIOS() {
@@ -45,8 +44,8 @@ Component({
     expired: false,
     daysLeft: 0,
     expireDateText: '',
-    priceMonthly: fenToYuanText(membership.PLANS.MONTHLY.price),
-    priceYearly: fenToYuanText(membership.PLANS.YEARLY.price),
+    priceMonthly: '',
+    priceYearly: '',
     memberIcon: membership.MEMBER_ICONS.PRO
   },
 
@@ -124,11 +123,11 @@ Component({
       } catch (e) {}
 
       self._dismissKey = ''
-      // 动态价格（后台可改价），失败时用常量兜底
+      // 动态价格（与后台管理系统 vpaySkuPrices 对齐），失败时用常量兜底
       return membership.getEffectivePrices()
         .then(function (prices) {
-          const monthly = (prices && prices.vp_sub_monthly) || membership.PLANS.MONTHLY.price
-          const yearly = (prices && prices.vp_sub_yearly) || membership.PLANS.YEARLY.price
+          const monthly = membership.resolvePriceFromMap(prices, 'vp_sub_monthly', membership.PLANS.MONTHLY.price)
+          const yearly = membership.resolvePriceFromMap(prices, 'vp_sub_yearly', membership.PLANS.YEARLY.price)
           return {
             visible: true,
             mode: 'promo',

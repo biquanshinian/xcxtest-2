@@ -234,6 +234,22 @@ function patchResultsInPlace(results, liveById) {
   return changes
 }
 
+/**
+ * patch 后按 net 升序重排（缺失/非法 net 的行沉底）。
+ * 探针只就地改时间不重排会让大幅改期的任务停留在数组前部，
+ * 客户端按缓存顺序渲染时首屏出现上千天倒计时的卡片。
+ */
+function sortResultsByNetAsc(results) {
+  if (!Array.isArray(results)) return results
+  return results.sort((a, b) => {
+    const ta = a && (a.net || a.window_start) ? new Date(a.net || a.window_start).getTime() : NaN
+    const tb = b && (b.net || b.window_start) ? new Date(b.net || b.window_start).getTime() : NaN
+    const va = Number.isFinite(ta) ? ta : Number.MAX_SAFE_INTEGER
+    const vb = Number.isFinite(tb) ? tb : Number.MAX_SAFE_INTEGER
+    return va - vb
+  })
+}
+
 /** 读出的文档再 set 回去时必须去掉 _id，否则 TCB 报「不能更新_id的值」 */
 function stripDocMeta(wrapper) {
   if (!wrapper || typeof wrapper !== 'object') return {}
@@ -787,18 +803,27 @@ async function runLaunchNetHourly(options) {
     for (let b = 0; b < loaded.batches.length; b++) {
       const batch = loaded.batches[b]
       const batchChanges = patchResultsInPlace(batch.results, liveById)
-      const batchNet = enrichResultsNetRecovery(batch.results)
-      netRecoveryPatched += batchNet
-      if (!batchChanges.length && !batchNet) continue
+      netRecoveryPatched += enrichResultsNetRecovery(batch.results)
       changes = changes.concat(batchChanges)
-      batch.payload.results = batch.results
-      await writeCacheWrapper(batch.batchKey, {
-        ...batch.wrapper,
-        data: batch.payload
-      })
-      docsWritten++
     }
     if (changes.length || netRecoveryPatched) {
+      // 有变更时跨批整体按 net 升序重排，再按原批大小切块写回全部批文档
+      // （改期任务可能需要跨批移动位置，只写脏批无法修正顺序；实际 1~2 批，写放大可忽略）
+      const mergedResults = loaded.batches.reduce((all, b) => all.concat(b.results), [])
+      sortResultsByNetAsc(mergedResults)
+      let cursor = 0
+      for (let b = 0; b < loaded.batches.length; b++) {
+        const batch = loaded.batches[b]
+        const size = batch.results.length
+        batch.results = mergedResults.slice(cursor, cursor + size)
+        cursor += size
+        batch.payload.results = batch.results
+        await writeCacheWrapper(batch.batchKey, {
+          ...batch.wrapper,
+          data: batch.payload
+        })
+        docsWritten++
+      }
       // 刷新主文档 timestamp，让客户端后台比对能感知「云端有更新」
       await writeCacheWrapper(cached.cacheKey, cached.wrapper)
       docsWritten++
@@ -807,6 +832,8 @@ async function runLaunchNetHourly(options) {
     changes = patchResultsInPlace(loaded.results, liveById)
     netRecoveryPatched = enrichResultsNetRecovery(loaded.results)
     if (changes.length || netRecoveryPatched) {
+      // 写回前按 net 升序重排，避免改期任务停留在数组原位造成客户端列表乱序
+      sortResultsByNetAsc(loaded.results)
       const nextPayload = {
         ...cached.payload,
         results: loaded.results

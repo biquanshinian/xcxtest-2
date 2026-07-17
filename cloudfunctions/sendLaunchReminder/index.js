@@ -181,8 +181,37 @@ function getMiniProgramCredentials() {
   return { appid, secret, source: picked.source }
 }
 
-async function getAccessToken() {
+// 小程序 access_token 实例内缓存。此前每发一条消息就打一次 cgi-bin/token，
+// 定时器每 5 分钟一轮 × 逐条获取，一天即打光该接口每日配额（45009），
+// 且新 token 会顶掉其它云函数（如 membership）缓存的旧 token。
+let _mpTokenCache = { token: '', expireAt: 0 }
+
+async function getAccessToken(forceRefresh) {
+  const now = Date.now()
+  if (!forceRefresh && _mpTokenCache.token && now < _mpTokenCache.expireAt) {
+    return _mpTokenCache.token
+  }
   const { appid, secret } = getMiniProgramCredentials()
+
+  // 官方推荐 stable_token：额度独立于 cgi-bin/token 每日上限，
+  // 且非 force_refresh 时返回同一个稳定 token，不影响其它调用方
+  try {
+    const res = await axios.post('https://api.weixin.qq.com/cgi-bin/stable_token', {
+      grant_type: 'client_credential',
+      appid: appid,
+      secret: secret,
+      force_refresh: !!forceRefresh
+    })
+    if (res.data && res.data.access_token) {
+      const ttlSec = Math.max(60, (Number(res.data.expires_in) || 7200) - 300)
+      _mpTokenCache = { token: res.data.access_token, expireAt: now + ttlSec * 1000 }
+      return res.data.access_token
+    }
+    console.warn('stable_token 响应异常，回落 cgi-bin/token:', JSON.stringify(res.data))
+  } catch (e) {
+    console.warn('stable_token 请求失败，回落 cgi-bin/token:', e.message || e)
+  }
+
   const url =
     'https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=' +
     encodeURIComponent(appid) +
@@ -190,6 +219,8 @@ async function getAccessToken() {
     encodeURIComponent(secret)
   const res = await axios.get(url)
   if (res.data && res.data.access_token) {
+    const ttlSec = Math.max(60, (Number(res.data.expires_in) || 7200) - 300)
+    _mpTokenCache = { token: res.data.access_token, expireAt: now + ttlSec * 1000 }
     return res.data.access_token
   }
   throw new Error('获取access_token失败: ' + JSON.stringify(res.data))
@@ -205,25 +236,33 @@ function getSubscribeSendOptions() {
 }
 
 async function sendSubscribeMessageByHttp(openid, templateId, page, data) {
-  const accessToken = await getAccessToken()
-  const url =
-    'https://api.weixin.qq.com/cgi-bin/message/subscribe/send?access_token=' +
-    encodeURIComponent(accessToken)
   const { miniprogramState, lang } = getSubscribeSendOptions()
-  const res = await axios.post(url, {
+  const payload = {
     touser: openid,
     template_id: templateId,
     page: page,
     miniprogram_state: miniprogramState,
     lang: lang,
     data: data
-  })
-  if (res.data && res.data.errcode !== 0) {
-    throw new Error(
-      '发送订阅消息失败: errcode=' + res.data.errcode + ', errmsg=' + res.data.errmsg
-    )
   }
-  return res.data
+
+  async function postOnce(token) {
+    const url =
+      'https://api.weixin.qq.com/cgi-bin/message/subscribe/send?access_token=' +
+      encodeURIComponent(token)
+    const res = await axios.post(url, payload)
+    return res.data || {}
+  }
+
+  let result = await postOnce(await getAccessToken())
+  // 缓存 token 失效/被顶掉（40001 invalid credential / 42001 expired）→ 强刷后重试一次
+  if (result.errcode === 40001 || result.errcode === 42001) {
+    result = await postOnce(await getAccessToken(true))
+  }
+  if (result.errcode !== 0) {
+    throw new Error('发送订阅消息失败: errcode=' + result.errcode + ', errmsg=' + result.errmsg)
+  }
+  return result
 }
 
 /** 与 ll2Query fetchLaunchDetail 写入的缓存 docId 一致（注意版本号需与 ll2Query 同步升级） */
@@ -302,7 +341,7 @@ async function reconcilePendingSubscriptionsNotifyTimes() {
     var q = await db
       .collection(SUBSCRIBE_COLLECTION)
       .where({ sent: false })
-      .limit(200)
+      .limit(100)
       .get()
     var records = q.data || []
     stats.scanned = records.length
@@ -409,21 +448,8 @@ async function matchPreferencesAndCreateSubscriptions() {
     const now = Date.now()
     const windowEnd = now + PREFS_MATCH_WINDOW_MS
 
-    // 查询有偏好设置的用户（最多50个）
-    const usersRes = await db.collection(PROFILE_COLLECTION)
-      .where({ 'preferences.rocketTypes': _.exists(true) })
-      .field({ _id: true, openid: true, preferences: true })
-      .limit(50)
-      .get()
-
-    const users = (usersRes.data || []).filter(function (u) {
-      var p = u.preferences
-      return p && ((p.rocketTypes && p.rocketTypes.length > 0) || (p.launchSites && p.launchSites.length > 0))
-    })
-
-    if (users.length === 0) return
-
-    // 查询未来24小时内的发射任务
+    // 先查未来24小时内的发射任务：多数 tick 没有临近任务，此时直接返回，
+    // 不再扫描用户偏好（省掉每 5 分钟一次的 user_profile 读）
     var launchesRes
     try {
       launchesRes = await db.collection(LAUNCH_DATA_COLLECTION)
@@ -438,6 +464,37 @@ async function matchPreferencesAndCreateSubscriptions() {
 
     const launches = launchesRes.data || []
     if (launches.length === 0) return
+
+    // 查询有偏好设置的用户（最多50个）
+    const usersRes = await db.collection(PROFILE_COLLECTION)
+      .where({ 'preferences.rocketTypes': _.exists(true) })
+      .field({ _id: true, openid: true, preferences: true })
+      .limit(50)
+      .get()
+
+    const users = (usersRes.data || []).filter(function (u) {
+      var p = u.preferences
+      return p && ((p.rocketTypes && p.rocketTypes.length > 0) || (p.launchSites && p.launchSites.length > 0))
+    })
+
+    if (users.length === 0) return
+
+    // 一次批量查询代替「用户×任务」逐对查询（旧实现最坏 50×20=1000 次读/tick）：
+    // 拉出这些任务的已有订阅，内存里按 openid_missionId 去重
+    const missionIds = launches.map(function (l) { return String(l._id || l.id) })
+    const existingPairs = new Set()
+    try {
+      const existingRes = await db.collection(SUBSCRIBE_COLLECTION)
+        .where({ missionId: _.in(missionIds) })
+        .field({ _openid: true, missionId: true })
+        .limit(1000)
+        .get()
+      for (const row of existingRes.data || []) {
+        existingPairs.add(String(row._openid) + '_' + String(row.missionId))
+      }
+    } catch (e) {
+      // 批量查询失败则不做预去重，依赖确定性 _id 的写入护栏兜底
+    }
 
     // 为每个匹配的用户+任务创建订阅记录
     for (const user of users) {
@@ -456,23 +513,19 @@ async function matchPreferencesAndCreateSubscriptions() {
         var notifyAt = new Date(launchTime).getTime() - notifyMinutes * 60 * 1000
         if (notifyAt <= now) continue
 
-        // 检查是否已存在
-        var dedupKey = ((user.openid || user._id) + '_' + (launch._id || launch.id)).replace(/[^a-zA-Z0-9_-]/g, '_')
-        try {
-          var existing = await db.collection(SUBSCRIBE_COLLECTION)
-            .where({ _openid: user.openid || user._id, missionId: String(launch._id || launch.id) })
-            .limit(1)
-            .get()
-          if (existing.data && existing.data.length > 0) continue
-        } catch (e) {}
+        var userOpenid = user.openid || user._id
+        var missionId = String(launch._id || launch.id)
+        if (existingPairs.has(String(userOpenid) + '_' + missionId)) continue
+
+        var dedupKey = (userOpenid + '_' + missionId).replace(/[^a-zA-Z0-9_-]/g, '_')
 
         // 创建订阅记录（确定性 _id 作为并发护栏，避免重复创建）
         try {
           await db.collection(SUBSCRIBE_COLLECTION).add({
             data: {
               _id: dedupKey,
-              _openid: user.openid || user._id,
-              missionId: String(launch._id || launch.id),
+              _openid: userOpenid,
+              missionId: missionId,
               missionName: (launch.missionName || launch.name || '').substring(0, 20),
               rocketName: (launch.rocketName || '').substring(0, 20),
               launchTime: launchTime,
@@ -486,6 +539,7 @@ async function matchPreferencesAndCreateSubscriptions() {
               createdAt: now
             }
           })
+          existingPairs.add(String(userOpenid) + '_' + missionId)
         } catch (e) {}
       }
     }
@@ -793,7 +847,131 @@ exports.main = async (event) => {
     }
   }
 
+  // 「任务完成提醒」断点定位：一次调用查全 模板配置 / 订阅文档状态 / 终态缓存
+  if (action === 'resultDiag') {
+    return runResultDiag()
+  }
+
   return { success: false, message: 'unknown action' }
+}
+
+/**
+ * 排查「任务完成提醒」未推送：
+ * - template: RESULT_TEMPLATE_ID 与字段 key（需与公众平台模板关键词逐一对上，否则 47003）
+ * - subscriptions: 各状态文档数与样本（resultQuota=0 → 用户弹窗没勾结果模板；
+ *   reminderSent=false → 卡在发射前提醒环节；failReason → 上一次发送失败原因）
+ * - recentSettled: _recent_settled 终态缓存是否有数据、是否新鲜
+ */
+async function runResultDiag() {
+  const out = {
+    success: true,
+    now: new Date().toISOString(),
+    template: {
+      resultTemplateId: RESULT_TEMPLATE_ID,
+      resultTemplateFields: RESULT_TEMPLATE_FIELDS,
+      miniprogramState: getSubscribeSendOptions().miniprogramState
+    },
+    subscriptions: {},
+    recentSettled: {}
+  }
+
+  function slim(row) {
+    return {
+      _id: row._id,
+      missionId: row.missionId || '',
+      missionName: row.missionName || '',
+      launchTime: row.launchTime || '',
+      notifyAt: row.notifyAt || 0,
+      sent: !!row.sent,
+      reminderSent: !!row.reminderSent,
+      resultQuota: Number(row.resultQuota) || 0,
+      resultSent: !!row.resultSent,
+      failReason: row.failReason ? String(row.failReason).slice(0, 200) : ''
+    }
+  }
+
+  try {
+    const pendingRes = await db
+      .collection(SUBSCRIBE_COLLECTION)
+      .where({ resultSent: false, resultQuota: _.gt(0), reminderSent: true })
+      .limit(20)
+      .get()
+    out.subscriptions.pendingResult = (pendingRes.data || []).map(slim)
+  } catch (e) {
+    out.subscriptions.pendingResultError = e.message || String(e)
+  }
+
+  try {
+    const stuckRes = await db
+      .collection(SUBSCRIBE_COLLECTION)
+      .where({ resultSent: false, resultQuota: _.gt(0), reminderSent: false })
+      .limit(20)
+      .get()
+    out.subscriptions.quotaButReminderNotSent = (stuckRes.data || []).map(slim)
+  } catch (e) {
+    out.subscriptions.quotaButReminderNotSentError = e.message || String(e)
+  }
+
+  try {
+    const noQuotaRes = await db
+      .collection(SUBSCRIBE_COLLECTION)
+      .where({ resultQuota: 0 })
+      .limit(20)
+      .get()
+    out.subscriptions.noResultQuota = (noQuotaRes.data || []).map(slim)
+  } catch (e) {
+    out.subscriptions.noResultQuotaError = e.message || String(e)
+  }
+
+  try {
+    const totalRes = await db.collection(SUBSCRIBE_COLLECTION).count()
+    out.subscriptions.totalDocs = totalRes && typeof totalRes.total === 'number' ? totalRes.total : null
+  } catch (e) {}
+
+  try {
+    const settledDoc = await db.collection('launch_timeline_cache').doc('_recent_settled').get()
+    const wrapper = settledDoc && settledDoc.data
+    const list = wrapper && Array.isArray(wrapper.data) ? wrapper.data : []
+    out.recentSettled = {
+      exists: true,
+      updatedAt: wrapper && wrapper.updatedAtMs ? new Date(wrapper.updatedAtMs).toISOString() : null,
+      count: list.length,
+      entries: list.slice(0, 15).map(function (r) {
+        return {
+          id: r.id,
+          name: r.name || '',
+          statusId: r.status && r.status.id,
+          statusName: (r.status && r.status.name) || '',
+          net: r.net || '',
+          source: r.source || ''
+        }
+      })
+    }
+  } catch (e) {
+    out.recentSettled = { exists: false, error: e.message || String(e) }
+  }
+
+  try {
+    getMiniProgramCredentials()
+    out.credentialsOk = true
+  } catch (e) {
+    out.credentialsOk = false
+    out.credentialsError = e.message || String(e)
+  }
+
+  // 线上模板真实字段与自动解析出的角色映射（47003 排查关键）
+  try {
+    const entries = await fetchResultTemplateMapping()
+    out.template.remoteTitle = entries._templateTitle || ''
+    out.template.resolvedMapping = entries.map(function (e) {
+      return { key: e.key, role: e.role, label: e.label || '' }
+    })
+    out.template.mappingSource = hasExplicitResultFieldEnv() ? 'env（发送时以环境变量为准）' : 'auto'
+  } catch (e) {
+    out.template.resolvedMappingError = e.message || String(e)
+  }
+
+  return out
 }
 
 async function sendPendingReminders() {
@@ -963,17 +1141,129 @@ function resultTextFromStatus(status) {
   return ''
 }
 
-function buildResultSubscribeData(record, statusInfo) {
-  const mission = String(record.missionName || '未知任务').substring(0, 20)
-  const time = String(record.launchTimeFormatted || '时间未知').substring(0, 20)
-  const result = String(statusInfo.resultText || '已完成').substring(0, 20)
+// ── 结果模板字段自动对齐 ──
+// 线上模板的关键词 key（如 time1/thing2）与代码默认值不匹配会报 47003。
+// 通过 wxaapi/newtmpl/gettemplate 拉取模板真实 content（{{key.DATA}}），
+// 按行首关键词中文名映射到 mission/time/result/remark 四个角色，实例内缓存 1 小时。
+// 显式设置了 RESULT_TMPL_FIELD_* 环境变量时跳过自动探测。
+
+let _resultTmplMappingCache = { entries: null, fetchedAt: 0 }
+const RESULT_TMPL_MAPPING_TTL = 60 * 60 * 1000
+
+function hasExplicitResultFieldEnv() {
+  return !!(
+    String(process.env.RESULT_TMPL_FIELD_MISSION || '').trim() ||
+    String(process.env.RESULT_TMPL_FIELD_TIME || '').trim() ||
+    String(process.env.RESULT_TMPL_FIELD_RESULT || '').trim() ||
+    String(process.env.RESULT_TMPL_FIELD_REMARK || '').trim()
+  )
+}
+
+function defaultResultFieldEntries() {
+  return [
+    { key: RESULT_TEMPLATE_FIELDS.mission, role: 'mission' },
+    { key: RESULT_TEMPLATE_FIELDS.time, role: 'time' },
+    { key: RESULT_TEMPLATE_FIELDS.result, role: 'result' },
+    { key: RESULT_TEMPLATE_FIELDS.remark, role: 'remark' }
+  ]
+}
+
+/** 解析模板 content：每行形如「任务名称:{{thing2.DATA}}」，按中文标签分配角色 */
+function parseResultTemplateContent(content) {
+  const lines = String(content || '').split('\n')
+  const parsed = []
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^(.*?)[:：]?\s*\{\{(\w+)\.DATA\}\}/)
+    if (m) parsed.push({ label: m[1].trim(), key: m[2] })
+  }
+  if (!parsed.length) return null
+
+  const entries = []
+  const usedRoles = new Set()
+  // 「任务开始时间」含「任务」二字，须先匹配时间/结果/备注，最后才轮到名称
+  for (const p of parsed) {
+    let role = ''
+    if (/时间|日期/.test(p.label) || /^time/.test(p.key)) role = 'time'
+    else if (/结果|状态/.test(p.label)) role = 'result'
+    else if (/备注|说明|提示|温馨/.test(p.label)) role = 'remark'
+    else if (/名称|任务|主题|标题/.test(p.label)) role = 'mission'
+    if (role && !usedRoles.has(role)) {
+      usedRoles.add(role)
+      entries.push({ key: p.key, role: role, label: p.label })
+    } else {
+      entries.push({ key: p.key, role: '', label: p.label })
+    }
+  }
+  // 未识别的行按顺序补齐剩余角色，保证模板每个 key 都有值（缺 key 也是 47003）
+  const leftoverRoles = ['mission', 'time', 'result', 'remark'].filter(function (r) {
+    return !usedRoles.has(r)
+  })
+  for (const e of entries) {
+    if (!e.role) e.role = leftoverRoles.shift() || 'remark'
+  }
+  return entries
+}
+
+async function fetchResultTemplateMapping() {
+  const now = Date.now()
+  if (_resultTmplMappingCache.entries && now - _resultTmplMappingCache.fetchedAt < RESULT_TMPL_MAPPING_TTL) {
+    return _resultTmplMappingCache.entries
+  }
+  const token = await getAccessToken()
+  const res = await axios.get(
+    'https://api.weixin.qq.com/wxaapi/newtmpl/gettemplate?access_token=' + encodeURIComponent(token)
+  )
+  const list = (res.data && res.data.data) || []
+  let tmpl = null
+  for (const t of list) {
+    if (t && t.priTmplId === RESULT_TEMPLATE_ID) {
+      tmpl = t
+      break
+    }
+  }
+  if (!tmpl) throw new Error('gettemplate 未找到结果模板 ' + RESULT_TEMPLATE_ID)
+  const entries = parseResultTemplateContent(tmpl.content)
+  if (!entries) throw new Error('结果模板 content 解析失败: ' + String(tmpl.content).slice(0, 100))
+  entries._templateTitle = tmpl.title || ''
+  _resultTmplMappingCache = { entries: entries, fetchedAt: now }
+  return entries
+}
+
+/** 获取最终字段映射：显式环境变量 > 线上模板自动探测 > 代码默认值 */
+async function resolveResultFieldEntries() {
+  if (hasExplicitResultFieldEnv()) return defaultResultFieldEntries()
+  try {
+    return await fetchResultTemplateMapping()
+  } catch (e) {
+    console.warn('[ResultNotify] 模板字段自动探测失败，用默认映射:', e.message || e)
+    return defaultResultFieldEntries()
+  }
+}
+
+/** 按 key 类型裁剪值：thing≤20 / phrase≤5 / character_string≤32(ASCII) / time 原样 */
+function clampValueForKey(key, value) {
+  const v = String(value == null ? '' : value)
+  if (/^time/.test(key)) return v
+  if (/^phrase/.test(key)) return v.substring(0, 5)
+  if (/^character_string/.test(key)) return v.replace(/[^\x20-\x7e]/g, '').substring(0, 32) || '-'
+  if (/^number/.test(key)) return v.replace(/[^\d.-]/g, '').substring(0, 32) || '0'
+  return v.substring(0, 20)
+}
+
+function buildResultSubscribeData(record, statusInfo, fieldEntries) {
   const rocket = String(record.rocketName || '').substring(0, 12)
-  const remark = String(rocket ? (rocket + ' · 点击查看') : '点击查看详情').substring(0, 20)
+  const roleValues = {
+    mission: String(record.missionName || '未知任务'),
+    time: String(record.launchTimeFormatted || '时间未知'),
+    result: String(statusInfo.resultText || '已完成'),
+    remark: rocket ? rocket + ' · 点击查看' : '点击查看详情'
+  }
+  const entries = Array.isArray(fieldEntries) && fieldEntries.length ? fieldEntries : defaultResultFieldEntries()
   const data = {}
-  data[RESULT_TEMPLATE_FIELDS.mission] = { value: mission }
-  data[RESULT_TEMPLATE_FIELDS.time] = { value: time }
-  data[RESULT_TEMPLATE_FIELDS.result] = { value: result }
-  data[RESULT_TEMPLATE_FIELDS.remark] = { value: remark }
+  for (const e of entries) {
+    if (!e || !e.key) continue
+    data[e.key] = { value: clampValueForKey(e.key, roleValues[e.role] || roleValues.remark) }
+  }
   return data
 }
 
@@ -1031,6 +1321,32 @@ async function sendPendingResultNotifications() {
       }
     }
   } catch (e) {}
+
+  // 终态兜底：存在「发射时间已过但终态缓存未命中」的记录时，触发一次 ll2Query 实况刷新
+  // 再重读 _recent_settled，避免探针空窗导致 48h 后静默删除、一条不发。
+  // fetchLaunchStatuses 自带 120s 共享缓存与 30s 失败记忆，不会放大 LL2 调用。
+  const needsSettledRefresh = records.some(function (r) {
+    const netMs = r.launchTime ? new Date(r.launchTime).getTime() : 0
+    return netMs && netMs <= now && !settledById.has(String(r.missionId || ''))
+  })
+  if (needsSettledRefresh) {
+    try {
+      await cloud.callFunction({ name: 'll2Query', data: { action: 'fetchLaunchStatuses' } })
+      const settledDoc2 = await db.collection('launch_timeline_cache').doc('_recent_settled').get()
+      const list2 = settledDoc2 && settledDoc2.data && settledDoc2.data.data
+      if (Array.isArray(list2)) {
+        for (let i = 0; i < list2.length; i++) {
+          const row = list2[i]
+          if (row && row.id && row.status) settledById.set(String(row.id), row)
+        }
+      }
+    } catch (e) {
+      console.warn('[ResultNotify] settled refresh fail:', e.message || e)
+    }
+  }
+
+  // 每轮只解析一次线上模板字段映射（带 1h 缓存），供本批全部发送使用
+  const resultFieldEntries = await resolveResultFieldEntries()
 
   const statusCache = new Map()
 
@@ -1091,7 +1407,7 @@ async function sendPendingResultNotifications() {
         record._openid,
         RESULT_TEMPLATE_ID,
         page,
-        buildResultSubscribeData(record, terminal)
+        buildResultSubscribeData(record, terminal, resultFieldEntries)
       )
       stats.sentOk++
       try {
@@ -1110,6 +1426,15 @@ async function sendPendingResultNotifications() {
       stats.failed++
       console.error('[ResultNotify] send fail', record._id, sendErr.message || sendErr)
       const errStr = String(sendErr.message || sendErr)
+      // 失败落 push_history，管理后台可见（此前只有 console.error，纯无声失败）
+      try {
+        await writePushHistoryDetail({
+          openid: record._openid || '',
+          launchId: record.missionId || '',
+          missionName: '[结果通知] ' + (record.missionName || ''),
+          error: errStr
+        })
+      } catch (_) {}
       if (/43101|user refuse|user deny|43107/i.test(errStr)) {
         try { await removeRecord(record._id) } catch (e) {}
       }

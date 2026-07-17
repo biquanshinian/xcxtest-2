@@ -33,9 +33,17 @@ async function getRoadClosureNoticeFromDB() {
         timeRange: item.timeRange || '',
         source: item.source || 'unknown',
         beachStatus: item.beachStatus || '',
+        beachOpen: item.beachOpen,
+        roadOpen: item.roadOpen,
+        roadStatusLabel: item.roadStatusLabel || '',
         beachClosureSchedule: item.beachClosureSchedule || [],
         roadDelays: item.roadDelays || [],
         roadUpdates: item.roadUpdates || [],
+        bannerAlerts: item.bannerAlerts || [],
+        publicNotice: item.publicNotice || '',
+        publicOrders: item.publicOrders || [],
+        updatedAt: item.updatedAt || 0,
+        syncedAt: item.syncedAt || 0,
         _priority: priority
       })
     }

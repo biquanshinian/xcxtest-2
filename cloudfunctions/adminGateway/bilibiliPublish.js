@@ -197,6 +197,11 @@ function createBilibiliPublishApi({ db, _, ok, fail, now, writeOpLog, cloud }) {
       if (turningOn && !Number(before.syncFromAt || 0) && !Number(patch.syncFromAt || 0)) {
         patch.syncFromAt = now()
       }
+      if (turningOn) {
+        // 重开即重置熔断状态，否则上次连败会让下一次失败立刻再触发自动暂停
+        if (!Object.prototype.hasOwnProperty.call(patch, 'consecutiveFails')) patch.consecutiveFails = 0
+        if (!Object.prototype.hasOwnProperty.call(patch, 'lastError')) patch.lastError = ''
+      }
       if (!patch.enabled) {
         // 关闭时取消 pending
         try {
@@ -228,14 +233,39 @@ function createBilibiliPublishApi({ db, _, ok, fail, now, writeOpLog, cloud }) {
 
   async function enqueueBilibiliNow(user) {
     try {
-      // 手动触发：把仍 pending 的任务立刻可领，并把卡在 queued/merged 且队列已失败的事件重置
+      // 手动触发：清掉积压 pending（由云函数按「只发最新」重新入队），并重置卡死状态
       const ts = now()
+      // 管理员手动扫库即表示要重试：清零连败与错误，避免残留计数让下一次失败立刻熔断
       try {
-        const pend = await db.collection(QUEUE_COL).where({ status: 'pending' }).limit(50).get()
-        for (const row of pend.data || []) {
-          await db.collection(QUEUE_COL).doc(row._id).update({
-            data: { scheduledAt: ts, updatedAt: ts }
-          })
+        await writeConfig({ consecutiveFails: 0, lastError: '' })
+      } catch (e) {}
+      try {
+        // 不再把全部 pending 的 scheduledAt 提前——避免 Agent 从旧到新排空 100+ 条
+        for (let round = 0; round < 30; round++) {
+          const pend = await db.collection(QUEUE_COL).where({ status: 'pending' }).limit(100).get()
+          const rows = pend.data || []
+          if (!rows.length) break
+          for (const row of rows) {
+            await db.collection(QUEUE_COL).doc(row._id).update({
+              data: {
+                status: 'cancelled',
+                lastError: 'manual_rescan_clear',
+                updatedAt: ts
+              }
+            })
+            for (const eid of row.eventIds || []) {
+              try {
+                await db.collection(EVENTS_COL).doc(eid).update({
+                  data: {
+                    bilibiliSyncStatus: 'skipped',
+                    bilibiliLastError: 'manual_rescan_clear',
+                    bilibiliQueueId: '',
+                    updatedAt: ts
+                  }
+                })
+              } catch (e) {}
+            }
+          }
         }
         const failedQ = await db.collection(QUEUE_COL).where({ status: 'failed' }).limit(20).get()
         for (const row of failedQ.data || []) {
@@ -488,29 +518,30 @@ function createBilibiliPublishApi({ db, _, ok, fail, now, writeOpLog, cloud }) {
     } catch (e) {}
 
     let job = null
+    let pendingRows = []
+    const newestFirst = (a, b) => {
+      const pa = Number(a.eventPublishedAt || a.createdAt || a.scheduledAt || 0)
+      const pb = Number(b.eventPublishedAt || b.createdAt || b.scheduledAt || 0)
+      return pb - pa
+    }
     try {
+      // 只发当时队列里最新一条（不再 FIFO 从旧到新）
       const res = await db
         .collection(QUEUE_COL)
         .where({ status: 'pending' })
-        .orderBy('scheduledAt', 'asc')
-        .limit(20)
+        .orderBy('createdAt', 'desc')
+        .limit(50)
         .get()
-      const rows = res.data || []
-      // force / 调试：忽略延后时间，直接领最早的 pending（发布脚本已修复时可立刻重试）
+      pendingRows = (res.data || []).slice().sort(newestFirst)
       job =
-        rows.find((r) => force || Number(r.scheduledAt || 0) <= ts) ||
-        (force ? rows[0] : null) ||
+        pendingRows.find((r) => force || Number(r.scheduledAt || 0) <= ts) ||
+        (force ? pendingRows[0] : null) ||
         null
-      // 若都因 scheduledAt 未到而领不到，但存在 pending，则仍允许领取最早一条（避免卡死）
-      if (!job && rows.length) {
-        job = rows[0]
-      }
+      if (!job && pendingRows.length) job = pendingRows[0]
     } catch (e) {
-      const res = await db.collection(QUEUE_COL).where({ status: 'pending' }).limit(20).get()
-      const rows = (res.data || []).sort(
-        (a, b) => Number(a.scheduledAt || 0) - Number(b.scheduledAt || 0)
-      )
-      job = rows[0] || null
+      const res = await db.collection(QUEUE_COL).where({ status: 'pending' }).limit(50).get()
+      pendingRows = (res.data || []).slice().sort(newestFirst)
+      job = pendingRows[0] || null
     }
     if (!job) return ok({ job: null, reason: 'empty' })
 
@@ -523,6 +554,62 @@ function createBilibiliPublishApi({ db, _, ok, fail, now, writeOpLog, cloud }) {
         updatedAt: ts
       }
     })
+
+    // 领取最新后，作废其余 pending，避免 Agent 下一轮继续发旧帖
+    try {
+      for (const row of pendingRows) {
+        if (!row || row._id === job._id) continue
+        await db.collection(QUEUE_COL).doc(row._id).update({
+          data: {
+            status: 'cancelled',
+            lastError: 'superseded_by_newer_claim',
+            updatedAt: ts
+          }
+        })
+        for (const eid of row.eventIds || []) {
+          try {
+            await db.collection(EVENTS_COL).doc(eid).update({
+              data: {
+                bilibiliSyncStatus: 'skipped',
+                bilibiliLastError: 'superseded_by_newer_claim',
+                bilibiliQueueId: '',
+                updatedAt: ts
+              }
+            })
+          } catch (e) {}
+        }
+      }
+      // 再扫一轮库内可能未进本批的旧 pending
+      for (let round = 0; round < 20; round++) {
+        const more = await db.collection(QUEUE_COL).where({ status: 'pending' }).limit(100).get()
+        const extras = (more.data || []).filter((r) => r._id !== job._id)
+        if (!extras.length) break
+        for (const row of extras) {
+          await db.collection(QUEUE_COL).doc(row._id).update({
+            data: {
+              status: 'cancelled',
+              lastError: 'superseded_by_newer_claim',
+              updatedAt: ts
+            }
+          })
+          for (const eid of row.eventIds || []) {
+            try {
+              await db.collection(EVENTS_COL).doc(eid).update({
+                data: {
+                  bilibiliSyncStatus: 'skipped',
+                  bilibiliLastError: 'superseded_by_newer_claim',
+                  bilibiliQueueId: '',
+                  updatedAt: ts
+                }
+              })
+            } catch (e) {}
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[agentClaimJob] cancel older pending', e.message || e)
+    }
+
     return ok({
       job: {
         id: job._id,
@@ -592,7 +679,7 @@ function createBilibiliPublishApi({ db, _, ok, fail, now, writeOpLog, cloud }) {
   async function agentFailJob(body) {
     const id = body.queueId || body.id
     const claimToken = body.claimToken || ''
-    const errorType = String(body.errorType || 'other') // rate_limit | auth | captcha | other
+    const errorType = String(body.errorType || 'other') // rate_limit | auth | captcha | media | other
     const message = String(body.message || body.error || 'failed')
     if (!id || !claimToken) return fail(4001, 'queueId/claimToken 必填')
 
@@ -627,6 +714,32 @@ function createBilibiliPublishApi({ db, _, ok, fail, now, writeOpLog, cloud }) {
         consecutiveFails: Number(cfg.consecutiveFails || 0) + 1
       })
       return ok({ action: 'cooldown', cooldownUntil })
+    }
+
+    if (errorType === 'media') {
+      // 配图永久失效（COS 已清理）：重试无意义，直接跳过该事件；
+      // 不累计 consecutiveFails、不触发自动暂停，流水线继续处理后续更新
+      await ref.update({
+        data: {
+          status: 'failed',
+          claimToken: '',
+          attempts,
+          lastError: message,
+          updatedAt: ts
+        }
+      })
+      for (const eid of row.eventIds || []) {
+        try {
+          await db.collection(EVENTS_COL).doc(eid).update({
+            data: {
+              bilibiliSyncStatus: 'skipped',
+              bilibiliLastError: 'media_gone: ' + message,
+              updatedAt: ts
+            }
+          })
+        } catch (e) {}
+      }
+      return ok({ action: 'skipped_media' })
     }
 
     if (errorType === 'auth' || errorType === 'captcha') {

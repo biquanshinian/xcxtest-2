@@ -138,7 +138,19 @@ const RETRY_DELAY = 1000 // 重试延迟1秒
 // 云缓存查询去重与节流：避免同一时刻大量重复查询触发数据库超时
 const pendingCloudCacheRequests = Object.create(null)
 const cloudCacheBgCheckAt = Object.create(null)
-const CLOUD_CACHE_BG_CHECK_INTERVAL = 2 * 60 * 1000 // 2分钟
+// 本地命中后的后台探云间隔：云端缓存由云函数约 3 小时同步一次，
+// 2 分钟探一次纯属浪费计费调用，30 分钟足以及时拿到新数据
+const CLOUD_CACHE_BG_CHECK_INTERVAL = 30 * 60 * 1000 // 30分钟
+
+// 云端候选 key 查询上限：精确 key + 当前版本主 key + 1 个兜底，
+// 旧版 slim 后缀只在本地扫描时兜底展示，不再打到云数据库
+const MAX_CLOUD_CANDIDATE_KEYS = 3
+// 旧版 slim schema 后缀（云端早已不再写入这些 key，读了也是白读）
+const LEGACY_SLIM_SUFFIXES = ['_slim_v5', '_slim_v4', '_slim_v3', '_slim_v2', '_slim']
+
+function _isLegacySlimKey(key) {
+  return LEGACY_SLIM_SUFFIXES.some((sfx) => key.endsWith(sfx))
+}
 
 // ── 后台缓存更新监听器 ──
 // 当 request 命中本地缓存后，后台发现云数据库有更新时，通知订阅方刷新 UI
@@ -605,8 +617,8 @@ function _buildCandidateKeys(url, params, exactKey) {
   // 当前 slim schema 版本号对应的列表后缀（与 getCacheKey 保持一致）
   // 旧版后缀做兜底：新缓存没来时，先让用户看到"不一定有颜色但能展示"的老数据，别白屏；
   // 云函数后台刷新后会自动覆盖为新版带颜色的缓存。
+  // 注意：旧版后缀 key 只参与本地零成本扫描，云端查询会被 _isLegacySlimKey 过滤掉。
   const SLIM_SUFFIX = '_slim_v6'
-  const LEGACY_SLIM_SUFFIXES = ['_slim_v5', '_slim_v4', '_slim_v3', '_slim_v2', '_slim']
 
   function addSlimListCandidates(fullKey) {
     add(fullKey, true)
@@ -657,10 +669,15 @@ function _sliceCacheResult(cache, params) {
   const start = params.offset || 0
   const end = start + (params.limit || 10)
   const sliced = cache.results.slice(start, end)
+  // 切片为空说明 offset 已越过缓存尽头：count 收敛为缓存实际条数，
+  // 否则 LL2 总数（几千）会让调用方算出 hasMore=true，触底时反复发空请求
+  const count = sliced.length > 0
+    ? (cache.count || cache.results.length)
+    : cache.results.length
   return {
     ...cache,
     results: sliced,
-    count: cache.count || cache.results.length,
+    count,
     next: sliced.length > 0 && end < cache.results.length ? (cache.next || 'has_more') : null
   }
 }
@@ -726,14 +743,21 @@ function request(url, params = {}, timeout = null, useCache = true, retryCount =
         staleResolved = true
       }
 
-      // Phase 3: 云数据库查询——并行发起所有候选 key，按优先级取首个有效命中
+      // Phase 3: 云数据库查询——只查当前 schema 版本的少量候选 key（旧版 _slim/_slim_v2~v5
+      // 仅用于上面的本地零成本扫描，不再打云端），并按优先级顺序查询、命中即停，
+      // 把「一次列表请求 = 十多次并行读库」收敛为通常 1 次读
       try {
-        const cloudResults = await Promise.allSettled(
-          candidates.map(c => getCacheFromCloud(c.key).then(cloud => ({ cloud, c })))
-        )
-        for (const r of cloudResults) {
-          if (r.status !== 'fulfilled' || !r.value.cloud) continue
-          const { cloud, c } = r.value
+        const cloudCandidates = candidates
+          .filter(c => !_isLegacySlimKey(c.key))
+          .slice(0, MAX_CLOUD_CANDIDATE_KEYS)
+        for (const c of cloudCandidates) {
+          let cloud = null
+          try {
+            cloud = await getCacheFromCloud(c.key)
+          } catch (e) {
+            cloud = null
+          }
+          if (!cloud) continue
           const isList = cloud.results && Array.isArray(cloud.results)
           const isSingleObject = !isList && cloud.id
           if (isList) {

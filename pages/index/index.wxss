@@ -887,26 +887,6 @@
   letter-spacing: 2rpx;
 }
 
-.carousel-video-play-icon {
-  position: absolute;
-  right: 20rpx;
-  top: 20rpx;
-  width: 56rpx;
-  height: 56rpx;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.25);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-}
-
-.carousel-video-icon-text {
-  font-size: 24rpx;
-  color: #fff;
-  margin-left: 4rpx;
-}
-
 .carousel-video-caption {
   position: absolute;
   left: 0;
@@ -1077,6 +1057,65 @@
 .missions-agency-empty {
   padding: 28rpx 16rpx 8rpx;
   text-align: center;
+}
+
+/* 非会员任务列表深度门控横幅 */
+.mission-gate-banner {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  margin: 8rpx 0 16rpx;
+  padding: 28rpx 28rpx;
+  border-radius: 20rpx;
+  background: linear-gradient(135deg, rgba(255, 179, 71, 0.14), rgba(255, 120, 73, 0.10));
+  border: 1rpx solid rgba(255, 179, 71, 0.35);
+}
+
+.mission-gate-banner-icon {
+  font-size: 40rpx;
+  line-height: 1;
+}
+
+.mission-gate-banner-texts {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+  min-width: 0;
+}
+
+.mission-gate-banner-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #ffb347;
+}
+
+.mission-gate-banner-sub {
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.mission-gate-banner-arrow {
+  font-size: 44rpx;
+  color: rgba(255, 179, 71, 0.8);
+  line-height: 1;
+}
+
+.theme-light .mission-gate-banner {
+  background: linear-gradient(135deg, rgba(255, 150, 40, 0.10), rgba(255, 110, 60, 0.07));
+  border-color: rgba(220, 130, 30, 0.35);
+}
+
+.theme-light .mission-gate-banner-title {
+  color: #c97a12;
+}
+
+.theme-light .mission-gate-banner-sub {
+  color: rgba(60, 50, 40, 0.6);
+}
+
+.theme-light .mission-gate-banner-arrow {
+  color: rgba(201, 122, 18, 0.8);
 }
 
 .missions-list {

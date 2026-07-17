@@ -1,6 +1,6 @@
 const { getUiShellLayout } = require('../../../utils/layout.js')
 const { getThemeClassSync, isLightSync, getPageBgSync } = require('../../../utils/theme.js')
-const { getMembershipState, isPro, hasPurchased, purchaseSubscription, purchaseProduct, PRODUCTS, PLANS, MEMBER_ICONS, getEffectivePrices, warmMembershipStateSync } = require('../../../utils/membership.js')
+const { getMembershipState, isPro, hasPurchased, purchaseSubscription, purchaseProduct, PRODUCTS, PLANS, MEMBER_ICONS, getEffectivePrices, resolvePriceFromMap, formatPriceYuan, warmMembershipStateSync } = require('../../../utils/membership.js')
 const { getCachedIcon, preloadIcons } = require('../../../utils/icon-cache.js')
 
 // 权益图标 URL
@@ -19,9 +19,26 @@ const PRODUCT_META = [
   { id: 'starship_flight_checklist', vpayProductId: 'vp_starship_chk', name: PRODUCTS.STARSHIP_FLIGHT_CHECKLIST.name, desc: '星舰进度页清单完整内容', defaultPrice: PRODUCTS.STARSHIP_FLIGHT_CHECKLIST.price }
 ]
 
-function _resolvePrice(priceMap, vpayId, fallback) {
-  const v = priceMap && priceMap[vpayId]
-  return Number.isInteger(v) && v > 0 ? v : fallback
+/** 年卡相对「月卡×12」节省比例文案，如「省 46%」；算不出则空 */
+function formatYearlySaveVsMonthly(yearlyCents, monthlyCents) {
+  const y = Number(yearlyCents) || 0
+  const m = Number(monthlyCents) || 0
+  const yearOfMonthly = m * 12
+  if (y <= 0 || yearOfMonthly <= 0 || y >= yearOfMonthly) return ''
+  const pct = Math.round((1 - y / yearOfMonthly) * 100)
+  if (pct <= 0) return ''
+  return '省 ' + pct + '%'
+}
+
+/** 折扣价相对正价 →「8折限时优惠」；无折扣则「限时优惠」 */
+function formatDiscountLabel(originalCents, discountCents) {
+  const o = Number(originalCents) || 0
+  const d = Number(discountCents) || 0
+  if (o <= 0 || d <= 0 || d >= o) return '限时优惠'
+  const zhe = Math.round((d / o) * 100) / 10
+  if (zhe <= 0 || zhe >= 10) return '限时优惠'
+  const zheText = zhe % 1 === 0 ? String(zhe) : String(zhe)
+  return zheText + '折限时优惠'
 }
 
 // 模块加载时立刻检测 iOS（避免 onLoad → setData 期间出现一帧的「按钮可点 → 拦截」闪烁）
@@ -65,9 +82,11 @@ Page({
     discountPrice: '',
     cardIcon: '',
     benefitIcons: [],
-    monthlyPrice: (PLANS.MONTHLY.price / 100).toFixed(1),
-    yearlyPrice: (PLANS.YEARLY.price / 100).toFixed(1),
-    permanentPrice: (PLANS.PERMANENT.price / 100).toFixed(0),
+    // 进页后由 getEffectivePrices(true) 填入，避免先闪本地写死价再跳变
+    monthlyPrice: '',
+    yearlyPrice: '',
+    permanentPrice: '',
+    yearlySaveText: '',
     isIOS: _IS_IOS_AT_LOAD
   },
 
@@ -170,26 +189,35 @@ Page({
       }
       this._rawOpenid = rawOpenid
 
-      const priceMap = await getEffectivePrices()
-      const monthlyCents = _resolvePrice(priceMap, 'vp_sub_monthly', PLANS.MONTHLY.price)
-      const yearlyCents = _resolvePrice(priceMap, 'vp_sub_yearly', PLANS.YEARLY.price)
-      const permanentCents = _resolvePrice(priceMap, 'vp_sub_permanent', PLANS.PERMANENT.price)
-      const yearlyDiscountCents = _resolvePrice(priceMap, 'vp_sub_year_dc', PLANS.YEARLY_DISCOUNT.price)
-      const permanentDiscountCents = _resolvePrice(priceMap, 'vp_sub_perm_dc', PLANS.PERMANENT_DISCOUNT.price)
+      // forceRefresh：进页与后台管理端价格对齐，不吃本地 30s 缓存脏读
+      const priceMap = await getEffectivePrices(true)
+      const monthlyCents = resolvePriceFromMap(priceMap, 'vp_sub_monthly', PLANS.MONTHLY.price)
+      const yearlyCents = resolvePriceFromMap(priceMap, 'vp_sub_yearly', PLANS.YEARLY.price)
+      const permanentCents = resolvePriceFromMap(priceMap, 'vp_sub_permanent', PLANS.PERMANENT.price)
+      const yearlyDiscountCents = resolvePriceFromMap(priceMap, 'vp_sub_year_dc', PLANS.YEARLY_DISCOUNT.price)
+      const permanentDiscountCents = resolvePriceFromMap(priceMap, 'vp_sub_perm_dc', PLANS.PERMANENT_DISCOUNT.price)
 
       this._priceMap = priceMap
       this._discountConfig = {
-        yearly: { original: yearlyCents, discount: yearlyDiscountCents, label: '6折限时优惠' },
-        permanent: { original: permanentCents, discount: permanentDiscountCents, label: '5折限时优惠' }
+        yearly: {
+          original: yearlyCents,
+          discount: yearlyDiscountCents,
+          label: formatDiscountLabel(yearlyCents, yearlyDiscountCents)
+        },
+        permanent: {
+          original: permanentCents,
+          discount: permanentDiscountCents,
+          label: formatDiscountLabel(permanentCents, permanentDiscountCents)
+        }
       }
 
       const products = PRODUCT_META.map(function (p) {
-        const cents = _resolvePrice(priceMap, p.vpayProductId, p.defaultPrice)
+        const cents = resolvePriceFromMap(priceMap, p.vpayProductId, p.defaultPrice)
         return {
           id: p.id,
           name: p.name,
           desc: p.desc,
-          priceText: (cents / 100).toFixed(1),
+          priceText: formatPriceYuan(cents),
           purchased: hasPurchased(state, p.id)
         }
       })
@@ -229,9 +257,10 @@ Page({
         userId,
         currentPlan,
         cardIcon,
-        monthlyPrice: (monthlyCents / 100).toFixed(1),
-        yearlyPrice: (yearlyCents / 100).toFixed(1),
-        permanentPrice: (permanentCents / 100).toFixed(permanentCents % 100 === 0 ? 0 : 1)
+        monthlyPrice: formatPriceYuan(monthlyCents),
+        yearlyPrice: formatPriceYuan(yearlyCents),
+        permanentPrice: formatPriceYuan(permanentCents),
+        yearlySaveText: formatYearlySaveVsMonthly(yearlyCents, monthlyCents)
       })
       this._updateBtnText()
 
@@ -346,8 +375,8 @@ Page({
       showDiscountModal: true,
       discountPlan: planId,
       discountLabel: discount.label,
-      discountOriginalPrice: (discount.original / 100).toFixed(1),
-      discountPrice: (discount.discount / 100).toFixed(1)
+      discountOriginalPrice: formatPriceYuan(discount.original),
+      discountPrice: formatPriceYuan(discount.discount)
     })
   },
 

@@ -1414,18 +1414,19 @@ page {
 }
 
 /* 族谱筛选 chip + 查看全部按钮 */
-/* 「查看全部」统一蓝色渐变胶囊（族谱/发射商图鉴共用） */
+/* 「查看全部」PRO 金色胶囊（族谱/发射商图鉴/发射场共用，示意会员内容） */
 .booster-view-all {
   display: flex;
   align-items: center;
   gap: 4rpx;
   font-size: 24rpx;
-  font-weight: 500;
-  color: #ffffff;
+  font-weight: 600;
+  color: #5C3A00;
   padding: 8rpx 20rpx 8rpx 26rpx;
   border-radius: 999rpx;
-  background: linear-gradient(135deg, #007AFF, #5856D6);
-  border: none;
+  background: linear-gradient(135deg, #FFE3A0 0%, #F7BE45 55%, #F0AE2C 100%);
+  border: 1px solid rgba(255, 210, 122, 0.65);
+  box-shadow: 0 4rpx 14rpx rgba(230, 165, 40, 0.28);
   transition: transform 0.12s ease, opacity 0.12s ease;
 }
 .booster-view-all--pressed {
@@ -1435,6 +1436,7 @@ page {
 .booster-view-all-arrow {
   font-size: 30rpx;
   line-height: 1;
+  color: #5C3A00;
 }
 .booster-filter-scroll {
   width: 100%;

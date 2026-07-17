@@ -14,8 +14,10 @@ const config = require('./config.js')
 const COS_ORIGIN_PATTERN = /^https?:\/\/mars-1397421562\.cos\.ap-guangzhou\.myqcloud\.com\//
 
 const PRESETS = {
-  thumb:  { width: 480,  quality: 75, format: 'webp' },
-  medium: { width: 1080, quality: 85, format: 'webp' },
+  // 相对显示尺寸整体下调：thumb 覆盖列表/卡片/logo，medium 覆盖轮播/开屏/头图；
+  // 960w 对主流机 400rpx 高轮播视觉无损，体积再降约 25~35%
+  thumb:  { width: 480,  quality: 70, format: 'webp' },
+  medium: { width: 960,  quality: 80, format: 'webp' },
   full:   null
 }
 
@@ -52,12 +54,34 @@ function isVideoUrl(url) {
 }
 
 /**
+ * 云存储 fileID / 本地临时路径不能拼 imageMogr2（加 query 会导致 <image> 加载失败）
+ */
+function isCloudOrLocalFileUrl(url) {
+  if (!url || typeof url !== 'string') return false
+  const u = url.trim()
+  return /^cloud:\/\//i.test(u) || /^wxfile:\/\//i.test(u)
+}
+
+/**
+ * 展示用图：HTTPS COS 走压缩；cloud:// / wxfile:// 原样返回
+ * @param {string} url
+ * @param {'thumb'|'medium'|'full'} [preset='medium']
+ */
+function displayImageUrl(url, preset) {
+  if (!url || typeof url !== 'string') return url
+  if (isCloudOrLocalFileUrl(url)) return url.trim()
+  return optimizeImageUrl(url, preset)
+}
+
+/**
  * 优化图片 URL：CDN 替换 + imageMogr2 压缩
  * @param {string} url - 原始 COS/CDN 图片 URL
  * @param {string} preset - 'thumb' | 'medium' | 'full'（默认 'medium'）
  */
 function optimizeImageUrl(url, preset) {
   if (!url || typeof url !== 'string') return url
+  // cloud:// / wxfile:// 加 query 会失效，必须原样返回（NSF 硬件镜像常用 fileID）
+  if (isCloudOrLocalFileUrl(url)) return url.trim()
   if (url.includes('ci-process=')) return toCdnUrl(url)
 
   const cdnUrl = toCdnUrl(url)
@@ -77,7 +101,8 @@ function videoSnapshotUrl(url, second) {
   if (!url || typeof url !== 'string') return url
   const cdnUrl = toCdnUrl(url.split('?')[0])
   const t = Number(second) > 0 ? Number(second) : 1
-  return `${cdnUrl}?ci-process=snapshot&time=${t}&format=jpg&width=720&height=1280&scaletype=cover`
+  // 列表/封面用：480 宽足够手机卡片，避免默认 720×1280 截帧过大
+  return `${cdnUrl}?ci-process=snapshot&time=${t}&format=jpg&width=480&height=854&scaletype=cover`
 }
 
 /**
@@ -132,6 +157,8 @@ module.exports = {
   toCdnUrl,
   resolveCosHttpsUrl,
   isCosOriginUrl,
+  isCloudOrLocalFileUrl,
+  displayImageUrl,
   optimizeImageUrl,
   videoSnapshotUrl,
   carouselVideoPosterUrl,

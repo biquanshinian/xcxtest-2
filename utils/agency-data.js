@@ -177,6 +177,9 @@ function formatAgency(agency) {
     founding_year: agency.founding_year || null,
     logoUrl,
     imageUrl,
+    // 保留未压缩原链：imageMogr2 / 代理失败时 binderror 可回退，避免卡片空白
+    logoUrlRaw: logoUrlRaw || '',
+    imageUrlRaw: imageUrlRaw || '',
     // 卡片图：优先机构大图，缺失时用 logo（居中展示）
     displayImage: imageUrl || logoUrl,
     imageMode: imageUrl ? 'aspectFill' : 'aspectFit',
@@ -267,12 +270,23 @@ async function getFeaturedAgencies() {
   if (persist) {
     return { list: persist.list, totalCount: persist.totalCount, partial: persist.partial }
   }
-  const data = await getAgencies({ featured: true, limit: 50, offset: 0 })
+  const [data, countProbe] = await Promise.all([
+    getAgencies({ featured: true, limit: 50, offset: 0 }),
+    getAgencies({ featured: false, limit: 1, offset: 0 }).catch(() => null)
+  ])
   const list = ((data && data.results) || []).map(formatAgency)
   if (!list.length) throw new Error('agencies_unavailable')
   list.sort(compareAgenciesByLaunchCount)
-  // totalCount 未知（badge 由完整列表页数据补齐），preview 标记表示非全量
-  return { list, totalCount: 0, partial: true, preview: true }
+  // 预览路径不拉全量；limit=1 探测全库 count 供标题红角标
+  let totalCount = 0
+  if (countProbe && typeof countProbe.count === 'number' && countProbe.count > 0) {
+    totalCount = countProbe.count
+  } else if (typeof data.count === 'number' && data.count > 0) {
+    totalCount = data.count
+  } else {
+    totalCount = list.length
+  }
+  return { list, totalCount, partial: true, preview: true }
 }
 
 let _cache = null

@@ -9,9 +9,11 @@
 var { COUNTRY_ZH } = require('./agency-data.js')
 var { workerProxyUrl } = require('./config.js')
 var { getCachedMediaImage } = require('./icon-cache.js')
+var { optimizeImageUrl } = require('./cos-url.js')
 
 var CACHE_KEY = '_launch_site_list_v2' // v2：新增 description/timezoneName 字段
 var CACHE_TTL = 24 * 60 * 60 * 1000
+var TAB_PREVIEW_COUNT = 2
 var PAD_CACHE_KEY_PREFIX = '_launch_site_pads_'
 var PAD_CACHE_TTL = 7 * 24 * 60 * 60 * 1000
 
@@ -38,7 +40,14 @@ function proxiedImageUrl(url) {
 
 function cachedImage(url) {
   if (!url) return ''
-  return getCachedMediaImage(url, 'none')
+  // thumb：COS 静图走 imageMogr2 压缩（卡片仅 ~300rpx）；代理 URL 无图片扩展名会被自动跳过
+  return getCachedMediaImage(url, 'thumb')
+}
+
+function remoteThumbImage(url) {
+  if (!url) return ''
+  if (/imageMogr2|ci-process=/i.test(url)) return url
+  return optimizeImageUrl(url, 'thumb')
 }
 
 /** 知名发射场英文主体名 → 中文（未收录回退英文原文，数据驱动兜底） */
@@ -173,11 +182,15 @@ async function loadPadList(locationId) {
   return result.data
 }
 
-/** 场地列表 → 展示卡片（按累计发射数倒序，云端已排序，本地兜底再排一次） */
-function buildLaunchSiteCards(list) {
+/** 场地列表 → 展示卡片（按累计发射数倒序，云端已排序，本地兜底再排一次）
+ * @param {{ imageCacheLimit?: number }} [options] 仅前 N 条（排序后）触发图缓存预热
+ */
+function buildLaunchSiteCards(list, options) {
+  var imageCacheLimit = (options && options.imageCacheLimit != null)
+    ? options.imageCacheLimit
+    : Number.MAX_SAFE_INTEGER
   var cards = (list || []).map(function (loc) {
     var main = mainSiteName(loc.name)
-    // 多级兜底链（binderror 逐级切换）：代理卫星图 → 卫星图直连 → 代理实景图 → 实景图直连
     var chain = []
     ;[proxiedImageUrl(loc.mapImage), loc.mapImage, proxiedImageUrl(loc.imageUrl), loc.imageUrl].forEach(function (u) {
       if (u && chain.indexOf(u) < 0) chain.push(u)
@@ -198,12 +211,16 @@ function buildLaunchSiteCards(list) {
       timezoneName: loc.timezoneName || '',
       totalLaunchCount: Number(loc.totalLaunchCount) || 0,
       totalLandingCount: Number(loc.totalLandingCount) || 0,
-      // 首选图走本地缓存（命中秒开）；兜底链保持远程原样，切换时再按需缓存
-      imageUrl: cachedImage(chain[0]),
-      imageFallbacks: chain.slice(1)
+      _imageChain: chain
     }
   })
   cards.sort(function (a, b) { return b.totalLaunchCount - a.totalLaunchCount })
+  for (var i = 0; i < cards.length; i++) {
+    var chain = cards[i]._imageChain || []
+    cards[i].imageUrl = i < imageCacheLimit ? cachedImage(chain[0]) : remoteThumbImage(chain[0])
+    cards[i].imageFallbacks = chain.slice(1)
+    delete cards[i]._imageChain
+  }
   return cards
 }
 
@@ -265,5 +282,6 @@ module.exports = {
   buildLaunchSiteCards: buildLaunchSiteCards,
   buildLaunchSiteFilterChips: buildLaunchSiteFilterChips,
   applyLaunchSiteFilter: applyLaunchSiteFilter,
-  computeLaunchSiteStats: computeLaunchSiteStats
+  computeLaunchSiteStats: computeLaunchSiteStats,
+  TAB_PREVIEW_COUNT: TAB_PREVIEW_COUNT
 }

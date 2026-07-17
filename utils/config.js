@@ -95,6 +95,11 @@ module.exports = {
      * 7. 将下方 cdnBaseUrl 填为 'https://你的CDN域名/'（末尾保留斜杠）
      *
      * 留空则继续使用 baseUrl（COS 源站直连，无 HTTP/2）
+     *
+     * ⚠️ 成本提示：COS 外网下行约 0.5 元/GB，CDN 下行约 0.21 元/GB 且回源内网免费。
+     * 完成上面 1~6 步后，把下面一行改为你的 CDN 域名即可全量切换，例如：
+     *   cdnBaseUrl: 'https://cdn.marsx.com.cn/'
+     * 注意：必须先完成控制台配置与小程序合法域名添加再填写，否则全部媒体会加载失败。
      */
     cdnBaseUrl: ''
   },

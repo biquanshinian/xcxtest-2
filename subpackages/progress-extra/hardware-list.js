@@ -5,6 +5,7 @@
 const pageBase = require('../../utils/page-base.js')
 const { getStarshipHardwareFromDB } = require('../../utils/api-app-services.js')
 const { resolveMediaUrl } = require('../../utils/image-config.js')
+const { getCachedMediaImage } = require('../../utils/icon-cache.js')
 const { gateCheck } = require('../../utils/membership.js')
 
 const B19_IMAGE_KEY = '最新版星舰组合体进展一二级图/b19_spacex3.webp'
@@ -22,6 +23,12 @@ const HARDWARE_CATEGORIES = [
 function getFallbackImage(category) {
   const key = category === 'booster' || category === 'fullstack' ? B19_IMAGE_KEY : S39_IMAGE_KEY
   return resolveMediaUrl(key, '')
+}
+
+function resolveHardwareDisplayImage(image) {
+  const raw = String(image || '').trim()
+  if (!raw) return ''
+  return getCachedMediaImage(raw, 'thumb')
 }
 
 function getStatusType(statusText) {
@@ -77,7 +84,9 @@ Page({
       this._all = (res.vehicles || []).map((item) => ({
         ...item,
         statusType: getStatusType(item.status),
-        displayImage: item.image || getFallbackImage(item.category),
+        displayImage: item.image
+          ? resolveHardwareDisplayImage(item.image)
+          : getFallbackImage(item.category),
         searchKey: buildSearchKey(item.name)
       }))
       this.setData({
