@@ -11,15 +11,18 @@ subpkg = (
 exclude_dirs = {
     'node_modules', 'cloudfunctions', 'admin-web', '.git', '_error_report_extract',
     'scripts', 'scf-cos-trigger', 'cloudfunctionTemplate', '.github', 'workers', 'test', 'docs',
+    '.cursor', 'agent-config',
 }
 ignore_globs = [
-    'admin-web.zip', '**/*.zip', '_weanalysis*', '_analyze_size*', 'workers/**', 'test/**',
+    'admin-web.zip', '**/*.zip', '_weanalysis*', '_sourcemap*', '_sourcemap_*/**',
+    '_analyze_size*', 'workers/**', 'test/**',
     'docs/**', 'utils/.api-full.backup.js', 'cloudflare-worker/**', 'admin-web/**',
     '_error_report_extract/**', '**/*.md', '*.md', 'scf-cos-trigger/**', 'scripts/**',
     'cloudfunctions/**', 'cloudfunctionTemplate/**', 'project.miniapp.json',
     'code_obfuscation_config.json', 'project.private.config.json', 'package-lock.json',
     'eslint.config.js', '_weanalysis*.py', '_analyze_size.py', 'md2wechat*.sh', 'utils/api.js',
     '.prettierrc.json', '.prettierignore', '.gitignore', 'package.json',
+    '.cursor/**', 'agent-config/**', '*.bat', 'll2_loc_sample.json', 'project.config.json',
 ]
 
 
@@ -41,7 +44,7 @@ def is_main(rel):
 
 files = []
 for dp, dns, fns in os.walk(root):
-    dns[:] = [d for d in dns if d not in exclude_dirs]
+    dns[:] = [d for d in dns if d not in exclude_dirs and not d.startswith('_sourcemap')]
     for f in fns:
         full = os.path.join(dp, f)
         rel = norm(os.path.relpath(full, root))

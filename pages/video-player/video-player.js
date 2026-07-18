@@ -4,6 +4,7 @@ const { saveEventVideoToAlbum } = require('../../utils/event-video.js')
 
 Page({
   data: {
+    playerReady: false,
     videoUrl: '',
     poster: '',
     closeTop: 48,
@@ -17,7 +18,7 @@ Page({
       .then((allowed) => {
         if (!allowed) {
           wx.showToast({ title: '功能暂未开放', icon: 'none' })
-          setTimeout(() => wx.navigateBack({ fail() {} }), 800)
+          wx.navigateBack({ fail() {} })
           return
         }
         this._bootPlayer(options)
@@ -53,7 +54,7 @@ Page({
 
     if (!url) {
       wx.showToast({ title: '无效视频地址', icon: 'none' })
-      setTimeout(() => wx.navigateBack(), 1500)
+      wx.navigateBack({ fail() {} })
       return
     }
 
@@ -85,11 +86,19 @@ Page({
       }
     } catch (e) {}
 
-    this.setData({ videoUrl: url, poster, closeTop, closeLeft, closeSize })
+    this.setData({
+      playerReady: true,
+      videoUrl: url,
+      poster,
+      closeTop,
+      closeLeft,
+      closeSize
+    })
   },
 
   /** 长按视频：会员弹保存/复制菜单；非会员先过会员门控（无广告通道） */
   async onVideoLongPress() {
+    if (!this.data.playerReady) return
     const playUrl = this.data.videoUrl
     if (!playUrl) return
 

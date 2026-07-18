@@ -47,6 +47,14 @@
         "type": "glob"
       },
       {
+        "value": "_sourcemap*",
+        "type": "glob"
+      },
+      {
+        "value": "_sourcemap_*/**",
+        "type": "glob"
+      },
+      {
         "value": "_analyze_size*",
         "type": "glob"
       },
@@ -189,6 +197,22 @@
       {
         "value": "node_modules/**",
         "type": "glob"
+      },
+      {
+        "value": ".cursor/**",
+        "type": "glob"
+      },
+      {
+        "value": "agent-config/**",
+        "type": "glob"
+      },
+      {
+        "value": "*.bat",
+        "type": "glob"
+      },
+      {
+        "value": "ll2_loc_sample.json",
+        "type": "file"
       }
     ],
     "include": []

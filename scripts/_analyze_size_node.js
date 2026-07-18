@@ -10,16 +10,18 @@ const subpkg = [
 const excludeDirs = new Set([
   'node_modules', 'cloudfunctions', 'admin-web', '.git', '_error_report_extract',
   'scripts', 'scf-cos-trigger', 'cloudfunctionTemplate', '.github', 'workers', 'test', 'docs',
-  'cloudflare-worker',
+  'cloudflare-worker', '.cursor', 'agent-config',
 ])
 const ignoreGlobs = [
-  'admin-web.zip', '**/*.zip', '_weanalysis*', '_analyze_size*', 'workers/**', 'test/**',
+  'admin-web.zip', '**/*.zip', '_weanalysis*', '_sourcemap*', '_sourcemap_*/**',
+  '_analyze_size*', 'workers/**', 'test/**',
   'docs/**', 'utils/.api-full.backup.js', 'cloudflare-worker/**', 'admin-web/**',
   '_error_report_extract/**', '**/*.md', '*.md', 'scf-cos-trigger/**', 'scripts/**',
   'cloudfunctions/**', 'cloudfunctionTemplate/**', 'project.miniapp.json',
   'code_obfuscation_config.json', 'project.private.config.json', 'package-lock.json',
   'eslint.config.js', '_weanalysis*.py', '_analyze_size.py', 'md2wechat*.sh', 'utils/api.js',
   '.prettierrc.json', '.prettierignore', '.gitignore', 'package.json',
+  '.cursor/**', 'agent-config/**', '*.bat', 'll2_loc_sample.json', 'project.config.json',
 ]
 
 function matchGlob(rel, glob) {
@@ -41,7 +43,8 @@ function isMain(rel) {
 const files = []
 function walk(dir) {
   for (const name of fs.readdirSync(dir)) {
-    if (excludeDirs.has(name)) continue
+    // 开发者工具本地 sourcemap 缓存，勿计入主包
+    if (excludeDirs.has(name) || name.startsWith('_sourcemap')) continue
     const full = path.join(dir, name)
     const rel = path.relative(root, full).replace(/\\/g, '/')
     const st = fs.statSync(full)

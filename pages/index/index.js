@@ -2870,6 +2870,32 @@ Page({
       console.warn('解析轮播图失败，使用默认图片', e)
     }
 
+    // 过审关闭 enableEventVideo：视频项降级为封面图，避免首页挂载 <video>
+    const playbackOk = await isPlaybackAllowed().catch(() => false)
+    if (!playbackOk && items.length) {
+      items = items
+        .map((i) => {
+          if (!i || i.type !== 'video') return i
+          const cover = i.poster || i.src || ''
+          if (!cover) return null
+          return {
+            src: cover,
+            playSrc: '',
+            poster: '',
+            type: 'image',
+            caption: i.caption || '',
+            eventId: i.eventId || '',
+            cosFolder: i.cosFolder || '',
+            accountLabel: i.accountLabel || '',
+            accountAvatar: i.accountAvatar || '',
+            videoActive: false,
+            videoStarted: false,
+            lazyPlayUrl: ''
+          }
+        })
+        .filter(Boolean)
+    }
+
     if (!items.length) {
       items = this.getDefaultCarouselImages().map(src => ({ src, type: 'image' }))
     }
@@ -5379,19 +5405,31 @@ Page({
 
       if (!pool.length) return
 
-      const picked = pickSplashItem(pool, lastSplashId)
+      // 过审关闭 enableEventVideo：开屏不挑视频项，避免挂载 <video>
+      const playbackOk = await isPlaybackAllowed().catch(() => false)
+      let pickPool = pool
+      if (!playbackOk) {
+        const imagesOnly = pool.filter((it) => it && it.mediaType !== 'video')
+        if (imagesOnly.length) pickPool = imagesOnly
+      }
+
+      const picked = pickSplashItem(pickPool, lastSplashId)
       const resolved = resolvePlay(picked)
       if (!resolved) return
 
-      // 流量门控：非会员默认降级封面；可由 splashAllowVideoForNonMember / 流量档远程调节
+      // 可播门控 + 流量门控：过审关视频 / 非会员默认 → 降级封面，不挂 <video>
       let splashVideoAllowed = true
       if (resolved.mediaType === 'video') {
-        try {
-          const memberEnabled = await isMembershipEnabled()
-          const policy = await getMemberPolicy()
-          splashVideoAllowed = !memberEnabled || isProSync()
-            || (policy.splashAllowVideoForNonMember && !policy.forceNonMemberVideoPoster)
-        } catch (e) {}
+        if (!playbackOk) {
+          splashVideoAllowed = false
+        } else {
+          try {
+            const memberEnabled = await isMembershipEnabled()
+            const policy = await getMemberPolicy()
+            splashVideoAllowed = !memberEnabled || isProSync()
+              || (policy.splashAllowVideoForNonMember && !policy.forceNonMemberVideoPoster)
+          } catch (e) {}
+        }
         if (!splashVideoAllowed) {
           if (!resolved.posterUrl) return
           resolved.mediaType = 'image'

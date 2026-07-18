@@ -1,35 +1,38 @@
 <wxs module="drag" src="./drag.wxs"></wxs>
 <view class="video-player-page">
-  <view
-    class="video-close"
-    style="top: {{closeTop}}px; left: {{closeLeft}}px; width: {{closeSize}}px; height: {{closeSize}}px;"
-    catchtap="onClose"
-    aria-role="button"
-    aria-label="关闭"
-  >
-    <text class="video-close-icon">✕</text>
-  </view>
-  <view
-    class="video-drag-wrap"
-    bindtouchstart="{{drag.onTouchStart}}"
-    bindtouchmove="{{drag.onTouchMove}}"
-    bindtouchend="{{drag.onTouchEnd}}"
-    bindtouchcancel="{{drag.onTouchEnd}}"
-  >
-    <video
-      id="player"
-      class="video-player-video"
-      src="{{videoUrl}}"
-      poster="{{poster}}"
-      autoplay="{{true}}"
-      controls="{{true}}"
-      show-fullscreen-btn="{{false}}"
-      show-center-play-btn="{{true}}"
-      show-background-playback-button="{{false}}"
-      show-casting-button="{{false}}"
-      object-fit="contain"
-      bindended="onClose"
-      bindlongpress="onVideoLongPress"
-    ></video>
-  </view>
+  <!-- 未通过可播门控 / 无合法地址前不挂载任何播放控件，避免审核直达见视频骨架 -->
+  <block wx:if="{{playerReady}}">
+    <view
+      class="video-close"
+      style="top: {{closeTop}}px; left: {{closeLeft}}px; width: {{closeSize}}px; height: {{closeSize}}px;"
+      catchtap="onClose"
+      aria-role="button"
+      aria-label="关闭"
+    >
+      <text class="video-close-icon">✕</text>
+    </view>
+    <view
+      class="video-drag-wrap"
+      bindtouchstart="{{drag.onTouchStart}}"
+      bindtouchmove="{{drag.onTouchMove}}"
+      bindtouchend="{{drag.onTouchEnd}}"
+      bindtouchcancel="{{drag.onTouchEnd}}"
+    >
+      <video
+        id="player"
+        class="video-player-video"
+        src="{{videoUrl}}"
+        poster="{{poster}}"
+        autoplay="{{true}}"
+        controls="{{true}}"
+        show-fullscreen-btn="{{false}}"
+        show-center-play-btn="{{true}}"
+        show-background-playback-button="{{false}}"
+        show-casting-button="{{false}}"
+        object-fit="contain"
+        bindended="onClose"
+        bindlongpress="onVideoLongPress"
+      ></video>
+    </view>
+  </block>
 </view>
