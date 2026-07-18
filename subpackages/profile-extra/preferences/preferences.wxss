@@ -56,8 +56,8 @@
 
 .tag-active {
   color: #FFFFFF;
-  background: rgba(0, 122, 255, 0.25);
-  border-color: rgba(0, 122, 255, 0.6);
+  background: rgba(7, 193, 96, 0.25);
+  border-color: rgba(7, 193, 96, 0.6);
 }
 
 .radio-group {
@@ -79,8 +79,8 @@
 
 .radio-active {
   color: #FFFFFF;
-  background: rgba(0, 122, 255, 0.25);
-  border-color: rgba(0, 122, 255, 0.6);
+  background: rgba(7, 193, 96, 0.25);
+  border-color: rgba(7, 193, 96, 0.6);
 }
 
 .save-area {
@@ -92,7 +92,7 @@
   height: 96rpx;
   line-height: 96rpx;
   text-align: center;
-  background: linear-gradient(135deg, #007AFF, #5856D6);
+  background: linear-gradient(135deg, #07C160, #06AD56);
   color: #FFFFFF;
   font-size: 30rpx;
   font-weight: 600;
@@ -134,9 +134,9 @@
   border-color: rgba(0, 0, 0, 0.08);
 }
 .theme-light .tag-active {
-  color: var(--color-brand);
-  background: rgba(0, 122, 255, 0.12);
-  border-color: rgba(0, 122, 255, 0.55);
+  color: #07C160;
+  background: rgba(7, 193, 96, 0.12);
+  border-color: rgba(7, 193, 96, 0.55);
 }
 .theme-light .radio-item {
   color: var(--color-text-secondary);
@@ -144,7 +144,7 @@
   border-color: rgba(0, 0, 0, 0.08);
 }
 .theme-light .radio-active {
-  color: var(--color-brand);
-  background: rgba(0, 122, 255, 0.12);
-  border-color: rgba(0, 122, 255, 0.55);
+  color: #07C160;
+  background: rgba(7, 193, 96, 0.12);
+  border-color: rgba(7, 193, 96, 0.55);
 }

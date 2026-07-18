@@ -59,7 +59,7 @@
 
     <!-- 每日简报开关 -->    <view class="section section-row">
       <view class="section-title section-title--inline">每日太空简报</view>
-      <switch checked="{{briefingEnabled}}" bindchange="onBriefingToggle" color="#007AFF" />
+      <switch checked="{{briefingEnabled}}" bindchange="onBriefingToggle" color="#07C160" />
     </view>
 
     <!-- 保存按钮 -->
