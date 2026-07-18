@@ -92,8 +92,8 @@ switch {
 /*
   布局防回归约束（重要）：
   1) 自定义导航磨砂：scroll-view 全屏 100vh，内容滚入 fixed 导航下方
-  2) 顶占位 <nav-scroll-pad>；下拉由 /utils/nav-scroll-pad.wxs 视图层压高度
-     （原生三点；勿用自定义 refresher slot / 勿在下拉过程整页 setData）
+  2) 顶占位 <nav-scroll-pad> 保持导航高度；下拉由 /utils/nav-scroll-pad.wxs
+     在视图层定位自定义三点（勿在下拉过程整页 setData）
   3) 有 scroll-view refresher 的页面关闭 enablePullDownRefresh，只保留一条刷新通道
   4) TabBar 底栏仍用页面内 tabBarReservedHeight 占位
 */
@@ -578,6 +578,55 @@ button.mission-card-share-btn::before {
   50% {
     transform: translateY(-6rpx);
     opacity: 1;
+  }
+}
+
+/* 固定导航页面共用的下拉刷新三点，由 nav-scroll-pad.wxs 跟手定位 */
+.pull-refresh-dots {
+  position: fixed;
+  left: 50%;
+  top: 0;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  width: 64rpx;
+  height: 20rpx;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.72);
+  pointer-events: none;
+}
+
+.pull-refresh-dots__dot {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.68);
+  animation: pull-refresh-dot-pulse 0.72s ease-in-out infinite both;
+}
+
+.pull-refresh-dots__dot:nth-child(2) {
+  animation-delay: 0.12s;
+}
+
+.pull-refresh-dots__dot:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
+.theme-light .pull-refresh-dots__dot {
+  background: rgba(0, 0, 0, 0.42);
+}
+
+@keyframes pull-refresh-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.72);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
   }
 }
 

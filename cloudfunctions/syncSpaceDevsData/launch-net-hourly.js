@@ -11,18 +11,36 @@
  *     让客户端 2 分钟后台云库比对能吃到新时间；无变化则零写库
  *   - 探针结果里若出现终态(3/4/7/9)：写入 recent_settled + 就地修正 previous 缓存 status
  *     （0 额外 LL2，避免历史列表长期卡在「待发射」）
- *   - live status 缓存按 id merge 写入，避免被到点 5 条查询覆盖掉探针 30 条
+ *   - 飞行中(6) 也写入 recent_settled（供倒计时跨会话 settle）；合并时终态不可被飞行中降级
+ *   - live status 缓存按 id merge 写入，避免被到点查询覆盖掉探针 30 条
  *
  * 不替代 syncLaunches：新任务入库、图片/助推器等仍靠 6h detailed。
  */
 const { db, LAUNCH_LIBRARY_API, fetchAPI, cloud } = require('./shared.js')
 const { enrichLaunchNetRecovery } = require('./ll2-net-recovery-enrich.js')
+const { createLaunchStatusStore } = require('./launch-status-store.js')
+const {
+  pruneStaleUpcomingResults: projectUpcomingWithoutSettled,
+  collectTerminalFromCachedUpcoming: collectCachedTerminalBeforePrune
+} = require('./launch-net-state.js')
+const launchStatusStore = createLaunchStatusStore(db)
+let _launchStatusStoreEnsured = false
+
+async function ensureLaunchStatusStore() {
+  if (_launchStatusStoreEnsured) return
+  _launchStatusStoreEnsured = true
+  try { await db.createCollection('launch_status') } catch (e) {}
+  try {
+    const legacy = await db.collection(LIVE_STATUS_CACHE_COL).doc('_recent_settled').get()
+    const rows = legacy && legacy.data && Array.isArray(legacy.data.data) ? legacy.data.data : []
+    if (rows.length) await launchStatusStore.upsertMany(rows, { source: 'migration' })
+  } catch (e) {}
+}
 
 const SPACE_DEVS_CACHE = 'space_devs_cache'
 const LAUNCH_DATA_COLLECTION = 'launch_data'
 const LIVE_STATUS_CACHE_COL = 'launch_timeline_cache'
 const LIVE_STATUS_CACHE_DOC = '_live_status_cache'
-const RECENT_SETTLED_DOC = '_recent_settled'
 
 /** 与 syncLaunches / launch-data-sync / 前端 getCacheKey 一致的 upcoming slim key 参数 */
 const UPCOMING_PARAMS = {
@@ -53,9 +71,7 @@ const CORE_LIST_TTL_MS = 48 * 60 * 60 * 1000
 
 /** LL2 终态：Success / Failure / Partial Failure / Payload Deployed */
 const TERMINAL_STATUS_IDS = { 3: true, 4: true, 7: true, 9: true }
-
-/** recent_settled 最多保留条数 */
-const RECENT_SETTLED_MAX = 40
+const INFLIGHT_STATUS_ID = 6
 
 function sortedParamsString(params) {
   const sorted = Object.keys(params)
@@ -78,6 +94,11 @@ function previousCacheKey(suffix) {
 function isTerminalStatus(status) {
   const id = status && status.id != null ? Number(status.id) : 0
   return !!TERMINAL_STATUS_IDS[id]
+}
+
+function isInflightStatus(status) {
+  const id = status && status.id != null ? Number(status.id) : 0
+  return id === INFLIGHT_STATUS_ID
 }
 
 /**
@@ -142,7 +163,25 @@ function applyNetPatch(target, live) {
   target.window_start = live.window_start || target.window_start || ''
   target.window_end = live.window_end || target.window_end || ''
   const st = slimStatusFromLive(live)
-  if (st) target.status = st
+  if (!st) return
+  // 终态不可被 Go/飞行中等非终态覆盖（LL2 短暂回退或探针乱序时防污染）
+  if (isTerminalStatus(target.status) && !isTerminalStatus(st)) return
+  target.status = st
+}
+
+/**
+ * live status 行合并：已有终态不被非终态覆盖。
+ */
+function preferLiveStatusRow(incoming, existing) {
+  if (!existing) return incoming
+  if (!incoming) return existing
+  if (isTerminalStatus(existing.status) && !isTerminalStatus(incoming.status)) return existing
+  return incoming
+}
+
+/** 只有权威终态才能从 upcoming 缓存剔除；“不在探针前 30 条”不是状态证据。 */
+function pruneStaleUpcomingResults(results, liveById) {
+  return projectUpcomingWithoutSettled(results, liveById)
 }
 
 /**
@@ -300,14 +339,16 @@ async function writeLiveStatusCache(liveRows) {
     if (row && row.id) byId.set(String(row.id), row)
   }
   for (let i = 0; i < fresh.length; i++) {
-    byId.set(fresh[i].id, fresh[i])
+    const id = fresh[i].id
+    byId.set(id, preferLiveStatusRow(fresh[i], byId.get(id)))
   }
-  // 探针序优先（按 NET），其余按原顺序追加
+  // 探针序优先（按 NET），其余按原顺序追加；同 id 取 prefer 后的行
   const rows = []
   const seen = new Set()
   for (let i = 0; i < fresh.length; i++) {
-    rows.push(fresh[i])
-    seen.add(fresh[i].id)
+    const id = fresh[i].id
+    rows.push(byId.get(id) || fresh[i])
+    seen.add(id)
   }
   for (let i = 0; i < existing.length; i++) {
     const row = existing[i]
@@ -364,7 +405,7 @@ async function invalidateMissionStatsForTerminals(terminalEntries, cachedResults
 }
 
 /**
- * 从探针结果提取终态行（Success/Failure/Partial），供 recent_settled / previous patch。
+ * 从探针结果提取终态行（Success/Failure/Partial/Deployed），供 recent_settled / previous patch。
  * hide_recent_previous 未开时，刚成功的任务仍可能短暂出现在 upcoming list 探针里。
  */
 function collectTerminalFromLive(liveRows) {
@@ -392,77 +433,53 @@ function collectTerminalFromLive(liveRows) {
   return out
 }
 
-/**
- * 缓存 upcoming 里已是终态、但本轮探针未带回的行（任务已离开 upcoming 前 30）。
- * 用缓存上的 status（可能刚被本轮 patch）写入 recent_settled，仍 0 额外 LL2。
- */
-function collectTerminalFromCachedUpcoming(cachedResults, liveById, alreadyIds) {
+/** 飞行中(6) → recent_settled（仅倒计时跨会话；不写入 previous 终态 patch） */
+function collectInflightFromLive(liveRows) {
   const out = []
-  if (!Array.isArray(cachedResults)) return out
+  if (!Array.isArray(liveRows)) return out
   const now = Date.now()
-  const seen = alreadyIds instanceof Set ? alreadyIds : new Set()
-  for (let i = 0; i < cachedResults.length; i++) {
-    const row = cachedResults[i]
-    if (!row || row.id == null || !isTerminalStatus(row.status)) continue
-    const id = String(row.id)
-    if (seen.has(id)) continue
-    // 仍在 live 探针里且非终态 → 以 live 为准，不在这里重复
-    const live = liveById && liveById.get(id)
-    if (live && !isTerminalStatus(live.status)) continue
+  for (let i = 0; i < liveRows.length; i++) {
+    const r = liveRows[i]
+    if (!r || r.id == null || !isInflightStatus(r.status)) continue
     out.push({
-      id,
-      name: typeof row.name === 'string' ? row.name : '',
+      id: String(r.id),
+      name: typeof r.name === 'string' ? r.name : '',
       status: {
-        id: row.status.id,
-        name: row.status.name || '',
-        abbrev: row.status.abbrev || ''
+        id: r.status.id,
+        name: r.status.name || '',
+        abbrev: r.status.abbrev || ''
       },
-      net: row.net || '',
-      windowStart: row.window_start || '',
-      windowEnd: row.window_end || '',
+      net: r.net || '',
+      windowStart: r.window_start || '',
+      windowEnd: r.window_end || '',
       settledAtMs: now,
-      source: 'launch_net_hourly_cache'
+      source: 'launch_net_hourly_inflight'
     })
   }
   return out
 }
 
 /**
- * 合并写入 recent_settled（按 id 去重，新的在前，最多 RECENT_SETTLED_MAX 条）。
- * 前端历史列表加载后可读此文档修正「待发射」角标。
+ * 缓存 upcoming 里已是终态、但本轮探针未带回的行（任务已离开 upcoming 前 30）。
+ * 用缓存上的 status（可能刚被本轮 patch）写入 recent_settled，仍 0 额外 LL2。
+ */
+function collectTerminalFromCachedUpcoming(cachedResults, liveById, alreadyIds) {
+  return collectCachedTerminalBeforePrune(cachedResults, liveById, alreadyIds)
+}
+
+/**
+ * 合并写入 recent_settled（按 id 去重；终态不可被飞行中降级；最多 RECENT_SETTLED_MAX 条）。
+ * 前端历史列表只消费终态角标；倒计时可读飞行中做跨会话 settle。
  */
 async function mergeRecentSettled(entries) {
   if (!Array.isArray(entries) || !entries.length) {
     return { written: false, count: 0 }
   }
-  let existing = []
   try {
-    const doc = await db.collection(LIVE_STATUS_CACHE_COL).doc(RECENT_SETTLED_DOC).get()
-    if (doc && doc.data && Array.isArray(doc.data.data)) existing = doc.data.data
-  } catch (e) {}
-
-  const byId = new Map()
-  for (let i = 0; i < entries.length; i++) {
-    const e = entries[i]
-    if (e && e.id) byId.set(String(e.id), e)
-  }
-  for (let i = 0; i < existing.length; i++) {
-    const e = existing[i]
-    if (!e || !e.id) continue
-    const id = String(e.id)
-    if (!byId.has(id)) byId.set(id, e)
-  }
-  const merged = Array.from(byId.values())
-    .sort((a, b) => (Number(b.settledAtMs) || 0) - (Number(a.settledAtMs) || 0))
-    .slice(0, RECENT_SETTLED_MAX)
-
-  try {
-    await db.collection(LIVE_STATUS_CACHE_COL).doc(RECENT_SETTLED_DOC).set({
-      data: { data: merged, updatedAtMs: Date.now() }
-    })
-    return { written: true, count: merged.length, added: entries.length }
+    const written = await launchStatusStore.upsertMany(entries, { source: 'hourly_probe' })
+    return { written: true, count: written.length, added: entries.length, store: 'launch_status' }
   } catch (e) {
-    console.warn('[launch-net-hourly] recent_settled write fail:', e.message || e)
+    console.warn('[launch-net-hourly] launch_status write fail:', e.message || e)
     return { written: false, count: 0, error: e.message || String(e) }
   }
 }
@@ -542,13 +559,30 @@ function patchPreviousStatusInPlace(results, terminalById) {
   return patched
 }
 
+function stubFromTerminalEntry(term) {
+  return {
+    id: term.id,
+    name: term.name || '',
+    net: term.net || '',
+    window_start: term.windowStart || term.net || '',
+    window_end: term.windowEnd || '',
+    status: term.status
+      ? { id: term.status.id, name: term.status.name || '', abbrev: term.status.abbrev || '' }
+      : null
+  }
+}
+
 /**
- * 将终态同步进 previous slim 缓存（有则改 status，无则跳过等 6h 全量入库）。
+ * 将终态同步进 previous slim 缓存（有则改 status，无则插入首批头部）。
  */
 async function syncTerminalIntoPreviousCache(terminalEntries) {
-  if (!Array.isArray(terminalEntries) || !terminalEntries.length) {
-    return { patched: 0, docsWritten: 0, skipped: 'empty' }
+  return {
+    patched: 0,
+    inserted: 0,
+    docsWritten: 0,
+    skipped: Array.isArray(terminalEntries) && terminalEntries.length ? 'launch_status_overlay' : 'empty'
   }
+  /*
   const terminalById = new Map()
   for (let i = 0; i < terminalEntries.length; i++) {
     const e = terminalEntries[i]
@@ -559,12 +593,20 @@ async function syncTerminalIntoPreviousCache(terminalEntries) {
   if (!cached) return { patched: 0, docsWritten: 0, skipped: 'previous_cache_miss' }
 
   const loaded = await loadAllPreviousResults(cached.cacheKey, cached.payload)
-  if (!loaded.results.length) {
+  if (!loaded.results.length && !(loaded.batched && loaded.batches && loaded.batches.length)) {
     return { patched: 0, docsWritten: 0, skipped: 'previous_cache_empty', cacheKey: cached.cacheKey }
   }
 
   let patched = 0
+  let inserted = 0
   let docsWritten = 0
+  const foundIds = new Set()
+  for (let i = 0; i < loaded.results.length; i++) {
+    const row = loaded.results[i]
+    if (row && row.id != null && terminalById.has(String(row.id))) {
+      foundIds.add(String(row.id))
+    }
+  }
 
   if (loaded.batched && loaded.batches) {
     for (let b = 0; b < loaded.batches.length; b++) {
@@ -579,13 +621,39 @@ async function syncTerminalIntoPreviousCache(terminalEntries) {
       })
       docsWritten++
     }
-    if (patched) {
+    const missing = []
+    terminalById.forEach((term, id) => {
+      if (!foundIds.has(id) && isTerminalStatus(term.status)) missing.push(term)
+    })
+    if (missing.length && loaded.batches[0]) {
+      const stubs = missing.map(stubFromTerminalEntry)
+      const batch0 = loaded.batches[0]
+      batch0.results = stubs.concat(batch0.results || [])
+      batch0.payload.results = batch0.results
+      await writeCacheWrapper(batch0.batchKey, {
+        ...batch0.wrapper,
+        data: batch0.payload
+      })
+      docsWritten++
+      inserted = stubs.length
+      loaded.results = stubs.concat(loaded.results)
+    }
+    if (patched || inserted) {
       await writeCacheWrapper(cached.cacheKey, cached.wrapper)
       docsWritten++
     }
   } else {
     patched = patchPreviousStatusInPlace(loaded.results, terminalById)
-    if (patched) {
+    const missing = []
+    terminalById.forEach((term, id) => {
+      if (!foundIds.has(id) && isTerminalStatus(term.status)) missing.push(term)
+    })
+    if (missing.length) {
+      const stubs = missing.map(stubFromTerminalEntry)
+      loaded.results = stubs.concat(loaded.results)
+      inserted = stubs.length
+    }
+    if (patched || inserted) {
       await writeCacheWrapper(cached.cacheKey, {
         ...cached.wrapper,
         data: { ...cached.payload, results: loaded.results }
@@ -594,7 +662,8 @@ async function syncTerminalIntoPreviousCache(terminalEntries) {
     }
   }
 
-  return { patched, docsWritten, cacheKey: cached.cacheKey }
+  return { patched, inserted, docsWritten, cacheKey: cached.cacheKey }
+  */
 }
 
 /** 仅更新已有 launch_data 文档的时间字段，供提醒扫窗；不存在则跳过 */
@@ -661,6 +730,7 @@ async function fetchUpcomingNetProbe() {
  */
 async function runLaunchNetHourly(options) {
   const startTime = Date.now()
+  await ensureLaunchStatusStore()
   const force = !!(options && options.force)
 
   if (!force && shouldSkipDueToFullSyncHour(startTime)) {
@@ -709,13 +779,14 @@ async function runLaunchNetHourly(options) {
   // 探针结果写入 live status 共享缓存（即使下方无 upcoming 缓存可 patch，到点轮询也能受益）
   await writeLiveStatusCache(liveRows)
 
-  // 0 额外 LL2：探针里已是终态的行 → recent_settled + previous status 修正
+  // 0 额外 LL2：终态 → recent_settled + previous；飞行中 → 仅 recent_settled
   let terminalEntries = collectTerminalFromLive(liveRows)
+  const inflightEntries = collectInflightFromLive(liveRows)
   const terminalIds = new Set(terminalEntries.map((e) => e.id))
 
   const cached = await loadUpcomingCacheDoc()
   if (!cached) {
-    const settledRes = await mergeRecentSettled(terminalEntries)
+    const settledRes = await mergeRecentSettled(terminalEntries.concat(inflightEntries))
     let previousPatch = { patched: 0, docsWritten: 0, skipped: 'upcoming_cache_miss' }
     if (terminalEntries.length) {
       try {
@@ -750,7 +821,7 @@ async function runLaunchNetHourly(options) {
 
   const loaded = await loadAllUpcomingResults(cached.cacheKey, cached.payload)
   if (!loaded.results.length) {
-    const settledRes = await mergeRecentSettled(terminalEntries)
+    const settledRes = await mergeRecentSettled(terminalEntries.concat(inflightEntries))
     let previousPatch = { patched: 0, docsWritten: 0, skipped: 'upcoming_cache_empty' }
     if (terminalEntries.length) {
       try {
@@ -786,6 +857,7 @@ async function runLaunchNetHourly(options) {
   let changes = []
   let docsWritten = 0
   let netRecoveryPatched = 0
+  let upcomingPruned = []
 
   // 网系回收：列表缓存里 Ocean/ASDS → NET（0 额外 LL2，小时探针顺带修图标）
   const enrichResultsNetRecovery = (results) => {
@@ -806,17 +878,31 @@ async function runLaunchNetHourly(options) {
       netRecoveryPatched += enrichResultsNetRecovery(batch.results)
       changes = changes.concat(batchChanges)
     }
-    if (changes.length || netRecoveryPatched) {
-      // 有变更时跨批整体按 net 升序重排，再按原批大小切块写回全部批文档
-      // （改期任务可能需要跨批移动位置，只写脏批无法修正顺序；实际 1~2 批，写放大可忽略）
-      const mergedResults = loaded.batches.reduce((all, b) => all.concat(b.results), [])
+    let mergedResults = loaded.batches.reduce((all, b) => all.concat(b.results), [])
+    // 必须在 prune 前采集：终态行一旦剔除，本轮就再也无法落入权威状态库。
+    const batchedTerminal = collectTerminalFromCachedUpcoming(mergedResults, liveById, terminalIds)
+    if (batchedTerminal.length) {
+      terminalEntries = terminalEntries.concat(batchedTerminal)
+      batchedTerminal.forEach((entry) => terminalIds.add(entry.id))
+    }
+    const pruneRes = pruneStaleUpcomingResults(mergedResults, liveById)
+    upcomingPruned = pruneRes.pruned
+    mergedResults = pruneRes.results
+    loaded.results = mergedResults
+    if (changes.length || netRecoveryPatched || upcomingPruned.length) {
+      // 有变更/剔除时跨批整体按 net 升序重排，再按原批大小切块写回
+      // （剔除后末批可能变短；改期任务可能跨批移动）
       sortResultsByNetAsc(mergedResults)
+      const batchSizes = loaded.batches.map((b) => b.results.length)
       let cursor = 0
       for (let b = 0; b < loaded.batches.length; b++) {
         const batch = loaded.batches[b]
-        const size = batch.results.length
-        batch.results = mergedResults.slice(cursor, cursor + size)
-        cursor += size
+        const isLast = b === loaded.batches.length - 1
+        const slice = isLast
+          ? mergedResults.slice(cursor)
+          : mergedResults.slice(cursor, cursor + batchSizes[b])
+        cursor += slice.length
+        batch.results = slice
         batch.payload.results = batch.results
         await writeCacheWrapper(batch.batchKey, {
           ...batch.wrapper,
@@ -824,15 +910,21 @@ async function runLaunchNetHourly(options) {
         })
         docsWritten++
       }
-      // 刷新主文档 timestamp，让客户端后台比对能感知「云端有更新」
       await writeCacheWrapper(cached.cacheKey, cached.wrapper)
       docsWritten++
     }
   } else {
     changes = patchResultsInPlace(loaded.results, liveById)
     netRecoveryPatched = enrichResultsNetRecovery(loaded.results)
-    if (changes.length || netRecoveryPatched) {
-      // 写回前按 net 升序重排，避免改期任务停留在数组原位造成客户端列表乱序
+    const directTerminal = collectTerminalFromCachedUpcoming(loaded.results, liveById, terminalIds)
+    if (directTerminal.length) {
+      terminalEntries = terminalEntries.concat(directTerminal)
+      directTerminal.forEach((entry) => terminalIds.add(entry.id))
+    }
+    const pruneRes = pruneStaleUpcomingResults(loaded.results, liveById)
+    upcomingPruned = pruneRes.pruned
+    loaded.results = pruneRes.results
+    if (changes.length || netRecoveryPatched || upcomingPruned.length) {
       sortResultsByNetAsc(loaded.results)
       const nextPayload = {
         ...cached.payload,
@@ -846,12 +938,6 @@ async function runLaunchNetHourly(options) {
     }
   }
 
-  // patch 后再扫一遍 upcoming 缓存终态（含本轮刚写成 Success 的）
-  const fromCacheTerminal = collectTerminalFromCachedUpcoming(loaded.results, liveById, terminalIds)
-  if (fromCacheTerminal.length) {
-    terminalEntries = terminalEntries.concat(fromCacheTerminal)
-    fromCacheTerminal.forEach((e) => terminalIds.add(e.id))
-  }
   // changes 里 status 变为终态的也并入（与上互补）
   for (let i = 0; i < changes.length; i++) {
     const c = changes[i]
@@ -891,7 +977,7 @@ async function runLaunchNetHourly(options) {
     }
   }
 
-  const settledRes = await mergeRecentSettled(terminalEntries)
+  const settledRes = await mergeRecentSettled(terminalEntries.concat(inflightEntries))
   let previousPatch = { patched: 0, docsWritten: 0 }
   if (terminalEntries.length) {
     try {
@@ -938,6 +1024,8 @@ async function runLaunchNetHourly(options) {
     cacheKey: cached.cacheKey,
     liveStatusCacheUpdated: true,
     netRecoveryPatched,
+    upcomingPruned: upcomingPruned.length,
+    upcomingPrunedIds: upcomingPruned.slice(0, 20).map((p) => p.id),
     recentSettled: settledRes,
     previousStatusPatch: previousPatch,
     missionStatsInvalidate,
@@ -951,5 +1039,7 @@ module.exports = {
   runLaunchNetHourly,
   shouldSkipDueToFullSyncHour,
   isInLaunchTimeWindow,
+  pruneStaleUpcomingResults,
+  collectTerminalFromCachedUpcoming,
   PROBE_LIMIT
 }

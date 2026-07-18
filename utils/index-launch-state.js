@@ -1,4 +1,14 @@
-const { resolveMissionRocketImage, shouldReplaceRocketImage } = require('./util.js')
+let _imageHelpers = null
+function getImageHelpers() {
+  if (!_imageHelpers) {
+    const util = require('./util.js')
+    _imageHelpers = {
+      resolveMissionRocketImage: util.resolveMissionRocketImage,
+      shouldReplaceRocketImage: util.shouldReplaceRocketImage
+    }
+  }
+  return _imageHelpers
+}
 
 function buildBoosterDisplay(boosterInfo) {
   const info = boosterInfo || null
@@ -67,6 +77,7 @@ function buildLaunchDataFromMission(mission, getStatusTextZh) {
     rocketConfiguration: source.rocketConfiguration || null,
     // 与详情头图同源：按火箭名 forceRecompute，禁止整包 setData 把已正确的图降级回列表里的 default 快照
     ...(() => {
+      const { resolveMissionRocketImage } = getImageHelpers()
       const stamped = source.rocketImage || source.image || ''
       const url = resolveMissionRocketImage(
         stamped,
@@ -82,6 +93,7 @@ function buildLaunchDataFromMission(mission, getStatusTextZh) {
 
 /** 合并列表时保留已升级的火箭图，避免 enrich 快照把正确图盖回 default */
 function mergePreservedRocketImages(nextList, prevList) {
+  const { shouldReplaceRocketImage } = getImageHelpers()
   if (!Array.isArray(nextList) || !nextList.length) return nextList
   const prev = Array.isArray(prevList) ? prevList : []
   const byId = {}
@@ -185,6 +197,52 @@ function getNextUpcomingLaunch(missions, currentId, now = Date.now()) {
     if (mission.id === currentId) return false
     return new Date(mission.launchTime).getTime() > now
   }) || null
+}
+
+/** 倒计时面板应展示的任务：只选 NET 仍在未来的首条（已过点的留给 settle，禁止用「就绪」占倒计时） */
+function pickCountdownDisplayMission(missions, now = Date.now()) {
+  const safeList = Array.isArray(missions) ? missions : []
+  for (let i = 0; i < safeList.length; i++) {
+    const mission = safeList[i]
+    if (!mission || !mission.launchTime) continue
+    const t = new Date(mission.launchTime).getTime()
+    if (Number.isFinite(t) && t > now) return mission
+  }
+  return null
+}
+
+/** 列表头部已过 NET、尚未终态的任务（upcoming 升序，遇到未来 NET 即停） */
+function collectPastNetUpcomingHeads(missions, now = Date.now(), limit = 3) {
+  const safeList = Array.isArray(missions) ? missions : []
+  const max = Math.max(0, Number(limit) || 0)
+  const out = []
+  for (let i = 0; i < safeList.length && out.length < max; i++) {
+    const mission = safeList[i]
+    if (!mission || !mission.launchTime) continue
+    const t = new Date(mission.launchTime).getTime()
+    if (!Number.isFinite(t)) continue
+    if (t > now) break
+    out.push(mission)
+  }
+  return out
+}
+
+/** NET 已过时倒计时角标：禁止显示「就绪」，统一「状态确认中」 */
+function withCountdownConfirmingStatus(mission) {
+  if (!mission) return mission
+  return {
+    ...mission,
+    status: '状态确认中',
+    statusBadgeText: '状态确认中',
+    statusCategory: 'pending',
+    _countdownConfirming: true
+  }
+}
+
+function isPastNetMission(mission, now = Date.now()) {
+  if (!mission || !mission.launchTime) return false
+  const t = new Date(mission.launchTime).getTime()
+  return Number.isFinite(t) && t <= now
 }
 
 function buildCountdownSubscriptionState(launch, isSubscribed, subscribedIdSet) {
@@ -407,6 +465,10 @@ module.exports = {
   buildHomeLaunchPanelState,
   buildCurrentLaunchPanelState,
   getNextUpcomingLaunch,
+  pickCountdownDisplayMission,
+  collectPastNetUpcomingHeads,
+  withCountdownConfirmingStatus,
+  isPastNetMission,
   buildCountdownSubscriptionState,
   buildLaunchSwitchEffects,
   shouldRefreshExpiredLaunch,

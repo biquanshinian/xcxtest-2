@@ -622,9 +622,8 @@ async function fetchLl2LaunchUpdates(launchId, limit = 15, options = {}) {
 }
 
 /**
- * 倒计时到点实时状态确认：拉取前 5 个即将发射任务的最新状态
- * （云端 120s 共享缓存，发射时刻并发到点也只打一次 LL2）。
- * 失败返回 null，调用方走兜底逻辑（切下一个任务）。
+ * 倒计时到点实时状态确认：拉取即将发射任务最新状态（云端 limit=10 + 120s 共享缓存）。
+ * 失败返回 null；调用方应继续复查 / bestEffort，禁止无终态裸切。
  * @returns {Promise<Array<{id,name,status,net,windowStart,windowEnd}>|null>}
  */
 async function fetchLiveLaunchStatuses() {
@@ -645,18 +644,51 @@ async function fetchLiveLaunchStatuses() {
 }
 
 /**
- * 小时探针写入的近期终态（Success/Failure/Partial/Deployed），用于修正历史列表角标。
- * 不打 LL2，只读云库 launch_timeline_cache/_recent_settled。
+ * 小时探针 / 到点查询写入的近期 settle 行：终态(3/4/7/9) 或飞行中(6)。
+ * 历史列表角标仅消费终态；倒计时 settle 可读飞行中。不打 LL2。
  * @returns {Promise<Array<{id,status,net,name}>|null>}
  */
-async function fetchRecentSettledLaunches() {
-  if (!wx.cloud || typeof wx.cloud.database !== 'function') return null
+async function fetchLaunchStatusSnapshot(ids) {
+  if (!wx.cloud || typeof wx.cloud.callFunction !== 'function') return null
   try {
-    const cacheRes = await wx.cloud.database().collection('launch_timeline_cache').doc('_recent_settled').get()
-    const cached = cacheRes && cacheRes.data
-    if (cached && Array.isArray(cached.data) && cached.data.length) return cached.data
-    return []
+    const list = Array.isArray(ids) ? ids.map(String).filter(Boolean).slice(0, 100) : []
+    const res = await wx.cloud.callFunction({
+      name: 'll2Query',
+      data: { action: 'getLaunchStatusSnapshot', ids: list, limit: 40 },
+      timeout: 15000
+    })
+    const result = res && res.result
+    return result && result.success && Array.isArray(result.rows) ? result.rows : null
   } catch (e) {
+    return null
+  }
+}
+
+function fetchRecentSettledLaunches() {
+  return fetchLaunchStatusSnapshot()
+}
+
+/**
+ * 按 id 解析发射状态（云端 mode=list；recent_settled 已终态则 0 LL2）。
+ * 用于历史列表「飞行中」升级为 Success/Deployed，不必先进详情。
+ * @param {string[]} ids
+ * @returns {Promise<Array<{id,name,status,net}>|null>}
+ */
+async function resolveLaunchStatuses(ids) {
+  if (!wx.cloud || typeof wx.cloud.callFunction !== 'function') return null
+  const list = Array.isArray(ids) ? ids.map((id) => String(id || '').trim()).filter(Boolean).slice(0, 5) : []
+  if (!list.length) return []
+  try {
+    const res = await wx.cloud.callFunction({
+      name: 'll2Query',
+      data: { action: 'resolveLaunchStatuses', ids: list },
+      timeout: 20000
+    })
+    const r = res && res.result
+    if (r && r.success && Array.isArray(r.rows)) return r.rows
+    return null
+  } catch (e) {
+    console.error('[LiveStatus] resolveLaunchStatuses error:', e)
     return null
   }
 }
@@ -733,7 +765,9 @@ module.exports = {
   fetchLl2LaunchUpdates,
   fetchLl2LaunchTimeline,
   fetchLiveLaunchStatuses,
+  fetchLaunchStatusSnapshot,
   fetchRecentSettledLaunches,
+  resolveLaunchStatuses,
   shareMission,
   getSpaceXLaunchStats,
   getBoosterGenealogy,

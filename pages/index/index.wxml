@@ -142,17 +142,28 @@
     </view>
   </view>
 
-  <!-- 全屏滚动（内容穿过磨砂导航）；顶占位由 wxs 跟手压缩，原生三点贴内容 -->
+  <!-- 自定义下拉三点：避开固定导航，位于导航底部与下拉内容之间 -->
+  <view id="pullRefreshDots" class="pull-refresh-dots" aria-hidden="true">
+    <view class="pull-refresh-dots__dot"></view>
+    <view class="pull-refresh-dots__dot"></view>
+    <view class="pull-refresh-dots__dot"></view>
+  </view>
+
+  <!-- 全屏滚动（内容穿过磨砂导航）；下拉位移由 scroll-view 原生驱动 -->
   <scroll-view
     class="content-scroll main-content-scroll nav-aware-scroll"
     scroll-y="true"
     enhanced="{{true}}"
     bounces="{{true}}"
     refresher-enabled="{{missionType === 'upcoming' || missionType === 'completed'}}"
-    refresher-default-style="{{themeLight ? 'black' : 'white'}}"
+    refresher-default-style="none"
     refresher-background="{{pageBgColor}}"
+    refresher-threshold="36"
     refresher-triggered="{{scrollRefreshing}}"
     data-nav-h="{{navPlaceholderHeight}}"
+    data-refresh-threshold="36"
+    bindtouchend="{{navPad.onRelease}}"
+    bindtouchcancel="{{navPad.onRelease}}"
     bindrefresherpulling="{{navPad.onPulling}}"
     bindrefresherrestore="{{navPad.onReset}}"
     bindrefresherabort="{{navPad.onReset}}"

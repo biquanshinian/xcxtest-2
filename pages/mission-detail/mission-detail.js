@@ -461,13 +461,19 @@ Page({
         const p = pages[i]
         if (!p || !p.route) continue
         if (String(p.route).indexOf('pages/index/index') === -1) continue
-        if (typeof p.applyCompletedMissionStatusFromDetail === 'function') {
-          p.applyCompletedMissionStatusFromDetail({
+        const applyObservation = typeof p.applyLaunchObservationFromDetail === 'function'
+          ? p.applyLaunchObservationFromDetail
+          : p.applyCompletedMissionStatusFromDetail
+        if (typeof applyObservation === 'function') {
+          applyObservation.call(p, {
             id: mission.id,
             statusId: sid,
             statusBadgeText: mission.statusBadgeText || '',
             statusCategory: mission.statusCategory || '',
-            statusAbbrev: mission.statusAbbrev || ''
+            statusAbbrev: mission.statusAbbrev || '',
+            name: mission.name || '',
+            net: mission.launchTime || mission.net || '',
+            observedAtMs: Date.now()
           })
         }
         break

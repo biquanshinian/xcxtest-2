@@ -4,7 +4,8 @@
  * 布局规范（nav-aware-scroll）：
  *   - 全屏 100vh scroll-view（磨砂：内容滚入导航下）
  *   - 首子 <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
- *   - data-nav-h + bindrefresherpulling/restore/abort → navPad wxs（/utils/nav-scroll-pad.wxs）
+ *   - 固定导航后放置 #pullRefreshDots，原生 refresher-default-style 设为 none
+ *   - data-nav-h / data-refresh-threshold + pulling/restore/abort/touchend → navPad wxs
  *   - enablePullDownRefresh:false，只保留 scroll-view refresher
  *
  * 用法：
@@ -15,7 +16,9 @@ function vibrateMedium() {
   try {
     wx.vibrateShort({ type: 'medium' })
   } catch (e) {
-    try { wx.vibrateShort() } catch (e2) {}
+    try {
+      wx.vibrateShort()
+    } catch (e2) {}
   }
 }
 
@@ -45,7 +48,9 @@ async function runPullRefresh(page, task, key) {
     await task()
   } catch (e) {}
   page._pullRefreshRunning = false
-  try { wx.stopPullDownRefresh() } catch (e) {}
+  try {
+    wx.stopPullDownRefresh()
+  } catch (e) {}
 }
 
 module.exports = {

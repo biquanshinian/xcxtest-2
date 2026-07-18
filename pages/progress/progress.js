@@ -28,7 +28,7 @@ const {
   saveManualRoadClosureNotice
 } = require('../../utils/progress-road-closure.js')
 const { fetchLiveStatusBatch, parseLiveStatus } = require('../../utils/live-status.js')
-const { pickEventShareImageUrl } = require('../../utils/event-share-image.js')
+const { pickEventShareImageUrl, resolveTweetAccountAvatarUrl } = require('../../utils/event-share-image.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { gateCheck, isProSync, isMembershipEnabled, canUsePaidCloudSync, canPrefetchVideoSync, canSaveOriginalVideoSync } = require('../../utils/membership.js')
 const { getMemberPolicy } = require('../../utils/member-policy.js')
@@ -1327,40 +1327,33 @@ Page({
     navigateTo(ROUTES.EVENT_DETAIL, params)
   },
 
-  // 头像 fallback：source (screenName) → COS 头像 URL
-  _avatarFallback: {
-    SpaceX: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/SpaceX.jpg',
-    elonmusk: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/elonmusk.jpg',
-    Starlink: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/Starlink.jpg',
-    NASASpaceflight: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/NASASpaceflight.jpg',
-    StarshipGazer: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/StarshipGazer.jpg',
-    NASA: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/NASA.jpg'
-  },
-
   _enrichEventItem(item) {
     const enrichedMediaList = (item.mediaList || []).map(m => {
       if (m.type !== 'video') {
         if (m.type === 'image' && m.url) {
-          // 列表卡片用 thumb，避免 medium 全量双拉
-          return { ...m, url: getCachedMediaImage(m.url, 'thumb') }
+          // 列表卡片用 thumb；remoteUrl 供分享（缓存后 url 可能是 wxfile://）
+          const remoteUrl = m.url
+          return { ...m, remoteUrl, url: getCachedMediaImage(m.url, 'thumb') }
         }
         return m
       }
       return enrichVideoMediaItem(m, { getCachedMediaImage, thumbPreset: 'thumb' })
     })
 
-      // 头像：优先 COS 地址，代理地址视为无效
-      let avatar = item.authorAvatar || ''
-      if (avatar && !avatar.includes('.cos.')) avatar = ''
-      if (!avatar && item.source && this._avatarFallback[item.source]) avatar = this._avatarFallback[item.source]
-      if (avatar) avatar = getCachedMediaImage(avatar, 'thumb')
+    // 头像：优先 COS 地址，代理地址视为无效；按 source 约定路径兜底（含蓝箭等）
+    let avatar = item.authorAvatar || ''
+    if (avatar && !avatar.includes('.cos.')) avatar = ''
+    if (!avatar && item.source) avatar = resolveTweetAccountAvatarUrl(item.source)
+    const authorAvatarRemote = avatar || ''
+    if (avatar) avatar = getCachedMediaImage(avatar, 'thumb')
 
-      return {
-        ...item,
-        mediaList: enrichedMediaList,
-        publishedAtText: this.formatEventTime(item.publishedAt),
-        authorAvatar: avatar,
-        imageUrls: enrichedMediaList.filter(m => m.type === 'image').map(m => m.url),
+    return {
+      ...item,
+      mediaList: enrichedMediaList,
+      publishedAtText: this.formatEventTime(item.publishedAt),
+      authorAvatar: avatar,
+      authorAvatarRemote,
+      imageUrls: enrichedMediaList.filter(m => m.type === 'image').map(m => m.url),
       _liveStatus: 0,
       _liveCover: '',
       _liveTitle: ''
@@ -1512,7 +1505,7 @@ Page({
     const safeItem = item && typeof item === 'object' ? item : null
     const titleText = safeItem && (safeItem.title || safeItem.content)
       ? String(safeItem.title || safeItem.content).trim()
-      : '星舰事件更新'
+      : '事件更新'
     const eventId = safeItem && safeItem._id ? String(safeItem._id) : ''
 
     return {
@@ -1813,19 +1806,12 @@ Page({
 
   onShareTimeline() {
     const latest = (this.data.eventUpdates || [])[0] || null
-    let imageUrl = ''
-    if (latest && Array.isArray(latest.mediaList)) {
-      const firstImage = latest.mediaList.find(m => m && m.type === 'image' && m.url)
-      if (firstImage) {
-        imageUrl = firstImage.url
-      } else {
-        const firstVideo = latest.mediaList.find(m => m && m.type === 'video' && m.thumbnailUrl)
-        if (firstVideo) imageUrl = firstVideo.thumbnailUrl
-      }
-    }
+    const titleText = latest && (latest.title || latest.content)
+      ? String(latest.title || latest.content).trim()
+      : '事件更新'
     return {
-      title: latest && latest.title ? `事件更新：${latest.title} | 火星探索日志` : '星舰事件更新 | 火星探索日志',
-      imageUrl
+      title: `${titleText} | 火星探索日志`,
+      imageUrl: pickEventShareImageUrl(latest)
     }
   }
 })

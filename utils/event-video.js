@@ -36,6 +36,8 @@ function enrichVideoMediaItem(media, opts) {
   if (!thumb && playable) {
     thumb = videoSnapshotUrl(media.url, 1)
   }
+  // 分享须用远程 HTTPS；展示层 getCached 可能把 thumbnailUrl 换成 wxfile://
+  const thumbnailRemoteUrl = thumb ? (toCdnUrl(thumb) || thumb) : ''
   if (thumb && typeof getCached === 'function') {
     thumb = getCached(thumb, opts.thumbPreset || 'none')
   } else if (thumb) {
@@ -50,6 +52,7 @@ function enrichVideoMediaItem(media, opts) {
     ...media,
     isPlayable: playable,
     thumbnailUrl: thumb,
+    thumbnailRemoteUrl,
     originalUrl,
     playUrl: playUrl || originalUrl
   }

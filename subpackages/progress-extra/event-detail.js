@@ -5,7 +5,7 @@ const { getCachedMediaImage } = require('../../utils/icon-cache.js')
 const { fetchLiveStatusBatch, parseLiveStatus } = require('../../utils/live-status.js')
 const { isPermissionDenied, getPermissionDeniedMessage } = require('../../utils/single-page.js')
 const pageBase = require('../../utils/page-base.js')
-const { pickEventShareImageUrl } = require('../../utils/event-share-image.js')
+const { pickEventShareImageUrl, resolveTweetAccountAvatarUrl } = require('../../utils/event-share-image.js')
 const { gateCheck, isMembershipEnabled, getMembershipState, isPro, hasPurchased, canUsePaidCloudSync, canPrefetchVideoSync, canSaveOriginalVideoSync, isProSync } = require('../../utils/membership.js')
 const { getMemberPolicy, getMemberPolicySync } = require('../../utils/member-policy.js')
 const {
@@ -122,7 +122,7 @@ Page({
     errorMessage: '',
     item: null,
     shareImage: '',
-    shareTitle: '事件更新详情 | 火星探索日志',
+    shareTitle: '事件更新 | 火星探索日志',
     navTitle: '事件详情',
     detailScrollTop: 0,
     statusBarHeight: 44,
@@ -924,26 +924,18 @@ Page({
         return enrichVideoMediaItem(media, { getCachedMediaImage, thumbPreset: 'thumb' })
       }
       if (media.type === 'image' && media.url) {
-        // 列表/详情卡片用 thumb；点开 previewImage 仍可用压缩后的 url
-        return { ...media, url: getCachedMediaImage(media.url, 'thumb') }
+        // 列表/详情卡片用 thumb；remoteUrl 供分享（缓存后 url 可能是 wxfile://）
+        const remoteUrl = media.url
+        return { ...media, remoteUrl, url: getCachedMediaImage(media.url, 'thumb') }
       }
       return media
     })
 
-    // 头像 fallback
-    const avatarFallback = {
-      SpaceX: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/SpaceX.jpg',
-      elonmusk: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/elonmusk.jpg',
-      Starlink: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/Starlink.jpg',
-      NASASpaceflight: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/NASASpaceflight.jpg',
-      StarshipGazer: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/StarshipGazer.jpg',
-      NASA: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/NASA.jpg'
-    }
-
-    // 头像：优先 COS 地址，代理地址视为无效
+    // 头像：优先 COS 地址，代理地址视为无效；按 source 约定路径兜底（含蓝箭等）
     let avatar = safeItem.authorAvatar || ''
     if (avatar && !avatar.includes('.cos.')) avatar = ''
-    if (!avatar && safeItem.source && avatarFallback[safeItem.source]) avatar = avatarFallback[safeItem.source]
+    if (!avatar && safeItem.source) avatar = resolveTweetAccountAvatarUrl(safeItem.source)
+    const authorAvatarRemote = avatar || ''
     if (avatar) avatar = getCachedMediaImage(avatar, 'thumb')
 
     return {
@@ -952,6 +944,7 @@ Page({
       imageUrls: enrichedMediaList.filter(media => media && media.type === 'image' && media.url).map(media => media.url),
       publishedAtText: formatEventTime(safeItem.publishedAt),
       authorAvatar: avatar,
+      authorAvatarRemote,
       _liveStatus: 0,
       _liveCover: safeItem.liveCover || '',
       _liveTitle: ''
@@ -1106,6 +1099,23 @@ Page({
         ? newItems.length < freeLimit
         : newItems.length < limit
 
+      const listNavTitle = this._listAllLabel ? `${this._listAllLabel} · 事件更新` : '事件更新'
+      let listShareImage = pickEventShareImageUrl(null)
+      if (merged[0]) {
+        listShareImage = pickEventShareImageUrl(merged[0])
+      } else if (this._listAllSource) {
+        listShareImage = pickEventShareImageUrl({
+          source: this._listAllSource,
+          authorAvatarRemote: resolveTweetAccountAvatarUrl(this._listAllSource)
+        })
+      } else if (this._listAllSources && this._listAllSources.length === 1) {
+        const onlySource = this._listAllSources[0]
+        listShareImage = pickEventShareImageUrl({
+          source: onlySource,
+          authorAvatarRemote: resolveTweetAccountAvatarUrl(onlySource)
+        })
+      }
+
       this.setData({
         loading: false,
         listMode: true,
@@ -1113,10 +1123,10 @@ Page({
         items: merged,
         item: null,
         errorMessage: '',
-        navTitle: this._listAllLabel ? `${this._listAllLabel} · 事件更新` : '事件更新',
+        navTitle: listNavTitle,
         listDayHint: hint,
-        shareTitle: '星舰事件更新 | 火星探索日志',
-        shareImage: merged[0] ? pickEventShareImageUrl(merged[0]) : pickEventShareImageUrl(null),
+        shareTitle: `${listNavTitle} | 火星探索日志`,
+        shareImage: listShareImage,
         listNoMore,
         listLoadingMore: false,
         avatarError: false
@@ -1178,17 +1188,20 @@ Page({
       const day = dateYmd || todayBeijingYmd()
       const filtered = raw.filter(it => publishedAtToBeijingYmd(it.publishedAt) === day)
       const items = filtered.map(it => this.enrichEventItem(it))
-      const shareImage = items[0] ? pickEventShareImageUrl(items[0]) : pickEventShareImageUrl(null)
       const namePart = labelHint || source
+      const shareImage = items[0]
+        ? pickEventShareImageUrl(items[0])
+        : pickEventShareImageUrl({ source, authorAvatarRemote: resolveTweetAccountAvatarUrl(source) })
       const hint = namePart + ' · 共 ' + items.length + ' 条'
-      const shareTitle = namePart + ' · 今日动态 | 火星探索日志'
+      const navTitle = namePart + ' · 今日动态'
+      const shareTitle = navTitle + ' | 火星探索日志'
       this.setData({
         loading: false,
         listMode: true,
         items,
         item: null,
         errorMessage: '',
-        navTitle: '事件详情',
+        navTitle,
         listDayHint: hint,
         shareTitle,
         shareImage,
@@ -1336,7 +1349,7 @@ Page({
     const safeItem = item && typeof item === 'object' ? item : null
     const titleText = safeItem && (safeItem.title || safeItem.content)
       ? String(safeItem.title || safeItem.content).trim()
-      : '星舰事件更新'
+      : '事件更新'
     const eventId = safeItem && safeItem._id ? String(safeItem._id) : ''
 
     return {
@@ -1528,7 +1541,7 @@ Page({
       const item = this.findListEventItem(e.target.dataset.id)
       if (item) return this.buildListEventShareOptions(item)
       return {
-        title: '星舰事件更新 | 火星探索日志',
+        title: '事件更新 | 火星探索日志',
         path: '/pages/progress/progress',
         imageUrl: pickEventShareImageUrl(null)
       }
@@ -1559,9 +1572,9 @@ Page({
     const item = this.data.item
     if (!item) {
       return {
-        title: '事件更新详情 | 火星探索日志',
+        title: this.data.shareTitle || '事件更新 | 火星探索日志',
         path: '/pages/progress/progress',
-        imageUrl: this.data.shareImage
+        imageUrl: this.data.shareImage || pickEventShareImageUrl(null)
       }
     }
 

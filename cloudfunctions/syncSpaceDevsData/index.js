@@ -105,10 +105,7 @@ async function fetchLaunchUpdatesAction(event) {
     const resolved = await resolveLaunchIdForLl2Progress(event || {})
     const launchId = resolved.launchId
     if (!launchId) {
-      const err =
-        resolved.error === 'no_starship_launch'
-          ? 'no_starship_launch'
-          : (resolved.error || 'missing_launch_id')
+      const err = resolved.error === 'no_starship_launch' ? 'no_starship_launch' : resolved.error || 'missing_launch_id'
       return {
         success: false,
         error: err,
@@ -168,10 +165,7 @@ async function fetchLaunchTimelineAction(event) {
     const resolved = await resolveLaunchIdForLl2Progress(event || {})
     const launchId = resolved.launchId
     if (!launchId) {
-      const err =
-        resolved.error === 'no_starship_launch'
-          ? 'no_starship_launch'
-          : (resolved.error || 'missing_launch_id')
+      const err = resolved.error === 'no_starship_launch' ? 'no_starship_launch' : resolved.error || 'missing_launch_id'
       return {
         success: false,
         error: err,
@@ -192,7 +186,7 @@ async function fetchLaunchTimelineAction(event) {
     try {
       const cacheRes = await db.collection(TIMELINE_CACHE_COL).doc(cacheDocId).get()
       const cached = cacheRes && cacheRes.data
-      if (cached && cached.updatedAtMs && (Date.now() - cached.updatedAtMs) < TIMELINE_CACHE_TTL) {
+      if (cached && cached.updatedAtMs && Date.now() - cached.updatedAtMs < TIMELINE_CACHE_TTL) {
         return {
           success: true,
           launchId,
@@ -296,7 +290,18 @@ let _syncSpaceDevsCollectionsEnsured = false
 async function ensureSyncSpaceDevsCollectionsOnce() {
   if (_syncSpaceDevsCollectionsEnsured) return
   _syncSpaceDevsCollectionsEnsured = true
-  const names = ['space_devs_cache', 'launch_data', 'booster_genealogy', 'launch_stats', 'spacex_launch_stats', 'road_closure_notice', 'nextspaceflight_starship_cache', 'nextspaceflight_hardware_cache', 'launch_timeline_cache', 'translation_cache']
+  const names = [
+    'space_devs_cache',
+    'launch_data',
+    'booster_genealogy',
+    'launch_stats',
+    'spacex_launch_stats',
+    'road_closure_notice',
+    'nextspaceflight_starship_cache',
+    'nextspaceflight_hardware_cache',
+    'launch_timeline_cache',
+    'translation_cache'
+  ]
   for (const n of names) {
     try {
       await db.createCollection(n)
@@ -330,14 +335,15 @@ const CLIENT_ALLOWED_ACTIONS = new Set([
 ])
 
 // 开发者工具「云端测试」(SOURCE=wx_devtools) 可手动跑的运维探针；正式小程序端 (wx_client) 仍拦截
-const DEVTOOLS_TESTABLE_ACTIONS = new Set([
-  'syncLaunchNetHourly'
-])
+const DEVTOOLS_TESTABLE_ACTIONS = new Set(['syncLaunchNetHourly'])
 
 function getInvocationSourceTail() {
   try {
     const ctx = cloud.getWXContext() || {}
-    const chain = String(ctx.SOURCE || '').split(',').map(s => s.trim()).filter(Boolean)
+    const chain = String(ctx.SOURCE || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
     return chain.length ? chain[chain.length - 1] : ''
   } catch (e) {
     return ''
@@ -348,10 +354,16 @@ function isServerSideInvocation(event) {
   if (event && (event.TriggerName || event.triggerName)) return true
   try {
     const ctx = cloud.getWXContext() || {}
-    const chain = String(ctx.SOURCE || '').split(',').map(s => s.trim()).filter(Boolean)
+    const chain = String(ctx.SOURCE || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
     // 无 SOURCE：云开发 Web 控制台测试 / 部分 SCF 触发，不是小程序 callFunction
     if (!chain.length) return true
     const last = chain[chain.length - 1]
+    // 新版 CloudBase 网页控制台的“运行测试”也会标成 wx_client，
+    // 但它没有小程序用户 OPENID；真实 wx.cloud.callFunction 始终带 OPENID。
+    if (last === 'wx_client' && !String(ctx.OPENID || '').trim()) return true
     return last !== 'wx_client' && last !== 'wx_devtools'
   } catch (e) {
     return false
@@ -382,14 +394,23 @@ exports.main = async (event) => {
   )
 
   if (!canInvokeRestrictedAction(action, event)) {
-    console.warn('[syncSpaceDevsData] 拦截客户端调用受限 action:', action || '(default full sync)', sourceTail || 'empty')
+    console.warn(
+      '[syncSpaceDevsData] 拦截客户端调用受限 action:',
+      action || '(default full sync)',
+      sourceTail || 'empty'
+    )
     return { success: false, error: 'forbidden: action not allowed from client', timestamp: Date.now() }
   }
 
   try {
     switch (action) {
       case 'syncLaunches': {
-        const slRes = { success: true, ...await syncLaunches(), timestamp: Date.now(), elapsed: Date.now() - startTime }
+        const slRes = {
+          success: true,
+          ...(await syncLaunches()),
+          timestamp: Date.now(),
+          elapsed: Date.now() - startTime
+        }
         try {
           slRes.launchDataSync = await syncLaunchDataFromCache()
         } catch (e) {
@@ -426,7 +447,7 @@ exports.main = async (event) => {
       }
 
       case 'syncEvents':
-        return { success: true, ...await syncEvents(), timestamp: Date.now(), elapsed: Date.now() - startTime }
+        return { success: true, ...(await syncEvents()), timestamp: Date.now(), elapsed: Date.now() - startTime }
 
       case 'translateDiag': {
         // 只读诊断：确认 TMT 配置 / 实测翻译 / translation_cache 文档数
@@ -441,7 +462,7 @@ exports.main = async (event) => {
       }
 
       case 'syncStations':
-        return { success: true, ...await syncStations(), timestamp: Date.now(), elapsed: Date.now() - startTime }
+        return { success: true, ...(await syncStations()), timestamp: Date.now(), elapsed: Date.now() - startTime }
 
       case 'fetchLaunchUpdates':
       case 'fetchLaunchTimeline':
@@ -552,7 +573,10 @@ exports.main = async (event) => {
         // LL2 外网图镜像到 COS：与 agencies/events/stations 同步同轮执行，
         // 存量预热完成后每轮只有零星增量（预算 120s，跑不完下轮续）
         try {
-          result._imageMirror = await require('./image-mirror.js').runImageMirrorSync({ maxUploads: 40, budgetMs: 120 * 1000 })
+          result._imageMirror = await require('./image-mirror.js').runImageMirrorSync({
+            maxUploads: 40,
+            budgetMs: 120 * 1000
+          })
         } catch (e) {
           result._imageMirror = { success: false, error: e.message || String(e) }
         }
@@ -599,14 +623,14 @@ async function fillFlightHistoryAction(event) {
   // 已完成的情况：只刷新第 1 页捕获新发射，不再全量翻页
   const refreshOnly = progress.completed && !forceRefresh
 
-  let url = refreshOnly ? baseUrl : (progress.nextUrl || baseUrl)
-  let page = refreshOnly ? 0 : (progress.page || 0)
+  let url = refreshOnly ? baseUrl : progress.nextUrl || baseUrl
+  let page = refreshOnly ? 0 : progress.page || 0
   let totalLaunches = 0
   let totalUpdated = 0
   const errors = []
 
   // ── 循环拉取，直到拉完 / 时间预算用尽 ──
-  while (url && (Date.now() - startTime) < TIME_BUDGET_MS) {
+  while (url && Date.now() - startTime < TIME_BUDGET_MS) {
     let data = null
     // 每页最多重试 2 次
     for (let attempt = 0; attempt < 2 && !data; attempt++) {
@@ -641,7 +665,7 @@ async function fillFlightHistoryAction(event) {
         boosterFlights[sn].push({
           mission: launch.name || '',
           date: launch.net || '',
-          success: isSuccess ? true : (isFailed ? false : null),
+          success: isSuccess ? true : isFailed ? false : null,
           launchId: launch.id ? String(launch.id) : ''
         })
       }
@@ -651,10 +675,14 @@ async function fillFlightHistoryAction(event) {
     const mergeOneBooster = async (sn) => {
       const docId = sn.replace(/[^a-zA-Z0-9_-]/g, '_')
       try {
-        const existDoc = await collection.doc(docId).get().catch(() => null)
-        const existingHistory = (existDoc && existDoc.data && Array.isArray(existDoc.data.flightHistory)) ? existDoc.data.flightHistory : []
+        const existDoc = await collection
+          .doc(docId)
+          .get()
+          .catch(() => null)
+        const existingHistory =
+          existDoc && existDoc.data && Array.isArray(existDoc.data.flightHistory) ? existDoc.data.flightHistory : []
 
-        const keyOf = h => (h.date || '').split('T')[0] + '|' + (h.mission || '')
+        const keyOf = (h) => (h.date || '').split('T')[0] + '|' + (h.mission || '')
         const byKey = {}
         for (const h of existingHistory) byKey[keyOf(h)] = h
 
@@ -669,7 +697,10 @@ async function fillFlightHistoryAction(event) {
             changed = true
           } else {
             // 已有记录：修正待定状态（首次同步时发射还在进行中，success 为 null）
-            if ((exist.success === null || exist.success === undefined) && (r.success === true || r.success === false)) {
+            if (
+              (exist.success === null || exist.success === undefined) &&
+              (r.success === true || r.success === false)
+            ) {
               exist.success = r.success
               changed = true
             }
@@ -742,31 +773,42 @@ function _httpGetJson(url, timeout) {
     const urlObj = new URL(url)
     const token = typeof process.env.LL2_API_TOKEN === 'string' ? process.env.LL2_API_TOKEN.trim() : ''
     const headers = {
-      'Accept': 'application/json',
+      Accept: 'application/json',
       'User-Agent': 'SpaceDevs-Sync-CloudFunction/1.0'
     }
-    if (token && token !== 'FILL_ME' && urlObj.hostname === 'll.thespacedevs.com') headers['Authorization'] = `Token ${token}`
+    if (token && token !== 'FILL_ME' && urlObj.hostname === 'll.thespacedevs.com')
+      headers['Authorization'] = `Token ${token}`
 
-    const req = https.request({
-      hostname: urlObj.hostname,
-      port: 443,
-      path: urlObj.pathname + urlObj.search,
-      method: 'GET',
-      headers,
-      timeout: timeout || 30000
-    }, (res) => {
-      const chunks = []
-      res.on('data', c => chunks.push(c))
-      res.on('end', () => {
-        const text = Buffer.concat(chunks).toString('utf8')
-        if (res.statusCode !== 200) {
-          reject(new Error(`HTTP ${res.statusCode}: ${text.slice(0, 120)}`))
-          return
-        }
-        try { resolve(JSON.parse(text)) } catch (e) { reject(new Error('JSON parse error')) }
-      })
+    const req = https.request(
+      {
+        hostname: urlObj.hostname,
+        port: 443,
+        path: urlObj.pathname + urlObj.search,
+        method: 'GET',
+        headers,
+        timeout: timeout || 30000
+      },
+      (res) => {
+        const chunks = []
+        res.on('data', (c) => chunks.push(c))
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8')
+          if (res.statusCode !== 200) {
+            reject(new Error(`HTTP ${res.statusCode}: ${text.slice(0, 120)}`))
+            return
+          }
+          try {
+            resolve(JSON.parse(text))
+          } catch (e) {
+            reject(new Error('JSON parse error'))
+          }
+        })
+      }
+    )
+    req.on('timeout', () => {
+      req.destroy()
+      reject(new Error('timeout'))
     })
-    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')) })
     req.on('error', (e) => reject(e))
     req.end()
   })

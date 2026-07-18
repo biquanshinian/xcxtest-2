@@ -28,6 +28,20 @@ const PUSH_HISTORY_COLLECTION = 'push_history'
 const OA_AUTO_ALERT_USERS = 'oa_auto_alert_users'
 const OA_PUSH_LEDGER = 'oa_push_ledger'
 const LAUNCH_DATA_COLLECTION = 'launch_data'
+const LAUNCH_STATUS_COLLECTION = 'launch_status'
+
+async function loadLaunchStatuses(ids) {
+  const unique = Array.from(new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean)))
+  const rows = await Promise.all(unique.map(async function (id) {
+    try {
+      const res = await db.collection(LAUNCH_STATUS_COLLECTION).doc(id).get()
+      return res && res.data ? res.data : null
+    } catch (e) {
+      return null
+    }
+  }))
+  return rows.filter(Boolean)
+}
 const OA_LEAD_MINUTES = 30
 
 // ── C 通道：服务号「订阅通知」(bizsend) ──
@@ -860,7 +874,7 @@ exports.main = async (event) => {
  * - template: RESULT_TEMPLATE_ID 与字段 key（需与公众平台模板关键词逐一对上，否则 47003）
  * - subscriptions: 各状态文档数与样本（resultQuota=0 → 用户弹窗没勾结果模板；
  *   reminderSent=false → 卡在发射前提醒环节；failReason → 上一次发送失败原因）
- * - recentSettled: _recent_settled 终态缓存是否有数据、是否新鲜
+ * - recentSettled: launch_status 权威状态是否有数据、是否新鲜
  */
 async function runResultDiag() {
   const out = {
@@ -929,12 +943,11 @@ async function runResultDiag() {
   } catch (e) {}
 
   try {
-    const settledDoc = await db.collection('launch_timeline_cache').doc('_recent_settled').get()
-    const wrapper = settledDoc && settledDoc.data
-    const list = wrapper && Array.isArray(wrapper.data) ? wrapper.data : []
+    const statusRes = await db.collection(LAUNCH_STATUS_COLLECTION).orderBy('observedAtMs', 'desc').limit(40).get()
+    const list = statusRes && Array.isArray(statusRes.data) ? statusRes.data : []
     out.recentSettled = {
       exists: true,
-      updatedAt: wrapper && wrapper.updatedAtMs ? new Date(wrapper.updatedAtMs).toISOString() : null,
+      updatedAt: list[0] && list[0].observedAtMs ? new Date(list[0].observedAtMs).toISOString() : null,
       count: list.length,
       entries: list.slice(0, 15).map(function (r) {
         return {
@@ -1312,18 +1325,15 @@ async function sendPendingResultNotifications() {
 
   let settledById = new Map()
   try {
-    const settledDoc = await db.collection('launch_timeline_cache').doc('_recent_settled').get()
-    const list = settledDoc && settledDoc.data && settledDoc.data.data
-    if (Array.isArray(list)) {
-      for (let i = 0; i < list.length; i++) {
-        const row = list[i]
-        if (row && row.id && row.status) settledById.set(String(row.id), row)
-      }
+    const list = await loadLaunchStatuses(records.map(function (r) { return r.missionId }))
+    for (let i = 0; i < list.length; i++) {
+      const row = list[i]
+      if (row && row.id && row.status) settledById.set(String(row.id), row)
     }
   } catch (e) {}
 
   // 终态兜底：存在「发射时间已过但终态缓存未命中」的记录时，触发一次 ll2Query 实况刷新
-  // 再重读 _recent_settled，避免探针空窗导致 48h 后静默删除、一条不发。
+  // 再重读按 launchId 的权威状态，避免探针空窗导致 48h 后静默删除、一条不发。
   // fetchLaunchStatuses 自带 120s 共享缓存与 30s 失败记忆，不会放大 LL2 调用。
   const needsSettledRefresh = records.some(function (r) {
     const netMs = r.launchTime ? new Date(r.launchTime).getTime() : 0
@@ -1332,13 +1342,10 @@ async function sendPendingResultNotifications() {
   if (needsSettledRefresh) {
     try {
       await cloud.callFunction({ name: 'll2Query', data: { action: 'fetchLaunchStatuses' } })
-      const settledDoc2 = await db.collection('launch_timeline_cache').doc('_recent_settled').get()
-      const list2 = settledDoc2 && settledDoc2.data && settledDoc2.data.data
-      if (Array.isArray(list2)) {
-        for (let i = 0; i < list2.length; i++) {
-          const row = list2[i]
-          if (row && row.id && row.status) settledById.set(String(row.id), row)
-        }
+      const list2 = await loadLaunchStatuses(records.map(function (r) { return r.missionId }))
+      for (let i = 0; i < list2.length; i++) {
+        const row = list2[i]
+        if (row && row.id && row.status) settledById.set(String(row.id), row)
       }
     } catch (e) {
       console.warn('[ResultNotify] settled refresh fail:', e.message || e)

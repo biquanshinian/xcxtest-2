@@ -6,6 +6,7 @@ const { ROUTES, navigateTo } = require('../../../../utils/routes.js')
 const { gateCheck } = require('../../../../utils/membership.js')
 const storageCache = require('../../../../utils/storage-sync-cache.js')
 const themeUtil = require('../../../../utils/theme.js')
+const { resolveTweetAccountAvatarUrl } = require('../../../../utils/event-share-image.js')
 
 /** progress 为 tabBar 页，switchTab 不能带 query，用本地存储传筛选账号 */
 var BRIEFING_PROGRESS_FILTER_KEY = '_briefing_progress_filter_source'
@@ -645,19 +646,11 @@ Component({
           if (result.success) {
             total = typeof result.total === 'number' ? result.total : 0
             if (result.tweetStats && result.tweetStats.length > 0) {
-            var avatarFallback = {
-              SpaceX: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/SpaceX.jpg',
-              elonmusk: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/elonmusk.jpg',
-              Starlink: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/Starlink.jpg',
-              NASASpaceflight: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/NASASpaceflight.jpg',
-              StarshipGazer: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/StarshipGazer.jpg',
-              NASA: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/NASA.jpg'
-            }
             stats = result.tweetStats.map(function (item) {
               return {
                 screenName: item.screenName,
                 label: item.label,
-                avatarUrl: item.avatarUrl || avatarFallback[item.screenName] || '',
+                avatarUrl: item.avatarUrl || resolveTweetAccountAvatarUrl(item.screenName) || '',
                 todayCount: item.todayCount
               }
             })

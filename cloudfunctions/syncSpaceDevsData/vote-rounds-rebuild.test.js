@@ -4,6 +4,8 @@
  *
  * Flight 12 launchId: ed83366c-872c-4484-97c1-bc74832304fc
  */
+const test = require('node:test')
+const assert = require('node:assert/strict')
 const {
   VOTE_FLIGHT12_LAUNCH_ID,
   extractAttemptNetsFromUpdates,
@@ -40,13 +42,7 @@ const FLIGHT12_FOUND = {
   status: { abbrev: 'Success', name: 'Launch Successful' }
 }
 
-function assert(cond, msg) {
-  if (!cond) {
-    console.error('FAIL:', msg)
-    process.exit(1)
-  }
-}
-
+test('Flight 12 多轮改期可从完整更新历史重建', () => {
 const attempts = extractAttemptNetsFromUpdates(FLIGHT12_UPDATES)
 const trimmed = trimAttemptNetsForTerminal(attempts, FLIGHT12_FOUND)
 const patch = tryBuildRoundsFromNetHistory({ launchId: VOTE_FLIGHT12_LAUNCH_ID }, FLIGHT12_FOUND, FLIGHT12_UPDATES)
@@ -106,3 +102,4 @@ const patchPartial = tryBuildRoundsFromNetHistory(
 )
 assert(!patchPartial, 'partial updates must not build patch')
 console.log('OK — reject partial updates cache window')
+})

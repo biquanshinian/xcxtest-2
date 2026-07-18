@@ -1,54 +1,80 @@
 /**
- * 全屏 scroll-view + 自定义导航：下拉时压缩顶占位，三点贴近内容；松手复位。
- * 视图层 setStyle，不走 setData。
+ * 全屏 scroll-view + 固定导航的下拉刷新视图层逻辑。
  *
- * 几何：内容顶 ≈ dy + padH；原生三点约在下拉区中部（dy/2）；
- * 目标间距 DOT_GAP（默认 30px）。
+ * 原生 refresher 三点以 scroll-view 顶部为基准，会被固定导航遮住；
+ * 因此隐藏原生样式，在“导航底部—下拉内容顶部”的空隙中央显示自定义三点。
+ * 顶占位保持不变，让内容跟随 scroll-view 原生位移 1:1 移动。
  */
-var DOT_GAP = 30
 
-function applyPad(ownerInstance, h) {
+var lastDy = 0
+
+function keepPad(ownerInstance, h) {
   var pad = ownerInstance.selectComponent('#navScrollPad') ||
     ownerInstance.selectComponent('.nav-scroll-pad')
   if (!pad) return
-  if (h >= 0) {
-    pad.setStyle({
-      height: h + 'px',
-      'margin-top': '0px'
-    })
-  } else {
-    pad.setStyle({
-      height: '0px',
-      'margin-top': h + 'px'
-    })
-  }
+  if (h < 0) h = 0
+  pad.setStyle({
+    height: h + 'px',
+    'margin-top': '0px',
+    transition: 'none'
+  })
+}
+
+function applyDots(ownerInstance, navH, dy, transition) {
+  var dots = ownerInstance.selectComponent('#pullRefreshDots')
+  if (!dots) return
+  if (dy < 0) dy = 0
+  var progress = dy / 14
+  if (progress > 1) progress = 1
+  var scale = 0.72 + progress * 0.28
+  dots.setStyle({
+    top: navH + dy * 0.5 + 'px',
+    opacity: progress,
+    transform: 'translate(-50%, -50%) scale(' + scale + ')',
+    transition: transition || 'none'
+  })
 }
 
 function onPulling(e, ownerInstance) {
   var dy = +e.detail.dy || 0
-  if (dy < 0) dy = 0
   var navH = +e.currentTarget.dataset.navH || 0
+  lastDy = dy
+  keepPad(ownerInstance, navH)
+  applyDots(ownerInstance, navH, dy, 'none')
+}
 
-  var h = navH - dy
-  if (h < 0) h = 0
-
-  if (dy > 0) {
-    var contentTop = dy + h
-    var targetTop = dy * 0.5 + DOT_GAP
-    if (contentTop > targetTop) {
-      h = h - (contentTop - targetTop)
-    }
+/**
+ * abort/restore 事件在部分真机上会等回弹结束才触发，因此在手指离开时
+ * 立即给三点与原生内容相同方向的回弹过渡，避免三点悬在原位。
+ */
+function onRelease(e, ownerInstance) {
+  var navH = +e.currentTarget.dataset.navH || 0
+  var threshold = +e.currentTarget.dataset.refreshThreshold || 36
+  var transition = 'top 220ms cubic-bezier(0.22, 0.61, 0.36, 1), opacity 160ms ease-out, transform 220ms cubic-bezier(0.22, 0.61, 0.36, 1)'
+  if (lastDy >= threshold) {
+    // 已触发刷新时，内容会先收拢并停在 threshold；三点同步停在空隙中央。
+    applyDots(ownerInstance, navH, threshold, transition)
+    lastDy = threshold
+    return
   }
-
-  applyPad(ownerInstance, h)
+  applyDots(ownerInstance, navH, 0, transition)
+  lastDy = 0
 }
 
 function onReset(e, ownerInstance) {
   var navH = +e.currentTarget.dataset.navH || 0
-  applyPad(ownerInstance, navH)
+  keepPad(ownerInstance, navH)
+  applyDots(
+    ownerInstance,
+    navH,
+    0,
+    'top 220ms cubic-bezier(0.22, 0.61, 0.36, 1), opacity 160ms ease-out, transform 220ms cubic-bezier(0.22, 0.61, 0.36, 1)'
+  )
+  lastDy = 0
 }
 
 module.exports = {
   onPulling: onPulling,
+  onRelease: onRelease,
   onReset: onReset
 }
