@@ -189,6 +189,7 @@ Page({
     shareTitle: '发射商详情 | 火星探索日志',
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
+    scrollRefreshing: false,
     tabBarReservedHeight: 0,
     menuButtonWidth: 88,
     descTranslated: false,
@@ -818,8 +819,16 @@ Page({
     this.loadDetail({ id, name, abbrev })
   },
 
-  /** 页面级原生下拉刷新（全局统一）：跳过本地缓存重读云缓存，绝不直接触发 LL2 */
+  /** 原生三点下拉刷新：跳过本地缓存重读云缓存，绝不直接触发 LL2 */
+  onScrollRefresh() {
+    this._runAgencyDetailPullRefresh('scrollRefreshing')
+  },
+
   onPullDownRefresh() {
+    this._runAgencyDetailPullRefresh()
+  },
+
+  _runAgencyDetailPullRefresh(key) {
     const pages = getCurrentPages()
     const currentPage = pages[pages.length - 1]
     const options = (currentPage && currentPage.options) || {}
@@ -829,7 +838,7 @@ Page({
     runPullRefresh(this, () => {
       if (!id && !name && !abbrev) return Promise.resolve()
       return this.loadDetail({ id, name, abbrev, skipLocalCache: true, silent: true })
-    })
+    }, key)
   },
 
   // goBack inherited from pageBase

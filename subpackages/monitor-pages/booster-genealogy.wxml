@@ -1,3 +1,4 @@
+<wxs module="navPad" src="/utils/nav-scroll-pad.wxs"></wxs>
 <view class="container {{themeClass}}">
   <!-- 自定义导航栏 -->
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
@@ -9,11 +10,24 @@
       <view class="top-nav-slot--spacer"></view>
     </view>
   </view>
-  <!-- 全屏滚动骨架：内容从磨砂导航栏下方穿过，加载/错误态也在滚动区内 -->
-  <scroll-view scroll-y class="page-scroll">
-    <view style="height: {{navPlaceholderHeight}}px;"></view>
-
-    <!-- 加载中 -->
+  <scroll-view
+    scroll-y
+    class="page-scroll nav-aware-scroll"
+    enhanced="{{true}}"
+    bounces="{{true}}"
+    refresher-enabled="{{true}}"
+    refresher-default-style="{{themeLight ? 'black' : 'white'}}"
+    refresher-background="{{pageBgColor}}"
+    refresher-triggered="{{scrollRefreshing}}"
+    data-nav-h="{{navPlaceholderHeight}}"
+    bindrefresherpulling="{{navPad.onPulling}}"
+    bindrefresherrestore="{{navPad.onReset}}"
+    bindrefresherabort="{{navPad.onReset}}"
+    bindrefresherrefresh="onScrollRefresh"
+  >
+    
+    <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
+<!-- 加载中 -->
     <view class="loading-wrap" wx:if="{{loading}}">
       <text class="loading-text">加载族谱数据...</text>
     </view>

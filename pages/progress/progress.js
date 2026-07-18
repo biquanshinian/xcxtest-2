@@ -362,6 +362,7 @@ Page({
     eventUpdatesError: '',
     eventUpdatesNoMore: false,
     eventScrollRefreshing: false,
+    scrollRefreshing: false,
     enableEventVideo: false,
     showEventShareSheet: false,
     tweetAccountStats: [],
@@ -1116,15 +1117,23 @@ Page({
     }
   },
 
-  /** 页面级原生下拉刷新（全局统一）
+  /** 原生三点下拉刷新（页面级 / scroll-view refresher 共用）
    *  只重读云数据库缓存：不触发 NSF 抓取、不重拉 LL2（节奏由云函数自动分配） */
+  onScrollRefresh() {
+    this._runProgressPullRefresh('scrollRefreshing')
+  },
+
   onPullDownRefresh() {
+    this._runProgressPullRefresh()
+  },
+
+  _runProgressPullRefresh(key) {
     runPullRefresh(this, () => Promise.all([
       this.loadStarshipStatusFromDB({ syncNsf: true, skipLl2: true }),
       this.loadRoadClosureNotice(),
       this.loadStarshipHardware(true),
       this.loadEventUpdates(true, undefined, { silent: true })
-    ]).catch(() => {}))
+    ]).catch(() => {}), key)
   },
 
   // ── 星舰硬件设施 ──

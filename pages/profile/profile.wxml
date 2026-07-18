@@ -1,3 +1,4 @@
+<wxs module="navPad" src="/utils/nav-scroll-pad.wxs"></wxs>
 <!--pages/profile/profile.wxml-->
 <page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
 <view class="container {{themeClass}}">
@@ -8,15 +9,24 @@
   </view>
 
   <scroll-view
-    class="content-scroll main-content-scroll {{isAndroid ? 'content-scroll-android' : ''}}"
+    class="content-scroll main-content-scroll nav-aware-scroll {{isAndroid ? 'content-scroll-android' : ''}}"
     scroll-y="true"
     enhanced="{{true}}"
     show-scrollbar="false"
-    bounces="{{false}}"
+    bounces="{{true}}"
+    refresher-enabled="{{true}}"
+    refresher-default-style="{{themeLight ? 'black' : 'white'}}"
+    refresher-background="{{pageBgColor}}"
+    refresher-triggered="{{scrollRefreshing}}"
+    data-nav-h="{{navPlaceholderHeight}}"
+    bindrefresherpulling="{{navPad.onPulling}}"
+    bindrefresherrestore="{{navPad.onReset}}"
+    bindrefresherabort="{{navPad.onReset}}"
+    bindrefresherrefresh="onScrollRefresh"
   >
-    <view style="height: {{navPlaceholderHeight}}px;"></view>
-
-    <!-- ══ 每日签到卡片 ══ -->
+    
+    <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
+<!-- ══ 每日签到卡片 ══ -->
     <view class="checkin-section">
       <view class="checkin-card glass-card">
         <view class="checkin-header">
@@ -270,7 +280,7 @@
           <switch
             class="oa-alert-switch"
             checked="{{oaAlertEnabled}}"
-            color="#7864ff"
+            color="#07C160"
             disabled="{{oaAlertLoading}}"
             bindchange="onOaAlertSwitch"
           />

@@ -1,3 +1,4 @@
+<wxs module="navPad" src="/utils/nav-scroll-pad.wxs"></wxs>
 <view class="detail-page {{themeClass}}">
   <!-- WXS 观测角插值动画 -->
   <wxs src="./look-angle-anim.wxs" module="lookAnim" />
@@ -13,9 +14,24 @@
     <page-progress active="{{loading}}" />
   </view>
 
-  <scroll-view class="detail-scroll" scroll-y="true">
-    <view style="height: {{navPlaceholderHeight}}px;"></view>
-    <view class="detail-container">
+  <scroll-view
+    class="detail-scroll nav-aware-scroll"
+    scroll-y="true"
+    enhanced="{{true}}"
+    bounces="{{true}}"
+    refresher-enabled="{{true}}"
+    refresher-default-style="{{themeLight ? 'black' : 'white'}}"
+    refresher-background="{{pageBgColor}}"
+    refresher-triggered="{{scrollRefreshing}}"
+    data-nav-h="{{navPlaceholderHeight}}"
+    bindrefresherpulling="{{navPad.onPulling}}"
+    bindrefresherrestore="{{navPad.onReset}}"
+    bindrefresherabort="{{navPad.onReset}}"
+    bindrefresherrefresh="onScrollRefresh"
+  >
+    
+    <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
+<view class="detail-container">
       <!-- 加载中：内容区留白，进度由导航栏下方的 page-progress 绿色进度条呈现 -->
       <block wx:if="{{loading}}"></block>
 

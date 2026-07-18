@@ -801,6 +801,7 @@ Page({
     loadMoreLowerThreshold: (loadMoreInteraction && loadMoreInteraction.lowerThreshold) || 120,
     loadMoreTriggerZone: (loadMoreInteraction && loadMoreInteraction.triggerZone) || 280,
     loadMoreTriggered: false,
+    scrollRefreshing: false,
     preloadProgress: 0,
     completedMissionsOffset: 0,
     completedMissionsHasMore: true,
@@ -5122,9 +5123,18 @@ Page({
   },
 
   /**
-   * 页面级原生下拉刷新：即将发射重拉首屏；历史发射强制 merge recent_settled 修正角标
+   * 原生三点下拉刷新（页面级 / scroll-view refresher 共用）
+   * 即将发射重拉首屏；历史发射强制 merge recent_settled 修正角标
    */
+  onScrollRefresh() {
+    this._runMissionPullRefresh('scrollRefreshing')
+  },
+
   onPullDownRefresh() {
+    this._runMissionPullRefresh()
+  },
+
+  _runMissionPullRefresh(key) {
     if (this.data.missionType === 'completed') {
       runPullRefresh(this, async () => {
         try {
@@ -5133,14 +5143,18 @@ Page({
         } catch (e) {
           await this._applyRecentSettledToCompletedList(true)
         }
-      })
+      }, key)
       return
     }
     if (this.data.missionType !== 'upcoming') {
-      try { wx.stopPullDownRefresh() } catch (e) {}
+      if (key) {
+        this.setData({ [key]: false })
+      } else {
+        try { wx.stopPullDownRefresh() } catch (e) {}
+      }
       return
     }
-    runPullRefresh(this, () => this.loadInitialData({ suppressLoading: true }))
+    runPullRefresh(this, () => this.loadInitialData({ suppressLoading: true }), key)
   },
 
   onHide() {

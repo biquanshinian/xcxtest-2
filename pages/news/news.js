@@ -312,6 +312,7 @@ Page({
     loading: false,
     loadMoreLowerThreshold: LOAD_MORE_LOWER_THRESHOLD,
     loadMoreTriggerZone: LOAD_MORE_TRIGGER_ZONE,
+    scrollRefreshing: false,
     loadMoreTriggered: false,
     preloadProgress: 0,
     errorType: null,
@@ -648,9 +649,16 @@ Page({
     })
   },
 
-  /** 页面级原生下拉刷新（全局统一）：清本地列表缓存后静默换新当前 Tab
-   *  刷新全程只显示微信原生指示器，不清列表、不出现任何“加载中”占位 */
+  /** 原生三点下拉刷新（页面级 / scroll-view refresher 共用）：清缓存后静默换新当前 Tab */
+  onScrollRefresh() {
+    this._runNewsPullRefresh('scrollRefreshing')
+  },
+
   onPullDownRefresh() {
+    this._runNewsPullRefresh()
+  },
+
+  _runNewsPullRefresh(key) {
     runPullRefresh(this, async () => {
       try {
         const cacheKey = this.data.contentType === 'articles' ? this.CACHE_KEY_ARTICLES : this.CACHE_KEY_EVENTS
@@ -662,7 +670,7 @@ Page({
       } catch (e) {}
 
       await this.loadNews(false, { silent: true, type: this.data.contentType, forceReplace: true })
-    })
+    }, key)
   },
 
   retryLoadNews() {

@@ -10,6 +10,7 @@ Page({
     statusBarHeight: 0,
     navPlaceholderHeight: 0,
     menuButtonWidth: 88,
+    scrollRefreshing: false,
     activeTab: 0,
     tabs: [
       { key: 'mars', label: '火星探索', icon: '🌕' },
@@ -103,15 +104,22 @@ Page({
     if (idx === 2 && !this.data.cadList.length && !this.data.cadLoading) this.loadCADData()
   },
 
-  /** 页面级原生下拉刷新（全局统一）：重拉当前 Tab 的 NASA 数据
-   *  silent：已有数据时不回退到加载骨架，只显示微信原生刷新指示器 */
+  /** 原生三点下拉刷新：重拉当前 Tab 的 NASA 数据（已有数据时不回退骨架） */
+  onScrollRefresh() {
+    this._runNasaPullRefresh('scrollRefreshing')
+  },
+
   onPullDownRefresh() {
+    this._runNasaPullRefresh()
+  },
+
+  _runNasaPullRefresh(key) {
     runPullRefresh(this, () => {
       const idx = this.data.activeTab
       if (idx === 1) return this.loadEONETData({ silent: this.data.eonetList.length > 0 })
       if (idx === 2) return this.loadCADData({ silent: this.data.cadList.length > 0 })
       return this.loadMarsPhotos({ silent: this.data.marsPhotos.length > 0 })
-    })
+    }, key)
   },
 
   // ========== Tab 2: 近地天体 ==========

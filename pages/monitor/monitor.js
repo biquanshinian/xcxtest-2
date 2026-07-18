@@ -231,6 +231,7 @@ Page({
     themeClass: '',
     themeLight: false,
     pageBgColor: '#000000',
+    scrollRefreshing: false,
     popupAdItem: null,
     popupAdVisible: false,
     statusBarHeight: 44,
@@ -682,9 +683,17 @@ Page({
   },
 
   /**
-   * 页面级原生下拉刷新（全局统一）— 只刷新已加载的模块
+   * 原生三点下拉刷新（页面级 / scroll-view refresher 共用）— 只刷新已加载的模块
    */
+  onScrollRefresh() {
+    this._runMonitorPullRefresh('scrollRefreshing')
+  },
+
   onPullDownRefresh() {
+    this._runMonitorPullRefresh()
+  },
+
+  _runMonitorPullRefresh(key) {
     runPullRefresh(this, () => {
       const tasks = [
         this.loadSpaceXTilesData(),
@@ -707,7 +716,7 @@ Page({
       tasks.push(this.loadAgencies({ silent: true }))
 
       return Promise.all(tasks).catch(() => {})
-    })
+    }, key)
   },
 
   refreshChannelsLivePanel() {

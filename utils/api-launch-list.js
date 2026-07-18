@@ -259,31 +259,34 @@ function getCompletedMissions(limit = 10, offset = 0) {
   })
 }
 
+/** 列表项是否为星舰体系任务（火箭名 / 任务名关键词） */
+function isStarshipListItem(mission) {
+  if (!mission || typeof mission !== 'object') return false
+  const hay = [mission.rocketName, mission.name, mission.missionName]
+    .filter(Boolean)
+    .join(' ')
+  return /starship|super\s*heavy|星舰|超重/i.test(hay)
+}
+
 /**
- * 即将发射的星舰任务（LL2 rocket__configuration__name=Starship，与进度页自动识别一致）
+ * 即将发射的星舰任务。
+ * 注意：不能直接带 rocket__configuration__name 打 request——api-request 候选缓存会回退到
+ * 未过滤的 upcoming 母缓存并切片，导致混入猎鹰等无关任务。改为读通用即将发射列表后再筛选。
  * @param {Number} limit 返回数量，默认 10
  * @param {Number} offset 偏移量，默认 0
  */
 function getUpcomingStarshipMissions(limit = 10, offset = 0) {
-  return request('/launches/upcoming/', {
-    limit: limit,
-    offset: offset,
-    ordering: 'net',
-    mode: 'detailed',
-    format: 'json',
-    hide_recent_previous: true,
-    rocket__configuration__name: 'Starship'
-  }).then(data => {
-    if (!data || !data.results || !Array.isArray(data.results)) {
-      return { list: [], hasMore: false, nextOffset: 0 }
+  const safeLimit = Math.max(1, Number(limit) || 10)
+  const safeOffset = Math.max(0, Number(offset) || 0)
+  // 多取一批再筛，避免星舰排在列表后部时漏掉
+  return getUpcomingMissions(Math.max(80, safeLimit * 8), 0).then((res) => {
+    const filtered = (res.list || []).filter(isStarshipListItem)
+    const list = filtered.slice(safeOffset, safeOffset + safeLimit)
+    return {
+      list,
+      hasMore: safeOffset + list.length < filtered.length,
+      nextOffset: safeOffset + list.length
     }
-    const list = data.results.map((launch, index) => mapLaunchToListItem(launch, index, offset, 'upcoming'))
-    const actualReturnedCount = list.length
-    const totalAvailable = typeof data.count === 'number' ? data.count : actualReturnedCount
-    const hasMore = (offset + actualReturnedCount) < totalAvailable || !!(data && data.next)
-    return { list, hasMore, nextOffset: offset + actualReturnedCount }
-  }).catch(error => {
-    throw error
   })
 }
 

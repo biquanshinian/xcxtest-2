@@ -1,6 +1,6 @@
 {
   "navigationBarTitleText": "航天任务详情",
-  "enablePullDownRefresh": true,
+  "enablePullDownRefresh": false,
   "backgroundTextStyle": "light",
   "navigationStyle": "custom",
   "backgroundColor": "#000000",

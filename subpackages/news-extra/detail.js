@@ -142,6 +142,7 @@ Page({
     navPlaceholderHeight: 0,
     tabBarReservedHeight: 0,
     menuButtonWidth: 88,
+    scrollRefreshing: false,
     descTranslated: false,
     descTranslating: false,
     descI18n: { title: '', summary: '', content: '', eventDesc: '' }
@@ -252,8 +253,16 @@ Page({
     this.loadDetail(detailType, id)
   },
 
-  /** 页面级原生下拉刷新（全局统一）：重拉当前文章/事件详情 */
+  /** 原生三点下拉刷新：重拉当前文章/事件详情 */
+  onScrollRefresh() {
+    this._runNewsDetailPullRefresh('scrollRefreshing')
+  },
+
   onPullDownRefresh() {
+    this._runNewsDetailPullRefresh()
+  },
+
+  _runNewsDetailPullRefresh(key) {
     const current = this.data.item
     const pages = getCurrentPages()
     const currentPage = pages[pages.length - 1]
@@ -263,7 +272,7 @@ Page({
     runPullRefresh(this, () => {
       if (!id) return Promise.resolve()
       return this.loadDetail(detailType, id, { silent: true })
-    })
+    }, key)
   },
 
   // goBack inherited from pageBase with _fallbackTab

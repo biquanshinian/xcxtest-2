@@ -119,6 +119,7 @@ Page({
   data: {
     themeClass: '',
     themeLight: false,
+    scrollRefreshing: false,
     themeMode: 'dark',
     pageBgColor: '#000000',
     popupAdItem: null,
@@ -337,15 +338,23 @@ Page({
     this.setData({ popupAdVisible: false, popupAdItem: null })
   },
 
-  /** 页面级原生下拉刷新（全局统一）：最多等 800ms 兜底复位 */
+  /** 原生三点下拉刷新（页面级 / scroll-view refresher 共用）：最多等 800ms 兜底复位 */
+  onScrollRefresh() {
+    this._runProfilePullRefresh('scrollRefreshing')
+  },
+
   onPullDownRefresh() {
+    this._runProfilePullRefresh()
+  },
+
+  _runProfilePullRefresh(key) {
     runPullRefresh(this, () => {
       this.refreshCheckinUI()
       this.loadMyReminders()
       this.loadOaAlertStatus(true)
       this.loadDailyQuiz()
       return new Promise((resolve) => setTimeout(resolve, 800))
-    })
+    }, key)
   },
 
   // ── 签到系统 ──

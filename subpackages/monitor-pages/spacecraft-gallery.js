@@ -18,6 +18,7 @@ Page({
     navTitle: '全球飞船图鉴',
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
+    scrollRefreshing: false,
     tabBarReservedHeight: 0,
     menuButtonWidth: 88,
 
@@ -131,7 +132,11 @@ Page({
     this.loadData()
   },
 
-  /** 页面级原生下拉刷新（全局统一）：重读云缓存飞船数据，绝不直接触发 LL2 */
+  /** 原生三点下拉刷新：重读云缓存飞船数据，绝不直接触发 LL2 */
+  onScrollRefresh() {
+    runPullRefresh(this, () => this.loadData({ silent: true }), 'scrollRefreshing')
+  },
+
   onPullDownRefresh() {
     runPullRefresh(this, () => this.loadData({ silent: true }))
   },

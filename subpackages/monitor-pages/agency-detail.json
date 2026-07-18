@@ -1,6 +1,6 @@
 {
   "navigationBarTitleText": "发射商详情",
-  "enablePullDownRefresh": true,
+  "enablePullDownRefresh": false,
   "backgroundTextStyle": "light",
   "backgroundColor": "#000000",
   "navigationStyle": "custom",

@@ -3497,8 +3497,9 @@
   position: relative;
 }
 .icon-share--countdown {
-  width: 54rpx;
-  height: 54rpx;
+  /* 原 54rpx，缩小三分之一 → 36rpx */
+  width: 36rpx;
+  height: 36rpx;
 }
 .cd-share-ghost {
   position: absolute;
@@ -4518,11 +4519,6 @@
 /* 铃铛：invert 压深 + hue-rotate 让 bell-off 的红色斜杠保持红色系 */
 .theme-light .icon-bell--countdown {
   filter: invert(0.82) hue-rotate(180deg);
-}
-/* 左滑绿色「已开启」状态里的铃铛同样压深，绿底上仍清晰 */
-.theme-light .icon-share--mission-card,
-.theme-light .icon-share--countdown {
-  filter: invert(0.72);
 }
 .theme-light .mission-swipe-pin-img-off {
   filter: invert(0.72);

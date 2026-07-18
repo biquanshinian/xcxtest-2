@@ -1,6 +1,6 @@
 {
   "navigationBarTitleText": "航天事件 - SpaceX星链·马斯克太空动态",
-  "enablePullDownRefresh": true,
+  "enablePullDownRefresh": false,
   "disableSwipeBack": true,
   "backgroundTextStyle": "light",
   "backgroundColor": "#000000",

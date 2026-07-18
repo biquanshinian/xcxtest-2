@@ -19,7 +19,8 @@ Page({
     navTitle: '发射任务',
     typeLabel: '即将发射',
     agencyName: '',
-    isCompleted: false
+    isCompleted: false,
+    scrollRefreshing: false
   },
 
   async onLoad(options) {
@@ -61,7 +62,11 @@ Page({
     this.setData({ loading: false, list: cards })
   },
 
-  /** 页面级原生下拉刷新（全局统一） */
+  /** 原生三点下拉刷新（页面级 / scroll-view refresher 共用） */
+  onScrollRefresh() {
+    runPullRefresh(this, () => this.loadList({ silent: true }), 'scrollRefreshing')
+  },
+
   onPullDownRefresh() {
     runPullRefresh(this, () => this.loadList({ silent: true }))
   },

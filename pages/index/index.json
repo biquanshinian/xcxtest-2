@@ -1,6 +1,6 @@
 {
   "navigationBarTitleText": "SpaceX火箭发射追踪 - 猎鹰9号·星舰·星链实时倒计时",
-  "enablePullDownRefresh": true,
+  "enablePullDownRefresh": false,
   "disableSwipeBack": true,
   "backgroundTextStyle": "light",
   "backgroundColor": "#000000",

@@ -1,0 +1,261 @@
+/* 首页任务卡片核心样式（供进度详情等复用，与 pages/index 视觉对齐） */
+.mission-card-inner-row {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+}
+
+.mission-card {
+  width: 100%;
+  max-width: 100%;
+  min-height: 345rpx;
+  display: flex;
+  flex-direction: row;
+  padding: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.mission-card-link {
+  text-decoration: none;
+  color: inherit;
+}
+
+.mission-card-link::after {
+  border: none;
+}
+
+.mission-card-link:active {
+  color: inherit;
+  opacity: 0.92;
+}
+
+.mission-rocket-slot {
+  position: relative;
+  width: 40%;
+  height: auto;
+  align-self: stretch;
+  min-width: 200rpx;
+  flex-shrink: 0;
+}
+
+.mission-rocket-image {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  object-fit: cover;
+  background-color: #1a1a1a;
+  display: block;
+}
+
+.mission-rocket-image--placeholder {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.mission-info-content {
+  flex: 1;
+  padding: 24rpx 28rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+  box-sizing: border-box;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mission-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12rpx;
+  margin-bottom: 4rpx;
+}
+
+.mission-card-header-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4rpx;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.mission-status-badge {
+  font-size: 22rpx;
+  font-weight: 500;
+  padding: 4rpx 12rpx;
+  border-radius: 8rpx;
+  flex-shrink: 0;
+}
+
+.mission-status-badge.status-success,
+.mission-status-badge.status-deployed {
+  color: #34C759;
+  background: rgba(52, 199, 89, 0.15);
+  border: 1px solid rgba(52, 199, 89, 0.35);
+}
+
+.mission-status-badge.status-failure {
+  color: #FF3B30;
+  background: rgba(255, 59, 48, 0.15);
+  border: 1px solid rgba(255, 59, 48, 0.35);
+}
+
+.mission-status-badge.status-partial,
+.mission-status-badge.status-delayed,
+.mission-status-badge.status-cancelled {
+  color: #FF9500;
+  background: rgba(255, 149, 0, 0.12);
+  border: 1px solid rgba(255, 149, 0, 0.3);
+}
+
+.mission-status-badge.status-pending {
+  color: #007AFF;
+  background: rgba(0, 122, 255, 0.15);
+  border: 1px solid rgba(0, 122, 255, 0.35);
+}
+
+.mission-status-badge.status-inflight {
+  color: #5AC8FA;
+  background: rgba(90, 200, 250, 0.15);
+  border: 1px solid rgba(90, 200, 250, 0.4);
+}
+
+.mission-country {
+  font-size: 22rpx;
+  color: #8E8E93;
+  flex-shrink: 0;
+}
+
+.mission-main-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #FFFFFF;
+  line-height: 1.35;
+  word-break: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.mission-meta {
+  font-size: 24rpx;
+  color: #8E8E93;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mission-time {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #E5E5EA;
+  line-height: 1.3;
+}
+
+/* 回收块：与首页 index.wxss 对齐（可回收标签 + 溅落/回收图标） */
+.mission-recovery-block {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10rpx;
+  margin-top: 4rpx;
+}
+
+.recovery-tag {
+  font-size: 22rpx;
+  padding: 2rpx 10rpx;
+  border-radius: 6rpx;
+  flex-shrink: 0;
+}
+
+.recovery-tag--reuse {
+  color: #34C759;
+  background: rgba(52, 199, 89, 0.12);
+  border: 1px solid rgba(52, 199, 89, 0.25);
+}
+
+.recovery-tag--expendable {
+  color: #636366;
+  background: rgba(99, 99, 102, 0.15);
+  border: 1px solid rgba(99, 99, 102, 0.25);
+}
+
+.recovery-tag--not-reused {
+  color: #FF9500;
+  background: rgba(255, 149, 0, 0.12);
+  border: 1px solid rgba(255, 149, 0, 0.28);
+}
+
+.mission-recovery-icons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 6px;
+  margin-right: auto;
+  flex-shrink: 0;
+}
+
+.mission-recovery-icon {
+  width: 28rpx;
+  height: 28rpx;
+  flex-shrink: 0;
+  transform: scale(1.15);
+}
+
+.mission-recovery-icon--net {
+  transform: scale(1.265);
+}
+
+.recovery-icon-name {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.recovery-type-name {
+  font-size: 20rpx;
+  line-height: 1.2;
+  color: #34C759;
+  background: rgba(52, 199, 89, 0.12);
+  border: 1px solid rgba(52, 199, 89, 0.25);
+  border-radius: 6rpx;
+  padding: 2rpx 10rpx;
+  white-space: nowrap;
+}
+
+.theme-light .mission-rocket-image {
+  background-color: rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .mission-rocket-image--placeholder {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.theme-light .mission-country,
+.theme-light .mission-meta {
+  color: var(--color-text-tertiary, rgba(0, 0, 0, 0.45));
+}
+
+.theme-light .mission-main-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .mission-time {
+  color: var(--color-text-primary);
+}
+
+/* 回收图标：浅色主题下反色白色中性态（与首页一致） */
+.theme-light .mission-recovery-icon--neutral {
+  filter: invert(0.72);
+}

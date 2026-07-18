@@ -1,3 +1,4 @@
+<wxs module="navPad" src="/utils/nav-scroll-pad.wxs"></wxs>
 <!--pages/index/index.wxml-->
 <page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
 <wxs module="mswipe" src="./mission-swipe.wxs" />
@@ -141,11 +142,29 @@
     </view>
   </view>
 
-  <!-- 主内容区域：全屏滚动（内容从磨砂导航栏下方穿过），下拉刷新走页面级原生样式；滑到底触发加载更多 -->
-  <scroll-view class="content-scroll main-content-scroll" scroll-y="true" enhanced="{{true}}" bounces="{{false}}" bindscrolltolower="onMissionsScrollToLower" bindscroll="onScroll" scroll-top="{{_scrollTop}}" lower-threshold="{{loadMoreLowerThreshold}}">
-    <view style="height: {{navPlaceholderHeight}}px;"></view>
-
-    <!-- 引导关注公众号（仅扫码等特定场景值展示，每页最多一个） -->
+  <!-- 全屏滚动（内容穿过磨砂导航）；顶占位由 wxs 跟手压缩，原生三点贴内容 -->
+  <scroll-view
+    class="content-scroll main-content-scroll nav-aware-scroll"
+    scroll-y="true"
+    enhanced="{{true}}"
+    bounces="{{true}}"
+    refresher-enabled="{{missionType === 'upcoming' || missionType === 'completed'}}"
+    refresher-default-style="{{themeLight ? 'black' : 'white'}}"
+    refresher-background="{{pageBgColor}}"
+    refresher-triggered="{{scrollRefreshing}}"
+    data-nav-h="{{navPlaceholderHeight}}"
+    bindrefresherpulling="{{navPad.onPulling}}"
+    bindrefresherrestore="{{navPad.onReset}}"
+    bindrefresherabort="{{navPad.onReset}}"
+    bindrefresherrefresh="onScrollRefresh"
+    bindscrolltolower="onMissionsScrollToLower"
+    bindscroll="onScroll"
+    scroll-top="{{_scrollTop}}"
+    lower-threshold="{{loadMoreLowerThreshold}}"
+  >
+    
+    <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
+<!-- 引导关注公众号（仅扫码等特定场景值展示，每页最多一个） -->
     <official-account-bar />
 
     <!-- 系统通知滚动横幅 -->
@@ -813,26 +832,18 @@
             <text>重试</text>
           </button>
         </view>
-        <!-- 上拉临界进度条 -->
-        <view class="preload-progress-wrap" wx:if="{{!missionGateLimit && (missionType === 'upcoming' ? missionsHasMore : completedMissionsHasMore) && !missionsLoadingMore && preloadProgress > 0 && !loadMoreTriggered}}">
-          <view class="preload-progress-track">
-            <view class="preload-progress-fill" style="width: {{preloadProgress * 100}}%;"></view>
-          </view>
-          <text class="preload-progress-text">{{preloadProgress >= 0.9 ? '松手即可加载' : '继续上拉，准备加载更多'}}</text>
+        <!-- 触底加载：微信原生三点 -->
+        <view
+          class="wx-native-dots"
+          wx:if="{{!missionGateLimit && (missionsLoadingMore || loadMoreTriggered) && (missionType === 'upcoming' ? missionsHasMore : completedMissionsHasMore)}}"
+        >
+          <view class="wx-native-dots__dot"></view>
+          <view class="wx-native-dots__dot"></view>
+          <view class="wx-native-dots__dot"></view>
         </view>
 
-        <!-- 上拉触发加载反馈 -->
-        <view class="load-trigger" wx:if="{{!missionGateLimit && (missionType === 'upcoming' ? missionsHasMore : completedMissionsHasMore) && !missionsLoadingMore && loadMoreTriggered}}">
-          <view class="trigger-dots">
-            <view class="trigger-dot dot-1"></view>
-            <view class="trigger-dot dot-2"></view>
-            <view class="trigger-dot dot-3"></view>
-          </view>
-          <text class="load-trigger-text">已触发加载，内容马上到达</text>
-        </view>
-
-        <!-- 加载更多 / 已加载全部（用 missionType 取对应的 hasMore） -->
-        <view class="missions-list-footer" wx:if="{{!missionsLoadingMore && !(missionType === 'upcoming' ? missionsHasMore : completedMissionsHasMore) && (missionType === 'upcoming' ? upcomingMissions.length : completedMissions.length) > 0}}">
+        <!-- 已加载全部（用 missionType 取对应的 hasMore） -->
+        <view class="missions-list-footer" wx:if="{{!missionsLoadingMore && !loadMoreTriggered && !(missionType === 'upcoming' ? missionsHasMore : completedMissionsHasMore) && (missionType === 'upcoming' ? upcomingMissions.length : completedMissions.length) > 0}}">
           <text class="footer-text">已加载全部</text>
         </view>
       </view>

@@ -1,6 +1,6 @@
 {
   "navigationBarTitleText": "空间站详情",
-  "enablePullDownRefresh": true,
+  "enablePullDownRefresh": false,
   "backgroundTextStyle": "light",
   "backgroundColor": "#000000",
   "navigationStyle": "custom",

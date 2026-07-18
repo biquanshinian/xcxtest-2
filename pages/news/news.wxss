@@ -740,11 +740,6 @@
   border-color: rgba(0, 0, 0, 0.15);
 }
 
-.theme-light .icon-share--article {
-  filter: invert(1);
-  opacity: 0.75;
-}
-
 .theme-light .article-share-btn:active {
   background: rgba(0, 0, 0, 0.06);
   border-color: rgba(0, 0, 0, 0.25);

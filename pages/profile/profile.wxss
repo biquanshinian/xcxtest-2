@@ -703,7 +703,6 @@
 .oa-alert-card {
   padding: 24rpx;
   margin-bottom: 20rpx;
-  border: 1rpx solid rgba(120, 100, 255, 0.18);
 }
 
 .oa-alert-row {
@@ -734,8 +733,8 @@
 }
 
 .oa-alert-switch {
-  transform: scale(0.82);
-  margin-top: 4rpx;
+  margin-top: 2rpx;
+  transform-origin: center right;
 }
 
 .oa-alert-status {
@@ -769,10 +768,10 @@
 
 .oa-alert-guide-copy {
   font-size: 22rpx;
-  color: #7864ff;
+  color: #07C160;
   padding: 8rpx 16rpx;
   border-radius: 999rpx;
-  background: rgba(120, 100, 255, 0.12);
+  background: rgba(7, 193, 96, 0.12);
 }
 
 /* ── 提醒时间线：单卡片承载，左轴节点按时间串联 ── */
@@ -815,10 +814,10 @@
   50% { box-shadow: 0 0 0 10rpx rgba(255, 184, 0, 0.08), 0 0 24rpx rgba(255, 184, 0, 0.65); }
 }
 
-/* 未来任务：品牌紫，空心环 */
+/* 未来任务：微信绿空心环 */
 .rm-node--upcoming {
   background: transparent;
-  border: 3rpx solid #a78bfa;
+  border: 3rpx solid #07C160;
   box-sizing: border-box;
 }
 
@@ -826,7 +825,7 @@
   flex: 1;
   width: 2rpx;
   margin: 8rpx 0;
-  background: linear-gradient(180deg, rgba(167, 139, 250, 0.35), rgba(255, 255, 255, 0.06));
+  background: linear-gradient(180deg, rgba(7, 193, 96, 0.35), rgba(255, 255, 255, 0.06));
 }
 
 /* 右侧内容体 */
@@ -877,8 +876,8 @@
 }
 
 .rm-badge--upcoming {
-  background: rgba(120, 100, 255, 0.12);
-  color: #a78bfa;
+  background: rgba(7, 193, 96, 0.12);
+  color: #07C160;
 }
 
 .rm-cancel {
@@ -989,8 +988,8 @@
 
 .reminder-empty-hint {
   font-size: 24rpx;
-  color: #a78bfa;
-  opacity: 0.7;
+  color: #07C160;
+  opacity: 0.9;
 }
 
 /* ═══ 每日问答 ═══ */
@@ -2094,7 +2093,7 @@
 
 /* —— 提醒时间线 —— */
 .theme-light .rm-line {
-  background: linear-gradient(180deg, rgba(167, 139, 250, 0.35), rgba(0, 0, 0, 0.06));
+  background: linear-gradient(180deg, rgba(7, 193, 96, 0.35), rgba(0, 0, 0, 0.06));
 }
 
 .theme-light .rm-time {
@@ -2128,6 +2127,10 @@
 
 .theme-light .reminder-empty-text {
   color: var(--color-text-tertiary);
+}
+
+.theme-light .reminder-empty-hint {
+  color: #07C160;
 }
 
 /* —— 竞猜统计 / 竞猜记录 —— */

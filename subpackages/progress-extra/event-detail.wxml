@@ -1,3 +1,4 @@
+<wxs module="navPad" src="/utils/nav-scroll-pad.wxs"></wxs>
 <view class="detail-page {{themeClass}}">
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
     <view class="top-nav top-nav--page-grid">
@@ -12,11 +13,29 @@
     <page-progress active="{{loading}}" />
   </view>
 
-  <!-- 滚动区整体下移到固定导航栏下方：refresher 插槽自然出现在导航栏和卡片之间，
-       下拉/回弹由 enhanced scroll-view 原生弹簧处理，刷新后回弹到导航栏正下方 -->
-  <scroll-view class="detail-scroll" scroll-y="true" scroll-top="{{detailScrollTop}}" enhanced="{{true}}" bounces="{{false}}" show-scrollbar="{{false}}" lower-threshold="{{120}}" bindscrolltolower="onDetailScrollToLower">
-    <view style="height: {{navPlaceholderHeight}}px;"></view>
-    <view class="detail-container">
+  <!-- 全屏滚动（内容可穿过磨砂导航）；顶占位由 wxs 跟手压缩，原生三点贴内容 -->
+  <scroll-view
+    class="detail-scroll nav-aware-scroll"
+    scroll-y="true"
+    scroll-top="{{detailScrollTop}}"
+    enhanced="{{true}}"
+    bounces="{{true}}"
+    show-scrollbar="{{false}}"
+    refresher-enabled="{{true}}"
+    refresher-default-style="{{themeLight ? 'black' : 'white'}}"
+    refresher-background="{{pageBgColor}}"
+    refresher-triggered="{{scrollRefreshing}}"
+    data-nav-h="{{navPlaceholderHeight}}"
+    bindrefresherpulling="{{navPad.onPulling}}"
+    bindrefresherrestore="{{navPad.onReset}}"
+    bindrefresherabort="{{navPad.onReset}}"
+    bindrefresherrefresh="onScrollRefresh"
+    lower-threshold="{{120}}"
+    bindscrolltolower="onDetailScrollToLower"
+  >
+    
+    <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
+<view class="detail-container">
       <!-- 加载中：内容区留白，进度由导航栏下方的 page-progress 绿色进度条呈现 -->
       <block wx:if="{{loading}}"></block>
 
@@ -27,35 +46,20 @@
       </view>
 
       <block wx:elif="{{pageMode === 'nsf_checklist' && !errorMessage}}">
-        <!-- 即将发射的星舰任务（与首页即将发射列表同款信息，点击进任务详情） -->
+        <!-- 即将发射的星舰任务：筛选首页同款任务卡（含溅落/回收图标） -->
         <view class="nsf-starship-missions" wx:if="{{nsfStarshipMissions.length > 0}}">
           <view class="nsf-starship-missions-head">
             <text class="nsf-starship-missions-title">即将发射 · 星舰</text>
           </view>
-          <view
-            class="nsf-mission-card glass-card card-hover"
+          <mission-list-card
+            class="nsf-starship-mission-card"
             wx:for="{{nsfStarshipMissions}}"
             wx:key="_wxkey"
-            bindtap="onNsfStarshipMissionTap"
-            data-id="{{item.id}}"
-            data-type="{{item._detailType || 'upcoming'}}"
-          >
-            <view class="nsf-mission-rocket-slot">
-              <image class="nsf-mission-rocket-image" wx:if="{{item.rocketImage}}" src="{{item.rocketImage}}" mode="aspectFill"></image>
-              <view wx:else class="nsf-mission-rocket-image nsf-mission-rocket-image--placeholder"></view>
-            </view>
-            <view class="nsf-mission-info">
-              <view class="nsf-mission-info-top">
-                <text class="nsf-mission-status nsf-mission-status--{{item.statusCategory || 'pending'}}">{{item.statusBadgeText || item.status || '计划中'}}</text>
-                <text class="nsf-mission-country" wx:if="{{item.countryDisplay}}">{{item.countryDisplay}}</text>
-              </view>
-              <text class="nsf-mission-name">{{item.missionName || item.name || '未知任务'}}</text>
-              <text class="nsf-mission-meta" wx:if="{{item.rocketName}}">{{item.rocketName}}</text>
-              <text class="nsf-mission-meta">{{item.formattedTime}}</text>
-              <text class="nsf-mission-meta" wx:if="{{item.padLocation}}">{{item.padLocation}}</text>
-            </view>
-            <text class="nsf-mission-chevron">›</text>
-          </view>
+            item="{{item}}"
+            index="{{index}}"
+            themeLight="{{themeLight}}"
+            bind:cardtap="onNsfStarshipMissionCardTap"
+          />
         </view>
 
         <view class="detail-card glass-card nsf-checklist-detail-card">
@@ -409,7 +413,11 @@
         </block>
         <view class="list-load-footer" wx:if="{{listAllMode && items.length > 0}}">
           <text class="list-load-footer-text" wx:if="{{listNoMore}}">- 没有更多了 -</text>
-          <text class="list-load-footer-text" wx:elif="{{listLoadingMore}}">加载中...</text>
+          <view class="wx-native-dots" wx:elif="{{listLoadingMore}}">
+            <view class="wx-native-dots__dot"></view>
+            <view class="wx-native-dots__dot"></view>
+            <view class="wx-native-dots__dot"></view>
+          </view>
         </view>
       </block>
 

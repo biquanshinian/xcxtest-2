@@ -1,6 +1,6 @@
 {
   "navigationBarTitleText": "全球飞船图鉴",
-  "enablePullDownRefresh": true,
+  "enablePullDownRefresh": false,
   "backgroundTextStyle": "light",
   "backgroundColor": "#000000",
   "navigationStyle": "custom",

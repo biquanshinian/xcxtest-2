@@ -3081,11 +3081,6 @@ page {
   color: var(--color-text-tertiary);
 }
 
-/* --- 分享箭头（白色 SVG，浅色下反色为深灰，与首页一致） --- */
-.theme-light .icon-share--monitor {
-  filter: invert(0.72);
-}
-
 /* --- 直播观看旁天气/风向图标（纯白 SVG，浅色下反色为深灰） --- */
 .theme-light .starbase-wx-icon,
 .theme-light .starbase-wind-icon {

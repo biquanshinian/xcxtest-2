@@ -1,0 +1,47 @@
+<!-- 与 pages/index missionCardInner 同结构，含 recoveryIcons 溅落/回收图标 -->
+<view
+  class="mission-list-card-root mission-card glass-card card-hover mission-card-link mission-card--{{item.statusCategory || 'pending'}} {{themeLight ? 'theme-light' : ''}}"
+  bindtap="onTap"
+>
+  <view class="mission-card-inner-row">
+    <view class="mission-rocket-slot">
+      <image
+        class="mission-rocket-image"
+        wx:if="{{item.rocketImage}}"
+        src="{{item.rocketImage}}"
+        mode="aspectFill"
+        lazy-load="{{index > 1}}"
+      ></image>
+      <view wx:else class="mission-rocket-image mission-rocket-image--placeholder"></view>
+    </view>
+    <view class="mission-info-content">
+      <view class="mission-card-header">
+        <text class="mission-status-badge status-{{item.statusCategory || 'pending'}}">{{item.statusBadgeText || item.status || '计划中'}}</text>
+        <view class="mission-card-header-right">
+          <view class="recovery-icon-name" wx:if="{{item.boosterInfo && item.boosterInfo.flights >= 1}}">
+            <text class="recovery-type-name">第{{item.boosterInfo.flights}}次飞行</text>
+          </view>
+          <text class="mission-country">{{item.countryDisplay || '未知'}}</text>
+        </view>
+      </view>
+      <text class="mission-main-title">{{item.missionName || item.name || '未知任务'}}</text>
+      <text class="mission-meta mission-rocket" wx:if="{{item.rocketName}}">{{item.rocketName}}</text>
+      <text class="mission-time">{{item.formattedTime}}</text>
+      <text class="mission-meta mission-pad" wx:if="{{item.padLocation}}">{{item.padLocation}}</text>
+      <view class="mission-recovery-block">
+        <text class="recovery-tag {{item.recoveryTagClass}}">{{item.recoveryTagText}}</text>
+        <view class="mission-recovery-icons" wx:if="{{item.recoveryIcons && item.recoveryIcons.length}}">
+          <image
+            wx:for="{{item.recoveryIcons}}"
+            wx:for-item="rIcon"
+            wx:for-index="rIdx"
+            wx:key="rIdx"
+            class="mission-recovery-icon mission-recovery-icon--{{rIcon.status}} {{rIcon.type === 'NET_CATCH' ? 'mission-recovery-icon--net' : ''}} {{rIcon.variant === 'landspace' ? 'mission-recovery-icon--landspace' : ''}} {{rIcon.variant === 'bolz' ? 'mission-recovery-icon--bolz' : ''}}"
+            src="{{rIcon.icon}}"
+            mode="aspectFit"
+          ></image>
+        </view>
+      </view>
+    </view>
+  </view>
+</view>

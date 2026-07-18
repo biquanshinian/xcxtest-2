@@ -11,6 +11,12 @@ page {
   overflow: hidden;
 }
 
+/* 全局原生 switch：视觉缩小约 1/3（仍保留可点区域） */
+switch {
+  transform: scale(0.67);
+  transform-origin: center center;
+}
+
 /* 玻璃拟物效果通用类
  * 性能：不做 backdrop-filter —— 卡片均处于纯色页面背景之上（深色 #000 / 浅色 #F2F2F7），
  * 对纯色背景做毛玻璃视觉上无差别，但每张卡都会产生一层 GPU 实时合成（长列表滚动时发热主因之一）。
@@ -85,13 +91,21 @@ page {
 
 /*
   布局防回归约束（重要）：
-  1) 主内容滚动容器必须由页面内占位块控制（navPlaceholderHeight/tabBarReservedHeight）
-  2) 禁止在全局给 .main-content-scroll 叠加固定安全区/导航栏/TabBar padding
-  3) 仅保留 0 值重置，防止旧方案残留把滚动容器挤成“非全屏”
+  1) 自定义导航磨砂：scroll-view 全屏 100vh，内容滚入 fixed 导航下方
+  2) 顶占位 <nav-scroll-pad>；下拉由 /utils/nav-scroll-pad.wxs 视图层压高度
+     （原生三点；勿用自定义 refresher slot / 勿在下拉过程整页 setData）
+  3) 有 scroll-view refresher 的页面关闭 enablePullDownRefresh，只保留一条刷新通道
+  4) TabBar 底栏仍用页面内 tabBarReservedHeight 占位
 */
 .main-content-scroll {
   padding-top: 0 !important;
   padding-bottom: 0 !important;
+}
+
+.nav-aware-scroll {
+  width: 100%;
+  height: 100vh;
+  box-sizing: border-box;
 }
 
 /* 顶部导航基础定义（各页面共享） */
@@ -150,6 +164,11 @@ button.mission-card-share-btn::before {
   display: block;
   opacity: 0.95;
   flex-shrink: 0;
+}
+
+/* share-arrow.svg 为白底稿：浅色主题统一反色为深灰 */
+.theme-light .icon-share {
+  filter: invert(0.72);
 }
 
 .icon-search {
@@ -562,71 +581,42 @@ button.mission-card-share-btn::before {
   }
 }
 
-/* 上拉临界进度条 */
-.preload-progress-wrap {
-  padding: 8rpx 0 8rpx;
+/* 微信原生下拉刷新同款三点（上拉加载更多 / 列表底部加载中） */
+.wx-native-dots {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 10rpx;
-  animation: triggerFadeIn 0.18s ease;
-}
-
-.preload-progress-track {
-  width: 360rpx;
-  height: 8rpx;
-  border-radius: 999rpx;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.14);
-}
-
-.preload-progress-fill {
-  height: 100%;
-  border-radius: 999rpx;
-  background: linear-gradient(90deg, #2f8fff 0%, #7ec3ff 100%);
-  transition: width 0.12s linear;
-}
-
-.preload-progress-text {
-  font-size: 22rpx;
-  color: #7da6d9;
-}
-
-/* 上拉触发反馈 */
-.load-trigger {
-  padding: 20rpx 0 10rpx;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  justify-content: center;
   gap: 12rpx;
-  animation: triggerFadeIn 0.22s ease;
+  padding: 28rpx 0 20rpx;
 }
 
-.trigger-dots {
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
-}
-
-.trigger-dot {
+.wx-native-dots__dot {
   width: 12rpx;
   height: 12rpx;
   border-radius: 50%;
-  background: rgba(0, 122, 255, 0.9);
-  animation: dotBounce 0.8s ease-in-out infinite;
+  background: rgba(255, 255, 255, 0.55);
+  animation: wx-native-dot-pulse 0.7s ease-in-out infinite both;
 }
 
-.dot-2 {
-  animation-delay: 0.12s;
+.wx-native-dots__dot:nth-child(2) {
+  animation-delay: 0.15s;
 }
 
-.dot-3 {
-  animation-delay: 0.24s;
+.wx-native-dots__dot:nth-child(3) {
+  animation-delay: 0.3s;
 }
 
-.load-trigger-text {
-  font-size: 22rpx;
-  color: #84b7ff;
+@keyframes wx-native-dot-pulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.22;
+    transform: scale(0.82);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 /* 行内加载指示器 */
@@ -793,15 +783,6 @@ button.mission-card-share-btn::before {
   color: #1C1C1E;
 }
 
-/* 上拉进度条轨道 */
-.theme-light .preload-progress-track {
-  background: rgba(0, 0, 0, 0.08);
-}
-
-.theme-light .preload-progress-text {
-  color: #5a7ea8;
-}
-
-.theme-light .load-trigger-text {
-  color: #3a7fd6;
+.theme-light .wx-native-dots__dot {
+  background: rgba(0, 0, 0, 0.35);
 }

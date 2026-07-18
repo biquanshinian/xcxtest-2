@@ -2344,8 +2344,3 @@ button.notice-card {
   color: var(--color-text-secondary);
 }
 
-/* 分享箭头（白色 SVG，浅色下反色为深灰，与首页一致） */
-.theme-light .icon-share--event-update {
-  filter: invert(0.72);
-}
-

@@ -1,6 +1,6 @@
 {
   "navigationBarTitleText": "发射任务列表",
-  "enablePullDownRefresh": true,
+  "enablePullDownRefresh": false,
   "backgroundTextStyle": "light",
   "backgroundColor": "#000000",
   "navigationStyle": "custom",

@@ -1,6 +1,6 @@
 {
   "navigationBarTitleText": "NASA 数据中心",
-  "enablePullDownRefresh": true,
+  "enablePullDownRefresh": false,
   "backgroundTextStyle": "light",
   "backgroundColor": "#000000",
   "navigationStyle": "custom",

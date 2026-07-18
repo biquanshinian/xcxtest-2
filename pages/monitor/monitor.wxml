@@ -1,3 +1,4 @@
+<wxs module="navPad" src="/utils/nav-scroll-pad.wxs"></wxs>
 <!--pages/monitor/monitor.wxml-->
 <page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
 <view class="container {{themeClass}}">
@@ -8,10 +9,24 @@
     </view>
   </view>
 
-  <scroll-view class="content-scroll main-content-scroll" scroll-y="true">
-    <view style="height: {{navPlaceholderHeight}}px;"></view>
-
-    <!-- 星舰基地监控中心：MARS 预览（云中转）+ 关于 / 收藏（原生，防套壳） -->
+  <scroll-view
+    class="content-scroll main-content-scroll nav-aware-scroll"
+    scroll-y="true"
+    enhanced="{{true}}"
+    bounces="{{true}}"
+    refresher-enabled="{{true}}"
+    refresher-default-style="{{themeLight ? 'black' : 'white'}}"
+    refresher-background="{{pageBgColor}}"
+    refresher-triggered="{{scrollRefreshing}}"
+    data-nav-h="{{navPlaceholderHeight}}"
+    bindrefresherpulling="{{navPad.onPulling}}"
+    bindrefresherrestore="{{navPad.onReset}}"
+    bindrefresherabort="{{navPad.onReset}}"
+    bindrefresherrefresh="onScrollRefresh"
+  >
+    
+    <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
+<!-- 星舰基地监控中心：MARS 预览（云中转）+ 关于 / 收藏（原生，防套壳） -->
     <view class="MARS-preview-section monitor-block">
       <view class="section-title">
         <text>星舰基地监控</text>
@@ -377,7 +392,7 @@
         <!-- 卡片网格（预览 2 张） -->
         <view class="agency-grid" wx:if="{{agencyVisible.length > 0}}">
           <view
-            class="agency-hw-card glass-card card-hover {{isProUser ? 'pro-gold-frame' : ''}}"
+            class="agency-hw-card glass-card card-hover"
             wx:for="{{agencyVisible}}"
             wx:key="id"
             data-id="{{item.id}}"

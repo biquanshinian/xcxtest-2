@@ -1,6 +1,6 @@
 {
   "navigationBarTitleText": "全球可回收火箭族谱",
-  "enablePullDownRefresh": true,
+  "enablePullDownRefresh": false,
   "backgroundTextStyle": "light",
   "backgroundColor": "#000000",
   "navigationStyle": "custom",

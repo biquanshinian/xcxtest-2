@@ -11,7 +11,8 @@
     "downloadFile": 60000
   },
   "usingComponents": {
-    "page-progress": "/components/page-progress/index"
+    "page-progress": "/components/page-progress/index",
+    "nav-scroll-pad": "/components/nav-scroll-pad/index"
   },
   "darkmode": true,
   "window": {

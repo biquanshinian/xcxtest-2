@@ -280,6 +280,7 @@ Page({
     navPlaceholderHeight: 0,
     tabBarReservedHeight: 0,
     menuButtonWidth: 88,
+    scrollRefreshing: false,
     /** 朋友圈单页模式 scene 1154：无自定义 TabBar，需单独占位 */
     isMomentsPreview: false,
     missionCountdown: {
@@ -2362,8 +2363,16 @@ Page({
     this.loadMissionDetail(id, detailType)
   },
 
-  /** 页面级原生下拉刷新（全局统一）：重读云缓存任务详情，绝不直接触发 LL2 */
+  /** 原生三点下拉刷新：重读云缓存任务详情，绝不直接触发 LL2 */
+  onScrollRefresh() {
+    this._runMissionDetailPullRefresh('scrollRefreshing')
+  },
+
   onPullDownRefresh() {
+    this._runMissionDetailPullRefresh()
+  },
+
+  _runMissionDetailPullRefresh(key) {
     const pages = getCurrentPages()
     const currentPage = pages[pages.length - 1]
     const route = this._entryRoute || resolveMissionDetailRoute((currentPage && currentPage.options) || {})
@@ -2371,7 +2380,7 @@ Page({
     runPullRefresh(this, () => {
       if (!id) return Promise.resolve()
       return this.loadMissionDetail(id, detailType, { silent: true })
-    })
+    }, key)
   },
 
   // hero 图加载失败时同样等 cloud media map 到位再 fuzzy，

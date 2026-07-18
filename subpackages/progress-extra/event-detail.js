@@ -25,19 +25,34 @@ const { translateAgencyName } = require('../../utils/space-terms-i18n.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { parseShareStamp, SHARE_GATE_TTL_MS } = require('./utils/share-gate.js')
 
+function isNsfStarshipMissionCard(mission) {
+  if (!mission || typeof mission !== 'object') return false
+  const hay = [mission.rocketName, mission.name, mission.missionName]
+    .filter(Boolean)
+    .join(' ')
+  return /starship|super\s*heavy|星舰|超重/i.test(hay)
+}
+
 function normalizeNsfStarshipMissionCards(list) {
-  return filterExpiredMissions(Array.isArray(list) ? list : []).map((mission, index) =>
-    attachMissionDetailMeta({
-      ...mission,
-      _wxkey: `nsf-ss-${index}-${mission && mission.id != null ? mission.id : ''}`,
-      formattedTime: mission && mission.launchTime
-        ? formatDate(mission.launchTime, 'MM月DD日 HH:mm')
-        : '时间未知'
-    }, {
-      id: mission && mission.id,
-      detailType: 'upcoming'
+  return filterExpiredMissions(Array.isArray(list) ? list : [])
+    .filter(isNsfStarshipMissionCard)
+    .map((mission, index) => {
+      // 保留首页 mapLaunchToListItem 的 recoveryIcons / recoveryTag* 等字段原样透传
+      const card = attachMissionDetailMeta({
+        ...mission,
+        _wxkey: `nsf-ss-${index}-${mission && mission.id != null ? mission.id : ''}`,
+        formattedTime: mission && mission.launchTime
+          ? formatDate(mission.launchTime, 'MM月DD日 HH:mm')
+          : '时间未知',
+        recoveryIcons: Array.isArray(mission.recoveryIcons) ? mission.recoveryIcons : [],
+        recoveryTagText: mission.recoveryTagText || '',
+        recoveryTagClass: mission.recoveryTagClass || ''
+      }, {
+        id: mission && mission.id,
+        detailType: 'upcoming'
+      })
+      return card
     })
-  )
 }
 
 const NSF_CHECKLIST_GATE_PRODUCT_ID = 'starship_flight_checklist'
@@ -119,6 +134,7 @@ Page({
     listAllMode: false,
     listNoMore: false,
     listLoadingMore: false,
+    scrollRefreshing: false,
     items: [],
     listDayHint: '',
     showEventShareSheet: false,
@@ -670,11 +686,11 @@ Page({
     }
   },
 
-  onNsfStarshipMissionTap(e) {
-    const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
-    const id = ds.id == null ? '' : String(ds.id).trim()
+  onNsfStarshipMissionCardTap(e) {
+    const detail = (e && e.detail) || {}
+    const id = detail.id == null ? '' : String(detail.id).trim()
     if (!id) return
-    const detailType = ds.type === 'completed' ? 'completed' : 'upcoming'
+    const detailType = detail.type === 'completed' ? 'completed' : 'upcoming'
     wx.navigateTo({
       url: buildMissionDetailUrl({ id, detailType })
     })
@@ -1216,11 +1232,23 @@ Page({
     }
   },
 
+  onScrollRefresh() {
+    this._runEventDetailPullRefresh('scrollRefreshing')
+  },
+
   async onPullDownRefresh() {
+    await this._runEventDetailPullRefresh()
+  },
+
+  async _runEventDetailPullRefresh(key) {
     // LL2 实时数据模式直接拦截：用户刷新绝不触发 LL2 请求，
     // 拉取节奏由云函数缓存/定时任务自动分配
     if (this.data.loading || this._ll2TimelineMode || this._ll2LaunchUpdatesMode || this._ll2EventMode) {
-      try { wx.stopPullDownRefresh() } catch (e) {}
+      if (key) {
+        this.setData({ [key]: false })
+      } else {
+        try { wx.stopPullDownRefresh() } catch (e) {}
+      }
       return
     }
     const pages = getCurrentPages()
@@ -1238,7 +1266,7 @@ Page({
       } else if (source) {
         await this.loadListBySource(source, this._listDate || todayBeijingYmd(), this._listLabel || '', { silent: true })
       }
-    })
+    }, key)
     this._scrollDetailToTop()
   },
 

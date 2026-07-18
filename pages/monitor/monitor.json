@@ -1,6 +1,6 @@
 {
   "navigationBarTitleText": "星舰基地监控 - SpaceX Starbase太空实时监控",
-  "enablePullDownRefresh": true,
+  "enablePullDownRefresh": false,
   "backgroundTextStyle": "light",
   "backgroundColor": "#000000",
   "backgroundColorContent": "#000000",

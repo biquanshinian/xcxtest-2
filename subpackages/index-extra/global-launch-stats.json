@@ -1,6 +1,6 @@
 {
   "navigationBarTitleText": "全球发射统计",
-  "enablePullDownRefresh": true,
+  "enablePullDownRefresh": false,
   "backgroundTextStyle": "light",
   "backgroundColor": "#000000",
   "navigationStyle": "custom",

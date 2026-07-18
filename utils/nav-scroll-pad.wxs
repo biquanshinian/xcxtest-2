@@ -1,0 +1,54 @@
+/**
+ * 全屏 scroll-view + 自定义导航：下拉时压缩顶占位，三点贴近内容；松手复位。
+ * 视图层 setStyle，不走 setData。
+ *
+ * 几何：内容顶 ≈ dy + padH；原生三点约在下拉区中部（dy/2）；
+ * 目标间距 DOT_GAP（默认 30px）。
+ */
+var DOT_GAP = 30
+
+function applyPad(ownerInstance, h) {
+  var pad = ownerInstance.selectComponent('#navScrollPad') ||
+    ownerInstance.selectComponent('.nav-scroll-pad')
+  if (!pad) return
+  if (h >= 0) {
+    pad.setStyle({
+      height: h + 'px',
+      'margin-top': '0px'
+    })
+  } else {
+    pad.setStyle({
+      height: '0px',
+      'margin-top': h + 'px'
+    })
+  }
+}
+
+function onPulling(e, ownerInstance) {
+  var dy = +e.detail.dy || 0
+  if (dy < 0) dy = 0
+  var navH = +e.currentTarget.dataset.navH || 0
+
+  var h = navH - dy
+  if (h < 0) h = 0
+
+  if (dy > 0) {
+    var contentTop = dy + h
+    var targetTop = dy * 0.5 + DOT_GAP
+    if (contentTop > targetTop) {
+      h = h - (contentTop - targetTop)
+    }
+  }
+
+  applyPad(ownerInstance, h)
+}
+
+function onReset(e, ownerInstance) {
+  var navH = +e.currentTarget.dataset.navH || 0
+  applyPad(ownerInstance, navH)
+}
+
+module.exports = {
+  onPulling: onPulling,
+  onReset: onReset
+}

@@ -34,6 +34,7 @@ Page({
     loadingBreakdown: true,
     breakdownReady: false,
     errorMessage: '',
+    scrollRefreshing: false,
     navTitle: '全球发射统计',
     selectedYear: CURRENT_YEAR,
     selectedCountryKey: ALL_COUNTRY_KEY,
@@ -265,7 +266,11 @@ Page({
     this.setData({ listExpanded: !this.data.listExpanded })
   },
 
-  /** 页面级原生下拉刷新（全局统一）：跳过本地缓存重读云端只读统计，绝不触发 LL2 */
+  /** 原生三点下拉刷新：跳过本地缓存重读云端只读统计，绝不触发 LL2 */
+  onScrollRefresh() {
+    runPullRefresh(this, () => this.loadStats({ skipLocalCache: true }), 'scrollRefreshing')
+  },
+
   onPullDownRefresh() {
     runPullRefresh(this, () => this.loadStats({ skipLocalCache: true }))
   },

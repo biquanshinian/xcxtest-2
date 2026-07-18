@@ -1,4 +1,5 @@
 <page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<wxs module="navPad" src="/utils/nav-scroll-pad.wxs"></wxs>
 <view class="container {{themeClass}}">
   <!-- 顶部导航栏 -->
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
@@ -7,10 +8,24 @@
     </view>
   </view>
 
-  <scroll-view class="content-scroll main-content-scroll" scroll-y="{{true}}">
-    <view style="height: {{navPlaceholderHeight}}px;"></view>
-
-    <!-- 星舰组合体进展（数据库） -->
+  <scroll-view
+    class="content-scroll main-content-scroll nav-aware-scroll"
+    scroll-y="{{true}}"
+    enhanced="{{true}}"
+    bounces="{{true}}"
+    refresher-enabled="{{true}}"
+    refresher-default-style="{{themeLight ? 'black' : 'white'}}"
+    refresher-background="{{pageBgColor}}"
+    refresher-triggered="{{scrollRefreshing}}"
+    data-nav-h="{{navPlaceholderHeight}}"
+    bindrefresherpulling="{{navPad.onPulling}}"
+    bindrefresherrestore="{{navPad.onReset}}"
+    bindrefresherabort="{{navPad.onReset}}"
+    bindrefresherrefresh="onScrollRefresh"
+  >
+    
+    <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
+<!-- 星舰组合体进展（数据库） -->
     <view class="starship-section">
       <view class="section-title">
         <text>星舰组合体进展</text>
@@ -257,7 +272,7 @@
             bounces="{{true}}"
             refresher-enabled="{{true}}"
             refresher-triggered="{{eventScrollRefreshing}}"
-            refresher-default-style="{{themeLight ? 'black' : 'white'}}"
+            refresher-default-style="none"
             refresher-background="transparent"
             bindrefresherrefresh="onEventScrollRefresh"
             bindscrolltolower="onEventScrollToLower"
@@ -357,7 +372,11 @@
 
           <view class="event-updates-footer">
             <text class="event-updates-footer-text" wx:if="{{eventUpdatesNoMore}}">- 没有更多了 -</text>
-            <text class="event-updates-footer-text" wx:elif="{{eventUpdatesLoading}}">加载中...</text>
+            <view class="wx-native-dots" wx:elif="{{eventUpdatesLoading}}">
+              <view class="wx-native-dots__dot"></view>
+              <view class="wx-native-dots__dot"></view>
+              <view class="wx-native-dots__dot"></view>
+            </view>
           </view>
         </scroll-view>
           <view class="event-updates-collapse-btn" bindtap="toggleEventUpdatesExpanded">
@@ -419,7 +438,7 @@
     </view>
 
     <view class="flight-checklist-section nsf-checklist-section">
-      <view class="nsf-checklist-card glass-card {{isProUser ? 'pro-gold-frame' : ''}}">
+      <view class="nsf-checklist-card glass-card">
         <view class="nsf-checklist-card-header">
           <view class="nsf-checklist-summary-row">
             <text class="nsf-checklist-summary-title">星舰飞行检查清单</text>

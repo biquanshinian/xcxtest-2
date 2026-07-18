@@ -28,6 +28,7 @@ Page({
     shareTitle: '空间站详情 | 火星探索日志',
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
+    scrollRefreshing: false,
     tabBarReservedHeight: 0,
     menuButtonWidth: 88,
     // ===== 轨道追踪 =====
@@ -489,13 +490,21 @@ Page({
     this.loadDetail(id)
   },
 
-  /** 页面级原生下拉刷新（全局统一）：重读云缓存空间站详情 + 刷新实时轨道 */
+  /** 原生三点下拉刷新：重读云缓存空间站详情 + 刷新实时轨道 */
+  onScrollRefresh() {
+    this._runStationDetailPullRefresh('scrollRefreshing')
+  },
+
   onPullDownRefresh() {
+    this._runStationDetailPullRefresh()
+  },
+
+  _runStationDetailPullRefresh(key) {
     const id = this._stationId
     runPullRefresh(this, () => {
       if (!id) return Promise.resolve()
       return this.loadDetail(id, { silent: true })
-    })
+    }, key)
   },
 
   // goBack inherited from pageBase

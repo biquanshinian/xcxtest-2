@@ -62,7 +62,7 @@
         <!-- 卡片网格 -->
         <view class="agency-grid" wx:if="{{list.length > 0}}">
           <view
-            class="agency-hw-card glass-card card-hover {{isProUser ? 'pro-gold-frame' : ''}}"
+            class="agency-hw-card glass-card card-hover"
             wx:for="{{list}}"
             wx:key="id"
             data-id="{{item.id}}"

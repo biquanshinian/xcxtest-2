@@ -52,7 +52,7 @@ module.exports = {
   // MARS 预览页完整 URL（部署后必填，不要带 ?sign=、t= 等临时链接参数）
   MARSCloudPreviewUrl: 'https://cloud1-9gdqgdt5bfaa20fb-1397421562.tcloudbaseapp.com/MARS-preview.html',
   // 用户网页预览 URL（包含星舰监控中心区域）
-  userWebPreviewUrl: 'https://cloud1-9gdqgdt5bfaa20fb-1397421562.tcloudbaseapp.com/#/share/figma',
+  userWebPreviewUrl: 'https://marsx.com.cn/tools/figma-design',
   // 星舰监控中心云中转页面 URL（部署后必填，用于解决第三方嵌入内容问题）
   // 部署步骤：
   // 1. 将 cloud/monitor-preview.html 上传到微信云开发静态网站

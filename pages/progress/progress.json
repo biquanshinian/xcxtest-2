@@ -1,6 +1,6 @@
 {
   "navigationBarTitleText": "星舰进度",
-  "enablePullDownRefresh": true,
+  "enablePullDownRefresh": false,
   "backgroundTextStyle": "light",
   "backgroundColor": "#000000",
   "backgroundColorContent": "#000000",
