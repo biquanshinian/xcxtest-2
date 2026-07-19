@@ -990,9 +990,12 @@ async function processLaunchDetail(launch) {
         locName: '',
         forSpacecraft: !!opts.forSpacecraft
       })
+      // --mono 仅用于中性白图标（浅色主题下 invert 反成深色）。
+      // 成功绿/失败橙的 dataURI 自带状态色，加 --mono 会被 invert(0.72) 偏成紫色/蓝色
+      const monoClass = status === 'neutral' ? ' recovery-icon--mono' : ''
       const landingIconClass = useLandspace
-        ? 'recovery-icon--landspace recovery-icon--mono'
-        : (useBoLz ? 'recovery-icon--bolz recovery-icon--mono' : (icon ? 'recovery-icon--mono' : ''))
+        ? ('recovery-icon--landspace' + monoClass)
+        : (useBoLz ? ('recovery-icon--bolz' + monoClass) : (icon ? monoClass.trim() : ''))
 
       // 落点展示优先用 (abbrev) 中文名；无 abbrev 时退回原 location 字符串
       const llocObj = getLandingLocationObj(ld)

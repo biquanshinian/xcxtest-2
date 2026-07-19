@@ -1,0 +1,15 @@
+---
+description: 非会员视频不预加载、只显示封面
+alwaysApply: true
+---
+
+# 非会员视频策略
+
+非会员用户（`!canUsePaidCloudSync()`，即会员功能开启且非 Pro）对**所有视频类资源**：
+
+1. **禁止预加载 / 预热**：不要调用 `getCachedVideo`、不要给 `<video src>` 赋可播地址、不要后台拉 mp4。
+2. **只显示封面**：用 poster / `thumbnailUrl` / 视频截帧图等图片展示。
+3. **点击触发门控**：播放、下载、自动播前先 `gateCheck`；未通过则不拉流、不下载。
+4. **会员关闭或 Pro**：可正常预热与播放（`canUsePaidCloudSync()` 为 true）。
+
+适用面：事件更新、首页轮播、轨道卡背景、以及后续新增的视频能力。

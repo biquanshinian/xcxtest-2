@@ -333,6 +333,7 @@ const form = reactive({
   enableTweetSync: true,
   enableLive: true,
   enableEventVideo: true,
+  enableMissionReplay: true,
   enableAIChat: true,
   enableLunarWishes: true,
   enableMembership: false,
@@ -366,6 +367,7 @@ const featureSwitches = [
   { field: 'enableTweetSync', label: '推文自动同步', desc: '定时拉取 SpaceX/Starship 推文' },
   { field: 'enableLive', label: '直播功能', desc: '与「直播观看」同时生效：关闭后监控中心与任务详情直播入口均隐藏' },
   { field: 'enableEventVideo', label: '事件更新视频', desc: '关闭后隐藏事件视频、全站播放页、世界杯视频与静音背景视频，方便过审' },
+  { field: 'enableMissionReplay', label: '发射回放', desc: '关闭后任务详情页「观看回放」卡片（发射集锦 + 完整回放外链）隐藏，方便过审' },
   { field: 'enableAIChat', label: 'AI 太空助手（星问）', desc: '关闭后 NASA 圆盘菜单中的星问入口将隐藏，方便过审' },
   { field: 'enableLunarWishes', label: '月愿计划', desc: '关闭后 NASA 圆盘菜单中的月愿入口将隐藏，方便过审' },
   { field: 'enableMembership', label: '会员系统（星际通行证）', desc: '关闭后隐藏所有付费入口，AI 保持 10 次/日免费额度' },
@@ -378,6 +380,7 @@ const AUDIT_FIELDS = [
   'enableCarousel',
   'enableSplash',
   'enableEventVideo',
+  'enableMissionReplay',
   'enableLive',
   'enableAIChat',
   'enableLunarWishes',
@@ -386,7 +389,7 @@ const AUDIT_FIELDS = [
   'enablePublishPanel'
 ]
 
-const AUDIT_LABEL = '轮播图、开屏动画、事件更新视频（含播放页/世界杯/背景视频）、直播功能、AI 太空助手、月愿计划、每日太空简报、直播观看、贴图讨论区'
+const AUDIT_LABEL = '轮播图、开屏动画、事件更新视频（含播放页/世界杯/背景视频）、发射回放、直播功能、AI 太空助手、月愿计划、每日太空简报、直播观看、贴图讨论区'
 
 const auditModeView = computed(() => AUDIT_FIELDS.every((f) => form[f] === false))
 
@@ -418,6 +421,7 @@ const handleAuditChange = async () => {
   form.enableCarousel = true
   form.enableSplash = true
   form.enableEventVideo = true
+  form.enableMissionReplay = true
   form.enableLive = true
   form.enableAIChat = true
   form.enableLunarWishes = true
@@ -572,6 +576,7 @@ const load = async () => {
         enableTweetSync: data.enableTweetSync !== false,
         enableLive: data.enableLive !== false,
         enableEventVideo: data.enableEventVideo !== false,
+        enableMissionReplay: data.enableMissionReplay !== false,
         enableAIChat: data.enableAIChat !== false,
         enableLunarWishes: data.enableLunarWishes !== false,
         enableMembership: !!data.enableMembership,

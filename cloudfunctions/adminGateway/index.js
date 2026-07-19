@@ -7517,6 +7517,18 @@ function biliPublishApi() {
   return _biliPublishApi
 }
 
+const { createReplayFetchApi } = require('./replayFetch')
+let _replayFetchApi = null
+function replayFetchApi() {
+  if (!_replayFetchApi) {
+    _replayFetchApi = createReplayFetchApi({
+      db, ok, fail, now, crypto,
+      createCOSClient, COS_BUCKET, COS_REGION, COS_BASE_URL
+    })
+  }
+  return _replayFetchApi
+}
+
 async function route(event, user) {
   const { path = '', method = 'GET', query = {}, body = {} } = event
   const headers = event.headers || {}
@@ -7535,6 +7547,30 @@ async function route(event, user) {
     if (path === '/bilibili-agent/claim' && method === 'POST') return biliPublishApi().agentClaimJob(body)
     if (path === '/bilibili-agent/complete' && method === 'POST') return biliPublishApi().agentCompleteJob(body)
     if (path === '/bilibili-agent/fail' && method === 'POST') return biliPublishApi().agentFailJob(body)
+    return fail(4040, `未知 Agent 路由: ${method} ${path}`)
+  }
+
+  // ===== 发射回放抓取 Agent（REPLAY_AGENT_TOKEN，无需管理员 JWT） =====
+  if (path.startsWith('/replay-agent/')) {
+    if (!replayFetchApi().verifyAgentToken(headers)) return fail(4010, 'Agent 未授权')
+    if (path === '/replay-agent/claim' && method === 'POST') return replayFetchApi().claimJob(body)
+    if (path === '/replay-agent/complete' && method === 'POST') return replayFetchApi().completeJob(body)
+    if (path === '/replay-agent/fail' && method === 'POST') return replayFetchApi().failJob(body)
+    // 幂等设置 COS「发射回放/」前缀 30 天生命周期（保留桶上其他已有规则）
+    if (path === '/replay-agent/ensure-lifecycle' && method === 'POST') return replayFetchApi().ensureLifecycleRule()
+    // 手动触发一次回放扫描（跨云函数调用 = 服务端身份，绕开 syncSpaceDevsData 的客户端拦截）
+    if (path === '/replay-agent/trigger-scan' && method === 'POST') {
+      try {
+        const res = await cloud.callFunction({
+          name: 'syncSpaceDevsData',
+          data: { action: 'syncMissionReplayQueue' },
+          config: { timeout: 60000 }
+        })
+        return ok((res && res.result) || null)
+      } catch (e) {
+        return fail(5001, '触发回放扫描失败: ' + (e.message || String(e)))
+      }
+    }
     return fail(4040, `未知 Agent 路由: ${method} ${path}`)
   }
 
@@ -8178,6 +8214,16 @@ async function route(event, user) {
   if (path === '/knowledge-cards/batch-import' && method === 'POST') {
     const deny = checkPerm(user, 'knowledge_cards'); if (deny) return deny
     return batchImportKnowledgeCards(body, user)
+  }
+
+  // ===== 发射回放（管理端查看/删除；抓取由 replay-agent 完成） =====
+  if (path === '/mission-replays' && method === 'GET') {
+    const deny = checkPerm(user, 'global_config'); if (deny) return deny
+    return replayFetchApi().listReplays(query)
+  }
+  if (path.startsWith('/mission-replays/') && method === 'DELETE') {
+    const deny = checkPerm(user, 'global_config'); if (deny) return deny
+    return replayFetchApi().deleteReplay(path.split('/').pop())
   }
 
   // ===== B 站自动发文 =====

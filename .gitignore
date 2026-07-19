@@ -19,6 +19,10 @@ admin-web/dist/
 workers/bilibili-publisher/.auth/
 workers/bilibili-publisher/logs/
 
+# 发射回放 Agent 运行产物
+workers/replay-fetcher/logs/
+workers/replay-fetcher/tmp/
+
 # 编辑器 / 系统
 .DS_Store
 .idea/

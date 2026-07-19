@@ -22,8 +22,10 @@
   </view>
 
   <scroll-view
+    id="detailScrollView"
     class="detail-scroll nav-aware-scroll"
     scroll-y="true"
+    scroll-top="{{detailScrollTop}}"
     enhanced="{{true}}"
     bounces="{{true}}"
     refresher-enabled="{{true}}"
@@ -77,6 +79,26 @@
           <official-account-publish-panel topic="{{mission.discussionTopic || mission.missionName || mission.name || '星舰发射讨论'}}" />
         </view>
 
+        <!-- 页签锚点：切页签时若已滚过头图，滚回此处（零高，不占位） -->
+        <view id="detailTabAnchor" class="detail-tab-anchor"></view>
+
+        <!-- 分栏页签（sticky 吸顶；朋友圈单页预览固定概览不出页签） -->
+        <view class="detail-tab-bar" wx:if="{{!isMomentsPreview}}" style="top: {{detailTabStickyTop || navPlaceholderHeight}}px;">
+          <view
+            class="detail-tab {{activeTab === item.key ? 'detail-tab--active' : ''}}"
+            wx:for="{{detailTabs}}"
+            wx:key="key"
+            bindtap="onDetailTabTap"
+            data-key="{{item.key}}"
+          >
+            <text class="detail-tab-text">{{item.label}}</text>
+            <view class="detail-tab-underline" wx:if="{{activeTab === item.key}}"></view>
+          </view>
+        </view>
+
+        <!-- ═══ 页签：概览（默认，进页即渲染） ═══ -->
+        <view class="detail-tab-panel" wx:if="{{visitedTabs.overview}}" hidden="{{activeTab !== 'overview'}}">
+
         <!-- 失败原因（LL2 failreason，失败任务置顶显示） -->
         <view class="detail-section detail-failreason-section" wx:if="{{mission.failReason}}">
           <view class="detail-section-title-row">
@@ -125,52 +147,6 @@
           </view>
         </view>
 
-        <view class="detail-section" wx:if="{{mission.launchTimelineVisible && mission.launchTimeline}}">
-          <view class="detail-section-title-row">
-            <text class="detail-section-title">发射时间表</text>
-            <view class="lt-status" wx:if="{{mission.launchTimeline.statusText}}">
-              <view class="lt-status-dot {{mission.launchTimeline.inWindow ? 'lt-status-dot--live' : ''}}"></view>
-              <text class="lt-status-text {{mission.launchTimeline.inWindow ? 'lt-status-text--live' : ''}}">{{mission.launchTimeline.statusText}}</text>
-            </view>
-          </view>
-          <view class="lt-card">
-            <!-- 垂直时间线：窗口开始 → 点火 T-0 → 窗口结束 -->
-            <view class="lt-step">
-              <view class="lt-rail">
-                <view class="lt-node lt-node--{{mission.launchTimeline.startState}}"></view>
-                <view class="lt-line lt-line--{{mission.launchTimeline.startState === 'done' ? 'done' : 'pending'}}"></view>
-              </view>
-              <view class="lt-step-body">
-                <text class="lt-step-label">窗口开始</text>
-                <text class="lt-step-time">{{mission.launchTimeline.windowStart}}</text>
-              </view>
-            </view>
-
-            <view class="lt-step lt-step--liftoff">
-              <view class="lt-rail">
-                <view class="lt-node lt-node--rocket lt-node--{{mission.launchTimeline.liftoffState}}">
-                  <image class="lt-node-icon" src="/images/icons/ic-rocket-outline.svg" mode="aspectFit"></image>
-                </view>
-                <view class="lt-line lt-line--{{mission.launchTimeline.liftoffState === 'done' ? 'done' : 'pending'}}"></view>
-              </view>
-              <view class="lt-step-body">
-                <text class="lt-step-label lt-step-label--liftoff">点火 T-0</text>
-                <text class="lt-step-time lt-step-time--liftoff">{{mission.launchTimeline.liftoff}}</text>
-              </view>
-            </view>
-
-            <view class="lt-step lt-step--last">
-              <view class="lt-rail">
-                <view class="lt-node lt-node--{{mission.launchTimeline.endState}}"></view>
-              </view>
-              <view class="lt-step-body">
-                <text class="lt-step-label">窗口结束</text>
-                <text class="lt-step-time">{{mission.launchTimeline.windowEnd}}</text>
-              </view>
-            </view>
-          </view>
-        </view>
-
         <view class="detail-section detail-livestream-section" wx:if="{{enableLiveEntry && detailType === 'upcoming' && !missionCountdown.isExpired}}">
           <view class="detail-section-title-row">
             <text class="detail-section-title">直播观看</text>
@@ -211,6 +187,79 @@
               <text class="icon-arrow icon-arrow--livestream">›</text>
             </view>
           </view>
+        </view>
+
+        <!-- 观看回放（发射后显示；集锦压缩版会员在线看；完整回放外链点击复制） -->
+        <view class="detail-section detail-replay-section" wx:if="{{enableReplayEntry && (missionReplay || replayClips.length > 0 || replayLinks.length > 0)}}">
+          <view class="detail-section-title-row">
+            <text class="detail-section-title">观看回放</text>
+            <view class="replay-member-pill" wx:if="{{missionReplay || replayClips.length > 0}}">
+              <text>PRO</text>
+            </view>
+          </view>
+
+          <!-- 发射集锦：横滑短片卡（压缩版，门控播放） -->
+          <block wx:if="{{replayClips.length > 0}}">
+            <view class="replay-group-label">
+              <text class="replay-group-label-text">发射集锦</text>
+              <text class="replay-group-label-hint">{{replayClips.length}} 段 · 在线播放</text>
+            </view>
+            <scroll-view class="replay-clips-scroll" scroll-x="{{replayClips.length > 1}}" enhanced show-scrollbar="{{false}}">
+              <view class="replay-clips-track {{replayClips.length === 1 ? 'replay-clips-track--single' : ''}}">
+                <view
+                  class="replay-clip-card {{replayClips.length === 1 ? 'replay-clip-card--wide' : ''}}"
+                  wx:for="{{replayClips}}"
+                  wx:key="videoUrl"
+                  bindtap="onTapReplayClip"
+                  data-index="{{index}}"
+                >
+                  <view class="replay-clip-poster-wrap">
+                    <image class="replay-clip-poster" src="{{item.poster}}" mode="aspectFill" lazy-load></image>
+                    <view class="replay-clip-mask"></view>
+                    <view class="replay-clip-play">
+                      <view class="replay-clip-play-triangle"></view>
+                    </view>
+                    <view class="replay-clip-duration" wx:if="{{item.durationText}}">
+                      <text>{{item.durationText}}</text>
+                    </view>
+                  </view>
+                  <view class="replay-clip-caption">
+                    <text class="replay-clip-publisher">{{item.publisher}}</text>
+                  </view>
+                </view>
+              </view>
+            </scroll-view>
+          </block>
+
+          <!-- 完整回放 -->
+          <block wx:if="{{missionReplay || replayLinks.length > 0}}">
+            <view class="replay-group-label" wx:if="{{replayClips.length > 0}}">
+              <text class="replay-group-label-text">完整回放</text>
+              <text class="replay-group-label-hint" wx:if="{{!missionReplay}}">点击复制链接</text>
+            </view>
+            <view class="livestream-row">
+              <view class="livestream-btn livestream-btn--primary livestream-btn--replay" wx:if="{{missionReplay}}" bindtap="onTapMissionReplay">
+                <view class="livestream-btn-icon livestream-btn-icon--replay">
+                  <image class="livestream-icon-img" src="/images/icon-play.svg" mode="aspectFit"></image>
+                </view>
+                <view class="livestream-btn-info">
+                  <text class="livestream-btn-title">在线看回放</text>
+                  <text class="livestream-btn-sub">{{missionReplay.subText}}</text>
+                </view>
+                <text class="icon-arrow icon-arrow--livestream">›</text>
+              </view>
+              <view class="livestream-btn" wx:for="{{replayLinks}}" wx:key="url" bindtap="copyLink" data-url="{{item.url}}">
+                <view class="livestream-btn-icon livestream-btn-icon--replay-link">
+                  <image class="livestream-icon-img" src="/images/icon-play.svg" mode="aspectFit"></image>
+                </view>
+                <view class="livestream-btn-info">
+                  <text class="livestream-btn-title">{{item.typeLabel}}</text>
+                  <text class="livestream-btn-sub">{{item.publisher || item.title || '外部链接'}} · 点击复制链接</text>
+                </view>
+                <text class="icon-arrow icon-arrow--livestream">›</text>
+              </view>
+            </view>
+          </block>
         </view>
 
         <view class="detail-section detail-subscribe-section" wx:if="{{detailType === 'upcoming'}}">
@@ -306,6 +355,10 @@
             </view>
           </view>
         </view>
+
+        </view>
+        <!-- ═══ 页签：统计（首次切入才渲染并拉取统计数据） ═══ -->
+        <view class="detail-tab-panel" wx:if="{{visitedTabs.stats}}" hidden="{{activeTab !== 'stats'}}">
 
         <!-- 发射统计（型号 / 发射商，LL2 预热数据） -->
         <view class="detail-section detail-stats-section">
@@ -407,12 +460,6 @@
             <view class="detail-row" wx:if="{{mission.weatherConcerns}}"><text class="detail-label">天气顾虑</text><text class="detail-value">{{descI18n.weather || mission.weatherConcerns}}</text></view>
             <view class="detail-row" wx:if="{{mission.hashtag}}"><text class="detail-label">话题标签</text><text class="detail-value">{{mission.hashtag}}</text></view>
           </view>
-        </view>
-
-        <!-- 任务信息图（LL2 infographic，少数任务提供） -->
-        <view class="detail-section" wx:if="{{mission.infographicUrl}}">
-          <text class="detail-section-title">任务信息图</text>
-          <image class="detail-infographic-img" src="{{mission.infographicUrl}}" mode="widthFix" show-menu-by-longpress="{{true}}"></image>
         </view>
 
         <view class="detail-section rocket-spec-section" wx:if="{{mission.rocketSpecsVisible && mission.rocketSpecs && mission.rocketSpecs.length > 0}}">
@@ -546,6 +593,10 @@
           </view>
         </view>
 
+        </view>
+        <!-- ═══ 页签：详情（首次切入才渲染，渲染后补测文本折叠） ═══ -->
+        <view class="detail-tab-panel" wx:if="{{visitedTabs.info}}" hidden="{{activeTab !== 'info'}}">
+
         <view class="detail-section detail-desc-section" wx:if="{{(mission.missionFull && mission.missionFull.description) || mission.missionDetails || mission.description}}">
           <view class="detail-section-title-row">
             <text class="detail-section-title">任务说明</text>
@@ -662,6 +713,12 @@
           </view>
         </view>
 
+        <!-- 任务信息图（LL2 infographic，少数任务提供） -->
+        <view class="detail-section" wx:if="{{mission.infographicUrl}}">
+          <text class="detail-section-title">任务信息图</text>
+          <image class="detail-infographic-img" src="{{mission.infographicUrl}}" mode="widthFix" show-menu-by-longpress="{{true}}"></image>
+        </view>
+
         <!-- 相关链接（LL2 info_urls / vid_urls / flightclub_url，点击复制） -->
         <view class="detail-block" wx:if="{{mission.relatedLinks && mission.relatedLinks.length > 0}}">
           <view class="detail-block-header" bindtap="toggleDetailBlock" data-key="links">
@@ -677,10 +734,59 @@
             </view>
           </view>
         </view>
-      </view>
+
+        </view>
+        <!-- ═══ 页签：时间线（首次切入才渲染并拉取 LL2 飞行时间线） ═══ -->
+        <view class="detail-tab-panel" wx:if="{{visitedTabs.timeline}}" hidden="{{activeTab !== 'timeline'}}">
+
+        <view class="detail-section" wx:if="{{mission.launchTimelineVisible && mission.launchTimeline}}">
+          <view class="detail-section-title-row">
+            <text class="detail-section-title">发射时间表</text>
+            <view class="lt-status" wx:if="{{mission.launchTimeline.statusText}}">
+              <view class="lt-status-dot {{mission.launchTimeline.inWindow ? 'lt-status-dot--live' : ''}}"></view>
+              <text class="lt-status-text {{mission.launchTimeline.inWindow ? 'lt-status-text--live' : ''}}">{{mission.launchTimeline.statusText}}</text>
+            </view>
+          </view>
+          <view class="lt-card">
+            <!-- 垂直时间线：窗口开始 → 点火 T-0 → 窗口结束 -->
+            <view class="lt-step">
+              <view class="lt-rail">
+                <view class="lt-node lt-node--{{mission.launchTimeline.startState}}"></view>
+                <view class="lt-line lt-line--{{mission.launchTimeline.startState === 'done' ? 'done' : 'pending'}}"></view>
+              </view>
+              <view class="lt-step-body">
+                <text class="lt-step-label">窗口开始</text>
+                <text class="lt-step-time">{{mission.launchTimeline.windowStart}}</text>
+              </view>
+            </view>
+
+            <view class="lt-step lt-step--liftoff">
+              <view class="lt-rail">
+                <view class="lt-node lt-node--rocket lt-node--{{mission.launchTimeline.liftoffState}}">
+                  <image class="lt-node-icon" src="/images/icons/ic-rocket-outline.svg" mode="aspectFit"></image>
+                </view>
+                <view class="lt-line lt-line--{{mission.launchTimeline.liftoffState === 'done' ? 'done' : 'pending'}}"></view>
+              </view>
+              <view class="lt-step-body">
+                <text class="lt-step-label lt-step-label--liftoff">点火 T-0</text>
+                <text class="lt-step-time lt-step-time--liftoff">{{mission.launchTimeline.liftoff}}</text>
+              </view>
+            </view>
+
+            <view class="lt-step lt-step--last">
+              <view class="lt-rail">
+                <view class="lt-node lt-node--{{mission.launchTimeline.endState}}"></view>
+              </view>
+              <view class="lt-step-body">
+                <text class="lt-step-label">窗口结束</text>
+                <text class="lt-step-time">{{mission.launchTimeline.windowEnd}}</text>
+              </view>
+            </view>
+          </view>
+        </view>
 
       <!-- 飞行时间线（LL2） -->
-      <view wx:if="{{mission}}" class="detail-ll2-section">
+      <view class="detail-ll2-section">
         <view class="detail-section-title-row detail-ll2-timeline-head">
           <text class="detail-section-title">飞行时间线</text>
           <text class="translate-toggle {{tlTranslating ? 'translate-toggle--busy' : ''}}" wx:if="{{ll2FlightTimelineRows.length}}" catchtap="onToggleTimelineTranslate">{{tlTranslating ? '翻译中…' : (tlTranslated ? '原文' : '翻译')}}</text>
@@ -713,6 +819,9 @@
         </view>
         <view class="detail-ll2-card glass-card detail-ll2-card--pad" wx:elif="{{ll2FlightTimelineEmpty}}">
           <text class="detail-ll2-muted">暂无飞行时间线</text>
+        </view>
+      </view>
+
         </view>
       </view>
 

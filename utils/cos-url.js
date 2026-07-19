@@ -101,8 +101,9 @@ function videoSnapshotUrl(url, second) {
   if (!url || typeof url !== 'string') return url
   const cdnUrl = toCdnUrl(url.split('?')[0])
   const t = Number(second) > 0 ? Number(second) : 1
-  // 列表/封面用：480 宽足够手机卡片，避免默认 720×1280 截帧过大
-  return `${cdnUrl}?ci-process=snapshot&time=${t}&format=jpg&width=480&height=854&scaletype=cover`
+  // 只限宽不限高：CI 按源视频比例等比出图，竖版推文视频和横版发射集锦都不变形；
+  // 480 宽足够手机卡片，避免按源分辨率截帧过大
+  return `${cdnUrl}?ci-process=snapshot&time=${t}&format=jpg&width=480`
 }
 
 /**

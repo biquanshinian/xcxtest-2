@@ -420,22 +420,39 @@ async function getBoosterGenealogy(options) {
 
   try {
     const db = wx.cloud.database()
+    const _ = db.command
     // 分页拉全量箭实体（含 configId / countryCode 等新字段，文档原样透传）
-    const BATCH = 100
-    // 与云端同步上限（5 页 × 200 = 1000）对齐；数据不足一批时提前 break，无额外查询
-    // 预览模式（非会员 Tab）：只拉第 1 批，够 2 张预览卡，避免最多 10 次 DB 读
+    // 小程序端单次查询上限 20 条（云函数端才是 100）：曾按 100/批翻页，
+    // 首批只回 20 条即触发 break，永远只拿到 top20 高飞行数箭，
+    // New Glenn / Electron 等低飞行数箭全部丢失 → 型号详情页"暂无箭实体记录"
+    const BATCH = 20
+    // 只取箭实体文档：排除 _config_meta/_ll2_launchers_cache 等上百 KB 的元数据大文档
+    const boosterQuery = function () {
+      return db.collection('booster_genealogy').where({ serialNumber: _.exists(true) })
+    }
     const previewOnly = !!(options && options.previewOnly)
-    const MAX_BATCHES = previewOnly ? 1 : 10
     let all = []
-    for (let i = 0; i < MAX_BATCHES; i++) {
-      const res = await db.collection('booster_genealogy')
-        .orderBy('flights', 'desc')
-        .skip(i * BATCH)
-        .limit(BATCH)
-        .get()
-      const batch = res.data || []
-      all = all.concat(batch)
-      if (batch.length < BATCH) break
+    if (previewOnly) {
+      // 预览模式（非会员 Tab）：只拉第 1 批，够 2 张预览卡
+      const res = await boosterQuery().orderBy('flights', 'desc').limit(BATCH).get()
+      all = res.data || []
+    } else {
+      // 先 count 再并行分批（约 180 箭 ≈ 9 批；上限 1000 与云端同步对齐）
+      const countRes = await boosterQuery().count()
+      const total = Math.min(countRes.total || 0, 1000)
+      const batchTimes = Math.max(1, Math.ceil(total / BATCH))
+      const tasks = []
+      for (let i = 0; i < batchTimes; i++) {
+        tasks.push(
+          boosterQuery()
+            .orderBy('flights', 'desc')
+            .skip(i * BATCH)
+            .limit(BATCH)
+            .get()
+        )
+      }
+      const results = await Promise.all(tasks)
+      results.forEach(function (res) { all = all.concat(res.data || []) })
     }
     const list = all.filter(function (item) {
       return BOOSTER_META_DOC_IDS.indexOf(item._id) === -1

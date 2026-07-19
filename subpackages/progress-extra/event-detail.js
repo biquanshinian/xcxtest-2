@@ -1179,13 +1179,25 @@ Page({
     }
     try {
       const db = wx.cloud.database()
-      const res = await db.collection('starship_event_updates')
-        .where({ source: source, status: 'published' })
-        .orderBy('publishedAt', 'desc')
-        .limit(150)
-        .get()
-      const raw = res.data || []
       const day = dateYmd || todayBeijingYmd()
+      // 小程序端单次查询上限 20 条（.limit(150) 会被静默截断成 20），按 20/批翻页；
+      // 结果按 publishedAt 降序，一旦本批最旧一条已早于目标日期即可提前收工
+      const BATCH = 20
+      const MAX_TOTAL = 150
+      let raw = []
+      for (let i = 0; i < Math.ceil(MAX_TOTAL / BATCH); i++) {
+        const res = await db.collection('starship_event_updates')
+          .where({ source: source, status: 'published' })
+          .orderBy('publishedAt', 'desc')
+          .skip(i * BATCH)
+          .limit(BATCH)
+          .get()
+        const batch = res.data || []
+        raw = raw.concat(batch)
+        if (batch.length < BATCH) break
+        const oldestYmd = publishedAtToBeijingYmd(batch[batch.length - 1].publishedAt)
+        if (oldestYmd && oldestYmd < day) break
+      }
       const filtered = raw.filter(it => publishedAtToBeijingYmd(it.publishedAt) === day)
       const items = filtered.map(it => this.enrichEventItem(it))
       const namePart = labelHint || source

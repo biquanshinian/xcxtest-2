@@ -192,6 +192,11 @@ const LIVE_STATUS_UNRESOLVED_RECHECK_MS = 15 * 60 * 1000
 const LIVE_STATUS_MIN_ROUND_GAP_MS = 30 * 1000
 const LL2_UPDATES_MEM_TTL_MS = 5 * 60 * 1000
 const RECENT_SETTLED_MEM_TTL_MS = 10 * 60 * 1000
+/** recent_settled 本地持久化：冷启动先用上次会话快照过滤，免等云函数冷启动 */
+const RECENT_SETTLED_PERSIST_KEY = '_recent_settled_persist_v1'
+const RECENT_SETTLED_PERSIST_MIN_WRITE_GAP_MS = 5 * 1000
+/** 首屏渲染前等云端 recent_settled 的最大预算（本地快照过期时才等） */
+const RECENT_SETTLED_FIRST_PAINT_BUDGET_MS = 2000
 
 /** 可落历史并切下一个：终态(3/4/7/9) 或飞行中(6) */
 function isSettleableLiveStatusId(id) {
@@ -344,6 +349,9 @@ Page({
     this._pageLoadAt = Date.now()
     this._launchRecordsById = new Map()
     this._launchStateGeneration = 0
+    // 冷启动立即异步回灌上次会话的 recent_settled 快照：
+    // 首屏列表过滤可直接用本地快照，不再被 ll2Query 冷启动（数秒）卡住
+    this._hydrateRecentSettledFromStorage()
     // 朋友圈分享只能携带 query 参数（不能指定 path），因此用户从朋友圈点击进来
     // 总是落到首页。这里检测 query 是否带 mission id，若有就直接跳详情页，
     // 实现"打开即看到该任务详情"的体验。
@@ -1899,12 +1907,18 @@ Page({
     })
   },
 
-  async fetchMissionList(type, limit = 50, offset = 0) {
+  async fetchMissionList(type, limit = 50, offset = 0, options = {}) {
     const normalized = type === 'completed' ? 'completed' : 'upcoming'
     // 即将发射首屏/刷新：强制拉 recent_settled，与倒计时同拍；加载更多用内存缓存即可
     if (normalized === 'upcoming') {
       try {
-        await this._ensureRecentSettledCache(offset === 0)
+        if (options && options.settledManagedByCaller) {
+          // 首屏路径：云端快照由 loadInitialData 并行在拉，这里只等本地持久化快照
+          // hydrate 完成（毫秒级），避免串行等 ll2Query 冷启动
+          await this._hydrateRecentSettledFromStorage()
+        } else {
+          await this._ensureRecentSettledCache(offset === 0)
+        }
       } catch (e) {}
     }
     const pack = await fetchMissionListData({
@@ -2719,7 +2733,65 @@ Page({
       .slice(0, 40)
     this._recentSettledCache = merged
     this._recentSettledCacheAt = Date.now()
+    this._persistRecentSettledSnapshot(merged)
     return merged
+  },
+
+  /** recent_settled 快照异步落盘（节流）：下次冷启动免等云函数即可过滤已落库任务 */
+  _persistRecentSettledSnapshot(rows) {
+    // hydrate 回灌时不能把旧数据重新盖上新时间戳落盘（否则过期快照被误判为新鲜）
+    if (this._recentSettledHydrating) return
+    if (!Array.isArray(rows) || !rows.length) return
+    const now = Date.now()
+    if (this._recentSettledPersistAt && now - this._recentSettledPersistAt < RECENT_SETTLED_PERSIST_MIN_WRITE_GAP_MS) {
+      return
+    }
+    this._recentSettledPersistAt = now
+    try {
+      wx.setStorage({ key: RECENT_SETTLED_PERSIST_KEY, data: { rows, at: now }, fail: () => {} })
+    } catch (e) {}
+  },
+
+  /**
+   * 冷启动 hydrate：读上次会话持久化的 recent_settled 快照进内存。
+   * _recentSettledCacheAt 用落盘时间而非当前时间：快照过期语义不变，
+   * 云端强制刷新（onShow / loadInitialData 并行拉取）照常进行。
+   */
+  _hydrateRecentSettledFromStorage() {
+    if (this._recentSettledHydratePromise) return this._recentSettledHydratePromise
+    this._recentSettledHydratePromise = new Promise((resolve) => {
+      try {
+        wx.getStorage({
+          key: RECENT_SETTLED_PERSIST_KEY,
+          success: (res) => {
+            try {
+              const data = res && res.data
+              const rows = data && Array.isArray(data.rows) ? data.rows : []
+              const at = data && Number(data.at)
+              // 内存已有云端数据（hydrate 迟到）时不用旧快照盖时间戳
+              const memFresh = Array.isArray(this._recentSettledCache) && this._recentSettledCache.length
+              if (rows.length && !memFresh) {
+                this._recentSettledHydrating = true
+                try {
+                  this._absorbRecentSettled(rows)
+                } finally {
+                  this._recentSettledHydrating = false
+                }
+                if (Number.isFinite(at) && at > 0) this._recentSettledCacheAt = at
+              } else if (rows.length && memFresh) {
+                // 仅合并观测（持久化行保留原 observedAtMs，云端新数据在冲突时胜出）
+                this._absorbLaunchStateObservations(rows, 'live')
+              }
+            } catch (e) {}
+            resolve()
+          },
+          fail: () => resolve()
+        })
+      } catch (e2) {
+        resolve()
+      }
+    })
+    return this._recentSettledHydratePromise
   },
 
   /** 同步记住本会话已落库卡（不依赖 setData 时序，防 previous 刷新盖掉） */
@@ -2988,11 +3060,25 @@ Page({
     ) {
       return this._recentSettledCache
     }
-    try {
-      const settled = await fetchRecentSettledLaunches()
-      return this._absorbRecentSettled(settled)
-    } catch (e) {}
-    return Array.isArray(this._recentSettledCache) ? this._recentSettledCache : null
+    // 在途去重：冷启动 onLoad(loadInitialData) 与 onShow 会先后 force，各打一次
+    // ll2Query 纯属浪费，复用同一个在途请求
+    if (this._recentSettledFetchInflight) {
+      return this._recentSettledFetchInflight
+    }
+    const inflight = (async () => {
+      try {
+        const settled = await fetchRecentSettledLaunches()
+        return this._absorbRecentSettled(settled)
+      } catch (e) {}
+      return Array.isArray(this._recentSettledCache) ? this._recentSettledCache : null
+    })()
+    this._recentSettledFetchInflight = inflight
+    inflight.finally(() => {
+      if (this._recentSettledFetchInflight === inflight) {
+        this._recentSettledFetchInflight = null
+      }
+    })
+    return inflight
   },
 
   /** 历史列表中仍显示「飞行中」的 id（最多 5） */
@@ -3635,34 +3721,44 @@ Page({
       }
     } catch (e) {}
 
-    // 配置命中本地缓存：只查条目（1 次 DB）；未命中：配置+条目并行（墙钟≈1 次）
+    // 配置命中本地缓存：只查条目；未命中：配置+条目并行
     let docs = []
     try {
       const db = wx.cloud.database()
       const _ = db.command
+      // 小程序端单次查询上限 20 条（.limit(100) 会被静默截断成 20）：
+      // 轮播素材超过 20 张时会随机丢条目，按 20/批翻页拉全（上限 100 与原意图一致）
+      const fetchCarouselDocs = async () => {
+        const BATCH = 20
+        const MAX_TOTAL = 100
+        let out = []
+        for (let i = 0; i < Math.ceil(MAX_TOTAL / BATCH); i++) {
+          const res = await db
+            .collection('media_assets')
+            .where({ sourceTag: _.in(['carousel', 'auto-carousel']) })
+            .skip(i * BATCH)
+            .limit(BATCH)
+            .get()
+          const batch = res.data || []
+          out = out.concat(batch)
+          if (batch.length < BATCH) break
+        }
+        return out
+      }
       if (configFromCache) {
         if (!carouselDisabled) {
-          const dbRes = await db
-            .collection('media_assets')
-            .where({ sourceTag: _.in(['carousel', 'auto-carousel']) })
-            .limit(100)
-            .get()
-          docs = dbRes.data || []
+          docs = await fetchCarouselDocs()
         }
       } else {
-        const [cfgRes, itemsRes] = await Promise.all([
+        const [cfgRes, itemDocs] = await Promise.all([
           db.collection('media_assets').where({ key: '__carousel_global_config__' }).limit(1).get(),
-          db
-            .collection('media_assets')
-            .where({ sourceTag: _.in(['carousel', 'auto-carousel']) })
-            .limit(100)
-            .get()
+          fetchCarouselDocs()
         ])
         const configDoc = (cfgRes.data || [])[0]
         carouselDisabled = !!(configDoc && configDoc.enabled === false)
         imageDuration = configDoc && configDoc.imageDuration ? Number(configDoc.imageDuration) : 5
         videoDuration = configDoc && configDoc.videoDuration ? Number(configDoc.videoDuration) : 5
-        docs = itemsRes.data || []
+        docs = itemDocs || []
         wx.setStorage({
           key: CAROUSEL_CONFIG_CACHE_KEY,
           data: {
@@ -3915,27 +4011,39 @@ Page({
           const fullCloud = canUsePaidCloudSync()
           const freeMissionLimit = getMemberPolicySync().freeMissionListLimit || FREE_MISSION_LIST_LIMIT
           const FULL_LIMIT = fullCloud ? 50 : freeMissionLimit
+
+          // recent_settled 云端快照与列表并行发起（旧实现串行 await，ll2Query 冷启动
+          // 直接把首屏拖到数秒）；列表过滤先用本地持久化快照兜底。
+          // 预算计时与列表/媒体等待同时开跑：首屏最坏 ≈ max(列表, 2.5s 媒体, 2s 快照)
+          const settledPromise = this._ensureRecentSettledCache(true).catch(() => null)
+          const settledFirstPaintWait = Promise.race([
+            settledPromise,
+            new Promise((resolve) => setTimeout(resolve, RECENT_SETTLED_FIRST_PAINT_BUDGET_MS))
+          ])
+
           const [, pack] = await Promise.all([
             Promise.race([
               loadCloudMediaMap().catch(() => {}),
               new Promise((r) => setTimeout(r, LOAD_CLOUD_MEDIA_MAP_FIRST_PAINT_BUDGET_MS))
             ]),
             Promise.race([
-              this.fetchMissionList('upcoming', FULL_LIMIT, 0),
+              this.fetchMissionList('upcoming', FULL_LIMIT, 0, { settledManagedByCaller: true }),
               new Promise((_, reject) => setTimeout(() => reject(new Error('加载超时，请稍后再试')), 15000))
             ])
           ])
           let { res: upcomingRes, list: upcomingList } = pack
-          const snapshotIds = (upcomingList || []).map((mission) => mission && mission.id).filter(Boolean)
-          try {
-            const snapshot = await Promise.race([
-              fetchLaunchStatusSnapshot(snapshotIds),
-              new Promise((resolve) => setTimeout(() => resolve(null), 3000))
-            ])
-            if (!this._isLaunchStateGenerationCurrent(stateGeneration)) return
-            if (Array.isArray(snapshot)) this._absorbRecentSettled(snapshot)
-          } catch (e) {}
+
+          // 本地快照新鲜（10 分钟内）→ 不等云端直接上屏；过期/缺失才等，且最多 2s。
+          // 云端快照迟到时由下方后台补偿逻辑二次修正（scrub + 重过滤）。
+          const settledFresh =
+            Array.isArray(this._recentSettledCache) &&
+            this._recentSettledCacheAt &&
+            Date.now() - this._recentSettledCacheAt < RECENT_SETTLED_MEM_TTL_MS
+          if (!settledFresh) {
+            await settledFirstPaintWait
+          }
           if (!this._isLaunchStateGenerationCurrent(stateGeneration)) return
+          upcomingList = this._filterUpcomingAgainstSettled(upcomingList || [])
 
           // map 已就绪时，首屏盖章前按火箭名强制重算，避免把 default 写进倒计时/卡片
           try {
@@ -3962,6 +4070,52 @@ Page({
           this.applyInitialUpcomingLaunchState(firstMission, upcomingList, upcomingRes)
 
           wx.hideLoading()
+
+          // ── 首屏后台补偿（旧实现在上屏前串行等待，最多 +3s）──
+          // 1) 云端 recent_settled 迟到：落地后 scrub 倒计时 + 重过滤即将发射
+          settledPromise
+            .then((settled) => {
+              if (!this._isLaunchStateGenerationCurrent(stateGeneration)) return
+              if (!Array.isArray(settled) || !settled.length) return
+              try {
+                this._scrubKnownSettleableCountdown()
+              } catch (e) {}
+              try {
+                this._refilterUpcomingAgainstSettled()
+              } catch (e2) {}
+            })
+            .catch(() => {})
+          // 2) 按 id 状态快照（NET 改期 / 状态变化）：走实况 patch 路径整体修正列表与面板。
+          // 延迟 3s 发起：避免与「上屏后立刻点卡片进详情」的 fetchLaunchDetail 并发抢
+          // ll2Query 实例（并发会摊上冷启动实例，拖慢详情页首包）
+          const snapshotIds = (upcomingList || []).map((mission) => mission && mission.id).filter(Boolean)
+          if (snapshotIds.length) {
+            new Promise((resolve) => setTimeout(resolve, 3000))
+              .then(() => {
+                if (!this._isLaunchStateGenerationCurrent(stateGeneration)) return null
+                return fetchLaunchStatusSnapshot(snapshotIds)
+              })
+              .then((rows) => {
+                if (!this._isLaunchStateGenerationCurrent(stateGeneration)) return
+                if (!Array.isArray(rows) || !rows.length) return
+                this._patchUpcomingListLiveStatuses(rows)
+                // 面板任务 NET 比列表缓存新（快照来自小时级探针）：重建倒计时面板
+                try {
+                  const curId =
+                    this.data.launchData && this.data.launchData.id != null ? String(this.data.launchData.id) : ''
+                  const row = curId ? rows.find((r) => r && String(r.id) === curId) : null
+                  const sid = row && row.status && row.status.id != null ? Number(row.status.id) : 0
+                  if (row && row.net && !isSettledStatusId(sid)) {
+                    const newMs = new Date(row.net).getTime()
+                    const curMs = new Date(this.data.launchData.launchTime || 0).getTime()
+                    if (Number.isFinite(newMs) && newMs > 0 && newMs !== curMs) {
+                      this._applyPostponedNet(row)
+                    }
+                  }
+                } catch (eNet) {}
+              })
+              .catch(() => {})
+          }
 
           // DB media_assets 真正加载完成后（即便 race 已超时）再刷新一次列表+倒计时火箭图
           loadCloudMediaMap()

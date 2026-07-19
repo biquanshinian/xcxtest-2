@@ -300,7 +300,9 @@ async function ensureSyncSpaceDevsCollectionsOnce() {
     'nextspaceflight_starship_cache',
     'nextspaceflight_hardware_cache',
     'launch_timeline_cache',
-    'translation_cache'
+    'translation_cache',
+    'replay_fetch_queue',
+    'mission_replays'
   ]
   for (const n of names) {
     try {
@@ -335,7 +337,7 @@ const CLIENT_ALLOWED_ACTIONS = new Set([
 ])
 
 // 开发者工具「云端测试」(SOURCE=wx_devtools) 可手动跑的运维探针；正式小程序端 (wx_client) 仍拦截
-const DEVTOOLS_TESTABLE_ACTIONS = new Set(['syncLaunchNetHourly'])
+const DEVTOOLS_TESTABLE_ACTIONS = new Set(['syncLaunchNetHourly', 'syncMissionReplayQueue', 'fillFlightHistory'])
 
 function getInvocationSourceTail() {
   try {
@@ -443,7 +445,20 @@ exports.main = async (event) => {
         } catch (e) {
           netRes.roadClosure = { success: false, error: e.message || String(e) }
         }
+        // 附带回放文档扫描（1 次 LL2 previous 探针 + 1 次事件库查询：集锦压缩版 + 完整回放外链）
+        try {
+          netRes.replayQueue = await require('./mission-replay.js')
+            .runSyncMissionReplayQueue(db, fetchAPI, LAUNCH_LIBRARY_API)
+        } catch (e) {
+          netRes.replayQueue = { success: false, error: e.message || String(e) }
+        }
         return { ...netRes, module: 'launch_net_hourly', elapsed: Date.now() - startTime }
+      }
+
+      case 'syncMissionReplayQueue': {
+        // 手动触发回放文档扫描（仅服务端/云开发控制台）
+        const r = await require('./mission-replay.js').runSyncMissionReplayQueue(db, fetchAPI, LAUNCH_LIBRARY_API)
+        return { ...r, module: 'mission_replay_queue', timestamp: Date.now(), elapsed: Date.now() - startTime }
       }
 
       case 'syncEvents':
@@ -601,6 +616,8 @@ exports.main = async (event) => {
 async function fillFlightHistoryAction(event) {
   const collection = db.collection('booster_genealogy')
   const forceRefresh = !!(event && event.forceRefresh)
+  // backfillOnly：跳过 SpaceX 全量翻页，只跑非 SpaceX 箭补齐（控制台同步测试 20s 内能返回）
+  const backfillOnly = !!(event && event.backfillOnly)
   // 默认生产版 API；传 useDev: true 才用开发版（无限速、旧数据，仅测试用）
   const useProd = !(event && event.useDev)
   const startTime = Date.now()
@@ -622,6 +639,12 @@ async function fillFlightHistoryAction(event) {
 
   // 已完成的情况：只刷新第 1 页捕获新发射，不再全量翻页
   const refreshOnly = progress.completed && !forceRefresh
+  console.log(
+    '[flightHistory] mode:',
+    backfillOnly ? 'backfill-only' : refreshOnly ? 'refresh-first-page' : 'full-sync',
+    'budgetMs:', TIME_BUDGET_MS,
+    'progress:', JSON.stringify({ page: progress.page, completed: progress.completed })
+  )
 
   let url = refreshOnly ? baseUrl : progress.nextUrl || baseUrl
   let page = refreshOnly ? 0 : progress.page || 0
@@ -629,8 +652,58 @@ async function fillFlightHistoryAction(event) {
   let totalUpdated = 0
   const errors = []
 
+  // 单箭飞行记录合并落库（merge：新增记录 + 修正待定状态，不减少）；返回是否发生写入
+  const mergeHistoryForSerial = async (sn, records) => {
+    const docId = sn.replace(/[^a-zA-Z0-9_-]/g, '_')
+    const existDoc = await collection
+      .doc(docId)
+      .get()
+      .catch(() => null)
+    const existingHistory =
+      existDoc && existDoc.data && Array.isArray(existDoc.data.flightHistory) ? existDoc.data.flightHistory : []
+
+    const keyOf = (h) => (h.date || '').split('T')[0] + '|' + (h.mission || '')
+    const byKey = {}
+    for (const h of existingHistory) byKey[keyOf(h)] = h
+
+    const merged = [...existingHistory]
+    let changed = false
+    for (const r of records) {
+      const key = keyOf(r)
+      const exist = byKey[key]
+      if (!exist) {
+        merged.push(r)
+        byKey[key] = r
+        changed = true
+      } else {
+        // 已有记录：修正待定状态（首次同步时发射还在进行中，success 为 null）
+        if (
+          (exist.success === null || exist.success === undefined) &&
+          (r.success === true || r.success === false)
+        ) {
+          exist.success = r.success
+          changed = true
+        }
+        // 补充缺失的 launchId（旧数据没有此字段）
+        if (!exist.launchId && r.launchId) {
+          exist.launchId = r.launchId
+          changed = true
+        }
+      }
+    }
+    merged.sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+
+    if (!changed) return false
+    if (existDoc && existDoc.data) {
+      await collection.doc(docId).update({ data: { flightHistory: merged } })
+    } else {
+      await collection.doc(docId).set({ data: { serialNumber: sn, flightHistory: merged } })
+    }
+    return true
+  }
+
   // ── 循环拉取，直到拉完 / 时间预算用尽 ──
-  while (url && Date.now() - startTime < TIME_BUDGET_MS) {
+  while (!backfillOnly && url && Date.now() - startTime < TIME_BUDGET_MS) {
     let data = null
     // 每页最多重试 2 次
     for (let attempt = 0; attempt < 2 && !data; attempt++) {
@@ -671,56 +744,10 @@ async function fillFlightHistoryAction(event) {
       }
     }
 
-    // ── 立即落库（merge：新增记录 + 修正待定状态，不减少）；按 8 并发分批，替代逐条串行 DB 往返 ──
+    // ── 立即落库；按 8 并发分批，替代逐条串行 DB 往返 ──
     const mergeOneBooster = async (sn) => {
-      const docId = sn.replace(/[^a-zA-Z0-9_-]/g, '_')
       try {
-        const existDoc = await collection
-          .doc(docId)
-          .get()
-          .catch(() => null)
-        const existingHistory =
-          existDoc && existDoc.data && Array.isArray(existDoc.data.flightHistory) ? existDoc.data.flightHistory : []
-
-        const keyOf = (h) => (h.date || '').split('T')[0] + '|' + (h.mission || '')
-        const byKey = {}
-        for (const h of existingHistory) byKey[keyOf(h)] = h
-
-        const merged = [...existingHistory]
-        let changed = false
-        for (const r of boosterFlights[sn]) {
-          const key = keyOf(r)
-          const exist = byKey[key]
-          if (!exist) {
-            merged.push(r)
-            byKey[key] = r
-            changed = true
-          } else {
-            // 已有记录：修正待定状态（首次同步时发射还在进行中，success 为 null）
-            if (
-              (exist.success === null || exist.success === undefined) &&
-              (r.success === true || r.success === false)
-            ) {
-              exist.success = r.success
-              changed = true
-            }
-            // 补充缺失的 launchId（旧数据没有此字段）
-            if (!exist.launchId && r.launchId) {
-              exist.launchId = r.launchId
-              changed = true
-            }
-          }
-        }
-        merged.sort((a, b) => (a.date || '').localeCompare(b.date || ''))
-
-        if (changed) {
-          if (existDoc && existDoc.data) {
-            await collection.doc(docId).update({ data: { flightHistory: merged } })
-          } else {
-            await collection.doc(docId).set({ data: { serialNumber: sn, flightHistory: merged } })
-          }
-          totalUpdated++
-        }
+        if (await mergeHistoryForSerial(sn, boosterFlights[sn])) totalUpdated++
       } catch (e) {
         errors.push(`write ${sn}: ${e.message}`)
       }
@@ -746,21 +773,90 @@ async function fillFlightHistoryAction(event) {
     } catch (_) {}
   }
 
-  // ── 收尾：保存最终进度 ──
-  const isCompleted = refreshOnly ? true : !url
+  // ── 收尾：保存最终进度（backfillOnly 未翻页，不动进度文档） ──
+  const isCompleted = backfillOnly ? !!progress.completed : (refreshOnly ? true : !url)
+  if (!backfillOnly) {
+    try {
+      await collection.doc('_flight_history_progress').set({
+        data: { page: page, nextUrl: url, lastRunAt: Date.now(), completed: isCompleted }
+      })
+    } catch (_) {}
+  }
+
+  // ── 非 SpaceX 箭实体飞行历史补齐 ──
+  // 上面的翻页只覆盖 search=SpaceX + B/Booster 序列号，其它厂商（Electron / New Glenn /
+  // 长十乙 / 朱雀三号…）的 flightHistory 永远为空 → 箭实体详情页"历史任务"空白。
+  // 这里用 LL2 launches 的 ?serial_number= 精确过滤逐箭补齐（每箭 1 次请求，
+  // 只处理 flightHistory 条数 < flights 的箭，补齐后不再重复请求）。
+  let backfillChecked = 0
+  let backfillUpdated = 0
   try {
-    await collection.doc('_flight_history_progress').set({
-      data: { page: page, nextUrl: url, lastRunAt: Date.now(), completed: isCompleted }
+    const isSpaceXSerial = (s) =>
+      /^B\d{4}$/i.test(s) || /^Booster\s*\d+$/i.test(s) || /^SN\d+$/i.test(s) || /^Ship\s*\d+$/i.test(s) || s === 'Starhopper'
+    const _ = db.command
+    // 云函数端 100/批，最多 2 批覆盖全部箭实体
+    let boosterDocs = []
+    for (let i = 0; i < 2; i++) {
+      const res = await collection
+        .where({ serialNumber: _.exists(true) })
+        .field({ serialNumber: true, flights: true, flightHistory: true })
+        .skip(i * 100)
+        .limit(100)
+        .get()
+      const batch = res.data || []
+      boosterDocs = boosterDocs.concat(batch)
+      if (batch.length < 100) break
+    }
+    const needFill = boosterDocs.filter((b) => {
+      const sn = b.serialNumber || ''
+      if (!sn || isSpaceXSerial(sn)) return false
+      const historyLen = Array.isArray(b.flightHistory) ? b.flightHistory.length : 0
+      return historyLen < (b.flights || 0)
     })
-  } catch (_) {}
+
+    const MAX_BACKFILL_PER_RUN = (event && event.backfillLimit) || 15
+    console.log('[flightHistory] backfill 待补齐:', needFill.length, '本轮上限:', MAX_BACKFILL_PER_RUN)
+    // 补齐有独立的 90s 时间窗（不与 SpaceX 翻页抢预算），但整体不超过函数 800s 超时的安全线
+    const backfillDeadline = Math.min(Date.now() + 90 * 1000, startTime + 740 * 1000)
+    for (const b of needFill.slice(0, MAX_BACKFILL_PER_RUN)) {
+      if (Date.now() > backfillDeadline) break
+      backfillChecked++
+      try {
+        const q = `https://${apiHost}/2.3.0/launches/previous/?serial_number=${encodeURIComponent(b.serialNumber)}&mode=list&limit=20&format=json&ordering=net`
+        const data = await _httpGetJson(q, 15000)
+        const rows = (data && Array.isArray(data.results)) ? data.results : []
+        console.log('[flightHistory] backfill', b.serialNumber, '→', rows.length, '条任务')
+        if (!rows.length) continue
+        const records = rows.map((launch) => {
+          const statusAbbrev = (launch.status && launch.status.abbrev) || ''
+          const isSuccess = statusAbbrev === 'Success' || statusAbbrev === 'Partial Failure'
+          const isFailed = statusAbbrev === 'Failure'
+          return {
+            mission: launch.name || '',
+            date: launch.net || '',
+            success: isSuccess ? true : isFailed ? false : null,
+            launchId: launch.id ? String(launch.id) : ''
+          }
+        })
+        if (await mergeHistoryForSerial(b.serialNumber, records)) backfillUpdated++
+      } catch (e) {
+        errors.push(`backfill ${b.serialNumber}: ${e.message}`)
+      }
+    }
+  } catch (e) {
+    errors.push(`backfill scan: ${e.message}`)
+  }
+  console.log('[flightHistory] backfill 完成: checked=' + backfillChecked + ' updated=' + backfillUpdated)
 
   return {
     success: true,
-    mode: refreshOnly ? 'refresh-first-page' : 'full-sync',
+    mode: backfillOnly ? 'backfill-only' : (refreshOnly ? 'refresh-first-page' : 'full-sync'),
     api: apiHost,
     pagesDone: page,
     launchesProcessed: totalLaunches,
     boostersUpdated: totalUpdated,
+    backfillChecked,
+    backfillUpdated,
     completed: isCompleted,
     elapsed: Date.now() - startTime,
     errors: errors.length > 0 ? errors : undefined

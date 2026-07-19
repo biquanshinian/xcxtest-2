@@ -639,7 +639,7 @@
             <view class="stats-highlight-footer">
               <text class="stats-highlight-sub" wx:if="{{launchStats.spacexThisYear != null}}">SpaceX 贡献 {{launchStats.spacexThisYear}} 次</text>
               <view class="stats-detail-link">
-                <text>（限时）查看统计详情</text>
+                <text>查看统计详情</text>
                 <text class="stats-detail-arrow">›</text>
               </view>
             </view>

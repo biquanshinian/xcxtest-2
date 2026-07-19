@@ -20,7 +20,8 @@ const { computeLaunchTimelineProgress } = require('./utils/launch-timeline-progr
 const { loadMissionLaunchStats, applyClientAgencyFallback } = require('./utils/mission-launch-stats.js')
 const { formatCloudError } = require('../../utils/launch-stats-cloud.js')
 const config = require('../../utils/config.js')
-const { isLiveEntryAllowed } = require('../../utils/feature-flags.js')
+const { isLiveEntryAllowed, isFeatureEnabled, getCachedMainConfig } = require('../../utils/feature-flags.js')
+const { videoSnapshotUrl, optimizeImageUrl } = require('../../utils/cos-url.js')
 
 const CHANNELS_LIVE_PATH = '../../subpackages/shared/utils/channels-live.js'
 let _channelsLiveMod = null
@@ -53,6 +54,54 @@ function getLiveFinderUserNameFromConfig() {
 const BILI_LIVE_QR_URL = 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E4%BA%8C%E7%BB%B4%E7%A0%81/1773602498836_o237or.png'
 const BILI_LIVE_URL = 'https://live.bilibili.com/390508'
 const BILI_LIVE_TITLE = 'SpaceX星舰直播'
+
+// —— 发射回放（LL2 vid_urls + COS 转存） ——
+
+/** 回放源排序：官方直播 > 非官方直播 > 转播（与云端 mission-replay.js 同规则） */
+function replaySourceRank(typeName) {
+  const t = String(typeName || '').toLowerCase()
+  if (t.includes('official') && !t.includes('unofficial')) return 0
+  if (t.includes('unofficial webcast')) return 1
+  if (t.includes('re-stream') || t.includes('restream')) return 2
+  return 3
+}
+
+function replayTypeLabel(typeName) {
+  const rank = replaySourceRank(typeName)
+  if (rank === 0) return '官方回放'
+  if (rank === 1) return '第三方回放'
+  if (rank === 2) return '转播回放'
+  return '视频回放'
+}
+
+/** mission.vidUrls → 外链回放条目（官方优先，最多 3 条，点击复制） */
+function buildReplayLinks(vidUrls) {
+  const list = Array.isArray(vidUrls) ? vidUrls : []
+  return list
+    .filter((v) => v && typeof v.url === 'string' && /^https?:\/\//i.test(v.url))
+    .slice()
+    .sort((a, b) => {
+      const r = replaySourceRank(a.type) - replaySourceRank(b.type)
+      if (r !== 0) return r
+      return (b.priority || 0) - (a.priority || 0)
+    })
+    .slice(0, 3)
+    .map((v) => ({
+      url: v.url,
+      title: v.title || '',
+      publisher: v.publisher || '',
+      typeLabel: replayTypeLabel(v.type)
+    }))
+}
+
+function formatReplayDuration(sec) {
+  const s = Number(sec) || 0
+  if (s <= 0) return ''
+  const h = Math.floor(s / 3600)
+  const m = Math.round((s % 3600) / 60)
+  if (h > 0) return `${h}小时${m > 0 ? m + '分' : ''}`
+  return `${Math.max(1, m)}分钟`
+}
 
 function getChannelsFallbackGuideFromConfig() {
   return {
@@ -296,6 +345,18 @@ Page({
     missionDetailSecondsReel: ['01', '00', '59'],
     detailExpanded: buildDefaultDetailExpanded(),
     detailBlocks: buildDefaultDetailBlocks(),
+    // 分栏页签：默认只渲染「概览」；其余页签首次切入才渲染（visitedTabs）并拉取数据
+    detailTabs: [
+      { key: 'overview', label: '概览' },
+      { key: 'stats', label: '统计' },
+      { key: 'info', label: '详情' },
+      { key: 'timeline', label: '时间线' }
+    ],
+    activeTab: 'overview',
+    visitedTabs: { overview: true, stats: false, info: false, timeline: false },
+    detailScrollTop: 0,
+    /** 页签栏吸顶位置 = 实测导航栏底边（navPlaceholderHeight 含 8rpx 内容间距，直接用会留缝） */
+    detailTabStickyTop: 0,
     // 「翻译/原文」按钮状态；descI18n 为译文 override（空串时 WXML 兜底显示原文）
     descTranslated: false,
     descTranslating: false,
@@ -329,6 +390,11 @@ Page({
     showChannelLiveTap: false,
     /** 直播入口总闸（enableLive + enableLiveWatch，过审 failClosed） */
     enableLiveEntry: false,
+    /** 发射回放（enableMissionReplay 过审 failClosed）：集锦（压缩版）+ 完整回放外链 */
+    enableReplayEntry: false,
+    missionReplay: null,
+    replayClips: [],
+    replayLinks: [],
     /** Launch Library 飞行时间线（相对 T0），与当前任务 mission.id 绑定 */
     ll2FlightTimelineLoading: false,
     ll2FlightTimelineRows: [],
@@ -362,6 +428,11 @@ Page({
         tabBarReservedHeight: momentsBarPx + safeBottom
       })
     } catch (_) {}
+  },
+
+  onReady() {
+    // onLoad 阶段导航栏可能尚未渲染完成，onReady 补测一次吸顶位置
+    this._measureTabStickyTop()
   },
 
   onShow() {
@@ -403,6 +474,7 @@ Page({
 
     this.initUiShell()
     this.applyMomentsPreviewLayout()
+    this._measureTabStickyTop()
     // 头图与首页倒计时/卡片同源：先等 media_assets，再渲染，避免先闪 default 再纠正
     try {
       await Promise.race([
@@ -867,6 +939,7 @@ Page({
       programInfo: Array.isArray(mission.programInfo) ? mission.programInfo : [],
       launchSequenceRows: Array.isArray(mission.launchSequenceRows) ? mission.launchSequenceRows : [],
       relatedLinks: Array.isArray(mission.relatedLinks) ? mission.relatedLinks : [],
+      vidUrls: Array.isArray(mission.vidUrls) ? mission.vidUrls : [],
       ...this.buildLaunchTimelinePatch(mission)
     }
   },
@@ -1069,16 +1142,205 @@ Page({
     } else {
       this.clearMissionCountdownTimer()
     }
-    this.loadMissionLaunchStatsForMission(normalizedState.mission)
-    this.patchMissionLaunchStatsFromAgency(normalizedState.mission)
-    this.loadLl2FlightTimelineForMission(normalizedState.mission && normalizedState.mission.id)
+    // 统计/飞行时间线数据延迟到对应页签首次切入才拉取（onDetailTabTap 触发）；
+    // 用户已访问过页签时（如后台刷新回来）立即刷新
+    if (this.data.visitedTabs.stats) {
+      this.loadMissionLaunchStatsForMission(normalizedState.mission)
+      this.patchMissionLaunchStatsFromAgency(normalizedState.mission)
+    }
+    if (this.data.visitedTabs.timeline) {
+      this.loadLl2FlightTimelineForMission(normalizedState.mission && normalizedState.mission.id)
+    }
     if (normalizedState.inferredUpcoming) {
       this.ensureLiveEntryAllowed().then((on) => {
         if (!on) return
         this.loadChannelsLiveInfo()
         this.loadChannelsFallbackGuide()
       })
+    } else {
+      this.loadMissionReplaySection(normalizedState.mission)
     }
+  },
+
+  /**
+   * 发射后「观看回放」卡片：过审开关（enableMissionReplay，failClosed）+ 数据加载。
+   * 云端 mission_replays 提供集锦（压缩版 COS 视频，会员观看）与完整回放外链；
+   * 云端文档未就绪时外链回退到 LL2 vidUrls。
+   */
+  loadMissionReplaySection(mission) {
+    if (!mission || !mission.id) return
+    const isCompletedView = this.data.detailType === 'completed' ||
+      !!(mission.launchTime && getCountdown(mission.launchTime).isExpired)
+    if (!isCompletedView) return
+    const launchId = String(mission.id)
+    // 去重 key 带 vidUrls 数量：instant 缓存可能没有 vidUrls，详情返回后补建外链条目
+    const dedupeKey = launchId + ':' + (Array.isArray(mission.vidUrls) ? mission.vidUrls.length : 0)
+    if (this._replayLoadedKey === dedupeKey) return
+    this._replayLoadedKey = dedupeKey
+    this._replayLoadedLaunchId = launchId
+
+    // 开关检查与数据请求并行发起（原来串行等开关再发请求，白等一次网络往返）
+    const flagPromise = isFeatureEnabled('enableMissionReplay', { failClosed: true }).catch(() => false)
+    const fetchPromise = wx.cloud.callFunction({
+      name: 'apiProxy',
+      data: { action: 'missionReplay', launchId }
+    }).then((res) => {
+      const r = res && res.result
+      return (r && r.success && r.data) ? r.data : null
+    }).catch(() => null)
+
+    const showBase = () => {
+      this.setData({
+        enableReplayEntry: true,
+        replayLinks: buildReplayLinks(mission.vidUrls)
+      })
+      const cached = this._readReplayCache(launchId)
+      if (cached) this._applyReplayData(launchId, cached)
+    }
+
+    // 开关已有内存缓存且允许 → 骨架（外链）+ 本地缓存的集锦立即上屏，不等任何网络
+    const cachedCfg = getCachedMainConfig()
+    if (cachedCfg && cachedCfg._id && cachedCfg.enableMissionReplay !== false) showBase()
+
+    flagPromise.then((on) => {
+      if (String(this.data.mission && this.data.mission.id) !== launchId) return
+      if (!on) {
+        // 审核模式下开关可能刚被关掉：把提前上屏的内容收回去
+        if (this.data.enableReplayEntry) {
+          this.setData({ enableReplayEntry: false, missionReplay: null, replayClips: [], replayLinks: [] })
+        }
+        return
+      }
+      if (!this.data.enableReplayEntry) showBase()
+      fetchPromise.then((data) => {
+        if (!data) return
+        if (String(this.data.mission && this.data.mission.id) !== launchId) return
+        this._writeReplayCache(launchId, data)
+        this._applyReplayData(launchId, data)
+      })
+    })
+  },
+
+  /** mission_replays 文档 → 页面数据（集锦卡 + 外链 + 完整回放） */
+  _applyReplayData(launchId, data) {
+    const patch = {}
+
+    // 集锦短片（压缩版，会员观看）：官方推文集锦 + 指定博主（SciNews）集锦
+    const clips = (Array.isArray(data.clips) ? data.clips : [])
+      .filter((c) => c && c.videoUrl)
+      .map((c) => {
+        const dur = Number(c.durationSec) || 0
+        return {
+          videoUrl: c.videoUrl,
+          poster: c.thumbnailUrl
+            ? optimizeImageUrl(c.thumbnailUrl, 'thumb')
+            : videoSnapshotUrl(c.videoUrl, 1),
+          publisher: c.publisher || 'SpaceX',
+          durationText: dur > 0
+            ? `${Math.floor(dur / 60)}:${String(dur % 60).padStart(2, '0')}`
+            : '',
+          sourceUrl: c.sourceUrl || ''
+        }
+      })
+    if (clips.length) patch.replayClips = clips
+
+    // 完整回放外链：云端已按官方优先排好序，优先用云端结果
+    const links = (Array.isArray(data.links) ? data.links : [])
+      .filter((l) => l && l.url)
+      .slice(0, 3)
+      .map((l) => ({
+        url: l.url,
+        title: l.title || '',
+        publisher: l.publisher || '',
+        typeLabel: replayTypeLabel(l.type)
+      }))
+    if (links.length) patch.replayLinks = links
+
+    // 完整回放 COS 转存（可选链路，Agent 产出）
+    if (data.videoUrl) {
+      const durationText = formatReplayDuration(data.durationSec)
+      const publisher = data.sourcePublisher || ''
+      const subParts = []
+      if (publisher) subParts.push(publisher)
+      if (durationText) subParts.push(durationText)
+      subParts.push('会员在线观看')
+      patch.missionReplay = {
+        videoUrl: data.videoUrl,
+        poster: videoSnapshotUrl(data.videoUrl, 30),
+        subText: subParts.join(' · ')
+      }
+    }
+    if (Object.keys(patch).length) this.setData(patch)
+  },
+
+  /** 回放数据本地缓存（按 launchId，最多 12 条）：再次进入详情页集锦秒开，云端结果回来后覆盖 */
+  _readReplayCache(launchId) {
+    const all = storageCache.readMemOrSync('_mission_replay_cache', null)
+    const hit = all && all[launchId]
+    if (!hit || !hit.data) return null
+    // 24h 过期兜底（正常每次进页都会后台刷新覆盖）
+    if (Date.now() - (hit.at || 0) > 24 * 60 * 60 * 1000) return null
+    return hit.data
+  },
+
+  _writeReplayCache(launchId, data) {
+    const all = Object.assign({}, storageCache.readMemOrSync('_mission_replay_cache', null))
+    all[launchId] = { data, at: Date.now() }
+    const ids = Object.keys(all).sort((a, b) => (all[a].at || 0) - (all[b].at || 0))
+    while (ids.length > 12) delete all[ids.shift()]
+    storageCache.persistAsync('_mission_replay_cache', all)
+  },
+
+  /** 门控通过后进全站播放页播视频（回放/集锦共用） */
+  _playReplayVideo(videoUrl, poster) {
+    try {
+      const app = getApp()
+      if (app && app.globalData) {
+        app.globalData.pendingEventVideo = {
+          url: videoUrl,
+          poster: poster || '',
+          showmenu: false,
+          remoteUrl: videoUrl,
+          originalUrl: '',
+          sourceUrl: ''
+        }
+      }
+    } catch (e) {}
+    wx.navigateTo({
+      url: ROUTES.VIDEO_PLAYER,
+      fail() {
+        wx.previewMedia({
+          sources: [{ url: videoUrl, type: 'video', poster: poster || '' }],
+          current: 0,
+          showmenu: false
+        })
+      }
+    })
+  },
+
+  /** 点击 COS 转存完整回放：会员/看广告门控通过后播放 */
+  async onTapMissionReplay() {
+    const replay = this.data.missionReplay
+    if (!replay || !replay.videoUrl) return
+    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+
+    const { gateCheck } = require('../../utils/membership.js')
+    const allowed = await gateCheck('mission_replay', '发射回放')
+    if (!allowed) return
+    this._playReplayVideo(replay.videoUrl, replay.poster)
+  },
+
+  /** 点击发射集锦短片：同一门控，通过后播放压缩版 */
+  async onTapReplayClip(e) {
+    const idx = Number(e && e.currentTarget && e.currentTarget.dataset.index)
+    const clip = (this.data.replayClips || [])[idx]
+    if (!clip || !clip.videoUrl) return
+    try { wx.vibrateShort({ type: 'medium' }) } catch (e2) {}
+
+    const { gateCheck } = require('../../utils/membership.js')
+    const allowed = await gateCheck('mission_replay', '发射回放')
+    if (!allowed) return
+    this._playReplayVideo(clip.videoUrl, clip.poster)
   },
 
   /** 过审/全局开关：任务详情直播入口 */
@@ -1330,6 +1592,22 @@ Page({
     this.setData({ descOverflow: { missionDesc: false, rocketDesc: false } })
     this._textTranslateCache = null
 
+    // 切换任务时页签回到「概览」并重置访问记录，让新任务重新按需懒加载
+    if (this._tabStateMissionId && this._tabStateMissionId !== String(id)) {
+      this.setData({
+        activeTab: 'overview',
+        visitedTabs: { overview: true, stats: false, info: false, timeline: false }
+      })
+    }
+    this._tabStateMissionId = String(id)
+
+    // 切换任务时重置回放卡片状态，避免残留上一个任务的回放
+    if (this._replayLoadedLaunchId && this._replayLoadedLaunchId !== String(id)) {
+      this._replayLoadedLaunchId = ''
+      this._replayLoadedKey = ''
+      this.setData({ enableReplayEntry: false, missionReplay: null, replayClips: [], replayLinks: [] })
+    }
+
     let cache = {}
     let cachedMission = null
     try {
@@ -1379,8 +1657,9 @@ Page({
       if (!cacheMissingPadCoords) {
         this._patchMapPreviewAsync(fallback)
       }
-      this.loadMissionLaunchStatsForMission(fallback)
-      this.loadLl2FlightTimelineForMission(fallback.id)
+      // 统计/飞行时间线延迟到对应页签首次切入才拉取
+      if (this.data.visitedTabs.stats) this.loadMissionLaunchStatsForMission(fallback)
+      if (this.data.visitedTabs.timeline) this.loadLl2FlightTimelineForMission(fallback.id)
       // 当缓存新鲜且坐标完整时，下面 skipRebuild 会令 mission=null、syncMissionRuntimeState 整体跳过。
       // 这里补齐竞猜/直播的一次性初始化（在 instant 路径原本被漏掉）。
       // 仅在该条件下补，避免与后续 mission 重建走 syncMissionRuntimeState 时重复请求。
@@ -1395,9 +1674,11 @@ Page({
               this.loadChannelsFallbackGuide()
             }
           })
+        } else {
+          this.loadMissionReplaySection(fallback)
         }
         // skipRebuild 时不会再 sync；若缓存已有序号行，统计返回后仍可能缺累计，主动补一次
-        this.patchMissionLaunchStatsFromAgency(fallback)
+        if (this.data.visitedTabs.stats) this.patchMissionLaunchStatsFromAgency(fallback)
       }
     } else if (!(opts.silent && this.data.mission)) {
       // silent（下拉刷新）：已有内容时不回退到加载骨架，只显示微信原生刷新指示器
@@ -1667,6 +1948,71 @@ Page({
     this.setData({ [`detailExpanded.${key}`]: !this.data.detailExpanded[key] })
   },
 
+  /** 分栏页签点击：首次切入才渲染 panel 并拉取该页签的数据（懒加载） */
+  onDetailTabTap(e) {
+    const key = e && e.currentTarget && e.currentTarget.dataset.key
+    if (!key || key === this.data.activeTab) return
+    try { wx.vibrateShort({ type: 'light' }) } catch (e2) {}
+
+    const firstVisit = !this.data.visitedTabs[key]
+    const patch = { activeTab: key }
+    if (firstVisit) patch[`visitedTabs.${key}`] = true
+    this.setData(patch, () => {
+      // 「详情」panel 隐藏时（display:none）量不出行数：每次切入都补测一次文本折叠
+      // （首次渲染后节点才存在；期间若切过翻译，译文行数与原文不同也靠这里纠正）
+      if (key === 'info') this._measureDescOverflow()
+    })
+
+    // 首次切入才发起该页签的数据请求（模块内有 launchId 级去重，重复切换不重复拉）
+    const mission = this.data.mission
+    if (key === 'stats' && mission) {
+      this.loadMissionLaunchStatsForMission(mission)
+      this.patchMissionLaunchStatsFromAgency(mission)
+    } else if (key === 'timeline' && mission) {
+      this.loadLl2FlightTimelineForMission(mission.id)
+    }
+
+    this._scrollPanelsToTop()
+  },
+
+  /** 实测固定导航栏底边，作为页签栏 sticky top：与导航下口无缝对齐 */
+  _measureTabStickyTop() {
+    wx.nextTick(() => {
+      try {
+        wx.createSelectorQuery()
+          .select('.top-nav-wrapper')
+          .boundingClientRect((rect) => {
+            if (!rect || !rect.bottom) return
+            // 上移 1px 让页签栏顶边藏进导航底部 1px 边线下，杜绝亚像素缝
+            const top = Math.max(0, rect.bottom - 1)
+            if (Math.abs(top - this.data.detailTabStickyTop) >= 0.5) {
+              this.setData({ detailTabStickyTop: top })
+            }
+          })
+          .exec()
+      } catch (e) {}
+    })
+  },
+
+  /** 切页签时若已滚过页签栏，滚回页签栏吸顶位置，避免新 panel 内容落在视野外 */
+  _scrollPanelsToTop() {
+    try {
+      const q = wx.createSelectorQuery().in(this)
+      q.select('#detailTabAnchor').boundingClientRect()
+      q.select('#detailScrollView').scrollOffset()
+      q.exec((res) => {
+        const rect = res && res[0]
+        const off = res && res[1]
+        if (!rect || !off) return
+        const navH = Number(this.data.detailTabStickyTop || this.data.navPlaceholderHeight) || 0
+        // 锚点还在导航栏下方（头图可见）→ 无需回滚
+        if (rect.top >= navH - 1) return
+        const target = Math.max(0, off.scrollTop + rect.top - navH)
+        this.setData({ detailScrollTop: target })
+      })
+    } catch (e) {}
+  },
+
   /** 量取任务说明/火箭信息的实际渲染行数，超过 3 行才折叠（以隐藏测量节点高度 ÷ 单行高判定） */
   _measureDescOverflow() {
     wx.nextTick(() => {
@@ -1677,6 +2023,11 @@ Page({
         q.select('#descMeasureLineR').boundingClientRect()
         q.select('#descMeasureRocket').boundingClientRect()
         q.exec((res) => {
+          // 「详情」页签未渲染或被 hidden（display:none）时节点量不出高度，
+          // 跳过本次更新保留旧值；切入页签时会再补测
+          const lineM = res && res[0]
+          const lineR = res && res[2]
+          if ((!lineM || !lineM.height) && (!lineR || !lineR.height)) return
           const overflowOf = (lineRect, textRect) => {
             if (!lineRect || !textRect || !lineRect.height || !textRect.height) return false
             // 容差 2px：避免字体渲染取整导致恰好 3 行被误判为溢出

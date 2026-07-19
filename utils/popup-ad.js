@@ -174,16 +174,25 @@ async function fetchPopupAdConfigFromCloud() {
     let shopItems = []
     if (shopItemIds.length) {
       const _ = db.command
-      const sfRes = await db
-        .collection('shop_feed')
-        .where({ _id: _.in(shopItemIds) })
-        .limit(50)
-        .get()
+      // 小程序端单次查询上限 20 条（.limit(50) 会被静默截断成 20）：按 20 个 id 一组分批查
+      const CHUNK = 20
+      const tasks = []
+      for (let i = 0; i < shopItemIds.length; i += CHUNK) {
+        tasks.push(
+          db.collection('shop_feed')
+            .where({ _id: _.in(shopItemIds.slice(i, i + CHUNK)) })
+            .limit(CHUNK)
+            .get()
+        )
+      }
+      const chunkResults = await Promise.all(tasks)
       const byId = {}
-      ;(sfRes.data || []).forEach((row) => {
-        // 后台已经主动勾选了，这里不再二次过滤 enabled，
-        // 避免"后台开启 + shop_feed.enabled=false"两侧状态对打。
-        if (row && row._id) byId[row._id] = row
+      chunkResults.forEach((sfRes) => {
+        ;(sfRes.data || []).forEach((row) => {
+          // 后台已经主动勾选了，这里不再二次过滤 enabled，
+          // 避免"后台开启 + shop_feed.enabled=false"两侧状态对打。
+          if (row && row._id) byId[row._id] = row
+        })
       })
       shopItems = shopItemIds.map((id) => byId[id]).filter(Boolean)
     }

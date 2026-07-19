@@ -625,6 +625,63 @@ async function handleLl2RocketConfigDetail(event) {
   }
 }
 
+// ══════════════════════════════════════════════
+//  任务发射回放（mission_replays 由 replay-fetcher Agent 写入）
+// ══════════════════════════════════════════════
+async function handleMissionReplay(event) {
+  const launchId = event && event.launchId ? String(event.launchId).trim() : ''
+  if (!launchId) return { success: false, error: 'missing launchId' }
+  try {
+    const res = await db.collection('mission_replays').doc(launchId).get()
+    const doc = res && res.data
+    if (!doc || doc.status !== 'ready') {
+      return { success: true, data: null }
+    }
+    // COS 上的回放/集锦文件设了 30 天生命周期自动删除；发射超 29 天的不再下发
+    // COS 视频（避免前端拿到已被回收的 404 链接），只保留外链
+    const netMs = Date.parse(doc.net || '') || Number(doc.createdAt) || 0
+    const cosExpired = netMs > 0 && (Date.now() - netMs) > 29 * 24 * 60 * 60 * 1000
+
+    // clips = SpaceX 官方推文集锦 + Agent 抓取的指定博主集锦（SciNews），官方在前
+    const rawClips = cosExpired ? [] : (Array.isArray(doc.clips) ? doc.clips : [])
+      .concat(Array.isArray(doc.agentClips) ? doc.agentClips : [])
+    const clips = rawClips.map(c => ({
+      videoUrl: c.videoUrl || '',
+      thumbnailUrl: c.thumbnailUrl || '',
+      sourceUrl: c.sourceUrl || '',
+      title: c.title || '',
+      publisher: c.publisher || '',
+      durationSec: c.durationSec || 0,
+      publishedAt: c.publishedAt || 0
+    })).filter(c => c.videoUrl)
+    const links = (Array.isArray(doc.links) ? doc.links : []).map(l => ({
+      url: l.url || '',
+      title: l.title || '',
+      publisher: l.publisher || '',
+      type: l.type || ''
+    })).filter(l => l.url)
+    if (!clips.length && !links.length && !doc.videoUrl) {
+      return { success: true, data: null }
+    }
+    return {
+      success: true,
+      data: {
+        launchId: doc.launchId,
+        clips,
+        links,
+        // 完整回放 COS 转存（可选，Agent 产出；默认链路为空 = 长视频只给链接）
+        videoUrl: cosExpired ? '' : (doc.videoUrl || ''),
+        durationSec: doc.durationSec || 0,
+        sourcePublisher: (doc.sourceUsed && doc.sourceUsed.publisher) || '',
+        updatedAt: doc.updatedAt || 0
+      }
+    }
+  } catch (e) {
+    // doc 不存在（该任务未抓/未就绪）不算错误
+    return { success: true, data: null }
+  }
+}
+
 // ── 小程序 AI 原子接口数据后端（launch-skill 专用） ──
 const agentActions = require('./agent-actions.js')({ db, cloud, fetchJSON, getCache, setCache })
 
@@ -647,6 +704,7 @@ exports.main = async (event) => {
   if (action === 'll2LocationList') return handleLl2LocationList()
   if (action === 'll2PadList') return handleLl2PadList(event)
   if (action === 'll2RocketConfigDetail') return handleLl2RocketConfigDetail(event)
+  if (action === 'missionReplay') return handleMissionReplay(event)
   if (typeof agentActions[action] === 'function') return agentActions[action](event)
 
   return { success: false, error: '未知 action: ' + action }
