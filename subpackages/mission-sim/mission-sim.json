@@ -1,0 +1,14 @@
+{
+  "navigationBarTitleText": "星舰任务指挥室",
+  "navigationStyle": "custom",
+  "backgroundTextStyle": "dark",
+  "backgroundColor": "#000000",
+  "backgroundColorTop": "#000000",
+  "backgroundColorBottom": "#000000",
+  "usingComponents": {
+    "share-gate-countdown": "/subpackages/shared/components/share-gate-countdown/index"
+  },
+  "componentPlaceholder": {
+    "share-gate-countdown": "view"
+  }
+}

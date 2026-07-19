@@ -211,16 +211,16 @@
         <view class="countdown-card-main" bindtap="onCountdownCardTap" data-id="{{launchData.id}}">
           <view class="countdown-visual-row">
             <view
-              class="countdown-rocket-wrap {{isChannelsLive ? 'is-live' : ''}} {{channelsLiveAnimPaused ? 'is-paused' : ''}} {{isEnteringLive ? 'is-entering' : ''}}"
+              class="countdown-rocket-wrap {{enableLiveEntry && isChannelsLive ? 'is-live' : ''}} {{channelsLiveAnimPaused ? 'is-paused' : ''}} {{isEnteringLive ? 'is-entering' : ''}}"
               catchtap="onCountdownLiveAvatarTap"
             >
-              <view wx:if="{{isChannelsLive}}" class="cd-live-ripple cd-live-ripple--1"></view>
-              <view wx:if="{{isChannelsLive}}" class="cd-live-ripple cd-live-ripple--2"></view>
-              <view class="countdown-rocket-slot {{isChannelsLive ? 'countdown-rocket-slot--live' : ''}}">
+              <view wx:if="{{enableLiveEntry && isChannelsLive}}" class="cd-live-ripple cd-live-ripple--1"></view>
+              <view wx:if="{{enableLiveEntry && isChannelsLive}}" class="cd-live-ripple cd-live-ripple--2"></view>
+              <view class="countdown-rocket-slot {{enableLiveEntry && isChannelsLive ? 'countdown-rocket-slot--live' : ''}}">
                 <image class="countdown-rocket-img" wx:if="{{launchData.rocketImage || launchData.image}}" src="{{launchData.rocketImage || launchData.image}}" mode="aspectFill" binderror="onCountdownRocketImageError"></image>
                 <view wx:else class="countdown-rocket-slot-inner countdown-rocket-avatar--placeholder"></view>
               </view>
-              <view wx:if="{{isChannelsLive}}" class="cd-avatar-tag cd-avatar-tag--live">
+              <view wx:if="{{enableLiveEntry && isChannelsLive}}" class="cd-avatar-tag cd-avatar-tag--live">
                 <view class="cd-live-eq" aria-hidden="true">
                   <view class="cd-live-eq-bar"></view>
                   <view class="cd-live-eq-bar"></view>

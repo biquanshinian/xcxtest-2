@@ -747,6 +747,28 @@ Page({
 
   stopPropagation() {},
 
+  /**
+   * 点卡片跳详情时把列表项一次性暂存到 app 级（navigator 无 eventChannel）：
+   * 详情页先用快照上屏做首屏加速，网络详情照常拉取兜底
+   */
+  onNewsCardSnapshotTap(e) {
+    const id = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.id : ''
+    if (!id) return
+    const item = (this.data.newsList || []).find((row) => String(row && row.id) === String(id))
+    if (!item) return
+    try {
+      const app = getApp()
+      if (app) {
+        app._newsDetailSnapshot = {
+          id: String(id),
+          type: this.data.contentType === 'articles' ? 'article' : 'event',
+          item,
+          at: Date.now()
+        }
+      }
+    } catch (err) {}
+  },
+
   shareEvent(e) {
     if (e && e.stopPropagation) e.stopPropagation()
     const id = e.currentTarget.dataset.id || (e.detail && e.detail.target && e.detail.target.dataset && e.detail.target.dataset.id)

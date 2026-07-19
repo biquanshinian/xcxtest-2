@@ -102,8 +102,8 @@
         </view>
         <view class="benefit-cell">
           <image class="benefit-cell-icon" src="{{benefitIcons[2]}}" mode="aspectFit" />
-          <text class="benefit-cell-name">7天过境预报</text>
-          <text class="benefit-cell-desc">星链未来7天精确预报</text>
+          <text class="benefit-cell-name">24小时过境预报</text>
+          <text class="benefit-cell-desc">星链未来24小时精确预报</text>
         </view>
         <view class="benefit-cell">
           <image class="benefit-cell-icon" src="{{benefitIcons[4]}}" mode="aspectFit" />

@@ -340,6 +340,7 @@ const form = reactive({
   enableBriefing: true,
   enableLiveWatch: true,
   enablePublishPanel: true,
+  enableMissionSim: false,
   // 会员策略与流量
   mediaTrafficMode: 'normal',
   freeMissionListLimit: 10,
@@ -373,7 +374,8 @@ const featureSwitches = [
   { field: 'enableMembership', label: '会员系统（星际通行证）', desc: '关闭后隐藏所有付费入口，AI 保持 10 次/日免费额度' },
   { field: 'enableBriefing', label: '每日太空简报', desc: '关闭后用户进入小程序不再弹出每日简报' },
   { field: 'enableLiveWatch', label: '直播观看（监控中心）', desc: '关闭后监控中心与任务详情的视频号/B站直播入口隐藏；需「直播功能」未关' },
-  { field: 'enablePublishPanel', label: '贴图讨论区', desc: '关闭后全站详情页底部的贴图讨论区组件将隐藏，方便过审' }
+  { field: 'enablePublishPanel', label: '贴图讨论区', desc: '关闭后全站详情页底部的贴图讨论区组件将隐藏，方便过审' },
+  { field: 'enableMissionSim', label: '星舰任务指挥室（互动模拟）', desc: '星舰进度页的发射流程互动模拟入口；默认关闭，建议过审通过后再灰度开启' }
 ]
 
 const AUDIT_FIELDS = [
@@ -386,10 +388,11 @@ const AUDIT_FIELDS = [
   'enableLunarWishes',
   'enableBriefing',
   'enableLiveWatch',
-  'enablePublishPanel'
+  'enablePublishPanel',
+  'enableMissionSim'
 ]
 
-const AUDIT_LABEL = '轮播图、开屏动画、事件更新视频（含播放页/世界杯/背景视频）、发射回放、直播功能、AI 太空助手、月愿计划、每日太空简报、直播观看、贴图讨论区'
+const AUDIT_LABEL = '轮播图、开屏动画、事件更新视频（含播放页/世界杯/背景视频）、发射回放、直播功能、AI 太空助手、月愿计划、每日太空简报、直播观看、贴图讨论区、星舰任务指挥室'
 
 const auditModeView = computed(() => AUDIT_FIELDS.every((f) => form[f] === false))
 

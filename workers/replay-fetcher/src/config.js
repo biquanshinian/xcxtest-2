@@ -37,6 +37,10 @@ export function getConfig() {
     ffmpegPath: String(process.env.FFMPEG_PATH || '').trim(),
     maxHeight: Math.max(240, Number(process.env.REPLAY_MAX_HEIGHT || 480)),
     maxFileMB: Math.max(50, Number(process.env.REPLAY_MAX_FILE_MB || 1024)),
-    proxy: String(process.env.REPLAY_PROXY || '').trim()
+    // 出口候选列表（逗号分隔，按优先级排列）：代理 URL 或 'direct'（直连）。
+    // 每次领到任务时逐个探测连通性，用第一个能通 YouTube 的出口
+    proxies: String(process.env.REPLAY_PROXY || '').split(',').map((s) => s.trim()).filter(Boolean),
+    // 运行时由 pickProxy 填充的当前出口（'' = 直连）
+    proxy: ''
   }
 }

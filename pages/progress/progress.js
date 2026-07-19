@@ -28,6 +28,7 @@ const {
   saveManualRoadClosureNotice
 } = require('../../utils/progress-road-closure.js')
 const { fetchLiveStatusBatch, parseLiveStatus } = require('../../utils/live-status.js')
+const { isLiveEntryAllowed, isFeatureEnabled } = require('../../utils/feature-flags.js')
 const { pickEventShareImageUrl, resolveTweetAccountAvatarUrl } = require('../../utils/event-share-image.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { gateCheck, isProSync, isMembershipEnabled, canUsePaidCloudSync, canPrefetchVideoSync, canSaveOriginalVideoSync } = require('../../utils/membership.js')
@@ -99,6 +100,15 @@ Page({
       withShareTicket: true,
       menus: ['shareAppMessage', 'shareTimeline']
     })
+
+    isLiveEntryAllowed().then((on) => {
+      this.setData({ enableLiveEntry: !!on })
+    }).catch(() => {})
+
+    // 与直播入口同一份 global_config 缓存，不产生额外读库
+    isFeatureEnabled('enableMissionSim', { failClosed: true }).then((on) => {
+      if (on) this.setData({ enableMissionSim: true })
+    }).catch(() => {})
 
     // 首屏关键路径：云媒体映射 → 星舰卡片数据
     void loadCloudMediaMap()
@@ -364,6 +374,10 @@ Page({
     eventScrollRefreshing: false,
     scrollRefreshing: false,
     enableEventVideo: false,
+    // 过审直播入口开关（isLiveEntryAllowed，failClosed）：关闭时不渲染 B 站直播卡、不查直播状态
+    enableLiveEntry: false,
+    // 星舰任务指挥室入口（enableMissionSim，failClosed）：过审时整卡隐藏
+    enableMissionSim: false,
     showEventShareSheet: false,
     tweetAccountStats: [],
     tweetEventTotal: 0,
@@ -548,6 +562,14 @@ Page({
       } else {
         data = await getStarshipStatusFromDB()
       }
+
+      // 写入全局共享：starship-detail / starbase-map / event-detail 10 分钟内直接复用，不重复读库
+      try {
+        const app = getApp()
+        if (app && app.globalData) {
+          app.globalData.starshipStatus = { data, fetchedAt: Date.now() }
+        }
+      } catch (e) {}
 
       const starshipData = this.normalizeStarshipStatusData(data)
       const flightReadinessChecklist = Array.isArray(data && data.flightReadinessChecklist)
@@ -1190,7 +1212,23 @@ Page({
     })
   },
 
-  /** 标题右侧「查看全部」→ 完整列表页；与卡片点击共用同一门控 */
+  /** 星舰任务指挥室入口（PRO 门控；专属 id 不在 PRODUCTS 单品表内 → 弹窗只提供开通星际通行证） */
+  async openMissionSim() {
+    if (!this.data.enableMissionSim) return
+    if (this._missionSimGatePending) return
+    this._missionSimGatePending = true
+    try {
+      const allowed = await gateCheck('mission_sim', '星舰任务指挥室')
+      if (!allowed) return
+      if (wx.vibrateShort) {
+        try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+      }
+      wx.navigateTo({ url: '/subpackages/mission-sim/mission-sim' })
+    } finally {
+      this._missionSimGatePending = false
+    }
+  },
+
   async onHardwareViewAllTap() {
     const allowed = await gateCheck('starship_hardware', '星舰硬件设施')
     if (!allowed) return
@@ -1393,6 +1431,7 @@ Page({
         const cached = storageCache.readMemOrSync(this._eventCacheKey, null)
         if (cached && cached.timestamp && (Date.now() - cached.timestamp < this._eventCacheTTL)) {
           if (!this._eventCacheHasUntranslated(cached.data)) {
+            this._stashRawEventDocs(cached.data)
             const items = (cached.data || []).map(item => this._enrichEventItem(item))
             this.setData({
               eventUpdates: items,
@@ -1421,6 +1460,7 @@ Page({
         .limit(limit)
         .get()
 
+      this._stashRawEventDocs(res.data)
       const newItems = (res.data || []).map(item => this._enrichEventItem(item))
 
       const merged = refresh ? newItems : this.data.eventUpdates.concat(newItems)
@@ -1453,6 +1493,24 @@ Page({
     return m ? m[1] : String(raw).replace(/\D/g, '')
   },
 
+  /** 原始事件文档按 _id 暂存（未 enrich）：跳详情页时经 eventChannel 传快照做首屏加速 */
+  _stashRawEventDocs(rows) {
+    if (!Array.isArray(rows) || !rows.length) return
+    if (!this._rawEventDocsById) this._rawEventDocsById = {}
+    rows.forEach((row) => {
+      if (row && row._id) this._rawEventDocsById[row._id] = row
+    })
+  },
+
+  _emitEventSnapshot(res, eventId) {
+    try {
+      const raw = this._rawEventDocsById && this._rawEventDocsById[eventId]
+      if (res && res.eventChannel && raw) {
+        res.eventChannel.emit('eventSnapshot', raw)
+      }
+    } catch (e) {}
+  },
+
   _scheduleLiveStatusCheck(items) {
     const liveItems = (items || []).filter((it) => it.liveRoomId)
     if (!liveItems.length) return
@@ -1466,6 +1524,13 @@ Page({
   async _checkLiveStatus(items) {
     const liveItems = (items || []).filter(it => it.liveRoomId)
     if (!liveItems.length) return
+
+    // 过审关闭直播入口：不发起 B 站直播状态查询（wxml 侧同开关已隐藏直播卡）
+    const allowed = await isLiveEntryAllowed().catch(() => false)
+    if (this.data.enableLiveEntry !== !!allowed) {
+      this.setData({ enableLiveEntry: !!allowed })
+    }
+    if (!allowed) return
 
     const roomIds = [...new Set(liveItems.map(it => this._extractRoomId(it.liveRoomId)))]
     const statusMap = await fetchLiveStatusBatch(roomIds)
@@ -1519,7 +1584,8 @@ Page({
     const eventId = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.id : ''
     if (!eventId) return
     wx.navigateTo({
-      url: `${ROUTES.EVENT_DETAIL}?id=${encodeURIComponent(eventId)}`
+      url: `${ROUTES.EVENT_DETAIL}?id=${encodeURIComponent(eventId)}`,
+      success: (res) => this._emitEventSnapshot(res, eventId)
     })
   },
 
@@ -1563,7 +1629,8 @@ Page({
     if (!eventId) return
     wx.navigateTo({
       url: `${ROUTES.EVENT_DETAIL}?id=${encodeURIComponent(eventId)}`,
-      success: () => {
+      success: (res) => {
+        this._emitEventSnapshot(res, eventId)
         wx.showToast({
           title: '打开右上角可分享到朋友圈/收藏',
           icon: 'none',
@@ -1598,6 +1665,7 @@ Page({
   },
 
   onLiveCardTap(e) {
+    if (!this.data.enableLiveEntry) return
     const idx = Number(e.currentTarget.dataset.idx)
     const item = this.data.eventUpdates[idx]
     if (!item) return
@@ -1686,7 +1754,8 @@ Page({
     if (isVideoUrl(url) || isVideoUrl(dataset.playurl)) {
       if (eventId) {
         wx.navigateTo({
-          url: `${ROUTES.EVENT_DETAIL}?id=${encodeURIComponent(eventId)}&autoPlayVideo=${mIdx}`
+          url: `${ROUTES.EVENT_DETAIL}?id=${encodeURIComponent(eventId)}&autoPlayVideo=${mIdx}`,
+          success: (res) => this._emitEventSnapshot(res, eventId)
         })
       } else {
         await playEventVideo({

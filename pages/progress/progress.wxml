@@ -302,8 +302,8 @@
               <text class="event-update-content" wx:if="{{item.content}}">{{item.content}}</text>
             </view>
 
-            <!-- 直播卡片 -->
-            <view class="event-live-card" wx:if="{{item.liveRoomId}}" bindtap="onLiveCardTap" data-idx="{{index}}">
+            <!-- 直播卡片（enableLiveEntry：过审关闭直播入口时整卡隐藏） -->
+            <view class="event-live-card" wx:if="{{enableLiveEntry && item.liveRoomId}}" bindtap="onLiveCardTap" data-idx="{{index}}">
               <view class="event-live-cover-wrap">
                 <image
                   class="event-live-cover"
@@ -465,6 +465,25 @@
         <view class="nsf-checklist-expand-row" hover-class="nsf-checklist-expand-row--active" bindtap="onNsfChecklistExpandTap">
           <text class="nsf-checklist-expand-text">展开</text>
           <text class="nsf-checklist-expand-chevron">›</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 星舰任务指挥室（互动模拟；enableMissionSim 过审开关，failClosed） -->
+    <view class="mission-sim-section" wx:if="{{enableMissionSim}}">
+      <view class="mission-sim-entry" bindtap="openMissionSim" hover-class="mission-sim-entry--pressed" hover-stay-time="120">
+        <view class="mission-sim-entry-glow"></view>
+        <view class="mission-sim-entry-left">
+          <view class="mission-sim-entry-tagrow">
+            <view class="mission-sim-entry-dot"></view>
+            <text class="mission-sim-entry-tag">GO / NO-GO · SIM</text>
+          </view>
+          <text class="mission-sim-entry-title">星舰任务指挥室</text>
+          <text class="mission-sim-entry-desc">以飞行总监视角完成一次发射：席位轮询、天气权衡、筷子捕获决策</text>
+        </view>
+        <view class="mission-sim-entry-arrow">
+          <text>进入</text>
+          <text class="mission-sim-entry-arrow-icon">›</text>
         </view>
       </view>
     </view>

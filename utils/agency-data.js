@@ -275,7 +275,14 @@ async function getFeaturedAgencies() {
     getAgencies({ featured: false, limit: 1, offset: 0 }).catch(() => null)
   ])
   const list = ((data && data.results) || []).map(formatAgency)
-  if (!list.length) throw new Error('agencies_unavailable')
+  if (!list.length) {
+    // stale-if-error：featured 云缓存读不到时回退超龄持久缓存，预览卡片不白屏
+    const stale = _readAgencyPersist(true)
+    if (stale) {
+      return { list: stale.list, totalCount: stale.totalCount, partial: true, stale: true }
+    }
+    throw new Error('agencies_unavailable')
+  }
   list.sort(compareAgenciesByLaunchCount)
   // 预览路径不拉全量；limit=1 探测全库 count 供标题红角标
   let totalCount = 0
@@ -292,11 +299,12 @@ async function getFeaturedAgencies() {
 let _cache = null
 let _inflight = null
 
-function _readAgencyPersist() {
+function _readAgencyPersist(allowStale) {
   try {
     const hit = wx.getStorageSync(AGENCY_PERSIST_KEY)
-    if (!hit || !hit.list || !hit.at) return null
-    if (Date.now() - hit.at > AGENCY_PERSIST_TTL_MS) return null
+    if (!hit || !hit.list || !hit.list.length || !hit.at) return null
+    // allowStale：云端/网络全部失败时的最后兜底，宁可展示超过 24h 的旧列表也不白屏
+    if (!allowStale && Date.now() - hit.at > AGENCY_PERSIST_TTL_MS) return null
     return hit
   } catch (e) {
     return null
@@ -355,6 +363,12 @@ function getAllAgencies(options) {
     })
     .catch((e) => {
       _inflight = null
+      // stale-if-error：拉取全挂时回退超龄持久缓存（旧列表也比「加载失败」强），
+      // 下次进入页面仍会正常重试刷新
+      const stale = _readAgencyPersist(true)
+      if (stale) {
+        return { list: stale.list, totalCount: stale.totalCount, partial: true, stale: true }
+      }
       throw e
     })
   return _inflight

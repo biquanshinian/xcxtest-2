@@ -1,0 +1,235 @@
+<page-meta background-color="#000000" background-color-top="#000000" background-color-bottom="#000000" />
+<view class="detail-page ms-page">
+  <!-- 统一顶栏骨架（与其它详情页一致） -->
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">星舰任务指挥室</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+  </view>
+
+  <scroll-view class="detail-scroll" scroll-y="true" scroll-into-view="{{scrollAnchor}}" scroll-into-view-offset="{{-110}}" scroll-with-animation="{{true}}" enhanced show-scrollbar="{{false}}">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <!-- 功能未开放（过审开关关闭 / 分享链接过期被门控拦截） -->
+    <view class="ms-disabled" wx:if="{{!enabled}}">
+      <text class="ms-disabled-text">{{disabledText || '该功能暂未开放'}}</text>
+      <view class="ms-btn ms-btn--ghost" bindtap="goBack"><text>返回</text></view>
+    </view>
+
+    <!-- 开始页 -->
+    <view class="ms-start" wx:elif="{{!started}}">
+      <view class="ms-block">
+        <view class="ms-block-head">
+          <text class="ms-block-tag">MISSION BRIEF</text>
+          <text class="ms-block-title">你不是火箭，你是飞行总监</text>
+        </view>
+        <view class="ms-block-body ms-start-body">
+          <view class="ms-start-mission" wx:if="{{missionName}}">
+            <view class="ms-start-mission-dot"></view>
+            <text class="ms-start-mission-text">已对齐「{{missionName}}」飞行时间线 · {{missionTlCount}} 个节点</text>
+          </view>
+          <text class="ms-start-desc">监控遥测与席位状态板，沿飞行时间线在三个 GO/NO-GO 决策门做出判断：加注提交、T-40 最终提交、筷子捕获。中止永远安全，但发射窗口和箭体都有成本。</text>
+          <view class="ms-start-rows">
+            <view class="ms-start-row"><text class="ms-start-k">时长</text><text class="ms-start-v">约 5-6 分钟（自动时间压缩）</text></view>
+            <view class="ms-start-row"><text class="ms-start-k">机制</text><text class="ms-start-v">同一 SEED 每次事件完全一致</text></view>
+            <view class="ms-start-row"><text class="ms-start-k">席位</text><text class="ms-start-v">推进 / 结构 / 气象 / 回收塔 / 航区</text></view>
+          </view>
+          <view class="ms-btn ms-btn--go" bindtap="onStartTap" data-mode="seed" hover-class="ms-btn--pressed">
+            <text>开始任务 · SEED {{seed}}</text>
+          </view>
+          <view class="ms-btn ms-btn--ghost" bindtap="onStartTap" data-mode="random" hover-class="ms-btn--pressed">
+            <text>随机种子开局</text>
+          </view>
+          <text class="ms-start-note">互动科普内容：流程与节点参考公开资料，模型为简化演示</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 运行态 -->
+    <block wx:elif="{{sim}}">
+      <!-- 任务钟（在滚动区内吸顶，吸附在导航栏下方） -->
+      <view class="ms-clock-sticky" style="top: {{navPlaceholderHeight}}px;">
+        <view class="ms-clock">
+          <view class="ms-clock-main">
+            <text class="ms-clock-t">{{sim.tText}}</text>
+            <view class="ms-clock-meta">
+              <text class="ms-clock-phase">{{sim.phaseLabel}}</text>
+              <view class="ms-clock-badges">
+                <text class="ms-clock-warp" wx:if="{{sim.warp * rate > 1}}">{{sim.warp * rate}}x</text>
+                <text class="ms-clock-warp ms-clock-warp--hold" wx:elif="{{sim.warp === 0 && sim.phase !== 'done'}}">HOLD</text>
+                <text class="ms-clock-seed">SEED {{seed}}</text>
+              </view>
+            </view>
+          </view>
+          <!-- 倒计时倍率（叠乘在阶段自动压缩上） -->
+          <view class="ms-rate" wx:if="{{sim.phase !== 'done'}}">
+            <text class="ms-rate-label">倍率</text>
+            <view class="ms-rate-opts">
+              <view class="ms-rate-opt {{rate === 1 ? 'ms-rate-opt--on' : ''}}" bindtap="onRateTap" data-rate="1" hover-class="ms-rate-opt--pressed"><text>1x</text></view>
+              <view class="ms-rate-opt {{rate === 2 ? 'ms-rate-opt--on' : ''}}" bindtap="onRateTap" data-rate="2" hover-class="ms-rate-opt--pressed"><text>2x</text></view>
+              <view class="ms-rate-opt {{rate === 4 ? 'ms-rate-opt--on' : ''}}" bindtap="onRateTap" data-rate="4" hover-class="ms-rate-opt--pressed"><text>4x</text></view>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 平面飞行示意图 -->
+      <view class="ms-block">
+        <view class="ms-block-head">
+          <text class="ms-block-tag">FLIGHT PROFILE</text>
+          <text class="ms-block-title">飞行示意图</text>
+          <view class="ms-legend">
+            <view class="ms-legend-item"><view class="ms-legend-dot ms-legend-dot--booster"></view><text>助推器</text></view>
+            <view class="ms-legend-item"><view class="ms-legend-dot ms-legend-dot--ship"></view><text>飞船</text></view>
+          </view>
+        </view>
+        <view class="ms-block-body">
+          <canvas type="2d" id="msDiagram" class="ms-diagram"></canvas>
+          <view class="ms-bars">
+            <view class="ms-bar">
+              <text class="ms-bar-label">推进剂</text>
+              <view class="ms-bar-track"><view class="ms-bar-fill" style="width: {{sim.propLoad}}%;"></view></view>
+              <text class="ms-bar-val">{{sim.propLoad}}%</text>
+            </view>
+            <view class="ms-bar">
+              <text class="ms-bar-label">水幕系统</text>
+              <view class="ms-bar-track"><view class="ms-bar-fill ms-bar-fill--water" style="width: {{sim.water}}%;"></view></view>
+              <text class="ms-bar-val">{{sim.water}}%</text>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 双级飞行遥测：左一级 / 右二级，各含发动机集群、姿态球、速度高度、燃料条 -->
+      <view class="ms-block">
+        <view class="ms-block-head">
+          <text class="ms-block-tag">STAGE TELEMETRY</text>
+          <text class="ms-block-title">双级飞行遥测</text>
+        </view>
+        <view class="ms-block-body">
+          <canvas type="2d" id="msEngines" class="ms-engines"></canvas>
+        </view>
+      </view>
+
+      <!-- 飞行时间线（决策门内联） -->
+      <view class="ms-block">
+        <view class="ms-block-head">
+          <text class="ms-block-tag">FLIGHT TIMELINE</text>
+          <text class="ms-block-title">任务时间线</text>
+        </view>
+        <view class="ms-block-body ms-timeline">
+          <view class="ms-tl-node ms-tl-node--{{node.status}} {{node.tone ? 'ms-tl-node--tone-' + node.tone : ''}}"
+                wx:for="{{sim.timeline}}" wx:for-item="node" wx:key="id"
+                id="{{node.hasGate ? 'msGateNode' : ''}}">
+            <view class="ms-tl-rail">
+              <view class="ms-tl-dot"></view>
+              <view class="ms-tl-line" wx:if="{{index < sim.timeline.length - 1}}"></view>
+            </view>
+            <view class="ms-tl-content">
+              <view class="ms-tl-row">
+                <text class="ms-tl-t">{{node.tLabel}}</text>
+                <text class="ms-tl-label">{{node.label}}</text>
+                <text class="ms-tl-state" wx:if="{{node.status === 'active'}}">进行中</text>
+                <text class="ms-tl-state ms-tl-state--abort" wx:elif="{{node.status === 'abort'}}">中止</text>
+              </view>
+              <text class="ms-tl-desc">{{node.desc}}</text>
+
+              <!-- 内联决策门 -->
+              <view class="ms-gate" wx:if="{{node.hasGate && sim.gate}}">
+                <text class="ms-gate-tag">GO / NO-GO</text>
+                <text class="ms-gate-title">{{sim.gate.title}}</text>
+                <text class="ms-gate-desc">{{sim.gate.desc}}</text>
+                <view class="ms-gate-stations">
+                  <view class="ms-gate-station ms-station--{{item.status}}" wx:for="{{sim.stations}}" wx:key="id">
+                    <view class="ms-station-dot"></view>
+                    <text>{{item.name}}</text>
+                  </view>
+                </view>
+                <view class="ms-gate-btns">
+                  <view class="ms-btn ms-btn--{{opt.tone}}" wx:for="{{sim.gate.options}}" wx:for-item="opt" wx:key="key"
+                        bindtap="onGateDecide" data-key="{{opt.key}}" hover-class="ms-btn--pressed">
+                    <text>{{opt.label}}</text>
+                  </view>
+                </view>
+              </view>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 席位状态板 -->
+      <view class="ms-block">
+        <view class="ms-block-head">
+          <text class="ms-block-tag">STATIONS</text>
+          <text class="ms-block-title">席位状态板</text>
+        </view>
+        <view class="ms-block-body">
+          <view class="ms-stations">
+            <view class="ms-station ms-station--{{item.status}}" wx:for="{{sim.stations}}" wx:key="id">
+              <text class="ms-station-name">{{item.name}}</text>
+              <view class="ms-station-dot"></view>
+              <text class="ms-station-note">{{item.note}}</text>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 事件日志 -->
+      <view class="ms-block">
+        <view class="ms-block-head">
+          <text class="ms-block-tag">EVENT LOG</text>
+          <text class="ms-block-title">事件日志</text>
+        </view>
+        <view class="ms-block-body">
+          <scroll-view class="ms-log" scroll-y scroll-into-view="{{logAnchor}}" enhanced show-scrollbar="{{false}}">
+            <view class="ms-log-line" wx:for="{{logTail}}" wx:key="index" id="msLog{{index}}">
+              <text class="ms-log-t">{{item.t}}</text>
+              <text class="ms-log-text">{{item.text}}</text>
+            </view>
+          </scroll-view>
+        </view>
+      </view>
+    </block>
+
+    <view class="ms-bottom-pad"></view>
+  </scroll-view>
+
+  <!-- 分享免门控 24h 倒计时胶囊（有权益后自动隐藏） -->
+  <share-gate-countdown expire-at="{{shareGateExpireAt}}" />
+
+  <block wx:if="{{started && sim}}">
+    <!-- 结算后驻留底部条：回看时间线时可随时召回简报 -->
+    <view class="ms-debrief-recall" wx:if="{{sim.outcome && debriefHidden}}" bindtap="onShowDebrief" hover-class="ms-btn--pressed">
+      <text>查看任务简报 · {{sim.outcome.title}}</text>
+    </view>
+
+    <!-- 任务简报（结算） -->
+    <view class="ms-debrief-mask" wx:if="{{sim.outcome && !debriefHidden}}">
+      <view class="ms-debrief hud-frame">
+        <text class="ms-gate-tag">MISSION DEBRIEF</text>
+        <text class="ms-debrief-title ms-debrief-title--{{sim.outcome.result}}">{{sim.outcome.title}}</text>
+        <text class="ms-debrief-verdict">{{sim.outcome.verdict}}</text>
+        <scroll-view class="ms-debrief-log" scroll-y enhanced show-scrollbar="{{false}}">
+          <view class="ms-log-line" wx:for="{{sim.outcome.lines}}" wx:key="index">
+            <text class="ms-log-t">{{item.t}}</text>
+            <text class="ms-log-text">{{item.text}}</text>
+          </view>
+        </scroll-view>
+        <view class="ms-debrief-btns">
+          <view class="ms-btn ms-btn--go" bindtap="onReplaySame" hover-class="ms-btn--pressed"><text>同 SEED 重飞</text></view>
+          <view class="ms-btn ms-btn--ghost" bindtap="onReplayNew" hover-class="ms-btn--pressed"><text>随机新任务</text></view>
+        </view>
+        <button class="ms-share-btn" open-type="share">
+          <text>分享这次任务</text>
+        </button>
+        <view class="ms-debrief-exit" bindtap="onHideDebrief"><text>查看完整时间线</text></view>
+      </view>
+    </view>
+  </block>
+</view>

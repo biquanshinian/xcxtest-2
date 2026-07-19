@@ -426,8 +426,6 @@ async function resolveAgencyReference(options = {}) {
  * @param {Object} options - { featured, limit, offset, search, type }
  * @returns {Promise<Object>} { count, results: [...] }
  */
-let _agencySyncTriggered = false
-
 async function getAgencies(options = {}) {
   const featured = options.featured !== undefined ? options.featured : true
   const rawLimit = options.limit || 50
@@ -441,11 +439,15 @@ async function getAgencies(options = {}) {
 
   const cacheId = `_agencies_f${featured ? 1 : 0}_l${limit}_o${offset}_s${search}_t${type}`
 
-  // 1) 本地缓存
+  // 1) 本地缓存（新鲜命中直接返回；过期条目保留在 staleEntry 供失败兜底）
+  let staleEntry = null
   try {
     const cached = wx.getStorageSync(cacheId)
-    if (cached && Date.now() - cached.ts < AGENCY_CACHE_TTL) {
-      return cached.data
+    if (cached && cached.data && Array.isArray(cached.data.results) && cached.data.results.length > 0) {
+      if (Date.now() - cached.ts < AGENCY_CACHE_TTL) {
+        return cached.data
+      }
+      staleEntry = cached.data
     }
   } catch (e) {
   }
@@ -458,31 +460,20 @@ async function getAgencies(options = {}) {
 
   try {
     const data = await request('/agencies/', params, 10000, true)
-    if (data && data.results) {
+    if (data && Array.isArray(data.results) && data.results.length > 0) {
       try { wx.setStorageSync(cacheId, { data, ts: Date.now() }) } catch (e) {}
       return data
     }
+    // 云端返回空列表（同步异常期）：不写缓存（否则空态被钉住 1 小时），
+    // 有过期旧数据时宁可展示旧数据
+    if (staleEntry) return staleEntry
+    if (data && data.results) return data
   } catch (e) {
   }
 
-  // 3) 缓存未命中：触发一次云函数按需同步，同步完成后重试
-  if (!_agencySyncTriggered && !search && !type && wx.cloud && wx.cloud.callFunction) {
-    _agencySyncTriggered = true
-    try {
-      await wx.cloud.callFunction({
-        name: 'syncSpaceDevsData',
-        data: { action: 'syncAgencies' }
-      })
-      const retryData = await request('/agencies/', params, 10000, true)
-      if (retryData && retryData.results) {
-        try { wx.setStorageSync(cacheId, { data: retryData, ts: Date.now() }) } catch (e) {}
-        return retryData
-      }
-    } catch (e) {
-      console.warn('[getAgencies] 云函数按需同步失败:', e && e.message)
-    }
-  }
-
+  // 3) 缓存未命中：不再由前端触发 syncAgencies 外网同步（改为仅服务端定时同步）。
+  // 请求失败时优先回退过期本地缓存（stale-if-error），避免网络抖动直接白屏
+  if (staleEntry) return staleEntry
   return { count: 0, results: [], __cacheMiss: true }
 }
 
@@ -521,20 +512,8 @@ async function getAgencyDetail(agencyId, options = {}) {
   } catch (e) {
   }
 
-  // 3) 按需触发云函数同步该发射商详情，然后从云缓存重试
-  if (wx.cloud && wx.cloud.callFunction) {
-    try {
-      await wx.cloud.callFunction({
-        name: 'syncSpaceDevsData',
-        data: { action: 'syncAgencyDetail', agencyId: Number(agencyId) || agencyId }
-      })
-      const retryData = await request(`/agencies/${agencyId}/`, { format: 'json' }, 10000, true)
-      if (retryData && retryData.id) {
-        try { wx.setStorageSync(cacheId, { data: retryData, ts: Date.now() }) } catch (e) {}
-        return retryData
-      }
-    } catch (e) {}
-  }
+  // 3) 云缓存未命中：不再由前端触发 syncAgencyDetail 外网同步，
+  // 直接走下方发射商列表兜底（partial 数据或 cache_miss 提示）
 
   // 4) 从发射商列表中查找作为兜底
   let basicData = null

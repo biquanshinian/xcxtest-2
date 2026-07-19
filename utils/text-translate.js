@@ -1,13 +1,16 @@
 /**
  * utils/text-translate.js — 页面级按需翻译（"翻译/原文"按钮共用，全项目唯一正本）
- * 翻译来源优先级：字段自带预翻译 zh（云端富化，本地秒切）→ ll2Query 云函数 translateTexts
- * （术语词典 + translation_cache + 腾讯云 TMT）。失败项保留原文展示。
+ * 翻译来源优先级：字段自带预翻译 zh（云端富化，本地秒切）
+ * → ll2Query 词典 + translation_cache（免费秒回）
+ * → 单条长文本走混元大模型 hy3-preview（质量优先，见 translateTextsSmart）
+ * → 腾讯云 TMT 兜底（多条批量场景直接走 TMT，输入输出严格按序对齐）。
+ * 失败项保留原文展示。
  */
 
-/** 已含足量中文的文本无需送翻 */
+/** 已含足量中文的文本无需送翻。URL 不计入英文占比：中文短句带长链接不应被误判为英文 */
 function isMostlyChinese(text) {
-  const s = String(text || '')
-  if (!s) return true
+  const s = String(text || '').replace(/https?:\/\/\S+/g, ' ')
+  if (!s.trim()) return true
   const cjk = (s.match(/[\u4e00-\u9fff]/g) || []).length
   const latin = (s.match(/[A-Za-z]/g) || []).length
   return cjk > 0 && cjk / (cjk + latin) >= 0.25
@@ -82,6 +85,98 @@ async function translateTexts(texts) {
   const merged = [].concat(...lists)
   if (firstError && !merged.some((s) => s)) throw firstError
   return merged
+}
+
+// ── 混元大模型翻译（单条长文本优先走此路径） ──────────────────
+
+/** 短于此长度的单条文本（多为专名/短语）走词典+TMT 更快更稳 */
+const AI_TRANSLATE_MIN_CHARS = 40
+
+const AI_TRANSLATE_SYSTEM_PROMPT = `你是航天领域的专业中英翻译。把用户消息中的英文原文翻译成简体中文，要求：
+1. 只输出译文本身，不要任何解释、注释、前缀或引号
+2. 保留 SpaceX、Falcon 9、Starship、Starlink、NASA、ISS 等专有名词、机构缩写与火箭/飞船型号原文
+3. 术语准确：booster=助推器，static fire=静态点火，splashdown=溅落，payload=载荷，flyback=返场
+4. 语气自然流畅，符合中文航天报道习惯`
+
+/** 去掉模型偶发的"译文："前缀与整段包裹引号 */
+function cleanAITranslation(s) {
+  let out = String(s || '').trim()
+  out = out.replace(/^(译文|翻译|中文译文)[:：]\s*/, '')
+  const wrapped =
+    (out.startsWith('"') && out.endsWith('"')) ||
+    (out.startsWith('\u201c') && out.endsWith('\u201d')) ||
+    (out.startsWith('「') && out.endsWith('」'))
+  if (wrapped) out = out.slice(1, -1).trim()
+  return out
+}
+
+/**
+ * 混元翻译单条文本。任何失败（AI 不可用/超时/输出跑偏）返回空串，由调用方降级 TMT。
+ * @returns {Promise<string>}
+ */
+async function translateViaAI(text) {
+  let aiService = null
+  try { aiService = require('./aiService.js') } catch (e) {}
+  if (!aiService || typeof aiService.generateTextAdvanced !== 'function' || !aiService.isAIAvailable()) {
+    return ''
+  }
+  // 英文原文越长译文 token 越多：按字符量给足，封顶 3000
+  const maxTokens = Math.min(3000, Math.max(500, Math.ceil(text.length * 0.8)))
+  try {
+    const out = await aiService.generateTextAdvanced(AI_TRANSLATE_SYSTEM_PROMPT, text, {
+      model: 'hy3-preview',
+      temperature: 0.2,
+      maxTokens,
+      timeout: 20000
+    })
+    const cleaned = cleanAITranslation(out)
+    // 译文必须是像样的中文，防止模型输出英文复述或解释
+    return cleaned && !isMostlyChinese(text) && isMostlyChinese(cleaned) ? cleaned : ''
+  } catch (e) {
+    return ''
+  }
+}
+
+/** 只查云端词典 + translation_cache（skipTmt），失败或未命中返回 null/空串项，不算错误 */
+function lookupCloudPretranslated(texts) {
+  return new Promise((resolve) => {
+    if (!wx.cloud || typeof wx.cloud.callFunction !== 'function') {
+      resolve(null)
+      return
+    }
+    wx.cloud.callFunction({
+      name: 'll2Query',
+      data: { action: 'translateTexts', texts, skipTmt: true },
+      timeout: 10000,
+      success: (res) => {
+        const r = res && res.result
+        resolve(r && r.success && Array.isArray(r.list) ? r.list.map((s) => String(s || '')) : null)
+      },
+      fail: () => resolve(null)
+    })
+  })
+}
+
+/**
+ * 智能翻译入口：单条长文本按「词典/缓存 → 混元 → TMT」优先级；
+ * 多条批量或短文本直接走原有 TMT 批量链路（对齐稳定、延迟低）。
+ * @param {string[]} texts
+ * @returns {Promise<string[]>} 与输入等长；失败项为空串
+ */
+async function translateTextsSmart(texts) {
+  const inputs = (Array.isArray(texts) ? texts : []).map((t) => String(t || ''))
+  if (inputs.length !== 1 || inputs[0].length < AI_TRANSLATE_MIN_CHARS) {
+    return translateTexts(inputs)
+  }
+  const text = inputs[0]
+
+  const cached = await lookupCloudPretranslated([text])
+  if (cached && cached[0]) return cached
+
+  const ai = await translateViaAI(text)
+  if (ai) return [ai]
+
+  return translateTexts([text])
 }
 
 /**
@@ -191,7 +286,7 @@ function _applyTranslation(page, opts) {
   loadingPatch[loadingKey] = true
   page.setData(loadingPatch)
 
-  return translateTexts(needCloud.map((f) => f.text))
+  return translateTextsSmart(needCloud.map((f) => f.text))
     .then((list) => {
       const patch = Object.assign({}, localPatch)
       patch[loadingKey] = false
@@ -226,6 +321,7 @@ function _applyTranslation(page, opts) {
 
 module.exports = {
   translateTexts,
+  translateTextsSmart,
   togglePageTranslation,
   translateGateCheck,
   isMostlyChinese,

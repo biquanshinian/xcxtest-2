@@ -355,6 +355,7 @@ module.exports = {
   streamChat,
   QUICK_QUESTIONS,
   answerQuestion,
+  generateTextAdvanced,
   fetchAIChatEnabled,
   isAIChatEnabledSync,
   warmAIChatEnabledAsync

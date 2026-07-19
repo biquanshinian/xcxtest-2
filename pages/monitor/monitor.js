@@ -23,6 +23,10 @@ const { optimizeImageUrl, toCdnUrl, isVideoUrl } = require('../../utils/cos-url.
 const { getCachedVideo } = require('../../utils/video-cache.js')
 
 const STARLINK_TLE_CACHE_KEY = '_starlink_tle_cache'
+// 缓存版本：v2 = NORAD 倒序取最新 400 颗；与 starlink-renderer / starlink-ar 三方共用同一 key，需同步
+const STARLINK_TLE_CACHE_VER = 2
+// 过境预报参与计算的卫星上限（NORAD 倒序取最新，低轨新批次是肉眼"星链列车"主体）
+const STARLINK_PASS_MAX_SATS = 400
 const PASS_DETAIL_STORAGE_KEY = '_starlink_pass_detail_payload'
 const STARBASE_WEATHER_PATH = '../../subpackages/monitor-pages/utils/starbase-weather.js'
 
@@ -135,6 +139,7 @@ Page({
     }, 0)
 
     // 预热会员开关与状态缓存，减少首次点「AR 观测」等门控的空白等待
+    this._membershipWarmAt = Date.now()
     setTimeout(function () {
       Promise.all([isMembershipEnabled(), getMembershipState()]).catch(function () {})
     }, 0)
@@ -197,9 +202,13 @@ Page({
     // 进入监控页走缓存刷新推荐引导（30 分钟 TTL）；打开引导弹窗时才强制拉最新二维码
     this.loadChannelsFallbackGuide()
 
-    setTimeout(function () {
-      Promise.all([isMembershipEnabled(), getMembershipState()]).catch(function () {})
-    }, 0)
+    // 会员 warm 60 秒节流：频繁切 Tab 时不重复打云端权益查询
+    if (!this._membershipWarmAt || Date.now() - this._membershipWarmAt >= 60 * 1000) {
+      this._membershipWarmAt = Date.now()
+      setTimeout(function () {
+        Promise.all([isMembershipEnabled(), getMembershipState()]).catch(function () {})
+      }, 0)
+    }
   },
 
   onPopupAdClose() {
@@ -209,6 +218,7 @@ Page({
   onUnload() {
     this._clearStationStaleListeners()
     this.clearOrbitalCountdown()
+    this._teardownStarlinkObserver()
     const starlinkRenderer = getStarlinkRenderer()
     if (starlinkRenderer) starlinkRenderer.destroy()
   },
@@ -481,15 +491,20 @@ Page({
       })
 
       // 第 3 步：等 Canvas 渲染到 DOM 后，绑定并启动渲染
-      // 注册实时数量回调
+      // 注册实时数量回调（渲染器回传全量在轨数，与徽章"颗在轨"语义一致）
       starlinkRenderer.setOnCountUpdate((count) => {
-        if (count !== this.data.starlinkCount) {
+        if (count && count !== this.data.starlinkCount) {
           this.setData({ starlinkCount: count })
         }
       })
+      // 卡片场景渲染采样上限（全屏页为 5000）
+      if (typeof starlinkRenderer.setRenderMax === 'function') {
+        starlinkRenderer.setRenderMax(2500)
+      }
       setTimeout(async () => {
         try {
           await starlinkRenderer.bindCanvas(this)
+          this._setupStarlinkObserver()
         } catch (err) {
           console.error('[Starlink] bindCanvas error:', err)
           this.setData({ starlinkError: 'Canvas 初始化失败，请下拉刷新重试' })
@@ -506,6 +521,45 @@ Page({
 
   retryLoadStarlink() {
     this.initStarlink()
+  },
+
+  /**
+   * 卡片滚出视野自动暂停渲染循环、滚回恢复。
+   * 只接管"自动暂停"（_starlinkAutoPaused 标记）；用户手动暂停不被覆盖。
+   */
+  _setupStarlinkObserver() {
+    this._teardownStarlinkObserver()
+    try {
+      const observer = wx.createIntersectionObserver(this)
+      observer.relativeToViewport().observe('#starlinkCanvas', (res) => {
+        const renderer = getStarlinkRenderer()
+        if (!renderer) return
+        const visible = res && res.intersectionRatio > 0
+        if (!visible) {
+          if (!renderer.isPaused()) {
+            this._starlinkAutoPaused = true
+            renderer.releaseInteraction()
+            renderer.togglePause()
+          }
+        } else {
+          if (this._starlinkAutoPaused && renderer.isPaused()) {
+            renderer.togglePause()
+          }
+          this._starlinkAutoPaused = false
+        }
+      })
+      this._starlinkObserver = observer
+    } catch (e) {
+      this._starlinkObserver = null
+    }
+  },
+
+  _teardownStarlinkObserver() {
+    if (this._starlinkObserver) {
+      try { this._starlinkObserver.disconnect() } catch (e) {}
+      this._starlinkObserver = null
+    }
+    this._starlinkAutoPaused = false
   },
 
   toggleStarlinkPause() {
@@ -706,6 +760,7 @@ Page({
 
       // 重量级模块：只有已加载过才刷新
       if (this.data.starlinkReady) {
+        this._teardownStarlinkObserver()
         const starlinkRenderer = getStarlinkRenderer()
         if (starlinkRenderer) starlinkRenderer.destroy()
         tasks.push(Promise.resolve().then(() => this.initStarlink()))
@@ -1314,7 +1369,9 @@ Page({
       })
 
       // 3. 获取 TLE 数据（优先复用 Starlink 渲染器已加载的数据）
+      //    统一选星策略：历元 7 天内、按 NORAD ID 倒序取最新 400 颗
       var tleData = []
+      var tleStale = false // 有原始数据但历元全部超 7 天 / 源数据超 7 天未更新
 
       // 尝试从渲染器获取已解析的 satrec 列表（避免重复读取云数据库）
       var starlinkRenderer = getStarlinkRenderer()
@@ -1325,8 +1382,16 @@ Page({
       }
       var sharedSatrecs = starlinkRenderer ? starlinkRenderer.getSharedSatrecList() : []
       if (sharedSatrecs && sharedSatrecs.length > 0) {
-        var sampled = sharedSatrecs.slice(0, 200)
+        var sampled = starlinkPass.selectNewestSatrecs(sharedSatrecs, STARLINK_PASS_MAX_SATS)
         tleData = sampled.map(function (s) { return { _satrec: s.satrec, name: s.name } })
+        if (tleData.length === 0) {
+          tleStale = true
+          // 内存/本地缓存里的星历元全部超龄：清掉共享数据与缓存，
+          // 让下面的 loadData 绕过 6h 缓存直接回源云端（云端可能已有新数据）
+          if (typeof starlinkRenderer.resetSharedData === 'function') {
+            starlinkRenderer.resetSharedData()
+          }
+        }
       }
 
       // 如果渲染器没有数据，通过渲染器的 loadData 再尝试一次
@@ -1335,7 +1400,9 @@ Page({
           await starlinkRenderer.loadData()
           var retryList = starlinkRenderer.getSharedSatrecList()
           if (retryList && retryList.length > 0) {
-            tleData = retryList.slice(0, 200).map(function (s) { return { _satrec: s.satrec, name: s.name } })
+            var retrySampled = starlinkPass.selectNewestSatrecs(retryList, STARLINK_PASS_MAX_SATS)
+            tleData = retrySampled.map(function (s) { return { _satrec: s.satrec, name: s.name } })
+            tleStale = tleData.length === 0
           }
         } catch (e) {
           console.warn('[Pass] starlinkRenderer.loadData retry failed:', e)
@@ -1345,16 +1412,23 @@ Page({
       // 最后回退：从本地缓存或云数据库直接读 TLE 文本
       if (tleData.length === 0) {
         try {
-          var cached = storageCache.readSync(STARLINK_TLE_CACHE_KEY, null)
-          if (cached && cached.data && Date.now() - cached.ts < STARLINK_TLE_CACHE_TTL) {
+          // 该 key 由 starlink-renderer / starlink-ar 用 wx.setStorageSync 直写，
+          // 不能走 storage-sync-cache 内存层（首读后驻留，会读到会话内的旧值）
+          var cached = wx.getStorageSync(STARLINK_TLE_CACHE_KEY)
+          if (cached && cached.ver === STARLINK_TLE_CACHE_VER && cached.data && Date.now() - cached.ts < STARLINK_TLE_CACHE_TTL) {
+            var rawList = []
             var rawData = cached.data
             if (typeof rawData === 'string') {
               var lines = rawData.split('\n').filter(function (l) { return l.trim() !== '' })
-              for (var i = 0; i + 2 < lines.length && tleData.length < 200; i += 3) {
-                tleData.push({ name: lines[i].trim(), line1: lines[i + 1].trim(), line2: lines[i + 2].trim() })
+              for (var i = 0; i + 2 < lines.length; i += 3) {
+                rawList.push({ name: lines[i].trim(), line1: lines[i + 1].trim(), line2: lines[i + 2].trim() })
               }
-            } else if (Array.isArray(rawData) && rawData.length > 0) {
-              tleData = rawData.slice(0, 200)
+            } else if (Array.isArray(rawData)) {
+              rawList = rawData
+            }
+            if (rawList.length > 0) {
+              tleData = starlinkPass.selectNewestTLEs(rawList, STARLINK_PASS_MAX_SATS)
+              tleStale = tleData.length === 0
             }
           }
         } catch (e) {}
@@ -1369,6 +1443,9 @@ Page({
           var shard0Res = await db.collection('starlink_tle').where({ shardIndex: 0 }).limit(1).get()
           if (shard0Res.data && shard0Res.data.length > 0) {
             var shard0 = shard0Res.data[0]
+            if (shard0.updatedAtMs && Date.now() - shard0.updatedAtMs > starlinkPass.TLE_MAX_AGE_MS) {
+              tleStale = true
+            }
             if (shard0.shardCount) {
               // 新分片格式：并行读取所有分片
               var shardPromises = [Promise.resolve(shard0.data || '')]
@@ -1382,7 +1459,7 @@ Page({
               var shardArr = await Promise.all(shardPromises)
               var mergedTle = shardArr.filter(Boolean).join('\n')
               var mLines = mergedTle.split('\n').filter(function (l) { return l.trim() !== '' })
-              for (var mi = 0; mi + 2 < mLines.length && allLines.length < 200; mi += 3) {
+              for (var mi = 0; mi + 2 < mLines.length; mi += 3) {
                 allLines.push({ name: mLines[mi].trim(), line1: mLines[mi + 1].trim(), line2: mLines[mi + 2].trim() })
               }
             } else if (shard0.data && typeof shard0.data === 'string') {
@@ -1392,7 +1469,7 @@ Page({
                 allLines.push({ name: oldLines[oi].trim(), line1: oldLines[oi + 1].trim(), line2: oldLines[oi + 2].trim() })
               }
               shardIndex = 1
-              while (allLines.length < 200 && shardIndex < 10) {
+              while (shardIndex < 10) {
                 var nextRes = await db.collection('starlink_tle').where({ shardIndex: shardIndex }).limit(1).get()
                 if (!nextRes.data || nextRes.data.length === 0) break
                 var nextShard = nextRes.data[0]
@@ -1406,9 +1483,10 @@ Page({
               }
             }
           }
-          tleData = allLines.slice(0, 200)
+          tleData = starlinkPass.selectNewestTLEs(allLines, STARLINK_PASS_MAX_SATS)
+          if (allLines.length > 0 && tleData.length === 0) tleStale = true
           if (tleData.length > 0) {
-            storageCache.persistAsync(STARLINK_TLE_CACHE_KEY, { data: tleData, ts: Date.now() })
+            storageCache.persistAsync(STARLINK_TLE_CACHE_KEY, { data: tleData, ts: Date.now(), ver: STARLINK_TLE_CACHE_VER })
           }
         } catch (e) {
           console.error('[Pass] TLE cloud load error:', e)
@@ -1416,7 +1494,13 @@ Page({
       }
 
       if (tleData.length === 0) {
-        that.setData({ passLoading: false, passList: [], passError: '星链轨道数据暂时无法获取，请检查网络后重试' })
+        that.setData({
+          passLoading: false,
+          passList: [],
+          passError: tleStale
+            ? '星链轨道数据已陈旧（超 7 天未更新），暂无法计算过境，请稍后再试'
+            : '星链轨道数据暂时无法获取，请检查网络后重试'
+        })
         return
       }
 
@@ -1562,7 +1646,7 @@ Page({
     this._gateChecking = true
     let allowed = false
     try {
-      allowed = await gateCheck('starlink_pro', '7天过境预报')
+      allowed = await gateCheck('starlink_pro', '24小时过境预报')
     } finally {
       this._gateChecking = false
     }

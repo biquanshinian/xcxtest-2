@@ -365,7 +365,15 @@ Page({
     this.persistMissionDetailListSnapshot(context)
 
     wx.navigateTo({
-      url: context.navigation.url
+      url: context.navigation.url,
+      success: (res) => {
+        // 快照经 eventChannel 直达详情页做首屏加速；storage 快照保留作分享冷启动兜底
+        try {
+          if (res && res.eventChannel && context.mission) {
+            res.eventChannel.emit('missionSnapshot', context.mission)
+          }
+        } catch (err) {}
+      }
     })
   },
 

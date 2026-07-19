@@ -99,6 +99,20 @@ function todayBeijingYmd() {
   return cn.toISOString().slice(0, 10)
 }
 
+const STARSHIP_SHARED_TTL = 10 * 60 * 1000
+
+/** 优先复用 progress 页写入的全局共享星舰状态（10 分钟内新鲜），未命中再走库读 */
+function getSharedStarshipStatus() {
+  try {
+    const app = getApp()
+    const shared = app && app.globalData && app.globalData.starshipStatus
+    if (shared && shared.data && Date.now() - (shared.fetchedAt || 0) < STARSHIP_SHARED_TTL) {
+      return Promise.resolve(shared.data)
+    }
+  } catch (e) {}
+  return getStarshipStatusFromDB()
+}
+
 /**
  * 安全解码 onLoad options 参数：跳转方 buildUrl 会 encodeURIComponent（逗号→%2C、中文 label 等），
  * 而微信不保证自动解码；解码失败（非法编码）时原样返回
@@ -130,6 +144,7 @@ Page({
     tabBarReservedHeight: 0,
     menuButtonWidth: 88,
     enableEventVideo: false,
+    enableLiveEntry: false,
     listMode: false,
     listAllMode: false,
     listNoMore: false,
@@ -213,7 +228,7 @@ Page({
   },
 
   async readStarshipLl2Prefs() {
-    const data = await getStarshipStatusFromDB().catch(() => null)
+    const data = await getSharedStarshipStatus().catch(() => null)
     const manualId = (data && typeof data.ll2TrackedLaunchId === 'string')
       ? String(data.ll2TrackedLaunchId).trim()
       : ''
@@ -804,6 +819,17 @@ Page({
     const id = options.id ? String(options.id).trim() : ''
     this._autoPlayVideoIndex = options.autoPlayVideo != null ? Number(options.autoPlayVideo) : -1
 
+    // 进度页经 eventChannel 传入的原始事件文档：仅作首屏加速，网络刷新逻辑保留兜底
+    this._openerEventSnapshot = null
+    try {
+      const channel = typeof this.getOpenerEventChannel === 'function' ? this.getOpenerEventChannel() : null
+      if (channel && typeof channel.on === 'function') {
+        channel.on('eventSnapshot', (doc) => {
+          if (doc && doc._id) this._openerEventSnapshot = doc
+        })
+      }
+    } catch (e) {}
+
     this.initUiShell()
 
     wx.showShareMenu({
@@ -853,9 +879,11 @@ Page({
     // 读取视频显示开关：走 feature-flags 的 global_config 共享缓存（5 分钟 + inflight 去重），
     // 避免每次进详情页直读一次云库同一文档；fail-closed，读不到配置不放出视频
     try {
-      const { isPlaybackAllowed } = require('../../utils/feature-flags.js')
+      const { isPlaybackAllowed, isLiveEntryAllowed } = require('../../utils/feature-flags.js')
       const enabled = await isPlaybackAllowed()
-      this.setData({ enableEventVideo: enabled })
+      // 过审直播入口开关（failClosed）：关闭时不渲染 B 站直播卡、不查直播状态
+      const liveOn = await isLiveEntryAllowed().catch(() => false)
+      this.setData({ enableEventVideo: enabled, enableLiveEntry: !!liveOn })
     } catch (e) {}
 
     if (options.mode === 'list_all') {
@@ -952,6 +980,28 @@ Page({
   },
 
   async loadDetail(id, opts = {}) {
+    // eventChannel 快照先上屏（首屏加速）：网络刷新照常执行，最终展示与原逻辑一致
+    const snapshot = this._openerEventSnapshot
+    if (
+      snapshot && String(snapshot._id) === String(id) &&
+      snapshot.status === 'published' && !this.data.item && !opts.silent
+    ) {
+      this._openerEventSnapshot = null
+      const snapItem = this.enrichEventItem(snapshot)
+      const snapTitle = (snapItem.title || snapItem.content || '事件更新').trim()
+      this.setData({
+        loading: false,
+        item: snapItem,
+        listMode: false,
+        items: [],
+        listDayHint: '',
+        navTitle: '事件详情',
+        shareTitle: `${snapTitle} | 火星探索日志`,
+        shareImage: pickEventShareImageUrl(snapItem)
+      })
+      opts = { ...opts, silent: true }
+    }
+
     // silent（下拉刷新）：已有内容时不回退到加载骨架，只显示微信原生刷新指示器
     if (!(opts.silent && this.data.item)) {
       this.setData({ loading: true, errorMessage: '' })
@@ -1241,6 +1291,8 @@ Page({
 
   async checkLiveStatus(item) {
     if (!item || !item.liveRoomId) return
+    // 过审关闭直播入口：不发起 B 站直播状态查询
+    if (!this.data.enableLiveEntry) return
     const roomId = this.extractRoomId(item.liveRoomId)
     if (!roomId) return
 
@@ -1504,6 +1556,7 @@ Page({
   },
 
   _openLiveForItem(item) {
+    if (!this.data.enableLiveEntry) return
     if (!item || !item.liveRoomId) return
     const rid = this.extractRoomId(item.liveRoomId)
     const liveUrl = `https://live.bilibili.com/${rid}`

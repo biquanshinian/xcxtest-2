@@ -538,6 +538,21 @@ async function fetchLaunchTimelineAction(event) {
 // ══════════════════════════════════════════════════════════════
 // Action: fetchLaunchDetail（含云数据库缓存）
 // ══════════════════════════════════════════════════════════════
+
+// 终态 settle 每个热实例每任务只需一次：终态不会再变，
+// 此前每次缓存命中都 await 一轮 launch_status 读写，白白拖慢命中路径
+const _detailSettleDone = new Set()
+
+function markDetailSettled(launchId) {
+  if (_detailSettleDone.size > 500) _detailSettleDone.clear()
+  _detailSettleDone.add(String(launchId))
+}
+
+function isTerminalLaunchDetail(detail) {
+  const sid = detail && detail.status && detail.status.id != null ? Number(detail.status.id) : 0
+  return !!TERMINAL_STATUS_IDS[sid]
+}
+
 async function fetchLaunchDetailAction(event) {
   const startTime = Date.now()
   try {
@@ -578,10 +593,14 @@ async function fetchLaunchDetailAction(event) {
                 })
             } catch (e) {}
           }
-          // 缓存命中也顺带把终态回写 recent_settled / previous（0 额外 LL2）
-          try {
-            await settleTerminalFromLaunchDetail(detail, now, 'fetchLaunchDetail_cached')
-          } catch (e) {}
+          // 缓存命中也顺带把终态回写 recent_settled / previous（0 额外 LL2）；
+          // 终态不可变，同实例只做一次，后续命中直接返回不再拖 settle 读写
+          if (isTerminalLaunchDetail(detail) && !_detailSettleDone.has(String(launchId))) {
+            try {
+              await settleTerminalFromLaunchDetail(detail, now, 'fetchLaunchDetail_cached')
+            } catch (e) {}
+            markDetailSettled(launchId)
+          }
           return { success: true, cached: true, data: detail, timestamp: now, elapsed: Date.now() - startTime }
         }
       } catch (_) {}
@@ -609,13 +628,24 @@ async function fetchLaunchDetailAction(event) {
       console.warn('[net-recovery-enrich detail]', e.message || e)
     }
 
-    // 2.5) 翻译富化（词典 + TMT + translation_cache），失败不影响主流程
+    // 2.5) 翻译富化（词典 + TMT + translation_cache），失败不影响主流程。
+    // TMT 偶发慢响应会把整个冷路径拖到十几秒，超时就先返回英文，
+    // 下次请求（短 TTL 过期后）再补翻译
+    let translateTimedOut = false
     try {
-      await enrichSingleLaunch(apiData)
+      await Promise.race([
+        enrichSingleLaunch(apiData),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('translate_enrich_timeout')), 4000))
+      ])
     } catch (translateErr) {
+      translateTimedOut = (translateErr && translateErr.message) === 'translate_enrich_timeout'
       console.warn('[translate-enrich detail]', translateErr.message || translateErr)
     }
 
+    // 2.6 + 2.7) 副作用回写整体后置：updates 拆分与终态 settle 都可能读改写
+    // recent_settled，两者之间保持串行避免竞态；但整链与「写详情缓存」并行，
+    // 不再让 4~6 次串行数据库往返都压在响应路径上
+    const sideEffectsPromise = (async () => {
     // 2.6) 详情里的嵌套 updates 拆入 updates_{uuid}（冷/热共用，0 额外 LL2）
     if (Array.isArray(apiData.updates) && apiData.updates.length) {
       try {
@@ -689,23 +719,29 @@ async function fetchLaunchDetailAction(event) {
     // （任务离开 upcoming 探针后，小时探针看不到 In Flight→Success，历史卡片会长期卡「飞行中」）
     try {
       await settleTerminalFromLaunchDetail(apiData, now, 'fetchLaunchDetail_status')
+      if (isTerminalLaunchDetail(apiData)) markDetailSettled(launchId)
     } catch (e) {}
+    })()
 
-    // 3) 写入缓存（3.5 小时 TTL）
-    const CACHE_DURATION = 3.5 * 60 * 60 * 1000
-    try {
-      await db
-        .collection('space_devs_cache')
-        .doc(detailCacheKey)
-        .set({
-          data: {
-            cacheKey: detailCacheKey,
-            data: { data: apiData, expireAt: now + CACHE_DURATION },
-            updatedAt: db.serverDate(),
-            updatedAtMs: now
-          }
-        })
-    } catch (e) {}
+    // 3) 写入缓存。终态任务（成功/失败/部分失败）数据基本不再变化，
+    // TTL 拉长到 7 天，避免历史发射每 3.5 小时就重走一遍冷路径（LL2 + 翻译 + 回写）；
+    // 翻译超时的缓存只给 10 分钟，尽快重试补齐中文字段
+    let CACHE_DURATION = isTerminalLaunchDetail(apiData) ? 7 * 24 * 60 * 60 * 1000 : 3.5 * 60 * 60 * 1000
+    if (translateTimedOut) CACHE_DURATION = 10 * 60 * 1000
+    const cacheWritePromise = db
+      .collection('space_devs_cache')
+      .doc(detailCacheKey)
+      .set({
+        data: {
+          cacheKey: detailCacheKey,
+          data: { data: apiData, expireAt: now + CACHE_DURATION },
+          updatedAt: db.serverDate(),
+          updatedAtMs: now
+        }
+      })
+      .catch(() => {})
+
+    await Promise.all([sideEffectsPromise, cacheWritePromise])
 
     return { success: true, cached: false, data: apiData, timestamp: Date.now(), elapsed: Date.now() - startTime }
   } catch (e) {
@@ -1239,6 +1275,7 @@ async function fetchLaunchStatusesAction() {
 // ══════════════════════════════════════════════════════════════
 // Action: translateTexts — 客户端按需翻译（页面"翻译"按钮）
 // 词典 + translation_cache + TMT；失败项返回空串，客户端保留原文
+// event.skipTmt=true 时只查词典+缓存（客户端混元优先链路的第一步）
 // ══════════════════════════════════════════════════════════════
 const TRANSLATE_MAX_ITEMS = 20
 const TRANSLATE_MAX_ITEM_CHARS = 4000
@@ -1256,7 +1293,7 @@ async function translateTextsAction(event) {
     return { success: false, error: '文本总量超限', timestamp: Date.now() }
   }
   try {
-    const list = await translateTextsBatch(texts)
+    const list = await translateTextsBatch(texts, { skipTmt: !!(event && event.skipTmt) })
     const translated = list.filter(Boolean).length
     return {
       success: true,

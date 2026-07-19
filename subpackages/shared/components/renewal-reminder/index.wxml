@@ -82,8 +82,8 @@
             <text>◎</text>
           </view>
           <view class="promo-benefit-info">
-            <text class="promo-benefit-name">7 天过境预报</text>
-            <text class="promo-benefit-desc">星链卫星未来 7 天精确过境预报</text>
+            <text class="promo-benefit-name">24 小时过境预报</text>
+            <text class="promo-benefit-desc">星链卫星未来 24 小时精确过境预报</text>
           </view>
         </view>
         <view class="promo-benefit">

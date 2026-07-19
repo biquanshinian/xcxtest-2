@@ -46,7 +46,7 @@
     <view class="news-list">
       <!-- 事件卡片 -->
       <view class="news-card glass-card card-hover" wx:for="{{newsList}}" wx:key="id" wx:if="{{contentType === 'events'}}">
-        <navigator class="card-link" url="/subpackages/news-extra/detail?id={{item.id}}&type=event">
+        <navigator class="card-link" url="/subpackages/news-extra/detail?id={{item.id}}&type=event" bindtap="onNewsCardSnapshotTap" data-id="{{item.id}}">
           <image class="news-image" wx:if="{{item.image}}" src="{{item.cardImage || item.image}}" mode="aspectFill" lazy-load="{{true}}"></image>
 
           <view class="news-content">
@@ -84,7 +84,7 @@
 
       <!-- 文章卡片（配图区域与「即将发生」同款：整宽 news-image + 下方正文） -->
       <view class="article-card glass-card card-hover" wx:for="{{newsList}}" wx:key="id" wx:if="{{contentType === 'articles'}}">
-        <navigator class="card-link" url="/subpackages/news-extra/detail?id={{item.id}}&type=article">
+        <navigator class="card-link" url="/subpackages/news-extra/detail?id={{item.id}}&type=article" bindtap="onNewsCardSnapshotTap" data-id="{{item.id}}">
           <image class="news-image" wx:if="{{item.cardImage}}" src="{{item.cardImage}}" mode="aspectFill" lazy-load="{{true}}"></image>
 
           <view class="news-content">

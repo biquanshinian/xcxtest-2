@@ -15,12 +15,27 @@
   </view>
 
   <!-- 校准提示 -->
-  <view class="ar-calibrate-hint" wx:if="{{showCalibrate}}">
+  <view class="ar-calibrate-hint" wx:if="{{showCalibrate && !compassUnavailable && !locationFailed}}">
     <text>请缓慢转动手机进行罗盘校准 ↻</text>
   </view>
 
-  <!-- 返回按钮 -->
-  <view class="ar-back-btn {{isDirectEntry ? 'ar-back-btn--home' : ''}}" bindtap="goBack">
+  <!-- 罗盘不可用占位（卫星叠点层已隐藏） -->
+  <view class="ar-fallback-hint" wx:if="{{compassUnavailable}}">
+    <text class="ar-fallback-title">罗盘不可用</text>
+    <text class="ar-fallback-desc">无法确定手机朝向，暂时不能定位卫星方位</text>
+  </view>
+
+  <!-- 定位失败占位 + 重试 -->
+  <view class="ar-fallback-hint" wx:if="{{locationFailed}}">
+    <text class="ar-fallback-title">无法获取位置</text>
+    <text class="ar-fallback-desc">{{locationErrMsg || '需要位置权限才能计算卫星方位'}}</text>
+    <view class="ar-fallback-retry" bindtap="retryLocation">
+      <text>重试定位</text>
+    </view>
+  </view>
+
+  <!-- 返回按钮（top 按胶囊/状态栏高度适配） -->
+  <view class="ar-back-btn {{isDirectEntry ? 'ar-back-btn--home' : ''}}" style="top: {{backBtnTop}}px;" bindtap="goBack">
     <text class="back-icon">‹</text>
   </view>
 
@@ -82,7 +97,11 @@
         <view class="ar-diag-item"><text class="ar-diag-label">罗盘</text><text class="ar-diag-value">{{arDiag.compass}}</text></view>
         <view class="ar-diag-item"><text class="ar-diag-label">姿态传感器</text><text class="ar-diag-value">{{arDiag.motion}}</text></view>
         <view class="ar-diag-item"><text class="ar-diag-label">朝向来源</text><text class="ar-diag-value">{{arDiag.headingSource}}</text></view>
+        <view class="ar-diag-item"><text class="ar-diag-label">磁偏角修正</text><text class="ar-diag-value">{{arDiag.declination}}</text></view>
         <view class="ar-diag-item"><text class="ar-diag-label">罗盘方向值</text><text class="ar-diag-value">{{arDiag.compassRaw}}</text></view>
+        <view class="ar-diag-item"><text class="ar-diag-label">罗盘精度</text><text class="ar-diag-value">{{arDiag.compassAccuracy}}</text></view>
+        <view class="ar-diag-item"><text class="ar-diag-label">姿态朝向</text><text class="ar-diag-value">{{arDiag.motionHeading}}</text></view>
+        <view class="ar-diag-item"><text class="ar-diag-label">姿态约定</text><text class="ar-diag-value">{{arDiag.motionConv}}</text></view>
         <view class="ar-diag-item"><text class="ar-diag-label">姿态 Alpha</text><text class="ar-diag-value">{{arDiag.motionAlpha}}</text></view>
         <view class="ar-diag-item"><text class="ar-diag-label">姿态 Beta</text><text class="ar-diag-value">{{arDiag.motionBeta}}</text></view>
         <view class="ar-diag-item"><text class="ar-diag-label">姿态 Gamma</text><text class="ar-diag-value">{{arDiag.motionGamma}}</text></view>

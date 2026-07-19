@@ -144,10 +144,32 @@ async function collectTextStream(textStream) {
 }
 
 /**
+ * 云函数端 AI 入口：wx-server-sdk >= 3.0.5 用 cloud.ai()，旧版用 cloud.extend.AI
+ */
+function getAIEntry() {
+  try {
+    if (typeof cloud.ai === 'function') {
+      const inst = cloud.ai()
+      if (inst && typeof inst.createModel === 'function') return inst
+    }
+  } catch (e) {
+    console.warn('[topicAI] cloud.ai() 初始化失败:', e.message || e)
+  }
+  if (cloud.extend && cloud.extend.AI && typeof cloud.extend.AI.createModel === 'function') {
+    return cloud.extend.AI
+  }
+  return null
+}
+
+/**
  * 主通道：云开发 AI+ 混元（与小程序「星问AI」、推文翻译同一套能力），零配置可用
  */
 async function callTopicAIHunyuan(prompt) {
-  if (!(cloud.extend && cloud.extend.AI && cloud.extend.AI.createModel)) return []
+  const AI = getAIEntry()
+  if (!AI) {
+    console.warn('[topicAI] 云开发 AI 能力不可用：wx-server-sdk 缺少 cloud.ai()/extend.AI（需 >= 3.0.5-beta.1，请重新部署并安装依赖）')
+    return []
+  }
 
   const providers = [
     { provider: 'cloudbase', model: 'hy3-preview' },
@@ -161,7 +183,7 @@ async function callTopicAIHunyuan(prompt) {
 
   for (const p of providers) {
     try {
-      const model = cloud.extend.AI.createModel(p.provider)
+      const model = AI.createModel(p.provider)
       const res = await Promise.race([
         model.generateText({ model: p.model, messages, temperature: 0.3, max_tokens: 200 }),
         new Promise((_, reject) => setTimeout(() => reject(new Error('AI timeout')), 12000))
@@ -177,7 +199,7 @@ async function callTopicAIHunyuan(prompt) {
 
     // 部分环境 generateText 不可用，回退 streamText（与 syncSpaceXTweets 翻译一致）
     try {
-      const model = cloud.extend.AI.createModel(p.provider)
+      const model = AI.createModel(p.provider)
       if (typeof model.streamText !== 'function') continue
       const streamRes = await Promise.race([
         model.streamText({ data: { model: p.model, messages, temperature: 0.3, max_tokens: 200 } }),

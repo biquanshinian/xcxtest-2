@@ -83,13 +83,12 @@ function buildRoadClosureState(data, formatDate) {
   }
 }
 
-async function syncRoadClosureFromCloud() {
-  const res = await wx.cloud.callFunction({
-    name: 'syncSpaceDevsData',
-    data: { action: 'syncRoadClosure' }
-  })
-  const result = res && res.result
-  return !!(result && result.success && result.merged > 0)
+function syncRoadClosureFromCloud() {
+  // 不再由前端触发 syncRoadClosure 外网抓取：封路数据由云端小时级定时器
+  // （syncLaunchNetHourly 附带 syncRoadClosureThrottled）维护，前端读库优先。
+  // 保留函数签名（调用方 await 兼容）：progress 页手动同步按钮会继续
+  // loadRoadClosureNotice 读库，仍无数据时走现有「手动录入」兜底弹窗。
+  return Promise.resolve(false)
 }
 
 async function verifyRoadClosurePassword(password) {

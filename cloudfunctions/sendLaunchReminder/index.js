@@ -463,7 +463,7 @@ async function matchPreferencesAndCreateSubscriptions() {
     const windowEnd = now + PREFS_MATCH_WINDOW_MS
 
     // 先查未来24小时内的发射任务：多数 tick 没有临近任务，此时直接返回，
-    // 不再扫描用户偏好（省掉每 5 分钟一次的 user_profile 读）
+    // 不再扫描用户偏好（省掉每个定时 tick 的 user_profile 读）
     var launchesRes
     try {
       launchesRes = await db.collection(LAUNCH_DATA_COLLECTION)
@@ -581,6 +581,64 @@ function formatLaunchTimeStr(isoTime) {
   }
 }
 
+// ── 空跑早退 / bootstrap 限频 ──
+// 定时 tick 大多数时候既无临近发射也无待处理订阅，此时跳过 reconcile / 各发送通道 / 偏好匹配，
+// 只保留最前面的 launch_data 缓存同步（它是判断依据本身，且 diff 后基本零写）。
+// 条件刻意保守：launch_subscriptions 里只要还有任何文档（待发提醒 / 待发结果通知 / 失败重试），
+// 或未来 48h 内存在发射窗口，就照常全量执行；检查本身失败也照常执行——宁可多跑不能漏发。
+const IDLE_LOOKAHEAD_MS = 48 * 60 * 60 * 1000
+
+async function isIdleTick() {
+  const now = Date.now()
+  const upcomingRes = await db
+    .collection(LAUNCH_DATA_COLLECTION)
+    .where({
+      windowStart: _.gte(new Date(now - 2 * 60 * 60 * 1000)).and(_.lte(new Date(now + IDLE_LOOKAHEAD_MS)))
+    })
+    .limit(1)
+    .get()
+  if ((upcomingRes.data || []).length > 0) return false
+  const subRes = await db.collection(SUBSCRIBE_COLLECTION).limit(1).get()
+  if ((subRes.data || []).length > 0) return false
+  return true
+}
+
+// 空库 bootstrap（callFunction syncLaunches 全量外网同步）每日最多 1 次：
+// 用 space_devs_cache 里一条标记文档记录上次触发时间。syncSpaceDevsData 自身有定时器，
+// 空库最终会由其自愈，这里的兜底不需要每个 tick 都打一次外网同步。
+const BOOTSTRAP_MARKER_DOC_ID = 'meta_sendLaunchReminder_bootstrap'
+const BOOTSTRAP_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000
+
+async function maybeBootstrapSyncLaunches() {
+  const now = Date.now()
+  try {
+    const marker = await db
+      .collection(SPACE_DEVS_CACHE)
+      .doc(BOOTSTRAP_MARKER_DOC_ID)
+      .get()
+      .catch(() => null)
+    const lastAt = marker && marker.data ? Number(marker.data.lastBootstrapAt) : 0
+    if (lastAt && now - lastAt < BOOTSTRAP_MIN_INTERVAL_MS) {
+      return { ran: false, skipped: 'bootstrap_rate_limited' }
+    }
+  } catch (e) { /* 标记读取失败不阻断 bootstrap */ }
+  // 先写标记再调用：并发 tick 下也只会触发一次
+  try {
+    await db.collection(SPACE_DEVS_CACHE).doc(BOOTSTRAP_MARKER_DOC_ID).set({
+      data: { lastBootstrapAt: now, updatedAt: now }
+    })
+  } catch (e) {}
+  try {
+    await cloud.callFunction({
+      name: 'syncSpaceDevsData',
+      data: { action: 'syncLaunches' }
+    })
+    return { ran: true }
+  } catch (e) {
+    return { ran: false, error: e.message || String(e) }
+  }
+}
+
 let _sendLaunchReminderCollectionsEnsured = false
 async function ensureSendLaunchReminderCollectionsOnce() {
   if (_sendLaunchReminderCollectionsEnsured) return
@@ -597,8 +655,9 @@ exports.main = async (event) => {
   await ensureSendLaunchReminderCollectionsOnce()
   const action = event.action || 'sendPending'
 
-  // 生产自动链路（定时器 launchReminderTrigger 每 5 分钟，config: 0 */5 * * * * *）：
+  // 生产自动链路（定时器 launchReminderTrigger 每 10 分钟，config: 0 */10 * * * * *）：
   // 1) syncLaunchDataFromCache ← space_devs_cache upcoming
+  // 1b) 空跑早退 ← 48h 内无发射且无待处理订阅时到此为止
   // 2) reconcilePendingSubscriptionsNotifyTimes ← A 通道改期对齐
   // 3) sendPendingReminders ← launch_subscriptions 小程序发射前提醒
   // 3b) sendPendingResultNotifications ← 终态后「任务完成提醒」
@@ -610,19 +669,29 @@ exports.main = async (event) => {
     try {
       launchDataSync = await syncLaunchDataFromCache()
       if (!launchDataSync.total) {
-        try {
-          await cloud.callFunction({
-            name: 'syncSpaceDevsData',
-            data: { action: 'syncLaunches' }
-          })
+        const bootstrap = await maybeBootstrapSyncLaunches()
+        if (bootstrap.ran) {
           launchDataSync = await syncLaunchDataFromCache()
-        } catch (bootstrapErr) {
-          launchDataSync.bootstrapError = bootstrapErr.message || String(bootstrapErr)
+        } else if (bootstrap.skipped) {
+          launchDataSync.bootstrapSkipped = bootstrap.skipped
+        }
+        if (bootstrap.error) {
+          launchDataSync.bootstrapError = bootstrap.error
         }
       }
     } catch (syncErr) {
       launchDataSync = { success: false, error: syncErr.message || String(syncErr) }
     }
+    try {
+      if (await isIdleTick()) {
+        return {
+          success: true,
+          message: 'idle tick: no launch within 48h and no pending subscriptions',
+          idleSkip: true,
+          launchDataSync
+        }
+      }
+    } catch { /* 检查失败照常执行，宁可多跑不能漏发 */ }
     let reconcileStats
     try {
       reconcileStats = await reconcilePendingSubscriptionsNotifyTimes()
@@ -1646,7 +1715,7 @@ function buildOaTemplateData(opts) {
     data[keys.remark] = { value: toOaThingValue(remark, '') }
   }
   if (keys.code) {
-    data[keys.code] = { value: toOaCharacterStringValue(rocketName, 'Launch') }
+    data[keys.code] = { value: toOaCharacterStringValue(codeId, 'Launch') }
   }
   return data
 }

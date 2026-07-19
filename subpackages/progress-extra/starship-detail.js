@@ -13,6 +13,20 @@ function getFallbackImage(type) {
   return resolveMediaUrl(type === 'ship' ? S39_IMAGE_KEY : B19_IMAGE_KEY, '')
 }
 
+const STARSHIP_SHARED_TTL = 10 * 60 * 1000
+
+/** 优先复用 progress 页写入的全局共享星舰状态（10 分钟内新鲜），未命中再走库读 */
+function getSharedStarshipStatus() {
+  try {
+    const app = getApp()
+    const shared = app && app.globalData && app.globalData.starshipStatus
+    if (shared && shared.data && Date.now() - (shared.fetchedAt || 0) < STARSHIP_SHARED_TTL) {
+      return Promise.resolve(shared.data)
+    }
+  } catch (e) {}
+  return getStarshipStatusFromDB()
+}
+
 function normalizeImageUrl(url) {
   if (!url || typeof url !== 'string') return ''
   const normalized = url.replace(/\\/g, '/')
@@ -127,7 +141,7 @@ Page({
   async loadDetail(type) {
     try {
       const [data, hwRes] = await Promise.all([
-        getStarshipStatusFromDB(),
+        getSharedStarshipStatus(),
         getStarshipHardwareFromDB().catch(function () {
           return { vehicles: [] }
         })

@@ -629,23 +629,28 @@ function _buildCandidateKeys(url, params, exactKey) {
     }
   }
 
-  // upcoming 与 LL2 对齐：默认带 hide_recent_previous；仍候选无该参数的旧云缓存键
-  const std100Base = { limit: 100, offset: 0, ordering, mode: 'detailed', format: 'json' }
-  const std100Params = isUpcomingList ? { ...std100Base, hide_recent_previous: true } : std100Base
-  addSlimListCandidates(getCacheKey(url, std100Params))
-  if (isUpcomingList) {
-    const kNew = getCacheKey(url, std100Params)
-    const kLegacy = getCacheKey(url, std100Base)
-    if (kLegacy !== kNew) addSlimListCandidates(kLegacy)
-  }
+  // launch 列表专用候选（带 ordering/mode=detailed 的 key 只有 launch 同步会写入）：
+  // 仅对 launch 列表添加，避免 /agencies/、/events/ 等端点把 MAX_CLOUD_CANDIDATE_KEYS
+  // 的云端查询名额浪费在必然不存在的 key 上，挤掉后面真正存在的分页缓存候选
+  if (isLaunchList) {
+    // upcoming 与 LL2 对齐：默认带 hide_recent_previous；仍候选无该参数的旧云缓存键
+    const std100Base = { limit: 100, offset: 0, ordering, mode: 'detailed', format: 'json' }
+    const std100Params = isUpcomingList ? { ...std100Base, hide_recent_previous: true } : std100Base
+    addSlimListCandidates(getCacheKey(url, std100Params))
+    if (isUpcomingList) {
+      const kNew = getCacheKey(url, std100Params)
+      const kLegacy = getCacheKey(url, std100Base)
+      if (kLegacy !== kNew) addSlimListCandidates(kLegacy)
+    }
 
-  const std20Base = { limit: 20, offset: 0, ordering, mode: 'detailed', format: 'json' }
-  const std20Params = isUpcomingList ? { ...std20Base, hide_recent_previous: true } : std20Base
-  addSlimListCandidates(getCacheKey(url, std20Params))
-  if (isUpcomingList) {
-    const kNew = getCacheKey(url, std20Params)
-    const kLegacy = getCacheKey(url, std20Base)
-    if (kLegacy !== kNew) addSlimListCandidates(kLegacy)
+    const std20Base = { limit: 20, offset: 0, ordering, mode: 'detailed', format: 'json' }
+    const std20Params = isUpcomingList ? { ...std20Base, hide_recent_previous: true } : std20Base
+    addSlimListCandidates(getCacheKey(url, std20Params))
+    if (isUpcomingList) {
+      const kNew = getCacheKey(url, std20Params)
+      const kLegacy = getCacheKey(url, std20Base)
+      if (kLegacy !== kNew) addSlimListCandidates(kLegacy)
+    }
   }
 
   if (params.offset && params.offset > 0) {

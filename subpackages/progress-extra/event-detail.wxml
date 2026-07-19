@@ -387,7 +387,7 @@
             <text class="detail-title" wx:if="{{ev.title}}" user-select="{{true}}">{{ev.title}}</text>
             <text class="detail-content" wx:if="{{ev.content}}" user-select="{{true}}">{{ev.content}}</text>
 
-            <view class="event-live-card" wx:if="{{ev.liveRoomId}}" catchtap="onLiveCardTapFromList" data-id="{{ev._id}}">
+            <view class="event-live-card" wx:if="{{enableLiveEntry && ev.liveRoomId}}" catchtap="onLiveCardTapFromList" data-id="{{ev._id}}">
               <view class="event-live-cover-wrap">
                 <image class="event-live-cover" src="{{ev.liveCover || ev._liveCover || ''}}" mode="aspectFill" wx:if="{{ev.liveCover || ev._liveCover}}" />
                 <view class="event-live-cover-placeholder" wx:else>
@@ -444,7 +444,7 @@
         <text class="detail-title" wx:if="{{item.title}}" user-select="{{true}}">{{item.title}}</text>
         <text class="detail-content" wx:if="{{item.content}}" user-select="{{true}}">{{item.content}}</text>
 
-        <view class="event-live-card" wx:if="{{item.liveRoomId}}" bindtap="onLiveCardTap">
+        <view class="event-live-card" wx:if="{{enableLiveEntry && item.liveRoomId}}" bindtap="onLiveCardTap">
           <view class="event-live-cover-wrap">
             <image
               class="event-live-cover"

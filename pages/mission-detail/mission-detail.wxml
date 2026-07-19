@@ -785,6 +785,24 @@
           </view>
         </view>
 
+      <!-- 星舰任务指挥室入口（飞行时间线上方；enableMissionSim 过审开关，failClosed） -->
+      <view class="detail-sim-entry" wx:if="{{missionSimEligible && enableMissionSim}}"
+            bindtap="openMissionSimFromDetail" hover-class="detail-sim-entry--pressed" hover-stay-time="120">
+        <view class="detail-sim-entry-glow"></view>
+        <view class="detail-sim-entry-left">
+          <view class="detail-sim-entry-tagrow">
+            <view class="detail-sim-entry-dot"></view>
+            <text class="detail-sim-entry-tag">GO / NO-GO · SIM</text>
+          </view>
+          <text class="detail-sim-entry-title">指挥这次任务</text>
+          <text class="detail-sim-entry-desc">以飞行总监视角模拟本次发射，全程对齐下方飞行时间线节点</text>
+        </view>
+        <view class="detail-sim-entry-arrow">
+          <text>进入</text>
+          <text class="detail-sim-entry-arrow-icon">›</text>
+        </view>
+      </view>
+
       <!-- 飞行时间线（LL2） -->
       <view class="detail-ll2-section">
         <view class="detail-section-title-row detail-ll2-timeline-head">
@@ -822,6 +840,12 @@
         </view>
       </view>
 
+        </view>
+
+        <!-- 完整详情仍在拉取：面板留白区显示转圈，避免被误认为无数据 -->
+        <view class="detail-hydrating-state" wx:if="{{detailHydrating}}">
+          <view class="loading-spinner"></view>
+          <text class="detail-hydrating-text">正在加载任务数据…</text>
         </view>
       </view>
 

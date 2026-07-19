@@ -201,7 +201,39 @@ Page({
     return image || resolveMediaUrl(NEWS_SHARE_DEFAULT_KEY, '')
   },
 
+  /** 领取新闻列表页点卡片时暂存的列表项快照（一次性，30 秒内有效） */
+  _takeNewsSnapshot(detailType, id) {
+    try {
+      const app = getApp()
+      const snap = app && app._newsDetailSnapshot
+      if (!snap) return null
+      app._newsDetailSnapshot = null
+      if (String(snap.id) !== String(id) || snap.type !== detailType) return null
+      if (Date.now() - (snap.at || 0) > 30 * 1000) return null
+      return snap.item
+    } catch (e) {}
+    return null
+  },
+
   async loadDetail(detailType, id, opts = {}) {
+    // 列表项快照先上屏（首屏加速）：列表与详情走同一格式化函数，展示一致；网络详情照常拉取兜底
+    if (!this.data.item && !opts.silent) {
+      const snap = this._takeNewsSnapshot(detailType, id)
+      if (snap) {
+        const snapItem = detailType === 'article' ? normalizeArticle(snap) : normalizeEvent(snap)
+        if (snapItem) {
+          this.setData({
+            loading: false,
+            item: snapItem,
+            shareTitle: `${snapItem.title || (detailType === 'article' ? '航天事件' : '即将发生')} | 火星探索日志`,
+            shareImage: this.resolveShareImage(detailType === 'article' ? (snapItem.heroImageUrl || snapItem.image) : snapItem.image),
+            navTitle: detailType === 'article' ? '文章详情' : '事件详情'
+          })
+          opts = { ...opts, silent: true }
+        }
+      }
+    }
+
     // silent（下拉刷新）：已有内容时不回退到加载骨架，只显示微信原生刷新指示器
     if (!(opts.silent && this.data.item)) {
       this.setData({ loading: true, errorMessage: '' })

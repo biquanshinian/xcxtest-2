@@ -14,9 +14,9 @@
  *   'syncRoadClosure'         — 仅同步封路通知
  *   'syncBoosters'            — 仅同步助推器族谱
  *   'syncAgencies'            — 仅同步发射机构
+ *   'syncFeaturedAgencyDetails' — featured 机构详情自愈同步（6h 全量同步自动附带执行；
+ *                               26h TTL 判断，单轮限额 maxSync/budgetMs 可通过 event 覆盖）
  *   'rebuildVoteSettle'       — 批量重算历史错误竞猜结算（支持 cursor 分批 / all 一次跑完）
- *   'fetchLaunchUpdates'      — LL2 GET /updates/?launch=uuid（可选 autoStarship 自动解析星舰发射）
- *   'fetchLaunchTimeline'     — LL2 GET /launches/{uuid}/?mode=detailed（同上）
  *   'syncStarshipHardware'    — 仅同步 NSF 星舰硬件设施（vehicles+tests+图片镜像）；
  *                               小时级 syncNextSpaceflightStarship 触发时会自动附带执行
  *   'syncImageMirror'         — LL2 外网图片镜像到 COS（机构 Logo/飞船/发射场/轨道事件/空间站），
@@ -33,231 +33,7 @@ const { db, cloud, syncAPIEndpoint, LAUNCH_LIBRARY_API, fetchAPI } = require('./
 const { syncLaunchDataFromCache } = require('./launch-data-sync.js')
 const { runSyncNextSpaceflightStarship } = require('./nextspaceflight-starship.js')
 const { runSyncStarshipHardware } = require('./nextspaceflight-hardware.js')
-const { resolveAutoStarshipLaunch } = require('./ll2-starship-auto.js')
 const { runLaunchNetHourly } = require('./launch-net-hourly.js')
-
-/**
- * @param {{ launchId?: string, autoStarship?: boolean }} event
- */
-async function resolveLaunchIdForLl2Progress(event) {
-  const manual = String((event && event.launchId) || '').trim()
-  const autoStarship = !!(event && event.autoStarship)
-  if (manual) {
-    return {
-      launchId: manual,
-      autoResolved: false,
-      resolvedSource: '',
-      resolvedLaunchName: '',
-      resolvedNet: '',
-      resolvedFromCache: false
-    }
-  }
-  if (!autoStarship) {
-    return {
-      launchId: '',
-      autoResolved: false,
-      resolvedSource: '',
-      resolvedLaunchName: '',
-      resolvedNet: '',
-      resolvedFromCache: false,
-      error: 'missing_launch_id'
-    }
-  }
-  try {
-    const r = await resolveAutoStarshipLaunch(fetchAPI, LAUNCH_LIBRARY_API)
-    if (!r.launchId) {
-      return {
-        launchId: '',
-        autoResolved: true,
-        resolvedSource: '',
-        resolvedLaunchName: '',
-        resolvedNet: '',
-        resolvedFromCache: false,
-        error: 'no_starship_launch'
-      }
-    }
-    return {
-      launchId: r.launchId,
-      autoResolved: true,
-      resolvedSource: r.source || '',
-      resolvedLaunchName: r.launchName || '',
-      resolvedNet: r.net || '',
-      resolvedFromCache: !!r.cached
-    }
-  } catch (e) {
-    return {
-      launchId: '',
-      autoResolved: true,
-      resolvedSource: '',
-      resolvedLaunchName: '',
-      resolvedNet: '',
-      resolvedFromCache: false,
-      error: e.message || 'resolve_starship_launch_failed'
-    }
-  }
-}
-
-// ── LL2：按发射 UUID 拉取 updates（进度页副栏，不经 space_devs_cache） ──
-async function fetchLaunchUpdatesAction(event) {
-  const startTime = Date.now()
-  try {
-    const limit = Math.min(30, Math.max(1, Number((event && event.limit) || 15)))
-    const resolved = await resolveLaunchIdForLl2Progress(event || {})
-    const launchId = resolved.launchId
-    if (!launchId) {
-      const err = resolved.error === 'no_starship_launch' ? 'no_starship_launch' : resolved.error || 'missing_launch_id'
-      return {
-        success: false,
-        error: err,
-        list: [],
-        launchId: '',
-        autoResolved: resolved.autoResolved,
-        resolvedSource: resolved.resolvedSource,
-        resolvedLaunchName: resolved.resolvedLaunchName,
-        timestamp: Date.now(),
-        elapsed: Date.now() - startTime
-      }
-    }
-    const q = [
-      'format=json',
-      'launch=' + encodeURIComponent(launchId),
-      'ordering=' + encodeURIComponent('-created_on'),
-      'limit=' + encodeURIComponent(String(limit))
-    ].join('&')
-    const url = `${LAUNCH_LIBRARY_API}/updates/?${q}`
-    const apiData = await Promise.race([
-      fetchAPI(url),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('LL2 updates 请求超时')), 18000))
-    ])
-    const results = Array.isArray(apiData && apiData.results) ? apiData.results : []
-    const list = results.map((u) => ({
-      id: u.id,
-      comment: String(u.comment || ''),
-      infoUrl: typeof u.info_url === 'string' ? u.info_url.trim() : '',
-      createdOn: u.created_on || '',
-      createdBy: String(u.created_by || '')
-    }))
-    return {
-      success: true,
-      launchId,
-      autoResolved: resolved.autoResolved,
-      resolvedSource: resolved.resolvedSource,
-      resolvedLaunchName: resolved.resolvedLaunchName,
-      totalCount: typeof apiData.count === 'number' ? apiData.count : list.length,
-      list,
-      timestamp: Date.now(),
-      elapsed: Date.now() - startTime
-    }
-  } catch (e) {
-    return {
-      success: false,
-      error: e.message || 'fetch_launch_updates_failed',
-      list: [],
-      timestamp: Date.now(),
-      elapsed: Date.now() - startTime
-    }
-  }
-}
-
-async function fetchLaunchTimelineAction(event) {
-  const startTime = Date.now()
-  try {
-    const resolved = await resolveLaunchIdForLl2Progress(event || {})
-    const launchId = resolved.launchId
-    if (!launchId) {
-      const err = resolved.error === 'no_starship_launch' ? 'no_starship_launch' : resolved.error || 'missing_launch_id'
-      return {
-        success: false,
-        error: err,
-        timeline: [],
-        launchId: '',
-        autoResolved: resolved.autoResolved,
-        resolvedSource: resolved.resolvedSource,
-        resolvedLaunchName: resolved.resolvedLaunchName,
-        timestamp: Date.now(),
-        elapsed: Date.now() - startTime
-      }
-    }
-
-    // 先查云数据库缓存（TTL 30 分钟）
-    const cacheDocId = `timeline_${launchId}`
-    const TIMELINE_CACHE_TTL = 30 * 60 * 1000
-    const TIMELINE_CACHE_COL = 'launch_timeline_cache'
-    try {
-      const cacheRes = await db.collection(TIMELINE_CACHE_COL).doc(cacheDocId).get()
-      const cached = cacheRes && cacheRes.data
-      if (cached && cached.updatedAtMs && Date.now() - cached.updatedAtMs < TIMELINE_CACHE_TTL) {
-        return {
-          success: true,
-          launchId,
-          autoResolved: resolved.autoResolved,
-          resolvedSource: resolved.resolvedSource,
-          resolvedLaunchName: resolved.resolvedLaunchName || cached.launchName || '',
-          launchName: cached.launchName || '',
-          net: cached.net || '',
-          timeline: cached.data || [],
-          timelineCount: (cached.data || []).length,
-          fromCache: true,
-          timestamp: Date.now(),
-          elapsed: Date.now() - startTime
-        }
-      }
-    } catch (e) {}
-
-    const url = `${LAUNCH_LIBRARY_API}/launches/${encodeURIComponent(launchId)}/?format=json&mode=normal`
-    const apiData = await Promise.race([
-      fetchAPI(url),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('LL2 launch 详情请求超时')), 15000))
-    ])
-    const raw = Array.isArray(apiData && apiData.timeline) ? apiData.timeline : []
-    const timeline = raw.map((row, idx) => {
-      const t = row && row.type ? row.type : {}
-      const id = t.id != null ? String(t.id) : String(idx)
-      return {
-        id,
-        abbrev: typeof t.abbrev === 'string' ? t.abbrev.trim() : '',
-        description: typeof t.description === 'string' ? t.description.trim() : '',
-        relativeTime: typeof row.relative_time === 'string' ? row.relative_time.trim() : ''
-      }
-    })
-
-    // 写入缓存（独立集合，不影响 space_devs_cache）
-    const launchName = typeof apiData.name === 'string' ? apiData.name : ''
-    const net = apiData.net || ''
-    try {
-      const cacheRecord = {
-        data: timeline,
-        launchName,
-        net,
-        updatedAt: db.serverDate(),
-        updatedAtMs: Date.now()
-      }
-      await db.collection(TIMELINE_CACHE_COL).doc(cacheDocId).set({ data: cacheRecord })
-    } catch (e) {}
-
-    return {
-      success: true,
-      launchId,
-      autoResolved: resolved.autoResolved,
-      resolvedSource: resolved.resolvedSource,
-      resolvedLaunchName: resolved.resolvedLaunchName || launchName,
-      launchName,
-      net,
-      timeline,
-      timelineCount: timeline.length,
-      timestamp: Date.now(),
-      elapsed: Date.now() - startTime
-    }
-  } catch (e) {
-    return {
-      success: false,
-      error: e.message || 'fetch_launch_timeline_failed',
-      timeline: [],
-      timestamp: Date.now(),
-      elapsed: Date.now() - startTime
-    }
-  }
-}
 
 // 延迟加载 legacy 模块（仅在需要时加载 3781 行代码）
 let _legacy = null
@@ -322,16 +98,12 @@ function resolveActionFromEvent(event) {
 }
 
 // 小程序端允许直接调用的 action 白名单；其余（全量同步 / 结算 / 导入等重维护任务）
-// 仅限定时触发器或云函数间调用（adminGateway / sendLaunchReminder），防止客户端滥用耗尽 LL2 配额
+// 仅限定时触发器或云函数间调用（adminGateway / sendLaunchReminder），防止客户端滥用耗尽 LL2 配额。
+// fetchLaunch* 已全部直调 ll2Query；syncAgencies / syncNextSpaceflightStarship 改为仅服务端定时触发
 const CLIENT_ALLOWED_ACTIONS = new Set([
-  'syncAgencies',
   'syncAgencyDetail',
   'syncRoadClosure',
   'verifyRoadClosurePassword',
-  'syncNextSpaceflightStarship',
-  'fetchLaunchUpdates',
-  'fetchLaunchTimeline',
-  'fetchLaunchDetail',
   'translateDiag',
   'version'
 ])
@@ -479,17 +251,6 @@ exports.main = async (event) => {
       case 'syncStations':
         return { success: true, ...(await syncStations()), timestamp: Date.now(), elapsed: Date.now() - startTime }
 
-      case 'fetchLaunchUpdates':
-      case 'fetchLaunchTimeline':
-      case 'fetchLaunchDetail':
-        // 已拆分到 ll2Query 云函数，此处转发以兼容旧版客户端
-        try {
-          const fwdRes = await cloud.callFunction({ name: 'll2Query', data: event })
-          return fwdRes.result || { success: false, error: 'forward_empty' }
-        } catch (fwdErr) {
-          return { success: false, error: 'forward_failed: ' + (fwdErr.message || ''), timestamp: Date.now() }
-        }
-
       case 'syncNextSpaceflightStarship': {
         const r = await runSyncNextSpaceflightStarship(db)
         // 小时级触发器顺带同步硬件设施；模块内置 6 小时节流，间隔未到直接跳过（不发外部请求）
@@ -529,6 +290,7 @@ exports.main = async (event) => {
       case 'syncBoosters':
       case 'syncAgencies':
       case 'syncAgencyDetail':
+      case 'syncFeaturedAgencyDetails':
       case 'verifyRoadClosurePassword':
       case 'initCollections':
       case 'autoCleanVotes':
@@ -554,16 +316,47 @@ exports.main = async (event) => {
           result._voteMaintainError = e.message || String(e)
           console.error('[syncSpaceDevsData] vote settle/clean failed:', e)
         }
-        // 每天 UTC 0 点（北京 8 点）那一轮自动同步 agencies
-        const hour = new Date().getUTCHours()
-        if (hour === 0) {
+        // agencies 自愈式低频同步：每 6h 轮检查聚合缓存，缺失或超过 26h 才真正同步。
+        // 旧逻辑只在 UTC 0 点那一轮同步，一旦该轮失败/超时，「全球发射商图鉴」
+        // 要再等 24h 才有机会恢复；现在最多 6h 内自动补上。
+        try {
+          const AGENCIES_AGGREGATE_KEY = `api_cache_/agencies/_${JSON.stringify({ format: 'json', limit: 400, offset: 0 })}`
+          const AGENCIES_MAX_AGE_MS = 26 * 60 * 60 * 1000
+          let needAgencySync = true
           try {
-            console.log('[syncSpaceDevsData] 每日自动同步 agencies...')
+            // 文档内容 = { data: payload, timestamp, expireAt }（saveToCloudDB 写入结构）
+            const aggDoc = await db.collection('space_devs_cache').doc(AGENCIES_AGGREGATE_KEY).get()
+            const cacheData = aggDoc && aggDoc.data
+            const ts = cacheData && cacheData.timestamp
+            const payload = cacheData && cacheData.data
+            const hasData = !!(payload && ((Array.isArray(payload.results) && payload.results.length > 0) || Number(payload.count) > 0))
+            if (hasData && ts && Date.now() - ts < AGENCIES_MAX_AGE_MS) needAgencySync = false
+          } catch (e) { /* 文档不存在：需要同步 */ }
+          if (needAgencySync) {
+            console.log('[syncSpaceDevsData] agencies 缓存缺失或超 26h，自动同步...')
             const agencyResult = await getLegacy().main({ action: 'syncAgencies' })
-            result._dailyAgencies = { success: true, total: agencyResult?.agencies?.total || 0 }
-          } catch (e) {
-            result._dailyAgencies = { success: false, error: e.message }
+            const agencies = agencyResult && agencyResult.agencies
+            result._dailyAgencies = {
+              success: !!(agencies && agencies.success !== false),
+              total: (agencies && agencies.total) || 0,
+              skippedWrite: !!(agencies && agencies.skippedWrite)
+            }
+          } else {
+            result._dailyAgencies = { success: true, skipped: true, reason: 'cache_fresh' }
           }
+        } catch (e) {
+          result._dailyAgencies = { success: false, error: e.message }
+        }
+        // featured 机构详情自愈同步：详情页依赖单机构详情文档（api_cache_/agencies/{id}/），
+        // 前端已不再触发 syncAgencyDetail，若服务端不补位，详情缓存永远为空，
+        // 详情页会永远显示「部分数据待补全」。函数内置 26h TTL 判断，缓存新鲜时零外部请求。
+        try {
+          result._agencyDetails = await getLegacy().syncFeaturedAgencyDetails({
+            maxSync: 12,
+            budgetMs: 120 * 1000
+          })
+        } catch (e) {
+          result._agencyDetails = { success: false, error: e.message || String(e) }
         }
         // 复用本 6 小时定时器刷新「当前年全球发射统计」缓存（getLaunchStats 侧落库），
         // 客户端只读云端缓存即可秒回；往年已是 final 永久缓存，这里只动当前年。

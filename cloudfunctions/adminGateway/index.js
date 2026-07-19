@@ -1065,17 +1065,6 @@ async function getAboutConfig() {
   }
 }
 
-async function updateAboutConfig(body, user) {
-  const { aboutText, aboutWechat } = body || {}
-  const data = { aboutText: aboutText || '', aboutWechat: aboutWechat || '', updatedAt: now() }
-  try {
-    await db.collection(COLLECTIONS.GLOBAL_CONFIG).doc(ABOUT_CONFIG_ID).set({ data })
-  } catch (e) {
-    return fail(5000, '保存失败: ' + e.message)
-  }
-  return ok(data)
-}
-
 // ── 太空简报开关 ──
 const BRIEFING_CONFIG_ID = 'briefing_config'
 
@@ -3902,8 +3891,7 @@ async function listCloudFunctions() {
     { name: 'syncSpaceDevsData', desc: '发射数据同步', type: 'timer' },
     { name: 'syncSpaceXTweets', desc: 'SpaceX推文同步', type: 'timer' },
     { name: 'sendLaunchReminder', desc: '发射提醒推送', type: 'timer' },
-    { name: 'publishBilibiliFromEvents', desc: 'B站事件入队（定时+推文同步触发）', type: 'timer' },
-    { name: 'getLiveStatus', desc: '直播状态查询', type: 'callable' }
+    { name: 'publishBilibiliFromEvents', desc: 'B站事件入队（定时+推文同步触发）', type: 'timer' }
   ]
   return ok(functions)
 }

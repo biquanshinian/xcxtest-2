@@ -191,7 +191,47 @@ function mapLaunchToListItem(launch, index, offset, type) {
   return item
 }
 
+// ── 模块级内存快照 + inflight 去重 ──
+// index / mission-detail / profile / search / 简报等调用方共享同一份列表结果，
+// 短时间内重复调用不再各自走 storage/云库读路径（底层 api-request 仍有 30 分钟多层缓存兜底）。
+const LIST_SNAPSHOT_TTL = 5 * 60 * 1000
+const _listSnapshots = {}
+const _listInflight = {}
+
+/** 每次命中都返回浅拷贝的列表项，避免调用方就地改写污染共享快照 */
+function cloneListResult(result) {
+  return {
+    list: (result.list || []).map((item) => ({ ...item })),
+    hasMore: result.hasMore,
+    nextOffset: result.nextOffset
+  }
+}
+
+function withListSnapshot(key, fetcher) {
+  const cached = _listSnapshots[key]
+  if (cached && Date.now() - cached.at < LIST_SNAPSHOT_TTL) {
+    return Promise.resolve(cloneListResult(cached.result))
+  }
+  if (_listInflight[key]) {
+    return _listInflight[key].then(cloneListResult)
+  }
+  const inflight = fetcher()
+    .then((result) => {
+      _listSnapshots[key] = { at: Date.now(), result }
+      return result
+    })
+    .finally(() => {
+      delete _listInflight[key]
+    })
+  _listInflight[key] = inflight
+  return inflight.then(cloneListResult)
+}
+
 function getUpcomingMissions(limit = 10, offset = 0) {
+  return withListSnapshot(`upcoming:${limit}:${offset}`, () => fetchUpcomingMissions(limit, offset))
+}
+
+function fetchUpcomingMissions(limit = 10, offset = 0) {
   // 使用 /launches/upcoming/ 端点获取即将发射的任务
   // /launches/upcoming/ 本身只返回未来任务，无需客户端再过滤过期
   return request('/launches/upcoming/', {
@@ -233,6 +273,10 @@ function getUpcomingMissions(limit = 10, offset = 0) {
  * @returns {Promise} 返回已完成任务列表
  */
 function getCompletedMissions(limit = 10, offset = 0) {
+  return withListSnapshot(`completed:${limit}:${offset}`, () => fetchCompletedMissions(limit, offset))
+}
+
+function fetchCompletedMissions(limit = 10, offset = 0) {
   // 使用 /launches/previous/ 端点获取已完成的任务
   return request('/launches/previous/', {
     limit: limit,

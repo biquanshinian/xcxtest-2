@@ -33,16 +33,7 @@
         feed-id="{{feedId}}"
         finder-user-name="{{resolvedFinderUserName}}"
       />
-      <view class="channels-live-live-overlay">
-        <view class="channels-live-live-tag">
-          <view class="channels-live-eq" aria-hidden="true">
-            <view class="channels-live-eq-bar"></view>
-            <view class="channels-live-eq-bar"></view>
-            <view class="channels-live-eq-bar"></view>
-          </view>
-          <text class="channels-live-live-tag-text">直播中</text>
-        </view>
-      </view>
+      <!-- 开播时「直播观看」标题右侧已有动效直播标签，封面内不再重复 -->
     </view>
     <view class="channels-live-player-footer" wx:if="{{description || nickname}}">
       <text class="channels-live-player-title">{{description || nickname}}</text>
@@ -88,16 +79,7 @@
       <view class="channels-live-status-overlay">
         <view class="channels-live-status-badge channels-live-status-badge--{{statusTone}}">{{statusLabel}}</view>
       </view>
-      <view class="channels-live-live-overlay" wx:if="{{status === 2 && coverShowLiveBadge}}">
-        <view class="channels-live-live-tag">
-          <view class="channels-live-eq" aria-hidden="true">
-            <view class="channels-live-eq-bar"></view>
-            <view class="channels-live-eq-bar"></view>
-            <view class="channels-live-eq-bar"></view>
-          </view>
-          <text class="channels-live-live-tag-text">直播中</text>
-        </view>
-      </view>
+      <!-- 开播时「直播观看」标题右侧已有动效直播标签，封面内不再重复 -->
     </view>
     <view class="channels-live-player-footer">
       <text class="channels-live-player-title">{{coverTitle || statusHint}}</text>

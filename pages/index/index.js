@@ -20,7 +20,7 @@ const { inferTerminalStatusFromUpdates, buildSettledRowFromUpdates } = require('
 const { computeLaunchDelayInfo } = require('../../utils/launch-delay.js')
 const { getStatusCategory, getStatusBadgeText, isTerminalStatusId } = require('../../utils/api-request.js')
 const { isDemoActive, isLiveAccount, startDemo, startRemoteControl } = require('../../utils/demo-engine.js')
-const { isPlaybackAllowed } = require('../../utils/feature-flags.js')
+const { isPlaybackAllowed, isLiveEntryAllowed } = require('../../utils/feature-flags.js')
 const {
   filterExpiredMissions,
   getStatusTextZh,
@@ -500,6 +500,7 @@ Page({
       setTimeout(() => {
         this.loadSpaceXStats()
         this.loadAnnouncementBanner()
+        this._membershipWarmAt = Date.now()
         Promise.all([isMembershipEnabled(), getMembershipState()])
           .then(() => {
             try {
@@ -633,28 +634,35 @@ Page({
       const sinceLoad = Date.now() - (this._pageLoadAt || 0)
       if (sinceLoad >= 3000) {
         this._refreshMembershipAndAgencyFilter()
-        Promise.all([isMembershipEnabled(), getMembershipState()])
-          .then(() => {
-            try {
-              this._refreshMembershipAndAgencyFilter()
-            } catch (e) {}
-            try {
-              this._updateCarouselAutoplayGate()
-            } catch (e) {}
-            try {
-              this._updateMissionListGate()
-            } catch (e) {}
-          })
-          .catch(() => {})
+        // 会员 warm 60 秒节流：频繁切 Tab 时不重复打云端权益查询
+        if (!this._membershipWarmAt || Date.now() - this._membershipWarmAt >= 60 * 1000) {
+          this._membershipWarmAt = Date.now()
+          Promise.all([isMembershipEnabled(), getMembershipState()])
+            .then(() => {
+              try {
+                this._refreshMembershipAndAgencyFilter()
+              } catch (e) {}
+              try {
+                this._updateCarouselAutoplayGate()
+              } catch (e) {}
+              try {
+                this._updateMissionListGate()
+              } catch (e) {}
+            })
+            .catch(() => {})
+        }
       }
 
       // 从详情返回：强制拉 recent_settled；已可落库的立刻移出倒计时（与历史同拍）
-      this._ensureRecentSettledCache(true)
+      // 60 秒内重复 onShow 降级为读内存缓存（force=false），避免频繁切页触发云端强刷
+      const settledForce = !this._settledOnShowForceAt || Date.now() - this._settledOnShowForceAt >= 60 * 1000
+      if (settledForce) this._settledOnShowForceAt = Date.now()
+      this._ensureRecentSettledCache(settledForce)
         .then(() => {
           try {
             this._scrubKnownSettleableCountdown()
           } catch (e) {}
-          return this._applyRecentSettledToCompletedList(true)
+          return this._applyRecentSettledToCompletedList(settledForce)
         })
         .then(() => {
           try {
@@ -1213,6 +1221,8 @@ Page({
     launchStatsLoading: false,
     launchStatsError: '',
     // 倒计时圆图：视频号直播态（红边涟漪 + 声波「直播中」）
+    // enableLiveEntry：过审直播入口开关（isLiveEntryAllowed，failClosed），关闭时不探测/不轮询/不渲染直播 UI
+    enableLiveEntry: false,
     isChannelsLive: false,
     channelsLiveStatus: 0,
     channelsLiveFeedId: '',
@@ -3783,6 +3793,9 @@ Page({
       carouselVideoDuration: videoDuration * 1000
     })
 
+    // 过审开关先于任何视频预热确认：未确认允许前不调 getCachedVideo（Pro 用户也一样）
+    const playbackOk = await isPlaybackAllowed().catch(() => false)
+
     let items = []
     try {
       const filtered = (docs || [])
@@ -3817,7 +3830,7 @@ Page({
               doc.previewUrl && String(doc.previewUrl).trim() ? toCdnUrl(String(doc.previewUrl).trim()) : ''
             // 非会员：默认不预热、不写入可播地址（策略 forceNonMemberVideoPoster）；有权益才预热预览片
             // 无预览片时也不用原片做内嵌自动播（原片过大），点击全屏再按需播
-            const playSrc = previewSrc && canPrefetchVideoSync() ? getCachedVideo(previewSrc) : ''
+            const playSrc = playbackOk && previewSrc && canPrefetchVideoSync() ? getCachedVideo(previewSrc) : ''
             return {
               // 视频项 src 不挂 mp4，避免任何回退路径误拉原片
               src: isVideo ? poster || src : src,
@@ -3841,7 +3854,6 @@ Page({
     }
 
     // 过审关闭 enableEventVideo：视频项降级为封面图，避免首页挂载 <video>
-    const playbackOk = await isPlaybackAllowed().catch(() => false)
     if (!playbackOk && items.length) {
       items = items
         .map((i) => {
@@ -5408,7 +5420,15 @@ Page({
     this.persistMissionDetailListSnapshot(context)
 
     wx.navigateTo({
-      url: context.navigation.url
+      url: context.navigation.url,
+      success: (res) => {
+        // 快照经 eventChannel 直达详情页做首屏加速；storage 快照保留作分享冷启动兜底
+        try {
+          if (res && res.eventChannel && context.mission) {
+            res.eventChannel.emit('missionSnapshot', context.mission)
+          }
+        } catch (err) {}
+      }
     })
   },
 
@@ -5520,38 +5540,53 @@ Page({
     const schedule = !!(options && options.schedule)
     if (this._channelsLiveInfoPromise) {
       return this._channelsLiveInfoPromise.then(() => {
-        if (schedule) this._scheduleCountdownChannelsLivePoll()
+        if (schedule && this.data.enableLiveEntry) this._scheduleCountdownChannelsLivePoll()
       })
     }
 
-    this._channelsLiveInfoPromise = loadChannelsLiveModule()
-      .then((live) => live.fetchChannelsLiveInfo().then((payload) => payload))
-      .then((payload) => {
-        const status = payload.status || 0
-        const feedId = payload.feedId || ''
-        const isLive = Number(status) === 2
-        const finder = getLiveFinderUserNameFromConfig()
-        const patch = {}
-        if (this.data.isChannelsLive !== isLive) patch.isChannelsLive = isLive
-        if (this.data.channelsLiveStatus !== status) patch.channelsLiveStatus = status
-        if (this.data.channelsLiveFeedId !== feedId) patch.channelsLiveFeedId = feedId
-        if (finder && this.data.liveFinderUserName !== finder) patch.liveFinderUserName = finder
-        if (!isLive && this.data.channelsLiveAnimPaused) patch.channelsLiveAnimPaused = false
-        if (!isLive && this.data.isEnteringLive) patch.isEnteringLive = false
-        if (Object.keys(patch).length) this.setData(patch)
-      })
-      .catch(() => {
-        // 探测失败静默：保持未直播态，不打断倒计时
-        if (this.data.isChannelsLive || this.data.isEnteringLive) {
-          this.setData({
-            isChannelsLive: false,
-            isEnteringLive: false
-          })
+    this._channelsLiveInfoPromise = isLiveEntryAllowed()
+      .catch(() => false)
+      .then((allowed) => {
+        if (this.data.enableLiveEntry !== !!allowed) {
+          this.setData({ enableLiveEntry: !!allowed })
         }
+        if (!allowed) {
+          // 过审关闭直播入口：不探测视频号、不续轮询，并收回已亮起的直播态
+          this._clearCountdownChannelsLivePoll()
+          if (this.data.isChannelsLive || this.data.isEnteringLive) {
+            this.setData({ isChannelsLive: false, isEnteringLive: false })
+          }
+          return null
+        }
+        return loadChannelsLiveModule()
+          .then((live) => live.fetchChannelsLiveInfo().then((payload) => payload))
+          .then((payload) => {
+            const status = payload.status || 0
+            const feedId = payload.feedId || ''
+            const isLive = Number(status) === 2
+            const finder = getLiveFinderUserNameFromConfig()
+            const patch = {}
+            if (this.data.isChannelsLive !== isLive) patch.isChannelsLive = isLive
+            if (this.data.channelsLiveStatus !== status) patch.channelsLiveStatus = status
+            if (this.data.channelsLiveFeedId !== feedId) patch.channelsLiveFeedId = feedId
+            if (finder && this.data.liveFinderUserName !== finder) patch.liveFinderUserName = finder
+            if (!isLive && this.data.channelsLiveAnimPaused) patch.channelsLiveAnimPaused = false
+            if (!isLive && this.data.isEnteringLive) patch.isEnteringLive = false
+            if (Object.keys(patch).length) this.setData(patch)
+          })
+          .catch(() => {
+            // 探测失败静默：保持未直播态，不打断倒计时
+            if (this.data.isChannelsLive || this.data.isEnteringLive) {
+              this.setData({
+                isChannelsLive: false,
+                isEnteringLive: false
+              })
+            }
+          })
       })
       .finally(() => {
         this._channelsLiveInfoPromise = null
-        if (schedule) this._scheduleCountdownChannelsLivePoll()
+        if (schedule && this.data.enableLiveEntry) this._scheduleCountdownChannelsLivePoll()
       })
 
     return this._channelsLiveInfoPromise
@@ -5594,7 +5629,7 @@ Page({
    * 未直播 → 进任务详情。
    */
   onCountdownLiveAvatarTap() {
-    if (!this.data.isChannelsLive) {
+    if (!this.data.enableLiveEntry || !this.data.isChannelsLive) {
       const id = this.data.launchData && this.data.launchData.id
       if (!id) return
       this.viewMissionDetail({ currentTarget: { dataset: { id } } })

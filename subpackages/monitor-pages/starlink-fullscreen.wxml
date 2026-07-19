@@ -18,7 +18,8 @@
     </view>
     <view class="fs-action-area">
       <view class="fs-ctrl-btn" bindtap="togglePause">
-        <text>{{paused ? '▶' : '⏸'}}</text>
+        <view class="fs-icon-play" wx:if="{{paused}}"></view>
+        <view class="fs-icon-pause" wx:else></view>
       </view>
     </view>
   </view>
@@ -30,8 +31,14 @@
 
   <!-- 加载遮罩 -->
   <view class="fs-loading-mask" wx:if="{{loading}}">
-    <text class="fs-loading-icon"></text>
+    <view class="fs-loading-orbit"></view>
     <text class="fs-loading-text">初始化卫星轨道...</text>
+  </view>
+
+  <!-- 错误重试层（需 js 侧配合：data.loadError + onRetry 方法） -->
+  <view class="fs-error-mask" wx:if="{{loadError}}">
+    <text class="fs-error-text">{{loadError}}</text>
+    <view class="fs-retry-btn" bindtap="onRetry">重试</view>
   </view>
   <share-guide />
 </view>

@@ -15,7 +15,9 @@ const QUEUE_COL = 'replay_fetch_queue'
 const RESULT_COL = 'mission_replays'
 const COS_FOLDER = '发射回放'
 const MAX_ATTEMPTS = 3
-const CLAIM_STALE_MS = 60 * 60 * 1000 // 下载+上传可能很久，1 小时未完成才视为僵尸
+// 下载+上传可能很久（完整回放走慢代理可能超 1 小时）。Agent 端下载有 90 分钟硬超时，
+// 这里放到 3 小时才回收，避免任务还在跑就被重置 pending 导致双份下载/上传
+const CLAIM_STALE_MS = 3 * 60 * 60 * 1000
 const LIFECYCLE_RULE_ID = 'mission-replay-30d'
 const LIFECYCLE_DAYS = 30
 
@@ -58,17 +60,18 @@ function createReplayFetchApi({ db, ok, fail, now, crypto, createCOSClient, COS_
       }
     } catch (e) {}
 
-    // 取 pending 且到达重试时间的任务（集锦源可能还没发布，失败后延后重试）
+    // 取 pending 且到达重试时间的任务（集锦源可能还没发布，失败后延后重试）。
+    // 拉 50 条再挑：只拉最新几条时，若它们都在退避期会把已到期的老任务饿死
     let rows = []
     try {
       const res = await db.collection(QUEUE_COL)
         .where({ status: 'pending' })
         .orderBy('createdAt', 'desc')
-        .limit(5)
+        .limit(50)
         .get()
       rows = res.data || []
     } catch (e) {
-      const res = await db.collection(QUEUE_COL).where({ status: 'pending' }).limit(5).get()
+      const res = await db.collection(QUEUE_COL).where({ status: 'pending' }).limit(50).get()
       rows = res.data || []
     }
     const job = rows.find((r) => !r.nextRetryAt || Number(r.nextRetryAt) <= ts) || null

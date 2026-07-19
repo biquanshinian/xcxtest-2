@@ -91,7 +91,12 @@ page {
 
 .fs-subtitle {
   font-size: 22rpx;
+  font-family: 'Courier New', Consolas, monospace;
+  letter-spacing: 1rpx;
   color: #00ff88;
+  padding: 2rpx 14rpx;
+  border: 1px solid rgba(0, 255, 136, 0.3);
+  border-radius: 6rpx;
 }
 
 .fs-action-area {
@@ -107,8 +112,32 @@ page {
   background: rgba(0, 255, 136, 0.15);
   border: 1px solid rgba(0, 255, 136, 0.3);
   border-radius: 50%;
-  font-size: 22rpx;
-  color: #00ff88;
+}
+
+/* CSS 播放三角（border 三角形） */
+.fs-icon-play {
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 10rpx 0 10rpx 17rpx;
+  border-color: transparent transparent transparent #00ff88;
+  margin-left: 4rpx;
+}
+
+/* CSS 暂停：两条圆角竖线 */
+.fs-icon-pause {
+  display: flex;
+  gap: 7rpx;
+}
+
+.fs-icon-pause::before,
+.fs-icon-pause::after {
+  content: '';
+  display: block;
+  width: 6rpx;
+  height: 20rpx;
+  border-radius: 3rpx;
+  background: #00ff88;
 }
 
 /* 底部信息栏 */
@@ -126,6 +155,8 @@ page {
 
 .fs-info-text {
   font-size: 20rpx;
+  font-family: 'Courier New', Consolas, monospace;
+  letter-spacing: 1rpx;
   color: rgba(255,255,255,0.4);
 }
 
@@ -145,11 +176,68 @@ page {
   gap: 24rpx;
 }
 
-.fs-loading-icon {
-  font-size: 64rpx;
+/* 轨道环加载动画：细描边圆环 + 环上旋转的绿色亮点 */
+.fs-loading-orbit {
+  position: relative;
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 50%;
+  border: 2rpx solid rgba(0, 255, 136, 0.2);
+  box-sizing: border-box;
+  animation: fsOrbitSpin 1.2s linear infinite;
+}
+
+.fs-loading-orbit::before {
+  content: '';
+  position: absolute;
+  top: -7rpx;
+  left: 50%;
+  margin-left: -6rpx;
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: #00ff88;
+  box-shadow: 0 0 14rpx rgba(0, 255, 136, 0.8);
+}
+
+@keyframes fsOrbitSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .fs-loading-text {
   font-size: 28rpx;
   color: rgba(255,255,255,0.6);
+}
+
+/* 错误重试层 */
+.fs-error-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 200;
+  background: rgba(0,0,0,0.9);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 32rpx;
+}
+
+.fs-error-text {
+  font-size: 28rpx;
+  color: rgba(255,255,255,0.65);
+  text-align: center;
+  padding: 0 60rpx;
+}
+
+.fs-retry-btn {
+  font-size: 26rpx;
+  color: #00ff88;
+  padding: 12rpx 48rpx;
+  border: 1px solid rgba(0, 255, 136, 0.4);
+  border-radius: 999rpx;
+  background: rgba(0, 255, 136, 0.08);
 }

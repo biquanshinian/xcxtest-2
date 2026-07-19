@@ -178,13 +178,10 @@ async function getTelemetryCache(cacheKey) {
 
 async function setTelemetryCache(cacheKey, data) {
   try {
-    const existing = await db.collection(TELEMETRY_CACHE_COLLECTION).where({ _id: cacheKey }).limit(1).get()
-    const record = { data, updatedAt: Date.now() }
-    if (existing.data && existing.data.length > 0) {
-      await db.collection(TELEMETRY_CACHE_COLLECTION).doc(cacheKey).update({ data: record })
-    } else {
-      await db.collection(TELEMETRY_CACHE_COLLECTION).add({ data: { _id: cacheKey, ...record } })
-    }
+    // doc(id).set：不存在则创建、存在则整文档覆盖，省掉「先查再写」的一次读
+    await db.collection(TELEMETRY_CACHE_COLLECTION).doc(cacheKey).set({
+      data: { data, updatedAt: Date.now() }
+    })
   } catch (e) {
     console.warn('[apiProxy:telemetry] cache write failed:', e.message)
   }
@@ -673,6 +670,8 @@ async function handleMissionReplay(event) {
         videoUrl: cosExpired ? '' : (doc.videoUrl || ''),
         durationSec: doc.durationSec || 0,
         sourcePublisher: (doc.sourceUsed && doc.sourceUsed.publisher) || '',
+        // COS 文件停发时刻（net+29 天）：前端本地缓存过这个点要丢弃 COS 视频，防播 404
+        cosExpireAt: netMs > 0 ? netMs + 29 * 24 * 60 * 60 * 1000 : 0,
         updatedAt: doc.updatedAt || 0
       }
     }

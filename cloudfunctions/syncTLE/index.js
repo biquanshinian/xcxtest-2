@@ -61,23 +61,7 @@ async function syncStation() {
   console.log(tag, 'Start')
   const errors = []
 
-  // Worker 优先
-  try {
-    const text = await httpGet(STATION_WORKER_URL)
-    const json = JSON.parse(text)
-    if (json.code !== 0 || !json.tle) throw new Error('Worker 返回异常')
-    const tle = json.tle
-    if (!tle['25544'] && !tle['48274']) throw new Error('TLE 数据为空')
-    const stationCount = Object.keys(tle).filter(k => tle[k]).length
-    await upsertStationRecord({ tle, source: 'Worker', fetchedAt: json.ts || Date.now(), updatedAt: db.serverDate(), updatedAtMs: Date.now(), stationCount })
-    console.log(tag, '完成:', stationCount, '个站点, Worker,', (Date.now() - startTime) + 'ms')
-    return { ok: true, stations: stationCount, source: 'Worker', elapsed: Date.now() - startTime }
-  } catch (e) {
-    console.warn(tag, 'Worker 失败:', e.message)
-    errors.push('Worker: ' + e.message)
-  }
-
-  // CelesTrak 回退
+  // CelesTrak 直连优先（实测腾讯云环境可达；workers.dev 通常超时）
   try {
     const tle = {}
     for (const src of CELESTRAK_STATIONS) {
@@ -97,6 +81,22 @@ async function syncStation() {
     return { ok: true, stations: stationCount, source: 'CelesTrak-direct', elapsed: Date.now() - startTime }
   } catch (e) {
     errors.push('CelesTrak: ' + e.message)
+  }
+
+  // Worker 兜底
+  try {
+    const text = await httpGet(STATION_WORKER_URL, 20000)
+    const json = JSON.parse(text)
+    if (json.code !== 0 || !json.tle) throw new Error('Worker 返回异常')
+    const tle = json.tle
+    if (!tle['25544'] && !tle['48274']) throw new Error('TLE 数据为空')
+    const stationCount = Object.keys(tle).filter(k => tle[k]).length
+    await upsertStationRecord({ tle, source: 'Worker', fetchedAt: json.ts || Date.now(), updatedAt: db.serverDate(), updatedAtMs: Date.now(), stationCount })
+    console.log(tag, '完成:', stationCount, '个站点, Worker,', (Date.now() - startTime) + 'ms')
+    return { ok: true, stations: stationCount, source: 'Worker', elapsed: Date.now() - startTime }
+  } catch (e) {
+    console.warn(tag, 'Worker 失败:', e.message)
+    errors.push('Worker: ' + e.message)
   }
 
   console.error(tag, '所有源均失败:', errors.join(' | '))
@@ -120,9 +120,12 @@ const STARLINK_COLLECTION = 'starlink_tle'
 const MIN_TRUSTED_COUNT = 2000
 const SATS_PER_SHARD = 3500
 
+// 依次尝试：直连 CelesTrak（实测腾讯云环境可达，gp.php 主端点 + supplemental 备端点）→
+// Worker 缓存兜底（workers.dev 在腾讯云环境通常超时，仅作最后防线，超时给短）
 const STARLINK_SOURCES = [
-  { url: 'https://spacex-proxy.huyuzetongxue.workers.dev/starlink-tle-mini?nocache=1', type: 'mini' },
-  { url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle', type: 'raw' }
+  { url: 'https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle', type: 'raw', timeout: 90000 },
+  { url: 'https://celestrak.org/NORAD/elements/supplemental/sup-gp.php?FILE=starlink&FORMAT=tle', type: 'raw', timeout: 90000 },
+  { url: 'https://spacex-proxy.huyuzetongxue.workers.dev/starlink-tle-mini', type: 'mini', timeout: 30000 }
 ]
 
 function parseTLELines(raw) {
@@ -139,6 +142,9 @@ function parseTLELines(raw) {
 
 function parseMiniJSON(text) {
   const json = JSON.parse(text)
+  // Worker 实际返回 { total, sampled, tle: "<name\nl1\nl2 ...>" }，tle 为拼接文本
+  if (json && typeof json.tle === 'string') return parseTLELines(json.tle)
+  // 兼容旧数组格式 { data: [...] } / { sats: [...] } / [...]
   const arr = json.data || json.sats || json
   if (!Array.isArray(arr)) throw new Error('mini 格式异常')
   return arr.map(s => ({ id: String(s.id || s.noradId), n: s.name || s.n || '', l1: s.line1 || s.l1, l2: s.line2 || s.l2 }))
@@ -155,7 +161,7 @@ async function syncStarlink() {
   for (const src of STARLINK_SOURCES) {
     try {
       console.log(tag, '尝试源:', src.url.substring(0, 60))
-      const text = await httpGet(src.url, 45000)
+      const text = await httpGet(src.url, src.timeout || 45000)
       const parsed = src.type === 'mini' ? parseMiniJSON(text) : parseTLELines(text)
       if (parsed.length < MIN_TRUSTED_COUNT) throw new Error('数量不足: ' + parsed.length)
       sats = parsed
@@ -177,12 +183,12 @@ async function syncStarlink() {
 
   for (let i = 0; i < shardCount; i++) {
     const chunk = sats.slice(i * SATS_PER_SHARD, (i + 1) * SATS_PER_SHARD)
-    const tleMap = {}
-    for (const s of chunk) { tleMap[s.id] = { n: s.n, l1: s.l1, l2: s.l2 } }
+    // 前端三个读取方均消费 data 文本字段：name/l1/l2 三行一组、\n 分隔
+    const tleText = chunk.map(s => s.n + '\n' + s.l1 + '\n' + s.l2).join('\n')
 
     const shardData = {
       shardIndex: i,
-      tle: tleMap,
+      data: tleText,
       satCount: chunk.length,
       updatedAt: db.serverDate(),
       updatedAtMs: Date.now()
@@ -194,14 +200,9 @@ async function syncStarlink() {
       shardData.fetchedAt = Date.now()
     }
 
-    const docId = 'shard_' + i
-    const { data: existing } = await collection.where({ _id: docId }).limit(1).get()
-    if (existing.length > 0) {
-      await collection.doc(docId).update({ data: shardData })
-    } else {
-      await collection.add({ data: { _id: docId, ...shardData } })
-    }
-    console.log(tag, 'shard', i, '写入完成:', chunk.length, '颗')
+    // set() 整体覆盖：文档不存在时自动创建，同时清掉残留的旧 tle map 字段
+    await collection.doc('shard_' + i).set({ data: shardData })
+    console.log(tag, 'shard', i, '写入完成:', chunk.length, '颗,', Math.round(tleText.length / 1024) + 'KB')
   }
 
   // 清理多余分片
@@ -212,6 +213,15 @@ async function syncStarlink() {
   const { data: legacy } = await collection.where({ shardIndex: db.command.exists(false) }).get()
   for (const doc of legacy) {
     await collection.doc(doc._id).remove()
+  }
+  // 清理重复分片：历史脚本用 add() 写入的随机 _id 文档与 doc('shard_i') 并存时，
+  // 前端 where({shardIndex}).limit(1) 可能命中旧文档，读到冻结数据
+  const { data: allShards } = await collection.where({ shardIndex: db.command.gte(0) }).field({ shardIndex: true }).get()
+  for (const doc of allShards) {
+    if (doc._id !== 'shard_' + doc.shardIndex) {
+      await collection.doc(doc._id).remove()
+      console.log(tag, '清理重复分片文档:', doc._id, '(shardIndex=' + doc.shardIndex + ')')
+    }
   }
 
   const elapsed = Date.now() - startTime

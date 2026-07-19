@@ -71,7 +71,7 @@ Page({
     this._gateChecking = true
     let allowed = false
     try {
-      allowed = await gateCheck('starlink_pro', '7天过境预报')
+      allowed = await gateCheck('starlink_pro', '24小时过境预报')
     } finally {
       this._gateChecking = false
     }

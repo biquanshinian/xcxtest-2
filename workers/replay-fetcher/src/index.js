@@ -19,6 +19,69 @@ function log(...args) {
   console.log(`[${new Date().toISOString()}]`, ...args)
 }
 
+// 下载硬超时：卡死的 yt-dlp 会挂起整个轮询循环（claim 3 小时后被服务端回收再派给
+// 自己也没用，进程还堵着），必须整树查杀后向服务端 fail 归还任务
+const FULL_DOWNLOAD_TIMEOUT_MS = 90 * 60 * 1000
+const CLIP_DOWNLOAD_TIMEOUT_MS = 15 * 60 * 1000
+const COS_UPLOAD_TIMEOUT_MS = 30 * 60 * 1000
+
+/** Windows 上 child.kill 杀不掉 yt-dlp 拉起的 ffmpeg 子进程，必须整树查杀 */
+function killTree(child) {
+  if (!child || !child.pid) return
+  if (process.platform === 'win32') {
+    try { spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' }) } catch (e) {}
+  } else {
+    try { child.kill('SIGKILL') } catch (e) {}
+  }
+}
+
+// ---- 出口（代理/直连）自动选择 ----------------------------------------------
+// REPLAY_PROXY 支持逗号分隔的候选列表（代理 URL 或 'direct'），领到任务时逐个
+// 探测能否连通 YouTube，用第一个可用的。主代理挂了自动切备用/直连，不再卡死任务。
+const PROXY_PROBE_URL = 'https://www.youtube.com/generate_204'
+const PROXY_PROBE_CACHE_MS = 5 * 60 * 1000
+let proxyCache = { at: 0, value: null }
+
+/** 用系统 curl 探测某出口能否连通 YouTube（'' = 直连）；Win10+/mac/linux 都自带 curl */
+function probeExit(proxy) {
+  return new Promise((resolve) => {
+    const devNull = process.platform === 'win32' ? 'NUL' : '/dev/null'
+    const args = ['-sS', '-m', '10', '-o', devNull, '-w', '%{http_code}', PROXY_PROBE_URL]
+    if (proxy) args.unshift('-x', proxy)
+    const child = spawn('curl', args, { stdio: ['ignore', 'pipe', 'ignore'] })
+    let out = ''
+    const timer = setTimeout(() => { killTree(child); resolve(false) }, 15000)
+    child.stdout.on('data', (d) => { out += d })
+    child.on('error', () => { clearTimeout(timer); resolve(false) })
+    child.on('exit', () => { clearTimeout(timer); resolve(/^[23]\d\d$/.test(out.trim())) })
+  })
+}
+
+/** 选出口：探测结果缓存 5 分钟；全挂时回落第一候选，交给服务端退避重试 */
+async function pickProxy(cfg) {
+  const cands = (cfg.proxies && cfg.proxies.length) ? cfg.proxies : ['direct']
+  const now = Date.now()
+  if (proxyCache.value !== null && now - proxyCache.at < PROXY_PROBE_CACHE_MS) return proxyCache.value
+  for (const c of cands) {
+    const proxy = c.toLowerCase() === 'direct' ? '' : c
+    if (await probeExit(proxy)) {
+      if (proxyCache.value !== proxy) log(`出口探测: 使用 ${proxy || '直连'}`)
+      proxyCache = { at: now, value: proxy }
+      return proxy
+    }
+    log(`出口探测: ${proxy || '直连'} 不可用`)
+  }
+  const first = cands[0].toLowerCase() === 'direct' ? '' : cands[0]
+  proxyCache = { at: now, value: first }
+  log(`出口探测: 全部不可用，暂用 ${first || '直连'}（等服务端退避重试）`)
+  return first
+}
+
+/** 任务失败时调用：作废探测缓存，下个任务重新选出口 */
+function invalidateProxyCache() {
+  proxyCache = { at: 0, value: null }
+}
+
 /** 跑 yt-dlp 并捕获 stdout（用于 --print / --flat-playlist 查询类调用） */
 function runYtdlpCapture(cfg, args, timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
@@ -26,51 +89,86 @@ function runYtdlpCapture(cfg, args, timeoutMs = 120000) {
     const child = spawn(cfg.ytdlpPath, full, { stdio: ['ignore', 'pipe', 'pipe'] })
     let out = ''
     let errOut = ''
-    const timer = setTimeout(() => { try { child.kill() } catch (e) {} }, timeoutMs)
+    let timedOut = false
+    const timer = setTimeout(() => { timedOut = true; killTree(child) }, timeoutMs)
     child.stdout.on('data', (d) => { out += d })
     child.stderr.on('data', (d) => { errOut += d })
-    child.on('error', (e) => { clearTimeout(timer); reject(e) })
+    child.on('error', (e) => { clearTimeout(timer); invalidateProxyCache(); reject(e) })
     child.on('exit', (code) => {
       clearTimeout(timer)
+      if (timedOut) { invalidateProxyCache(); return reject(new Error(`yt-dlp timeout ${Math.round(timeoutMs / 1000)}s`)) }
       if (code === 0) resolve(out)
-      else reject(new Error(`yt-dlp exit ${code}: ${errOut.slice(-300)}`))
+      else { invalidateProxyCache(); reject(new Error(`yt-dlp exit ${code}: ${errOut.slice(-300)}`)) }
+    })
+  })
+}
+
+/** 跑 yt-dlp 下载（stdout 直通日志），带整树查杀的硬超时 */
+function runYtdlpDownload(cfg, args, outFile, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    if (cfg.ffmpegPath) args = ['--ffmpeg-location', cfg.ffmpegPath, ...args]
+    if (cfg.proxy) args = ['--proxy', cfg.proxy, ...args]
+    log('yt-dlp', args.join(' '))
+    const child = spawn(cfg.ytdlpPath, args, { stdio: ['ignore', 'inherit', 'inherit'] })
+    let timedOut = false
+    const timer = setTimeout(() => { timedOut = true; killTree(child) }, timeoutMs)
+    child.on('error', (e) => { clearTimeout(timer); invalidateProxyCache(); reject(e) })
+    child.on('exit', (code) => {
+      clearTimeout(timer)
+      if (timedOut) { invalidateProxyCache(); return reject(new Error(`yt-dlp 下载超时（${Math.round(timeoutMs / 60000)} 分钟），已终止`)) }
+      if (code === 0 && fs.existsSync(outFile)) resolve()
+      else { invalidateProxyCache(); reject(new Error(`yt-dlp exit ${code}`)) }
     })
   })
 }
 
 function runYtdlp(cfg, sourceUrl, outFile) {
-  return new Promise((resolve, reject) => {
-    const args = [
-      '-f', `bv*[height<=${cfg.maxHeight}][ext=mp4]+ba[ext=m4a]/b[height<=${cfg.maxHeight}][ext=mp4]/b[height<=${cfg.maxHeight}]`,
-      '--merge-output-format', 'mp4',
-      '--no-playlist',
-      '--max-filesize', `${cfg.maxFileMB}M`,
-      '--socket-timeout', '30',
-      '--retries', '3',
-      '-o', outFile,
-      sourceUrl
-    ]
-    if (cfg.ffmpegPath) args.unshift('--ffmpeg-location', cfg.ffmpegPath)
-    if (cfg.proxy) args.unshift('--proxy', cfg.proxy)
-    log('yt-dlp', args.join(' '))
-    const child = spawn(cfg.ytdlpPath, args, { stdio: ['ignore', 'inherit', 'inherit'] })
-    child.on('error', reject)
-    child.on('exit', (code) => {
-      if (code === 0 && fs.existsSync(outFile)) resolve()
-      else reject(new Error(`yt-dlp exit ${code}`))
-    })
-  })
+  const args = [
+    '-f', `bv*[height<=${cfg.maxHeight}][ext=mp4]+ba[ext=m4a]/b[height<=${cfg.maxHeight}][ext=mp4]/b[height<=${cfg.maxHeight}]`,
+    '--merge-output-format', 'mp4',
+    '--no-playlist',
+    '--max-filesize', `${cfg.maxFileMB}M`,
+    '--socket-timeout', '30',
+    '--retries', '3',
+    '-o', outFile,
+    sourceUrl
+  ]
+  return runYtdlpDownload(cfg, args, outFile, FULL_DOWNLOAD_TIMEOUT_MS)
 }
 
-function probeVideo(cfg, file) {
-  // 可选：ffprobe 读时长/分辨率；未安装时返回空对象不阻塞主流程
+/** FFMPEG_PATH 可配成目录或 ffmpeg 本体，从中推导同目录的 ffprobe */
+function resolveFfprobeCandidates(cfg) {
+  const cands = []
+  const base = String(cfg.ffmpegPath || '').trim()
+  if (base) {
+    if (/ffmpeg(\.exe)?$/i.test(base)) {
+      cands.push(base.replace(/ffmpeg(\.exe)?$/i, (m) => m.replace(/ffmpeg/i, 'ffprobe')))
+    } else {
+      cands.push(path.join(base, 'ffprobe.exe'))
+      cands.push(path.join(base, 'ffprobe'))
+    }
+  }
+  cands.push('ffprobe')
+  return cands
+}
+
+function resolveFfmpegBin(cfg) {
+  const base = String(cfg.ffmpegPath || '').trim()
+  if (!base) return 'ffmpeg'
+  if (/ffmpeg(\.exe)?$/i.test(base)) return base
+  const exe = path.join(base, 'ffmpeg.exe')
+  if (fs.existsSync(exe)) return exe
+  return path.join(base, 'ffmpeg')
+}
+
+function runFfprobe(bin, file) {
   return new Promise((resolve) => {
-    const child = spawn('ffprobe', [
+    const child = spawn(bin, [
       '-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', file
     ])
     let out = ''
     child.stdout.on('data', (d) => { out += d })
-    child.on('error', () => resolve({}))
+    child.on('error', () => resolve(null))
     child.on('exit', () => {
       try {
         const j = JSON.parse(out)
@@ -81,21 +179,63 @@ function probeVideo(cfg, file) {
           height: Number(v.height || 0)
         })
       } catch (e) {
-        resolve({})
+        resolve(null)
       }
     })
   })
 }
 
+/** ffprobe 缺失时的兜底：解析 `ffmpeg -i` stderr 里的 Duration/分辨率 */
+function probeWithFfmpeg(cfg, file) {
+  return new Promise((resolve) => {
+    const child = spawn(resolveFfmpegBin(cfg), ['-hide_banner', '-i', file], { stdio: ['ignore', 'ignore', 'pipe'] })
+    let err = ''
+    child.stderr.on('data', (d) => { err += d })
+    child.on('error', () => resolve({}))
+    child.on('exit', () => {
+      const out = {}
+      const dm = err.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/)
+      if (dm) out.durationSec = Math.round(Number(dm[1]) * 3600 + Number(dm[2]) * 60 + Number(dm[3]))
+      const rm = err.match(/Video:[^\n]*?(\d{2,5})x(\d{2,5})/)
+      if (rm) { out.width = Number(rm[1]); out.height = Number(rm[2]) }
+      resolve(out)
+    })
+  })
+}
+
+async function probeVideo(cfg, file) {
+  // 读时长/分辨率：ffprobe 优先（FFMPEG_PATH 同目录 → PATH），都没有则用 ffmpeg -i 兜底；
+  // 全失败返回空对象不阻塞主流程（只影响时长角标展示）
+  for (const bin of resolveFfprobeCandidates(cfg)) {
+    if (path.isAbsolute(bin) && !fs.existsSync(bin)) continue
+    const meta = await runFfprobe(bin, file)
+    if (meta) return meta
+  }
+  return probeWithFfmpeg(cfg, file)
+}
+
 async function uploadToCos(uploadUrl, file) {
   const size = fs.statSync(file).size
   const stream = fs.createReadStream(file)
-  const res = await fetch(uploadUrl, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'video/mp4', 'Content-Length': String(size) },
-    body: stream,
-    duplex: 'half'
-  })
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), COS_UPLOAD_TIMEOUT_MS)
+  let res
+  try {
+    res = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'video/mp4', 'Content-Length': String(size) },
+      body: stream,
+      duplex: 'half',
+      signal: controller.signal
+    })
+  } catch (e) {
+    if (e && e.name === 'AbortError') {
+      throw new Error(`COS 上传超时（${Math.round(COS_UPLOAD_TIMEOUT_MS / 60000)} 分钟）`)
+    }
+    throw e
+  } finally {
+    clearTimeout(timer)
+  }
   if (!res.ok) throw new Error(`COS PUT ${res.status}: ${(await res.text()).slice(0, 200)}`)
   return size
 }
@@ -216,27 +356,18 @@ async function processClipJob(cfg, data) {
   const maxDur = Number(clipSearch.maxDurationSec || 300) + 30
   try {
     log(`集锦下载 [${clipSearch.publisher || 'clip'}] ${video.title}`)
-    await new Promise((resolve, reject) => {
-      const args = [
-        '-f', `bv*[height<=${cfg.maxHeight}][ext=mp4]+ba[ext=m4a]/b[height<=${cfg.maxHeight}][ext=mp4]/b[height<=${cfg.maxHeight}]`,
-        '--merge-output-format', 'mp4',
-        '--no-playlist',
-        '--match-filter', `duration <= ${maxDur}`,
-        '--max-filesize', '200M',
-        '--socket-timeout', '30',
-        '--retries', '3',
-        '-o', outFile,
-        video.url
-      ]
-      if (cfg.ffmpegPath) args.unshift('--ffmpeg-location', cfg.ffmpegPath)
-      if (cfg.proxy) args.unshift('--proxy', cfg.proxy)
-      const child = spawn(cfg.ytdlpPath, args, { stdio: ['ignore', 'inherit', 'inherit'] })
-      child.on('error', reject)
-      child.on('exit', (code) => {
-        if (code === 0 && fs.existsSync(outFile)) resolve()
-        else reject(new Error(`yt-dlp exit ${code}${code === 0 ? ' (被 duration 过滤拦下?)' : ''}`))
-      })
-    })
+    const args = [
+      '-f', `bv*[height<=${cfg.maxHeight}][ext=mp4]+ba[ext=m4a]/b[height<=${cfg.maxHeight}][ext=mp4]/b[height<=${cfg.maxHeight}]`,
+      '--merge-output-format', 'mp4',
+      '--no-playlist',
+      '--match-filter', `duration <= ${maxDur}`,
+      '--max-filesize', '200M',
+      '--socket-timeout', '30',
+      '--retries', '3',
+      '-o', outFile,
+      video.url
+    ]
+    await runYtdlpDownload(cfg, args, outFile, CLIP_DOWNLOAD_TIMEOUT_MS)
   } catch (e) {
     await failJob({ id: job.id, claimToken: job.claimToken, error: `clip_download_failed: ${e.message}` })
     return
@@ -317,14 +448,35 @@ async function processJob(cfg, data) {
   log(`完成: ${job.missionName} → ${upload.cosUrl}`)
 }
 
+/** 清理下载失败残留的临时文件（超过 2 天的 .mp4/.part），防磁盘慢性泄漏 */
+function cleanupTmpDir() {
+  try {
+    const d = tmpDir()
+    const cutoff = Date.now() - 2 * 24 * 60 * 60 * 1000
+    for (const name of fs.readdirSync(d)) {
+      const f = path.join(d, name)
+      try {
+        if (fs.statSync(f).mtimeMs < cutoff) fs.rmSync(f, { force: true })
+      } catch (e) {}
+    }
+  } catch (e) {}
+}
+
 async function loop() {
   const cfg = getConfig()
   log(`replay-fetcher 启动 poll=${cfg.pollMs}ms maxHeight=${cfg.maxHeight}p`)
+  cleanupTmpDir()
   for (;;) {
     try {
       const data = await claimJob()
       if (data && data.job) {
-        await processJob(cfg, data)
+        cfg.proxy = await pickProxy(cfg)
+        try {
+          await processJob(cfg, data)
+        } catch (e) {
+          invalidateProxyCache() // 失败可能是出口问题，下个任务重新探测
+          throw e
+        }
         continue // 有任务时不等轮询间隔，立即领下一条
       }
     } catch (e) {
@@ -338,4 +490,4 @@ async function loop() {
 const isMain = process.argv[1] && import.meta.url === new URL(`file:///${process.argv[1].replace(/\\/g, '/')}`).href
 if (isMain) loop()
 
-export { findClipVideo }
+export { findClipVideo, pickProxy }

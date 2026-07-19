@@ -213,6 +213,10 @@
       {
         "value": "ll2_loc_sample.json",
         "type": "file"
+      },
+      {
+        "value": "ll2_prev_sample.json",
+        "type": "file"
       }
     ],
     "include": []

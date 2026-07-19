@@ -169,6 +169,34 @@ async function clearTitleFields(page) {
   }
 }
 
+/**
+ * 逐行输入正文。
+ * B 站动态编辑器对一次性 insertText 的多行文本只会保留第一行（其余行发布时被丢弃，
+ * 导致来源/话题/页脚全部消失），必须逐行插入并用真实 Enter 换行。
+ * 含 #话题# 的行用真实键入，触发编辑器的话题识别，让话题成为可点击的蓝字话题。
+ */
+async function typeMultilineContent(page, content) {
+  const lines = String(content || '').replace(/\r\n/g, '\n').split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (line) {
+      if (/#[^#\s][^#]*#/.test(line)) {
+        await page.keyboard.type(line, { delay: 30 })
+        await sleep(400)
+        // 关闭话题联想弹层，避免随后的 Enter 误选联想项
+        await page.keyboard.press('Escape').catch(() => {})
+        await sleep(150)
+      } else {
+        await page.keyboard.insertText(line)
+      }
+    }
+    if (i < lines.length - 1) {
+      await page.keyboard.press('Enter')
+      await sleep(80)
+    }
+  }
+}
+
 async function fillContent(page, content) {
   // 正文编辑器优先；显式排除标题类节点
   const editors = [
@@ -176,6 +204,10 @@ async function fillContent(page, content) {
     page.locator('.bili-dyn-publishing .bili-rich-textarea__inner[contenteditable="true"]').first(),
     page.locator('.bili-dyn-publishing [contenteditable="true"]').first()
   ]
+
+  const plain = (s) => String(s || '').replace(/\s+/g, '')
+  const meaningfulLines = String(content || '').split('\n').map((l) => l.trim()).filter(Boolean)
+  const lastLine = meaningfulLines[meaningfulLines.length - 1] || ''
 
   for (const box of editors) {
     try {
@@ -197,17 +229,21 @@ async function fillContent(page, content) {
       await sleep(300)
       await page.keyboard.press('Control+A')
       await page.keyboard.press('Backspace')
-      await page.keyboard.insertText(content)
+      await typeMultilineContent(page, content)
       await sleep(400)
       const val = await box.innerText().catch(() => '')
-      if (val && val.trim().length > 0) {
-        await clearTitleFields(page)
-        // 再点回正文，避免光标停在标题
-        await box.click({ timeout: 2000 }).catch(() => {})
-        return true
+      if (!val || !val.trim()) continue
+
+      // 校验最后一行（页脚/话题）确实进入了编辑器，防止多行内容被编辑器截断
+      if (lastLine && !plain(val).includes(plain(lastLine))) {
+        await saveDebug(page, 'content-truncated')
+        console.warn('[publish] 正文疑似被截断：编辑器缺少末行', JSON.stringify(lastLine))
+        return false
       }
-      await page.keyboard.type(content.slice(0, 500), { delay: 5 })
+
       await clearTitleFields(page)
+      // 再点回正文，避免光标停在标题
+      await box.click({ timeout: 2000 }).catch(() => {})
       return true
     } catch (e) {}
   }

@@ -1919,6 +1919,21 @@ page {
   animation: spin 0.8s linear infinite;
 }
 
+/* 页签面板底部：完整详情拉取中的转圈占位 */
+.detail-hydrating-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16rpx;
+  padding: 64rpx 32rpx 48rpx;
+}
+
+.detail-hydrating-text {
+  font-size: 26rpx;
+  color: #b6b6bb;
+}
+
 .loading-text,
 .error-text {
   display: block;
@@ -2872,6 +2887,10 @@ page {
   color: var(--color-text-secondary);
 }
 
+.theme-light .detail-hydrating-text {
+  color: var(--color-text-secondary);
+}
+
 .theme-light .error-title {
   color: var(--color-text-primary);
 }
@@ -3065,4 +3084,178 @@ page {
 
 .theme-light .detail-tab--active .detail-tab-text {
   color: var(--color-text-primary);
+}
+
+/* ===== 星舰任务指挥室入口（飞行时间线上方；与进度页入口同视觉语言） ===== */
+
+.detail-sim-entry {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  margin-bottom: 24rpx;
+  padding: 26rpx 28rpx 26rpx 32rpx;
+  border-radius: 24rpx;
+  overflow: hidden;
+  border: 1rpx solid rgba(0, 255, 136, 0.22);
+  background:
+    repeating-linear-gradient(0deg, rgba(0, 255, 136, 0.028) 0, rgba(0, 255, 136, 0.028) 1rpx, transparent 1rpx, transparent 28rpx),
+    repeating-linear-gradient(90deg, rgba(0, 255, 136, 0.028) 0, rgba(0, 255, 136, 0.028) 1rpx, transparent 1rpx, transparent 28rpx),
+    linear-gradient(118deg, #0b1210 0%, #060a08 55%, #04120c 100%);
+  box-shadow:
+    0 8rpx 28rpx rgba(0, 0, 0, 0.45),
+    inset 0 0 0 1rpx rgba(0, 255, 136, 0.05);
+}
+
+.detail-sim-entry::before,
+.detail-sim-entry::after {
+  content: '';
+  position: absolute;
+  width: 20rpx;
+  height: 20rpx;
+  pointer-events: none;
+  z-index: 2;
+}
+.detail-sim-entry::before {
+  top: 0;
+  left: 0;
+  border-top: 3rpx solid rgba(0, 255, 136, 0.65);
+  border-left: 3rpx solid rgba(0, 255, 136, 0.65);
+  border-top-left-radius: 12rpx;
+}
+.detail-sim-entry::after {
+  bottom: 0;
+  right: 0;
+  border-bottom: 3rpx solid rgba(0, 255, 136, 0.65);
+  border-right: 3rpx solid rgba(0, 255, 136, 0.65);
+  border-bottom-right-radius: 12rpx;
+}
+
+.detail-sim-entry-glow {
+  position: absolute;
+  top: -80rpx;
+  right: -40rpx;
+  width: 280rpx;
+  height: 220rpx;
+  background: radial-gradient(closest-side, rgba(0, 255, 136, 0.14), transparent);
+  pointer-events: none;
+}
+
+.detail-sim-entry--pressed {
+  transform: scale(0.98);
+  opacity: 0.85;
+}
+
+.detail-sim-entry-left {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  min-width: 0;
+}
+
+.detail-sim-entry-tagrow {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.detail-sim-entry-dot {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  background: #00ff88;
+  box-shadow: 0 0 12rpx rgba(0, 255, 136, 0.9);
+  animation: detail-sim-dot-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes detail-sim-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.detail-sim-entry-tag {
+  font-family: 'Courier New', monospace;
+  font-size: 20rpx;
+  letter-spacing: 4rpx;
+  color: rgba(0, 255, 136, 0.85);
+}
+
+.detail-sim-entry-title {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #FFFFFF;
+  letter-spacing: 1rpx;
+  text-shadow: 0 0 24rpx rgba(0, 255, 136, 0.25);
+}
+
+.detail-sim-entry-desc {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.55);
+  line-height: 1.6;
+}
+
+.detail-sim-entry-arrow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  flex-shrink: 0;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #041008;
+  background: linear-gradient(135deg, #2effa0, #00d97a);
+  border-radius: 999rpx;
+  padding: 14rpx 26rpx;
+  box-shadow: 0 4rpx 18rpx rgba(0, 255, 136, 0.35);
+}
+
+.detail-sim-entry-arrow-icon {
+  font-size: 28rpx;
+  font-weight: 700;
+  line-height: 1;
+  margin-top: -2rpx;
+}
+
+/* 浅色主题 */
+.theme-light .detail-sim-entry {
+  border-color: rgba(0, 168, 98, 0.28);
+  background:
+    repeating-linear-gradient(0deg, rgba(0, 168, 98, 0.04) 0, rgba(0, 168, 98, 0.04) 1rpx, transparent 1rpx, transparent 28rpx),
+    repeating-linear-gradient(90deg, rgba(0, 168, 98, 0.04) 0, rgba(0, 168, 98, 0.04) 1rpx, transparent 1rpx, transparent 28rpx),
+    linear-gradient(118deg, #ffffff 0%, #f4faf7 55%, #ecf7f1 100%);
+  box-shadow:
+    0 8rpx 24rpx rgba(0, 80, 46, 0.08),
+    inset 0 0 0 1rpx rgba(0, 168, 98, 0.05);
+}
+.theme-light .detail-sim-entry::before {
+  border-top-color: rgba(0, 168, 98, 0.7);
+  border-left-color: rgba(0, 168, 98, 0.7);
+}
+.theme-light .detail-sim-entry::after {
+  border-bottom-color: rgba(0, 168, 98, 0.7);
+  border-right-color: rgba(0, 168, 98, 0.7);
+}
+.theme-light .detail-sim-entry-glow {
+  background: radial-gradient(closest-side, rgba(0, 200, 120, 0.12), transparent);
+}
+.theme-light .detail-sim-entry-dot {
+  background: #00a862;
+  box-shadow: 0 0 10rpx rgba(0, 168, 98, 0.6);
+}
+.theme-light .detail-sim-entry-tag {
+  color: #00915a;
+}
+.theme-light .detail-sim-entry-title {
+  color: #1C1C1E;
+  text-shadow: none;
+}
+.theme-light .detail-sim-entry-desc {
+  color: rgba(28, 28, 30, 0.55);
+}
+.theme-light .detail-sim-entry-arrow {
+  color: #ffffff;
+  background: linear-gradient(135deg, #00c46a, #00a862);
+  box-shadow: 0 4rpx 16rpx rgba(0, 168, 98, 0.3);
 }

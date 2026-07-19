@@ -20,7 +20,7 @@ const { computeLaunchTimelineProgress } = require('./utils/launch-timeline-progr
 const { loadMissionLaunchStats, applyClientAgencyFallback } = require('./utils/mission-launch-stats.js')
 const { formatCloudError } = require('../../utils/launch-stats-cloud.js')
 const config = require('../../utils/config.js')
-const { isLiveEntryAllowed, isFeatureEnabled, getCachedMainConfig } = require('../../utils/feature-flags.js')
+const { isLiveEntryAllowed, isFeatureEnabled } = require('../../utils/feature-flags.js')
 const { videoSnapshotUrl, optimizeImageUrl } = require('../../utils/cos-url.js')
 
 const CHANNELS_LIVE_PATH = '../../subpackages/shared/utils/channels-live.js'
@@ -168,7 +168,7 @@ const KNOWN_LAUNCH_SITE_COORDS = {
   'wallops': { lat: 37.8433, lng: -75.4775, name: 'Wallops Flight Facility' },
   'mahia': { lat: -39.2615, lng: 177.8648, name: 'Rocket Lab LC-1, Mahia' }
 }
-const DETAIL_VOTE_REFRESH_TTL = 15 * 1000
+const DETAIL_VOTE_REFRESH_TTL = 5 * 60 * 1000
 const ROAD_CLOSURE_QUERY_TTL = 5 * 60 * 1000
 
 function truncateText(text, maxLength) {
@@ -230,6 +230,7 @@ function buildMissionDetailBaseState(detailType) {
   return {
     loading: true,
     errorMessage: '',
+    detailHydrating: false,
     detailType: normalizedDetailType,
     navTitle: normalizedDetailType === 'completed' ? '任务复盘' : '发射倒计时',
     pageTitle: normalizedDetailType === 'completed' ? '航天任务复盘详情' : '航天发射倒计时详情',
@@ -319,6 +320,7 @@ Page({
   data: {
     loading: true,
     errorMessage: '',
+    detailHydrating: false,
     mission: null,
     detailType: 'upcoming',
     navTitle: '任务详情',
@@ -407,7 +409,10 @@ Page({
     /** LL2 型号 / 发射商发射统计（飞行时间线上方） */
     missionLaunchStatsLoading: false,
     missionLaunchStatsError: '',
-    missionLaunchStats: null
+    missionLaunchStats: null,
+    /** 星舰任务指挥室入口（星舰任务 + 有 LL2 时间线 + enableMissionSim 开关） */
+    missionSimEligible: false,
+    enableMissionSim: false
   },
 
   /**
@@ -459,6 +464,18 @@ Page({
       backgroundColorTop: '#000000',
       backgroundColorBottom: '#000000'
     })
+
+    // 列表页（index/search）经 eventChannel 传入的任务快照：仅作首屏加速，
+    // storage 快照与网络刷新逻辑保留作兜底（分享/冷启动无 opener 时走原路径）
+    this._openerMissionSnapshot = null
+    try {
+      const channel = typeof this.getOpenerEventChannel === 'function' ? this.getOpenerEventChannel() : null
+      if (channel && typeof channel.on === 'function') {
+        channel.on('missionSnapshot', (mission) => {
+          if (mission && mission.id) this._openerMissionSnapshot = mission
+        })
+      }
+    } catch (e) {}
 
     // 小程序 AI 接力：领取 handoff payload（query 已含 id/type，payload 供首屏加速参考）
     try {
@@ -947,6 +964,15 @@ Page({
   async findMissionInList(id, detailType) {
     const type = detailType === 'completed' ? 'completed' : 'upcoming'
 
+    // 列表页刚点进来时经 eventChannel 传入的快照天然新鲜，最优先复用；
+    // 一次性消费（与 event-detail 对齐）：后续刷新走 storage 快照（10 分钟 TTL）/网络，
+    // 避免整个页面存续期都把点击时刻的旧快照当作时间权威源
+    const openerSnapshot = this._openerMissionSnapshot
+    if (openerSnapshot && String(openerSnapshot.id) === String(id)) {
+      this._openerMissionSnapshot = null
+      return openerSnapshot
+    }
+
     try {
       const cache = storageCache.readMemOrSync('mission_detail_cache', {}) || {}
       const cachedMission = getMissionDetailCacheEntry(cache, id, type)
@@ -1198,10 +1224,8 @@ Page({
       if (cached) this._applyReplayData(launchId, cached)
     }
 
-    // 开关已有内存缓存且允许 → 骨架（外链）+ 本地缓存的集锦立即上屏，不等任何网络
-    const cachedCfg = getCachedMainConfig()
-    if (cachedCfg && cachedCfg._id && cachedCfg.enableMissionReplay !== false) showBase()
-
+    // 必须等开关确认后再上屏：内存缓存可能落后于「一键过审」刚写入的关闭态，
+    // 提前渲染会出现回放区先闪现再被收回（flagPromise 命中 feature-flags 缓存时本身就是同步级返回）
     flagPromise.then((on) => {
       if (String(this.data.mission && this.data.mission.id) !== launchId) return
       if (!on) {
@@ -1225,8 +1249,14 @@ Page({
   _applyReplayData(launchId, data) {
     const patch = {}
 
-    // 集锦短片（压缩版，会员观看）：官方推文集锦 + 指定博主（SciNews）集锦
-    const clips = (Array.isArray(data.clips) ? data.clips : [])
+    // COS 文件在 net+30 天被生命周期回收，服务端 net+29 天停发；
+    // 本地缓存可能跨过这个点，播放前按 cosExpireAt 再挡一道，防点开 404
+    const cosExpireAt = Number(data.cosExpireAt) || 0
+    const cosGone = cosExpireAt > 0 && Date.now() > cosExpireAt
+
+    // 集锦短片（压缩版，会员观看）：官方推文集锦 + 指定博主（SciNews）集锦。
+    // 始终整体覆盖（含空数组）：云端纠正/回收后，本地不残留旧集锦
+    patch.replayClips = cosGone ? [] : (Array.isArray(data.clips) ? data.clips : [])
       .filter((c) => c && c.videoUrl)
       .map((c) => {
         const dur = Number(c.durationSec) || 0
@@ -1242,9 +1272,9 @@ Page({
           sourceUrl: c.sourceUrl || ''
         }
       })
-    if (clips.length) patch.replayClips = clips
 
-    // 完整回放外链：云端已按官方优先排好序，优先用云端结果
+    // 完整回放外链：云端已按官方优先排好序，优先用云端结果；
+    // 云端为空时保留 showBase 里 LL2 vidUrls 建的兜底外链，故仅在有值时覆盖
     const links = (Array.isArray(data.links) ? data.links : [])
       .filter((l) => l && l.url)
       .slice(0, 3)
@@ -1256,8 +1286,9 @@ Page({
       }))
     if (links.length) patch.replayLinks = links
 
-    // 完整回放 COS 转存（可选链路，Agent 产出）
-    if (data.videoUrl) {
+    // 完整回放 COS 转存（可选链路，Agent 产出）；无值/已过期时清掉旧按钮
+    patch.missionReplay = null
+    if (data.videoUrl && !cosGone) {
       const durationText = formatReplayDuration(data.durationSec)
       const publisher = data.sourcePublisher || ''
       const subParts = []
@@ -1270,7 +1301,7 @@ Page({
         subText: subParts.join(' · ')
       }
     }
-    if (Object.keys(patch).length) this.setData(patch)
+    this.setData(patch)
   },
 
   /** 回放数据本地缓存（按 launchId，最多 12 条）：再次进入详情页集锦秒开，云端结果回来后覆盖 */
@@ -1538,13 +1569,23 @@ Page({
       if (String(this.data.mission && this.data.mission.id) !== id) return
       const rows = normalizeLl2TimelineList(res.timeline || [])
       const emptyOk = !res.timeline || res.timeline.length === 0
+      // 星舰任务 + 有时间线 + 过审开关 → 显示指挥室模拟入口（时间线上方）
+      const m = this.data.mission || {}
+      const isStarship = /starship/i.test([m.missionName, m.name, m.rocketName].filter(Boolean).join(' '))
       this.setData({
         ll2FlightTimelineLoading: false,
         ll2FlightTimelineRows: rows,
         ll2FlightTimelineError: '',
         ll2FlightTimelineEmpty: emptyOk,
-        ll2FlightTimelineNet: res.net || ''
+        ll2FlightTimelineNet: res.net || '',
+        missionSimEligible: isStarship && rows.length > 0
       })
+      if (isStarship && rows.length > 0 && !this._missionSimFlagChecked) {
+        this._missionSimFlagChecked = true
+        isFeatureEnabled('enableMissionSim', { failClosed: true }).then((on) => {
+          if (on) this.setData({ enableMissionSim: true })
+        }).catch(() => {})
+      }
       this._timelineLoadedLaunchId = id
     } catch (e) {
       const raw = (e && e.message) ? String(e.message) : '加载失败'
@@ -1559,6 +1600,44 @@ Page({
     } finally {
       if (this._timelineInflightLaunchId === id) this._timelineInflightLaunchId = null
     }
+  },
+
+  /** 进入星舰任务指挥室：携带本任务 LL2 飞行时间线，模拟全程对齐真实节点 */
+  async openMissionSimFromDetail() {
+    if (!this.data.enableMissionSim) return
+    const rows = this.data.ll2FlightTimelineRows || []
+    if (!rows.length) return
+    // PRO 门控（与进度页入口同一 productId，任一处解锁全局生效）
+    if (this._missionSimGatePending) return
+    this._missionSimGatePending = true
+    let allowed = false
+    try {
+      const { gateCheck } = require('../../utils/membership.js')
+      allowed = await gateCheck('mission_sim', '星舰任务指挥室')
+    } finally {
+      this._missionSimGatePending = false
+    }
+    if (!allowed) return
+    const m = this.data.mission || {}
+    const name = String(m.missionName || m.name || '星舰任务').trim()
+    const i18n = this.data.tlI18n || { titles: [], descs: [] }
+    const payload = rows.map((r, i) => ({
+      t: r.sortKey,
+      label: i18n.titles[i] || r.title,
+      desc: i18n.descs[i] || r.description,
+      tLabel: r.timeLabel
+    }))
+    if (wx.vibrateShort) {
+      try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+    }
+    wx.navigateTo({
+      url: '/subpackages/mission-sim/mission-sim',
+      success(res) {
+        try {
+          res.eventChannel.emit('missionSimContext', { name, rows: payload })
+        } catch (e) {}
+      }
+    })
   },
 
   /** 飞行时间线「翻译/原文」按钮：逐条翻译节点标题与描述（override 兜底显示原文） */
@@ -1685,8 +1764,18 @@ Page({
       this.setData(buildMissionDetailBaseState(normalizedDetailType))
     }
 
+    // 时间字段以列表为准（mergeMissionDetailData 会用 list 的 launchTime 覆盖 detail 的旧值），
+    // 即使已有 detailMission/cachedMission，也尝试取一份 list snapshot 用作时间权威源。
+    // findMissionInList 内部会优先走 storage 短路（命中 _cacheSource='list'），
+    // 仅在缺失时才回源 getUpcomingMissions 网络请求。
+    // 与详情拉取并行启动：列表快照缺失需回源网络时，不再串在详情之后多等一轮 RTT
+    const listMissionPromise = this.findMissionInList(id, normalizedDetailType).catch(() => null)
+
     let detailMission = null
     if (!hasFreshCachedMission || cacheMissingPadCoords) {
+      // 详情仍在拉取：页签下方面板可能整块为空，亮转圈提示避免被误认为无数据
+      // （silent 下拉刷新已有完整内容且有原生刷新指示器，不再转圈）
+      if (!opts.silent && !this.data.detailHydrating) this.setData({ detailHydrating: true })
       this._detailRequestMap = this._detailRequestMap || {}
       const requestKey = getMissionDetailCacheKey(id, normalizedDetailType)
       if (!this._detailRequestMap[requestKey]) {
@@ -1707,14 +1796,7 @@ Page({
       if (loadSeq !== this._missionLoadSeq) return
     }
 
-    let listMission = null
-    // 时间字段以列表为准（mergeMissionDetailData 会用 list 的 launchTime 覆盖 detail 的旧值），
-    // 即使已有 detailMission/cachedMission，也尝试取一份 list snapshot 用作时间权威源。
-    // findMissionInList 内部会优先走 storage 短路（命中 _cacheSource='list'），
-    // 仅在缺失时才回源 getUpcomingMissions 网络请求。
-    try {
-      listMission = await this.findMissionInList(id, normalizedDetailType)
-    } catch (e) {}
+    const listMission = await listMissionPromise
     if (loadSeq !== this._missionLoadSeq) return
 
     let mission = null
@@ -1737,6 +1819,7 @@ Page({
         : '任务详情加载失败，请稍后再试'
       this.setData({
         loading: false,
+        detailHydrating: false,
         errorMessage: msg
       })
       return
@@ -1753,6 +1836,7 @@ Page({
 
       this.setData({
         loading: false,
+        detailHydrating: false,
         ...normalizedState.pageState
       })
       this._measureDescOverflow()
@@ -1780,6 +1864,8 @@ Page({
         skipIfFresh: hasFreshCachedMission || !!detailMission
       })
     } else {
+      // 详情拉取失败但已有缓存渲染（或 skipRebuild）：结束转圈，交给后台刷新兜底
+      if (this.data.detailHydrating) this.setData({ detailHydrating: false })
       this.refreshMissionDetailInBackground(id, normalizedDetailType, {
         skipIfFresh: false
       })

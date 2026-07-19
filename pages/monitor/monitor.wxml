@@ -259,7 +259,7 @@
       <view class="starlink-card glass-card" wx:else>
         <!-- 加载态 -->
         <view class="starlink-loading" wx:if="{{starlinkLoading}}">
-          <text class="starlink-loading-icon"></text>
+          <view class="starlink-loading-orbit"></view>
           <text class="starlink-loading-text">加载卫星轨道数据...</text>
         </view>
         <!-- 错误态 -->
@@ -271,6 +271,9 @@
         <block wx:else>
           <view class="starlink-canvas-wrap">
             <canvas type="2d" id="starlinkCanvas" class="starlink-canvas" bindtouchstart="onStarlinkTouchStart" bindtouchmove="onStarlinkTouchMove" bindtouchend="onStarlinkTouchEnd"></canvas>
+            <!-- HUD 四角角框装饰 -->
+            <view class="starlink-hud-corners starlink-hud-corners--top"></view>
+            <view class="starlink-hud-corners starlink-hud-corners--bottom"></view>
             <!-- 全屏按钮 -->
             <view class="starlink-expand-hint {{isProUser ? 'pro-gold-frame' : ''}}" bindtap="openStarlinkFullscreen">
               <text class="starlink-expand-text">全屏</text>
@@ -278,7 +281,8 @@
             <!-- 暂停/播放按钮 -->
             <view class="starlink-ctrl-bar">
               <view class="starlink-ctrl-btn" bindtap="toggleStarlinkPause">
-                <text>{{starlinkPaused ? '▶' : '⏸'}}</text>
+                <view class="ctrl-icon-play" wx:if="{{starlinkPaused}}"></view>
+                <view class="ctrl-icon-pause" wx:else></view>
               </view>
               <text class="starlink-ctrl-info">在轨 {{starlinkCount}} 颗 · {{starlinkUpdateTime}}</text>
             </view>
@@ -410,7 +414,8 @@
                 binderror="onAgencyImageError"
               ></image>
               <view class="agency-hw-card-image-placeholder" wx:else>
-                <text>{{item.countryFlag || '🛰'}}</text>
+                <text wx:if="{{item.countryFlag}}">{{item.countryFlag}}</text>
+                <view class="agency-placeholder-icon" wx:else></view>
               </view>
               <view class="agency-hw-card-image-mask"></view>
               <view class="agency-hw-card-overlay">
@@ -518,7 +523,7 @@
             <view class="booster-flights-bar">
               <view class="flight-block {{flight.pending ? 'flight-pending' : (flight.success ? 'flight-success' : (flight.failed ? 'flight-fail' : 'flight-unknown'))}}" wx:for="{{item.flightBlocks}}" wx:for-item="flight" wx:key="idx"></view>
             </view>
-            <text class="booster-turnaround" wx:if="{{item.fastestTurnaroundText}}">⚡ {{item.fastestTurnaroundText}}</text>
+            <text class="booster-turnaround" wx:if="{{item.fastestTurnaroundText}}">{{item.fastestTurnaroundText}}</text>
           </view>
           <!-- 箭头 -->
           <view class="booster-card-arrow">›</view>

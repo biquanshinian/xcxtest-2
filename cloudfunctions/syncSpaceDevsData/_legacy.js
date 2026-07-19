@@ -1277,18 +1277,29 @@ async function syncAgencies() {
 
     try {
       const fetchUrl = `${LAUNCH_LIBRARY_API}/agencies/?format=json&mode=detailed&limit=${pageSize}&offset=${offset}`
-      const data = await httpsGetJson(fetchUrl, 25000)
+      // 单页失败（LL2 偶发限流/超时）等待后重试一次，避免整轮同步因一页抖动而中断
+      let data
+      try {
+        data = await httpsGetJson(fetchUrl, 25000)
+      } catch (firstErr) {
+        console.warn(`第 ${page + 1} 页首次拉取失败，5s 后重试:`, firstErr.message)
+        await new Promise(resolve => setTimeout(resolve, 5000))
+        data = await httpsGetJson(fetchUrl, 25000)
+      }
       const pageItems = (data && Array.isArray(data.results) ? data.results : [])
         .map(slimAgencyListItem)
         .filter(Boolean)
 
-      const payload = {
-        count: (data && data.count) || pageItems.length,
-        next: (data && data.next) || null,
-        previous: (data && data.previous) || null,
-        results: pageItems
+      // 空页不覆盖已有分页缓存（LL2 异常返回空时保留旧数据）
+      if (pageItems.length > 0) {
+        const payload = {
+          count: (data && data.count) || pageItems.length,
+          next: (data && data.next) || null,
+          previous: (data && data.previous) || null,
+          results: pageItems
+        }
+        await saveToCloudDB(cacheKey, payload)
       }
-      await saveToCloudDB(cacheKey, payload)
       pageResults.push({ page: page + 1, offset, success: true, count: pageItems.length })
 
       console.log(`第 ${page + 1} 页获取到 ${pageItems.length} 条数据`)
@@ -1311,6 +1322,44 @@ async function syncAgencies() {
 
   console.log(`总共收集到 ${allResults.length} 条发射商数据`)
 
+  // ── 保底护栏：拉取失败/数据锐减时绝不覆盖 featured/聚合缓存 ──
+  // 这两个文档是「全球发射商图鉴」的唯一数据源，且每天只同步一次；
+  // 一旦被空数据覆盖，全体用户会整整 24 小时「加载失败」。
+  if (allResults.length === 0) {
+    console.error('[syncAgencies] 本轮未拉到任何数据，保留旧缓存不覆盖')
+    return {
+      success: false,
+      skippedWrite: true,
+      reason: 'empty_fetch_keep_old_cache',
+      pages: pageResults,
+      elapsedMs: Date.now() - startedAt
+    }
+  }
+  const aggregateKey = `api_cache_/agencies/_${JSON.stringify({ format: 'json', limit: 400, offset: 0 })}`
+  try {
+    const existingDoc = await db.collection('space_devs_cache').doc(aggregateKey).get()
+    // 文档内容 = { data: payload, timestamp, expireAt }（saveToCloudDB 写入结构）
+    const existingPayload = existingDoc && existingDoc.data ? existingDoc.data.data : null
+    // 内联存储读 results 长度；分批存储（isBatched）主文档 results 为空，读 count
+    const existingCount = existingPayload
+      ? (Array.isArray(existingPayload.results) && existingPayload.results.length > 0
+        ? existingPayload.results.length
+        : Number(existingPayload.count) || 0)
+      : 0
+    if (existingCount > 0 && allResults.length < existingCount * 0.5) {
+      console.error(`[syncAgencies] 本轮仅 ${allResults.length} 条（现有 ${existingCount} 条），疑似分页中断，保留旧缓存`)
+      return {
+        success: false,
+        skippedWrite: true,
+        reason: 'partial_fetch_keep_old_cache',
+        fetched: allResults.length,
+        existing: existingCount,
+        pages: pageResults,
+        elapsedMs: Date.now() - startedAt
+      }
+    }
+  } catch (e) { /* 现有文档不存在或读取失败：照常写入 */ }
+
   // 生成featured列表（重点机构）
   const featuredItems = allResults.filter(item => !!item.featured)
   const featuredPayload = {
@@ -1330,7 +1379,6 @@ async function syncAgencies() {
     previous: null,
     results: allResults.slice(0, 400)
   }
-  const aggregateKey = `api_cache_/agencies/_${JSON.stringify({ format: 'json', limit: 400, offset: 0 })}`
   await saveToCloudDB(aggregateKey, aggregatePayload)
   console.log(`聚合列表已保存: ${aggregatePayload.results.length} 条`)
 
@@ -1342,6 +1390,140 @@ async function syncAgencies() {
     pages: pageResults,
     elapsedMs: Date.now() - startedAt
   }
+}
+
+/**
+ * 单个发射商详情同步：用 mode=detailed 拉取（含发射统计 + launcher_list/spacecraft_list/
+ * social_media_links 等详情页必需字段），缓存 key 不含 mode（与前端 getCacheKey 规则一致）。
+ * 注意不能走 syncAPIEndpoint：它用 params 同时构建 URL 和缓存 key，无法「detailed 拉取 + normal key 落库」。
+ */
+async function syncOneAgencyDetail(agencyId) {
+  const id = String(agencyId).trim()
+  if (!id) return { success: false, agencyId, error: 'Missing agencyId' }
+  const cacheKey = `api_cache_/agencies/${id}/_${JSON.stringify({ format: 'json' })}`
+  try {
+    const fetchUrl = `${LAUNCH_LIBRARY_API}/agencies/${id}/?format=json&mode=detailed`
+    const data = await httpsGetJson(fetchUrl, 25000)
+    if (!data || data.id == null) {
+      throw new Error('LL2 返回数据无效（缺少 id）')
+    }
+    await saveToCloudDB(cacheKey, data)
+    return { success: true, agencyId: id }
+  } catch (error) {
+    return { success: false, agencyId: id, error: error.message || String(error) }
+  }
+}
+
+/**
+ * featured 机构详情自愈同步（每 6h 定时轮附带执行）：
+ * 逐个检查 featured 机构的详情缓存文档，缺失或超过 maxAgeMs 才真正拉 LL2；
+ * 单轮受 maxSync / budgetMs 双重限额保护，首次冷启动分多轮逐步补全。
+ * 背景：前端已不再触发 syncAgencyDetail 外网同步，若服务端不补位，
+ * 详情缓存永远为空 → 详情页永远显示「部分数据待补全」。
+ */
+async function syncFeaturedAgencyDetails(options = {}) {
+  const startedAt = Date.now()
+  const maxAgeMs = options.maxAgeMs || 26 * 60 * 60 * 1000
+  const maxSync = options.maxSync || 12
+  const budgetMs = options.budgetMs || 120 * 1000
+
+  // 读列表缓存文档（支持 saveToCloudDB 的分批存储：主文档 isBatched 时合并批次文档）
+  const readListResults = async (cacheKey) => {
+    try {
+      const doc = await db.collection('space_devs_cache').doc(cacheKey).get()
+      const payload = doc && doc.data && doc.data.data
+      if (!payload) return { results: [], status: 'empty_doc' }
+      if (Array.isArray(payload.results) && payload.results.length > 0) {
+        return { results: payload.results, status: 'inline' }
+      }
+      if (payload.isBatched && Array.isArray(payload.batchKeys)) {
+        const merged = []
+        for (const batchKey of payload.batchKeys) {
+          try {
+            const bDoc = await db.collection('space_devs_cache').doc(batchKey).get()
+            const bPayload = bDoc && bDoc.data && bDoc.data.data
+            if (bPayload && Array.isArray(bPayload.results)) merged.push(...bPayload.results)
+          } catch (e) { /* 单批缺失跳过 */ }
+        }
+        return { results: merged, status: 'batched' }
+      }
+      return { results: [], status: 'empty_results' }
+    } catch (e) {
+      return { results: [], status: 'not_found', error: e.message || String(e) }
+    }
+  }
+
+  // 1) 从 featured 列表缓存取机构 id（不额外打 LL2）；缺失时回退聚合缓存过滤 featured
+  const featuredKey = `api_cache_/agencies/_${JSON.stringify({ featured: true, format: 'json', limit: 50, offset: 0 })}`
+  const aggregateKey = `api_cache_/agencies/_${JSON.stringify({ format: 'json', limit: 400, offset: 0 })}`
+  const featuredRead = await readListResults(featuredKey)
+  let featuredItems = featuredRead.results
+  let aggregateRead = null
+  if (featuredItems.length === 0) {
+    aggregateRead = await readListResults(aggregateKey)
+    featuredItems = aggregateRead.results.filter(item => item && item.featured)
+  }
+  const agencyIds = featuredItems.map(item => item && item.id).filter(id => id != null)
+  if (agencyIds.length === 0) {
+    // 诊断字段：区分「文档不存在（多半是环境不对/从未同步）」和「文档存在但为空」
+    return {
+      success: false,
+      reason: 'no_featured_agency_list',
+      featuredDoc: featuredRead.status,
+      aggregateDoc: aggregateRead ? aggregateRead.status : 'not_checked',
+      envId: (() => { try { return cloud.getWXContext().ENV || process.env.TCB_ENV || '' } catch (e) { return process.env.TCB_ENV || '' } })(),
+      elapsedMs: Date.now() - startedAt
+    }
+  }
+
+  // 2) 检查各详情文档新鲜度，挑出缺失/过期的
+  const staleIds = []
+  let freshCount = 0
+  for (const id of agencyIds) {
+    const detailKey = `api_cache_/agencies/${id}/_${JSON.stringify({ format: 'json' })}`
+    let fresh = false
+    try {
+      const doc = await db.collection('space_devs_cache').doc(detailKey).get()
+      const cacheData = doc && doc.data
+      const payload = cacheData && cacheData.data
+      const ts = cacheData && cacheData.timestamp
+      // total_launch_count 仅 detailed 模式返回：旧版 normal 模式同步的文档
+      // （缺统计 / launcher_list / spacecraft_list）即使时间戳新也视为过期，强制重拉
+      const hasDetailedFields = !!(payload && payload.total_launch_count !== undefined)
+      fresh = !!(payload && payload.id != null && hasDetailedFields && ts && Date.now() - ts < maxAgeMs)
+    } catch (e) { /* 文档不存在：需要同步 */ }
+    if (fresh) freshCount++
+    else staleIds.push(id)
+  }
+  if (staleIds.length === 0) {
+    return { success: true, checkVersion: 'detailed_fields_v2', checked: agencyIds.length, fresh: freshCount, synced: 0, elapsedMs: Date.now() - startedAt }
+  }
+
+  // 3) 限额同步（每轮最多 maxSync 个、总预算 budgetMs，请求间隔 300ms 保护 LL2 配额）
+  const synced = []
+  const failed = []
+  for (const id of staleIds.slice(0, maxSync)) {
+    if (Date.now() - startedAt > budgetMs) break
+    const r = await syncOneAgencyDetail(id)
+    if (r.success) synced.push(id)
+    else failed.push({ id, error: r.error })
+    await new Promise(resolve => setTimeout(resolve, 300))
+  }
+
+  const result = {
+    success: failed.length === 0,
+    // 新鲜度判断规则版本：v2 = 时间戳 + detailed 字段内容校验（total_launch_count）
+    checkVersion: 'detailed_fields_v2',
+    checked: agencyIds.length,
+    fresh: freshCount,
+    stale: staleIds.length,
+    synced: synced.length,
+    remaining: staleIds.length - synced.length - failed.length,
+    elapsedMs: Date.now() - startedAt
+  }
+  if (failed.length) result.failed = failed
+  console.log('[syncFeaturedAgencyDetails]', JSON.stringify(result))
+  return result
 }
 
 /**
@@ -5939,6 +6121,7 @@ async function runModularSyncStations() {
 exports.runModularSyncLaunches = runModularSyncLaunches
 exports.runModularSyncEvents = runModularSyncEvents
 exports.runModularSyncStations = runModularSyncStations
+exports.syncFeaturedAgencyDetails = syncFeaturedAgencyDetails
 
 /** 供 vote-rounds-rebuild.test.js 本地验证（勿在生产调用） */
 exports._voteRebuildInternals = Object.assign({}, voteRoundsFromUpdates, {
@@ -5952,7 +6135,7 @@ exports.main = async (event, context) => {
   const { action, url, params } = event
 
   // 用于确认云端是否已部署到最新代码（每次改动可更新此标识）
-  const BUILD_TAG = 'syncSpaceDevsData_2026-07-17_v4_starbase_parse_fix'
+  const BUILD_TAG = 'syncSpaceDevsData_2026-07-20_v6_agency_detail_content_check'
 
   try {
     if (action === 'sync') {
@@ -6033,12 +6216,16 @@ exports.main = async (event, context) => {
     } else if (action === 'syncAgencyDetail') {
       const agencyId = event.agencyId
       if (!agencyId) return { success: false, message: 'Missing agencyId' }
-      const detailResult = await syncAPIEndpoint(
-        `/agencies/${agencyId}/`, { format: 'json' }, null, false, 1, 1
-      )
+      // detailed 模式拉取（含统计 + launcher_list/spacecraft_list），normal key 落库
+      const detailResult = await syncOneAgencyDetail(agencyId)
       return {
-        success: !!(detailResult && detailResult.success),
-        agencyId,
+        ...detailResult,
+        timestamp: Date.now()
+      }
+    } else if (action === 'syncFeaturedAgencyDetails') {
+      const detailsResult = await syncFeaturedAgencyDetails(event || {})
+      return {
+        ...detailsResult,
         timestamp: Date.now()
       }
     } else if (action === 'clean') {

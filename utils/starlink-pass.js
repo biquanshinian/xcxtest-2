@@ -5,9 +5,95 @@
 
 var satellite = require('./libs/satellite.min.js')
 
+// TLE 历元超过 7 天视为陈旧：SGP4 误差随历元年龄增长，超龄卫星不参与预报/AR
+var TLE_MAX_AGE_MS = 7 * 24 * 3600 * 1000
+
 // ============================================================
 // 辅助函数
 // ============================================================
+
+/**
+ * 解析 TLE line1 的 NORAD ID（第 3-7 列）
+ * @returns {number} 解析失败返回 0
+ */
+function parseNoradId(line1) {
+  if (!line1 || typeof line1 !== 'string' || line1.length < 7) return 0
+  var n = parseInt(line1.substring(2, 7).trim(), 10)
+  return isNaN(n) ? 0 : n
+}
+
+/**
+ * 解析 TLE line1 的历元（第 19-32 列：两位年 + 儒略日小数）
+ * @returns {number|null} 历元的 UTC 毫秒时间戳，解析失败返回 null
+ */
+function parseTleEpochMs(line1) {
+  if (!line1 || typeof line1 !== 'string' || line1.length < 32) return null
+  var yy = parseInt(line1.substring(18, 20), 10)
+  var doy = parseFloat(line1.substring(20, 32))
+  if (isNaN(yy) || isNaN(doy) || doy <= 0) return null
+  var year = yy < 57 ? 2000 + yy : 1900 + yy
+  return Date.UTC(year, 0, 1) + (doy - 1) * 86400000
+}
+
+/**
+ * 从已解析的 satrec 取历元毫秒（jdsatepoch 为儒略日）
+ * @returns {number|null}
+ */
+function satrecEpochMs(satrec) {
+  if (!satrec || typeof satrec.jdsatepoch !== 'number') return null
+  return (satrec.jdsatepoch - 2440587.5) * 86400000
+}
+
+/**
+ * 判断 TLE 历元是否在 7 天内
+ * @param {number|null} epochMs
+ * @param {number} [nowMs]
+ */
+function isEpochFresh(epochMs, nowMs) {
+  if (epochMs == null) return false
+  return ((nowMs || Date.now()) - epochMs) <= TLE_MAX_AGE_MS
+}
+
+/**
+ * 从 TLE 数组（{name,line1,line2}）中选出历元 7 天内、按 NORAD ID 倒序的最新 max 颗
+ * （低轨新批次是肉眼可见"星链列车"的主体）
+ */
+function selectNewestTLEs(list, max) {
+  if (!Array.isArray(list)) return []
+  var nowMs = Date.now()
+  var valid = []
+  for (var i = 0; i < list.length; i++) {
+    var item = list[i]
+    if (!item || !item.line1 || !item.line2) continue
+    if (!isEpochFresh(parseTleEpochMs(item.line1), nowMs)) continue
+    valid.push(item)
+  }
+  valid.sort(function (a, b) {
+    return parseNoradId(b.line1) - parseNoradId(a.line1)
+  })
+  return max > 0 ? valid.slice(0, max) : valid
+}
+
+/**
+ * 从已解析的 satrec 数组（{name,satrec}）中选出历元 7 天内、按 NORAD ID 倒序的最新 max 颗
+ */
+function selectNewestSatrecs(list, max) {
+  if (!Array.isArray(list)) return []
+  var nowMs = Date.now()
+  var valid = []
+  for (var i = 0; i < list.length; i++) {
+    var item = list[i]
+    if (!item || !item.satrec) continue
+    if (!isEpochFresh(satrecEpochMs(item.satrec), nowMs)) continue
+    valid.push(item)
+  }
+  valid.sort(function (a, b) {
+    var na = parseInt(a.satrec.satnum, 10) || 0
+    var nb = parseInt(b.satrec.satnum, 10) || 0
+    return nb - na
+  })
+  return max > 0 ? valid.slice(0, max) : valid
+}
 
 /**
  * 方位角转罗盘方向
@@ -96,13 +182,9 @@ function isSatelliteSunlit(date, satGeo, satAltKm) {
   if (!satGeo || typeof satGeo.latitude !== 'number' || typeof satGeo.longitude !== 'number') {
     return false
   }
-  var sunPos = getSunPosition(date, 0, 0);
   // 地球半径约 6371 km
   var earthRadius = 6371;
   var satDistance = earthRadius + satAltKm;
-
-  // 地球阴影的半角（简化）
-  var shadowAngle = Math.asin(earthRadius / satDistance) * (180 / Math.PI);
 
   // 卫星相对于地心的太阳高度角
   // 简化：使用卫星正下方点的太阳高度角，加上卫星因高度产生的视角偏移
@@ -207,6 +289,11 @@ function _scanSatellitePasses(tle, observerGd, observer, startMs, endMs) {
     return [];
   }
 
+  // TLE 历元超 7 天：轨道外推误差过大，跳过该卫星
+  if (!isEpochFresh(satrecEpochMs(satrec), startMs)) {
+    return [];
+  }
+
   var passes = [];
   var passStart = null;
   var maxElev = 0;
@@ -239,10 +326,22 @@ function _scanSatellitePasses(tle, observerGd, observer, startMs, endMs) {
 
     if (isVisible) {
       if (!passStart) {
-        // 过境开始 — 向前精细搜索确定精确起始
+        // 过境开始 — 向前（更早时刻）以 10s 步长回扫，把 AOS 误差从 ~30s 降到 ~10s
         passStart = date;
         startAz = azDeg;
         maxElev = elevDeg;
+        if (scanTime - SCAN_STEP >= startMs) {
+          var refinedStart = _refinePassStart(
+            satrec, observerGd, observer,
+            scanTime, scanTime - SCAN_STEP + REFINE_STEP,
+            REFINE_STEP, MIN_ELEV, rad2deg
+          );
+          if (refinedStart.startTime) {
+            passStart = refinedStart.startTime;
+            startAz = refinedStart.startAz;
+            if (refinedStart.maxElev > maxElev) maxElev = refinedStart.maxElev;
+          }
+        }
       }
       if (elevDeg > maxElev) {
         maxElev = elevDeg;
@@ -425,6 +524,43 @@ function _getSatGeo(satrec, date) {
 }
 
 /**
+ * 精细搜索过境开始时刻（AOS）
+ * 从粗扫命中点 coarseMs 向更早时刻以 step 步长回扫，
+ * 只回扫到上一粗扫点之后（lowerMs），一旦不可见即停止
+ */
+function _refinePassStart(satrec, observerGd, observer, coarseMs, lowerMs, step, minElev, rad2deg) {
+  var result = { startTime: null, startAz: 0, maxElev: 0 };
+
+  for (var ms = coarseMs - step; ms >= lowerMs; ms -= step) {
+    var date = new Date(ms);
+    var lookAngles = _getLookAngles(satrec, date, observerGd);
+    if (!lookAngles) break;
+
+    var elevDeg = lookAngles.elevation * rad2deg;
+    var azDeg = lookAngles.azimuth * rad2deg;
+
+    var satGeo = _getSatGeo(satrec, date);
+    var satAltKm = satGeo ? satGeo.height : 550;
+
+    var isVisible = elevDeg >= minElev &&
+                    isSatelliteSunlit(date, satGeo, satAltKm) &&
+                    isSkyDark(date, observer);
+
+    if (isVisible) {
+      result.startTime = date;
+      result.startAz = azDeg;
+      if (elevDeg > result.maxElev) {
+        result.maxElev = elevDeg;
+      }
+    } else {
+      break;
+    }
+  }
+
+  return result;
+}
+
+/**
  * 精细搜索过境结束时刻
  * 在 [startMs, endMs] 区间内以 step 步长搜索
  */
@@ -466,5 +602,13 @@ function _refinePassEnd(satrec, observerGd, observer, startMs, endMs, step, minE
 
 module.exports = {
   predictPasses: predictPasses,
-  predictPassesAsync: predictPassesAsync
+  predictPassesAsync: predictPassesAsync,
+  isSatelliteSunlit: isSatelliteSunlit,
+  parseNoradId: parseNoradId,
+  parseTleEpochMs: parseTleEpochMs,
+  satrecEpochMs: satrecEpochMs,
+  isEpochFresh: isEpochFresh,
+  selectNewestTLEs: selectNewestTLEs,
+  selectNewestSatrecs: selectNewestSatrecs,
+  TLE_MAX_AGE_MS: TLE_MAX_AGE_MS
 };

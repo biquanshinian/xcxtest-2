@@ -109,7 +109,7 @@ function isLaunchRelatedText(ev) {
  *   3. 文案：必须含发射动作关键词（liftoff/landing/deploy…），排除官方号的宣传片
  *   4. 时间：发布时间落在某次发射 [net-15min, net+12h] 窗口内；
  *      多个候选发射（双首发）时归 net 距离最近的那次
- * @returns {Map<launchId, clips[]>}
+ * @returns {Map<launchId, clips[]> | null} 事件库查询失败时返回 null（调用方保持已有集锦不动，防误清空）
  */
 async function matchHighlightClips(db, launches) {
   const _ = db.command
@@ -119,20 +119,23 @@ async function matchHighlightClips(db, launches) {
     .filter((w) => w.netMs > 0)
   if (!windows.length) return new Map()
 
+  // 双向界定时间范围 + 倒序 + 放宽条数：避免高频事件流下最新发射的推文被 limit 截断
   const minStart = Math.min(...windows.map((w) => w.netMs)) - CLIP_WINDOW_BEFORE_MS
+  const maxEnd = Math.max(...windows.map((w) => w.netMs)) + CLIP_WINDOW_AFTER_MS
   let events = []
   try {
     const res = await db.collection(EVENTS_COL)
-      .where({ publishedAt: _.gte(minStart), status: 'published' })
-      .orderBy('publishedAt', 'asc')
-      .limit(100)
+      .where({ publishedAt: _.and([_.gte(minStart), _.lte(maxEnd)]), status: 'published' })
+      .orderBy('publishedAt', 'desc')
+      .limit(300)
       .get()
     events = res.data || []
   } catch (e) {
-    return new Map()
+    return null
   }
 
   const byLaunch = new Map()
+  const seenUrls = new Set()
   for (const ev of events) {
     const ts = Number(ev.publishedAt || 0)
     if (!ts) continue
@@ -152,8 +155,9 @@ async function matchHighlightClips(db, launches) {
       // 「只要压缩版」：必须有 COS 压缩预览；长视频/未落 COS 的跳过（外链已覆盖）
       const preview = media.previewUrl || ''
       if (!isCosUrl(preview) || media.isLongVideo) continue
+      if (seenUrls.has(preview)) continue
+      seenUrls.add(preview)
       const list = byLaunch.get(best.launchId) || []
-      if (list.length >= MAX_CLIPS) continue
       list.push({
         videoUrl: preview,
         // 只回 COS 缩略图（twimg 外链不在小程序域名白名单）；缺失时前端用万象截帧兜底
@@ -166,7 +170,50 @@ async function matchHighlightClips(db, launches) {
       byLaunch.set(best.launchId, list)
     }
   }
+  // 每个发射按发布时间升序保留前 MAX_CLIPS 段（点火/发射瞬间的最早片段优先）
+  for (const [k, list] of byLaunch) {
+    list.sort((a, b) => a.publishedAt - b.publishedAt)
+    byLaunch.set(k, list.slice(0, MAX_CLIPS))
+  }
   return byLaunch
+}
+
+// 终态 failed 任务的复活冷却：发射仍在 7 天窗口内时，每 ≥6 小时给一次重试机会。
+// 否则「代理断了一天」这类临时故障会让该任务的集锦永久缺失（队列有记录就不再入队）。
+const REQUEUE_COOLDOWN_MS = 6 * 60 * 60 * 1000
+
+/**
+ * 检查队列已有记录；终态 failed 且过了冷却期则原地复活为 pending。
+ * @returns {'none'|'exists'|'requeued'}
+ */
+async function reviveOrCheckQueueRow(db, launchId, kind, nowMs) {
+  let row = null
+  try {
+    const q = await db.collection(REPLAY_QUEUE_COL).where({ launchId, kind }).limit(1).get()
+    row = (q.data || [])[0] || null
+  } catch (e) {
+    return 'exists' // 查询失败宁可跳过本轮，避免重复 add
+  }
+  if (!row) return 'none'
+  if (row.status !== 'failed') return 'exists'
+  if (nowMs - Number(row.updatedAt || 0) < REQUEUE_COOLDOWN_MS) return 'exists'
+  try {
+    const prevErr = String(row.lastError || '')
+    await db.collection(REPLAY_QUEUE_COL).doc(row._id).update({
+      data: {
+        status: 'pending',
+        claimToken: '',
+        claimedAt: 0,
+        nextRetryAt: 0,
+        // 保留 attempts：复活后每轮只给 1 次尝试机会，防止无限刷失败
+        lastError: (prevErr.indexOf('requeued:') === 0 ? prevErr : 'requeued: ' + prevErr).slice(0, 200),
+        updatedAt: nowMs
+      }
+    })
+    return 'requeued'
+  } catch (e) {
+    return 'exists'
+  }
 }
 
 /** 可选：完整回放 Agent 入队（默认关闭；长视频只给链接） */
@@ -177,10 +224,9 @@ async function maybeEnqueueAgentJob(db, launch, cfg) {
     const done = await db.collection(REPLAY_RESULT_COL).doc(launchId).get().catch(() => null)
     if (done && done.data && done.data.videoUrl) return false
   } catch (e) {}
-  try {
-    const q = await db.collection(REPLAY_QUEUE_COL).where({ launchId, kind: 'full' }).limit(1).get()
-    if (q.data && q.data.length) return false
-  } catch (e) {}
+  const state = await reviveOrCheckQueueRow(db, launchId, 'full', Date.now())
+  if (state === 'requeued') return true
+  if (state === 'exists') return false
   const nowMs = Date.now()
   const sources = (Array.isArray(launch.vid_urls) ? launch.vid_urls : [])
     .filter((v) => v && typeof v.url === 'string' && /^https?:\/\//i.test(v.url))
@@ -269,10 +315,9 @@ async function maybeEnqueueClipJob(db, launch, cfg, existingDoc, tweetClipCount,
   const netMs = Date.parse(launch.net || '') || 0
   if (!netMs || nowMs - netMs < CLIP_AGENT_MIN_AGE_MS) return false
   const launchId = String(launch.id)
-  try {
-    const q = await db.collection(REPLAY_QUEUE_COL).where({ launchId, kind: 'clip' }).limit(1).get()
-    if (q.data && q.data.length) return false
-  } catch (e) {}
+  const state = await reviveOrCheckQueueRow(db, launchId, 'clip', nowMs)
+  if (state === 'requeued') return true
+  if (state === 'exists') return false
   const { tokens, rocketTokens } = clipMatchTokens(launch.name)
   await db.collection(REPLAY_QUEUE_COL).add({
     data: {
@@ -333,6 +378,7 @@ async function runSyncMissionReplayQueue(db, fetchAPI, apiBase) {
   })
   if (!targets.length) return { success: true, scanned: launches.length, updated: 0 }
 
+  // clipsMap 为 null = 事件库查询失败：本轮沿用已有集锦，避免把之前匹配到的清空
   const clipsMap = await matchHighlightClips(db, targets)
 
   let updated = 0
@@ -341,7 +387,6 @@ async function runSyncMissionReplayQueue(db, fetchAPI, apiBase) {
   const detail = []
   for (const launch of targets) {
     const launchId = String(launch.id)
-    const clips = clipsMap.get(launchId) || []
     const links = buildReplayLinks(launch)
 
     let existing = null
@@ -349,6 +394,10 @@ async function runSyncMissionReplayQueue(db, fetchAPI, apiBase) {
       const r = await db.collection(REPLAY_RESULT_COL).doc(launchId).get().catch(() => null)
       existing = r && r.data
     } catch (e) {}
+
+    const clips = clipsMap
+      ? (clipsMap.get(launchId) || [])
+      : ((existing && Array.isArray(existing.clips)) ? existing.clips : [])
 
     const row = {
       launchId,
@@ -410,7 +459,34 @@ async function runSyncMissionReplayQueue(db, fetchAPI, apiBase) {
     } catch (e) {}
   }
 
-  return { success: true, scanned: launches.length, targets: targets.length, updated, enqueued, clipJobs, detail }
+  // 顺带清理 30 天前的终态队列记录（done/failed/超龄 pending），防无限累积
+  let cleaned = 0
+  try {
+    cleaned = await cleanupOldQueueRows(db, nowMs)
+  } catch (e) {}
+
+  return { success: true, scanned: launches.length, targets: targets.length, updated, enqueued, clipJobs, cleaned, detail }
+}
+
+/** 删除 updatedAt 超过 30 天的队列记录，每轮最多 20 条（claimed 状态跳过） */
+async function cleanupOldQueueRows(db, nowMs) {
+  const _ = db.command
+  const cutoff = nowMs - 30 * 24 * 60 * 60 * 1000
+  let removed = 0
+  try {
+    const res = await db.collection(REPLAY_QUEUE_COL)
+      .where({ updatedAt: _.lt(cutoff) })
+      .limit(20)
+      .get()
+    for (const row of res.data || []) {
+      if (row.status === 'claimed') continue
+      try {
+        await db.collection(REPLAY_QUEUE_COL).doc(row._id).remove()
+        removed += 1
+      } catch (e) {}
+    }
+  } catch (e) {}
+  return removed
 }
 
 module.exports = { runSyncMissionReplayQueue }

@@ -1,7 +1,7 @@
 /**
  * share-gate.js（mission-detail 分包内副本）— 会员详情页「分享免门控 + 24 小时有效期」
  *
- * 注意：index-extra / progress-extra / monitor-pages / mission-detail 各有一份相同副本，修改时需同步。
+ * 注意：index-extra / progress-extra / monitor-pages / mission-detail / mission-sim 各有一份相同副本，修改时需同步。
  * 不能放 shared 等其他分包（分包间同步 require 在直达入口时目标分包未下载会黑屏），
  * 也不放主包（代码质量扫描会报「主包未使用文件」），故每个使用方分包各留一份。
  *

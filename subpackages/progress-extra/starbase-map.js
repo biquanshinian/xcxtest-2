@@ -3,6 +3,20 @@ const { getStarshipStatusFromDB } = require('../../utils/api-app-services.js')
 const { STARBASE_CENTER, STARBASE_FACILITIES, toMarker } = require('./utils/map-scenes.js')
 const { getThemeClassSync, isLightSync, getPageBgSync } = require('../../utils/theme.js')
 
+const STARSHIP_SHARED_TTL = 10 * 60 * 1000
+
+/** 优先复用 progress 页写入的全局共享星舰状态（10 分钟内新鲜），未命中再走库读 */
+function getSharedStarshipStatus() {
+  try {
+    const app = getApp()
+    const shared = app && app.globalData && app.globalData.starshipStatus
+    if (shared && shared.data && Date.now() - (shared.fetchedAt || 0) < STARSHIP_SHARED_TTL) {
+      return Promise.resolve(shared.data)
+    }
+  } catch (e) {}
+  return getStarshipStatusFromDB()
+}
+
 Page({
   data: {
     themeClass: '',
@@ -97,7 +111,7 @@ Page({
   async loadLiveFacilityData() {
     this.setData(buildMapStatePatch({ loading: true, errorText: '', emptyText: '' }))
     try {
-      const statusData = await getStarshipStatusFromDB()
+      const statusData = await getSharedStarshipStatus()
       const { facilities, liveText, currentFocusText } = this.enrichFacilitiesWithLiveStatus(statusData)
       const markers = facilities.map((item) => toMarker(item, { color: item.isKeyFacility ? '#FF9F0A' : '#34C759', display: 'BYCLICK' }))
       const preferredId = this._focusFacilityId || ((this.data.selectedFacility && this.data.selectedFacility.id) || 1)

@@ -97,9 +97,8 @@ App({
         setTimeout(() => {
           try { require('./utils/api-cache-clean.js').cleanExpiredApiCache() } catch (e) {}
           try { require('./utils/icon-cache.js').preloadStaticMediaUrls() } catch (e) {}
-          require('./utils/membership.js').getMembershipState().then(state => {
-            this.globalData.membershipState = state
-          }).catch(() => {})
+          // 仅预热 membership 模块缓存；模块缓存是全站唯一权威，无需再落 globalData
+          require('./utils/membership.js').getMembershipState().catch(() => {})
           try { require('./utils/feature-flags.js').fetchMainConfig() } catch (e) {}
           const demoEngine = require('./utils/demo-engine.js')
           demoEngine.initDemoEngine().then(() => {
@@ -892,7 +891,8 @@ App({
     splashActive: false,
     demoMode: false,
     isLiveAccount: false,
-    membershipState: null,
+    /** 星舰状态共享快照 { data, fetchedAt }：progress 加载成功后写入，progress-extra 分包页 10 分钟内复用 */
+    starshipStatus: null,
     /** 搜索页 → 监控页一次性交接的发射商 id（switchTab 不能带 query，内存传递即可，无需落 storage） */
     pendingAgencyDetailId: '',
     /** 事件更新视频 → 播放页一次性交接（URL 可能很长，避免走 query） */

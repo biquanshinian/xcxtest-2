@@ -7,7 +7,7 @@ const { execSync } = require('child_process')
 const root = path.join(__dirname, '..')
 const mainSubpkgExclude = [
   'subpackages/', 'pages/nasa-data/', 'pages/about/', 'pages/collect/',
-  'pages/space-explore/', 'pages/image-preview/', 'pages/webview/',
+  'pages/space-explore/', 'pages/webview/',
   'pages/mission-detail/', 'pages/search/', 'pages/video-player/',
 ]
 
@@ -22,7 +22,6 @@ const jsFiles = [
   'utils/checkin.js',
   'utils/space-quiz.js',
   'utils/demo-engine.js',
-  'subpackages/shared/utils/http-request.js',
   'subpackages/shared/utils/demo-scripts.js',
   'subpackages/index-extra/utils/index-calendar-page.js',
   'subpackages/shared/utils/channels-live.js',

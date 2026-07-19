@@ -44,15 +44,20 @@ function hashText(text) {
 
 /**
  * 判定文本是否是「像样的中文译文」——防止 TMT 失败降级时把
- * 词典替换过的英文（如 "flight to a 太阳同步轨道 with ..."）当译文写库
+ * 词典替换过的英文（如 "flight to a 太阳同步轨道 with ..."）当译文写库。
+ * URL 与受保护专名不计入英文字符：短句译文里"SpaceX 的 Falcon 9"这类
+ * 合法保留的英文不应导致整条译文被误判为非中文而丢弃。
  */
 function looksLikelyChinese(text) {
-  const s = String(text || '')
+  let s = String(text || '')
   if (!s) return false
+  s = s.replace(/https?:\/\/\S+/g, ' ')
+  try {
+    s = protectTerms(s).text
+  } catch (e) {}
   const cjk = (s.match(/[\u4e00-\u9fff]/g) || []).length
   if (!cjk) return false
   const latin = (s.match(/[A-Za-z]/g) || []).length
-  // 正常译文即使保留 SpaceX/Falcon 9 等术语，中文字符占比也远高于此阈值
   return cjk / (cjk + latin) >= 0.25
 }
 
@@ -216,9 +221,13 @@ async function tmtTranslateBatch(sourceTexts) {
 /**
  * 批量翻译英文文本 → 中文（词典预处理 + 缓存 + TMT）
  * @param {string[]} texts
+ * @param {Object} [options]
+ *   - skipTmt: 只走词典 + translation_cache，未命中项留空不调 TMT
+ *     （客户端"混元优先"链路用：先免费查缓存，miss 再走大模型，失败才回 TMT）
  * @returns {Promise<string[]>}
  */
-async function translateTextsBatch(texts) {
+async function translateTextsBatch(texts, options) {
+  const skipTmt = !!(options && options.skipTmt)
   const inputs = (texts || []).map((t) => String(t || '').trim())
   const results = new Array(inputs.length).fill('')
   const pending = []
@@ -253,6 +262,8 @@ async function translateTextsBatch(texts) {
       toTmt.push(item)
     }
   }
+
+  if (skipTmt) return results
 
   // 按累计字符数切批（TMT 批量接口有总量上限）；单条超长的独立成批
   const batches = []
