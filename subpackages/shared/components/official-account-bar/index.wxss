@@ -1,9 +1,24 @@
-/* 关注公众号 — 无卡片包裹，左右拉满以免原生组件信息被裁切 */
+/* 关注公众号 — 随页面左右内边距内嵌展示（原生组件最小宽度 300px，690rpx 容器足够，
+   不再左右拉满，避免原生条两侧头像/按钮顶到屏幕边缘被裁切） */
 .official-account-bar {
-  /* 抵消 .content-scroll 的左右 padding: 30rpx */
-  width: calc(100% + 60rpx);
-  margin: var(--space-md, 20rpx) -30rpx var(--space-xs, 12rpx);
+  /* 组件样式隔离 + 原生组件场景下，页面 page{} / .theme-light 的变量继承并不可靠
+     （同 official-account-publish-panel 的已验证结论）：深色默认值直接定义在组件根上，
+     浅色由 --light 修饰类覆盖，彻底不依赖页面继承 */
+  --color-text-primary: #FFFFFF;
+  --color-text-secondary: #8E8E93;
+  --color-divider: rgba(255, 255, 255, 0.1);
+  --color-divider-strong: rgba(255, 255, 255, 0.14);
+  width: 100%;
+  margin: var(--space-md, 20rpx) 0 var(--space-xs, 12rpx);
   box-sizing: border-box;
+}
+
+/* 浅色主题变量覆盖（取值对齐 styles/tokens.wxss 的 .theme-light） */
+.official-account-bar--light {
+  --color-text-primary: #1C1C1E;
+  --color-text-secondary: #6E6E73;
+  --color-divider: rgba(0, 0, 0, 0.08);
+  --color-divider-strong: rgba(0, 0, 0, 0.12);
 }
 
 .official-account-card {
@@ -23,7 +38,7 @@
   box-sizing: border-box;
   position: absolute;
   top: 0;
-  right: 16rpx;
+  right: 0;
   z-index: 2;
   width: 44rpx;
   height: 44rpx;
@@ -46,13 +61,12 @@
   pointer-events: none;
 }
 
-/* 自定义标题区 — 与下方列表内容左右对齐 */
+/* 自定义标题区 — 容器已随页面 30rpx 内边距对齐，无需再额外缩进 */
 .official-account-header {
   display: flex;
   align-items: center;
   gap: var(--space-sm, 14rpx);
-  padding: 0 30rpx 12rpx;
-  padding-right: 70rpx;
+  padding: 0 60rpx 12rpx 0;
 }
 
 .official-account-icon-wrap {
@@ -95,26 +109,29 @@
 }
 
 /*
- * 原生组件区：全宽铺开，不再套圆角卡片边框
- * - 上移隐藏微信内置灰色说明文案
- * - 高度裁出白色横条主体
+ * 原生组件区：内嵌于页面左右留白内，加圆角避免白色横条生硬。
+ * 原生条固定 84px 高、内部按 px 排版：顶部约 20px 是内置灰色提示
+ * 「xx关联的公众号」（与自绘标题重复），用 px 位移精确裁掉，
+ * 留下 64px 的卡片主体（头像 + 名称 + 按钮）。
+ * 注意必须用 px：此前用 rpx 裁切随屏宽缩放，真机上会切到名称行。
  */
 .official-account-native-wrap {
   position: relative;
   width: 100%;
-  height: 116rpx;
+  height: 64px;
   overflow: hidden;
+  border-radius: var(--radius-md, 16rpx);
   background: transparent;
 }
 
 .official-account-native-inner {
   width: 100%;
-  height: 168rpx;
-  transform: translateY(-52rpx);
+  height: 84px;
+  transform: translateY(-20px);
 }
 
 .official-account-native-inner official-account {
   display: block;
   width: 100%;
-  height: 168rpx;
+  height: 84px;
 }

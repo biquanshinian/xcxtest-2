@@ -4,7 +4,7 @@
  * 支持 现役/类型 筛选，分享可带 filter 参数直达（如 filter=type:Capsule）
  */
 const pageBase = require('../../utils/page-base.js')
-const spacecraftDisplay = require('../../utils/spacecraft-display.js')
+const spacecraftDisplay = require('./utils/spacecraft-display.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')

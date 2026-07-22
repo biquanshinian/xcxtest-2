@@ -1,4 +1,5 @@
 const { canShowOfficialAccount } = require('../../utils/official-account-scene.js')
+const themeUtil = require('../../../../utils/theme.js')
 
 const STORAGE_KEY = 'official_account_bar_dismissed'
 const DISMISS_THRESHOLD_PX = 70
@@ -8,7 +9,9 @@ Component({
     show: false,
     dragOffset: 0,
     cardOpacity: 1,
-    dragging: false
+    dragging: false,
+    /* 组件样式隔离下页面根的 .theme-light 变量进不来，浅色态由组件自挂修饰类 */
+    barLight: false
   },
 
   lifetimes: {
@@ -17,11 +20,34 @@ Component({
       try {
         if (wx.getStorageSync(STORAGE_KEY)) return
       } catch (_) {}
-      this.setData({ show: true })
+      // 设置页切换主题 / 系统主题变化不会触发 pageLifetimes.show，须订阅变更通知
+      this._themeHandler = this._syncTheme.bind(this)
+      themeUtil.onThemeChange(this._themeHandler)
+      this.setData({ show: true, barLight: themeUtil.isLightSync() })
+    },
+    detached() {
+      if (this._themeHandler) {
+        themeUtil.offThemeChange(this._themeHandler)
+        this._themeHandler = null
+      }
+    }
+  },
+
+  pageLifetimes: {
+    /* 在其他页切了主题后返回本页：重新同步主题修饰类 */
+    show() {
+      this._syncTheme()
     }
   },
 
   methods: {
+    _syncTheme() {
+      const light = themeUtil.isLightSync()
+      if (light !== this.data.barLight) {
+        this.setData({ barLight: light })
+      }
+    },
+
     onOfficialAccountLoad() {},
 
     onOfficialAccountError(e) {

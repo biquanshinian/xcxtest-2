@@ -44,7 +44,9 @@ const USER_DATA_GATEWAY_FN = 'userDataGateway'
 
 /** 与云函数 syncRocketCosIndex 配合：定时拉取 COS 火箭图目录写入 media_assets */
 const ROCKET_COS_SYNC_STORAGE_KEY = '_rocket_cos_sync_last_ok'
-const ROCKET_COS_SYNC_MIN_INTERVAL_MS = 6 * 60 * 1000
+// 6 小时（与 MEDIA_MAP_CACHE_TTL 对齐）：火箭配置图是极低频运营素材，
+// 原 6 分钟节流下 150 日活即产生上千次云函数 + COS 列举 + media_assets diff 读写
+const ROCKET_COS_SYNC_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000
 const ROCKET_COS_SYNC_FN = 'syncRocketCosIndex'
 
 // ── 内存缓存：避免 maybeInvokeRocketCosSync 重复读 storage ──

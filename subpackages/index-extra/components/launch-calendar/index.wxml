@@ -1,0 +1,100 @@
+<!-- 首页发射日历：月份导航 + 筛选面板 + 日历网格（从 pages/index/index.wxml 拆出） -->
+<view class="calendar-header {{themeClass}}">
+  <view class="calendar-nav" bindtap="calendarPrevMonth">
+    <view class="calendar-arrow calendar-arrow--left"></view>
+  </view>
+  <picker mode="date" fields="month" value="{{calendarYear + '-' + (calendarMonth < 10 ? '0' : '') + calendarMonth}}" start="2020-01" end="2030-12" bindchange="onCalendarMonthPickerChange">
+    <text class="calendar-month-title">{{calendarYear}}年{{calendarMonth}}月</text>
+  </picker>
+  <view class="calendar-nav" bindtap="calendarNextMonth">
+    <view class="calendar-arrow calendar-arrow--right"></view>
+  </view>
+  <view class="calendar-today-btn" wx:if="{{!calendarIsCurrentMonth}}" bindtap="calendarGoToday">
+    <text>今天</text>
+  </view>
+</view>
+
+<view class="calendar-query-panel glass-card {{themeClass}}">
+  <view class="calendar-query-panel-header" bindtap="toggleCalendarFilterPanel">
+    <view class="calendar-query-panel-main">
+      <view class="calendar-query-panel-title-wrap">
+        <text class="calendar-query-panel-title">筛选</text>
+        <text class="calendar-query-panel-divider">｜</text>
+        <text class="calendar-query-panel-subtitle">{{calendarFilterSummaryText}}</text>
+      </view>
+      <view class="calendar-query-panel-meta">
+        <text class="calendar-query-panel-count">{{calendarFilteredCount}} 条</text>
+        <text class="calendar-query-panel-arrow {{calendarFilterCollapsed ? 'calendar-query-panel-arrow--collapsed' : ''}}">⌃</text>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{!calendarFilterCollapsed}}">
+    <view class="calendar-filter-group">
+      <text class="calendar-filter-title">快捷筛选</text>
+      <scroll-view class="calendar-filter-scroll" scroll-x="true" show-scrollbar="false">
+        <view class="calendar-filter-row">
+          <view class="calendar-filter-chip {{calendarQuickFilter === 'all' ? 'calendar-filter-chip--active' : ''}}" bindtap="onCalendarQuickFilterTap" data-value="all"><text>全部</text></view>
+          <view class="calendar-filter-chip {{calendarQuickFilter === 'starship' ? 'calendar-filter-chip--active' : ''}}" bindtap="onCalendarQuickFilterTap" data-value="starship"><text>星舰</text></view>
+          <view class="calendar-filter-chip {{calendarQuickFilter === 'starlink' ? 'calendar-filter-chip--active' : ''}}" bindtap="onCalendarQuickFilterTap" data-value="starlink"><text>Starlink</text></view>
+        </view>
+      </scroll-view>
+    </view>
+
+    <view class="calendar-filter-group">
+      <text class="calendar-filter-title">发射场</text>
+      <scroll-view class="calendar-filter-scroll" scroll-x="true" show-scrollbar="false">
+        <view class="calendar-filter-row">
+          <view class="calendar-filter-chip {{calendarSiteFilter === item.id ? 'calendar-filter-chip--active' : ''}}" wx:for="{{calendarSiteOptions}}" wx:key="id" bindtap="onCalendarSiteFilterTap" data-value="{{item.id}}"><text>{{item.label}}</text></view>
+        </view>
+      </scroll-view>
+    </view>
+
+    <view class="calendar-filter-group calendar-filter-group--compact">
+      <text class="calendar-filter-title">状态</text>
+      <view class="calendar-filter-row calendar-filter-row--wrap">
+        <view class="calendar-filter-chip {{calendarStatusFilter === 'all' ? 'calendar-filter-chip--active' : ''}}" bindtap="onCalendarStatusFilterTap" data-value="all"><text>全部</text></view>
+        <view class="calendar-filter-chip {{calendarStatusFilter === 'upcoming' ? 'calendar-filter-chip--active' : ''}}" bindtap="onCalendarStatusFilterTap" data-value="upcoming"><text>待发</text></view>
+        <view class="calendar-filter-chip {{calendarStatusFilter === 'completed' ? 'calendar-filter-chip--active' : ''}}" bindtap="onCalendarStatusFilterTap" data-value="completed"><text>已完成</text></view>
+        <view class="calendar-filter-chip {{calendarStatusFilter === 'success' ? 'calendar-filter-chip--active' : ''}}" bindtap="onCalendarStatusFilterTap" data-value="success"><text>成功</text></view>
+        <view class="calendar-filter-chip {{calendarStatusFilter === 'failure' ? 'calendar-filter-chip--active' : ''}}" bindtap="onCalendarStatusFilterTap" data-value="failure"><text>失败/部分</text></view>
+      </view>
+    </view>
+
+    <view class="calendar-query-actions">
+      <text class="calendar-query-result">当前已应用筛选</text>
+      <view class="calendar-query-reset" bindtap="resetCalendarFilters"><text>重置筛选</text></view>
+    </view>
+  </view>
+</view>
+
+<view class="calendar-page-stage {{calendarPageAnimClass}} {{themeClass}}">
+  <view class="calendar-table glass-card">
+    <view class="calendar-table-legend">
+      <view class="calendar-legend-item">
+        <view class="calendar-legend-dot calendar-legend-dot--upcoming"></view>
+        <text class="calendar-legend-text">即将发射</text>
+      </view>
+      <view class="calendar-legend-item">
+        <view class="calendar-legend-dot calendar-legend-dot--completed"></view>
+        <text class="calendar-legend-text">历史发射</text>
+      </view>
+    </view>
+    <view class="calendar-weekdays">
+      <text class="calendar-weekday">日</text><text class="calendar-weekday">一</text><text class="calendar-weekday">二</text><text class="calendar-weekday">三</text><text class="calendar-weekday">四</text><text class="calendar-weekday">五</text><text class="calendar-weekday">六</text>
+    </view>
+    <view class="calendar-grid" bindtouchstart="onCalendarSwipeStart" bindtouchend="onCalendarSwipeEnd">
+      <view class="calendar-cell {{item.empty ? 'calendar-cell--empty' : ''}} {{item.hasLaunch ? 'calendar-cell--has' : ''}} {{item.selected ? 'calendar-cell--selected' : ''}} {{item.isToday ? 'calendar-cell--today' : ''}} {{item.heat >= 3 ? 'calendar-cell--heat3' : (item.heat === 2 ? 'calendar-cell--heat2' : (item.heat === 1 ? 'calendar-cell--heat1' : ''))}}" wx:for="{{calendarDays}}" wx:key="key" bindtap="onCalendarDateTap" data-key="{{item.key}}" data-has-launch="{{item.hasLaunch}}">
+        <text class="calendar-cell-count" wx:if="{{item.missionCount > 1 && !item.empty}}">{{item.missionCount}}</text>
+        <view class="calendar-cell-day-wrap {{item.isToday ? 'calendar-cell-day-wrap--today' : ''}}">
+          <text class="calendar-cell-day {{item.isToday ? 'calendar-cell-day--today' : ''}}" data-has-launch="{{item.hasLaunch}}">{{item.day}}</text>
+        </view>
+        <view class="calendar-starship-tag" wx:if="{{item.hasStarship && !item.empty}}" data-has-launch="{{item.hasLaunch}}"><text>星舰</text></view>
+        <view class="calendar-cell-dots" wx:if="{{item.hasLaunch && !item.empty && !item.hasStarship}}" data-has-launch="{{item.hasLaunch}}">
+          <view class="calendar-cell-dot calendar-cell-dot--upcoming" wx:if="{{item.hasUpcoming}}" data-has-launch="{{item.hasLaunch}}"></view>
+          <view class="calendar-cell-dot calendar-cell-dot--completed" wx:if="{{item.hasCompleted}}" data-has-launch="{{item.hasLaunch}}"></view>
+        </view>
+      </view>
+    </view>
+  </view>
+</view>

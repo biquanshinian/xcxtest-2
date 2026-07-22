@@ -1,9 +1,9 @@
-const { getUiShellLayout } = require('../../utils/layout.js')
-const { ROUTES, navigateTo } = require('../../utils/routes.js')
-const { getSystemInfo } = require('../../utils/system.js')
-const { fetchAIChatEnabled, isAIChatEnabledSync } = require('../../utils/aiService.js')
-const { isFeatureEnabled } = require('../../utils/feature-flags.js')
-const storageCache = require('../../utils/storage-sync-cache.js')
+const { getUiShellLayout } = require('../../../../utils/layout.js')
+const { ROUTES, navigateTo } = require('../../../../utils/routes.js')
+const { getSystemInfo } = require('../../../../utils/system.js')
+const { fetchAIChatEnabled, isAIChatEnabledSync } = require('../../../../utils/aiService.js')
+const { isFeatureEnabled } = require('../../../../utils/feature-flags.js')
+const storageCache = require('../../../../utils/storage-sync-cache.js')
 
 const VISIT_KEY = '_float_visit_'
 const LUNAR_COUNT_KEY = '_float_lunar_count'
@@ -380,7 +380,7 @@ Component({
         }
       } catch (e) {}
 
-      const { cloudEnv } = require('../../utils/config.js')
+      const { cloudEnv } = require('../../../../utils/config.js')
       wx.cloud.callFunction({
         name: 'lunarWishes',
         config: { env: cloudEnv },

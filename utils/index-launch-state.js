@@ -21,8 +21,9 @@ function buildBoosterDisplay(boosterInfo) {
 function buildRecoveryDisplay(boosterInfo) {
   const info = boosterInfo || null
   if (!info) return '未知'
-  if (info.reused === false) return '未复用/首次'
   if (info.inferredRecovery) return '回收信息待确认'
+  // 与详情页 buildLandingDisplay 同优先级：实际回收类型 > "未复用/首次"
+  // （EXPENDED/LOST 已精确说明本次处置方式，比"未复用/首次"更有信息量）
   if (info.landingType === 'RTLS') return '陆地回收 (RTLS)'
   if (info.landingType === 'ASDS') return '海上回收 (ASDS)'
   if (info.landingType === 'NET_CATCH') return '网系回收'
@@ -32,6 +33,10 @@ function buildRecoveryDisplay(boosterInfo) {
   if (info.landingType === 'HL') return '水平着陆'
   if (info.landingType === 'SPLASHDOWN') return '海面溅落'
   if (info.landingType === 'RECOVERY') return '海面回收'
+  if (info.landingType === 'EXPENDED') return '一次性使用'
+  if (info.landingType === 'LOST') return '未能回收'
+  if (info.landingType === 'SPACECRAFT_LANDING') return '伞降着陆'
+  if (info.reused === false) return '未复用/首次'
   if (info.landingLocation) return info.landingLocation
   if (info.netRecovery) return '网系回收'
   if (info.configReusable) return '可回收构型'
@@ -199,16 +204,48 @@ function getNextUpcomingLaunch(missions, currentId, now = Date.now()) {
   }) || null
 }
 
-/** 倒计时面板应展示的任务：只选 NET 仍在未来的首条（已过点的留给 settle，禁止用「就绪」占倒计时） */
-function pickCountdownDisplayMission(missions, now = Date.now()) {
-  const safeList = Array.isArray(missions) ? missions : []
-  for (let i = 0; i < safeList.length; i++) {
-    const mission = safeList[i]
-    if (!mission || !mission.launchTime) continue
-    const t = new Date(mission.launchTime).getTime()
-    if (Number.isFinite(t) && t > now) return mission
-  }
-  return null
+// 窗口期状态机：面板选型/挂住/探针决策的唯一规则源（本文件只做薄委托，保持旧 API）
+const windowMachine = require('./countdown-window-machine.js')
+
+/** @deprecated 用 windowMachine.WINDOW_HOLD_FALLBACK_MS */
+const COUNTDOWN_WINDOW_HOLD_FALLBACK_MS = windowMachine.WINDOW_HOLD_FALLBACK_MS
+
+/** 窗口挂住截止：优先 windowEnd，否则 NET + 30m（委托状态机） */
+function getMissionWindowHoldUntilMs(mission, record) {
+  return windowMachine.getHoldUntilMs(mission, record || null)
+}
+
+/** 未决状态（可继续占倒计时）：非终态、非飞行中（委托状态机） */
+function isUnresolvedForCountdownHold(mission, record) {
+  if (!mission) return false
+  return !windowMachine.isMissionSettled(mission, record || null)
+}
+
+/**
+ * NET 已过、状态未决、仍在发射窗口（+宽限）内 → 倒计时应继续挂住该任务。
+ * @param {object} mission
+ * @param {number} [now]
+ * @param {object|null} [record] _launchRecordsById 权威观测（优先于列表行字段）
+ */
+function shouldHoldPastNetCountdownMission(mission, now = Date.now(), record = null) {
+  return windowMachine.isPanelHoldActive(mission, record, now)
+}
+
+/**
+ * 倒计时面板应展示的任务（委托状态机 resolvePanelMission）：
+ * 1) 当前面板任务 / 列表头处于窗口内未决 → 挂住不让位
+ * 2) 否则取 NET 仍在未来的首条
+ * 3) 无未来任务时头条未决继续展示；已落库任务绝不入选
+ * @param {Array} missions
+ * @param {number} [now]
+ * @param {{ holdMissionId?: string|number, recordsById?: Map }} [options]
+ */
+function pickCountdownDisplayMission(missions, now = Date.now(), options = {}) {
+  return windowMachine.resolvePanelMission(missions, {
+    now,
+    holdMissionId: options.holdMissionId,
+    recordsById: options.recordsById
+  })
 }
 
 /** 列表头部已过 NET、尚未终态的任务（upcoming 升序，遇到未来 NET 即停） */
@@ -367,6 +404,18 @@ function buildMissionCardCountdownFields(launchTime, deps = {}) {
   }
 }
 
+/** 窗口挂住中的卡片角标：显示 00:00，避免空白让人以为倒计时跑到下一张 */
+function buildHoldConfirmingCardCountdown() {
+  return {
+    days: 0,
+    hours: '00',
+    minutes: '00',
+    seconds: '00',
+    isExpired: false,
+    holdConfirming: true
+  }
+}
+
 function isSameMissionCardCountdown(prev, next) {
   if (!prev && !next) return true
   if (!prev || !next) return false
@@ -375,6 +424,27 @@ function isSameMissionCardCountdown(prev, next) {
     && prev.minutes === next.minutes
     && prev.seconds === next.seconds
     && !!prev.isExpired === !!next.isExpired
+    && !!prev.holdConfirming === !!next.holdConfirming
+}
+
+function resolveMissionCardCountdown(mission, deps = {}) {
+  const now = deps.now != null ? deps.now : Date.now()
+  const holdId = deps.holdMissionId != null && deps.holdMissionId !== ''
+    ? String(deps.holdMissionId)
+    : ''
+  const record =
+    deps.recordsById instanceof Map && mission && mission.id != null
+      ? deps.recordsById.get(String(mission.id)) || null
+      : null
+  if (
+    holdId
+    && mission
+    && String(mission.id) === holdId
+    && shouldHoldPastNetCountdownMission(mission, now, record)
+  ) {
+    return buildHoldConfirmingCardCountdown()
+  }
+  return buildMissionCardCountdownFields(mission && mission.launchTime, deps)
 }
 
 function attachCardCountdownToMissions(missions, limit, deps) {
@@ -392,7 +462,7 @@ function attachCardCountdownToMissions(missions, limit, deps) {
       return next
     }
 
-    const cardCountdown = buildMissionCardCountdownFields(mission.launchTime, deps)
+    const cardCountdown = resolveMissionCardCountdown(mission, deps || {})
     if (mission.showRocketCountdown && isSameMissionCardCountdown(mission.cardCountdown, cardCountdown)) {
       return mission
     }
@@ -408,7 +478,7 @@ function buildMissionCardCountdownTickPatch(missions, limit, deps) {
   for (let i = 0; i < Math.min(safeLimit, missions.length); i++) {
     const mission = missions[i]
     if (!mission) continue
-    const next = buildMissionCardCountdownFields(mission.launchTime, deps)
+    const next = resolveMissionCardCountdown(mission, deps || {})
     if (!isSameMissionCardCountdown(mission.cardCountdown, next)) {
       patch[`displayedUpcomingMissions[${i}].cardCountdown`] = next
     }
@@ -469,6 +539,10 @@ module.exports = {
   collectPastNetUpcomingHeads,
   withCountdownConfirmingStatus,
   isPastNetMission,
+  COUNTDOWN_WINDOW_HOLD_FALLBACK_MS,
+  getMissionWindowHoldUntilMs,
+  isUnresolvedForCountdownHold,
+  shouldHoldPastNetCountdownMission,
   buildCountdownSubscriptionState,
   buildLaunchSwitchEffects,
   shouldRefreshExpiredLaunch,

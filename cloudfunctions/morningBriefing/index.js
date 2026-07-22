@@ -63,14 +63,25 @@ async function ensureBriefingCollections() {
   }
 }
 
+// 读单个缓存文档：优先按 _id 直取（syncSpaceDevsData 现以 _id === cacheKey 写入，永远是最新），
+// 兜底 where 查询（兼容历史上 add() 写入的随机 _id 旧文档）
+async function readCacheDoc(col, cacheKey) {
+  try {
+    const res = await col.doc(cacheKey).get()
+    if (res && res.data) return res.data
+  } catch (e) { /* 文档不存在，走兜底 */ }
+  try {
+    const res = await col.where({ cacheKey }).limit(1).get()
+    if (res.data && res.data.length > 0) return res.data[0]
+  } catch (e) {}
+  return null
+}
+
 async function readSpaceDevsCache(cacheKey) {
   try {
     const col = db.collection('space_devs_cache')
-    const res = await col.where({ cacheKey }).limit(1).get()
-    if (!res.data || res.data.length === 0) {
-      return []
-    }
-    const doc = res.data[0]
+    const doc = await readCacheDoc(col, cacheKey)
+    if (!doc) return []
 
     // 主文档已有 results 直接返回
     if (doc.data && Array.isArray(doc.data.results) && doc.data.results.length > 0) {
@@ -83,16 +94,14 @@ async function readSpaceDevsCache(cacheKey) {
       const maxBatches = Math.min(doc.totalBatches, 5)
       for (let i = 0; i < maxBatches; i++) {
         const batchKey = cacheKey + '_batch_' + i
-        batchPromises.push(col.where({ cacheKey: batchKey }).limit(1).get().catch(() => null))
+        batchPromises.push(readCacheDoc(col, batchKey).catch(() => null))
       }
       const batchResults = await Promise.all(batchPromises)
       const allResults = []
-      batchResults.forEach((batchRes) => {
-        if (batchRes && batchRes.data && batchRes.data.length > 0) {
-          const batchData = batchRes.data[0].data
-          if (batchData && Array.isArray(batchData.results)) {
-            allResults.push(...batchData.results)
-          }
+      batchResults.forEach((batchDoc) => {
+        const batchData = batchDoc && batchDoc.data
+        if (batchData && Array.isArray(batchData.results)) {
+          allResults.push(...batchData.results)
         }
       })
       return allResults

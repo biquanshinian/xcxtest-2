@@ -7,9 +7,10 @@
  * 国家来源于云端回填的 countryCode（LL2 构型 manufacturer.country），纯数据驱动
  */
 
-var { getRocketImage } = require('./util.js')
-var { getCachedMediaImage } = require('./icon-cache.js')
-var { optimizeImageUrl } = require('./cos-url.js')
+var { getRocketImage } = require('../../../utils/util.js')
+var { getCachedMediaImage } = require('../../../utils/icon-cache.js')
+var { optimizeImageUrl } = require('../../../utils/cos-url.js')
+var { proxiedImageUrl } = require('../../../utils/ll2-image.js')
 
 /** Tab 预览条数：与发射商图鉴一致，完整列表留给「查看全部」页 */
 var TAB_PREVIEW_COUNT = 2
@@ -139,10 +140,16 @@ function processBoosterItem(item, configsMap, options) {
   var countryCode = item.countryCode || ''
   var cfgImage = configImageOf(item.configId, item.rocketFamily, configsMap)
   var cosImage = cosRocketImageOf(item.rocketFamily)
-  // 多级兜底链（binderror 逐级切换）：COS 镜像 → LL2 缩略图 → LL2 原图 → 构型图 → COS 配置图库
-  // LL2 缩略图会被官方重新生成导致旧链接 404，原图往往仍有效，必须纳入链条
+  // 多级兜底链（binderror 逐级切换）：COS 镜像 → 代理缩略/原图 → LL2 缩略/原图 → 构型图 → COS 配置图库
+  // LL2 缩略图会被官方重新生成导致旧链接 404，原图往往仍有效，必须纳入链条；
+  // DigitalOcean 图床国内直连易失败，代理 URL 优先于原链
   var chain = []
-  ;[item.cosImageUrl, item.thumbnailUrl, item.imageUrl, cfgImage, cosImage].forEach(function (u) {
+  ;[
+    item.cosImageUrl,
+    proxiedImageUrl(item.thumbnailUrl), item.thumbnailUrl,
+    proxiedImageUrl(item.imageUrl), item.imageUrl,
+    cfgImage, cosImage
+  ].forEach(function (u) {
     if (u && chain.indexOf(u) < 0) chain.push(u)
   })
   var skipCache = !!(options && options.skipImageCache)

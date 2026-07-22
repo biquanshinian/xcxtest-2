@@ -208,6 +208,113 @@ function requestSubscribePermission() {
 
 }
 
+/**
+ * 仅订阅「任务完成提醒」：服务号已覆盖发射前提醒时使用。
+ * @returns {Promise<boolean>}
+ */
+function requestResultSubscribePermission() {
+  return new Promise(function (resolve) {
+    wx.requestSubscribeMessage({
+      tmplIds: [RESULT_TEMPLATE_ID],
+      success: function (res) {
+        var status = res && res[RESULT_TEMPLATE_ID]
+        if (status === 'ban') {
+          wx.showToast({ title: '结果通知模板暂不可用', icon: 'none' })
+          resolve(false)
+          return
+        }
+        if (status === 'filter') {
+          wx.showToast({ title: '模板配置冲突', icon: 'none' })
+          resolve(false)
+          return
+        }
+        resolve(isTemplateSubscribed(res, RESULT_TEMPLATE_ID))
+      },
+      fail: function () {
+        resolve(false)
+      }
+    })
+  })
+}
+
+function buildRecoveryText(mission) {
+  var recoveryText = '一次性'
+  if (mission && mission.isRecoverableThisMission) {
+    var bi = mission.boosterInfo
+    if (bi && bi.landingType === 'RTLS') recoveryText = '陆地回收 (RTLS)'
+    else if (bi && bi.landingType === 'ASDS') recoveryText = '海上回收 (ASDS)'
+    else recoveryText = '可回收'
+  }
+  return recoveryText.substring(0, 20)
+}
+
+async function postLaunchSubscription(mission, options) {
+  var opts = options || {}
+  var launchTime = mission.launchTime || mission.windowStart || ''
+  var notifyMinutesBefore = 30
+  var notifyAt = 0
+  if (launchTime) {
+    notifyAt = new Date(launchTime).getTime() - notifyMinutesBefore * 60 * 1000
+  }
+  return wx.cloud.callFunction({
+    name: 'adminGateway',
+    data: {
+      path: '/subscribe',
+      method: 'POST',
+      body: {
+        missionId: String(mission.id),
+        missionName: (mission.missionName || mission.name || '未知任务').substring(0, 20),
+        rocketName: (mission.rocketName || '未知火箭').substring(0, 20),
+        launchTime: launchTime,
+        launchTimeFormatted: formatLaunchTime(launchTime),
+        recoveryMethod: buildRecoveryText(mission),
+        notifyAt: notifyAt,
+        notifyLeadMinutes: notifyMinutesBefore,
+        templateId: TEMPLATE_ID,
+        resultTemplateId: RESULT_TEMPLATE_ID,
+        resultQuota: !!opts.resultQuota,
+        reminderViaOa: !!opts.reminderViaOa
+      }
+    }
+  })
+}
+
+/**
+ * 服务号已覆盖发射前提醒：只弹结果模板，写入 result-only 订阅（reminderSent 直接为 true）。
+ */
+async function subscribeResultOnlyViaOa(mission) {
+  var granted = await requestResultSubscribePermission()
+  if (!granted) {
+    wx.showToast({ title: '需要授权才能接收结果通知', icon: 'none' })
+    return false
+  }
+  if (!wx.cloud || !wx.cloud.callFunction) {
+    wx.showToast({ title: '云能力不可用', icon: 'none' })
+    return false
+  }
+  try {
+    var res = await postLaunchSubscription(mission, { resultQuota: true, reminderViaOa: true })
+    if (res.result && res.result.code === 0) {
+      saveLocalSubscription(mission.id, mission)
+      getRecordMilestone()('FIRST_SUBSCRIBE', { missionName: mission.missionName || mission.name })
+      var dup = res.result.data && res.result.data.duplicate
+      wx.showToast({
+        title: dup ? '结果通知已开启' : '已开启完成后结果通知',
+        icon: dup ? 'none' : 'success'
+      })
+      return true
+    }
+    wx.showToast({
+      title: (res.result && res.result.message) || '设置结果通知失败',
+      icon: 'none'
+    })
+    return false
+  } catch (e) {
+    wx.showToast({ title: '设置结果通知失败', icon: 'none' })
+    return false
+  }
+}
+
 
 
 async function subscribeLaunch(mission) {
@@ -220,7 +327,16 @@ async function subscribeLaunch(mission) {
 
   }
 
-
+  // 服务号已覆盖发射前提醒：仍允许单独授权「任务完成提醒」
+  try {
+    var oaAlert = require('./oa-alert.js')
+    if (oaAlert && typeof oaAlert.isOaAlertReady === 'function') {
+      var oaReady = await oaAlert.isOaAlertReady()
+      if (oaReady) {
+        return subscribeResultOnlyViaOa(mission)
+      }
+    }
+  } catch (oaErr) { /* 状态查询失败则回退 A 通道 */ }
 
   var perm = await requestSubscribePermission()
 
@@ -246,74 +362,9 @@ async function subscribeLaunch(mission) {
 
   try {
 
-    var launchTime = mission.launchTime || mission.windowStart || ''
-
-    var notifyMinutesBefore = 30
-
-    var notifyAt = 0
-
-    if (launchTime) {
-
-      notifyAt = new Date(launchTime).getTime() - notifyMinutesBefore * 60 * 1000
-
-    }
-
-
-
-    var recoveryText = '一次性'
-
-    if (mission.isRecoverableThisMission) {
-
-      var bi = mission.boosterInfo
-
-      if (bi && bi.landingType === 'RTLS') recoveryText = '陆地回收 (RTLS)'
-
-      else if (bi && bi.landingType === 'ASDS') recoveryText = '海上回收 (ASDS)'
-
-      else recoveryText = '可回收'
-
-    }
-
-
-
-    var res = await wx.cloud.callFunction({
-
-      name: 'adminGateway',
-
-      data: {
-
-        path: '/subscribe',
-
-        method: 'POST',
-
-        body: {
-
-          missionId: String(mission.id),
-
-          missionName: (mission.missionName || mission.name || '未知任务').substring(0, 20),
-
-          rocketName: (mission.rocketName || '未知火箭').substring(0, 20),
-
-          launchTime: launchTime,
-
-          launchTimeFormatted: formatLaunchTime(launchTime),
-
-          recoveryMethod: recoveryText.substring(0, 20),
-
-          notifyAt: notifyAt,
-
-          notifyLeadMinutes: notifyMinutesBefore,
-
-          templateId: TEMPLATE_ID,
-
-          resultTemplateId: RESULT_TEMPLATE_ID,
-
-          resultQuota: !!(perm && perm.result)
-
-        }
-
-      }
-
+    var res = await postLaunchSubscription(mission, {
+      resultQuota: !!(perm && perm.result),
+      reminderViaOa: false
     })
 
 
@@ -695,6 +746,8 @@ module.exports = {
   syncSubscriptionState: syncSubscriptionState,
 
   requestSubscribePermission: requestSubscribePermission,
+
+  requestResultSubscribePermission: requestResultSubscribePermission,
 
   warmSubscribedStoreSync: warmSubscribedStoreSync,
 

@@ -1,7 +1,7 @@
 const pageBase = require('../../utils/page-base.js')
 const { ROUTES } = require('../../utils/routes.js')
 const { isVideoUrl } = require('../../utils/cos-url.js')
-const { enrichVideoMediaItem, playEventVideo } = require('../../utils/event-video.js')
+const { enrichVideoMediaItem, playEventVideo } = require('./utils/event-video.js')
 const {
   fetchArtemisIiBriefing,
   shouldShowArtemisArowSection,
@@ -179,10 +179,11 @@ Page({
 
   async _loadEventVideoConfig() {
     try {
-      const db = wx.cloud.database()
-      const res = await db.collection('global_config').doc('main').get()
-      const cfg = res && res.data ? res.data : null
-      if (cfg) {
+      // 走 feature-flags 的 global_config/main 共享缓存（5 分钟 + inflight 去重），
+      // 避免每次进页直读一次云库同一文档
+      const { fetchMainConfig } = require('../../utils/feature-flags.js')
+      const cfg = await fetchMainConfig()
+      if (cfg && cfg._id) {
         this.setData({ enableEventVideo: cfg.enableEventVideo !== false })
       }
     } catch (e) {}

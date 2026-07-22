@@ -73,8 +73,8 @@
             <text>∞</text>
           </view>
           <view class="promo-benefit-info">
-            <text class="promo-benefit-name">AI 无限对话与识图</text>
-            <text class="promo-benefit-desc">太空助手不限次提问 · 图像识别不限量</text>
+            <text class="promo-benefit-name">AI 无限对话</text>
+            <text class="promo-benefit-desc">太空助手不限次提问</text>
           </view>
         </view>
         <view class="promo-benefit">

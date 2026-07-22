@@ -14,8 +14,11 @@
  *   'syncRoadClosure'         — 仅同步封路通知
  *   'syncBoosters'            — 仅同步助推器族谱
  *   'syncAgencies'            — 仅同步发射机构
- *   'syncFeaturedAgencyDetails' — featured 机构详情自愈同步（6h 全量同步自动附带执行；
- *                               26h TTL 判断，单轮限额 maxSync/budgetMs 可通过 event 覆盖）
+ *   'syncFeaturedAgencyDetails' — 机构详情自愈同步（覆盖全部 350+ 机构，featured 26h / 非 featured 10d
+ *                               分层 TTL；6h 全量轮附带 maxSync 12，小时级 NET 探针轮附带 maxSync 5，
+ *                               合计约 148 个/日，冷启动积压 2~3 天自动补齐。
+ *                               LL2 免费档 15 次/小时限流：手动回填单次 maxSync 勿超 12，且需间隔 1 小时以上，
+ *                               连打大批量只会收获 429。参数 maxSync/budgetMs/nonFeaturedMaxAgeMs 可通过 event 覆盖）
  *   'rebuildVoteSettle'       — 批量重算历史错误竞猜结算（支持 cursor 分批 / all 一次跑完）
  *   'syncStarshipHardware'    — 仅同步 NSF 星舰硬件设施（vehicles+tests+图片镜像）；
  *                               小时级 syncNextSpaceflightStarship 触发时会自动附带执行
@@ -109,7 +112,7 @@ const CLIENT_ALLOWED_ACTIONS = new Set([
 ])
 
 // 开发者工具「云端测试」(SOURCE=wx_devtools) 可手动跑的运维探针；正式小程序端 (wx_client) 仍拦截
-const DEVTOOLS_TESTABLE_ACTIONS = new Set(['syncLaunchNetHourly', 'syncMissionReplayQueue', 'fillFlightHistory'])
+const DEVTOOLS_TESTABLE_ACTIONS = new Set(['syncLaunchNetHourly', 'syncMissionReplayQueue', 'fillFlightHistory', 'syncSpaceXStats', 'syncStations', 'syncFeaturedAgencyDetails'])
 
 function getInvocationSourceTail() {
   try {
@@ -224,6 +227,24 @@ exports.main = async (event) => {
         } catch (e) {
           netRes.replayQueue = { success: false, error: e.message || String(e) }
         }
+        // 机构详情自愈的小时级涓流通道：LL2 免费档 15 次/小时限流，单次爆发必须压到个位数。
+        // 每小时最多 5 个详情请求（+本轮 NET 探针 1 个，远低于限额），20 个小时级窗口/日
+        // 与 6h 全量轮合计约 148 个/日吞吐，约 300 家积压 2~3 天自动补齐。
+        // 全绿后 respectAllFreshMarker 用 1 次读库短路，不会每小时白扫 350 个详情文档。
+        // 全量同窗小时（UTC 0/6/12/18）跳过：该轮 :00 已附带 maxSync 12 自愈且 LL2 请求密集
+        if (new Date().getUTCHours() % 6 !== 0) {
+          try {
+            netRes.agencyDetails = await getLegacy().syncFeaturedAgencyDetails({
+              maxSync: 5,
+              budgetMs: 60 * 1000,
+              respectAllFreshMarker: true
+            })
+          } catch (e) {
+            netRes.agencyDetails = { success: false, error: e.message || String(e) }
+          }
+        } else {
+          netRes.agencyDetails = { success: true, skipped: true, reason: 'full_sync_hour' }
+        }
         return { ...netRes, module: 'launch_net_hourly', elapsed: Date.now() - startTime }
       }
 
@@ -285,6 +306,7 @@ exports.main = async (event) => {
       }
 
       case 'syncStats':
+      case 'syncSpaceXStats':
       case 'syncRoadClosure':
       case 'syncRoadClosureThrottled':
       case 'syncBoosters':
@@ -347,9 +369,12 @@ exports.main = async (event) => {
         } catch (e) {
           result._dailyAgencies = { success: false, error: e.message }
         }
-        // featured 机构详情自愈同步：详情页依赖单机构详情文档（api_cache_/agencies/{id}/），
-        // 前端已不再触发 syncAgencyDetail，若服务端不补位，详情缓存永远为空，
-        // 详情页会永远显示「部分数据待补全」。函数内置 26h TTL 判断，缓存新鲜时零外部请求。
+        // 机构详情自愈同步（覆盖全部机构，非只 featured）：详情页依赖单机构详情文档
+        // （api_cache_/agencies/{id}/），前端已不再触发 syncAgencyDetail，若服务端不补位，
+        // 详情缓存永远为空，详情页会永远显示「部分数据待补全」。
+        // 函数内置分层 TTL（featured 26h / 非 featured 10d），缓存新鲜时零外部请求。
+        // LL2 免费档 15 次/小时限流：本 6h 轮已有大量 LL2 请求同窗，maxSync 压在 12 不加码；
+        // 主要吞吐由小时级 NET 探针的涓流通道（每小时 5 个）承担，合计约 148 个/日
         try {
           result._agencyDetails = await getLegacy().syncFeaturedAgencyDetails({
             maxSync: 12,

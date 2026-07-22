@@ -11,8 +11,14 @@ const {
 const { persistAgencyLogoAfterRemoteLoad } = require('../../utils/agency-logo-cache.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
-// 确保首页 require.async 能加载该分包模块（未被引用时不会打进分包）
+// 确保首页 require.async 能加载这些分包模块（未被引用时不会打进分包）
 require('./utils/index-calendar-page.js')
+require('./utils/index-carousel.js')
+require('./utils/index-splash.js')
+require('./utils/index-vote.js')
+require('./utils/index-save-image.js')
+require('./utils/index-live-settle.js')
+require('./utils/index-ux.js')
 
 const CURRENT_YEAR = new Date().getUTCFullYear()
 

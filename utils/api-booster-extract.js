@@ -107,7 +107,7 @@ function resolveLandingType(launcher) {
   return { landingType, landingLocation, landingDescription }
 }
 
-/** 倒计时/列表：为塔架捕获、海面溅落、新格伦 LPV1 等挂上与卡片同源图标 */
+/** 倒计时/列表：为所有可识别的着陆类型挂上与详情页同源图标（中性色） */
 function attachLandingTypeIcon(boosterInfo, launch) {
   if (!boosterInfo || !boosterInfo.landingType) return boosterInfo
   const t = boosterInfo.landingType
@@ -116,8 +116,25 @@ function attachLandingTypeIcon(boosterInfo, launch) {
     boosterInfo.landingTypeIcon = buildLandingIcon('BO_LZ', 'neutral')
     return boosterInfo
   }
-  if (t === 'TOWER_CATCH' || t === 'SPLASHDOWN' || t === 'RECOVERY' || t === 'HELICOPTER_CATCH') {
-    boosterInfo.landingTypeIcon = buildLandingIcon(t, 'neutral')
+  // LL2 结构化 Net 着陆类型 → 走 netRecoveryIcon 渲染分支（保留 --net 放大样式）
+  if (t === 'NET_CATCH') {
+    if (!boosterInfo.netRecoveryIcon) {
+      boosterInfo.netRecovery = true
+      boosterInfo.netRecoveryIcon = buildLandingIcon('NET_CATCH', 'neutral')
+    }
+    return boosterInfo
+  }
+  // ASDS/RTLS/VL 由 WXML 静态 SVG 分支兜底（朱雀陆地回收另有 rtlsIcon）；
+  // 其余类型（EXPENDED/LOST/HL/SPLASHDOWN/TOWER_CATCH...）统一挂 dataURI，
+  // 与详情页 buildLandingDisplay 同源，避免倒计时区域漏图标。
+  // EXPENDED/LOST 与详情页同色（橙色 failure），其余中性白
+  if (t !== 'ASDS' && t !== 'RTLS' && t !== 'VL') {
+    const status = (t === 'EXPENDED' || t === 'LOST') ? 'failure' : 'neutral'
+    const icon = buildLandingIcon(t, status)
+    if (icon) {
+      boosterInfo.landingTypeIcon = icon
+      boosterInfo.landingTypeIconStatus = status
+    }
   }
   return boosterInfo
 }

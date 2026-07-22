@@ -13,3 +13,6 @@ alwaysApply: true
 4. **会员关闭或 Pro**：可正常预热与播放（`canUsePaidCloudSync()` 为 true）。
 
 适用面：事件更新、首页轮播、轨道卡背景、以及后续新增的视频能力。
+
+**例外：开屏动画（index-splash）**。开屏视频对非会员开放播放与预下载（播的是压缩预览片，体积小）；
+仅当流量档为 save/emergency 时收紧为「非 Pro 降级封面」。过审开关 `enableEventVideo` 仍对所有人生效。

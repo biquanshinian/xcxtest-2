@@ -1,11 +1,9 @@
 /* pages/index/index.wxss */
 @import "../../styles/tweet-stats-bar.wxss";
-
 .container {
   padding-bottom: 0;
   padding-top: 0;
 }
-
 /* 顶部导航栏容器（包含状态栏和导航栏） */
 .top-nav-wrapper {
   background: rgba(12, 14, 18, 0.08);
@@ -15,7 +13,6 @@
   flex-direction: column;
   /* 导航栏总高度：状态栏 + 40rpx(padding-top) + 80rpx(按钮) + 30rpx(padding-bottom) = 约150rpx + 状态栏 */
 }
-
 /* 顶部导航栏：上内边距加大，避免与右上角胶囊碰撞；整体下移 */
 .top-nav {
   display: flex;
@@ -26,7 +23,6 @@
   min-height: 90rpx;
   position: relative;
 }
-
 .nav-search-btn {
   position: absolute;
   left: 30rpx;
@@ -45,7 +41,6 @@
   z-index: 2;
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
-
 .icon-search--nav {
   position: absolute;
   left: 50%;
@@ -53,14 +48,12 @@
   font-size: 51rpx;
   transform: translate(-50%, -55%) scaleX(-1);
 }
-
 /* 倒计时卡片底部操作栏 */
 .countdown-card-actions {
   position: relative;
   width: 100%;
   margin-top: 16rpx;
 }
-
 .nav-button {
   flex: 1;
   height: 60rpx;
@@ -83,7 +76,6 @@
   position: relative;
   overflow: hidden;
 }
-
 .nav-button::before {
   content: '';
   position: absolute;
@@ -97,7 +89,6 @@
     transparent 100%);
   pointer-events: none;
 }
-
 .nav-button.active {
   background: rgba(0, 122, 255, 0.15);
   border-color: rgba(0, 122, 255, 0.3);
@@ -106,7 +97,6 @@
     0 4rpx 16rpx rgba(0, 122, 255, 0.2),
     inset 0 1rpx 0 rgba(255, 255, 255, 0.15);
 }
-
 .nav-button--completed.active {
   background: rgba(255, 149, 0, 0.16);
   border-color: rgba(255, 149, 0, 0.34);
@@ -115,11 +105,9 @@
     0 4rpx 16rpx rgba(255, 149, 0, 0.22),
     inset 0 1rpx 0 rgba(255, 255, 255, 0.15);
 }
-
 .nav-button--calendar {
   overflow: visible;
 }
-
 .nav-calendar-red-dot {
   position: absolute;
   top: 10rpx;
@@ -132,12 +120,10 @@
   pointer-events: none;
   z-index: 2;
 }
-
 /* 内容滚动区域 */
 .content-scroll {
   padding: 0 30rpx;
 }
-
 /* 倒计时卡片 - 减少高度 */
 .countdown-card {
   width: 100%;
@@ -152,7 +138,6 @@
   overflow: visible;
   position: relative;
 }
-
 .countdown-card-main {
   display: flex;
   flex-direction: column;
@@ -164,7 +149,6 @@
   opacity: 0.92;
   background: rgba(255, 255, 255, 0.03);
 }
-
 /* 倒计时区：左侧圆形火箭配置图 + 时间与倒计时 */
 .countdown-visual-row {
   display: flex;
@@ -174,7 +158,6 @@
   gap: 22rpx;
   flex-shrink: 0;
 }
-
 /* 圆图 + 直播涟漪 / 下标签的定位容器 */
 .countdown-rocket-wrap {
   position: relative;
@@ -185,11 +168,9 @@
   flex-direction: column;
   align-items: center;
 }
-
 .countdown-rocket-wrap.is-live {
   padding-bottom: 22rpx;
 }
-
 /* 外层定宽圆形容器：避免图片裁剪重心偏一侧，并让圆心在列方向稳定 */
 .countdown-rocket-slot {
   position: relative;
@@ -206,12 +187,10 @@
   align-items: center;
   justify-content: center;
 }
-
 .countdown-rocket-slot--live {
   border: 4rpx solid #ff2d55;
   animation: cd-live-ring-breathe 1.6s ease-in-out infinite;
 }
-
 .countdown-rocket-img {
   width: 100%;
   height: 100%;
@@ -219,16 +198,13 @@
   object-fit: cover;
   object-position: center center;
 }
-
 .countdown-rocket-slot-inner {
   width: 100%;
   height: 100%;
 }
-
 .countdown-rocket-avatar--placeholder {
   background: rgba(255, 255, 255, 0.05);
 }
-
 /* 抖音式外扩涟漪（放在 overflow:hidden 的 slot 外，避免被裁） */
 .cd-live-ripple {
   position: absolute;
@@ -245,11 +221,9 @@
   z-index: 1;
   animation: cd-live-ripple 1.8s ease-out infinite;
 }
-
 .cd-live-ripple--2 {
   animation-delay: 0.9s;
 }
-
 /* 下标签：声波 + 直播中 */
 .cd-avatar-tag {
   position: absolute;
@@ -268,12 +242,10 @@
   white-space: nowrap;
   box-sizing: border-box;
 }
-
 .cd-avatar-tag--live {
   background: linear-gradient(90deg, #ff2d55, #ff453a);
   box-shadow: 0 4rpx 12rpx rgba(255, 45, 85, 0.35);
 }
-
 .cd-avatar-tag-text {
   font-size: 20rpx;
   font-weight: 600;
@@ -281,7 +253,6 @@
   line-height: 1;
   letter-spacing: 0.5rpx;
 }
-
 /* 三柱声波均衡器 */
 .cd-live-eq {
   display: flex;
@@ -291,7 +262,6 @@
   height: 18rpx;
   flex-shrink: 0;
 }
-
 .cd-live-eq-bar {
   width: 4rpx;
   height: 100%;
@@ -300,36 +270,29 @@
   transform-origin: center bottom;
   animation: cd-live-eq 0.8s ease-in-out infinite;
 }
-
 .cd-live-eq-bar:nth-child(1) { animation-delay: 0s; }
 .cd-live-eq-bar:nth-child(2) { animation-delay: 0.15s; }
 .cd-live-eq-bar:nth-child(3) { animation-delay: 0.3s; }
-
 /* 点击进直播：压缩 → 微弹，再调起视频号 */
 .countdown-rocket-wrap.is-entering .countdown-rocket-slot--live {
   animation: cd-live-enter 0.22s ease-out forwards;
 }
-
 .countdown-rocket-wrap.is-entering .cd-avatar-tag--live {
   animation: cd-live-tag-enter 0.22s ease-out forwards;
 }
-
 .countdown-rocket-wrap.is-entering .cd-live-ripple {
   animation: cd-live-ripple-burst 0.22s ease-out forwards;
 }
-
 /* 后台/隐藏时停动画省电（进入动画除外，避免打断跳转反馈） */
 .countdown-rocket-wrap.is-paused:not(.is-entering) .countdown-rocket-slot--live,
 .countdown-rocket-wrap.is-paused:not(.is-entering) .cd-live-ripple,
 .countdown-rocket-wrap.is-paused:not(.is-entering) .cd-live-eq-bar {
   animation: none !important;
 }
-
 @keyframes cd-live-ring-breathe {
   0%, 100% { border-color: rgba(255, 45, 85, 0.85); }
   50% { border-color: rgba(255, 45, 85, 1); }
 }
-
 @keyframes cd-live-ripple {
   0% {
     transform: scale(1);
@@ -340,26 +303,22 @@
     opacity: 0;
   }
 }
-
 @keyframes cd-live-eq {
   0%, 100% { transform: scaleY(0.35); }
   25% { transform: scaleY(1); }
   50% { transform: scaleY(0.55); }
   75% { transform: scaleY(0.85); }
 }
-
 @keyframes cd-live-enter {
   0% { transform: scale(1); }
   45% { transform: scale(0.9); }
   100% { transform: scale(1.05); }
 }
-
 @keyframes cd-live-tag-enter {
   0% { transform: translateX(-50%) scale(1); }
   45% { transform: translateX(-50%) scale(0.92); }
   100% { transform: translateX(-50%) scale(1.08); }
 }
-
 @keyframes cd-live-ripple-burst {
   0% {
     transform: scale(1);
@@ -370,14 +329,12 @@
     opacity: 0;
   }
 }
-
 .countdown-visual-right {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
-
 .countdown-header {
   display: flex;
   flex-direction: row;
@@ -387,14 +344,12 @@
   flex-shrink: 0;
   gap: 16rpx;
 }
-
 .header-left {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
 }
-
 /* 右侧：状态顶对齐「预计发射时间」；推迟徽标底对齐时间 */
 .header-right {
   display: flex;
@@ -405,7 +360,6 @@
   min-width: 0;
   align-self: stretch;
 }
-
 /* 任务状态呼吸灯 */
 .status-indicator {
   display: flex;
@@ -417,7 +371,6 @@
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
-
 .status-light {
   width: 18rpx;
   height: 18rpx;
@@ -426,7 +379,6 @@
   animation: breathe 2s ease-in-out infinite;
   flex-shrink: 0;
 }
-
 /* 根据 statusCategory 设置颜色（与列表角标同源） */
 .status-indicator[data-status="pending"] .status-light {
   background: #007AFF;
@@ -435,7 +387,6 @@
 .status-indicator[data-status="pending"] .status-text {
   color: #007AFF;
 }
-
 .status-indicator[data-status="inflight"] .status-light {
   background: #5AC8FA;
   box-shadow: 0 0 8rpx rgba(90, 200, 250, 0.6);
@@ -443,7 +394,6 @@
 .status-indicator[data-status="inflight"] .status-text {
   color: #5AC8FA;
 }
-
 .status-indicator[data-status="delayed"] .status-light,
 .status-indicator[data-status="cancelled"] .status-light {
   background: #FF9500;
@@ -453,7 +403,6 @@
 .status-indicator[data-status="cancelled"] .status-text {
   color: #FF9500;
 }
-
 .status-indicator[data-status="success"] .status-light,
 .status-indicator[data-status="deployed"] .status-light {
   background: #34C759;
@@ -463,7 +412,6 @@
 .status-indicator[data-status="deployed"] .status-text {
   color: #34C759;
 }
-
 .status-indicator[data-status="failure"] .status-light {
   background: #FF3B30;
   box-shadow: 0 0 8rpx rgba(255, 59, 48, 0.6);
@@ -471,7 +419,6 @@
 .status-indicator[data-status="failure"] .status-text {
   color: #FF3B30;
 }
-
 .status-indicator[data-status="partial"] .status-light {
   background: #FF9500;
   box-shadow: 0 0 8rpx rgba(255, 149, 0, 0.6);
@@ -479,14 +426,12 @@
 .status-indicator[data-status="partial"] .status-text {
   color: #FF9500;
 }
-
 .status-text {
   font-size: 28rpx;
   color: #8E8E93;
   line-height: 1;
   white-space: nowrap;
 }
-
 /* 呼吸灯动画 */
 @keyframes breathe {
   0%, 100% {
@@ -498,7 +443,6 @@
     transform: scale(0.8);
   }
 }
-
 /* label 行：仅「预计发射时间」；推迟徽标在右侧底对齐 */
 .launch-time-label-row {
   display: flex;
@@ -507,7 +451,6 @@
   margin-bottom: 4rpx;
   min-width: 0;
 }
-
 .launch-time-label {
   font-size: 21rpx;
   color: rgba(255, 255, 255, 0.52);
@@ -515,7 +458,6 @@
   flex-shrink: 0;
   line-height: 1.2;
 }
-
 /* 推迟徽标：右下，底边与时间底对齐；上移约 4px（8rpx） */
 .launch-delay-badge {
   margin-left: 0;
@@ -532,14 +474,12 @@
   box-sizing: border-box;
   align-self: flex-end;
 }
-
 .launch-delay-badge-text {
   font-size: 17rpx;
   line-height: 26rpx;
   letter-spacing: 0;
   color: inherit;
 }
-
 .launch-time {
   display: flex;
   flex-direction: column;
@@ -551,7 +491,6 @@
   font-weight: 500;
   line-height: 1.25;
 }
-
 /* 日期单独一行，缩短横向占用，给右侧状态留空 */
 .launch-time-date {
   display: block;
@@ -560,7 +499,6 @@
   font-weight: inherit;
   line-height: inherit;
 }
-
 /* 星期与时刻并排 */
 .launch-time-weekclock {
   display: block;
@@ -570,7 +508,6 @@
   line-height: inherit;
   white-space: nowrap;
 }
-
 /* 倒计时显示 */
 .countdown-display {
   display: flex;
@@ -587,7 +524,6 @@
   border: none;
   box-shadow: none;
 }
-
 .countdown-item {
   display: flex;
   align-items: center;
@@ -598,21 +534,17 @@
   gap: 12rpx;
   margin-bottom: 2rpx;
 }
-
 .countdown-visual-right .countdown-item--tech {
   min-width: 0;
   flex: 1;
   padding: 8rpx 6rpx 6rpx;
 }
-
 .countdown-visual-right .countdown-value {
   font-size: 48rpx;
 }
-
 .countdown-visual-right .countdown-value-seconds {
   font-size: 48rpx;
 }
-
 .countdown-item--tech {
   min-width: 116rpx;
   padding: 10rpx 8rpx 8rpx;
@@ -627,10 +559,6 @@
   background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.025));
   border-color: rgba(120, 192, 255, 0.16);
 }
-.countdown-tech-separator {
-  display: none;
-}
-
 .countdown-value {
   font-size: 54rpx;
   font-weight: 700;
@@ -640,7 +568,6 @@
   font-variant-numeric: tabular-nums;
   text-shadow: 0 0 10rpx rgba(72, 170, 255, 0.08);
 }
-
 .countdown-seconds-window {
   height: 58rpx;
   overflow: hidden;
@@ -664,7 +591,6 @@
   text-shadow: none;
   letter-spacing: 2rpx;
 }
-
 .countdown-label {
   font-size: 22rpx;
   line-height: 1;
@@ -675,7 +601,6 @@
   color: rgba(149, 208, 255, 0.62);
   letter-spacing: 2rpx;
 }
-
 @keyframes countdown-seconds-roll-up {
   from {
     transform: translateY(0);
@@ -684,7 +609,6 @@
     transform: translateY(-58rpx);
   }
 }
-
 @keyframes countdown-seconds-roll-up-detail {
   from {
     transform: translateY(0);
@@ -693,7 +617,6 @@
     transform: translateY(-54rpx);
   }
 }
-
 /* 任务信息 */
 .mission-info {
   display: flex;
@@ -704,7 +627,6 @@
   flex: 1;
   min-height: 0;
 }
-
 .info-item {
   display: flex;
   justify-content: space-between;
@@ -714,13 +636,11 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   min-height: 44rpx;
 }
-
 .info-label {
   font-size: 24rpx;
   color: #8E8E93;
   line-height: 1.42;
 }
-
 .info-value {
   font-size: 26rpx;
   color: #FFFFFF;
@@ -736,7 +656,6 @@
   -webkit-box-orient: vertical;
   line-height: 1.4;
 }
-
 /* 值右侧带跳转按钮的行：改 flex 布局，文本收缩、按钮不压缩 */
 .info-value--with-jump {
   display: flex;
@@ -749,7 +668,6 @@
   min-width: 0;
   word-break: break-word;
 }
-
 /* 蓝色渐变跳转胶囊（与监控页「查看全部」同一渐变） */
 .info-jump-btn {
   flex-shrink: 0;
@@ -768,7 +686,6 @@
   font-size: 29rpx;
   line-height: 1;
 }
-
 /* 分享按钮 */
 /* 滚动图片区域 - 与倒计时卡片高度一致 */
 .image-carousel {
@@ -783,13 +700,11 @@
   background-color: #1a1a1a;
   position: relative;
 }
-
 .swiper {
   width: 100%;
   height: 100%;
   background-color: transparent;
 }
-
 .swiper-item {
   width: 100%;
   height: 100%;
@@ -798,13 +713,11 @@
   justify-content: center;
   position: relative;
 }
-
 .carousel-image-wrap {
   position: relative;
   width: 100%;
   height: 100%;
 }
-
 .carousel-image {
   width: 100%;
   height: 100%;
@@ -814,7 +727,6 @@
   border-radius: 16rpx;
   min-height: 300rpx;
 }
-
 .carousel-video-wrap {
   width: 100%;
   height: 100%;
@@ -823,12 +735,10 @@
   overflow: hidden;
   background-color: #000;
 }
-
 .carousel-video {
   width: 100%;
   height: 100%;
 }
-
 /* 视频缓冲期占位封面：poster 图 + 半透明遮罩，替代 video 组件的原始黑屏 */
 .carousel-video-cover {
   position: absolute;
@@ -840,7 +750,6 @@
   pointer-events: none;
   overflow: hidden;
 }
-
 .carousel-video-cover-img {
   position: absolute;
   top: 0;
@@ -849,7 +758,6 @@
   height: 100%;
   display: block;
 }
-
 .carousel-video-cover-mask {
   position: absolute;
   top: 0;
@@ -863,7 +771,6 @@
   gap: 16rpx;
   background: rgba(0, 0, 0, 0.28);
 }
-
 .carousel-video-cover-icon {
   width: 96rpx;
   height: 96rpx;
@@ -874,19 +781,16 @@
   align-items: center;
   justify-content: center;
 }
-
 .carousel-video-cover-play {
   font-size: 36rpx;
   color: rgba(255, 255, 255, 0.85);
   margin-left: 6rpx;
 }
-
 .carousel-video-cover-text {
   font-size: 22rpx;
   color: rgba(255, 255, 255, 0.45);
   letter-spacing: 2rpx;
 }
-
 .carousel-video-caption {
   position: absolute;
   left: 0;
@@ -896,7 +800,6 @@
   background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
   pointer-events: auto;
 }
-
 .carousel-video-caption-text {
   font-size: 24rpx;
   line-height: 1.5;
@@ -908,7 +811,6 @@
   text-overflow: ellipsis;
   word-break: break-all;
 }
-
 /* 推文账号胶囊（左上角来源标识） */
 .carousel-account-badge {
   position: absolute;
@@ -928,7 +830,6 @@
   transform: scale(0.7);
   transform-origin: top left;
 }
-
 .carousel-account-avatar {
   width: 44rpx;
   height: 44rpx;
@@ -936,7 +837,6 @@
   flex-shrink: 0;
   background: rgba(255, 255, 255, 0.15);
 }
-
 .carousel-account-name {
   font-size: 24rpx;
   font-weight: 600;
@@ -945,13 +845,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
-
 /* 任务列表区域 */
 .missions-section {
   margin-bottom: 30rpx;
 }
-
 .section-title {
   font-size: 36rpx;
   font-weight: 600;
@@ -959,21 +856,17 @@
   margin-bottom: 20rpx;
   padding: 0 10rpx;
 }
-
 .upcoming-agency-filter {
   padding: 0 10rpx;
   margin-bottom: 16rpx;
 }
-
 .upcoming-agency-scroll-wrap {
   position: relative;
 }
-
 .upcoming-agency-scroll {
   width: 100%;
   white-space: nowrap;
 }
-
 .upcoming-agency-scroll-fade {
   position: absolute;
   top: 0;
@@ -985,7 +878,6 @@
   border-top-right-radius: 16rpx;
   border-bottom-right-radius: 16rpx;
 }
-
 .upcoming-agency-chips-row {
   display: inline-flex;
   flex-wrap: nowrap;
@@ -995,7 +887,6 @@
   padding-right: 20rpx;
   box-sizing: border-box;
 }
-
 .upcoming-agency-chip.tweet-stat-item {
   flex: 0 0 auto;
   min-width: 168rpx;
@@ -1013,16 +904,13 @@
   padding: calc(8rpx - 1px) 10rpx;
   background: #000000 !important;
 }
-
 .upcoming-agency-chip--free.tweet-stat-item {
   border: 2rpx solid rgba(255, 255, 255, 0.14) !important;
   box-shadow: none !important;
 }
-
 .upcoming-agency-chip--active.tweet-stat-item {
   background: rgba(79, 195, 247, 0.14) !important;
 }
-
 .upcoming-agency-chip-logo.tweet-stat-avatar {
   width: 28rpx;
   height: 28rpx;
@@ -1031,13 +919,11 @@
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.06);
 }
-
 .upcoming-agency-chip-label-col {
   flex: 1;
   min-width: 0;
   overflow: hidden;
 }
-
 .upcoming-agency-chip-label-text {
   display: block;
   font-size: 20rpx;
@@ -1047,18 +933,15 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 .upcoming-agency-chip-count.tweet-stat-count {
   flex-shrink: 0;
   margin-left: 4rpx;
   font-size: 18rpx;
 }
-
 .missions-agency-empty {
   padding: 28rpx 16rpx 8rpx;
   text-align: center;
 }
-
 /* 非会员任务列表深度门控横幅 */
 .mission-gate-banner {
   display: flex;
@@ -1070,12 +953,10 @@
   background: linear-gradient(135deg, rgba(255, 179, 71, 0.14), rgba(255, 120, 73, 0.10));
   border: 1rpx solid rgba(255, 179, 71, 0.35);
 }
-
 .mission-gate-banner-icon {
   font-size: 40rpx;
   line-height: 1;
 }
-
 .mission-gate-banner-texts {
   flex: 1;
   display: flex;
@@ -1083,41 +964,33 @@
   gap: 6rpx;
   min-width: 0;
 }
-
 .mission-gate-banner-title {
   font-size: 28rpx;
   font-weight: 600;
   color: #ffb347;
 }
-
 .mission-gate-banner-sub {
   font-size: 24rpx;
   color: rgba(255, 255, 255, 0.55);
 }
-
 .mission-gate-banner-arrow {
   font-size: 44rpx;
   color: rgba(255, 179, 71, 0.8);
   line-height: 1;
 }
-
 .theme-light .mission-gate-banner {
   background: linear-gradient(135deg, rgba(255, 150, 40, 0.10), rgba(255, 110, 60, 0.07));
   border-color: rgba(220, 130, 30, 0.35);
 }
-
 .theme-light .mission-gate-banner-title {
   color: #c97a12;
 }
-
 .theme-light .mission-gate-banner-sub {
   color: rgba(60, 50, 40, 0.6);
 }
-
 .theme-light .mission-gate-banner-arrow {
   color: rgba(201, 122, 18, 0.8);
 }
-
 .missions-list {
   display: flex;
   flex-direction: column;
@@ -1125,7 +998,6 @@
   width: 100%;
   box-sizing: border-box;
 }
-
 /* 首屏任务列表骨架占位 */
 .mission-skeleton-card {
   width: 100%;
@@ -1140,7 +1012,6 @@
   background: rgba(255, 255, 255, 0.04);
   overflow: hidden;
 }
-
 .mission-skeleton-thumb {
   width: 35%;
   height: 100%;
@@ -1148,34 +1019,28 @@
   background: rgba(255, 255, 255, 0.07);
   animation: mission-skeleton-pulse 1.4s ease-in-out infinite;
 }
-
 .mission-skeleton-lines {
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 20rpx;
 }
-
 .mission-skeleton-line {
   height: 28rpx;
   border-radius: 8rpx;
   background: rgba(255, 255, 255, 0.07);
   animation: mission-skeleton-pulse 1.4s ease-in-out infinite;
 }
-
 .mission-skeleton-line--wide {
   width: 80%;
 }
-
 .mission-skeleton-line--narrow {
   width: 50%;
 }
-
 @keyframes mission-skeleton-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
 }
-
 /* 即将发射列表：左滑 提醒 / 置顶 */
 .mission-swipe-cell {
   position: relative;
@@ -1183,7 +1048,6 @@
   overflow: hidden;
   border-radius: 24rpx;
 }
-
 /* 置顶：包在前景层上，避免 glass-card 伪元素盖住背景 */
 .mission-swipe-cell--pinned > .mission-swipe-front {
   background: rgba(52, 199, 89, 0.22);
@@ -1192,7 +1056,6 @@
     inset 0 0 0 3rpx rgba(130, 230, 156, 0.72),
     0 8rpx 28rpx rgba(52, 199, 89, 0.14);
 }
-
 .mission-swipe-actions {
   position: absolute;
   top: 0;
@@ -1213,21 +1076,18 @@
   background: rgba(10, 14, 22, 0.94);
   z-index: 0;
 }
-
 /* 拖动中 / 已展开：立即显示操作区 */
 .mission-swipe-actions--visible {
   opacity: 1;
   pointer-events: auto;
   transition: opacity 0s;
 }
-
 .mission-swipe-front {
   position: relative;
   z-index: 1;
   width: 100%;
   background: transparent;
 }
-
 .mission-swipe-btn {
   flex-shrink: 0;
   display: flex;
@@ -1236,7 +1096,6 @@
   width: 100%;
   margin: 0;
 }
-
 .mission-swipe-btn-stack {
   display: flex;
   flex-direction: column;
@@ -1246,22 +1105,18 @@
   height: auto;
   gap: 8rpx;
 }
-
 .mission-swipe-btn-label {
   font-size: 20rpx;
   line-height: 1.1;
   color: rgba(255, 255, 255, 0.72);
   font-weight: 500;
 }
-
 .mission-swipe-btn--on-bell .mission-swipe-btn-label {
   color: rgba(185, 244, 201, 0.98);
 }
-
 .mission-swipe-btn--on-pin .mission-swipe-btn-label {
   color: rgba(185, 244, 201, 0.98);
 }
-
 .mission-swipe-btn-grow {
   display: flex;
   align-items: center;
@@ -1271,7 +1126,6 @@
   min-height: 52rpx;
   will-change: transform, opacity;
 }
-
 /* 双图层置顶图标：白 pin-off / 绿 pin-on，由 item.pinnedOn → .mission-swipe-btn--on-pin */
 .mission-swipe-icon-slot,
 .mission-swipe-pin-slot {
@@ -1279,7 +1133,6 @@
   width: 44rpx;
   height: 44rpx;
 }
-
 .mission-swipe-icon-layer {
   position: absolute;
   left: 0;
@@ -1288,48 +1141,39 @@
   height: 44rpx;
   display: block;
 }
-
 .mission-swipe-icon {
   width: 44rpx;
   height: 44rpx;
   display: block;
 }
-
 .mission-swipe-pin-img-off {
   opacity: 0.88;
 }
-
 .mission-swipe-pin-img-on {
   opacity: 0;
   pointer-events: none;
 }
-
 .mission-swipe-btn--on-pin .mission-swipe-pin-img-off {
   opacity: 0;
   pointer-events: none;
 }
-
 .mission-swipe-btn--on-pin .mission-swipe-pin-img-on {
   opacity: 1;
   pointer-events: auto;
 }
-
 .mission-swipe-btn--on-bell {
   background: rgba(52, 199, 89, 0.26);
   border-radius: 999rpx;
   border: 2rpx solid rgba(130, 230, 156, 0.98);
 }
-
 .mission-swipe-btn--on-pin {
   background: rgba(52, 199, 89, 0.26);
   border-radius: 999rpx;
   border: 2rpx solid rgba(130, 230, 156, 0.98);
 }
-
 .mission-swipe-btn--on-pin .mission-swipe-pin-img-on {
   filter: drop-shadow(0 0 12rpx rgba(72, 230, 140, 0.85));
 }
-
 .mission-card-inner-row {
   display: flex;
   flex-direction: row;
@@ -1338,7 +1182,6 @@
   height: auto;
   min-height: 0;
 }
-
 /* 任务卡片 - 默认 4:2 比例（min-height = 690rpx 卡宽 / 2）；
    任务名折行等内容超高时允许卡片自然长高，避免 aspect-ratio 锁死高度把文字压成半截 */
 .mission-card {
@@ -1351,7 +1194,6 @@
   overflow: hidden;
   box-sizing: border-box;
 }
-
 /* 历史发射：判定失败 → 红边；部分失败 → 橙边
    .glass-card / .mission-card 均 overflow:hidden，外阴影会被裁掉；
    用 border 简写 + inset 描边，保证浅色主题也清晰可见。 */
@@ -1362,7 +1204,6 @@
     var(--shadow-card),
     var(--shadow-glass-inset);
 }
-
 .mission-card.mission-card--partial {
   border: 3rpx solid #FF9500 !important;
   box-shadow:
@@ -1370,7 +1211,6 @@
     var(--shadow-card),
     var(--shadow-glass-inset);
 }
-
 .theme-light .mission-card.mission-card--failure {
   border: 3rpx solid #FF3B30 !important;
   box-shadow:
@@ -1378,7 +1218,6 @@
     var(--shadow-card),
     var(--shadow-glass-inset);
 }
-
 .theme-light .mission-card.mission-card--partial {
   border: 3rpx solid #FF9500 !important;
   box-shadow:
@@ -1386,20 +1225,16 @@
     var(--shadow-card),
     var(--shadow-glass-inset);
 }
-
 .mission-card-link {
   text-decoration: none;
   color: inherit;
 }
-
 .mission-card-link::after {
   border: none;
 }
-
 .mission-card-link:active {
   color: inherit;
 }
-
 .mission-rocket-slot {
   position: relative;
   width: 40%;
@@ -1409,7 +1244,6 @@
   min-width: 200rpx;
   flex-shrink: 0;
 }
-
 .mission-rocket-image {
   /* 绝对定位铺满图片槽：不依赖百分比高度链，卡片长高时同步拉伸 */
   position: absolute;
@@ -1422,11 +1256,9 @@
   background-color: #1a1a1a;
   display: block;
 }
-
 .mission-rocket-image--placeholder {
   background: rgba(255, 255, 255, 0.04);
 }
-
 .mission-rocket-countdown {
   position: absolute;
   left: 0;
@@ -1440,14 +1272,12 @@
   pointer-events: none;
   box-sizing: border-box;
 }
-
 /* 复用首页 countdown-display--tech，在卡片火箭图内紧凑缩放 */
 .mission-rocket-countdown .countdown-display--mission-card {
   width: 100%;
   margin: 0;
   gap: 6rpx;
 }
-
 .mission-rocket-countdown .countdown-item--tech {
   min-width: 0;
   flex: 1;
@@ -1455,22 +1285,18 @@
   gap: 4rpx;
   border-radius: 8rpx;
 }
-
 .mission-rocket-countdown .countdown-value {
   font-size: 26rpx;
 }
-
 .mission-rocket-countdown .countdown-value-seconds {
   font-size: 26rpx;
   height: 30rpx;
   letter-spacing: 1rpx;
 }
-
 .mission-rocket-countdown .countdown-label--tech {
   font-size: 14rpx;
   letter-spacing: 1rpx;
 }
-
 .mission-info-content {
   flex: 1;
   padding: 24rpx 28rpx;
@@ -1481,7 +1307,6 @@
   min-width: 0;
   overflow: hidden;
 }
-
 /* 顶行：状态角标 + 右上方回收（图标+着陆方式名+地点）+ 发射国家 */
 .mission-card-header {
   display: flex;
@@ -1546,7 +1371,6 @@
   color: #8E8E93;
   flex-shrink: 0;
 }
-
 /* 主标题：仅任务名称，加粗大号 */
 .mission-main-title {
   font-size: 32rpx;
@@ -1560,7 +1384,6 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
-
 /* 火箭名称、发射台：灰色次要信息，单行省略，详情见弹窗 */
 .mission-meta {
   font-size: 24rpx;
@@ -1570,7 +1393,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 /* 标称发射时间 net，大号核心位 */
 .mission-time {
   font-size: 30rpx;
@@ -1578,7 +1400,6 @@
   color: #E5E5EA;
   line-height: 1.3;
 }
-
 /* 回收块：可回收(绿)/一次性(灰) + 仅图标区分 ASDS/RTLS，预定回收点不展示；分享图标与可回收标签同行右对齐 */
 .mission-recovery-block {
   display: flex;
@@ -1648,7 +1469,6 @@
   border-radius: 6rpx;
   flex-shrink: 0;
 }
-
 /* 回收结果图标组：紧贴在 recovery-tag 右边，撑满中间空隙之前 */
 .mission-recovery-icons {
   display: flex;
@@ -1728,7 +1548,6 @@
   line-height: 1.2;
   white-space: nowrap;
 }
-
 /* 错误状态 */
 .error-state {
   width: 100%;
@@ -1742,14 +1561,12 @@
   min-height: 300rpx;
   box-sizing: border-box;
 }
-
 .error-message {
   font-size: 28rpx;
   color: #8E8E93;
   text-align: center;
   width: 100%;
 }
-
 .retry-button {
   padding: 15rpx 40rpx;
   background: rgba(0, 122, 255, 0.15);
@@ -1765,11 +1582,9 @@
   text-align: center;
   line-height: 1.5;
 }
-
 .retry-button::after {
   border: none;
 }
-
 /* 任务列表错误状态 */
 .missions-error {
   padding: 60rpx 30rpx;
@@ -1780,7 +1595,6 @@
   gap: 20rpx;
   box-sizing: border-box;
 }
-
 .missions-empty {
   padding: 60rpx 30rpx;
   display: flex;
@@ -1789,26 +1603,20 @@
   justify-content: center;
   gap: 15rpx;
 }
-
 .empty-text {
   font-size: 26rpx;
   color: #8E8E93;
 }
-
-
 .missions-list-footer {
   padding: 24rpx 0 32rpx;
   display: flex;
   justify-content: center;
   align-items: center;
 }
-
 .missions-list-footer .footer-text {
   font-size: 24rpx;
   color: #8E8E93;
 }
-
-
 /* ========== 吸顶精简倒计时（胶囊按钮左侧） ========== */
 
 .compact-cd {
@@ -1833,13 +1641,11 @@
   pointer-events: none;
   transition: opacity 0.28s ease, transform 0.28s ease;
 }
-
 .compact-cd--visible {
   opacity: 1;
   transform: translateX(0);
   pointer-events: auto;
 }
-
 .compact-cd-rocket-slot {
   width: 42rpx;
   height: 42rpx;
@@ -1853,7 +1659,6 @@
   align-items: center;
   justify-content: center;
 }
-
 .compact-cd-rocket-img {
   width: 100%;
   height: 100%;
@@ -1861,16 +1666,13 @@
   object-fit: cover;
   object-position: center center;
 }
-
 .compact-cd-rocket-inner {
   width: 100%;
   height: 100%;
 }
-
 .compact-cd-rocket-placeholder {
   background: rgba(255, 255, 255, 0.04);
 }
-
 .compact-cd-name {
   font-size: 22rpx;
   font-weight: 500;
@@ -1882,7 +1684,6 @@
   flex: 1;
   min-width: 0;
 }
-
 .compact-cd-time {
   font-size: 28rpx;
   font-weight: 600;
@@ -1892,14 +1693,12 @@
   white-space: nowrap;
   flex-shrink: 0;
 }
-
 .nav-search-btn--hidden {
   opacity: 0;
   pointer-events: none;
   transform: scale(0.8);
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
-
 /* 封路通知横幅 */
 .road-closure-banner {
   display: flex;
@@ -1917,16 +1716,13 @@
   box-sizing: border-box;
   overflow: hidden;
 }
-
 .road-closure-banner::after {
   border: none;
 }
-
 @keyframes roadClosurePulse {
   0%, 100% { border-color: rgba(255, 152, 0, 0.3); }
   50% { border-color: rgba(255, 152, 0, 0.6); }
 }
-
 .road-closure-icon-wrap {
   flex-shrink: 0;
   width: 44rpx;
@@ -1938,13 +1734,11 @@
   border-radius: 50%;
   margin-top: 2rpx;
 }
-
 .road-closure-icon {
   font-size: 26rpx;
   line-height: 1;
   color: #FF9800;
 }
-
 .road-closure-content {
   flex: 1;
   min-width: 0;
@@ -1953,27 +1747,23 @@
   gap: 4rpx;
   overflow: hidden;
 }
-
 .road-closure-title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12rpx;
 }
-
 .road-closure-title {
   font-size: 24rpx;
   font-weight: 600;
   color: #FF9800;
   line-height: 1.3;
 }
-
 .road-closure-msg-scroll {
   width: 100%;
   overflow: hidden;
   white-space: nowrap;
 }
-
 .road-closure-msg-track {
   display: inline-flex;
   flex-wrap: nowrap;
@@ -1982,7 +1772,6 @@
   backface-visibility: hidden;
   animation: marqueeScroll 18s linear infinite;
 }
-
 .road-closure-msg {
   font-size: 24rpx;
   color: rgba(255, 255, 255, 0.85);
@@ -1992,19 +1781,16 @@
   padding-right: 80rpx;
   box-sizing: content-box;
 }
-
 @keyframes marqueeScroll {
   from { transform: translate3d(0, 0, 0); }
   to { transform: translate3d(-50%, 0, 0); }
 }
-
 .road-closure-arrow {
   flex-shrink: 0;
   font-size: 36rpx;
   color: rgba(255, 255, 255, 0.4);
   font-weight: 300;
 }
-
 .road-closure-source {
   font-size: 20rpx;
   color: rgba(255, 152, 0, 0.7);
@@ -2013,7 +1799,6 @@
   border-radius: 6rpx;
   flex-shrink: 0;
 }
-
 /* 系统通知滚动横幅 */
 .announcement-banner {
   display: flex;
@@ -2028,7 +1813,6 @@
   overflow: hidden;
   box-sizing: border-box;
 }
-
 .announcement-banner-icon-wrap {
   flex-shrink: 0;
   width: 44rpx;
@@ -2039,25 +1823,21 @@
   background: rgba(255, 152, 0, 0.25);
   border-radius: 50%;
 }
-
 .announcement-banner-icon {
   font-size: 26rpx;
   line-height: 1;
   color: #FF9800;
 }
-
 .announcement-banner-content {
   flex: 1;
   min-width: 0;
   overflow: hidden;
 }
-
 .announcement-banner-scroll {
   width: 100%;
   overflow: hidden;
   white-space: nowrap;
 }
-
 .announcement-banner-track {
   display: inline-flex;
   flex-wrap: nowrap;
@@ -2066,7 +1846,6 @@
   backface-visibility: hidden;
   animation: announcementMarquee 18s linear infinite;
 }
-
 .announcement-banner-text {
   font-size: 24rpx;
   color: rgba(255, 255, 255, 0.9);
@@ -2076,12 +1855,10 @@
   padding-right: 80rpx;
   box-sizing: content-box;
 }
-
 @keyframes announcementMarquee {
   from { transform: translate3d(0, 0, 0); }
   to { transform: translate3d(-50%, 0, 0); }
 }
-
 .announcement-banner-close {
   flex-shrink: 0;
   width: 60rpx;
@@ -2093,11 +1870,9 @@
   color: rgba(255, 255, 255, 0.6);
   border-radius: 50%;
 }
-
 .announcement-banner-close:active {
   background: rgba(255, 255, 255, 0.1);
 }
-
 /* 公告详情弹窗 */
 .announcement-dialog-mask {
   position: fixed;
@@ -2115,12 +1890,10 @@
   pointer-events: none;
   padding: 0 60rpx;
 }
-
 .announcement-dialog-mask--visible {
   opacity: 1;
   pointer-events: auto;
 }
-
 .announcement-dialog {
   width: 100%;
   max-width: 580rpx;
@@ -2131,40 +1904,33 @@
   overflow: hidden;
   animation: announcement-dialog-pop 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.15);
 }
-
 @keyframes announcement-dialog-pop {
   0% { transform: scale(0.82); opacity: 0; }
   100% { transform: scale(1); opacity: 1; }
 }
-
 .announcement-dialog-header {
   padding: 40rpx 36rpx 20rpx;
   text-align: center;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
-
 .announcement-dialog-title {
   font-size: 32rpx;
   font-weight: 600;
   color: #FF9800;
 }
-
 .announcement-dialog-body {
   padding: 32rpx 36rpx;
   text-align: center;
 }
-
 .announcement-dialog-content {
   font-size: 28rpx;
   color: rgba(255, 255, 255, 0.85);
   line-height: 1.7;
 }
-
 /* 公告弹窗在线客服入口（复用「关于我们」同款样式，button 需强制重置小程序默认样式） */
 .announcement-dialog-service {
   padding: 0 32rpx 32rpx;
 }
-
 .service-contact-row {
   display: flex !important;
   align-items: center !important;
@@ -2181,16 +1947,13 @@
   text-align: left !important;
   transition: opacity 0.18s, transform 0.18s;
 }
-
 .service-contact-row::after {
   border: none !important;
 }
-
 .service-contact-row--hover {
   opacity: 0.78;
   transform: scale(0.985);
 }
-
 .service-contact-icon {
   width: 56rpx;
   height: 56rpx;
@@ -2201,13 +1964,11 @@
   flex-shrink: 0;
   overflow: hidden;
 }
-
 .service-contact-icon-img {
   width: 56rpx;
   height: 56rpx;
   display: block;
 }
-
 .service-contact-text {
   flex: 1;
   display: flex;
@@ -2215,43 +1976,36 @@
   gap: 4rpx;
   min-width: 0;
 }
-
 .service-contact-title {
   color: #fff;
   font-size: 28rpx;
   font-weight: 600;
   letter-spacing: 0.5rpx;
 }
-
 .service-contact-sub {
   color: rgba(255, 255, 255, 0.55);
   font-size: 22rpx;
   letter-spacing: 0.4rpx;
 }
-
 .service-contact-arrow {
   color: rgba(7, 193, 96, 0.9);
   font-size: 36rpx;
   font-weight: 300;
   flex-shrink: 0;
 }
-
 .announcement-dialog-close {
   padding: 28rpx;
   text-align: center;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
-
 .announcement-dialog-close:active {
   background: rgba(255, 152, 0, 0.08);
 }
-
 .announcement-dialog-close text {
   font-size: 28rpx;
   color: #FF9800;
   font-weight: 500;
 }
-
 /* ========== 开屏动画 ========== */
 .splash-overlay {
   position: fixed;
@@ -2262,31 +2016,27 @@
   z-index: 99999;
   background: #000;
 }
-
 .splash-overlay--in {
   animation: splashFadeIn 0.45s ease-out forwards;
 }
-
 .splash-overlay--out {
   animation: splashFadeOut 0.5s ease-in forwards;
   pointer-events: none;
 }
-
 @keyframes splashFadeIn {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
-
 @keyframes splashFadeOut {
   from { opacity: 1; }
   to   { opacity: 0; }
 }
-
 .splash-media {
   width: 100vw;
   height: 100vh;
+  /* 视频/图都必须 cover 裁剪，禁止 stretch 变形 */
+  object-fit: cover;
 }
-
 .splash-video-cover {
   position: absolute;
   top: 0;
@@ -2297,13 +2047,11 @@
   pointer-events: none;
   background: #000;
 }
-
 .splash-video-cover-fallback {
   width: 100%;
   height: 100%;
   background: #000;
 }
-
 .splash-skip {
   position: fixed;
   right: 28rpx;
@@ -2323,7 +2071,6 @@
   animation: splashSkipIn 0.4s 0.3s ease-out both;
   overflow: hidden;
 }
-
 .splash-skip-countdown {
   width: 64rpx;
   height: 64rpx;
@@ -2335,14 +2082,12 @@
   color: #fff;
   font-variant-numeric: tabular-nums;
 }
-
 .splash-skip-divider {
   width: 1px;
   height: 28rpx;
   background: rgba(255, 255, 255, 0.25);
   flex-shrink: 0;
 }
-
 .splash-skip-text {
   padding: 0 24rpx;
   font-size: 24rpx;
@@ -2350,12 +2095,182 @@
   letter-spacing: 1rpx;
   line-height: 64rpx;
 }
-
 @keyframes splashSkipIn {
   from { opacity: 0; transform: translateY(-12rpx) scale(0.92); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
-
+/* 开屏任务倒计时卡片：下部居中；尺寸按 1.2 倍实算（不用 transform scale，避免点击热区错位） */
+.splash-mission-card {
+  position: fixed;
+  left: 50%;
+  bottom: 180rpx;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16rpx;
+  min-width: 504rpx;
+  max-width: 672rpx;
+  padding: 34rpx 44rpx 28rpx;
+  box-sizing: border-box;
+  background: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.04) 0%,
+    rgba(0, 0, 0, 0.13) 48%,
+    rgba(0, 0, 0, 0.16) 100%
+  );
+  backdrop-filter: blur(7px) saturate(1.35);
+  -webkit-backdrop-filter: blur(7px) saturate(1.35);
+  border: 1rpx solid rgba(255, 255, 255, 0.1);
+  border-radius: 38rpx;
+  box-shadow:
+    0 16rpx 48rpx rgba(0, 0, 0, 0.12),
+    inset 0 1rpx 0 rgba(255, 255, 255, 0.08);
+  animation: splashMissionIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.18s both;
+}
+.splash-mission-card:active {
+  opacity: 0.92;
+}
+@keyframes splashMissionIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(28rpx);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+.splash-mission-eyebrow {
+  font-size: 22rpx;
+  font-weight: 600;
+  letter-spacing: 3.6rpx;
+  color: rgba(255, 255, 255, 0.55);
+  line-height: 1;
+}
+.splash-mission-name {
+  max-width: 600rpx;
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #fff;
+  text-align: center;
+  letter-spacing: 0.5rpx;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.35);
+}
+.splash-mission-cd {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  margin-top: 4rpx;
+  color: #fff;
+}
+.splash-mission-cd-prefix {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.78);
+  letter-spacing: 1rpx;
+  padding-top: 2rpx;
+}
+.splash-mission-cd-cells {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+.splash-mission-cd-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 76rpx;
+  padding: 12rpx 14rpx 10rpx;
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1rpx solid rgba(255, 255, 255, 0.14);
+}
+.splash-mission-cd-cell--sec {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.26);
+}
+.splash-mission-cd-sep {
+  align-self: center;
+  width: 22rpx;
+  text-align: center;
+  font-size: 34rpx;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.4);
+  line-height: 1;
+  padding-bottom: 16rpx;
+}
+.splash-mission-cd-num {
+  font-size: 48rpx;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  line-height: 1;
+  letter-spacing: 0.5rpx;
+}
+.splash-mission-cd-unit {
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.58);
+  letter-spacing: 1rpx;
+  line-height: 1;
+}
+.splash-mission-cd--imminent {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  margin-top: 4rpx;
+  padding: 14rpx 34rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1rpx solid rgba(255, 255, 255, 0.2);
+  font-size: 40rpx;
+  font-weight: 700;
+  letter-spacing: 6rpx;
+  color: #fff;
+}
+.splash-mission-imminent-dot {
+  width: 14rpx;
+  height: 14rpx;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #7dffb3;
+  box-shadow: 0 0 12rpx rgba(125, 255, 179, 0.75);
+  animation: splashMissionPulse 1.2s ease-in-out infinite;
+}
+@keyframes splashMissionPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.85); }
+}
+.splash-mission-hint {
+  display: flex;
+  align-items: center;
+  gap: 4rpx;
+  margin-top: 2rpx;
+  padding-top: 12rpx;
+  border-top: 1rpx solid rgba(255, 255, 255, 0.12);
+  width: 100%;
+  justify-content: center;
+  box-sizing: border-box;
+}
+.splash-mission-hint-text {
+  font-size: 26rpx;
+  color: rgba(255, 255, 255, 0.62);
+  letter-spacing: 1.5rpx;
+}
+.splash-mission-hint-arrow {
+  font-size: 34rpx;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.7);
+  transform: translateY(-1rpx);
+}
 /* ========== 发射提醒 ========== */
 .detail-subscribe-section {
   margin-bottom: 20rpx;
@@ -2378,11 +2293,6 @@
   border-radius: 14rpx;
   background: rgba(0, 122, 255, 0.12);
 }
-.subscribe-icon-img {
-  width: 36rpx;
-  height: 36rpx;
-  opacity: 0.95;
-}
 .icon-bell--subscribe {
   width: 36rpx;
   height: 36rpx;
@@ -2402,48 +2312,11 @@
   font-size: 22rpx;
   color: #8E8E93;
 }
-.subscribe-arrow {
-  font-size: 36rpx;
-  color: rgba(255, 255, 255, 0.5);
-}
 .subscribe-check {
   font-size: 28rpx;
   color: #34C759;
   font-weight: 600;
 }
-
-.mission-map-links {
-  display: flex;
-  flex-direction: column;
-  gap: 16rpx;
-}
-.mission-map-link {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20rpx;
-  padding: 24rpx 26rpx;
-  border-radius: 20rpx;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-.mission-map-link-title {
-  display: block;
-  font-size: 28rpx;
-  color: #fff;
-  font-weight: 600;
-}
-.mission-map-link-desc {
-  display: block;
-  margin-top: 8rpx;
-  font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.45);
-}
-.mission-map-link-arrow {
-  font-size: 34rpx;
-  color: rgba(255, 255, 255, 0.35);
-}
-
 /* ========== 发射日历 ========== */
 .calendar-section {
   padding: 24rpx 0 40rpx;
@@ -2453,239 +2326,6 @@
   margin-bottom: 20rpx;
   padding: 24rpx;
   border-radius: 22rpx;
-}
-.calendar-query-panel-header {
-  display: flex;
-  align-items: center;
-}
-.calendar-query-panel-main {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16rpx;
-}
-.calendar-query-panel-title-wrap {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 10rpx;
-}
-.calendar-query-panel-title {
-  flex-shrink: 0;
-  font-size: 26rpx;
-  font-weight: 600;
-  color: #fff;
-  line-height: 1;
-}
-.calendar-query-panel-divider {
-  flex-shrink: 0;
-  font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.22);
-}
-.calendar-query-panel-subtitle {
-  min-width: 0;
-  flex: 1;
-  font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.48);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.calendar-query-panel-meta {
-  display: inline-flex;
-  align-items: center;
-  gap: 10rpx;
-  flex-shrink: 0;
-}
-.calendar-query-panel-count {
-  min-height: 40rpx;
-  padding: 0 16rpx;
-  border-radius: 999rpx;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 21rpx;
-  color: #7ec3ff;
-  background: rgba(0, 122, 255, 0.12);
-  border: 1px solid rgba(0, 122, 255, 0.2);
-}
-.calendar-query-panel-arrow {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40rpx;
-  height: 40rpx;
-  border-radius: 50%;
-  color: rgba(255, 255, 255, 0.72);
-  background: rgba(255, 255, 255, 0.06);
-  font-size: 20rpx;
-  transform: rotate(0deg);
-  transition: transform 0.2s ease;
-}
-.calendar-query-panel-arrow--collapsed {
-  transform: rotate(180deg);
-}
-.calendar-filter-group {
-  margin-bottom: 20rpx;
-}
-.calendar-filter-group:first-child {
-  margin-top: 20rpx;
-}
-.calendar-filter-group--compact {
-  margin-bottom: 12rpx;
-}
-.calendar-filter-title {
-  display: block;
-  margin-bottom: 12rpx;
-  font-size: 24rpx;
-  color: rgba(255, 255, 255, 0.6);
-}
-.calendar-filter-scroll {
-  width: 100%;
-}
-.calendar-filter-row {
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
-  width: max-content;
-}
-.calendar-filter-row--wrap {
-  width: auto;
-  flex-wrap: wrap;
-}
-.calendar-filter-chip {
-  min-height: 56rpx;
-  padding: 0 22rpx;
-  border-radius: 999rpx;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 24rpx;
-  white-space: nowrap;
-}
-.calendar-filter-chip--active {
-  background: rgba(0, 122, 255, 0.18);
-  border-color: rgba(0, 122, 255, 0.32);
-  color: #7ec3ff;
-}
-.calendar-query-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20rpx;
-  padding-top: 8rpx;
-}
-.calendar-query-result,
-.calendar-query-reset {
-  font-size: 22rpx;
-}
-.calendar-query-result {
-  color: rgba(255, 255, 255, 0.45);
-}
-.calendar-query-reset {
-  color: #64a8ff;
-}
-.calendar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16rpx;
-  position: relative;
-}
-.calendar-nav {
-  width: 72rpx;
-  height: 72rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 50%;
-}
-.calendar-nav:active {
-  background: rgba(255, 255, 255, 0.16);
-}
-.calendar-arrow {
-  width: 18rpx;
-  height: 18rpx;
-  border-top: 4rpx solid #fff;
-  border-right: 4rpx solid #fff;
-}
-.calendar-arrow--left {
-  transform: rotate(-135deg);
-  margin-left: 4rpx;
-}
-.calendar-arrow--right {
-  transform: rotate(45deg);
-  margin-right: 4rpx;
-}
-.calendar-month-title {
-  font-size: 32rpx;
-  font-weight: 600;
-  color: #fff;
-}
-.calendar-today-btn {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  margin-right: 80rpx;
-  padding: 8rpx 20rpx;
-  font-size: 22rpx;
-  color: #007AFF;
-  background: rgba(0, 122, 255, 0.12);
-  border-radius: 20rpx;
-  border: 1px solid rgba(0, 122, 255, 0.3);
-}
-.calendar-today-btn:active {
-  background: rgba(0, 122, 255, 0.25);
-}
-.calendar-page-stage {
-  transform: translateX(0);
-  opacity: 1;
-  margin-bottom: 20rpx;
-}
-.calendar-table {
-  padding: 20rpx 16rpx 16rpx;
-  border-radius: 24rpx;
-  overflow: hidden;
-}
-.calendar-table-legend {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 28rpx;
-  margin-bottom: 16rpx;
-  padding-bottom: 14rpx;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-.calendar-legend-item {
-  display: flex;
-  align-items: center;
-  gap: 8rpx;
-}
-.calendar-legend-dot {
-  width: 10rpx;
-  height: 10rpx;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.calendar-legend-dot--upcoming {
-  background: #007AFF;
-  box-shadow: 0 0 8rpx rgba(0, 122, 255, 0.55);
-}
-.calendar-legend-dot--completed {
-  background: #FF9500;
-  box-shadow: 0 0 8rpx rgba(255, 149, 0, 0.45);
-}
-.calendar-legend-text {
-  font-size: 20rpx;
-  color: rgba(255, 255, 255, 0.52);
 }
 .calendar-page-anim--leave-prev {
   transform: translateX(-42rpx);
@@ -2727,200 +2367,6 @@
     opacity: 1;
   }
 }
-.calendar-weekdays {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  margin-bottom: 10rpx;
-  padding: 10rpx 4rpx;
-  border-radius: 14rpx;
-  background: rgba(255, 255, 255, 0.03);
-}
-.calendar-weekday {
-  font-size: 20rpx;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.38);
-  text-align: center;
-  letter-spacing: 1rpx;
-}
-.calendar-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 6rpx;
-  padding: 4rpx;
-}
-.calendar-cell {
-  aspect-ratio: 1;
-  min-height: 88rpx;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  border-radius: 14rpx;
-  position: relative;
-  box-sizing: border-box;
-  border: 1px solid transparent;
-  background: rgba(255, 255, 255, 0.02);
-  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
-}
-.calendar-cell--empty {
-  visibility: hidden;
-  pointer-events: none;
-}
-.calendar-cell--has {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.06);
-}
-.calendar-cell--today {
-  border-color: rgba(0, 122, 255, 0.45);
-  background: rgba(0, 122, 255, 0.08);
-}
-.calendar-cell--selected {
-  background: rgba(0, 122, 255, 0.22);
-  border-color: rgba(0, 122, 255, 0.55);
-  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.18);
-}
-.calendar-cell--heat1 {
-  background: rgba(255, 255, 255, 0.04);
-}
-.calendar-cell--heat2 {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(255, 255, 255, 0.08);
-}
-.calendar-cell--heat3 {
-  background: linear-gradient(145deg, rgba(255, 149, 0, 0.16), rgba(255, 149, 0, 0.06));
-  border-color: rgba(255, 149, 0, 0.22);
-}
-.calendar-cell--selected.calendar-cell--heat1,
-.calendar-cell--selected.calendar-cell--heat2,
-.calendar-cell--selected.calendar-cell--heat3 {
-  background: rgba(0, 122, 255, 0.22);
-  border-color: rgba(0, 122, 255, 0.55);
-}
-.calendar-cell-count {
-  position: absolute;
-  top: 6rpx;
-  right: 6rpx;
-  min-width: 28rpx;
-  height: 28rpx;
-  padding: 0 6rpx;
-  border-radius: 999rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16rpx;
-  font-weight: 700;
-  color: #fff;
-  line-height: 1;
-  background: rgba(255, 149, 0, 0.85);
-  box-shadow: 0 2rpx 8rpx rgba(255, 149, 0, 0.35);
-  z-index: 3;
-}
-.calendar-cell-day-wrap {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 52rpx;
-  height: 52rpx;
-  border-radius: 50%;
-}
-.calendar-cell-day-wrap--today {
-  background: rgba(0, 122, 255, 0.18);
-  box-shadow: 0 0 0 2rpx rgba(0, 122, 255, 0.35);
-}
-.calendar-cell-day {
-  font-size: 26rpx;
-  color: rgba(255, 255, 255, 0.88);
-  line-height: 1;
-}
-.calendar-cell-day--today {
-  color: #4da3ff;
-  font-weight: 700;
-}
-.calendar-cell-dots {
-  position: absolute;
-  bottom: 8rpx;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 5rpx;
-  align-items: center;
-  justify-content: center;
-}
-.calendar-cell-dot {
-  width: 8rpx;
-  height: 8rpx;
-  border-radius: 50%;
-}
-.calendar-cell-dot--upcoming {
-  background: #007AFF;
-  box-shadow: 0 0 6rpx rgba(0, 122, 255, 0.6);
-}
-.calendar-cell-dot--completed {
-  background: #FF9500;
-  box-shadow: 0 0 6rpx rgba(255, 149, 0, 0.5);
-}
-
-/* 星舰任务浮窗标签 */
-.calendar-starship-tag {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 14rpx;
-  overflow: hidden;
-}
-
-.calendar-starship-tag text {
-  font-size: 22rpx;
-  color: #ff9500;
-  font-weight: 700;
-  z-index: 2;
-  background: rgba(0, 0, 0, 0.75);
-  padding: 2rpx 10rpx;
-  border-radius: 8rpx;
-  animation: starshipTextBlink 2s ease-in-out infinite;
-}
-
-@keyframes starshipTextBlink {
-  0%, 49% { opacity: 1; }
-  50%, 99% { opacity: 0; }
-  100% { opacity: 1; }
-}
-
-/* 涟漪圆圈 */
-.calendar-starship-tag::before,
-.calendar-starship-tag::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 20rpx;
-  height: 20rpx;
-  border-radius: 50%;
-  border: 2rpx solid rgba(255, 149, 0, 0.7);
-  transform: translate(-50%, -50%) scale(0);
-  animation: starshipRipple 2.4s ease-out infinite;
-}
-
-.calendar-starship-tag::after {
-  animation-delay: 1.2s;
-}
-
-@keyframes starshipRipple {
-  0% {
-    transform: translate(-50%, -50%) scale(0);
-    opacity: 0.8;
-  }
-  100% {
-    transform: translate(-50%, -50%) scale(6);
-    opacity: 0;
-  }
-}
-
 .calendar-day-missions {
   margin-top: 24rpx;
 }
@@ -2991,259 +2437,6 @@
   color: #fff;
   font-size: 20rpx;
 }
-.calendar-empty {
-  padding: 60rpx 0;
-  text-align: center;
-}
-
-/* ========== 日历内全球发射数据 ========== */
-.calendar-stats-section {
-  margin-top: 32rpx;
-}
-.calendar-stats-title {
-  font-size: 28rpx;
-  font-weight: 600;
-  color: #fff;
-  margin-bottom: 12rpx;
-}
-.calendar-stats-section .stats-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 20rpx;
-}
-.calendar-stats-section .stats-highlight-card {
-  padding: 28rpx 30rpx 22rpx;
-  display: flex;
-  flex-direction: column;
-}
-.calendar-stats-section .stats-highlight-glow {
-  position: absolute;
-  top: -140rpx;
-  right: -100rpx;
-  width: 400rpx;
-  height: 400rpx;
-  background: radial-gradient(circle, rgba(0, 122, 255, 0.22) 0%, rgba(0, 122, 255, 0) 68%);
-  pointer-events: none;
-}
-.calendar-stats-section .stats-highlight-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  position: relative;
-  z-index: 2;
-}
-.calendar-stats-section .stats-highlight-title {
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
-  min-width: 0;
-}
-.calendar-stats-section .stats-highlight-dot {
-  width: 12rpx;
-  height: 12rpx;
-  border-radius: 50%;
-  background: #7ec3ff;
-  box-shadow: 0 0 14rpx rgba(126, 195, 255, 0.85);
-  flex-shrink: 0;
-}
-.calendar-stats-section .stats-highlight-label {
-  font-size: 28rpx;
-  font-weight: 600;
-  color: #ffffff;
-}
-.calendar-stats-section .stats-highlight-tag {
-  font-size: 20rpx;
-  color: rgba(255, 255, 255, 0.72);
-  background: rgba(255, 255, 255, 0.08);
-  border: 1rpx solid rgba(255, 255, 255, 0.14);
-  padding: 4rpx 16rpx;
-  border-radius: 999rpx;
-  flex-shrink: 0;
-}
-.calendar-stats-section .stats-highlight-main {
-  display: flex;
-  align-items: baseline;
-  gap: 10rpx;
-  margin-top: 22rpx;
-  position: relative;
-  z-index: 2;
-}
-.calendar-stats-section .stats-highlight-value {
-  font-size: 84rpx;
-  line-height: 1;
-  font-weight: 700;
-  letter-spacing: 2rpx;
-  background: linear-gradient(180deg, #ffffff 35%, #9ec9ff 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-.calendar-stats-section .stats-highlight-unit {
-  font-size: 26rpx;
-  color: #8E8E93;
-}
-.calendar-stats-section .stats-highlight-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 24rpx;
-  padding-top: 18rpx;
-  border-top: 1rpx solid rgba(255, 255, 255, 0.08);
-  position: relative;
-  z-index: 2;
-}
-.calendar-stats-section .stats-highlight-sub {
-  font-size: 22rpx;
-  color: #8E8E93;
-}
-.calendar-stats-section .stats-highlight-card--active {
-  opacity: 0.88;
-}
-.calendar-stats-section .stats-detail-link {
-  display: flex;
-  align-items: center;
-  gap: 4rpx;
-  margin-left: auto;
-  font-size: 24rpx;
-  color: #7ec3ff;
-}
-.calendar-stats-section .stats-detail-arrow {
-  font-size: 28rpx;
-  line-height: 1;
-}
-.calendar-stats-section .stats-loading {
-  padding: 30rpx;
-}
-.calendar-stats-section .stats-loading-text {
-  font-size: 26rpx;
-  color: #8E8E93;
-}
-.calendar-stats-section .stats-error {
-  padding: 30rpx;
-}
-.calendar-stats-section .stats-error-text {
-  font-size: 26rpx;
-  color: #ff6b6b;
-}
-
-/* ========== SpaceX 官网发射统计 ========== */
-.spacex-stats-section {
-  margin-top: 28rpx;
-}
-.spacex-source-tag {
-  font-size: 20rpx;
-  color: rgba(255,255,255,0.4);
-  margin-left: 12rpx;
-  font-weight: 400;
-}
-.spacex-stats-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 16rpx;
-  margin-top: 16rpx;
-}
-
-.spacex-year-stat {
-  margin-top: 16rpx;
-  padding: 22rpx 24rpx;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20rpx;
-  border-radius: 16rpx;
-}
-
-.spacex-year-stat-text {
-  display: flex;
-  flex-direction: column;
-  gap: 6rpx;
-  min-width: 0;
-}
-
-.spacex-year-stat-label {
-  font-size: 26rpx;
-  font-weight: 600;
-  color: #ffffff;
-}
-
-.spacex-year-stat-hint {
-  font-size: 20rpx;
-  color: rgba(255, 255, 255, 0.42);
-}
-
-.spacex-year-stat-value {
-  font-size: 44rpx;
-  font-weight: 700;
-  color: #ffffff;
-  letter-spacing: 1rpx;
-  flex-shrink: 0;
-}
-
-.spacex-stat-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 24rpx 12rpx;
-  border-radius: 16rpx;
-}
-.spacex-stat-value {
-  font-size: 44rpx;
-  font-weight: 700;
-  color: #fff;
-  line-height: 1.2;
-}
-.spacex-stat-label {
-  font-size: 20rpx;
-  color: rgba(255,255,255,0.55);
-  margin-top: 8rpx;
-}
-.spacex-upcoming-list {
-  margin-top: 20rpx;
-}
-.spacex-upcoming-title {
-  font-size: 26rpx;
-  color: rgba(255,255,255,0.65);
-  margin-bottom: 12rpx;
-  display: block;
-  font-weight: 600;
-}
-.spacex-upcoming-item {
-  padding: 16rpx 20rpx;
-  border-radius: 12rpx;
-  margin-bottom: 12rpx;
-}
-.spacex-upcoming-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 4rpx;
-}
-.spacex-upcoming-name {
-  font-size: 26rpx;
-  color: #fff;
-  font-weight: 600;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.spacex-upcoming-vehicle {
-  font-size: 22rpx;
-  color: rgba(255,255,255,0.5);
-  margin-left: 12rpx;
-  flex-shrink: 0;
-}
-.spacex-upcoming-site {
-  font-size: 22rpx;
-  color: rgba(255,255,255,0.5);
-}
-.spacex-upcoming-date {
-  font-size: 22rpx;
-  color: #4ecdc4;
-  flex-shrink: 0;
-}
-
 /* ========== 倒计时卡片底部操作栏 ========== */
 .countdown-action-row {
   display: flex;
@@ -3255,7 +2448,6 @@
   margin-top: 18rpx;
 }
 .vote-box-placeholder { flex: 1; }
-
 /* 竞猜容器（带边框） */
 .vote-box {
   flex: 1;
@@ -3362,7 +2554,6 @@
   gap: 8rpx;
   max-width: 100%;
 }
-
 /* 单行竞猜：题干完整显示（不换行、不省略），靠收紧右侧胶囊与人数区换空间 */
 /* VOTE_ANTIMIS_V1: 双题型时由 .vote-box--antimiss 覆盖为 ellipsis；单题型仍尽量完整显示 */
 .vote-box-label.vote-box-label--polling {
@@ -3371,35 +2562,25 @@
   text-overflow: clip;
   white-space: nowrap;
 }
-
-.vote-pills-with-meta--compact {
-  gap: 4rpx;
-}
-
 .vote-pills-with-meta--compact .vote-pill {
   min-height: 48rpx;
   gap: 4rpx;
   padding: 6rpx 10rpx;
 }
-
 .vote-pills-with-meta--compact .vote-pill-dot {
   width: 12rpx;
   height: 12rpx;
 }
-
 .vote-pills-with-meta--compact .vote-pill-text {
   font-size: 22rpx;
 }
-
 .vote-pills-with-meta--compact .vote-pill-count {
   font-size: 18rpx;
 }
-
 .vote-pills-with-meta--compact .vote-total-inline {
   margin-left: 2rpx;
   padding-left: 6rpx;
 }
-
 .vote-total-inline {
   margin-left: 4rpx;
   padding-left: 10rpx;
@@ -3411,7 +2592,6 @@
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
-
 .vote-box-label--closed {
   color: rgba(255, 152, 0, 0.7);
   font-size: 20rpx;
@@ -3473,7 +2653,6 @@
 }
 .vote-pill--active-buge .vote-pill-text { color: #07C160; }
 .vote-pill--voted { pointer-events: none; }
-
 /* 提醒 + 分享图标（独立 flex 子项，space-between 自动等距） */
 .cd-icon-btn {
   width: 72rpx;
@@ -3511,7 +2690,6 @@
   min-height: 0 !important;
   background: transparent !important;
 }
-
 /* 投票比例条 */
 .vote-bar-row {
   margin-top: 8rpx;
@@ -3530,251 +2708,6 @@
   background: linear-gradient(90deg, #07C160, #06AD56);
   transition: width 0.6s ease;
 }
-
-/* ========== AI 图片识别（搜索弹窗） ========== */
-.search-input-row {
-  display: flex;
-  align-items: center;
-  gap: 16rpx;
-  width: 100%;
-}
-.search-input-row .search-input {
-  flex: 1;
-  min-width: 0;
-}
-.search-camera-btn {
-  display: flex;
-  align-items: center;
-  gap: 6rpx;
-  height: 72rpx;
-  padding: 0 20rpx;
-  background: linear-gradient(135deg, rgba(0, 229, 255, 0.1), rgba(0, 188, 212, 0.08));
-  border: 1px solid rgba(0, 229, 255, 0.2);
-  border-radius: 16rpx;
-  flex-shrink: 0;
-  transition: background 0.2s ease;
-}
-.search-camera-btn:active {
-  background: linear-gradient(135deg, rgba(0, 229, 255, 0.2), rgba(0, 188, 212, 0.15));
-}
-.search-camera-icon { font-size: 30rpx; }
-.search-camera-icon-wrap {
-  width: 36rpx;
-  height: 36rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.search-camera-svg {
-  width: 30rpx;
-  height: 30rpx;
-}
-.search-camera-label {
-  font-size: 22rpx;
-  background: linear-gradient(135deg, #00E5FF, #00BCD4);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  white-space: nowrap;
-  font-weight: 500;
-}
-.search-image-result {
-  display: flex;
-  align-items: flex-start;
-  gap: 16rpx;
-  padding: 20rpx;
-  margin: 16rpx 20rpx 0;
-  background: rgba(0, 122, 255, 0.08);
-  border: 1px solid rgba(0, 122, 255, 0.2);
-  border-radius: 16rpx;
-}
-.search-recognized-img {
-  width: 100rpx;
-  height: 100rpx;
-  border-radius: 12rpx;
-  flex-shrink: 0;
-}
-.search-recognized-info {
-  flex: 1;
-  min-width: 0;
-}
-.search-recognized-title {
-  font-size: 28rpx;
-  color: #fff;
-  font-weight: 600;
-  display: block;
-}
-.search-recognized-detail {
-  font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.6);
-  margin-top: 6rpx;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  line-height: 1.5;
-}
-.search-recognized-close {
-  width: 48rpx;
-  height: 48rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
-}
-.search-recognized-close text {
-  font-size: 28rpx;
-  color: rgba(255, 255, 255, 0.6);
-}
-
-/* ========== AI 图片识别半屏弹窗（复用星舰进度弹窗交互） ========== */
-.img-recognize-mask {
-  position: fixed;
-  left: 0; right: 0; top: 0; bottom: 0;
-  z-index: 9998;
-  background: rgba(0, 0, 0, 0);
-  transition: background 260ms ease;
-  pointer-events: none;
-}
-.img-recognize-mask-show {
-  background: rgba(0, 0, 0, 0.52);
-  pointer-events: auto;
-}
-.img-recognize-panel {
-  position: fixed;
-  left: 0; right: 0; bottom: 0;
-  z-index: 9999;
-  height: 74vh;
-  max-height: 80vh;
-  background: rgba(18, 18, 20, 0.98);
-  border-radius: 28rpx 28rpx 0 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 -10rpx 40rpx rgba(0, 0, 0, 0.45);
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  will-change: transform, box-shadow;
-}
-.img-recognize-panel.ir-enter {
-  animation: ir-slide-up 280ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
-  transition: transform 180ms cubic-bezier(0.22, 0.61, 0.36, 1), box-shadow 200ms ease;
-}
-.img-recognize-panel.ir-dragging {
-  transition: none !important;
-  animation: none !important;
-}
-.img-recognize-panel.ir-bounce {
-  transition: transform 400ms cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 400ms ease;
-}
-.img-recognize-panel.ir-leave {
-  animation: ir-slide-down 260ms cubic-bezier(0.55, 0, 1, 0.45) both;
-}
-@keyframes ir-slide-up {
-  from { transform: translateY(100%); opacity: 0; }
-  to   { transform: translateY(0);    opacity: 1; }
-}
-@keyframes ir-slide-down {
-  from { transform: translateY(0);    opacity: 1; }
-  to   { transform: translateY(100%); opacity: 0; }
-}
-.ir-drag-zone {
-  flex-shrink: 0;
-  padding: 0 30rpx;
-  cursor: grab;
-}
-.ir-handle-bar {
-  padding: 20rpx 0 14rpx;
-  display: flex;
-  justify-content: center;
-}
-.ir-handle {
-  width: 80rpx;
-  height: 8rpx;
-  border-radius: 999rpx;
-  background: rgba(255, 255, 255, 0.30);
-}
-.ir-fixed-header {
-  padding: 4rpx 6rpx 18rpx;
-  display: flex;
-  flex-direction: column;
-  gap: 8rpx;
-}
-.ir-title {
-  font-size: 44rpx;
-  color: #FFFFFF;
-  font-weight: 700;
-  line-height: 1.15;
-  display: block;
-}
-.ir-body {
-  flex: 1;
-  min-height: 0;
-  padding: 0 30rpx;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  box-sizing: border-box;
-  width: 100%;
-  max-width: 100%;
-}
-.ir-body::-webkit-scrollbar {
-  display: none;
-  width: 0;
-}
-.ir-preview {
-  margin-bottom: 28rpx;
-  border-radius: 16rpx;
-  overflow: hidden;
-}
-.ir-photo {
-  width: 100%;
-  border-radius: 16rpx;
-}
-.ir-section {
-  margin-bottom: 24rpx;
-  max-width: 100%;
-  overflow: hidden;
-}
-.ir-label {
-  font-size: 24rpx;
-  color: rgba(255, 255, 255, 0.5);
-  display: block;
-  margin-bottom: 8rpx;
-}
-.ir-value {
-  font-size: 32rpx;
-  font-weight: 500;
-  color: #fff;
-  display: block;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-}
-.ir-desc {
-  font-size: 28rpx;
-  color: rgba(255, 255, 255, 0.85);
-  line-height: 1.7;
-  display: block;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  white-space: pre-wrap;
-}
-.ir-search-btn {
-  margin: 32rpx 0 80rpx;
-  padding: 24rpx;
-  background: rgba(10, 132, 255, 0.15);
-  border: 1px solid rgba(10, 132, 255, 0.3);
-  border-radius: 16rpx;
-  text-align: center;
-}
-.ir-search-btn text {
-  font-size: 28rpx;
-  color: #0A84FF;
-  font-weight: 500;
-}
-
 /* ============ 任务卡片长按分享对话框（居中） ============ */
 .share-dialog-mask {
   position: fixed;
@@ -3888,39 +2821,6 @@
 .share-dialog-cancel--hover {
   background: rgba(255, 255, 255, 0.12);
 }
-
-/* 临时：NASA × FIFA 球迷节悬浮入口（限时 2026-06-11 ~ 07-19，活动下线后整段删除）
-   样式与 NASA 数据中心悬浮球（components/nasa-float .nasa-float-wrap）保持一致 */
-.worldcup-float {
-  position: fixed;
-  width: 96rpx;
-  height: 96rpx;
-  border-radius: 48rpx;
-  background: rgba(12, 14, 18, 0.06);
-  border: none;
-  z-index: 9800;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: none;
-  backdrop-filter: blur(72rpx) saturate(220%);
-  -webkit-backdrop-filter: blur(72rpx) saturate(220%);
-  transition: background 0.2s;
-}
-
-.worldcup-float-icon {
-  width: 48rpx;
-  height: 48rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.worldcup-float-svg {
-  width: 44rpx;
-  height: 44rpx;
-}
-
 /* ========== 明亮主题（theme-light）覆盖 ========== */
 /* 根 view (.container) 挂 theme-light 后，以下覆盖沿 DOM 生效；
    例外（保持深色）：开屏 splash、图片/视频轮播底、压在火箭图上的卡片倒计时、
@@ -3951,7 +2851,6 @@
   color: #FF9500;
   box-shadow: var(--shadow-card);
 }
-
 /* --- 吸顶精简倒计时 --- */
 .theme-light .compact-cd {
   background: var(--bg-glass);
@@ -3971,7 +2870,6 @@
 .theme-light .compact-cd-time {
   color: var(--color-text-primary);
 }
-
 /* --- 倒计时卡片 --- */
 .theme-light .countdown-card-main:active {
   background: rgba(0, 0, 0, 0.03);
@@ -4034,7 +2932,6 @@
 .theme-light .info-value {
   color: var(--color-text-primary);
 }
-
 /* --- 竞猜 / 底部操作栏 --- */
 .theme-light .vote-box {
   border: 1px solid var(--color-divider);
@@ -4083,7 +2980,6 @@
 .theme-light .cd-icon-btn:active {
   background: rgba(0, 0, 0, 0.06);
 }
-
 /* --- 任务列表 --- */
 .theme-light .section-title {
   color: var(--color-text-primary);
@@ -4156,19 +3052,16 @@
 .theme-light .recovery-location-name {
   color: var(--color-text-secondary);
 }
-
-/* 回收图标：仅反色白色中性态（绿=成功/橙=失败的状态色保持不变） */
-.theme-light .mission-recovery-icon--neutral {
-  filter: invert(0.72);
-}
-
 /* 倒计时卡片「回收地点」静态白 SVG / 中性 dataURI（含朱雀 landspace neutral）；
    成功/失败色 dataURI 不加 --mono，不受影响 */
 .theme-light .recovery-icon--mono,
 .theme-light .recovery-place-inline .recovery-icon--mono {
   filter: invert(0.72);
 }
-
+/* 任务卡片回收图标：upcoming / 待确认等白色中性态；成功绿/失败红 dataURI 不受影响 */
+.theme-light .mission-recovery-icon--neutral {
+  filter: invert(0.72);
+}
 /* 例外：压在火箭图上的卡片倒计时保持深色（背景为图片，白字+深渐变不变） */
 .theme-light .mission-rocket-countdown .countdown-item--tech {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
@@ -4187,14 +3080,12 @@
 .theme-light .mission-rocket-countdown .countdown-label--tech {
   color: rgba(149, 208, 255, 0.62);
 }
-
 /* --- 错误 / 空状态 / 页脚 --- */
 .theme-light .error-message,
 .theme-light .empty-text,
 .theme-light .missions-list-footer .footer-text {
   color: var(--color-text-secondary);
 }
-
 /* --- 封路 / 公告横幅（橙色半透明衬底两种主题通用，仅改白字） --- */
 .theme-light .road-closure-msg {
   color: var(--color-text-primary);
@@ -4211,7 +3102,6 @@
 .theme-light .announcement-banner-close:active {
   background: rgba(0, 0, 0, 0.06);
 }
-
 /* --- 公告详情弹窗（mask 保持深色） --- */
 .theme-light .announcement-dialog {
   background: var(--color-bg-card);
@@ -4236,7 +3126,6 @@
 .theme-light .announcement-dialog-close {
   border-top: 1px solid var(--color-divider);
 }
-
 /* --- 发射提醒 / 地图入口 --- */
 .theme-light .subscribe-row {
   background: var(--color-bg-card);
@@ -4247,117 +3136,6 @@
 }
 .theme-light .subscribe-desc {
   color: var(--color-text-secondary);
-}
-.theme-light .subscribe-arrow {
-  color: var(--color-text-tertiary);
-}
-.theme-light .mission-map-link {
-  background: rgba(0, 0, 0, 0.04);
-  border: 1px solid var(--color-divider);
-}
-.theme-light .mission-map-link-title {
-  color: var(--color-text-primary);
-}
-.theme-light .mission-map-link-desc {
-  color: var(--color-text-tertiary);
-}
-.theme-light .mission-map-link-arrow {
-  color: var(--color-text-tertiary);
-}
-
-/* --- 发射日历 --- */
-.theme-light .calendar-query-panel-title {
-  color: var(--color-text-primary);
-}
-.theme-light .calendar-query-panel-divider {
-  color: rgba(0, 0, 0, 0.15);
-}
-.theme-light .calendar-query-panel-subtitle {
-  color: var(--color-text-tertiary);
-}
-.theme-light .calendar-query-panel-count {
-  color: #007AFF;
-}
-.theme-light .calendar-query-panel-arrow {
-  color: var(--color-text-secondary);
-  background: rgba(0, 0, 0, 0.05);
-}
-.theme-light .calendar-filter-title {
-  color: var(--color-text-secondary);
-}
-.theme-light .calendar-filter-chip {
-  background: rgba(0, 0, 0, 0.05);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  color: var(--color-text-secondary);
-}
-.theme-light .calendar-filter-chip--active {
-  background: rgba(0, 122, 255, 0.12);
-  border-color: rgba(0, 122, 255, 0.32);
-  color: #007AFF;
-}
-.theme-light .calendar-query-result {
-  color: var(--color-text-tertiary);
-}
-.theme-light .calendar-query-reset {
-  color: #007AFF;
-}
-.theme-light .calendar-nav {
-  background: rgba(0, 0, 0, 0.05);
-}
-.theme-light .calendar-nav:active {
-  background: rgba(0, 0, 0, 0.1);
-}
-.theme-light .calendar-arrow {
-  border-top: 4rpx solid var(--color-text-primary);
-  border-right: 4rpx solid var(--color-text-primary);
-}
-.theme-light .calendar-month-title {
-  color: var(--color-text-primary);
-}
-.theme-light .calendar-table-legend {
-  border-bottom: 1px solid var(--color-divider);
-}
-.theme-light .calendar-legend-text {
-  color: var(--color-text-tertiary);
-}
-.theme-light .calendar-weekdays {
-  background: rgba(0, 0, 0, 0.03);
-}
-.theme-light .calendar-weekday {
-  color: var(--color-text-tertiary);
-}
-.theme-light .calendar-cell {
-  background: rgba(0, 0, 0, 0.02);
-}
-.theme-light .calendar-cell--has {
-  background: rgba(0, 0, 0, 0.04);
-  border-color: rgba(0, 0, 0, 0.06);
-}
-.theme-light .calendar-cell--heat1 {
-  background: rgba(0, 0, 0, 0.03);
-}
-.theme-light .calendar-cell--heat2 {
-  background: rgba(0, 0, 0, 0.06);
-  border-color: rgba(0, 0, 0, 0.08);
-}
-.theme-light .calendar-cell--today {
-  background: rgba(0, 122, 255, 0.08);
-}
-.theme-light .calendar-cell--selected,
-.theme-light .calendar-cell--selected.calendar-cell--heat1,
-.theme-light .calendar-cell--selected.calendar-cell--heat2,
-.theme-light .calendar-cell--selected.calendar-cell--heat3 {
-  background: rgba(0, 122, 255, 0.15);
-}
-.theme-light .calendar-cell-day {
-  color: var(--color-text-primary);
-}
-.theme-light .calendar-cell-day--today {
-  color: #007AFF;
-}
-.theme-light .calendar-starship-tag text {
-  color: #E8590C;
-  background: rgba(255, 149, 0, 0.14);
 }
 .theme-light .calendar-day-title {
   color: var(--color-text-primary);
@@ -4378,109 +3156,6 @@
   background: rgba(0, 0, 0, 0.08);
   color: var(--color-text-primary);
 }
-
-/* --- 全球发射数据 / SpaceX 统计 --- */
-.theme-light .calendar-stats-title {
-  color: var(--color-text-primary);
-}
-.theme-light .calendar-stats-section .stats-highlight-label {
-  color: var(--color-text-primary);
-}
-.theme-light .calendar-stats-section .stats-highlight-tag {
-  color: var(--color-text-secondary);
-  background: rgba(0, 0, 0, 0.05);
-  border: 1rpx solid var(--color-divider);
-}
-.theme-light .calendar-stats-section .stats-highlight-value {
-  background: linear-gradient(180deg, #1C1C1E 35%, #2E6BD6 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-}
-.theme-light .calendar-stats-section .stats-highlight-unit {
-  color: var(--color-text-secondary);
-}
-.theme-light .calendar-stats-section .stats-highlight-footer {
-  border-top: 1rpx solid var(--color-divider);
-}
-.theme-light .calendar-stats-section .stats-highlight-sub {
-  color: var(--color-text-secondary);
-}
-.theme-light .calendar-stats-section .stats-detail-link {
-  color: #007AFF;
-}
-.theme-light .calendar-stats-section .stats-highlight-dot {
-  background: #007AFF;
-  box-shadow: 0 0 14rpx rgba(0, 122, 255, 0.4);
-}
-.theme-light .calendar-stats-section .stats-highlight-glow {
-  background: radial-gradient(circle, rgba(0, 122, 255, 0.12) 0%, rgba(0, 122, 255, 0) 68%);
-}
-.theme-light .calendar-stats-section .stats-loading-text {
-  color: var(--color-text-secondary);
-}
-.theme-light .spacex-source-tag {
-  color: var(--color-text-tertiary);
-}
-.theme-light .spacex-year-stat-label {
-  color: var(--color-text-primary);
-}
-.theme-light .spacex-year-stat-hint {
-  color: var(--color-text-tertiary);
-}
-.theme-light .spacex-year-stat-value {
-  color: var(--color-text-primary);
-}
-.theme-light .spacex-stat-value {
-  color: var(--color-text-primary);
-}
-.theme-light .spacex-stat-label {
-  color: var(--color-text-secondary);
-}
-.theme-light .spacex-upcoming-title {
-  color: var(--color-text-secondary);
-}
-.theme-light .spacex-upcoming-name {
-  color: var(--color-text-primary);
-}
-.theme-light .spacex-upcoming-vehicle,
-.theme-light .spacex-upcoming-site {
-  color: var(--color-text-tertiary);
-}
-
-/* --- AI 搜索 / 图片识别 --- */
-.theme-light .search-recognized-title {
-  color: var(--color-text-primary);
-}
-.theme-light .search-recognized-detail {
-  color: var(--color-text-secondary);
-}
-.theme-light .search-recognized-close {
-  background: rgba(0, 0, 0, 0.06);
-}
-.theme-light .search-recognized-close text {
-  color: var(--color-text-secondary);
-}
-.theme-light .img-recognize-panel {
-  background: rgba(255, 255, 255, 0.98);
-  border-top: 1px solid var(--color-divider);
-  box-shadow: 0 -10rpx 40rpx rgba(0, 0, 0, 0.12);
-}
-.theme-light .ir-handle {
-  background: rgba(0, 0, 0, 0.18);
-}
-.theme-light .ir-title {
-  color: var(--color-text-primary);
-}
-.theme-light .ir-label {
-  color: var(--color-text-tertiary);
-}
-.theme-light .ir-value {
-  color: var(--color-text-primary);
-}
-.theme-light .ir-desc {
-  color: var(--color-text-primary);
-}
-
 /* --- 长按分享对话框（mask 保持深色） --- */
 .theme-light .share-dialog {
   background: var(--color-bg-card);
@@ -4509,12 +3184,6 @@
 .theme-light .share-dialog-cancel--hover {
   background: rgba(0, 0, 0, 0.1);
 }
-
-/* --- 悬浮球 --- */
-.theme-light .worldcup-float {
-  background: rgba(255, 255, 255, 0.62);
-}
-
 /* --- 白色 SVG 图标（app.wxss / images 中写死白色，页面内用 filter 压深） --- */
 /* 铃铛：invert 压深 + hue-rotate 让 bell-off 的红色斜杠保持红色系 */
 .theme-light .icon-bell--countdown {

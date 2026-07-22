@@ -41,9 +41,16 @@ async function fetchAIChatEnabled() {
 
   _aiConfigFetchInFlight = (async () => {
     try {
-      const db = wx.cloud.database()
-      const res = await db.collection('global_config').doc('main').get()
-      const enabled = res.data && res.data.enableAIChat !== false
+      // 走 feature-flags 的 global_config/main 共享缓存（5 分钟 + inflight 去重），
+      // 与其他全局开关共用同一次读库
+      const { fetchMainConfig } = require('./feature-flags.js')
+      const cfg = await fetchMainConfig()
+      if (!cfg || !cfg._id) {
+        // 读库失败（fetchMainConfig 内部吞错返回 {}）：沿用旧的失败语义，默认放开且不写缓存
+        if (_remoteAIEnabled === null) _remoteAIEnabled = true
+        return _remoteAIEnabled
+      }
+      const enabled = cfg.enableAIChat !== false
       _remoteAIEnabled = enabled
       const entry = { enabled, ts: Date.now() }
       _aiConfigCacheEntry = entry

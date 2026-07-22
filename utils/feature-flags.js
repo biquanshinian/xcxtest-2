@@ -54,22 +54,26 @@ function getCachedMainConfig() {
  * 单个开关是否开启。字段缺省视为开启（!== false），
  * 与 enableBriefing/enableEventVideo 等既有全局开关语义一致。
  * @param {String} field 如 'enableLiveWatch' / 'enablePublishPanel' / 'enableLunarWishes'
- * @param {{ failClosed?: boolean }} [options]
+ * @param {{ failClosed?: boolean, defaultOff?: boolean }} [options]
  *   failClosed=true：读库失败或拿不到 main 配置时视为关闭（用于需彻底隐藏的入口）
+ *   defaultOff=true：字段缺省视为关闭（=== true 才开启），用于「默认关闭、后台显式开启」的新功能，
+ *     与后台管理端 enableMissionSim 等字段的读取语义保持一致
  * @returns {Promise<Boolean>}
  */
 function isFeatureEnabled(field, options) {
   const failClosed = !!(options && options.failClosed)
+  const defaultOff = !!(options && options.defaultOff)
   return fetchMainConfig()
     .then((cfg) => {
       if (failClosed && (!cfg || !cfg._id)) return false
+      if (defaultOff) return cfg[field] === true
       return cfg[field] !== false
     })
     .catch(() => !failClosed)
 }
 
 /**
- * 过审相关「可播视频」是否允许（事件视频 / 世界杯 / 背景 mp4 / video-player）。
+ * 过审相关「可播视频」是否允许（事件视频 / 背景 mp4 / video-player）。
  * failClosed：读不到配置视为关闭，避免送审时露出播放控件。
  * @returns {Promise<Boolean>}
  */

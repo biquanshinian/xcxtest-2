@@ -112,6 +112,7 @@ async function saveToCloudDB(cacheKey, apiData, retryCount) {
     data: apiData,
     updatedAt: db.serverDate(),
     updatedAtMs: Date.now(),
+    timestamp: Date.now(),
     expiresAt: new Date(Date.now() + CACHE_DURATION)
   }
 
@@ -120,14 +121,22 @@ async function saveToCloudDB(cacheKey, apiData, retryCount) {
 
   try {
     if (sizeKB > 800) {
-      const results = apiData.results || []
+      const results = (apiData && Array.isArray(apiData.results)) ? apiData.results : null
+      // 非列表（如单机构 detailed）无 results：禁止写空 isBatched 元文档（会导致前端读到无 data 的空洞）
+      if (!results || results.length === 0) {
+        throw new Error(
+          'payload too large (' + sizeKB + 'KB) without results[] for batching: ' + cacheKey
+        )
+      }
       const batchSize = Math.ceil(results.length / Math.ceil(sizeKB / 600))
       const batches = []
       for (let i = 0; i < results.length; i += batchSize) {
         batches.push(results.slice(i, i + batchSize))
       }
+      const batchKeys = []
       for (let i = 0; i < batches.length; i++) {
         const batchKey = cacheKey + '_batch_' + i
+        batchKeys.push(batchKey)
         const batchRecord = {
           cacheKey: batchKey,
           parentKey: cacheKey,
@@ -145,8 +154,16 @@ async function saveToCloudDB(cacheKey, apiData, retryCount) {
         isBatched: true,
         totalBatches: batches.length,
         totalCount: apiData.count || results.length,
+        // 主文档也挂 data，便于读端识别列表分批（含 batchKeys）
+        data: {
+          isBatched: true,
+          batchKeys: batchKeys,
+          count: apiData.count || results.length,
+          results: []
+        },
         updatedAt: db.serverDate(),
         updatedAtMs: Date.now(),
+        timestamp: Date.now(),
         expiresAt: new Date(Date.now() + CACHE_DURATION)
       }
       await upsertDoc(collection, cacheKey, metaRecord)
@@ -154,6 +171,11 @@ async function saveToCloudDB(cacheKey, apiData, retryCount) {
       await upsertDoc(collection, cacheKey, record)
     }
   } catch (e) {
+    const msg = String((e && e.message) || e || '')
+    // 体积/结构类错误重试无意义，直接失败让上层瘦身或报错
+    if (/without results\[\] for batching|payload too large/i.test(msg)) {
+      throw e
+    }
     if (retryCount < MAX_RETRIES) {
       await new Promise(r => setTimeout(r, 1000 * (retryCount + 1)))
       return saveToCloudDB(cacheKey, apiData, retryCount + 1)
@@ -163,15 +185,16 @@ async function saveToCloudDB(cacheKey, apiData, retryCount) {
 }
 
 async function upsertDoc(collection, docId, record) {
+  // 前端 getCacheFromCloud 用 doc(cacheKey).get()，必须保证 _id === cacheKey
+  const payload = Object.assign({}, record, { cacheKey: docId })
   try {
-    const { data } = await collection.where({ cacheKey: docId }).limit(1).get()
-    if (data.length > 0) {
-      await collection.doc(data[0]._id).update({ data: record })
-    } else {
-      await collection.add({ data: record })
-    }
+    await collection.doc(docId).set({ data: payload })
   } catch (e) {
-    await collection.add({ data: record })
+    try {
+      await collection.doc(docId).update({ data: payload })
+    } catch (e2) {
+      await collection.add({ data: Object.assign({}, payload, { _id: docId }) })
+    }
   }
 }
 

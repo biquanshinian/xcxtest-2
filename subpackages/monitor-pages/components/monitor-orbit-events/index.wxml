@@ -1,0 +1,92 @@
+<!-- 即将进行的在轨任务（从 pages/monitor/monitor.wxml 拆出）— 纯展示组件 -->
+<!-- 即将进行的在轨任务（懒加载，节约资源） -->
+<view class="orbit-section monitor-block {{themeClass}}">
+  <view class="section-title">
+    <text>即将进行的在轨任务</text>
+    <view class="section-badge" wx:if="{{orbitalReady && upcomingOrbitalEvents.length}}">{{upcomingOrbitalEvents.length}}</view>
+    <view class="section-title-right">
+      <view class="monitor-share-wrap">
+        <image class="icon-share icon-share--monitor" src="/images/share-arrow.svg" mode="aspectFit"></image>
+        <button class="monitor-share-btn" open-type="share" hover-class="none" data-share-type="orbit" plain="true"></button>
+      </view>
+    </view>
+  </view>
+
+  <!-- 未加载态 -->
+  <lazy-load-card wx:if="{{!orbitalReady}}" class="orbit-lazy-host" icon="" text="点击加载在轨任务" hint="对接 / 出舱 / 入轨 等近期事件" bind:tap="emitLoadTap" />
+
+  <block wx:else>
+    <view class="station-loading" wx:if="{{orbitalLoading}}">
+      <text class="station-loading-text">加载在轨任务...</text>
+    </view>
+    <view class="orbit-list" wx:elif="{{upcomingOrbitalEvents.length}}">
+      <!-- 第一个任务：大号倒计时面板 -->
+      <view class="orbit-hero glass-card" data-id="{{upcomingOrbitalEvents[0].id}}" bindtap="emitEventTap">
+        <image class="orbit-hero-bg" wx:if="{{upcomingOrbitalEvents[0].imageUrl}}" src="{{upcomingOrbitalEvents[0].imageUrl}}" mode="aspectFill" lazy-load data-index="0" data-id="{{upcomingOrbitalEvents[0].id}}" binderror="emitImageError" />
+        <view class="orbit-hero-mask"></view>
+        <view class="orbit-hero-content">
+          <view class="orbit-hero-tags">
+            <text class="orbit-hero-type">{{upcomingOrbitalEvents[0].typeName}}</text>
+          </view>
+          <text class="orbit-hero-title">{{upcomingOrbitalEvents[0].name}}</text>
+          <view class="orbit-hero-countdown" wx:if="{{!orbitalCountdown.isExpired}}">
+            <view class="orbit-cd-item">
+              <text class="orbit-cd-value">{{orbitalCountdown.days}}</text>
+              <text class="orbit-cd-label">天</text>
+            </view>
+            <text class="orbit-cd-sep">:</text>
+            <view class="orbit-cd-item">
+              <text class="orbit-cd-value">{{orbitalCountdown.hours}}</text>
+              <text class="orbit-cd-label">时</text>
+            </view>
+            <text class="orbit-cd-sep">:</text>
+            <view class="orbit-cd-item">
+              <text class="orbit-cd-value">{{orbitalCountdown.minutes}}</text>
+              <text class="orbit-cd-label">分</text>
+            </view>
+            <text class="orbit-cd-sep">:</text>
+            <view class="orbit-cd-item">
+              <text class="orbit-cd-value">{{orbitalCountdown.seconds}}</text>
+              <text class="orbit-cd-label">秒</text>
+            </view>
+          </view>
+          <view class="orbit-hero-countdown orbit-hero-countdown--live" wx:else>
+            <text class="orbit-cd-live-text">进行中 / 已开始</text>
+          </view>
+          <view class="orbit-hero-meta">
+            <text class="orbit-hero-date">{{upcomingOrbitalEvents[0].dateText}}</text>
+            <text class="orbit-hero-location" wx:if="{{upcomingOrbitalEvents[0].location}}">{{upcomingOrbitalEvents[0].location}}</text>
+          </view>
+          <view class="orbit-hero-cta">
+            <text class="orbit-hero-cta-text">查看详情 ›</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 其余任务：保持原有小卡片 -->
+      <view class="orbit-card glass-card orbit-card--clickable" wx:for="{{upcomingOrbitalEvents}}" wx:if="{{index > 0}}" wx:key="id" data-id="{{item.id}}" bindtap="emitEventTap">
+        <image class="orbit-card-img" wx:if="{{item.imageUrl}}" src="{{item.imageUrl}}" mode="aspectFill" lazy-load data-index="{{index}}" data-id="{{item.id}}" binderror="emitImageError" />
+        <view class="orbit-card-body">
+          <view class="orbit-card-meta orbit-card-meta--top">
+            <text class="orbit-meta-tag orbit-meta-tag--type">{{item.typeName}}</text>
+            <text class="orbit-meta-tag orbit-meta-tag--date">{{item.dateText}}</text>
+          </view>
+          <text class="orbit-card-title">{{item.name}}</text>
+          <view class="orbit-card-meta" wx:if="{{item.location}}">
+            <text class="orbit-meta-tag orbit-meta-tag--location">{{item.location}}</text>
+          </view>
+          <view class="orbit-timeline">
+            <view class="orbit-stat orbit-stat--countdown {{item.countdownClass}}" wx:if="{{item.countdownText}}">
+              <text class="orbit-stat-value">{{item.countdownText}}</text>
+              <text class="orbit-stat-label">距开始</text>
+            </view>
+            <view class="orbit-stat orbit-stat--cta">
+              <text class="orbit-stat-value orbit-stat-cta-text">查看详情 ›</text>
+            </view>
+          </view>
+        </view>
+      </view>
+    </view>
+    <empty-state wx:else icon="" text="暂无即将进行的在轨任务" hint="对接、出舱等事件将自动汇聚" />
+  </block>
+</view>

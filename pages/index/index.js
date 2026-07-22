@@ -1,26 +1,12 @@
 // pages/index/index.js
 const themeUtil = require('../../utils/theme.js')
 const { getUpcomingMissions, getCompletedMissions } = require('../../utils/api-launch-list.js')
-const { getRoadClosureNotice } = require('../../utils/api-road-closure.js')
-const { getActiveAnnouncement } = require('../../utils/api-monitor-data.js')
 const {
   shareMission,
-  getLaunchStatsFromDB,
-  getSpaceXLaunchStats,
   getVoteStats,
-  getVoteStatsStale,
-  castVote,
-  fetchLiveLaunchStatuses,
-  fetchLl2LaunchUpdates,
-  fetchLaunchStatusSnapshot,
-  fetchRecentSettledLaunches,
-  resolveLaunchStatuses
+  fetchLaunchStatusSnapshot
 } = require('../../utils/api-app-services.js')
-const { inferTerminalStatusFromUpdates, buildSettledRowFromUpdates } = require('../../utils/ll2-updates-outcome.js')
-const { computeLaunchDelayInfo } = require('../../utils/launch-delay.js')
-const { getStatusCategory, getStatusBadgeText, isTerminalStatusId } = require('../../utils/api-request.js')
-const { isDemoActive, isLiveAccount, startDemo, startRemoteControl } = require('../../utils/demo-engine.js')
-const { isPlaybackAllowed, isLiveEntryAllowed } = require('../../utils/feature-flags.js')
+const { onLaunchListStale } = require('../../utils/api-request.js')
 const {
   filterExpiredMissions,
   getStatusTextZh,
@@ -28,19 +14,9 @@ const {
   getSecondsReel,
   DEFAULT_ROCKET_IMAGE,
   DEFAULT_SHARE_IMAGE,
-  DEFAULT_CAROUSEL_ITEMS,
-  getInitialVoteState,
-  buildVoteState,
-  buildDualVoteUiPatch,
-  mergeVoteBundle,
-  getLocalVote,
-  saveLocalVote,
-  removeLocalVote,
-  shouldSkipVoteRefresh,
   shouldSkipLaunchStatsRefresh,
   shouldSkipSimpleRefresh,
-  setMissionDetailCacheEntry,
-  buildDetailPrefetchQueue
+  setMissionDetailCacheEntry
 } = require('../../utils/index-page-helpers.js')
 
 const {
@@ -52,7 +28,6 @@ const {
 } = require('../../utils/util.js')
 const storageCache = require('../../utils/storage-sync-cache.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
-const { resolveRoadClosureStatus } = require('../../utils/progress-road-closure.js')
 const {
   fetchMissionListData,
   buildMissionListSetData,
@@ -63,7 +38,6 @@ const {
   buildMissionListViewUpdateData,
   buildMissionReadyState,
   getMissionScrollTopField,
-  getMissionScrollTopValue,
   buildMissionTypeSwitchState,
   buildMissionScrollProgressState,
   buildMissionScrollPositionState,
@@ -74,13 +48,10 @@ const {
   buildLoadMoreFallbackState
 } = require('../../utils/index-mission-state.js')
 const {
-  buildHomeLaunchPanelState,
-  formatHomeLaunchTime,
-  formatHomeLaunchTimeParts,
   buildCurrentLaunchPanelState,
   getNextUpcomingLaunch,
   pickCountdownDisplayMission,
-  collectPastNetUpcomingHeads,
+  shouldHoldPastNetCountdownMission,
   buildCountdownSubscriptionState,
   buildLaunchSwitchEffects,
   shouldRefreshExpiredLaunch,
@@ -93,58 +64,28 @@ const {
   buildUpcomingLaunchErrorState,
   mergePreservedRocketImages
 } = require('../../utils/index-launch-state.js')
+const { nextProbeAction } = require('../../utils/countdown-window-machine.js')
 const { mergeObservationList, projectLaunchRecords, isSettledStatusId } = require('../../utils/launch-status-store.js')
 const {
   resolveMissionDetailSourceData,
   buildMissionDetailNavigation,
   buildMissionShareOptions,
-  attachMissionDetailMeta,
   resolveMissionSharePayload,
   collectMissionShareCandidates
 } = require('../../utils/index-mission-nav.js')
 const { loadMoreInteraction, missionCardCountdown } = require('../../utils/config.js')
 const config = require('../../utils/config.js')
-const { loadCloudMediaMap, resolveMediaUrl } = require('../../utils/image-config.js')
-const { getCachedMediaImage, preloadRocketConfigMedia } = require('../../utils/icon-cache.js')
-const { getCachedVideo } = require('../../utils/video-cache.js')
-const { eventVideoAdUnlockId, playEventVideo } = require('../../utils/event-video.js')
+const { loadCloudMediaMap } = require('../../utils/image-config.js')
+const { preloadRocketConfigMedia } = require('../../utils/icon-cache.js')
 
-/** 视频号直播（分包懒加载，与详情页同源） */
-const CHANNELS_LIVE_PATH = '../../subpackages/shared/utils/channels-live.js'
-const CHANNELS_LIVE_POLL_LIVE_MS = 75 * 1000
-const CHANNELS_LIVE_POLL_IDLE_MS = 4 * 60 * 1000
-/** 点击圆图进直播前的过渡动画时长（与 CSS cd-live-enter 对齐） */
-const CHANNELS_LIVE_ENTER_MS = 220
-let _channelsLiveMod = null
-let _channelsLiveLoadPromise = null
-
-function loadChannelsLiveModule() {
-  if (_channelsLiveMod) return Promise.resolve(_channelsLiveMod)
-  if (_channelsLiveLoadPromise) return _channelsLiveLoadPromise
-  _channelsLiveLoadPromise = require
-    .async(CHANNELS_LIVE_PATH)
-    .then((mod) => {
-      _channelsLiveMod = mod
-      return mod
-    })
-    .catch((err) => {
-      _channelsLiveLoadPromise = null
-      throw err
-    })
-    .finally(() => {
-      if (_channelsLiveMod) _channelsLiveLoadPromise = null
-    })
-  return _channelsLiveLoadPromise
-}
 
 function getLiveFinderUserNameFromConfig() {
   const cfg = (config && config.channelsLive) || {}
   return String(cfg.finderUserName || '').trim()
 }
-const { pooledDownloadFile } = require('../../utils/download-pool.js')
-const { toCdnUrl, optimizeImageUrl, carouselVideoPosterUrl } = require('../../utils/cos-url.js')
+const { toCdnUrl } = require('../../utils/cos-url.js')
 const { markDownloadFailed } = require('../../utils/download-fail-cache.js')
-const { getUiShellLayout, getFloatingActionDragBounds } = require('../../utils/layout.js')
+const { getUiShellLayout } = require('../../utils/layout.js')
 const { getSystemInfo } = require('../../utils/system.js')
 const {
   subscribeLaunch,
@@ -155,13 +96,13 @@ const {
   warmSubscribedStoreSync,
   warmSubscribedStoreAsync
 } = require('../../utils/subscribe.js')
+const { isOaAlertReady, peekOaAlertReady } = require('../../utils/oa-alert.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const {
   getMembershipState,
   isMembershipEnabled,
   isProSync,
   canUsePaidCloudSync,
-  canPrefetchVideoSync,
   gateCheck,
   warmMembershipStateSync,
   warmMembershipStateAsync
@@ -178,42 +119,19 @@ const {
   LAUNCH_CALENDAR_ACK_SIG_KEY
 } = require('../../utils/launch-calendar-signature.js')
 
-// 倒计时到点实时状态确认：LL2 状态更新有滞后，T-0 后先显示「状态确认中」，
-// T+10 分钟才发第一次请求；发射窗内 3 分钟复查、窗外 5 分钟（云端 live 120s 缓存多数命中）；
-// NET+30m 后仍 bestEffort（recent_settled / updates），无终态/飞行中则继续挂起，禁止裸切。
-const LIVE_STATUS_FIRST_CHECK_DELAY_MS = 10 * 60 * 1000
-const LIVE_STATUS_RECHECK_MS = 5 * 60 * 1000
-/** NET±2h 内复查间隔：略高于 120s 缓存，少打云函数且不额外推高 LL2 */
-const LIVE_STATUS_DENSE_RECHECK_MS = 3 * 60 * 1000
-const LIVE_STATUS_DENSE_WINDOW_MS = 2 * 60 * 60 * 1000
-const LIVE_STATUS_MAX_WAIT_MS = 30 * 60 * 1000
-/** NET+30m 仍未决后的复查间隔（拉长，避免空转打 LL2） */
-const LIVE_STATUS_UNRESOLVED_RECHECK_MS = 15 * 60 * 1000
+// 倒计时到点实时状态确认：具体节奏（NET+10m 首查 / 窗口内 3m 复查 / 窗口+宽限后
+// bestEffort、未决 15m 慢探）统一由 utils/countdown-window-machine.js 决策。
 const LIVE_STATUS_MIN_ROUND_GAP_MS = 30 * 1000
-const LL2_UPDATES_MEM_TTL_MS = 5 * 60 * 1000
-const RECENT_SETTLED_MEM_TTL_MS = 10 * 60 * 1000
-/** recent_settled 本地持久化：冷启动先用上次会话快照过滤，免等云函数冷启动 */
-const RECENT_SETTLED_PERSIST_KEY = '_recent_settled_persist_v1'
-const RECENT_SETTLED_PERSIST_MIN_WRITE_GAP_MS = 5 * 1000
+// 结算→历史列表合并域已拆到 ./utils/index-settled-merge.js（主包同步加载）；
+// 相关常量与 isSettleableLiveStatusId 从该模块导入，保持单一来源
+const {
+  methods: settledMergeMethods,
+  isSettleableLiveStatusId,
+  RECENT_SETTLED_MEM_TTL_MS
+} = require('./utils/index-settled-merge.js')
 /** 首屏渲染前等云端 recent_settled 的最大预算（本地快照过期时才等） */
 const RECENT_SETTLED_FIRST_PAINT_BUDGET_MS = 2000
 
-/** 可落历史并切下一个：终态(3/4/7/9) 或飞行中(6) */
-function isSettleableLiveStatusId(id) {
-  const n = id != null ? Number(id) : 0
-  return isTerminalStatusId(n) || n === 6
-}
-
-/** 发射窗内加密复查间隔 */
-function getLiveStatusRecheckDelayMs(launchTime) {
-  const netMs = launchTime ? new Date(launchTime).getTime() : 0
-  if (!netMs || isNaN(netMs)) return LIVE_STATUS_RECHECK_MS
-  const now = Date.now()
-  if (now >= netMs - LIVE_STATUS_DENSE_WINDOW_MS && now <= netMs + LIVE_STATUS_DENSE_WINDOW_MS) {
-    return LIVE_STATUS_DENSE_RECHECK_MS
-  }
-  return LIVE_STATUS_RECHECK_MS
-}
 
 // 非会员任务列表免费可见条数（即将发射 / 历史发射各自计）；
 // 会员功能未开启、Pro 用户或广告解锁期内不限制
@@ -268,8 +186,6 @@ const CALENDAR_METHODS = [
   'resetCalendarFilters',
   'buildMapEntryList',
   'openCalendarMapLink',
-  'onCalendarSwipeStart',
-  'onCalendarSwipeEnd',
   '_patchCalendarMissionRocketImage',
   'loadLaunchStats',
   'goGlobalLaunchStats'
@@ -292,33 +208,63 @@ CALENDAR_METHODS.forEach((name) => {
   calendarDelegates[name] = delegateCalendar(name)
 })
 
+// 长按保存轮播图（纯用户触发路径）走分包异步加载
+const SAVE_IMAGE_PKG = '../../subpackages/index-extra/utils/index-save-image.js'
+const SAVE_IMAGE_METHODS = ['saveCarouselImage', 'saveImageToAlbum', 'handleSaveImageError']
+function delegateSaveImage(name) {
+  return function (...args) {
+    const page = this
+    if (page.__saveImageAttached) return page[name](...args)
+    if (!page.__saveImageLoadPromise) {
+      page.__saveImageLoadPromise = require.async(SAVE_IMAGE_PKG).then((mod) => {
+        mod.attachTo(page)
+        return mod
+      })
+    }
+    return page.__saveImageLoadPromise.then(() => page[name](...args))
+  }
+}
+const saveImageDelegates = {}
+SAVE_IMAGE_METHODS.forEach((name) => {
+  saveImageDelegates[name] = delegateSaveImage(name)
+})
+
+// 发射竞猜逻辑同样走分包异步加载（竞猜框在倒计时数据就绪后才出现，可延迟）
+const VOTE_PKG = '../../subpackages/index-extra/utils/index-vote.js'
+const VOTE_METHODS = [
+  'resetVoteData',
+  '_scheduleVoteRecheck',
+  '_buildVoteMissionInfo',
+  '_applyVoteBundle',
+  'onVoteTypeSwitch',
+  'loadVoteData',
+  'onVote'
+]
+function delegateVote(name) {
+  return function (...args) {
+    const page = this
+    if (page.__voteAttached) return page[name](...args)
+    if (!page.__voteLoadPromise) {
+      page.__voteLoadPromise = require.async(VOTE_PKG).then((mod) => {
+        mod.attachTo(page)
+        return mod
+      })
+    }
+    return page.__voteLoadPromise.then(() => page[name](...args))
+  }
+}
+const voteDelegates = {}
+VOTE_METHODS.forEach((name) => {
+  voteDelegates[name] = delegateVote(name)
+})
+
 const PINNED_UPCOMING_MISSION_STORAGE_KEY = '_idx_pinned_upcoming_mission_id'
 
 // 开屏动画：本地缓存的配置 + 已下载媒体文件路径（冷启动零网络等待）
-const SPLASH_CACHE_KEY = '_splash_screen_cache'
 
 const COS_DEMO_QR_URL = toCdnUrl(
   'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%B0%8F%E7%A8%8B%E5%BA%8F%E4%BA%8C%E7%BB%B4%E7%A0%81/1775323336594_jkl6zv.png'
 )
-
-// 临时：NASA × FIFA 球迷节悬浮入口（活动下线后整段删除）
-const COS_WORLDCUP_LOGO_URL = toCdnUrl(
-  'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%9B%BE%E6%A0%87/1781152428682_whvs5h.svg'
-)
-const WORLDCUP_FLOAT_STORAGE_KEY = '_idx_worldcup_float_pos'
-const WORLDCUP_FLOAT_GAP_PX = 12
-
-/** 活动是否进行中：开始按北京时间 6/11（国内用户当天即可见），结束按休斯顿 UTC-5 的 7/19 闭幕日终 */
-function isWorldcupEventActive() {
-  const nowMs = Date.now()
-  return nowMs >= Date.parse('2026-06-11T00:00:00+08:00') && nowMs < Date.parse('2026-07-20T00:00:00-05:00')
-}
-
-/** 世界杯悬浮球：活动期内且可播视频开关开启（过审关 enableEventVideo 时隐藏） */
-function resolveWorldcupFloatVisible() {
-  if (!isWorldcupEventActive()) return Promise.resolve(false)
-  return isPlaybackAllowed().catch(() => false)
-}
 
 function sortPinnedMissionFirst(list, pinnedId) {
   if (!pinnedId || !Array.isArray(list) || !list.length) return list.slice()
@@ -330,21 +276,202 @@ function sortPinnedMissionFirst(list, pinnedId) {
   return [row, ...next]
 }
 
-const CAROUSEL_CONFIG_CACHE_KEY = '_carousel_global_config_cache'
-const CAROUSEL_CONFIG_CACHE_TTL = 10 * 60 * 1000
 /** 首屏等待云媒体映射的最大时间，超时后继续拉列表，避免长时间白屏 */
 const LOAD_CLOUD_MEDIA_MAP_FIRST_PAINT_BUDGET_MS = 2500
 
-const ROAD_CLOSURE_REFRESH_TTL = 5 * 60 * 1000
-const SPACEX_STATS_REFRESH_TTL = 10 * 60 * 1000
-// 竞猜刷新间隔：此前 15s，每次切 Tab 回首页都会重新打 adminGateway（skipCache=true 绕过本地缓存）。
-// 投票后的最新票数由 castVote 返回值直接回填 bundle，不依赖这里的定时刷新；
-// 防降级复核路径会先把 loadedAt 归零再触发，也不受该 TTL 影响。
-const VOTE_REFRESH_TTL = 5 * 60 * 1000
-const LAUNCH_STATS_REFRESH_TTL = 5 * 60 * 1000
+const CAROUSEL_PKG = '../../subpackages/index-extra/utils/index-carousel.js'
+const CAROUSEL_METHODS = [
+  'getDefaultCarouselImages',
+  'loadCarouselImages',
+  '_enrichCarouselAccounts',
+  '_getTweetAccountsCached',
+  'onCarouselAvatarError',
+  '_enrichCarouselCaptions',
+  '_startCarouselTimer',
+  '_stopCarouselTimer',
+  '_stopCarouselVideo',
+  '_updateCarouselAutoplayGate',
+  '_activateCarouselVideos',
+  '_playCurrentVideoIfNeeded',
+  'onCarouselChange',
+  'onCarouselVideoTimeUpdate',
+  'onCarouselVideoError',
+  'onCarouselCaptionTap',
+  'onCarouselVideoTap',
+  'onCarouselImageLoad',
+  'onCarouselImageError',
+  'previewCarouselImage'
+]
+function delegateCarousel(name) {
+  return function (...args) {
+    const page = this
+    if (page.__carouselAttached) return page[name](...args)
+    if (!page.__carouselLoadPromise) {
+      page.__carouselLoadPromise = require.async(CAROUSEL_PKG).then((mod) => {
+        mod.attachTo(page)
+        return mod
+      }).catch((err) => {
+        page.__carouselLoadPromise = null
+        console.error('[Index] 轮播分包模块加载失败:', err)
+        throw err
+      })
+    }
+    return page.__carouselLoadPromise.then(() => page[name](...args))
+  }
+}
+const carouselDelegates = {}
+CAROUSEL_METHODS.forEach((name) => {
+  carouselDelegates[name] = delegateCarousel(name)
+})
+
+const SPLASH_PKG = '../../subpackages/index-extra/utils/index-splash.js'
+const SPLASH_METHODS = [
+  'loadSplashScreen',
+  '_showSplash',
+  '_startSplashTick',
+  '_resumeSplashTimer',
+  'onSplashVideoPlay',
+  'onSplashVideoTimeUpdate',
+  'onSplashVideoLoadedMeta',
+  'onSplashVideoError',
+  '_cacheSplashMedia',
+  'onSplashVideoEnded',
+  'onSplashSkipTap',
+  'onSplashMissionTap',
+  'closeSplash'
+]
+function delegateSplash(name) {
+  return function (...args) {
+    const page = this
+    if (page.__splashAttached) return page[name](...args)
+    if (!page.__splashLoadPromise) {
+      page.__splashLoadPromise = require.async(SPLASH_PKG).then((mod) => {
+        mod.attachTo(page)
+        return mod
+      }).catch((err) => {
+        page.__splashLoadPromise = null
+        console.error('[Index] 开屏分包模块加载失败:', err)
+        throw err
+      })
+    }
+    return page.__splashLoadPromise.then(() => page[name](...args))
+  }
+}
+const splashDelegates = {}
+SPLASH_METHODS.forEach((name) => {
+  splashDelegates[name] = delegateSplash(name)
+})
+
+
+// ========== 结算/实况/直播/低频加载：在 index-extra 分包（index-live-settle.js） ==========
+// 全部调用点均为语句式（无同步返回值依赖）；首页 preloadRule 预下载分包，几乎无等待。
+// 注意：_onCountdownExpired / onHide / _clearLiveStatusPolling / _clearCountdownChannelsLivePoll
+// 因需同步操作定时器锁保留在主包，与模块共享 page 实例属性（见模块头注释）。
+const LIVE_SETTLE_PKG = '../../subpackages/index-extra/utils/index-live-settle.js'
+const LIVE_SETTLE_METHODS = [
+  '_scrubKnownSettleableCountdown',
+  '_refilterUpcomingAgainstSettled',
+  'refreshLaunchDelayInfo',
+  '_tryLaunchDelayFromUpdatesCache',
+  '_kickQuietSettlePastNetUpcoming',
+  '_quietSettlePastNetMission',
+  '_applyQuietPostponedNet',
+  '_settleExpiredLaunch',
+  '_refreshUpcomingAfterSettle',
+  '_moveMissionToCompleted',
+  '_applyPostponedNet',
+  '_checkLiveLaunchStatus',
+  '_fetchLl2UpdatesCached',
+  '_fetchTerminalFromLl2Updates',
+  '_trySettleFromLl2Updates',
+  '_scheduleStatusRecheck',
+  '_applyLiveStatusPanel',
+  '_armLiveStatusRecheck',
+  '_settleExpiredLaunchWithBestEffort',
+  '_patchUpcomingListLiveStatuses',
+  'refreshCountdownChannelsLive',
+  '_scheduleCountdownChannelsLivePoll',
+  'onCountdownLiveAvatarTap',
+  '_openCountdownChannelsLive',
+  'loadRoadClosureNotice',
+  'openRoadClosureDetail',
+  'loadSpaceXStats',
+  'loadAnnouncementBanner',
+  'openAnnouncementDetail',
+  'onContactCallback',
+  '_refreshRocketImagesFromMediaMap'
+]
+function delegateLiveSettle(name) {
+  return function (...args) {
+    const page = this
+    if (page.__liveSettleAttached) return page[name](...args)
+    if (!page.__liveSettleLoadPromise) {
+      page.__liveSettleLoadPromise = require.async(LIVE_SETTLE_PKG).then((mod) => {
+        mod.attachTo(page)
+        return mod
+      }).catch((err) => {
+        page.__liveSettleLoadPromise = null
+        throw err
+      })
+    }
+    return page.__liveSettleLoadPromise.then(() => page[name](...args))
+  }
+}
+const liveSettleDelegates = {}
+LIVE_SETTLE_METHODS.forEach((name) => {
+  liveSettleDelegates[name] = delegateLiveSettle(name)
+})
+
+// ========== 低频 UX（演示/隐私/分享面板/公告关闭）：index-extra ==========
+const UX_PKG = '../../subpackages/index-extra/utils/index-ux.js'
+const UX_METHODS = [
+  "closeAnnouncementBanner",
+  "closeAnnouncementDetail",
+  "openAISearch",
+  "openShop",
+  "_initDemoMode",
+  "onDemoRemoteStart",
+  "onDemoStop",
+  "_maybePromptPrivacy",
+  "_resumeDeferredPopups",
+  "onMissionShareTap",
+  "onMissionLongPress",
+  "onShareSheetClose",
+  "onShareSheetItemTap",
+  "onShareBriefing",
+  "onBriefingClosed",
+  "_tryShowRenewalReminder",
+  "ensureShareImageHttpUrl"
+]
+function delegateUx(name) {
+  return function (...args) {
+    const page = this
+    if (page.__uxAttached) return page[name](...args)
+    if (!page.__uxLoadPromise) {
+      page.__uxLoadPromise = require.async(UX_PKG).then((mod) => {
+        mod.attachTo(page)
+        return mod
+      }).catch((err) => {
+        page.__uxLoadPromise = null
+        throw err
+      })
+    }
+    return page.__uxLoadPromise.then(() => page[name](...args))
+  }
+}
+const uxDelegates = {}
+UX_METHODS.forEach((name) => {
+  uxDelegates[name] = delegateUx(name)
+})
 
 Page({
+  ...uxDelegates,
+  ...liveSettleDelegates,
+  ...splashDelegates,
+  ...carouselDelegates,
   ...calendarDelegates,
+  ...voteDelegates,
+  ...saveImageDelegates,
   onLoad(options) {
     this._pageLoadAt = Date.now()
     this._launchRecordsById = new Map()
@@ -352,6 +479,12 @@ Page({
     // 冷启动立即异步回灌上次会话的 recent_settled 快照：
     // 首屏列表过滤可直接用本地快照，不再被 ll2Query 冷启动（数秒）卡住
     this._hydrateRecentSettledFromStorage()
+    // 后台探云发现 previous/upcoming 变新鲜时刷新 UI（此前只有 monitor 订了 onStaleUpdate）
+    this._offLaunchListStale = onLaunchListStale((info) => {
+      try {
+        this._onLaunchListCacheStale(info)
+      } catch (e) {}
+    })
     // 朋友圈分享只能携带 query 参数（不能指定 path），因此用户从朋友圈点击进来
     // 总是落到首页。这里检测 query 是否带 mission id，若有就直接跳详情页，
     // 实现"打开即看到该任务详情"的体验。
@@ -389,7 +522,6 @@ Page({
       }
     }
 
-    // 临时：NASA × FIFA 球迷节悬浮按钮限时显示；过审关闭视频时一并隐藏
     this.setData({
       themeClass: themeUtil.getThemeClassSync(),
       themeLight: themeUtil.isLightSync(),
@@ -402,14 +534,7 @@ Page({
       compactCdRight: windowWidth - menuBtn.left + 8,
       isProUser: false,
       missionSwipeActionWidthPx: Math.round((windowWidth * 176) / 750),
-      pinnedUpcomingMissionId: '',
-      worldcupFloatVisible: false
-    })
-
-    resolveWorldcupFloatVisible().then((worldcupFloatVisible) => {
-      if (!worldcupFloatVisible) return
-      this.setData({ worldcupFloatVisible: true })
-      this._scheduleWorldcupFloatLayoutInit()
+      pinnedUpcomingMissionId: ''
     })
 
     // 置顶 id / Pro 态非首屏必需：异步读 storage，避免阻塞首帧
@@ -535,19 +660,6 @@ Page({
       this._resumeSplashTimer()
     }
 
-    // 临时：世界杯活动入口生命周期复查——活动到期或过审关视频后立即消失
-    resolveWorldcupFloatVisible().then((wcActive) => {
-      if (this.data.worldcupFloatVisible !== wcActive) {
-        this.setData({ worldcupFloatVisible: wcActive })
-        if (wcActive) this._scheduleWorldcupFloatLayoutInit()
-      } else if (wcActive && this.data.worldcupFloatReady) {
-        const clamped = this._clampWorldcupFloatPos(this.data.worldcupFloatX, this.data.worldcupFloatY)
-        if (clamped.x !== this.data.worldcupFloatX || clamped.y !== this.data.worldcupFloatY) {
-          this.setData({ worldcupFloatX: clamped.x, worldcupFloatY: clamped.y })
-        }
-      }
-    })
-
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
       const tabBar = this.getTabBar()
       tabBar.setData({
@@ -607,6 +719,7 @@ Page({
       if (this.data.launchData && this.data.launchData.id) {
         const launchId = this.data.launchData.id
         const subPatch = buildCountdownSubscriptionState(this.data.launchData, null, this._getPageSubscribedIdSet())
+        // 不再因 OA 就绪强行点亮铃铛：OA 下铃铛=结果通知是否已开
         if (subPatch._countdownSubscribed !== this.data._countdownSubscribed) {
           this.setData(subPatch)
         }
@@ -621,14 +734,16 @@ Page({
         }, 800)
         syncSubscriptionState(this.data.launchData.id).then((subscribed) => {
           this._invalidatePageSubscribedIdSet()
-          if (this.data._countdownSubscribed !== subscribed) {
-            this.setData({ _countdownSubscribed: subscribed })
+          const next = !!subscribed
+          if (this.data._countdownSubscribed !== next) {
+            this.setData({ _countdownSubscribed: next })
           }
           this._syncDisplayedUpcomingSwipeRowFlags()
         })
       } else {
         this._syncDisplayedUpcomingSwipeRowFlags()
       }
+      this._refreshOaAlertReady(false)
 
       // 冷启动 3s 内 onLoad 已调度会员/筛选刷新，避免 onShow 重复 setData
       const sinceLoad = Date.now() - (this._pageLoadAt || 0)
@@ -775,298 +890,31 @@ Page({
       }
       if (seenAdd.has(idStr)) continue
       seenAdd.add(idStr)
-      const row = byId.get(idStr)
+      // settleable 来自 _launchRecordsById；recentSettledCache 可能尚未对齐，不能只查 cache
+      const cached = byId.get(idStr)
+      const record = this._launchRecordsById && this._launchRecordsById.get(idStr)
+      const row =
+        cached && cached.status
+          ? cached
+          : record && record.status
+            ? {
+                id: idStr,
+                name: record.name || m.name || '',
+                net: record.net || m.launchTime || '',
+                status: record.status,
+                settledAtMs: record.observedAtMs || Date.now()
+              }
+            : null
       if (row && row.status) {
         const card = this._buildCompletedItemFromSettled(row, m)
         this._rememberSessionCompleted(card)
         completedAdds.push(card)
+      } else {
+        // 无状态证据时宁可不 peel，避免即将发射删了、历史又插不进
+        upcoming.push(m)
       }
     }
     return { upcoming, completedAdds }
-  },
-
-  /**
-   * 倒计时若正停在「已可落库」任务上：同一拍切走并写入历史，不给人闪一下的机会。
-   */
-  _scrubKnownSettleableCountdown() {
-    const ld = this.data.launchData
-    const curId = ld && ld.id != null ? String(ld.id) : ''
-    if (!curId || !this._isKnownSettleableId(curId)) return
-
-    const peeled = this._peelKnownSettleableFromUpcoming(this.data.upcomingMissions || [])
-    const next = pickCountdownDisplayMission(peeled.upcoming, Date.now()) || peeled.upcoming[0] || null
-    const patch = {
-      upcomingMissions: peeled.upcoming
-    }
-    if (peeled.completedAdds.length) {
-      const addIds = new Set(peeled.completedAdds.map((c) => String(c.id)))
-      patch.completedMissions = peeled.completedAdds.concat(
-        (this.data.completedMissions || []).filter((m) => m && m.id != null && !addIds.has(String(m.id)))
-      )
-    }
-    this.applyUpcomingAgencyFilterToPatch(patch)
-    if (next) {
-      Object.assign(
-        patch,
-        buildCurrentLaunchPanelState({
-          mission: next,
-          formatDate,
-          getStatusTextZh,
-          subscribedIdSet: this._getPageSubscribedIdSet()
-        })
-      )
-    } else {
-      Object.assign(
-        patch,
-        buildUpcomingLaunchEmptyState({
-          message: '暂无即将发射的任务',
-          upcomingListState: {}
-        })
-      )
-    }
-    this.setData(patch, () => {
-      try {
-        this.scheduleUpcomingAgencyChipsOverflowHint()
-      } catch (e) {}
-      if (next) {
-        try {
-          this.applyLaunchSwitchEffects(next)
-        } catch (e2) {}
-        try {
-          this.updateCountdown()
-        } catch (e3) {}
-      } else {
-        try {
-          this.resetVoteData()
-        } catch (e4) {}
-      }
-      if (patch.completedMissions) {
-        try {
-          this.updateMissionListView('completed', patch.completedMissions)
-        } catch (e5) {}
-      }
-    })
-  },
-
-  /** 用当前 settled 再滤一遍即将发射；若倒计时仍是已落库任务则同拍切走 */
-  _refilterUpcomingAgainstSettled() {
-    const list = this.data.upcomingMissions || []
-    const peeled = this._peelKnownSettleableFromUpcoming(list)
-    const filtered = peeled.upcoming
-    const curId = this.data.launchData && this.data.launchData.id != null ? String(this.data.launchData.id) : ''
-    const curSettleable = curId && this._isKnownSettleableId(curId)
-    if (filtered.length === list.length && !peeled.completedAdds.length && !curSettleable) return
-
-    const patch = { upcomingMissions: filtered }
-    if (peeled.completedAdds.length) {
-      const addIds = new Set(peeled.completedAdds.map((c) => String(c.id)))
-      patch.completedMissions = peeled.completedAdds.concat(
-        (this.data.completedMissions || []).filter((m) => m && m.id != null && !addIds.has(String(m.id)))
-      )
-    }
-    this.applyUpcomingAgencyFilterToPatch(patch)
-
-    if (curSettleable || (curId && !filtered.some((m) => m && String(m.id) === curId))) {
-      const next = pickCountdownDisplayMission(filtered, Date.now()) || filtered[0] || null
-      if (next) {
-        Object.assign(
-          patch,
-          buildCurrentLaunchPanelState({
-            mission: next,
-            formatDate,
-            getStatusTextZh,
-            subscribedIdSet: this._getPageSubscribedIdSet()
-          })
-        )
-      } else {
-        Object.assign(
-          patch,
-          buildUpcomingLaunchEmptyState({
-            message: '暂无即将发射的任务',
-            upcomingListState: {}
-          })
-        )
-      }
-    }
-
-    this.setData(patch, () => {
-      try {
-        this.scheduleUpcomingAgencyChipsOverflowHint()
-      } catch (e) {}
-      if (patch.launchData && patch.launchData.id) {
-        try {
-          this.applyLaunchSwitchEffects(patch.launchData)
-        } catch (e2) {}
-        try {
-          this.updateCountdown()
-        } catch (e3) {}
-      }
-      if (patch.completedMissions) {
-        try {
-          this.updateMissionListView('completed', patch.completedMissions)
-        } catch (e4) {}
-      }
-    })
-  },
-
-  /** 临时：跳转 NASA × FIFA 球迷节活动页（活动下线后随悬浮按钮一起删除） */
-  onOpenWorldcupEvent() {
-    navigateTo(ROUTES.WORLDCUP_EVENT)
-  },
-
-  _isAddDesktopStripVisible() {
-    try {
-      if (typeof this.getTabBar !== 'function') return false
-      const tabBar = this.getTabBar()
-      return !!(tabBar && tabBar.data && tabBar.data.showAddDesktopStrip)
-    } catch (e) {
-      return false
-    }
-  },
-
-  _getWorldcupDragBounds() {
-    const app = getApp && getApp()
-    const sys = getSystemInfo()
-    const layout = (app && app.getUiShellLayout && app.getUiShellLayout()) || getUiShellLayout(sys)
-    return getFloatingActionDragBounds(sys, {
-      showAddDesktopStrip: this._isAddDesktopStripVisible(),
-      btnSize: Math.round(((layout.windowWidth || sys.windowWidth || 375) / 750) * 96)
-    })
-  },
-
-  _clampWorldcupFloatPos(x, y) {
-    const b = this._getWorldcupDragBounds()
-    return {
-      x: Math.max(b.minX, Math.min(b.maxX, x)),
-      y: Math.max(b.minY, Math.min(b.maxY, y))
-    }
-  },
-
-  _scheduleWorldcupFloatLayoutInit() {
-    if (this._worldcupLayoutInitTimer) clearTimeout(this._worldcupLayoutInitTimer)
-    this._worldcupLayoutInitTimer = setTimeout(() => {
-      this._worldcupLayoutInitTimer = null
-      this._initWorldcupFloatLayout()
-    }, 80)
-  },
-
-  _initWorldcupFloatLayout() {
-    if (!this.data.worldcupFloatVisible) return
-
-    if (this._worldcupUserPositioned) {
-      const clamped = this._clampWorldcupFloatPos(this.data.worldcupFloatX, this.data.worldcupFloatY)
-      this.setData({
-        worldcupFloatX: clamped.x,
-        worldcupFloatY: clamped.y,
-        worldcupFloatReady: true
-      })
-      return
-    }
-
-    try {
-      const cached = wx.getStorageSync(WORLDCUP_FLOAT_STORAGE_KEY)
-      if (cached && typeof cached.x === 'number' && typeof cached.y === 'number') {
-        const clamped = this._clampWorldcupFloatPos(cached.x, cached.y)
-        this._worldcupUserPositioned = true
-        this.setData({
-          worldcupFloatX: clamped.x,
-          worldcupFloatY: clamped.y,
-          worldcupFloatReady: true
-        })
-        return
-      }
-    } catch (e) {}
-
-    this._syncWorldcupBelowNasaFloat()
-  },
-
-  _syncWorldcupBelowNasaFloat(nasaPos) {
-    if (!this.data.worldcupFloatVisible || this._worldcupUserPositioned) return
-
-    let nasa = nasaPos
-    if (!nasa) {
-      const comp = this.selectComponent('#nasaFloat')
-      if (comp && typeof comp.getFloatPosition === 'function') {
-        nasa = comp.getFloatPosition()
-      }
-    }
-    const bounds = this._getWorldcupDragBounds()
-    if (!nasa || !nasa.btnSize) {
-      const sys = getSystemInfo()
-      const btnSize = bounds.btnSize
-      const btnX = sys.windowWidth - btnSize - bounds.edgeMargin
-      const btnY = Math.round(sys.windowHeight * 0.65)
-      nasa = { btnX, btnY, btnSize }
-    }
-
-    let wcY = nasa.btnY + nasa.btnSize + WORLDCUP_FLOAT_GAP_PX
-    if (wcY > bounds.maxY) {
-      wcY = Math.max(bounds.minY, nasa.btnY - nasa.btnSize - WORLDCUP_FLOAT_GAP_PX)
-    }
-    const clamped = this._clampWorldcupFloatPos(nasa.btnX, wcY)
-    this.setData({
-      worldcupFloatX: clamped.x,
-      worldcupFloatY: clamped.y,
-      worldcupFloatReady: true
-    })
-  },
-
-  onNasaFloatPositionChange(e) {
-    const detail = (e && e.detail) || {}
-    if (!detail.btnSize) return
-    this._syncWorldcupBelowNasaFloat(detail)
-  },
-
-  onWorldcupTouchStart(e) {
-    const t = e.touches[0]
-    this._wcTouchStartX = t.clientX
-    this._wcTouchStartY = t.clientY
-    this._wcStartFloatX = this.data.worldcupFloatX
-    this._wcStartFloatY = this.data.worldcupFloatY
-    this._wcDragging = false
-  },
-
-  onWorldcupTouchMove(e) {
-    const t = e.touches[0]
-    const dx = t.clientX - this._wcTouchStartX
-    const dy = t.clientY - this._wcTouchStartY
-    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) this._wcDragging = true
-    const clamped = this._clampWorldcupFloatPos(this._wcStartFloatX + dx, this._wcStartFloatY + dy)
-    this._wcPendingX = clamped.x
-    this._wcPendingY = clamped.y
-    const now = Date.now()
-    if (!this._wcLastMoveSetAt || now - this._wcLastMoveSetAt >= 16) {
-      this._wcLastMoveSetAt = now
-      this.setData({ worldcupFloatX: clamped.x, worldcupFloatY: clamped.y })
-    }
-  },
-
-  onWorldcupTouchEnd() {
-    if (this._wcDragging) {
-      if (this._wcPendingX != null) {
-        this.setData({ worldcupFloatX: this._wcPendingX, worldcupFloatY: this._wcPendingY })
-      }
-      this._snapWorldcupFloatToEdge()
-      this._worldcupUserPositioned = true
-      try {
-        wx.setStorageSync(WORLDCUP_FLOAT_STORAGE_KEY, {
-          x: this.data.worldcupFloatX,
-          y: this.data.worldcupFloatY
-        })
-      } catch (e) {}
-      return
-    }
-    this.onOpenWorldcupEvent()
-  },
-
-  _snapWorldcupFloatToEdge() {
-    const bounds = this._getWorldcupDragBounds()
-    const { btnSize, windowWidth, edgeMargin } = bounds
-    const btnX = this.data.worldcupFloatX
-    const btnY = this.data.worldcupFloatY
-    const newX = btnX + btnSize / 2 < windowWidth / 2 ? edgeMargin : windowWidth - btnSize - edgeMargin
-    const clamped = this._clampWorldcupFloatPos(newX, btnY)
-    this.setData({ worldcupFloatX: clamped.x, worldcupFloatY: clamped.y })
   },
 
   data: {
@@ -1076,12 +924,6 @@ Page({
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
     tabBarReservedHeight: 0,
-    /** 临时：NASA × FIFA 球迷节悬浮入口（限时 2026-06-11 ~ 07-19，onLoad/onShow 按日期门控） */
-    worldcupFloatVisible: false,
-    worldcupLogoUrl: COS_WORLDCUP_LOGO_URL,
-    worldcupFloatX: 0,
-    worldcupFloatY: 0,
-    worldcupFloatReady: false,
     missionType: 'upcoming', // upcoming / completed / calendar
     /** 发射日历：日历合并数据相对上次「已读摘要」有变动则显示；进入日历 Tab 即清除 */
     showLaunchCalendarDot: false,
@@ -1126,6 +968,8 @@ Page({
     completedMissions: [],
     carouselImages: [],
     carouselItems: [],
+    /** 轮播数据未回来前显示等高骨架，避免异步插入造成布局偏移（CLS） */
+    carouselPending: true,
     carouselCurrent: 0,
     carouselImageDuration: 5000,
     carouselVideoDuration: 5000,
@@ -1216,7 +1060,12 @@ Page({
     splashConfig: null,
     splashCountdown: 0,
     splashVideoReady: false,
+    // 开屏任务倒计时卡片（后台给媒体项配置任务名称后展示）
+    splashMission: null,
+    splashMissionCd: null,
     _countdownSubscribed: false,
+    /** 服务号自动提醒已就绪：全任务覆盖，不再引导逐条订阅 */
+    oaAlertReady: false,
     launchStats: {},
     launchStatsLoading: false,
     launchStatsError: '',
@@ -1232,42 +1081,7 @@ Page({
     isEnteringLive: false
   },
 
-  /**
-   * 把网络分享缩略图（COS https / cloud://）下载到本地临时路径，并写入 data.shareImage。
-   * 这样 onShareAppMessage / onShareTimeline 可以直接用本地路径，
-   * 彻底规避 iOS 朋友圈、低端机型对网络图片缩略图加载失败的问题。
-   * 同一 URL 不会重复下载。
-   */
-  ensureShareImageHttpUrl(imageUrl) {
-    if (!imageUrl || typeof imageUrl !== 'string') return
-    var trimmed = imageUrl.trim()
-    if (!trimmed) return
-    // 已经是本地临时路径：直接写入，无需再下载
-    if (trimmed.startsWith('wxfile://') || /^http:\/\/tmp/.test(trimmed)) {
-      if (this.data.shareImage !== trimmed) this.setData({ shareImage: trimmed })
-      return
-    }
-    // 命中缓存：URL 没变 + 本地路径已就绪
-    if (this._shareImageSourceUrl === trimmed && this.data.shareImage) return
-    this._shareImageSourceUrl = trimmed
 
-    var self = this
-    wx.getImageInfo({
-      src: trimmed,
-      success: function (res) {
-        // 下载完成期间用户可能已经切换到了别的任务，这里用 _shareImageSourceUrl 做校验
-        if (res && res.path && self._shareImageSourceUrl === trimmed) {
-          self.setData({ shareImage: res.path })
-        }
-      },
-      fail: function () {
-        // 下载失败时清掉缓存标记，允许下次重试
-        if (self._shareImageSourceUrl === trimmed) {
-          self._shareImageSourceUrl = ''
-        }
-      }
-    })
-  },
 
   /** 卡片列表把某条的 rocketImage 修好后，与当前倒计时为同一 mission 时对齐到 launchData（列表与倒计时同源显示） */
   syncLaunchDataRocketImageFromListByMissionId(missionId, rocketImageSrc) {
@@ -1445,7 +1259,7 @@ Page({
     safePatch.displayedUpcomingMissions = disp
   },
 
-  /** 列表项：reminderOn（isSubscribed）、pinnedOn（当前置顶 id），供左滑 UI 直接绑定，不走 WXS */
+  /** 列表项：reminderOn = 本任务已写入订阅（OA 下表示结果通知已开）、pinnedOn */
   _attachSwipeRowFlagsToDisplayedPatch(safePatch) {
     const disp = safePatch.displayedUpcomingMissions
     if (!Array.isArray(disp) || !disp.length) return
@@ -1457,6 +1271,7 @@ Page({
     const subSet = this._getPageSubscribedIdSet()
     safePatch.displayedUpcomingMissions = disp.map((m) => {
       if (!m || m.id == null) return m
+      // OA 覆盖发射前，铃铛只反映「结果通知」是否已为本任务授权
       const reminderOn = subSet.has(String(m.id))
       const pinnedOn = !!pid && String(m.id) === pid
       if (m.reminderOn === reminderOn && m.pinnedOn === pinnedOn) return m
@@ -1466,9 +1281,14 @@ Page({
   },
 
   _getMissionCardCountdownDeps() {
+    const holdMissionId =
+      this.data.launchData && this.data.launchData.id != null ? String(this.data.launchData.id) : ''
     return {
       getCountdown,
-      formatSecondsText
+      formatSecondsText,
+      now: Date.now(),
+      holdMissionId,
+      recordsById: this._launchRecordsById
     }
   },
 
@@ -1584,6 +1404,21 @@ Page({
       return { ...m, reminderOn: reminderOn, pinnedOn: pinnedOn }
     })
     if (changed) this.setData({ displayedUpcomingMissions: next })
+  },
+
+  /** 刷新服务号自动提醒就绪态；铃铛仍只跟本任务订阅走（OA 下=结果通知） */
+  async _refreshOaAlertReady(force) {
+    try {
+      const ready = await isOaAlertReady(!!force)
+      const patch = {}
+      if (this.data.oaAlertReady !== ready) patch.oaAlertReady = ready
+      if (this.data.launchData && this.data.launchData.id) {
+        const nextSub = isSubscribed(this.data.launchData.id)
+        if (this.data._countdownSubscribed !== nextSub) patch._countdownSubscribed = nextSub
+      }
+      if (Object.keys(patch).length) this.setData(patch)
+      this._syncDisplayedUpcomingSwipeRowFlags()
+    } catch (e) {}
   },
 
   _scheduleMissionSwipeDragSet(wxkey, px) {
@@ -1725,8 +1560,9 @@ Page({
   },
 
   /** 关闭发射提醒（本地 + 云端），并同步铃铛 / 列表左滑态 */
-  async unsubscribeReminderForMission(missionId) {
+  async unsubscribeReminderForMission(missionId, options) {
     if (!missionId) return false
+    const silent = !!(options && options.silent)
     const ok = await unsubscribeLaunch(missionId)
     if (ok) {
       this._invalidatePageSubscribedIdSet()
@@ -1736,7 +1572,7 @@ Page({
         this.setData({ _countdownSubscribed: false })
       }
       this._syncDisplayedUpcomingSwipeRowFlags()
-      wx.showToast({ title: '提醒已关闭', icon: 'none' })
+      if (!silent) wx.showToast({ title: '提醒已关闭', icon: 'none' })
     }
     return !!ok
   },
@@ -1750,6 +1586,17 @@ Page({
     this._vibrateMedium()
     this._subscribeReminderBusy = true
     try {
+      const oaReady = !!(this.data.oaAlertReady || peekOaAlertReady())
+      if (oaReady) {
+        // 服务号已覆盖发射前：铃铛用于开关「结果通知」
+        if (isSubscribed(id)) {
+          await this.unsubscribeReminderForMission(id, { silent: true })
+          wx.showToast({ title: '已关闭结果通知（服务号发射提醒仍有效）', icon: 'none' })
+        } else {
+          await this.subscribeReminderForMission(row)
+        }
+        return
+      }
       if (isSubscribed(id)) {
         await this.unsubscribeReminderForMission(id)
       } else {
@@ -1950,10 +1797,6 @@ Page({
    * 优化后的初始数据加载：一次性加载倒计时和即将发射数据（使用同一个API）
    * 然后并行加载历史发射数据，避免重复API请求
    */
-  getDefaultCarouselImages() {
-    return DEFAULT_CAROUSEL_ITEMS.map((item) => resolveMediaUrl(item.key, '')).filter(Boolean)
-  },
-
   runManagedPageRequest(promiseKey, requestFactory, options = {}) {
     const safeOptions = options || {}
     const allowReuse = safeOptions.allowReuse !== false
@@ -2236,208 +2079,21 @@ Page({
     return launchEffects
   },
 
-  // ========== 倒计时卡片推迟徽标 ==========
   /**
-   * 拉取当前任务的 LL2 updates 并计算推迟徽标文案。
-   * - 任务切换（launchId 变化）时先清空徽标再拉取；
-   * - 同一任务 + 同一 NET 重复触发（如快速包→完整包两阶段首屏）直接跳过；
-   * - 本地缓存 30 分钟（key 带 launchId），命中且 NET 未变时不打云函数；
-   * - 无数据 / 无推迟 / 请求失败时徽标置空。
-   */
-  refreshLaunchDelayInfo(launchId, launchTime) {
-    const id = String(launchId || '')
-    const net = String(launchTime || '')
-
-    // 任务切换：先清空旧徽标，避免残留上一个任务的推迟信息
-    if (this._launchDelayRenderedId !== id && this.data.launchDelayText) {
-      this.setData({ launchDelayText: '' })
-    }
-    if (!id || !net) {
-      this._launchDelayRenderedId = ''
-      this._launchDelayLoadedKey = ''
-      return
-    }
-
-    // 同一任务同一 NET 已加载或正在加载：跳过（NET 改期后 key 变化会重新计算）
-    const loadKey = id + '|' + net
-    if (this._launchDelayLoadedKey === loadKey) return
-    this._launchDelayLoadedKey = loadKey
-
-    const DELAY_CACHE_TTL_MS = 30 * 60 * 1000
-    const cacheKey = '_launch_delay_' + id
-
-    // 先查本地缓存：30 分钟内且 NET 未变直接复用，不打云函数
-    try {
-      const cached = wx.getStorageSync(cacheKey)
-      if (cached && cached.net === net && Date.now() - (cached.ts || 0) < DELAY_CACHE_TTL_MS) {
-        this._launchDelayRenderedId = id
-        this.setData({ launchDelayText: cached.text || '' })
-        return
-      }
-    } catch (e) {}
-
-    // 与终态旁路共用内存 updates（5 分钟）
-    const mem = this._ll2UpdatesMem
-    if (
-      mem &&
-      mem.id === id &&
-      Array.isArray(mem.list) &&
-      mem.limit >= 15 &&
-      Date.now() - (mem.at || 0) < LL2_UPDATES_MEM_TTL_MS
-    ) {
-      const info = computeLaunchDelayInfo(mem.list, net)
-      try {
-        wx.setStorageSync(cacheKey, { net: net, text: info.text, ts: Date.now() })
-      } catch (e) {}
-      this._launchDelayRenderedId = id
-      this.setData({ launchDelayText: info.text })
-      return
-    }
-
-    // 优先读云库 updates_{uuid}（6h 拆分 / 热路径缓存），命中则 0 云函数、0 LL2
-    this._tryLaunchDelayFromUpdatesCache(id, net, loadKey, cacheKey)
-  },
-
-  /**
-   * 先读 launch_timeline_cache/updates_{id}；冷缓存命中则直接算徽标，否则再调 ll2Query。
-   */
-  _tryLaunchDelayFromUpdatesCache(id, net, loadKey, cacheKey) {
-    const applyList = (list) => {
-      if (this._launchDelayLoadedKey !== loadKey) return
-      const safeList = Array.isArray(list) ? list : []
-      this._ll2UpdatesMem = {
-        id,
-        list: safeList,
-        limit: Math.max(15, safeList.length),
-        at: Date.now(),
-        outcome: inferTerminalStatusFromUpdates(safeList)
-      }
-      const info = computeLaunchDelayInfo(safeList, net)
-      try {
-        wx.setStorageSync(cacheKey, { net: net, text: info.text, ts: Date.now() })
-      } catch (e) {}
-      this._launchDelayRenderedId = id
-      this.setData({ launchDelayText: info.text })
-    }
-
-    const fallbackFetch = () => {
-      fetchLl2LaunchUpdates(id, 30)
-        .then((res) => {
-          if (this._launchDelayLoadedKey !== loadKey) return
-          applyList((res && res.list) || [])
-        })
-        .catch(() => {
-          if (this._launchDelayLoadedKey !== loadKey) return
-          this._launchDelayLoadedKey = ''
-          this._launchDelayRenderedId = id
-          if (this.data.launchDelayText) this.setData({ launchDelayText: '' })
-        })
-    }
-
-    if (!wx.cloud || typeof wx.cloud.database !== 'function') {
-      fallbackFetch()
-      return
-    }
-
-    const UPDATES_COLD_TTL_MS = 48 * 60 * 60 * 1000
-    wx.cloud
-      .database()
-      .collection('launch_timeline_cache')
-      .doc('updates_' + id)
-      .get()
-      .then((cacheRes) => {
-        const cached = cacheRes && cacheRes.data
-        const list = cached && Array.isArray(cached.data) ? cached.data : null
-        const age = cached && cached.updatedAtMs ? Date.now() - cached.updatedAtMs : Infinity
-        if (list && list.length && age < UPDATES_COLD_TTL_MS) {
-          applyList(list)
-          return
-        }
-        fallbackFetch()
-      })
-      .catch(() => fallbackFetch())
-  },
-
-  /**
-   * 倒计时面板任务：优先未来 NET；若仅剩已过点未决（就绪等）可展示并等探针。
-   * 调用方必须先 peel 掉「已可落库」任务，禁止已落库任务进面板。
+   * 倒计时面板任务（窗口期状态机唯一入口）：
+   * 窗口内未决挂住 → 未来 NET → 无未来时头条未决兜底；已落库任务绝不入选。
+   * 权威状态记录（_launchRecordsById）优先于列表行残留字段。
    */
   _resolveCountdownPanelMission(upcomingList, now) {
     const list = Array.isArray(upcomingList) ? upcomingList : []
     const ts = now != null ? now : Date.now()
-    const future = pickCountdownDisplayMission(list, ts)
-    if (future) return { panelMission: future, list }
-    if (!list.length) return { panelMission: null, list }
-    // 过点未决（如就绪）可以挂倒计时，由探针决定是否落库
-    return { panelMission: list[0], list }
-  },
-
-  /** 对 upcoming 头部已过 NET 且尚未可落库的任务：后台探针，不抢先改「就绪」文案 */
-  _kickQuietSettlePastNetUpcoming(upcomingList, now) {
-    const past = collectPastNetUpcomingHeads(upcomingList, now != null ? now : Date.now(), 3)
-    if (!past.length) return
-    if (!this._quietSettlingIds) this._quietSettlingIds = new Set()
-    for (let i = 0; i < past.length; i++) {
-      const mission = past[i]
-      if (!mission || mission.id == null) continue
-      const id = String(mission.id)
-      if (this._isKnownSettleableId(id)) continue
-      if (this._quietSettlingIds.has(id)) continue
-      this._quietSettlingIds.add(id)
-      this._quietSettlePastNetMission(mission)
-        .catch(() => {})
-        .finally(() => {
-          if (this._quietSettlingIds) this._quietSettlingIds.delete(id)
-        })
-    }
-  },
-
-  async _quietSettlePastNetMission(mission) {
-    if (!mission || mission.id == null) return
-    const id = String(mission.id)
-    // 探针过程中若已可落库（详情/其它路径写入），同拍 scrub，勿再闪
-    if (this._isKnownSettleableId(id)) {
-      try {
-        this._scrubKnownSettleableCountdown()
-      } catch (e) {}
-      return
-    }
-    let row = await this._lookupRecentSettledRow(id)
-    let sid = row && row.status && row.status.id != null ? Number(row.status.id) : 0
-    if (!isSettleableLiveStatusId(sid)) {
-      try {
-        const rows = await resolveLaunchStatuses([id])
-        if (Array.isArray(rows) && rows.length) {
-          this._upsertResolvedIntoSettledCache(rows)
-          const hit = rows.find((r) => r && String(r.id) === id) || rows[0]
-          if (hit && hit.status) {
-            row = {
-              id,
-              name: hit.name || mission.name || '',
-              net: hit.net || mission.launchTime || '',
-              status: hit.status
-            }
-            sid = hit.status.id != null ? Number(hit.status.id) : 0
-          }
-        }
-      } catch (e) {}
-    }
-    if (!row || !row.status || !isSettleableLiveStatusId(sid)) {
-      // 未决：保持就绪等原状，等下一轮探针（过点可以就绪）
-      return
-    }
-    // 刚探测到可落库：写入内存后同拍 scrub，倒计时不经过「先显示再消失」
-    this._upsertResolvedIntoSettledCache([
-      {
-        id,
-        name: row.name || mission.name || '',
-        net: row.net || mission.launchTime || '',
-        status: row.status
-      }
-    ])
-    try {
-      this._scrubKnownSettleableCountdown()
-    } catch (e2) {}
+    const holdMissionId =
+      this.data.launchData && this.data.launchData.id != null ? String(this.data.launchData.id) : ''
+    const picked = pickCountdownDisplayMission(list, ts, {
+      holdMissionId,
+      recordsById: this._launchRecordsById
+    })
+    return { panelMission: picked, list }
   },
 
   applyInitialUpcomingLaunchState(firstMission, upcomingList, upcomingRes) {
@@ -2449,9 +2105,17 @@ Page({
     this._absorbLaunchStateObservations(rawList, 'list')
     const projected = this._projectAuthoritativeLaunchState(rawList, this.data.completedMissions, now)
     const list = projected.upcoming
+    // 始终尝试 merge：冷启动时 rawList 往往已被 filter 掉终态，projected.completed 长度不变，
+    // 旧逻辑会跳过 merge，导致 48h 占位卡插不进历史。
+    const settledSource =
+      Array.isArray(this._recentSettledCache) && this._recentSettledCache.length
+        ? this._recentSettledCache
+        : Array.from(this._launchRecordsById.values())
+    const completedMerged = this._mergeRecentSettledIntoCompletedList(projected.completed, settledSource)
     const completedMerge =
+      completedMerged !== projected.completed ||
       projected.completed.length !== (this.data.completedMissions || []).length
-        ? this._mergeRecentSettledIntoCompletedList(projected.completed, Array.from(this._launchRecordsById.values()))
+        ? completedMerged
         : null
 
     try {
@@ -2525,7 +2189,7 @@ Page({
           if (enrichGen !== this._upcomingAgencyEnrichGen) return
           const nextList = enriched || list
           if (!this._upcomingAgencyLogoFieldsChanged(list, nextList)) return
-          const fm = pickCountdownDisplayMission(nextList, Date.now()) || nextList[0] || panelMission
+          const fm = this._resolveCountdownPanelMission(nextList, Date.now()).panelMission || panelMission
           this._patchUpcomingListAfterAgencyEnrich(fm, nextList, upcomingRes)
         })
         .catch(() => {})
@@ -2590,7 +2254,17 @@ Page({
     const prevUpcoming = this.data.upcomingMissions || []
     const prevDisplayed = this.data.displayedUpcomingMissions || []
     const mergedList = mergePreservedRocketImages(enrichedList, prevUpcoming)
-    const peeled = this._peelKnownSettleableFromUpcoming(mergedList)
+    // 权威状态投影：enrich 回写不得把缓存残留的旧状态（如已成功任务的 Go）带回列表
+    const projectedUpcoming = this._projectAuthoritativeLaunchState(
+      mergedList,
+      this.data.completedMissions,
+      Date.now()
+    ).upcoming
+    const projectedIds = new Set(projectedUpcoming.map((m) => String(m.id)))
+    const overlaidList = mergedList
+      .filter((m) => m && m.id != null && projectedIds.has(String(m.id)))
+      .map((m) => projectedUpcoming.find((p) => String(p.id) === String(m.id)) || m)
+    const peeled = this._peelKnownSettleableFromUpcoming(overlaidList)
     const safeList = peeled.upcoming
 
     const extraState = buildMissionReadyState({
@@ -2614,9 +2288,8 @@ Page({
     const now = Date.now()
     const fmId = firstMission && firstMission.id != null ? String(firstMission.id) : ''
     let panelMission =
-      pickCountdownDisplayMission(safeList, now) ||
+      this._resolveCountdownPanelMission(safeList, now).panelMission ||
       safeList.find((m) => m && String(m.id) === fmId) ||
-      safeList[0] ||
       null
     if (panelMission && panelMission.id != null && this._isKnownSettleableId(panelMission.id)) {
       panelMission = null
@@ -2728,563 +2401,8 @@ Page({
     this.applyLaunchSwitchEffects(firstMission)
   },
 
-  /**
-   * 合并云端 recent_settled 到内存：空数组不冲掉已有终态；会话终态优先保留。
-   * 解决：云读空窗 / setData 竞态后历史卡消失、即将发射又冒出就绪。
-   */
-  _absorbRecentSettled(incoming) {
-    if (!Array.isArray(incoming)) {
-      return Array.isArray(this._recentSettledCache) ? this._recentSettledCache : null
-    }
-    this._absorbLaunchStateObservations(incoming, 'live')
-    const merged = Array.from(this._launchRecordsById.values())
-      .filter((entry) => entry && isSettledStatusId(entry.status && entry.status.id))
-      .sort((a, b) => (Number(b.observedAtMs) || 0) - (Number(a.observedAtMs) || 0))
-      .slice(0, 40)
-    this._recentSettledCache = merged
-    this._recentSettledCacheAt = Date.now()
-    this._persistRecentSettledSnapshot(merged)
-    return merged
-  },
-
-  /** recent_settled 快照异步落盘（节流）：下次冷启动免等云函数即可过滤已落库任务 */
-  _persistRecentSettledSnapshot(rows) {
-    // hydrate 回灌时不能把旧数据重新盖上新时间戳落盘（否则过期快照被误判为新鲜）
-    if (this._recentSettledHydrating) return
-    if (!Array.isArray(rows) || !rows.length) return
-    const now = Date.now()
-    if (this._recentSettledPersistAt && now - this._recentSettledPersistAt < RECENT_SETTLED_PERSIST_MIN_WRITE_GAP_MS) {
-      return
-    }
-    this._recentSettledPersistAt = now
-    try {
-      wx.setStorage({ key: RECENT_SETTLED_PERSIST_KEY, data: { rows, at: now }, fail: () => {} })
-    } catch (e) {}
-  },
-
-  /**
-   * 冷启动 hydrate：读上次会话持久化的 recent_settled 快照进内存。
-   * _recentSettledCacheAt 用落盘时间而非当前时间：快照过期语义不变，
-   * 云端强制刷新（onShow / loadInitialData 并行拉取）照常进行。
-   */
-  _hydrateRecentSettledFromStorage() {
-    if (this._recentSettledHydratePromise) return this._recentSettledHydratePromise
-    this._recentSettledHydratePromise = new Promise((resolve) => {
-      try {
-        wx.getStorage({
-          key: RECENT_SETTLED_PERSIST_KEY,
-          success: (res) => {
-            try {
-              const data = res && res.data
-              const rows = data && Array.isArray(data.rows) ? data.rows : []
-              const at = data && Number(data.at)
-              // 内存已有云端数据（hydrate 迟到）时不用旧快照盖时间戳
-              const memFresh = Array.isArray(this._recentSettledCache) && this._recentSettledCache.length
-              if (rows.length && !memFresh) {
-                this._recentSettledHydrating = true
-                try {
-                  this._absorbRecentSettled(rows)
-                } finally {
-                  this._recentSettledHydrating = false
-                }
-                if (Number.isFinite(at) && at > 0) this._recentSettledCacheAt = at
-              } else if (rows.length && memFresh) {
-                // 仅合并观测（持久化行保留原 observedAtMs，云端新数据在冲突时胜出）
-                this._absorbLaunchStateObservations(rows, 'live')
-              }
-            } catch (e) {}
-            resolve()
-          },
-          fail: () => resolve()
-        })
-      } catch (e2) {
-        resolve()
-      }
-    })
-    return this._recentSettledHydratePromise
-  },
-
-  /** 同步记住本会话已落库卡（不依赖 setData 时序，防 previous 刷新盖掉） */
-  _rememberSessionCompleted(item) {
-    if (!item || item.id == null) return
-    const sid = item.statusId != null ? Number(item.statusId) : 0
-    if (!isSettleableLiveStatusId(sid) || (!item._fromRecentSettled && !item._launchStateRevision)) return
-    this._absorbLaunchStateObservations(
-      [
-        {
-          id: String(item.id),
-          name: item.name || '',
-          net: item.launchTime || '',
-          status: {
-            id: sid,
-            name: item.statusBadgeText || item.status || '',
-            abbrev: item.statusAbbrev || ''
-          },
-          observedAtMs: Date.now(),
-          source: 'live'
-        }
-      ],
-      'live'
-    )
-  },
-
-  handleCompletedMissionLoadSuccess(list, res) {
-    this._completedStateGeneration = (this._completedStateGeneration || 0) + 1
-    const generation = this._completedStateGeneration
-    const apply = async (settled) => {
-      if (generation !== this._completedStateGeneration) return
-      this._absorbRecentSettled(settled)
-      let base = Array.isArray(list) ? list : []
-      this._absorbLaunchStateObservations(base, 'list')
-      const projection = this._projectAuthoritativeLaunchState(
-        this.data.upcomingMissions || [],
-        // 同 id 时让本次 previous 接口返回的完整卡片覆盖旧的状态瘦卡，
-        // 否则 countryDisplay / boosterInfo / recoveryIcons 会永久丢失。
-        (this.data.completedMissions || []).concat(base)
-      )
-      base = projection.completed
-      let merged = this._mergeRecentSettledIntoCompletedList(base, this._recentSettledCache)
-      merged = await this._reconcileInflightHistoryStatuses(merged)
-      if (generation !== this._completedStateGeneration) return
-      const peeledUp = projection.upcoming
-      const patch = {
-        ...buildMissionListSetData('completed', merged, res, filterExpiredMissions)
-      }
-      if (peeledUp.length !== (this.data.upcomingMissions || []).length) {
-        patch.upcomingMissions = peeledUp
-        this.applyUpcomingAgencyFilterToPatch(patch, peeledUp)
-      }
-      this.setData(patch, () => {
-        this.updateMissionListView('completed', merged)
-        try {
-          this.hydrateCalendarFromLoadedMissionLists()
-        } catch (e) {}
-        try {
-          var briefingComp = this.selectComponent('#morningBriefing')
-          if (briefingComp && typeof briefingComp._loadBriefing === 'function') {
-            briefingComp._loadBriefing()
-          }
-        } catch (e2) {}
-        if (patch.upcomingMissions) {
-          const curId = this.data.launchData && this.data.launchData.id != null ? String(this.data.launchData.id) : ''
-          if (curId && this._isKnownSettleableId(curId)) {
-            try {
-              this._scrubKnownSettleableCountdown()
-            } catch (e3) {}
-          }
-        }
-      })
-      this._preloadVisibleRocketImages(merged, 5)
-    }
-
-    Promise.all([
-      fetchLaunchStatusSnapshot(
-        (Array.isArray(list) ? list : []).map((mission) => mission && mission.id).filter(Boolean)
-      ),
-      fetchRecentSettledLaunches()
-    ])
-      .then(([byId, recent]) => {
-        const merged = []
-        const seen = new Set()
-        ;[byId, recent].forEach((rows) => {
-          if (!Array.isArray(rows)) return
-          rows.forEach((row) => {
-            if (!row || row.id == null || seen.has(String(row.id))) return
-            seen.add(String(row.id))
-            merged.push(row)
-          })
-        })
-        return apply(merged)
-      })
-      .catch(() => apply(null))
-  },
-
-  /** 从 recent_settled 行拼一张可点进详情的历史卡片（previous 缓存尚未入库时用） */
-  _buildCompletedItemFromSettled(entry, baseMission) {
-    const statusObj = (entry && entry.status) || {}
-    const category = getStatusCategory(statusObj)
-    const badge = getStatusBadgeText(statusObj, category)
-    const name = (entry && entry.name) || (baseMission && baseMission.name) || ''
-    const parts = String(name)
-      .split('|')
-      .map((s) => String(s || '').trim())
-      .filter(Boolean)
-    const rocketName = (baseMission && baseMission.rocketName) || parts[0] || ''
-    const missionName = (baseMission && baseMission.missionName) || parts[1] || ''
-    const launchTime = (entry && entry.net) || (baseMission && baseMission.launchTime) || ''
-    const sid = statusObj.id != null ? Number(statusObj.id) : null
-    return attachMissionDetailMeta(
-      {
-        ...(baseMission || {}),
-        id: entry.id,
-        name,
-        missionName,
-        rocketName,
-        launchTime,
-        formattedTime: launchTime
-          ? formatDate(launchTime, 'MM月DD日 HH:mm')
-          : (baseMission && baseMission.formattedTime) || '时间未知',
-        status: badge,
-        statusId: sid,
-        statusAbbrev: statusObj.abbrev || (baseMission && baseMission.statusAbbrev) || '',
-        statusCategory: category,
-        statusBadgeText: badge,
-        success: category === 'success' || category === 'deployed',
-        isPartialFailure: category === 'partial',
-        isFailure: category === 'failure' || category === 'partial',
-        missionDescription: (baseMission && baseMission.missionDescription) || '',
-        isExpired: false,
-        _optimisticSettled: true,
-        _fromRecentSettled: true
-      },
-      { id: entry.id, detailType: 'completed' }
-    )
-  },
-
-  /**
-   * recent_settled → 历史列表：终态覆盖角标；缺失 id 补插头部（解决 previous 未入库就刷新消失）。
-   * 禁止用飞行中覆盖已有终态。
-   */
-  _mergeRecentSettledIntoCompletedList(list, settledOverride) {
-    const settled = Array.isArray(settledOverride)
-      ? settledOverride
-      : Array.isArray(this._recentSettledCache)
-        ? this._recentSettledCache
-        : null
-    const baseList = Array.isArray(list) ? list : []
-    if (!settled || !settled.length) return baseList
-
-    const byId = new Map()
-    for (let i = 0; i < settled.length; i++) {
-      const s = settled[i]
-      if (s && s.id && s.status) byId.set(String(s.id), s)
-    }
-    if (!byId.size) return baseList
-
-    let changed = false
-    const presentIds = new Set()
-    const next = baseList.map((item) => {
-      if (!item || item.id == null) return item
-      const idStr = String(item.id)
-      presentIds.add(idStr)
-      const hit = byId.get(idStr)
-      if (!hit || !hit.status) return item
-      const sid = hit.status.id != null ? Number(hit.status.id) : 0
-      const hitNetMs = hit.net ? new Date(hit.net).getTime() : 0
-      if (isSettledStatusId(sid) && Number.isFinite(hitNetMs) && hitNetMs > Date.now()) return item
-      const prevSid = item.statusId != null ? Number(item.statusId) : 0
-      // 只接受终态或飞行中；终态不可被飞行中降级
-      if (!isTerminalStatusId(sid) && sid !== 6) return item
-      if (isTerminalStatusId(prevSid) && !isTerminalStatusId(sid)) return item
-      const category = getStatusCategory(hit.status)
-      const badge = getStatusBadgeText(hit.status, category)
-      if (item.statusCategory === category && item.statusBadgeText === badge && prevSid === sid) return item
-      changed = true
-      return {
-        ...item,
-        status: badge,
-        statusId: sid || item.statusId,
-        statusAbbrev: hit.status.abbrev || item.statusAbbrev || '',
-        statusCategory: category,
-        statusBadgeText: badge,
-        success: category === 'success' || category === 'deployed',
-        isPartialFailure: category === 'partial',
-        isFailure: category === 'failure' || category === 'partial',
-        launchTime: hit.net || item.launchTime,
-        formattedTime: hit.net ? formatDate(hit.net, 'MM月DD日 HH:mm') : item.formattedTime
-      }
-    })
-
-    // previous 没有、但 settled / 会话卡已有 → 补插到头部
-    const inserts = []
-    const sorted = settled.slice().sort((a, b) => (Number(b.settledAtMs) || 0) - (Number(a.settledAtMs) || 0))
-    for (let i = 0; i < sorted.length; i++) {
-      const s = sorted[i]
-      if (!s || s.id == null || !s.status) continue
-      const idStr = String(s.id)
-      if (presentIds.has(idStr)) continue
-      const sid = s.status.id != null ? Number(s.status.id) : 0
-      if (!isTerminalStatusId(sid) && sid !== 6) continue
-      const settledNetMs = s.net ? new Date(s.net).getTime() : 0
-      if (isSettledStatusId(sid) && Number.isFinite(settledNetMs) && settledNetMs > Date.now()) continue
-      const base =
-        (this.data.upcomingMissions || []).find((m) => m && String(m.id) === idStr) ||
-        (this.data.completedMissions || []).find((m) => m && String(m.id) === idStr) ||
-        null
-      // 状态文档只有状态和时间，不能凭空生成历史卡，否则国家、回收类型、
-      // 回收状态图标都会丢失。必须复用列表接口返回的完整任务对象。
-      if (!base) continue
-      const card = this._buildCompletedItemFromSettled(s, base)
-      this._rememberSessionCompleted(card)
-      inserts.push(card)
-      presentIds.add(idStr)
-      changed = true
-    }
-    if (!changed) return baseList
-    return inserts.length ? inserts.concat(next) : next
-  },
-
-  /**
-   * 可落历史 id（终态 + 飞行中）：recent_settled + 本机会话历史卡。
-   * 用于从即将发射剔除，避免「详情已部署 / 列表仍就绪」。
-   */
-  _collectSettleableSettledIdSet() {
-    const ids = new Set()
-    if (this._launchRecordsById && this._launchRecordsById.size) {
-      this._launchRecordsById.forEach((record, id) => {
-        const sid = record && record.status && record.status.id
-        if (isSettledStatusId(sid)) ids.add(String(id))
-      })
-    }
-    return ids
-  },
-
-  /**
-   * @param {Array} list
-   * @param {Array} [completedOverride] 即将写入的历史列表（setData 前 data 里还没有时传入）
-   */
-  _filterUpcomingAgainstSettled(list, completedOverride) {
-    if (!Array.isArray(list) || !list.length) return list || []
-    const ids = this._collectSettleableSettledIdSet()
-    // 列表归属不是状态证据；completed 仅在自身状态明确可落库时参与互斥。
-    const completed = Array.isArray(completedOverride) ? completedOverride : this.data.completedMissions || []
-    for (let i = 0; i < completed.length; i++) {
-      const item = completed[i]
-      if (item && item.id != null && isSettledStatusId(item.statusId)) ids.add(String(item.id))
-    }
-    if (!ids.size) return list
-    const filtered = list.filter((m) => !m || m.id == null || !ids.has(String(m.id)))
-    return filtered.length === list.length ? list : filtered
-  },
-
-  /**
-   * 读云库 recent_settled 写入内存缓存（供 settle / 历史角标复用）。
-   */
-  async _ensureRecentSettledCache(force) {
-    const now = Date.now()
-    if (
-      !force &&
-      Array.isArray(this._recentSettledCache) &&
-      this._recentSettledCacheAt &&
-      now - this._recentSettledCacheAt < RECENT_SETTLED_MEM_TTL_MS
-    ) {
-      return this._recentSettledCache
-    }
-    // 在途去重：冷启动 onLoad(loadInitialData) 与 onShow 会先后 force，各打一次
-    // ll2Query 纯属浪费，复用同一个在途请求
-    if (this._recentSettledFetchInflight) {
-      return this._recentSettledFetchInflight
-    }
-    const inflight = (async () => {
-      try {
-        const settled = await fetchRecentSettledLaunches()
-        return this._absorbRecentSettled(settled)
-      } catch (e) {}
-      return Array.isArray(this._recentSettledCache) ? this._recentSettledCache : null
-    })()
-    this._recentSettledFetchInflight = inflight
-    inflight.finally(() => {
-      if (this._recentSettledFetchInflight === inflight) {
-        this._recentSettledFetchInflight = null
-      }
-    })
-    return inflight
-  },
-
-  /** 历史列表中仍显示「飞行中」的 id（最多 5） */
-  _collectInflightCompletedIds(list) {
-    const out = []
-    const arr = Array.isArray(list) ? list : []
-    for (let i = 0; i < arr.length && out.length < 5; i++) {
-      const m = arr[i]
-      if (!m || m.id == null) continue
-      const sid = m.statusId != null ? Number(m.statusId) : 0
-      if (sid === 6 || m.statusCategory === 'inflight') out.push(String(m.id))
-    }
-    return out
-  },
-
-  /** 把 resolve 结果写入 recent_settled 内存 + 会话 Map（终态覆盖飞行中） */
-  _upsertResolvedIntoSettledCache(rows) {
-    if (!Array.isArray(rows) || !rows.length) return
-    const entries = []
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i]
-      if (!row || !row.id || !row.status) continue
-      const sid = row.status.id != null ? Number(row.status.id) : 0
-      if (!isTerminalStatusId(sid) && sid !== 6) continue
-      entries.push({
-        id: String(row.id),
-        name: row.name || '',
-        net: row.net || '',
-        status: {
-          id: row.status.id,
-          name: row.status.name || '',
-          abbrev: row.status.abbrev || ''
-        },
-        settledAtMs: Date.now(),
-        source: 'resolveLaunchStatuses_client'
-      })
-    }
-    if (!entries.length) return
-    this._absorbRecentSettled(entries)
-  },
-
-  /**
-   * 历史列表仍有「飞行中」时，按 id 主动解析终态后再合并。
-   * 权威链：LL2 list（经云 resolve）> recent_settled 终态 > previous/乐观缓存。
-   */
-  async _reconcileInflightHistoryStatuses(list) {
-    const base = Array.isArray(list) ? list : []
-    const ids = this._collectInflightCompletedIds(base)
-    if (!ids.length) return base
-    if (!this._statusResolveInflight) this._statusResolveInflight = new Set()
-    const pending = ids.filter((id) => !this._statusResolveInflight.has(id))
-    if (!pending.length) {
-      return this._mergeRecentSettledIntoCompletedList(base, this._recentSettledCache)
-    }
-    pending.forEach((id) => this._statusResolveInflight.add(id))
-    try {
-      const rows = await resolveLaunchStatuses(pending)
-      if (Array.isArray(rows) && rows.length) {
-        this._upsertResolvedIntoSettledCache(rows)
-        return this._mergeRecentSettledIntoCompletedList(base, this._recentSettledCache)
-      }
-    } catch (e) {
-    } finally {
-      pending.forEach((id) => this._statusResolveInflight.delete(id))
-    }
-    return base
-  },
-
-  /** 用最新 recent_settled 修正历史列表角标 / 补插缺失卡；必要时 resolve 飞行中 */
-  async _applyRecentSettledToCompletedList(force) {
-    const settled = await this._ensureRecentSettledCache(!!force)
-    const list = this.data.completedMissions || []
-    let merged = this._mergeRecentSettledIntoCompletedList(list, settled)
-    merged = await this._reconcileInflightHistoryStatuses(merged)
-    if (merged === list) return
-    this.setData(
-      {
-        ...buildMissionListSetData(
-          'completed',
-          merged,
-          {
-            nextOffset: this.data.completedMissionsOffset,
-            hasMore: this.data.completedMissionsHasMore
-          },
-          filterExpiredMissions
-        )
-      },
-      () => {
-        try {
-          this.updateMissionListView('completed', merged)
-        } catch (e) {}
-        try {
-          this.hydrateCalendarFromLoadedMissionLists()
-        } catch (e2) {}
-      }
-    )
-  },
-
-  /**
-   * 详情页终态回写：升角标；历史没有该卡则补插；并从即将发射剔除。
-   * @param {{ id: string, statusId?: number, statusBadgeText?: string, statusCategory?: string, statusAbbrev?: string, name?: string, net?: string }} patch
-   */
-  applyCompletedMissionStatusFromDetail(patch) {
-    if (!patch || patch.id == null) return
-    const sid = patch.statusId != null ? Number(patch.statusId) : 0
-    if (!isTerminalStatusId(sid)) return
-    const idStr = String(patch.id)
-    const category =
-      patch.statusCategory || getStatusCategory({ id: sid, name: patch.statusBadgeText, abbrev: patch.statusAbbrev })
-    const badge = patch.statusBadgeText || getStatusBadgeText({ id: sid, abbrev: patch.statusAbbrev }, category)
-
-    // 同步写入 recent_settled 内存（终态优先，覆盖飞行中）
-    const mem = Array.isArray(this._recentSettledCache) ? this._recentSettledCache.slice() : []
-    const memIdx = mem.findIndex((s) => s && String(s.id) === idStr)
-    const settledRow = {
-      id: idStr,
-      name: patch.name || (memIdx >= 0 ? mem[memIdx].name : '') || '',
-      net: patch.net || (memIdx >= 0 ? mem[memIdx].net : '') || '',
-      status: { id: sid, name: badge, abbrev: patch.statusAbbrev || '' },
-      settledAtMs: Date.now(),
-      source: 'detail_page_backfill'
-    }
-    this._absorbRecentSettled([settledRow])
-
-    const list = this.data.completedMissions || []
-    const idx = list.findIndex((m) => m && String(m.id) === idStr)
-    let nextCompleted
-    if (idx >= 0) {
-      const item = list[idx]
-      if (item.statusCategory === category && item.statusBadgeText === badge && Number(item.statusId) === sid) {
-        nextCompleted = list
-        this._rememberSessionCompleted(item)
-      } else {
-        nextCompleted = list.slice()
-        nextCompleted[idx] = {
-          ...item,
-          status: badge,
-          statusId: sid,
-          statusAbbrev: patch.statusAbbrev || item.statusAbbrev || '',
-          statusCategory: category,
-          statusBadgeText: badge,
-          success: category === 'success' || category === 'deployed',
-          isPartialFailure: category === 'partial',
-          isFailure: category === 'failure' || category === 'partial',
-          _optimisticSettled: true
-        }
-        this._rememberSessionCompleted(nextCompleted[idx])
-      }
-    } else {
-      const base = (this.data.upcomingMissions || []).find((m) => m && String(m.id) === idStr) || null
-      const entry = {
-        id: idStr,
-        name: patch.name || (base && base.name) || '',
-        net: patch.net || (base && base.launchTime) || '',
-        status: { id: sid, name: badge, abbrev: patch.statusAbbrev || '' },
-        settledAtMs: Date.now()
-      }
-      const card = this._buildCompletedItemFromSettled(entry, base)
-      this._rememberSessionCompleted(card)
-      nextCompleted = [card].concat(list)
-    }
-
-    const nextUpcoming = (this.data.upcomingMissions || []).filter((m) => !m || String(m.id) !== idStr)
-    const upcomingChanged = nextUpcoming.length !== (this.data.upcomingMissions || []).length
-    const patchData = {
-      ...buildMissionListSetData(
-        'completed',
-        nextCompleted,
-        {
-          nextOffset: this.data.completedMissionsOffset,
-          hasMore: this.data.completedMissionsHasMore
-        },
-        filterExpiredMissions
-      )
-    }
-    if (upcomingChanged) {
-      patchData.upcomingMissions = nextUpcoming
-      this.applyUpcomingAgencyFilterToPatch(patchData)
-    }
-    this.setData(patchData, () => {
-      try {
-        this.updateMissionListView('completed', nextCompleted)
-      } catch (e) {}
-      if (upcomingChanged) {
-        try {
-          this.scheduleUpcomingAgencyChipsOverflowHint()
-        } catch (e2) {}
-        const curId = this.data.launchData && this.data.launchData.id != null ? String(this.data.launchData.id) : ''
-        if (curId === idStr) {
-          try {
-            this.switchToNextUpcomingMission()
-          } catch (e3) {}
-        }
-      }
-    })
-  },
+  // ========== 结算→历史列表合并域（recent_settled 缓存/角标覆盖/补插/详情回写）：见 ./utils/index-settled-merge.js ==========
+  ...settledMergeMethods,
 
   handleCompletedMissionLoadError(error) {
     const errorMessage = this.resolveMissionLoadErrorMessage(error, {
@@ -3429,6 +2547,15 @@ Page({
 
     const results = await Promise.all(missingTypes.map((type) => this.fetchMissionList(type, 50, 0)))
     const updateData = this.buildMissionListReadyState(results, missingTypes)
+    if (Array.isArray(updateData.completedMissions) && updateData.completedMissions.length >= 0) {
+      try {
+        const settled = await this._ensureRecentSettledCache(false)
+        updateData.completedMissions = this._mergeRecentSettledIntoCompletedList(
+          updateData.completedMissions,
+          settled
+        )
+      } catch (e) {}
+    }
 
     this.applyMissionListsReadyState(updateData)
   },
@@ -3537,471 +2664,9 @@ Page({
     this._loadingMoreLock = false
   },
 
-  async loadRoadClosureNotice(options = {}) {
-    const safeOptions = options || {}
-    const forceRefresh = !!safeOptions.forceRefresh
 
-    return this.runTimedManagedPageRequest({
-      forceRefresh,
-      strategy: 'simple',
-      hasData: !!this.data.roadClosureNotice,
-      lastLoadedAt: this._roadClosureNoticeLoadedAt,
-      ttlMs: ROAD_CLOSURE_REFRESH_TTL,
-      getCachedValue: () => this.data.roadClosureNotice,
-      promiseKey: '_loadRoadClosureNoticePromise',
-      requestFactory: async () => {
-        try {
-          const data = await getRoadClosureNotice()
 
-          if (resolveRoadClosureStatus(data) === 'active') {
-            let timeRange = data.timeRange || ''
-            if (!timeRange && data.startTime && data.endTime) {
-              const s = formatDate(data.startTime, 'MM月DD日 HH:mm')
-              const e = formatDate(data.endTime, 'MM月DD日 HH:mm')
-              timeRange = `${s} - ${e}`
-            }
-            const sourceMap = { manual: '管理员', spacedevs: 'SpaceDevs', starbase_gov: 'Starbase.gov', legacy: '' }
-            const schedule = data.beachClosureSchedule || []
-            const msgText =
-              schedule.length > 0
-                ? (data.beachStatus || data.message || '封路通知') + ' | ' + schedule[0]
-                : data.message || '星舰基地道路封路通知'
-            const nextNotice = {
-              isActive: true,
-              message: msgText,
-              timeRange,
-              sourceLabel: sourceMap[data.source] || data.source || ''
-            }
-            this._roadClosureNoticeLoadedAt = Date.now()
-            const prev = this.data.roadClosureNotice
-            // 内容未变时跳过 setData，避免横幅跑马灯动画被重置产生跳动
-            if (
-              !prev ||
-              prev.message !== nextNotice.message ||
-              prev.timeRange !== nextNotice.timeRange ||
-              prev.sourceLabel !== nextNotice.sourceLabel
-            ) {
-              this.setData({ roadClosureNotice: nextNotice })
-            }
-            return nextNotice
-          }
 
-          this._roadClosureNoticeLoadedAt = Date.now()
-          if (this.data.roadClosureNotice) {
-            this.setData({ roadClosureNotice: null })
-          }
-          return null
-        } catch (e) {
-          return null
-        }
-      }
-    })
-  },
-
-  async loadAnnouncementBanner() {
-    try {
-      const data = await getActiveAnnouncement()
-      const prev = this.data.announcementBanner
-      const next = data || null
-      // 内容未变时跳过 setData，避免公告跑马灯动画被重置
-      if (
-        (!prev && !next) ||
-        (prev && next && prev.active === next.active && prev.title === next.title && prev.content === next.content)
-      ) {
-        return
-      }
-      this.setData({ announcementBanner: next })
-    } catch (e) {
-      if (this.data.announcementBanner) {
-        this.setData({ announcementBanner: null })
-      }
-    }
-  },
-
-  closeAnnouncementBanner() {
-    if (this.data.missionSwipeOpenWxkey) this.closeMissionSwipeCells()
-    this.setData({ announcementBanner: null })
-  },
-
-  openAnnouncementDetail() {
-    if (this.data.missionSwipeOpenWxkey) this.closeMissionSwipeCells()
-    if (this.data.announcementBanner) {
-      this.setData({ announcementDialogVisible: true })
-    }
-  },
-
-  closeAnnouncementDetail() {
-    this.setData({ announcementDialogVisible: false })
-  },
-
-  /** 客服会话回调：用户在会话中点击小程序卡片返回时，按卡片指定路径跳转（与 profile 页同款） */
-  onContactCallback(e) {
-    var detail = (e && e.detail) || {}
-    var path = String(detail.path || '')
-    if (!path) return
-    var query = detail.query || {}
-    var qs = Object.keys(query)
-      .map(function (k) {
-        return k + '=' + encodeURIComponent(query[k])
-      })
-      .join('&')
-    var url = (path.charAt(0) === '/' ? path : '/' + path) + (qs ? '?' + qs : '')
-    wx.navigateTo({
-      url: url,
-      fail: function () {
-        // tabBar 页面无法 navigateTo，退回 switchTab
-        wx.switchTab({ url: url.split('?')[0], fail: function () {} })
-      }
-    })
-  },
-
-  // 加载 SpaceX 官网发射统计
-  async loadSpaceXStats(options = {}) {
-    const safeOptions = options || {}
-    const forceRefresh = !!safeOptions.forceRefresh
-
-    return this.runTimedManagedPageRequest({
-      forceRefresh,
-      strategy: 'simple',
-      hasData: !!this.data.spacexStats,
-      lastLoadedAt: this._spacexStatsLoadedAt,
-      ttlMs: SPACEX_STATS_REFRESH_TTL,
-      getCachedValue: () => this.data.spacexStats,
-      promiseKey: '_loadSpaceXStatsPromise',
-      requestFactory: async () => {
-        this.setData({ spacexStatsLoading: true })
-        try {
-          const data = await getSpaceXLaunchStats()
-          if (data && data.isActive) {
-            const sourceMap = { manual: '管理员', spacex_official: 'SpaceX官网' }
-            const nextStats = {
-              totalLaunches: data.totalLaunches || 0,
-              totalLandings: data.totalLandings || 0,
-              totalReflights: data.totalReflights || 0,
-              upcoming: (data.upcoming || []).slice(0, 10),
-              recentCompleted: (data.recentCompleted || []).slice(0, 5),
-              sourceLabel: sourceMap[data.source] || data.source || 'SpaceX',
-              syncedAt: data.syncedAt || data.updatedAt
-            }
-            this._spacexStatsLoadedAt = Date.now()
-            this.setData({
-              spacexStats: nextStats,
-              spacexStatsLoading: false
-            })
-            return nextStats
-          }
-
-          this._spacexStatsLoadedAt = Date.now()
-          this.setData({ spacexStats: null, spacexStatsLoading: false })
-          return null
-        } catch (e) {
-          console.error('[SpaceXStats] load error:', e)
-          this.setData({ spacexStatsLoading: false })
-          return null
-        }
-      }
-    })
-  },
-
-  openRoadClosureDetail() {
-    navigateTo(ROUTES.ROAD_CLOSURE_DETAIL)
-  },
-
-  async loadCarouselImages() {
-    const VIDEO_EXTS = /\.(mp4|mov|avi|mkv|webm)$/i
-    const PREFIX = /^首页轮播图\//i
-    let carouselDisabled = false
-    let imageDuration = 5
-    let videoDuration = 5
-    let configFromCache = false
-
-    try {
-      const cached = await new Promise((resolve) => {
-        wx.getStorage({
-          key: CAROUSEL_CONFIG_CACHE_KEY,
-          success: (res) => resolve(res.data),
-          fail: () => resolve(null)
-        })
-      })
-      if (cached && cached.ts && Date.now() - cached.ts < CAROUSEL_CONFIG_CACHE_TTL) {
-        carouselDisabled = !!cached.disabled
-        imageDuration = cached.imageDuration || 5
-        videoDuration = cached.videoDuration || 5
-        configFromCache = true
-      }
-    } catch (e) {}
-
-    // 配置命中本地缓存：只查条目；未命中：配置+条目并行
-    let docs = []
-    try {
-      const db = wx.cloud.database()
-      const _ = db.command
-      // 小程序端单次查询上限 20 条（.limit(100) 会被静默截断成 20）：
-      // 轮播素材超过 20 张时会随机丢条目，按 20/批翻页拉全（上限 100 与原意图一致）
-      const fetchCarouselDocs = async () => {
-        const BATCH = 20
-        const MAX_TOTAL = 100
-        let out = []
-        for (let i = 0; i < Math.ceil(MAX_TOTAL / BATCH); i++) {
-          const res = await db
-            .collection('media_assets')
-            .where({ sourceTag: _.in(['carousel', 'auto-carousel']) })
-            .skip(i * BATCH)
-            .limit(BATCH)
-            .get()
-          const batch = res.data || []
-          out = out.concat(batch)
-          if (batch.length < BATCH) break
-        }
-        return out
-      }
-      if (configFromCache) {
-        if (!carouselDisabled) {
-          docs = await fetchCarouselDocs()
-        }
-      } else {
-        const [cfgRes, itemDocs] = await Promise.all([
-          db.collection('media_assets').where({ key: '__carousel_global_config__' }).limit(1).get(),
-          fetchCarouselDocs()
-        ])
-        const configDoc = (cfgRes.data || [])[0]
-        carouselDisabled = !!(configDoc && configDoc.enabled === false)
-        imageDuration = configDoc && configDoc.imageDuration ? Number(configDoc.imageDuration) : 5
-        videoDuration = configDoc && configDoc.videoDuration ? Number(configDoc.videoDuration) : 5
-        docs = itemDocs || []
-        wx.setStorage({
-          key: CAROUSEL_CONFIG_CACHE_KEY,
-          data: {
-            disabled: carouselDisabled,
-            imageDuration,
-            videoDuration,
-            ts: Date.now()
-          }
-        })
-      }
-    } catch (e) {
-      console.warn('动态获取轮播图失败，使用默认图片', e)
-    }
-
-    if (carouselDisabled) {
-      this.setData({ carouselImages: [], carouselLoadFailed: false })
-      return
-    }
-
-    this.setData({
-      carouselImageDuration: imageDuration * 1000,
-      carouselVideoDuration: videoDuration * 1000
-    })
-
-    // 过审开关先于任何视频预热确认：未确认允许前不调 getCachedVideo（Pro 用户也一样）
-    const playbackOk = await isPlaybackAllowed().catch(() => false)
-
-    let items = []
-    try {
-      const filtered = (docs || [])
-        .filter((d) => d && d.enabled !== false && d.key && PREFIX.test(String(d.key)))
-        .sort((a, b) => {
-          const sa = Number(a.sort || 0)
-          const sb = Number(b.sort || 0)
-          const aIsAuto = a.sourceTag === 'auto-carousel'
-          const bIsAuto = b.sourceTag === 'auto-carousel'
-          if (!aIsAuto && bIsAuto) return -1
-          if (aIsAuto && !bIsAuto) return 1
-          if (!aIsAuto && !bIsAuto) {
-            if (sa !== sb) return sa - sb
-            return String(a.key || '').localeCompare(String(b.key || ''))
-          }
-          const ta = Number(a.cosSyncedAt || 0)
-          const tb = Number(b.cosSyncedAt || 0)
-          return tb - ta
-        })
-        .slice(0, 20)
-      if (filtered.length > 0) {
-        items = filtered
-          .map((doc) => {
-            const rawSrc = doc.url || resolveMediaUrl(doc.key, '')
-            const src = doc.url ? getCachedMediaImage(toCdnUrl(doc.url), 'medium') : rawSrc
-            if (!src) return null
-            const isVideo = doc.type === 'video' || VIDEO_EXTS.test(doc.key || '') || VIDEO_EXTS.test(doc.url || '')
-            const folderMatch = String(doc.key || '').match(/^首页轮播图\/auto\/([^/]+)\//)
-            const posterUrl = isVideo ? carouselVideoPosterUrl(src, doc.thumbnailUrl || '') : ''
-            const poster = posterUrl ? getCachedMediaImage(posterUrl, 'thumb') : ''
-            const previewSrc =
-              doc.previewUrl && String(doc.previewUrl).trim() ? toCdnUrl(String(doc.previewUrl).trim()) : ''
-            // 非会员：默认不预热、不写入可播地址（策略 forceNonMemberVideoPoster）；有权益才预热预览片
-            // 无预览片时也不用原片做内嵌自动播（原片过大），点击全屏再按需播
-            const playSrc = playbackOk && previewSrc && canPrefetchVideoSync() ? getCachedVideo(previewSrc) : ''
-            return {
-              // 视频项 src 不挂 mp4，避免任何回退路径误拉原片
-              src: isVideo ? poster || src : src,
-              playSrc,
-              poster: poster || '',
-              type: isVideo ? 'video' : 'image',
-              caption: doc.caption || '',
-              eventId: doc.eventId || '',
-              cosFolder: doc.cosFolder || (folderMatch ? folderMatch[1] : ''),
-              accountLabel: '',
-              accountAvatar: '',
-              videoActive: false,
-              videoStarted: false,
-              lazyPlayUrl: isVideo ? previewSrc || toCdnUrl(doc.url || rawSrc) || '' : ''
-            }
-          })
-          .filter(Boolean)
-      }
-    } catch (e) {
-      console.warn('解析轮播图失败，使用默认图片', e)
-    }
-
-    // 过审关闭 enableEventVideo：视频项降级为封面图，避免首页挂载 <video>
-    if (!playbackOk && items.length) {
-      items = items
-        .map((i) => {
-          if (!i || i.type !== 'video') return i
-          const cover = i.poster || i.src || ''
-          if (!cover) return null
-          return {
-            src: cover,
-            playSrc: '',
-            poster: '',
-            type: 'image',
-            caption: i.caption || '',
-            eventId: i.eventId || '',
-            cosFolder: i.cosFolder || '',
-            accountLabel: i.accountLabel || '',
-            accountAvatar: i.accountAvatar || '',
-            videoActive: false,
-            videoStarted: false,
-            lazyPlayUrl: ''
-          }
-        })
-        .filter(Boolean)
-    }
-
-    if (!items.length) {
-      items = this.getDefaultCarouselImages().map((src) => ({ src, type: 'image' }))
-    }
-
-    // lazyPlayUrl 只留在实例旁路，不进 setData，避免非会员视图层挂远程 mp4
-    this._carouselLazyPlayUrls = items.map((i) => (i && i.lazyPlayUrl) || '')
-    const viewItems = items.map((i) => {
-      if (!i || !i.lazyPlayUrl) return i
-      const { lazyPlayUrl, ...rest } = i
-      return rest
-    })
-
-    this.setData({
-      carouselItems: viewItems,
-      carouselImages: viewItems.map((i) => i.src),
-      carouselLoadFailed: !viewItems.length,
-      carouselCurrent: 0
-    })
-
-    if (viewItems.length > 0) {
-      this._activateCarouselVideos(0)
-      this._startCarouselTimer()
-    }
-
-    this._enrichCarouselCaptions(viewItems)
-    this._enrichCarouselAccounts(viewItems)
-  },
-
-  /** 按 cosFolder 匹配 tweet_accounts，给轮播项补充账号名 + 头像（左上角胶囊） */
-  async _enrichCarouselAccounts(items) {
-    if (!items || !items.some((i) => i && i.cosFolder)) return
-    const accounts = await this._getTweetAccountsCached()
-    if (!accounts.length) return
-    const byFolder = {}
-    for (const acc of accounts) {
-      if (acc.cosFolder) byFolder[acc.cosFolder] = acc
-    }
-    const updates = {}
-    for (let i = 0; i < items.length; i++) {
-      const acc = items[i] && items[i].cosFolder ? byFolder[items[i].cosFolder] : null
-      if (!acc) continue
-      // 头像：库里没配时按约定路径兜底（avatars/<screenName>.jpg），加载失败会自动隐藏
-      const avatarUrl =
-        acc.avatarUrl ||
-        (acc.screenName ? `https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/${acc.screenName}.jpg` : '')
-      updates[`carouselItems[${i}].accountLabel`] = acc.label || acc.screenName || ''
-      updates[`carouselItems[${i}].accountAvatar`] = avatarUrl ? getCachedMediaImage(toCdnUrl(avatarUrl), 'thumb') : ''
-    }
-    if (Object.keys(updates).length) this.setData(updates)
-  },
-
-  /** 推文账号列表：本地缓存 24 小时，减少网关调用 */
-  async _getTweetAccountsCached() {
-    const CACHE_KEY = '_tweet_accounts_cache_v1'
-    const TTL = 24 * 60 * 60 * 1000
-    try {
-      const hit = wx.getStorageSync(CACHE_KEY)
-      if (hit && Array.isArray(hit.list) && hit.list.length && Date.now() - hit.at < TTL) {
-        return hit.list
-      }
-    } catch (e) {}
-    try {
-      const res = await wx.cloud.callFunction({
-        name: 'userDataGateway',
-        data: { action: 'getTweetAccounts' }
-      })
-      const list = (res && res.result && res.result.accounts) || []
-      if (list.length) {
-        try {
-          wx.setStorageSync(CACHE_KEY, { list, at: Date.now() })
-        } catch (e) {}
-      }
-      return list
-    } catch (e) {
-      return []
-    }
-  },
-
-  /** 账号胶囊头像加载失败 → 只显示账号名 */
-  onCarouselAvatarError(e) {
-    const index = Number(e.currentTarget.dataset.index)
-    if (!isNaN(index) && this.data.carouselItems[index]) {
-      this.setData({ [`carouselItems[${index}].accountAvatar`]: '' })
-    }
-  },
-
-  async _enrichCarouselCaptions(items) {
-    const needEnrich = []
-    for (let i = 0; i < items.length; i++) {
-      if (!items[i].caption && items[i].src) {
-        // 从 URL 中提取 tweetId（格式: .../{tweetId}_video{n}.mp4 或 {tweetId}_{n}.jpg）
-        const urlPath = decodeURIComponent(items[i].src).split('/').pop() || ''
-        const match = urlPath.match(/^(\d+)_/)
-        if (match) needEnrich.push({ index: i, tweetId: match[1] })
-      }
-    }
-    if (!needEnrich.length) return
-
-    try {
-      const db = wx.cloud.database()
-      const tweetIds = [...new Set(needEnrich.map((e) => e.tweetId))]
-      const res = await db
-        .collection('starship_event_updates')
-        .where({ tweetId: db.command.in(tweetIds), status: 'published' })
-        .field({ _id: true, tweetId: true, content: true, title: true })
-        .limit(20)
-        .get()
-      const eventMap = {}
-      for (const doc of res.data || []) {
-        if (doc.tweetId)
-          eventMap[doc.tweetId] = { eventId: doc._id, content: doc.content || '', title: doc.title || '' }
-      }
-
-      const updates = {}
-      for (const { index, tweetId } of needEnrich) {
-        const info = eventMap[tweetId]
-        if (info) {
-          updates[`carouselItems[${index}].caption`] = info.content || info.title
-          updates[`carouselItems[${index}].eventId`] = info.eventId
-        }
-      }
-      if (Object.keys(updates).length) this.setData(updates)
-    } catch (e) {}
-  },
 
   async loadInitialData(options = {}) {
     const safeOptions = options || {}
@@ -4084,9 +2749,10 @@ Page({
           wx.hideLoading()
 
           // ── 首屏后台补偿（旧实现在上屏前串行等待，最多 +3s）──
-          // 1) 云端 recent_settled 迟到：落地后 scrub 倒计时 + 重过滤即将发射
+          // 1) 云端 recent_settled 迟到：scrub 倒计时 + 重过滤即将发射 + 补插历史占位
+          //    （hide_recent 后列表里已没有该 id，仅 peel/refilter 补不进 completed）
           settledPromise
-            .then((settled) => {
+            .then(async (settled) => {
               if (!this._isLaunchStateGenerationCurrent(stateGeneration)) return
               if (!Array.isArray(settled) || !settled.length) return
               try {
@@ -4095,6 +2761,9 @@ Page({
               try {
                 this._refilterUpcomingAgainstSettled()
               } catch (e2) {}
+              try {
+                await this._applyRecentSettledToCompletedList(false)
+              } catch (e3) {}
             })
             .catch(() => {})
           // 2) 按 id 状态快照（NET 改期 / 状态变化）：走实况 patch 路径整体修正列表与面板。
@@ -4179,90 +2848,6 @@ Page({
       }
     }
     if (urls.length) preloadRocketConfigMedia(urls)
-  },
-
-  /**
-   * DB media_assets 加载完成后，重算列表 + 倒计时区火箭图（三处同源）。
-   * 允许 default → 正确图升级；禁止正确图 → default 降级（二次刷新 fuzzy miss 时）。
-   */
-  _refreshRocketImagesFromMediaMap() {
-    const resolveOne = (m) => {
-      if (!m || !m.rocketName) return null
-      return resolveMissionRocketImage(m.rocketImage || m.image || '', m.rocketName, m.rocketConfiguration, true)
-    }
-    const refreshList = (listKey) => {
-      const arr = this.data[listKey]
-      if (!Array.isArray(arr) || !arr.length) return null
-      let mutated = false
-      const next = arr.map((m) => {
-        if (!m || !m.rocketName) return m
-        const rebuilt = resolveOne(m)
-        if (!shouldReplaceRocketImage(m.rocketImage || m.image, rebuilt)) return m
-        mutated = true
-        return { ...m, rocketImage: rebuilt, image: rebuilt }
-      })
-      return mutated ? next : null
-    }
-    const patch = {}
-    const upNext = refreshList('upcomingMissions')
-    if (upNext) patch.upcomingMissions = upNext
-    const dispNext = refreshList('displayedUpcomingMissions')
-    if (dispNext) patch.displayedUpcomingMissions = dispNext
-    const cpNext = refreshList('completedMissions')
-    if (cpNext) patch.completedMissions = cpNext
-    const calNext = refreshList('calendarAllMissions')
-    if (calNext) patch.calendarAllMissions = calNext
-
-    // 倒计时区与列表同 id 任务强制对齐（同样禁止降级）
-    const ld = this.data.launchData
-    if (ld && ld.id && ld.rocketName) {
-      const curLd = ld.rocketImage || ld.image || ''
-      const rebuiltLd = resolveOne(ld)
-      if (shouldReplaceRocketImage(curLd, rebuiltLd)) {
-        patch['launchData.image'] = rebuiltLd
-        patch['launchData.rocketImage'] = rebuiltLd
-      } else if (upNext) {
-        const row = upNext.find((m) => m && String(m.id) === String(ld.id))
-        if (row && shouldReplaceRocketImage(curLd, row.rocketImage)) {
-          patch['launchData.image'] = row.rocketImage
-          patch['launchData.rocketImage'] = row.rocketImage
-        }
-      }
-    }
-
-    if (Object.keys(patch).length) {
-      this.setData(patch, () => {
-        try {
-          if (patch.upcomingMissions) this.updateMissionListView('upcoming', patch.upcomingMissions)
-          if (patch.completedMissions) this.updateMissionListView('completed', patch.completedMissions)
-          if (patch.calendarAllMissions) {
-            this.updateCalendarDerivedState({
-              sourceMissions: patch.calendarAllMissions,
-              allMissions: patch.calendarAllMissions,
-              keepExpanded: true
-            })
-          }
-        } catch (e) {}
-        try {
-          this.syncLaunchPanelRocketImageWithUpcomingList()
-        } catch (e) {}
-        // 简报若已用 default 固化，随 media map 刷新重建，与卡片/倒计时同源
-        try {
-          const briefingComp = this.selectComponent('#morningBriefing')
-          if (briefingComp && typeof briefingComp._loadBriefing === 'function') {
-            briefingComp._loadBriefing()
-          }
-        } catch (e2) {}
-      })
-      try {
-        const top = patch.upcomingMissions || patch.completedMissions || patch.calendarAllMissions
-        this._preloadVisibleRocketImages(top, 8)
-      } catch (e) {}
-    } else {
-      try {
-        this.syncLaunchPanelRocketImageWithUpcomingList()
-      } catch (e) {}
-    }
   },
 
   /**
@@ -4634,10 +3219,25 @@ Page({
 
   /**
    * 切换倒计时到下一个未过期的任务（从已加载的列表中取，无需重新请求）
+   * 当前任务仍在发射窗口内且未决时禁止因「有下一条未来任务」切走。
+   * 落库/显式切换（_switchingCountdown 或 options.force）不受窗口挂住拦截——
+   * _moveMissionToCompleted 的 setData 尚未回写时，列表里仍是旧「就绪」，否则会误挡。
    */
-  switchToNextUpcomingMission() {
-    const currentId = this.data.launchData.id
+  switchToNextUpcomingMission(options) {
+    const force = !!(options && options.force) || !!this._switchingCountdown
+    const currentId = this.data.launchData && this.data.launchData.id
     const missions = this.data.upcomingMissions || []
+    const now = Date.now()
+    const current =
+      currentId != null
+        ? missions.find((m) => m && String(m.id) === String(currentId))
+        : null
+    const currentRecord =
+      currentId != null && this._launchRecordsById ? this._launchRecordsById.get(String(currentId)) || null : null
+    if (!force && current && shouldHoldPastNetCountdownMission(current, now, currentRecord)) {
+      this._switchingCountdown = false
+      return
+    }
 
     const filtered = filterExpiredMissions(missions)
     if (filtered.length !== missions.length) {
@@ -4646,7 +3246,7 @@ Page({
       this.setData(patch, () => this.scheduleUpcomingAgencyChipsOverflowHint())
     }
 
-    const next = getNextUpcomingLaunch(filtered, currentId, Date.now())
+    const next = getNextUpcomingLaunch(filtered, currentId, now)
 
     if (next) {
       this.setData(
@@ -4671,16 +3271,22 @@ Page({
   },
 
   // ══════════════════════════════════════════════════════════════
-  // 倒计时到点：实时状态确认（代替盲目切换）
-  // T-0 后面板先显示「状态确认中」，T+10 分钟向 LL2 确认实际状态：
+  // 倒计时到点：实时状态确认（代替盲目切换），节奏由窗口期状态机决策
+  // T-0 后面板先显示「状态确认中」，NET+10m 首查、窗口内 3m 复查：
   // 成功/失败/部分失败/载荷已部署/飞行中 → 落历史并切换；
   // 推迟/就绪/待确认等未决 → 展示实况并复查；NET 推后则恢复倒计时；
-  // NET+30m 后仍 bestEffort，无结果则继续挂起（禁止无状态裸切）。
+  // windowEnd（无窗口则 NET+30m）到点 bestEffort，无结果则 15m 慢探（禁止无状态裸切）。
   // 热路径：仅当前倒计时任务可走 /updates/ 社媒终态旁路（有云缓存）；
   // 历史任务发射动态靠 6h slim 拆分的 updates_{uuid} 冷路径。
   // ══════════════════════════════════════════════════════════════
 
-  /** 倒计时到期入口（每秒 tick 都可能进来，需防重入 + 节流） */
+  /**
+   * 倒计时到期入口（每秒 tick 都可能进来，需防重入 + 节流）。
+   * 探针动作由窗口期状态机决策：
+   *   wait      → T-0 定格面板，NET+10m 首查（LL2 状态滞后）
+   *   probeById → 窗口内立即进入复查循环（3 分钟间隔）
+   *   bestEffort/slowProbe → 窗口（+宽限）已过：bestEffort 落库；未决则 15 分钟慢探
+   */
   _onCountdownExpired() {
     if (this._launchStatusPolling) return
     const now = Date.now()
@@ -4691,18 +3297,29 @@ Page({
     const currentId = ld && ld.id != null ? String(ld.id) : ''
     if (!currentId) return
 
-    // 兜底窗口以任务 NET 为起点：中途离开页面再回来也不会重置计时
-    if (this._launchStatusPollLaunchId !== currentId) {
-      const netMs = ld.launchTime ? new Date(ld.launchTime).getTime() : 0
-      this._launchStatusPollLaunchId = currentId
-      this._launchStatusPollStartAt = netMs && !isNaN(netMs) ? netMs : now
-    }
+    // 计时基准始终为任务 NET（状态机由 NET/windowEnd 纯推导），离开页面再回来不重置
+    const record = this._launchRecordsById ? this._launchRecordsById.get(currentId) || null : null
+    const probe = nextProbeAction(ld, record, now)
 
-    // NET 已过 30 分钟仍未决：bestEffort 查终态/飞行中；无结果则挂起继续复查（不裸切）
-    if (now - this._launchStatusPollStartAt >= LIVE_STATUS_MAX_WAIT_MS) {
+    // 已可落库 / 窗口（+宽限）已过：bestEffort 查终态并落库；无结果则挂起慢探（不裸切）
+    if (probe.action === 'settle' || probe.action === 'bestEffort' || probe.action === 'slowProbe') {
       this._launchStatusPolling = true
       this._settleExpiredLaunchWithBestEffort(currentId)
       return
+    }
+
+    // PRE_WINDOW（none）：权威记录已把 NET 推到未来而面板字段尚未回写（改期），
+    // 直接应用新 NET 恢复倒计时，不定格面板、不发探针
+    if (probe.action === 'none') {
+      const recNetMs = record && record.net ? new Date(record.net).getTime() : 0
+      if (recNetMs && recNetMs > now + 60 * 1000) {
+        this._applyPostponedNet({ id: currentId, net: record.net, status: record.status, name: record.name })
+        return
+      }
+      // 距 T-0 不足 1 分钟：等自然过点，下轮再判
+      if (recNetMs && recNetMs > now) return
+      // 走到这里说明有效 NET 缺失/非法（面板与记录都没有可用时间）：
+      // 不能直接放弃，落到常规探针拿回真实 NET/状态自愈
     }
 
     this._launchStatusPolling = true
@@ -4715,84 +3332,13 @@ Page({
       'launchData.statusTextZh': '状态确认中',
       'launchData.statusCategory': 'pending'
     })
-    // LL2 状态更新有滞后，T-0 不请求，到 NET+10 分钟才发第一次请求
-    const firstCheckDelay = Math.max(0, this._launchStatusPollStartAt + LIVE_STATUS_FIRST_CHECK_DELAY_MS - now)
+    // wait：距 NET+10m 首查的剩余时间；probeById：立即查
+    const firstCheckDelay = probe.action === 'wait' ? probe.delayMs : 0
     if (this._statusRecheckTimer) clearTimeout(this._statusRecheckTimer)
     this._statusRecheckTimer = setTimeout(() => {
       this._statusRecheckTimer = null
       this._checkLiveLaunchStatus(currentId)
     }, firstCheckDelay)
-  },
-
-  /** 拉取前 5 个任务实时状态并按当前任务状态分流 */
-  async _checkLiveLaunchStatus(currentId) {
-    let rows = null
-    try {
-      rows = await fetchLiveLaunchStatuses()
-      // 失败：短抖动后重试 1 次，避免与云端 30s fail memo 连击
-      if (!rows) {
-        await new Promise((r) => setTimeout(r, 400 + Math.floor(Math.random() * 600)))
-        rows = await fetchLiveLaunchStatuses()
-      }
-    } catch (e) {
-      rows = null
-    }
-
-    // 期间任务已被切换（用户操作/整页刷新）：终止本轮，新任务到点会重新开始
-    const ld = this.data.launchData
-    if (!ld || String(ld.id != null ? ld.id : '') !== currentId) {
-      this._launchStatusPolling = false
-      return
-    }
-
-    if (!rows) {
-      const fromUpdates = await this._trySettleFromLl2Updates(currentId)
-      if (fromUpdates) return
-      this._scheduleStatusRecheck(currentId, '待定', 'pending')
-      return
-    }
-
-    // 顺带把实况 patch 进源列表，再同步 displayed（避免双倍路径字段）
-    this._patchUpcomingListLiveStatuses(rows)
-
-    const row = rows.find((r) => r && String(r.id) === currentId) || null
-    if (!row) {
-      // 已移出 upcoming 前 5：先验终态再切；无终态则继续复查，避免误裸切
-      let settledRow = await this._lookupRecentSettledRow(currentId)
-      if (!settledRow) {
-        settledRow = await this._fetchTerminalFromLl2Updates(currentId)
-      }
-      if (settledRow && settledRow.status) {
-        this._settleExpiredLaunch(settledRow)
-        return
-      }
-      this._scheduleStatusRecheck(currentId, '待定', 'pending')
-      return
-    }
-
-    const statusId = row.status ? Number(row.status.id) : 0
-
-    // 终态(3/4/7/9) 或飞行中(6) → 落历史并切换
-    if (isSettleableLiveStatusId(statusId)) {
-      this._settleExpiredLaunch(row)
-      return
-    }
-
-    // NET 已推后（新时间在 1 分钟以后）→ 更新发射时间，倒计时自然恢复
-    const netMs = row.net ? new Date(row.net).getTime() : 0
-    if (netMs && netMs - Date.now() > 60 * 1000) {
-      this._applyPostponedNet(row)
-      return
-    }
-
-    // status 仍未决：用 Updates「Launch success.」等社媒记录旁路确认
-    const fromUpdates = await this._trySettleFromLl2Updates(currentId, row)
-    if (fromUpdates) return
-
-    // 推迟 / 就绪 / 待确认 等 → 显示实况并复查（与角标同源）
-    const category = getStatusCategory(row.status)
-    const liveText = getStatusBadgeText(row.status, category)
-    this._scheduleStatusRecheck(currentId, liveText, category)
   },
 
   /** 读 recent_settled 中该 id 的可 settle 行（终态或飞行中；优先内存缓存） */
@@ -4808,392 +3354,6 @@ Page({
     } catch (e) {
       return null
     }
-  },
-
-  /**
-   * 拉 LL2 /updates/（与推迟徽标共用内存缓存），从「Launch success.」等推断终态。
-   */
-  async _fetchLl2UpdatesCached(launchId, minLimit) {
-    const id = String(launchId || '').trim()
-    if (!id) return null
-    const need = Math.max(15, Number(minLimit) || 15)
-    const now = Date.now()
-    const mem = this._ll2UpdatesMem
-    if (
-      mem &&
-      mem.id === id &&
-      Array.isArray(mem.list) &&
-      mem.limit >= need &&
-      now - (mem.at || 0) < LL2_UPDATES_MEM_TTL_MS
-    ) {
-      return mem
-    }
-    try {
-      const res = await fetchLl2LaunchUpdates(id, need)
-      const list = res && Array.isArray(res.list) ? res.list : []
-      const packed = {
-        id,
-        list,
-        limit: need,
-        at: now,
-        outcome: (res && res.outcome) || inferTerminalStatusFromUpdates(list)
-      }
-      this._ll2UpdatesMem = packed
-      return packed
-    } catch (e) {
-      return null
-    }
-  },
-
-  /**
-   * 拉 LL2 /updates/，从「Launch success.」/ liftoff 等推断可 settle 状态。
-   * 云函数有 5–10 分钟缓存；仅在 status 未决时调用，避免浪费额度。
-   */
-  async _fetchTerminalFromLl2Updates(currentId) {
-    const id = String(currentId || '').trim()
-    if (!id) return null
-    const now = Date.now()
-    if (this._updatesOutcomeAt && this._updatesOutcomeId === id && now - this._updatesOutcomeAt < 3 * 60 * 1000) {
-      return this._updatesOutcomeRow || null
-    }
-    try {
-      const packed = await this._fetchLl2UpdatesCached(id, 15)
-      const list = packed && Array.isArray(packed.list) ? packed.list : []
-      const outcome = (packed && packed.outcome) || inferTerminalStatusFromUpdates(list)
-      const ld = this.data.launchData || {}
-      const row = outcome
-        ? buildSettledRowFromUpdates(id, ld.missionName || ld.name || '', ld.launchTime || '', outcome)
-        : null
-      this._updatesOutcomeId = id
-      this._updatesOutcomeAt = now
-      this._updatesOutcomeRow = row
-      return row
-    } catch (e) {
-      this._updatesOutcomeId = id
-      this._updatesOutcomeAt = now
-      this._updatesOutcomeRow = null
-      return null
-    }
-  },
-
-  /**
-   * 若 Updates 能确认终态则落历史并返回 true。
-   * @param {string} currentId
-   * @param {object} [baseRow] 可选：保留 live 行的 net 等字段
-   */
-  async _trySettleFromLl2Updates(currentId, baseRow) {
-    const fromUpdates = await this._fetchTerminalFromLl2Updates(currentId)
-    if (!fromUpdates || !fromUpdates.status) return false
-    const ld = this.data.launchData
-    if (!ld || String(ld.id != null ? ld.id : '') !== String(currentId)) return false
-    const merged = {
-      ...fromUpdates,
-      net: (baseRow && baseRow.net) || fromUpdates.net || ld.launchTime || '',
-      name: fromUpdates.name || (baseRow && baseRow.name) || ld.missionName || ''
-    }
-    this._settleExpiredLaunch(merged)
-    return true
-  },
-
-  /** 显示实况文案并安排复查；NET+30m 后改走 bestEffort（无结果则挂起，不裸切） */
-  _scheduleStatusRecheck(currentId, liveText, liveCategory) {
-    if (Date.now() - (this._launchStatusPollStartAt || 0) >= LIVE_STATUS_MAX_WAIT_MS) {
-      this._settleExpiredLaunchWithBestEffort(currentId)
-      return
-    }
-    this._applyLiveStatusPanel(currentId, liveText, liveCategory)
-    const ld = this.data.launchData
-    const delay = getLiveStatusRecheckDelayMs(ld && ld.launchTime)
-    this._armLiveStatusRecheck(currentId, delay)
-  },
-
-  /** 把实况文案写回当前倒计时面板（仅当仍是同一任务） */
-  _applyLiveStatusPanel(currentId, liveText, liveCategory) {
-    const ld = this.data.launchData
-    if (!ld || String(ld.id != null ? ld.id : '') !== String(currentId)) return
-    const patch = {}
-    if (liveText && ld.statusTextZh !== liveText) patch['launchData.statusTextZh'] = liveText
-    if (liveCategory && ld.statusCategory !== liveCategory) patch['launchData.statusCategory'] = liveCategory
-    if (Object.keys(patch).length) this.setData(patch)
-  },
-
-  /** 安排下一次 live 状态复查 */
-  _armLiveStatusRecheck(currentId, delayMs) {
-    if (this._statusRecheckTimer) clearTimeout(this._statusRecheckTimer)
-    this._statusRecheckTimer = setTimeout(
-      () => {
-        this._statusRecheckTimer = null
-        this._checkLiveLaunchStatus(currentId)
-      },
-      Math.max(1000, Number(delayMs) || LIVE_STATUS_RECHECK_MS)
-    )
-  },
-
-  /**
-   * 超时 bestEffort：recent_settled → Updates 社媒记录 → 可 settle 则落历史；
-   * 否则保持当前任务并拉长间隔继续复查（禁止裸切）。
-   */
-  async _settleExpiredLaunchWithBestEffort(currentId) {
-    let row = await this._lookupRecentSettledRow(currentId)
-    if (!row) {
-      row = await this._fetchTerminalFromLl2Updates(currentId)
-    }
-    await this._settleExpiredLaunch(row)
-  },
-
-  /**
-   * 仅当终态或飞行中：把卡片落到历史发射头部并切下一个。
-   * 若只有飞行中：落历史前先 resolve 一次，尽量直接写成 Deployed/Success，避免历史长期「飞行中」。
-   * 未决禁止从即将发射移除 / 禁止切下一个。
-   */
-  async _settleExpiredLaunch(row) {
-    if (this._statusRecheckTimer) {
-      clearTimeout(this._statusRecheckTimer)
-      this._statusRecheckTimer = null
-    }
-    this._launchStatusPolling = false
-
-    const ld = this.data.launchData
-    const currentId = ld && ld.id != null ? String(ld.id) : ''
-    const mission = (this.data.upcomingMissions || []).find((m) => m && String(m.id) === currentId) || null
-    let settleRow = row
-    let statusId = settleRow && settleRow.status && settleRow.status.id != null ? Number(settleRow.status.id) : 0
-    const canSettle = !!(settleRow && settleRow.status && mission && isSettleableLiveStatusId(statusId))
-
-    if (canSettle) {
-      // 飞行中 → 落历史前抢一次终态（mode=list，比进详情早）
-      if (statusId === 6 && currentId) {
-        try {
-          const rows = await resolveLaunchStatuses([currentId])
-          if (Array.isArray(rows) && rows.length) {
-            this._upsertResolvedIntoSettledCache(rows)
-            const hit = rows.find((r) => r && String(r.id) === currentId) || rows[0]
-            const nextSid = hit && hit.status && hit.status.id != null ? Number(hit.status.id) : 0
-            if (hit && hit.status && isTerminalStatusId(nextSid)) {
-              settleRow = {
-                ...(settleRow || {}),
-                id: currentId,
-                name: hit.name || (settleRow && settleRow.name) || '',
-                net: hit.net || (settleRow && settleRow.net) || '',
-                status: hit.status
-              }
-              statusId = nextSid
-            }
-          }
-        } catch (e) {}
-      }
-      try {
-        this._moveMissionToCompleted(mission, settleRow, { resolveInflight: statusId === 6 })
-      } catch (e) {
-        console.error('[LiveStatus] 落历史发射失败:', e)
-      }
-      this._switchingCountdown = true
-      this.switchToNextUpcomingMission()
-
-      const after = this.data.launchData
-      if (after && String(after.id != null ? after.id : '') === currentId && this._settleReloadedForId !== currentId) {
-        this._settleReloadedForId = currentId
-        this._refreshUpcomingAfterSettle().catch(() => {})
-      }
-      return
-    }
-
-    if (!currentId) return
-    this._launchStatusPolling = true
-    let liveText = '待确认'
-    let liveCategory = 'pending'
-    if (settleRow && settleRow.status) {
-      liveCategory = getStatusCategory(settleRow.status)
-      liveText = getStatusBadgeText(settleRow.status, liveCategory)
-    }
-    this._applyLiveStatusPanel(currentId, liveText, liveCategory)
-    this._armLiveStatusRecheck(currentId, LIVE_STATUS_UNRESOLVED_RECHECK_MS)
-  },
-
-  /** settle 后轻量刷新即将发射列表，避免整页 loadInitialData */
-  async _refreshUpcomingAfterSettle() {
-    try {
-      const { res, list } = await this.fetchMissionList('upcoming', 50, 0)
-      if (!Array.isArray(list) || !list.length) return
-      const first = list[0]
-      if (!first) return
-      // 若当前面板已切到新任务且仍在列表中，只更新列表不重建面板
-      const curId = this.data.launchData && this.data.launchData.id != null ? String(this.data.launchData.id) : ''
-      const stillCurrent = curId && list.some((m) => m && String(m.id) === curId)
-      if (stillCurrent) {
-        const patch = { ...buildMissionListSetData('upcoming', list, res, filterExpiredMissions) }
-        this.applyUpcomingAgencyFilterToPatch(patch)
-        this.setData(patch, () => this.scheduleUpcomingAgencyChipsOverflowHint())
-        return
-      }
-      this.applyInitialUpcomingLaunchState(first, list, res)
-    } catch (e) {}
-  },
-
-  /**
-   * 把当前任务卡片转成历史发射形态：从即将发射移除，插入历史发射头部，并同步日历。
-   * @param {{ resolveInflight?: boolean }} options 若仍是飞行中，setData 后继续 resolve 升级角标
-   */
-  _moveMissionToCompleted(mission, row, options) {
-    const statusObj = row.status || {}
-    const category = getStatusCategory(statusObj)
-    const statusZh = getStatusBadgeText(statusObj, category)
-    const resolveInflight = !!(options && options.resolveInflight)
-
-    const completedItem = attachMissionDetailMeta(
-      {
-        ...mission,
-        status: statusZh,
-        statusId: statusObj.id != null ? Number(statusObj.id) : mission.statusId,
-        statusAbbrev: statusObj.abbrev || '',
-        statusCategory: category,
-        statusBadgeText: statusZh,
-        success: category === 'success' || category === 'deployed',
-        isPartialFailure: category === 'partial',
-        isFailure: category === 'failure' || category === 'partial',
-        missionDescription: mission.missionDescription || '',
-        isExpired: false,
-        _optimisticSettled: true
-      },
-      { id: mission.id, detailType: 'completed' }
-    )
-
-    const midStr = String(mission.id)
-    this._rememberSessionCompleted(completedItem)
-    const nextUpcoming = (this.data.upcomingMissions || []).filter((m) => m && String(m.id) !== midStr)
-    const nextCompleted = [
-      completedItem,
-      ...(this.data.completedMissions || []).filter((m) => m && String(m.id) !== midStr)
-    ]
-
-    const patch = { upcomingMissions: nextUpcoming, completedMissions: nextCompleted }
-    this.applyUpcomingAgencyFilterToPatch(patch)
-    this.setData(patch, () => {
-      try {
-        this.updateMissionListView('completed', nextCompleted)
-      } catch (e) {}
-      try {
-        this.hydrateCalendarFromLoadedMissionLists()
-      } catch (e) {}
-      this.scheduleUpcomingAgencyChipsOverflowHint()
-      if (!resolveInflight) return
-      // 落历史时仍是飞行中：立刻再 resolve，把角标升到终态（不必等用户进详情）
-      this._reconcileInflightHistoryStatuses(nextCompleted)
-        .then((merged) => {
-          if (!Array.isArray(merged)) return
-          const head = merged[0]
-          if (!head || String(head.id) !== midStr) return
-          if (!isTerminalStatusId(head.statusId)) return
-          this.setData(
-            {
-              ...buildMissionListSetData(
-                'completed',
-                merged,
-                {
-                  nextOffset: this.data.completedMissionsOffset,
-                  hasMore: this.data.completedMissionsHasMore
-                },
-                filterExpiredMissions
-              )
-            },
-            () => {
-              try {
-                this.updateMissionListView('completed', merged)
-              } catch (e2) {}
-            }
-          )
-        })
-        .catch(() => {})
-    })
-  },
-
-  /** NET 已推后：更新当前任务发射时间与列表卡片，倒计时自然恢复 */
-  _applyPostponedNet(row) {
-    if (this._statusRecheckTimer) {
-      clearTimeout(this._statusRecheckTimer)
-      this._statusRecheckTimer = null
-    }
-    this._launchStatusPolling = false
-    // 新 T-0 重新计 30 分钟兜底窗口
-    this._launchStatusPollLaunchId = ''
-    this._launchStatusPollStartAt = 0
-    this._lastExpiredRoundAt = 0
-
-    const currentId = String(row.id)
-    const missions = (this.data.upcomingMissions || []).slice()
-    const idx = missions.findIndex((m) => m && String(m.id) === currentId)
-
-    if (idx >= 0) {
-      const mission = { ...missions[idx], launchTime: row.net }
-      mission.formattedTime = formatDate(row.net, 'MM月DD日 HH:mm')
-      if (row.status && row.status.name) {
-        mission.status = getStatusTextZh(row.status)
-        mission.statusId = row.status.id != null ? Number(row.status.id) : mission.statusId
-        mission.statusAbbrev = row.status.abbrev || mission.statusAbbrev
-        mission.statusCategory = getStatusCategory(row.status)
-        mission.statusBadgeText = getStatusBadgeText(row.status, mission.statusCategory)
-      }
-      missions[idx] = mission
-      // NET 变化可能影响顺序，按时间重排
-      missions.sort((a, b) => new Date((a && a.launchTime) || 0) - new Date((b && b.launchTime) || 0))
-
-      const patch = { upcomingMissions: missions }
-      this.applyUpcomingAgencyFilterToPatch(patch)
-      this.setData(patch, () => this.scheduleUpcomingAgencyChipsOverflowHint())
-
-      // 用改期后的任务重建倒计时面板
-      this.setData(
-        buildCurrentLaunchPanelState({
-          mission,
-          formatDate,
-          getStatusTextZh,
-          subscribedIdSet: this._getPageSubscribedIdSet()
-        })
-      )
-    } else {
-      // 列表中找不到（边缘情况）：直接改面板时间
-      const timeParts = formatHomeLaunchTimeParts(row.net, formatDate)
-      this.setData({
-        'launchData.launchTime': row.net,
-        formattedLaunchTime: timeParts.full,
-        formattedLaunchDate: timeParts.date,
-        formattedLaunchWeekTime: timeParts.weekTime,
-        'launchData.statusTextZh': row.status ? getStatusTextZh(row.status) : '计划中',
-        'launchData.statusCategory': row.status ? getStatusCategory(row.status) : 'pending'
-      })
-    }
-    this.updateCountdown()
-    // NET 改期后重新计算推迟徽标（loadKey 含 NET，改期后必然重新拉取）
-    this.refreshLaunchDelayInfo(currentId, row.net)
-  },
-
-  /** 把同一次返回的前 5 行实况（状态 + NET）patch 进即将发射源列表，再一次 filter 同步 displayed */
-  _patchUpcomingListLiveStatuses(rows) {
-    if (!Array.isArray(rows) || !rows.length) return
-    this._absorbLaunchStateObservations(
-      rows.map((row) => ({
-        ...row,
-        source: 'live',
-        observedAtMs: row.observedAtMs || Date.now()
-      })),
-      'live'
-    )
-    const projected = this._projectAuthoritativeLaunchState(this.data.upcomingMissions, this.data.completedMissions)
-    const completed = this._mergeRecentSettledIntoCompletedList(
-      projected.completed,
-      Array.from(this._launchRecordsById.values())
-    )
-    const patch = {
-      upcomingMissions: filterExpiredMissions(projected.upcoming),
-      completedMissions: completed
-    }
-    this.applyUpcomingAgencyFilterToPatch(patch, patch.upcomingMissions)
-    this.setData(patch, () => {
-      this.updateMissionListView('completed', completed)
-      if (this.data.launchData && this._isKnownSettleableId(this.data.launchData.id)) {
-        this._scrubKnownSettleableCountdown()
-      }
-    })
   },
 
   /**
@@ -5532,75 +3692,6 @@ Page({
     this.viewMissionDetail(e)
   },
 
-  /**
-   * 倒计时圆图直播态：拉取视频号状态，驱动红边涟漪 +「直播中」标签
-   * @param {{ schedule?: boolean }} options schedule=true 时按开播/未开播间隔续轮询
-   */
-  refreshCountdownChannelsLive(options = {}) {
-    const schedule = !!(options && options.schedule)
-    if (this._channelsLiveInfoPromise) {
-      return this._channelsLiveInfoPromise.then(() => {
-        if (schedule && this.data.enableLiveEntry) this._scheduleCountdownChannelsLivePoll()
-      })
-    }
-
-    this._channelsLiveInfoPromise = isLiveEntryAllowed()
-      .catch(() => false)
-      .then((allowed) => {
-        if (this.data.enableLiveEntry !== !!allowed) {
-          this.setData({ enableLiveEntry: !!allowed })
-        }
-        if (!allowed) {
-          // 过审关闭直播入口：不探测视频号、不续轮询，并收回已亮起的直播态
-          this._clearCountdownChannelsLivePoll()
-          if (this.data.isChannelsLive || this.data.isEnteringLive) {
-            this.setData({ isChannelsLive: false, isEnteringLive: false })
-          }
-          return null
-        }
-        return loadChannelsLiveModule()
-          .then((live) => live.fetchChannelsLiveInfo().then((payload) => payload))
-          .then((payload) => {
-            const status = payload.status || 0
-            const feedId = payload.feedId || ''
-            const isLive = Number(status) === 2
-            const finder = getLiveFinderUserNameFromConfig()
-            const patch = {}
-            if (this.data.isChannelsLive !== isLive) patch.isChannelsLive = isLive
-            if (this.data.channelsLiveStatus !== status) patch.channelsLiveStatus = status
-            if (this.data.channelsLiveFeedId !== feedId) patch.channelsLiveFeedId = feedId
-            if (finder && this.data.liveFinderUserName !== finder) patch.liveFinderUserName = finder
-            if (!isLive && this.data.channelsLiveAnimPaused) patch.channelsLiveAnimPaused = false
-            if (!isLive && this.data.isEnteringLive) patch.isEnteringLive = false
-            if (Object.keys(patch).length) this.setData(patch)
-          })
-          .catch(() => {
-            // 探测失败静默：保持未直播态，不打断倒计时
-            if (this.data.isChannelsLive || this.data.isEnteringLive) {
-              this.setData({
-                isChannelsLive: false,
-                isEnteringLive: false
-              })
-            }
-          })
-      })
-      .finally(() => {
-        this._channelsLiveInfoPromise = null
-        if (schedule && this.data.enableLiveEntry) this._scheduleCountdownChannelsLivePoll()
-      })
-
-    return this._channelsLiveInfoPromise
-  },
-
-  _scheduleCountdownChannelsLivePoll() {
-    this._clearCountdownChannelsLivePoll()
-    const delay = this.data.isChannelsLive ? CHANNELS_LIVE_POLL_LIVE_MS : CHANNELS_LIVE_POLL_IDLE_MS
-    this._channelsLivePollTimer = setTimeout(() => {
-      this._channelsLivePollTimer = null
-      this.refreshCountdownChannelsLive({ schedule: true })
-    }, delay)
-  },
-
   _clearCountdownChannelsLivePoll() {
     if (this._channelsLivePollTimer) {
       clearTimeout(this._channelsLivePollTimer)
@@ -5624,82 +3715,6 @@ Page({
   },
 
   /**
-   * 点击圆图/直播标签：
-   * 直播中 → 先播压缩放过渡，再 openChannelsLive；
-   * 未直播 → 进任务详情。
-   */
-  onCountdownLiveAvatarTap() {
-    if (!this.data.enableLiveEntry || !this.data.isChannelsLive) {
-      const id = this.data.launchData && this.data.launchData.id
-      if (!id) return
-      this.viewMissionDetail({ currentTarget: { dataset: { id } } })
-      return
-    }
-    if (this._openingCountdownLive || this.data.isEnteringLive) return
-
-    this._openingCountdownLive = true
-    try {
-      wx.vibrateShort({ type: 'medium' })
-    } catch (e) {}
-    this.setData({ isEnteringLive: true })
-
-    const self = this
-    this._clearCountdownLiveEnterTimer()
-    this._channelsLiveEnterTimer = setTimeout(() => {
-      self._channelsLiveEnterTimer = null
-      self._openCountdownChannelsLive()
-    }, CHANNELS_LIVE_ENTER_MS)
-  },
-
-  /**
-   * 过渡动画结束后打开视频号直播间；取消/失败时复位进入态。
-   */
-  _openCountdownChannelsLive() {
-    const self = this
-    const finish = () => {
-      self._openingCountdownLive = false
-      if (self.data.isEnteringLive) {
-        self.setData({ isEnteringLive: false })
-      }
-    }
-
-    const openWithPayload = (feedId, finderUserName) => {
-      if (!feedId) {
-        wx.showToast({ title: '暂无直播信息', icon: 'none' })
-        finish()
-        return
-      }
-      loadChannelsLiveModule()
-        .then((live) =>
-          live.openChannelsLive({
-            finderUserName: finderUserName || self.data.liveFinderUserName,
-            feedId
-          })
-        )
-        .then(() => {
-          // 成功调起后稍后再清，避免确认框弹出瞬间圆图弹回
-          setTimeout(finish, 400)
-        })
-        .catch(() => {
-          finish()
-        })
-    }
-
-    if (this.data.channelsLiveFeedId) {
-      openWithPayload(this.data.channelsLiveFeedId, this.data.liveFinderUserName)
-      return
-    }
-
-    this.refreshCountdownChannelsLive()
-      .then(() => {
-        openWithPayload(self.data.channelsLiveFeedId, self.data.liveFinderUserName)
-      })
-      .catch(() => {
-        finish()
-      })
-  },
-
-  /**
    * 倒计时卡片 — 助推器行「详情」按钮：按序列号（如 B1090）跳该箭实体详情页
    */
   async onGoBoosterDetail() {
@@ -5708,13 +3723,8 @@ Page({
     } catch (e) {}
     const launch = this.data.launchData || {}
     const serial = String((launch.boosterInfo && launch.boosterInfo.serialNumber) || '').trim()
-    if (!serial || serial === '未披露') {
-      wx.showToast({ title: '暂无该助推器档案', icon: 'none' })
-      return
-    }
-    const allowed = await gateCheck('booster_genealogy', '全球可回收火箭族谱')
-    if (!allowed) return
-    navigateTo(ROUTES.BOOSTER_DETAIL, { serial: serial })
+    const { openBoosterEntityDetail } = require('../../utils/booster-nav.js')
+    await openBoosterEntityDetail(serial)
   },
 
   /**
@@ -5746,6 +3756,17 @@ Page({
     this._vibrateMedium()
     this._subscribeReminderBusy = true
     try {
+      const oaReady = !!(this.data.oaAlertReady || peekOaAlertReady())
+      if (oaReady) {
+        // 服务号已覆盖发射前：铃铛切换「结果通知」
+        if (isSubscribed(launch.id)) {
+          await this.unsubscribeReminderForMission(launch.id, { silent: true })
+          wx.showToast({ title: '已关闭结果通知（服务号发射提醒仍有效）', icon: 'none' })
+        } else {
+          await this.subscribeReminderForMission(launch)
+        }
+        return
+      }
       const on = this.data._countdownSubscribed || isSubscribed(launch.id)
       if (on) {
         await this.unsubscribeReminderForMission(launch.id)
@@ -5757,19 +3778,9 @@ Page({
     }
   },
 
-  openAISearch() {
-    this.closeMissionSwipeCells()
-    wx.navigateTo({
-      url: ROUTES.SEARCH,
-      fail: () => {
-        wx.showToast({ title: '打开搜索失败', icon: 'none' })
-      }
-    })
-  },
 
-  openShop() {
-    wx.showToast({ title: '筹备中，敬请期待', icon: 'none' })
-  },
+
+
   preventMove() {},
   stopPropagation() {},
 
@@ -5852,64 +3863,6 @@ Page({
   /**
    * 轮播图加载错误处理
    */
-  // ========== 轮播图/视频控制逻辑 ==========
-
-  /** 启动轮播自动翻页定时器 */
-  _startCarouselTimer() {
-    this._stopCarouselTimer()
-    const items = this.data.carouselItems
-    if (!items || items.length <= 1) return
-    const current = this.data.carouselCurrent || 0
-    const isVideo = items[current] && items[current].type === 'video'
-    const delay = isVideo ? this.data.carouselVideoDuration || 5000 : this.data.carouselImageDuration || 5000
-    this._carouselTimer = setTimeout(() => {
-      const next = ((this.data.carouselCurrent || 0) + 1) % items.length
-      this.setData({ carouselCurrent: next })
-    }, delay)
-  },
-
-  /** 停止轮播定时器 */
-  _stopCarouselTimer() {
-    if (this._carouselTimer) {
-      clearTimeout(this._carouselTimer)
-      this._carouselTimer = null
-    }
-  },
-
-  /** 停止当前视频播放 */
-  _stopCarouselVideo(index) {
-    if (index == null) return
-    const ctx = wx.createVideoContext(`carousel-video-${index}`, this)
-    if (ctx) {
-      try {
-        ctx.pause()
-        ctx.seek(0)
-      } catch (e) {}
-    }
-  },
-
-  /**
-   * 轮播视频自动播放门控（流量成本控制）：
-   * - 会员功能未开启：所有人保持自动播放（现状）
-   * - 会员功能开启：仅会员自动播放；非会员只显示封面，点击先门控再播（不预加载）
-   * 结果缓存在 this._carouselAutoplayAllowed，onLoad/onShow 异步刷新
-   */
-  _updateCarouselAutoplayGate() {
-    Promise.all([isMembershipEnabled(), getMemberPolicy()])
-      .then(([enabled, policy]) => {
-        // 会员关 / Pro：可自动播；非会员需策略允许且未强制封面
-        let allowed = !enabled || isProSync()
-        if (enabled && !isProSync()) {
-          allowed = !!policy.carouselAllowVideoForNonMember && !policy.forceNonMemberVideoPoster
-        }
-        if (this._carouselAutoplayAllowed !== allowed) {
-          this._carouselAutoplayAllowed = allowed
-          this._activateCarouselVideos(this.data.carouselCurrent || 0)
-        }
-      })
-      .catch(() => {})
-  },
-
   _isCarouselAutoplayAllowed() {
     // 默认 false：门控异步返回前不激活 src，避免非会员短暂拉到视频流
     return this._carouselAutoplayAllowed === true
@@ -5945,373 +3898,6 @@ Page({
     if (!allowed) return
     // Pro 购买回来 / 广告解锁成功：立即放开
     this.setData({ missionGateLimit: 0 })
-  },
-
-  /**
-   * 仅激活当前视频的 src，避免多路大视频同时缓冲导致黑屏与预取流量浪费。
-   * 非激活项清空 src，封面继续展示 poster。
-   * 非会员（门控开启时）不激活任何视频，点击封面走全屏按需播放。
-   */
-  _activateCarouselVideos(current) {
-    const items = this.data.carouselItems || []
-    if (!items.length) return
-    const n = items.length
-    const cur = Math.max(0, Math.min(Number(current) || 0, n - 1))
-    const autoplayAllowed = this._isCarouselAutoplayAllowed()
-    const want = new Set(autoplayAllowed ? [cur] : [])
-
-    const updates = {}
-    for (let i = 0; i < n; i++) {
-      if (!items[i] || items[i].type !== 'video') continue
-      const active = want.has(i)
-      if (!!items[i].videoActive !== active) {
-        updates[`carouselItems[${i}].videoActive`] = active
-      }
-      if (!active && items[i].videoStarted) {
-        updates[`carouselItems[${i}].videoStarted`] = false
-      }
-    }
-
-    const play = () => {
-      // 等 video 绑定新 src 后再 play，减少空 src 调用
-      setTimeout(() => this._playCurrentVideoIfNeeded(), 80)
-    }
-    if (Object.keys(updates).length) {
-      this.setData(updates, play)
-    } else {
-      play()
-    }
-  },
-
-  /** 如果当前项是视频，静音自动播放 */
-  _playCurrentVideoIfNeeded() {
-    if (!this._isCarouselAutoplayAllowed()) return
-    const items = this.data.carouselItems
-    const current = this.data.carouselCurrent || 0
-    if (!items || !items[current] || items[current].type !== 'video') return
-    if (!items[current].videoActive) return
-    const ctx = wx.createVideoContext(`carousel-video-${current}`, this)
-    if (ctx) {
-      try {
-        ctx.play()
-      } catch (e) {}
-    }
-  },
-
-  /** swiper 切换回调 */
-  onCarouselChange(e) {
-    const current = e.detail.current
-    const prev = this.data.carouselCurrent
-    const items = this.data.carouselItems
-    if (items && items[prev] && items[prev].type === 'video') {
-      this._stopCarouselVideo(prev)
-    }
-    this.setData({ carouselCurrent: current })
-    this._activateCarouselVideos(current)
-    this._startCarouselTimer()
-  },
-
-  /** 真正出帧后再撤封面（play 事件过早，会露出原生黑底） */
-  onCarouselVideoTimeUpdate(e) {
-    const index = Number(e.currentTarget.dataset.index)
-    const items = this.data.carouselItems
-    if (isNaN(index) || !items || !items[index] || items[index].videoStarted) return
-    const t = Number(e.detail && e.detail.currentTime) || 0
-    if (t < 0.08) return
-    this.setData({ [`carouselItems[${index}].videoStarted`]: true })
-  },
-
-  /** 视频加载失败（死链/格式不支持）→ 从轮播中移除，避免永久黑屏 */
-  onCarouselVideoError(e) {
-    // 预览版失败时不再回退原片：原片可达数十 MB，一次回退就会打穿流量预算；
-    // 直接走图片错误路径，只保留 poster 封面
-    this.onCarouselImageError(e)
-  },
-
-  /** 点击视频描述文字 → 跳转事件详情 */
-  onCarouselCaptionTap(e) {
-    const eventId = (e.currentTarget.dataset || {}).eventid
-    if (!eventId) return
-    this._stopCarouselTimer()
-    navigateTo(ROUTES.EVENT_DETAIL, { id: eventId })
-  },
-
-  /** 点击视频 → 非会员先门控；通过后全屏播放（不预加载，按需缓存） */
-  async onCarouselVideoTap(e) {
-    const dataset = e.currentTarget.dataset || {}
-    const index = dataset.index
-    const item = (this.data.carouselItems || [])[index]
-    if (!item || item.type !== 'video') return
-
-    this._stopCarouselTimer()
-    this._stopCarouselVideo(index)
-
-    const playbackOk = await isPlaybackAllowed().catch(() => false)
-    if (!playbackOk) {
-      this._startCarouselTimer()
-      return
-    }
-
-    const eventId = item.eventId
-    const raw =
-      item.playSrc || (this._carouselLazyPlayUrls && this._carouselLazyPlayUrls[index]) || item.src || dataset.url
-
-    // 非会员且强制封面：点击触发门控，通过前不拉流；一次广告只解锁当前这条视频
-    if (!canPrefetchVideoSync()) {
-      const allowed = await gateCheck('starship_event_list_full', '星舰事件更新 · 视频播放', {
-        adUnlockId: eventVideoAdUnlockId(eventId, 0, raw)
-      })
-      if (!allowed) {
-        this._startCarouselTimer()
-        return
-      }
-    }
-
-    if (eventId) {
-      navigateTo(ROUTES.EVENT_DETAIL, { id: eventId, autoPlayVideo: 0 })
-      return
-    }
-
-    if (!raw) {
-      this._startCarouselTimer()
-      return
-    }
-    // 统一走自研播放页：长按菜单在页内做会员门控（原生 previewMedia 的 showmenu 无法按会员身份门控）
-    // raw 可能是本地缓存路径（会员预热），复制链接需用远端地址
-    const remote = /^https?:\/\//i.test(raw)
-      ? raw
-      : (this._carouselLazyPlayUrls && this._carouselLazyPlayUrls[index]) || ''
-    const playRemote = remote || raw
-    await playEventVideo({
-      url: playRemote,
-      playUrl: getCachedVideo(playRemote),
-      thumb: item.poster || '',
-      canSave: canUsePaidCloudSync(),
-      onSaveHint: () => {}
-    })
-    this._startCarouselTimer()
-  },
-
-  onCarouselImageLoad() {},
-
-  onCarouselImageError(e) {
-    if (this.data.carouselLoadFailed) return
-
-    const index = Number(e.currentTarget.dataset.index)
-    const items = [...this.data.carouselItems]
-
-    // 移除加载失败的项
-    if (index >= 0 && index < items.length) {
-      items.splice(index, 1)
-
-      if (items.length === 0) {
-        this._stopCarouselTimer()
-        this.setData({
-          carouselItems: [],
-          carouselImages: [],
-          carouselLoadFailed: true
-        })
-        return
-      }
-
-      // 移除后当前索引可能越界：收敛回首项，并重启定时器/视频播放，避免停在空白帧
-      const patch = {
-        carouselItems: items,
-        carouselImages: items.map((i) => i.src)
-      }
-      if ((this.data.carouselCurrent || 0) >= items.length) {
-        patch.carouselCurrent = 0
-      }
-      this.setData(patch, () => {
-        this._activateCarouselVideos(this.data.carouselCurrent || 0)
-        this._startCarouselTimer()
-      })
-    }
-  },
-
-  /**
-   * 预览轮播图（点击直接预览）/ 视频由 onCarouselVideoTap 处理
-   */
-  previewCarouselImage(e) {
-    const current = e.currentTarget.dataset.url
-    // 只预览图片项
-    const imageUrls = (this.data.carouselItems || []).filter((i) => i.type === 'image').map((i) => i.src)
-    if (!imageUrls.length) return
-
-    wx.previewImage({
-      current: current,
-      urls: imageUrls,
-      success: () => {},
-      fail: (err) => {
-        wx.showToast({
-          title: '预览失败',
-          icon: 'none'
-        })
-      }
-    })
-  },
-
-  /**
-   * 长按保存轮播图
-   */
-  saveCarouselImage(e) {
-    const imageUrl = e.currentTarget.dataset.url
-
-    // 显示保存确认菜单
-    wx.showActionSheet({
-      itemList: ['保存图片'],
-      success: (res) => {
-        if (res.tapIndex === 0) {
-          // 保存图片
-          this.saveImageToAlbum(imageUrl)
-        }
-      },
-      fail: () => {
-        // 用户取消操作，不做任何处理
-      }
-    })
-  },
-
-  /**
-   * 保存图片到相册
-   */
-  saveImageToAlbum(imageUrl) {
-    wx.showLoading({
-      title: '保存中...',
-      mask: true
-    })
-
-    // 处理本地路径和网络路径
-    if (imageUrl.startsWith('/')) {
-      // 本地路径：先尝试直接保存，如果失败则转换为临时文件
-      const fs = wx.getFileSystemManager()
-
-      // 先尝试直接保存（某些版本可能支持）
-      wx.saveImageToPhotosAlbum({
-        filePath: imageUrl,
-        success: () => {
-          wx.hideLoading()
-          wx.showToast({
-            title: '保存成功',
-            icon: 'success'
-          })
-        },
-        fail: (err) => {
-          // 如果直接保存失败，尝试通过临时文件保存
-          if (err.errMsg && err.errMsg.includes('file not exist')) {
-            // 文件不存在
-            wx.hideLoading()
-            wx.showToast({
-              title: '图片不存在',
-              icon: 'none'
-            })
-          } else if (err.errMsg && (err.errMsg.includes('auth deny') || err.errMsg.includes('authorize'))) {
-            // 权限问题
-            wx.hideLoading()
-            this.handleSaveImageError(err, imageUrl)
-          } else {
-            // 其他错误，提示用户使用预览方式保存
-            wx.hideLoading()
-            wx.showModal({
-              title: '提示',
-              content: '本地图片保存需要先预览，请在预览图片时长按保存到相册',
-              confirmText: '去预览',
-              success: (modalRes) => {
-                if (modalRes.confirm) {
-                  // 打开预览
-                  wx.previewImage({
-                    current: imageUrl,
-                    urls: this.data.carouselImages,
-                    success: () => {
-                      wx.showToast({
-                        title: '长按图片可保存',
-                        icon: 'none',
-                        duration: 2000
-                      })
-                    }
-                  })
-                }
-              }
-            })
-          }
-        }
-      })
-    } else {
-      // 网络路径，需要先下载
-      pooledDownloadFile({ url: toCdnUrl(imageUrl) })
-        .then((res) => {
-          if (res.statusCode === 200) {
-            // 保存图片到相册
-            wx.saveImageToPhotosAlbum({
-              filePath: res.tempFilePath,
-              success: () => {
-                wx.hideLoading()
-                wx.showToast({
-                  title: '保存成功',
-                  icon: 'success'
-                })
-              },
-              fail: (err) => {
-                wx.hideLoading()
-                this.handleSaveImageError(err, imageUrl)
-              }
-            })
-          } else {
-            wx.hideLoading()
-            wx.showToast({
-              title: '下载失败',
-              icon: 'none'
-            })
-          }
-        })
-        .catch((err) => {
-          wx.hideLoading()
-          wx.showToast({
-            title: '下载失败',
-            icon: 'none'
-          })
-        })
-    }
-  },
-
-  /**
-   * 处理保存图片错误
-   */
-  handleSaveImageError(err, imageUrl) {
-    // 处理用户拒绝授权的情况
-    if (
-      err.errMsg &&
-      (err.errMsg.includes('auth deny') || err.errMsg.includes('authorize') || err.errMsg.includes('permission'))
-    ) {
-      wx.showModal({
-        title: '需要授权',
-        content: '需要您授权保存图片到相册',
-        confirmText: '去设置',
-        cancelText: '取消',
-        success: (modalRes) => {
-          if (modalRes.confirm) {
-            wx.openSetting({
-              success: (settingRes) => {
-                if (settingRes.authSetting['scope.writePhotosAlbum']) {
-                  // 用户授权后，重新保存
-                  this.saveImageToAlbum(imageUrl)
-                } else {
-                  wx.showToast({
-                    title: '需要授权才能保存',
-                    icon: 'none'
-                  })
-                }
-              }
-            })
-          }
-        }
-      })
-    } else {
-      wx.showToast({
-        title: '保存失败',
-        icon: 'none'
-      })
-    }
   },
 
   /**
@@ -6408,6 +3994,26 @@ Page({
       this._splashTimer = null
       this._splashTimerPaused = true
     }
+    // 开屏任务倒计时同样停表（_resumeSplashTimer 会按绝对时间重启）
+    if (this._splashMissionTimer) {
+      clearInterval(this._splashMissionTimer)
+      this._splashMissionTimer = null
+      this._splashTimerPaused = true
+    }
+    // 视频 12 秒硬上限：停表，回前台由 _resumeSplashTimer 按剩余墙钟续跑
+    if (this._splashVideoMaxTimer) {
+      clearTimeout(this._splashVideoMaxTimer)
+      this._splashVideoMaxTimer = null
+      this._splashTimerPaused = true
+    }
+    if (this._splashVideoForcePlayTimer) {
+      clearTimeout(this._splashVideoForcePlayTimer)
+      this._splashVideoForcePlayTimer = null
+    }
+    if (this._splashVideoFallbackTimer) {
+      clearTimeout(this._splashVideoFallbackTimer)
+      this._splashVideoFallbackTimer = null
+    }
     // 停直播动效 + 停视频号轮询（onShow 会恢复）
     if (this.data.isChannelsLive && !this.data.channelsLiveAnimPaused) {
       this.setData({ channelsLiveAnimPaused: true })
@@ -6419,548 +4025,63 @@ Page({
     this._lastExpiredRoundAt = 0
   },
 
-  /** 清掉实时状态确认的复查定时器（页面卸载时调用）；onHide 不调此函数以免丢复查节奏 */
-  _clearLiveStatusPolling() {
-    if (this._statusRecheckTimer) {
-      clearTimeout(this._statusRecheckTimer)
-      this._statusRecheckTimer = null
-    }
-    this._launchStatusPolling = false
-    this._lastExpiredRoundAt = 0
-  },
 
-  /** 演示模式（远程控制 overlay） */
-  _initDemoMode() {
-    const app = getApp && getApp()
-    if (!app) return
-    if (this._demoInited) return
-    this._demoInited = true
 
-    const tryInit = (retries) => {
-      const { isLiveAccount: isLive, isInitDone } = require('../../utils/demo-engine.js')
 
-      if (!isInitDone()) {
-        if (retries > 0) {
-          setTimeout(() => tryInit(retries - 1), 2000)
-        }
-        return
-      }
 
-      const live = isLive()
 
-      if (live) {
-        this.setData({ _isDemoLiveAccount: true })
-        const overlay = this.selectComponent('#demoOverlay')
-        if (overlay) {
-          overlay.startRemoteControl()
-        } else {
-          console.warn('[Index] DemoMode overlay component not found')
-        }
-      }
-    }
 
-    // 演示引擎在 app.js 里 3s 后初始化，这里 5s 后开始检查，最多重试 5 次
-    setTimeout(() => tryInit(5), 5000)
-  },
 
-  onDemoRemoteStart(e) {
-    const scriptName = (e.detail && e.detail.scriptName) || 'fullTour'
-    startDemo(this, scriptName)
-  },
 
-  onDemoStop() {
-    // 演示结束，可以做一些清理
-  },
 
-  async loadSplashScreen() {
-    try {
-      // 用内存变量控制：冷启动时显示，切后台回来不重复显示
-      const app = getApp()
-      if (app._splashShownThisSession) return
-      app._splashShownThisSession = true
-
-      const normalizeItems = (cfg) => {
-        if (!cfg) return []
-        if (Array.isArray(cfg.mediaItems) && cfg.mediaItems.length) {
-          return cfg.mediaItems
-            .filter((it) => it && it.mediaUrl)
-            .map((it) => {
-              // 与原逻辑一致：显式 mediaType 优先，缺省时按扩展名推断
-              const itemType = it.mediaType || (/\.(mp4|mov|m4v|webm)(\?|#|$)/i.test(it.mediaUrl) ? 'video' : 'image')
-              const isVideoItem = itemType === 'video'
-              return {
-                id: String(it.id || it.mediaUrl || ''),
-                mediaType: itemType,
-                // 图片开屏全屏展示：medium 压缩（960w WebP），原图动辄数 MB
-                mediaUrl: isVideoItem ? toCdnUrl(it.mediaUrl) : optimizeImageUrl(it.mediaUrl, 'medium'),
-                previewUrl: it.previewUrl ? toCdnUrl(String(it.previewUrl).trim()) : '',
-                posterUrl: it.posterUrl
-                  ? optimizeImageUrl(String(it.posterUrl).trim(), 'medium')
-                  : isVideoItem
-                    ? carouselVideoPosterUrl(it.mediaUrl, '')
-                    : ''
-              }
-            })
-        }
-        // 旧单字段：仅作兜底，不算完整媒体池
-        if (cfg.mediaUrl) {
-          const isVideoCfg = cfg.mediaType === 'video'
-          return [
-            {
-              id: String(cfg.mediaUrl),
-              mediaType: cfg.mediaType || 'image',
-              mediaUrl: isVideoCfg ? toCdnUrl(cfg.mediaUrl) : optimizeImageUrl(cfg.mediaUrl, 'medium'),
-              previewUrl: cfg.previewUrl ? toCdnUrl(String(cfg.previewUrl).trim()) : '',
-              posterUrl: cfg.posterUrl
-                ? optimizeImageUrl(String(cfg.posterUrl).trim(), 'medium')
-                : isVideoCfg
-                  ? carouselVideoPosterUrl(cfg.mediaUrl, '')
-                  : ''
-            }
-          ]
-        }
-        return []
-      }
-
-      const resolvePlay = (item) => {
-        if (!item) return null
-        const playUrl = item.previewUrl || item.mediaUrl
-        return {
-          id: item.id || '',
-          mediaType: item.mediaType || 'image',
-          mediaUrl: playUrl,
-          posterUrl: item.posterUrl || '',
-          originalUrl: item.mediaUrl,
-          playUrl
-        }
-      }
-
-      // 池子 ≥2 时：尽量不连续重复上一次，保证多轮测试能看到不同视频
-      const pickSplashItem = (list, lastId) => {
-        const arr = Array.isArray(list) ? list.filter((it) => it && it.mediaUrl) : []
-        if (!arr.length) return null
-        if (arr.length === 1) return arr[0]
-        let pool = arr
-        if (lastId) {
-          const others = arr.filter((it) => String(it.id) !== String(lastId))
-          if (others.length) pool = others
-        }
-        return pool[Math.floor(Math.random() * pool.length)]
-      }
-
-      let cached = null
-      try {
-        cached = wx.getStorageSync(SPLASH_CACHE_KEY) || null
-      } catch (e) {}
-      const cachedItems = normalizeItems(cached)
-      // 只有显式 mediaItems 数组才视为「完整池」；旧单条缓存不能挡住云端多视频
-      const cacheHasPool = !!(
-        cached &&
-        cached.enabled &&
-        Array.isArray(cached.mediaItems) &&
-        cached.mediaItems.length > 0
-      )
-      const lastSplashId = cached && cached.lastSplashId ? String(cached.lastSplashId) : ''
-
-      // ── 并行拉云端；有完整本地池则短等，否则多等一会再展示 ──
-      let cfg = null
-      if (wx.cloud && wx.cloud.database) {
-        const waitMs = cacheHasPool ? 600 : 2500
-        try {
-          const db = wx.cloud.database()
-          const res = await Promise.race([
-            db.collection('starship_splash_config').doc('current').get(),
-            new Promise((resolve) => setTimeout(() => resolve(null), waitMs))
-          ])
-          cfg = res && res.data ? res.data : null
-        } catch (e) {
-          cfg = null
-        }
-        // 短等未返回时，若本地没有完整池，再补一次较长等待
-        if (!cfg && !cacheHasPool) {
-          try {
-            const db = wx.cloud.database()
-            const res = await Promise.race([
-              db.collection('starship_splash_config').doc('current').get(),
-              new Promise((resolve) => setTimeout(() => resolve(null), 2000))
-            ])
-            cfg = res && res.data ? res.data : null
-          } catch (e) {}
-        }
-      }
-
-      const cloudItems = normalizeItems(cfg)
-      // 优先云端完整池，其次本地池，最后旧单条
-      let pool = []
-      if (cloudItems.length > 1 || (cfg && Array.isArray(cfg.mediaItems) && cfg.mediaItems.length)) {
-        pool = cloudItems
-      } else if (cacheHasPool) {
-        pool = cachedItems
-      } else {
-        pool = cloudItems.length ? cloudItems : cachedItems
-      }
-
-      // 开关：云端优先；无云端时看本地缓存
-      if (cfg) {
-        if (cfg.enabled === false) {
-          try {
-            wx.setStorageSync(SPLASH_CACHE_KEY, { enabled: false })
-          } catch (e) {}
-          return
-        }
-      } else if (cached && cached.enabled === false) {
-        return
-      }
-
-      if (!pool.length) return
-
-      // 过审关闭 enableEventVideo：开屏不挑视频项，避免挂载 <video>
-      const playbackOk = await isPlaybackAllowed().catch(() => false)
-      let pickPool = pool
-      if (!playbackOk) {
-        const imagesOnly = pool.filter((it) => it && it.mediaType !== 'video')
-        if (imagesOnly.length) pickPool = imagesOnly
-      }
-
-      const picked = pickSplashItem(pickPool, lastSplashId)
-      const resolved = resolvePlay(picked)
-      if (!resolved) return
-
-      // 可播门控 + 流量门控：过审关视频 / 非会员默认 → 降级封面，不挂 <video>
-      let splashVideoAllowed = true
-      if (resolved.mediaType === 'video') {
-        if (!playbackOk) {
-          splashVideoAllowed = false
-        } else {
-          try {
-            const memberEnabled = await isMembershipEnabled()
-            const policy = await getMemberPolicy()
-            splashVideoAllowed =
-              !memberEnabled ||
-              isProSync() ||
-              (policy.splashAllowVideoForNonMember && !policy.forceNonMemberVideoPoster)
-          } catch (e) {}
-        }
-        if (!splashVideoAllowed) {
-          if (!resolved.posterUrl) return
-          resolved.mediaType = 'image'
-          resolved.playUrl = resolved.posterUrl
-          resolved.mediaUrl = resolved.posterUrl
-        }
-      }
-
-      const localMap = cached && cached.localPaths && typeof cached.localPaths === 'object' ? cached.localPaths : {}
-      let src = localMap[resolved.playUrl] || ''
-      if (src) {
-        try {
-          wx.getFileSystemManager().accessSync(src)
-        } catch (e) {
-          src = ''
-        }
-      }
-
-      const countdown = (cfg && cfg.countdownSeconds) || (cached && cached.countdownSeconds) || 5
-      this._showSplash({
-        mediaType: resolved.mediaType,
-        mediaUrl: src || resolved.playUrl,
-        posterUrl: resolved.posterUrl,
-        originalUrl: resolved.originalUrl,
-        countdown
-      })
-
-      // 后台刷新完整配置与本地预下载（不改变本次已展示内容）
-      const finalItems = cloudItems.length ? cloudItems : pool
-      this._cacheSplashMedia(
-        {
-          enabled: true,
-          countdownSeconds: countdown,
-          mediaItems: finalItems,
-          lastSplashId: resolved.id || resolved.originalUrl || resolved.playUrl,
-          mediaType: resolved.mediaType,
-          mediaUrl: resolved.originalUrl,
-          originalUrl: resolved.originalUrl,
-          playUrl: resolved.playUrl,
-          previewUrl: picked && picked.previewUrl ? picked.previewUrl : '',
-          posterUrl: resolved.posterUrl
-        },
-        cached,
-        { skipMediaDownload: !splashVideoAllowed }
-      )
-
-      // 若刚才短等没拿到云端，后台再拉一次补全缓存池
-      if (!cloudItems.length && wx.cloud && wx.cloud.database) {
-        try {
-          const db = wx.cloud.database()
-          const late = await db.collection('starship_splash_config').doc('current').get()
-          const lateCfg = late && late.data ? late.data : null
-          const lateItems = normalizeItems(lateCfg)
-          if (lateCfg && lateCfg.enabled !== false && lateItems.length) {
-            this._cacheSplashMedia(
-              {
-                enabled: true,
-                countdownSeconds: lateCfg.countdownSeconds || countdown,
-                mediaItems: lateItems,
-                lastSplashId: resolved.id || resolved.originalUrl || resolved.playUrl,
-                mediaType: resolved.mediaType,
-                mediaUrl: resolved.originalUrl,
-                originalUrl: resolved.originalUrl,
-                playUrl: resolved.playUrl,
-                previewUrl: picked && picked.previewUrl ? picked.previewUrl : '',
-                posterUrl: resolved.posterUrl
-              },
-              wx.getStorageSync(SPLASH_CACHE_KEY) || cached,
-              { skipMediaDownload: !splashVideoAllowed }
-            )
-          }
-        } catch (e) {}
-      }
-    } catch (e) {
-      // 静默失败，不影响主页加载
-    }
-  },
-
-  _showSplash(opts) {
-    if (this.data.splashVisible) return
-    const mediaType = opts.mediaType || 'image'
-    const mediaUrl = opts.mediaUrl || ''
-    const posterUrl = opts.posterUrl || ''
-    const originalUrl = opts.originalUrl || mediaUrl
-    const countdown = opts.countdown || 5
-    // 开屏期间让隐私禁触遮罩让位（遮罩在 root-portal 根层级，会压住开屏层吞掉「跳过」点击）；
-    // 开屏自身全屏遮挡 + TabBar 守卫仍读 privacyGateActive，门控不失效
-    const app = getApp()
-    if (app && typeof app.setSplashActive === 'function') app.setSplashActive(true)
-    this.setData({
-      splashVisible: true,
-      splashVideoReady: mediaType !== 'video',
-      splashConfig: {
-        mediaType,
-        mediaUrl,
-        posterUrl,
-        originalUrl
-      },
-      splashCountdown: countdown
-    })
-
-    this._startSplashTick(mediaType)
-  },
-
-  /** 启动开屏倒计时 interval（onHide 停表后由 _resumeSplashTimer 复用） */
-  _startSplashTick(mediaType) {
-    if (this._splashTimer) {
-      clearInterval(this._splashTimer)
-      this._splashTimer = null
-    }
-    if (mediaType === 'image') {
-      this._splashTimer = setInterval(() => {
-        const next = this.data.splashCountdown - 1
-        if (next <= 0) {
-          this.closeSplash()
-        } else {
-          this.setData({ splashCountdown: next })
-        }
-      }, 1000)
-    } else {
-      this._splashTimer = setInterval(() => {
-        const next = this.data.splashCountdown - 1
-        if (next <= 0) {
-          clearInterval(this._splashTimer)
-          this._splashTimer = null
-          this.setData({ splashCountdown: 0 })
-        } else {
-          this.setData({ splashCountdown: next })
-        }
-      }, 1000)
-    }
-  },
-
-  _resumeSplashTimer() {
-    const cfg = this.data.splashConfig || {}
-    // 视频分支倒计时到 0 后 timer 已自清，剩余秒数 > 0 才需要续跑
-    if (this.data.splashCountdown > 0) {
-      this._startSplashTick(cfg.mediaType || 'image')
-    }
-  },
-
-  onSplashVideoTimeUpdate(e) {
-    if (this.data.splashVideoReady) return
-    const t = Number(e.detail && e.detail.currentTime) || 0
-    if (t < 0.05) return
-    this.setData({ splashVideoReady: true })
-  },
-
-  /** 预览版失败：不回退原片（原片可达数十 MB），只留封面等倒计时结束 */
-  onSplashVideoError() {
-    const cfg = this.data.splashConfig || {}
-    if (!cfg || cfg.mediaType !== 'video') return
-    this.setData({ splashVideoReady: true })
-  },
-
-  /** 缓存完整媒体池；仅预下载本次开屏用的压缩预览（不再预拉池内其它条） */
-  _cacheSplashMedia(cfg, prevCached, opts) {
-    const prev = prevCached || {}
-    const items = Array.isArray(cfg.mediaItems) ? cfg.mediaItems : []
-    const prevLocalPaths = prev.localPaths && typeof prev.localPaths === 'object' ? { ...prev.localPaths } : {}
-    const baseEntry = {
-      enabled: true,
-      mediaItems: items,
-      lastSplashId: cfg.lastSplashId || '',
-      mediaUrl: cfg.mediaUrl || '',
-      playUrl: cfg.playUrl || '',
-      previewUrl: cfg.previewUrl || '',
-      posterUrl: cfg.posterUrl || '',
-      mediaType: cfg.mediaType || 'image',
-      countdownSeconds: cfg.countdownSeconds || 5,
-      localPath: prev.localPath || '',
-      localPaths: prevLocalPaths,
-      cachedAt: Date.now()
-    }
-    try {
-      wx.setStorageSync(SPLASH_CACHE_KEY, baseEntry)
-    } catch (e) {}
-
-    // 非会员开屏视频已降级为静态图：只缓存配置，跳过视频预下载（省流量）
-    if (opts && opts.skipMediaDownload) return
-
-    // 只预下载本次选中的压缩预览，避免冷启动额外拉未播视频；原片不落盘
-    const playUrls = []
-    if (cfg.playUrl && !(cfg.originalUrl && cfg.playUrl === cfg.originalUrl)) {
-      playUrls.push(cfg.playUrl)
-    } else if (cfg.previewUrl) {
-      playUrls.push(cfg.previewUrl)
-    }
-
-    const fs = wx.getFileSystemManager()
-    const downloadOne = (playUrl) => {
-      if (!playUrl || !/^https?:\/\//i.test(playUrl)) return
-      // 原片不预下（仅缓存 preview 压缩片）
-      if (cfg.originalUrl && playUrl === cfg.originalUrl && cfg.playUrl && cfg.playUrl !== cfg.originalUrl) return
-      const existing = prevLocalPaths[playUrl]
-      if (existing) {
-        try {
-          fs.accessSync(existing)
-          return
-        } catch (e) {
-          delete prevLocalPaths[playUrl]
-        }
-      }
-      wx.downloadFile({
-        url: playUrl,
-        success: (res) => {
-          if (!res || res.statusCode !== 200 || !res.tempFilePath) return
-          fs.saveFile({
-            tempFilePath: res.tempFilePath,
-            success: (saveRes) => {
-              try {
-                const cur = wx.getStorageSync(SPLASH_CACHE_KEY) || baseEntry
-                const map = cur.localPaths && typeof cur.localPaths === 'object' ? { ...cur.localPaths } : {}
-                if (map[playUrl] && map[playUrl] !== saveRes.savedFilePath) {
-                  try {
-                    fs.removeSavedFile({ filePath: map[playUrl], fail: () => {} })
-                  } catch (e) {}
-                }
-                map[playUrl] = saveRes.savedFilePath
-                const keys = Object.keys(map)
-                if (keys.length > 6) {
-                  const drop = keys.slice(0, keys.length - 6)
-                  drop.forEach((k) => {
-                    try {
-                      fs.removeSavedFile({ filePath: map[k], fail: () => {} })
-                    } catch (e) {}
-                    delete map[k]
-                  })
-                }
-                wx.setStorageSync(SPLASH_CACHE_KEY, {
-                  ...cur,
-                  mediaItems: cur.mediaItems && cur.mediaItems.length ? cur.mediaItems : items,
-                  localPaths: map,
-                  localPath: (cfg.playUrl && map[cfg.playUrl]) || cur.localPath || ''
-                })
-              } catch (e) {}
-            },
-            fail: () => {}
-          })
-        },
-        fail: () => {}
-      })
-    }
-
-    playUrls.forEach(downloadOne)
-  },
-
-  onSplashVideoEnded() {
-    this.closeSplash()
-  },
-
-  /** 用户手动点「跳过」：中度震动反馈（倒计时自动结束走 closeSplash，不震动） */
-  onSplashSkipTap() {
-    if (this.data.splashFading) return
-    try {
-      wx.vibrateShort({ type: 'medium' })
-    } catch (e) {}
-    this.closeSplash()
-  },
-
-  closeSplash() {
-    if (this.data.splashFading) return
-    if (this._splashTimer) {
-      clearInterval(this._splashTimer)
-      this._splashTimer = null
-    }
-    this.setData({ splashFading: true })
-    setTimeout(() => {
-      this.setData({ splashVisible: false, splashFading: false, splashVideoReady: false })
-      // 开屏结束：恢复隐私禁触遮罩（若门控仍激活），并接力弹隐私授权窗
-      const app = getApp()
-      if (app && typeof app.setSplashActive === 'function') app.setSplashActive(false)
-      // 开屏结束后再检查隐私授权，避免弹窗被品牌开屏盖住
-      setTimeout(() => this._maybePromptPrivacy(), 200)
-    }, 500)
-  },
 
   /**
-   * 首次进入小程序主动弹隐私授权：
-   * ensurePrivacyAuthorized 内部会经 wx.getPrivacySetting 二次确认，
-   * 已授权用户不会弹窗（微信侧记住同意状态），会话级防重避免反复触发。
+   * 本地命中后后台探云发现发射列表母缓存更新：重拉对应列表并 merge settled，
+   * 否则 UI 会一直停在旧 previous（探云只写 storage、无人刷新页面）。
    */
-  _maybePromptPrivacy() {
-    const app = getApp()
-    if (!app || app._privacyPromptedThisSession) return
-    app._privacyPromptedThisSession = true
-    const check =
-      app.globalData && app.globalData.needPrivacyAuthorization
-        ? Promise.resolve({ needAuthorization: true })
-        : typeof app.updatePrivacySettingCache === 'function'
-          ? app.updatePrivacySettingCache()
-          : Promise.resolve({})
-    check
-      .then((res) => {
-        if (res && res.needAuthorization && typeof app.ensurePrivacyAuthorized === 'function') {
-          app.ensurePrivacyAuthorized().then(() => {
-            // 隐私弹窗关闭后接力被错峰跳过的弹窗：太空简报优先，未弹则判定续费提醒
-            setTimeout(() => this._resumeDeferredPopups(), 400)
-          })
+  _onLaunchListCacheStale(info) {
+    const kind = info && info.kind
+    if (kind !== 'previous' && kind !== 'upcoming') return
+    const now = Date.now()
+    if (this._launchListStaleAt && now - this._launchListStaleAt < 1500) return
+    this._launchListStaleAt = now
+    const type = kind === 'previous' ? 'completed' : 'upcoming'
+    const gen = (this._launchListStaleGen = (this._launchListStaleGen || 0) + 1)
+    Promise.resolve()
+      .then(() => this.fetchMissionList(type, 50, 0))
+      .then(async (pack) => {
+        if (gen !== this._launchListStaleGen) return
+        if (!pack || !Array.isArray(pack.list)) return
+        let list = pack.list
+        if (type === 'completed') {
+          try {
+            const settled = await this._ensureRecentSettledCache(false)
+            list = this._mergeRecentSettledIntoCompletedList(list, settled)
+          } catch (e) {}
+        } else {
+          list = this._filterUpcomingAgainstSettled(list)
         }
+        const patch = buildMissionListSetData(type, list, pack.res, filterExpiredMissions)
+        if (type === 'upcoming') this.applyUpcomingAgencyFilterToPatch(patch, list)
+        this.setData(patch, () => {
+          try {
+            this.updateMissionListView(type, list)
+          } catch (e2) {}
+          try {
+            this.syncCalendarFromMissionListsIfNeeded()
+          } catch (e3) {}
+        })
       })
       .catch(() => {})
   },
 
-  /** 隐私授权流程结束后，补弹因错峰被跳过的太空简报 / 续费提醒 */
-  _resumeDeferredPopups() {
-    let briefingShown = false
-    try {
-      const comp = this.selectComponent('#morningBriefing')
-      if (comp && typeof comp._maybeAutoShowPopup === 'function') {
-        briefingShown = !!comp._maybeAutoShowPopup(true)
-      }
-    } catch (e) {}
-    // 简报弹出时续费提醒由其 closed 事件接力；否则这里直接判定
-    if (!briefingShown) {
-      this._tryShowRenewalReminder()
-    }
-  },
-
   onUnload() {
+    if (typeof this._offLaunchListStale === 'function') {
+      try {
+        this._offLaunchListStale()
+      } catch (e) {}
+      this._offLaunchListStale = null
+    }
     this._resetMissionCardHaptics()
     this._stopCarouselTimer()
     this._resetCountdownLiveEnterState()
@@ -6980,6 +4101,22 @@ Page({
     if (this._splashTimer) {
       clearInterval(this._splashTimer)
       this._splashTimer = null
+    }
+    if (this._splashMissionTimer) {
+      clearInterval(this._splashMissionTimer)
+      this._splashMissionTimer = null
+    }
+    if (this._splashVideoMaxTimer) {
+      clearTimeout(this._splashVideoMaxTimer)
+      this._splashVideoMaxTimer = null
+    }
+    if (this._splashVideoForcePlayTimer) {
+      clearTimeout(this._splashVideoForcePlayTimer)
+      this._splashVideoForcePlayTimer = null
+    }
+    if (this._splashVideoFallbackTimer) {
+      clearTimeout(this._splashVideoFallbackTimer)
+      this._splashVideoFallbackTimer = null
     }
     // 清除滚动节流定时器
     if (this.scrollTimer) {
@@ -7001,100 +4138,11 @@ Page({
     this._clearLiveStatusPolling()
   },
 
-  /**
-   * 任务卡片分享按钮点击（阻止冒泡，避免触发 viewMissionDetail）
-   */
-  onMissionShareTap() {
-    // 分享由 open-type="share" 自动处理
-  },
 
-  /**
-   * 任务卡片长按 → 中度震动 + 弹出分享面板（好友/群 + 朋友圈）
-   */
-  onMissionLongPress(e) {
-    var ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
-    var id = ds.id == null ? '' : String(ds.id).trim()
-    if (!id) return
 
-    // 中度震动反馈
-    try {
-      wx.vibrateShort({ type: 'medium' })
-    } catch (_) {
-      try {
-        wx.vibrateShort()
-      } catch (__) {}
-    }
 
-    var detailType = ds.type === 'completed' ? 'completed' : 'upcoming'
-    this.setData({
-      shareSheetVisible: true,
-      pendingShareMission: {
-        id: id,
-        detailType: detailType,
-        missionName: ds.name || '',
-        rocketName: ds.rocket || ''
-      }
-    })
 
-    // 同步预下载该任务卡片的火箭图，确保长按面板分享时缩略图能加载
-    var sharePayload = resolveMissionSharePayload(this.data, { id: id, detailType: detailType })
-    var targetMission = sharePayload && sharePayload.mission
-    var targetImage = targetMission && (targetMission.rocketImage || targetMission.image)
-    if (targetImage) {
-      this.ensureShareImageHttpUrl(
-        resolveMissionRocketImage(targetImage, targetMission.rocketName, targetMission.rocketConfiguration)
-      )
-    }
-  },
 
-  /**
-   * 关闭分享面板
-   */
-  onShareSheetClose() {
-    if (!this.data.shareSheetVisible) return
-    this.setData({ shareSheetVisible: false })
-  },
-
-  /**
-   * 用户点击了分享面板内的某个分享按钮（open-type 已自动触发原生分享）
-   * 这里只负责关闭面板。pendingShareMission 保留到 onShareTimeline 读完即可。
-   */
-  onShareSheetItemTap() {
-    this.setData({ shareSheetVisible: false })
-  },
-
-  /**
-   * 阻止遮罩点击穿透/滚动穿透时的占位
-   */
-  onShareBriefing(e) {
-    // 分享由 button open-type="share" 触发，走 onShareAppMessage
-  },
-
-  /** 太空简报弹窗关闭后，接力判断是否需要弹续费提醒 */
-  onBriefingClosed() {
-    this._tryShowRenewalReminder()
-  },
-
-  /** 会员到期续费提醒：展示条件与「关闭一次不再弹」逻辑在组件内部 */
-  _tryShowRenewalReminder() {
-    try {
-      // 错峰隐私授权：首次进入需授权时本次跳过（隐私弹窗关闭后下次 onShow 再走原逻辑）
-      const appInst = getApp()
-      if (appInst && appInst.globalData && appInst.globalData.needPrivacyAuthorization) return
-      const comp = this.selectComponent('#renewalReminder')
-      if (!comp || typeof comp.maybeShow !== 'function') return
-      const self = this
-      comp.maybeShow(function () {
-        // 异步取会员状态期间简报弹窗若已占屏，本次放弃（closed 事件会再触发）
-        try {
-          const briefing = self.selectComponent('#morningBriefing')
-          return !!(briefing && briefing.data && briefing.data.showPopup)
-        } catch (e) {
-          return false
-        }
-      })
-    } catch (e) {}
-  },
 
   noop() {},
 
@@ -7244,364 +4292,4 @@ Page({
     }
   },
 
-  // ========== 发射竞猜投票 ==========
-  resetVoteData() {
-    this._voteRenderedLaunchId = ''
-    this.setData(getInitialVoteState())
-  },
-
-  /** 竞猜防降级复核：绕过 30s 缓存强制重查一次（每任务限一次，避免循环重试） */
-  _scheduleVoteRecheck(launchId) {
-    this._voteRecheckDone = this._voteRecheckDone || {}
-    if (this._voteRecheckDone[launchId]) return
-    this._voteRecheckDone[launchId] = true
-    if (this._voteRecheckTimer) clearTimeout(this._voteRecheckTimer)
-    this._voteRecheckTimer = setTimeout(() => {
-      this._voteRecheckTimer = null
-      if (!this.data.launchData || String(this.data.launchData.id || '') !== String(launchId)) return
-      this.loadVoteData(launchId, true)
-    }, 1500)
-  },
-
-  _buildVoteMissionInfo(launchId, voteType) {
-    const ld = this.data.launchData
-    if (!ld || String(ld.id || '') !== String(launchId)) {
-      return { voteType: voteType === 'outcome' ? 'outcome' : 'ontime' }
-    }
-    return {
-      voteType: voteType === 'outcome' ? 'outcome' : 'ontime',
-      launchTime: ld.launchTime || '',
-      status: ld._detailType || '',
-      statusCategory: ld.statusCategory || '',
-      statusAbbrev: ld.statusAbbrev || '',
-      statusName: ld.statusBadgeText || ld.status || '',
-      missionName: ld.missionName || '',
-      rocketName: ld.rocketName || ''
-    }
-  },
-
-  _applyVoteBundle(launchId, preferredType) {
-    const bundle = (this._voteBundle && this._voteBundle[String(launchId)]) || {}
-    const active = preferredType || this.data.activeVoteType || 'ontime'
-    this.setData(buildDualVoteUiPatch(bundle, active, launchId))
-    this._voteRenderedLaunchId = String(launchId)
-  },
-
-  onVoteTypeSwitch(e) {
-    const vt = (e.currentTarget.dataset && e.currentTarget.dataset.type) || ''
-    if (vt !== 'ontime' && vt !== 'outcome') return
-    if (vt === this.data.activeVoteType) return
-    if (vt === 'ontime' && !this.data.voteOntimeEnabled) return
-    if (vt === 'outcome' && !this.data.voteOutcomeEnabled) return
-    const launchId = this.data.launchData && this.data.launchData.id
-    if (!launchId) return
-    this._applyVoteBundle(launchId, vt)
-  },
-
-  async loadVoteData(launchId, skipCache) {
-    if (!launchId) return
-
-    // 仅前7个即将发射的任务开放竞猜
-    var missions = this.data.upcomingMissions || []
-    var mIdx = -1
-    for (var mi = 0; mi < missions.length; mi++) {
-      if (String(missions[mi].id) === String(launchId)) {
-        mIdx = mi
-        break
-      }
-    }
-    // 不在前7个中（包括找不到的情况，missions为空时放行让后续逻辑处理）
-    if (missions.length > 0 && (mIdx < 0 || mIdx >= 7)) {
-      this.setData(getInitialVoteState())
-      return null
-    }
-
-    var currentLaunchId = String(launchId)
-    var now = Date.now()
-    this._voteRequestMeta = this._voteRequestMeta || {}
-    var voteMeta = this._voteRequestMeta[currentLaunchId] || {}
-
-    if (voteMeta.promise) {
-      return voteMeta.promise
-    }
-
-    if (
-      shouldSkipVoteRefresh({
-        launchId: currentLaunchId,
-        lastLoadedAt: voteMeta.loadedAt,
-        ttlMs: VOTE_REFRESH_TTL,
-        skipCache,
-        now
-      })
-    ) {
-      // 优先用投票后更新过的 live bundle，避免旧 voteMeta.bundle 把票数打回 0
-      this._voteBundle = this._voteBundle || {}
-      if (!this._voteBundle[currentLaunchId] && voteMeta.bundle) {
-        this._voteBundle[currentLaunchId] = voteMeta.bundle
-      } else if (this._voteBundle[currentLaunchId] && voteMeta.bundle) {
-        this._voteBundle[currentLaunchId] = mergeVoteBundle(
-          voteMeta.bundle,
-          this._voteBundle[currentLaunchId],
-          currentLaunchId
-        )
-      }
-      if (this._voteBundle[currentLaunchId]) {
-        this._applyVoteBundle(currentLaunchId, this.data.activeVoteType)
-      }
-      return voteMeta.stats || null
-    }
-
-    var request = (async () => {
-      // stale-while-revalidate：先用本地旧缓存即时渲染（含本地已投选项），云端结果回来后覆盖
-      if (!voteMeta.bundle) {
-        try {
-          var staleOntime = await getVoteStatsStale(launchId, 'ontime')
-          var staleOutcome = await getVoteStatsStale(launchId, 'outcome')
-          if (
-            (staleOntime || staleOutcome) &&
-            this.data.launchData &&
-            String(this.data.launchData.id || '') === currentLaunchId
-          ) {
-            var staleBundle = { ontime: staleOntime, outcome: staleOutcome }
-            this._voteBundle = this._voteBundle || {}
-            this._voteBundle[currentLaunchId] = staleBundle
-            this._applyVoteBundle(currentLaunchId, this.data.activeVoteType)
-          }
-        } catch (eStale) {}
-      }
-
-      var ontimeInfo = this._buildVoteMissionInfo(currentLaunchId, 'ontime')
-      var outcomeInfo = this._buildVoteMissionInfo(currentLaunchId, 'outcome')
-
-      // 优先复用 onLoad 预取的准时竞猜结果
-      var ontimeStats = null
-      var outcomeStats = null
-      if (String(this._votePrefetchId || '') === currentLaunchId && this._votePrefetchPromise) {
-        var prefetchPromise = this._votePrefetchPromise
-        this._votePrefetchId = ''
-        this._votePrefetchPromise = null
-        var ldTs =
-          this.data.launchData && this.data.launchData.launchTime
-            ? new Date(this.data.launchData.launchTime).getTime()
-            : 0
-        if (ldTs && ldTs - Date.now() > 30 * 60 * 1000) {
-          try {
-            ontimeStats = await prefetchPromise
-          } catch (ePrefetch) {
-            ontimeStats = null
-          }
-        }
-      }
-
-      var fetchTasks = []
-      if (!ontimeStats) {
-        fetchTasks.push(
-          getVoteStats(launchId, skipCache, ontimeInfo)
-            .then(function (s) {
-              ontimeStats = s
-            })
-            .catch(function () {
-              ontimeStats = null
-            })
-        )
-      }
-      fetchTasks.push(
-        getVoteStats(launchId, skipCache, outcomeInfo)
-          .then(function (s) {
-            outcomeStats = s
-          })
-          .catch(function () {
-            outcomeStats = null
-          })
-      )
-      await Promise.all(fetchTasks)
-
-      // 合并本地已投选项
-      if (ontimeStats && !ontimeStats.myVote) ontimeStats.myVote = getLocalVote(launchId, 'ontime')
-      if (outcomeStats && !outcomeStats.myVote) outcomeStats.myVote = getLocalVote(launchId, 'outcome')
-
-      var prevBundle = (this._voteBundle && this._voteBundle[currentLaunchId]) || (voteMeta && voteMeta.bundle) || null
-      var bundle = mergeVoteBundle(prevBundle, { ontime: ontimeStats, outcome: outcomeStats }, currentLaunchId)
-      var activeStats =
-        (this.data.activeVoteType === 'outcome' ? bundle.outcome : bundle.ontime) || bundle.ontime || bundle.outcome
-
-      // 防降级：stale 已渲染出竞猜框后，fresh 若双题型都关闭/失败，先复核再隐藏
-      var staleRendered = String(this._voteRenderedLaunchId || '') === currentLaunchId && this.data.voteSlotVisible
-      var freshSlotVisible = !!(bundle.ontime && bundle.ontime.enabled) || !!(bundle.outcome && bundle.outcome.enabled)
-      var freshDowngrade = !freshSlotVisible
-      if (staleRendered && freshDowngrade) {
-        this._voteRecheckDone = this._voteRecheckDone || {}
-        if (!skipCache && !this._voteRecheckDone[currentLaunchId]) {
-          this._voteRequestMeta[currentLaunchId] = {
-            loadedAt: 0,
-            stats: null,
-            bundle: prevBundle || null,
-            promise: null
-          }
-          this._scheduleVoteRecheck(currentLaunchId)
-          return activeStats
-        }
-        if (!ontimeStats && !outcomeStats) {
-          this._voteRequestMeta[currentLaunchId] = {
-            loadedAt: 0,
-            stats: null,
-            bundle: prevBundle || null,
-            promise: null
-          }
-          return null
-        }
-      }
-
-      this._voteBundle = this._voteBundle || {}
-      this._voteBundle[currentLaunchId] = bundle
-      this._voteRequestMeta[currentLaunchId] = {
-        loadedAt: Date.now(),
-        stats: activeStats,
-        bundle,
-        promise: null
-      }
-      if (!this.data.launchData || String(this.data.launchData.id || '') !== currentLaunchId) return activeStats
-      this._applyVoteBundle(currentLaunchId, this.data.activeVoteType)
-      return activeStats
-    })()
-
-    this._voteRequestMeta[currentLaunchId] = {
-      ...voteMeta,
-      promise: request
-    }
-
-    try {
-      return await request
-    } finally {
-      var latestMeta = this._voteRequestMeta[currentLaunchId] || {}
-      if (latestMeta.promise === request) {
-        this._voteRequestMeta[currentLaunchId] = {
-          ...latestMeta,
-          promise: null
-        }
-      }
-    }
-  },
-
-  async onVote(e) {
-    var pill = (e.currentTarget.dataset && (e.currentTarget.dataset.pill || e.currentTarget.dataset.side)) || ''
-    var launchId = this.data.launchData.id
-    var voteType = this.data.activeVoteType === 'outcome' ? 'outcome' : 'ontime'
-    // 左右侧在 JS 内映射，避免把成败投成 ge/buge
-    var choice =
-      voteType === 'outcome'
-        ? pill === 'left'
-          ? 'failure'
-          : pill === 'right'
-            ? 'success'
-            : ''
-        : pill === 'left'
-          ? 'ge'
-          : pill === 'right'
-            ? 'buge'
-            : ''
-    if (!launchId || !choice) return
-    if (this.data.voteData && this.data.voteData.votingClosed) {
-      wx.showToast({ title: '竞猜已封盘', icon: 'none' })
-      return
-    }
-    if (this.data.myVote) {
-      wx.showToast({ title: '你已经投过啦', icon: 'none' })
-      return
-    }
-    // 投票成功路径：中度震动反馈
-    this._vibrateMedium()
-    saveLocalVote(launchId, choice, voteType)
-    var oldData = this.data.voteData || { geCount: 0, buGeCount: 0 }
-    var leftChoice = voteType === 'outcome' ? 'failure' : 'ge'
-    var rightChoice = voteType === 'outcome' ? 'success' : 'buge'
-    var newGe = (oldData.geCount || 0) + (choice === leftChoice ? 1 : 0)
-    var newBuge = (oldData.buGeCount || 0) + (choice === rightChoice ? 1 : 0)
-    var total = newGe + newBuge
-    var votePatch = {
-      myVote: choice,
-      'voteData.geCount': newGe,
-      'voteData.buGeCount': newBuge,
-      'voteData.failureCount': voteType === 'outcome' ? newGe : oldData.failureCount || 0,
-      'voteData.successCount': voteType === 'outcome' ? newBuge : oldData.successCount || 0,
-      voteTotal: total,
-      voteGePct: Math.round((newGe / total) * 100),
-      voteBugePct: Math.round((newBuge / total) * 100)
-    }
-    this.setData(votePatch)
-    var serverData = null
-    var voteFailMsg = ''
-    try {
-      serverData = await castVote(launchId, choice, {
-        voteType,
-        missionName: this.data.launchData.missionName,
-        rocketName: this.data.launchData.rocketName,
-        launchTime: this.data.launchData.launchTime,
-        statusCategory: this.data.launchData.statusCategory || '',
-        statusAbbrev: this.data.launchData.statusAbbrev || '',
-        statusName: this.data.launchData.statusBadgeText || ''
-      })
-    } catch (err) {
-      serverData = null
-      voteFailMsg = (err && err.message) || ''
-    }
-    if (serverData) {
-      var normalized = buildVoteState(serverData, choice, voteType)
-      // 服务端若未带回票数，至少保留乐观更新的人数与比例条
-      if (!normalized.voteTotal && total > 0) {
-        normalized.voteData.geCount = newGe
-        normalized.voteData.buGeCount = newBuge
-        if (voteType === 'outcome') {
-          normalized.voteData.failureCount = newGe
-          normalized.voteData.successCount = newBuge
-        }
-        normalized.voteTotal = total
-        normalized.voteGePct = Math.round((newGe / total) * 100)
-        normalized.voteBugePct = Math.round((newBuge / total) * 100)
-      }
-      this.setData({
-        voteData: normalized.voteData,
-        myVote: choice,
-        voteTotal: normalized.voteTotal,
-        voteGePct: normalized.voteGePct,
-        voteBugePct: normalized.voteBugePct,
-        activeVoteType: voteType
-      })
-      this._voteBundle = this._voteBundle || {}
-      var lid = String(launchId)
-      var b = this._voteBundle[lid] || {}
-      var votedStats = Object.assign({}, serverData, {
-        myVote: choice,
-        enabled: true,
-        geCount: normalized.voteData.geCount,
-        buGeCount: normalized.voteData.buGeCount,
-        failureCount: normalized.voteData.failureCount,
-        successCount: normalized.voteData.successCount
-      })
-      b[voteType] = votedStats
-      this._voteBundle[lid] = b
-      // 同步 meta，避免 TTL 内刷新用旧 bundle 把票数打回 0
-      this._voteRequestMeta = this._voteRequestMeta || {}
-      var prevMeta = this._voteRequestMeta[lid] || {}
-      this._voteRequestMeta[lid] = {
-        loadedAt: Date.now(),
-        stats: votedStats,
-        bundle: b,
-        promise: prevMeta.promise || null
-      }
-    } else {
-      // 提交失败：回滚乐观更新（本地记录 + UI 计数），否则界面显示已投票但服务端没有记录
-      removeLocalVote(launchId, voteType)
-      var rbTotal = (oldData.geCount || 0) + (oldData.buGeCount || 0)
-      this.setData({
-        myVote: '',
-        'voteData.geCount': oldData.geCount || 0,
-        'voteData.buGeCount': oldData.buGeCount || 0,
-        voteTotal: rbTotal,
-        voteGePct: rbTotal > 0 ? Math.round(((oldData.geCount || 0) / rbTotal) * 100) : 50,
-        voteBugePct: rbTotal > 0 ? Math.round(((oldData.buGeCount || 0) / rbTotal) * 100) : 50
-      })
-      wx.showToast({ title: voteFailMsg || '投票失败，请重试', icon: 'none' })
-    }
-  }
 })

@@ -226,20 +226,10 @@
   max-width: 100%;
 }
 
-.article-content {
-  display: flex;
-  flex-direction: column;
-  gap: 15rpx;
-}
-
 .card-link {
   display: block;
   text-decoration: none;
   color: inherit;
-}
-
-.article-clickable {
-  display: block;
 }
 
 /* 文章卡片头部沿用 news-header 横向布局，站点标签样式见 .article-site */
@@ -384,17 +374,6 @@
   }
 }
 
-/* 加载更多 */
-.load-more {
-  padding: 28rpx 0 40rpx;
-  text-align: center;
-}
-
-.load-more-text {
-  font-size: 24rpx;
-  color: #8E8E93;
-}
-
 /* 没有更多 */
 .no-more {
   padding: 40rpx 0;
@@ -435,92 +414,16 @@
   color: rgba(255,255,255,0.7);
 }
 
-.detail-description {
-  font-size: 26rpx;
-  color: #E5E5EA;
-  line-height: 1.8;
-  word-break: break-word;
-  white-space: pre-wrap;
-}
-
-.detail-links {
-  display: flex;
-  flex-direction: column;
-  gap: 15rpx;
-}
-
-.detail-link-item {
-  display: flex;
-  align-items: center;
-  padding: 20rpx;
-  background: rgba(0, 122, 255, 0.1);
-  border: 1px solid rgba(0, 122, 255, 0.2);
-  border-radius: 12rpx;
-  gap: 15rpx;
-  box-sizing: border-box;
-}
-
-.link-icon {
-  font-size: 32rpx;
-  flex-shrink: 0;
-}
-
-.link-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 5rpx;
-  min-width: 0;
-}
-
 .link-title {
   font-size: 26rpx;
   color: #FFFFFF;
   word-break: break-word;
 }
 
-.link-source {
-  font-size: 22rpx;
-  color: #8E8E93;
-}
-
 .link-arrow {
   font-size: 36rpx;
   color: #8E8E93;
   flex-shrink: 0;
-}
-
-/* 关注入口：位置由 left/top(px) 控制，支持长按拖动 */
-.qrcode-entry-wrap {
-  position: fixed;
-  width: 100rpx;
-  height: 100rpx;
-  border-radius: 50rpx;
-  background: rgba(7, 193, 96, 0.35);
-  border: 1px solid rgba(7, 193, 96, 0.5);
-  z-index: 99999;
-  font-size: 48rpx;
-  line-height: 100rpx;
-  text-align: center;
-}
-
-/* 顶部导航「关注」入口：不受 scroll-view 遮挡，点击稳定 */
-.nav-qrcode-entry {
-  flex-shrink: 0;
-  height: 60rpx;
-  padding: 0 20rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(7, 193, 96, 0.2);
-  border: 1px solid rgba(7, 193, 96, 0.35);
-  border-radius: 16rpx;
-  color: #07c160;
-  font-size: 26rpx;
-}
-
-.nav-qrcode-entry:active {
-  background: rgba(7, 193, 96, 0.3);
 }
 
 /* 二维码弹窗：z-index 高于关注入口(10001)，打开时盖住入口 */
@@ -632,20 +535,6 @@
   text-align: center;
 }
 
-/* ===== 页面级翻译按钮（悬浮右上角，不占内容行） ===== */
-.news-translate-float {
-  position: fixed;
-  right: 24rpx;
-  z-index: 1000;
-}
-
-.news-translate-float .translate-toggle {
-  padding: 7rpx 29rpx;
-  background: rgba(20, 20, 22, 0.82);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.35);
-}
-
 /* ========== 明亮主题（theme-light）覆盖 ========== */
 
 /* 顶部导航玻璃底：深玻璃 → 浅玻璃 */
@@ -746,11 +635,6 @@
   box-shadow: inset 0 0 0 1rpx rgba(0, 0, 0, 0.12);
 }
 
-/* 加载/空状态文案 */
-.theme-light .load-more-text {
-  color: var(--color-text-secondary);
-}
-
 .theme-light .no-more text {
   color: var(--color-text-tertiary);
 }
@@ -765,17 +649,8 @@
   color: var(--color-text-secondary);
 }
 
-/* 详情复用样式（本页 wxss 内定义） */
-.theme-light .detail-description {
-  color: var(--color-text-primary);
-}
-
 .theme-light .link-title {
   color: var(--color-text-primary);
-}
-
-.theme-light .link-source {
-  color: var(--color-text-secondary);
 }
 
 .theme-light .link-arrow {
@@ -809,16 +684,5 @@
 
 .theme-light .qrcode-tip {
   color: var(--color-text-secondary);
-}
-
-/* 悬浮翻译按钮：深玻璃底 → 浅玻璃底 */
-.theme-light .news-translate-float .translate-toggle {
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: var(--shadow-card);
-}
-
-/* 激活态为白字，需保留蓝色实底（本页 .news-translate-float 覆盖了公共类的背景） */
-.theme-light .news-translate-float .translate-toggle--active {
-  background: rgba(74, 158, 255, 0.85);
 }
 

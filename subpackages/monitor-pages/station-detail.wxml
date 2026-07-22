@@ -319,7 +319,7 @@
                 </view>
               </view>
               <view class="crew-empty" wx:elif="{{!exp.crew || !exp.crew.length}}">
-                <text>暂无公开的成员信息</text>
+                <text>成员详情暂未同步到，请稍后下拉刷新</text>
               </view>
             </view>
           </view>

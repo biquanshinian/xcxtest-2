@@ -243,7 +243,18 @@ async function translateTextsBatch(texts, options) {
     pending.push({ index: i, raw, hash })
   }
 
-  if (!pending.length) return results
+  if (!pending.length) {
+    if (options && options.withMeta) {
+      return {
+        list: results,
+        tmtConfigured: isTmtConfigured(),
+        tmtNeeded: 0,
+        tmtLastError: '',
+        tmtBatchesFailed: 0
+      }
+    }
+    return results
+  }
 
   const cacheMap = await readCacheBatch(pending.map((p) => p.hash))
   // 同一文本（如发射台名）在一次同步里出现几十次：按 hash 去重，只机翻一次
@@ -263,7 +274,32 @@ async function translateTextsBatch(texts, options) {
     }
   }
 
-  if (skipTmt) return results
+  if (skipTmt) {
+    if (options && options.withMeta) {
+      return {
+        list: results,
+        tmtConfigured: isTmtConfigured(),
+        tmtNeeded: 0,
+        tmtLastError: '',
+        tmtBatchesFailed: 0
+      }
+    }
+    return results
+  }
+
+  if (!isTmtConfigured() && toTmt.length > 0) {
+    warnTmtUnconfiguredOnce()
+    if (options && options.withMeta) {
+      return {
+        list: results,
+        tmtConfigured: false,
+        tmtNeeded: toTmt.length,
+        tmtLastError: 'TMT_SECRET_ID/KEY 未配置',
+        tmtBatchesFailed: 0
+      }
+    }
+    return results
+  }
 
   // 按累计字符数切批（TMT 批量接口有总量上限）；单条超长的独立成批
   const batches = []
@@ -282,6 +318,8 @@ async function translateTextsBatch(texts, options) {
   if (current.length > 0) batches.push(current)
 
   let batchIndex = 0
+  let tmtLastError = null
+  let tmtBatchesFailed = 0
   for (const batch of batches) {
     // TMT 免费档限频 5 QPS：多批之间加间隔，避免连环触发 RequestLimitExceeded
     if (batchIndex > 0) await new Promise((r) => setTimeout(r, 250))
@@ -305,6 +343,8 @@ async function translateTextsBatch(texts, options) {
       }
     }
     if (lastErr) {
+      tmtBatchesFailed++
+      tmtLastError = lastErr
       console.error('[translate] TMT batch failed after retry:', lastErr.message || lastErr)
     }
 
@@ -327,6 +367,15 @@ async function translateTextsBatch(texts, options) {
     await writeCacheBatch(cacheWrites)
   }
 
+  if (options && options.withMeta) {
+    return {
+      list: results,
+      tmtConfigured: isTmtConfigured(),
+      tmtNeeded: toTmt.length,
+      tmtLastError: tmtLastError ? String(tmtLastError.message || tmtLastError) : '',
+      tmtBatchesFailed
+    }
+  }
   return results
 }
 

@@ -32,7 +32,12 @@
         <el-table :data="history" stripe v-loading="histLoading">
           <el-table-column label="类型" width="120">
             <template #default="scope">
-              <el-tag :type="typeTagStyle(scope.row.type)" size="small">{{ typeLabel(scope.row.type) }}</el-tag>
+              <el-tag
+                :type="scope.row.type === 'auto_detail'
+                  ? (scope.row.result && scope.row.result.success ? 'success' : 'danger')
+                  : typeTagStyle(scope.row.type)"
+                size="small"
+              >{{ typeLabel(scope.row.type) }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column prop="triggeredBy" label="触发者" width="140" />
@@ -94,7 +99,7 @@ const typeLabel = (t) => {
 const typeTagStyle = (t) => {
   if (t === 'manual') return 'primary'
   if (t === 'auto') return 'success'
-  if (t === 'auto_detail') return 'danger'
+  if (t === 'auto_detail') return 'info'
   return 'info'
 }
 
@@ -112,6 +117,7 @@ const formatResult = (row) => {
     return parts.join(' / ')
   }
   if (row.type === 'auto_detail') {
+    if (r.success) return '成功'
     return r.error ? `失败：${r.error}` : '失败'
   }
   return r.message || JSON.stringify(r)

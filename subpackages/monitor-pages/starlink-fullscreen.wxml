@@ -1,44 +1,72 @@
-<view class="fullscreen-container">
-  <!-- 全屏 Canvas（绑定触摸事件） -->
-  <canvas type="2d" id="starlinkFullCanvas" class="fullscreen-canvas"
+<view class="fs-page">
+  <canvas
+    type="2d"
+    id="starlinkFullCanvas"
+    class="fs-canvas"
     disable-scroll="true"
     bindtouchstart="onCanvasTouchStart"
-    bindtouchmove="onCanvasTouchMove"
+    catchtouchmove="onCanvasTouchMove"
     bindtouchend="onCanvasTouchEnd"
-    bindtouchcancel="onCanvasTouchEnd"></canvas>
+    bindtouchcancel="onCanvasTouchEnd"
+  ></canvas>
 
-  <!-- 顶部控制栏（横屏适配） -->
-  <view class="fs-top-bar">
-    <view class="fs-back-btn {{isDirectEntry ? 'fs-back-btn--home' : ''}}" bindtap="goBack">
-      <text class="fs-back-arrow">‹</text>
-    </view>
-    <view class="fs-title-area">
-      <text class="fs-title">Starlink 实时追踪</text>
-      <text class="fs-subtitle" wx:if="{{satCount}}">{{satCount}} 颗在轨</text>
-    </view>
-    <view class="fs-action-area">
-      <view class="fs-ctrl-btn" bindtap="togglePause">
-        <view class="fs-icon-play" wx:if="{{paused}}"></view>
-        <view class="fs-icon-pause" wx:else></view>
+  <!-- 顶栏：精简横排，避开球心 -->
+  <view class="fs-chrome fs-chrome--top">
+    <view class="fs-back {{isDirectEntry ? 'fs-back--home' : ''}}" bindtap="goBack" hover-class="fs-back--hover"></view>
+    <view class="fs-meta">
+      <text class="fs-meta__title">STARLINK</text>
+      <view class="fs-meta__live" wx:if="{{satCount}}">
+        <view class="fs-meta__dot"></view>
+        <text>{{satCountText}}</text>
       </view>
     </view>
+    <view class="fs-pause {{paused ? 'fs-pause--on' : ''}}" bindtap="togglePause" hover-class="fs-pause--hover">
+      <view class="fs-pause__icon {{paused ? 'is-play' : 'is-pause'}}"></view>
+    </view>
   </view>
 
-  <!-- 底部信息栏 -->
-  <view class="fs-bottom-bar">
-    <text class="fs-info-text">数据来源: CelesTrak · 双指缩放 · {{updateTime}}</text>
+  <!-- 选中卫星信息窗：内容随点选 / 1Hz 遥测刷新 -->
+  <view class="fs-card {{selected ? 'fs-card--show' : ''}} {{selectedOccluded ? 'fs-card--dim' : ''}}">
+    <view class="fs-card__head">
+      <text class="fs-card__name">{{selectedName}}</text>
+      <view class="fs-card__close" catchtap="onClearSelected"></view>
+    </view>
+    <view class="fs-card__grid" wx:if="{{!selectedOccluded}}">
+      <view class="fs-card__cell">
+        <text class="fs-card__k">LAT</text>
+        <text class="fs-card__v">{{selectedLat}}</text>
+      </view>
+      <view class="fs-card__cell">
+        <text class="fs-card__k">LON</text>
+        <text class="fs-card__v">{{selectedLng}}</text>
+      </view>
+      <view class="fs-card__cell">
+        <text class="fs-card__k">ALT</text>
+        <text class="fs-card__v">{{selectedAlt}}</text>
+      </view>
+      <view class="fs-card__cell">
+        <text class="fs-card__k">VEL</text>
+        <text class="fs-card__v">{{selectedVel}}</text>
+      </view>
+    </view>
+    <text class="fs-card__hint" wx:else>背面不可见 · 转动地球可找回</text>
   </view>
 
-  <!-- 加载遮罩 -->
-  <view class="fs-loading-mask" wx:if="{{loading}}">
-    <view class="fs-loading-orbit"></view>
-    <text class="fs-loading-text">初始化卫星轨道...</text>
+  <!-- 底栏提示 -->
+  <view class="fs-chrome fs-chrome--bottom">
+    <text class="fs-hint" wx:if="{{!selected}}">轻触卫星查看详情 · 拖转 / 双指缩放</text>
+    <text class="fs-hint" wx:else>CelesTrak · {{updateTime}}</text>
   </view>
 
-  <!-- 错误重试层（需 js 侧配合：data.loadError + onRetry 方法） -->
-  <view class="fs-error-mask" wx:if="{{loadError}}">
-    <text class="fs-error-text">{{loadError}}</text>
-    <view class="fs-retry-btn" bindtap="onRetry">重试</view>
+  <view class="fs-mask" wx:if="{{loading}}">
+    <view class="fs-orbit"></view>
+    <text class="fs-mask__text">初始化轨道…</text>
   </view>
+
+  <view class="fs-mask" wx:if="{{loadError}}">
+    <text class="fs-mask__text">{{loadError}}</text>
+    <view class="fs-retry" bindtap="onRetry">重试</view>
+  </view>
+
   <share-guide />
 </view>

@@ -169,6 +169,10 @@ page {
   margin-left: 2rpx;
   line-height: 1;
 }
+/* 型号标签可点态：链接观感与发射商标签一致，但保留橙色系型号身份 */
+.info-tag--family.info-tag--link {
+  background: linear-gradient(135deg, #FF9500, #FF6B00);
+}
 .info-tag--block {
   color: #AF52DE;
   background: rgba(175, 82, 222, 0.15);

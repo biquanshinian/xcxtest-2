@@ -1,7 +1,7 @@
 const pageBase = require('../../utils/page-base.js')
 const { fetchLl2LaunchUpdates } = require('../../utils/api-app-services.js')
 const { mapRawUpdatesToLaunchUpdates } = require('./utils/api-launch-detail.js')
-const { togglePageTranslation } = require('../../utils/text-translate.js')
+const { togglePageTranslation } = require('./utils/text-translate.js')
 const { ROUTES } = require('../../utils/routes.js')
 const {
   checkShareEntryGate,

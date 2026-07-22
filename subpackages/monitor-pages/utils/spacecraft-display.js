@@ -7,35 +7,14 @@
  */
 
 var { mfrDisplayName } = require('./booster-display.js')
-var { translateAgencyName } = require('./space-terms-i18n.js')
-var { workerProxyUrl } = require('./config.js')
-var { getCachedMediaImage } = require('./icon-cache.js')
-var { optimizeImageUrl } = require('./cos-url.js')
+var { translateAgencyName } = require('../../../utils/space-terms-i18n.js')
+var { getCachedMediaImage } = require('../../../utils/icon-cache.js')
+var { optimizeImageUrl } = require('../../../utils/cos-url.js')
+var { proxiedImageUrl } = require('../../../utils/ll2-image.js')
 
 var CACHE_KEY = '_spacecraft_list_v1'
 var CACHE_TTL = 24 * 60 * 60 * 1000
 var TAB_PREVIEW_COUNT = 2
-
-/** 自有 COS / 云存储 CDN 域名：已是国内节点，无需再包 Worker 代理 */
-function isOwnCdnUrl(url) {
-  var s = String(url || '')
-  return /^cloud:\/\//i.test(s) ||
-    s.indexOf('.myqcloud.com/') !== -1 ||
-    s.indexOf('.tcb.qcloud.la/') !== -1
-}
-
-/**
- * LL2 图床（DigitalOcean Spaces）国内直连大概率超时/失败，
- * 首选走 Cloudflare Worker 图片代理（GET /image?url=...，24h 边缘缓存），直连仅作兜底；
- * 云端已镜像到 COS 的 URL 直接返回（syncImageMirror 定时任务产出）
- */
-function proxiedImageUrl(url) {
-  if (!url) return ''
-  if (isOwnCdnUrl(url)) return url
-  var base = String(workerProxyUrl || '').trim().replace(/\/$/, '')
-  if (!base) return ''
-  return base + '/image?url=' + encodeURIComponent(url)
-}
 
 /**
  * 图片本地缓存：命中返回 wxfile:// 本地路径，未命中先展示远程 URL 并后台落盘，

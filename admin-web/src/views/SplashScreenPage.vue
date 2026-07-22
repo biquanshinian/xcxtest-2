@@ -13,14 +13,30 @@
       </el-form-item>
 
       <el-form-item label="倒计时秒数">
-        <el-input-number v-model="form.countdownSeconds" :min="1" :max="30" :step="1" />
-        <span style="margin-left:8px;color:var(--t-text-muted);font-size:12px;">用户首次进入小程序时展示的秒数</span>
+        <el-input-number v-model="form.countdownSeconds" :min="1" :max="12" :step="1" />
+        <span style="margin-left:8px;color:var(--t-text-muted);font-size:12px;">跳过按钮倒计时；视频开屏最长只播 12 秒（超长会自动截取前 12 秒）</span>
+      </el-form-item>
+
+      <el-form-item label="官网自动同步">
+        <el-switch v-model="form.autoSyncSpacex" disabled />
+        <el-tag
+          size="small"
+          :type="form.autoSyncSpacex ? 'success' : 'info'"
+          style="margin-left:8px;"
+        >{{ form.autoSyncSpacex ? '已开启' : '已关闭（手动优先）' }}</el-tag>
+        <div style="margin-top:6px;color:var(--t-text-muted);font-size:12px;line-height:1.5;">
+          由媒体池自动决定，无需手拨：
+          <strong>有手动上传</strong>时关闭官网同步并清掉自动项；
+          <strong>手动全部删光</strong>后重新开启，由定时任务在 T-5 窗口内回填官网视频。
+          开启后每 2 小时扫描 SpaceX；推迟出窗自动下架，回窗恢复；飞行中/结束或官网撤下后移除。
+        </div>
       </el-form-item>
 
       <el-form-item label="开屏媒体池">
         <div class="splash-upload-area">
           <div class="splash-pool-hint">
             最多 {{ MEDIA_MAX }} 个（图片/视频均可）。小程序每次冷启动会<strong>随机</strong>展示其中一条。视频保存后自动压缩预览。
+            填写「任务名称」后，小程序会自动匹配最近的同名即将发射任务，并在开屏上展示可点击的倒计时组件（点击跳转任务详情）；不填则不显示。
             <span style="margin-left:8px;">已上传 {{ form.mediaItems.length }} / {{ MEDIA_MAX }}</span>
           </div>
 
@@ -38,10 +54,20 @@
                 <el-tag size="small" :type="item.mediaType === 'video' ? 'warning' : ''">
                   {{ idx + 1 }}. {{ item.mediaType === 'video' ? '视频' : '图片' }}
                 </el-tag>
+                <el-tag v-if="item.autoSource === 'spacex'" size="small" type="primary" effect="dark">官网自动</el-tag>
                 <el-tag v-if="item.mediaType === 'video' && item.previewStatus === 'ready'" size="small" type="success">预览就绪</el-tag>
                 <el-tag v-else-if="item.mediaType === 'video' && (item.previewStatus === 'processing' || item.previewStatus === 'pending')" size="small" type="info">转码中</el-tag>
                 <el-tag v-else-if="item.mediaType === 'video' && item.previewStatus === 'failed'" size="small" type="danger">转码失败</el-tag>
                 <el-button size="small" type="danger" @click="removeMediaAt(idx)">移除</el-button>
+              </div>
+              <div class="splash-mission-input">
+                <el-input
+                  v-model="item.missionName"
+                  size="small"
+                  :clearable="item.autoSource !== 'spacex'"
+                  :readonly="item.autoSource === 'spacex'"
+                  :placeholder="item.autoSource === 'spacex' ? '由官网自动同步填写' : '任务名称（不填则不显示倒计时组件）'"
+                />
               </div>
             </div>
           </div>
@@ -168,6 +194,7 @@ const VIDEO_MAX_SIZE = 20 * 1024 * 1024
 
 const form = reactive({
   enabled: false,
+  autoSyncSpacex: true,
   countdownSeconds: 5,
   mediaItems: []
 })
@@ -180,6 +207,36 @@ const fileInputRef = ref(null)
 
 function newId() {
   return `sp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function isManualSplashItem(it) {
+  return !!(it && it.autoSource !== 'spacex')
+}
+
+/**
+ * 手动优先策略：
+ * - 存在任意手动项 → 关闭官网自动同步，并移出所有官网自动项
+ * - 手动项全部清空 → 重新开启官网自动同步（下一轮定时任务回填）
+ */
+function applyManualAutoPolicy(opts = {}) {
+  const notify = opts.notify !== false
+  const manual = form.mediaItems.filter(isManualSplashItem)
+  const auto = form.mediaItems.filter((it) => it && it.autoSource === 'spacex')
+  const hasManual = manual.length > 0
+  const nextAutoSync = !hasManual
+
+  if (hasManual && auto.length) {
+    form.mediaItems = manual
+    if (notify) {
+      ElMessage.info('检测到手动上传，已关闭官网自动同步并移除自动项')
+    }
+  }
+
+  const was = form.autoSyncSpacex
+  form.autoSyncSpacex = nextAutoSync
+  if (notify && was !== nextAutoSync && nextAutoSync) {
+    ElMessage.info('手动媒体已清空，官网自动同步已重新开启')
+  }
 }
 
 function applySplashData(data) {
@@ -203,8 +260,15 @@ function applySplashData(data) {
     mediaUrl: it.mediaUrl || '',
     previewUrl: it.previewUrl || '',
     posterUrl: it.posterUrl || '',
-    previewStatus: it.previewStatus || ''
+    previewStatus: it.previewStatus || '',
+    missionName: it.missionName || '',
+    autoSource: it.autoSource || '',
+    sourceUrl: it.sourceUrl || '',
+    flightNumber: it.flightNumber || 0
   }))
+  // 以媒体池为准校正开关（加载时不弹提示）
+  form.autoSyncSpacex = data.autoSyncSpacex !== false
+  applyManualAutoPolicy({ notify: false })
 }
 
 onMounted(async () => {
@@ -279,8 +343,13 @@ function pushMediaItem(mediaType, cosUrl) {
     mediaUrl: cosUrl,
     previewUrl: '',
     posterUrl: '',
-    previewStatus: mediaType === 'video' ? 'pending' : ''
+    previewStatus: mediaType === 'video' ? 'pending' : '',
+    missionName: '',
+    autoSource: '',
+    sourceUrl: '',
+    flightNumber: 0
   })
+  applyManualAutoPolicy()
   return true
 }
 
@@ -311,6 +380,7 @@ async function uploadOneFile(file) {
 
 function removeMediaAt(idx) {
   form.mediaItems.splice(idx, 1)
+  applyManualAutoPolicy()
 }
 
 function triggerFilePicker() {
@@ -363,8 +433,11 @@ async function refreshPreviewStatus() {
 async function onSave() {
   saving.value = true
   try {
+    // 保存前再校正一次：有手动则关自动并剔除官网项
+    applyManualAutoPolicy({ notify: false })
     const data = await api.updateStarshipSplash({
       enabled: form.enabled,
+      autoSyncSpacex: form.autoSyncSpacex,
       countdownSeconds: form.countdownSeconds,
       mediaItems: form.mediaItems.map((it) => ({
         id: it.id,
@@ -372,7 +445,11 @@ async function onSave() {
         mediaUrl: it.mediaUrl,
         previewUrl: it.previewUrl || '',
         posterUrl: it.posterUrl || '',
-        previewStatus: it.previewStatus || ''
+        previewStatus: it.previewStatus || '',
+        missionName: (it.missionName || '').trim(),
+        autoSource: it.autoSource || '',
+        sourceUrl: it.sourceUrl || '',
+        flightNumber: it.flightNumber || 0
       }))
     })
     if (data && typeof data === 'object') {
@@ -384,7 +461,11 @@ async function onSave() {
     if (pending) {
       ElMessage.success('已保存，正在生成压缩预览（约 1–3 分钟）')
     } else {
-      ElMessage.success('保存成功')
+      ElMessage.success(
+        form.autoSyncSpacex
+          ? '保存成功（官网自动同步已开启）'
+          : '保存成功（手动优先，官网自动同步已关闭）'
+      )
     }
   } catch (e) {
     ElMessage.error('保存失败: ' + (e.message || ''))
@@ -547,6 +628,10 @@ function onCosConfirm() {
   align-items: center;
   padding: 6px 8px;
   gap: 6px;
+}
+
+.splash-mission-input {
+  padding: 0 8px 8px;
 }
 
 .splash-preview-tip {

@@ -1398,303 +1398,160 @@ page {
   font-family: 'SF Mono', Menlo, monospace;
 }
 
-/* ========== 明亮主题（theme-light）覆盖 ========== */
-
-/* 页面根：改用浅色页面底 */
-.odc-page.theme-light {
-  background: var(--color-bg, #F2F2F7);
+/* ========== Vehicle Tracker（在轨飞行器追踪） ========== */
+.odc-vt {
+  display: block;
 }
 
-/* 深空背景视频与星空为暗色氛围层，浅色下隐藏（保持页面明亮） */
-.theme-light .odc-bg-video-shell {
-  display: none;
+/* 飞行器切换 chips（官网样式：选中白底黑字，未选中深色描边） */
+.odc-vt__chips-scroll {
+  width: 100%;
+  white-space: nowrap;
+  margin-bottom: 24rpx;
+}
+.odc-vt__chips {
+  display: inline-flex;
+  gap: 14rpx;
+  padding: 2rpx;
+}
+.odc-vt__chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52rpx;
+  padding: 0 24rpx;
+  border-radius: 8rpx;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1rpx solid rgba(255, 255, 255, 0.28);
+  box-sizing: border-box;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+.odc-vt__chip text {
+  font-size: 20rpx;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.78);
+  font-family: 'SF Mono', Menlo, monospace;
+  letter-spacing: 1.5rpx;
+  line-height: 1;
+}
+.odc-vt__chip--active {
+  background: #f0f0fa;
+  border-color: #f0f0fa;
+}
+.odc-vt__chip--active text {
+  color: #000;
 }
 
-.theme-light .odc-stars {
-  display: none;
+/* 遥测三行（Mission Time / Speed / Altitude） */
+.odc-vt__telemetry {
+  margin-bottom: 24rpx;
+}
+.odc-vt__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 4rpx;
+  border-bottom: 1rpx solid rgba(255, 255, 255, 0.22);
+}
+.odc-vt__row-label {
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.55);
+  letter-spacing: 3rpx;
+  font-family: 'SF Mono', Menlo, monospace;
+}
+.odc-vt__row-value {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #ffffff;
+  letter-spacing: 1.5rpx;
+  font-family: 'SF Mono', Menlo, monospace;
+  font-variant-numeric: tabular-nums;
 }
 
-/* 网格背景改中性浅灰线 */
-.theme-light .odc-grid {
-  background-image:
-    linear-gradient(rgba(0, 0, 0, 0.045) 1rpx, transparent 1rpx),
-    linear-gradient(90deg, rgba(0, 0, 0, 0.045) 1rpx, transparent 1rpx);
-  opacity: 0.6;
+/* 可拖动地球画布 */
+.odc-vt__canvas-wrap {
+  position: relative;
+  width: 100%;
+  height: 620rpx;
+  border-radius: 16rpx;
+  overflow: hidden;
+  border: 1rpx solid rgba(0, 200, 255, 0.16);
+  background: #04070d;
+}
+.odc-vt__canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
-/* 顶部 HUD：浅色玻璃 */
-.theme-light .odc-hud {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.5) 100%);
-  border-bottom: 1rpx solid var(--color-divider, rgba(0, 0, 0, 0.08));
+/* 数据模式角标：LIVE 青绿 / SIMULATED 琥珀 */
+.odc-vt__mode {
+  position: absolute;
+  top: 16rpx;
+  right: 16rpx;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8rpx;
+  padding: 8rpx 16rpx;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1rpx solid rgba(0, 255, 136, 0.4);
+  border-radius: 8rpx;
+  pointer-events: none;
+}
+.odc-vt__mode-dot {
+  width: 8rpx;
+  height: 8rpx;
+  border-radius: 50%;
+  background: #00ff88;
+  animation: odc-vt-blink 1.6s ease-in-out infinite;
+}
+.odc-vt__mode text {
+  font-size: 18rpx;
+  color: #00ff88;
+  letter-spacing: 2rpx;
+  line-height: 1;
+  font-family: 'SF Mono', Menlo, monospace;
+}
+.odc-vt__mode--sim {
+  border-color: rgba(255, 200, 0, 0.45);
+}
+.odc-vt__mode--sim .odc-vt__mode-dot {
+  background: #ffc800;
+}
+.odc-vt__mode--sim text {
+  color: #ffc800;
+}
+@keyframes odc-vt-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
 }
 
-.theme-light .odc-navbar__back {
-  background: rgba(0, 122, 158, 0.10);
-  border-color: rgba(0, 122, 158, 0.3);
+/* 加载态 */
+.odc-vt__loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.odc-vt__loading text {
+  font-size: 22rpx;
+  color: rgba(0, 200, 255, 0.75);
+  letter-spacing: 3rpx;
+  font-family: 'SF Mono', Menlo, monospace;
+  animation: odc-vt-blink 1.2s ease-in-out infinite;
 }
 
-.theme-light .odc-navbar__back--hover {
-  background: rgba(0, 122, 158, 0.18);
-  border-color: rgba(0, 122, 158, 0.5);
-}
-
-.theme-light .odc-navbar__back-arrow {
-  color: #007A9E;
-  text-shadow: none;
-}
-
-.theme-light .odc-navbar__title {
-  color: var(--color-text-primary, #1C1C1E);
-  text-shadow: none;
-}
-
-.theme-light .odc-hud__brand-title {
-  color: var(--color-text-primary, #1C1C1E);
-  text-shadow: none;
-}
-
-.theme-light .odc-hud__brand-sub {
-  color: rgba(0, 122, 158, 0.9);
-}
-
-.theme-light .odc-hud__status {
-  background: rgba(5, 150, 105, 0.10);
-  border-color: rgba(5, 150, 105, 0.35);
-}
-
-.theme-light .odc-hud__status-text {
-  color: #059669;
-}
-
-.theme-light .odc-hud__ticker {
-  background: rgba(0, 0, 0, 0.04);
-  border-left-color: rgba(0, 122, 158, 0.55);
-}
-
-.theme-light .odc-hud__ticker-text {
-  color: rgba(0, 122, 158, 0.95);
-}
-
-/* 全息地球：深空球体整体保持深色视觉（例外元素），
-   仅把纯白轨道粒子换成可见的中性深灰 */
-.theme-light .odc-globe__particle--1,
-.theme-light .odc-globe__particle--2,
-.theme-light .odc-globe__particle--4 {
-  background: rgba(71, 85, 105, 0.7);
-  box-shadow: 0 0 6rpx rgba(13, 148, 136, 0.3);
-}
-
-/* 实时遥测数据条 */
-.theme-light .odc-coords {
-  background: linear-gradient(135deg, rgba(0, 200, 255, 0.05) 0%, rgba(255, 255, 255, 0.85) 100%);
-  border-color: rgba(0, 122, 158, 0.25);
-}
-
-.theme-light .odc-coords__head-line {
-  background: linear-gradient(90deg,
-    rgba(0, 122, 158, 0.4) 0%,
-    rgba(0, 122, 158, 0.06) 100%);
-}
-
-.theme-light .odc-coords__head-label {
-  color: rgba(0, 122, 158, 0.9);
-}
-
-.theme-light .odc-coord__label {
-  color: rgba(0, 122, 158, 0.8);
-}
-
-.theme-light .odc-coord__value {
-  color: var(--color-text-primary, #1C1C1E);
-  text-shadow: none;
-}
-
-.theme-light .odc-coord__hint {
-  color: var(--color-text-tertiary, #86868B);
-}
-
-.theme-light .odc-coord__divider {
-  background: linear-gradient(180deg,
-    transparent 0%,
-    rgba(0, 0, 0, 0.15) 50%,
-    transparent 100%);
-}
-
-/* 章节标题 */
-.theme-light .odc-section__head {
-  border-bottom-color: var(--color-divider, rgba(0, 0, 0, 0.08));
-}
-
-.theme-light .odc-section__head-num {
-  color: rgba(0, 122, 158, 0.85);
-}
-
-.theme-light .odc-section__head-title {
-  color: var(--color-text-primary, #1C1C1E);
-}
-
-.theme-light .odc-section__head-sub {
-  color: var(--color-text-tertiary, #86868B);
-}
-
-/* 核心指标卡片 */
-.theme-light .odc-metric {
-  background: linear-gradient(135deg, rgba(0, 200, 255, 0.06) 0%, rgba(255, 255, 255, 0.9) 100%);
-  border-color: rgba(0, 122, 158, 0.22);
-  box-shadow: var(--shadow-card, 0 8rpx 24rpx rgba(0, 0, 0, 0.08));
-}
-
-.theme-light .odc-metric__label {
-  color: var(--color-text-secondary, #6E6E73);
-}
-
-.theme-light .odc-metric__trend--up {
-  background: rgba(5, 150, 105, 0.12);
-  color: #059669;
-}
-
-.theme-light .odc-metric__trend--down {
-  background: rgba(224, 49, 49, 0.10);
-  color: #E03131;
-}
-
-.theme-light .odc-metric__trend--flat {
-  background: rgba(0, 0, 0, 0.05);
-  color: var(--color-text-secondary, #6E6E73);
-}
-
-.theme-light .odc-metric__value {
-  color: var(--color-text-primary, #1C1C1E);
-  text-shadow: none;
-}
-
-.theme-light .odc-metric__unit {
-  color: rgba(0, 122, 158, 0.85);
-}
-
-.theme-light .odc-metric__bar {
-  background: rgba(0, 0, 0, 0.08);
-}
-
-/* 在轨节点卡片 */
-.theme-light .odc-node {
-  background: var(--color-bg-card, #FFFFFF);
-  border-color: var(--color-divider, rgba(0, 0, 0, 0.08));
-  box-shadow: var(--shadow-card, 0 8rpx 24rpx rgba(0, 0, 0, 0.08));
-}
-
-.theme-light .odc-node__id-text {
-  color: var(--color-text-primary, #1C1C1E);
-}
-
-.theme-light .odc-node__type {
-  background: rgba(0, 122, 158, 0.10);
-  color: rgba(0, 122, 158, 0.95);
-}
-
-.theme-light .odc-node__body {
-  border-top-color: rgba(0, 0, 0, 0.08);
-  border-bottom-color: rgba(0, 0, 0, 0.08);
-}
-
-.theme-light .odc-node__row-label {
-  color: var(--color-text-tertiary, #86868B);
-}
-
-.theme-light .odc-node__row-value {
-  color: var(--color-text-primary, #1C1C1E);
-}
-
-.theme-light .odc-node__footer-text {
-  color: var(--color-text-secondary, #6E6E73);
-}
-
-/* 遥测柱状图（CSS 图表）：容器转浅卡片，坐标文字改中性色，柱体保持品牌渐变 */
-.theme-light .odc-telemetry {
-  background: var(--color-bg-card, #FFFFFF);
-  border-color: rgba(0, 122, 158, 0.22);
-  box-shadow: var(--shadow-card, 0 8rpx 24rpx rgba(0, 0, 0, 0.08));
-}
-
-.theme-light .odc-telemetry__overlay {
-  border-top-color: rgba(0, 0, 0, 0.1);
-}
-
-.theme-light .odc-telemetry__overlay-label {
-  color: rgba(0, 0, 0, 0.5);
-}
-
-.theme-light .odc-telemetry__overlay-value {
-  color: var(--color-text-primary, #1C1C1E);
-}
-
-/* 任务时间线 */
-.theme-light .odc-timeline__node-dot--pending {
-  background: rgba(0, 0, 0, 0.25);
-}
-
-.theme-light .odc-timeline__line {
-  background: linear-gradient(180deg, rgba(0, 122, 158, 0.3), rgba(0, 122, 158, 0.05));
-}
-
-.theme-light .odc-timeline__content {
-  background: var(--color-bg-card, #FFFFFF);
-  border-color: var(--color-divider, rgba(0, 0, 0, 0.08));
-  box-shadow: var(--shadow-card, 0 8rpx 24rpx rgba(0, 0, 0, 0.08));
-}
-
-.theme-light .odc-timeline__title {
-  color: var(--color-text-primary, #1C1C1E);
-}
-
-.theme-light .odc-timeline__tag--done {
-  background: rgba(5, 150, 105, 0.12);
-  color: #059669;
-}
-
-.theme-light .odc-timeline__tag--active {
-  background: rgba(0, 122, 158, 0.12);
-  color: #007A9E;
-}
-
-.theme-light .odc-timeline__tag--pending {
-  background: rgba(0, 0, 0, 0.05);
-  color: var(--color-text-secondary, #6E6E73);
-}
-
-.theme-light .odc-timeline__tag--forecast {
-  background: rgba(168, 85, 247, 0.12);
-  color: #9333EA;
-}
-
-.theme-light .odc-timeline__date {
-  color: rgba(0, 122, 158, 0.85);
-}
-
-.theme-light .odc-timeline__desc {
-  color: var(--color-text-secondary, #6E6E73);
-}
-
-/* 项目简报 */
-.theme-light .odc-section--brief .odc-brief {
-  background: var(--color-bg-card, #FFFFFF);
-  border-left-color: rgba(0, 122, 158, 0.55);
-  box-shadow: var(--shadow-card, 0 8rpx 24rpx rgba(0, 0, 0, 0.08));
-}
-
-.theme-light .odc-brief__text {
-  color: var(--color-text-secondary, #6E6E73);
-}
-
-.theme-light .odc-brief__text--accent {
-  color: rgba(0, 122, 158, 0.95);
-}
-
-/* 底部签名 */
-.theme-light .odc-footer {
-  border-top-color: rgba(0, 0, 0, 0.1);
-}
-
-.theme-light .odc-footer__text {
-  color: var(--color-text-tertiary, #86868B);
+/* 操作提示 */
+.odc-vt__hint {
+  position: absolute;
+  bottom: 12rpx;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 18rpx;
+  color: rgba(255, 255, 255, 0.28);
+  letter-spacing: 1rpx;
+  pointer-events: none;
 }

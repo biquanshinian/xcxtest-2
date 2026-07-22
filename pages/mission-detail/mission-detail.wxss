@@ -285,6 +285,29 @@ page {
   margin-left: auto;
 }
 
+/* 「规格」标题行：右侧型号档案入口（下划线移到整行，保持与纯标题时同宽） */
+.rocket-spec-section .rocket-spec-title-row {
+  justify-content: space-between;
+  margin-bottom: 16rpx;
+  padding-bottom: 8rpx;
+  border-bottom: 1px solid rgba(0, 122, 255, 0.2);
+}
+
+.rocket-spec-title-row .detail-section-title {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.rocket-spec-title-row .detail-link-chip {
+  padding: 6rpx 18rpx;
+}
+
+.rocket-spec-title-row .detail-link-chip-text,
+.rocket-spec-title-row .detail-link-chip-arrow {
+  font-size: 24rpx;
+}
+
 /* LL2 rocket.configuration：长度 / 直径 / 质量 / 推力 / 运力（紧凑胶囊流式排列） */
 .rocket-spec-section .rocket-spec-grid {
   display: flex;

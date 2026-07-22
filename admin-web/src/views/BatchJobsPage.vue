@@ -6,7 +6,6 @@
         <div style="display:flex;gap:8px;align-items:center;">
           <el-select v-model="query.module" clearable placeholder="模块" style="width:180px" @change="load">
             <el-option label="media_assets" value="media_assets" />
-            <el-option label="media_feed" value="media_feed" />
           </el-select>
           <el-switch v-model="onlyRunning" active-text="仅进行中" @change="load" />
           <el-switch v-model="onlyFailed" active-text="仅失败" @change="load" />

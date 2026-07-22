@@ -4,7 +4,7 @@
  * 支持 活跃/国家 筛选，分享可带 filter 参数直达（如 filter=country:China）
  */
 const pageBase = require('../../utils/page-base.js')
-const launchSiteDisplay = require('../../utils/launch-site-display.js')
+const launchSiteDisplay = require('./utils/launch-site-display.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')

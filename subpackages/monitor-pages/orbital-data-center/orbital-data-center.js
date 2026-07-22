@@ -1,8 +1,8 @@
 // 太空轨道数据中心系统 · 详情页
 
-const orbitalCache = require('../../../utils/orbital-config-cache.js')
-const themeUtil = require('../../../utils/theme.js')
+const orbitalCache = require('../utils/orbital-config-cache.js')
 const { isPlaybackAllowed } = require('../../../utils/feature-flags.js')
+const vtData = require('../utils/vehicle-tracker-data.js')
 
 const SYS_INFO = wx.getSystemInfoSync ? wx.getSystemInfoSync() : { statusBarHeight: 44 }
 
@@ -151,10 +151,10 @@ const TICKER_LINES = [
 ]
 
 Page({
+  // 沉浸式指挥控制台：恒定深色，不接入全局 themeClass（见 utils/theme.js）
+  forceDarkTheme: true,
+
   data: {
-    themeClass: '',
-    themeLight: false,
-    pageBgColor: '#000000',
     statusBarHeight: SYS_INFO.statusBarHeight || 44,
     navBarHeight: calcNavBarHeight(SYS_INFO.statusBarHeight || 44),
     odcBgVideoPlaySrc: '',
@@ -194,15 +194,39 @@ Page({
     hudSub: 'v0.1.0 · UNCLASSIFIED',
     statusText: 'ONLINE',
     // 项目简报（远程可配）
-    briefLines: normalizeBriefLines(DEFAULT_BRIEF_LINES)
+    briefLines: normalizeBriefLines(DEFAULT_BRIEF_LINES),
+    // Vehicle Tracker（在轨飞行器追踪）
+    vtVehicles: [],
+    vtFeatured: '',
+    vtMissionTime: 'T+ 0D 00:00:00',
+    vtSpeed: '--',
+    vtAltitude: '--',
+    vtMode: 'LIVE',
+    vtLoading: true
+  },
+
+  /** 锁定黑底白字导航/窗口底色，避免从浅色页切入或全局刷主题时被冲掉 */
+  _lockDarkChrome() {
+    try {
+      wx.setNavigationBarColor({
+        frontColor: '#ffffff',
+        backgroundColor: '#000000',
+        fail: () => {}
+      })
+    } catch (e) {}
+    try {
+      wx.setBackgroundColor({
+        backgroundColor: '#000000',
+        backgroundColorTop: '#000000',
+        backgroundColorBottom: '#000000'
+      })
+    } catch (e) {}
   },
 
   onLoad() {
     wx.setNavigationBarTitle({ title: 'Orbital Data Center' })
+    this._lockDarkChrome()
     this.setData({
-      themeClass: themeUtil.getThemeClassSync(),
-      themeLight: themeUtil.isLightSync(),
-      pageBgColor: themeUtil.getPageBgSync(),
       systemTime: formatTime(new Date()),
       lastSync: formatTime(new Date())
     })
@@ -364,6 +388,192 @@ Page({
     })
   },
 
+  // ========== Vehicle Tracker（在轨飞行器追踪） ==========
+
+  onReady() {
+    this._initVehicleTracker()
+  },
+
+  async _initVehicleTracker() {
+    try {
+      const { VehicleTrackerRenderer } = require('../utils/vehicle-tracker-renderer.js')
+      this._vtRenderer = new VehicleTrackerRenderer()
+      await this._vtRenderer.bindCanvas(this, '#vtCanvas')
+    } catch (e) {
+      // 绑定失败（含等待期间页面已卸载）：放弃初始化
+      this._vtRenderer = null
+      if (!this._vtDestroyed) this.setData({ vtLoading: false })
+      return
+    }
+    if (this._vtDestroyed) return
+    this._vtVehicles = []
+    this._vtMode = ''
+    this._vtChipsSig = ''
+    this._setupVtObserver()
+    await this._vtPoll()
+    // 首轮拉取期间页面可能已隐藏/卸载：不启动定时器（onShow 会补启动）
+    if (this._vtDestroyed || this._vtHidden) return
+    this._startVtTimers()
+  },
+
+  /** 板块滚出屏幕时暂停 canvas 绘帧（数据 tick 照常，回滚即无缝续播） */
+  _setupVtObserver() {
+    try {
+      this._vtObserver = this.createIntersectionObserver()
+      this._vtObserver
+        .relativeToViewport({ top: 100, bottom: 100 })
+        .observe('.odc-vt__canvas-wrap', (res) => {
+          const visible = !!(res && res.intersectionRatio > 0)
+          this._vtVisible = visible
+          if (!this._vtRenderer || this._vtHidden) return
+          if (visible) this._vtRenderer.resume()
+          else this._vtRenderer.pause()
+        })
+    } catch (e) {
+      this._vtObserver = null
+    }
+  },
+
+  _startVtTimers() {
+    this._stopVtTimers()
+    this._vtTickTimer = setInterval(() => this._vtTick(), 1000)
+    this._vtPollTimer = setInterval(() => { this._vtPoll() }, 15000)
+  },
+
+  _stopVtTimers() {
+    if (this._vtTickTimer) clearInterval(this._vtTickTimer)
+    if (this._vtPollTimer) clearInterval(this._vtPollTimer)
+    this._vtTickTimer = null
+    this._vtPollTimer = null
+  },
+
+  /** 轮询官网公开遥测；失败且无存量数据时进入模拟模式 */
+  async _vtPoll() {
+    if (this._vtDestroyed) return
+    try {
+      const vehicles = await vtData.fetchVehicles()
+      // await 期间可能已卸载：禁止再写 data / 驱动渲染器
+      if (this._vtDestroyed) return
+      this._vtVehicles = vehicles
+      this._vtSetMode('LIVE')
+    } catch (e) {
+      if (this._vtDestroyed) return
+      // no vehicles = 在轨任务全部结束/被过滤，必须离开 LIVE，否则会永久钉死旧飞行器
+      // 网络失败则：已有 LIVE 存量时保留待下轮重试；SIM/空列表时回退模拟
+      const emptied = !!(e && /no vehicles/i.test(String(e.message || e)))
+      if (emptied || !this._vtVehicles || !this._vtVehicles.length || this._vtMode === 'SIMULATED') {
+        this._vtEnterSimulated()
+      }
+    }
+    if (this._vtDestroyed) return
+    if (this.data.vtLoading) this.setData({ vtLoading: false })
+    this._vtSyncChips()
+    this._vtEnsureFeatured()
+    this._vtTick()
+  },
+
+  /** 模拟模式：复用页面圆轨道物理模型驱动同一渲染器 */
+  _vtEnterSimulated() {
+    this._vtVehicles = [vtData.buildSimulated((t) => computeSatellitePosition(t), ORBIT_T0)]
+    this._vtSetMode('SIMULATED')
+  },
+
+  _vtSetMode(mode) {
+    this._vtMode = mode
+    if (this.data.vtMode !== mode) this.setData({ vtMode: mode })
+  },
+
+  _vtSyncChips() {
+    const chips = (this._vtVehicles || []).map(v => ({ id: v.id, label: v.label }))
+    const sig = chips.map(c => c.id + ':' + c.label).join('|')
+    if (sig !== this._vtChipsSig) {
+      this._vtChipsSig = sig
+      this.setData({ vtVehicles: chips })
+    }
+  },
+
+  /**
+   * 选中飞行器失效或未选时：优先星舰，其次第一个；镜头对准。
+   * 用户未手动切换过时，星舰任务开播（数据流入）会自动对准新上线的星舰。
+   */
+  _vtEnsureFeatured() {
+    const list = this._vtVehicles || []
+    if (!list.length) return
+    const cur = this.data.vtFeatured
+    const curValid = cur && list.some(v => v.id === cur)
+    const ship = list.find(v => /^ship/.test(v.id))
+    if (curValid && (this._vtUserPicked || !ship || /^ship/.test(cur))) return
+    const pref = ship || list[0]
+    if (pref.id === cur) return
+    this.setData({ vtFeatured: pref.id })
+    if (this._vtRenderer) {
+      this._vtRenderer.setFeatured(pref.id)
+      this._vtRenderer.rotateToLocation(pref.lat, pref.lng)
+    }
+  },
+
+  /** 1Hz：插值位置喂渲染器 + 推进遥测数字（仅变化字段 setData） */
+  _vtTick() {
+    const list = this._vtVehicles
+    if (!this._vtRenderer || !list || !list.length) return
+    const now = Date.now()
+    const rendered = []
+    let featured = null
+    for (let i = 0; i < list.length; i++) {
+      const v = list[i]
+      if (v.sim) {
+        const p = computeSatellitePosition(now)
+        v._lat = p.lat
+        v._lng = p.lon
+        v._curAltM = p.alt * 1000
+        v._curSpeedMs = p.vel * 1000
+        v._curMissionSec = (now - v.simStartMs) / 1000
+      } else {
+        const p = vtData.interpPosition(v, now)
+        v._lat = p.lat
+        v._lng = p.lng
+        v._curAltM = v.altitudeM
+        v._curSpeedMs = v.speedMs
+        v._curMissionSec = v.missionTime + (now - v.fetchedAt) / 1000
+      }
+      rendered.push({ id: v.id, label: v.label, lat: v._lat, lng: v._lng, track: v.track })
+      if (v.id === this.data.vtFeatured) featured = v
+    }
+    this._vtRenderer.setVehicles(rendered)
+    if (featured) {
+      const updates = {}
+      const mt = vtData.fmtMissionTime(featured._curMissionSec)
+      const sp = vtData.fmtSpeed(featured._curSpeedMs)
+      const alt = vtData.fmtAltitude(featured._curAltM)
+      if (mt !== this.data.vtMissionTime) updates.vtMissionTime = mt
+      if (sp !== this.data.vtSpeed) updates.vtSpeed = sp
+      if (alt !== this.data.vtAltitude) updates.vtAltitude = alt
+      if (Object.keys(updates).length) this.setData(updates)
+    }
+  },
+
+  onVtVehicleTap(e) {
+    const id = e.currentTarget.dataset.id
+    if (!id || id === this.data.vtFeatured) return
+    this._vtUserPicked = true
+    this.setData({ vtFeatured: id })
+    const v = (this._vtVehicles || []).find(x => x.id === id)
+    if (this._vtRenderer) {
+      this._vtRenderer.setFeatured(id)
+      if (v) {
+        this._vtRenderer.rotateToLocation(
+          v._lat != null ? v._lat : v.lat,
+          v._lng != null ? v._lng : v.lng
+        )
+      }
+    }
+    this._vtTick()
+  },
+
+  onVtTouchStart(e) { if (this._vtRenderer) this._vtRenderer.onTouchStart(e) },
+  onVtTouchMove(e) { if (this._vtRenderer) this._vtRenderer.onTouchMove(e) },
+  onVtTouchEnd() { if (this._vtRenderer) this._vtRenderer.onTouchEnd() },
+
   onBack() {
     const pages = getCurrentPages()
     if (pages.length > 1) {
@@ -380,6 +590,16 @@ Page({
 
   onUnload() {
     this._stopTickers()
+    this._vtDestroyed = true
+    this._stopVtTimers()
+    if (this._vtObserver) {
+      try { this._vtObserver.disconnect() } catch (e) {}
+      this._vtObserver = null
+    }
+    if (this._vtRenderer) {
+      this._vtRenderer.destroy()
+      this._vtRenderer = null
+    }
   },
 
   _startTickers() {
@@ -429,11 +649,22 @@ Page({
 
   onHide() {
     this._stopTickers()
+    this._vtHidden = true
+    this._stopVtTimers()
+    if (this._vtRenderer) this._vtRenderer.pause()
   },
 
   onShow() {
+    this._lockDarkChrome()
+    this._vtHidden = false
     if (!this._tickerTimer) {
       this._startTickers()
+    }
+    // 首次 onShow 早于 onReady，此时渲染器还未创建（由 _initVehicleTracker 启动）
+    if (this._vtRenderer) {
+      // 板块仍在屏幕外时不恢复绘帧（可见性由 IntersectionObserver 接管）
+      if (this._vtVisible !== false) this._vtRenderer.resume()
+      this._startVtTimers()
     }
   }
 })

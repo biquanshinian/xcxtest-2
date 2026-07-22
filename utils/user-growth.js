@@ -109,25 +109,16 @@ function syncPreferencesToCloud(prefs) {
 
 /**
  * 后台「全局配置中心」每日太空简报开关（global_config.main.enableBriefing）。
- * 带 10 分钟内存缓存：此前每次实时读库，简报入口多、读库量大；
- * 关简报是极低频运营操作，10 分钟内生效完全够用
+ * 走 feature-flags 的 global_config/main 共享缓存（5 分钟 TTL + inflight 去重），
+ * 与直播/视频等开关共用同一次读库，不再单独发起查询
  */
-var _briefingEnabledCache = { value: null, expireAt: 0 }
-var BRIEFING_ENABLED_CACHE_TTL = 10 * 60 * 1000
-
 function isBriefingGloballyEnabled() {
   if (!wx.cloud || !wx.cloud.database) {
     return Promise.resolve(true)
   }
-  if (_briefingEnabledCache.value !== null && Date.now() < _briefingEnabledCache.expireAt) {
-    return Promise.resolve(_briefingEnabledCache.value)
-  }
-  var db = wx.cloud.database()
-  return db.collection('global_config').where({ _id: 'main' }).limit(1).get().then(function (res) {
-    var cfg = res.data && res.data[0]
-    var enabled = cfg ? (cfg.enableBriefing !== false) : true
-    _briefingEnabledCache = { value: enabled, expireAt: Date.now() + BRIEFING_ENABLED_CACHE_TTL }
-    return enabled
+  var featureFlags = require('./feature-flags.js')
+  return featureFlags.fetchMainConfig().then(function (cfg) {
+    return cfg && cfg._id ? (cfg.enableBriefing !== false) : true
   }).catch(function () {
     return true
   })

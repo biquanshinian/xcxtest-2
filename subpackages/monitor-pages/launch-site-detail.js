@@ -5,8 +5,8 @@
  *   全屏地图 + 顶部地图工具 + 底部可折叠玻璃信息面板
  */
 const { formatMapUpdateTime, createMapBaseState, buildMapLayoutData, buildMapShareOptions, copyMapText } = require('./utils/map-page-common.js')
-const launchSiteDisplay = require('../../utils/launch-site-display.js')
-const { togglePageTranslation } = require('../../utils/text-translate.js')
+const launchSiteDisplay = require('./utils/launch-site-display.js')
+const { togglePageTranslation } = require('./utils/text-translate.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
 const pageBase = require('../../utils/page-base.js')
 

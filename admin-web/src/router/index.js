@@ -10,7 +10,6 @@ import StarshipStatusPage from '../views/StarshipStatusPage.vue'
 import CarouselPage from '../views/CarouselPage.vue'
 import StarshipProgressPage from '../views/StarshipProgressPage.vue'
 import StarshipEventUpdatesPage from '../views/StarshipEventUpdatesPage.vue'
-import InspirationFeedPage from '../views/InspirationFeedPage.vue'
 import ShopFeedPage from '../views/ShopFeedPage.vue'
 import PopupAdPage from '../views/PopupAdPage.vue'
 import UsersPage from '../views/UsersPage.vue'
@@ -48,7 +47,6 @@ const routes = [
       { path: 'starship-status', component: StarshipStatusPage, meta: { perm: 'starship_status' } },
       { path: 'starship-progress', component: StarshipProgressPage, meta: { perm: 'starship_progress' } },
       { path: 'starship-event-updates', component: StarshipEventUpdatesPage, meta: { perm: 'starship_events' } },
-      { path: 'inspiration-feed', component: InspirationFeedPage, meta: { perm: 'inspiration_feed' } },
       { path: 'shop-feed', component: ShopFeedPage, meta: { perm: 'shop_feed' } },
       { path: 'popup-ad', component: PopupAdPage, meta: { perm: 'shop_feed' } },
       { path: 'carousel', component: CarouselPage, meta: { perm: 'carousel' } },

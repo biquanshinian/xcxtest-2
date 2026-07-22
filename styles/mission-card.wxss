@@ -37,7 +37,9 @@
   width: 40%;
   height: auto;
   align-self: stretch;
+  /* 与 .mission-card min-height 对齐：组件内 flex stretch 偶发塌缩时仍能露出配置图 */
   min-width: 200rpx;
+  min-height: 345rpx;
   flex-shrink: 0;
 }
 
@@ -48,6 +50,7 @@
   width: 100%;
   height: 100%;
   min-width: 0;
+  min-height: 345rpx;
   object-fit: cover;
   background-color: #1a1a1a;
   display: block;

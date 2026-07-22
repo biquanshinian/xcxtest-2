@@ -1,9 +1,13 @@
+// 打包锚点：progress-lazy.js 仅被主包 progress.js require.async 引用，
+// 无同分包同步引用时会被"过滤无依赖文件"剔出分包导致异步加载失败
+require('./utils/progress-lazy.js')
 const { loadCloudMediaMap } = require('../../utils/image-config.js')
 const { isVideoUrl } = require('../../utils/cos-url.js')
-const { enrichVideoMediaItem, eventVideoAdUnlockId, playEventVideo, saveEventOriginalVideo } = require('../../utils/event-video.js')
+const { enrichVideoMediaItem, eventVideoAdUnlockId, playEventVideo, saveEventOriginalVideo } = require('./utils/event-video.js')
 const { getCachedMediaImage } = require('../../utils/icon-cache.js')
-const { fetchLiveStatusBatch, parseLiveStatus } = require('../../utils/live-status.js')
-const { isPermissionDenied, getPermissionDeniedMessage } = require('../../utils/single-page.js')
+const { buildLl2ImageChain, advanceImageFallback } = require('../../utils/ll2-image.js')
+const { fetchLiveStatusBatch, parseLiveStatus } = require('./utils/live-status.js')
+const { isPermissionDenied, getPermissionDeniedMessage } = require('./utils/single-page.js')
 const pageBase = require('../../utils/page-base.js')
 const { pickEventShareImageUrl, resolveTweetAccountAvatarUrl } = require('../../utils/event-share-image.js')
 const { gateCheck, isMembershipEnabled, getMembershipState, isPro, hasPurchased, canUsePaidCloudSync, canPrefetchVideoSync, canSaveOriginalVideoSync, isProSync } = require('../../utils/membership.js')
@@ -17,13 +21,26 @@ const {
 const { getUpcomingStarshipMissions } = require('../../utils/api-launch-list.js')
 const { attachMissionDetailMeta, buildMissionDetailUrl } = require('../../utils/index-mission-nav.js')
 const { filterExpiredMissions } = require('../../utils/index-page-helpers.js')
-const { formatDate } = require('../../utils/util.js')
-const { normalizeLl2TimelineList } = require('../../utils/ll2-launch-timeline.js')
+const {
+  formatDate,
+  resolveMissionRocketImage,
+  shouldReplaceRocketImage
+} = require('../../utils/util.js')
+const { normalizeLl2TimelineList } = require('./utils/ll2-launch-timeline.js')
 const { getSystemInfo } = require('../../utils/system.js')
-const { togglePageTranslation } = require('../../utils/text-translate.js')
+const { togglePageTranslation } = require('./utils/text-translate.js')
 const { translateAgencyName } = require('../../utils/space-terms-i18n.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { parseShareStamp, SHARE_GATE_TTL_MS } = require('./utils/share-gate.js')
+const {
+  saveImageToAlbum: saveImageToAlbumUtil,
+  handleEventImageLongPress,
+  closeEventImageSavePicker,
+  toggleEventImageSaveSelect,
+  selectAllEventImageSave,
+  confirmEventImageSavePicker,
+  parseLongPressDataset
+} = require('./utils/event-image-save.js')
 
 function isNsfStarshipMissionCard(mission) {
   if (!mission || typeof mission !== 'object') return false
@@ -33,22 +50,41 @@ function isNsfStarshipMissionCard(mission) {
   return /starship|super\s*heavy|星舰|超重/i.test(hay)
 }
 
+/**
+ * 与首页首屏盖章 / 任务详情头图同一套：media map 就绪后按火箭名强制重算配置图。
+ * 列表内存快照可能在 map 未加载时盖过 default/空图，不重算则卡片左侧一直空白，
+ * 而点进详情会重新 resolve 所以头图正常。
+ */
+function stampNsfStarshipMissionRocketImage(mission) {
+  if (!mission || typeof mission !== 'object') return mission
+  const stamped = mission.rocketImage || mission.image || ''
+  const rebuilt = resolveMissionRocketImage(
+    stamped,
+    mission.rocketName,
+    mission.rocketConfiguration,
+    true
+  )
+  if (!rebuilt || !shouldReplaceRocketImage(stamped, rebuilt)) return mission
+  return { ...mission, rocketImage: rebuilt, image: rebuilt }
+}
+
 function normalizeNsfStarshipMissionCards(list) {
   return filterExpiredMissions(Array.isArray(list) ? list : [])
     .filter(isNsfStarshipMissionCard)
     .map((mission, index) => {
+      const stampedMission = stampNsfStarshipMissionRocketImage(mission)
       // 保留首页 mapLaunchToListItem 的 recoveryIcons / recoveryTag* 等字段原样透传
       const card = attachMissionDetailMeta({
-        ...mission,
-        _wxkey: `nsf-ss-${index}-${mission && mission.id != null ? mission.id : ''}`,
-        formattedTime: mission && mission.launchTime
-          ? formatDate(mission.launchTime, 'MM月DD日 HH:mm')
+        ...stampedMission,
+        _wxkey: `nsf-ss-${index}-${stampedMission && stampedMission.id != null ? stampedMission.id : ''}`,
+        formattedTime: stampedMission && stampedMission.launchTime
+          ? formatDate(stampedMission.launchTime, 'MM月DD日 HH:mm')
           : '时间未知',
-        recoveryIcons: Array.isArray(mission.recoveryIcons) ? mission.recoveryIcons : [],
-        recoveryTagText: mission.recoveryTagText || '',
-        recoveryTagClass: mission.recoveryTagClass || ''
+        recoveryIcons: Array.isArray(stampedMission.recoveryIcons) ? stampedMission.recoveryIcons : [],
+        recoveryTagText: stampedMission.recoveryTagText || '',
+        recoveryTagClass: stampedMission.recoveryTagClass || ''
       }, {
-        id: mission && mission.id,
+        id: stampedMission && stampedMission.id,
         detailType: 'upcoming'
       })
       return card
@@ -154,6 +190,10 @@ Page({
     listDayHint: '',
     showEventShareSheet: false,
     selectedEventShareId: '',
+    showEventImageSavePicker: false,
+    eventImageSaveThumbs: [],
+    eventImageSaveOriginals: [],
+    eventImageSaveSelected: [],
     loadingHint: '事件详情加载中…',
     pageMode: '',
     nsfChecklistItems: [],
@@ -381,12 +421,29 @@ Page({
     try {
       const db = wx.cloud.database()
       let raw = null
+      let heroPassed = null
 
+      // 监控页卡面图直传：秒开头图，并优先用已格式化的 raw
       try {
-        const sxRes = await db.collection('spacex_launch_stats').doc('spacex_official_live').get()
-        const evList = sxRes && sxRes.data && Array.isArray(sxRes.data.upcomingOrbitalEvents) ? sxRes.data.upcomingOrbitalEvents : []
-        raw = evList.find(ev => String(ev.id) === String(eventId)) || null
+        const app = getApp()
+        const passed = app && app._ll2EventHeroImage
+        if (passed && String(passed.id) === String(eventId)) {
+          heroPassed = {
+            src: passed.src || '',
+            fallbacks: Array.isArray(passed.fallbacks) ? passed.fallbacks.slice() : []
+          }
+          if (passed.raw && passed.raw.id != null) raw = passed.raw
+          app._ll2EventHeroImage = null
+        }
       } catch (e) {}
+
+      if (!raw) {
+        try {
+          const sxRes = await db.collection('spacex_launch_stats').doc('spacex_official_live').get()
+          const evList = sxRes && sxRes.data && Array.isArray(sxRes.data.upcomingOrbitalEvents) ? sxRes.data.upcomingOrbitalEvents : []
+          raw = evList.find(ev => String(ev.id) === String(eventId)) || null
+        } catch (e) {}
+      }
 
       if (!raw) {
         try {
@@ -413,6 +470,21 @@ Page({
       }
 
       const item = this._buildLl2EventItem(raw)
+      if (heroPassed && heroPassed.src) {
+        if (heroPassed.src !== item.heroImageUrl) {
+          const fb = [item.heroImageUrl].concat(item.imageFallbacks || []).filter((u, i, arr) => {
+            return u && u !== heroPassed.src && arr.indexOf(u) === i
+          })
+          item.heroImageUrl = heroPassed.src
+          item.imageFallbacks = fb.concat(heroPassed.fallbacks || []).filter((u, i, arr) => {
+            return u && u !== item.heroImageUrl && arr.indexOf(u) === i
+          })
+        } else if (heroPassed.fallbacks && heroPassed.fallbacks.length) {
+          item.imageFallbacks = (item.imageFallbacks || []).concat(heroPassed.fallbacks).filter((u, i, arr) => {
+            return u && u !== item.heroImageUrl && arr.indexOf(u) === i
+          })
+        }
+      }
       const titleText = item.title || '在轨事件'
       this.setData({
         loading: false,
@@ -468,10 +540,22 @@ Page({
 
   /** 在轨事件 hero 图预览 */
   onLl2HeroPreview() {
-    const list = (this.data.item && this.data.item.imageUrls) || []
-    const url = list[0]
+    const item = this.data.item || {}
+    const list = item.imageUrls || []
+    const url = item.heroImageUrl || list[0]
     if (!url) return
-    wx.previewImage({ urls: list, current: url })
+    const urls = list.length ? list : [url]
+    wx.previewImage({ urls, current: url })
+  },
+
+  /** 在轨事件头图失败：沿代理/原链推进（与监控卡同源） */
+  onLl2HeroImageError() {
+    const item = this.data.item || {}
+    const advanced = advanceImageFallback(item.heroImageUrl, item.imageFallbacks)
+    this.setData({
+      'item.heroImageUrl': advanced.next,
+      'item.imageFallbacks': advanced.remaining
+    })
   },
 
   /** 把 LL2 events list 模式的原始字段，转成 upcomingOrbitalEvents 同款字段 */
@@ -523,7 +607,8 @@ Page({
       }
     }
 
-    const imageUrls = ev.imageUrl ? [ev.imageUrl] : []
+    const imageChain = buildLl2ImageChain(ev.imageUrl)
+    const imageUrls = imageChain.length ? imageChain.slice() : (ev.imageUrl ? [ev.imageUrl] : [])
 
     return {
       _id: `ll2_event_${ev.id}`,
@@ -534,7 +619,8 @@ Page({
       isoDate,
       location: ev.location || '',
       description: ev.description || '',
-      heroImageUrl: ev.imageUrl || '',
+      heroImageUrl: imageChain[0] || ev.imageUrl || '',
+      imageFallbacks: imageChain.slice(1),
       imageUrls,
       webcastUrl: ev.webcastUrl || '',
       webcastTitle: ev.webcastTitle || '',
@@ -708,6 +794,23 @@ Page({
     const detailType = detail.type === 'completed' ? 'completed' : 'upcoming'
     wx.navigateTo({
       url: buildMissionDetailUrl({ id, detailType })
+    })
+  },
+
+  /** 卡片左侧配置图 binderror 修好后回写列表，避免再次进入仍用坏 URL */
+  onNsfStarshipRocketImageFix(e) {
+    const detail = (e && e.detail) || {}
+    const id = detail.id == null ? '' : String(detail.id).trim()
+    const nextImage = detail.rocketImage
+    if (!id || !nextImage || typeof nextImage !== 'string') return
+    const list = this.data.nsfStarshipMissions || []
+    const idx = list.findIndex((m) => m && String(m.id) === id)
+    if (idx < 0) return
+    const cur = list[idx].rocketImage || list[idx].image || ''
+    if (!shouldReplaceRocketImage(cur, nextImage)) return
+    this.setData({
+      [`nsfStarshipMissions[${idx}].rocketImage`]: nextImage,
+      [`nsfStarshipMissions[${idx}].image`]: nextImage
     })
   },
 
@@ -966,10 +1069,20 @@ Page({
     const authorAvatarRemote = avatar || ''
     if (avatar) avatar = getCachedMediaImage(avatar, 'thumb')
 
+    const imageUrls = enrichedMediaList.filter(media => media && media.type === 'image' && media.url).map(media => media.url)
+    const imageOriginalUrls = enrichedMediaList
+      .filter(media => media && media.type === 'image')
+      .map(media => media.remoteUrl || media.url)
+      .filter(Boolean)
+    const imageCount = imageUrls.length
+
     return {
       ...safeItem,
       mediaList: enrichedMediaList,
-      imageUrls: enrichedMediaList.filter(media => media && media.type === 'image' && media.url).map(media => media.url),
+      imageUrls,
+      imageOriginalUrls,
+      imageCount,
+      imageGridCols: Math.min(4, Math.max(1, imageCount || 1)),
       publishedAtText: formatEventTime(safeItem.publishedAt),
       authorAvatar: avatar,
       authorAvatarRemote,
@@ -1071,7 +1184,8 @@ Page({
               isLong: !!media.isLongVideo,
               // 原片保存仅 Pro/已购；广告解锁只放行预览播放
               canSave: canSaveOriginalVideoSync('starship_event_list_full'),
-              onSaveHint: () => {}
+              onSaveHint: () => {},
+              share: this._buildEventVideoShareInfo(item._id)
             })
           }, 300)
         }
@@ -1409,6 +1523,29 @@ Page({
     return null
   },
 
+  /**
+   * 事件视频在全站播放页的分享上下文：落地页为该事件的详情页（不暴露视频直链），
+   * 接收方观看仍走事件视频门控；播放页仅对会员开启转发入口
+   */
+  _buildEventVideoShareInfo(eventId) {
+    const pageItem = this.data.item
+    let item = null
+    if (eventId) {
+      item = (pageItem && String(pageItem._id) === String(eventId))
+        ? pageItem
+        : this.findListEventItem(eventId)
+    } else {
+      item = pageItem
+    }
+    if (!item || !item._id) return null
+    const base = this.buildListEventShareOptions(item)
+    return {
+      title: base.title,
+      path: base.path,
+      imageUrl: base.imageUrl
+    }
+  },
+
   buildListEventShareOptions(item) {
     const safeItem = item && typeof item === 'object' ? item : null
     const titleText = safeItem && (safeItem.title || safeItem.content)
@@ -1486,6 +1623,31 @@ Page({
     wx.previewImage({ urls, current })
   },
 
+  saveImageToAlbum(imageUrl, opts) {
+    return saveImageToAlbumUtil(imageUrl, opts)
+  },
+
+  onEventImageLongPress(e) {
+    handleEventImageLongPress(this, parseLongPressDataset(e.currentTarget.dataset))
+  },
+
+  closeEventImageSavePicker() {
+    closeEventImageSavePicker(this)
+  },
+
+  toggleEventImageSaveSelect(e) {
+    const idx = (e.currentTarget.dataset || {}).index
+    toggleEventImageSaveSelect(this, idx)
+  },
+
+  selectAllEventImageSave() {
+    selectAllEventImageSave(this)
+  },
+
+  confirmEventImageSavePicker() {
+    return confirmEventImageSavePicker(this)
+  },
+
   /** 推文视频播放为会员权益；非会员点封面弹开通引导（一次广告只解锁当前这条视频） */
   async _eventVideoPlayAllowed(opts) {
     try {
@@ -1525,7 +1687,8 @@ Page({
       isLong: !!dataset.islong,
       // 原片保存仅 Pro/已购；广告解锁只放行预览播放
       canSave: canSaveOriginalVideoSync('starship_event_list_full'),
-      onSaveHint: () => {}
+      onSaveHint: () => {},
+      share: this._buildEventVideoShareInfo(dataset.eventid || (this.data.item && this.data.item._id) || '')
     })
   },
 

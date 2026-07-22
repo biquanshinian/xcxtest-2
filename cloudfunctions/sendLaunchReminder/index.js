@@ -15,14 +15,13 @@ const RESULT_TEMPLATE_ID = String(
 ).trim()
 /**
  * 「任务完成提醒」字段 key（与公众平台已添加模板一致；可用环境变量覆盖）
- * 关键词顺序：任务名称 / 任务开始时间 / 任务结果 / 备注
+ * 线上实测（gettemplate）：thing3 任务名称 / time1 时间 / thing12 结果 / thing11 备注
  */
 const RESULT_TEMPLATE_FIELDS = {
-  mission: String(process.env.RESULT_TMPL_FIELD_MISSION || 'thing1').trim() || 'thing1',
-  time: String(process.env.RESULT_TMPL_FIELD_TIME || 'time2').trim() || 'time2',
-  // 预览为自由文案「成功获取到记录」→ 默认按 thing；若后台是 phrase 请设 RESULT_TMPL_FIELD_RESULT=phrase3
-  result: String(process.env.RESULT_TMPL_FIELD_RESULT || 'thing3').trim() || 'thing3',
-  remark: String(process.env.RESULT_TMPL_FIELD_REMARK || 'thing4').trim() || 'thing4'
+  mission: String(process.env.RESULT_TMPL_FIELD_MISSION || 'thing3').trim() || 'thing3',
+  time: String(process.env.RESULT_TMPL_FIELD_TIME || 'time1').trim() || 'time1',
+  result: String(process.env.RESULT_TMPL_FIELD_RESULT || 'thing12').trim() || 'thing12',
+  remark: String(process.env.RESULT_TMPL_FIELD_REMARK || 'thing11').trim() || 'thing11'
 }
 const PUSH_HISTORY_COLLECTION = 'push_history'
 const OA_AUTO_ALERT_USERS = 'oa_auto_alert_users'
@@ -32,15 +31,30 @@ const LAUNCH_STATUS_COLLECTION = 'launch_status'
 
 async function loadLaunchStatuses(ids) {
   const unique = Array.from(new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean)))
-  const rows = await Promise.all(unique.map(async function (id) {
+  if (!unique.length) return []
+  // 文档 _id 即 launch id：用 _.in 批量查询，替代按 id 逐条 doc.get 的 N 次请求扇出
+  const CHUNK = 50
+  const rows = []
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const chunk = unique.slice(i, i + CHUNK)
     try {
-      const res = await db.collection(LAUNCH_STATUS_COLLECTION).doc(id).get()
-      return res && res.data ? res.data : null
+      const res = await db
+        .collection(LAUNCH_STATUS_COLLECTION)
+        .where({ _id: _.in(chunk) })
+        .limit(chunk.length)
+        .get()
+      if (res && Array.isArray(res.data)) rows.push(...res.data)
     } catch (e) {
-      return null
+      // 批量失败退回逐条读，保证提醒链路不因查询语法差异中断
+      for (const id of chunk) {
+        try {
+          const one = await db.collection(LAUNCH_STATUS_COLLECTION).doc(id).get()
+          if (one && one.data) rows.push(one.data)
+        } catch (e2) {}
+      }
     }
-  }))
-  return rows.filter(Boolean)
+  }
+  return rows
 }
 const OA_LEAD_MINUTES = 30
 
@@ -308,6 +322,26 @@ function rocketNameFromDetail(detail) {
   return String(name || '').substring(0, 20)
 }
 
+/** Date / ISO / 可解析字符串 → ISO；无效返回 '' */
+function toLaunchIso(val) {
+  if (val == null || val === '') return ''
+  if (val instanceof Date) {
+    var t = val.getTime()
+    return t > 0 ? new Date(t).toISOString() : ''
+  }
+  var s = String(val).trim()
+  if (!s) return ''
+  var ms = new Date(s).getTime()
+  return ms > 0 ? new Date(ms).toISOString() : ''
+}
+
+/** 台账去重键：按 NET 精确到分钟，改期后可再次推送 */
+function netKeyFromIso(iso) {
+  var ms = new Date(iso).getTime()
+  if (!(ms > 0)) return ''
+  return String(Math.floor(ms / 60000))
+}
+
 /**
  * 未写入 notifyLeadMinutes 的旧记录：手动订阅默认 30；偏好自动匹配应为 60
  */
@@ -347,30 +381,92 @@ async function fetchLaunchDetailForReconcile(launchId) {
 }
 
 /**
- * 发送前刷新未发送订阅的 notifyAt（改期后与 LL2 / 缓存一致）
+ * 解析「当前」发射 NET：优先 launch_data（hourly 改期写入）→ launch_status → 详情缓存/LL2。
+ * 详情缓存 TTL 最长 3.5h，不能作为改期对齐的第一信源。
  */
+async function resolveFreshLaunchMeta(launchId) {
+  var sid = String(launchId || '')
+  var out = { iso: '', missionName: '', rocketName: '', source: '' }
+  if (!sid) return out
+
+  try {
+    var ldDoc = await db.collection(LAUNCH_DATA_COLLECTION).doc(sid).get()
+    var ld = ldDoc && ldDoc.data
+    if (ld) {
+      var isoLd = toLaunchIso(ld.windowStart) || toLaunchIso(ld.launchTime)
+      if (isoLd) {
+        out.iso = isoLd
+        out.missionName = String(ld.missionName || ld.name || '').substring(0, 20)
+        out.rocketName = String(ld.rocketName || '').substring(0, 20)
+        out.source = 'launch_data'
+        return out
+      }
+    }
+  } catch (e0) { /* 无文档则继续 */ }
+
+  try {
+    var stDoc = await db.collection(LAUNCH_STATUS_COLLECTION).doc(sid).get()
+    var st = stDoc && stDoc.data
+    if (st) {
+      var isoSt = toLaunchIso(st.net) || toLaunchIso(st.windowStart)
+      if (isoSt) {
+        out.iso = isoSt
+        out.missionName = String(st.name || '').substring(0, 20)
+        out.source = 'launch_status'
+        return out
+      }
+    }
+  } catch (e1) { /* 无文档则继续 */ }
+
+  var detail = await fetchLaunchDetailForReconcile(sid)
+  if (detail) {
+    var isoD = toLaunchIso(pickLaunchIsoFromDetail(detail))
+    if (isoD) {
+      out.iso = isoD
+      out.missionName = missionNameFromDetail(detail)
+      out.rocketName = rocketNameFromDetail(detail)
+      out.source = 'detail'
+      return out
+    }
+  }
+  return out
+}
+
+/**
+ * 发送前刷新未发送订阅的 notifyAt（改期后与 launch_data / 状态 / LL2 一致）
+ *
+ * 只处理 12 小时内将要提醒（或 notifyAt 缺失）的订阅：
+ * 每条订阅的对齐要读 launch_data / 状态（必要时详情），
+ * 对提醒时间还在几天后的订阅每 10 分钟对齐一次纯属浪费——
+ * 它们进入 12h 视界后自然会被后续 tick 反复对齐，发送精度不受影响。
+ */
+const RECONCILE_HORIZON_MS = 12 * 60 * 60 * 1000
+
 async function reconcilePendingSubscriptionsNotifyTimes() {
   var stats = { scanned: 0, updated: 0, skipped: 0, errors: 0 }
   try {
     var q = await db
       .collection(SUBSCRIBE_COLLECTION)
-      .where({ sent: false })
+      .where({
+        sent: false,
+        notifyAt: _.or(_.lte(Date.now() + RECONCILE_HORIZON_MS), _.exists(false))
+      })
       .limit(100)
       .get()
     var records = q.data || []
     stats.scanned = records.length
     if (records.length === 0) return stats
 
-    var detailByMission = {}
+    var metaByMission = {}
 
-    async function getDetail(mid) {
+    async function getMeta(mid) {
       var k = String(mid)
-      if (Object.prototype.hasOwnProperty.call(detailByMission, k)) {
-        return detailByMission[k]
+      if (Object.prototype.hasOwnProperty.call(metaByMission, k)) {
+        return metaByMission[k]
       }
-      var d = await fetchLaunchDetailForReconcile(k)
-      detailByMission[k] = d
-      return d
+      var m = await resolveFreshLaunchMeta(k)
+      metaByMission[k] = m
+      return m
     }
 
     for (var i = 0; i < records.length; i++) {
@@ -382,13 +478,8 @@ async function reconcilePendingSubscriptionsNotifyTimes() {
           continue
         }
 
-        var detail = await getDetail(mid)
-        if (!detail) {
-          stats.skipped++
-          continue
-        }
-
-        var iso = pickLaunchIsoFromDetail(detail)
+        var meta = await getMeta(mid)
+        var iso = meta && meta.iso
         if (!iso) {
           stats.skipped++
           continue
@@ -403,10 +494,8 @@ async function reconcilePendingSubscriptionsNotifyTimes() {
         var lead = getLeadMinutesForRecord(record)
         var notifyAt = launchMs - lead * 60 * 1000
         var formatted = formatLaunchTimeStr(iso)
-        var mName =
-          missionNameFromDetail(detail) || record.missionName || '未知任务'
-        var rName =
-          rocketNameFromDetail(detail) || record.rocketName || '未知火箭'
+        var mName = (meta.missionName || record.missionName || '未知任务').substring(0, 20)
+        var rName = (meta.rocketName || record.rocketName || '未知火箭').substring(0, 20)
 
         if (record.notifyAt === notifyAt && record.launchTime === iso) {
           stats.skipped++
@@ -418,8 +507,8 @@ async function reconcilePendingSubscriptionsNotifyTimes() {
             launchTime: iso,
             launchTimeFormatted: formatted,
             notifyAt: notifyAt,
-            missionName: mName.substring(0, 20),
-            rocketName: rName.substring(0, 20),
+            missionName: mName,
+            rocketName: rName,
             updatedAt: Date.now()
           }
         })
@@ -493,6 +582,10 @@ async function matchPreferencesAndCreateSubscriptions() {
 
     if (users.length === 0) return
 
+    // 服务号自动提醒已就绪的用户由 B 通道覆盖，不再自动创建 A 通道订阅
+    var oaReadyPrefs = await loadOaReadyUserSets()
+    var oaReadyMpPrefs = oaReadyPrefs.mpSet
+
     // 一次批量查询代替「用户×任务」逐对查询（旧实现最坏 50×20=1000 次读/tick）：
     // 拉出这些任务的已有订阅，内存里按 openid_missionId 去重
     const missionIds = launches.map(function (l) { return String(l._id || l.id) })
@@ -512,6 +605,8 @@ async function matchPreferencesAndCreateSubscriptions() {
 
     // 为每个匹配的用户+任务创建订阅记录
     for (const user of users) {
+      var userOpenid = user.openid || user._openid || user._id
+      if (userOpenid && oaReadyMpPrefs.has(String(userOpenid))) continue
       var prefs = user.preferences
       var notifyMinutes = prefs.notifyMinutes || 60
 
@@ -527,9 +622,8 @@ async function matchPreferencesAndCreateSubscriptions() {
         var notifyAt = new Date(launchTime).getTime() - notifyMinutes * 60 * 1000
         if (notifyAt <= now) continue
 
-        var userOpenid = user.openid || user._id
         var missionId = String(launch._id || launch.id)
-        if (existingPairs.has(String(userOpenid) + '_' + missionId)) continue
+        if (!userOpenid || existingPairs.has(String(userOpenid) + '_' + missionId)) continue
 
         var dedupKey = (userOpenid + '_' + missionId).replace(/[^a-zA-Z0-9_-]/g, '_')
 
@@ -717,7 +811,12 @@ exports.main = async (event) => {
     } catch (subErr) {
       oaSubscribeResult = { success: false, error: subErr.message || String(subErr) }
     }
-    await matchPreferencesAndCreateSubscriptions()
+    // 偏好匹配降频：全球 24h 内几乎总有发射，若每个 10 分钟 tick 都跑，
+    // user_profile(50) + 已有订阅去重查询会一直白读。改为每小时首个 tick 执行；
+    // 订阅提前量默认 60 分钟，最迟晚 50 分钟建订阅仍在 notifyAt 之前，不影响送达
+    if (new Date().getMinutes() < 10) {
+      await matchPreferencesAndCreateSubscriptions()
+    }
     return { ...result, resultNotify, oaResult, oaSubscribeResult, reconcileStats, launchDataSync }
   }
 
@@ -1078,6 +1177,10 @@ async function sendPendingReminders() {
       return { success: true, message: 'no pending reminders', ...sentCount }
     }
 
+    // 服务号自动提醒已就绪的用户由 B 通道全自动推送，A 通道不再发发射前提醒（避免双推 / 误耗额度）
+    var oaReady = await loadOaReadyUserSets()
+    var oaReadyMp = oaReady.mpSet
+
     // 按 openid+missionId 去重，同一用户同一任务只发第一条
     const sentKeys = new Set()
 
@@ -1089,6 +1192,12 @@ async function sendPendingReminders() {
           continue
         }
 
+        if (oaReadyMp.has(String(record._openid))) {
+          sentCount.skipped++
+          await markReminderDone(record._id, { keepForResult: Number(record.resultQuota) > 0 })
+          continue
+        }
+
         const dedupKey = record._openid + '_' + (record.missionId || '')
         if (sentKeys.has(dedupKey)) {
           // 重复记录，直接处理掉不发
@@ -1097,6 +1206,39 @@ async function sendPendingReminders() {
           continue
         }
         sentKeys.add(dedupKey)
+
+        // 改期门控：以 launch_data / launch_status 为准。
+        // 若新 NET 对应的提醒时刻仍在未来，只改写 notifyAt、本轮不发，避免烧掉一次性额度。
+        if (record.missionId) {
+          var freshMeta = await resolveFreshLaunchMeta(record.missionId)
+          if (freshMeta && freshMeta.iso) {
+            var freshLaunchMs = new Date(freshMeta.iso).getTime()
+            var leadMin = getLeadMinutesForRecord(record)
+            var correctNotifyAt = freshLaunchMs - leadMin * 60 * 1000
+            if (correctNotifyAt > now + 90 * 1000) {
+              try {
+                await db.collection(SUBSCRIBE_COLLECTION).doc(record._id).update({
+                  data: {
+                    launchTime: freshMeta.iso,
+                    launchTimeFormatted: formatLaunchTimeStr(freshMeta.iso),
+                    notifyAt: correctNotifyAt,
+                    missionName: (freshMeta.missionName || record.missionName || '未知任务').substring(0, 20),
+                    rocketName: (freshMeta.rocketName || record.rocketName || '未知火箭').substring(0, 20),
+                    updatedAt: Date.now()
+                  }
+                })
+              } catch (deferErr) {
+                console.warn('[Send] defer reschedule fail', record._id, deferErr.message || deferErr)
+              }
+              sentCount.skipped++
+              continue
+            }
+            record.launchTime = freshMeta.iso
+            record.launchTimeFormatted = formatLaunchTimeStr(freshMeta.iso)
+            if (freshMeta.missionName) record.missionName = freshMeta.missionName
+            if (freshMeta.rocketName) record.rocketName = freshMeta.rocketName
+          }
+        }
 
         // 旧记录可能误把订阅来源「自动匹配」写进了回收方式字段，发送前纠正
         var recoveryValue = record.recoveryMethod || '一次性'
@@ -1487,6 +1629,14 @@ async function sendPendingResultNotifications() {
       )
       stats.sentOk++
       try {
+        await writePushHistoryDetail({
+          openid: record._openid || '',
+          launchId: record.missionId || '',
+          missionName: '[结果通知] ' + (record.missionName || ''),
+          success: true
+        })
+      } catch (_) {}
+      try {
         await db.collection(SUBSCRIBE_COLLECTION).doc(record._id).update({
           data: {
             resultSent: true,
@@ -1547,14 +1697,17 @@ async function writePushHistoryBatch({ total, sentCount, startedAt, failureSampl
   }
 }
 
-async function writePushHistoryDetail({ openid, launchId, missionName, error }) {
+async function writePushHistoryDetail({ openid, launchId, missionName, error, success }) {
   try {
+    const okFlag = success === true
     await db.collection(PUSH_HISTORY_COLLECTION).add({
       data: {
         type: 'auto_detail',
         triggeredBy: 'system',
         payload: { openid: openid || '', launchId: launchId || '', missionName: missionName || '' },
-        result: { success: false, error: String(error || '').slice(0, 500) },
+        result: okFlag
+          ? { success: true, message: 'ok' }
+          : { success: false, error: String(error || '').slice(0, 500) },
         createdAt: Date.now()
       }
     })
@@ -1585,8 +1738,8 @@ async function removeRecord(docId) {
 // 旧模板库「巡检任务工单派发通知」仅 3 字段（FBII5P7WK3Eqf7-nmcOxBHWz-pHzfyVEdxY2nB79KdU）：
 //   WECHAT_OA_TMPL_FIELD_MISSION = thing9             → 任务名称 missionName（thing，可含中文，≤20）
 //   WECHAT_OA_TMPL_FIELD_TIME    = time14             → 发射时间 launchTimeFormatted（time）
-//   WECHAT_OA_TMPL_FIELD_CODE    = character_string1  → 任务编号 codeId（character_string，仅 ASCII）
-// 任务名/火箭名/发射场等中文字段须用 thing 类型；character_string 仅允许 ASCII，写中文会报 47003。
+//   WECHAT_OA_TMPL_FIELD_CODE    = character_string1  → 工单编号槽位展示火箭型号 rocketName（character_string，仅 ASCII；为空退回 launch.id）
+// 任务名/发射场等中文字段须用 thing 类型；character_string 仅允许 ASCII，写中文会报 47003。
 // rocket/recovery/remark 留空即不写入；代码内 OA_TMPL_FIELD_DEFAULTS 已含 mission/time/code 默认值。
 
 function getOaCredentials() {
@@ -1638,8 +1791,8 @@ var OA_TMPL_FIELD_DEFAULTS = {
   // 「巡检任务工单派发通知」FBII5P7WK3Eqf7-nmcOxBHWz-pHzfyVEdxY2nB79KdU 仅 3 字段：
   //   thing9          → 任务名称 missionName（thing，可含中文，≤20 字符）
   //   time14          → 发射时间 launchTimeFormatted（time）
-  //   character_string1 → 任务编号 codeId（character_string，仅 ASCII）
-  // 火箭名默认无 thing 槽位可放，留空；如模板另有 thing 字段可用 WECHAT_OA_TMPL_FIELD_ROCKET 指定。
+  //   character_string1 → 工单编号槽位展示火箭型号 rocketName（character_string，仅 ASCII；为空退回 launch.id）
+  // 火箭名走 character_string1 槽位；如模板另有 thing 字段可用 WECHAT_OA_TMPL_FIELD_ROCKET 指定。
   mission: 'thing9',
   time: 'time14',
   rocket: '',
@@ -1675,8 +1828,13 @@ function toOaThingValue(raw, fallback) {
   return chars.slice(0, 20).join('')
 }
 
+/** 工单编号槽位改为展示火箭型号（character_string 仅允许 ASCII，过滤后为空再退回 launch.id / _id） */
 function pickLaunchCodeId(launch) {
   if (!launch) return ''
+  var rocket = String(launch.rocketName || '')
+    .replace(/[^\x20-\x7E]/g, '')
+    .trim()
+  if (rocket) return rocket
   return String(launch.id || launch._id || '')
 }
 
@@ -1743,24 +1901,53 @@ async function sendOaTemplateMessage(oaOpenid, templateId, pagepath, data) {
   return res.data
 }
 
-async function hasOaPushLedger(missionId, oaOpenid) {
+async function hasOaPushLedger(missionId, oaOpenid, netKey) {
+  // 按 missionId + oaOpenid + netKey 去重：同一任务改期后 NET 分钟键变化，允许再推一次
+  // 无 netKey 时不做「任意历史 ok」匹配，避免误挡住改期后的自动推送
+  if (!netKey) return false
+  const where = {
+    missionId: String(missionId),
+    oaOpenid: oaOpenid,
+    status: 'ok',
+    netKey: String(netKey),
+    channel: 'template'
+  }
   const res = await db
     .collection(OA_PUSH_LEDGER)
-    .where({ missionId: String(missionId), oaOpenid: oaOpenid, status: 'ok' })
+    .where(where)
     .limit(1)
     .get()
     .catch(() => ({ data: [] }))
-  return !!(res.data && res.data.length)
+  if (res.data && res.data.length) return true
+  // 兼容旧台账（无 channel 字段）
+  const legacy = await db
+    .collection(OA_PUSH_LEDGER)
+    .where({
+      missionId: String(missionId),
+      oaOpenid: oaOpenid,
+      status: 'ok',
+      netKey: String(netKey)
+    })
+    .limit(5)
+    .get()
+    .catch(() => ({ data: [] }))
+  var rows = legacy.data || []
+  for (var i = 0; i < rows.length; i++) {
+    if (!rows[i].channel || rows[i].channel === 'template') return true
+  }
+  return false
 }
 
 async function writeOaPushLedger(entry) {
   try {
     await db.collection(OA_PUSH_LEDGER).add({
       data: {
+        channel: 'template',
         missionId: String(entry.missionId || ''),
         oaOpenid: entry.oaOpenid || '',
         mpOpenid: entry.mpOpenid || '',
         missionName: entry.missionName || '',
+        netKey: entry.netKey ? String(entry.netKey) : '',
         status: entry.status || 'ok',
         error: entry.error ? String(entry.error).slice(0, 500) : '',
         sentAt: Date.now()
@@ -1769,6 +1956,29 @@ async function writeOaPushLedger(entry) {
   } catch (e) {
     console.warn('[OA] write ledger fail', e.message || e)
   }
+}
+
+/** 已就绪的服务号自动提醒用户：mpOpenid / oaOpenid 集合（B 通道覆盖，无需再走 A/C） */
+async function loadOaReadyUserSets() {
+  const mpSet = new Set()
+  const oaSet = new Set()
+  try {
+    const res = await db
+      .collection(OA_AUTO_ALERT_USERS)
+      .where({ enabled: true, followed: true })
+      .limit(200)
+      .get()
+    const rows = (res && res.data) || []
+    for (var i = 0; i < rows.length; i++) {
+      var u = rows[i]
+      if (!u || !u.oaOpenid) continue
+      oaSet.add(String(u.oaOpenid))
+      if (u.mpOpenid) mpSet.add(String(u.mpOpenid))
+    }
+  } catch (e) {
+    console.warn('[OA] load ready users fail', e.message || e)
+  }
+  return { mpSet: mpSet, oaSet: oaSet }
 }
 
 async function findLaunchesInOaNotifyWindow(nowMs) {
@@ -1814,6 +2024,13 @@ async function sendOATemplateAlerts() {
   const nowMs = Date.now()
   const stats = { sentOk: 0, failed: 0, skipped: 0, missions: 0 }
 
+  // 先查发射窗口（1 次轻量查询，多数 tick 为空直接返回），
+  // 再扫用户表——避免每个 tick 都白读最多 200 条 oa_auto_alert_users
+  const launches = await findLaunchesInOaNotifyWindow(nowMs)
+  if (launches.length === 0) {
+    return { success: true, message: 'no launches in notify window', ...stats }
+  }
+
   const usersRes = await db
     .collection(OA_AUTO_ALERT_USERS)
     .where({ enabled: true, followed: true })
@@ -1828,11 +2045,6 @@ async function sendOATemplateAlerts() {
     return { success: true, message: 'no oa subscribers', ...stats }
   }
 
-  const launches = await findLaunchesInOaNotifyWindow(nowMs)
-  if (launches.length === 0) {
-    return { success: true, message: 'no launches in notify window', ...stats }
-  }
-
   stats.missions = launches.length
 
   for (var li = 0; li < launches.length; li++) {
@@ -1841,7 +2053,14 @@ async function sendOATemplateAlerts() {
     if (!missionId) continue
 
     var launchTime = launch.windowStart || launch.launchTime || ''
-    var launchTimeFormatted = formatLaunchTimeStr(launchTime)
+    var launchTimeIso = toLaunchIso(launchTime)
+    var launchNetKey = netKeyFromIso(launchTimeIso || launchTime)
+    // 无可靠 NET 时不发、不写无键台账，避免挡住改期后的自动推送
+    if (!launchNetKey) {
+      stats.skipped++
+      continue
+    }
+    var launchTimeFormatted = formatLaunchTimeStr(launchTimeIso || launchTime)
     var missionName = (launch.missionName || launch.name || '未知任务').substring(0, 20)
     var rocketName = (launch.rocketName || '未知火箭').substring(0, 20)
     var recoveryMethod = launch.recoveryMethod || launch.recovery || '待确认'
@@ -1878,7 +2097,7 @@ async function sendOATemplateAlerts() {
       }
       seenOaOpenids[oaOpenid] = true
 
-      if (await hasOaPushLedger(missionId, oaOpenid)) {
+      if (await hasOaPushLedger(missionId, oaOpenid, launchNetKey)) {
         stats.skipped++
         continue
       }
@@ -1891,6 +2110,7 @@ async function sendOATemplateAlerts() {
           oaOpenid: oaOpenid,
           mpOpenid: user.mpOpenid || '',
           missionName: missionName,
+          netKey: launchNetKey,
           status: 'ok'
         })
       } catch (sendErr) {
@@ -1904,6 +2124,7 @@ async function sendOATemplateAlerts() {
             oaOpenid: oaOpenid,
             mpOpenid: user.mpOpenid || '',
             missionName: missionName,
+            netKey: launchNetKey,
             status: 'ok',
             error: '40258 dedup-as-delivered'
           })
@@ -1914,6 +2135,7 @@ async function sendOATemplateAlerts() {
             oaOpenid: oaOpenid,
             mpOpenid: user.mpOpenid || '',
             missionName: missionName,
+            netKey: launchNetKey,
             status: 'failed',
             error: sendErr.message || String(sendErr)
           })
@@ -1986,10 +2208,18 @@ async function zeroOaSubscribeQuota(docId, reason) {
   }
 }
 
-async function hasOaSubscribeLedger(missionId, oaOpenid) {
+async function hasOaSubscribeLedger(missionId, oaOpenid, netKey) {
+  if (!netKey) return false
+  const where = {
+    missionId: String(missionId),
+    oaOpenid: oaOpenid,
+    channel: 'subscribe',
+    status: 'ok',
+    netKey: String(netKey)
+  }
   const res = await db
     .collection(OA_PUSH_LEDGER)
-    .where({ missionId: String(missionId), oaOpenid: oaOpenid, channel: 'subscribe', status: 'ok' })
+    .where(where)
     .limit(1)
     .get()
     .catch(() => ({ data: [] }))
@@ -2005,6 +2235,7 @@ async function writeOaSubscribeLedger(entry) {
         oaOpenid: entry.oaOpenid || '',
         templateId: entry.templateId || OA_SUBSCRIBE_TEMPLATE_ID,
         missionName: entry.missionName || '',
+        netKey: entry.netKey ? String(entry.netKey) : '',
         status: entry.status || 'ok',
         error: entry.error ? String(entry.error).slice(0, 500) : '',
         sentAt: Date.now()
@@ -2037,6 +2268,13 @@ async function sendOASubscribeAlerts() {
   const nowMs = Date.now()
   const stats = { sentOk: 0, failed: 0, skipped: 0, quotaExhausted: 0, missions: 0, users: 0 }
 
+  // 先查发射窗口（1 次轻量查询，多数 tick 为空直接返回），
+  // 再扫额度表——避免每个 tick 都白读最多 200 条 oa_subscribe_quota
+  const launches = await findLaunchesInOaNotifyWindow(nowMs)
+  if (launches.length === 0) {
+    return { success: true, message: 'no launches in notify window', ...stats }
+  }
+
   // 有可发额度的用户（一次性订阅，remaining>0）
   const quotaRes = await db
     .collection(OA_SUBSCRIBE_QUOTA_COLLECTION)
@@ -2052,12 +2290,11 @@ async function sendOASubscribeAlerts() {
   if (quotaUsers.length === 0) {
     return { success: true, message: 'no subscribers with quota', ...stats }
   }
-
-  const launches = await findLaunchesInOaNotifyWindow(nowMs)
-  if (launches.length === 0) {
-    return { success: true, message: 'no launches in notify window', ...stats }
-  }
   stats.missions = launches.length
+
+  // 已开服务号自动提醒（B）的用户不再走一次性订阅通知（C），避免双推与额度消耗
+  var oaReadyForC = await loadOaReadyUserSets()
+  var oaReadyOa = oaReadyForC.oaSet
 
   for (var li = 0; li < launches.length; li++) {
     var launch = launches[li]
@@ -2065,7 +2302,13 @@ async function sendOASubscribeAlerts() {
     if (!missionId) continue
 
     var launchTime = launch.windowStart || launch.launchTime || ''
-    var launchTimeFormatted = formatLaunchTimeStr(launchTime)
+    var launchTimeIso = toLaunchIso(launchTime)
+    var launchNetKey = netKeyFromIso(launchTimeIso || launchTime)
+    if (!launchNetKey) {
+      stats.skipped++
+      continue
+    }
+    var launchTimeFormatted = formatLaunchTimeStr(launchTimeIso || launchTime)
     var missionName = (launch.missionName || launch.name || '未知任务').substring(0, 20)
     var rocketName = (launch.rocketName || '未知火箭').substring(0, 20)
     var recoveryMethod = launch.recoveryMethod || launch.recovery || '待确认'
@@ -2089,7 +2332,12 @@ async function sendOASubscribeAlerts() {
         continue
       }
 
-      if (await hasOaSubscribeLedger(missionId, oaOpenid)) {
+      if (oaReadyOa.has(String(oaOpenid))) {
+        stats.skipped++
+        continue
+      }
+
+      if (await hasOaSubscribeLedger(missionId, oaOpenid, launchNetKey)) {
         stats.skipped++
         continue
       }
@@ -2104,6 +2352,7 @@ async function sendOASubscribeAlerts() {
           oaOpenid: oaOpenid,
           templateId: OA_SUBSCRIBE_TEMPLATE_ID,
           missionName: missionName,
+          netKey: launchNetKey,
           status: 'ok'
         })
       } catch (sendErr) {
@@ -2120,6 +2369,7 @@ async function sendOASubscribeAlerts() {
           oaOpenid: oaOpenid,
           templateId: OA_SUBSCRIBE_TEMPLATE_ID,
           missionName: missionName,
+          netKey: launchNetKey,
           status: 'failed',
           error: sendErr.message || String(sendErr)
         })

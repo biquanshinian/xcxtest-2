@@ -7,10 +7,11 @@
     <view class="mission-rocket-slot">
       <image
         class="mission-rocket-image"
-        wx:if="{{item.rocketImage}}"
-        src="{{item.rocketImage}}"
+        wx:if="{{displayRocketImage}}"
+        src="{{displayRocketImage}}"
         mode="aspectFill"
         lazy-load="{{index > 1}}"
+        binderror="onRocketImageError"
       ></image>
       <view wx:else class="mission-rocket-image mission-rocket-image--placeholder"></view>
     </view>

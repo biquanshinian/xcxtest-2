@@ -102,7 +102,6 @@
           />
         </el-menu-item>
         <el-menu-item v-if="hasPerm('knowledge_cards')" index="/knowledge-cards">知识卡管理</el-menu-item>
-        <el-menu-item v-if="hasPerm('inspiration_feed')" index="/inspiration-feed">灵感流照片集</el-menu-item>
         <el-menu-item v-if="hasPerm('shop_feed')" index="/shop-feed">小店数据</el-menu-item>
         <el-menu-item v-if="hasPerm('shop_feed')" index="/popup-ad">弹窗广告</el-menu-item>
         <el-menu-item v-if="hasPerm('carousel')" index="/carousel">轮播图管理</el-menu-item>
@@ -252,7 +251,6 @@ const pageTitle = computed(() => {
     '/starship-status': '星舰状态',
     '/starship-progress': '星舰建设进度',
     '/starship-event-updates': '事件更新追踪',
-    '/inspiration-feed': '灵感流照片集',
     '/shop-feed': '小店数据',
     '/popup-ad': '弹窗广告',
     '/carousel': '轮播图管理',

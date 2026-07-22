@@ -11,7 +11,9 @@ const assert = require('node:assert/strict')
 const {
   buildMissionCardCountdownFields,
   attachCardCountdownToMissions,
-  buildMissionCardCountdownTickPatch
+  buildMissionCardCountdownTickPatch,
+  pickCountdownDisplayMission,
+  shouldHoldPastNetCountdownMission
 } = require('../utils/index-launch-state.js')
 
 // 固定倒计时值的 mock，避免依赖真实时间
@@ -76,4 +78,135 @@ test('buildMissionCardCountdownTickPatch：仅对变化的行生成 dotted-path 
 test('buildMissionCardCountdownTickPatch：limit 为 0 或列表为空时返回空对象', () => {
   assert.deepEqual(buildMissionCardCountdownTickPatch([], 2, makeDeps(FUTURE)), {})
   assert.deepEqual(buildMissionCardCountdownTickPatch([{ id: 1, launchTime: 't1' }], 0, makeDeps(FUTURE)), {})
+})
+
+test('pickCountdownDisplayMission：头条 NET 已过、windowEnd 未过、后面有未来任务 → 仍选头条', () => {
+  const now = Date.parse('2026-07-22T03:05:00Z')
+  const head = {
+    id: 'gravity-1',
+    launchTime: '2026-07-22T02:50:00Z',
+    windowEnd: '2026-07-22T03:09:00Z',
+    statusId: 1,
+    statusCategory: 'go'
+  }
+  const next = {
+    id: 'cz3b',
+    launchTime: '2026-07-22T06:00:00Z',
+    statusId: 1,
+    statusCategory: 'go'
+  }
+  assert.equal(shouldHoldPastNetCountdownMission(head, now), true)
+  const picked = pickCountdownDisplayMission([head, next], now)
+  assert.equal(picked && picked.id, 'gravity-1')
+})
+
+test('pickCountdownDisplayMission：windowEnd+宽限内仍挂住头条', () => {
+  // windowEnd 03:09 + 10m 探针宽限 = 03:19，03:15 仍在窗口挂住期
+  const now = Date.parse('2026-07-22T03:15:00Z')
+  const head = {
+    id: 'gravity-1',
+    launchTime: '2026-07-22T02:50:00Z',
+    windowEnd: '2026-07-22T03:09:00Z',
+    statusId: 1,
+    statusCategory: 'go'
+  }
+  const next = {
+    id: 'cz3b',
+    launchTime: '2026-07-22T06:00:00Z',
+    statusId: 1,
+    statusCategory: 'go'
+  }
+  assert.equal(shouldHoldPastNetCountdownMission(head, now), true)
+  const picked = pickCountdownDisplayMission([head, next], now)
+  assert.equal(picked && picked.id, 'gravity-1')
+})
+
+test('pickCountdownDisplayMission：windowEnd+宽限已过则让位给下一条未来 NET', () => {
+  const now = Date.parse('2026-07-22T03:25:00Z')
+  const head = {
+    id: 'gravity-1',
+    launchTime: '2026-07-22T02:50:00Z',
+    windowEnd: '2026-07-22T03:09:00Z',
+    statusId: 1,
+    statusCategory: 'go'
+  }
+  const next = {
+    id: 'cz3b',
+    launchTime: '2026-07-22T06:00:00Z',
+    statusId: 1,
+    statusCategory: 'go'
+  }
+  assert.equal(shouldHoldPastNetCountdownMission(head, now), false)
+  const picked = pickCountdownDisplayMission([head, next], now)
+  assert.equal(picked && picked.id, 'cz3b')
+})
+
+test('pickCountdownDisplayMission：权威记录终态覆盖列表残留 Go，不再挂住', () => {
+  const now = Date.parse('2026-07-22T03:05:00Z')
+  const head = {
+    id: 'gravity-1',
+    launchTime: '2026-07-22T02:50:00Z',
+    windowEnd: '2026-07-22T03:09:00Z',
+    statusId: 1,
+    statusCategory: 'go'
+  }
+  const next = { id: 'cz3b', launchTime: '2026-07-22T06:00:00Z', statusId: 1 }
+  const recordsById = new Map([
+    ['gravity-1', { id: 'gravity-1', status: { id: 3, name: 'Launch Successful' } }]
+  ])
+  assert.equal(shouldHoldPastNetCountdownMission(head, now, recordsById.get('gravity-1')), false)
+  const picked = pickCountdownDisplayMission([head, next], now, { recordsById })
+  assert.equal(picked && picked.id, 'cz3b')
+})
+
+test('pickCountdownDisplayMission：无未来任务时头条过窗未决继续展示，不空面板', () => {
+  const now = Date.parse('2026-07-22T05:00:00Z')
+  const head = {
+    id: 'gravity-1',
+    launchTime: '2026-07-22T02:50:00Z',
+    windowEnd: '2026-07-22T03:09:00Z',
+    statusId: 1
+  }
+  const picked = pickCountdownDisplayMission([head], now)
+  assert.equal(picked && picked.id, 'gravity-1')
+})
+
+test('pickCountdownDisplayMission：holdMissionId 在窗口内优先于列表头', () => {
+  const now = Date.parse('2026-07-22T03:05:00Z')
+  const a = {
+    id: 'a',
+    launchTime: '2026-07-22T06:00:00Z',
+    statusId: 1
+  }
+  const b = {
+    id: 'b',
+    launchTime: '2026-07-22T02:50:00Z',
+    windowEnd: '2026-07-22T03:09:00Z',
+    statusId: 1
+  }
+  const picked = pickCountdownDisplayMission([a, b], now, { holdMissionId: 'b' })
+  assert.equal(picked && picked.id, 'b')
+})
+
+test('attachCardCountdownToMissions：窗口挂住的面板任务显示 00:00 且未过期', () => {
+  const now = Date.parse('2026-07-22T03:05:00Z')
+  const missions = [
+    {
+      id: 'gravity-1',
+      launchTime: '2026-07-22T02:50:00Z',
+      windowEnd: '2026-07-22T03:09:00Z',
+      statusId: 1
+    },
+    { id: 'cz3b', launchTime: '2026-07-22T06:00:00Z', statusId: 1 }
+  ]
+  const deps = {
+    ...makeDeps({ days: 0, hours: 0, minutes: 0, seconds: 0, isExpired: true }),
+    now,
+    holdMissionId: 'gravity-1'
+  }
+  const out = attachCardCountdownToMissions(missions, 2, deps)
+  assert.equal(out[0].cardCountdown.isExpired, false)
+  assert.equal(out[0].cardCountdown.holdConfirming, true)
+  assert.equal(out[0].cardCountdown.minutes, '00')
+  assert.equal(out[1].cardCountdown.isExpired, true)
 })

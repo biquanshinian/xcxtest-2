@@ -1,0 +1,293 @@
+/* 从 pages/monitor/monitor.wxss 拆出；共享基类与 theme-light 覆盖仍在页面 wxss，
+   经 styleIsolation: apply-shared 作用进组件。 */
+
+/* ============== 太空轨道数据中心系统（黑色磨砂玻璃卡片） ============== */
+.section-title--orbital {
+  margin-top: 32rpx;
+}
+
+.orbital-card {
+  position: relative;
+  margin-top: 24rpx;
+  padding: 32rpx 28rpx 24rpx;
+  border-radius: 28rpx;
+  background: rgba(8, 8, 12, 0.72);
+  border: 1rpx solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  /* 性能：卡片在纯色页面背景上，backdrop-filter 视觉无差别但每帧实时合成（本卡另有多路常驻动画），已移除 */
+  box-shadow:
+    0 12rpx 40rpx rgba(0, 0, 0, 0.55),
+    inset 0 1rpx 0 rgba(255, 255, 255, 0.06);
+}
+
+/* 背景图（最底层） */
+.orbital-card__bg-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+/* 背景图上方暗色蒙版（保证文字可读 + 让白色轨道线突出） */
+.orbital-card__bg-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(135deg,
+      rgba(0, 0, 0, 0.78) 0%,
+      rgba(0, 0, 0, 0.5) 50%,
+      rgba(0, 0, 0, 0.85) 100%);
+}
+
+/* 背景：右上角白色轨道动画（柔和不花哨） */
+.orbital-card__bg {
+  position: absolute;
+  top: -40rpx;
+  right: -40rpx;
+  width: 280rpx;
+  height: 280rpx;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.orbital-card__core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8rpx;
+  height: 8rpx;
+  margin-top: -4rpx;
+  margin-left: -4rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 10rpx rgba(255, 255, 255, 0.5);
+  animation: orbital-pulse 2.4s ease-in-out infinite;
+}
+
+.orbital-card__orbit {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 50%;
+  border: 1rpx solid rgba(255, 255, 255, 0.16);
+  animation: orbital-spin 18s linear infinite;
+}
+
+.orbital-card__orbit-dot {
+  position: absolute;
+  top: -4rpx;
+  left: 50%;
+  width: 8rpx;
+  height: 8rpx;
+  border-radius: 50%;
+  transform: translateX(-50%);
+}
+
+.orbital-card__orbit-dot--green {
+  background: #34D399;
+  box-shadow: 0 0 8rpx #34D399;
+}
+
+.orbital-card__orbit-dot--blue {
+  background: #60A5FA;
+  box-shadow: 0 0 8rpx #60A5FA;
+}
+
+.orbital-card__orbit-dot--red {
+  background: #F87171;
+  box-shadow: 0 0 8rpx #F87171;
+}
+
+.orbital-card__orbit--1 {
+  width: 140rpx;
+  height: 140rpx;
+  margin-top: -70rpx;
+  margin-left: -70rpx;
+  animation-duration: 9s;
+}
+
+.orbital-card__orbit--2 {
+  width: 200rpx;
+  height: 200rpx;
+  margin-top: -100rpx;
+  margin-left: -100rpx;
+  border-color: rgba(255, 255, 255, 0.12);
+  animation-duration: 14s;
+  animation-direction: reverse;
+}
+
+.orbital-card__orbit--3 {
+  width: 260rpx;
+  height: 260rpx;
+  margin-top: -130rpx;
+  margin-left: -130rpx;
+  border-color: rgba(255, 255, 255, 0.08);
+  animation-duration: 22s;
+}
+
+@keyframes orbital-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes orbital-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%      { transform: scale(1.5); opacity: 0.5; }
+}
+
+.orbital-card__content {
+  position: relative;
+  z-index: 1;
+}
+
+.orbital-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20rpx;
+}
+
+.orbital-card__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+  padding: 6rpx 12rpx;
+  border-radius: 100rpx;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1rpx solid rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(12rpx);
+  -webkit-backdrop-filter: blur(12rpx);
+}
+
+.orbital-card__badge-dot {
+  width: 8rpx;
+  height: 8rpx;
+  border-radius: 50%;
+  background: #FFFFFF;
+  box-shadow: 0 0 8rpx rgba(255, 255, 255, 0.6);
+  animation: orbital-blink 1.4s ease-in-out infinite;
+}
+
+@keyframes orbital-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+.orbital-card__badge-text {
+  font-size: 18rpx;
+  letter-spacing: 1.4rpx;
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 600;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+
+.orbital-card__title {
+  display: block;
+  font-size: 32rpx;
+  font-weight: 700;
+  letter-spacing: 0.6rpx;
+  color: #FFFFFF;
+  font-family: 'SF Pro Display', -apple-system, sans-serif;
+}
+
+.orbital-card__title-cn {
+  display: block;
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.65);
+  letter-spacing: 1rpx;
+  margin-top: 4rpx;
+}
+
+.orbital-card__desc {
+  display: block;
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.45);
+  line-height: 1.6;
+  margin-top: 16rpx;
+  letter-spacing: 0.4rpx;
+}
+
+.orbital-card__metrics {
+  display: flex;
+  align-items: center;
+  margin-top: 24rpx;
+  padding: 18rpx 0;
+  border-top: 1rpx solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1rpx solid rgba(255, 255, 255, 0.08);
+}
+
+.orbital-card__metric {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4rpx;
+}
+
+.orbital-card__metric-value {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #FFFFFF;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  letter-spacing: 0.5rpx;
+}
+
+.orbital-card__metric-label {
+  font-size: 18rpx;
+  color: rgba(255, 255, 255, 0.4);
+  letter-spacing: 0.6rpx;
+}
+
+.orbital-card__metric-divider {
+  width: 1rpx;
+  height: 32rpx;
+  background: linear-gradient(180deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.16) 50%,
+    transparent 100%);
+}
+
+.orbital-card__cta {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 18rpx;
+  padding: 16rpx 18rpx;
+  border-radius: 12rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1rpx solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(16rpx);
+  -webkit-backdrop-filter: blur(16rpx);
+}
+
+.orbital-card__cta-text {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #FFFFFF;
+  letter-spacing: 0.8rpx;
+}
+
+.orbital-card__cta-arrow {
+  font-size: 28rpx;
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 700;
+  animation: orbital-arrow 1.8s ease-in-out infinite;
+}
+
+@keyframes orbital-arrow {
+  0%, 100% { transform: translateX(0); }
+  50%      { transform: translateX(6rpx); }
+}
+
+
+/* ── 自 pages/monitor/monitor.wxss 迁入 ── */
+/* 轨道数据中心标题原有的 32rpx 顶部间距在独立卡片内不再需要 */
+.odc-section .section-title--orbital {
+  margin-top: 0;
+}

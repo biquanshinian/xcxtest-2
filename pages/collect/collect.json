@@ -2,10 +2,11 @@
   "navigationBarTitleText": "月愿计划",
   "navigationStyle": "custom",
   "usingComponents": {
-    "nasa-float": "/components/nasa-float/index",
+    "nasa-float": "/subpackages/shared/components/nasa-float/index",
     "share-guide": "/subpackages/shared/components/share-guide/index"
   },
   "componentPlaceholder": {
-    "share-guide": "view"
+    "share-guide": "view",
+    "nasa-float": "view"
   }
 }

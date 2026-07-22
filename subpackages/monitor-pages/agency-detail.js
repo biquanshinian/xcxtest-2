@@ -2,7 +2,7 @@ const { getAgencyDetail, resolveAgencyReference } = require('../../utils/api-mon
 const { fetchAgencyLaunchCards } = require('./utils/agency-launch-cards.js')
 const pageBase = require('../../utils/page-base.js')
 const { translateAgencyName } = require('../../utils/space-terms-i18n.js')
-const { togglePageTranslation } = require('../../utils/text-translate.js')
+const { togglePageTranslation } = require('./utils/text-translate.js')
 const { getRocketConfigMeta, getSpaceXLaunchStats } = require('../../utils/api-app-services.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { overrideAgencyLogoUrl } = require('../../utils/agency-logo-overrides.js')
@@ -12,6 +12,7 @@ const { isFavoriteAgency, toggleFavoriteAgency } = require('../../utils/agency-f
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { isVideoUrl, videoSnapshotUrl } = require('../../utils/cos-url.js')
 const { getCachedMediaImage } = require('../../utils/icon-cache.js')
+const { buildLl2ImageChain, advanceImageFallback } = require('../../utils/ll2-image.js')
 
 /**
  * 机构 LL2 id → 事件更新推文账号（starship_event_updates.source）映射；
@@ -113,6 +114,11 @@ function formatAgencyDetail(agency) {
   )
 
   const nameZh = translateAgencyName(agency.name, agency.abbrev)
+  const logoUrlRaw = overrideAgencyLogoUrl(agency, agency.logo ? (agency.logo.thumbnail_url || agency.logo.image_url) : '')
+  const imageThumbRaw = agency.image ? (agency.image.thumbnail_url || agency.image.image_url) : ''
+  const imageFullRaw = agency.image ? (agency.image.image_url || agency.image.thumbnail_url) : ''
+  // 与列表卡同源：代理大图 → 大图 → logo，失败可沿链回退
+  const heroChain = buildLl2ImageChain(imageThumbRaw, imageFullRaw, logoUrlRaw)
 
   return {
     id: agency.id,
@@ -130,8 +136,9 @@ function formatAgencyDetail(agency) {
     foundingYear,
     age,
     // SpaceX logo 全局统一（与全球发射统计页同源）
-    logoUrl: overrideAgencyLogoUrl(agency, agency.logo ? (agency.logo.thumbnail_url || agency.logo.image_url) : ''),
-    imageUrl: agency.image ? (agency.image.thumbnail_url || agency.image.image_url) : '',
+    logoUrl: logoUrlRaw,
+    imageUrl: heroChain[0] || imageThumbRaw || '',
+    imageFallbacks: heroChain.slice(1),
     socialLogoUrl: agency.social_logo ? (agency.social_logo.thumbnail_url || agency.social_logo.image_url) : '',
     description: agency.description || '暂无简介',
     administrator: agency.administrator || '',
@@ -242,6 +249,27 @@ Page({
     const abbrev = options.abbrev ? decodeURIComponent(String(options.abbrev)).trim() : ''
     this.initUiShell()
 
+    // 卡片已显示的图直传头图（与飞船/助推器一致）
+    try {
+      const app = getApp()
+      const passed = app && app._agencyHeroImage
+      if (passed && (!id || String(passed.id) === String(id))) {
+        this._agencyHeroPassed = {
+          src: passed.src || '',
+          fallbacks: Array.isArray(passed.fallbacks) ? passed.fallbacks.slice() : []
+        }
+        if (this._agencyHeroPassed.src) {
+          this.setData({
+            item: {
+              imageUrl: this._agencyHeroPassed.src,
+              imageFallbacks: this._agencyHeroPassed.fallbacks
+            }
+          })
+        }
+        app._agencyHeroImage = null
+      }
+    } catch (e) {}
+
     // 分享卡片 24h 免门控窗口：过期后走 gateCheck（会员放行，非会员弹开通引导）
     const shareAllowed = await checkShareEntryGate(this, options, 'agency_encyclopedia', '全球发射商图鉴')
     if (!shareAllowed) {
@@ -305,6 +333,20 @@ Page({
       // 原始飞船构型对象仅存内存（体积大，不进 setData），跳转时直传详情页秒开
       this._spacecraftRawById = (item && item._spacecraftRawById) || {}
       if (item) delete item._spacecraftRawById
+      // 卡面已成功图优先，避免 API 链首失败把已显示头图冲掉
+      const passed = this._agencyHeroPassed
+      if (passed && passed.src && item) {
+        if (passed.src !== item.imageUrl) {
+          const fb = [item.imageUrl].concat(item.imageFallbacks || []).filter((u, i, arr) => {
+            return u && u !== passed.src && arr.indexOf(u) === i
+          })
+          item.imageUrl = passed.src
+          item.imageFallbacks = fb.concat(passed.fallbacks || []).filter((u, i, arr) => {
+            return u && u !== item.imageUrl && arr.indexOf(u) === i
+          })
+        }
+        this._agencyHeroPassed = null
+      }
       const partialData = !!(data && data.__partial)
       const partialMessage = partialData && data.__partialMessage
         ? data.__partialMessage
@@ -856,6 +898,16 @@ Page({
   },
 
   onHeroImageError() {
+    const item = this.data.item || {}
+    const advanced = advanceImageFallback(item.imageUrl, item.imageFallbacks)
+    if (advanced.next) {
+      this.setData({
+        heroImageLoaded: false,
+        'item.imageUrl': advanced.next,
+        'item.imageFallbacks': advanced.remaining
+      })
+      return
+    }
     this.setData({
       heroImageLoaded: false,
       'item.imageUrl': ''

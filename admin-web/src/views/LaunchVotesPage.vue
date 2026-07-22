@@ -52,7 +52,10 @@
     <template #header>
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <span>发射竞猜管理</span>
-        <el-button type="primary" @click="openCreate">新建竞猜</el-button>
+        <div>
+          <el-button :loading="rebuilding" @click="onRebuildSettle">重算结算</el-button>
+          <el-button type="primary" @click="openCreate">新建竞猜</el-button>
+        </div>
       </div>
     </template>
 
@@ -274,6 +277,7 @@ const total = ref(0)
 const dialogVisible = ref(false)
 const editing = ref(null)
 const saving = ref(false)
+const rebuilding = ref(false)
 const query = reactive({ page: 1, pageSize: 20 })
 
 const defaultForm = {
@@ -389,6 +393,32 @@ const onDelete = async (row) => {
     ElMessage.success('删除成功')
     await load()
   } catch (e) {}
+}
+
+const onRebuildSettle = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '将按 LL2 缓存批量重算历史竞猜结算（改期轮次 / 漏结算）。可能耗时较长，确认继续？',
+      '重算结算',
+      { type: 'warning', confirmButtonText: '开始重算', cancelButtonText: '取消' }
+    )
+  } catch (e) {
+    return
+  }
+  rebuilding.value = true
+  try {
+    const res = await api.rebuildLaunchVoteSettle({ onlyWrong: false, limit: 50 })
+    const stats = (res && res.stats) || {}
+    const scanned = stats.scanned != null ? stats.scanned : 0
+    const settled = stats.settled != null ? stats.settled : 0
+    const skipped = stats.skipped != null ? stats.skipped : 0
+    ElMessage.success(`重算完成：扫描 ${scanned}，结算 ${settled}，跳过 ${skipped}`)
+    await load()
+  } catch (e) {
+    ElMessage.error((e && e.message) || '重算失败')
+  } finally {
+    rebuilding.value = false
+  }
 }
 
 onMounted(() => {

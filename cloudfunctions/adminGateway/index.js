@@ -42,7 +42,6 @@ const COLLECTIONS = {
   SPACEX_STATS: 'spacex_launch_stats',
   CAROUSEL: 'carousel_config',
   MEDIA_ASSETS: 'media_assets',
-  MEDIA_FEED: 'media_feed',
   SHOP_FEED: 'shop_feed',
   LIVE_CONFIG: 'live_config',
   CHANNELS_LIVE_CONFIG: 'channels_live_config',
@@ -108,8 +107,6 @@ function ensureAdminGatewayCollectionsOnce() {
 }
 
 const GATEWAY_CACHE_COLLECTION = 'security_gateway_cache'
-const PROFILE_FEED_CACHE_VERSION_KEY = 'profile_feed_version'
-
 function ok(data = null, message = 'ok') {
   return { code: 0, message, data }
 }
@@ -120,29 +117,6 @@ function fail(code, message, data = null) {
 
 function now() {
   return Date.now()
-}
-
-/** 与 profileFeedGateway / sync 一致，避免后台改库后小程序仍命中旧列表缓存 */
-async function bumpProfileFeedCacheVersion() {
-  const ts = now()
-  try {
-    await db.collection(GATEWAY_CACHE_COLLECTION).doc(PROFILE_FEED_CACHE_VERSION_KEY).update({
-      data: {
-        value: _.inc(1),
-        updatedAt: ts
-      }
-    })
-  } catch (e) {
-    try {
-      await db.collection(GATEWAY_CACHE_COLLECTION).doc(PROFILE_FEED_CACHE_VERSION_KEY).set({
-        data: {
-          value: 1,
-          updatedAt: ts,
-          expireAt: ts + 3650 * 24 * 60 * 60 * 1000
-        }
-      })
-    } catch (e2) {}
-  }
 }
 
 function sha256(input) {
@@ -393,7 +367,6 @@ const PERMISSION_MODULES = {
   starship_status: '星舰状态',
   starship_progress: '星舰建设进度',
   starship_events: '事件更新追踪',
-  inspiration_feed: '灵感流照片集',
   shop_feed: '小店数据',
   carousel: '轮播图管理',
   splash_screen: '开屏动画',
@@ -411,7 +384,8 @@ const PERMISSION_MODULES = {
   data_export: '数据导出',
   lunar_wishes: '月愿计划管理',
   milestone_rewards: '里程碑彩蛋管理',
-  knowledge_cards: '知识卡管理'
+  knowledge_cards: '知识卡管理',
+  launch_votes: '发射竞猜管理'
 }
 
 function hasPermission(user, mod) {
@@ -615,11 +589,10 @@ async function safeCount(collection) {
 }
 
 async function getDashboardOverview() {
-  const [events, articles, carousel, mediaFeed, shopFeed, mediaAssets, spaceDevsCache, roadClosure, starshipEventUpdates, recentEvents, logs, cosFileCount, splashConfig] = await Promise.all([
+  const [events, articles, carousel, shopFeed, mediaAssets, spaceDevsCache, roadClosure, starshipEventUpdates, recentEvents, logs, cosFileCount, splashConfig] = await Promise.all([
     safeCount(COLLECTIONS.EVENTS),
     safeCount(COLLECTIONS.ARTICLES),
     (async () => { try { const r = await db.collection(COLLECTIONS.MEDIA_ASSETS).where({ key: db.RegExp({ regexp: '^首页轮播图/', options: 'i' }) }).count(); return r.total || 0 } catch (e) { return 0 } })(),
-    safeCount(COLLECTIONS.MEDIA_FEED),
     safeCount(COLLECTIONS.SHOP_FEED),
     safeCount(COLLECTIONS.MEDIA_ASSETS),
     safeCount('space_devs_cache'),
@@ -651,7 +624,6 @@ async function getDashboardOverview() {
       events,
       articles,
       carousel,
-      mediaFeed,
       shopFeed,
       mediaAssets,
       spaceDevsCache,
@@ -1152,7 +1124,9 @@ async function ensureChannelsLiveCoverPreview(doc) {
   const cos = createCOSClient()
   const next = { ...normalized }
   const nowTs = now()
-  if (!next.posterUrl) next.posterUrl = splashPosterUrl(sourceKey)
+  if (!next.posterUrl || splashPosterNeedsRefresh(next.posterUrl)) {
+    next.posterUrl = splashPosterUrl(sourceKey)
+  }
 
   const previewKey = liveCoverPreviewKey(sourceKey)
   const previewUrl = splashPublicUrl(previewKey)
@@ -2040,12 +2014,26 @@ function splashPublicUrl(key) {
 function splashPosterUrl(cosKeyOrUrl) {
   const key = cosKeyOrUrl.includes('://') ? splashCosKeyFromUrl(cosKeyOrUrl) : cosKeyOrUrl
   if (!key) return ''
-  return `${splashPublicUrl(key)}?ci-process=snapshot&time=0.5&format=jpg&width=720&height=1280&scaletype=cover`
+  // 只定宽、height=0：按片源比例缩放，绝不拉伸；竖屏满屏裁剪交给客户端 object-fit/aspectFill
+  // （同时指定非 0 宽高时 COS 会强制输出该尺寸，造成变形；scaletype 不是 snapshot 合法参数）
+  return `${splashPublicUrl(key)}?ci-process=snapshot&time=0.5&format=jpg&width=1080&height=0`
+}
+
+/** 旧封面 URL（双尺寸/scaletype）需刷新，否则会一直用已拉伸的截帧 */
+function splashPosterNeedsRefresh(url) {
+  const u = String(url || '')
+  if (!u) return true
+  if (!/ci-process=snapshot/i.test(u)) return true
+  if (/[?&]scaletype=/i.test(u)) return true
+  const hm = u.match(/[?&]height=(\d+)/i)
+  if (hm && Number(hm[1]) > 0) return true
+  return false
 }
 
 function splashPreviewKey(sourceKey) {
   const base = String(sourceKey || '').split('/').pop() || `splash_${Date.now()}.mp4`
-  const name = base.replace(/\.(mp4|mov|webm)$/i, '') + '_fast.mp4'
+  // _fast12：开屏预览固定截取前 12 秒；换后缀强制重转，避免沿用旧的全时长 _fast.mp4
+  const name = base.replace(/\.(mp4|mov|webm)$/i, '') + '_fast12.mp4'
   return `开屏动画/preview/${name}`
 }
 
@@ -2066,7 +2054,10 @@ function splashHeadExists(cos, key) {
   })
 }
 
-/** 开屏专用：720p / 低码率全时长预览，保证冷启动秒开 */
+/** 开屏视频最长展示秒数（转码截取 + 客户端硬上限一致） */
+const SPLASH_VIDEO_MAX_SEC = 12
+
+/** 开屏专用：720p / 低码率预览，最长截取前 12 秒，避免过长开屏 */
 function submitSplashPreviewJob(cos, inputKey, outputKey) {
   const body = `<?xml version="1.0" encoding="UTF-8"?>
 <Request>
@@ -2096,6 +2087,10 @@ function submitSplashPreviewJob(cos, inputKey, outputKey) {
         <IsCheckReso>false</IsCheckReso>
         <ResoAdjMethod>1</ResoAdjMethod>
       </TransConfig>
+      <TimeInterval>
+        <Start>0</Start>
+        <Duration>${SPLASH_VIDEO_MAX_SEC}</Duration>
+      </TimeInterval>
     </Transcode>
     <Output>
       <Region>${COS_REGION}</Region>
@@ -2136,7 +2131,13 @@ function normalizeSplashMediaItem(raw) {
     posterUrl: String(raw.posterUrl || '').trim(),
     previewStatus: String(raw.previewStatus || '').trim(),
     previewJobAt: Number(raw.previewJobAt || 0) || 0,
-    previewError: String(raw.previewError || '').trim()
+    previewError: String(raw.previewError || '').trim(),
+    // 开屏倒计时组件：填写后小程序按名称匹配最近的即将发射任务
+    missionName: String(raw.missionName || '').trim(),
+    // 官网自动同步项标识（autoSource='spacex'）；sourceUrl 用于去重，flightNumber 用于生命周期匹配
+    autoSource: String(raw.autoSource || '').trim(),
+    sourceUrl: String(raw.sourceUrl || '').trim(),
+    flightNumber: Number(raw.flightNumber || 0) || 0
   }
 }
 
@@ -2179,7 +2180,9 @@ async function ensureOneSplashMediaItem(cos, item) {
 
   const next = { ...item }
   const nowTs = now()
-  if (!next.posterUrl) next.posterUrl = splashPosterUrl(sourceKey)
+  if (!next.posterUrl || splashPosterNeedsRefresh(next.posterUrl)) {
+    next.posterUrl = splashPosterUrl(sourceKey)
+  }
 
   const previewKey = splashPreviewKey(sourceKey)
   const previewUrl = splashPublicUrl(previewKey)
@@ -2189,22 +2192,25 @@ async function ensureOneSplashMediaItem(cos, item) {
     next.previewStatus = 'ready'
     next.previewError = ''
   } else {
+    const prevUrl = String(item.previewUrl || '').trim()
+    const urlChanged = !!(prevUrl && prevUrl !== previewUrl)
     next.previewUrl = previewUrl
+    next.previewStatus = 'processing'
     const lastJob = Number(next.previewJobAt || 0)
-    if (!lastJob || nowTs - lastJob > 10 * 60 * 1000) {
+    // 预览文件不存在时：URL 变更（如 _fast → _fast12）必须立刻重提任务，
+    // 不能被「10 分钟节流」挡住，否则会把播放地址改成 404
+    if (urlChanged || !lastJob || nowTs - lastJob > 10 * 60 * 1000) {
       try {
         await submitSplashPreviewJob(cos, sourceKey, previewKey)
         next.previewJobAt = nowTs
         next.previewStatus = 'processing'
-        console.log('[splash] preview job submitted:', sourceKey, '->', previewKey)
+        console.log('[splash] preview job submitted:', sourceKey, '->', previewKey, urlChanged ? '(url-changed)' : '')
       } catch (e) {
         next.previewStatus = 'failed'
         next.previewError = String(e.message || e).slice(0, 200)
         next.previewUrl = ''
         console.warn('[splash] preview job failed:', e.message || e)
       }
-    } else if (!next.previewStatus) {
-      next.previewStatus = 'processing'
     }
   }
   return next
@@ -2265,11 +2271,24 @@ async function updateStarshipSplashConfig(body, user) {
     })].filter(Boolean)
   }
 
-  // 视频项先补封面
+  // 手动优先：有非官网项 → 强制关自动同步，并剔除 auto 项；纯自动/空池 → 开自动同步
+  const hasManual = mediaItems.some((it) => it && it.autoSource !== 'spacex')
+  if (hasManual) {
+    mediaItems = mediaItems.filter((it) => it && it.autoSource !== 'spacex')
+  }
+  const autoSyncSpacex = !hasManual
+
+  // 视频项先补封面（旧拉伸封面一并刷新为等比截帧）
   mediaItems = mediaItems.map((item) => {
-    if (item.mediaType === 'video' && item.mediaUrl && !item.posterUrl) {
+    if (item.mediaType === 'video' && item.mediaUrl) {
       const key = splashCosKeyFromUrl(item.mediaUrl)
-      if (key) return { ...item, posterUrl: splashPosterUrl(key), previewStatus: item.previewStatus || 'pending' }
+      if (key && (!item.posterUrl || splashPosterNeedsRefresh(item.posterUrl))) {
+        return {
+          ...item,
+          posterUrl: splashPosterUrl(key),
+          previewStatus: item.previewStatus || 'pending'
+        }
+      }
     }
     return item
   })
@@ -2277,6 +2296,7 @@ async function updateStarshipSplashConfig(body, user) {
   const first = mediaItems[0] || null
   const patch = {
     enabled: body.enabled !== false,
+    autoSyncSpacex,
     title: body.title || '',
     subtitle: body.subtitle || '',
     animationUrl: body.animationUrl || '',
@@ -2289,7 +2309,7 @@ async function updateStarshipSplashConfig(body, user) {
     previewUrl: first ? first.previewUrl : '',
     posterUrl: first ? first.posterUrl : '',
     previewStatus: first ? first.previewStatus : '',
-    countdownSeconds: Math.max(1, Math.min(30, Number(body.countdownSeconds) || 5)),
+    countdownSeconds: Math.max(1, Math.min(12, Number(body.countdownSeconds) || 5)),
     updatedAt: now(),
     updatedBy: user.username
   }
@@ -2305,6 +2325,440 @@ async function updateStarshipSplashConfig(body, user) {
 
   await writeOpLog({ user, module: COLLECTIONS.STARSHIP_SPLASH, action: 'upsert', targetId: id, before, after })
   return ok(after)
+}
+
+// ========== SpaceX 官网星舰视频自动同步（开屏动画全自动化） ==========
+// 每 2 小时（timer: syncSpacexSplashTimer）执行：
+//   开启：排期库（launch_data / launch_status）显示星舰任务 NET 距今 ≤ 5 天才扫官网 featured-launch-tiles，
+//        有视频 → 下载上传 COS → 写入开屏媒体池（auto 项，带 missionName 对接倒计时组件）
+//   推迟：NET 后移出 T-5 窗（小时级探针自动跟随改期）→ auto 项自动下架；回窗后自动恢复
+//   关闭：任务飞行中(6)/终态(3/4/7/9) 或 官网撤下 tile → 自动移除 auto 项
+const SPACEX_CMS_API_BASE = 'https://api.marsx.com.cn/spacex-api'
+const SPACEX_MEDIA_PROXY = 'https://api.marsx.com.cn/spacex-media'
+const SPLASH_AUTO_VIDEO_MAX_BYTES = 30 * 1024 * 1024
+const SPLASH_AUTO_COS_PREFIX = '开屏动画/auto/'
+const LAUNCH_STATUS_INFLIGHT_ID = 6
+const LAUNCH_STATUS_TERMINAL_IDS = { 3: true, 4: true, 7: true, 9: true }
+// 开启窗口：探测到星舰任务发射前 5 天才开始扫描官网上架；
+// NET 推迟出窗自动下架，回窗后下一轮自动恢复（COS 文件按 sourceUrl 哈希命名，重传幂等）
+const SPLASH_AUTO_WINDOW_MS = 5 * 24 * 60 * 60 * 1000
+// NET 已过但未结算（推迟/holds 数据滞后）的宽限期：超过则视为数据陈旧，不再算在窗内
+const SPLASH_AUTO_PAST_NET_GRACE_MS = 24 * 60 * 60 * 1000
+
+function splashAutoHttpsGet(url, { timeoutMs = 25000, maxBytes = 0 } = {}) {
+  const https = require('https')
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, {
+      headers: {
+        Accept: '*/*',
+        'User-Agent': 'Mozilla/5.0 (compatible; CloudFunction/1.0)'
+      }
+    }, (res) => {
+      if (res.statusCode !== 200) {
+        res.resume()
+        return reject(new Error(`HTTP ${res.statusCode} for ${url}`))
+      }
+      const chunks = []
+      let total = 0
+      res.on('data', (chunk) => {
+        total += chunk.length
+        if (maxBytes && total > maxBytes) {
+          req.destroy(new Error(`response exceeds ${maxBytes} bytes`))
+          return
+        }
+        chunks.push(chunk)
+      })
+      res.on('end', () => resolve(Buffer.concat(chunks)))
+      res.on('error', reject)
+    })
+    req.on('error', reject)
+    req.setTimeout(timeoutMs, () => req.destroy(new Error(`timeout ${timeoutMs}ms for ${url}`)))
+  })
+}
+
+async function splashAutoFetchJson(url) {
+  const buf = await splashAutoHttpsGet(url, { timeoutMs: 20000, maxBytes: 2 * 1024 * 1024 })
+  // SpaceX/CDN 偶发带 UTF-8 BOM，直接 JSON.parse 会整轮失败
+  const text = buf.toString('utf8').replace(/^\uFEFF/, '').trim()
+  return JSON.parse(text)
+}
+
+/** 英文序数词 → 数字（兜底解析 "Starship's Thirteenth Flight Test" 这类标题） */
+const SPLASH_ORDINAL_WORDS = {
+  first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10,
+  eleventh: 11, twelfth: 12, thirteenth: 13, fourteenth: 14, fifteenth: 15, sixteenth: 16,
+  seventeenth: 17, eighteenth: 18, nineteenth: 19, twentieth: 20, thirtieth: 30, fortieth: 40
+}
+const SPLASH_ORDINAL_TENS = { twenty: 20, thirty: 30 }
+
+function parseOrdinalWord(text) {
+  const s = String(text || '').toLowerCase()
+  // 复合序数词：twenty-first / thirty-second …
+  const compound = s.match(/\b(twenty|thirty)[-\s](first|second|third|fourth|fifth|sixth|seventh|eighth|ninth)\b/)
+  if (compound) {
+    return SPLASH_ORDINAL_TENS[compound[1]] + SPLASH_ORDINAL_WORDS[compound[2]]
+  }
+  const single = s.match(/\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|thirtieth|fortieth)\b/)
+  if (single) return SPLASH_ORDINAL_WORDS[single[1]]
+  return 0
+}
+
+/** 从 featured tile 提取星舰 Flight 编号；非星舰条目返回 0 */
+function extractStarshipFlightNumber(tile) {
+  if (!tile || typeof tile !== 'object') return 0
+  const link = String(tile.link || '')
+  const m = link.match(/starship-flight-(\d+)/i)
+  if (m) return Number(m[1]) || 0
+  const title = String(tile.title || '')
+  if (!/starship/i.test(title) && !/starship/i.test(link)) return 0
+  const direct = title.match(/flight\s*(?:test\s*)?(\d+)/i)
+  if (direct) return Number(direct[1]) || 0
+  return parseOrdinalWord(title)
+}
+
+/**
+ * 拉窗口/结算判断所需的两份数据（任一查询失败直接抛错：调用方整轮跳过，防止误删 auto 项）：
+ *   - statusRows: launch_status（探针/详情页维护），只保证含飞行中/终态行 → 用于结算判断
+ *   - upcomingRows: launch_data（sendLaunchReminder 每 10 分钟从 upcoming 缓存重建，
+ *     NET 推迟由小时级探针 patch 后自动跟随）→ 用于 T-5 窗口判断
+ */
+async function fetchStarshipSyncRows() {
+  const starshipRe = db.RegExp({ regexp: 'starship', options: 'i' })
+  // 两个查询任一失败都抛错跳过本轮：launch_status 是结算判断唯一依据，
+  // launch_data 是窗口判断主依据（探针只保证写入飞行中/终态行），缺了会把在窗任务误判为出窗下架
+  const [statusRes, upcomingRes] = await Promise.all([
+    db.collection('launch_status').where({ name: starshipRe }).limit(100).get(),
+    db.collection('launch_data').where({ name: starshipRe }).limit(50).get()
+  ])
+  return {
+    statusRows: (statusRes && statusRes.data) || [],
+    upcomingRows: (upcomingRes && upcomingRes.data) || []
+  }
+}
+
+function findStarshipFlightRow(rows, flightNumber) {
+  if (!flightNumber || !Array.isArray(rows)) return null
+  const nameRe = new RegExp(`flight[^0-9]*0*${flightNumber}(?![0-9])`, 'i')
+  for (const row of rows) {
+    if (!row) continue
+    if (nameRe.test(String(row.name || '')) || nameRe.test(String(row.missionName || ''))) return row
+  }
+  return null
+}
+
+/** 该行是否已飞行中(6)或终态(3/4/7/9) */
+function isRowSettledOrInFlight(row) {
+  const sid = Number(row && row.status && row.status.id)
+  return sid === LAUNCH_STATUS_INFLIGHT_ID || !!LAUNCH_STATUS_TERMINAL_IDS[sid]
+}
+
+/**
+ * T-5 天开启窗口判断（NET 以 launch_data / 探针为准，改期后自动跟随）：
+ *   - 返回 true / false / null（null = 排期未知，禁止当成「出窗」误删存量 auto 项）
+ *   - NET 距今 > 5 天（含推迟出窗）→ false，auto 项自动下架，回窗后下一轮自动恢复
+ *   - NET 已过 24h 仍未结算 → 数据陈旧，false（正常结算由 settled 分支处理）
+ *   - 无该 Flight 的行 → null（探测不到发射时间：不新上架，但不误删已有项）
+ */
+function isFlightInLaunchWindow(row, nowTs) {
+  if (!row) return null
+  const netTs = new Date(row.net || row.launchTime || row.windowStart || '').getTime()
+  if (!Number.isFinite(netTs)) return null
+  if (netTs - nowTs > SPLASH_AUTO_WINDOW_MS) return false
+  if (nowTs - netTs > SPLASH_AUTO_PAST_NET_GRACE_MS) return false
+  return true
+}
+
+async function splashAutoUploadToCOS(buffer, key) {
+  const cos = createCOSClient()
+  await new Promise((resolve, reject) => {
+    cos.putObject({
+      Bucket: COS_BUCKET,
+      Region: COS_REGION,
+      Key: key,
+      Body: buffer,
+      ContentType: 'video/mp4'
+    }, (err, data) => (err ? reject(err) : resolve(data)))
+  })
+  return splashPublicUrl(key)
+}
+
+async function runSpacexSplashAutoSync() {
+  const startedAt = Date.now()
+  const ref = db.collection(COLLECTIONS.STARSHIP_SPLASH).doc('current')
+
+  // 1) 读现有配置；不存在则首启引导创建（enabled 默认开，已有文档绝不改 enabled）
+  let doc = null
+  try {
+    const res = await ref.get()
+    doc = res && res.data ? res.data : null
+  } catch (e) {}
+  const docExists = !!doc
+  const normalized = normalizeSplashDoc(doc || { enabled: true, countdownSeconds: 5, mediaItems: [] })
+  const items = Array.isArray(normalized.mediaItems) ? normalized.mediaItems : []
+  const manualItems = items.filter((it) => it.autoSource !== 'spacex')
+  const autoItems = items.filter((it) => it.autoSource === 'spacex')
+
+  // 1.5) 手动优先硬门控：只要池里有手动项，定时任务绝不能再扫官网/回填 auto。
+  //      须在 autoSyncSpacex===false 早退之前执行，否则「已关开关但残留 auto」永远自愈不到。
+  if (manualItems.length) {
+    const needHeal = autoItems.length > 0 || (doc && doc.autoSyncSpacex !== false)
+    if (needHeal && docExists) {
+      const first = manualItems[0] || null
+      const healPatch = {
+        autoSyncSpacex: false,
+        mediaItems: manualItems,
+        mediaType: first ? first.mediaType : '',
+        mediaUrl: first ? first.mediaUrl : '',
+        previewUrl: first ? first.previewUrl : '',
+        posterUrl: first ? first.posterUrl : '',
+        previewStatus: first ? first.previewStatus : '',
+        updatedAt: now(),
+        updatedBy: 'spacex-auto-sync'
+      }
+      try {
+        await ref.update({ data: healPatch })
+      } catch (e) {
+        console.warn('[splash-auto] manual_priority heal failed:', e.message || e)
+      }
+    }
+    return ok({
+      skipped: true,
+      reason: 'manual_priority',
+      healed: !!needHeal,
+      manualItems: manualItems.length,
+      removedAuto: autoItems.length,
+      elapsedMs: Date.now() - startedAt
+    })
+  }
+
+  if (doc && doc.autoSyncSpacex === false) {
+    return ok({ skipped: true, reason: 'autoSyncSpacex disabled' })
+  }
+
+  // 2) 状态/排期数据（launch_status 判结算，launch_data 判 T-5 窗口；
+  //    NET 由小时级探针跟随改期刷新）；查询失败整轮跳过，防止数据故障时误删 auto 项
+  const nowTs = Date.now()
+  let statusRows = null
+  let upcomingRows = null
+  try {
+    const rows = await fetchStarshipSyncRows()
+    statusRows = rows.statusRows
+    upcomingRows = rows.upcomingRows
+  } catch (e) {
+    console.warn('[splash-auto] status/upcoming query failed:', e.message || e)
+    return ok({ skipped: true, reason: 'status_store_unavailable', error: String(e.message || e) })
+  }
+  const findWindowRow = (flightNumber) =>
+    findStarshipFlightRow(upcomingRows, flightNumber) || findStarshipFlightRow(statusRows, flightNumber)
+
+  // 3) T-5 开启窗口：任一未结算星舰任务 NET 距今 ≤ 5 天才扫官网；
+  //    窗外（未到 T-5 / 推迟出窗）不打官网接口，仅清理「已知出窗」的存量 auto 项
+  //    注意：isFlightInLaunchWindow 三态，排期查空(null) 绝不当作出窗
+  const anyFlightInWindow =
+    upcomingRows.some((row) => isFlightInLaunchWindow(row, nowTs) === true) ||
+    statusRows.some((row) => !isRowSettledOrInFlight(row) && isFlightInLaunchWindow(row, nowTs) === true)
+  if (!anyFlightInWindow && !autoItems.length) {
+    return ok({ skipped: true, reason: 'outside_launch_window', elapsedMs: Date.now() - startedAt })
+  }
+
+  // 4) 窗内才拉官网 featured tiles；接口失败本轮整体跳过（绝不写空覆盖）
+  //    收集全部星舰视频 tile：featured 判定按 flight 集合，不能只认「数组第一项」
+  //    （否则旧 Flight 排在前面时，会把窗内正确 Flight 误判 tile_gone 删掉）
+  let target = null
+  let scannedCms = false
+  let featuredFlightSet = null
+  if (anyFlightInWindow) {
+    let tiles = null
+    try {
+      tiles = await splashAutoFetchJson(`${SPACEX_CMS_API_BASE}/featured-launch-tiles`)
+    } catch (e) {
+      console.warn('[splash-auto] featured-launch-tiles fetch failed:', e.message || e)
+      return ok({ skipped: true, reason: 'cms_fetch_failed', error: String(e.message || e) })
+    }
+    if (!Array.isArray(tiles)) {
+      return ok({ skipped: true, reason: 'cms_bad_payload' })
+    }
+    scannedCms = true
+
+    // featured = CMS 上仍出现该 Flight（有无视频、是否超体积都算「仍在架」）；
+    // 下载候选另筛：有视频且 ≤30MB。两者拆开，避免超体积/无视频导致误删存量 auto。
+    const candidates = []
+    featuredFlightSet = new Set()
+    for (const tile of tiles) {
+      const flightNumber = extractStarshipFlightNumber(tile)
+      if (!flightNumber) continue
+      featuredFlightSet.add(flightNumber)
+      const video = (tile.videoMobile && tile.videoMobile.url) ? tile.videoMobile
+        : (tile.videoDesktop && tile.videoDesktop.url) ? tile.videoDesktop : null
+      if (!video) continue
+      const sizeBytes = Math.round(Number(video.size || 0) * 1024) // CMS size 单位 KB
+      if (sizeBytes > SPLASH_AUTO_VIDEO_MAX_BYTES) {
+        console.warn(`[splash-auto] flight ${flightNumber} video too large: ${sizeBytes} bytes`)
+        continue
+      }
+      candidates.push({ flightNumber, sourceUrl: String(video.url), tile })
+    }
+
+    // 上架目标：未结算且在 T-5 窗内的可下载候选；多 Flight 同时在窗时取编号最大（最新）
+    for (const c of candidates) {
+      const settled = isRowSettledOrInFlight(findStarshipFlightRow(statusRows, c.flightNumber))
+      const inWindow = isFlightInLaunchWindow(findWindowRow(c.flightNumber), nowTs) === true
+      if (!settled && inWindow) {
+        if (!target || c.flightNumber > target.flightNumber) target = c
+      }
+    }
+  }
+
+  // 5) 生命周期：已飞行中/终态、已知推迟出窗（NET > T-5）、官网撤下/换任务 → 移除对应 auto 项；
+  //    排期未知(null) 不因窗口误删；未扫描官网时不因 tile_gone 误删
+  //    推迟出窗只是暂时下架，NET 回到窗内后下一轮自动恢复
+  const removed = []
+  let keptAuto = []
+  for (const it of autoItems) {
+    const settled = isRowSettledOrInFlight(findStarshipFlightRow(statusRows, it.flightNumber))
+    const inWindow = isFlightInLaunchWindow(findWindowRow(it.flightNumber), nowTs)
+    const knownOutside = inWindow === false
+    const stillFeatured = scannedCms
+      ? !!(featuredFlightSet && featuredFlightSet.has(it.flightNumber))
+      : true
+    if (settled || knownOutside || !stillFeatured) {
+      removed.push({
+        id: it.id,
+        flightNumber: it.flightNumber,
+        reason: settled ? 'inflight_or_settled' : (knownOutside ? 'outside_launch_window' : 'tile_gone')
+      })
+    } else {
+      keptAuto.push(it)
+    }
+  }
+
+  // 6) 新增门控：目标 Flight 需有排期行、未结算、且明确在 T-5 窗内（官网提前上视频也等到窗口再上架）
+  let added = null
+  if (target) {
+    const targetSettled = isRowSettledOrInFlight(findStarshipFlightRow(statusRows, target.flightNumber))
+    const targetInWindow = isFlightInLaunchWindow(findWindowRow(target.flightNumber), nowTs) === true
+    const already = keptAuto.some((it) => it.sourceUrl === target.sourceUrl)
+    if (!targetSettled && targetInWindow && !already) {
+      // 换源时先暂存同 Flight 旧项：下载/池满失败必须还原，否则会把正在播的 auto 弄丢
+      const previousSameFlight = keptAuto.filter((it) => it.flightNumber === target.flightNumber)
+      keptAuto = keptAuto.filter((it) => it.flightNumber !== target.flightNumber)
+      if (manualItems.length + keptAuto.length >= SPLASH_MEDIA_MAX) {
+        keptAuto = keptAuto.concat(previousSameFlight)
+        console.warn('[splash-auto] media pool full, skip adding auto item')
+      } else {
+        try {
+          const buffer = await splashAutoHttpsGet(
+            `${SPACEX_MEDIA_PROXY}?url=${encodeURIComponent(target.sourceUrl)}`,
+            { timeoutMs: 45000, maxBytes: SPLASH_AUTO_VIDEO_MAX_BYTES }
+          )
+          const hash = crypto.createHash('md5').update(target.sourceUrl).digest('hex').slice(0, 8)
+          const key = `${SPLASH_AUTO_COS_PREFIX}starship_flight_${target.flightNumber}_${hash}.mp4`
+          const cosUrl = await splashAutoUploadToCOS(buffer, key)
+          added = normalizeSplashMediaItem({
+            mediaType: 'video',
+            mediaUrl: cosUrl,
+            posterUrl: splashPosterUrl(key),
+            previewStatus: 'pending',
+            missionName: `Starship Flight ${target.flightNumber}`,
+            autoSource: 'spacex',
+            sourceUrl: target.sourceUrl,
+            flightNumber: target.flightNumber
+          })
+          keptAuto.push(added)
+        } catch (e) {
+          keptAuto = keptAuto.concat(previousSameFlight)
+          console.warn('[splash-auto] video download/upload failed:', e.message || e)
+        }
+      }
+    }
+  }
+
+  // 7) 无增删时也要推进转码/封面：存量 auto 项可能一直卡在 pending（早退会永久不转码）
+  const nextItems = [...manualItems, ...keptAuto].slice(0, SPLASH_MEDIA_MAX)
+  const changed = !!added || removed.length > 0 || !docExists
+  if (!changed) {
+    let ensureResult = null
+    try {
+      ensureResult = await ensureSplashMediaItems({
+        _id: 'current',
+        ...(doc || {}),
+        mediaItems: items,
+        enabled: normalized.enabled !== false,
+        countdownSeconds: normalized.countdownSeconds || 5
+      })
+    } catch (e) {
+      console.warn('[splash-auto] ensure on no_change failed:', e.message || e)
+    }
+    const pending = (ensureResult && ensureResult.mediaItems ? ensureResult.mediaItems : items).filter(
+      (it) => it && it.mediaType === 'video' && it.previewStatus && it.previewStatus !== 'ready'
+    ).length
+    return ok({
+      skipped: true,
+      reason: 'no_change',
+      autoItems: autoItems.length,
+      ensureRan: true,
+      previewPending: pending,
+      elapsedMs: Date.now() - startedAt
+    })
+  }
+
+  const first = nextItems[0] || null
+  const patch = {
+    enabled: docExists ? normalized.enabled !== false : true,
+    // 自动同步写库时保留手动优先开关（有手动项时应为 false，勿被漏字段覆盖）
+    autoSyncSpacex: docExists ? normalized.autoSyncSpacex !== false && !manualItems.length : !manualItems.length,
+    countdownSeconds: normalized.countdownSeconds || 5,
+    mediaItems: nextItems,
+    mediaType: first ? first.mediaType : '',
+    mediaUrl: first ? first.mediaUrl : '',
+    previewUrl: first ? first.previewUrl : '',
+    posterUrl: first ? first.posterUrl : '',
+    previewStatus: first ? first.previewStatus : '',
+    updatedAt: now(),
+    updatedBy: 'spacex-auto-sync'
+  }
+  if (docExists) {
+    await ref.update({ data: patch })
+  } else {
+    await ref.set({ data: patch })
+  }
+
+  // 8) 截帧封面 / 最长 12 秒 720p 预览转码（官网新拉的视频必须走这条）
+  let after = { _id: 'current', ...(doc || {}), ...patch }
+  try {
+    after = await ensureSplashMediaItems(after)
+  } catch (e) {
+    console.warn('[splash-auto] ensure media failed:', e.message || e)
+  }
+
+  await writeOpLog({
+    user: { id: 'system', username: 'spacex-auto-sync' },
+    module: COLLECTIONS.STARSHIP_SPLASH,
+    action: 'auto_sync',
+    targetId: 'current',
+    detail: {
+      added: added ? { flightNumber: added.flightNumber, sourceUrl: added.sourceUrl } : null,
+      removed,
+      previewStatus: after && after.mediaItems
+        ? after.mediaItems
+            .filter((it) => it && it.autoSource === 'spacex')
+            .map((it) => ({ id: it.id, previewStatus: it.previewStatus, previewUrl: it.previewUrl || '' }))
+        : [],
+      elapsedMs: Date.now() - startedAt
+    }
+  })
+
+  return ok({
+    added: added ? { flightNumber: added.flightNumber, mediaUrl: added.mediaUrl } : null,
+    removed,
+    totalItems: nextItems.length,
+    autoPreview: after && after.mediaItems
+      ? after.mediaItems
+          .filter((it) => it && it.autoSource === 'spacex')
+          .map((it) => ({ flightNumber: it.flightNumber, previewStatus: it.previewStatus }))
+      : [],
+    elapsedMs: Date.now() - startedAt
+  })
 }
 
 const CAROUSEL_KEY_PREFIX = '首页轮播图/'
@@ -2900,82 +3354,6 @@ async function batchUpdateMediaAssets(body = {}, user) {
   return ok({ total: ids.length, updated, failed, errors: errors.slice(0, 20) })
 }
 
-async function listMediaFeed(query = {}) {
-  const page = Math.max(1, Number(query.page || 1))
-  const pageSize = Math.min(100, Math.max(1, Number(query.pageSize || 20)))
-  const keyword = (query.keyword || '').trim()
-  const sourceTag = (query.sourceTag || '').trim()
-  const type = (query.type || '').trim()
-  const enabled = normalizeBoolValue(query.enabled)
-  const auditStatus = (query.auditStatus || '').trim()
-  const cursor = decodeCursor(query.cursor || '')
-
-  let where = {}
-  if (sourceTag) where.sourceTag = sourceTag
-  if (type) where.type = type
-  if (enabled !== undefined) where.enabled = enabled
-  if (auditStatus) where.auditStatus = auditStatus
-  if (cursor?.updatedAt) where.updatedAt = _.lte(Number(cursor.updatedAt))
-
-  const whereExpr = buildWhereWithKeyword(where, keyword, ['_id', 'title', 'desc'])
-  const queryRef = db.collection(COLLECTIONS.MEDIA_FEED).where(whereExpr)
-
-  const [countRes, listRes] = await Promise.all([
-    queryRef.count(),
-    queryRef.orderBy('order', 'asc').orderBy('updatedAt', 'desc').skip(cursor ? 0 : (page - 1) * pageSize).limit(pageSize).get()
-  ])
-
-  const list = listRes.data || []
-  const last = list[list.length - 1]
-  const nextCursor = list.length === pageSize && last ? encodeCursor({ updatedAt: Number(last.updatedAt || 0), id: last._id || '' }) : ''
-
-  return ok({ list, total: countRes.total, page, pageSize, nextCursor })
-}
-
-async function updateMediaFeed(id, body, user) {
-  if (!id) return fail(4001, 'id不能为空')
-  const ref = db.collection(COLLECTIONS.MEDIA_FEED).doc(id)
-  const beforeRes = await ref.get().catch(() => null)
-  const before = beforeRes?.data || null
-  if (!before) return fail(4040, '数据不存在')
-
-  const patch = pick(body, ['title', 'desc', 'enabled', 'order', 'type', 'coverFileID', 'fileID', 'aspectRatio', 'weight', 'previewImages', 'sourceTag', 'auditStatus', 'appid', 'storeAppid', 'productId', 'productID', 'product_id', 'productPromotionLink', 'product_promotion_link', 'mediaId', 'media_id'])
-  patch.updatedAt = now()
-
-  await ref.update({ data: patch })
-  await writeOpLog({ user, module: COLLECTIONS.MEDIA_FEED, action: 'update', targetId: id, before, after: { ...before, ...patch } })
-  await bumpProfileFeedCacheVersion()
-  return ok(true)
-}
-
-async function batchUpdateMediaFeed(body = {}, user) {
-  const ids = Array.isArray(body.ids) ? [...new Set(body.ids.filter(Boolean))] : []
-  if (!ids.length) return fail(4001, 'ids不能为空')
-  if (ids.length > 200) return fail(4001, '单次批量最多200条')
-
-  const patch = pick(body.patch || {}, ['enabled', 'type', 'sourceTag', 'auditStatus'])
-  if (Object.keys(patch).length === 0) return fail(4001, 'patch不能为空')
-
-  patch.updatedAt = now()
-
-  let updated = 0
-  let failed = 0
-  const errors = []
-  for (const id of ids) {
-    try {
-      await db.collection(COLLECTIONS.MEDIA_FEED).doc(id).update({ data: patch })
-      updated += 1
-    } catch (e) {
-      failed += 1
-      errors.push({ id, message: e.message || String(e) })
-    }
-  }
-
-  await writeOpLog({ user, module: COLLECTIONS.MEDIA_FEED, action: 'batch_update', targetId: ids.join(','), before: null, after: { ...patch, updated, failed } })
-  if (updated > 0) await bumpProfileFeedCacheVersion()
-  return ok({ total: ids.length, updated, failed, errors: errors.slice(0, 20) })
-}
-
 async function listShopFeed(query = {}) {
   const page = Math.max(1, Number(query.page || 1))
   const pageSize = Math.min(100, Math.max(1, Number(query.pageSize || 20)))
@@ -3181,54 +3559,6 @@ async function cosDeleteFile(body = {}, user) {
 
   await writeOpLog({ user, module: 'cos', action: 'delete_file', targetId: key })
   return ok({ key })
-}
-
-async function createMediaFeed(body, user) {
-  const title = (body.title || '').trim()
-  if (!title) return fail(4001, '标题不能为空')
-
-  const ts = now()
-  const payload = {
-    title,
-    desc: body.desc || '',
-    type: body.type || 'image',
-    fileID: body.fileID || '',
-    coverFileID: body.coverFileID || '',
-    previewImages: Array.isArray(body.previewImages) ? body.previewImages : [],
-    aspectRatio: Number(body.aspectRatio || 1),
-    enabled: body.enabled !== false,
-    auditStatus: body.auditStatus || 'approved',
-    sourceTag: (typeof body.sourceTag === 'string' && body.sourceTag.trim()) ? body.sourceTag.trim() : 'inspiration',
-    weight: Number(body.weight || 0),
-    order: Number(body.order || 0),
-    appid: body.appid || '',
-    storeAppid: body.storeAppid || '',
-    productId: body.productId || '',
-    productPromotionLink: body.productPromotionLink || '',
-    mediaId: body.mediaId || '',
-    createdAt: ts,
-    updatedAt: ts,
-    createdBy: user.username,
-    updatedBy: user.username
-  }
-
-  const res = await db.collection(COLLECTIONS.MEDIA_FEED).add({ data: payload })
-  await writeOpLog({ user, module: COLLECTIONS.MEDIA_FEED, action: 'create', targetId: res._id, after: payload })
-  await bumpProfileFeedCacheVersion()
-  return ok({ id: res._id })
-}
-
-async function deleteMediaFeed(id, user) {
-  if (!id) return fail(4001, 'id不能为空')
-  const ref = db.collection(COLLECTIONS.MEDIA_FEED).doc(id)
-  const beforeRes = await ref.get().catch(() => null)
-  const before = beforeRes?.data || null
-  if (!before) return fail(4040, '数据不存在')
-
-  await ref.remove()
-  await writeOpLog({ user, module: COLLECTIONS.MEDIA_FEED, action: 'delete', targetId: id, before, after: null })
-  await bumpProfileFeedCacheVersion()
-  return ok(true)
 }
 
 async function createShopFeed(body, user) {
@@ -3625,7 +3955,6 @@ async function getStatisticsOverview() {
     { key: COLLECTIONS.EVENTS, label: '事件' },
     { key: COLLECTIONS.ARTICLES, label: '文章' },
     { key: COLLECTIONS.MEDIA_ASSETS, label: '媒体素材' },
-    { key: COLLECTIONS.MEDIA_FEED, label: '灵感流' },
     { key: COLLECTIONS.SHOP_FEED, label: '小店数据' },
     { key: COLLECTIONS.STARSHIP_EVENT_UPDATES, label: '事件更新' },
     { key: COLLECTIONS.ROAD_CLOSURE, label: '封路通知' },
@@ -4758,7 +5087,7 @@ async function exportCollectionData(body, user) {
 
   const validCollections = [
     'space_devs_cache', COLLECTIONS.EVENTS, COLLECTIONS.ARTICLES, COLLECTIONS.MEDIA_ASSETS,
-    COLLECTIONS.MEDIA_FEED, COLLECTIONS.SHOP_FEED, COLLECTIONS.STARSHIP_EVENT_UPDATES,
+    COLLECTIONS.SHOP_FEED, COLLECTIONS.STARSHIP_EVENT_UPDATES,
     COLLECTIONS.ROAD_CLOSURE, COLLECTIONS.LOGS,
     COLLECTIONS.PUSH_HISTORY, COLLECTIONS.ANNOUNCEMENTS
   ]
@@ -4857,7 +5186,49 @@ async function disableOaAlert(openid, unionid) {
   await db.collection(OA_AUTO_ALERT_USERS).doc(existing._id).update({
     data: { enabled: false, disabledAt: now(), updatedAt: now() }
   })
-  return ok({ enabled: false, followed: !!existing.followed, ready: false })
+
+  // 关闭服务号后：曾走 OA 结果通道、发射尚未发生的订阅，回退为 A 通道待发提醒（保留结果额度）
+  let restored = 0
+  try {
+    const nowMs = Date.now()
+    const res = await db
+      .collection('launch_subscriptions')
+      .where({ _openid: openid })
+      .limit(100)
+      .get()
+      .catch(() => ({ data: [] }))
+    for (const row of res.data || []) {
+      if (!row || !row.reminderViaOa || row.resultSent) continue
+      const launchMs = row.launchTime ? new Date(row.launchTime).getTime() : 0
+      // 已过发射窗口的只保留等结果，不再回退提醒
+      if (launchMs && launchMs <= nowMs) continue
+      const lead = Number(row.notifyLeadMinutes) > 0 ? Number(row.notifyLeadMinutes) : 30
+      const notifyAt =
+        launchMs > 0
+          ? launchMs - lead * 60 * 1000
+          : Number(row.notifyAt) || 0
+      try {
+        await db.collection('launch_subscriptions').doc(row._id).update({
+          data: {
+            sent: false,
+            reminderSent: false,
+            reminderViaOa: false,
+            source: 'oa_disabled_restore',
+            notifyAt: notifyAt,
+            updatedAt: nowMs
+          }
+        })
+        restored++
+      } catch (e) {}
+    }
+  } catch (e) {}
+
+  return ok({
+    enabled: false,
+    followed: !!existing.followed,
+    ready: false,
+    restoredAChannel: restored
+  })
 }
 
 async function getOaAlertStatus(openid, unionid) {
@@ -4890,18 +5261,47 @@ async function getOaAlertStatus(openid, unionid) {
 }
 
 // ========== 发射提醒订阅（防重复） ==========
+/** 查找该用户对该任务仍有效的订阅（待发提醒，或已发提醒仍等结果） */
+async function findActiveLaunchSubscription(openid, missionId) {
+  const col = 'launch_subscriptions'
+  const mid = String(missionId)
+  // 只用 _openid + missionId 两字段查询，避免复合索引缺失导致「等结果」文档查不到、重复建订
+  const res = await db
+    .collection(col)
+    .where({ _openid: openid, missionId: mid })
+    .limit(20)
+    .get()
+    .catch(() => ({ data: [] }))
+  const rows = res.data || []
+  if (!rows.length) return null
+  // 优先：未发提醒
+  for (let i = 0; i < rows.length; i++) {
+    if (!rows[i].sent) return rows[i]
+  }
+  // 其次：已发提醒 / OA 直达，仍有结果额度且未发结果
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i]
+    if (!r.resultSent && Number(r.resultQuota) > 0) return r
+  }
+  return null
+}
+
 async function subscribeLaunchReminder(body, openid) {
   const { missionId } = body || {}
   if (!missionId) return fail(4001, 'missionId 不能为空')
   if (!openid) return fail(4001, '无法获取用户身份')
 
   const col = 'launch_subscriptions'
-  // 检查是否已有该用户对此任务的未发送订阅
-  const existing = await db.collection(col).where({
-    _openid: openid,
-    missionId: String(missionId),
-    sent: false
-  }).limit(1).get().catch(() => ({ data: [] }))
+  const reminderViaOa = body.reminderViaOa === true || body.reminderViaOa === 1
+  const resultQuotaIn =
+    body.resultQuota === true || body.resultQuota === 1 ? 1 : 0
+
+  // 服务号已覆盖发射前：必须带结果额度，否则无意义
+  if (reminderViaOa && resultQuotaIn <= 0) {
+    return fail(4001, '需要授权结果通知')
+  }
+
+  const existing = await findActiveLaunchSubscription(openid, missionId)
 
   const notifyLeadMinutes =
     typeof body.notifyLeadMinutes === 'number' &&
@@ -4921,14 +5321,23 @@ async function subscribeLaunchReminder(body, openid) {
     templateId: body.templateId || '',
     // 结果通知：用户同时授权「任务完成提醒」时记 1 次额度
     resultTemplateId: body.resultTemplateId || '',
-    resultQuota: body.resultQuota === true || body.resultQuota === 1 ? 1 : 0,
+    resultQuota: resultQuotaIn,
     resultSent: false,
     updatedAt: Date.now()
   }
 
-  if (existing.data && existing.data.length > 0) {
-    const docId = existing.data[0]._id
-    const prev = existing.data[0] || {}
+  if (reminderViaOa) {
+    // 发射前提醒由服务号负责，A 通道直接进入「等结果」状态
+    subPayload.sent = true
+    subPayload.reminderSent = true
+    subPayload.reminderSentAt = Date.now()
+    subPayload.reminderViaOa = true
+    subPayload.source = 'oa_result'
+  }
+
+  if (existing) {
+    const docId = existing._id
+    const prev = existing || {}
     // 再次授权结果模板时累加额度（一次性订阅可多次授权）
     if (subPayload.resultQuota > 0) {
       subPayload.resultQuota = Math.min(5, (Number(prev.resultQuota) || 0) + 1)
@@ -4937,8 +5346,13 @@ async function subscribeLaunchReminder(body, openid) {
       subPayload.resultTemplateId = prev.resultTemplateId || subPayload.resultTemplateId
     }
     if (prev.resultSent) subPayload.resultSent = true
+    // 已是等结果文档时，OA 路径不要把 sent 打回 false
+    if (!reminderViaOa && prev.sent) {
+      delete subPayload.sent
+      if (prev.reminderSent) delete subPayload.reminderSent
+    }
     await db.collection(col).doc(docId).update({ data: subPayload })
-    return ok({ subscribed: true, duplicate: true, updated: true })
+    return ok({ subscribed: true, duplicate: true, updated: true, reminderViaOa: !!reminderViaOa })
   }
 
   await db.collection(col).add({
@@ -4946,42 +5360,55 @@ async function subscribeLaunchReminder(body, openid) {
       _openid: openid,
       missionId: String(missionId),
       ...subPayload,
-      sent: false,
-      reminderSent: false,
+      sent: reminderViaOa ? true : false,
+      reminderSent: reminderViaOa ? true : false,
       resultSent: false,
       createdAt: Date.now()
     }
   })
-  return ok({ subscribed: true, duplicate: false })
+  return ok({ subscribed: true, duplicate: false, reminderViaOa: !!reminderViaOa })
 }
 
 async function checkSubscription(missionId, openid) {
   if (!missionId || !openid) return ok({ subscribed: false })
-  const col = 'launch_subscriptions'
-  const res = await db.collection(col).where({
-    _openid: openid,
-    missionId: String(missionId),
-    sent: false
-  }).limit(1).get().catch(() => ({ data: [] }))
-  return ok({ subscribed: !!(res.data && res.data.length > 0) })
+  const row = await findActiveLaunchSubscription(openid, missionId)
+  return ok({
+    subscribed: !!row,
+    resultQuota: row ? Number(row.resultQuota) || 0 : 0,
+    reminderViaOa: !!(row && row.reminderViaOa),
+    waitingResult: !!(row && row.sent && !row.resultSent && Number(row.resultQuota) > 0)
+  })
 }
 
 async function listMySubscriptions(openid) {
   if (!openid) return fail(4001, '无法获取用户身份')
   const col = 'launch_subscriptions'
   try {
-    const res = await db.collection(col).where({
-      _openid: openid,
-      sent: false
-    }).orderBy('createdAt', 'desc').limit(50).get()
-
-    const list = (res.data || []).map(d => ({
+    // 单字段查询 + 内存过滤，避免 sent/resultQuota 复合索引缺失
+    const res = await db
+      .collection(col)
+      .where({ _openid: openid })
+      .orderBy('createdAt', 'desc')
+      .limit(100)
+      .get()
+    const merged = new Map()
+    for (const d of res.data || []) {
+      if (!d || d.resultSent) continue
+      const active = !d.sent || Number(d.resultQuota) > 0
+      if (!active) continue
+      const key = String(d.missionId || d._id)
+      if (!merged.has(key)) merged.set(key, d)
+    }
+    const list = Array.from(merged.values()).map((d) => ({
       missionId: d.missionId,
       missionName: d.missionName || '',
       rocketName: d.rocketName || '',
       launchTime: d.launchTime || '',
       recoveryMethod: d.recoveryMethod || '',
-      createdAt: d.createdAt || 0
+      createdAt: d.createdAt || 0,
+      resultQuota: Number(d.resultQuota) || 0,
+      reminderViaOa: !!d.reminderViaOa,
+      waitingResult: !!(d.sent && !d.resultSent && Number(d.resultQuota) > 0)
     }))
     return ok({ list })
   } catch (e) {
@@ -5476,6 +5903,18 @@ async function castVote(body, openid) {
   const currentRound = (voteRecord && voteRecord.currentRound) || 1
   const knownLaunchTime = (voteRecord && voteRecord.launchTime) || body.launchTime || ''
 
+  if (voteRecord && voteRecord.enabled === false) {
+    return fail(4003, '该场准时竞猜已关闭')
+  }
+  if (!voteRecord) {
+    try {
+      const gcRes = await db.collection(COLLECTIONS.GLOBAL_CONFIG).doc(VOTE_CONFIG_ID).get()
+      if (gcRes.data && gcRes.data.enabled === false) {
+        return fail(4003, '准时竞猜未开放')
+      }
+    } catch (e) {}
+  }
+
   // 已结算场次禁止投票（含清除过竞猜记录后的重投：结果已出，投票无意义且可刷战绩）
   // 改期重开新轮次时 result 会被清空并 currentRound+1，不受此拦截影响
   if (voteRecord && voteRecord.result) {
@@ -5721,7 +6160,7 @@ async function getVoteStats(launchId, openid, query) {
       } catch (e) {}
       return ok({
         ...record,
-        enabled: true,
+        enabled: record.enabled !== false,
         votingClosed: true,
         votingClosedReason: 'settled',
         myVote,
@@ -5752,7 +6191,16 @@ async function getVoteStats(launchId, openid, query) {
         }
       }
     }
-    return ok({ ...record, enabled: true, votingClosed, votingClosedReason, myVote, myRound, currentRound, voteType: 'ontime' })
+    return ok({
+      ...record,
+      enabled: record.enabled !== false,
+      votingClosed,
+      votingClosedReason,
+      myVote,
+      myRound,
+      currentRound,
+      voteType: 'ontime'
+    })
   }
   // 无单任务记录，回退全局配置
   try {
@@ -7782,27 +8230,6 @@ async function route(event, user) {
     return batchUpdateMediaAssets(body, user)
   }
 
-  if (path === '/media-feed' && method === 'GET') {
-    if (!mustRole(user, 'editor')) return fail(4030, '无权限')
-    return listMediaFeed(query)
-  }
-  if (path === '/media-feed' && method === 'POST') {
-    if (!mustRole(user, 'editor')) return fail(4030, '无权限')
-    return createMediaFeed(body, user)
-  }
-  if (path.startsWith('/media-feed/') && method === 'PUT') {
-    if (!mustRole(user, 'editor')) return fail(4030, '无权限')
-    return updateMediaFeed(path.split('/').pop(), body, user)
-  }
-  if (path.startsWith('/media-feed/') && method === 'DELETE') {
-    if (!mustRole(user, 'editor')) return fail(4030, '无权限')
-    return deleteMediaFeed(path.split('/').pop(), user)
-  }
-  if (path === '/media-feed/batch' && method === 'POST') {
-    if (!mustRole(user, 'editor')) return fail(4030, '无权限')
-    return batchUpdateMediaFeed(body, user)
-  }
-
   if (path === '/shop-feed' && method === 'GET') {
     if (!mustRole(user, 'editor')) return fail(4030, '无权限')
     return listShopFeed(query)
@@ -8302,13 +8729,21 @@ exports.main = async (event = {}, context) => {
     }
 
     // 定时触发器（微信云开发 cron）：event.Type === 'Timer' 或 event.scheduleAction
+    // 定时器无法在配置里传 event 字段，按 TriggerName 分流到对应任务
     if (event && (event.Type === 'Timer' || event.scheduleAction)) {
-      const action = event.scheduleAction || 'recheck_pending_orders'
-      console.log('[cron] triggered:', action)
+      const triggerName = String(event.TriggerName || event.triggerName || '').trim()
+      const action = event.scheduleAction ||
+        (triggerName === 'syncSpacexSplashTimer' ? 'sync_spacex_splash' : 'recheck_pending_orders')
+      console.log('[cron] triggered:', action, 'trigger:', triggerName)
       try {
         if (action === 'recheck_pending_orders') {
           const r = await recheckPendingOrders({}, { id: 'system', username: 'cron' })
           console.log('[cron] recheckPendingOrders result:', JSON.stringify(r))
+          return r
+        }
+        if (action === 'sync_spacex_splash') {
+          const r = await runSpacexSplashAutoSync()
+          console.log('[cron] runSpacexSplashAutoSync result:', JSON.stringify(r))
           return r
         }
         return ok({ skipped: true, reason: 'unknown_action' })

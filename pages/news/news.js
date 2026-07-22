@@ -7,7 +7,6 @@ const { getUiShellLayout } = require('../../utils/layout.js')
 const { getSystemInfo } = require('../../utils/system.js')
 const { getNewsListThumbTargetWidthPx, optimizeNewsThumbUrl } = require('../../utils/news-thumb-url.js')
 const storageCache = require('../../utils/storage-sync-cache.js')
-const { translateTexts, isMostlyChinese, vibrateMedium, translateGateCheck } = require('../../utils/text-translate.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const themeUtil = require('../../utils/theme.js')
 
@@ -26,7 +25,6 @@ function loadNewsApi() {
   return _newsApiLoadPromise
 }
 
-const ARTICLES_NAV_ACK_KEY = '_articles_nav_ack_manual_updated_at'
 const LEGACY_ARTICLE_CACHE_KEYS = [
   'news_cache_articles_v4',
   'news_cache_articles_v3',
@@ -90,7 +88,44 @@ function sortArticlesListByTimeDesc(list) {
   })
 }
 
+// ========== 低频逻辑在 news-extra 分包（news-lazy.js）==========
+// 导航红点、二维码入口拖拽与弹窗图片交互；
+// require.async + attachTo 委托模式与 profile-lazy / progress-lazy 一致。
+// 分享按钮与卡片快照暂存需同步执行，保留在下方 Page 内。
+const NEWS_LAZY_METHODS = [
+  '_refreshArticlesNavDot',
+  'onQrcodeEntryTouchStart',
+  'onQrcodeEntryTouchMove',
+  'onQrcodeEntryTouchEnd',
+  '_snapQrcodeEntryToEdge',
+  'onQRCodeImageTap',
+  'onQRCodeImageError'
+]
+function delegateNewsLazy(name) {
+  return function (...args) {
+    const page = this
+    if (page.__newsLazyAttached) return page[name](...args)
+    if (!page.__newsLazyLoadPromise) {
+      // 字面量路径：开发者工具静态分析识别不了 require.async(变量)，会把分包模块误报为无依赖文件
+      page.__newsLazyLoadPromise = require.async('../../subpackages/news-extra/utils/news-lazy.js').then((mod) => {
+        mod.attachTo(page)
+        return mod
+      }).catch((err) => {
+        page.__newsLazyLoadPromise = null
+        console.error('[News] 分包模块加载失败:', err)
+        throw err
+      })
+    }
+    return page.__newsLazyLoadPromise.then(() => page[name](...args))
+  }
+}
+const newsLazyDelegates = {}
+NEWS_LAZY_METHODS.forEach((name) => {
+  newsLazyDelegates[name] = delegateNewsLazy(name)
+})
+
 Page({
+  ...newsLazyDelegates,
   onLoad() {
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
       this.getTabBar().setData({
@@ -228,75 +263,6 @@ Page({
     this.setData({ popupAdVisible: false, popupAdItem: null })
   },
 
-  /** 顶部「航天事件」是否与云端后台更新时间不一致（与 app.js ARTICLES_NAV_ACK 联动） */
-  _refreshArticlesNavDot() {
-    const app = getApp()
-    if (!app || typeof app.fetchNewsManualLatestUpdatedMs !== 'function') return
-    app.fetchNewsManualLatestUpdatedMs((latest) => {
-      const L = Number(latest) || 0
-      if (!L) {
-        if (this.data.showArticlesNavDot) this.setData({ showArticlesNavDot: false })
-        return
-      }
-      let ack = 0
-      try {
-        ack = Number(storageCache.readSync(ARTICLES_NAV_ACK_KEY, 0)) || 0
-      } catch (_) {}
-      const show = L > ack
-      if (show !== this.data.showArticlesNavDot) this.setData({ showArticlesNavDot: show })
-    })
-  },
-
-  /** 页面级翻译开关：预翻译字段本地秒切；缺译条目再调云端补翻（限流 20 条） */
-  async onToggleNewsTranslate() {
-    vibrateMedium()
-    const next = !this.data.newsTranslated
-    if (next) {
-      // 翻译消耗云端 token：开启译文前统一走会员/看广告门控（切回原文免门控）
-      const allowed = await translateGateCheck()
-      if (!allowed) return
-    }
-    this.setData({ newsTranslated: next })
-    if (next) this._fillMissingNewsTranslations()
-  },
-
-  _fillMissingNewsTranslations() {
-    if (this._newsTranslateBusy) return
-    const list = this.data.newsList || []
-    const isArticles = this.data.contentType === 'articles'
-    // 收集缺少云端预翻译且确为英文的字段（标题优先，其次摘要/描述），单次最多 20 条
-    const fields = []
-    for (let i = 0; i < list.length && fields.length < 20; i++) {
-      const item = list[i]
-      if (!item) continue
-      if (item.title && !item.titleZh && !isMostlyChinese(item.title)) {
-        fields.push({ path: `newsList[${i}].titleZh`, text: item.title })
-      }
-      if (fields.length >= 20) break
-      const bodyKey = isArticles ? 'summary' : 'description'
-      const bodyZhKey = bodyKey + 'Zh'
-      if (item[bodyKey] && !item[bodyZhKey] && !isMostlyChinese(item[bodyKey])) {
-        fields.push({ path: `newsList[${i}].${bodyZhKey}`, text: item[bodyKey] })
-      }
-    }
-    if (!fields.length) return
-
-    this._newsTranslateBusy = true
-    translateTexts(fields.map((f) => f.text))
-      .then((results) => {
-        this._newsTranslateBusy = false
-        // 用户可能已切回原文；译文仍写入 zh 字段，下次切换直接生效
-        const patch = {}
-        for (let i = 0; i < fields.length; i++) {
-          if (results[i]) patch[fields[i].path] = results[i]
-        }
-        if (Object.keys(patch).length) this.setData(patch)
-      })
-      .catch(() => {
-        this._newsTranslateBusy = false
-      })
-  },
-
   data: {
     themeClass: '',
     themeLight: false,
@@ -316,7 +282,6 @@ Page({
     loadMoreTriggered: false,
     preloadProgress: 0,
     errorType: null,
-    newsTranslated: false,
     showArticlesNavDot: false,
     showQRCodeModal: false,
     qrcodeImage: '',
@@ -338,6 +303,8 @@ Page({
   // v5/v2：卡片改为"原文 + 携带 Zh 字段"后旧缓存格式失效
   CACHE_KEY_EVENTS: 'news_cache_events_v2',
   CACHE_KEY_ARTICLES: 'news_cache_articles_v5',
+  // news-lazy 分包模块（onQRCodeImageError）经页面实例读取该兜底地址
+  NEWS_QR_IMAGE_FALLBACK_URL,
 
   resolveNewsImage(key, fallback) {
     return resolveMediaUrl(key, fallback)
@@ -486,7 +453,6 @@ Page({
           formattedList.length > 0
         if (canReplace) {
           this.setData({ newsList: formattedList, page: 2, hasMore })
-          if (this.data.newsTranslated) this._fillMissingNewsTranslations()
         }
       } catch (e) {
         // 静默失败不打扰：屏上已有缓存数据
@@ -681,68 +647,8 @@ Page({
     this.setData({ showQRCodeModal: true })
   },
 
-  onQrcodeEntryTouchStart(e) {
-    const t = e.touches[0]
-    this._qrcodeStartX = t.clientX
-    this._qrcodeStartY = t.clientY
-    this._qrcodeStartBtnX = this.data.buttonX
-    this._qrcodeStartBtnY = this.data.buttonY
-    this._qrcodeIsDragging = false
-  },
-
-  onQrcodeEntryTouchMove(e) {
-    const t = e.touches[0]
-    const dx = t.clientX - this._qrcodeStartX
-    const dy = t.clientY - this._qrcodeStartY
-    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-      this._qrcodeIsDragging = true
-    }
-    const sz = this.data.buttonSize
-    const W = this.data.windowWidth
-    const H = this.data.windowHeight
-    this._qrcodePendingX = Math.max(0, Math.min(W - sz, this._qrcodeStartBtnX + dx))
-    this._qrcodePendingY = Math.max(0, Math.min(H - sz, this._qrcodeStartBtnY + dy))
-    // touchmove 高频触发：按 ~60fps 节流 setData，避免拖拽期间渲染层被刷爆
-    const now = Date.now()
-    if (this._qrcodeLastMoveSetAt && now - this._qrcodeLastMoveSetAt < 16) return
-    this._qrcodeLastMoveSetAt = now
-    this.setData({ buttonX: this._qrcodePendingX, buttonY: this._qrcodePendingY })
-  },
-
-  onQrcodeEntryTouchEnd() {
-    if (this._qrcodeIsDragging) {
-      // 结束时落定最后一次位置（节流可能吞掉了末帧）
-      if (this._qrcodePendingX != null) {
-        this.setData({ buttonX: this._qrcodePendingX, buttonY: this._qrcodePendingY })
-      }
-      this._snapQrcodeEntryToEdge()
-      return
-    }
-    this.showQRCode()
-  },
-
-  _snapQrcodeEntryToEdge() {
-    const { buttonX, windowWidth, buttonSize } = this.data
-    const centerX = windowWidth / 2
-    const newX = (buttonX + buttonSize / 2) < centerX ? 0 : windowWidth - buttonSize
-    this.setData({ buttonX: newX })
-  },
-
   hideQRCode() {
     this.setData({ showQRCodeModal: false })
-  },
-
-  onQRCodeImageTap() {
-    const qrUrl = this.data.qrcodeImage || this.getNewsQrImageUrl()
-    wx.previewImage({
-      urls: [qrUrl],
-      current: qrUrl
-    })
-  },
-
-  onQRCodeImageError() {
-    if (this.data.qrcodeImage === NEWS_QR_IMAGE_FALLBACK_URL) return
-    this.setData({ qrcodeImage: NEWS_QR_IMAGE_FALLBACK_URL })
   },
 
   stopPropagation() {},

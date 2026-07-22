@@ -1,5 +1,5 @@
 // utils/api-launch-list.js — launch list APIs (upcoming/completed)
-const { getRocketImage } = require('./util.js')
+const { getRocketImage, resolveMissionRocketImage } = require('./util.js')
 const {
   extractBoosterInfoForList,
   isRecoverable,
@@ -136,7 +136,9 @@ function buildLocalizedLaunchSite(launch) {
 
 function mapLaunchToListItem(launch, index, offset, type) {
   const rocketName = getRocketDisplayNameFromLaunch(launch)
-  const finalImage = getRocketImage(rocketName)
+  const rocketConfiguration = pickRocketConfigurationSnapshot(launch)
+  // 与详情头图同源：resolveMissionRocketImage 会走 fuzzy/字典/default，并做 CDN/本地缓存规范化
+  const finalImage = resolveMissionRocketImage('', rocketName, rocketConfiguration, true) || getRocketImage(rocketName)
   const boosterInfo = extractBoosterInfoForList(launch, rocketName, finalImage)
   const status = launch.status || {}
   const statusCategory = getStatusCategory(status)
@@ -156,7 +158,7 @@ function mapLaunchToListItem(launch, index, offset, type) {
     windowStart: launch.window_start,
     windowEnd: launch.window_end,
     rocketImage: finalImage,
-    rocketConfiguration: pickRocketConfigurationSnapshot(launch),
+    rocketConfiguration,
     // 与角标同源（按 LL2 status.id），避免「成功 / 已成功 / 发射成功」混用
     status: statusBadgeText,
     statusId: status.id != null ? Number(status.id) : null,
@@ -338,5 +340,12 @@ module.exports = {
   getUpcomingMissions,
   getCompletedMissions,
   getUpcomingStarshipMissions,
-  mapLaunchToListItem
+  mapLaunchToListItem,
+  invalidateListSnapshots
+}
+
+function invalidateListSnapshots() {
+  Object.keys(_listSnapshots).forEach((k) => {
+    delete _listSnapshots[k]
+  })
 }

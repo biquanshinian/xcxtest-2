@@ -1,7 +1,7 @@
 {
   "setting": {
     "es6": true,
-    "postcss": false,
+    "postcss": true,
     "compileWorklet": false,
     "minified": true,
     "uglifyFileName": false,
@@ -60,6 +60,18 @@
       },
       {
         "value": "workers/**",
+        "type": "glob"
+      },
+      {
+        "value": "workers/**/.*",
+        "type": "glob"
+      },
+      {
+        "value": "workers/**/.*/**",
+        "type": "glob"
+      },
+      {
+        "value": "subpackages/agent-skills/**",
         "type": "glob"
       },
       {
@@ -217,9 +229,26 @@
       {
         "value": "ll2_prev_sample.json",
         "type": "file"
+      },
+      {
+        "type": "folder",
+        "value": "/minitest"
+      },
+      {
+        "type": "file",
+        "value": "app.miniapp.json"
       }
     ],
-    "include": []
+    "include": [
+      {
+        "type": "file",
+        "value": "subpackages/news-extra/utils/news-lazy.js"
+      },
+      {
+        "type": "file",
+        "value": "subpackages/monitor-pages/utils/monitor-weather.js"
+      }
+    ]
   },
   "appid": "wxf98b58309019771b",
   "editorSetting": {},

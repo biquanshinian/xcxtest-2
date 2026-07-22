@@ -274,9 +274,11 @@ async function fetchNewsManualEnabled() {
   try {
     const db = wx.cloud.database()
     try {
-      const mainRes = await db.collection('global_config').doc('main').get()
-      const m = mainRes.data
-      if (m && Object.prototype.hasOwnProperty.call(m, 'newsManualArticlesEnabled')) {
+      // 走 feature-flags 的 global_config/main 共享缓存（5 分钟 + inflight 去重），
+      // 与其他全局开关共用同一次读库
+      const { fetchMainConfig } = require('../../../utils/feature-flags.js')
+      const m = await fetchMainConfig()
+      if (m && m._id && Object.prototype.hasOwnProperty.call(m, 'newsManualArticlesEnabled')) {
         return m.newsManualArticlesEnabled === true
       }
     } catch (e) {}

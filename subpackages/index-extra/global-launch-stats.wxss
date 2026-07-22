@@ -581,6 +581,10 @@ page {
   max-height: 70vh;
   border-radius: 24rpx 24rpx 0 0;
   padding: 32rpx 0 48rpx;
+  /* 覆盖 glass-card 半透明底，避免底层内容透出看不清 */
+  background: #1c1c1e;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.45);
 }
 
 .picker-title {
@@ -795,7 +799,13 @@ page {
   color: var(--color-text-secondary);
 }
 
-/* 弹窗选择器（picker-mask 全屏遮罩保持深色不覆盖） */
+/* 弹窗选择器：实心底，避免半透明玻璃透出页面内容 */
+.theme-light .picker-sheet {
+  background: #ffffff;
+  border: 1px solid var(--color-divider);
+  box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.12);
+}
+
 .theme-light .picker-title {
   color: var(--color-text-primary);
 }

@@ -31,37 +31,66 @@ function sortedParamsString(params) {
   return JSON.stringify(sorted)
 }
 
-async function readLaunchResultsFromCache(urlPath, baseParams) {
+/** 只读主缓存文档（1 次读），批量分片文档留给 readResultsFromCacheDoc 按需读取 */
+async function readMainCacheDoc(urlPath, baseParams) {
   const sortedParams = sortedParamsString(baseParams)
   const cacheCollection = db.collection(SPACE_DEVS_CACHE)
-  let cacheKey = null
-  let doc = null
 
   for (const sfx of CANDIDATE_SUFFIXES) {
     const key = `api_cache_${urlPath}_${sortedParams}${sfx}`
     const d = await cacheCollection.doc(key).get().catch(() => null)
     if (d && d.data && d.data.data) {
-      cacheKey = key
-      doc = d
-      break
+      return { cacheKey: key, doc: d }
     }
   }
-  if (!doc || !doc.data || !doc.data.data) return []
+  return { cacheKey: null, doc: null }
+}
 
+/** 主文档的代际签名：缓存内容更新时间戳变化 = 需要重新全量同步 */
+function cacheGenerationSignature(cacheKey, doc) {
+  const wrap = (doc && doc.data) || {}
+  const updatedAtMs =
+    Number(wrap.updatedAtMs) ||
+    Number(wrap.timestamp) ||
+    (wrap.updatedAt instanceof Date ? wrap.updatedAt.getTime() : Number(wrap.updatedAt)) ||
+    0
+  return `${cacheKey}:${updatedAtMs}`
+}
+
+async function readResultsFromCacheDoc(cacheKey, doc) {
+  if (!doc || !doc.data || !doc.data.data) return []
+  const cacheCollection = db.collection(SPACE_DEVS_CACHE)
   const apiData = doc.data.data
   let allResults = []
 
-  if (apiData.isBatch) {
-    let batchIdx = 0
-    while (batchIdx < 20) {
-      const batchKey = `${cacheKey}_batch_${batchIdx}`
-      const batchDoc = await cacheCollection.doc(batchKey).get().catch(() => null)
-      if (!batchDoc || !batchDoc.data || !batchDoc.data.data) break
-      const batchData = batchDoc.data.data
-      if (batchData.results && Array.isArray(batchData.results)) {
-        allResults = allResults.concat(batchData.results)
+  // 分批标记两种历史写法：主文档 isBatched + batchKeys（_legacy 写法）/ isBatch（旧写法）
+  const isBatched = !!(apiData.isBatched || apiData.isBatch) ||
+    (Array.isArray(apiData.results) && apiData.results.length === 0 && Number(apiData.count) > 0)
+
+  if (isBatched) {
+    const batchKeys = Array.isArray(apiData.batchKeys) && apiData.batchKeys.length
+      ? apiData.batchKeys
+      : null
+    if (batchKeys) {
+      for (const batchKey of batchKeys.slice(0, 20)) {
+        const batchDoc = await cacheCollection.doc(String(batchKey)).get().catch(() => null)
+        const batchData = batchDoc && batchDoc.data && batchDoc.data.data
+        if (batchData && Array.isArray(batchData.results)) {
+          allResults = allResults.concat(batchData.results)
+        }
       }
-      batchIdx++
+    } else {
+      let batchIdx = 0
+      while (batchIdx < 20) {
+        const batchKey = `${cacheKey}_batch_${batchIdx}`
+        const batchDoc = await cacheCollection.doc(batchKey).get().catch(() => null)
+        if (!batchDoc || !batchDoc.data || !batchDoc.data.data) break
+        const batchData = batchDoc.data.data
+        if (batchData.results && Array.isArray(batchData.results)) {
+          allResults = allResults.concat(batchData.results)
+        }
+        batchIdx++
+      }
     }
   } else if (apiData.results && Array.isArray(apiData.results)) {
     allResults = apiData.results
@@ -229,22 +258,68 @@ async function readExistingLaunchDataMap() {
   }
 }
 
+// 代际标记文档：记录上次同步时源缓存的签名，源缓存没更新就跳过全量同步。
+// 源缓存最多每小时被 syncSpaceDevsData 刷新一次，而本函数每 10 分钟触发，
+// 大多数 tick 只需 2 次读（主缓存文档 + 标记文档）即可确认无事可做。
+const SYNC_META_DOC_ID = '_sync_meta'
+// 签名未变时也强制重同步的最大间隔：兜底清理已过期任务 / 标记文档异常
+const FORCE_RESYNC_INTERVAL_MS = 3 * 60 * 60 * 1000
+
+async function readSyncMeta() {
+  try {
+    const res = await db.collection(LAUNCH_DATA_COLLECTION).doc(SYNC_META_DOC_ID).get()
+    return (res && res.data) || null
+  } catch (e) {
+    return null
+  }
+}
+
+async function writeSyncMeta(meta) {
+  try {
+    await db.collection(LAUNCH_DATA_COLLECTION).doc(SYNC_META_DOC_ID).set({ data: meta })
+  } catch (e) {}
+}
+
 async function syncLaunchDataFromCache() {
   const nowMs = Date.now()
   const stats = { upserted: 0, unchanged: 0, skipped: 0, removed: 0, total: 0 }
 
-  const raw = await readLaunchResultsFromCache(UPCOMING_PATH, UPCOMING_PARAMS)
+  const { cacheKey, doc } = await readMainCacheDoc(UPCOMING_PATH, UPCOMING_PARAMS)
+  if (!doc) {
+    return { success: true, message: 'no upcoming cache doc', ...stats }
+  }
+
+  // 代际比对：源缓存签名与上次同步一致且未超强制间隔 → 跳过批量读取与写库
+  const signature = cacheGenerationSignature(cacheKey, doc)
+  const meta = await readSyncMeta()
+  if (
+    meta &&
+    meta.signature === signature &&
+    Number(meta.lastSyncAtMs) > 0 &&
+    nowMs - Number(meta.lastSyncAtMs) < FORCE_RESYNC_INTERVAL_MS
+  ) {
+    return {
+      success: true,
+      message: 'cache generation unchanged, sync skipped',
+      skippedByGeneration: true,
+      ...stats,
+      total: Number(meta.total) || 0
+    }
+  }
+
+  const raw = await readResultsFromCacheDoc(cacheKey, doc)
   const upcoming = (raw || []).filter(function (l) {
     return isUpcomingLaunch(l, nowMs)
   })
   stats.total = upcoming.length
 
   if (upcoming.length === 0) {
+    await writeSyncMeta({ signature, lastSyncAtMs: nowMs, total: 0 })
     return { success: true, message: 'no upcoming launches in cache', ...stats }
   }
 
-  // 每 5 分钟定时触发一次：绝大多数任务数据没有变化，
-  // 先用 1 次查询读出现状，只对有实际变化的文档写库，避免每轮 ~100 次盲写
+  // 绝大多数任务数据没有变化：先用 1 次查询读出现状，
+  // 只对有实际变化的文档写库，避免每轮 ~100 次盲写
   const existingMap = await readExistingLaunchDataMap()
   const activeIds = new Set()
 
@@ -272,6 +347,8 @@ async function syncLaunchDataFromCache() {
   }
 
   stats.removed = await removeStaleLaunchData(activeIds, nowMs)
+
+  await writeSyncMeta({ signature, lastSyncAtMs: nowMs, total: stats.total })
 
   return {
     success: true,

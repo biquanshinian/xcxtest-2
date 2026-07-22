@@ -298,16 +298,57 @@ page {
   margin-top: 24rpx;
 }
 
-.event-media-image,
+/* ≤4 张一排均分；>4 张按 4 列换行。宽高由 wrap 控制（image 不支持 height:auto） */
+.event-media-image-wrap {
+  position: relative;
+  flex-shrink: 0;
+  /* 必须 content-box：border-box + height:0 会吃掉 padding-bottom，格子塌成一条线 */
+  box-sizing: content-box;
+  border-radius: 18rpx;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.04);
+  height: 0;
+}
+
+.event-media-list--n1 .event-media-image-wrap {
+  width: 62%;
+  max-width: 420rpx;
+  padding-bottom: 46.5%; /* ≈ 4:3 of 62% width */
+}
+
+.event-media-list--n2 .event-media-image-wrap {
+  width: calc((100% - 12rpx) / 2);
+  padding-bottom: calc((100% - 12rpx) / 2);
+}
+
+.event-media-list--n3 .event-media-image-wrap {
+  width: calc((100% - 24rpx) / 3);
+  padding-bottom: calc((100% - 24rpx) / 3);
+}
+
+.event-media-list--n4 .event-media-image-wrap {
+  width: calc((100% - 36rpx) / 4);
+  padding-bottom: calc((100% - 36rpx) / 4);
+}
+
+.event-media-image {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
 .event-media-video,
 .event-media-video-wrap {
   width: 100%;
+  flex: 0 0 100%;
   border-radius: 18rpx;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.04);
 }
 
-.event-media-image,
 .event-media-video-thumb,
 .event-media-video {
   width: 100%;
@@ -493,6 +534,92 @@ page {
 
 .event-share-sheet-btn--cancel {
   color: rgba(255, 255, 255, 0.72);
+}
+
+/* 事件更新：多图选择保存原图 */
+.event-image-save-mask {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 1200;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.event-image-save-sheet {
+  width: 100%;
+  max-height: 72vh;
+  background: #1a1d24;
+  border-radius: 28rpx 28rpx 0 0;
+  padding: 28rpx 28rpx calc(28rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+.event-image-save-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20rpx;
+}
+.event-image-save-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+}
+.event-image-save-select-all {
+  font-size: 26rpx;
+  color: #55a3ff;
+  padding: 8rpx 4rpx;
+}
+.event-image-save-scroll {
+  max-height: 48vh;
+}
+.event-image-save-grid {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0 -8rpx;
+}
+.event-image-save-item {
+  width: 33.33%;
+  padding: 8rpx;
+  box-sizing: border-box;
+  position: relative;
+}
+.event-image-save-thumb {
+  width: 100%;
+  height: 210rpx;
+  border-radius: 12rpx;
+  background: rgba(255, 255, 255, 0.06);
+  display: block;
+}
+.event-image-save-item.is-selected .event-image-save-thumb {
+  outline: 3rpx solid #1677ff;
+  outline-offset: -3rpx;
+}
+.event-image-save-check {
+  position: absolute;
+  right: 18rpx;
+  top: 18rpx;
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 50%;
+  background: #1677ff;
+  color: #fff;
+  font-size: 22rpx;
+  line-height: 40rpx;
+  text-align: center;
+}
+.event-image-save-actions {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 24rpx;
+}
+.event-image-save-actions .event-share-sheet-btn {
+  flex: 1;
 }
 
 /* ── 星舰飞行检查清单（与进度页 NSF 区块同数据，详情走本页壳层） ── */
@@ -1517,7 +1644,7 @@ page {
 }
 
 /* —— 媒体占位底（图片/视频加载前）—— */
-.theme-light .event-media-image,
+.theme-light .event-media-image-wrap,
 .theme-light .event-media-video,
 .theme-light .event-media-video-wrap {
   background: rgba(0, 0, 0, 0.04);
@@ -1556,6 +1683,16 @@ page {
 
 .theme-light .event-share-sheet-btn--cancel {
   color: var(--color-text-secondary);
+}
+
+.theme-light .event-image-save-sheet {
+  background: rgba(255, 255, 255, 0.98);
+}
+.theme-light .event-image-save-title {
+  color: var(--color-text-primary);
+}
+.theme-light .event-image-save-thumb {
+  background: rgba(0, 0, 0, 0.04);
 }
 
 /* —— NSF 星舰飞行检查清单 —— */

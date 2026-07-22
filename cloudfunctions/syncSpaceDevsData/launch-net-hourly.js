@@ -9,8 +9,8 @@
  *     例外：upcoming 缓存显示近窗发射（未来 48h / 过去 2h）时仍跑探针，保证 NET/scrub 及时
  *   - 有变化才 patch 已有 slim_v5 缓存的 net/window/status，并刷新 timestamp
  *     让客户端 2 分钟后台云库比对能吃到新时间；无变化则零写库
- *   - 探针结果里若出现终态(3/4/7/9)：写入 recent_settled + 就地修正 previous 缓存 status
- *     （0 额外 LL2，避免历史列表长期卡在「待发射」）
+ *   - 探针结果里若出现终态(3/4/7/9)：写入 recent_settled + 就地修正/插入 previous 缓存
+ *     （0 额外 LL2；插入时优先复用 upcoming slim 完整行，避免历史列表空窗）
  *   - 飞行中(6) 也写入 recent_settled（供倒计时跨会话 settle）；合并时终态不可被飞行中降级
  *   - live status 缓存按 id merge 写入，避免被到点查询覆盖掉探针 30 条
  *
@@ -21,7 +21,9 @@ const { enrichLaunchNetRecovery } = require('./ll2-net-recovery-enrich.js')
 const { createLaunchStatusStore } = require('./launch-status-store.js')
 const {
   pruneStaleUpcomingResults: projectUpcomingWithoutSettled,
-  collectTerminalFromCachedUpcoming: collectCachedTerminalBeforePrune
+  collectTerminalFromCachedUpcoming: collectCachedTerminalBeforePrune,
+  stubFromTerminalEntry,
+  attachLaunchStubsToTerminalEntries
 } = require('./launch-net-state.js')
 const launchStatusStore = createLaunchStatusStore(db)
 let _launchStatusStoreEnsured = false
@@ -32,8 +34,14 @@ async function ensureLaunchStatusStore() {
   try { await db.createCollection('launch_status') } catch (e) {}
   try {
     const legacy = await db.collection(LIVE_STATUS_CACHE_COL).doc('_recent_settled').get()
-    const rows = legacy && legacy.data && Array.isArray(legacy.data.data) ? legacy.data.data : []
-    if (rows.length) await launchStatusStore.upsertMany(rows, { source: 'migration' })
+    // migratedAtMs 标记：迁移只需成功一次，避免每次冷启动都对全部行重放 upsert 读写
+    if (legacy && legacy.data && !legacy.data.migratedAtMs) {
+      const rows = Array.isArray(legacy.data.data) ? legacy.data.data : []
+      if (rows.length) await launchStatusStore.upsertMany(rows, { source: 'migration' })
+      await db.collection(LIVE_STATUS_CACHE_COL).doc('_recent_settled').update({
+        data: { migratedAtMs: Date.now() }
+      }).catch(() => {})
+    }
   } catch (e) {}
 }
 
@@ -128,6 +136,28 @@ function isInLaunchTimeWindow(cachedResults, nowMs) {
   return false
 }
 
+/**
+ * upcoming 已 prune 后，用 launch_status 近窗终态判断是否仍需在全量同窗跑探针，
+ * 否则刚成功任务可能既不在 upcoming、又赶不上 :00 全量，:30 也被跳过。
+ * 回溯用 6h，覆盖「成功 → 下个整点全量小时」的最长间隔。
+ */
+async function hasRecentTerminalSettlement(nowMs) {
+  const now = nowMs || Date.now()
+  const behindMs = 6 * 60 * 60 * 1000
+  try {
+    const rows = await launchStatusStore.getRecent(20)
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]
+      if (!row || !isTerminalStatus(row.status)) continue
+      const netMs = row.net ? new Date(row.net).getTime() : 0
+      const obsMs = Number(row.observedAtMs || row.settledAtMs) || 0
+      if (Number.isFinite(netMs) && netMs >= now - behindMs && netMs <= now) return true
+      if (obsMs >= now - behindMs) return true
+    }
+  } catch (e) {}
+  return false
+}
+
 function statusEqual(a, b) {
   const aid = a && a.id != null ? Number(a.id) : null
   const bid = b && b.id != null ? Number(b.id) : null
@@ -179,9 +209,45 @@ function preferLiveStatusRow(incoming, existing) {
   return incoming
 }
 
-/** 只有权威终态才能从 upcoming 缓存剔除；“不在探针前 30 条”不是状态证据。 */
-function pruneStaleUpcomingResults(results, liveById) {
-  return projectUpcomingWithoutSettled(results, liveById)
+/** 权威终态可剔除；另可用 launch_status 终态剔除 hide_recent 后残留的旧 Go。 */
+function pruneStaleUpcomingResults(results, liveById, extraTerminalIds) {
+  return projectUpcomingWithoutSettled(results, liveById, extraTerminalIds)
+}
+
+/**
+ * 缓存里过点、且本轮探针未带回的 id → 查 launch_status，终态则加入可剔除集合。
+ * 覆盖：Success 后 hide_recent 立刻离表，探针再也看不到，旧 Go 会永久卡在 upcoming。
+ */
+async function collectTerminalIdsFromStatusStore(cachedResults, liveById, nowMs) {
+  const ids = []
+  const seen = new Set()
+  const now = Number(nowMs) || Date.now()
+  const rows = Array.isArray(cachedResults) ? cachedResults : []
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    if (!row || row.id == null) continue
+    const id = String(row.id)
+    if (seen.has(id) || (liveById && liveById.has(id))) continue
+    if (isTerminalStatus(row.status)) continue
+    const netMs = row.net ? new Date(row.net).getTime() : NaN
+    if (!Number.isFinite(netMs) || netMs > now) continue
+    seen.add(id)
+    ids.push(id)
+    if (ids.length >= 40) break
+  }
+  if (!ids.length) return new Set()
+  try {
+    await ensureLaunchStatusStore()
+    const stored = await launchStatusStore.getByIds(ids)
+    const out = new Set()
+    for (let i = 0; i < (stored || []).length; i++) {
+      const s = stored[i]
+      if (s && s.id && isTerminalStatus(s.status)) out.add(String(s.id))
+    }
+    return out
+  } catch (e) {
+    return new Set()
+  }
 }
 
 /**
@@ -559,43 +625,49 @@ function patchPreviousStatusInPlace(results, terminalById) {
   return patched
 }
 
-function stubFromTerminalEntry(term) {
-  return {
-    id: term.id,
-    name: term.name || '',
-    net: term.net || '',
-    window_start: term.windowStart || term.net || '',
-    window_end: term.windowEnd || '',
-    status: term.status
-      ? { id: term.status.id, name: term.status.name || '', abbrev: term.status.abbrev || '' }
-      : null
-  }
-}
-
 /**
  * 将终态同步进 previous slim 缓存（有则改 status，无则插入首批头部）。
+ * 必须在 upcoming prune 后仍能落库，否则 hide_recent_previous 会让任务两边都空。
  */
 async function syncTerminalIntoPreviousCache(terminalEntries) {
-  return {
-    patched: 0,
-    inserted: 0,
-    docsWritten: 0,
-    skipped: Array.isArray(terminalEntries) && terminalEntries.length ? 'launch_status_overlay' : 'empty'
+  if (!Array.isArray(terminalEntries) || !terminalEntries.length) {
+    return { patched: 0, inserted: 0, docsWritten: 0, skipped: 'empty' }
   }
-  /*
+
   const terminalById = new Map()
   for (let i = 0; i < terminalEntries.length; i++) {
     const e = terminalEntries[i]
-    if (e && e.id) terminalById.set(String(e.id), e)
+    if (e && e.id && isTerminalStatus(e.status)) terminalById.set(String(e.id), e)
+  }
+  if (!terminalById.size) {
+    return { patched: 0, inserted: 0, docsWritten: 0, skipped: 'no_terminal' }
   }
 
   const cached = await loadPreviousCacheDoc()
-  if (!cached) return { patched: 0, docsWritten: 0, skipped: 'previous_cache_miss' }
+  if (!cached) return { patched: 0, inserted: 0, docsWritten: 0, skipped: 'previous_cache_miss' }
 
   const loaded = await loadAllPreviousResults(cached.cacheKey, cached.payload)
-  if (!loaded.results.length && !(loaded.batched && loaded.batches && loaded.batches.length)) {
-    return { patched: 0, docsWritten: 0, skipped: 'previous_cache_empty', cacheKey: cached.cacheKey }
+  // 分批主文档在、批次全丢：重建空 batch0，否则终态永远插不进
+  if (loaded.batched && (!loaded.batches || !loaded.batches.length)) {
+    loaded.batches = [
+      {
+        batchKey: `${cached.cacheKey}_batch_0`,
+        wrapper: {
+          timestamp: Date.now(),
+          expireAt: Date.now() + CORE_LIST_TTL_MS,
+          data: { results: [], count: 0 }
+        },
+        payload: { results: [], count: 0 },
+        results: []
+      }
+    ]
+    loaded.results = []
   }
+  // 整包空 results[] 允许插入；只有结构不可用才跳过
+  if (!loaded.batched && !Array.isArray(loaded.results)) {
+    return { patched: 0, inserted: 0, docsWritten: 0, skipped: 'previous_cache_empty', cacheKey: cached.cacheKey }
+  }
+  if (!loaded.batched) loaded.results = loaded.results || []
 
   let patched = 0
   let inserted = 0
@@ -623,22 +695,44 @@ async function syncTerminalIntoPreviousCache(terminalEntries) {
     }
     const missing = []
     terminalById.forEach((term, id) => {
-      if (!foundIds.has(id) && isTerminalStatus(term.status)) missing.push(term)
+      if (!foundIds.has(id)) missing.push(term)
     })
     if (missing.length && loaded.batches[0]) {
-      const stubs = missing.map(stubFromTerminalEntry)
-      const batch0 = loaded.batches[0]
-      batch0.results = stubs.concat(batch0.results || [])
-      batch0.payload.results = batch0.results
-      await writeCacheWrapper(batch0.batchKey, {
-        ...batch0.wrapper,
-        data: batch0.payload
-      })
-      docsWritten++
-      inserted = stubs.length
-      loaded.results = stubs.concat(loaded.results)
+      const existingIds = new Set(
+        (loaded.batches[0].results || [])
+          .map((r) => (r && r.id != null ? String(r.id) : ''))
+          .filter(Boolean)
+      )
+      const stubs = missing
+        .map(stubFromTerminalEntry)
+        .filter((s) => s && s.id && !existingIds.has(String(s.id)))
+        .sort((a, b) => {
+          const am = a.net ? new Date(a.net).getTime() : 0
+          const bm = b.net ? new Date(b.net).getTime() : 0
+          return bm - am
+        })
+      if (stubs.length) {
+        const batch0 = loaded.batches[0]
+        batch0.results = stubs.concat(batch0.results || [])
+        batch0.payload.results = batch0.results
+        if (typeof batch0.payload.count === 'number') {
+          batch0.payload.count = Number(batch0.payload.count) + stubs.length
+        }
+        await writeCacheWrapper(batch0.batchKey, {
+          ...batch0.wrapper,
+          data: batch0.payload
+        })
+        docsWritten++
+        inserted = stubs.length
+        loaded.results = stubs.concat(loaded.results)
+      }
     }
     if (patched || inserted) {
+      // 主文档 count 供分页/诊断；插入发生在 batch0 时同步抬一下，避免 hasMore 误判
+      if (inserted && cached.payload && typeof cached.payload.count === 'number') {
+        cached.payload.count = Number(cached.payload.count) + inserted
+        cached.wrapper = { ...cached.wrapper, data: cached.payload }
+      }
       await writeCacheWrapper(cached.cacheKey, cached.wrapper)
       docsWritten++
     }
@@ -646,24 +740,119 @@ async function syncTerminalIntoPreviousCache(terminalEntries) {
     patched = patchPreviousStatusInPlace(loaded.results, terminalById)
     const missing = []
     terminalById.forEach((term, id) => {
-      if (!foundIds.has(id) && isTerminalStatus(term.status)) missing.push(term)
+      if (!foundIds.has(id)) missing.push(term)
     })
     if (missing.length) {
-      const stubs = missing.map(stubFromTerminalEntry)
-      loaded.results = stubs.concat(loaded.results)
-      inserted = stubs.length
+      const existingIds = new Set(
+        (loaded.results || [])
+          .map((r) => (r && r.id != null ? String(r.id) : ''))
+          .filter(Boolean)
+      )
+      const stubs = missing
+        .map(stubFromTerminalEntry)
+        .filter((s) => s && s.id && !existingIds.has(String(s.id)))
+        .sort((a, b) => {
+          const am = a.net ? new Date(a.net).getTime() : 0
+          const bm = b.net ? new Date(b.net).getTime() : 0
+          return bm - am
+        })
+      if (stubs.length) {
+        loaded.results = stubs.concat(loaded.results)
+        inserted = stubs.length
+      }
     }
     if (patched || inserted) {
+      const nextPayload = { ...cached.payload, results: loaded.results }
+      if (inserted && typeof nextPayload.count === 'number') {
+        nextPayload.count = Number(nextPayload.count) + inserted
+      }
       await writeCacheWrapper(cached.cacheKey, {
         ...cached.wrapper,
-        data: { ...cached.payload, results: loaded.results }
+        data: nextPayload
       })
       docsWritten++
     }
   }
 
   return { patched, inserted, docsWritten, cacheKey: cached.cacheKey }
-  */
+}
+
+/** previous 补写回溯窗：与前端瘦卡占位一致，覆盖「错过首窗 / prune 后写库失败」 */
+const PREVIOUS_BACKFILL_MAX_AGE_MS = 48 * 60 * 60 * 1000
+
+/**
+ * 探针 list / upcoming 已看不到终态时，用 launch_status 近窗终态补写 previous。
+ * 0 额外 LL2；idempotent（已在 previous 则只 patch / 跳过插入）。
+ */
+async function backfillPreviousFromRecentLaunchStatus(nowMs, alreadySyncedIds) {
+  const now = nowMs || Date.now()
+  const skip = alreadySyncedIds instanceof Set ? alreadySyncedIds : new Set()
+  let rows
+  try {
+    rows = await launchStatusStore.getRecent(40)
+  } catch (e) {
+    return { patched: 0, inserted: 0, skipped: 'launch_status_read_fail', error: e.message || String(e) }
+  }
+  const entries = []
+  for (let i = 0; i < (rows || []).length; i++) {
+    const row = rows[i]
+    if (!row || row.id == null || !isTerminalStatus(row.status)) continue
+    const id = String(row.id)
+    if (skip.has(id)) continue
+    const netMs = row.net ? new Date(row.net).getTime() : NaN
+    const obsMs = Number(row.observedAtMs || row.settledAtMs) || 0
+    // 有 net 必须以 NET 近 48h 为准，禁止仅靠 observedAt 把旧终态捞回 previous 头部
+    if (Number.isFinite(netMs)) {
+      if (netMs < now - PREVIOUS_BACKFILL_MAX_AGE_MS || netMs > now + 60 * 60 * 1000) continue
+    } else if (!(obsMs >= now - PREVIOUS_BACKFILL_MAX_AGE_MS)) {
+      continue
+    }
+    entries.push({
+      id,
+      name: typeof row.name === 'string' ? row.name : '',
+      status: {
+        id: row.status.id,
+        name: (row.status && row.status.name) || '',
+        abbrev: (row.status && row.status.abbrev) || ''
+      },
+      net: row.net || '',
+      windowStart: row.windowStart || '',
+      windowEnd: row.windowEnd || '',
+      settledAtMs: obsMs || now,
+      source: 'launch_status_previous_backfill'
+    })
+  }
+  if (!entries.length) {
+    return { patched: 0, inserted: 0, skipped: 'no_backfill_candidates' }
+  }
+  return syncTerminalIntoPreviousCache(entries)
+}
+
+/**
+ * 本轮探针终态写 previous；再从 launch_status 补漏（写库失败或 hide_recent 后空 entries）。
+ */
+async function syncPreviousAfterProbe(terminalEntries, nowMs) {
+  let primary = { patched: 0, inserted: 0, docsWritten: 0 }
+  const ids = new Set()
+  if (Array.isArray(terminalEntries) && terminalEntries.length) {
+    for (let i = 0; i < terminalEntries.length; i++) {
+      if (terminalEntries[i] && terminalEntries[i].id) ids.add(String(terminalEntries[i].id))
+    }
+    try {
+      primary = await syncTerminalIntoPreviousCache(terminalEntries)
+    } catch (e) {
+      primary = { patched: 0, inserted: 0, docsWritten: 0, error: e.message || String(e) }
+    }
+  }
+  let backfill = { skipped: true }
+  try {
+    // 本轮已成功落库的 id 可跳过；失败/跳过则允许 backfill 用 launch_status 重试
+    const skipIds = primary.error || primary.skipped ? new Set() : ids
+    backfill = await backfillPreviousFromRecentLaunchStatus(nowMs, skipIds)
+  } catch (e) {
+    backfill = { patched: 0, inserted: 0, error: e.message || String(e) }
+  }
+  return { ...primary, backfill }
 }
 
 /** 仅更新已有 launch_data 文档的时间字段，供提醒扫窗；不存在则跳过 */
@@ -742,6 +931,10 @@ async function runLaunchNetHourly(options) {
         const loaded = await loadAllUpcomingResults(cached.cacheKey, cached.payload)
         inWindow = isInLaunchTimeWindow(loaded && loaded.results, startTime)
       }
+      // upcoming 已 prune 掉刚成功任务后，窗口判定会假阴性；用 launch_status 近窗终态兜底
+      if (!inWindow) {
+        inWindow = await hasRecentTerminalSettlement(startTime)
+      }
     } catch (e) {
       inWindow = false
     }
@@ -786,15 +979,9 @@ async function runLaunchNetHourly(options) {
 
   const cached = await loadUpcomingCacheDoc()
   if (!cached) {
+    attachLaunchStubsToTerminalEntries(terminalEntries, null, liveById)
     const settledRes = await mergeRecentSettled(terminalEntries.concat(inflightEntries))
-    let previousPatch = { patched: 0, docsWritten: 0, skipped: 'upcoming_cache_miss' }
-    if (terminalEntries.length) {
-      try {
-        previousPatch = await syncTerminalIntoPreviousCache(terminalEntries)
-      } catch (e) {
-        previousPatch = { patched: 0, docsWritten: 0, error: e.message || String(e) }
-      }
-    }
+    const previousPatch = await syncPreviousAfterProbe(terminalEntries, startTime)
     let missionStatsInvalidate = { skipped: true }
     if (terminalEntries.length) {
       try {
@@ -821,15 +1008,9 @@ async function runLaunchNetHourly(options) {
 
   const loaded = await loadAllUpcomingResults(cached.cacheKey, cached.payload)
   if (!loaded.results.length) {
+    attachLaunchStubsToTerminalEntries(terminalEntries, null, liveById)
     const settledRes = await mergeRecentSettled(terminalEntries.concat(inflightEntries))
-    let previousPatch = { patched: 0, docsWritten: 0, skipped: 'upcoming_cache_empty' }
-    if (terminalEntries.length) {
-      try {
-        previousPatch = await syncTerminalIntoPreviousCache(terminalEntries)
-      } catch (e) {
-        previousPatch = { patched: 0, docsWritten: 0, error: e.message || String(e) }
-      }
-    }
+    const previousPatch = await syncPreviousAfterProbe(terminalEntries, startTime)
     let missionStatsInvalidate = { skipped: true }
     if (terminalEntries.length) {
       try {
@@ -879,13 +1060,15 @@ async function runLaunchNetHourly(options) {
       changes = changes.concat(batchChanges)
     }
     let mergedResults = loaded.batches.reduce((all, b) => all.concat(b.results), [])
-    // 必须在 prune 前采集：终态行一旦剔除，本轮就再也无法落入权威状态库。
+    // 必须在 prune 前采集：终态行一旦剔除，本轮就再也无法落入权威状态库 / previous stub。
     const batchedTerminal = collectTerminalFromCachedUpcoming(mergedResults, liveById, terminalIds)
     if (batchedTerminal.length) {
       terminalEntries = terminalEntries.concat(batchedTerminal)
       batchedTerminal.forEach((entry) => terminalIds.add(entry.id))
     }
-    const pruneRes = pruneStaleUpcomingResults(mergedResults, liveById)
+    attachLaunchStubsToTerminalEntries(terminalEntries, mergedResults, liveById)
+    const statusTerminalIds = await collectTerminalIdsFromStatusStore(mergedResults, liveById, startTime)
+    const pruneRes = pruneStaleUpcomingResults(mergedResults, liveById, statusTerminalIds)
     upcomingPruned = pruneRes.pruned
     mergedResults = pruneRes.results
     loaded.results = mergedResults
@@ -921,7 +1104,9 @@ async function runLaunchNetHourly(options) {
       terminalEntries = terminalEntries.concat(directTerminal)
       directTerminal.forEach((entry) => terminalIds.add(entry.id))
     }
-    const pruneRes = pruneStaleUpcomingResults(loaded.results, liveById)
+    attachLaunchStubsToTerminalEntries(terminalEntries, loaded.results, liveById)
+    const statusTerminalIds = await collectTerminalIdsFromStatusStore(loaded.results, liveById, startTime)
+    const pruneRes = pruneStaleUpcomingResults(loaded.results, liveById, statusTerminalIds)
     upcomingPruned = pruneRes.pruned
     loaded.results = pruneRes.results
     if (changes.length || netRecoveryPatched || upcomingPruned.length) {
@@ -977,15 +1162,11 @@ async function runLaunchNetHourly(options) {
     }
   }
 
+  // changes 补进来的终态可能还没有 stub；upcoming 已 prune，这里用探针 list 兜底
+  attachLaunchStubsToTerminalEntries(terminalEntries, null, liveById)
+
   const settledRes = await mergeRecentSettled(terminalEntries.concat(inflightEntries))
-  let previousPatch = { patched: 0, docsWritten: 0 }
-  if (terminalEntries.length) {
-    try {
-      previousPatch = await syncTerminalIntoPreviousCache(terminalEntries)
-    } catch (e) {
-      previousPatch = { patched: 0, docsWritten: 0, error: e.message || String(e) }
-    }
-  }
+  const previousPatch = await syncPreviousAfterProbe(terminalEntries, startTime)
 
   // 终态任务：失效并重算详情页发射统计缓存（含本次口径，对齐序号徽章）
   let missionStatsInvalidate = { skipped: true }
@@ -1041,5 +1222,11 @@ module.exports = {
   isInLaunchTimeWindow,
   pruneStaleUpcomingResults,
   collectTerminalFromCachedUpcoming,
+  stubFromTerminalEntry,
+  attachLaunchStubsToTerminalEntries,
+  syncTerminalIntoPreviousCache,
+  backfillPreviousFromRecentLaunchStatus,
+  syncPreviousAfterProbe,
+  PREVIOUS_BACKFILL_MAX_AGE_MS,
   PROBE_LIMIT
 }

@@ -737,12 +737,17 @@ function isMembershipEnabled() {
   if (_membershipEnabledInflight) {
     return _membershipEnabledInflight
   }
-  // 云端查询
-  var db = wx.cloud.database()
-  _membershipEnabledInflight = db.collection('global_config').where({ _id: 'main' }).limit(1).get()
-    .then(function (res) {
-      var cfg = res.data && res.data[0]
-      var enabled = !!(cfg && cfg.enableMembership)
+  // 走 feature-flags 的 global_config/main 共享缓存（5 分钟 + inflight 去重），
+  // 与其他全局开关共用同一次读库
+  _membershipEnabledInflight = require('./feature-flags.js').fetchMainConfig()
+    .then(function (cfg) {
+      if (!cfg || !cfg._id) {
+        // 读库失败（fetchMainConfig 内部吞错返回 {}）：默认关闭，不写本地缓存
+        _membershipEnabled = false
+        _membershipEnabledTs = Date.now()
+        return false
+      }
+      var enabled = !!cfg.enableMembership
       _membershipEnabled = enabled
       _membershipEnabledTs = Date.now()
       try { storageCache.persistAsync(SWITCH_CACHE_KEY, { value: enabled, ts: Date.now() }) } catch (e) {}

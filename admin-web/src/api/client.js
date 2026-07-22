@@ -461,6 +461,9 @@ export const api = {
   deleteLaunchVote(id) {
     return request(`/launch-votes/${id}`, { method: 'DELETE' })
   },
+  rebuildLaunchVoteSettle(body = {}) {
+    return request('/launch-votes/rebuild-settle', { method: 'POST', body })
+  },
   // 月愿计划
   listLunarWishes(query) {
     return request('/lunar-wishes/list', { method: 'GET', query })

@@ -114,76 +114,17 @@
         </view>
       </view>
 
-    <!-- 新增：太空轨道数据中心系统（科幻入口） -->
-    <view class="odc-section monitor-block">
-      <view class="section-title section-title--orbital">
-        <text>太空轨道数据中心</text>
-      </view>
-      <view class="orbital-card glass-card card-hover" bindtap="openOrbitalDataCenter">
-        <video
-          wx:if="{{orbitalCardBgIsVideo && orbitalCardBg}}"
-          class="orbital-card__bg-img"
-          src="{{orbitalCardBg}}"
-          object-fit="cover"
-          autoplay="{{true}}"
-          loop="{{true}}"
-          muted="{{true}}"
-          show-center-play-btn="{{false}}"
-          show-play-btn="{{false}}"
-          controls="{{false}}"
-          enable-progress-gesture="{{false}}"
-          show-fullscreen-btn="{{false}}"
-          show-mute-btn="{{false}}"
-          binderror="onOrbitalBgError"
-        ></video>
-        <image wx:elif="{{orbitalCardBg}}" class="orbital-card__bg-img" src="{{orbitalCardBg}}" mode="aspectFill" lazy-load="true" binderror="onOrbitalBgError"></image>
-        <view class="orbital-card__bg-mask"></view>
-        <view class="orbital-card__bg">
-          <view class="orbital-card__orbit orbital-card__orbit--1">
-            <view class="orbital-card__orbit-dot orbital-card__orbit-dot--green"></view>
-          </view>
-          <view class="orbital-card__orbit orbital-card__orbit--2">
-            <view class="orbital-card__orbit-dot orbital-card__orbit-dot--blue"></view>
-          </view>
-          <view class="orbital-card__orbit orbital-card__orbit--3">
-            <view class="orbital-card__orbit-dot orbital-card__orbit-dot--red"></view>
-          </view>
-          <view class="orbital-card__core"></view>
-        </view>
-        <view class="orbital-card__content">
-          <view class="orbital-card__head">
-            <view class="orbital-card__badge">
-              <view class="orbital-card__badge-dot"></view>
-              <text class="orbital-card__badge-text">FUTURE TECH · BETA</text>
-            </view>
-          </view>
-          <text class="orbital-card__title">Orbital Data Center System</text>
-          <text class="orbital-card__title-cn">太空轨道数据中心系统</text>
-          <text class="orbital-card__desc">SpaceX 下一代轨道战略</text>
-          <view class="orbital-card__metrics">
-            <view class="orbital-card__metric">
-              <text class="orbital-card__metric-value">{{orbitalLiveStats.activeNodes}}</text>
-              <text class="orbital-card__metric-label">在轨节点</text>
-            </view>
-            <view class="orbital-card__metric-divider"></view>
-            <view class="orbital-card__metric">
-              <text class="orbital-card__metric-value">{{orbitalLiveStats.bandwidth}}</text>
-              <text class="orbital-card__metric-label">数据吞吐</text>
-            </view>
-            <view class="orbital-card__metric-divider"></view>
-            <view class="orbital-card__metric">
-              <text class="orbital-card__metric-value">{{orbitalLiveStats.uptime}}</text>
-              <text class="orbital-card__metric-label">系统在线</text>
-            </view>
-          </view>
-        </view>
-        <view class="orbital-card__cta {{isProUser ? 'pro-gold-frame' : ''}}">
-          <text class="orbital-card__cta-text">{{orbitalCardCta || '进入指挥控制台'}}</text>
-          <text class="orbital-card__cta-pro" wx:if="{{!isProUser}}"></text>
-          <view class="orbital-card__cta-arrow">→</view>
-        </view>
-      </view>
-    </view>
+    <!-- 太空轨道数据中心入口卡：组件在 monitor-pages 分包（wxml/wxss 不占主包），
+         逻辑在 monitor-orbital.js（页面经 require.async 委托） -->
+    <monitor-orbital-card
+      orbital-card-bg="{{orbitalCardBg}}"
+      orbital-card-bg-is-video="{{orbitalCardBgIsVideo}}"
+      orbital-live-stats="{{orbitalLiveStats}}"
+      orbital-card-cta="{{orbitalCardCta}}"
+      is-pro-user="{{isProUser}}"
+      bind:cardtap="openOrbitalDataCenter"
+      bind:bgerror="onOrbitalBgError"
+    />
 
     <!-- 进度显示框 -->
     <!-- 空间站实时状态 -->
@@ -365,423 +306,51 @@
       </block>
     </view>
 
-    <!-- ========== 全球发射商图鉴 ========== -->
-    <view class="agency-section monitor-block">
-      <view class="section-title">
-        <text>全球发射商图鉴</text>
-        <view class="section-badge" wx:if="{{agencyTotal}}">{{agencyTotal}}</view>
-        <view class="section-title-right">
-          <view class="booster-view-all" hover-class="booster-view-all--pressed" hover-stay-time="120"
-                bindtap="onViewAllAgencies">
-            <text>查看全部</text>
-            <text class="booster-view-all-arrow">›</text>
-          </view>
-        </view>
-      </view>
+    <!-- 图鉴四板块（发射商/火箭族谱/飞船/发射场）：组件在 monitor-pages 分包，
+         逻辑在 monitor-galleries.js（页面经 require.async 委托），wxml/wxss 不占主包。
+         所有交互经单一 galleryevent 通道回传（detail: { name, dataset, edetail }） -->
+    <monitor-galleries
+      theme-class="{{themeClass}}"
+      agency-visible="{{agencyVisible}}"
+      agency-loading="{{agencyLoading}}"
+      agency-error="{{agencyError}}"
+      agency-total="{{agencyTotal}}"
+      booster-list="{{boosterList}}"
+      booster-stats="{{boosterStats}}"
+      booster-loading="{{boosterLoading}}"
+      booster-load-error="{{boosterLoadError}}"
+      booster-image-loaded-map="{{boosterImageLoadedMap}}"
+      booster-filter-chips="{{boosterFilterChips}}"
+      booster-filter="{{boosterFilter}}"
+      booster-filter-empty="{{boosterFilterEmpty}}"
+      spacecraft-list="{{spacecraftList}}"
+      spacecraft-stats="{{spacecraftStats}}"
+      spacecraft-loading="{{spacecraftLoading}}"
+      spacecraft-load-error="{{spacecraftLoadError}}"
+      spacecraft-filter-chips="{{spacecraftFilterChips}}"
+      spacecraft-filter="{{spacecraftFilter}}"
+      spacecraft-filter-empty="{{spacecraftFilterEmpty}}"
+      launch-site-list="{{launchSiteList}}"
+      launch-site-stats="{{launchSiteStats}}"
+      launch-site-loading="{{launchSiteLoading}}"
+      launch-site-load-error="{{launchSiteLoadError}}"
+      launch-site-filter-chips="{{launchSiteFilterChips}}"
+      launch-site-filter="{{launchSiteFilter}}"
+      launch-site-filter-empty="{{launchSiteFilterEmpty}}"
+      bind:galleryevent="onGalleryEvent"
+    />
 
-      <!-- 加载骨架 -->
-      <view class="agency-grid" wx:if="{{agencyLoading}}">
-        <view class="agency-hw-card glass-card agency-hw-card-skeleton skeleton-shimmer" wx:for="{{[0, 1]}}" wx:key="*this"></view>
-      </view>
-
-      <!-- 错误态 -->
-      <view class="agency-error glass-card" wx:elif="{{agencyError}}">
-        <text class="empty-state-text">{{agencyError}}</text>
-        <view class="agency-retry-btn" bindtap="retryLoadAgencies">
-          <text>重试</text>
-        </view>
-      </view>
-
-      <block wx:else>
-        <!-- 卡片网格（预览 2 张） -->
-        <view class="agency-grid" wx:if="{{agencyVisible.length > 0}}">
-          <view
-            class="agency-hw-card glass-card card-hover"
-            wx:for="{{agencyVisible}}"
-            wx:key="id"
-            data-id="{{item.id}}"
-            data-index="{{index}}"
-            bindtap="onAgencyTap"
-          >
-            <view class="agency-hw-card-image-wrap">
-              <image
-                wx:if="{{item.displayImage}}"
-                class="agency-hw-card-image {{item.imageMode === 'aspectFit' ? 'agency-hw-card-image--logo' : ''}}"
-                src="{{item.displayImage}}"
-                mode="{{item.imageMode}}"
-                lazy-load="{{true}}"
-                data-index="{{index}}"
-                binderror="onAgencyImageError"
-              ></image>
-              <view class="agency-hw-card-image-placeholder" wx:else>
-                <text wx:if="{{item.countryFlag}}">{{item.countryFlag}}</text>
-                <view class="agency-placeholder-icon" wx:else></view>
-              </view>
-              <view class="agency-hw-card-image-mask"></view>
-              <view class="agency-hw-card-overlay">
-                <view class="agency-hw-card-badge">
-                  <text class="agency-type-tag agency-type--{{item.typeClass}}">{{item.typeZh}}</text>
-                </view>
-                <text class="agency-hw-card-name">{{item.displayName}}</text>
-              </view>
-            </view>
-            <view class="agency-hw-card-body">
-              <text class="agency-hw-card-meta">{{item.countryFlag}} {{item.metaLine}}</text>
-              <text class="agency-hw-card-notes">{{item.description}}</text>
-            </view>
-          </view>
-        </view>
-
-        <!-- 空态 -->
-        <view class="agency-empty glass-card" wx:if="{{agencyVisible.length === 0}}">
-          <text>暂无发射商数据，稍后再来看看</text>
-        </view>
-
-      </block>
-    </view>
-
-    <!-- Artemis II 遥测已迁至 NASA 发射商详情页；手机直连星链(D2C) 已迁至 SpaceX 发射商详情页 -->
-
-    <!-- 可回收火箭族谱 -->
-    <view class="booster-section monitor-block">
-      <view class="section-title">
-        <text>全球可回收火箭族谱</text>
-        <view class="section-badge" wx:if="{{boosterList.length}}">{{boosterList.length}}</view>
-        <view class="section-title-right">
-          <view class="booster-view-all" hover-class="booster-view-all--pressed" hover-stay-time="120"
-                bindtap="onViewAllBoosters" wx:if="{{boosterFilterChips.length > 0}}">
-            <text>查看全部</text>
-            <text class="booster-view-all-arrow">›</text>
-          </view>
-        </view>
-      </view>
-      <!-- 筛选 chip：全部 / 中国 / 各厂商（数据动态生成） -->
-      <scroll-view scroll-x class="booster-filter-scroll" wx:if="{{boosterFilterChips.length > 0}}" enhanced show-scrollbar="{{false}}">
-        <view class="booster-filter-row">
-          <view class="booster-filter-chip {{boosterFilter === chip.id ? 'booster-filter-chip--active' : ''}}"
-                wx:for="{{boosterFilterChips}}" wx:for-item="chip" wx:key="id"
-                data-filter="{{chip.id}}" bindtap="onBoosterFilterTap">
-            <text>{{chip.label}}</text>
-          </view>
-        </view>
-      </scroll-view>
-      <view class="booster-summary glass-card" wx:if="{{boosterList.length > 0}}">
-        <view class="booster-summary-item">
-          <text class="booster-summary-value">{{boosterStats.activeCount}}</text>
-          <text class="booster-summary-label">现役</text>
-        </view>
-        <view class="booster-summary-item">
-          <text class="booster-summary-value">{{boosterStats.maxFlights}}</text>
-          <text class="booster-summary-label">最高复用</text>
-        </view>
-        <view class="booster-summary-item">
-          <text class="booster-summary-value">{{boosterStats.totalFlights}}</text>
-          <text class="booster-summary-label">总飞行</text>
-        </view>
-        <view class="booster-summary-item" wx:if="{{boosterStats.manufacturerCount > 1}}">
-          <text class="booster-summary-value">{{boosterStats.manufacturerCount}}</text>
-          <text class="booster-summary-label">厂商</text>
-        </view>
-      </view>
-      <scroll-view scroll-x class="booster-scroll" wx:if="{{boosterList.length > 0}}" bindscroll="onBoosterScroll" throttle="{{true}}">
-        <view class="booster-card glass-card" wx:for="{{boosterList}}" wx:key="serial" data-serial="{{item.serial}}" bindtap="onBoosterCardTap">
-          <!-- 助推器图片 -->
-          <view class="booster-img-wrap">
-            <image class="booster-img {{boosterImageLoadedMap[index] ? 'booster-img--loaded' : ''}}"
-                   wx:if="{{item.thumbnailUrl}}"
-                   src="{{item.thumbnailUrl}}"
-                   mode="aspectFill" lazy-load
-                   bindload="onBoosterImageLoad"
-                   binderror="onBoosterImageError"
-                   data-index="{{index}}" />
-            <view class="booster-img booster-img--placeholder" wx:else>
-              <text class="booster-img-icon"></text>
-            </view>
-            <!-- 状态角标 -->
-            <text class="booster-status-badge booster-status-badge--{{item.status}}">{{item.statusText}}</text>
-          </view>
-          <!-- 信息区 -->
-          <view class="booster-card-body">
-            <view class="booster-serial-row">
-              <text class="booster-serial">{{item.serial}}</text>
-              <text class="booster-country-flag" wx:if="{{item.countryFlag}}">{{item.countryFlag}}</text>
-            </view>
-            <view class="booster-tag-row">
-              <text class="booster-family-tag">{{item.rocketFamily}}</text>
-              <text class="booster-mfr-tag" wx:if="{{item.manufacturer}}">{{item.manufacturer}}</text>
-            </view>
-            <view class="booster-key-stats">
-              <view class="booster-stat-item">
-                <text class="booster-stat-num">{{item.flights}}</text>
-                <text class="booster-stat-label">飞行</text>
-              </view>
-              <view class="booster-stat-item">
-                <text class="booster-stat-num">{{item.successfulLandings}}</text>
-                <text class="booster-stat-label">着陆</text>
-              </view>
-            </view>
-            <view class="booster-flights-bar">
-              <view class="flight-block {{flight.pending ? 'flight-pending' : (flight.success ? 'flight-success' : (flight.failed ? 'flight-fail' : 'flight-unknown'))}}" wx:for="{{item.flightBlocks}}" wx:for-item="flight" wx:key="idx"></view>
-            </view>
-            <text class="booster-turnaround" wx:if="{{item.fastestTurnaroundText}}">{{item.fastestTurnaroundText}}</text>
-          </view>
-          <!-- 箭头 -->
-          <view class="booster-card-arrow">›</view>
-        </view>
-      </scroll-view>
-      <view class="booster-loading glass-card" wx:elif="{{boosterLoading}}">
-        <text class="empty-state-text">加载助推器数据...</text>
-      </view>
-      <view class="booster-loading glass-card" wx:elif="{{boosterLoadError}}" bindtap="onRetryBoosterLoad">
-        <text class="empty-state-text">助推器数据加载失败，点击重试</text>
-      </view>
-      <view class="booster-loading glass-card" wx:elif="{{boosterFilterEmpty}}">
-        <text class="empty-state-text">该筛选下暂无箭实体记录，首飞后自动收录</text>
-      </view>
-      <empty-state wx:else icon="" text="暂无助推器数据" hint="数据同步后将自动展示" />
-    </view>
-
-    <!-- ========== 全球飞船图鉴 ========== -->
-    <view class="sc-section monitor-block">
-      <view class="section-title">
-        <text>全球飞船图鉴</text>
-        <view class="section-badge" wx:if="{{spacecraftList.length}}">{{spacecraftList.length}}</view>
-        <view class="section-title-right">
-          <view class="booster-view-all" hover-class="booster-view-all--pressed" hover-stay-time="120"
-                bindtap="onViewAllSpacecraft" wx:if="{{spacecraftFilterChips.length > 0}}">
-            <text>查看全部</text>
-            <text class="booster-view-all-arrow">›</text>
-          </view>
-        </view>
-      </view>
-      <!-- 筛选 chip：全部 / 现役 / 各类型（数据动态生成） -->
-      <scroll-view scroll-x class="booster-filter-scroll" wx:if="{{spacecraftFilterChips.length > 0}}" enhanced show-scrollbar="{{false}}">
-        <view class="booster-filter-row">
-          <view class="booster-filter-chip {{spacecraftFilter === chip.id ? 'booster-filter-chip--active' : ''}}"
-                wx:for="{{spacecraftFilterChips}}" wx:for-item="chip" wx:key="id"
-                data-filter="{{chip.id}}" bindtap="onSpacecraftFilterTap">
-            <text>{{chip.label}}</text>
-          </view>
-        </view>
-      </scroll-view>
-      <view class="booster-summary glass-card" wx:if="{{spacecraftList.length > 0}}">
-        <view class="booster-summary-item">
-          <text class="booster-summary-value">{{spacecraftStats.inUseCount}}</text>
-          <text class="booster-summary-label">现役</text>
-        </view>
-        <view class="booster-summary-item">
-          <text class="booster-summary-value">{{spacecraftStats.typeCount}}</text>
-          <text class="booster-summary-label">类型</text>
-        </view>
-        <view class="booster-summary-item">
-          <text class="booster-summary-value">{{spacecraftStats.agencyCount}}</text>
-          <text class="booster-summary-label">机构</text>
-        </view>
-      </view>
-      <scroll-view scroll-x class="booster-scroll" wx:if="{{spacecraftList.length > 0}}">
-        <view class="sc-card glass-card" wx:for="{{spacecraftList}}" wx:key="id" data-id="{{item.id}}" data-name="{{item.name}}" data-img="{{item.imageUrl}}" bindtap="onSpacecraftCardTap">
-          <view class="sc-img-wrap">
-            <image class="sc-img"
-                   wx:if="{{item.imageUrl}}"
-                   src="{{item.imageUrl}}"
-                   mode="aspectFill" lazy-load
-                   binderror="onSpacecraftImageError"
-                   data-index="{{index}}" />
-            <view class="sc-img sc-img--placeholder" wx:else>
-              <text class="sc-img-icon"></text>
-            </view>
-            <text class="sc-status-badge {{item.inUse ? 'sc-status-badge--active' : 'sc-status-badge--retired'}}">{{item.statusText}}</text>
-          </view>
-          <view class="sc-card-body">
-            <text class="sc-name">{{item.name}}</text>
-            <view class="sc-tag-row">
-              <text class="sc-type-tag" wx:if="{{item.typeLabel}}">{{item.typeLabel}}</text>
-              <text class="sc-agency-tag" wx:if="{{item.agencyLabel}}">{{item.agencyLabel}}</text>
-            </view>
-          </view>
-          <view class="booster-card-arrow">›</view>
-        </view>
-      </scroll-view>
-      <view class="booster-loading glass-card" wx:elif="{{spacecraftLoading}}">
-        <text class="empty-state-text">加载飞船数据...</text>
-      </view>
-      <view class="booster-loading glass-card" wx:elif="{{spacecraftLoadError}}" bindtap="onRetrySpacecraftLoad">
-        <text class="empty-state-text">飞船数据加载失败，点击重试</text>
-      </view>
-      <view class="booster-loading glass-card" wx:elif="{{spacecraftFilterEmpty}}">
-        <text class="empty-state-text">该筛选下暂无飞船记录</text>
-      </view>
-      <empty-state wx:else icon="" text="暂无飞船数据" hint="数据同步后将自动展示" />
-    </view>
-
-    <!-- ========== 全球发射场分布 ========== -->
-    <view class="ls-section monitor-block">
-      <view class="section-title">
-        <text>全球发射场分布</text>
-        <view class="section-badge" wx:if="{{launchSiteList.length}}">{{launchSiteList.length}}</view>
-        <view class="section-title-right">
-          <view class="booster-view-all" hover-class="booster-view-all--pressed" hover-stay-time="120"
-                bindtap="onViewAllLaunchSites" wx:if="{{launchSiteFilterChips.length > 0}}">
-            <text>查看全部</text>
-            <text class="booster-view-all-arrow">›</text>
-          </view>
-        </view>
-      </view>
-      <!-- 筛选 chip：全部 / 活跃 / 各国家（数据动态生成） -->
-      <scroll-view scroll-x class="booster-filter-scroll" wx:if="{{launchSiteFilterChips.length > 0}}" enhanced show-scrollbar="{{false}}">
-        <view class="booster-filter-row">
-          <view class="booster-filter-chip {{launchSiteFilter === chip.id ? 'booster-filter-chip--active' : ''}}"
-                wx:for="{{launchSiteFilterChips}}" wx:for-item="chip" wx:key="id"
-                data-filter="{{chip.id}}" bindtap="onLaunchSiteFilterTap">
-            <text>{{chip.label}}</text>
-          </view>
-        </view>
-      </scroll-view>
-      <view class="booster-summary glass-card" wx:if="{{launchSiteList.length > 0}}">
-        <view class="booster-summary-item">
-          <text class="booster-summary-value">{{launchSiteStats.siteCount}}</text>
-          <text class="booster-summary-label">发射场</text>
-        </view>
-        <view class="booster-summary-item">
-          <text class="booster-summary-value">{{launchSiteStats.activeCount}}</text>
-          <text class="booster-summary-label">活跃</text>
-        </view>
-        <view class="booster-summary-item">
-          <text class="booster-summary-value">{{launchSiteStats.countryCount}}</text>
-          <text class="booster-summary-label">国家</text>
-        </view>
-        <view class="booster-summary-item">
-          <text class="booster-summary-value">{{launchSiteStats.totalLaunches}}</text>
-          <text class="booster-summary-label">累计发射</text>
-        </view>
-      </view>
-      <scroll-view scroll-x class="booster-scroll" wx:if="{{launchSiteList.length > 0}}">
-        <view class="ls-card glass-card" wx:for="{{launchSiteList}}" wx:key="id" data-id="{{item.id}}" bindtap="onLaunchSiteCardTap">
-          <view class="ls-img-wrap">
-            <image class="ls-img"
-                   wx:if="{{item.imageUrl}}"
-                   src="{{item.imageUrl}}"
-                   mode="aspectFill" lazy-load
-                   binderror="onLaunchSiteImageError"
-                   data-index="{{index}}" />
-            <view class="ls-img ls-img--placeholder" wx:else>
-              <text class="ls-img-icon"></text>
-            </view>
-            <text class="sc-status-badge {{item.active ? 'sc-status-badge--active' : 'sc-status-badge--retired'}}">{{item.statusText}}</text>
-            <text class="ls-launch-badge">{{item.totalLaunchCount}} 次</text>
-          </view>
-          <view class="ls-card-body">
-            <text class="ls-name">{{item.nameZh || item.name}}</text>
-            <view class="ls-tag-row">
-              <text class="ls-country-tag" wx:if="{{item.countryLabel}}">{{item.countryLabel}}</text>
-              <text class="ls-sub-name" wx:if="{{item.nameZh}}">{{item.name}}</text>
-            </view>
-          </view>
-        </view>
-      </scroll-view>
-      <view class="booster-loading glass-card" wx:elif="{{launchSiteLoading}}">
-        <text class="empty-state-text">加载发射场数据...</text>
-      </view>
-      <view class="booster-loading glass-card" wx:elif="{{launchSiteLoadError}}" bindtap="onRetryLaunchSiteLoad">
-        <text class="empty-state-text">发射场数据加载失败，点击重试</text>
-      </view>
-      <view class="booster-loading glass-card" wx:elif="{{launchSiteFilterEmpty}}">
-        <text class="empty-state-text">该筛选下暂无发射场记录</text>
-      </view>
-      <empty-state wx:else icon="" text="暂无发射场数据" hint="数据同步后将自动展示" />
-    </view>
-
-    <!-- 即将进行的在轨任务（懒加载，节约资源） -->
-    <view class="orbit-section monitor-block">
-      <view class="section-title">
-        <text>即将进行的在轨任务</text>
-        <view class="section-badge" wx:if="{{orbitalReady && upcomingOrbitalEvents.length}}">{{upcomingOrbitalEvents.length}}</view>
-        <view class="section-title-right">
-          <view class="monitor-share-wrap">
-            <image class="icon-share icon-share--monitor" src="/images/share-arrow.svg" mode="aspectFit"></image>
-            <button class="monitor-share-btn" open-type="share" hover-class="none" data-share-type="orbit" plain="true"></button>
-          </view>
-        </view>
-      </view>
-
-      <!-- 未加载态 -->
-      <lazy-load-card wx:if="{{!orbitalReady}}" icon="" text="点击加载在轨任务" hint="对接 / 出舱 / 入轨 等近期事件" bind:tap="onLoadUpcomingOrbitalEvents" />
-
-      <block wx:else>
-        <view class="station-loading" wx:if="{{orbitalLoading}}">
-          <text class="station-loading-text">加载在轨任务...</text>
-        </view>
-        <view class="orbit-list" wx:elif="{{upcomingOrbitalEvents.length}}">
-          <!-- 第一个任务：大号倒计时面板 -->
-          <view class="orbit-hero glass-card" data-id="{{upcomingOrbitalEvents[0].id}}" bindtap="onUpcomingEventTap">
-            <image class="orbit-hero-bg" wx:if="{{upcomingOrbitalEvents[0].imageUrl}}" src="{{upcomingOrbitalEvents[0].imageUrl}}" mode="aspectFill" lazy-load />
-            <view class="orbit-hero-mask"></view>
-            <view class="orbit-hero-content">
-              <view class="orbit-hero-tags">
-                <text class="orbit-hero-type">{{upcomingOrbitalEvents[0].typeName}}</text>
-              </view>
-              <text class="orbit-hero-title">{{upcomingOrbitalEvents[0].name}}</text>
-              <view class="orbit-hero-countdown" wx:if="{{!orbitalCountdown.isExpired}}">
-                <view class="orbit-cd-item">
-                  <text class="orbit-cd-value">{{orbitalCountdown.days}}</text>
-                  <text class="orbit-cd-label">天</text>
-                </view>
-                <text class="orbit-cd-sep">:</text>
-                <view class="orbit-cd-item">
-                  <text class="orbit-cd-value">{{orbitalCountdown.hours}}</text>
-                  <text class="orbit-cd-label">时</text>
-                </view>
-                <text class="orbit-cd-sep">:</text>
-                <view class="orbit-cd-item">
-                  <text class="orbit-cd-value">{{orbitalCountdown.minutes}}</text>
-                  <text class="orbit-cd-label">分</text>
-                </view>
-                <text class="orbit-cd-sep">:</text>
-                <view class="orbit-cd-item">
-                  <text class="orbit-cd-value">{{orbitalCountdown.seconds}}</text>
-                  <text class="orbit-cd-label">秒</text>
-                </view>
-              </view>
-              <view class="orbit-hero-countdown orbit-hero-countdown--live" wx:else>
-                <text class="orbit-cd-live-text">进行中 / 已开始</text>
-              </view>
-              <view class="orbit-hero-meta">
-                <text class="orbit-hero-date">{{upcomingOrbitalEvents[0].dateText}}</text>
-                <text class="orbit-hero-location" wx:if="{{upcomingOrbitalEvents[0].location}}">{{upcomingOrbitalEvents[0].location}}</text>
-              </view>
-              <view class="orbit-hero-cta">
-                <text class="orbit-hero-cta-text">查看详情 ›</text>
-              </view>
-            </view>
-          </view>
-
-          <!-- 其余任务：保持原有小卡片 -->
-          <view class="orbit-card glass-card orbit-card--clickable" wx:for="{{upcomingOrbitalEvents}}" wx:if="{{index > 0}}" wx:key="id" data-id="{{item.id}}" bindtap="onUpcomingEventTap">
-            <image class="orbit-card-img" wx:if="{{item.imageUrl}}" src="{{item.imageUrl}}" mode="aspectFill" lazy-load />
-            <view class="orbit-card-body">
-              <view class="orbit-card-meta orbit-card-meta--top">
-                <text class="orbit-meta-tag orbit-meta-tag--type">{{item.typeName}}</text>
-                <text class="orbit-meta-tag orbit-meta-tag--date">{{item.dateText}}</text>
-              </view>
-              <text class="orbit-card-title">{{item.name}}</text>
-              <view class="orbit-card-meta" wx:if="{{item.location}}">
-                <text class="orbit-meta-tag orbit-meta-tag--location">{{item.location}}</text>
-              </view>
-              <view class="orbit-timeline">
-                <view class="orbit-stat orbit-stat--countdown {{item.countdownClass}}" wx:if="{{item.countdownText}}">
-                  <text class="orbit-stat-value">{{item.countdownText}}</text>
-                  <text class="orbit-stat-label">距开始</text>
-                </view>
-                <view class="orbit-stat orbit-stat--cta">
-                  <text class="orbit-stat-value orbit-stat-cta-text">查看详情 ›</text>
-                </view>
-              </view>
-            </view>
-          </view>
-        </view>
-        <empty-state wx:else icon="" text="暂无即将进行的在轨任务" hint="对接、出舱等事件将自动汇聚" />
-      </block>
-    </view>
+    <!-- 即将进行的在轨任务：组件在 monitor-pages 分包，逻辑在 monitor-orbital.js -->
+    <monitor-orbit-events
+      theme-class="{{themeClass}}"
+      orbital-ready="{{orbitalReady}}"
+      orbital-loading="{{orbitalLoading}}"
+      upcoming-orbital-events="{{upcomingOrbitalEvents}}"
+      orbital-countdown="{{orbitalCountdown}}"
+      bind:loadtap="onLoadUpcomingOrbitalEvents"
+      bind:eventtap="onOrbitEventTapFromComp"
+      bind:imageerror="onOrbitEventImageErrorFromComp"
+    />
 
     <view style="height: {{tabBarReservedHeight}}px;"></view>
   </scroll-view>

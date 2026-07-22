@@ -57,7 +57,9 @@
     <view class="info-header">
       <text class="info-serial">{{item.serial}}</text>
       <view class="info-tags">
-        <text class="info-tag info-tag--family">{{item.rocketFamily}}</text>
+        <!-- 有构型 id 时型号标签可点 → 族谱型号详情页；否则保持纯文本 -->
+        <text class="info-tag info-tag--family info-tag--link" wx:if="{{item.configId != null}}" bindtap="onTapRocketFamily">{{item.rocketFamily}}<text class="info-tag-arrow">›</text></text>
+        <text class="info-tag info-tag--family" wx:else>{{item.rocketFamily}}</text>
         <text class="info-tag info-tag--mfr info-tag--link" wx:if="{{item.manufacturer}}" bindtap="onTapManufacturer">{{item.manufacturerDisplay || item.manufacturer}}<text class="info-tag-arrow">›</text></text>
         <text class="info-tag info-tag--block" wx:if="{{item.block}}">Block {{item.block}}</text>
       </view>

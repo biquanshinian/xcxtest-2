@@ -209,16 +209,16 @@
 .starfield-container {
   position: relative;
   margin: 0 32rpx;
-  height: 680rpx;
   border-radius: 20rpx;
   overflow: hidden;
   background: #000;
 }
 
-/* 月球背景图 */
+/* 月球背景图：宽度铺满，高度随图片比例 */
 .lunar-bg {
-  position: absolute; top: -50%; left: -50%;
-  width: 200%; height: 200%;
+  display: block;
+  width: 100%;
+  vertical-align: top;
 }
 .lunar-bg-overlay {
   position: absolute; top: 0; left: 0; right: 0; bottom: 0;

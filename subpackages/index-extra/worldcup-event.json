@@ -1,8 +1,0 @@
-{
-  "navigationBarTitleText": "NASA × FIFA 球迷节",
-  "backgroundTextStyle": "dark",
-  "navigationStyle": "custom",
-  "usingComponents": {
-    "privacy-modal": "/components/privacy-modal/privacy-modal"
-  }
-}

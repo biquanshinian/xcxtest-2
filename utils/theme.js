@@ -67,15 +67,29 @@ function isLightSync() {
  * （它们不调本方法，沿用页面 json 的 navigationBarTextStyle）。
  */
 let _lastNavSyncAt = 0
+
+/** 栈顶页面是否声明恒定深色（页面实例挂 forceDarkTheme: true，如指挥控制台） */
+function _topPageForcesDark() {
+  try {
+    const pages = (typeof getCurrentPages === 'function' && getCurrentPages()) || []
+    const cur = pages.length ? pages[pages.length - 1] : null
+    return !!(cur && cur.forceDarkTheme)
+  } catch (e) {
+    return false
+  }
+}
+
 function _scheduleNavBarSync(force) {
   const now = Date.now()
   if (!force && now - _lastNavSyncAt < 200) return
   _lastNavSyncAt = now
   setTimeout(() => {
     try {
+      // wx.setNavigationBarColor 作用于执行时刻的栈顶页；恒深色沉浸页保持黑底白字
+      const forceDark = _topPageForcesDark()
       wx.setNavigationBarColor({
-        frontColor: isLightSync() ? '#000000' : '#ffffff',
-        backgroundColor: getPageBgSync(),
+        frontColor: (!forceDark && isLightSync()) ? '#000000' : '#ffffff',
+        backgroundColor: forceDark ? '#000000' : getPageBgSync(),
         fail: () => {}
       })
     } catch (e) {}
@@ -100,6 +114,8 @@ function applyThemeToPage(page) {
   // Tab 页的自定义 TabBar 是独立组件实例（每页一份），切主题时 refreshAllPages
   // 只能刷到当前页面栈里的那份，其余 Tab 页回显时须在这里补刷（非 Tab 页安全 no-op）
   applyThemeToTabBar(page)
+  // 沉浸式恒深色页（如指挥控制台）不写入 themeClass
+  if (page.forceDarkTheme) return
   const cls = getThemeClassSync()
   const data = page.data || {}
   if (data.themeClass === cls && data.themeLight === (cls !== '')) return
@@ -122,12 +138,14 @@ function applyThemeToTabBar(page) {
 
 /** 同步下拉刷新背景区（page{} 的静态底色无法运行时改，用原生 API 补） */
 function syncWindowBackground() {
-  const c = getPageBgSync()
+  // 同样作用于栈顶页：恒深色沉浸页固定黑底
+  const forceDark = _topPageForcesDark()
+  const c = forceDark ? '#000000' : getPageBgSync()
   try {
     wx.setBackgroundColor({ backgroundColor: c, backgroundColorTop: c, backgroundColorBottom: c })
   } catch (e) {}
   try {
-    wx.setBackgroundTextStyle({ textStyle: isLightSync() ? 'dark' : 'light' })
+    wx.setBackgroundTextStyle({ textStyle: (!forceDark && isLightSync()) ? 'dark' : 'light' })
   } catch (e) {}
 }
 
@@ -156,6 +174,7 @@ function refreshAllPages() {
     applyThemeToPage(p)
     applyThemeToTabBar(p)
   })
+  // 恒深色沉浸页的保护已下沉到 syncWindowBackground / _scheduleNavBarSync 内部
   syncWindowBackground()
   _scheduleNavBarSync(true)
   // 通知已注册组件（单个监听器异常不阻断其余监听器与主流程）

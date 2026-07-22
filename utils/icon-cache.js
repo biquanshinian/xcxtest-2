@@ -608,7 +608,7 @@ function preloadStaticMediaUrls() {
     base + '/%E7%AD%BE%E5%88%B0%E5%9B%BE%E6%A0%87/2_1.png',
     base + '/%E7%AD%BE%E5%88%B0%E5%9B%BE%E6%A0%87/3_1.png',
     base + '/avatars/SpaceX.jpg',
-    base + '/avatars/ElonMusk.jpg',
+    base + '/avatars/elonmusk.jpg',
     base + '/avatars/NASA.jpg'
   ]
   preloadMediaImages(urls, 'thumb')

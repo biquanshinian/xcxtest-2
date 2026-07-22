@@ -1,16 +1,15 @@
 /* pages/monitor/monitor.wxss */
+@import "../../styles/monitor-block.wxss";
 /* 禁止页面级滚动，避免安卓真机整页（含顶部栏、tabbar）跟随滑动；仅由 scroll-view 负责滚动 */
 page {
   overflow: hidden;
   height: 100vh;
   width: 100%;
 }
-
 .container {
   padding-bottom: 0;
   padding-top: 0;
 }
-
 /* 顶部导航栏容器（包含状态栏和导航栏） */
 .top-nav-wrapper {
   background: rgba(12, 14, 18, 0.08);
@@ -18,12 +17,10 @@ page {
   -webkit-backdrop-filter: blur(48rpx) saturate(170%);
   border-bottom: 1px solid rgba(255, 255, 255, 0.07);
 }
-
 /* 顶部导航栏 */
 .content-scroll {
   padding: 30rpx;
 }
-
 .section-title {
   font-size: 36rpx;
   font-weight: 600;
@@ -33,449 +30,7 @@ page {
   display: flex;
   align-items: center;
 }
-
-.section-title-main {
-  display: flex;
-  align-items: center;
-  gap: 10rpx;
-  min-width: 0;
-}
-
-.section-subtitle {
-  font-size: 20rpx;
-  font-weight: 400;
-  color: rgba(255, 255, 255, 0.32);
-}
-
-.section-title-right {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 16rpx;
-}
-
-.pass-actions {
-  display: flex;
-  align-items: center;
-  gap: 14rpx;
-}
-
-
-.pass-map-btn,
-.pass-ar-btn {
-  min-width: 124rpx;
-  height: 52rpx;
-  padding: 0 18rpx;
-  border-radius: 999rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-}
-
-.pass-map-btn {
-  background: rgba(10, 132, 255, 0.16);
-  border: 1px solid rgba(10, 132, 255, 0.45);
-}
-
-.pass-map-text,
-.pass-ar-text {
-  font-size: 22rpx;
-  color: #FFFFFF;
-}
-
-.pass-ar-btn {
-  background: rgba(52, 199, 89, 0.16);
-  border: 1px solid rgba(52, 199, 89, 0.42);
-}
-
-.pass-ar-text {
-  color: #A7FFCA;
-}
-
-/* MARS预览区域 */
-.MARS-preview-section {
-  margin-bottom: 40rpx;
-}
-
-.MARS-preview-card {
-  padding: 0;
-  overflow: hidden;
-}
-
-.preview-card-content {
-  display: flex;
-  align-items: center;
-  /* 纵向略收紧：相对原 40rpx 上下各减 5rpx（约 5px@375 宽），卡片整体缩窄约 5px 视觉高度 */
-  padding: 35rpx 40rpx;
-  gap: 30rpx;
-}
-
-.preview-card-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 10rpx;
-}
-
-.preview-card-title {
-  font-size: 32rpx;
-  font-weight: 600;
-  color: #FFFFFF;
-}
-
-.preview-card-desc {
-  font-size: 24rpx;
-  color: #8E8E93;
-}
-
-.icon-arrow--preview-card {
-  font-size: 48rpx;
-  color: #8E8E93;
-  font-weight: 300;
-  flex-shrink: 0;
-}
-
-/* ========== 直播观看（视频号 / B站 并排卡片） ========== */
-/* 与页面同级内容共用 content-scroll 的 30rpx 左右内边距，勿再叠加 padding，否则会比「星舰监控中心」卡片窄一截 */
-.monitor-livestream-section {
-  padding: 0;
-  margin-bottom: 40rpx;
-}
-
-/* 紧邻「星舰监控中心」卡片下方：与「太空轨道数据中心」标题区 margin-top（32rpx）同级节奏，避免两块贴太近 */
-.MARS-preview-section > .monitor-livestream-section {
-  margin-top: 32rpx;
-}
-
-.monitor-livestream-section .section-title {
-  padding: 0;
-  gap: 14rpx;
-}
-
-.monitor-livestream-section-title {
-  align-items: flex-start;
-  justify-content: space-between;
-  flex-wrap: nowrap;
-  gap: 20rpx;
-}
-
-.monitor-livestream-title-left {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 14rpx;
-  flex-shrink: 0;
-}
-
-.monitor-livestream-heading-text {
-  font-size: 36rpx;
-  font-weight: 600;
-  color: #FFFFFF;
-}
-
-/* 博卡奇卡实况天气（时间行为 CST 中国标准时间） */
-.starbase-weather-cluster {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4rpx;
-}
-
-.starbase-weather-place {
-  font-size: 20rpx;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.42);
-  letter-spacing: 1rpx;
-}
-
-.starbase-weather-loading text {
-  font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.45);
-}
-
-.starbase-weather-row {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10rpx;
-  width: 100%;
-}
-
-.starbase-weather-row--main {
-  flex-wrap: wrap;
-}
-
-.starbase-weather-row--sub {
-  gap: 16rpx;
-  flex-wrap: wrap;
-}
-
-.starbase-wx-icon {
-  width: 36rpx;
-  height: 36rpx;
-  flex-shrink: 0;
-}
-
-.starbase-wx-condition {
-  font-size: 24rpx;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.92);
-}
-
-.starbase-wx-temp {
-  font-size: 26rpx;
-  font-weight: 600;
-  color: #FFFFFF;
-}
-
-.starbase-wx-time {
-  font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.55);
-  text-align: right;
-}
-
-.starbase-wx-wind {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 8rpx;
-}
-
-.starbase-wind-icon {
-  width: 44rpx;
-  height: 22rpx;
-  flex-shrink: 0;
-}
-
-.starbase-wx-wind-text {
-  font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.85);
-}
-
-.starbase-weather-err {
-  font-size: 22rpx;
-  color: rgba(255, 160, 140, 0.85);
-  text-align: right;
-}
-
-.monitor-livestream-section .livestream-live-tag {
-  display: inline-flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: center;
-  gap: 6rpx;
-  height: 36rpx;
-  padding: 0 14rpx;
-  border-radius: 999rpx;
-  white-space: nowrap;
-  box-sizing: border-box;
-  background: linear-gradient(90deg, #ff2d55, #ff453a);
-  box-shadow: 0 4rpx 12rpx rgba(255, 45, 85, 0.35);
-}
-
-.monitor-livestream-section .livestream-live-tag-text {
-  font-size: 20rpx;
-  font-weight: 600;
-  color: #ffffff;
-  line-height: 1;
-  letter-spacing: 0.5rpx;
-}
-
-.monitor-livestream-section .livestream-live-eq {
-  display: flex;
-  flex-direction: row;
-  align-items: flex-end;
-  gap: 3rpx;
-  height: 18rpx;
-  flex-shrink: 0;
-}
-
-.monitor-livestream-section .livestream-live-eq-bar {
-  width: 4rpx;
-  height: 100%;
-  border-radius: 999rpx;
-  background: #ffffff;
-  transform-origin: center bottom;
-  animation: monitor-livestream-eq 0.8s ease-in-out infinite;
-}
-
-.monitor-livestream-section .livestream-live-eq-bar:nth-child(1) { animation-delay: 0s; }
-.monitor-livestream-section .livestream-live-eq-bar:nth-child(2) { animation-delay: 0.15s; }
-.monitor-livestream-section .livestream-live-eq-bar:nth-child(3) { animation-delay: 0.3s; }
-
-@keyframes monitor-livestream-eq {
-  0%, 100% { transform: scaleY(0.35); }
-  25% { transform: scaleY(1); }
-  50% { transform: scaleY(0.55); }
-  75% { transform: scaleY(0.85); }
-}
-
-/* 视频号 + B站：统一纵向间距，与上方卡片节奏一致 */
-.monitor-livestream-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 20rpx;
-}
-
-.monitor-livestream-entry-row {
-  display: flex;
-  flex-direction: row;
-  align-items: stretch;
-  gap: 16rpx;
-}
-
-.monitor-livestream-btn--full {
-  width: 100%;
-  flex: 1;
-}
-
-.monitor-livestream-btn--half {
-  flex: 1;
-  width: 0;
-  min-width: 0;
-}
-
-.monitor-livestream-btn {
-  min-width: 0;
-  min-height: 88rpx;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 14rpx;
-  padding: 20rpx 18rpx;
-  background: rgba(30, 30, 30, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 24rpx;
-  transition: all 0.18s ease;
-  box-sizing: border-box;
-}
-
-.monitor-livestream-btn--half {
-  padding: 18rpx 16rpx;
-  gap: 12rpx;
-}
-
-.monitor-livestream-btn--hover {
-  background: rgba(255, 255, 255, 0.06);
-  transform: scale(0.98);
-}
-
-.monitor-livestream-btn--bilibili {
-  border-color: rgba(251, 114, 153, 0.3);
-  background: linear-gradient(135deg, rgba(251, 114, 153, 0.1), rgba(30, 30, 30, 0.45));
-}
-
-.monitor-livestream-btn-icon {
-  width: 48rpx;
-  height: 48rpx;
-  border-radius: 12rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.monitor-livestream-icon-img {
-  width: 48rpx;
-  height: 48rpx;
-  display: block;
-}
-
-.monitor-livestream-btn-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4rpx;
-}
-
-.monitor-livestream-btn-arrow {
-  font-size: 40rpx;
-  color: rgba(255, 255, 255, 0.35);
-  font-weight: 300;
-  flex-shrink: 0;
-  line-height: 1;
-}
-
-.monitor-livestream-btn-title {
-  font-size: 26rpx;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.92);
-  line-height: 1.2;
-}
-
-.monitor-livestream-btn-sub {
-  font-size: 20rpx;
-  color: rgba(255, 255, 255, 0.45);
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ========== 即将进行的在轨任务（事件流，可点击跳详情） ========== */
-.orbit-section {
-  padding: 0 30rpx;
-  margin-bottom: 40rpx;
-}
-
-.orbit-card--clickable {
-  position: relative;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-.orbit-card--clickable:active {
-  transform: scale(0.98);
-}
-
-.orbit-card-meta--top {
-  margin-bottom: 6rpx;
-}
-
-.orbit-meta-tag--type {
-  color: #5AC8FA;
-  background: rgba(90, 200, 250, 0.15);
-  font-weight: 600;
-  letter-spacing: 1rpx;
-  text-transform: uppercase;
-}
-
-.orbit-meta-tag--date {
-  color: rgba(255, 255, 255, 0.85);
-}
-
-.orbit-meta-tag--location {
-  color: #fff;
-  background: rgba(0, 122, 255, 0.45);
-}
-
-.orbit-stat--countdown .orbit-stat-value {
-  color: #34C759;
-  font-size: 26rpx;
-}
-
-.orbit-stat--countdown.soon .orbit-stat-value {
-  color: #FF9F0A;
-}
-
-.orbit-stat--countdown.live .orbit-stat-value {
-  color: #FF453A;
-}
-
-.orbit-stat--cta {
-  margin-left: auto;
-}
-
-.orbit-stat-cta-text {
-  font-size: 24rpx;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.7);
-}
-
+/* 板块标题数字角标：页面与图鉴/在轨任务等分包组件共用（apply-shared 作用进组件） */
 .section-badge {
   display: inline-flex;
   align-items: center;
@@ -490,220 +45,298 @@ page {
   color: #fff;
   font-weight: 600;
 }
-
-.orbit-list {
+.section-title-main {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  min-width: 0;
+}
+.section-subtitle {
+  font-size: 20rpx;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.32);
+}
+.section-title-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+.pass-actions {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+}
+/* MARS预览区域 */
+.MARS-preview-section {
+  margin-bottom: 40rpx;
+}
+.MARS-preview-card {
+  padding: 0;
+  overflow: hidden;
+}
+.preview-card-content {
+  display: flex;
+  align-items: center;
+  /* 纵向略收紧：相对原 40rpx 上下各减 5rpx（约 5px@375 宽），卡片整体缩窄约 5px 视觉高度 */
+  padding: 35rpx 40rpx;
+  gap: 30rpx;
+}
+.preview-card-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+.preview-card-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #FFFFFF;
+}
+.preview-card-desc {
+  font-size: 24rpx;
+  color: #8E8E93;
+}
+.icon-arrow--preview-card {
+  font-size: 48rpx;
+  color: #8E8E93;
+  font-weight: 300;
+  flex-shrink: 0;
+}
+/* ========== 直播观看（视频号 / B站 并排卡片） ========== */
+/* 与页面同级内容共用 content-scroll 的 30rpx 左右内边距，勿再叠加 padding，否则会比「星舰监控中心」卡片窄一截 */
+.monitor-livestream-section {
+  padding: 0;
+  margin-bottom: 40rpx;
+}
+/* 紧邻「星舰监控中心」卡片下方：与「太空轨道数据中心」标题区 margin-top（32rpx）同级节奏，避免两块贴太近 */
+.MARS-preview-section > .monitor-livestream-section {
+  margin-top: 32rpx;
+}
+.monitor-livestream-section .section-title {
+  padding: 0;
+  gap: 14rpx;
+}
+.monitor-livestream-section-title {
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  gap: 20rpx;
+}
+.monitor-livestream-title-left {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 14rpx;
+  flex-shrink: 0;
+}
+.monitor-livestream-heading-text {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #FFFFFF;
+}
+/* 博卡奇卡实况天气（时间行为 CST 中国标准时间） */
+.starbase-weather-cluster {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4rpx;
+}
+.starbase-weather-place {
+  font-size: 20rpx;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.42);
+  letter-spacing: 1rpx;
+}
+.starbase-weather-loading text {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.45);
+}
+.starbase-weather-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10rpx;
+  width: 100%;
+}
+.starbase-weather-row--main {
+  flex-wrap: wrap;
+}
+.starbase-weather-row--sub {
+  gap: 16rpx;
+  flex-wrap: wrap;
+}
+.starbase-wx-icon {
+  width: 36rpx;
+  height: 36rpx;
+  flex-shrink: 0;
+}
+.starbase-wx-condition {
+  font-size: 24rpx;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.92);
+}
+.starbase-wx-temp {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #FFFFFF;
+}
+.starbase-wx-time {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.55);
+  text-align: right;
+}
+.starbase-wx-wind {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8rpx;
+}
+.starbase-wind-icon {
+  width: 44rpx;
+  height: 22rpx;
+  flex-shrink: 0;
+}
+.starbase-wx-wind-text {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.85);
+}
+.starbase-weather-err {
+  font-size: 22rpx;
+  color: rgba(255, 160, 140, 0.85);
+  text-align: right;
+}
+.monitor-livestream-section .livestream-live-tag {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 6rpx;
+  height: 36rpx;
+  padding: 0 14rpx;
+  border-radius: 999rpx;
+  white-space: nowrap;
+  box-sizing: border-box;
+  background: linear-gradient(90deg, #ff2d55, #ff453a);
+  box-shadow: 0 4rpx 12rpx rgba(255, 45, 85, 0.35);
+}
+.monitor-livestream-section .livestream-live-tag-text {
+  font-size: 20rpx;
+  font-weight: 600;
+  color: #ffffff;
+  line-height: 1;
+  letter-spacing: 0.5rpx;
+}
+.monitor-livestream-section .livestream-live-eq {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 3rpx;
+  height: 18rpx;
+  flex-shrink: 0;
+}
+.monitor-livestream-section .livestream-live-eq-bar {
+  width: 4rpx;
+  height: 100%;
+  border-radius: 999rpx;
+  background: #ffffff;
+  transform-origin: center bottom;
+  animation: monitor-livestream-eq 0.8s ease-in-out infinite;
+}
+.monitor-livestream-section .livestream-live-eq-bar:nth-child(1) { animation-delay: 0s; }
+.monitor-livestream-section .livestream-live-eq-bar:nth-child(2) { animation-delay: 0.15s; }
+.monitor-livestream-section .livestream-live-eq-bar:nth-child(3) { animation-delay: 0.3s; }
+@keyframes monitor-livestream-eq {
+  0%, 100% { transform: scaleY(0.35); }
+  25% { transform: scaleY(1); }
+  50% { transform: scaleY(0.55); }
+  75% { transform: scaleY(0.85); }
+}
+/* 视频号 + B站：统一纵向间距，与上方卡片节奏一致 */
+.monitor-livestream-stack {
   display: flex;
   flex-direction: column;
   gap: 20rpx;
 }
-
-.orbit-card {
+.monitor-livestream-entry-row {
   display: flex;
   flex-direction: row;
-  overflow: hidden;
-  border-radius: 20rpx;
-}
-
-.orbit-card-img {
-  width: 200rpx;
-  height: 200rpx;
-  flex-shrink: 0;
-  object-fit: cover;
-}
-
-.orbit-card-body {
-  flex: 1;
-  padding: 20rpx 24rpx;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-
-.orbit-card-title {
-  font-size: 30rpx;
-  font-weight: 600;
-  color: #fff;
-  margin-bottom: 8rpx;
-}
-
-.orbit-card-meta {
-  display: flex;
-  gap: 12rpx;
-  margin-bottom: 12rpx;
-  flex-wrap: wrap;
-}
-
-.orbit-meta-tag {
-  font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.6);
-  background: rgba(255, 255, 255, 0.08);
-  padding: 4rpx 12rpx;
-  border-radius: 8rpx;
-}
-
-.orbit-timeline {
-  display: flex;
-  gap: 24rpx;
-}
-
-.orbit-stat {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.orbit-stat-value {
-  font-size: 32rpx;
-  font-weight: 700;
-  color: #34C759;
-}
-
-.orbit-stat-value.orbit-date {
-  font-size: 22rpx;
-  font-weight: 500;
-  color: #FF9F0A;
-}
-
-.orbit-stat-label {
-  font-size: 20rpx;
-  color: rgba(255, 255, 255, 0.5);
-  margin-top: 2rpx;
-}
-
-/* ========== 在轨任务 Hero 倒计时面板 ========== */
-.orbit-hero {
-  position: relative;
-  border-radius: 24rpx;
-  overflow: hidden;
-  margin-bottom: 20rpx;
-  min-height: 360rpx;
-}
-
-.orbit-hero-bg {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.orbit-hero-mask {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(180deg, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.75) 100%);
-}
-
-.orbit-hero-content {
-  position: relative;
-  z-index: 1;
-  padding: 28rpx 32rpx;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.orbit-hero-tags {
-  display: flex;
-  gap: 12rpx;
-  margin-bottom: 12rpx;
-}
-
-.orbit-hero-type {
-  font-size: 22rpx;
-  color: #fff;
-  background: rgba(52, 199, 89, 0.25);
-  border: 1rpx solid rgba(52, 199, 89, 0.5);
-  padding: 4rpx 16rpx;
-  border-radius: 20rpx;
-}
-
-.orbit-hero-title {
-  font-size: 32rpx;
-  font-weight: 700;
-  color: #fff;
-  text-align: center;
-  margin-bottom: 20rpx;
-}
-
-.orbit-hero-countdown {
-  display: flex;
-  align-items: center;
-  gap: 8rpx;
-  margin-bottom: 16rpx;
-}
-
-.orbit-hero-countdown--live {
-  justify-content: center;
-}
-
-.orbit-cd-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 80rpx;
-}
-
-.orbit-cd-value {
-  font-size: 56rpx;
-  font-weight: 700;
-  color: #fff;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.1;
-}
-
-.orbit-cd-label {
-  font-size: 20rpx;
-  color: rgba(255,255,255,0.6);
-  margin-top: 4rpx;
-}
-
-.orbit-cd-sep {
-  font-size: 44rpx;
-  font-weight: 300;
-  color: rgba(255,255,255,0.5);
-  margin-top: -20rpx;
-}
-
-.orbit-cd-live-text {
-  font-size: 36rpx;
-  font-weight: 600;
-  color: #FF453A;
-}
-
-.orbit-hero-meta {
-  display: flex;
+  align-items: stretch;
   gap: 16rpx;
+}
+.monitor-livestream-btn--full {
+  width: 100%;
+  flex: 1;
+}
+.monitor-livestream-btn--half {
+  flex: 1;
+  width: 0;
+  min-width: 0;
+}
+.monitor-livestream-btn {
+  min-width: 0;
+  min-height: 88rpx;
+  display: flex;
+  flex-direction: row;
   align-items: center;
-  margin-bottom: 16rpx;
+  gap: 14rpx;
+  padding: 20rpx 18rpx;
+  background: rgba(30, 30, 30, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 24rpx;
+  transition: all 0.18s ease;
+  box-sizing: border-box;
 }
-
-.orbit-hero-date {
-  font-size: 24rpx;
-  color: rgba(255,255,255,0.7);
+.monitor-livestream-btn--half {
+  padding: 18rpx 16rpx;
+  gap: 12rpx;
 }
-
-.orbit-hero-location {
-  font-size: 24rpx;
-  color: rgba(255,255,255,0.6);
-  background: rgba(255,255,255,0.08);
-  padding: 4rpx 12rpx;
-  border-radius: 8rpx;
+.monitor-livestream-btn--hover {
+  background: rgba(255, 255, 255, 0.06);
+  transform: scale(0.98);
 }
-
-.orbit-hero-cta {
-  margin-top: 4rpx;
+.monitor-livestream-btn--bilibili {
+  border-color: rgba(251, 114, 153, 0.3);
+  background: linear-gradient(135deg, rgba(251, 114, 153, 0.1), rgba(30, 30, 30, 0.45));
 }
-
-.orbit-hero-cta-text {
+.monitor-livestream-btn-icon {
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 12rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.monitor-livestream-icon-img {
+  width: 48rpx;
+  height: 48rpx;
+  display: block;
+}
+.monitor-livestream-btn-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+.monitor-livestream-btn-title {
   font-size: 26rpx;
-  color: #007AFF;
-  font-weight: 500;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  line-height: 1.2;
 }
-
+.monitor-livestream-btn-sub {
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.45);
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* ========== 通用空状态 ========== */
 .empty-state {
   padding: 40rpx 32rpx;
@@ -713,23 +346,19 @@ page {
   border-radius: 20rpx;
   border: 1px dashed rgba(255, 255, 255, 0.1);
 }
-
 .empty-state-icon {
   font-size: 52rpx;
   margin-bottom: 12rpx;
 }
-
 .empty-state-text {
   font-size: 26rpx;
   color: rgba(255, 255, 255, 0.5);
 }
-
 .empty-state-hint {
   font-size: 22rpx;
   color: rgba(255, 255, 255, 0.25);
   margin-top: 6rpx;
 }
-
 .monitor-share-wrap {
   position: relative;
   width: 28rpx;
@@ -738,12 +367,10 @@ page {
   align-items: center;
   justify-content: center;
 }
-
 .icon-share--monitor {
   width: 28rpx;
   height: 28rpx;
 }
-
 .monitor-share-btn {
   position: absolute;
   top: 0;
@@ -762,11 +389,9 @@ page {
   box-shadow: none !important;
   opacity: 0;
 }
-
 .monitor-share-btn::after {
   display: none;
 }
-
 /* ========== D2C 折叠按钮 ========== */
 
 /* ========== Starlink 卫星实时分布 ========== */
@@ -774,7 +399,6 @@ page {
   padding: 0 30rpx;
   margin-bottom: 40rpx;
 }
-
 .starlink-card {
   padding: 0;
   overflow: hidden;
@@ -782,7 +406,6 @@ page {
   border: 1px solid rgba(0, 255, 136, 0.1);
   background: linear-gradient(135deg, rgba(28, 28, 30, 0.9), rgba(0, 255, 136, 0.02));
 }
-
 .starlink-loading {
   height: 420rpx;
   display: flex;
@@ -791,7 +414,6 @@ page {
   justify-content: center;
   gap: 16rpx;
 }
-
 /* 轨道环加载动画：细描边圆环 + 环上旋转的绿色亮点 */
 .starlink-loading-orbit {
   position: relative;
@@ -802,7 +424,6 @@ page {
   box-sizing: border-box;
   animation: starlinkOrbitSpin 1.2s linear infinite;
 }
-
 .starlink-loading-orbit::before {
   content: '';
   position: absolute;
@@ -815,17 +436,14 @@ page {
   background: #00ff88;
   box-shadow: 0 0 12rpx rgba(0, 255, 136, 0.8);
 }
-
 @keyframes starlinkOrbitSpin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
-
 .starlink-loading-text {
   font-size: 26rpx;
   color: rgba(255, 255, 255, 0.5);
 }
-
 .starlink-error {
   height: 420rpx;
   display: flex;
@@ -834,12 +452,10 @@ page {
   justify-content: center;
   gap: 20rpx;
 }
-
 .starlink-error-text {
   font-size: 26rpx;
   color: rgba(255, 100, 100, 0.8);
 }
-
 .starlink-retry-btn {
   font-size: 24rpx;
   color: #00ff88;
@@ -847,12 +463,10 @@ page {
   border: 1px solid rgba(0, 255, 136, 0.3);
   border-radius: 999rpx;
 }
-
 .starlink-canvas-wrap {
   position: relative;
   width: 100%;
 }
-
 /* HUD 四角 L 形角框（科幻取景框） */
 .starlink-hud-corners {
   position: absolute;
@@ -862,15 +476,12 @@ page {
   pointer-events: none;
   z-index: 2;
 }
-
 .starlink-hud-corners--top {
   top: 12rpx;
 }
-
 .starlink-hud-corners--bottom {
   bottom: 12rpx;
 }
-
 .starlink-hud-corners::before,
 .starlink-hud-corners::after {
   content: '';
@@ -880,37 +491,31 @@ page {
   height: 24rpx;
   box-sizing: border-box;
 }
-
 .starlink-hud-corners--top::before {
   left: 0;
   border-top: 2rpx solid rgba(0, 255, 136, 0.5);
   border-left: 2rpx solid rgba(0, 255, 136, 0.5);
 }
-
 .starlink-hud-corners--top::after {
   right: 0;
   border-top: 2rpx solid rgba(0, 255, 136, 0.5);
   border-right: 2rpx solid rgba(0, 255, 136, 0.5);
 }
-
 .starlink-hud-corners--bottom::before {
   left: 0;
   border-bottom: 2rpx solid rgba(0, 255, 136, 0.5);
   border-left: 2rpx solid rgba(0, 255, 136, 0.5);
 }
-
 .starlink-hud-corners--bottom::after {
   right: 0;
   border-bottom: 2rpx solid rgba(0, 255, 136, 0.5);
   border-right: 2rpx solid rgba(0, 255, 136, 0.5);
 }
-
 .starlink-canvas {
   width: 100%;
   height: 420rpx;
   display: block;
 }
-
 .starlink-ctrl-bar {
   position: absolute;
   bottom: 0;
@@ -922,7 +527,6 @@ page {
   padding: 12rpx 16rpx;
   background: linear-gradient(to top, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0) 100%);
 }
-
 .starlink-ctrl-btn {
   width: 48rpx;
   height: 48rpx;
@@ -933,7 +537,6 @@ page {
   border: 1px solid rgba(0, 255, 136, 0.3);
   border-radius: 50%;
 }
-
 /* CSS 播放三角（border 三角形） */
 .ctrl-icon-play {
   width: 0;
@@ -943,13 +546,11 @@ page {
   border-color: transparent transparent transparent #00ff88;
   margin-left: 4rpx;
 }
-
 /* CSS 暂停：两条圆角竖线 */
 .ctrl-icon-pause {
   display: flex;
   gap: 6rpx;
 }
-
 .ctrl-icon-pause::before,
 .ctrl-icon-pause::after {
   content: '';
@@ -959,14 +560,12 @@ page {
   border-radius: 3rpx;
   background: #00ff88;
 }
-
 .starlink-ctrl-info {
   font-size: 22rpx;
   font-family: 'Courier New', Consolas, monospace;
   letter-spacing: 1rpx;
   color: rgba(255, 255, 255, 0.5);
 }
-
 .starlink-expand-hint {
   position: absolute;
   top: 16rpx;
@@ -979,13 +578,11 @@ page {
   align-items: center;
   justify-content: center;
 }
-
 .starlink-expand-text {
   font-size: 20rpx;
   color: rgba(0, 255, 136, 0.85);
   line-height: 1;
 }
-
 /* ========== D2C 折叠按钮 ========== */
 
 /* ========== 助推器族谱 ========== */
@@ -995,7 +592,6 @@ page {
   padding: 0 30rpx;
   margin-bottom: 40rpx;
 }
-
 /* 融合入口卡片 */
 .pass-hero-card {
   position: relative;
@@ -1008,7 +604,6 @@ page {
   align-items: center;
   gap: 16rpx;
 }
-
 /* 星链列车流星光效 —— 单条，偶尔一闪而过 */
 .pass-hero-trail {
   position: absolute;
@@ -1018,7 +613,6 @@ page {
   opacity: 0;
   pointer-events: none;
 }
-
 .pass-hero-trail--1 {
   top: 30%;
   left: -60%;
@@ -1026,7 +620,6 @@ page {
   animation: passTrailFlash 8s ease-in-out infinite;
   animation-delay: 2s;
 }
-
 .pass-hero-trail--2 {
   top: 62%;
   left: -50%;
@@ -1035,11 +628,9 @@ page {
   animation-delay: 6s;
   height: 1rpx;
 }
-
 .pass-hero-trail--3 {
   display: none;
 }
-
 @keyframes passTrailFlash {
   0%, 85%, 100% {
     transform: translateX(0);
@@ -1053,14 +644,12 @@ page {
     opacity: 0;
   }
 }
-
 .pass-hero-card-body {
   flex: 1;
   min-width: 0;
   position: relative;
   z-index: 1;
 }
-
 .pass-hero-card-top {
   display: flex;
   align-items: center;
@@ -1068,12 +657,10 @@ page {
   gap: 20rpx;
   margin-bottom: 20rpx;
 }
-
 .pass-hero-card-info {
   flex: 1;
   min-width: 0;
 }
-
 .pass-hero-card-title {
   display: block;
   font-size: 34rpx;
@@ -1081,19 +668,16 @@ page {
   color: #fff;
   margin-bottom: 8rpx;
 }
-
 .pass-hero-card-loc {
   display: block;
   font-size: 24rpx;
   color: rgba(255, 255, 255, 0.4);
 }
-
 .pass-hero-card-btns {
   display: flex;
   gap: 14rpx;
   flex-shrink: 0;
 }
-
 .pass-hero-chip {
   display: flex;
   align-items: center;
@@ -1105,28 +689,23 @@ page {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
-
 .pass-hero-chip text {
   font-size: 24rpx;
   color: rgba(255, 255, 255, 0.8);
   font-weight: 500;
   line-height: 1;
 }
-
 .pass-hero-chip--pro {
   border-color: rgba(255, 214, 10, 0.25);
   background: rgba(255, 214, 10, 0.06);
 }
-
 .pass-hero-chip--pro text {
   color: #FFD60A;
 }
-
 .pass-hero-card-bottom {
   position: relative;
   z-index: 1;
 }
-
 .pass-hero-card-next {
   display: inline;
   font-size: 28rpx;
@@ -1134,12 +713,10 @@ page {
   color: #fff;
   margin-right: 12rpx;
 }
-
 .pass-hero-card-meta {
   font-size: 24rpx;
   color: rgba(255, 255, 255, 0.45);
 }
-
 .pass-hero-card-arrow {
   font-size: 44rpx;
   color: rgba(255, 255, 255, 0.2);
@@ -1148,7 +725,6 @@ page {
   position: relative;
   z-index: 1;
 }
-
 .pass-refresh-chip {
   display: flex;
   align-items: center;
@@ -1160,26 +736,10 @@ page {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
-
 .pass-refresh-chip text {
   font-size: 22rpx;
   color: rgba(255, 255, 255, 0.5);
   line-height: 1;
-}
-
-.pass-ar-btn {
-  padding: 8rpx 20rpx;
-  border-radius: 999rpx;
-  background: linear-gradient(135deg, rgba(0, 122, 255, 0.2), rgba(88, 86, 214, 0.2));
-  border: 1px solid rgba(0, 122, 255, 0.3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.pass-ar-text {
-  font-size: 24rpx;
-  color: #007AFF;
-  font-weight: 500;
 }
 .pass-location {
   display: flex;
@@ -1188,71 +748,6 @@ page {
   padding: 16rpx 24rpx;
   border-radius: 16rpx;
   margin-bottom: 16rpx;
-}
-.pass-location-text {
-  font-size: 24rpx;
-  color: rgba(255, 255, 255, 0.6);
-}
-.pass-refresh-btn {
-  padding: 6rpx 16rpx;
-  border-radius: 999rpx;
-  background: rgba(255, 255, 255, 0.08);
-}
-.pass-refresh-btn text {
-  font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.5);
-}
-.pass-card {
-  padding: 20rpx 24rpx;
-  border-radius: 16rpx;
-  margin-bottom: 12rpx;
-}
-.pass-list-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16rpx;
-  padding: 20rpx 24rpx;
-  border-radius: 16rpx;
-  margin-bottom: 12rpx;
-}
-.pass-entry {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16rpx;
-  padding: 24rpx 26rpx;
-  border-radius: 20rpx;
-}
-.pass-entry-main {
-  flex: 1;
-  min-width: 0;
-}
-.pass-entry-title {
-  display: block;
-  font-size: 28rpx;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.92);
-  margin-bottom: 8rpx;
-}
-.pass-entry-sub {
-  display: block;
-  font-size: 24rpx;
-  color: rgba(255, 255, 255, 0.45);
-  line-height: 1.4;
-}
-.pass-entry-arrow {
-  font-size: 40rpx;
-  color: rgba(255, 255, 255, 0.35);
-  line-height: 1;
-  flex-shrink: 0;
-}
-.pass-list-toggle-line {
-  font-size: 26rpx;
-  color: rgba(255, 255, 255, 0.88);
-  font-weight: 500;
-  flex: 1;
-  min-width: 0;
 }
 .icon-arrow--pass-toggle {
   font-size: 34rpx;
@@ -1264,72 +759,11 @@ page {
 .icon-arrow--pass-toggle.expanded {
   transform: rotate(90deg);
 }
-.pass-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12rpx;
-}
 .pass-time {
   font-size: 36rpx;
   font-weight: 700;
   color: #fff;
   font-variant-numeric: tabular-nums;
-}
-.pass-brightness {
-  font-size: 22rpx;
-  padding: 4rpx 14rpx;
-  border-radius: 999rpx;
-  font-weight: 500;
-}
-.pass-brightness--bright {
-  color: #FFD60A;
-  background: rgba(255, 214, 10, 0.15);
-  border: 1px solid rgba(255, 214, 10, 0.3);
-}
-.pass-brightness--medium {
-  color: #FF9F0A;
-  background: rgba(255, 159, 10, 0.15);
-  border: 1px solid rgba(255, 159, 10, 0.3);
-}
-.pass-brightness--dim {
-  color: #8E8E93;
-  background: rgba(142, 142, 147, 0.1);
-  border: 1px solid rgba(142, 142, 147, 0.2);
-}
-.pass-card-body {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16rpx;
-  align-items: center;
-}
-.pass-detail-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4rpx;
-}
-.pass-detail-label {
-  font-size: 20rpx;
-  color: rgba(255, 255, 255, 0.4);
-}
-.pass-detail-value {
-  font-size: 26rpx;
-  color: rgba(255, 255, 255, 0.8);
-  font-weight: 500;
-}
-.pass-train-tag {
-  padding: 4rpx 14rpx;
-  border-radius: 999rpx;
-  background: rgba(52, 199, 89, 0.12);
-  border: 1px solid rgba(52, 199, 89, 0.25);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.pass-train-tag text {
-  font-size: 22rpx;
-  color: #34C759;
-  line-height: 1.2;
 }
 .pass-loading, .pass-empty {
   padding: 40rpx;
@@ -1359,495 +793,6 @@ page {
   color: #007AFF;
   font-weight: 500;
 }
-
-/* ========== 可回收火箭族谱 ========== */
-.booster-section {
-  padding: 0 30rpx;
-  margin-bottom: 40rpx;
-}
-.booster-summary {
-  display: flex;
-  justify-content: space-around;
-  padding: 24rpx;
-  margin-bottom: 20rpx;
-  border-radius: 20rpx;
-}
-.booster-summary-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-.booster-summary-value {
-  font-size: 40rpx;
-  font-weight: 700;
-  color: #fff;
-  font-variant-numeric: tabular-nums;
-}
-.booster-summary-label {
-  font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.5);
-  margin-top: 4rpx;
-}
-.booster-scroll {
-  white-space: nowrap;
-  width: 100%;
-}
-.booster-card {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: stretch;
-  margin-right: 16rpx;
-  border-radius: 20rpx;
-  width: 280rpx;
-  overflow: hidden;
-  position: relative;
-  transition: transform 0.25s ease;
-}
-.booster-card:active {
-  transform: scale(0.97);
-}
-/* 图片区域 */
-.booster-img-wrap {
-  position: relative;
-  width: 100%;
-  height: 180rpx;
-  overflow: hidden;
-}
-.booster-img {
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  transform: scale(1.02);
-  transition: opacity 0.32s ease, transform 0.32s ease;
-  background: rgba(255, 255, 255, 0.04);
-}
-.booster-img--loaded {
-  opacity: 1;
-  transform: scale(1);
-}
-.booster-img--placeholder {
-  opacity: 1;
-  transform: scale(1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.10), rgba(255, 255, 255, 0.03) 72%);
-}
-.booster-img-icon {
-  font-size: 48rpx;
-}
-/* 状态角标 */
-.booster-status-badge {
-  position: absolute;
-  top: 10rpx;
-  left: 10rpx;
-  font-size: 18rpx;
-  padding: 2rpx 12rpx;
-  border-radius: 6rpx;
-  font-weight: 500;
-  backdrop-filter: blur(10rpx);
-  -webkit-backdrop-filter: blur(10rpx);
-}
-.booster-status-badge--active {
-  color: #34C759;
-  background: rgba(52, 199, 89, 0.25);
-  border: 1px solid rgba(52, 199, 89, 0.4);
-}
-.booster-status-badge--retired {
-  color: #8E8E93;
-  background: rgba(142, 142, 147, 0.25);
-  border: 1px solid rgba(142, 142, 147, 0.4);
-}
-.booster-status-badge--destroyed {
-  color: #FF3B30;
-  background: rgba(255, 59, 48, 0.25);
-  border: 1px solid rgba(255, 59, 48, 0.4);
-}
-.booster-status-badge--expended {
-  color: #FF9500;
-  background: rgba(255, 149, 0, 0.25);
-  border: 1px solid rgba(255, 149, 0, 0.4);
-}
-.booster-status-badge--unknown {
-  color: #8E8E93;
-  background: rgba(142, 142, 147, 0.15);
-  border: 1px solid rgba(142, 142, 147, 0.3);
-}
-/* 信息区 */
-.booster-card-body {
-  padding: 16rpx 20rpx 20rpx;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8rpx;
-  white-space: normal;
-}
-.booster-serial-row {
-  display: flex;
-  align-items: center;
-  gap: 8rpx;
-}
-.booster-serial {
-  font-size: 28rpx;
-  font-weight: 700;
-  color: #fff;
-}
-.booster-country-flag {
-  font-size: 24rpx;
-  line-height: 1;
-}
-.booster-tag-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8rpx;
-}
-.booster-family-tag {
-  font-size: 20rpx;
-  color: rgba(255, 149, 0, 0.9);
-}
-.booster-mfr-tag {
-  font-size: 18rpx;
-  color: #5AC8FA;
-  padding: 2rpx 10rpx;
-  border-radius: 6rpx;
-  background: rgba(90, 200, 250, 0.12);
-  border: 1px solid rgba(90, 200, 250, 0.25);
-}
-
-/* 族谱筛选 chip + 查看全部按钮 */
-/* 「查看全部」PRO 金色胶囊（族谱/发射商图鉴/发射场共用，示意会员内容） */
-.booster-view-all {
-  display: flex;
-  align-items: center;
-  gap: 4rpx;
-  font-size: 24rpx;
-  font-weight: 600;
-  color: #5C3A00;
-  padding: 8rpx 20rpx 8rpx 26rpx;
-  border-radius: 999rpx;
-  background: linear-gradient(135deg, #FFE3A0 0%, #F7BE45 55%, #F0AE2C 100%);
-  border: 1px solid rgba(255, 210, 122, 0.65);
-  box-shadow: 0 4rpx 14rpx rgba(230, 165, 40, 0.28);
-  transition: transform 0.12s ease, opacity 0.12s ease;
-}
-.booster-view-all--pressed {
-  transform: scale(0.94);
-  opacity: 0.85;
-}
-.booster-view-all-arrow {
-  font-size: 30rpx;
-  line-height: 1;
-  color: #5C3A00;
-}
-.booster-filter-scroll {
-  width: 100%;
-  white-space: nowrap;
-  margin-bottom: 20rpx;
-}
-.booster-filter-row {
-  display: inline-flex;
-  gap: 12rpx;
-  padding: 2rpx 2rpx;
-}
-.booster-filter-chip {
-  flex-shrink: 0;
-  padding: 10rpx 26rpx;
-  border-radius: 999rpx;
-  font-size: 24rpx;
-  color: rgba(255, 255, 255, 0.65);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  transition: all 0.2s ease;
-}
-.booster-filter-chip--active {
-  color: #fff;
-  font-weight: 600;
-  background: linear-gradient(135deg, rgba(0, 122, 255, 0.35), rgba(88, 86, 214, 0.35));
-  border-color: rgba(0, 122, 255, 0.55);
-}
-.booster-key-stats {
-  display: flex;
-  gap: 24rpx;
-  margin-top: 4rpx;
-}
-.booster-stat-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-.booster-stat-num {
-  font-size: 28rpx;
-  font-weight: 700;
-  color: #fff;
-  font-variant-numeric: tabular-nums;
-}
-.booster-stat-label {
-  font-size: 18rpx;
-  color: rgba(255, 255, 255, 0.45);
-}
-.booster-flights-bar {
-  display: flex;
-  gap: 3rpx;
-  flex-wrap: wrap;
-  justify-content: center;
-  max-width: 240rpx;
-}
-.flight-block {
-  width: 14rpx;
-  height: 14rpx;
-  border-radius: 3rpx;
-}
-.flight-success {
-  background: #34C759;
-  box-shadow: 0 0 4rpx rgba(52, 199, 89, 0.4);
-}
-.flight-fail {
-  background: #FF3B30;
-  box-shadow: 0 0 4rpx rgba(255, 59, 48, 0.4);
-}
-.flight-pending {
-  background: #FF9500;
-  box-shadow: 0 0 4rpx rgba(255, 149, 0, 0.4);
-}
-.flight-unknown {
-  background: rgba(255, 255, 255, 0.2);
-}
-.booster-turnaround {
-  font-size: 18rpx;
-  color: rgba(90, 200, 250, 0.8);
-  margin-top: 2rpx;
-}
-/* 箭头 */
-.booster-card-arrow {
-  position: absolute;
-  top: 10rpx;
-  right: 10rpx;
-  font-size: 28rpx;
-  color: rgba(255, 255, 255, 0.3);
-}
-.booster-loading {
-  padding: 40rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 20rpx;
-}
-
-/* ========== 全球飞船图鉴（骨架镜像族谱卡片） ========== */
-.sc-section {
-  padding: 0 30rpx;
-  margin-bottom: 40rpx;
-}
-.sc-card {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: stretch;
-  /* 横滑容器内 inline 元素默认基线对齐，内容高度不一会上下错位，强制顶部对齐 */
-  vertical-align: top;
-  margin-right: 16rpx;
-  border-radius: 20rpx;
-  width: 280rpx;
-  overflow: hidden;
-  position: relative;
-  transition: transform 0.25s ease;
-}
-.sc-card:active {
-  transform: scale(0.97);
-}
-.sc-img-wrap {
-  position: relative;
-  width: 100%;
-  height: 180rpx;
-  overflow: hidden;
-}
-.sc-img {
-  width: 100%;
-  height: 100%;
-  background: rgba(255, 255, 255, 0.04);
-}
-.sc-img--placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.10), rgba(255, 255, 255, 0.03) 72%);
-}
-.sc-img-icon {
-  font-size: 48rpx;
-}
-.sc-status-badge {
-  position: absolute;
-  top: 10rpx;
-  left: 10rpx;
-  font-size: 18rpx;
-  padding: 2rpx 12rpx;
-  border-radius: 6rpx;
-  font-weight: 500;
-  backdrop-filter: blur(10rpx);
-  -webkit-backdrop-filter: blur(10rpx);
-}
-.sc-status-badge--active {
-  color: #34C759;
-  background: rgba(52, 199, 89, 0.25);
-  border: 1px solid rgba(52, 199, 89, 0.4);
-}
-.sc-status-badge--retired {
-  color: #8E8E93;
-  background: rgba(142, 142, 147, 0.25);
-  border: 1px solid rgba(142, 142, 147, 0.4);
-}
-.sc-card-body {
-  padding: 16rpx 20rpx 20rpx;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8rpx;
-  white-space: normal;
-}
-.sc-name {
-  font-size: 26rpx;
-  font-weight: 700;
-  color: #fff;
-  text-align: center;
-  line-height: 34rpx;
-  /* 固定两行高度并截断：长短船名卡片高度一致，横排不错位 */
-  height: 68rpx;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-}
-.sc-tag-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8rpx;
-  /* 标签单行截断，避免换行撑高卡片 */
-  max-width: 100%;
-  overflow: hidden;
-  white-space: nowrap;
-}
-.sc-type-tag {
-  font-size: 20rpx;
-  color: rgba(255, 149, 0, 0.9);
-  flex-shrink: 0;
-}
-.sc-agency-tag {
-  font-size: 18rpx;
-  color: #5AC8FA;
-  padding: 2rpx 10rpx;
-  border-radius: 6rpx;
-  background: rgba(90, 200, 250, 0.12);
-  border: 1px solid rgba(90, 200, 250, 0.25);
-  max-width: 160rpx;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* ========== 全球发射场分布（骨架镜像全球飞船图鉴 sc-*） ========== */
-.ls-section {
-  padding: 0 30rpx;
-  margin-bottom: 40rpx;
-}
-.ls-card {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: stretch;
-  /* 横滑容器内 inline 元素默认基线对齐，内容高度不一会上下错位，强制顶部对齐 */
-  vertical-align: top;
-  margin-right: 16rpx;
-  border-radius: 20rpx;
-  width: 300rpx;
-  overflow: hidden;
-  position: relative;
-  transition: transform 0.15s ease;
-}
-.ls-card:active {
-  transform: scale(0.97);
-}
-.ls-img-wrap {
-  position: relative;
-  width: 100%;
-  height: 200rpx;
-  overflow: hidden;
-}
-.ls-img {
-  width: 100%;
-  height: 100%;
-  background: rgba(255, 255, 255, 0.04);
-}
-.ls-img--placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: radial-gradient(circle at center, rgba(255, 149, 0, 0.10), rgba(255, 255, 255, 0.03) 72%);
-}
-.ls-img-icon {
-  font-size: 48rpx;
-}
-/* 累计发射角标（右上，与左上活跃状态角标对称） */
-.ls-launch-badge {
-  position: absolute;
-  top: 10rpx;
-  right: 10rpx;
-  font-size: 18rpx;
-  padding: 2rpx 12rpx;
-  border-radius: 6rpx;
-  font-weight: 500;
-  color: #FF9F0A;
-  background: rgba(255, 159, 10, 0.22);
-  border: 1px solid rgba(255, 159, 10, 0.4);
-  backdrop-filter: blur(10rpx);
-  -webkit-backdrop-filter: blur(10rpx);
-}
-.ls-card-body {
-  padding: 16rpx 20rpx 20rpx;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8rpx;
-  white-space: normal;
-}
-.ls-name {
-  font-size: 26rpx;
-  font-weight: 700;
-  color: #fff;
-  text-align: center;
-  line-height: 34rpx;
-  /* 固定两行高度并截断：长短场名卡片高度一致，横排不错位 */
-  height: 68rpx;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-}
-.ls-tag-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8rpx;
-  /* 标签单行截断，避免换行撑高卡片 */
-  max-width: 100%;
-  overflow: hidden;
-  white-space: nowrap;
-}
-.ls-country-tag {
-  font-size: 18rpx;
-  color: #5AC8FA;
-  padding: 2rpx 10rpx;
-  border-radius: 6rpx;
-  background: rgba(90, 200, 250, 0.12);
-  border: 1px solid rgba(90, 200, 250, 0.25);
-  flex-shrink: 0;
-}
-.ls-sub-name {
-  font-size: 18rpx;
-  color: rgba(255, 255, 255, 0.45);
-  max-width: 170rpx;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 /* ========== D2C 折叠按钮（续） ========== */
 /* B站直播二维码弹窗 */
 .qrcode-modal {
@@ -1863,12 +808,10 @@ page {
   justify-content: center;
   animation: qrFadeIn 0.2s ease;
 }
-
 @keyframes qrFadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
 }
-
 .qrcode-modal-content {
   width: 600rpx;
   max-width: 90%;
@@ -1879,12 +822,10 @@ page {
   overflow: hidden;
   animation: qrSlideUp 0.3s ease;
 }
-
 @keyframes qrSlideUp {
   from { transform: translateY(40rpx); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
 }
-
 .qrcode-header {
   display: flex;
   justify-content: space-between;
@@ -1892,13 +833,11 @@ page {
   padding: 30rpx 40rpx;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
-
 .qrcode-title {
   font-size: 32rpx;
   font-weight: 600;
   color: #FFFFFF;
 }
-
 .qrcode-close {
   width: 60rpx;
   height: 60rpx;
@@ -1909,16 +848,13 @@ page {
   background: rgba(255, 255, 255, 0.1);
   transition: all 0.2s ease;
 }
-
 .qrcode-close:active {
   background: rgba(255, 255, 255, 0.2);
   transform: scale(0.95);
 }
-
 .icon-close--qrcode {
   font-size: 36rpx;
 }
-
 .qrcode-body {
   display: flex;
   flex-direction: column;
@@ -1926,7 +862,6 @@ page {
   padding: 50rpx 40rpx;
   gap: 30rpx;
 }
-
 .qrcode-image {
   width: 400rpx;
   height: 400rpx;
@@ -1935,20 +870,17 @@ page {
   padding: 20rpx;
   box-sizing: border-box;
 }
-
 .qrcode-tip {
   font-size: 24rpx;
   color: #8E8E93;
   text-align: center;
 }
-
 .qrcode-tip--name {
   font-size: 28rpx;
   color: #FFFFFF;
   font-weight: 600;
   margin-bottom: 8rpx;
 }
-
 .qrcode-copy-btn {
   margin-top: 10rpx;
   padding: 16rpx 40rpx;
@@ -1956,41 +888,34 @@ page {
   border-radius: 12rpx;
   transition: all 0.2s ease;
 }
-
 .qrcode-copy-btn:active {
   background: rgba(0, 122, 255, 0.7);
   transform: scale(0.97);
 }
-
 .qrcode-copy-btn text {
   font-size: 28rpx;
   color: #FFFFFF;
   font-weight: 500;
 }
-
 /* ========== 空间站实时状态 ========== */
 .station-section {
   padding: 0 30rpx;
   margin-bottom: 40rpx;
 }
-
 .station-loading {
   display: flex;
   justify-content: center;
   padding: 40rpx 0;
 }
-
 .station-loading-text {
   font-size: 24rpx;
   color: #636366;
 }
-
 /* 两个空间站卡片并排 */
 .station-row {
   display: flex;
   gap: 16rpx;
 }
-
 .station-mini-card {
   flex: 1;
   display: flex;
@@ -2006,11 +931,9 @@ page {
   position: relative;
   overflow: hidden;
 }
-
 .station-mini-card:active {
   transform: scale(0.97);
 }
-
 .station-mini-img {
   width: 100%;
   height: 140rpx;
@@ -2021,18 +944,15 @@ page {
   transform: scale(1.02);
   transition: opacity 0.32s ease, transform 0.32s ease;
 }
-
 .station-mini-img--loaded {
   opacity: 1;
   transform: scale(1);
 }
-
 .station-mini-img--placeholder {
   background: radial-gradient(circle at center, rgba(90, 200, 250, 0.10), rgba(255, 255, 255, 0.03) 72%);
   box-shadow: inset 0 0 18rpx rgba(90, 200, 250, 0.05);
   position: relative;
 }
-
 .station-mini-img--placeholder::after {
   content: '';
   position: absolute;
@@ -2045,14 +965,12 @@ page {
   border: 2rpx solid rgba(90, 200, 250, 0.22);
   box-shadow: 0 0 16rpx rgba(90, 200, 250, 0.08);
 }
-
 .station-mini-body {
   width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
-
 .station-mini-name {
   font-size: 26rpx;
   font-weight: 600;
@@ -2064,7 +982,6 @@ page {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 .station-mini-tags {
   display: flex;
   align-items: center;
@@ -2073,12 +990,10 @@ page {
   flex-wrap: wrap;
   justify-content: center;
 }
-
 .station-mini-dock {
   font-size: 20rpx;
   color: #8E8E93;
 }
-
 .station-mini-arrow {
   position: absolute;
   top: 10rpx;
@@ -2092,7 +1007,6 @@ page {
   color: #636366;
   transition: transform 0.25s ease;
 }
-
 /* 空间站标签 */
 .station-tag {
   font-size: 20rpx;
@@ -2100,21 +1014,11 @@ page {
   border-radius: 6rpx;
   font-weight: 500;
 }
-
 .station-tag--active {
   color: #34C759;
   background: rgba(52, 199, 89, 0.15);
   border: 1px solid rgba(52, 199, 89, 0.3);
 }
-
-/* 无停靠飞船 */
-.docked-empty {
-  text-align: center;
-  padding: 24rpx 0;
-  font-size: 24rpx;
-  color: #636366;
-}
-
 /* 空间站无数据 */
 .station-empty {
   display: flex;
@@ -2122,7 +1026,6 @@ page {
   align-items: center;
   padding: 60rpx 0;
 }
-
 .station-empty-visual {
   width: 120rpx;
   height: 120rpx;
@@ -2133,7 +1036,6 @@ page {
   box-shadow: inset 0 0 32rpx rgba(90, 200, 250, 0.08), 0 0 32rpx rgba(90, 200, 250, 0.08);
   position: relative;
 }
-
 .station-empty-visual::after {
   content: '';
   position: absolute;
@@ -2142,255 +1044,6 @@ page {
   border: 2rpx solid rgba(90, 200, 250, 0.3);
   box-shadow: 0 0 16rpx rgba(90, 200, 250, 0.1);
 }
-
-/* ========== 全球发射商图鉴 ========== */
-.agency-section {
-  padding: 0 30rpx;
-  margin-bottom: 40rpx;
-}
-
-/* 筛选分类胶囊（与星舰硬件设施同款） */
-.agency-filter-scroll {
-  width: 100%;
-  white-space: nowrap;
-  margin-bottom: 16rpx;
-}
-.agency-filter-row {
-  display: inline-flex;
-  gap: 14rpx;
-  padding: 0 6rpx;
-}
-.agency-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 52rpx;
-  padding: 0 26rpx;
-  border-radius: 999rpx;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-sizing: border-box;
-  transition: background 0.2s ease, border-color 0.2s ease;
-}
-.agency-chip text {
-  color: #C7C7CC;
-  font-size: 24rpx;
-  line-height: 1;
-}
-.agency-chip-active {
-  background: rgba(10, 132, 255, 0.2);
-  border-color: rgba(10, 132, 255, 0.55);
-}
-.agency-chip-active text {
-  color: #9FD0FF;
-  font-weight: 600;
-}
-
-/* 搜索框 */
-.agency-search {
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
-  padding: 14rpx 22rpx;
-  margin-bottom: 20rpx;
-  border-radius: 20rpx;
-}
-.agency-search-icon {
-  color: #8E8E93;
-  font-size: 34rpx;
-  line-height: 1;
-}
-.agency-search-input {
-  flex: 1;
-  min-width: 0;
-  color: #FFFFFF;
-  font-size: 26rpx;
-  height: 52rpx;
-  line-height: 52rpx;
-}
-.agency-search-placeholder {
-  color: #636366;
-}
-.agency-search-clear {
-  width: 44rpx;
-  height: 44rpx;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.1);
-}
-.agency-search-clear text {
-  color: #C7C7CC;
-  font-size: 30rpx;
-  line-height: 1;
-}
-
-/* 卡片网格（2 列，与星舰硬件设施同款） */
-.agency-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 20rpx;
-}
-.agency-hw-card {
-  width: calc((100% - 20rpx) / 2);
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-/* 扫光走全局 skeleton-shimmer（app.wxss） */
-.agency-hw-card-skeleton {
-  height: 380rpx;
-}
-.agency-hw-card-image-wrap {
-  width: 100%;
-  aspect-ratio: 4 / 3;
-  position: relative;
-  overflow: hidden;
-  background: rgba(30, 30, 30, 0.35);
-}
-.agency-hw-card-image {
-  width: 100%;
-  height: 100%;
-  display: block;
-  background-color: rgba(30, 30, 30, 0.35);
-}
-/* 仅有 logo 时：留白居中展示，白色衬底保证深色 logo 可见 */
-.agency-hw-card-image--logo {
-  box-sizing: border-box;
-  padding: 36rpx;
-  background-color: rgba(255, 255, 255, 0.92);
-}
-.agency-hw-card-image-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: radial-gradient(circle, rgba(90, 200, 250, 0.12), rgba(28, 28, 30, 0.95));
-}
-.agency-hw-card-image-placeholder text {
-  font-size: 64rpx;
-}
-.agency-placeholder-icon {
-  width: 72rpx;
-  height: 72rpx;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235ac8fa' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M13 7 9 3 5 7l4 4'/%3E%3Cpath d='m17 11 4 4-4 4-4-4'/%3E%3Cpath d='m8 12 4 4 6-6-4-4Z'/%3E%3Cpath d='m16 8 3-3'/%3E%3Cpath d='M9 21a6 6 0 0 0-6-6'/%3E%3C/svg%3E") no-repeat center / contain;
-  opacity: 0.65;
-}
-.agency-hw-card-image-mask {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 55%;
-  background: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(22, 22, 24, 0.92) 100%);
-  pointer-events: none;
-}
-.agency-hw-card-overlay {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 14rpx 18rpx;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6rpx;
-  pointer-events: none;
-}
-.agency-hw-card-name {
-  max-width: 100%;
-  font-size: 32rpx;
-  font-weight: 700;
-  color: #FFFFFF;
-  text-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.8);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.agency-hw-card-body {
-  padding: 14rpx 18rpx 18rpx;
-  display: flex;
-  flex-direction: column;
-  gap: 8rpx;
-  flex: 1;
-}
-.agency-hw-card-meta {
-  font-size: 22rpx;
-  color: #8E8E93;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.agency-hw-card-notes {
-  font-size: 22rpx;
-  color: #AEAEB2;
-  line-height: 1.5;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-}
-
-/* 空态 + 展开更多 */
-.agency-empty {
-  padding: 40rpx 30rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.agency-empty text {
-  color: #8E8E93;
-  font-size: 26rpx;
-  text-align: center;
-}
-/* 类型徽标（叠在卡片照片上，用深色衬底保证对比度） */
-.agency-type-tag {
-  font-size: 18rpx;
-  padding: 2rpx 10rpx;
-  border-radius: 999rpx;
-  color: rgba(255, 255, 255, 0.7);
-  background: rgba(28, 28, 30, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-.agency-type--government {
-  color: #FFD60A;
-  background: rgba(66, 56, 8, 0.72);
-  border-color: rgba(255, 214, 10, 0.25);
-}
-.agency-type--commercial {
-  color: #30D158;
-  background: rgba(10, 52, 22, 0.72);
-  border-color: rgba(48, 209, 88, 0.25);
-}
-
-/* 错误态 */
-.agency-error {
-  padding: 48rpx 32rpx;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  border-radius: 20rpx;
-  gap: 12rpx;
-}
-.agency-retry-btn {
-  margin-top: 12rpx;
-  padding: 10rpx 32rpx;
-  border-radius: 999rpx;
-  background: rgba(0, 122, 255, 0.15);
-  border: 1px solid rgba(0, 122, 255, 0.3);
-}
-.agency-retry-btn text {
-  font-size: 24rpx;
-  color: #007AFF;
-  font-weight: 500;
-}
-
 /* ========== 懒加载占位卡片 ========== */
 .lazy-load-card {
   display: flex;
@@ -2419,299 +1072,6 @@ page {
   color: rgba(255, 255, 255, 0.4);
   margin-top: 4rpx;
 }
-
-/* ============== 太空轨道数据中心系统（黑色磨砂玻璃卡片） ============== */
-.section-title--orbital {
-  margin-top: 32rpx;
-}
-
-.orbital-card {
-  position: relative;
-  margin-top: 24rpx;
-  padding: 32rpx 28rpx 24rpx;
-  border-radius: 28rpx;
-  background: rgba(8, 8, 12, 0.72);
-  border: 1rpx solid rgba(255, 255, 255, 0.08);
-  overflow: hidden;
-  /* 性能：卡片在纯色页面背景上，backdrop-filter 视觉无差别但每帧实时合成（本卡另有多路常驻动画），已移除 */
-  box-shadow:
-    0 12rpx 40rpx rgba(0, 0, 0, 0.55),
-    inset 0 1rpx 0 rgba(255, 255, 255, 0.06);
-}
-
-/* 背景图（最底层） */
-.orbital-card__bg-img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 0;
-  pointer-events: none;
-  opacity: 0.55;
-}
-
-/* 背景图上方暗色蒙版（保证文字可读 + 让白色轨道线突出） */
-.orbital-card__bg-mask {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(135deg,
-      rgba(0, 0, 0, 0.78) 0%,
-      rgba(0, 0, 0, 0.5) 50%,
-      rgba(0, 0, 0, 0.85) 100%);
-}
-
-/* 背景：右上角白色轨道动画（柔和不花哨） */
-.orbital-card__bg {
-  position: absolute;
-  top: -40rpx;
-  right: -40rpx;
-  width: 280rpx;
-  height: 280rpx;
-  pointer-events: none;
-  z-index: 0;
-}
-
-.orbital-card__core {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 8rpx;
-  height: 8rpx;
-  margin-top: -4rpx;
-  margin-left: -4rpx;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.85);
-  box-shadow: 0 0 10rpx rgba(255, 255, 255, 0.5);
-  animation: orbital-pulse 2.4s ease-in-out infinite;
-}
-
-.orbital-card__orbit {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  border-radius: 50%;
-  border: 1rpx solid rgba(255, 255, 255, 0.16);
-  animation: orbital-spin 18s linear infinite;
-}
-
-.orbital-card__orbit-dot {
-  position: absolute;
-  top: -4rpx;
-  left: 50%;
-  width: 8rpx;
-  height: 8rpx;
-  border-radius: 50%;
-  transform: translateX(-50%);
-}
-
-.orbital-card__orbit-dot--green {
-  background: #34D399;
-  box-shadow: 0 0 8rpx #34D399;
-}
-
-.orbital-card__orbit-dot--blue {
-  background: #60A5FA;
-  box-shadow: 0 0 8rpx #60A5FA;
-}
-
-.orbital-card__orbit-dot--red {
-  background: #F87171;
-  box-shadow: 0 0 8rpx #F87171;
-}
-
-.orbital-card__orbit--1 {
-  width: 140rpx;
-  height: 140rpx;
-  margin-top: -70rpx;
-  margin-left: -70rpx;
-  animation-duration: 9s;
-}
-
-.orbital-card__orbit--2 {
-  width: 200rpx;
-  height: 200rpx;
-  margin-top: -100rpx;
-  margin-left: -100rpx;
-  border-color: rgba(255, 255, 255, 0.12);
-  animation-duration: 14s;
-  animation-direction: reverse;
-}
-
-.orbital-card__orbit--3 {
-  width: 260rpx;
-  height: 260rpx;
-  margin-top: -130rpx;
-  margin-left: -130rpx;
-  border-color: rgba(255, 255, 255, 0.08);
-  animation-duration: 22s;
-}
-
-@keyframes orbital-spin {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes orbital-pulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50%      { transform: scale(1.5); opacity: 0.5; }
-}
-
-.orbital-card__content {
-  position: relative;
-  z-index: 1;
-}
-
-.orbital-card__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20rpx;
-}
-
-.orbital-card__badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 8rpx;
-  padding: 6rpx 12rpx;
-  border-radius: 100rpx;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1rpx solid rgba(255, 255, 255, 0.18);
-  backdrop-filter: blur(12rpx);
-  -webkit-backdrop-filter: blur(12rpx);
-}
-
-.orbital-card__badge-dot {
-  width: 8rpx;
-  height: 8rpx;
-  border-radius: 50%;
-  background: #FFFFFF;
-  box-shadow: 0 0 8rpx rgba(255, 255, 255, 0.6);
-  animation: orbital-blink 1.4s ease-in-out infinite;
-}
-
-@keyframes orbital-blink {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.35; }
-}
-
-.orbital-card__badge-text {
-  font-size: 18rpx;
-  letter-spacing: 1.4rpx;
-  color: rgba(255, 255, 255, 0.85);
-  font-weight: 600;
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
-}
-
-.orbital-card__chip {
-  display: none;
-}
-
-.orbital-card__chip-text {
-  display: none;
-}
-
-.orbital-card__title {
-  display: block;
-  font-size: 32rpx;
-  font-weight: 700;
-  letter-spacing: 0.6rpx;
-  color: #FFFFFF;
-  font-family: 'SF Pro Display', -apple-system, sans-serif;
-}
-
-.orbital-card__title-cn {
-  display: block;
-  font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.65);
-  letter-spacing: 1rpx;
-  margin-top: 4rpx;
-}
-
-.orbital-card__desc {
-  display: block;
-  font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.45);
-  line-height: 1.6;
-  margin-top: 16rpx;
-  letter-spacing: 0.4rpx;
-}
-
-.orbital-card__metrics {
-  display: flex;
-  align-items: center;
-  margin-top: 24rpx;
-  padding: 18rpx 0;
-  border-top: 1rpx solid rgba(255, 255, 255, 0.08);
-  border-bottom: 1rpx solid rgba(255, 255, 255, 0.08);
-}
-
-.orbital-card__metric {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4rpx;
-}
-
-.orbital-card__metric-value {
-  font-size: 30rpx;
-  font-weight: 700;
-  color: #FFFFFF;
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
-  letter-spacing: 0.5rpx;
-}
-
-.orbital-card__metric-label {
-  font-size: 18rpx;
-  color: rgba(255, 255, 255, 0.4);
-  letter-spacing: 0.6rpx;
-}
-
-.orbital-card__metric-divider {
-  width: 1rpx;
-  height: 32rpx;
-  background: linear-gradient(180deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.16) 50%,
-    transparent 100%);
-}
-
-.orbital-card__cta {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 18rpx;
-  padding: 16rpx 18rpx;
-  border-radius: 12rpx;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1rpx solid rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(16rpx);
-  -webkit-backdrop-filter: blur(16rpx);
-}
-
-.orbital-card__cta-text {
-  font-size: 26rpx;
-  font-weight: 600;
-  color: #FFFFFF;
-  letter-spacing: 0.8rpx;
-}
-
-.orbital-card__cta-arrow {
-  font-size: 28rpx;
-  color: rgba(255, 255, 255, 0.85);
-  font-weight: 700;
-  animation: orbital-arrow 1.8s ease-in-out infinite;
-}
-
-@keyframes orbital-arrow {
-  0%, 100% { transform: translateX(0); }
-  50%      { transform: translateX(6rpx); }
-}
-
 /* ========== 明亮主题（theme-light）覆盖 ========== */
 /* 说明：以下元素刻意保持深色，不做覆盖 ——
    1. .orbital-card 及其全部子元素（黑色磨砂玻璃卡片，压在背景图/视频上的白字浮层）；
@@ -2726,494 +1086,239 @@ page {
   background: var(--bg-glass-nav);
   border-bottom: 1px solid var(--color-divider);
 }
-
 /* --- 标题与通用文字 --- */
 .theme-light .section-title {
   color: var(--color-text-primary);
 }
-
 .theme-light .section-subtitle {
   color: var(--color-text-tertiary);
 }
-
 .theme-light .empty-state {
   border: 1px dashed rgba(0, 0, 0, 0.1);
 }
-
 .theme-light .empty-state-text {
   color: var(--color-text-secondary);
 }
-
 .theme-light .empty-state-hint {
   color: var(--color-text-tertiary);
 }
-
 /* --- MARS 预览卡片 --- */
 .theme-light .preview-card-title {
   color: var(--color-text-primary);
 }
-
 .theme-light .preview-card-desc {
   color: var(--color-text-secondary);
 }
-
 .theme-light .icon-arrow--preview-card {
   color: var(--color-text-tertiary);
 }
-
 /* --- 直播观看 --- */
 .theme-light .monitor-livestream-heading-text {
   color: var(--color-text-primary);
 }
-
 .theme-light .monitor-livestream-section .livestream-live-tag {
   background: linear-gradient(90deg, #ff2d55, #ff453a);
   box-shadow: 0 4rpx 12rpx rgba(255, 45, 85, 0.28);
 }
-
 .theme-light .monitor-livestream-section .livestream-live-tag-text {
   color: #ffffff;
 }
-
 .theme-light .monitor-livestream-btn {
   background: rgba(255, 255, 255, 0.85);
   border: 1px solid var(--color-divider);
 }
-
 .theme-light .monitor-livestream-btn--hover {
   background: rgba(0, 0, 0, 0.05);
 }
-
 .theme-light .monitor-livestream-btn--bilibili {
   border-color: rgba(251, 114, 153, 0.35);
   background: linear-gradient(135deg, rgba(251, 114, 153, 0.12), rgba(255, 255, 255, 0.85));
 }
-
-.theme-light .monitor-livestream-btn-arrow {
-  color: var(--color-text-tertiary);
-}
-
 .theme-light .monitor-livestream-btn-title {
   color: var(--color-text-primary);
 }
-
 .theme-light .monitor-livestream-btn-sub {
   color: var(--color-text-secondary);
 }
-
 /* --- 博卡奇卡天气 --- */
 .theme-light .starbase-weather-place {
   color: var(--color-text-tertiary);
 }
-
 .theme-light .starbase-weather-loading text {
   color: var(--color-text-tertiary);
 }
-
 .theme-light .starbase-wx-condition {
   color: var(--color-text-primary);
 }
-
 .theme-light .starbase-wx-temp {
   color: var(--color-text-primary);
 }
-
 .theme-light .starbase-wx-time {
   color: var(--color-text-tertiary);
 }
-
 .theme-light .starbase-wx-wind-text {
   color: var(--color-text-secondary);
 }
-
 .theme-light .starbase-weather-err {
   color: #FF3B30;
 }
-
-/* --- 在轨任务（小卡片；orbit-hero 保持深色） --- */
-.theme-light .orbit-card-title {
-  color: var(--color-text-primary);
-}
-
-.theme-light .orbit-meta-tag {
-  color: var(--color-text-secondary);
-  background: rgba(0, 0, 0, 0.05);
-}
-
-.theme-light .orbit-meta-tag--date {
-  color: var(--color-text-secondary);
-}
-
-.theme-light .orbit-meta-tag--location {
-  color: #007AFF;
-  background: rgba(0, 122, 255, 0.12);
-}
-
-.theme-light .orbit-stat-label {
-  color: var(--color-text-tertiary);
-}
-
-.theme-light .orbit-stat-cta-text {
-  color: var(--color-text-secondary);
-}
-
-/* --- 过境预报按钮（旧样式类，保留兼容） --- */
-.theme-light .pass-map-text {
-  color: #007AFF;
-}
-
-.theme-light .pass-ar-text {
-  color: #34C759;
-}
-
 /* --- 过境预报融合卡片 --- */
 .theme-light .pass-hero-card {
   background: var(--color-bg-card);
   border: 1px solid var(--color-divider);
 }
-
 .theme-light .pass-hero-trail {
   background: linear-gradient(90deg, transparent 0%, rgba(0, 0, 0, 0.14) 40%, rgba(0, 0, 0, 0.24) 60%, transparent 100%);
 }
-
 .theme-light .pass-hero-card-title {
   color: var(--color-text-primary);
 }
-
 .theme-light .pass-hero-card-loc {
   color: var(--color-text-tertiary);
 }
-
 .theme-light .pass-hero-chip {
   background: rgba(0, 0, 0, 0.05);
   border: 1px solid var(--color-divider);
 }
-
 .theme-light .pass-hero-chip text {
   color: var(--color-text-secondary);
 }
-
 .theme-light .pass-hero-chip--pro {
   border-color: rgba(255, 214, 10, 0.35);
   background: rgba(255, 214, 10, 0.12);
 }
-
 .theme-light .pass-hero-card-next {
   color: var(--color-text-primary);
 }
-
 .theme-light .pass-hero-card-meta {
   color: var(--color-text-tertiary);
 }
-
 .theme-light .pass-hero-card-arrow {
   color: rgba(0, 0, 0, 0.2);
 }
-
 .theme-light .pass-refresh-chip {
   background: rgba(0, 0, 0, 0.05);
   border: 1px solid var(--color-divider);
 }
-
 .theme-light .pass-refresh-chip text {
   color: var(--color-text-secondary);
 }
-
-.theme-light .pass-location-text {
-  color: var(--color-text-secondary);
-}
-
-.theme-light .pass-refresh-btn {
-  background: rgba(0, 0, 0, 0.05);
-}
-
-.theme-light .pass-refresh-btn text {
-  color: var(--color-text-secondary);
-}
-
-.theme-light .pass-entry-title {
-  color: var(--color-text-primary);
-}
-
-.theme-light .pass-entry-sub {
-  color: var(--color-text-tertiary);
-}
-
-.theme-light .pass-entry-arrow {
-  color: var(--color-text-tertiary);
-}
-
-.theme-light .pass-list-toggle-line {
-  color: var(--color-text-primary);
-}
-
 .theme-light .icon-arrow--pass-toggle {
   color: var(--color-text-tertiary);
 }
-
 .theme-light .pass-time {
   color: var(--color-text-primary);
 }
-
-.theme-light .pass-detail-label {
-  color: var(--color-text-tertiary);
-}
-
-.theme-light .pass-detail-value {
-  color: var(--color-text-secondary);
-}
-
-/* --- 可回收火箭族谱 --- */
-.theme-light .booster-summary-value {
-  color: var(--color-text-primary);
-}
-
-.theme-light .booster-summary-label {
-  color: var(--color-text-tertiary);
-}
-
-.theme-light .booster-img {
-  background: rgba(0, 0, 0, 0.05);
-}
-
-.theme-light .booster-img--placeholder {
-  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.14), rgba(0, 0, 0, 0.04) 72%);
-}
-
-.theme-light .booster-serial {
-  color: var(--color-text-primary);
-}
-
 .theme-light .booster-filter-chip {
   color: var(--color-text-secondary);
   background: rgba(0, 0, 0, 0.05);
   border: 1px solid var(--color-divider);
 }
-
-.theme-light .booster-filter-chip--active {
-  color: #fff;
-  background: linear-gradient(135deg, #007AFF, #5856D6);
-  border-color: rgba(0, 122, 255, 0.55);
-}
-
-.theme-light .booster-stat-num {
-  color: var(--color-text-primary);
-}
-
-.theme-light .booster-stat-label {
-  color: var(--color-text-tertiary);
-}
-
-.theme-light .flight-unknown {
-  background: rgba(0, 0, 0, 0.15);
-}
-
-.theme-light .booster-card-arrow {
-  color: rgba(0, 0, 0, 0.25);
-}
-
-/* --- 全球飞船图鉴 --- */
-.theme-light .sc-img {
-  background: rgba(0, 0, 0, 0.05);
-}
-
-.theme-light .sc-img--placeholder {
-  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.14), rgba(0, 0, 0, 0.04) 72%);
-}
-
-.theme-light .sc-name {
-  color: var(--color-text-primary);
-}
-
-/* --- 全球发射场分布 --- */
-.theme-light .ls-img {
-  background: rgba(0, 0, 0, 0.05);
-}
-
-.theme-light .ls-img--placeholder {
-  background: radial-gradient(circle at center, rgba(255, 149, 0, 0.14), rgba(0, 0, 0, 0.04) 72%);
-}
-
-.theme-light .ls-name {
-  color: var(--color-text-primary);
-}
-
-.theme-light .ls-sub-name {
-  color: var(--color-text-tertiary);
-}
-
 /* --- B站二维码弹窗（遮罩保持深色，内容面板转浅色） --- */
 .theme-light .qrcode-modal-content {
   background: rgba(255, 255, 255, 0.95);
 }
-
 .theme-light .qrcode-header {
   border-bottom: 1px solid var(--color-divider);
 }
-
 .theme-light .qrcode-title {
   color: var(--color-text-primary);
 }
-
 .theme-light .qrcode-close {
   background: rgba(0, 0, 0, 0.06);
 }
-
 .theme-light .qrcode-close:active {
   background: rgba(0, 0, 0, 0.1);
 }
-
 .theme-light .qrcode-tip {
   color: var(--color-text-secondary);
 }
-
 .theme-light .qrcode-tip--name {
   color: var(--color-text-primary);
 }
-
 /* --- 空间站实时状态 --- */
 .theme-light .station-loading-text {
   color: var(--color-text-secondary);
 }
-
 .theme-light .station-mini-card {
   background: var(--color-bg-card);
   border: 1px solid var(--color-divider);
 }
-
 .theme-light .station-mini-img {
   background: rgba(0, 0, 0, 0.05);
 }
-
 .theme-light .station-mini-img--placeholder {
   background: radial-gradient(circle at center, rgba(90, 200, 250, 0.14), rgba(0, 0, 0, 0.04) 72%);
   box-shadow: inset 0 0 18rpx rgba(90, 200, 250, 0.06);
 }
-
 .theme-light .station-mini-name {
   color: var(--color-text-primary);
 }
-
 .theme-light .station-mini-dock {
   color: var(--color-text-secondary);
 }
-
 .theme-light .station-mini-arrow {
   color: var(--color-text-tertiary);
 }
-
-.theme-light .docked-empty {
-  color: var(--color-text-secondary);
-}
-
 .theme-light .station-empty-visual {
   background: radial-gradient(circle at 35% 35%, rgba(90, 200, 250, 0.2), rgba(90, 200, 250, 0.06) 32%, rgba(0, 0, 0, 0.03) 72%);
   box-shadow: inset 0 0 32rpx rgba(90, 200, 250, 0.08), 0 0 24rpx rgba(90, 200, 250, 0.06);
 }
-
 /* --- 全球发射商图鉴 --- */
 .theme-light .agency-chip {
   background: rgba(0, 0, 0, 0.05);
   border: 1px solid var(--color-divider);
 }
-
 .theme-light .agency-chip text {
   color: var(--color-text-secondary);
 }
-
 .theme-light .agency-chip-active {
   background: rgba(10, 132, 255, 0.12);
   border-color: rgba(10, 132, 255, 0.45);
 }
-
 .theme-light .agency-chip-active text {
   color: #007AFF;
 }
-
 .theme-light .agency-search-icon {
   color: var(--color-text-secondary);
 }
-
 .theme-light .agency-search-input {
   color: var(--color-text-primary);
 }
-
 .theme-light .agency-search-placeholder {
   color: var(--color-text-tertiary);
 }
-
 .theme-light .agency-search-clear {
   background: rgba(0, 0, 0, 0.06);
 }
-
 .theme-light .agency-search-clear text {
   color: var(--color-text-secondary);
 }
-
-.theme-light .agency-hw-card {
-  border: 1px solid var(--color-divider);
-}
-
-/* 骨架浅色底色由全局 .theme-light .skeleton-shimmer 提供 */
-
-.theme-light .agency-hw-card-image-wrap {
-  background: rgba(0, 0, 0, 0.05);
-}
-
-.theme-light .agency-hw-card-image {
-  background-color: rgba(0, 0, 0, 0.05);
-}
-
-.theme-light .agency-hw-card-image-placeholder {
-  background: radial-gradient(circle, rgba(90, 200, 250, 0.14), #ECECF1);
-}
-
-.theme-light .agency-hw-card-meta {
-  color: var(--color-text-secondary);
-}
-
-.theme-light .agency-hw-card-notes {
-  color: var(--color-text-secondary);
-}
-
-.theme-light .agency-empty text {
-  color: var(--color-text-secondary);
-}
-
 /* --- 懒加载占位卡片 --- */
 .theme-light .lazy-load-text {
   color: var(--color-text-primary);
 }
-
 .theme-light .lazy-load-hint {
   color: var(--color-text-tertiary);
 }
-
 /* --- 直播观看旁天气/风向图标（纯白 SVG，浅色下反色为深灰） --- */
 .theme-light .starbase-wx-icon,
 .theme-light .starbase-wind-icon {
   filter: invert(0.72);
 }
-
 /* ===== 功能板块分组卡片 =====
    每个功能板块套一个圆角卡片，与页面背景区分，布局更干净整洁。
-   放在文件末尾：同为单类选择器，按书写顺序覆盖各 section 原有的 padding/margin */
-.monitor-block {
-  margin: 0 0 28rpx;
-  padding: 26rpx 22rpx 30rpx;
-  border-radius: 32rpx;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+   数值唯一来源：styles/monitor-block.wxss（文件顶部 @import，
+   靠 .monitor-block.monitor-block 特异性覆盖各 section 原有 padding/margin） */
+.orbit-section .lazy-load-card {
+  flex: 1;
+  min-height: 360rpx;
   box-sizing: border-box;
-  overflow: hidden;
 }
-
-/* 轨道数据中心标题原有的 32rpx 顶部间距在独立卡片内不再需要 */
-.odc-section .section-title--orbital {
-  margin-top: 0;
-}
-
-.theme-light .monitor-block {
-  background: #FFFFFF;
-  border-color: var(--color-divider);
+/* 统一标题行高度，避免有无 badge/右侧按钮时纵向起点漂移 */
+.monitor-block > .section-title {
+  min-height: 56rpx;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
 }

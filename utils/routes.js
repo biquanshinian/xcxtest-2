@@ -14,8 +14,6 @@ const ROUTES = {
   // ── 主包详情页 ──
   INDEX_MISSION_DETAIL: '/subpackages/index-extra/mission-detail',
   GLOBAL_LAUNCH_STATS: '/subpackages/index-extra/global-launch-stats',
-  // 临时活动页：NASA × FIFA 球迷节（2026-06-11 ~ 07-19），活动下线后可整体删除
-  WORLDCUP_EVENT: '/subpackages/index-extra/worldcup-event',
   PREFERENCES: '/subpackages/profile-extra/preferences/preferences',
   TIMELINE: '/subpackages/profile-extra/timeline/timeline',
   YEAR_REVIEW: '/subpackages/profile-extra/year-review/year-review',

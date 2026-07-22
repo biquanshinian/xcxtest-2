@@ -42,3 +42,30 @@
   line-height: 1;
   font-weight: 500;
 }
+
+/* 朋友圈单页模式落地提示 */
+.moments-hint {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16rpx;
+  padding: 0 60rpx;
+}
+
+.moments-hint-title {
+  color: #ffffff;
+  font-size: 34rpx;
+  font-weight: 600;
+}
+
+.moments-hint-sub {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 26rpx;
+  text-align: center;
+}

@@ -111,17 +111,34 @@ Page({
     prefs.briefingEnabled = this.data.briefingEnabled
     savePreferences(prefs)
     var self = this
-    // 保存后请求订阅消息授权（发射提醒 + 结果通知），确保后续自动匹配的提醒能发出去
-    var tmplIds = [
-      'T5J5sRh2UdEwFE7q_VTbdowA0PeXrz_3bUweWEL6uBs',
-      'ulf34VqAS9Tj32BMqj4M1qudtKKy04iiBM7Qb9_VDb4'
-    ]
-    wx.requestSubscribeMessage({
-      tmplIds: tmplIds,
-      complete: function () {
-        self.setData({ saving: false })
-        wx.showToast({ title: '保存成功', icon: 'success' })
+    // 服务号已覆盖发射前：仍弹「结果通知」模板，便于后续任务授权额度
+    // 否则保存后请求双模板，确保偏好匹配能发出去
+    var finish = function () {
+      self.setData({ saving: false })
+      wx.showToast({ title: '保存成功', icon: 'success' })
+    }
+    var RESULT_TMPL = 'ulf34VqAS9Tj32BMqj4M1qudtKKy04iiBM7Qb9_VDb4'
+    var REMINDER_TMPL = 'T5J5sRh2UdEwFE7q_VTbdowA0PeXrz_3bUweWEL6uBs'
+    try {
+      var oaAlert = require('../utils/oa-alert.js')
+      if (oaAlert && typeof oaAlert.isOaAlertReady === 'function') {
+        oaAlert.isOaAlertReady().then(function (ready) {
+          wx.requestSubscribeMessage({
+            tmplIds: ready ? [RESULT_TMPL] : [REMINDER_TMPL, RESULT_TMPL],
+            complete: finish
+          })
+        }).catch(function () {
+          wx.requestSubscribeMessage({
+            tmplIds: [REMINDER_TMPL, RESULT_TMPL],
+            complete: finish
+          })
+        })
+        return
       }
+    } catch (e) {}
+    wx.requestSubscribeMessage({
+      tmplIds: [REMINDER_TMPL, RESULT_TMPL],
+      complete: finish
     })
   },
 

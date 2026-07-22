@@ -908,7 +908,8 @@ const calendarMethods = {
   },
 
   onCalendarDateTap(e) {
-    const key = e.currentTarget.dataset.key
+    // launch-calendar 组件事件走 e.detail；保留 dataset 兼容旧绑定
+    const key = (e.detail && e.detail.key) || (e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.key)
     if (!key || key.startsWith('empty') || key.startsWith('tail')) return
     this._vibrateLight()
     const missions = (this._calendarMissionsByDate || {})[key] || []
@@ -946,19 +947,19 @@ const calendarMethods = {
   },
 
   onCalendarQuickFilterTap(e) {
-    const value = e.currentTarget.dataset.value || 'all'
+    const value = (e.detail && e.detail.value) || (e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.value) || 'all'
     if (value === this.data.calendarQuickFilter) return
     this.applyCalendarFilterState({ calendarQuickFilter: value })
   },
 
   onCalendarSiteFilterTap(e) {
-    const value = e.currentTarget.dataset.value || 'all'
+    const value = (e.detail && e.detail.value) || (e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.value) || 'all'
     if (value === this.data.calendarSiteFilter) return
     this.applyCalendarFilterState({ calendarSiteFilter: value })
   },
 
   onCalendarStatusFilterTap(e) {
-    const value = e.currentTarget.dataset.value || 'all'
+    const value = (e.detail && e.detail.value) || (e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.value) || 'all'
     if (value === this.data.calendarStatusFilter) return
     this.applyCalendarFilterState({ calendarStatusFilter: value })
   },
@@ -999,43 +1000,9 @@ const calendarMethods = {
     wx.navigateTo({ url })
   },
 
-  onCalendarSwipeStart(e) {
-    if (this._calendarMonthAnimating) return
-    const target = e.target || {}
-    const dataset = (target && target.dataset) || {}
-    const hasLaunch = dataset && (dataset.hasLaunch === true || dataset.hasLaunch === 'true')
-    if (hasLaunch) {
-      this._calendarSwipeLocked = true
-      this._calendarSwipeStartX = 0
-      this._calendarSwipeStartY = 0
-      return
-    }
-    if (e.touches && e.touches[0]) {
-      this._calendarSwipeLocked = false
-      this._calendarSwipeStartX = e.touches[0].clientX
-      this._calendarSwipeStartY = e.touches[0].clientY
-    }
-  },
+  // 左右滑动翻月的手势检测已移入 launch-calendar 组件内部，
+  // 组件仅回传 prevmonth / nextmonth 事件（switchCalendarMonth 自带动画期间防抖）
 
-  onCalendarSwipeEnd(e) {
-    if (this._calendarSwipeLocked) {
-      this._calendarSwipeLocked = false
-      this._calendarSwipeStartX = 0
-      this._calendarSwipeStartY = 0
-      return
-    }
-    if (!this._calendarSwipeStartX || !e.changedTouches || !e.changedTouches[0] || this._calendarMonthAnimating) return
-    const dx = e.changedTouches[0].clientX - this._calendarSwipeStartX
-    const dy = e.changedTouches[0].clientY - this._calendarSwipeStartY
-    this._calendarSwipeStartX = 0
-    this._calendarSwipeStartY = 0
-    if (Math.abs(dx) < 80 || Math.abs(dx) < Math.abs(dy) * 1.8) return
-    if (dx < 0) {
-      this.calendarNextMonth()
-    } else {
-      this.calendarPrevMonth()
-    }
-  },
   _patchCalendarMissionRocketImage(missionId, nextImage) {
     const allMissions = this.data.calendarAllMissions || []
     const idx = allMissions.findIndex((m) => m && String(m.id) === String(missionId))

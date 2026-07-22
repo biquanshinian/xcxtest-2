@@ -1,0 +1,93 @@
+<!-- 全球发射数据（未选中日期时显示） -->
+<view class="calendar-stats-section {{themeClass}}" wx:if="{{!expandedDateKey && !calendarLoading}}">
+  <view class="calendar-stats-title">
+    <text>2026全球发射数据</text>
+  </view>
+  <view class="stats-grid" wx:if="{{launchStats && launchStats.globalThisYear != null}}">
+    <view class="stats-highlight-card glass-card" bindtap="goGlobalLaunchStats" hover-class="stats-highlight-card--active">
+      <view class="stats-highlight-glow"></view>
+      <view class="stats-highlight-header">
+        <view class="stats-highlight-title">
+          <view class="stats-highlight-dot"></view>
+          <text class="stats-highlight-label">轨道发射尝试</text>
+        </view>
+        <view class="stats-highlight-tag"><text>{{launchStats.year}} · Global</text></view>
+      </view>
+      <view class="stats-highlight-main">
+        <text class="stats-highlight-value">{{launchStats.globalThisYear}}</text>
+        <text class="stats-highlight-unit">次</text>
+      </view>
+      <view class="stats-highlight-footer">
+        <text class="stats-highlight-sub" wx:if="{{launchStats.spacexThisYear != null}}">SpaceX 贡献 {{launchStats.spacexThisYear}} 次</text>
+        <view class="stats-detail-link">
+          <text>查看统计详情</text>
+          <text class="stats-detail-arrow">›</text>
+        </view>
+      </view>
+    </view>
+  </view>
+  <view class="stats-error glass-card" wx:elif="{{launchStatsError}}">
+    <text class="stats-error-text">{{launchStatsError}}</text>
+  </view>
+  <view class="stats-loading glass-card" wx:elif="{{launchStatsLoading}}">
+    <text class="stats-loading-text">加载中...</text>
+  </view>
+</view>
+
+<!-- SpaceX 官网发射统计（未选中日期时显示） -->
+<view class="calendar-stats-section spacex-stats-section {{themeClass}}" wx:if="{{!expandedDateKey && !calendarLoading && spacexStats}}">
+  <view class="calendar-stats-title">
+    <text>SpaceX总发射数据</text>
+    <text class="spacex-source-tag">{{spacexStats.sourceLabel}}</text>
+  </view>
+  <view class="spacex-stats-grid">
+    <view class="spacex-stat-card glass-card">
+      <text class="spacex-stat-value">{{spacexStats.totalLaunches || '-'}}</text>
+      <text class="spacex-stat-label">已完成发射</text>
+    </view>
+    <view class="spacex-stat-card glass-card">
+      <text class="spacex-stat-value">{{spacexStats.totalLandings || '-'}}</text>
+      <text class="spacex-stat-label">总着陆次数</text>
+    </view>
+    <view class="spacex-stat-card glass-card">
+      <text class="spacex-stat-value">{{spacexStats.totalReflights || '-'}}</text>
+      <text class="spacex-stat-label">总复飞次数</text>
+    </view>
+  </view>
+
+  <view class="spacex-year-stat glass-card" wx:if="{{launchStats && launchStats.spacexThisYear !== undefined && launchStats.spacexThisYear !== null}}">
+    <view class="spacex-year-stat-text">
+      <text class="spacex-year-stat-label">SpaceX本年发射数据</text>
+      <text class="spacex-year-stat-hint">{{launchStats.year}} 年 · 已完成</text>
+    </view>
+    <text class="spacex-year-stat-value">{{launchStats.spacexThisYear}}</text>
+  </view>
+
+  <view class="spacex-upcoming-list" wx:if="{{spacexStats.upcoming.length > 0}}">
+    <text class="spacex-upcoming-title">即将发射</text>
+    <view class="spacex-upcoming-item glass-card" wx:for="{{spacexStats.upcoming}}" wx:key="index">
+      <view class="spacex-upcoming-row">
+        <text class="spacex-upcoming-name" user-select="{{true}}">{{item.title || 'Starlink Mission'}}</text>
+        <text class="spacex-upcoming-vehicle" user-select="{{true}}">{{item.vehicle}}</text>
+      </view>
+      <view class="spacex-upcoming-row">
+        <text class="spacex-upcoming-site" user-select="{{true}}">{{item.launchSite}}</text>
+        <text class="spacex-upcoming-date" user-select="{{true}}">{{item.launchDate}}</text>
+      </view>
+    </view>
+  </view>
+</view>
+
+<!-- SpaceX 统计加载中 -->
+<view class="calendar-stats-section spacex-stats-section {{themeClass}}" wx:if="{{!expandedDateKey && !calendarLoading && spacexStatsLoading && !spacexStats}}">
+  <view class="stats-loading glass-card">
+    <text class="stats-loading-text">SpaceX 数据加载中...</text>
+  </view>
+</view>
+
+<view class="calendar-empty {{themeClass}}" wx:if="{{calendarLoading}}">
+  <text class="empty-text">加载中...</text>
+</view>
+<view class="calendar-empty {{themeClass}}" wx:elif="{{!calendarLoading && calendarAllMissionsEmpty}}">
+  <text class="empty-text">暂无数据</text>
+</view>

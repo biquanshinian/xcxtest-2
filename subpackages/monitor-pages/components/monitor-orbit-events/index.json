@@ -1,0 +1,7 @@
+{
+  "component": true,
+  "usingComponents": {
+    "empty-state": "/components/empty-state/index",
+    "lazy-load-card": "/components/lazy-load-card/index"
+  }
+}

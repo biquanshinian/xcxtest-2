@@ -2,8 +2,9 @@ const { getStationStatus } = require('../../utils/api-monitor-data.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
 const pageBase = require('../../utils/page-base.js')
-const { togglePageTranslation } = require('../../utils/text-translate.js')
+const { togglePageTranslation } = require('./utils/text-translate.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
+const { advanceImageFallback } = require('../../utils/ll2-image.js')
 const {
   NORAD_MAP, createSatrec, getCurrentPosition, computeOrbitPath,
   computePastOrbitPath, getOrbitalParams, getLookAngles,
@@ -75,9 +76,21 @@ Page({
     this._stationId = id
 
     // 如果源页面传递了封面图 URL，立即展示 Hero 大图（不等 API 返回）
-    const preloadImage = options.image ? decodeURIComponent(options.image) : ''
+    let preloadImage = options.image ? decodeURIComponent(options.image) : ''
+    let preloadFallbacks = []
+    try {
+      const app = getApp()
+      const passed = app && app._stationHeroImage
+      if (passed && String(passed.id) === String(id)) {
+        if (passed.src) preloadImage = passed.src
+        preloadFallbacks = Array.isArray(passed.fallbacks) ? passed.fallbacks.slice() : []
+        app._stationHeroImage = null
+      }
+    } catch (e) {}
     if (preloadImage) {
-      this.setData({ item: { image: preloadImage } })
+      this.setData({
+        item: { image: preloadImage, imageFallbacks: preloadFallbacks }
+      })
     }
 
     this.initUiShell()
@@ -120,16 +133,33 @@ Page({
       const stationList = await stationPromise
       const item = (stationList || []).find(s => String(s.id) === String(id)) || null
       if (!item) throw new Error('未找到对应空间站信息')
+      // 卡面已展示成功的图优先保留，避免 API 链首失败图把已成功头图冲掉
+      const showing = this.data.item && this.data.item.image
+      let merged = item
+      if (showing && showing !== item.image) {
+        const fb = [item.image].concat(item.imageFallbacks || []).filter((u, i, arr) => {
+          return u && u !== showing && arr.indexOf(u) === i
+        })
+        merged = Object.assign({}, item, { image: showing, imageFallbacks: fb })
+      }
       this.setData({
         loading: false,
-        item,
+        item: merged,
         navTitle: '空间站详情',
-        shareTitle: `${item.name || '空间站详情'} | 火星探索日志`
+        shareTitle: `${merged.name || '空间站详情'} | 火星探索日志`
       })
 
       // 轨道数据在后台继续处理
       this._applyOrbitData(numId, noradId, tlePromise)
     } catch (error) {
+      // 下拉刷新失败：保留上次成功数据，避免整页被错误态抹掉
+      if (opts.silent && this.data.item) {
+        this.setData({ loading: false })
+        try {
+          wx.showToast({ title: '刷新失败，仍显示缓存数据', icon: 'none' })
+        } catch (e) {}
+        return
+      }
       this.setData({
         loading: false,
         errorMessage: (error && (error.errMsg || error.message)) || '空间站详情加载失败，请稍后重试'
@@ -536,6 +566,18 @@ Page({
   },
 
   onHeroImageError() {
+    const item = this.data.item || {}
+    const advanced = advanceImageFallback(item.image, item.imageFallbacks)
+    if (advanced.next) {
+      this.setData({
+        heroImageLoaded: false,
+        heroImageFailed: false,
+        'item.image': advanced.next,
+        'item.imageFallbacks': advanced.remaining
+      })
+      return
+    }
+    // 链耗尽才启用 CSS 视觉兜底（与卡片「清空」不同：详情仍有视觉层）
     this.setData({ heroImageLoaded: false, heroImageFailed: true })
   },
 

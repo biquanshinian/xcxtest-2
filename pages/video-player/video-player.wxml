@@ -1,5 +1,10 @@
 <wxs module="drag" src="./drag.wxs"></wxs>
 <view class="video-player-page">
+  <!-- 朋友圈单页模式：无法跳转到来源详情页，引导打开完整小程序 -->
+  <view class="moments-hint" wx:if="{{momentsHint}}">
+    <text class="moments-hint-title">前往小程序观看视频</text>
+    <text class="moments-hint-sub">点击顶部「前往小程序」查看完整内容</text>
+  </view>
   <!-- 未通过可播门控 / 无合法地址前不挂载任何播放控件，避免审核直达见视频骨架 -->
   <block wx:if="{{playerReady}}">
     <view

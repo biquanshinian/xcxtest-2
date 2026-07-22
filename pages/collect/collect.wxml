@@ -153,7 +153,7 @@
 
     <view class="starfield-container" bind:tap="onFieldTap">
       <!-- 月球背景图 -->
-      <image class="lunar-bg" src="https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E7%81%B5%E6%84%9F%E6%B5%81%E7%85%A7%E7%89%87%E9%9B%86/1776011555299_5cjd52.jpg" mode="aspectFill" />
+      <image class="lunar-bg" src="https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E8%83%8C%E6%99%AF%E8%A7%86%E9%A2%91/1784629331478_r7lvza.jpg" mode="widthFix" />
 
       <!-- 音乐按钮 -->
       <view class="music-btn {{musicPlaying ? 'playing' : ''}}" catch:tap="onToggleMusic">

@@ -1,0 +1,319 @@
+@import "../../../../styles/monitor-block.wxss";
+/* 从 pages/monitor/monitor.wxss 拆出；共享基类与 theme-light 覆盖仍在页面 wxss，
+   经 styleIsolation: apply-shared 作用进组件。
+   组件 wxss 会盖过页面 apply-shared，故须自行引入 .monitor-block
+   （数值唯一来源：styles/monitor-block.wxss）。 */
+
+/* ========== 即将进行的在轨任务（事件流，可点击跳详情） ========== */
+
+/* 未加载占位与 hero 同高，避免点开前后块高跳变。
+   注意：lazy-load-card 组件有样式隔离，min-height 必须挂在宿主节点的 class 上才可靠生效；
+   内部卡片撑满宿主的 flex:1 由页面样式（monitor.wxss，组件 apply-shared）下发 */
+.orbit-lazy-host {
+  display: flex;
+  flex-direction: column;
+  /* 内部卡片 flex:1 撑满依赖页面样式跨组件下发；万一不可达，居中兜底保证观感 */
+  justify-content: center;
+  min-height: 360rpx;
+  box-sizing: border-box;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.orbit-card--clickable {
+  position: relative;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.orbit-card--clickable:active {
+  transform: scale(0.98);
+}
+
+.orbit-card-meta--top {
+  margin-bottom: 6rpx;
+}
+
+.orbit-meta-tag--type {
+  color: #5AC8FA;
+  background: rgba(90, 200, 250, 0.15);
+  font-weight: 600;
+  letter-spacing: 1rpx;
+  text-transform: uppercase;
+}
+
+.orbit-meta-tag--date {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.orbit-meta-tag--location {
+  color: #fff;
+  background: rgba(0, 122, 255, 0.45);
+}
+
+.orbit-stat--countdown .orbit-stat-value {
+  color: #34C759;
+  font-size: 26rpx;
+}
+
+.orbit-stat--countdown.soon .orbit-stat-value {
+  color: #FF9F0A;
+}
+
+.orbit-stat--countdown.live .orbit-stat-value {
+  color: #FF453A;
+}
+
+.orbit-stat--cta {
+  margin-left: auto;
+}
+
+.orbit-stat-cta-text {
+  font-size: 24rpx;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* .section-badge 定义已上移回 pages/monitor/monitor.wxss（页面与多个分包组件共用，
+   经 styleIsolation: apply-shared 作用进来） */
+
+.orbit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.orbit-card {
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+  border-radius: 20rpx;
+}
+
+.orbit-card-img {
+  width: 200rpx;
+  height: 200rpx;
+  flex-shrink: 0;
+  object-fit: cover;
+}
+
+.orbit-card-body {
+  flex: 1;
+  padding: 20rpx 24rpx;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.orbit-card-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 8rpx;
+}
+
+.orbit-card-meta {
+  display: flex;
+  gap: 12rpx;
+  margin-bottom: 12rpx;
+  flex-wrap: wrap;
+}
+
+.orbit-meta-tag {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.08);
+  padding: 4rpx 12rpx;
+  border-radius: 8rpx;
+}
+
+.orbit-timeline {
+  display: flex;
+  gap: 24rpx;
+}
+
+.orbit-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.orbit-stat-value {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #34C759;
+}
+
+.orbit-stat-value.orbit-date {
+  font-size: 22rpx;
+  font-weight: 500;
+  color: #FF9F0A;
+}
+
+.orbit-stat-label {
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 2rpx;
+}
+
+/* ========== 在轨任务 Hero 倒计时面板 ========== */
+.orbit-hero {
+  position: relative;
+  border-radius: 24rpx;
+  overflow: hidden;
+  margin-bottom: 20rpx;
+  min-height: 360rpx;
+}
+
+.orbit-hero-bg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.orbit-hero-mask {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(180deg, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.75) 100%);
+}
+
+.orbit-hero-content {
+  position: relative;
+  z-index: 1;
+  padding: 28rpx 32rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.orbit-hero-tags {
+  display: flex;
+  gap: 12rpx;
+  margin-bottom: 12rpx;
+}
+
+.orbit-hero-type {
+  font-size: 22rpx;
+  color: #fff;
+  background: rgba(52, 199, 89, 0.25);
+  border: 1rpx solid rgba(52, 199, 89, 0.5);
+  padding: 4rpx 16rpx;
+  border-radius: 20rpx;
+}
+
+.orbit-hero-title {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #fff;
+  text-align: center;
+  margin-bottom: 20rpx;
+}
+
+.orbit-hero-countdown {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  margin-bottom: 16rpx;
+}
+
+.orbit-hero-countdown--live {
+  justify-content: center;
+}
+
+.orbit-cd-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 80rpx;
+}
+
+.orbit-cd-value {
+  font-size: 56rpx;
+  font-weight: 700;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.orbit-cd-label {
+  font-size: 20rpx;
+  color: rgba(255,255,255,0.6);
+  margin-top: 4rpx;
+}
+
+.orbit-cd-sep {
+  font-size: 44rpx;
+  font-weight: 300;
+  color: rgba(255,255,255,0.5);
+  margin-top: -20rpx;
+}
+
+.orbit-cd-live-text {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #FF453A;
+}
+
+.orbit-hero-meta {
+  display: flex;
+  gap: 16rpx;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+
+.orbit-hero-date {
+  font-size: 24rpx;
+  color: rgba(255,255,255,0.7);
+}
+
+.orbit-hero-location {
+  font-size: 24rpx;
+  color: rgba(255,255,255,0.6);
+  background: rgba(255,255,255,0.08);
+  padding: 4rpx 12rpx;
+  border-radius: 8rpx;
+}
+
+.orbit-hero-cta {
+  margin-top: 4rpx;
+}
+
+.orbit-hero-cta-text {
+  font-size: 26rpx;
+  color: #007AFF;
+  font-weight: 500;
+}
+
+
+/* ── 自 pages/monitor/monitor.wxss 迁入 ── */
+/* --- 在轨任务（小卡片；orbit-hero 保持深色） --- */
+.theme-light .orbit-card-title {
+  color: var(--color-text-primary);
+}
+
+.theme-light .orbit-meta-tag {
+  color: var(--color-text-secondary);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.theme-light .orbit-meta-tag--date {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .orbit-meta-tag--location {
+  color: #007AFF;
+  background: rgba(0, 122, 255, 0.12);
+}
+
+.theme-light .orbit-stat-label {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .orbit-stat-cta-text {
+  color: var(--color-text-secondary);
+}

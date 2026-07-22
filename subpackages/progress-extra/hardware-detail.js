@@ -8,7 +8,7 @@ const {
 } = require('../../utils/api-app-services.js')
 const { resolveMediaUrl } = require('../../utils/image-config.js')
 const { getCachedMediaImage } = require('../../utils/icon-cache.js')
-const { togglePageTranslation } = require('../../utils/text-translate.js')
+const { togglePageTranslation } = require('./utils/text-translate.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
 
 const B19_IMAGE_KEY = '最新版星舰组合体进展一二级图/b19_spacex3.webp'

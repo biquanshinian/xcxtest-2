@@ -203,16 +203,26 @@ Page({
     this.setData(loadOpts.silent ? { marsError: '' } : { marsLoading: true, marsError: '' })
 
     const rover = this.data.marsRover
-    // 先用最新 sol 获取，如果有指定日期则用日期
-    const opts = this.data.marsDate && !this.data.marsUseSol
-      ? { earthDate: this.data.marsDate }
-      : (this.data.marsSol ? { sol: this.data.marsSol } : { earthDate: this.data.marsDate })
+    const hasExplicitSol = !!this.data.marsSol && this.data.marsUseSol
+    // 首屏 / 切车：优先 latest_photos；选日期或空结果回退日则走按日查询
+    const useLatest = !hasExplicitSol && this.data.marsRetryCount === 0 && !loadOpts.forceDate
 
-    return nasaApi.getRoverPhotos(rover, opts).then(raw => {
+    const fetchPromise = useLatest
+      ? nasaApi.getRoverLatestPhotos(rover).catch(() => {
+          const opts = this.data.marsSol
+            ? { sol: this.data.marsSol }
+            : { earthDate: this.data.marsDate || this._todayStr() }
+          return nasaApi.getRoverPhotos(rover, opts)
+        })
+      : nasaApi.getRoverPhotos(rover, hasExplicitSol
+          ? { sol: this.data.marsSol }
+          : { earthDate: this.data.marsDate || this._todayStr() })
+
+    return fetchPromise.then(raw => {
       const photos = nasaApi.parseRoverPhotos(raw)
 
-      if (photos.length === 0 && this.data.marsRetryCount < 10) {
-        // 回退一天重试
+      if (photos.length === 0 && this.data.marsRetryCount < 4) {
+        // 回退一天重试（与网络重试分开）
         const curDate = this.data.marsDate || this._todayStr()
         const prev = new Date(curDate)
         prev.setDate(prev.getDate() - 1)
@@ -222,28 +232,73 @@ Page({
           marsDate: prevStr,
           marsRetryCount: this.data.marsRetryCount + 1,
           marsUseSol: false
-        }, () => this.loadMarsPhotos())
+        }, () => this.loadMarsPhotos({ forceDate: true }))
         return
       }
 
-      // 如果有照片，更新 sol 和日期
       if (photos.length > 0) {
         this.setData({
           marsPhotos: photos,
           marsLoading: false,
+          marsError: '',
           marsRetryCount: 0,
           marsSol: String(photos[0].sol),
           marsDate: photos[0].earthDate || this.data.marsDate
         })
+        this._saveMarsPhotoCache(rover, photos)
       } else {
-        this.setData({ marsPhotos: photos, marsLoading: false, marsRetryCount: 0 })
+        this.setData({
+          marsPhotos: photos,
+          marsLoading: false,
+          marsRetryCount: 0,
+          marsError: '该日期暂无照片，请选择其他日期'
+        })
       }
       this._marsLoading = false
     }).catch(err => {
       console.error('[Mars] 请求失败:', err)
-      this.setData({ marsLoading: false, marsError: err.message || '加载失败', marsRetryCount: 0 })
       this._marsLoading = false
+      const cached = this._readMarsPhotoCache(rover)
+      if (cached && cached.photos && cached.photos.length) {
+        this.setData({
+          marsPhotos: cached.photos,
+          marsLoading: false,
+          marsError: '',
+          marsRetryCount: 0,
+          marsSol: cached.sol || '',
+          marsDate: cached.date || this.data.marsDate
+        })
+        wx.showToast({ title: '数据源缓慢，已展示缓存照片', icon: 'none' })
+        return
+      }
+      const msg = (err && err.message) || '加载失败'
+      const friendly = /超时|timeout/i.test(msg)
+        ? '请求超时，火星车数据源较慢，请稍后重试'
+        : (/domain/i.test(msg) ? '数据源域名未配置' : msg)
+      this.setData({ marsLoading: false, marsError: friendly, marsRetryCount: 0 })
     })
+  },
+
+  _saveMarsPhotoCache(rover, photos) {
+    try {
+      wx.setStorage({
+        key: 'mars_photos_cache_' + rover,
+        data: {
+          photos: photos.slice(0, 30),
+          sol: String(photos[0].sol || ''),
+          date: photos[0].earthDate || '',
+          ts: Date.now()
+        }
+      })
+    } catch (e) {}
+  },
+
+  _readMarsPhotoCache(rover) {
+    try {
+      return wx.getStorageSync('mars_photos_cache_' + rover) || null
+    } catch (e) {
+      return null
+    }
   },
 
   onMarsRoverSwitch(e) {
@@ -267,7 +322,7 @@ Page({
       marsRetryCount: 0,
       marsUseSol: false,
       marsSol: ''
-    }, () => this.loadMarsPhotos())
+    }, () => this.loadMarsPhotos({ forceDate: true }))
   },
 
   onMarsPhotoTap(e) {

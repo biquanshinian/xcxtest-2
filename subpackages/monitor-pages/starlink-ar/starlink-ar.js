@@ -1,5 +1,5 @@
 var satellite = require('../libs/satellite.min.js');
-var starlinkPass = require('../../../utils/starlink-pass.js');
+var starlinkPass = require('../utils/starlink-pass.js');
 var magDeclination = require('./mag-declination.js');
 
 var DEG2RAD = Math.PI / 180;

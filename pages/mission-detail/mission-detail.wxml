@@ -263,16 +263,16 @@
         </view>
 
         <view class="detail-section detail-subscribe-section" wx:if="{{detailType === 'upcoming'}}">
-          <view class="subscribe-row {{missionSubscribed ? 'subscribe-row--active' : ''}}" bindtap="onSubscribeMission">
+          <view class="subscribe-row {{missionSubscribed || oaAlertReady ? 'subscribe-row--active' : ''}}" bindtap="onSubscribeMission">
             <view class="subscribe-icon-wrap {{missionSubscribed ? 'subscribe-icon-wrap--active' : ''}}">
               <view class="icon-bell icon-bell--subscribe {{missionSubscribed ? 'bell-on' : 'bell-off'}}"></view>
             </view>
             <view class="subscribe-info">
-              <text class="subscribe-title {{missionSubscribed ? 'subscribe-title--active' : ''}}">{{missionSubscribed ? '已设置提醒' : '发射提醒'}}</text>
-              <text class="subscribe-desc {{missionSubscribed ? 'subscribe-desc--active' : ''}}">{{missionSubscribed ? '含发射前提醒与完成后结果通知' : '发射前约30分钟提醒，完成后推送结果'}}</text>
+              <text class="subscribe-title {{missionSubscribed || oaAlertReady ? 'subscribe-title--active' : ''}}">{{oaAlertReady ? (missionSubscribed ? '服务号提醒 · 结果通知已开' : '服务号自动提醒已开启') : (missionSubscribed ? '已设置提醒' : '发射提醒')}}</text>
+              <text class="subscribe-desc {{missionSubscribed || oaAlertReady ? 'subscribe-desc--active' : ''}}">{{oaAlertReady ? (missionSubscribed ? '点此可关闭结果通知；发射前仍由服务号推送' : '发射前约30分钟自动推送；点此开启完成后结果通知') : (missionSubscribed ? '含发射前提醒与完成后结果通知' : '发射前约30分钟提醒，完成后推送结果')}}</text>
             </view>
-            <text class="icon-arrow icon-arrow--subscribe" wx:if="{{!missionSubscribed}}">›</text>
-            <text class="subscribe-check subscribe-check--active" wx:else>✓</text>
+              <text class="icon-arrow icon-arrow--subscribe" wx:if="{{!missionSubscribed}}">›</text>
+              <text class="subscribe-check subscribe-check--active" wx:else>✓</text>
           </view>
         </view>
 
@@ -463,7 +463,14 @@
         </view>
 
         <view class="detail-section rocket-spec-section" wx:if="{{mission.rocketSpecsVisible && mission.rocketSpecs && mission.rocketSpecs.length > 0}}">
-          <text class="detail-section-title">规格</text>
+          <view class="detail-section-title-row rocket-spec-title-row">
+            <text class="detail-section-title">规格</text>
+            <!-- 族谱火箭型号详情页入口（与族谱型号卡同门控） -->
+            <view class="detail-link-chip detail-link-chip--booster" wx:if="{{mission.rocketConfigId}}" bindtap="openRocketModelDetail">
+              <text class="detail-link-chip-text">型号档案</text>
+              <text class="detail-link-chip-arrow">›</text>
+            </view>
+          </view>
           <view class="rocket-spec-grid">
             <view class="rocket-spec-cell" wx:for="{{mission.rocketSpecs}}" wx:key="_wxkey">
               <text class="rocket-spec-label">{{item.label}}</text>
@@ -549,11 +556,11 @@
                 <view class="detail-value detail-value--row">
                   <view class="recovery-icon-name recovery-place-inline">
                     <image class="recovery-icon recovery-icon--mono recovery-icon--bolz" src="{{mission.boosterInfo.landingTypeIcon}}" mode="aspectFit" wx:if="{{mission.boosterInfo && mission.boosterInfo.landingTypeIcon && mission.boosterInfo.landingType === 'ASDS'}}"></image>
-                    <image class="recovery-icon recovery-icon--mono" src="{{mission.boosterInfo.landingTypeIcon}}" mode="aspectFit" wx:elif="{{mission.boosterInfo && mission.boosterInfo.landingTypeIcon}}"></image>
+                    <image class="recovery-icon {{(mission.boosterInfo.landingType === 'EXPENDED' || mission.boosterInfo.landingType === 'LOST') ? '' : 'recovery-icon--mono'}}" src="{{mission.boosterInfo.landingTypeIcon}}" mode="aspectFit" wx:elif="{{mission.boosterInfo && mission.boosterInfo.landingTypeIcon}}"></image>
                     <image class="recovery-icon recovery-icon--mono" src="/images/landing-asds.svg" mode="aspectFit" wx:elif="{{mission.boosterInfo && mission.boosterInfo.landingType === 'ASDS'}}"></image>
                     <image class="recovery-icon recovery-icon--mono {{mission.boosterInfo.rtlsIcon ? 'recovery-icon--landspace' : ''}}" src="{{mission.boosterInfo.rtlsIcon || '/images/landing-rtls.svg'}}" mode="aspectFit" wx:elif="{{mission.boosterInfo && (mission.boosterInfo.landingType === 'RTLS' || mission.boosterInfo.landingType === 'VL')}}"></image>
-                    <image class="recovery-icon" src="{{mission.boosterInfo.netRecoveryIcon}}" mode="aspectFit" wx:elif="{{mission.boosterInfo && mission.boosterInfo.netRecovery && mission.boosterInfo.netRecoveryIcon}}"></image>
-                    <text class="recovery-type-name {{(mission.boosterInfo && mission.boosterInfo.reused === false) ? 'recovery-type-name--not-reused' : ''}}">{{(mission.boosterInfo && mission.boosterInfo.reused === false) ? '未复用/首次' : ((mission.boosterInfo && mission.boosterInfo.inferredRecovery) ? '回收信息待确认' : ((mission.boosterInfo && mission.boosterInfo.netRecovery && !mission.boosterInfo.landingType) ? '网系回收' : (mission.boosterInfo.landingType === 'RTLS' ? '陆地回收' : (mission.boosterInfo.landingType === 'ASDS' ? '海上回收' : (mission.boosterInfo.landingType === 'TOWER_CATCH' ? '塔架捕获' : (mission.boosterInfo.landingType === 'SPLASHDOWN' || mission.boosterInfo.landingType === 'RECOVERY' ? '海面溅落' : '回收'))))))}}</text>
+                    <image class="recovery-icon recovery-icon--mono" src="{{mission.boosterInfo.netRecoveryIcon}}" mode="aspectFit" wx:elif="{{mission.boosterInfo && mission.boosterInfo.netRecovery && mission.boosterInfo.netRecoveryIcon}}"></image>
+                    <text class="recovery-type-name {{(mission.boosterInfo && (mission.boosterInfo.reused === false || mission.boosterInfo.landingType === 'EXPENDED' || mission.boosterInfo.landingType === 'LOST')) ? 'recovery-type-name--not-reused' : ''}}">{{mission.boosterInfo.landingType === 'EXPENDED' ? '一次性使用' : (mission.boosterInfo.landingType === 'LOST' ? '未能回收' : ((mission.boosterInfo && mission.boosterInfo.reused === false) ? '未复用/首次' : ((mission.boosterInfo && mission.boosterInfo.inferredRecovery) ? '回收信息待确认' : ((mission.boosterInfo && mission.boosterInfo.netRecovery && !mission.boosterInfo.landingType) ? '网系回收' : (mission.boosterInfo.landingType === 'RTLS' ? '陆地回收' : (mission.boosterInfo.landingType === 'ASDS' ? '海上回收' : (mission.boosterInfo.landingType === 'TOWER_CATCH' ? '塔架捕获' : (mission.boosterInfo.landingType === 'HELICOPTER_CATCH' ? '直升机捕获' : (mission.boosterInfo.landingType === 'VL' ? '垂直着陆' : (mission.boosterInfo.landingType === 'HL' ? '水平着陆' : (mission.boosterInfo.landingType === 'SPLASHDOWN' || mission.boosterInfo.landingType === 'RECOVERY' ? '海面溅落' : '回收')))))))))))}}</text>
                     <text class="recovery-location-name" wx:if="{{mission.boosterInfo && mission.boosterInfo.landingLocation}}">{{mission.boosterInfo.landingLocation}}</text>
                     <text class="recovery-location-name" wx:else>未披露</text>
                   </view>
@@ -892,6 +899,7 @@
     </view>
   </view>
 
+  <share-gate-countdown expire-at="{{shareGateExpireAt}}" />
   <share-guide />
   <privacy-modal id="globalPrivacyModal"></privacy-modal>
 </view>

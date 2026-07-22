@@ -3,10 +3,11 @@
  * 供监控页预览板块与 monitor-pages/agency-list 完整列表页共用：
  * 全量拉取（聚合缓存 + 分页补全）、行格式化、筛选/搜索排序、模块级内存缓存。
  */
-const { getAgencies } = require('./api-monitor-data.js')
-const { resolveAgencyLogoForDisplay } = require('./agency-logo-cache.js')
-const { overrideAgencyLogoUrl } = require('./agency-logo-overrides.js')
-const { translateAgencyName } = require('./space-terms-i18n.js')
+const { getAgencies } = require('../../../utils/api-monitor-data.js')
+const { resolveAgencyLogoForDisplay } = require('../../../utils/agency-logo-cache.js')
+const { overrideAgencyLogoUrl } = require('../../../utils/agency-logo-overrides.js')
+const { translateAgencyName } = require('../../../utils/space-terms-i18n.js')
+const { buildLl2ImageChain } = require('../../../utils/ll2-image.js')
 
 const CACHE_TTL_MS = 10 * 60 * 1000
 // v3: SpaceX logo 全局统一覆盖 + totalLaunchCount 排序，升版本让旧持久缓存失效
@@ -154,8 +155,12 @@ function formatAgency(agency) {
   // SpaceX logo 全局统一（与全球发射统计页同源），其它机构用 LL2 原始 logo
   const logoUrlRaw = overrideAgencyLogoUrl(agency, agency.logo ? (agency.logo.thumbnail_url || agency.logo.image_url) : '')
   const imageUrlRaw = agency.image ? (agency.image.thumbnail_url || agency.image.image_url) : ''
+  const imageUrlFullRaw = agency.image ? (agency.image.image_url || agency.image.thumbnail_url) : ''
   const logoUrl = resolveAgencyLogoForDisplay(logoUrlRaw) || logoUrlRaw
   const imageUrl = resolveAgencyLogoForDisplay(imageUrlRaw) || imageUrlRaw
+  // 卡片图链：代理大图 → 大图 → 代理 logo → logo（与详情头图同源，避免卡空白详有图）
+  const imageChain = buildLl2ImageChain(imageUrl, imageUrlRaw, imageUrlFullRaw, logoUrl, logoUrlRaw)
+  const displayImage = imageChain[0] || imageUrl || logoUrl
 
   const foundingYear = agency.founding_year || null
   const countryZh = COUNTRY_ZH[countryName] || ''
@@ -180,9 +185,10 @@ function formatAgency(agency) {
     // 保留未压缩原链：imageMogr2 / 代理失败时 binderror 可回退，避免卡片空白
     logoUrlRaw: logoUrlRaw || '',
     imageUrlRaw: imageUrlRaw || '',
-    // 卡片图：优先机构大图，缺失时用 logo（居中展示）
-    displayImage: imageUrl || logoUrl,
-    imageMode: imageUrl ? 'aspectFill' : 'aspectFit',
+    // 卡片图：优先机构大图（含 Worker 代理），缺失时用 logo
+    displayImage,
+    imageFallbacks: imageChain.slice(1),
+    imageMode: (imageUrl || imageUrlRaw) ? 'aspectFill' : 'aspectFit',
     description,
     featured: !!agency.featured,
     // 总发射次数（云端 detailed 同步提供；旧缓存无此字段时为 null，排序按 0 处理）

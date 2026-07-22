@@ -5,9 +5,10 @@
  */
 const pageBase = require('../../utils/page-base.js')
 const { getBoosterGenealogy, getRocketConfigMeta } = require('../../utils/api-app-services.js')
-const boosterDisplay = require('../../utils/booster-display.js')
+const boosterDisplay = require('./utils/booster-display.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
+const { openBoosterEntityDetail } = require('../../utils/booster-nav.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 
 const STATUS_FILTERS = [
@@ -153,14 +154,13 @@ Page({
   async onBoosterCardTap(e) {
     var serial = e.currentTarget.dataset.serial
     if (!serial) return
-    var allowed = await gateCheck('booster_genealogy', '全球可回收火箭族谱')
-    if (!allowed) return
     var raw = (this._rawBySerial && this._rawBySerial[serial]) || null
-    if (raw) {
-      var app = getApp && getApp()
-      if (app) app._boosterDetailData = raw
-    }
-    navigateTo(ROUTES.BOOSTER_DETAIL, { serial: serial })
+    var list = this.data.boosterCards || []
+    var card = list.find(function (b) { return b && String(b.serial) === String(serial) })
+    await openBoosterEntityDetail(serial, {
+      raw: raw,
+      heroImage: (card && (card.thumbnailUrl || card.imageUrl)) || ''
+    })
   },
 
   onImageLoad(e) {

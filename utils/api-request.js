@@ -1,6 +1,12 @@
 // utils/api-request.js — HTTP/cache layer shared by api modules
 const { cleanExpiredApiCache } = require('./api-cache-clean.js')
-const { CACHE_PREFIX, CACHE_DURATION } = require('./cache-constants.js')
+const {
+  CACHE_PREFIX,
+  CACHE_DURATION,
+  SLOW_CACHE_DURATION,
+  SLOW_STALE_CACHE_MAX_AGE,
+  isSlowEndpointKey
+} = require('./cache-constants.js')
 const {
   emptyListResult,
   withTimeout,
@@ -27,6 +33,26 @@ const PAYLOAD_API_BASE = USE_DEV_API
 // 云函数每3小时执行1次，云数据库缓存有效期3.5小时，确保在同步间隔期间数据仍然可用
 const STALE_CACHE_MAX_AGE = 4 * 60 * 60 * 1000 // 4 小时 - 过期缓存最大可用时间（stale-while-revalidate）
 const CLOUD_CACHE_DURATION = 3.5 * 60 * 60 * 1000 // 3.5小时（毫秒）- 云数据库缓存有效期
+
+// ── 慢变化端点（空间站/对接/远征/机构）按 key 分档 ──
+// 云端 6 小时才同步一次，本地按 30 分钟节奏回云读库纯属浪费；
+// 慢档 key 的本地 TTL / stale 上限 / 后台探云间隔统一对齐服务端同步周期
+function _localCacheDurationFor(cacheKey) {
+  return isSlowEndpointKey(cacheKey) ? SLOW_CACHE_DURATION : CACHE_DURATION
+}
+
+function _staleMaxAgeFor(cacheKey) {
+  return isSlowEndpointKey(cacheKey) ? SLOW_STALE_CACHE_MAX_AGE : STALE_CACHE_MAX_AGE
+}
+
+function _bgCheckIntervalFor(cacheKey) {
+  if (isSlowEndpointKey(cacheKey)) return SLOW_CACHE_DURATION
+  // CLOUD_CACHE_BG_CHECK_INTERVAL / LAUNCH_LIST_* 在下方声明；运行时 request 才调用本函数
+  if (typeof isLaunchListCacheKey === 'function' && isLaunchListCacheKey(cacheKey)) {
+    return LAUNCH_LIST_BG_CHECK_INTERVAL
+  }
+  return CLOUD_CACHE_BG_CHECK_INTERVAL
+}
 
 // ── 内存缓存层：避免同一 key 反复调用 getStorageSync ──
 const _memCache = Object.create(null)   // { key: { data, expireAt } }
@@ -141,6 +167,16 @@ const cloudCacheBgCheckAt = Object.create(null)
 // 本地命中后的后台探云间隔：云端缓存由云函数约 3 小时同步一次，
 // 2 分钟探一次纯属浪费计费调用，30 分钟足以及时拿到新数据
 const CLOUD_CACHE_BG_CHECK_INTERVAL = 30 * 60 * 1000 // 30分钟
+/** 发射列表会被小时探针/详情就地改写，探云需更勤，否则 previous 插入对客户端最长不可见 30min */
+const LAUNCH_LIST_BG_CHECK_INTERVAL = 3 * 60 * 1000
+
+function isLaunchListCacheKey(cacheKey) {
+  if (typeof cacheKey !== 'string') return false
+  return (
+    cacheKey.indexOf('/launches/upcoming/') !== -1 ||
+    cacheKey.indexOf('/launches/previous/') !== -1
+  )
+}
 
 // 云端候选 key 查询上限：精确 key + 当前版本主 key + 1 个兜底，
 // 旧版 slim 后缀只在本地扫描时兜底展示，不再打到云数据库
@@ -155,6 +191,8 @@ function _isLegacySlimKey(key) {
 // ── 后台缓存更新监听器 ──
 // 当 request 命中本地缓存后，后台发现云数据库有更新时，通知订阅方刷新 UI
 const _staleUpdateListeners = Object.create(null)
+/** 发射列表（upcoming/previous）任意 key 变新鲜时的总线；首页/搜索可订阅而不用绑死精确 key */
+const _launchListStaleListeners = []
 
 /**
  * 注册后台缓存更新监听器
@@ -176,7 +214,43 @@ function onStaleUpdate(cacheKey, callback) {
   }
 }
 
+/**
+ * 订阅发射列表母缓存后台变新鲜（不依赖精确 limit key）。
+ * @param {Function} callback (info: { cacheKey, kind: 'upcoming'|'previous'|'other', data })
+ * @returns {Function} off
+ */
+function onLaunchListStale(callback) {
+  if (typeof callback !== 'function') return function () {}
+  _launchListStaleListeners.push(callback)
+  return function off() {
+    const idx = _launchListStaleListeners.indexOf(callback)
+    if (idx !== -1) _launchListStaleListeners.splice(idx, 1)
+  }
+}
+
 function _fireStaleUpdate(cacheKey, newData) {
+  // 列表母缓存刷新后丢掉内存快照，避免 5min 内仍吐旧 previous/upcoming
+  if (isLaunchListCacheKey(cacheKey)) {
+    try {
+      const listApi = require('./api-launch-list.js')
+      if (listApi && typeof listApi.invalidateListSnapshots === 'function') {
+        listApi.invalidateListSnapshots()
+      }
+    } catch (e) {}
+    const kind =
+      cacheKey.indexOf('/launches/previous/') !== -1
+        ? 'previous'
+        : cacheKey.indexOf('/launches/upcoming/') !== -1
+          ? 'upcoming'
+          : 'other'
+    _launchListStaleListeners.slice().forEach((fn) => {
+      try {
+        fn({ cacheKey, kind, data: newData })
+      } catch (e) {
+        console.error('[launchListStale] callback error:', e)
+      }
+    })
+  }
   const arr = _staleUpdateListeners[cacheKey]
   if (!arr || arr.length === 0) return
   arr.slice().forEach(fn => {
@@ -243,15 +317,16 @@ function getCacheFromLocal(cacheKey, allowStale) {
 
     const now = Date.now()
     const age = now - cacheData.timestamp
+    const localDuration = _localCacheDurationFor(cacheKey)
 
-    if (age <= CACHE_DURATION) {
-      const remainTTL = CACHE_DURATION - age
+    if (age <= localDuration) {
+      const remainTTL = localDuration - age
       _memSet(cacheKey, cacheData.data, remainTTL)
       return cacheData.data
     }
 
     // 缓存已过期
-    if (allowStale && age <= STALE_CACHE_MAX_AGE) {
+    if (allowStale && age <= _staleMaxAgeFor(cacheKey)) {
       return cacheData.data
     }
 
@@ -321,6 +396,12 @@ async function getCacheFromCloud(cacheKey, timeout = 5000) {
 
       apiData = unwrapCacheData(apiData)
 
+      const hollowBatched =
+        !!(apiData.isBatched || apiData.isBatch) &&
+        Array.isArray(apiData.results) &&
+        apiData.results.length === 0 &&
+        Number(apiData.count) > 0
+
       if (apiData.isBatched && apiData.batchKeys && Array.isArray(apiData.batchKeys)) {
         const batchPromises = apiData.batchKeys.map(async (batchKey) => {
           try {
@@ -345,7 +426,34 @@ async function getCacheFromCloud(cacheKey, timeout = 5000) {
           ...apiData,
           results: mergedResults,
           count: mergedResults.length,
-          isBatched: false
+          isBatched: false,
+          isBatch: false
+        }
+      } else if (hollowBatched) {
+        // 无 batchKeys 时按小时探针同约定扫 _batch_N，避免把空 results 当成「真的没有历史」
+        const mergedResults = []
+        for (let batchIdx = 0; batchIdx < 40; batchIdx++) {
+          const batchKey = `${cacheKey}_batch_${batchIdx}`
+          try {
+            const batchResult = await Promise.race([
+              db.collection('space_devs_cache').doc(batchKey).get(),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('批次查询超时')), 5000))
+            ])
+            const chunk =
+              (batchResult.data && batchResult.data.data && batchResult.data.data.results) || null
+            if (!Array.isArray(chunk)) break
+            for (let i = 0; i < chunk.length; i++) mergedResults.push(chunk[i])
+          } catch (e) {
+            break
+          }
+        }
+        if (mergedResults.length === 0) return null
+        apiData = {
+          ...apiData,
+          results: mergedResults,
+          count: mergedResults.length,
+          isBatched: false,
+          isBatch: false
         }
       }
 
@@ -357,6 +465,15 @@ async function getCacheFromCloud(cacheKey, timeout = 5000) {
           } catch (error) {}
           return apiData
         }
+        return null
+      }
+
+      // 分批主文档若仍空壳且声称有 count：禁止写入本地，避免永久空历史
+      if (
+        apiData.results.length === 0 &&
+        Number(apiData.count) > 0 &&
+        !!(apiData.isBatched || apiData.isBatch)
+      ) {
         return null
       }
 
@@ -404,7 +521,7 @@ function getCache(cacheKey) {
     // 增加节流，避免频繁重复查询导致云数据库超时
     const now = Date.now()
     const lastBgCheckAt = cloudCacheBgCheckAt[cacheKey] || 0
-    if (now - lastBgCheckAt >= CLOUD_CACHE_BG_CHECK_INTERVAL) {
+    if (now - lastBgCheckAt >= _bgCheckIntervalFor(cacheKey)) {
       cloudCacheBgCheckAt[cacheKey] = now
       getCacheFromCloud(cacheKey, 3000).then(cloudCache => {
         if (cloudCache !== null && cloudCache !== localCache) {
@@ -538,15 +655,17 @@ function setCache(cacheKey, data) {
 
     const bytes = estimateBytes(cacheData)
 
-    // 过大的数据不写入本地 storage（否则很容易超过 10MB 总上限）
+    // 过大的数据不写入本地 storage（否则很容易超过 10MB 总上限），
+    // 但仍写入内存缓存：同会话内避免反复打云库（docking_events 约 300KB 常踩此阈值）
     if (bytes > MAX_LOCAL_CACHE_BYTES) {
+      _memSet(cacheKey, data, _localCacheDurationFor(cacheKey))
       return
     }
 
     // 先保存到本地（同步，快速）
     wx.setStorageSync(cacheKey, cacheData)
     // 同步写入内存缓存
-    _memSet(cacheKey, data, CACHE_DURATION)
+    _memSet(cacheKey, data, _localCacheDurationFor(cacheKey))
     // 同步刷新去重层，避免后续读取拿到旧的"原始 entry"
     _storageReadCache[cacheKey] = {
       entry: cacheData,
@@ -567,7 +686,7 @@ function setCache(cacheKey, data) {
           const bytes = estimateBytes(cacheData)
           if (bytes <= MAX_LOCAL_CACHE_BYTES) {
             wx.setStorageSync(cacheKey, cacheData)
-            _memSet(cacheKey, data, CACHE_DURATION)
+            _memSet(cacheKey, data, _localCacheDurationFor(cacheKey))
             _storageReadCache[cacheKey] = {
               entry: cacheData,
               expireAt: Date.now() + STORAGE_READ_DEDUP_TTL
@@ -710,7 +829,7 @@ function request(url, params = {}, timeout = null, useCache = true, retryCount =
         resolve(localExact)
         const now = Date.now()
         const lastBg = cloudCacheBgCheckAt[cacheKey] || 0
-        if (now - lastBg >= CLOUD_CACHE_BG_CHECK_INTERVAL) {
+        if (now - lastBg >= _bgCheckIntervalFor(cacheKey)) {
           cloudCacheBgCheckAt[cacheKey] = now
           getCacheFromCloud(cacheKey).then(cloud => {
             if (cloud !== null && JSON.stringify(cloud) !== JSON.stringify(localExact)) {
@@ -735,6 +854,24 @@ function request(url, params = {}, timeout = null, useCache = true, retryCount =
             // 各自持久化不同时间戳的旧切片，下次冷启动两包先后渲染不同代际的数据，
             // 造成倒计时面板「闪旧数据」。母缓存是唯一数据源，切片始终同代际。
             if (!c.slice) setCache(cacheKey, result)
+            // 与 Phase 1 对齐：母 key 本地命中也要节流探云，否则小时探针插入的 previous
+            // stub 最长要等本地 TTL(30min) 才对客户端可见。
+            const motherKey = c.key
+            const now = Date.now()
+            const lastBg = cloudCacheBgCheckAt[motherKey] || 0
+            if (now - lastBg >= _bgCheckIntervalFor(motherKey)) {
+              cloudCacheBgCheckAt[motherKey] = now
+              getCacheFromCloud(motherKey).then((cloud) => {
+                if (cloud === null) return
+                if (JSON.stringify(cloud) === JSON.stringify(local)) return
+                setCache(motherKey, cloud)
+                const fresh = c.slice ? _sliceCacheResult(cloud, params) : cloud
+                if (fresh !== null) {
+                  _fireStaleUpdate(cacheKey, fresh)
+                  _fireStaleUpdate(motherKey, cloud)
+                }
+              }).catch(() => {})
+            }
             return
           }
         }
@@ -900,12 +1037,12 @@ function getCountryDisplay(pad, launchServiceProvider = null, launch = null) {
       .join(' ')
       .toLowerCase()
 
-    if (/(\busa\b|united states|vandenberg|cape canaveral|kennedy|florida|california|starbase|boca chica|texas)/.test(text)) code = 'USA'
+    if (/(\busa\b|united states|vandenberg|cape canaveral|kennedy|florida|california|starbase|boca chica|texas|falcon 9|falcon heavy|starship|new glenn|vulcan|atlas v|delta iv|antares|minotaur|firefly alpha)/.test(text)) code = 'USA'
     else if (/(baikonur|kazakhstan)/.test(text)) code = 'KAZ'
-    else if (/(plesetsk|vostochny|russia|russian)/.test(text)) code = 'RUS'
-    else if (/(wenchang|jiuquan|taiyuan|xichang|china|\bprc\b)/.test(text)) code = 'CHN'
-    else if (/(tanegashima|uchinoura|japan)/.test(text)) code = 'JPN'
-    else if (/(sriharikota|india)/.test(text)) code = 'IND'
+    else if (/(plesetsk|vostochny|russia|russian|soyuz|proton-?m|angara)/.test(text)) code = 'RUS'
+    else if (/(wenchang|jiuquan|taiyuan|xichang|china|\bprc\b|haiyang|oriental spaceport|orienspace|东方空间|long march|长征|kuaizhou|快舟|\bgravity-?\s?1\b|引力一号|\bceres-?\s?1\b|谷神星|hyperbola|双曲线|zhuque|朱雀|jielong|smart dragon|捷龙|tianlong|天龙|kinetica|lijian|力箭|landspace|galactic energy|expace|cas space|中科宇航)/.test(text)) code = 'CHN'
+    else if (/(tanegashima|uchinoura|japan|h-?iia\b|\bh3\b|epsilon)/.test(text)) code = 'JPN'
+    else if (/(sriharikota|india|\bpslv\b|\bgslv\b|\blvm-?3\b|\bsslv\b)/.test(text)) code = 'IND'
     else if (/(mahias|kourou|french guiana|guyane)/.test(text)) code = 'FRA'
     else if (/(new zealand|mahia)/.test(text)) code = 'NZL'
     else if (/(uae|united arab emirates|mohammed bin rashid)/.test(text)) code = 'ARE'
@@ -1014,6 +1151,7 @@ module.exports = {
   request,
   getCacheKey,
   onStaleUpdate,
+  onLaunchListStale,
   formatPadLocation,
   getCountryDisplay,
   getStatusCategory,

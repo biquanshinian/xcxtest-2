@@ -1,0 +1,71 @@
+<!-- 太空轨道数据中心入口卡（从 pages/monitor/monitor.wxml 拆出）— 纯展示组件 -->
+<!-- 新增：太空轨道数据中心系统（科幻入口） -->
+<view class="odc-section monitor-block">
+  <view class="section-title section-title--orbital">
+    <text>太空轨道数据中心</text>
+  </view>
+  <view class="orbital-card glass-card card-hover" bindtap="emitCardTap">
+    <video
+      wx:if="{{orbitalCardBgIsVideo && orbitalCardBg}}"
+      class="orbital-card__bg-img"
+      src="{{orbitalCardBg}}"
+      object-fit="cover"
+      autoplay="{{true}}"
+      loop="{{true}}"
+      muted="{{true}}"
+      show-center-play-btn="{{false}}"
+      show-play-btn="{{false}}"
+      controls="{{false}}"
+      enable-progress-gesture="{{false}}"
+      show-fullscreen-btn="{{false}}"
+      show-mute-btn="{{false}}"
+      binderror="emitBgError"
+    ></video>
+    <image wx:elif="{{orbitalCardBg}}" class="orbital-card__bg-img" src="{{orbitalCardBg}}" mode="aspectFill" lazy-load="true" binderror="emitBgError"></image>
+    <view class="orbital-card__bg-mask"></view>
+    <view class="orbital-card__bg">
+      <view class="orbital-card__orbit orbital-card__orbit--1">
+        <view class="orbital-card__orbit-dot orbital-card__orbit-dot--green"></view>
+      </view>
+      <view class="orbital-card__orbit orbital-card__orbit--2">
+        <view class="orbital-card__orbit-dot orbital-card__orbit-dot--blue"></view>
+      </view>
+      <view class="orbital-card__orbit orbital-card__orbit--3">
+        <view class="orbital-card__orbit-dot orbital-card__orbit-dot--red"></view>
+      </view>
+      <view class="orbital-card__core"></view>
+    </view>
+    <view class="orbital-card__content">
+      <view class="orbital-card__head">
+        <view class="orbital-card__badge">
+          <view class="orbital-card__badge-dot"></view>
+          <text class="orbital-card__badge-text">FUTURE TECH · BETA</text>
+        </view>
+      </view>
+      <text class="orbital-card__title">Orbital Data Center System</text>
+      <text class="orbital-card__title-cn">太空轨道数据中心系统</text>
+      <text class="orbital-card__desc">SpaceX 下一代轨道战略</text>
+      <view class="orbital-card__metrics">
+        <view class="orbital-card__metric">
+          <text class="orbital-card__metric-value">{{orbitalLiveStats.activeNodes}}</text>
+          <text class="orbital-card__metric-label">在轨节点</text>
+        </view>
+        <view class="orbital-card__metric-divider"></view>
+        <view class="orbital-card__metric">
+          <text class="orbital-card__metric-value">{{orbitalLiveStats.bandwidth}}</text>
+          <text class="orbital-card__metric-label">数据吞吐</text>
+        </view>
+        <view class="orbital-card__metric-divider"></view>
+        <view class="orbital-card__metric">
+          <text class="orbital-card__metric-value">{{orbitalLiveStats.uptime}}</text>
+          <text class="orbital-card__metric-label">系统在线</text>
+        </view>
+      </view>
+    </view>
+    <view class="orbital-card__cta {{isProUser ? 'pro-gold-frame' : ''}}">
+      <text class="orbital-card__cta-text">{{orbitalCardCta || '进入指挥控制台'}}</text>
+      <text class="orbital-card__cta-pro" wx:if="{{!isProUser}}"></text>
+      <view class="orbital-card__cta-arrow">→</view>
+    </view>
+  </view>
+</view>

@@ -869,8 +869,9 @@ async function processLaunchDetail(launch) {
                               launcher.reused === true
         
         if (hasBoosterData) {
-          const landingTypeIcon = (landingType === 'TOWER_CATCH' || landingType === 'SPLASHDOWN' || landingType === 'RECOVERY')
-            ? buildLandingIcon(landingType, 'neutral')
+          // 与倒计时 attachLandingTypeIcon 同口径：除 ASDS/RTLS/VL（WXML 静态 SVG 兜底）外全部挂 dataURI
+          const landingTypeIcon = (landingType && landingType !== 'ASDS' && landingType !== 'RTLS' && landingType !== 'VL')
+            ? buildLandingIcon(landingType, (landingType === 'EXPENDED' || landingType === 'LOST') ? 'failure' : 'neutral')
             : null
           boosterInfo = {
             serialNumber: serialNumber || null,
@@ -1577,6 +1578,8 @@ async function processLaunchDetail(launch) {
       webcastLive,
       rocketImage: getRocketImage(getRocketDisplayNameFromConfig(rocketConfig)),
       rocketConfiguration: pickRocketConfigurationSnapshot(launch),
+      // LL2 构型 id：族谱型号详情页（rocket-model-detail）入口用
+      rocketConfigId: (rocketConfig && rocketConfig.id != null) ? rocketConfig.id : null,
       rocketSpecsVisible,
       rocketSpecs,
       // ——以下为 LL2 详情端点独有字段（列表快照没有）——

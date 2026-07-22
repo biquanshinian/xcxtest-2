@@ -1,4 +1,4 @@
-<view wx:if="{{show}}" class="official-account-bar">
+<view wx:if="{{show}}" class="official-account-bar {{barLight ? 'official-account-bar--light' : ''}}">
   <view
     class="official-account-card {{dragging ? 'official-account-card--dragging' : ''}}"
     style="transform: translateX({{dragOffset}}px); opacity: {{cardOpacity}};"

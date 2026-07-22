@@ -3,7 +3,8 @@
  * 基于 satellite.js 进行 TLE 轨道传播，计算给定观测点的可见过境
  */
 
-var satellite = require('./libs/satellite.min.js')
+// monitor-pages 分包内共享的 satellite.js（与 starlink-renderer 同一份）
+var satellite = require('../libs/satellite.min.js')
 
 // TLE 历元超过 7 天视为陈旧：SGP4 误差随历元年龄增长，超龄卫星不参与预报/AR
 var TLE_MAX_AGE_MS = 7 * 24 * 3600 * 1000

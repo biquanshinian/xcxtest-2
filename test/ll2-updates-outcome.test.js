@@ -1,6 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { inferTerminalStatusFromUpdates } = require('../utils/ll2-updates-outcome.js')
+const { inferTerminalStatusFromUpdates } = require('../subpackages/index-extra/utils/ll2-updates-outcome.js')
 
 test('不把上一发火箭失败导致延期误判为当前任务失败', () => {
   const result = inferTerminalStatusFromUpdates([{ comment: 'Delayed to TBD due to previous H3 launch failure.' }])

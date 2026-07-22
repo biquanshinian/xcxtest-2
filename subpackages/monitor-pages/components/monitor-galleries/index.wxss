@@ -1,0 +1,847 @@
+@import "../../../../styles/monitor-block.wxss";
+/* 监控页图鉴四板块样式（从 pages/monitor/monitor.wxss 拆出）。
+   共享基类（section-title / glass-card 等）与 theme-light 覆盖仍在页面 wxss，
+   经 styleIsolation: apply-shared 作用进组件。
+
+   注意：组件 wxss 优先级高于页面 apply-shared，不可把 section 的 padding/margin 置 0，
+   否则会盖掉 .monitor-block 的内边距（数值唯一来源：styles/monitor-block.wxss）。 */
+
+/* ========== 可回收火箭族谱 ========== */
+.booster-summary {
+  display: flex;
+  justify-content: space-around;
+  padding: 24rpx;
+  margin-bottom: 20rpx;
+  border-radius: 20rpx;
+}
+.booster-summary-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.booster-summary-value {
+  font-size: 40rpx;
+  font-weight: 700;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.booster-summary-label {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 4rpx;
+}
+.booster-scroll {
+  white-space: nowrap;
+  width: 100%;
+}
+.booster-card {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  margin-right: 16rpx;
+  border-radius: 20rpx;
+  width: 280rpx;
+  overflow: hidden;
+  position: relative;
+  transition: transform 0.25s ease;
+}
+.booster-card:active {
+  transform: scale(0.97);
+}
+/* 图片区域 */
+.booster-img-wrap {
+  position: relative;
+  width: 100%;
+  height: 180rpx;
+  overflow: hidden;
+}
+.booster-img {
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transform: scale(1.02);
+  transition: opacity 0.32s ease, transform 0.32s ease;
+  background: rgba(255, 255, 255, 0.04);
+}
+.booster-img--loaded {
+  opacity: 1;
+  transform: scale(1);
+}
+.booster-img--placeholder {
+  opacity: 1;
+  transform: scale(1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.10), rgba(255, 255, 255, 0.03) 72%);
+}
+.booster-img-icon {
+  font-size: 48rpx;
+}
+/* 状态角标 */
+.booster-status-badge {
+  position: absolute;
+  top: 10rpx;
+  left: 10rpx;
+  font-size: 18rpx;
+  padding: 2rpx 12rpx;
+  border-radius: 6rpx;
+  font-weight: 500;
+  backdrop-filter: blur(10rpx);
+  -webkit-backdrop-filter: blur(10rpx);
+}
+.booster-status-badge--active {
+  color: #34C759;
+  background: rgba(52, 199, 89, 0.25);
+  border: 1px solid rgba(52, 199, 89, 0.4);
+}
+.booster-status-badge--retired {
+  color: #8E8E93;
+  background: rgba(142, 142, 147, 0.25);
+  border: 1px solid rgba(142, 142, 147, 0.4);
+}
+.booster-status-badge--destroyed {
+  color: #FF3B30;
+  background: rgba(255, 59, 48, 0.25);
+  border: 1px solid rgba(255, 59, 48, 0.4);
+}
+.booster-status-badge--expended {
+  color: #FF9500;
+  background: rgba(255, 149, 0, 0.25);
+  border: 1px solid rgba(255, 149, 0, 0.4);
+}
+.booster-status-badge--unknown {
+  color: #8E8E93;
+  background: rgba(142, 142, 147, 0.15);
+  border: 1px solid rgba(142, 142, 147, 0.3);
+}
+/* 信息区 */
+.booster-card-body {
+  padding: 16rpx 20rpx 20rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8rpx;
+  white-space: normal;
+}
+.booster-serial-row {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+.booster-serial {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #fff;
+}
+.booster-country-flag {
+  font-size: 24rpx;
+  line-height: 1;
+}
+.booster-tag-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8rpx;
+}
+.booster-family-tag {
+  font-size: 20rpx;
+  color: rgba(255, 149, 0, 0.9);
+}
+.booster-mfr-tag {
+  font-size: 18rpx;
+  color: #5AC8FA;
+  padding: 2rpx 10rpx;
+  border-radius: 6rpx;
+  background: rgba(90, 200, 250, 0.12);
+  border: 1px solid rgba(90, 200, 250, 0.25);
+}
+
+/* 族谱筛选 chip + 查看全部按钮 */
+/* 「查看全部」PRO 金色胶囊（族谱/发射商图鉴/发射场共用，示意会员内容） */
+.booster-view-all {
+  display: flex;
+  align-items: center;
+  gap: 4rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #5C3A00;
+  padding: 8rpx 20rpx 8rpx 26rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(135deg, #FFE3A0 0%, #F7BE45 55%, #F0AE2C 100%);
+  border: 1px solid rgba(255, 210, 122, 0.65);
+  box-shadow: 0 4rpx 14rpx rgba(230, 165, 40, 0.28);
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+.booster-view-all--pressed {
+  transform: scale(0.94);
+  opacity: 0.85;
+}
+.booster-view-all-arrow {
+  font-size: 30rpx;
+  line-height: 1;
+  color: #5C3A00;
+}
+.booster-filter-scroll {
+  width: 100%;
+  white-space: nowrap;
+  margin-bottom: 20rpx;
+}
+.booster-filter-row {
+  display: inline-flex;
+  gap: 12rpx;
+  padding: 2rpx 2rpx;
+}
+.booster-filter-chip {
+  flex-shrink: 0;
+  padding: 10rpx 26rpx;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.2s ease;
+}
+.booster-filter-chip--active {
+  color: #fff;
+  font-weight: 600;
+  background: linear-gradient(135deg, rgba(0, 122, 255, 0.35), rgba(88, 86, 214, 0.35));
+  border-color: rgba(0, 122, 255, 0.55);
+}
+.booster-key-stats {
+  display: flex;
+  gap: 24rpx;
+  margin-top: 4rpx;
+}
+.booster-stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.booster-stat-num {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.booster-stat-label {
+  font-size: 18rpx;
+  color: rgba(255, 255, 255, 0.45);
+}
+.booster-flights-bar {
+  display: flex;
+  gap: 3rpx;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 240rpx;
+}
+.flight-block {
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 3rpx;
+}
+.flight-success {
+  background: #34C759;
+  box-shadow: 0 0 4rpx rgba(52, 199, 89, 0.4);
+}
+.flight-fail {
+  background: #FF3B30;
+  box-shadow: 0 0 4rpx rgba(255, 59, 48, 0.4);
+}
+.flight-pending {
+  background: #FF9500;
+  box-shadow: 0 0 4rpx rgba(255, 149, 0, 0.4);
+}
+.flight-unknown {
+  background: rgba(255, 255, 255, 0.2);
+}
+.booster-turnaround {
+  font-size: 18rpx;
+  color: rgba(90, 200, 250, 0.8);
+  margin-top: 2rpx;
+}
+/* 箭头 */
+.booster-card-arrow {
+  position: absolute;
+  top: 10rpx;
+  right: 10rpx;
+  font-size: 28rpx;
+  color: rgba(255, 255, 255, 0.3);
+}
+.booster-loading {
+  padding: 40rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 20rpx;
+}
+
+
+/* ========== 全球飞船图鉴（骨架镜像族谱卡片） ========== */
+.sc-card {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  /* 横滑容器内 inline 元素默认基线对齐，内容高度不一会上下错位，强制顶部对齐 */
+  vertical-align: top;
+  margin-right: 16rpx;
+  border-radius: 20rpx;
+  width: 280rpx;
+  overflow: hidden;
+  position: relative;
+  transition: transform 0.25s ease;
+}
+.sc-card:active {
+  transform: scale(0.97);
+}
+.sc-img-wrap {
+  position: relative;
+  width: 100%;
+  height: 180rpx;
+  overflow: hidden;
+}
+.sc-img {
+  width: 100%;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.04);
+}
+.sc-img--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.10), rgba(255, 255, 255, 0.03) 72%);
+}
+.sc-img-icon {
+  font-size: 48rpx;
+}
+.sc-status-badge {
+  position: absolute;
+  top: 10rpx;
+  left: 10rpx;
+  font-size: 18rpx;
+  padding: 2rpx 12rpx;
+  border-radius: 6rpx;
+  font-weight: 500;
+  backdrop-filter: blur(10rpx);
+  -webkit-backdrop-filter: blur(10rpx);
+}
+.sc-status-badge--active {
+  color: #34C759;
+  background: rgba(52, 199, 89, 0.25);
+  border: 1px solid rgba(52, 199, 89, 0.4);
+}
+.sc-status-badge--retired {
+  color: #8E8E93;
+  background: rgba(142, 142, 147, 0.25);
+  border: 1px solid rgba(142, 142, 147, 0.4);
+}
+.sc-card-body {
+  padding: 16rpx 20rpx 20rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8rpx;
+  white-space: normal;
+}
+.sc-name {
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #fff;
+  text-align: center;
+  line-height: 34rpx;
+  /* 固定两行高度并截断：长短船名卡片高度一致，横排不错位 */
+  height: 68rpx;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.sc-tag-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  /* 标签单行截断，避免换行撑高卡片 */
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.sc-type-tag {
+  font-size: 20rpx;
+  color: rgba(255, 149, 0, 0.9);
+  flex-shrink: 0;
+}
+.sc-agency-tag {
+  font-size: 18rpx;
+  color: #5AC8FA;
+  padding: 2rpx 10rpx;
+  border-radius: 6rpx;
+  background: rgba(90, 200, 250, 0.12);
+  border: 1px solid rgba(90, 200, 250, 0.25);
+  max-width: 160rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+/* ========== 全球发射场分布（骨架镜像全球飞船图鉴 sc-*） ========== */
+/* ls-section 内边距/外边距由上方 .monitor-block 统一 */
+.ls-card {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  /* 横滑容器内 inline 元素默认基线对齐，内容高度不一会上下错位，强制顶部对齐 */
+  vertical-align: top;
+  margin-right: 16rpx;
+  border-radius: 20rpx;
+  width: 300rpx;
+  overflow: hidden;
+  position: relative;
+  transition: transform 0.15s ease;
+}
+.ls-card:active {
+  transform: scale(0.97);
+}
+.ls-img-wrap {
+  position: relative;
+  width: 100%;
+  height: 200rpx;
+  overflow: hidden;
+}
+.ls-img {
+  width: 100%;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.04);
+}
+.ls-img--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, rgba(255, 149, 0, 0.10), rgba(255, 255, 255, 0.03) 72%);
+}
+.ls-img-icon {
+  font-size: 48rpx;
+}
+/* 累计发射角标（右上，与左上活跃状态角标对称） */
+.ls-launch-badge {
+  position: absolute;
+  top: 10rpx;
+  right: 10rpx;
+  font-size: 18rpx;
+  padding: 2rpx 12rpx;
+  border-radius: 6rpx;
+  font-weight: 500;
+  color: #FF9F0A;
+  background: rgba(255, 159, 10, 0.22);
+  border: 1px solid rgba(255, 159, 10, 0.4);
+  backdrop-filter: blur(10rpx);
+  -webkit-backdrop-filter: blur(10rpx);
+}
+.ls-card-body {
+  padding: 16rpx 20rpx 20rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8rpx;
+  white-space: normal;
+}
+.ls-name {
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #fff;
+  text-align: center;
+  line-height: 34rpx;
+  /* 固定两行高度并截断：长短场名卡片高度一致，横排不错位 */
+  height: 68rpx;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.ls-tag-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  /* 标签单行截断，避免换行撑高卡片 */
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.ls-country-tag {
+  font-size: 18rpx;
+  color: #5AC8FA;
+  padding: 2rpx 10rpx;
+  border-radius: 6rpx;
+  background: rgba(90, 200, 250, 0.12);
+  border: 1px solid rgba(90, 200, 250, 0.25);
+  flex-shrink: 0;
+}
+.ls-sub-name {
+  font-size: 18rpx;
+  color: rgba(255, 255, 255, 0.45);
+  max-width: 170rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+/* ========== 全球发射商图鉴 ========== */
+
+/* 筛选分类胶囊（与星舰硬件设施同款） */
+.agency-filter-scroll {
+  width: 100%;
+  white-space: nowrap;
+  margin-bottom: 16rpx;
+}
+.agency-filter-row {
+  display: inline-flex;
+  gap: 14rpx;
+  padding: 0 6rpx;
+}
+.agency-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52rpx;
+  padding: 0 26rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-sizing: border-box;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.agency-chip text {
+  color: #C7C7CC;
+  font-size: 24rpx;
+  line-height: 1;
+}
+.agency-chip-active {
+  background: rgba(10, 132, 255, 0.2);
+  border-color: rgba(10, 132, 255, 0.55);
+}
+.agency-chip-active text {
+  color: #9FD0FF;
+  font-weight: 600;
+}
+
+/* 搜索框 */
+.agency-search {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  padding: 14rpx 22rpx;
+  margin-bottom: 20rpx;
+  border-radius: 20rpx;
+}
+.agency-search-icon {
+  color: #8E8E93;
+  font-size: 34rpx;
+  line-height: 1;
+}
+.agency-search-input {
+  flex: 1;
+  min-width: 0;
+  color: #FFFFFF;
+  font-size: 26rpx;
+  height: 52rpx;
+  line-height: 52rpx;
+}
+.agency-search-placeholder {
+  color: #636366;
+}
+.agency-search-clear {
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.1);
+}
+.agency-search-clear text {
+  color: #C7C7CC;
+  font-size: 30rpx;
+  line-height: 1;
+}
+
+/* 卡片网格（2 列，与星舰硬件设施同款） */
+.agency-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20rpx;
+}
+.agency-hw-card {
+  width: calc((100% - 20rpx) / 2);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+/* 扫光走全局 skeleton-shimmer（app.wxss） */
+.agency-hw-card-skeleton {
+  height: 380rpx;
+}
+.agency-hw-card-image-wrap {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  position: relative;
+  overflow: hidden;
+  background: rgba(30, 30, 30, 0.35);
+}
+.agency-hw-card-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  background-color: rgba(30, 30, 30, 0.35);
+}
+/* 仅有 logo 时：留白居中展示，白色衬底保证深色 logo 可见 */
+.agency-hw-card-image--logo {
+  box-sizing: border-box;
+  padding: 36rpx;
+  background-color: rgba(255, 255, 255, 0.92);
+}
+.agency-hw-card-image-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle, rgba(90, 200, 250, 0.12), rgba(28, 28, 30, 0.95));
+}
+.agency-hw-card-image-placeholder text {
+  font-size: 64rpx;
+}
+.agency-placeholder-icon {
+  width: 72rpx;
+  height: 72rpx;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235ac8fa' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M13 7 9 3 5 7l4 4'/%3E%3Cpath d='m17 11 4 4-4 4-4-4'/%3E%3Cpath d='m8 12 4 4 6-6-4-4Z'/%3E%3Cpath d='m16 8 3-3'/%3E%3Cpath d='M9 21a6 6 0 0 0-6-6'/%3E%3C/svg%3E") no-repeat center / contain;
+  opacity: 0.65;
+}
+.agency-hw-card-image-mask {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 55%;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(22, 22, 24, 0.92) 100%);
+  pointer-events: none;
+}
+.agency-hw-card-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 14rpx 18rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6rpx;
+  pointer-events: none;
+}
+.agency-hw-card-name {
+  max-width: 100%;
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #FFFFFF;
+  text-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agency-hw-card-body {
+  padding: 14rpx 18rpx 18rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  flex: 1;
+}
+.agency-hw-card-meta {
+  font-size: 22rpx;
+  color: #8E8E93;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agency-hw-card-notes {
+  font-size: 22rpx;
+  color: #AEAEB2;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+/* 空态 + 展开更多 */
+.agency-empty {
+  padding: 40rpx 30rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.agency-empty text {
+  color: #8E8E93;
+  font-size: 26rpx;
+  text-align: center;
+}
+/* 类型徽标（叠在卡片照片上，用深色衬底保证对比度） */
+.agency-type-tag {
+  font-size: 18rpx;
+  padding: 2rpx 10rpx;
+  border-radius: 999rpx;
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(28, 28, 30, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.agency-type--government {
+  color: #FFD60A;
+  background: rgba(66, 56, 8, 0.72);
+  border-color: rgba(255, 214, 10, 0.25);
+}
+.agency-type--commercial {
+  color: #30D158;
+  background: rgba(10, 52, 22, 0.72);
+  border-color: rgba(48, 209, 88, 0.25);
+}
+
+/* 错误态 */
+.agency-error {
+  padding: 48rpx 32rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 20rpx;
+  gap: 12rpx;
+}
+.agency-retry-btn {
+  margin-top: 12rpx;
+  padding: 10rpx 32rpx;
+  border-radius: 999rpx;
+  background: rgba(0, 122, 255, 0.15);
+  border: 1px solid rgba(0, 122, 255, 0.3);
+}
+.agency-retry-btn text {
+  font-size: 24rpx;
+  color: #007AFF;
+  font-weight: 500;
+}
+
+
+
+/* ── 自 pages/monitor/monitor.wxss 迁入 ── */
+/* --- 可回收火箭族谱 --- */
+.theme-light .booster-summary-value {
+  color: var(--color-text-primary);
+}
+
+.theme-light .booster-summary-label {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .booster-img {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.theme-light .booster-img--placeholder {
+  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.14), rgba(0, 0, 0, 0.04) 72%);
+}
+
+.theme-light .booster-serial {
+  color: var(--color-text-primary);
+}
+
+.theme-light .booster-filter-chip--active {
+  color: #fff;
+  background: linear-gradient(135deg, #007AFF, #5856D6);
+  border-color: rgba(0, 122, 255, 0.55);
+}
+
+.theme-light .booster-stat-num {
+  color: var(--color-text-primary);
+}
+
+.theme-light .booster-stat-label {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .flight-unknown {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.theme-light .booster-card-arrow {
+  color: rgba(0, 0, 0, 0.25);
+}
+
+/* --- 全球飞船图鉴 --- */
+.theme-light .sc-img {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.theme-light .sc-img--placeholder {
+  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.14), rgba(0, 0, 0, 0.04) 72%);
+}
+
+.theme-light .sc-name {
+  color: var(--color-text-primary);
+}
+
+/* --- 全球发射场分布 --- */
+.theme-light .ls-img {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.theme-light .ls-img--placeholder {
+  background: radial-gradient(circle at center, rgba(255, 149, 0, 0.14), rgba(0, 0, 0, 0.04) 72%);
+}
+
+.theme-light .ls-name {
+  color: var(--color-text-primary);
+}
+
+.theme-light .ls-sub-name {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .agency-hw-card {
+  border: 1px solid var(--color-divider);
+}
+
+/* 骨架浅色底色由全局 .theme-light .skeleton-shimmer 提供 */
+
+.theme-light .agency-hw-card-image-wrap {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.theme-light .agency-hw-card-image {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.theme-light .agency-hw-card-image-placeholder {
+  background: radial-gradient(circle, rgba(90, 200, 250, 0.14), #ECECF1);
+}
+
+.theme-light .agency-hw-card-meta {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .agency-hw-card-notes {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .agency-empty text {
+  color: var(--color-text-secondary);
+}
+
+/* 四块图鉴/在轨预览区统一内容槽最小高度，标题下起点节奏更齐。
+   lazy-load-card 有样式隔离：min-height 挂宿主 class（.orbit-lazy-host，组件 wxss 定义），
+   内部卡片（组件 apply-shared 后本规则可达）flex:1 撑满宿主实现整卡等高 */
+.agency-section .agency-grid,
+.booster-section .booster-scroll,
+.sc-section .booster-scroll,
+.orbit-section .orbit-list {
+  min-height: 360rpx;
+}

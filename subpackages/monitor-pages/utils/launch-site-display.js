@@ -7,36 +7,15 @@
  */
 
 var { COUNTRY_ZH } = require('./agency-data.js')
-var { workerProxyUrl } = require('./config.js')
-var { getCachedMediaImage } = require('./icon-cache.js')
-var { optimizeImageUrl } = require('./cos-url.js')
+var { getCachedMediaImage } = require('../../../utils/icon-cache.js')
+var { optimizeImageUrl } = require('../../../utils/cos-url.js')
+var { proxiedImageUrl } = require('../../../utils/ll2-image.js')
 
 var CACHE_KEY = '_launch_site_list_v2' // v2：新增 description/timezoneName 字段
 var CACHE_TTL = 24 * 60 * 60 * 1000
 var TAB_PREVIEW_COUNT = 2
 var PAD_CACHE_KEY_PREFIX = '_launch_site_pads_'
 var PAD_CACHE_TTL = 7 * 24 * 60 * 60 * 1000
-
-/** 自有 COS / 云存储 CDN 域名：已是国内节点，无需再包 Worker 代理 */
-function isOwnCdnUrl(url) {
-  var s = String(url || '')
-  return /^cloud:\/\//i.test(s) ||
-    s.indexOf('.myqcloud.com/') !== -1 ||
-    s.indexOf('.tcb.qcloud.la/') !== -1
-}
-
-/**
- * LL2 图床（DigitalOcean Spaces）国内直连大概率超时/失败，
- * 首选走 Cloudflare Worker 图片代理（GET /image?url=...，24h 边缘缓存），直连仅作兜底；
- * 云端已镜像到 COS 的 URL 直接返回（syncImageMirror 定时任务产出）
- */
-function proxiedImageUrl(url) {
-  if (!url) return ''
-  if (isOwnCdnUrl(url)) return url
-  var base = String(workerProxyUrl || '').trim().replace(/\/$/, '')
-  if (!base) return ''
-  return base + '/image?url=' + encodeURIComponent(url)
-}
 
 function cachedImage(url) {
   if (!url) return ''

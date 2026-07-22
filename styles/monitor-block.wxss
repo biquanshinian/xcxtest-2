@@ -1,0 +1,27 @@
+/* 监控中心功能版块分组卡片 —— 唯一数值来源。
+   使用方（均在文件顶部 @import）：
+   1. pages/monitor/monitor.wxss（页面各 section）
+   2. subpackages/monitor-pages/components/monitor-galleries/index.wxss（图鉴四版块）
+   3. subpackages/monitor-pages/components/monitor-orbit-events/index.wxss（在轨任务）
+   monitor-orbital-card 组件不引本文件：其根节点无 themeClass，组件内规则会在浅色
+   主题下压过页面的白底规则，靠页面 apply-shared 下发即可。
+
+   选择器写成 .monitor-block.monitor-block（0-2-0）：@import 在各文件顶部，
+   须靠特异性（而非书写顺序）压过各 section 原有的单类 padding/margin 规则
+   （如 .starlink-section { padding: 0 30rpx; margin-bottom: 40rpx }）。 */
+.monitor-block.monitor-block {
+  margin: 0 0 28rpx;
+  padding: 26rpx 22rpx 30rpx;
+  border-radius: 32rpx;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+/* 浅色主题：页面上下文主题类在页面根（祖先），组件上下文主题类挂在版块节点自身；
+   两条同为 0-2-0，书写在深色规则之后，命中时按顺序覆盖 */
+.theme-light .monitor-block,
+.theme-light.monitor-block {
+  background: #FFFFFF;
+  border-color: var(--color-divider);
+}

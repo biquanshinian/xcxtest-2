@@ -148,10 +148,17 @@ function calcPositions(satrecList) {
       const pv = satellite.propagate(satrecList[i].satrec, now)
       if (!pv.position) continue
       const geo = satellite.eciToGeodetic(pv.position, gmst)
+      let velKmS = null
+      if (pv.velocity) {
+        const vx = pv.velocity.x, vy = pv.velocity.y, vz = pv.velocity.z
+        velKmS = Math.sqrt(vx * vx + vy * vy + vz * vz)
+      }
       results.push({
         name: satrecList[i].name,
         lat: satellite.degreesLat(geo.latitude),
-        lng: satellite.degreesLong(geo.longitude)
+        lng: satellite.degreesLong(geo.longitude),
+        altKm: geo.height,
+        velKmS: velKmS
       })
     } catch (e) {}
   }
@@ -221,6 +228,19 @@ class StarlinkRenderer {
     // 渲染采样：只影响本实例渲染列表，不动共享 _sharedSatrecList（过境预报用全量）
     this._renderMax = (opts.renderMax > 0) ? opts.renderMax : DEFAULT_RENDER_MAX
     this._renderList = null
+    // 全屏页用 WXML HUD 时关闭 Canvas 内置条，避免叠字
+    this._hideHud = !!opts.hideHud
+    // 仅显式开启点选（全屏传 onSelect / enablePick）；监控卡片地球不启用，避免误出选中环
+    this._pickEnabled = !!opts.enablePick || typeof opts.onSelect === 'function'
+    // 选中卫星（点选）
+    this._selectedName = ''
+    this._onSelect = typeof opts.onSelect === 'function' ? opts.onSelect : null
+    this._tapStartX = 0
+    this._tapStartY = 0
+    this._tapStartTime = 0
+    this._tapMoved = false
+    this._cssW = 0
+    this._cssH = 0
     // 底图离屏缓存（球体+网格+海岸线+星空）
     this._baseCanvas = null
     this._baseCtx = null
@@ -240,6 +260,8 @@ class StarlinkRenderer {
     this._lastMoveY = 0
     // HUD 心跳点闪烁（1Hz 下切换）
     this._blinkOn = true
+    // destroy 后置位：bindCanvas 异步等待期间页面可能已卸载
+    this._destroyed = false
   }
 
   setRenderMax(n) {
@@ -283,6 +305,7 @@ class StarlinkRenderer {
       if (canvasNode && canvasNode.node) break
       await new Promise(r => setTimeout(r, 300))
     }
+    if (this._destroyed) throw new Error('Renderer destroyed during bind')
     if (!canvasNode || !canvasNode.node) throw new Error('Canvas node not found')
 
     this._canvas = canvasNode.node
@@ -291,6 +314,8 @@ class StarlinkRenderer {
 
     this._canvasW = canvasNode.width * this._dpr
     this._canvasH = canvasNode.height * this._dpr
+    this._cssW = canvasNode.width
+    this._cssH = canvasNode.height
     this._canvas.width = this._canvasW
     this._canvas.height = this._canvasH
 
@@ -462,32 +487,97 @@ class StarlinkRenderer {
       ctx.stroke()
     }
 
-    // 大陆轮廓（Natural Earth 数据，纯坐标数组）
-    ctx.fillStyle = '#1a3a2a'
-    ctx.strokeStyle = 'rgba(100,200,150,0.35)'
-    ctx.lineWidth = 0.8
-    for (let c = 0; c < getCOASTLINE().length; c++) {
-      const pts = getCOASTLINE()[c]
-      ctx.globalAlpha = 0.75
-      ctx.beginPath()
-      let started = false
-      for (let j = 0; j < pts.length; j++) {
-        const lng = pts[j][0]
-        const lat = pts[j][1]
-        const phi = lat * DEG
-        const lam = lng * DEG
-        const cosC = Math.sin(phi0) * Math.sin(phi) + Math.cos(phi0) * Math.cos(phi) * Math.cos(lam - lam0)
-        if (cosC < 0) { started = false; continue }
-        const xp = R * Math.cos(phi) * Math.sin(lam - lam0)
-        const yp = R * (Math.cos(phi0) * Math.sin(phi) - Math.sin(phi0) * Math.cos(phi) * Math.cos(lam - lam0))
-        if (!started) { ctx.moveTo(cx + xp, cy - yp); started = true }
-        else ctx.lineTo(cx + xp, cy - yp)
-      }
-      ctx.closePath()
-      ctx.fill()
-      ctx.globalAlpha = 0.5
-      ctx.stroke()
+    // 大陆轮廓：裁剪到球体圆盘；只描可见折线（过缘插值），
+    // 禁止对跨背面的多边形 fill+closePath（否则转动时大陆会被切线割裂）
+    ctx.save()
+    ctx.beginPath()
+    ctx.arc(cx, cy, R, 0, Math.PI * 2)
+    ctx.clip()
+
+    const coast = getCOASTLINE()
+    const projectCoast = (lng, lat) => {
+      const phi = lat * DEG
+      const lam = lng * DEG
+      const cosC = Math.sin(phi0) * Math.sin(phi) + Math.cos(phi0) * Math.cos(phi) * Math.cos(lam - lam0)
+      const xp = R * Math.cos(phi) * Math.sin(lam - lam0)
+      const yp = R * (Math.cos(phi0) * Math.sin(phi) - Math.sin(phi0) * Math.cos(phi) * Math.cos(lam - lam0))
+      return { x: cx + xp, y: cy - yp, cosC, lng, lat }
     }
+
+    // 小岛屿整环在正面时允许轻量填色；大洲一律描边
+    for (let c = 0; c < coast.length; c++) {
+      const pts = coast[c]
+      if (pts.length < 3 || pts.length > 40) continue
+      let allFront = true
+      const ring = []
+      for (let j = 0; j < pts.length; j++) {
+        const p = projectCoast(pts[j][0], pts[j][1])
+        if (p.cosC < 0.02) { allFront = false; break }
+        ring.push(p)
+      }
+      if (!allFront || ring.length < 3) continue
+      ctx.beginPath()
+      ctx.moveTo(ring[0].x, ring[0].y)
+      for (let j = 1; j < ring.length; j++) ctx.lineTo(ring[j].x, ring[j].y)
+      ctx.closePath()
+      ctx.globalAlpha = 0.55
+      ctx.fillStyle = '#1a3a2a'
+      ctx.fill()
+    }
+
+    ctx.globalAlpha = 1
+    ctx.strokeStyle = 'rgba(100,200,150,0.55)'
+    ctx.lineWidth = Math.max(1, 1.1 * this._dpr * 0.75)
+    ctx.lineJoin = 'round'
+    ctx.lineCap = 'round'
+
+    for (let c = 0; c < coast.length; c++) {
+      const pts = coast[c]
+      if (!pts || pts.length < 2) continue
+      let prev = null
+      ctx.beginPath()
+      let drawing = false
+      const flush = () => {
+        if (drawing) {
+          ctx.stroke()
+          ctx.beginPath()
+          drawing = false
+        }
+      }
+      for (let j = 0; j < pts.length; j++) {
+        const curr = projectCoast(pts[j][0], pts[j][1])
+        const vis = curr.cosC >= 0
+        if (prev) {
+          const prevVis = prev.cosC >= 0
+          if (prevVis && vis) {
+            if (!drawing) { ctx.moveTo(prev.x, prev.y); drawing = true }
+            ctx.lineTo(curr.x, curr.y)
+          } else if (prevVis !== vis) {
+            const denom = prev.cosC - curr.cosC
+            if (Math.abs(denom) < 1e-12) { prev = curr; continue }
+            const t = prev.cosC / denom
+            const dLng = ((curr.lng - prev.lng + 540) % 360) - 180
+            const edge = projectCoast(
+              prev.lng + dLng * t,
+              prev.lat + (curr.lat - prev.lat) * t
+            )
+            if (!isFinite(edge.x) || !isFinite(edge.y)) { prev = curr; continue }
+            if (prevVis) {
+              if (!drawing) { ctx.moveTo(prev.x, prev.y); drawing = true }
+              ctx.lineTo(edge.x, edge.y)
+              flush()
+            } else {
+              ctx.moveTo(edge.x, edge.y)
+              ctx.lineTo(curr.x, curr.y)
+              drawing = true
+            }
+          }
+        }
+        prev = curr
+      }
+      flush()
+    }
+    ctx.restore()
     ctx.globalAlpha = 1.0
   }
 
@@ -540,7 +630,7 @@ class StarlinkRenderer {
   }
 
   _renderFrame(useCache) {
-    if (!this._ctx || !this._canvas || this._paused) return
+    if (!this._ctx || !this._canvas || this._paused || this._destroyed) return
     const ctx = this._ctx
     const w = this._canvasW
 
@@ -607,11 +697,55 @@ class StarlinkRenderer {
     }
     ctx.globalAlpha = 1.0
 
+    // 选中卫星高亮环（随轨道推进）
+    if (this._selectedName) {
+      let sel = null
+      for (let i = 0; i < positions.length; i++) {
+        if (positions[i].name === this._selectedName) { sel = positions[i]; break }
+      }
+      if (sel) {
+        const spt = this._geoToPixel(sel.lat, sel.lng)
+        const visible = !!spt.visible
+        if (visible) {
+          const pulse = 0.55 + 0.45 * Math.abs(Math.sin(now / 350))
+          const ringR = Math.max(6, 5 * Math.sqrt(scale)) * this._dpr
+          ctx.strokeStyle = `rgba(255,255,255,${(0.85 * pulse).toFixed(3)})`
+          ctx.lineWidth = 1.5 * this._dpr
+          ctx.beginPath()
+          ctx.arc(spt.x, spt.y, ringR, 0, Math.PI * 2)
+          ctx.stroke()
+          ctx.strokeStyle = 'rgba(0,255,136,0.55)'
+          ctx.lineWidth = 1 * this._dpr
+          ctx.beginPath()
+          ctx.arc(spt.x, spt.y, ringR + 3 * this._dpr, 0, Math.PI * 2)
+          ctx.stroke()
+          ctx.fillStyle = '#ffffff'
+          ctx.beginPath()
+          ctx.arc(spt.x, spt.y, Math.max(2, 1.8 * this._dpr), 0, Math.PI * 2)
+          ctx.fill()
+        }
+        // 仅 1Hz 空闲帧回推遥测；背面也要带 occluded，否则信息窗会假显示数字
+        if (this._onSelect && !useCache) {
+          this._onSelect({
+            name: sel.name,
+            lat: sel.lat,
+            lng: sel.lng,
+            altKm: sel.altKm,
+            velKmS: sel.velKmS,
+            occluded: !visible
+          })
+        }
+      } else if (this._onSelect && !useCache) {
+        // 不在采样列表（理论上点选后不应发生）→ 按不可见处理
+        this._onSelect({ name: this._selectedName, lat: null, lng: null, altKm: null, velKmS: null, occluded: true })
+      }
+    }
+
     // 通知页面（语义 = 全量在轨数，非渲染采样数）
     if (this._onCountUpdate && !useCache) this._onCountUpdate(_sharedAllCount)
 
-    // HUD
-    this._drawHUD(ctx, w)
+    // HUD（全屏页可关闭，改用 WXML）
+    if (!this._hideHud) this._drawHUD(ctx, w)
   }
 
   // 科技风 HUD：等宽字体 + 半透明细边框条 + L 形角标（1Hz 心跳点闪烁）
@@ -679,7 +813,9 @@ class StarlinkRenderer {
 
   _startLoop() {
     this._stopLoop()
+    if (this._destroyed || !this._canvas) return
     const tick = () => {
+      if (this._destroyed || !this._canvas) return
       this._renderFrame()
       this._animTimer = setTimeout(tick, UPDATE_INTERVAL)
     }
@@ -702,6 +838,7 @@ class StarlinkRenderer {
     this._stopInertia()
     this._interacting = false
     this._cancelRaf()
+    if (this._destroyed || !this._canvas) return
     this._renderFrame(false)
     this._startLoop()
   }
@@ -785,6 +922,7 @@ class StarlinkRenderer {
     if (touches.length === 2) {
       this._pinching = true
       this._touching = false
+      this._tapMoved = true
       const dx = touches[0].clientX - touches[1].clientX
       const dy = touches[0].clientY - touches[1].clientY
       this._touchStartDist = Math.sqrt(dx * dx + dy * dy)
@@ -799,22 +937,32 @@ class StarlinkRenderer {
       this._lastMoveX = touches[0].clientX
       this._lastMoveY = touches[0].clientY
       this._lastMoveTime = Date.now()
+      this._tapStartX = touches[0].clientX
+      this._tapStartY = touches[0].clientY
+      this._tapStartTime = Date.now()
+      this._tapMoved = false
+      // 记录相对 canvas 的坐标（优先 x/y，兼容 clientX）
+      this._tapLocalX = (touches[0].x != null) ? touches[0].x : null
+      this._tapLocalY = (touches[0].y != null) ? touches[0].y : null
     }
   }
 
   onTouchMove(e) {
     const touches = e.touches
     if (this._pinching && touches.length === 2) {
+      this._tapMoved = true
       const dx = touches[0].clientX - touches[1].clientX
       const dy = touches[0].clientY - touches[1].clientY
       const dist = Math.sqrt(dx * dx + dy * dy)
       const ratio = dist / this._touchStartDist
       this._scale = Math.max(this._minScale, Math.min(this._maxScale, this._touchStartScale * ratio))
     } else if (this._touching && touches.length === 1) {
-      // 拖动 → 旋转球体视角
       const dx = touches[0].clientX - this._touchStartX
       const dy = touches[0].clientY - this._touchStartY
-      // 灵敏度：拖动 1px ≈ 旋转 0.3°
+      // 死区：未超过阈值不旋转，避免「轻触点选」时球先转导致打不准
+      if (!this._tapMoved && (dx * dx + dy * dy) <= 64) return
+      if (!this._tapMoved) this._tapMoved = true
+      // 拖动 → 旋转球体视角
       this._rotLon = this._touchStartRotLon - dx * 0.3
       this._rotLat = Math.max(-85, Math.min(85, this._touchStartRotLat + dy * 0.3))
       // 记录末速度（度/ms），用于松手惯性
@@ -830,24 +978,105 @@ class StarlinkRenderer {
     }
   }
 
-  onTouchEnd() {
+  onTouchEnd(e) {
     const wasDragging = this._touching && !this._pinching
+    const wasTap = wasDragging && !this._tapMoved && (Date.now() - this._tapStartTime) < 450
+    const tapLocalX = this._tapLocalX
+    const tapLocalY = this._tapLocalY
+    const tapClientX = this._tapStartX
+    const tapClientY = this._tapStartY
     this._touching = false
     this._pinching = false
     // 松手前有明显速度且未停顿 → 进入惯性；否则直接回 1Hz 循环
     const speed = Math.max(Math.abs(this._velLon), Math.abs(this._velLat))
     const fresh = Date.now() - this._lastMoveTime < 100
     // _rafId 非空 = RAF 循环确实在跑；RAF 不可用时不进惯性，避免 1Hz 循环停摆
-    if (wasDragging && fresh && speed > 0.015 && !this._paused && this._interacting && this._canvas && this._rafId != null) {
+    if (wasDragging && !wasTap && fresh && speed > 0.015 && !this._paused && this._interacting && this._canvas && this._rafId != null) {
       this._inertia = true
       this._inertiaLastTime = Date.now()
       // RAF 循环已在交互中运行，_rafLoop 内接管衰减
     } else {
       this._stopInteraction()
     }
+    if (wasTap && this._pickEnabled) this._handleTap(tapLocalX, tapLocalY, tapClientX, tapClientY)
+  }
+
+  /** 点选最近可见卫星；点空处取消选中 */
+  _handleTap(localX, localY, clientX, clientY) {
+    if (this._destroyed || !this._pickEnabled) return
+    let cssX = localX
+    let cssY = localY
+    if (cssX == null || cssY == null) {
+      // 无相对坐标时用 client 估算（全屏页 canvas 铺满视口时近似成立）
+      cssX = clientX
+      cssY = clientY
+    }
+    // 点选前刷新位置缓存，避免拖转期间 useCache 导致命中偏移
+    try {
+      this._cachedPositions = calcPositions(this._getRenderList())
+      this._cacheTime = Date.now()
+    } catch (e) { /* 沿用旧缓存 */ }
+    if (this._destroyed) return
+    const hit = this.pickAtCss(cssX, cssY)
+    this.setSelected(hit ? hit.name : '')
+    if (this._onSelect) this._onSelect(hit || null)
+  }
+
+  /**
+   * 在 CSS 像素坐标下点选最近可见卫星
+   * @returns {null|{name,lat,lng,altKm,velKmS}}
+   */
+  pickAtCss(cssX, cssY) {
+    if (!this._cachedPositions || !this._cachedPositions.length) return null
+    const px = cssX * this._dpr
+    const py = cssY * this._dpr
+    const threshold = Math.max(18, 14 * Math.sqrt(this._scale)) * this._dpr
+    let best = null
+    let bestDist = threshold
+    for (let i = 0; i < this._cachedPositions.length; i++) {
+      const p = this._cachedPositions[i]
+      const pt = this._geoToPixel(p.lat, p.lng)
+      if (!pt.visible) continue
+      const dx = pt.x - px
+      const dy = pt.y - py
+      const d = Math.sqrt(dx * dx + dy * dy)
+      if (d < bestDist) {
+        bestDist = d
+        best = p
+      }
+    }
+    return best
+  }
+
+  setSelected(name) {
+    if (this._destroyed) return
+    this._selectedName = name || ''
+    if (!this._ctx || this._interacting) return
+    // 暂停中也强制画一帧，否则点选后看不到高亮环
+    if (this._paused) {
+      this._paused = false
+      try { this._renderFrame(false) } finally { this._paused = true }
+      return
+    }
+    this._renderFrame(false)
+  }
+
+  clearSelected() {
+    if (this._destroyed) {
+      if (this._onSelect) this._onSelect(null)
+      return
+    }
+    this.setSelected('')
+    if (this._onSelect) this._onSelect(null)
+  }
+
+  setOnSelect(cb) {
+    this._onSelect = typeof cb === 'function' ? cb : null
+    if (this._onSelect) this._pickEnabled = true
   }
 
   togglePause() {
+    if (this._destroyed) return this._paused
     this._paused = !this._paused
     if (this._paused) {
       this._stopLoop()
@@ -861,7 +1090,10 @@ class StarlinkRenderer {
   isPaused() { return this._paused }
 
   destroy() {
+    this._destroyed = true
     this.releaseInteraction()
+    this._onSelect = null
+    this._selectedName = ''
     this._stopLoop()
     this._canvas = null
     this._ctx = null

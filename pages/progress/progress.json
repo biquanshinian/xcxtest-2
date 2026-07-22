@@ -9,14 +9,17 @@
   "usingComponents": {
     "privacy-modal": "/components/privacy-modal/privacy-modal",
     "popup-ad": "/components/popup-ad/popup-ad",
-    "nasa-float": "/components/nasa-float/index",
+    "nasa-float": "/subpackages/shared/components/nasa-float/index",
     "ai-chat": "/subpackages/shared/components/ai-chat/index",
     "demo-overlay": "/subpackages/shared/components/demo-overlay/index",
-    "share-guide": "/subpackages/shared/components/share-guide/index"
+    "share-guide": "/subpackages/shared/components/share-guide/index",
+    "event-updates": "/subpackages/progress-extra/components/event-updates/index"
   },
   "componentPlaceholder": {
     "ai-chat": "view",
     "demo-overlay": "view",
-    "share-guide": "view"
+    "share-guide": "view",
+    "nasa-float": "view",
+    "event-updates": "view"
   }
 }

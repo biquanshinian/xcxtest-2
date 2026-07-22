@@ -1,8 +1,12 @@
-const { getStatusCategory, getStatusBadgeText } = require('./api-request.js')
+const { getStatusCategory, getStatusBadgeText, isTerminalStatusId } = require('./api-request.js')
 
 function filterExpiredMissions(missions) {
   const now = Date.now()
   return (missions || []).filter((mission) => {
+    if (!mission) return false
+    const sid = mission.statusId != null ? Number(mission.statusId) : 0
+    // 终态不应再出现在即将发射（云缓存可能仍残留旧行）
+    if (isTerminalStatusId(sid)) return false
     if (!mission.launchTime) return true
     const launchTs = new Date(mission.launchTime).getTime()
     if (launchTs > now) return true

@@ -3,6 +3,9 @@
  * 规则：好友点开分享卡片即计 1 次有效邀请（每人一生只计一次、自邀不算），
  * 每满 15 人云端自动发放 30 天星际通行证，可无限叠加。
  */
+// 打包锚点：profile-lazy.js 仅被主包 profile.js require.async 引用，
+// 无同分包同步引用时会被"过滤无依赖文件"剔出分包导致异步加载失败
+require('../utils/profile-lazy.js')
 const { getUiShellLayout } = require('../../../utils/layout.js')
 const { getThemeClassSync, isLightSync } = require('../../../utils/theme.js')
 const { getInviteState } = require('../../../utils/invite.js')

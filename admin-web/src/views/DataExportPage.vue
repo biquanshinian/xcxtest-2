@@ -58,7 +58,6 @@ const collectionOptions = [
   { value: 'news_events', label: '事件' },
   { value: 'news_articles', label: '文章' },
   { value: 'media_assets', label: '媒体素材' },
-  { value: 'media_feed', label: '灵感流' },
   { value: 'shop_feed', label: '小店数据' },
   { value: 'starship_event_updates', label: '事件更新' },
   { value: 'road_closure_notice', label: '封路通知' },

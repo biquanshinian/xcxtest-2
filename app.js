@@ -9,11 +9,13 @@ const storageCache = require('./utils/storage-sync-cache.js')
 // 仅在延迟回调中使用的模块改为回调内 require，缩短 onLaunch 同步执行段
 
 const PROGRESS_DOT_CACHE_KEY = '_progress_dot_cache'
-const PROGRESS_DOT_CACHE_TTL = 5 * 60 * 1000
+// 红点只提示「有没有比上次浏览更新的内容」，事件/文章一天更新几次，
+// 30 分钟探测一次足够；5 分钟 TTL 会让每次切 Tab 都可能打一次库读
+const PROGRESS_DOT_CACHE_TTL = 30 * 60 * 1000
 
 /** 后台 news_articles 手动更新红点（与 pages/news 顶部「航天事件」、Tab 事件图标共用数据源） */
 const NEWS_MANUAL_DOT_CACHE_KEY = '_news_manual_dot_cache'
-const NEWS_MANUAL_DOT_CACHE_TTL = 5 * 60 * 1000
+const NEWS_MANUAL_DOT_CACHE_TTL = 30 * 60 * 1000
 const NEWS_TAB_ACK_MANUAL_UPDATED_AT_KEY = '_news_tab_ack_manual_updated_at'
 const ARTICLES_NAV_ACK_MANUAL_UPDATED_AT_KEY = '_articles_nav_ack_manual_updated_at'
 

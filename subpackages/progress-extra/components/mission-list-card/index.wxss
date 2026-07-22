@@ -1,4 +1,4 @@
-@import "../../styles/mission-card.wxss";
+@import "../../../../styles/mission-card.wxss";
 
 /* 宿主带 theme-light 时（页面 class 挂在组件标签上），保证中性回收图标可反色 */
 .mission-list-card-root {

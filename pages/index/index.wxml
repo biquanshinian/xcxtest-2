@@ -301,11 +301,11 @@
                 <view class="info-value">
                   <view class="recovery-icon-name recovery-place-inline">
                     <image class="recovery-icon recovery-icon--mono recovery-icon--bolz" src="{{launchData.boosterInfo.landingTypeIcon}}" mode="aspectFit" wx:if="{{launchData.boosterInfo && launchData.boosterInfo.landingTypeIcon && launchData.boosterInfo.landingType === 'ASDS'}}"></image>
-                    <image class="recovery-icon recovery-icon--mono" src="{{launchData.boosterInfo.landingTypeIcon}}" mode="aspectFit" wx:elif="{{launchData.boosterInfo && launchData.boosterInfo.landingTypeIcon}}"></image>
+                    <image class="recovery-icon {{launchData.boosterInfo.landingTypeIconStatus === 'failure' ? '' : 'recovery-icon--mono'}}" src="{{launchData.boosterInfo.landingTypeIcon}}" mode="aspectFit" wx:elif="{{launchData.boosterInfo && launchData.boosterInfo.landingTypeIcon}}"></image>
                     <image class="recovery-icon recovery-icon--mono" src="/images/landing-asds.svg" mode="aspectFit" wx:elif="{{launchData.boosterInfo && launchData.boosterInfo.landingType === 'ASDS'}}"></image>
                     <image class="recovery-icon recovery-icon--mono {{launchData.boosterInfo.rtlsIcon ? 'recovery-icon--landspace' : ''}}" src="{{launchData.boosterInfo.rtlsIcon || '/images/landing-rtls.svg'}}" mode="aspectFit" wx:elif="{{launchData.boosterInfo && (launchData.boosterInfo.landingType === 'RTLS' || launchData.boosterInfo.landingType === 'VL')}}"></image>
-                    <image class="recovery-icon recovery-icon--net" src="{{launchData.boosterInfo.netRecoveryIcon}}" mode="aspectFit" wx:elif="{{launchData.boosterInfo && launchData.boosterInfo.netRecovery && launchData.boosterInfo.netRecoveryIcon}}"></image>
-                    <text class="recovery-type-name {{(launchData.boosterInfo && launchData.boosterInfo.reused === false) ? 'recovery-type-name--not-reused' : ''}}" user-select="{{true}}">{{launchData.recoveryDisplay}}</text>
+                    <image class="recovery-icon recovery-icon--mono recovery-icon--net" src="{{launchData.boosterInfo.netRecoveryIcon}}" mode="aspectFit" wx:elif="{{launchData.boosterInfo && launchData.boosterInfo.netRecovery && launchData.boosterInfo.netRecoveryIcon}}"></image>
+                    <text class="recovery-type-name {{(launchData.boosterInfo && (launchData.boosterInfo.reused === false || launchData.boosterInfo.landingType === 'EXPENDED' || launchData.boosterInfo.landingType === 'LOST')) ? 'recovery-type-name--not-reused' : ''}}" user-select="{{true}}">{{launchData.recoveryDisplay}}</text>
                     <text class="recovery-location-name" user-select="{{true}}" wx:if="{{launchData.boosterInfo && launchData.boosterInfo.landingLocation}}">{{launchData.boosterInfo.landingLocation}}</text>
                   </view>
                 </view>
@@ -422,6 +422,9 @@
       </view>
     </view>
 
+    <!-- 轮播加载前的等高骨架占位：避免数据回来后插入 400rpx 块推挤下方列表（CLS） -->
+    <view class="image-carousel image-carousel--skeleton" wx:if="{{carouselPending && carouselItems.length === 0 && missionType !== 'calendar'}}"></view>
+
     <!-- 滚动图片/视频区域（广告位，日历视图隐藏） -->
     <view class="image-carousel" wx:if="{{carouselItems.length > 0 && missionType !== 'calendar'}}">
       <swiper class="swiper" indicator-dots="{{true}}" autoplay="{{false}}" current="{{carouselCurrent}}" duration="{{500}}" circular="{{true}}" bindchange="onCarouselChange">
@@ -517,141 +520,45 @@
 
     <!-- 发射日历视图 -->
     <view class="calendar-section" wx:if="{{missionType === 'calendar'}}">
-      <view class="calendar-header">
-        <view class="calendar-nav" bindtap="calendarPrevMonth">
-          <view class="calendar-arrow calendar-arrow--left"></view>
-        </view>
-        <picker mode="date" fields="month" value="{{calendarYear + '-' + (calendarMonth < 10 ? '0' : '') + calendarMonth}}" start="2020-01" end="2030-12" bindchange="onCalendarMonthPickerChange">
-          <text class="calendar-month-title">{{calendarYear}}年{{calendarMonth}}月</text>
-        </picker>
-        <view class="calendar-nav" bindtap="calendarNextMonth">
-          <view class="calendar-arrow calendar-arrow--right"></view>
-        </view>
-        <view class="calendar-today-btn" wx:if="{{!calendarIsCurrentMonth}}" bindtap="calendarGoToday">
-          <text>今天</text>
-        </view>
-      </view>
+      <!-- 月份导航 + 筛选面板 + 日历网格：launch-calendar 组件（index-extra 分包） -->
+      <launch-calendar
+        theme-class="{{themeClass}}"
+        calendar-year="{{calendarYear}}"
+        calendar-month="{{calendarMonth}}"
+        calendar-is-current-month="{{calendarIsCurrentMonth}}"
+        calendar-filter-summary-text="{{calendarFilterSummaryText}}"
+        calendar-filtered-count="{{calendarFilteredCount}}"
+        calendar-filter-collapsed="{{calendarFilterCollapsed}}"
+        calendar-quick-filter="{{calendarQuickFilter}}"
+        calendar-site-filter="{{calendarSiteFilter}}"
+        calendar-site-options="{{calendarSiteOptions}}"
+        calendar-status-filter="{{calendarStatusFilter}}"
+        calendar-days="{{calendarDays}}"
+        calendar-page-anim-class="{{calendarPageAnimClass}}"
+        bind:prevmonth="calendarPrevMonth"
+        bind:nextmonth="calendarNextMonth"
+        bind:gotoday="calendarGoToday"
+        bind:monthpicker="onCalendarMonthPickerChange"
+        bind:togglefilter="toggleCalendarFilterPanel"
+        bind:quickfilter="onCalendarQuickFilterTap"
+        bind:sitefilter="onCalendarSiteFilterTap"
+        bind:statusfilter="onCalendarStatusFilterTap"
+        bind:resetfilters="resetCalendarFilters"
+        bind:datetap="onCalendarDateTap"
+      />
 
-      <view class="calendar-query-panel glass-card">
-        <view class="calendar-query-panel-header" bindtap="toggleCalendarFilterPanel">
-          <view class="calendar-query-panel-main">
-            <view class="calendar-query-panel-title-wrap">
-              <text class="calendar-query-panel-title">筛选</text>
-              <text class="calendar-query-panel-divider">｜</text>
-              <text class="calendar-query-panel-subtitle">{{calendarFilterSummaryText}}</text>
-            </view>
-            <view class="calendar-query-panel-meta">
-              <text class="calendar-query-panel-count">{{calendarFilteredCount}} 条</text>
-              <text class="calendar-query-panel-arrow {{calendarFilterCollapsed ? 'calendar-query-panel-arrow--collapsed' : ''}}">⌃</text>
-            </view>
-          </view>
-        </view>
-
-        <view wx:if="{{!calendarFilterCollapsed}}">
-          <view class="calendar-filter-group">
-            <text class="calendar-filter-title">快捷筛选</text>
-            <scroll-view class="calendar-filter-scroll" scroll-x="true" show-scrollbar="false">
-              <view class="calendar-filter-row">
-                <view class="calendar-filter-chip {{calendarQuickFilter === 'all' ? 'calendar-filter-chip--active' : ''}}" bindtap="onCalendarQuickFilterTap" data-value="all"><text>全部</text></view>
-                <view class="calendar-filter-chip {{calendarQuickFilter === 'starship' ? 'calendar-filter-chip--active' : ''}}" bindtap="onCalendarQuickFilterTap" data-value="starship"><text>星舰</text></view>
-                <view class="calendar-filter-chip {{calendarQuickFilter === 'starlink' ? 'calendar-filter-chip--active' : ''}}" bindtap="onCalendarQuickFilterTap" data-value="starlink"><text>Starlink</text></view>
-              </view>
-            </scroll-view>
-          </view>
-
-          <view class="calendar-filter-group">
-            <text class="calendar-filter-title">发射场</text>
-            <scroll-view class="calendar-filter-scroll" scroll-x="true" show-scrollbar="false">
-              <view class="calendar-filter-row">
-                <view class="calendar-filter-chip {{calendarSiteFilter === item.id ? 'calendar-filter-chip--active' : ''}}" wx:for="{{calendarSiteOptions}}" wx:key="id" bindtap="onCalendarSiteFilterTap" data-value="{{item.id}}"><text>{{item.label}}</text></view>
-              </view>
-            </scroll-view>
-          </view>
-
-          <view class="calendar-filter-group calendar-filter-group--compact">
-            <text class="calendar-filter-title">状态</text>
-            <view class="calendar-filter-row calendar-filter-row--wrap">
-              <view class="calendar-filter-chip {{calendarStatusFilter === 'all' ? 'calendar-filter-chip--active' : ''}}" bindtap="onCalendarStatusFilterTap" data-value="all"><text>全部</text></view>
-              <view class="calendar-filter-chip {{calendarStatusFilter === 'upcoming' ? 'calendar-filter-chip--active' : ''}}" bindtap="onCalendarStatusFilterTap" data-value="upcoming"><text>待发</text></view>
-              <view class="calendar-filter-chip {{calendarStatusFilter === 'completed' ? 'calendar-filter-chip--active' : ''}}" bindtap="onCalendarStatusFilterTap" data-value="completed"><text>已完成</text></view>
-              <view class="calendar-filter-chip {{calendarStatusFilter === 'success' ? 'calendar-filter-chip--active' : ''}}" bindtap="onCalendarStatusFilterTap" data-value="success"><text>成功</text></view>
-              <view class="calendar-filter-chip {{calendarStatusFilter === 'failure' ? 'calendar-filter-chip--active' : ''}}" bindtap="onCalendarStatusFilterTap" data-value="failure"><text>失败/部分</text></view>
-            </view>
-          </view>
-
-          <view class="calendar-query-actions">
-            <text class="calendar-query-result">当前已应用筛选</text>
-            <view class="calendar-query-reset" bindtap="resetCalendarFilters"><text>重置筛选</text></view>
-          </view>
-        </view>
-      </view>
-
-      <view class="calendar-page-stage {{calendarPageAnimClass}}">
-        <view class="calendar-table glass-card">
-          <view class="calendar-table-legend">
-            <view class="calendar-legend-item">
-              <view class="calendar-legend-dot calendar-legend-dot--upcoming"></view>
-              <text class="calendar-legend-text">即将发射</text>
-            </view>
-            <view class="calendar-legend-item">
-              <view class="calendar-legend-dot calendar-legend-dot--completed"></view>
-              <text class="calendar-legend-text">历史发射</text>
-            </view>
-          </view>
-          <view class="calendar-weekdays">
-            <text class="calendar-weekday">日</text><text class="calendar-weekday">一</text><text class="calendar-weekday">二</text><text class="calendar-weekday">三</text><text class="calendar-weekday">四</text><text class="calendar-weekday">五</text><text class="calendar-weekday">六</text>
-          </view>
-          <view class="calendar-grid" bindtouchstart="onCalendarSwipeStart" bindtouchend="onCalendarSwipeEnd">
-            <view class="calendar-cell {{item.empty ? 'calendar-cell--empty' : ''}} {{item.hasLaunch ? 'calendar-cell--has' : ''}} {{item.selected ? 'calendar-cell--selected' : ''}} {{item.isToday ? 'calendar-cell--today' : ''}} {{item.heat >= 3 ? 'calendar-cell--heat3' : (item.heat === 2 ? 'calendar-cell--heat2' : (item.heat === 1 ? 'calendar-cell--heat1' : ''))}}" wx:for="{{calendarDays}}" wx:key="key" bindtap="onCalendarDateTap" data-key="{{item.key}}" data-has-launch="{{item.hasLaunch}}">
-              <text class="calendar-cell-count" wx:if="{{item.missionCount > 1 && !item.empty}}">{{item.missionCount}}</text>
-              <view class="calendar-cell-day-wrap {{item.isToday ? 'calendar-cell-day-wrap--today' : ''}}">
-                <text class="calendar-cell-day {{item.isToday ? 'calendar-cell-day--today' : ''}}" data-has-launch="{{item.hasLaunch}}">{{item.day}}</text>
-              </view>
-              <view class="calendar-starship-tag" wx:if="{{item.hasStarship && !item.empty}}" data-has-launch="{{item.hasLaunch}}"><text>星舰</text></view>
-              <view class="calendar-cell-dots" wx:if="{{item.hasLaunch && !item.empty && !item.hasStarship}}" data-has-launch="{{item.hasLaunch}}">
-                <view class="calendar-cell-dot calendar-cell-dot--upcoming" wx:if="{{item.hasUpcoming}}" data-has-launch="{{item.hasLaunch}}"></view>
-                <view class="calendar-cell-dot calendar-cell-dot--completed" wx:if="{{item.hasCompleted}}" data-has-launch="{{item.hasLaunch}}"></view>
-              </view>
-            </view>
-          </view>
-        </view>
-      </view>
-
-      <!-- 全球发射数据（未选中日期时显示） -->
-      <view class="calendar-stats-section" wx:if="{{!expandedDateKey && !calendarLoading}}">
-        <view class="calendar-stats-title">
-          <text>2026全球发射数据</text>
-        </view>
-        <view class="stats-grid" wx:if="{{launchStats && launchStats.globalThisYear != null}}">
-          <view class="stats-highlight-card glass-card" bindtap="goGlobalLaunchStats" hover-class="stats-highlight-card--active">
-            <view class="stats-highlight-glow"></view>
-            <view class="stats-highlight-header">
-              <view class="stats-highlight-title">
-                <view class="stats-highlight-dot"></view>
-                <text class="stats-highlight-label">轨道发射尝试</text>
-              </view>
-              <view class="stats-highlight-tag"><text>{{launchStats.year}} · Global</text></view>
-            </view>
-            <view class="stats-highlight-main">
-              <text class="stats-highlight-value">{{launchStats.globalThisYear}}</text>
-              <text class="stats-highlight-unit">次</text>
-            </view>
-            <view class="stats-highlight-footer">
-              <text class="stats-highlight-sub" wx:if="{{launchStats.spacexThisYear != null}}">SpaceX 贡献 {{launchStats.spacexThisYear}} 次</text>
-              <view class="stats-detail-link">
-                <text>查看统计详情</text>
-                <text class="stats-detail-arrow">›</text>
-              </view>
-            </view>
-          </view>
-        </view>
-        <view class="stats-error glass-card" wx:elif="{{launchStatsError}}">
-          <text class="stats-error-text">{{launchStatsError}}</text>
-        </view>
-        <view class="stats-loading glass-card" wx:elif="{{launchStatsLoading}}">
-          <text class="stats-loading-text">加载中...</text>
-        </view>
-      </view>
+      <calendar-stats
+        theme-class="{{themeClass}}"
+        expanded-date-key="{{expandedDateKey}}"
+        calendar-loading="{{calendarLoading}}"
+        launch-stats="{{launchStats}}"
+        launch-stats-error="{{launchStatsError}}"
+        launch-stats-loading="{{launchStatsLoading}}"
+        spacex-stats="{{spacexStats}}"
+        spacex-stats-loading="{{spacexStatsLoading}}"
+        calendar-all-missions-empty="{{!calendarLoading && calendarAllMissions.length === 0}}"
+        bind:goglobalstats="goGlobalLaunchStats"
+      />
 
       <view class="calendar-day-missions" wx:if="{{expandedDateKey && expandedDateMissions && expandedDateMissions.length > 0}}">
         <view class="calendar-day-title-row">
@@ -673,65 +580,6 @@
         <block wx:for="{{expandedDateMissions}}" wx:key="_wxkey">
           <template is="missionCard" data="{{item, index}}" />
         </block>
-      </view>
-      <!-- SpaceX 官网发射统计（未选中日期时显示） -->
-      <view class="calendar-stats-section spacex-stats-section" wx:if="{{!expandedDateKey && !calendarLoading && spacexStats}}">
-        <view class="calendar-stats-title">
-          <text>SpaceX总发射数据</text>
-          <text class="spacex-source-tag">{{spacexStats.sourceLabel}}</text>
-        </view>
-        <view class="spacex-stats-grid">
-          <view class="spacex-stat-card glass-card">
-            <text class="spacex-stat-value">{{spacexStats.totalLaunches || '-'}}</text>
-            <text class="spacex-stat-label">已完成发射</text>
-          </view>
-          <view class="spacex-stat-card glass-card">
-            <text class="spacex-stat-value">{{spacexStats.totalLandings || '-'}}</text>
-            <text class="spacex-stat-label">总着陆次数</text>
-          </view>
-          <view class="spacex-stat-card glass-card">
-            <text class="spacex-stat-value">{{spacexStats.totalReflights || '-'}}</text>
-            <text class="spacex-stat-label">总复飞次数</text>
-          </view>
-        </view>
-
-        <!-- SpaceX 本年发射（launch_stats / LL2 已完成缓存统计；有字段才显示） -->
-        <view class="spacex-year-stat glass-card" wx:if="{{launchStats && launchStats.spacexThisYear !== undefined && launchStats.spacexThisYear !== null}}">
-          <view class="spacex-year-stat-text">
-            <text class="spacex-year-stat-label">SpaceX本年发射数据</text>
-            <text class="spacex-year-stat-hint">{{launchStats.year}} 年 · 已完成</text>
-          </view>
-          <text class="spacex-year-stat-value">{{launchStats.spacexThisYear}}</text>
-        </view>
-
-        <!-- 即将发射列表 -->
-        <view class="spacex-upcoming-list" wx:if="{{spacexStats.upcoming.length > 0}}">
-          <text class="spacex-upcoming-title">即将发射</text>
-          <view class="spacex-upcoming-item glass-card" wx:for="{{spacexStats.upcoming}}" wx:key="index">
-            <view class="spacex-upcoming-row">
-              <text class="spacex-upcoming-name" user-select="{{true}}">{{item.title || 'Starlink Mission'}}</text>
-              <text class="spacex-upcoming-vehicle" user-select="{{true}}">{{item.vehicle}}</text>
-            </view>
-            <view class="spacex-upcoming-row">
-              <text class="spacex-upcoming-site" user-select="{{true}}">{{item.launchSite}}</text>
-              <text class="spacex-upcoming-date" user-select="{{true}}">{{item.launchDate}}</text>
-            </view>
-          </view>
-        </view>
-      </view>
-
-      <!-- SpaceX 统计加载中 -->
-      <view class="calendar-stats-section spacex-stats-section" wx:if="{{!expandedDateKey && !calendarLoading && spacexStatsLoading && !spacexStats}}">
-        <view class="stats-loading glass-card">
-          <text class="stats-loading-text">SpaceX 数据加载中...</text>
-        </view>
-      </view>
-
-      <view class="calendar-empty" wx:if="{{calendarLoading}}">
-        <text class="empty-text">加载中...</text>
-      </view>
-      <view class="calendar-empty" wx:elif="{{!calendarLoading && calendarAllMissions.length === 0}}">
-        <text class="empty-text">暂无数据</text>
       </view>
     </view>
 
@@ -873,6 +721,7 @@
   <view class="splash-overlay {{splashFading ? 'splash-overlay--out' : 'splash-overlay--in'}}" wx:if="{{splashVisible}}" catchtouchmove="preventMove">
     <block wx:if="{{splashConfig.mediaType === 'video'}}">
       <video
+        id="splash-video"
         class="splash-media"
         src="{{splashConfig.mediaUrl}}"
         poster="{{splashConfig.posterUrl}}"
@@ -880,11 +729,14 @@
         muted
         show-play-btn="{{false}}"
         show-center-play-btn="{{false}}"
+        show-loading="{{false}}"
         controls="{{false}}"
         enable-progress-gesture="{{false}}"
         object-fit="cover"
         http-cache="{{true}}"
-        bindtimeupdate="{{splashVideoReady ? '' : 'onSplashVideoTimeUpdate'}}"
+        bindplay="onSplashVideoPlay"
+        bindtimeupdate="onSplashVideoTimeUpdate"
+        bindloadedmetadata="onSplashVideoLoadedMeta"
         bindended="onSplashVideoEnded"
         binderror="onSplashVideoError"
       ></video>
@@ -908,6 +760,43 @@
       <view class="splash-skip-countdown">{{splashCountdown}}</view>
       <view class="splash-skip-divider"></view>
       <text class="splash-skip-text">跳过</text>
+    </view>
+    <!-- 任务倒计时卡片：后台给开屏媒体配置任务名称后展示，点击跳任务详情 -->
+    <view class="splash-mission-card" wx:if="{{splashMission && splashMissionCd}}" catchtap="onSplashMissionTap">
+      <view class="splash-mission-eyebrow">MISSION COUNTDOWN</view>
+      <view class="splash-mission-name">{{splashMission.name}}</view>
+      <view class="splash-mission-cd" wx:if="{{!splashMissionCd.imminent}}">
+        <text class="splash-mission-cd-prefix">T-</text>
+        <view class="splash-mission-cd-cells">
+          <view class="splash-mission-cd-cell" wx:if="{{splashMissionCd.d !== '0'}}">
+            <text class="splash-mission-cd-num">{{splashMissionCd.d}}</text>
+            <text class="splash-mission-cd-unit">天</text>
+          </view>
+          <text class="splash-mission-cd-sep" wx:if="{{splashMissionCd.d !== '0'}}">:</text>
+          <view class="splash-mission-cd-cell">
+            <text class="splash-mission-cd-num">{{splashMissionCd.h}}</text>
+            <text class="splash-mission-cd-unit">时</text>
+          </view>
+          <text class="splash-mission-cd-sep">:</text>
+          <view class="splash-mission-cd-cell">
+            <text class="splash-mission-cd-num">{{splashMissionCd.m}}</text>
+            <text class="splash-mission-cd-unit">分</text>
+          </view>
+          <text class="splash-mission-cd-sep">:</text>
+          <view class="splash-mission-cd-cell splash-mission-cd-cell--sec">
+            <text class="splash-mission-cd-num">{{splashMissionCd.s}}</text>
+            <text class="splash-mission-cd-unit">秒</text>
+          </view>
+        </view>
+      </view>
+      <view class="splash-mission-cd splash-mission-cd--imminent" wx:else>
+        <view class="splash-mission-imminent-dot"></view>
+        <text>即将发射</text>
+      </view>
+      <view class="splash-mission-hint">
+        <text class="splash-mission-hint-text">查看任务详情</text>
+        <text class="splash-mission-hint-arrow">›</text>
+      </view>
     </view>
   </view>
 
@@ -971,20 +860,7 @@
   </view>
 
   <ai-chat id="ai-chat" />
-  <nasa-float id="nasaFloat" bind:positionchange="onNasaFloatPositionChange" />
-  <!-- 临时：NASA × FIFA 球迷节悬浮入口（限时 2026-06-11 ~ 07-19 限时显示，活动下线后删除） -->
-  <view
-    class="worldcup-float"
-    wx:if="{{worldcupFloatVisible && worldcupFloatReady}}"
-    style="left: {{worldcupFloatX}}px; top: {{worldcupFloatY}}px;"
-    catchtouchstart="onWorldcupTouchStart"
-    catchtouchmove="onWorldcupTouchMove"
-    catchtouchend="onWorldcupTouchEnd"
-  >
-    <view class="worldcup-float-icon">
-      <image class="worldcup-float-svg" src="{{worldcupLogoUrl}}" mode="aspectFit" />
-    </view>
-  </view>
+  <nasa-float id="nasaFloat" />
   <privacy-modal id="globalPrivacyModal"></privacy-modal>
   <demo-overlay id="demoOverlay" showControls="{{_isDemoLiveAccount}}" qrcodeUrl="{{demoQrcodeUrl}}" loop="{{true}}" bind:remoteStart="onDemoRemoteStart" bind:stop="onDemoStop" />
   <share-guide />

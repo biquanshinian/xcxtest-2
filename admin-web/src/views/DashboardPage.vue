@@ -87,7 +87,7 @@ import { api } from '../api/client'
 const router = useRouter()
 
 const stats = reactive({
-  events: 0, articles: 0, carousel: 0, mediaFeed: 0,
+  events: 0, articles: 0, carousel: 0,
   shopFeed: 0, mediaAssets: 0, spaceDevsCache: 0,
   roadClosure: 0, starshipEventUpdates: 0,
   cosFileCount: 0, splashEnabled: false, splashCountdown: 0
@@ -98,7 +98,6 @@ const CARD_DEFS = {
   starshipEventUpdates: { label: '事件更新追踪', hint: '自动同步 SpaceX / Starlink 推文', route: '/starship-event-updates', color: 'blue', badge: 'LIVE', statKey: 'starshipEventUpdates' },
   mediaAssets: { label: '星舰建设进度', hint: '建设进度媒体素材库', route: '/starship-progress', color: 'cyan', statKey: 'mediaAssets' },
   carousel: { label: '轮播图', hint: '首页轮播图管理', route: '/carousel', color: 'purple', statKey: 'carousel' },
-  mediaFeed: { label: '灵感流', hint: '灵感流照片集', route: '/inspiration-feed', color: 'green', statKey: 'mediaFeed' },
   roadClosure: { label: '封路通知', hint: '博卡奇卡封路信息', route: '/road-closure', color: 'orange', statKey: 'roadClosure' },
   starshipStatus: { label: '星舰状态', hint: '星舰发射准备状态总览', route: '/starship-status', color: 'red', fixedValue: '查看' },
   cosStorage: { label: 'COS云存储', hint: 'COS 对象存储文件管理', route: '/cos-storage', color: 'teal', statKey: 'cosFileCount' },
@@ -109,7 +108,7 @@ const CARD_DEFS = {
   statistics: { label: '数据统计', hint: '全局数据统计分析', route: '/statistics', color: 'green', fixedValue: '查看' }
 }
 
-const DEFAULT_ORDER = ['starshipEventUpdates', 'mediaAssets', 'carousel', 'mediaFeed', 'roadClosure', 'starshipStatus', 'cosStorage', 'splashScreen', 'launchData', 'tweetMonitor', 'pushNotify', 'statistics']
+const DEFAULT_ORDER = ['starshipEventUpdates', 'mediaAssets', 'carousel', 'roadClosure', 'starshipStatus', 'cosStorage', 'splashScreen', 'launchData', 'tweetMonitor', 'pushNotify', 'statistics']
 const STORAGE_KEY = 'dash_card_order'
 
 function loadOrder() {

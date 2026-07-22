@@ -1,8 +1,8 @@
 // 飞船构型详情页：数据来自 apiProxy ll2SpacecraftDetail（LL2 spacecraft_configurations）
 const pageBase = require('../../utils/page-base.js')
-const { togglePageTranslation } = require('../../utils/text-translate.js')
+const { togglePageTranslation } = require('./utils/text-translate.js')
 const { translateAgencyName } = require('../../utils/space-terms-i18n.js')
-const { cachedImage, proxiedImageUrl } = require('../../utils/spacecraft-display.js')
+const { cachedImage, proxiedImageUrl } = require('./utils/spacecraft-display.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')

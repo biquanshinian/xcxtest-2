@@ -1,41 +1,22 @@
 // pages/monitor/monitor.js
-const { getSpaceXLaunchStats, getRocketConfigMeta } = require('../../utils/api-app-services.js')
-const { getBoosterGenealogy, getStationStatus } = require('../../utils/api-monitor-data.js')
-const boosterDisplay = require('../../utils/booster-display.js')
-const spacecraftDisplay = require('../../utils/spacecraft-display.js')
-const launchSiteDisplay = require('../../utils/launch-site-display.js')
-const { getFeaturedAgencies, filterAgencies, toDisplayRow } = require('../../utils/agency-data.js')
+const { getSpaceXLaunchStats } = require('../../utils/api-app-services.js')
+const { getStationStatus } = require('../../utils/api-monitor-data.js')
 const { onStaleUpdate, getCacheKey } = require('../../utils/api-request.js')
 const { loadCloudMediaMap } = require('../../utils/image-config.js')
 const { tryShowPopupAd } = require('../../utils/popup-ad.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
-const { getOrbitalConfig: getOrbitalConfigCached } = require('../../utils/orbital-config-cache.js')
 const { getUiShellLayout } = require('../../utils/layout.js')
 const { getSystemInfo } = require('../../utils/system.js')
-const { gateCheck, isMembershipEnabled, getMembershipState, isProSync, canUsePaidCloudSync, warmMembershipStateSync } = require('../../utils/membership.js')
-const { getMemberPolicySync } = require('../../utils/member-policy.js')
-const storageCache = require('../../utils/storage-sync-cache.js')
+const { gateCheck, isMembershipEnabled, getMembershipState, isProSync, warmMembershipStateSync } = require('../../utils/membership.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { isLiveEntryAllowed, isPlaybackAllowed } = require('../../utils/feature-flags.js')
 const themeUtil = require('../../utils/theme.js')
-const config = require('../../utils/config.js')
-const { optimizeImageUrl, toCdnUrl, isVideoUrl } = require('../../utils/cos-url.js')
-const { getCachedVideo } = require('../../utils/video-cache.js')
-
-const STARLINK_TLE_CACHE_KEY = '_starlink_tle_cache'
-// 缓存版本：v2 = NORAD 倒序取最新 400 颗；与 starlink-renderer / starlink-ar 三方共用同一 key，需同步
-const STARLINK_TLE_CACHE_VER = 2
-// 过境预报参与计算的卫星上限（NORAD 倒序取最新，低轨新批次是肉眼"星链列车"主体）
-const STARLINK_PASS_MAX_SATS = 400
-const PASS_DETAIL_STORAGE_KEY = '_starlink_pass_detail_payload'
-const STARBASE_WEATHER_PATH = '../../subpackages/monitor-pages/utils/starbase-weather.js'
+const { optimizeImageUrl } = require('../../utils/cos-url.js')
+const { advanceImageFallback } = require('../../utils/ll2-image.js')
 
 let _starlinkRenderer = null
 let _starlinkLoadPromise = null
 const STARLINK_RENDERER_PATH = '../../subpackages/monitor-pages/utils/starlink-renderer.js'
-// 过境计算模块已移入主包同步加载：此前跨分包 require.async 在部分真机上加载失败，
-// 导致“过境计算模块加载失败”。模块仅 ~37KB，放主包可彻底消除该故障点。
-const starlinkPass = require('../../utils/starlink-pass.js')
 
 function getChannelsFallbackGuideFromConfig() {
   // 本地仅占位，二维码必须等云端；禁止用历史写死 URL 顶上
@@ -70,9 +51,173 @@ function getStarlinkRenderer() {
   return _starlinkRenderer
 }
 
-const STARLINK_TLE_CACHE_TTL = 6 * 60 * 60 * 1000
+// ========== Starlink 过境预报：整块逻辑在 monitor-pages 分包（monitor-pass.js） ==========
+// 全部方法都由用户点击触发（加载按钮 / 刷新 / 详情 / 地图），首屏无需注入，
+// require.async + attachTo 委托模式与首页 index-vote / index-save-image 一致。
+const PASS_PKG = '../../subpackages/monitor-pages/utils/monitor-pass.js'
+const PASS_METHODS = [
+  '_getPassLocation',
+  'onLoadStarlinkPasses',
+  'loadStarlinkPasses',
+  'requestPassLocation',
+  'refreshPasses',
+  'openPassDetail',
+  'openPassMap'
+]
+function delegatePass(name) {
+  return function (...args) {
+    const page = this
+    if (page.__passAttached) return page[name](...args)
+    if (!page.__passLoadPromise) {
+      page.__passLoadPromise = require.async(PASS_PKG).then((mod) => {
+        mod.attachTo(page)
+        return mod
+      }).catch((err) => {
+        page.__passLoadPromise = null
+        console.error('[Pass] 分包模块加载失败:', err)
+        page.setData({
+          passLoading: false,
+          passReady: true,
+          passError: '过境计算模块加载失败，请检查网络后重试'
+        })
+        throw err
+      })
+    }
+    return page.__passLoadPromise.then(() => page[name](...args))
+  }
+}
+const passDelegates = {}
+PASS_METHODS.forEach((name) => {
+  passDelegates[name] = delegatePass(name)
+})
+
+// ========== 四个图鉴板块：整块逻辑在 monitor-pages 分包（monitor-galleries.js） ==========
+// 火箭族谱 / 飞船图鉴 / 发射场分布 / 发射商图鉴的加载、筛选、跳转全部拆出；
+// 展示层 booster-display 等 4 个 utils 也随之迁入分包。监控页在 preloadRule
+// 中预下载 monitor-pages，各板块自带 loading 骨架，首次进 Tab 无感知差异。
+const GALLERIES_PKG = '../../subpackages/monitor-pages/utils/monitor-galleries.js'
+const GALLERIES_METHODS = [
+  'loadBoosterGenealogy', 'applyBoosterFilter', 'onBoosterFilterTap', 'onViewAllBoosters',
+  'onRetryBoosterLoad', '_vibrateMedium', 'onBoosterScroll', '_rpxToPx',
+  'onBoosterImageLoad', 'onBoosterImageError', 'onBoosterCardTap',
+  'loadSpacecraftGallery', 'applySpacecraftFilter', 'onSpacecraftFilterTap', 'onViewAllSpacecraft',
+  'onRetrySpacecraftLoad', 'onSpacecraftImageError', 'onSpacecraftCardTap',
+  'loadLaunchSiteGallery', 'applyLaunchSiteFilter', 'onLaunchSiteFilterTap', 'onViewAllLaunchSites',
+  'onRetryLaunchSiteLoad', 'onLaunchSiteImageError', 'onLaunchSiteCardTap',
+  'loadAgencies', 'onAgencyImageError', 'onViewAllAgencies', 'onAgencyTap',
+  'tryOpenPendingAgencyDetail', 'retryLoadAgencies'
+]
+function delegateGalleries(name) {
+  return function (...args) {
+    const page = this
+    if (page.__galleriesAttached) return page[name](...args)
+    if (!page.__galleriesLoadPromise) {
+      page.__galleriesLoadPromise = require.async(GALLERIES_PKG).then((mod) => {
+        mod.attachTo(page)
+        return mod
+      }).catch((err) => {
+        page.__galleriesLoadPromise = null
+        console.error('[Galleries] 分包模块加载失败:', err)
+        page.setData({
+          boosterLoading: false, boosterLoadError: true,
+          spacecraftLoading: false, spacecraftLoadError: true,
+          launchSiteLoading: false, launchSiteLoadError: true,
+          agencyLoading: false, agencyError: '加载失败，请稍后重试'
+        })
+        throw err
+      })
+    }
+    return page.__galleriesLoadPromise.then(() => page[name](...args))
+  }
+}
+const galleriesDelegates = {}
+GALLERIES_METHODS.forEach((name) => {
+  galleriesDelegates[name] = delegateGalleries(name)
+})
+
+// ========== 轨道数据中心 + 在轨任务：逻辑在 monitor-pages 分包（monitor-orbital.js） ==========
+// clearOrbitalCountdown 因 onHide/onUnload 需同步调用保留在下方 Page 内。
+const ORBITAL_PKG = '../../subpackages/monitor-pages/utils/monitor-orbital.js'
+const ORBITAL_METHODS = [
+  '_formatUpcomingOrbitalEvents', '_formatLocalDate', 'onLoadUpcomingOrbitalEvents',
+  'onUpcomingEventTap', 'onOrbitEventImageError', 'startOrbitalCountdown', 'updateOrbitalCountdown',
+  'openOrbitalDataCenter', 'onOrbitalBgError', 'loadOrbitalConfig', '_applyOrbitalConfig'
+]
+function delegateOrbital(name) {
+  return function (...args) {
+    const page = this
+    if (page.__orbitalAttached) return page[name](...args)
+    if (!page.__orbitalLoadPromise) {
+      page.__orbitalLoadPromise = require.async(ORBITAL_PKG).then((mod) => {
+        mod.attachTo(page)
+        return mod
+      }).catch((err) => {
+        page.__orbitalLoadPromise = null
+        console.error('[Orbital] 分包模块加载失败:', err)
+        page.setData({ orbitalLoading: false })
+        throw err
+      })
+    }
+    return page.__orbitalLoadPromise.then(() => page[name](...args))
+  }
+}
+const orbitalDelegates = {}
+ORBITAL_METHODS.forEach((name) => {
+  orbitalDelegates[name] = delegateOrbital(name)
+})
+
+// ========== 博卡奇卡实况天气：整块逻辑在 monitor-pages 分包（monitor-weather.js） ==========
+// onLoad 中本就延迟 1.5s 才发起网络请求，委托加载不改变时序；分包已在 preloadRule 预下载。
+const WEATHER_METHODS = ['_hydrateStarbaseWeatherFromCache', 'loadStarbaseWeather', '_mapWeatherCode']
+function delegateWeather(name) {
+  return function (...args) {
+    const page = this
+    if (page.__weatherAttached) return page[name](...args)
+    if (!page.__weatherLoadPromise) {
+      // 字面量路径：开发者工具静态分析识别不了 require.async(变量)，会把分包模块误报为无依赖文件
+      page.__weatherLoadPromise = require.async('../../subpackages/monitor-pages/utils/monitor-weather.js').then((mod) => {
+        mod.attachTo(page)
+        return mod
+      }).catch((err) => {
+        page.__weatherLoadPromise = null
+        console.error('[Weather] 分包模块加载失败:', err)
+        const prev = page.data.starbaseWeather || {}
+        page.setData({ starbaseWeather: { ...prev, loading: false, error: prev.loaded ? '' : '天气暂时不可用' } })
+        throw err
+      })
+    }
+    return page.__weatherLoadPromise.then(() => page[name](...args))
+  }
+}
+const weatherDelegates = {}
+WEATHER_METHODS.forEach((name) => {
+  weatherDelegates[name] = delegateWeather(name)
+})
 
 Page({
+  ...passDelegates,
+  ...galleriesDelegates,
+  ...orbitalDelegates,
+  ...weatherDelegates,
+
+  /** 在轨任务组件卡片点击：还原 dataset.id 后交给委托方法 */
+  onOrbitEventTapFromComp(e) {
+    const id = (e && e.detail && e.detail.id) || ''
+    return this.onUpcomingEventTap({ currentTarget: { dataset: { id } } })
+  },
+
+  /** 在轨任务配图失败：还原 index 后沿兜底链推进 */
+  onOrbitEventImageErrorFromComp(e) {
+    const index = (e && e.detail && e.detail.index)
+    return this.onOrbitEventImageError({ currentTarget: { dataset: { index } } })
+  },
+
+  /** 图鉴组件统一事件通道：还原 currentTarget.dataset / detail 后分发给对应委托方法 */
+  onGalleryEvent(e) {
+    const { name, dataset, edetail } = (e && e.detail) || {}
+    if (!name || GALLERIES_METHODS.indexOf(name) < 0 || typeof this[name] !== 'function') return
+    return this[name]({ currentTarget: { dataset: dataset || {} }, detail: edetail || {} })
+  },
   async onLoad() {
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
       this.getTabBar().setData({
@@ -355,110 +500,6 @@ Page({
     }
   },
 
-  /** 把 LL2 events 数据格式化为卡片所需展示字段 */
-  _formatUpcomingOrbitalEvents(list) {
-    if (!Array.isArray(list)) return []
-    const now = Date.now()
-    return list.map((ev) => {
-      const dateMs = ev.dateMs || (ev.date ? Date.parse(ev.date) : NaN)
-      let countdownText = ''
-      let countdownClass = ''
-      if (isFinite(dateMs)) {
-        const diff = dateMs - now
-        const absDay = Math.floor(Math.abs(diff) / 86400000)
-        const absHour = Math.floor((Math.abs(diff) % 86400000) / 3600000)
-        if (diff <= 0) {
-          countdownText = '进行中/已开始'
-          countdownClass = 'live'
-        } else if (absDay >= 1) {
-          countdownText = `${absDay}天${absHour}小时后`
-        } else {
-          const min = Math.floor((Math.abs(diff) % 3600000) / 60000)
-          countdownText = absHour >= 1 ? `${absHour}小时${min}分后` : `${Math.max(1, min)}分钟后`
-          countdownClass = 'soon'
-        }
-      }
-      const dateText = isFinite(dateMs) ? this._formatLocalDate(dateMs) : ''
-      return {
-        ...ev,
-        countdownText,
-        countdownClass,
-        dateText
-      }
-    })
-  },
-
-  _formatLocalDate(ms) {
-    const d = new Date(ms)
-    const m = d.getMonth() + 1
-    const day = d.getDate()
-    const hh = String(d.getHours()).padStart(2, '0')
-    const mm = String(d.getMinutes()).padStart(2, '0')
-    return `${m}月${day}日 ${hh}:${mm}`
-  },
-
-  /** 点击「加载在轨任务」触发懒加载（节约资源；不在首屏自动调用） */
-  async onLoadUpcomingOrbitalEvents() {
-    if (this.data.orbitalReady || this.data.orbitalLoading) return
-    this.setData({ orbitalReady: true, orbitalLoading: true })
-    try {
-      const stats = await getSpaceXLaunchStats()
-      const list = stats && Array.isArray(stats.upcomingOrbitalEvents) ? stats.upcomingOrbitalEvents : []
-      this.setData({
-        orbitalLoading: false,
-        upcomingOrbitalEvents: this._formatUpcomingOrbitalEvents(list)
-      })
-      this.startOrbitalCountdown()
-    } catch (e) {
-      this.setData({ orbitalLoading: false, upcomingOrbitalEvents: [] })
-      wx.showToast({ title: '加载失败，请稍后重试', icon: 'none' })
-    }
-  },
-
-  /** 点击在轨事件卡片，跳转事件详情（复用 event-detail 页，传 ll2_event 模式） */
-  onUpcomingEventTap(e) {
-    const id = e.currentTarget.dataset.id
-    if (!id) return
-    wx.navigateTo({
-      url: `/subpackages/progress-extra/event-detail?mode=ll2_event&id=${encodeURIComponent(id)}`
-    })
-  },
-
-  /** 启动在轨任务倒计时（第一个事件） */
-  startOrbitalCountdown() {
-    this.clearOrbitalCountdown()
-    this.updateOrbitalCountdown()
-    this._orbitalCountdownTimer = setInterval(() => this.updateOrbitalCountdown(), 1000)
-  },
-
-  /** 每秒更新在轨任务倒计时 */
-  updateOrbitalCountdown() {
-    const list = this.data.upcomingOrbitalEvents
-    if (!list || !list.length) return
-    const first = list[0]
-    const dateMs = first.dateMs || (first.date ? Date.parse(first.date) : NaN)
-    if (!isFinite(dateMs)) return
-    const diff = dateMs - Date.now()
-    if (diff <= 0) {
-      this.setData({ orbitalCountdown: { days: '00', hours: '00', minutes: '00', seconds: '00', isExpired: true } })
-      this.clearOrbitalCountdown()
-      return
-    }
-    const days = String(Math.floor(diff / 86400000)).padStart(2, '0')
-    const hours = String(Math.floor((diff % 86400000) / 3600000)).padStart(2, '0')
-    const minutes = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0')
-    const seconds = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0')
-    // 路径更新：每秒只有变化字段进渲染层（通常只有秒位变化）
-    const cur = this.data.orbitalCountdown || {}
-    const patch = {}
-    if (cur.days !== days) patch['orbitalCountdown.days'] = days
-    if (cur.hours !== hours) patch['orbitalCountdown.hours'] = hours
-    if (cur.minutes !== minutes) patch['orbitalCountdown.minutes'] = minutes
-    if (cur.seconds !== seconds) patch['orbitalCountdown.seconds'] = seconds
-    if (cur.isExpired !== false) patch['orbitalCountdown.isExpired'] = false
-    if (Object.keys(patch).length) this.setData(patch)
-  },
-
   /** 清除在轨任务倒计时定时器 */
   clearOrbitalCountdown() {
     if (this._orbitalCountdownTimer) {
@@ -622,95 +663,6 @@ Page({
     })
   },
 
-  /** 打开太空轨道数据中心系统（超前科幻入口，会员门控） */
-  async openOrbitalDataCenter() {
-    if (this._orbitalGateChecking) return
-    this._orbitalGateChecking = true
-    try {
-      const allowed = await gateCheck('orbital_data_center', '太空轨道数据中心')
-      if (!allowed) return
-      navigateTo(ROUTES.ORBITAL_DATA_CENTER)
-    } finally {
-      this._orbitalGateChecking = false
-    }
-  },
-
-  /** 卡片背景图加载失败 */
-  onOrbitalBgError() {
-    this.setData({ orbitalCardBg: '', orbitalCardBgIsVideo: false })
-  },
-
-  /** 加载远程「太空轨道数据中心」配置（保留本地默认作为 fallback） */
-  loadOrbitalConfig() {
-    const self = this
-    getOrbitalConfigCached({
-      onUpdate(data) {
-        // 后台拉到新版数据时，再覆盖一次（仅当卡片字段有变）
-        self._applyOrbitalConfig(data)
-      }
-    }).then((data) => {
-      self._applyOrbitalConfig(data)
-    }).catch(() => { /* 静默失败，使用本地默认 */ })
-  },
-
-  /** 把远程配置应用到 data */
-  _applyOrbitalConfig(data) {
-    if (!data) return
-    this._lastOrbitalConfig = data
-    const card = data.card
-    const detail = data.detail
-    const updates = {}
-    function isOrbitalBgVideoUrl(url) {
-      if (!url || typeof url !== 'string') return false
-      return isVideoUrl(url)
-    }
-    if (card) {
-      if (card.bgImage) {
-        const rawBg = String(card.bgImage).trim()
-        const asVideo = isOrbitalBgVideoUrl(rawBg)
-        // 过审关闭可播视频时不渲染卡片背景 <video>（未解析前也先不播）
-        if (asVideo && this._orbitalBgVideoAllowed !== true) {
-          updates.orbitalCardBg = ''
-          updates.orbitalCardBgIsVideo = false
-        } else if (asVideo) {
-          // 非会员 / 紧急流量档：不挂轨道卡 mp4（进 Tab 循环拉流是 COS 大头）
-          const emergency = !!(getMemberPolicySync().emergencyMedia)
-          if (!canUsePaidCloudSync() || emergency) {
-            updates.orbitalCardBg = ''
-            updates.orbitalCardBgIsVideo = false
-          } else {
-            updates.orbitalCardBg = getCachedVideo(toCdnUrl(rawBg))
-            updates.orbitalCardBgIsVideo = true
-          }
-        } else {
-          updates.orbitalCardBg = optimizeImageUrl(rawBg, 'medium')
-          updates.orbitalCardBgIsVideo = false
-        }
-      }
-      if (card.metrics) {
-        updates.orbitalLiveStats = {
-          activeNodes: card.metrics.activeNodes || this.data.orbitalLiveStats.activeNodes,
-          bandwidth: card.metrics.bandwidth || this.data.orbitalLiveStats.bandwidth,
-          uptime: card.metrics.uptime || this.data.orbitalLiveStats.uptime
-        }
-      }
-      if (typeof card.enabled === 'boolean') updates.orbitalCardEnabled = card.enabled
-      if (card.badge) updates.orbitalCardBadge = card.badge
-      if (card.titleEn) updates.orbitalCardTitleEn = card.titleEn
-      if (card.titleCn) updates.orbitalCardTitleCn = card.titleCn
-      if (card.desc) updates.orbitalCardDesc = card.desc
-      if (card.ctaText) updates.orbitalCardCta = card.ctaText
-    }
-    if (detail) {
-      try {
-        const app = getApp()
-        if (app) app.globalData = app.globalData || {}
-        if (app && app.globalData) app.globalData.orbitalDetailConfig = detail
-      } catch (e) {}
-    }
-    if (Object.keys(updates).length) this.setData(updates)
-  },
-
 
   /** 打开智能搜索页 */
   openAISearch() {
@@ -789,147 +741,7 @@ Page({
     })
   },
 
-  /** 进页面先用上次成功的天气数据渲染（stale-while-revalidate），网络刷新随后进行 */
-  _hydrateStarbaseWeatherFromCache() {
-    if (this.data.starbaseWeather && this.data.starbaseWeather.loaded) return
-    const MAX_STALE_MS = 3 * 60 * 60 * 1000
-    const FRESH_MS = 10 * 60 * 1000
-    wx.getStorage({
-      key: '_starbase_weather_cache',
-      success: (res) => {
-        const cached = res.data
-        if (!cached || !cached.payload || !cached.ts) return
-        if (Date.now() - cached.ts > MAX_STALE_MS) return
-        if (this.data.starbaseWeather && this.data.starbaseWeather.loaded) return
-        this.setData({ starbaseWeather: { ...cached.payload, loading: false, error: '' } })
-        // 命中新鲜缓存时视为已加载，短期内不再发起网络请求
-        if (Date.now() - cached.ts < FRESH_MS) {
-          this._starbaseWeatherCacheAt = cached.ts
-        }
-      },
-      fail: () => {}
-    })
-  },
-
-  /**
-   * 博卡奇卡（Starbase）实况天气：观测时刻显示为 CST（中国标准时间 UTC+8），实况/气温/风速仍为当地观测值
-   * @param {boolean} forceRefresh 为 true 时下拉刷新跳过短期缓存
-   */
-  loadStarbaseWeather(forceRefresh) {
-    const CACHE_MS = 10 * 60 * 1000
-    const now = Date.now()
-    if (this._starbaseWeatherInFlight) return Promise.resolve()
-    if (
-      !forceRefresh &&
-      this._starbaseWeatherCacheAt &&
-      now - this._starbaseWeatherCacheAt < CACHE_MS &&
-      this.data.starbaseWeather &&
-      this.data.starbaseWeather.loaded
-    ) {
-      return Promise.resolve()
-    }
-    this._starbaseWeatherInFlight = true
-    const prev = this.data.starbaseWeather || {}
-    this.setData({
-      starbaseWeather: {
-        ...prev,
-        loading: true,
-        error: ''
-      }
-    })
-
-    const weatherUrl = 'https://api.open-meteo.com/v1/forecast?latitude=25.9971&longitude=-97.1564&current=temperature_2m,weather_code,wind_speed_10m&timezone=Asia/Shanghai&wind_speed_unit=kmh'
-
-    return new Promise((resolve, reject) => {
-      wx.request({
-        url: weatherUrl,
-        method: 'GET',
-        timeout: 15000,
-        success: (res) => {
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            resolve(res.data)
-          } else {
-            reject(new Error('HTTP ' + res.statusCode))
-          }
-        },
-        fail: (err) => reject(err || new Error('request:fail'))
-      })
-    })
-      .then((data) => {
-        const cur = data && data.current
-        if (!cur || typeof cur !== 'object') throw new Error('invalid current')
-        const units = data.current_units || {}
-        const tempUnit = units.temperature_2m || '°C'
-        const windUnit = units.wind_speed_10m || ''
-        const code = Number(cur.weather_code)
-        const wxMap = this._mapWeatherCode(code)
-        const tempVal = cur.temperature_2m
-        const tempLine = tempVal != null && tempVal !== ''
-          ? `${Number(tempVal).toFixed(1).replace(/\.0$/, '')}${tempUnit}`
-          : '—'
-        const ws = cur.wind_speed_10m
-        const windLine = ws != null && ws !== ''
-          ? `${Number(ws).toFixed(1).replace(/\.0$/, '')}${windUnit ? ` ${windUnit}` : ''}`
-          : '—'
-        const timeLine = cur.time ? `${cur.time.replace('T', ' ').trim()} CST` : ''
-        const payload = {
-          loaded: true,
-          loading: false,
-          error: '',
-          timeLine,
-          conditionText: wxMap.text,
-          tempLine,
-          windLine,
-          weatherIcon: wxMap.icon,
-          windIcon: '/images/starbase-weather/wind-lines.svg'
-        }
-        this._starbaseWeatherCacheAt = Date.now()
-        this.setData({ starbaseWeather: payload })
-        // 持久化：下次进页面先展示上次数据，避免等待跨境请求
-        try {
-          wx.setStorage({ key: '_starbase_weather_cache', data: { payload, ts: Date.now() }, fail: () => {} })
-        } catch (e) {}
-      })
-      .catch((err) => {
-        const had = !!(prev && prev.loaded)
-        console.warn('[monitor] starbase weather error:', err)
-        if (!had && !this._starbaseWeatherRetried) {
-          this._starbaseWeatherRetried = true
-          this._starbaseWeatherInFlight = false
-          setTimeout(() => this.loadStarbaseWeather(true), 4000)
-          return
-        }
-        this._starbaseWeatherRetried = false
-        this.setData({
-          starbaseWeather: {
-            ...prev,
-            loading: false,
-            error: had ? '' : '天气暂时不可用'
-          }
-        })
-      })
-      .finally(() => {
-        this._starbaseWeatherInFlight = false
-      })
-  },
-
-  _mapWeatherCode(code) {
-    const c = Number(code)
-    const base = '/images/starbase-weather/'
-    if (!Number.isFinite(c)) return { text: '未知', icon: base + 'w-unknown.svg' }
-    if (c === 0) return { text: '晴朗', icon: base + 'w-clear.svg' }
-    if (c === 1) return { text: '大部晴朗', icon: base + 'w-mainly-clear.svg' }
-    if (c === 2) return { text: '多云', icon: base + 'w-partly.svg' }
-    if (c === 3) return { text: '阴', icon: base + 'w-overcast.svg' }
-    if (c === 45 || c === 48) return { text: '雾', icon: base + 'w-fog.svg' }
-    if (c >= 51 && c <= 57) return { text: '毛毛雨', icon: base + 'w-drizzle.svg' }
-    if (c >= 61 && c <= 67) return { text: '雨', icon: base + 'w-rain.svg' }
-    if (c >= 71 && c <= 77) return { text: '雪', icon: base + 'w-snow.svg' }
-    if (c >= 80 && c <= 82) return { text: '阵雨', icon: base + 'w-rain.svg' }
-    if (c === 85 || c === 86) return { text: '阵雪', icon: base + 'w-snow.svg' }
-    if (c >= 95 && c <= 99) return { text: '雷暴', icon: base + 'w-thunder.svg' }
-    return { text: '未知', icon: base + 'w-unknown.svg' }
-  },
+  // ========== 博卡奇卡实况天气（逻辑在分包 monitor-weather.js，经顶部 weatherDelegates 委托加载） ==========
 
   onBiliLiveTap() {
     this.setData({ showBiliQRModal: true })
@@ -1038,596 +850,7 @@ Page({
     })
   },
 
-  // ========== 可回收火箭族谱 ==========
-  async loadBoosterGenealogy() {
-    this.setData({ boosterLoading: true, boosterLoadError: false })
-    try {
-      // 非会员 Tab：只预览 2 条 + 最多 1 批库读，全量留给门控后的族谱页
-      var previewOnly = !canUsePaidCloudSync()
-      var previewLimit = boosterDisplay.TAB_PREVIEW_COUNT || 2
-      var results = await Promise.all([
-        getBoosterGenealogy(previewOnly
-          ? { previewOnly: true, previewLimit: previewLimit }
-          : undefined),
-        getRocketConfigMeta().catch(function () { return { configs: {} } })
-      ])
-      var list = results[0]
-      var configMeta = results[1] || { configs: {} }
-      if (!list || list.length === 0) {
-        this.setData({ boosterLoading: false })
-        return
-      }
-      var result = boosterDisplay.processBoosterList(list, configMeta.configs, {
-        imageCacheLimit: previewLimit
-      })
-      // 原始数据只给详情页跳转用，存实例变量，不进 setData（体积大、渲染层用不到）
-      this._boosterRawBySerial = result.rawBySerial
-      this._boosterAllProcessed = result.processed
-      this._boosterPreviewOnly = previewOnly
-      this.setData({
-        boosterFilterChips: previewOnly
-          ? [{ id: 'all', label: '全部' }]
-          : boosterDisplay.buildBoosterFilterChips(result.processed),
-        boosterLoading: false
-      })
-      this.applyBoosterFilter(this.data.boosterFilter || 'all')
-    } catch (err) {
-      console.error('[Monitor] booster load error:', err)
-      // 区分「加载失败」与「暂无数据」，失败态给重试入口
-      this.setData({ boosterLoading: false, boosterLoadError: true })
-    }
-  },
-
-  /** 应用筛选：卡片列表与汇总条联动刷新 */
-  applyBoosterFilter(filterId) {
-    var all = this._boosterAllProcessed || []
-    var filtered = boosterDisplay.applyBoosterFilter(all, filterId)
-    var previewLimit = boosterDisplay.TAB_PREVIEW_COUNT || 2
-    var list = this._boosterPreviewOnly ? filtered.slice(0, previewLimit) : filtered
-    this.setData({
-      boosterFilter: filterId,
-      boosterList: list,
-      boosterStats: boosterDisplay.computeBoosterStats(filtered),
-      boosterFilterEmpty: all.length > 0 && filtered.length === 0,
-      boosterImageLoadedMap: {}
-    })
-  },
-
-  onBoosterFilterTap(e) {
-    var filterId = e.currentTarget.dataset.filter
-    if (!filterId || filterId === this.data.boosterFilter) return
-    this.applyBoosterFilter(filterId)
-  },
-
-  /** 「查看全部」→ 独立全屏族谱页（带当前筛选），中度震动反馈；与卡片点击共用同一门控 */
-  async onViewAllBoosters() {
-    const allowed = await gateCheck('booster_genealogy', '全球可回收火箭族谱')
-    if (!allowed) return
-    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
-    var filter = this.data.boosterFilter || 'all'
-    navigateTo(ROUTES.BOOSTER_GENEALOGY, filter !== 'all' ? { filter: filter } : undefined)
-  },
-
-  onRetryBoosterLoad() {
-    this.loadBoosterGenealogy()
-  },
-
-  // ========== 全球飞船图鉴（骨架镜像可回收火箭族谱） ==========
-  async loadSpacecraftGallery() {
-    this.setData({ spacecraftLoading: true, spacecraftLoadError: false })
-    try {
-      var previewOnly = !canUsePaidCloudSync()
-      var previewLimit = spacecraftDisplay.TAB_PREVIEW_COUNT || 2
-      var list = await spacecraftDisplay.loadSpacecraftList()
-      if (!list || list.length === 0) {
-        this.setData({ spacecraftLoading: false })
-        return
-      }
-      // 非会员：只对预览条做图缓存预热，避免进 Tab 全量 COS 下行
-      var cards = spacecraftDisplay.buildSpacecraftCards(list, {
-        imageCacheLimit: previewLimit
-      })
-      this._spacecraftAllCards = cards
-      this._spacecraftPreviewOnly = previewOnly
-      this.setData({
-        spacecraftFilterChips: previewOnly
-          ? [{ id: 'all', label: '全部' }]
-          : spacecraftDisplay.buildSpacecraftFilterChips(cards),
-        spacecraftLoading: false
-      })
-      this.applySpacecraftFilter(this.data.spacecraftFilter || 'all')
-    } catch (err) {
-      console.error('[Monitor] spacecraft load error:', err)
-      this.setData({ spacecraftLoading: false, spacecraftLoadError: true })
-    }
-  },
-
-  /** 应用筛选：卡片列表与汇总条联动刷新 */
-  applySpacecraftFilter(filterId) {
-    var all = this._spacecraftAllCards || []
-    var filtered = spacecraftDisplay.applySpacecraftFilter(all, filterId)
-    var previewLimit = spacecraftDisplay.TAB_PREVIEW_COUNT || 2
-    var list = this._spacecraftPreviewOnly ? filtered.slice(0, previewLimit) : filtered
-    this.setData({
-      spacecraftFilter: filterId,
-      spacecraftList: list,
-      spacecraftStats: spacecraftDisplay.computeSpacecraftStats(filtered),
-      spacecraftFilterEmpty: all.length > 0 && filtered.length === 0
-    })
-  },
-
-  onSpacecraftFilterTap(e) {
-    var filterId = e.currentTarget.dataset.filter
-    if (!filterId || filterId === this.data.spacecraftFilter) return
-    this.applySpacecraftFilter(filterId)
-  },
-
-  /** 「查看全部」→ 独立全屏图鉴页（带当前筛选），中度震动反馈；与卡片点击共用同一门控 */
-  async onViewAllSpacecraft() {
-    const allowed = await gateCheck('spacecraft_encyclopedia', '全球飞船图鉴')
-    if (!allowed) return
-    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
-    var filter = this.data.spacecraftFilter || 'all'
-    navigateTo(ROUTES.SPACECRAFT_GALLERY, filter !== 'all' ? { filter: filter } : undefined)
-  },
-
-  onRetrySpacecraftLoad() {
-    this.loadSpacecraftGallery()
-  },
-
-  /** 飞船卡片图片加载失败：沿兜底链切换（缩略图 404 时回退原图） */
-  onSpacecraftImageError(e) {
-    var index = Number(e.currentTarget.dataset.index)
-    if (!Number.isInteger(index) || index < 0) return
-    var card = (this.data.spacecraftList || [])[index]
-    if (!card) return
-    var fallbacks = card.imageFallbacks || []
-    this.setData({
-      ['spacecraftList[' + index + '].imageUrl']: spacecraftDisplay.cachedImage(fallbacks[0]),
-      ['spacecraftList[' + index + '].imageFallbacks']: fallbacks.slice(1)
-    })
-  },
-
-  /** 点击飞船卡片 → 会员门控 → 跳转飞船详情页（复用现有 spacecraft-detail） */
-  async onSpacecraftCardTap(e) {
-    var ds = e.currentTarget.dataset || {}
-    var id = ds.id
-    if (id == null || id === '') return
-    // 专属 id 不在 PRODUCTS 单品表内 → 门控弹窗只提供开通星际通行证，无永久购买
-    const allowed = await gateCheck('spacecraft_encyclopedia', '全球飞船图鉴')
-    if (!allowed) return
-    // 卡片当前已显示的图（可能是本地缓存路径）直传详情页，头图复用同一张不再加载
-    if (ds.img) {
-      var app = getApp && getApp()
-      if (app) app._spacecraftHeroImage = { id: String(id), src: ds.img }
-    }
-    var params = { id: id }
-    if (ds.name) params.name = ds.name
-    navigateTo(ROUTES.SPACECRAFT_DETAIL, params)
-  },
-
-  // ========== 全球发射场分布（骨架镜像全球飞船图鉴） ==========
-  async loadLaunchSiteGallery() {
-    this.setData({ launchSiteLoading: true, launchSiteLoadError: false })
-    try {
-      var previewOnly = !canUsePaidCloudSync()
-      var previewLimit = launchSiteDisplay.TAB_PREVIEW_COUNT || 2
-      var list = await launchSiteDisplay.loadLaunchSiteList()
-      if (!list || list.length === 0) {
-        this.setData({ launchSiteLoading: false })
-        return
-      }
-      var cards = launchSiteDisplay.buildLaunchSiteCards(list, {
-        imageCacheLimit: previewLimit
-      })
-      this._launchSiteAllCards = cards
-      this._launchSitePreviewOnly = previewOnly
-      this.setData({
-        launchSiteFilterChips: previewOnly
-          ? [{ id: 'all', label: '全部' }]
-          : launchSiteDisplay.buildLaunchSiteFilterChips(cards),
-        launchSiteLoading: false
-      })
-      this.applyLaunchSiteFilter(this.data.launchSiteFilter || 'all')
-    } catch (err) {
-      console.error('[Monitor] launch site load error:', err)
-      this.setData({ launchSiteLoading: false, launchSiteLoadError: true })
-    }
-  },
-
-  /** 应用筛选：卡片列表与汇总条联动刷新 */
-  applyLaunchSiteFilter(filterId) {
-    var all = this._launchSiteAllCards || []
-    var filtered = launchSiteDisplay.applyLaunchSiteFilter(all, filterId)
-    var previewLimit = launchSiteDisplay.TAB_PREVIEW_COUNT || 2
-    var list = this._launchSitePreviewOnly ? filtered.slice(0, previewLimit) : filtered
-    this.setData({
-      launchSiteFilter: filterId,
-      launchSiteList: list,
-      launchSiteStats: launchSiteDisplay.computeLaunchSiteStats(filtered),
-      launchSiteFilterEmpty: all.length > 0 && filtered.length === 0
-    })
-  },
-
-  onLaunchSiteFilterTap(e) {
-    var filterId = e.currentTarget.dataset.filter
-    if (!filterId || filterId === this.data.launchSiteFilter) return
-    this.applyLaunchSiteFilter(filterId)
-  },
-
-  /** 「查看全部」→ 独立全屏发射场页（带当前筛选），中度震动反馈；与卡片点击共用同一门控 */
-  async onViewAllLaunchSites() {
-    const allowed = await gateCheck('launch_site_encyclopedia', '全球发射场分布')
-    if (!allowed) return
-    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
-    var filter = this.data.launchSiteFilter || 'all'
-    navigateTo(ROUTES.LAUNCH_SITE_GALLERY, filter !== 'all' ? { filter: filter } : undefined)
-  },
-
-  onRetryLaunchSiteLoad() {
-    this.loadLaunchSiteGallery()
-  },
-
-  /** 发射场卡片图片加载失败：沿兜底链切换（卫星图 404 时回退实景图） */
-  onLaunchSiteImageError(e) {
-    var index = Number(e.currentTarget.dataset.index)
-    if (!Number.isInteger(index) || index < 0) return
-    var card = (this.data.launchSiteList || [])[index]
-    if (!card) return
-    var fallbacks = card.imageFallbacks || []
-    this.setData({
-      ['launchSiteList[' + index + '].imageUrl']: launchSiteDisplay.cachedImage(fallbacks[0]),
-      ['launchSiteList[' + index + '].imageFallbacks']: fallbacks.slice(1)
-    })
-  },
-
-  /** 点击发射场卡片 → 全屏预览卫星图（LL2 无发射场详情页可跳，看大图最直观） */
-  /** 点击发射场卡片 → 会员门控（复用全球飞船图鉴逻辑）→ 发射场详情页 */
-  async onLaunchSiteCardTap(e) {
-    var ds = e.currentTarget.dataset || {}
-    if (!ds.id) return
-    try { wx.vibrateShort({ type: 'medium' }) } catch (err) {}
-    // 专属 id 不在 PRODUCTS 单品表内 → 门控弹窗只提供开通星际通行证
-    const allowed = await gateCheck('launch_site_encyclopedia', '全球发射场分布')
-    if (!allowed) return
-    navigateTo(ROUTES.LAUNCH_SITE_DETAIL, { id: ds.id })
-  },
-
-  // ========== Starlink 过境预报 ==========
-  async _getPassLocation() {
-    var app = getApp && getApp()
-    if (app && typeof app.ensurePrivacyAuthorized === 'function') {
-      var privacyRes = await app.ensurePrivacyAuthorized()
-      if (privacyRes && privacyRes.ok === false) {
-        return { ok: false, needsSetting: false, message: '请先同意隐私指引后再获取位置' }
-      }
-    }
-
-    var settingRes = await new Promise(function (resolve) {
-      wx.getSetting({ success: resolve, fail: function () { resolve(null) } })
-    })
-    if (!settingRes) {
-      return { ok: false, needsSetting: false, message: '无法获取权限状态，请稍后重试' }
-    }
-
-    var authStatus = settingRes.authSetting['scope.userFuzzyLocation']
-    if (authStatus === false) {
-      return { ok: false, needsSetting: true, message: '请在设置中开启位置权限后重试' }
-    }
-
-    var locRes = await new Promise(function (resolve) {
-      wx.getFuzzyLocation({
-        type: 'wgs84',
-        success: function (res) { resolve({ ok: true, data: res }) },
-        fail: function (err) { resolve({ ok: false, err: err }) }
-      })
-    })
-
-    if (!locRes || !locRes.ok || !locRes.data) {
-      var errMsg = locRes && locRes.err && (locRes.err.errMsg || locRes.err.message) ? (locRes.err.errMsg || locRes.err.message) : ''
-      var isPermDenied = errMsg.indexOf('auth deny') !== -1 || errMsg.indexOf('auth denied') !== -1 || errMsg.indexOf('permission denied') !== -1 || errMsg.indexOf('system permission') !== -1
-      return {
-        ok: false,
-        needsSetting: authStatus === false || isPermDenied,
-        message: isPermDenied ? '系统定位权限未开启，请在设置中允许' : (errMsg || '定位获取失败，请稍后重试')
-      }
-    }
-
-    return { ok: true, data: locRes.data }
-  },
-
-  /** 用户点击「加载」按钮触发过境预报 */
-  onLoadStarlinkPasses() {
-    this.setData({ passReady: true })
-    this.loadStarlinkPasses()
-  },
-
-  async loadStarlinkPasses() {
-    var that = this
-    // in-flight 去重：刷新按钮 / 权限回调可能并行触发，避免重复的 CPU 密集计算与云读
-    if (this._passLoadInFlight) return
-    this._passLoadInFlight = true
-    this.setData({ passLoading: true, passNoLocation: false, passError: '', passList: [], passReady: true })
-
-    try {
-      var locState = await this._getPassLocation()
-      if (!locState.ok) {
-        that.setData({
-          passLoading: false,
-          passNoLocation: true,
-          passLocation: '',
-          passError: locState.message || '需要位置权限'
-        })
-        return
-      }
-
-      var observer = { lat: locState.data.latitude, lng: locState.data.longitude, alt: locState.data.altitude || 0 }
-      that.data._passObserver = observer
-      that.setData({
-        passLocation: observer.lat.toFixed(2) + '°N, ' + observer.lng.toFixed(2) + '°E',
-        passError: ''
-      })
-
-      // 3. 获取 TLE 数据（优先复用 Starlink 渲染器已加载的数据）
-      //    统一选星策略：历元 7 天内、按 NORAD ID 倒序取最新 400 颗
-      var tleData = []
-      var tleStale = false // 有原始数据但历元全部超 7 天 / 源数据超 7 天未更新
-
-      // 尝试从渲染器获取已解析的 satrec 列表（避免重复读取云数据库）
-      var starlinkRenderer = getStarlinkRenderer()
-      if (!starlinkRenderer) {
-        try { starlinkRenderer = await loadStarlinkRenderer() } catch (e) {
-          console.warn('[Pass] loadStarlinkRenderer failed:', e)
-        }
-      }
-      var sharedSatrecs = starlinkRenderer ? starlinkRenderer.getSharedSatrecList() : []
-      if (sharedSatrecs && sharedSatrecs.length > 0) {
-        var sampled = starlinkPass.selectNewestSatrecs(sharedSatrecs, STARLINK_PASS_MAX_SATS)
-        tleData = sampled.map(function (s) { return { _satrec: s.satrec, name: s.name } })
-        if (tleData.length === 0) {
-          tleStale = true
-          // 内存/本地缓存里的星历元全部超龄：清掉共享数据与缓存，
-          // 让下面的 loadData 绕过 6h 缓存直接回源云端（云端可能已有新数据）
-          if (typeof starlinkRenderer.resetSharedData === 'function') {
-            starlinkRenderer.resetSharedData()
-          }
-        }
-      }
-
-      // 如果渲染器没有数据，通过渲染器的 loadData 再尝试一次
-      if (tleData.length === 0 && starlinkRenderer && typeof starlinkRenderer.loadData === 'function') {
-        try {
-          await starlinkRenderer.loadData()
-          var retryList = starlinkRenderer.getSharedSatrecList()
-          if (retryList && retryList.length > 0) {
-            var retrySampled = starlinkPass.selectNewestSatrecs(retryList, STARLINK_PASS_MAX_SATS)
-            tleData = retrySampled.map(function (s) { return { _satrec: s.satrec, name: s.name } })
-            tleStale = tleData.length === 0
-          }
-        } catch (e) {
-          console.warn('[Pass] starlinkRenderer.loadData retry failed:', e)
-        }
-      }
-
-      // 最后回退：从本地缓存或云数据库直接读 TLE 文本
-      if (tleData.length === 0) {
-        try {
-          // 该 key 由 starlink-renderer / starlink-ar 用 wx.setStorageSync 直写，
-          // 不能走 storage-sync-cache 内存层（首读后驻留，会读到会话内的旧值）
-          var cached = wx.getStorageSync(STARLINK_TLE_CACHE_KEY)
-          if (cached && cached.ver === STARLINK_TLE_CACHE_VER && cached.data && Date.now() - cached.ts < STARLINK_TLE_CACHE_TTL) {
-            var rawList = []
-            var rawData = cached.data
-            if (typeof rawData === 'string') {
-              var lines = rawData.split('\n').filter(function (l) { return l.trim() !== '' })
-              for (var i = 0; i + 2 < lines.length; i += 3) {
-                rawList.push({ name: lines[i].trim(), line1: lines[i + 1].trim(), line2: lines[i + 2].trim() })
-              }
-            } else if (Array.isArray(rawData)) {
-              rawList = rawData
-            }
-            if (rawList.length > 0) {
-              tleData = starlinkPass.selectNewestTLEs(rawList, STARLINK_PASS_MAX_SATS)
-              tleStale = tleData.length === 0
-            }
-          }
-        } catch (e) {}
-      }
-
-      if (tleData.length === 0) {
-        try {
-          var db = wx.cloud.database()
-          var shardIndex = 0
-          var allLines = []
-          // 先读 shard0 判断格式
-          var shard0Res = await db.collection('starlink_tle').where({ shardIndex: 0 }).limit(1).get()
-          if (shard0Res.data && shard0Res.data.length > 0) {
-            var shard0 = shard0Res.data[0]
-            if (shard0.updatedAtMs && Date.now() - shard0.updatedAtMs > starlinkPass.TLE_MAX_AGE_MS) {
-              tleStale = true
-            }
-            if (shard0.shardCount) {
-              // 新分片格式：并行读取所有分片
-              var shardPromises = [Promise.resolve(shard0.data || '')]
-              for (var si = 1; si < shard0.shardCount; si++) {
-                shardPromises.push(
-                  db.collection('starlink_tle').where({ shardIndex: si }).limit(1).get()
-                    .then(function (res) { return res.data.length > 0 ? res.data[0].data : '' })
-                    .catch(function () { return '' })
-                )
-              }
-              var shardArr = await Promise.all(shardPromises)
-              var mergedTle = shardArr.filter(Boolean).join('\n')
-              var mLines = mergedTle.split('\n').filter(function (l) { return l.trim() !== '' })
-              for (var mi = 0; mi + 2 < mLines.length; mi += 3) {
-                allLines.push({ name: mLines[mi].trim(), line1: mLines[mi + 1].trim(), line2: mLines[mi + 2].trim() })
-              }
-            } else if (shard0.data && typeof shard0.data === 'string') {
-              // 旧格式循环读取
-              var oldLines = shard0.data.split('\n').filter(function (l) { return l.trim() !== '' })
-              for (var oi = 0; oi + 2 < oldLines.length; oi += 3) {
-                allLines.push({ name: oldLines[oi].trim(), line1: oldLines[oi + 1].trim(), line2: oldLines[oi + 2].trim() })
-              }
-              shardIndex = 1
-              while (shardIndex < 10) {
-                var nextRes = await db.collection('starlink_tle').where({ shardIndex: shardIndex }).limit(1).get()
-                if (!nextRes.data || nextRes.data.length === 0) break
-                var nextShard = nextRes.data[0]
-                if (nextShard.data && typeof nextShard.data === 'string') {
-                  var nLines = nextShard.data.split('\n').filter(function (l) { return l.trim() !== '' })
-                  for (var ni = 0; ni + 2 < nLines.length; ni += 3) {
-                    allLines.push({ name: nLines[ni].trim(), line1: nLines[ni + 1].trim(), line2: nLines[ni + 2].trim() })
-                  }
-                }
-                shardIndex++
-              }
-            }
-          }
-          tleData = starlinkPass.selectNewestTLEs(allLines, STARLINK_PASS_MAX_SATS)
-          if (allLines.length > 0 && tleData.length === 0) tleStale = true
-          if (tleData.length > 0) {
-            storageCache.persistAsync(STARLINK_TLE_CACHE_KEY, { data: tleData, ts: Date.now(), ver: STARLINK_TLE_CACHE_VER })
-          }
-        } catch (e) {
-          console.error('[Pass] TLE cloud load error:', e)
-        }
-      }
-
-      if (tleData.length === 0) {
-        that.setData({
-          passLoading: false,
-          passList: [],
-          passError: tleStale
-            ? '星链轨道数据已陈旧（超 7 天未更新），暂无法计算过境，请稍后再试'
-            : '星链轨道数据暂时无法获取，请检查网络后重试'
-        })
-        return
-      }
-
-      if (!starlinkPass || typeof starlinkPass.predictPasses !== 'function') {
-        that.setData({ passLoading: false, passError: '过境计算模块异常，请重启小程序' })
-        return
-      }
-      // 优先分片异步版：每 20 颗卫星让出一次主线程，避免长时间阻塞 UI
-      var passes = typeof starlinkPass.predictPassesAsync === 'function'
-        ? await starlinkPass.predictPassesAsync(tleData, observer, 24)
-        : starlinkPass.predictPasses(tleData, observer, 24)
-
-      var formatted = passes.slice(0, 10).map(function (p, idx) {
-        var d = new Date(p.startTime)
-        var h = d.getHours()
-        var m = d.getMinutes()
-        return {
-          idx: idx,
-          startTimeStr: (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m,
-          maxElev: Math.round(p.maxElev),
-          startDirection: p.startDirection,
-          endDirection: p.endDirection,
-          durationMin: Math.round(p.duration / 60),
-          brightness: p.brightness,
-          brightnessText: p.brightnessText,
-          trainCount: p.trainCount || 1
-        }
-      })
-      that.setData({ passList: formatted, passLoading: false, passNoLocation: false })
-    } catch (err) {
-      console.error('[Pass] error:', err)
-      var errMsg = (err && (err.message || err.errMsg)) || ''
-      var hasLocation = !!(that.data._passObserver || that.data.passLocation)
-      var displayError = '过境预报加载失败，请稍后重试'
-      if (errMsg.indexOf('No TLE') !== -1 || errMsg.indexOf('satellite') !== -1) {
-        displayError = '星链轨道数据异常，请稍后重试'
-      } else if (errMsg.indexOf('require') !== -1 || errMsg.indexOf('module') !== -1) {
-        displayError = '过境计算模块加载失败，请退出重进'
-      }
-      that.setData({
-        passLoading: false,
-        passNoLocation: !hasLocation,
-        passError: displayError
-      })
-    } finally {
-      this._passLoadInFlight = false
-    }
-  },
-
-  requestPassLocation() {
-    var that = this
-    wx.getSetting({
-      success: function (res) {
-        var authStatus = res.authSetting['scope.userFuzzyLocation']
-        if (authStatus === false) {
-          wx.showModal({
-            title: '需要位置权限',
-            content: '过境预报需要您的位置来计算可见卫星，请在设置中开启位置权限',
-            confirmText: '去设置',
-            cancelText: '取消',
-            success: function (modalRes) {
-              if (!modalRes.confirm) return
-              wx.openSetting({
-                success: function (settingRes) {
-                  if (settingRes.authSetting['scope.userFuzzyLocation']) {
-                    that.loadStarlinkPasses()
-                  } else {
-                    that.setData({
-                      passNoLocation: true,
-                      passLocation: '',
-                      passError: '未开启位置权限，暂时无法计算过境预报'
-                    })
-                  }
-                },
-                fail: function () {
-                  that.setData({
-                    passNoLocation: true,
-                    passLocation: '',
-                    passError: '打开设置失败，请稍后重试'
-                  })
-                }
-              })
-            }
-          })
-          return
-        }
-
-        // authStatus 为 undefined 或 true，直接调用 loadStarlinkPasses（其内部会 getFuzzyLocation）
-        that.loadStarlinkPasses()
-      },
-      fail: function () {
-        that.setData({
-          passNoLocation: true,
-          passLocation: '',
-          passError: '无法获取权限状态，请稍后重试'
-        })
-      }
-    })
-  },
-
-  refreshPasses() {
-    this.loadStarlinkPasses()
-  },
-
-  openPassDetail() {
-    if (!this.data.passReady) {
-      this.onLoadStarlinkPasses()
-      return
-    }
-    if (this.data.passLoading) return
-    if (this.data.passNoLocation || this.data.passError) {
-      if (this.data.passNoLocation) this.requestPassLocation()
-      else this.refreshPasses()
-      return
-    }
-
-    try {
-      wx.setStorageSync(PASS_DETAIL_STORAGE_KEY, {
-        passList: this.data.passList || [],
-        passLocation: this.data.passLocation || '',
-        observer: this.data._passObserver || null,
-        updatedAt: Date.now()
-      })
-    } catch (e) {}
-
-    navigateTo(ROUTES.STARLINK_PASS_DETAIL)
-  },
+  // ========== Starlink 过境预报（逻辑在分包 monitor-pass.js，经顶部 passDelegates 委托加载） ==========
 
   async openStarlinkAR() {
     if (this._gateChecking) return
@@ -1639,41 +862,6 @@ Page({
     } finally {
       this._gateChecking = false
     }
-  },
-
-  async openPassMap() {
-    if (this._gateChecking) return
-    this._gateChecking = true
-    let allowed = false
-    try {
-      allowed = await gateCheck('starlink_pro', '24小时过境预报')
-    } finally {
-      this._gateChecking = false
-    }
-    if (!allowed) return
-
-    const passList = this.data.passList || []
-    const firstPass = passList[0]
-    if (!firstPass) {
-      wx.showToast({ title: '暂无可用过境数据', icon: 'none' })
-      return
-    }
-    const observer = this.data._passObserver || {}
-    const encodedPassList = encodeURIComponent(JSON.stringify(passList.slice(0, 10)))
-    const query = [
-      'startTimeStr=' + encodeURIComponent(firstPass.startTimeStr || ''),
-      'maxElev=' + encodeURIComponent(firstPass.maxElev || 0),
-      'startDirection=' + encodeURIComponent(firstPass.startDirection || ''),
-      'endDirection=' + encodeURIComponent(firstPass.endDirection || ''),
-      'durationMin=' + encodeURIComponent(firstPass.durationMin || 0),
-      'brightnessText=' + encodeURIComponent(firstPass.brightnessText || ''),
-      'trainCount=' + encodeURIComponent(firstPass.trainCount || 1),
-      'lat=' + encodeURIComponent(observer.lat || ''),
-      'lng=' + encodeURIComponent(observer.lng || ''),
-      'locationText=' + encodeURIComponent(this.data.passLocation || ''),
-      'passList=' + encodedPassList
-    ].join('&')
-    wx.navigateTo({ url: ROUTES.PASS_MAP + '?' + query })
   },
 
   /** 用户点击「加载」按钮触发空间站数据 */
@@ -1749,8 +937,13 @@ Page({
   onStationImageError(e) {
     const index = Number(e.currentTarget.dataset.index)
     if (!Number.isInteger(index) || index < 0) return
+    const station = (this.data.stationList || [])[index]
+    if (!station) return
+    const advanced = advanceImageFallback(station.image, station.imageFallbacks)
+    // 沿兜底链推进；链耗尽才清空（与飞船/助推器卡一致，避免卡空白而详情仍有图）
     this.setData({
-      [`stationList[${index}].image`]: '',
+      [`stationList[${index}].image`]: advanced.next,
+      [`stationList[${index}].imageFallbacks`]: advanced.remaining,
       [`stationImageLoadedMap.${index}`]: false
     })
   },
@@ -1762,6 +955,16 @@ Page({
     // 传递封面图 URL，让详情页 onLoad 时立即展示 Hero 大图
     const station = (this.data.stationList || []).find(s => Number(s.id) === stationId)
     const imageParam = station && station.image ? `&image=${encodeURIComponent(station.image)}` : ''
+    try {
+      const app = getApp()
+      if (app && station) {
+        app._stationHeroImage = {
+          id: String(stationId),
+          src: station.image || '',
+          fallbacks: (station.imageFallbacks || []).slice()
+        }
+      }
+    } catch (err) {}
     wx.navigateTo({
       url: `${ROUTES.STATION_DETAIL}?id=${stationId}${imageParam}`
     })
@@ -1775,185 +978,5 @@ Page({
         url: '/pages/index/index?missionId=' + launchId
       })
     }
-  },
-
-  /** 中度震动反馈 */
-  _vibrateMedium() {
-    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {
-      try { wx.vibrateShort() } catch (_) {}
-    }
-  },
-
-  /** 助推器横向滚动震动 */
-  onBoosterScroll(e) {
-    var scrollLeft = e.detail.scrollLeft || 0
-    var cardPitch = this._rpxToPx(296)
-    var newIndex = Math.round(scrollLeft / cardPitch)
-    if (newIndex < 0) newIndex = 0
-    if (newIndex === this._boosterHapticIndex) return
-    this._boosterHapticIndex = newIndex
-    var now = Date.now()
-    if (this._lastBoosterVibrateAt && now - this._lastBoosterVibrateAt < 200) return
-    this._lastBoosterVibrateAt = now
-    this._vibrateMedium()
-  },
-
-  /** rpx 转 px（缓存 windowWidth 避免重复调用 getSystemInfoSync） */
-  _rpxToPx(rpx) {
-    if (!this._cachedWindowWidth) {
-      var info = getSystemInfo()
-      this._cachedWindowWidth = (info && info.windowWidth) || 375
-    }
-    return rpx / 750 * this._cachedWindowWidth
-  },
-
-  /** 助推器卡片图片加载完成 */
-  onBoosterImageLoad(e) {
-    var index = Number(e.currentTarget.dataset.index)
-    if (!Number.isInteger(index) || index < 0) return
-    var key = 'boosterImageLoadedMap.' + index
-    this.setData({ [key]: true })
-  },
-
-  /** 助推器卡片图片加载失败：沿多级兜底链逐级切换，链耗尽则清空显示占位符 */
-  onBoosterImageError(e) {
-    var index = Number(e.currentTarget.dataset.index)
-    if (!Number.isInteger(index) || index < 0) return
-    var card = (this.data.boosterList || [])[index]
-    if (!card) return
-    var fallbacks = card.imageFallbacks || []
-    this.setData({
-      ['boosterList[' + index + '].thumbnailUrl']: fallbacks[0] || '',
-      ['boosterList[' + index + '].imageFallbacks']: fallbacks.slice(1)
-    })
-  },
-
-  /** 点击助推器卡片 → 会员门控（复用星舰硬件设施逻辑）→ 跳转详情页 */
-  async onBoosterCardTap(e) {
-    var serial = e.currentTarget.dataset.serial
-    if (!serial) return
-    // 专属 id 不在 PRODUCTS 单品表内 → 门控弹窗只提供开通星际通行证，无永久购买
-    const allowed = await gateCheck('booster_genealogy', '全球可回收火箭族谱')
-    if (!allowed) return
-    // 原始数据在实例变量中（不进 setData）
-    var raw = (this._boosterRawBySerial && this._boosterRawBySerial[serial]) || null
-    if (raw) {
-      // 将原始数据存入全局临时变量，详情页读取
-      var app = getApp && getApp()
-      if (app) app._boosterDetailData = raw
-    }
-    wx.navigateTo({
-      url: ROUTES.BOOSTER_DETAIL + '?serial=' + encodeURIComponent(serial)
-    })
-  },
-
-  // ========== 全球发射商图鉴（默认展示 2 张预览卡） ==========
-
-  /**
-   * 加载发射商预览（轻量）：只读 featured 聚合缓存（1 个云文档），默认展示 2 张卡；
-   * 全量数据只在用户点「查看全部」进入完整列表页时才加载
-   */
-  async loadAgencies(opts = {}) {
-    // silent（下拉刷新）：已有卡片时不回退到骨架网格
-    const silent = !!(opts.silent && (this.data.agencyVisible || []).length > 0)
-    this.setData(silent ? { agencyError: '' } : { agencyLoading: true, agencyError: '' })
-    try {
-      const { list, totalCount } = await getFeaturedAgencies()
-      const featured = filterAgencies(list || [], 'featured', '')
-      const pick = featured.length ? featured : (list || [])
-      this.setData({
-        agencyLoading: false,
-        agencyError: '',
-        agencyTotal: totalCount || 0,
-        agencyVisible: pick.slice(0, 2).map(toDisplayRow)
-      })
-      this.tryOpenPendingAgencyDetail()
-    } catch (e) {
-      console.error('[Agency] loadAgencies error:', e)
-      this.setData({ agencyLoading: false, agencyError: '加载失败，请稍后重试' })
-    }
-  },
-
-  /** 卡片图加载失败：压缩链 → 原图 → logo → 占位，避免默认图空白 */
-  onAgencyImageError(e) {
-    const idx = Number(e.currentTarget.dataset.index)
-    const item = this.data.agencyVisible[idx]
-    if (!item) return
-    const cur = String(item.displayImage || '')
-    const stripCi = (u) => {
-      const s = String(u || '').trim()
-      if (!s) return ''
-      const q = s.indexOf('?')
-      if (q < 0) return s
-      if (!/imageMogr2|ci-process=/i.test(s.slice(q + 1))) return s
-      return s.slice(0, q)
-    }
-    // 1) 当前是 imageMogr2/CI 压缩链 → 回退同图原链
-    const stripped = stripCi(cur)
-    if (stripped && stripped !== cur) {
-      this.setData({ [`agencyVisible[${idx}].displayImage`]: stripped })
-      return
-    }
-    // 2) 大图失败 → 换 logo（压缩版或原链）
-    const logoCandidates = [item.logoUrl, item.logoUrlRaw].filter(Boolean)
-    for (let i = 0; i < logoCandidates.length; i++) {
-      const next = logoCandidates[i]
-      if (next && next !== cur) {
-        this.setData({
-          [`agencyVisible[${idx}].displayImage`]: next,
-          [`agencyVisible[${idx}].imageMode`]: 'aspectFit'
-        })
-        return
-      }
-    }
-    // 3) logo 压缩链失败 → 再试 logo 原链（上面循环已覆盖）；都失败则占位
-    if (item.displayImage) {
-      this.setData({ [`agencyVisible[${idx}].displayImage`]: '' })
-    }
-  },
-
-  /** 查看全部 → 完整列表页（全量数据在该页加载，含筛选与搜索）；与卡片点击共用同一门控 */
-  async onViewAllAgencies() {
-    const allowed = await gateCheck('agency_encyclopedia', '全球发射商图鉴')
-    if (!allowed) return
-    if (wx.vibrateShort) {
-      try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
-    }
-    wx.navigateTo({
-      url: '/subpackages/monitor-pages/agency-list'
-    })
-  },
-
-  /** 点击发射商卡片 → 跳转独立详情页 */
-  async onAgencyTap(e) {
-    const id = e.currentTarget.dataset.id
-    if (!id) return
-    // 专属 id 不在 PRODUCTS 单品表内 → 门控弹窗只提供开通星际通行证，无永久购买
-    const allowed = await gateCheck('agency_encyclopedia', '全球发射商图鉴')
-    if (!allowed) return
-    wx.navigateTo({
-      url: `${ROUTES.AGENCY_DETAIL}?id=${encodeURIComponent(id)}`
-    })
-  },
-
-  /** 尝试打开待展示的发射商详情（供搜索跳转后自动打开，globalData 内存交接） */
-  tryOpenPendingAgencyDetail() {
-    let pendingId = ''
-    try {
-      const app = getApp()
-      if (app && app.globalData) {
-        pendingId = app.globalData.pendingAgencyDetailId || ''
-        if (pendingId) app.globalData.pendingAgencyDetailId = ''
-      }
-    } catch (e) {}
-    if (!pendingId) return
-    wx.navigateTo({
-      url: `${ROUTES.AGENCY_DETAIL}?id=${encodeURIComponent(pendingId)}`
-    })
-  },
-
-  /** 重试加载发射商 */
-  retryLoadAgencies() {
-    this.loadAgencies()
   }
 })

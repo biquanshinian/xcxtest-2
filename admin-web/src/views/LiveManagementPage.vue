@@ -622,7 +622,7 @@ const scriptSteps = {
     { action: 'scroll', scrollTop: 400, delay: 2500 },
     { action: 'scroll', scrollTop: 0, delay: 2000 },
     { action: 'navigate', page: '/pages/profile/profile', delay: 1500 },
-    { action: 'bubble', bubble: '灵感流 — 航天影像瀑布流', delay: 3500 },
+    { action: 'bubble', bubble: '个人中心 — 签到 · 成就 · 竞猜', delay: 3500 },
     { action: 'scroll', scrollTop: 400, delay: 2500 },
     { action: 'scroll', scrollTop: 800, delay: 2500 },
     { action: 'scroll', scrollTop: 0, delay: 2000 },

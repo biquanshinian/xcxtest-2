@@ -4,7 +4,7 @@
  * 显示与交互逻辑与星舰硬件设施列表页一致
  */
 const pageBase = require('../../utils/page-base.js')
-const { AGENCY_FILTERS, getAllAgencies, filterAgencies, toDisplayRow } = require('../../utils/agency-data.js')
+const { AGENCY_FILTERS, getAllAgencies, filterAgencies, toDisplayRow } = require('./utils/agency-data.js')
 const { gateCheck, isProSync } = require('../../utils/membership.js')
 const { ROUTES } = require('../../utils/routes.js')
 
@@ -86,6 +86,17 @@ Page({
     // 专属 id 不在 PRODUCTS 单品表内 → 门控弹窗只提供开通星际通行证，无永久购买
     const allowed = await gateCheck('agency_encyclopedia', '全球发射商图鉴')
     if (!allowed) return
+    const item = (this.data.list || []).find(a => String(a.id) === String(id))
+    try {
+      const app = getApp()
+      if (app && item && item.displayImage) {
+        app._agencyHeroImage = {
+          id: String(id),
+          src: item.displayImage,
+          fallbacks: (item.imageFallbacks || []).slice()
+        }
+      }
+    } catch (err) {}
     wx.navigateTo({
       url: `${ROUTES.AGENCY_DETAIL}?id=${encodeURIComponent(id)}`
     })
@@ -96,6 +107,16 @@ Page({
     const item = this.data.list[idx]
     if (!item) return
     const cur = String(item.displayImage || '')
+    const fallbacks = item.imageFallbacks || []
+    if (fallbacks.length) {
+      const next = fallbacks[0]
+      const remaining = fallbacks.slice(1)
+      this.setData({
+        [`list[${idx}].displayImage`]: (next && next !== cur) ? next : (remaining[0] || ''),
+        [`list[${idx}].imageFallbacks`]: (next && next !== cur) ? remaining : remaining.slice(1)
+      })
+      return
+    }
     const stripCi = (u) => {
       const s = String(u || '').trim()
       if (!s) return ''

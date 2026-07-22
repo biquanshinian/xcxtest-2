@@ -12,6 +12,8 @@ const { enrichLaunchNetRecovery } = require('./ll2-net-recovery-enrich.js')
 const { translateTextsBatch, isTmtConfigured, runTranslateDiag } = require('./translate.js')
 const { createLaunchStatusStore, normalize: normalizeLaunchStatus } = require('./launch-status-store.js')
 const launchStatusStore = createLaunchStatusStore(db)
+const { createUpcomingCachePatcher } = require('./upcoming-cache-patch.js')
+const upcomingCachePatcher = createUpcomingCachePatcher(db)
 
 const httpsRequire = require('https')
 const httpRequire = require('http')
@@ -920,6 +922,10 @@ async function settleTerminalFromLaunchDetail(launch, nowMs, source) {
     launchStub: buildPreviousStubFromLaunch(launch)
   }
   await launchStatusStore.upsertOne(entry, { source: source || 'detail', observedAtMs: now })
+  // 详情已终态时同步写入 previous，避免 hide_recent + upcoming prune 后历史列表空窗
+  try {
+    await patchPreviousCacheStatusFromTerminal([entry])
+  } catch (e) {}
 }
 
 /** previous 列表缓存 key 候选（与 syncSpaceDevsData / launch-net-hourly 对齐） */
@@ -936,7 +942,60 @@ function previousListCacheKeyCandidates() {
 }
 
 function stubFromTerminalEntry(term) {
-  if (term && term.launchStub && term.launchStub.id) return term.launchStub
+  if (term && term.launchStub && term.launchStub.id) {
+    const stub = term.launchStub
+    // 显式字段，避免把 updates 等冷路径大字段带进 previous
+    const cfg =
+      (stub.rocket && stub.rocket.configuration) ||
+      (stub.rocket && stub.rocket.rocket && stub.rocket.rocket.configuration) ||
+      null
+    const lsp = stub.launch_service_provider || stub.lsp || null
+    const pad = stub.pad || null
+    return {
+      id: stub.id,
+      name: stub.name || term.name || '',
+      net: stub.net || term.net || '',
+      window_start: stub.window_start || term.windowStart || stub.net || term.net || '',
+      window_end: stub.window_end || term.windowEnd || '',
+      status: term.status
+        ? { id: term.status.id, name: term.status.name || '', abbrev: term.status.abbrev || '' }
+        : stub.status || null,
+      mission: stub.mission
+        ? {
+            name: stub.mission.name || '',
+            description: stub.mission.description || '',
+            orbit: stub.mission.orbit || undefined
+          }
+        : null,
+      rocket: stub.rocket
+        ? {
+            configuration: cfg
+              ? {
+                  id: cfg.id,
+                  name: cfg.name || '',
+                  full_name: cfg.full_name || '',
+                  reusable: cfg.reusable === true || undefined
+                }
+              : undefined,
+            launcher_stage: stub.rocket.launcher_stage,
+            spacecraft_stage: stub.rocket.spacecraft_stage
+          }
+        : undefined,
+      launch_service_provider: lsp
+        ? { id: lsp.id, name: lsp.name || '', abbrev: lsp.abbrev || '' }
+        : undefined,
+      pad: pad
+        ? {
+            name: pad.name || '',
+            location: pad.location
+              ? { name: pad.location.name || '', country_code: pad.location.country_code || '' }
+              : undefined
+          }
+        : undefined,
+      image: stub.image || undefined,
+      infographic: stub.infographic || undefined
+    }
+  }
   return {
     id: term.id,
     name: term.name || '',
@@ -953,7 +1012,10 @@ async function patchPreviousCacheStatusFromTerminal(entries) {
   const byId = new Map()
   for (let i = 0; i < entries.length; i++) {
     const e = entries[i]
-    if (e && e.id && e.status) byId.set(String(e.id), e)
+    if (!e || !e.id || !e.status) continue
+    const sid = e.status.id != null ? Number(e.status.id) : 0
+    if (!TERMINAL_STATUS_IDS[sid]) continue
+    byId.set(String(e.id), e)
   }
   if (!byId.size) return { patched: 0 }
 
@@ -1041,27 +1103,55 @@ async function patchPreviousCacheStatusFromTerminal(entries) {
         })
       } catch (e) {}
     }
+    // 主文档声称分批但批次全丢：重建空 batch0
+    if (!firstBatchKey) {
+      firstBatchKey = `${cacheKey}_batch_0`
+      firstBatchPayload = { results: [], count: 0 }
+      firstBatchWrapper = { data: firstBatchPayload }
+    }
     const missing = []
     byId.forEach((term, id) => {
       if (!foundIds.has(id)) missing.push(term)
     })
     if (missing.length && firstBatchKey && firstBatchPayload) {
-      const stubs = missing.map(stubFromTerminalEntry).filter(Boolean)
-      firstBatchPayload.results = stubs.concat(firstBatchPayload.results || [])
-      inserted = stubs.length
-      try {
-        await col.doc(firstBatchKey).set({
-          data: {
-            ...firstBatchWrapper,
-            data: firstBatchPayload,
-            updatedAt: db.serverDate(),
-            updatedAtMs: Date.now()
-          }
+      const existingIds = new Set(
+        (firstBatchPayload.results || [])
+          .map((r) => (r && r.id != null ? String(r.id) : ''))
+          .filter(Boolean)
+      )
+      const stubs = missing
+        .map(stubFromTerminalEntry)
+        .filter((s) => s && s.id && !existingIds.has(String(s.id)))
+        .sort((a, b) => {
+          const am = a.net ? new Date(a.net).getTime() : 0
+          const bm = b.net ? new Date(b.net).getTime() : 0
+          return bm - am
         })
-      } catch (e) {}
+      if (stubs.length) {
+        firstBatchPayload.results = stubs.concat(firstBatchPayload.results || [])
+        if (typeof firstBatchPayload.count === 'number') {
+          firstBatchPayload.count = Number(firstBatchPayload.count) + stubs.length
+        }
+        inserted = stubs.length
+        try {
+          await col.doc(firstBatchKey).set({
+            data: {
+              ...firstBatchWrapper,
+              data: firstBatchPayload,
+              updatedAt: db.serverDate(),
+              updatedAtMs: Date.now()
+            }
+          })
+        } catch (e) {}
+      }
     }
     if (patched || inserted) {
       try {
+        // 主文档 count 供分页/诊断；插入 batch0 时同步抬，避免 hasMore 误判
+        if (inserted && payload && typeof payload.count === 'number') {
+          payload.count = Number(payload.count) + inserted
+          wrapper = { ...wrapper, data: payload }
+        }
         await col.doc(cacheKey).set({
           data: {
             ...wrapper,
@@ -1080,16 +1170,34 @@ async function patchPreviousCacheStatusFromTerminal(entries) {
       if (!foundIds.has(id)) missing.push(term)
     })
     if (missing.length) {
-      const stubs = missing.map(stubFromTerminalEntry).filter(Boolean)
-      payload.results = stubs.concat(payload.results)
-      inserted = stubs.length
+      const existingIds = new Set(
+        (payload.results || [])
+          .map((r) => (r && r.id != null ? String(r.id) : ''))
+          .filter(Boolean)
+      )
+      const stubs = missing
+        .map(stubFromTerminalEntry)
+        .filter((s) => s && s.id && !existingIds.has(String(s.id)))
+        .sort((a, b) => {
+          const am = a.net ? new Date(a.net).getTime() : 0
+          const bm = b.net ? new Date(b.net).getTime() : 0
+          return bm - am
+        })
+      if (stubs.length) {
+        payload.results = stubs.concat(payload.results)
+        inserted = stubs.length
+      }
     }
     if (patched || inserted) {
       try {
+        const nextPayload = { ...payload, results: payload.results }
+        if (inserted && typeof nextPayload.count === 'number') {
+          nextPayload.count = Number(nextPayload.count) + inserted
+        }
         await col.doc(cacheKey).set({
           data: {
             ...wrapper,
-            data: { ...payload, results: payload.results },
+            data: nextPayload,
             updatedAt: db.serverDate(),
             updatedAtMs: Date.now()
           }
@@ -1247,6 +1355,37 @@ async function fetchLaunchStatusesAction() {
     try {
       await mergeTerminalRowsIntoRecentSettled(rows)
     } catch (e) {}
+    // 顺带把最新 NET/status 就地 patch 进 upcoming 列表缓存（0 额外 LL2）：
+    // 改期不用等小时探针，全体用户下次拉列表即可看到新时间
+    try {
+      await upcomingCachePatcher.patchUpcomingCacheWithLiveRows(apiData.results)
+    } catch (e) {}
+    // 探针式 live 终态同步 previous，避免只改 upcoming、历史仍空窗
+    try {
+      const terminalEntries = []
+      const liveRows = Array.isArray(apiData.results) ? apiData.results : []
+      for (let i = 0; i < liveRows.length; i++) {
+        const r = liveRows[i]
+        const sid = r && r.status && r.status.id != null ? Number(r.status.id) : 0
+        if (!r || !r.id || !TERMINAL_STATUS_IDS[sid]) continue
+        terminalEntries.push({
+          id: String(r.id),
+          name: typeof r.name === 'string' ? r.name : '',
+          status: {
+            id: r.status.id,
+            name: r.status.name || '',
+            abbrev: r.status.abbrev || ''
+          },
+          net: r.net || '',
+          windowStart: r.window_start || '',
+          windowEnd: r.window_end || '',
+          settledAtMs: Date.now(),
+          source: 'fetchLaunchStatuses',
+          launchStub: buildPreviousStubFromLaunch(r)
+        })
+      }
+      if (terminalEntries.length) await patchPreviousCacheStatusFromTerminal(terminalEntries)
+    } catch (e) {}
 
     // 返回合并后的 rows：当前任务查找 + 列表实况 patch 都能受益
     return { success: true, rows: mergedRows, fromCache: '', timestamp: Date.now(), elapsed: Date.now() - startTime }
@@ -1292,14 +1431,46 @@ async function translateTextsAction(event) {
   if (total > TRANSLATE_MAX_TOTAL_CHARS) {
     return { success: false, error: '文本总量超限', timestamp: Date.now() }
   }
+  const skipTmt = !!(event && event.skipTmt)
   try {
-    const list = await translateTextsBatch(texts, { skipTmt: !!(event && event.skipTmt) })
+    const out = await translateTextsBatch(texts, { skipTmt, withMeta: true })
+    // 兼容：极端早退若仍返回裸数组，不把 out.list 当成 undefined 吃掉译文
+    const list = Array.isArray(out) ? out : ((out && out.list) || [])
+    const meta = Array.isArray(out) ? {} : (out || {})
     const translated = list.filter(Boolean).length
+    const tmtNeeded = meta.tmtNeeded != null ? meta.tmtNeeded : 0
+    const tmtConfigured = meta.tmtConfigured != null ? meta.tmtConfigured : isTmtConfigured()
+    // 需要机翻却全部为空：明确失败，避免客户端误显示「翻译暂不可用」却不知原因
+    if (!skipTmt && tmtNeeded > 0 && translated === 0) {
+      if (!tmtConfigured) {
+        return {
+          success: false,
+          error: '云端翻译服务未配置密钥',
+          list,
+          translated: 0,
+          tmtConfigured: false,
+          timestamp: Date.now(),
+          elapsed: Date.now() - startTime
+        }
+      }
+      const errMsg = meta.tmtLastError
+        ? ('翻译服务调用失败: ' + meta.tmtLastError)
+        : '翻译服务暂时不可用，请稍后再试'
+      return {
+        success: false,
+        error: errMsg,
+        list,
+        translated: 0,
+        tmtConfigured: true,
+        timestamp: Date.now(),
+        elapsed: Date.now() - startTime
+      }
+    }
     return {
       success: true,
       list,
       translated,
-      tmtConfigured: isTmtConfigured(),
+      tmtConfigured,
       timestamp: Date.now(),
       elapsed: Date.now() - startTime
     }
@@ -1332,8 +1503,14 @@ async function ensureCollections() {
     _legacySettledMigrated = true
     try {
       const legacy = await db.collection(TIMELINE_CACHE_COL).doc(RECENT_SETTLED_DOC).get()
-      const rows = legacy && legacy.data && Array.isArray(legacy.data.data) ? legacy.data.data : []
-      if (rows.length) await launchStatusStore.upsertMany(rows, { source: 'migration' })
+      // migratedAtMs 标记：迁移只需成功一次，避免每次冷启动都对全部行重放 upsert 读写
+      if (legacy && legacy.data && !legacy.data.migratedAtMs) {
+        const rows = Array.isArray(legacy.data.data) ? legacy.data.data : []
+        if (rows.length) await launchStatusStore.upsertMany(rows, { source: 'migration' })
+        await db.collection(TIMELINE_CACHE_COL).doc(RECENT_SETTLED_DOC).update({
+          data: { migratedAtMs: Date.now() }
+        }).catch(() => {})
+      }
     } catch (e) {}
   }
 }
@@ -1452,6 +1629,7 @@ async function resolveLaunchStatusesAction(event) {
   const fetched = await Promise.all(fetchIds.map(fetchLaunchStatusSingleFlight))
 
   const now = Date.now()
+  const terminalForPrevious = []
   for (let i = 0; i < fetched.length; i++) {
     const data = fetched[i]
     if (!data) continue
@@ -1479,12 +1657,54 @@ async function resolveLaunchStatusesAction(event) {
       observedAtMs: now,
       fromCache: ''
     })
+    const sid = data.status && data.status.id != null ? Number(data.status.id) : 0
+    if (TERMINAL_STATUS_IDS[sid]) {
+      terminalForPrevious.push({
+        id: String(data.id),
+        name: typeof data.name === 'string' ? data.name : '',
+        status: {
+          id: data.status.id,
+          name: data.status.name || '',
+          abbrev: data.status.abbrev || ''
+        },
+        net: data.net || '',
+        windowStart: data.window_start || '',
+        windowEnd: data.window_end || '',
+        settledAtMs: now,
+        source: 'resolveLaunchStatuses',
+        launchStub: buildPreviousStubFromLaunch(data)
+      })
+    }
+  }
+
+  // LL2 直接读数就地 patch 进 upcoming 列表缓存（0 额外 LL2）：
+  // hold/scrub 改期不再等小时探针，第一个触发 resolve 的用户即修正全局缓存
+  let cachePatch = null
+  const freshRows = fetched.filter(Boolean)
+  if (freshRows.length) {
+    try {
+      cachePatch = await upcomingCachePatcher.patchUpcomingCacheWithLiveRows(freshRows)
+    } catch (e) {
+      cachePatch = { patched: 0, docsWritten: 0, error: e.message || String(e) }
+    }
+  }
+
+  // 终态同步进 previous，避免 resolve 升角标后历史列表仍等小时探针
+  let previousPatch = null
+  if (terminalForPrevious.length) {
+    try {
+      previousPatch = await patchPreviousCacheStatusFromTerminal(terminalForPrevious)
+    } catch (e) {
+      previousPatch = { patched: 0, error: e.message || String(e) }
+    }
   }
 
   return {
     success: true,
     rows,
     ll2Calls,
+    cachePatch,
+    previousPatch,
     timestamp: Date.now(),
     elapsed: Date.now() - startTime
   }

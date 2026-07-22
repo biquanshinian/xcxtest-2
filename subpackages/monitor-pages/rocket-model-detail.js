@@ -5,12 +5,13 @@
  */
 const pageBase = require('../../utils/page-base.js')
 const { getBoosterGenealogy, getRocketConfigMeta } = require('../../utils/api-app-services.js')
-const boosterDisplay = require('../../utils/booster-display.js')
+const boosterDisplay = require('./utils/booster-display.js')
 const { buildLandingIcon, inferNetRecoveryFromLaunch } = require('../../utils/landing-icons.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
+const { openBoosterEntityDetail } = require('../../utils/booster-nav.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
-const { togglePageTranslation } = require('../../utils/text-translate.js')
+const { togglePageTranslation } = require('./utils/text-translate.js')
 const { getRocketImage } = require('../../utils/util.js')
 const { translateAgencyName } = require('../../utils/space-terms-i18n.js')
 
@@ -276,15 +277,14 @@ Page({
   async onBoosterCardTap(e) {
     var serial = e.currentTarget.dataset.serial
     if (!serial) return
-    // 会员门控：详情页可经分享链接直达，箭实体卡片入口需与族谱页一致拦截
-    var allowed = await gateCheck('booster_genealogy', '全球可回收火箭族谱')
-    if (!allowed) return
     var raw = (this._rawBySerial && this._rawBySerial[serial]) || null
-    if (raw) {
-      var app = getApp && getApp()
-      if (app) app._boosterDetailData = raw
-    }
-    navigateTo(ROUTES.BOOSTER_DETAIL, { serial: serial })
+    var card = (this.data.boosterCards || []).find(function (b) {
+      return b && String(b.serial) === String(serial)
+    })
+    await openBoosterEntityDetail(serial, {
+      raw: raw,
+      heroImage: (card && (card.thumbnailUrl || card.imageUrl)) || ''
+    })
   },
 
   onRetryLoad() {

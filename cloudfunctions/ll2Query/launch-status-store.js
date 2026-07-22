@@ -158,8 +158,28 @@ function createLaunchStatusStore(db) {
 
   async function upsertMany(values, defaults) {
     const list = Array.isArray(values) ? values : []
+    if (!list.length) return []
+    // 先批量读出现状，本地 merge 预判：无变化的行直接跳过，
+    // 只有真正要更新的行才走 upsertOne 的事务读写（多数轮次为 0~3 行）
+    const ids = list
+      .map((v) => (v && v.id != null ? String(v.id) : ''))
+      .filter(Boolean)
+    const currentById = new Map()
+    try {
+      const existing = await getByIds(ids)
+      for (const row of existing) {
+        if (row && row.id != null) currentById.set(String(row.id), row)
+      }
+    } catch (e) {}
     const out = []
     for (let i = 0; i < list.length; i++) {
+      const incoming = normalize(list[i], defaults)
+      if (!incoming) continue
+      const current = currentById.get(incoming.id) || null
+      if (current && merge(current, incoming, defaults) === current) {
+        out.push(current)
+        continue
+      }
       const row = await upsertOne(list[i], defaults)
       if (row) out.push(row)
     }
@@ -168,17 +188,26 @@ function createLaunchStatusStore(db) {
 
   async function getByIds(ids) {
     const unique = Array.from(new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean)))
-    const rows = await Promise.all(
-      unique.map(async (id) => {
-        try {
-          const result = await collection.doc(id).get()
-          return result && result.data ? result.data : null
-        } catch (e) {
-          return null
+    if (!unique.length) return []
+    // 文档 _id 即 launch id：_.in 批量查询替代按 id 逐条 doc.get 的 N 次请求扇出
+    const CHUNK = 50
+    const command = db.command
+    const rows = []
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const chunk = unique.slice(i, i + CHUNK)
+      try {
+        const result = await collection.where({ _id: command.in(chunk) }).limit(chunk.length).get()
+        if (result && Array.isArray(result.data)) rows.push(...result.data)
+      } catch (e) {
+        for (const id of chunk) {
+          try {
+            const one = await collection.doc(id).get()
+            if (one && one.data) rows.push(one.data)
+          } catch (e2) {}
         }
-      })
-    )
-    return rows.filter(Boolean)
+      }
+    }
+    return rows
   }
 
   async function getRecent(limit) {

@@ -168,7 +168,7 @@ Page({
     } catch (e) { }
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
     // 过审开关：failClosed，读不到配置直接不放行
-    featureFlags.isFeatureEnabled('enableMissionSim', { failClosed: true }).then(function (on) {
+    featureFlags.isFeatureEnabled('enableMissionSim', { failClosed: true, defaultOff: true }).then(function (on) {
       if (!on) that.setData({ enabled: false })
     }).catch(function () {
       that.setData({ enabled: false })
