@@ -46,8 +46,21 @@
     
     <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
 <view class="detail-container">
-      <!-- 加载中：内容区留白，进度由导航栏下方的 page-progress 绿色进度条呈现 -->
-      <block wx:if="{{loading}}"></block>
+      <!-- 加载中：骨架屏撑满一屏，分享/直达冷启动时页面立即可滑动；进度由导航栏下方的 page-progress 绿色进度条呈现 -->
+      <view class="detail-skeleton" wx:if="{{loading}}" aria-hidden="{{true}}">
+        <view class="skeleton-card skeleton-card--hero">
+          <view class="skeleton-hero skeleton-shimmer"></view>
+          <view class="skeleton-card-body">
+            <view class="skeleton-line skeleton-line--title skeleton-shimmer"></view>
+            <view class="skeleton-line skeleton-line--sub skeleton-shimmer"></view>
+          </view>
+        </view>
+        <view class="skeleton-card" wx:for="{{[1, 2, 3]}}" wx:key="*this">
+          <view class="skeleton-line skeleton-line--label skeleton-shimmer"></view>
+          <view class="skeleton-line skeleton-shimmer"></view>
+          <view class="skeleton-line skeleton-line--short skeleton-shimmer"></view>
+        </view>
+      </view>
 
       <view class="error-state glass-card" wx:elif="{{errorMessage}}">
         <text class="error-title">加载失败</text>

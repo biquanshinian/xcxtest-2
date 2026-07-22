@@ -79,6 +79,81 @@ switch {
   100% { background-position: -200% 0; }
 }
 
+/* ============== 详情页加载骨架（各详情页共享） ==============
+ * 全站禁用页面级滚动（page overflow:hidden），详情页靠页内 scroll-view 滚动；
+ * 分享/直达冷启动无缓存时若内容区留白，scroll-view 无内容可滚（整页「滑不动」）。
+ * 骨架撑满一屏以上让页面立即可滑动、下拉刷新可响应；扫光复用上方 skeleton-shimmer。
+ * 内容区自带 padding（如 .detail-container）时直接用 .detail-skeleton；
+ * 骨架直挂 scroll-view 下时加 .detail-skeleton--pad 补内衬。 */
+.detail-skeleton {
+  min-height: 100vh;
+}
+
+.detail-skeleton--pad {
+  padding: 32rpx;
+  box-sizing: border-box;
+}
+
+.skeleton-card {
+  background: rgba(18, 20, 24, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 24rpx;
+  padding: 24rpx 28rpx;
+  margin-bottom: 28rpx;
+}
+
+.skeleton-card--hero {
+  padding: 0;
+  overflow: hidden;
+}
+
+.skeleton-card-body {
+  padding: 24rpx 28rpx 28rpx;
+}
+
+.skeleton-hero {
+  width: 100%;
+  height: 380rpx;
+}
+
+.skeleton-line {
+  height: 26rpx;
+  margin-bottom: 18rpx;
+  border-radius: 10rpx;
+}
+
+.skeleton-line:last-child {
+  margin-bottom: 0;
+}
+
+.skeleton-line--badge {
+  width: 160rpx;
+  height: 34rpx;
+  border-radius: 999rpx;
+}
+
+.skeleton-line--title {
+  width: 70%;
+  height: 40rpx;
+}
+
+.skeleton-line--sub {
+  width: 45%;
+}
+
+.skeleton-line--label {
+  width: 30%;
+}
+
+.skeleton-line--short {
+  width: 60%;
+}
+
+.theme-light .skeleton-card {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.05);
+}
+
 /* 卡片悬浮效果 */
 .card-hover {
   transition: all 0.3s ease;

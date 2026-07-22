@@ -1933,6 +1933,8 @@ page {
   min-height: calc(100vh - 280rpx);
 }
 
+/* 加载骨架屏：样式统一定义在 app.wxss（.detail-skeleton / .skeleton-card / .skeleton-line 等，各详情页共享） */
+
 .loading-spinner {
   width: 48rpx;
   height: 48rpx;

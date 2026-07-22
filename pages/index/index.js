@@ -3699,6 +3699,16 @@ Page({
     }
   },
 
+  /** 清掉实时状态确认的复查定时器（页面卸载时调用）；onHide 不调此函数以免丢复查节奏 */
+  _clearLiveStatusPolling() {
+    if (this._statusRecheckTimer) {
+      clearTimeout(this._statusRecheckTimer)
+      this._statusRecheckTimer = null
+    }
+    this._launchStatusPolling = false
+    this._lastExpiredRoundAt = 0
+  },
+
   _clearCountdownLiveEnterTimer() {
     if (this._channelsLiveEnterTimer) {
       clearTimeout(this._channelsLiveEnterTimer)
@@ -4135,7 +4145,11 @@ Page({
       clearTimeout(this._missionCardMeasureTimer)
       this._missionCardMeasureTimer = null
     }
-    this._clearLiveStatusPolling()
+    if (typeof this._clearLiveStatusPolling === 'function') {
+      try {
+        this._clearLiveStatusPolling()
+      } catch (e) {}
+    }
   },
 
 
