@@ -111,7 +111,7 @@ Page({
       return
     }
 
-    // 长按菜单用：复制链接优先原片/来源，保存用当前播放文件
+    // 长按菜单用：保存与复制链接均优先原片（播放的是压缩预览，不能存压缩版）
     this._remoteUrl = remoteUrl
     this._originalUrl = originalUrl
     this._sourceUrl = sourceUrl
@@ -162,14 +162,16 @@ Page({
 
     const remotePlay = /^https?:\/\//i.test(playUrl) ? playUrl : ''
     const copyLink = this._originalUrl || this._sourceUrl || this._remoteUrl || remotePlay
-    const items = ['保存视频到相册']
+    // 会员下载给原片；无原片地址（外部入口直传 url）才退回当前播放文件
+    const saveUrl = this._originalUrl || playUrl
+    const items = [this._originalUrl ? '保存原视频到相册' : '保存视频到相册']
     if (copyLink) items.push('复制视频链接')
 
     wx.showActionSheet({
       itemList: items,
       success: (res) => {
         if (res.tapIndex === 0) {
-          saveEventVideoToAlbum(playUrl)
+          saveEventVideoToAlbum(saveUrl)
         } else if (res.tapIndex === 1 && copyLink) {
           wx.setClipboardData({
             data: copyLink,

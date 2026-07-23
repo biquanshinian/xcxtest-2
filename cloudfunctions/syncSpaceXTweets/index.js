@@ -596,18 +596,39 @@ function isContentTranslated(tweet) {
   return containsChinese(tweet.text || '')
 }
 
+/** 替换/追加推特图片 URL 的 name 尺寸参数（orig/large/medium…） */
+function withTwitterImageName(url, name) {
+  if (url.includes('name=')) return url.replace(/name=[^&]*/, `name=${name}`)
+  return url + (url.includes('?') ? '&' : '?') + `name=${name}`
+}
+
+const EVENT_IMAGE_MAX_BYTES = 15 * 1024 * 1024
+
 async function uploadImageToCOS(imageUrl, tweetId, index, cosFolder) {
   const cos = createCOSClient()
-  let imgUrl = imageUrl
-  if (imgUrl.includes('name=orig')) imgUrl = imgUrl.replace('name=orig', 'name=medium')
-  else if (!imgUrl.includes('name=')) imgUrl += (imgUrl.includes('?') ? '&' : '?') + 'name=medium'
 
-  const downloadUrl = WORKER_PROXY_URL
-    ? `${WORKER_PROXY_URL}/image?url=${encodeURIComponent(imgUrl)}`
-    : imgUrl
-
-  const buffer = await httpsGetBuffer(downloadUrl, 25000)
-  if (buffer.length > 6 * 1024 * 1024) return null
+  // 入库存原图（会员下载用），预览压缩由前端 imageMogr2 处理；
+  // orig 超限/失败时降级 large（2048px），避免整张图丢失
+  let buffer = null
+  let imgUrl = ''
+  let lastErr = null
+  for (const name of ['orig', 'large']) {
+    const candidate = withTwitterImageName(imageUrl, name)
+    const downloadUrl = WORKER_PROXY_URL
+      ? `${WORKER_PROXY_URL}/image?url=${encodeURIComponent(candidate)}`
+      : candidate
+    try {
+      buffer = await httpsGetBuffer(downloadUrl, 25000, EVENT_IMAGE_MAX_BYTES)
+      imgUrl = candidate
+      break
+    } catch (e) {
+      lastErr = e
+    }
+  }
+  if (!buffer) {
+    if (lastErr && !String(lastErr.message).startsWith('EXCEEDS_MAX_SIZE')) throw lastErr
+    return null
+  }
 
   const ext = imgUrl.includes('format=png') ? '.png' : '.jpg'
   const key = `${cosFolder}/${tweetId}_${index}${ext}`
