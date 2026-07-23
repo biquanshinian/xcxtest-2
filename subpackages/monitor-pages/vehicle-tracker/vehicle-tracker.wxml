@@ -1,0 +1,93 @@
+<!-- 在轨飞行器追踪 · SpaceX 风格全屏 HUD -->
+<view class="vtk-page">
+
+  <!-- 顶部轻导航（透明叠在球上） -->
+  <view class="vtk-hud-nav" style="padding-top: {{statusBarHeight}}px;">
+    <view class="vtk-navbar" style="height: {{navBarHeight}}px;">
+      <view class="vtk-navbar__back" bindtap="onBack" hover-class="vtk-navbar__back--hover">
+        <view class="vtk-navbar__back-arrow">‹</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 朋友圈单页模式 -->
+  <view class="vtk-disabled" wx:if="{{momentsHint}}">
+    <text class="vtk-disabled-icon">🛰</text>
+    <text class="vtk-disabled-text">前往小程序查看在轨飞行器追踪</text>
+    <text class="vtk-disabled-sub">点击顶部「前往小程序」即可体验完整 3D 地球</text>
+  </view>
+
+  <!-- 分享链接过期且无权益 -->
+  <view class="vtk-disabled" wx:elif="{{!enabled}}">
+    <text class="vtk-disabled-icon">⏳</text>
+    <text class="vtk-disabled-text">{{disabledText || '该功能暂未开放'}}</text>
+    <view class="vtk-disabled-back" bindtap="onBack" hover-class="vtk-disabled-back--hover">
+      <text>返回</text>
+    </view>
+  </view>
+
+  <!-- 全视口地球 + 分区 HUD（不挡球心） -->
+  <view class="vtk-stage" wx:elif="{{enabled}}">
+    <view class="vtk-canvas-wrap">
+      <canvas type="2d" id="vtCanvas" class="vtk-canvas"
+              bindtouchstart="onVtTouchStart"
+              catchtouchmove="onVtTouchMove"
+              bindtouchend="onVtTouchEnd"
+              bindtouchcancel="onVtTouchEnd"></canvas>
+
+      <view class="vtk-acquiring" wx:if="{{vtLoading}}">
+        <text>ACQUIRING SIGNAL...</text>
+      </view>
+
+      <text class="vtk-hint" wx:if="{{!vtLoading}}">拖动旋转 · 双指缩放</text>
+    </view>
+
+    <!-- 右上 LIVE / SIM -->
+    <view class="vtk-mode {{vtMode === 'SIMULATED' ? 'vtk-mode--sim' : ''}}"
+          wx:if="{{!vtLoading}}"
+          style="top: {{statusBarHeight + navBarHeight + 8}}px;">
+      <view class="vtk-mode-dot"></view>
+      <text>{{vtMode}}</text>
+    </view>
+
+    <!-- 左上：标题 + 机型按钮（窄栏） -->
+    <view class="vtk-details" style="top: {{statusBarHeight + navBarHeight + 8}}px;">
+      <text class="vtk-details__sub">在轨</text>
+      <text class="vtk-details__title">飞行器追踪</text>
+
+      <view class="vtk-vehicles" wx:if="{{vtVehicles.length}}">
+        <view class="vtk-vehicle-btn {{item.id === vtFeatured ? 'vtk-vehicle-btn--active' : ''}}"
+              wx:for="{{vtVehicles}}" wx:key="id"
+              data-id="{{item.id}}" bindtap="onVtVehicleTap"
+              hover-class="vtk-vehicle-btn--hover">
+          <text>{{item.label}}</text>
+        </view>
+      </view>
+
+      <view class="vtk-skeleton-btns" wx:elif="{{vtLoading}}">
+        <view class="vtk-skeleton-btn"></view>
+        <view class="vtk-skeleton-btn"></view>
+        <view class="vtk-skeleton-btn"></view>
+      </view>
+    </view>
+
+    <!-- 左下：遥测三行（脱离球心） -->
+    <view class="vtk-telemetry" wx:if="{{!vtLoading}}">
+      <view class="vtk-telemetry__row">
+        <text class="vtk-telemetry__label">Mission Time</text>
+        <text class="vtk-telemetry__value">{{vtMissionTime}}</text>
+      </view>
+      <view class="vtk-telemetry__row">
+        <text class="vtk-telemetry__label">Speed</text>
+        <text class="vtk-telemetry__value">{{vtSpeed}}</text>
+      </view>
+      <view class="vtk-telemetry__row">
+        <text class="vtk-telemetry__label">Altitude</text>
+        <text class="vtk-telemetry__value">{{vtAltitude}}</text>
+      </view>
+    </view>
+  </view>
+
+  <share-gate-countdown expire-at="{{shareGateExpireAt}}" />
+
+</view>

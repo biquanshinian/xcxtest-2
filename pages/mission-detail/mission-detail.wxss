@@ -3284,3 +3284,8 @@ page {
   background: linear-gradient(135deg, #00c46a, #00a862);
   box-shadow: 0 4rpx 16rpx rgba(0, 168, 98, 0.3);
 }
+
+/* 飞行剖面演示（指挥这次任务下方） */
+.detail-flight-demo {
+  margin: 0 24rpx 28rpx;
+}

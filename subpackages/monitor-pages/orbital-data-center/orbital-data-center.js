@@ -198,7 +198,7 @@ Page({
     // Vehicle Tracker（在轨飞行器追踪）
     vtVehicles: [],
     vtFeatured: '',
-    vtMissionTime: 'T+ 0D 00:00:00',
+    vtMissionTime: 'T+ 0D 00:00',
     vtSpeed: '--',
     vtAltitude: '--',
     vtMode: 'LIVE',
@@ -493,7 +493,7 @@ Page({
   },
 
   /**
-   * 选中飞行器失效或未选时：优先星舰，其次第一个；镜头对准。
+   * 选中飞行器失效或未选时：优先在轨星舰，其次任意星舰/在轨机。
    * 用户未手动切换过时，星舰任务开播（数据流入）会自动对准新上线的星舰。
    */
   _vtEnsureFeatured() {
@@ -501,14 +501,18 @@ Page({
     if (!list.length) return
     const cur = this.data.vtFeatured
     const curValid = cur && list.some(v => v.id === cur)
+    if (curValid && this._vtUserPicked) return
+    const activeShip = list.find(v => /^ship/.test(v.id) && v.active)
     const ship = list.find(v => /^ship/.test(v.id))
-    if (curValid && (this._vtUserPicked || !ship || /^ship/.test(cur))) return
-    const pref = ship || list[0]
+    const active = list.find(v => v.active)
+    const pref = activeShip || ship || active || list[0]
     if (pref.id === cur) return
     this.setData({ vtFeatured: pref.id })
     if (this._vtRenderer) {
       this._vtRenderer.setFeatured(pref.id)
-      this._vtRenderer.rotateToLocation(pref.lat, pref.lng)
+      if (pref.active && isFinite(pref.lat) && isFinite(pref.lng)) {
+        this._vtRenderer.rotateToLocation(pref.lat, pref.lng)
+      }
     }
   },
 
@@ -528,23 +532,56 @@ Page({
         v._curAltM = p.alt * 1000
         v._curSpeedMs = p.vel * 1000
         v._curMissionSec = (now - v.simStartMs) / 1000
-      } else {
+      } else if (v.active) {
         const p = vtData.interpPosition(v, now)
         v._lat = p.lat
         v._lng = p.lng
-        v._curAltM = v.altitudeM
+        v._curAltM = p.alt != null ? p.alt : v.altitudeM
         v._curSpeedMs = v.speedMs
         v._curMissionSec = v.missionTime + (now - v.fetchedAt) / 1000
+        const iss = vtData.interpIssPosition(v, now)
+        if (iss) {
+          v._issLat = iss.lat
+          v._issLng = iss.lng
+          v._issAltM = iss.alt
+        } else {
+          v._issLat = v.issLat
+          v._issLng = v.issLng
+          v._issAltM = v.issAltM
+        }
+      } else {
+        v._lat = v.lat
+        v._lng = v.lng
+        v._curAltM = 0
+        v._curSpeedMs = 0
+        v._curMissionSec = 0
+        v._issLat = null
+        v._issLng = null
       }
-      rendered.push({ id: v.id, label: v.label, lat: v._lat, lng: v._lng, track: v.track })
+      rendered.push({
+        id: v.id,
+        label: v.label,
+        group: v.group,
+        lat: v._lat,
+        lng: v._lng,
+        altM: v._curAltM,
+        track: v.showTrack ? v.track : [],
+        showTrack: !!v.showTrack,
+        active: v.active !== false,
+        issLat: v._issLat != null ? v._issLat : v.issLat,
+        issLng: v._issLng != null ? v._issLng : v.issLng,
+        issAltM: v._issAltM != null ? v._issAltM : v.issAltM
+      })
       if (v.id === this.data.vtFeatured) featured = v
     }
     this._vtRenderer.setVehicles(rendered)
     if (featured) {
       const updates = {}
-      const mt = vtData.fmtMissionTime(featured._curMissionSec)
+      let mt = vtData.fmtMissionTime(featured._curMissionSec)
       const sp = vtData.fmtSpeed(featured._curSpeedMs)
       const alt = vtData.fmtAltitude(featured._curAltM)
+      // 官网：Speed/Altitude 显示均为 0 时，Mission Time 归零
+      if (sp === '0 KM/H' && alt === '0 KM') mt = 'T+ 0D 00:00'
       if (mt !== this.data.vtMissionTime) updates.vtMissionTime = mt
       if (sp !== this.data.vtSpeed) updates.vtSpeed = sp
       if (alt !== this.data.vtAltitude) updates.vtAltitude = alt
@@ -558,16 +595,15 @@ Page({
     this._vtUserPicked = true
     this.setData({ vtFeatured: id })
     const v = (this._vtVehicles || []).find(x => x.id === id)
-    if (this._vtRenderer) {
-      this._vtRenderer.setFeatured(id)
-      if (v) {
-        this._vtRenderer.rotateToLocation(
-          v._lat != null ? v._lat : v.lat,
-          v._lng != null ? v._lng : v.lng
-        )
+    if (this._vtRenderer) this._vtRenderer.setFeatured(id)
+    this._vtTick()
+    if (this._vtRenderer && v && v.active) {
+      const lat = v._lat != null ? v._lat : v.lat
+      const lng = v._lng != null ? v._lng : v.lng
+      if (isFinite(lat) && isFinite(lng)) {
+        this._vtRenderer.rotateToLocation(lat, lng)
       }
     }
-    this._vtTick()
   },
 
   onVtTouchStart(e) { if (this._vtRenderer) this._vtRenderer.onTouchStart(e) },

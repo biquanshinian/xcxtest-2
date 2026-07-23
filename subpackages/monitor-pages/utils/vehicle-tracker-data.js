@@ -10,13 +10,18 @@
  *   dragon：  { 'glass.dragon.mission_time_f64', 'glass.dgn_alt_geod_f64'(米), 'glass.dgn_speed_f64'(米/秒),
  *              'glass.predict_dgn_r_lla_v3': [lat(弧度), lon(弧度), alt(米)],
  *              'glass.prop_dgn_r_ecef_v3': [[x,y,z](米), ...]（轨道传播序列，约 60s 一点） }
- *   未在轨任务（如未发射的 crew/crs）载荷全零，须过滤。
+ *
+ * 列表策略对齐官网：零值/垫上任务仍出现在按钮列表（listed）；
+ * 渲染轨迹仅对 active 且高度足够的条目启用（showTrack）。
  */
 var config = require('../../../utils/config.js')
 var httpRequest = require('./http-request.js')
 
 var REQUEST_TIMEOUT = 15000
 var RAD2DEG = 180 / Math.PI
+var EARTH_RADIUS_M = 6378137
+/** 官网 threed.js：星舰 altitude < 500 时隐藏轨迹 */
+var STARSHIP_TRACK_MIN_ALT_M = 500
 
 /**
  * 在飞判定阈值：星舰载荷在任务间歇期仍会持续生成（gps_time 跟随 generation_time
@@ -25,17 +30,19 @@ var RAD2DEG = 180 / Math.PI
  *   1) 轨迹末点相对 gps_time 落后 > 1h → 管线在推时间戳、轨迹已停（当前实测形态）
  *   2) 轨迹末点相对墙钟落后 > 1h → gps_time 与轨迹一并冻结，或 Worker KV 回灌陈旧包
  * GPS 秒 → Unix 秒近似偏移（忽略闰秒，对 1h 阈值无影响）。
- * 任务真正开始后官网数据流恢复滚动，下一轮 15s 轮询即自动上线。
+ * 任务真正开始后官网数据流恢复滚动，下一轮轮询即自动上线。
  */
 var STARSHIP_STALE_SEC = 3600
 var GPS_TO_UNIX_SEC = 315964800
 
-/** ECEF（米）→ 地心经纬度（度）；展示用，无需大地纬度修正 */
-function ecefToLatLng(p) {
+/** ECEF（米）→ 地心经纬度（度）+ 近似高度（米） */
+function ecefToLatLngAlt(p) {
   var x = p[0], y = p[1], z = p[2]
+  var r = Math.sqrt(x * x + y * y + z * z)
   return [
     Math.atan2(z, Math.sqrt(x * x + y * y)) * RAD2DEG,
-    Math.atan2(y, x) * RAD2DEG
+    Math.atan2(y, x) * RAD2DEG,
+    r - EARTH_RADIUS_M
   ]
 }
 
@@ -64,7 +71,7 @@ function displayName(id) {
   return String(id || '').toUpperCase()
 }
 
-/** starship 风格条目（current + trajectory，经纬度制）；非在飞任务返回 null */
+/** starship 风格条目；始终 listed（有 current），轨迹按高度/新鲜度决定 */
 function parseStarshipEntry(id, v, fetchedAt) {
   var cur = v.current
   if (!cur || !isFinite(cur.latitude) || !isFinite(cur.longitude)) return null
@@ -74,50 +81,58 @@ function parseStarshipEntry(id, v, fetchedAt) {
     for (var i = 0; i < v.trajectory.length; i++) {
       var p = v.trajectory[i]
       if (!p || !isFinite(p.latitude) || !isFinite(p.longitude)) continue
-      traj.push({ t: +p.time || 0, lat: +p.latitude, lng: +p.longitude })
-      track.push([+p.latitude, +p.longitude])
+      var alt = isFinite(p.altitude) ? +p.altitude : 0
+      traj.push({ t: +p.time || 0, lat: +p.latitude, lng: +p.longitude, alt: alt })
+      track.push([+p.latitude, +p.longitude, alt])
     }
   }
-  // 在飞判定：无轨迹，或轨迹相对 gps_time / 墙钟过旧 = 冻结/陈旧数据
-  if (!traj.length) return null
   var gpsTime = isFinite(cur.gps_time) ? +cur.gps_time : 0
-  var lastTrajT = traj[traj.length - 1].t
-  if (!isStarshipTrackActive(gpsTime, lastTrajT)) return null
+  var lastTrajT = traj.length ? traj[traj.length - 1].t : 0
+  var altM = isFinite(cur.altitude) ? +cur.altitude : 0
+  var speedMs = isFinite(cur.speed) ? +cur.speed : 0
+  var trackFresh = traj.length > 0 && isStarshipTrackActive(gpsTime, lastTrajT)
+  // 对齐官网：alt < 500m 不画轨迹（垫上/低空避免乱飞弹道）
+  var showTrack = trackFresh && altM >= STARSHIP_TRACK_MIN_ALT_M
+  var active = trackFresh || altM > 10 || speedMs > 1
   return {
     id: id,
     label: displayName(id),
     group: 'starship',
+    listed: true,
+    active: active,
+    showTrack: showTrack,
     gpsTime: gpsTime,
     missionTime: isFinite(cur.mission_time) ? +cur.mission_time : 0,
-    altitudeM: isFinite(cur.altitude) ? +cur.altitude : null,
-    speedMs: isFinite(cur.speed) ? +cur.speed : null,
+    altitudeM: altM,
+    speedMs: speedMs,
     lat: +cur.latitude,
     lng: +cur.longitude,
-    traj: traj,
-    track: track,
+    traj: showTrack ? traj : [],
+    track: showTrack ? track : [],
     stepSec: 0,
     fetchedAt: fetchedAt
   }
 }
 
-/** dragon 风格条目（glass.* 遥测键，弧度制 + ECEF 轨迹） */
+/** dragon 风格条目（含零值任务，供列表展示） */
 function parseDragonEntry(id, v, fetchedAt) {
   var lla = v['glass.predict_dgn_r_lla_v3']
   if (!Array.isArray(lla) || lla.length < 2) return null
   var mission = +v['glass.dragon.mission_time_f64'] || 0
   var altM = +v['glass.dgn_alt_geod_f64'] || 0
   var speed = +v['glass.dgn_speed_f64'] || 0
-  // 全零载荷 = 任务未开始/已结束（官网亦不展示）
-  if (!mission && !altM && !lla[0] && !lla[1]) return null
+  var lat = lla[0] * RAD2DEG
+  var lng = lla[1] * RAD2DEG
+  // 全零载荷 = 任务未开始/已结束：官网仍展示按钮，遥测为 0
+  var isZero = !mission && !altM && !lla[0] && !lla[1]
   var track = []
   var stepSec = 0
   var prop = v['glass.prop_dgn_r_ecef_v3']
-  if (Array.isArray(prop)) {
+  if (!isZero && Array.isArray(prop)) {
     for (var i = 0; i < prop.length; i++) {
       var p = prop[i]
-      if (Array.isArray(p) && p.length >= 3) track.push(ecefToLatLng(p))
+      if (Array.isArray(p) && p.length >= 3) track.push(ecefToLatLngAlt(p))
     }
-    // 由首段弦长/速度估算轨迹点时间间隔，供两次轮询间沿轨迹推进
     if (prop.length >= 2 && speed > 0) {
       var dx = prop[1][0] - prop[0][0]
       var dy = prop[1][1] - prop[0][1]
@@ -125,16 +140,41 @@ function parseDragonEntry(id, v, fetchedAt) {
       stepSec = Math.sqrt(dx * dx + dy * dy + dz * dz) / speed
     }
   }
+  var issLat = null
+  var issLng = null
+  var issAltM = null
+  var issTrack = []
+  var iss = v['glass.predict_iss_r_lla_v3']
+  if (!isZero && Array.isArray(iss) && iss.length >= 2 && (iss[0] || iss[1])) {
+    issLat = iss[0] * RAD2DEG
+    issLng = iss[1] * RAD2DEG
+    if (isFinite(iss[2])) issAltM = +iss[2]
+  }
+  // 与龙飞船同一套传播序列，保证 1Hz 插值时 ISS/Dragon 同步走
+  var issProp = v['glass.prop_iss_r_ecef_v3']
+  if (!isZero && Array.isArray(issProp)) {
+    for (var j = 0; j < issProp.length; j++) {
+      var ip = issProp[j]
+      if (Array.isArray(ip) && ip.length >= 3) issTrack.push(ecefToLatLngAlt(ip))
+    }
+  }
   return {
     id: id,
     label: displayName(id),
     group: 'dragon',
+    listed: true,
+    active: !isZero,
+    showTrack: !isZero && track.length >= 2,
     gpsTime: +v['glass.dragon.gps_time_f64'] || 0,
     missionTime: mission,
     altitudeM: altM,
     speedMs: speed,
-    lat: lla[0] * RAD2DEG,
-    lng: lla[1] * RAD2DEG,
+    lat: lat,
+    lng: lng,
+    issLat: issLat,
+    issLng: issLng,
+    issAltM: issAltM,
+    issTrack: issTrack,
     traj: [],
     track: track,
     stepSec: stepSec,
@@ -142,7 +182,7 @@ function parseDragonEntry(id, v, fetchedAt) {
   }
 }
 
-/** 解析 Worker 返回的 { starship, dragon } 合并载荷为飞行器数组 */
+/** 解析 Worker 返回的 { starship, dragon } 合并载荷为飞行器数组（含 listed 零值） */
 function parsePayload(payload) {
   var vehicles = []
   var fetchedAt = Date.now()
@@ -165,7 +205,7 @@ function parsePayload(payload) {
   return vehicles
 }
 
-/** 拉取遥测；无有效飞行器时 reject（页面据此回退模拟模式） */
+/** 拉取遥测；无任何 listed 飞行器时 reject（页面据此回退模拟模式） */
 function fetchVehicles() {
   var base = getWorkerBase()
   if (!base) return Promise.reject(new Error('未配置 workerProxyUrl'))
@@ -188,9 +228,12 @@ function fetchVehicles() {
 
 function lerpLatLng(a, b, k) {
   var dLng = ((b[1] - a[1] + 540) % 360) - 180
+  var aAlt = a.length > 2 ? +a[2] : 0
+  var bAlt = b.length > 2 ? +b[2] : 0
   return {
     lat: a[0] + (b[0] - a[0]) * k,
-    lng: ((a[1] + dLng * k + 540) % 360) - 180
+    lng: ((a[1] + dLng * k + 540) % 360) - 180,
+    alt: aAlt + (bAlt - aAlt) * k
   }
 }
 
@@ -200,7 +243,25 @@ function lerpLatLng(a, b, k) {
  * 2. dragon：沿 ECEF 传播轨迹按估算的点间隔（stepSec）推进
  * 3. 兜底：current 静态位置
  */
+function _interpTrack(track, stepSec, extra, fallbackLat, fallbackLng, fallbackAlt) {
+  if (stepSec > 0 && track && track.length >= 2 && extra > 0) {
+    var idx = extra / stepSec
+    var maxIdx = track.length - 1
+    if (idx >= maxIdx) {
+      var last = track[maxIdx]
+      return { lat: last[0], lng: last[1], alt: last[2] != null ? last[2] : (fallbackAlt || 0) }
+    }
+    var j = Math.floor(idx)
+    return lerpLatLng(track[j], track[j + 1], idx - j)
+  }
+  return { lat: fallbackLat, lng: fallbackLng, alt: fallbackAlt || 0 }
+}
+
 function interpPosition(v, nowMs) {
+  if (!v) return { lat: 0, lng: 0, alt: 0 }
+  if (!v.active) {
+    return { lat: v.lat, lng: v.lng, alt: v.altitudeM || 0 }
+  }
   var extra = (nowMs - v.fetchedAt) / 1000
   var target = v.gpsTime + extra
   var traj = v.traj
@@ -209,21 +270,33 @@ function interpPosition(v, nowMs) {
       if (target >= traj[i].t && target <= traj[i + 1].t) {
         var span = traj[i + 1].t - traj[i].t || 1
         var k = (target - traj[i].t) / span
-        return lerpLatLng([traj[i].lat, traj[i].lng], [traj[i + 1].lat, traj[i + 1].lng], k)
+        return lerpLatLng(
+          [traj[i].lat, traj[i].lng, traj[i].alt || 0],
+          [traj[i + 1].lat, traj[i + 1].lng, traj[i + 1].alt || 0],
+          k
+        )
       }
     }
   }
-  if (v.stepSec > 0 && v.track && v.track.length >= 2 && extra > 0) {
-    var idx = extra / v.stepSec
-    var maxIdx = v.track.length - 1
-    if (idx >= maxIdx) return { lat: v.track[maxIdx][0], lng: v.track[maxIdx][1] }
-    var j = Math.floor(idx)
-    return lerpLatLng(v.track[j], v.track[j + 1], idx - j)
-  }
-  return { lat: v.lat, lng: v.lng }
+  return _interpTrack(v.track, v.stepSec, extra, v.lat, v.lng, v.altitudeM || 0)
 }
 
-// ========== 格式化 ==========
+/** ISS 与龙飞船共用 stepSec / fetchedAt，沿 prop_iss ECEF 同步插值 */
+function interpIssPosition(v, nowMs) {
+  if (!v) return null
+  if (!isFinite(v.issLat) || !isFinite(v.issLng)) return null
+  var extra = (nowMs - v.fetchedAt) / 1000
+  return _interpTrack(
+    v.issTrack,
+    v.stepSec,
+    extra,
+    v.issLat,
+    v.issLng,
+    v.issAltM != null ? v.issAltM : 420000
+  )
+}
+
+// ========== 格式化（对齐官网 threed.js：无秒、整数 km） ==========
 
 function pad2(n) { return String(n).padStart(2, '0') }
 
@@ -231,26 +304,30 @@ function fmtThousands(n) {
   return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 }
 
-/** 任务时间（秒）→ 'T+ 4D 16:19:05' */
+/** 任务时间（秒）→ 'T+ 4D 16:19'（官网无秒） */
 function fmtMissionTime(sec) {
-  if (!isFinite(sec) || sec < 0) return 'T+ 0D 00:00:00'
+  if (!isFinite(sec) || sec < 0) return 'T+ 0D 00:00'
   var s = Math.floor(sec)
   var d = Math.floor(s / 86400); s -= d * 86400
   var h = Math.floor(s / 3600); s -= h * 3600
-  var m = Math.floor(s / 60); s -= m * 60
-  return 'T+ ' + d + 'D ' + pad2(h) + ':' + pad2(m) + ':' + pad2(s)
+  var m = Math.floor(s / 60)
+  return 'T+ ' + d + 'D ' + pad2(h) + ':' + pad2(m)
 }
 
-/** 速度（米/秒）→ '27,580 KM/H' */
+/** 速度（米/秒）→ '27,580 KM/H'；官网钳制异常值到 0 */
 function fmtSpeed(ms) {
   if (ms == null || !isFinite(ms)) return '--'
-  return fmtThousands(ms * 3.6) + ' KM/H'
+  var kmh = ms * 3.6
+  if (kmh < 0 || kmh > 40000) kmh = 0
+  return fmtThousands(kmh) + ' KM/H'
 }
 
-/** 高度（米）→ '418 KM' */
+/** 高度（米）→ '418 KM'；官网钳制异常值到 0 */
 function fmtAltitude(m) {
   if (m == null || !isFinite(m)) return '--'
-  return fmtThousands(m / 1000) + ' KM'
+  var km = m / 1000
+  if (km < 0 || km > 2000) km = 0
+  return fmtThousands(km) + ' KM'
 }
 
 // ========== 模拟兜底 ==========
@@ -266,16 +343,22 @@ function buildSimulated(computePos, simStartMs) {
   // 地面轨迹：前后各 45 分钟，60s 一点
   for (var dt = -45 * 60000; dt <= 45 * 60000; dt += 60000) {
     var p = computePos(nowMs + dt)
-    track.push([p.lat, p.lon])
+    track.push([p.lat, p.lon, p.alt * 1000])
   }
   var cur = computePos(nowMs)
   return {
     id: 'sim1',
     label: 'STARLINK V2 · SIM',
+    group: 'starship',
+    listed: true,
+    active: true,
+    showTrack: true,
     sim: true,
     simStartMs: simStartMs,
     lat: cur.lat,
     lng: cur.lon,
+    altitudeM: cur.alt * 1000,
+    speedMs: cur.vel * 1000,
     track: track,
     traj: []
   }
@@ -285,9 +368,11 @@ module.exports = {
   fetchVehicles: fetchVehicles,
   parsePayload: parsePayload,
   interpPosition: interpPosition,
+  interpIssPosition: interpIssPosition,
   buildSimulated: buildSimulated,
   fmtMissionTime: fmtMissionTime,
   fmtSpeed: fmtSpeed,
   fmtAltitude: fmtAltitude,
-  displayName: displayName
+  displayName: displayName,
+  STARSHIP_TRACK_MIN_ALT_M: STARSHIP_TRACK_MIN_ALT_M
 }

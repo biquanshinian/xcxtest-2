@@ -1057,6 +1057,19 @@ Page({
     }
   },
 
+  /** 在轨飞行器追踪独立页（与 ODC 控制台入口同一门控产品，会员解锁一处两处通行） */
+  async openVehicleTracker() {
+    if (this._vtGatePending) return
+    this._vtGatePending = true
+    try {
+      const allowed = await gateCheck('orbital_data_center', '在轨飞行器追踪')
+      if (!allowed) return
+      navigateTo(ROUTES.VEHICLE_TRACKER)
+    } finally {
+      this._vtGatePending = false
+    }
+  },
+
   async onHardwareViewAllTap() {
     const allowed = await gateCheck('starship_hardware', '星舰硬件设施')
     if (!allowed) return

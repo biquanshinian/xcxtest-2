@@ -39,7 +39,8 @@ const {
   toggleEventImageSaveSelect,
   selectAllEventImageSave,
   confirmEventImageSavePicker,
-  parseLongPressDataset
+  parseLongPressDataset,
+  previewEventImages
 } = require('./utils/event-image-save.js')
 
 function isNsfStarshipMissionCard(mission) {
@@ -1069,11 +1070,17 @@ Page({
     const authorAvatarRemote = avatar || ''
     if (avatar) avatar = getCachedMediaImage(avatar, 'thumb')
 
-    const imageUrls = enrichedMediaList.filter(media => media && media.type === 'image' && media.url).map(media => media.url)
-    const imageOriginalUrls = enrichedMediaList
-      .filter(media => media && media.type === 'image')
-      .map(media => media.remoteUrl || media.url)
-      .filter(Boolean)
+    // 缩略图与原图一一对应（同下标），避免预览/保存映射错位
+    const imageUrls = []
+    const imageOriginalUrls = []
+    enrichedMediaList.forEach((media) => {
+      if (!media || media.type !== 'image') return
+      const original = media.remoteUrl || media.url
+      const thumb = media.url || original
+      if (!thumb && !original) return
+      imageUrls.push(thumb || original)
+      imageOriginalUrls.push(original || thumb)
+    })
     const imageCount = imageUrls.length
 
     return {
@@ -1615,12 +1622,9 @@ Page({
     this.setData({ avatarError: true })
   },
 
+  /** 点击：微信原生预览缩略图；原图保存走列表长按 */
   onEventImagePreview(e) {
-    const dataset = e.currentTarget.dataset || {}
-    const urls = dataset.urls || []
-    const current = dataset.current || urls[0]
-    if (!urls.length) return
-    wx.previewImage({ urls, current })
+    previewEventImages(e.currentTarget.dataset)
   },
 
   saveImageToAlbum(imageUrl, opts) {

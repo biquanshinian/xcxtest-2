@@ -424,7 +424,11 @@ Page({
     missionLaunchStats: null,
     /** 星舰任务指挥室入口（星舰任务 + 有 LL2 时间线 + enableMissionSim 开关） */
     missionSimEligible: false,
-    enableMissionSim: false
+    enableMissionSim: false,
+    /** 飞行剖面演示用时间线（与指挥室 payload 同构；免费预览） */
+    flightDemoTimeline: [],
+    /** 页面前台可见：控制内嵌演示 tick，避免后台空转 */
+    pageVisible: true
   },
 
   /**
@@ -453,6 +457,7 @@ Page({
   },
 
   onShow() {
+    this.setData({ pageVisible: true })
     // 从 profile 取消提醒后返回时刷新订阅状态（仅看本任务是否已写入订阅，不含 OA 全覆盖）
     const mission = this.data.mission
     if (mission && mission.id) {
@@ -554,6 +559,7 @@ Page({
   },
 
   onHide() {
+    this.setData({ pageVisible: false })
     this.clearMissionCountdownTimer()
     this._backfillIndexCompletedStatus()
   },
@@ -1600,7 +1606,9 @@ Page({
         ll2FlightTimelineRows: [],
         ll2FlightTimelineError: '',
         ll2FlightTimelineEmpty: false,
-        ll2FlightTimelineNet: ''
+        ll2FlightTimelineNet: '',
+        flightDemoTimeline: [],
+        missionSimEligible: false
       })
       return
     }
@@ -1614,6 +1622,7 @@ Page({
       ll2FlightTimelineError: '',
       ll2FlightTimelineEmpty: false,
       ll2FlightTimelineRows: [],
+      flightDemoTimeline: [],
       // 时间线数据重拉后旧译文失效，重置「翻译/原文」状态
       tlTranslated: false,
       tlTranslating: false,
@@ -1627,13 +1636,15 @@ Page({
       // 星舰任务 + 有时间线 + 过审开关 → 显示指挥室模拟入口（时间线上方）
       const m = this.data.mission || {}
       const isStarship = /starship/i.test([m.missionName, m.name, m.rocketName].filter(Boolean).join(' '))
+      const demoTl = this._buildFlightDemoTimeline(rows)
       this.setData({
         ll2FlightTimelineLoading: false,
         ll2FlightTimelineRows: rows,
         ll2FlightTimelineError: '',
         ll2FlightTimelineEmpty: emptyOk,
         ll2FlightTimelineNet: res.net || '',
-        missionSimEligible: isStarship && rows.length > 0
+        missionSimEligible: isStarship && rows.length > 0,
+        flightDemoTimeline: isStarship ? demoTl : []
       })
       if (isStarship && rows.length > 0 && !this._missionSimFlagChecked) {
         this._missionSimFlagChecked = true
@@ -1650,11 +1661,26 @@ Page({
         ll2FlightTimelineRows: [],
         ll2FlightTimelineError: formatCloudError(new Error(raw)),
         ll2FlightTimelineEmpty: false,
-        ll2FlightTimelineNet: ''
+        ll2FlightTimelineNet: '',
+        flightDemoTimeline: [],
+        missionSimEligible: false
       })
     } finally {
       if (this._timelineInflightLaunchId === id) this._timelineInflightLaunchId = null
     }
+  },
+
+  /** LL2 行 → 演示/指挥室共用 payload（尊重当前翻译态） */
+  _buildFlightDemoTimeline(rows) {
+    const list = Array.isArray(rows) ? rows : (this.data.ll2FlightTimelineRows || [])
+    const i18n = this.data.tlI18n || { titles: [], descs: [] }
+    const useI18n = !!this.data.tlTranslated
+    return list.map((r, i) => ({
+      t: r.sortKey,
+      label: (useI18n && i18n.titles[i]) || r.title,
+      desc: (useI18n && i18n.descs[i]) || r.description,
+      tLabel: r.timeLabel
+    }))
   },
 
   /** 进入星舰任务指挥室：携带本任务 LL2 飞行时间线，模拟全程对齐真实节点 */
@@ -1675,13 +1701,7 @@ Page({
     if (!allowed) return
     const m = this.data.mission || {}
     const name = String(m.missionName || m.name || '星舰任务').trim()
-    const i18n = this.data.tlI18n || { titles: [], descs: [] }
-    const payload = rows.map((r, i) => ({
-      t: r.sortKey,
-      label: i18n.titles[i] || r.title,
-      desc: i18n.descs[i] || r.description,
-      tLabel: r.timeLabel
-    }))
+    const payload = this._buildFlightDemoTimeline(rows)
     if (wx.vibrateShort) {
       try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
     }
@@ -1690,6 +1710,26 @@ Page({
       success(res) {
         try {
           res.eventChannel.emit('missionSimContext', { name, rows: payload })
+        } catch (e) {}
+      }
+    })
+  },
+
+  /** 飞行剖面完整演示页（免费预览，无会员门控） */
+  openFlightDemo() {
+    if (!this.data.enableMissionSim) return
+    const payload = this.data.flightDemoTimeline || []
+    if (!payload.length) return
+    const m = this.data.mission || {}
+    const name = String(m.missionName || m.name || '星舰任务').trim()
+    if (wx.vibrateShort) {
+      try { wx.vibrateShort({ type: 'light' }) } catch (e) {}
+    }
+    wx.navigateTo({
+      url: '/subpackages/mission-sim/flight-demo',
+      success(res) {
+        try {
+          res.eventChannel.emit('flightDemoContext', { name, rows: payload })
         } catch (e) {}
       }
     })
@@ -1705,11 +1745,18 @@ Page({
       if (r && r.description) fields.push({ path: 'tlI18n.descs[' + i + ']', text: r.description })
     })
     if (!fields.length) return
-    togglePageTranslation(this, {
+    const p = togglePageTranslation(this, {
       switchKey: 'tlTranslated',
       loadingKey: 'tlTranslating',
       fields
     })
+    // 翻译态切换后同步演示卡文案（引擎按 t 驱动，标签仅展示用）
+    const refreshDemo = () => {
+      if (!this.data.missionSimEligible) return
+      this.setData({ flightDemoTimeline: this._buildFlightDemoTimeline() })
+    }
+    if (p && typeof p.then === 'function') p.then(refreshDemo).catch(() => {})
+    else setTimeout(refreshDemo, 0)
   },
 
   async loadMissionDetail(id, detailType, opts = {}) {

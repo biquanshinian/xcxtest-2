@@ -206,6 +206,44 @@ async function confirmEventImageSavePicker(page) {
   }
 }
 
+/**
+ * 点击图片：微信原生预览（只展示缩略图，省流量）。
+ * showmenu 开启系统长按菜单（保存/转发等）；原生保存的是当前预览图（压缩预览）。
+ * 保存原图仍走列表长按通道（handleEventImageLongPress）。
+ * @param {object} dataset 图片节点 dataset
+ * @returns {boolean}
+ */
+function previewEventImages(dataset) {
+  const ds = parseLongPressDataset(dataset)
+  const thumbs = (ds.thumbs.length
+    ? ds.thumbs
+    : (Array.isArray(dataset && dataset.urls) ? dataset.urls : [])
+  ).filter(Boolean)
+  if (!thumbs.length) return false
+
+  let current = ds.current || thumbs[0]
+  let currentIndex = thumbs.indexOf(current)
+  if (currentIndex < 0) {
+    current = thumbs[0]
+    currentIndex = 0
+  }
+
+  if (typeof wx.previewMedia === 'function') {
+    wx.previewMedia({
+      sources: thumbs.map((url) => ({ url, type: 'image' })),
+      current: currentIndex,
+      showmenu: true,
+      fail: () => {
+        wx.previewImage({ urls: thumbs, current })
+      }
+    })
+    return true
+  }
+
+  wx.previewImage({ urls: thumbs, current })
+  return true
+}
+
 /** 从长按事件 dataset 解析（兼容 originals 数组 / JSON 字符串） */
 function parseLongPressDataset(dataset) {
   const ds = dataset || {}
@@ -230,6 +268,7 @@ function parseLongPressDataset(dataset) {
 
 module.exports = {
   normalizeOriginalUrl,
+  previewEventImages,
   saveImageToAlbum,
   handleEventImageLongPress,
   openEventImageSavePicker,

@@ -1,0 +1,339 @@
+/* 在轨飞行器追踪 · SpaceX 风格全屏 HUD */
+
+page {
+  background: #000;
+  color: #fff;
+  height: 100%;
+  overflow: hidden;
+}
+
+.vtk-page {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  background: #000;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', sans-serif;
+}
+
+/* ============== 顶栏（透明） ============== */
+.vtk-hud-nav {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  padding-left: 24rpx;
+  padding-right: 24rpx;
+  pointer-events: none;
+}
+
+.vtk-navbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.vtk-navbar__back {
+  pointer-events: auto;
+  width: 64rpx;
+  height: 64rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1rpx solid rgba(255, 255, 255, 0.28);
+}
+
+.vtk-navbar__back--hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.vtk-navbar__back-arrow {
+  font-size: 40rpx;
+  color: #fff;
+  font-weight: 300;
+  line-height: 1;
+  margin-top: -4rpx;
+}
+
+/* ============== 全视口舞台 ============== */
+.vtk-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.vtk-canvas-wrap {
+  position: absolute;
+  inset: 0;
+  background: #000;
+}
+
+.vtk-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* 右上 LIVE（在导航栏下方，可贴右边） */
+.vtk-mode {
+  position: absolute;
+  right: 24rpx;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8rpx;
+  padding: 8rpx 16rpx;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1rpx solid rgba(0, 255, 136, 0.4);
+  border-radius: 6rpx;
+  pointer-events: none;
+  z-index: 12;
+}
+
+.vtk-mode-dot {
+  width: 8rpx;
+  height: 8rpx;
+  border-radius: 50%;
+  background: #00ff88;
+  animation: vtk-blink 1.6s ease-in-out infinite;
+}
+
+.vtk-mode text {
+  font-size: 18rpx;
+  color: #00ff88;
+  letter-spacing: 2rpx;
+  line-height: 1;
+  font-family: 'SF Mono', Menlo, monospace;
+}
+
+.vtk-mode--sim {
+  border-color: rgba(255, 200, 0, 0.45);
+}
+
+.vtk-mode--sim .vtk-mode-dot {
+  background: #ffc800;
+}
+
+.vtk-mode--sim text {
+  color: #ffc800;
+}
+
+@keyframes vtk-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.vtk-acquiring {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.vtk-acquiring text {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.55);
+  letter-spacing: 4rpx;
+  font-family: 'SF Mono', Menlo, monospace;
+  animation: vtk-blink 1.2s ease-in-out infinite;
+}
+
+.vtk-hint {
+  position: absolute;
+  bottom: 28rpx;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 18rpx;
+  color: rgba(255, 255, 255, 0.28);
+  letter-spacing: 1rpx;
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* ============== 左上：标题 + 机型（窄栏，不盖球心） ============== */
+.vtk-details {
+  position: absolute;
+  left: 28rpx;
+  z-index: 10;
+  pointer-events: none;
+  width: 260rpx;
+  max-width: 38%;
+}
+
+.vtk-details__sub {
+  display: block;
+  font-size: 20rpx;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.7);
+  letter-spacing: 1rpx;
+  margin-bottom: 6rpx;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
+}
+
+.vtk-details__title {
+  display: block;
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.5rpx;
+  line-height: 1.15;
+  margin-bottom: 20rpx;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
+}
+
+.vtk-vehicles {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12rpx;
+  pointer-events: auto;
+}
+
+.vtk-vehicle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48rpx;
+  padding: 0 22rpx;
+  border: 1rpx solid rgba(255, 255, 255, 0.55);
+  background: rgba(0, 0, 0, 0.35);
+  box-sizing: border-box;
+}
+
+.vtk-vehicle-btn text {
+  font-size: 20rpx;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 1.2rpx;
+  line-height: 1;
+  font-family: 'SF Mono', Menlo, monospace;
+}
+
+.vtk-vehicle-btn--active {
+  background: #fff;
+  border-color: #fff;
+}
+
+.vtk-vehicle-btn--active text {
+  color: #000;
+}
+
+.vtk-vehicle-btn--hover {
+  opacity: 0.85;
+}
+
+.vtk-skeleton-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.vtk-skeleton-btn {
+  width: 140rpx;
+  height: 48rpx;
+  background: rgba(255, 255, 255, 0.08);
+  animation: vtk-blink 1.4s ease-in-out infinite;
+}
+
+/* ============== 左下：遥测（脱离球心） ============== */
+.vtk-telemetry {
+  position: absolute;
+  left: 28rpx;
+  bottom: 72rpx;
+  z-index: 10;
+  width: 340rpx;
+  max-width: 46%;
+  padding: 12rpx 18rpx;
+  box-sizing: border-box;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.15) 0%, rgba(0, 0, 0, 0.55) 100%);
+  border-radius: 8rpx;
+}
+
+.vtk-telemetry__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 10rpx 0;
+  border-bottom: 1rpx solid rgba(255, 255, 255, 0.28);
+}
+
+.vtk-telemetry__row:last-child {
+  border-bottom: none;
+  padding-bottom: 2rpx;
+}
+
+.vtk-telemetry__label {
+  flex-shrink: 0;
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.65);
+  letter-spacing: 0.5rpx;
+}
+
+.vtk-telemetry__value {
+  font-size: 22rpx;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.8rpx;
+  font-family: 'SF Mono', Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ============== 锁定态 ============== */
+.vtk-disabled {
+  position: relative;
+  z-index: 4;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24rpx;
+  padding: 0 60rpx;
+}
+
+.vtk-disabled-icon {
+  font-size: 64rpx;
+}
+
+.vtk-disabled-text {
+  font-size: 26rpx;
+  color: rgba(255, 255, 255, 0.65);
+  text-align: center;
+  line-height: 1.7;
+}
+
+.vtk-disabled-sub {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.4);
+  text-align: center;
+  line-height: 1.6;
+}
+
+.vtk-disabled-back {
+  margin-top: 12rpx;
+  padding: 16rpx 56rpx;
+  border-radius: 999rpx;
+  border: 1rpx solid rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.vtk-disabled-back--hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.vtk-disabled-back text {
+  font-size: 26rpx;
+  color: #fff;
+  letter-spacing: 2rpx;
+}

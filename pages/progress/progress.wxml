@@ -246,6 +246,52 @@
       </view>
     </view>
 
+    <!-- 在轨飞行器追踪（ODC 控制台 Vehicle Tracker 的独立入口，会员门控） -->
+    <view class="vt-entry-section">
+      <view class="vt-entry" bindtap="openVehicleTracker" hover-class="vt-entry--pressed" hover-stay-time="120">
+        <view class="vt-entry-glow"></view>
+        <view class="vt-entry-orbit" aria-hidden="true">
+          <view class="vt-entry-orbit-ring vt-entry-orbit-ring--1"></view>
+          <view class="vt-entry-orbit-ring vt-entry-orbit-ring--2"></view>
+          <view class="vt-entry-orbit-core"></view>
+          <view class="vt-entry-orbit-spin">
+            <view class="vt-entry-orbit-sat"></view>
+          </view>
+        </view>
+        <view class="vt-entry-left">
+          <view class="vt-entry-tagrow">
+            <view class="vt-entry-dot"></view>
+            <text class="vt-entry-tag">VEHICLE TRACKER</text>
+          </view>
+          <text class="vt-entry-title">SpaceX在轨飞行器追踪</text>
+          <text class="vt-entry-desc">官网同源遥测 · 可拖动 3D 地球实时定位在飞星舰与龙飞船</text>
+        </view>
+        <view class="vt-entry-arrow">
+          <text>进入</text>
+          <text class="vt-entry-arrow-icon">›</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 星舰任务指挥室（互动模拟；enableMissionSim 过审开关，failClosed） -->
+    <view class="mission-sim-section" wx:if="{{enableMissionSim}}">
+      <view class="mission-sim-entry" bindtap="openMissionSim" hover-class="mission-sim-entry--pressed" hover-stay-time="120">
+        <view class="mission-sim-entry-glow"></view>
+        <view class="mission-sim-entry-left">
+          <view class="mission-sim-entry-tagrow">
+            <view class="mission-sim-entry-dot"></view>
+            <text class="mission-sim-entry-tag">GO / NO-GO · SIM</text>
+          </view>
+          <text class="mission-sim-entry-title">星舰任务指挥室</text>
+          <text class="mission-sim-entry-desc">以飞行总监视角完成一次发射：席位轮询、天气权衡、筷子捕获决策</text>
+        </view>
+        <view class="mission-sim-entry-arrow">
+          <text>进入</text>
+          <text class="mission-sim-entry-arrow-icon">›</text>
+        </view>
+      </view>
+    </view>
+
     <view class="flight-checklist-section nsf-checklist-section">
       <view class="nsf-checklist-card glass-card">
         <view class="nsf-checklist-card-header">
@@ -274,25 +320,6 @@
         <view class="nsf-checklist-expand-row" hover-class="nsf-checklist-expand-row--active" bindtap="onNsfChecklistExpandTap">
           <text class="nsf-checklist-expand-text">展开</text>
           <text class="nsf-checklist-expand-chevron">›</text>
-        </view>
-      </view>
-    </view>
-
-    <!-- 星舰任务指挥室（互动模拟；enableMissionSim 过审开关，failClosed） -->
-    <view class="mission-sim-section" wx:if="{{enableMissionSim}}">
-      <view class="mission-sim-entry" bindtap="openMissionSim" hover-class="mission-sim-entry--pressed" hover-stay-time="120">
-        <view class="mission-sim-entry-glow"></view>
-        <view class="mission-sim-entry-left">
-          <view class="mission-sim-entry-tagrow">
-            <view class="mission-sim-entry-dot"></view>
-            <text class="mission-sim-entry-tag">GO / NO-GO · SIM</text>
-          </view>
-          <text class="mission-sim-entry-title">星舰任务指挥室</text>
-          <text class="mission-sim-entry-desc">以飞行总监视角完成一次发射：席位轮询、天气权衡、筷子捕获决策</text>
-        </view>
-        <view class="mission-sim-entry-arrow">
-          <text>进入</text>
-          <text class="mission-sim-entry-arrow-icon">›</text>
         </view>
       </view>
     </view>

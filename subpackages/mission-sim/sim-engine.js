@@ -205,6 +205,8 @@ function createMission(options) {
   var rng = mulberry32(seed)
   var customTl = normalizeCustomTimeline(options && options.timeline)
   var profile = inferMissionProfile(customTl)
+  // 自动演示：决策门自动 GO、跳过随机异常/中止，供剖面循环预览
+  var autoDemo = !!(options && options.autoDemo)
 
   // 异常表（seed 决定本局注入哪些，一次性生成保证确定性）
   var anomalies = {
@@ -220,6 +222,17 @@ function createMission(options) {
   // 结果判定用的独立骰（与决策组合后仍确定）
   var catchLuck = rng()
   var shipLuck = rng()
+  if (autoDemo) {
+    anomalies.loxTemp = false
+    anomalies.windGust = false
+    anomalies.windSevere = false
+    anomalies.engineOut = 0
+    anomalies.gridFin = false
+    // catchLuck 取 0：GO 时 catchLuck < risk 为假 → 回收成功
+    // shipLuck 须 > shipRisk（默认 0.08）：取 1 保证演示闭环成功，避免 0 > 0.08 恒败
+    catchLuck = 0
+    shipLuck = 1
+  }
 
   var state = {
     seed: seed,
@@ -405,26 +418,32 @@ function createMission(options) {
 
   function step(realDtMs) {
     if (state.phase === 'done') return snapshot()
-    var dt = (realDtMs / 1000) * state.warp * state.rate
     if (state.gate) {
-      // 决策门开着：时钟暂停；T-40 保持期有温漂压力
-      if (state.gate.id === 'g2_commit') {
-        state.holdRealMs += realDtMs
-        if (state.holdRealMs > 25000) {
-          once('holdDrift', function () {
-            setStation('prop', 'amber', '推进剂温漂，密度下降')
-            pushLog('保持时间过长：推进剂温度开始漂移')
-          })
+      if (autoDemo) {
+        // 演示模式：决策门瞬间自动 GO，本 tick 继续推进时钟
+        decide(state.gate.id, 'go')
+        if (state.phase === 'done') return snapshot()
+      } else {
+        // 决策门开着：时钟暂停；T-40 保持期有温漂压力
+        if (state.gate.id === 'g2_commit') {
+          state.holdRealMs += realDtMs
+          if (state.holdRealMs > 25000) {
+            once('holdDrift', function () {
+              setStation('prop', 'amber', '推进剂温漂，密度下降')
+              pushLog('保持时间过长：推进剂温度开始漂移')
+            })
+          }
+          if (state.holdRealMs > 55000) {
+            once('holdAbort', function () {
+              closeGate()
+              finishScrub('自动中止', '保持超时，推进剂温度超出提交限制，序列自动中止。')
+            })
+          }
         }
-        if (state.holdRealMs > 55000) {
-          once('holdAbort', function () {
-            closeGate()
-            finishScrub('自动中止', '保持超时，推进剂温度超出提交限制，序列自动中止。')
-          })
-        }
+        return snapshot()
       }
-      return snapshot()
     }
+    var dt = (realDtMs / 1000) * state.warp * state.rate
 
     state.t += dt
 
@@ -773,6 +792,7 @@ function createMission(options) {
   /* ---- 开局第一道门 ---- */
   openGate('g1_fuel', '加注提交', '各席位已完成上电自检。提交后开始快速加注，中止成本将逐步升高。',
     [{ key: 'go', label: 'GO — 开始加注', tone: 'go' }, { key: 'nogo', label: 'NO-GO — 推迟', tone: 'nogo' }])
+  if (autoDemo) decide('g1_fuel', 'go')
 
   /** 用户倍率（1/2/4）：叠乘在阶段压缩上，不影响事件顺序与结局判定 */
   function setRate(r) {

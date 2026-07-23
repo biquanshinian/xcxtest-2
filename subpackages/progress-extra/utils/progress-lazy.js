@@ -20,7 +20,8 @@ const {
   toggleEventImageSaveSelect,
   selectAllEventImageSave,
   confirmEventImageSavePicker,
-  parseLongPressDataset
+  parseLongPressDataset,
+  previewEventImages
 } = require('./event-image-save.js')
 
 // ══ 事件动态 / LL2 折叠区依赖（原 progress.js 首屏后延迟加载逻辑） ══
@@ -377,11 +378,17 @@ const methods = {
     const authorAvatarRemote = avatar || ''
     if (avatar) avatar = getCachedMediaImage(avatar, 'thumb')
 
-    const imageUrls = enrichedMediaList.filter(m => m.type === 'image').map(m => m.url)
-    const imageOriginalUrls = enrichedMediaList
-      .filter(m => m.type === 'image')
-      .map(m => m.remoteUrl || m.url)
-      .filter(Boolean)
+    // 缩略图与原图一一对应（同下标），避免预览/保存映射错位
+    const imageUrls = []
+    const imageOriginalUrls = []
+    enrichedMediaList.forEach((m) => {
+      if (!m || m.type !== 'image') return
+      const original = m.remoteUrl || m.url
+      const thumb = m.url || original
+      if (!thumb && !original) return
+      imageUrls.push(thumb || original)
+      imageOriginalUrls.push(original || thumb)
+    })
     const imageCount = imageUrls.length
 
     return {
@@ -391,7 +398,7 @@ const methods = {
       authorAvatar: avatar,
       authorAvatarRemote,
       imageUrls,
-      // 下载用原图（remoteUrl / 去压缩参数），预览仍用 imageUrls 缩略图
+      // 预览用 imageUrls（缩略图）；长按保存用 imageOriginalUrls（源文件）
       imageOriginalUrls,
       imageCount,
       imageGridCols: Math.min(4, Math.max(1, imageCount || 1)),
@@ -661,12 +668,9 @@ const methods = {
     return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes())
   },
 
+  /** 点击：微信原生预览缩略图；原图保存走列表长按 */
   onEventImagePreview(e) {
-    const dataset = e.currentTarget.dataset || {}
-    const urls = dataset.urls || []
-    const current = dataset.current || urls[0]
-    if (!urls.length) return
-    wx.previewImage({ urls, current })
+    previewEventImages(e.currentTarget.dataset)
   },
 
   /** 长按图片：保存原图 / 多图选择保存（禁用系统转发菜单） */

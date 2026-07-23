@@ -1,0 +1,11 @@
+{
+  "navigationBarTitleText": "飞行剖面演示",
+  "navigationStyle": "custom",
+  "backgroundTextStyle": "dark",
+  "backgroundColor": "#000000",
+  "backgroundColorTop": "#000000",
+  "backgroundColorBottom": "#000000",
+  "usingComponents": {
+    "flight-profile-demo": "./components/flight-profile-demo/flight-profile-demo"
+  }
+}

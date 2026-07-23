@@ -1,0 +1,47 @@
+<page-meta background-color="#000000" background-color-top="#000000" background-color-bottom="#000000" />
+<view class="detail-page fd-page">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">飞行剖面演示</text>
+        <text class="nav-title-sub" wx:if="{{missionName}}">{{missionName}}</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+  </view>
+
+  <scroll-view class="detail-scroll" scroll-y="true" enhanced show-scrollbar="{{false}}">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <view class="fd-disabled" wx:if="{{!enabled}}">
+      <text class="fd-disabled-text">该功能暂未开放</text>
+      <view class="fd-btn" bindtap="goBack"><text>返回</text></view>
+    </view>
+
+    <view class="fd-disabled" wx:elif="{{contextPending}}">
+      <text class="fd-disabled-text">正在载入飞行时间线…</text>
+    </view>
+
+    <view class="fd-disabled" wx:elif="{{!timeline.length}}">
+      <text class="fd-disabled-text">请从星舰任务详情页进入，以对齐本次飞行时间线</text>
+      <view class="fd-btn" bindtap="goBack"><text>返回</text></view>
+    </view>
+
+    <block wx:else>
+      <view class="fd-intro">
+        <text class="fd-intro-text">根据本次任务飞行时间线自动循环演示</text>
+      </view>
+      <flight-profile-demo
+        mode="full"
+        lockDark="{{true}}"
+        active="{{pageVisible && enabled}}"
+        missionName="{{missionName}}"
+        timeline="{{timeline}}"
+      />
+      <view class="fd-bottom-pad"></view>
+    </block>
+  </scroll-view>
+</view>

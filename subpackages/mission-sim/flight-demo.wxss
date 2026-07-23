@@ -1,0 +1,46 @@
+.detail-page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #000000 0%, #060a10 100%);
+}
+
+.detail-scroll {
+  height: 100vh;
+}
+
+.fd-intro {
+  margin: 8rpx 24rpx 16rpx;
+  padding: 16rpx 22rpx;
+  border-radius: 14rpx;
+  background: rgba(0, 255, 136, 0.06);
+  border: 1rpx solid rgba(0, 255, 136, 0.12);
+}
+.fd-intro-text {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.55);
+  line-height: 1.5;
+}
+
+.fd-disabled {
+  margin: 80rpx 40rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28rpx;
+}
+.fd-disabled-text {
+  font-size: 28rpx;
+  color: rgba(255, 255, 255, 0.55);
+  text-align: center;
+  line-height: 1.6;
+}
+.fd-btn {
+  padding: 18rpx 48rpx;
+  border-radius: 999rpx;
+  border: 1rpx solid rgba(0, 255, 136, 0.35);
+  color: #00ff88;
+  font-size: 26rpx;
+}
+
+.fd-bottom-pad {
+  height: calc(env(safe-area-inset-bottom) + 80rpx);
+}

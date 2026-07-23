@@ -1,0 +1,296 @@
+.fpd {
+  position: relative;
+  border-radius: 24rpx;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1rpx solid rgba(0, 255, 136, 0.14);
+}
+.fpd--mini {
+  margin: 0;
+}
+.fpd--full {
+  margin: 0 0 24rpx;
+  background: transparent;
+  border: none;
+}
+.fpd--pressed {
+  opacity: 0.88;
+  transform: scale(0.99);
+}
+
+.fpd-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 22rpx 24rpx 8rpx;
+}
+.fpd--full .fpd-head {
+  padding: 8rpx 28rpx 12rpx;
+}
+.fpd-tag {
+  display: block;
+  font-family: 'Courier New', monospace;
+  font-size: 18rpx;
+  letter-spacing: 3rpx;
+  color: rgba(0, 255, 136, 0.75);
+}
+.fpd-title {
+  display: block;
+  margin-top: 4rpx;
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #fff;
+}
+.fpd-sub {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.5);
+  max-width: 360rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fpd-clock {
+  flex-shrink: 0;
+  text-align: right;
+  padding-top: 4rpx;
+}
+.fpd-clock-t {
+  display: block;
+  font-family: 'Courier New', monospace;
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #00ff88;
+}
+.fpd-clock-phase {
+  display: block;
+  margin-top: 4rpx;
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.5);
+}
+.fpd-clock--idle .fpd-clock-phase {
+  color: rgba(0, 255, 136, 0.55);
+}
+
+.fpd-block {
+  position: relative;
+  margin: 12rpx 16rpx 16rpx;
+  border-radius: 18rpx;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1rpx solid rgba(0, 255, 136, 0.1);
+  overflow: hidden;
+}
+.fpd--full .fpd-block {
+  margin: 0 24rpx 24rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1rpx solid rgba(0, 255, 136, 0.12);
+}
+.fpd-block-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+  padding: 18rpx 22rpx 0;
+  position: relative;
+}
+.fpd-block-tag {
+  font-family: 'Courier New', monospace;
+  font-size: 16rpx;
+  letter-spacing: 3rpx;
+  color: rgba(0, 255, 136, 0.7);
+}
+.fpd-block-title {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #fff;
+}
+.fpd--full .fpd-block-title {
+  font-size: 32rpx;
+}
+.fpd-block-body {
+  padding: 14rpx 18rpx 18rpx;
+}
+.fpd--full .fpd-block-body {
+  padding: 20rpx 28rpx 28rpx;
+}
+
+.fpd-legend {
+  position: absolute;
+  right: 22rpx;
+  top: 22rpx;
+  display: flex;
+  gap: 14rpx;
+}
+.fpd-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.55);
+}
+.fpd-legend-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+}
+.fpd-legend-dot--booster { background: #00ff88; }
+.fpd-legend-dot--ship { background: #4da3ff; }
+
+.fpd-diagram {
+  width: 100%;
+  height: 360rpx;
+  border-radius: 12rpx;
+  overflow: hidden;
+}
+.fpd--full .fpd-diagram {
+  height: 620rpx;
+  border-radius: 14rpx;
+}
+.fpd-engines {
+  width: 100%;
+  height: 220rpx;
+  border-radius: 12rpx;
+  overflow: hidden;
+}
+.fpd--full .fpd-engines {
+  height: 300rpx;
+  border-radius: 14rpx;
+}
+
+.fpd-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
+  margin-top: 20rpx;
+}
+.fpd-bar {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+.fpd-bar-label {
+  width: 110rpx;
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.55);
+  flex-shrink: 0;
+}
+.fpd-bar-track {
+  flex: 1;
+  height: 12rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.fpd-bar-fill {
+  height: 100%;
+  border-radius: 999rpx;
+  background: linear-gradient(90deg, rgba(0, 255, 136, 0.5), #00ff88);
+}
+.fpd-bar-fill--water {
+  background: linear-gradient(90deg, rgba(77, 163, 255, 0.5), #4da3ff);
+}
+.fpd-bar-val {
+  font-family: 'Courier New', monospace;
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.6);
+  width: 64rpx;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.fpd-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  padding: 0 24rpx 22rpx;
+}
+.fpd-hint text {
+  font-size: 22rpx;
+  color: rgba(0, 255, 136, 0.75);
+}
+.fpd-hint-arrow {
+  font-size: 32rpx;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* —— 浅色主题（组件自挂 .fpd--light；画布保持深色仪表屏） —— */
+.fpd--light {
+  background:
+    repeating-linear-gradient(0deg, rgba(0, 168, 98, 0.04) 0, rgba(0, 168, 98, 0.04) 1rpx, transparent 1rpx, transparent 28rpx),
+    repeating-linear-gradient(90deg, rgba(0, 168, 98, 0.04) 0, rgba(0, 168, 98, 0.04) 1rpx, transparent 1rpx, transparent 28rpx),
+    linear-gradient(118deg, #ffffff 0%, #f4faf7 55%, #ecf7f1 100%);
+  border-color: rgba(0, 168, 98, 0.28);
+  box-shadow:
+    0 8rpx 24rpx rgba(0, 80, 46, 0.08),
+    inset 0 0 0 1rpx rgba(0, 168, 98, 0.05);
+}
+.fpd--light.fpd--full {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+.fpd--light .fpd-tag {
+  color: #00915a;
+}
+.fpd--light .fpd-title {
+  color: #1C1C1E;
+}
+.fpd--light .fpd-sub {
+  color: rgba(28, 28, 30, 0.5);
+}
+.fpd--light .fpd-clock-t {
+  color: #00a862;
+}
+.fpd--light .fpd-clock-phase {
+  color: rgba(28, 28, 30, 0.5);
+}
+.fpd--light .fpd-clock--idle .fpd-clock-phase {
+  color: #00915a;
+}
+.fpd--light .fpd-block {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(0, 168, 98, 0.16);
+  box-shadow: 0 2rpx 12rpx rgba(0, 62, 40, 0.05);
+}
+.fpd--light.fpd--full .fpd-block {
+  background: #ffffff;
+  border-color: rgba(0, 168, 98, 0.18);
+  box-shadow: 0 4rpx 16rpx rgba(0, 62, 40, 0.06);
+}
+.fpd--light .fpd-block-tag {
+  color: #00915a;
+}
+.fpd--light .fpd-block-title {
+  color: #1C1C1E;
+}
+.fpd--light .fpd-legend-item {
+  color: rgba(28, 28, 30, 0.55);
+}
+.fpd--light .fpd-legend-dot--booster { background: #00a862; }
+.fpd--light .fpd-legend-dot--ship { background: #2f7fd4; }
+.fpd--light .fpd-bar-label {
+  color: rgba(28, 28, 30, 0.55);
+}
+.fpd--light .fpd-bar-track {
+  background: rgba(28, 28, 30, 0.08);
+}
+.fpd--light .fpd-bar-fill {
+  background: linear-gradient(90deg, rgba(0, 168, 98, 0.55), #00a862);
+}
+.fpd--light .fpd-bar-fill--water {
+  background: linear-gradient(90deg, rgba(47, 127, 212, 0.5), #2f7fd4);
+}
+.fpd--light .fpd-bar-val {
+  color: rgba(28, 28, 30, 0.55);
+}
+.fpd--light .fpd-hint text {
+  color: #00915a;
+}
+.fpd--light .fpd-diagram,
+.fpd--light .fpd-engines {
+  border: 1rpx solid rgba(0, 168, 98, 0.12);
+}

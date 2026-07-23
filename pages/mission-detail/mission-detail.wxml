@@ -824,6 +824,17 @@
         </view>
       </view>
 
+      <!-- 飞行剖面自动演示（免费预览：内嵌迷你循环 + 点击进完整页） -->
+      <view class="detail-flight-demo" wx:if="{{missionSimEligible && enableMissionSim && flightDemoTimeline.length}}">
+        <flight-profile-demo
+          mode="mini"
+          active="{{!loading && pageVisible}}"
+          missionName="{{mission.missionName || mission.name || ''}}"
+          timeline="{{flightDemoTimeline}}"
+          bind:opentap="openFlightDemo"
+        />
+      </view>
+
       <!-- 飞行时间线（LL2） -->
       <view class="detail-ll2-section">
         <view class="detail-section-title-row detail-ll2-timeline-head">

@@ -197,7 +197,8 @@
       "root": "subpackages/mission-sim",
       "name": "mission-sim",
       "pages": [
-        "mission-sim"
+        "mission-sim",
+        "flight-demo"
       ]
     },
     {
@@ -224,7 +225,8 @@
         "booster-genealogy",
         "rocket-model-detail",
         "artemis-detail",
-        "orbital-data-center/orbital-data-center"
+        "orbital-data-center/orbital-data-center",
+        "vehicle-tracker/vehicle-tracker"
       ]
     }
   ],
