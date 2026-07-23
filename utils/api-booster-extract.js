@@ -375,36 +375,12 @@ function extractLaunchAgency(launch) {
 /**
  * 空列表结果
  */
-function emptyListResult() {
-  return { list: [], hasMore: false, nextOffset: 0 }
-}
-
-/**
- * Promise 超时包装
- */
-function withTimeout(promise, ms, msg) {
-  if (ms === undefined) ms = 5000
-  if (msg === undefined) msg = '请求超时'
-  return Promise.race([
-    promise,
-    new Promise(function (_, reject) {
-      setTimeout(function () { reject(new Error(msg)) }, ms)
-    })
-  ])
-}
-
-/**
- * 解包云数据库缓存数据（消除 6 处重复的层层判断）
- */
-function unwrapCacheData(docData) {
-  let apiData = docData.data || docData
-  if (apiData && typeof apiData === 'object' && !Array.isArray(apiData)) {
-    if (apiData.data && apiData.data.results && Array.isArray(apiData.data.results)) {
-      apiData = apiData.data
-    }
-  }
-  return apiData
-}
+// 轻量 helper 已抽到 api-list-helpers，避免 api-request 误绑本文件整链
+const {
+  emptyListResult,
+  withTimeout,
+  unwrapCacheData
+} = require('./api-list-helpers.js')
 
 module.exports = {
   extractBoosterInfoForList,

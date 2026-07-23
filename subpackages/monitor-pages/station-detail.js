@@ -6,7 +6,8 @@ const { togglePageTranslation } = require('./utils/text-translate.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { advanceImageFallback } = require('../../utils/ll2-image.js')
 const {
-  NORAD_MAP, createSatrec, getCurrentPosition, computeOrbitPath,
+  STATION_MARKER_ICON, resolveNoradId, pickStationTle,
+  createSatrec, getCurrentPosition, computeOrbitPath,
   computePastOrbitPath, getOrbitalParams, getLookAngles,
   getPositionAndLookAngles,
   formatSpeed, formatAltitude, formatCoord
@@ -19,6 +20,7 @@ Page({
     loading: true,
     errorMessage: '',
     item: null,
+    isTiangong: false,
     heroImageLoaded: false,
     heroImageFailed: false,
     descExpanded: false,
@@ -89,8 +91,11 @@ Page({
     } catch (e) {}
     if (preloadImage) {
       this.setData({
-        item: { image: preloadImage, imageFallbacks: preloadFallbacks }
+        item: { image: preloadImage, imageFallbacks: preloadFallbacks },
+        isTiangong: Number(id) === 18
       })
+    } else if (id) {
+      this.setData({ isTiangong: Number(id) === 18 })
     }
 
     this.initUiShell()
@@ -126,7 +131,7 @@ Page({
     try {
       // 并行发起：空间站列表 + 轨道数据
       const numId = Number(id)
-      const noradId = NORAD_MAP[numId]
+      const noradId = resolveNoradId(numId)
       const stationPromise = getStationStatus()
       const tlePromise = noradId ? this.fetchStationTLE() : Promise.resolve(null)
 
@@ -145,6 +150,7 @@ Page({
       this.setData({
         loading: false,
         item: merged,
+        isTiangong: Number(merged.id) === 18,
         navTitle: '空间站详情',
         shareTitle: `${merged.name || '空间站详情'} | 火星探索日志`
       })
@@ -174,17 +180,25 @@ Page({
     }
     this.setData({ orbitLoading: true, orbitError: '' })
     try {
-      const tleData = await tlePromise
-      if (!tleData || !tleData.tle || !tleData.tle[noradId]) {
+      let tleData = await tlePromise
+      let tle = pickStationTle(tleData, noradId)
+      // 本地/云库缓存可能只有 ISS：目标站缺失时强制走 Worker，与 ISS 行为对齐
+      if (!tle) {
+        tleData = await this.fetchFromWorker(true).catch(() => null)
+        tle = pickStationTle(tleData, noradId)
+        if (tleData && tleData.tle) {
+          try { wx.setStorageSync('_station_tle_cache', { data: tleData, ts: Date.now() }) } catch (e) {}
+        }
+      }
+      if (!tle) {
         throw new Error('未获取到 TLE 数据')
       }
-      const tle = tleData.tle[noradId]
       const satrec = createSatrec(tle.line1, tle.line2)
       if (!satrec) throw new Error('TLE 数据解析失败')
       this._satrec = satrec
 
       const params = getOrbitalParams(satrec)
-      const tleTs = tleData.ts
+      const tleTs = tleData && tleData.ts
       const tleUpdateTime = tleTs ? this.formatTleTime(tleTs) : '--'
 
       const paramPatch = params ? {
@@ -269,9 +283,9 @@ Page({
     }).catch(() => {})
   },
 
-  fetchFromWorker() {
+  fetchFromWorker(force) {
     const { fetchStationTleFromWorker } = require('./utils/tle-fetch.js')
-    return fetchStationTleFromWorker()
+    return fetchStationTleFromWorker(force ? { force: true } : undefined)
   },
 
   fetchFromCloudDB() {
@@ -341,12 +355,28 @@ Page({
     }
   },
 
+  _calloutStyle() {
+    const light = !!this.data.themeLight
+    return light
+      ? {
+          bgColor: 'rgba(255,255,255,0.92)',
+          color: '#248A3D',
+          borderColor: 'rgba(52,199,89,0.35)'
+        }
+      : {
+          bgColor: 'rgba(0,0,0,0.82)',
+          color: '#00ff88',
+          borderColor: 'rgba(0,255,136,0.4)'
+        }
+  },
+
   _buildMarker(pos, name, altText, speedText) {
+    const style = this._calloutStyle()
     return {
       id: 1,
       latitude: pos.lat,
       longitude: pos.lng,
-      iconPath: '/subpackages/monitor-pages/station-marker.svg',
+      iconPath: STATION_MARKER_ICON,
       width: 20,
       height: 20,
       callout: {
@@ -355,26 +385,27 @@ Page({
         fontSize: 11,
         borderRadius: 10,
         padding: 8,
-        bgColor: 'rgba(0,0,0,0.82)',
-        color: '#00ff88',
+        bgColor: style.bgColor,
+        color: style.color,
         borderWidth: 1,
-        borderColor: 'rgba(0,255,136,0.4)',
+        borderColor: style.borderColor,
         textAlign: 'center'
       }
     }
   },
 
   _smoothMoveMarker(pos, name, altText, speedText) {
+    const style = this._calloutStyle()
     const callout = {
       content: name + '\n' + altText + ' · ' + speedText,
       display: 'ALWAYS',
       fontSize: 11,
       borderRadius: 10,
       padding: 8,
-      bgColor: 'rgba(0,0,0,0.82)',
-      color: '#00ff88',
+      bgColor: style.bgColor,
+      color: style.color,
       borderWidth: 1,
-      borderColor: 'rgba(0,255,136,0.4)',
+      borderColor: style.borderColor,
       textAlign: 'center'
     }
     // 预览地图的 translateMarker
@@ -485,13 +516,20 @@ Page({
   },
 
   openOrbitMap() {
-    const id = this.data.item ? this.data.item.id : ''
-    const name = encodeURIComponent(this.data.item ? this.data.item.name : '空间站')
-    wx.navigateTo({ url: `${ROUTES.ORBIT_MAP}?stationId=${id}&stationName=${name}` })
+    const id = (this.data.item && this.data.item.id != null) ? this.data.item.id : this._stationId
+    const name = encodeURIComponent((this.data.item && this.data.item.name) || '空间站')
+    let url = `${ROUTES.ORBIT_MAP}?stationId=${id}&stationName=${name}`
+    // 把详情页已算出的实时坐标带过去，全屏图一打开就对准空间站，无需再找
+    if (this._markerCreated && Number.isFinite(this.data.stationLat) && Number.isFinite(this.data.stationLng)) {
+      url += `&lat=${this.data.stationLat}&lng=${this.data.stationLng}`
+    }
+    wx.navigateTo({ url })
   },
 
   centerOnStation() {
-    if (!this.data.stationLat) return
+    // 纬度可为 0（赤道附近），不能用真值判断
+    if (!Number.isFinite(this.data.stationLat) || !Number.isFinite(this.data.stationLng)) return
+    if (!this._markerCreated) return
     this.setData({
       mapLatitude: this.data.stationLat,
       mapLongitude: this.data.stationLng,
@@ -502,7 +540,16 @@ Page({
   refreshOrbitData() {
     if (this.data.orbitLoading) return
     const id = this._stationId
-    if (id) this.loadOrbitData(Number(id))
+    if (!id) return
+    const numId = Number(id)
+    const noradId = resolveNoradId(numId)
+    if (!noradId) {
+      this.setData({ orbitError: '该空间站暂不支持轨道追踪' })
+      return
+    }
+    this.stopOrbitTracking()
+    try { wx.removeStorageSync('_station_tle_cache') } catch (e) {}
+    this._applyOrbitData(numId, noradId, this.fetchStationTLE())
   },
 
   retryOrbitLoad() {

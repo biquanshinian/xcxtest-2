@@ -12,7 +12,7 @@ const {
   syncRoadClosureFromCloud,
   verifyRoadClosurePassword,
   saveManualRoadClosureNotice
-} = require('../../../utils/progress-road-closure.js')
+} = require('../../../utils/progress-road-closure.js') // 纯同步 helper，仍驻主包
 const {
   saveImageToAlbum: saveImageToAlbumUtil,
   handleEventImageLongPress,
@@ -30,7 +30,8 @@ const { normalizeLl2TimelineList } = require('./ll2-launch-timeline.js')
 const { formatCloudError } = require('../../../utils/launch-stats-cloud.js')
 const { getCachedMediaImage } = require('../../../utils/icon-cache.js')
 const { enrichVideoMediaItem, eventVideoAdUnlockId, playEventVideo, saveEventOriginalVideo } = require('./event-video.js')
-const { resolveTweetAccountAvatarUrl } = require('../../../utils/event-share-image.js')
+const { resolveTweetAccountAvatarUrl, warmEventShareImage } = require('../../../utils/event-share-image.js')
+try { warmEventShareImage() } catch (e) {}
 const { fetchLiveStatusBatch, parseLiveStatus } = require('./live-status.js')
 const { isLiveEntryAllowed } = require('../../../utils/feature-flags.js')
 const { isPermissionDenied, getPermissionDeniedMessage } = require('./single-page.js')

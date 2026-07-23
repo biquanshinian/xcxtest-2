@@ -1,23 +1,48 @@
 /**
  * subpackages/profile-extra/utils/profile-lazy.js
- * 我的页低频非首屏逻辑（从 pages/profile/profile.js 拆出）：
- * - 竞猜战绩：拉取投票结果、补全任务名/火箭图、清除记录
- * - 里程碑彩蛋：阈值检测、金蛋队列弹窗、领奖回写
- * - 服务号自动提醒：状态查询 / 开关 / 复制名称
- * - 老订阅记录补全、我的奖品、年度报告入口、在线客服区块（复制微信号 / 客服回调 / 设计稿分享）
+ * 我的页逻辑（从 pages/profile/profile.js 拆出）：
+ * - 签到 / 每日问答 / 云同步（checkin.js + space-quiz.js，已从主包下沉）
+ * - 竞猜战绩、里程碑彩蛋、服务号提醒、奖品、年鉴、客服区块
  *
- * 主包 profile.js 通过 require.async + attachTo 委托加载，
- * 与首页 index-vote / 进展页 progress-lazy 模式一致。
- * profile 页在 preloadRule 中预下载 profile-extra 分包，实际几乎无加载等待。
+ * 主包 profile.js 通过 require.async + attachTo 委托加载；
+ * profile 页在 preloadRule 中预下载 profile-extra，实际几乎无加载等待。
  */
 const { ROUTES } = require('../../../utils/routes.js')
 const storageCache = require('../../../utils/storage-sync-cache.js')
-const { clearLocalVotes, resolveVoteChoiceMeta } = require('../../../utils/index-page-helpers.js')
-const { getRocketImage } = require('../../../utils/util.js')
+const {
+  clearLocalVotes,
+  resolveVoteChoiceMeta,
+  DEFAULT_ROCKET_IMAGE
+} = require('../../../utils/index-page-helpers.js')
+const { resolveMissionRocketImage, isDefaultRocketSrc } = require('../../../utils/util.js')
+const { loadCloudMediaMap } = require('../../../utils/image-config.js')
+const { markDownloadFailed } = require('../../../utils/download-fail-cache.js')
 const { getUpcomingMissions, getCompletedMissions } = require('../../../utils/api-launch-list.js')
 const { getMyVoteResults, getVoteStats, clearMyVoteResults } = require('../../../utils/api-app-services.js')
 const { getSubscribedMissions, saveLocalSubscription } = require('../../../utils/subscribe.js')
 const { getOaAlertStatus, enableOaAlert, disableOaAlert } = require('./oa-alert.js')
+const {
+  doCheckIn,
+  getCheckinSummary,
+  getWeekCheckinDots,
+  checkAchievements,
+  syncCheckinToCloud,
+  syncQuizToCloud,
+  pullProfileFromCloud,
+  pushAllToCloud,
+  loadKnowledgeCards
+} = require('./checkin.js')
+const { getDailyQuestion, answerQuestion, getQuizStats, verifyQuizSave } = require('./space-quiz.js')
+
+/** 与首页任务卡 / mapLaunchToListItem 同源 */
+function resolveHomeRocketImage(stamped, rocketName, rocketConfiguration) {
+  return resolveMissionRocketImage(
+    stamped || '',
+    rocketName || '',
+    rocketConfiguration || null,
+    true
+  )
+}
 
 const VOTE_STATS_TTL_MS = 5 * 60 * 1000
 const MILESTONE_CHECK_TTL_MS = 10 * 60 * 1000
@@ -84,6 +109,129 @@ function mapMilestoneForEgg(m) {
 }
 
 const methods = {
+  // ── 签到 / 每日问答（从主包 profile.js 下沉） ──
+
+  refreshCheckinUI() {
+    const summary = getCheckinSummary()
+    const dots = getWeekCheckinDots()
+    const achInfo = checkAchievements()
+    this.setData({
+      checkinSummary: summary,
+      weekDots: dots,
+      achievementInfo: achInfo
+    })
+    if (achInfo.newlyUnlocked && achInfo.newlyUnlocked.length > 0 && !this.data.showFactCard) {
+      const badge = achInfo.newlyUnlocked[0]
+      setTimeout(() => {
+        this.setData({
+          showBadgeModal: true,
+          badgeModalData: { ...badge, unlocked: true, isNewUnlock: true }
+        })
+        wx.vibrateShort({ type: 'heavy' })
+      }, 500)
+    }
+  },
+
+  onCheckIn() {
+    if (this.data.checkinSummary.isCheckedInToday) {
+      wx.showToast({ title: '今天已签到啦', icon: 'none' })
+      return
+    }
+
+    const result = doCheckIn()
+    if (!result.success) {
+      wx.showToast({ title: '签到失败', icon: 'none' })
+      return
+    }
+
+    wx.vibrateShort({ type: 'medium' })
+    if (result.fact) syncCheckinToCloud(result.fact.id)
+
+    const summary = getCheckinSummary()
+    const dots = getWeekCheckinDots()
+    const achInfo = checkAchievements()
+
+    this.setData({
+      checkinSummary: summary,
+      weekDots: dots,
+      achievementInfo: achInfo,
+      todayFact: result.fact,
+      showFactCard: false
+    })
+
+    setTimeout(() => {
+      this.setData({ showFactCard: true })
+    }, 300)
+
+    if (achInfo.newlyUnlocked && achInfo.newlyUnlocked.length > 0) {
+      const badge = achInfo.newlyUnlocked[0]
+      setTimeout(() => {
+        this.setData({
+          showBadgeModal: true,
+          badgeModalData: { ...badge, unlocked: true, isNewUnlock: true }
+        })
+        wx.vibrateShort({ type: 'heavy' })
+      }, 1800)
+    }
+
+    if (typeof this._refreshProfileDot === 'function') this._refreshProfileDot()
+  },
+
+  loadDailyQuiz() {
+    const result = getDailyQuestion()
+    const stats = getQuizStats()
+    this.setData({
+      quizQuestion: result.question,
+      quizAnswered: result.alreadyAnswered,
+      quizResult: result.alreadyAnswered ? { correct: result.wasCorrect, explanation: result.question.explanation } : null,
+      quizSelectedIndex: result.alreadyAnswered && result.selectedIndex !== undefined ? result.selectedIndex : -1,
+      quizStats: stats
+    })
+  },
+
+  onQuizSelect(e) {
+    if (this.data.quizAnswered) return
+    const idx = e.currentTarget.dataset.index
+    if (idx === undefined || idx === null) return
+
+    this.setData({ quizSelectedIndex: idx })
+    wx.vibrateShort({ type: 'light' })
+
+    const qId = this.data.quizQuestion && this.data.quizQuestion.id
+    const result = answerQuestion(qId, idx)
+    verifyQuizSave()
+    syncQuizToCloud()
+
+    const self = this
+    setTimeout(() => {
+      self.setData({
+        quizAnswered: true,
+        quizResult: result,
+        quizStats: result.stats || getQuizStats()
+      })
+      if (result.correct) wx.vibrateShort({ type: 'heavy' })
+      if (typeof self._refreshProfileDot === 'function') self._refreshProfileDot()
+      setTimeout(function () { self.checkMilestones(true) }, 600)
+    }, 500)
+  },
+
+  async syncCloudProfile() {
+    try {
+      const cloudResult = await pullProfileFromCloud()
+      if (cloudResult) {
+        this.refreshCheckinUI()
+        this.loadDailyQuiz()
+      }
+      pushAllToCloud()
+    } catch (e) {}
+  },
+
+  bootCheckinAndQuiz() {
+    loadKnowledgeCards()
+    this.refreshCheckinUI()
+    this.loadDailyQuiz()
+  },
+
   // ── 服务号 B 通道自动提醒 ──
 
   async loadOaAlertStatus(force) {
@@ -495,6 +643,11 @@ const methods = {
       })
       serverResults = Object.keys(resultMap).map(function (k) { return resultMap[k] })
 
+      // 先等 media map：否则字典会拼出 COS 上不存在的「假 URL」，小圆图加载失败成白块
+      try {
+        await loadCloudMediaMap()
+      } catch (e) {}
+
       var history = []
       var settled = 0
       var correct = 0
@@ -522,19 +675,18 @@ const methods = {
         // 先从本地任务详情缓存补全，仍缺的稍后统一从任务列表补
         var missionName = item.missionName || ''
         var rocketName = item.rocketName || ''
-        if (!missionName || !rocketName) {
-          var cachedMission = self._getMissionFromLocalCache(item.launchId)
-          if (cachedMission) {
-            if (!missionName) missionName = cachedMission.missionName || cachedMission.name || ''
-            if (!rocketName) rocketName = cachedMission.rocketName || ''
-          }
+        var cachedMission = self._getMissionFromLocalCache(item.launchId)
+        if (cachedMission) {
+          if (!missionName) missionName = cachedMission.missionName || cachedMission.name || ''
+          if (!rocketName) rocketName = cachedMission.rocketName || ''
         }
 
-        // 获取火箭配置图
-        var rocketImage = ''
-        if (rocketName) {
-          rocketImage = getRocketImage(rocketName) || ''
-        }
+        // 与首页卡片同源：复用缓存盖章图 + resolveMissionRocketImage
+        var rocketImage = resolveHomeRocketImage(
+          cachedMission && (cachedMission.rocketImage || cachedMission.image),
+          rocketName,
+          cachedMission && cachedMission.rocketConfiguration
+        )
 
         // 计算距发射天数
         var launchTimeStr = item.lockedLaunchTime || item.launchTime || ''
@@ -613,17 +765,21 @@ const methods = {
     }
   },
 
-  /** 对仍缺任务名/火箭图的竞猜记录，从任务列表接口补全（列表只拉一次） */
+  /** 对仍缺任务名/火箭图的竞猜记录，从首页同源任务列表补全盖章图 */
   async _enrichVoteHistory() {
     var history = this.data.voteHistory || []
     var needFix = history.some(function (h) {
-      return !h.rocketImage || h.name.indexOf('任务 #') === 0
+      return !h.rocketImage || isDefaultRocketSrc(h.rocketImage) || h.name.indexOf('任务 #') === 0
     })
     if (!needFix) return
     if (this._voteEnrichPending) return
     this._voteEnrichPending = true
 
     try {
+      try {
+        await loadCloudMediaMap()
+      } catch (e) {}
+
       var lists = await Promise.all([
         getUpcomingMissions(50, 0).catch(function () { return { list: [] } }),
         getCompletedMissions(50, 0).catch(function () { return { list: [] } })
@@ -638,21 +794,31 @@ const methods = {
       var latest = this.data.voteHistory || []
       for (var i = 0; i < latest.length; i++) {
         var h = latest[i]
-        if (h.rocketImage && h.name.indexOf('任务 #') !== 0) continue
-        var m = byId[String(h.id)]
+        var launchId = h.launchId || String(h.id || '').split('::')[0]
+        var needName = h.name.indexOf('任务 #') === 0
+        var needImg = !h.rocketImage || isDefaultRocketSrc(h.rocketImage)
+        if (!needName && !needImg) continue
+
+        var m = byId[String(launchId)]
         if (!m) continue
 
         var name = m.missionName || m.name || ''
-        var rocket = m.rocketName || ''
-        if (name && h.name.indexOf('任务 #') === 0) {
+        var rocket = m.rocketName || h.rocket || ''
+
+        if (name && needName) {
           patch['voteHistory[' + i + '].name'] = name
         }
         if (rocket && !h.rocket) {
           patch['voteHistory[' + i + '].rocket'] = rocket
         }
-        if (!h.rocketImage) {
-          var img = rocket ? (getRocketImage(rocket) || '') : ''
-          if (img) patch['voteHistory[' + i + '].rocketImage'] = img
+        if (needImg) {
+          // 列表项 rocketImage 即首页卡片盖章图，直接复用；缺省再走同源 resolve
+          var img = (!isDefaultRocketSrc(m.rocketImage) && m.rocketImage)
+            ? m.rocketImage
+            : resolveHomeRocketImage(m.rocketImage || m.image, rocket, m.rocketConfiguration)
+          if (img && img !== h.rocketImage) {
+            patch['voteHistory[' + i + '].rocketImage'] = img
+          }
         }
       }
       if (Object.keys(patch).length > 0) this.setData(patch)
@@ -660,6 +826,43 @@ const methods = {
       console.error('[Profile] _enrichVoteHistory error:', e)
     } finally {
       this._voteEnrichPending = false
+    }
+  },
+
+  /** 与首页 onImageError / 任务卡同源 */
+  async onVoteHistoryRocketImageError(e) {
+    var ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
+    var index = ds.index
+    if (index == null || index === '') return
+    var idx = Number(index)
+    if (!isFinite(idx) || idx < 0) return
+
+    var history = this.data.voteHistory || []
+    var h = history[idx]
+    if (!h) return
+
+    var failed = h.rocketImage || ''
+    if (failed && isDefaultRocketSrc(failed)) return
+
+    if (failed && /^https?:\/\//i.test(String(failed).trim())) {
+      markDownloadFailed(String(failed).trim(), 404)
+    }
+
+    try {
+      await loadCloudMediaMap()
+    } catch (err) {}
+
+    var mission = this._getMissionFromLocalCache
+      ? this._getMissionFromLocalCache(h.launchId)
+      : null
+    var rocket = h.rocket || (mission && mission.rocketName) || ''
+    var cfg = (mission && mission.rocketConfiguration) || null
+    var next = resolveHomeRocketImage(failed, rocket, cfg)
+    if (!next || next === failed) {
+      next = resolveMissionRocketImage(DEFAULT_ROCKET_IMAGE)
+    }
+    if (next && next !== failed) {
+      this.setData({ ['voteHistory[' + idx + '].rocketImage']: next })
     }
   },
 
@@ -764,13 +967,13 @@ const methods = {
 
     var checkinData = storageCache.getMem('_checkin_data')
     if (checkinData === undefined) {
-      try { checkinData = require('../../../utils/checkin.js').warmCheckinStoreSync() } catch (e) { checkinData = null }
+      try { checkinData = require('./checkin.js').warmCheckinStoreSync() } catch (e) { checkinData = null }
     }
     var checkinDays = checkinData ? (checkinData.totalDays || 0) : 0
 
     var quizData = storageCache.getMem('_space_quiz_data')
     if (quizData === undefined) {
-      try { quizData = require('../../../utils/space-quiz.js').warmQuizStoreSync() } catch (e2) { quizData = null }
+      try { quizData = require('./space-quiz.js').warmQuizStoreSync() } catch (e2) { quizData = null }
     }
     var quizCorrect = quizData ? (quizData.correctCount || 0) : 0
 

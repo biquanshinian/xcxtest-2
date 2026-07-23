@@ -1,10 +1,16 @@
-const { getRoadClosureNotice } = require('../../utils/api-road-closure.js')
+const { getRoadClosureNotice } = require('./utils/api-road-closure.js')
 const { ROAD_CLOSURE_SCENE } = require('./utils/map-scenes.js')
 const { ROUTES } = require('../../utils/routes.js')
 const pageBase = require('../../utils/page-base.js')
 const { resolveRoadClosureStatus } = require('../../utils/progress-road-closure.js')
 const { applyStarbaseI18n, resolveRoadStatusDisplay, translateMayorOrderBody } = require('./utils/starbase-i18n.js')
 const { decodeHtmlEntities } = require('./utils/decode-html-entities.js')
+const { SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL } = require('../../utils/agency-logo-overrides.js')
+const { optimizeImageUrl } = require('../../utils/cos-url.js')
+
+/** 封路通知分享缩略图：固定 SpaceX logo（与全球发射统计/发射商详情同源） */
+const ROAD_CLOSURE_SHARE_IMAGE =
+  optimizeImageUrl(SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL, 'thumb') || SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL
 
 const BODY_COLLAPSE_LEN = 120
 
@@ -158,6 +164,8 @@ Page({
     isMomentsPreview: false,
     item: null,
     shareTitle: '星舰基地封路通知 | 火星探索日志',
+    /** 分享缩略图：SpaceX logo（本地预下载），避免朋友圈落到截图/默认图 */
+    shareImage: ROAD_CLOSURE_SHARE_IMAGE,
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
     tabBarReservedHeight: 0,
@@ -189,6 +197,36 @@ Page({
     }
 
     this.loadData()
+    this.ensureShareImageHttpUrl(ROAD_CLOSURE_SHARE_IMAGE)
+  },
+
+  /** 将 SpaceX logo 落到本地临时路径，规避 iOS 朋友圈远程缩略图加载失败 */
+  ensureShareImageHttpUrl(imageUrl) {
+    if (!imageUrl || typeof imageUrl !== 'string') return
+    const trimmed = imageUrl.trim()
+    if (!trimmed) return
+    if (
+      trimmed.indexOf('wxfile://') === 0 ||
+      /^http:\/\/(tmp|usr)\b/i.test(trimmed) ||
+      (typeof wx !== 'undefined' && wx.env && wx.env.USER_DATA_PATH && trimmed.indexOf(wx.env.USER_DATA_PATH) === 0)
+    ) {
+      if (this.data.shareImage !== trimmed) this.setData({ shareImage: trimmed })
+      return
+    }
+    if (this._shareImageSourceUrl === trimmed && this.data.shareImage) return
+    this._shareImageSourceUrl = trimmed
+    const self = this
+    wx.getImageInfo({
+      src: trimmed,
+      success(res) {
+        if (res && res.path && self._shareImageSourceUrl === trimmed) {
+          self.setData({ shareImage: res.path })
+        }
+      },
+      fail() {
+        if (self._shareImageSourceUrl === trimmed) self._shareImageSourceUrl = ''
+      }
+    })
   },
 
   async loadData() {
@@ -276,18 +314,22 @@ Page({
 
   onShareAppMessage() {
     const query = this._buildShareQuery()
-    return {
+    const imageUrl = this.data.shareImage || ROAD_CLOSURE_SHARE_IMAGE
+    const result = {
       title: this.data.shareTitle,
-      path: '/subpackages/progress-extra/road-closure-detail' + (query ? '?' + query : ''),
-      imageUrl: ''
+      path: '/subpackages/progress-extra/road-closure-detail' + (query ? '?' + query : '')
     }
+    if (imageUrl) result.imageUrl = imageUrl
+    return result
   },
 
   onShareTimeline() {
-    return {
+    const imageUrl = this.data.shareImage || ROAD_CLOSURE_SHARE_IMAGE
+    const result = {
       title: this.data.shareTitle,
-      query: this._buildShareQuery(),
-      imageUrl: ''
+      query: this._buildShareQuery()
     }
+    if (imageUrl) result.imageUrl = imageUrl
+    return result
   }
 })

@@ -52,6 +52,7 @@ const {
   getNextUpcomingLaunch,
   pickCountdownDisplayMission,
   shouldHoldPastNetCountdownMission,
+  pickOverlapSideCard,
   buildCountdownSubscriptionState,
   buildLaunchSwitchEffects,
   shouldRefreshExpiredLaunch,
@@ -122,8 +123,7 @@ const {
 // 倒计时到点实时状态确认：具体节奏（NET+10m 首查 / 窗口内 3m 复查 / 窗口+宽限后
 // bestEffort、未决 15m 慢探）统一由 utils/countdown-window-machine.js 决策。
 const LIVE_STATUS_MIN_ROUND_GAP_MS = 30 * 1000
-// 结算→历史列表合并域已拆到 ./utils/index-settled-merge.js（主包同步加载）；
-// 相关常量与 isSettleableLiveStatusId 从该模块导入，保持单一来源
+// 结算→历史列表合并域：必须主包同步加载（_filterUpcomingAgainstSettled 等大量同步返回值调用点）
 const {
   methods: settledMergeMethods,
   isSettleableLiveStatusId,
@@ -938,6 +938,8 @@ Page({
     formattedLaunchWeekTime: '',
     // 当前任务的推迟徽标文案（如「已推迟 2 次 · 累计 3 天」），无推迟/无数据时为空
     launchDelayText: '',
+    /** 与主倒计时窗口重叠的相邻任务副卡（精简单行）；无重叠时为 null */
+    overlapSideCard: null,
     countdown: {
       days: '',
       hours: '',
@@ -2096,6 +2098,48 @@ Page({
     return { panelMission: picked, list }
   },
 
+  /**
+   * 重叠窗口副卡：仅当与主面板发射窗口相交时显示下一条未决任务。
+   * 主卡落库并顶上后，按新主卡再查下一轮重叠；无重叠则副卡消失。
+   */
+  _buildOverlapSideCardState(now) {
+    const ld = this.data.launchData
+    const panelId = ld && ld.id != null ? String(ld.id) : ''
+    if (!panelId || this.data.missionType !== 'upcoming') return null
+    return pickOverlapSideCard(this.data.upcomingMissions || [], {
+      panelMissionId: panelId,
+      panelMission: ld,
+      recordsById: this._launchRecordsById,
+      now: now != null ? now : Date.now(),
+      getCountdown,
+      getStatusTextZh
+    })
+  },
+
+  /** 同步副卡；返回可并入 setData 的补丁（无变化则空对象） */
+  _buildOverlapSideCardPatch(now) {
+    const next = this._buildOverlapSideCardState(now)
+    const prev = this.data.overlapSideCard
+    if (!next && !prev) return {}
+    if (
+      next &&
+      prev &&
+      String(prev.id) === String(next.id) &&
+      prev.countdownText === next.countdownText &&
+      prev.isExpired === next.isExpired &&
+      prev.statusTextZh === next.statusTextZh &&
+      prev.rocketImage === next.rocketImage
+    ) {
+      return {}
+    }
+    return { overlapSideCard: next }
+  },
+
+  _syncCountdownOverlapSideCard(now) {
+    const patch = this._buildOverlapSideCardPatch(now)
+    if (Object.keys(patch).length) this.setData(patch)
+  },
+
   applyInitialUpcomingLaunchState(firstMission, upcomingList, upcomingRes) {
     this._upcomingStateGeneration = (this._upcomingStateGeneration || 0) + 1
     const now = Date.now()
@@ -2173,6 +2217,7 @@ Page({
       this.applyUpcomingAgencyFilterToPatch(listPatch, listPatch.upcomingMissions)
       this.setData(listPatch, () => {
         this.syncCalendarFromMissionListsIfNeeded()
+        this._syncCountdownOverlapSideCard()
         if (this.data.missionType === 'upcoming') {
           this.scheduleUpcomingAgencyChipsOverflowHint()
         }
@@ -2328,6 +2373,7 @@ Page({
       },
       () => {
         this.syncCalendarFromMissionListsIfNeeded()
+        this._syncCountdownOverlapSideCard()
         if (this.data.missionType === 'upcoming') {
           this._scheduleMissionCardMeasurement(true)
           this.scheduleUpcomingAgencyChipsOverflowHint()
@@ -2371,6 +2417,7 @@ Page({
       },
       () => {
         this.syncCalendarFromMissionListsIfNeeded()
+        this._syncCountdownOverlapSideCard()
         if (this.data.missionType === 'upcoming') {
           this._resetMissionCardHaptics()
           this._scheduleMissionCardMeasurement(true)
@@ -2394,6 +2441,7 @@ Page({
           .finally(() => {
             this.refreshLaunchPanelRocketImageUrl()
             this.syncLaunchPanelRocketImageWithUpcomingList()
+            this._syncCountdownOverlapSideCard()
           })
       }
     )
@@ -3154,10 +3202,12 @@ Page({
    */
   updateCountdown() {
     const cardCountdownPatch = this._buildMissionCardCountdownTickPatch()
+    const sideCardPatch = this._buildOverlapSideCardPatch()
     // 卡片倒计时与主倒计时相互独立：主倒计时的任何 early-return 都不能丢卡片补丁
     const flushCardCountdownPatch = () => {
-      if (Object.keys(cardCountdownPatch).length) {
-        this.setData(cardCountdownPatch)
+      const merged = { ...cardCountdownPatch, ...sideCardPatch }
+      if (Object.keys(merged).length) {
+        this.setData(merged)
       }
     }
 
@@ -3205,10 +3255,11 @@ Page({
       clearTimeout(this._countdownSecondsRollTimer)
       this._countdownSecondsRollTimer = null
     }
-    // 秒位滚动 + 卡片 countdown 合并为一次 setData
+    // 秒位滚动 + 卡片 countdown + 重叠副卡 合并为一次 setData
     const immediateState = {
       ...(tickState.immediateState || {}),
-      ...cardCountdownPatch
+      ...cardCountdownPatch,
+      ...sideCardPatch
     }
     this.setData(immediateState)
     this._countdownSecondsRollTimer = setTimeout(() => {
@@ -3257,15 +3308,19 @@ Page({
           subscribedIdSet: this._getPageSubscribedIdSet()
         }),
         () => {
+          this._syncCountdownOverlapSideCard()
           Promise.resolve(loadCloudMediaMap())
             .catch(() => {})
             .finally(() => {
               this.refreshLaunchPanelRocketImageUrl()
               this.syncLaunchPanelRocketImageWithUpcomingList()
+              this._syncCountdownOverlapSideCard()
             })
         }
       )
       this.applyLaunchSwitchEffects(next, { shouldSkipVoteCache: true })
+    } else if (this.data.overlapSideCard) {
+      this.setData({ overlapSideCard: null })
     }
     this._switchingCountdown = false
   },
@@ -3687,6 +3742,13 @@ Page({
    * 倒计时卡片 — 点击卡片打开详情
    */
   onCountdownCardTap(e) {
+    const id = e.currentTarget.dataset.id
+    if (!id) return
+    this.viewMissionDetail(e)
+  },
+
+  /** 重叠窗口副卡 — 点击进详情 */
+  onOverlapSideCardTap(e) {
     const id = e.currentTarget.dataset.id
     if (!id) return
     this.viewMissionDetail(e)

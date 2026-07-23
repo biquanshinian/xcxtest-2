@@ -70,12 +70,31 @@ const methods = {
     var filtered = boosterDisplay.applyBoosterFilter(all, filterId)
     var previewLimit = boosterDisplay.TAB_PREVIEW_COUNT || 2
     var list = this._boosterPreviewOnly ? filtered.slice(0, previewLimit) : filtered
+    // 同 URL 刷新/筛选时 <image> 常不重触发 bindload；清空 loadedMap 会卡在 opacity:0
+    var prevList = this.data.boosterList || []
+    var prevLoaded = this.data.boosterImageLoadedMap || {}
+    var prevBySerial = {}
+    prevList.forEach(function (b, i) {
+      if (!b || !b.serial) return
+      prevBySerial[String(b.serial)] = {
+        thumb: b.thumbnailUrl || '',
+        loaded: !!prevLoaded[i]
+      }
+    })
+    var boosterImageLoadedMap = {}
+    list.forEach(function (b, i) {
+      if (!b || !b.serial) return
+      var prev = prevBySerial[String(b.serial)]
+      if (prev && prev.loaded && prev.thumb && prev.thumb === (b.thumbnailUrl || '')) {
+        boosterImageLoadedMap[i] = true
+      }
+    })
     this.setData({
       boosterFilter: filterId,
       boosterList: list,
       boosterStats: boosterDisplay.computeBoosterStats(filtered),
       boosterFilterEmpty: all.length > 0 && filtered.length === 0,
-      boosterImageLoadedMap: {}
+      boosterImageLoadedMap: boosterImageLoadedMap
     })
   },
 

@@ -17,10 +17,47 @@ const TMT_HOST = 'tmt.tencentcloudapi.com'
 const TMT_SERVICE = 'tmt'
 const TMT_VERSION = '2018-03-21'
 const TMT_REGION = 'ap-guangzhou'
-// TextTranslateBatch 源文本总量上限约 6000 字节，按累计字符数切批留出余量
+// TextTranslateBatch 源文本总量上限约 6000 字符，按累计字符数切批留出余量
 const BATCH_MAX_CHARS = 4500
 const BATCH_MAX_ITEMS = 16
+/** 单条超过此长度必须切开，否则整批触发 UnsupportedOperation.TextTooLong */
+const ITEM_MAX_CHARS = 4000
 const CACHE_COLLECTION = 'translation_cache'
+
+/**
+ * 超长文本按段落/句子边界切成 ≤ maxChars 的片段（保序）。
+ * 修复「单条超长的独立成批」仍可能超过 TMT 单次上限导致整条失败的问题。
+ */
+function splitLongText(text, maxChars) {
+  const s = String(text || '')
+  const limit = Math.max(200, maxChars | 0)
+  if (!s) return []
+  if (s.length <= limit) return [s]
+
+  const out = []
+  let start = 0
+  while (start < s.length) {
+    if (s.length - start <= limit) {
+      out.push(s.slice(start))
+      break
+    }
+    const window = s.slice(start, start + limit)
+    let br = -1
+    const seps = ['\n\n', '\n', '. ', '? ', '! ', '; ', ', ', ' ']
+    for (let si = 0; si < seps.length; si++) {
+      const sep = seps[si]
+      const i = window.lastIndexOf(sep)
+      if (i >= Math.floor(limit * 0.35)) {
+        br = start + i + sep.length
+        break
+      }
+    }
+    if (br <= start) br = start + limit
+    out.push(s.slice(start, br))
+    start = br
+  }
+  return out.filter((p) => p && p.length)
+}
 
 function sha256(msg) {
   return crypto.createHash('sha256').update(msg, 'utf8').digest('hex')
@@ -254,21 +291,42 @@ async function translateTextsBatch(texts) {
     }
   }
 
-  // 按累计字符数切批（TMT 批量接口有总量上限）；单条超长的独立成批
+  // 按累计字符数切批（TMT 批量接口有总量上限）；单条超长先按句段切开再入批
+  const units = []
+  for (const item of toTmt) {
+    const parts = splitLongText(item.raw, ITEM_MAX_CHARS)
+    if (!parts.length) continue
+    if (parts.length === 1) {
+      units.push({ hash: item.hash, raw: parts[0], groupKey: item.hash, partIndex: 0, partCount: 1 })
+    } else {
+      for (let pi = 0; pi < parts.length; pi++) {
+        units.push({
+          hash: item.hash,
+          raw: parts[pi],
+          groupKey: item.hash,
+          partIndex: pi,
+          partCount: parts.length
+        })
+      }
+    }
+  }
+
   const batches = []
   let current = []
   let currentChars = 0
-  for (const item of toTmt) {
-    const len = item.raw.length
+  for (const unit of units) {
+    const len = unit.raw.length
     if (current.length > 0 && (currentChars + len > BATCH_MAX_CHARS || current.length >= BATCH_MAX_ITEMS)) {
       batches.push(current)
       current = []
       currentChars = 0
     }
-    current.push(item)
+    current.push(unit)
     currentChars += len
   }
   if (current.length > 0) batches.push(current)
+
+  const segmentParts = {}
 
   let batchIndex = 0
   for (const batch of batches) {
@@ -297,7 +355,6 @@ async function translateTextsBatch(texts) {
       console.error('[translate] TMT batch failed after retry:', lastErr.message || lastErr)
     }
 
-    const cacheWrites = []
     for (let j = 0; j < batch.length; j++) {
       const item = batch[j]
       const prot = protectedList[j]
@@ -305,16 +362,27 @@ async function translateTextsBatch(texts) {
       if (zh) zh = restoreTerms(zh, prot.placeholders)
       // TMT 失败/未配置时不降级伪造译文：宁可留空（展示原文），也不写中英夹杂
       if (zh && !looksLikelyChinese(zh)) zh = ''
-      if (!zh) continue
-      for (const idx of hashToIndices[item.hash]) {
-        results[idx] = zh
+      if (!segmentParts[item.groupKey]) {
+        segmentParts[item.groupKey] = new Array(item.partCount).fill('')
       }
-      if (isTmtConfigured() && zh !== item.raw) {
-        cacheWrites.push({ hash: item.hash, zh, sourceLen: item.raw.length })
-      }
+      segmentParts[item.groupKey][item.partIndex] = zh || ''
     }
-    await writeCacheBatch(cacheWrites)
   }
+
+  const cacheWrites = []
+  for (const item of toTmt) {
+    const parts = segmentParts[item.hash]
+    if (!parts || !parts.length || !parts.every(Boolean)) continue
+    const zh = parts.join('')
+    if (!zh || !looksLikelyChinese(zh)) continue
+    for (const idx of hashToIndices[item.hash]) {
+      results[idx] = zh
+    }
+    if (isTmtConfigured() && zh !== item.raw) {
+      cacheWrites.push({ hash: item.hash, zh, sourceLen: item.raw.length })
+    }
+  }
+  await writeCacheBatch(cacheWrites)
 
   return results
 }

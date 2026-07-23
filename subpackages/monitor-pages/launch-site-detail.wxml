@@ -5,7 +5,7 @@
       <text class="nav-title">{{site ? (site.nameZh || site.name) : '发射场详情'}}</text>
       <view class="nav-placeholder"></view>
     </view>
-    <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" style="top: {{mapActionTop}}px;" wx:if="{{hasCoords}}">
+    <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" style="top: {{mapActionTop}}px;" wx:if="{{hasCoords && !isMomentsPreview}}">
       <view class="map-action-header">
         <text class="map-action-title">地图工具</text>
         <view class="map-action-toggle-btn" bindtap="toggleActionMenuCollapsed"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
@@ -20,7 +20,13 @@
   </view>
 
   <!-- 腾讯地图（小程序原生 map 组件）：定位到发射场坐标，工位加载后追加标记 -->
-  <map wx:if="{{hasCoords}}" class="main-map" latitude="{{latitude}}" longitude="{{longitude}}" scale="{{scale}}" markers="{{markers}}" enable-scroll="true" enable-zoom="true" enable-satellite="true" bindmarkertap="onMarkerTap"></map>
+  <map wx:if="{{hasCoords && !isMomentsPreview}}" class="main-map" latitude="{{latitude}}" longitude="{{longitude}}" scale="{{scale}}" markers="{{markers}}" enable-scroll="true" enable-zoom="true" enable-satellite="true" bindmarkertap="onMarkerTap"></map>
+
+  <!-- 朋友圈单页：隐藏原生 map，防黑屏 -->
+  <view wx:elif="{{isMomentsPreview}}" class="moments-map-fallback">
+    <text class="moments-map-fallback-title">{{site ? (site.nameZh || site.name) : '发射场详情'}}</text>
+    <text class="moments-map-fallback-desc">朋友圈预览中地图暂不可用，点击「前往小程序」查看完整点位与工位信息。</text>
+  </view>
 
   <!-- 无坐标兜底：LL2 卫星定位图占满地图区域 -->
   <view wx:else class="no-coords-stage">
@@ -110,4 +116,5 @@
 
   <!-- 分享免门控 24h 剩余时间倒计时胶囊 -->
   <share-gate-countdown expire-at="{{shareGateExpireAt}}" />
+  <share-guide />
 </view>

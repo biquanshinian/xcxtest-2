@@ -12,7 +12,8 @@ const { isFavoriteAgency, toggleFavoriteAgency } = require('../../utils/agency-f
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { isVideoUrl, videoSnapshotUrl } = require('../../utils/cos-url.js')
 const { getCachedMediaImage } = require('../../utils/icon-cache.js')
-const { buildLl2ImageChain, advanceImageFallback } = require('../../utils/ll2-image.js')
+const { buildLl2ImageChain, advanceImageFallback, proxiedImageUrl } = require('../../utils/ll2-image.js')
+const { resolveAgencyLogoForDisplay } = require('../../utils/agency-logo-cache.js')
 
 /**
  * 机构 LL2 id → 事件更新推文账号（starship_event_updates.source）映射；
@@ -194,6 +195,8 @@ Page({
     partialMessage: '',
     navTitle: '发射商详情',
     shareTitle: '发射商详情 | 火星探索日志',
+    /** 分享缩略图：优先发射商 logo（本地预下载路径），避免朋友圈落到头图大图 */
+    shareImage: '',
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
     scrollRefreshing: false,
@@ -360,6 +363,7 @@ Page({
         navTitle: '发射商详情',
         shareTitle: `${(item && item.name) || '发射商详情'} | 火星探索日志`
       })
+      this._syncShareImage(item)
       this._markLauncherArchives()
       this._loadSpacexRecoveryStats(item)
       this._initArtemisSection(item)
@@ -393,6 +397,7 @@ Page({
           navTitle: '发射商详情',
           shareTitle: `${requestParams.name || '发射商详情'} | 火星探索日志`
         })
+        this._syncShareImage(minimalItem)
         return
       }
 
@@ -925,21 +930,92 @@ Page({
     })
   },
 
+  /**
+   * 分享缩略图：用发射商 logo（非头图大图）。
+   * 本地缓存命中优先；外链走 Worker 代理，便于朋友圈 download 域名合规。
+   */
+  _pickAgencyShareImage(item) {
+    if (!item || typeof item !== 'object') return ''
+    const logo = String(item.logoUrl || '').trim()
+    const social = String(item.socialLogoUrl || '').trim()
+    const pick = logo || social
+    if (!pick) return ''
+    const resolved = resolveAgencyLogoForDisplay(pick) || pick
+    // USER_DATA_PATH / wxfile / tmp 等本地路径可直接作分享图
+    if (
+      resolved.indexOf('wxfile://') === 0 ||
+      /^http:\/\/(tmp|usr)\b/i.test(resolved) ||
+      (typeof wx !== 'undefined' && wx.env && wx.env.USER_DATA_PATH && resolved.indexOf(wx.env.USER_DATA_PATH) === 0) ||
+      !/^https?:\/\//i.test(resolved)
+    ) {
+      return resolved
+    }
+    return proxiedImageUrl(resolved) || resolved
+  },
+
+  _syncShareImage(item) {
+    const url = this._pickAgencyShareImage(item)
+    if (!url) {
+      if (this.data.shareImage) this.setData({ shareImage: '' })
+      this._shareImageSourceUrl = ''
+      return
+    }
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    this.ensureShareImageHttpUrl(url)
+  },
+
+  /**
+   * 将网络 logo 落到本地临时路径，规避 iOS 朋友圈对部分远程缩略图加载失败
+   */
+  ensureShareImageHttpUrl(imageUrl) {
+    if (!imageUrl || typeof imageUrl !== 'string') return
+    const trimmed = imageUrl.trim()
+    if (!trimmed) return
+    if (
+      trimmed.indexOf('wxfile://') === 0 ||
+      /^http:\/\/(tmp|usr)\b/i.test(trimmed) ||
+      (typeof wx !== 'undefined' && wx.env && wx.env.USER_DATA_PATH && trimmed.indexOf(wx.env.USER_DATA_PATH) === 0)
+    ) {
+      if (this.data.shareImage !== trimmed) this.setData({ shareImage: trimmed })
+      return
+    }
+    if (this._shareImageSourceUrl === trimmed && this.data.shareImage) return
+    this._shareImageSourceUrl = trimmed
+    const self = this
+    wx.getImageInfo({
+      src: trimmed,
+      success(res) {
+        if (res && res.path && self._shareImageSourceUrl === trimmed) {
+          self.setData({ shareImage: res.path })
+        }
+      },
+      fail() {
+        if (self._shareImageSourceUrl === trimmed) self._shareImageSourceUrl = ''
+      }
+    })
+  },
+
   onShareAppMessage() {
     const item = this.data.item
-    return {
+    const imageUrl = this.data.shareImage || this._pickAgencyShareImage(item)
+    const result = {
       title: this.data.shareTitle,
       path: item
         ? withShareStampPath(`/subpackages/monitor-pages/agency-detail?id=${item.id}`, this)
         : '/pages/monitor/monitor'
     }
+    if (imageUrl) result.imageUrl = imageUrl
+    return result
   },
 
   onShareTimeline() {
     const item = this.data.item
-    return {
+    const imageUrl = this.data.shareImage || this._pickAgencyShareImage(item)
+    const result = {
       title: this.data.shareTitle,
       query: item ? withShareStampQuery(`id=${item.id}`, this) : ''
     }
+    if (imageUrl) result.imageUrl = imageUrl
+    return result
   }
 })

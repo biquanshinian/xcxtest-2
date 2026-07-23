@@ -210,6 +210,79 @@ function nextProbeAction(mission, record, now = Date.now()) {
   return { action: 'slowProbe', delayMs: POST_WINDOW_RECHECK_MS }
 }
 
+/** 任务发射窗口区间 [NET, holdUntil]；非法返回 null */
+function getMissionWindowInterval(mission, record) {
+  const net = getEffectiveNetMs(mission, record)
+  if (!Number.isFinite(net)) return null
+  const holdUntil = getHoldUntilMs(mission, record)
+  if (!Number.isFinite(holdUntil)) return null
+  return { start: net, end: holdUntil }
+}
+
+function windowsOverlap(a, b) {
+  if (!a || !b) return false
+  return a.start < b.end && b.start < a.end
+}
+
+/**
+ * 与主倒计时面板窗口重叠的下一条未决任务（副卡）。
+ * 规则：仅窗口相交才返回；主卡落库顶上后，对新主卡再查下一轮重叠（依次排队）；
+ * 无重叠则返回 null（副卡消失）。forceNext 仅单测用，正式路径禁止。
+ *
+ * @param {Array} missions
+ * @param {{
+ *   panelMissionId?: string|number,
+ *   panelMission?: object|null,
+ *   recordsById?: Map,
+ *   now?: number,
+ *   forceNext?: boolean
+ * }} options
+ * @returns {object|null}
+ */
+function resolveOverlapSideMission(missions, options = {}) {
+  const safeList = Array.isArray(missions) ? missions : []
+  const records = options.recordsById instanceof Map ? options.recordsById : null
+  const panelId =
+    options.panelMissionId != null && options.panelMissionId !== '' ? String(options.panelMissionId) : ''
+  if (!panelId) return null
+
+  const panelFromList = safeList.find((m) => m && String(m.id) === panelId) || null
+  const panelMission = panelFromList || options.panelMission || null
+
+  const candidates = []
+  for (let i = 0; i < safeList.length; i++) {
+    const mission = safeList[i]
+    if (!mission || mission.id == null) continue
+    if (String(mission.id) === panelId) continue
+    if (isMissionSettled(mission, recordOf(records, mission.id))) continue
+    candidates.push(mission)
+  }
+  if (!candidates.length) return null
+
+  if (options.forceNext) {
+    const panelNet = getEffectiveNetMs(panelMission, recordOf(records, panelId))
+    if (Number.isFinite(panelNet)) {
+      const next = candidates.find((m) => {
+        const net = getEffectiveNetMs(m, recordOf(records, m.id))
+        return Number.isFinite(net) && net > panelNet
+      })
+      if (next) return next
+    }
+    return candidates[0]
+  }
+
+  if (!panelMission || isMissionSettled(panelMission, recordOf(records, panelId))) return null
+  const panelIv = getMissionWindowInterval(panelMission, recordOf(records, panelId))
+  if (!panelIv) return null
+
+  for (let i = 0; i < candidates.length; i++) {
+    const mission = candidates[i]
+    const iv = getMissionWindowInterval(mission, recordOf(records, mission.id))
+    if (iv && windowsOverlap(panelIv, iv)) return mission
+  }
+  return null
+}
+
 module.exports = {
   PHASE,
   WINDOW_HOLD_FALLBACK_MS,
@@ -220,10 +293,13 @@ module.exports = {
   getEffectiveStatusId,
   getEffectiveNetMs,
   getHoldUntilMs,
+  getMissionWindowInterval,
+  windowsOverlap,
   isMissionSettled,
   derivePhase,
   isPanelHoldActive,
   resolvePanelSelection,
   resolvePanelMission,
+  resolveOverlapSideMission,
   nextProbeAction
 }

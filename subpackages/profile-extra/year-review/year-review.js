@@ -1,5 +1,5 @@
 const pageBase = require('../../../utils/page-base.js')
-const { getMembershipState, isPro, MEMBER_ICONS } = require('../../../utils/membership.js')
+const { getMembershipState, isPro, MEMBER_ICONS, canUsePaidCloudSync } = require('../../../utils/membership.js')
 const { getCachedIcon, preloadIcons } = require('../../../utils/icon-cache.js')
 const { isPlaybackAllowed } = require('../../../utils/feature-flags.js')
 
@@ -8,6 +8,16 @@ const YEAR_REVIEW_BG_VIDEO_REMOTE =
   'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E8%83%8C%E6%99%AF%E8%A7%86%E9%A2%91/1778841707632_ddgop4.mp4'
 /** Storage 记录本地缓存路径；URL 变更则重新拉取 */
 const YEAR_REVIEW_BG_VIDEO_STORAGE_KEY = 'year_review_detail_bg_video_v1'
+
+function isMomentsSinglePage() {
+  try {
+    const enter = (typeof wx.getEnterOptionsSync === 'function' && wx.getEnterOptionsSync())
+      || wx.getLaunchOptionsSync()
+    return !!(enter && enter.scene === 1154)
+  } catch (e) {
+    return false
+  }
+}
 
 function num(n) {
   const x = Number(n)
@@ -230,16 +240,24 @@ Page({
     memberIconUrl: '',
     memberBadgeText: 'FREE',
     /** 有值后才挂载 video，避免未进入详情就请求网络 */
-    yearReviewBgVideoPlaySrc: ''
+    yearReviewBgVideoPlaySrc: '',
+    isMomentsPreview: false
   },
 
   onLoad(options) {
     this.initUiShell()
 
-    wx.showShareMenu({
-      withShareTicket: true,
-      menus: ['shareAppMessage', 'shareTimeline']
-    })
+    const isMomentsPreview = isMomentsSinglePage()
+    if (isMomentsPreview) {
+      this.setData({ isMomentsPreview: true })
+    } else {
+      try {
+        wx.showShareMenu({
+          withShareTicket: true,
+          menus: ['shareAppMessage', 'shareTimeline']
+        })
+      } catch (e) {}
+    }
 
     try {
       preloadIcons([MEMBER_ICONS.FREE, MEMBER_ICONS.PRO])
@@ -257,10 +275,12 @@ Page({
 
   /** 仅进入详情页后：恢复本地缓存或下载并 saveFile 持久化 */
   onReady() {
+    if (this.data.isMomentsPreview) return
     this._prepareYearReviewBgVideo()
   },
 
   _playBgVideoIfReady() {
+    if (this.data.isMomentsPreview) return
     if (!this.data.yearReviewBgVideoPlaySrc) return
     try {
       const ctx = wx.createVideoContext('yrBgVideo', this)
@@ -271,6 +291,11 @@ Page({
   _prepareYearReviewBgVideo() {
     if (this._yrBgVideoPrepareStarted) return
     this._yrBgVideoPrepareStarted = true
+    // 朋友圈单页 / 非会员：不预加载背景视频（只保留静态页）
+    if (this.data.isMomentsPreview || !canUsePaidCloudSync()) {
+      this.setData({ yearReviewBgVideoPlaySrc: '' })
+      return
+    }
     isPlaybackAllowed()
       .catch(() => false)
       .then((allowed) => {
@@ -506,8 +531,23 @@ Page({
   onShareAppMessage() {
     const y = this.data.year
     return {
-      title: `${y} 我的太空年鉴 · 火星探索日志`,
+      title: this._shareTitle(),
       path: `/subpackages/profile-extra/year-review/year-review?year=${y}`
     }
+  },
+
+  onShareTimeline() {
+    const y = this.data.year
+    return {
+      title: this._shareTitle(),
+      // 朋友圈只能落本页；带 year 与好友分享 path 对称
+      query: `year=${y}`
+    }
+  },
+
+  /** 与页眉 navTitle 对齐：YYYY 太空年鉴 · 火星探索日志（不含 SpaceX / 后台 displayTitle） */
+  _shareTitle() {
+    const y = this.data.year || new Date().getFullYear()
+    return `${y} 太空年鉴 · 火星探索日志`
   }
 })

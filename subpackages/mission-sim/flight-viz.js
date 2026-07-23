@@ -10,6 +10,11 @@
 /** 溅落点归一化 x：一级近海偏左，二级靠右贴齐，拉开水平间距 */
 var SPLASH_X_BOOSTER = 0.30
 var SPLASH_X_SHIP = 0.90
+/** 筷子捕获点：一级挂下臂、二级挂上臂（同塔，便于未来双捕获示意） */
+var CATCH_X_BOOSTER = 0.12
+var CATCH_Y_BOOSTER = 0.055
+var CATCH_X_SHIP = 0.125
+var CATCH_Y_SHIP = 0.095
 
 function buildDiagramGeo(profile) {
   var ascent = [
@@ -18,12 +23,14 @@ function buildDiagramGeo(profile) {
   ]
   var booster
   if (profile.boosterEnd === 'catch') {
+    // 回塔：末段竖直尾朝下进筷子（高度停在下臂，不入海）
     booster = ascent.concat([
       [230, 0.43, 0.62], [260, 0.35, 0.48], [310, 0.25, 0.32],
-      [360, 0.18, 0.19], [400, 0.14, 0.10], [430, 0.123, 0.065], [444, 0.12, 0.05]
+      [360, 0.18, 0.19], [400, 0.14, 0.11], [430, 0.123, 0.07],
+      [444, CATCH_X_BOOSTER, CATCH_Y_BOOSTER]
     ])
   } else {
-    // 受控溅落：减速后落入近海回收区（偏左）
+    // 受控溅落：减速后落入近海回收区（偏左）→ 入水后 FTS
     booster = ascent.concat([
       [230, 0.47, 0.60], [260, 0.42, 0.46], [310, 0.36, 0.29],
       [360, 0.325, 0.16], [420, 0.305, 0.05], [444, SPLASH_X_BOOSTER, 0.008]
@@ -38,12 +45,14 @@ function buildDiagramGeo(profile) {
   var se = profile.shipEndT || 3921
   var ship
   if (profile.shipEnd === 'catch') {
+    // 回塔：腹部再入 → 翻转尾朝下 → 挂上臂（与一级捕获高度错开）
     ship = shipHead.concat([
       [se - 421, 0.94, 0.74], [se - 271, 0.85, 0.56], [se - 201, 0.72, 0.42], [se - 121, 0.56, 0.27],
-      [se - 71, 0.42, 0.18], [se - 41, 0.26, 0.115], [se - 21, 0.17, 0.09], [se, 0.125, 0.05]
+      [se - 71, 0.42, 0.18], [se - 41, 0.26, 0.12], [se - 21, 0.17, 0.105],
+      [se, CATCH_X_SHIP, CATCH_Y_SHIP]
     ])
   } else {
-    // 二级溅落靠右贴齐，与一级近海点拉开水平距离
+    // 二级溅落靠右贴齐，与一级近海点拉开水平距离 → 入水后 FTS
     ship = shipHead.concat([
       [se - 421, 0.94, 0.74], [se - 271, 0.93, 0.55], [se - 201, 0.92, 0.40], [se - 121, 0.91, 0.24],
       [se - 71, 0.90, 0.12], [se - 31, 0.90, 0.04], [se, SPLASH_X_SHIP, 0.008]
@@ -58,14 +67,17 @@ function buildDiagramGeo(profile) {
     { x: 0.94, y: 0.74, label: '再入', align: 'r', c: 'o' }
   ]
   if (profile.boosterEnd === 'splash') {
-    nodes.push({ x: SPLASH_X_BOOSTER, y: 0.02, label: '一级溅落', align: 'l', c: 'g' })
+    nodes.push({ x: SPLASH_X_BOOSTER, y: 0.02, label: '一级溅落·FTS', align: 'l', c: 'g' })
+  } else if (profile.boosterEnd === 'catch') {
+    nodes.push({ x: CATCH_X_BOOSTER, y: CATCH_Y_BOOSTER, label: '一级捕获', align: 'l', c: 'g' })
   }
   if (profile.shipEnd === 'splash') {
     nodes.push({ x: 0.92, y: 0.40, label: '黑障段', align: 'l', c: 'o' })
-    nodes.push({ x: SPLASH_X_SHIP, y: 0.02, label: '二级溅落', align: 'r', c: 'b' })
+    nodes.push({ x: SPLASH_X_SHIP, y: 0.02, label: '二级溅落·FTS', align: 'r', c: 'b' })
   } else {
     nodes.push({ x: 0.72, y: 0.42, label: '黑障段', align: 'r', c: 'o' })
     nodes.push({ x: 0.26, y: 0.115, label: '翻转点火', align: 'r', c: 'b' })
+    nodes.push({ x: CATCH_X_SHIP, y: CATCH_Y_SHIP, label: '二级捕获', align: 'r', c: 'b' })
   }
   var deployPos = null
   if (profile.payloadT != null) {
@@ -76,7 +88,13 @@ function buildDiagramGeo(profile) {
   return { booster: booster, ship: ship, nodes: nodes, deployPos: deployPos, profile: profile }
 }
 
-var DEFAULT_GEO_PROFILE = { boosterEnd: 'splash', shipEnd: 'splash', payloadT: 1120, shipEndT: 3921 }
+var DEFAULT_GEO_PROFILE = {
+  boosterEnd: 'splash',
+  shipEnd: 'splash',
+  payloadT: 1120,
+  entryT: 2845,
+  shipEndT: 3921
+}
 
 function pathPos(path, t) {
   if (t <= path[0][0]) return { x: path[0][1], y: path[0][2] }
@@ -91,6 +109,87 @@ function pathPos(path, t) {
     }
   }
   return { x: last[1], y: last[2] }
+}
+
+/** 最短角插值（弧度） */
+function lerpAngle(a0, a1, k) {
+  if (k <= 0) return a0
+  if (k >= 1) return a1
+  var d = a1 - a0
+  while (d > Math.PI) d -= Math.PI * 2
+  while (d < -Math.PI) d += Math.PI * 2
+  return a0 + d * k
+}
+
+/**
+ * 示意图姿态约定（本地坐标：机头 +x，发动机 −x，飞船热瓦腹面 +y）：
+ * - ang = −π/2 → 机头朝天、发动机朝下（溅落尾朝海 / 筷子捕获尾朝塔基）
+ * - ang = 0 → 机头朝右、腹面朝下（载荷后平躺）
+ * - ang = vel − π/2 → 腹面迎风（再入 belly-flop）
+ * - ang = vel + π → 发动机沿速度（反推/着陆减速）
+ *
+ * 捕获 vs 溅落由 profile.boosterEnd / shipEnd 区分；时间随 payloadT/entryT/shipEndT 自适应。
+ */
+function boosterDiagramAng(t, velAng, profile) {
+  var isCatch = profile && profile.boosterEnd === 'catch'
+  // 回塔捕获更早锁竖直尾朝下；溅落末段同样锁尾朝海（避免拖尾静止把姿态翻错）
+  if (t >= (isCatch ? 360 : 400)) return -Math.PI / 2
+  if (t >= 190) return velAng + Math.PI
+  return velAng
+}
+
+function shipDiagramAng(t, velAng, profile) {
+  var se = (profile && profile.shipEndT) || 3921
+  var entryT = profile && profile.entryT != null ? profile.entryT : Math.max(2000, se - 1076)
+  var payloadT = profile && profile.payloadT != null ? profile.payloadT : null
+  var isCatch = profile && profile.shipEnd === 'catch'
+  var flipT = se - 50
+  var landT = se - 40
+
+  // 入轨燃烧：机头沿速度
+  if (t < 520) return velAng
+
+  // 翻转 → 溅落尾朝海 / 捕获尾朝下进筷子
+  if (t >= flipT) {
+    var belly = velAng - Math.PI / 2
+    var enginesDown = -Math.PI / 2
+    if (t >= landT) {
+      // 捕获：更快锁死竖直进场，便于筷子合拢
+      var blend = isCatch ? 10 : 18
+      return lerpAngle(belly, enginesDown, Math.min(1, (t - landT) / blend))
+    }
+    return lerpAngle(belly, velAng + Math.PI, Math.min(1, (t - flipT) / 12))
+  }
+
+  // 再入：腹面迎风（热瓦对大气）——捕获与溅落相同
+  if (t >= entryT) return velAng - Math.PI / 2
+
+  // 载荷部署后：平躺、腹面朝下（为再入预姿）
+  if (payloadT != null && t >= payloadT) {
+    var k = Math.min(1, (t - payloadT) / 90)
+    return lerpAngle(velAng, 0, k)
+  }
+
+  // SECO 后滑行：机头沿速度，逐渐趋平
+  return lerpAngle(velAng, 0, Math.min(1, (t - 520) / 180))
+}
+
+/** 再入等离子强度 0..1（随 entryT→flip 自动缩放，峰值在再入中段） */
+function shipPlasmaIntensity(t, profile) {
+  var se = (profile && profile.shipEndT) || 3921
+  var entryT = profile && profile.entryT != null ? profile.entryT : Math.max(2000, se - 1076)
+  var flipT = se - 50
+  if (t < entryT || t >= flipT) return 0
+  var span = Math.max(1, flipT - entryT)
+  var u = (t - entryT) / span
+  // 前段快速拉起，中段最烈，临近翻转前收束
+  var envelope = Math.sin(Math.min(1, Math.max(0, u)) * Math.PI)
+  return 0.4 + 0.6 * envelope
+}
+
+/** 双捕获时一级挂塔保留到二级捕获后片刻 */
+function seHoldEnd(profile) {
+  return ((profile && profile.shipEndT) || 3921) + 180
 }
 
 function createFlightViz(opts) {
@@ -442,52 +541,73 @@ function createFlightViz(opts) {
         this._drawVehicle(ctx, stx, sty, this._headingOf(this._trailB, -Math.PI / 2), 'stack', 1)
       }
 
-      /* 热分离后：助推器（绿）——反推点火 190-230、着陆点火 420-444 有火焰 */
+      /* 热分离后：助推器——飞行 / 筷子挂住 / 溅落·FTS（由 boosterEnd 分流） */
+      var bCatch = geo.profile.boosterEnd === 'catch'
+      var bSplash = geo.profile.boosterEnd === 'splash'
       if (t >= 150 && t <= 444) {
         var bp = pathPos(geo.booster, t)
         var bx = this._px(bp.x, w)
         var by = this._py(bp.y, h)
         this._pushTrail(this._trailB, bx, by)
         this._drawTrail(ctx, this._trailB, '0,255,136')
-        var bAng = this._headingOf(this._trailB, -Math.PI / 2)
+        var bVel = this._pathVelAng(geo.booster, t, w, h, -Math.PI / 2)
+        var bAng = boosterDiagramAng(t, bVel, geo.profile)
         var bBurn = 0
-        if (t >= 190 && t < 230) bBurn = 1          // 反推点火
-        else if (t >= 420) bBurn = 1                // 着陆点火
-        // 反推后尾部朝前（倒飞）
-        if (t >= 190) bAng += Math.PI
+        if (t >= 190 && t < 230) bBurn = 1
+        else if (t >= 420) bBurn = 1
         this._drawVehicle(ctx, bx, by, bAng, 'booster', bBurn)
+      } else if (bCatch && t > 444 && (t <= 720 || (geo.profile.shipEnd === 'catch' && t <= seHoldEnd(geo.profile)))) {
+        // 捕获后挂在下臂：竖直尾朝下；若本场亦二级捕获则挂到飞船捕获后再淡出
+        if (this._trailB.length) this._trailB.length = 0
+        var bHold = pathPos(geo.booster, 444)
+        var bHx = this._px(bHold.x, w)
+        var bHy = this._py(bHold.y, h)
+        var bClose = Math.min(1, (t - 444) / 8)
+        this._drawChopsticksLive(ctx, w, h, bClose, 'booster')
+        this._drawVehicle(ctx, bHx, bHy, -Math.PI / 2, 'booster', 0)
       } else if (t > 444 && this._trailB.length) {
         this._trailB.length = 0
       }
-      /* 一级溅落水花 */
-      if (geo.profile.boosterEnd === 'splash' && t >= 438 && t <= 560) {
-        this._drawSplash(ctx, this._px(SPLASH_X_BOOSTER, w), gy, (t - 438) / 20, '0,255,136')
+      /* 一级溅落：水花 + 入水 FTS 爆炸（仅 splash；捕获不炸） */
+      if (bSplash && t >= 438 && t <= 560) {
+        var bSx = this._px(SPLASH_X_BOOSTER, w)
+        this._drawSplash(ctx, bSx, gy, (t - 438) / 20, '0,255,136')
+        if (t >= 444) this._drawFtsBoom(ctx, bSx, gy - 3 * dpr, (t - 444) / 22)
       }
 
-      /* 飞船（蓝）：入轨燃烧 150-520；载荷部署；再入等离子光晕；翻转着陆点火 3881+ */
-      if (t >= 150) {
-        var sp = pathPos(geo.ship, t)
+      /* 飞船：入轨 → 平躺 → 再入 → 翻转；收尾分流捕获挂塔 / 溅落·FTS */
+      var se = geo.profile.shipEndT || 3921
+      var sCatch = geo.profile.shipEnd === 'catch'
+      var sSplash = geo.profile.shipEnd === 'splash'
+      var shipFly = t >= 150 && t < se
+      var shipHeld = sCatch && t >= se && t <= se + 180
+      if (shipFly || shipHeld) {
+        var sp = shipHeld ? pathPos(geo.ship, se) : pathPos(geo.ship, t)
         var sx = this._px(sp.x, w)
         var sy = this._py(sp.y, h)
-        this._pushTrail(this._trailS, sx, sy)
-        this._drawTrail(ctx, this._trailS, '77,163,255')
-        if (snap.phase === 'shipEntry' && t < 3760) {
-          var pg = ctx.createRadialGradient(sx, sy, 0, sx, sy, 10 * dpr)
-          pg.addColorStop(0, 'rgba(255,150,60,0.55)')
-          pg.addColorStop(0.6, 'rgba(255,90,40,0.2)')
-          pg.addColorStop(1, 'rgba(255,90,40,0)')
-          ctx.fillStyle = pg
-          ctx.beginPath()
-          ctx.arc(sx, sy, 10 * dpr, 0, Math.PI * 2)
-          ctx.fill()
+        if (shipFly) {
+          this._pushTrail(this._trailS, sx, sy)
+          this._drawTrail(ctx, this._trailS, '77,163,255')
+        } else if (this._trailS.length) {
+          this._trailS.length = 0
         }
-        var se = geo.profile.shipEndT || 3921
-        var sAng = this._headingOf(this._trailS, -Math.PI / 2)
+        var sAng = -Math.PI / 2
         var sBurn = 0
-        if (t < 520) sBurn = 1                      // 上升入轨燃烧
-        else if (t >= se - 40) sBurn = 1            // 翻转与着陆点火
-        if (t >= se - 50) sAng += Math.PI           // 翻转后尾部朝下
-        this._drawVehicle(ctx, sx, sy, sAng, 'ship', sBurn)
+        if (shipFly) {
+          var sVel = this._pathVelAng(geo.ship, t, w, h, 0)
+          sAng = shipDiagramAng(t, sVel, geo.profile)
+          var plasma = shipPlasmaIntensity(t, geo.profile)
+          if (plasma > 0) this._drawReentryPlasma(ctx, sx, sy, sAng, plasma)
+          if (t < 520) sBurn = 1
+          else if (t >= se - 40) sBurn = 1
+        } else {
+          // 捕获挂上臂：竖直尾朝下 + 筷子合拢
+          var sClose = Math.min(1, (t - se) / 10)
+          this._drawChopsticksLive(ctx, w, h, sClose, 'ship')
+        }
+        this._drawVehicle(ctx, sx, sy, sAng, 'ship', sBurn, { heatTiles: t >= 520 })
+      } else if (t >= se && this._trailS.length) {
+        this._trailS.length = 0
       }
       /* 载荷部署：部署点附近弹出的小方块载荷（随时间散开淡出） */
       var pT = geo.profile.payloadT
@@ -503,10 +623,12 @@ function createFlightViz(opts) {
         }
         ctx.globalAlpha = 1
       }
-      /* 二级溅落水花 */
-      var seT = (geo.profile.shipEndT || 3921) - 8
-      if (geo.profile.shipEnd === 'splash' && t >= seT && t <= seT + 147) {
-        this._drawSplash(ctx, this._px(SPLASH_X_SHIP, w), gy, (t - seT) / 30, '120,180,255')
+      /* 二级溅落：水花 + 入水 FTS（仅 splash） */
+      var seT = se - 8
+      if (sSplash && t >= seT && t <= seT + 147) {
+        var sSx = this._px(SPLASH_X_SHIP, w)
+        this._drawSplash(ctx, sSx, gy, (t - seT) / 30, '120,180,255')
+        if (t >= se) this._drawFtsBoom(ctx, sSx, gy - 3 * dpr, (t - se) / 26)
       }
 
       /* 左上读数面板 */
@@ -865,6 +987,112 @@ function createFlightViz(opts) {
       ctx.fill()
     },
 
+    /**
+     * 动态筷子臂：closeK 0=微张（底图静态臂之上再画一笔合拢），1=夹紧箭体
+     * which: 'booster' 下臂 / 'ship' 上臂
+     */
+    _drawChopsticksLive: function (ctx, w, h, closeK, which) {
+      var dpr = this._dpr
+      var gy = this._py(0, h)
+      var tx = this._px(0.12, w)
+      var th = 33 * dpr
+      var k = Math.max(0, Math.min(1, closeK || 0))
+      // 张开时臂尖更远，合拢时收向箭体轴线
+      var reachOpen = 11.5 * dpr
+      var reachShut = 5.2 * dpr
+      var reach = reachOpen + (reachShut - reachOpen) * k
+      var upper = which === 'ship'
+      var y0 = gy - th * (upper ? 0.82 : 0.72)
+      var y1 = gy - th * (upper ? 0.88 : 0.66)
+      var y0b = gy - th * (upper ? 0.76 : 0.62)
+      var y1b = gy - th * (upper ? 0.70 : 0.58)
+      // 合拢时上下臂向中线夹
+      var pinch = 2.2 * dpr * k
+      ctx.strokeStyle = 'rgba(255,255,255,' + (0.55 + 0.35 * k) + ')'
+      ctx.lineWidth = (1.7 + 0.6 * k) * dpr
+      ctx.lineCap = 'round'
+      ctx.beginPath()
+      ctx.moveTo(tx, y0)
+      ctx.lineTo(tx + reach, y1 - pinch)
+      ctx.moveTo(tx, y0b)
+      ctx.lineTo(tx + reach, y1b + pinch)
+      ctx.stroke()
+      if (k > 0.55) {
+        ctx.fillStyle = 'rgba(0,255,136,' + (0.25 * (k - 0.55) / 0.45) + ')'
+        ctx.font = (6.5 * dpr) + 'px "Courier New", monospace'
+        ctx.fillText('CATCH', tx + reach + 2 * dpr, (y1 + y1b) / 2 + 2 * dpr)
+      }
+    },
+
+    /**
+     * 入水 FTS 爆炸（仅溅落结局）：火球 + 碎片射流 + 烟环
+     * k 0→1 展开后淡出；捕获结局不得调用
+     */
+    _drawFtsBoom: function (ctx, x, y, k) {
+      var dpr = this._dpr
+      if (!(k >= 0) || k > 1.25) return
+      var u = Math.min(1, k)
+      // 前 20% 闪爆拉满，其后缓衰
+      var flash = u < 0.18 ? (u / 0.18) : Math.max(0, 1 - (u - 0.18) / 0.82)
+      var I = flash * flash
+      if (I < 0.02) return
+      var seed = (typeof getSeed === 'function' ? getSeed() : 0) + Math.floor(x + y)
+      ctx.save()
+      // 白亮闪
+      var flashR = (10 + 22 * I) * dpr
+      var fg = ctx.createRadialGradient(x, y, 0, x, y, flashR)
+      fg.addColorStop(0, 'rgba(255,255,240,' + (0.95 * I) + ')')
+      fg.addColorStop(0.25, 'rgba(255,200,60,' + (0.75 * I) + ')')
+      fg.addColorStop(0.55, 'rgba(255,80,20,' + (0.45 * I) + ')')
+      fg.addColorStop(1, 'rgba(40,10,0,0)')
+      ctx.fillStyle = fg
+      ctx.beginPath()
+      ctx.arc(x, y, flashR, 0, Math.PI * 2)
+      ctx.fill()
+      // 外层火球
+      var br = (6 + 16 * Math.min(1, u * 1.4)) * dpr
+      var bg = ctx.createRadialGradient(x, y - 2 * dpr, 0, x, y, br)
+      bg.addColorStop(0, 'rgba(255,240,160,' + (0.9 * I) + ')')
+      bg.addColorStop(0.4, 'rgba(255,120,30,' + (0.7 * I) + ')')
+      bg.addColorStop(0.75, 'rgba(180,30,10,' + (0.35 * I) + ')')
+      bg.addColorStop(1, 'rgba(20,0,0,0)')
+      ctx.fillStyle = bg
+      ctx.beginPath()
+      ctx.arc(x, y - dpr, br, 0, Math.PI * 2)
+      ctx.fill()
+      // 碎片射流（伪随机稳定方向）
+      var n = 9
+      for (var i = 0; i < n; i++) {
+        var a = ((seed * 17 + i * 97) % 360) * Math.PI / 180
+        var dist = (8 + ((seed + i * 13) % 11) + 28 * u) * dpr
+        var x2 = x + Math.cos(a) * dist
+        var y2 = y + Math.sin(a) * dist * 0.75 - 4 * dpr * u
+        ctx.strokeStyle = 'rgba(255,' + (120 + (i * 20) % 100) + ',40,' + (0.75 * I) + ')'
+        ctx.lineWidth = (1.1 + (i % 3) * 0.35) * dpr
+        ctx.beginPath()
+        ctx.moveTo(x, y)
+        ctx.lineTo(x2, y2)
+        ctx.stroke()
+        ctx.fillStyle = 'rgba(255,220,160,' + (0.7 * I) + ')'
+        ctx.fillRect(x2 - 0.7 * dpr, y2 - 0.7 * dpr, 1.4 * dpr, 1.4 * dpr)
+      }
+      // 烟环
+      ctx.strokeStyle = 'rgba(60,50,45,' + (0.35 * I) + ')'
+      ctx.lineWidth = 2.2 * dpr
+      ctx.beginPath()
+      ctx.arc(x, y, (12 + 20 * u) * dpr, 0, Math.PI * 2)
+      ctx.stroke()
+      // FTS 字样（短促）
+      if (u < 0.55) {
+        ctx.font = 'bold ' + (8 * dpr) + 'px "Courier New", monospace'
+        ctx.fillStyle = 'rgba(255,220,120,' + (0.85 * I) + ')'
+        ctx.textAlign = 'center'
+        ctx.fillText('FTS', x, y - br - 3 * dpr)
+        ctx.textAlign = 'left'
+      }
+      ctx.restore()
+    },
+
     /** 溅落水花：扩散涟漪 + 初段升腾水柱（k 0→1 展开淡出） */
     _drawSplash: function (ctx, x, gy, k, rgb) {
       var dpr = this._dpr
@@ -913,17 +1141,98 @@ function createFlightViz(opts) {
     },
 
     /**
-     * 星舰简化矢量图（本地坐标：机头朝 +x，发动机在 -x 端）
+     * 由几何路径差分求画布速度方向（比拖尾采样稳，避免末段静止把姿态翻错）
+     */
+    _pathVelAng: function (path, t, w, h, fallback) {
+      var dt = 3
+      var p0 = pathPos(path, Math.max(path[0][0], t - dt))
+      var p1 = pathPos(path, t + 0.01)
+      var x0 = this._px(p0.x, w)
+      var y0 = this._py(p0.y, h)
+      var x1 = this._px(p1.x, w)
+      var y1 = this._py(p1.y, h)
+      var dx = x1 - x0
+      var dy = y1 - y0
+      if (dx * dx + dy * dy < 0.15) {
+        // 再向前探一点，末段贴地时仍能拿到下降方向
+        p1 = pathPos(path, t + dt)
+        x1 = this._px(p1.x, w)
+        y1 = this._py(p1.y, h)
+        dx = x1 - x0
+        dy = y1 - y0
+      }
+      if (dx * dx + dy * dy < 0.15) return fallback
+      return Math.atan2(dy, dx)
+    },
+
+    /**
+     * 再入等离子鞘：贴腹面（本地 +y）的多层炽热光晕 + 风阻拖尾
+     * intensity 0..1，由 shipPlasmaIntensity 按 entryT→flip 自动给出
+     */
+    _drawReentryPlasma: function (ctx, x, y, ang, intensity) {
+      var dpr = this._dpr
+      if (!(intensity > 0)) return
+      var now = Date.now()
+      var flick = 0.82 + 0.12 * Math.sin(now / 31) + 0.06 * Math.sin(now / 67 + x * 0.01)
+      var I = Math.min(1.15, intensity * flick)
+      ctx.save()
+      ctx.translate(x, y)
+      ctx.rotate(ang)
+      // 腹面侧主光晕（拉长沿箭体）
+      ctx.save()
+      ctx.scale(1.55, 1)
+      var rx = 16 * dpr * (0.75 + 0.55 * I)
+      var ry = 9 * dpr * (0.7 + 0.6 * I)
+      var cy = 2.2 * dpr + ry * 0.35
+      var g = ctx.createRadialGradient(0, cy, 0, 0, cy, rx)
+      g.addColorStop(0, 'rgba(255,255,230,' + (0.92 * I) + ')')
+      g.addColorStop(0.18, 'rgba(255,200,80,' + (0.85 * I) + ')')
+      g.addColorStop(0.42, 'rgba(255,110,30,' + (0.7 * I) + ')')
+      g.addColorStop(0.7, 'rgba(255,40,10,' + (0.38 * I) + ')')
+      g.addColorStop(1, 'rgba(180,20,0,0)')
+      ctx.fillStyle = g
+      ctx.beginPath()
+      ctx.arc(0, cy, rx, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.restore()
+      // 紧贴热瓦的白炽核心
+      var core = ctx.createRadialGradient(0, 2.4 * dpr, 0, 0, 2.8 * dpr, 6.2 * dpr * I)
+      core.addColorStop(0, 'rgba(255,255,255,' + (0.95 * I) + ')')
+      core.addColorStop(0.35, 'rgba(255,180,60,' + (0.75 * I) + ')')
+      core.addColorStop(1, 'rgba(255,80,20,0)')
+      ctx.fillStyle = core
+      ctx.beginPath()
+      ctx.arc(0, 2.6 * dpr, 6.2 * dpr * I, 0, Math.PI * 2)
+      ctx.fill()
+      // 迎风拖尾（沿 −x 略偏腹面，模拟烧蚀流）
+      var streak = ctx.createLinearGradient(6 * dpr, 3 * dpr, -18 * dpr * I, 8 * dpr)
+      streak.addColorStop(0, 'rgba(255,220,120,' + (0.55 * I) + ')')
+      streak.addColorStop(0.45, 'rgba(255,90,30,' + (0.35 * I) + ')')
+      streak.addColorStop(1, 'rgba(255,40,10,0)')
+      ctx.fillStyle = streak
+      ctx.beginPath()
+      ctx.moveTo(5 * dpr, 1.2 * dpr)
+      ctx.quadraticCurveTo(-4 * dpr, 6 * dpr * I, -16 * dpr * I, 7.5 * dpr)
+      ctx.quadraticCurveTo(-6 * dpr, 3.2 * dpr, 5 * dpr, 3.6 * dpr)
+      ctx.closePath()
+      ctx.fill()
+      ctx.restore()
+    },
+
+    /**
+     * 星舰简化矢量图（本地坐标：机头朝 +x，发动机在 -x 端，飞船热瓦腹面 +y）
      * kind: 'stack' 组合体 / 'booster' 助推器 / 'ship' 飞船
      * burn: 0-1 发动机推力，>0 时画双层摆动火焰
+     * opts.heatTiles: 画出腹面隔热瓦带
      */
-    _drawVehicle: function (ctx, x, y, ang, kind, burn) {
+    _drawVehicle: function (ctx, x, y, ang, kind, burn, opts) {
       var dpr = this._dpr
       var L, W, noseL, accent
       if (kind === 'stack') { L = 27.3 * dpr; W = 4.2 * dpr; noseL = 6.2 * dpr; accent = 'rgba(0,255,136,0.9)' }
       else if (kind === 'booster') { L = 18.2 * dpr; W = 3.9 * dpr; noseL = 0; accent = 'rgba(0,255,136,0.9)' }
       else { L = 15.4 * dpr; W = 4.2 * dpr; noseL = 5 * dpr; accent = 'rgba(120,180,255,0.9)' }
       var half = L / 2
+      var heatTiles = !!(opts && opts.heatTiles) && kind === 'ship'
 
       ctx.save()
       ctx.translate(x, y)
@@ -965,12 +1274,20 @@ function createFlightViz(opts) {
         ctx.fill()
       }
 
-      /* 箭体：不锈钢渐变 */
+      /* 箭体：背风不锈钢 / 迎风热瓦 */
       var bodyEnd = half - noseL
       var bg = ctx.createLinearGradient(0, -W / 2, 0, W / 2)
-      bg.addColorStop(0, 'rgba(235,240,244,0.95)')
-      bg.addColorStop(0.5, 'rgba(196,206,214,0.95)')
-      bg.addColorStop(1, 'rgba(150,160,170,0.95)')
+      if (heatTiles) {
+        bg.addColorStop(0, 'rgba(235,240,244,0.96)')
+        bg.addColorStop(0.42, 'rgba(200,208,216,0.95)')
+        bg.addColorStop(0.55, 'rgba(120,70,45,0.95)')
+        bg.addColorStop(0.78, 'rgba(90,48,28,0.96)')
+        bg.addColorStop(1, 'rgba(55,28,16,0.97)')
+      } else {
+        bg.addColorStop(0, 'rgba(235,240,244,0.95)')
+        bg.addColorStop(0.5, 'rgba(196,206,214,0.95)')
+        bg.addColorStop(1, 'rgba(150,160,170,0.95)')
+      }
       ctx.fillStyle = bg
       ctx.beginPath()
       ctx.moveTo(-half, -W / 2)
@@ -990,6 +1307,30 @@ function createFlightViz(opts) {
       ctx.strokeStyle = accent
       ctx.lineWidth = 0.55 * dpr
       ctx.stroke()
+
+      // 腹面隔热瓦分格（仅二级）
+      if (heatTiles) {
+        ctx.save()
+        ctx.beginPath()
+        ctx.rect(-half + 0.4 * dpr, 0.15 * dpr, L - noseL - 0.8 * dpr, W / 2 - 0.25 * dpr)
+        ctx.clip()
+        ctx.strokeStyle = 'rgba(40,18,10,0.35)'
+        ctx.lineWidth = 0.35 * dpr
+        var tile = 1.35 * dpr
+        for (var tx = -half + dpr; tx < bodyEnd; tx += tile) {
+          ctx.beginPath()
+          ctx.moveTo(tx, 0.2 * dpr)
+          ctx.lineTo(tx, W / 2)
+          ctx.stroke()
+        }
+        for (var ty = 0.2 * dpr; ty < W / 2; ty += tile * 0.85) {
+          ctx.beginPath()
+          ctx.moveTo(-half, ty)
+          ctx.lineTo(bodyEnd, ty)
+          ctx.stroke()
+        }
+        ctx.restore()
+      }
 
       /* 细节：翼面 / 格栅舵 / 级间段 */
       ctx.fillStyle = 'rgba(120,130,140,0.9)'
@@ -1107,5 +1448,10 @@ module.exports = {
   createFlightViz: createFlightViz,
   buildDiagramGeo: buildDiagramGeo,
   pathPos: pathPos,
-  DEFAULT_GEO_PROFILE: DEFAULT_GEO_PROFILE
+  DEFAULT_GEO_PROFILE: DEFAULT_GEO_PROFILE,
+  boosterDiagramAng: boosterDiagramAng,
+  shipDiagramAng: shipDiagramAng,
+  shipPlasmaIntensity: shipPlasmaIntensity,
+  CATCH_Y_BOOSTER: CATCH_Y_BOOSTER,
+  CATCH_Y_SHIP: CATCH_Y_SHIP
 }

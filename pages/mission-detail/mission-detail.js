@@ -425,7 +425,7 @@ Page({
     /** 星舰任务指挥室入口（星舰任务 + 有 LL2 时间线 + enableMissionSim 开关） */
     missionSimEligible: false,
     enableMissionSim: false,
-    /** 飞行剖面演示用时间线（与指挥室 payload 同构；免费预览） */
+    /** 飞行剖面演示用时间线（与指挥室 payload 同构；完整页点击走 mission_sim 门控） */
     flightDemoTimeline: [],
     /** 页面前台可见：控制内嵌演示 tick，避免后台空转 */
     pageVisible: true
@@ -1715,11 +1715,21 @@ Page({
     })
   },
 
-  /** 飞行剖面完整演示页（免费预览，无会员门控） */
-  openFlightDemo() {
+  /** 飞行剖面完整演示页：与指挥室同一 productId（会员 / 看广告解锁） */
+  async openFlightDemo() {
     if (!this.data.enableMissionSim) return
     const payload = this.data.flightDemoTimeline || []
     if (!payload.length) return
+    if (this._flightDemoGatePending) return
+    this._flightDemoGatePending = true
+    let allowed = false
+    try {
+      const { gateCheck } = require('../../utils/membership.js')
+      allowed = await gateCheck('mission_sim', '飞行剖面演示')
+    } finally {
+      this._flightDemoGatePending = false
+    }
+    if (!allowed) return
     const m = this.data.mission || {}
     const name = String(m.missionName || m.name || '星舰任务').trim()
     if (wx.vibrateShort) {

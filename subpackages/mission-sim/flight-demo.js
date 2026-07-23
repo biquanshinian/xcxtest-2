@@ -1,7 +1,8 @@
 /**
- * 飞行剖面自动演示详情页（免费预览，无会员门控）
+ * 飞行剖面自动演示详情页
  * - 主体复用 flight-profile-demo（示意图 + 双级遥测）
  * - 数据来自任务详情 eventChannel 传递的 LL2 飞行时间线
+ * - 入口门控：任务详情 openFlightDemo → gateCheck('mission_sim')（会员 / 广告）
  * - 过审开关 enableMissionSim failClosed
  */
 var featureFlags = require('../../utils/feature-flags.js')

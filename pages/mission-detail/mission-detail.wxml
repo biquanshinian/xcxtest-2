@@ -824,7 +824,7 @@
         </view>
       </view>
 
-      <!-- 飞行剖面自动演示（免费预览：内嵌迷你循环 + 点击进完整页） -->
+      <!-- 飞行剖面自动演示（内嵌迷你循环免费；点击完整页走门控） -->
       <view class="detail-flight-demo" wx:if="{{missionSimEligible && enableMissionSim && flightDemoTimeline.length}}">
         <flight-profile-demo
           mode="mini"

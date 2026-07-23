@@ -1417,8 +1417,9 @@ async function fetchLaunchStatusesAction() {
 // event.skipTmt=true 时只查词典+缓存（客户端混元优先链路的第一步）
 // ══════════════════════════════════════════════════════════════
 const TRANSLATE_MAX_ITEMS = 20
-const TRANSLATE_MAX_ITEM_CHARS = 4000
-const TRANSLATE_MAX_TOTAL_CHARS = 12000
+/** 单条硬上限（防滥用）；超长在 translateTextsBatch 内按句段切开，不再静默截断丢后半段 */
+const TRANSLATE_MAX_ITEM_CHARS = 20000
+const TRANSLATE_MAX_TOTAL_CHARS = 48000
 
 async function translateTextsAction(event) {
   const startTime = Date.now()

@@ -2,14 +2,15 @@
 // 无同分包同步引用时会被"过滤无依赖文件"剔出分包导致异步加载失败
 require('./utils/progress-lazy.js')
 const { loadCloudMediaMap } = require('../../utils/image-config.js')
-const { isVideoUrl } = require('../../utils/cos-url.js')
+const { isVideoUrl, optimizeImageUrl } = require('../../utils/cos-url.js')
 const { enrichVideoMediaItem, eventVideoAdUnlockId, playEventVideo, saveEventOriginalVideo } = require('./utils/event-video.js')
 const { getCachedMediaImage } = require('../../utils/icon-cache.js')
-const { buildLl2ImageChain, advanceImageFallback } = require('../../utils/ll2-image.js')
+const { buildLl2ImageChain, advanceImageFallback, proxiedImageUrl } = require('../../utils/ll2-image.js')
 const { fetchLiveStatusBatch, parseLiveStatus } = require('./utils/live-status.js')
 const { isPermissionDenied, getPermissionDeniedMessage } = require('./utils/single-page.js')
 const pageBase = require('../../utils/page-base.js')
-const { pickEventShareImageUrl, resolveTweetAccountAvatarUrl } = require('../../utils/event-share-image.js')
+const { pickEventShareImageUrl, resolveTweetAccountAvatarUrl, warmEventShareImage } = require('../../utils/event-share-image.js')
+try { warmEventShareImage() } catch (e) {}
 const { gateCheck, isMembershipEnabled, getMembershipState, isPro, hasPurchased, canUsePaidCloudSync, canPrefetchVideoSync, canSaveOriginalVideoSync, isProSync } = require('../../utils/membership.js')
 const { getMemberPolicy, getMemberPolicySync } = require('../../utils/member-policy.js')
 const {
@@ -24,9 +25,42 @@ const { filterExpiredMissions } = require('../../utils/index-page-helpers.js')
 const {
   formatDate,
   resolveMissionRocketImage,
-  shouldReplaceRocketImage
+  shouldReplaceRocketImage,
+  isDefaultRocketSrc
 } = require('../../utils/util.js')
+const { SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL } = require('../../utils/agency-logo-overrides.js')
 const { normalizeLl2TimelineList } = require('./utils/ll2-launch-timeline.js')
+
+/** 清单/时间线/动态追踪分享兜底：SpaceX logo（禁止落到 default 火箭占位图） */
+const STARSHIP_PAGE_SHARE_FALLBACK =
+  optimizeImageUrl(SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL, 'thumb') || SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL
+
+/** 可用的任务卡片火箭配置图（排除 default.jpg 占位） */
+function pickUsableMissionRocketShareImage(url) {
+  const u = String(url || '').trim()
+  if (!u || isDefaultRocketSrc(u)) return ''
+  return u
+}
+
+/** 从星舰任务卡列表取分享图：优先匹配 launchId，否则取首张可用配置图 */
+function pickShareImageFromStarshipMissions(missions, launchId) {
+  const list = Array.isArray(missions) ? missions : []
+  const wantId = launchId != null ? String(launchId).trim() : ''
+  if (wantId) {
+    for (let i = 0; i < list.length; i++) {
+      const m = list[i]
+      if (!m || String(m.id) !== wantId) continue
+      const hit = pickUsableMissionRocketShareImage(m.rocketImage || m.image)
+      if (hit) return hit
+    }
+  }
+  for (let i = 0; i < list.length; i++) {
+    const m = list[i]
+    const hit = pickUsableMissionRocketShareImage(m && (m.rocketImage || m.image))
+    if (hit) return hit
+  }
+  return ''
+}
 const { getSystemInfo } = require('../../utils/system.js')
 const { togglePageTranslation } = require('./utils/text-translate.js')
 const { translateAgencyName } = require('../../utils/space-terms-i18n.js')
@@ -312,12 +346,24 @@ Page({
       this.setData({ detailLl2Refreshing: true })
     }
     try {
-      const res = await fetchLl2LaunchTimeline(manualId, { autoStarship })
+      const [res, starshipRes] = await Promise.all([
+        fetchLl2LaunchTimeline(manualId, { autoStarship }),
+        getUpcomingStarshipMissions(10, 0).catch(() => ({ list: [] }))
+      ])
       const rows = normalizeLl2TimelineList(res.timeline || [])
+      const missions = normalizeNsfStarshipMissionCards(starshipRes && starshipRes.list)
+      this._starshipShareMissions = missions
+      this._starshipShareLaunchId = res.launchId || ''
+      this._starshipShareLaunchName = res.launchName || res.resolvedLaunchName || ''
       this.setData({
         loading: false,
         detailLl2Refreshing: false,
         ll2DetailTimelineRows: rows
+      })
+      this._syncStarshipPageShareImage({
+        missions,
+        launchId: this._starshipShareLaunchId,
+        launchName: this._starshipShareLaunchName
       })
     } catch (e) {
       const msg = isPermissionDenied(e)
@@ -326,6 +372,8 @@ Page({
       this.setData({ loading: false, detailLl2Refreshing: false })
       if (silent) wx.showToast({ title: msg, icon: 'none' })
       else this.setData({ errorMessage: msg })
+      // 失败时仍用 SpaceX logo 兜底，避免落到 default 火箭图
+      this._syncStarshipPageShareImage({})
     }
   },
 
@@ -364,11 +412,18 @@ Page({
       this.setData({ detailLl2Refreshing: true })
     }
     try {
-      const res = await fetchLl2LaunchUpdates(manualId, 48, { autoStarship })
+      const [res, starshipRes] = await Promise.all([
+        fetchLl2LaunchUpdates(manualId, 48, { autoStarship }),
+        getUpcomingStarshipMissions(10, 0).catch(() => ({ list: [] }))
+      ])
       const list = (res.list || []).map((item) => ({
         ...item,
         timeLabel: formatEventTime(item.createdOn)
       }))
+      const missions = normalizeNsfStarshipMissionCards(starshipRes && starshipRes.list)
+      this._starshipShareMissions = missions
+      this._starshipShareLaunchId = res.launchId || ''
+      this._starshipShareLaunchName = res.resolvedLaunchName || res.launchName || ''
       this.setData({
         loading: false,
         detailLl2Refreshing: false,
@@ -377,11 +432,17 @@ Page({
         luTranslated: false,
         'descI18n.launchUpdates': []
       })
+      this._syncStarshipPageShareImage({
+        missions,
+        launchId: this._starshipShareLaunchId,
+        launchName: this._starshipShareLaunchName
+      })
     } catch (e) {
       const raw = (e && e.message) ? String(e.message) : '加载失败'
       this.setData({ loading: false, detailLl2Refreshing: false })
       if (silent) wx.showToast({ title: raw, icon: 'none' })
       else this.setData({ errorMessage: raw })
+      this._syncStarshipPageShareImage({})
     }
   },
 
@@ -415,6 +476,7 @@ Page({
       descI18n: { eventDesc: '', updates: [], launchUpdates: [] }
     })
     this._textTranslateCache = null
+    this._ll2EventId = eventId ? String(eventId) : ''
     if (!eventId) {
       this.setData({ loading: false, errorMessage: '缺少事件 ID' })
       return
@@ -493,6 +555,7 @@ Page({
         navTitle: '事件详情',
         shareTitle: `${titleText} | 火星探索日志`
       })
+      this._syncLl2EventShareImage(item)
       this._scrollDetailToTop()
       this.startLl2EventCountdown()
       this.fetchLl2EventDetailedData(eventId)
@@ -556,6 +619,83 @@ Page({
     this.setData({
       'item.heroImageUrl': advanced.next,
       'item.imageFallbacks': advanced.remaining
+    })
+    this._syncLl2EventShareImage(Object.assign({}, item, {
+      heroImageUrl: advanced.next,
+      imageFallbacks: advanced.remaining
+    }))
+  },
+
+  _isLocalSharePath(path) {
+    const s = String(path || '')
+    if (!s) return false
+    if (s.indexOf('wxfile://') === 0) return true
+    if (/^http:\/\/(tmp|usr)\b/i.test(s)) return true
+    if (typeof wx !== 'undefined' && wx.env && wx.env.USER_DATA_PATH && s.indexOf(wx.env.USER_DATA_PATH) === 0) {
+      return true
+    }
+    return !/^https?:\/\//i.test(s)
+  },
+
+  /**
+   * 在轨事件分享缩略图：用该事件对应配图（非默认火箭图）。
+   * 本地缓存命中优先；外链走 Worker 代理。
+   */
+  _pickLl2EventShareImage(item) {
+    if (!item || typeof item !== 'object') return ''
+    const hero = String(item.heroImageUrl || '').trim()
+    const urls = Array.isArray(item.imageUrls) ? item.imageUrls : []
+    const fallbacks = Array.isArray(item.imageFallbacks) ? item.imageFallbacks : []
+    const seen = {}
+    const candidates = []
+    ;[hero].concat(urls).concat(fallbacks).forEach((u) => {
+      const s = String(u || '').trim()
+      if (!s || seen[s]) return
+      seen[s] = true
+      candidates.push(s)
+    })
+    for (let i = 0; i < candidates.length; i++) {
+      const pick = candidates[i]
+      if (this._isLocalSharePath(pick)) return pick
+      const proxied = proxiedImageUrl(pick)
+      return proxied || pick
+    }
+    return ''
+  },
+
+  _syncLl2EventShareImage(item) {
+    const url = this._pickLl2EventShareImage(item)
+    if (!url) {
+      if (this.data.shareImage) this.setData({ shareImage: '' })
+      this._shareImageSourceUrl = ''
+      return
+    }
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    this.ensureShareImageHttpUrl(url)
+  },
+
+  /** 网络图落到本地临时路径，规避 iOS 朋友圈远程缩略图加载失败 */
+  ensureShareImageHttpUrl(imageUrl) {
+    if (!imageUrl || typeof imageUrl !== 'string') return
+    const trimmed = imageUrl.trim()
+    if (!trimmed) return
+    if (this._isLocalSharePath(trimmed)) {
+      if (this.data.shareImage !== trimmed) this.setData({ shareImage: trimmed })
+      return
+    }
+    if (this._shareImageSourceUrl === trimmed && this.data.shareImage) return
+    this._shareImageSourceUrl = trimmed
+    const self = this
+    wx.getImageInfo({
+      src: trimmed,
+      success(res) {
+        if (res && res.path && self._shareImageSourceUrl === trimmed) {
+          self.setData({ shareImage: res.path })
+        }
+      },
+      fail() {
+        if (self._shareImageSourceUrl === trimmed) self._shareImageSourceUrl = ''
+      }
     })
   },
 
@@ -741,6 +881,8 @@ Page({
         getUpcomingStarshipMissions(10, 0).catch(() => ({ list: [] }))
       ])
       const nsfItems = nsf.items || []
+      const missions = normalizeNsfStarshipMissionCards(starshipRes && starshipRes.list)
+      this._starshipShareMissions = missions
       this.setData({
         loading: false,
         nsfChecklistItems: nsfItems,
@@ -749,8 +891,9 @@ Page({
         nsfChecklistSourceLastFetch: nsf.sourceLastFetch || '',
         nsfChecklistUpdatedAtMs: nsf.updatedAtMs || 0,
         nsfChecklistSyncing: false,
-        nsfStarshipMissions: normalizeNsfStarshipMissionCards(starshipRes && starshipRes.list)
+        nsfStarshipMissions: missions
       })
+      this._syncStarshipPageShareImage({ missions })
     } catch (error) {
       const msg = isPermissionDenied(error)
         ? getPermissionDeniedMessage()
@@ -760,6 +903,7 @@ Page({
         errorMessage: msg,
         nsfChecklistSyncing: false
       })
+      this._syncStarshipPageShareImage({})
     }
   },
 
@@ -774,6 +918,8 @@ Page({
         getUpcomingStarshipMissions(10, 0).catch(() => ({ list: [] }))
       ])
       const nsfItems = nsf.items || []
+      const missions = normalizeNsfStarshipMissionCards(starshipRes && starshipRes.list)
+      this._starshipShareMissions = missions
       this.setData({
         nsfChecklistItems: nsfItems,
         ...this.computeNsfChecklistProgress(nsfItems),
@@ -781,8 +927,9 @@ Page({
         nsfChecklistSourceLastFetch: nsf.sourceLastFetch || '',
         nsfChecklistUpdatedAtMs: nsf.updatedAtMs || 0,
         nsfChecklistSyncing: false,
-        nsfStarshipMissions: normalizeNsfStarshipMissionCards(starshipRes && starshipRes.list)
+        nsfStarshipMissions: missions
       })
+      this._syncStarshipPageShareImage({ missions })
     } catch (e2) {
       this.setData({ nsfChecklistSyncing: false })
     }
@@ -813,6 +960,43 @@ Page({
       [`nsfStarshipMissions[${idx}].rocketImage`]: nextImage,
       [`nsfStarshipMissions[${idx}].image`]: nextImage
     })
+    // 首卡配置图修好后同步分享缩略图
+    if (idx === 0) {
+      const nextList = list.slice()
+      nextList[idx] = { ...nextList[idx], rocketImage: nextImage, image: nextImage }
+      this._starshipShareMissions = nextList
+      this._syncStarshipPageShareImage({ missions: nextList })
+    }
+  },
+
+  /**
+   * 清单 / 时间线 / 动态追踪分享图：
+   * 优先任务卡片火箭配置图（排除 default 占位），再按任务名解析，最后 SpaceX logo。
+   */
+  _resolveStarshipPageShareImage(opts = {}) {
+    const missions = opts.missions != null
+      ? opts.missions
+      : (this._starshipShareMissions || this.data.nsfStarshipMissions || [])
+    const launchId = opts.launchId != null ? opts.launchId : this._starshipShareLaunchId
+    const launchName = opts.launchName != null ? opts.launchName : this._starshipShareLaunchName
+    let url = pickShareImageFromStarshipMissions(missions, launchId)
+    if (!url && launchName) {
+      url = pickUsableMissionRocketShareImage(
+        resolveMissionRocketImage('', launchName, null, true)
+      )
+    }
+    if (!url) {
+      url = pickUsableMissionRocketShareImage(
+        resolveMissionRocketImage('', 'Starship', null, true)
+      )
+    }
+    return url || STARSHIP_PAGE_SHARE_FALLBACK
+  },
+
+  _syncStarshipPageShareImage(opts) {
+    const url = this._resolveStarshipPageShareImage(opts || {})
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    this.ensureShareImageHttpUrl(url)
   },
 
   onFlightChecklistDetailTap(e) {
@@ -1748,26 +1932,42 @@ Page({
 
   onShareAppMessage(e) {
     if (this._ll2TimelineMode) {
-      return {
+      const imageUrl = this.data.shareImage || this._resolveStarshipPageShareImage()
+      const result = {
         title: '星舰飞行时间线 | 火星探索日志',
-        path: '/subpackages/progress-extra/event-detail?mode=ll2_timeline',
-        imageUrl: pickEventShareImageUrl(null)
+        path: '/subpackages/progress-extra/event-detail?mode=ll2_timeline'
       }
+      if (imageUrl) result.imageUrl = imageUrl
+      return result
     }
     if (this._ll2LaunchUpdatesMode) {
-      return {
+      const imageUrl = this.data.shareImage || this._resolveStarshipPageShareImage()
+      const result = {
         title: '星舰动态追踪 | 火星探索日志',
-        path: '/subpackages/progress-extra/event-detail?mode=ll2_launch_updates',
-        imageUrl: pickEventShareImageUrl(null)
+        path: '/subpackages/progress-extra/event-detail?mode=ll2_launch_updates'
       }
+      if (imageUrl) result.imageUrl = imageUrl
+      return result
+    }
+    if (this._ll2EventMode) {
+      const eventId = this._ll2EventId || ''
+      const imageUrl = this.data.shareImage || this._pickLl2EventShareImage(this.data.item)
+      const result = {
+        title: this.data.shareTitle || '在轨事件详情 | 火星探索日志',
+        path: `/subpackages/progress-extra/event-detail?mode=ll2_event&id=${encodeURIComponent(eventId)}`
+      }
+      if (imageUrl) result.imageUrl = imageUrl
+      return result
     }
     if (this._nsfChecklistMode) {
-      return {
+      const imageUrl = this.data.shareImage || this._resolveStarshipPageShareImage()
+      const result = {
         title: '星舰飞行检查清单 | 火星探索日志',
         // 有权益用户分享带新 sst 时间戳（接收者 24h 内免门控）；无权益接收者转发继承原时间戳
-        path: '/subpackages/progress-extra/event-detail?mode=nsf_checklist' + this._nsfShareStampQuery(),
-        imageUrl: pickEventShareImageUrl(null)
+        path: '/subpackages/progress-extra/event-detail?mode=nsf_checklist' + this._nsfShareStampQuery()
       }
+      if (imageUrl) result.imageUrl = imageUrl
+      return result
     }
     if (e && e.from === 'button' && e.target && e.target.dataset && e.target.dataset.shareType === 'eventUpdateItem') {
       const item = this.findListEventItem(e.target.dataset.id)
@@ -1819,25 +2019,41 @@ Page({
 
   onShareTimeline() {
     if (this._ll2TimelineMode) {
-      return {
+      const imageUrl = this.data.shareImage || this._resolveStarshipPageShareImage()
+      const result = {
         title: '星舰飞行时间线 | 火星探索日志',
-        query: 'mode=ll2_timeline',
-        imageUrl: pickEventShareImageUrl(null)
+        query: 'mode=ll2_timeline'
       }
+      if (imageUrl) result.imageUrl = imageUrl
+      return result
     }
     if (this._ll2LaunchUpdatesMode) {
-      return {
+      const imageUrl = this.data.shareImage || this._resolveStarshipPageShareImage()
+      const result = {
         title: '星舰动态追踪 | 火星探索日志',
-        query: 'mode=ll2_launch_updates',
-        imageUrl: pickEventShareImageUrl(null)
+        query: 'mode=ll2_launch_updates'
       }
+      if (imageUrl) result.imageUrl = imageUrl
+      return result
+    }
+    if (this._ll2EventMode) {
+      const eventId = this._ll2EventId || ''
+      const imageUrl = this.data.shareImage || this._pickLl2EventShareImage(this.data.item)
+      const result = {
+        title: this.data.shareTitle || '在轨事件详情 | 火星探索日志',
+        query: `mode=ll2_event&id=${encodeURIComponent(eventId)}`
+      }
+      if (imageUrl) result.imageUrl = imageUrl
+      return result
     }
     if (this._nsfChecklistMode) {
-      return {
+      const imageUrl = this.data.shareImage || this._resolveStarshipPageShareImage()
+      const result = {
         title: '星舰飞行检查清单 | 火星探索日志',
-        query: 'mode=nsf_checklist' + this._nsfShareStampQuery(),
-        imageUrl: pickEventShareImageUrl(null)
+        query: 'mode=nsf_checklist' + this._nsfShareStampQuery()
       }
+      if (imageUrl) result.imageUrl = imageUrl
+      return result
     }
     if (this.data.listAllMode) {
       let q = 'mode=list_all'

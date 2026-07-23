@@ -11,7 +11,7 @@ const {
   emptyListResult,
   withTimeout,
   unwrapCacheData
-} = require('./api-booster-extract.js')
+} = require('./api-list-helpers.js')
 
 // 环境配置：true=开发环境，false=生产环境
 // 开发环境：https://lldev.thespacedevs.com/2.3.0

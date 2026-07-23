@@ -114,11 +114,14 @@
         </view>
         <view class="vote-history-list">
           <view class="vote-history-item" wx:for="{{voteHistoryExpanded ? voteHistory : voteHistory}}" wx:if="{{voteHistoryExpanded || index < 5}}" wx:key="id" bindtap="emitOnVoteHistoryTap" data-id="{{item.launchId || item.id}}">
-            <view class="vote-history-icon vote-history-icon--launch" wx:if="{{item.rocketImage}}">
-              <image class="vote-history-rocket-img" src="{{item.rocketImage}}" mode="aspectFill" />
-            </view>
-            <view class="vote-history-icon" wx:else>
-              <text></text>
+            <view class="vote-history-icon vote-history-icon--launch">
+              <image
+                class="vote-history-rocket-img"
+                src="{{item.rocketImage}}"
+                mode="aspectFit"
+                binderror="emitOnVoteHistoryRocketImageError"
+                data-index="{{index}}"
+              />
             </view>
             <view class="vote-history-left">
               <view class="vote-history-name-row">
@@ -161,12 +164,14 @@
         >
           <text class="quiz-option-letter">{{['A','B','C','D'][index]}}</text>
           <text class="quiz-option-text">{{item}}</text>
-          <text class="quiz-option-icon" wx:if="{{quizAnswered && index === quizQuestion.answer}}">✓</text>
-          <text class="quiz-option-icon" wx:if="{{quizAnswered && quizSelectedIndex === index && index !== quizQuestion.answer}}">✕</text>
+          <!-- 图标位始终占宽，避免答题后插入 ✓/✕ 把选项行撑高 -->
+          <text
+            class="quiz-option-icon {{quizAnswered && index === quizQuestion.answer ? 'quiz-option-icon--visible quiz-option-icon--ok' : ''}} {{quizAnswered && quizSelectedIndex === index && index !== quizQuestion.answer ? 'quiz-option-icon--visible quiz-option-icon--bad' : ''}}"
+          >{{quizAnswered && quizSelectedIndex === index && index !== quizQuestion.answer ? '✕' : '✓'}}</text>
         </view>
       </view>
       <!-- 答题结果 -->
-      <view class="quiz-result {{quizAnswered ? 'quiz-result--show' : ''}}" wx:if="{{quizResult}}">
+      <view class="quiz-result" wx:if="{{quizResult}}">
         <text class="quiz-result-tag {{quizResult.correct ? 'quiz-result-tag--correct' : 'quiz-result-tag--wrong'}}">{{quizResult.correct ? '回答正确！' : '回答错误'}}</text>
         <text class="quiz-explanation">{{quizResult.explanation}}</text>
       </view>

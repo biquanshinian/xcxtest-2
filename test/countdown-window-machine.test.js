@@ -20,6 +20,7 @@ const {
   isPanelHoldActive,
   resolvePanelSelection,
   resolvePanelMission,
+  resolveOverlapSideMission,
   nextProbeAction
 } = require('../utils/countdown-window-machine.js')
 
@@ -148,6 +149,84 @@ test('resolvePanelSelection：SETTLED 任务绝不进面板', () => {
 test('resolvePanelMission：空列表 / 非数组返回 null', () => {
   assert.equal(resolvePanelMission([], {}), null)
   assert.equal(resolvePanelMission(null, {}), null)
+})
+
+test('resolveOverlapSideMission：窗口相交时取下一条未决', () => {
+  const a = goMission({ id: 'a', launchTime: '2026-07-22T02:50:00Z', windowEnd: '2026-07-22T04:00:00Z' })
+  const b = {
+    id: 'b',
+    launchTime: '2026-07-22T03:20:00Z',
+    windowEnd: '2026-07-22T04:30:00Z',
+    statusId: 1,
+    statusCategory: 'go'
+  }
+  const far = {
+    id: 'far',
+    launchTime: '2026-07-23T10:00:00Z',
+    windowEnd: '2026-07-23T10:30:00Z',
+    statusId: 1
+  }
+  const hit = resolveOverlapSideMission([a, b, far], { panelMissionId: 'a' })
+  assert.equal(hit && hit.id, 'b')
+})
+
+test('resolveOverlapSideMission：窗口不相交 → null；forceNext 仍取下一条', () => {
+  const a = goMission({ id: 'a' })
+  const far = {
+    id: 'far',
+    launchTime: '2026-07-23T10:00:00Z',
+    windowEnd: '2026-07-23T10:30:00Z',
+    statusId: 1
+  }
+  assert.equal(resolveOverlapSideMission([a, far], { panelMissionId: 'a' }), null)
+  const forced = resolveOverlapSideMission([a, far], { panelMissionId: 'a', forceNext: true })
+  assert.equal(forced && forced.id, 'far')
+})
+
+test('resolveOverlapSideMission：已落库候选跳过', () => {
+  const a = goMission({ id: 'a', windowEnd: '2026-07-22T04:00:00Z' })
+  const settled = {
+    id: 'done',
+    launchTime: '2026-07-22T03:00:00Z',
+    windowEnd: '2026-07-22T04:00:00Z',
+    statusId: 3
+  }
+  const b = {
+    id: 'b',
+    launchTime: '2026-07-22T03:10:00Z',
+    windowEnd: '2026-07-22T04:20:00Z',
+    statusId: 1
+  }
+  const hit = resolveOverlapSideMission([a, settled, b], { panelMissionId: 'a' })
+  assert.equal(hit && hit.id, 'b')
+})
+
+test('resolveOverlapSideMission：主卡换人后按新主卡再排队；无重叠则消失', () => {
+  const b = {
+    id: 'b',
+    launchTime: '2026-07-22T03:20:00Z',
+    windowEnd: '2026-07-22T04:30:00Z',
+    statusId: 1
+  }
+  const cOverlap = {
+    id: 'c',
+    launchTime: '2026-07-22T04:00:00Z',
+    windowEnd: '2026-07-22T05:00:00Z',
+    statusId: 1
+  }
+  const dFar = {
+    id: 'd',
+    launchTime: '2026-07-23T10:00:00Z',
+    windowEnd: '2026-07-23T10:30:00Z',
+    statusId: 1
+  }
+  // B 已升主：与 C 重叠 → 副卡 C
+  assert.equal(
+    resolveOverlapSideMission([b, cOverlap, dFar], { panelMissionId: 'b' })?.id,
+    'c'
+  )
+  // B 升主：后面只有远距任务 → 副卡消失
+  assert.equal(resolveOverlapSideMission([b, dFar], { panelMissionId: 'b' }), null)
 })
 
 // ── 探针决策 ──────────────────────────────────────────────

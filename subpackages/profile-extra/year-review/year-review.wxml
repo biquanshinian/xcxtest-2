@@ -1,6 +1,6 @@
 <view class="detail-page yr-scifi">
   <!-- 底部背景视频：仅进入本页 onReady 后赋值 src，本地缓存命中则不再下载 -->
-  <view class="yr-bg-video-shell" wx:if="{{yearReviewBgVideoPlaySrc}}" aria-hidden="true">
+  <view class="yr-bg-video-shell" wx:if="{{yearReviewBgVideoPlaySrc && !isMomentsPreview}}" aria-hidden="true">
     <video
       id="yrBgVideo"
       class="yr-bg-video"
@@ -247,4 +247,6 @@
       </view>
     </view>
   </scroll-view>
+
+  <share-guide />
 </view>

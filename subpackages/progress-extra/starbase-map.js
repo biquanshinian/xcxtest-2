@@ -1,4 +1,4 @@
-const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, buildMapLayoutData, buildSelectionPatch, buildMapShareOptions, copyMapText, runMapRefresh } = require('./utils/map-page-common.js')
+const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, buildMapLayoutData, buildSelectionPatch, copyMapText, runMapRefresh } = require('./utils/map-page-common.js')
 const { getStarshipStatusFromDB } = require('../../utils/api-app-services.js')
 const { STARBASE_CENTER, STARBASE_FACILITIES, toMarker } = require('./utils/map-scenes.js')
 const { getThemeClassSync, isLightSync, getPageBgSync } = require('../../utils/theme.js')
@@ -36,6 +36,7 @@ Page({
     currentFocusText: '载具状态同步中',
     panelCollapsed: true,
     actionMenuCollapsed: true,
+    isMomentsPreview: false,
     ...createMapBaseState({
       dataSourceText: 'starshipStatus 云数据库',
       dataUpdatedText: '待更新',
@@ -49,15 +50,43 @@ Page({
     const markers = STARBASE_FACILITIES.map((item) => toMarker(item, { color: '#34C759', display: 'BYCLICK' }))
     this._focusFacilityId = Number(options.focusId || 0)
     const pages = typeof getCurrentPages === 'function' ? getCurrentPages() : []
+
+    let isMomentsPreview = false
+    try {
+      const enter = (typeof wx.getEnterOptionsSync === 'function' && wx.getEnterOptionsSync())
+        || wx.getLaunchOptionsSync()
+      isMomentsPreview = !!(enter && enter.scene === 1154)
+    } catch (e) {}
+
     this.setData({
       ...buildMapLayoutData(app),
       themeClass: getThemeClassSync(),
       themeLight: isLightSync(),
       pageBgColor: getPageBgSync(),
       markers,
-      selectedFacility: STARBASE_FACILITIES[0] || null,
-      isDirectEntry: pages.length <= 1
+      selectedFacility: STARBASE_FACILITIES.find((item) => item.id === this._focusFacilityId) || STARBASE_FACILITIES[0] || null,
+      isDirectEntry: pages.length <= 1,
+      isMomentsPreview
     })
+
+    if (isMomentsPreview) {
+      // 朋友圈单页：原生 map 易黑屏，只展示设施列表预览
+      this.setData({
+        loading: false,
+        panelCollapsed: false,
+        liveStatusText: '打开小程序查看实时状态',
+        currentFocusText: '点击「前往小程序」加载完整设施图'
+      })
+      return
+    }
+
+    try {
+      wx.showShareMenu({
+        withShareTicket: true,
+        menus: ['shareAppMessage', 'shareTimeline']
+      })
+    } catch (e) {}
+
     this.loadLiveFacilityData()
   },
 
@@ -189,14 +218,31 @@ Page({
     this.setData({ actionMenuCollapsed: !this.data.actionMenuCollapsed })
   },
 
-  onShareAppMessage() {
+  _shareTitle() {
     const facility = this.data.selectedFacility || {}
-    return buildMapShareOptions({
-      shareTitle: this.data.shareTitle,
-      detailText: facility.shortName,
-      fallbackDetailText: '设施详情',
-      path: '/subpackages/progress-extra/starbase-map'
-    })
+    const detail = facility.shortName || '设施详情'
+    return `${this.data.shareTitle || 'Starbase 设施图'} · ${detail}`
+  },
+
+  _shareQuery() {
+    const facility = this.data.selectedFacility || {}
+    const id = Number(facility.id || this._focusFacilityId || 0)
+    return id ? ('focusId=' + id) : ''
+  },
+
+  onShareAppMessage() {
+    const query = this._shareQuery()
+    return {
+      title: this._shareTitle(),
+      path: '/subpackages/progress-extra/starbase-map' + (query ? '?' + query : '')
+    }
+  },
+
+  onShareTimeline() {
+    return {
+      title: this._shareTitle(),
+      query: this._shareQuery()
+    }
   },
 
   /**

@@ -6,9 +6,11 @@
   "backgroundColorTop": "#000000",
   "backgroundColorBottom": "#000000",
   "usingComponents": {
+    "share-guide": "/subpackages/shared/components/share-guide/index",
     "official-account-publish-panel": "/subpackages/shared/components/official-account-publish-panel/index"
   },
   "componentPlaceholder": {
+    "share-guide": "view",
     "official-account-publish-panel": "view"
   }
 }

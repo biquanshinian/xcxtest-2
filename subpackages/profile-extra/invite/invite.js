@@ -57,6 +57,12 @@ Page({
       themeClass: getThemeClassSync(),
       themeLight: isLightSync()
     })
+    try {
+      wx.showShareMenu({
+        withShareTicket: true,
+        menus: ['shareAppMessage', 'shareTimeline']
+      })
+    } catch (e) {}
     this.loadState()
     // 预先绘制分享海报（用户点分享时缩略图已就绪）
     setTimeout(() => this._buildSharePoster(), 300)
@@ -111,6 +117,15 @@ Page({
       title: '送你一张太空探索邀请函，实时追踪全球火箭发射',
       path,
       // 自绘邀请海报（5:4）；绘制未就绪时留空走默认截图兜底
+      imageUrl: this._posterPath || ''
+    }
+  },
+
+  onShareTimeline() {
+    // 朋友圈只能落本页；query 带 inviter，由 app onLaunch/onShow 截获核销
+    return {
+      title: '送你一张太空探索邀请函，实时追踪全球火箭发射',
+      query: this.data.openid ? ('inviter=' + this.data.openid) : '',
       imageUrl: this._posterPath || ''
     }
   },

@@ -153,6 +153,9 @@ const methods = {
           this.resetVoteData()
         } catch (e4) {}
       }
+      try {
+        this._syncCountdownOverlapSideCard()
+      } catch (eSide) {}
       if (patch.completedMissions) {
         try {
           this.updateMissionListView('completed', patch.completedMissions)
@@ -214,6 +217,9 @@ const methods = {
           this.updateCountdown()
         } catch (e3) {}
       }
+      try {
+        this._syncCountdownOverlapSideCard()
+      } catch (eSide) {}
       if (patch.completedMissions) {
         try {
           this.updateMissionListView('completed', patch.completedMissions)

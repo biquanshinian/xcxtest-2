@@ -877,10 +877,27 @@ Page({
     this.setData(silent ? { stationReady: true } : { stationLoading: true, stationReady: true })
     try {
       const stationList = await getStationStatus()
+      const list = stationList || []
+      // 同 URL 刷新时 <image> 常不重触发 bindload；若清空 loadedMap，会一直停在 opacity:0（浅色下像白块）
+      const prevList = this.data.stationList || []
+      const prevLoaded = this.data.stationImageLoadedMap || {}
+      const prevById = {}
+      prevList.forEach((s, i) => {
+        if (!s || s.id == null) return
+        prevById[String(s.id)] = { image: s.image || '', loaded: !!prevLoaded[i] }
+      })
+      const stationImageLoadedMap = {}
+      list.forEach((s, i) => {
+        if (!s || s.id == null) return
+        const prev = prevById[String(s.id)]
+        if (prev && prev.loaded && prev.image && prev.image === (s.image || '')) {
+          stationImageLoadedMap[i] = true
+        }
+      })
       this.setData({
-        stationList: stationList || [],
+        stationList: list,
         stationLoading: false,
-        stationImageLoadedMap: {}
+        stationImageLoadedMap
       })
       // 注册后台缓存更新监听：当云数据库有更新数据时自动刷新 UI
       this._registerStationStaleListeners()

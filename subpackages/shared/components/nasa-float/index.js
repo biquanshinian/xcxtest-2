@@ -1,7 +1,7 @@
 const { getUiShellLayout } = require('../../../../utils/layout.js')
 const { ROUTES, navigateTo } = require('../../../../utils/routes.js')
 const { getSystemInfo } = require('../../../../utils/system.js')
-const { fetchAIChatEnabled, isAIChatEnabledSync } = require('../../../../utils/aiService.js')
+const { fetchAIChatEnabled, isAIChatEnabledSync } = require('../../utils/aiService.js')
 const { isFeatureEnabled } = require('../../../../utils/feature-flags.js')
 const storageCache = require('../../../../utils/storage-sync-cache.js')
 

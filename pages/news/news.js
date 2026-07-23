@@ -719,7 +719,7 @@ Page({
     }
 
     return {
-      title: 'SpaceX航天事件 - 星链·马斯克太空动态 | 火星探索日志',
+      title: '航天事件 - 星链·马斯克太空动态 | 火星探索日志',
       path: '/pages/news/news',
       imageUrl: shareDefault
     }
@@ -749,7 +749,7 @@ Page({
     }
 
     return {
-      title: 'SpaceX航天事件 - 星链·马斯克太空动态 | 火星探索日志',
+      title: '航天事件 - 星链·马斯克太空动态 | 火星探索日志',
       query: '',
       imageUrl: shareDefault
     }

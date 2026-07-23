@@ -422,6 +422,38 @@
       </view>
     </view>
 
+    <!-- 重叠窗口副卡：仅与主卡窗口相交时显示；主卡落库顶上后按新主卡再排队，无重叠则隐藏 -->
+    <view
+      class="countdown-side-card"
+      wx:if="{{missionType === 'upcoming' && overlapSideCard}}"
+      bindtap="onOverlapSideCardTap"
+      data-id="{{overlapSideCard.id}}"
+    >
+      <view class="countdown-side-thumb">
+        <image
+          class="countdown-side-thumb-img"
+          wx:if="{{overlapSideCard.rocketImage}}"
+          src="{{overlapSideCard.rocketImage}}"
+          mode="aspectFill"
+        ></image>
+        <view wx:else class="countdown-side-thumb-placeholder"></view>
+      </view>
+      <view class="countdown-side-body">
+        <view class="countdown-side-top">
+          <text class="countdown-side-label">{{overlapSideCard.label}}</text>
+          <text class="countdown-side-status">{{overlapSideCard.statusTextZh || (overlapSideCard.isExpired ? '确认中' : '就绪')}}</text>
+        </view>
+        <view class="countdown-side-main">
+          <view class="countdown-side-text">
+            <text class="countdown-side-name">{{overlapSideCard.missionName || overlapSideCard.rocketName || '相邻发射'}}</text>
+            <text class="countdown-side-meta" wx:if="{{overlapSideCard.rocketName || overlapSideCard.launchAgency}}">{{overlapSideCard.rocketName}}{{overlapSideCard.rocketName && overlapSideCard.launchAgency ? ' · ' : ''}}{{overlapSideCard.launchAgency}}</text>
+          </view>
+          <text class="countdown-side-cd {{overlapSideCard.isExpired ? 'countdown-side-cd--confirm' : ''}}">{{overlapSideCard.countdownText}}</text>
+        </view>
+      </view>
+      <text class="countdown-side-chevron">›</text>
+    </view>
+
     <!-- 轮播加载前的等高骨架占位：避免数据回来后插入 400rpx 块推挤下方列表（CLS） -->
     <view class="image-carousel image-carousel--skeleton" wx:if="{{carouselPending && carouselItems.length === 0 && missionType !== 'calendar'}}"></view>
 

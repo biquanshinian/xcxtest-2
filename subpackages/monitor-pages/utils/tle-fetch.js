@@ -11,17 +11,21 @@ let _mem = null
 let _memTs = 0
 let _inflight = null
 
-function fetchStationTleFromWorker() {
+/**
+ * @param {{ force?: boolean }} [opts] force=true 跳过内存缓存（用于目标站 TLE 缺失时重拉）
+ */
+function fetchStationTleFromWorker(opts) {
+  const force = !!(opts && opts.force)
   const now = Date.now()
-  if (_mem && now - _memTs < MEM_TTL_MS) {
+  if (!force && _mem && now - _memTs < MEM_TTL_MS) {
     return Promise.resolve(_mem)
   }
-  if (_inflight) return _inflight
+  if (!force && _inflight) return _inflight
 
   const base = workerProxyUrl || 'https://api.marsx.com.cn'
   const url = `${base}/station-tle`
 
-  _inflight = requestJsonData({ url, timeout: 15000 })
+  const req = requestJsonData({ url, timeout: 15000 })
     .then((data) => {
       if (!data || data.code !== 0) {
         throw new Error('TLE 请求失败')
@@ -31,10 +35,11 @@ function fetchStationTleFromWorker() {
       return data
     })
     .finally(() => {
-      _inflight = null
+      if (_inflight === req) _inflight = null
     })
 
-  return _inflight
+  if (!force) _inflight = req
+  return req
 }
 
 module.exports = {

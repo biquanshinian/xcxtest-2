@@ -81,6 +81,9 @@ Page({
     descTranslating: false,
     /* 分享免门控 24h 剩余时间倒计时胶囊（share-gate.js 写入） */
     shareGateExpireAt: 0,
+    /** 分享缩略图：对应发射场卫星/配图（本地预下载），避免朋友圈落到默认图/截图 */
+    shareImage: '',
+    isMomentsPreview: false,
     ...createMapBaseState({
       dataSourceText: 'Launch Library 2 · Locations / Pads',
       dataUpdatedText: '待更新',
@@ -93,7 +96,18 @@ Page({
     this.initUiShell()
     const app = getApp()
     this._siteId = Number(options.id || 0)
-    this.setData(buildMapLayoutData(app))
+
+    let isMomentsPreview = false
+    try {
+      const enter = (typeof wx.getEnterOptionsSync === 'function' && wx.getEnterOptionsSync())
+        || wx.getLaunchOptionsSync()
+      isMomentsPreview = !!(enter && enter.scene === 1154)
+    } catch (e) {}
+
+    this.setData({
+      ...buildMapLayoutData(app),
+      isMomentsPreview
+    })
 
     // 门控复用「全球飞船图鉴」：App 内入口已在卡片点击处 gateCheck，
     // 这里只处理分享卡片 —— 24h 免门控窗口，过期后 gateCheck（会员放行，非会员弹开通引导）
@@ -103,6 +117,19 @@ Page({
       return
     }
     warmShareEntitlement(this, 'launch_site_encyclopedia')
+
+    if (isMomentsPreview) {
+      // 朋友圈单页：原生 map 易黑屏；仍加载文案数据供预览
+      this.loadDetail(this._siteId)
+      return
+    }
+
+    try {
+      wx.showShareMenu({
+        withShareTicket: true,
+        menus: ['shareAppMessage', 'shareTimeline']
+      })
+    } catch (e) {}
 
     this.loadDetail(this._siteId)
   },
@@ -138,6 +165,7 @@ Page({
         patch.markers = [siteMarker(site)]
       }
       this.setData(patch)
+      this._syncShareImage(site)
       wx.setNavigationBarTitle && wx.setNavigationBarTitle({ title: site.nameZh || site.name, fail: () => {} })
       if (hasCoords) this._loadPads(site)
     } catch (e) {
@@ -240,20 +268,94 @@ Page({
     wx.previewImage({ urls: [url], fail: () => {} })
   },
 
+  _isLocalSharePath(path) {
+    const s = String(path || '')
+    if (!s) return false
+    if (s.indexOf('wxfile://') === 0) return true
+    if (/^http:\/\/(tmp|usr)\b/i.test(s)) return true
+    if (typeof wx !== 'undefined' && wx.env && wx.env.USER_DATA_PATH && s.indexOf(wx.env.USER_DATA_PATH) === 0) {
+      return true
+    }
+    return !/^https?:\/\//i.test(s)
+  },
+
+  /**
+   * 分享缩略图：用当前发射场对应配图（卫星图/场地图）。
+   * 本地缓存命中优先；外链走 Worker 代理。
+   */
+  _pickLaunchSiteShareImage(site) {
+    if (!site || typeof site !== 'object') return ''
+    const current = String(site.imageUrl || '').trim()
+    const fallbacks = Array.isArray(site.imageFallbacks) ? site.imageFallbacks : []
+    const candidates = [current].concat(
+      fallbacks.map((u) => String(u || '').trim()).filter(Boolean)
+    ).filter(Boolean)
+    for (let i = 0; i < candidates.length; i++) {
+      const pick = candidates[i]
+      if (this._isLocalSharePath(pick)) return pick
+      const proxied = launchSiteDisplay.proxiedImageUrl(pick)
+      return proxied || pick
+    }
+    return ''
+  },
+
+  _syncShareImage(site) {
+    const url = this._pickLaunchSiteShareImage(site)
+    if (!url) {
+      if (this.data.shareImage) this.setData({ shareImage: '' })
+      this._shareImageSourceUrl = ''
+      return
+    }
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    this.ensureShareImageHttpUrl(url)
+  },
+
+  /** 网络图落到本地临时路径，规避 iOS 朋友圈远程缩略图加载失败 */
+  ensureShareImageHttpUrl(imageUrl) {
+    if (!imageUrl || typeof imageUrl !== 'string') return
+    const trimmed = imageUrl.trim()
+    if (!trimmed) return
+    if (this._isLocalSharePath(trimmed)) {
+      if (this.data.shareImage !== trimmed) this.setData({ shareImage: trimmed })
+      return
+    }
+    if (this._shareImageSourceUrl === trimmed && this.data.shareImage) return
+    this._shareImageSourceUrl = trimmed
+    const self = this
+    wx.getImageInfo({
+      src: trimmed,
+      success(res) {
+        if (res && res.path && self._shareImageSourceUrl === trimmed) {
+          self.setData({ shareImage: res.path })
+        }
+      },
+      fail() {
+        if (self._shareImageSourceUrl === trimmed) self._shareImageSourceUrl = ''
+      }
+    })
+  },
+
   onShareAppMessage() {
     const site = this.data.site
+    const imageUrl = this.data.shareImage || this._pickLaunchSiteShareImage(site)
     // 分享路径带 sst 时间戳：有权益重开 24h 免门控窗口，无权益继承原窗口
-    return buildMapShareOptions({
+    const result = buildMapShareOptions({
       shareTitle: this.data.shareTitle,
       detailText: site ? `${site.countryLabel || ''} · 累计发射 ${site.totalLaunchCount} 次` : '全球发射场分布',
       path: withShareStampPath(`/subpackages/monitor-pages/launch-site-detail?id=${this._siteId || ''}`, this)
     })
+    if (imageUrl) result.imageUrl = imageUrl
+    return result
   },
 
   onShareTimeline() {
-    return {
+    const site = this.data.site
+    const imageUrl = this.data.shareImage || this._pickLaunchSiteShareImage(site)
+    const result = {
       title: this.data.shareTitle,
       query: withShareStampQuery(`id=${this._siteId || ''}`, this)
     }
+    if (imageUrl) result.imageUrl = imageUrl
+    return result
   }
 })

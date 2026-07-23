@@ -4,7 +4,7 @@ const {
   getCacheKey,
   unwrapCacheData
 } = require('../../../utils/api-request.js')
-const { emptyListResult } = require('../../../utils/api-booster-extract.js')
+const { emptyListResult } = require('../../../utils/api-list-helpers.js')
 const { pickLocalized, zhField } = require('../../../utils/locale.js')
 const {
   translateEventType,

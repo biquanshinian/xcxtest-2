@@ -791,13 +791,16 @@ App({
     try {
       const { warmProfilePageStorageSync } = require('./utils/page-storage-boot.js')
       warmProfilePageStorageSync()
-      const { isCheckedInToday } = require('./utils/checkin.js')
-      const { getDailyQuestion } = require('./utils/space-quiz.js')
+      const storageCache = require('./utils/storage-sync-cache.js')
       const { getSubscribedMissions } = require('./utils/subscribe.js')
 
-      const notCheckedIn = !isCheckedInToday()
-      const quizInfo = getDailyQuestion()
-      const notAnswered = !quizInfo.alreadyAnswered
+      // 红点只读 storage，不拉签到/题库实现（已下沉 profile-extra）
+      const d = new Date()
+      const today = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+      const checkin = storageCache.readMemOrSync('_checkin_data', null) || {}
+      const quiz = storageCache.readMemOrSync('_space_quiz_data', null) || {}
+      const notCheckedIn = checkin.lastCheckinDate !== today
+      const notAnswered = quiz.lastQuizDate !== today
       const reminders = getSubscribedMissions()
       const hasNewReminder = reminders.length > 0
 

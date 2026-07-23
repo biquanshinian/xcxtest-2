@@ -1,4 +1,5 @@
 <wxs module="navPad" src="/utils/nav-scroll-pad.wxs"></wxs>
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
 <view class="detail-page {{themeClass}}">
   <!-- WXS 观测角插值动画 -->
   <wxs src="./look-angle-anim.wxs" module="lookAnim" />
@@ -69,12 +70,12 @@
         <view class="hero-wrap">
           <image wx:if="{{item.image && !heroImageFailed}}" class="hero-image {{heroImageLoaded ? 'hero-image--loaded' : ''}}" src="{{item.image}}" mode="aspectFill" bindload="onHeroImageLoad" binderror="onHeroImageError"></image>
           <view wx:else class="hero-image hero-image--visual">
-            <view class="hero-visual hero-visual--{{item.id === 18 ? 'tiangong' : 'iss'}}">
+            <view class="hero-visual hero-visual--{{isTiangong ? 'tiangong' : 'iss'}}">
               <view class="hero-orbit hero-orbit--outer"></view>
               <view class="hero-orbit hero-orbit--inner"></view>
-              <view class="hero-core hero-core--{{item.id === 18 ? 'tiangong' : 'iss'}}"></view>
+              <view class="hero-core hero-core--{{isTiangong ? 'tiangong' : 'iss'}}"></view>
               <view class="hero-glow"></view>
-              <text class="hero-fallback-tag">{{item.id === 18 ? 'TIANGONG' : 'ISS'}}</text>
+              <text class="hero-fallback-tag">{{isTiangong ? 'TIANGONG' : 'ISS'}}</text>
             </view>
           </view>
           <view class="hero-overlay">

@@ -1,6 +1,6 @@
 /**
  * pages/index/utils/index-settled-merge.js
- * 「结算 → 历史列表」合并域（从 pages/index/index.js 原样拆出，主包内同步加载）：
+ * 「结算 → 历史列表」合并域（主包同步加载：大量调用点依赖同步返回值，不可 require.async）：
  * - recent_settled 内存缓存 / 本地持久化 / 冷启动 hydrate
  * - 终态角标覆盖、缺卡补插、占位卡修复、飞行中状态解析（reconcile）
  * - 历史列表加载成功编排、详情页终态回写

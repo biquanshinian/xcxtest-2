@@ -19,7 +19,9 @@ const {
   buildRoadClosureState
 } = require('../../utils/progress-road-closure.js')
 const { isLiveEntryAllowed, isFeatureEnabled } = require('../../utils/feature-flags.js')
-const { pickEventShareImageUrl } = require('../../utils/event-share-image.js')
+const { pickEventShareImageUrl, warmEventShareImage } = require('../../utils/event-share-image.js')
+const { SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL } = require('../../utils/agency-logo-overrides.js')
+const { optimizeImageUrl } = require('../../utils/cos-url.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { gateCheck, isProSync } = require('../../utils/membership.js')
 const {
@@ -256,6 +258,7 @@ Page({
     var self = this
     setTimeout(function () {
       try { warmProgressPageStorageSync() } catch (e) {}
+      try { warmEventShareImage() } catch (e) {}
       self.setData({ isProUser: isProSync() })
       storageCache.persistAsync(PROGRESS_LAST_VIEWED_KEY, Date.now())
       self._checkOpenClawGuide()
@@ -1173,9 +1176,12 @@ Page({
           : rc && rc.source === 'spacedevs' ? 'SpaceDevs'
           : rc && rc.source === 'manual' ? '管理员' : ''
         if (sourceLabel) parts.push('source=' + encodeURIComponent(sourceLabel))
+        const logo =
+          optimizeImageUrl(SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL, 'thumb') || SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL
         return {
           title: lines.join(' | ') + ' | 火星探索日志',
-          path: ROUTES.ROAD_CLOSURE_DETAIL + (parts.length ? '?' + parts.join('&') : '')
+          path: ROUTES.ROAD_CLOSURE_DETAIL + (parts.length ? '?' + parts.join('&') : ''),
+          imageUrl: logo
         }
       }
     }

@@ -9,16 +9,27 @@
     </view>
   </view>
 
+  <!-- 自定义下拉三点：复用首页样式（app.wxss + nav-scroll-pad.wxs） -->
+  <view id="pullRefreshDots" class="pull-refresh-dots" aria-hidden="true">
+    <view class="pull-refresh-dots__dot"></view>
+    <view class="pull-refresh-dots__dot"></view>
+    <view class="pull-refresh-dots__dot"></view>
+  </view>
+
   <scroll-view
     class="content-scroll main-content-scroll nav-aware-scroll"
     scroll-y="true"
     enhanced="{{true}}"
     bounces="{{true}}"
     refresher-enabled="{{true}}"
-    refresher-default-style="{{themeLight ? 'black' : 'white'}}"
+    refresher-default-style="none"
     refresher-background="{{pageBgColor}}"
+    refresher-threshold="36"
     refresher-triggered="{{scrollRefreshing}}"
     data-nav-h="{{navPlaceholderHeight}}"
+    data-refresh-threshold="36"
+    bindtouchend="{{navPad.onRelease}}"
+    bindtouchcancel="{{navPad.onRelease}}"
     bindrefresherpulling="{{navPad.onPulling}}"
     bindrefresherrestore="{{navPad.onReset}}"
     bindrefresherabort="{{navPad.onReset}}"

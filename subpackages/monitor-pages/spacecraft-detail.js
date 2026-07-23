@@ -132,6 +132,8 @@ Page({
     descI18n: { capability: '', history: '', details: '' },
     navTitle: '飞船详情',
     shareTitle: '飞船档案 | 火星探索日志',
+    /** 分享缩略图：对应飞船图（本地预下载），避免朋友圈落到默认图/截图 */
+    shareImage: '',
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
     tabBarReservedHeight: 0,
@@ -231,6 +233,7 @@ Page({
       navTitle: '飞船详情',
       shareTitle: `${(item && item.name) || '飞船详情'} | 火星探索日志`
     })
+    this._syncShareImage(item)
   },
 
   retryLoad() {
@@ -253,6 +256,10 @@ Page({
       'item.imageUrl': next,
       'item.imageFallbacks': fallbacks.slice(1)
     })
+    this._syncShareImage(Object.assign({}, item, {
+      imageUrl: next,
+      imageFallbacks: fallbacks.slice(1)
+    }))
   },
 
   /** 点击发射商胶囊按钮 → 会员门控 → 发射商详情页（优先 id，回退缩写/名称） */
@@ -301,21 +308,95 @@ Page({
     })
   },
 
+  _isLocalSharePath(path) {
+    const s = String(path || '')
+    if (!s) return false
+    if (s.indexOf('wxfile://') === 0) return true
+    if (/^http:\/\/(tmp|usr)\b/i.test(s)) return true
+    if (typeof wx !== 'undefined' && wx.env && wx.env.USER_DATA_PATH && s.indexOf(wx.env.USER_DATA_PATH) === 0) {
+      return true
+    }
+    return !/^https?:\/\//i.test(s)
+  },
+
+  /**
+   * 分享缩略图：用当前飞船对应配图（优先较小缩略图，降低朋友圈 128KB 失败）。
+   * 本地缓存命中优先；外链走 Worker 代理。
+   */
+  _pickSpacecraftShareImage(item) {
+    if (!item || typeof item !== 'object') return ''
+    const full = String(item.fullImageUrl || '').trim()
+    const current = String(item.imageUrl || '').trim()
+    const fallbacks = Array.isArray(item.imageFallbacks) ? item.imageFallbacks : []
+    // 优先非原图大图的候选（缩略图/代理缩略图），再回退当前展示图
+    const preferThumb = fallbacks
+      .map((u) => String(u || '').trim())
+      .filter((u) => u && u !== full)
+    const candidates = preferThumb.concat([current, full]).filter(Boolean)
+    for (let i = 0; i < candidates.length; i++) {
+      const pick = candidates[i]
+      if (this._isLocalSharePath(pick)) return pick
+      const proxied = proxiedImageUrl(pick)
+      return proxied || pick
+    }
+    return ''
+  },
+
+  _syncShareImage(item) {
+    const url = this._pickSpacecraftShareImage(item)
+    if (!url) {
+      if (this.data.shareImage) this.setData({ shareImage: '' })
+      this._shareImageSourceUrl = ''
+      return
+    }
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    this.ensureShareImageHttpUrl(url)
+  },
+
+  /** 网络图落到本地临时路径，规避 iOS 朋友圈远程缩略图加载失败 */
+  ensureShareImageHttpUrl(imageUrl) {
+    if (!imageUrl || typeof imageUrl !== 'string') return
+    const trimmed = imageUrl.trim()
+    if (!trimmed) return
+    if (this._isLocalSharePath(trimmed)) {
+      if (this.data.shareImage !== trimmed) this.setData({ shareImage: trimmed })
+      return
+    }
+    if (this._shareImageSourceUrl === trimmed && this.data.shareImage) return
+    this._shareImageSourceUrl = trimmed
+    const self = this
+    wx.getImageInfo({
+      src: trimmed,
+      success(res) {
+        if (res && res.path && self._shareImageSourceUrl === trimmed) {
+          self.setData({ shareImage: res.path })
+        }
+      },
+      fail() {
+        if (self._shareImageSourceUrl === trimmed) self._shareImageSourceUrl = ''
+      }
+    })
+  },
+
   onShareAppMessage() {
     const item = this.data.item
-    return {
+    const imageUrl = this.data.shareImage || this._pickSpacecraftShareImage(item)
+    const result = {
       title: this.data.shareTitle,
-      path: withShareStampPath(`/subpackages/monitor-pages/spacecraft-detail?id=${encodeURIComponent(this._spacecraftId || '')}`, this),
-      imageUrl: item && item.imageUrl ? item.imageUrl : ''
+      path: withShareStampPath(`/subpackages/monitor-pages/spacecraft-detail?id=${encodeURIComponent(this._spacecraftId || '')}`, this)
     }
+    if (imageUrl) result.imageUrl = imageUrl
+    return result
   },
 
   onShareTimeline() {
     const item = this.data.item
-    return {
+    const imageUrl = this.data.shareImage || this._pickSpacecraftShareImage(item)
+    const result = {
       title: this.data.shareTitle,
-      query: withShareStampQuery(`id=${encodeURIComponent(this._spacecraftId || '')}`, this),
-      imageUrl: item && item.imageUrl ? item.imageUrl : ''
+      query: withShareStampQuery(`id=${encodeURIComponent(this._spacecraftId || '')}`, this)
     }
+    if (imageUrl) result.imageUrl = imageUrl
+    return result
   }
 })

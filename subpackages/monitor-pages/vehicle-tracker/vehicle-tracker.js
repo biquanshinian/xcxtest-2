@@ -8,6 +8,12 @@
 
 const vtData = require('../utils/vehicle-tracker-data.js')
 const shareGate = require('../utils/share-gate.js')
+const { SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL } = require('../../../utils/agency-logo-overrides.js')
+const { optimizeImageUrl } = require('../../../utils/cos-url.js')
+
+/** 分享缩略图：固定 SpaceX logo（与封路通知/发射商详情同源） */
+const VEHICLE_TRACKER_SHARE_IMAGE =
+  optimizeImageUrl(SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL, 'thumb') || SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL
 
 const GATE_PRODUCT_ID = 'orbital_data_center'
 const GATE_PRODUCT_NAME = '在轨飞行器追踪'
@@ -89,6 +95,8 @@ Page({
     disabledText: '',
     momentsHint: false,
     shareGateExpireAt: 0,
+    /** 分享缩略图：SpaceX logo（本地预下载），避免朋友圈落到截图/默认图 */
+    shareImage: VEHICLE_TRACKER_SHARE_IMAGE,
     vtVehicles: [],
     vtFeatured: '',
     vtMissionTime: 'T+ 0D 00:00',
@@ -133,6 +141,7 @@ Page({
       return
     }
     wx.showShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] })
+    this.ensureShareImageHttpUrl(VEHICLE_TRACKER_SHARE_IMAGE)
     this._gatePromise = shareGate.checkShareEntryGate(this, options, GATE_PRODUCT_ID, GATE_PRODUCT_NAME)
       .then((allowed) => {
         if (!allowed) {
@@ -378,16 +387,51 @@ Page({
   },
 
   onShareAppMessage() {
-    return {
+    const imageUrl = this.data.shareImage || VEHICLE_TRACKER_SHARE_IMAGE
+    const result = {
       title: '在轨飞行器追踪：3D 地球实时定位在飞星舰与龙飞船',
       path: shareGate.withShareStampPath('/subpackages/monitor-pages/vehicle-tracker/vehicle-tracker', this)
     }
+    if (imageUrl) result.imageUrl = imageUrl
+    return result
   },
 
   onShareTimeline() {
-    return {
+    const imageUrl = this.data.shareImage || VEHICLE_TRACKER_SHARE_IMAGE
+    const result = {
       title: '在轨飞行器追踪：3D 地球实时定位在飞星舰与龙飞船',
       query: shareGate.withShareStampQuery('', this)
     }
+    if (imageUrl) result.imageUrl = imageUrl
+    return result
+  },
+
+  /** 将 SpaceX logo 落到本地临时路径，规避 iOS 朋友圈远程缩略图加载失败 */
+  ensureShareImageHttpUrl(imageUrl) {
+    if (!imageUrl || typeof imageUrl !== 'string') return
+    const trimmed = imageUrl.trim()
+    if (!trimmed) return
+    if (
+      trimmed.indexOf('wxfile://') === 0 ||
+      /^http:\/\/(tmp|usr)\b/i.test(trimmed) ||
+      (typeof wx !== 'undefined' && wx.env && wx.env.USER_DATA_PATH && trimmed.indexOf(wx.env.USER_DATA_PATH) === 0)
+    ) {
+      if (this.data.shareImage !== trimmed) this.setData({ shareImage: trimmed })
+      return
+    }
+    if (this._shareImageSourceUrl === trimmed && this.data.shareImage) return
+    this._shareImageSourceUrl = trimmed
+    const self = this
+    wx.getImageInfo({
+      src: trimmed,
+      success(res) {
+        if (res && res.path && self._shareImageSourceUrl === trimmed) {
+          self.setData({ shareImage: res.path })
+        }
+      },
+      fail() {
+        if (self._shareImageSourceUrl === trimmed) self._shareImageSourceUrl = ''
+      }
+    })
   }
 })

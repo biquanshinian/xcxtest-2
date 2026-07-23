@@ -7,8 +7,8 @@
  * 翻译来源优先级：
  * 1. 字段自带预翻译 zh（云端富化，本地秒切）
  * 2. ll2Query 词典 + translation_cache（skipTmt，免费秒回）
- * 3. 混元大模型 hy3-preview（机翻主通道；长文本 ≤ AI_TRANSLATE_MAX_ITEMS 条时启用）
- * 4. 腾讯云 TMT（AI/缓存未命中项的兜底；大批量场景的主通道）
+ * 3. 混元大模型 hy3-preview（机翻默认主通道；超长按句段切开后逐段翻译再合并）
+ * 4. 腾讯云 TMT（仅作 AI/缓存未命中项的兜底）
  * 失败项保留原文展示。
  */
 
@@ -24,6 +24,81 @@ function isMostlyChinese(text) {
 /** 与云函数 ll2Query translateTexts 的单次上限对齐（TRANSLATE_MAX_ITEMS / TRANSLATE_MAX_TOTAL_CHARS） */
 const TRANSLATE_BATCH_MAX_ITEMS = 20
 const TRANSLATE_BATCH_MAX_CHARS = 12000
+/**
+ * 单条送翻上限：低于云端 TRANSLATE_MAX_ITEM_CHARS(4000) 与 TMT ~6000 总量限。
+ * 超长原文先按句段切开再合并，避免「截断后半丢失」或 TextTooLong 整条失败。
+ */
+const TRANSLATE_ITEM_MAX_CHARS = 3500
+
+/**
+ * 将超长文本按段落/句子边界切成 ≤ maxChars 的片段（保序）。
+ * @param {string} text
+ * @param {number} maxChars
+ * @returns {string[]}
+ */
+function splitLongText(text, maxChars) {
+  const s = String(text || '')
+  const limit = Math.max(200, maxChars | 0)
+  if (!s) return []
+  if (s.length <= limit) return [s]
+
+  const out = []
+  let start = 0
+  while (start < s.length) {
+    if (s.length - start <= limit) {
+      out.push(s.slice(start))
+      break
+    }
+    const window = s.slice(start, start + limit)
+    let br = -1
+    const seps = ['\n\n', '\n', '. ', '? ', '! ', '; ', ', ', ' ']
+    for (let si = 0; si < seps.length; si++) {
+      const sep = seps[si]
+      const i = window.lastIndexOf(sep)
+      if (i >= Math.floor(limit * 0.35)) {
+        br = start + i + sep.length
+        break
+      }
+    }
+    if (br <= start) br = start + limit
+    out.push(s.slice(start, br))
+    start = br
+  }
+  return out.filter((p) => p && p.length)
+}
+
+/** 把输入扩成「片段 + 归属下标」，便于分批翻译后再按原文条数合并 */
+function expandTextsToPieces(inputs, maxChars) {
+  const pieces = []
+  const owners = []
+  for (let i = 0; i < inputs.length; i++) {
+    const parts = splitLongText(inputs[i], maxChars)
+    if (!parts.length) {
+      pieces.push('')
+      owners.push(i)
+      continue
+    }
+    for (let j = 0; j < parts.length; j++) {
+      pieces.push(parts[j])
+      owners.push(i)
+    }
+  }
+  return { pieces, owners }
+}
+
+/** 片段译文按 owners 归并；任一段失败则该原文条整体视为失败（空串，页面保留原文） */
+function mergePieceTranslations(inputLen, owners, pieceTranslations) {
+  const buckets = new Array(inputLen)
+  for (let i = 0; i < inputLen; i++) buckets[i] = []
+  for (let j = 0; j < owners.length; j++) {
+    buckets[owners[j]].push(String(pieceTranslations[j] || ''))
+  }
+  return buckets.map((parts) => {
+    if (!parts.length) return ''
+    if (!parts.every(Boolean)) return ''
+    return parts.join('')
+  })
+}
 
 /** 单批调用云端翻译（条数/字符量须已在上限内） */
 function translateTextsChunk(texts) {
@@ -55,7 +130,8 @@ function translateTextsChunk(texts) {
 
 /**
  * 批量翻译英文文本。超过云端单次上限时自动分批并行请求后按序合并，
- * 避免长列表（如飞行时间线 40+ 条）只翻译前 20 条的截断问题。
+ * 避免长列表（如飞行时间线 40+ 条）只翻译前 20 条的截断问题；
+ * 单条超长则先按句段切开再合并，避免长描述整条失败或被云端静默截断。
  * @param {string[]} texts
  * @returns {Promise<string[]>} 与输入等长；失败/无需翻译的项为空串
  */
@@ -63,10 +139,12 @@ async function translateTexts(texts) {
   const inputs = (Array.isArray(texts) ? texts : []).map((t) => String(t || ''))
   if (!inputs.length) return []
 
+  const { pieces, owners } = expandTextsToPieces(inputs, TRANSLATE_ITEM_MAX_CHARS)
+
   const chunks = []
   let cur = []
   let curChars = 0
-  for (const t of inputs) {
+  for (const t of pieces) {
     if (cur.length && (cur.length >= TRANSLATE_BATCH_MAX_ITEMS || curChars + t.length > TRANSLATE_BATCH_MAX_CHARS)) {
       chunks.push(cur)
       cur = []
@@ -77,33 +155,34 @@ async function translateTexts(texts) {
   }
   if (cur.length) chunks.push(cur)
 
-  if (chunks.length === 1) return translateTextsChunk(chunks[0])
+  let pieceList
+  if (chunks.length === 1) {
+    pieceList = await translateTextsChunk(chunks[0])
+  } else {
+    // 各批独立容错：单批失败以空串占位（客户端兜底显示原文），全部失败才整体报错
+    let firstError = null
+    const lists = await Promise.all(chunks.map((chunk) =>
+      translateTextsChunk(chunk).catch((err) => {
+        if (!firstError) firstError = err
+        return chunk.map(() => '')
+      })
+    ))
+    pieceList = [].concat(...lists)
+    if (firstError && !pieceList.some((s) => s)) throw firstError
+  }
 
-  // 各批独立容错：单批失败以空串占位（客户端兜底显示原文），全部失败才整体报错
-  let firstError = null
-  const lists = await Promise.all(chunks.map((chunk) =>
-    translateTextsChunk(chunk).catch((err) => {
-      if (!firstError) firstError = err
-      return chunk.map(() => '')
-    })
-  ))
-  const merged = [].concat(...lists)
-  if (firstError && !merged.some((s) => s)) throw firstError
-  return merged
+  return mergePieceTranslations(inputs.length, owners, pieceList)
 }
 
-// ── 混元大模型翻译（机翻主通道；TMT 仅兜底） ──────────────────
+// ── 混元大模型翻译（默认主通道；TMT 仅兜底） ──────────────────
 
-/** 短于此长度的文本多为专名/短语：缓存未命中时直接 TMT，不耗混元 */
-const AI_TRANSLATE_MIN_CHARS = 40
-/** 多条长文本时混元并发上限，避免打满配额 */
-const AI_TRANSLATE_CONCURRENCY = 3
 /**
- * 混元单轮条数上限：超过时整批改走 TMT。
- * 混元逐条流式返回（单条数秒、最长 20s），80 条的时间线若全走 AI 用户要等数分钟；
- * 少量长文本（详情简介等）才用 AI 保质量，大批量以速度和配额优先。
+ * 单次混元输入建议上限：超长原文先按此切开再逐段翻译，避免超时 / max_tokens 截断。
+ * TMT 仍只在整段（或任一段）AI 失败时作为兜底。
  */
-const AI_TRANSLATE_MAX_ITEMS = 6
+const AI_TRANSLATE_CHUNK_CHARS = 1200
+/** 多条/多段混元并发上限，避免打满配额 */
+const AI_TRANSLATE_CONCURRENCY = 3
 
 const AI_TRANSLATE_SYSTEM_PROMPT = `你是航天领域的专业中英翻译。把用户消息中的英文原文翻译成简体中文，要求：
 1. 只输出译文本身，不要任何解释、注释、前缀或引号
@@ -124,30 +203,51 @@ function cleanAITranslation(s) {
 }
 
 /**
- * 混元翻译单条文本。任何失败（AI 不可用/超时/输出跑偏）返回空串，由调用方降级 TMT。
+ * 混元翻译单个片段（已控制在 AI_TRANSLATE_CHUNK_CHARS 内）。
+ * 任何失败返回空串，由调用方降级 TMT。
  * @returns {Promise<string>}
  */
-async function translateViaAI(text) {
+async function translateViaAIChunk(text) {
+  const src = String(text || '')
+  if (!src.trim()) return ''
   let aiService = null
   try { aiService = require('../../../utils/aiService.js') } catch (e) {}
   if (!aiService || typeof aiService.generateTextAdvanced !== 'function' || !aiService.isAIAvailable()) {
     return ''
   }
-  // 英文原文越长译文 token 越多：按字符量给足，封顶 3000
-  const maxTokens = Math.min(3000, Math.max(500, Math.ceil(text.length * 0.8)))
+  // 英文原文越长译文 token 越多：按字符量给足，封顶 2048（兼容 hunyuan-lite 等上限）
+  const maxTokens = Math.min(2048, Math.max(400, Math.ceil(src.length * 1.2)))
+  const timeout = Math.min(40000, 15000 + Math.ceil(src.length * 12))
   try {
-    const out = await aiService.generateTextAdvanced(AI_TRANSLATE_SYSTEM_PROMPT, text, {
+    const out = await aiService.generateTextAdvanced(AI_TRANSLATE_SYSTEM_PROMPT, src, {
       model: 'hy3-preview',
       temperature: 0.2,
       maxTokens,
-      timeout: 20000
+      timeout
     })
     const cleaned = cleanAITranslation(out)
     // 译文必须是像样的中文，防止模型输出英文复述或解释
-    return cleaned && !isMostlyChinese(text) && isMostlyChinese(cleaned) ? cleaned : ''
+    return cleaned && !isMostlyChinese(src) && isMostlyChinese(cleaned) ? cleaned : ''
   } catch (e) {
     return ''
   }
+}
+
+/**
+ * 混元翻译单条文本（默认主通道）。超长按句段切开后并发翻译再合并；
+ * 任一段失败则整条返回空串，由调用方降级 TMT。
+ * @returns {Promise<string>}
+ */
+async function translateViaAI(text) {
+  const src = String(text || '')
+  if (!src.trim()) return ''
+  const parts = splitLongText(src, AI_TRANSLATE_CHUNK_CHARS)
+  if (!parts.length) return ''
+  if (parts.length === 1) return translateViaAIChunk(parts[0])
+
+  const zhParts = await mapPool(parts, AI_TRANSLATE_CONCURRENCY, async (part) => translateViaAIChunk(part))
+  if (!zhParts.every(Boolean)) return ''
+  return zhParts.join('')
 }
 
 /** 有限并发执行 tasks（返回与 tasks 等长的结果数组） */
@@ -215,8 +315,8 @@ async function lookupCloudPretranslated(texts) {
 }
 
 /**
- * 智能翻译入口（机翻主通道 = 混元）：
- * 词典/缓存 → 混元（长文本，含多字段）→ TMT 仅兜底未命中项。
+ * 智能翻译入口（机翻默认主通道 = 混元）：
+ * 词典/缓存 → 混元（含短句与超长分段）→ TMT 仅兜底未命中项。
  * @param {string[]} texts
  * @returns {Promise<string[]>} 与输入等长；失败项为空串
  */
@@ -232,14 +332,12 @@ async function translateTextsSmart(texts) {
     if (cached[i]) results[i] = cached[i]
   }
 
-  // 2) 混元优先：未命中且够长的条目；超过 AI_TRANSLATE_MAX_ITEMS 的大批量整体降级 TMT
+  // 2) 混元默认主通道：缓存未命中的条目全部走 AI（超长在 translateViaAI 内分段）
   const aiJobs = []
   for (let i = 0; i < inputs.length; i++) {
-    if (!results[i] && inputs[i].length >= AI_TRANSLATE_MIN_CHARS) {
-      aiJobs.push(i)
-    }
+    if (!results[i] && inputs[i].trim()) aiJobs.push(i)
   }
-  if (aiJobs.length && aiJobs.length <= AI_TRANSLATE_MAX_ITEMS) {
+  if (aiJobs.length) {
     await mapPool(aiJobs, AI_TRANSLATE_CONCURRENCY, async (idx) => {
       const ai = await translateViaAI(inputs[idx])
       if (ai) results[idx] = ai

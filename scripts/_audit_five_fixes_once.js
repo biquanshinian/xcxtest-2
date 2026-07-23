@@ -18,7 +18,7 @@ function read(p) {
 
 // ---- syntax ----
 const jsFiles = [
-  'utils/text-translate.js',
+  'pages/mission-detail/utils/text-translate.js',
   'utils/booster-nav.js',
   'pages/nasa-data/nasa-api.js',
   'pages/nasa-data/nasa-data.js',
@@ -39,7 +39,7 @@ for (const f of jsFiles) {
 }
 // legacy too large for new Function sometimes — node --check via spawn avoided; regex only
 
-const tt = read('utils/text-translate.js')
+const tt = read('pages/mission-detail/utils/text-translate.js')
 const tr = read('cloudfunctions/ll2Query/translate.js')
 const idx = read('cloudfunctions/ll2Query/index.js')
 const nasa = read('pages/nasa-data/nasa-api.js')
@@ -57,9 +57,11 @@ const mw = read('pages/monitor/monitor.wxss')
 const gw = read('subpackages/monitor-pages/components/monitor-galleries/index.wxss')
 const ow = read('subpackages/monitor-pages/components/monitor-orbit-events/index.wxss')
 
-// ---- translate AI-first ----
+// ---- translate AI-first（混元默认主通道，TMT 仅兜底） ----
 assert('AI: no multi-field TMT bypass', !/inputs\.length\s*!==\s*1/.test(tt))
-assert('AI: stages 缓存→混元→TMT', /混元优先/.test(tt) && /TMT 兜底/.test(tt))
+assert('AI: stages 缓存→混元→TMT', /默认主通道/.test(tt) && /TMT 仅/.test(tt))
+assert('AI: no skip-to-TMT gates', !/AI_TRANSLATE_MAX_ITEMS/.test(tt) && !/AI_TRANSLATE_MAX_CHARS/.test(tt))
+assert('AI: long text chunked', /AI_TRANSLATE_CHUNK_CHARS\s*=\s*1200/.test(tt) && /splitLongText\(src,\s*AI_TRANSLATE_CHUNK_CHARS\)/.test(tt))
 assert('AI: cache chunked', /TRANSLATE_BATCH_MAX_ITEMS/.test(tt) && /skipTmt:\s*true/.test(tt))
 assert('AI: lookup returns concat array', /return \[\]\.concat\(\.\.\.lists\)/.test(tt))
 assert('AI: TMT fail keeps hits', /if\s*\(!results\.some\(Boolean\)\)\s*throw/.test(tt))
@@ -67,11 +69,14 @@ assert('AI: retry empty+reject', /function runTranslate\(isRetry\)/.test(tt))
 assert('AI: mapPool + concurrency', /function mapPool\(/.test(tt) && /AI_TRANSLATE_CONCURRENCY\s*=\s*3/.test(tt))
 assert('AI: mapPool uses inputs[idx]', /mapPool\(aiJobs[\s\S]*?async\s*\(idx\)\s*=>[\s\S]*?inputs\[idx\]/.test(tt))
 assert('AI: lookup not resolve(null)', !/function lookupCloudPretranslated[\s\S]*?resolve\(null\)/.test(tt))
+assert('AI: all uncached go AI', /混元默认主通道[\s\S]*?全部走 AI/.test(tt))
 
 assert('cloud: pending-empty withMeta', /if\s*\(!pending\.length\)\s*\{[\s\S]*?withMeta[\s\S]*?list:\s*results/.test(tr))
 assert('cloud: action Array.isArray', /Array\.isArray\(out\)/.test(idx))
 assert('cloud: fail tmtNeeded&&empty', /tmtNeeded\s*>\s*0\s*&&\s*translated\s*===\s*0/.test(idx))
 assert('cloud: skipTmt not false-fail', /!skipTmt\s*&&\s*tmtNeeded/.test(idx))
+assert('cloud: TMT splitLongText', /function splitLongText\(/.test(tr) && /ITEM_MAX_CHARS\s*=\s*4000/.test(tr))
+assert('cloud: action raised item cap', /TRANSLATE_MAX_ITEM_CHARS\s*=\s*20000/.test(idx))
 
 // ---- mars ----
 assert('mars: 22s+2retry', /simpleGet\(base,\s*params,\s*22000,\s*2\)/.test(nasa))

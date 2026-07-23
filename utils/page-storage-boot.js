@@ -2,8 +2,6 @@
  * Tab 页统一 warm：合并 onLoad/onShow 前的同步 storage 读，每 key 每会话最多 1 次 wx.getStorageSync。
  */
 const storageCache = require('./storage-sync-cache.js')
-const { warmCheckinStoreSync } = require('./checkin.js')
-const { warmQuizStoreSync } = require('./space-quiz.js')
 const { warmBehaviorStatsSync } = require('./behavior-stats.js')
 const { warmSubscribedStoreSync } = require('./subscribe.js')
 const { warmMembershipStateSync } = require('./membership.js')
@@ -21,8 +19,9 @@ let _progressWarmDone = false
 function warmProfilePageStorageSync() {
   if (_profileWarmDone) return
   _profileWarmDone = true
-  warmCheckinStoreSync()
-  warmQuizStoreSync()
+  // 签到/问答实现已下沉 profile-extra；主包只预热 storage key，避免打进主包
+  storageCache.warmSync('_checkin_data', null)
+  storageCache.warmSync('_space_quiz_data', null)
   warmBehaviorStatsSync()
   warmSubscribedStoreSync()
   warmMembershipStateSync()

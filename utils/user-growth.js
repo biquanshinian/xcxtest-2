@@ -344,9 +344,9 @@ function backfillTimeline() {
 
   var newEntries = []
 
-  // 从签到数据回填
+  // 从签到数据回填（读 storage，避免主包依赖已下沉的 checkin 模块）
   try {
-    var checkinData = require('./checkin.js').warmCheckinStoreSync()
+    var checkinData = storageCache.readMemOrSync('_checkin_data', null)
     if (checkinData && checkinData.checkinHistory && checkinData.checkinHistory.length > 0) {
       var firstDate = checkinData.checkinHistory[0]
       newEntries.push({
@@ -400,7 +400,7 @@ function backfillTimeline() {
 
   // 从问答数据回填
   try {
-    var quizData = require('./space-quiz.js').warmQuizStoreSync()
+    var quizData = storageCache.readMemOrSync('_space_quiz_data', null)
     if (quizData && quizData.totalAnswered > 0) {
       newEntries.push({
         type: 'FIRST_QUIZ',

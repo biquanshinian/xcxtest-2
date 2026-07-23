@@ -1,14 +1,10 @@
 // pages/profile/profile.js
 const { ROUTES } = require('../../utils/routes.js')
-const { doCheckIn, getCheckinSummary, getWeekCheckinDots, checkAchievements, syncCheckinToCloud, syncQuizToCloud, pullProfileFromCloud, pushAllToCloud, loadKnowledgeCards } = require('../../utils/checkin.js')
 const { warmProfilePageStorageSync } = require('../../utils/page-storage-boot.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const storageCache = require('../../utils/storage-sync-cache.js')
-const { getDailyQuestion, answerQuestion, getQuizStats, verifyQuizSave } = require('../../utils/space-quiz.js')
 const { getSubscribedMissions, unsubscribeLaunch, syncSubscribedMissions } = require('../../utils/subscribe.js')
-const { getRocketImage, ensureLocalImage } = require('../../utils/util.js')
-const { resolveMediaUrl } = require('../../utils/image-config.js')
-const { DEFAULT_ROCKET_IMAGE } = require('../../utils/index-page-helpers.js')
+const { resolveMissionRocketImage } = require('../../utils/util.js')
 const { getMembershipState, isPro, isMembershipEnabled, MEMBER_ICONS, gateCheck } = require('../../utils/membership.js')
 const { getFavoriteAgencies, removeFavoriteAgency } = require('../../utils/agency-favorites.js')
 const themeUtil = require('../../utils/theme.js')
@@ -19,33 +15,6 @@ const GROWTH_ICONS = {
   TIMELINE: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%A4%AA%E7%A9%BA%E6%8E%A2%E7%B4%A2%E7%94%9F%E6%88%90%E8%83%8C%E6%99%AF%E5%9B%BE/1778755614206_yklby8.png'
 }
 
-
-function resolveRocketImageUrl(rocketImage, rocketName) {
-  if (rocketImage && typeof rocketImage === 'string') {
-    const raw = rocketImage.trim()
-    if (raw) {
-      if (/^https?:\/\//i.test(raw) || raw.startsWith('cloud://') || raw.startsWith('wxfile://')) return raw
-      const fromKey = resolveMediaUrl(raw.replace(/^\/+/, ''), '')
-      if (fromKey) return fromKey
-      const viaEnsure = ensureLocalImage(raw.replace(/^\/+/, ''))
-      if (viaEnsure) return viaEnsure
-    }
-  }
-  if (rocketName && typeof rocketName === 'string' && rocketName.trim()) {
-    // getRocketImage 内部已 resolveRocketImagePath，常为可直接展示的 https；
-    // 禁止再塞进 resolveMediaUrl（会把 URL 当 key 处理并返回空串）
-    const fuzzy = getRocketImage(rocketName)
-    if (fuzzy && typeof fuzzy === 'string' && fuzzy.trim()) {
-      const f = fuzzy.trim()
-      if (/^https?:\/\//i.test(f) || f.startsWith('cloud://') || f.startsWith('wxfile://')) return f
-      const url = resolveMediaUrl(f.replace(/^\/+/, ''), '')
-      if (url) return url
-    }
-  }
-  const fallback = resolveMediaUrl(DEFAULT_ROCKET_IMAGE, '')
-  return fallback || ''
-}
-
 const { getUiShellLayout } = require('../../utils/layout.js')
 const { tryShowPopupAd } = require('../../utils/popup-ad.js')
 
@@ -54,8 +23,15 @@ const { tryShowPopupAd } = require('../../utils/popup-ad.js')
 // require.async + attachTo 委托加载；profile 页在 preloadRule 中预下载 profile-extra 分包，实际几乎无加载等待
 const PROFILE_LAZY_PKG = '../../subpackages/profile-extra/utils/profile-lazy.js'
 const PROFILE_LAZY_METHODS = [
+  'bootCheckinAndQuiz',
+  'refreshCheckinUI',
+  'onCheckIn',
+  'loadDailyQuiz',
+  'onQuizSelect',
+  'syncCloudProfile',
   'loadVoteStats',
   '_enrichVoteHistory',
+  'onVoteHistoryRocketImageError',
   'onVoteHistoryTap',
   'onToggleVoteHistory',
   'onClearVoteHistory',
@@ -87,6 +63,7 @@ const SECTION_EVENT_METHODS = [
   'onCancelReminder',
   'onGoAstroCalendar',
   'onVoteHistoryTap',
+  'onVoteHistoryRocketImageError',
   'onClearVoteHistory',
   'onToggleVoteHistory',
   'onQuizSelect',
@@ -217,7 +194,6 @@ Page({
   _runProfileBoot() {
     if (!this._profileBootPending) return
     this._profileBootPending = false
-    loadKnowledgeCards()
     this._runProfileShowRefresh(true)
     this.syncCloudProfile()
     this.loadAboutConfig()
@@ -229,10 +205,9 @@ Page({
     var self = this
     try { warmProfilePageStorageSync() } catch (e) {}
 
-    this.refreshCheckinUI()
+    this.bootCheckinAndQuiz()
     this.loadMyReminders()
     this.loadOaAlertStatus()
-    this.loadDailyQuiz()
     this.loadVoteStats().then(function () {
       if (!isBoot) {
         setTimeout(function () { self.checkMilestones() }, 100)
@@ -359,77 +334,7 @@ Page({
     }, key)
   },
 
-  // ── 签到系统 ──
-
-
-  refreshCheckinUI() {
-    const summary = getCheckinSummary()
-    const dots = getWeekCheckinDots()
-    const achInfo = checkAchievements()
-    this.setData({
-      checkinSummary: summary,
-      weekDots: dots,
-      achievementInfo: achInfo
-    })
-    // 非签到场景下也检查新解锁（从其他页面返回时）
-    if (achInfo.newlyUnlocked && achInfo.newlyUnlocked.length > 0 && !this.data.showFactCard) {
-      const badge = achInfo.newlyUnlocked[0]
-      setTimeout(() => {
-        this.setData({
-          showBadgeModal: true,
-          badgeModalData: { ...badge, unlocked: true, isNewUnlock: true }
-        })
-        wx.vibrateShort({ type: 'heavy' })
-      }, 500)
-    }
-  },
-
-  onCheckIn() {
-    if (this.data.checkinSummary.isCheckedInToday) {
-      wx.showToast({ title: '今天已签到啦', icon: 'none' })
-      return
-    }
-
-    const result = doCheckIn()
-    if (!result.success) {
-      wx.showToast({ title: '签到失败', icon: 'none' })
-      return
-    }
-
-    wx.vibrateShort({ type: 'medium' })
-
-    // 异步同步到云端（不阻塞 UI）
-    if (result.fact) syncCheckinToCloud(result.fact.id)
-
-    const summary = getCheckinSummary()
-    const dots = getWeekCheckinDots()
-    const achInfo = checkAchievements()
-
-    this.setData({
-      checkinSummary: summary,
-      weekDots: dots,
-      achievementInfo: achInfo,
-      todayFact: result.fact,
-      showFactCard: false
-    })
-
-    setTimeout(() => {
-      this.setData({ showFactCard: true })
-    }, 300)
-
-    if (achInfo.newlyUnlocked && achInfo.newlyUnlocked.length > 0) {
-      const badge = achInfo.newlyUnlocked[0]
-      setTimeout(() => {
-        this.setData({
-          showBadgeModal: true,
-          badgeModalData: { ...badge, unlocked: true, isNewUnlock: true }
-        })
-        wx.vibrateShort({ type: 'heavy' })
-      }, 1800)
-    }
-
-    this._refreshProfileDot()
-  },
+  // ── 签到系统（实现在 profile-extra/profile-lazy：refreshCheckinUI / onCheckIn） ──
 
   _refreshProfileDot() {
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
@@ -456,20 +361,6 @@ Page({
     this.setData({ showBadgeModal: false })
   },
 
-  // ── 云端同步 ──
-
-  async syncCloudProfile() {
-    try {
-      const cloudResult = await pullProfileFromCloud()
-      if (cloudResult) {
-        this.refreshCheckinUI()
-        this.loadDailyQuiz()
-      }
-      // 每次进入都推送一次，确保 behaviorStats 和新徽章同步到云端
-      pushAllToCloud()
-    } catch (e) {}
-  },
-
   /** profile-sections 分包组件统一事件通道：还原 currentTarget.dataset / detail 后分发 */
   onProfileSectionEvent(e) {
     const { name, dataset, edetail } = (e && e.detail) || {}
@@ -491,14 +382,16 @@ Page({
       let rocket = m.rocket
       let rocketImage = m.rocketImage
       let launchTime = m.launchTime
+      let rocketConfiguration = m.rocketConfiguration || null
 
-      if (!name || !rocket || !rocketImage || !launchTime) {
+      if (!name || !rocket || !rocketImage || !launchTime || !rocketConfiguration) {
         const cached = this._getMissionFromLocalCache(m.id)
         if (cached) {
           if (!name || name === '未知任务' || name === '发射任务 #' + m.id) name = cached.missionName || cached.name || name
           if (!rocket) rocket = cached.rocketName || rocket
           if (!rocketImage) rocketImage = cached.rocketImage || cached.image || rocketImage
           if (!launchTime) launchTime = cached.launchTime || cached.windowStart || launchTime
+          if (!rocketConfiguration) rocketConfiguration = cached.rocketConfiguration || null
         }
       }
 
@@ -526,15 +419,8 @@ Page({
       // 已过期的任务不再显示在提醒列表中
       if (status === 'past') return
 
-      // 与「近期竞猜」保持一致：仅按火箭名 → getRocketImage 拿 https URL，
-      // 避免本地存储里残留的 wxfile GIF 路径在安卓 <image> 上解码失败。
-      let rocketImg = ''
-      if (rocket) {
-        rocketImg = getRocketImage(rocket) || ''
-      }
-      if (!rocketImg) {
-        rocketImg = resolveRocketImageUrl(rocketImage, rocket)
-      }
+      // 与首页卡片同源
+      const rocketImg = resolveMissionRocketImage(rocketImage || '', rocket || '', rocketConfiguration, true)
 
       list.push({
         key: 'launch_' + m.id,
@@ -621,57 +507,7 @@ Page({
     wx.switchTab({ url: '/pages/index/index' })
   },
 
-  // ── 每日问答 ──
-
-  loadDailyQuiz() {
-    const result = getDailyQuestion()
-    const stats = getQuizStats()
-    this.setData({
-      quizQuestion: result.question,
-      quizAnswered: result.alreadyAnswered,
-      quizResult: result.alreadyAnswered ? { correct: result.wasCorrect, explanation: result.question.explanation } : null,
-      quizSelectedIndex: result.alreadyAnswered && result.selectedIndex !== undefined ? result.selectedIndex : -1,
-      quizStats: stats
-    })
-  },
-
-  onQuizSelect(e) {
-    if (this.data.quizAnswered) return
-    const idx = e.currentTarget.dataset.index
-    if (idx === undefined || idx === null) return
-
-    this.setData({ quizSelectedIndex: idx })
-    wx.vibrateShort({ type: 'light' })
-
-    const qId = this.data.quizQuestion && this.data.quizQuestion.id
-    console.log('[Profile] onQuizSelect: qId=', qId, 'idx=', idx)
-
-    const result = answerQuestion(qId, idx)
-
-    const saveOk = verifyQuizSave()
-    if (!saveOk) {
-      console.error('[Profile] Quiz save verification FAILED!')
-    }
-
-    syncQuizToCloud()
-
-    setTimeout(() => {
-      this.setData({
-        quizAnswered: true,
-        quizResult: result,
-        quizStats: result.stats || getQuizStats()
-      })
-
-      if (result.correct) {
-        wx.vibrateShort({ type: 'heavy' })
-      }
-
-      this._refreshProfileDot()
-
-      var self = this
-      setTimeout(function () { self.checkMilestones(true) }, 600)
-    }, 500)
-  },
+  // ── 每日问答（实现在 profile-extra/profile-lazy：loadDailyQuiz / onQuizSelect） ──
 
   onShareAppMessage(e) {
     if (e && e.from === 'button' && e.target && e.target.dataset && e.target.dataset.share === 'figma') {

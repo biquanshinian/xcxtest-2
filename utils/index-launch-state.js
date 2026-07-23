@@ -204,6 +204,69 @@ function getNextUpcomingLaunch(missions, currentId, now = Date.now()) {
   }) || null
 }
 
+/** 副卡倒计时文案：有剩余时间显示紧凑时钟，过点显示「确认中」 */
+function formatOverlapSideCountdownText(countdown) {
+  if (!countdown || countdown.isExpired) return '确认中'
+  const pad = (n) => String(Math.max(0, Number(n) || 0)).padStart(2, '0')
+  const days = Number(countdown.days) || 0
+  const clock = `${pad(countdown.hours)}:${pad(countdown.minutes)}:${pad(countdown.seconds)}`
+  return days > 0 ? `${days}天 ${clock}` : clock
+}
+
+/**
+ * 把任务行收成倒计时区重叠副卡视图（单行精简）。
+ * @returns {object|null}
+ */
+function buildOverlapSideCardView(mission, options = {}) {
+  if (!mission || mission.id == null) return null
+  const { getCountdown, getStatusTextZh } = options
+  const countdown =
+    typeof getCountdown === 'function' && mission.launchTime
+      ? getCountdown(mission.launchTime)
+      : { days: 0, hours: 0, minutes: 0, seconds: 0, isExpired: true }
+  const statusObj = {
+    id: mission.statusId,
+    name: mission.statusBadgeText || mission.statusTextZh || mission.status || '',
+    abbrev: mission.statusAbbrev || ''
+  }
+  const statusTextZh =
+    mission.statusBadgeText ||
+    mission.statusTextZh ||
+    (typeof getStatusTextZh === 'function' ? getStatusTextZh(statusObj) : '') ||
+    mission.status ||
+    ''
+  return {
+    id: mission.id,
+    missionName: mission.missionName || mission.name || '',
+    rocketName: mission.rocketName || '',
+    rocketImage: mission.rocketImage || mission.image || '',
+    launchAgency: mission.launchAgency || '',
+    statusTextZh,
+    statusCategory: mission.statusCategory || 'pending',
+    countdownText: formatOverlapSideCountdownText(countdown),
+    isExpired: !!countdown.isExpired,
+    label: '相邻发射窗口'
+  }
+}
+
+/**
+ * 选型 + 视图：仅窗口重叠时出副卡；主卡换人后按新主卡再排队下一条重叠。
+ */
+function pickOverlapSideCard(missions, options = {}) {
+  const mission = windowMachine.resolveOverlapSideMission(missions, {
+    panelMissionId: options.panelMissionId,
+    panelMission: options.panelMission,
+    recordsById: options.recordsById,
+    now: options.now,
+    forceNext: false
+  })
+  if (!mission) return null
+  return buildOverlapSideCardView(mission, {
+    getCountdown: options.getCountdown,
+    getStatusTextZh: options.getStatusTextZh
+  })
+}
+
 // 窗口期状态机：面板选型/挂住/探针决策的唯一规则源（本文件只做薄委托，保持旧 API）
 const windowMachine = require('./countdown-window-machine.js')
 
@@ -499,6 +562,7 @@ function buildUpcomingLaunchEmptyState(options = {}) {
     formattedLaunchDate: '',
     formattedLaunchWeekTime: '',
     _countdownSubscribed: false,
+    overlapSideCard: null,
     loadError: true,
     errorMessage: message,
     ...upcomingListState,
@@ -521,6 +585,7 @@ function buildUpcomingLaunchErrorState(options = {}) {
     errorMessage,
     launchData: {},
     _countdownSubscribed: false,
+    overlapSideCard: null,
     ...upcomingListState,
     missionsLoadError: true,
     missionsErrorMessage: errorMessage,
@@ -543,6 +608,9 @@ module.exports = {
   getMissionWindowHoldUntilMs,
   isUnresolvedForCountdownHold,
   shouldHoldPastNetCountdownMission,
+  formatOverlapSideCountdownText,
+  buildOverlapSideCardView,
+  pickOverlapSideCard,
   buildCountdownSubscriptionState,
   buildLaunchSwitchEffects,
   shouldRefreshExpiredLaunch,

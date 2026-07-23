@@ -1,4 +1,4 @@
-const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, buildMapLayoutData, buildSelectionPatch, buildMapShareOptions, copyMapText, runMapRefresh } = require('./utils/map-page-common.js')
+const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, buildMapLayoutData, buildSelectionPatch, copyMapText, runMapRefresh } = require('./utils/map-page-common.js')
 const { getUpcomingMissions, getCompletedMissions } = require('../../utils/api-launch-list.js')
 const { LAUNCH_SITES, toMarker } = require('./utils/map-scenes.js')
 const pageBase = require('../../utils/page-base.js')
@@ -21,6 +21,7 @@ Page({
     selectedMissionType: 'all',
     panelCollapsed: true,
     actionMenuCollapsed: true,
+    isMomentsPreview: false,
     ...createMapBaseState({
       dataSourceText: 'Upcoming + Completed Missions',
       dataUpdatedText: '待更新',
@@ -41,11 +42,39 @@ Page({
     const app = getApp()
     const markers = LAUNCH_SITES.map((item) => toMarker(item, { color: item.accentColor || '#0A84FF' }))
     this._focusSiteId = Number(options.focusId || 0)
+
+    let isMomentsPreview = false
+    try {
+      const enter = (typeof wx.getEnterOptionsSync === 'function' && wx.getEnterOptionsSync())
+        || wx.getLaunchOptionsSync()
+      isMomentsPreview = !!(enter && enter.scene === 1154)
+    } catch (e) {}
+
+    const preferred = LAUNCH_SITES.find((item) => item.id === this._focusSiteId) || LAUNCH_SITES[0] || null
     this.setData({
       ...buildMapLayoutData(app),
       markers,
-      selectedSite: LAUNCH_SITES[0] || null
+      selectedSite: preferred,
+      isMomentsPreview
     })
+
+    if (isMomentsPreview) {
+      // 朋友圈单页：原生 map 易黑屏，只展示发射场列表预览
+      this.setData({
+        loading: false,
+        panelCollapsed: false,
+        dataUpdatedText: '打开小程序查看实时数据'
+      })
+      return
+    }
+
+    try {
+      wx.showShareMenu({
+        withShareTicket: true,
+        menus: ['shareAppMessage', 'shareTimeline']
+      })
+    } catch (e) {}
+
     this.loadLaunchSiteStats()
   },
 
@@ -271,14 +300,31 @@ Page({
     this.setData({ actionMenuCollapsed: !this.data.actionMenuCollapsed })
   },
 
-  onShareAppMessage() {
+  _shareTitle() {
     const site = this.data.selectedSite || {}
-    return buildMapShareOptions({
-      shareTitle: this.data.shareTitle,
-      detailText: site.shortName,
-      fallbackDetailText: '全球发射场',
-      path: '/subpackages/monitor-pages/launch-site-map'
-    })
+    const detail = site.shortName || '全球发射场'
+    return `${this.data.shareTitle || '全球发射基地'} · ${detail}`
+  },
+
+  _shareQuery() {
+    const site = this.data.selectedSite || {}
+    const id = Number(site.id || this._focusSiteId || 0)
+    return id ? ('focusId=' + id) : ''
+  },
+
+  onShareAppMessage() {
+    const query = this._shareQuery()
+    return {
+      title: this._shareTitle(),
+      path: '/subpackages/monitor-pages/launch-site-map' + (query ? '?' + query : '')
+    }
+  },
+
+  onShareTimeline() {
+    return {
+      title: this._shareTitle(),
+      query: this._shareQuery()
+    }
   },
 
   // goBack inherited from pageBase

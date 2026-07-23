@@ -1,5 +1,5 @@
 const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, findItemById, buildMapLayoutData, buildMapPanelScrollLayout, buildMapShareOptions, copyMapText, runMapRefresh } = require('./utils/map-page-common.js')
-const { getRoadClosureNotice } = require('../../utils/api-road-closure.js')
+const { getRoadClosureNotice } = require('./utils/api-road-closure.js')
 const { ROAD_CLOSURE_SCENE } = require('./utils/map-scenes.js')
 const { resolveRoadClosureStatus } = require('../../utils/progress-road-closure.js')
 const { applyStarbaseI18n, translateMayorOrderBody } = require('./utils/starbase-i18n.js')

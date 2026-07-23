@@ -1,5 +1,10 @@
 {
-  "usingComponents": {},
+  "usingComponents": {
+    "share-guide": "/subpackages/shared/components/share-guide/index"
+  },
+  "componentPlaceholder": {
+    "share-guide": "view"
+  },
   "navigationStyle": "custom",
   "disableScroll": false
 }

@@ -5,7 +5,7 @@
       <text class="nav-title">Starbase 设施图</text>
       <view class="nav-placeholder"></view>
     </view>
-    <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" style="top: {{mapActionTop}}px;">
+    <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" wx:if="{{!isMomentsPreview}}" style="top: {{mapActionTop}}px;">
       <view class="map-action-header">
         <text class="map-action-title">地图工具</text>
         <view class="map-action-toggle-btn" bindtap="toggleActionMenuCollapsed"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
@@ -18,7 +18,22 @@
     </view>
   </view>
 
-  <map class="main-map" latitude="{{latitude}}" longitude="{{longitude}}" scale="{{scale}}" markers="{{markers}}" enable-scroll="true" enable-zoom="true" bindmarkertap="onMarkerTap"></map>
+  <map
+    wx:if="{{!isMomentsPreview}}"
+    class="main-map"
+    latitude="{{latitude}}"
+    longitude="{{longitude}}"
+    scale="{{scale}}"
+    markers="{{markers}}"
+    enable-scroll="true"
+    enable-zoom="true"
+    bindmarkertap="onMarkerTap"
+  ></map>
+
+  <view class="moments-map-fallback" wx:else>
+    <text class="moments-map-fallback-title">Starbase 设施图</text>
+    <text class="moments-map-fallback-desc">朋友圈预览中地图暂不可用，点击「前往小程序」查看完整点位与实时状态。</text>
+  </view>
 
   <view class="panel glass-card {{panelCollapsed ? 'panel--collapsed' : ''}}">
     <view class="state-card" wx:if="{{loading || errorText || emptyText}}">
@@ -79,4 +94,6 @@
       <text class="mini-summary-text">{{selectedFacility.shortName || '暂无设施'}} · {{selectedFacility.status || '状态待同步'}} · {{selectedFacility.focus || currentFocusText}}</text>
     </view>
   </view>
+
+  <share-guide />
 </view>

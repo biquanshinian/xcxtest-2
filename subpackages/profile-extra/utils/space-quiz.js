@@ -3,7 +3,7 @@
  * 每日一道题，答对可获得额外成就积分
  */
 
-const storageCache = require('./storage-sync-cache.js')
+const storageCache = require('../../../utils/storage-sync-cache.js')
 
 const QUIZ_STORAGE_KEY = '_space_quiz_data'
 
@@ -274,7 +274,7 @@ function answerQuestion(questionId, selectedIndex) {
 
   saveQuizData(data)
 
-  var _rm = require('./user-growth.js').recordMilestone
+  var _rm = require('../../../utils/user-growth.js').recordMilestone
   _rm('FIRST_QUIZ')
   if (data.streak >= 5) _rm('QUIZ_STREAK_5')
 

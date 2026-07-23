@@ -280,7 +280,7 @@
 }
 
 .vote-history-icon--launch {
-  background: rgba(255, 255, 255, 0.03);
+  background: #1a1a1a;
   overflow: hidden;
   padding: 0;
 }
@@ -289,6 +289,7 @@
   width: 100%;
   height: 100%;
   border-radius: 50%;
+  display: block;
 }
 
 .vote-history-left {
@@ -416,21 +417,26 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10rpx;
+  align-items: stretch;
 }
 
 .quiz-option {
   display: flex;
   align-items: center;
   gap: 10rpx;
+  /* 固定最小高度，避免选中/出结果时因图标或换行把整卡撑高 */
+  min-height: 72rpx;
+  box-sizing: border-box;
   padding: 14rpx 16rpx;
   border-radius: 16rpx;
   background: rgba(255, 255, 255, 0.04);
   border: 1rpx solid rgba(255, 255, 255, 0.08);
-  transition: all 0.3s ease;
+  /* 禁止 transition:all，否则答题后会动画 margin/padding/height，卡片底部被「拉大」 */
+  transition: background 0.3s ease, border-color 0.3s ease, opacity 0.3s ease;
 }
 
 .quiz-option:active:not(.quiz-option--disabled) {
-  transform: scale(0.98);
+  opacity: 0.85;
 }
 
 .quiz-option--selected {
@@ -495,23 +501,28 @@
 }
 
 .quiz-option-icon {
+  width: 28rpx;
   font-size: 24rpx;
   font-weight: 700;
   flex-shrink: 0;
+  text-align: center;
+  line-height: 1;
+  visibility: hidden;
 }
 
-.quiz-option--correct .quiz-option-icon {
+.quiz-option-icon--visible {
+  visibility: visible;
+}
+
+.quiz-option-icon--ok {
   color: #34c759;
 }
 
-.quiz-option--wrong .quiz-option-icon {
+.quiz-option-icon--bad {
   color: #ff453a;
 }
 
-.quiz-result--show {
-  opacity: 1;
-  transform: translateY(0);
-}
+/* 结果区由 wx:if 挂载即可，不再做 opacity:0 入场（否则会先撑出空白玻璃底再淡入） */
 
 .quiz-result-tag {
   display: inline-block;
@@ -770,16 +781,13 @@
   padding: 24rpx 24rpx 20rpx;
 }
 
-/* 答题结果 */
+/* 答题结果：用 wx:if 挂载，勿再设 opacity:0 + transition:all（会把 padding/margin 从 0 动画撑开） */
 .quiz-result {
   margin-top: 14rpx;
   padding: 14rpx 18rpx;
   border-radius: 16rpx;
   background: rgba(255, 255, 255, 0.03);
   border: 1rpx solid rgba(255, 255, 255, 0.06);
-  opacity: 0;
-  transform: translateY(10rpx);
-  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* 小程序 button 默认 width:100%，必须用 !important + mini 才能收窄 */
@@ -931,7 +939,7 @@
 }
 
 .theme-light .vote-history-icon--launch {
-  background: rgba(0, 0, 0, 0.03);
+  background: #e8eaef;
 }
 
 .theme-light .vote-history-name {

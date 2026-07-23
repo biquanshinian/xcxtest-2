@@ -55,6 +55,7 @@ Component({
     emitOnCancelReminder(e) { this._emit('onCancelReminder', e) },
     emitOnGoAstroCalendar(e) { this._emit('onGoAstroCalendar', e) },
     emitOnVoteHistoryTap(e) { this._emit('onVoteHistoryTap', e) },
+    emitOnVoteHistoryRocketImageError(e) { this._emit('onVoteHistoryRocketImageError', e) },
     emitOnClearVoteHistory(e) { this._emit('onClearVoteHistory', e) },
     emitOnToggleVoteHistory(e) { this._emit('onToggleVoteHistory', e) },
     emitOnQuizSelect(e) { this._emit('onQuizSelect', e) },
