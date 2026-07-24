@@ -188,9 +188,13 @@ assert.ok(adminSrc.includes('beforeRes.data.status !== \'approved\''), 'admin to
 assert.ok(indexSrc.includes('prevStatus !== \'approved\''), 'edit/review touchLatest only on newly approved')
 
 const newsSrc2 = fs.readFileSync(path.join(__dirname, '../../pages/news/news.js'), 'utf8')
+const photosLazySrc = fs.readFileSync(path.join(__dirname, '../../subpackages/news-extra/utils/news-photos-lazy.js'), 'utf8')
 assert.ok(newsSrc2.includes('acknowledgePhotosNavDot(photosLatestAt)'), 'must ack with listPublic latestAt after stale check')
 assert.ok(newsSrc2.includes("type !== 'photos'") || newsSrc2.includes("type !== \"photos\""), 'skip refresh race after enter photos')
-assert.ok(newsSrc2.includes('cfg._id && cfg.enableAstroPhotos === true'), 'photos nav failClosed requires valid main')
+assert.ok(newsSrc2.includes('news-photos-lazy.js'), 'photo UI must load via news-photos-lazy')
+assert.ok(photosLazySrc.includes('cfg._id && cfg.enableAstroPhotos === true'), 'photos nav failClosed requires valid main')
+assert.ok(photosLazySrc.includes('_formatPhotosList'), 'photos format must live in news-photos-lazy')
+assert.ok(photosLazySrc.includes('goPhotoUpload'), 'photo upload entry must live in news-photos-lazy')
 assert.ok(
   fs.readFileSync(path.join(__dirname, '../../utils/feature-flags.js'), 'utf8').includes('allowStaleFallback'),
   'force fetch must not silently keep stale enable flag'

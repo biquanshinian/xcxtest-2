@@ -10,6 +10,8 @@ const DEFAULTS = {
   freeAiChatDaily: 3,
   freeAiImageDaily: 1,
   adUnlockMinutes: 10,
+  /** 星问：看完一条激励视频赠送的当日额外对话次数（固定 1） */
+  aiChatAdBonusPerWatch: 1,
   enableMissionListGate: true,
   enableEventListGate: true,
   forceNonMemberVideoPoster: true,
@@ -55,6 +57,7 @@ function normalizeMemberPolicy(cfg) {
     freeAiChatDaily: clampInt(c.freeAiChatDaily, 0, 200, DEFAULTS.freeAiChatDaily),
     freeAiImageDaily: clampInt(c.freeAiImageDaily, 0, 50, DEFAULTS.freeAiImageDaily),
     adUnlockMinutes: clampInt(c.adUnlockMinutes, 1, 1440, DEFAULTS.adUnlockMinutes),
+    aiChatAdBonusPerWatch: clampInt(c.aiChatAdBonusPerWatch, 1, 1, DEFAULTS.aiChatAdBonusPerWatch),
     enableMissionListGate: c.enableMissionListGate !== false,
     enableEventListGate: c.enableEventListGate !== false,
     forceNonMemberVideoPoster: forcePoster,

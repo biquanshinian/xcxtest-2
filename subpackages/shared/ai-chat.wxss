@@ -1,0 +1,61 @@
+/* 星问详情页：骨架对齐 briefing，内容区复用 ai-chat mode=page */
+
+.ai-chat-detail-page {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg, #000);
+  box-sizing: border-box;
+}
+
+.nav-title-wrap {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.ai-chat-nav-sub {
+  margin-top: 2rpx;
+  font-size: 20rpx;
+  line-height: 1.2;
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.45));
+}
+
+.ai-chat-detail-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  transition: padding-bottom 0.22s ease;
+}
+
+/* 自定义组件宿主默认不继承 flex 高度，不撑满时输入栏会悬在中间 */
+.ai-chat-detail-body ai-chat {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* ========== 明亮主题（theme-light）反色覆盖 ========== */
+.ai-chat-detail-page.theme-light {
+  background: var(--color-bg, #f2f2f7);
+}
+
+.ai-chat-detail-page.theme-light .nav-title--page-grid {
+  color: var(--color-text-primary, #1C1C1E);
+}
+
+.ai-chat-detail-page.theme-light .ai-chat-nav-sub,
+.theme-light .ai-chat-nav-sub {
+  color: var(--color-text-tertiary, #86868B);
+}

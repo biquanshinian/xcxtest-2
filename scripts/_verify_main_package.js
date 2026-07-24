@@ -30,7 +30,7 @@ const jsFiles = [
   'subpackages/shared/components/channels-live-panel/index.js',
   'subpackages/shared/components/official-account-bar/index.js',
   'subpackages/monitor-pages/utils/artemis-arow.js',
-  'subpackages/monitor-pages/utils/starbase-weather.js',
+  'subpackages/monitor-pages/utils/monitor-weather.js',
 ]
 
 let bomIssues = []

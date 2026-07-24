@@ -109,7 +109,7 @@
 .float-menu-item-icon {
   position: relative;
   width: 48rpx;
-  height: 36rpx;
+  height: 48rpx;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -129,16 +129,23 @@
 
 .float-menu-icon {
   font-size: 32rpx;
-  width: 36rpx;
+  line-height: 1;
   text-align: center;
   flex-shrink: 0;
-  line-height: 1;
   color: var(--color-text-primary);
 }
 
+/* 星问AI：✦ 居中（字号相对先前缩小一倍） */
+.float-menu-item--ai .float-menu-item-icon {
+  width: 48rpx;
+  height: 48rpx;
+}
+
 .float-menu-item--ai .float-menu-icon {
-  font-size: 34rpx;
+  font-size: 30rpx;
   color: #c4b5fd;
+  line-height: 1;
+  transform: translateY(-1px);
 }
 
 /* AI 项恒为深紫底：文字固定白色，不随主题变量切深（浅色下黑字压紫底看不清） */

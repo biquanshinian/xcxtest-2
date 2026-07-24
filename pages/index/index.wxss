@@ -283,6 +283,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  /* 节日帽探出圆顶，勿裁切 */
+  overflow: visible;
 }
 .countdown-rocket-wrap.is-live {
   padding-bottom: 22rpx;

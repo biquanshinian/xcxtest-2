@@ -336,10 +336,129 @@ function getUpcomingStarshipMissions(limit = 10, offset = 0) {
   })
 }
 
+/** 按 NET / 状态推断列表类型，供搜索结果进详情用 */
+function inferLaunchListType(launch) {
+  const sid = launch && launch.status && launch.status.id != null
+    ? Number(launch.status.id)
+    : NaN
+  // LL2：3 success / 4 failure / 7 partial
+  if (sid === 3 || sid === 4 || sid === 7) return 'completed'
+  const net = launch && (launch.net || launch.window_start)
+  const t = net ? Date.parse(net) : NaN
+  if (Number.isFinite(t) && t < Date.now() - 60 * 60 * 1000) return 'completed'
+  return 'upcoming'
+}
+
+function mapSearchResultsToList(data, typeHint) {
+  const results = data && Array.isArray(data.results) ? data.results : []
+  return results.map((launch, index) => {
+    const detailType = typeHint || inferLaunchListType(launch)
+    const item = mapLaunchToListItem(launch, index, 0, detailType)
+    item._detailType = detailType
+    return item
+  })
+}
+
+/**
+ * 按 NET 窗口裁剪搜索结果（天）。withinDays>0 时只保留 [now-1h, now+days]。
+ * @param {object[]} list
+ * @param {number} withinDays
+ * @returns {object[]}
+ */
+function filterLaunchesWithinUpcomingDays(list, withinDays) {
+  const n = Number(withinDays)
+  if (!Number.isFinite(n) || n <= 0) return Array.isArray(list) ? list : []
+  const now = Date.now()
+  const end = now + n * 24 * 3600 * 1000
+  const start = now - 60 * 60 * 1000
+  return (Array.isArray(list) ? list : []).filter((m) => {
+    if (!m || !m.launchTime) return false
+    const t = new Date(m.launchTime).getTime()
+    return Number.isFinite(t) && t >= start && t <= end
+  })
+}
+
+/**
+ * 云端关键词搜索发射任务（LL2 search）。
+ * 用于星问「问谁出谁」本地缓存未命中时的回退。
+ * @param {string} keyword
+ * @param {{ limit?: number, withinDays?: number, upcomingOnly?: boolean }} [options]
+ *   - withinDays: 只保留未来 N 天内任务（发射列表探云用）
+ *   - upcomingOnly: 只搜 upcoming，不合并 previous
+ * @returns {Promise<{ list: object[] }>}
+ */
+function searchLaunchesByKeyword(keyword, options) {
+  const q = String(keyword || '').trim()
+  if (!q) return Promise.resolve({ list: [] })
+  const limit = Math.max(1, Math.min(Number(options && options.limit) || 20, 40))
+  const withinDays = Number(options && options.withinDays)
+  const upcomingOnly = !!(options && options.upcomingOnly) || (Number.isFinite(withinDays) && withinDays > 0)
+
+  const applyWindow = (list) => {
+    if (!Number.isFinite(withinDays) || withinDays <= 0) return list || []
+    return filterLaunchesWithinUpcomingDays(list, withinDays)
+  }
+
+  const fetchUpcomingSearch = () => request('/launches/upcoming/', {
+    search: q,
+    limit: Math.min(limit, 40),
+    offset: 0,
+    ordering: 'net',
+    mode: 'detailed',
+    format: 'json',
+    hide_recent_previous: true
+  }, null, true).then((d) => mapSearchResultsToList(d, 'upcoming'))
+
+  if (upcomingOnly) {
+    return fetchUpcomingSearch()
+      .then((list) => ({ list: applyWindow(list).slice(0, limit) }))
+      .catch(() => ({ list: [] }))
+  }
+
+  const fetchMain = () => request('/launches/', {
+    search: q,
+    limit,
+    offset: 0,
+    ordering: '-net',
+    mode: 'detailed',
+    format: 'json'
+  }, null, true).then((data) => mapSearchResultsToList(data))
+
+  return fetchMain()
+    .then((list) => {
+      if (list && list.length) return { list: applyWindow(list).slice(0, limit) }
+      // 部分缓存链路对 /launches/ 支持弱：拆 upcoming + previous 再搜
+      return Promise.all([
+        fetchUpcomingSearch().catch(() => []),
+        request('/launches/previous/', {
+          search: q,
+          limit: Math.min(limit, 20),
+          offset: 0,
+          ordering: '-net',
+          mode: 'detailed',
+          format: 'json'
+        }, null, true).then((d) => mapSearchResultsToList(d, 'completed')).catch(() => [])
+      ]).then(([up, prev]) => {
+        const seen = {}
+        const merged = []
+        ;[].concat(up || [], prev || []).forEach((m) => {
+          const id = m && m.id != null ? String(m.id) : ''
+          if (!id || seen[id]) return
+          seen[id] = true
+          merged.push(m)
+        })
+        return { list: applyWindow(merged).slice(0, limit) }
+      })
+    })
+    .catch(() => ({ list: [] }))
+}
+
 module.exports = {
   getUpcomingMissions,
   getCompletedMissions,
   getUpcomingStarshipMissions,
+  searchLaunchesByKeyword,
+  filterLaunchesWithinUpcomingDays,
   isStarshipListItem,
   mapLaunchToListItem,
   invalidateListSnapshots

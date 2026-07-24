@@ -27,6 +27,7 @@ const ROUTES = {
 
   // ── 分包页 ──
   BRIEFING: '/subpackages/shared/briefing',
+  AI_CHAT: '/subpackages/shared/ai-chat',
   MISSION_DETAIL: '/pages/mission-detail/mission-detail',
   LAUNCH_UPDATES: '/pages/mission-detail/launch-updates',
   SEARCH: '/pages/search/search',

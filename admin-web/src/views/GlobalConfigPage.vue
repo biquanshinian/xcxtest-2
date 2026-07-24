@@ -89,6 +89,10 @@
           <el-input-number v-model="form.freeAiChatDaily" :min="0" :max="200" />
           <el-text type="info" style="margin-left:12px">会员系统开启时的非 Pro 额度</el-text>
         </el-form-item>
+        <el-form-item label="星问看广告加次">
+          <el-input-number v-model="form.aiChatAdBonusPerWatch" :min="1" :max="1" />
+          <el-text type="info" style="margin-left:12px">看完一条激励视频只解锁 1 次提问</el-text>
+        </el-form-item>
         <el-form-item label="AI 识图每日次数">
           <el-input-number v-model="form.freeAiImageDaily" :min="0" :max="50" />
         </el-form-item>
@@ -348,6 +352,7 @@ const form = reactive({
   freeMissionListLimit: 10,
   freeEventListLimit: 5,
   freeAiChatDaily: 3,
+  aiChatAdBonusPerWatch: 1,
   freeAiImageDaily: 1,
   adUnlockMinutes: 10,
   enableMissionListGate: true,
@@ -371,7 +376,7 @@ const featureSwitches = [
   { field: 'enableLive', label: '直播功能', desc: '与「直播观看」同时生效：关闭后监控中心与任务详情直播入口均隐藏' },
   { field: 'enableEventVideo', label: '事件更新视频', desc: '关闭后隐藏事件视频、全站播放页与静音背景视频，方便过审' },
   { field: 'enableMissionReplay', label: '发射回放', desc: '关闭后任务详情页「观看回放」卡片（发射集锦 + 完整回放外链）隐藏，方便过审' },
-  { field: 'enableAIChat', label: 'AI 太空助手（星问）', desc: '关闭后 NASA 圆盘菜单中的星问入口将隐藏，方便过审' },
+  { field: 'enableAIChat', label: 'AI 太空助手（星问）', desc: '关闭后圆盘入口与星问详情页均不可用（含分享直达），方便过审' },
   { field: 'enableLunarWishes', label: '月愿计划', desc: '关闭后 NASA 圆盘菜单中的月愿入口将隐藏，方便过审' },
   { field: 'enableAstroPhotos', label: '航天摄影', desc: '默认关闭；开启后新闻页显示「航天摄影」分区并允许用户投稿，过审期间请保持关闭' },
   { field: 'enableMembership', label: '会员系统（星际通行证）', desc: '关闭后隐藏所有付费入口，AI 保持 10 次/日免费额度' },
@@ -602,6 +607,7 @@ const load = async () => {
         freeMissionListLimit: Number(data.freeMissionListLimit) > 0 ? Number(data.freeMissionListLimit) : 10,
         freeEventListLimit: Number(data.freeEventListLimit) > 0 ? Number(data.freeEventListLimit) : 5,
         freeAiChatDaily: Number.isFinite(Number(data.freeAiChatDaily)) ? Number(data.freeAiChatDaily) : 3,
+        aiChatAdBonusPerWatch: 1,
         freeAiImageDaily: Number.isFinite(Number(data.freeAiImageDaily)) ? Number(data.freeAiImageDaily) : 1,
         adUnlockMinutes: Number(data.adUnlockMinutes) > 0 ? Number(data.adUnlockMinutes) : 10,
         enableMissionListGate: data.enableMissionListGate !== false,

@@ -1,6 +1,12 @@
 // pages/index/index.js
 const themeUtil = require('../../utils/theme.js')
 const {
+  resolveFestivalHatId,
+  isFestivalHatDevMode,
+  listFestivalHats,
+  DEV_CYCLE_MS
+} = require('../../utils/festival-hat.js')
+const {
   getUpcomingMissions,
   getCompletedMissions,
   invalidateListSnapshots
@@ -608,6 +614,7 @@ Page({
           }
         })
         .catch(() => {})
+      try { this._syncFestivalHat() } catch (e) {}
 
       // 首屏后：轮播/封路（与倒计时面板相关，略延后）
       setTimeout(() => {
@@ -648,6 +655,9 @@ Page({
   onShow() {
     // 主题兜底同步：在其他 Tab 切了主题后回到本 Tab（getCurrentPages 只含当前栈，切主题时刷不到本页）
     themeUtil.applyThemeToPage(this)
+
+    // 节日帽与星问对齐：回前台按当天再解析（开发模式则续轮播预览）
+    this._syncFestivalHat()
 
     // 切回前台/Tab：按真实时间重算并恢复倒计时（onHide 已暂停，避免后台空跑）
     this.startCountdown()
@@ -703,7 +713,12 @@ Page({
         this._tryShowRenewalReminder()
       }, 6000)
 
-      if (this.data.carouselItems && this.data.carouselItems.length > 0) {
+      // 轮播仅「即将发射」Tab 展示与播控
+      if (
+        this.data.missionType === 'upcoming' &&
+        this.data.carouselItems &&
+        this.data.carouselItems.length > 0
+      ) {
         this._activateCarouselVideos(this.data.carouselCurrent || 0)
         this._startCarouselTimer()
       }
@@ -929,6 +944,8 @@ Page({
     // 预下载到本地的分享缩略图（wxfile:// 或 http://tmp/...），用于规避 iOS 朋友圈/网络分享缩略图加载失败
     shareImage: '',
     launchData: {},
+    /** 倒计时圆图节日帽（与星问同源日期解析） */
+    festivalHat: '',
     formattedLaunchTime: '',
     formattedLaunchDate: '',
     formattedLaunchWeekTime: '',
@@ -3486,6 +3503,15 @@ Page({
 
     const switchState = buildMissionTypeSwitchState(this.data, type)
     const targetScrollTop = switchState.targetScrollTop
+    const prevType = this.data.missionType
+
+    // 离开即将发射：停轮播定时器与视频（历史/日历不展示轮播）
+    if (prevType === 'upcoming' && type !== 'upcoming') {
+      try {
+        this._stopCarouselTimer()
+        this._stopCarouselVideo(this.data.carouselCurrent || 0)
+      } catch (e) {}
+    }
 
     this.setData({
       missionType: switchState.missionType,
@@ -3520,6 +3546,13 @@ Page({
         try {
           this._refilterUpcomingAgainstSettled()
         } catch (e) {}
+        // 回到即将发射：恢复轮播播控
+        if (this.data.carouselItems && this.data.carouselItems.length > 0) {
+          try {
+            this._activateCarouselVideos(this.data.carouselCurrent || 0)
+            this._startCarouselTimer()
+          } catch (e) {}
+        }
       }
       this.loadMissions()
       // 历史 Tab：仅在云母列表已就绪时轻量刷 settled 角标。
@@ -4079,7 +4112,46 @@ Page({
     )
   },
 
+  /** 倒计时圆图节日帽：与星问同源日期；开发模式轮播预览 */
+  _syncFestivalHat() {
+    const list = listFestivalHats()
+    if (isFestivalHatDevMode()) {
+      if (!this._festivalHatDevIdx && this._festivalHatDevIdx !== 0) this._festivalHatDevIdx = 0
+      const id = (list[this._festivalHatDevIdx] && list[this._festivalHatDevIdx].id) || (list[0] && list[0].id) || ''
+      if (id !== this.data.festivalHat) this.setData({ festivalHat: id })
+      this._startFestivalHatDevCycle()
+      return
+    }
+    this._stopFestivalHatDevCycle()
+    const id = resolveFestivalHatId(new Date()) || ''
+    if (id !== (this.data.festivalHat || '')) this.setData({ festivalHat: id })
+  },
+
+  _startFestivalHatDevCycle() {
+    this._stopFestivalHatDevCycle()
+    const list = listFestivalHats()
+    if (!list.length) return
+    this._festivalHatDevTimer = setInterval(() => {
+      if (!isFestivalHatDevMode()) {
+        this._stopFestivalHatDevCycle()
+        return
+      }
+      const next = ((this._festivalHatDevIdx || 0) + 1) % list.length
+      this._festivalHatDevIdx = next
+      const id = list[next] && list[next].id
+      if (id) this.setData({ festivalHat: id })
+    }, DEV_CYCLE_MS)
+  },
+
+  _stopFestivalHatDevCycle() {
+    if (this._festivalHatDevTimer) {
+      clearInterval(this._festivalHatDevTimer)
+      this._festivalHatDevTimer = null
+    }
+  },
+
   onHide() {
+    this._stopFestivalHatDevCycle()
     this.stopCountdown()
     this._resetMissionCardHaptics()
     this._stopCarouselTimer()
@@ -4198,6 +4270,7 @@ Page({
   },
 
   onUnload() {
+    this._stopFestivalHatDevCycle()
     if (typeof this._offLaunchListStale === 'function') {
       try {
         this._offLaunchListStale()

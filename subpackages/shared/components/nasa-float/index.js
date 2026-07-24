@@ -226,11 +226,14 @@ Component({
       }
 
       Promise.all([
-        fetchAIChatEnabled().catch(() => true),
+        // 与详情页一致：读不到配置时隐藏星问，避免过审仍露出入口
+        isFeatureEnabled('enableAIChat', { failClosed: true }).catch(() => false),
         isFeatureEnabled('enableLunarWishes', { failClosed: true }).catch(() => false)
       ]).then(([aiEnabled, lunarEnabled]) => {
         this._lunarEnabled = !!lunarEnabled
-        apply(aiEnabled !== false, this._lunarEnabled)
+        // 同步 aiService 缓存，供 _openAiChat 的 sync 判断
+        fetchAIChatEnabled().catch(() => {})
+        apply(!!aiEnabled, this._lunarEnabled)
       })
     },
 
@@ -384,15 +387,22 @@ Component({
     },
 
     _openAiChat() {
-      const pages = getCurrentPages()
-      const page = pages[pages.length - 1]
-      if (!page) return
-      const aiChat = page.selectComponent('#ai-chat')
-      if (aiChat && typeof aiChat.openChat === 'function') {
-        aiChat.openChat()
-        return
-      }
-      wx.showToast({ title: '星问AI暂不可用', icon: 'none' })
+      try {
+        if (!isAIChatEnabledSync()) {
+          wx.showToast({ title: '星问AI暂未开放', icon: 'none' })
+          return
+        }
+      } catch (e) {}
+      // 再异步确认（防缓存过期仍放行）；关闭时不进详情页
+      isFeatureEnabled('enableAIChat', { failClosed: true }).then((on) => {
+        if (!on) {
+          wx.showToast({ title: '星问AI暂未开放', icon: 'none' })
+          return
+        }
+        navigateTo(ROUTES.AI_CHAT)
+      }).catch(() => {
+        wx.showToast({ title: '星问AI暂未开放', icon: 'none' })
+      })
     },
 
     onMaskTap() {

@@ -1,0 +1,48 @@
+<view class="festival-hat" wx:if="{{hat}}" style="{{wrapStyle}}">
+  <view class="festival-hat-scale" style="{{scaleStyle}}">
+    <view class="festival-hat-inner">
+      <!-- 春节：贴头红绒帽 + 小福牌 -->
+      <block wx:if="{{hat === 'spring'}}">
+        <view class="hat-spring-shell"></view>
+        <view class="hat-spring-band"></view>
+        <view class="hat-spring-badge">
+          <text class="hat-spring-fu">福</text>
+        </view>
+      </block>
+      <!-- 端午：贴额艾叶环 -->
+      <block wx:elif="{{hat === 'duanwu'}}">
+        <view class="hat-duan-band"></view>
+        <view class="hat-duan-leaf hat-duan-leaf--1"></view>
+        <view class="hat-duan-leaf hat-duan-leaf--2"></view>
+        <view class="hat-duan-leaf hat-duan-leaf--3"></view>
+        <view class="hat-duan-knot"></view>
+      </block>
+      <!-- 中秋：贴头兔耳 + 小月 -->
+      <block wx:elif="{{hat === 'zhongqiu'}}">
+        <view class="hat-moon-ear hat-moon-ear--l"></view>
+        <view class="hat-moon-ear hat-moon-ear--r"></view>
+        <view class="hat-moon-base"></view>
+        <view class="hat-moon-chip"></view>
+      </block>
+      <!-- 国庆：贴额红星发带 -->
+      <block wx:elif="{{hat === 'guoqing'}}">
+        <view class="hat-gq-band"></view>
+        <view class="hat-gq-star-wrap">
+          <text class="hat-gq-star">★</text>
+        </view>
+      </block>
+      <!-- 劳动节：贴头矮盔 -->
+      <block wx:elif="{{hat === 'laodong'}}">
+        <view class="hat-ld-shell"></view>
+        <view class="hat-ld-visor"></view>
+        <view class="hat-ld-ridge"></view>
+      </block>
+      <!-- 圣诞：贴头软帽 + 白毛球 -->
+      <block wx:elif="{{hat === 'christmas'}}">
+        <view class="hat-xmas-shell"></view>
+        <view class="hat-xmas-trim"></view>
+        <view class="hat-xmas-pompom"></view>
+      </block>
+    </view>
+  </view>
+</view>

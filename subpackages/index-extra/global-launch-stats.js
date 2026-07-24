@@ -86,8 +86,23 @@ Page({
     const queryYear = Number(options && options.year)
     if (queryYear >= 1957 && queryYear <= CURRENT_YEAR + 1) initialYear = queryYear
 
+    let initialCountryKey = ALL_COUNTRY_KEY
+    let initialCountryLabel = '全部国家'
+    const rawCountry = options && (options.country || options.countryKey)
+    if (rawCountry) {
+      try {
+        const decoded = decodeURIComponent(String(rawCountry)).trim()
+        if (decoded && decoded !== ALL_COUNTRY_KEY) {
+          initialCountryKey = decoded
+          initialCountryLabel = decoded
+        }
+      } catch (e) {}
+    }
+
     this.setData({
       selectedYear: initialYear,
+      selectedCountryKey: initialCountryKey,
+      selectedCountryLabel: initialCountryLabel,
       yearOptions: buildYearOptions(CURRENT_YEAR),
       yearLabel: initialYear === CURRENT_YEAR ? '本年度' : `${initialYear} 年`
     })

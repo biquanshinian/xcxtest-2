@@ -10,7 +10,6 @@
     "privacy-modal": "/components/privacy-modal/privacy-modal",
     "popup-ad": "/components/popup-ad/popup-ad",
     "nasa-float": "/subpackages/shared/components/nasa-float/index",
-    "ai-chat": "/subpackages/shared/components/ai-chat/index",
     "demo-overlay": "/subpackages/shared/components/demo-overlay/index",
     "share-guide": "/subpackages/shared/components/share-guide/index",
     "empty-state": "/components/empty-state/index",
@@ -21,7 +20,6 @@
     "monitor-orbit-events": "/subpackages/monitor-pages/components/monitor-orbit-events/index"
   },
   "componentPlaceholder": {
-    "ai-chat": "view",
     "demo-overlay": "view",
     "share-guide": "view",
     "channels-live-panel": "view",

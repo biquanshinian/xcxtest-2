@@ -388,15 +388,17 @@ const methods = {
     }
   },
 
-  /** 启动轮播自动翻页定时器 */
+  /** 启动轮播自动翻页定时器（仅即将发射 Tab） */
   _startCarouselTimer() {
     this._stopCarouselTimer()
+    if (this.data.missionType !== 'upcoming') return
     const items = this.data.carouselItems
     if (!items || items.length <= 1) return
     const current = this.data.carouselCurrent || 0
     const isVideo = items[current] && items[current].type === 'video'
     const delay = isVideo ? this.data.carouselVideoDuration || 5000 : this.data.carouselImageDuration || 5000
     this._carouselTimer = setTimeout(() => {
+      if (this.data.missionType !== 'upcoming') return
       const next = ((this.data.carouselCurrent || 0) + 1) % items.length
       this.setData({ carouselCurrent: next })
     }, delay)
@@ -450,6 +452,8 @@ const methods = {
    * 非会员（门控开启时）不激活任何视频，点击封面走全屏按需播放。
    */
   _activateCarouselVideos(current) {
+    // 历史发射/日历不展示轮播，也不预热视频 src
+    if (this.data.missionType !== 'upcoming') return
     const items = this.data.carouselItems || []
     if (!items.length) return
     const n = items.length
@@ -482,6 +486,7 @@ const methods = {
 
   /** 如果当前项是视频，静音自动播放 */
   _playCurrentVideoIfNeeded() {
+    if (this.data.missionType !== 'upcoming') return
     if (!this._isCarouselAutoplayAllowed()) return
     const items = this.data.carouselItems
     const current = this.data.carouselCurrent || 0

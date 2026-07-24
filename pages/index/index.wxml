@@ -219,6 +219,8 @@
                 <image class="countdown-rocket-img" wx:if="{{launchData.rocketImage || launchData.image}}" src="{{launchData.rocketImage || launchData.image}}" mode="aspectFill" binderror="onCountdownRocketImageError"></image>
                 <view wx:else class="countdown-rocket-slot-inner countdown-rocket-avatar--placeholder"></view>
               </view>
+              <!-- 节日帽：与星问同源日期；挂在 slot 外避免 overflow:hidden 裁切；size=132 贴合圆图 -->
+              <festival-hat hat="{{festivalHat}}" size="{{132}}" />
               <view wx:if="{{enableLiveEntry && isChannelsLive}}" class="cd-avatar-tag cd-avatar-tag--live">
                 <view class="cd-live-eq" aria-hidden="true">
                   <view class="cd-live-eq-bar"></view>
@@ -453,11 +455,11 @@
       <text class="countdown-side-chevron">›</text>
     </view>
 
-    <!-- 轮播加载前的等高骨架占位：避免数据回来后插入 400rpx 块推挤下方列表（CLS） -->
-    <view class="image-carousel image-carousel--skeleton" wx:if="{{carouselPending && carouselItems.length === 0 && missionType !== 'calendar'}}"></view>
+    <!-- 轮播加载前的等高骨架占位：仅「即将发射」；避免数据回来后插入 400rpx 块推挤下方列表（CLS） -->
+    <view class="image-carousel image-carousel--skeleton" wx:if="{{carouselPending && carouselItems.length === 0 && missionType === 'upcoming'}}"></view>
 
-    <!-- 滚动图片/视频区域（广告位，日历视图隐藏） -->
-    <view class="image-carousel" wx:if="{{carouselItems.length > 0 && missionType !== 'calendar'}}">
+    <!-- 滚动图片/视频区域（广告位，仅「即将发射」显示；历史发射/日历不显示） -->
+    <view class="image-carousel" wx:if="{{carouselItems.length > 0 && missionType === 'upcoming'}}">
       <swiper class="swiper" indicator-dots="{{true}}" autoplay="{{false}}" current="{{carouselCurrent}}" duration="{{500}}" circular="{{true}}" bindchange="onCarouselChange">
         <swiper-item wx:for="{{carouselItems}}" wx:key="index">
           <!-- 图片 -->
@@ -939,9 +941,7 @@
       </view>
     </view>
   </view>
-
-  <ai-chat id="ai-chat" />
-  <nasa-float id="nasaFloat" />
+<nasa-float id="nasaFloat" />
   <privacy-modal id="globalPrivacyModal"></privacy-modal>
   <demo-overlay id="demoOverlay" showControls="{{_isDemoLiveAccount}}" qrcodeUrl="{{demoQrcodeUrl}}" loop="{{true}}" bind:remoteStart="onDemoRemoteStart" bind:stop="onDemoStop" />
   <share-guide />

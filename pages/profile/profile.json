@@ -13,12 +13,10 @@
     "milestone-egg": "/subpackages/shared/components/milestone-egg/index",
     "privacy-modal": "/components/privacy-modal/privacy-modal",
     "morning-briefing": "/subpackages/shared/components/morning-briefing/index",
-    "ai-chat": "/subpackages/shared/components/ai-chat/index",
     "demo-overlay": "/subpackages/shared/components/demo-overlay/index",
     "profile-sections": "/subpackages/profile-extra/components/profile-sections/index"
   },
   "componentPlaceholder": {
-    "ai-chat": "view",
     "demo-overlay": "view",
     "milestone-egg": "view",
     "morning-briefing": "view",

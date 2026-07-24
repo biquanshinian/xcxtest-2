@@ -1,5 +1,22 @@
 const path = require('path')
 const fs = require('fs')
+
+function deepStub() {
+  const f = function () { return deepStub() }
+  return new Proxy(f, {
+    get(t, k) {
+      if (k === 'USER_DATA_PATH') return '/tmp/stub'
+      if (k === Symbol.toPrimitive || k === 'toString') return () => 'stub'
+      if (k === 'then') return undefined
+      return deepStub()
+    },
+    apply() { return deepStub() }
+  })
+}
+globalThis.wx = deepStub()
+globalThis.getApp = () => deepStub()
+globalThis.getCurrentPages = () => []
+
 const uxDir = 'subpackages/index-extra/utils'
 const src = fs.readFileSync(path.join(uxDir, 'index-ux.js'), 'utf8')
 const reqs = [...src.matchAll(/require\(['"]([^'"]+)['"]\)/g)].map((m) => m[1])

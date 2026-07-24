@@ -15,7 +15,15 @@ const warns = []
 function fail(m) { issues.push(m) }
 function warn(m) { warns.push(m) }
 
-function read(p) { return fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n') }
+function read(p) {
+  let s = fs.readFileSync(p, 'utf8')
+  if (s.charCodeAt(0) === 0xFEFF) s = s.slice(1)
+  return s.replace(/\r\n/g, '\n')
+}
+
+function readJson(p) {
+  return JSON.parse(read(p))
+}
 
 function extractPageMethods(src) {
   const start = src.indexOf('Page({')
@@ -117,11 +125,12 @@ for (const [key, file] of Object.entries(pkgMap)) {
   let residual = []
   for (const name of lists[key]) {
     // implementation in module
+    // methods 对象常见两种写法：name() { / async name() { / name: function
     const hasImpl = new RegExp(`(?:^|\\n)\\s*(?:async\\s+)?${name}\\s*\\(`).test(modSrc) ||
       new RegExp(`[\\'{,\\s]${name}\\s*[:(]`).test(modSrc)
-    // methods object style: name() { or name: function
-    const hasMethod = new RegExp(`\\n  ${name}\\s*\\(`).test(modSrc) || new RegExp(`\\n  ${name}\\s*:\\s*(async\\s*)?function`).test(modSrc)
-    if (!hasMethod) missing.push(name)
+    const hasMethod = new RegExp(`\\n  (?:async\\s+)?${name}\\s*\\(`).test(modSrc) ||
+      new RegExp(`\\n  ${name}\\s*:\\s*(async\\s*)?function`).test(modSrc)
+    if (!hasImpl && !hasMethod) missing.push(name)
     // residual real method body in Page
     if (pageMethods[name] && pageMethods[name].len > 0) {
       // pageMethods extractor will also pick up nothing if only in spread delegates
@@ -175,10 +184,11 @@ const allDelegated = new Set(Object.values(lists).flat())
 const missingHandlers = []
 for (const h of handlers) {
   if (h === 'true' || h === 'false') continue
-  // page method via extract OR delegated
-  const inPage = !!pageMethods[h] || allDelegated.has(h) || new RegExp(`\\n  ${h}\\s*\\(`).test(index) || index.includes(`'${h}'`) || index.includes(`"${h}"`)
-  // also check spread delegates cover it
-  const covered = allDelegated.has(h) || !!pageMethods[h] || new RegExp(`\\b${h}\\s*\\(`).test(index)
+  // 跳过 mustache / 三元表达式（如 {{navPad.onRelease}}、条件绑定）
+  if (h.includes('{{') || h.includes('}}') || h.includes('?') || h.includes(':') || h.includes('.')) continue
+  const covered = allDelegated.has(h) || !!pageMethods[h] ||
+    new RegExp(`\\n  (?:async\\s+)?${h}\\s*\\(`).test(index) ||
+    index.includes(`'${h}'`) || index.includes(`"${h}"`)
   if (!covered) missingHandlers.push(h)
 }
 if (missingHandlers.length) fail('wxml handler 无实现: ' + missingHandlers.join(', '))
@@ -212,7 +222,7 @@ console.log('\n======== 7. calendar-stats 组件深度 ========')
 const csJs = read('subpackages/index-extra/components/calendar-stats/index.js')
 const csWxml = read('subpackages/index-extra/components/calendar-stats/index.wxml')
 const csWxss = read('subpackages/index-extra/components/calendar-stats/index.wxss')
-const indexJson = JSON.parse(read('pages/index/index.json'))
+const indexJson = readJson('pages/index/index.json')
 if (!indexJson.usingComponents['calendar-stats']) fail('index.json 未注册')
 if (indexJson.componentPlaceholder['calendar-stats'] !== 'view') fail('placeholder 应为 view')
 if (!wxml.includes('<calendar-stats')) fail('wxml 未使用')
@@ -238,6 +248,21 @@ if (!attrs.includes('bind:goglobalstats="goGlobalLaunchStats"')) fail('页面未
 if (!wxml.includes('calendar-day-missions')) fail('日任务区块丢失')
 if (!wxml.includes('template is="missionCard"')) fail('missionCard 模板引用丢失')
 console.log('  calendar-stats 组件检查完成, props=', props.length)
+
+console.log('\n======== 7b. 首页轮播仅即将发射 ========')
+const carouselMod = read('subpackages/index-extra/utils/index-carousel.js')
+if (!/image-carousel[\s\S]{0,180}missionType === 'upcoming'/.test(wxml)) {
+  fail('wxml 轮播未限制为即将发射 Tab')
+} else console.log('  wxml 轮播仅 upcoming OK')
+if (/image-carousel[\s\S]{0,200}missionType !== 'calendar'/.test(wxml)) {
+  fail('wxml 轮播仍用 !== calendar（历史 Tab 会露出）')
+} else console.log('  wxml 已去掉历史可见条件 OK')
+if (!/prevType === 'upcoming'[\s\S]{0,260}_stopCarouselTimer[\s\S]{0,80}_stopCarouselVideo/.test(index)) {
+  fail('switchMissionType 离开即将发射时未停轮播')
+} else console.log('  切走停轮播 OK')
+if (!carouselMod.includes("missionType !== 'upcoming'")) {
+  fail('index-carousel 缺少 upcoming-only 播控门闩')
+} else console.log('  carousel 播控门闩 OK')
 
 console.log('\n======== 8. landing-icons 运行验证 ========')
 const li = require('../utils/landing-icons.js')
@@ -332,9 +357,62 @@ try {
   fail('attachTo 冒烟失败: ' + e.stack)
 }
 
+console.log('\n======== 11. news-photos-lazy 委托与 attach 冒烟 ========')
+try {
+  const newsSrc = read('pages/news/news.js')
+  if (!newsSrc.includes('news-photos-lazy.js')) fail('news.js 未委托 news-photos-lazy')
+  const photosList = extractDelegateLists(newsSrc)
+  if (!photosList.NEWS_PHOTOS || !photosList.NEWS_PHOTOS.length) fail('NEWS_PHOTOS_METHODS 缺失')
+  else {
+    const photosModSrc = read('subpackages/news-extra/utils/news-photos-lazy.js')
+    const missingPhotos = photosList.NEWS_PHOTOS.filter((name) => {
+      return !new RegExp(`(?:^|\\n)\\s*(?:async\\s+)?${name}\\s*\\(`).test(photosModSrc)
+    })
+    if (missingPhotos.length) fail('news-photos-lazy 缺实现: ' + missingPhotos.join(','))
+    else console.log('  NEWS_PHOTOS:', photosList.NEWS_PHOTOS.length, 'methods OK')
+  }
+  Object.keys(require.cache).forEach((k) => {
+    if (k.includes('news-photos-lazy') || k.includes('news-lazy')) delete require.cache[k]
+  })
+  const photosMod = require('../subpackages/news-extra/utils/news-photos-lazy.js')
+  const newsPage = {
+    data: {
+      contentType: 'photos',
+      showPhotosNav: true,
+      photoFabHidden: false,
+      photoColLeft: [],
+      photoColRight: [],
+      newsList: []
+    },
+    setData(d) { Object.assign(this.data, d) },
+    acknowledgePhotosNavDot() {},
+    _refreshPhotosNavDot() {},
+    loadNews() {}
+  }
+  photosMod.attachTo(newsPage)
+  if (!newsPage.__newsPhotosAttached) fail('news-photos attachTo 未置位')
+  const formatted = newsPage._formatPhotosList([{
+    id: 'p1',
+    authorName: '测试',
+    coverUrl: 'https://example.com/a.jpg',
+    coverAspectRatio: 1,
+    photoCount: 2,
+    createdAt: Date.now()
+  }])
+  if (!formatted.length || formatted[0]._listKind !== 'photo') fail('news-photos _formatPhotosList 失败')
+  newsPage._setPhotosViewList(formatted)
+  if (newsPage.data.photoColLeft.length + newsPage.data.photoColRight.length !== 1) {
+    fail('news-photos 瀑布流列分配失败')
+  }
+  console.log('  news-photos attach/format 冒烟 OK')
+} catch (e) {
+  fail('news-photos 冒烟失败: ' + e.stack)
+}
+
 console.log('\n======== 汇总 ========')
 console.log('FAIL', issues.length)
 issues.forEach((i) => console.log('  ✗', i))
 console.log('WARN', warns.length)
 warns.forEach((i) => console.log('  !', i))
+if (!issues.length) console.log('ALL GREEN')
 process.exit(issues.length ? 1 : 0)

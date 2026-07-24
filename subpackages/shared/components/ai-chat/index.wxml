@@ -2,17 +2,17 @@
 
 
 
-<!-- 聊天面板 -->
+<!-- 聊天面板：sheet=半屏；page=详情页全屏 -->
 
-<view class="ai-panel {{visible ? 'ai-panel--show' : ''}}" wx:if="{{panelMounted}}">
+<view class="ai-panel {{visible ? 'ai-panel--show' : ''}} {{isPageMode ? 'ai-panel--page' : ''}}" wx:if="{{panelMounted}}">
 
-  <view class="ai-panel-mask" bindtap="closeChat"></view>
+  <view class="ai-panel-mask" bindtap="closeChat" wx:if="{{!isPageMode}}"></view>
 
-  <view class="ai-panel-body {{visible ? 'ai-panel-body--show' : ''}} {{themeClass}}" style="height: {{panelHeight}}px; bottom: {{keyboardHeight}}px;">
+  <view class="ai-panel-body {{visible ? 'ai-panel-body--show' : ''}} {{themeClass}}" style="{{isPageMode ? '' : ('height: ' + panelHeight + 'px; bottom: ' + keyboardHeight + 'px;')}}">
 
-    <!-- 标题栏 -->
+    <!-- 标题栏：仅半屏模式；详情页用顶部导航，不再显示「新对话」栏 -->
 
-    <view class="ai-panel-header">
+    <view class="ai-panel-header" wx:if="{{!isPageMode}}" bindtap="dismissKeyboard">
 
       <view class="ai-panel-header-left">
 
@@ -23,18 +23,6 @@
       </view>
 
       <view class="ai-panel-header-actions">
-
-        <!-- 新对话按钮 -->
-
-        <view class="ai-header-btn ai-new-chat-btn {{!hasHistory || sending ? 'ai-header-btn--disabled' : ''}}" bindtap="clearChat" wx:if="{{hasHistory}}">
-
-          <text class="ai-new-chat-icon">↻</text>
-
-          <text class="ai-new-chat-text">新对话</text>
-
-        </view>
-
-        <!-- 关闭按钮 -->
 
         <view class="ai-header-btn ai-panel-close" bindtap="closeChat">
 
@@ -64,27 +52,71 @@
 
       scroll-with-animation
 
+      bindtap="dismissKeyboard"
+
     >
 
-      <!-- 欢迎消息（无历史时显示） -->
+      <!-- 欢迎消息（无历史时显示）：首次进入弹跳动态头像 -->
 
       <view class="ai-welcome" wx:if="{{!messages.length}}">
 
-        <view class="ai-welcome-avatar">✦</view>
+        <!-- stage 固定：粒子常驻 DOM（避免 wx:if 重挂卡顿）；动画只动 transform/opacity -->
+        <view class="ai-welcome-mascot-stage {{welcomeBounce ? 'ai-welcome-mascot-stage--bounce' : ''}} {{festivalHat ? 'ai-welcome-mascot-stage--hatted' : ''}}">
 
-        <text class="ai-welcome-title">你好，我是星问</text>
+          <view class="ai-welcome-mascot-trail" aria-hidden="true">
+            <view class="ai-welcome-mascot-streak"></view>
+            <view class="ai-welcome-particle ai-welcome-particle--1"></view>
+            <view class="ai-welcome-particle ai-welcome-particle--2"></view>
+            <view class="ai-welcome-particle ai-welcome-particle--3"></view>
+            <view class="ai-welcome-particle ai-welcome-particle--4"></view>
+            <view class="ai-welcome-particle ai-welcome-particle--5"></view>
+          </view>
 
-        <text class="ai-welcome-desc">你的AI太空助手，有任何关于航天、太空探索的问题都可以问我！</text>
+          <view class="ai-welcome-mascot {{festivalHat ? 'ai-welcome-mascot--hatted' : ''}}">
 
-        <view class="ai-quick-wrap">
+          <view class="ai-welcome-mascot-ring"></view>
 
-          <view class="ai-quick-btn" wx:for="{{quickQuestions}}" wx:key="*this" bindtap="onQuickQuestion" data-q="{{item}}">
+          <!-- 头+帽同一节点：弹跳/idle 只动外层或 face，帽永不单独位移 -->
+          <view class="ai-welcome-mascot-face">
 
-            <text>{{item}}</text>
+            <festival-hat hat="{{festivalHat}}" size="{{112}}" />
+
+            <view class="ai-welcome-mascot-cheek ai-welcome-mascot-cheek--l"></view>
+
+            <view class="ai-welcome-mascot-cheek ai-welcome-mascot-cheek--r"></view>
+
+            <view class="ai-welcome-mascot-star">
+
+              <text class="ai-welcome-mascot-star-glyph">✦</text>
+
+            </view>
 
           </view>
 
+          <view class="ai-welcome-mascot-shadow"></view>
+
+          </view>
         </view>
+
+        <!-- 开发模式：轮播预览全部节日帽，看完把 FESTIVAL_HAT_DEV_MODE 改 false -->
+        <view class="ai-welcome-hat-dev" wx:if="{{festivalHatDev}}">
+          <text class="ai-welcome-hat-dev-label">帽预览 · {{festivalHatName}}（{{festivalHatTip}}）</text>
+          <scroll-view class="ai-welcome-hat-dev-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+            <view class="ai-welcome-hat-dev-row">
+              <view
+                class="ai-welcome-hat-dev-chip {{festivalHat === item.id ? 'ai-welcome-hat-dev-chip--on' : ''}}"
+                wx:for="{{festivalHatList}}"
+                wx:key="id"
+                data-id="{{item.id}}"
+                bindtap="onFestivalHatDevPick"
+              >{{item.name}}</view>
+            </view>
+          </scroll-view>
+        </view>
+
+        <text class="ai-welcome-title">你好，我是星问</text>
+
+        <text class="ai-welcome-desc">查发射、看回放与统计，或打开飞行剖面、在轨追踪等互动工具——有航天问题都可以问我。</text>
 
       </view>
 
@@ -100,7 +132,11 @@
 
           <view class="ai-bot-avatar" wx:if="{{item.role !== 'user'}}">
 
-            <text>✦</text>
+            <view class="ai-star-wrap ai-star-wrap--bot">
+
+              <text class="ai-star-glyph">✦</text>
+
+            </view>
 
           </view>
 
@@ -122,39 +158,49 @@
 
             </view>
 
-            <!-- 结构化任务卡：与首页 mission-card 同结构 / 同色板 -->
+            <!-- 结构化富卡片：任务 / 发射列表 / 星舰状态 -->
 
             <view class="ai-mission-cards" wx:if="{{item.cards && item.cards.length}}">
 
-              <view
+              <block wx:for="{{item.cards}}" wx:for-item="card" wx:key="id">
 
-                class="mission-list-card-root mission-card glass-card card-hover mission-card-link mission-card--{{card.statusCategory || 'pending'}}"
+                <!-- 发射列表卡 -->
 
-                wx:for="{{item.cards}}"
+                <view class="ai-rich-card glass-card" wx:if="{{card.cardType === 'launch_list'}}">
 
-                wx:for-item="card"
+                  <view class="ai-rich-card-header">
 
-                wx:key="id"
+                    <text class="ai-rich-card-title">{{card.title}}</text>
 
-                bindtap="onMissionCardTap"
+                    <text class="ai-rich-card-count">{{card.items.length}} 次</text>
 
-                data-id="{{card.id}}"
+                  </view>
 
-                data-type="{{card.detailType}}"
+                  <view
 
-              >
+                    class="ai-launch-row"
 
-                <view class="mission-card-inner-row">
+                    wx:for="{{card.items}}"
 
-                  <view class="mission-rocket-slot">
+                    wx:for-item="row"
+
+                    wx:key="id"
+
+                    bindtap="onMissionCardTap"
+
+                    data-id="{{row.id}}"
+
+                    data-type="{{row.detailType}}"
+
+                  >
 
                     <image
 
-                      class="mission-rocket-image"
+                      class="ai-launch-row-thumb"
 
-                      wx:if="{{card.rocketImage}}"
+                      wx:if="{{row.rocketImage}}"
 
-                      src="{{card.rocketImage}}"
+                      src="{{row.rocketImage}}"
 
                       mode="aspectFill"
 
@@ -162,41 +208,407 @@
 
                       data-msgid="{{item.id}}"
 
-                      data-id="{{card.id}}"
+                      data-id="{{row.id}}"
 
                     ></image>
 
-                    <view wx:else class="mission-rocket-image mission-rocket-image--placeholder"></view>
+                    <view class="ai-launch-row-thumb ai-launch-row-thumb--ph" wx:else></view>
 
-                  </view>
+                    <view class="ai-launch-row-body">
 
-                  <view class="mission-info-content">
+                      <view class="ai-launch-row-top">
 
-                    <view class="mission-card-header">
+                        <text class="mission-status-badge status-{{row.statusCategory || 'pending'}}">{{row.statusText}}</text>
 
-                      <text class="mission-status-badge status-{{card.statusCategory || 'pending'}}">{{card.statusText}}</text>
-
-                      <view class="mission-card-header-right">
-
-                        <text class="mission-meta mission-rocket" wx:if="{{card.rocketName}}">{{card.rocketName}}</text>
+                        <text class="ai-launch-row-agency" wx:if="{{row.launchAgency}}">{{row.launchAgency}}</text>
 
                       </view>
 
+                      <text class="ai-launch-row-name">{{row.name}}</text>
+
+                      <text class="ai-launch-row-time">{{row.formattedTime}}</text>
+
                     </view>
 
-                    <text class="mission-main-title">{{card.name}}</text>
+                  </view>
 
-                    <text class="mission-time">{{card.formattedTime}}</text>
+                  <view class="ai-rich-card-footer" bindtap="onLaunchListMoreTap">
 
-                    <text class="mission-meta mission-pad" wx:if="{{card.padLocation}}">{{card.padLocation}}</text>
-
-                    <text class="mission-meta ai-mission-card-cta">点击查看详情</text>
+                    <text class="ai-rich-card-cta">查看首页更多 ›</text>
 
                   </view>
 
                 </view>
 
-              </view>
+                <!-- 星舰 B/S 状态卡 -->
+
+                <view class="ai-rich-card glass-card" wx:elif="{{card.cardType === 'starship_status'}}" bindtap="onStarshipStatusTap">
+
+                  <view class="ai-rich-card-header">
+
+                    <text class="ai-rich-card-title">{{card.title}}</text>
+
+                  </view>
+
+                  <view class="ai-ss-vehicles">
+
+                    <view class="ai-ss-vehicle" catchtap="onStarshipStatusTap" data-vehicle="booster">
+
+                      <text class="ai-ss-id">{{card.booster.id || '待公布'}}</text>
+
+                      <text class="ai-ss-label">超重助推器</text>
+
+                      <text class="ai-ss-status">{{card.booster.status}}</text>
+
+                      <view class="ai-ss-track" wx:if="{{card.booster.progress != null}}">
+
+                        <view class="ai-ss-fill" style="{{card.booster.progressStyle}}"></view>
+
+                      </view>
+
+                    </view>
+
+                    <view class="ai-ss-vehicle" catchtap="onStarshipStatusTap" data-vehicle="ship">
+
+                      <text class="ai-ss-id">{{card.ship.id || '待公布'}}</text>
+
+                      <text class="ai-ss-label">星舰飞船</text>
+
+                      <text class="ai-ss-status">{{card.ship.status}}</text>
+
+                      <view class="ai-ss-track" wx:if="{{card.ship.progress != null}}">
+
+                        <view class="ai-ss-fill" style="{{card.ship.progressStyle}}"></view>
+
+                      </view>
+
+                    </view>
+
+                  </view>
+
+                  <view class="ai-ss-checklist" wx:if="{{card.checklist}}">
+
+                    <text class="ai-ss-checklist-text">飞行准备清单：{{card.checklist.done}}/{{card.checklist.total}} 项完成</text>
+
+                  </view>
+
+                  <text class="ai-rich-card-cta ai-ss-cta">进入星舰进度 ›</text>
+
+                </view>
+
+                <!-- 发射商卡 -->
+
+                <view
+
+                  class="ai-rich-card glass-card ai-agency-card"
+
+                  wx:elif="{{card.cardType === 'agency'}}"
+
+                  bindtap="onAgencyCardTap"
+
+                  data-id="{{card.id}}"
+
+                  data-gateid="{{card.gateProductId}}"
+
+                  data-gatename="{{card.gateProductName}}"
+
+                >
+
+                  <view class="ai-agency-row">
+
+                    <image
+
+                      class="ai-agency-logo"
+
+                      wx:if="{{card.logoUrl}}"
+
+                      src="{{card.logoUrl}}"
+
+                      mode="aspectFit"
+
+                    ></image>
+
+                    <view class="ai-agency-logo-ph" wx:else>
+
+                      <text>{{card.abbrev || 'AG'}}</text>
+
+                    </view>
+
+                    <view class="ai-agency-main">
+
+                      <view class="ai-agency-title-row">
+
+                        <text class="ai-agency-name">{{card.displayName}}</text>
+
+                        <text class="ai-agency-type" wx:if="{{card.typeZh}}">{{card.typeZh}}</text>
+
+                      </view>
+
+                      <text class="ai-agency-meta" wx:if="{{card.metaLine}}">{{card.metaLine}}</text>
+
+                      <text class="ai-agency-desc" wx:if="{{card.desc}}">{{card.desc}}</text>
+
+                    </view>
+
+                  </view>
+
+                  <text class="ai-rich-card-cta ai-agency-cta">{{card.cta || '进入发射商详情 ›'}}</text>
+
+                </view>
+
+                <!-- 发射统计卡 -->
+
+                <view
+
+                  class="ai-rich-card glass-card ai-stats-card"
+
+                  wx:elif="{{card.cardType === 'launch_stats'}}"
+
+                  bindtap="onLaunchStatsCardTap"
+
+                  data-year="{{card.year}}"
+
+                  data-country="{{card.countryKey}}"
+
+                  data-gateid="{{card.gateProductId}}"
+
+                  data-gatename="{{card.gateProductName}}"
+
+                >
+
+                  <view class="ai-rich-card-header">
+
+                    <text class="ai-rich-card-title">{{card.title}}</text>
+
+                    <text class="ai-rich-card-count">{{card.scopeLabel}}</text>
+
+                  </view>
+
+                  <view class="ai-stats-numbers">
+
+                    <view class="ai-stats-num-block">
+
+                      <text class="ai-stats-num">{{card.total}}</text>
+
+                      <text class="ai-stats-num-label">总发射</text>
+
+                    </view>
+
+                    <view class="ai-stats-num-block">
+
+                      <text class="ai-stats-num ai-stats-num--ok">{{card.success}}</text>
+
+                      <text class="ai-stats-num-label">成功</text>
+
+                    </view>
+
+                    <view class="ai-stats-num-block">
+
+                      <text class="ai-stats-num ai-stats-num--fail">{{card.failure}}</text>
+
+                      <text class="ai-stats-num-label">失败</text>
+
+                    </view>
+
+                  </view>
+
+                  <text class="ai-stats-sub" wx:if="{{card.subtitle}}">{{card.subtitle}}</text>
+
+                  <text class="ai-rich-card-cta ai-stats-cta">{{card.cta || '查看全球发射统计 ›'}}</text>
+
+                </view>
+
+                <!-- 发射集锦/回放卡：封面 + 门控播放 -->
+
+                <view
+
+                  class="ai-rich-card glass-card ai-replay-card"
+
+                  wx:elif="{{card.cardType === 'mission_replay'}}"
+
+                  bindtap="onMissionReplayCardTap"
+
+                  data-launchid="{{card.launchId}}"
+
+                  data-type="{{card.detailType}}"
+
+                  data-name="{{card.missionName}}"
+
+                  data-playable="{{card.playable ? 1 : 0}}"
+
+                  data-videourl="{{card.videoUrl}}"
+
+                  data-poster="{{card.poster}}"
+
+                  data-gateid="{{card.gateProductId}}"
+
+                  data-gatename="{{card.gateProductName}}"
+
+                >
+
+                  <view class="ai-replay-media">
+
+                    <image
+
+                      class="ai-replay-poster"
+
+                      wx:if="{{card.poster}}"
+
+                      src="{{card.poster}}"
+
+                      mode="aspectFill"
+
+                    />
+
+                    <view class="ai-replay-poster-ph" wx:else></view>
+
+                    <view class="ai-replay-play" wx:if="{{card.playable}}">
+
+                      <text class="ai-replay-play-icon">▶</text>
+
+                    </view>
+
+                  </view>
+
+                  <view class="ai-replay-body">
+
+                    <text class="ai-replay-tag">REPLAY</text>
+
+                    <text class="ai-replay-title">{{card.title}}</text>
+
+                    <text class="ai-replay-desc">{{card.desc}}</text>
+
+                    <text class="ai-rich-card-cta ai-replay-cta">{{card.cta || '观看集锦 ›'}}</text>
+
+                  </view>
+
+                </view>
+
+                <!-- 入口卡：飞行演示 / 在轨追踪 -->
+
+                <view
+
+                  class="ai-entry-card glass-card ai-entry-card--{{card.variant || 'demo'}}"
+
+                  wx:elif="{{card.cardType === 'entry'}}"
+
+                  bindtap="onEntryCardTap"
+
+                  data-kind="{{card.entryKind}}"
+
+                  data-missionid="{{card.missionId}}"
+
+                  data-type="{{card.detailType}}"
+
+                  data-name="{{card.missionName}}"
+
+                  data-stationid="{{card.stationId}}"
+
+                  data-gateid="{{card.gateProductId}}"
+
+                  data-gatename="{{card.gateProductName}}"
+
+                  data-needsim="{{card.needMissionSimFlag ? 1 : 0}}"
+
+                >
+
+                  <view class="ai-entry-glow"></view>
+
+                  <view class="ai-entry-left">
+
+                    <view class="ai-entry-tagrow">
+
+                      <view class="ai-entry-dot"></view>
+
+                      <text class="ai-entry-tag">{{card.tag}}</text>
+
+                    </view>
+
+                    <text class="ai-entry-title">{{card.title}}</text>
+
+                    <text class="ai-entry-desc">{{card.desc}}</text>
+
+                  </view>
+
+                  <view class="ai-entry-arrow">
+
+                    <text>{{card.cta || '进入 ›'}}</text>
+
+                  </view>
+
+                </view>
+
+                <!-- 默认：单任务卡（与首页 mission-card 同结构） -->
+
+                <view
+
+                  class="mission-list-card-root mission-card glass-card card-hover mission-card-link mission-card--{{card.statusCategory || 'pending'}}"
+
+                  wx:else
+
+                  bindtap="onMissionCardTap"
+
+                  data-id="{{card.id}}"
+
+                  data-type="{{card.detailType}}"
+
+                >
+
+                  <view class="mission-card-inner-row">
+
+                    <view class="mission-rocket-slot">
+
+                      <image
+
+                        class="mission-rocket-image"
+
+                        wx:if="{{card.rocketImage}}"
+
+                        src="{{card.rocketImage}}"
+
+                        mode="aspectFill"
+
+                        binderror="onMissionCardRocketError"
+
+                        data-msgid="{{item.id}}"
+
+                        data-id="{{card.id}}"
+
+                      ></image>
+
+                      <view wx:else class="mission-rocket-image mission-rocket-image--placeholder"></view>
+
+                    </view>
+
+                    <view class="mission-info-content">
+
+                      <view class="mission-card-header">
+
+                        <text class="mission-status-badge status-{{card.statusCategory || 'pending'}}">{{card.statusText}}</text>
+
+                        <view class="mission-card-header-right">
+
+                          <text class="mission-meta mission-rocket" wx:if="{{card.rocketName}}">{{card.rocketName}}</text>
+
+                        </view>
+
+                      </view>
+
+                      <text class="mission-main-title">{{card.name}}</text>
+
+                      <text class="mission-time">{{card.formattedTime}}</text>
+
+                      <text class="mission-meta mission-pad" wx:if="{{card.padLocation}}">{{card.padLocation}}</text>
+
+                      <text class="mission-meta ai-mission-card-cta">点击查看详情</text>
+
+                    </view>
+
+                  </view>
+
+                </view>
+
+              </block>
 
             </view>
 
@@ -224,24 +636,6 @@
 
 
 
-      <!-- 对话中间的快捷建议（有历史且未在发送时） -->
-
-      <view class="ai-mid-quick" wx:if="{{hasHistory && !sending && messages.length > 0 && messages.length < 6}}">
-
-        <view class="ai-mid-quick-inner">
-
-          <view class="ai-quick-btn ai-quick-btn--small" wx:for="{{quickQuestions}}" wx:key="*this" wx:if="{{index < 3}}" bindtap="onQuickQuestion" data-q="{{item}}">
-
-            <text>{{item}}</text>
-
-          </view>
-
-        </view>
-
-      </view>
-
-
-
       <view id="msg-bottom" style="height: 20rpx;"></view>
 
     </scroll-view>
@@ -250,7 +644,7 @@
 
     <!-- AI生成内容声明 -->
 
-    <view class="ai-disclaimer">
+    <view class="ai-disclaimer" bindtap="dismissKeyboard">
 
       <text class="ai-disclaimer-icon">⚠</text>
 
@@ -258,13 +652,53 @@
 
     </view>
 
+    <!-- 输入栏上方：跳转卡快捷入口（横向滑动） -->
+
+    <scroll-view
+
+      class="ai-shortcut-scroll"
+
+      scroll-x
+
+      enhanced
+
+      show-scrollbar="{{false}}"
+
+      enable-flex
+
+    >
+
+      <view class="ai-shortcut-row">
+
+        <view
+
+          class="ai-shortcut-chip {{sending ? 'ai-shortcut-chip--disabled' : ''}}"
+
+          wx:for="{{quickShortcuts}}"
+
+          wx:key="id"
+
+          bindtap="onQuickQuestion"
+
+          data-q="{{item.q}}"
+
+        >
+
+          <text class="ai-shortcut-label">{{item.label}}</text>
+
+        </view>
+
+      </view>
+
+    </scroll-view>
+
     <view class="ai-input-bar {{keyboardHeight > 0 ? 'ai-input-bar--keyboard' : ''}}">
 
       <input
 
         class="ai-input"
 
-        placeholder="{{sending ? '星问正在思考...' : '问一个太空问题...'}}"
+        placeholder="{{sending ? '星问正在思考...' : ''}}"
 
         placeholder-class="ai-input-placeholder"
 

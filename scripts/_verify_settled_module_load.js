@@ -23,7 +23,7 @@ globalThis.Component = () => {}
 globalThis.Behavior = () => ({})
 globalThis.getCurrentPages = () => []
 
-const m = require('../subpackages/index-extra/utils/index-settled-merge.js')
+const m = require('../pages/index/utils/index-settled-merge.js')
 const names = Object.keys(m.methods)
 console.log('loaded OK,', names.length, 'methods')
 console.log('exports:', Object.keys(m).join(', '))
