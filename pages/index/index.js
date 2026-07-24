@@ -1,12 +1,16 @@
 // pages/index/index.js
 const themeUtil = require('../../utils/theme.js')
-const { getUpcomingMissions, getCompletedMissions } = require('../../utils/api-launch-list.js')
+const {
+  getUpcomingMissions,
+  getCompletedMissions,
+  invalidateListSnapshots
+} = require('../../utils/api-launch-list.js')
 const {
   shareMission,
   getVoteStats,
   fetchLaunchStatusSnapshot
 } = require('../../utils/api-app-services.js')
-const { onLaunchListStale } = require('../../utils/api-request.js')
+const { onLaunchListStale, forceLaunchListCloudBgCheck } = require('../../utils/api-request.js')
 const {
   filterExpiredMissions,
   getStatusTextZh,
@@ -115,11 +119,6 @@ const { persistAgencyLogoAfterRemoteLoad, isRemoteAgencyLogoUrl } = require('../
 const { enrichMissionsLaunchAgencyImages } = require('../../utils/upcoming-agency-logo-enrich.js')
 const { buildUpcomingAgencyFilterState, getAgencyKeyFromMission } = require('../../utils/upcoming-agency-filter.js')
 
-const {
-  computeLaunchCalendarSignature,
-  LAUNCH_CALENDAR_ACK_SIG_KEY
-} = require('../../utils/launch-calendar-signature.js')
-
 // 倒计时到点实时状态确认：具体节奏（NET+10m 首查 / 窗口内 3m 复查 / 窗口+宽限后
 // bestEffort、未决 15m 慢探）统一由 utils/countdown-window-machine.js 决策。
 const LIVE_STATUS_MIN_ROUND_GAP_MS = 30 * 1000
@@ -160,7 +159,6 @@ const CALENDAR_METHODS = [
   'resetCalendarLoadFailureState',
   'finishCalendarAppendWithoutChanges',
   'applyCalendarMissionSnapshot',
-  '_refreshLaunchCalendarDot',
   'hydrateCalendarFromLoadedMissionLists',
   'syncCalendarFromMissionListsIfNeeded',
   'loadCalendarData',
@@ -719,7 +717,7 @@ Page({
       if (this.data.launchData && this.data.launchData.id) {
         const launchId = this.data.launchData.id
         const subPatch = buildCountdownSubscriptionState(this.data.launchData, null, this._getPageSubscribedIdSet())
-        // 不再因 OA 就绪强行点亮铃铛：OA 下铃铛=结果通知是否已开
+        // 不再因 OA 就绪强行点亮铃铛：结果改由服务号推送
         if (subPatch._countdownSubscribed !== this.data._countdownSubscribed) {
           this.setData(subPatch)
         }
@@ -925,8 +923,6 @@ Page({
     navPlaceholderHeight: 0,
     tabBarReservedHeight: 0,
     missionType: 'upcoming', // upcoming / completed / calendar
-    /** 发射日历：日历合并数据相对上次「已读摘要」有变动则显示；进入日历 Tab 即清除 */
-    showLaunchCalendarDot: false,
     // 任务卡片长按 → 分享面板（朋友/群 + 朋友圈）
     shareSheetVisible: false,
     pendingShareMission: { id: '', detailType: '', missionName: '', rocketName: '' },
@@ -1062,6 +1058,8 @@ Page({
     splashConfig: null,
     splashCountdown: 0,
     splashVideoReady: false,
+    // 开屏全局通知条（后台 noticeText；空则不显示）
+    splashNotice: null,
     // 开屏任务倒计时卡片（后台给媒体项配置任务名称后展示）
     splashMission: null,
     splashMissionCd: null,
@@ -1261,7 +1259,7 @@ Page({
     safePatch.displayedUpcomingMissions = disp
   },
 
-  /** 列表项：reminderOn = 本任务已写入订阅（OA 下表示结果通知已开）、pinnedOn */
+  /** 列表项：reminderOn = 本任务已写入小程序订阅；OA 就绪时结果改由服务号推，铃铛通常为关 */
   _attachSwipeRowFlagsToDisplayedPatch(safePatch) {
     const disp = safePatch.displayedUpcomingMissions
     if (!Array.isArray(disp) || !disp.length) return
@@ -1273,7 +1271,7 @@ Page({
     const subSet = this._getPageSubscribedIdSet()
     safePatch.displayedUpcomingMissions = disp.map((m) => {
       if (!m || m.id == null) return m
-      // OA 覆盖发射前，铃铛只反映「结果通知」是否已为本任务授权
+      // OA 覆盖发射前与结果；铃铛仅反映是否仍有本任务小程序订阅（遗留可关）
       const reminderOn = subSet.has(String(m.id))
       const pinnedOn = !!pid && String(m.id) === pid
       if (m.reminderOn === reminderOn && m.pinnedOn === pinnedOn) return m
@@ -1408,7 +1406,7 @@ Page({
     if (changed) this.setData({ displayedUpcomingMissions: next })
   },
 
-  /** 刷新服务号自动提醒就绪态；铃铛仍只跟本任务订阅走（OA 下=结果通知） */
+  /** 刷新服务号自动提醒就绪态；铃铛仍只跟本任务小程序订阅走 */
   async _refreshOaAlertReady(force) {
     try {
       const ready = await isOaAlertReady(!!force)
@@ -1590,12 +1588,12 @@ Page({
     try {
       const oaReady = !!(this.data.oaAlertReady || peekOaAlertReady())
       if (oaReady) {
-        // 服务号已覆盖发射前：铃铛用于开关「结果通知」
+        // 服务号已覆盖发射前与结果：遗留小程序结果订阅可关，否则仅提示
         if (isSubscribed(id)) {
           await this.unsubscribeReminderForMission(id, { silent: true })
-          wx.showToast({ title: '已关闭结果通知（服务号发射提醒仍有效）', icon: 'none' })
+          wx.showToast({ title: '已关闭本任务小程序结果订阅（服务号仍有效）', icon: 'none' })
         } else {
-          await this.subscribeReminderForMission(row)
+          wx.showToast({ title: '服务号已覆盖发射前与结果通知', icon: 'none' })
         }
         return
       }
@@ -2508,9 +2506,19 @@ Page({
     const uniqueTypes = normalizedTypes.filter((type, index) => normalizedTypes.indexOf(type) === index)
 
     return uniqueTypes.filter((type) => {
+      // 免费首屏跳过 previous 预拉后：completed 可能已有 settled 剥离瘦卡，
+      // 不能仅凭 length>0 当作「云列表已就绪」，否则历史 Tab 永远只显示瘦卡。
+      if (type === 'completed' && !this._completedCloudListReady) return true
       const list = this.getMissionListByType(type)
       return !Array.isArray(list) || list.length === 0
     })
+  },
+
+  /** 列表拉取条数：Pro/会员关用 50；免费与展示门控对齐 */
+  _getMissionListFetchLimit() {
+    if (canUsePaidCloudSync()) return 50
+    const freeLimit = getMemberPolicySync().freeMissionListLimit || FREE_MISSION_LIST_LIMIT
+    return freeLimit
   },
 
   buildMissionListReadyState(results = [], missingTypes = []) {
@@ -2593,18 +2601,32 @@ Page({
       return
     }
 
-    const results = await Promise.all(missingTypes.map((type) => this.fetchMissionList(type, 50, 0)))
-    const updateData = this.buildMissionListReadyState(results, missingTypes)
-    if (Array.isArray(updateData.completedMissions) && updateData.completedMissions.length >= 0) {
-      try {
-        const settled = await this._ensureRecentSettledCache(false)
-        updateData.completedMissions = this._mergeRecentSettledIntoCompletedList(
-          updateData.completedMissions,
-          settled
-        )
-      } catch (e) {}
+    const fetchLimit = this._getMissionListFetchLimit()
+    const results = await Promise.all(
+      missingTypes.map((type) => this.fetchMissionList(type, fetchLimit, 0))
+    )
+
+    // 历史列表必须走 handleCompletedMissionLoadSuccess（snapshot/剥离/角标），
+    // 不能只 setData 瘦列表——免费用户首屏不预拉后，进历史 Tab 会走本路径。
+    const completedIdx = missingTypes.indexOf('completed')
+    if (completedIdx >= 0) {
+      const completedPack = results[completedIdx] || {}
+      this.handleCompletedMissionLoadSuccess(
+        completedPack.list || [],
+        completedPack.res || {}
+      )
     }
 
+    const otherTypes = []
+    const otherResults = []
+    for (let i = 0; i < missingTypes.length; i++) {
+      if (missingTypes[i] === 'completed') continue
+      otherTypes.push(missingTypes[i])
+      otherResults.push(results[i])
+    }
+    if (!otherTypes.length) return
+
+    const updateData = this.buildMissionListReadyState(otherResults, otherTypes)
     this.applyMissionListsReadyState(updateData)
   },
 
@@ -2721,6 +2743,17 @@ Page({
     const forceRefresh = !!safeOptions.forceRefresh
     // 下拉刷新时已有原生刷新指示器，不再叠加“加载中”toast
     const suppressLoading = !!safeOptions.suppressLoading
+
+    // 用户显式刷新：清 5min 内存快照 + 列表探云节流，保证立刻打到云库
+    // （静默停留时的后台探云已改为 15 分钟，见 api-request LAUNCH_LIST_BG_CHECK_INTERVAL）
+    if (forceRefresh) {
+      try {
+        invalidateListSnapshots()
+      } catch (eInv) {}
+      try {
+        forceLaunchListCloudBgCheck()
+      } catch (eForce) {}
+    }
 
     return this.runManagedPageRequest(
       '_loadInitialDataPromise',
@@ -2859,13 +2892,18 @@ Page({
             this._preloadVisibleRocketImages(upcomingList, fullCloud ? 8 : freeMissionLimit)
           } catch (e) {}
 
-          this.fetchMissionList('completed', FULL_LIMIT, 0)
-            .then(({ res, list }) => {
-              this.handleCompletedMissionLoadSuccess(list, res)
-            })
-            .catch((error) => {
-              this.handleCompletedMissionLoadError(error)
-            })
+          // A：免费用户不预拉 previous（分批读是库请求大头）。
+          // Pro / 会员功能关闭：仍后台预拉，保证历史 Tab / 日历 hydrate 立即可用。
+          // settled 剥离瘦卡仍可写入 completedMissions；云母列表等切到历史或历史下拉再拉。
+          if (fullCloud) {
+            this.fetchMissionList('completed', FULL_LIMIT, 0)
+              .then(({ res, list }) => {
+                this.handleCompletedMissionLoadSuccess(list, res)
+              })
+              .catch((error) => {
+                this.handleCompletedMissionLoadError(error)
+              })
+          }
         } catch (error) {
           wx.hideLoading()
           this.handleInitialUpcomingLoadError(error)
@@ -2906,7 +2944,9 @@ Page({
 
     const activeType = this.getActiveMissionListType()
     const currentList = this.getMissionListByType(activeType)
-    if (Array.isArray(currentList) && currentList.length > 0) {
+    // 历史列表：必须等云母文档拉过（_completedCloudListReady），不能被 settled 瘦卡短路
+    const cloudReady = activeType !== 'completed' || !!this._completedCloudListReady
+    if (cloudReady && Array.isArray(currentList) && currentList.length > 0) {
       this.updateMissionListView(activeType, currentList)
       return
     }
@@ -3447,24 +3487,12 @@ Page({
     const switchState = buildMissionTypeSwitchState(this.data, type)
     const targetScrollTop = switchState.targetScrollTop
 
-    const switchPatch = {
+    this.setData({
       missionType: switchState.missionType,
       showMissionsEmpty: switchState.showMissionsEmpty,
       showCompactCountdown: switchState.showCompactCountdown,
       _scrollTop: switchState._scrollTop
-    }
-
-    // 进入「发射日历」即清除红点；异步加载完成后由 suppress 将 ack 同步为最新快照，避免闪一下又亮起
-    if (type === 'calendar') {
-      this._calendarDotSuppressNextRefresh = true
-      try {
-        const sig = computeLaunchCalendarSignature(this.data.calendarAllMissions || [])
-        if (sig) storageCache.persistAsync(LAUNCH_CALENDAR_ACK_SIG_KEY, sig)
-      } catch (e) {}
-      switchPatch.showLaunchCalendarDot = false
-    }
-
-    this.setData(switchPatch)
+    })
 
     wx.nextTick(() => {
       setTimeout(() => {
@@ -3494,7 +3522,10 @@ Page({
         } catch (e) {}
       }
       this.loadMissions()
-      if (type === 'completed') {
+      // 历史 Tab：仅在云母列表已就绪时轻量刷 settled 角标。
+      // 未就绪时 loadMissions→handleCompleted 会合并 settled；若此处并行 _apply，
+      // 会用剥离瘦卡快照盖掉完整 previous（A 之后免费首进历史必现该竞态）。
+      if (type === 'completed' && this._completedCloudListReady) {
         this._applyRecentSettledToCompletedList(true).catch(() => {})
       }
     }
@@ -3513,6 +3544,11 @@ Page({
    */
   onScroll(e) {
     if (this.data.isSwitchingTab) return
+
+    try {
+      const { pulseNasaFloatOnScroll } = require('../../utils/nasa-float-scroll.js')
+      pulseNasaFloatOnScroll(this)
+    } catch (err) {}
 
     const detail = (e && e.detail) || {}
     // 始终立刻记录最新位置（其它逻辑可读取，不依赖节流帧）
@@ -3830,12 +3866,12 @@ Page({
     try {
       const oaReady = !!(this.data.oaAlertReady || peekOaAlertReady())
       if (oaReady) {
-        // 服务号已覆盖发射前：铃铛切换「结果通知」
+        // 服务号已覆盖发射前与结果：遗留小程序结果订阅可关，否则仅提示
         if (isSubscribed(launch.id)) {
           await this.unsubscribeReminderForMission(launch.id, { silent: true })
-          wx.showToast({ title: '已关闭结果通知（服务号发射提醒仍有效）', icon: 'none' })
+          wx.showToast({ title: '已关闭本任务小程序结果订阅（服务号仍有效）', icon: 'none' })
         } else {
-          await this.subscribeReminderForMission(launch)
+          wx.showToast({ title: '服务号已覆盖发射前与结果通知', icon: 'none' })
         }
         return
       }
@@ -4010,7 +4046,13 @@ Page({
         this,
         async () => {
           try {
-            const pack = await this.fetchMissionList('completed', 50, 0)
+            invalidateListSnapshots()
+            forceLaunchListCloudBgCheck()
+            const pack = await this.fetchMissionList(
+              'completed',
+              this._getMissionListFetchLimit(),
+              0
+            )
             this.handleCompletedMissionLoadSuccess(pack.list || [], pack.res || {})
           } catch (e) {
             await this._applyRecentSettledToCompletedList(true)
@@ -4030,7 +4072,11 @@ Page({
       }
       return
     }
-    runPullRefresh(this, () => this.loadInitialData({ suppressLoading: true }), key)
+    runPullRefresh(
+      this,
+      () => this.loadInitialData({ suppressLoading: true, forceRefresh: true }),
+      key
+    )
   },
 
   onHide() {
@@ -4115,26 +4161,30 @@ Page({
     const kind = info && info.kind
     if (kind !== 'previous' && kind !== 'upcoming') return
     const now = Date.now()
-    if (this._launchListStaleAt && now - this._launchListStaleAt < 1500) return
-    this._launchListStaleAt = now
+    // 按列表种类分别去抖：下拉强制探云会几乎同时刷新 upcoming + previous，
+    // 若共用一个时间戳，后到的一侧会在 1.5s 内被吞掉，历史/即将发射只更新一半。
+    if (!this._launchListStaleAtByKind) this._launchListStaleAtByKind = Object.create(null)
+    if (!this._launchListStaleGenByKind) this._launchListStaleGenByKind = Object.create(null)
+    const lastAt = this._launchListStaleAtByKind[kind] || 0
+    if (now - lastAt < 1500) return
+    this._launchListStaleAtByKind[kind] = now
     const type = kind === 'previous' ? 'completed' : 'upcoming'
-    const gen = (this._launchListStaleGen = (this._launchListStaleGen || 0) + 1)
+    const gen = (this._launchListStaleGenByKind[kind] =
+      (this._launchListStaleGenByKind[kind] || 0) + 1)
+    const fetchLimit = this._getMissionListFetchLimit()
     Promise.resolve()
-      .then(() => this.fetchMissionList(type, 50, 0))
+      .then(() => this.fetchMissionList(type, fetchLimit, 0))
       .then(async (pack) => {
-        if (gen !== this._launchListStaleGen) return
+        if (gen !== this._launchListStaleGenByKind[kind]) return
         if (!pack || !Array.isArray(pack.list)) return
-        let list = pack.list
+        // previous 走完整历史成功管线，与预拉 / 历史下拉一致
         if (type === 'completed') {
-          try {
-            const settled = await this._ensureRecentSettledCache(false)
-            list = this._mergeRecentSettledIntoCompletedList(list, settled)
-          } catch (e) {}
-        } else {
-          list = this._filterUpcomingAgainstSettled(list)
+          this.handleCompletedMissionLoadSuccess(pack.list, pack.res || {})
+          return
         }
+        const list = this._filterUpcomingAgainstSettled(pack.list)
         const patch = buildMissionListSetData(type, list, pack.res, filterExpiredMissions)
-        if (type === 'upcoming') this.applyUpcomingAgencyFilterToPatch(patch, list)
+        this.applyUpcomingAgencyFilterToPatch(patch, list)
         this.setData(patch, () => {
           try {
             this.updateMissionListView(type, list)

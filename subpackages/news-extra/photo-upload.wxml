@@ -1,0 +1,87 @@
+<wxs module="navPad" src="/utils/nav-scroll-pad.wxs"></wxs>
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="detail-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+    <page-progress active="{{submitting}}" />
+  </view>
+
+  <scroll-view
+    class="detail-scroll nav-aware-scroll"
+    scroll-y="{{scrollEnabled}}"
+    enhanced="{{true}}"
+    bounces="{{true}}"
+    data-nav-h="{{navPlaceholderHeight}}"
+  >
+    <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
+    <view class="detail-container">
+      <view class="detail-card glass-card">
+        <text class="section-title">照片（最多 8 张）</text>
+        <text class="hint-text" wx:if="{{isEdit}}">每条投稿仅可重新编辑一次。可改文案、增删图片并长按拖动排序，第一张为封面。</text>
+        <text class="hint-text" wx:else>单张不超过 30MB，最长边不超过 4K（3840）。长按拖动排序，第一张为封面。</text>
+        <view
+          class="photo-grid"
+          catchtouchmove="onGridTouchMove"
+          catchtouchend="onGridTouchEnd"
+          catchtouchcancel="onGridTouchEnd"
+        >
+          <view
+            class="photo-grid-item {{draggingUid === item.uid ? 'photo-grid-item--dragging' : ''}}"
+            wx:for="{{photos}}"
+            wx:key="uid"
+            data-index="{{index}}"
+            bindlongpress="onPhotoLongPress"
+          >
+            <image class="photo-grid-thumb" src="{{item.path || item.url}}" mode="aspectFill"></image>
+            <view class="photo-grid-order">{{index + 1}}</view>
+            <view class="photo-grid-remove" data-index="{{index}}" catchtap="removePhoto">×</view>
+          </view>
+          <view class="photo-grid-add" wx:if="{{photos.length < 8}}" bindtap="choosePhotos">
+            <text class="photo-grid-add-text">+</text>
+          </view>
+        </view>
+
+        <view class="form-row">
+          <text class="form-label">作者名字</text>
+          <input class="form-input" maxlength="40" placeholder="必填" value="{{authorName}}" bindinput="onAuthorInput" />
+        </view>
+        <view class="form-row">
+          <text class="form-label">拍摄地点</text>
+          <input class="form-input" maxlength="80" placeholder="如：文昌发射场" value="{{location}}" bindinput="onLocationInput" />
+        </view>
+        <view class="form-row">
+          <text class="form-label">设备型号</text>
+          <input class="form-input" maxlength="60" placeholder="如：Sony A7R5 / iPhone 16 Pro" value="{{deviceModel}}" bindinput="onDeviceInput" />
+        </view>
+        <view class="form-row">
+          <text class="form-label">拍摄时间</text>
+          <picker mode="date" value="{{shotAt}}" bindchange="onShotAtChange">
+            <view class="form-input form-picker">{{shotAt || '选择日期'}}</view>
+          </picker>
+        </view>
+        <view class="form-row form-row--col">
+          <text class="form-label">简介详情</text>
+          <textarea
+            class="form-textarea"
+            maxlength="2000"
+            placeholder="介绍拍摄背景、器材或故事…"
+            value="{{intro}}"
+            bindinput="onIntroInput"
+          ></textarea>
+        </view>
+
+        <button class="submit-btn" loading="{{submitting}}" disabled="{{submitting}}" bindtap="onSubmit">
+          {{isEdit ? '保存修改' : '发布'}}
+        </button>
+      </view>
+      <view style="height: {{tabBarReservedHeight}}px;"></view>
+    </view>
+  </scroll-view>
+  <privacy-modal id="globalPrivacyModal"></privacy-modal>
+</view>

@@ -191,6 +191,19 @@ async function streamChat(messages, onChunk, launchContext) {
     }
 
     systemContent += '\n\n注意：以上时间为UTC，回答用户时转换为北京时间(UTC+8)。'
+    if (launchContext.focusHint) {
+      systemContent += '\n\n' + launchContext.focusHint
+    }
+    if (launchContext.focusMission) {
+      const f = launchContext.focusMission
+      systemContent += '\n── 用户当前聚焦的任务（优先据此回答）──'
+      systemContent += `\n任务：${f.name || '未知'}`
+      if (f.rocketName) systemContent += `\n火箭：${f.rocketName}`
+      if (f.launchTime) systemContent += `\n发射时间：${f.launchTime}`
+      if (f.launchAgency) systemContent += `\n发射商：${f.launchAgency}`
+      if (f.launchSite) systemContent += `\n地点：${f.launchSite}`
+      if (f.status) systemContent += `\n状态：${f.status}`
+    }
   }
 
   const fullMessages = [
@@ -240,12 +253,12 @@ async function streamChat(messages, onChunk, launchContext) {
 
 
 const QUICK_QUESTIONS = [
+  '星舰下一次试飞是什么时候？',
   '星舰最新进展如何？',
   '今年有哪些流星雨值得看？',
   '猎鹰9号是怎么回收的？',
   '天宫空间站有多大？',
-  '火星上能种菜吗？',
-  '星链卫星为什么能看到？'
+  '火星上能种菜吗？'
 ]
 
 async function generateTextAdvanced(systemPrompt, userPrompt, options) {

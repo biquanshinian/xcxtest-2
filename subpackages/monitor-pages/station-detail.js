@@ -666,18 +666,22 @@ Page({
 
   onShareAppMessage() {
     const item = this.data.item
+    const stationId = (item && item.id != null) ? item.id : this._stationId
     return {
       title: this.data.shareTitle,
-      path: item ? `/subpackages/monitor-pages/station-detail?id=${item.id}` : '/pages/monitor/monitor',
+      path: stationId != null && stationId !== ''
+        ? `/subpackages/monitor-pages/station-detail?id=${stationId}`
+        : '/pages/monitor/monitor',
       imageUrl: item && item.image ? item.image : ''
     }
   },
 
   onShareTimeline() {
     const item = this.data.item
+    const stationId = (item && item.id != null) ? item.id : this._stationId
     return {
       title: this.data.shareTitle,
-      query: item ? `id=${item.id}` : '',
+      query: stationId != null && stationId !== '' ? `id=${stationId}` : '',
       imageUrl: item && item.image ? item.image : ''
     }
   }

@@ -1,0 +1,153 @@
+<wxs module="navPad" src="/utils/nav-scroll-pad.wxs"></wxs>
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="detail-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+    <page-progress active="{{loading}}" />
+  </view>
+
+  <view id="pullRefreshDots" class="pull-refresh-dots" aria-hidden="true">
+    <view class="pull-refresh-dots__dot"></view>
+    <view class="pull-refresh-dots__dot"></view>
+    <view class="pull-refresh-dots__dot"></view>
+  </view>
+
+  <scroll-view
+    class="detail-scroll nav-aware-scroll"
+    scroll-y="true"
+    enhanced="{{true}}"
+    bounces="{{true}}"
+    refresher-enabled="{{true}}"
+    refresher-default-style="none"
+    refresher-background="{{pageBgColor}}"
+    refresher-threshold="36"
+    refresher-triggered="{{scrollRefreshing}}"
+    data-nav-h="{{navPlaceholderHeight}}"
+    data-refresh-threshold="36"
+    bindtouchend="{{navPad.onRelease}}"
+    bindtouchcancel="{{navPad.onRelease}}"
+    bindrefresherpulling="{{navPad.onPulling}}"
+    bindrefresherrestore="{{navPad.onReset}}"
+    bindrefresherabort="{{navPad.onReset}}"
+    bindrefresherrefresh="onScrollRefresh"
+  >
+    <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
+    <view class="detail-container">
+      <view class="detail-skeleton" wx:if="{{loading}}" aria-hidden="{{true}}">
+        <view class="skeleton-card skeleton-card--hero">
+          <view class="skeleton-hero skeleton-shimmer"></view>
+          <view class="skeleton-card-body">
+            <view class="skeleton-line skeleton-line--title skeleton-shimmer"></view>
+            <view class="skeleton-line skeleton-line--sub skeleton-shimmer"></view>
+          </view>
+        </view>
+        <view class="skeleton-card" wx:for="{{[1, 2]}}" wx:key="*this">
+          <view class="skeleton-line skeleton-line--label skeleton-shimmer"></view>
+          <view class="skeleton-line skeleton-shimmer"></view>
+          <view class="skeleton-line skeleton-line--short skeleton-shimmer"></view>
+        </view>
+      </view>
+
+      <view class="error-state glass-card" wx:elif="{{errorMessage}}">
+        <text class="error-title">加载失败</text>
+        <text class="error-text">{{errorMessage}}</text>
+        <button class="retry-btn" bindtap="retryLoad">重新加载</button>
+      </view>
+
+      <view wx:elif="{{item}}" class="detail-card glass-card">
+        <!-- 小红书式：横向滑动看图 + 右上角页码 -->
+        <view class="photo-gallery" style="height: {{galleryHeightRpx}}rpx;">
+          <swiper
+            class="photo-swiper"
+            current="{{photoCurrent}}"
+            duration="{{280}}"
+            circular="{{false}}"
+            bindchange="onPhotoSwiperChange"
+          >
+            <swiper-item
+              wx:for="{{item.photos}}"
+              wx:for-item="pic"
+              wx:for-index="pidx"
+              wx:key="url"
+            >
+              <view
+                class="photo-slide"
+                data-index="{{pidx}}"
+                bindtap="onPhotoPreview"
+              >
+                <image
+                  class="photo-slide__img"
+                  src="{{pic.displayUrl || pic.url}}"
+                  mode="aspectFit"
+                  show-menu-by-longpress="{{false}}"
+                ></image>
+              </view>
+            </swiper-item>
+          </swiper>
+          <view class="photo-index" wx:if="{{photoTotal > 1}}">{{photoCurrent + 1}}/{{photoTotal}}</view>
+        </view>
+
+        <view class="meta-top">
+          <text class="type-badge">航天摄影</text>
+          <text class="date-text" wx:if="{{item.shotAt}}">{{item.shotAt}}</text>
+        </view>
+
+        <text class="detail-title">{{item.authorName || '航天摄影'}}</text>
+
+        <view class="info-grid">
+          <view class="info-row" wx:if="{{item.authorName}}">
+            <text class="info-label">作者</text>
+            <text class="info-value">{{item.authorName}}</text>
+          </view>
+          <view class="info-row" wx:if="{{item.location}}">
+            <text class="info-label">拍摄地点</text>
+            <text class="info-value">{{item.location}}</text>
+          </view>
+          <view class="info-row" wx:if="{{item.deviceModel}}">
+            <text class="info-label">设备型号</text>
+            <text class="info-value">{{item.deviceModel}}</text>
+          </view>
+          <view class="info-row" wx:if="{{item.shotAt}}">
+            <text class="info-label">拍摄时间</text>
+            <text class="info-value">{{item.shotAt}}</text>
+          </view>
+          <view class="info-row" wx:if="{{item.status === 'pending'}}">
+            <text class="info-label">状态</text>
+            <text class="info-value">审核中</text>
+          </view>
+          <view class="info-row" wx:if="{{item.isOwner}}">
+            <text class="info-label">编辑次数</text>
+            <text class="info-value">{{item.canEdit ? '还可编辑 1 次' : '已用完（仅 1 次）'}}</text>
+          </view>
+        </view>
+
+        <view class="section" wx:if="{{item.intro}}">
+          <text class="section-title">简介详情</text>
+          <text class="section-text" user-select="{{true}}">{{item.intro}}</text>
+        </view>
+
+        <button
+          wx:if="{{item.canEdit}}"
+          class="owner-edit-btn"
+          bindtap="onEditMine"
+        >重新编辑</button>
+        <button
+          wx:if="{{item.isOwner}}"
+          class="owner-delete-btn"
+          loading="{{deleting}}"
+          disabled="{{deleting}}"
+          bindtap="onDeleteMine"
+        >删除我的投稿</button>
+      </view>
+      <view style="height: {{tabBarReservedHeight}}px;"></view>
+    </view>
+  </scroll-view>
+  <share-guide />
+  <privacy-modal id="globalPrivacyModal"></privacy-modal>
+</view>

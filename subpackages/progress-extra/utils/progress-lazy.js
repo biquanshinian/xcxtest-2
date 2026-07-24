@@ -30,7 +30,8 @@ const { normalizeLl2TimelineList } = require('./ll2-launch-timeline.js')
 const { formatCloudError } = require('../../../utils/launch-stats-cloud.js')
 const { getCachedMediaImage } = require('../../../utils/icon-cache.js')
 const { enrichVideoMediaItem, eventVideoAdUnlockId, playEventVideo, saveEventOriginalVideo } = require('./event-video.js')
-const { resolveTweetAccountAvatarUrl, warmEventShareImage } = require('../../../utils/event-share-image.js')
+const { resolveTweetAccountAvatarUrl, resolveEventAuthorAvatarUrl } = require('../../shared/utils/event-share-image.js')
+const { warmEventShareImage } = require('../../../utils/event-share-image.js')
 try { warmEventShareImage() } catch (e) {}
 const { fetchLiveStatusBatch, parseLiveStatus } = require('./live-status.js')
 const { isLiveEntryAllowed } = require('../../../utils/feature-flags.js')
@@ -291,7 +292,16 @@ const methods = {
       var result = res.result || {}
       if (!result.success) return
       var total = typeof result.total === 'number' ? result.total : 0
-      var stats = (result.tweetStats && result.tweetStats.length > 0) ? result.tweetStats : []
+      var stats = (result.tweetStats && result.tweetStats.length > 0)
+        ? result.tweetStats.map(function (item) {
+          return {
+            screenName: item.screenName,
+            label: item.label,
+            avatarUrl: item.avatarUrl || resolveTweetAccountAvatarUrl(item.screenName) || '',
+            todayCount: item.todayCount
+          }
+        })
+        : []
       self._tweetStatsCache = { at: Date.now(), stats: stats, total: total }
       var patch = { tweetEventTotal: total }
       if (canShowChips && stats.length > 0) {
@@ -372,10 +382,8 @@ const methods = {
       return enrichVideoMediaItem(m, { getCachedMediaImage, thumbPreset: 'thumb' })
     })
 
-    // 头像：优先 COS 地址，代理地址视为无效；按 source 约定路径兜底（含蓝箭等）
-    let avatar = item.authorAvatar || ''
-    if (avatar && !avatar.includes('.cos.')) avatar = ''
-    if (!avatar && item.source) avatar = resolveTweetAccountAvatarUrl(item.source)
+    // 头像：按 source 约定路径校验，防转推脏数据串号；再走本地缓存
+    let avatar = resolveEventAuthorAvatarUrl(item)
     const authorAvatarRemote = avatar || ''
     if (avatar) avatar = getCachedMediaImage(avatar, 'thumb')
 

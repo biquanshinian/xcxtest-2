@@ -101,7 +101,7 @@
     </view>
   </view>
 
-  <!-- fallback 操作区 -->
+  <!-- fallback 操作区（监控页可附带推荐直播 / B站，同一排显示） -->
   <view class="channels-live-actions">
     <view
       wx:if="{{canRetry}}"
@@ -111,27 +111,56 @@
     >
       <text>重试</text>
     </view>
-    <view class="channels-live-actions-row">
+    <view class="channels-live-actions-row {{showExtraGuide || showBiliLive ? 'channels-live-actions-row--compact' : ''}}">
+      <!-- 直播中：进房；自定义封面叠层：提示点封面；未开播：进视频号 -->
       <view
-        wx:if="{{canOpenLive && !showCustomCoverChannelLive}}"
-        class="channels-live-action-btn channels-live-action-btn--primary"
+        wx:if="{{showCustomCoverChannelLive}}"
+        class="channels-live-action-btn channels-live-action-btn--ghost channels-live-action-btn--hint {{showExtraGuide || showBiliLive ? 'channels-live-action-btn--wide' : ''}}"
+      >
+        <text>{{showExtraGuide || showBiliLive ? '点封面进房' : '点击封面进入直播间'}}</text>
+      </view>
+      <view
+        wx:elif="{{canOpenLive}}"
+        class="channels-live-action-btn channels-live-action-btn--primary {{showExtraGuide || showBiliLive ? 'channels-live-action-btn--wide' : ''}}"
         bindtap="onOpenLive"
         hover-class="channels-live-action-hover"
       >
         <text>进入直播间</text>
       </view>
       <view
-        wx:elif="{{showCustomCoverChannelLive}}"
-        class="channels-live-action-btn channels-live-action-btn--ghost channels-live-action-btn--hint"
-      >
-        <text>点击封面进入直播间</text>
-      </view>
-      <view
-        class="channels-live-action-btn channels-live-action-btn--ghost"
-        bindtap="onOpenProfileOrFallbackGuide"
+        wx:else
+        class="channels-live-action-btn channels-live-action-btn--primary {{showExtraGuide || showBiliLive ? 'channels-live-action-btn--wide' : ''}}"
+        bindtap="onOpenProfile"
         hover-class="channels-live-action-hover"
       >
-        <text>{{preferFallbackGuide ? '推荐观看' : '视频号主页'}}</text>
+        <text>进入视频号</text>
+      </view>
+
+      <view
+        wx:if="{{showExtraGuide}}"
+        class="channels-live-action-btn channels-live-action-btn--ghost channels-live-action-btn--with-icon"
+        bindtap="onExtraGuideTap"
+        hover-class="channels-live-action-hover"
+      >
+        <image
+          class="channels-live-action-icon"
+          src="{{extraGuideIcon}}"
+          mode="aspectFit"
+        ></image>
+        <text>{{extraGuideLabel}}</text>
+      </view>
+      <view
+        wx:if="{{showBiliLive}}"
+        class="channels-live-action-btn channels-live-action-btn--ghost channels-live-action-btn--bili channels-live-action-btn--with-icon"
+        bindtap="onBiliLiveTap"
+        hover-class="channels-live-action-hover"
+      >
+        <image
+          class="channels-live-action-icon"
+          src="{{biliLiveIcon}}"
+          mode="aspectFit"
+        ></image>
+        <text>{{biliLiveLabel}}</text>
       </view>
     </view>
   </view>

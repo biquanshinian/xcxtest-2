@@ -137,7 +137,6 @@
       </view>
       <view class="nav-button nav-button--calendar {{missionType === 'calendar' ? 'active' : ''}}" bindtap="switchMissionType" data-type="calendar">
         <text>发射日历</text>
-        <view wx:if="{{showLaunchCalendarDot}}" class="nav-calendar-red-dot"></view>
       </view>
     </view>
   </view>
@@ -793,41 +792,91 @@
       <view class="splash-skip-divider"></view>
       <text class="splash-skip-text">跳过</text>
     </view>
-    <!-- 任务倒计时卡片：后台给开屏媒体配置任务名称后展示，点击跳任务详情 -->
-    <view class="splash-mission-card" wx:if="{{splashMission && splashMissionCd}}" catchtap="onSplashMissionTap">
-      <view class="splash-mission-eyebrow">MISSION COUNTDOWN</view>
-      <view class="splash-mission-name">{{splashMission.name}}</view>
-      <view class="splash-mission-cd" wx:if="{{!splashMissionCd.imminent}}">
-        <text class="splash-mission-cd-prefix">T-</text>
-        <view class="splash-mission-cd-cells">
-          <view class="splash-mission-cd-cell" wx:if="{{splashMissionCd.d !== '0'}}">
-            <text class="splash-mission-cd-num">{{splashMissionCd.d}}</text>
-            <text class="splash-mission-cd-unit">天</text>
-          </view>
-          <text class="splash-mission-cd-sep" wx:if="{{splashMissionCd.d !== '0'}}">:</text>
-          <view class="splash-mission-cd-cell">
-            <text class="splash-mission-cd-num">{{splashMissionCd.h}}</text>
-            <text class="splash-mission-cd-unit">时</text>
-          </view>
-          <text class="splash-mission-cd-sep">:</text>
-          <view class="splash-mission-cd-cell">
-            <text class="splash-mission-cd-num">{{splashMissionCd.m}}</text>
-            <text class="splash-mission-cd-unit">分</text>
-          </view>
-          <text class="splash-mission-cd-sep">:</text>
-          <view class="splash-mission-cd-cell splash-mission-cd-cell--sec">
-            <text class="splash-mission-cd-num">{{splashMissionCd.s}}</text>
-            <text class="splash-mission-cd-unit">秒</text>
+    <!-- 底部叠层：全局通知（可选）+ 任务倒计时卡（可选） -->
+    <view
+      class="splash-bottom-stack"
+      wx:if="{{(splashNotice && ((splashNotice.lines && splashNotice.lines.length) || splashNotice.text)) || (splashMission && splashMissionCd)}}"
+    >
+      <view
+        class="splash-notice splash-notice--{{splashNotice.font || 'default'}}"
+        wx:if="{{splashNotice && ((splashNotice.lines && splashNotice.lines.length) || splashNotice.text)}}"
+      >
+        <!-- 用原生行渲染，保证与后台 contenteditable 换行一致（rich-text 易丢 br/div 换行） -->
+        <view
+          wx:if="{{splashNotice.lines && splashNotice.lines.length}}"
+          class="splash-notice-lines splash-notice-lines--{{splashNotice.align || 'center'}}"
+          style="gap: {{splashNotice.lineGap}}rpx; letter-spacing: {{splashNotice.letterSpacing}}rpx;"
+        >
+          <view
+            wx:for="{{splashNotice.lines}}"
+            wx:key="index"
+            class="splash-notice-line splash-notice-line--{{item.align || splashNotice.align || 'center'}} {{item.empty ? 'splash-notice-line--empty' : ''}}"
+            style="text-align: {{item.align || splashNotice.align || 'center'}}; line-height: {{item.lineHeight || splashNotice.lineHeight}}; min-height: {{item.minHeightRpx}}rpx;"
+          >
+            <block wx:if="{{!item.empty}}">
+              <text
+                wx:for="{{item.segs}}"
+                wx:for-item="seg"
+                wx:for-index="si"
+                wx:key="si"
+                class="splash-notice-seg {{seg.bold ? 'splash-notice-seg--bold' : ''}}"
+                style="font-size: {{seg.fontSize}}rpx; line-height: {{seg.lineHeight || item.lineHeight || splashNotice.lineHeight}};"
+              >{{seg.text}}</text>
+            </block>
           </view>
         </view>
+        <view wx:else class="splash-notice-text">{{splashNotice.text}}</view>
       </view>
-      <view class="splash-mission-cd splash-mission-cd--imminent" wx:else>
-        <view class="splash-mission-imminent-dot"></view>
-        <text>即将发射</text>
-      </view>
-      <view class="splash-mission-hint">
-        <text class="splash-mission-hint-text">查看任务详情</text>
-        <text class="splash-mission-hint-arrow">›</text>
+      <!-- 任务倒计时卡片：后台给开屏媒体配置任务名称后展示，点击跳任务详情 -->
+      <view class="splash-mission-card" wx:if="{{splashMission && splashMissionCd}}" catchtap="onSplashMissionTap">
+        <view class="splash-mission-eyebrow">MISSION COUNTDOWN</view>
+        <view class="splash-mission-meta" wx:if="{{splashMission.agencyName}}">
+          <view class="splash-mission-agency">
+            <image
+              wx:if="{{splashMission.agencyLogo}}"
+              class="splash-mission-agency-logo"
+              src="{{splashMission.agencyLogo}}"
+              mode="aspectFill"
+            ></image>
+            <text class="splash-mission-agency-name">{{splashMission.agencyName}}</text>
+          </view>
+        </view>
+        <view class="splash-mission-title-row">
+          <text class="splash-mission-name">{{splashMission.name}}</text>
+          <text class="splash-mission-rocket" wx:if="{{splashMission.rocketName}}">{{splashMission.rocketName}}</text>
+        </view>
+        <view class="splash-mission-cd" wx:if="{{!splashMissionCd.imminent}}">
+          <text class="splash-mission-cd-prefix">T-</text>
+          <view class="splash-mission-cd-cells">
+            <view class="splash-mission-cd-cell" wx:if="{{splashMissionCd.d !== '0'}}">
+              <text class="splash-mission-cd-num">{{splashMissionCd.d}}</text>
+              <text class="splash-mission-cd-unit">天</text>
+            </view>
+            <text class="splash-mission-cd-sep" wx:if="{{splashMissionCd.d !== '0'}}">:</text>
+            <view class="splash-mission-cd-cell">
+              <text class="splash-mission-cd-num">{{splashMissionCd.h}}</text>
+              <text class="splash-mission-cd-unit">时</text>
+            </view>
+            <text class="splash-mission-cd-sep">:</text>
+            <view class="splash-mission-cd-cell">
+              <text class="splash-mission-cd-num">{{splashMissionCd.m}}</text>
+              <text class="splash-mission-cd-unit">分</text>
+            </view>
+            <text class="splash-mission-cd-sep">:</text>
+            <view class="splash-mission-cd-cell splash-mission-cd-cell--sec">
+              <text class="splash-mission-cd-num">{{splashMissionCd.s}}</text>
+              <text class="splash-mission-cd-unit">秒</text>
+            </view>
+          </view>
+        </view>
+        <view class="splash-mission-cd splash-mission-cd--imminent" wx:else>
+          <view class="splash-mission-imminent-dot"></view>
+          <text>即将发射</text>
+        </view>
+        <view class="splash-mission-hint">
+          <text class="splash-mission-hint-text">查看任务详情</text>
+          <text class="splash-mission-hint-arrow">›</text>
+        </view>
       </view>
     </view>
   </view>

@@ -10,7 +10,8 @@
  *          仅挂给 SpaceX 的发射，别家任务不挂推文集锦）
  *       b) 指定博主 SciNews 的 2~3 分钟发射集锦（YouTube 频道覆盖全球主要发射，
  *          本机 Agent yt-dlp 下载 → COS；无 a 类集锦时自动入队 kind=clip 任务，
- *          global_config.main.replayClipAgentEnabled=false 可关）
+ *          global_config.main.replayClipAgentEnabled=false 可关；
+ *          Agent 侧对标题做分隔符模糊匹配，Tianlian-2-06 ↔ TianLian-2 06 等）
  *   - links：完整回放外链（官方直播 > 非官方直播 > 转播），前端点击复制
  *   - videoUrl：完整回放 COS 转存（可选，kind=full Agent 任务产出；
  *     global_config.main.replayAgentEnabled=true 才入队，默认关闭 = 长视频只给链接）
@@ -279,7 +280,8 @@ function clipDateText(netMs) {
 function textToTokens(text) {
   const stop = new Set(['group', 'mission', 'the', 'of', 'and', 'to', 'a', 'block', 'flight', 'maiden', 'demo'])
   return String(text || '')
-    .split(/[\s()|,]+/)
+    // 含 /：Long March 3B/E → 拆出 3b，避免只留下 sciNews 对不上的 3b/e
+    .split(/[\s()|,\/]+/)
     .map((t) => t.trim().toLowerCase().replace(/^#/, ''))
     .filter((t) => t.length >= 2 && !stop.has(t) && !/^\d+$/.test(t))
     .slice(0, 5)

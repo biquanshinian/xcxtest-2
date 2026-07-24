@@ -34,11 +34,12 @@
 <!-- 主按钮 -->
 <view
   wx:if="{{visible && windowWidth > 0}}"
-  class="nasa-float-wrap {{expanded ? 'nasa-float-wrap--active' : ''}}"
+  class="nasa-float-wrap {{expanded ? 'nasa-float-wrap--active' : ''}} {{scrollHidden ? (scrollHideSide === 'left' ? 'nasa-float-wrap--scroll-hidden-left' : 'nasa-float-wrap--scroll-hidden-right') : ''}}"
   style="left: {{btnX}}px; top: {{btnY}}px;"
   catchtouchstart="onTouchStart"
   catchtouchmove="onTouchMove"
   catchtouchend="onTouchEnd"
+  catchtouchcancel="onTouchCancel"
 >
   <view class="nasa-float-icon">
     <image wx:if="{{!expanded}}" class="nasa-float-svg" src="/images/tabbar/home.svg" mode="aspectFit" />

@@ -141,3 +141,72 @@ test('旧来源名称映射到标准优先级，重复 observation 不增加 rev
   assert.equal(repeated, first)
   assert.equal(repeated.revision, first.revision)
 })
+
+test('projectBadgeOntoMission 投影角标与分类', () => {
+  const { projectBadgeOntoMission } = require('../utils/launch-status-store.js')
+  const base = {
+    id: SKYROOT_ID,
+    name: 'Skyroot | Vikram-I Demo Flight',
+    rocketName: 'Vikram-I',
+    statusId: 1,
+    statusBadgeText: '就绪',
+    statusCategory: 'pending'
+  }
+  const projected = projectBadgeOntoMission(base, observation(6, 200))
+  assert.equal(projected.statusId, 6)
+  assert.equal(projected.statusCategory, 'inflight')
+  assert.equal(projected.statusBadgeText, '飞行中')
+  assert.equal(projected.rocketName, 'Vikram-I')
+})
+
+test('applyAuthoritativeStatus：列表飞行中优先于详情就绪（NET 已过）', () => {
+  const { applyAuthoritativeStatus } = require('../utils/launch-status-store.js')
+  const enrichment = {
+    id: SKYROOT_ID,
+    name: 'Skyroot | Vikram-I Demo Flight',
+    rocketName: 'Vikram-I'
+  }
+  const listCard = {
+    id: SKYROOT_ID,
+    statusId: 6,
+    statusAbbrev: 'In Flight',
+    launchTime: '2026-07-18T08:00:00Z',
+    _launchStateSource: 'launch_net_hourly_inflight',
+    _launchStateObservedAtMs: 200
+  }
+  const detailCard = {
+    id: SKYROOT_ID,
+    statusId: 1,
+    statusAbbrev: 'Go',
+    launchTime: '2026-07-18T08:00:00Z',
+    _launchStateSource: 'fetchLaunchDetail_status',
+    _launchStateObservedAtMs: 400
+  }
+  const merged = applyAuthoritativeStatus(enrichment, [listCard, detailCard])
+  assert.equal(merged.statusId, 6)
+  assert.equal(merged.statusBadgeText, '飞行中')
+})
+
+test('applyAuthoritativeStatus：无时间戳的列表就绪不能压过详情飞行中', () => {
+  const { applyAuthoritativeStatus } = require('../utils/launch-status-store.js')
+  const enrichment = { id: SKYROOT_ID, name: 'Skyroot | Vikram-I Demo Flight' }
+  const staleListGo = {
+    id: SKYROOT_ID,
+    statusId: 1,
+    statusAbbrev: 'Go',
+    launchTime: '2026-07-18T08:00:00Z',
+    _launchStateSource: 'list',
+    _launchStateObservedAtMs: 0
+  }
+  const detailInflight = {
+    id: SKYROOT_ID,
+    statusId: 6,
+    statusAbbrev: 'In Flight',
+    launchTime: '2026-07-18T08:00:00Z',
+    _launchStateSource: 'fetchLaunchDetail_status',
+    _launchStateObservedAtMs: Date.now()
+  }
+  const merged = applyAuthoritativeStatus(enrichment, [staleListGo, detailInflight])
+  assert.equal(merged.statusId, 6)
+  assert.equal(merged.statusBadgeText, '飞行中')
+})

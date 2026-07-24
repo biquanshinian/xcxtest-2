@@ -16,6 +16,10 @@ const { optimizeImageUrl, toCdnUrl, isVideoUrl, videoSnapshotUrl } = require('..
 const { getCachedVideo } = require('./video-cache.js')
 const { buildLl2ImageChain, advanceImageFallback } = require('../../../utils/ll2-image.js')
 
+/** 监控页入口卡背景视频（远程 card.bgImage 为空时的本地兜底） */
+const ORBITAL_CARD_BG_VIDEO_DEFAULT =
+  'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E8%83%8C%E6%99%AF%E8%A7%86%E9%A2%91/1784884993160_b2tlgu.mp4'
+
 const methods = {
   /** 把 LL2 events 数据格式化为卡片所需展示字段 */
   _formatUpcomingOrbitalEvents(list) {
@@ -194,8 +198,9 @@ const methods = {
       return isVideoUrl(url)
     }
     if (card) {
-      if (card.bgImage) {
-        const rawBg = String(card.bgImage).trim()
+      // 入口卡背景以本地常量为准，避免云库旧 bgImage 盖住新视频
+      const rawBg = ORBITAL_CARD_BG_VIDEO_DEFAULT
+      if (rawBg) {
         const asVideo = isOrbitalBgVideoUrl(rawBg)
         // 过审关闭可播视频时不渲染卡片背景 <video>（未解析前也先不播）
         if (asVideo && this._orbitalBgVideoAllowed !== true) {

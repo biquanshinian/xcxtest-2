@@ -316,6 +316,13 @@ Page({
   },
 
   /** 原生三点下拉刷新（页面级 / scroll-view refresher 共用）：最多等 800ms 兜底复位 */
+  onProfileScroll() {
+    try {
+      const { pulseNasaFloatOnScroll } = require('../../utils/nasa-float-scroll.js')
+      pulseNasaFloatOnScroll(this)
+    } catch (e) {}
+  },
+
   onScrollRefresh() {
     this._runProfilePullRefresh('scrollRefreshing')
   },

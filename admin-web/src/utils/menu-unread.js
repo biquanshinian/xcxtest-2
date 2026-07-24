@@ -22,6 +22,7 @@ export const PATH_MODULE_MAP = {
   '/push-notify':            'launch_subscriptions',
   '/launch-votes':           'launch_votes',
   '/lunar-wishes':           'lunar_wishes',
+  '/astro-photos':           'astro_photos',
   '/road-closure':           'road_closure_notice',
   '/milestone-rewards':      'milestone_rewards',
   '/announcements':          'announcements'

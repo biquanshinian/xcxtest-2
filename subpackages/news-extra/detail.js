@@ -397,7 +397,13 @@ Page({
 
     const item = this.data.item
     const detailType = this.data.detailType
-    if (!item) {
+    const route = this._entryRoute || {}
+    const entryId = (item && item.id != null)
+      ? item.id
+      : (route.id != null ? route.id : '')
+    const entryType = detailType || route.detailType || 'event'
+
+    if (!entryId) {
       return {
         title: '航天事件详情 | 火星探索日志',
         path: '/pages/news/news',
@@ -406,17 +412,22 @@ Page({
     }
 
     return {
-      title: this.data.shareTitle,
-      path: `/subpackages/news-extra/detail?id=${item.id}&type=${detailType}`,
+      title: this.data.shareTitle || '航天事件详情 | 火星探索日志',
+      path: `/subpackages/news-extra/detail?id=${entryId}&type=${entryType}`,
       imageUrl: this.data.shareImage
     }
   },
 
   onShareTimeline() {
     const item = this.data.item
+    const route = this._entryRoute || {}
+    const entryId = (item && item.id != null)
+      ? item.id
+      : (route.id != null ? route.id : '')
+    const entryType = this.data.detailType || route.detailType || 'event'
     return {
       title: this.data.shareTitle,
-      query: item ? `id=${item.id}&type=${this.data.detailType}` : '',
+      query: entryId ? `id=${entryId}&type=${entryType}` : '',
       imageUrl: this.data.shareImage
     }
   }

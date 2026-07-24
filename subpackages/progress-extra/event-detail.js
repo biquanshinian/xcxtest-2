@@ -9,7 +9,8 @@ const { buildLl2ImageChain, advanceImageFallback, proxiedImageUrl } = require('.
 const { fetchLiveStatusBatch, parseLiveStatus } = require('./utils/live-status.js')
 const { isPermissionDenied, getPermissionDeniedMessage } = require('./utils/single-page.js')
 const pageBase = require('../../utils/page-base.js')
-const { pickEventShareImageUrl, resolveTweetAccountAvatarUrl, warmEventShareImage } = require('../../utils/event-share-image.js')
+const { pickEventShareImageUrl, resolveTweetAccountAvatarUrl, resolveEventAuthorAvatarUrl } = require('../shared/utils/event-share-image.js')
+const { warmEventShareImage } = require('../../utils/event-share-image.js')
 try { warmEventShareImage() } catch (e) {}
 const { gateCheck, isMembershipEnabled, getMembershipState, isPro, hasPurchased, canUsePaidCloudSync, canPrefetchVideoSync, canSaveOriginalVideoSync, isProSync } = require('../../utils/membership.js')
 const { getMemberPolicy, getMemberPolicySync } = require('../../utils/member-policy.js')
@@ -30,6 +31,7 @@ const {
 } = require('../../utils/util.js')
 const { SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL } = require('../../utils/agency-logo-overrides.js')
 const { normalizeLl2TimelineList } = require('./utils/ll2-launch-timeline.js')
+const { isFeatureEnabled } = require('../../utils/feature-flags.js')
 
 /** 清单/时间线/动态追踪分享兜底：SpaceX logo（禁止落到 default 火箭占位图） */
 const STARSHIP_PAGE_SHARE_FALLBACK =
@@ -245,6 +247,12 @@ Page({
     ll2DetailLaunchUpdates: [],
     detailLl2Refreshing: false,
 
+    // 飞行剖面迷你演示（仅 ll2_timeline 详情页）
+    enableMissionSim: false,
+    flightDemoTimeline: [],
+    flightDemoMissionName: '',
+    pageVisible: true,
+
     ll2EventCountdown: { days: '00', hours: '00', minutes: '00', seconds: '00', isExpired: false },
     ll2DetailedData: null,
     ll2DetailedLoading: false,
@@ -355,11 +363,20 @@ Page({
       this._starshipShareMissions = missions
       this._starshipShareLaunchId = res.launchId || ''
       this._starshipShareLaunchName = res.launchName || res.resolvedLaunchName || ''
+      const demoTl = this._buildFlightDemoTimeline(rows)
       this.setData({
         loading: false,
         detailLl2Refreshing: false,
-        ll2DetailTimelineRows: rows
+        ll2DetailTimelineRows: rows,
+        flightDemoTimeline: demoTl,
+        flightDemoMissionName: this._starshipShareLaunchName || '星舰任务'
       })
+      if (rows.length > 0 && !this._missionSimFlagChecked) {
+        this._missionSimFlagChecked = true
+        isFeatureEnabled('enableMissionSim', { failClosed: true, defaultOff: true }).then((on) => {
+          if (on) this.setData({ enableMissionSim: true })
+        }).catch(() => {})
+      }
       this._syncStarshipPageShareImage({
         missions,
         launchId: this._starshipShareLaunchId,
@@ -369,12 +386,69 @@ Page({
       const msg = isPermissionDenied(e)
         ? getPermissionDeniedMessage()
         : ((e && e.message) ? String(e.message) : '加载失败')
-      this.setData({ loading: false, detailLl2Refreshing: false })
+      this.setData({
+        loading: false,
+        detailLl2Refreshing: false,
+        flightDemoTimeline: [],
+        flightDemoMissionName: ''
+      })
       if (silent) wx.showToast({ title: msg, icon: 'none' })
       else this.setData({ errorMessage: msg })
       // 失败时仍用 SpaceX logo 兜底，避免落到 default 火箭图
       this._syncStarshipPageShareImage({})
     }
+  },
+
+  /** LL2 行 → 飞行剖面演示 payload */
+  _buildFlightDemoTimeline(rows) {
+    const list = Array.isArray(rows) ? rows : (this.data.ll2DetailTimelineRows || [])
+    return list.map((r) => ({
+      t: r.sortKey,
+      label: r.title,
+      desc: r.description,
+      tLabel: r.timeLabel
+    }))
+  },
+
+  /** 飞行剖面完整演示页：与指挥室同一 productId（会员 / 看广告解锁） */
+  async openFlightDemo() {
+    if (!this.data.enableMissionSim) return
+    const payload = this.data.flightDemoTimeline || []
+    if (!payload.length) return
+    if (this._flightDemoGatePending) return
+    this._flightDemoGatePending = true
+    let allowed = false
+    try {
+      allowed = await gateCheck('mission_sim', '飞行剖面演示')
+    } finally {
+      this._flightDemoGatePending = false
+    }
+    if (!allowed) return
+    const name = String(this.data.flightDemoMissionName || this._starshipShareLaunchName || '星舰任务').trim()
+    const missionId = this._starshipShareLaunchId != null ? String(this._starshipShareLaunchId).trim() : ''
+    if (wx.vibrateShort) {
+      try { wx.vibrateShort({ type: 'light' }) } catch (e) {}
+    }
+    const queryParts = []
+    if (missionId) {
+      queryParts.push(`id=${encodeURIComponent(missionId)}`)
+      queryParts.push('type=upcoming')
+    }
+    if (name) queryParts.push(`name=${encodeURIComponent(name.slice(0, 80))}`)
+    const query = queryParts.length ? `?${queryParts.join('&')}` : ''
+    wx.navigateTo({
+      url: '/subpackages/mission-sim/flight-demo' + query,
+      success(res) {
+        try {
+          res.eventChannel.emit('flightDemoContext', {
+            name,
+            rows: payload,
+            id: missionId,
+            detailType: 'upcoming'
+          })
+        } catch (e) {}
+      }
+    })
   },
 
   async loadLl2LaunchUpdatesDetailPage(opts = {}) {
@@ -1051,9 +1125,11 @@ Page({
   onHide() {
     // 页面被覆盖/切后台时暂停每秒倒计时，避免后台空跑发热
     this.clearLl2EventCountdown()
+    this.setData({ pageVisible: false })
   },
 
   onShow() {
+    this.setData({ pageVisible: true })
     // onHide 暂停后回到本页恢复（仅在倒计时曾启动且未到期时）
     if (this._ll2CountdownActive) {
       this.startLl2EventCountdown()
@@ -1248,9 +1324,7 @@ Page({
     })
 
     // 头像：优先 COS 地址，代理地址视为无效；按 source 约定路径兜底（含蓝箭等）
-    let avatar = safeItem.authorAvatar || ''
-    if (avatar && !avatar.includes('.cos.')) avatar = ''
-    if (!avatar && safeItem.source) avatar = resolveTweetAccountAvatarUrl(safeItem.source)
+    let avatar = resolveEventAuthorAvatarUrl(safeItem)
     const authorAvatarRemote = avatar || ''
     if (avatar) avatar = getCachedMediaImage(avatar, 'thumb')
 
@@ -1970,8 +2044,16 @@ Page({
       return result
     }
     if (e && e.from === 'button' && e.target && e.target.dataset && e.target.dataset.shareType === 'eventUpdateItem') {
-      const item = this.findListEventItem(e.target.dataset.id)
+      const buttonId = e.target.dataset.id
+      const item = this.findListEventItem(buttonId)
       if (item) return this.buildListEventShareOptions(item)
+      if (buttonId) {
+        return {
+          title: '事件更新 | 火星探索日志',
+          path: `/subpackages/progress-extra/event-detail?id=${encodeURIComponent(buttonId)}`,
+          imageUrl: pickEventShareImageUrl(null)
+        }
+      }
       return {
         title: '事件更新 | 火星探索日志',
         path: '/pages/progress/progress',
@@ -2002,7 +2084,8 @@ Page({
       }
     }
     const item = this.data.item
-    if (!item) {
+    const entryId = (item && item._id) ? item._id : this._singleItemId
+    if (!entryId) {
       return {
         title: this.data.shareTitle || '事件更新 | 火星探索日志',
         path: '/pages/progress/progress',
@@ -2011,9 +2094,9 @@ Page({
     }
 
     return {
-      title: this.data.shareTitle,
-      path: `/subpackages/progress-extra/event-detail?id=${encodeURIComponent(item._id)}`,
-      imageUrl: this.data.shareImage
+      title: this.data.shareTitle || '事件更新 | 火星探索日志',
+      path: `/subpackages/progress-extra/event-detail?id=${encodeURIComponent(entryId)}`,
+      imageUrl: this.data.shareImage || pickEventShareImageUrl(item)
     }
   },
 
@@ -2079,9 +2162,10 @@ Page({
       }
     }
     const item = this.data.item
+    const entryId = (item && item._id) ? item._id : this._singleItemId
     return {
       title: this.data.shareTitle,
-      query: item ? `id=${encodeURIComponent(item._id)}` : '',
+      query: entryId ? `id=${encodeURIComponent(entryId)}` : '',
       imageUrl: this.data.shareImage
     }
   }

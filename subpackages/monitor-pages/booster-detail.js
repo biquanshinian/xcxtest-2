@@ -344,10 +344,11 @@ Page({
 
   onShareAppMessage() {
     var item = this.data.item
+    var serial = (item && item.serial) ? item.serial : this._serial
     return {
       title: this.data.shareTitle,
-      path: item
-        ? withShareStampPath('/subpackages/monitor-pages/booster-detail?serial=' + encodeURIComponent(item.serial), this)
+      path: serial
+        ? withShareStampPath('/subpackages/monitor-pages/booster-detail?serial=' + encodeURIComponent(serial), this)
         : '/pages/monitor/monitor',
       imageUrl: item && item.imageUrl ? item.imageUrl : ''
     }
@@ -355,9 +356,10 @@ Page({
 
   onShareTimeline() {
     var item = this.data.item
+    var serial = (item && item.serial) ? item.serial : this._serial
     return {
       title: this.data.shareTitle,
-      query: item ? withShareStampQuery('serial=' + encodeURIComponent(item.serial), this) : '',
+      query: serial ? withShareStampQuery('serial=' + encodeURIComponent(serial), this) : '',
       imageUrl: item && item.imageUrl ? item.imageUrl : ''
     }
   }

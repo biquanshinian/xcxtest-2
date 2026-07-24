@@ -8,7 +8,7 @@
 
   <view class="ai-panel-mask" bindtap="closeChat"></view>
 
-  <view class="ai-panel-body {{visible ? 'ai-panel-body--show' : ''}}" style="height: {{panelHeight}}px; bottom: {{keyboardHeight}}px;">
+  <view class="ai-panel-body {{visible ? 'ai-panel-body--show' : ''}} {{themeClass}}" style="height: {{panelHeight}}px; bottom: {{keyboardHeight}}px;">
 
     <!-- 标题栏 -->
 
@@ -104,29 +104,117 @@
 
           </view>
 
-          <view class="ai-msg-bubble ai-msg-bubble--{{item.role === 'user' ? 'user' : 'bot'}} {{item.error ? 'ai-msg-bubble--error' : ''}}">
+          <view class="ai-msg-col" wx:if="{{item.role !== 'user'}}">
 
-            <text class="ai-msg-text" user-select wx:if="{{item.content}}">{{item.content}}</text>
+            <view class="ai-msg-bubble ai-msg-bubble--bot {{item.error ? 'ai-msg-bubble--error' : ''}}">
 
-            <view class="ai-msg-typing" wx:if="{{item.typing}}">
+              <text class="ai-msg-text" user-select wx:if="{{item.content}}">{{item.content}}</text>
 
-              <view class="typing-dot"></view>
+              <view class="ai-msg-typing" wx:if="{{item.typing}}">
 
-              <view class="typing-dot"></view>
+                <view class="typing-dot"></view>
 
-              <view class="typing-dot"></view>
+                <view class="typing-dot"></view>
+
+                <view class="typing-dot"></view>
+
+              </view>
+
+            </view>
+
+            <!-- 结构化任务卡：与首页 mission-card 同结构 / 同色板 -->
+
+            <view class="ai-mission-cards" wx:if="{{item.cards && item.cards.length}}">
+
+              <view
+
+                class="mission-list-card-root mission-card glass-card card-hover mission-card-link mission-card--{{card.statusCategory || 'pending'}}"
+
+                wx:for="{{item.cards}}"
+
+                wx:for-item="card"
+
+                wx:key="id"
+
+                bindtap="onMissionCardTap"
+
+                data-id="{{card.id}}"
+
+                data-type="{{card.detailType}}"
+
+              >
+
+                <view class="mission-card-inner-row">
+
+                  <view class="mission-rocket-slot">
+
+                    <image
+
+                      class="mission-rocket-image"
+
+                      wx:if="{{card.rocketImage}}"
+
+                      src="{{card.rocketImage}}"
+
+                      mode="aspectFill"
+
+                      binderror="onMissionCardRocketError"
+
+                      data-msgid="{{item.id}}"
+
+                      data-id="{{card.id}}"
+
+                    ></image>
+
+                    <view wx:else class="mission-rocket-image mission-rocket-image--placeholder"></view>
+
+                  </view>
+
+                  <view class="mission-info-content">
+
+                    <view class="mission-card-header">
+
+                      <text class="mission-status-badge status-{{card.statusCategory || 'pending'}}">{{card.statusText}}</text>
+
+                      <view class="mission-card-header-right">
+
+                        <text class="mission-meta mission-rocket" wx:if="{{card.rocketName}}">{{card.rocketName}}</text>
+
+                      </view>
+
+                    </view>
+
+                    <text class="mission-main-title">{{card.name}}</text>
+
+                    <text class="mission-time">{{card.formattedTime}}</text>
+
+                    <text class="mission-meta mission-pad" wx:if="{{card.padLocation}}">{{card.padLocation}}</text>
+
+                    <text class="mission-meta ai-mission-card-cta">点击查看详情</text>
+
+                  </view>
+
+                </view>
+
+              </view>
+
+            </view>
+
+            <!-- 失败重试按钮 -->
+
+            <view class="ai-retry-btn ai-retry-btn--inline" wx:if="{{item.error}}" bindtap="retryLastMessage">
+
+              <text class="ai-retry-icon">↻</text>
+
+              <text class="ai-retry-text">重试</text>
 
             </view>
 
           </view>
 
-          <!-- 失败重试按钮 -->
+          <view class="ai-msg-bubble ai-msg-bubble--user" wx:else>
 
-          <view class="ai-retry-btn" wx:if="{{item.error}}" bindtap="retryLastMessage">
-
-            <text class="ai-retry-icon">↻</text>
-
-            <text class="ai-retry-text">重试</text>
+            <text class="ai-msg-text" user-select wx:if="{{item.content}}">{{item.content}}</text>
 
           </view>
 

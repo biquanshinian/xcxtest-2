@@ -35,7 +35,7 @@ const {
   isTerminalStatusId,
   getCountryDisplay
 } = require('../../../utils/api-request.js')
-const { isSettledStatusId } = require('../../../utils/launch-status-store.js')
+const { isSettledStatusId, projectBadgeOntoMission } = require('../../../utils/launch-status-store.js')
 const { formatDate, resolveMissionRocketImage } = require('../../../utils/util.js')
 const { buildMissionListSetData } = require('../../../utils/index-mission-services.js')
 const { filterExpiredMissions } = require('../../../utils/index-page-helpers.js')
@@ -156,6 +156,9 @@ const methods = {
   },
 
   handleCompletedMissionLoadSuccess(list, res) {
+    // 标记「历史列表已从云/本地缓存母文档拉过」，与 settled 剥离瘦卡区分开：
+    // 免费用户首屏不预拉 previous 时，completedMissions 可能已有剥离项但尚未云就绪。
+    this._completedCloudListReady = true
     this._completedStateGeneration = (this._completedStateGeneration || 0) + 1
     const generation = this._completedStateGeneration
     const apply = async (settled) => {
@@ -287,9 +290,6 @@ const methods = {
 
   /** 从 recent_settled 行拼一张可点进详情的历史卡片（previous 缓存尚未入库时用） */
   _buildCompletedItemFromSettled(entry, baseMission) {
-    const statusObj = (entry && entry.status) || {}
-    const category = getStatusCategory(statusObj)
-    const badge = getStatusBadgeText(statusObj, category)
     const stashed = this._getStashedFullMissionCard(entry && entry.id)
     const name = (entry && entry.name) || (baseMission && baseMission.name) || (stashed && stashed.name) || ''
     const parts = String(name)
@@ -318,7 +318,6 @@ const methods = {
       (baseMission && baseMission.launchTime) ||
       (stashed && stashed.launchTime) ||
       ''
-    const sid = statusObj.id != null ? Number(statusObj.id) : null
     const baseImg =
       (baseMission && (baseMission.rocketImage || baseMission.image)) ||
       (stashed && (stashed.rocketImage || stashed.image)) ||
@@ -329,46 +328,48 @@ const methods = {
       (baseMission && baseMission.rocketConfiguration) || (stashed && stashed.rocketConfiguration),
       true
     )
-    const card = attachMissionDetailMeta(
-      {
-        ...(stashed || {}),
-        ...(baseMission || {}),
-        id: entry.id,
-        name,
-        missionName: missionName || name,
-        rocketName: rocketName || '未知火箭',
-        padLocation: pick(baseMission && baseMission.padLocation, stashed && stashed.padLocation),
-        // 结算行没有 pad/服务商，最后用「火箭 | 任务」文本推断国家（如 Gravity-1 → 中国）
-        countryDisplay:
-          pick(baseMission && baseMission.countryDisplay, stashed && stashed.countryDisplay) ||
-          getCountryDisplay(null, null, { name }),
-        launchSite: pick(baseMission && baseMission.launchSite, stashed && stashed.launchSite),
-        rocketImage,
-        image: rocketImage,
-        launchTime,
-        formattedTime: launchTime
-          ? formatDate(launchTime, 'MM月DD日 HH:mm')
-          : (baseMission && baseMission.formattedTime) ||
-            (stashed && stashed.formattedTime) ||
-            '时间未知',
-        status: badge,
-        statusId: sid,
-        statusAbbrev: statusObj.abbrev || (baseMission && baseMission.statusAbbrev) || '',
-        statusCategory: category,
-        statusBadgeText: badge,
-        success: category === 'success' || category === 'deployed',
-        isPartialFailure: category === 'partial',
-        isFailure: category === 'failure' || category === 'partial',
-        missionDescription:
-          (baseMission && baseMission.missionDescription) ||
-          (stashed && stashed.missionDescription) ||
-          '',
-        isExpired: false,
-        _optimisticSettled: true,
-        _fromRecentSettled: true
-      },
-      { id: entry.id, detailType: 'completed' }
-    )
+    const enrichment = {
+      ...(stashed || {}),
+      ...(baseMission || {}),
+      id: entry.id,
+      name,
+      missionName: missionName || name,
+      rocketName: rocketName || '未知火箭',
+      padLocation: pick(baseMission && baseMission.padLocation, stashed && stashed.padLocation),
+      // 结算行没有 pad/服务商，最后用「火箭 | 任务」文本推断国家（如 Gravity-1 → 中国）
+      countryDisplay:
+        pick(baseMission && baseMission.countryDisplay, stashed && stashed.countryDisplay) ||
+        getCountryDisplay(null, null, { name }),
+      launchSite: pick(baseMission && baseMission.launchSite, stashed && stashed.launchSite),
+      rocketImage,
+      image: rocketImage,
+      launchTime,
+      formattedTime: launchTime
+        ? formatDate(launchTime, 'MM月DD日 HH:mm')
+        : (baseMission && baseMission.formattedTime) ||
+          (stashed && stashed.formattedTime) ||
+          '时间未知',
+      missionDescription:
+        (baseMission && baseMission.missionDescription) ||
+        (stashed && stashed.missionDescription) ||
+        '',
+      isExpired: false,
+      _optimisticSettled: true,
+      _fromRecentSettled: true
+    }
+    // 角标只从 settled 观测投影，不信任 base/stash 上可能过期的 status*
+    const projected = projectBadgeOntoMission(enrichment, {
+      id: entry.id,
+      name,
+      net: (entry && entry.net) || launchTime,
+      windowStart: entry && entry.windowStart,
+      windowEnd: entry && entry.windowEnd,
+      status: (entry && entry.status) || null,
+      source: (entry && entry.source) || 'hourly_probe',
+      observedAtMs: Number(entry && (entry.settledAtMs || entry.observedAtMs)) || Date.now(),
+      revision: Number(entry && entry.revision) || 0
+    })
+    const card = attachMissionDetailMeta(projected, { id: entry.id, detailType: 'completed' })
     // base/stash 可能是带卡片倒计时的即将发射卡；历史卡与其共用模板，
     // 冻结的非过期 cardCountdown 会在历史卡上渲染出静止倒计时
     delete card.showRocketCountdown
@@ -423,19 +424,21 @@ const methods = {
       const badge = getStatusBadgeText(hit.status, category)
       if (item.statusCategory === category && item.statusBadgeText === badge && prevSid === sid) return item
       changed = true
-      return {
-        ...item,
-        status: badge,
-        statusId: sid || item.statusId,
-        statusAbbrev: hit.status.abbrev || item.statusAbbrev || '',
-        statusCategory: category,
-        statusBadgeText: badge,
-        success: category === 'success' || category === 'deployed',
-        isPartialFailure: category === 'partial',
-        isFailure: category === 'failure' || category === 'partial',
-        launchTime: hit.net || item.launchTime,
-        formattedTime: hit.net ? formatDate(hit.net, 'MM月DD日 HH:mm') : item.formattedTime
+      const projected = projectBadgeOntoMission(item, {
+        id: idStr,
+        name: hit.name || item.name,
+        net: hit.net || item.launchTime,
+        windowStart: hit.windowStart,
+        windowEnd: hit.windowEnd,
+        status: hit.status,
+        source: hit.source || 'hourly_probe',
+        observedAtMs: Number(hit.settledAtMs || hit.observedAtMs) || Date.now(),
+        revision: Number(hit.revision) || 0
+      })
+      if (hit.net) {
+        projected.formattedTime = formatDate(hit.net, 'MM月DD日 HH:mm')
       }
+      return projected
     })
 
     // previous 没有、但 settled 已有 → 补插到头部
@@ -455,10 +458,10 @@ const methods = {
         (this.data.upcomingMissions || []).find((m) => m && String(m.id) === idStr) ||
         (this.data.completedMissions || []).find((m) => m && String(m.id) === idStr) ||
         null
-      // 飞行中必须复用完整卡（peel 路径会带 base）；无 base 时禁止凭空插飞行中瘦卡。
-      // 无 base 的终态占位仅限 NET 在 48h 内，防止 getRecent(40) 把旧终态刷进历史首页。
+      // 无 base 时终态/飞行中均可近窗瘦卡占位（48h），堵住 hide_recent 后 previous 尚未写上的空窗。
+      // 飞行中也会由小时探针写入 previous stub；此处是客户端兜底。
       if (!base) {
-        if (!isTerminalStatusId(sid)) continue
+        if (!isSettledStatusId(sid)) continue
         if (!Number.isFinite(settledNetMs) || settledNetMs < nowMs - SETTLED_PLACEHOLDER_NET_MAX_AGE_MS) continue
       }
       const card = this._buildCompletedItemFromSettled(s, base)
@@ -618,10 +621,21 @@ const methods = {
 
   /** 用最新 recent_settled 修正历史列表角标 / 补插缺失卡；必要时 resolve 飞行中 */
   async _applyRecentSettledToCompletedList(force) {
+    // 未云就绪且非强制：禁止写入。正常切历史由 handleCompleted 合并 settled。
+    // force：仅下拉失败降级等仍允许只靠 settled 修列表。
+    if (!this._completedCloudListReady && !force) return
+
+    // 与 handleCompletedMissionLoadSuccess 共用代际：其入口会 ++_completedStateGeneration。
+    // 若 await 期间完整云列表管线已开工/完成，必须 abort，避免 peel 快照回写盖掉 previous。
+    const generation = this._completedStateGeneration || 0
     const settled = await this._ensureRecentSettledCache(!!force)
+    if ((this._completedStateGeneration || 0) !== generation) return
+
+    // await 后再读列表，拿到可能已被 handleCompleted 写好的完整卡
     const list = this.data.completedMissions || []
     let merged = this._mergeRecentSettledIntoCompletedList(list, settled)
     merged = await this._reconcileInflightHistoryStatuses(merged)
+    if ((this._completedStateGeneration || 0) !== generation) return
     if (merged === list) return
     this.setData(
       {

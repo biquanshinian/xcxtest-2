@@ -9,6 +9,7 @@
  * 触发时机：首页在太空简报弹窗关闭后（或确认简报不弹时）调用 maybeShow()
  */
 const membership = require('../../../../utils/membership.js')
+const { isFeatureEnabled } = require('../../../../utils/feature-flags.js')
 
 // renewal：到期前 N 天开始提醒 / 过期后 N 天内仍提醒（挽回窗口）
 const REMIND_DAYS_BEFORE = 5
@@ -59,7 +60,12 @@ Component({
       if (self._inflight || self.data.visible) return Promise.resolve(false)
       self._inflight = true
 
-      return membership.isMembershipEnabled()
+      // 全局配置 enableMembershipPopup：缺省视为开启；关闭后首页不再自动弹会员广告
+      return isFeatureEnabled('enableMembershipPopup')
+        .then(function (popupOn) {
+          if (!popupOn) return false
+          return membership.isMembershipEnabled()
+        })
         .then(function (enabled) {
           if (!enabled) return false
           return membership.getMembershipState().then(function (state) {

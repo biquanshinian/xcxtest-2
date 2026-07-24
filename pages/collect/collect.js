@@ -390,6 +390,13 @@ Page({
     this.setData({ starPoints: stars })
   },
 
+  onCollectScroll() {
+    try {
+      const { pulseNasaFloatOnScroll } = require('../../utils/nasa-float-scroll.js')
+      pulseNasaFloatOnScroll(this)
+    } catch (e) {}
+  },
+
   loadMore() {
     if (this.data.loadingMore || !this.data.hasMore) return
     this._loadWishWall(false)

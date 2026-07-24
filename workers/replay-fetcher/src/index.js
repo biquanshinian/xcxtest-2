@@ -14,6 +14,7 @@ import path from 'path'
 import { spawn } from 'child_process'
 import { getConfig, tmpDir } from './config.js'
 import { claimJob, completeJob, failJob } from './api.js'
+import { tokenVariantGroups, hits, scoreClipText } from './clip-match.js'
 
 function log(...args) {
   console.log(`[${new Date().toISOString()}]`, ...args)
@@ -247,25 +248,9 @@ async function uploadToCos(uploadUrl, file) {
  * - 星链常规发射：标题带日期，如 "SpaceX Starlink 407 launch and Falcon 9 first stage landing, 14 July 2026"
  * - 专项任务：标题不带日期，如 "SDA T1TL-E launch and Falcon 9 first stage landing"，日期在简介里
  * 所以：标题带日期的直接筛；不带日期但命中任务关键词的，拉简介验证日期。
+ * 分隔符模糊匹配见 ./clip-match.js（Tianlian-2-06 ↔ TianLian-2 06 等）。
  * @returns {{ url: string, title: string } | null}
  */
-// 尾缀罗马数字 ↔ 阿拉伯数字互转变体（LL2 "Vikram-I" vs 频道标题 "Vikram-1"），
-// 一个 token 及其变体算一组，组内任一变体命中即算该 token 命中
-const ROMAN_SUFFIX = { i: '1', ii: '2', iii: '3', iv: '4', v: '5', vi: '6', vii: '7', viii: '8', ix: '9', x: '10' }
-function tokenVariantGroups(list) {
-  return list.map((t) => {
-    const group = [t]
-    const m = t.match(/^(.*[-\s])(i{1,3}|iv|v|vi{0,3}|ix|x)$/)
-    if (m && ROMAN_SUFFIX[m[2]]) group.push(m[1] + ROMAN_SUFFIX[m[2]])
-    const n = t.match(/^(.*[-\s])(\d{1,2})$/)
-    if (n) {
-      const roman = Object.keys(ROMAN_SUFFIX).find((k) => ROMAN_SUFFIX[k] === n[2])
-      if (roman) group.push(n[1] + roman)
-    }
-    return group
-  })
-}
-
 async function findClipVideo(cfg, clipSearch) {
   const channel = clipSearch.channel
   const dateText = String(clipSearch.dateText || '').toLowerCase()
@@ -290,10 +275,6 @@ async function findClipVideo(cfg, clipSearch) {
   }).filter(Boolean)
 
   const maxDurSec = Number(clipSearch.maxDurationSec || 300) + 30
-  const hits = (groups, text) => groups.reduce((n, g) => n + (g.some((v) => text.includes(v)) ? 1 : 0), 0)
-  // 带数字的特征 token（10-45 / t1tl-e / 火箭型号 10b）：存在时必须命中，是同日多发的硬区分
-  const specificTokens = tokens.filter((g) => g.some((v) => /\d/.test(v)))
-  const specificRocketTokens = rocketTokens.filter((g) => g.some((v) => /\d/.test(v)))
 
   // 候选：时长合规，且标题带日期，或标题含 launch 且命中任一任务/火箭关键词
   const pre = rows.filter((r) => (!r.durationSec || r.durationSec <= maxDurSec))
@@ -306,28 +287,25 @@ async function findClipVideo(cfg, clipSearch) {
   const candidates = dateInTitle.concat(needVerify.slice(0, 3))
   if (!candidates.length) return null
 
-  // 全发射商场景：同一天可能多家发射，一律拉简介核验，宁缺毋滥
+  // 全发射商场景：同一天可能多家发射，一律拉简介核验；细则见 clip-match.scoreClipText
   let best = null
   let bestScore = 0
   for (const r of candidates.slice(0, 5)) {
-    const titleLower = r.title.toLowerCase()
-    let text = titleLower
-    let dateOk = titleLower.includes(dateText)
+    let description = ''
     try {
-      const desc = (await runYtdlpCapture(cfg, [
+      description = await runYtdlpCapture(cfg, [
         '--skip-download', '--no-playlist',
         '--print', '%(description)s',
         `https://www.youtube.com/watch?v=${r.id}`
-      ], 60000)).toLowerCase()
-      text += ' ' + desc
-      if (!dateOk) dateOk = desc.includes(dateText)
+      ], 60000)
     } catch (e) {}
-    if (!dateOk) continue                                        // 日期对不上一票否决
-    if (tokens.length && hits(tokens, text) === 0) continue      // 任务段关键词必须命中
-    if (specificTokens.length && hits(specificTokens, text) === 0) continue // 任务特征编号必须命中
-    if (!tokens.length && specificRocketTokens.length && hits(specificRocketTokens, text) === 0) continue // 无任务词时火箭型号必须命中
-    const score = hits(tokens, text) * 2 + hits(rocketTokens, text)
-    if (score > bestScore) { best = r; bestScore = score }
+    const scored = scoreClipText(r.title, description, clipSearch)
+    if (!scored.ok) continue
+    // score 可能为 0（极端空线索）；首次命中也要收下，不能只写 > bestScore
+    if (!best || scored.score > bestScore) {
+      best = r
+      bestScore = scored.score
+    }
   }
   if (!best) return null
   return { url: `https://www.youtube.com/watch?v=${best.id}`, title: best.title }
@@ -490,4 +468,4 @@ async function loop() {
 const isMain = process.argv[1] && import.meta.url === new URL(`file:///${process.argv[1].replace(/\\/g, '/')}`).href
 if (isMain) loop()
 
-export { findClipVideo, pickProxy }
+export { findClipVideo, pickProxy, scoreClipText }

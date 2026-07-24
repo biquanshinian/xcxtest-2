@@ -573,6 +573,9 @@ async function getVoteStats(launchId, skipCache, missionInfo) {
     if (missionInfo && missionInfo.statusCategory) queryParams.statusCategory = missionInfo.statusCategory
     if (missionInfo && missionInfo.statusAbbrev) queryParams.statusAbbrev = missionInfo.statusAbbrev
     if (missionInfo && missionInfo.statusName) queryParams.statusName = missionInfo.statusName
+    if (missionInfo && missionInfo.statusId != null && missionInfo.statusId !== '') {
+      queryParams.statusId = missionInfo.statusId
+    }
 
     const res = await wx.cloud.callFunction({
       name: 'adminGateway',

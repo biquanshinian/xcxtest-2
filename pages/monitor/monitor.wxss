@@ -255,87 +255,11 @@ page {
   50% { transform: scaleY(0.55); }
   75% { transform: scaleY(0.85); }
 }
-/* 视频号 + B站：统一纵向间距，与上方卡片节奏一致 */
+/* 视频号直播卡片；操作按钮已并入 channels-live-panel 同一排 */
 .monitor-livestream-stack {
   display: flex;
   flex-direction: column;
   gap: 20rpx;
-}
-.monitor-livestream-entry-row {
-  display: flex;
-  flex-direction: row;
-  align-items: stretch;
-  gap: 16rpx;
-}
-.monitor-livestream-btn--full {
-  width: 100%;
-  flex: 1;
-}
-.monitor-livestream-btn--half {
-  flex: 1;
-  width: 0;
-  min-width: 0;
-}
-.monitor-livestream-btn {
-  min-width: 0;
-  min-height: 88rpx;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 14rpx;
-  padding: 20rpx 18rpx;
-  background: rgba(30, 30, 30, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 24rpx;
-  transition: all 0.18s ease;
-  box-sizing: border-box;
-}
-.monitor-livestream-btn--half {
-  padding: 18rpx 16rpx;
-  gap: 12rpx;
-}
-.monitor-livestream-btn--hover {
-  background: rgba(255, 255, 255, 0.06);
-  transform: scale(0.98);
-}
-.monitor-livestream-btn--bilibili {
-  border-color: rgba(251, 114, 153, 0.3);
-  background: linear-gradient(135deg, rgba(251, 114, 153, 0.1), rgba(30, 30, 30, 0.45));
-}
-.monitor-livestream-btn-icon {
-  width: 48rpx;
-  height: 48rpx;
-  border-radius: 12rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.monitor-livestream-icon-img {
-  width: 48rpx;
-  height: 48rpx;
-  display: block;
-}
-.monitor-livestream-btn-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4rpx;
-}
-.monitor-livestream-btn-title {
-  font-size: 26rpx;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.92);
-  line-height: 1.2;
-}
-.monitor-livestream-btn-sub {
-  font-size: 20rpx;
-  color: rgba(255, 255, 255, 0.45);
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 /* ========== 通用空状态 ========== */
 .empty-state {
@@ -778,6 +702,11 @@ page {
   width: 56rpx;
   height: 56rpx;
 }
+
+/* icon-location.svg 为白描边：浅色主题反色为深灰 */
+.theme-light .pass-location-icon {
+  filter: invert(0.72);
+}
 .pass-locate-btn {
   margin-top: 12rpx;
   padding: 12rpx 32rpx;
@@ -936,7 +865,7 @@ page {
 }
 .station-mini-img {
   width: 100%;
-  height: 140rpx;
+  height: 187rpx; /* 原 140rpx 纵向拉高 1/3；mode=aspectFill 裁切不变形 */
   border-radius: 12rpx;
   background: rgba(255, 255, 255, 0.04);
   margin-bottom: 12rpx;
@@ -1123,23 +1052,6 @@ page {
 .theme-light .monitor-livestream-section .livestream-live-tag-text {
   color: #ffffff;
 }
-.theme-light .monitor-livestream-btn {
-  background: rgba(255, 255, 255, 0.85);
-  border: 1px solid var(--color-divider);
-}
-.theme-light .monitor-livestream-btn--hover {
-  background: rgba(0, 0, 0, 0.05);
-}
-.theme-light .monitor-livestream-btn--bilibili {
-  border-color: rgba(251, 114, 153, 0.35);
-  background: linear-gradient(135deg, rgba(251, 114, 153, 0.12), rgba(255, 255, 255, 0.85));
-}
-.theme-light .monitor-livestream-btn-title {
-  color: var(--color-text-primary);
-}
-.theme-light .monitor-livestream-btn-sub {
-  color: var(--color-text-secondary);
-}
 /* --- 博卡奇卡天气 --- */
 .theme-light .starbase-weather-place {
   color: var(--color-text-tertiary);
@@ -1208,11 +1120,6 @@ page {
 }
 .theme-light .pass-time {
   color: var(--color-text-primary);
-}
-.theme-light .booster-filter-chip {
-  color: var(--color-text-secondary);
-  background: rgba(0, 0, 0, 0.05);
-  border: 1px solid var(--color-divider);
 }
 /* --- B站二维码弹窗（遮罩保持深色，内容面板转浅色） --- */
 .theme-light .qrcode-modal-content {

@@ -14,7 +14,7 @@
       <view class="oa-alert-row">
         <view class="oa-alert-info">
           <text class="oa-alert-title">服务号自动提醒</text>
-          <text class="oa-alert-desc">开启后每次发射前约30分钟自动推送，无需再逐条订阅</text>
+          <text class="oa-alert-desc">开启后发射前约30分钟及完成后结果由服务号自动推送，无需再逐条订阅</text>
         </view>
         <switch
           class="oa-alert-switch"
@@ -68,7 +68,7 @@
     <!-- 无提醒时显示引导 -->
     <view class="reminder-empty glass-card" wx:else bindtap="emitOnGoAstroCalendar">
       <text class="reminder-empty-text">{{oaAlertReady ? '服务号自动提醒已开启' : '暂无提醒'}}</text>
-      <text class="reminder-empty-hint">{{oaAlertReady ? '发射前约30分钟将自动推送，无需再逐条添加' : '在发射详情中点击「发射提醒」添加 ›'}}</text>
+      <text class="reminder-empty-hint">{{oaAlertReady ? '发射前约30分钟及完成后结果将自动推送，无需再逐条添加' : '在发射详情中点击「发射提醒」添加 ›'}}</text>
     </view>
   </view>
 

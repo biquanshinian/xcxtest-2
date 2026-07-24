@@ -27,6 +27,7 @@ import YearReviewConfigPage from '../views/YearReviewConfigPage.vue'
 import AnnouncementsPage from '../views/AnnouncementsPage.vue'
 import DataExportPage from '../views/DataExportPage.vue'
 import LunarWishesPage from '../views/LunarWishesPage.vue'
+import AstroPhotosPage from '../views/AstroPhotosPage.vue'
 import MembershipPage from '../views/MembershipPage.vue'
 import LogsPage from '../views/LogsPage.vue'
 import { auth } from '../api/client'
@@ -67,6 +68,7 @@ const routes = [
       { path: 'announcements', component: AnnouncementsPage, meta: { perm: 'announcements' } },
       { path: 'data-export', component: DataExportPage, meta: { perm: 'data_export' } },
       { path: 'lunar-wishes', component: LunarWishesPage, meta: { perm: 'lunar_wishes' } },
+      { path: 'astro-photos', component: AstroPhotosPage, meta: { perm: 'astro_photos' } },
       { path: 'launch-votes', component: () => import('../views/LaunchVotesPage.vue'), meta: { perm: 'launch_votes' } },
       { path: 'milestone-rewards', component: () => import('../views/MilestoneRewardsPage.vue'), meta: { perm: 'milestone_rewards' } },
       { path: 'knowledge-cards', component: () => import('../views/KnowledgeCardsPage.vue'), meta: { perm: 'knowledge_cards' } },

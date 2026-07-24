@@ -54,6 +54,32 @@ function _bgCheckIntervalFor(cacheKey) {
   return CLOUD_CACHE_BG_CHECK_INTERVAL
 }
 
+/**
+ * 本地命中后是否应发起后台探云。
+ * 发射列表额外规则（降本）：
+ * - lastBg===0：本运行时首探，或 forceLaunchListCloudBgCheck 清节流后 → 允许（覆盖冷启动/下拉）
+ * - 免费用户（!canUsePaidCloudSync）：禁止周期性静默探云
+ * - Pro / 会员关：仍按 LAUNCH_LIST_BG_CHECK_INTERVAL
+ */
+function _shouldRunCloudBgCheck(cacheKey) {
+  const now = Date.now()
+  const lastBg = cloudCacheBgCheckAt[cacheKey] || 0
+  if (typeof isLaunchListCacheKey === 'function' && isLaunchListCacheKey(cacheKey)) {
+    if (lastBg === 0) return true
+    try {
+      const { canUsePaidCloudSync } = require('./membership.js')
+      if (typeof canUsePaidCloudSync === 'function' && !canUsePaidCloudSync()) {
+        return false
+      }
+    } catch (e) {
+      // 会员模块异常时偏保守：不静默探列表，避免免费路径放大读库
+      return false
+    }
+    return now - lastBg >= LAUNCH_LIST_BG_CHECK_INTERVAL
+  }
+  return now - lastBg >= _bgCheckIntervalFor(cacheKey)
+}
+
 // ── 内存缓存层：避免同一 key 反复调用 getStorageSync ──
 const _memCache = Object.create(null)   // { key: { data, expireAt } }
 // ── storage 同步读取去重层：记录每个 key 上一次同步读到的"原始 entry"，
@@ -167,8 +193,13 @@ const cloudCacheBgCheckAt = Object.create(null)
 // 本地命中后的后台探云间隔：云端缓存由云函数约 3 小时同步一次，
 // 2 分钟探一次纯属浪费计费调用，30 分钟足以及时拿到新数据
 const CLOUD_CACHE_BG_CHECK_INTERVAL = 30 * 60 * 1000 // 30分钟
-/** 发射列表会被小时探针/详情就地改写，探云需更勤，否则 previous 插入对客户端最长不可见 30min */
-const LAUNCH_LIST_BG_CHECK_INTERVAL = 3 * 60 * 1000
+/**
+ * 发射列表后台探云间隔（仅「本地已命中」后的静默探云，且仅 Pro/会员关）。
+ * 原 3 分钟在前台停留时会把 space_devs_cache（含 previous 分批）读放大到库调用主因；
+ * 改为 15 分钟降读量。代价：NET/终态/previous stub 对静默停留用户最长多等约 15 分钟。
+ * 免费用户：禁止周期性静默探云；本运行时首探（lastBg===0）与下拉强制清节流仍探云。
+ */
+const LAUNCH_LIST_BG_CHECK_INTERVAL = 15 * 60 * 1000
 
 function isLaunchListCacheKey(cacheKey) {
   if (typeof cacheKey !== 'string') return false
@@ -226,6 +257,16 @@ function onLaunchListStale(callback) {
     const idx = _launchListStaleListeners.indexOf(callback)
     if (idx !== -1) _launchListStaleListeners.splice(idx, 1)
   }
+}
+
+/**
+ * 强制下一次发射列表本地命中时立刻后台探云（清节流时间戳）。
+ * 用于下拉刷新等用户显式刷新；不影响非列表缓存的 30 分钟探云节奏。
+ */
+function forceLaunchListCloudBgCheck() {
+  Object.keys(cloudCacheBgCheckAt).forEach((key) => {
+    if (isLaunchListCacheKey(key)) delete cloudCacheBgCheckAt[key]
+  })
 }
 
 function _fireStaleUpdate(cacheKey, newData) {
@@ -518,11 +559,8 @@ function getCache(cacheKey) {
   const localCache = getCacheFromLocal(cacheKey)
   if (localCache !== null) {
     // 后台异步检查云数据库是否有更新数据（不阻塞当前返回）
-    // 增加节流，避免频繁重复查询导致云数据库超时
-    const now = Date.now()
-    const lastBgCheckAt = cloudCacheBgCheckAt[cacheKey] || 0
-    if (now - lastBgCheckAt >= _bgCheckIntervalFor(cacheKey)) {
-      cloudCacheBgCheckAt[cacheKey] = now
+    if (_shouldRunCloudBgCheck(cacheKey)) {
+      cloudCacheBgCheckAt[cacheKey] = Date.now()
       getCacheFromCloud(cacheKey, 3000).then(cloudCache => {
         if (cloudCache !== null && cloudCache !== localCache) {
           // 云数据库有更新数据，更新本地缓存
@@ -827,10 +865,8 @@ function request(url, params = {}, timeout = null, useCache = true, retryCount =
       const localExact = getCacheFromLocal(cacheKey)
       if (localExact !== null) {
         resolve(localExact)
-        const now = Date.now()
-        const lastBg = cloudCacheBgCheckAt[cacheKey] || 0
-        if (now - lastBg >= _bgCheckIntervalFor(cacheKey)) {
-          cloudCacheBgCheckAt[cacheKey] = now
+        if (_shouldRunCloudBgCheck(cacheKey)) {
+          cloudCacheBgCheckAt[cacheKey] = Date.now()
           getCacheFromCloud(cacheKey).then(cloud => {
             if (cloud !== null && JSON.stringify(cloud) !== JSON.stringify(localExact)) {
               setCache(cacheKey, cloud)
@@ -854,13 +890,10 @@ function request(url, params = {}, timeout = null, useCache = true, retryCount =
             // 各自持久化不同时间戳的旧切片，下次冷启动两包先后渲染不同代际的数据，
             // 造成倒计时面板「闪旧数据」。母缓存是唯一数据源，切片始终同代际。
             if (!c.slice) setCache(cacheKey, result)
-            // 与 Phase 1 对齐：母 key 本地命中也要节流探云，否则小时探针插入的 previous
-            // stub 最长要等本地 TTL(30min) 才对客户端可见。
+            // 与 Phase 1 对齐：母 key 本地命中也走同一套探云门控（含免费用户禁静默探）。
             const motherKey = c.key
-            const now = Date.now()
-            const lastBg = cloudCacheBgCheckAt[motherKey] || 0
-            if (now - lastBg >= _bgCheckIntervalFor(motherKey)) {
-              cloudCacheBgCheckAt[motherKey] = now
+            if (_shouldRunCloudBgCheck(motherKey)) {
+              cloudCacheBgCheckAt[motherKey] = Date.now()
               getCacheFromCloud(motherKey).then((cloud) => {
                 if (cloud === null) return
                 if (JSON.stringify(cloud) === JSON.stringify(local)) return
@@ -1152,6 +1185,7 @@ module.exports = {
   getCacheKey,
   onStaleUpdate,
   onLaunchListStale,
+  forceLaunchListCloudBgCheck,
   formatPadLocation,
   getCountryDisplay,
   getStatusCategory,

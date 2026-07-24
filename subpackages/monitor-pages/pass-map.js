@@ -1,4 +1,5 @@
 const pageBase = require('../../utils/page-base.js')
+const { ROUTES } = require('../../utils/routes.js')
 const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, findItemById, buildMapLayoutData, buildSelectionPatch, buildMapOverlayTopStyle, buildMapShareOptions, copyMapText, runMapRefresh } = require('./utils/map-page-common.js')
 const { buildObservationCandidates, getPassQualityMeta } = require('./utils/map-scenes.js')
 
@@ -281,14 +282,35 @@ Page({
   },
 
 
+  /**
+   * 观测地图依赖 query 里的位置/过境列表，无法随分享卡片完整传递（passList 过长）。
+   * 分享落到过境详情：接收方无本地数据时展示空态，引导去监控中心按自己的位置加载。
+   */
+  _passSharePath() {
+    const count = (this.data.passOptions || []).length || 0
+    return count
+      ? `${ROUTES.STARLINK_PASS_DETAIL}?count=${count}`
+      : ROUTES.STARLINK_PASS_DETAIL
+  },
+
   onShareAppMessage() {
     const pass = this.data.selectedPass || {}
     return buildMapShareOptions({
       shareTitle: this.data.shareTitle,
       detailText: pass.startTimeStr,
       fallbackDetailText: '今晚可见',
-      path: '/subpackages/monitor-pages/pass-map'
+      path: this._passSharePath()
     })
+  },
+
+  onShareTimeline() {
+    const pass = this.data.selectedPass || {}
+    const count = (this.data.passOptions || []).length || 0
+    const detail = pass.startTimeStr || '今晚可见'
+    return {
+      title: `${this.data.shareTitle || '星链观测地图'} · ${detail} | 火星探索日志`,
+      query: count ? ('count=' + count) : ''
+    }
   },
 
   // goBack inherited from pageBase

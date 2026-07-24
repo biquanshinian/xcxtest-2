@@ -14,6 +14,7 @@
   </view>
 
   <scroll-view class="page-scroll" scroll-y enhanced show-scrollbar="{{false}}"
+               bindscroll="onCollectScroll"
                bindscrolltolower="loadMore">
   <view style="height: {{navPlaceholderHeight}}px;"></view>
 
@@ -236,6 +237,6 @@
   </view>
 
   </scroll-view>
-  <nasa-float show-ai-chat="{{false}}" />
+  <nasa-float id="nasaFloat" show-ai-chat="{{false}}" />
   <share-guide />
 </view>

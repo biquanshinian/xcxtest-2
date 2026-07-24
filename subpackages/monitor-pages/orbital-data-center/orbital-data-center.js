@@ -6,11 +6,11 @@ const vtData = require('../utils/vehicle-tracker-data.js')
 
 const SYS_INFO = wx.getSystemInfoSync ? wx.getSystemInfoSync() : { statusBarHeight: 44 }
 
-/** 背景视频远程地址（与年鉴页共用同一资源，缓存命中即可直接复用） */
+/** 详情页全屏背景视频（后台 detail.bgVideo 为空时的本地兜底） */
 const ODC_BG_VIDEO_REMOTE =
-  'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E8%83%8C%E6%99%AF%E8%A7%86%E9%A2%91/1778841707632_ddgop4.mp4'
-/** 与年鉴页同 key，命中年鉴页缓存可直接秒开 */
-const ODC_BG_VIDEO_STORAGE_KEY = 'year_review_detail_bg_video_v1'
+  'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E8%83%8C%E6%99%AF%E8%A7%86%E9%A2%91/1784888337241_ma680s.mp4'
+/** 独立缓存 key，避免与年鉴页背景视频互相覆盖 */
+const ODC_BG_VIDEO_STORAGE_KEY = 'orbital_data_center_bg_video_v3'
 
 // 胶囊按钮信息（用于计算自定义导航栏高度）
 let MENU_BUTTON_INFO = null
@@ -273,9 +273,8 @@ Page({
 
   /** 按后台配置的全屏背景视频地址（含入库字段 detail.bgVideo）准备播放器 */
   _syncBgVideoFromDetail(detail) {
-    const d = detail && typeof detail === 'object' ? detail : {}
-    const newBg = typeof d.bgVideo === 'string' ? d.bgVideo.trim() : ''
-    const resolved = newBg || ODC_BG_VIDEO_REMOTE
+    // 背景视频以本地常量为准：云库若仍存旧地址会盖住 ORBITAL_DEFAULT，导致一直播旧片
+    const resolved = ODC_BG_VIDEO_REMOTE
     if (resolved === this._resolvedOdcBgVideoUrl) return
     this._resolvedOdcBgVideoUrl = resolved
     isPlaybackAllowed()

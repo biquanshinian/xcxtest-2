@@ -90,6 +90,18 @@
           />
         </el-menu-item>
         <el-menu-item
+          v-if="hasPerm('astro_photos')"
+          index="/astro-photos"
+          :class="{ 'has-unread': unreadMap['/astro-photos'] > 0 }"
+        >
+          <MenuBadgeItem
+            path="/astro-photos"
+            label="航天摄影管理"
+            :count="unreadMap['/astro-photos'] || 0"
+            tip="条航天摄影待审核"
+          />
+        </el-menu-item>
+        <el-menu-item
           v-if="hasPerm('milestone_rewards')"
           index="/milestone-rewards"
           :class="{ 'has-unread': unreadMap['/milestone-rewards'] > 0 }"
@@ -275,6 +287,7 @@ const pageTitle = computed(() => {
     '/announcements': '系统公告',
     '/data-export': '数据导出',
     '/lunar-wishes': '月愿计划管理',
+    '/astro-photos': '航天摄影管理',
     '/milestone-rewards': '里程碑彩蛋管理',
     '/knowledge-cards': '知识卡管理',
     '/logs': '操作日志',

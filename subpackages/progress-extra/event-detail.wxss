@@ -825,9 +825,14 @@ page {
 }
 
 .detail-ll2-page-card {
-  border-left: 4rpx solid rgba(100, 210, 255, 0.78);
+  border-left: 4rpx solid rgba(52, 199, 89, 0.85);
   padding: 28rpx;
   box-sizing: border-box;
+}
+
+/* 飞行剖面演示（星舰飞行时间线详情上方） */
+.detail-flight-demo {
+  margin: 0 24rpx 28rpx;
 }
 
 /* 标题左 + 翻译/刷新按钮右（全局统一布局） */

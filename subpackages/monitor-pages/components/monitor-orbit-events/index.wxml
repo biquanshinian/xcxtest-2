@@ -7,7 +7,8 @@
     <view class="section-title-right">
       <view class="monitor-share-wrap">
         <image class="icon-share icon-share--monitor" src="/images/share-arrow.svg" mode="aspectFit"></image>
-        <button class="monitor-share-btn" open-type="share" hover-class="none" data-share-type="orbit" plain="true"></button>
+        <button class="monitor-share-btn" open-type="share" hover-class="none"
+                data-share-type="orbit" bindtap="markShareOrbit" plain="true"></button>
       </view>
     </view>
   </view>

@@ -33,6 +33,7 @@
     bindrefresherrestore="{{navPad.onReset}}"
     bindrefresherabort="{{navPad.onReset}}"
     bindrefresherrefresh="onScrollRefresh"
+    bindscroll="onProgressScroll"
   >
     
     <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
@@ -178,7 +179,6 @@
             </view>
             <view class="hardware-card-body">
               <text class="hardware-card-type">{{item.typeZh}}</text>
-              <text class="hardware-card-notes">{{item.notesZh}}</text>
             </view>
           </view>
         </view>
@@ -215,7 +215,6 @@
     <view class="notice-section">
       <view class="section-title">
         <text>星舰基地封路通知</text>
-        <text class="notice-sync-btn" bindtap="onSyncRoadClosure">{{roadClosureSyncing ? '同步中...' : '刷新'}}</text>
       </view>
       <view class="notice-card glass-card" wx:if="{{roadClosure.isActive}}" bindtap="openRoadClosureDetail">
         <view class="notice-map-entry" catchtap="openRoadClosureMap">
@@ -227,15 +226,11 @@
           <text class="notice-source" wx:if="{{roadClosure.source}}">{{roadClosure.source === 'starbase_gov' ? 'Starbase.gov' : roadClosure.source === 'spacedevs' ? 'SpaceDevs' : roadClosure.source === 'manual' ? '管理员' : ''}}</text>
         </view>
         <text class="notice-message">{{roadClosure.message}}</text>
-        <view class="notice-schedule" wx:if="{{roadClosure.beachClosureSchedule && roadClosure.beachClosureSchedule.length > 0}}">
-          <text class="schedule-label">封闭计划</text>
-          <text class="schedule-item" wx:for="{{roadClosure.beachClosureSchedule}}" wx:key="index">{{item}}</text>
-        </view>
         <view class="notice-schedule" wx:if="{{roadClosure.roadDelays && roadClosure.roadDelays.length > 0}}">
           <text class="schedule-label">道路延迟</text>
           <text class="schedule-item" wx:for="{{roadClosure.roadDelays}}" wx:key="index">{{item}}</text>
         </view>
-        <view class="notice-time" wx:if="{{roadClosure.timeRange && !roadClosure.beachClosureSchedule.length}}">
+        <view class="notice-time" wx:if="{{roadClosure.timeRange}}">
           <text class="time-label">时间范围</text>
           <text class="time-value">{{roadClosure.timeRange}}</text>
         </view>
@@ -247,7 +242,7 @@
           </block>
           <block wx:elif="{{roadClosureStatus === 'error'}}">
             <text class="notice-no-data">封路数据获取失败</text>
-            <text class="notice-hint">网络异常，点击「刷新」重试</text>
+            <text class="notice-hint">网络异常，请下拉刷新重试</text>
           </block>
           <block wx:else>
             <text class="notice-no-data">官网当前无封路记录</text>
@@ -332,7 +327,6 @@
         <view class="nsf-checklist-card-header">
           <view class="nsf-checklist-summary-row">
             <text class="nsf-checklist-summary-title">星舰飞行时间线</text>
-            <text class="ll2-updates-sync-btn" catchtap="onRefreshLl2Timeline">{{ll2TimelineLoading ? '…' : '刷新'}}</text>
           </view>
         </view>
         <view class="nsf-checklist-muted nsf-checklist-muted--pad" wx:if="{{ll2TimelineLoading && ll2TimelineRows.length === 0}}">
@@ -369,7 +363,6 @@
         <view class="nsf-checklist-card-header">
           <view class="nsf-checklist-summary-row">
             <text class="nsf-checklist-summary-title">星舰动态追踪</text>
-            <text class="ll2-updates-sync-btn" catchtap="onRefreshLl2LaunchUpdates">{{ll2LaunchUpdatesLoading ? '…' : '刷新'}}</text>
           </view>
         </view>
         <view class="nsf-checklist-muted nsf-checklist-muted--pad" wx:if="{{ll2LaunchUpdatesLoading && ll2LaunchUpdates.length === 0}}">
@@ -449,7 +442,7 @@
   </view>
 
   <ai-chat id="ai-chat" />
-  <nasa-float />
+  <nasa-float id="nasaFloat" />
   <privacy-modal id="globalPrivacyModal"></privacy-modal>
   <popup-ad visible="{{popupAdVisible}}" shop-item="{{popupAdItem}}" bind:close="onPopupAdClose"></popup-ad>
   <demo-overlay id="demoOverlay" showControls="{{false}}" qrcodeUrl="https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%B0%8F%E7%A8%8B%E5%BA%8F%E4%BA%8C%E7%BB%B4%E7%A0%81/1775323336594_jkl6zv.png" loop="{{true}}" />

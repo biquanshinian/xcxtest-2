@@ -280,39 +280,11 @@ async function postLaunchSubscription(mission, options) {
 }
 
 /**
- * 服务号已覆盖发射前提醒：只弹结果模板，写入 result-only 订阅（reminderSent 直接为 true）。
+ * 服务号已覆盖发射前与结果通知：不再弹小程序结果模板。
  */
 async function subscribeResultOnlyViaOa(mission) {
-  var granted = await requestResultSubscribePermission()
-  if (!granted) {
-    wx.showToast({ title: '需要授权才能接收结果通知', icon: 'none' })
-    return false
-  }
-  if (!wx.cloud || !wx.cloud.callFunction) {
-    wx.showToast({ title: '云能力不可用', icon: 'none' })
-    return false
-  }
-  try {
-    var res = await postLaunchSubscription(mission, { resultQuota: true, reminderViaOa: true })
-    if (res.result && res.result.code === 0) {
-      saveLocalSubscription(mission.id, mission)
-      getRecordMilestone()('FIRST_SUBSCRIBE', { missionName: mission.missionName || mission.name })
-      var dup = res.result.data && res.result.data.duplicate
-      wx.showToast({
-        title: dup ? '结果通知已开启' : '已开启完成后结果通知',
-        icon: dup ? 'none' : 'success'
-      })
-      return true
-    }
-    wx.showToast({
-      title: (res.result && res.result.message) || '设置结果通知失败',
-      icon: 'none'
-    })
-    return false
-  } catch (e) {
-    wx.showToast({ title: '设置结果通知失败', icon: 'none' })
-    return false
-  }
+  wx.showToast({ title: '服务号已覆盖发射前与结果通知', icon: 'none' })
+  return true
 }
 
 
@@ -327,7 +299,7 @@ async function subscribeLaunch(mission) {
 
   }
 
-  // 服务号已覆盖发射前提醒：仍允许单独授权「任务完成提醒」
+  // 服务号已覆盖发射前与结果：直接提示，不再弹结果模板
   try {
     var oaAlert = require('./oa-alert.js')
     if (oaAlert && typeof oaAlert.isOaAlertReady === 'function') {

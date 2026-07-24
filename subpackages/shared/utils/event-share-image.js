@@ -50,6 +50,25 @@ function resolveTweetAccountAvatarUrl(source) {
   }
 }
 
+/**
+ * 事件头像防串：authorAvatar 必须落在该 source 的约定路径上，否则按 source 重建。
+ * 修复转推把别人头像写进错误账号、或历史脏数据导致 A 号显示 B 头像。
+ */
+function resolveEventAuthorAvatarUrl(item) {
+  const source = item && item.source ? String(item.source).trim() : ''
+  const fromSource = resolveTweetAccountAvatarUrl(source)
+  let avatar = item && item.authorAvatar ? String(item.authorAvatar).trim() : ''
+  if (avatar && source) {
+    const pathToken = '/avatars/' + source + '.jpg'
+    if (avatar.indexOf(pathToken) === -1) avatar = ''
+  }
+  // CDN 域名不含 .cos.；只拒绝明显非 COS/CDN 的代理脏链
+  if (avatar && avatar.indexOf('/avatars/') === -1 && avatar.indexOf('.cos.') === -1) {
+    avatar = ''
+  }
+  return avatar || fromSource || ''
+}
+
 function getNeutralDefaultShareImage() {
   if (_neutralDefaultCache) return _neutralDefaultCache
   try {
@@ -115,6 +134,7 @@ function pickEventShareImageUrl(item) {
   }
 
   const avatarPicked = pickHttpsFromCandidates(
+    resolveEventAuthorAvatarUrl(safe),
     safe.authorAvatarRemote,
     safe.authorAvatar,
     resolveTweetAccountAvatarUrl(safe.source)
@@ -127,6 +147,7 @@ function pickEventShareImageUrl(item) {
 module.exports = {
   pickEventShareImageUrl,
   resolveTweetAccountAvatarUrl,
+  resolveEventAuthorAvatarUrl,
   getNeutralDefaultShareImage,
   DEFAULT_EVENT_SHARE_IMAGE
 }

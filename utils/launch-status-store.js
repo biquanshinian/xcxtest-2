@@ -1,3 +1,14 @@
+/**
+ * 发射状态权威模型（收敛约定）
+ *
+ * - 角标权威：只信 launch_status 观测（及同构的 normalizeLaunchObservation）。
+ * - previous / upcoming / 详情缓存：只做 enrichment（图、垫、文案、序列）；其自带 status
+ *   仅作 bootstrap，一旦有 store 观测就由 projectBadgeOntoMission 覆盖。
+ * - 写入：hourly / resolve / detail-settle / updates(低优) → launch_status.merge
+ * - 读取：列表与详情统一 observationFromMission → mergeLaunchObservation → projectBadgeOntoMission
+ */
+const { getStatusCategory, getStatusBadgeText } = require('./api-request.js')
+
 const TERMINAL_STATUS_IDS = new Set([3, 4, 7, 9])
 const INFLIGHT_STATUS_ID = 6
 
@@ -51,12 +62,15 @@ function isSettledStatusId(id) {
 }
 
 function normalizeStatus(value) {
-  const status = value && value.status ? value.status : value
+  const status = value && value.status && typeof value.status === 'object' ? value.status : null
   const id = statusIdOf(value)
+  const nameFromObj = status && status.name
+  const nameFromScalar = value && typeof value.status === 'string' ? value.status : ''
+  const abbrevFromObj = status && status.abbrev
   return {
     id,
-    name: (status && status.name) || (value && value.status) || '',
-    abbrev: (status && status.abbrev) || (value && value.statusAbbrev) || ''
+    name: typeof nameFromObj === 'string' ? nameFromObj : nameFromScalar || '',
+    abbrev: typeof abbrevFromObj === 'string' ? abbrevFromObj : (value && value.statusAbbrev) || ''
   }
 }
 
@@ -123,8 +137,18 @@ function mergeLaunchObservation(currentValue, incomingValue, defaults) {
   const isRegression =
     (isTerminalStatusId(currentId) && !isTerminalStatusId(incomingId)) ||
     (isInflightStatusId(currentId) && !isSettledStatusId(incomingId))
+  const netMs = (() => {
+    const raw = incoming.net || current.net || ''
+    const t = raw ? new Date(raw).getTime() : NaN
+    return Number.isFinite(t) ? t : NaN
+  })()
+  const netStillUpcoming = Number.isFinite(netMs) && netMs > Date.now()
+  // NET 已过后禁止 resolve/detail 把飞行中打回 Go（详情缓存滞后）
+  const blockInflightToPending =
+    isInflightStatusId(currentId) && !isSettledStatusId(incomingId) && !netStillUpcoming
   const authoritativeCorrection =
     isRegression &&
+    !blockInflightToPending &&
     incoming.observedAtMs >= current.observedAtMs &&
     incoming.sourcePriority >= SOURCE_PRIORITY.resolve &&
     incoming.sourcePriority > current.sourcePriority
@@ -164,17 +188,92 @@ function mergeObservationList(recordsById, observations, defaults) {
 
 function applyRecordToMission(mission, record) {
   if (!mission || !record) return mission
+  return projectBadgeOntoMission(mission, record)
+}
+
+/**
+ * 从 mission 卡片/详情抽出一条可归并的状态观测（无 statusId 则返回 null）。
+ */
+function observationFromMission(mission, defaults = {}) {
+  if (!mission || mission.id == null) return null
+  const sid = mission.statusId != null ? Number(mission.statusId) : 0
+  if (!sid) return null
+  return normalizeLaunchObservation(
+    {
+      id: mission.id,
+      name: mission.name || mission.missionName || '',
+      net: mission.launchTime || mission.net || '',
+      windowStart: mission.windowStart || '',
+      windowEnd: mission.windowEnd || '',
+      status: {
+        id: sid,
+        name: mission.statusName || '',
+        abbrev: mission.statusAbbrev || ''
+      },
+      source: mission._launchStateSource || defaults.source || 'list',
+      sourcePriority: mission._launchStateSourcePriority || defaults.sourcePriority,
+      observedAtMs: mission._launchStateObservedAtMs || defaults.observedAtMs,
+      revision: mission._launchStateRevision
+    },
+    defaults
+  )
+}
+
+/**
+ * 用 store/观测投影角标到 mission。缓存行只提供 base enrichment。
+ */
+function projectBadgeOntoMission(mission, record) {
+  if (!mission) return mission
+  if (!record) return mission
   const status = normalizeStatus(record)
+  if (!status.id && !status.name && !status.abbrev) return mission
+  const statusObj = { id: status.id, name: status.name, abbrev: status.abbrev }
+  const category = getStatusCategory(statusObj)
+  const badge = getStatusBadgeText(statusObj, category)
   return {
     ...mission,
     launchTime: record.net || mission.launchTime,
     windowStart: record.windowStart || mission.windowStart,
     windowEnd: record.windowEnd || mission.windowEnd,
-    status: status.name || mission.status,
-    statusId: status.id || mission.statusId,
-    statusAbbrev: status.abbrev || mission.statusAbbrev,
-    _launchStateRevision: record.revision || 0
+    status: badge,
+    statusId: status.id || mission.statusId || null,
+    statusAbbrev: status.abbrev || '',
+    statusCategory: category,
+    statusBadgeText: badge,
+    success: category === 'success' || category === 'deployed',
+    isPartialFailure: category === 'partial',
+    isFailure: category === 'failure' || category === 'partial',
+    _launchStateRevision: record.revision || mission._launchStateRevision || 0,
+    _launchStateSource: record.source || mission._launchStateSource || '',
+    _launchStateObservedAtMs: record.observedAtMs || mission._launchStateObservedAtMs || 0
   }
+}
+
+/**
+ * 多源状态收敛：按 mergeLaunchObservation 规则选出权威观测，再投影角标。
+ * @param {object} mission enrichment 底座（图/垫/文案）
+ * @param {Array<object|null|undefined>} observations mission 卡片或已 normalize 的观测
+ */
+function applyAuthoritativeStatus(mission, observations, defaults) {
+  if (!mission) return mission
+  let current = null
+  const list = Array.isArray(observations) ? observations : []
+  for (let i = 0; i < list.length; i++) {
+    const raw = list[i]
+    if (!raw) continue
+    const looksNormalized =
+      raw.id != null &&
+      raw.status &&
+      typeof raw.status === 'object' &&
+      (raw.source != null || raw.observedAtMs != null || raw.sourcePriority != null)
+    const incoming = looksNormalized
+      ? normalizeLaunchObservation(raw, defaults)
+      : observationFromMission(raw, defaults)
+    if (!incoming) continue
+    current = mergeLaunchObservation(current, incoming)
+  }
+  if (!current) return mission
+  return projectBadgeOntoMission(mission, current)
 }
 
 function projectLaunchRecords(options = {}) {
@@ -240,5 +339,8 @@ module.exports = {
   mergeLaunchObservation,
   mergeObservationList,
   applyRecordToMission,
+  observationFromMission,
+  projectBadgeOntoMission,
+  applyAuthoritativeStatus,
   projectLaunchRecords
 }

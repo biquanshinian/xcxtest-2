@@ -35,6 +35,7 @@ const HOT_SYNC_KEYS = [
   '_knowledge_cards_cache',
   // news 页 onShow / 首屏
   '_articles_nav_ack_manual_updated_at',
+  '_photos_nav_ack_latest_at',
   'news_cache_articles_v5',
   'news_cache_events_v2',
   // nasa-float（挂在全部 Tab 页）
@@ -67,6 +68,7 @@ const HOT_SYNC_FALLBACKS = {
   '_milestone_claims_cache': [],
   '_knowledge_cards_cache': null,
   '_articles_nav_ack_manual_updated_at': 0,
+  '_photos_nav_ack_latest_at': 0,
   'news_cache_articles_v5': null,
   'news_cache_events_v2': null,
   '_float_visit_astro': '',

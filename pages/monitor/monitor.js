@@ -11,7 +11,7 @@ const { gateCheck, isMembershipEnabled, getMembershipState, isProSync, warmMembe
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { isLiveEntryAllowed, isPlaybackAllowed } = require('../../utils/feature-flags.js')
 const themeUtil = require('../../utils/theme.js')
-const { optimizeImageUrl } = require('../../utils/cos-url.js')
+const { optimizeImageUrl, videoSnapshotUrl } = require('../../utils/cos-url.js')
 const { advanceImageFallback } = require('../../utils/ll2-image.js')
 
 let _starlinkRenderer = null
@@ -92,17 +92,17 @@ PASS_METHODS.forEach((name) => {
 })
 
 // ========== 四个图鉴板块：整块逻辑在 monitor-pages 分包（monitor-galleries.js） ==========
-// 火箭族谱 / 飞船图鉴 / 发射场分布 / 发射商图鉴的加载、筛选、跳转全部拆出；
+// 火箭族谱 / 飞船图鉴 / 发射场分布 / 发射商图鉴的加载与跳转全部拆出（Tab 仅预览 2 卡）；
 // 展示层 booster-display 等 4 个 utils 也随之迁入分包。监控页在 preloadRule
 // 中预下载 monitor-pages，各板块自带 loading 骨架，首次进 Tab 无感知差异。
 const GALLERIES_PKG = '../../subpackages/monitor-pages/utils/monitor-galleries.js'
 const GALLERIES_METHODS = [
-  'loadBoosterGenealogy', 'applyBoosterFilter', 'onBoosterFilterTap', 'onViewAllBoosters',
-  'onRetryBoosterLoad', '_vibrateMedium', 'onBoosterScroll', '_rpxToPx',
+  'loadBoosterGenealogy', 'onViewAllBoosters',
+  'onRetryBoosterLoad',
   'onBoosterImageLoad', 'onBoosterImageError', 'onBoosterCardTap',
-  'loadSpacecraftGallery', 'applySpacecraftFilter', 'onSpacecraftFilterTap', 'onViewAllSpacecraft',
+  'loadSpacecraftGallery', 'onViewAllSpacecraft',
   'onRetrySpacecraftLoad', 'onSpacecraftImageError', 'onSpacecraftCardTap',
-  'loadLaunchSiteGallery', 'applyLaunchSiteFilter', 'onLaunchSiteFilterTap', 'onViewAllLaunchSites',
+  'loadLaunchSiteGallery', 'onViewAllLaunchSites',
   'onRetryLaunchSiteLoad', 'onLaunchSiteImageError', 'onLaunchSiteCardTap',
   'loadAgencies', 'onAgencyImageError', 'onViewAllAgencies', 'onAgencyTap',
   'tryOpenPendingAgencyDetail', 'retryLoadAgencies'
@@ -398,7 +398,7 @@ Page({
       bandwidth: '4.8 Tbps',
       uptime: '99.97%'
     },
-    orbitalCardBg: optimizeImageUrl('https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/SpaceX%E5%A4%AA%E7%A9%BA%E8%BD%A8%E9%81%93%E6%95%B0%E6%8D%AE%E4%B8%AD%E5%BF%83/1779046968216_7douwq.jpg', 'medium'),
+    orbitalCardBg: videoSnapshotUrl('https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E8%83%8C%E6%99%AF%E8%A7%86%E9%A2%91/1784884993160_b2tlgu.mp4') || '',
     orbitalCardBgIsVideo: false,
     pageDesc: 'SpaceX星舰Starbase基地实时监控·马斯克星链火箭回收太空航天追踪',
     channelsLiveStatus: 0,
@@ -442,30 +442,19 @@ Page({
     starlinkPaused: false,
     starlinkUpdateTime: '',
     starlinkReady: false,
-    // 助推器族谱
+    // 助推器族谱（Tab 预览 2 张，筛选/统计在全屏页）
     boosterList: [],
-    boosterStats: { activeCount: 0, maxFlights: 0, totalFlights: 0, manufacturerCount: 0 },
     boosterLoading: false,
     boosterLoadError: false,
     boosterImageLoadedMap: {},
-    boosterFilterChips: [],
-    boosterFilter: 'all',
-    boosterFilterEmpty: false,
-    // 全球飞船图鉴
+    // 全球飞船图鉴（Tab 预览 2 张）
     spacecraftList: [],
-    spacecraftStats: { inUseCount: 0, typeCount: 0, agencyCount: 0 },
     spacecraftLoading: false,
     spacecraftLoadError: false,
-    spacecraftFilterChips: [],
-    spacecraftFilter: 'all',
-    spacecraftFilterEmpty: false,
+    // 全球发射场分布（Tab 预览 2 张）
     launchSiteList: [],
-    launchSiteStats: { siteCount: 0, activeCount: 0, countryCount: 0, totalLaunches: 0 },
     launchSiteLoading: false,
     launchSiteLoadError: false,
-    launchSiteFilterChips: [],
-    launchSiteFilter: 'all',
-    launchSiteFilterEmpty: false,
     // Starlink 过境预报
     passList: [],
     passLocation: '',
@@ -621,28 +610,69 @@ Page({
     navigateTo(ROUTES.STARLINK_FULLSCREEN)
   },
 
-  /** 分享 */
+  /** 分享按钮点按时记下分区类型（兜底 dataset 丢失） */
+  markPendingShareType(e) {
+    const type = (e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.shareType) || ''
+    if (type) this._pendingShareType = type
+  },
+
+  /** 分享：分区深链到对应功能详情页，避免好友点开只落到监控 Tab */
   onShareAppMessage(e) {
     const ds = (e && e.target && e.target.dataset) || {}
-    const type = ds.shareType || ''
-    const base = { path: '/pages/monitor/monitor' }
+    // 分包组件内 share 按钮的 dataset 偶发丢；bindtap 会先写入 _pendingShareType
+    const type = ds.shareType || this._pendingShareType || ''
+    this._pendingShareType = ''
+    const monitorPath = '/pages/monitor/monitor'
 
     if (type === 'orbit') {
-      const count = (this.data.upcomingOrbitalEvents || []).length
-      return { ...base, title: count ? '即将进行的在轨任务 - ' + count + '个事件待执行 | 火星探索日志' : '即将进行的在轨任务追踪 | 火星探索日志' }
+      const events = this.data.upcomingOrbitalEvents || []
+      const count = events.length
+      const first = events[0]
+      const title = count
+        ? '即将进行的在轨任务 - ' + count + '个事件待执行 | 火星探索日志'
+        : '即将进行的在轨任务追踪 | 火星探索日志'
+      if (first && first.id != null) {
+        return {
+          title,
+          path: `${ROUTES.EVENT_DETAIL}?mode=ll2_event&id=${encodeURIComponent(first.id)}`
+        }
+      }
+      return { title, path: monitorPath }
     }
     if (type === 'station') {
-      const count = this.data.stationList.length
-      return { ...base, title: count ? '国际空间站 / 天宫空间站实时状态 - 当前收录' + count + '个空间站 | 火星探索日志' : '国际空间站 / 天宫空间站实时状态 | 火星探索日志' }
+      const list = this.data.stationList || []
+      const count = list.length
+      const first = list[0]
+      const title = count
+        ? '国际空间站 / 天宫空间站实时状态 - 当前收录' + count + '个空间站 | 火星探索日志'
+        : '国际空间站 / 天宫空间站实时状态 | 火星探索日志'
+      if (first && first.id != null) {
+        return {
+          title,
+          path: `${ROUTES.STATION_DETAIL}?id=${encodeURIComponent(first.id)}`
+        }
+      }
+      return { title, path: monitorPath }
     }
     if (type === 'starlink') {
-      return { ...base, title: 'Starlink卫星实时分布 - ' + this.data.starlinkCount + '颗在轨 | 火星探索日志' }
+      return {
+        title: 'Starlink卫星实时分布 - ' + this.data.starlinkCount + '颗在轨 | 火星探索日志',
+        path: ROUTES.STARLINK_FULLSCREEN
+      }
     }
     if (type === 'pass') {
-      const count = this.data.passList.length
-      return { ...base, title: count ? '星链过境预报 - 未来24小时共' + count + '次可见过境 | 火星探索日志' : '星链过境预报 | 火星探索日志' }
+      const count = (this.data.passList || []).length
+      const title = count
+        ? '星链过境预报 - 未来24小时共' + count + '次可见过境 | 火星探索日志'
+        : '星链过境预报 | 火星探索日志'
+      return {
+        title,
+        path: count
+          ? `${ROUTES.STARLINK_PASS_DETAIL}?count=${count}`
+          : ROUTES.STARLINK_PASS_DETAIL
+      }
     }
-    return { ...base, title: '监控中心 - SpaceX星舰基地实时监控 | 火星探索日志' }
+    return { path: monitorPath, title: '监控中心 - SpaceX星舰基地实时监控 | 火星探索日志' }
   },
 
   onShareTimeline() {
@@ -691,6 +721,13 @@ Page({
   /**
    * 原生三点下拉刷新（页面级 / scroll-view refresher 共用）— 只刷新已加载的模块
    */
+  onMonitorScroll() {
+    try {
+      const { pulseNasaFloatOnScroll } = require('../../utils/nasa-float-scroll.js')
+      pulseNasaFloatOnScroll(this)
+    } catch (e) {}
+  },
+
   onScrollRefresh() {
     this._runMonitorPullRefresh('scrollRefreshing')
   },

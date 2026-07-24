@@ -139,6 +139,16 @@
       </block>
 
       <block wx:elif="{{pageMode === 'll2_timeline' && !errorMessage}}">
+        <!-- 飞行剖面迷你演示：置于时间线详情上方；完整页走门控 -->
+        <view class="detail-flight-demo" wx:if="{{enableMissionSim && flightDemoTimeline.length}}">
+          <flight-profile-demo
+            mode="mini"
+            active="{{!loading && pageVisible}}"
+            missionName="{{flightDemoMissionName}}"
+            timeline="{{flightDemoTimeline}}"
+            bind:opentap="openFlightDemo"
+          />
+        </view>
         <view class="detail-card glass-card detail-ll2-page-card">
           <text class="detail-title">星舰飞行时间线</text>
           <view class="detail-ll2-toolbar">

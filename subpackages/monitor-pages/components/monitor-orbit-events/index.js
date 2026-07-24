@@ -14,6 +14,14 @@ Component({
     orbitalCountdown: { type: Object, value: {} }
   },
   methods: {
+    /** 分包组件内 open-type=share 的 dataset 偶发传不到页面，先在页面实例上打标 */
+    markShareOrbit() {
+      try {
+        const pages = getCurrentPages()
+        const page = pages && pages[pages.length - 1]
+        if (page) page._pendingShareType = 'orbit'
+      } catch (e) {}
+    },
     emitLoadTap() { this.triggerEvent('loadtap') },
     emitEventTap(e) { this.triggerEvent('eventtap', { id: (e.currentTarget.dataset || {}).id }) },
     emitImageError(e) {

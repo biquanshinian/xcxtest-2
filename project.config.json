@@ -79,6 +79,10 @@
         "type": "glob"
       },
       {
+        "value": "**/*.test.js",
+        "type": "glob"
+      },
+      {
         "value": "docs/**",
         "type": "glob"
       },

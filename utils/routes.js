@@ -22,6 +22,8 @@ const ROUTES = {
   ROAD_CLOSURE_MAP: '/subpackages/progress-extra/road-closure-map',
   ROAD_CLOSURE_DETAIL: '/subpackages/progress-extra/road-closure-detail',
   NEWS_DETAIL: '/subpackages/news-extra/detail',
+  PHOTO_DETAIL: '/subpackages/news-extra/photo-detail',
+  PHOTO_UPLOAD: '/subpackages/news-extra/photo-upload',
 
   // ── 分包页 ──
   BRIEFING: '/subpackages/shared/briefing',

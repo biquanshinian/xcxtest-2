@@ -12,11 +12,14 @@
 
 云端扫描与小程序「已完成任务」列表同源（LL2 previous 全发射商），按 launchId 一一对应。
 
-集锦匹配规则（服务端下发 `clipSearch` 线索）：
+集锦匹配规则（服务端下发 `clipSearch` 线索；Agent 侧 `clip-match.js` 做模糊归一化）：
 - 日期必须命中：SciNews 标题或简介固定含 UTC 日期（如 "…, 14 July 2026" / "on 16 July 2026"）。
 - 任务段关键词（starlink / spacesail / ms-29…）必须至少命中一个（标题或简介）；
   带数字的特征编号（10-45 / t1tl-e / ms-29 / 火箭型号 10b）存在时必须命中，是同日多发的硬区分。
-- 火箭段关键词（falcon / long march…）只加分不作准入；尾缀罗马数字自动扩展变体（Vikram-I ↔ Vikram-1）。
+- **分隔符模糊**：两侧去 `-`/`_`/`/`/空白后再比子串，因此
+  `Tianlian-2-06` ↔ `TianLian-2 06`、`Starlink 10-45` ↔ `Starlink 10 45` 都能中。
+- 火箭段关键词（falcon / long march…）只加分不作准入；`3B/E` 会展开为 `3b`/`3be`；
+  尾缀罗马数字自动扩展变体（Vikram-I ↔ Vikram-1）。
 - 对不上宁可不下，避免张冠李戴；没找到视频（可能还没发布）按 2h/4h/6h… 退避重试，最多 6 次。
 
 COS 存储生命周期：`发射回放/` 前缀 30 天自动删除（`POST /replay-agent/ensure-lifecycle` 幂等设置）；

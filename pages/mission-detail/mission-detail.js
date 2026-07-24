@@ -31,6 +31,7 @@ const config = require('../../utils/config.js')
 const { isLiveEntryAllowed, isFeatureEnabled } = require('../../utils/feature-flags.js')
 const { videoSnapshotUrl, optimizeImageUrl } = require('../../utils/cos-url.js')
 const { openBoosterEntityDetail, openRocketModelDetail } = require('../../utils/booster-nav.js')
+const { applyAuthoritativeStatus } = require('../../utils/launch-status-store.js')
 
 const CHANNELS_LIVE_PATH = '../../subpackages/shared/utils/channels-live.js'
 let _channelsLiveMod = null
@@ -1032,8 +1033,37 @@ Page({
       merged.rocketConfiguration || detail.rocketConfiguration || base.rocketConfiguration || null,
       true
     )
-    merged.statusCategory = detail.statusCategory || base.statusCategory || 'pending'
-    merged.statusBadgeText = detail.statusBadgeText || base.statusBadgeText || '计划中'
+    // 角标收敛：enrichment 合并后，status* 只走 launch_status 同构归并。
+    // 列表快照若无真实 observedAt，禁止补 Date.now()——否则陈旧「就绪」会因时间戳更新
+    // 把云端已 overlay 的飞行中/终态判成 older 而拒收。
+    const statusMerged = applyAuthoritativeStatus(
+      merged,
+      [
+        base.statusId
+          ? {
+              ...base,
+              _launchStateSource: base._launchStateSource || 'list',
+              _launchStateObservedAtMs: Number(base._launchStateObservedAtMs) || 0
+            }
+          : null,
+        detail.statusId
+          ? {
+              ...detail,
+              _launchStateSource: detail._launchStateSource || 'fetchLaunchDetail_status',
+              _launchStateObservedAtMs:
+                Number(detail._launchStateObservedAtMs) || Date.now()
+            }
+          : null
+      ]
+    )
+    merged.status = statusMerged.status
+    merged.statusId = statusMerged.statusId
+    merged.statusAbbrev = statusMerged.statusAbbrev
+    merged.statusCategory = statusMerged.statusCategory || 'pending'
+    merged.statusBadgeText = statusMerged.statusBadgeText || '计划中'
+    merged.success = statusMerged.success
+    merged.isPartialFailure = statusMerged.isPartialFailure
+    merged.isFailure = statusMerged.isFailure
     merged.missionName = detail.missionName || base.missionName || detail.name || base.name || '未知任务'
     merged.launchAgency = detail.launchAgency || base.launchAgency || ''
     merged.launchAgencyId = detail.launchAgencyId != null ? detail.launchAgencyId : (base.launchAgencyId != null ? base.launchAgencyId : null)
@@ -1732,14 +1762,29 @@ Page({
     if (!allowed) return
     const m = this.data.mission || {}
     const name = String(m.missionName || m.name || '星舰任务').trim()
+    const missionId = m.id != null ? String(m.id).trim() : ''
+    const detailType = this.data.detailType === 'completed' ? 'completed' : 'upcoming'
     if (wx.vibrateShort) {
       try { wx.vibrateShort({ type: 'light' }) } catch (e) {}
     }
+    // URL 带 id/type/name：分享冷启动可直达本页并自行拉时间线；eventChannel 仍传时间线本体秒开
+    const queryParts = []
+    if (missionId) {
+      queryParts.push(`id=${encodeURIComponent(missionId)}`)
+      queryParts.push(`type=${detailType}`)
+    }
+    if (name) queryParts.push(`name=${encodeURIComponent(name.slice(0, 80))}`)
+    const query = queryParts.length ? `?${queryParts.join('&')}` : ''
     wx.navigateTo({
-      url: '/subpackages/mission-sim/flight-demo',
+      url: '/subpackages/mission-sim/flight-demo' + query,
       success(res) {
         try {
-          res.eventChannel.emit('flightDemoContext', { name, rows: payload })
+          res.eventChannel.emit('flightDemoContext', {
+            name,
+            rows: payload,
+            id: missionId,
+            detailType
+          })
         } catch (e) {}
       }
     })
@@ -2329,19 +2374,23 @@ Page({
     if (!mission || !mission.id) return
     try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
     const oaReady = !!(this.data.oaAlertReady || peekOaAlertReady())
-    // 已订阅：OA 下关闭结果通知；非 OA 下保持提示（发射提醒+结果一体，避免误关）
-    if (this.data.missionSubscribed) {
-      if (oaReady) {
+    // OA 就绪：服务号已覆盖发射前与结果，点铃铛仅提示；遗留小程序结果订阅仍可关闭
+    if (oaReady) {
+      if (this.data.missionSubscribed) {
         this._subscribing = true
         try {
           await unsubscribeLaunch(mission.id)
           this.setData({ missionSubscribed: false })
-          wx.showToast({ title: '已关闭结果通知（服务号发射提醒仍有效）', icon: 'none' })
+          wx.showToast({ title: '已关闭本任务小程序结果订阅（服务号仍有效）', icon: 'none' })
         } finally {
           this._subscribing = false
         }
         return
       }
+      wx.showToast({ title: '服务号已覆盖发射前与结果通知', icon: 'none' })
+      return
+    }
+    if (this.data.missionSubscribed) {
       wx.showToast({ title: '已设置提醒（含结果通知）', icon: 'none' })
       return
     }
@@ -2453,15 +2502,16 @@ Page({
       const mission = this.data.mission
       const baseInfo = (mission && String(mission.id || '') === currentLaunchId) ? {
         launchTime: mission.launchTime || mission.windowStart || '',
-        status: this.data.detailType || '',
         statusCategory: mission.statusCategory || '',
         statusAbbrev: mission.statusAbbrev || '',
-        statusName: mission.statusBadgeText || mission.status || '',
+        statusName: mission.statusAbbrev || mission.statusBadgeText || mission.status || '',
+        statusId: mission.statusId != null ? mission.statusId : '',
         missionName: mission.missionName || mission.name || '',
         rocketName: mission.rocketName || ''
       } : {}
       const [ontimeStats, outcomeStats] = await Promise.all([
-        getVoteStats(launchId, skipCache, { ...baseInfo, voteType: 'ontime' }).catch(() => null),
+        // 准时仍可传 detailType=completed 触发历史场次结算；成败禁止用 detailType 兜底判失败
+        getVoteStats(launchId, skipCache, { ...baseInfo, voteType: 'ontime', status: this.data.detailType || '' }).catch(() => null),
         getVoteStats(launchId, skipCache, { ...baseInfo, voteType: 'outcome' }).catch(() => null)
       ])
       if (ontimeStats && !ontimeStats.myVote) ontimeStats.myVote = getLocalVote(launchId, 'ontime')
@@ -3104,12 +3154,28 @@ Page({
 
   onShareAppMessage() {
     const mission = this.data.mission
+    const route = this._entryRoute || {}
+    const missionId = (mission && mission.id != null)
+      ? mission.id
+      : (route.id != null ? route.id : '')
+    const detailType = this.data.detailType || route.detailType || 'upcoming'
+
+    // 数据尚未就绪时仍用入口 id 拼详情 path，避免分享落到首页 Tab
     if (!mission) {
-      return {
-        title: '发射任务详情 | 火星探索日志',
-        path: '/pages/index/index',
+      if (!missionId) {
+        return {
+          title: '发射任务详情 | 火星探索日志',
+          path: '/pages/index/index',
+          imageUrl: this.data.shareImage
+        }
+      }
+      const result = {
+        title: this.data.shareTitle || '发射任务详情 | 火星探索日志',
+        path: buildMissionDetailUrl({ id: missionId, detailType }),
         imageUrl: this.data.shareImage
       }
+      result.path = withShareStampPath(result.path, this)
+      return result
     }
 
     const result = buildMissionShareOptions({
@@ -3118,7 +3184,7 @@ Page({
       title: this.data.shareTitle,
       imageUrl: this.data.shareImage,
       fallbackTitle: '发射任务详情 | 火星探索日志',
-      fallbackPath: '/pages/index/index',
+      fallbackPath: buildMissionDetailUrl({ id: missionId, detailType }),
       mode: 'app'
     })
     // 有权益用户分享写新 sst（接收者 24h 免门控看回放）；窗口内接收者转发继承原 sst
@@ -3128,9 +3194,16 @@ Page({
 
   onShareTimeline() {
     const mission = this.data.mission
+    const route = this._entryRoute || {}
+    const missionId = (mission && mission.id != null)
+      ? mission.id
+      : (route.id != null ? route.id : '')
+    const detailType = this.data.detailType || route.detailType || 'upcoming'
+    const shareMission = mission || (missionId ? { id: missionId } : null)
+
     const result = buildMissionShareOptions({
-      mission,
-      detailType: this.data.detailType,
+      mission: shareMission,
+      detailType,
       title: this.data.shareTitle,
       imageUrl: this.data.shareImage,
       fallbackTitle: '发射任务详情 | 火星探索日志',

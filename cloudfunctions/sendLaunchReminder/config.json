@@ -1,57 +1,32 @@
 {
-
   "timeout": 60,
-
   "triggers": [
-
     {
-
       "name": "launchReminderTrigger",
-
       "type": "timer",
-
       "config": "0 */10 * * * * *"
-
     }
-
   ],
-
   "environment": [
-
     {
-
       "key": "WECHAT_OA_TEMPLATE_ID",
-
       "value": "FBII5P7WK3Eqf7-nmcOxBHWz-pHzfyVEdxY2nB79KdU"
-
     },
-
     {
-
       "key": "WECHAT_OA_TMPL_FIELD_MISSION",
-
       "value": "thing9"
-
     },
-
     {
-
       "key": "WECHAT_OA_TMPL_FIELD_TIME",
-
       "value": "time14"
-
     },
-
     {
-
       "key": "WECHAT_OA_TMPL_FIELD_CODE",
-
       "value": "character_string1"
-
+    },
+    {
+      "key": "WECHAT_OA_RESULT_TEMPLATE_ID",
+      "value": "g8f6Aa4G2BW0QDiYX74nLuxYCsF0DrXc-Z3EkRJTLcE"
     }
-
   ]
-
 }
-
-

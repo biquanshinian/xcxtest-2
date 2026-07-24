@@ -684,14 +684,15 @@ const IDLE_LOOKAHEAD_MS = 48 * 60 * 60 * 1000
 
 async function isIdleTick() {
   const now = Date.now()
-  const upcomingRes = await db
+  // 向前看 48h（发射前）+ 向后看 48h（终态结果通知窗口），避免结果尚未推就空跑早退
+  const windowRes = await db
     .collection(LAUNCH_DATA_COLLECTION)
     .where({
-      windowStart: _.gte(new Date(now - 2 * 60 * 60 * 1000)).and(_.lte(new Date(now + IDLE_LOOKAHEAD_MS)))
+      windowStart: _.gte(new Date(now - IDLE_LOOKAHEAD_MS)).and(_.lte(new Date(now + IDLE_LOOKAHEAD_MS)))
     })
     .limit(1)
     .get()
-  if ((upcomingRes.data || []).length > 0) return false
+  if ((windowRes.data || []).length > 0) return false
   const subRes = await db.collection(SUBSCRIBE_COLLECTION).limit(1).get()
   if ((subRes.data || []).length > 0) return false
   return true
@@ -751,10 +752,11 @@ exports.main = async (event) => {
 
   // 生产自动链路（定时器 launchReminderTrigger 每 10 分钟，config: 0 */10 * * * * *）：
   // 1) syncLaunchDataFromCache ← space_devs_cache upcoming
-  // 1b) 空跑早退 ← 48h 内无发射且无待处理订阅时到此为止
+  // 1b) 空跑早退 ← ±48h 无发射窗口且无待处理订阅时到此为止
   // 2) reconcilePendingSubscriptionsNotifyTimes ← A 通道改期对齐
   // 3) sendPendingReminders ← launch_subscriptions 小程序发射前提醒
-  // 3b) sendPendingResultNotifications ← 终态后「任务完成提醒」
+  // 3b) sendPendingResultNotifications ← 终态后「任务完成提醒」（跳过 OA 就绪用户）
+  // 3c) sendOAResultAlerts ← 终态后服务号结果模板 → oa_auto_alert_users
   // 4) sendOATemplateAlerts ← launch_data 扫 T-30min 窗 + oa_auto_alert_users
   // 5) sendOASubscribeAlerts ← 服务号订阅通知
   // 6) matchPreferencesAndCreateSubscriptions ← 偏好自动建订阅
@@ -799,6 +801,12 @@ exports.main = async (event) => {
     } catch (rnErr) {
       resultNotify = { success: false, error: rnErr.message || String(rnErr) }
     }
+    let oaResultNotify = { skipped: true }
+    try {
+      oaResultNotify = await sendOAResultAlerts()
+    } catch (oaRnErr) {
+      oaResultNotify = { success: false, error: oaRnErr.message || String(oaRnErr) }
+    }
     let oaResult = { skipped: true }
     try {
       oaResult = await sendOATemplateAlerts()
@@ -817,7 +825,15 @@ exports.main = async (event) => {
     if (new Date().getMinutes() < 10) {
       await matchPreferencesAndCreateSubscriptions()
     }
-    return { ...result, resultNotify, oaResult, oaSubscribeResult, reconcileStats, launchDataSync }
+    return {
+      ...result,
+      resultNotify,
+      oaResultNotify,
+      oaResult,
+      oaSubscribeResult,
+      reconcileStats,
+      launchDataSync
+    }
   }
 
   if (action === 'envCheck') {
@@ -837,6 +853,7 @@ exports.main = async (event) => {
       WECHAT_OA_APPID: !!String(process.env.WECHAT_OA_APPID || '').trim(),
       WECHAT_OA_SECRET: !!String(process.env.WECHAT_OA_SECRET || '').trim(),
       WECHAT_OA_TEMPLATE_ID: !!String(process.env.WECHAT_OA_TEMPLATE_ID || '').trim(),
+      WECHAT_OA_RESULT_TEMPLATE_ID: !!String(process.env.WECHAT_OA_RESULT_TEMPLATE_ID || '').trim(),
       RESULT_TEMPLATE_ID: !!RESULT_TEMPLATE_ID,
       RESULT_TMPL_FIELDS: RESULT_TEMPLATE_FIELDS,
       WECHAT_OA_TMPL_FIELD_MISSION: !!String(process.env.WECHAT_OA_TMPL_FIELD_MISSION || '').trim(),
@@ -845,6 +862,13 @@ exports.main = async (event) => {
       WECHAT_OA_TMPL_FIELD_RECOVERY: !!String(process.env.WECHAT_OA_TMPL_FIELD_RECOVERY || '').trim(),
       WECHAT_OA_TMPL_FIELD_REMARK: !!String(process.env.WECHAT_OA_TMPL_FIELD_REMARK || '').trim(),
       WECHAT_OA_TMPL_FIELD_CODE: !!String(process.env.WECHAT_OA_TMPL_FIELD_CODE || '').trim(),
+      WECHAT_OA_RESULT_TMPL_FIELD_MISSION: !!String(process.env.WECHAT_OA_RESULT_TMPL_FIELD_MISSION || '').trim(),
+      WECHAT_OA_RESULT_TMPL_FIELD_TIME: !!String(process.env.WECHAT_OA_RESULT_TMPL_FIELD_TIME || '').trim(),
+      WECHAT_OA_RESULT_TMPL_FIELD_RESULT: !!String(process.env.WECHAT_OA_RESULT_TMPL_FIELD_RESULT || '').trim(),
+      WECHAT_OA_RESULT_TMPL_FIELD_ROCKET: !!String(process.env.WECHAT_OA_RESULT_TMPL_FIELD_ROCKET || '').trim(),
+      WECHAT_OA_RESULT_TMPL_FIELD_REMARK: !!String(process.env.WECHAT_OA_RESULT_TMPL_FIELD_REMARK || '').trim(),
+      WECHAT_OA_RESULT_TMPL_FIELD_CODE: !!String(process.env.WECHAT_OA_RESULT_TMPL_FIELD_CODE || '').trim(),
+      WECHAT_OA_RESULT_EFFECTIVE_FIELDS: getOaResultTemplateFieldKeys(),
       WECHAT_OA_SUBSCRIBE_TEMPLATE_ID: !!String(process.env.WECHAT_OA_SUBSCRIBE_TEMPLATE_ID || '').trim()
     }
 
@@ -1023,7 +1047,13 @@ exports.main = async (event) => {
   if (action === 'sendResultOnly') {
     try {
       const resultNotify = await sendPendingResultNotifications()
-      return { success: true, resultNotify }
+      let oaResultNotify = { skipped: true }
+      try {
+        oaResultNotify = await sendOAResultAlerts()
+      } catch (oaRnErr) {
+        oaResultNotify = { success: false, error: oaRnErr.message || String(oaRnErr) }
+      }
+      return { success: true, resultNotify, oaResultNotify }
     } catch (e) {
       return { success: false, error: e.message || String(e) }
     }
@@ -1496,7 +1526,7 @@ function buildResultSubscribeData(record, statusInfo, fieldEntries) {
  */
 async function sendPendingResultNotifications() {
   const now = Date.now()
-  const stats = { sentOk: 0, failed: 0, skipped: 0, checked: 0 }
+  const stats = { sentOk: 0, failed: 0, skipped: 0, skippedOaReady: 0, checked: 0 }
   if (!RESULT_TEMPLATE_ID) {
     return { success: true, skipped: true, reason: 'no_result_template', ...stats }
   }
@@ -1533,6 +1563,13 @@ async function sendPendingResultNotifications() {
   if (!records.length) {
     return { success: true, message: 'no pending results', ...stats }
   }
+
+  // 服务号就绪用户改由 sendOAResultAlerts 推结果，避免双推
+  let oaReadyMpSet = new Set()
+  try {
+    const sets = await loadOaReadyUserSets()
+    oaReadyMpSet = sets.mpSet || new Set()
+  } catch (e) {}
 
   let settledById = new Map()
   try {
@@ -1604,6 +1641,11 @@ async function sendPendingResultNotifications() {
     const mid = record.missionId
     if (!record._openid || !mid) {
       stats.skipped++
+      continue
+    }
+    if (oaReadyMpSet.has(String(record._openid))) {
+      stats.skipped++
+      stats.skippedOaReady++
       continue
     }
     const terminal = await resolveTerminal(mid)
@@ -1791,7 +1833,7 @@ var OA_TMPL_FIELD_DEFAULTS = {
   // 「巡检任务工单派发通知」FBII5P7WK3Eqf7-nmcOxBHWz-pHzfyVEdxY2nB79KdU 仅 3 字段：
   //   thing9          → 任务名称 missionName（thing，可含中文，≤20 字符）
   //   time14          → 发射时间 launchTimeFormatted（time）
-  //   character_string1 → 工单编号槽位展示火箭型号 rocketName（character_string，仅 ASCII；为空退回 launch.id）
+  //   character_string1 → 工单编号槽位展示火箭型号 ASCII（为空再试任务名，禁止 UUID）
   // 火箭名走 character_string1 槽位；如模板另有 thing 字段可用 WECHAT_OA_TMPL_FIELD_ROCKET 指定。
   mission: 'thing9',
   time: 'time14',
@@ -1828,14 +1870,24 @@ function toOaThingValue(raw, fallback) {
   return chars.slice(0, 20).join('')
 }
 
-/** 工单编号槽位改为展示火箭型号（character_string 仅允许 ASCII，过滤后为空再退回 launch.id / _id） */
+/**
+ * 车辆/工单编号槽位（character_string 仅 ASCII）：
+ * 优先火箭名 ASCII → 任务名 ASCII → N/A。
+ * 禁止回退 launch UUID（用户侧会看成乱码）。
+ */
 function pickLaunchCodeId(launch) {
   if (!launch) return ''
-  var rocket = String(launch.rocketName || '')
-    .replace(/[^\x20-\x7E]/g, '')
-    .trim()
-  if (rocket) return rocket
-  return String(launch.id || launch._id || '')
+  function toAscii(raw) {
+    return String(raw || '')
+      .replace(/[^\x20-\x7E]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+  var rocket = toAscii(launch.rocketName)
+  if (rocket) return rocket.substring(0, 32)
+  var mission = toAscii(launch.missionName || launch.name)
+  if (mission) return mission.substring(0, 32)
+  return 'N/A'
 }
 
 function pickLaunchRemark(launch) {
@@ -1942,12 +1994,13 @@ async function writeOaPushLedger(entry) {
   try {
     await db.collection(OA_PUSH_LEDGER).add({
       data: {
-        channel: 'template',
+        channel: entry.channel || 'template',
         missionId: String(entry.missionId || ''),
         oaOpenid: entry.oaOpenid || '',
         mpOpenid: entry.mpOpenid || '',
         missionName: entry.missionName || '',
         netKey: entry.netKey ? String(entry.netKey) : '',
+        resultText: entry.resultText ? String(entry.resultText).slice(0, 40) : '',
         status: entry.status || 'ok',
         error: entry.error ? String(entry.error).slice(0, 500) : '',
         sentAt: Date.now()
@@ -2145,6 +2198,346 @@ async function sendOATemplateAlerts() {
   }
 
   return { success: true, message: 'oa done', ...stats }
+}
+
+// ── 服务号 B 通道：终态结果模板消息 ──
+//
+// 环境变量（云开发控制台 → sendLaunchReminder）：
+// - WECHAT_OA_RESULT_TEMPLATE_ID              结果模板 ID（必填才发送；字段有代码默认值）
+// - WECHAT_OA_RESULT_TMPL_FIELD_*             可选覆盖；未设置则用下方「工单已生成通知」默认 key
+//
+// 当前默认对应「工单已生成通知」g8f6Aa4G2BW0QDiYX74nLuxYCsF0DrXc-Z3EkRJTLcE：
+//   thing33            → 项目名称 missionName
+//   time20             → 发起时间 launchTimeFormatted
+//   thing4             → 工单状态 resultText（已成功/失败等）
+//   character_string46 → 车辆编号槽位展示火箭型号（ASCII）
+//
+// 未配置模板 ID 时整段跳过，不影响 T-30。
+// 去重：oa_push_ledger channel='result' + missionId + oaOpenid（终态每任务只推一次）。
+
+const OA_RESULT_LOOKBACK_MS = 48 * 60 * 60 * 1000
+
+var OA_RESULT_TMPL_FIELD_DEFAULTS = {
+  mission: 'thing33',
+  time: 'time20',
+  result: 'thing4',
+  rocket: '',
+  remark: '',
+  code: 'character_string46'
+}
+
+function getOaResultTemplateId() {
+  return String(process.env.WECHAT_OA_RESULT_TEMPLATE_ID || '').trim()
+}
+
+function getOaResultTemplateFieldKeys() {
+  return {
+    mission: String(process.env.WECHAT_OA_RESULT_TMPL_FIELD_MISSION || OA_RESULT_TMPL_FIELD_DEFAULTS.mission).trim(),
+    time: String(process.env.WECHAT_OA_RESULT_TMPL_FIELD_TIME || OA_RESULT_TMPL_FIELD_DEFAULTS.time).trim(),
+    result: String(process.env.WECHAT_OA_RESULT_TMPL_FIELD_RESULT || OA_RESULT_TMPL_FIELD_DEFAULTS.result).trim(),
+    rocket: String(process.env.WECHAT_OA_RESULT_TMPL_FIELD_ROCKET || OA_RESULT_TMPL_FIELD_DEFAULTS.rocket).trim(),
+    remark: String(process.env.WECHAT_OA_RESULT_TMPL_FIELD_REMARK || OA_RESULT_TMPL_FIELD_DEFAULTS.remark).trim(),
+    code: String(process.env.WECHAT_OA_RESULT_TMPL_FIELD_CODE || OA_RESULT_TMPL_FIELD_DEFAULTS.code).trim()
+  }
+}
+
+function buildOaResultTemplateData(opts) {
+  var missionName = opts && opts.missionName
+  var rocketName = opts && opts.rocketName
+  var launchTimeFormatted = opts && opts.launchTimeFormatted
+  var resultText = opts && opts.resultText
+  var remark = opts && opts.remark
+  var codeId = opts && opts.codeId
+  var keys = getOaResultTemplateFieldKeys()
+  var data = {}
+  if (keys.mission) {
+    data[keys.mission] = { value: toOaThingValue(missionName, '未知任务') }
+  }
+  if (keys.time) {
+    data[keys.time] = { value: String(launchTimeFormatted || '时间未知').substring(0, 20) }
+  }
+  if (keys.result) {
+    data[keys.result] = { value: toOaThingValue(resultText, '已完成') }
+  }
+  if (keys.rocket) {
+    data[keys.rocket] = { value: toOaThingValue(rocketName, '未知火箭') }
+  }
+  if (keys.remark) {
+    data[keys.remark] = { value: toOaThingValue(remark, '') }
+  }
+  if (keys.code) {
+    data[keys.code] = { value: toOaCharacterStringValue(codeId, 'Launch') }
+  }
+  return data
+}
+
+async function hasOaResultLedger(missionId, oaOpenid) {
+  const where = {
+    missionId: String(missionId),
+    oaOpenid: oaOpenid,
+    channel: 'result',
+    status: 'ok'
+  }
+  const res = await db
+    .collection(OA_PUSH_LEDGER)
+    .where(where)
+    .limit(1)
+    .get()
+    .catch(() => ({ data: [] }))
+  return !!(res.data && res.data.length)
+}
+
+/** 过去 48h 内已过 NET 的 launch_data（供终态结果扫描） */
+async function findRecentlyPastLaunches(nowMs) {
+  const res = await db
+    .collection(LAUNCH_DATA_COLLECTION)
+    .where({
+      windowStart: _.gte(new Date(nowMs - OA_RESULT_LOOKBACK_MS)).and(_.lte(new Date(nowMs)))
+    })
+    .limit(50)
+    .get()
+    .catch(() => ({ data: [] }))
+  return res.data || []
+}
+
+/**
+ * 结果候选：launch_data 近 48h 已过 NET + launch_status 近期终态兜底
+ * （防止任务已不在 upcoming、或 sync 间隙导致 launch_data 暂缺而漏推）
+ */
+async function findOaResultCandidateLaunches(nowMs) {
+  const byId = new Map()
+  const past = await findRecentlyPastLaunches(nowMs)
+  for (let i = 0; i < past.length; i++) {
+    const l = past[i]
+    const id = String((l && (l._id || l.id)) || '')
+    if (id) byId.set(id, l)
+  }
+  try {
+    const stRes = await db
+      .collection(LAUNCH_STATUS_COLLECTION)
+      .orderBy('observedAtMs', 'desc')
+      .limit(40)
+      .get()
+    const rows = (stRes && stRes.data) || []
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]
+      const id = String((row && (row._id || row.id)) || '')
+      if (!id || byId.has(id)) continue
+      const statusId = row.status && row.status.id != null ? Number(row.status.id) : 0
+      if (!isTerminalStatusId(statusId)) continue
+      const netRaw = row.net || row.windowStart || ''
+      const netMs = netRaw ? new Date(netRaw).getTime() : Number(row.settledAtMs || row.observedAtMs) || 0
+      if (netMs && (nowMs - netMs > OA_RESULT_LOOKBACK_MS || netMs > nowMs + 60 * 60 * 1000)) {
+        continue
+      }
+      byId.set(id, {
+        _id: id,
+        id: id,
+        missionName: row.name || '',
+        name: row.name || '',
+        rocketName: '',
+        launchTime: netRaw || '',
+        windowStart: row.windowStart || netRaw || '',
+        statusId: statusId,
+        status: (row.status && row.status.name) || ''
+      })
+    }
+  } catch (e) {
+    // 无 observedAtMs 索引时忽略，仍依赖 launch_data
+  }
+  return Array.from(byId.values())
+}
+
+/**
+ * 对 oa_auto_alert_users 推送终态结果（服务号模板消息）。
+ * 与小程序 sendPendingResultNotifications 互斥：就绪用户只走本通道。
+ */
+async function sendOAResultAlerts() {
+  const templateId = getOaResultTemplateId()
+  if (!templateId || !getOaCredentials()) {
+    return { success: true, skipped: true, reason: 'oa_result_not_configured' }
+  }
+  const fieldKeys = getOaResultTemplateFieldKeys()
+  if (!fieldKeys.mission || !fieldKeys.result) {
+    return { success: true, skipped: true, reason: 'oa_result_fields_not_configured' }
+  }
+
+  const nowMs = Date.now()
+  const stats = { sentOk: 0, failed: 0, skipped: 0, missions: 0, checked: 0 }
+
+  const pastLaunches = await findOaResultCandidateLaunches(nowMs)
+  if (!pastLaunches.length) {
+    return { success: true, message: 'no recent past launches', ...stats }
+  }
+
+  const usersRes = await db
+    .collection(OA_AUTO_ALERT_USERS)
+    .where({ enabled: true, followed: true })
+    .limit(200)
+    .get()
+    .catch(() => ({ data: [] }))
+  const users = (usersRes.data || []).filter(function (u) {
+    return u && u.oaOpenid
+  })
+  if (!users.length) {
+    return { success: true, message: 'no oa subscribers', ...stats }
+  }
+
+  const missionIds = pastLaunches
+    .map(function (l) {
+      return String((l && (l._id || l.id)) || '')
+    })
+    .filter(Boolean)
+
+  let settledById = new Map()
+  try {
+    const list = await loadLaunchStatuses(missionIds)
+    for (let i = 0; i < list.length; i++) {
+      const row = list[i]
+      if (row && row.id && row.status) settledById.set(String(row.id), row)
+    }
+  } catch (e) {}
+
+  // 有已过 NET 但终态缓存未命中时，触发一次实况刷新（与小程序结果通道一致）
+  const needsRefresh = pastLaunches.some(function (l) {
+    const id = String((l && (l._id || l.id)) || '')
+    if (!id) return false
+    if (settledById.has(id) && isTerminalStatusId(settledById.get(id).status && settledById.get(id).status.id)) {
+      return false
+    }
+    if (l && isTerminalStatusId(l.statusId)) return false
+    return true
+  })
+  if (needsRefresh) {
+    try {
+      await cloud.callFunction({ name: 'll2Query', data: { action: 'fetchLaunchStatuses' } })
+      const list2 = await loadLaunchStatuses(missionIds)
+      for (let i = 0; i < list2.length; i++) {
+        const row = list2[i]
+        if (row && row.id && row.status) settledById.set(String(row.id), row)
+      }
+    } catch (e) {
+      console.warn('[OAResult] settled refresh fail:', e.message || e)
+    }
+  }
+
+  const terminals = []
+  for (let li = 0; li < pastLaunches.length; li++) {
+    const launch = pastLaunches[li]
+    const missionId = String((launch && (launch._id || launch.id)) || '')
+    if (!missionId) continue
+    stats.checked++
+
+    let resultText = ''
+    const hit = settledById.get(missionId)
+    if (hit && hit.status && isTerminalStatusId(hit.status.id)) {
+      resultText = resultTextFromStatus(hit.status)
+    } else if (launch && isTerminalStatusId(launch.statusId)) {
+      resultText =
+        TERMINAL_RESULT_TEXT[Number(launch.statusId)] ||
+        resultTextFromStatus({ id: launch.statusId, name: launch.status })
+    }
+    if (!resultText) continue
+
+    terminals.push({
+      launch: launch,
+      missionId: missionId,
+      resultText: resultText
+    })
+  }
+
+  if (!terminals.length) {
+    return { success: true, message: 'no terminal launches', ...stats }
+  }
+  stats.missions = terminals.length
+
+  for (let ti = 0; ti < terminals.length; ti++) {
+    const item = terminals[ti]
+    const launch = item.launch
+    const missionId = item.missionId
+    const resultText = item.resultText
+
+    const launchTime = launch.windowStart || launch.launchTime || ''
+    const launchTimeIso = toLaunchIso(launchTime)
+    const launchTimeFormatted = formatLaunchTimeStr(launchTimeIso || launchTime)
+    const missionName = (launch.missionName || launch.name || '未知任务').substring(0, 20)
+    const rocketName = (launch.rocketName || '未知火箭').substring(0, 20)
+    const remark = pickLaunchRemark(launch)
+    const codeId = pickLaunchCodeId(launch)
+    const pagepath = 'pages/mission-detail/mission-detail?id=' + missionId + '&type=completed'
+    const templateData = buildOaResultTemplateData({
+      missionName: missionName,
+      rocketName: rocketName,
+      launchTimeFormatted: launchTimeFormatted,
+      resultText: resultText,
+      remark: remark,
+      codeId: codeId
+    })
+
+    const seenOaOpenids = {}
+    for (let ui = 0; ui < users.length; ui++) {
+      const user = users[ui]
+      const oaOpenid = user.oaOpenid
+      if (!oaOpenid) {
+        stats.skipped++
+        continue
+      }
+      if (seenOaOpenids[oaOpenid]) {
+        stats.skipped++
+        continue
+      }
+      seenOaOpenids[oaOpenid] = true
+
+      if (await hasOaResultLedger(missionId, oaOpenid)) {
+        stats.skipped++
+        continue
+      }
+
+      try {
+        await sendOaTemplateMessage(oaOpenid, templateId, pagepath, templateData)
+        stats.sentOk++
+        await writeOaPushLedger({
+          channel: 'result',
+          missionId: missionId,
+          oaOpenid: oaOpenid,
+          mpOpenid: user.mpOpenid || '',
+          missionName: missionName,
+          resultText: resultText,
+          status: 'ok'
+        })
+      } catch (sendErr) {
+        const ec = sendErr && sendErr.errcode
+        console.error('[OAResult] send fail', missionId + '_' + oaOpenid, sendErr.message || sendErr)
+        if (ec === 40258) {
+          stats.sentOk++
+          await writeOaPushLedger({
+            channel: 'result',
+            missionId: missionId,
+            oaOpenid: oaOpenid,
+            mpOpenid: user.mpOpenid || '',
+            missionName: missionName,
+            resultText: resultText,
+            status: 'ok',
+            error: '40258 dedup-as-delivered'
+          })
+        } else {
+          stats.failed++
+          await writeOaPushLedger({
+            channel: 'result',
+            missionId: missionId,
+            oaOpenid: oaOpenid,
+            mpOpenid: user.mpOpenid || '',
+            missionName: missionName,
+            resultText: resultText,
+            status: 'failed',
+            error: sendErr.message || String(sendErr)
+          })
+        }
+      }
+    }
+  }
+
+  return { success: true, message: 'oa result done', ...stats }
 }
 
 // ── C 通道：服务号「订阅通知」(bizsend) 发射前 30 分钟推送 ──

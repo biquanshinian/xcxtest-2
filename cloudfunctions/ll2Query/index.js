@@ -555,6 +555,40 @@ function isTerminalLaunchDetail(detail) {
   return !!TERMINAL_STATUS_IDS[sid]
 }
 
+/**
+ * 详情缓存可能仍是发射前 Go；若 launch_status 已是飞行中/终态，用 store 覆盖返回 status，
+ * 避免详情角标「就绪」与历史卡「飞行中」分裂。不回写详情缓存正文（等 TTL / 强制刷新）。
+ */
+async function overlayDetailStatusFromLaunchStore(detail, launchId) {
+  if (!detail || !launchId) return false
+  let rows = []
+  try {
+    rows = await launchStatusStore.getByIds([String(launchId)])
+  } catch (e) {
+    return false
+  }
+  const stored = rows && rows[0]
+  if (!stored || !stored.status) return false
+  const storeSid = stored.status.id != null ? Number(stored.status.id) : 0
+  const cacheSid = detail.status && detail.status.id != null ? Number(detail.status.id) : 0
+  const storeSettled = !!TERMINAL_STATUS_IDS[storeSid] || storeSid === INFLIGHT_STATUS_ID
+  const cacheSettled = !!TERMINAL_STATUS_IDS[cacheSid] || cacheSid === INFLIGHT_STATUS_ID
+  const storeTerminal = !!TERMINAL_STATUS_IDS[storeSid]
+  const cacheTerminal = !!TERMINAL_STATUS_IDS[cacheSid]
+  const shouldOverlay =
+    (storeSettled && !cacheSettled) || (storeTerminal && !cacheTerminal && cacheSid === INFLIGHT_STATUS_ID)
+  if (!shouldOverlay) return false
+  detail.status = {
+    id: stored.status.id,
+    name: stored.status.name || '',
+    abbrev: stored.status.abbrev || ''
+  }
+  if (stored.net) detail.net = stored.net
+  if (stored.windowStart) detail.window_start = stored.windowStart
+  if (stored.windowEnd) detail.window_end = stored.windowEnd
+  return true
+}
+
 async function fetchLaunchDetailAction(event) {
   const startTime = Date.now()
   try {
@@ -595,14 +629,68 @@ async function fetchLaunchDetailAction(event) {
                 })
             } catch (e) {}
           }
-          // 缓存命中也顺带把终态回写 recent_settled / previous（0 额外 LL2）；
-          // 终态不可变，同实例只做一次，后续命中直接返回不再拖 settle 读写
+          // 缓存命中：仅终态 settle 写库（同实例一次）。飞行中只靠 overlay 对齐角标，
+          // 禁止用可能陈旧的「飞行中」详情缓存反复 upsert，否则会刷新 observedAtMs、压住后续终态。
           if (isTerminalLaunchDetail(detail) && !_detailSettleDone.has(String(launchId))) {
             try {
               await settleTerminalFromLaunchDetail(detail, now, 'fetchLaunchDetail_cached')
             } catch (e) {}
             markDetailSettled(launchId)
           }
+          try {
+            await overlayDetailStatusFromLaunchStore(detail, launchId)
+          } catch (e) {}
+
+          // 时序闭环：NET 已过但详情缓存仍是 Go，且 store 也 overlay 不上 →
+          // 不信 3.5h 长 TTL，用 mode=list 轻量补 status（受 resolve 小时额度约束）。
+          const sidAfter = detail.status && detail.status.id != null ? Number(detail.status.id) : 0
+          const settledAfter =
+            !!TERMINAL_STATUS_IDS[sidAfter] || sidAfter === INFLIGHT_STATUS_ID
+          const netMs = detail.net ? new Date(detail.net).getTime() : NaN
+          const netPassed = Number.isFinite(netMs) && netMs <= now - 60 * 1000
+          if (!settledAfter && netPassed) {
+            try {
+              const granted = await acquireResolveBudget(1)
+              if (granted > 0) {
+                const live = await fetchLaunchStatusSingleFlight(launchId)
+                if (live && live.status) {
+                  detail.status = {
+                    id: live.status.id,
+                    name: live.status.name || '',
+                    abbrev: live.status.abbrev || ''
+                  }
+                  if (live.net) detail.net = live.net
+                  if (live.window_start) detail.window_start = live.window_start
+                  if (live.window_end) detail.window_end = live.window_end
+                  const liveSid = live.status.id != null ? Number(live.status.id) : 0
+                  if (TERMINAL_STATUS_IDS[liveSid] || liveSid === INFLIGHT_STATUS_ID) {
+                    try {
+                      await settleTerminalFromLaunchDetail(detail, now, 'fetchLaunchDetail_net_past_refresh')
+                    } catch (e) {}
+                    if (TERMINAL_STATUS_IDS[liveSid]) markDetailSettled(launchId)
+                  }
+                  // 写回 status；非终态 TTL 压到 2 分钟，避免继续吐旧 Go
+                  const nextExpire = TERMINAL_STATUS_IDS[liveSid]
+                    ? now + 7 * 24 * 60 * 60 * 1000
+                    : now + 2 * 60 * 1000
+                  try {
+                    await db
+                      .collection('space_devs_cache')
+                      .doc(detailCacheKey)
+                      .set({
+                        data: {
+                          cacheKey: detailCacheKey,
+                          data: { data: detail, expireAt: nextExpire },
+                          updatedAt: db.serverDate(),
+                          updatedAtMs: now
+                        }
+                      })
+                  } catch (e) {}
+                }
+              }
+            } catch (e) {}
+          }
+
           return { success: true, cached: true, data: detail, timestamp: now, elapsed: Date.now() - startTime }
         }
       } catch (_) {}
@@ -744,6 +832,10 @@ async function fetchLaunchDetailAction(event) {
       .catch(() => {})
 
     await Promise.all([sideEffectsPromise, cacheWritePromise])
+
+    try {
+      await overlayDetailStatusFromLaunchStore(apiData, launchId)
+    } catch (e) {}
 
     return { success: true, cached: false, data: apiData, timestamp: Date.now(), elapsed: Date.now() - startTime }
   } catch (e) {
@@ -899,12 +991,12 @@ function buildPreviousStubFromLaunch(launch) {
 }
 
 /**
- * 详情单条终态 → recent_settled + previous slim（有则改 status，无则插入头部）。
+ * 详情单条终态/飞行中 → recent_settled + previous slim（有则改 status，无则插入头部）。
  */
 async function settleTerminalFromLaunchDetail(launch, nowMs, source) {
   if (!launch || !launch.id || !launch.status) return
   const sid = launch.status.id != null ? Number(launch.status.id) : 0
-  if (!TERMINAL_STATUS_IDS[sid]) return
+  if (!TERMINAL_STATUS_IDS[sid] && sid !== INFLIGHT_STATUS_ID) return
   const now = nowMs || Date.now()
   const entry = {
     id: String(launch.id),
@@ -922,7 +1014,7 @@ async function settleTerminalFromLaunchDetail(launch, nowMs, source) {
     launchStub: buildPreviousStubFromLaunch(launch)
   }
   await launchStatusStore.upsertOne(entry, { source: source || 'detail', observedAtMs: now })
-  // 详情已终态时同步写入 previous，避免 hide_recent + upcoming prune 后历史列表空窗
+  // 详情已 settled 时同步写入 previous，避免 hide_recent + upcoming prune 后历史列表空窗
   try {
     await patchPreviousCacheStatusFromTerminal([entry])
   } catch (e) {}
@@ -1006,7 +1098,7 @@ function stubFromTerminalEntry(term) {
   }
 }
 
-/** 用终态改 previous 云缓存；同 id 不存在则插入首批头部（避免详情已终态、列表刷新消失） */
+/** 用终态/飞行中改 previous 云缓存；同 id 不存在则插入首批头部（避免详情已 settled、列表刷新消失） */
 async function patchPreviousCacheStatusFromTerminal(entries) {
   if (!Array.isArray(entries) || !entries.length) return { patched: 0 }
   const byId = new Map()
@@ -1014,7 +1106,7 @@ async function patchPreviousCacheStatusFromTerminal(entries) {
     const e = entries[i]
     if (!e || !e.id || !e.status) continue
     const sid = e.status.id != null ? Number(e.status.id) : 0
-    if (!TERMINAL_STATUS_IDS[sid]) continue
+    if (!TERMINAL_STATUS_IDS[sid] && sid !== INFLIGHT_STATUS_ID) continue
     byId.set(String(e.id), e)
   }
   if (!byId.size) return { patched: 0 }
@@ -1052,11 +1144,9 @@ async function patchPreviousCacheStatusFromTerminal(entries) {
     foundIds.add(id)
     const curId = row.status && row.status.id != null ? Number(row.status.id) : 0
     const nextId = Number(term.status.id)
-    // 已是终态且同 id：无需改；终态不可被降级（本函数只收终态）
     if (curId === nextId) return false
-    if (TERMINAL_STATUS_IDS[curId] && curId !== nextId) {
-      // 允许 Deployed(9) 覆盖 Success(3) 等终态升级；同级以详情为准
-    }
+    // 终态不可被飞行中/非终态降级；终态之间允许 Deployed 等升级
+    if (TERMINAL_STATUS_IDS[curId] && !TERMINAL_STATUS_IDS[nextId]) return false
     row.status = {
       id: term.status.id,
       name: term.status.name || '',
@@ -1517,6 +1607,8 @@ async function ensureCollections() {
 }
 
 const RESOLVE_NON_TERMINAL_TTL_MS = 2 * 60 * 1000
+/** 飞行中再打 LL2 的间隔：避免 2 分钟后 resolve 读到滞后 Go 把历史角标打回就绪 */
+const RESOLVE_INFLIGHT_TTL_MS = 30 * 60 * 1000
 const RESOLVE_FAILURE_TTL_MS = 30 * 1000
 const RESOLVE_MAX_LL2_CALLS = 3
 const RESOLVE_GLOBAL_HOURLY_BUDGET = 6
@@ -1602,10 +1694,12 @@ async function resolveLaunchStatusesAction(event) {
     const id = ids[i]
     const hit = settledById.get(id)
     const sid = hit && hit.status && hit.status.id != null ? Number(hit.status.id) : 0
-    const fresh = hit && Date.now() - Number(hit.observedAtMs || hit.updatedAtMs || 0) < RESOLVE_NON_TERMINAL_TTL_MS
+    const observedAt = hit ? Number(hit.observedAtMs || hit.updatedAtMs || 0) : 0
+    const fresh = hit && Date.now() - observedAt < RESOLVE_NON_TERMINAL_TTL_MS
+    const inflightFresh = sid === INFLIGHT_STATUS_ID && hit && Date.now() - observedAt < RESOLVE_INFLIGHT_TTL_MS
     const hitNetMs = hit && hit.net ? new Date(hit.net).getTime() : 0
     const impossibleFutureTerminal = !!TERMINAL_STATUS_IDS[sid] && Number.isFinite(hitNetMs) && hitNetMs > Date.now()
-    if (hit && hit.status && !impossibleFutureTerminal && (TERMINAL_STATUS_IDS[sid] || fresh)) {
+    if (hit && hit.status && !impossibleFutureTerminal && (TERMINAL_STATUS_IDS[sid] || inflightFresh || fresh)) {
       rows.push({
         id,
         name: hit.name || '',
@@ -1659,7 +1753,7 @@ async function resolveLaunchStatusesAction(event) {
       fromCache: ''
     })
     const sid = data.status && data.status.id != null ? Number(data.status.id) : 0
-    if (TERMINAL_STATUS_IDS[sid]) {
+    if (TERMINAL_STATUS_IDS[sid] || sid === INFLIGHT_STATUS_ID) {
       terminalForPrevious.push({
         id: String(data.id),
         name: typeof data.name === 'string' ? data.name : '',

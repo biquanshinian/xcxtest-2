@@ -47,7 +47,19 @@ Component({
 
   observers: {
     show(val) {
-      this.setData({ visible: !!val })
+      const visible = !!val
+      // show 关掉时清掉滑动隐藏态，避免再显示时卡在 translateX 隐藏
+      if (!visible) {
+        if (this._scrollShowTimer) {
+          clearTimeout(this._scrollShowTimer)
+          this._scrollShowTimer = null
+        }
+        this.setData({ visible: false, scrollHidden: false })
+        return
+      }
+      const patch = { visible: true }
+      if (this.data.scrollHidden) patch.scrollHidden = false
+      this.setData(patch)
     }
   },
 
@@ -66,7 +78,10 @@ Component({
     safeBottom: 0,
     menuMaxHeight: 400,
     particles: [],
-    menuItems: BASE_MENU_ITEMS
+    menuItems: BASE_MENU_ITEMS,
+    // 与新闻页投稿 FAB 一致：滑动收起，停滑后自动展现
+    scrollHidden: false,
+    scrollHideSide: 'right'
   },
 
   lifetimes: {
@@ -121,10 +136,49 @@ Component({
     detached() {
       // 组件销毁后粒子定时器/异步回调不再 setData
       this._detached = true
+      if (this._scrollShowTimer) {
+        clearTimeout(this._scrollShowTimer)
+        this._scrollShowTimer = null
+      }
     }
   },
 
   methods: {
+    /**
+     * 页面 scroll-view 滚动时调用：收起悬浮钮，停滑约 320ms 后自动展现
+     * （对齐新闻页投稿 FAB `_pulsePhotoFabOnScroll`）
+     */
+    pulseScrollHide() {
+      if (this._detached || !this.data.visible || !this.data.windowWidth) return
+      // 菜单展开或正在拖拽时不抢手势
+      if (this.data.expanded || this._isDragging) return
+
+      const onRight = (this.data.btnX + this.data.btnSize / 2) >= (this.data.windowWidth / 2)
+      if (!this.data.scrollHidden) {
+        this.setData({
+          scrollHidden: true,
+          scrollHideSide: onRight ? 'right' : 'left'
+        })
+      } else if (
+        (onRight && this.data.scrollHideSide !== 'right') ||
+        (!onRight && this.data.scrollHideSide !== 'left')
+      ) {
+        this.setData({ scrollHideSide: onRight ? 'right' : 'left' })
+      }
+
+      if (this._scrollShowTimer) {
+        clearTimeout(this._scrollShowTimer)
+        this._scrollShowTimer = null
+      }
+      this._scrollShowTimer = setTimeout(() => {
+        this._scrollShowTimer = null
+        if (this._detached) return
+        if (this.data.scrollHidden && this.data.visible) {
+          this.setData({ scrollHidden: false })
+        }
+      }, 320)
+    },
+
     getFloatPosition() {
       const d = this.data
       return {
@@ -237,7 +291,9 @@ Component({
     },
 
     onTouchEnd() {
-      if (this._isDragging) {
+      const wasDragging = !!this._isDragging
+      this._isDragging = false
+      if (wasDragging) {
         // 落定末帧位置（节流可能吞掉最后一次 move）
         if (this._pendingBtnX != null) {
           this.setData({ btnX: this._pendingBtnX, btnY: this._pendingBtnY })
@@ -250,6 +306,11 @@ Component({
 
       this._vibrateMedium()
       this.setData({ expanded: !this.data.expanded })
+    },
+
+    onTouchCancel() {
+      // 系统取消手势时也要复位，否则 pulseScrollHide 会一直被 _isDragging 挡住
+      this._isDragging = false
     },
 
     _spawnParticle(cx, cy) {

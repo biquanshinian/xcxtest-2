@@ -12,6 +12,29 @@
         <el-switch v-model="form.enabled" />
       </el-form-item>
 
+      <el-form-item label="开屏通知文案">
+        <SplashNoticeEditor
+          v-model="form.noticeText"
+          :notice-font="form.noticeFont"
+          :line-height="form.noticeLineHeight"
+          :letter-spacing="form.noticeLetterSpacing"
+          :line-gap="form.noticeLineGap"
+          :max-len="NOTICE_MAX_LEN"
+          @update:lineHeight="form.noticeLineHeight = $event"
+          @update:letterSpacing="form.noticeLetterSpacing = $event"
+          @update:lineGap="form.noticeLineGap = $event"
+        />
+      </el-form-item>
+
+      <el-form-item label="通知字体">
+        <el-select v-model="form.noticeFont" style="width:200px;">
+          <el-option label="默认" value="default" />
+          <el-option label="微软雅黑" value="yahei" />
+          <el-option label="微软雅黑加粗" value="yahei-bold" />
+        </el-select>
+        <span style="margin-left:8px;color:var(--t-text-muted);font-size:12px;">全局字体族；局部加粗/字号在上方编辑器设置</span>
+      </el-form-item>
+
       <el-form-item label="倒计时秒数">
         <el-input-number v-model="form.countdownSeconds" :min="1" :max="12" :step="1" />
         <span style="margin-left:8px;color:var(--t-text-muted);font-size:12px;">跳过按钮倒计时；视频开屏最长只播 12 秒（超长会自动截取前 12 秒）</span>
@@ -184,6 +207,7 @@
 import { onMounted, reactive, ref, watchEffect } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api/client'
+import SplashNoticeEditor from '../components/SplashNoticeEditor.vue'
 
 const COS_PATH_PREFIX = '开屏动画/'
 const MEDIA_MAX = 10
@@ -192,10 +216,18 @@ const ALLOWED_VIDEO_EXTS = ['mp4', 'mov']
 const IMAGE_MAX_SIZE = 3 * 1024 * 1024
 const VIDEO_MAX_SIZE = 20 * 1024 * 1024
 
+const NOTICE_FONTS = ['default', 'yahei', 'yahei-bold']
+const NOTICE_MAX_LEN = 80
+
 const form = reactive({
   enabled: false,
   autoSyncSpacex: true,
   countdownSeconds: 5,
+  noticeText: '',
+  noticeFont: 'default',
+  noticeLineHeight: 1.4,
+  noticeLetterSpacing: 0,
+  noticeLineGap: 4,
   mediaItems: []
 })
 
@@ -243,6 +275,15 @@ function applySplashData(data) {
   if (!data) return
   form.enabled = !!data.enabled
   form.countdownSeconds = data.countdownSeconds || 5
+  form.noticeText = String(data.noticeText || '').trim()
+  const font = String(data.noticeFont || 'default').trim()
+  form.noticeFont = NOTICE_FONTS.includes(font) ? font : 'default'
+  const lh = Number(data.noticeLineHeight)
+  form.noticeLineHeight = Number.isFinite(lh) ? Math.min(2.5, Math.max(1, Math.round(lh * 10) / 10)) : 1.4
+  const ls = Number(data.noticeLetterSpacing)
+  form.noticeLetterSpacing = Number.isFinite(ls) ? Math.min(8, Math.max(0, Math.round(ls))) : 0
+  const lg = Number(data.noticeLineGap)
+  form.noticeLineGap = Number.isFinite(lg) ? Math.min(24, Math.max(0, Math.round(lg))) : 4
   let items = Array.isArray(data.mediaItems) ? data.mediaItems : []
   if (!items.length && data.mediaUrl) {
     items = [{
@@ -439,6 +480,11 @@ async function onSave() {
       enabled: form.enabled,
       autoSyncSpacex: form.autoSyncSpacex,
       countdownSeconds: form.countdownSeconds,
+      noticeText: String(form.noticeText || '').trim(),
+      noticeFont: NOTICE_FONTS.includes(form.noticeFont) ? form.noticeFont : 'default',
+      noticeLineHeight: form.noticeLineHeight,
+      noticeLetterSpacing: form.noticeLetterSpacing,
+      noticeLineGap: form.noticeLineGap,
       mediaItems: form.mediaItems.map((it) => ({
         id: it.id,
         mediaType: it.mediaType,

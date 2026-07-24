@@ -14,7 +14,7 @@
   <view class="vtk-disabled" wx:if="{{momentsHint}}">
     <text class="vtk-disabled-icon">🛰</text>
     <text class="vtk-disabled-text">前往小程序查看在轨飞行器追踪</text>
-    <text class="vtk-disabled-sub">点击顶部「前往小程序」即可体验完整 3D 地球</text>
+    <text class="vtk-disabled-sub">点击右下角「前往小程序」即可体验完整 3D 地球</text>
   </view>
 
   <!-- 分享链接过期且无权益 -->

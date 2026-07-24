@@ -33,6 +33,7 @@ function patchPreviousStatusInPlace(results, terminalById) {
     const curId = row.status && row.status.id != null ? Number(row.status.id) : 0
     const nextId = Number(term.status.id)
     if (curId === nextId && statusEqual(row.status, term.status)) continue
+    if (isTerminalStatus(row.status) && !isTerminalStatus(term.status)) continue
     row.status = {
       id: term.status.id,
       name: term.status.name || '',
@@ -46,12 +47,17 @@ function patchPreviousStatusInPlace(results, terminalById) {
   return patched
 }
 
+function isSettledStatus(status) {
+  const id = Number(status && status.id)
+  return isTerminalStatus(status) || id === 6
+}
+
 /** 与 launch-net-hourly.syncTerminalIntoPreviousCache 分批插入核心同逻辑 */
 function syncTerminalIntoPreviousMemory(terminalEntries, previousState) {
   const terminalById = new Map()
   for (let i = 0; i < terminalEntries.length; i++) {
     const e = terminalEntries[i]
-    if (e && e.id && isTerminalStatus(e.status)) terminalById.set(String(e.id), e)
+    if (e && e.id && isSettledStatus(e.status)) terminalById.set(String(e.id), e)
   }
   if (!terminalById.size) return { patched: 0, inserted: 0, skipped: 'no_terminal' }
 
@@ -101,7 +107,7 @@ function canInsertThinPlaceholder(entry, base, nowMs) {
   const netMs = entry.net ? new Date(entry.net).getTime() : NaN
   if (Number.isFinite(netMs) && netMs > nowMs) return false
   if (!base) {
-    if (!terminal) return false
+    // 终态与飞行中均可近窗瘦卡占位，堵住 hide_recent 后 previous 尚未写上的空窗
     if (!Number.isFinite(netMs) || netMs < nowMs - 48 * 60 * 60 * 1000) return false
   }
   return true
@@ -211,8 +217,8 @@ test('E2E：hide_recent 后无 upcoming 卡，前端 48h 终态仍可瘦卡占�
   assert.equal(canInsertThinPlaceholder(settled, null, now), true)
   assert.equal(
     canInsertThinPlaceholder({ ...settled, status: { id: 6, abbrev: 'In Flight' } }, null, now),
-    false,
-    '无 base 禁止飞行中瘦卡'
+    true,
+    '无 base 时近窗飞行中也可瘦卡占位'
   )
   assert.equal(
     canInsertThinPlaceholder({ ...settled, net: '2026-07-18T14:49:34Z' }, null, now),
@@ -301,7 +307,9 @@ test('E2E：previous 写失败后，launch_status 近窗终态仍应作为补写
   const entries = []
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]
-    if (!row || row.id == null || !isTerminalStatus(row.status)) continue
+    if (!row || row.id == null) continue
+    const sid = Number(row.status && row.status.id)
+    if (![3, 4, 6, 7, 9].includes(sid)) continue
     const netMs = row.net ? new Date(row.net).getTime() : NaN
     const obsMs = Number(row.observedAtMs || row.settledAtMs) || 0
     if (Number.isFinite(netMs)) {
@@ -311,14 +319,64 @@ test('E2E：previous 写失败后，launch_status 近窗终态仍应作为补写
     }
     entries.push(row)
   }
-  assert.equal(entries.length, 1)
+  assert.equal(entries.length, 2)
   assert.equal(entries[0].id, ID_1739)
+  assert.equal(entries[1].id, 'inflight')
 
   const skipOk = new Set([ID_1739])
   const afterSkip = entries.filter((row) => !skipOk.has(String(row.id)))
-  assert.equal(afterSkip.length, 0)
+  assert.equal(afterSkip.length, 1)
+  assert.equal(afterSkip[0].id, 'inflight')
   const afterFail = entries.filter((row) => !(new Set()).has(String(row.id)))
-  assert.equal(afterFail.length, 1)
+  assert.equal(afterFail.length, 2)
+})
+
+test('E2E：飞行中探针 → previous 头部插入 stub，终态可升级覆盖', () => {
+  const live = {
+    id: 'cz3b-inflight',
+    name: 'Long March 3B/E | Unknown Payload',
+    net: '2026-07-23T12:00:00Z',
+    window_start: '2026-07-23T11:52:00Z',
+    window_end: '2026-07-23T12:54:00Z',
+    status: { id: 6, name: 'Launch in Flight', abbrev: 'In Flight' },
+    rocket: { configuration: { name: 'Long March 3B/E' } },
+    pad: { name: 'Launch Complex 2 (LC-2)', location: { country_code: 'CHN' } },
+    launch_service_provider: { name: 'CASC', abbrev: 'CASC' }
+  }
+  const entries = [
+    {
+      id: String(live.id),
+      name: live.name,
+      status: live.status,
+      net: live.net,
+      windowStart: live.window_start,
+      windowEnd: live.window_end,
+      settledAtMs: Date.parse('2026-07-23T12:07:00Z'),
+      source: 'launch_net_hourly_inflight'
+    }
+  ]
+  attachLaunchStubsToTerminalEntries(entries, null, new Map([[String(live.id), live]]))
+  const previousState = { count: 0, batch0: [], allResults: [] }
+  const first = syncTerminalIntoPreviousMemory(entries, previousState)
+  assert.equal(first.inserted, 1)
+  assert.equal(previousState.batch0[0].status.id, 6)
+  assert.equal(previousState.batch0[0].pad.name, 'Launch Complex 2 (LC-2)')
+
+  const terminalEntries = [
+    {
+      id: String(live.id),
+      name: live.name,
+      status: { id: 3, name: 'Launch Successful', abbrev: 'Success' },
+      net: live.net,
+      settledAtMs: Date.parse('2026-07-23T13:00:00Z'),
+      source: 'launch_net_hourly'
+    }
+  ]
+  const second = syncTerminalIntoPreviousMemory(terminalEntries, previousState)
+  assert.equal(second.inserted, 0)
+  assert.equal(second.patched, 1)
+  assert.equal(previousState.batch0[0].status.id, 3)
+  assert.equal(previousState.batch0.length, 1)
 })
 
 test('E2E：空 previous results[] 仍可插入头部', () => {

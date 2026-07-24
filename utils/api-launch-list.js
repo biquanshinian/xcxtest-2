@@ -340,6 +340,7 @@ module.exports = {
   getUpcomingMissions,
   getCompletedMissions,
   getUpcomingStarshipMissions,
+  isStarshipListItem,
   mapLaunchToListItem,
   invalidateListSnapshots
 }

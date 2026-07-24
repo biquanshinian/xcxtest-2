@@ -17,7 +17,7 @@
     <view style="height: {{navPlaceholderHeight}}px;"></view>
 
     <view class="fd-disabled" wx:if="{{!enabled}}">
-      <text class="fd-disabled-text">该功能暂未开放</text>
+      <text class="fd-disabled-text">{{disabledText || '该功能暂未开放'}}</text>
       <view class="fd-btn" bindtap="goBack"><text>返回</text></view>
     </view>
 
@@ -26,8 +26,11 @@
     </view>
 
     <view class="fd-disabled" wx:elif="{{!timeline.length}}">
-      <text class="fd-disabled-text">请从星舰任务详情页进入，以对齐本次飞行时间线</text>
-      <view class="fd-btn" bindtap="goBack"><text>返回</text></view>
+      <text class="fd-disabled-text" wx:if="{{loadError}}">{{loadError}}</text>
+      <text class="fd-disabled-text" wx:elif="{{hasMissionEntry}}">暂无可用飞行时间线，请稍后重试</text>
+      <text class="fd-disabled-text" wx:else>请从星舰任务详情页进入，以对齐本次飞行时间线</text>
+      <view class="fd-btn" wx:if="{{hasMissionEntry}}" bindtap="retryLoadTimeline"><text>重新加载</text></view>
+      <view class="fd-btn" wx:else bindtap="goBack"><text>返回</text></view>
     </view>
 
     <block wx:else>
@@ -44,4 +47,6 @@
       <view class="fd-bottom-pad"></view>
     </block>
   </scroll-view>
+
+  <share-gate-countdown expire-at="{{shareGateExpireAt}}" />
 </view>

@@ -183,7 +183,21 @@
   box-shadow: none;
   backdrop-filter: blur(72rpx) saturate(220%);
   -webkit-backdrop-filter: blur(72rpx) saturate(220%);
-  transition: background 0.2s;
+  transition: transform 0.22s ease, opacity 0.22s ease, background 0.2s;
+  will-change: transform, opacity;
+}
+
+/* 滑动隐藏：贴哪边往哪边滑出（对齐投稿 FAB） */
+.nasa-float-wrap--scroll-hidden-right {
+  transform: translateX(120px);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.nasa-float-wrap--scroll-hidden-left {
+  transform: translateX(-120px);
+  opacity: 0;
+  pointer-events: none;
 }
 
 .nasa-float-wrap:active {

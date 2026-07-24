@@ -207,7 +207,7 @@ async function fetchTimelineTweetIds(screenName) {
 /**
  * 付费批量兜底（twitterapi.io 高级搜索，经 Worker 代理）：
  * 一次请求覆盖全部启用账号，返回 { 账号名小写: [推文ID] }。
- * Worker 侧有小时级 KV 节流 + 美东 6–24 点窗口，本函数每 15 分钟调用也只在整点刷新时真正付费。
+ * Worker 侧有小时级 KV 节流 + 美东 6–24 点窗口，本函数每 30 分钟调用也只在整点刷新时真正付费。
  * 失败或未配置 Key 时返回空映射，管线退化为纯 syndication。
  */
 async function fetchBatchNewTweetIds(accounts) {
@@ -493,13 +493,23 @@ async function fetchTweetDetail(screenName, tweetId) {
 }
 
 /**
- * 从 fxtwitter tweet 对象中提取作者头像原始 URL
+ * 从 fxtwitter tweet 对象中提取「追踪账号本人」头像原始 URL。
+ * 必须校验 screen_name：转推/引用里 author 常是原作者，若不校验会把别人头像
+ * 写进 avatars/{本账号}.jpg，造成前端头像串号。
  */
-function extractAvatarRawUrl(tweet) {
+function extractAvatarRawUrl(tweet, expectedScreenName) {
   if (!tweet) return ''
-  if (tweet.author && tweet.author.avatar_url) return tweet.author.avatar_url
-  if (tweet.user && tweet.user.profile_image_url_https) return tweet.user.profile_image_url_https
-  return ''
+  const expect = String(expectedScreenName || '').trim().toLowerCase()
+  const author = tweet.author || tweet.user || null
+  if (!author) return ''
+  if (expect) {
+    const actual = String(
+      author.screen_name || author.screenName || author.username || author.userName || ''
+    ).trim().toLowerCase()
+    // 缺作者名也拒绝：避免转推/脏 payload 在无 screen_name 时仍写入本账号 COS
+    if (!actual || actual !== expect) return ''
+  }
+  return author.avatar_url || author.profile_image_url_https || author.profile_image_url || ''
 }
 
 const AVATAR_CHECK_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000 // 30 天
@@ -555,10 +565,18 @@ async function ensureAvatarCOS(account, rawAvatarUrl) {
   try {
     const cosUrl = await uploadAvatarToCOS(rawAvatarUrl, account.screenName)
     if (cosUrl && account._id) {
+      // avatarUrl 与 avatarCosUrl 同步更新：统计胶囊读的是 avatarUrl，只写一次会永久串/过期
       await db.collection(ACCOUNTS_COLLECTION).doc(account._id).update({
-        data: { avatarCosUrl: cosUrl, avatarRawUrl: rawAvatarUrl, avatarCheckedAt: now, updatedAt: now }
+        data: {
+          avatarCosUrl: cosUrl,
+          avatarUrl: cosUrl,
+          avatarRawUrl: rawAvatarUrl,
+          avatarCheckedAt: now,
+          updatedAt: now
+        }
       })
       account.avatarCosUrl = cosUrl
+      account.avatarUrl = cosUrl
       account.avatarRawUrl = rawAvatarUrl
       account.avatarCheckedAt = now
       console.log(`[Sync] ${account.screenName} 头像已上传 COS: ${cosUrl}`)
@@ -1119,30 +1137,25 @@ async function syncAccount(account, options = {}) {
           mediaList.push(mediaEntry)
         }
 
-        const rawAvatarUrl = extractAvatarRawUrl(tweet)
+        const rawAvatarUrl = extractAvatarRawUrl(tweet, screenName)
         const avatarCosUrl = await ensureAvatarCOS(account, rawAvatarUrl)
+        // 约定路径兜底：即使本轮未抓到本人头像，事件也挂本账号 COS 头像，避免空/串
+        const authorAvatar =
+          avatarCosUrl ||
+          account.avatarCosUrl ||
+          (screenName ? `${COS_BASE_URL}avatars/${screenName}.jpg` : '')
 
         const eventId = await createEvent({
           title, content, mediaList, author,
           originalText: tweet.text || '',
           translated: isContentTranslated(tweet),
-          authorAvatar: avatarCosUrl,
+          authorAvatar,
           source: screenName,
           tweetId,
           tweetUrl,
           // 回填的旧推文按实际发布时间入库，保持信息流时间顺序
           publishedAt: backfill && tweetTime > 0 ? tweetTime : undefined
         })
-
-        // 首次获取到头像时，回写 tweet_accounts 集合（兼容旧字段）
-        if (avatarCosUrl && !account.avatarUrl && account._id) {
-          try {
-            await db.collection(ACCOUNTS_COLLECTION).doc(account._id).update({
-              data: { avatarUrl: avatarCosUrl, updatedAt: Date.now() }
-            })
-            account.avatarUrl = avatarCosUrl
-          } catch (e) {}
-        }
 
         result.published++
         result.details.push({ tweetId, eventId, title, status: 'published', mediaCount: mediaList.length })
@@ -1487,13 +1500,22 @@ exports.main = async (event = {}) => {
       try {
         const tweetIds = await fetchTimelineTweetIds(acc.screenName)
         if (!tweetIds || !tweetIds.length) continue
-        const tweet = await fetchTweetDetail(acc.screenName, tweetIds[0])
-        if (!tweet) continue
-        const rawUrl = extractAvatarRawUrl(tweet)
+        // 时间线首条常为转推：最多探 4 条找本人推文（控制详情请求预算）
+        let rawUrl = ''
+        const probeIds = tweetIds.slice(0, 4)
+        for (const tid of probeIds) {
+          if (Date.now() - startTime > 50000) break
+          const tweet = await fetchTweetDetail(acc.screenName, tid)
+          if (!tweet) continue
+          rawUrl = extractAvatarRawUrl(tweet, acc.screenName)
+          if (rawUrl) break
+        }
         if (rawUrl) {
           console.log(`[Sync] ${acc.screenName} 原始头像 URL: ${rawUrl}`)
           await ensureAvatarCOS(acc, rawUrl)
           console.log(`[Sync] 主动补全/刷新 ${acc.screenName} 头像`)
+        } else {
+          console.warn(`[Sync] ${acc.screenName} 跳过头像刷新：前 ${probeIds.length} 条均为转推或无本人头像`)
         }
       } catch (e) {
         console.warn(`[Sync] 补全 ${acc.screenName} 头像失败: ${e.message}`)
@@ -1501,28 +1523,31 @@ exports.main = async (event = {}) => {
     }
   }
 
-  // 批量给缺少头像的已有事件补上 COS 头像
+  // 批量补齐/纠偏事件头像：空、代理链、或挂了别的账号头像路径
   try {
     const avatarMap = {}
     for (const acc of allAccounts) {
       if (acc.avatarCosUrl && acc.avatarCosUrl.startsWith(COS_BASE_URL)) {
         avatarMap[acc.screenName] = acc.avatarCosUrl
+      } else if (acc.screenName) {
+        avatarMap[acc.screenName] = `${COS_BASE_URL}avatars/${acc.screenName}.jpg`
       }
     }
     if (Object.keys(avatarMap).length > 0) {
-      const allEvents = await db.collection(COLLECTION).where(db.command.or(
-        { authorAvatar: db.command.eq('') },
-        { authorAvatar: db.command.exists(false) },
-        // 也替换旧的代理 URL 为 COS URL
-        { authorAvatar: db.RegExp({ regexp: '^https://api\\.marsx', options: '' }) }
-      )).limit(MAX_EVENTS).get()
+      const allEvents = await db.collection(COLLECTION)
+        .orderBy('publishedAt', 'desc')
+        .limit(MAX_EVENTS)
+        .field({ source: true, authorAvatar: true })
+        .get()
       for (const evt of (allEvents.data || [])) {
-        const avatar = avatarMap[evt.source]
-        if (avatar) {
-          try {
-            await db.collection(COLLECTION).doc(evt._id).update({ data: { authorAvatar: avatar } })
-          } catch (e) {}
-        }
+        const expect = avatarMap[evt.source]
+        if (!expect) continue
+        const cur = String(evt.authorAvatar || '')
+        const pathOk = cur.indexOf(`/avatars/${evt.source}.jpg`) !== -1
+        if (pathOk) continue
+        try {
+          await db.collection(COLLECTION).doc(evt._id).update({ data: { authorAvatar: expect } })
+        } catch (e) {}
       }
     }
   } catch (e) {

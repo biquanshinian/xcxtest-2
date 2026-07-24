@@ -1558,6 +1558,9 @@ async function processLaunchDetail(launch) {
       statusId: status.id != null ? Number(status.id) : null,
       statusCategory,
       statusBadgeText,
+      // 供 applyAuthoritativeStatus 归并：云端已 overlay launch_status 时等价 detail 源
+      _launchStateSource: 'fetchLaunchDetail_status',
+      _launchStateObservedAtMs: Date.now(),
       probability: launch.probability,
       boosterInfo: boosterInfo,
       boosterStages: boosterStages,

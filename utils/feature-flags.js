@@ -13,12 +13,16 @@ let _inflight = null
  * @param {boolean} [forceRefresh]
  * @returns {Promise<Object>}
  */
-function fetchMainConfig(forceRefresh) {
-  const now = Date.now()
-  if (!forceRefresh && _cache && now - _cacheAt < TTL) return Promise.resolve(_cache)
-  if (_inflight) return _inflight
-  if (!wx.cloud || !wx.cloud.database) return Promise.resolve(_cache || {})
-  _inflight = wx.cloud.database()
+function _fetchMainConfigOnce(opts) {
+  // allowStaleFallback=false（force 失败）：拒绝回落旧缓存，供 failClosed 入口使用
+  const allowStaleFallback = !opts || opts.allowStaleFallback !== false
+  if (!wx.cloud || !wx.cloud.database) {
+    if (!allowStaleFallback) {
+      return Promise.reject(new Error('GLOBAL_CONFIG_UNAVAILABLE'))
+    }
+    return Promise.resolve(_cache || {})
+  }
+  return wx.cloud.database()
     .collection('global_config')
     .doc('main')
     .get()
@@ -39,8 +43,24 @@ function fetchMainConfig(forceRefresh) {
           _cacheAt = Date.now()
           return _cache
         })
-        .catch(() => _cache || {})
+        .catch((err) => {
+          if (!allowStaleFallback) {
+            return Promise.reject(err || new Error('GLOBAL_CONFIG_FETCH_FAILED'))
+          }
+          return _cache || {}
+        })
     })
+}
+
+function fetchMainConfig(forceRefresh) {
+  const now = Date.now()
+  if (!forceRefresh && _cache && now - _cacheAt < TTL) return Promise.resolve(_cache)
+  // forceRefresh：等当前 inflight 结束后再打一枪，避免吞掉强制刷新
+  if (_inflight) {
+    if (!forceRefresh) return _inflight
+    return _inflight.then(() => fetchMainConfig(true)).catch(() => fetchMainConfig(true))
+  }
+  _inflight = _fetchMainConfigOnce({ allowStaleFallback: !forceRefresh })
     .finally(() => { _inflight = null })
   return _inflight
 }

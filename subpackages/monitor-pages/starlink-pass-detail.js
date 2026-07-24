@@ -75,13 +75,13 @@ Page({
 
     this._loadFromStorage()
 
-    // 朋友圈/分享卡片冷启动：过境数据只存在分享方本地 storage，接收方无数据。
-    // 与好友分享 path 一致，落到监控页让用户按自己的位置重新加载。
+    // 分享冷启动：过境数据只在分享方本地 storage，接收方无数据。
+    // 留在本页展示空态 +「打开监控中心」，由用户按自己的位置重新加载（不再自动 switchTab）。
     if (!this.data.passCount && this.data.isDirectEntry) {
-      this.setData({ shareLandingEmpty: true })
-      wx.switchTab({
-        url: '/pages/monitor/monitor',
-        fail: () => {}
+      const shareCount = parseInt((options && options.count) || '0', 10) || 0
+      this.setData({
+        shareLandingEmpty: true,
+        sharePreviewCount: shareCount
       })
     }
   },
@@ -175,10 +175,14 @@ Page({
   },
 
   onShareAppMessage() {
+    const count = this.data.passCount || 0
+    const path = count
+      ? `${ROUTES.STARLINK_PASS_DETAIL}?count=${count}`
+      : ROUTES.STARLINK_PASS_DETAIL
     return {
       title: this._shareTitle(),
-      // 过境与位置相关：落到监控页，由接收方按本地位置重新加载
-      path: '/pages/monitor/monitor'
+      // 直达本页；接收方无本地过境数据时展示空态，引导去监控中心按位置加载
+      path
     }
   },
 
@@ -186,7 +190,7 @@ Page({
     const count = this.data.passCount || 0
     return {
       title: this._shareTitle(),
-      // 朋友圈只能落本页；带 count 供单页预览展示，完整数据仍需进小程序后在监控页加载
+      // 朋友圈只能落本页；带 count 供单页预览展示
       query: count ? ('count=' + count) : ''
     }
   }

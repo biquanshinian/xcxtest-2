@@ -483,6 +483,22 @@ export const api = {
   lunarWishesStats() {
     return request('/lunar-wishes/stats', { method: 'GET' })
   },
+  // 航天摄影（影像）
+  listAstroPhotos(query) {
+    return request('/astro-photos/list', { method: 'GET', query })
+  },
+  reviewAstroPhoto(body) {
+    return request('/astro-photos/review', { method: 'POST', body })
+  },
+  batchReviewAstroPhotos(body) {
+    return request('/astro-photos/batch-review', { method: 'POST', body })
+  },
+  deleteAstroPhoto(body) {
+    return request('/astro-photos/delete', { method: 'POST', body })
+  },
+  astroPhotosStats() {
+    return request('/astro-photos/stats', { method: 'GET' })
+  },
   // 里程碑彩蛋
   listMilestoneRewards(query) {
     return request('/milestone-rewards', { method: 'GET', query })

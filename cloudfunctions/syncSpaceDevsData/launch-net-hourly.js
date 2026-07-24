@@ -11,7 +11,8 @@
  *     让客户端 2 分钟后台云库比对能吃到新时间；无变化则零写库
  *   - 探针结果里若出现终态(3/4/7/9)：写入 recent_settled + 就地修正/插入 previous 缓存
  *     （0 额外 LL2；插入时优先复用 upcoming slim 完整行，避免历史列表空窗）
- *   - 飞行中(6) 也写入 recent_settled（供倒计时跨会话 settle）；合并时终态不可被飞行中降级
+ *   - 飞行中(6) 同样写入 recent_settled + previous stub（供倒计时跨会话 settle，
+ *     并堵住 hide_recent_previous 后 upcoming/previous 双边空窗）；合并时终态不可被飞行中降级
  *   - live status 缓存按 id merge 写入，避免被到点查询覆盖掉探针 30 条
  *
  * 不替代 syncLaunches：新任务入库、图片/助推器等仍靠 6h detailed。
@@ -107,6 +108,11 @@ function isTerminalStatus(status) {
 function isInflightStatus(status) {
   const id = status && status.id != null ? Number(status.id) : 0
   return id === INFLIGHT_STATUS_ID
+}
+
+/** 可落历史 / 可写 previous：终态或飞行中 */
+function isSettledStatus(status) {
+  return isTerminalStatus(status) || isInflightStatus(status)
 }
 
 /**
@@ -499,7 +505,7 @@ function collectTerminalFromLive(liveRows) {
   return out
 }
 
-/** 飞行中(6) → recent_settled（仅倒计时跨会话；不写入 previous 终态 patch） */
+/** 飞行中(6) → recent_settled + previous stub（倒计时跨会话；堵住 hide_recent 空窗） */
 function collectInflightFromLive(liveRows) {
   const out = []
   if (!Array.isArray(liveRows)) return out
@@ -599,7 +605,8 @@ async function loadAllPreviousResults(cacheKey, payload) {
 }
 
 /**
- * 用终态 status 就地修正 previous 缓存中已有条目（不插入新任务，0 额外 LL2）。
+ * 用 settled status 就地修正 previous 缓存中已有条目（不插入新任务，0 额外 LL2）。
+ * 终态不可被飞行中/Go 降级。
  */
 function patchPreviousStatusInPlace(results, terminalById) {
   let patched = 0
@@ -612,6 +619,8 @@ function patchPreviousStatusInPlace(results, terminalById) {
     const curId = row.status && row.status.id != null ? Number(row.status.id) : 0
     const nextId = Number(term.status.id)
     if (curId === nextId && statusEqual(row.status, term.status)) continue
+    // 已是终态则禁止降级为飞行中/非终态
+    if (isTerminalStatus(row.status) && !isTerminalStatus(term.status)) continue
     row.status = {
       id: term.status.id,
       name: term.status.name || '',
@@ -626,8 +635,8 @@ function patchPreviousStatusInPlace(results, terminalById) {
 }
 
 /**
- * 将终态同步进 previous slim 缓存（有则改 status，无则插入首批头部）。
- * 必须在 upcoming prune 后仍能落库，否则 hide_recent_previous 会让任务两边都空。
+ * 将终态/飞行中同步进 previous slim 缓存（有则改 status，无则插入首批头部）。
+ * 必须在 upcoming prune / hide_recent 后仍能落库，否则任务两边都空。
  */
 async function syncTerminalIntoPreviousCache(terminalEntries) {
   if (!Array.isArray(terminalEntries) || !terminalEntries.length) {
@@ -637,7 +646,7 @@ async function syncTerminalIntoPreviousCache(terminalEntries) {
   const terminalById = new Map()
   for (let i = 0; i < terminalEntries.length; i++) {
     const e = terminalEntries[i]
-    if (e && e.id && isTerminalStatus(e.status)) terminalById.set(String(e.id), e)
+    if (e && e.id && isSettledStatus(e.status)) terminalById.set(String(e.id), e)
   }
   if (!terminalById.size) {
     return { patched: 0, inserted: 0, docsWritten: 0, skipped: 'no_terminal' }
@@ -781,7 +790,7 @@ async function syncTerminalIntoPreviousCache(terminalEntries) {
 const PREVIOUS_BACKFILL_MAX_AGE_MS = 48 * 60 * 60 * 1000
 
 /**
- * 探针 list / upcoming 已看不到终态时，用 launch_status 近窗终态补写 previous。
+ * 探针 list / upcoming 已看不到终态时，用 launch_status 近窗终态/飞行中补写 previous。
  * 0 额外 LL2；idempotent（已在 previous 则只 patch / 跳过插入）。
  */
 async function backfillPreviousFromRecentLaunchStatus(nowMs, alreadySyncedIds) {
@@ -796,7 +805,7 @@ async function backfillPreviousFromRecentLaunchStatus(nowMs, alreadySyncedIds) {
   const entries = []
   for (let i = 0; i < (rows || []).length; i++) {
     const row = rows[i]
-    if (!row || row.id == null || !isTerminalStatus(row.status)) continue
+    if (!row || row.id == null || !isSettledStatus(row.status)) continue
     const id = String(row.id)
     if (skip.has(id)) continue
     const netMs = row.net ? new Date(row.net).getTime() : NaN
@@ -829,7 +838,43 @@ async function backfillPreviousFromRecentLaunchStatus(nowMs, alreadySyncedIds) {
 }
 
 /**
- * 本轮探针终态写 previous；再从 launch_status 补漏（写库失败或 hide_recent 后空 entries）。
+ * 探针写入飞行中/终态后，立刻让对应详情缓存过期。
+ * 否则详情仍可能靠 3.5h TTL 吐出发射前 Go，和历史卡「飞行中」分裂。
+ */
+async function expireLaunchDetailCaches(entries) {
+  if (!Array.isArray(entries) || !entries.length) return { expired: 0 }
+  const col = db.collection(SPACE_DEVS_CACHE)
+  const now = Date.now()
+  let expired = 0
+  const seen = new Set()
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i]
+    if (!e || !e.id) continue
+    const id = String(e.id)
+    if (seen.has(id)) continue
+    seen.add(id)
+    const key = `api_cache_/launches/${id}/_${JSON.stringify({ format: 'json', mode: 'detailed' })}_full_v7`
+    try {
+      const doc = await col.doc(key).get()
+      const wrap = doc && doc.data
+      const inner = wrap && wrap.data
+      if (!inner || !inner.data) continue
+      if (inner.expireAt && Number(inner.expireAt) <= now) continue
+      await col.doc(key).set({
+        data: {
+          ...wrap,
+          data: { ...inner, expireAt: now },
+          updatedAtMs: now
+        }
+      })
+      expired++
+    } catch (e2) {}
+  }
+  return { expired }
+}
+
+/**
+ * 本轮探针终态/飞行中写 previous；再从 launch_status 补漏（写库失败或 hide_recent 后空 entries）。
  */
 async function syncPreviousAfterProbe(terminalEntries, nowMs) {
   let primary = { patched: 0, inserted: 0, docsWritten: 0 }
@@ -972,16 +1017,23 @@ async function runLaunchNetHourly(options) {
   // 探针结果写入 live status 共享缓存（即使下方无 upcoming 缓存可 patch，到点轮询也能受益）
   await writeLiveStatusCache(liveRows)
 
-  // 0 额外 LL2：终态 → recent_settled + previous；飞行中 → 仅 recent_settled
+  // 0 额外 LL2：终态/飞行中 → recent_settled + previous
   let terminalEntries = collectTerminalFromLive(liveRows)
   const inflightEntries = collectInflightFromLive(liveRows)
   const terminalIds = new Set(terminalEntries.map((e) => e.id))
+  const settledForPrevious = () => terminalEntries.concat(inflightEntries)
 
   const cached = await loadUpcomingCacheDoc()
   if (!cached) {
-    attachLaunchStubsToTerminalEntries(terminalEntries, null, liveById)
-    const settledRes = await mergeRecentSettled(terminalEntries.concat(inflightEntries))
-    const previousPatch = await syncPreviousAfterProbe(terminalEntries, startTime)
+    attachLaunchStubsToTerminalEntries(settledForPrevious(), null, liveById)
+    const settledRes = await mergeRecentSettled(settledForPrevious())
+    const previousPatch = await syncPreviousAfterProbe(settledForPrevious(), startTime)
+    let detailCacheExpire = { expired: 0 }
+    try {
+      detailCacheExpire = await expireLaunchDetailCaches(settledForPrevious())
+    } catch (e) {
+      detailCacheExpire = { expired: 0, error: e.message || String(e) }
+    }
     let missionStatsInvalidate = { skipped: true }
     if (terminalEntries.length) {
       try {
@@ -1000,6 +1052,7 @@ async function runLaunchNetHourly(options) {
       liveStatusCacheUpdated: true,
       recentSettled: settledRes,
       previousStatusPatch: previousPatch,
+      detailCacheExpire,
       missionStatsInvalidate,
       timestamp: Date.now(),
       elapsed: Date.now() - startTime
@@ -1008,9 +1061,15 @@ async function runLaunchNetHourly(options) {
 
   const loaded = await loadAllUpcomingResults(cached.cacheKey, cached.payload)
   if (!loaded.results.length) {
-    attachLaunchStubsToTerminalEntries(terminalEntries, null, liveById)
-    const settledRes = await mergeRecentSettled(terminalEntries.concat(inflightEntries))
-    const previousPatch = await syncPreviousAfterProbe(terminalEntries, startTime)
+    attachLaunchStubsToTerminalEntries(settledForPrevious(), null, liveById)
+    const settledRes = await mergeRecentSettled(settledForPrevious())
+    const previousPatch = await syncPreviousAfterProbe(settledForPrevious(), startTime)
+    let detailCacheExpire = { expired: 0 }
+    try {
+      detailCacheExpire = await expireLaunchDetailCaches(settledForPrevious())
+    } catch (e) {
+      detailCacheExpire = { expired: 0, error: e.message || String(e) }
+    }
     let missionStatsInvalidate = { skipped: true }
     if (terminalEntries.length) {
       try {
@@ -1029,6 +1088,7 @@ async function runLaunchNetHourly(options) {
       liveStatusCacheUpdated: true,
       recentSettled: settledRes,
       previousStatusPatch: previousPatch,
+      detailCacheExpire,
       missionStatsInvalidate,
       timestamp: Date.now(),
       elapsed: Date.now() - startTime
@@ -1067,6 +1127,7 @@ async function runLaunchNetHourly(options) {
       batchedTerminal.forEach((entry) => terminalIds.add(entry.id))
     }
     attachLaunchStubsToTerminalEntries(terminalEntries, mergedResults, liveById)
+    attachLaunchStubsToTerminalEntries(inflightEntries, mergedResults, liveById)
     const statusTerminalIds = await collectTerminalIdsFromStatusStore(mergedResults, liveById, startTime)
     const pruneRes = pruneStaleUpcomingResults(mergedResults, liveById, statusTerminalIds)
     upcomingPruned = pruneRes.pruned
@@ -1105,6 +1166,7 @@ async function runLaunchNetHourly(options) {
       directTerminal.forEach((entry) => terminalIds.add(entry.id))
     }
     attachLaunchStubsToTerminalEntries(terminalEntries, loaded.results, liveById)
+    attachLaunchStubsToTerminalEntries(inflightEntries, loaded.results, liveById)
     const statusTerminalIds = await collectTerminalIdsFromStatusStore(loaded.results, liveById, startTime)
     const pruneRes = pruneStaleUpcomingResults(loaded.results, liveById, statusTerminalIds)
     upcomingPruned = pruneRes.pruned
@@ -1164,9 +1226,16 @@ async function runLaunchNetHourly(options) {
 
   // changes 补进来的终态可能还没有 stub；upcoming 已 prune，这里用探针 list 兜底
   attachLaunchStubsToTerminalEntries(terminalEntries, null, liveById)
+  attachLaunchStubsToTerminalEntries(inflightEntries, null, liveById)
 
-  const settledRes = await mergeRecentSettled(terminalEntries.concat(inflightEntries))
-  const previousPatch = await syncPreviousAfterProbe(terminalEntries, startTime)
+  const settledRes = await mergeRecentSettled(settledForPrevious())
+  const previousPatch = await syncPreviousAfterProbe(settledForPrevious(), startTime)
+  let detailCacheExpire = { expired: 0 }
+  try {
+    detailCacheExpire = await expireLaunchDetailCaches(settledForPrevious())
+  } catch (e) {
+    detailCacheExpire = { expired: 0, error: e.message || String(e) }
+  }
 
   // 终态任务：失效并重算详情页发射统计缓存（含本次口径，对齐序号徽章）
   let missionStatsInvalidate = { skipped: true }
@@ -1209,6 +1278,7 @@ async function runLaunchNetHourly(options) {
     upcomingPrunedIds: upcomingPruned.slice(0, 20).map((p) => p.id),
     recentSettled: settledRes,
     previousStatusPatch: previousPatch,
+    detailCacheExpire,
     missionStatsInvalidate,
     terminalCount: terminalEntries.length,
     timestamp: Date.now(),
@@ -1227,6 +1297,7 @@ module.exports = {
   syncTerminalIntoPreviousCache,
   backfillPreviousFromRecentLaunchStatus,
   syncPreviousAfterProbe,
+  expireLaunchDetailCaches,
   PREVIOUS_BACKFILL_MAX_AGE_MS,
   PROBE_LIMIT
 }

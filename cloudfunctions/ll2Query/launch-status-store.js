@@ -85,12 +85,16 @@ function merge(current, value, defaults) {
   }
   const oldId = statusId(existing)
   const newId = statusId(incoming)
-  const oldSettled = !!TERMINAL_IDS[oldId] || oldId === INFLIGHT_ID
-  const newSettled = !!TERMINAL_IDS[newId] || newId === INFLIGHT_ID
+  const oldTerminal = !!TERMINAL_IDS[oldId]
+  const newTerminal = !!TERMINAL_IDS[newId]
+  const oldInflight = oldId === INFLIGHT_ID
+  const newSettled = newTerminal || newId === INFLIGHT_ID
+  // 与客户端一致：终态→非终态（含飞行中）、飞行中→pending 都算回归
+  const regression =
+    (oldTerminal && !newTerminal) || (oldInflight && !newSettled)
   const older =
     incoming.observedAtMs < existing.observedAtMs ||
     (incoming.observedAtMs === existing.observedAtMs && incoming.sourcePriority < existing.sourcePriority)
-  const regression = oldSettled && !newSettled
   if (older && !incoming.correction) {
     if (Number(current.sourcePriority) !== existing.sourcePriority) {
       return { ...existing, sourcePriority: existing.sourcePriority, revision: Number(current.revision) || 0 }
@@ -99,9 +103,19 @@ function merge(current, value, defaults) {
   }
   // resolve/detail 是 LL2 当前 status 的直接读数。它们可以修正低优先级
   // updates 文案推断出的错误终态，否则一次误判会永久锁死在终态。
+  // 例外：NET 已过后，禁止把飞行中权威纠正回 Go（LL2 详情缓存滞后常见）。
+  const netMs = (() => {
+    const raw = incoming.net || existing.net || ''
+    const t = raw ? new Date(raw).getTime() : NaN
+    return Number.isFinite(t) ? t : NaN
+  })()
+  const netStillUpcoming = Number.isFinite(netMs) && netMs > Date.now()
+  const blockInflightToPending =
+    oldInflight && !newSettled && !netStillUpcoming
   const authoritativeCorrection =
     regression &&
     !older &&
+    !blockInflightToPending &&
     incoming.sourcePriority >= SOURCE_PRIORITY.resolve &&
     incoming.sourcePriority > existing.sourcePriority
   const accept = incoming.correction || authoritativeCorrection || (!older && !regression)

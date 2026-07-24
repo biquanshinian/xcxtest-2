@@ -112,7 +112,9 @@
       "root": "subpackages/news-extra",
       "name": "news-extra",
       "pages": [
-        "detail"
+        "detail",
+        "photo-detail",
+        "photo-upload"
       ]
     },
     {

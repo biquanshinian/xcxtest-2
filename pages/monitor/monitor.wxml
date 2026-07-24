@@ -34,6 +34,7 @@
     bindrefresherrestore="{{navPad.onReset}}"
     bindrefresherabort="{{navPad.onReset}}"
     bindrefresherrefresh="onScrollRefresh"
+    bindscroll="onMonitorScroll"
   >
     
     <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
@@ -92,36 +93,15 @@
           <channels-live-panel
             id="channelsLivePanel"
             prefer-fallback-guide="{{channelsFallbackGuide.enabled}}"
+            show-extra-guide="{{channelsFallbackGuide.enabled}}"
+            extra-guide-label="推荐直播"
+            show-bili-live="{{true}}"
+            bili-live-label="B站直播"
             bind:statuschange="onChannelsLiveStatusChange"
             bind:fallbackguide="onChannelsLiveFallbackGuide"
+            bind:extraguide="onChannelsGuideTap"
+            bind:bililive="onBiliLiveTap"
           />
-
-          <view class="monitor-livestream-entry-row">
-            <view
-              wx:if="{{channelsFallbackGuide.enabled}}"
-              class="monitor-livestream-btn monitor-livestream-btn--channels-guide monitor-livestream-btn--half"
-              bindtap="onChannelsGuideTap"
-              hover-class="monitor-livestream-btn--hover"
-            >
-              <view class="monitor-livestream-btn-icon">
-                <image class="monitor-livestream-icon-img" src="https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%9B%BE%E6%A0%87/1778430366049_f5kzse.svg" mode="aspectFit"></image>
-              </view>
-              <view class="monitor-livestream-btn-info">
-                <text class="monitor-livestream-btn-title">推荐直播</text>
-                <text class="monitor-livestream-btn-sub">{{channelsFallbackGuide.nickname}}</text>
-              </view>
-            </view>
-
-            <view class="monitor-livestream-btn monitor-livestream-btn--bilibili {{channelsFallbackGuide.enabled ? 'monitor-livestream-btn--half' : 'monitor-livestream-btn--full'}}" bindtap="onBiliLiveTap" hover-class="monitor-livestream-btn--hover">
-              <view class="monitor-livestream-btn-icon">
-                <image class="monitor-livestream-icon-img" src="https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%9B%BE%E6%A0%87/1778430483411_43m2pg.svg" mode="aspectFit"></image>
-              </view>
-              <view class="monitor-livestream-btn-info">
-                <text class="monitor-livestream-btn-title">B站直播</text>
-                <text class="monitor-livestream-btn-sub">{{biliLive.title || '扫码进入'}}</text>
-              </view>
-            </view>
-          </view>
         </view>
       </view>
 
@@ -149,7 +129,7 @@
         <view class="section-title-right">
           <view class="monitor-share-wrap">
             <image class="icon-share icon-share--monitor" src="/images/share-arrow.svg" mode="aspectFit"></image>
-            <button class="monitor-share-btn" open-type="share" hover-class="none" data-share-type="station" plain="true"></button>
+            <button class="monitor-share-btn" open-type="share" hover-class="none" data-share-type="station" bindtap="markPendingShareType" plain="true"></button>
           </view>
         </view>
       </view>
@@ -200,7 +180,7 @@
         <view class="section-title-right">
           <view class="monitor-share-wrap">
             <image class="icon-share icon-share--monitor" src="/images/share-arrow.svg" mode="aspectFit"></image>
-            <button class="monitor-share-btn" open-type="share" hover-class="none" data-share-type="starlink" plain="true"></button>
+            <button class="monitor-share-btn" open-type="share" hover-class="none" data-share-type="starlink" bindtap="markPendingShareType" plain="true"></button>
           </view>
         </view>
       </view>
@@ -253,7 +233,7 @@
           </view>
           <view class="monitor-share-wrap">
             <image class="icon-share icon-share--monitor" src="/images/share-arrow.svg" mode="aspectFit"></image>
-            <button class="monitor-share-btn" open-type="share" hover-class="none" data-share-type="pass" plain="true"></button>
+            <button class="monitor-share-btn" open-type="share" hover-class="none" data-share-type="pass" bindtap="markPendingShareType" plain="true"></button>
           </view>
         </view>
       </view>
@@ -327,27 +307,15 @@
       agency-error="{{agencyError}}"
       agency-total="{{agencyTotal}}"
       booster-list="{{boosterList}}"
-      booster-stats="{{boosterStats}}"
       booster-loading="{{boosterLoading}}"
       booster-load-error="{{boosterLoadError}}"
       booster-image-loaded-map="{{boosterImageLoadedMap}}"
-      booster-filter-chips="{{boosterFilterChips}}"
-      booster-filter="{{boosterFilter}}"
-      booster-filter-empty="{{boosterFilterEmpty}}"
       spacecraft-list="{{spacecraftList}}"
-      spacecraft-stats="{{spacecraftStats}}"
       spacecraft-loading="{{spacecraftLoading}}"
       spacecraft-load-error="{{spacecraftLoadError}}"
-      spacecraft-filter-chips="{{spacecraftFilterChips}}"
-      spacecraft-filter="{{spacecraftFilter}}"
-      spacecraft-filter-empty="{{spacecraftFilterEmpty}}"
       launch-site-list="{{launchSiteList}}"
-      launch-site-stats="{{launchSiteStats}}"
       launch-site-loading="{{launchSiteLoading}}"
       launch-site-load-error="{{launchSiteLoadError}}"
-      launch-site-filter-chips="{{launchSiteFilterChips}}"
-      launch-site-filter="{{launchSiteFilter}}"
-      launch-site-filter-empty="{{launchSiteFilterEmpty}}"
       bind:galleryevent="onGalleryEvent"
     />
 
@@ -405,7 +373,7 @@
     </view>
   </view>
   <ai-chat id="ai-chat" />
-  <nasa-float />
+  <nasa-float id="nasaFloat" />
   <privacy-modal id="globalPrivacyModal"></privacy-modal>
   <popup-ad visible="{{popupAdVisible}}" shop-item="{{popupAdItem}}" bind:close="onPopupAdClose"></popup-ad>
   <demo-overlay id="demoOverlay" showControls="{{false}}" qrcodeUrl="https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%B0%8F%E7%A8%8B%E5%BA%8F%E4%BA%8C%E7%BB%B4%E7%A0%81/1775323336594_jkl6zv.png" loop="{{true}}" />

@@ -203,7 +203,8 @@ async function upsertLaunchDataDoc(docId, data) {
 
 async function removeStaleLaunchData(activeIds, nowMs) {
   const _ = db.command
-  const staleBefore = new Date(nowMs - 24 * 60 * 60 * 1000)
+  // 与 sendLaunchReminder 结果通知窗口（48h）对齐：过早清理会导致终态结果扫不到 launch_data
+  const staleBefore = new Date(nowMs - 48 * 60 * 60 * 1000)
   let removed = 0
   try {
     const oldRes = await db

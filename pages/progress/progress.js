@@ -972,6 +972,13 @@ Page({
 
   /** 原生三点下拉刷新（页面级 / scroll-view refresher 共用）
    *  只重读云数据库缓存：不触发 NSF 抓取、不重拉 LL2（节奏由云函数自动分配） */
+  onProgressScroll() {
+    try {
+      const { pulseNasaFloatOnScroll } = require('../../utils/nasa-float-scroll.js')
+      pulseNasaFloatOnScroll(this)
+    } catch (e) {}
+  },
+
   onScrollRefresh() {
     this._runProgressPullRefresh('scrollRefreshing')
   },
@@ -1067,6 +1074,9 @@ Page({
     try {
       const allowed = await gateCheck('orbital_data_center', '在轨飞行器追踪')
       if (!allowed) return
+      if (wx.vibrateShort) {
+        try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+      }
       navigateTo(ROUTES.VEHICLE_TRACKER)
     } finally {
       this._vtGatePending = false

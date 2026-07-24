@@ -1,5 +1,6 @@
 const cloud = require('wx-server-sdk')
 const crypto = require('crypto')
+const outcomeVoteSettle = require('./outcome-vote-settle.js')
 
 // COS SDK / bcryptjs 体积大，顶层同步 require 会拖慢冷启动数秒；
 // 竞猜等高频用户请求用不到它们，改为使用处懒加载 + 模块级缓存
@@ -383,6 +384,7 @@ const PERMISSION_MODULES = {
   announcements: '系统公告',
   data_export: '数据导出',
   lunar_wishes: '月愿计划管理',
+  astro_photos: '航天摄影管理',
   milestone_rewards: '里程碑彩蛋管理',
   knowledge_cards: '知识卡管理',
   launch_votes: '发射竞猜管理'
@@ -1358,6 +1360,8 @@ async function updateChannelsLiveFallbackGuide(body, user) {
 
 // ── 太空轨道数据中心系统配置 ──
 const ORBITAL_CONFIG_ID = 'orbital_data_center_config'
+/** 媒体资源版本：升高后下次 GET 会把云库 bgImage/bgVideo 迁移到当前 ORBITAL_DEFAULT */
+const ORBITAL_MEDIA_VERSION = 3
 
 const ORBITAL_DEFAULT = {
   // 监控页卡片配置
@@ -1368,7 +1372,7 @@ const ORBITAL_DEFAULT = {
     titleEn: 'Orbital Data Center System',
     titleCn: '太空轨道数据中心系统',
     desc: '超前部署 · 应对 SpaceX 下一代轨道战略',
-    bgImage: '',
+    bgImage: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E8%83%8C%E6%99%AF%E8%A7%86%E9%A2%91/1784884993160_b2tlgu.mp4',
     ctaText: '进入指挥控制台',
     metrics: {
       activeNodes: '128',
@@ -1378,8 +1382,8 @@ const ORBITAL_DEFAULT = {
   },
   // 详情页配置
   detail: {
-    /** 详情页全屏背景视频（mp4 HTTPS 地址，空则用小程序内置默认素材） */
-    bgVideo: '',
+    /** 详情页全屏背景视频（HTTPS 地址，空则用小程序内置默认素材） */
+    bgVideo: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E8%83%8C%E6%99%AF%E8%A7%86%E9%A2%91/1784888337241_ma680s.mp4',
     hudTitle: 'SYS-ODC // CONSOLE',
     hudSub: 'v0.1.0 · UNCLASSIFIED',
     statusText: 'ONLINE',
@@ -1427,19 +1431,35 @@ async function getOrbitalConfig() {
     const res = await db.collection(COLLECTIONS.GLOBAL_CONFIG).doc(ORBITAL_CONFIG_ID).get().catch(() => null)
     if (res && res.data) {
       const row = res.data
+      const card = {
+        ...ORBITAL_DEFAULT.card,
+        ...(row.card || {}),
+        metrics: { ...ORBITAL_DEFAULT.card.metrics, ...((row.card && row.card.metrics) || {}) }
+      }
+      const detail = { ...ORBITAL_DEFAULT.detail, ...(row.detail || {}) }
+      // 云库若仍是旧视频地址，会盖住代码默认值；按 mediaVersion 一次性迁移
+      if ((row.mediaVersion || 0) < ORBITAL_MEDIA_VERSION) {
+        card.bgImage = ORBITAL_DEFAULT.card.bgImage
+        detail.bgVideo = ORBITAL_DEFAULT.detail.bgVideo
+        db.collection(COLLECTIONS.GLOBAL_CONFIG).doc(ORBITAL_CONFIG_ID).update({
+          data: {
+            'card.bgImage': ORBITAL_DEFAULT.card.bgImage,
+            'detail.bgVideo': ORBITAL_DEFAULT.detail.bgVideo,
+            mediaVersion: ORBITAL_MEDIA_VERSION,
+            updatedAt: now()
+          }
+        }).catch(() => {})
+      }
       return ok({
         ...ORBITAL_DEFAULT,
         ...row,
-        card: {
-          ...ORBITAL_DEFAULT.card,
-          ...(row.card || {}),
-          metrics: { ...ORBITAL_DEFAULT.card.metrics, ...((row.card && row.card.metrics) || {}) }
-        },
-        detail: { ...ORBITAL_DEFAULT.detail, ...(row.detail || {}) }
+        card,
+        detail,
+        mediaVersion: Math.max(row.mediaVersion || 0, ORBITAL_MEDIA_VERSION)
       })
     }
   } catch (e) {}
-  return ok(ORBITAL_DEFAULT)
+  return ok({ ...ORBITAL_DEFAULT, mediaVersion: ORBITAL_MEDIA_VERSION })
 }
 
 async function updateOrbitalConfig(body, user) {
@@ -1455,6 +1475,7 @@ async function updateOrbitalConfig(body, user) {
       missionList:  Array.isArray(incoming.detail && incoming.detail.missionList)  ? incoming.detail.missionList  : ORBITAL_DEFAULT.detail.missionList,
       briefLines:   Array.isArray(incoming.detail && incoming.detail.briefLines)   ? incoming.detail.briefLines   : ORBITAL_DEFAULT.detail.briefLines
     },
+    mediaVersion: ORBITAL_MEDIA_VERSION,
     updatedAt: now(),
     updatedBy: (user && (user.username || user.account)) || ''
   }
@@ -2111,6 +2132,119 @@ function submitSplashPreviewJob(cos, inputKey, outputKey) {
   })
 }
 
+const SPLASH_NOTICE_MAX_PLAIN = 80
+const SPLASH_NOTICE_SIZE_MIN = 12
+const SPLASH_NOTICE_SIZE_MAX = 36
+const SPLASH_NOTICE_ALLOWED_ALIGN = { left: true, center: true, right: true }
+
+function isAllowedSplashNoticeSize(px) {
+  const n = Number(px)
+  return Number.isFinite(n) && n >= SPLASH_NOTICE_SIZE_MIN && n <= SPLASH_NOTICE_SIZE_MAX
+}
+
+function splashNoticePlainLen(html) {
+  return String(html || '')
+    .replace(/<br\s*\/?>/gi, '')
+    .replace(/<\/(div|p)>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&')
+    .replace(/\s+/g, ' ')
+    .trim().length
+}
+
+function escapeSplashNoticeText(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+/**
+ * 开屏通知富文本消毒：仅保留 div/span/br + text-align/font-size/font-weight/line-height；
+ * 纯文本旧数据包一层居中；纯文字上限 80。
+ */
+function sanitizeSplashNoticeHtml(raw) {
+  let src = String(raw || '').trim()
+  if (!src) return ''
+  if (!/<[a-z][\s\S]*>/i.test(src)) {
+    src = `<div style="text-align:center">${escapeSplashNoticeText(src.slice(0, SPLASH_NOTICE_MAX_PLAIN))}</div>`
+    return src
+  }
+  // 去掉危险标签与事件
+  src = src
+    .replace(/<\s*(script|style|iframe|object|embed|link|meta)[\s\S]*?>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+    .replace(/<\s*(script|style|iframe|object|embed|link|meta)[^>]*>/gi, '')
+    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/\s(href|src|xlink:href)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+
+  // 规范化允许标签：strong/b/p/font → span/div（开标签必须带完整 >，避免残缺 HTML）
+  src = src
+    .replace(/<\s*\/?\s*p\b/gi, (m) => m.replace(/p/i, 'div'))
+    .replace(/<\s*strong\b[^>]*>/gi, '<span style="font-weight:700">')
+    .replace(/<\s*\/\s*strong\s*>/gi, '</span>')
+    .replace(/<\s*b\b(?![a-z])[^>]*>/gi, '<span style="font-weight:700">')
+    .replace(/<\s*\/\s*b\s*>/gi, '</span>')
+    .replace(/<\s*font\b[^>]*>/gi, '<span>')
+    .replace(/<\s*\/\s*font\s*>/gi, '</span>')
+    // 修复历史坏数据：style="..." 后缺 >
+    .replace(/<span(\s+[^>]*?=\s*"[^"]*")([^\s>])/gi, '<span$1>$2')
+    .replace(/<span(\s+[^>]*?=\s*'[^']*')([^\s>])/gi, '<span$1>$2')
+
+  // 只保留 div/span/br
+  src = src.replace(/<\/?(?!div\b|span\b|br\b)[a-z0-9]+\b[^>]*>/gi, '')
+
+  // 清洗 style：只留 text-align / font-size(白名单) / font-weight(700|bold) / line-height(1–2.5)
+  src = src.replace(/\sstyle\s*=\s*("([^"]*)"|'([^']*)')/gi, (full, _q, d1, d2) => {
+    const rawStyle = d1 != null ? d1 : d2 || ''
+    const parts = []
+    const alignM = rawStyle.match(/text-align\s*:\s*(left|center|right)/i)
+    if (alignM && SPLASH_NOTICE_ALLOWED_ALIGN[alignM[1].toLowerCase()]) {
+      parts.push(`text-align:${alignM[1].toLowerCase()}`)
+    }
+    const sizeM = rawStyle.match(/font-size\s*:\s*(\d+)\s*px/i)
+    if (sizeM && isAllowedSplashNoticeSize(Number(sizeM[1]))) {
+      parts.push(`font-size:${Number(sizeM[1])}px`)
+    }
+    if (/font-weight\s*:\s*(bold|700)/i.test(rawStyle)) {
+      parts.push('font-weight:700')
+    }
+    const lhM = rawStyle.match(/line-height\s*:\s*([\d.]+)/i)
+    if (lhM) {
+      const lh = Number(lhM[1])
+      if (Number.isFinite(lh) && lh >= 1 && lh <= 2.5) {
+        parts.push(`line-height:${Math.round(lh * 10) / 10}`)
+      }
+    }
+    return parts.length ? ` style="${parts.join(';')}"` : ''
+  })
+
+  // br 自闭合；真实换行也转 br，保证小程序能拆行
+  src = src.replace(/<\s*br\s*\/?\s*>/gi, '<br/>')
+  src = src.replace(/\r\n|\r|\n/g, '<br/>')
+  src = src.replace(/(?:<br\/>){3,}/gi, '<br/><br/>')
+
+  src = src.replace(/^(<br\s*\/?>)+/i, '').replace(/(<br\s*\/?>)+$/i, '').trim()
+  if (!src) return ''
+
+  if (splashNoticePlainLen(src) > SPLASH_NOTICE_MAX_PLAIN) {
+    // 超长：退化为纯文本截断
+    const plain = String(raw || '')
+      .replace(/<br\s*\/?>/gi, '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .trim()
+      .slice(0, SPLASH_NOTICE_MAX_PLAIN)
+    return `<div style="text-align:center">${escapeSplashNoticeText(plain)}</div>`
+  }
+  if (!/text-align\s*:/i.test(src)) {
+    src = `<div style="text-align:center">${src}</div>`
+  }
+  return src
+}
+
 function newSplashMediaId() {
   return `sp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
@@ -2294,6 +2428,39 @@ async function updateStarshipSplashConfig(body, user) {
   })
 
   const first = mediaItems[0] || null
+  const NOTICE_FONTS = { default: true, yahei: true, 'yahei-bold': true }
+  // 显式传入才覆盖；旧客户端漏字段时保留库内已有 notice，避免被 set 整文档抹掉
+  const noticeText = Object.prototype.hasOwnProperty.call(body, 'noticeText')
+    ? sanitizeSplashNoticeHtml(body.noticeText)
+    : sanitizeSplashNoticeHtml((before && before.noticeText) || '')
+  const noticeFontRaw = Object.prototype.hasOwnProperty.call(body, 'noticeFont')
+    ? String(body.noticeFont || 'default').trim()
+    : String((before && before.noticeFont) || 'default').trim()
+  const noticeFont = NOTICE_FONTS[noticeFontRaw] ? noticeFontRaw : 'default'
+  const clampLh = (v, fallback = 1.4) => {
+    const n = Number(v)
+    if (!Number.isFinite(n)) return fallback
+    return Math.min(2.5, Math.max(1, Math.round(n * 10) / 10))
+  }
+  const clampLs = (v, fallback = 0) => {
+    const n = Math.round(Number(v))
+    if (!Number.isFinite(n)) return fallback
+    return Math.min(8, Math.max(0, n))
+  }
+  const clampLg = (v, fallback = 4) => {
+    const n = Math.round(Number(v))
+    if (!Number.isFinite(n)) return fallback
+    return Math.min(24, Math.max(0, n))
+  }
+  const noticeLineHeight = Object.prototype.hasOwnProperty.call(body, 'noticeLineHeight')
+    ? clampLh(body.noticeLineHeight)
+    : clampLh(before && before.noticeLineHeight, 1.4)
+  const noticeLetterSpacing = Object.prototype.hasOwnProperty.call(body, 'noticeLetterSpacing')
+    ? clampLs(body.noticeLetterSpacing)
+    : clampLs(before && before.noticeLetterSpacing, 0)
+  const noticeLineGap = Object.prototype.hasOwnProperty.call(body, 'noticeLineGap')
+    ? clampLg(body.noticeLineGap)
+    : clampLg(before && before.noticeLineGap, 4)
   const patch = {
     enabled: body.enabled !== false,
     autoSyncSpacex,
@@ -2303,6 +2470,11 @@ async function updateStarshipSplashConfig(body, user) {
     coverUrl: body.coverUrl || '',
     showSkip: body.showSkip !== false,
     skipText: body.skipText || '跳过',
+    noticeText,
+    noticeFont,
+    noticeLineHeight,
+    noticeLetterSpacing,
+    noticeLineGap,
     mediaItems,
     mediaType: first ? first.mediaType : '',
     mediaUrl: first ? first.mediaUrl : '',
@@ -2708,6 +2880,12 @@ async function runSpacexSplashAutoSync() {
     // 自动同步写库时保留手动优先开关（有手动项时应为 false，勿被漏字段覆盖）
     autoSyncSpacex: docExists ? normalized.autoSyncSpacex !== false && !manualItems.length : !manualItems.length,
     countdownSeconds: normalized.countdownSeconds || 5,
+    // 首建文档时带上空通知字段；已有文档走 update，不覆盖运营配置的 notice*
+    noticeText: docExists ? undefined : '',
+    noticeFont: docExists ? undefined : 'default',
+    noticeLineHeight: docExists ? undefined : 1.4,
+    noticeLetterSpacing: docExists ? undefined : 0,
+    noticeLineGap: docExists ? undefined : 4,
     mediaItems: nextItems,
     mediaType: first ? first.mediaType : '',
     mediaUrl: first ? first.mediaUrl : '',
@@ -2717,10 +2895,12 @@ async function runSpacexSplashAutoSync() {
     updatedAt: now(),
     updatedBy: 'spacex-auto-sync'
   }
+  // update 路径去掉 undefined，避免误写；set 路径保留默认 notice
+  const writePatch = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined))
   if (docExists) {
-    await ref.update({ data: patch })
+    await ref.update({ data: writePatch })
   } else {
-    await ref.set({ data: patch })
+    await ref.set({ data: writePatch })
   }
 
   // 8) 截帧封面 / 最长 12 秒 720p 预览转码（官网新拉的视频必须走这条）
@@ -3142,6 +3322,7 @@ const MENU_BADGE_MODULES = [
   'launch_subscriptions',
   'launch_votes',
   'lunar_wishes',
+  'astro_photos',
   'road_closure_notice',
   'milestone_rewards',
   'announcements'
@@ -3165,6 +3346,9 @@ async function getMenuBadgeCount(mod, since) {
 
     case 'lunar_wishes':
       return safeCountWhere('lunar_wishes', { status: 'pending' })
+
+    case 'astro_photos':
+      return safeCountWhere('astro_photos', { status: 'pending' })
 
     case 'launch_subscriptions':
       return safeCountWhere(COLLECTIONS.LAUNCH_SUBSCRIPTIONS, { sent: false })
@@ -5251,7 +5435,7 @@ async function getOaAlertStatus(openid, unionid) {
     hasUnionid: !!unionid,
     oaOpenidBound: !!existing.oaOpenid,
     message: ready
-      ? '已就绪，发射前30分钟微信将自动推送'
+      ? '已就绪，发射前约30分钟及完成后结果将由微信自动推送'
       : existing.enabled && !existing.followed
         ? '已开启开关，请先关注服务号「火星探索日志」'
         : existing.enabled && !existing.oaOpenid
@@ -5456,15 +5640,9 @@ function voteUserRecordId(launchId, openid, voteType) {
   return String(raw).replace(/[^a-zA-Z0-9_-]/g, '_')
 }
 
-/** 成败竞猜结算：成功/载荷部署 → success；失败/部分失败/取消等 → failure */
-function computeOutcomeResult(statusCategory, statusAbbrev, statusName) {
-  const cat = String(statusCategory || '').toLowerCase().trim()
-  const text = `${statusAbbrev || ''} ${statusName || ''}`.toLowerCase()
-  if (cat === 'success' || cat === 'deployed') return 'success'
-  if (cat === 'failure' || cat === 'partial') return 'failure'
-  if (/payload\s*deployed|success/.test(text) && !/partial|failure|fail/.test(text)) return 'success'
-  if (/partial\s*failure|failure|fail|cancel|scrub|abort/.test(text)) return 'failure'
-  return ''
+/** 成败竞猜结算：仅真实终态；Hold/scrub/推迟不结算 */
+function computeOutcomeResult(statusCategory, statusAbbrev, statusName, statusId) {
+  return outcomeVoteSettle.computeOutcomeResult(statusCategory, statusAbbrev, statusName, statusId)
 }
 
 /** 成败问题文案：跟全局配置；历史写死的长默认视为未配置 */
@@ -5591,8 +5769,9 @@ async function castOutcomeVote(body, openid) {
   }
   const col = COLLECTIONS.LAUNCH_VOTES
   const voteType = 'outcome'
-  const voteRecord = await findLaunchVoteDoc(launchId, voteType)
-  const knownLaunchTime = (voteRecord && voteRecord.launchTime) || body.launchTime || ''
+  let voteRecord = await findLaunchVoteDoc(launchId, voteType)
+  // 优先用客户端最新 NET，避免 DB 旧 launchTime 导致误封盘
+  const knownLaunchTime = body.launchTime || (voteRecord && voteRecord.launchTime) || ''
 
   if (voteRecord && voteRecord.enabled === false) {
     return fail(4003, '该场成败竞猜已关闭')
@@ -5610,15 +5789,34 @@ async function castOutcomeVote(body, openid) {
     return fail(4003, '该场成败竞猜已结算，无法再投票')
   }
 
-  if (knownLaunchTime) {
-    const lt = new Date(knownLaunchTime).getTime()
-    const timeToLaunch = lt - Date.now()
-    if (lt > 0 && timeToLaunch >= 0 && timeToLaunch < 30 * 60 * 1000) {
+  // 封盘后因改期解封（成败无轮次，只清 votingClosed）
+  if (voteRecord && voteRecord.votingClosed && !voteRecord.result) {
+    const lt = knownLaunchTime ? parseVoteTimeMs(knownLaunchTime) : 0
+    const timeToLaunch = lt > 0 ? lt - Date.now() : 0
+    if (lt > 0 && (timeToLaunch < 0 || timeToLaunch >= VOTE_TIME_TOLERANCE_MS)) {
+      const reopenPatch = {
+        votingClosed: false,
+        lockedLaunchTime: '',
+        launchTime: knownLaunchTime,
+        updatedAt: now()
+      }
+      try {
+        await db.collection(col).doc(voteRecord._id).update({ data: reopenPatch })
+      } catch (e) {}
+      voteRecord = { ...voteRecord, ...reopenPatch }
+    } else if (lt > 0 && timeToLaunch >= 0 && timeToLaunch < VOTE_TIME_TOLERANCE_MS) {
+      return fail(4003, '距发射不足30分钟，竞猜已关闭')
+    } else {
       return fail(4003, '距发射不足30分钟，竞猜已关闭')
     }
   }
-  if (voteRecord && voteRecord.votingClosed && !voteRecord.result) {
-    return fail(4003, '距发射不足30分钟，竞猜已关闭')
+
+  if (knownLaunchTime) {
+    const lt = parseVoteTimeMs(knownLaunchTime)
+    const timeToLaunch = lt - Date.now()
+    if (lt > 0 && timeToLaunch >= 0 && timeToLaunch < VOTE_TIME_TOLERANCE_MS) {
+      return fail(4003, '距发射不足30分钟，竞猜已关闭')
+    }
   }
 
   const voteRecordCol = 'launch_vote_records'
@@ -5763,10 +5961,10 @@ async function castOutcomeVote(body, openid) {
 async function getOutcomeVoteStats(launchId, openid, query) {
   const q = query || {}
   const currentLaunchTime = q.currentLaunchTime || ''
-  const missionStatus = q.missionStatus || ''
   const statusCategory = q.statusCategory || ''
   const statusAbbrev = q.statusAbbrev || ''
   const statusName = q.statusName || ''
+  const statusId = q.statusId != null && q.statusId !== '' ? q.statusId : ''
 
   const [myRecord, voteRecord] = await Promise.all([
     openid
@@ -5829,22 +6027,41 @@ async function getOutcomeVoteStats(launchId, openid, query) {
   record.bugeLabel = record.successLabel
 
   const effectiveLaunchTime = currentLaunchTime || record.launchTime || ''
+  const nowMs = Date.now()
+  const launchTimePatch = {}
   if (currentLaunchTime && currentLaunchTime !== record.launchTime) {
+    launchTimePatch.launchTime = currentLaunchTime
+    record.launchTime = currentLaunchTime
+  }
+
+  // 误结算修复：仍为推迟/待定（含 NET 未后移的 Hold/scrub）时清空错误 result
+  if (outcomeVoteSettle.shouldClearErroneousOutcomeSettle(
+    record, statusCategory, statusAbbrev, statusName, statusId, effectiveLaunchTime, nowMs, VOTE_TIME_TOLERANCE_MS
+  )) {
+    const clearPatch = {
+      result: '',
+      resultNote: '',
+      settledAt: '',
+      votingClosed: false,
+      lockedLaunchTime: '',
+      updatedAt: now(),
+      ...launchTimePatch
+    }
+    try {
+      await db.collection(COLLECTIONS.LAUNCH_VOTES).doc(record._id).update({ data: clearPatch })
+    } catch (e) {}
+    Object.assign(record, clearPatch)
+  } else if (Object.keys(launchTimePatch).length) {
     try {
       await db.collection(COLLECTIONS.LAUNCH_VOTES).doc(record._id).update({
-        data: { launchTime: currentLaunchTime, updatedAt: now() }
+        data: { ...launchTimePatch, updatedAt: now() }
       })
-      record.launchTime = currentLaunchTime
     } catch (e) {}
   }
 
-  // 自动结算：任务完成或状态已终态
-  let autoResult = ''
+  // 自动结算：仅真实终态；禁止用 detailType===completed 兜底判失败（推迟会误伤）
   if (!record.result) {
-    autoResult = computeOutcomeResult(statusCategory, statusAbbrev, statusName)
-    if (!autoResult && missionStatus === 'completed') {
-      autoResult = computeOutcomeResult(statusCategory || 'failure', statusAbbrev, statusName) || 'failure'
-    }
+    const autoResult = computeOutcomeResult(statusCategory, statusAbbrev, statusName, statusId)
     if (autoResult) {
       try {
         await db.collection(COLLECTIONS.LAUNCH_VOTES).doc(record._id).update({
@@ -5863,24 +6080,24 @@ async function getOutcomeVoteStats(launchId, openid, query) {
     }
   }
 
-  let votingClosed = !!record.votingClosed || !!record.result
-  let votingClosedReason = record.result ? 'settled' : ''
-  if (!votingClosed && effectiveLaunchTime) {
-    const lt = parseVoteTimeMs(effectiveLaunchTime)
-    if (lt > 0) {
-      const timeToLaunch = lt - Date.now()
-      if (timeToLaunch >= 0 && timeToLaunch < VOTE_TIME_TOLERANCE_MS) {
-        votingClosed = true
-        votingClosedReason = 'time'
-      }
-    }
+  // 动态封盘：对齐准时竞猜；改期后 NET 变远则解封，避免假「距发射不足30分钟」
+  const closedState = outcomeVoteSettle.resolveOutcomeVotingClosed(
+    record, effectiveLaunchTime, nowMs, VOTE_TIME_TOLERANCE_MS
+  )
+  if (closedState.dbPatch) {
+    try {
+      await db.collection(COLLECTIONS.LAUNCH_VOTES).doc(record._id).update({
+        data: { ...closedState.dbPatch, updatedAt: now() }
+      })
+    } catch (e) {}
+    Object.assign(record, closedState.dbPatch)
   }
 
   return ok({
     ...record,
     enabled: record.enabled !== false,
-    votingClosed,
-    votingClosedReason,
+    votingClosed: closedState.votingClosed,
+    votingClosedReason: closedState.votingClosedReason,
     myVote,
     voteType: 'outcome',
     geCount: Number(record.failureCount || 0),
@@ -6290,6 +6507,17 @@ async function getMyVoteResults(openid) {
     if (vt === 'outcome') {
       if (userResult === 'buge') userResult = 'success'
       else if (userResult === 'ge') userResult = 'failure'
+      // NET 仍远时不可能已真实揭晓：屏蔽误结算脏 result，避免战绩显示「猜错了」
+      const netForGuard = vote.currentLaunchTime || vote.launchTime || userLaunchTime || ''
+      const netMs = parseVoteTimeMs(netForGuard)
+      if (
+        (userResult === 'success' || userResult === 'failure') &&
+        netMs > 0 &&
+        netMs - Date.now() > VOTE_TIME_TOLERANCE_MS
+      ) {
+        userResult = ''
+        userSettledAt = ''
+      }
     }
 
     const choiceLabel = vt === 'outcome'
@@ -6637,6 +6865,182 @@ async function batchReviewLunarWishes(body, user) {
   }
 
   await writeOpLog({ user, module: 'lunar_wishes', action: 'batch_review', targetId: wishIds.join(',').slice(0, 200), after: { status, count: updated } })
+  return ok({ updated })
+}
+
+// ===== 航天摄影（影像）管理 =====
+const ASTRO_PHOTOS_COL = 'astro_photos'
+
+/** 与 astroPhotos 云函数 listPublic 短缓存对齐；touchLatest 驱动小程序导航红点 */
+async function bumpAstroPhotosListEpoch(opts) {
+  const ts = Date.now()
+  const data = { astroPhotosListEpoch: ts }
+  if (opts && opts.touchLatest) {
+    data.astroPhotosLatestAt = Number(opts.latestAt) || ts
+  }
+  try {
+    await db.collection(COLLECTIONS.GLOBAL_CONFIG).doc('main').update({ data })
+  } catch (e) {
+    console.warn('[adminGateway] bumpAstroPhotosListEpoch failed:', e && (e.message || e))
+  }
+}
+
+async function listAstroPhotos(query) {
+  const page = Math.max(0, Number(query.page) || 0)
+  const pageSize = Math.min(100, Math.max(1, Number(query.pageSize) || 20))
+  const baseWhere = {}
+  if (query.status) baseWhere.status = query.status
+  const where = buildWhereWithKeyword(baseWhere, String(query.search || '').trim(), [
+    'authorName',
+    'location',
+    'deviceModel',
+    'intro',
+    '_openid'
+  ])
+
+  const countRes = await db.collection(ASTRO_PHOTOS_COL).where(where).count()
+  const res = await db.collection(ASTRO_PHOTOS_COL)
+    .where(where)
+    .orderBy('createdAt', 'desc')
+    .skip(page * pageSize)
+    .limit(pageSize)
+    .get()
+
+  return ok({ list: res.data || [], total: countRes.total, hasMore: (page + 1) * pageSize < countRes.total })
+}
+
+async function reviewAstroPhoto(body, user) {
+  const { photoId, status } = body
+  if (!photoId) return fail(4001, 'photoId 不能为空')
+  if (!['approved', 'rejected', 'pending'].includes(status)) return fail(4001, '无效的状态值')
+
+  const ref = db.collection(ASTRO_PHOTOS_COL).doc(photoId)
+  const beforeRes = await ref.get().catch(() => null)
+  if (!beforeRes || !beforeRes.data) return fail(4040, '投稿不存在')
+
+  await ref.update({
+    data: {
+      status,
+      updatedAt: now(),
+      reviewedAt: now(),
+      reviewedBy: (user && (user.username || user.id)) || ''
+    }
+  })
+  await writeOpLog({
+    user,
+    module: 'astro_photos',
+    action: 'review',
+    targetId: photoId,
+    before: { status: beforeRes.data.status },
+    after: { status }
+  })
+  await bumpAstroPhotosListEpoch(
+    status === 'approved' && beforeRes.data.status !== 'approved'
+      ? { touchLatest: true }
+      : undefined
+  )
+  return ok(true)
+}
+
+async function deleteAstroPhoto(photoId, user) {
+  if (!photoId) return fail(4001, 'photoId 不能为空')
+
+  const ref = db.collection(ASTRO_PHOTOS_COL).doc(photoId)
+  const beforeRes = await ref.get().catch(() => null)
+  if (!beforeRes || !beforeRes.data) return fail(4040, '投稿不存在')
+
+  const keys = []
+  const seen = {}
+  const pushKey = (rawKey) => {
+    const k = String(rawKey || '').replace(/^\/+/, '')
+    if (!k.startsWith('航天摄影/') || seen[k]) return
+    seen[k] = true
+    keys.push(k)
+  }
+  const keyFromUrl = (url) => {
+    const u = String(url || '').trim()
+    if (!u.startsWith(COS_BASE_URL)) return ''
+    try {
+      return decodeURIComponent(u.slice(COS_BASE_URL.length)).replace(/^\/+/, '')
+    } catch (e) {
+      return ''
+    }
+  }
+  const photos = Array.isArray(beforeRes.data.photos) ? beforeRes.data.photos : []
+  for (const p of photos) {
+    if (!p) continue
+    pushKey(p.cosKey)
+    if (!p.cosKey) pushKey(keyFromUrl(p.url))
+  }
+  pushKey(keyFromUrl(beforeRes.data.coverUrl))
+
+  await ref.remove()
+
+  if (keys.length) {
+    try {
+      const cos = createCOSClient()
+      for (const key of keys.slice(0, 8)) {
+        await new Promise((resolve) => {
+          cos.deleteObject({ Bucket: COS_BUCKET, Region: COS_REGION, Key: key }, () => resolve())
+        })
+      }
+    } catch (e) {}
+  }
+
+  await writeOpLog({
+    user,
+    module: 'astro_photos',
+    action: 'delete',
+    targetId: photoId,
+    before: { authorName: beforeRes.data.authorName, coverUrl: beforeRes.data.coverUrl }
+  })
+  await bumpAstroPhotosListEpoch()
+  return ok(true)
+}
+
+async function getAstroPhotosStats() {
+  const totalRes = await db.collection(ASTRO_PHOTOS_COL).count()
+  const approvedRes = await db.collection(ASTRO_PHOTOS_COL).where({ status: 'approved' }).count()
+  const pendingRes = await db.collection(ASTRO_PHOTOS_COL).where({ status: 'pending' }).count()
+  const rejectedRes = await db.collection(ASTRO_PHOTOS_COL).where({ status: 'rejected' }).count()
+  return ok({
+    total: totalRes.total,
+    approved: approvedRes.total,
+    pending: pendingRes.total,
+    rejected: rejectedRes.total
+  })
+}
+
+async function batchReviewAstroPhotos(body, user) {
+  const { photoIds, status } = body
+  if (!Array.isArray(photoIds) || !photoIds.length) return fail(4001, '缺少 photoIds')
+  if (!['approved', 'rejected'].includes(status)) return fail(4001, '无效的状态值')
+
+  let updated = 0
+  for (const id of photoIds.slice(0, 50)) {
+    try {
+      await db.collection(ASTRO_PHOTOS_COL).doc(id).update({
+        data: {
+          status,
+          updatedAt: now(),
+          reviewedAt: now(),
+          reviewedBy: (user && (user.username || user.id)) || ''
+        }
+      })
+      updated++
+    } catch (e) {}
+  }
+
+  await writeOpLog({
+    user,
+    module: 'astro_photos',
+    action: 'batch_review',
+    targetId: photoIds.join(',').slice(0, 200),
+    after: { status, count: updated }
+  })
+  if (updated > 0) {
+    await bumpAstroPhotosListEpoch(status === 'approved' ? { touchLatest: true } : undefined)
+  }
   return ok({ updated })
 }
 
@@ -8497,6 +8901,28 @@ async function route(event, user) {
   if (path === '/lunar-wishes/stats' && method === 'GET') {
     const deny = checkPerm(user, 'lunar_wishes'); if (deny) return deny
     return getLunarWishesStats()
+  }
+
+  // ===== 航天摄影（影像）管理 =====
+  if (path === '/astro-photos/list' && method === 'GET') {
+    const deny = checkPerm(user, 'astro_photos'); if (deny) return deny
+    return listAstroPhotos(query)
+  }
+  if (path === '/astro-photos/review' && method === 'POST') {
+    const deny = checkPerm(user, 'astro_photos'); if (deny) return deny
+    return reviewAstroPhoto(body, user)
+  }
+  if (path === '/astro-photos/batch-review' && method === 'POST') {
+    const deny = checkPerm(user, 'astro_photos'); if (deny) return deny
+    return batchReviewAstroPhotos(body, user)
+  }
+  if (path === '/astro-photos/delete' && method === 'POST') {
+    const deny = checkPerm(user, 'astro_photos'); if (deny) return deny
+    return deleteAstroPhoto(body.photoId || '', user)
+  }
+  if (path === '/astro-photos/stats' && method === 'GET') {
+    const deny = checkPerm(user, 'astro_photos'); if (deny) return deny
+    return getAstroPhotosStats()
   }
 
   // ===== 竞猜全局配置（后台） =====

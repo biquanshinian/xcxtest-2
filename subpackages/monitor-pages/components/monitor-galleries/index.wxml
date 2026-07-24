@@ -76,48 +76,19 @@
 
 <!-- Artemis II 遥测已迁至 NASA 发射商详情页；手机直连星链(D2C) 已迁至 SpaceX 发射商详情页 -->
 
-<!-- 可回收火箭族谱 -->
+<!-- 可回收火箭族谱（Tab 预览 2 张，筛选/统计留给「查看全部」全屏页） -->
 <view class="booster-section monitor-block {{themeClass}}">
   <view class="section-title">
     <text>全球可回收火箭族谱</text>
-    <view class="section-badge" wx:if="{{boosterList.length}}">{{boosterList.length}}</view>
     <view class="section-title-right">
       <view class="booster-view-all" hover-class="booster-view-all--pressed" hover-stay-time="120"
-            bindtap="emitOnViewAllBoosters" wx:if="{{boosterFilterChips.length > 0}}">
+            bindtap="emitOnViewAllBoosters">
         <text>查看全部</text>
         <text class="booster-view-all-arrow">›</text>
       </view>
     </view>
   </view>
-  <!-- 筛选 chip：全部 / 中国 / 各厂商（数据动态生成） -->
-  <scroll-view scroll-x class="booster-filter-scroll" wx:if="{{boosterFilterChips.length > 0}}" enhanced show-scrollbar="{{false}}">
-    <view class="booster-filter-row">
-      <view class="booster-filter-chip {{boosterFilter === chip.id ? 'booster-filter-chip--active' : ''}}"
-            wx:for="{{boosterFilterChips}}" wx:for-item="chip" wx:key="id"
-            data-filter="{{chip.id}}" bindtap="emitOnBoosterFilterTap">
-        <text>{{chip.label}}</text>
-      </view>
-    </view>
-  </scroll-view>
-  <view class="booster-summary glass-card" wx:if="{{boosterList.length > 0}}">
-    <view class="booster-summary-item">
-      <text class="booster-summary-value">{{boosterStats.activeCount}}</text>
-      <text class="booster-summary-label">现役</text>
-    </view>
-    <view class="booster-summary-item">
-      <text class="booster-summary-value">{{boosterStats.maxFlights}}</text>
-      <text class="booster-summary-label">最高复用</text>
-    </view>
-    <view class="booster-summary-item">
-      <text class="booster-summary-value">{{boosterStats.totalFlights}}</text>
-      <text class="booster-summary-label">总飞行</text>
-    </view>
-    <view class="booster-summary-item" wx:if="{{boosterStats.manufacturerCount > 1}}">
-      <text class="booster-summary-value">{{boosterStats.manufacturerCount}}</text>
-      <text class="booster-summary-label">厂商</text>
-    </view>
-  </view>
-  <scroll-view scroll-x class="booster-scroll" wx:if="{{boosterList.length > 0}}" bindscroll="emitOnBoosterScroll" throttle="{{true}}">
+  <view class="agency-grid" wx:if="{{boosterList.length > 0}}">
     <view class="booster-card glass-card" wx:for="{{boosterList}}" wx:key="serial" data-serial="{{item.serial}}" bindtap="emitOnBoosterCardTap">
       <!-- 助推器图片 -->
       <view class="booster-img-wrap">
@@ -162,57 +133,29 @@
       <!-- 箭头 -->
       <view class="booster-card-arrow">›</view>
     </view>
-  </scroll-view>
+  </view>
   <view class="booster-loading glass-card" wx:elif="{{boosterLoading}}">
     <text class="empty-state-text">加载助推器数据...</text>
   </view>
   <view class="booster-loading glass-card" wx:elif="{{boosterLoadError}}" bindtap="emitOnRetryBoosterLoad">
     <text class="empty-state-text">助推器数据加载失败，点击重试</text>
   </view>
-  <view class="booster-loading glass-card" wx:elif="{{boosterFilterEmpty}}">
-    <text class="empty-state-text">该筛选下暂无箭实体记录，首飞后自动收录</text>
-  </view>
   <empty-state wx:else icon="" text="暂无助推器数据" hint="数据同步后将自动展示" />
 </view>
 
-<!-- ========== 全球飞船图鉴 ========== -->
+<!-- ========== 全球飞船图鉴（Tab 预览 2 张，筛选/统计留给「查看全部」全屏页） ========== -->
 <view class="sc-section monitor-block {{themeClass}}">
   <view class="section-title">
     <text>全球飞船图鉴</text>
-    <view class="section-badge" wx:if="{{spacecraftList.length}}">{{spacecraftList.length}}</view>
     <view class="section-title-right">
       <view class="booster-view-all" hover-class="booster-view-all--pressed" hover-stay-time="120"
-            bindtap="emitOnViewAllSpacecraft" wx:if="{{spacecraftFilterChips.length > 0}}">
+            bindtap="emitOnViewAllSpacecraft">
         <text>查看全部</text>
         <text class="booster-view-all-arrow">›</text>
       </view>
     </view>
   </view>
-  <!-- 筛选 chip：全部 / 现役 / 各类型（数据动态生成） -->
-  <scroll-view scroll-x class="booster-filter-scroll" wx:if="{{spacecraftFilterChips.length > 0}}" enhanced show-scrollbar="{{false}}">
-    <view class="booster-filter-row">
-      <view class="booster-filter-chip {{spacecraftFilter === chip.id ? 'booster-filter-chip--active' : ''}}"
-            wx:for="{{spacecraftFilterChips}}" wx:for-item="chip" wx:key="id"
-            data-filter="{{chip.id}}" bindtap="emitOnSpacecraftFilterTap">
-        <text>{{chip.label}}</text>
-      </view>
-    </view>
-  </scroll-view>
-  <view class="booster-summary glass-card" wx:if="{{spacecraftList.length > 0}}">
-    <view class="booster-summary-item">
-      <text class="booster-summary-value">{{spacecraftStats.inUseCount}}</text>
-      <text class="booster-summary-label">现役</text>
-    </view>
-    <view class="booster-summary-item">
-      <text class="booster-summary-value">{{spacecraftStats.typeCount}}</text>
-      <text class="booster-summary-label">类型</text>
-    </view>
-    <view class="booster-summary-item">
-      <text class="booster-summary-value">{{spacecraftStats.agencyCount}}</text>
-      <text class="booster-summary-label">机构</text>
-    </view>
-  </view>
-  <scroll-view scroll-x class="booster-scroll" wx:if="{{spacecraftList.length > 0}}">
+  <view class="agency-grid" wx:if="{{spacecraftList.length > 0}}">
     <view class="sc-card glass-card" wx:for="{{spacecraftList}}" wx:key="id" data-id="{{item.id}}" data-name="{{item.name}}" data-img="{{item.imageUrl}}" bindtap="emitOnSpacecraftCardTap">
       <view class="sc-img-wrap">
         <image class="sc-img"
@@ -235,61 +178,29 @@
       </view>
       <view class="booster-card-arrow">›</view>
     </view>
-  </scroll-view>
+  </view>
   <view class="booster-loading glass-card" wx:elif="{{spacecraftLoading}}">
     <text class="empty-state-text">加载飞船数据...</text>
   </view>
   <view class="booster-loading glass-card" wx:elif="{{spacecraftLoadError}}" bindtap="emitOnRetrySpacecraftLoad">
     <text class="empty-state-text">飞船数据加载失败，点击重试</text>
   </view>
-  <view class="booster-loading glass-card" wx:elif="{{spacecraftFilterEmpty}}">
-    <text class="empty-state-text">该筛选下暂无飞船记录</text>
-  </view>
   <empty-state wx:else icon="" text="暂无飞船数据" hint="数据同步后将自动展示" />
 </view>
 
-<!-- ========== 全球发射场分布 ========== -->
+<!-- ========== 全球发射场分布（Tab 预览 2 张，筛选/统计留给「查看全部」全屏页） ========== -->
 <view class="ls-section monitor-block {{themeClass}}">
   <view class="section-title">
     <text>全球发射场分布</text>
-    <view class="section-badge" wx:if="{{launchSiteList.length}}">{{launchSiteList.length}}</view>
     <view class="section-title-right">
       <view class="booster-view-all" hover-class="booster-view-all--pressed" hover-stay-time="120"
-            bindtap="emitOnViewAllLaunchSites" wx:if="{{launchSiteFilterChips.length > 0}}">
+            bindtap="emitOnViewAllLaunchSites">
         <text>查看全部</text>
         <text class="booster-view-all-arrow">›</text>
       </view>
     </view>
   </view>
-  <!-- 筛选 chip：全部 / 活跃 / 各国家（数据动态生成） -->
-  <scroll-view scroll-x class="booster-filter-scroll" wx:if="{{launchSiteFilterChips.length > 0}}" enhanced show-scrollbar="{{false}}">
-    <view class="booster-filter-row">
-      <view class="booster-filter-chip {{launchSiteFilter === chip.id ? 'booster-filter-chip--active' : ''}}"
-            wx:for="{{launchSiteFilterChips}}" wx:for-item="chip" wx:key="id"
-            data-filter="{{chip.id}}" bindtap="emitOnLaunchSiteFilterTap">
-        <text>{{chip.label}}</text>
-      </view>
-    </view>
-  </scroll-view>
-  <view class="booster-summary glass-card" wx:if="{{launchSiteList.length > 0}}">
-    <view class="booster-summary-item">
-      <text class="booster-summary-value">{{launchSiteStats.siteCount}}</text>
-      <text class="booster-summary-label">发射场</text>
-    </view>
-    <view class="booster-summary-item">
-      <text class="booster-summary-value">{{launchSiteStats.activeCount}}</text>
-      <text class="booster-summary-label">活跃</text>
-    </view>
-    <view class="booster-summary-item">
-      <text class="booster-summary-value">{{launchSiteStats.countryCount}}</text>
-      <text class="booster-summary-label">国家</text>
-    </view>
-    <view class="booster-summary-item">
-      <text class="booster-summary-value">{{launchSiteStats.totalLaunches}}</text>
-      <text class="booster-summary-label">累计发射</text>
-    </view>
-  </view>
-  <scroll-view scroll-x class="booster-scroll" wx:if="{{launchSiteList.length > 0}}">
+  <view class="agency-grid" wx:if="{{launchSiteList.length > 0}}">
     <view class="ls-card glass-card" wx:for="{{launchSiteList}}" wx:key="id" data-id="{{item.id}}" bindtap="emitOnLaunchSiteCardTap">
       <view class="ls-img-wrap">
         <image class="ls-img"
@@ -312,15 +223,12 @@
         </view>
       </view>
     </view>
-  </scroll-view>
+  </view>
   <view class="booster-loading glass-card" wx:elif="{{launchSiteLoading}}">
     <text class="empty-state-text">加载发射场数据...</text>
   </view>
   <view class="booster-loading glass-card" wx:elif="{{launchSiteLoadError}}" bindtap="emitOnRetryLaunchSiteLoad">
     <text class="empty-state-text">发射场数据加载失败，点击重试</text>
-  </view>
-  <view class="booster-loading glass-card" wx:elif="{{launchSiteFilterEmpty}}">
-    <text class="empty-state-text">该筛选下暂无发射场记录</text>
   </view>
   <empty-state wx:else icon="" text="暂无发射场数据" hint="数据同步后将自动展示" />
 </view>

@@ -346,18 +346,60 @@
   gap: 16rpx;
 }
 
+/* 监控页三按钮一排：略收紧间距与字号 */
+.channels-live-actions-row--compact {
+  gap: 12rpx;
+}
+
+.channels-live-actions-row--compact .channels-live-action-btn {
+  min-height: 80rpx;
+  padding: 0 12rpx;
+  font-size: 22rpx;
+  border-radius: 16rpx;
+}
+
+.channels-live-actions-row--compact .channels-live-action-btn--hint {
+  font-size: 20rpx;
+}
+
+.channels-live-actions-row--compact .channels-live-action-btn--with-icon {
+  gap: 8rpx;
+  padding: 0 14rpx;
+}
+
+.channels-live-actions-row--compact .channels-live-action-icon {
+  width: 32rpx;
+  height: 32rpx;
+}
+
 .channels-live-action-btn {
   flex: 1;
+  min-width: 0;
   min-height: 88rpx;
   padding: 0 28rpx;
   border-radius: 20rpx;
   display: flex;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
+  gap: 10rpx;
   font-size: 28rpx;
   font-weight: 500;
   box-sizing: border-box;
   transition: all 0.18s ease;
+}
+
+.channels-live-action-btn text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channels-live-action-icon {
+  width: 36rpx;
+  height: 36rpx;
+  flex-shrink: 0;
+  display: block;
 }
 
 .channels-live-action-btn--primary {
@@ -365,6 +407,11 @@
   color: #fff;
   background: linear-gradient(135deg, #07C160, #06AD56);
   border: 1px solid rgba(7, 193, 96, 0.45);
+}
+
+/* 与推荐直播 / B站同排时，主按钮更宽 */
+.channels-live-action-btn--wide {
+  flex: 1.55;
 }
 
 .channels-live-action-btn--block {
@@ -376,6 +423,11 @@
   color: var(--color-text-on-glass);
   background: var(--color-divider-faint);
   border: 1px solid var(--color-border-glass);
+}
+
+.channels-live-action-btn--bili {
+  border-color: rgba(251, 114, 153, 0.35);
+  background: linear-gradient(135deg, rgba(251, 114, 153, 0.12), var(--color-divider-faint));
 }
 
 .channels-live-action-hover {

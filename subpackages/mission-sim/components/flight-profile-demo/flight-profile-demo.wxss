@@ -219,10 +219,7 @@
 
 /* —— 浅色主题（组件自挂 .fpd--light；画布保持深色仪表屏） —— */
 .fpd--light {
-  background:
-    repeating-linear-gradient(0deg, rgba(0, 168, 98, 0.04) 0, rgba(0, 168, 98, 0.04) 1rpx, transparent 1rpx, transparent 28rpx),
-    repeating-linear-gradient(90deg, rgba(0, 168, 98, 0.04) 0, rgba(0, 168, 98, 0.04) 1rpx, transparent 1rpx, transparent 28rpx),
-    linear-gradient(118deg, #ffffff 0%, #f4faf7 55%, #ecf7f1 100%);
+  background: linear-gradient(118deg, #ffffff 0%, #f4faf7 55%, #ecf7f1 100%);
   border-color: rgba(0, 168, 98, 0.28);
   box-shadow:
     0 8rpx 24rpx rgba(0, 80, 46, 0.08),

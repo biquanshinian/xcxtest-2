@@ -1,7 +1,7 @@
 /**
  * subpackages/news-extra/utils/news-lazy.js
  * 新闻页低频非首屏逻辑（从 pages/news/news.js 拆出）：
- * - 「航天事件」导航红点检测
+ * - 「航天事件」/「航天摄影」导航红点检测
  * - 二维码悬浮入口拖拽/贴边 + 二维码弹窗图片交互
  *
  * 主包 news.js 通过 require.async + attachTo 委托加载，
@@ -13,8 +13,10 @@
  * 必须保留在主包，勿迁入本模块。
  */
 const storageCache = require('../../../utils/storage-sync-cache.js')
+const { fetchMainConfig } = require('../../../utils/feature-flags.js')
 
 const ARTICLES_NAV_ACK_KEY = '_articles_nav_ack_manual_updated_at'
+const PHOTOS_NAV_ACK_KEY = '_photos_nav_ack_latest_at'
 
 const methods = {
   /** 顶部「航天事件」是否与云端后台更新时间不一致（与 app.js ARTICLES_NAV_ACK 联动） */
@@ -34,6 +36,108 @@ const methods = {
       const show = L > ack
       if (show !== this.data.showArticlesNavDot) this.setData({ showArticlesNavDot: show })
     })
+  },
+
+  /**
+   * 顶部「航天摄影」红点：有新投稿上墙（astroPhotosLatestAt > 本地 ack）时显示
+   * @param {number} [hintLatestAt] listPublic 返回的 latestAt，可跳过再读配置
+   */
+  _refreshPhotosNavDot(hintLatestAt) {
+    if (!this.data.showPhotosNav) {
+      if (this.data.showPhotosNavDot) this.setData({ showPhotosNavDot: false })
+      return
+    }
+    // 已在摄影 Tab：视作已读，只同步水位，禁止点亮
+    if (this.data.contentType === 'photos') {
+      this.acknowledgePhotosNavDot(hintLatestAt)
+      return
+    }
+    const apply = (latest) => {
+      // 异步回来时若已切进摄影 Tab，勿再点亮
+      if (this.data.contentType === 'photos') {
+        this.acknowledgePhotosNavDot(latest)
+        return
+      }
+      if (!this.data.showPhotosNav) {
+        if (this.data.showPhotosNavDot) this.setData({ showPhotosNavDot: false })
+        return
+      }
+      const L = Number(latest) || 0
+      if (!L) {
+        // 读失败/无水位：保留现有红点状态，勿强行灭灯
+        return
+      }
+      let ack = 0
+      try {
+        ack = Number(storageCache.readSync(PHOTOS_NAV_ACK_KEY, 0)) || 0
+      } catch (_) {}
+      const show = L > ack
+      if (show !== this.data.showPhotosNavDot) this.setData({ showPhotosNavDot: show })
+    }
+    const hinted = Number(hintLatestAt) || 0
+    if (hinted > 0) {
+      const merged = Math.max(Number(this._photosDotLatestAt) || 0, hinted)
+      this._photosDotLatestAt = merged
+      this._photosDotFetchedAt = Date.now()
+      apply(merged)
+      return
+    }
+    // 60s 内复用；超时强制刷 global_config，避免 5min feature-flags TTL 导致红点迟迟不亮
+    const fresh = this._photosDotFetchedAt && (Date.now() - this._photosDotFetchedAt < 60 * 1000)
+    if (fresh && this._photosDotLatestAt != null) {
+      apply(this._photosDotLatestAt)
+      return
+    }
+    fetchMainConfig(true)
+      .then((cfg) => {
+        const L = Number(cfg && cfg.astroPhotosLatestAt) || 0
+        const merged = Math.max(Number(this._photosDotLatestAt) || 0, L)
+        this._photosDotLatestAt = merged
+        this._photosDotFetchedAt = Date.now()
+        apply(merged)
+      })
+      .catch(() => {
+        // 网络失败：保留现态，仅用内存水位尝试
+        if (this._photosDotLatestAt) apply(this._photosDotLatestAt)
+      })
+  },
+
+  /**
+   * 进入「航天摄影」后清除红点
+   * @param {number|Function} [hintOrDone] listPublic.latestAt，或完成回调
+   * @param {Function} [done]
+   */
+  acknowledgePhotosNavDot(hintOrDone, done) {
+    let hintLatestAt = 0
+    let cb = done
+    if (typeof hintOrDone === 'function') {
+      cb = hintOrDone
+    } else {
+      hintLatestAt = Number(hintOrDone) || 0
+    }
+    const finish = (latest) => {
+      const L = Math.max(
+        Number(latest) || 0,
+        hintLatestAt,
+        Number(this._photosDotLatestAt) || 0
+      )
+      if (L > 0) {
+        try { storageCache.persistAsync(PHOTOS_NAV_ACK_KEY, L) } catch (_) {}
+        this._photosDotLatestAt = L
+        this._photosDotFetchedAt = Date.now()
+      }
+      if (this.data.showPhotosNavDot) this.setData({ showPhotosNavDot: false })
+      cb && cb()
+    }
+    // 有 hint 或内存水位时直接落盘 ack，避免短进短出 + 静默 60s 跳过导致红点回燃
+    const mem = Number(this._photosDotLatestAt) || 0
+    if (hintLatestAt > 0 || mem > 0) {
+      finish(Math.max(hintLatestAt, mem))
+      return
+    }
+    fetchMainConfig(true)
+      .then((cfg) => finish(cfg && cfg.astroPhotosLatestAt))
+      .catch(() => finish(0))
   },
 
   onQrcodeEntryTouchStart(e) {

@@ -1,10 +1,55 @@
 <wxs module="navPad" src="/utils/nav-scroll-pad.wxs"></wxs>
 <!--pages/news/news.wxml-->
+<template name="photoCard">
+  <view class="photo-card glass-card card-hover">
+    <navigator class="card-link" url="/subpackages/news-extra/photo-detail?id={{item.id}}" bindtap="onNewsCardSnapshotTap" data-id="{{item.id}}">
+      <view class="photo-cover-wrap" style="aspect-ratio: {{item.coverAspectRatio || 1}};">
+        <image
+          class="photo-cover"
+          wx:if="{{item.cardImage || item.coverUrl}}"
+          src="{{item.cardImage || item.coverUrl}}"
+          mode="aspectFill"
+          lazy-load="{{true}}"
+        ></image>
+        <view class="photo-count-badge" wx:if="{{item.photoCountText}}">{{item.photoCountText}}</view>
+      </view>
+      <view class="photo-meta" wx:if="{{item.location || item.publishedAtText}}">
+        <view class="photo-meta-row">
+          <view class="meta-item" wx:if="{{item.location}}">
+            <image class="meta-location-icon" src="/images/icons/icon-location.svg" mode="aspectFit"></image>
+            <text class="meta-text">{{item.location}}</text>
+          </view>
+          <text class="photo-shot-at" wx:if="{{item.publishedAtText}}">{{item.publishedAtText}}</text>
+        </view>
+      </view>
+    </navigator>
+    <view class="article-footer photo-card-footer">
+      <view class="photo-author-row">
+        <view class="photo-avatar">{{item.authorAvatar}}</view>
+        <text class="photo-author-name">{{item.authorName}}</text>
+      </view>
+      <view class="article-actions">
+        <button class="article-share-btn" open-type="share" data-id="{{item.id}}" data-type="photo" catchtap="sharePhoto">
+          <image class="icon-share icon-share--article" src="/images/share-arrow.svg" mode="aspectFit" data-id="{{item.id}}" data-type="photo"></image>
+        </button>
+      </view>
+    </view>
+  </view>
+</template>
 <page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
 <view class="container {{themeClass}}">
   <!-- 顶部导航栏（包含状态栏） -->
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
     <view class="top-nav">
+    <view
+      wx:if="{{showPhotosNav}}"
+      class="nav-button {{contentType === 'photos' ? 'active' : ''}} nav-button--photos"
+      bindtap="switchContentType"
+      data-type="photos"
+    >
+      <text>航天摄影</text>
+      <view wx:if="{{showPhotosNavDot}}" class="nav-red-dot"></view>
+    </view>
     <view class="nav-button {{contentType === 'articles' ? 'active' : ''}} nav-button--articles" bindtap="switchContentType" data-type="articles">
       <text>航天事件</text>
       <view wx:if="{{showArticlesNavDot}}" class="nav-red-dot"></view>
@@ -48,8 +93,25 @@
     <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
 <!-- 内容列表 -->
     <view class="news-list">
+      <!-- 航天摄影：双列瀑布流（按封面比例错落）；wx:if 与列表拆开避免串 Tab -->
+      <block wx:if="{{contentType === 'photos'}}">
+        <view class="photo-masonry">
+          <view class="photo-masonry-col">
+            <block wx:for="{{photoColLeft}}" wx:key="id">
+              <template is="photoCard" data="{{item: item}}" />
+            </block>
+          </view>
+          <view class="photo-masonry-col">
+            <block wx:for="{{photoColRight}}" wx:key="id">
+              <template is="photoCard" data="{{item: item}}" />
+            </block>
+          </view>
+        </view>
+      </block>
+
       <!-- 事件卡片 -->
-      <view class="news-card glass-card card-hover" wx:for="{{newsList}}" wx:key="id" wx:if="{{contentType === 'events'}}">
+      <block wx:if="{{contentType === 'events'}}">
+      <view class="news-card glass-card card-hover" wx:for="{{newsList}}" wx:key="id">
         <navigator class="card-link" url="/subpackages/news-extra/detail?id={{item.id}}&type=event" bindtap="onNewsCardSnapshotTap" data-id="{{item.id}}">
           <image class="news-image" wx:if="{{item.image}}" src="{{item.cardImage || item.image}}" mode="aspectFill" lazy-load="{{true}}"></image>
 
@@ -79,15 +141,17 @@
             </view>
           </view>
           <view class="article-actions">
-            <button class="article-share-btn" open-type="share" data-id="{{item.id}}" catchtap="shareEvent">
-              <image class="icon-share icon-share--article" src="/images/share-arrow.svg" mode="aspectFit"></image>
+            <button class="article-share-btn" open-type="share" data-id="{{item.id}}" data-type="event" catchtap="shareEvent">
+              <image class="icon-share icon-share--article" src="/images/share-arrow.svg" mode="aspectFit" data-id="{{item.id}}" data-type="event"></image>
             </button>
           </view>
         </view>
       </view>
+      </block>
 
       <!-- 文章卡片（配图区域与「即将发生」同款：整宽 news-image + 下方正文） -->
-      <view class="article-card glass-card card-hover" wx:for="{{newsList}}" wx:key="id" wx:if="{{contentType === 'articles'}}">
+      <block wx:if="{{contentType === 'articles'}}">
+      <view class="article-card glass-card card-hover" wx:for="{{newsList}}" wx:key="id">
         <navigator class="card-link" url="/subpackages/news-extra/detail?id={{item.id}}&type=article" bindtap="onNewsCardSnapshotTap" data-id="{{item.id}}">
           <image class="news-image" wx:if="{{item.cardImage}}" src="{{item.cardImage}}" mode="aspectFill" lazy-load="{{true}}"></image>
 
@@ -111,12 +175,13 @@
             <text class="article-author-text">{{item.author}}</text>
           </view>
           <view class="article-actions">
-            <button class="article-share-btn" open-type="share" data-id="{{item.id}}" catchtap="shareArticle">
-              <image class="icon-share icon-share--article" src="/images/share-arrow.svg" mode="aspectFit"></image>
+            <button class="article-share-btn" open-type="share" data-id="{{item.id}}" data-type="article" catchtap="shareArticle">
+              <image class="icon-share icon-share--article" src="/images/share-arrow.svg" mode="aspectFit" data-id="{{item.id}}" data-type="article"></image>
             </button>
           </view>
         </view>
       </view>
+      </block>
     </view>
 
     <!-- 触底加载：微信原生三点 -->
@@ -133,14 +198,24 @@
 
     <!-- 空状态 -->
     <view class="empty-state" wx:if="{{newsList.length === 0 && !loading}}">
-      <text class="empty-text">暂无数据，下拉刷新试试</text>
+      <text class="empty-text">{{contentType === 'photos' ? '暂无航天摄影，欢迎投稿分享' : '暂无数据，下拉刷新试试'}}</text>
     </view>
 
     <view style="height: {{tabBarReservedHeight}}px;"></view>
   </scroll-view>
 
+  <!-- 影像投稿入口：滑动收起，停滑自动展现 -->
+  <view
+    wx:if="{{showPhotosNav && contentType === 'photos'}}"
+    class="photo-upload-fab {{photoFabHidden ? 'photo-upload-fab--hidden' : ''}}"
+    style="bottom: {{tabBarReservedHeight + 24}}px;"
+    bindtap="goPhotoUpload"
+  >
+    <text class="photo-upload-fab__text">投稿</text>
+  </view>
+
   <ai-chat id="ai-chat" />
-  <nasa-float show="{{!loading || newsList.length > 0}}" />
+  <nasa-float id="nasaFloat" show="{{!loading || newsList.length > 0}}" />
   <popup-ad visible="{{popupAdVisible}}" shop-item="{{popupAdItem}}" bind:close="onPopupAdClose"></popup-ad>
   <demo-overlay id="demoOverlay" showControls="{{false}}" qrcodeUrl="https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%B0%8F%E7%A8%8B%E5%BA%8F%E4%BA%8C%E7%BB%B4%E7%A0%81/1775323336594_jkl6zv.png" loop="{{true}}" />
   <share-guide />

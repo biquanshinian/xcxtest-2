@@ -842,12 +842,13 @@ async function handleGetTodayTweetStats() {
       countMap[src]++
     })
 
-    // 组装结果
+    // 组装结果：优先 COS 头像；空则留给前端按约定路径兜底
     var result = accounts.map(function (acc) {
+      var avatar = acc.avatarCosUrl || acc.avatarUrl || ''
       return {
         screenName: acc.screenName || '',
         label: acc.label || acc.screenName || '',
-        avatarUrl: acc.avatarUrl || '',
+        avatarUrl: avatar,
         todayCount: countMap[acc.screenName] || 0
       }
     }).filter(function (item) {
@@ -873,7 +874,7 @@ async function handleGetTweetAccounts() {
       return {
         screenName: acc.screenName || '',
         label: acc.label || acc.screenName || '',
-        avatarUrl: acc.avatarUrl || '',
+        avatarUrl: acc.avatarCosUrl || acc.avatarUrl || '',
         cosFolder: acc.cosFolder || ''
       }
     })

@@ -7,40 +7,13 @@
    否则会盖掉 .monitor-block 的内边距（数值唯一来源：styles/monitor-block.wxss）。 */
 
 /* ========== 可回收火箭族谱 ========== */
-.booster-summary {
-  display: flex;
-  justify-content: space-around;
-  padding: 24rpx;
-  margin-bottom: 20rpx;
-  border-radius: 20rpx;
-}
-.booster-summary-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-.booster-summary-value {
-  font-size: 40rpx;
-  font-weight: 700;
-  color: #fff;
-  font-variant-numeric: tabular-nums;
-}
-.booster-summary-label {
-  font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.5);
-  margin-top: 4rpx;
-}
-.booster-scroll {
-  white-space: nowrap;
-  width: 100%;
-}
 .booster-card {
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
   align-items: stretch;
-  margin-right: 16rpx;
   border-radius: 20rpx;
-  width: 280rpx;
+  width: calc((100% - 20rpx) / 2);
+  box-sizing: border-box;
   overflow: hidden;
   position: relative;
   transition: transform 0.25s ease;
@@ -52,7 +25,7 @@
 .booster-img-wrap {
   position: relative;
   width: 100%;
-  height: 180rpx;
+  aspect-ratio: 4 / 3;
   overflow: hidden;
 }
 .booster-img {
@@ -157,7 +130,6 @@
   border: 1px solid rgba(90, 200, 250, 0.25);
 }
 
-/* 族谱筛选 chip + 查看全部按钮 */
 /* 「查看全部」PRO 金色胶囊（族谱/发射商图鉴/发射场共用，示意会员内容） */
 .booster-view-all {
   display: flex;
@@ -181,32 +153,6 @@
   font-size: 30rpx;
   line-height: 1;
   color: #5C3A00;
-}
-.booster-filter-scroll {
-  width: 100%;
-  white-space: nowrap;
-  margin-bottom: 20rpx;
-}
-.booster-filter-row {
-  display: inline-flex;
-  gap: 12rpx;
-  padding: 2rpx 2rpx;
-}
-.booster-filter-chip {
-  flex-shrink: 0;
-  padding: 10rpx 26rpx;
-  border-radius: 999rpx;
-  font-size: 24rpx;
-  color: rgba(255, 255, 255, 0.65);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  transition: all 0.2s ease;
-}
-.booster-filter-chip--active {
-  color: #fff;
-  font-weight: 600;
-  background: linear-gradient(135deg, rgba(0, 122, 255, 0.35), rgba(88, 86, 214, 0.35));
-  border-color: rgba(0, 122, 255, 0.55);
 }
 .booster-key-stats {
   display: flex;
@@ -279,14 +225,12 @@
 
 /* ========== 全球飞船图鉴（骨架镜像族谱卡片） ========== */
 .sc-card {
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
   align-items: stretch;
-  /* 横滑容器内 inline 元素默认基线对齐，内容高度不一会上下错位，强制顶部对齐 */
-  vertical-align: top;
-  margin-right: 16rpx;
   border-radius: 20rpx;
-  width: 280rpx;
+  width: calc((100% - 20rpx) / 2);
+  box-sizing: border-box;
   overflow: hidden;
   position: relative;
   transition: transform 0.25s ease;
@@ -297,7 +241,7 @@
 .sc-img-wrap {
   position: relative;
   width: 100%;
-  height: 180rpx;
+  aspect-ratio: 4 / 3;
   overflow: hidden;
 }
 .sc-img {
@@ -387,14 +331,12 @@
 /* ========== 全球发射场分布（骨架镜像全球飞船图鉴 sc-*） ========== */
 /* ls-section 内边距/外边距由上方 .monitor-block 统一 */
 .ls-card {
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
   align-items: stretch;
-  /* 横滑容器内 inline 元素默认基线对齐，内容高度不一会上下错位，强制顶部对齐 */
-  vertical-align: top;
-  margin-right: 16rpx;
   border-radius: 20rpx;
-  width: 300rpx;
+  width: calc((100% - 20rpx) / 2);
+  box-sizing: border-box;
   overflow: hidden;
   position: relative;
   transition: transform 0.15s ease;
@@ -405,7 +347,7 @@
 .ls-img-wrap {
   position: relative;
   width: 100%;
-  height: 200rpx;
+  aspect-ratio: 4 / 3;
   overflow: hidden;
 }
 .ls-img {
@@ -734,14 +676,6 @@
 
 /* ── 自 pages/monitor/monitor.wxss 迁入 ── */
 /* --- 可回收火箭族谱 --- */
-.theme-light .booster-summary-value {
-  color: var(--color-text-primary);
-}
-
-.theme-light .booster-summary-label {
-  color: var(--color-text-tertiary);
-}
-
 .theme-light .booster-img {
   background: rgba(0, 0, 0, 0.05);
 }
@@ -752,12 +686,6 @@
 
 .theme-light .booster-serial {
   color: var(--color-text-primary);
-}
-
-.theme-light .booster-filter-chip--active {
-  color: #fff;
-  background: linear-gradient(135deg, #007AFF, #5856D6);
-  border-color: rgba(0, 122, 255, 0.55);
 }
 
 .theme-light .booster-stat-num {
@@ -840,8 +768,9 @@
    lazy-load-card 有样式隔离：min-height 挂宿主 class（.orbit-lazy-host，组件 wxss 定义），
    内部卡片（组件 apply-shared 后本规则可达）flex:1 撑满宿主实现整卡等高 */
 .agency-section .agency-grid,
-.booster-section .booster-scroll,
-.sc-section .booster-scroll,
+.booster-section .agency-grid,
+.sc-section .agency-grid,
+.ls-section .agency-grid,
 .orbit-section .orbit-list {
   min-height: 360rpx;
 }

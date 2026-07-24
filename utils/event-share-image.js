@@ -31,6 +31,12 @@ function resolveTweetAccountAvatarUrl(source) {
   return ''
 }
 
+function resolveEventAuthorAvatarUrl(item) {
+  if (_mod) return _mod.resolveEventAuthorAvatarUrl(item)
+  warmEventShareImage()
+  return ''
+}
+
 function getNeutralDefaultShareImage() {
   if (_mod) return _mod.getNeutralDefaultShareImage()
   warmEventShareImage()
@@ -40,6 +46,7 @@ function getNeutralDefaultShareImage() {
 module.exports = {
   pickEventShareImageUrl,
   resolveTweetAccountAvatarUrl,
+  resolveEventAuthorAvatarUrl,
   getNeutralDefaultShareImage,
   DEFAULT_EVENT_SHARE_IMAGE: FALLBACK,
   warmEventShareImage

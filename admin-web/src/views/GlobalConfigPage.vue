@@ -336,7 +336,9 @@ const form = reactive({
   enableMissionReplay: true,
   enableAIChat: true,
   enableLunarWishes: true,
+  enableAstroPhotos: false,
   enableMembership: false,
+  enableMembershipPopup: true,
   enableBriefing: true,
   enableLiveWatch: true,
   enablePublishPanel: true,
@@ -371,7 +373,9 @@ const featureSwitches = [
   { field: 'enableMissionReplay', label: '发射回放', desc: '关闭后任务详情页「观看回放」卡片（发射集锦 + 完整回放外链）隐藏，方便过审' },
   { field: 'enableAIChat', label: 'AI 太空助手（星问）', desc: '关闭后 NASA 圆盘菜单中的星问入口将隐藏，方便过审' },
   { field: 'enableLunarWishes', label: '月愿计划', desc: '关闭后 NASA 圆盘菜单中的月愿入口将隐藏，方便过审' },
+  { field: 'enableAstroPhotos', label: '航天摄影', desc: '默认关闭；开启后新闻页显示「航天摄影」分区并允许用户投稿，过审期间请保持关闭' },
   { field: 'enableMembership', label: '会员系统（星际通行证）', desc: '关闭后隐藏所有付费入口，AI 保持 10 次/日免费额度' },
+  { field: 'enableMembershipPopup', label: '首页会员订阅弹窗', desc: '控制首页会员升级推荐 / 续费提醒弹窗；默认开启，关闭后不再自动弹出（会员系统总开关仍需开启才会弹）' },
   { field: 'enableBriefing', label: '每日太空简报', desc: '关闭后用户进入小程序不再弹出每日简报' },
   { field: 'enableLiveWatch', label: '直播观看（监控中心）', desc: '关闭后监控中心与任务详情的视频号/B站直播入口隐藏；需「直播功能」未关' },
   { field: 'enablePublishPanel', label: '贴图讨论区', desc: '关闭后全站详情页底部的贴图讨论区组件将隐藏，方便过审' },
@@ -386,13 +390,14 @@ const AUDIT_FIELDS = [
   'enableLive',
   'enableAIChat',
   'enableLunarWishes',
+  'enableAstroPhotos',
   'enableBriefing',
   'enableLiveWatch',
   'enablePublishPanel',
   'enableMissionSim'
 ]
 
-const AUDIT_LABEL = '轮播图、开屏动画、事件更新视频（含播放页/背景视频）、发射回放、直播功能、AI 太空助手、月愿计划、每日太空简报、直播观看、贴图讨论区、星舰任务指挥室'
+const AUDIT_LABEL = '轮播图、开屏动画、事件更新视频（含播放页/背景视频）、发射回放、直播功能、AI 太空助手、月愿计划、每日太空简报、直播观看、贴图讨论区（航天摄影、星舰任务指挥室默认保持关闭）'
 
 const auditModeView = computed(() => AUDIT_FIELDS.every((f) => form[f] === false))
 
@@ -428,6 +433,7 @@ const handleAuditChange = async () => {
   form.enableLive = true
   form.enableAIChat = true
   form.enableLunarWishes = true
+  form.enableAstroPhotos = false
   form.enableBriefing = true
   form.enableLiveWatch = true
   form.enablePublishPanel = true
@@ -582,7 +588,11 @@ const load = async () => {
         enableMissionReplay: data.enableMissionReplay !== false,
         enableAIChat: data.enableAIChat !== false,
         enableLunarWishes: data.enableLunarWishes !== false,
+        // failClosed：默认关闭，只有显式 true 才算开启
+        enableAstroPhotos: data.enableAstroPhotos === true,
         enableMembership: !!data.enableMembership,
+        // 字段缺省视为开启（与小程序 isFeatureEnabled 语义一致）
+        enableMembershipPopup: data.enableMembershipPopup !== false,
         enableBriefing: data.enableBriefing !== false,
         enableLiveWatch: data.enableLiveWatch !== false,
         enablePublishPanel: data.enablePublishPanel !== false,

@@ -7,10 +7,6 @@ const { getMissionNextOffset } = require('../../../utils/index-mission-services.
 const { CALENDAR_SITE_META } = require('../../../utils/index-page-helpers.js')
 const { getLaunchStatsFromDB } = require('../../../utils/api-app-services.js')
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
-const {
-  computeLaunchCalendarSignature,
-  LAUNCH_CALENDAR_ACK_SIG_KEY
-} = require('../../../utils/launch-calendar-signature.js')
 const storageCache = require('../../../utils/storage-sync-cache.js')
 
 const CALENDAR_CACHE_MAX_AGE_MS = 5 * 60 * 1000
@@ -421,7 +417,6 @@ const calendarMethods = {
       expandedDateMissions: []
     }, () => {
       this.buildCalendarDays()
-      this._refreshLaunchCalendarDot([])
     })
   },
 
@@ -451,44 +446,8 @@ const calendarMethods = {
             briefingComp._loadBriefing()
           }
         } catch (e) {}
-        this._refreshLaunchCalendarDot(missions)
       })
     })
-  },
-
-  /** 日历合并列表变更后刷新「发射日历」红点（与本地已读摘要比对） */
-  _refreshLaunchCalendarDot(missions) {
-    const list = Array.isArray(missions) ? missions : (this.data.calendarAllMissions || [])
-    const sig = computeLaunchCalendarSignature(list)
-
-    const applyDotState = (ack) => {
-      if (this._calendarDotSuppressNextRefresh) {
-        this._calendarDotSuppressNextRefresh = false
-        if (sig) {
-          storageCache.persistAsync(LAUNCH_CALENDAR_ACK_SIG_KEY, sig)
-        }
-        if (this.data.showLaunchCalendarDot) this.setData({ showLaunchCalendarDot: false })
-        return
-      }
-
-      const ackStr = String(ack || '')
-      if (!sig) {
-        if (this.data.showLaunchCalendarDot) this.setData({ showLaunchCalendarDot: false })
-        return
-      }
-      if (!ackStr) {
-        storageCache.persistAsync(LAUNCH_CALENDAR_ACK_SIG_KEY, sig)
-        if (this.data.showLaunchCalendarDot) this.setData({ showLaunchCalendarDot: false })
-        return
-      }
-      const show = sig !== ackStr
-      if (show !== this.data.showLaunchCalendarDot) {
-        this.setData({ showLaunchCalendarDot: show })
-      }
-    }
-
-    // 已加载则命中内存，否则异步预热一次（storage-sync-cache 内共享，避免重复读）
-    storageCache.warmAsync(LAUNCH_CALENDAR_ACK_SIG_KEY, '').then(applyDotState)
   },
 
   hydrateCalendarFromLoadedMissionLists() {
@@ -1031,7 +990,5 @@ function attachTo(page) {
 }
 
 module.exports = {
-  attachTo,
-  computeLaunchCalendarSignature,
-  LAUNCH_CALENDAR_ACK_SIG_KEY
+  attachTo
 }

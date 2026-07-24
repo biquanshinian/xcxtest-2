@@ -282,8 +282,8 @@
               <view class="icon-bell icon-bell--subscribe {{missionSubscribed ? 'bell-on' : 'bell-off'}}"></view>
             </view>
             <view class="subscribe-info">
-              <text class="subscribe-title {{missionSubscribed || oaAlertReady ? 'subscribe-title--active' : ''}}">{{oaAlertReady ? (missionSubscribed ? '服务号提醒 · 结果通知已开' : '服务号自动提醒已开启') : (missionSubscribed ? '已设置提醒' : '发射提醒')}}</text>
-              <text class="subscribe-desc {{missionSubscribed || oaAlertReady ? 'subscribe-desc--active' : ''}}">{{oaAlertReady ? (missionSubscribed ? '点此可关闭结果通知；发射前仍由服务号推送' : '发射前约30分钟自动推送；点此开启完成后结果通知') : (missionSubscribed ? '含发射前提醒与完成后结果通知' : '发射前约30分钟提醒，完成后推送结果')}}</text>
+              <text class="subscribe-title {{missionSubscribed || oaAlertReady ? 'subscribe-title--active' : ''}}">{{oaAlertReady ? '服务号自动提醒已开启' : (missionSubscribed ? '已设置提醒' : '发射提醒')}}</text>
+              <text class="subscribe-desc {{missionSubscribed || oaAlertReady ? 'subscribe-desc--active' : ''}}">{{oaAlertReady ? '发射前约30分钟与完成后结果均由服务号推送' : (missionSubscribed ? '含发射前提醒与完成后结果通知' : '发射前约30分钟提醒，完成后推送结果')}}</text>
             </view>
               <text class="icon-arrow icon-arrow--subscribe" wx:if="{{!missionSubscribed}}">›</text>
               <text class="subscribe-check subscribe-check--active" wx:else>✓</text>

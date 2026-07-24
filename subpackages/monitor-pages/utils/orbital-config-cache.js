@@ -2,7 +2,7 @@
 // 策略：内存缓存 + wx.storage 持久化，TTL 30 分钟
 // 先返回缓存（如有），再异步刷新；过期则强制刷新
 
-const STORAGE_KEY = 'orbital_config_cache_v1'
+const STORAGE_KEY = 'orbital_config_cache_v2'
 const TTL_MS = 30 * 60 * 1000 // 30 分钟
 
 let _memCache = null // { data, ts }

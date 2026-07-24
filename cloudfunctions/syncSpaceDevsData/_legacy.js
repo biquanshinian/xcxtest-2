@@ -4,6 +4,7 @@
 const cloud = require('wx-server-sdk')
 const COS = require('cos-nodejs-sdk-v5')
 const voteRoundsFromUpdates = require('./vote-rounds-from-updates.js')
+const outcomeVoteSettle = require('./outcome-vote-settle.js')
 const { enrichApiDataForTranslation, enrichSingleLaunch, enrichEventsList } = require('./ll2-translate-enrich.js')
 const { slimLaunchUpdates, splitLaunchUpdatesIntoTimelineCache } = require('./split-launch-updates-cache.js')
 
@@ -5358,66 +5359,17 @@ function _voteLatestLaunchTime(found, vote) {
   return (found && found.net) || (found && found.window_start) || (vote && vote.launchTime) || ''
 }
 
-/** 成败竞猜：按发射终态结算（成功/部署→success；失败/部分失败/取消等→failure） */
+/** 成败竞猜：仅真实终态结算（Hold/scrub/推迟不结算） */
 function _voteComputeOutcomeResult(found) {
-  if (!found || !found.status) return ''
-  const id = Number(found.status.id) || 0
-  const abbrev = String(found.status.abbrev || '').toLowerCase()
-  const name = String(found.status.name || '').toLowerCase()
-  // LL2: 3 success, 4 failure, 7 partial failure, 9 payload deployed
-  if (id === 3 || id === 9) return 'success'
-  if (id === 4 || id === 7) return 'failure'
-  if (/payload\s*deployed|success/.test(abbrev + ' ' + name) && !/partial|failure|fail/.test(abbrev + ' ' + name)) {
-    return 'success'
-  }
-  if (/partial\s*failure|failure|fail|cancel|scrub|abort/.test(abbrev + ' ' + name)) {
-    return 'failure'
-  }
-  return ''
+  return outcomeVoteSettle.computeOutcomeResultFromFound(found)
 }
 
 /**
- * 成败竞猜结算：关盘 + 按终态揭晓（不走改期轮次）
- * @returns {{ kind: 'none'|'lock'|'settle', patch?: object }}
+ * 成败竞猜结算：关盘 / 改期解封 / 按终态揭晓（不走改期轮次）
+ * @returns {{ kind: 'none'|'reopen'|'lock'|'settle', patch?: object }}
  */
 function _applySettleOutcomeVotePass(vote, found, opts) {
-  const nowMs = (opts && opts.nowMs) || Date.now()
-  const THIRTY_MIN = (opts && opts.THIRTY_MIN) || _VOTE_THIRTY_MIN
-
-  if (!vote || !vote.launchId) return { kind: 'none' }
-  if (vote.result === 'success' || vote.result === 'failure') return { kind: 'none' }
-
-  const latestTime = _voteLatestLaunchTime(found, vote)
-
-  if (!vote.votingClosed && !vote.result && (latestTime || vote.launchTime)) {
-    const lt = _voteParseTimeMs(latestTime || vote.launchTime)
-    if (lt > 0 && lt - nowMs < THIRTY_MIN) {
-      return {
-        kind: 'lock',
-        patch: {
-          votingClosed: true,
-          lockedLaunchTime: latestTime || vote.launchTime,
-          updatedAt: new Date().toISOString()
-        }
-      }
-    }
-  }
-
-  const outcome = _voteComputeOutcomeResult(found)
-  if (outcome) {
-    return {
-      kind: 'settle',
-      patch: {
-        result: outcome,
-        resultNote: '系统按发射状态自动结算',
-        votingClosed: true,
-        settledAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      }
-    }
-  }
-
-  return { kind: 'none' }
+  return outcomeVoteSettle.applySettleOutcomeVotePass(vote, found, opts)
 }
 
 /**
@@ -5867,13 +5819,34 @@ async function settleVotes() {
       allVotes = { data: rows.slice(0, 50) }
     }
     const pendingCount = (allVotes.data && allVotes.data.length) || 0
-    if (!pendingCount) return { locked: 0, settled: 0, reopened: 0, cacheLaunchCount: 0, pendingQueried: 0 }
-
     const cachedLaunches = await _loadCachedLaunchesForVoteOps()
     const findLaunch = (launchId) => cachedLaunches.find(l => l && String(l.id) === String(launchId))
     const settleOpts = { nowMs: nowMs, THIRTY_MIN: THIRTY_MIN, SETTLE_AFTER_LOCK_MS: SETTLE_AFTER_LOCK_MS, NET_DONE_GRACE_MS: NET_DONE_GRACE_MS }
 
-    for (const vote of allVotes.data) {
+    const workList = (allVotes.data || []).slice()
+    // 补扫已误结算的成败票：即使当前没有 pending，也要跑（否则 early-return 永远清不掉脏 result）
+    try {
+      const outcomeSettled = await db.collection(col).where({
+        voteType: 'outcome',
+        result: _.in(['success', 'failure'])
+      }).limit(30).get()
+      const seen = {}
+      workList.forEach(function (v) { if (v && v._id) seen[v._id] = true })
+      ;(outcomeSettled.data || []).forEach(function (v) {
+        if (!v || !v._id || seen[v._id]) return
+        const found = findLaunch(v.launchId)
+        if (!found || !found.status) return
+        if (_voteComputeOutcomeResult(found)) return
+        workList.push(v)
+        seen[v._id] = true
+      })
+    } catch (healErr) {}
+
+    if (!workList.length) {
+      return { locked: 0, settled: 0, reopened: 0, cacheLaunchCount: cachedLaunches.length, pendingQueried: pendingCount }
+    }
+
+    for (const vote of workList) {
       if (!vote.launchId) continue
 
       const found = findLaunch(vote.launchId)
@@ -5881,7 +5854,7 @@ async function settleVotes() {
       if (pass.kind === 'none' || !pass.patch) continue
 
       await db.collection(col).doc(vote._id).update({ data: pass.patch })
-      if (pass.kind === 'postpone') reopened++
+      if (pass.kind === 'postpone' || pass.kind === 'reopen') reopened++
       else if (pass.kind === 'lock') locked++
       else if (pass.kind === 'settle' || pass.kind === 'legacy_settle') settled++
     }

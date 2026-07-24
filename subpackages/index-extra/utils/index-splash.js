@@ -16,6 +16,357 @@ const { getMemberPolicy } = require('../../../utils/member-policy.js')
 const { getUpcomingMissions } = require('../../../utils/api-launch-list.js')
 const { buildMissionDetailUrl } = require('../../../utils/index-mission-nav.js')
 const { fetchLaunchStatusSnapshot } = require('../../../utils/api-app-services.js')
+const { enrichMissionsLaunchAgencyImages } = require('../../../utils/upcoming-agency-logo-enrich.js')
+const { applyLaunchAgencyLogoOverridesToMission } = require('../../../utils/agency-logo-overrides.js')
+
+const SPLASH_NOTICE_FONTS = { default: true, yahei: true, 'yahei-bold': true }
+const SPLASH_NOTICE_MAX_LEN = 80
+
+function splashNoticePlainText(html) {
+  return String(html || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(div|p)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&')
+    .replace(/\n+$/g, '')
+    .trim()
+}
+
+/** 客户端轻量消毒（与网关白名单对齐） */
+function sanitizeSplashNoticeHtmlClient(raw) {
+  let src = String(raw || '').trim()
+  if (!src) return ''
+  const ALLOWED_ALIGN = { left: true, center: true, right: true }
+  const SIZE_MIN = 12
+  const SIZE_MAX = 36
+  const isAllowedSize = (px) => {
+    const n = Number(px)
+    return Number.isFinite(n) && n >= SIZE_MIN && n <= SIZE_MAX
+  }
+  if (!/<[a-z][\s\S]*>/i.test(src)) {
+    const plain = splashNoticePlainText(src).replace(/\n/g, '').slice(0, SPLASH_NOTICE_MAX_LEN)
+    if (!plain) return ''
+    const esc = plain
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+    return `<div style="text-align:center">${esc}</div>`
+  }
+  src = src
+    .replace(/<\s*(script|style|iframe|object|embed)[\s\S]*?>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/<\s*\/?\s*p\b/gi, (m) => m.replace(/p/i, 'div'))
+    // 必须吃掉到 >，否则会生成残缺标签导致前端把 HTML 当纯文本显示
+    .replace(/<\s*strong\b[^>]*>/gi, '<span style="font-weight:700">')
+    .replace(/<\s*\/\s*strong\s*>/gi, '</span>')
+    .replace(/<\s*b\b(?![a-z])[^>]*>/gi, '<span style="font-weight:700">')
+    .replace(/<\s*\/\s*b\s*>/gi, '</span>')
+    .replace(/<\/?(?!div\b|span\b|br\b)[a-z0-9]+\b[^>]*>/gi, '')
+  src = src.replace(/\sstyle\s*=\s*("([^"]*)"|'([^']*)')/gi, (full, _q, d1, d2) => {
+    const rawStyle = d1 != null ? d1 : d2 || ''
+    const parts = []
+    const alignM = rawStyle.match(/text-align\s*:\s*(left|center|right)/i)
+    if (alignM && ALLOWED_ALIGN[alignM[1].toLowerCase()]) parts.push(`text-align:${alignM[1].toLowerCase()}`)
+    const sizeM = rawStyle.match(/font-size\s*:\s*(\d+)\s*px/i)
+    if (sizeM && isAllowedSize(Number(sizeM[1]))) parts.push(`font-size:${Number(sizeM[1])}px`)
+    if (/font-weight\s*:\s*(bold|700)/i.test(rawStyle)) parts.push('font-weight:700')
+    const lhM = rawStyle.match(/line-height\s*:\s*([\d.]+)/i)
+    if (lhM) {
+      const lh = Number(lhM[1])
+      if (Number.isFinite(lh) && lh >= 1 && lh <= 2.5) {
+        parts.push(`line-height:${Math.round(lh * 10) / 10}`)
+      }
+    }
+    return parts.length ? ` style="${parts.join(';')}"` : ''
+  })
+  src = src.replace(/<\s*br\s*\/?\s*>/gi, '<br/>')
+  // contenteditable 可能留下真实换行，统一成 br，避免前端拆行丢失
+  src = src.replace(/\r\n|\r|\n/g, '<br/>')
+  src = src.replace(/(?:<br\/>){3,}/gi, '<br/><br/>').trim()
+  if (!splashNoticePlainText(src).replace(/\n/g, '')) return ''
+  if (!/text-align\s*:/i.test(src)) src = `<div style="text-align:center">${src}</div>`
+  return src
+}
+
+function decodeNoticeEntities(s) {
+  return String(s || '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&')
+}
+
+function clampSplashNoticeLineHeight(v, fallback = 1.4) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(2.5, Math.max(1, Math.round(n * 10) / 10))
+}
+
+/** 按顶层 div 安全拆块（支持嵌套，避免非贪婪正则吃错） */
+function splitSplashNoticeTopDivs(html) {
+  const blocks = []
+  const s = String(html || '')
+  let i = 0
+  while (i < s.length) {
+    const open = s.slice(i).match(/^<div\b([^>]*)>/i)
+    if (!open) {
+      const next = s.slice(i).search(/<div\b/i)
+      const chunk = next < 0 ? s.slice(i) : s.slice(i, i + next)
+      if (String(chunk || '').replace(/<br\s*\/?>/gi, '').replace(/&nbsp;/gi, ' ').trim()) {
+        blocks.push({ attrs: '', inner: chunk })
+      } else if (/<br\s*\/?>/i.test(chunk)) {
+        blocks.push({ attrs: '', inner: '<br/>' })
+      }
+      if (next < 0) break
+      i += next
+      continue
+    }
+    const attrs = open[1] || ''
+    i += open[0].length
+    let depth = 1
+    const start = i
+    while (i < s.length && depth > 0) {
+      const close = s.slice(i).match(/^<\/\s*div\s*>/i)
+      if (close) {
+        depth -= 1
+        if (depth === 0) {
+          blocks.push({ attrs, inner: s.slice(start, i) })
+          i += close[0].length
+          break
+        }
+        i += close[0].length
+        continue
+      }
+      const nested = s.slice(i).match(/^<div\b[^>]*>/i)
+      if (nested) {
+        depth += 1
+        i += nested[0].length
+        continue
+      }
+      i += 1
+    }
+  }
+  return blocks
+}
+
+/** 后台 contenteditable 的 div 块 / br / 文本换行 → 行数组 */
+function buildSplashNoticeLines(html, defaultLineHeight = 1.4) {
+  const src = String(html || '')
+  const defaultLh = clampSplashNoticeLineHeight(defaultLineHeight, 1.4)
+  const lines = []
+
+  function pushLine(frag, lh, ta) {
+    const segs = parseSplashNoticeInlineSegs(frag)
+    if (!segs.length) return false
+    const lineLh = Number(lh) || defaultLh
+    // 默认字号与后台编辑器 16px 对齐 → 32rpx；行距用无单位倍数（与 CSS line-height 一致）
+    const segsWithLh = segs.map((seg) => {
+      const fs = Number(seg.fontSize) || 32
+      return {
+        text: seg.text,
+        bold: !!seg.bold,
+        fontSize: fs,
+        lineHeight: lineLh
+      }
+    })
+    const maxFs = segsWithLh.reduce((m, s) => Math.max(m, Number(s.fontSize) || 32), 32)
+    lines.push({
+      empty: false,
+      segs: segsWithLh,
+      lineHeight: lineLh,
+      // 单行文本时，用 min-height 保证行盒高度≈后台（字号×行距）
+      minHeightRpx: Math.max(1, Math.round(maxFs * lineLh)),
+      align: ta === 'left' || ta === 'right' ? ta : 'center'
+    })
+    return true
+  }
+
+  function pushEmpty(lh, ta) {
+    if (lines.length) {
+      const lineLh = Number(lh) || defaultLh
+      lines.push({
+        empty: true,
+        segs: [],
+        lineHeight: lineLh,
+        minHeightRpx: Math.max(1, Math.round(32 * lineLh)),
+        align: ta === 'left' || ta === 'right' ? ta : 'center'
+      })
+    }
+  }
+
+  function styleFromAttrs(attrs) {
+    let lh = defaultLh
+    let ta = 'center'
+    const styleM =
+      String(attrs || '').match(/style\s*=\s*"([^"]*)"/i) || String(attrs || '').match(/style\s*=\s*'([^']*)'/i)
+    if (styleM) {
+      const lhM = styleM[1].match(/line-height\s*:\s*([\d.]+)/i)
+      if (lhM) lh = clampSplashNoticeLineHeight(lhM[1], defaultLh)
+      const taM = styleM[1].match(/text-align\s*:\s*(left|center|right)/i)
+      if (taM) ta = taM[1].toLowerCase()
+    }
+    return { lh, ta }
+  }
+
+  function emitParts(inner, lh, ta) {
+    let flat = String(inner || '')
+      .replace(/<\/div>\s*<div\b[^>]*>/gi, '<br/>')
+      .replace(/<\/?div\b[^>]*>/gi, '')
+      .replace(/\r\n|\r|\n/g, '<br/>')
+    const parts = flat.split(/<br\s*\/?>/i)
+    while (parts.length > 1 && !String(parts[parts.length - 1] || '').replace(/&nbsp;/gi, ' ').trim()) {
+      parts.pop()
+    }
+    for (let i = 0; i < parts.length; i++) {
+      if (!pushLine(parts[i], lh, ta)) {
+        if (i < parts.length - 1) pushEmpty(lh, ta)
+      }
+    }
+  }
+
+  const blocks = splitSplashNoticeTopDivs(src)
+  if (blocks.length) {
+    for (let b = 0; b < blocks.length; b++) {
+      const { lh, ta } = styleFromAttrs(blocks[b].attrs)
+      emitParts(blocks[b].inner, lh, ta)
+      if (lines.length >= 6) break
+    }
+  } else {
+    emitParts(src, defaultLh, 'center')
+  }
+
+  while (lines.length && lines[lines.length - 1].empty) lines.pop()
+  return lines.slice(0, 6)
+}
+
+function cleanNoticeSegText(s) {
+  return decodeNoticeEntities(String(s || ''))
+    // 正常标签
+    .replace(/<\/?[a-zA-Z][^>]*>/g, '')
+    // 残缺标签（缺 <）：span style="...">xxx
+    .replace(/\b(?:span|div|font|strong|b)\b\s*style\s*=\s*("[^"]*"|'[^']*')\s*>/gi, '')
+    .replace(/<\/\s*(?:span|div|font|strong|b)\s*>/gi, '')
+    // 只折叠空格/制表，保留换行（行拆分后再清）
+    .replace(/[ \t\f\v\r]+/g, ' ')
+    .trim()
+}
+
+/** 栈式解析 span，正确处理字号+加粗嵌套，绝不把标签泄漏到 text */
+function parseSplashNoticeInlineSegs(fragment) {
+  const segs = []
+  let src = String(fragment || '')
+  if (!src) return segs
+
+  // 修复历史坏数据：<span style="font-weight:700"文本 → 补上 >
+  src = src.replace(/<span(\s+[^>]*?=\s*"[^"]*")([^\s>])/gi, '<span$1>$2')
+  src = src.replace(/<span(\s+[^>]*?=\s*'[^']*')([^\s>])/gi, '<span$1>$2')
+
+  const stack = [{ bold: false, fontSize: 32 }]
+  let i = 0
+  while (i < src.length) {
+    if (src[i] === '<') {
+      const close = src.slice(i).match(/^<\/\s*span\s*>/i)
+      if (close) {
+        if (stack.length > 1) stack.pop()
+        i += close[0].length
+        continue
+      }
+      const open = src.slice(i).match(/^<span\b([^>]*)>/i)
+      if (open) {
+        const attrs = open[1] || ''
+        const cur = stack[stack.length - 1]
+        const next = { bold: cur.bold, fontSize: cur.fontSize }
+        if (/font-weight\s*:\s*(bold|700)/i.test(attrs)) next.bold = true
+        const sizeM = attrs.match(/font-size\s*:\s*(\d+)\s*px/i)
+        if (sizeM) {
+          const px = Number(sizeM[1])
+          if (Number.isFinite(px) && px >= 12 && px <= 36) next.fontSize = Math.round(px * 2)
+        }
+        stack.push(next)
+        i += open[0].length
+        continue
+      }
+      // 未知标签：整段跳过
+      const skip = src.slice(i).match(/^<[^>]+>/)
+      if (skip) {
+        i += skip[0].length
+        continue
+      }
+      // 孤立 < ：当普通字符丢掉，避免泄漏
+      i += 1
+      continue
+    }
+    const nextLt = src.indexOf('<', i)
+    const rawText = nextLt === -1 ? src.slice(i) : src.slice(i, nextLt)
+    i = nextLt === -1 ? src.length : nextLt
+    const text = cleanNoticeSegText(rawText)
+    if (!text) continue
+    const cur = stack[stack.length - 1]
+    const last = segs[segs.length - 1]
+    if (last && last.bold === !!cur.bold && last.fontSize === cur.fontSize) {
+      last.text += text
+    } else {
+      segs.push({ text, bold: !!cur.bold, fontSize: cur.fontSize })
+    }
+  }
+
+  if (!segs.length) {
+    const t = cleanNoticeSegText(src)
+    if (t) segs.push({ text: t, bold: false, fontSize: 32 })
+  }
+  return segs
+}
+
+function normalizeSplashNotice(cfg) {
+  if (!cfg || typeof cfg !== 'object') return null
+  const html = sanitizeSplashNoticeHtmlClient(cfg.noticeText)
+  if (!html) return null
+  const plain = splashNoticePlainText(html).replace(/\n/g, '')
+  if (!plain) return null
+  const fontRaw = String(cfg.noticeFont || 'default').trim()
+  const font = SPLASH_NOTICE_FONTS[fontRaw] ? fontRaw : 'default'
+  const alignM = html.match(/text-align\s*:\s*(left|center|right)/i)
+  const align = alignM ? alignM[1].toLowerCase() : 'center'
+  const lh = Number(cfg.noticeLineHeight)
+  const lineHeight = Number.isFinite(lh) ? Math.min(2.5, Math.max(1, Math.round(lh * 10) / 10)) : 1.4
+  const lines = buildSplashNoticeLines(html, lineHeight)
+  if (!lines.length) return null
+  const containerAlign =
+    lines[0] && (lines[0].align === 'left' || lines[0].align === 'right' || lines[0].align === 'center')
+      ? lines[0].align
+      : align
+  const ls = Number(cfg.noticeLetterSpacing)
+  // 管理端 px → 小程序 rpx（×2），与字号换算一致
+  const letterSpacingPx = Number.isFinite(ls) ? Math.min(8, Math.max(0, Math.round(ls))) : 0
+  const lg = Number(cfg.noticeLineGap)
+  const lineGapPx = Number.isFinite(lg) ? Math.min(24, Math.max(0, Math.round(lg))) : 4
+  return {
+    text: plain,
+    html,
+    font,
+    align: containerAlign,
+    lines,
+    lineHeight,
+    letterSpacing: letterSpacingPx * 2,
+    lineGap: lineGapPx * 2
+  }
+}
+
+function buildSplashMissionPayload(hit) {
+  if (!hit || !hit.id) return null
+  const patched = applyLaunchAgencyLogoOverridesToMission(hit) || hit
+  return {
+    id: patched.id,
+    name: patched.missionName || patched.name || '',
+    launchTime: patched.launchTime,
+    agencyName: String(patched.launchAgency || '').trim(),
+    agencyLogo: String(patched.launchAgencyImage || '').trim(),
+    rocketName: String(patched.rocketName || patched.rocketConfiguration || '').trim()
+  }
+}
 
 // LL2 状态：6 = In Flight（飞行中）；3/4/7/9 = 终态（成功/失败/部分失败/中止）
 const SPLASH_STATUS_INFLIGHT = 6
@@ -309,13 +660,16 @@ const methods = {
         SPLASH_VIDEO_MAX_SEC,
         Math.max(1, Number((cfg && cfg.countdownSeconds) || (cached && cached.countdownSeconds) || 5) || 5)
       )
+      // 有云端配置时以云端为准（含「清空文案」）；仅无云端时才读本地缓存
+      const splashNotice = cfg ? normalizeSplashNotice(cfg) : normalizeSplashNotice(cached)
       this._showSplash({
         mediaType: resolved.mediaType,
         mediaUrl: src || resolved.playUrl,
         posterUrl: resolved.posterUrl,
         originalUrl: resolved.originalUrl,
         countdown,
-        missionName: resolved.missionName
+        missionName: resolved.missionName,
+        notice: splashNotice
       })
 
       // 后台刷新完整配置与本地预下载（不改变本次已展示内容）
@@ -326,10 +680,49 @@ const methods = {
           : cloudItems.length
             ? cloudItems
             : pool
+      // 有云端时强制写云端 notice（空串也写入，禁止回落旧缓存文案）
+      let noticeTextForCache = ''
+      let noticeFontForCache = 'default'
+      let noticeLineHeightForCache = 1.4
+      let noticeLetterSpacingForCache = 0
+      let noticeLineGapForCache = 4
+      if (cfg) {
+        noticeTextForCache = String(cfg.noticeText || '').trim()
+        const fr = String(cfg.noticeFont || 'default').trim()
+        noticeFontForCache = SPLASH_NOTICE_FONTS[fr] ? fr : 'default'
+        const lh = Number(cfg.noticeLineHeight)
+        noticeLineHeightForCache = Number.isFinite(lh) ? Math.min(2.5, Math.max(1, Math.round(lh * 10) / 10)) : 1.4
+        const ls = Number(cfg.noticeLetterSpacing)
+        noticeLetterSpacingForCache = Number.isFinite(ls) ? Math.min(8, Math.max(0, Math.round(ls))) : 0
+        const lg = Number(cfg.noticeLineGap)
+        noticeLineGapForCache = Number.isFinite(lg) ? Math.min(24, Math.max(0, Math.round(lg))) : 4
+      } else if (splashNotice) {
+        noticeTextForCache = splashNotice.html || splashNotice.text || ''
+        noticeFontForCache = splashNotice.font
+        noticeLineHeightForCache = Number(splashNotice.lineHeight) || 1.4
+        // splashNotice 里 letterSpacing/lineGap 已是 rpx，缓存回写用管理端 px
+        noticeLetterSpacingForCache = Math.round((Number(splashNotice.letterSpacing) || 0) / 2)
+        noticeLineGapForCache = Math.round((Number(splashNotice.lineGap) || 8) / 2)
+      } else if (cached) {
+        noticeTextForCache = String(cached.noticeText || '').trim()
+        const fr = String(cached.noticeFont || 'default').trim()
+        noticeFontForCache = SPLASH_NOTICE_FONTS[fr] ? fr : 'default'
+        const lh = Number(cached.noticeLineHeight)
+        noticeLineHeightForCache = Number.isFinite(lh) ? Math.min(2.5, Math.max(1, Math.round(lh * 10) / 10)) : 1.4
+        const ls = Number(cached.noticeLetterSpacing)
+        noticeLetterSpacingForCache = Number.isFinite(ls) ? Math.min(8, Math.max(0, Math.round(ls))) : 0
+        const lg = Number(cached.noticeLineGap)
+        noticeLineGapForCache = Number.isFinite(lg) ? Math.min(24, Math.max(0, Math.round(lg))) : 4
+      }
       this._cacheSplashMedia(
         {
           enabled: true,
           countdownSeconds: countdown,
+          noticeText: noticeTextForCache,
+          noticeFont: noticeFontForCache,
+          noticeLineHeight: noticeLineHeightForCache,
+          noticeLetterSpacing: noticeLetterSpacingForCache,
+          noticeLineGap: noticeLineGapForCache,
           mediaItems: cacheMediaItems,
           lastSplashId: resolved.id || resolved.originalUrl || resolved.playUrl,
           mediaType: resolved.mediaType,
@@ -351,10 +744,16 @@ const methods = {
           const lateCfg = late && late.data ? late.data : null
           const lateItems = normalizeItems(lateCfg)
           if (lateCfg && lateCfg.enabled !== false && lateItems.length) {
+            const lateNotice = normalizeSplashNotice(lateCfg)
             this._cacheSplashMedia(
               {
                 enabled: true,
                 countdownSeconds: lateCfg.countdownSeconds || countdown,
+                noticeText: lateNotice ? lateNotice.html || lateCfg.noticeText || '' : String(lateCfg.noticeText || '').trim(),
+                noticeFont: lateNotice ? lateNotice.font : String(lateCfg.noticeFont || 'default'),
+                noticeLineHeight: Number(lateCfg.noticeLineHeight) || 1.4,
+                noticeLetterSpacing: Number(lateCfg.noticeLetterSpacing) || 0,
+                noticeLineGap: Number(lateCfg.noticeLineGap) || 4,
                 mediaItems:
                   Array.isArray(lateCfg.mediaItems) && lateCfg.mediaItems.length
                     ? lateCfg.mediaItems
@@ -388,6 +787,31 @@ const methods = {
       SPLASH_VIDEO_MAX_SEC,
       Math.max(1, Number(opts.countdown || 5) || 5)
     )
+    const notice =
+      opts.notice && Array.isArray(opts.notice.lines) && opts.notice.lines.length
+        ? {
+            text: String(opts.notice.text || '').trim().slice(0, SPLASH_NOTICE_MAX_LEN),
+            html: String(opts.notice.html || '').trim(),
+            font: SPLASH_NOTICE_FONTS[opts.notice.font] ? opts.notice.font : 'default',
+            align: ['left', 'center', 'right'].indexOf(opts.notice.align) >= 0 ? opts.notice.align : 'center',
+            lines: opts.notice.lines,
+            lineHeight: Number(opts.notice.lineHeight) || 1.4,
+            letterSpacing: Number(opts.notice.letterSpacing) || 0,
+            lineGap: Number(opts.notice.lineGap) || 8
+          }
+        : opts.notice && (opts.notice.html || opts.notice.text)
+          ? normalizeSplashNotice({
+              noticeText: opts.notice.html || opts.notice.text,
+              noticeFont: opts.notice.font,
+              noticeLineHeight: opts.notice.lineHeight,
+              noticeLetterSpacing:
+                opts.notice.letterSpacing != null
+                  ? Math.round(Number(opts.notice.letterSpacing) / 2)
+                  : undefined,
+              noticeLineGap:
+                opts.notice.lineGap != null ? Math.round(Number(opts.notice.lineGap) / 2) : undefined
+            })
+          : null
     // 开屏期间让隐私禁触遮罩让位（遮罩在 root-portal 根层级，会压住开屏层吞掉「跳过」点击）；
     // 开屏自身全屏遮挡 + TabBar 守卫仍读 privacyGateActive，门控不失效
     const app = getApp()
@@ -401,7 +825,8 @@ const methods = {
         posterUrl,
         originalUrl
       },
-      splashCountdown: countdown
+      splashCountdown: countdown,
+      splashNotice: notice
     })
 
     this._startSplashTick(mediaType)
@@ -618,7 +1043,10 @@ const methods = {
             splashMission: {
               id: cachedHit.id,
               name: cachedHit.name || '',
-              launchTime: cachedHit.launchTime
+              launchTime: cachedHit.launchTime,
+              agencyName: cachedHit.agencyName || '',
+              agencyLogo: cachedHit.agencyLogo || '',
+              rocketName: cachedHit.rocketName || ''
             }
           })
           this._startSplashMissionTick()
@@ -714,13 +1142,27 @@ const methods = {
         } catch (e) {}
       }
 
+      // Logo 与首页列表同源补齐（含 SpaceX 覆盖）
+      let enrichedHit = hit
+      try {
+        const enriched = await enrichMissionsLaunchAgencyImages([hit])
+        if (Array.isArray(enriched) && enriched[0]) enrichedHit = enriched[0]
+      } catch (e) {
+        enrichedHit = applyLaunchAgencyLogoOverridesToMission(hit) || hit
+      }
+      const payload = buildSplashMissionPayload(enrichedHit)
+      if (!payload) return
+
       // 命中即写缓存（无论开屏是否还在）：下次同名配置的开屏可秒显卡片
       try {
         wx.setStorageSync(SPLASH_MISSION_HIT_KEY, {
           configName: String(missionName),
-          id: hit.id,
-          name: hit.missionName || hit.name || '',
-          launchTime: hit.launchTime,
+          id: payload.id,
+          name: payload.name,
+          launchTime: payload.launchTime,
+          agencyName: payload.agencyName,
+          agencyLogo: payload.agencyLogo,
+          rocketName: payload.rocketName,
           savedAt: Date.now()
         })
       } catch (e) {}
@@ -728,13 +1170,7 @@ const methods = {
       // 异步返回时开屏可能已关闭/正在淡出，避免闪现
       if (!this.data.splashVisible || this.data.splashFading) return
 
-      this.setData({
-        splashMission: {
-          id: hit.id,
-          name: hit.missionName || hit.name || '',
-          launchTime: hit.launchTime
-        }
-      })
+      this.setData({ splashMission: payload })
       this._startSplashMissionTick()
     } catch (e) {
       // 匹配失败静默降级：只影响倒计时卡片，不影响开屏本身（快显卡片保留，误差由缓存时效兜底）
@@ -887,6 +1323,14 @@ const methods = {
     const prev = prevCached || {}
     const items = Array.isArray(cfg.mediaItems) ? cfg.mediaItems : []
     const prevLocalPaths = prev.localPaths && typeof prev.localPaths === 'object' ? { ...prev.localPaths } : {}
+    const noticeText = String(cfg.noticeText != null ? cfg.noticeText : prev.noticeText || '').trim()
+    const noticeFontRaw = String(cfg.noticeFont != null ? cfg.noticeFont : prev.noticeFont || 'default').trim()
+    const lhRaw = cfg.noticeLineHeight != null ? cfg.noticeLineHeight : prev.noticeLineHeight
+    const lsRaw = cfg.noticeLetterSpacing != null ? cfg.noticeLetterSpacing : prev.noticeLetterSpacing
+    const lgRaw = cfg.noticeLineGap != null ? cfg.noticeLineGap : prev.noticeLineGap
+    const lhNum = Number(lhRaw)
+    const lsNum = Number(lsRaw)
+    const lgNum = Number(lgRaw)
     const baseEntry = {
       enabled: true,
       mediaItems: items,
@@ -897,6 +1341,11 @@ const methods = {
       posterUrl: cfg.posterUrl || '',
       mediaType: cfg.mediaType || 'image',
       countdownSeconds: cfg.countdownSeconds || 5,
+      noticeText,
+      noticeFont: SPLASH_NOTICE_FONTS[noticeFontRaw] ? noticeFontRaw : 'default',
+      noticeLineHeight: Number.isFinite(lhNum) ? Math.min(2.5, Math.max(1, Math.round(lhNum * 10) / 10)) : 1.4,
+      noticeLetterSpacing: Number.isFinite(lsNum) ? Math.min(8, Math.max(0, Math.round(lsNum))) : 0,
+      noticeLineGap: Number.isFinite(lgNum) ? Math.min(24, Math.max(0, Math.round(lgNum))) : 4,
       localPath: prev.localPath || '',
       localPaths: prevLocalPaths,
       cachedAt: Date.now()
@@ -1028,6 +1477,7 @@ const methods = {
         splashVisible: false,
         splashFading: false,
         splashVideoReady: false,
+        splashNotice: null,
         splashMission: null,
         splashMissionCd: null
       })

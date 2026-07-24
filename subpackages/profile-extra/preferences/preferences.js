@@ -111,7 +111,7 @@ Page({
     prefs.briefingEnabled = this.data.briefingEnabled
     savePreferences(prefs)
     var self = this
-    // 服务号已覆盖发射前：仍弹「结果通知」模板，便于后续任务授权额度
+    // 服务号已覆盖发射前与结果：保存偏好时不再弹小程序订阅模板
     // 否则保存后请求双模板，确保偏好匹配能发出去
     var finish = function () {
       self.setData({ saving: false })
@@ -123,8 +123,12 @@ Page({
       var oaAlert = require('../utils/oa-alert.js')
       if (oaAlert && typeof oaAlert.isOaAlertReady === 'function') {
         oaAlert.isOaAlertReady().then(function (ready) {
+          if (ready) {
+            finish()
+            return
+          }
           wx.requestSubscribeMessage({
-            tmplIds: ready ? [RESULT_TMPL] : [REMINDER_TMPL, RESULT_TMPL],
+            tmplIds: [REMINDER_TMPL, RESULT_TMPL],
             complete: finish
           })
         }).catch(function () {

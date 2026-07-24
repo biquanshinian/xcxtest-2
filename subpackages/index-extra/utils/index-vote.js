@@ -46,10 +46,12 @@ const voteMethods = {
     return {
       voteType: voteType === 'outcome' ? 'outcome' : 'ontime',
       launchTime: ld.launchTime || '',
-      status: ld._detailType || '',
+      // 成败不传 detailType，避免 completed 兜底误判失败；准时保留历史场次结算
+      status: voteType === 'outcome' ? '' : (ld._detailType || ''),
       statusCategory: ld.statusCategory || '',
       statusAbbrev: ld.statusAbbrev || '',
-      statusName: ld.statusBadgeText || ld.status || '',
+      statusName: ld.statusAbbrev || ld.statusBadgeText || ld.status || '',
+      statusId: ld.statusId != null ? ld.statusId : '',
       missionName: ld.missionName || '',
       rocketName: ld.rocketName || ''
     }

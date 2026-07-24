@@ -14,6 +14,7 @@ const { isVideoUrl, videoSnapshotUrl } = require('../../utils/cos-url.js')
 const { getCachedMediaImage } = require('../../utils/icon-cache.js')
 const { buildLl2ImageChain, advanceImageFallback, proxiedImageUrl } = require('../../utils/ll2-image.js')
 const { resolveAgencyLogoForDisplay } = require('../../utils/agency-logo-cache.js')
+const { resolveEventAuthorAvatarUrl } = require('../shared/utils/event-share-image.js')
 
 /**
  * 机构 LL2 id → 事件更新推文账号（starship_event_updates.source）映射；
@@ -250,6 +251,7 @@ Page({
     const id = options.id ? String(options.id).trim() : ''
     const name = options.name ? decodeURIComponent(String(options.name)).trim() : ''
     const abbrev = options.abbrev ? decodeURIComponent(String(options.abbrev)).trim() : ''
+    this._agencyId = id
     this.initUiShell()
 
     // 卡片已显示的图直传头图（与飞船/助推器一致）
@@ -328,6 +330,7 @@ Page({
       if (!resolved || !resolved.id) {
         throw new Error('未找到对应的发射商信息')
       }
+      this._agencyId = resolved.id
       const data = await getAgencyDetail(resolved.id, { skipLocalCache: !!requestParams.skipLocalCache })
       if (!data) {
         throw new Error('未获取到发射商数据')
@@ -467,9 +470,8 @@ Page({
         if (thumb) images.push(getCachedMediaImage(thumb, 'none'))
       }
     })
-    // 头像：代理地址视为无效（与 progress 页同口径）
-    let avatar = item.authorAvatar || ''
-    if (avatar && !avatar.includes('.cos.')) avatar = ''
+    // 头像：按 source 约定路径校验防串（与 progress 页同口径）
+    let avatar = resolveEventAuthorAvatarUrl(item) || ''
     if (avatar) avatar = getCachedMediaImage(avatar, 'thumb')
     return {
       _id: item._id,
@@ -998,10 +1000,11 @@ Page({
   onShareAppMessage() {
     const item = this.data.item
     const imageUrl = this.data.shareImage || this._pickAgencyShareImage(item)
+    const agencyId = (item && item.id != null) ? item.id : this._agencyId
     const result = {
       title: this.data.shareTitle,
-      path: item
-        ? withShareStampPath(`/subpackages/monitor-pages/agency-detail?id=${item.id}`, this)
+      path: agencyId != null && agencyId !== ''
+        ? withShareStampPath(`/subpackages/monitor-pages/agency-detail?id=${agencyId}`, this)
         : '/pages/monitor/monitor'
     }
     if (imageUrl) result.imageUrl = imageUrl
@@ -1011,9 +1014,12 @@ Page({
   onShareTimeline() {
     const item = this.data.item
     const imageUrl = this.data.shareImage || this._pickAgencyShareImage(item)
+    const agencyId = (item && item.id != null) ? item.id : this._agencyId
     const result = {
       title: this.data.shareTitle,
-      query: item ? withShareStampQuery(`id=${item.id}`, this) : ''
+      query: agencyId != null && agencyId !== ''
+        ? withShareStampQuery(`id=${agencyId}`, this)
+        : ''
     }
     if (imageUrl) result.imageUrl = imageUrl
     return result

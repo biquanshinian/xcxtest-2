@@ -360,7 +360,7 @@ const detailBgUploading = ref(false)
 
 function isVideoUrl(u) {
   if (!u || typeof u !== 'string') return false
-  return /\.mp4(\?|#|$)/i.test(u.trim().split('#')[0])
+  return /\.(mp4|mov|m4v|webm|mkv)(\?|#|$)/i.test(u.trim().split('#')[0])
 }
 
 // 表单默认值（与云函数 ORBITAL_DEFAULT 保持一致）
@@ -372,12 +372,12 @@ const buildDefault = () => ({
     titleEn: 'Orbital Data Center System',
     titleCn: '太空轨道数据中心系统',
     desc: '超前部署 · 应对 SpaceX 下一代轨道战略',
-    bgImage: '',
+    bgImage: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E8%83%8C%E6%99%AF%E8%A7%86%E9%A2%91/1784884993160_b2tlgu.mp4',
     ctaText: '进入指挥控制台',
     metrics: { activeNodes: '128', bandwidth: '4.8 Tbps', uptime: '99.97%' }
   },
   detail: {
-    bgVideo: '',
+    bgVideo: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E8%83%8C%E6%99%AF%E8%A7%86%E9%A2%91/1784888337241_ma680s.mp4',
     hudTitle: 'SYS-ODC // CONSOLE',
     hudSub: 'v0.1.0 · UNCLASSIFIED',
     statusText: 'ONLINE',
