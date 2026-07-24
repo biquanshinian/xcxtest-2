@@ -9,7 +9,6 @@ const { getNewsListThumbTargetWidthPx, optimizeNewsThumbUrl } = require('../../u
 const storageCache = require('../../utils/storage-sync-cache.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const themeUtil = require('../../utils/theme.js')
-const { displayImageUrl } = require('../../utils/cos-url.js')
 
 // 新闻接口已移入 news-extra 分包（仅 news tab 与详情页使用），按需异步加载以削减主包体积
 const NEWS_API_PKG = '../../subpackages/news-extra/utils/api-news.js'
@@ -24,20 +23,6 @@ function loadNewsApi() {
     })
   }
   return _newsApiLoadPromise
-}
-
-const ASTRO_PHOTOS_API_PKG = '../../subpackages/news-extra/utils/api-astro-photos.js'
-let _astroPhotosApiMod = null
-let _astroPhotosApiLoadPromise = null
-function loadAstroPhotosApi() {
-  if (_astroPhotosApiMod) return Promise.resolve(_astroPhotosApiMod)
-  if (!_astroPhotosApiLoadPromise) {
-    _astroPhotosApiLoadPromise = require.async(ASTRO_PHOTOS_API_PKG).then((mod) => {
-      _astroPhotosApiMod = mod
-      return mod
-    })
-  }
-  return _astroPhotosApiLoadPromise
 }
 
 const LEGACY_ARTICLE_CACHE_KEYS = [
@@ -103,10 +88,10 @@ function sortArticlesListByTimeDesc(list) {
   })
 }
 
-// ========== 低频逻辑在 news-extra 分包（news-lazy.js）==========
-// 导航红点、二维码入口拖拽与弹窗图片交互；
-// require.async + attachTo 委托模式与 profile-lazy / progress-lazy 一致。
-// 分享按钮与卡片快照暂存需同步执行，保留在下方 Page 内。
+// ========== 低频逻辑在 news-extra 分包 ==========
+// news-lazy：导航红点、二维码入口；news-photos-lazy：摄影列表/瀑布流/投稿。
+// require.async + attachTo 与 profile-lazy / progress-lazy 一致。
+// sharePhoto / 卡片快照 / onShareAppMessage 需同步，保留在下方 Page 内。
 const NEWS_LAZY_METHODS = [
   '_refreshArticlesNavDot',
   '_refreshPhotosNavDot',
@@ -118,22 +103,27 @@ const NEWS_LAZY_METHODS = [
   'onQRCodeImageTap',
   'onQRCodeImageError'
 ]
+function ensureNewsLazy(page) {
+  if (page.__newsLazyAttached) return Promise.resolve(page.__newsLazyMod)
+  if (!page.__newsLazyLoadPromise) {
+    // 字面量路径：开发者工具静态分析识别不了 require.async(变量)，会把分包模块误报为无依赖文件
+    page.__newsLazyLoadPromise = require.async('../../subpackages/news-extra/utils/news-lazy.js').then((mod) => {
+      mod.attachTo(page)
+      page.__newsLazyMod = mod
+      return mod
+    }).catch((err) => {
+      page.__newsLazyLoadPromise = null
+      console.error('[News] news-lazy 分包加载失败:', err)
+      throw err
+    })
+  }
+  return page.__newsLazyLoadPromise
+}
 function delegateNewsLazy(name) {
   return function (...args) {
     const page = this
     if (page.__newsLazyAttached) return page[name](...args)
-    if (!page.__newsLazyLoadPromise) {
-      // 字面量路径：开发者工具静态分析识别不了 require.async(变量)，会把分包模块误报为无依赖文件
-      page.__newsLazyLoadPromise = require.async('../../subpackages/news-extra/utils/news-lazy.js').then((mod) => {
-        mod.attachTo(page)
-        return mod
-      }).catch((err) => {
-        page.__newsLazyLoadPromise = null
-        console.error('[News] 分包模块加载失败:', err)
-        throw err
-      })
-    }
-    return page.__newsLazyLoadPromise.then(() => page[name](...args))
+    return ensureNewsLazy(page).then(() => page[name](...args))
   }
 }
 const newsLazyDelegates = {}
@@ -141,8 +131,49 @@ NEWS_LAZY_METHODS.forEach((name) => {
   newsLazyDelegates[name] = delegateNewsLazy(name)
 })
 
+const NEWS_PHOTOS_METHODS = [
+  '_refreshPhotosNavFlag',
+  '_applyPhotosEnabledFromApi',
+  '_isPhotoListItem',
+  '_authorAvatarChar',
+  '_photoItemHeight',
+  '_buildPhotoColumns',
+  '_appendPhotoColumns',
+  '_setPhotosViewList',
+  '_formatPhotosList',
+  '_pulsePhotoFabOnScroll',
+  'goPhotoUpload'
+]
+function ensureNewsPhotos(page) {
+  if (page.__newsPhotosAttached) return Promise.resolve(page.__newsPhotosMod)
+  if (!page.__newsPhotosLoadPromise) {
+    page.__newsPhotosLoadPromise = require.async('../../subpackages/news-extra/utils/news-photos-lazy.js').then((mod) => {
+      mod.attachTo(page)
+      page.__newsPhotosMod = mod
+      return mod
+    }).catch((err) => {
+      page.__newsPhotosLoadPromise = null
+      console.error('[News] news-photos-lazy 分包加载失败:', err)
+      throw err
+    })
+  }
+  return page.__newsPhotosLoadPromise
+}
+function delegateNewsPhotos(name) {
+  return function (...args) {
+    const page = this
+    if (page.__newsPhotosAttached) return page[name](...args)
+    return ensureNewsPhotos(page).then(() => page[name](...args))
+  }
+}
+const newsPhotosDelegates = {}
+NEWS_PHOTOS_METHODS.forEach((name) => {
+  newsPhotosDelegates[name] = delegateNewsPhotos(name)
+})
+
 Page({
   ...newsLazyDelegates,
+  ...newsPhotosDelegates,
   onLoad() {
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
       this.getTabBar().setData({
@@ -190,6 +221,8 @@ Page({
     }).catch(function () {})
 
     // 先等开关，再 boot，避免摄影缓存在关入口时污染「航天事件」列表
+    // 预热摄影 helper，与 preloadRule 叠加，减少首屏委托等待
+    void ensureNewsPhotos(this).catch(() => {})
     this._refreshPhotosNavFlag({ fromLoad: true })
       .then((show) => {
         const type = show ? 'photos' : 'articles'
@@ -206,91 +239,6 @@ Page({
         })
         self._bootNewsData('articles', sharedInitData)
       })
-  },
-
-  /**
-   * 全局开关 enableAstroPhotos（defaultOff + failClosed）
-   * @param {{ fromLoad?: boolean }} [opts] fromLoad：onLoad 会统一 boot，此处不 loadNews
-   * @returns {Promise<boolean>} 是否展示航天摄影入口
-   */
-  _refreshPhotosNavFlag(opts) {
-    const self = this
-    const fromLoad = !!(opts && opts.fromLoad)
-    const { fetchMainConfig } = require('../../utils/feature-flags.js')
-    return fetchMainConfig(true)
-      .then((cfg) => {
-        // failClosed：无有效 main 文档也视为关闭
-        const show = !!(cfg && cfg._id && cfg.enableAstroPhotos === true)
-        const wasPhotos = self.data.contentType === 'photos'
-        const patch = { showPhotosNav: show }
-        if (!show && wasPhotos) {
-          // 关掉摄影时 bump token，避免进行中的 photos 请求回来把 loading 卡住
-          self._newsLoadToken = (self._newsLoadToken || 0) + 1
-          patch.contentType = 'articles'
-          patch.newsList = []
-          patch.photoColLeft = []
-          patch.photoColRight = []
-          patch.page = 1
-          patch.hasMore = true
-          patch.loading = false
-          patch.showPhotosNavDot = false
-        }
-        self.setData(patch)
-        // fromLoad 由 onLoad boot；运行中关掉入口才在这里拉文章列表
-        if (!show && wasPhotos && !fromLoad) {
-          self.loadNews(true)
-        }
-        if (show) {
-          // 默认就在摄影 Tab：视为已读，避免进页立刻亮红点
-          if (self.data.contentType === 'photos') {
-            self.acknowledgePhotosNavDot(self._photosDotLatestAt)
-          } else {
-            self._refreshPhotosNavDot()
-          }
-        } else if (self.data.showPhotosNavDot) {
-          self.setData({ showPhotosNavDot: false })
-        }
-        return show
-      })
-      .catch(() => {
-        // failClosed：藏入口；若当前停在摄影则回退航天事件
-        const wasPhotos = self.data.contentType === 'photos'
-        const patch = { showPhotosNav: false, showPhotosNavDot: false }
-        if (wasPhotos) {
-          self._newsLoadToken = (self._newsLoadToken || 0) + 1
-          patch.contentType = 'articles'
-          patch.newsList = []
-          patch.photoColLeft = []
-          patch.photoColRight = []
-          patch.page = 1
-          patch.hasMore = true
-          patch.loading = false
-        }
-        self.setData(patch)
-        if (wasPhotos && !fromLoad) self.loadNews(true)
-        return false
-      })
-  },
-
-  /** listPublic.enabled===false 时强制藏 Tab（比本地 flag 缓存更及时） */
-  _applyPhotosEnabledFromApi(enabled) {
-    if (enabled !== false) return false
-    if (!this.data.showPhotosNav && this.data.contentType !== 'photos') return true
-    this._newsLoadToken = (this._newsLoadToken || 0) + 1
-    const wasPhotos = this.data.contentType === 'photos'
-    this.setData({
-      showPhotosNav: false,
-      showPhotosNavDot: false,
-      loading: false,
-      contentType: wasPhotos ? 'articles' : this.data.contentType,
-      newsList: wasPhotos ? [] : this.data.newsList,
-      photoColLeft: [],
-      photoColRight: [],
-      page: wasPhotos ? 1 : this.data.page,
-      hasMore: wasPhotos ? true : this.data.hasMore
-    })
-    if (wasPhotos) this.loadNews(true)
-    return true
   },
 
   _clearLegacyArticleCaches() {
@@ -335,10 +283,16 @@ Page({
         hasMore: cached.hasMore !== false
       }
       if (contentType === 'photos') {
-        this._setPhotosViewList(this._formatPhotosList(cachedList), pagePatch)
-      } else {
-        this.setData(Object.assign({ newsList: cachedList }, pagePatch))
+        void ensureNewsPhotos(this).then(() => {
+          if (this.data.contentType !== 'photos') return
+          this._setPhotosViewList(this._formatPhotosList(cachedList), pagePatch)
+          this._silentRefreshFirstPage(contentType)
+        }).catch(() => {
+          this.loadNews()
+        })
+        return
       }
+      this.setData(Object.assign({ newsList: cachedList }, pagePatch))
       // 先显旧数据，后台静默换新（手写稿排序/新事件不丢）
       this._silentRefreshFirstPage(contentType)
       return
@@ -399,10 +353,16 @@ Page({
             hasMore: cached.hasMore !== false
           }
           if (type === 'photos') {
-            self._setPhotosViewList(self._formatPhotosList(cachedList), pagePatch)
-          } else {
-            self.setData(Object.assign({ newsList: cachedList }, pagePatch))
+            void ensureNewsPhotos(self).then(() => {
+              if (self.data.contentType !== 'photos') return
+              self._setPhotosViewList(self._formatPhotosList(cachedList), pagePatch)
+              self._silentRefreshFirstPage(type)
+            }).catch(() => {
+              if (!self.data.loading) self.loadNews()
+            })
+            return
           }
+          self.setData(Object.assign({ newsList: cachedList }, pagePatch))
           self._silentRefreshFirstPage(type)
           return
         }
@@ -658,128 +618,18 @@ Page({
   },
 
   /** 仅保留真正的航天摄影条目，避免文章/事件列表串进摄影 Tab */
-  _isPhotoListItem(item) {
-    if (!item || typeof item !== 'object') return false
-    const id = item.id || item._id
-    if (!id) return false
-    // 文章/事件特征：有 newsSite，或有事件 type+date 且无摄影作者
-    if (item.newsSite) return false
-    if (item.type && item.date && !item.authorName) return false
-    const cover = item.coverUrl || item.cardImage ||
-      (item.photos && item.photos[0] && (item.photos[0].url || item.photos[0].displayUrl))
-    // 必须同时具备作者名 + 封面；不单信 _listKind，防止脏缓存伪装
-    return !!(item.authorName && cover)
-  },
+  // _isPhotoListItem / 瀑布流 / _formatPhotosList / goPhotoUpload → news-photos-lazy
 
   _sanitizeCachedNewsList(type, list) {
     if (!Array.isArray(list)) return []
-    if (type === 'photos') return list.filter((row) => this._isPhotoListItem(row))
+    if (type === 'photos') {
+      // 委托可能尚未 attach：此时不过滤，交给后续 _formatPhotosList
+      if (typeof this._isPhotoListItem === 'function' && this.__newsPhotosAttached) {
+        return list.filter((row) => this._isPhotoListItem(row))
+      }
+      return list
+    }
     return list
-  },
-
-  /** 作者圆头像：首字母 / 首汉字 */
-  _authorAvatarChar(name) {
-    const s = String(name || '').trim()
-    if (!s) return '?'
-    const ch = (Array.from(s)[0] || '?')
-    if (/^[a-z]$/i.test(ch)) return ch.toUpperCase()
-    return ch
-  },
-
-  /**
-   * 双列瀑布流：按封面高宽比估算高度，始终放入当前较短列（错落排布）
-   */
-  _photoItemHeight(item) {
-    const ratio = Math.max(0.45, Math.min(2.4, Number(item && item.coverAspectRatio) || 1))
-    return (1 / ratio) + 0.62
-  },
-
-  _buildPhotoColumns(list) {
-    const left = []
-    const right = []
-    let leftH = 0
-    let rightH = 0
-    for (let i = 0; i < (list || []).length; i++) {
-      const item = list[i]
-      const h = this._photoItemHeight(item)
-      if (leftH <= rightH) {
-        left.push(item)
-        leftH += h
-      } else {
-        right.push(item)
-        rightH += h
-      }
-    }
-    return { photoColLeft: left, photoColRight: right }
-  },
-
-  /** 加载更多：只把新增项追加到较短列，避免前页卡片左右乱跳 */
-  _appendPhotoColumns(newItems) {
-    const left = (this.data.photoColLeft || []).slice()
-    const right = (this.data.photoColRight || []).slice()
-    let leftH = 0
-    let rightH = 0
-    for (let i = 0; i < left.length; i++) leftH += this._photoItemHeight(left[i])
-    for (let i = 0; i < right.length; i++) rightH += this._photoItemHeight(right[i])
-    for (let i = 0; i < (newItems || []).length; i++) {
-      const item = newItems[i]
-      const h = this._photoItemHeight(item)
-      if (leftH <= rightH) {
-        left.push(item)
-        leftH += h
-      } else {
-        right.push(item)
-        rightH += h
-      }
-    }
-    return { photoColLeft: left, photoColRight: right }
-  },
-
-  _setPhotosViewList(list, extra) {
-    const next = list || []
-    const prev = this.data.newsList || []
-    let cols
-    const canAppend = prev.length > 0 &&
-      next.length > prev.length &&
-      prev.every((p, i) => String((p && (p.id || p._id)) || '') === String((next[i] && (next[i].id || next[i]._id)) || ''))
-    if (canAppend) {
-      cols = this._appendPhotoColumns(next.slice(prev.length))
-    } else {
-      cols = this._buildPhotoColumns(next)
-    }
-    this.setData(Object.assign({
-      newsList: next,
-      photoColLeft: cols.photoColLeft,
-      photoColRight: cols.photoColRight
-    }, extra || {}))
-  },
-
-  _formatPhotosList(list) {
-    return (list || []).filter((item) => this._isPhotoListItem(item)).map((item) => {
-      const cover = item.coverUrl || (item.photos && item.photos[0] && item.photos[0].url) || ''
-      const ratio = Number(item.coverAspectRatio) || 1
-      const count = Number(item.photoCount) > 0
-        ? Number(item.photoCount)
-        : (Array.isArray(item.photos) ? item.photos.length : 0)
-      const authorName = item.authorName || ''
-      return {
-        ...item,
-        id: item.id || item._id,
-        authorName,
-        authorAvatar: this._authorAvatarChar(authorName),
-        coverAspectRatio: Math.max(0.45, Math.min(2.4, ratio)),
-        // 列表只用压缩缩略图；原图仅详情点开大图时加载
-        cardImage: cover ? displayImageUrl(cover, 'thumb') : '',
-        // 卡片展示发布日期，不展示拍摄日期
-        publishedAtText: (() => {
-          if (!item.createdAt) return ''
-          const t = formatDate(item.createdAt, 'MM月DD日')
-          return (t === '无效日期' || t === '日期未知') ? '' : t
-        })(),
-        photoCountText: count > 0 ? `${count}` : '',
-        _listKind: 'photo'
-      }
-    })
   },
 
   _isStaleNewsLoad(type, loadToken) {
@@ -815,7 +665,8 @@ Page({
         let hasMore
         let photosLatestAt = 0
         if (type === 'photos') {
-          const api = await loadAstroPhotosApi()
+          const photosMod = await ensureNewsPhotos(this)
+          const api = await photosMod.loadAstroPhotosApi()
           const res = await api.listPublicPhotos(0, this.data.limit)
           if (this._applyPhotosEnabledFromApi(res && res.enabled)) return
           formattedList = this._formatPhotosList(res.list || [])
@@ -900,6 +751,8 @@ Page({
           hasMore: cached.hasMore !== false
         }
         if (type === 'photos') {
+          await ensureNewsPhotos(this)
+          if (this._isStaleNewsLoad(type, loadToken)) return
           this._setPhotosViewList(this._formatPhotosList(safeCached), pagePatch)
         } else {
           this.setData(Object.assign({ newsList: safeCached }, pagePatch))
@@ -929,7 +782,9 @@ Page({
       let hasMore
 
       if (type === 'photos') {
-        const api = await loadAstroPhotosApi()
+        const photosMod = await ensureNewsPhotos(this)
+        if (this._isStaleNewsLoad(type, loadToken)) return
+        const api = await photosMod.loadAstroPhotosApi()
         if (this._isStaleNewsLoad(type, loadToken)) return
         const res = await api.listPublicPhotos(Math.max(0, this.data.page - 1), this.data.limit)
         if (this._isStaleNewsLoad(type, loadToken)) return
@@ -1033,23 +888,7 @@ Page({
     }
   },
 
-  /** 滑动列表时收起投稿 FAB，停滑约 320ms 后自动展现 */
-  _pulsePhotoFabOnScroll() {
-    if (this.data.contentType !== 'photos' || !this.data.showPhotosNav) return
-    if (!this.data.photoFabHidden) {
-      this.setData({ photoFabHidden: true })
-    }
-    if (this._photoFabShowTimer) {
-      clearTimeout(this._photoFabShowTimer)
-      this._photoFabShowTimer = null
-    }
-    this._photoFabShowTimer = setTimeout(() => {
-      this._photoFabShowTimer = null
-      if (this.data.contentType === 'photos' && this.data.showPhotosNav && this.data.photoFabHidden) {
-        this.setData({ photoFabHidden: false })
-      }
-    }, 320)
-  },
+  /** 滑动列表时收起投稿 FAB → news-photos-lazy._pulsePhotoFabOnScroll */
 
   onNewsScroll(e) {
     this._pulsePhotoFabOnScroll()
@@ -1132,43 +971,7 @@ Page({
     }, key)
   },
 
-  goPhotoUpload() {
-    if (!this.data.showPhotosNav) {
-      wx.showToast({ title: '航天摄影暂未开放', icon: 'none' })
-      return
-    }
-    const UPLOAD_PASSWORD = 'zghtzp'
-    const openUpload = () => {
-      const { ROUTES } = require('../../utils/routes.js')
-      wx.navigateTo({ url: ROUTES.PHOTO_UPLOAD || '/subpackages/news-extra/photo-upload' })
-    }
-    wx.showModal({
-      title: '投稿密码',
-      editable: true,
-      placeholderText: '请输入投稿密码',
-      confirmText: '确认',
-      cancelText: '取消',
-      success: (res) => {
-        if (!res.confirm) return
-        const pwd = String(res.content || '').trim()
-        if (!pwd) {
-          wx.showToast({ title: '请输入投稿密码', icon: 'none' })
-          return
-        }
-        if (pwd !== UPLOAD_PASSWORD) {
-          wx.showToast({ title: '投稿密码错误', icon: 'none' })
-          return
-        }
-        try {
-          const app = getApp()
-          if (app) {
-            app._astroPhotoUploadGate = { password: pwd, at: Date.now() }
-          }
-        } catch (e) {}
-        openUpload()
-      }
-    })
-  },
+  // goPhotoUpload → news-photos-lazy
 
   retryLoadNews() {
     this.loadNews(true)
