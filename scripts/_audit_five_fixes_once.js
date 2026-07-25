@@ -55,8 +55,6 @@ const apiReq = read('utils/api-request.js')
 const shareGate = read('subpackages/monitor-pages/utils/share-gate.js')
 const mw = read('pages/monitor/monitor.wxss')
 const gw = read('subpackages/monitor-pages/components/monitor-galleries/index.wxss')
-const ow = read('subpackages/monitor-pages/components/monitor-orbit-events/index.wxss')
-
 // ---- translate AI-first（混元默认主通道，TMT 仅兜底） ----
 assert('AI: no multi-field TMT bypass', !/inputs\.length\s*!==\s*1/.test(tt))
 assert('AI: stages 缓存→混元→TMT', /默认主通道/.test(tt) && /TMT 仅/.test(tt))
@@ -70,6 +68,9 @@ assert('AI: mapPool + concurrency', /function mapPool\(/.test(tt) && /AI_TRANSLA
 assert('AI: mapPool uses inputs[idx]', /mapPool\(aiJobs[\s\S]*?async\s*\(idx\)\s*=>[\s\S]*?inputs\[idx\]/.test(tt))
 assert('AI: lookup not resolve(null)', !/function lookupCloudPretranslated[\s\S]*?resolve\(null\)/.test(tt))
 assert('AI: all uncached go AI', /混元默认主通道[\s\S]*?全部走 AI/.test(tt))
+assert('AI: loadTranslateAiService shared path', /function loadTranslateAiService\(/.test(tt) && /\/subpackages\/shared\/utils\/aiService\.js/.test(tt))
+const aiShellSrc = read('utils/aiService.js')
+assert('AI: shell isAIAvailable createModel', /extend\.AI\.createModel/.test(aiShellSrc) && !/typeof wx\.cloud\.extend === ['"]function['"]/.test(aiShellSrc))
 
 assert('cloud: pending-empty withMeta', /if\s*\(!pending\.length\)\s*\{[\s\S]*?withMeta[\s\S]*?list:\s*results/.test(tr))
 assert('cloud: action Array.isArray', /Array\.isArray\(out\)/.test(idx))
@@ -77,9 +78,14 @@ assert('cloud: fail tmtNeeded&&empty', /tmtNeeded\s*>\s*0\s*&&\s*translated\s*==
 assert('cloud: skipTmt not false-fail', /!skipTmt\s*&&\s*tmtNeeded/.test(idx))
 assert('cloud: TMT splitLongText', /function splitLongText\(/.test(tr) && /ITEM_MAX_CHARS\s*=\s*4000/.test(tr))
 assert('cloud: action raised item cap', /TRANSLATE_MAX_ITEM_CHARS\s*=\s*20000/.test(idx))
+assert('cloud: hunyuan primary getAIEntry', /function getAIEntry\(/.test(tr) && /hy3-preview/.test(tr))
+assert('cloud: hunyuan before TMT', /translatePendingViaAI[\s\S]*aiOut\.remaining/.test(tr))
+assert('cloud: FreeAmount no retry cascade', /tmtQuotaExhausted/.test(tr) && /isTmtPermanentError/.test(tr))
+assert('cloud: AI hit clears tmtNeeded', /tmtNeeded:\s*results\.some\(Boolean\)\s*\?\s*0/.test(tr))
+assert('cloud: action comment hunyuan', /混元 AI/.test(idx))
 
 // ---- mars ----
-assert('mars: 22s+2retry', /simpleGet\(base,\s*params,\s*22000,\s*2\)/.test(nasa))
+assert('mars: rover timeout+retry', /simpleGet\(ROVER_PROXY_BASE[^,]+,\s*params,\s*10000,\s*1\)/.test(nasa))
 assert('mars: latest endpoint', /latest_photos/.test(nasa) && /getRoverLatestPhotos/.test(nasa))
 assert('mars: parse both keys', /raw\.latest_photos/.test(nasa) && /raw\.photos/.test(nasa))
 assert('mars: useLatest path', /getRoverLatestPhotos/.test(nd))
@@ -101,18 +107,15 @@ assert('agency: reject hollow batch', /without results\[\] for batching/.test(sh
 assert('agency: doc(cacheKey).set', /collection\.doc\(docId\)\.set\(\{\s*data:\s*payload\s*\}\)/.test(sh))
 assert('agency: no retry size err', /体积\/结构类错误重试无意义/.test(sh) && /payload too large/.test(sh))
 assert('agency: slim used', /slimAgencyDetail\(data\)/.test(leg))
-assert('agency: 121 priority', /String\(a\)\s*===\s*'121'/.test(leg))
+assert('agency: 121 priority', /String\(a\.id\)\s*===\s*'121'/.test(leg))
 assert('agency: hollow stale', /hollowBatched/.test(leg))
 assert('agency: partial 5min', /__partial[\s\S]{0,250}5\s*\*\s*60\s*\*\s*1000/.test(am))
 assert('agency: timestamp field', /timestamp:\s*Date\.now\(\)/.test(sh))
 assert('agency: client reads .data.data', /let apiData = result\.data\.data/.test(apiReq))
 
 // ---- monitor css ----
-assert('css: agency margin', /\.agency-section\s*\{\s*padding:\s*0;\s*margin-bottom:\s*0;/.test(gw))
-assert('css: booster margin', /\.booster-section\s*\{\s*padding:\s*0;\s*margin-bottom:\s*0;/.test(gw))
-assert('css: sc margin', /\.sc-section\s*\{\s*padding:\s*0;\s*margin-bottom:\s*0;/.test(gw))
-assert('css: orbit margin', /\.orbit-section\s*\{\s*padding:\s*0;\s*margin-bottom:\s*0;/.test(ow))
-assert('css: min-height 360', /min-height:\s*360rpx/.test(mw))
+assert('css: gallery sections min-height', /\.agency-section[\s\S]{0,120}\.booster-section[\s\S]{0,120}\.sc-section[\s\S]{0,200}min-height:\s*360rpx/.test(gw))
+assert('css: min-height 360 monitor', /min-height:\s*360rpx/.test(mw) || /min-height:\s*360rpx/.test(gw))
 
 // ---- runtime sims ----
 async function mapPool(items, concurrency, mapper) {

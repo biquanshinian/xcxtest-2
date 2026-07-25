@@ -1503,7 +1503,7 @@ async function fetchLaunchStatusesAction() {
 
 // ══════════════════════════════════════════════════════════════
 // Action: translateTexts — 客户端按需翻译（页面"翻译"按钮）
-// 词典 + translation_cache + TMT；失败项返回空串，客户端保留原文
+// 词典 + translation_cache + 混元 AI（主通道）+ TMT（仅兜底）；失败项返回空串，客户端保留原文
 // event.skipTmt=true 时只查词典+缓存（客户端混元优先链路的第一步）
 // ══════════════════════════════════════════════════════════════
 const TRANSLATE_MAX_ITEMS = 20

@@ -24,7 +24,13 @@ function isAIChatEnabledSync() {
 }
 
 function isAIAvailable() {
-  return !!(wx.cloud && typeof wx.cloud.extend === 'function')
+  // wx.cloud.extend 是对象（挂 AI），不是 function；与 shared/aiService 判定对齐
+  try {
+    return !!(wx.cloud && wx.cloud.extend && wx.cloud.extend.AI &&
+      typeof wx.cloud.extend.AI.createModel === 'function')
+  } catch (e) {
+    return false
+  }
 }
 
 async function fetchAIChatEnabled() {

@@ -148,7 +148,7 @@ async function main() {
   const maxAiPiece = Math.max.apply(null, calls.aiInputs.concat([0]))
   check('S7 AI 每段不超过 1200', maxAiPiece <= 1200, 'maxAiPiece=' + maxAiPiece)
 
-  // ── 场景 8：云端 TMT 句段拆分仍保留（仅兜底路径需要）
+  // ── 场景 8：云端混元主通道 + TMT 句段拆分（兜底）契约
   const fs = require('fs')
   const cloudSrc = fs.readFileSync(path.join(__dirname, '../cloudfunctions/ll2Query/translate.js'), 'utf8')
   const actionSrc = fs.readFileSync(path.join(__dirname, '../cloudfunctions/ll2Query/index.js'), 'utf8')
@@ -157,6 +157,15 @@ async function main() {
   check('S8 云端含 ITEM_MAX_CHARS', /ITEM_MAX_CHARS\s*=\s*4000/.test(cloudSrc))
   check('S8 客户端 AI 为主通道注释', /默认主通道/.test(clientSrc) && /TMT 仅/.test(clientSrc))
   check('S8 action 放宽单条上限', /TRANSLATE_MAX_ITEM_CHARS\s*=\s*20000/.test(actionSrc))
+  check('S8 云端混元主通道', /function getAIEntry\(/.test(cloudSrc) && /translatePendingViaAI/.test(cloudSrc) && /hy3-preview/.test(cloudSrc))
+  check('S8 云端额度用尽熔断', /tmtQuotaExhausted/.test(cloudSrc) && /isTmtPermanentError/.test(cloudSrc))
+  check('S8 action 注释混元', /混元 AI/.test(actionSrc))
+  // 主包薄壳曾误判 typeof extend==='function'（extend 实为对象）→ 分包详情页混元全跳过落 TMT
+  const aiShell = fs.readFileSync(path.join(__dirname, '../utils/aiService.js'), 'utf8')
+  check('S8 薄壳 isAIAvailable 查 createModel', /extend\.AI\.createModel/.test(aiShell) && !/typeof wx\.cloud\.extend === 'function'/.test(aiShell))
+  check('S8 客户端 loadTranslateAiService', /function loadTranslateAiService\(/.test(clientSrc) && /\/subpackages\/shared\/utils\/aiService\.js/.test(clientSrc))
+  const newsTt = fs.readFileSync(path.join(__dirname, '../subpackages/news-extra/utils/text-translate.js'), 'utf8')
+  check('S8 news-extra 副本已同步', /function loadTranslateAiService\(/.test(newsTt))
 
   console.log('\n==== 结果: ' + passCount + ' PASS, ' + failures.length + ' FAIL ====')
   if (failures.length) { console.log(failures.join('\n')); process.exit(1) }

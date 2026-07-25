@@ -207,14 +207,42 @@ function cleanAITranslation(s) {
  * 任何失败返回空串，由调用方降级 TMT。
  * @returns {Promise<string>}
  */
+/** 加载混元实现：优先 shared 绝对路径（分包页可用），再回退主包薄壳 */
+let _translateAiModPromise = null
+function loadTranslateAiService() {
+  if (_translateAiModPromise) return _translateAiModPromise
+  _translateAiModPromise = (async () => {
+    if (typeof require.async === 'function') {
+      try {
+        const m = await require.async('/subpackages/shared/utils/aiService.js')
+        if (m && typeof m.generateTextAdvanced === 'function') return m
+      } catch (e) {}
+    }
+    try {
+      const shell = require('../../../utils/aiService.js')
+      if (shell && typeof shell.loadAiService === 'function') {
+        const m = await shell.loadAiService()
+        if (m && typeof m.generateTextAdvanced === 'function') return m
+      }
+      if (shell && typeof shell.generateTextAdvanced === 'function') return shell
+    } catch (e) {}
+    return null
+  })().then((m) => {
+    if (!m) _translateAiModPromise = null
+    return m
+  }).catch(() => {
+    _translateAiModPromise = null
+    return null
+  })
+  return _translateAiModPromise
+}
+
 async function translateViaAIChunk(text) {
   const src = String(text || '')
   if (!src.trim()) return ''
-  let aiService = null
-  try { aiService = require('../../../utils/aiService.js') } catch (e) {}
-  if (!aiService || typeof aiService.generateTextAdvanced !== 'function' || !aiService.isAIAvailable()) {
-    return ''
-  }
+  const aiService = await loadTranslateAiService()
+  if (!aiService || typeof aiService.generateTextAdvanced !== 'function') return ''
+  if (typeof aiService.isAIAvailable === 'function' && !aiService.isAIAvailable()) return ''
   // 英文原文越长译文 token 越多：按字符量给足，封顶 2048（兼容 hunyuan-lite 等上限）
   const maxTokens = Math.min(2048, Math.max(400, Math.ceil(src.length * 1.2)))
   const timeout = Math.min(40000, 15000 + Math.ceil(src.length * 12))
