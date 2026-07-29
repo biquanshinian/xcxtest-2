@@ -43,7 +43,7 @@
             <text class="updates-title">发射动态</text>
             <text class="updates-count">{{updates.length}} 条</text>
           </view>
-          <text class="translate-toggle {{descTranslating ? 'translate-toggle--busy' : ''}}" bindtap="onToggleTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
+          <text class="translate-toggle {{descTranslating ? 'translate-toggle--busy' : ''}}" catchtap="onToggleTranslate">{{descTranslating ? '翻译中…' : (descTranslated ? '原文' : '翻译')}}</text>
         </view>
 
         <view class="detail-update-item" wx:for="{{updates}}" wx:key="_wxkey">

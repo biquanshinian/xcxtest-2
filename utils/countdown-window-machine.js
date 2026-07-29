@@ -18,6 +18,8 @@
  */
 
 const { isSettledStatusId, statusIdOf } = require('./launch-status-store.js')
+// 阶段推导必须与倒计时显示同一个「现在」，否则会出现「面板还在倒数但状态机已判过点」
+const { getServerNow } = require('./server-clock.js')
 
 const PHASE = {
   PRE_WINDOW: 'PRE_WINDOW',
@@ -90,7 +92,7 @@ function getHoldUntilMs(mission, record) {
  * @param {number} now
  * @returns {string} PHASE.*
  */
-function derivePhase(mission, record, now = Date.now()) {
+function derivePhase(mission, record, now = getServerNow()) {
   if (!mission) return PHASE.POST_WINDOW
   if (isMissionSettled(mission, record)) return PHASE.SETTLED
   const net = getEffectiveNetMs(mission, record)
@@ -107,7 +109,7 @@ function recordOf(recordsById, id) {
 }
 
 /** 面板是否应挂住该任务（IN_WINDOW 且未决） */
-function isPanelHoldActive(mission, record, now = Date.now()) {
+function isPanelHoldActive(mission, record, now = getServerNow()) {
   return derivePhase(mission, record, now) === PHASE.IN_WINDOW
 }
 
@@ -126,7 +128,7 @@ function isPanelHoldActive(mission, record, now = Date.now()) {
  */
 function resolvePanelSelection(missions, options = {}) {
   const safeList = Array.isArray(missions) ? missions : []
-  const now = options.now != null ? options.now : Date.now()
+  const now = options.now != null ? options.now : getServerNow()
   const records = options.recordsById instanceof Map ? options.recordsById : null
   const holdId =
     options.holdMissionId != null && options.holdMissionId !== '' ? String(options.holdMissionId) : ''
@@ -188,7 +190,7 @@ function resolvePanelMission(missions, options = {}) {
  * @param {number} now
  * @returns {{ action: 'none'|'wait'|'probeById'|'bestEffort'|'slowProbe'|'settle', delayMs: number }}
  */
-function nextProbeAction(mission, record, now = Date.now()) {
+function nextProbeAction(mission, record, now = getServerNow()) {
   const phase = derivePhase(mission, record, now)
   if (phase === PHASE.SETTLED) return { action: 'settle', delayMs: 0 }
   if (phase === PHASE.PRE_WINDOW) return { action: 'none', delayMs: 0 }

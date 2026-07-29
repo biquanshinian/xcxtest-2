@@ -3,6 +3,7 @@
 const { resolveMediaUrl, findFuzzyRocketConfigUrl } = require('./image-config.js')
 const { getCachedRocketConfig, appendRocketGifCgifCi } = require('./icon-cache.js')
 const { toCdnUrl } = require('./cos-url.js')
+const { getServerNow } = require('./server-clock.js')
 
 /**
  * 格式化日期时间（自动处理时区）
@@ -40,7 +41,8 @@ function formatDate(date, format = 'YYYY-MM-DD HH:mm:ss') {
 }
 
 function getCountdown(targetTime) {
-  const now = new Date().getTime()
+  // 走校准时钟：设备系统时间被改/漂移时倒计时仍然正确（未校时则等于 Date.now()）
+  const now = getServerNow()
   const target = targetTime instanceof Date ? targetTime.getTime() : new Date(targetTime).getTime()
 
   if (isNaN(target)) {

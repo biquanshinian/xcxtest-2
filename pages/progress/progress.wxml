@@ -37,10 +37,11 @@
   >
     
     <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
-<!-- 星舰组合体进展（数据库） -->
-    <view class="starship-section">
+
+    <!-- 星舰硬件设施（NSF 数据） -->
+    <view class="hardware-section">
       <view class="section-title">
-        <text>星舰组合体进展</text>
+        <text>星舰硬件设施</text>
         <view class="section-title-right progress-map-actions">
           <view class="progress-map-btn" bindtap="openStarbaseMap">
             <text>设施图</text>
@@ -48,93 +49,6 @@
           <view class="progress-map-btn progress-map-btn--blue" bindtap="openLaunchSiteMap">
             <text>发射场</text>
           </view>
-        </view>
-      </view>
-      <!-- 加载失败：展示重试入口，避免无限骨架屏 -->
-      <view class="starship-cards starship-cards--skeleton" wx:if="{{!starshipLoaded && starshipLoadError}}" bindtap="onRetryStarshipLoad">
-        <view class="starship-card glass-card starship-card-skeleton skeleton-shimmer starship-card-error">
-          <text class="starship-load-error-text">加载失败，点击重试</text>
-        </view>
-      </view>
-
-      <!-- 数据就绪前显示骨架占位，避免旧编号闪现 -->
-      <view class="starship-cards starship-cards--skeleton" wx:elif="{{!starshipLoaded}}">
-        <view class="starship-card glass-card starship-card-skeleton skeleton-shimmer"></view>
-        <view class="starship-card glass-card starship-card-skeleton skeleton-shimmer"></view>
-      </view>
-
-      <view class="starship-cards" wx:else>
-        <!-- Ship -->
-        <view class="starship-card glass-card card-hover {{selectedStarshipType === 'ship' ? 'starship-card-active' : ''}}" bindtap="onStarshipCardTap" bindlongpress="onStarshipCardLongPress" data-type="ship">
-          <view class="starship-content">
-            <view class="starship-image-container">
-              <image
-                class="starship-image"
-                src="{{starshipData.ship.image}}"
-                mode="aspectFill"
-                lazy-load="{{true}}"
-                data-type="ship"
-                binderror="onStarshipImageError"
-              ></image>
-              <view class="starship-id-overlay">
-                <text class="starship-id-text">{{starshipData.ship.id}}</text>
-              </view>
-            </view>
-            <view class="starship-info-bottom">
-              <view class="starship-header">
-                <text class="starship-name">STARSHIP</text>
-              </view>
-              <view class="starship-status status-{{starshipData.ship.statusType}}">
-                <text class="status-label">状态</text>
-                <view class="status-indicator">
-                  <view class="status-dot"></view>
-                  <text class="status-value">{{starshipData.ship.status}}</text>
-                </view>
-              </view>
-            </view>
-          </view>
-        </view>
-
-        <!-- Booster -->
-        <view class="starship-card glass-card card-hover {{selectedStarshipType === 'booster' ? 'starship-card-active' : ''}}" bindtap="onStarshipCardTap" bindlongpress="onStarshipCardLongPress" data-type="booster">
-          <view class="starship-content">
-            <view class="starship-image-container">
-              <image
-                class="starship-image"
-                src="{{starshipData.booster.image}}"
-                mode="aspectFill"
-                lazy-load="{{true}}"
-                data-type="booster"
-                binderror="onStarshipImageError"
-              ></image>
-              <view class="starship-id-overlay">
-                <text class="starship-id-text">{{starshipData.booster.id}}</text>
-              </view>
-            </view>
-            <view class="starship-info-bottom">
-              <view class="starship-header">
-                <text class="starship-name">SUPER HEAVY</text>
-              </view>
-              <view class="starship-status status-{{starshipData.booster.statusType}}">
-                <text class="status-label">状态</text>
-                <view class="status-indicator">
-                  <view class="status-dot"></view>
-                  <text class="status-value">{{starshipData.booster.status}}</text>
-                </view>
-              </view>
-            </view>
-          </view>
-        </view>
-      </view>
-
-
-    </view>
-
-    <!-- 星舰硬件设施（NSF 数据） -->
-    <view class="hardware-section">
-      <view class="section-title">
-        <text>星舰硬件设施</text>
-        <view class="section-title-right">
           <view class="booster-view-all" hover-class="booster-view-all--pressed" hover-stay-time="120"
                 bindtap="onHardwareViewAllTap">
             <text>查看全部</text>

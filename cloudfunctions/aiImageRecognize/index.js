@@ -85,6 +85,20 @@ async function extractOcrText(fileID) {
   return ocrText
 }
 
+/** AI 入口：新版 cloud.ai()（wx-server-sdk >= 3.0.5-beta.1），旧版 cloud.extend.AI */
+function getAIEntry() {
+  try {
+    if (typeof cloud.ai === 'function') {
+      var inst = cloud.ai()
+      if (inst && typeof inst.createModel === 'function') return inst
+    }
+  } catch (e) {}
+  if (cloud.extend && cloud.extend.AI && typeof cloud.extend.AI.createModel === 'function') {
+    return cloud.extend.AI
+  }
+  return null
+}
+
 /** 用免费的 hy3-preview 模型分析 OCR 文字推断航天器 */
 async function analyzeWithFreeModel(ocrText, userPrompt) {
   var systemPrompt = '你是一个航天器识别助手。你的任务是根据图片OCR提取的文字来判断图片是否与航天（火箭、卫星、太空探索、航天机构）相关。\n\n关键规则：\n1. 只有当文字中明确包含航天相关内容（如火箭名称SpaceX/Falcon/Starship/长征/Atlas、航天机构NASA/ESA/CNSA、任务名称Starlink/Crew等）时才判定为航天相关\n2. 如果文字内容是日常物品、食品、电子产品、汽车等非航天内容，必须判定为非航天相关\n3. 如果没有文字或文字模糊无法判断，也应判定为非航天相关\n4. 不要猜测或联想，严格根据证据判断'
@@ -98,8 +112,9 @@ async function analyzeWithFreeModel(ocrText, userPrompt) {
   prompt += '\n\n重要：如果文字内容与航天/火箭/卫星/太空探索完全无关，或者没有识别到任何文字，请直接返回：{"isSpace":false,"message":"这张图片似乎不是航天相关内容"}'
   prompt += '\n如果确实是航天相关，请返回：{"isSpace":true,"rocketName":"火箭/航天器型号","company":"所属公司","description":"详细描述"}'
 
-  if (cloud.extend && cloud.extend.AI && cloud.extend.AI.createModel) {
-    var model = cloud.extend.AI.createModel('hunyuan-v3')
+  var AI = getAIEntry()
+  if (AI) {
+    var model = AI.createModel('hunyuan-v3')
     var res = await model.generateText({
       model: 'hy3-preview',
       messages: [

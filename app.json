@@ -229,7 +229,9 @@
         "rocket-model-detail",
         "artemis-detail",
         "orbital-data-center/orbital-data-center",
-        "vehicle-tracker/vehicle-tracker"
+        "vehicle-tracker/vehicle-tracker",
+        "space-notices/entry-list",
+        "space-notices/notice-map"
       ]
     }
   ],

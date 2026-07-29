@@ -14,7 +14,10 @@ const { isVideoUrl, videoSnapshotUrl } = require('../../utils/cos-url.js')
 const { getCachedMediaImage } = require('../../utils/icon-cache.js')
 const { buildLl2ImageChain, advanceImageFallback, proxiedImageUrl } = require('../../utils/ll2-image.js')
 const { resolveAgencyLogoForDisplay } = require('../../utils/agency-logo-cache.js')
-const { resolveEventAuthorAvatarUrl } = require('../shared/utils/event-share-image.js')
+// 必须走主包薄壳（内部 require.async 拉 shared 分包）：直接同步 require ../shared/**
+// 在分享卡片 / 朋友圈单页直达本页时 shared 分包尚未下载，模块加载即报错导致整页黑屏
+const { resolveEventAuthorAvatarUrl, warmEventShareImage } = require('../../utils/event-share-image.js')
+try { warmEventShareImage() } catch (e) {}
 
 /**
  * 机构 LL2 id → 事件更新推文账号（starship_event_updates.source）映射；
@@ -492,6 +495,8 @@ Page({
     }
     this._tweetSources = sources
     this.setData({ agencyTweetsVisible: true, agencyTweetsLoading: true, agencyTweets: [] })
+    // 薄壳在 shared 分包到位前头像解析返回空；分享冷启动时先等一次预热
+    await warmEventShareImage().catch(() => {})
     try {
       const db = wx.cloud.database()
       const _ = db.command

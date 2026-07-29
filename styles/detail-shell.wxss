@@ -1,0 +1,109 @@
+/*
+   详情页通用外壳（页面根容器 / 滚动区 / 玻璃卡 / 加载与错误态）。
+
+   放主包的原因：分包之间不能互相引用资源，WXSS @import 由运行时按路径加载。
+   分享卡片 / 朋友圈单页直达某分包页面时，只会下载该页所在分包，
+   跨分包 @import 的样式表拿不到 —— 根容器与 .detail-scroll 丢掉 100vh 后
+   整页塌成零高度，表现就是黑屏。
+
+   使用方（均在文件顶部 @import）：
+     subpackages/profile-extra/year-review/year-review.wxss
+
+   注：subpackages/news-extra/detail.wxss 内有同名规则的历史副本，
+   供同分包的 photo-detail / photo-upload 使用，改动请两边同步。
+*/
+
+page {
+  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  overflow: hidden;
+  height: 100vh;
+  width: 100%;
+}
+
+.detail-page {
+  min-height: 100vh;
+  height: 100vh;
+  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  overflow: hidden;
+}
+
+.detail-scroll {
+  height: 100vh;
+}
+
+.detail-container {
+  padding: 32rpx;
+  box-sizing: border-box;
+}
+
+.glass-card {
+  background: rgba(18, 20, 24, 0.62);
+  backdrop-filter: blur(28rpx) saturate(170%);
+  -webkit-backdrop-filter: blur(28rpx) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 28rpx;
+  box-shadow: 0 16rpx 40rpx rgba(0, 0, 0, 0.35), inset 0 1rpx 0 rgba(255, 255, 255, 0.08);
+}
+
+.loading-state,
+.error-state {
+  min-height: 50vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18rpx;
+  text-align: center;
+  padding: 48rpx 32rpx;
+  box-sizing: border-box;
+}
+
+.loading-text,
+.error-text {
+  font-size: 28rpx;
+  line-height: 1.7;
+  color: #b6b6bb;
+}
+
+.error-title {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.retry-btn {
+  margin-top: 8rpx;
+  padding: 0 28rpx;
+  height: 76rpx;
+  line-height: 76rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(135deg, #1677ff 0%, #55a3ff 100%);
+  color: #ffffff;
+  font-size: 28rpx;
+  border: none;
+}
+
+.retry-btn::after {
+  border: none;
+}
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+
+.detail-page.theme-light {
+  background: var(--color-bg-page, linear-gradient(180deg, #F2F2F7 0%, #ECECF1 100%));
+}
+
+.theme-light .glass-card {
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-card), inset 0 1rpx 0 rgba(255, 255, 255, 0.85);
+}
+
+.theme-light .loading-text,
+.theme-light .error-text {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .error-title {
+  color: var(--color-text-primary);
+}

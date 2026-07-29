@@ -1,4 +1,4 @@
-/* starship-detail.wxss —— 星舰组合体进展详情页（视觉与原半屏弹窗一致） */
+/* starship-detail.wxss —— 星舰载具（飞船/助推器）详情页，硬件库未匹配到编号时的兜底页 */
 page {
   background: #000;
   color: #fff;

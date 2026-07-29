@@ -1,4 +1,6 @@
-@import '../../news-extra/detail.wxss';
+/* 外壳样式取自主包：跨分包 @import（原 ../../news-extra/detail.wxss）在分享直达本页时
+   news-extra 未下载，样式表加载失败会让根容器丢掉 100vh 而整页黑屏 */
+@import '../../../styles/detail-shell.wxss';
 
 /* 年鉴页：与底部黑底视频融合，整页用纯黑 */
 page,

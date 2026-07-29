@@ -570,6 +570,9 @@
   color: #e0d4ff;
   flex-shrink: 0;
   margin-top: 4rpx;
+  /* 节日帽绝对定位挂在这个圆上，并要探出圆顶 */
+  position: relative;
+  overflow: visible;
 }
 
 .ai-bot-avatar .ai-star-glyph {
@@ -1401,4 +1404,162 @@
 
 .theme-light .ai-panel-title {
   color: var(--color-text-primary);
+}
+
+/* ── 参数卡（火箭型号 / 发射场 / 飞船 / 助推器 / 每日天文图）── */
+
+.ai-spec-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.ai-spec-image {
+  width: 100%;
+  height: 240rpx;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.ai-spec-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+  padding: 20rpx 22rpx 18rpx;
+}
+
+.ai-spec-tag {
+  font-size: 20rpx;
+  font-weight: 700;
+  letter-spacing: 1rpx;
+  color: #6ea8ff;
+}
+
+.ai-spec-card--wiki .ai-spec-tag { color: #6ea8ff; }
+.ai-spec-card--site .ai-spec-tag { color: #07c160; }
+.ai-spec-card--craft .ai-spec-tag { color: #ff9f0a; }
+.ai-spec-card--booster .ai-spec-tag { color: #ff453a; }
+.ai-spec-card--apod .ai-spec-tag { color: #bf5af2; }
+.ai-spec-card--hardware .ai-spec-tag { color: #ffd60a; }
+.ai-spec-card--viewing .ai-spec-tag { color: #30d158; }
+
+.ai-spec-title {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: var(--color-text-primary, #fff);
+}
+
+.ai-spec-subtitle {
+  font-size: 22rpx;
+  color: var(--color-text-tertiary, #8E8E93);
+}
+
+.ai-spec-rows {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 10rpx 0;
+  margin-top: 8rpx;
+}
+
+.ai-spec-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2rpx;
+  width: 50%;
+}
+
+.ai-spec-row-label {
+  font-size: 20rpx;
+  color: var(--color-text-tertiary, #8E8E93);
+}
+
+.ai-spec-row-value {
+  font-size: 24rpx;
+  font-weight: 600;
+  color: var(--color-text-secondary, #d8d8dc);
+}
+
+.ai-spec-note {
+  margin-top: 12rpx;
+  padding: 12rpx 14rpx;
+  border-radius: 12rpx;
+  background: rgba(120, 120, 128, 0.16);
+  font-size: 21rpx;
+  line-height: 1.5;
+  color: var(--color-text-tertiary, #8E8E93);
+}
+
+.ai-spec-cta {
+  margin-top: 10rpx;
+}
+
+/* ── 新增入口卡配色（助推器家谱 / 竞猜 / 年度回顾 / 天象 / 事件）── */
+
+.ai-entry-card--booster .ai-entry-glow {
+  background: radial-gradient(ellipse at 0% 50%, rgba(255, 69, 58, 0.16), transparent 55%);
+}
+
+.ai-entry-card--vote .ai-entry-glow {
+  background: radial-gradient(ellipse at 0% 50%, rgba(255, 214, 10, 0.16), transparent 55%);
+}
+
+.ai-entry-card--review .ai-entry-glow {
+  background: radial-gradient(ellipse at 0% 50%, rgba(191, 90, 242, 0.16), transparent 55%);
+}
+
+.ai-entry-card--astro .ai-entry-glow {
+  background: radial-gradient(ellipse at 0% 50%, rgba(100, 210, 255, 0.16), transparent 55%);
+}
+
+.ai-entry-card--news .ai-entry-glow {
+  background: radial-gradient(ellipse at 0% 50%, rgba(94, 92, 230, 0.16), transparent 55%);
+}
+
+.ai-entry-card--starlink .ai-entry-glow {
+  background: radial-gradient(ellipse at 0% 50%, rgba(48, 209, 88, 0.16), transparent 55%);
+}
+
+.ai-entry-card--artemis .ai-entry-glow {
+  background: radial-gradient(ellipse at 0% 50%, rgba(255, 214, 10, 0.14), transparent 55%);
+}
+
+.ai-entry-card--hardware .ai-entry-glow {
+  background: radial-gradient(ellipse at 0% 50%, rgba(172, 142, 104, 0.18), transparent 55%);
+}
+
+/* 直播卡用视频号绿，与监控中心「进入直播间」按钮同色系 */
+.ai-entry-card--live .ai-entry-glow {
+  background: radial-gradient(ellipse at 0% 50%, rgba(7, 193, 96, 0.18), transparent 55%);
+}
+
+.ai-entry-card--starlink .ai-entry-dot { background: #30d158; }
+.ai-entry-card--artemis .ai-entry-dot { background: #ffd60a; }
+.ai-entry-card--hardware .ai-entry-dot { background: #ac8e68; }
+.ai-entry-card--live .ai-entry-dot { background: #07c160; }
+
+.ai-entry-card--starlink .ai-entry-arrow { color: #30d158; }
+.ai-entry-card--artemis .ai-entry-arrow { color: #ffd60a; }
+.ai-entry-card--hardware .ai-entry-arrow { color: #ac8e68; }
+.ai-entry-card--live .ai-entry-arrow { color: #07c160; }
+
+.ai-entry-card--booster .ai-entry-dot { background: #ff453a; }
+.ai-entry-card--vote .ai-entry-dot { background: #ffd60a; }
+.ai-entry-card--review .ai-entry-dot { background: #bf5af2; }
+.ai-entry-card--astro .ai-entry-dot { background: #64d2ff; }
+.ai-entry-card--news .ai-entry-dot { background: #5e5ce6; }
+
+.ai-entry-card--booster .ai-entry-arrow { color: #ff453a; }
+.ai-entry-card--vote .ai-entry-arrow { color: #ffd60a; }
+.ai-entry-card--review .ai-entry-arrow { color: #bf5af2; }
+.ai-entry-card--astro .ai-entry-arrow { color: #64d2ff; }
+.ai-entry-card--news .ai-entry-arrow { color: #5e5ce6; }
+
+.theme-light .ai-spec-row-value {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .ai-spec-note {
+  background: rgba(120, 120, 128, 0.1);
+  color: var(--color-text-tertiary);
 }

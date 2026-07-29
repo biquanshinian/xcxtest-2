@@ -44,24 +44,60 @@ function extractMissionSearchKey(text) {
   return q
 }
 
+/** 长征系列：中文数字/甲乙丙与 Long March / CZ 统一成 cz10a 形态，便于中英同源比对 */
+const CZ_CN_NUMERALS = {
+  一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9,
+  十: 10, 十一: 11, 十二: 12
+}
+const CZ_VARIANT_SUFFIX = { 甲: 'a', 乙: 'b', 丙: 'c' }
+
+function czCode(num, suffix) {
+  const n = Number(num)
+  if (!Number.isFinite(n) || n <= 0) return ''
+  const sfx = suffix ? (CZ_VARIANT_SUFFIX[suffix] || String(suffix).toLowerCase()) : ''
+  return 'cz' + n + sfx
+}
+
+function normalizeCzSeries(s) {
+  return String(s)
+    // 长征十号甲 / 长征十二乙 / 长征七 → cz10a / cz12b / cz7
+    .replace(/长征\s*(十[一二]?|[一二三四五六七八九])\s*号?\s*([甲乙丙])?/g, (m, num, suffix) => {
+      return czCode(CZ_CN_NUMERALS[num], suffix) || m
+    })
+    // 长征10号甲 / 长征12b → cz10a / cz12b
+    .replace(/长征\s*(\d{1,2})\s*号?\s*([甲乙丙]|[abc](?![a-z]))?/g, (m, num, suffix) => {
+      return czCode(num, suffix) || m
+    })
+    // long march 10a → cz10a
+    .replace(/long\s*march\s*(\d{1,2})(?:\s*([abc])(?![a-z]))?/g, (m, num, suffix) => {
+      return czCode(num, suffix) || m
+    })
+    // cz-10a / cz 10 a → cz10a
+    .replace(/cz\s*-?\s*(\d{1,2})(?:\s*([abc])(?![a-z]))?/g, (m, num, suffix) => {
+      return czCode(num, suffix) || m
+    })
+}
+
 function normalizeMatchText(s) {
-  return String(s || '')
-    .toLowerCase()
-    .replace(/星舰/g, 'starship')
-    .replace(/超重型?/g, 'superheavy')
-    .replace(/猎鹰\s*重型/g, 'falconheavy')
-    .replace(/猎鹰\s*(九|9)/g, 'falcon9')
-    .replace(/falcon\s*heavy/g, 'falconheavy')
-    .replace(/falcon\s*9/g, 'falcon9')
-    .replace(/朱雀\s*(三|3)/g, 'zhuque3')
-    .replace(/zhuque\s*-?\s*3/g, 'zhuque3')
-    .replace(/zq\s*-?\s*3/g, 'zhuque3')
-    .replace(/谷神星\s*(一|1)/g, 'ceres1')
-    .replace(/引力\s*(一|1)/g, 'gravity1')
-    .replace(/gravity\s*-?\s*1/g, 'gravity1')
-    .replace(/长征\s*七/g, 'longmarch7')
-    .replace(/long\s*march\s*7/g, 'longmarch7')
+  return normalizeCzSeries(
+    String(s || '')
+      .toLowerCase()
+      .replace(/星舰/g, 'starship')
+      .replace(/超重型?/g, 'superheavy')
+      .replace(/猎鹰\s*重型/g, 'falconheavy')
+      .replace(/猎鹰\s*(九|9)/g, 'falcon9')
+      .replace(/falcon\s*heavy/g, 'falconheavy')
+      .replace(/falcon\s*9/g, 'falcon9')
+      .replace(/朱雀\s*(三|3)/g, 'zhuque3')
+      .replace(/zhuque\s*-?\s*3/g, 'zhuque3')
+      .replace(/zq\s*-?\s*3/g, 'zhuque3')
+      .replace(/谷神星\s*(一|1)/g, 'ceres1')
+      .replace(/引力\s*(一|1)/g, 'gravity1')
+      .replace(/gravity\s*-?\s*1/g, 'gravity1')
+  )
     .replace(/长征\s*/g, 'cz')
+    // 「猎鹰9号」→ falcon9号，尾巴上的「号」会让包含判断失配
+    .replace(/(\d)\s*号/g, '$1')
     .replace(/[·・\s_\-]/g, '')
 }
 
@@ -137,10 +173,27 @@ const INTENT_PRIORITY = [
   'vehicle_tracker',
   'road_closure',
   'station',
+  'live_watch',
+  'starlink_pass',
+  'starlink_map',
+  'viewing_spot',
+  'artemis',
+  'my_launches',
+  'year_review',
+  'launch_vote',
+  'starship_hardware',
+  'recovery_stats',
+  'booster',
+  'rocket_model',
+  'launch_site',
+  'spacecraft',
+  'apod',
+  'astro_calendar',
   'starship_status',
   'launch_stats',
   'launch_list',
   'agency',
+  'news',
   'mission_replay',
   'mission_lookup'
 ]
@@ -152,10 +205,27 @@ const INTENT_SCORE_THRESHOLD = {
   vehicle_tracker: 36,
   road_closure: 36,
   station: 36,
+  live_watch: 45,
+  starlink_pass: 50,
+  starlink_map: 50,
+  viewing_spot: 50,
+  artemis: 50,
+  my_launches: 45,
+  year_review: 45,
+  launch_vote: 45,
+  starship_hardware: 50,
+  recovery_stats: 55,
+  booster: 45,
+  rocket_model: 45,
+  launch_site: 40,
+  spacecraft: 40,
+  apod: 45,
+  astro_calendar: 45,
   starship_status: 38,
   launch_stats: 40,
   launch_list: 40,
   agency: 40,
+  news: 45,
   mission_replay: 40,
   mission_lookup: 34
 }
@@ -278,6 +348,10 @@ function scoreStarshipStatus(q) {
 }
 
 function scoreLaunchStats(q) {
+  // 回收/复用口径（成功率、复用排行）不是发射次数统计，交给 recovery_stats
+  if (scoreRecoveryStats(q) >= INTENT_SCORE_THRESHOLD.recovery_stats) return 0
+  // 「星链有多少颗」问的是星座规模，不是发射次数
+  if (scoreStarlinkMap(q) >= INTENT_SCORE_THRESHOLD.starlink_map) return 0
   if (/(发射统计|全球发射统计|全球统计|打开发射统计|查看发射统计|发射排行|发射榜)/.test(q)) return 95
   // 必须有「数量/排行/统计」语义，避免「本周发射计划」误入
   const statsSense = hasQuantityAsk(q) || /(统计|排行|排名|榜|战绩|谁最多|哪国最多|哪家最多)/.test(q)
@@ -556,11 +630,28 @@ function scoreMissionLookup(q) {
   if (scoreFlightDemo(q) >= INTENT_SCORE_THRESHOLD.flight_demo || scoreMissionSim(q) >= 38 ||
     scoreVehicleTracker(q) >= INTENT_SCORE_THRESHOLD.vehicle_tracker) return 0
   if (scoreRoadClosure(q) >= 36 || scoreStation(q) >= 36) return 0
+  // 「星舰试飞直播」带任务名也该出直播卡，不去查任务详情
+  if (scoreLiveWatch(q) >= INTENT_SCORE_THRESHOLD.live_watch) return 0
   if (scoreStarshipStatus(q) >= INTENT_SCORE_THRESHOLD.starship_status && !hasNonStarshipRocketEntity(q)) return 0
   if (scoreLaunchStats(q) >= INTENT_SCORE_THRESHOLD.launch_stats) return 0
   if (scoreLaunchList(q) >= INTENT_SCORE_THRESHOLD.launch_list) return 0
   if (scoreAgency(q) >= INTENT_SCORE_THRESHOLD.agency) return 0
   if (scoreMissionReplay(q) >= INTENT_SCORE_THRESHOLD.mission_replay) return 0
+  // 百科 / 个人化 / 内容意图已够分时不抢（「猎鹰9多高」不该出任务卡）
+  if (scoreBooster(q) >= INTENT_SCORE_THRESHOLD.booster) return 0
+  if (scoreRocketModel(q) >= INTENT_SCORE_THRESHOLD.rocket_model) return 0
+  if (scoreLaunchSite(q) >= INTENT_SCORE_THRESHOLD.launch_site) return 0
+  if (scoreSpacecraft(q) >= INTENT_SCORE_THRESHOLD.spacecraft) return 0
+  if (scoreMyLaunches(q) >= INTENT_SCORE_THRESHOLD.my_launches) return 0
+  if (scoreLaunchVote(q) >= INTENT_SCORE_THRESHOLD.launch_vote) return 0
+  if (scoreAstroCalendar(q) >= INTENT_SCORE_THRESHOLD.astro_calendar) return 0
+  if (scoreApod(q) >= INTENT_SCORE_THRESHOLD.apod) return 0
+  if (scoreStarlinkPass(q) >= INTENT_SCORE_THRESHOLD.starlink_pass) return 0
+  if (scoreStarlinkMap(q) >= INTENT_SCORE_THRESHOLD.starlink_map) return 0
+  if (scoreViewingSpot(q) >= INTENT_SCORE_THRESHOLD.viewing_spot) return 0
+  if (scoreArtemis(q) >= INTENT_SCORE_THRESHOLD.artemis) return 0
+  if (scoreStarshipHardware(q) >= INTENT_SCORE_THRESHOLD.starship_hardware) return 0
+  if (scoreRecoveryStats(q) >= INTENT_SCORE_THRESHOLD.recovery_stats) return 0
 
   const key = extractMissionSearchKey(q)
   if (!key || key.length < 2) return 0
@@ -578,6 +669,479 @@ function scoreMissionLookup(q) {
   return s
 }
 
+// ══════════ 扩展意图：百科（火箭/发射场/飞船/助推器）· 个人化 · 内容 ══════════
+
+/** 火箭家族（只认运载火箭，飞船交给 spacecraft 意图） */
+const ROCKET_FAMILY_HINT =
+  /(猎鹰|falcon|星舰|starship|超重|长征|cz\s*-?\s*\d|朱雀|zhuque|谷神|ceres|引力一?号|gravity-?1|快舟|捷龙|力箭|双曲线|谷神星|电子号|electron|中子号|neutron|新格伦|new\s*glenn|vulcan|atlas\s*v|delta\s*iv|ariane|阿丽亚娜|h3火箭|pslv|gslv|\bsls\b|安加拉|angara|质子号|proton|重型猎鹰)/i
+
+/** 飞船 / 载人航天器 */
+const SPACECRAFT_HINT =
+  /(飞船|载人舱|返回舱|乘员舱|神舟|shenzhou|天舟|tianzhou|龙飞船|crew\s*dragon|cargo\s*dragon|\bdragon\b|starliner|星际客机|联盟号|soyuz|进步号|猎户座|orion|新谢泼德|new\s*shepard)/i
+
+/** 发射场 / 工位 */
+const LAUNCH_SITE_HINT =
+  /(发射场|发射中心|发射基地|航天中心|发射工位|工位|发射台|发射阵地|\bpad\b|\bLC-?\d|\bSLC-?\d|39a|39b|文昌|酒泉|太原|西昌|东风航天|海阳|卡纳维拉尔|卡角|肯尼迪航天|范登堡|瓦勒普斯|库鲁|圭亚那航天|拜科努尔|东方港|种子岛|内之浦|斯里赫里戈达|starbase|boca\s*chica)/i
+
+/** 中文地名 → LL2 英文场站名关键词 */
+const LAUNCH_SITE_ALIAS = {
+  wenchang: ['文昌'],
+  jiuquan: ['酒泉', '东风航天'],
+  taiyuan: ['太原'],
+  xichang: ['西昌'],
+  'cape canaveral': ['卡纳维拉尔', '卡角'],
+  'kennedy': ['肯尼迪', '39a', '39b'],
+  vandenberg: ['范登堡'],
+  wallops: ['瓦勒普斯'],
+  kourou: ['库鲁', '圭亚那航天'],
+  baikonur: ['拜科努尔'],
+  vostochny: ['东方港'],
+  tanegashima: ['种子岛'],
+  uchinoura: ['内之浦'],
+  satish: ['斯里赫里戈达'],
+  starbase: ['星舰基地', '博卡奇卡', 'boca chica'],
+  'yellow sea': ['黄海', '海阳']
+}
+
+/** 中文飞船名 → LL2 英文构型名关键词 */
+const SPACECRAFT_ALIAS = {
+  shenzhou: ['神舟'],
+  tianzhou: ['天舟'],
+  'crew dragon': ['载人龙', '载人龙飞船'],
+  'cargo dragon': ['货运龙'],
+  dragon: ['龙飞船'],
+  starliner: ['星际客机'],
+  soyuz: ['联盟号'],
+  progress: ['进步号'],
+  orion: ['猎户座'],
+  'new shepard': ['新谢泼德']
+}
+
+/** 参数类问法（多高/运力/推力…） */
+function hasSpecAsk(q) {
+  return /(多高|多长|多重|多大|多粗|直径|高度|全长|起飞质量|运力|运载能力|载荷|推力|几级|级数|参数|规格|指标|多少吨|多少米|多少公斤|能带多少|型号|构型)/.test(q)
+}
+
+/** 明确的排期问法（该给任务卡，不给百科卡） */
+function hasScheduleAsk(q) {
+  return /(什么时候|啥时候|何时|几号|哪天|下次|下一次|即将|接下来|发射时间|发射日期|排期|倒计时)/.test(q)
+}
+
+/** 已有导航型意图是否已够分（新意图统一让位，避免抢卡） */
+function navIntentFires(q) {
+  if (scoreStarshipNextFlight(q) >= INTENT_SCORE_THRESHOLD.starship_next) return true
+  if (scoreFlightDemo(q) >= INTENT_SCORE_THRESHOLD.flight_demo) return true
+  if (scoreMissionSim(q) >= INTENT_SCORE_THRESHOLD.mission_sim) return true
+  if (scoreVehicleTracker(q) >= INTENT_SCORE_THRESHOLD.vehicle_tracker) return true
+  if (scoreRoadClosure(q) >= INTENT_SCORE_THRESHOLD.road_closure) return true
+  if (scoreStation(q) >= INTENT_SCORE_THRESHOLD.station) return true
+  return false
+}
+
+/** 猎鹰系助推器编号（B1067）；星舰 B15 是两位数，不在此列 */
+function extractBoosterSerial(text) {
+  const m = String(text || '').match(/\bB\s*-?\s*(1\d{3})\b/i)
+  return m ? 'B' + m[1] : ''
+}
+
+/** 去掉百科问法噪声，留下实体名 */
+function stripSpecAskNoise(text) {
+  return String(text || '')
+    .replace(/[？?！!。．.，,、；;：:…]+/g, ' ')
+    .replace(/(有多高|有多长|有多重|多高|多长|多重|多大|多粗|直径|高度|全长|起飞质量|运载能力|运力|载荷|推力|几级|级数|参数|规格|指标|多少吨|多少米|多少公斤|能带多少)/g, ' ')
+    .replace(/(能坐几人|坐几人|几个人|几人|多少人|乘员|容量|在役|现役|退役)/g, ' ')
+    .replace(/(在哪里|在哪|哪里|位置|坐标|地图|怎么走|几个工位|多少次发射|发射过多少)/g, ' ')
+    .replace(/(飞了几次|复用|重复使用|回收|战绩|家谱|谱系|记录|排行|榜)/g, ' ')
+    .replace(/(介绍一下|介绍下|介绍|讲讲|说说|资料|百科|详情|图鉴|档案|是什么|怎么样|如何|看看|打开|查一下|查询|帮我|我想|想看|了解一下|了解)/g, ' ')
+    .replace(/(是多少|多少|几个|火箭型号)/g, ' ')
+    .replace(/(的|了|吗|呢|啊|吧|呀|嘛|是|有|和|与)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function extractRocketModelKey(text) {
+  return stripSpecAskNoise(text).replace(/(运载火箭|火箭)/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function extractLaunchSiteKey(text) {
+  return stripSpecAskNoise(text)
+    .replace(/(发射场|发射中心|发射基地|航天中心|发射工位|工位|发射台|发射阵地)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function extractSpacecraftKey(text) {
+  return stripSpecAskNoise(text)
+    .replace(/(载人飞船|货运飞船|飞船)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function scoreRocketModel(q) {
+  if (isPureChitchat(q) || navIntentFires(q)) return 0
+  if (hasScheduleAsk(q) || /首飞时间/.test(q)) return 0
+  if (!ROCKET_FAMILY_HINT.test(q)) return 0
+  if (LAUNCH_SITE_HINT.test(q)) return 0
+  if (extractBoosterSerial(q)) return 0
+  // 「龙飞船多大」交给 spacecraft
+  if (SPACECRAFT_HINT.test(q) && !/(火箭|运载)/.test(q)) return 0
+  if (!hasSpecAsk(q)) return 0
+  let s = 45
+  if (/(火箭|运载)/.test(q)) s += 12
+  if (/(型号|构型|参数|规格)/.test(q)) s += 12
+  if (/(多高|多长|多重|直径|运力|推力|级数|几级|起飞质量)/.test(q)) s += 15
+  return s
+}
+
+/** 已知观礼点名（用户直接问「淇水湾怎么去」时也走观礼卡） */
+const VIEWING_SPOT_HINT = /(淇水湾|铜鼓岭|石头公园|龙楼|playalinda|普拉亚琳达|space\s*view\s*park|太空观景公园|isla\s*blanca|伊斯拉布兰卡|jetty\s*park|防波堤公园|jalama|哈拉马|surf\s*beach|南帕德里|伊莎贝尔港|马克斯布鲁尔)/i
+
+/** 直播关键词（视频号 / B站 / 通用「直播」；「转播」「开播」同义） */
+const LIVE_WATCH_HINT = /(直播|转播|开播|直播间|live\s*stream|livestream|watch\s*live)/i
+
+/**
+ * 观看发射直播（「在哪看直播」「有直播吗」「直播间」）
+ * 与 viewing_spot 的分界：问「人去哪站着看」是观礼点，问「哪儿能看到画面」是直播；
+ * 与 mission_replay 的分界：带「回放/集锦」的要的是录播视频，让回放卡接走。
+ */
+function scoreLiveWatch(q) {
+  if (isPureChitchat(q)) return 0
+  if (!LIVE_WATCH_HINT.test(q)) return 0
+  if (scoreMissionReplay(q) >= INTENT_SCORE_THRESHOLD.mission_replay) return 0
+  let s = 50
+  if (/(在哪|哪里|哪儿|怎么看|哪能看|去哪|有没有|有吗|怎么找|入口|链接|地址|哪个平台|什么平台)/.test(q)) s += 20
+  if (/(视频号|b\s*站|bilibili|哔哩)/i.test(q)) s += 20
+  if (hasLaunchDomain(q) || hasStarshipEntity(q)) s += 15
+  return s
+}
+
+/**
+ * 现场观礼点导航（「去哪看发射」「文昌观礼点」）
+ * 与 launch_site 的分界：问发射场本身参数走百科，问「人站哪儿看」走这里
+ */
+function scoreViewingSpot(q) {
+  if (isPureChitchat(q)) return 0
+  // 「今晚哪里能看到星链」是过境预报，不是发射观礼
+  if (scoreStarlinkPass(q) >= INTENT_SCORE_THRESHOLD.starlink_pass) return 0
+  if (scoreStarlinkMap(q) >= INTENT_SCORE_THRESHOLD.starlink_map) return 0
+  // 「在哪看直播」问的是画面来源，不是现场站位
+  if (scoreLiveWatch(q) >= INTENT_SCORE_THRESHOLD.live_watch) return 0
+  const spotNamed = VIEWING_SPOT_HINT.test(q)
+  if (!spotNamed && !/(发射|火箭|升空|起飞|试飞|星舰|starship|猎鹰|长征|观礼)/i.test(q)) return 0
+  let s = 0
+  if (/(观礼|观景点|观看点|观测点|观赏点|打卡点|机位|蹲点)/.test(q)) s += 60
+  else if (/(现场看|去现场|亲眼看|去哪看|哪里看|在哪看|哪儿看|哪能看|哪里能看|在哪能看|哪里可以看|哪儿能看|最佳位置|最佳地点|最佳观|推荐位置|去哪儿看)/.test(q)) s += 50
+  else if (/(看|观看|围观)/.test(q) && /(去哪|哪里|在哪|哪儿|什么位置|什么地方|哪个位置|哪个地方)/.test(q)) s += 50
+  else if (spotNamed && /(怎么去|怎么走|导航|路线|停车|门票|多远|远不远|在哪|位置)/.test(q)) s += 55
+  if (!s) return 0
+  if (/(导航|怎么去|怎么走|路线|自驾|停车|门票)/.test(q)) s += 15
+  return s
+}
+
+function scoreLaunchSite(q) {
+  if (isPureChitchat(q) || navIntentFires(q)) return 0
+  // 「文昌哪里看发射」问的是观礼站位，不是发射场百科
+  if (scoreViewingSpot(q) >= INTENT_SCORE_THRESHOLD.viewing_spot) return 0
+  if (!LAUNCH_SITE_HINT.test(q)) return 0
+  if (hasScheduleAsk(q) && !/(发射场|发射中心|工位|发射台)/.test(q)) return 0
+  let s = 40
+  if (/(在哪|哪里|位置|坐标|地图|怎么走|介绍|资料|百科|详情|工位|发射台|多少次发射|发射过多少)/.test(q)) s += 20
+  if (/(发射场|发射中心|航天中心|发射基地)/.test(q)) s += 15
+  return s
+}
+
+function scoreSpacecraft(q) {
+  if (isPureChitchat(q) || navIntentFires(q)) return 0
+  if (hasScheduleAsk(q)) return 0
+  // 「阿尔忒弥斯的猎户座」交给 artemis
+  if (scoreArtemis(q) >= INTENT_SCORE_THRESHOLD.artemis) return 0
+  if (!SPACECRAFT_HINT.test(q)) return 0
+  let s = 40
+  if (/(几人|多少人|乘员|坐几|容量|参数|规格|介绍|资料|百科|是什么|多重|多大|直径|长度|在役|现役|退役|执行过|多少次任务)/.test(q)) s += 22
+  if (/(飞船|返回舱|载人舱|乘员舱)/.test(q)) s += 10
+  return s
+}
+
+function scoreBooster(q) {
+  if (isPureChitchat(q) || navIntentFires(q)) return 0
+  const serial = extractBoosterSerial(q)
+  const boosterWord = /(助推器|\bbooster\b|一级火箭|芯级)/i.test(q)
+  const reuseWord = /(复用|重复使用|回收|飞了几次|战绩|家谱|谱系|复飞|第几次飞|最多|排行)/i.test(q)
+  if (!serial && !boosterWord && !reuseWord) return 0
+  // 聚合口径（成功率/排行/一共）交给 recovery_stats；星舰硬件编号交给 starship_hardware
+  if (!serial && scoreRecoveryStats(q) >= INTENT_SCORE_THRESHOLD.recovery_stats) return 0
+  if (!serial && scoreStarshipHardware(q) >= INTENT_SCORE_THRESHOLD.starship_hardware) return 0
+  // 星舰 B/S 进展交给 starship_status
+  if (!serial && /星舰|starship|超重/i.test(q) && !/(家谱|谱系|复用排行)/.test(q)) return 0
+  let s = 0
+  if (serial) s += 55
+  if (boosterWord) s += 25
+  if (reuseWord) s += 25
+  // 「助推器复用排行」这类问法会被发射统计误吸走，双信号命中时压过去
+  if (boosterWord && reuseWord) s += 20
+  return s
+}
+
+/** 星链过境观测（需定位，卡片只做入口） */
+function scoreStarlinkPass(q) {
+  if (isPureChitchat(q) || navIntentFires(q)) return 0
+  if (!/(星链|starlink)/i.test(q)) return 0
+  if (!/(过境|经过|飞过|能看到|看得到|观测|抬头|肉眼|几点看|什么时候看|预报|列车)/.test(q)) return 0
+  let s = 50
+  if (/(今晚|今天|明天|几点|什么时候)/.test(q)) s += 15
+  return s
+}
+
+/** 星链星座实时分布（在轨颗数 / 分布图 / 「星链在哪」） */
+function scoreStarlinkMap(q) {
+  if (isPureChitchat(q) || navIntentFires(q)) return 0
+  if (!/(星链|starlink)/i.test(q)) return 0
+  if (hasScheduleAsk(q)) return 0
+  if (scoreStarlinkPass(q) >= INTENT_SCORE_THRESHOLD.starlink_pass) return 0
+  if (scoreMissionReplay(q) >= INTENT_SCORE_THRESHOLD.mission_replay) return 0
+  let s = 0
+  if (/(实时分布|分布图|分布|星座|在轨|轨道图|地图|3d|三维)/i.test(q)) s += 50
+  if (/(多少颗|几颗|数量|总数|有多少)/.test(q)) s += 55
+  if (/(在哪|在哪儿|哪里)/.test(q)) s += 55
+  if (!s) return 0
+  if (/(看看|打开|查看|瞅瞅|给我看)/.test(q)) s += 20
+  return s
+}
+
+/** 阿尔忒弥斯任务（猎户座在此优先于通用飞船百科） */
+function scoreArtemis(q) {
+  if (isPureChitchat(q) || navIntentFires(q)) return 0
+  if (!/(阿尔忒弥斯|阿耳忒弥斯|artemis)/i.test(q)) return 0
+  let s = 55
+  if (/(什么时候|进展|遥测|轨道|绕月|载人|乘组|状态)/.test(q)) s += 15
+  return s
+}
+
+/**
+ * 星舰硬件编号（B15 / S38 / 助推器15 / 飞船38）
+ * 猎鹰助推器是四位数（B1067），这里只认 1-2 位，避免互抢
+ * @returns {{ kind: string, num: number }|null}
+ */
+function extractStarshipHardwareRef(text) {
+  const q = String(text || '')
+  let m = q.match(/\bB\s*-?\s*(\d{1,2})\b/i)
+  if (m) return { kind: 'booster', num: Number(m[1]) }
+  m = q.match(/\bS\s*-?\s*(\d{1,2})\b/i)
+  if (m) return { kind: 'ship', num: Number(m[1]) }
+  m = q.match(/(?:超重)?助推器\s*(\d{1,2})(?!\d)/)
+  if (m) return { kind: 'booster', num: Number(m[1]) }
+  m = q.match(/(?:星舰)?飞船\s*(\d{1,2})(?!\d)/)
+  if (m) return { kind: 'ship', num: Number(m[1]) }
+  return null
+}
+
+function scoreStarshipHardware(q) {
+  if (isPureChitchat(q) || navIntentFires(q)) return 0
+  const ref = extractStarshipHardwareRef(q)
+  const listAsk = /(星舰硬件|硬件设施|硬件列表|在建硬件|硬件进度)/.test(q)
+  if (!ref && !listAsk) return 0
+  // 猎鹰助推器编号（B1067）走 booster 意图
+  if (extractBoosterSerial(q)) return 0
+  let s = 0
+  if (ref) s += 50
+  if (listAsk) s += 50
+  if (/(在哪|哪里|状态|什么情况|怎么样|进展|测试|静态点火|下线|运到|报废|拆解)/.test(q)) s += 20
+  return s
+}
+
+/** 回收/复用总览（聚合口径，单枚编号仍走 booster） */
+function scoreRecoveryStats(q) {
+  if (isPureChitchat(q) || navIntentFires(q)) return 0
+  if (extractBoosterSerial(q)) return 0
+  if (!/(回收|复用|重复使用|着陆|海上平台)/.test(q)) return 0
+  if (!/(成功率|统计|总共|一共|多少枚|多少次|排行|榜|最多|平均|概况|总览)/.test(q)) return 0
+  return 60
+}
+
+function scoreMyLaunches(q) {
+  if (isPureChitchat(q)) return 0
+  if (!/我/.test(q)) return 0
+  let s = 0
+  if (/我(的)?(订阅|提醒|关注|收藏|日程|发射日程)/.test(q)) s += 55
+  if (/(订阅|提醒|关注|收藏)(了)?(哪些|什么|列表|清单)/.test(q)) s += 30
+  if (/我(设置|加)了/.test(q)) s += 25
+  if (!s) return 0
+  return s
+}
+
+function scoreYearReview(q) {
+  if (!/(年度回顾|年终总结|年度报告|年度总结|年度数据|我的\d{4}年?|今年我(看|追)了)/.test(q)) return 0
+  return 60
+}
+
+function scoreLaunchVote(q) {
+  if (isPureChitchat(q) || navIntentFires(q)) return 0
+  let s = 0
+  if (/(竞猜|投票|押注|下注|猜一下|猜猜|我猜|赌)/.test(q)) s += 50
+  if (/(能成功吗|会成功吗|会不会成功|能不能成功|会准时吗|会推迟吗|会不会推迟|能按时吗|准时吗)/.test(q)) s += 45
+  if (!s) return 0
+  if (/(发射|任务|这次|下次)/.test(q)) s += 10
+  return s
+}
+
+function scoreApod(q) {
+  if (!/(每日天文图|每日一图|天文图片|天文美图|今日天文|\bapod\b|nasa\s*图)/i.test(q)) return 0
+  return 60
+}
+
+function scoreAstroCalendar(q) {
+  if (isPureChitchat(q)) return 0
+  if (!/(天象|流星雨|日食|月食|超级月亮|血月|观星|星空|英仙座|双子座|狮子座|象限仪|冲日|东大距|凌日|合月|极光|天文日历|天象日历)/.test(q)) {
+    return 0
+  }
+  let s = 45
+  if (/(什么时候|最近|近期|几号|哪天|有哪些|时间|预报|日历)/.test(q)) s += 20
+  return s
+}
+
+function scoreNews(q) {
+  if (isPureChitchat(q) || navIntentFires(q)) return 0
+  if (scoreStarshipStatus(q) >= INTENT_SCORE_THRESHOLD.starship_status) return 0
+  if (scoreLaunchList(q) >= INTENT_SCORE_THRESHOLD.launch_list) return 0
+  if (scoreLaunchStats(q) >= INTENT_SCORE_THRESHOLD.launch_stats) return 0
+  // 有具体火箭/机构实体时交给任务或发射商意图
+  if (KNOWN_VEHICLE_HINT.test(q) || detectAgencyAliasHit(q)) return 0
+  if (!/(航天新闻|太空新闻|新闻|资讯|头条|最新消息|有什么大事|有什么新鲜事)/.test(q)) return 0
+  let s = 45
+  if (/(航天|太空|发射)/.test(q)) s += 15
+  return s
+}
+
+/**
+ * 火箭构型匹配（_config_meta 的 configs map）
+ * @param {object} configs { [configId]: cfg }
+ * @param {string} queryKey
+ * @returns {{ id: string, config: object, score: number }|null}
+ */
+function pickRocketConfig(configs, queryKey) {
+  const key = normalizeMatchText(queryKey)
+  if (!key || key.length < 2) return null
+  const map = configs && typeof configs === 'object' ? configs : {}
+  let best = null
+  Object.keys(map).forEach((id) => {
+    const cfg = map[id]
+    if (!cfg) return
+    const hay = normalizeMatchText([cfg.name, cfg.full_name, cfg.alias, cfg.variant].filter(Boolean).join(' '))
+    if (!hay) return
+    let score = 0
+    if (hay === key) score += 140
+    else if (hay.indexOf(key) >= 0) score += 90
+    else if (key.indexOf(hay) >= 0 && hay.length >= 3) score += 60
+    if (!score) return
+    // 同系列多构型：取实际飞得最多的主力型号
+    score += Math.min(Number(cfg.total_launch_count) || 0, 400) / 100
+    if (!best || score > best.score) {
+      best = { id: String(cfg.id != null ? cfg.id : id), config: cfg, score }
+    }
+  })
+  return best
+}
+
+/** NSF 硬件名（Booster 15 / Ship 38 / Super Heavy Booster 15）→ 编号引用 */
+function parseHardwareVehicleRef(name) {
+  const n = String(name || '').toLowerCase()
+  let m = n.match(/(?:booster|super\s*heavy)\s*-?\s*(\d{1,3})/)
+  if (m) return { kind: 'booster', num: Number(m[1]) }
+  m = n.match(/(?:starship|ship)\s*-?\s*(\d{1,3})/)
+  if (m) return { kind: 'ship', num: Number(m[1]) }
+  m = n.match(/^\s*b\s*-?\s*(\d{1,3})\b/)
+  if (m) return { kind: 'booster', num: Number(m[1]) }
+  m = n.match(/^\s*s\s*-?\s*(\d{1,3})\b/)
+  if (m) return { kind: 'ship', num: Number(m[1]) }
+  return null
+}
+
+/**
+ * 星舰硬件匹配（B15 / S38 → NSF vehicles 条目）
+ * @param {object[]} vehicles
+ * @param {string} queryText
+ */
+function pickStarshipHardware(vehicles, queryText) {
+  const ref = extractStarshipHardwareRef(queryText)
+  if (!ref) return null
+  const rows = Array.isArray(vehicles) ? vehicles : []
+  for (let i = 0; i < rows.length; i += 1) {
+    const v = rows[i]
+    if (!v || !v.name) continue
+    const parsed = parseHardwareVehicleRef(v.name)
+    if (parsed && parsed.kind === ref.kind && parsed.num === ref.num) return v
+  }
+  return null
+}
+
+/** 把中文实体名换成别名表里的英文关键词（命不中返回原串） */
+function expandAliasKeys(queryText, aliasMap) {
+  const q = String(queryText || '').toLowerCase()
+  const out = []
+  Object.keys(aliasMap || {}).forEach((en) => {
+    const aliases = aliasMap[en] || []
+    const hit = en && q.indexOf(en) >= 0
+      ? true
+      : aliases.some((al) => al && q.indexOf(String(al).toLowerCase()) >= 0)
+    if (hit) out.push(en)
+  })
+  return out
+}
+
+/**
+ * 发射场匹配：先用中文别名换英文关键词，再退回原串包含匹配
+ * @param {object[]} list LL2 location 列表（{ id, name, ... }）
+ * @param {string} queryText 原始问法
+ */
+function pickLaunchSite(list, queryText) {
+  const rows = Array.isArray(list) ? list.filter((s) => s && s.id != null) : []
+  if (!rows.length) return null
+  const keys = expandAliasKeys(queryText, LAUNCH_SITE_ALIAS)
+  const rawKey = normalizeMatchText(extractLaunchSiteKey(queryText))
+  let best = null
+  rows.forEach((site) => {
+    const nameLower = String(site.name || site.nameZh || '').toLowerCase()
+    const nName = normalizeMatchText(site.name || site.nameZh)
+    let score = 0
+    keys.forEach((k) => {
+      if (nameLower.indexOf(k) >= 0) score += 100
+    })
+    if (!score && rawKey && rawKey.length >= 2 && nName.indexOf(rawKey) >= 0) score += 60
+    if (!score) return
+    const launches = Number(site.totalLaunchCount != null ? site.totalLaunchCount : site.total_launch_count) || 0
+    score += Math.min(launches, 500) / 100
+    if (!best || score > best.score) best = { site, score }
+  })
+  return best
+}
+
+/**
+ * 飞船构型匹配
+ * @param {object[]} list LL2 spacecraft configuration 列表
+ * @param {string} queryText
+ */
+function pickSpacecraftConfig(list, queryText) {
+  const rows = Array.isArray(list) ? list.filter((s) => s && s.id != null) : []
+  if (!rows.length) return null
+  const keys = expandAliasKeys(queryText, SPACECRAFT_ALIAS)
+  const rawKey = normalizeMatchText(extractSpacecraftKey(queryText))
+  let best = null
+  rows.forEach((sc) => {
+    const nameLower = String(sc.name || '').toLowerCase()
+    const nName = normalizeMatchText(sc.name)
+    let score = 0
+    keys.forEach((k) => {
+      if (nameLower.indexOf(k) >= 0) score += 100
+    })
+    if (!score && rawKey && rawKey.length >= 2 && nName.indexOf(rawKey) >= 0) score += 60
+    if (!score) return
+    if (sc.inUse === true || sc.in_use === true) score += 8
+    if (sc.humanRated === true || sc.human_rated === true) score += 4
+    if (!best || score > best.score) best = { config: sc, score }
+  })
+  return best
+}
+
 function scoreAllRichIntents(text) {
   const q = String(text || '').trim()
   if (!q || isPureChitchat(q)) {
@@ -588,10 +1152,27 @@ function scoreAllRichIntents(text) {
       vehicle_tracker: 0,
       road_closure: 0,
       station: 0,
+      live_watch: 0,
+      starlink_pass: 0,
+      starlink_map: 0,
+      viewing_spot: 0,
+      artemis: 0,
+      my_launches: 0,
+      year_review: 0,
+      launch_vote: 0,
+      starship_hardware: 0,
+      recovery_stats: 0,
+      booster: 0,
+      rocket_model: 0,
+      launch_site: 0,
+      spacecraft: 0,
+      apod: 0,
+      astro_calendar: 0,
       starship_status: 0,
       launch_stats: 0,
       launch_list: 0,
       agency: 0,
+      news: 0,
       mission_replay: 0,
       mission_lookup: 0
     }
@@ -603,10 +1184,27 @@ function scoreAllRichIntents(text) {
     vehicle_tracker: scoreVehicleTracker(q),
     road_closure: scoreRoadClosure(q),
     station: scoreStation(q),
+    live_watch: scoreLiveWatch(q),
+    starlink_pass: scoreStarlinkPass(q),
+    starlink_map: scoreStarlinkMap(q),
+    viewing_spot: scoreViewingSpot(q),
+    artemis: scoreArtemis(q),
+    my_launches: scoreMyLaunches(q),
+    year_review: scoreYearReview(q),
+    launch_vote: scoreLaunchVote(q),
+    starship_hardware: scoreStarshipHardware(q),
+    recovery_stats: scoreRecoveryStats(q),
+    booster: scoreBooster(q),
+    rocket_model: scoreRocketModel(q),
+    launch_site: scoreLaunchSite(q),
+    spacecraft: scoreSpacecraft(q),
+    apod: scoreApod(q),
+    astro_calendar: scoreAstroCalendar(q),
     starship_status: scoreStarshipStatus(q),
     launch_stats: scoreLaunchStats(q),
     launch_list: scoreLaunchList(q),
     agency: scoreAgency(q),
+    news: scoreNews(q),
     mission_replay: scoreMissionReplay(q),
     mission_lookup: scoreMissionLookup(q)
   }
@@ -658,6 +1256,74 @@ function matchMissionLookupIntent(text) {
 
 function matchMissionReplayIntent(text) {
   return scoreMissionReplay(String(text || '').trim()) >= INTENT_SCORE_THRESHOLD.mission_replay
+}
+
+function matchRocketModelIntent(text) {
+  return scoreRocketModel(String(text || '').trim()) >= INTENT_SCORE_THRESHOLD.rocket_model
+}
+
+function matchLaunchSiteIntent(text) {
+  return scoreLaunchSite(String(text || '').trim()) >= INTENT_SCORE_THRESHOLD.launch_site
+}
+
+function matchSpacecraftIntent(text) {
+  return scoreSpacecraft(String(text || '').trim()) >= INTENT_SCORE_THRESHOLD.spacecraft
+}
+
+function matchBoosterIntent(text) {
+  return scoreBooster(String(text || '').trim()) >= INTENT_SCORE_THRESHOLD.booster
+}
+
+function matchMyLaunchesIntent(text) {
+  return scoreMyLaunches(String(text || '').trim()) >= INTENT_SCORE_THRESHOLD.my_launches
+}
+
+function matchYearReviewIntent(text) {
+  return scoreYearReview(String(text || '').trim()) >= INTENT_SCORE_THRESHOLD.year_review
+}
+
+function matchLaunchVoteIntent(text) {
+  return scoreLaunchVote(String(text || '').trim()) >= INTENT_SCORE_THRESHOLD.launch_vote
+}
+
+function matchApodIntent(text) {
+  return scoreApod(String(text || '').trim()) >= INTENT_SCORE_THRESHOLD.apod
+}
+
+function matchAstroCalendarIntent(text) {
+  return scoreAstroCalendar(String(text || '').trim()) >= INTENT_SCORE_THRESHOLD.astro_calendar
+}
+
+function matchNewsIntent(text) {
+  return scoreNews(String(text || '').trim()) >= INTENT_SCORE_THRESHOLD.news
+}
+
+function matchStarlinkPassIntent(text) {
+  return scoreStarlinkPass(String(text || '').trim()) >= INTENT_SCORE_THRESHOLD.starlink_pass
+}
+
+function matchLiveWatchIntent(text) {
+  return scoreLiveWatch(String(text || '').trim()) >= INTENT_SCORE_THRESHOLD.live_watch
+}
+
+function matchStarlinkMapIntent(text) {
+  return scoreStarlinkMap(String(text || '').trim()) >= INTENT_SCORE_THRESHOLD.starlink_map
+}
+
+function matchViewingSpotIntent(text) {
+  return scoreViewingSpot(String(text || '').trim()) >= INTENT_SCORE_THRESHOLD.viewing_spot
+}
+
+function matchArtemisIntent(text) {
+  return scoreArtemis(String(text || '').trim()) >= INTENT_SCORE_THRESHOLD.artemis
+}
+
+function matchStarshipHardwareIntent(text) {
+  return scoreStarshipHardware(String(text || '').trim()) >= INTENT_SCORE_THRESHOLD.starship_hardware
+}
+
+function matchRecoveryStatsIntent(text) {
+  return scoreRecoveryStats(String(text || '').trim()) >= INTENT_SCORE_THRESHOLD.recovery_stats
 }
 
 /**
@@ -981,6 +1647,36 @@ function pickLaunchList(list, limit, filter) {
 }
 
 /**
+ * 任务检索的时间倾向：「什么时候发射」要给即将发射，「回放/上次」才给历史
+ * @returns {'upcoming'|'completed'|''}
+ */
+function missionLookupTimePreference(text) {
+  const q = String(text || '').trim()
+  if (!q) return ''
+  if (/(回放|集锦|上次|上一次|上回|前一次|已经?发射|发射了吗|发射结果|成功了吗|失败了吗|首飞成功|历史)/.test(q)) {
+    return 'completed'
+  }
+  if (/(什么时候|啥时候|何时|几号|哪天|哪一天|多久|还有多久|下次|下一次|下一发|接下来|即将|将于|要发|要打|发射时间|发射日期|发射窗口|倒计时|计划|排期|安排|首飞|首次发射|时间表|定档)/.test(q)) {
+    return 'upcoming'
+  }
+  return ''
+}
+
+/** 任务归属：优先 _detailType，其次结果字段，最后按 NET 是否已过 */
+function resolveMissionDetailType(mission) {
+  if (!mission) return 'upcoming'
+  if (mission._detailType === 'completed' || mission._detailType === 'upcoming') {
+    return mission._detailType
+  }
+  if (mission.success != null || mission.isFailure != null) return 'completed'
+  if (mission.launchTime) {
+    const t = new Date(mission.launchTime).getTime()
+    if (Number.isFinite(t) && t < Date.now()) return 'completed'
+  }
+  return 'upcoming'
+}
+
+/**
  * 任务检索打分：问谁就尽量命中谁
  * @returns {{ mission: object, score: number, detailType: string }|null}
  */
@@ -1027,23 +1723,44 @@ function scoreMissionAgainstQuery(mission, queryText) {
   if (nRocket && nKey && (nRocket.indexOf(nKey) >= 0 || nKey.indexOf(nRocket) >= 0)) score += 50
 
   if (score < 36) return null
-  const detailType = mission._detailType === 'completed' ||
-    mission.success != null ||
-    mission.isFailure != null
-    ? 'completed'
-    : 'upcoming'
-  return { mission, score, detailType }
+  return { mission, score, detailType: resolveMissionDetailType(mission) }
 }
 
-function pickBestMissionMatch(list, queryText) {
+/**
+ * 取最佳匹配任务。带时间倾向时先在该侧挑（如「长征十号甲什么时候发射」只看即将发射），
+ * 该侧无命中才回落全池，避免有排期却抽出历史任务。
+ * @param {object[]} list
+ * @param {string} queryText
+ * @param {{ prefer?: 'upcoming'|'completed'|'' }} [options]
+ */
+function pickBestMissionMatch(list, queryText, options) {
   const rows = Array.isArray(list) ? list : []
-  let best = null
-  for (let i = 0; i < rows.length; i++) {
-    const scored = scoreMissionAgainstQuery(rows[i], queryText)
-    if (!scored) continue
-    if (!best || scored.score > best.score) best = scored
+  const prefer = options && options.prefer !== undefined
+    ? options.prefer
+    : missionLookupTimePreference(queryText)
+
+  const bestOf = (side) => {
+    let best = null
+    for (let i = 0; i < rows.length; i++) {
+      const scored = scoreMissionAgainstQuery(rows[i], queryText)
+      if (!scored) continue
+      if (side && scored.detailType !== side) continue
+      // 同侧同分：即将发射取 NET 最近的一条
+      if (!best || scored.score > best.score) best = scored
+      else if (scored.score === best.score && side === 'upcoming') {
+        const a = new Date(scored.mission.launchTime || 0).getTime()
+        const b = new Date(best.mission.launchTime || 0).getTime()
+        if (Number.isFinite(a) && Number.isFinite(b) && a > 0 && (b <= 0 || a < b)) best = scored
+      }
+    }
+    return best
   }
-  return best
+
+  if (prefer) {
+    const preferred = bestOf(prefer)
+    if (preferred) return preferred
+  }
+  return bestOf('')
 }
 
 /**
@@ -1071,12 +1788,6 @@ function buildLaunchSearchQueries(text) {
     { re: /星链|starlink/, q: ['Starlink'] },
     { re: /谷神|ceres/, q: ['Ceres-1'] },
     { re: /引力|gravity/, q: ['Gravity-1'] },
-    { re: /长征\s*二|cz[\s-]?2|long\s*march\s*2/, q: ['Long March 2'] },
-    { re: /长征\s*三|cz[\s-]?3|long\s*march\s*3/, q: ['Long March 3'] },
-    { re: /长征\s*五|cz[\s-]?5|long\s*march\s*5/, q: ['Long March 5'] },
-    { re: /长征\s*六|cz[\s-]?6|long\s*march\s*6/, q: ['Long March 6'] },
-    { re: /长征\s*七|cz[\s-]?7|long\s*march\s*7/, q: ['Long March 7'] },
-    { re: /长征\s*八|cz[\s-]?8|long\s*march\s*8/, q: ['Long March 8'] },
     { re: /电子号|electron/, q: ['Electron'] },
     { re: /新格伦|new\s*glenn/, q: ['New Glenn'] },
     { re: /vulcan/, q: ['Vulcan'] },
@@ -1091,6 +1802,14 @@ function buildLaunchSearchQueries(text) {
     }
   }
 
+  // 长征系列：normalizeMatchText 已把中英写法统一成 cz10a，反查出 LL2 英文名
+  const cz = normalizeMatchText(key + ' ' + raw).match(/cz(\d{1,2})([abc])?/)
+  if (cz) {
+    const variant = cz[2] ? cz[2].toUpperCase() : ''
+    push('Long March ' + cz[1] + variant)
+    if (variant) push('Long March ' + cz[1])
+  }
+
   // Flight / IFT 编号
   const flight = raw.match(/flight\s*(\d+)/i) || raw.match(/ift[\s-]*(\d+)/i)
   if (flight && flight[1]) {
@@ -1103,24 +1822,36 @@ function buildLaunchSearchQueries(text) {
 
 function enrichLaunchContextWithCard(launchContext, card) {
   if (!card || !card.id) return launchContext
+  const isCompleted = String(card.detailType || '') === 'completed'
   const focus = {
     name: card.name,
     rocketName: card.rocketName,
     launchTime: card.launchTime || card.formattedTime,
     launchAgency: card.launchAgency || '',
     launchSite: card.padLocation,
-    status: card.statusText
+    status: card.statusText,
+    detailType: isCompleted ? 'completed' : 'upcoming'
   }
   const base = launchContext && typeof launchContext === 'object' ? { ...launchContext } : {}
-  const upcoming = Array.isArray(base.upcoming) ? base.upcoming.slice() : []
   const focusKey = String(focus.name || '')
-  const deduped = upcoming.filter((m) => String((m && m.name) || '') !== focusKey)
-  deduped.unshift(focus)
-  base.upcoming = deduped
+  const sameName = (m) => String((m && m.name) || '') === focusKey
+  // 历史任务不能混进「即将发射」，否则模型会用将来时描述已发射的任务
+  if (isCompleted) {
+    const completed = Array.isArray(base.completed) ? base.completed.slice() : []
+    base.completed = [focus].concat(completed.filter((m) => !sameName(m)))
+    if (Array.isArray(base.upcoming)) {
+      base.upcoming = base.upcoming.filter((m) => !sameName(m))
+    }
+  } else {
+    const upcoming = Array.isArray(base.upcoming) ? base.upcoming.slice() : []
+    base.upcoming = [focus].concat(upcoming.filter((m) => !sameName(m)))
+  }
   base.focusMission = focus
   const label = focus.rocketName || focus.name || '该任务'
   base.uiCardReady = true
-  base.focusHint = '用户正在询问「' + label + '」相关发射；界面已展示可点击任务卡片。请基于「聚焦任务」真实数据简要回答（发射时间字段若为 ISO 则按 UTC 转北京时间），并提醒点击下方卡片查看详情。禁止说未匹配/找不到/没有数据。不要编造发射时间。'
+  base.focusHint = isCompleted
+    ? '用户正在询问「' + label + '」相关发射；界面已展示可点击任务卡片，但这是一次「已完成」的历史发射。请用过去时说明发射时间与结果（时间字段若为 ISO 则按 UTC 转北京时间）；若用户问的是「什么时候发射/下次发射」，要说明目前没有查到新的排期，建议关注小程序发射日程。禁止说未匹配/找不到/没有数据，也不要把历史发射说成即将发射。'
+    : '用户正在询问「' + label + '」相关发射；界面已展示可点击任务卡片，该任务尚未发射。请基于「聚焦任务」真实数据简要回答发射时间与状态（时间字段若为 ISO 则按 UTC 转北京时间），并提醒点击下方卡片查看详情。禁止说未匹配/找不到/没有数据。不要编造发射时间。'
   return base
 }
 
@@ -1136,6 +1867,96 @@ function enrichLaunchContextNoMissionLookup(launchContext, queryText) {
   const key = extractMissionSearchKey(queryText) || String(queryText || '').trim()
   base.focusHint = '用户在询问「' + (key || '某任务') + '」，本地日程与云端搜索均未匹配到对应发射任务。请如实说明未找到，建议换火箭全称/英文名（如 Zhuque、Falcon 9）或去小程序搜索页；不要编造发射时间或任务名。'
   base.focusMission = null
+  return base
+}
+
+/** 通用参数卡（火箭/发射场/飞船/助推器/天文图）：把卡上真实数据喂给模型，禁止编数字 */
+function enrichLaunchContextWithSpec(launchContext, card) {
+  const base = launchContext && typeof launchContext === 'object' ? { ...launchContext } : {}
+  const rows = Array.isArray(card && card.rows) ? card.rows : []
+  const facts = rows
+    .filter((r) => r && r.label && r.value !== '' && r.value != null)
+    .map((r) => r.label + '：' + r.value)
+    .join('；')
+  const title = (card && card.title) || '该条目'
+  base.uiCardReady = true
+  base.focusMission = null
+  base.specFacts = facts
+  base.focusHint = '用户在询问「' + title + '」的资料，界面已展示可点击的参数卡。卡片上的真实数据：' +
+    (facts || '（暂无结构化参数）') +
+    '。只能基于这些数据作答，缺失字段直说暂无，禁止编造任何数字或日期；并提醒点击卡片查看完整档案。禁止说未匹配/找不到/没有数据。'
+  return base
+}
+
+function enrichLaunchContextNoSpec(launchContext, kindLabel, queryText) {
+  const base = launchContext && typeof launchContext === 'object' ? { ...launchContext } : {}
+  const key = stripSpecAskNoise(queryText) || String(queryText || '').trim()
+  base.focusMission = null
+  base.focusHint = '用户在询问' + (kindLabel || '条目') + '「' + (key || '未知') +
+    '」，但资料库未匹配到。请如实说明没查到，建议换官方全称或英文名；不要编造参数、日期或运力数字。'
+  return base
+}
+
+/**
+ * 观礼点导航
+ * @param {object} launchContext
+ * @param {{ siteName: string, spots: Array, restricted: boolean, restrictedNote: string, matched: boolean }} info
+ */
+function enrichLaunchContextWithViewingSpots(launchContext, info) {
+  const base = launchContext && typeof launchContext === 'object' ? { ...launchContext } : {}
+  const siteName = (info && info.siteName) || '该发射场'
+  base.uiCardReady = true
+  base.focusMission = null
+  if (info && info.restricted) {
+    base.focusHint = '用户想去现场看「' + siteName + '」的发射，但该发射场周边没有公共观礼点。' +
+      '请如实说明：' + ((info.restrictedNote || '需通过官方渠道组织，个人不能自行抵达')) +
+      '。禁止推荐任何具体坐标或让用户自驾靠近发射场，也不要编造观礼台名称与票务信息。'
+    return base
+  }
+  const spots = Array.isArray(info && info.spots) ? info.spots : []
+  const facts = spots
+    .map((s) => s.name + '（' + [s.distanceText, s.costText, s.viewText].filter(Boolean).join('、') + '）')
+    .join('；')
+  base.viewingFacts = facts
+  base.focusHint = '用户在问去哪看「' + siteName + '」的发射，界面已展示 ' + spots.length +
+    ' 张观礼点卡片，点卡片即可调起地图导航。卡片上的真实点位：' + (facts || '（暂无）') +
+    '。只能用这些点位与距离作答，禁止编造其他观礼点、票价、开放时间或坐标；' +
+    '需提醒发射日常有交通管制与临时封控，出行前以官方公告为准。禁止说未匹配/找不到。' +
+    (info && info.matched ? '' : '用户没指定发射场，已按国内文昌给点位，可提示还能问卡纳维拉尔角、星舰基地、范登堡等。')
+  return base
+}
+
+/** 我的发射提醒（本地订阅） */
+function enrichLaunchContextWithMyLaunches(launchContext, card) {
+  const base = launchContext && typeof launchContext === 'object' ? { ...launchContext } : {}
+  const items = Array.isArray(card && card.items) ? card.items : []
+  base.uiCardReady = true
+  base.focusMission = null
+  base.focusHint = '用户在查看自己订阅的发射提醒，界面已展示他订阅的 ' + items.length +
+    ' 个任务卡片。请简要复述这些任务（只用卡片上的名称与时间），并说明可以点任一条看详情或取消提醒；禁止编造用户没订阅的任务。'
+  return base
+}
+
+function enrichLaunchContextNoMyLaunches(launchContext) {
+  const base = launchContext && typeof launchContext === 'object' ? { ...launchContext } : {}
+  base.focusMission = null
+  base.focusHint = '用户在查看自己订阅的发射提醒，但当前没有任何订阅记录。请如实说明还没有订阅，并告诉他在任务详情页点「提醒我」即可订阅；不要编造订阅列表。'
+  return base
+}
+
+/**
+ * 纯导航入口卡的通用上下文（年度回顾 / 天象 / 新闻 / 竞猜）
+ * @param {object} launchContext
+ * @param {{ label: string, action: string }} info
+ */
+function enrichLaunchContextWithSimpleEntry(launchContext, info) {
+  const base = launchContext && typeof launchContext === 'object' ? { ...launchContext } : {}
+  const label = (info && info.label) || '该功能'
+  const action = (info && info.action) || '查看详情'
+  base.uiCardReady = true
+  base.focusMission = null
+  base.focusHint = '用户想用「' + label + '」，界面已展示可点击的入口卡。请用一两句说明这个功能能看到什么，并提醒点击下方卡片' +
+    action + '。不要编造具体内容或数据，也不要说未匹配/找不到。'
   return base
 }
 
@@ -1335,8 +2156,37 @@ module.exports = {
   matchAgencyIntent,
   matchMissionLookupIntent,
   matchMissionReplayIntent,
+  matchRocketModelIntent,
+  matchLaunchSiteIntent,
+  matchSpacecraftIntent,
+  matchBoosterIntent,
+  matchMyLaunchesIntent,
+  matchYearReviewIntent,
+  matchLaunchVoteIntent,
+  matchApodIntent,
+  matchAstroCalendarIntent,
+  matchNewsIntent,
+  matchStarlinkPassIntent,
+  matchLiveWatchIntent,
+  matchStarlinkMapIntent,
+  matchViewingSpotIntent,
+  matchArtemisIntent,
+  matchStarshipHardwareIntent,
+  matchRecoveryStatsIntent,
   resolveAiChatRichIntent,
   stripReplayAskNoise,
+  stripSpecAskNoise,
+  extractRocketModelKey,
+  extractLaunchSiteKey,
+  extractSpacecraftKey,
+  extractBoosterSerial,
+  extractStarshipHardwareRef,
+  pickRocketConfig,
+  pickLaunchSite,
+  pickSpacecraftConfig,
+  pickStarshipHardware,
+  parseHardwareVehicleRef,
+  expandAliasKeys,
   hasMissionReplayAsk,
   scoreAllRichIntents,
   parseLaunchStatsFocus,
@@ -1355,6 +2205,8 @@ module.exports = {
   pickStation,
   scoreMissionAgainstQuery,
   pickBestMissionMatch,
+  missionLookupTimePreference,
+  resolveMissionDetailType,
   scoreAgencyAgainstQuery,
   pickBestAgencyMatch,
   resolveAgencyCanonicalSearchKey,
@@ -1380,5 +2232,11 @@ module.exports = {
   enrichLaunchContextWithAgency,
   enrichLaunchContextNoAgency,
   enrichLaunchContextWithMissionReplay,
-  enrichLaunchContextNoMissionReplay
+  enrichLaunchContextNoMissionReplay,
+  enrichLaunchContextWithSpec,
+  enrichLaunchContextNoSpec,
+  enrichLaunchContextWithViewingSpots,
+  enrichLaunchContextWithMyLaunches,
+  enrichLaunchContextNoMyLaunches,
+  enrichLaunchContextWithSimpleEntry
 }

@@ -75,8 +75,8 @@ function pickCurrentHardwareVehicle(vehicles, category) {
 }
 
 /**
- * 与 progress 页 normalizeStarshipStatusData 的 detail 部分保持一致；
- * hardwareImage：首页组合体卡片同源的 NSF 硬件 Active 图，优先于 starshipStatus 旧图
+ * detail 口径与 starshipStatus/current 后台字段保持一致；
+ * hardwareImage：与「星舰硬件设施」同源的 NSF 硬件 Active 图，优先于 starshipStatus 旧图
  */
 function buildDetail(item, type, hardwareVehicle) {
   const detail = (item && item.detail) || {}
@@ -86,7 +86,7 @@ function buildDetail(item, type, hardwareVehicle) {
     : buildVehicleLabel(item, type)
   const fallbackSubtitle = type === 'ship' ? 'STARSHIP' : 'SUPER HEAVY'
 
-  // 自动数据优先：硬件 Active 图（与首页 overlay 同源）> NSF status 图 > 后台 thumbnail
+  // 自动数据优先：硬件 Active 图 > NSF status 图 > 后台 thumbnail
   const images = []
   if (hardwareVehicle && hardwareVehicle.image) {
     images.push(hardwareVehicle.image)
@@ -182,7 +182,7 @@ Page({
   },
 
   onShareAppMessage() {
-    const title = (this.data.detail && this.data.detail.title) || '星舰组合体进展'
+    const title = (this.data.detail && this.data.detail.title) || (this.data.type === 'ship' ? '星舰飞船' : '超重型助推器')
     return {
       title: title + ' 进展详情 | 火星探索日志',
       path: '/subpackages/progress-extra/starship-detail?type=' + this.data.type

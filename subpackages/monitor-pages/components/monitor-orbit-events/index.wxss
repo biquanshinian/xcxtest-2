@@ -6,18 +6,10 @@
 
 /* ========== 即将进行的在轨任务（事件流，可点击跳详情） ========== */
 
-/* 未加载占位与 hero 同高，避免点开前后块高跳变。
-   注意：lazy-load-card 组件有样式隔离，min-height 必须挂在宿主节点的 class 上才可靠生效；
-   内部卡片撑满宿主的 flex:1 由页面样式（monitor.wxss，组件 apply-shared）下发 */
+/* 未加载占位：与监控页「发射通告地图」入口卡同高（由 lazy-load-card 内边距决定） */
 .orbit-lazy-host {
-  display: flex;
-  flex-direction: column;
-  /* 内部卡片 flex:1 撑满依赖页面样式跨组件下发；万一不可达，居中兜底保证观感 */
-  justify-content: center;
-  min-height: 360rpx;
+  display: block;
   box-sizing: border-box;
-  border-radius: 24rpx;
-  background: rgba(255, 255, 255, 0.04);
 }
 
 .orbit-card--clickable {

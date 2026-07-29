@@ -157,6 +157,8 @@ function mapLaunchToListItem(launch, index, offset, type) {
     launchTime: launch.net || launch.window_start,
     windowStart: launch.window_start,
     windowEnd: launch.window_end,
+    // NET 精度：Day/Month 等粗档位的 net 只是占位时刻，倒计时不能按秒展示（详情页同源字段）
+    netPrecision: (launch.net_precision && (launch.net_precision.name || launch.net_precision.abbrev)) || '',
     rocketImage: finalImage,
     rocketConfiguration,
     // 与角标同源（按 LL2 status.id），避免「成功 / 已成功 / 发射成功」混用

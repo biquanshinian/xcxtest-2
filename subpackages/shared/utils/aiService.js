@@ -97,7 +97,7 @@ const SYSTEM_PROMPT = `你是「空叉火星探索日志」微信小程序的内
 你可结合本轮系统注入的实时数据与界面下方卡片回答；你没有独立联网搜索能力，不要假装刚搜到新闻。
 
 【关于本小程序】
-全球火箭发射追踪与倒计时、任务详情、中国/全球发射日程与统计、发射商图鉴、星舰进展与封路、发射集锦回放、飞行剖面与任务指挥室、在轨飞行器追踪、空间站状态、星链过境与分布、航天事件、天文日历与 NASA 数据等。
+全球火箭发射追踪与倒计时、任务详情、中国/全球发射日程与统计、发射商图鉴、星舰进展与封路、发射集锦回放、飞行剖面与任务指挥室、在轨飞行器追踪、空间站状态、星链过境与分布、航天事件、天文日历与 NASA 数据、发射现场观礼点导航等。
 
 【星问能直接帮你做的事】
 用自然语言提问即可（不要向用户解释内部技术名）。常见能力：
@@ -106,13 +106,22 @@ const SYSTEM_PROMPT = `你是「空叉火星探索日志」微信小程序的内
 - 即将发射列表：可按国家（中国/美国等）、发射场（文昌等）、发射商（SpaceX 等）筛选；日程窗口约未来 60 天
 - 发射次数统计（今天/今年、中国或全球等）
 - 发射商介绍（SpaceX、中国航天科技集团等）
+- 火箭型号参数（如「猎鹰9多高」「长征五号运力多少」）、发射场资料（文昌、39A 工位等）、飞船资料（神舟、龙飞船乘员与尺寸）
+- 助推器战绩（按编号，如 B1067 飞了几次）、回收与复用总览（成功率、复用排行）
+- 星舰在建硬件（如 S38 在哪、B16 什么状态）、Artemis II 任务面板
+- 星链：过境预报（需授权位置）与星座实时分布（在轨颗数以页面为准，不要凭记忆报数）
+- 现场观礼导航（如「去哪看发射」「文昌观礼点」「看星舰发射去哪」）：出观礼点卡，点卡片调起地图导航
+- 我订阅的发射提醒、发射竞猜、我的航天年度回顾
+- NASA 每日天文图、天象日历（流星雨/日月食）、航天事件与新闻
 - 发射集锦回放、飞行剖面演示、星舰任务指挥室、在轨飞行器追踪、基地封路、空间站实时状态
 若本轮已展示可点击卡片：优先用一两句话引导用户点击下方卡片，再补充关键信息。
+参数类问题（尺寸/运力/推力/乘员/复用次数）只能用本轮注入的卡片数据作答，缺失字段直说暂无，绝不凭记忆报数字。
+观礼类问题只能用卡片上的点位、距离与费用作答，不得自行推荐其他观礼点、票价或坐标；要提示发射日常有交通管制与临时封控，出行前以官方公告为准。酒泉/西昌/太原等管控发射场没有公共观礼点，不得引导用户自行靠近。
 
 【小程序导航速查 - 问"在哪看/怎么用"时据此指路】
 - 首页：发射倒计时与列表；左上角搜索（文本/AI 识图）；点任务卡进详情
 - 监控中心：视频号/B站直播、星链过境（含观测地图/AR）、星链实时分布、空间站状态、可回收火箭族谱、在轨追踪入口
-- 星舰进度：组合体进展、事件更新、封路通知、发射场/Starbase 地图
+- 星舰进度：星舰硬件设施、事件更新、封路通知、发射场/Starbase 地图
 - 事件：即将发生与航天事件
 - 我的：签到、成就、竞猜、每日挑战、星际通行证（会员）
 - 右侧悬浮菜单(✦)：天文日历（含 NASA 每日天文图与当年天象）、NASA 数据、系外行星、月愿计划等
@@ -124,7 +133,7 @@ SpaceX（猎鹰9、星舰、星链、龙飞船）、中国航天（长征、神�
 【硬性规则】
 1. 有系统注入的任务/列表/统计/状态数据时，严格按数据回答；时间若为 UTC 请转为北京时间(UTC+8)。
 2. 若本轮标注「界面已展示卡片」或注入了聚焦任务/出卡说明：匹配已成功。禁止说「未匹配到」「找不到」「没有相关数据」「暂时没有」；必须引导点击下方卡片。上方短列表未出现某任务，不代表未匹配。
-3. 仅当未注入相关数据且未出卡时，才如实说数据暂无，并指路首页发射列表、对应详情页或上述导航；勿编造发射时间、次数、视频内容、轨道参数、封路时段。
+3. 仅当未注入相关数据且未出卡时，才如实说数据暂无，并指路首页发射列表、对应详情页或上述导航；勿编造发射时间、次数、视频内容、轨道参数、封路时段、火箭尺寸运力、飞船乘员数、助推器复用次数。
 4. 不要编造最新突发新闻；会员/广告次数规则不主动推销，被问到再简要说明。
 5. 指路时用上面的导航信息，表述通俗。
 
@@ -144,8 +153,6 @@ async function streamChat(messages, onChunk, launchContext) {
   if (!isAIAvailable()) {
     throw new Error('AI功能不可用')
   }
-
-  const model = wx.cloud.extend.AI.createModel('hunyuan-v3')
 
   let systemContent = SYSTEM_PROMPT
   if (launchContext && typeof launchContext === 'object') {
@@ -194,6 +201,8 @@ async function streamChat(messages, onChunk, launchContext) {
       const f = launchContext.focusMission
       systemContent += '\n── 用户当前聚焦的任务（优先据此回答）──'
       systemContent += `\n任务：${f.name || '未知'}`
+      if (f.detailType === 'completed') systemContent += '\n归属：已完成的历史发射（用过去时描述，不要说成即将发射）'
+      else if (f.detailType === 'upcoming') systemContent += '\n归属：尚未发射（用将来时描述）'
       if (f.rocketName) systemContent += `\n火箭：${f.rocketName}`
       if (f.launchTime) systemContent += `\n发射时间：${f.launchTime}`
       if (f.launchAgency) systemContent += `\n发射商：${f.launchAgency}`
@@ -207,50 +216,44 @@ async function streamChat(messages, onChunk, launchContext) {
     ...messages
   ]
 
-  try {
-    const res = await model.streamText({
-      data: {
-        model: 'hy3-preview',
-        messages: fullMessages,
-        temperature: 0.7,
-        max_tokens: 600
-      }
-    })
+  // 与 generateTextAdvanced / 云函数侧同一条 provider 兜底链
+  for (const entry of buildAiProviderChain('hy3-preview')) {
+    let model = null
+    try {
+      model = wx.cloud.extend.AI.createModel(entry.provider)
+    } catch (e) {
+      console.warn('[ai-chat] createModel 失败 (' + entry.provider + '):', (e && e.message) || e)
+    }
+    if (!model) continue
 
     let fullText = ''
-    for await (const chunk of res.textStream) {
-      fullText += chunk
-      if (typeof onChunk === 'function') onChunk(fullText)
-    }
-    return fullText
-  } catch (e) {
     try {
-      const modelOpen = wx.cloud.extend.AI.createModel('hunyuan-open')
-      const res = await modelOpen.streamText({
+      const res = await model.streamText({
         data: {
-          model: 'hunyuan-lite',
+          model: entry.model,
           messages: fullMessages,
           temperature: 0.7,
           max_tokens: 600
         }
       })
-
-      let fullText = ''
       for await (const chunk of res.textStream) {
         fullText += chunk
         if (typeof onChunk === 'function') onChunk(fullText)
       }
-      return fullText
-    } catch (e2) {
-      throw new Error('AI服务暂时不可用，请稍后再试')
+      if (fullText) return fullText
+    } catch (e) {
+      console.warn('[ai-chat] streamText 失败 (' + entry.provider + '/' + entry.model + '):', (e && e.message) || e)
+      // 已经吐字后再换一家会把界面上的回答清空重来，不如把已生成的内容交出去
+      if (fullText) return fullText
     }
   }
+  throw new Error('AI服务暂时不可用，请稍后再试')
 }
 
 
 const QUICK_QUESTIONS = [
   '星舰下一次试飞是什么时候？',
-  '最新进展如何？',
+  '星舰组合体最新进展如何？',
   '接下来有哪些发射？',
   '今天中国发射了多少次？',
   'SpaceX是什么公司？',
@@ -258,7 +261,20 @@ const QUICK_QUESTIONS = [
   '看看飞行剖面演示',
   '打开在轨飞行器追踪',
   '星舰基地封路了吗',
-  '看看空间站实时状态'
+  '看看空间站实时状态',
+  '在哪看发射直播？',
+  '猎鹰9号火箭多高？',
+  '文昌发射场在哪？',
+  '神舟飞船能坐几人？',
+  'B1067飞了几次？',
+  '我订阅了哪些发射？',
+  '今天的天文图片',
+  '最近有什么流星雨？',
+  '今晚能看到星链吗？',
+  '去哪看火箭发射？',
+  '猎鹰9回收成功率多少？',
+  'S38在哪？',
+  '阿尔忒弥斯任务进展'
 ]
 
 /** 输入栏上方横向快捷入口（对应富消息跳转卡意图，文案精简） */
@@ -266,99 +282,141 @@ const QUICK_SHORTCUTS = [
   { id: 'agency_casc', label: '中国航天', q: '中国航天科技集团' },
   { id: 'starship_next', label: '星舰试飞', q: '星舰下一次试飞是什么时候？' },
   { id: 'launch_list', label: '即将发射', q: '接下来有哪些发射？' },
+  { id: 'live_watch', label: '看直播', q: '在哪看发射直播？' },
   { id: 'launch_stats', label: '发射统计', q: '今天中国发射了多少次？' },
   { id: 'agency', label: 'SpaceX', q: 'SpaceX是什么公司？' },
-  { id: 'starship_status', label: '最新进展', q: '最新进展如何？' },
+  { id: 'starship_status', label: '星舰组合体', q: '星舰组合体最新进展如何？' },
   { id: 'mission_lookup', label: '查任务', q: '朱雀三号什么时候发射？' },
   { id: 'flight_demo', label: '飞行剖面', q: '看看飞行剖面演示' },
   { id: 'vehicle_tracker', label: '在轨追踪', q: '打开在轨飞行器追踪' },
   { id: 'road_closure', label: '基地封路', q: '星舰基地封路了吗' },
-  { id: 'station', label: '空间站', q: '看看空间站实时状态' }
+  { id: 'station', label: '空间站', q: '看看空间站实时状态' },
+  { id: 'rocket_model', label: '火箭参数', q: '猎鹰9号火箭多高？' },
+  { id: 'launch_site', label: '发射场', q: '文昌发射场在哪？' },
+  { id: 'spacecraft', label: '飞船', q: '神舟飞船能坐几人？' },
+  { id: 'booster', label: '助推器', q: 'B1067飞了几次？' },
+  { id: 'my_launches', label: '我的提醒', q: '我订阅了哪些发射？' },
+  { id: 'apod', label: '天文图', q: '今天的天文图片' },
+  { id: 'astro_calendar', label: '天象', q: '最近有什么流星雨？' },
+  { id: 'starlink_pass', label: '星链过境', q: '今晚能看到星链吗？' },
+  { id: 'starlink_map', label: '星链分布', q: '看看星链实时分布' },
+  { id: 'viewing_spot', label: '观礼导航', q: '去哪看火箭发射？' },
+  { id: 'recovery_stats', label: '回收统计', q: '猎鹰9回收成功率多少？' },
+  { id: 'starship_hardware', label: '星舰硬件', q: 'S38在哪？' },
+  { id: 'artemis', label: 'Artemis', q: '阿尔忒弥斯任务进展' }
 ]
 
-async function generateTextAdvanced(systemPrompt, userPrompt, options) {
-  if (!options) options = {}
-  var model = options.model || 'hy3-preview'
-  var temperature = options.temperature != null ? options.temperature : 0.7
-  var maxTokens = options.maxTokens || 1000
-  var timeout = options.timeout || 60000
-  var onProgress = options.onProgress || null
+/**
+ * provider 兜底链：cloudbase 是云开发 AI+ 的官方入口，hunyuan-v3 是成长计划旧入口
+ * （部分环境已不再解析），hunyuan-open + hunyuan-lite 保底。
+ * 与云函数侧 ll2Query/translate.js、syncSpaceXTweets 的顺序保持一致。
+ */
+function buildAiProviderChain(preferredModel) {
+  return [
+    { provider: 'cloudbase', model: preferredModel },
+    { provider: 'hunyuan-v3', model: preferredModel },
+    { provider: 'hunyuan-open', model: 'hunyuan-lite' }
+  ]
+}
 
-  if (!isAIAvailable()) throw new Error('AI功能不可用')
+const AI_TIMEOUT_MESSAGE = 'AI请求超时'
 
-  var aiModel = null
-  var useOpenProvider = false
-  try { aiModel = wx.cloud.extend.AI.createModel('hunyuan-v3') } catch (e) {}
-  if (!aiModel) try {
-    aiModel = wx.cloud.extend.AI.createModel('hunyuan-open')
-    useOpenProvider = true
-  } catch (e) {}
-  if (!aiModel) throw new Error('无法创建AI模型')
-
-  var apiModel = useOpenProvider ? 'hunyuan-lite' : model
-
+/** 单个 provider 的一次流式请求；超时会主动中断底层流 */
+function streamTextOnce(aiModel, apiModel, payload, timeout, onProgress) {
   var contentText = ''
   var reasoningText = ''
   var timeoutId
   var timedOut = false
   var streamRes = null
 
-  try {
-    var result = await Promise.race([
-      (async function () {
-        var res = await aiModel.streamText({
-          data: {
-            model: apiModel,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt }
-            ],
-            temperature: temperature,
-            max_tokens: maxTokens
-          }
-        })
-        streamRes = res
-
-        for await (var event of res.eventStream) {
-          // 超时后终止消费：否则 Promise.race 已 reject，流仍在后台拉数据耗流量
-          if (timedOut) break
-          if (event.data === '[DONE]') break
-          if (!event.data || typeof event.data !== 'string') continue
-          try {
-            var parsed = JSON.parse(event.data)
-            var delta = parsed.choices && parsed.choices[0] && parsed.choices[0].delta
-            if (!delta) continue
-            if (typeof delta.content === 'string' && delta.content) {
-              contentText += delta.content
-              if (onProgress && !timedOut) onProgress(contentText)
-            }
-            if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
-              reasoningText += delta.reasoning_content
-            }
-          } catch (e) {}
+  var race = Promise.race([
+    (async function () {
+      var res = await aiModel.streamText({
+        data: {
+          model: apiModel,
+          messages: payload.messages,
+          temperature: payload.temperature,
+          max_tokens: payload.maxTokens
         }
-
-        var finalText = contentText.trim() || reasoningText.trim()
-        if (!finalText) throw new Error('AI返回格式异常：未获取到有效文本')
-        return finalText
-      })(),
-      new Promise(function (_, reject) {
-        timeoutId = setTimeout(function () {
-          timedOut = true
-          // 尝试主动中断底层流（SDK 支持时）
-          try {
-            if (streamRes && typeof streamRes.abort === 'function') streamRes.abort()
-          } catch (e) {}
-          reject(new Error('AI请求超时'))
-        }, timeout)
       })
-    ])
-    clearTimeout(timeoutId)
-    return result
-  } catch (error) {
-    clearTimeout(timeoutId)
-    throw error
+      streamRes = res
+
+      for await (var event of res.eventStream) {
+        // 超时后终止消费：否则 Promise.race 已 reject，流仍在后台拉数据耗流量
+        if (timedOut) break
+        if (event.data === '[DONE]') break
+        if (!event.data || typeof event.data !== 'string') continue
+        try {
+          var parsed = JSON.parse(event.data)
+          var delta = parsed.choices && parsed.choices[0] && parsed.choices[0].delta
+          if (!delta) continue
+          if (typeof delta.content === 'string' && delta.content) {
+            contentText += delta.content
+            if (onProgress && !timedOut) onProgress(contentText)
+          }
+          if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
+            reasoningText += delta.reasoning_content
+          }
+        } catch (e) {}
+      }
+
+      var finalText = contentText.trim() || reasoningText.trim()
+      if (!finalText) throw new Error('AI返回格式异常：未获取到有效文本')
+      return finalText
+    })(),
+    new Promise(function (_, reject) {
+      timeoutId = setTimeout(function () {
+        timedOut = true
+        try {
+          if (streamRes && typeof streamRes.abort === 'function') streamRes.abort()
+        } catch (e) {}
+        reject(new Error(AI_TIMEOUT_MESSAGE))
+      }, timeout)
+    })
+  ])
+
+  return race.then(
+    function (text) { clearTimeout(timeoutId); return text },
+    function (error) { clearTimeout(timeoutId); throw error }
+  )
+}
+
+async function generateTextAdvanced(systemPrompt, userPrompt, options) {
+  if (!options) options = {}
+  var preferredModel = options.model || 'hy3-preview'
+  var timeout = options.timeout || 60000
+  var onProgress = options.onProgress || null
+  var payload = {
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ],
+    temperature: options.temperature != null ? options.temperature : 0.7,
+    maxTokens: options.maxTokens || 1000
   }
+
+  if (!isAIAvailable()) throw new Error('AI功能不可用')
+
+  var chain = buildAiProviderChain(preferredModel)
+  var lastError = null
+  for (var i = 0; i < chain.length; i++) {
+    var entry = chain[i]
+    var aiModel = null
+    try {
+      aiModel = wx.cloud.extend.AI.createModel(entry.provider)
+    } catch (e) {
+      lastError = e
+    }
+    if (!aiModel) continue
+    try {
+      return await streamTextOnce(aiModel, entry.model, payload, timeout, onProgress)
+    } catch (error) {
+      lastError = error
+      // 超时说明这次请求本身慢，不是这家 provider 不可用；再换一家只会把等待翻倍
+      if (error && error.message === AI_TIMEOUT_MESSAGE) throw error
+    }
+  }
+  throw lastError || new Error('无法创建AI模型')
 }
 
 async function answerQuestion(question, contextData) {

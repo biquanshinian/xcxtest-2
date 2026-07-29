@@ -2,6 +2,7 @@
 <!--pages/index/index.wxml-->
 <page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
 <wxs module="mswipe" src="./mission-swipe.wxs" />
+<wxs module="cdfmt" src="./countdown-format.wxs" />
 
 <!-- 任务卡片内容（列表 / 日历横向滑动卡片共用） -->
 <template name="missionCardInner">
@@ -122,7 +123,8 @@
         <view wx:else class="compact-cd-rocket-inner compact-cd-rocket-placeholder"></view>
       </view>
       <text class="compact-cd-name">{{launchData.missionName || ''}}</text>
-      <text class="compact-cd-time" wx:if="{{launchData.launchTime}}">{{countdown.days}}天{{countdown.hours}}:{{countdown.minutes}}:{{countdown.seconds}}</text>
+      <text class="compact-cd-time" wx:if="{{launchData.launchTime && !countdownTimeUnknown}}">{{cdfmt.compactClock(countdown.days, countdown.hours, countdown.minutes, countdown.seconds)}}</text>
+      <text class="compact-cd-time" wx:elif="{{countdownTimeUnknown}}">时间待定</text>
       <text class="compact-cd-time" wx:else></text>
     </view>
     <view class="top-nav">
@@ -252,17 +254,21 @@
                 </view>
               </view>
 
-              <view class="countdown-display countdown-display--tech">
+              <!-- NET 缺失/待定：不展示会误导的精确时钟，也不残留上一条任务的数字 -->
+              <view class="countdown-display countdown-display--tbd" wx:if="{{countdownTimeUnknown}}">
+                <text class="countdown-tbd-text">{{countdownTimeUnknownText || '发射时间待定'}}</text>
+              </view>
+              <view class="countdown-display countdown-display--tech" wx:else>
                 <view class="countdown-item countdown-item--tech">
                   <text class="countdown-value">{{countdown.days}}</text>
                   <text class="countdown-label countdown-label--tech">天</text>
                 </view>
                 <view class="countdown-item countdown-item--tech">
-                  <text class="countdown-value">{{countdown.hours}}</text>
+                  <text class="countdown-value">{{cdfmt.pad2(countdown.hours)}}</text>
                   <text class="countdown-label countdown-label--tech">时</text>
                 </view>
                 <view class="countdown-item countdown-item--tech">
-                  <text class="countdown-value">{{countdown.minutes}}</text>
+                  <text class="countdown-value">{{cdfmt.pad2(countdown.minutes)}}</text>
                   <text class="countdown-label countdown-label--tech">分</text>
                 </view>
                 <view class="countdown-item countdown-item--tech countdown-item--seconds">
@@ -360,7 +366,8 @@
           <view class="countdown-action-row" catchtap="">
             <!-- 左：竞猜（准时 / 成败同槽切换） -->
             <!-- VOTE_ANTIMIS_V1:START 槽内防误触：人数上移题型行、去 compact、加大胶囊间距；回滚删本标记块并恢复旧 vote-box 即可 -->
-            <view class="vote-box vote-box--antimiss {{voteOntimeEnabled && voteOutcomeEnabled ? 'vote-box--dual' : ''}}" wx:if="{{!countdown.isExpired && voteSlotVisible}}">
+            <!-- 发射时间待定时不问「会准时吗」：没有基准时刻，题目本身无意义 -->
+            <view class="vote-box vote-box--antimiss {{voteOntimeEnabled && voteOutcomeEnabled ? 'vote-box--dual' : ''}}" wx:if="{{!countdown.isExpired && !countdownTimeUnknown && voteSlotVisible}}">
               <view class="vote-type-row" wx:if="{{voteOntimeEnabled && voteOutcomeEnabled}}" catchtap="">
                 <view class="vote-type-tabs">
                   <text class="vote-type-tab {{activeVoteType === 'ontime' ? 'vote-type-tab--active' : ''}}" catchtap="onVoteTypeSwitch" data-type="ontime">准时</text>
@@ -442,7 +449,7 @@
       <view class="countdown-side-body">
         <view class="countdown-side-top">
           <text class="countdown-side-label">{{overlapSideCard.label}}</text>
-          <text class="countdown-side-status">{{overlapSideCard.statusTextZh || (overlapSideCard.isExpired ? '确认中' : '就绪')}}</text>
+          <text class="countdown-side-status">{{overlapSideCard.statusTextZh || (overlapSideCard.isExpired ? '状态确认中' : '计划中')}}</text>
         </view>
         <view class="countdown-side-main">
           <view class="countdown-side-text">

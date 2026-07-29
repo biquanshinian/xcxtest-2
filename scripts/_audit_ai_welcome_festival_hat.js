@@ -11,6 +11,7 @@ const wxml = fs.readFileSync(path.join(root, 'subpackages/shared/components/ai-c
 const wxss = fs.readFileSync(path.join(root, 'subpackages/shared/components/ai-chat/index.wxss'), 'utf8')
 const js = fs.readFileSync(path.join(root, 'subpackages/shared/components/ai-chat/index.js'), 'utf8')
 const hatCompWxml = fs.readFileSync(path.join(root, 'components/festival-hat/index.wxml'), 'utf8')
+const hatCompWxss = fs.readFileSync(path.join(root, 'components/festival-hat/index.wxss'), 'utf8')
 const hatCompJs = fs.readFileSync(path.join(root, 'components/festival-hat/index.js'), 'utf8')
 const indexWxml = fs.readFileSync(path.join(root, 'pages/index/index.wxml'), 'utf8')
 const indexJs = fs.readFileSync(path.join(root, 'pages/index/index.js'), 'utf8')
@@ -25,14 +26,17 @@ function day(y, m, d) { return new Date(y, m - 1, d) }
 
 console.log('\n======== 1. 清单与残留 ========')
 const ids = hatUtil.FESTIVAL_HATS.map((h) => h.id)
-const expectIds = ['spring', 'duanwu', 'zhongqiu', 'guoqing', 'laodong', 'christmas']
+const expectIds = ['yuandan', 'spring', 'duanwu', 'zhongqiu', 'guoqing', 'laodong', 'christmas']
 if (ids.join(',') === expectIds.join(',')) ok('FESTIVAL_HATS = ' + ids.join(','))
 else bad('FESTIVAL_HATS 不符: ' + ids.join(','))
 
 const utilSrc = fs.readFileSync(path.join(root, 'utils/festival-hat.js'), 'utf8')
-if (!/qingming|清明|hat-qing/.test(wxml + wxss + js + utilSrc + hatCompWxml + indexWxml)) {
-  ok('无清明节残留')
-} else bad('仍有清明节相关代码')
+// 清明是故意不收的（祭扫日不戴喜庆帽），这里只拦「实现」——id/类名/带引号的名字，
+// 注释里说明为什么不收不算残留
+const QINGMING_IMPL = /qingming|hat-qing|['"]清明['"]/i
+if (!QINGMING_IMPL.test(wxml + wxss + js + utilSrc + hatCompWxml + hatCompWxss + indexWxml)) {
+  ok('无清明节帽实现（按设计排除）')
+} else bad('出现清明节帽实现（祭扫日不应戴喜庆帽）')
 
 if (/MATCH_ORDER\s*=\s*\[/.test(utilSrc) && !/MATCH_ORDER,/.test(utilSrc.split('module.exports')[1] || '')) {
   ok('MATCH_ORDER 为模块内部常量且未导出')
@@ -48,6 +52,19 @@ if (wxml.includes('<festival-hat') && wxml.includes('size="{{112}}"')) {
 if (indexWxml.includes('<festival-hat') && indexWxml.includes('size="{{132}}"') && indexWxml.includes('countdown-rocket')) {
   ok('倒计时圆图使用 festival-hat size=132')
 } else bad('倒计时未挂 festival-hat')
+
+// 欢迎区一问话就没了，帽要跟到每条回复的头像圆上，节日氛围才留得住
+if (/<festival-hat[^>]*size="\{\{48\}\}"/.test(wxml)) {
+  ok('回复头像圆使用 festival-hat size=48')
+} else bad('回复头像圆未挂 festival-hat')
+
+if (/<festival-hat wx:if="\{\{festivalHat\}\}"/.test(wxml)) {
+  ok('非节日不创建帽组件实例（长会话每条回复一个）')
+} else bad('帽组件缺 festivalHat 门控')
+
+if (/\.ai-bot-avatar\s*\{[^}]*position:\s*relative/.test(wxss)) {
+  ok('头像圆是帽的定位锚点')
+} else bad('.ai-bot-avatar 缺 position: relative，帽会飘到其他祖先上')
 
 if (indexJson.includes('festival-hat') && fs.readFileSync(path.join(root, 'subpackages/shared/components/ai-chat/index.json'), 'utf8').includes('festival-hat')) {
   ok('index / ai-chat 均注册 festival-hat')
@@ -70,6 +87,7 @@ ids.forEach((id) => {
   else bad('组件缺分支 ' + id)
 })
 const styleMarks = {
+  yuandan: 'hat-yd-crown',
   spring: 'hat-spring-shell',
   duanwu: 'hat-duan-band',
   zhongqiu: 'hat-moon-ear',
@@ -77,7 +95,6 @@ const styleMarks = {
   laodong: 'hat-ld-shell',
   christmas: 'hat-xmas-shell'
 }
-const hatCompWxss = fs.readFileSync(path.join(root, 'components/festival-hat/index.wxss'), 'utf8')
 ids.forEach((id) => {
   if (hatCompWxss.includes(styleMarks[id])) ok('组件样式 ' + id)
   else bad('组件缺样式 ' + id)
@@ -109,6 +126,18 @@ else bad('开发预览条缺失')
 
 console.log('\n======== 5. 法定假日窗口（抽样） ========')
 const cases = [
+  // 元旦（三年三种形态：跨年连休 / 逢周三只放当日 / 周四起 3 天）
+  [2023, 12, 29, ''],
+  [2023, 12, 30, 'yuandan'], // 2024 元旦与周末连休，窗口跨到上一年
+  [2024, 1, 1, 'yuandan'],
+  [2024, 1, 2, ''],
+  [2024, 12, 31, ''], // 2025 元旦不调休，跨年夜不戴
+  [2025, 1, 1, 'yuandan'],
+  [2025, 1, 2, ''],
+  [2025, 12, 31, ''],
+  [2026, 1, 1, 'yuandan'],
+  [2026, 1, 3, 'yuandan'],
+  [2026, 1, 4, ''],
   // 2026 国办发明电〔2025〕7号
   [2026, 2, 14, ''],
   [2026, 2, 15, 'spring'],
@@ -184,6 +213,12 @@ if (hatUtil.HOLIDAY_TABLE_THROUGH_YEAR !== 2030) {
 
 // 预估抽样：春节除夕起、国庆周、2028 中秋落入国庆合并
 const estCases = [
+  [2027, 1, 1, 'yuandan'], // 逢周五：1/1–1/3
+  [2027, 1, 3, 'yuandan'],
+  [2027, 1, 4, ''],
+  [2028, 12, 30, 'yuandan'], // 2029 元旦逢周一：窗口回退到上一年 12/30
+  [2029, 1, 1, 'yuandan'],
+  [2029, 1, 2, ''],
   [2027, 2, 5, 'spring'], // 除夕
   [2027, 2, 12, 'spring'],
   [2027, 2, 13, ''],

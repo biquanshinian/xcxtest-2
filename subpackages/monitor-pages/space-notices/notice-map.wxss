@@ -1,0 +1,480 @@
+/* SPACE_NOTICES_FEATURE
+ * 配色一律走 tokens.wxss 变量，浅色主题由根 view 的 theme-light 自动反色；
+ * 只有玻璃底/地图叠加物需要显式浅色覆盖。
+ */
+page {
+  background: var(--color-bg);
+}
+
+.map-page.sn-map-page {
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+}
+
+.sn-map {
+  width: 100%;
+  height: 100%;
+}
+
+.glass-card {
+  background: rgba(18, 18, 20, 0.86);
+  border: 1rpx solid var(--color-border-glass);
+  border-radius: var(--radius-card);
+  backdrop-filter: blur(24rpx) saturate(160%);
+  box-shadow: 0 14rpx 44rpx rgba(0, 0, 0, 0.42);
+}
+.theme-light .glass-card {
+  background: rgba(255, 255, 255, 0.93);
+  border-color: var(--color-divider);
+  box-shadow: 0 12rpx 36rpx rgba(0, 0, 0, 0.12);
+}
+
+/* ---------- 通用按钮：一律 flex 居中，text 撑满并居中 ---------- */
+.sn-btn {
+  min-height: 72rpx;
+  padding: 0 28rpx;
+  border-radius: var(--radius-pill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+.sn-btn text {
+  display: block;
+  width: 100%;
+  text-align: center;
+  line-height: 1;
+  font-size: var(--font-size-base);
+}
+.sn-btn--primary {
+  background: var(--color-brand);
+}
+.sn-btn--primary text {
+  color: #ffffff;
+  font-weight: var(--font-weight-semibold);
+}
+.sn-btn--ghost {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1rpx solid var(--color-divider-strong);
+}
+.sn-btn--ghost text {
+  color: var(--color-text-primary);
+}
+.theme-light .sn-btn--ghost {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+/* ---------- 加载 / 错误卡 ---------- */
+.sn-state {
+  position: absolute;
+  left: 24rpx;
+  right: 24rpx;
+  top: 220rpx;
+  z-index: 12;
+  padding: 28rpx;
+  box-sizing: border-box;
+}
+.sn-state-title {
+  display: block;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+.sn-state-desc {
+  display: block;
+  margin-top: 10rpx;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-secondary);
+  word-break: break-word;
+}
+.sn-state-btn {
+  margin-top: 24rpx;
+  width: 200rpx;
+}
+
+/* ---------- 底部面板（复用 app.wxss 的 .map-page .panel 定位/浅色覆盖） ----------
+ * bottom 需带 .map-page 前缀，否则输给 app.wxss 的 .map-page .panel（0,2,0）而丢掉安全区 */
+.map-page .sn-panel {
+  bottom: calc(24rpx + env(safe-area-inset-bottom));
+  max-height: 62vh;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.sn-head-main {
+  flex: 1;
+  min-width: 0;
+}
+.sn-panel .panel-subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 视野分段控件 ---------- */
+.sn-seg {
+  display: flex;
+  margin-top: 20rpx;
+  padding: 4rpx;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.07);
+}
+.theme-light .sn-seg {
+  background: rgba(0, 0, 0, 0.05);
+}
+.sn-seg-item {
+  flex: 1;
+  min-width: 0;
+  min-height: 60rpx;
+  border-radius: var(--radius-pill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+.sn-seg-item text {
+  display: block;
+  width: 100%;
+  text-align: center;
+  line-height: 1;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+.sn-seg-item--on {
+  background: var(--color-brand);
+}
+.sn-seg-item--on text {
+  color: #ffffff;
+  font-weight: var(--font-weight-semibold);
+}
+
+/* ---------- 图层 chips（自带图例色点） ---------- */
+.sn-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 16rpx;
+}
+.sn-chip {
+  min-height: 56rpx;
+  padding: 0 20rpx;
+  border-radius: var(--radius-pill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1rpx solid var(--color-divider);
+  background: rgba(255, 255, 255, 0.05);
+  box-sizing: border-box;
+}
+.theme-light .sn-chip {
+  background: rgba(0, 0, 0, 0.035);
+}
+.sn-chip text {
+  display: block;
+  line-height: 1;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+.sn-chip-dot {
+  width: 14rpx;
+  height: 14rpx;
+  margin-right: 10rpx;
+  border-radius: var(--radius-circle);
+  opacity: 0.32;
+  flex-shrink: 0;
+}
+.sn-chip-dot--notam { background: #FF3B30; }
+.sn-chip-dot--nav { background: #0A84FF; }
+.sn-chip-dot--adp { background: #ffcc00; }
+.sn-chip-dot--pad { background: #FF3B30; }
+.sn-chip--on {
+  background: var(--color-brand-soft);
+  border-color: rgba(0, 122, 255, 0.5);
+}
+.sn-chip--on text {
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+.sn-chip--on .sn-chip-dot {
+  opacity: 1;
+}
+.sn-chip--ghost text {
+  color: var(--color-text-secondary);
+}
+
+.sn-note {
+  display: block;
+  margin-top: 16rpx;
+  font-size: var(--font-size-2xs);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-quaternary);
+}
+
+/* ---------- 通告列表 ---------- */
+.sn-list {
+  max-height: 30vh;
+  margin-top: 6rpx;
+}
+.sn-item {
+  display: flex;
+  align-items: stretch;
+  padding: 16rpx 14rpx;
+  border-radius: var(--radius-md);
+  border-top: 1rpx solid var(--color-divider-faint);
+}
+.sn-item--on {
+  background: var(--color-brand-soft);
+  border-top-color: transparent;
+}
+.sn-item--muted {
+  opacity: 0.45;
+}
+.sn-item-bar {
+  width: 6rpx;
+  margin: 2rpx 14rpx 2rpx 0;
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+}
+.sn-item-bar--notam { background: #FF3B30; }
+.sn-item-bar--nav { background: #0A84FF; }
+.sn-item-bar--adp { background: #ffcc00; }
+.sn-item-body {
+  flex: 1;
+  min-width: 0;
+}
+.sn-item-top {
+  display: flex;
+  align-items: center;
+}
+.sn-item-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sn-item-meta {
+  display: block;
+  margin-top: 6rpx;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+.sn-item-reason {
+  display: block;
+  margin-top: 4rpx;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sn-item-arrow {
+  width: 14rpx;
+  height: 14rpx;
+  margin-left: 12rpx;
+  align-self: center;
+  flex-shrink: 0;
+  border-top: 3rpx solid var(--color-text-quaternary);
+  border-right: 3rpx solid var(--color-text-quaternary);
+  transform: rotate(45deg);
+  box-sizing: border-box;
+}
+.sn-empty {
+  padding: 28rpx 0;
+}
+.sn-empty text {
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-tertiary);
+}
+
+/* ---------- 状态标签 ---------- */
+.sn-tag {
+  flex-shrink: 0;
+  min-height: 34rpx;
+  margin-left: 12rpx;
+  padding: 0 14rpx;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+.sn-tag text {
+  display: block;
+  line-height: 1;
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-secondary);
+}
+.theme-light .sn-tag {
+  background: rgba(0, 0, 0, 0.05);
+}
+.sn-tag--live {
+  background: rgba(52, 199, 89, 0.18);
+}
+.sn-tag--live text {
+  color: #34C759;
+}
+.theme-light .sn-tag--live text {
+  color: #248A3D;
+}
+.sn-tag--soon {
+  background: rgba(10, 132, 255, 0.18);
+}
+.sn-tag--soon text {
+  color: #0A84FF;
+}
+.sn-tag--off text {
+  color: var(--color-text-tertiary);
+}
+.sn-tag--plain text {
+  color: var(--color-text-secondary);
+}
+
+/* ---------- 通告详情弹层 ---------- */
+.sn-mask {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  background: rgba(0, 0, 0, 0.45);
+}
+.theme-light .sn-mask {
+  background: rgba(0, 0, 0, 0.26);
+}
+
+.sn-sheet {
+  position: absolute;
+  left: 20rpx;
+  right: 20rpx;
+  bottom: calc(20rpx + env(safe-area-inset-bottom));
+  z-index: 31;
+  max-height: 74vh;
+  padding: 12rpx 24rpx 24rpx;
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+.sn-sheet-grip {
+  width: 64rpx;
+  height: 8rpx;
+  margin: 4rpx auto 16rpx;
+  border-radius: var(--radius-pill);
+  background: var(--color-divider-strong);
+}
+.sn-sheet-head {
+  display: flex;
+  align-items: flex-start;
+}
+.sn-sheet-title-wrap {
+  flex: 1;
+  min-width: 0;
+}
+.sn-sheet-title {
+  display: block;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  color: var(--color-text-primary);
+}
+.sn-sheet-sub {
+  display: block;
+  margin-top: 8rpx;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+.sn-sheet-close {
+  flex-shrink: 0;
+  min-width: 100rpx;
+  min-height: 56rpx;
+  margin-left: 16rpx;
+  padding: 0 18rpx;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+.sn-sheet-close text {
+  display: block;
+  width: 100%;
+  text-align: center;
+  line-height: 1;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+.theme-light .sn-sheet-close {
+  background: rgba(0, 0, 0, 0.05);
+}
+.sn-sheet-tags {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 18rpx;
+}
+.sn-sheet-tags .sn-tag {
+  margin: 0 12rpx 10rpx 0;
+}
+.sn-sheet-scroll {
+  flex: 1;
+  max-height: 44vh;
+}
+.sn-sheet-block {
+  margin-top: 20rpx;
+}
+.sn-sheet-label {
+  display: block;
+  margin-bottom: 10rpx;
+  font-size: var(--font-size-2xs);
+  letter-spacing: 1rpx;
+  color: var(--color-text-quaternary);
+}
+.sn-sheet-text {
+  display: block;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-secondary);
+  word-break: break-word;
+}
+.sn-win {
+  margin-bottom: 8rpx;
+  padding: 12rpx 16rpx;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.05);
+}
+.theme-light .sn-win {
+  background: rgba(0, 0, 0, 0.04);
+}
+.sn-win text {
+  font-size: var(--font-size-sm);
+  line-height: 1;
+  color: var(--color-text-primary);
+}
+.sn-sheet-raw {
+  display: block;
+  font-family: 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 20rpx;
+  line-height: 1.55;
+  color: var(--color-text-secondary);
+  word-break: break-all;
+}
+.sn-sheet-actions {
+  display: flex;
+  margin-top: 22rpx;
+}
+.sn-sheet-actions .sn-btn {
+  flex: 1;
+}
+.sn-sheet-actions .sn-btn--ghost {
+  margin-right: 16rpx;
+}

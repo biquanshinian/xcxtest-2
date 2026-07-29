@@ -1,3 +1,6 @@
+// 与 getCountdown / 窗口状态机共用同一个「现在」，避免显示与判定用两套时钟
+const { getServerNow } = require('./server-clock.js')
+
 let _imageHelpers = null
 function getImageHelpers() {
   if (!_imageHelpers) {
@@ -51,6 +54,7 @@ function buildLaunchDataFromMission(mission, getStatusTextZh) {
     launchTime: source.launchTime,
     windowStart: source.windowStart,
     windowEnd: source.windowEnd,
+    netPrecision: source.netPrecision || '',
     missionName: source.missionName || '未知任务',
     rocketName: source.rocketName || '未知火箭',
     payloadName: source.missionName || '未知载荷',
@@ -195,7 +199,7 @@ function buildCurrentLaunchPanelState(options = {}) {
   })
 }
 
-function getNextUpcomingLaunch(missions, currentId, now = Date.now()) {
+function getNextUpcomingLaunch(missions, currentId, now = getServerNow()) {
   const safeList = Array.isArray(missions) ? missions : []
   return safeList.find((mission) => {
     if (!mission || !mission.launchTime) return false
@@ -229,12 +233,15 @@ function buildOverlapSideCardView(mission, options = {}) {
     name: mission.statusBadgeText || mission.statusTextZh || mission.status || '',
     abbrev: mission.statusAbbrev || ''
   }
-  const statusTextZh =
+  const rawStatusTextZh =
     mission.statusBadgeText ||
     mission.statusTextZh ||
     (typeof getStatusTextZh === 'function' ? getStatusTextZh(statusObj) : '') ||
     mission.status ||
     ''
+  // 过点后列表行常残留「就绪」，与副卡倒计时位的「确认中」自相矛盾。
+  // 与主卡 withCountdownConfirmingStatus 同口径：NET 已过一律「状态确认中」
+  const statusTextZh = countdown.isExpired ? '状态确认中' : rawStatusTextZh
   return {
     id: mission.id,
     missionName: mission.missionName || mission.name || '',
@@ -242,7 +249,7 @@ function buildOverlapSideCardView(mission, options = {}) {
     rocketImage: mission.rocketImage || mission.image || '',
     launchAgency: mission.launchAgency || '',
     statusTextZh,
-    statusCategory: mission.statusCategory || 'pending',
+    statusCategory: countdown.isExpired ? 'pending' : (mission.statusCategory || 'pending'),
     countdownText: formatOverlapSideCountdownText(countdown),
     isExpired: !!countdown.isExpired,
     label: '相邻发射窗口'
@@ -290,7 +297,7 @@ function isUnresolvedForCountdownHold(mission, record) {
  * @param {number} [now]
  * @param {object|null} [record] _launchRecordsById 权威观测（优先于列表行字段）
  */
-function shouldHoldPastNetCountdownMission(mission, now = Date.now(), record = null) {
+function shouldHoldPastNetCountdownMission(mission, now = getServerNow(), record = null) {
   return windowMachine.isPanelHoldActive(mission, record, now)
 }
 
@@ -303,7 +310,7 @@ function shouldHoldPastNetCountdownMission(mission, now = Date.now(), record = n
  * @param {number} [now]
  * @param {{ holdMissionId?: string|number, recordsById?: Map }} [options]
  */
-function pickCountdownDisplayMission(missions, now = Date.now(), options = {}) {
+function pickCountdownDisplayMission(missions, now = getServerNow(), options = {}) {
   return windowMachine.resolvePanelMission(missions, {
     now,
     holdMissionId: options.holdMissionId,
@@ -312,7 +319,7 @@ function pickCountdownDisplayMission(missions, now = Date.now(), options = {}) {
 }
 
 /** 列表头部已过 NET、尚未终态的任务（upcoming 升序，遇到未来 NET 即停） */
-function collectPastNetUpcomingHeads(missions, now = Date.now(), limit = 3) {
+function collectPastNetUpcomingHeads(missions, now = getServerNow(), limit = 3) {
   const safeList = Array.isArray(missions) ? missions : []
   const max = Math.max(0, Number(limit) || 0)
   const out = []
@@ -339,7 +346,7 @@ function withCountdownConfirmingStatus(mission) {
   }
 }
 
-function isPastNetMission(mission, now = Date.now()) {
+function isPastNetMission(mission, now = getServerNow()) {
   if (!mission || !mission.launchTime) return false
   const t = new Date(mission.launchTime).getTime()
   return Number.isFinite(t) && t <= now
@@ -373,13 +380,38 @@ function buildLaunchSwitchEffects(mission, options = {}) {
   }
 }
 
-function shouldRefreshExpiredLaunch(launchData, now = Date.now()) {
+function shouldRefreshExpiredLaunch(launchData, now = getServerNow()) {
   const launchTime = launchData && launchData.launchTime ? new Date(launchData.launchTime).getTime() : NaN
   return Number.isFinite(launchTime) && launchTime <= now
 }
 
 function shouldAutoSwitchCountdown(countdown, isSwitchingCountdown) {
   return !!(countdown && countdown.isExpired && !isSwitchingCountdown)
+}
+
+/**
+ * LL2 net_precision 中可支撑时钟倒计时的档位。
+ * Hour 也算：误差最多 1 小时，「还有 3 天 5 时」这个量级的秒位抖动无伤大雅，
+ * 且 LL2 上大量正常任务就是 Hour。Day 及更粗的 net 是占位时刻（常见 T12:00:00Z），
+ * 按秒倒数等于编造精度。
+ */
+const CLOCK_CAPABLE_NET_PRECISIONS = ['second', 'minute', 'hour']
+
+/**
+ * 面板倒计时能否按时钟展示。
+ * 字段缺失时按「可以」处理——老列表缓存没有 netPrecision，不能因此把正常任务降级。
+ * @param {object} mission 含 netPrecision 的任务行
+ * @returns {{ clockCapable: boolean, precision: string }}
+ */
+function resolveCountdownPrecision(mission) {
+  const raw = String((mission && (mission.netPrecision || mission.net_precision)) || '')
+    .trim()
+    .toLowerCase()
+  if (!raw) return { clockCapable: true, precision: '' }
+  return {
+    clockCapable: CLOCK_CAPABLE_NET_PRECISIONS.indexOf(raw) >= 0,
+    precision: raw
+  }
 }
 
 function buildCountdownTickState(options = {}) {
@@ -396,33 +428,69 @@ function buildCountdownTickState(options = {}) {
   const reel = Array.isArray(nextSecondsReel) ? nextSecondsReel : []
   const didSecondsChange = nextSecondsText !== currentSecondsText
 
+  // 每秒 tick 只下发发生变化的字段（dotted path 增量更新），
+  // 避免整个 countdown 对象每秒重复 setData 触发全量 diff/渲染
+  const changedNonSeconds = {}
+  if (prev.minutes !== safeCountdown.minutes) changedNonSeconds['countdown.minutes'] = safeCountdown.minutes
+  if (prev.hours !== safeCountdown.hours) changedNonSeconds['countdown.hours'] = safeCountdown.hours
+  if (prev.days !== safeCountdown.days) changedNonSeconds['countdown.days'] = safeCountdown.days
+  if (!!prev.isExpired !== !!safeCountdown.isExpired) {
+    changedNonSeconds['countdown.isExpired'] = !!safeCountdown.isExpired
+  }
+
   if (!didSecondsChange) {
+    // 秒位没变但天/时/分变了：切换任务时新旧任务秒位撞上（1/60）就会走到这里，
+    // 若一并跳过就会把上一条任务的时/分留在面板上
+    const hasOther = Object.keys(changedNonSeconds).length > 0
     return {
       didSecondsChange: false,
       shouldAutoSwitch: !!safeCountdown.isExpired,
-      immediateState: null,
+      immediateState: hasOther ? changedNonSeconds : null,
       settleState: null
     }
   }
 
-  // 每秒 tick 只下发发生变化的字段（dotted path 增量更新），
-  // 避免整个 countdown 对象每秒重复 setData 触发全量 diff/渲染
   const immediateState = {
     'countdown.seconds': safeCountdown.seconds,
-    countdownSecondsPrev: currentSecondsText,
-    countdownSecondsCurrent: nextSecondsText,
-    countdownSecondsReel: [currentSecondsText, nextSecondsText, reel[2] || nextSecondsText],
-    countdownSecondsRolling: true
+    ...changedNonSeconds
   }
-  if (prev.minutes !== safeCountdown.minutes) immediateState['countdown.minutes'] = safeCountdown.minutes
-  if (prev.hours !== safeCountdown.hours) immediateState['countdown.hours'] = safeCountdown.hours
-  if (prev.days !== safeCountdown.days) immediateState['countdown.days'] = safeCountdown.days
-  if (!!prev.isExpired !== !!safeCountdown.isExpired) immediateState['countdown.isExpired'] = !!safeCountdown.isExpired
+
+  // 滚轮动画只在「正好走了一秒」时播：setInterval 被后台/低端机节流而跳秒时，
+  // 用 [旧值, 新值, 新值-1] 拼出的滚带中间帧是错的，看着像数字瞬移。
+  // 跳秒（含首帧、后台恢复）直接落位，省掉一次 settle setData。
+  const prevSec = Number(currentSecondsText)
+  const nextSec = Number(nextSecondsText)
+  const isSingleStep =
+    Number.isFinite(prevSec) &&
+    Number.isFinite(nextSec) &&
+    currentSecondsText !== '' &&
+    (prevSec - nextSec === 1 || (prevSec === 0 && nextSec === 59))
+
+  if (!isSingleStep) {
+    return {
+      didSecondsChange: true,
+      shouldAutoSwitch: !!safeCountdown.isExpired,
+      immediateState: {
+        ...immediateState,
+        countdownSecondsPrev: nextSecondsText,
+        countdownSecondsCurrent: nextSecondsText,
+        countdownSecondsReel: reel,
+        countdownSecondsRolling: false
+      },
+      settleState: null
+    }
+  }
 
   return {
     didSecondsChange: true,
     shouldAutoSwitch: !!safeCountdown.isExpired,
-    immediateState,
+    immediateState: {
+      ...immediateState,
+      countdownSecondsPrev: currentSecondsText,
+      countdownSecondsCurrent: nextSecondsText,
+      countdownSecondsReel: [currentSecondsText, nextSecondsText, reel[2] || nextSecondsText],
+      countdownSecondsRolling: true
+    },
     settleState: {
       countdownSecondsPrev: nextSecondsText,
       countdownSecondsCurrent: nextSecondsText,
@@ -491,7 +559,7 @@ function isSameMissionCardCountdown(prev, next) {
 }
 
 function resolveMissionCardCountdown(mission, deps = {}) {
-  const now = deps.now != null ? deps.now : Date.now()
+  const now = deps.now != null ? deps.now : getServerNow()
   const holdId = deps.holdMissionId != null && deps.holdMissionId !== ''
     ? String(deps.holdMissionId)
     : ''
@@ -611,6 +679,7 @@ module.exports = {
   formatOverlapSideCountdownText,
   buildOverlapSideCardView,
   pickOverlapSideCard,
+  resolveCountdownPrecision,
   buildCountdownSubscriptionState,
   buildLaunchSwitchEffects,
   shouldRefreshExpiredLaunch,

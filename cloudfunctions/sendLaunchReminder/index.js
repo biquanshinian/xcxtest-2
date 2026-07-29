@@ -95,13 +95,13 @@ const LAUNCH_SITE_ALIASES = {
   'Sriharikota': ['Satish Dhawan']
 }
 
-// 推送历史"明细行"开关：默认 true。云开发控制台把环境变量
-// PUSH_HISTORY_DETAIL_ENABLED 设为 "0" / "false" / "off" 可关闭，
-// 关闭后只写每批的汇总，不再为每条失败订阅追加明细记录。
+// 推送历史"明细行"开关：默认关闭（省写配额）。需要排查时把
+// PUSH_HISTORY_DETAIL_ENABLED 设为 "1" / "true" / "on"。
+// 关闭后只写每批汇总，不为每条成败追加明细。
 function isPushHistoryDetailEnabled() {
   const raw = String(process.env.PUSH_HISTORY_DETAIL_ENABLED || '').trim().toLowerCase()
-  if (!raw) return true
-  return !['0', 'false', 'off', 'no', 'disabled'].includes(raw)
+  if (!raw) return false
+  return ['1', 'true', 'on', 'yes', 'enabled'].includes(raw)
 }
 
 /**
@@ -675,26 +675,165 @@ function formatLaunchTimeStr(isoTime) {
   }
 }
 
+/**
+ * 服务号模板 time.* 字段专用格式（微信 47003 极严）。
+ * 仅输出文档认可的 24h 制：yyyy-MM-dd HH:mm:ss；无效返回空串（调用方必须跳过发送）。
+ * 禁止回退「时间未知」等非时间文案。
+ */
+function toOaTimeValue(isoOrRaw) {
+  var iso = toLaunchIso(isoOrRaw)
+  if (!iso) return ''
+  try {
+    var d = new Date(iso)
+    if (!(d.getTime() > 0)) return ''
+    var utcMs = d.getTime() + d.getTimezoneOffset() * 60 * 1000
+    var bj = new Date(utcMs + 8 * 60 * 60 * 1000)
+    var y = bj.getUTCFullYear()
+    var m = String(bj.getUTCMonth() + 1).padStart(2, '0')
+    var day = String(bj.getUTCDate()).padStart(2, '0')
+    var h = String(bj.getUTCHours()).padStart(2, '0')
+    var min = String(bj.getUTCMinutes()).padStart(2, '0')
+    var sec = String(bj.getUTCSeconds()).padStart(2, '0')
+    return y + '-' + m + '-' + day + ' ' + h + ':' + min + ':' + sec
+  } catch (e) {
+    return ''
+  }
+}
+
+/** 永久失败：再重试只会烧配额，应记 final 并永久跳过 */
+function isPermanentOaErrcode(ec) {
+  return (
+    ec === 43101 || // user refuse / 拒收模板
+    ec === 43004 || // 需要关注
+    ec === 40003 || // invalid openid
+    ec === 47003 || // 参数格式错误（整任务 payload 坏）
+    ec === 40258 // 秒级重复内容限频（视为已触达）
+  )
+}
+
+function isPermanentOaErrorText(err) {
+  return /43101|43004|40003|47003|40258|user refuse|argument invalid|invalid openid|require subscribe/i.test(
+    String(err || '')
+  )
+}
+
+/** 瞬时失败冷却：1h 内不重试，避免网络抖动时每个 tick Insert failed */
+const OA_FAILED_COOLDOWN_MS = 60 * 60 * 1000
+/** 同一 key 瞬时失败超过此次数后记 final，停止慢泄漏 */
+const OA_TRANSIENT_FAIL_MAX = 3
+
+function isOaLedgerSettled(row) {
+  if (!row) return false
+  if (row.status === 'ok' || row.status === 'final') return true
+  if (row.status !== 'failed') return false
+  // 历史 failed 若已是永久错误，直接视为结案，避免每个 tick 再打微信 API
+  if (isPermanentOaErrorText(row.error)) return true
+  var retries = Number(row.retryCount) || 0
+  if (retries >= OA_TRANSIENT_FAIL_MAX) return true
+  var sentAt = Number(row.sentAt) || 0
+  if (sentAt && Date.now() - sentAt < OA_FAILED_COOLDOWN_MS) return true
+  return false
+}
+
+/**
+ * 统计某用户×任务台账里 failed 条数，供瞬时失败写 retryCount / 超限转 final。
+ * 仅在准备写入 failed 时调用（低频）。
+ */
+async function countOaLedgerFailed(whereBase) {
+  try {
+    const res = await db
+      .collection(OA_PUSH_LEDGER)
+      .where(Object.assign({ status: 'failed' }, whereBase))
+      .limit(OA_TRANSIENT_FAIL_MAX + 1)
+      .get()
+    return ((res && res.data) || []).length
+  } catch (e) {
+    return 0
+  }
+}
+
+async function writeOaTransientFailedLedger(entry) {
+  var whereBase = {
+    missionId: String(entry.missionId || ''),
+    oaOpenid: entry.oaOpenid || '',
+    channel: entry.channel || 'template'
+  }
+  if (entry.netKey) whereBase.netKey = String(entry.netKey)
+  var prior = await countOaLedgerFailed(whereBase)
+  var nextRetry = prior + 1
+  if (nextRetry >= OA_TRANSIENT_FAIL_MAX) {
+    await writeOaPushLedger(
+      Object.assign({}, entry, {
+        status: 'final',
+        error: 'transient-retry-exhausted: ' + String(entry.error || '').slice(0, 200),
+        retryCount: nextRetry
+      })
+    )
+    return 'final'
+  }
+  await writeOaPushLedger(
+    Object.assign({}, entry, {
+      status: 'failed',
+      retryCount: nextRetry
+    })
+  )
+  return 'failed'
+}
+
 // ── 空跑早退 / bootstrap 限频 ──
-// 定时 tick 大多数时候既无临近发射也无待处理订阅，此时跳过 reconcile / 各发送通道 / 偏好匹配，
-// 只保留最前面的 launch_data 缓存同步（它是判断依据本身，且 diff 后基本零写）。
-// 条件刻意保守：launch_subscriptions 里只要还有任何文档（待发提醒 / 待发结果通知 / 失败重试），
-// 或未来 48h 内存在发射窗口，就照常全量执行；检查本身失败也照常执行——宁可多跑不能漏发。
-const IDLE_LOOKAHEAD_MS = 48 * 60 * 60 * 1000
+// 仅在「确有待办」时跑全链路；不再因「库里随便有条旧订阅」或「±48h 全球任意发射」而永不 idle。
+// 检查失败时保守返回 false（照常执行），宁可多跑不能漏发。
+const IDLE_RESULT_BACK_MS = 24 * 60 * 60 * 1000
 
 async function isIdleTick() {
   const now = Date.now()
-  // 向前看 48h（发射前）+ 向后看 48h（终态结果通知窗口），避免结果尚未推就空跑早退
-  const windowRes = await db
-    .collection(LAUNCH_DATA_COLLECTION)
-    .where({
-      windowStart: _.gte(new Date(now - IDLE_LOOKAHEAD_MS)).and(_.lte(new Date(now + IDLE_LOOKAHEAD_MS)))
-    })
-    .limit(1)
-    .get()
-  if ((windowRes.data || []).length > 0) return false
-  const subRes = await db.collection(SUBSCRIBE_COLLECTION).limit(1).get()
-  if ((subRes.data || []).length > 0) return false
+
+  // 1) 小程序待发提醒：已到期或 12h 内将到期（与 reconcile 视界对齐）
+  try {
+    const aRes = await db
+      .collection(SUBSCRIBE_COLLECTION)
+      .where({
+        sent: false,
+        notifyAt: _.lte(now + RECONCILE_HORIZON_MS)
+      })
+      .limit(1)
+      .get()
+    if ((aRes.data || []).length > 0) return false
+  } catch (e) {
+    return false
+  }
+
+  // 2) 小程序待发结果通知（仍有额度且未发）
+  try {
+    const rRes = await db
+      .collection(SUBSCRIBE_COLLECTION)
+      .where({
+        resultSent: false,
+        resultQuota: _.gt(0)
+      })
+      .limit(1)
+      .get()
+    if ((rRes.data || []).length > 0) return false
+  } catch (e) {
+    return false
+  }
+
+  // 3) OA 相关发射窗：过去 24h（结果）或未来 T-30（发射前提醒）
+  try {
+    const windowRes = await db
+      .collection(LAUNCH_DATA_COLLECTION)
+      .where({
+        windowStart: _.gte(new Date(now - IDLE_RESULT_BACK_MS)).and(
+          _.lte(new Date(now + OA_LEAD_MINUTES * 60 * 1000))
+        )
+      })
+      .limit(1)
+      .get()
+    if ((windowRes.data || []).length > 0) return false
+  } catch (e) {
+    return false
+  }
+
   return true
 }
 
@@ -747,12 +886,58 @@ async function ensureSendLaunchReminderCollectionsOnce() {
 }
 
 exports.main = async (event) => {
+  // 控制台测试有时把参数包在 data 里，或 event 为空；必须容错，否则会掉进默认 sendPending 拖垮超时
+  var ev = event
+  if (ev == null) ev = {}
+  if (typeof ev === 'string') {
+    try {
+      ev = JSON.parse(ev)
+    } catch (eParse) {
+      ev = {}
+    }
+  }
+  if (ev.data && typeof ev.data === 'object' && (ev.data.action || ev.data.maxRemove != null)) {
+    ev = Object.assign({}, ev, ev.data)
+  }
+  const action = String((ev && ev.action) || 'sendPending')
+
+  // 清理 / 探活：放在最前，不跑 ensureCollection / 发送链路，避免「改成 10 条也失败」
+  if (action === 'purgePing') {
+    return {
+      success: true,
+      purgeVersion: '2026-07-29-aged-v4',
+      message: 'purgePing ok — 若看到 purgeVersion=2026-07-29-aged-v4，说明已部署到最新代码',
+      ts: Date.now()
+    }
+  }
+  // 先看库里真实字段长什么样（不删）
+  if (action === 'purgeInspect') {
+    try {
+      return await purgeInspectLedger()
+    } catch (eIns) {
+      return {
+        success: false,
+        message: 'purgeInspect 异常: ' + (eIns && eIns.message ? eIns.message : String(eIns))
+      }
+    }
+  }
+  if (action === 'purgePushJunk') {
+    try {
+      return await purgePushJunk(ev || {})
+    } catch (purgeErr) {
+      return {
+        success: false,
+        message: 'purgePushJunk 异常: ' + (purgeErr && purgeErr.message ? purgeErr.message : String(purgeErr)),
+        stack: purgeErr && purgeErr.stack ? String(purgeErr.stack).slice(0, 500) : ''
+      }
+    }
+  }
+
   await ensureSendLaunchReminderCollectionsOnce()
-  const action = event.action || 'sendPending'
 
   // 生产自动链路（定时器 launchReminderTrigger 每 10 分钟，config: 0 */10 * * * * *）：
   // 1) syncLaunchDataFromCache ← space_devs_cache upcoming
-  // 1b) 空跑早退 ← ±48h 无发射窗口且无待处理订阅时到此为止
+  // 1b) 空跑早退 ← 无待发 A/结果、且无 OA 窗（过去 24h / 未来 T-30）时到此为止
   // 2) reconcilePendingSubscriptionsNotifyTimes ← A 通道改期对齐
   // 3) sendPendingReminders ← launch_subscriptions 小程序发射前提醒
   // 3b) sendPendingResultNotifications ← 终态后「任务完成提醒」（跳过 OA 就绪用户）
@@ -780,11 +965,19 @@ exports.main = async (event) => {
     }
     try {
       if (await isIdleTick()) {
+        // idle 时顺手清一小批推送垃圾，避免只靠手动/凌晨定时
+        var idlePurge = null
+        try {
+          idlePurge = await purgePushJunk({ maxRemove: 400, keepDays: 2 })
+        } catch (pe) {
+          idlePurge = { success: false, error: pe.message || String(pe) }
+        }
         return {
           success: true,
-          message: 'idle tick: no launch within 48h and no pending subscriptions',
+          message: 'idle tick: no pending A/result work and no OA launch window',
           idleSkip: true,
-          launchDataSync
+          launchDataSync,
+          idlePurge
         }
       }
     } catch { /* 检查失败照常执行，宁可多跑不能漏发 */ }
@@ -1237,6 +1430,19 @@ async function sendPendingReminders() {
         }
         sentKeys.add(dedupKey)
 
+        // 瞬时失败冷却 / 超限结案：放在改期查询之前，避免白读 launch_data
+        var prevFailAt = Number(record.failedAt) || 0
+        var prevFailCount = Number(record.failCount) || 0
+        if (prevFailCount >= OA_TRANSIENT_FAIL_MAX) {
+          sentCount.skipped++
+          await markReminderDone(record._id, { keepForResult: Number(record.resultQuota) > 0 })
+          continue
+        }
+        if (prevFailAt && now - prevFailAt < OA_FAILED_COOLDOWN_MS) {
+          sentCount.skipped++
+          continue
+        }
+
         // 改期门控：以 launch_data / launch_status 为准。
         // 若新 NET 对应的提醒时刻仍在未来，只改写 notifyAt、本轮不发，避免烧掉一次性额度。
         if (record.missionId) {
@@ -1274,13 +1480,30 @@ async function sendPendingReminders() {
         var recoveryValue = record.recoveryMethod || '一次性'
         if (recoveryValue === '自动匹配') recoveryValue = '待确认'
 
+        // time2 禁止「时间未知」——会 47003 且卡队列每 tick 重试
+        var mpTimeVal =
+          toOaTimeValue(record.launchTime) || toOaTimeValue(record.launchTimeFormatted)
+        if (!mpTimeVal) {
+          sentCount.failed++
+          if (failureSamples.length < 20) {
+            failureSamples.push({
+              openid: record._openid || '',
+              missionId: record.missionId || '',
+              missionName: record.missionName || '',
+              error: 'invalid time2: missing launchTime'
+            })
+          }
+          await markReminderDone(record._id, { keepForResult: Number(record.resultQuota) > 0 })
+          continue
+        }
+
         await sendSubscribeMessageByHttp(
           record._openid,
           TEMPLATE_ID,
           '/pages/index/index',
           {
             thing1: { value: (record.missionName || '未知任务').substring(0, 20) },
-            time2: { value: record.launchTimeFormatted || '时间未知' },
+            time2: { value: mpTimeVal },
             thing3: { value: (record.rocketName || '未知火箭').substring(0, 20) },
             thing4: { value: recoveryValue.substring(0, 20) }
           }
@@ -1312,15 +1535,27 @@ async function sendPendingReminders() {
           } catch (_) {}
         }
         const errStr = String(errDetail)
-        if (/43101|user refuse|user deny|43107/i.test(errStr)) {
-          await markReminderDone(record._id, { keepForResult: Number(record.resultQuota) > 0 })
+        const keepResult = Number(record.resultQuota) > 0
+        // 永久错误（43101/47003 等）结案，避免卡在 sent:false 每 10 分钟烧配额
+        if (isPermanentOaErrorText(errStr) || /43101|43107|user refuse|user deny/i.test(errStr)) {
+          await markReminderDone(record._id, { keepForResult: keepResult })
         } else {
-          try {
-            await db.collection(SUBSCRIBE_COLLECTION).doc(record._id).update({
-              data: { failReason: errDetail, failedAt: Date.now() }
-            })
-          } catch (updateErr) {
-            await markReminderDone(record._id, { keepForResult: Number(record.resultQuota) > 0 })
+          const nextFail = (Number(record.failCount) || 0) + 1
+          if (nextFail >= OA_TRANSIENT_FAIL_MAX) {
+            await markReminderDone(record._id, { keepForResult: keepResult })
+          } else {
+            try {
+              await db.collection(SUBSCRIBE_COLLECTION).doc(record._id).update({
+                data: {
+                  failReason: String(errDetail).slice(0, 500),
+                  failedAt: Date.now(),
+                  failCount: nextFail,
+                  updatedAt: Date.now()
+                }
+              })
+            } catch (updateErr) {
+              await markReminderDone(record._id, { keepForResult: keepResult })
+            }
           }
         }
       }
@@ -1506,9 +1741,12 @@ function clampValueForKey(key, value) {
 
 function buildResultSubscribeData(record, statusInfo, fieldEntries) {
   const rocket = String(record.rocketName || '').substring(0, 12)
+  const timeVal =
+    toOaTimeValue(record && record.launchTime) ||
+    toOaTimeValue(record && record.launchTimeFormatted)
   const roleValues = {
     mission: String(record.missionName || '未知任务'),
-    time: String(record.launchTimeFormatted || '时间未知'),
+    time: timeVal || '',
     result: String(statusInfo.resultText || '已完成'),
     remark: rocket ? rocket + ' · 点击查看' : '点击查看详情'
   }
@@ -1581,7 +1819,7 @@ async function sendPendingResultNotifications() {
   } catch (e) {}
 
   // 终态兜底：存在「发射时间已过但终态缓存未命中」的记录时，触发一次 ll2Query 实况刷新
-  // 再重读按 launchId 的权威状态，避免探针空窗导致 48h 后静默删除、一条不发。
+  // 再重读按 launchId 的权威状态，避免探针空窗导致过期清理后一条不发。
   // fetchLaunchStatuses 自带 120s 共享缓存与 30s 失败记忆，不会放大 LL2 调用。
   const needsSettledRefresh = records.some(function (r) {
     const netMs = r.launchTime ? new Date(r.launchTime).getTime() : 0
@@ -1648,13 +1886,33 @@ async function sendPendingResultNotifications() {
       stats.skippedOaReady++
       continue
     }
+    var resultFailCount = Number(record.failCount) || 0
+    if (resultFailCount >= OA_TRANSIENT_FAIL_MAX) {
+      try { await removeRecord(record._id) } catch (e) {}
+      stats.skipped++
+      continue
+    }
+    var resultFailAt = Number(record.failedAt) || 0
+    if (resultFailAt && now - resultFailAt < OA_FAILED_COOLDOWN_MS) {
+      stats.skipped++
+      continue
+    }
     const terminal = await resolveTerminal(mid)
     if (!terminal || !terminal.resultText) {
       const netMs = record.launchTime ? new Date(record.launchTime).getTime() : 0
-      if (netMs && now - netMs > 48 * 60 * 60 * 1000) {
+      // 小程序结果：超过回看窗仍无终态则清理，避免永久占队列（与 OA_RESULT_LOOKBACK 对齐）
+      if (netMs && now - netMs > OA_RESULT_LOOKBACK_MS) {
         try { await removeRecord(record._id) } catch (e) {}
         stats.skipped++
       }
+      continue
+    }
+
+    var resultTimeVal =
+      toOaTimeValue(record.launchTime) || toOaTimeValue(record.launchTimeFormatted)
+    if (!resultTimeVal) {
+      stats.failed++
+      try { await removeRecord(record._id) } catch (e) {}
       continue
     }
 
@@ -1670,14 +1928,16 @@ async function sendPendingResultNotifications() {
         buildResultSubscribeData(record, terminal, resultFieldEntries)
       )
       stats.sentOk++
-      try {
-        await writePushHistoryDetail({
-          openid: record._openid || '',
-          launchId: record.missionId || '',
-          missionName: '[结果通知] ' + (record.missionName || ''),
-          success: true
-        })
-      } catch (_) {}
+      if (isPushHistoryDetailEnabled()) {
+        try {
+          await writePushHistoryDetail({
+            openid: record._openid || '',
+            launchId: record.missionId || '',
+            missionName: '[结果通知] ' + (record.missionName || ''),
+            success: true
+          })
+        } catch (_) {}
+      }
       try {
         await db.collection(SUBSCRIBE_COLLECTION).doc(record._id).update({
           data: {
@@ -1694,17 +1954,35 @@ async function sendPendingResultNotifications() {
       stats.failed++
       console.error('[ResultNotify] send fail', record._id, sendErr.message || sendErr)
       const errStr = String(sendErr.message || sendErr)
-      // 失败落 push_history，管理后台可见（此前只有 console.error，纯无声失败）
-      try {
-        await writePushHistoryDetail({
-          openid: record._openid || '',
-          launchId: record.missionId || '',
-          missionName: '[结果通知] ' + (record.missionName || ''),
-          error: errStr
-        })
-      } catch (_) {}
-      if (/43101|user refuse|user deny|43107/i.test(errStr)) {
+      if (isPushHistoryDetailEnabled()) {
+        try {
+          await writePushHistoryDetail({
+            openid: record._openid || '',
+            launchId: record.missionId || '',
+            missionName: '[结果通知] ' + (record.missionName || ''),
+            error: errStr
+          })
+        } catch (_) {}
+      }
+      // 永久错误结案；瞬时失败记 failCount，超限删除，避免每 tick 重试
+      if (isPermanentOaErrorText(errStr) || /43101|43107|user refuse|user deny/i.test(errStr)) {
         try { await removeRecord(record._id) } catch (e) {}
+      } else {
+        const nextFail = (Number(record.failCount) || 0) + 1
+        if (nextFail >= OA_TRANSIENT_FAIL_MAX) {
+          try { await removeRecord(record._id) } catch (e) {}
+        } else {
+          try {
+            await db.collection(SUBSCRIBE_COLLECTION).doc(record._id).update({
+              data: {
+                failReason: errStr.slice(0, 500),
+                failedAt: now,
+                failCount: nextFail,
+                updatedAt: now
+              }
+            })
+          } catch (e) {}
+        }
       }
     }
   }
@@ -1913,7 +2191,9 @@ function buildOaTemplateData(opts) {
     data[keys.mission] = { value: toOaThingValue(missionName, '未知任务') }
   }
   if (keys.time) {
-    data[keys.time] = { value: String(launchTimeFormatted || '时间未知').substring(0, 20) }
+    // time 字段必须是合法时间；「时间未知」会触发 47003
+    var timeVal = String(opts.launchTimeOa || '').trim() || toOaTimeValue(launchTimeFormatted)
+    data[keys.time] = { value: timeVal }
   }
   if (keys.rocket) {
     data[keys.rocket] = { value: toOaThingValue(rocketName, '未知火箭') }
@@ -1953,61 +2233,95 @@ async function sendOaTemplateMessage(oaOpenid, templateId, pagepath, data) {
   return res.data
 }
 
-async function hasOaPushLedger(missionId, oaOpenid, netKey) {
-  // 按 missionId + oaOpenid + netKey 去重：同一任务改期后 NET 分钟键变化，允许再推一次
-  // 无 netKey 时不做「任意历史 ok」匹配，避免误挡住改期后的自动推送
-  if (!netKey) return false
-  const where = {
-    missionId: String(missionId),
-    oaOpenid: oaOpenid,
-    status: 'ok',
-    netKey: String(netKey),
-    channel: 'template'
+/** 批量加载某任务 template 通道已结案的 oaOpenid（每 tick 1~N 次 in 查询，替代每人 1~2 次） */
+async function loadOaTemplateLedgerDoneSet(missionId, netKey, oaOpenids) {
+  var done = new Set()
+  if (!netKey || !oaOpenids || !oaOpenids.length) return done
+  var list = []
+  var seen = {}
+  for (var i = 0; i < oaOpenids.length; i++) {
+    var id = oaOpenids[i] && String(oaOpenids[i])
+    if (!id || seen[id]) continue
+    seen[id] = true
+    list.push(id)
   }
-  const res = await db
-    .collection(OA_PUSH_LEDGER)
-    .where(where)
-    .limit(1)
-    .get()
-    .catch(() => ({ data: [] }))
-  if (res.data && res.data.length) return true
-  // 兼容旧台账（无 channel 字段）
-  const legacy = await db
-    .collection(OA_PUSH_LEDGER)
-    .where({
-      missionId: String(missionId),
-      oaOpenid: oaOpenid,
-      status: 'ok',
-      netKey: String(netKey)
-    })
-    .limit(5)
-    .get()
-    .catch(() => ({ data: [] }))
-  var rows = legacy.data || []
-  for (var i = 0; i < rows.length; i++) {
-    if (!rows[i].channel || rows[i].channel === 'template') return true
+  var CHUNK = 20
+  for (var c = 0; c < list.length; c += CHUNK) {
+    var chunk = list.slice(c, c + CHUNK)
+    var res = await db
+      .collection(OA_PUSH_LEDGER)
+      .where({
+        missionId: String(missionId),
+        netKey: String(netKey),
+        oaOpenid: _.in(chunk)
+      })
+      .limit(1000)
+      .get()
+      .catch(function () {
+        return { data: [] }
+      })
+    var rows = res.data || []
+    for (var ri = 0; ri < rows.length; ri++) {
+      var r = rows[ri]
+      if (r.channel && r.channel !== 'template') continue
+      if (isOaLedgerSettled(r)) done.add(String(r.oaOpenid))
+    }
   }
-  return false
+  return done
 }
 
 async function writeOaPushLedger(entry) {
   try {
-    await db.collection(OA_PUSH_LEDGER).add({
-      data: {
-        channel: entry.channel || 'template',
-        missionId: String(entry.missionId || ''),
-        oaOpenid: entry.oaOpenid || '',
-        mpOpenid: entry.mpOpenid || '',
-        missionName: entry.missionName || '',
-        netKey: entry.netKey ? String(entry.netKey) : '',
-        resultText: entry.resultText ? String(entry.resultText).slice(0, 40) : '',
-        status: entry.status || 'ok',
-        error: entry.error ? String(entry.error).slice(0, 500) : '',
-        sentAt: Date.now()
-      }
-    })
+    var data = {
+      channel: entry.channel || 'template',
+      missionId: String(entry.missionId || ''),
+      oaOpenid: entry.oaOpenid || '',
+      mpOpenid: entry.mpOpenid || '',
+      missionName: entry.missionName || '',
+      netKey: entry.netKey ? String(entry.netKey) : '',
+      resultText: entry.resultText ? String(entry.resultText).slice(0, 40) : '',
+      status: entry.status || 'ok',
+      error: entry.error ? String(entry.error).slice(0, 500) : '',
+      sentAt: Date.now()
+    }
+    if (entry.retryCount != null) data.retryCount = Number(entry.retryCount) || 0
+    await db.collection(OA_PUSH_LEDGER).add({ data: data })
   } catch (e) {
     console.warn('[OA] write ledger fail', e.message || e)
+  }
+}
+
+function isOaUserMsgRefused(u) {
+  return !!(u && (u.oaMsgRefused === true || u.oaMsgRefused === 1))
+}
+
+/** 43101 拒收：打用户标记，便于清空台账后不再对同一人重试风暴 */
+async function markOaUserRefused(oaOpenid, reason) {
+  if (!oaOpenid) return
+  try {
+    const res = await db
+      .collection(OA_AUTO_ALERT_USERS)
+      .where({ oaOpenid: String(oaOpenid) })
+      .limit(5)
+      .get()
+    const rows = (res && res.data) || []
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i]
+      if (!row || !row._id || isOaUserMsgRefused(row)) continue
+      await db
+        .collection(OA_AUTO_ALERT_USERS)
+        .doc(row._id)
+        .update({
+          data: {
+            oaMsgRefused: true,
+            oaMsgRefusedAt: Date.now(),
+            oaMsgRefusedReason: String(reason || '').slice(0, 200),
+            updatedAt: Date.now()
+          }
+        })
+    }
+  } catch (e) {
+    console.warn('[OA] mark refused fail', e.message || e)
   }
 }
 
@@ -2025,6 +2339,8 @@ async function loadOaReadyUserSets() {
     for (var i = 0; i < rows.length; i++) {
       var u = rows[i]
       if (!u || !u.oaOpenid) continue
+      // 已拒收服务号模板的用户不再算「OA 就绪」，避免 A 通道也被跳过导致两边都不通知
+      if (isOaUserMsgRefused(u)) continue
       oaSet.add(String(u.oaOpenid))
       if (u.mpOpenid) mpSet.add(String(u.mpOpenid))
     }
@@ -2032,6 +2348,436 @@ async function loadOaReadyUserSets() {
     console.warn('[OA] load ready users fail', e.message || e)
   }
   return { mpSet: mpSet, oaSet: oaSet }
+}
+
+/** 不删库，只抽样看 oa_push_ledger 真实字段（排查 status/error 对不上） */
+async function purgeInspectLedger() {
+  var out = {
+    success: true,
+    collection: OA_PUSH_LEDGER,
+    total: null,
+    sample: [],
+    statusTally: {},
+    errorHints: [],
+    message: ''
+  }
+  try {
+    var cnt = await db.collection(OA_PUSH_LEDGER).count()
+    out.total = cnt && typeof cnt.total === 'number' ? cnt.total : null
+  } catch (eCnt) {
+    out.countError = eCnt.message || String(eCnt)
+  }
+  var rows = []
+  try {
+    var res = await db.collection(OA_PUSH_LEDGER).limit(20).get()
+    rows = (res && res.data) || []
+  } catch (eGet) {
+    out.getError = eGet.message || String(eGet)
+    out.message = '无法读取集合，看 getError'
+    return out
+  }
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i] || {}
+    var st = r.status
+    var stKey = st === undefined || st === null ? '(无status字段)' : String(st)
+    out.statusTally[stKey] = (out.statusTally[stKey] || 0) + 1
+    var err = String(r.error || '')
+    if (err && out.errorHints.length < 8) {
+      out.errorHints.push(err.slice(0, 120))
+    }
+    if (out.sample.length < 5) {
+      out.sample.push({
+        _id: r._id,
+        status: r.status,
+        error: err.slice(0, 160),
+        channel: r.channel,
+        missionId: r.missionId,
+        oaOpenid: r.oaOpenid ? String(r.oaOpenid).slice(0, 12) + '…' : '',
+        sentAt: r.sentAt,
+        keys: Object.keys(r).slice(0, 25)
+      })
+    }
+  }
+  out.message =
+    '已抽样 ' +
+    rows.length +
+    ' 条，集合约 ' +
+    (out.total != null ? out.total : '?') +
+    ' 条。把本返回里的 sample/statusTally 发我即可对症清理。'
+  return out
+}
+
+function isOaLedgerJunkRow(row) {
+  if (!row) return false
+  var err = String(row.error || '')
+  // 永久错误 / 去重结案痕迹：删掉不会让它再打微信 API
+  if (/40258|43101|47003|purged-dedup|user refuse|argument invalid|dedup-as-delivered/i.test(err)) {
+    return true
+  }
+  var st = row.status
+  var stStr = st === undefined || st === null ? '' : String(st)
+  if (stStr === 'final') return true
+  if (stStr === 'failed') {
+    // 冷却中的 failed 行本身就是限流凭据，删掉下个 tick 会立刻重打微信 API。
+    // 只有重试超限、无时间戳、或已过冷却窗的才算结案可删。
+    if ((Number(row.retryCount) || 0) >= OA_TRANSIENT_FAIL_MAX) return true
+    var sentAt = Number(row.sentAt) || 0
+    if (!sentAt) return true
+    return Date.now() - sentAt >= OA_FAILED_COOLDOWN_MS
+  }
+  return false
+}
+
+/**
+ * 清理 oa_push_ledger：
+ * 探查显示库内主要是 status=ok、error 为空的「成功去重台账」，不是 failed 垃圾。
+ * 超出 lookback 后不再需要，按 sentAt 过期删除即可（默认 keepDays=2 > 结果回看 24h）。
+ * 顺带清 push_history 过期明细。翻页不用游标：每页读完即删，同一 where 自然返回下一批。
+ */
+async function purgePushJunk(event) {
+  const opts = event || {}
+  const dryRun = opts.dryRun === true || opts.dryRun === 1 || opts.dryRun === '1'
+  var rawMax = Number(opts.maxRemove)
+  if (!(rawMax > 0)) rawMax = 500
+  const maxRemove = Math.min(5000, Math.max(1, Math.floor(rawMax)))
+  // 默认清 2 天前的台账；可传 keepDays 调整（兼容旧参数名 keepLedgerDays）
+  const keepDays = Math.min(
+    30,
+    Math.max(1, Number(opts.keepDays) || Number(opts.keepLedgerDays) || 2)
+  )
+  const cutoff = Date.now() - keepDays * 24 * 60 * 60 * 1000
+  // push_history 明细日志：默认保留 7 天
+  const keepHistoryDays = Math.min(90, Math.max(1, Number(opts.keepHistoryDays) || 7))
+  const histCutoff = Date.now() - keepHistoryDays * 24 * 60 * 60 * 1000
+  const startedAt = Date.now()
+  const timeBudgetMs = Math.min(100000, Math.max(8000, Number(opts.timeBudgetMs) || 45000))
+
+  const stats = {
+    dryRun: dryRun,
+    purgeVersion: '2026-07-29-aged-v4',
+    mode: 'aged+settledJunk+history',
+    keepDays: keepDays,
+    keepHistoryDays: keepHistoryDays,
+    cutoff: cutoff,
+    removedAged: 0,
+    removedJunk: 0,
+    removedHistory: 0,
+    remainingAged: null,
+    scanned: 0,
+    skippedFreshOk: 0,
+    refusedMarked: 0,
+    sample: [],
+    statusTally: {},
+    queryErrors: [],
+    maxRemove: maxRemove,
+    timedOut: false,
+    elapsedMs: 0,
+    bulkAged: false
+  }
+
+  function timeOk() {
+    return Date.now() - startedAt < timeBudgetMs
+  }
+
+  async function removeDocs(rows, collectionName) {
+    if (!rows.length) return 0
+    if (dryRun) return rows.length
+    var coll = collectionName || OA_PUSH_LEDGER
+    var n = 0
+    var CONCURRENCY = 20
+    for (var off = 0; off < rows.length; off += CONCURRENCY) {
+      if (!timeOk()) {
+        stats.timedOut = true
+        break
+      }
+      var chunk = rows.slice(off, off + CONCURRENCY)
+      var results = await Promise.all(
+        chunk.map(function (doc) {
+          return db
+            .collection(coll)
+            .doc(doc._id)
+            .remove()
+            .then(function () {
+              return 1
+            })
+            .catch(function () {
+              return 0
+            })
+        })
+      )
+      for (var ri = 0; ri < results.length; ri++) n += results[ri]
+    }
+    return n
+  }
+
+  var budget = maxRemove
+  var markedRefuse = {}
+
+  // ——— A. 批量删过期台账（主路径：12 万条 ok 的正解）———
+  if (!dryRun && budget > 0 && timeOk()) {
+    try {
+      var bulk = await db
+        .collection(OA_PUSH_LEDGER)
+        .where({ sentAt: _.lt(cutoff) })
+        .remove()
+      var bulkN =
+        (bulk && bulk.stats && typeof bulk.stats.removed === 'number' ? bulk.stats.removed : 0) || 0
+      if (bulkN > 0) {
+        // 批量删一次最多 1000 条，实际删多少就报多少（budget 不能扣成负数）
+        stats.removedAged += bulkN
+        budget = Math.max(0, budget - bulkN)
+        stats.bulkAged = true
+      }
+    } catch (eBulk) {
+      stats.queryErrors.push('bulk_aged: ' + (eBulk.message || String(eBulk)).slice(0, 160))
+    }
+  }
+
+  // dryRun：不能翻页（不删的话每页都是同一批，会重复计数），用 count 估算
+  if (dryRun && budget > 0 && timeOk()) {
+    try {
+      var cRes = await db
+        .collection(OA_PUSH_LEDGER)
+        .where({ sentAt: _.lt(cutoff) })
+        .count()
+      var cN = (cRes && cRes.total) || 0
+      stats.remainingAged = cN
+      stats.removedAged += Math.min(cN, budget)
+      budget = Math.max(0, budget - cN)
+      var sRes = await db
+        .collection(OA_PUSH_LEDGER)
+        .where({ sentAt: _.lt(cutoff) })
+        .limit(1)
+        .get()
+      var sRow = ((sRes && sRes.data) || [])[0]
+      if (sRow) {
+        stats.sample.push({
+          _id: sRow._id,
+          status: sRow.status,
+          error: String(sRow.error || '').slice(0, 80),
+          sentAt: sRow.sentAt,
+          sentAtAgeDays:
+            Number(sRow.sentAt) > 0
+              ? Math.round((Date.now() - Number(sRow.sentAt)) / 86400000)
+              : null
+        })
+      }
+    } catch (eCnt) {
+      stats.queryErrors.push('dryrun_count: ' + (eCnt.message || String(eCnt)).slice(0, 160))
+    }
+  }
+
+  // bulk 不够或 bulk 失败：用 sentAt 条件翻页删。
+  // 每页读完即删，所以不需要游标——下一次同样的 where 自然返回新的一页。
+  var stuck = 0
+  while (!dryRun && budget > 0 && timeOk() && stuck < 3) {
+    var page = []
+    try {
+      var res = await db
+        .collection(OA_PUSH_LEDGER)
+        .where({ sentAt: _.lt(cutoff) })
+        .orderBy('sentAt', 'asc')
+        .limit(Math.min(100, budget))
+        .get()
+      page = (res && res.data) || []
+    } catch (eAged) {
+      stats.queryErrors.push('aged_page: ' + (eAged.message || String(eAged)).slice(0, 160))
+      // 无复合索引时退回只按 sentAt
+      try {
+        var res2 = await db
+          .collection(OA_PUSH_LEDGER)
+          .where({ sentAt: _.lt(cutoff) })
+          .limit(Math.min(100, budget))
+          .get()
+        page = (res2 && res2.data) || []
+      } catch (e2) {
+        stats.queryErrors.push('aged_page2: ' + (e2.message || String(e2)).slice(0, 160))
+        break
+      }
+    }
+    if (!page.length) break
+    stats.scanned += page.length
+    if (!stats.sample.length) {
+      var s0 = page[0] || {}
+      stats.sample.push({
+        _id: s0._id,
+        status: s0.status,
+        error: String(s0.error || '').slice(0, 80),
+        sentAt: s0.sentAt,
+        sentAtAgeDays:
+          s0.sentAt && Number(s0.sentAt) > 0
+            ? Math.round((Date.now() - Number(s0.sentAt)) / 86400000)
+            : null
+      })
+    }
+    var n = await removeDocs(page)
+    stats.removedAged += n
+    budget -= n
+    if (n === 0) stuck++
+    else stuck = 0
+    if (page.length < 100) break
+  }
+
+  // ——— B. 清结案垃圾：按 status 定向查（failed/final），不做全表顺扫 ———
+  // 全表顺扫每次都从 _id 头部重读同一批新鲜台账，扫不到尾部垃圾还白烧读操作。
+  if (budget > 0 && timeOk()) {
+    var junkStatuses = ['failed', 'final']
+    for (var si = 0; si < junkStatuses.length; si++) {
+      var st = junkStatuses[si]
+      var stuckJ = 0
+      while (budget > 0 && timeOk() && stuckJ < 3) {
+        var pageJ = []
+        try {
+          var resJ = await db
+            .collection(OA_PUSH_LEDGER)
+            .where({ status: st })
+            .limit(Math.min(100, budget))
+            .get()
+          pageJ = (resJ && resJ.data) || []
+        } catch (eJ) {
+          stats.queryErrors.push(
+            'junk_' + st + ': ' + (eJ.message || String(eJ)).slice(0, 160)
+          )
+          break
+        }
+        if (!pageJ.length) break
+        stats.scanned += pageJ.length
+        var toDel = []
+        for (var i = 0; i < pageJ.length; i++) {
+          var row = pageJ[i]
+          if (!row || !row._id) continue
+          stats.statusTally[st] = (stats.statusTally[st] || 0) + 1
+          var sentAt = Number(row.sentAt) || 0
+          var isAged = sentAt > 0 && sentAt < cutoff
+          var rowErr = String(row.error || '')
+          var isRefused = /43101|user refuse/i.test(rowErr)
+          // 删「还在去重视界内」的结案行会让下个 tick 重发一次（多打一次微信 API）。
+          // 只有 43101（已写用户拒收标记，不会复发）或已出 lookback 的行才安全。
+          var isJunk =
+            isOaLedgerJunkRow(row) &&
+            (isRefused || !sentAt || Date.now() - sentAt > OA_RESULT_LOOKBACK_MS)
+          if (!isAged && !isJunk) {
+            stats.skippedFreshOk++
+            continue
+          }
+          if (isRefused) {
+            var oid = String(row.oaOpenid || '')
+            if (oid && !markedRefuse[oid]) {
+              markedRefuse[oid] = true
+              if (!dryRun) {
+                try {
+                  await markOaUserRefused(oid, row.error)
+                } catch (eM) {}
+              }
+              stats.refusedMarked++
+            }
+          }
+          toDel.push(row)
+        }
+        // 本页全是「冷却中/视界内」的行：再查也是同一批，停手
+        if (!toDel.length) break
+        if (dryRun) {
+          stats.removedJunk += Math.min(toDel.length, budget)
+          budget = Math.max(0, budget - toDel.length)
+          break
+        }
+        var nJ = await removeDocs(toDel)
+        stats.removedJunk += nJ
+        budget -= nJ
+        if (nJ === 0) stuckJ++
+        else stuckJ = 0
+      }
+    }
+  }
+
+  // ——— C. 清 push_history 明细日志（createdAt 过期即无用）———
+  if (timeOk()) {
+    try {
+      if (dryRun) {
+        var hCnt = await db
+          .collection(PUSH_HISTORY_COLLECTION)
+          .where({ createdAt: _.lt(histCutoff) })
+          .count()
+        stats.removedHistory = (hCnt && hCnt.total) || 0
+      } else {
+        var hBulk = await db
+          .collection(PUSH_HISTORY_COLLECTION)
+          .where({ createdAt: _.lt(histCutoff) })
+          .remove()
+        stats.removedHistory =
+          (hBulk && hBulk.stats && typeof hBulk.stats.removed === 'number'
+            ? hBulk.stats.removed
+            : 0) || 0
+        // 批量删有单次上限，剩下的翻页补删（读完即删，无需游标）
+        var hStuck = 0
+        var hBudget = maxRemove
+        while (hBudget > 0 && timeOk() && hStuck < 3) {
+          var hRes = await db
+            .collection(PUSH_HISTORY_COLLECTION)
+            .where({ createdAt: _.lt(histCutoff) })
+            .limit(Math.min(100, hBudget))
+            .get()
+          var hPage = (hRes && hRes.data) || []
+          if (!hPage.length) break
+          var hN = await removeDocs(hPage, PUSH_HISTORY_COLLECTION)
+          stats.removedHistory += hN
+          hBudget -= hN
+          if (hN === 0) hStuck++
+          else hStuck = 0
+        }
+      }
+    } catch (eHist) {
+      stats.queryErrors.push('history: ' + (eHist.message || String(eHist)).slice(0, 160))
+    }
+  }
+
+  if (!timeOk()) stats.timedOut = true
+  stats.elapsedMs = Date.now() - startedAt
+  stats.totalRemoved = stats.removedAged + stats.removedJunk
+
+  // 剩余量必须实测：budget 没花完不等于清空了（大头可能还在 keepDays 窗口内）
+  if (!dryRun) {
+    try {
+      var remain = await db
+        .collection(OA_PUSH_LEDGER)
+        .where({ sentAt: _.lt(cutoff) })
+        .count()
+      stats.remainingAged = (remain && remain.total) || 0
+    } catch (eR) {
+      stats.remainingAged = null
+      stats.queryErrors.push('remain_count: ' + (eR.message || String(eR)).slice(0, 160))
+    }
+  }
+  stats.done = stats.remainingAged === 0 && !stats.timedOut
+
+  var histTail = stats.removedHistory > 0 ? '；push_history 清 ' + stats.removedHistory + ' 条' : ''
+  var remainTail =
+    stats.remainingAged == null
+      ? ''
+      : stats.remainingAged > 0
+        ? '；仍有 ' + stats.remainingAged + ' 条待清，请继续点测试'
+        : '；过期台账已清空'
+  stats.message = dryRun
+    ? 'dryRun：过期台账约 ' +
+      (stats.remainingAged == null ? '?' : stats.remainingAged) +
+      ' 条（>' +
+      keepDays +
+      ' 天）' +
+      histTail
+    : stats.totalRemoved > 0 || stats.removedHistory > 0
+      ? '本批已删 ' +
+        stats.totalRemoved +
+        '（过期台账 ' +
+        stats.removedAged +
+        ' + 风暴痕迹 ' +
+        stats.removedJunk +
+        '）' +
+        histTail +
+        remainTail
+      : stats.queryErrors.length
+        ? '未删除：查询失败。请给 oa_push_ledger 的 sentAt 加索引后重试。queryErrors 已返回。'
+        : '未找到 ' + keepDays + ' 天前的台账。可把 keepDays 改为 1，或确认 sentAt 字段有值。'
+  return { success: true, ...stats }
 }
 
 async function findLaunchesInOaNotifyWindow(nowMs) {
@@ -2092,7 +2838,7 @@ async function sendOATemplateAlerts() {
     .catch(() => ({ data: [] }))
 
   const users = (usersRes.data || []).filter(function (u) {
-    return u && u.oaOpenid
+    return u && u.oaOpenid && !isOaUserMsgRefused(u)
   })
   if (users.length === 0) {
     return { success: true, message: 'no oa subscribers', ...stats }
@@ -2113,6 +2859,13 @@ async function sendOATemplateAlerts() {
       stats.skipped++
       continue
     }
+    var launchTimeOa = toOaTimeValue(launchTimeIso || launchTime)
+    // time 字段非法会全员 47003；无合法时间则本任务整批跳过
+    if (!launchTimeOa) {
+      console.warn('[OA] skip mission: invalid template time', missionId)
+      stats.skipped += users.length
+      continue
+    }
     var launchTimeFormatted = formatLaunchTimeStr(launchTimeIso || launchTime)
     var missionName = (launch.missionName || launch.name || '未知任务').substring(0, 20)
     var rocketName = (launch.rocketName || '未知火箭').substring(0, 20)
@@ -2124,6 +2877,7 @@ async function sendOATemplateAlerts() {
       missionName: missionName,
       rocketName: rocketName,
       launchTimeFormatted: launchTimeFormatted,
+      launchTimeOa: launchTimeOa,
       recoveryMethod: recoveryMethod,
       remark: remark,
       codeId: codeId
@@ -2131,9 +2885,15 @@ async function sendOATemplateAlerts() {
 
     // 本次执行内对同一任务的 oaOpenid 去重：oa_auto_alert_users 可能因 oaWebhook（按 unionid/
     // oaOpenid 建档）与 adminGateway（按 unionid/mpOpenid 建档）两条路径产生同一 oaOpenid 的重复
-    // 文档；台账写入存在读后写延迟，hasOaPushLedger 也只看 status:'ok'，循环内会对同一用户连发，
-    // 触发 40258（秒级重复内容限频）。Set 在进程内拦截，确保一个任务每个 oaOpenid 最多发一次。
+    // 文档；台账写入存在读后写延迟，循环内会对同一用户连发，触发 40258。
     var seenOaOpenids = {}
+    var openidList = users.map(function (u) { return u && u.oaOpenid }).filter(Boolean)
+    var uniqueTplCount = new Set(openidList.map(String)).size
+    var ledgerDone = await loadOaTemplateLedgerDoneSet(missionId, launchNetKey, openidList)
+    if (uniqueTplCount > 0 && ledgerDone.size >= uniqueTplCount) {
+      stats.skipped += uniqueTplCount
+      continue
+    }
 
     for (var ui = 0; ui < users.length; ui++) {
       var user = users[ui]
@@ -2150,7 +2910,7 @@ async function sendOATemplateAlerts() {
       }
       seenOaOpenids[oaOpenid] = true
 
-      if (await hasOaPushLedger(missionId, oaOpenid, launchNetKey)) {
+      if (ledgerDone.has(String(oaOpenid))) {
         stats.skipped++
         continue
       }
@@ -2158,6 +2918,7 @@ async function sendOATemplateAlerts() {
       try {
         await sendOaTemplateMessage(oaOpenid, templateId, pagepath, templateData)
         stats.sentOk++
+        ledgerDone.add(String(oaOpenid))
         await writeOaPushLedger({
           missionId: missionId,
           oaOpenid: oaOpenid,
@@ -2168,10 +2929,11 @@ async function sendOATemplateAlerts() {
         })
       } catch (sendErr) {
         var ec = sendErr && sendErr.errcode
-        console.error('[OA] send fail', dedupKey, sendErr.message || sendErr)
-        // 40258：相同内容已在秒级内发给同一用户，视为「已触达」记 ok，避免下一次 tick 反复重试再触发限频
+        var errMsg = sendErr.message || String(sendErr)
+        console.error('[OA] send fail', dedupKey, errMsg)
         if (ec === 40258) {
           stats.sentOk++
+          ledgerDone.add(String(oaOpenid))
           await writeOaPushLedger({
             missionId: missionId,
             oaOpenid: oaOpenid,
@@ -2181,17 +2943,54 @@ async function sendOATemplateAlerts() {
             status: 'ok',
             error: '40258 dedup-as-delivered'
           })
-        } else {
+        } else if (isPermanentOaErrcode(ec) || isPermanentOaErrorText(errMsg)) {
+          // 43101 拒收 / 47003 参数坏等：记 final，下个 tick 不再打微信、不再 Insert failed
           stats.failed++
+          ledgerDone.add(String(oaOpenid))
+          if (ec === 43101 || /43101|user refuse/i.test(errMsg)) {
+            await markOaUserRefused(oaOpenid, errMsg)
+          }
           await writeOaPushLedger({
             missionId: missionId,
             oaOpenid: oaOpenid,
             mpOpenid: user.mpOpenid || '',
             missionName: missionName,
             netKey: launchNetKey,
-            status: 'failed',
-            error: sendErr.message || String(sendErr)
+            status: 'final',
+            error: errMsg
           })
+          // 47003 是整任务 payload 问题：剩余用户直接 final，避免本 tick 继续打爆 API
+          if (ec === 47003) {
+            for (var uj = ui + 1; uj < users.length; uj++) {
+              var u2 = users[uj]
+              var oa2 = u2 && u2.oaOpenid
+              if (!oa2 || seenOaOpenids[oa2] || ledgerDone.has(String(oa2))) continue
+              seenOaOpenids[oa2] = true
+              ledgerDone.add(String(oa2))
+              stats.skipped++
+              await writeOaPushLedger({
+                missionId: missionId,
+                oaOpenid: oa2,
+                mpOpenid: (u2 && u2.mpOpenid) || '',
+                missionName: missionName,
+                netKey: launchNetKey,
+                status: 'final',
+                error: '47003 mission-payload-poison: ' + String(errMsg).slice(0, 200)
+              })
+            }
+            break
+          }
+        } else {
+          stats.failed++
+          var tStatus = await writeOaTransientFailedLedger({
+            missionId: missionId,
+            oaOpenid: oaOpenid,
+            mpOpenid: user.mpOpenid || '',
+            missionName: missionName,
+            netKey: launchNetKey,
+            error: errMsg
+          })
+          if (tStatus === 'final') ledgerDone.add(String(oaOpenid))
         }
       }
     }
@@ -2215,7 +3014,8 @@ async function sendOATemplateAlerts() {
 // 未配置模板 ID 时整段跳过，不影响 T-30。
 // 去重：oa_push_ledger channel='result' + missionId + oaOpenid（终态每任务只推一次）。
 
-const OA_RESULT_LOOKBACK_MS = 48 * 60 * 60 * 1000
+// 终态结果回看：24h 足够覆盖绝大多数「发射后出结果」；过长会让每个 tick 白扫已结案任务
+const OA_RESULT_LOOKBACK_MS = 24 * 60 * 60 * 1000
 
 var OA_RESULT_TMPL_FIELD_DEFAULTS = {
   mission: 'thing33',
@@ -2254,7 +3054,9 @@ function buildOaResultTemplateData(opts) {
     data[keys.mission] = { value: toOaThingValue(missionName, '未知任务') }
   }
   if (keys.time) {
-    data[keys.time] = { value: String(launchTimeFormatted || '时间未知').substring(0, 20) }
+    // time20 等：禁止「时间未知」；无效时由上层跳过整任务
+    var timeVal = String(opts.launchTimeOa || '').trim() || toOaTimeValue(launchTimeFormatted)
+    data[keys.time] = { value: timeVal }
   }
   if (keys.result) {
     data[keys.result] = { value: toOaThingValue(resultText, '已完成') }
@@ -2271,23 +3073,43 @@ function buildOaResultTemplateData(opts) {
   return data
 }
 
-async function hasOaResultLedger(missionId, oaOpenid) {
-  const where = {
-    missionId: String(missionId),
-    oaOpenid: oaOpenid,
-    channel: 'result',
-    status: 'ok'
+/** 批量加载某任务 result 通道已结案的 oaOpenid */
+async function loadOaResultLedgerDoneSet(missionId, oaOpenids) {
+  var done = new Set()
+  if (!oaOpenids || !oaOpenids.length) return done
+  var list = []
+  var seen = {}
+  for (var i = 0; i < oaOpenids.length; i++) {
+    var id = oaOpenids[i] && String(oaOpenids[i])
+    if (!id || seen[id]) continue
+    seen[id] = true
+    list.push(id)
   }
-  const res = await db
-    .collection(OA_PUSH_LEDGER)
-    .where(where)
-    .limit(1)
-    .get()
-    .catch(() => ({ data: [] }))
-  return !!(res.data && res.data.length)
+  var CHUNK = 20
+  for (var c = 0; c < list.length; c += CHUNK) {
+    var chunk = list.slice(c, c + CHUNK)
+    var res = await db
+      .collection(OA_PUSH_LEDGER)
+      .where({
+        missionId: String(missionId),
+        channel: 'result',
+        oaOpenid: _.in(chunk)
+      })
+      .limit(1000)
+      .get()
+      .catch(function () {
+        return { data: [] }
+      })
+    var rows = res.data || []
+    for (var ri = 0; ri < rows.length; ri++) {
+      var r = rows[ri]
+      if (isOaLedgerSettled(r)) done.add(String(r.oaOpenid))
+    }
+  }
+  return done
 }
 
-/** 过去 48h 内已过 NET 的 launch_data（供终态结果扫描） */
+/** 过去 OA_RESULT_LOOKBACK_MS（24h）内已过 NET 的 launch_data（供终态结果扫描） */
 async function findRecentlyPastLaunches(nowMs) {
   const res = await db
     .collection(LAUNCH_DATA_COLLECTION)
@@ -2301,7 +3123,7 @@ async function findRecentlyPastLaunches(nowMs) {
 }
 
 /**
- * 结果候选：launch_data 近 48h 已过 NET + launch_status 近期终态兜底
+ * 结果候选：launch_data 近 24h 已过 NET + launch_status 近期终态兜底
  * （防止任务已不在 upcoming、或 sync 间隙导致 launch_data 暂缺而漏推）
  */
 async function findOaResultCandidateLaunches(nowMs) {
@@ -2377,7 +3199,7 @@ async function sendOAResultAlerts() {
     .get()
     .catch(() => ({ data: [] }))
   const users = (usersRes.data || []).filter(function (u) {
-    return u && u.oaOpenid
+    return u && u.oaOpenid && !isOaUserMsgRefused(u)
   })
   if (!users.length) {
     return { success: true, message: 'no oa subscribers', ...stats }
@@ -2459,6 +3281,13 @@ async function sendOAResultAlerts() {
 
     const launchTime = launch.windowStart || launch.launchTime || ''
     const launchTimeIso = toLaunchIso(launchTime)
+    const launchTimeOa = toOaTimeValue(launchTimeIso || launchTime)
+    // time20 非法 → 全员 47003；无合法时间则跳过本任务（不再每人打一次微信）
+    if (!launchTimeOa) {
+      console.warn('[OAResult] skip mission: invalid time20', missionId)
+      stats.skipped += users.length
+      continue
+    }
     const launchTimeFormatted = formatLaunchTimeStr(launchTimeIso || launchTime)
     const missionName = (launch.missionName || launch.name || '未知任务').substring(0, 20)
     const rocketName = (launch.rocketName || '未知火箭').substring(0, 20)
@@ -2469,12 +3298,22 @@ async function sendOAResultAlerts() {
       missionName: missionName,
       rocketName: rocketName,
       launchTimeFormatted: launchTimeFormatted,
+      launchTimeOa: launchTimeOa,
       resultText: resultText,
       remark: remark,
       codeId: codeId
     })
 
     const seenOaOpenids = {}
+    const openidList = users.map(function (u) { return u && u.oaOpenid }).filter(Boolean)
+    const uniqueOpenidCount = new Set(openidList.map(String)).size
+    const ledgerDone = await loadOaResultLedgerDoneSet(missionId, openidList)
+    // 任务级短路：全员已结案则不再进发送循环（仍付一次批量台账读，远小于 N 次微信 API）
+    if (uniqueOpenidCount > 0 && ledgerDone.size >= uniqueOpenidCount) {
+      stats.skipped += uniqueOpenidCount
+      continue
+    }
+
     for (let ui = 0; ui < users.length; ui++) {
       const user = users[ui]
       const oaOpenid = user.oaOpenid
@@ -2488,7 +3327,7 @@ async function sendOAResultAlerts() {
       }
       seenOaOpenids[oaOpenid] = true
 
-      if (await hasOaResultLedger(missionId, oaOpenid)) {
+      if (ledgerDone.has(String(oaOpenid))) {
         stats.skipped++
         continue
       }
@@ -2496,6 +3335,7 @@ async function sendOAResultAlerts() {
       try {
         await sendOaTemplateMessage(oaOpenid, templateId, pagepath, templateData)
         stats.sentOk++
+        ledgerDone.add(String(oaOpenid))
         await writeOaPushLedger({
           channel: 'result',
           missionId: missionId,
@@ -2507,9 +3347,11 @@ async function sendOAResultAlerts() {
         })
       } catch (sendErr) {
         const ec = sendErr && sendErr.errcode
-        console.error('[OAResult] send fail', missionId + '_' + oaOpenid, sendErr.message || sendErr)
+        const errMsg = sendErr.message || String(sendErr)
+        console.error('[OAResult] send fail', missionId + '_' + oaOpenid, errMsg)
         if (ec === 40258) {
           stats.sentOk++
+          ledgerDone.add(String(oaOpenid))
           await writeOaPushLedger({
             channel: 'result',
             missionId: missionId,
@@ -2520,8 +3362,13 @@ async function sendOAResultAlerts() {
             status: 'ok',
             error: '40258 dedup-as-delivered'
           })
-        } else {
+        } else if (isPermanentOaErrcode(ec) || isPermanentOaErrorText(errMsg)) {
+          // 日志里大量 43101 user refuse / 47003 time20 invalid：必须结案，否则每 10 分钟风暴
           stats.failed++
+          ledgerDone.add(String(oaOpenid))
+          if (ec === 43101 || /43101|user refuse/i.test(errMsg)) {
+            await markOaUserRefused(oaOpenid, errMsg)
+          }
           await writeOaPushLedger({
             channel: 'result',
             missionId: missionId,
@@ -2529,9 +3376,42 @@ async function sendOAResultAlerts() {
             mpOpenid: user.mpOpenid || '',
             missionName: missionName,
             resultText: resultText,
-            status: 'failed',
-            error: sendErr.message || String(sendErr)
+            status: 'final',
+            error: errMsg
           })
+          if (ec === 47003) {
+            for (let uj = ui + 1; uj < users.length; uj++) {
+              const u2 = users[uj]
+              const oa2 = u2 && u2.oaOpenid
+              if (!oa2 || seenOaOpenids[oa2] || ledgerDone.has(String(oa2))) continue
+              seenOaOpenids[oa2] = true
+              ledgerDone.add(String(oa2))
+              stats.skipped++
+              await writeOaPushLedger({
+                channel: 'result',
+                missionId: missionId,
+                oaOpenid: oa2,
+                mpOpenid: (u2 && u2.mpOpenid) || '',
+                missionName: missionName,
+                resultText: resultText,
+                status: 'final',
+                error: '47003 mission-payload-poison: ' + String(errMsg).slice(0, 200)
+              })
+            }
+            break
+          }
+        } else {
+          stats.failed++
+          var tStatus = await writeOaTransientFailedLedger({
+            channel: 'result',
+            missionId: missionId,
+            oaOpenid: oaOpenid,
+            mpOpenid: user.mpOpenid || '',
+            missionName: missionName,
+            resultText: resultText,
+            error: errMsg
+          })
+          if (tStatus === 'final') ledgerDone.add(String(oaOpenid))
         }
       }
     }
@@ -2601,49 +3481,69 @@ async function zeroOaSubscribeQuota(docId, reason) {
   }
 }
 
-async function hasOaSubscribeLedger(missionId, oaOpenid, netKey) {
-  if (!netKey) return false
-  const where = {
-    missionId: String(missionId),
-    oaOpenid: oaOpenid,
-    channel: 'subscribe',
-    status: 'ok',
-    netKey: String(netKey)
+/** 批量加载某任务 subscribe 通道已结案的 oaOpenid */
+async function loadOaSubscribeLedgerDoneSet(missionId, netKey, oaOpenids) {
+  var done = new Set()
+  if (!netKey || !oaOpenids || !oaOpenids.length) return done
+  var list = []
+  var seen = {}
+  for (var i = 0; i < oaOpenids.length; i++) {
+    var id = oaOpenids[i] && String(oaOpenids[i])
+    if (!id || seen[id]) continue
+    seen[id] = true
+    list.push(id)
   }
-  const res = await db
-    .collection(OA_PUSH_LEDGER)
-    .where(where)
-    .limit(1)
-    .get()
-    .catch(() => ({ data: [] }))
-  return !!(res.data && res.data.length)
+  var CHUNK = 20
+  for (var c = 0; c < list.length; c += CHUNK) {
+    var chunk = list.slice(c, c + CHUNK)
+    var res = await db
+      .collection(OA_PUSH_LEDGER)
+      .where({
+        missionId: String(missionId),
+        channel: 'subscribe',
+        netKey: String(netKey),
+        oaOpenid: _.in(chunk)
+      })
+      .limit(1000)
+      .get()
+      .catch(function () {
+        return { data: [] }
+      })
+    var rows = res.data || []
+    for (var ri = 0; ri < rows.length; ri++) {
+      var r = rows[ri]
+      if (isOaLedgerSettled(r)) done.add(String(r.oaOpenid))
+    }
+  }
+  return done
 }
 
 async function writeOaSubscribeLedger(entry) {
   try {
-    await db.collection(OA_PUSH_LEDGER).add({
-      data: {
-        channel: 'subscribe',
-        missionId: String(entry.missionId || ''),
-        oaOpenid: entry.oaOpenid || '',
-        templateId: entry.templateId || OA_SUBSCRIBE_TEMPLATE_ID,
-        missionName: entry.missionName || '',
-        netKey: entry.netKey ? String(entry.netKey) : '',
-        status: entry.status || 'ok',
-        error: entry.error ? String(entry.error).slice(0, 500) : '',
-        sentAt: Date.now()
-      }
-    })
+    var data = {
+      channel: 'subscribe',
+      missionId: String(entry.missionId || ''),
+      oaOpenid: entry.oaOpenid || '',
+      templateId: entry.templateId || OA_SUBSCRIBE_TEMPLATE_ID,
+      missionName: entry.missionName || '',
+      netKey: entry.netKey ? String(entry.netKey) : '',
+      status: entry.status || 'ok',
+      error: entry.error ? String(entry.error).slice(0, 500) : '',
+      sentAt: Date.now()
+    }
+    if (entry.retryCount != null) data.retryCount = Number(entry.retryCount) || 0
+    await db.collection(OA_PUSH_LEDGER).add({ data: data })
   } catch (e) {
     console.warn('[OASub] write ledger fail', e.message || e)
   }
 }
 
-/** 构造订阅通知 data：thing 字段≤20 安全截断 */
+/** 构造订阅通知 data：thing 字段≤20 安全截断；time 必须合法 */
 function buildOaSubscribeData(opts) {
   var data = {}
   data[OA_SUBSCRIBE_FIELDS.mission] = { value: toOaThingValue(opts.missionName, '未知任务') }
-  data[OA_SUBSCRIBE_FIELDS.time] = { value: String(opts.launchTimeFormatted || '时间未知').substring(0, 20) }
+  var timeVal = String(opts.launchTimeOa || '').trim() || toOaTimeValue(opts.launchTimeFormatted)
+  data[OA_SUBSCRIBE_FIELDS.time] = { value: timeVal }
   data[OA_SUBSCRIBE_FIELDS.rocket] = { value: toOaThingValue(opts.rocketName, '未知火箭') }
   data[OA_SUBSCRIBE_FIELDS.recovery] = { value: toOaThingValue(opts.recoveryMethod, '待确认') }
   data[OA_SUBSCRIBE_FIELDS.remark] = { value: toOaThingValue(opts.remark, '发射场待定') }
@@ -2701,6 +3601,12 @@ async function sendOASubscribeAlerts() {
       stats.skipped++
       continue
     }
+    var launchTimeOa = toOaTimeValue(launchTimeIso || launchTime)
+    if (!launchTimeOa) {
+      console.warn('[OASub] skip mission: invalid time', missionId)
+      stats.skipped += quotaUsers.length
+      continue
+    }
     var launchTimeFormatted = formatLaunchTimeStr(launchTimeIso || launchTime)
     var missionName = (launch.missionName || launch.name || '未知任务').substring(0, 20)
     var rocketName = (launch.rocketName || '未知火箭').substring(0, 20)
@@ -2711,9 +3617,26 @@ async function sendOASubscribeAlerts() {
       missionName: missionName,
       rocketName: rocketName,
       launchTimeFormatted: launchTimeFormatted,
+      launchTimeOa: launchTimeOa,
       recoveryMethod: recoveryMethod,
       remark: remark
     })
+
+    var openidListC = quotaUsers.map(function (q) { return q && q.oaOpenid }).filter(Boolean)
+    // C 通道结案集合：已就绪走 B 的用户也算「无需本通道」，参与全员短路
+    var needCOpenids = []
+    var needCSeen = {}
+    for (var ci = 0; ci < openidListC.length; ci++) {
+      var cid = String(openidListC[ci])
+      if (!cid || needCSeen[cid] || oaReadyOa.has(cid)) continue
+      needCSeen[cid] = true
+      needCOpenids.push(cid)
+    }
+    var ledgerDoneC = await loadOaSubscribeLedgerDoneSet(missionId, launchNetKey, needCOpenids)
+    if (needCOpenids.length > 0 && ledgerDoneC.size >= needCOpenids.length) {
+      stats.skipped += needCOpenids.length
+      continue
+    }
 
     for (var qi = 0; qi < quotaUsers.length; qi++) {
       var quota = quotaUsers[qi]
@@ -2730,7 +3653,7 @@ async function sendOASubscribeAlerts() {
         continue
       }
 
-      if (await hasOaSubscribeLedger(missionId, oaOpenid, launchNetKey)) {
+      if (ledgerDoneC.has(String(oaOpenid))) {
         stats.skipped++
         continue
       }
@@ -2739,6 +3662,7 @@ async function sendOASubscribeAlerts() {
         await sendOaSubscribeMessage(oaOpenid, OA_SUBSCRIBE_TEMPLATE_ID, page, subData)
         stats.sentOk++
         quota.remaining = Number(quota.remaining) - 1
+        ledgerDoneC.add(String(oaOpenid))
         await decrementOaSubscribeQuota(quota._id)
         await writeOaSubscribeLedger({
           missionId: missionId,
@@ -2751,21 +3675,54 @@ async function sendOASubscribeAlerts() {
       } catch (sendErr) {
         stats.failed++
         var ec = sendErr && sendErr.errcode
-        console.error('[OASub] send fail', missionId + '_' + oaOpenid, sendErr.message || sendErr)
+        var errMsg = sendErr.message || String(sendErr)
+        console.error('[OASub] send fail', missionId + '_' + oaOpenid, errMsg)
         // 43101: 用户拒收/未订阅/额度用尽 → 归零，避免反复尝试
         if (ec === 43101) {
           quota.remaining = 0
           await zeroOaSubscribeQuota(quota._id, sendErr.message || '43101')
         }
-        await writeOaSubscribeLedger({
-          missionId: missionId,
-          oaOpenid: oaOpenid,
-          templateId: OA_SUBSCRIBE_TEMPLATE_ID,
-          missionName: missionName,
-          netKey: launchNetKey,
-          status: 'failed',
-          error: sendErr.message || String(sendErr)
-        })
+        if (isPermanentOaErrcode(ec) || isPermanentOaErrorText(errMsg)) {
+          ledgerDoneC.add(String(oaOpenid))
+          await writeOaSubscribeLedger({
+            missionId: missionId,
+            oaOpenid: oaOpenid,
+            templateId: OA_SUBSCRIBE_TEMPLATE_ID,
+            missionName: missionName,
+            netKey: launchNetKey,
+            status: 'final',
+            error: errMsg
+          })
+          if (ec === 47003) {
+            for (var qj = qi + 1; qj < quotaUsers.length; qj++) {
+              var q2 = quotaUsers[qj]
+              var oa2 = q2 && q2.oaOpenid
+              if (!oa2 || ledgerDoneC.has(String(oa2)) || oaReadyOa.has(String(oa2))) continue
+              ledgerDoneC.add(String(oa2))
+              stats.skipped++
+              await writeOaSubscribeLedger({
+                missionId: missionId,
+                oaOpenid: oa2,
+                templateId: OA_SUBSCRIBE_TEMPLATE_ID,
+                missionName: missionName,
+                netKey: launchNetKey,
+                status: 'final',
+                error: '47003 mission-payload-poison: ' + String(errMsg).slice(0, 200)
+              })
+            }
+            break
+          }
+        } else {
+          var tStatus = await writeOaTransientFailedLedger({
+            channel: 'subscribe',
+            missionId: missionId,
+            oaOpenid: oaOpenid,
+            missionName: missionName,
+            netKey: launchNetKey,
+            error: errMsg
+          })
+          if (tStatus === 'final') ledgerDoneC.add(String(oaOpenid))
+        }
       }
     }
   }

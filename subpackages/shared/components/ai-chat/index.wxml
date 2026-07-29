@@ -56,6 +56,11 @@
 
     >
 
+      <!-- 导航占位：与通用骨架 nav-scroll-pad 同职。消息区从屏顶起算，
+           旧消息上滑时穿过固定磨砂导航，玻璃质感才成立 -->
+
+      <view wx:if="{{topInset > 0}}" style="height: {{topInset}}px; width: 100%;"></view>
+
       <!-- 欢迎消息（无历史时显示）：首次进入弹跳动态头像 -->
 
       <view class="ai-welcome" wx:if="{{!messages.length}}">
@@ -131,6 +136,11 @@
           <!-- 机器人头像 -->
 
           <view class="ai-bot-avatar" wx:if="{{item.role !== 'user'}}">
+
+            <!-- 节日期间每条回复都戴帽（欢迎区一问就消失，氛围留不住）；
+                 非节日 festivalHat 为空，wx:if 让组件根本不创建 -->
+
+            <festival-hat wx:if="{{festivalHat}}" hat="{{festivalHat}}" size="{{48}}" />
 
             <view class="ai-star-wrap ai-star-wrap--bot">
 
@@ -510,6 +520,8 @@
 
                   data-needsim="{{card.needMissionSimFlag ? 1 : 0}}"
 
+                  data-needlive="{{card.needLiveFlag ? 1 : 0}}"
+
                 >
 
                   <view class="ai-entry-glow"></view>
@@ -533,6 +545,86 @@
                   <view class="ai-entry-arrow">
 
                     <text>{{card.cta || '进入 ›'}}</text>
+
+                  </view>
+
+                </view>
+
+                <!-- 参数卡：火箭型号 / 发射场 / 飞船 / 助推器 / 每日天文图 -->
+
+                <view
+
+                  class="ai-rich-card glass-card ai-spec-card ai-spec-card--{{card.variant || 'wiki'}}"
+
+                  wx:elif="{{card.cardType === 'spec'}}"
+
+                  bindtap="onSpecCardTap"
+
+                  data-kind="{{card.specKind}}"
+
+                  data-targetid="{{card.targetId}}"
+
+                  data-name="{{card.targetName}}"
+
+                  data-gateid="{{card.gateProductId}}"
+
+                  data-gatename="{{card.gateProductName}}"
+
+                  data-navlat="{{card.nav.latitude}}"
+
+                  data-navlng="{{card.nav.longitude}}"
+
+                  data-navname="{{card.nav.name}}"
+
+                  data-navaddr="{{card.nav.address}}"
+
+                >
+
+                  <image
+
+                    class="ai-spec-image"
+
+                    wx:if="{{card.image}}"
+
+                    src="{{card.image}}"
+
+                    mode="aspectFill"
+
+                  ></image>
+
+                  <view class="ai-spec-body">
+
+                    <text class="ai-spec-tag">{{card.tag}}</text>
+
+                    <text class="ai-spec-title">{{card.title}}</text>
+
+                    <text class="ai-spec-subtitle" wx:if="{{card.subtitle}}">{{card.subtitle}}</text>
+
+                    <view class="ai-spec-rows" wx:if="{{card.rows.length}}">
+
+                      <view
+
+                        class="ai-spec-row"
+
+                        wx:for="{{card.rows}}"
+
+                        wx:for-item="spec"
+
+                        wx:key="label"
+
+                      >
+
+                        <text class="ai-spec-row-label">{{spec.label}}</text>
+
+                        <text class="ai-spec-row-value">{{spec.value}}</text>
+
+                      </view>
+
+                    </view>
+
+                    <text class="ai-spec-note" wx:if="{{card.note}}">{{card.note}}</text>
+
+                    <text class="ai-rich-card-cta ai-spec-cta">{{card.cta || '查看详情 ›'}}</text>
 
                   </view>
 
@@ -636,7 +728,11 @@
 
 
 
+      <!-- 两个等位贴底锚点：交替命中才能让 scroll-into-view 每帧都真的滚（见 _stickToBottom） -->
+
       <view id="msg-bottom" style="height: 20rpx;"></view>
+
+      <view id="msg-bottom-alt" style="height: 1rpx;"></view>
 
     </scroll-view>
 
@@ -715,8 +811,6 @@
         bindkeyboardheightchange="onInputKeyboardHeightChange"
 
         confirm-type="send"
-
-        disabled="{{sending}}"
 
         focus="{{inputFocus}}"
 

@@ -179,6 +179,9 @@ exports.main = async (event) => {
     return { success: false, error: 'forbidden: action not allowed from client', timestamp: Date.now() }
   }
 
+  // 重置本轮混元翻译的时间预算（实例复用时上一轮的 deadline 必须作废）
+  require('./translate.js').beginTranslateRun()
+
   try {
     switch (action) {
       case 'syncLaunches': {

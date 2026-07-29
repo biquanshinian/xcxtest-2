@@ -1,0 +1,262 @@
+/* SPACE_NOTICES_FEATURE */
+page {
+  background: #000;
+  color: #fff;
+}
+
+.list-page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  box-sizing: border-box;
+}
+
+.list-scroll {
+  height: 100vh;
+}
+
+.list-body {
+  padding: 20rpx 30rpx 48rpx;
+}
+
+.nav-title-wrap {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 24rpx;
+  overflow: hidden;
+}
+
+.card-hover {
+  transition: transform 0.15s ease;
+}
+.card-hover:active {
+  transform: scale(0.98);
+}
+
+.sn-hint {
+  padding: 24rpx 28rpx;
+  margin-bottom: 24rpx;
+}
+.sn-hint-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 8rpx;
+}
+.sn-hint-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--color-text-primary, #fff);
+}
+.sn-hint-sync {
+  flex-shrink: 0;
+  min-width: 140rpx;
+  min-height: 56rpx;
+  padding: 0 20rpx;
+  border-radius: 999rpx;
+  background: rgba(0, 122, 255, 0.16);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+.sn-hint-sync text {
+  display: block;
+  width: 100%;
+  text-align: center;
+  line-height: 1;
+  font-size: 24rpx;
+  color: #007AFF;
+  font-weight: 500;
+}
+.sn-hint-desc {
+  display: block;
+  font-size: 24rpx;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.7));
+  line-height: 1.5;
+}
+
+.sn-state {
+  padding: 64rpx 32rpx;
+  text-align: center;
+}
+.sn-state-title {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 600;
+  color: var(--color-text-primary, #fff);
+}
+.sn-state-desc {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  line-height: 1.5;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.7));
+  word-break: break-all;
+}
+
+.sn-btn {
+  margin: 28rpx auto 0;
+  width: 280rpx;
+  min-height: 72rpx;
+  border-radius: 999rpx;
+  background: #007AFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+.sn-btn text {
+  display: block;
+  width: 100%;
+  text-align: center;
+  line-height: 1;
+  font-size: 28rpx;
+  color: #fff;
+}
+.sn-btn--ghost {
+  background: transparent;
+  border: 1rpx solid rgba(255, 255, 255, 0.25);
+}
+.sn-btn--ghost text {
+  color: var(--color-text-primary, #fff);
+}
+
+.sn-section {
+  margin-bottom: 12rpx;
+}
+.sn-section-head {
+  display: flex;
+  align-items: baseline;
+  padding: 8rpx 10rpx 16rpx;
+}
+.sn-section-title {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.72));
+}
+.sn-section-count {
+  margin-left: 12rpx;
+  font-size: 22rpx;
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.45));
+}
+
+.sn-card {
+  display: flex;
+  align-items: center;
+  padding: 28rpx;
+  margin-bottom: 20rpx;
+}
+.sn-card--past {
+  opacity: 0.88;
+}
+.sn-card-main {
+  flex: 1;
+  min-width: 0;
+}
+.sn-card-top {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+.sn-card-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 30rpx;
+  font-weight: 600;
+  color: var(--color-text-primary, #fff);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sn-chip {
+  flex-shrink: 0;
+  min-height: 34rpx;
+  padding: 0 12rpx;
+  border-radius: 999rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+.sn-chip text {
+  line-height: 1;
+  font-size: 20rpx;
+}
+.sn-chip--traj {
+  background: rgba(255, 204, 0, 0.16);
+}
+.sn-chip--traj text {
+  color: #ffcc00;
+}
+.sn-card-sub {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 24rpx;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.65));
+}
+.sn-card-meta {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.5));
+}
+.sn-card-arrow {
+  font-size: 40rpx;
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.4));
+  margin-left: 12rpx;
+}
+
+.skeleton-card {
+  margin-bottom: 20rpx;
+  padding: 28rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* ========== 明亮主题 ========== */
+.list-page.theme-light {
+  background: var(--color-bg-page);
+}
+.theme-light .glass-card {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-card);
+}
+.theme-light .skeleton-card {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-divider);
+}
+.theme-light .sn-btn--ghost {
+  border-color: var(--color-divider);
+}
+.theme-light .sn-btn--ghost text {
+  color: var(--color-text-primary);
+}
+.theme-light .sn-hint-sync {
+  background: rgba(0, 122, 255, 0.1);
+}
+.theme-light .sn-section-title {
+  color: var(--color-text-secondary);
+}
+.theme-light .sn-section-count {
+  color: var(--color-text-tertiary);
+}
+.theme-light .sn-chip--traj {
+  background: rgba(255, 170, 0, 0.14);
+}
+.theme-light .sn-chip--traj text {
+  color: #B8860B;
+}

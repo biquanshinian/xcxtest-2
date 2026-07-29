@@ -190,6 +190,29 @@ const AI_TRANSLATE_SYSTEM_PROMPT = `你是航天领域的专业中英翻译。�
 3. 术语准确：booster=助推器，static fire=静态点火，splashdown=溅落，payload=载荷，flyback=返场
 4. 语气自然流畅，符合中文航天报道习惯`
 
+/**
+ * 判定模型输出是否是「像样的译文」，用于挡掉英文复述 / 解释。
+ * 与云端 looksLikelyChinese 对齐：译文里从原文原样保留的专名（SpaceX、Falcon 9、
+ * NROL-123 等）不计入英文占比——否则专名密集的新闻标题会被误判成没翻译而整条丢弃。
+ */
+function looksLikeTranslation(src, out) {
+  const zh = String(out || '')
+  if (!zh.trim()) return false
+  const cjk = (zh.match(/[\u4e00-\u9fff]/g) || []).length
+  if (!cjk) return false
+
+  const srcWords = {}
+  const srcTokens = String(src || '').toLowerCase().match(/[a-z][a-z0-9'\u2019-]*/g) || []
+  for (const w of srcTokens) srcWords[w] = true
+
+  let latin = 0
+  const outTokens = zh.replace(/https?:\/\/\S+/g, ' ').match(/[A-Za-z][A-Za-z0-9'\u2019-]*/g) || []
+  for (const w of outTokens) {
+    if (!srcWords[w.toLowerCase()]) latin += w.length
+  }
+  return cjk / (cjk + latin) >= 0.25
+}
+
 /** 去掉模型偶发的"译文："前缀与整段包裹引号 */
 function cleanAITranslation(s) {
   let out = String(s || '').trim()
@@ -255,7 +278,7 @@ async function translateViaAIChunk(text) {
     })
     const cleaned = cleanAITranslation(out)
     // 译文必须是像样的中文，防止模型输出英文复述或解释
-    return cleaned && !isMostlyChinese(src) && isMostlyChinese(cleaned) ? cleaned : ''
+    return cleaned && !isMostlyChinese(src) && looksLikeTranslation(src, cleaned) ? cleaned : ''
   } catch (e) {
     return ''
   }
@@ -274,6 +297,15 @@ async function translateViaAI(text) {
   if (parts.length === 1) return translateViaAIChunk(parts[0])
 
   const zhParts = await mapPool(parts, AI_TRANSLATE_CONCURRENCY, async (part) => translateViaAIChunk(part))
+  // 长文会切成十几段，单段抖动概率不低：只补跑失败段，不因一段失败丢掉整条译文
+  const missing = []
+  for (let i = 0; i < zhParts.length; i++) {
+    if (!zhParts[i]) missing.push(i)
+  }
+  if (missing.length) {
+    const retried = await mapPool(missing, AI_TRANSLATE_CONCURRENCY, async (idx) => translateViaAIChunk(parts[idx]))
+    for (let i = 0; i < missing.length; i++) zhParts[missing[i]] = retried[i]
+  }
   if (!zhParts.every(Boolean)) return ''
   return zhParts.join('')
 }
@@ -409,6 +441,16 @@ async function translateTextsSmart(texts) {
  *     zh 有值时本地秒切不调云端，只有缺 zh 且判定为英文的字段才批量送翻
  * @returns {Promise<void>}
  */
+/** 云端原始错误多是英文错误码（如 service free amount ... used up），转成用户看得懂的短提示 */
+function friendlyTranslateError(msg) {
+  const s = String(msg || '').trim()
+  if (!s) return '翻译失败，请稍后再试'
+  if (/AmountUsedUp|free amount|额度|配额|quota/i.test(s)) return '翻译额度已用完，请稍后再试'
+  if (/未配置|密钥|SecretId|SecretKey/i.test(s)) return '翻译服务未配置，请联系管理员'
+  if (/超时|timeout/i.test(s)) return '翻译超时，请稍后再试'
+  return s.length > 36 ? s.slice(0, 36) + '…' : s
+}
+
 /** 翻译按钮点击触感：中度震动（不支持 type 的旧机型退化为默认短震） */
 function vibrateMedium() {
   try {
@@ -547,7 +589,7 @@ function _applyTranslation(page, opts) {
         const patch = {}
         patch[loadingKey] = false
         page.setData(patch)
-        wx.showToast({ title: msg.length > 36 ? msg.slice(0, 36) + '…' : msg, icon: 'none' })
+        wx.showToast({ title: friendlyTranslateError(msg), icon: 'none' })
       })
   }
   return runTranslate(false)
@@ -559,5 +601,7 @@ module.exports = {
   togglePageTranslation,
   translateGateCheck,
   isMostlyChinese,
+  looksLikeTranslation,
+  friendlyTranslateError,
   vibrateMedium
 }

@@ -7,7 +7,9 @@ const path = require('path')
 
 const scripts = [
   'scripts/_audit_cloud_translate_hunyuan.js',
+  'scripts/_audit_sync_translate_hunyuan.js',
   'scripts/_audit_translate_branches.js',
+  'scripts/_audit_translate_pages.js',
   'scripts/_audit_five_fixes_once.js'
 ]
 

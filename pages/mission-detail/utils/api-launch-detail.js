@@ -1094,13 +1094,13 @@ async function processLaunchDetail(launch) {
         const lstatus = inferLandingStatus(ld, ltype)
         const display = buildLandingDisplay(ltype, labbrev || lname, reusedFlag, lstatus, ld)
         // 星舰任务的 Super Heavy 助推器（如 Booster 19）不是 Falcon B10xx 那种回收族谱对象，
-        // 而是一枚独立组合体硬件——它的详情展示在 progress 页"星舰组合体进展"卡片里，
-        // 不走 booster-detail。给它打上 stageKind，由 mission-detail.openShipDetail 分发
+        // 而是一枚独立组合体硬件——它的详情收在「星舰硬件设施」库里，不走 booster-detail。
+        // 给它打上 stageKind，由 mission-detail.openShipDetail 分发
         const isSuperHeavy = isStarshipRocket
         return {
           // stageKind 用于序列号 chip 跳转分发：
-          //   'ship'                → 跳 progress 页并自动打开 Ship 卡片弹窗
-          //   'super_heavy_booster' → 跳 progress 页并自动打开 Booster 卡片弹窗
+          //   'ship'                → 跳 progress 页并打开 Ship 硬件详情
+          //   'super_heavy_booster' → 跳 progress 页并打开 Booster 硬件详情
           //   undefined             → 跳 booster-detail（Falcon 助推器 B10xx 族谱）
           stageKind: isSuperHeavy ? 'super_heavy_booster' : undefined,
           role: roleLabel,

@@ -215,7 +215,21 @@ Page({
     return null
   },
 
+  /** 与任务详情页一致：重新载入内容时清掉上一条的译文与页面级翻译缓存 */
+  _resetDescTranslation() {
+    const i18n = this.data.descI18n || {}
+    if (this.data.descTranslated || i18n.title || i18n.summary || i18n.content || i18n.eventDesc) {
+      this.setData({
+        descTranslated: false,
+        descTranslating: false,
+        descI18n: { title: '', summary: '', content: '', eventDesc: '' }
+      })
+    }
+    this._textTranslateCache = null
+  },
+
   async loadDetail(detailType, id, opts = {}) {
+    this._resetDescTranslation()
     // 列表项快照先上屏（首屏加速）：列表与详情走同一格式化函数，展示一致；网络详情照常拉取兜底
     if (!this.data.item && !opts.silent) {
       const snap = this._takeNewsSnapshot(detailType, id)

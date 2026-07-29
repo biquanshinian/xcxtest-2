@@ -194,6 +194,8 @@ Page({
   },
 
   onToggleTranslate() {
+    // 与其它详情页一致的重入保护：翻译中再点会并发跑第二条管线，白白多耗一次额度
+    if (this.data.descTranslating) return
     const updates = Array.isArray(this.data.updates) ? this.data.updates : []
     const fields = updates.map((u, i) => ({
       path: 'translatedComments[' + i + ']',

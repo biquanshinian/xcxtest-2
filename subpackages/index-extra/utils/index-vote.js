@@ -13,6 +13,7 @@ const {
   removeLocalVote,
   shouldSkipVoteRefresh
 } = require('../../../utils/index-page-helpers.js')
+const { getServerNow } = require('../../../utils/server-clock.js')
 
 // 竞猜刷新间隔：此前 15s，每次切 Tab 回首页都会重新打 adminGateway（skipCache=true 绕过本地缓存）。
 // 投票后的最新票数由 castVote 返回值直接回填 bundle，不依赖这里的定时刷新；
@@ -161,7 +162,8 @@ const voteMethods = {
           this.data.launchData && this.data.launchData.launchTime
             ? new Date(this.data.launchData.launchTime).getTime()
             : 0
-        if (ldTs && ldTs - Date.now() > 30 * 60 * 1000) {
+        // 与云端封盘判定同一口径：用校准时钟，避免设备时钟偏移导致本地放行、云端拒绝
+        if (ldTs && ldTs - getServerNow() > 30 * 60 * 1000) {
           try {
             ontimeStats = await prefetchPromise
           } catch (ePrefetch) {

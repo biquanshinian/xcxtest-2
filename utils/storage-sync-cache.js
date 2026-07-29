@@ -20,7 +20,6 @@ const HOT_SYNC_KEYS = [
   '_user_behavior_stats',
   '_voted_launches',
   '_achievements_data',
-  'openclaw_guide_dismissed',
   '_briefing_progress_filter_clear',
   '_briefing_progress_filter_source',
   // 各 Tab 页 page-storage-boot warm 的 key：启动时异步预热后，
@@ -56,7 +55,6 @@ const HOT_SYNC_FALLBACKS = {
   '_user_behavior_stats': {},
   '_voted_launches': {},
   '_achievements_data': {},
-  'openclaw_guide_dismissed': false,
   '_briefing_progress_filter_clear': '',
   '_briefing_progress_filter_source': '',
   '_membership_state': null,

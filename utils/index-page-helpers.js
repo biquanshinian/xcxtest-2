@@ -1,7 +1,9 @@
 const { getStatusCategory, getStatusBadgeText, isTerminalStatusId } = require('./api-request.js')
+const { getServerNow } = require('./server-clock.js')
 
 function filterExpiredMissions(missions) {
-  const now = Date.now()
+  // 与倒计时显示同一时钟：否则设备时钟偏快会提前把还没发射的任务判为过期
+  const now = getServerNow()
   return (missions || []).filter((mission) => {
     if (!mission) return false
     const sid = mission.statusId != null ? Number(mission.statusId) : 0

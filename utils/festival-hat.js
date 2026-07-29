@@ -10,6 +10,8 @@
  * 3) christmas —— 每年 12/24–12/26（非国办假，固定公历）
  *    国办通知发布后：把该年写入 OFFICIAL，预估自动被覆盖
  *
+ * 不收清明：扫墓祭扫的日子不适合戴喜庆帽，故七个法定假日里只覆盖六个。
+ *
  * UI 组件：components/festival-hat（按圆直径 size rpx 缩放贴合）
  * 开发：FESTIVAL_HAT_DEV_MODE=true 时循环预览；看完改 false
  */
@@ -24,6 +26,7 @@ const DEV_CYCLE_MS = 2800
 const HOLIDAY_TABLE_THROUGH_YEAR = 2030
 
 const FESTIVAL_HATS = [
+  { id: 'yuandan', name: '元旦', tip: '跨年小礼帽' },
   { id: 'spring', name: '春节', tip: '贴头红绒帽' },
   { id: 'duanwu', name: '端午节', tip: '艾叶发环' },
   { id: 'zhongqiu', name: '中秋节', tip: '月兔耳饰' },
@@ -39,6 +42,8 @@ const FESTIVAL_HATS = [
 const OFFICIAL_HOLIDAY_WINDOWS = {
   2024: {
     // 国办发明电〔2023〕7号
+    // 元旦「1月1日放假，与周末连休」→ 跨年落在 2023/12/30（表按假期所属年份收口）
+    yuandan: [[2023, 12, 30], [2024, 1, 1]],
     spring: [[2024, 2, 10], [2024, 2, 17]],
     laodong: [[2024, 5, 1], [2024, 5, 5]],
     duanwu: [[2024, 6, 8], [2024, 6, 10]], // 6/10 放假与周末连休
@@ -49,6 +54,7 @@ const OFFICIAL_HOLIDAY_WINDOWS = {
   },
   2025: {
     // 国办发明电〔2024〕12号
+    yuandan: [[2025, 1, 1], [2025, 1, 1]], // 逢周三，只放当日不调休
     spring: [[2025, 1, 28], [2025, 2, 4]],
     laodong: [[2025, 5, 1], [2025, 5, 5]],
     duanwu: [[2025, 5, 31], [2025, 6, 2]],
@@ -58,6 +64,7 @@ const OFFICIAL_HOLIDAY_WINDOWS = {
   },
   2026: {
     // 国办发明电〔2025〕7号
+    yuandan: [[2026, 1, 1], [2026, 1, 3]],
     spring: [[2026, 2, 15], [2026, 2, 23]],
     laodong: [[2026, 5, 1], [2026, 5, 5]],
     duanwu: [[2026, 6, 19], [2026, 6, 21]],
@@ -79,7 +86,7 @@ const LUNAR_FESTIVAL_ANCHORS = {
 }
 
 /** 重叠日优先级 */
-const MATCH_ORDER = ['spring', 'duanwu', 'zhongqiu', 'laodong', 'guoqing', 'christmas']
+const MATCH_ORDER = ['yuandan', 'spring', 'duanwu', 'zhongqiu', 'laodong', 'guoqing', 'christmas']
 
 function _ymdParts(d) {
   return [d.getFullYear(), d.getMonth() + 1, d.getDate()]
@@ -129,6 +136,7 @@ function _estimateThreeDay(y, m, day) {
 
 /**
  * 未发通知年份：按办法原则预估
+ * - 元旦：1/1 ± 连休 3 天（周三仅 1 天）；逢周日/一/二会跨到上一年 12 月
  * - 春节：农历除夕起 8 天
  * - 劳动节：5/1–5/5
  * - 端午/中秋：正日 ± 连休 3 天（周三仅 1 天）
@@ -154,7 +162,10 @@ function _estimateYearWindows(y, anchors) {
     zhongqiu = [[y, zqM, zqD], [y, 10, 8]]
   }
 
+  const yuandan = _estimateThreeDay(y, 1, 1)
+
   return {
+    yuandan,
     spring: [_ymdParts(eve), _ymdParts(springEnd)],
     laodong: [[y, 5, 1], [y, 5, 5]],
     duanwu,

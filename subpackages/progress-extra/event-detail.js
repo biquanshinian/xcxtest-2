@@ -9,8 +9,14 @@ const { buildLl2ImageChain, advanceImageFallback, proxiedImageUrl } = require('.
 const { fetchLiveStatusBatch, parseLiveStatus } = require('./utils/live-status.js')
 const { isPermissionDenied, getPermissionDeniedMessage } = require('./utils/single-page.js')
 const pageBase = require('../../utils/page-base.js')
-const { pickEventShareImageUrl, resolveTweetAccountAvatarUrl, resolveEventAuthorAvatarUrl } = require('../shared/utils/event-share-image.js')
-const { warmEventShareImage } = require('../../utils/event-share-image.js')
+// 必须走主包薄壳（内部 require.async 拉 shared 分包）：直接同步 require ../shared/**
+// 在分享卡片 / 朋友圈单页直达本页时 shared 分包尚未下载，模块加载即报错导致整页黑屏
+const {
+  pickEventShareImageUrl,
+  resolveTweetAccountAvatarUrl,
+  resolveEventAuthorAvatarUrl,
+  warmEventShareImage
+} = require('../../utils/event-share-image.js')
 try { warmEventShareImage() } catch (e) {}
 const { gateCheck, isMembershipEnabled, getMembershipState, isPro, hasPurchased, canUsePaidCloudSync, canPrefetchVideoSync, canSaveOriginalVideoSync, isProSync } = require('../../utils/membership.js')
 const { getMemberPolicy, getMemberPolicySync } = require('../../utils/member-policy.js')
@@ -1195,6 +1201,10 @@ Page({
     } catch (e) {}
 
     this.initUiShell()
+
+    // 薄壳在 shared 分包到位前只返回降级值（头像空 / 分享图用默认图）。
+    // 分享冷启动时本页是首个页面，模块预热来不及，先等一次再 enrich。
+    await warmEventShareImage().catch(() => {})
 
     wx.showShareMenu({
       withShareTicket: true,

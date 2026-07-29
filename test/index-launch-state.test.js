@@ -13,7 +13,10 @@ const {
   attachCardCountdownToMissions,
   buildMissionCardCountdownTickPatch,
   pickCountdownDisplayMission,
-  shouldHoldPastNetCountdownMission
+  shouldHoldPastNetCountdownMission,
+  resolveCountdownPrecision,
+  buildOverlapSideCardView,
+  buildCountdownTickState
 } = require('../utils/index-launch-state.js')
 
 // 固定倒计时值的 mock，避免依赖真实时间
@@ -209,4 +212,131 @@ test('attachCardCountdownToMissions：窗口挂住的面板任务显示 00:00 �
   assert.equal(out[0].cardCountdown.holdConfirming, true)
   assert.equal(out[0].cardCountdown.minutes, '00')
   assert.equal(out[1].cardCountdown.isExpired, true)
+})
+
+test('resolveCountdownPrecision：Second/Minute/Hour 可走时钟倒计时', () => {
+  ;['Second', 'Minute', 'Hour', 'second', 'HOUR'].forEach((p) => {
+    assert.equal(resolveCountdownPrecision({ netPrecision: p }).clockCapable, true, p)
+  })
+})
+
+test('resolveCountdownPrecision：Day 及更粗档位降级（net 只是占位时刻）', () => {
+  ;['Day', 'Week', 'Month', 'Quarter', 'Year'].forEach((p) => {
+    assert.equal(resolveCountdownPrecision({ netPrecision: p }).clockCapable, false, p)
+  })
+})
+
+test('resolveCountdownPrecision：字段缺失按可倒计时处理（老缓存不能被降级）', () => {
+  assert.equal(resolveCountdownPrecision({}).clockCapable, true)
+  assert.equal(resolveCountdownPrecision(null).clockCapable, true)
+  assert.equal(resolveCountdownPrecision({ netPrecision: '' }).clockCapable, true)
+  // LL2 详情接口的原始字段名也认
+  assert.equal(resolveCountdownPrecision({ net_precision: 'Month' }).clockCapable, false)
+})
+
+test('buildOverlapSideCardView：过点副卡状态强制「状态确认中」，不留列表残留的就绪', () => {
+  const view = buildOverlapSideCardView(
+    { id: 'x', missionName: 'M', statusBadgeText: '就绪', statusCategory: 'go', launchTime: 't' },
+    { getCountdown: () => ({ days: 0, hours: 0, minutes: 0, seconds: 0, isExpired: true }) }
+  )
+  assert.equal(view.statusTextZh, '状态确认中')
+  assert.equal(view.statusCategory, 'pending')
+  assert.equal(view.countdownText, '确认中')
+})
+
+test('buildCountdownTickState：秒未变 → 不产生任何 setData', () => {
+  const tick = buildCountdownTickState({
+    countdown: { days: 1, hours: 2, minutes: 3, seconds: 9 },
+    prevCountdown: { days: 1, hours: 2, minutes: 3, seconds: 9 },
+    currentSecondsText: '09',
+    nextSecondsText: '09',
+    nextSecondsReel: ['09', '09', '08']
+  })
+  assert.equal(tick.didSecondsChange, false)
+  assert.equal(tick.immediateState, null)
+  assert.equal(tick.settleState, null)
+})
+
+test('buildCountdownTickState：秒未变但时/分变了 → 仍下发（切任务撞同一秒位）', () => {
+  const tick = buildCountdownTickState({
+    countdown: { days: 0, hours: 5, minutes: 0, seconds: 0 },
+    prevCountdown: { days: 0, hours: 1, minutes: 11, seconds: 0 },
+    currentSecondsText: '00',
+    nextSecondsText: '00',
+    nextSecondsReel: ['00', '59', '58']
+  })
+  assert.equal(tick.didSecondsChange, false)
+  assert.equal(tick.immediateState['countdown.hours'], 5)
+  assert.equal(tick.immediateState['countdown.minutes'], 0)
+  // 秒位没动就不该碰滚轮字段
+  assert.equal('countdownSecondsRolling' in tick.immediateState, false)
+  assert.equal('countdown.seconds' in tick.immediateState, false)
+  assert.equal(tick.settleState, null)
+})
+
+test('buildCountdownTickState：正常走一秒 → 播滚轮动画并给出 settle', () => {
+  const tick = buildCountdownTickState({
+    countdown: { days: 1, hours: 2, minutes: 3, seconds: 9 },
+    prevCountdown: { days: 1, hours: 2, minutes: 3, seconds: 10 },
+    currentSecondsText: '10',
+    nextSecondsText: '09',
+    nextSecondsReel: ['09', '08', '07']
+  })
+  assert.equal(tick.immediateState.countdownSecondsRolling, true)
+  assert.deepEqual(tick.immediateState.countdownSecondsReel, ['10', '09', '07'])
+  assert.ok(tick.settleState)
+  assert.equal(tick.settleState.countdownSecondsRolling, false)
+  // 只有变化的字段进补丁：分/时/天未变则不下发
+  assert.equal('countdown.minutes' in tick.immediateState, false)
+})
+
+test('buildCountdownTickState：跨分钟 00→59 仍视为走一秒', () => {
+  const tick = buildCountdownTickState({
+    countdown: { days: 0, hours: 1, minutes: 2, seconds: 59 },
+    prevCountdown: { days: 0, hours: 1, minutes: 3, seconds: 0 },
+    currentSecondsText: '00',
+    nextSecondsText: '59',
+    nextSecondsReel: ['59', '58', '57']
+  })
+  assert.equal(tick.immediateState.countdownSecondsRolling, true)
+  assert.equal(tick.immediateState['countdown.minutes'], 2)
+  assert.ok(tick.settleState)
+})
+
+test('buildCountdownTickState：跳秒（节流/后台恢复）直接落位，不播错帧动画', () => {
+  const tick = buildCountdownTickState({
+    countdown: { days: 0, hours: 1, minutes: 2, seconds: 5 },
+    prevCountdown: { days: 0, hours: 1, minutes: 2, seconds: 10 },
+    currentSecondsText: '10',
+    nextSecondsText: '05',
+    nextSecondsReel: ['05', '04', '03']
+  })
+  assert.equal(tick.immediateState.countdownSecondsRolling, false)
+  assert.deepEqual(tick.immediateState.countdownSecondsReel, ['05', '04', '03'])
+  assert.equal(tick.immediateState.countdownSecondsCurrent, '05')
+  assert.equal(tick.immediateState.countdownSecondsPrev, '05')
+  // 无动画就无需复位，省一次 setData
+  assert.equal(tick.settleState, null)
+})
+
+test('buildCountdownTickState：首帧（无旧秒值）直接落位', () => {
+  const tick = buildCountdownTickState({
+    countdown: { days: 0, hours: 0, minutes: 0, seconds: 42 },
+    prevCountdown: {},
+    currentSecondsText: '',
+    nextSecondsText: '42',
+    nextSecondsReel: ['42', '41', '40']
+  })
+  assert.equal(tick.immediateState.countdownSecondsRolling, false)
+  assert.equal(tick.settleState, null)
+})
+
+test('buildOverlapSideCardView：未过点仍展示原始状态文案', () => {
+  const view = buildOverlapSideCardView(
+    { id: 'x', missionName: 'M', statusBadgeText: '就绪', statusCategory: 'go', launchTime: 't' },
+    { getCountdown: () => ({ days: 0, hours: 1, minutes: 2, seconds: 3, isExpired: false }) }
+  )
+  assert.equal(view.statusTextZh, '就绪')
+  assert.equal(view.statusCategory, 'go')
+  assert.equal(view.countdownText, '01:02:03')
 })

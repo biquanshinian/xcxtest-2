@@ -30,8 +30,13 @@ const { normalizeLl2TimelineList } = require('./ll2-launch-timeline.js')
 const { formatCloudError } = require('../../../utils/launch-stats-cloud.js')
 const { getCachedMediaImage } = require('../../../utils/icon-cache.js')
 const { enrichVideoMediaItem, eventVideoAdUnlockId, playEventVideo, saveEventOriginalVideo } = require('./event-video.js')
-const { resolveTweetAccountAvatarUrl, resolveEventAuthorAvatarUrl } = require('../../shared/utils/event-share-image.js')
-const { warmEventShareImage } = require('../../../utils/event-share-image.js')
+// 必须走主包薄壳（内部 require.async 拉 shared 分包）：直接同步 require ../../shared/**
+// 在分享卡片 / 朋友圈单页直达本分包页面时 shared 尚未下载，模块加载即报错导致整页黑屏
+const {
+  resolveTweetAccountAvatarUrl,
+  resolveEventAuthorAvatarUrl,
+  warmEventShareImage
+} = require('../../../utils/event-share-image.js')
 try { warmEventShareImage() } catch (e) {}
 const { fetchLiveStatusBatch, parseLiveStatus } = require('./live-status.js')
 const { isLiveEntryAllowed } = require('../../../utils/feature-flags.js')
@@ -432,6 +437,9 @@ const methods = {
   async loadEventUpdates(refresh, filterSource, opts = {}) {
     if (this.data.eventUpdatesLoading) return
     this.setData({ eventUpdatesLoading: true })
+
+    // 薄壳在 shared 分包到位前头像解析返回空；分享直达进度页时 preload 可能还没跑完
+    await warmEventShareImage().catch(() => {})
 
     // 保存筛选条件
     if (filterSource !== undefined) {

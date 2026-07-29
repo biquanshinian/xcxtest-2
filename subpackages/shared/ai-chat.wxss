@@ -24,6 +24,9 @@
   color: var(--color-text-tertiary, rgba(255, 255, 255, 0.45));
 }
 
+/* 导航保持通用骨架的 fixed 磨砂条；对话区不留 padding-top，从屏顶起算，
+   导航占位放在消息 scroll-view 内部（topInset），旧消息上滑时穿过导航背后。
+   这样既有玻璃质感，那段留白也不再是内容永远进不去的死高度。 */
 .ai-chat-detail-body {
   flex: 1;
   min-height: 0;

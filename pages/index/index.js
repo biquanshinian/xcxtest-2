@@ -69,6 +69,8 @@ const {
   shouldAutoSwitchCountdown,
   buildCountdownTickState,
   buildCountdownLoopMeta,
+  collectPastNetUpcomingHeads,
+  resolveCountdownPrecision,
   buildMissionCardCountdownTickPatch,
   attachCardCountdownToMissions,
   buildUpcomingLaunchEmptyState,
@@ -76,6 +78,8 @@ const {
   mergePreservedRocketImages
 } = require('../../utils/index-launch-state.js')
 const { nextProbeAction } = require('../../utils/countdown-window-machine.js')
+// NET 相关判定统一走校准时钟；纯本地节拍（节流/去抖/震动间隔）仍用 Date.now()
+const { getServerNow, syncServerClock } = require('../../utils/server-clock.js')
 const { mergeObservationList, projectLaunchRecords, isSettledStatusId } = require('../../utils/launch-status-store.js')
 const {
   resolveMissionDetailSourceData,
@@ -480,6 +484,9 @@ Page({
     this._pageLoadAt = Date.now()
     this._launchRecordsById = new Map()
     this._launchStateGeneration = 0
+    // 尽早校时：设备时钟偏移会让倒计时整体错位并误触发 T-0 探针。
+    // 失败静默降级为 offset=0（等同未校时），不阻塞任何首屏逻辑
+    syncServerClock().catch(() => {})
     // 冷启动立即异步回灌上次会话的 recent_settled 快照：
     // 首屏列表过滤可直接用本地快照，不再被 ll2Query 冷启动（数秒）卡住
     this._hydrateRecentSettledFromStorage()
@@ -653,11 +660,15 @@ Page({
   },
 
   onShow() {
+    this._countdownPageHidden = false
     // 主题兜底同步：在其他 Tab 切了主题后回到本 Tab（getCurrentPages 只含当前栈，切主题时刷不到本页）
     themeUtil.applyThemeToPage(this)
 
     // 节日帽与星问对齐：回前台按当天再解析（开发模式则续轮播预览）
     this._syncFestivalHat()
+
+    // 长时间后台可能跨过设备改时/漂移；内部 10 分钟节流，不会每次切 Tab 都发请求
+    syncServerClock().catch(() => {})
 
     // 切回前台/Tab：按真实时间重算并恢复倒计时（onHide 已暂停，避免后台空跑）
     this.startCountdown()
@@ -827,7 +838,7 @@ Page({
       recordsById: this._launchRecordsById,
       upcoming: Array.isArray(upcoming) ? upcoming : [],
       completed: Array.isArray(completed) ? completed : [],
-      now: now || Date.now()
+      now: now || getServerNow()
     })
   },
 
@@ -954,12 +965,15 @@ Page({
     /** 与主倒计时窗口重叠的相邻任务副卡（精简单行）；无重叠时为 null */
     overlapSideCard: null,
     countdown: {
-      days: '',
-      hours: '',
-      minutes: '',
-      seconds: '',
+      days: 0,
+      hours: 0,
+      minutes: 0,
+      seconds: 0,
       isExpired: false
     },
+    /** NET 缺失或精度过粗：面板改显文案而非会误导的精确时钟 */
+    countdownTimeUnknown: false,
+    countdownTimeUnknownText: '',
     countdownSecondsPrev: '',
     countdownSecondsCurrent: '',
     countdownSecondsRolling: false,
@@ -1303,7 +1317,7 @@ Page({
     return {
       getCountdown,
       formatSecondsText,
-      now: Date.now(),
+      now: getServerNow(),
       holdMissionId,
       recordsById: this._launchRecordsById
     }
@@ -2103,7 +2117,7 @@ Page({
    */
   _resolveCountdownPanelMission(upcomingList, now) {
     const list = Array.isArray(upcomingList) ? upcomingList : []
-    const ts = now != null ? now : Date.now()
+    const ts = now != null ? now : getServerNow()
     const holdMissionId =
       this.data.launchData && this.data.launchData.id != null ? String(this.data.launchData.id) : ''
     const picked = pickCountdownDisplayMission(list, ts, {
@@ -2125,29 +2139,32 @@ Page({
       panelMissionId: panelId,
       panelMission: ld,
       recordsById: this._launchRecordsById,
-      now: now != null ? now : Date.now(),
+      now: now != null ? now : getServerNow(),
       getCountdown,
       getStatusTextZh
     })
   },
 
-  /** 同步副卡；返回可并入 setData 的补丁（无变化则空对象） */
+  /**
+   * 同步副卡；返回可并入 setData 的补丁（无变化则空对象）。
+   * 同一任务只下发变化字段的 dotted path——countdownText 每秒都在变，
+   * 整对象替换会让这张卡每秒走一次全量 diff。
+   */
   _buildOverlapSideCardPatch(now) {
     const next = this._buildOverlapSideCardState(now)
     const prev = this.data.overlapSideCard
     if (!next && !prev) return {}
-    if (
-      next &&
-      prev &&
-      String(prev.id) === String(next.id) &&
-      prev.countdownText === next.countdownText &&
-      prev.isExpired === next.isExpired &&
-      prev.statusTextZh === next.statusTextZh &&
-      prev.rocketImage === next.rocketImage
-    ) {
-      return {}
+    if (!next || !prev || String(prev.id) !== String(next.id)) {
+      return { overlapSideCard: next }
     }
-    return { overlapSideCard: next }
+
+    const patch = {}
+    if (prev.countdownText !== next.countdownText) patch['overlapSideCard.countdownText'] = next.countdownText
+    if (!!prev.isExpired !== !!next.isExpired) patch['overlapSideCard.isExpired'] = !!next.isExpired
+    if (prev.statusTextZh !== next.statusTextZh) patch['overlapSideCard.statusTextZh'] = next.statusTextZh
+    if (prev.statusCategory !== next.statusCategory) patch['overlapSideCard.statusCategory'] = next.statusCategory
+    if (prev.rocketImage !== next.rocketImage) patch['overlapSideCard.rocketImage'] = next.rocketImage
+    return patch
   },
 
   _syncCountdownOverlapSideCard(now) {
@@ -2157,7 +2174,7 @@ Page({
 
   applyInitialUpcomingLaunchState(firstMission, upcomingList, upcomingRes) {
     this._upcomingStateGeneration = (this._upcomingStateGeneration || 0) + 1
-    const now = Date.now()
+    const now = getServerNow()
     const rawList =
       Array.isArray(upcomingList) && upcomingList.length ? upcomingList : firstMission ? [firstMission] : []
 
@@ -2249,7 +2266,7 @@ Page({
           if (enrichGen !== this._upcomingAgencyEnrichGen) return
           const nextList = enriched || list
           if (!this._upcomingAgencyLogoFieldsChanged(list, nextList)) return
-          const fm = this._resolveCountdownPanelMission(nextList, Date.now()).panelMission || panelMission
+          const fm = this._resolveCountdownPanelMission(nextList, getServerNow()).panelMission || panelMission
           this._patchUpcomingListAfterAgencyEnrich(fm, nextList, upcomingRes)
         })
         .catch(() => {})
@@ -2268,7 +2285,7 @@ Page({
       .then((enriched) => {
         if (enrichGen !== this._upcomingAgencyEnrichGen) return
         const nextList = this._filterUpcomingAgainstSettled(enriched || baselineList)
-        const fm = this._resolveCountdownPanelMission(nextList, Date.now()).panelMission
+        const fm = this._resolveCountdownPanelMission(nextList, getServerNow()).panelMission
         if (!fm) {
           const emptyState = buildUpcomingLaunchEmptyState({
             message: '暂无即将发射的任务',
@@ -2318,7 +2335,7 @@ Page({
     const projectedUpcoming = this._projectAuthoritativeLaunchState(
       mergedList,
       this.data.completedMissions,
-      Date.now()
+      getServerNow()
     ).upcoming
     const projectedIds = new Set(projectedUpcoming.map((m) => String(m.id)))
     const overlaidList = mergedList
@@ -2345,7 +2362,7 @@ Page({
       )
     }
 
-    const now = Date.now()
+    const now = getServerNow()
     const fmId = firstMission && firstMission.id != null ? String(firstMission.id) : ''
     let panelMission =
       this._resolveCountdownPanelMission(safeList, now).panelMission ||
@@ -3216,18 +3233,29 @@ Page({
    * 开始倒计时
    */
   startCountdown() {
+    const wasRunning = !!this._countdownTimer
     if (this._countdownTimer) {
       clearInterval(this._countdownTimer)
       this._countdownTimer = null
     }
-    // 立即按真实时间刷新一次，避免后台返回后显示停留在旧值
-    this.updateCountdown()
+    // 立即按真实时间刷新一次，避免后台返回后显示停留在旧值。
+    // 定时器本就在跑（冷启动 onLoad→onShow 连续调用）时跳过：这一拍数据不会变，
+    // 只会多一次首帧 setData
+    if (!wasRunning) this.updateCountdown()
     const timer = setInterval(() => {
       this.updateCountdown()
       const loopMeta = buildCountdownLoopMeta(this.lastCheckTime, Date.now(), 60000)
       if (loopMeta.shouldCheckExpired) {
         this.lastCheckTime = loopMeta.nextLastCheckTime
         this.checkAndRefreshIfExpired()
+        // 已让出主面板的 POST_WINDOW 任务只能靠这里继续落库（分包内按 id 15 分钟节流）。
+        // 先本地判断有无过点任务，避免无事可做时白白触发 index-extra 分包加载
+        const now = getServerNow()
+        if (collectPastNetUpcomingHeads(this.data.upcomingMissions, now, 3).length) {
+          try {
+            this._kickQuietSettlePastNetUpcoming(this.data.upcomingMissions, now)
+          } catch (e) {}
+        }
       }
     }, 1000)
 
@@ -3249,9 +3277,33 @@ Page({
    * 检查当前任务是否过期，如果过期则重新加载
    */
   async checkAndRefreshIfExpired() {
-    if (!shouldRefreshExpiredLaunch(this.data.launchData, Date.now())) return
+    if (!shouldRefreshExpiredLaunch(this.data.launchData, getServerNow())) return
     // 到点后交给实时状态确认流程接管（成功/失败才落历史并切换，推迟则恢复倒计时），不再盲目本地切换
     this._onCountdownExpired()
+  },
+
+  /**
+   * 面板切到「无可用 NET」的任务：清零数字并打上待定标记（幂等，避免每秒重复 setData）。
+   * @param {string} text 面板展示文案
+   */
+  _applyCountdownTimeUnknown(text) {
+    const label = text || '发射时间待定'
+    if (this.data.countdownTimeUnknown && this.data.countdownTimeUnknownText === label) return
+    this.setData({
+      countdownTimeUnknown: true,
+      countdownTimeUnknownText: label,
+      countdown: { days: 0, hours: 0, minutes: 0, seconds: 0, total: 0, isExpired: false },
+      countdownSecondsCurrent: '00',
+      countdownSecondsPrev: '00',
+      countdownSecondsRolling: false,
+      countdownSecondsReel: getSecondsReel(0)
+    })
+  },
+
+  /** 回到有 NET 的任务：撤掉待定标记（幂等） */
+  _clearCountdownTimeUnknown() {
+    if (!this.data.countdownTimeUnknown) return
+    this.setData({ countdownTimeUnknown: false, countdownTimeUnknownText: '' })
   },
 
   /**
@@ -3270,6 +3322,9 @@ Page({
 
     if (!this.data.launchData.launchTime) {
       flushCardCountdownPatch()
+      // 面板任务没有可用 NET（LL2 对部分 TBD 任务不给 net）：必须显式置「待定」，
+      // 否则 countdown 会留着上一条任务的数字并停止跳秒，看着像倒计时卡死
+      this._applyCountdownTimeUnknown('发射时间待定')
       return
     }
 
@@ -3282,6 +3337,15 @@ Page({
       } catch (e) {}
       return
     }
+
+    // NET 精度过粗（Day/Month 等）：net 只是占位时刻，按秒倒数是编造精度。
+    // 「预计发射时间」那行仍会显示已知日期，信息不丢失
+    if (!resolveCountdownPrecision(ld).clockCapable) {
+      flushCardCountdownPatch()
+      this._applyCountdownTimeUnknown('发射时间待定')
+      return
+    }
+    this._clearCountdownTimeUnknown()
 
     const countdown = getCountdown(this.data.launchData.launchTime)
 
@@ -3304,7 +3368,9 @@ Page({
     })
 
     if (!tickState.didSecondsChange) {
-      flushCardCountdownPatch()
+      // 秒位没变仍可能有天/时/分变化（切任务撞上同一秒位），一并下发
+      const merged = { ...(tickState.immediateState || {}), ...cardCountdownPatch, ...sideCardPatch }
+      if (Object.keys(merged).length) this.setData(merged)
       return
     }
 
@@ -3319,6 +3385,8 @@ Page({
       ...sideCardPatch
     }
     this.setData(immediateState)
+    // 跳秒时不播滚轮动画，也就没有需要复位的 settle（省一次 setData）
+    if (!tickState.settleState) return
     this._countdownSecondsRollTimer = setTimeout(() => {
       this.setData(tickState.settleState)
       this._countdownSecondsRollTimer = null
@@ -3335,7 +3403,7 @@ Page({
     const force = !!(options && options.force) || !!this._switchingCountdown
     const currentId = this.data.launchData && this.data.launchData.id
     const missions = this.data.upcomingMissions || []
-    const now = Date.now()
+    const now = getServerNow()
     const current =
       currentId != null
         ? missions.find((m) => m && String(m.id) === String(currentId))
@@ -3401,9 +3469,11 @@ Page({
    */
   _onCountdownExpired() {
     if (this._launchStatusPolling) return
-    const now = Date.now()
-    if (now - (this._lastExpiredRoundAt || 0) < LIVE_STATUS_MIN_ROUND_GAP_MS) return
-    this._lastExpiredRoundAt = now
+    // 轮次节流量的是「本地过了多久」，用设备时钟；NET 判定另用校准时钟
+    const localNow = Date.now()
+    if (localNow - (this._lastExpiredRoundAt || 0) < LIVE_STATUS_MIN_ROUND_GAP_MS) return
+    this._lastExpiredRoundAt = localNow
+    const now = getServerNow()
 
     const ld = this.data.launchData
     const currentId = ld && ld.id != null ? String(ld.id) : ''
@@ -4210,9 +4280,12 @@ Page({
     }
     this._resetCountdownLiveEnterState()
     this._clearCountdownChannelsLivePoll()
-    // 切后台保留状态复查定时器（5 分钟节拍不丢），只放开 polling 锁便于回前台 tick 重入
+    // 切后台保留状态复查定时器（5 分钟节拍不丢），只放开 polling 锁便于回前台 tick 重入。
+    // 首页是 Tab 页、通常不走 onUnload，定时器会长期存活，所以另打可见性标记：
+    // 后台到点时只续节拍、不打 LL2（见 _checkLiveLaunchStatus 开头）
     this._launchStatusPolling = false
     this._lastExpiredRoundAt = 0
+    this._countdownPageHidden = true
   },
 
 

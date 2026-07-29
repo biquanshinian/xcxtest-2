@@ -26,7 +26,6 @@ const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { gateCheck, isProSync } = require('../../utils/membership.js')
 const {
   warmProgressPageStorageSync,
-  OPENCLAW_GUIDE_DISMISSED_KEY,
   BRIEFING_PROGRESS_FILTER_CLEAR_KEY,
   BRIEFING_PROGRESS_FILTER_SOURCE_KEY
 } = require('../../utils/page-storage-boot.js')
@@ -203,7 +202,7 @@ Page({
   },
 
   /**
-   * 读取从 mission-detail 页跳转过来时携带的"自动打开 Ship/Booster 弹窗"意图
+   * 读取从 mission-detail 页跳转过来时携带的"自动打开 Ship/Booster 详情"意图
    *
    * 来源有两个：
    *   1. getApp()._progressAutoOpenStarship  —— switchTab 不支持 query，用 app 全局变量
@@ -215,16 +214,18 @@ Page({
     const app = getApp && getApp()
     const intent = app && app._progressAutoOpenStarship
     let targetType = null
+    let serial = ''
     if (intent && intent.type && (Date.now() - (intent.setAt || 0) < 5000)) {
       targetType = intent.type === 'ship' ? 'ship' : 'booster'
+      serial = intent.serial || ''
       if (app) app._progressAutoOpenStarship = null
     } else if (options && options.type) {
       targetType = options.type === 'ship' ? 'ship' : 'booster'
+      serial = options.serial || ''
     }
     if (!targetType) return
-    this.setData({ selectedStarshipType: targetType })
-    // 与卡片点击一致：优先进硬件设施详情（无会员门控）
-    this._openStarshipVehicleDetail(targetType)
+    // 优先进硬件设施详情（无会员门控）
+    this._openStarshipVehicleDetail(targetType, serial)
   },
 
   onShow() {
@@ -261,7 +262,6 @@ Page({
       try { warmEventShareImage() } catch (e) {}
       self.setData({ isProUser: isProSync() })
       storageCache.persistAsync(PROGRESS_LAST_VIEWED_KEY, Date.now())
-      self._checkOpenClawGuide()
       tryShowPopupAd(2, self)
       self._applyBriefingProgressFilter()
       self._consumeAutoOpenStarshipIntent({})
@@ -293,7 +293,6 @@ Page({
 
   onHide() {
     this._briefingFilterApplied = false
-    this._openClawGuideChecked = false
     const tabBar = typeof this.getTabBar === 'function' ? this.getTabBar() : null
     if (tabBar) {
       tabBar.setData({ hidden: false })
@@ -301,35 +300,6 @@ Page({
         const app = getApp()
         if (app && typeof app.patchTabBarUiCache === 'function') app.patchTabBarUiCache({ hidden: false })
       } catch (_) {}
-    }
-    if (this._openClawGuideTimer) {
-      clearTimeout(this._openClawGuideTimer)
-      this._openClawGuideTimer = null
-    }
-  },
-
-  /** 检查是否需要显示 OpenClaw 提示 */
-  _checkOpenClawGuide() {
-    if (this._openClawGuideChecked) return
-    this._openClawGuideChecked = true
-    try {
-      const dismissed = storageCache.readMemOrSync(OPENCLAW_GUIDE_DISMISSED_KEY, false)
-      if (dismissed) return
-      this.setData({ showOpenClawGuide: true })
-
-      this._openClawGuideTimer = setTimeout(() => {
-        this.setData({ showOpenClawGuide: false })
-      }, 10000)
-    } catch (e) {}
-  },
-
-  /** 关闭 OpenClaw 提示 */
-  closeOpenClawGuide() {
-    this.setData({ showOpenClawGuide: false })
-    storageCache.persistAsync(OPENCLAW_GUIDE_DISMISSED_KEY, true)
-    if (this._openClawGuideTimer) {
-      clearTimeout(this._openClawGuideTimer)
-      this._openClawGuideTimer = null
     }
   },
 
@@ -376,7 +346,6 @@ Page({
 
   onUnload() {
     this._clearProgressDeferTimers()
-    if (this._openClawGuideTimer) clearTimeout(this._openClawGuideTimer)
     const tabBar = typeof this.getTabBar === 'function' ? this.getTabBar() : null
     if (tabBar) {
       tabBar.setData({ hidden: false })
@@ -398,17 +367,6 @@ Page({
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
     tabBarReservedHeight: 0,
-    selectedStarshipType: 'booster',
-    // OpenClaw 自动追踪提示
-    showOpenClawGuide: false,
-    /** 数据就绪前不渲染卡片，避免硬编码占位（旧 B19/S39）闪现残影 */
-    starshipLoaded: false,
-    /** 加载失败标记：展示重试入口而非无限骨架屏 */
-    starshipLoadError: false,
-    starshipData: {
-      booster: { id: '', status: '', progress: 0, image: '', images: [], detail: null },
-      ship: { id: '', status: '', progress: 0, image: '', images: [], detail: null }
-    },
     roadClosure: { ...EMPTY_ROAD_CLOSURE },
     roadClosureSyncing: false,
     roadClosureStatus: 'loading',
@@ -467,12 +425,6 @@ Page({
     return 'retired'
   },
 
-  /** 英文状态 → 中文标签（与硬件设施 statusZh 口径一致），映射不到返回空串 */
-  getStatusZh(status) {
-    const map = { ACTIVE: '活跃', DESTROYED: '已损毁', EXPENDED: '已消耗', RETIRED: '已退役' }
-    return map[String(status || '').trim().toUpperCase()] || ''
-  },
-
   computeNsfChecklistProgress(items) {
     const list = Array.isArray(items) ? items : []
     const total = list.length
@@ -482,114 +434,6 @@ Page({
       nsfChecklistProgressDone: done,
       nsfChecklistProgressTotal: total,
       nsfChecklistProgressPercent: percent
-    }
-  },
-
-  normalizeStarshipStatusData(data) {
-    const booster = (data && data.booster) || {}
-    const ship = (data && data.ship) || {}
-
-    const boosterType = this.getStatusType(booster.status)
-    const shipType = this.getStatusType(ship.status)
-
-    const normalizeImageUrl = (url) => {
-      if (!url || typeof url !== 'string') return ''
-      const normalized = url.replace(/\\/g, '/')
-
-      if (/^https?:\/\//.test(normalized)) {
-        // 星舰头图全宽展示：COS 直链走 medium 压缩 + 本地缓存，避免每次拉原图
-        return getCachedMediaImage(normalized, 'medium')
-      }
-      if (/^cloud:\/\//.test(normalized) || /^wxfile:\/\//.test(normalized)) {
-        return normalized
-      }
-
-      if (normalized.startsWith('/')) return normalized
-
-      const resolved = resolveMediaUrl(normalized, '')
-      if (resolved) return resolved
-
-      return ''
-    }
-
-    const resolveCloudAsset = (item, keyField, fallbackField) => {
-      const key = item[keyField]
-      const fallback = item[fallbackField]
-      if (key || fallback) {
-        return normalizeImageUrl(resolveMediaUrl(key, fallback || ''))
-      }
-      return ''
-    }
-
-    const normalizeImages = (item) => {
-      // 自动数据优先：NSF 同步的 image/images 排在前面；后台 thumbnail 仅作兜底
-      const images = []
-      if (item.image) images.push(item.image)
-      if (Array.isArray(item.images)) images.push(...item.images)
-      if (Array.isArray(item.previewImages)) images.push(...item.previewImages)
-
-      const cloudImage = resolveCloudAsset(item, 'thumbnailMediaKey', 'thumbnailFallback')
-      if (cloudImage) images.push(cloudImage)
-
-      const filtered = images
-        .map(normalizeImageUrl)
-        .filter(Boolean)
-
-      return [...new Set(filtered)]
-    }
-
-    const getDetailData = (item, type, fallbackImage) => {
-      const detail = item.detail || {}
-      // 标题优先全称（Ship 40），其次短编号（S40）
-      const fullName = item.name ? String(item.name).trim() : ''
-      const vehicleId = item.id ? String(item.id).trim().toUpperCase() : ''
-      const fallbackTitle = fullName || ((type === 'ship' ? '星舰' : '助推器') + vehicleId)
-      const fallbackSubtitle = type === 'ship' ? 'STARSHIP' : 'SUPER HEAVY'
-      // 头图同样优先自动主图，手动 hero 仅兜底
-      const heroImage = fallbackImage || resolveCloudAsset(detail, 'heroMediaKey', 'heroFallback')
-      const showChecklist = detail.showChecklist === true
-      const checklist = Array.isArray(detail.checklist) ? detail.checklist : []
-
-      return {
-        title: detail.title || fallbackTitle,
-        subtitle: detail.subtitle || fallbackSubtitle,
-        statusText: detail.statusText || this.getStatusZh(item.status) || '活跃',
-        summary: detail.summary || `${fallbackTitle}正在执行对应阶段的测试与验证任务。`,
-        heroImage,
-        showChecklist,
-        checklist
-      }
-    }
-
-    const boosterImages = normalizeImages(booster)
-    const shipImages = normalizeImages(ship)
-    const boosterDetail = getDetailData(booster, 'booster', boosterImages[0])
-    const shipDetail = getDetailData(ship, 'ship', shipImages[0])
-
-    // 卡片状态中文标签：后台 statusText > 英文映射 > 英文原文
-    // 不直接用 detail.statusText（其兜底恒为「活跃」，会掩盖 DESTROYED 等真实状态）
-    const statusLabel = (item) =>
-      ((item.detail || {}).statusText) ||
-      this.getStatusZh(item.status) ||
-      String(item.status || '').toUpperCase() || 'RETIRED'
-
-    return {
-      booster: {
-        ...booster,
-        image: boosterImages[0],
-        images: boosterImages,
-        statusType: boosterType,
-        status: statusLabel(booster),
-        detail: boosterDetail
-      },
-      ship: {
-        ...ship,
-        image: shipImages[0],
-        images: shipImages,
-        statusType: shipType,
-        status: statusLabel(ship),
-        detail: shipDetail
-      }
     }
   },
 
@@ -643,7 +487,6 @@ Page({
         }
       } catch (e) {}
 
-      const starshipData = this.normalizeStarshipStatusData(data)
       const flightReadinessChecklist = Array.isArray(data && data.flightReadinessChecklist)
         ? data.flightReadinessChecklist
         : []
@@ -653,8 +496,6 @@ Page({
       const showLaunchLibraryUpdates = !(data && data.showLaunchLibraryUpdates === false)
 
       const patch = {
-        starshipData,
-        starshipLoaded: true,
         flightReadinessChecklist,
         ll2TrackedLaunchId,
         showLaunchLibraryUpdates
@@ -671,8 +512,6 @@ Page({
         })
       }
       this.setData(patch)
-      // 若硬件列表已就绪，立刻用 Active 载具覆盖组合体卡片（编号/状态/图片）
-      this._overlayStarshipCardsFromHardware()
 
       if (!syncNsf) {
         this._deferNsfChecklistLoad(false)
@@ -691,15 +530,8 @@ Page({
       }
 
     } catch (error) {
-      // 失败时置错误态：否则 starshipLoaded 恒为 false，骨架屏永远不消失
-      this.setData({ nsfChecklistSyncing: false, starshipLoadError: true })
+      this.setData({ nsfChecklistSyncing: false })
     }
-  },
-
-  onRetryStarshipLoad() {
-    if (this.data.starshipLoaded) return
-    this.setData({ starshipLoadError: false })
-    this.loadStarshipStatusFromDB({ deferLl2: true })
   },
 
   async onNsfChecklistExpandTap() {
@@ -724,59 +556,11 @@ Page({
     wx.navigateTo({ url: '/subpackages/progress-extra/event-detail?mode=ll2_launch_updates' })
   },
 
-  onStarshipImageError(e) {
-    const type = e.currentTarget.dataset.type
-    if (type === 'booster') {
-      this.setData({
-        'starshipData.booster.image': getBoosterFallbackImage(),
-        'starshipData.booster.images': [getBoosterFallbackImage()]
-      })
-      return
-    }
-
-    if (type === 'ship') {
-      this.setData({
-        'starshipData.ship.image': getShipFallbackImage(),
-        'starshipData.ship.images': [getShipFallbackImage()]
-      })
-    }
-  },
-
-  getStarshipImagesByType(type) {
-    const key = type === 'ship' ? 'ship' : 'booster'
-    const item = (this.data.starshipData && this.data.starshipData[key]) || {}
-    const fallback = key === 'ship' ? getShipFallbackImage() : getBoosterFallbackImage()
-
-    const list = []
-    if (Array.isArray(item.images)) list.push(...item.images)
-    if (Array.isArray(item.previewImages)) list.push(...item.previewImages)
-    if (item.image) list.unshift(item.image)
-
-    const images = [...new Set(list.filter(Boolean))]
-
-    return images.length ? images : [fallback]
-  },
-
-  async onStarshipCardTap(e) {
-    const type = e.currentTarget.dataset.type || 'booster'
-    const selectedType = type === 'ship' ? 'ship' : 'booster'
-    this.setData({ selectedStarshipType: selectedType })
-    // 组合体进展两张卡片不门控：统一进硬件设施详情
-    await this._openStarshipVehicleDetail(selectedType)
-  },
-
   /**
-   * 打开组合体对应硬件详情：优先 NSF 硬件库 id，匹配失败才回退旧详情页。
+   * 打开载具对应硬件详情：优先 NSF 硬件库 id，匹配失败才回退旧详情页。
    */
-  async _openStarshipVehicleDetail(selectedType) {
-    const item = (this.data.starshipData || {})[selectedType] || {}
-    let vehicleId = item.hardwareId
-    if (vehicleId == null) {
-      vehicleId = await this._resolveHardwareVehicleId(
-        item.id || item.name,
-        selectedType
-      )
-    }
+  async _openStarshipVehicleDetail(selectedType, serial) {
+    const vehicleId = await this._resolveHardwareVehicleId(serial, selectedType)
     if (vehicleId != null) {
       wx.navigateTo({
         url: `/subpackages/progress-extra/hardware-detail?id=${vehicleId}`
@@ -786,13 +570,6 @@ Page({
     wx.navigateTo({
       url: `/subpackages/progress-extra/starship-detail?type=${selectedType}`
     })
-  },
-
-  /** 'Ship 40' → 'S40'，'Booster 20' → 'B20' */
-  _shortVehicleId(name) {
-    const m = String(name || '').trim().match(/^(Ship|Booster)\s+(.+)$/i)
-    if (!m) return ''
-    return (m[1].toLowerCase() === 'ship' ? 'S' : 'B') + m[2].replace(/\s+/g, '').toUpperCase()
   },
 
   /**
@@ -812,51 +589,7 @@ Page({
   },
 
   /**
-   * 用「星舰硬件设施」Active 载具覆盖组合体两张卡片的编号/状态/图片。
-   * 硬件列表未加载时不改动；保证卡片始终跟自动数据对齐，不依赖后台手填。
-   */
-  _overlayStarshipCardsFromHardware() {
-    const all = this._hardwareAll
-    if (!all || !all.length) return
-    if (!this.data.starshipLoaded) return
-
-    const patch = {}
-    const sides = ['ship', 'booster']
-    for (let i = 0; i < sides.length; i++) {
-      const side = sides[i]
-      const cur = this._pickCurrentHardwareVehicle(side)
-      if (!cur) continue
-
-      const shortId = this._shortVehicleId(cur.name) || String(cur.name || '').trim()
-      if (!shortId) continue
-
-      const fallback = side === 'ship' ? getShipFallbackImage() : getBoosterFallbackImage()
-      const prev = (this.data.starshipData && this.data.starshipData[side]) || {}
-      const image = cur.image || prev.image || fallback
-      const statusEn = String(cur.status || '').toUpperCase() || 'ACTIVE'
-      const statusZh = cur.statusZh || statusEn
-      const detail = prev.detail || {}
-
-      patch[`starshipData.${side}.id`] = shortId
-      patch[`starshipData.${side}.name`] = cur.name
-      patch[`starshipData.${side}.hardwareId`] = cur.id
-      patch[`starshipData.${side}.status`] = statusZh
-      patch[`starshipData.${side}.statusType`] = this.getStatusType(statusEn)
-      patch[`starshipData.${side}.image`] = image
-      patch[`starshipData.${side}.images`] = cur.image ? [cur.image] : (prev.images || [image])
-      patch[`starshipData.${side}.detail`] = {
-        ...detail,
-        title: detail.title || cur.name || ((side === 'ship' ? '星舰' : '助推器') + shortId),
-        statusText: statusZh,
-        summary: cur.notesZh || detail.summary || '',
-        heroImage: image || detail.heroImage || ''
-      }
-    }
-    if (Object.keys(patch).length) this.setData(patch)
-  },
-
-  /**
-   * 组合体卡片编号（如 S39 / B19）或全称（Ship 39）→ NSF 硬件库 vehicle id。
+   * 载具编号（如 S39 / B19）或全称（Ship 39）→ NSF 硬件库 vehicle id。
    * 优先用「星舰硬件设施」板块已加载的列表；未加载时读缓存接口兜底。
    */
   async _resolveHardwareVehicleId(serial, type) {
@@ -904,22 +637,6 @@ Page({
   },
 
   stopPropagation() {},
-
-  onStarshipCardLongPress(e) {
-    const type = e.currentTarget.dataset.type || 'booster'
-    const images = this.getStarshipImagesByType(type)
-    const imageUrl = images[0]
-    if (!imageUrl) return
-
-    wx.showActionSheet({
-      itemList: ['保存图片'],
-      success: (res) => {
-        if (res.tapIndex === 0) {
-          this.saveImageToAlbum(imageUrl)
-        }
-      }
-    })
-  },
 
   openStarbaseMap() {
     navigateTo(ROUTES.STARBASE_MAP)
@@ -1024,8 +741,6 @@ Page({
         hardwareError: list.length === 0 ? (res.fetchError || '暂无数据，稍后下拉刷新重试') : ''
       })
       this._applyHardwareFilter()
-      // 硬件就绪后覆盖组合体卡片（编号/状态/图片跟 Active 载具走）
-      this._overlayStarshipCardsFromHardware()
     } catch (e) {
       this.setData({ hardwareLoaded: true, hardwareError: '加载失败，请下拉刷新重试' })
     }

@@ -1,0 +1,102 @@
+<!-- SPACE_NOTICES_FEATURE -->
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="list-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">发射通告地图</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+  </view>
+
+  <scroll-view class="list-scroll" scroll-y="true">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <view class="list-body">
+      <view class="sn-hint glass-card">
+        <view class="sn-hint-row">
+          <text class="sn-hint-title">Space Notices 数据</text>
+          <view class="sn-hint-sync" bindtap="onSync"><text>立即同步</text></view>
+        </view>
+        <text class="sn-hint-desc">站点全量发射通告轮转入库；点右侧可马上刷新一轮。{{progressText ? ' ' + progressText : ''}}</text>
+      </view>
+
+      <view class="detail-skeleton" wx:if="{{loading}}" aria-hidden="{{true}}">
+        <view class="skeleton-card" wx:for="{{[1, 2, 3, 4]}}" wx:key="*this">
+          <view class="skeleton-line skeleton-line--title skeleton-shimmer"></view>
+          <view class="skeleton-line skeleton-line--sub skeleton-shimmer"></view>
+          <view class="skeleton-line skeleton-line--short skeleton-shimmer"></view>
+        </view>
+      </view>
+
+      <view class="sn-state glass-card" wx:elif="{{errorText}}">
+        <text class="sn-state-title">加载失败</text>
+        <text class="sn-state-desc">{{errorText}}</text>
+        <view class="sn-btn" bindtap="retryLoad"><text>重试</text></view>
+        <view class="sn-btn sn-btn--ghost" bindtap="onSync"><text>同步条目</text></view>
+      </view>
+
+      <view class="sn-state glass-card" wx:elif="{{!upcoming.length && !past.length}}">
+        <text class="sn-state-title">暂无条目</text>
+        <text class="sn-state-desc">请先在开发者工具上传并部署云函数 spaceNotices，再点「同步条目」。成功后会出现站点收录的发射任务。</text>
+        <view class="sn-btn" bindtap="onSync"><text>同步条目</text></view>
+      </view>
+
+      <block wx:else>
+        <view class="sn-section" wx:if="{{upcoming.length}}">
+          <view class="sn-section-head">
+            <text class="sn-section-title">即将 / 进行中</text>
+            <text class="sn-section-count">{{upcoming.length}}</text>
+          </view>
+          <view
+            class="sn-card glass-card card-hover"
+            wx:for="{{upcoming}}"
+            wx:key="entryKey"
+            data-key="{{item.entryKey}}"
+            bindtap="openMap"
+          >
+            <view class="sn-card-main">
+              <view class="sn-card-top">
+                <text class="sn-card-title">{{item.title}}</text>
+                <view class="sn-chip sn-chip--traj" wx:if="{{item.hasTrajectory}}"><text>轨迹</text></view>
+              </view>
+              <text class="sn-card-sub">{{item.subtitle}}</text>
+              <text class="sn-card-meta">{{item.metaText}}</text>
+            </view>
+            <text class="sn-card-arrow">›</text>
+          </view>
+        </view>
+
+        <view class="sn-section" wx:if="{{past.length}}">
+          <view class="sn-section-head">
+            <text class="sn-section-title">历史发射</text>
+            <text class="sn-section-count">{{past.length}}</text>
+          </view>
+          <view
+            class="sn-card glass-card card-hover sn-card--past"
+            wx:for="{{past}}"
+            wx:key="entryKey"
+            data-key="{{item.entryKey}}"
+            bindtap="openMap"
+          >
+            <view class="sn-card-main">
+              <view class="sn-card-top">
+                <text class="sn-card-title">{{item.title}}</text>
+                <view class="sn-chip sn-chip--traj" wx:if="{{item.hasTrajectory}}"><text>轨迹</text></view>
+              </view>
+              <text class="sn-card-sub">{{item.subtitle}}</text>
+              <text class="sn-card-meta">{{item.metaText}}</text>
+            </view>
+            <text class="sn-card-arrow">›</text>
+          </view>
+        </view>
+      </block>
+    </view>
+  </scroll-view>
+
+  <share-gate-countdown expire-at="{{shareGateExpireAt}}" />
+</view>

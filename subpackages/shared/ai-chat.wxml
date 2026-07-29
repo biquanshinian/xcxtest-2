@@ -14,8 +14,8 @@
     </view>
   </view>
 
-  <view class="ai-chat-detail-body" style="padding-top: {{navPlaceholderHeight}}px; padding-bottom: {{keyboardHeight}}px;">
-    <ai-chat id="aiChat" mode="page" bind:sharehint="onShareHint" bind:keyboardheight="onKeyboardHeight" />
+  <view class="ai-chat-detail-body" style="padding-bottom: {{keyboardHeight}}px;">
+    <ai-chat id="aiChat" mode="page" top-inset="{{navPlaceholderHeight}}" bind:sharehint="onShareHint" bind:keyboardheight="onKeyboardHeight" />
   </view>
 
   <share-guide />

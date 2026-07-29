@@ -385,6 +385,9 @@ function slimLaunch(launch) {
     pad: launch.pad ? {
       id: launch.pad.id,
       name: launch.pad.name,
+      // 保留坐标：发射通告地图等依赖 pad.lat/lon；缺失时只能靠名称表回填
+      latitude: launch.pad.latitude != null ? Number(launch.pad.latitude) : null,
+      longitude: launch.pad.longitude != null ? Number(launch.pad.longitude) : null,
       country_code: padCountryCode,
       location: padLoc ? { id: padLoc.id, name: padLoc.name, country_code: slimCountryCode(padLoc.country) || slimCountryCode(padLoc.country_code) || padCountryCode || null } : null
     } : null,

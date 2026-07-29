@@ -28,6 +28,22 @@ const {
   pickStation,
   pickBestMissionMatch,
   pickBestAgencyMatch,
+  missionLookupTimePreference,
+  resolveMissionDetailType,
+  normalizeMatchText,
+  extractBoosterSerial,
+  extractRocketModelKey,
+  extractStarshipHardwareRef,
+  pickStarshipHardware,
+  parseHardwareVehicleRef,
+  pickRocketConfig,
+  pickLaunchSite,
+  pickSpacecraftConfig,
+  enrichLaunchContextWithSpec,
+  enrichLaunchContextNoSpec,
+  enrichLaunchContextWithMyLaunches,
+  enrichLaunchContextNoMyLaunches,
+  enrichLaunchContextWithSimpleEntry,
   parseLaunchListFilter,
   parseLaunchListSiteFilter,
   parseLaunchListCountryFilter,
@@ -51,7 +67,8 @@ const {
   enrichLaunchContextWithStation,
   enrichLaunchContextWithLaunchStats,
   enrichLaunchContextWithAgency,
-  enrichLaunchContextWithMissionReplay
+  enrichLaunchContextWithMissionReplay,
+  enrichLaunchContextWithViewingSpots
 } = require('../subpackages/shared/utils/ai-chat-rich-core.js')
 
 function testIntentNext() {
@@ -415,6 +432,19 @@ function testEnrich() {
   })
   assert.ok(withCard.focusMission)
   assert.strictEqual(withCard.uiCardReady, true)
+  assert.strictEqual(withCard.focusMission.detailType, 'upcoming')
+  assert.ok((withCard.upcoming || []).some((m) => m.name === 'Starship Flight 10'), '未发射任务进 upcoming')
+
+  // 历史任务卡：不能混进 upcoming，提示要求用过去时
+  const withPastCard = enrichLaunchContextWithCard({ upcoming: [] }, {
+    id: 'old', name: '长征十号甲 | 试验飞行', rocketName: '长征十号甲',
+    launchTime: '2026-01-01T00:00:00Z', statusText: '成功', detailType: 'completed'
+  })
+  assert.strictEqual(withPastCard.focusMission.detailType, 'completed')
+  assert.strictEqual((withPastCard.upcoming || []).length, 0, '历史任务不进 upcoming')
+  assert.ok((withPastCard.completed || []).some((m) => m.rocketName === '长征十号甲'), '历史任务进 completed')
+  assert.ok(/已完成/.test(withPastCard.focusHint), '历史任务提示标注已完成')
+  assert.ok(/过去时/.test(withPastCard.focusHint), '历史任务提示要求过去时')
   assert.ok(String(enrichLaunchContextNoStarshipSchedule({}).focusHint).includes('暂无'))
 
   const replayPlayable = enrichLaunchContextWithMissionReplay({}, {
@@ -453,6 +483,268 @@ function testEnrich() {
   }).focusHint).includes('SpaceX'))
 }
 
+/** 「长征十号甲什么时候发射」必须出即将发射卡，不能抽历史任务 */
+function testMissionLookupPrefersUpcoming() {
+  assert.strictEqual(missionLookupTimePreference('长征十号甲什么时候发射？'), 'upcoming')
+  assert.strictEqual(missionLookupTimePreference('朱雀三号下一次发射'), 'upcoming')
+  assert.strictEqual(missionLookupTimePreference('长征七号回放'), 'completed')
+  assert.strictEqual(missionLookupTimePreference('长征十号甲'), '')
+
+  // 中英同源：长征十号甲 ↔ Long March 10A
+  const nCn = normalizeMatchText('长征十号甲')
+  assert.strictEqual(nCn, 'cz10a', '长征十号甲 → cz10a，实得 ' + nCn)
+  assert.strictEqual(normalizeMatchText('Long March 10A'), 'cz10a')
+  assert.strictEqual(normalizeMatchText('CZ-10A'), 'cz10a')
+  assert.strictEqual(normalizeMatchText('长征十二乙'), 'cz12b')
+  assert.strictEqual(normalizeMatchText('长征七'), 'cz7')
+  assert.strictEqual(normalizeMatchText('Long March 7'), 'cz7')
+
+  const past = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString()
+  const future = new Date(Date.now() + 45 * 24 * 3600 * 1000).toISOString()
+  const farFuture = new Date(Date.now() + 200 * 24 * 3600 * 1000).toISOString()
+  const pool = [
+    { id: 'old', name: 'Long March 10A | Test Flight', rocketName: 'Long March 10A', launchTime: past, success: true },
+    { id: 'next', name: 'Long March 10A | Crew Demo', rocketName: 'Long March 10A', launchTime: farFuture },
+    { id: 'soon', name: 'Long March 10A | Pad Test', rocketName: 'Long March 10A', launchTime: future }
+  ]
+  const hit = pickBestMissionMatch(pool, '长征十号甲什么时候发射？')
+  assert.ok(hit && hit.mission, '长征十号甲应命中任务')
+  assert.strictEqual(hit.detailType, 'upcoming', '未来问法必须出即将发射')
+  assert.strictEqual(hit.mission.id, 'soon', '同分取 NET 最近的即将任务')
+
+  // 只有历史任务时仍出卡（回落），不至于什么都不给
+  const onlyPast = [pool[0]]
+  const fallback = pickBestMissionMatch(onlyPast, '长征十号甲什么时候发射？')
+  assert.ok(fallback && fallback.mission.id === 'old', '无排期时回落历史任务')
+  assert.strictEqual(fallback.detailType, 'completed')
+
+  // 回放问法仍拿历史
+  const replayHit = pickBestMissionMatch(pool, '长征十号甲的回放')
+  assert.strictEqual(replayHit.detailType, 'completed', '回放问法取历史')
+
+  // detailType 兜底：无 _detailType/结果字段时按 NET 判断
+  assert.strictEqual(resolveMissionDetailType({ launchTime: past }), 'completed')
+  assert.strictEqual(resolveMissionDetailType({ launchTime: future }), 'upcoming')
+  assert.strictEqual(resolveMissionDetailType({ _detailType: 'completed', launchTime: future }), 'completed')
+
+  // 云端查询词能反查英文名
+  const queries = buildLaunchSearchQueries('长征十号甲什么时候发射？')
+  assert.ok(queries.some((q) => /Long March 10A/i.test(q)), '云端查询含 Long March 10A，实得 ' + queries.join('|'))
+  assert.ok(buildLaunchSearchQueries('长征七号什么时候发射').some((q) => /Long March 7/i.test(q)))
+}
+
+/** 新增百科 / 个人化 / 内容意图：既要能命中，也不能抢走排期问法 */
+function testExtendedIntents() {
+  const cases = [
+    ['猎鹰9多高', 'rocket_model'],
+    ['长征五号运力多少', 'rocket_model'],
+    ['星舰有多高', 'rocket_model'],
+    ['文昌发射场在哪', 'launch_site'],
+    ['39A工位介绍', 'launch_site'],
+    ['神舟飞船能坐几人', 'spacecraft'],
+    ['龙飞船', 'spacecraft'],
+    ['B1067飞了几次', 'booster'],
+    ['猎鹰9助推器复用记录', 'booster'],
+    ['我订阅了哪些发射', 'my_launches'],
+    ['我的提醒', 'my_launches'],
+    ['这次发射能成功吗', 'launch_vote'],
+    ['我要竞猜', 'launch_vote'],
+    ['年度回顾', 'year_review'],
+    ['今天的天文图片', 'apod'],
+    ['最近有什么流星雨', 'astro_calendar'],
+    ['最近有什么航天新闻', 'news'],
+    ['今晚能看到星链吗', 'starlink_pass'],
+    ['星链过境预报', 'starlink_pass'],
+    ['看看星链实时分布', 'starlink_map'],
+    // 观礼导航：问「人站哪儿看」走观礼点，问发射场本身仍走百科
+    ['去哪看火箭发射', 'viewing_spot'],
+    ['文昌哪里看发射', 'viewing_spot'],
+    ['观礼点推荐', 'viewing_spot'],
+    ['看星舰发射去哪', 'viewing_spot'],
+    ['淇水湾怎么去', 'viewing_spot'],
+    ['文昌发射场在哪', 'launch_site'],
+    ['星链有多少颗卫星', 'starlink_map'],
+    ['星链在哪', 'starlink_map'],
+    // 星链的排期/回放/列表仍归原意图
+    ['星链什么时候发射', 'mission_lookup'],
+    ['星链回放', 'mission_replay'],
+    ['接下来有哪些星链发射', 'launch_list'],
+    ['阿尔忒弥斯2什么时候发射', 'artemis'],
+    ['S38在哪', 'starship_hardware'],
+    ['助推器15测试了吗', 'starship_hardware'],
+    ['星舰硬件设施列表', 'starship_hardware'],
+    ['猎鹰9回收成功率', 'recovery_stats'],
+    ['助推器复用排行', 'recovery_stats'],
+    ['一共回收了多少枚', 'recovery_stats'],
+    // 组合体状态问法归 starship_status；单枚编号战绩归 booster
+    ['星舰 B15 状态怎么样', 'starship_status'],
+    ['B1067飞了几次', 'booster'],
+    // 不许抢：排期 / 列表 / 追踪 / 星舰进展仍归原意图
+    ['长征五号什么时候发射', 'mission_lookup'],
+    ['朱雀三号什么时候发射？', 'mission_lookup'],
+    ['接下来有哪些发射？', 'launch_list'],
+    ['文昌接下来有哪些发射', 'launch_list'],
+    ['追踪龙飞船', 'vehicle_tracker'],
+    ['星舰最新进展如何？', 'starship_status'],
+    ['今天中国发射了多少次？', 'launch_stats'],
+    ['SpaceX是什么公司？', 'agency']
+  ]
+  cases.forEach(([q, expect]) => {
+    assert.strictEqual(resolveAiChatRichIntent(q), expect, q + ' → ' + expect)
+  })
+
+  assert.strictEqual(extractBoosterSerial('B1067飞了几次'), 'B1067')
+  assert.strictEqual(extractBoosterSerial('b-1080 复用'), 'B1080')
+  // 星舰 B15 是两位数编号，不能当猎鹰助推器
+  assert.strictEqual(extractBoosterSerial('星舰B15进展'), '')
+
+  assert.deepStrictEqual(extractStarshipHardwareRef('S38在哪'), { kind: 'ship', num: 38 })
+  assert.deepStrictEqual(extractStarshipHardwareRef('助推器15测试了吗'), { kind: 'booster', num: 15 })
+  // 猎鹰四位数编号不能被当成星舰硬件
+  assert.strictEqual(extractStarshipHardwareRef('B1067复用'), null)
+
+  const vehicles = [
+    { id: 1, name: 'Super Heavy Booster 15', statusZh: '静态点火' },
+    { id: 2, name: 'Ship 38', statusZh: '测试中' }
+  ]
+  assert.strictEqual(pickStarshipHardware(vehicles, 'S38在哪').id, 2)
+  assert.strictEqual(pickStarshipHardware(vehicles, '助推器15什么状态').id, 1)
+  assert.strictEqual(pickStarshipHardware(vehicles, '星舰硬件设施'), null)
+  assert.deepStrictEqual(parseHardwareVehicleRef('Ship 38'), { kind: 'ship', num: 38 })
+  assert.deepStrictEqual(parseHardwareVehicleRef('Booster 16'), { kind: 'booster', num: 16 })
+}
+
+function testSpecPickers() {
+  const configs = {
+    164: { id: 164, name: 'Falcon 9', full_name: 'Falcon 9 Block 5', total_launch_count: 400 },
+    62: { id: 62, name: 'Falcon 9', full_name: 'Falcon 9 v1.1', total_launch_count: 15 },
+    200: { id: 200, name: 'Long March 5', full_name: 'Long March 5', total_launch_count: 20 }
+  }
+  const f9 = pickRocketConfig(configs, extractRocketModelKey('猎鹰9多高'))
+  assert.ok(f9, '猎鹰9 应命中构型')
+  assert.strictEqual(f9.id, '164', '同名系列取发射次数多的主力构型')
+  const cz5 = pickRocketConfig(configs, extractRocketModelKey('长征五号运力多少'))
+  assert.ok(cz5 && cz5.id === '200', '长征五号 ↔ Long March 5')
+  assert.strictEqual(pickRocketConfig(configs, '不存在的火箭'), null)
+
+  const sites = [
+    { id: 12, name: 'Wenchang Space Launch Site', countryName: 'China', totalLaunchCount: 30 },
+    { id: 27, name: 'Kennedy Space Center, FL, USA', countryName: 'USA', totalLaunchCount: 200 }
+  ]
+  assert.strictEqual(pickLaunchSite(sites, '文昌发射场在哪').site.id, 12, '中文地名 → 英文场站')
+  assert.strictEqual(pickLaunchSite(sites, '39A工位介绍').site.id, 27, '39A → 肯尼迪航天中心')
+  assert.strictEqual(pickLaunchSite(sites, '朱雀三号'), null)
+
+  const crafts = [
+    { id: 5, name: 'Shenzhou', inUse: true },
+    { id: 6, name: 'Crew Dragon', inUse: true }
+  ]
+  assert.strictEqual(pickSpacecraftConfig(crafts, '神舟飞船能坐几人').config.id, 5)
+  assert.strictEqual(pickSpacecraftConfig(crafts, '龙飞船介绍').config.id, 6)
+  assert.strictEqual(pickSpacecraftConfig(crafts, '文昌发射场'), null)
+}
+
+function testSpecEnrich() {
+  const spec = enrichLaunchContextWithSpec({}, {
+    title: 'Falcon 9 Block 5',
+    rows: [
+      { label: '全长', value: '70 m' },
+      { label: '直径', value: '' },
+      { label: 'LEO 运力', value: '22800 kg' }
+    ]
+  })
+  assert.strictEqual(spec.uiCardReady, true)
+  assert.ok(spec.focusHint.indexOf('70 m') >= 0, '提示里带真实参数')
+  assert.ok(spec.focusHint.indexOf('22800 kg') >= 0)
+  assert.ok(spec.focusHint.indexOf('直径') < 0, '空值字段不进提示')
+  assert.ok(/禁止编造/.test(spec.focusHint), '要求不许编数字')
+
+  const noSpec = enrichLaunchContextNoSpec({}, '火箭型号', '猎鹰99多高')
+  assert.ok(/没查到|未匹配/.test(noSpec.focusHint))
+  assert.strictEqual(noSpec.uiCardReady, undefined, '没出卡就不能置 uiCardReady')
+
+  const mine = enrichLaunchContextWithMyLaunches({}, { items: [{ id: 'a' }, { id: 'b' }] })
+  assert.strictEqual(mine.uiCardReady, true)
+  assert.ok(mine.focusHint.indexOf('2 个任务') >= 0)
+  const noMine = enrichLaunchContextNoMyLaunches({})
+  assert.ok(/还没有订阅|没有任何订阅/.test(noMine.focusHint))
+  assert.strictEqual(noMine.uiCardReady, undefined)
+
+  const entry = enrichLaunchContextWithSimpleEntry({}, { label: '天象日历', action: '查看天象时间' })
+  assert.strictEqual(entry.uiCardReady, true)
+  assert.ok(entry.focusHint.indexOf('天象日历') >= 0)
+}
+
+function testViewingSpots() {
+  const { pickViewingSpots, toNavPoint, VIEWING_SPOTS, wgs84ToGcj02, haversineKm, spotDistanceKm } =
+    require('../subpackages/shared/utils/viewing-spots.js')
+
+  const cn = pickViewingSpots('文昌哪里看发射')
+  assert.strictEqual(cn.siteKey, 'wenchang')
+  assert.strictEqual(cn.restricted, false)
+  assert.strictEqual(cn.spots.length, 2, '默认给主推 + 备选两个点')
+  assert.strictEqual(cn.spots[0].id, 'wenchang_qishuiwan', 'rank 1 排在最前')
+
+  assert.strictEqual(pickViewingSpots('看星舰发射去哪').siteKey, 'starbase')
+  assert.strictEqual(pickViewingSpots('猎鹰9发射在哪看').siteKey, 'ksc')
+  assert.strictEqual(pickViewingSpots('范登堡观礼点').siteKey, 'vandenberg')
+  // 没指定发射场时兜底到文昌
+  assert.strictEqual(pickViewingSpots('去哪看火箭发射').siteKey, 'wenchang')
+
+  const jq = pickViewingSpots('酒泉能去现场看神舟发射吗')
+  assert.strictEqual(jq.siteKey, 'jiuquan')
+  assert.strictEqual(jq.restricted, true)
+  assert.strictEqual(jq.spots.length, 0, '管控发射场不给点位')
+  assert.ok(jq.restrictedNote.length > 10, '管控发射场要有说明文案')
+  assert.strictEqual(pickViewingSpots('太原观礼').restricted, true)
+  assert.strictEqual(pickViewingSpots('西昌观礼台').restricted, true)
+
+  // 表内一律 WGS-84（取自 OSM），出口统一转 GCJ-02；混用坐标系会把海岸点位推到海里
+  const qsw = VIEWING_SPOTS.find((s) => s.id === 'wenchang_qishuiwan')
+  const qswNav = toNavPoint(qsw)
+  const qswShift = haversineKm(qsw.lat, qsw.lng, qswNav.latitude, qswNav.longitude) * 1000
+  assert.strictEqual(qsw.coord, undefined, '不再混用 coord 标记')
+  assert.ok(qswShift > 300 && qswShift < 800, '国内点位导航前应转 GCJ-02，实测偏移 ' + qswShift.toFixed(0) + 'm')
+  // 每个点位的距离文案都必须能由坐标反算出来
+  VIEWING_SPOTS.forEach((s) => {
+    const real = spotDistanceKm(s)
+    assert.ok(real != null, s.id + ' 缺少有效 padKey')
+    assert.ok(Math.abs(real - Number(s.distanceKm)) < 0.15,
+      s.id + ' 坐标与 distanceKm 不一致：' + real.toFixed(2) + ' vs ' + s.distanceKm)
+  })
+  // 文昌观礼带在发射场以东；110.96 一带是正北海面，回退到那里就是 bug
+  VIEWING_SPOTS.filter((s) => s.siteKey === 'wenchang').forEach((s) => {
+    assert.ok(s.lng > 110.98 && s.lng < 111.05, s.id + ' 应落在文昌东侧观礼带')
+  })
+  const isla = VIEWING_SPOTS.find((s) => s.id === 'starbase_isla_blanca')
+  assert.strictEqual(toNavPoint(isla).latitude, isla.lat, '境外坐标不偏移')
+  assert.strictEqual(toNavPoint(null), null)
+  // 转换函数本身仍要在境内生效（留给未来 WGS 数据源）
+  const shifted = wgs84ToGcj02(110.951, 19.6144)
+  assert.ok(Math.abs(shifted.lat - 19.6144) > 0.0005 && Math.abs(shifted.lng - 110.951) > 0.0005)
+  assert.strictEqual(wgs84ToGcj02(-97.1566, 25.9972).lng, -97.1566, '境外原样返回')
+
+  const viewing = enrichLaunchContextWithViewingSpots({}, {
+    siteName: '文昌航天发射场',
+    spots: cn.spots,
+    restricted: false,
+    matched: true
+  })
+  assert.strictEqual(viewing.uiCardReady, true)
+  assert.ok(viewing.focusHint.indexOf('淇水湾海滩') >= 0, '提示里带真实点位名')
+  assert.ok(/交通管制/.test(viewing.focusHint), '提示里带管控免责')
+  assert.ok(/禁止编造/.test(viewing.focusHint))
+
+  const restrictedHint = enrichLaunchContextWithViewingSpots({}, {
+    siteName: '酒泉卫星发射中心',
+    spots: [],
+    restricted: true,
+    restrictedNote: jq.restrictedNote,
+    matched: true
+  })
+  assert.ok(/禁止推荐任何具体坐标/.test(restrictedHint.focusHint), '管控场地禁止给坐标')
+}
+
 function main() {
   const tests = [
     testIntentNext,
@@ -474,6 +766,11 @@ function main() {
     testPrioritySimOverStatus,
     testPriorityRoadOverStatus,
     testExtractAndPick,
+    testMissionLookupPrefersUpcoming,
+    testExtendedIntents,
+    testSpecPickers,
+    testSpecEnrich,
+    testViewingSpots,
     testEnrich
   ]
   let failed = 0

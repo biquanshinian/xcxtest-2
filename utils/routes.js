@@ -18,6 +18,8 @@ const ROUTES = {
   TIMELINE: '/subpackages/profile-extra/timeline/timeline',
   YEAR_REVIEW: '/subpackages/profile-extra/year-review/year-review',
   EVENT_DETAIL: '/subpackages/progress-extra/event-detail',
+  HARDWARE_LIST: '/subpackages/progress-extra/hardware-list',
+  HARDWARE_DETAIL: '/subpackages/progress-extra/hardware-detail',
   STARBASE_MAP: '/subpackages/progress-extra/starbase-map',
   ROAD_CLOSURE_MAP: '/subpackages/progress-extra/road-closure-map',
   ROAD_CLOSURE_DETAIL: '/subpackages/progress-extra/road-closure-detail',
@@ -61,7 +63,10 @@ const ROUTES = {
   ROCKET_MODEL_DETAIL: '/subpackages/monitor-pages/rocket-model-detail',
   ARTEMIS_DETAIL: '/subpackages/monitor-pages/artemis-detail',
   ORBITAL_DATA_CENTER: '/subpackages/monitor-pages/orbital-data-center/orbital-data-center',
-  VEHICLE_TRACKER: '/subpackages/monitor-pages/vehicle-tracker/vehicle-tracker'
+  VEHICLE_TRACKER: '/subpackages/monitor-pages/vehicle-tracker/vehicle-tracker',
+  // SPACE_NOTICES_FEATURE — 可整块移除
+  SPACE_NOTICE_LIST: '/subpackages/monitor-pages/space-notices/entry-list',
+  SPACE_NOTICE_MAP: '/subpackages/monitor-pages/space-notices/notice-map'
 }
 
 /**

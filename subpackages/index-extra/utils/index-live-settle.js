@@ -13,6 +13,7 @@
  * 跨边界共享的实例属性（均挂在 page 实例上，attach 后可直接读写）：
  * _statusRecheckTimer / _launchStatusPolling / _lastExpiredRoundAt
  * / _lastExpiredRoundAt（主包 _onCountdownExpired、onHide、_clearLiveStatusPolling 也读写）；
+ * _countdownPageHidden（主包 onShow/onHide 维护，后台时探针只续节拍不发请求）；
  * _channelsLivePollTimer（主包 _clearCountdownChannelsLivePoll 清理）。
  */
 const { getRoadClosureNotice } = require('../../../utils/api-road-closure.js')
@@ -44,6 +45,8 @@ const {
   buildUpcomingLaunchEmptyState
 } = require('../../../utils/index-launch-state.js')
 const windowMachine = require('../../../utils/countdown-window-machine.js')
+// NET/阶段判定统一走校准时钟；缓存 TTL 等本地时长仍用 Date.now()
+const { getServerNow } = require('../../../utils/server-clock.js')
 const { attachMissionDetailMeta } = require('../../../utils/index-mission-nav.js')
 const { buildMissionListSetData } = require('../../../utils/index-mission-services.js')
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
@@ -59,6 +62,8 @@ function getLiveFinderUserNameFromConfig() {
 const LIVE_STATUS_RECHECK_MS = 5 * 60 * 1000
 /** 窗口后未决慢探间隔（与状态机 POST_WINDOW_RECHECK_MS 对齐） */
 const LIVE_STATUS_UNRESOLVED_RECHECK_MS = windowMachine.POST_WINDOW_RECHECK_MS
+/** 同一任务两次静默结算探针的最小间隔：倒计时主循环 60s 一次 kick 也不会打爆额度 */
+const QUIET_SETTLE_MIN_GAP_MS = windowMachine.POST_WINDOW_RECHECK_MS
 const LL2_UPDATES_MEM_TTL_MS = 5 * 60 * 1000
 const ROAD_CLOSURE_REFRESH_TTL = 5 * 60 * 1000
 const SPACEX_STATS_REFRESH_TTL = 10 * 60 * 1000
@@ -107,7 +112,7 @@ const methods = {
     if (!curId || !this._isKnownSettleableId(curId)) return
 
     const peeled = this._peelKnownSettleableFromUpcoming(this.data.upcomingMissions || [])
-    const next = this._resolveCountdownPanelMission(peeled.upcoming, Date.now()).panelMission
+    const next = this._resolveCountdownPanelMission(peeled.upcoming, getServerNow()).panelMission
     const patch = {
       upcomingMissions: peeled.upcoming
     }
@@ -183,7 +188,7 @@ const methods = {
     this.applyUpcomingAgencyFilterToPatch(patch)
 
     if (curSettleable || (curId && !filtered.some((m) => m && String(m.id) === curId))) {
-      const next = this._resolveCountdownPanelMission(filtered, Date.now()).panelMission
+      const next = this._resolveCountdownPanelMission(filtered, getServerNow()).panelMission
       if (next) {
         Object.assign(
           patch,
@@ -350,17 +355,26 @@ const methods = {
       .catch(() => fallbackFetch())
   },
 
-  /** 对 upcoming 头部已过 NET 且尚未可落库的任务：后台探针，不抢先改「就绪」文案 */
+  /**
+   * 对 upcoming 头部已过 NET 且尚未可落库的任务：后台探针，不抢先改「就绪」文案。
+   * 也是「已让出主面板的 POST_WINDOW 任务」的唯一落库通路，故按 id 做 15 分钟节流后
+   * 允许倒计时主循环每 60s 重复 kick（见 index.js startCountdown）。
+   */
   _kickQuietSettlePastNetUpcoming(upcomingList, now) {
-    const past = collectPastNetUpcomingHeads(upcomingList, now != null ? now : Date.now(), 3)
+    const ts = now != null ? now : getServerNow()
+    const past = collectPastNetUpcomingHeads(upcomingList, ts, 3)
     if (!past.length) return
     if (!this._quietSettlingIds) this._quietSettlingIds = new Set()
+    if (!this._quietSettleAtById) this._quietSettleAtById = new Map()
     for (let i = 0; i < past.length; i++) {
       const mission = past[i]
       if (!mission || mission.id == null) continue
       const id = String(mission.id)
       if (this._isKnownSettleableId(id)) continue
       if (this._quietSettlingIds.has(id)) continue
+      const lastAt = this._quietSettleAtById.get(id) || 0
+      if (lastAt && ts - lastAt < QUIET_SETTLE_MIN_GAP_MS) continue
+      this._quietSettleAtById.set(id, ts)
       this._quietSettlingIds.add(id)
       this._quietSettlePastNetMission(mission)
         .catch(() => {})
@@ -432,7 +446,7 @@ const methods = {
     if (!row || !row.net || row.id == null) return false
     const id = String(row.id)
     const netMs = new Date(row.net).getTime()
-    if (!Number.isFinite(netMs) || netMs - Date.now() <= 60 * 1000) return false
+    if (!Number.isFinite(netMs) || netMs - getServerNow() <= 60 * 1000) return false
     const prevMs = mission && mission.launchTime ? new Date(mission.launchTime).getTime() : 0
     if (Number.isFinite(prevMs) && prevMs === netMs) return false
 
@@ -478,7 +492,7 @@ const methods = {
     // 面板停在未来任务、而改期后本任务更早 → 面板应换成本任务；
     // 面板停在过点确认中的任务上 → 禁止裸切，保持不动
     const curMs = ld && ld.launchTime ? new Date(ld.launchTime).getTime() : 0
-    const panelOnFuture = Number.isFinite(curMs) && curMs > Date.now()
+    const panelOnFuture = Number.isFinite(curMs) && curMs > getServerNow()
     const shouldSwitchPanel = !curId || (panelOnFuture && netMs < curMs)
     if (shouldSwitchPanel) {
       Object.assign(
@@ -512,6 +526,63 @@ const methods = {
    * 若只有飞行中：落历史前先 resolve 一次，尽量直接写成 Deployed/Success，避免历史长期「飞行中」。
    * 未决禁止从即将发射移除 / 禁止切下一个。
    */
+  /**
+   * POST_WINDOW（发射窗口 + 宽限都已过）仍未决：释放面板挂住，让下一条 NET 仍在未来的
+   * 任务顶上主倒计时，避免主面板长期定格「确认中 00:00:00」——LL2 对非美发射商的终态
+   * 常滞后数小时至次日，此时把整个倒计时区拿去等一条查不到结果的任务并不划算。
+   *
+   * 让位后被顶下去的任务仍留在 upcoming 列表里（未落库），由倒计时主循环每 60s kick 的
+   * _kickQuietSettlePastNetUpcoming 继续慢探并在探到终态时落库，结算不会丢。
+   * 正在飞的探针链会在下一个「面板是否仍是本任务」检查点自行终止（见 _checkLiveLaunchStatus）。
+   *
+   * @param {string} currentId 当前正在探针的任务 id
+   * @returns {boolean} 是否已让位（true 时调用方应立即返回，不要再排复查）
+   */
+  _releasePostWindowCountdownPanel(currentId) {
+    const ld = this.data.launchData
+    const panelId = ld && ld.id != null ? String(ld.id) : ''
+    if (!panelId || panelId !== String(currentId || '')) return false
+
+    const now = getServerNow()
+    const record = this._launchRecordsById ? this._launchRecordsById.get(panelId) || null : null
+    if (windowMachine.derivePhase(ld, record, now) !== windowMachine.PHASE.POST_WINDOW) return false
+
+    const list = this.data.upcomingMissions || []
+    // 不传 holdMissionId：让状态机按「无挂住」重新选型；无未来任务时它会回退到本任务，
+    // 此时 next.id === panelId，保持现状不让位（不空面板）
+    const next = windowMachine.resolvePanelMission(list, { now, recordsById: this._launchRecordsById })
+    if (!next || next.id == null || String(next.id) === panelId) return false
+
+    if (this._statusRecheckTimer) {
+      clearTimeout(this._statusRecheckTimer)
+      this._statusRecheckTimer = null
+    }
+    this._launchStatusPolling = false
+    this._lastExpiredRoundAt = 0
+
+    this.setData(
+      buildCurrentLaunchPanelState({
+        mission: next,
+        formatDate,
+        getStatusTextZh,
+        subscribedIdSet: this._getPageSubscribedIdSet()
+      }),
+      () => {
+        try {
+          this._syncCountdownOverlapSideCard()
+        } catch (e) {}
+      }
+    )
+    try {
+      this.applyLaunchSwitchEffects(next, { shouldSkipVoteCache: true })
+    } catch (e) {}
+    // 让位当拍即把被顶下去的任务交给静默结算，不等下一个 60s 循环
+    try {
+      this._kickQuietSettlePastNetUpcoming(list, now)
+    } catch (e) {}
+    return true
+  },
+
   async _settleExpiredLaunch(row) {
     if (this._statusRecheckTimer) {
       clearTimeout(this._statusRecheckTimer)
@@ -593,6 +664,8 @@ const methods = {
     }
 
     if (!currentId) return
+    // bestEffort 也拿不到终态：窗口 + 宽限已过就先让位，别把主倒计时锁死在这条任务上
+    if (this._releasePostWindowCountdownPanel(currentId)) return
     this._launchStatusPolling = true
     let liveText = '待确认'
     let liveCategory = 'pending'
@@ -616,7 +689,7 @@ const methods = {
       const cleanList = this._projectAuthoritativeLaunchState(
         list,
         this.data.completedMissions,
-        Date.now()
+        getServerNow()
       ).upcoming.filter((m) => m && fetchedIds.has(String(m.id)))
       const first = cleanList[0]
       if (!first) return
@@ -775,6 +848,14 @@ const methods = {
    * NET/状态），LL2 updates 社媒记录作终态旁路。
    */
   async _checkLiveLaunchStatus(currentId) {
+    // 页面在后台：只续节拍，不打 LL2。首页为 Tab 页通常不 onUnload，
+    // 复查定时器可长期存活，后台静默发请求纯属浪费额度；
+    // 回前台 onShow 的 tick 会立刻重入过期流程（onHide 已放开锁与轮次节流）
+    if (this._countdownPageHidden) {
+      this._armLiveStatusRecheck(currentId, LIVE_STATUS_RECHECK_MS)
+      return
+    }
+
     // 1) 主探针：按 id 直查
     let primary = null
     try {
@@ -816,7 +897,7 @@ const methods = {
       }
       // NET 已推后（新时间在 1 分钟以后）→ 更新发射时间，倒计时自然恢复
       const primaryNetMs = primary.net ? new Date(primary.net).getTime() : 0
-      if (primaryNetMs && primaryNetMs - Date.now() > 60 * 1000) {
+      if (primaryNetMs && primaryNetMs - getServerNow() > 60 * 1000) {
         this._applyPostponedNet({ ...primary, id: currentId })
         return
       }
@@ -855,7 +936,7 @@ const methods = {
       // 改期 NET 以主探针为权威，仅当主探针缺席时才用 live 行的
       if (!(primary && primary.status)) {
         const rowNetMs = row.net ? new Date(row.net).getTime() : 0
-        if (rowNetMs && rowNetMs - Date.now() > 60 * 1000) {
+        if (rowNetMs && rowNetMs - getServerNow() > 60 * 1000) {
           this._applyPostponedNet(row)
           return
         }
@@ -980,7 +1061,7 @@ const methods = {
       this._launchRecordsById && currentId != null
         ? this._launchRecordsById.get(String(currentId)) || null
         : null
-    const probe = windowMachine.nextProbeAction(ld, record, Date.now())
+    const probe = windowMachine.nextProbeAction(ld, record, getServerNow())
 
     if (probe.action === 'settle' || probe.action === 'bestEffort') {
       this._settleExpiredLaunchWithBestEffort(currentId)
@@ -988,7 +1069,7 @@ const methods = {
     }
     if (probe.action === 'none') {
       const netMs = windowMachine.getEffectiveNetMs(ld, record)
-      if (Number.isFinite(netMs) && netMs > Date.now()) {
+      if (Number.isFinite(netMs) && netMs > getServerNow()) {
         // 改期后 NET 回到未来：倒计时自然恢复，无需再轮询
         this._launchStatusPolling = false
         return
@@ -998,6 +1079,8 @@ const methods = {
       this._armLiveStatusRecheck(currentId, LIVE_STATUS_RECHECK_MS)
       return
     }
+    // POST_WINDOW 慢探：先让位给下一条未来任务，被顶下去的那条转静默结算继续探
+    if (probe.action === 'slowProbe' && this._releasePostWindowCountdownPanel(currentId)) return
     this._applyLiveStatusPanel(currentId, liveText, liveCategory)
     this._armLiveStatusRecheck(currentId, probe.delayMs || LIVE_STATUS_RECHECK_MS)
   },

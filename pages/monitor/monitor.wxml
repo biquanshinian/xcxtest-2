@@ -223,6 +223,28 @@
       </view>
     </view>
 
+    <!-- SPACE_NOTICES_FEATURE：发射通告地图入口（可整块删除本 block + monitor.js 对应逻辑） -->
+    <view class="space-notices-section monitor-block" wx:if="{{enableSpaceNotices}}">
+      <view class="section-title">
+        <text>发射通告地图</text>
+        <view class="section-title-right">
+          <view class="monitor-share-wrap">
+            <image class="icon-share icon-share--monitor" src="/images/share-arrow.svg" mode="aspectFit"></image>
+            <button class="monitor-share-btn" open-type="share" hover-class="none" data-share-type="spaceNotices" bindtap="markPendingShareType" plain="true"></button>
+          </view>
+        </view>
+      </view>
+      <view class="MARS-preview-card glass-card card-hover" bindtap="openSpaceNotices">
+        <view class="preview-card-content">
+          <view class="preview-card-info">
+            <text class="preview-card-title">点击加载发射通告地图</text>
+            <text class="preview-card-desc">航海飞行器及飞行轨迹绘制</text>
+          </view>
+          <view class="icon-arrow icon-arrow--preview-card">›</view>
+        </view>
+      </view>
+    </view>
+
     <!-- Starlink 过境预报 -->
     <view class="pass-section monitor-block">
       <view class="section-title">

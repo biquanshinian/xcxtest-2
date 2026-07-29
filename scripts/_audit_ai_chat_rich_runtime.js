@@ -162,7 +162,18 @@ async function main() {
     'enrichLaunchContextWithCard', 'enrichLaunchContextWithFlightDemo',
     'enrichLaunchContextWithVehicleTracker', 'enrichLaunchContextWithMissionSim',
     'enrichLaunchContextWithRoadClosure', 'enrichLaunchContextWithStation',
-    'enrichLaunchContextWithMissionReplay'
+    'enrichLaunchContextWithMissionReplay',
+    'matchRocketModelIntent', 'matchLaunchSiteIntent', 'matchSpacecraftIntent',
+    'matchBoosterIntent', 'matchMyLaunchesIntent', 'matchYearReviewIntent',
+    'matchLaunchVoteIntent', 'matchApodIntent', 'matchAstroCalendarIntent', 'matchNewsIntent',
+    'pickRocketConfig', 'pickLaunchSite', 'pickSpacecraftConfig',
+    'extractBoosterSerial', 'extractRocketModelKey',
+    'enrichLaunchContextWithSpec', 'enrichLaunchContextNoSpec',
+    'enrichLaunchContextWithMyLaunches', 'enrichLaunchContextNoMyLaunches',
+    'enrichLaunchContextWithSimpleEntry',
+    'matchStarlinkPassIntent', 'matchStarlinkMapIntent', 'matchViewingSpotIntent', 'matchArtemisIntent',
+    'matchStarshipHardwareIntent', 'matchRecoveryStatsIntent',
+    'extractStarshipHardwareRef', 'pickStarshipHardware', 'parseHardwareVehicleRef'
   ]
   coreExports.forEach((k) => ok(typeof core[k] === 'function', 'core export ' + k))
 
@@ -170,10 +181,18 @@ async function main() {
     'resolveRichChatPayload', 'resolveFlightDemoEntryCard', 'resolveMissionSimEntryCard',
     'resolveVehicleTrackerEntryCard', 'resolveRoadClosureEntryCard', 'resolveStationEntryCard',
     'resolveStarshipNextFlightCard', 'resolveLaunchListCard', 'resolveStarshipStatusCard',
+    'resolveLiveWatchEntryCard',
     'resolveMissionLookupCard', 'resolveMissionReplayCard', 'resolveStarshipProgressEntryCard',
     'resolveLaunchStatsCard', 'resolveAgencyLookupCard',
     'matchRoadClosureIntent', 'matchStationIntent', 'matchMissionLookupIntent', 'matchLaunchStatsIntent',
-    'matchAgencyIntent', 'matchMissionReplayIntent'
+    'matchAgencyIntent', 'matchMissionReplayIntent',
+    'resolveRocketModelCard', 'resolveLaunchSiteCard', 'resolveSpacecraftCard',
+    'resolveBoosterCard', 'resolveMySubscriptionsCard', 'resolveLaunchVoteEntryCard',
+    'resolveYearReviewEntryCard', 'resolveAstroCalendarEntryCard', 'resolveNewsEntryCard',
+    'resolveApodCard', 'buildSpecCard',
+    'resolveStarlinkPassEntryCard', 'resolveStarlinkMapEntryCard', 'resolveViewingSpotCards',
+    'resolveArtemisEntryCard',
+    'resolveStarshipHardwareCard', 'resolveRecoveryStatsCard'
   ]
   richExports.forEach((k) => ok(typeof rich[k] === 'function', 'rich export ' + k))
 
@@ -205,9 +224,57 @@ async function main() {
     ['天宫现在有哪些乘组', 'station'],
     ['国际空间站怎么样', 'station'],
     ['朱雀三号什么时候发射？', 'mission_lookup'],
+    ['长征十号甲什么时候发射？', 'mission_lookup'],
     ['猎鹰9号', 'mission_lookup'],
     ['引力一号的回放视频', 'mission_replay'],
     ['看看长征七号回放集锦', 'mission_replay'],
+    ['猎鹰9多高', 'rocket_model'],
+    ['长征五号运力多少', 'rocket_model'],
+    ['文昌发射场在哪', 'launch_site'],
+    ['神舟飞船能坐几人', 'spacecraft'],
+    ['B1067飞了几次', 'booster'],
+    ['我订阅了哪些发射', 'my_launches'],
+    ['这次发射能成功吗', 'launch_vote'],
+    ['年度回顾', 'year_review'],
+    ['今天的天文图片', 'apod'],
+    ['最近有什么流星雨', 'astro_calendar'],
+    ['最近有什么航天新闻', 'news'],
+    ['今晚能看到星链吗', 'starlink_pass'],
+    ['看看星链实时分布', 'starlink_map'],
+    ['星链有多少颗卫星', 'starlink_map'],
+    ['星链什么时候发射', 'mission_lookup'],
+    ['去哪看火箭发射', 'viewing_spot'],
+    ['文昌观礼点推荐', 'viewing_spot'],
+    ['看星舰发射去哪', 'viewing_spot'],
+    ['淇水湾怎么去', 'viewing_spot'],
+    ['文昌发射场在哪', 'launch_site'],
+    ['阿尔忒弥斯任务进展', 'artemis'],
+    ['S38在哪', 'starship_hardware'],
+    ['星舰硬件设施列表', 'starship_hardware'],
+    ['猎鹰9回收成功率', 'recovery_stats'],
+    ['助推器复用排行', 'recovery_stats'],
+    // 直播：各种喊法都要出直播卡
+    ['直播', 'live_watch'],
+    ['看直播', 'live_watch'],
+    ['有直播吗', 'live_watch'],
+    ['在哪看直播', 'live_watch'],
+    ['在哪看发射直播？', 'live_watch'],
+    ['怎么看火箭发射直播', 'live_watch'],
+    ['发射直播间在哪', 'live_watch'],
+    ['视频号直播', 'live_watch'],
+    ['B站直播在哪', 'live_watch'],
+    ['哪个平台有直播', 'live_watch'],
+    ['直播链接给我', 'live_watch'],
+    ['开播了吗', 'live_watch'],
+    ['今晚有直播吗', 'live_watch'],
+    // 带任务名的直播问法也归直播，不去查任务详情
+    ['星舰试飞直播', 'live_watch'],
+    ['星舰发射直播在哪看', 'live_watch'],
+    // 「回放/集锦」是录播，仍归回放卡；「去哪站着看」仍归观礼点
+    ['有直播回放吗', 'mission_replay'],
+    ['直播集锦', 'mission_replay'],
+    // 组合体状态问法仍归 starship_status（与既有契约一致）
+    ['星舰 B15 状态怎么样', 'starship_status'],
     ['今天天气怎么样', null],
     ['', null]
   ]
@@ -221,6 +288,10 @@ async function main() {
   ok(core.resolveAiChatRichIntent('星舰飞行剖面演示') === 'flight_demo', 'prio demo > status')
   ok(core.resolveAiChatRichIntent('星舰任务指挥室进展') === 'mission_sim', 'prio sim > status')
   ok(core.resolveAiChatRichIntent('星舰封路进展') === 'road_closure', 'prio road > status')
+  ok(core.resolveAiChatRichIntent('在哪看发射直播') === 'live_watch', 'prio live > viewing_spot')
+  ok(core.resolveAiChatRichIntent('去哪看火箭发射') === 'viewing_spot', '观礼点不被直播误伤')
+  ok(core.matchLiveWatchIntent('有直播吗') === true, 'matchLiveWatchIntent 可用')
+  ok(core.matchLiveWatchIntent('接下来有哪些发射？') === false, 'matchLiveWatchIntent 不误报')
   ok(core.resolveAiChatRichIntent('空间站在轨飞行器追踪') !== 'station' ||
     core.resolveAiChatRichIntent('打开在轨飞行器追踪') === 'vehicle_tracker', 'tracker 不被空间站误伤')
 
@@ -231,8 +302,11 @@ async function main() {
   const quicks = []
   if (quickMatch) {
     const re = /'([^']+)'/g
-    let m
-    while ((m = re.exec(quickMatch[1]))) quicks.push(m[1])
+    let m = re.exec(quickMatch[1])
+    while (m) {
+      quicks.push(m[1])
+      m = re.exec(quickMatch[1])
+    }
   }
   ok(quicks.length >= 8, '快捷问题数量 ≥ 8（got ' + quicks.length + '）')
   quicks.forEach((q) => {
@@ -247,8 +321,11 @@ async function main() {
   const shortcutQs = []
   if (scMatch) {
     const re = /q:\s*'([^']+)'/g
-    let m
-    while ((m = re.exec(scMatch[1]))) shortcutQs.push(m[1])
+    let m = re.exec(scMatch[1])
+    while (m) {
+      shortcutQs.push(m[1])
+      m = re.exec(scMatch[1])
+    }
   }
   ok(shortcutQs.length >= 8, '横向快捷数量 ≥ 8（got ' + shortcutQs.length + '）')
   shortcutQs.forEach((q) => {
@@ -280,6 +357,20 @@ async function main() {
   ok(vt.card.entryKind === 'vehicle_tracker' && vt.card.gateProductId === 'orbital_data_center', 'tracker 载荷')
   ok(pageExists(pages, vt.card.detailUrl), 'tracker 页在 app.json')
   ok(vt.card.detailUrl === ROUTES.VEHICLE_TRACKER, 'tracker 对齐 ROUTES')
+
+  // 直播卡：落点是监控中心 Tab，必须 switchTab；带过审开关标记，且不挂会员门控
+  const live = rich.resolveLiveWatchEntryCard()
+  ok(live.card.entryKind === 'live_watch' && live.card.cardType === 'entry', 'live 载荷')
+  ok(live.card.detailUrl === ROUTES.MONITOR && live.card.useSwitchTab === true, 'live 走 MONITOR switchTab')
+  ok(pageExists(pages, live.card.detailUrl), 'live 页在 app.json')
+  ok(live.card.needLiveFlag === true, 'live 带过审开关标记')
+  ok(!live.card.gateProductId, 'live 不挂会员门控')
+  ok(live.card.variant === 'live', 'live 配色 variant')
+
+  const livePayload = await rich.resolveRichChatPayload('在哪看发射直播？', {})
+  const liveHint = (livePayload.launchContext && livePayload.launchContext.focusHint) || ''
+  ok(/监控中心/.test(liveHint), 'live focusHint 指路监控中心')
+  ok(/不要编造/.test(liveHint), 'live focusHint 禁止编造直播地址/时间')
 
   const road = rich.resolveRoadClosureEntryCard()
   ok(road.card.entryKind === 'road_closure' && !road.card.needMissionSimFlag, 'road 载荷')
@@ -455,6 +546,259 @@ async function main() {
       expectIntent: 'mission_lookup',
       expectCard: 'mission',
       mustHaveHint: true
+    },
+    {
+      // 未来问法：历史任务同名也不能盖过即将发射
+      q: '长征十号甲什么时候发射？',
+      opts: {
+        upcomingHint: [
+          {
+            id: 'cz10a-next',
+            name: 'Long March 10A | Maiden Flight',
+            rocketName: 'Long March 10A',
+            launchTime: new Date(Date.now() + 60 * 24 * 3600 * 1000).toISOString(),
+            statusBadgeText: 'TBD',
+            padLocation: 'Wenchang'
+          }
+        ],
+        completedHint: [
+          {
+            id: 'cz10a-old',
+            name: '长征十号甲 | 试验飞行',
+            missionName: '长征十号甲 试验飞行',
+            rocketName: '长征十号甲',
+            launchTime: new Date(Date.now() - 40 * 24 * 3600 * 1000).toISOString(),
+            statusBadgeText: 'Success',
+            statusCategory: 'success',
+            success: true
+          }
+        ]
+      },
+      expectIntent: 'mission_lookup',
+      expectCard: 'mission',
+      expectDetailType: 'upcoming',
+      expectCardId: 'cz10a-next',
+      mustHaveHint: true
+    },
+    {
+      q: '猎鹰9多高',
+      opts: {
+        rocketConfigsHint: {
+          164: {
+            id: 164,
+            name: 'Falcon 9',
+            full_name: 'Falcon 9 Block 5',
+            length: 70,
+            diameter: 3.7,
+            leo_capacity: 22800,
+            total_launch_count: 400,
+            successful_launches: 398,
+            reusable: true,
+            manufacturerName: 'SpaceX'
+          }
+        }
+      },
+      expectIntent: 'rocket_model',
+      expectCard: 'spec',
+      expectSpecKind: 'rocket_model',
+      mustHaveHint: true
+    },
+    {
+      q: '文昌发射场在哪',
+      opts: {
+        launchSitesHint: [
+          {
+            id: 12,
+            name: 'Wenchang Space Launch Site',
+            countryName: 'China',
+            active: true,
+            totalLaunchCount: 30,
+            latitude: 19.6,
+            longitude: 110.9
+          }
+        ]
+      },
+      expectIntent: 'launch_site',
+      expectCard: 'spec',
+      expectSpecKind: 'launch_site',
+      mustHaveHint: true
+    },
+    {
+      q: '神舟飞船能坐几人',
+      opts: {
+        spacecraftHint: [
+          { id: 5, name: 'Shenzhou', inUse: true, agencyName: 'CASC', crewCapacity: 3, height: 9 }
+        ]
+      },
+      expectIntent: 'spacecraft',
+      expectCard: 'spec',
+      expectSpecKind: 'spacecraft',
+      mustHaveHint: true
+    },
+    {
+      // 云端查不到编号时回落助推器家谱入口，不能空手
+      q: 'B1067飞了几次',
+      opts: {},
+      expectIntent: 'booster',
+      expectCard: 'entry',
+      expectKind: 'booster_genealogy',
+      mustHaveHint: true
+    },
+    {
+      q: '年度回顾',
+      opts: {},
+      expectIntent: 'year_review',
+      expectCard: 'entry',
+      expectKind: 'year_review',
+      mustHaveHint: true
+    },
+    {
+      q: '最近有什么流星雨',
+      opts: {},
+      expectIntent: 'astro_calendar',
+      expectCard: 'entry',
+      expectKind: 'astro_calendar',
+      mustHaveHint: true
+    },
+    {
+      q: '最近有什么航天新闻',
+      opts: {},
+      expectIntent: 'news',
+      expectCard: 'entry',
+      expectKind: 'news',
+      mustHaveHint: true
+    },
+    {
+      q: '这次发射能成功吗',
+      opts: { upcomingHint: fixtureLaunches },
+      expectIntent: 'launch_vote',
+      expectCard: 'entry',
+      expectKind: 'launch_vote',
+      mustHaveHint: true
+    },
+    {
+      q: '今晚能看到星链吗',
+      opts: {},
+      expectIntent: 'starlink_pass',
+      expectCard: 'entry',
+      expectKind: 'starlink_pass',
+      mustHaveHint: true
+    },
+    {
+      q: '去哪看火箭发射',
+      opts: {},
+      expectIntent: 'viewing_spot',
+      expectCard: 'spec',
+      expectSpecKind: 'viewing_spot',
+      mustHaveHint: true
+    },
+    {
+      q: '看星舰发射去哪',
+      opts: {},
+      expectIntent: 'viewing_spot',
+      expectCard: 'spec',
+      expectSpecKind: 'viewing_spot',
+      mustHaveHint: true
+    },
+    {
+      // 管控发射场：只出须知卡，不给坐标
+      q: '酒泉能去现场看神舟发射吗',
+      opts: {},
+      expectIntent: 'viewing_spot',
+      expectCard: 'spec',
+      expectSpecKind: 'viewing_spot',
+      mustHaveHint: true
+    },
+    {
+      q: '看看星链实时分布',
+      opts: {},
+      expectIntent: 'starlink_map',
+      expectCard: 'entry',
+      expectKind: 'starlink_map',
+      mustHaveHint: true
+    },
+    {
+      q: '阿尔忒弥斯任务进展',
+      opts: {},
+      expectIntent: 'artemis',
+      expectCard: 'entry',
+      expectKind: 'artemis',
+      mustHaveHint: true
+    },
+    {
+      q: 'S38在哪',
+      opts: {
+        hardwareHint: [
+          {
+            id: 338,
+            name: 'Ship 38',
+            status: 'Testing',
+            statusZh: '测试中',
+            type: 'Starship',
+            typeZh: '星舰飞船',
+            categoryZh: '在建',
+            notesZh: '已完成低温测试'
+          }
+        ]
+      },
+      expectIntent: 'starship_hardware',
+      expectCard: 'spec',
+      expectSpecKind: 'starship_hardware',
+      mustHaveHint: true
+    },
+    {
+      // 硬件库为空时回落硬件列表入口
+      q: '星舰硬件设施列表',
+      opts: { hardwareHint: [] },
+      expectIntent: 'starship_hardware',
+      expectCard: 'entry',
+      expectKind: 'starship_hardware',
+      mustHaveHint: true
+    },
+    {
+      q: '猎鹰9回收成功率',
+      opts: {
+        recoveryHint: {
+          success: true,
+          totalBoosters: 80,
+          activeBoosters: 12,
+          totalFlights: 520,
+          totalLandings: 500,
+          totalAttempts: 510,
+          landingSuccessRate: '98.0%',
+          topReused: [{ serial: 'B1067', flights: 30 }]
+        }
+      },
+      expectIntent: 'recovery_stats',
+      expectCard: 'spec',
+      expectSpecKind: 'recovery_stats',
+      mustHaveHint: true
+    },
+    {
+      // 族谱聚合失败时回落家谱入口
+      q: '助推器复用排行',
+      opts: { recoveryHint: { success: false } },
+      expectIntent: 'recovery_stats',
+      expectCard: 'entry',
+      expectKind: 'booster_genealogy',
+      mustHaveHint: true
+    },
+    {
+      q: '在哪看发射直播？',
+      opts: {},
+      expectIntent: 'live_watch',
+      expectCard: 'entry',
+      expectKind: 'live_watch',
+      mustHaveHint: true
+    },
+    {
+      // 光喊「直播」也要出卡，不依赖任何外部取数
+      q: '直播',
+      opts: {},
+      expectIntent: 'live_watch',
+      expectCard: 'entry',
+      expectKind: 'live_watch',
+      mustHaveHint: true
     }
   ]
 
@@ -491,12 +835,147 @@ async function main() {
     if (c.expectKind) {
       ok(card && card.entryKind === c.expectKind, 'payload kind「' + c.q + '」= ' + c.expectKind)
     }
+    if (c.expectSpecKind) {
+      ok(card && card.specKind === c.expectSpecKind,
+        'payload specKind「' + c.q + '」= ' + c.expectSpecKind + ' (got ' + (card && card.specKind) + ')')
+      ok(card && Array.isArray(card.rows) && card.rows.length > 0,
+        'payload 参数行非空「' + c.q + '」')
+      ok(card && card.rows.every((r) => r && r.label && r.value !== '' && r.value != null),
+        'payload 参数行无空值「' + c.q + '」')
+      ok(card && !card.detailUrl, 'payload 参数卡不带 URL（跳转走白名单）「' + c.q + '」')
+      const hint = (r.launchContext && r.launchContext.focusHint) || ''
+      ok(!/未匹配|找不到|没有数据/.test(hint.replace(/禁止说[^。]*。/g, '')),
+        'payload 参数卡提示不否定匹配「' + c.q + '」')
+    }
+    if (c.expectDetailType) {
+      ok(card && card.detailType === c.expectDetailType,
+        'payload detailType「' + c.q + '」= ' + c.expectDetailType + ' (got ' + (card && card.detailType) + ')')
+    }
+    if (c.expectCardId) {
+      ok(card && String(card.id) === c.expectCardId,
+        'payload 命中任务「' + c.q + '」= ' + c.expectCardId + ' (got ' + (card && card.id) + ')')
+    }
     if (c.mustHaveHint) {
       ok(!!(r.launchContext && r.launchContext.focusHint), 'payload focusHint「' + c.q + '」')
     }
     if (card && card.detailUrl) {
       ok(pageExists(pages, card.detailUrl) || card.useSwitchTab, 'payload 路由可落点「' + c.q + '」')
     }
+  }
+
+  // ── 组合体编号取自硬件设施列表头两条 ──
+  {
+    const withHw = await rich.resolveRichChatPayload('星舰组合体最新进展如何？', {
+      cachedStatus: { booster: { id: 'B14', status: '静态点火完成', progress: 80 }, ship: { id: 'S37', status: '低温测试中', progress: 60 } },
+      hardwareHint: [
+        { name: 'Ship 39', statusZh: '在建', status: 'Under Construction' },
+        { name: 'Booster 18', statusZh: '测试中', status: 'Testing' },
+        { name: 'Ship 40', statusZh: '在建', status: 'Under Construction' }
+      ]
+    })
+    const c0 = (withHw.cards || [])[0]
+    ok(c0 && c0.booster.id === 'Booster 18', '组合体 · 助推器名取硬件列表头两条 (got ' + (c0 && c0.booster.id) + ')')
+    ok(c0 && c0.ship.id === 'Ship 39', '组合体 · 飞船名取硬件列表头两条 (got ' + (c0 && c0.ship.id) + ')')
+    ok(c0 && c0.booster.progress === null && c0.ship.progress === null,
+      '组合体 · 换代后不沿用旧进度')
+    ok(c0 && c0.booster.status === '测试中' && c0.ship.status === '在建', '组合体 · 换代后用硬件表状态')
+    ok(/Booster 18/.test(withHw.launchContext.focusHint || '') &&
+      /Ship 39/.test(withHw.launchContext.focusHint || ''), '组合体 · 提示词同步新编号')
+
+    // 编号一致时保留手工维护的进度与状态
+    const same = await rich.resolveRichChatPayload('星舰组合体最新进展如何？', {
+      cachedStatus: { booster: { id: 'B18', status: '静态点火完成', progress: 80 }, ship: { id: 'S39', status: '低温测试中', progress: 60 } },
+      hardwareHint: [
+        { name: 'Ship 39', statusZh: '在建' },
+        { name: 'Booster 18', statusZh: '测试中' }
+      ]
+    })
+    const c1 = (same.cards || [])[0]
+    ok(c1 && c1.booster.progress === 80 && c1.ship.progress === 60, '组合体 · 同一单元保留进度')
+    ok(c1 && c1.booster.status === '静态点火完成', '组合体 · 同一单元保留手工状态')
+  }
+
+  // ── 火箭型号：中文序数「号」不能挡住匹配 ──
+  {
+    const cfgs = {
+      1: { id: 1, name: 'Falcon 9', full_name: 'Falcon 9 Block 5', total_launch_count: 400 },
+      2: { id: 2, name: 'Falcon Heavy', full_name: 'Falcon Heavy', total_launch_count: 11 },
+      3: { id: 3, name: 'Long March 5', full_name: 'Long March 5', total_launch_count: 20 }
+    }
+    ;[['猎鹰9号参数', 'Falcon 9'], ['猎鹰9号多高', 'Falcon 9'], ['猎鹰九号运力', 'Falcon 9'],
+      ['猎鹰9参数', 'Falcon 9'], ['长征五号参数', 'Long March 5'], ['猎鹰重型参数', 'Falcon Heavy']]
+      .forEach(([q, expect]) => {
+        const hit = core.pickRocketConfig(cfgs, core.extractRocketModelKey(q))
+        ok(hit && hit.config.name === expect,
+          '火箭型号「' + q + '」→ ' + expect + ' (got ' + (hit && hit.config.name) + ')')
+      })
+  }
+
+  // ── 观礼点卡：坐标可用性 + 管控发射场安全兜底 ──
+  {
+    const spots = require(path.join(root, 'subpackages/shared/utils/viewing-spots.js'))
+    const cn = await rich.resolveRichChatPayload('文昌观礼点推荐', {})
+    ok(cn.intent === 'viewing_spot', '观礼 · 文昌命中观礼意图')
+    ok(cn.cards.length === 2, '观礼 · 出主推 + 备选两张卡')
+    ok(cn.cards.every((c) => c.nav && isFinite(c.nav.latitude) && isFinite(c.nav.longitude)),
+      '观礼 · 每张卡都带可导航坐标')
+    ok(cn.cards.every((c) => c.nav.latitude > 18 && c.nav.latitude < 21 &&
+      c.nav.longitude > 110 && c.nav.longitude < 112), '观礼 · 文昌坐标落在海南境内')
+    ok(cn.cards.every((c) => /导航/.test(c.cta)), '观礼 · CTA 为一键导航')
+    ok(cn.cards.every((c) => !!c.note), '观礼 · 每张卡都带出行提示')
+    ok(/交通管制|官方公告/.test(cn.launchContext.focusHint || ''), '观礼 · 提示里带管控免责')
+
+    // 坐标 ↔ 距离自洽：改坐标忘改距离、或抄错一位小数，都会在这里红
+    spots.VIEWING_SPOTS.forEach((s) => {
+      const real = spots.spotDistanceKm(s)
+      ok(real != null && Math.abs(real - Number(s.distanceKm)) < 0.15,
+        '观礼 · ' + s.id + ' 坐标反算距离与 distanceKm 一致 (' +
+        (real == null ? 'null' : real.toFixed(2)) + ' vs ' + s.distanceKm + ')')
+      const textKm = (String(s.distanceText).match(/([\d.]+)\s*km/) || [])[1]
+      ok(textKm && Math.abs(Number(textKm) - real) < 0.6,
+        '观礼 · ' + s.id + ' 距离文案与实际吻合 (' + s.distanceText + ')')
+    })
+
+    // 全表统一 WGS-84：混用坐标系是上一轮定位跑到海里的根因，这里禁止再出现 coord 标记
+    spots.VIEWING_SPOTS.forEach((s) => {
+      ok(s.coord === undefined, '观礼 · ' + s.id + ' 不带 coord 标记（全表 WGS-84）')
+      ok(!!s.navHint, '观礼 · ' + s.id + ' 标明导航落点地物')
+    })
+
+    // 文昌：观礼岸线在发射场以东，经度必须落在 110.98–111.05；
+    // 110.96 一带是发射场正北的海面，历史上就是错在这里
+    spots.VIEWING_SPOTS.filter((s) => s.siteKey === 'wenchang').forEach((s) => {
+      ok(s.lng > 110.98 && s.lng < 111.05 && s.lat > 19.62 && s.lat < 19.69,
+        '观礼 · ' + s.id + ' 落在文昌东侧观礼带（非发射场正北海面）')
+    })
+    const qsw = spots.VIEWING_SPOTS.find((s) => s.id === 'wenchang_qishuiwan')
+    const qswNav = spots.toNavPoint(qsw)
+    const qswShift = spots.haversineKm(qsw.lat, qsw.lng, qswNav.latitude, qswNav.longitude) * 1000
+    ok(qswShift > 300 && qswShift < 800, '观礼 · 淇水湾导航前转 GCJ-02（偏移 ' + qswShift.toFixed(0) + 'm）')
+    ok(/停车场/.test(qsw.address) && /停车场/.test(qsw.navHint),
+      '观礼 · 淇水湾导航到停车场而非沙滩岸线')
+
+    const isla = spots.VIEWING_SPOTS.find((s) => s.id === 'starbase_isla_blanca')
+    const islaNav = spots.toNavPoint(isla)
+    ok(islaNav.latitude === isla.lat && islaNav.longitude === isla.lng,
+      '观礼 · 境外坐标不做偏移')
+    ok(spots.VIEWING_SPOTS.every((s) => s.name && s.address && s.lat != null && s.lng != null &&
+      s.padKey && spots.REFERENCE_PADS[s.padKey] &&
+      s.distanceText && s.costText && s.viewText && s.tips), '观礼 · 点位数据字段完备')
+    ok(spots.VIEWING_SPOTS.some((s) => s.siteKey === 'wenchang') &&
+      spots.VIEWING_SPOTS.some((s) => s.siteKey === 'ksc') &&
+      spots.VIEWING_SPOTS.some((s) => s.siteKey === 'starbase') &&
+      spots.VIEWING_SPOTS.some((s) => s.siteKey === 'vandenberg'), '观礼 · 覆盖中美四大发射场')
+
+    const jq = await rich.resolveRichChatPayload('酒泉能去现场看神舟发射吗', {})
+    ok(jq.cards.length === 1 && !jq.cards[0].nav, '观礼 · 管控发射场不给导航坐标')
+    ok(/官方渠道/.test(jq.cards[0].cta || ''), '观礼 · 管控卡 CTA 指向官方渠道')
+    ok(/禁止推荐任何具体坐标|不能自行抵达/.test(jq.launchContext.focusHint || ''),
+      '观礼 · 管控卡提示禁止靠近发射场')
+    ;['xichang', 'taiyuan'].forEach((key) => {
+      ok(spots.VIEWING_SITES[key] && spots.VIEWING_SITES[key].restricted === true &&
+        !!spots.VIEWING_SITES[key].restrictedNote, '观礼 · ' + key + ' 标记为管控场地')
+    })
   }
 
   // 无数据时仍不抛 + 给提示
@@ -561,10 +1040,14 @@ async function main() {
   ok(chatJs.includes("triggerEvent('keyboardheight'") || chatJs.includes('triggerEvent("keyboardheight"'), '键盘高度事件上抛')
   ok(hostJs.includes('onKeyboardHeight') && hostJs.includes('keyboardHeight'), '宿主页接收键盘高度')
 
-  ;['flight_demo', 'mission_sim', 'vehicle_tracker', 'road_closure', 'station', 'starship_progress'].forEach((kind) => {
+  ;['flight_demo', 'mission_sim', 'vehicle_tracker', 'road_closure', 'station', 'starship_progress',
+    'live_watch'].forEach((kind) => {
     ok(chatJs.includes("kind === '" + kind + "'") || chatJs.includes('kind === "' + kind + '"'),
       'onEntryCardTap 处理 ' + kind)
   })
+  ok(chatWxml.includes('data-needlive'), 'wxml 透传 needLiveFlag')
+  ok(chatJs.includes('isLiveEntryAllowed') && chatJs.includes('needLive'), '直播卡受过审开关门控')
+  ok(chatWxss.includes('.ai-entry-card--live'), '直播卡配色存在')
   ok(chatJs.includes('resolveRichChatPayload'), '发送链路调 resolveRichChatPayload')
   ok(chatJs.includes('completedHint'), '发送链路带 completedHint')
   ok(chatJs.includes('gateCheck'), '入口卡门控 gateCheck')
@@ -586,6 +1069,28 @@ async function main() {
   ok(chatJs.includes("enableMissionReplay"), 'js 回放过审开关')
   ok(chatJs.includes('GLOBAL_LAUNCH_STATS') || chatJs.includes("global_launch_stats"), 'js 统计路由/门控')
   ok(chatJs.includes('AGENCY_DETAIL') || chatJs.includes('agency_encyclopedia'), 'js 发射商路由/门控')
+  ok(chatWxml.includes("card.cardType === 'spec'"), 'wxml spec 参数卡分支')
+  ok(chatWxml.includes('onSpecCardTap') && chatWxml.includes('data-targetid'), 'wxml 参数卡点击 + targetId')
+  ok(chatWxml.includes('ai-spec-rows') && chatWxml.includes('spec.label'), 'wxml 参数行渲染')
+  ok(chatJs.includes('onSpecCardTap') && chatJs.includes('SPEC_ROUTE_MAP'), 'js 参数卡跳转走白名单')
+  ;['rocket_model', 'launch_site', 'spacecraft', 'booster', 'apod',
+    'starship_hardware', 'recovery_stats'].forEach((kind) => {
+    ok(new RegExp('\\b' + kind + ':\\s*\\{').test(chatJs), 'SPEC_ROUTE_MAP 含 ' + kind)
+  })
+  ;['booster_genealogy', 'launch_vote', 'year_review', 'astro_calendar', 'news',
+    'starlink_pass', 'starlink_map', 'artemis', 'starship_hardware'].forEach((kind) => {
+    ok(chatJs.includes("kind === '" + kind + "'"), 'onEntryCardTap 处理 ' + kind)
+  })
+  ;['wiki', 'site', 'craft', 'booster', 'apod', 'hardware', 'viewing'].forEach((v) => {
+    ok(chatWxss.includes('ai-spec-card--' + v), 'wxss spec variant ' + v)
+  })
+  ok(chatWxml.includes('data-navlat') && chatWxml.includes('data-navlng'), 'wxml 观礼卡传导航坐标')
+  ok(chatWxml.includes('ai-spec-note') && chatWxss.includes('.ai-spec-note'), '观礼卡出行提示已渲染')
+  ok(/kind === 'viewing_spot'[\s\S]{0,600}wx\.openLocation/.test(chatJs), 'js 观礼卡调起系统地图导航')
+  ok(/kind === 'viewing_spot'[\s\S]{0,400}showToast/.test(chatJs), 'js 无坐标观礼卡给出提示而非静默')
+  ;['booster', 'vote', 'review', 'astro', 'news', 'starlink', 'artemis', 'hardware'].forEach((v) => {
+    ok(chatWxss.includes('ai-entry-card--' + v), 'wxss entry variant ' + v)
+  })
   ok(chatWxml.includes('wx:else') && chatWxml.includes('onMissionCardTap'), 'wxml mission 默认分支')
   ok(chatWxml.includes('data-stationid'), 'wxml stationId dataset')
   ok(!chatWxml.includes('data-url='), '禁用 data-url')
@@ -604,6 +1109,18 @@ async function main() {
   ok(!!ROUTES.AGENCY_DETAIL && pageExists(pages, ROUTES.AGENCY_DETAIL), 'ROUTES 发射商详情')
   ok(!!ROUTES.MONITOR && pageExists(pages, ROUTES.MONITOR), 'ROUTES 监控 Tab')
   ok(!!ROUTES.PROGRESS && pageExists(pages, ROUTES.PROGRESS), 'ROUTES 进度 Tab')
+  ok(!!ROUTES.ROCKET_MODEL_DETAIL && pageExists(pages, ROUTES.ROCKET_MODEL_DETAIL), 'ROUTES 火箭型号详情')
+  ok(!!ROUTES.LAUNCH_SITE_DETAIL && pageExists(pages, ROUTES.LAUNCH_SITE_DETAIL), 'ROUTES 发射场详情')
+  ok(!!ROUTES.SPACECRAFT_DETAIL && pageExists(pages, ROUTES.SPACECRAFT_DETAIL), 'ROUTES 飞船详情')
+  ok(!!ROUTES.BOOSTER_DETAIL && pageExists(pages, ROUTES.BOOSTER_DETAIL), 'ROUTES 助推器详情')
+  ok(!!ROUTES.BOOSTER_GENEALOGY && pageExists(pages, ROUTES.BOOSTER_GENEALOGY), 'ROUTES 助推器家谱')
+  ok(!!ROUTES.YEAR_REVIEW && pageExists(pages, ROUTES.YEAR_REVIEW), 'ROUTES 年度回顾')
+  ok(!!ROUTES.ASTRO_CALENDAR && pageExists(pages, ROUTES.ASTRO_CALENDAR), 'ROUTES 天象日历')
+  ok(!!ROUTES.NEWS && pageExists(pages, ROUTES.NEWS), 'ROUTES 事件 Tab')
+  ok(!!ROUTES.HARDWARE_LIST && pageExists(pages, ROUTES.HARDWARE_LIST), 'ROUTES 星舰硬件列表')
+  ok(!!ROUTES.HARDWARE_DETAIL && pageExists(pages, ROUTES.HARDWARE_DETAIL), 'ROUTES 星舰硬件详情')
+  ok(!!ROUTES.ARTEMIS_DETAIL && pageExists(pages, ROUTES.ARTEMIS_DETAIL), 'ROUTES Artemis 面板')
+  ok(!!ROUTES.MONITOR && pageExists(pages, ROUTES.MONITOR), 'ROUTES 监控中心 Tab')
   ok(pageExists(pages, '/subpackages/mission-sim/flight-demo'), 'flight-demo 分包页')
   ok(pageExists(pages, '/subpackages/mission-sim/mission-sim'), 'mission-sim 分包页')
 

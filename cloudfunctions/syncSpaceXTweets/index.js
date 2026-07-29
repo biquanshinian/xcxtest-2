@@ -306,9 +306,24 @@ function splitForTranslation(text, maxLen = 1200) {
 /**
  * 大模型翻译（混元/cloudbase，主通道）：术语质量高；不可用时返回 ''
  */
+/** AI 入口：新版 cloud.ai()（wx-server-sdk >= 3.0.5-beta.1），旧版 cloud.extend.AI */
+function getAIEntry() {
+  try {
+    if (typeof cloud.ai === 'function') {
+      const inst = cloud.ai()
+      if (inst && typeof inst.createModel === 'function') return inst
+    }
+  } catch (e) {}
+  if (cloud.extend && cloud.extend.AI && typeof cloud.extend.AI.createModel === 'function') {
+    return cloud.extend.AI
+  }
+  return null
+}
+
 async function translateWithLLM(text) {
   if (!text) return ''
-  if (!(cloud.extend && cloud.extend.AI && cloud.extend.AI.createModel)) return ''
+  const AI = getAIEntry()
+  if (!AI) return ''
 
   const providers = [
     { provider: 'cloudbase', model: 'hy3-preview' },
@@ -322,7 +337,7 @@ async function translateWithLLM(text) {
 
   for (const p of providers) {
     try {
-      const model = cloud.extend.AI.createModel(p.provider)
+      const model = AI.createModel(p.provider)
 
       const res = await Promise.race([
         model.generateText({
@@ -344,7 +359,7 @@ async function translateWithLLM(text) {
 
     // 部分环境下 generateText 不可用，回退 streamText
     try {
-      const model = cloud.extend.AI.createModel(p.provider)
+      const model = AI.createModel(p.provider)
       if (typeof model.streamText !== 'function') continue
       const streamRes = await Promise.race([
         model.streamText({

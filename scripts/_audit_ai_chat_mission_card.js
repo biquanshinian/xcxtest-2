@@ -145,6 +145,8 @@ function main() {
   const chatJs = read('subpackages/shared/components/ai-chat/index.js')
   assert(chatJs.includes("kind === 'road_closure'"), '入口跳转含封路')
   assert(chatJs.includes("kind === 'station'"), '入口跳转含空间站')
+  assert(chatJs.includes("kind === 'live_watch'"), '入口跳转含看直播')
+  assert(chatJs.includes('isLiveEntryAllowed'), '直播卡走 enableLiveWatch 过审开关')
   assert(chatJs.includes("kind === 'starship_progress'"), '入口跳转含进度回退')
   assert(chatJs.includes('onLaunchStatsCardTap'), '统计卡跳转')
   assert(chatJs.includes('onAgencyCardTap'), '发射商卡跳转')
@@ -162,6 +164,37 @@ function main() {
   assert(chatJs.includes('virtualHost: true'), '详情页 virtualHost 撑满高度')
   assert(chatJs.includes('adjust-position') || wxml.includes('adjust-position'), '输入框关闭系统顶起')
   assert(chatJs.includes('_updateKeyboardLayout') && chatJs.includes('keyboardheight'), '键盘高度同步上收')
+
+  // ── 回答震动反馈 ──
+  assert(chatJs.includes('_tickStreamHaptic') && chatJs.includes("type: 'light'"), '流式吐字轻震')
+  assert(/_lastStreamHapticAt[\s\S]*?<\s*220/.test(chatJs), '流式轻震约 220ms 节流')
+  assert(chatJs.includes('_pulseCardHaptic') && /_pulseCardHaptic[\s\S]*?type:\s*'medium'/.test(chatJs), '抽卡落地中度震')
+  assert(
+    /streamChat\([\s\S]*?_tickStreamHaptic\(\)/.test(chatJs) &&
+    /richCards\.length[\s\S]*?_pulseCardHaptic\(\)/.test(chatJs),
+    '吐字/抽卡两条路径都接上震动'
+  )
+
+  // ── 键盘收放 + 贴底滚动（回归点：改动这几处会让最新消息看不见）──
+  assert(
+    wxml.includes('id="msg-bottom"') && wxml.includes('id="msg-bottom-alt"'),
+    '双贴底锚点：scroll-into-view 写同一个 id 不会重新滚'
+  )
+  assert(chatJs.includes('_stickToBottom'), '流式输出与发送都走 _stickToBottom')
+  assert(
+    !/scrollTarget:\s*'msg-bottom'/.test(chatJs),
+    '不再直接写死 scrollTarget: msg-bottom（会因值未变而不滚）'
+  )
+  assert(
+    !/disabled="\{\{sending\}\}"/.test(wxml),
+    '发送中不禁用输入框（disabled 会强制收起键盘，下一问要重新点）'
+  )
+  assert(wxml.includes('hold-keyboard'), 'hold-keyboard 保证点发送键不收键盘')
+  assert(/pageLifetimes:\s*\{[\s\S]*?hide\(\)\s*\{/.test(chatJs), '离页清零键盘去抖状态')
+  assert(
+    /hide\(\)\s*\{[\s\S]*?_lastKbHeight = 0/.test(chatJs),
+    '离页重置 _lastKbHeight（否则回页首次弹键盘被去抖吞掉）'
+  )
   assert(
     !/if\s*\(\s*isPageMode\s*\)\s*\{\s*setTimeout\(\s*\(\)\s*=>\s*this\.setData\(\s*\{\s*inputFocus:\s*true/
       .test(chatJs),
@@ -177,6 +210,25 @@ function main() {
 
   const pageWxss = read('subpackages/shared/ai-chat.wxss')
   assert(pageWxss.includes('ai-chat-detail-body') && pageWxss.includes('ai-chat'), '详情页撑满宿主样式')
+
+  // 磨砂导航要有内容在背后经过才成立：占位块移进 scroll-view，内容从屏顶起算
+  assert(
+    !/\.ai-chat-detail-page\s+\.top-nav-wrapper\s*\{[^}]*position:\s*(relative|static)/.test(pageWxss),
+    '导航保持骨架的 fixed 磨砂条（进 flex 流会失去玻璃质感）'
+  )
+  assert(
+    !/ai-chat-detail-body[^>]*padding-top/.test(pageWxml),
+    '对话区不用 padding-top 把内容整体推到导航下方'
+  )
+  assert(
+    /top-inset="\{\{navPlaceholderHeight\}\}"/.test(pageWxml),
+    '宿主页把导航占位高传给 ai-chat'
+  )
+  assert(/topInset:\s*\{\s*type:\s*Number/.test(chatJs), '组件声明 topInset 属性')
+  assert(
+    /wx:if="\{\{topInset > 0\}\}"[^>]*height:\s*\{\{topInset\}\}px/.test(wxml),
+    '导航占位块在消息 scroll-view 内（旧消息可穿过导航）'
+  )
   assert(pageJs.includes('onKeyboardHeight') && pageJs.includes('keyboardHeight'), '宿主页键盘上收')
 
   const api = read('utils/api-launch-list.js')

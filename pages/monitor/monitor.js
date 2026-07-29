@@ -10,6 +10,8 @@ const { getSystemInfo } = require('../../utils/system.js')
 const { gateCheck, isMembershipEnabled, getMembershipState, isProSync, warmMembershipStateSync } = require('../../utils/membership.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { isLiveEntryAllowed, isPlaybackAllowed } = require('../../utils/feature-flags.js')
+// SPACE_NOTICES_FEATURE
+const { isSpaceNoticesEnabled } = require('../../utils/space-notices-feature.js')
 const themeUtil = require('../../utils/theme.js')
 const { optimizeImageUrl, videoSnapshotUrl } = require('../../utils/cos-url.js')
 const { advanceImageFallback } = require('../../utils/ll2-image.js')
@@ -247,6 +249,13 @@ Page({
       this.setData({ enableLiveWatch: false })
     })
 
+    // SPACE_NOTICES_FEATURE：发射通告地图入口
+    isSpaceNoticesEnabled().then((on) => {
+      this.setData({ enableSpaceNotices: !!on })
+    }).catch(() => {
+      this.setData({ enableSpaceNotices: false })
+    })
+
     // 过审关闭可播视频时，轨道卡片不用 mp4 背景（默认先关，读到允许再开）
     this._orbitalBgVideoAllowed = false
     isPlaybackAllowed().then((on) => {
@@ -404,6 +413,8 @@ Page({
     channelsLiveStatus: 0,
     // 「直播观看」板块开关（后台 enableLive + enableLiveWatch；初始 failClosed）
     enableLiveWatch: false,
+    // SPACE_NOTICES_FEATURE
+    enableSpaceNotices: false,
     // B站直播
     biliLive: {
       roomId: '390508',
@@ -672,6 +683,21 @@ Page({
           : ROUTES.STARLINK_PASS_DETAIL
       }
     }
+    // SPACE_NOTICES_FEATURE
+    if (type === 'spaceNotices') {
+      let path = ROUTES.SPACE_NOTICE_LIST
+      try {
+        // 有权益用户分享带 sst，接收者 24h 免门控；无权益则不带，接收者冷启动走 gateCheck
+        const { canUsePaidCloudSync } = require('../../utils/membership.js')
+        if (canUsePaidCloudSync()) {
+          path += '?sst=' + Date.now().toString(36)
+        }
+      } catch (e) { /* ignore */ }
+      return {
+        title: '发射通告地图 - NOTAM / 航海警告危险区实时绘制 | 火星探索日志',
+        path
+      }
+    }
     return { path: monitorPath, title: '监控中心 - SpaceX星舰基地实时监控 | 火星探索日志' }
   },
 
@@ -706,6 +732,19 @@ Page({
         })
       }
     })
+  },
+
+  /** SPACE_NOTICES_FEATURE：打开发射通告列表（会员 / 看广告门控，复用现成 gateCheck） */
+  async openSpaceNotices() {
+    if (this._gateChecking) return
+    this._gateChecking = true
+    try {
+      const allowed = await gateCheck('space_notices', '发射通告地图')
+      if (!allowed) return
+      navigateTo(ROUTES.SPACE_NOTICE_LIST)
+    } finally {
+      this._gateChecking = false
+    }
   },
 
   /** 关于预览（合规说明） */

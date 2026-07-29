@@ -9,7 +9,6 @@ const { warmUserPreferencesSync } = require('./user-growth.js')
 const { warmVotesStoreSync } = require('./index-page-helpers.js')
 
 const DESKTOP_STRIP_SNOOZE_KEY = 'add_desktop_strip_snooze_until'
-const OPENCLAW_GUIDE_DISMISSED_KEY = 'openclaw_guide_dismissed'
 const BRIEFING_PROGRESS_FILTER_CLEAR_KEY = '_briefing_progress_filter_clear'
 const BRIEFING_PROGRESS_FILTER_SOURCE_KEY = '_briefing_progress_filter_source'
 
@@ -41,7 +40,6 @@ function warmProgressPageStorageSync() {
   _progressWarmDone = true
   warmMembershipStateSync()
   storageCache.warmSync(DESKTOP_STRIP_SNOOZE_KEY, 0)
-  storageCache.warmSync(OPENCLAW_GUIDE_DISMISSED_KEY, false)
   storageCache.warmSync(BRIEFING_PROGRESS_FILTER_CLEAR_KEY, '')
   storageCache.warmSync(BRIEFING_PROGRESS_FILTER_SOURCE_KEY, '')
   storageCache.warmSync('_progress_last_viewed', 0)
@@ -50,7 +48,6 @@ function warmProgressPageStorageSync() {
 
 module.exports = {
   DESKTOP_STRIP_SNOOZE_KEY: DESKTOP_STRIP_SNOOZE_KEY,
-  OPENCLAW_GUIDE_DISMISSED_KEY: OPENCLAW_GUIDE_DISMISSED_KEY,
   BRIEFING_PROGRESS_FILTER_CLEAR_KEY: BRIEFING_PROGRESS_FILTER_CLEAR_KEY,
   BRIEFING_PROGRESS_FILTER_SOURCE_KEY: BRIEFING_PROGRESS_FILTER_SOURCE_KEY,
   warmProfilePageStorageSync: warmProfilePageStorageSync,

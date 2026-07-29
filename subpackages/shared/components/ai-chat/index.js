@@ -15,7 +15,7 @@ const { markDownloadFailed } = require('../../../../utils/download-fail-cache.js
 const { loadCloudMediaMap } = require('../../../../utils/image-config.js')
 const themeUtil = require('../../../../utils/theme.js')
 const { ROUTES } = require('../../../../utils/routes.js')
-const { isFeatureEnabled } = require('../../../../utils/feature-flags.js')
+const { isFeatureEnabled, isLiveEntryAllowed } = require('../../../../utils/feature-flags.js')
 const {
   resolveFestivalHatId,
   getFestivalHatMeta,
@@ -33,6 +33,37 @@ function nextMsgId() { return 'msg_' + (++_msgId) + '_' + Date.now() }
 const MAX_HISTORY_ROUNDS = 8
 const MAX_DAILY_QUESTIONS = 10
 const DAILY_QUOTA_KEY = '_ai_chat_daily_quota'
+
+/** 参数卡跳转白名单：卡片只带 specKind + targetId，URL 在本地拼 */
+const SPEC_ROUTE_MAP = {
+  rocket_model: { route: ROUTES.ROCKET_MODEL_DETAIL, param: 'configId' },
+  launch_site: {
+    route: ROUTES.LAUNCH_SITE_DETAIL,
+    param: 'id',
+    gateId: 'launch_site_encyclopedia',
+    gateName: '全球发射场'
+  },
+  spacecraft: {
+    route: ROUTES.SPACECRAFT_DETAIL,
+    param: 'id',
+    gateId: 'spacecraft_encyclopedia',
+    gateName: '航天器图鉴'
+  },
+  booster: { route: ROUTES.BOOSTER_DETAIL, param: 'serial' },
+  apod: { route: ROUTES.ASTRO_CALENDAR, param: '' },
+  starship_hardware: {
+    route: ROUTES.HARDWARE_DETAIL,
+    param: 'id',
+    gateId: 'starship_hardware',
+    gateName: '星舰硬件设施'
+  },
+  recovery_stats: {
+    route: ROUTES.BOOSTER_GENEALOGY,
+    param: '',
+    gateId: 'booster_genealogy',
+    gateName: '助推器家谱'
+  }
+}
 
 function getDailyQuotaInfo() {
   try {
@@ -71,7 +102,13 @@ Component({
     /** 独立 FAB 已迁移至 NASA 圆盘菜单，默认仅保留聊天面板 */
     showFab: { type: Boolean, value: false },
     /** sheet=半屏弹层（旧）；page=详情页全屏嵌入 */
-    mode: { type: String, value: 'sheet' }
+    mode: { type: String, value: 'sheet' },
+    /**
+     * 详情页导航占位高（px）。消息区从屏顶起算、内容穿过固定磨砂导航，
+     * 这个值就是滚动内容顶部的占位块高度——与通用骨架的 nav-scroll-pad 同职。
+     * 半屏模式自带标题栏、上方无导航，保持 0。
+     */
+    topInset: { type: Number, value: 0 }
   },
 
   data: {
@@ -154,6 +191,25 @@ Component({
       this.syncTheme()
       // 法定假日生命周期：回前台按当天再解析一次（跨日/跨假自动戴脱帽）
       if (!isFestivalHatDevMode()) this._initFestivalHat()
+    },
+
+    /**
+     * 离开页面必须把键盘状态清零。_lastKbHeight 是去抖用的，若带着上次的
+     * 高度残留回来，下次键盘以同一高度弹起会被去抖吞掉，宿主页拿不到事件，
+     * 输入栏就留在键盘底下。
+     */
+    hide() {
+      if (this._blurKbTimer) {
+        clearTimeout(this._blurKbTimer)
+        this._blurKbTimer = null
+      }
+      this._lastKbHeight = 0
+      if (this.data.keyboardHeight || this.data.inputFocus) {
+        this.setData({ keyboardHeight: 0, inputFocus: false })
+      }
+      try {
+        this.triggerEvent('keyboardheight', { height: 0 })
+      } catch (e) {}
     }
   },
 
@@ -170,11 +226,40 @@ Component({
       return this.data.isPageMode || String(this.properties.mode || '') === 'page'
     },
 
+    /**
+     * 贴底：scroll-into-view 只在目标值「变化」时才滚，流式输出每帧写同一个
+     * id 等于完全不滚（第二轮问答起连首次跳转都失效）。所以消息末尾放两个等位
+     * 锚点交替命中，滚动指令每次都是新值。
+     * @param {object} [patch] 与本次内容更新合并，保持一帧一次 setData
+     */
+    _stickToBottom(patch) {
+      this._bottomFlip = !this._bottomFlip
+      const data = patch && typeof patch === 'object' ? patch : {}
+      data.scrollTarget = this._bottomFlip ? 'msg-bottom' : 'msg-bottom-alt'
+      this.setData(data)
+    },
+
     _scrollChatToBottom() {
       // 双拍：首帧布局 + 键盘动画结束后再滚，避免滚不到底
-      this.setData({ scrollTarget: '' })
-      setTimeout(() => this.setData({ scrollTarget: 'msg-bottom' }), 40)
-      setTimeout(() => this.setData({ scrollTarget: 'msg-bottom' }), 260)
+      this._stickToBottom()
+      setTimeout(() => this._stickToBottom(), 40)
+      setTimeout(() => this._stickToBottom(), 260)
+    },
+
+    /**
+     * 流式吐字轻震：回调极密，约 220ms 节流一次，既跟得上又不吵。
+     * 微信 vibrateShort 过密会被系统吞掉，纯本地 Date.now 节拍即可。
+     */
+    _tickStreamHaptic() {
+      const now = Date.now()
+      if (this._lastStreamHapticAt && now - this._lastStreamHapticAt < 220) return
+      this._lastStreamHapticAt = now
+      try { wx.vibrateShort({ type: 'light' }) } catch (e) {}
+    },
+
+    /** 抽卡落地：中度震一次（suggested 瞬时出卡 / 流式结束后挂卡共用） */
+    _pulseCardHaptic() {
+      try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
     },
 
     _updateKeyboardLayout(keyboardHeight) {
@@ -468,14 +553,15 @@ Component({
       this._switchTabFromChat(ROUTES.INDEX)
     },
 
-    /** 星舰状态卡 → 进度页（Tab）；可选自动打开 B/S 弹窗 */
+    /** 星舰状态卡 → 进度页（Tab）；可选自动打开 B/S 硬件详情 */
     onStarshipStatusTap(e) {
       const vehicle = e.currentTarget.dataset.vehicle
       wx.vibrateShort({ type: 'light' })
       try {
         const app = getApp()
         if (app && (vehicle === 'ship' || vehicle === 'booster')) {
-          app._progressAutoOpenStarship = { type: vehicle }
+          // setAt 必填：progress 页只认 5 秒内的意图，缺失会被当成过期意图丢弃
+          app._progressAutoOpenStarship = { type: vehicle, setAt: Date.now() }
         }
       } catch (err) {}
       this._switchTabFromChat(ROUTES.PROGRESS)
@@ -589,12 +675,65 @@ Component({
       }
     },
 
+    /**
+     * 参数卡：火箭型号 / 发射场 / 飞船 / 助推器 / 每日天文图
+     * 路由按 specKind 走白名单在此拼装，卡片载荷里不带 URL
+     */
+    async onSpecCardTap(e) {
+      const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
+      const kind = ds.kind ? String(ds.kind) : ''
+      const targetId = ds.targetid != null ? String(ds.targetid).trim() : ''
+
+      // 观礼点卡不跳页，直接调起系统地图导航（坐标已在数据层转成 GCJ-02）
+      if (kind === 'viewing_spot') {
+        const lat = Number(ds.navlat)
+        const lng = Number(ds.navlng)
+        if (!isFinite(lat) || !isFinite(lng) || (!lat && !lng)) {
+          wx.showToast({ title: '该发射场需官方渠道预约观礼', icon: 'none' })
+          return
+        }
+        wx.vibrateShort({ type: 'light' })
+        wx.openLocation({
+          latitude: lat,
+          longitude: lng,
+          name: ds.navname ? String(ds.navname) : '观礼点',
+          address: ds.navaddr ? String(ds.navaddr) : '',
+          scale: 14
+        })
+        return
+      }
+
+      const rule = SPEC_ROUTE_MAP[kind]
+      if (!rule) return
+      if (rule.param && !targetId) return
+
+      const url = rule.param
+        ? rule.route + '?' + rule.param + '=' + encodeURIComponent(targetId)
+        : rule.route
+      const gateId = ds.gateid || rule.gateId || ''
+      const gateName = ds.gatename || rule.gateName || '该功能'
+
+      if (this._entryGatePending) return
+      this._entryGatePending = true
+      try {
+        if (gateId) {
+          const allowed = await gateCheck(gateId, gateName)
+          if (!allowed) return
+        }
+        wx.vibrateShort({ type: 'light' })
+        this._navigateAwayFromChat(url)
+      } finally {
+        this._entryGatePending = false
+      }
+    },
+
     /** 入口卡：飞行演示 / 在轨追踪 / 指挥室 / 封路 / 空间站（带会员门控） */
     async onEntryCardTap(e) {
       const kind = e.currentTarget.dataset.kind
       const gateId = e.currentTarget.dataset.gateid
       const gateName = e.currentTarget.dataset.gatename
       const needSim = String(e.currentTarget.dataset.needsim) === '1'
+      const needLive = String(e.currentTarget.dataset.needlive) === '1'
       const missionId = e.currentTarget.dataset.missionid || ''
       const detailType = e.currentTarget.dataset.type === 'completed' ? 'completed' : 'upcoming'
       const missionName = e.currentTarget.dataset.name || ''
@@ -626,6 +765,30 @@ Component({
         }
         if (missionName) parts.push('name=' + encodeURIComponent(String(missionName).slice(0, 80)))
         url = '/subpackages/mission-sim/flight-demo' + (parts.length ? '?' + parts.join('&') : '')
+      } else if (kind === 'booster_genealogy') {
+        url = ROUTES.BOOSTER_GENEALOGY
+      } else if (kind === 'launch_vote') {
+        if (!missionId) return
+        url = buildMissionDetailUrl({ id: missionId, detailType })
+      } else if (kind === 'year_review') {
+        url = ROUTES.YEAR_REVIEW
+      } else if (kind === 'astro_calendar') {
+        url = ROUTES.ASTRO_CALENDAR
+      } else if (kind === 'news') {
+        url = ROUTES.NEWS
+        useSwitchTab = true
+      } else if (kind === 'starlink_pass') {
+        url = ROUTES.MONITOR
+        useSwitchTab = true
+      } else if (kind === 'live_watch') {
+        url = ROUTES.MONITOR
+        useSwitchTab = true
+      } else if (kind === 'starlink_map') {
+        url = ROUTES.STARLINK_FULLSCREEN
+      } else if (kind === 'artemis') {
+        url = ROUTES.ARTEMIS_DETAIL
+      } else if (kind === 'starship_hardware') {
+        url = ROUTES.HARDWARE_LIST
       }
       if (!url) return
 
@@ -646,6 +809,11 @@ Component({
             })
             return
           }
+        }
+        // 直播入口受过审开关控制（enableLiveWatch / enableLive），关时监控中心也不显示直播区
+        if (needLive && !(await isLiveEntryAllowed())) {
+          wx.showToast({ title: '直播入口暂未开放', icon: 'none' })
+          return
         }
         if (gateId) {
           const allowed = await gateCheck(gateId, gateName || '该功能')
@@ -813,12 +981,12 @@ Component({
 
       const messages = [...this.data.messages, userMsg, botMsg]
       const botIdx = messages.length - 1
-      this.setData({
+      this._lastStreamHapticAt = 0
+      this._stickToBottom({
         messages,
         inputValue: '',
         sending: true,
-        errorMsgId: '',
-        scrollTarget: 'msg-bottom'
+        errorMsgId: ''
       })
 
       const recentMessages = messages
@@ -857,27 +1025,28 @@ Component({
           ? String(launchContext.suggestedReply).trim()
           : ''
         if (suggested && richCards.length) {
-          this.setData({
+          this._stickToBottom({
             [`messages[${botIdx}].content`]: suggested,
             [`messages[${botIdx}].typing`]: false,
             [`messages[${botIdx}].cards`]: richCards,
-            sending: false,
-            scrollTarget: 'msg-bottom'
+            sending: false
           })
+          this._pulseCardHaptic()
         } else {
           await streamChat(recentMessages, (partial) => {
-            this.setData({
+            this._tickStreamHaptic()
+            this._stickToBottom({
               [`messages[${botIdx}].content`]: partial,
-              [`messages[${botIdx}].typing`]: false,
-              scrollTarget: 'msg-bottom'
+              [`messages[${botIdx}].typing`]: false
             })
           }, launchContext)
 
-          const patch = { sending: false, scrollTarget: 'msg-bottom' }
+          const patch = { sending: false }
           if (richCards.length) {
             patch[`messages[${botIdx}].cards`] = richCards
           }
-          this.setData(patch)
+          this._stickToBottom(patch)
+          if (richCards.length) this._pulseCardHaptic()
         }
 
         if (membershipOn) {
@@ -887,7 +1056,8 @@ Component({
         }
       } catch (err) {
         const errorText = err.message || '抱歉，我暂时无法回答，请稍后再试。'
-        this.setData({
+        // 报错气泡带「重试」按钮，同样要滚进视野
+        this._stickToBottom({
           [`messages[${botIdx}].content`]: errorText,
           [`messages[${botIdx}].typing`]: false,
           [`messages[${botIdx}].error`]: true,

@@ -265,7 +265,12 @@ const AI_TRANSLATE_SYSTEM_PROMPT = `你是航天领域的专业中英翻译。�
 3. 术语准确：booster=助推器，static fire=静态点火，splashdown=溅落，payload=载荷，flyback=返场
 4. 语气自然流畅，符合中文航天报道习惯`
 
-/** 云函数端 AI 入口：新版 cloud.ai()，旧版 cloud.extend.AI */
+/**
+ * 云函数端 AI 入口：新版 cloud.ai()，旧版 cloud.extend.AI。
+ * 注意：cloud.ai() 需要 wx-server-sdk >= 3.0.5-beta.1，低版本两个入口都不存在，
+ * 混元主通道会被整段跳过而只剩 TMT 兜底（额度用尽后前端就只能报错）。
+ * package.json 的版本若回退，这里会静默失效——改动前先确认依赖版本。
+ */
 function getAIEntry() {
   try {
     if (typeof cloud.ai === 'function') {
@@ -683,14 +688,46 @@ async function translateTextsBatch(texts, options) {
   return results
 }
 
-/** 诊断：TMT 配置状态 + 实测一句翻译 + 翻译缓存文档数 */
+/**
+ * 诊断：混元主通道 + TMT 兜底 + 缓存，一次调用看清整条链路。
+ * aiEntry 为空 = 当前 wx-server-sdk 太旧（cloud.ai 需要 >= 3.0.5-beta.1），
+ * 混元会被整段跳过，只剩 TMT——这正是「详情页翻译按钮报错」的典型现场。
+ */
 async function runTranslateDiag() {
   const out = {
+    sdkVersion: '',
+    aiEntry: '',
+    aiResult: '',
+    aiError: '',
     tmtConfigured: isTmtConfigured(),
     testSource: 'The rocket lifted off from the launch pad.',
     testResult: '',
     tmtError: '',
     cacheCount: -1
+  }
+
+  try {
+    out.sdkVersion = require('wx-server-sdk/package.json').version || ''
+  } catch (e) {}
+
+  if (typeof cloud.ai === 'function') {
+    try {
+      const inst = cloud.ai()
+      if (inst && typeof inst.createModel === 'function') out.aiEntry = 'cloud.ai'
+    } catch (e) {}
+  }
+  if (!out.aiEntry && cloud.extend && cloud.extend.AI && typeof cloud.extend.AI.createModel === 'function') {
+    out.aiEntry = 'cloud.extend.AI'
+  }
+  if (out.aiEntry) {
+    try {
+      out.aiResult = await translateViaAI(out.testSource)
+      if (!out.aiResult) out.aiError = '混元入口可用但未产出译文'
+    } catch (e) {
+      out.aiError = e.message || String(e)
+    }
+  } else {
+    out.aiError = '云开发 AI 入口不存在，请确认 wx-server-sdk >= 3.0.5-beta.1 且已云端安装依赖'
   }
 
   if (out.tmtConfigured) {

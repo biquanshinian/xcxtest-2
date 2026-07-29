@@ -2968,18 +2968,15 @@ Page({
   },
 
   /**
-   * 跳转到星舰进度页（progress）并自动打开对应的组合体详情弹窗
+   * 跳转到星舰进度页（progress），由其自动打开对应载具的硬件设施详情
    *
-   * 星舰任务的 S39（Ship）和 B19（Super Heavy Booster）在 progress 页面已经有
-   * 专门的"星舰组合体进展"卡片，包含图片、状态、描述、图集等完整信息。
-   * 不在 mission-detail 场景下重新做一遍——直接路由过去，利用已有卡片弹窗。
+   * 星舰任务的 S39（Ship）和 B19（Super Heavy Booster）在「星舰硬件设施」库里已有
+   * 完整条目（图片、状态、描述、图集）。不在 mission-detail 场景下重新做一遍——
+   * 直接路由过去，由 progress 页按 serial 解析硬件 id 后跳详情。
    *
    * 分发依据 stageKind：
-   *   'ship'                → progress?type=ship   → 自动打开 Ship 卡片弹窗
-   *   'super_heavy_booster' → progress?type=booster → 自动打开 Booster 卡片弹窗
-   *
-   * progress 页面 onLoad 会读取 options.type，等 starshipData 加载完成后
-   * 自动触发 onStarshipCardTap 模拟点击动作
+   *   'ship'                → type=ship
+   *   'super_heavy_booster' → type=booster
    */
   openShipDetail(e) {
     const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}

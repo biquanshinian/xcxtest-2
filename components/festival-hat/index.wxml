@@ -1,8 +1,15 @@
 <view class="festival-hat" wx:if="{{hat}}" style="{{wrapStyle}}">
   <view class="festival-hat-scale" style="{{scaleStyle}}">
     <view class="festival-hat-inner">
+      <!-- 元旦：跨年小礼帽（靛蓝顶 + 金缎带 + 亮片） -->
+      <block wx:if="{{hat === 'yuandan'}}">
+        <view class="hat-yd-crown"></view>
+        <view class="hat-yd-brim"></view>
+        <view class="hat-yd-ribbon"></view>
+        <view class="hat-yd-spark"></view>
+      </block>
       <!-- 春节：贴头红绒帽 + 小福牌 -->
-      <block wx:if="{{hat === 'spring'}}">
+      <block wx:elif="{{hat === 'spring'}}">
         <view class="hat-spring-shell"></view>
         <view class="hat-spring-band"></view>
         <view class="hat-spring-badge">
