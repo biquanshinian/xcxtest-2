@@ -4,17 +4,23 @@
 
 const { runDownload } = require('./download-pool.js')
 const { toCdnUrl, optimizeImageUrl, isCosOriginUrl } = require('./cos-url.js')
-const { isDownloadBlacklisted, markDownloadFailed } = require('./download-fail-cache.js')
+const {
+  shouldSkipDownload,
+  markDownloadFailed,
+  markDownloadSoftFailed
+} = require('./download-fail-cache.js')
+const { isOwnCdnUrl, proxiedImageUrl } = require('./ll2-image.js')
 
 /**
  * COS 静图 logo 统一用 thumb 压缩版展示/下载：logo 展示尺寸极小（几十 rpx），
- * 原图动辄数百 KB～数 MB，是重复出现的下行浪费；非 COS 域名（LL2 等）原样返回
+ * 原图动辄数百 KB～数 MB，是重复出现的下行浪费；外链走 Worker 代理，禁止直连 DigitalOcean
  */
 function _optimizedLogoUrl(raw) {
   const u = typeof raw === 'string' ? raw.trim() : ''
   if (!u) return u
   if (/imageMogr2|ci-process=/i.test(u)) return toCdnUrl(u)
   if (isCosOriginUrl(u) && !/\.gif(\?|[&#]|$)/i.test(u)) return optimizeImageUrl(u, 'thumb')
+  if (!isOwnCdnUrl(u)) return proxiedImageUrl(u) || u
   return toCdnUrl(u)
 }
 
@@ -155,13 +161,19 @@ function persistAgencyLogoAfterRemoteLoad(remoteUrl, onDone) {
     return
   }
 
+  // 外链经代理后仍非自有域名，或代理失败：只展示不落盘，避免 downloadFile 打 DigitalOcean
+  if (!isOwnCdnUrl(u)) {
+    cb(null)
+    return
+  }
+
   const existing = getCachedAgencyLogoPath(u)
   if (existing) {
     cb(existing)
     return
   }
 
-  if (isDownloadBlacklisted(u)) {
+  if (shouldSkipDownload(u)) {
     cb(null)
     return
   }
@@ -193,6 +205,7 @@ function persistAgencyLogoAfterRemoteLoad(remoteUrl, onDone) {
           }
         },
         fail(err) {
+          markDownloadSoftFailed(u)
           _flushQueue(u, null)
           reject(err)
         }

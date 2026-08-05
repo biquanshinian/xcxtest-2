@@ -30,7 +30,7 @@ apiProxy 侧发射超 29 天即停发 COS 链接，两边配合不会出现 404�
 ```
 syncSpaceDevsData(小时级) → replay_fetch_queue（kind=clip 自动 / kind=full 手动开启）
         ↓ claim
-replay-fetcher (本机, yt-dlp ≤480p) → COS 发射回放/集锦/{launchId}.mp4 或 发射回放/{launchId}.mp4
+replay-fetcher (本机, yt-dlp ≤480p → H.264+AAC compat) → COS 发射回放/集锦/{launchId}.mp4 或 发射回放/{launchId}.mp4
         ↓ complete
 mission_replays（合并写 agentClips / videoUrl）→ apiProxy missionReplay → 任务详情页回放卡片
 ```
@@ -39,7 +39,7 @@ mission_replays（合并写 agentClips / videoUrl）→ apiProxy missionReplay �
 
 1. Node ≥ 18.13（内置 fetch + duplex stream）
 2. [yt-dlp](https://github.com/yt-dlp/yt-dlp)（`winget install yt-dlp` 或 `pip install -U yt-dlp`）
-3. 可选 ffprobe（ffmpeg 套件）：读取时长/分辨率回写，未安装不影响主流程
+3. ffmpeg（含 libx264）：合并音视频 + 上传前兼容封装（H.264+AAC+faststart）；ffprobe 可选用于读元数据
 4. 能访问 YouTube / X 的网络（或配置 `REPLAY_PROXY`）
 
 ## 配置
@@ -60,8 +60,9 @@ node src/index.js
 - 无任务时每 `REPLAY_POLL_MS`（默认 10 分钟）轮询一次；有任务时连续处理。
 - 下载失败自动换下一视频源（官方 X 直播 → Spaceflight Now → The Space Devs 转播）；
   全部失败上报 fail，服务端计数 3 次后终态 failed。
-- 「压缩」策略 = 只下 ≤480p 源（`REPLAY_MAX_HEIGHT`），不做本地转码，最省 CPU 与 COS 存储。
-  2 小时级直播回放 480p 约 400~600MB；星链常规任务回放（~20 分钟）约 80~150MB。
+- 「压缩」策略 = 优先下 ≤480p 且 AVC(H.264) 源（`REPLAY_MAX_HEIGHT`），上传前再做兼容封装：
+  已是 H.264+AAC → `ffmpeg -c copy -movflags +faststart`；否则转成 H.264+AAC（避免手机相册/剪映报格式不支持）。
+  可用 `REPLAY_COMPAT_TRANSCODE=0` 关闭。2 小时级直播回放 480p 约 400~600MB；星链常规任务回放（~20 分钟）约 80~150MB。
 
 ## 管理
 

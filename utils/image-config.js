@@ -634,7 +634,8 @@ function wrapRocketHttpsUrl(normalizedKey, url) {
   const u = typeof url === 'string' ? url.trim() : ''
   if (!u || !/^火箭配置图\//.test(normalizedKey || '')) return u
   if (!/^https?:\/\//i.test(u)) return u
-  return getCachedRocketConfig(wrapCosHttpsUrl(u))
+  // 只走 rocket_config_cache，禁止先 wrapCosHttpsUrl 再套一层（会双通道 downloadFile）
+  return getCachedRocketConfig(toCdnUrl(u))
 }
 
 function resolveMediaUrl(key, localFallback = '') {

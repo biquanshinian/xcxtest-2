@@ -37,6 +37,8 @@ export function getConfig() {
     ffmpegPath: String(process.env.FFMPEG_PATH || '').trim(),
     maxHeight: Math.max(240, Number(process.env.REPLAY_MAX_HEIGHT || 480)),
     maxFileMB: Math.max(50, Number(process.env.REPLAY_MAX_FILE_MB || 1024)),
+    // 上传前确保 H.264+AAC+faststart（手机相册/剪映/短视频平台兼容）；false 可关以省 CPU
+    compatTranscode: String(process.env.REPLAY_COMPAT_TRANSCODE || '1').trim() !== '0',
     // 出口候选列表（逗号分隔，按优先级排列）：代理 URL 或 'direct'（直连）。
     // 每次领到任务时逐个探测连通性，用第一个能通 YouTube 的出口
     proxies: String(process.env.REPLAY_PROXY || '').split(',').map((s) => s.trim()).filter(Boolean),

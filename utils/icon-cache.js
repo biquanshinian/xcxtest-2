@@ -5,7 +5,12 @@
 
 const { runDownload } = require('./download-pool.js')
 const { optimizeImageUrl, toCdnUrl } = require('./cos-url.js')
-const { isDownloadBlacklisted, markDownloadFailed } = require('./download-fail-cache.js')
+const {
+  isDownloadBlacklisted,
+  shouldSkipDownload,
+  markDownloadFailed
+} = require('./download-fail-cache.js')
+const { isOwnCdnUrl, proxiedImageUrl } = require('./ll2-image.js')
 
 const CACHE_DIR = `${wx.env.USER_DATA_PATH}/icon_cache`
 const INDEX_KEY = '_icon_cache_index'
@@ -188,7 +193,7 @@ function getCachedIcon(url) {
 }
 
 function _downloadInBackground(url) {
-  if (_downloading[url] || isDownloadBlacklisted(url)) return
+  if (_downloading[url] || shouldSkipDownload(url)) return
   _downloading[url] = true
 
   _ensureDir()
@@ -211,7 +216,7 @@ function _downloadInBackground(url) {
     .then(commitIconEntry)
     .catch(function (err) {
       const code = err && err.statusCode
-      if (code === 404 && downloadUrl !== url && !isDownloadBlacklisted(url)) {
+      if (code === 404 && downloadUrl !== url && !shouldSkipDownload(url)) {
         return _downloadFileOnce(url, localPath).then(commitIconEntry).catch(function (err2) {
           markDownloadFailed(url, err2 && err2.statusCode)
           if (downloadUrl !== url) markDownloadFailed(downloadUrl, code)
@@ -335,7 +340,12 @@ function getCachedRocketConfig(url) {
 const ROCKET_BG_DOWNLOAD_DELAY_MS = 2500
 
 function _downloadRocketInBackground(url) {
-  if (_rocketDownloading[url] || isDownloadBlacklisted(url)) return
+  if (_rocketDownloading[url] || shouldSkipDownload(url)) return
+  // 外链（DigitalOcean 等）禁止 downloadFile：错误率主因；展示走 <image> + Worker 代理
+  if (!isOwnCdnUrl(url)) {
+    delete _rocketDownloading[url]
+    return
+  }
   _rocketDownloading[url] = true
 
   const finish = function () {
@@ -371,7 +381,7 @@ function _startRocketDownload(url, finish) {
     .then(commitRocketEntry)
     .catch(function (err) {
       const code = err && err.statusCode
-      if (code === 404 && fallbackUrl && fallbackUrl !== url && !isDownloadBlacklisted(fallbackUrl)) {
+      if (code === 404 && fallbackUrl && fallbackUrl !== url && !shouldSkipDownload(fallbackUrl)) {
         return _downloadFileOnce(fallbackUrl, localPath).then(commitRocketEntry).catch(function (err2) {
           markDownloadFailed(url, code)
           markDownloadFailed(fallbackUrl, err2 && err2.statusCode)
@@ -388,7 +398,7 @@ function preloadRocketConfigMedia(urls) {
   urls.forEach(function (u) {
     if (!u || typeof u !== 'string') return
     const key = _rocketDownloadKey(u)
-    if (!key || isDownloadBlacklisted(key)) return
+    if (!key || shouldSkipDownload(key) || !isOwnCdnUrl(key)) return
     getCachedRocketConfig(u)
   })
 }
@@ -456,7 +466,8 @@ function isRemoteCacheableImageUrl(url) {
   if (!/^https?:\/\//i.test(u)) return false
   if (/^wxfile:\/\//i.test(u)) return false
   if (/\.(mp4|m3u8|mov|webm)(\?|[&#]|$)/i.test(u)) return false
-  return true
+  // 仅自有 COS/CDN/Worker 域名允许 downloadFile 落盘；DigitalOcean 等外链不落盘（降错误率）
+  return isOwnCdnUrl(u)
 }
 
 function _ensureMediaDir() {
@@ -511,8 +522,17 @@ function _urlToMediaFileName(url) {
  * @param {'thumb'|'medium'|'full'|'none'} [preset='thumb'] preset=none 表示 url 已带万象参数不再二次处理
  */
 function getCachedMediaImage(url, preset) {
-  if (!isRemoteCacheableImageUrl(url)) return url
-  url = toCdnUrl(String(url).trim())
+  const raw = typeof url === 'string' ? url.trim() : ''
+  if (!raw || !/^https?:\/\//i.test(raw)) return url
+  if (/\.(mp4|m3u8|mov|webm)(\?|[&#]|$)/i.test(raw)) return url
+
+  // 外链：展示走 Worker 代理，不 downloadFile（监控里 DigitalOcean 失败主来源）
+  if (!isOwnCdnUrl(raw)) {
+    return proxiedImageUrl(raw) || raw
+  }
+
+  if (!isRemoteCacheableImageUrl(raw)) return raw
+  url = toCdnUrl(raw)
   if (!url) return url
 
   const memo = _mediaUrlMemo[url]
@@ -540,7 +560,7 @@ function getCachedMediaImage(url, preset) {
 }
 
 function _downloadMediaInBackground(url, preset) {
-  if (_mediaDownloading[url] || isDownloadBlacklisted(url)) return
+  if (_mediaDownloading[url] || shouldSkipDownload(url) || !isOwnCdnUrl(url)) return
   _mediaDownloading[url] = true
 
   const finish = function () {
@@ -578,7 +598,7 @@ function _startMediaDownload(url, preset, finish) {
     .then(commitMediaEntry)
     .catch(function (err) {
       const code = err && err.statusCode
-      if (code === 404 && fallbackUrl && fallbackUrl !== downloadUrl && !isDownloadBlacklisted(fallbackUrl)) {
+      if (code === 404 && fallbackUrl && fallbackUrl !== downloadUrl && !shouldSkipDownload(fallbackUrl)) {
         return _downloadFileOnce(fallbackUrl, localPath).then(commitMediaEntry).catch(function (err2) {
           markDownloadFailed(url, code)
           markDownloadFailed(fallbackUrl, err2 && err2.statusCode)
@@ -594,7 +614,7 @@ function _startMediaDownload(url, preset, finish) {
 function preloadMediaImages(urls, preset) {
   if (!Array.isArray(urls)) return
   urls.forEach(function (u) {
-    if (u && isRemoteCacheableImageUrl(u) && !isDownloadBlacklisted(u)) {
+    if (u && isRemoteCacheableImageUrl(u) && !shouldSkipDownload(u)) {
       getCachedMediaImage(u, preset)
     }
   })
@@ -603,16 +623,19 @@ function preloadMediaImages(urls, preset) {
 /** 冷启动预载高频静态 COS 图（徽章/头像等），减少首屏重复拉取 */
 function preloadStaticMediaUrls() {
   const base = 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com'
-  const urls = [
+  // 签到图标走 icon_cache；头像走 media_cache——禁止同一 URL 双通道各下一遍
+  const badgeUrls = [
     base + '/%E7%AD%BE%E5%88%B0%E5%9B%BE%E6%A0%87/1_1.png',
     base + '/%E7%AD%BE%E5%88%B0%E5%9B%BE%E6%A0%87/2_1.png',
-    base + '/%E7%AD%BE%E5%88%B0%E5%9B%BE%E6%A0%87/3_1.png',
+    base + '/%E7%AD%BE%E5%88%B0%E5%9B%BE%E6%A0%87/3_1.png'
+  ]
+  const avatarUrls = [
     base + '/avatars/SpaceX.jpg',
     base + '/avatars/elonmusk.jpg',
     base + '/avatars/NASA.jpg'
   ]
-  preloadMediaImages(urls, 'thumb')
-  preloadIcons(urls)
+  preloadIcons(badgeUrls)
+  preloadMediaImages(avatarUrls, 'thumb')
 }
 
 module.exports = {

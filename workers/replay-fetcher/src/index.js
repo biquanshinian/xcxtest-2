@@ -3,10 +3,10 @@
  *
  * 两类任务（服务端 kind 字段区分）：
  * - kind=clip：指定博主集锦（SciNews，2~3 分钟）。按 clipSearch 线索（频道 + UTC 日期 + 任务关键词）
- *   在频道最新视频里匹配，下载 ≤480p 后直传 COS（约 10~25MB/段）
+ *   在频道最新视频里匹配，下载 ≤480p → 兼容转码 → 直传 COS（约 10~25MB/段）
  * - kind=full：完整回放。依 LL2 源列表（官方直播优先）下载 ≤480p，2 小时直播约 400~600MB
  *
- * 循环：claim 领任务 → yt-dlp 下载 → PUT 预签 URL 直传 COS → complete 回写
+ * 循环：claim 领任务 → yt-dlp 下载 → 兼容封装(H.264+AAC+faststart) → PUT 预签 URL 直传 COS → complete 回写
  * 失败 → fail 回报；集锦任务服务端按次数退避重试（视频可能几小时后才发布）。
  */
 import fs from 'fs'
@@ -24,7 +24,24 @@ function log(...args) {
 // 自己也没用，进程还堵着），必须整树查杀后向服务端 fail 归还任务
 const FULL_DOWNLOAD_TIMEOUT_MS = 90 * 60 * 1000
 const CLIP_DOWNLOAD_TIMEOUT_MS = 15 * 60 * 1000
+const CLIP_COMPAT_TIMEOUT_MS = 20 * 60 * 1000
+const FULL_COMPAT_TIMEOUT_MS = 90 * 60 * 1000
 const COS_UPLOAD_TIMEOUT_MS = 30 * 60 * 1000
+
+/**
+ * yt-dlp 格式串：优先 AVC(H.264)+m4a，避免 VP9/AV1 进 mp4 导致手机相册/剪映不认。
+ * 仍保留非 AVC 兜底，下载后由 ensureCompatMp4 转码。
+ */
+function ytdlpFormatSelector(maxHeight) {
+  const h = maxHeight
+  return [
+    `bv*[height<=${h}][ext=mp4][vcodec^=avc]+ba[ext=m4a]`,
+    `bv*[height<=${h}][ext=mp4]+ba[ext=m4a]`,
+    `b[height<=${h}][ext=mp4][vcodec^=avc]`,
+    `b[height<=${h}][ext=mp4]`,
+    `b[height<=${h}]`
+  ].join('/')
+}
 
 /** Windows 上 child.kill 杀不掉 yt-dlp 拉起的 ffmpeg 子进程，必须整树查杀 */
 function killTree(child) {
@@ -125,7 +142,7 @@ function runYtdlpDownload(cfg, args, outFile, timeoutMs) {
 
 function runYtdlp(cfg, sourceUrl, outFile) {
   const args = [
-    '-f', `bv*[height<=${cfg.maxHeight}][ext=mp4]+ba[ext=m4a]/b[height<=${cfg.maxHeight}][ext=mp4]/b[height<=${cfg.maxHeight}]`,
+    '-f', ytdlpFormatSelector(cfg.maxHeight),
     '--merge-output-format', 'mp4',
     '--no-playlist',
     '--max-filesize', `${cfg.maxFileMB}M`,
@@ -173,11 +190,16 @@ function runFfprobe(bin, file) {
     child.on('exit', () => {
       try {
         const j = JSON.parse(out)
-        const v = (j.streams || []).find((s) => s.codec_type === 'video') || {}
+        const streams = j.streams || []
+        const v = streams.find((s) => s.codec_type === 'video') || {}
+        const a = streams.find((s) => s.codec_type === 'audio') || {}
         resolve({
           durationSec: Math.round(Number(j.format && j.format.duration) || 0),
           width: Number(v.width || 0),
-          height: Number(v.height || 0)
+          height: Number(v.height || 0),
+          videoCodec: String(v.codec_name || '').toLowerCase(),
+          audioCodec: String(a.codec_name || '').toLowerCase(),
+          pixFmt: String(v.pix_fmt || '').toLowerCase()
         })
       } catch (e) {
         resolve(null)
@@ -186,7 +208,7 @@ function runFfprobe(bin, file) {
   })
 }
 
-/** ffprobe 缺失时的兜底：解析 `ffmpeg -i` stderr 里的 Duration/分辨率 */
+/** ffprobe 缺失时的兜底：解析 `ffmpeg -i` stderr 里的 Duration/分辨率/编码 */
 function probeWithFfmpeg(cfg, file) {
   return new Promise((resolve) => {
     const child = spawn(resolveFfmpegBin(cfg), ['-hide_banner', '-i', file], { stdio: ['ignore', 'ignore', 'pipe'] })
@@ -199,13 +221,19 @@ function probeWithFfmpeg(cfg, file) {
       if (dm) out.durationSec = Math.round(Number(dm[1]) * 3600 + Number(dm[2]) * 60 + Number(dm[3]))
       const rm = err.match(/Video:[^\n]*?(\d{2,5})x(\d{2,5})/)
       if (rm) { out.width = Number(rm[1]); out.height = Number(rm[2]) }
+      const vm = err.match(/Video:\s*([a-zA-Z0-9_]+)/)
+      if (vm) out.videoCodec = String(vm[1]).toLowerCase()
+      const am = err.match(/Audio:\s*([a-zA-Z0-9_]+)/)
+      if (am) out.audioCodec = String(am[1]).toLowerCase()
+      const pm = err.match(/Video:[^\n]*?\b(yuv\w+)\b/i)
+      if (pm) out.pixFmt = String(pm[1]).toLowerCase()
       resolve(out)
     })
   })
 }
 
 async function probeVideo(cfg, file) {
-  // 读时长/分辨率：ffprobe 优先（FFMPEG_PATH 同目录 → PATH），都没有则用 ffmpeg -i 兜底；
+  // 读时长/分辨率/编码：ffprobe 优先（FFMPEG_PATH 同目录 → PATH），都没有则用 ffmpeg -i 兜底；
   // 全失败返回空对象不阻塞主流程（只影响时长角标展示）
   for (const bin of resolveFfprobeCandidates(cfg)) {
     if (path.isAbsolute(bin) && !fs.existsSync(bin)) continue
@@ -213,6 +241,127 @@ async function probeVideo(cfg, file) {
     if (meta) return meta
   }
   return probeWithFfmpeg(cfg, file)
+}
+
+/** 手机相册 / 剪映 / 主流短视频平台可认的封装：H.264 + AAC + yuv420p */
+function isCompatMp4(meta) {
+  const v = String((meta && meta.videoCodec) || '').toLowerCase()
+  const a = String((meta && meta.audioCodec) || '').toLowerCase()
+  const pix = String((meta && meta.pixFmt) || '').toLowerCase()
+  const vOk = v === 'h264' || v === 'avc' || v === 'avc1'
+  // 无音轨也视为可接受（少数源无声）；有音轨则必须 aac
+  const aOk = !a || a === 'aac'
+  const pixOk = !pix || pix === 'yuv420p'
+  return vOk && aOk && pixOk
+}
+
+function runFfmpeg(cfg, args, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const bin = resolveFfmpegBin(cfg)
+    log('ffmpeg', args.join(' '))
+    const child = spawn(bin, args, { stdio: ['ignore', 'ignore', 'inherit'] })
+    let timedOut = false
+    const timer = setTimeout(() => { timedOut = true; killTree(child) }, timeoutMs)
+    child.on('error', (e) => {
+      clearTimeout(timer)
+      reject(new Error(`ffmpeg 启动失败: ${e.message}（请配置 FFMPEG_PATH 或加入 PATH）`))
+    })
+    child.on('exit', (code) => {
+      clearTimeout(timer)
+      if (timedOut) return reject(new Error(`ffmpeg 超时（${Math.round(timeoutMs / 60000)} 分钟）`))
+      if (code === 0) resolve()
+      else reject(new Error(`ffmpeg exit ${code}`))
+    })
+  })
+}
+
+/** 启动时校验：兼容开关打开则必须能跑 ffmpeg + libx264（否则宁可不抓，也不产出相册打不开的片） */
+async function assertFfmpegReady(cfg) {
+  if (!cfg.compatTranscode) {
+    log('警告: REPLAY_COMPAT_TRANSCODE=0，上传文件可能无法被手机相册/剪映/短视频平台打开')
+    return
+  }
+  const bin = resolveFfmpegBin(cfg)
+  if (path.isAbsolute(bin) && !fs.existsSync(bin)) {
+    throw new Error(`ffmpeg 不存在: ${bin}（请修正 FFMPEG_PATH）`)
+  }
+  await new Promise((resolve, reject) => {
+    const child = spawn(bin, ['-hide_banner', '-encoders'], { stdio: ['ignore', 'pipe', 'pipe'] })
+    let out = ''
+    const timer = setTimeout(() => { killTree(child); reject(new Error('ffmpeg -encoders 超时')) }, 15000)
+    child.stdout.on('data', (d) => { out += d })
+    child.stderr.on('data', (d) => { out += d })
+    child.on('error', (e) => {
+      clearTimeout(timer)
+      reject(new Error(`ffmpeg 启动失败: ${e.message}`))
+    })
+    child.on('exit', (code) => {
+      clearTimeout(timer)
+      if (code !== 0) return reject(new Error(`ffmpeg -encoders exit ${code}`))
+      if (!/libx264/i.test(out)) return reject(new Error('ffmpeg 缺少 libx264 编码器'))
+      if (!/\baac\b/i.test(out)) return reject(new Error('ffmpeg 缺少 aac 编码器'))
+      resolve()
+    })
+  })
+  log(`ffmpeg 就绪: ${bin}（libx264+aac，相册/短视频兼容转码已启用）`)
+}
+
+/**
+ * 上传前保证兼容 mp4：已是 H.264+AAC 则 copy +faststart；否则 libx264/aac 转码。
+ * 原地替换 inFile。兼容处理失败时抛错（避免把剪映打不开的文件推上 COS）。
+ */
+async function ensureCompatMp4(cfg, inFile, timeoutMs) {
+  if (!cfg.compatTranscode) return
+  if (!fs.existsSync(inFile)) throw new Error('compat_input_missing')
+
+  const meta = await probeVideo(cfg, inFile)
+  const outFile = inFile.replace(/\.mp4$/i, '') + '_compat.mp4'
+  try { fs.rmSync(outFile, { force: true }) } catch (e) {}
+
+  const alreadyOk = isCompatMp4(meta)
+  if (alreadyOk) {
+    log(`兼容封装: 已是 ${meta.videoCodec || '?'}/${meta.audioCodec || 'noaudio'}，重封装 +faststart`)
+    await runFfmpeg(cfg, [
+      '-y', '-i', inFile,
+      '-c', 'copy',
+      '-movflags', '+faststart',
+      outFile
+    ], timeoutMs)
+  } else {
+    log(`兼容转码: ${meta.videoCodec || '?'}/${meta.audioCodec || '?'} → h264/aac`)
+    // 0:a:0? = 无音轨时不失败；有音轨则统一转 aac
+    await runFfmpeg(cfg, [
+      '-y', '-i', inFile,
+      '-map', '0:v:0',
+      '-map', '0:a:0?',
+      '-c:v', 'libx264',
+      '-profile:v', 'main',
+      '-level', '4.0',
+      '-pix_fmt', 'yuv420p',
+      '-preset', 'veryfast',
+      '-crf', '23',
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      '-ar', '44100',
+      '-ac', '2',
+      '-movflags', '+faststart',
+      outFile
+    ], timeoutMs)
+  }
+
+  if (!fs.existsSync(outFile) || fs.statSync(outFile).size < 1024) {
+    try { fs.rmSync(outFile, { force: true }) } catch (e) {}
+    throw new Error('compat_output_invalid')
+  }
+  fs.rmSync(inFile, { force: true })
+  fs.renameSync(outFile, inFile)
+
+  // 二次校验：转完仍不兼容则拒绝上传，绝不把坏片推给用户
+  const after = await probeVideo(cfg, inFile)
+  if (!isCompatMp4(after)) {
+    throw new Error(`compat_verify_failed: ${after.videoCodec || '?'}/${after.audioCodec || '?'}/${after.pixFmt || '?'}`)
+  }
+  log(`兼容校验通过: ${after.videoCodec}/${after.audioCodec || 'noaudio'} ${after.width || '?'}x${after.height || '?'}`)
 }
 
 async function uploadToCos(uploadUrl, file) {
@@ -335,7 +484,7 @@ async function processClipJob(cfg, data) {
   try {
     log(`集锦下载 [${clipSearch.publisher || 'clip'}] ${video.title}`)
     const args = [
-      '-f', `bv*[height<=${cfg.maxHeight}][ext=mp4]+ba[ext=m4a]/b[height<=${cfg.maxHeight}][ext=mp4]/b[height<=${cfg.maxHeight}]`,
+      '-f', ytdlpFormatSelector(cfg.maxHeight),
       '--merge-output-format', 'mp4',
       '--no-playlist',
       '--match-filter', `duration <= ${maxDur}`,
@@ -348,6 +497,14 @@ async function processClipJob(cfg, data) {
     await runYtdlpDownload(cfg, args, outFile, CLIP_DOWNLOAD_TIMEOUT_MS)
   } catch (e) {
     await failJob({ id: job.id, claimToken: job.claimToken, error: `clip_download_failed: ${e.message}` })
+    return
+  }
+
+  try {
+    await ensureCompatMp4(cfg, outFile, CLIP_COMPAT_TIMEOUT_MS)
+  } catch (e) {
+    await failJob({ id: job.id, claimToken: job.claimToken, error: `clip_compat_failed: ${e.message}` })
+    try { fs.rmSync(outFile, { force: true }) } catch (e2) {}
     return
   }
 
@@ -401,6 +558,14 @@ async function processJob(cfg, data) {
     return
   }
 
+  try {
+    await ensureCompatMp4(cfg, outFile, FULL_COMPAT_TIMEOUT_MS)
+  } catch (e) {
+    await failJob({ id: job.id, claimToken: job.claimToken, error: `compat_failed: ${e.message}` })
+    try { fs.rmSync(outFile, { force: true }) } catch (e2) {}
+    return
+  }
+
   const meta = await probeVideo(cfg, outFile)
   log(`上传 COS: ${upload.cosKey} (${(fs.statSync(outFile).size / 1048576).toFixed(1)}MB)`)
   let sizeBytes = 0
@@ -442,7 +607,8 @@ function cleanupTmpDir() {
 
 async function loop() {
   const cfg = getConfig()
-  log(`replay-fetcher 启动 poll=${cfg.pollMs}ms maxHeight=${cfg.maxHeight}p`)
+  log(`replay-fetcher 启动 poll=${cfg.pollMs}ms maxHeight=${cfg.maxHeight}p compat=${cfg.compatTranscode ? 'on' : 'off'}`)
+  await assertFfmpegReady(cfg)
   cleanupTmpDir()
   for (;;) {
     try {
@@ -468,4 +634,4 @@ async function loop() {
 const isMain = process.argv[1] && import.meta.url === new URL(`file:///${process.argv[1].replace(/\\/g, '/')}`).href
 if (isMain) loop()
 
-export { findClipVideo, pickProxy, scoreClipText }
+export { findClipVideo, pickProxy, scoreClipText, isCompatMp4, ytdlpFormatSelector }

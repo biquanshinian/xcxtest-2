@@ -153,3 +153,17 @@ describe('scoreClipText — real SciNews cases', () => {
     assert.equal(scored.ok, false)
   })
 })
+
+describe('compat mp4 helpers', () => {
+  // 延迟 import，避免与 clip-match 单测耦合启动副作用
+  it('isCompatMp4 accepts h264+aac, rejects vp9', async () => {
+    const { isCompatMp4, ytdlpFormatSelector } = await import('./index.js')
+    assert.equal(isCompatMp4({ videoCodec: 'h264', audioCodec: 'aac', pixFmt: 'yuv420p' }), true)
+    assert.equal(isCompatMp4({ videoCodec: 'h264', audioCodec: '', pixFmt: 'yuv420p' }), true)
+    assert.equal(isCompatMp4({ videoCodec: 'vp9', audioCodec: 'aac', pixFmt: 'yuv420p' }), false)
+    assert.equal(isCompatMp4({ videoCodec: 'h264', audioCodec: 'opus', pixFmt: 'yuv420p' }), false)
+    const fmt = ytdlpFormatSelector(480)
+    assert.ok(fmt.includes('[vcodec^=avc]'))
+    assert.ok(fmt.startsWith('bv*[height<=480][ext=mp4][vcodec^=avc]'))
+  })
+})
