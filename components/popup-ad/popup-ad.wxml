@@ -10,21 +10,39 @@
         <text class="popup-ad-desc" wx:if="{{shopItem.desc}}">{{shopItem.desc}}</text>
       </view>
       <view class="popup-ad-product-area" wx:if="{{shopItem}}">
-        <view wx:if="{{shopItem.productId}}" class="popup-ad-store-wrap">
+        <!--
+          store-product 官方文档：
+          - appid / product-id 必填
+          - custom-style 为对象（card/title/price/buy-button...），≥3.7.1
+          - product-promotion-link、media-id 仅首次加载传入
+        -->
+        <view wx:if="{{showStoreProduct}}" class="popup-ad-store-wrap">
           <store-product
+            wx:if="{{useCustomStyle}}"
             class="popup-ad-store-product"
-            appid="{{shopItem.appid || defaultStoreAppid}}"
-            product-id="{{shopItem.productId}}"
-            product-promotion-link="{{shopItem.productPromotionLink}}"
-            media-id="{{shopItem.mediaId}}"
+            appid="{{storeAppid}}"
+            product-id="{{storeProductId}}"
+            product-promotion-link="{{storePromotionLink}}"
+            media-id="{{storeMediaId}}"
             custom-style="{{storeCustomStyle}}"
             bindentersuccess="onStoreEnterSuccess"
             bindentererror="onStoreEnterError"
           />
+          <store-product
+            wx:else
+            class="popup-ad-store-product"
+            appid="{{storeAppid}}"
+            product-id="{{storeProductId}}"
+            product-promotion-link="{{storePromotionLink}}"
+            media-id="{{storeMediaId}}"
+            bindentersuccess="onStoreEnterSuccess"
+            bindentererror="onStoreEnterError"
+          />
         </view>
+        <view wx:elif="{{leaving}}" class="popup-ad-store-wrap"></view>
         <view wx:else class="popup-ad-fallback" bindtap="onFallbackTap">
           <image class="popup-ad-cover" src="{{shopItem.coverFileID}}" mode="aspectFill" wx:if="{{shopItem.coverFileID}}" />
-          <view class="popup-ad-fallback-tip">商品未配置 ID，请联系管理员</view>
+          <view class="popup-ad-fallback-tip">{{fallbackTip}}</view>
         </view>
       </view>
     </view>
