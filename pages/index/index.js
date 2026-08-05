@@ -4328,16 +4328,22 @@ Page({
           return
         }
         const list = this._filterUpcomingAgainstSettled(pack.list)
-        const patch = buildMissionListSetData(type, list, pack.res, filterExpiredMissions)
-        this.applyUpcomingAgencyFilterToPatch(patch, list)
-        this.setData(patch, () => {
-          try {
-            this.updateMissionListView(type, list)
-          } catch (e2) {}
-          try {
-            this.syncCalendarFromMissionListsIfNeeded()
-          } catch (e3) {}
-        })
+        // upcoming 后台纠偏后必须同步倒计时面板，否则列表已更新、主面板仍停在残缺缓存的「一千多天后」
+        try {
+          const first = list[0] || null
+          this.applyInitialUpcomingLaunchState(first, list, pack.res || {})
+        } catch (ePanel) {
+          const patch = buildMissionListSetData(type, list, pack.res, filterExpiredMissions)
+          this.applyUpcomingAgencyFilterToPatch(patch, list)
+          this.setData(patch, () => {
+            try {
+              this.updateMissionListView(type, list)
+            } catch (e2) {}
+            try {
+              this.syncCalendarFromMissionListsIfNeeded()
+            } catch (e3) {}
+          })
+        }
       })
       .catch(() => {})
   },

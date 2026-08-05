@@ -444,23 +444,40 @@ async function getCacheFromCloud(cacheKey, timeout = 5000) {
         Number(apiData.count) > 0
 
       if (apiData.isBatched && apiData.batchKeys && Array.isArray(apiData.batchKeys)) {
+        // 弱网下任一靠前批次超时若静默变 []，合并结果会从「几年后」开始，
+        // 首页倒计时就会落到一千多天后的任务。任一失败 → 整次云读失败，绝不写残缺缓存。
         const batchPromises = apiData.batchKeys.map(async (batchKey) => {
           try {
             const batchResult = await Promise.race([
               db.collection('space_devs_cache').doc(batchKey).get(),
               new Promise((_, reject) => setTimeout(() => reject(new Error('批次查询超时')), 5000))
             ])
-            return (batchResult.data && batchResult.data.data && batchResult.data.data.results) || []
+            const chunk =
+              (batchResult.data && batchResult.data.data && batchResult.data.data.results) || null
+            if (!Array.isArray(chunk)) {
+              return { ok: false, results: [] }
+            }
+            return { ok: true, results: chunk }
           } catch (batchError) {
-            return []
+            return { ok: false, results: [] }
           }
         })
 
         const batchResults = await Promise.all(batchPromises)
-        const mergedResults = batchResults.reduce((all, chunk) => all.concat(chunk || []), [])
-        // 主文档声明有数据但批次全部读取失败（超时/网络抖动）：
-        // 视为本次云查询失败，绝不能把空列表当成功结果缓存到本地
-        if (mergedResults.length === 0 && Number(apiData.count) > 0) {
+        const anyFailed = batchResults.some((b) => !b || !b.ok)
+        const mergedResults = batchResults.reduce(
+          (all, chunk) => all.concat((chunk && chunk.results) || []),
+          []
+        )
+        const expectedCount = Number(apiData.count) || 0
+        if (anyFailed) {
+          return null
+        }
+        if (mergedResults.length === 0 && expectedCount > 0) {
+          return null
+        }
+        // 合并条数显著少于主文档声明：仍视为残缺（防个别批次空数组被标成 ok）
+        if (expectedCount > 0 && mergedResults.length < expectedCount) {
           return null
         }
         apiData = {
@@ -485,10 +502,19 @@ async function getCacheFromCloud(cacheKey, timeout = 5000) {
             if (!Array.isArray(chunk)) break
             for (let i = 0; i < chunk.length; i++) mergedResults.push(chunk[i])
           } catch (e) {
+            const msg = String((e && e.message) || e || '')
+            // 超时 ≠ 文档不存在：后者是探针正常结束；前者在已有部分结果时必须整次失败
+            if (/超时|timeout/i.test(msg) && mergedResults.length > 0) {
+              return null
+            }
             break
           }
         }
         if (mergedResults.length === 0) return null
+        const expectedCount = Number(apiData.count) || 0
+        if (expectedCount > 0 && mergedResults.length < expectedCount) {
+          return null
+        }
         apiData = {
           ...apiData,
           results: mergedResults,

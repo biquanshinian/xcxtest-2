@@ -355,11 +355,22 @@ function slimLaunch(launch) {
     if (rows.length > 0) payloads_slim = rows
   }
 
+  // net_precision：首页倒计时精度门控依赖；缺失时前端会误把 Day/Month 占位 NET 当成秒级倒数
+  const netPrecisionRaw = launch.net_precision
+  const net_precision = netPrecisionRaw && typeof netPrecisionRaw === 'object'
+    ? {
+        id: netPrecisionRaw.id,
+        name: netPrecisionRaw.name || null,
+        abbrev: netPrecisionRaw.abbrev || null
+      }
+    : (netPrecisionRaw || null)
+
   return {
     id: launch.id,
     url: launch.url,
     name: launch.name,
     net: launch.net,
+    net_precision,
     window_start: launch.window_start,
     window_end: launch.window_end,
     status: status ? { id: status.id, name: status.name, abbrev: status.abbrev } : null,

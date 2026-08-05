@@ -116,10 +116,20 @@ function slimLaunch(launch) {
   const mission = launch.mission || {}
   const status = launch.status || {}
   const provider = launch.launch_service_provider || {}
+  const netPrecisionRaw = launch.net_precision
+  const net_precision = netPrecisionRaw && typeof netPrecisionRaw === 'object'
+    ? {
+        id: netPrecisionRaw.id,
+        name: netPrecisionRaw.name || '',
+        abbrev: netPrecisionRaw.abbrev || ''
+      }
+    : (netPrecisionRaw || null)
+
   return {
     id: launch.id,
     name: launch.name || '',
     net: launch.net || '',
+    net_precision,
     window_start: launch.window_start || '',
     window_end: launch.window_end || '',
     status: {

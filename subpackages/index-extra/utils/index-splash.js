@@ -1173,7 +1173,17 @@ const methods = {
       this.setData({ splashMission: payload })
       this._startSplashMissionTick()
     } catch (e) {
-      // 匹配失败静默降级：只影响倒计时卡片，不影响开屏本身（快显卡片保留，误差由缓存时效兜底）
+      // 弱网匹配失败：若快显卡片发射时间已不合理地遥远，清掉避免开屏显示「一千多天」
+      if (fastShown) {
+        try {
+          const shown = this.data.splashMission
+          const ts = shown && shown.launchTime ? new Date(shown.launchTime).getTime() : NaN
+          const MAX_SPLASH_HORIZON_MS = 400 * 24 * 60 * 60 * 1000
+          if (!Number.isFinite(ts) || ts - Date.now() > MAX_SPLASH_HORIZON_MS) {
+            this._clearSplashMissionCard(true)
+          }
+        } catch (e2) {}
+      }
     }
   },
 
