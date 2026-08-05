@@ -66,6 +66,15 @@ function docIdOf(key) {
   return String(key).replace(/[\/\\#\s]/g, '_')
 }
 
+/** get 出的文档再 set 回去时必须去掉 _id/_openid，否则 TCB 报「不能更新」(-501007) */
+function stripDocMeta(doc) {
+  if (!doc || typeof doc !== 'object') return {}
+  const next = Object.assign({}, doc)
+  delete next._id
+  delete next._openid
+  return next
+}
+
 // ───────────────────────── 通告读写 ─────────────────────────
 
 function noticeContentHash(notice, areas) {
@@ -155,10 +164,10 @@ async function upsertEntry(entry) {
     const got = await db.collection(ENTRY_COL).doc(id).get()
     prev = got && got.data
   } catch (e) { /* new */ }
-  const doc = Object.assign({}, prev || {}, entry, {
+  const doc = stripDocMeta(Object.assign({}, prev || {}, entry, {
     updatedAt: nowMs(),
     createdAt: (prev && prev.createdAt) || nowMs()
-  })
+  }))
   await db.collection(ENTRY_COL).doc(id).set({ data: doc })
   return id
 }

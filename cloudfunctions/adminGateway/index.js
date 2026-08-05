@@ -43,6 +43,8 @@ const COLLECTIONS = {
   SPACEX_STATS: 'spacex_launch_stats',
   CAROUSEL: 'carousel_config',
   MEDIA_ASSETS: 'media_assets',
+  /** 火箭配置图等媒体删除墓碑：阻止 COS 同步把已删记录重新 add */
+  MEDIA_ASSET_TOMBSTONES: 'media_asset_tombstones',
   SHOP_FEED: 'shop_feed',
   LIVE_CONFIG: 'live_config',
   CHANNELS_LIVE_CONFIG: 'channels_live_config',
@@ -87,7 +89,15 @@ const ADMIN_GATEWAY_EXTRA_COLLECTIONS = [
   'oa_push_ledger',
   'bilibili_topic_keywords',
   'bilibili_topic_blacklist',
-  'bilibili_publish_queue'
+  'bilibili_publish_queue',
+  'oa_prompts',
+  'oa_strategies',
+  'oa_drafts',
+  'oa_content_jobs',
+  'oa_benchmark_accounts',
+  'oa_viral_articles',
+  'oa_viral_titles',
+  'oa_collected_articles'
 ]
 
 function ensureAdminGatewayCollectionsOnce() {
@@ -387,7 +397,8 @@ const PERMISSION_MODULES = {
   astro_photos: '航天摄影管理',
   milestone_rewards: '里程碑彩蛋管理',
   knowledge_cards: '知识卡管理',
-  launch_votes: '发射竞猜管理'
+  launch_votes: '发射竞猜管理',
+  oa_content: '公众号内容中台'
 }
 
 function hasPermission(user, mod) {
@@ -3468,6 +3479,59 @@ function decodeCursor(cursor = '') {
   }
 }
 
+/** 与 syncRocketCosIndex.normalizeKey 保持一致，确保墓碑能命中 */
+function normalizeRocketMediaKey(key) {
+  if (!key || typeof key !== 'string') return ''
+  return key
+    .replace(/[\u00A0\u2000-\u200D\u202F\u205F\u2060\u3000\uFEFF]/g, ' ')
+    .replace(/／/g, '/')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^\/+/, '')
+    .replace(/\\/g, '/')
+}
+
+async function upsertMediaAssetTombstone(key, user) {
+  const nk = normalizeRocketMediaKey(key)
+  if (!nk) return
+  const col = db.collection(COLLECTIONS.MEDIA_ASSET_TOMBSTONES)
+  const existing = await col.where({ key: nk }).limit(1).get().catch(() => ({ data: [] }))
+  const row = (existing.data || [])[0]
+  const ts = now()
+  if (row && row._id) {
+    await col.doc(row._id).update({
+      data: { updatedAt: ts, createdBy: (user && user.username) || row.createdBy || '' }
+    }).catch(() => {})
+    return
+  }
+  await col.add({
+    data: {
+      key: nk,
+      reason: 'admin_delete',
+      createdAt: ts,
+      updatedAt: ts,
+      createdBy: (user && user.username) || ''
+    }
+  }).catch((e) => {
+    console.warn('[upsertMediaAssetTombstone]', e.message || e)
+  })
+}
+
+async function clearMediaAssetTombstone(key) {
+  const nk = normalizeRocketMediaKey(key)
+  if (!nk) return
+  try {
+    const res = await db.collection(COLLECTIONS.MEDIA_ASSET_TOMBSTONES).where({ key: nk }).limit(20).get()
+    for (const row of res.data || []) {
+      if (row && row._id) {
+        await db.collection(COLLECTIONS.MEDIA_ASSET_TOMBSTONES).doc(row._id).remove().catch(() => {})
+      }
+    }
+  } catch (e) {
+    console.warn('[clearMediaAssetTombstone]', e.message || e)
+  }
+}
+
 async function listMediaAssets(query = {}) {
   const page = Math.max(1, Number(query.page || 1))
   const pageSize = Math.min(100, Math.max(1, Number(query.pageSize || 20)))
@@ -3507,6 +3571,14 @@ async function updateMediaAsset(id, body, user) {
   patch.updatedAt = now()
 
   await ref.update({ data: patch })
+  // 记录仍存在并被后台改写时，清掉同 key 墓碑，避免后续同步跳过
+  const effectiveKey = String(patch.key || before.key || '')
+  if (effectiveKey.startsWith('火箭配置图/')) {
+    await clearMediaAssetTombstone(effectiveKey)
+    if (before.key && before.key !== effectiveKey && String(before.key).startsWith('火箭配置图/')) {
+      await clearMediaAssetTombstone(before.key)
+    }
+  }
   await writeOpLog({ user, module: COLLECTIONS.MEDIA_ASSETS, action: 'update', targetId: id, before, after: { ...before, ...patch } })
   return ok(true)
 }
@@ -3797,6 +3869,11 @@ async function createMediaAsset(body, user) {
     createdBy: user.username
   }
 
+  // 重新上传/入库同一 key 时清除删除墓碑，允许出现在 COS 同步结果中
+  if (key.startsWith('火箭配置图/')) {
+    await clearMediaAssetTombstone(key)
+  }
+
   const res = await db.collection(COLLECTIONS.MEDIA_ASSETS).add({ data: payload })
   await writeOpLog({ user, module: COLLECTIONS.MEDIA_ASSETS, action: 'create', targetId: res._id, after: payload })
   return ok({ id: res._id })
@@ -3810,11 +3887,16 @@ async function deleteMediaAsset(id, user) {
   if (!before) return fail(4040, '数据不存在')
 
   await ref.remove()
+  // 火箭配置图：写入墓碑，阻止 syncRocketCosIndex 因 COS 文件仍在而重新 add
+  const key = String(before.key || '')
+  if (key.startsWith('火箭配置图/')) {
+    await upsertMediaAssetTombstone(key, user)
+  }
   await writeOpLog({ user, module: COLLECTIONS.MEDIA_ASSETS, action: 'delete', targetId: id, before, after: null })
   return ok(true)
 }
 
-/** 触发 syncRocketCosIndex：COS「火箭配置图/」目录 → media_assets（manual 记录不会被覆盖删除） */
+/** 触发 syncRocketCosIndex：COS「火箭配置图/」目录 → media_assets（manual / 墓碑 key 不会被覆盖或复活） */
 async function syncRocketMediaCosIndex(user) {
   try {
     const res = await cloud.callFunction({
@@ -8357,6 +8439,15 @@ function biliPublishApi() {
   return _biliPublishApi
 }
 
+const { createOaContentStudioApi } = require('./oaContentStudio')
+let _oaContentApi = null
+function oaContentApi() {
+  if (!_oaContentApi) {
+    _oaContentApi = createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPerm })
+  }
+  return _oaContentApi
+}
+
 const { createReplayFetchApi } = require('./replayFetch')
 let _replayFetchApi = null
 function replayFetchApi() {
@@ -8454,6 +8545,72 @@ async function route(event, user) {
 
   // ===== 知识卡公开接口（小程序端） =====
   if (path === '/knowledge-cards/public' && method === 'GET') return getPublicKnowledgeCards()
+
+  // ===== 公众号采集插件入库（OA_COLLECTOR_TOKEN，可无管理员 JWT） =====
+  if (path === '/oa-content/collector/ingest' && method === 'POST') {
+    return oaContentApi().collectorIngest(body, headers, user)
+  }
+  if (path === '/oa-content/collector/ingest-batch' && method === 'POST') {
+    return oaContentApi().collectorIngestBatch(body, headers, user)
+  }
+
+  // ===== 公众号日更 / 作者追踪内部触发（oaContentDaily / oaAuthorTrack → callFunction） =====
+  if (path === '/oa-content/internal/run-daily' && method === 'POST') {
+    const tok = String(
+      headers['x-oa-internal-token'] || headers['X-Oa-Internal-Token'] || ''
+    ).trim()
+    const expected = String(process.env.OA_CONTENT_INTERNAL_TOKEN || '').trim()
+    if (!expected || tok.length !== expected.length) {
+      return fail(4010, '内部日更调用未授权（需配置 OA_CONTENT_INTERNAL_TOKEN）')
+    }
+    const crypto = require('crypto')
+    const okTok =
+      tok.length > 0 &&
+      crypto.timingSafeEqual(Buffer.from(tok, 'utf8'), Buffer.from(expected, 'utf8'))
+    if (!okTok) return fail(4010, '内部日更调用未授权（需配置 OA_CONTENT_INTERNAL_TOKEN）')
+    return oaContentApi().runDailyPipeline({ id: 'system', username: 'cron', role: 'super_admin' })
+  }
+  if (path === '/oa-content/internal/track-sources' && method === 'POST') {
+    const tok = String(
+      headers['x-oa-internal-token'] || headers['X-Oa-Internal-Token'] || ''
+    ).trim()
+    const expected = String(process.env.OA_CONTENT_INTERNAL_TOKEN || '').trim()
+    if (!expected || tok.length !== expected.length) {
+      return fail(4010, '内部追踪调用未授权（需配置 OA_CONTENT_INTERNAL_TOKEN）')
+    }
+    const crypto = require('crypto')
+    const okTok =
+      tok.length > 0 &&
+      crypto.timingSafeEqual(Buffer.from(tok, 'utf8'), Buffer.from(expected, 'utf8'))
+    if (!okTok) return fail(4010, '内部追踪调用未授权（需配置 OA_CONTENT_INTERNAL_TOKEN）')
+    return oaContentApi().trackSourcesRun(body || {}, {
+      id: 'system',
+      username: 'cron',
+      role: 'super_admin'
+    })
+  }
+  if (path === '/oa-content/internal/push-draft' && method === 'POST') {
+    const tok = String(
+      headers['x-oa-internal-token'] || headers['X-Oa-Internal-Token'] || ''
+    ).trim()
+    const expected = String(process.env.OA_CONTENT_INTERNAL_TOKEN || '').trim()
+    if (!expected || tok.length !== expected.length) {
+      return fail(4010, '内部推送调用未授权（需配置 OA_CONTENT_INTERNAL_TOKEN）')
+    }
+    const crypto = require('crypto')
+    const okTok =
+      tok.length > 0 &&
+      crypto.timingSafeEqual(Buffer.from(tok, 'utf8'), Buffer.from(expected, 'utf8'))
+    if (!okTok) return fail(4010, '内部推送调用未授权（需配置 OA_CONTENT_INTERNAL_TOKEN）')
+    const draftId = String((body && body.id) || '').trim()
+    if (!draftId) return fail(4000, '缺少草稿 id')
+    const action = String((body && body.action) || 'push').trim()
+    const sysUser = { id: 'system', username: 'async-push', role: 'super_admin' }
+    if (action === 'prepare') {
+      return oaContentApi().prepareDraftImages(draftId, {})
+    }
+    return oaContentApi().executePushDraft(draftId, sysUser)
+  }
 
   if (!user) return fail(4010, '未授权或登录已过期')
 
@@ -9121,6 +9278,197 @@ async function route(event, user) {
   if (path.startsWith('/bilibili-topic-blacklist/') && method === 'DELETE') {
     const deny = checkPerm(user, 'global_config'); if (deny) return deny
     return biliPublishApi().removeBlacklist(path.split('/').pop())
+  }
+
+  // ===== 公众号内容中台 =====
+  {
+    const oa = oaContentApi()
+    const denyOa = () => checkPerm(user, 'oa_content')
+
+    if (path === '/oa-content/config' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.getConfig()
+    }
+    if (path === '/oa-content/config' && method === 'PUT') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.updateConfig(body, user)
+    }
+    if (path === '/oa-content/topics' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.gatherTopics(query)
+    }
+    if (path === '/oa-content/generate' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.generateFromBody(body, user)
+    }
+    if (path === '/oa-content/run-daily' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.runDailyPipeline(user)
+    }
+    if (path === '/oa-content/track-sources' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.trackSourcesRun(body || {}, user)
+    }
+    if (path === '/oa-content/jobs' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.listJobs(query)
+    }
+
+    if (path === '/oa-content/prompts' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.listPrompts(query)
+    }
+    if (path === '/oa-content/prompts' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.createPrompt(body, user)
+    }
+    if (path === '/oa-content/prompts/seed' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.seedPrompts(user, body || {})
+    }
+    if (path.startsWith('/oa-content/prompts/') && method === 'PUT') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.updatePrompt(path.split('/').pop(), body, user)
+    }
+    if (path.startsWith('/oa-content/prompts/') && method === 'DELETE') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.deletePrompt(path.split('/').pop(), user)
+    }
+
+    if (path === '/oa-content/strategies' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.listStrategies(query)
+    }
+    if (path === '/oa-content/strategies' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.createStrategy(body, user)
+    }
+    if (path === '/oa-content/strategies/seed' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.seedStrategies(user, body || {})
+    }
+    if (path.startsWith('/oa-content/strategies/') && method === 'PUT') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.updateStrategy(path.split('/').pop(), body, user)
+    }
+    if (path.startsWith('/oa-content/strategies/') && method === 'DELETE') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.deleteStrategy(path.split('/').pop(), user)
+    }
+
+    if (path === '/oa-content/drafts' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.listDrafts(query)
+    }
+    if (path === '/oa-content/drafts/batch-delete' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.batchDeleteDrafts(body, user)
+    }
+    if (path.startsWith('/oa-content/drafts/') && path.endsWith('/push') && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.pushDraftToWechat(path.split('/')[3], user, body || {})
+    }
+    if (path.startsWith('/oa-content/drafts/') && path.endsWith('/prepare-images') && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.prepareDraftImages(path.split('/')[3], body || {})
+    }
+    if (path === '/oa-content/image-proxy' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.proxyImage(body || {})
+    }
+    if (path.startsWith('/oa-content/drafts/') && path.endsWith('/publish') && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.publishDraft(path.split('/')[3], user)
+    }
+    if (path.startsWith('/oa-content/drafts/') && path.endsWith('/reject') && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.rejectDraft(path.split('/')[3], user, body)
+    }
+    if (path.startsWith('/oa-content/drafts/') && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.getDraft(path.split('/').pop())
+    }
+    if (path.startsWith('/oa-content/drafts/') && method === 'PUT') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.updateDraft(path.split('/').pop(), body, user)
+    }
+    if (path.startsWith('/oa-content/drafts/') && method === 'DELETE') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.deleteDraft(path.split('/').pop(), user)
+    }
+
+    if (path === '/oa-content/accounts' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.listAccounts(query)
+    }
+    if (path === '/oa-content/accounts' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.createAccount(body, user)
+    }
+    // 账号下已采文章（兼容 /accounts/:id/articles 与扁平别名）
+    if (
+      method === 'GET' &&
+      (path === '/oa-content/account-articles' ||
+        /^\/oa-content\/accounts\/[^/]+\/articles\/?$/.test(path))
+    ) {
+      const deny = denyOa(); if (deny) return deny
+      const id =
+        String(query.accountId || query.id || '').trim() ||
+        (path.match(/^\/oa-content\/accounts\/([^/]+)\/articles\/?$/) || [])[1] ||
+        ''
+      return oa.listAccountArticles(id, query)
+    }
+    if (path.startsWith('/oa-content/accounts/') && method === 'PUT') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.updateAccount(path.split('/').pop(), body, user)
+    }
+    if (path.startsWith('/oa-content/accounts/') && method === 'DELETE') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.deleteAccount(path.split('/').pop(), user)
+    }
+
+    if (path === '/oa-content/viral' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.listViral(query)
+    }
+    if (path === '/oa-content/viral' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.upsertViral(body, user)
+    }
+    if (path.startsWith('/oa-content/viral/') && method === 'DELETE') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.deleteViral(path.split('/').pop(), user)
+    }
+
+    if (path === '/oa-content/titles' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.listTitles(query)
+    }
+    if (path === '/oa-content/titles' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.createTitle(body, user)
+    }
+    if (path === '/oa-content/titles/analyze' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.analyzeTitle(body, user)
+    }
+    if (path === '/oa-content/titles/generate' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.generateTitles(body, user)
+    }
+    if (path.startsWith('/oa-content/titles/') && method === 'DELETE') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.deleteTitle(path.split('/').pop(), user)
+    }
+
+    if (path === '/oa-content/collected' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.listCollected(query)
+    }
+    if (path.startsWith('/oa-content/collected/') && method === 'DELETE') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.deleteCollected(path.split('/').pop(), user)
+    }
   }
 
   return fail(4040, `未知路由: ${method} ${path}`)

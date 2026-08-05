@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "openapi": []
+  },
+  "timeout": 90,
+  "triggers": [
+    {
+      "name": "oaContentDailyTimer",
+      "type": "timer",
+      "config": "0 0 9 * * * *"
+    }
+  ]
+}

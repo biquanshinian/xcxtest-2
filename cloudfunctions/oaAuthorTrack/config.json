@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "openapi": []
+  },
+  "timeout": 90,
+  "triggers": [
+    {
+      "name": "oaAuthorTrackTimer",
+      "type": "timer",
+      "config": "0 0 */6 * * * *"
+    }
+  ]
+}

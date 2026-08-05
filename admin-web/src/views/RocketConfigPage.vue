@@ -472,9 +472,11 @@ async function saveEditUrl() {
 
 async function onDeleteRow(row) {
   try {
-    await ElMessageBox.confirm(`确定删除 media_assets 记录「${row.key}」吗？（不会删除 COS 上的文件）`, '确认', {
-      type: 'warning'
-    })
+    await ElMessageBox.confirm(
+      `确定删除「${row.key}」吗？将从列表移除且不再被 COS 同步恢复（不会删除 COS 上的文件）。`,
+      '确认',
+      { type: 'warning' }
+    )
     await api.deleteMediaAsset(row._id)
     ElMessage.success('已删除记录')
     await reload()

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:watch": "vite build --watch",
     "preview": "vite preview",
     "lint": "eslint . --max-warnings=-1",
     "lint:fix": "eslint . --fix",

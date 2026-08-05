@@ -611,5 +611,139 @@ export const api = {
   },
   removeBilibiliTopicBlacklist(id) {
     return request(`/bilibili-topic-blacklist/${id}`, { method: 'DELETE' })
+  },
+
+  // ===== 公众号内容中台 =====
+  getOaContentConfig() {
+    return request('/oa-content/config', { method: 'GET' })
+  },
+  updateOaContentConfig(body) {
+    return request('/oa-content/config', { method: 'PUT', body })
+  },
+  listOaTopics(query) {
+    return request('/oa-content/topics', { method: 'GET', query })
+  },
+  generateOaContent(body) {
+    return request('/oa-content/generate', { method: 'POST', body })
+  },
+  runOaDaily() {
+    return request('/oa-content/run-daily', { method: 'POST' })
+  },
+  runOaTrackSources(body) {
+    return request('/oa-content/track-sources', { method: 'POST', body: body || {} })
+  },
+  listOaJobs(query) {
+    return request('/oa-content/jobs', { method: 'GET', query })
+  },
+  listOaPrompts(query) {
+    return request('/oa-content/prompts', { method: 'GET', query })
+  },
+  createOaPrompt(body) {
+    return request('/oa-content/prompts', { method: 'POST', body })
+  },
+  updateOaPrompt(id, body) {
+    return request(`/oa-content/prompts/${id}`, { method: 'PUT', body })
+  },
+  deleteOaPrompt(id) {
+    return request(`/oa-content/prompts/${id}`, { method: 'DELETE' })
+  },
+  seedOaPrompts(body) {
+    return request('/oa-content/prompts/seed', { method: 'POST', body: body || {} })
+  },
+  listOaStrategies(query) {
+    return request('/oa-content/strategies', { method: 'GET', query })
+  },
+  createOaStrategy(body) {
+    return request('/oa-content/strategies', { method: 'POST', body })
+  },
+  updateOaStrategy(id, body) {
+    return request(`/oa-content/strategies/${id}`, { method: 'PUT', body })
+  },
+  deleteOaStrategy(id) {
+    return request(`/oa-content/strategies/${id}`, { method: 'DELETE' })
+  },
+  seedOaStrategies(body) {
+    return request('/oa-content/strategies/seed', { method: 'POST', body: body || {} })
+  },
+  listOaDrafts(query) {
+    return request('/oa-content/drafts', { method: 'GET', query })
+  },
+  getOaDraft(id) {
+    return request(`/oa-content/drafts/${id}`, { method: 'GET' })
+  },
+  updateOaDraft(id, body) {
+    return request(`/oa-content/drafts/${id}`, { method: 'PUT', body })
+  },
+  deleteOaDraft(id) {
+    return request(`/oa-content/drafts/${id}`, { method: 'DELETE' })
+  },
+  batchDeleteOaDrafts(ids) {
+    return request('/oa-content/drafts/batch-delete', { method: 'POST', body: { ids } })
+  },
+  pushOaDraft(id, body) {
+    return request(`/oa-content/drafts/${id}/push`, { method: 'POST', body: body || {} })
+  },
+  prepareOaDraftImages(id, body) {
+    return request(`/oa-content/drafts/${id}/prepare-images`, {
+      method: 'POST',
+      body: body || {}
+    })
+  },
+  proxyOaImage(url) {
+    return request('/oa-content/image-proxy', { method: 'POST', body: { url } })
+  },
+  publishOaDraft(id) {
+    return request(`/oa-content/drafts/${id}/publish`, { method: 'POST' })
+  },
+  rejectOaDraft(id, body) {
+    return request(`/oa-content/drafts/${id}/reject`, { method: 'POST', body })
+  },
+  listOaAccounts(query) {
+    return request('/oa-content/accounts', { method: 'GET', query })
+  },
+  createOaAccount(body) {
+    return request('/oa-content/accounts', { method: 'POST', body })
+  },
+  updateOaAccount(id, body) {
+    return request(`/oa-content/accounts/${id}`, { method: 'PUT', body })
+  },
+  deleteOaAccount(id) {
+    return request(`/oa-content/accounts/${id}`, { method: 'DELETE' })
+  },
+  listOaAccountArticles(id, query) {
+    return request('/oa-content/account-articles', {
+      method: 'GET',
+      query: { ...(query || {}), accountId: id }
+    })
+  },
+  listOaViral(query) {
+    return request('/oa-content/viral', { method: 'GET', query })
+  },
+  upsertOaViral(body) {
+    return request('/oa-content/viral', { method: 'POST', body })
+  },
+  deleteOaViral(id) {
+    return request(`/oa-content/viral/${id}`, { method: 'DELETE' })
+  },
+  listOaTitles(query) {
+    return request('/oa-content/titles', { method: 'GET', query })
+  },
+  createOaTitle(body) {
+    return request('/oa-content/titles', { method: 'POST', body })
+  },
+  deleteOaTitle(id) {
+    return request(`/oa-content/titles/${id}`, { method: 'DELETE' })
+  },
+  analyzeOaTitle(body) {
+    return request('/oa-content/titles/analyze', { method: 'POST', body })
+  },
+  generateOaTitles(body) {
+    return request('/oa-content/titles/generate', { method: 'POST', body })
+  },
+  listOaCollected(query) {
+    return request('/oa-content/collected', { method: 'GET', query })
+  },
+  deleteOaCollected(id) {
+    return request(`/oa-content/collected/${id}`, { method: 'DELETE' })
   }
 }

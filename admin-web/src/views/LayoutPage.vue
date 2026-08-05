@@ -20,6 +20,22 @@
           <span>仪表盘</span>
         </el-menu-item>
         <el-menu-item v-if="hasPerm('statistics')" index="/statistics">数据统计</el-menu-item>
+        <el-sub-menu v-if="hasPerm('oa_content')" index="oa-content">
+          <template #title>
+            <img
+              class="menu-title-icon"
+              src="https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%9B%BE%E6%A0%87/1784339901998_3dsgrb.svg"
+              alt=""
+            />
+            <span>公众号内容</span>
+          </template>
+          <el-menu-item index="/oa-content/pipeline">日更流水线</el-menu-item>
+          <el-menu-item index="/oa-content/drafts">草稿箱</el-menu-item>
+          <el-menu-item index="/oa-content/prompts">提示词库</el-menu-item>
+          <el-menu-item index="/oa-content/strategies">策略引擎</el-menu-item>
+          <el-menu-item index="/oa-content/assets">对标资产库</el-menu-item>
+          <el-menu-item index="/oa-content/config">发稿设置</el-menu-item>
+        </el-sub-menu>
         <el-sub-menu v-if="hasPerm('news_events') || hasPerm('news_articles')" index="news">
           <template #title><span>事件管理</span></template>
           <el-menu-item v-if="hasPerm('news_events')" index="/news/events">事件</el-menu-item>
@@ -281,6 +297,12 @@ const pageTitle = computed(() => {
     '/cloud-functions': '云函数管理',
     '/global-config': '全局配置中心',
     '/bilibili-topics': 'B站话题词库',
+    '/oa-content/pipeline': '公众号日更流水线',
+    '/oa-content/drafts': '公众号草稿箱',
+    '/oa-content/prompts': '公众号提示词库',
+    '/oa-content/strategies': '公众号策略引擎',
+    '/oa-content/assets': '公众号对标资产库',
+    '/oa-content/config': '公众号发稿设置',
     '/year-review-config': '年度报告',
     '/membership': '会员管理',
     '/invite-stats': '邀请统计',
@@ -434,6 +456,15 @@ const cleanNow = async () => {
   border-radius: 8px;
   font-size: 13px;
   padding-left: 20px !important;
+}
+
+.aside-menu :deep(.menu-title-icon) {
+  width: 18px;
+  height: 18px;
+  margin-right: 8px;
+  flex-shrink: 0;
+  object-fit: contain;
+  vertical-align: middle;
 }
 
 .aside-menu :deep(.el-sub-menu__title) {

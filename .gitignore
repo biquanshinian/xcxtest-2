@@ -27,6 +27,8 @@ workers/replay-fetcher/tmp/
 .DS_Store
 .idea/
 .vscode/
+.cursor/hooks/.admin-web-dirty
+.cursor/hooks/admin-web-autobuild.log
 
 # 微信开发者工具
 project.private.config.json
