@@ -20,16 +20,12 @@ page {
 }
 
 .glass-card {
-  background: rgba(18, 18, 20, 0.86);
-  border: 1rpx solid var(--color-border-glass);
+  background: var(--bg-glass);
   border-radius: var(--radius-card);
-  backdrop-filter: blur(24rpx) saturate(160%);
-  box-shadow: 0 14rpx 44rpx rgba(0, 0, 0, 0.42);
+  backdrop-filter: var(--blur-card);
 }
 .theme-light .glass-card {
   background: rgba(255, 255, 255, 0.93);
-  border-color: var(--color-divider);
-  box-shadow: 0 12rpx 36rpx rgba(0, 0, 0, 0.12);
 }
 
 /* ---------- 通用按钮：一律 flex 居中，text 撑满并居中 ---------- */
@@ -70,11 +66,11 @@ page {
 /* ---------- 加载 / 错误卡 ---------- */
 .sn-state {
   position: absolute;
-  left: 24rpx;
-  right: 24rpx;
+  left: var(--space-md);
+  right: var(--space-md);
   top: 220rpx;
   z-index: 12;
-  padding: 28rpx;
+  padding: var(--space-lg);
   box-sizing: border-box;
 }
 .sn-state-title {
@@ -119,21 +115,40 @@ page {
   display: flex;
   margin-top: 20rpx;
   padding: 4rpx;
-  border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.07);
+  background: transparent;
 }
 .theme-light .sn-seg {
-  background: rgba(0, 0, 0, 0.05);
+  background: transparent;
 }
 .sn-seg-item {
+  position: relative;
+  overflow: visible;
   flex: 1;
   min-width: 0;
-  min-height: 60rpx;
-  border-radius: var(--radius-pill);
+  min-height: 64rpx;
   display: flex;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
+  padding-bottom: 10rpx;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  transition: color 0.25s ease;
+}
+.sn-seg-item::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 44rpx;
+  height: 6rpx;
+  border-radius: 999rpx;
+  background: var(--color-brand, #3B82F6);
+  transform: translateX(-50%) scaleX(0);
+  opacity: 0;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+  pointer-events: none;
 }
 .sn-seg-item text {
   display: block;
@@ -141,13 +156,18 @@ page {
   text-align: center;
   line-height: 1;
   font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
+  color: var(--color-text-secondary, #8E8E93);
+  transition: color 0.25s ease;
 }
 .sn-seg-item--on {
-  background: var(--color-brand);
+  background: transparent;
+}
+.sn-seg-item--on::after {
+  transform: translateX(-50%) scaleX(1);
+  opacity: 1;
 }
 .sn-seg-item--on text {
-  color: #ffffff;
+  color: var(--color-text-primary);
   font-weight: var(--font-weight-semibold);
 }
 
@@ -187,12 +207,12 @@ page {
   flex-shrink: 0;
 }
 .sn-chip-dot--notam { background: #FF3B30; }
-.sn-chip-dot--nav { background: #0A84FF; }
+.sn-chip-dot--nav { background: var(--color-brand); }
 .sn-chip-dot--adp { background: #ffcc00; }
 .sn-chip-dot--pad { background: #FF3B30; }
 .sn-chip--on {
   background: var(--color-brand-soft);
-  border-color: rgba(0, 122, 255, 0.5);
+  border-color: var(--color-brand-glow);
 }
 .sn-chip--on text {
   color: var(--color-text-primary);
@@ -239,7 +259,7 @@ page {
   flex-shrink: 0;
 }
 .sn-item-bar--notam { background: #FF3B30; }
-.sn-item-bar--nav { background: #0A84FF; }
+.sn-item-bar--nav { background: var(--color-brand); }
 .sn-item-bar--adp { background: #ffcc00; }
 .sn-item-body {
   flex: 1;
@@ -326,10 +346,10 @@ page {
   color: #248A3D;
 }
 .sn-tag--soon {
-  background: rgba(10, 132, 255, 0.18);
+  background: var(--color-brand-soft);
 }
 .sn-tag--soon text {
-  color: #0A84FF;
+  color: var(--color-brand);
 }
 .sn-tag--off text {
   color: var(--color-text-tertiary);

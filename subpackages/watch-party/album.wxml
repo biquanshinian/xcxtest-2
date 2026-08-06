@@ -1,0 +1,70 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top:{{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">我的奖品</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view class="page-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <view class="ab-loading" wx:if="{{loading}}">
+      <view class="loading-spinner-lg"></view>
+      <text class="ab-loading-text">正在加载奖品…</text>
+    </view>
+    <view class="ab-error" wx:elif="{{error}}">
+      <text class="ab-error-text">{{error}}</text>
+      <view class="ab-retry-btn" bindtap="onRetry"><text>重试</text></view>
+    </view>
+
+    <block wx:else>
+      <view class="ab-summary">
+        <view class="ab-summary-total">
+          <text class="ab-summary-num">{{total}}</text>
+          <text class="ab-summary-label">已抽中</text>
+        </view>
+      </view>
+
+      <view class="ab-empty" wx:if="{{!total}}">
+        <text class="ab-empty-text">还没有抽到现场奖品</text>
+        <view class="ab-empty-btn" bindtap="onGoGacha"><text>去抽奖</text></view>
+      </view>
+
+      <view class="ab-grid" wx:else>
+        <view
+          class="ab-cell"
+          wx:for="{{list}}"
+          wx:key="drawId"
+          bindtap="onViewCard"
+          data-index="{{index}}"
+        >
+          <image class="ab-cell-image" wx:if="{{item.image}}" src="{{item.image}}" mode="aspectFill" lazy-load />
+          <view class="ab-cell-image ab-cell-image--empty" wx:else><text>✦</text></view>
+          <text class="ab-cell-name">{{item.name}}</text>
+          <text class="ab-cell-serial" wx:if="{{item.valueText}}">{{item.valueText}}</text>
+          <text class="ab-cell-serial">{{item.sessionTitle || ''}} · {{item.dateText}}</text>
+        </view>
+      </view>
+    </block>
+
+    <view class="page-footer">
+      <text class="footer-text">Per Aspera Ad Astra · 循此苦旅以达星辰</text>
+    </view>
+  </scroll-view>
+
+  <view class="ab-overlay" wx:if="{{viewCard}}" bindtap="onCloseView">
+    <view class="ab-view-card" catchtap="">
+      <image class="ab-view-image" wx:if="{{viewCard.image}}" src="{{viewCard.image}}" mode="aspectFill" />
+      <text class="ab-view-name">{{viewCard.name}}</text>
+      <text class="ab-view-meta" wx:if="{{viewCard.valueText}}">{{viewCard.valueText}}</text>
+      <text class="ab-view-meta">{{viewCard.sessionTitle}}</text>
+      <text class="ab-view-meta">{{viewCard.dateText}}</text>
+      <button class="ab-view-share" open-type="share">炫耀一下</button>
+    </view>
+  </view>
+</view>

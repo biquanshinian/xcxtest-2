@@ -1,0 +1,29 @@
+---
+description: 观礼服务：商家选定发射任务后，所有展示共用同一套任务数据链路，禁止另开旁路
+globs: "{subpackages/watch-party/**,cloudfunctions/adminGateway/watchParty.js,admin-web/**/WatchParty*,admin-web/public/watch-screen.html,utils/api-launch-list.js,pages/mission-detail/utils/watch-party-entry.js,subpackages/shared/utils/watch-party.js}"
+alwaysApply: false
+---
+
+# 观礼任务数据：单链路，不另开路
+
+商家在场次里**选定发射任务**之后，凡是展示/跳转依赖该任务的信息，必须走**同一套数据流程**，禁止为某个页面或按钮另开平行数据源或平行解析逻辑。
+
+## 单一真相源
+
+1. **落库字段**（选任务时写入场次）：`missionId`、`missionName`、`rocketName`、`agencyId` / `agencyName` / `agencyAbbrev`、`rocketConfigId`、`padLocationId` / `padLocationName`、`launchTime` 等。
+2. **展示端**（详情页头卡、大屏、讲解跳转、倒计时、火箭配置图、集锦匹配等）只消费上述场次字段，或经**同一套补全流程**回填后再用。
+3. **补全**只允许一条路径：场次缺字段时，用与选任务同源的列表/详情字段语义回填（如主包 `api-launch-list` 的 `launchAgencyId` / `rocketConfigId` / `padLocationId`，或云端 `resolveScreenExplain`），补全结果写回同一套字段名，再给 UI 用。
+
+## 禁止
+
+- 为大屏、详情、讲解按钮、网页投屏各自再解析一套 LL2 / 另造字段名。
+- 无 `missionId` 时用启发式「猜发射商/发射场」冒充任务数据（可降级提示缺数据，不可另开路假充实）。
+- 同一含义多套 id（例如这边用 locationId、那边又从 pad 名模糊匹配地图）。
+
+## 选任务写入
+
+商家选任务（`merchant-edit` 等）必须一次写入完整讲解/展示所需元数据；后续页面不得假设「只有名字、没有 id 也能另路跳转」。
+
+## 改动检查
+
+改观礼相关展示前先问：这份数据是否已经从「选中的 mission」经同一字段流到这里？若不是，接到现有链路，不要新建旁路。

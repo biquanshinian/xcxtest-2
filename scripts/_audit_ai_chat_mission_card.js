@@ -166,8 +166,13 @@ function main() {
   assert(chatJs.includes('_updateKeyboardLayout') && chatJs.includes('keyboardheight'), '键盘高度同步上收')
 
   // ── 回答震动反馈 ──
-  assert(chatJs.includes('_tickStreamHaptic') && chatJs.includes("type: 'light'"), '流式吐字轻震')
-  assert(/_lastStreamHapticAt[\s\S]*?<\s*220/.test(chatJs), '流式轻震约 220ms 节流')
+  const streamHapticLive = chatJs.includes('_tickStreamHaptic') && /_tickStreamHaptic[\s\S]*?type:\s*'light'/.test(chatJs)
+  const streamHapticOff = /_tickStreamHaptic\(\)\s*\{\s*\}/.test(chatJs) || /流式吐字轻震：已停用/.test(chatJs)
+  assert(streamHapticLive || streamHapticOff, '流式吐字轻震（启用或已停用空实现）')
+  assert(
+    streamHapticOff || /_lastStreamHapticAt[\s\S]*?<\s*220/.test(chatJs),
+    '流式轻震约 220ms 节流（停用时可跳过）'
+  )
   assert(chatJs.includes('_pulseCardHaptic') && /_pulseCardHaptic[\s\S]*?type:\s*'medium'/.test(chatJs), '抽卡落地中度震')
   assert(
     /streamChat\([\s\S]*?_tickStreamHaptic\(\)/.test(chatJs) &&
@@ -190,9 +195,17 @@ function main() {
     '发送中不禁用输入框（disabled 会强制收起键盘，下一问要重新点）'
   )
   assert(wxml.includes('hold-keyboard'), 'hold-keyboard 保证点发送键不收键盘')
-  assert(/pageLifetimes:\s*\{[\s\S]*?hide\(\)\s*\{/.test(chatJs), '离页清零键盘去抖状态')
+  const composerBeh = read('subpackages/shared/utils/composer-input-behavior.js')
   assert(
-    /hide\(\)\s*\{[\s\S]*?_lastKbHeight = 0/.test(chatJs),
+    /composer-input-behavior/.test(chatJs) && /behaviors:\s*\[[^\]]*composerInput/.test(chatJs),
+    '键盘协议复用 composer-input-behavior'
+  )
+  assert(
+    /_composerResetOnHide/.test(composerBeh) && /pageLifetimes:[\s\S]*?hide\(\)/.test(composerBeh),
+    '离页清零键盘去抖状态'
+  )
+  assert(
+    /_lastKbHeight = -1/.test(composerBeh),
     '离页重置 _lastKbHeight（否则回页首次弹键盘被去抖吞掉）'
   )
   assert(

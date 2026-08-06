@@ -188,7 +188,9 @@ function buildImageMarkdown(urls, max = 8) {
 }
 
 /**
- * 纯文本素材按段落均匀插入 [[IMG:n]]，供 LLM 跟随落点
+ * 纯文本素材插入 [[IMG:n]]：
+ * - 单图：置顶作头图
+ * - 多图：按段落均匀穿插，供 LLM 跟随落点
  */
 function ensureImageSlotsInBody(text, urls, max = 8) {
   const list = []
@@ -201,8 +203,21 @@ function ensureImageSlotsInBody(text, urls, max = 8) {
   let body = String(text || '').trim()
   if (!list.length) return body
   if (/\[\[IMG:\s*\d+\s*\]\]/i.test(body)) {
-    // 已有原稿占位：严格保留，不再把缺号图追加到文末（避免错位）
+    // 已有原稿占位：严格保留；单图再统一抬到文首（头图策略）
+    if (list.length === 1) {
+      const only = (body.match(/\[\[IMG:\s*1\s*\]\]/i) || [])[0] || '[[IMG:1]]'
+      const rest = body
+        .replace(/\[\[IMG:\s*\d+\s*\]\]/gi, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim()
+      return rest ? `${only}\n\n${rest}` : only
+    }
     return body
+  }
+
+  // 单图 / 无正文仅待插一张：直接头图置顶
+  if (list.length === 1) {
+    return body ? `[[IMG:1]]\n\n${body}` : '[[IMG:1]]'
   }
 
   const paras = body.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean)
@@ -396,6 +411,42 @@ function placeImagesInMarkdown(bodyMd, urls, max = 8, opts = {}) {
   return paras.join('\n\n').replace(/\n{3,}/g, '\n\n').trim()
 }
 
+/**
+ * 头图策略：
+ * - 正文仅 1 张图 → 移到文首
+ * - 正文 0 张图但有封面 → 封面作头图置顶
+ * - 多图 → 不动（保持原稿/成稿穿插）
+ */
+function ensureHeroImagePlacement(bodyMd, opts = {}) {
+  const coverUrl = String((opts && opts.coverUrl) || '').trim()
+  let body = String(bodyMd || '').replace(/\n{3,}/g, '\n\n').trim()
+  const imgRe = /!\[([^\]]*)\]\((https?:\/\/[^)\s]+)(?:\s+"[^"]*")?\)/gi
+  const images = []
+  let m
+  while ((m = imgRe.exec(body))) {
+    images.push({ full: m[0], url: m[2], index: m.index, len: m[0].length })
+  }
+
+  if (images.length > 1) return body
+
+  if (images.length === 1) {
+    const img = images[0]
+    const leading = body.slice(0, img.index).trim()
+    if (!leading) return body
+    const without = (body.slice(0, img.index) + body.slice(img.index + img.len))
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+    const hero = img.full.replace(/^!\[([^\]]*)\]/, '![头图]')
+    return `${hero}\n\n${without}`.replace(/\n{3,}/g, '\n\n').trim()
+  }
+
+  if (/^https?:\/\//i.test(coverUrl)) {
+    // 避免重复：正文已含该封面链则只抬到文首（上面 0 图分支不会走到）
+    return `![头图](${coverUrl})\n\n${body}`.replace(/\n{3,}/g, '\n\n').trim()
+  }
+  return body
+}
+
 /** @deprecated 兼容旧调用 */
 function mergeImageMarkdown(bodyMd, urls, max = 8) {
   return placeImagesInMarkdown(bodyMd, urls, max, { redistribute: false })
@@ -412,5 +463,6 @@ module.exports = {
   ensureImageSlotsInBody,
   placeImagesInMarkdown,
   placeImagesAlignedToSource,
+  ensureHeroImagePlacement,
   tokenizeImageSlots
 }

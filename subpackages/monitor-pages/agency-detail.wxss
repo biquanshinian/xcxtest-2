@@ -1,5 +1,5 @@
 page {
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: var(--color-bg-page);
   height: 100vh;
 }
 
@@ -25,8 +25,8 @@ page {
 }
 
 .detail-container {
-  padding: 24rpx;
-  padding-bottom: 48rpx;
+  padding: var(--space-lg);
+  padding-bottom: var(--space-xl);
 }
 
 /* 加载和错误状态 */
@@ -45,8 +45,8 @@ page {
   width: 56rpx;
   height: 56rpx;
   border-radius: 50%;
-  border: 4rpx solid rgba(90, 200, 250, 0.2);
-  border-top-color: #5ac8fa;
+  border: 4rpx solid rgba(59, 130, 246, 0.2);
+  border-top-color: var(--color-brand);
   animation: spin 0.8s linear infinite;
 }
 
@@ -68,15 +68,15 @@ page {
 }
 
 .retry-btn {
-  margin-top: 16rpx;
-  padding: 0 48rpx;
+  margin-top: var(--space-xs);
+  padding: 0 var(--space-xl);
   height: 80rpx;
   line-height: 80rpx;
-  border-radius: 40rpx;
-  background: linear-gradient(135deg, #5ac8fa 0%, #007aff 100%);
+  border-radius: var(--radius-pill);
+  background: var(--color-brand);
   color: #ffffff;
-  font-size: 30rpx;
-  font-weight: 600;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
   border: none;
 }
 
@@ -86,11 +86,8 @@ page {
 
 /* 玻璃卡片 */
 .glass-card {
-  background: rgba(28, 28, 30, 0.72);
-  backdrop-filter: blur(40rpx) saturate(180%);
-  -webkit-backdrop-filter: blur(40rpx) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 32rpx;
+  background: var(--bg-glass);
+  border-radius: var(--radius-card);
   overflow: hidden;
 }
 
@@ -122,7 +119,7 @@ page {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.08), rgba(255, 255, 255, 0.02) 72%);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.08), rgba(255, 255, 255, 0.02) 72%);
 }
 
 .hero-placeholder-icon {
@@ -136,7 +133,7 @@ page {
   left: 0;
   right: 0;
   height: 160rpx;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
+  background: linear-gradient(transparent, rgba(11, 12, 14, 0.88));
 }
 
 /* ── 信息头：logo/名称/徽标下移出头图 ── */
@@ -162,7 +159,7 @@ page {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 12rpx 36rpx rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-card);
 }
 
 .agency-logo {
@@ -177,7 +174,7 @@ page {
   flex-direction: column;
 }
 
-/* 收藏星标：名称列右侧 */
+/* 收藏爱心：名称列右侧。未收藏灰色，收藏后红色 + 弹跳 */
 .fav-btn {
   flex-shrink: 0;
   width: 72rpx;
@@ -187,32 +184,42 @@ page {
   justify-content: center;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.06);
-  border: 1rpx solid rgba(255, 255, 255, 0.1);
-  transition: transform 0.12s ease;
+  transition: transform 0.12s ease, background 0.2s ease;
 }
 
 .fav-btn--pressed {
   transform: scale(0.9);
 }
 
-.fav-star {
-  font-size: 50rpx;
+.fav-heart {
+  font-size: 44rpx;
   line-height: 72rpx;
   height: 72rpx;
   width: 100%;
   text-align: center;
-  /* ★ 字形无下伸部，文本框预留的 descender 空间会让它在圆内视觉偏上，向下微调做光学居中 */
-  transform: translateY(3rpx);
-  color: rgba(255, 255, 255, 0.45);
+  /* ♥ 字形无下伸部，文本框预留的 descender 空间会让它在圆内视觉偏上，向下微调做光学居中 */
+  transform: translateY(2rpx);
+  color: rgba(255, 255, 255, 0.35);
+  transition: color 0.2s ease;
 }
 
 .fav-btn--on {
-  background: rgba(255, 170, 0, 0.12);
-  border-color: rgba(255, 170, 0, 0.3);
+  background: rgba(255, 69, 58, 0.12);
 }
 
-.fav-btn--on .fav-star {
-  color: #FFAA00;
+.fav-btn--on .fav-heart {
+  color: #FF453A;
+}
+
+/* 仅点击收藏时弹跳（favAnimate 由 JS 在切换时置位），进入已收藏页面不播动画 */
+.fav-btn--animate .fav-heart {
+  animation: fav-heart-pop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes fav-heart-pop {
+  0% { transform: translateY(2rpx) scale(0.6); }
+  60% { transform: translateY(2rpx) scale(1.18); }
+  100% { transform: translateY(2rpx) scale(1); }
 }
 
 /* 类型/重点机构徽标行 */
@@ -247,10 +254,10 @@ page {
 }
 
 .agency-type--multinational {
-  color: #5ac8fa;
-  background: rgba(90, 200, 250, 0.18);
-  border: 1px solid rgba(90, 200, 250, 0.35);
-  box-shadow: 0 0 20rpx rgba(90, 200, 250, 0.2);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.18);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  box-shadow: 0 0 20rpx rgba(59, 130, 246, 0.2);
 }
 
 .featured-badge {
@@ -307,8 +314,8 @@ page {
 .partial-banner {
   padding: 28rpx 28rpx 24rpx;
   margin-bottom: 24rpx;
-  border-color: rgba(90, 200, 250, 0.18);
-  background: linear-gradient(135deg, rgba(90, 200, 250, 0.12), rgba(0, 122, 255, 0.08));
+  border-color: rgba(59, 130, 246, 0.18);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(59, 130, 246, 0.08));
 }
 
 .partial-banner__title {
@@ -387,32 +394,27 @@ page {
   margin-left: 12rpx;
 }
 
-/* PRO 金色胶囊按钮（与监控中心 booster-view-all 同款，示意会员内容） */
+/* 查看全部：灰色纯文字入口（金色仅保留在「我的」页会员区） */
 .al-view-all {
   display: flex;
   align-items: center;
   gap: 4rpx;
   font-size: 24rpx;
-  font-weight: 600;
-  color: #5C3A00;
-  padding: 8rpx 20rpx 8rpx 26rpx;
-  border-radius: 999rpx;
-  background: linear-gradient(135deg, #FFE3A0 0%, #F7BE45 55%, #F0AE2C 100%);
-  border: 1px solid rgba(255, 210, 122, 0.65);
-  box-shadow: 0 4rpx 14rpx rgba(230, 165, 40, 0.28);
-  transition: transform 0.12s ease, opacity 0.12s ease;
+  font-weight: 500;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.55));
+  padding: 8rpx 4rpx;
+  transition: opacity 0.12s ease;
   margin-left: auto;
 }
 
 .al-view-all--pressed {
-  transform: scale(0.94);
-  opacity: 0.85;
+  opacity: 0.6;
 }
 
 .al-view-all-arrow {
   font-size: 30rpx;
   line-height: 1;
-  color: #5C3A00;
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.38));
 }
 
 .al-list {
@@ -427,7 +429,6 @@ page {
   gap: 20rpx;
   padding: 20rpx;
   background: rgba(255, 255, 255, 0.05);
-  border: 1rpx solid rgba(255, 255, 255, 0.08);
   border-radius: 20rpx;
   transition: transform 0.12s ease, opacity 0.12s ease;
 }
@@ -529,12 +530,9 @@ page {
 }
 
 .stat-card {
-  background: rgba(28, 28, 30, 0.72);
-  backdrop-filter: blur(40rpx) saturate(180%);
-  -webkit-backdrop-filter: blur(40rpx) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20rpx;
-  padding: 20rpx 8rpx;
+  background: var(--bg-glass);
+  border-radius: var(--radius-card);
+  padding: var(--space-sm) 8rpx;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -555,7 +553,7 @@ page {
 }
 
 .stat-card--primary::before {
-  background: linear-gradient(90deg, #5ac8fa, #007aff);
+  background: linear-gradient(90deg, var(--color-brand), var(--color-brand));
 }
 
 .stat-card--success::before {
@@ -739,12 +737,9 @@ page {
 
 /* 着陆统计（紧凑布局：单行 flex-wrap，最多 4 项并排） */
 .landing-stats {
-  background: rgba(28, 28, 30, 0.72);
-  backdrop-filter: blur(40rpx) saturate(180%);
-  -webkit-backdrop-filter: blur(40rpx) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 24rpx;
-  padding: 20rpx;
+  background: var(--bg-glass);
+  border-radius: var(--radius-card);
+  padding: var(--space-sm);
 }
 
 .landing-row {
@@ -868,15 +863,15 @@ page {
 }
 
 .vehicle-tag--rocket {
-  color: #5ac8fa;
-  background: rgba(90, 200, 250, 0.15);
-  border: 1px solid rgba(90, 200, 250, 0.3);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
 .vehicle-tag--spacecraft {
-  color: #bf5af2;
-  background: rgba(191, 90, 242, 0.15);
-  border: 1px solid rgba(191, 90, 242, 0.3);
+  color: var(--color-text-secondary);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
 }
 
 /* 社交媒体 */
@@ -910,7 +905,7 @@ page {
 .social-url {
   display: block;
   font-size: 24rpx;
-  color: #5ac8fa;
+  color: var(--color-brand);
   word-break: break-all;
   line-height: 1.6;
 }
@@ -965,7 +960,7 @@ page {
   justify-content: center;
   padding: 12rpx 28rpx;
   border-radius: 12rpx;
-  background: rgba(0, 122, 255, 0.35);
+  background: rgba(59, 130, 246, 0.35);
   font-size: 26rpx;
   color: #FFFFFF;
 }
@@ -1043,12 +1038,12 @@ page {
 
 .artemis-brief-hint {
   font-size: 24rpx;
-  color: #5AC8FA;
+  color: var(--color-brand);
 }
 
 .artemis-brief-arrow {
   font-size: 32rpx;
-  color: #5AC8FA;
+  color: var(--color-brand);
   opacity: 0.8;
 }
 
@@ -1180,7 +1175,7 @@ page {
 }
 
 .d2c-stat-value.accent {
-  color: #5AC8FA;
+  color: var(--color-brand);
 }
 
 .d2c-stat-label {
@@ -1202,7 +1197,7 @@ page {
 
 .d2c-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, #5AC8FA, #007AFF);
+  background: linear-gradient(90deg, var(--color-brand), var(--color-brand));
   border-radius: 8rpx;
   transition: width 0.6s ease;
 }
@@ -1228,7 +1223,7 @@ page {
 }
 
 .d2c-legend-dot.d2c-color {
-  background: #5AC8FA;
+  background: var(--color-brand);
 }
 
 .d2c-legend-dot.normal-color {
@@ -1335,17 +1330,15 @@ page {
 .theme-light .error-title {
   color: var(--color-text-primary);
 }
-/* retry-btn / al-view-all 为实色渐变按钮，白字保持不变 */
+/* retry-btn 为实色渐变按钮，白字保持不变；al-view-all 为灰色纯文字，跟随 token 变量换肤 */
 .theme-light .glass-card {
   background: rgba(255, 255, 255, 0.62);
-  border: 1px solid var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 .theme-light .hero-section {
   background: rgba(0, 0, 0, 0.04);
 }
 .theme-light .hero-placeholder {
-  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.14), rgba(0, 0, 0, 0.03) 72%);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.14), rgba(0, 0, 0, 0.03) 72%);
 }
 /* hero-gradient 压在发射商照片上，保持深色收边 */
 .theme-light .agency-logo-chip {
@@ -1353,17 +1346,15 @@ page {
 }
 .theme-light .fav-btn {
   background: rgba(0, 0, 0, 0.05);
-  border: 1rpx solid var(--color-divider);
 }
-.theme-light .fav-star {
-  color: rgba(0, 0, 0, 0.3);
+.theme-light .fav-heart {
+  color: rgba(0, 0, 0, 0.22);
 }
 .theme-light .fav-btn--on {
-  background: rgba(255, 170, 0, 0.14);
-  border-color: rgba(255, 170, 0, 0.4);
+  background: rgba(255, 69, 58, 0.1);
 }
-.theme-light .fav-btn--on .fav-star {
-  color: #C77700;
+.theme-light .fav-btn--on .fav-heart {
+  color: #FF3B30;
 }
 .theme-light .agency-type--government {
   color: #C77700;
@@ -1378,9 +1369,9 @@ page {
   box-shadow: none;
 }
 .theme-light .agency-type--multinational {
-  color: #0071A4;
-  background: rgba(90, 200, 250, 0.14);
-  border: 1px solid rgba(90, 200, 250, 0.35);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.14);
+  border: 1px solid rgba(59, 130, 246, 0.35);
   box-shadow: none;
 }
 .theme-light .featured-badge {
@@ -1401,8 +1392,8 @@ page {
   color: rgba(0, 0, 0, 0.25);
 }
 .theme-light .partial-banner {
-  border-color: rgba(0, 122, 255, 0.18);
-  background: linear-gradient(135deg, rgba(90, 200, 250, 0.14), rgba(0, 122, 255, 0.08));
+  border-color: rgba(59, 130, 246, 0.18);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.14), rgba(59, 130, 246, 0.08));
 }
 .theme-light .partial-banner__title {
   color: var(--color-brand);
@@ -1419,7 +1410,6 @@ page {
 }
 .theme-light .al-card {
   background: var(--color-bg-card);
-  border: 1rpx solid var(--color-divider);
 }
 .theme-light .al-thumb {
   background: rgba(0, 0, 0, 0.05);
@@ -1443,8 +1433,6 @@ page {
 }
 .theme-light .stat-card {
   background: var(--color-bg-card);
-  border: 1px solid var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 .theme-light .stat-value {
   color: var(--color-text-primary);
@@ -1497,7 +1485,6 @@ page {
 }
 .theme-light .landing-stats {
   background: rgba(255, 255, 255, 0.85);
-  border: 1px solid var(--color-divider);
 }
 .theme-light .landing-item {
   background: rgba(0, 0, 0, 0.03);
@@ -1528,14 +1515,14 @@ page {
   color: var(--color-text-primary);
 }
 .theme-light .vehicle-tag--rocket {
-  color: #0071A4;
-  background: rgba(90, 200, 250, 0.14);
-  border: 1px solid rgba(90, 200, 250, 0.35);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.14);
+  border: 1px solid rgba(59, 130, 246, 0.35);
 }
 .theme-light .vehicle-tag--spacecraft {
-  color: #8944AB;
-  background: rgba(191, 90, 242, 0.12);
-  border: 1px solid rgba(191, 90, 242, 0.3);
+  color: var(--color-text-secondary);
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.1);
 }
 .theme-light .social-item {
   background: rgba(0, 0, 0, 0.03);
@@ -1548,7 +1535,7 @@ page {
   color: var(--color-text-primary);
 }
 .theme-light .social-url {
-  color: #0071A4;
+  color: var(--color-brand);
 }
 .theme-light .artemis-title-sub {
   color: var(--color-text-tertiary);
@@ -1575,10 +1562,10 @@ page {
   border-top: 1px solid var(--color-divider);
 }
 .theme-light .artemis-brief-hint {
-  color: #0071A4;
+  color: var(--color-brand);
 }
 .theme-light .artemis-brief-arrow {
-  color: #0071A4;
+  color: var(--color-brand);
 }
 .theme-light .artemis-ended-badge {
   color: #248A3D;
@@ -1612,7 +1599,7 @@ page {
   color: var(--color-text-primary);
 }
 .theme-light .d2c-stat-value.accent {
-  color: #0071A4;
+  color: var(--color-brand);
 }
 .theme-light .d2c-stat-label {
   color: var(--color-text-tertiary);
@@ -1679,7 +1666,7 @@ page {
   background: rgba(255, 255, 255, 0.08);
 }
 .atw-avatar--placeholder {
-  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.15), rgba(255, 255, 255, 0.04) 72%);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.15), rgba(255, 255, 255, 0.04) 72%);
 }
 .atw-head-info {
   flex: 1;
@@ -1752,7 +1739,7 @@ page {
   background: rgba(0, 0, 0, 0.05);
 }
 .theme-light .atw-avatar--placeholder {
-  background: radial-gradient(circle at center, rgba(0, 122, 255, 0.10), rgba(0, 0, 0, 0.04) 72%);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.10), rgba(0, 0, 0, 0.04) 72%);
 }
 .theme-light .atw-media-thumb {
   background: rgba(0, 0, 0, 0.05);

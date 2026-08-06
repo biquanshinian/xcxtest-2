@@ -1,5 +1,5 @@
 page {
-  background: #000;
+  background: #0B0C0E;
   height: 100vh;
   overflow: hidden;
 }
@@ -8,7 +8,7 @@ page {
   position: relative;
   width: 100%;
   height: 100vh;
-  background: #000;
+  background: #0B0C0E;
 }
 
 .map-shell {
@@ -23,19 +23,16 @@ page {
 }
 
 .glass-card {
-  background: rgba(18, 18, 20, 0.76);
-  backdrop-filter: blur(20rpx);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 14rpx 44rpx rgba(0, 0, 0, 0.35);
+  background: var(--bg-glass);
 }
 
 .state-card,
 .floating-card {
   position: absolute;
-  left: 24rpx;
-  right: 24rpx;
-  border-radius: 28rpx;
-  padding: 28rpx;
+  left: var(--space-md);
+  right: var(--space-md);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
   z-index: 10;
 }
 
@@ -173,8 +170,8 @@ page {
 }
 
 .pass-option-chip--active {
-  background: rgba(10, 132, 255, 0.14);
-  border: 1px solid rgba(10, 132, 255, 0.55);
+  background: rgba(59, 130, 246, 0.14);
+  border: 1px solid rgba(59, 130, 246, 0.55);
 }
 
 .pass-option-time,
@@ -275,7 +272,7 @@ page {
   min-height: 64rpx;
   padding: 0 20rpx;
   border-radius: 999rpx;
-  background: linear-gradient(135deg, #0A84FF, #64D2FF);
+  background: linear-gradient(135deg, var(--color-brand), #64D2FF);
   color: #fff;
   font-size: 24rpx;
   display: flex;
@@ -288,8 +285,8 @@ page {
   margin-top: 18rpx;
   padding: 18rpx 20rpx;
   border-radius: 24rpx;
-  background: rgba(10, 132, 255, 0.08);
-  border: 1px solid rgba(10, 132, 255, 0.2);
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.2);
 }
 
 .candidate-highlight-main {
@@ -306,7 +303,7 @@ page {
 }
 
 .candidate-highlight-score {
-  color: #9FD0FF;
+  color: var(--color-brand);
   font-size: 22rpx;
 }
 
@@ -337,14 +334,12 @@ page {
   padding: 22rpx;
   border-radius: 24rpx;
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.05);
   box-sizing: border-box;
   overflow: hidden;
 }
 
 .candidate-card--active {
-  border-color: rgba(10, 132, 255, 0.7);
-  background: rgba(10, 132, 255, 0.12);
+  background: rgba(59, 130, 246, 0.12);
 }
 
 .candidate-card-top {
@@ -399,8 +394,6 @@ page {
 /* ========== 明亮主题（theme-light）覆盖 ========== */
 .theme-light .glass-card {
   background: rgba(255, 255, 255, 0.85);
-  border-color: var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 
 .theme-light .state-title {
@@ -440,7 +433,7 @@ page {
 }
 
 .theme-light .pass-option-chip--active {
-  background: rgba(10, 132, 255, 0.12);
+  background: rgba(59, 130, 246, 0.12);
 }
 
 .theme-light .pass-option-time {
@@ -472,8 +465,8 @@ page {
 }
 
 .theme-light .candidate-highlight {
-  background: rgba(10, 132, 255, 0.08);
-  border-color: rgba(10, 132, 255, 0.2);
+  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.2);
 }
 
 .theme-light .candidate-highlight-title {
@@ -481,7 +474,7 @@ page {
 }
 
 .theme-light .candidate-highlight-score {
-  color: #0A84FF;
+  color: var(--color-brand);
 }
 
 .theme-light .candidate-highlight-text {
@@ -490,12 +483,10 @@ page {
 
 .theme-light .candidate-card {
   background: rgba(0, 0, 0, 0.04);
-  border-color: var(--color-divider);
 }
 
 .theme-light .candidate-card--active {
-  border-color: rgba(10, 132, 255, 0.7);
-  background: rgba(10, 132, 255, 0.1);
+  background: rgba(59, 130, 246, 0.1);
 }
 
 .theme-light .candidate-title {
@@ -515,5 +506,5 @@ page {
 }
 
 .theme-light .candidate-scene {
-  color: #0A84FF;
+  color: var(--color-brand);
 }

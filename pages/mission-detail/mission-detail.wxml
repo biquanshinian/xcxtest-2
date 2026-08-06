@@ -71,8 +71,10 @@
       <view wx:elif="{{mission}}" class="detail-card">
         <!-- 头部卡片：头图 + 状态徽章行 + 标题 + 讨论入口 -->
         <view class="detail-section detail-hero-section">
-          <view class="hero-image-wrap">
-            <image class="hero-image" src="{{mission.rocketImage}}" mode="widthFix" binderror="onHeroImageError"></image>
+          <view class="hero-float hero-float--flush">
+            <view class="hero-image-wrap hero-float-card">
+              <image class="hero-image" src="{{mission.rocketImage}}" mode="widthFix" binderror="onHeroImageError"></image>
+            </view>
           </view>
 
           <view class="meta-top">
@@ -287,6 +289,19 @@
             </view>
               <text class="icon-arrow icon-arrow--subscribe" wx:if="{{!missionSubscribed}}">›</text>
               <text class="subscribe-check subscribe-check--active" wx:else>✓</text>
+          </view>
+        </view>
+
+        <!-- 现场观礼入口：本任务有可对外商家场次时显示，点击进商家列表 -->
+        <view class="detail-section detail-watch-party-section" wx:if="{{detailType === 'upcoming' && watchPartyEntry}}">
+          <view class="watch-party-row" bindtap="onWatchPartyTap">
+            <text class="watch-party-row-badge">观礼</text>
+            <view class="watch-party-row-info">
+              <text class="watch-party-row-title">{{watchPartyEntry.title}}</text>
+              <text class="watch-party-row-desc" wx:if="{{watchPartyEntry.count > 1}}">{{watchPartyEntry.count}}家观礼商家可选，免费预约登记</text>
+              <text class="watch-party-row-desc" wx:else>近距离观看，免费预约登记，点选商家进入</text>
+            </view>
+            <text class="icon-arrow icon-arrow--subscribe">›</text>
           </view>
         </view>
 

@@ -10,11 +10,10 @@
    须靠特异性（而非书写顺序）压过各 section 原有的单类 padding/margin 规则
    （如 .starlink-section { padding: 0 30rpx; margin-bottom: 40rpx }）。 */
 .monitor-block.monitor-block {
-  margin: 0 0 28rpx;
-  padding: 26rpx 22rpx 30rpx;
-  border-radius: 32rpx;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  margin: 0 0 var(--space-lg);
+  padding: var(--space-lg) var(--space-md) var(--space-xl);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-card);
   box-sizing: border-box;
   overflow: hidden;
 }
@@ -22,6 +21,5 @@
    两条同为 0-2-0，书写在深色规则之后，命中时按顺序覆盖 */
 .theme-light .monitor-block,
 .theme-light.monitor-block {
-  background: #FFFFFF;
-  border-color: var(--color-divider);
+  background: var(--color-bg-card);
 }

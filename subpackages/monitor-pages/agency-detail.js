@@ -589,7 +589,8 @@ Page({
       logoUrl: item.logoUrl || '',
       typeName: item.typeName || ''
     })
-    this.setData({ isFavorited: favorited })
+    // favAnimate：仅收藏动作触发弹跳动画；取消收藏或初始渲染不播
+    this.setData({ isFavorited: favorited, favAnimate: favorited })
     wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
   },
 

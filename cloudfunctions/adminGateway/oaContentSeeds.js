@@ -22,6 +22,70 @@ const LEGACY_BRAND_PERSONAS = [
   '火星空间探索 · 叙事科普向。用场景感和口语把航天讲清楚：先画面/故事再事实，允许适度比喻，语气更松弛。句式、段落结构与标题口吻必须明显区别于「硬核日报」风格，避免同质化与雷同表述。'
 ]
 
+/** 旧版文末硬广 / 文首提示（命中则升级为「仅配图跳转、文末不引流」） */
+const LEGACY_BRAND_FOOTERS = [
+  '—— 火星探索日志\n小程序里能看发射倒计时和星舰进度。',
+  '—— 火星空间探索\n想追火箭和深空任务，打开小程序就行。',
+  // 兼容 CRLF / 无换行粘贴
+  '—— 火星探索日志\r\n小程序里能看发射倒计时和星舰进度。',
+  '—— 火星空间探索\r\n想追火箭和深空任务，打开小程序就行。',
+  '—— 火星探索日志 小程序里能看发射倒计时和星舰进度。',
+  '—— 火星空间探索 想追火箭和深空任务，打开小程序就行。'
+]
+const LEGACY_MINIPROGRAM_CTAS = [
+  '打开小程序 · 查看发射与星舰',
+  '打开小程序 · 探索火星空间'
+]
+const LEGACY_LEAD_DISCLAIMER_TEXTS = [
+  '发射时间为预测，不代表官方！请以发布的航警海警为准！本文仅供参考，小程序【火星探索日志】可以查看火箭发射信息及相关新闻，大家认真观看，给小编点赞支持'
+]
+
+/** 规范化比较用：统一换行与空白 */
+function normalizeFooterKey(s) {
+  return String(s || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .trim()
+}
+
+/** 是否引流向文末（含旧硬广或「打开小程序」类口号） */
+function isPromoBrandFooter(text) {
+  const raw = String(text || '')
+  const key = normalizeFooterKey(raw)
+  if (!key) return false
+  if (LEGACY_BRAND_FOOTERS.some((f) => normalizeFooterKey(f) === key)) return true
+  // 署名 + 小程序导流
+  if (/小程序/.test(key) && /——\s*火星/.test(key)) return true
+  if (/打开小程序|想追火箭和深空|小程序里能看发射/.test(key)) return true
+  return false
+}
+
+/**
+ * 剥掉成稿末尾硬广结语（含 --- 分隔）。
+ * 例：\n---\n—— 火星空间探索\n想追火箭和深空任务，打开小程序就行。
+ */
+function stripPromoBrandFooterMarkdown(md) {
+  let s = String(md || '')
+  // 反复剥，避免多层 --- footer
+  for (let i = 0; i < 3; i++) {
+    const next = s
+      .replace(
+        /\n*(?:---|\*\*\*|___)\s*\n+(?:——\s*)?火星(?:探索日志|空间探索)[^\n]*(?:\n+[^\n]*){0,3}\s*$/u,
+        ''
+      )
+      .replace(/\n*(?:——\s*)?火星(?:探索日志|空间探索)\s*\n+[^#\n]*(?:小程序|打开小程序)[^\n]*\s*$/u, '')
+      .replace(/\n+想追火箭和深空任务[^\n]*\s*$/u, '')
+      .replace(/\n+小程序里能看发射[^\n]*\s*$/u, '')
+    if (next === s) break
+    s = next
+  }
+  return s.replace(/\n{3,}$/g, '\n\n').replace(/\s+$/u, '')
+}
+
+/** 现行文首提示：信息向免责，不挂文字小程序链（避营销推广/导流限流） */
+const DEFAULT_LEAD_DISCLAIMER_TEXT =
+  '本文详情信息仅供参考，有关火箭发射预报小程序【火星探索日志】可以查看火箭发射信息及相关资讯，感谢阅读，记得点赞支持'
+
 const DEFAULT_BRANDS = [
   {
     key: 'mars_log',
@@ -29,10 +93,10 @@ const DEFAULT_BRANDS = [
     author: '火星探索日志',
     persona:
       '你给懂行的航天爱好者写短讯，像值班编辑在群里同步进度：先说清楚发生了什么、什么时候、在哪、用什么火箭。语气干脆、有点干，偶尔一句吐槽就够。不端着、不鸡汤、不写「赋能/拉开帷幕/令人振奋」。',
-    footer: '—— 火星探索日志\n小程序里能看发射倒计时和星舰进度。',
+    footer: '',
     defaultStrategyKey: 'launch_brief',
     credentialSlot: '1',
-    miniprogramCta: '打开小程序 · 查看发射与星舰',
+    miniprogramCta: '',
     defaultCoverUrl: '',
     enabled: true
   },
@@ -42,10 +106,10 @@ const DEFAULT_BRANDS = [
     author: '火星空间探索',
     persona:
       '你像跟朋友晚饭后聊航天：先丢一个具体画面或小细节，再把任务讲明白。口语、长短句混着写，比喻只用一眼能懂的，别抒情升华。跟「硬核日报」错开：更松、更慢，但仍有事实，不水。',
-    footer: '—— 火星空间探索\n想追火箭和深空任务，打开小程序就行。',
+    footer: '',
     defaultStrategyKey: 'space_story',
     credentialSlot: '2',
-    miniprogramCta: '打开小程序 · 探索火星空间',
+    miniprogramCta: '',
     defaultCoverUrl: '',
     enabled: true
   }
@@ -58,7 +122,7 @@ const ANTI_AI_VOICE = [
   '禁止假大空升华、排比对仗三段论、鸡汤收尾、标题党夸张。',
   '少用破折号金句；少写「这意味着」「不难发现」；不要「大家好」「感谢阅读」「本文导读」。',
   '段落长短错落，可以一两句一段；小标题用具体信息（任务名/地点/节点），不要「背景/正文/结语」「开篇/看点」。',
-  '文末如需提小程序，用一句自然带过，不要硬广口号。'
+  '禁止文末广告、小程序口号、关注引导、优惠促销；正文事实写完即止，不要硬广收尾。'
 ].join('')
 
 /** 事实硬约束：素材是唯一事实来源，杜绝模型脑补 */
@@ -79,14 +143,17 @@ const DEFAULT_CONFIG = {
   footer: DEFAULT_BRANDS[0].footer,
   miniprogramPath: 'pages/index/index',
   miniprogramCta: DEFAULT_BRANDS[0].miniprogramCta,
-  /** link=文字链；image=图片跳转（推荐）；card=官方卡片（易 45166） */
-  miniprogramCtaMode: 'image',
-  /** 推送时正文所有配图点击跳转小程序 */
+  /**
+   * 文末引流样式（易触营销推广/导流限流，默认关闭）：
+   * none=不附加文末；image=文末图跳；link=文字链；card=官方卡片（易 45166）
+   * 小程序跳转默认只走「配图全跳」
+   */
+  miniprogramCtaMode: 'none',
+  /** 推送时正文所有配图点击跳转小程序（唯一推荐跳转方式） */
   linkAllImagesToMiniprogram: true,
-  /** 文首提示语：发射/新闻/洗稿稿件统一注入；文案里第一个【…】自动挂小程序跳转（蓝色字） */
+  /** 文首提示语：发射/新闻/洗稿稿件统一注入；纯文展示，不挂文字小程序链 */
   leadDisclaimerEnabled: true,
-  leadDisclaimerText:
-    '发射时间为预测，不代表官方！请以发布的航警海警为准！本文仅供参考，小程序【火星探索日志】可以查看火箭发射信息及相关新闻，大家认真观看，给小编点赞支持',
+  leadDisclaimerText: DEFAULT_LEAD_DISCLAIMER_TEXT,
   /** 推送微信草稿时是否开启留言：1 开，0 关 */
   openComment: true,
   /** 仅粉丝可留言 */
@@ -119,7 +186,7 @@ const DEFAULT_CONFIG = {
       enabled: true,
       autoWash: false,
       brandKey: 'mars_log',
-      strategyKey: 'deep_recap',
+      strategyKey: 'auto',
       maxPerRun: 3
     },
     {
@@ -132,7 +199,7 @@ const DEFAULT_CONFIG = {
       enabled: true,
       autoWash: true,
       brandKey: 'mars_log',
-      strategyKey: 'deep_recap',
+      strategyKey: 'auto',
       maxPerRun: 2
     },
     {
@@ -145,7 +212,7 @@ const DEFAULT_CONFIG = {
       enabled: true,
       autoWash: true,
       brandKey: 'mars_space',
-      strategyKey: 'space_story',
+      strategyKey: 'auto',
       maxPerRun: 2
     }
   ],
@@ -208,7 +275,7 @@ const SEED_STRATEGIES = [
     promptKey: 'create_from_data',
     themeId: 'brief',
     structureHint:
-      '300–600 字。第一句直接甩任务+窗口（或「窗口待定」）。接着火箭、发射场、载荷各写清楚。看点最多 3 条，用短句或破折号，别写成励志清单。结尾可提一句小程序看倒计时。',
+      '300–600 字。第一句直接甩任务+窗口（或「窗口待定」）。接着火箭、发射场、载荷各写清楚。看点最多 3 条，用短句或破折号，别写成励志清单。事实写完即止，不要文末广告或小程序口号。',
     titleHint: '像新闻标题：任务名/火箭/日期里挑最硬的信息，10–22 字，别用感叹号堆情绪',
     enabled: true,
     priority: 100
@@ -259,13 +326,93 @@ const SEED_STRATEGIES = [
   }
 ]
 
+/**
+ * 按正文/标题/来源自动匹配洗稿策略。
+ * 返回策略 key；无强信号时按发稿号兜底（火星空间→space_story，其余→deep_recap）。
+ */
+function matchStrategyFromContent(opts = {}) {
+  const title = String(opts.title || '')
+  const body = String(opts.body || opts.content || '')
+  const brandKey = String(opts.brandKey || '')
+  const sourceType = String(opts.sourceType || '')
+  const text = `${title}\n${body}`.slice(0, 6000)
+  const compactLen = text.replace(/\s+/g, '').length
+
+  // 结构化来源优先
+  if (sourceType === 'starship_event') {
+    return brandKey === 'mars_space' ? 'space_story' : 'starship_diary'
+  }
+  if (sourceType === 'launch') {
+    return brandKey === 'mars_space' ? 'space_story' : 'launch_brief'
+  }
+
+  const scores = {
+    starship_diary: 0,
+    launch_brief: 0,
+    deep_recap: 0,
+    news_digest: 0,
+    space_story: 0
+  }
+
+  if (/星舰|starship|starbase|静火|热分离|梅萨|boca\s*chica|ship\s*#?\d+|booster\s*#?\d+|超重助推/i.test(text)) {
+    scores.starship_diary += 6
+  }
+  if (/即将发射|发射窗口|发射前瞻|预定发射|计划.*发射|倒计时|NET\b|T-0|liftoff|launch\s*window|窗口待定/i.test(text)) {
+    scores.launch_brief += 5
+  }
+  if (/Falcon\s*9|Falcon\s*Heavy|长征[一二三四五六七八九十\d]|朱雀|谷神星|Electron|Rocket\s*Lab|发射场|酒泉|文昌|西昌|太原|肯尼迪|卡纳维拉尔|LC-\d|Vandenberg/i.test(text)) {
+    scores.launch_brief += 2
+  }
+  if (/复盘|回看|回顾|事后|调查报告|失败原因|爆炸|解体|异常|拆解|这一次/i.test(text)) {
+    scores.deep_recap += 5
+  }
+  if (compactLen >= 1200) scores.deep_recap += 1
+  if (compactLen > 0 && compactLen < 700) scores.news_digest += 3
+  if (/速览|简讯|要闻|一句话|几点看|快讯|合集/i.test(text)) scores.news_digest += 4
+  if ((text.match(/(?:^|\n)\s*(?:[-*•]|\d+[、.．)]\s)/g) || []).length >= 3) {
+    scores.news_digest += 2
+  }
+  if (/宇航员|航天员|空间站|天宫|ISS|换座|载人|联盟号|Crew\s*Dragon|科普|探测器|火星车|探月|深空|月球|金星|木星/i.test(text)) {
+    scores.space_story += 5
+  }
+  if (/为什么|怎么|什么样|故事|现场/i.test(title)) scores.space_story += 1
+
+  if (brandKey === 'mars_space') {
+    scores.space_story += 1.5
+  } else if (brandKey === 'mars_log') {
+    scores.deep_recap += 0.5
+    scores.launch_brief += 0.5
+  }
+
+  let bestKey = ''
+  let bestScore = 0
+  for (const [k, v] of Object.entries(scores)) {
+    if (v > bestScore) {
+      bestScore = v
+      bestKey = k
+    }
+  }
+  if (!bestKey || bestScore <= 0) {
+    return brandKey === 'mars_space' ? 'space_story' : 'deep_recap'
+  }
+  return bestKey
+}
+
 module.exports = {
   COLS,
   LEGACY_BRAND_PERSONAS,
+  LEGACY_BRAND_FOOTERS,
+  LEGACY_MINIPROGRAM_CTAS,
+  LEGACY_LEAD_DISCLAIMER_TEXTS,
+  DEFAULT_LEAD_DISCLAIMER_TEXT,
   DEFAULT_BRANDS,
   ANTI_AI_VOICE,
   GROUNDING_RULES,
   DEFAULT_CONFIG,
   SEED_PROMPTS,
-  SEED_STRATEGIES
+  SEED_STRATEGIES,
+  normalizeFooterKey,
+  isPromoBrandFooter,
+  stripPromoBrandFooterMarkdown,
+  matchStrategyFromContent
 }

@@ -552,6 +552,49 @@ Page({
         try { this._refreshMissionRocketImageFromMediaMap() } catch (e) {}
       })
       .catch(() => {})
+
+    // 现场观礼入口：非首屏必需，延后加载
+    if (detailType === 'upcoming') {
+      setTimeout(() => {
+        try { this._loadWatchPartyEntry(id) } catch (e) {}
+      }, 800)
+    }
+  },
+
+  /** 现场观礼入口：本任务下有 ≥1 家可对外商家场次时显示，点击进商家列表（过审开关 failClosed） */
+  _loadWatchPartyEntry(missionId) {
+    require('./utils/watch-party-entry.js').fetchWatchPartyEntryForMission(missionId).then((entry) => {
+      if (!entry || !entry.count) {
+        if (this.data.watchPartyEntry) this.setData({ watchPartyEntry: null })
+        return
+      }
+      this.setData({ watchPartyEntry: entry })
+    }).catch(() => {
+      if (this.data.watchPartyEntry) this.setData({ watchPartyEntry: null })
+    })
+  },
+
+  onWatchPartyTap() {
+    const entry = this.data.watchPartyEntry
+    const missionId = (entry && entry.missionId) || (this.data.mission && this.data.mission.id) || ''
+    if (!missionId) return
+    try {
+      require('../../utils/watch-party-feature.js').isWatchPartyEnabled(true).then((on) => {
+        if (!on) {
+          this.setData({ watchPartyEntry: null })
+          wx.showToast({ title: '观礼服务暂未开放', icon: 'none' })
+          return
+        }
+        wx.navigateTo({
+          url: '/subpackages/watch-party/merchant-list?missionId=' +
+            encodeURIComponent(missionId) + '&channel=detail'
+        })
+      }).catch(() => {
+        this.setData({ watchPartyEntry: null })
+      })
+    } catch (e) {
+      this.setData({ watchPartyEntry: null })
+    }
   },
 
   onUnload() {
@@ -1165,10 +1208,15 @@ Page({
       isCompleted: effectiveDetailType === 'completed'
     }))
 
-    if (listMission && listMission.rocketImage && !isDefaultRocketSrc(listMission.rocketImage)) {
-      if (isDefaultRocketSrc(normalizedMission.rocketImage)) {
-        normalizedMission.rocketImage = listMission.rocketImage
-      }
+    // 仅当详情重算仍是 default 时，用列表非 default 盖章兜底；
+    // 两边都是非 default 时以 resolveMissionRocketImage 为准（与首页卡片同源），禁止列表旧图锁死头图
+    if (
+      listMission &&
+      listMission.rocketImage &&
+      !isDefaultRocketSrc(listMission.rocketImage) &&
+      isDefaultRocketSrc(normalizedMission.rocketImage)
+    ) {
+      normalizedMission.rocketImage = listMission.rocketImage
     }
 
     normalizedMission.mapLinkMeta = await this.getMissionMapLinkMeta(normalizedMission)
@@ -2556,6 +2604,7 @@ Page({
     if (vt === this.data.activeVoteType) return
     if (vt === 'ontime' && !this.data.voteOntimeEnabled) return
     if (vt === 'outcome' && !this.data.voteOutcomeEnabled) return
+    try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
     const launchId = this.data.mission && this.data.mission.id
     if (!launchId) return
     const bundle = (this._voteBundle && this._voteBundle[String(launchId)]) || {}
@@ -3080,7 +3129,16 @@ Page({
   /** media_assets 就绪后强制对齐详情头图（与首页列表/倒计时同源） */
   _refreshMissionRocketImageFromMediaMap() {
     const mission = this.data.mission
-    if (!mission || !mission.rocketName) return
+    if (!mission) return
+    const cfg = mission.rocketConfiguration
+    const hasName = !!(mission.rocketName && String(mission.rocketName).trim())
+    const hasCfg = !!(
+      cfg &&
+      typeof cfg === 'object' &&
+      ((typeof cfg.name === 'string' && cfg.name.trim()) ||
+        (typeof cfg.full_name === 'string' && cfg.full_name.trim()))
+    )
+    if (!hasName && !hasCfg) return
     const nextImage = resolveMissionRocketImage(
       mission.rocketImage || '',
       mission.rocketName,

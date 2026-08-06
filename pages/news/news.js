@@ -505,6 +505,8 @@ Page({
       wx.showToast({ title: '航天摄影暂未开放', icon: 'none' })
       return
     }
+    // 顶部分段导航切换：与 TabBar 同强度轻震
+    try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
 
     // 作废进行中的列表请求，避免文章/事件结果晚到串进摄影 Tab
     this._newsLoadToken = (this._newsLoadToken || 0) + 1

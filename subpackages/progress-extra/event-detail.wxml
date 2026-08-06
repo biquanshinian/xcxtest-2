@@ -210,44 +210,47 @@
       <!-- LL2 即将进行的在轨事件（专用样式） -->
       <block wx:elif="{{pageMode === 'll2_event' && !errorMessage && item}}">
         <view class="ll2-event-page">
-          <!-- Hero 头图 + 类型胶囊 + 倒计时 -->
-          <view class="ll2-event-hero glass-card">
-            <view class="ll2-event-hero-bg-wrap" wx:if="{{item.heroImageUrl}}" bindtap="onLl2HeroPreview">
-              <view class="ll2-event-hero-img-stage">
-                <image class="ll2-event-hero-img-crop" src="{{item.heroImageUrl}}" mode="aspectFill" lazy-load binderror="onLl2HeroImageError" />
+          <!-- Hero 头图 + 类型胶囊 + 倒计时：多层毛玻璃悬浮卡骨架（hero-float）；
+               hero 卡自身保留 overflow:hidden 裁切绝对定位的背景图/遮罩圆角，叠层挂在外层 hero-float 上不受裁剪 -->
+          <view class="hero-float hero-float--flush">
+            <view class="ll2-event-hero glass-card hero-float-card">
+              <view class="ll2-event-hero-bg-wrap" wx:if="{{item.heroImageUrl}}" bindtap="onLl2HeroPreview">
+                <view class="ll2-event-hero-img-stage">
+                  <image class="ll2-event-hero-img-crop" src="{{item.heroImageUrl}}" mode="aspectFill" lazy-load binderror="onLl2HeroImageError" />
+                </view>
               </view>
+              <view class="ll2-event-hero-mask"></view>
+              <view class="ll2-event-hero-tags">
+                <view class="ll2-event-type-chip ll2-event-type-chip--{{item.typeKey}}">
+                  <text>{{item.typeName}}</text>
+                </view>
+                <view class="ll2-event-countdown ll2-event-countdown--realtime" wx:if="{{!ll2EventCountdown.isExpired}}">
+                  <view class="ll2-event-cd-item">
+                    <text class="ll2-event-cd-value">{{ll2EventCountdown.days}}</text>
+                    <text class="ll2-event-cd-unit">天</text>
+                  </view>
+                  <text class="ll2-event-cd-sep">:</text>
+                  <view class="ll2-event-cd-item">
+                    <text class="ll2-event-cd-value">{{ll2EventCountdown.hours}}</text>
+                    <text class="ll2-event-cd-unit">时</text>
+                  </view>
+                  <text class="ll2-event-cd-sep">:</text>
+                  <view class="ll2-event-cd-item">
+                    <text class="ll2-event-cd-value">{{ll2EventCountdown.minutes}}</text>
+                    <text class="ll2-event-cd-unit">分</text>
+                  </view>
+                  <text class="ll2-event-cd-sep">:</text>
+                  <view class="ll2-event-cd-item">
+                    <text class="ll2-event-cd-value">{{ll2EventCountdown.seconds}}</text>
+                    <text class="ll2-event-cd-unit">秒</text>
+                  </view>
+                </view>
+                <view class="ll2-event-countdown ll2-event-countdown--live" wx:else>
+                  <text class="ll2-event-cd-live">进行中 / 已开始</text>
+                </view>
+              </view>
+              <text class="ll2-event-hero-title" user-select="{{true}}">{{item.title}}</text>
             </view>
-            <view class="ll2-event-hero-mask"></view>
-            <view class="ll2-event-hero-tags">
-              <view class="ll2-event-type-chip ll2-event-type-chip--{{item.typeKey}}">
-                <text>{{item.typeName}}</text>
-              </view>
-              <view class="ll2-event-countdown ll2-event-countdown--realtime" wx:if="{{!ll2EventCountdown.isExpired}}">
-                <view class="ll2-event-cd-item">
-                  <text class="ll2-event-cd-value">{{ll2EventCountdown.days}}</text>
-                  <text class="ll2-event-cd-unit">天</text>
-                </view>
-                <text class="ll2-event-cd-sep">:</text>
-                <view class="ll2-event-cd-item">
-                  <text class="ll2-event-cd-value">{{ll2EventCountdown.hours}}</text>
-                  <text class="ll2-event-cd-unit">时</text>
-                </view>
-                <text class="ll2-event-cd-sep">:</text>
-                <view class="ll2-event-cd-item">
-                  <text class="ll2-event-cd-value">{{ll2EventCountdown.minutes}}</text>
-                  <text class="ll2-event-cd-unit">分</text>
-                </view>
-                <text class="ll2-event-cd-sep">:</text>
-                <view class="ll2-event-cd-item">
-                  <text class="ll2-event-cd-value">{{ll2EventCountdown.seconds}}</text>
-                  <text class="ll2-event-cd-unit">秒</text>
-                </view>
-              </view>
-              <view class="ll2-event-countdown ll2-event-countdown--live" wx:else>
-                <text class="ll2-event-cd-live">进行中 / 已开始</text>
-              </view>
-            </view>
-            <text class="ll2-event-hero-title" user-select="{{true}}">{{item.title}}</text>
           </view>
 
           <!-- 贴图讨论区：LL2 事件头图下方；topic 取自标题，组件内已截断至 20 字 -->

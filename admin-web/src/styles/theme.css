@@ -239,6 +239,64 @@ body {
   color: #fff !important;
 }
 
+/* ----- 彩色按钮/标签深色玻璃化 -----
+ * Element Plus 的 success/warning/danger/info 实底色是按浅色主题设计的，
+ * 深色玻璃界面下是刺眼亮块（如商家页「暂停/终止合作/删除」）。
+ * 统一改为同色系半透明玻璃底 + 彩色文字，plain 变体一并接管。 */
+.el-button--success:not(.is-text):not(.is-link) {
+  background: rgba(52, 211, 153, 0.12) !important;
+  border: 1px solid rgba(52, 211, 153, 0.42) !important;
+  color: #34d399 !important;
+}
+.el-button--success:not(.is-text):not(.is-link):hover {
+  background: rgba(52, 211, 153, 0.22) !important;
+}
+.el-button--warning:not(.is-text):not(.is-link) {
+  background: rgba(251, 191, 36, 0.12) !important;
+  border: 1px solid rgba(251, 191, 36, 0.42) !important;
+  color: #fbbf24 !important;
+}
+.el-button--warning:not(.is-text):not(.is-link):hover {
+  background: rgba(251, 191, 36, 0.22) !important;
+}
+.el-button--danger:not(.is-text):not(.is-link) {
+  background: rgba(248, 113, 113, 0.12) !important;
+  border: 1px solid rgba(248, 113, 113, 0.42) !important;
+  color: #f87171 !important;
+}
+.el-button--danger:not(.is-text):not(.is-link):hover {
+  background: rgba(248, 113, 113, 0.22) !important;
+}
+.el-button--info:not(.is-text):not(.is-link) {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid var(--cx-glass-stroke) !important;
+  color: var(--cx-text-2) !important;
+}
+.el-button--info:not(.is-text):not(.is-link):hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+}
+
+.el-tag--success {
+  background: rgba(52, 211, 153, 0.12) !important;
+  border-color: rgba(52, 211, 153, 0.4) !important;
+  color: #34d399 !important;
+}
+.el-tag--warning {
+  background: rgba(251, 191, 36, 0.12) !important;
+  border-color: rgba(251, 191, 36, 0.4) !important;
+  color: #fbbf24 !important;
+}
+.el-tag--danger {
+  background: rgba(248, 113, 113, 0.12) !important;
+  border-color: rgba(248, 113, 113, 0.4) !important;
+  color: #f87171 !important;
+}
+.el-tag--info {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: var(--cx-glass-stroke) !important;
+  color: var(--cx-text-2) !important;
+}
+
 /* ----- 进度条：流光 ----- */
 .layout-main :deep(.el-progress-bar__inner) {
   background: var(--cx-grad-primary);
@@ -263,6 +321,32 @@ html.dark .el-dialog,
   -webkit-backdrop-filter: blur(22px) saturate(160%);
   box-shadow: var(--cx-shadow-card);
 }
+
+/* ----- Alert：深色玻璃化（Element Plus 默认浅色底在深色主题下是刺眼白条） ----- */
+.el-alert {
+  border-radius: var(--cx-radius-sm) !important;
+  border: 1px solid var(--cx-glass-stroke) !important;
+}
+.el-alert--info.is-light {
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+.el-alert--info.is-light .el-alert__title { color: var(--cx-text-2); }
+.el-alert--success.is-light {
+  background: rgba(52, 211, 153, 0.10) !important;
+  border-color: rgba(52, 211, 153, 0.35) !important;
+}
+.el-alert--success.is-light .el-alert__title { color: #6EE7B7; }
+.el-alert--warning.is-light {
+  background: rgba(251, 191, 36, 0.10) !important;
+  border-color: rgba(251, 191, 36, 0.35) !important;
+}
+.el-alert--warning.is-light .el-alert__title { color: #FCD34D; }
+.el-alert--error.is-light {
+  background: rgba(239, 68, 68, 0.12) !important;
+  border-color: rgba(239, 68, 68, 0.40) !important;
+}
+.el-alert--error.is-light .el-alert__title { color: #FCA5A5; }
+.el-alert .el-alert__description { color: var(--cx-text-3) !important; }
 
 /* ----- Select Dropdown / Popover ----- */
 .el-select-dropdown,

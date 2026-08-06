@@ -26,8 +26,8 @@
 }
 
 .orbit-meta-tag--type {
-  color: #5AC8FA;
-  background: rgba(90, 200, 250, 0.15);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.15);
   font-weight: 600;
   letter-spacing: 1rpx;
   text-transform: uppercase;
@@ -39,7 +39,7 @@
 
 .orbit-meta-tag--location {
   color: #fff;
-  background: rgba(0, 122, 255, 0.45);
+  background: rgba(59, 130, 246, 0.45);
 }
 
 .orbit-stat--countdown .orbit-stat-value {
@@ -90,7 +90,7 @@
 
 .orbit-card-body {
   flex: 1;
-  padding: 20rpx 24rpx;
+  padding: var(--space-sm) var(--space-md);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -177,7 +177,7 @@
 .orbit-hero-content {
   position: relative;
   z-index: 1;
-  padding: 28rpx 32rpx;
+  padding: var(--space-lg) var(--space-lg);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -277,7 +277,7 @@
 
 .orbit-hero-cta-text {
   font-size: 26rpx;
-  color: #007AFF;
+  color: var(--color-brand);
   font-weight: 500;
 }
 
@@ -298,8 +298,8 @@
 }
 
 .theme-light .orbit-meta-tag--location {
-  color: #007AFF;
-  background: rgba(0, 122, 255, 0.12);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.12);
 }
 
 .theme-light .orbit-stat-label {

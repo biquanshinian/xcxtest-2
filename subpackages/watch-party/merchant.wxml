@@ -1,0 +1,208 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="page {{themeClass}}" style="padding-bottom: {{keyboardHeight}}px;">
+  <view class="top-nav-wrapper" style="padding-top:{{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">商家中心</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view class="page-scroll" scroll-y enhanced show-scrollbar="{{false}}" bindscroll="onComposerScroll" scroll-with-animation="{{true}}" scroll-top="{{composerScrollTop}}">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <view class="wpm-loading" wx:if="{{loading}}">
+      <view class="loading-spinner-lg"></view>
+      <text class="wpm-loading-text">正在加载…</text>
+    </view>
+
+    <view class="wpm-error" wx:elif="{{error}}">
+      <text class="wpm-error-text">{{error}}</text>
+      <view class="wpm-retry-btn" bindtap="onRetry"><text>重试</text></view>
+    </view>
+
+    <!-- 未绑定：编号绑定 -->
+    <block wx:elif="{{!bound}}">
+      <view class="wpm-bind-card">
+        <text class="wpm-bind-title">绑定商家身份</text>
+        <text class="wpm-bind-desc">输入运营发放的商家编号，绑定后即可在手机上自助创建和管理观礼场次，无需电脑后台。</text>
+        <input
+          id="c_merchant_1" class="wpm-bind-input"
+          value="{{codeInput}}"
+          placeholder="商家编号（8位字母数字）"
+          placeholder-class="wpm-ph"
+          maxlength="12"
+          confirm-type="done"
+          bindinput="onCodeInput"
+          bindconfirm="onBind" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange"
+        />
+        <view class="wpm-primary-btn {{binding ? 'wpm-btn--disabled' : ''}}" bindtap="onBind">
+          <text>{{binding ? '绑定中…' : '绑定'}}</text>
+        </view>
+        <text class="wpm-bind-hint">还没有编号？请联系运营同学开通入驻，或在观礼页提交合作申请。</text>
+      </view>
+    </block>
+
+    <!-- 已绑定：商家信息 + 场次列表 -->
+    <block wx:else>
+      <view class="wpm-merchant-card">
+        <view class="wpm-merchant-head">
+          <text class="wpm-merchant-name">{{merchant.name}}</text>
+          <view class="wpm-merchant-status {{merchant.status === 'active' ? 'wpm-status--ok' : 'wpm-status--warn'}}">{{merchant.status === 'active' ? '合作中' : '已暂停'}}</view>
+        </view>
+        <view class="wpm-merchant-code-row">
+          <text class="wpm-merchant-code" wx:if="{{codeVisible}}">商家编号：{{merchant.merchantCode}}</text>
+          <text class="wpm-merchant-code" wx:else>商家编号：{{merchantCodeMasked}}</text>
+          <view
+            class="wpm-code-eye"
+            catchtap="toggleCodeVisible"
+            hover-class="wpm-code-eye--hover"
+            aria-role="button"
+            aria-label="{{codeVisible ? '隐藏商家编号' : '显示商家编号'}}"
+          >
+            <image
+              class="wpm-code-eye-icon"
+              src="{{codeVisible ? '/images/icons/ic-eye-off.svg' : '/images/icons/ic-eye.svg'}}"
+              mode="aspectFit"
+            />
+          </view>
+        </view>
+      </view>
+
+      <view class="section-header">
+        <text class="section-title">我的观礼场次</text>
+        <view class="wpm-add-btn" wx:if="{{!sessions.length}}" bindtap="onCreateSession"><text>+ 创建场次</text></view>
+      </view>
+
+      <view class="wpm-empty" wx:if="{{!sessions.length}}">
+        <text class="wpm-empty-text">每位商家仅一场观礼场次（物料码可长期使用）\n点「+ 创建场次」配置任务、奖品；换发射点「开启下一场」</text>
+      </view>
+
+      <view class="wpm-session-card" wx:for="{{sessions}}" wx:key="sessionId">
+        <view class="wpm-session-main" bindtap="onEditSession" data-id="{{item.sessionId}}">
+          <view class="wpm-session-body">
+            <image
+              wx:if="{{item.rocketImage}}"
+              class="wpm-session-rocket"
+              src="{{item.rocketImage}}"
+              mode="aspectFit"
+            />
+            <view wx:else class="wpm-session-rocket wpm-session-rocket--empty">
+              <text>🚀</text>
+            </view>
+            <view class="wpm-session-content">
+              <view class="wpm-session-head">
+                <text class="wpm-session-title">{{item.title}}</text>
+                <view class="wpm-session-tag {{item.enabled ? (item.status === 'open' ? 'wpm-tag--open' : 'wpm-tag--closed') : 'wpm-tag--off'}}">{{!item.enabled ? '已停用' : (item.status === 'open' ? '预约中' : '停止预约')}}</view>
+              </view>
+              <text class="wpm-session-sub">{{item.rocketName || '火箭待定'}}{{item.missionName ? ' · ' + item.missionName : ''}} · {{item.launchTimeText}}</text>
+              <text class="wpm-session-stats">本场任务 · 预约 {{item.stats.reservations || 0}} · 扫码 {{item.stats.scanUsers || 0}} · 发放 {{item.stats.draws || 0}}</text>
+              <text class="wpm-session-ssr" wx:if="{{item.prizeDrawEnabled && item.successUnlocked}}">抽奖已开放（已确认发射成功）</text>
+              <text class="wpm-session-ssr" wx:elif="{{item.prizeDrawEnabled}}">已开启抽奖 · 确认发射成功后用户可抽</text>
+              <text class="wpm-session-qr" wx:if="{{!item.qrCodeReady}}">物料码生成中，稍后在编辑页保存一次即可补上</text>
+              <view
+                class="wpm-cycle-toggle"
+                wx:if="{{item.cycleHistoryCount > 0}}"
+                catchtap="onToggleCycleHistory"
+                data-id="{{item.sessionId}}"
+              >
+                <text>历史任务账本 {{item.cycleHistoryCount}} 场 {{item._showCycles ? '▴' : '▾'}}</text>
+              </view>
+              <view class="wpm-cycle-list" wx:if="{{item._showCycles && item.cycleHistory.length}}">
+                <view class="wpm-cycle-row" wx:for="{{item.cycleHistory}}" wx:for-item="cyc" wx:key="cycleId">
+                  <text class="wpm-cycle-title">{{cyc.missionName || cyc.title || '已归档任务'}}</text>
+                  <text class="wpm-cycle-stats">扫码 {{cyc.scanUsers || 0}} · 预约 {{cyc.reservations || 0}} · 发放 {{cyc.draws || 0}}</text>
+                </view>
+              </view>
+            </view>
+          </view>
+        </view>
+        <view class="wpm-session-actions">
+          <view class="wpm-action-btn" bindtap="onEditSession" data-id="{{item.sessionId}}"><text>编辑</text></view>
+          <view
+            class="wpm-action-btn"
+            bindtap="onOpenReservations"
+            data-id="{{item.sessionId}}"
+            data-title="{{item.title}}"
+          ><text>预约 {{item.stats.reservations || 0}}</text></view>
+          <view class="wpm-action-btn" bindtap="onOpenScreen" data-id="{{item.sessionId}}"><text>现场大屏</text></view>
+          <view class="wpm-action-btn" bindtap="onSaveMaterial" data-id="{{item.sessionId}}" data-ready="{{item.qrCodeReady}}"><text>保存物料码</text></view>
+          <view
+            class="wpm-action-btn wpm-action-btn--next"
+            bindtap="onStartNextCycle"
+            data-id="{{item.sessionId}}"
+            data-title="{{item.title}}"
+          ><text>开启下一场</text></view>
+          <view
+            wx:if="{{item.prizeDrawEnabled}}"
+            class="wpm-action-btn {{item.successUnlocked ? 'wpm-action-btn--done' : 'wpm-action-btn--launch'}}"
+            bindtap="onUnlockSuccess"
+            data-id="{{item.sessionId}}"
+            data-title="{{item.title}}"
+            data-unlocked="{{item.successUnlocked}}"
+          >
+            <text>{{item.successUnlocked ? '已确认发射成功' : '确认发射成功'}}</text>
+          </view>
+          <view class="wpm-action-btn wpm-action-btn--danger" bindtap="onDeleteSession" data-id="{{item.sessionId}}" data-title="{{item.title}}"><text>删除</text></view>
+        </view>
+      </view>
+
+      <view class="wpm-unbind" bindtap="onUnbind">
+        <text>解绑此微信</text>
+      </view>
+    </block>
+
+    <view class="page-footer">
+      <text class="footer-text">Per Aspera Ad Astra · 循此苦旅以达星辰</text>
+    </view>
+  </scroll-view>
+
+  <!-- 线下打印物料：弹层量级对齐简报；预览/图标随窗口等比缩放，保存仍为高清原图 -->
+  <view class="wpm-material-mask" wx:if="{{materialVisible}}" catchtouchmove="noop">
+    <view class="wpm-material-sheet">
+      <view class="wpm-material-body">
+        <text class="wpm-material-title">线下打印物料码</text>
+        <text class="wpm-material-desc">已标注商家名与用途，预览随屏缩放；保存到相册仍为高清打印图。</text>
+        <view class="wpm-material-preview-host">
+          <view
+            wx:if="{{materialPreview}}"
+            class="wpm-material-preview-wrap"
+            style="width:{{materialPreviewMaxW}}px;height:{{materialPreviewMaxH}}px;"
+          >
+            <image
+              class="wpm-material-preview"
+              src="{{materialPreview}}"
+              mode="aspectFit"
+              style="width:{{materialPreviewMaxW}}px;height:{{materialPreviewMaxH}}px;"
+              show-menu-by-longpress
+            />
+          </view>
+          <view
+            class="wpm-material-loading"
+            wx:elif="{{materialBuilding}}"
+            style="width:{{materialPreviewMaxW}}px;height:{{materialPreviewMaxH}}px;"
+          >
+            <view
+              class="wpm-material-spinner"
+              style="width:{{materialSpinnerSize}}px;height:{{materialSpinnerSize}}px;border-width:{{materialSpinnerSize >= 40 ? 4 : 3}}px;"
+            ></view>
+            <text>正在生成…</text>
+          </view>
+        </view>
+      </view>
+      <view class="wpm-material-actions">
+        <view class="wpm-material-btn wpm-material-btn--ghost" bindtap="onCloseMaterial"><text>关闭</text></view>
+        <view class="wpm-material-btn {{(!materialPreview || materialSaving) ? 'wpm-btn--disabled' : ''}}" bindtap="onConfirmSaveMaterial">
+          <text>{{materialSaving ? '保存中…' : '保存到相册'}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 离屏 canvas：合成「商家名 + 用途 + 小程序码」打印海报 -->
+  <canvas type="2d" id="materialPosterCanvas" class="wpm-material-canvas"></canvas>
+
+  <privacy-modal />
+</view>

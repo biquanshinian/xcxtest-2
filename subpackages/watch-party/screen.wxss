@@ -1,0 +1,824 @@
+/* 现场大屏模式：始终深色（投屏显示页，不随主题切换），横竖屏自由切换
+ *
+ * 关键：rpx 基准是「当前窗口宽度」——竖屏 750rpx = 短边，横屏 750rpx = 长边，
+ * 同一数值在两个方向下物理大小差约 1.8 倍。因此尺寸全部走 CSS 变量，
+ * 竖屏取默认值，横屏经 @media (orientation: landscape) 整体换档，勿写死单套字号。
+ */
+
+page {
+  background: #05070f;
+}
+
+.scr {
+  /* ── 竖屏（默认）尺寸档 ── */
+  --pad-x: 32rpx;
+  --pad-y: 32rpx;
+  --fs-exit: 24rpx;
+  --fs-hint: 28rpx;
+  --fs-ssr: 28rpx;
+  --fs-phase: 24rpx;
+  --fs-title: 44rpx;
+  --fs-subtitle: 26rpx;
+  --cd-num: 88rpx;
+  --cd-label: 24rpx;
+  --cd-cell-max: 168rpx;
+  --cd-caption: 26rpx;
+  --fs-vote-title: 26rpx;
+  --vote-bar-h: 24rpx;
+  --fs-vote-label: 24rpx;
+  --fs-foot: 24rpx;
+  --fs-sci-title: 34rpx;
+  --fs-sci-body: 30rpx;
+  --fs-sci-progress: 22rpx;
+  --sci-pad: 36rpx;
+  --sci-viewport-h: 360rpx;
+  --rocket-w: 160rpx;
+  --rocket-h: 220rpx;
+  --qr-size: 180rpx;
+  --fs-qr: 26rpx;
+  --gap-block: 40rpx;
+  --gap-inner: 20rpx;
+
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  box-sizing: border-box;
+  /* padding-top 由 JS 按微信胶囊下沿动态写入，保证整页不超过胶囊下口 */
+  padding: var(--pad-y) var(--pad-x);
+  padding-left: calc(var(--pad-x) + env(safe-area-inset-left));
+  padding-right: calc(var(--pad-x) + env(safe-area-inset-right));
+  padding-bottom: calc(var(--pad-y) + env(safe-area-inset-bottom));
+  background: radial-gradient(ellipse at 30% 0%, rgba(59, 130, 246, 0.14), transparent 55%), #05070f;
+  color: #f5f7ff;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── 横屏尺寸档（可用高度仅约 420rpx，整体缩小约 45%） ── */
+@media (orientation: landscape) {
+  .scr {
+    --pad-x: 48rpx;
+    --pad-y: 20rpx;
+    --fs-exit: 14rpx;
+    --fs-hint: 18rpx;
+    --fs-ssr: 18rpx;
+    --fs-phase: 14rpx;
+    --fs-title: 32rpx;
+    --fs-subtitle: 17rpx;
+    --cd-num: 64rpx;
+    --cd-label: 16rpx;
+    --cd-cell-max: 140rpx;
+    --cd-caption: 16rpx;
+    --fs-vote-title: 15rpx;
+    --vote-bar-h: 16rpx;
+    --fs-vote-label: 15rpx;
+    --fs-foot: 15rpx;
+    --fs-sci-title: 22rpx;
+    --fs-sci-body: 18rpx;
+    --fs-sci-progress: 13rpx;
+    --sci-pad: 24rpx;
+    --sci-viewport-h: 220rpx;
+    --rocket-w: 100rpx;
+    --rocket-h: 148rpx;
+    --qr-size: 104rpx;
+    --fs-qr: 16rpx;
+    --gap-block: 22rpx;
+    --gap-inner: 12rpx;
+  }
+}
+
+/* 冲刺期整体转橙红氛围 */
+.scr--final {
+  background: radial-gradient(ellipse at 30% 0%, rgba(249, 115, 22, 0.18), transparent 55%), #0a0605;
+}
+
+.scr--launched {
+  background: radial-gradient(ellipse at 30% 0%, rgba(52, 211, 153, 0.15), transparent 55%), #04080a;
+}
+
+/* ── 退出热区 ── */
+
+.scr-exit {
+  position: absolute;
+  /* top 由 JS 对齐胶囊 */
+  left: calc(8rpx + env(safe-area-inset-left));
+  z-index: 10;
+  /* 扩大可点热区，视觉仍是通用返回箭头 */
+  padding: 8rpx 16rpx 8rpx 8rpx;
+  opacity: 0.55;
+}
+
+.scr-exit .top-nav-slot--back {
+  min-width: 64rpx;
+  height: 56rpx;
+}
+
+/* ── 横/竖屏切换（磨砂玻璃；位置由 JS 贴系统胶囊左侧） ── */
+
+.scr-orient {
+  position: absolute;
+  z-index: 10;
+  padding: 10rpx 22rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1rpx solid rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(24rpx) saturate(160%);
+  -webkit-backdrop-filter: blur(24rpx) saturate(160%);
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.18);
+  opacity: 1;
+}
+
+.scr-orient--hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.38);
+}
+
+.scr-orient-text {
+  font-size: var(--fs-exit);
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  letter-spacing: 2rpx;
+}
+
+/* ── 加载 / 错误 ── */
+
+.scr-loading,
+.scr-error {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap-inner);
+  font-size: var(--fs-hint);
+  color: rgba(245, 247, 255, 0.6);
+}
+
+.scr-error-text {
+  font-size: var(--fs-hint);
+  color: #fca5a5;
+}
+
+.scr-retry {
+  padding: 10rpx 36rpx;
+  border-radius: 24rpx;
+  background: rgba(59, 130, 246, 0.25);
+  border: 1rpx solid rgba(96, 165, 250, 0.5);
+  font-size: var(--fs-hint);
+  color: #93c5fd;
+}
+
+/* ── 发射成功横幅 ── */
+
+.scr-ssr {
+  flex-shrink: 0;
+  margin-bottom: var(--gap-inner);
+  padding: 8rpx 20rpx;
+  border-radius: 12rpx;
+  text-align: center;
+  font-size: var(--fs-ssr);
+  font-weight: 600;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.12);
+  border: 1rpx solid rgba(251, 191, 36, 0.4);
+}
+
+/* ── 主体：竖屏单列，横屏双栏；倒计时横屏跨全宽 ── */
+
+.scr-main {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--gap-block);
+  box-sizing: border-box;
+}
+
+@media (orientation: landscape) {
+  .scr-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    align-content: start;
+    column-gap: 32rpx;
+    row-gap: var(--gap-block);
+    overflow: hidden;
+  }
+
+  .scr-left {
+    grid-column: 1;
+    grid-row: 1;
+    min-height: 0;
+  }
+
+  .scr-right {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: stretch;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .scr-cd-band {
+    grid-column: 1;
+    grid-row: 2;
+    min-height: 0;
+  }
+
+  .scr-bottom {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+}
+
+.scr-left {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.scr-left-top {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gap-inner);
+  min-width: 0;
+}
+
+.scr-left-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.scr-cd-band,
+.scr-bottom {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.scr-cd-band {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-inner);
+}
+
+.scr-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-inner);
+  flex-shrink: 0;
+}
+
+.scr-rocket {
+  flex-shrink: 0;
+  width: var(--rocket-w);
+  height: var(--rocket-h);
+  border-radius: 14rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1rpx solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scr-rocket-img {
+  width: 100%;
+  height: 100%;
+}
+
+.scr-right {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: calc(var(--gap-inner) + 4rpx);
+}
+
+/* ── 左栏：场次信息 ── */
+
+.scr-phase {
+  align-self: flex-start;
+  padding: 5rpx 16rpx;
+  border-radius: 18rpx;
+  font-size: var(--fs-phase);
+  letter-spacing: 1rpx;
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1rpx solid rgba(96, 165, 250, 0.35);
+}
+
+.scr--final .scr-phase {
+  color: #fdba74;
+  background: rgba(249, 115, 22, 0.15);
+  border-color: rgba(251, 146, 60, 0.4);
+}
+
+.scr--launched .scr-phase {
+  color: #6ee7b7;
+  background: rgba(52, 211, 153, 0.12);
+  border-color: rgba(52, 211, 153, 0.35);
+}
+
+.scr-title {
+  margin-top: var(--gap-inner);
+  font-size: var(--fs-title);
+  font-weight: 700;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.scr-subtitle {
+  margin-top: 6rpx;
+  font-size: var(--fs-subtitle);
+  color: rgba(245, 247, 255, 0.55);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 现场讲解：磨砂玻璃胶囊，单行仅文字 ── */
+.scr-explain {
+  margin-top: var(--gap-inner);
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8rpx;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.scr-explain-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 10rpx 8rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1rpx solid rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(24rpx) saturate(160%);
+  -webkit-backdrop-filter: blur(24rpx) saturate(160%);
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.16);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.scr-explain-label {
+  font-size: var(--fs-phase);
+  color: rgba(255, 255, 255, 0.94);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── 倒计时（整栏居中；4 格弹性均分，不设固定 min-width，避免左右溢出） ── */
+
+.scr-cd-wrap {
+  width: 100%;
+  max-width: 100%;
+  margin-top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12rpx;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.scr-cd-caption {
+  font-size: var(--cd-caption);
+  letter-spacing: 4rpx;
+  color: rgba(245, 247, 255, 0.55);
+}
+
+.scr-cd {
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  gap: var(--gap-inner);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.scr-cd-cell {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: var(--cd-cell-max);
+  padding: 12rpx 6rpx;
+  border-radius: 16rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1rpx solid rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+.scr-cd-num {
+  width: 100%;
+  font-size: var(--cd-num);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+  color: #fff;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.scr--final .scr-cd-num {
+  color: #fb923c;
+}
+
+.scr--final .scr-cd-cell {
+  border-color: rgba(251, 146, 60, 0.45);
+  background: rgba(249, 115, 22, 0.12);
+}
+
+.scr-cd-label {
+  margin-top: 4rpx;
+  font-size: var(--cd-label);
+  color: rgba(245, 247, 255, 0.5);
+}
+
+.scr-cd-done-wrap {
+  width: 100%;
+  max-width: 100%;
+  margin-top: 0;
+  padding: 28rpx 20rpx;
+  border-radius: 18rpx;
+  text-align: center;
+  background: rgba(52, 211, 153, 0.1);
+  border: 1rpx solid rgba(52, 211, 153, 0.35);
+  box-sizing: border-box;
+}
+
+.scr-cd-done {
+  display: block;
+  font-size: calc(var(--fs-title) + 8rpx);
+  font-weight: 800;
+  color: #6ee7b7;
+  letter-spacing: 4rpx;
+}
+
+.scr-cd-done-sub {
+  display: block;
+  margin-top: 12rpx;
+  font-size: var(--fs-subtitle);
+  color: rgba(245, 247, 255, 0.85);
+}
+
+.scr-cd-done-hint {
+  display: block;
+  margin-top: 8rpx;
+  font-size: var(--fs-phase);
+  color: rgba(245, 247, 255, 0.45);
+}
+
+/* ── 升空后型号近期集锦 ── */
+
+.scr-replay {
+  width: 100%;
+  margin-top: var(--gap-inner);
+  border-radius: 16rpx;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1rpx solid rgba(255, 255, 255, 0.12);
+}
+
+.scr-replay-video {
+  width: 100%;
+  height: 280rpx;
+  display: block;
+  background: #000;
+}
+
+.scr-replay-poster-only {
+  position: relative;
+  width: 100%;
+  height: 280rpx;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scr-replay-poster-img {
+  width: 100%;
+  height: 100%;
+}
+
+.scr-replay-play-hint {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 12rpx 28rpx;
+  border-radius: 32rpx;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1rpx solid rgba(255, 255, 255, 0.35);
+  color: #fff;
+  font-size: var(--fs-subtitle);
+}
+
+@media (orientation: landscape) {
+  .scr-replay-video,
+  .scr-replay-poster-only { height: 180rpx; }
+}
+
+.scr-replay-meta {
+  padding: 12rpx 16rpx 16rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.scr-replay-tag {
+  font-size: var(--fs-phase);
+  color: #fbbf24;
+}
+
+.scr-replay-title {
+  font-size: var(--fs-subtitle);
+  color: rgba(245, 247, 255, 0.88);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scr-replay-unmute {
+  font-size: var(--fs-phase);
+  color: #93c5fd;
+  text-decoration: underline;
+}
+
+.scr-replay-empty {
+  margin-top: var(--gap-inner);
+  padding: 16rpx;
+  text-align: center;
+  font-size: var(--fs-phase);
+  color: rgba(245, 247, 255, 0.45);
+}
+
+/* ── 竞猜 ── */
+
+.scr-vote {
+  margin-top: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.scr-vote-title {
+  font-size: var(--fs-vote-title);
+  color: rgba(245, 247, 255, 0.6);
+}
+
+.scr-vote-bar {
+  margin-top: 8rpx;
+  height: var(--vote-bar-h);
+  border-radius: calc(var(--vote-bar-h) / 2);
+  overflow: hidden;
+  display: flex;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.scr-vote-ge {
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+  transition: width 0.6s ease;
+}
+
+.scr-vote-buge {
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  transition: width 0.6s ease;
+}
+
+.scr-vote-labels {
+  margin-top: 6rpx;
+  display: flex;
+  justify-content: space-between;
+}
+
+.scr-vote-label {
+  font-size: var(--fs-vote-label);
+}
+
+.scr-vote-label--ge {
+  color: #fbbf24;
+}
+
+.scr-vote-label--buge {
+  color: #93c5fd;
+}
+
+/* ── 左栏页脚 ── */
+
+.scr-foot {
+  margin-top: var(--gap-block);
+  display: flex;
+  align-items: baseline;
+  gap: 20rpx;
+}
+
+.scr-stat {
+  font-size: var(--fs-foot);
+  color: rgba(245, 247, 255, 0.5);
+}
+
+.scr-clock {
+  font-size: var(--fs-foot);
+  font-variant-numeric: tabular-nums;
+  color: rgba(245, 247, 255, 0.35);
+}
+
+/* ── 右栏：科普卡 ── */
+
+.scr-sci {
+  padding: var(--sci-pad);
+  border-radius: 18rpx;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1rpx solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.scr--final .scr-sci {
+  background: rgba(249, 115, 22, 0.1);
+  border-color: rgba(251, 146, 60, 0.35);
+}
+
+.scr-sci-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  margin-bottom: 12rpx;
+}
+
+.scr-sci-tag {
+  font-size: var(--fs-sci-progress);
+  color: #fbbf24;
+  letter-spacing: 1rpx;
+}
+
+.scr-sci-head-right {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  flex-shrink: 0;
+}
+
+.scr-sci-progress {
+  font-size: var(--fs-sci-progress);
+  color: rgba(245, 247, 255, 0.35);
+}
+
+.scr-sci-pause {
+  padding: 4rpx 16rpx;
+  border-radius: 20rpx;
+  font-size: var(--fs-sci-progress);
+  color: rgba(245, 247, 255, 0.75);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1rpx solid rgba(255, 255, 255, 0.18);
+  line-height: 1.4;
+}
+
+.scr-sci-pause--on {
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(96, 165, 250, 0.45);
+}
+
+.scr-sci-pause--hover {
+  opacity: 0.85;
+}
+
+.scr-sci-viewport {
+  position: relative;
+  overflow: hidden;
+  min-height: 120rpx;
+  max-height: var(--sci-viewport-h);
+  flex: 1;
+}
+
+.scr-sci-slide {
+  transition: transform 0.32s ease, opacity 0.32s ease;
+  will-change: transform, opacity;
+}
+
+.scr-sci-slide--out {
+  transform: translateY(-28rpx);
+  opacity: 0;
+}
+
+.scr-sci-slide--in {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.scr-sci-title {
+  display: block;
+  font-size: var(--fs-sci-title);
+  font-weight: 700;
+  color: #93c5fd;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scr--final .scr-sci-title {
+  color: #fdba74;
+}
+
+.scr-sci-body-wrap {
+  margin-top: 8rpx;
+  overflow: hidden;
+  max-height: calc(var(--sci-viewport-h) - 56rpx);
+}
+
+.scr-sci-body-track {
+  display: flex;
+  flex-direction: column;
+}
+
+.scr-sci-body-block {
+  padding-bottom: 36rpx;
+  box-sizing: border-box;
+}
+
+.scr-sci-body-wrap--run .scr-sci-body-track {
+  animation: scr-sci-marquee 14s linear infinite;
+}
+
+.scr-sci-body-wrap--paused .scr-sci-body-track {
+  animation-play-state: paused;
+}
+
+@keyframes scr-sci-marquee {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-50%); }
+}
+
+.scr-sci-body {
+  display: block;
+  font-size: var(--fs-sci-body);
+  line-height: 1.65;
+  color: rgba(245, 247, 255, 0.88);
+}
+
+.scr-sci-hint {
+  display: block;
+  margin-top: 12rpx;
+  font-size: var(--fs-sci-progress);
+  color: rgba(245, 247, 255, 0.35);
+}
+
+/* 商家上传的发射配置图（轮播图片卡） */
+.scr-sci-image {
+  display: block;
+  width: 100%;
+  height: var(--sci-viewport-h);
+  border-radius: 12rpx;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+/* ── 扫码区 ── */
+
+.scr-qr {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-inner);
+}
+
+.scr-qr-img {
+  width: var(--qr-size);
+  height: var(--qr-size);
+  border-radius: 10rpx;
+  background: #fff;
+  padding: 5rpx;
+  box-sizing: border-box;
+}
+
+.scr-qr-text {
+  font-size: var(--fs-qr);
+  color: rgba(245, 247, 255, 0.6);
+}

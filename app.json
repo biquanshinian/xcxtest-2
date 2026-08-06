@@ -17,12 +17,12 @@
   "darkmode": true,
   "window": {
     "navigationBarTitleText": "火星探索日志 - SpaceX马斯克航天太空发射追踪",
-    "navigationBarBackgroundColor": "#1C1C1E",
+    "navigationBarBackgroundColor": "#0B0C0E",
     "navigationBarTextStyle": "white",
-    "backgroundColor": "#000000",
-    "backgroundColorContent": "#000000",
-    "backgroundColorTop": "#000000",
-    "backgroundColorBottom": "#000000",
+    "backgroundColor": "#0B0C0E",
+    "backgroundColorContent": "#0B0C0E",
+    "backgroundColorTop": "#0B0C0E",
+    "backgroundColorBottom": "#0B0C0E",
     "backgroundTextStyle": "dark",
     "enablePullDownRefresh": false,
     "navigationStyle": "custom"
@@ -30,12 +30,15 @@
   "permission": {
     "scope.userFuzzyLocation": {
       "desc": "用于获取当前大致地理位置，以计算卫星过境时间、方位角、仰角及观测方向"
+    },
+    "scope.userLocation": {
+      "desc": "用于商家在地图上选择观礼点位置，供用户一键导航到现场"
     }
   },
   "tabBar": {
     "color": "#8E8E93",
-    "selectedColor": "#007AFF",
-    "backgroundColor": "#000000",
+    "selectedColor": "#3B82F6",
+    "backgroundColor": "#0B0C0E",
     "borderStyle": "black",
     "custom": true,
     "list": [
@@ -47,13 +50,13 @@
       },
       {
         "pagePath": "pages/monitor/monitor",
-        "text": "监控中心",
+        "text": "监控",
         "iconPath": "images/tabbar/placeholder.png",
         "selectedIconPath": "images/tabbar/placeholder.png"
       },
       {
         "pagePath": "pages/progress/progress",
-        "text": "星舰进度",
+        "text": "进展",
         "iconPath": "images/tabbar/placeholder.png",
         "selectedIconPath": "images/tabbar/placeholder.png"
       },
@@ -75,7 +78,7 @@
   "cloud": true,
   "sitemapLocation": "sitemap.json",
   "__usePrivacyCheck__": true,
-  "requiredPrivateInfos": ["getFuzzyLocation"],
+  "requiredPrivateInfos": ["getFuzzyLocation", "chooseLocation"],
   "lazyCodeLoading": "requiredComponents",
   "subPackages": [
     {
@@ -202,6 +205,20 @@
       "pages": [
         "mission-sim",
         "flight-demo"
+      ]
+    },
+    {
+      "root": "subpackages/watch-party",
+      "name": "watch-party",
+      "pages": [
+        "watch-party",
+        "merchant-list",
+        "gacha",
+        "album",
+        "screen",
+        "merchant",
+        "merchant-edit",
+        "merchant-reservations"
       ]
     },
     {

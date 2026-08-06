@@ -1,5 +1,5 @@
 page {
-  background: #000;
+  background: #0B0C0E;
   overflow: hidden;
   height: 100vh;
 }
@@ -20,16 +20,14 @@ page {
 }
 
 .glass-card {
-  background: rgba(18, 18, 20, 0.78);
-  backdrop-filter: blur(18rpx);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-glass);
 }
 
 /* 轨道实时数据网格 */
 .orbit-stats-grid {
   display: flex;
-  gap: 12rpx;
-  margin-top: 16rpx;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
 }
 
 .orbit-stat-card {
@@ -110,7 +108,7 @@ page {
 }
 
 .legend-line--past {
-  background: #4ea1ff;
+  background: var(--color-brand);
   opacity: 0.5;
 }
 
@@ -136,7 +134,6 @@ page {
 /* ========== 明亮主题（theme-light）覆盖 ========== */
 .theme-light .glass-card {
   background: rgba(255, 255, 255, 0.85);
-  border-color: var(--color-divider);
 }
 
 .theme-light .orbit-stat-card {

@@ -178,6 +178,15 @@
         </view>
         <text class="growth-entry-arrow">›</text>
       </view>
+      <!-- 火箭观礼：受 enableWatchParty 过审开关控制（failClosed，默认隐藏至读到允许） -->
+      <view class="growth-entry" wx:if="{{enableWatchParty}}" bindtap="goWatchParty">
+        <view class="growth-entry-icon-badge"><text>观礼</text></view>
+        <view class="growth-entry-info">
+          <text class="growth-entry-title">火箭观礼</text>
+          <text class="growth-entry-desc">现场观礼预约 · 我的奖品 · 商家合作</text>
+        </view>
+        <text class="growth-entry-arrow">›</text>
+      </view>
     </view>
 
     <!-- ══ 我的奖品 ══ -->

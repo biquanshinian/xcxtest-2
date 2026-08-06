@@ -42,7 +42,7 @@
   catchtouchcancel="onTouchCancel"
 >
   <view class="nasa-float-icon">
-    <image wx:if="{{!expanded}}" class="nasa-float-svg" src="/images/tabbar/home.svg" mode="aspectFit" />
+    <image wx:if="{{!expanded}}" class="nasa-float-svg" src="/images/tabbar/home-fab.svg" mode="aspectFit" />
     <text wx:else class="nasa-float-close">✕</text>
   </view>
   <view class="nasa-float-badge" wx:if="{{badgeCount > 0 && !expanded}}">

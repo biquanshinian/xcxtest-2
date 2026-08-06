@@ -1,9 +1,9 @@
 /* 星舰任务指挥室：统一详情页骨架（fixed 顶栏 + detail-scroll 内滚动，与其它详情页一致）
-   深空 HUD 风（与监控中心星链板块同语言：#00ff88 强调、等宽角标、四角 L 形取景框） */
+   深空 HUD 风（与监控中心星链板块同语言：#3B82F6 强调、等宽角标、四角 L 形取景框） */
 
 .detail-page {
   min-height: 100vh;
-  background: linear-gradient(180deg, #000000 0%, #060a10 100%);
+  background: linear-gradient(180deg, #0B0C0E 0%, #121418 100%);
 }
 
 .detail-scroll {
@@ -18,10 +18,10 @@
 
 .ms-block {
   position: relative;
-  margin: 0 24rpx 24rpx;
+  margin: 0 28rpx 32rpx;
   border-radius: 24rpx;
   background: rgba(255, 255, 255, 0.045);
-  border: 1rpx solid rgba(0, 255, 136, 0.12);
+  border: 1rpx solid rgba(59, 130, 246, 0.12);
   overflow: hidden;
 }
 .ms-block::before,
@@ -36,15 +36,15 @@
 .ms-block::before {
   top: 0;
   left: 0;
-  border-top: 3rpx solid rgba(0, 255, 136, 0.5);
-  border-left: 3rpx solid rgba(0, 255, 136, 0.5);
+  border-top: 3rpx solid rgba(59, 130, 246, 0.5);
+  border-left: 3rpx solid rgba(59, 130, 246, 0.5);
   border-top-left-radius: 12rpx;
 }
 .ms-block::after {
   bottom: 0;
   right: 0;
-  border-bottom: 3rpx solid rgba(0, 255, 136, 0.5);
-  border-right: 3rpx solid rgba(0, 255, 136, 0.5);
+  border-bottom: 3rpx solid rgba(59, 130, 246, 0.5);
+  border-right: 3rpx solid rgba(59, 130, 246, 0.5);
   border-bottom-right-radius: 12rpx;
 }
 
@@ -52,14 +52,14 @@
   display: flex;
   flex-direction: column;
   gap: 4rpx;
-  padding: 24rpx 28rpx 0;
+  padding: 28rpx 32rpx 0;
   position: relative;
 }
 .ms-block-tag {
   font-family: 'Courier New', monospace;
   font-size: 18rpx;
   letter-spacing: 4rpx;
-  color: rgba(0, 255, 136, 0.75);
+  color: rgba(59, 130, 246, 0.75);
 }
 .ms-block-title {
   font-size: 32rpx;
@@ -67,14 +67,14 @@
   color: #FFFFFF;
 }
 .ms-block-body {
-  padding: 20rpx 28rpx 28rpx;
+  padding: 24rpx 32rpx 32rpx;
 }
 
 /* HUD 取景框（简报弹层复用） */
 .hud-frame {
   position: relative;
-  background: rgba(10, 18, 14, 0.55);
-  border: 1rpx solid rgba(0, 255, 136, 0.14);
+  background: rgba(11, 12, 14, 0.72);
+  border: 1rpx solid rgba(59, 130, 246, 0.14);
   border-radius: 16rpx;
 }
 .hud-frame::before,
@@ -88,15 +88,15 @@
 .hud-frame::before {
   top: -2rpx;
   left: -2rpx;
-  border-top: 3rpx solid rgba(0, 255, 136, 0.55);
-  border-left: 3rpx solid rgba(0, 255, 136, 0.55);
+  border-top: 3rpx solid rgba(59, 130, 246, 0.55);
+  border-left: 3rpx solid rgba(59, 130, 246, 0.55);
   border-top-left-radius: 8rpx;
 }
 .hud-frame::after {
   bottom: -2rpx;
   right: -2rpx;
-  border-bottom: 3rpx solid rgba(0, 255, 136, 0.55);
-  border-right: 3rpx solid rgba(0, 255, 136, 0.55);
+  border-bottom: 3rpx solid rgba(59, 130, 246, 0.55);
+  border-right: 3rpx solid rgba(59, 130, 246, 0.55);
   border-bottom-right-radius: 8rpx;
 }
 
@@ -120,21 +120,21 @@
   gap: 12rpx;
   padding: 16rpx 20rpx;
   border-radius: 12rpx;
-  background: rgba(0, 255, 136, 0.07);
-  border: 1rpx solid rgba(0, 255, 136, 0.25);
+  background: rgba(59, 130, 246, 0.07);
+  border: 1rpx solid rgba(59, 130, 246, 0.25);
 }
 .ms-start-mission-dot {
   width: 10rpx;
   height: 10rpx;
   border-radius: 50%;
-  background: #00ff88;
-  box-shadow: 0 0 10rpx rgba(0, 255, 136, 0.8);
+  background: #3B82F6;
+  box-shadow: 0 0 10rpx rgba(59, 130, 246, 0.8);
   flex-shrink: 0;
   animation: ms-blink 1.6s ease-in-out infinite;
 }
 .ms-start-mission-text {
   font-size: 22rpx;
-  color: rgba(0, 255, 136, 0.85);
+  color: rgba(59, 130, 246, 0.85);
 }
 .ms-start-desc { font-size: 24rpx; line-height: 1.7; color: rgba(255, 255, 255, 0.65); }
 .ms-start-rows { display: flex; flex-direction: column; gap: 12rpx; padding: 8rpx 0; }
@@ -142,7 +142,7 @@
 .ms-start-k {
   font-family: 'Courier New', monospace;
   font-size: 22rpx;
-  color: #00ff88;
+  color: #3B82F6;
   flex-shrink: 0;
   width: 80rpx;
 }
@@ -162,9 +162,9 @@
 }
 .ms-btn--pressed { transform: scale(0.97); opacity: 0.85; }
 .ms-btn--go {
-  background: rgba(0, 255, 136, 0.16);
-  border: 2rpx solid rgba(0, 255, 136, 0.55);
-  color: #00ff88;
+  background: rgba(59, 130, 246, 0.16);
+  border: 2rpx solid rgba(59, 130, 246, 0.55);
+  color: #3B82F6;
 }
 .ms-btn--nogo {
   background: rgba(255, 69, 58, 0.12);
@@ -190,8 +190,8 @@
   flex-direction: column;
   gap: 10rpx;
   border-radius: 20rpx;
-  background: rgba(6, 12, 9, 0.92);
-  border: 1rpx solid rgba(0, 255, 136, 0.22);
+  background: rgba(11, 12, 14, 0.92);
+  border: 1rpx solid rgba(59, 130, 246, 0.22);
   box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.45);
 }
 .ms-clock-main {
@@ -203,7 +203,7 @@
   font-family: 'Courier New', monospace;
   font-size: 48rpx;
   font-weight: 700;
-  color: #00ff88;
+  color: #3B82F6;
   letter-spacing: 2rpx;
 }
 .ms-clock-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 6rpx; }
@@ -212,8 +212,8 @@
 .ms-clock-seed {
   font-family: 'Courier New', monospace;
   font-size: 20rpx;
-  color: rgba(0, 255, 136, 0.7);
-  border: 1rpx solid rgba(0, 255, 136, 0.28);
+  color: rgba(59, 130, 246, 0.7);
+  border: 1rpx solid rgba(59, 130, 246, 0.28);
   border-radius: 6rpx;
   padding: 2rpx 10rpx;
 }
@@ -238,7 +238,7 @@
   align-items: center;
   gap: 16rpx;
   padding-top: 10rpx;
-  border-top: 1rpx solid rgba(0, 255, 136, 0.1);
+  border-top: 1rpx solid rgba(59, 130, 246, 0.1);
 }
 .ms-rate-label {
   font-size: 20rpx;
@@ -265,9 +265,9 @@
 }
 .ms-rate-opt--pressed { opacity: 0.7; }
 .ms-rate-opt--on {
-  color: #00ff88;
-  background: rgba(0, 255, 136, 0.12);
-  border-color: rgba(0, 255, 136, 0.5);
+  color: #3B82F6;
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.5);
   font-weight: 700;
 }
 
@@ -288,7 +288,7 @@
   color: rgba(255, 255, 255, 0.55);
 }
 .ms-legend-dot { width: 12rpx; height: 12rpx; border-radius: 50%; }
-.ms-legend-dot--booster { background: #00ff88; }
+.ms-legend-dot--booster { background: #3B82F6; }
 .ms-legend-dot--ship { background: #4da3ff; }
 
 .ms-diagram {
@@ -320,7 +320,7 @@
 .ms-bar-fill {
   height: 100%;
   border-radius: 999rpx;
-  background: linear-gradient(90deg, rgba(0, 255, 136, 0.5), #00ff88);
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.5), #3B82F6);
   transition: width 0.3s linear;
 }
 .ms-bar-fill--water { background: linear-gradient(90deg, rgba(77, 163, 255, 0.5), #4da3ff); }
@@ -389,8 +389,8 @@
 }
 .ms-tl-state {
   font-size: 18rpx;
-  color: #00ff88;
-  border: 1rpx solid rgba(0, 255, 136, 0.4);
+  color: #3B82F6;
+  border: 1rpx solid rgba(59, 130, 246, 0.4);
   border-radius: 999rpx;
   padding: 2rpx 12rpx;
   animation: ms-blink 1.2s step-end infinite;
@@ -410,20 +410,20 @@
 
 /* 节点状态 */
 .ms-tl-node--done .ms-tl-dot {
-  background: rgba(0, 255, 136, 0.85);
-  border-color: rgba(0, 255, 136, 0.85);
+  background: rgba(59, 130, 246, 0.85);
+  border-color: rgba(59, 130, 246, 0.85);
 }
-.ms-tl-node--done .ms-tl-line { background: rgba(0, 255, 136, 0.35); }
+.ms-tl-node--done .ms-tl-line { background: rgba(59, 130, 246, 0.35); }
 .ms-tl-node--done .ms-tl-label { color: rgba(255, 255, 255, 0.85); }
-.ms-tl-node--done .ms-tl-t { color: rgba(0, 255, 136, 0.6); }
+.ms-tl-node--done .ms-tl-t { color: rgba(59, 130, 246, 0.6); }
 
 .ms-tl-node--active .ms-tl-dot {
-  background: #00ff88;
-  border-color: #00ff88;
-  box-shadow: 0 0 14rpx rgba(0, 255, 136, 0.8);
+  background: #3B82F6;
+  border-color: #3B82F6;
+  box-shadow: 0 0 10rpx rgba(59, 130, 246, 0.4);
 }
 .ms-tl-node--active .ms-tl-label { color: #FFFFFF; font-size: 28rpx; }
-.ms-tl-node--active .ms-tl-t { color: #00ff88; }
+.ms-tl-node--active .ms-tl-t { color: #3B82F6; }
 .ms-tl-node--active .ms-tl-desc { color: rgba(255, 255, 255, 0.6); }
 
 .ms-tl-node--abort .ms-tl-dot {
@@ -450,8 +450,8 @@
   margin-top: 20rpx;
   padding: 28rpx 26rpx;
   border-radius: 16rpx;
-  background: rgba(8, 14, 11, 0.9);
-  border: 1rpx solid rgba(0, 255, 136, 0.3);
+  background: rgba(11, 12, 14, 0.92);
+  border: 1rpx solid rgba(59, 130, 246, 0.3);
   display: flex;
   flex-direction: column;
   gap: 16rpx;
@@ -464,7 +464,7 @@
 .ms-gate-tag {
   font-family: 'Courier New', monospace;
   font-size: 20rpx;
-  color: #00ff88;
+  color: #3B82F6;
   letter-spacing: 4rpx;
 }
 .ms-gate-title { font-size: 32rpx; font-weight: 700; color: #fff; }
@@ -510,8 +510,8 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
-.ms-station--go { border-color: rgba(0, 255, 136, 0.3); }
-.ms-station--go .ms-station-dot { background: #00ff88; box-shadow: 0 0 10rpx rgba(0, 255, 136, 0.7); }
+.ms-station--go { border-color: rgba(59, 130, 246, 0.3); }
+.ms-station--go .ms-station-dot { background: #34C759; box-shadow: 0 0 8rpx rgba(52, 199, 89, 0.45); }
 .ms-station--amber { border-color: rgba(255, 179, 64, 0.45); background: rgba(255, 179, 64, 0.06); }
 .ms-station--amber .ms-station-dot { background: #ffb340; box-shadow: 0 0 10rpx rgba(255, 179, 64, 0.7); }
 .ms-station--nogo { border-color: rgba(255, 69, 58, 0.5); background: rgba(255, 69, 58, 0.08); }
@@ -524,7 +524,7 @@
 .ms-log-t {
   font-family: 'Courier New', monospace;
   font-size: 20rpx;
-  color: #00ff88;
+  color: #3B82F6;
   flex-shrink: 0;
   opacity: 0.8;
 }
@@ -549,19 +549,19 @@
   display: flex;
   flex-direction: column;
   gap: 18rpx;
-  background: rgba(8, 14, 11, 0.96);
+  background: rgba(11, 12, 14, 0.96);
   box-sizing: border-box;
 }
 .ms-debrief-title { font-size: 40rpx; font-weight: 700; }
-.ms-debrief-title--success { color: #00ff88; }
+.ms-debrief-title--success { color: #34C759; }
 .ms-debrief-title--partial { color: #ffb340; }
 .ms-debrief-title--fail { color: #ff6b61; }
 .ms-debrief-title--scrub { color: #4da3ff; }
 .ms-debrief-verdict { font-size: 24rpx; line-height: 1.7; color: rgba(255, 255, 255, 0.7); }
 .ms-debrief-log {
   height: 300rpx;
-  border-top: 1rpx solid rgba(0, 255, 136, 0.12);
-  border-bottom: 1rpx solid rgba(0, 255, 136, 0.12);
+  border-top: 1rpx solid rgba(59, 130, 246, 0.12);
+  border-bottom: 1rpx solid rgba(59, 130, 246, 0.12);
   padding: 12rpx 0;
   box-sizing: border-box;
 }
@@ -598,9 +598,9 @@
   bottom: calc(env(safe-area-inset-bottom) + 24rpx);
   height: 88rpx;
   border-radius: 999rpx;
-  background: rgba(8, 14, 11, 0.95);
-  border: 1rpx solid rgba(0, 255, 136, 0.45);
-  color: #00ff88;
+  background: rgba(11, 12, 14, 0.95);
+  border: 1rpx solid rgba(59, 130, 246, 0.45);
+  color: #3B82F6;
   font-size: 26rpx;
   font-weight: 600;
   display: flex;

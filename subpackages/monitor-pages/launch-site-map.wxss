@@ -1,5 +1,5 @@
 page {
-  background: #000;
+  background: #0B0C0E;
   overflow: hidden;
   height: 100vh;
 }
@@ -24,7 +24,7 @@ page {
   justify-content: center;
   padding: 0 48rpx;
   box-sizing: border-box;
-  background: radial-gradient(ellipse at center, rgba(10, 132, 255, 0.14), #000 70%);
+  background: radial-gradient(ellipse at center, rgba(59, 130, 246, 0.14), #0B0C0E 70%);
 }
 
 .moments-map-fallback-title {
@@ -44,15 +44,13 @@ page {
 }
 
 .glass-card {
-  background: rgba(18, 18, 20, 0.78);
-  backdrop-filter: blur(18rpx);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-glass);
 }
 
 .state-card {
-  margin-bottom: 20rpx;
-  padding: 20rpx;
-  border-radius: 24rpx;
+  margin-bottom: var(--space-sm);
+  padding: var(--space-md);
+  border-radius: var(--radius-card);
   background: rgba(255, 255, 255, 0.04);
 }
 
@@ -87,7 +85,7 @@ page {
   min-height: 48rpx;
   padding: 0 16rpx;
   border-radius: 999rpx;
-  background: rgba(10, 132, 255, 0.16);
+  background: rgba(59, 130, 246, 0.16);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -95,7 +93,7 @@ page {
 }
 
 .panel-badge text {
-  color: #9FD0FF;
+  color: var(--color-brand);
   font-size: 20rpx;
 }
 
@@ -142,12 +140,12 @@ page {
 }
 
 .type-chip--active {
-  background: rgba(10, 132, 255, 0.18);
-  border: 1px solid rgba(10, 132, 255, 0.55);
+  background: rgba(59, 130, 246, 0.18);
+  border: 1px solid rgba(59, 130, 246, 0.55);
 }
 
 .type-chip--active text {
-  color: #9FD0FF;
+  color: var(--color-brand);
 }
 
 .site-chip {
@@ -159,8 +157,8 @@ page {
 }
 
 .site-chip--active {
-  background: rgba(10, 132, 255, 0.14);
-  border: 1px solid rgba(10, 132, 255, 0.55);
+  background: rgba(59, 130, 246, 0.14);
+  border: 1px solid rgba(59, 130, 246, 0.55);
 }
 
 .site-chip-name {
@@ -245,7 +243,6 @@ page {
 /* ========== 明亮主题（theme-light）覆盖 ========== */
 .theme-light .glass-card {
   background: rgba(255, 255, 255, 0.85);
-  border-color: var(--color-divider);
 }
 
 .theme-light .state-card {
@@ -265,11 +262,11 @@ page {
 }
 
 .theme-light .panel-badge {
-  background: rgba(10, 132, 255, 0.12);
+  background: rgba(59, 130, 246, 0.12);
 }
 
 .theme-light .panel-badge text {
-  color: #0A84FF;
+  color: var(--color-brand);
 }
 
 .theme-light .data-meta-text {
@@ -285,11 +282,11 @@ page {
 }
 
 .theme-light .type-chip--active {
-  background: rgba(10, 132, 255, 0.12);
+  background: rgba(59, 130, 246, 0.12);
 }
 
 .theme-light .type-chip--active text {
-  color: #0A84FF;
+  color: var(--color-brand);
 }
 
 .theme-light .site-chip {
@@ -297,7 +294,7 @@ page {
 }
 
 .theme-light .site-chip--active {
-  background: rgba(10, 132, 255, 0.12);
+  background: rgba(59, 130, 246, 0.12);
 }
 
 .theme-light .site-chip-name {

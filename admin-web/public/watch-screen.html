@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>火箭观礼大屏</title>
+  <style>
+    /* 楼顶大屏页：安卓盒子/平板浏览器全屏投放，1080p/4K 横屏为主
+       兼容目标：Android WebView / Chrome 49+（全部 ES5 语法，无 URLSearchParams） */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; }
+    body {
+      background: radial-gradient(ellipse at 50% 120%, #14213d 0%, #05060a 65%);
+      color: #fff;
+      font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      display: flex;
+      flex-direction: column;
+      -webkit-user-select: none; user-select: none;
+    }
+    .screen { flex: 1; display: flex; flex-direction: column; padding: 3vh 4vw; gap: 2vh; }
+
+    .head { display: flex; align-items: baseline; justify-content: space-between; gap: 2vw; }
+    .head-title { font-size: 3.2vw; font-weight: 800; letter-spacing: 0.2vw; white-space: nowrap; }
+    .head-sub { flex: 1; font-size: 1.6vw; color: #93C5FD; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .phase-badge {
+      font-size: 1.3vw; padding: 0.6vh 1.2vw; border-radius: 2vw; white-space: nowrap;
+      background: rgba(96, 165, 250, 0.15); border: 1px solid rgba(96, 165, 250, 0.4); color: #93C5FD;
+    }
+    body.phase-final .phase-badge { background: rgba(239, 68, 68, 0.18); border-color: rgba(239, 68, 68, 0.5); color: #FCA5A5; }
+    body.phase-launched .phase-badge { background: rgba(52, 211, 153, 0.15); border-color: rgba(52, 211, 153, 0.5); color: #6EE7B7; }
+
+    .main { flex: 1; display: flex; gap: 3vw; align-items: stretch; min-height: 0; }
+    .left { flex: 3; display: flex; flex-direction: column; gap: 2vh; min-width: 0; }
+    .left-top { display: flex; gap: 2vw; align-items: stretch; min-height: 0; }
+    .rocket-panel {
+      display: none; width: 12vw; min-width: 96px; flex-shrink: 0;
+      background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 1vw; padding: 1vh 0.6vw; align-items: center; justify-content: center;
+    }
+    .rocket-panel.show { display: flex; }
+    .rocket-img { width: 100%; height: 100%; max-height: 28vh; object-fit: contain; }
+    .cd-block { flex: 1; min-width: 0; }
+    .right {
+      flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 2vh; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 1.5vw; padding: 3vh 2vw;
+    }
+
+    .cd-label { font-size: 1.8vw; color: rgba(255, 255, 255, 0.55); letter-spacing: 0.3vw; }
+    .cd-row { display: flex; gap: 1.5vw; }
+    .cd-cell {
+      flex: 1; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(96, 165, 250, 0.25);
+      border-radius: 1vw; padding: 2.5vh 0; text-align: center;
+    }
+    .cd-num { font-size: 7vw; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+    .cd-unit { font-size: 1.3vw; color: rgba(255, 255, 255, 0.5); }
+    /* 最后冲刺：倒计时放大 + 红色脉冲边框 */
+    body.phase-final .cd-num { font-size: 8.5vw; color: #FCA5A5; }
+    body.phase-final .cd-cell { border-color: rgba(239, 68, 68, 0.5); animation: pulse 2s infinite; }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+      50% { box-shadow: 0 0 3vw 0 rgba(239, 68, 68, 0.25); }
+    }
+    .cd-done { font-size: 3.6vw; font-weight: 800; color: #34D399; text-align: center; padding: 3vh 0; }
+    .ssr-banner {
+      display: none; text-align: center; font-size: 2vw; font-weight: 700; padding: 2vh 2vw;
+      border-radius: 1.5vw; color: #FDE68A;
+      background: linear-gradient(90deg, rgba(245, 158, 11, 0.2), rgba(239, 68, 68, 0.2));
+      border: 1px solid rgba(245, 158, 11, 0.5);
+    }
+
+    .sci {
+      flex: 1; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 1.5vw; padding: 3vh 2.5vw; display: flex; flex-direction: column; justify-content: center;
+      min-height: 0; cursor: pointer;
+    }
+    .sci-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5vh; gap: 1vw; }
+    .sci-tag { font-size: 1.3vw; color: #FBBF24; }
+    .sci-head-right { display: flex; align-items: center; gap: 1vw; }
+    .sci-progress { font-size: 1.2vw; color: rgba(255, 255, 255, 0.4); }
+    .sci-pause {
+      font-size: 1.1vw; padding: 0.4vh 1vw; border-radius: 1.2vw; cursor: pointer;
+      color: rgba(255,255,255,0.75); background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.18); user-select: none;
+    }
+    .sci-pause.on { color: #93C5FD; background: rgba(59,130,246,0.2); border-color: rgba(96,165,250,0.45); }
+    .sci-viewport { overflow: hidden; flex: 1; min-height: 0; position: relative; }
+    .sci-body {
+      transition: transform 0.32s ease, opacity 0.32s ease; min-height: 0;
+      display: flex; flex-direction: column; justify-content: center; height: 100%;
+    }
+    .sci-body.out { transform: translateY(-1.2vh); opacity: 0; }
+    .sci-body.in { transform: translateY(0); opacity: 1; }
+    .sci-title { font-size: 2.6vw; font-weight: 800; line-height: 1.4; margin-bottom: 1vh; }
+    .sci-text-wrap { overflow: hidden; max-height: 22vh; }
+    .sci-text-track { display: flex; flex-direction: column; }
+    .sci-text-block { padding-bottom: 2vh; }
+    .sci-text-wrap.run .sci-text-track { animation: sci-marquee 14s linear infinite; }
+    .sci-text-wrap.paused .sci-text-track { animation-play-state: paused; }
+    @keyframes sci-marquee {
+      0% { transform: translateY(0); }
+      100% { transform: translateY(-50%); }
+    }
+    .sci-text { font-size: 2vw; line-height: 1.65; font-weight: 500; color: rgba(255, 255, 255, 0.92); }
+    /* 商家上传的发射配置图（轮播图片卡）：整幅居中展示 */
+    .sci-img { display: none; width: 100%; height: 100%; min-height: 0; object-fit: contain; border-radius: 0.8vw; }
+    .sci-hint { font-size: 1.1vw; color: rgba(255, 255, 255, 0.3); margin-top: 1.5vh; }
+
+    .vote { display: flex; flex-direction: column; gap: 1vh; }
+    .vote-title { font-size: 1.4vw; color: rgba(255, 255, 255, 0.6); }
+    .vote-bar { display: flex; height: 3.2vh; border-radius: 1.6vh; overflow: hidden; background: rgba(255,255,255,0.08); }
+    .vote-ge { background: linear-gradient(90deg, #F59E0B, #EF4444); transition: width 0.8s; }
+    .vote-buge { background: linear-gradient(90deg, #3B82F6, #34D399); transition: width 0.8s; }
+    .vote-legend { display: flex; justify-content: space-between; font-size: 1.3vw; color: rgba(255, 255, 255, 0.75); }
+
+    .qr-title { font-size: 1.8vw; font-weight: 700; text-align: center; }
+    .qr-img { width: 16vw; height: 16vw; background: #fff; border-radius: 1vw; object-fit: contain; }
+    .qr-placeholder {
+      width: 16vw; height: 16vw; border-radius: 1vw; border: 2px dashed rgba(255,255,255,0.3);
+      display: flex; align-items: center; justify-content: center; font-size: 1.2vw; color: rgba(255,255,255,0.4);
+      text-align: center; padding: 1vw;
+    }
+    .qr-sub { font-size: 1.2vw; color: rgba(255, 255, 255, 0.55); text-align: center; line-height: 1.6; }
+    .stat-line { font-size: 1.3vw; color: #93C5FD; }
+
+    .foot { display: flex; justify-content: space-between; align-items: center; font-size: 1.1vw; color: rgba(255, 255, 255, 0.35); gap: 2vw; }
+    .net-badge {
+      display: none; font-size: 1.1vw; color: #FCA5A5; padding: 0.4vh 1vw;
+      border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 1.5vw;
+    }
+    .fs-hint {
+      position: fixed; left: 50%; bottom: 6vh; transform: translateX(-50%);
+      font-size: 1.4vw; color: rgba(255, 255, 255, 0.7); background: rgba(0, 0, 0, 0.6);
+      padding: 1.2vh 2.5vw; border-radius: 3vw; border: 1px solid rgba(255, 255, 255, 0.2);
+      pointer-events: none;
+    }
+    .error {
+      position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+      background: #05060a; font-size: 2vw; color: rgba(255, 255, 255, 0.6); text-align: center; padding: 4vw;
+    }
+  </style>
+</head>
+<body>
+  <div class="screen" id="screen" style="display:none">
+    <div class="head">
+      <div class="head-title" id="title">火箭观礼</div>
+      <div class="head-sub" id="subtitle"></div>
+      <div class="phase-badge" id="phaseBadge">签到入场</div>
+    </div>
+
+    <div class="main">
+      <div class="left">
+        <div class="left-top">
+          <div class="rocket-panel" id="rocketWrap">
+            <img class="rocket-img" id="rocketImg" alt="火箭配置图" />
+          </div>
+          <div class="cd-block">
+            <div class="cd-label" id="cdLabel">距发射还有</div>
+            <div class="cd-row" id="cdRow">
+              <div class="cd-cell"><div class="cd-num" id="cdD">--</div><div class="cd-unit">天</div></div>
+              <div class="cd-cell"><div class="cd-num" id="cdH">--</div><div class="cd-unit">时</div></div>
+              <div class="cd-cell"><div class="cd-num" id="cdM">--</div><div class="cd-unit">分</div></div>
+              <div class="cd-cell"><div class="cd-num" id="cdS">--</div><div class="cd-unit">秒</div></div>
+            </div>
+            <div class="cd-done" id="cdDone" style="display:none">🚀 点火升空！祝观礼顺利</div>
+            <div class="ssr-banner" id="ssrBanner">发射成功 · 现场奖品抽奖已开放，扫物料码参与！</div>
+          </div>
+        </div>
+
+        <div class="sci" id="sciCard">
+          <div class="sci-head">
+            <div class="sci-tag">🔭 观礼科普</div>
+            <div class="sci-head-right">
+              <div class="sci-progress" id="sciProgress"></div>
+              <div class="sci-pause" id="sciPauseBtn">暂停</div>
+            </div>
+          </div>
+          <div class="sci-viewport">
+            <div class="sci-body in" id="sciBody">
+              <div class="sci-title" id="sciTitle" style="display:none"></div>
+              <div class="sci-text-wrap" id="sciTextWrap">
+                <div class="sci-text-track" id="sciTextTrack">
+                  <div class="sci-text-block"><div class="sci-text" id="sciText">欢迎来到火箭观礼现场</div></div>
+                  <div class="sci-text-block" id="sciTextDup" style="display:none"><div class="sci-text" id="sciText2"></div></div>
+                </div>
+              </div>
+              <img class="sci-img" id="sciImg" alt="发射配置图" />
+            </div>
+          </div>
+          <div class="sci-hint" id="sciHint">自动上滑循环 · 轻触翻页</div>
+        </div>
+
+        <div class="vote" id="voteWrap" style="display:none">
+          <div class="vote-title" id="voteTitle">现场竞猜 · 会准时发射吗？</div>
+          <div class="vote-bar">
+            <div class="vote-ge" id="voteGe" style="width:50%"></div>
+            <div class="vote-buge" id="voteBuge" style="width:50%"></div>
+          </div>
+          <div class="vote-legend">
+            <span id="voteGeLabel">鸽 0</span>
+            <span id="voteBugeLabel">不鸽 0</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="right">
+        <div class="qr-title">扫码抽现场奖品</div>
+        <img class="qr-img" id="qrImg" style="display:none" alt="抽奖小程序码" />
+        <div class="qr-placeholder" id="qrPlaceholder">商家开启现场抽奖并生成物料码后显示</div>
+        <div class="qr-sub">微信扫一扫 · 抽取商家提供的现场奖品<br />按库存加权 · 抽完即止</div>
+        <div class="stat-line" id="statLine"></div>
+      </div>
+    </div>
+
+    <div class="foot">
+      <span>星问AI · 火星探索日志 小程序</span>
+      <span class="net-badge" id="netBadge">信号中断 · 正在重连…</span>
+      <span id="clock"></span>
+      <span id="addr"></span>
+    </div>
+  </div>
+
+  <div class="fs-hint" id="fsHint">轻触屏幕任意位置进入全屏</div>
+  <div class="error" id="error">正在加载观礼场次…<br /><br />用法：watch-screen.html?code=场次短码</div>
+
+  <script>
+    // ── 配置：adminGateway HTTP 访问地址（公开只读路由，无需登录态） ──
+    var API_BASE = 'https://cloud1-9gdqgdt5bfaa20fb-1397421562.ap-shanghai.app.tcloudbase.com/admin'
+
+    // 兼容老安卓 WebView：手写 query 解析，不用 URLSearchParams
+    function getQuery(name) {
+      var m = location.search.match(new RegExp('[?&]' + name + '=([^&]*)'))
+      return m ? decodeURIComponent(m[1].replace(/\+/g, ' ')) : ''
+    }
+    var CODE = getQuery('code')
+    if (getQuery('api')) API_BASE = getQuery('api')
+
+    var errorEl = document.getElementById('error')
+    var screenEl = document.getElementById('screen')
+    errorEl.style.display = 'flex'
+
+    var session = null
+    var sciIndex = 0
+    var sciCards = []       // [{title, body}]
+    var sciTimer = null
+    var sciAnimTimer = null
+    var sciPaused = false
+    var voteTimer = null
+    var phase = ''          // checkin | teach | final | launched
+    var failCount = 0
+    var SCI_TEXT_SCROLL_MIN = 48
+
+    function callGateway(path, query) {
+      return fetch(API_BASE, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: path, method: 'GET', query: query || {} })
+      }).then(function (r) { return r.json() }).then(function (r) {
+        if (!r || r.code !== 0) {
+          var err = new Error((r && r.message) || '请求失败')
+          err.code = r && r.code
+          throw err
+        }
+        return r.data
+      })
+    }
+
+    function pad2(n) { return n < 10 ? '0' + n : '' + n }
+
+    // ── 科普卡片：支持「标题|正文」结构化格式（半角/全角竖线），纯文本行向后兼容 ──
+    function parseSciCards(points) {
+      var cards = []
+      for (var i = 0; i < (points || []).length; i++) {
+        var line = String(points[i] || '').trim()
+        if (!line) continue
+        var sep = line.indexOf('|') >= 0 ? '|' : (line.indexOf('｜') >= 0 ? '｜' : '')
+        if (sep) {
+          var at = line.indexOf(sep)
+          cards.push({ title: line.slice(0, at).trim(), body: line.slice(at + 1).trim() })
+        } else {
+          cards.push({ title: '', body: line })
+        }
+      }
+      return cards
+    }
+
+    /** 轮播序列 = 科普文字卡 + 商家上传的发射配置图（图片卡整幅展示） */
+    function buildSciCards(points, images) {
+      var cards = parseSciCards(points)
+      var imgs = images || []
+      for (var i = 0; i < imgs.length; i++) {
+        if (imgs[i]) cards.push({ image: imgs[i] })
+      }
+      return cards
+    }
+
+    function updateSciHint() {
+      document.getElementById('sciHint').textContent = sciPaused
+        ? '已暂停 · 轻触翻页'
+        : '自动上滑循环 · 轻触翻页'
+      var btn = document.getElementById('sciPauseBtn')
+      btn.textContent = sciPaused ? '继续' : '暂停'
+      if (sciPaused) btn.className = 'sci-pause on'
+      else btn.className = 'sci-pause'
+    }
+
+    function setSciTextScroll(body) {
+      var wrap = document.getElementById('sciTextWrap')
+      var dup = document.getElementById('sciTextDup')
+      var t2 = document.getElementById('sciText2')
+      var enable = !!(body && body.length >= SCI_TEXT_SCROLL_MIN)
+      if (enable) {
+        t2.textContent = body
+        dup.style.display = 'block'
+        wrap.className = 'sci-text-wrap' + (sciPaused ? ' paused' : ' run')
+      } else {
+        dup.style.display = 'none'
+        wrap.className = 'sci-text-wrap'
+      }
+    }
+
+    function showSciCard(idx, animate) {
+      if (!sciCards.length) return
+      var card = sciCards[idx % sciCards.length]
+      var bodyEl = document.getElementById('sciBody')
+      var apply = function () {
+        var titleEl = document.getElementById('sciTitle')
+        var textEl = document.getElementById('sciText')
+        var textWrap = document.getElementById('sciTextWrap')
+        var imgEl = document.getElementById('sciImg')
+        if (card.image) {
+          titleEl.style.display = 'none'
+          textWrap.style.display = 'none'
+          imgEl.src = card.image
+          imgEl.style.display = 'block'
+          setSciTextScroll('')
+        } else {
+          imgEl.style.display = 'none'
+          textWrap.style.display = 'block'
+          if (card.title) {
+            titleEl.textContent = card.title
+            titleEl.style.display = 'block'
+          } else {
+            titleEl.style.display = 'none'
+          }
+          textEl.textContent = card.body
+          setSciTextScroll(card.body || '')
+        }
+        document.getElementById('sciProgress').textContent = (idx % sciCards.length + 1) + ' / ' + sciCards.length
+        bodyEl.className = 'sci-body in'
+      }
+      if (sciAnimTimer) { clearTimeout(sciAnimTimer); sciAnimTimer = null }
+      if (animate) {
+        bodyEl.className = 'sci-body out'
+        sciAnimTimer = setTimeout(apply, 320)
+      } else {
+        apply()
+      }
+    }
+
+    /** 分阶段轮播间隔：签到期 20s，讲解期 15s，冲刺/升空期暂停自动轮播（主持人手动） */
+    function sciIntervalMs() {
+      if (phase === 'teach') return 15000
+      if (phase === 'checkin') return 20000
+      return 0
+    }
+
+    function scheduleSci() {
+      if (sciTimer) { clearTimeout(sciTimer) ; sciTimer = null }
+      if (sciPaused || phase === 'final') return
+      var ms = sciIntervalMs()
+      if (!ms || sciCards.length <= 1) return
+      sciTimer = setTimeout(function () {
+        if (sciPaused) return
+        sciIndex++
+        showSciCard(sciIndex, true)
+        scheduleSci()
+      }, ms)
+    }
+
+    // 主持人手动切换：轻触科普卡 → 下一条（并重排自动轮播计时）；暂停按钮不触发翻页
+    document.getElementById('sciCard').addEventListener('click', function (e) {
+      e.stopPropagation()
+      if (!sciCards.length || phase === 'final') return
+      sciIndex++
+      showSciCard(sciIndex, true)
+      scheduleSci()
+    })
+
+    document.getElementById('sciPauseBtn').addEventListener('click', function (e) {
+      e.stopPropagation()
+      if (phase === 'final') return
+      sciPaused = !sciPaused
+      updateSciHint()
+      var wrap = document.getElementById('sciTextWrap')
+      if (wrap.className.indexOf('run') >= 0 || wrap.className.indexOf('paused') >= 0) {
+        wrap.className = 'sci-text-wrap' + (sciPaused ? ' paused' : ' run')
+      }
+      if (sciPaused) {
+        if (sciTimer) { clearTimeout(sciTimer); sciTimer = null }
+      } else {
+        scheduleSci()
+      }
+    })
+
+    updateSciHint()
+
+    // ── 阶段编排 ──
+    var PHASE_LABELS = { checkin: '签到入场 · 扫码抽奖', teach: '科普讲解中', final: '发射倒计时', launched: '已点火升空' }
+
+    /** 距发射毫秒差；无发射时间返回 null */
+    function launchDiff() {
+      if (!session || !session.launchTime) return null
+      var t = new Date(session.launchTime).getTime()
+      if (!t || isNaN(t)) return null
+      return t - Date.now()
+    }
+
+    function computePhase() {
+      var diff = launchDiff()
+      if (diff === null) return 'checkin'
+      if (diff <= 0) return 'launched'
+      if (diff <= 10 * 60000) return 'final'
+      if (diff <= 60 * 60000) return 'teach'
+      return 'checkin'
+    }
+
+    function applyPhase(next) {
+      if (next === phase) return
+      phase = next
+      document.body.className = 'phase-' + phase
+      document.getElementById('phaseBadge').textContent = PHASE_LABELS[phase] || ''
+      if (phase === 'final') {
+        // 冲刺期：科普停轮播，固定展示观礼提示（若上一张是配置图需切回文字卡）
+        if (sciTimer) { clearTimeout(sciTimer); sciTimer = null }
+        sciPaused = false
+        updateSciHint()
+        document.getElementById('sciImg').style.display = 'none'
+        document.getElementById('sciTextWrap').style.display = 'block'
+        document.getElementById('sciTitle').textContent = '📣 即将点火'
+        document.getElementById('sciTitle').style.display = 'block'
+        var finalBody = '请留在安全区域，收好随身物品。点火后约 30 秒轰鸣声才会到达楼顶，属正常现象，请安抚小朋友不要惊慌。'
+        document.getElementById('sciText').textContent = finalBody
+        setSciTextScroll(finalBody)
+        document.getElementById('sciProgress').textContent = ''
+        document.getElementById('sciBody').className = 'sci-body in'
+      } else {
+        showSciCard(sciIndex, false)
+        scheduleSci()
+      }
+      // 阶段切换时按新节奏重排轮询
+      scheduleVote(true)
+      scheduleSessionPoll()
+    }
+
+    function renderSession(s) {
+      session = s
+      document.getElementById('title').textContent = s.title || '火箭观礼'
+      document.getElementById('subtitle').textContent =
+        (s.rocketName || '') + (s.missionName ? ' · ' + s.missionName : '')
+      document.getElementById('addr').textContent = s.address || ''
+      if (s.qrCodeUrl) {
+        var img = document.getElementById('qrImg')
+        img.src = s.qrCodeUrl
+        img.style.display = 'block'
+        document.getElementById('qrPlaceholder').style.display = 'none'
+      }
+      var stat = []
+      if (s.reserveCount) stat.push('已预约 ' + s.reserveCount + ' 组')
+      if (s.drawCount) stat.push('现场已抽奖 ' + s.drawCount + ' 次')
+      document.getElementById('statLine').textContent = stat.join(' · ')
+
+      // 网页大屏无小程序本地配置图库：优先用商家上传的首张发射配置图作左侧展示
+      var rocketSrc = (s.scienceImages && s.scienceImages[0]) || ''
+      var rocketWrap = document.getElementById('rocketWrap')
+      var rocketImg = document.getElementById('rocketImg')
+      if (rocketSrc) {
+        rocketImg.src = rocketSrc
+        rocketWrap.className = 'rocket-panel show'
+      } else {
+        rocketWrap.className = 'rocket-panel'
+      }
+
+      var nextCards = buildSciCards(s.sciencePoints, s.scienceImages)
+      var changed = JSON.stringify(nextCards) !== JSON.stringify(sciCards)
+      sciCards = nextCards
+      if (changed && phase !== 'final') {
+        sciIndex = 0
+        showSciCard(0, false)
+        scheduleSci()
+      }
+      // 商家确认发射成功后展示抽奖横幅（轮询可在 2 分钟内捕捉到）
+      document.getElementById('ssrBanner').style.display =
+        (s.prizeDrawEnabled && s.successUnlocked) ? 'block' : 'none'
+
+      errorEl.style.display = 'none'
+      screenEl.style.display = 'flex'
+    }
+
+    function tickCountdown() {
+      // 页脚时钟（工作人员对时用）
+      var now = new Date()
+      document.getElementById('clock').textContent =
+        pad2(now.getHours()) + ':' + pad2(now.getMinutes()) + ':' + pad2(now.getSeconds())
+
+      if (!session || !session.launchTime) return
+      var target = new Date(session.launchTime).getTime()
+      if (!target || isNaN(target)) return
+      var diff = target - Date.now()
+      if (diff <= 0) {
+        document.getElementById('cdRow').style.display = 'none'
+        document.getElementById('cdLabel').style.display = 'none'
+        document.getElementById('cdDone').style.display = 'block'
+      } else {
+        document.getElementById('cdRow').style.display = 'flex'
+        document.getElementById('cdLabel').style.display = 'block'
+        document.getElementById('cdDone').style.display = 'none'
+        document.getElementById('cdD').textContent = Math.floor(diff / 86400000)
+        document.getElementById('cdH').textContent = pad2(Math.floor(diff % 86400000 / 3600000))
+        document.getElementById('cdM').textContent = pad2(Math.floor(diff % 3600000 / 60000))
+        document.getElementById('cdS').textContent = pad2(Math.floor(diff % 60000 / 1000))
+      }
+      applyPhase(computePhase())
+    }
+
+    // ── 竞猜：冲刺期 15s 刷新，其余 60s ──
+    function refreshVote() {
+      if (!session || !session.missionId) return
+      callGateway('/vote/' + encodeURIComponent(session.missionId), {}).then(function (v) {
+        if (!v) return
+        var ge = Number(v.geCount || 0)
+        var buge = Number(v.buGeCount || v.bugeCount || 0)
+        var total = ge + buge
+        if (total <= 0) return
+        document.getElementById('voteWrap').style.display = 'flex'
+        document.getElementById('voteTitle').textContent =
+          '现场竞猜 · ' + (v.customQuestion || '会准时发射吗？') + '（' + total + ' 人参与）'
+        var gePct = Math.round(ge / total * 100)
+        document.getElementById('voteGe').style.width = gePct + '%'
+        document.getElementById('voteBuge').style.width = (100 - gePct) + '%'
+        document.getElementById('voteGeLabel').textContent = (v.geLabel || '鸽') + ' ' + ge
+        document.getElementById('voteBugeLabel').textContent = (v.bugeLabel || '不鸽') + ' ' + buge
+      }).catch(function () {})
+    }
+
+    // ── 云资源友好轮询：距发射越近越快，闲时大幅放慢（大屏常年挂机，省数据库读次数） ──
+    function votePollMs() {
+      var diff = launchDiff()
+      if (diff === null) return 600000                          // 无发射时间：10 分钟
+      if (diff <= 10 * 60000 && diff > -3600000) return 15000   // 冲刺期~发射后1h：15 秒（现场氛围）
+      if (diff > 0 && diff <= 6 * 3600000) return 60000         // 发射前 6h：1 分钟
+      return 300000                                             // 远期/发射 1h 后：5 分钟
+    }
+
+    function sessionPollMs() {
+      var diff = launchDiff()
+      if (diff === null) return 600000
+      if (diff <= 10 * 60000 && diff > -3600000) return 60000   // 及时捕捉后台点亮「发射成功」
+      if (diff > 0 && diff <= 6 * 3600000) return 120000
+      return 600000
+    }
+
+    var sessionTimer = null
+    function scheduleSessionPoll() {
+      if (sessionTimer) clearTimeout(sessionTimer)
+      sessionTimer = setTimeout(function () {
+        refreshSession()
+        scheduleSessionPoll()
+      }, sessionPollMs())
+    }
+
+    function scheduleVote(immediate) {
+      if (voteTimer) { clearTimeout(voteTimer); voteTimer = null }
+      if (immediate) refreshVote()
+      voteTimer = setTimeout(function () { scheduleVote(true) }, votePollMs())
+    }
+
+    function refreshSession() {
+      var query = CODE ? { code: CODE } : {}
+      var loader = CODE
+        ? callGateway('/watch-party/screen', query)
+        : callGateway('/watch-party/config', {}).then(function (s) {
+            if (!s) throw new Error('无启用中的观礼场次')
+            return callGateway('/watch-party/screen', { sessionId: s.sessionId })
+          })
+      loader.then(function (s) {
+        failCount = 0
+        document.getElementById('netBadge').style.display = 'none'
+        renderSession(s)
+      }).catch(function (e) {
+        // 4030=服务全局关停 / 4040=场次或商家下线：即使大屏已在播也立即切停服提示
+        if (e && (e.code === 4030 || e.code === 4040)) {
+          session = null
+          screenEl.style.display = 'none'
+          errorEl.style.display = 'flex'
+          errorEl.innerHTML = e.message || '观礼服务暂未开放'
+          return
+        }
+        // 网络抖动：已有画面时保持现状 + 显示重连角标，等下轮轮询
+        failCount++
+        if (session) {
+          if (failCount >= 2) document.getElementById('netBadge').style.display = 'inline'
+        } else {
+          errorEl.innerHTML = '加载失败：' + (e.message || e) + '<br /><br />用法：watch-screen.html?code=场次短码'
+        }
+      })
+    }
+
+    // ── 安卓设备加固：防息屏 + 触屏全屏 ──
+    var wakeLock = null
+    function requestWakeLock() {
+      if (!navigator.wakeLock || !navigator.wakeLock.request) return
+      navigator.wakeLock.request('screen').then(function (lock) {
+        wakeLock = lock
+      }).catch(function () {})
+    }
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') requestWakeLock()
+    })
+    requestWakeLock()
+
+    function enterFullscreen() {
+      var el = document.documentElement
+      var fn = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen
+      if (fn) { try { fn.call(el) } catch (e) {} }
+      document.getElementById('fsHint').style.display = 'none'
+      // 全屏是用户手势，顺带补一次 wake lock（部分浏览器要求手势内请求）
+      requestWakeLock()
+    }
+    document.body.addEventListener('click', function onFirstTap() {
+      enterFullscreen()
+      document.body.removeEventListener('click', onFirstTap)
+    })
+
+    refreshSession()
+    setInterval(tickCountdown, 1000)
+    scheduleSessionPoll()
+    scheduleVote(false)
+    setTimeout(function () { refreshVote() }, 1500)
+  </script>
+</body>
+</html>

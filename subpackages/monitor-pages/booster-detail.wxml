@@ -40,25 +40,27 @@
     <!-- 详情内容 -->
     <block wx:elif="{{item}}">
 
-    <!-- Hero 图片 -->
-    <view class="hero-section" bindtap="onHeroImageTap">
-      <image class="hero-img {{heroImageLoaded ? 'hero-img--loaded' : ''}}"
-             wx:if="{{item.imageUrl}}"
-             src="{{item.imageUrl}}"
-             mode="aspectFill"
-             bindload="onHeroImageLoad"
-             binderror="onHeroImageError" />
-      <view class="hero-img hero-placeholder" wx:else>
-        <text class="hero-placeholder-icon"></text>
+    <!-- Hero 悬浮卡：多层毛玻璃叠层统一骨架（hero-float），点击预览 -->
+    <view class="hero-float">
+      <view class="hero-section hero-float-card" bindtap="onHeroImageTap">
+        <image class="hero-img {{heroImageLoaded ? 'hero-img--loaded' : ''}}"
+               wx:if="{{item.imageUrl}}"
+               src="{{item.imageUrl}}"
+               mode="aspectFill"
+               bindload="onHeroImageLoad"
+               binderror="onHeroImageError" />
+        <view class="hero-img hero-placeholder" wx:else>
+          <text class="hero-placeholder-icon"></text>
+        </view>
+        <!-- 渐变遮罩 -->
+        <view class="hero-gradient"></view>
+        <!-- 图片来源 -->
+        <view class="hero-credit-btn" wx:if="{{item.imageCredit}}">
+          <text class="hero-credit-text">{{item.imageCredit}}</text>
+        </view>
+        <!-- 状态标签 -->
+        <view class="hero-status" style="color: {{item.statusColor}};">{{item.statusText}}</view>
       </view>
-      <!-- 渐变遮罩 -->
-      <view class="hero-gradient"></view>
-      <!-- 图片来源 -->
-      <view class="hero-credit-btn" wx:if="{{item.imageCredit}}">
-        <text class="hero-credit-text">{{item.imageCredit}}</text>
-      </view>
-      <!-- 状态标签 -->
-      <view class="hero-status" style="color: {{item.statusColor}};">{{item.statusText}}</view>
     </view>
 
     <!-- 贴图讨论区：助推器详情头图下方；话题优先火箭名称，组件内已截断至 20 字 -->

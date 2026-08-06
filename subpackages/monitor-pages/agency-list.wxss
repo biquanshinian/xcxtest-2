@@ -1,12 +1,12 @@
 /* agency-list.wxss —— 全球发射商图鉴完整列表页（与监控页板块同款卡片样式，套用星舰硬件设施布局） */
 page {
-  background: #000;
+  background: #0B0C0E;
   color: #fff;
 }
 
 .list-page {
   min-height: 100vh;
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: var(--color-bg-page);
 }
 
 .list-scroll {
@@ -14,7 +14,7 @@ page {
 }
 
 .list-body {
-  padding: 20rpx 30rpx 0;
+  padding: var(--space-md) var(--space-lg) 0;
 }
 
 /* 导航标题包裹层：min-width:0 允许在 grid 中收缩，flex 保证标题始终水平居中 */
@@ -28,9 +28,8 @@ page {
 }
 
 .glass-card {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 24rpx;
+  background: var(--bg-glass);
+  border-radius: var(--radius-card);
   overflow: hidden;
 }
 
@@ -74,12 +73,12 @@ page {
 }
 
 .agency-chip-active {
-  background: rgba(10, 132, 255, 0.2);
-  border-color: rgba(10, 132, 255, 0.55);
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.55);
 }
 
 .agency-chip-active text {
-  color: #9FD0FF;
+  color: var(--color-brand);
   font-weight: 600;
 }
 
@@ -90,8 +89,8 @@ page {
   align-items: center;
   gap: 12rpx;
   padding: 14rpx 24rpx;
-  margin-bottom: 16rpx;
-  border-radius: 24rpx;
+  margin-bottom: var(--space-sm);
+  border-radius: var(--radius-card);
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid transparent;
 }
@@ -155,7 +154,6 @@ page {
   flex-direction: column;
   box-sizing: border-box;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 /* 扫光走全局 skeleton-shimmer（app.wxss） */
@@ -191,7 +189,7 @@ page {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle, rgba(90, 200, 250, 0.12), rgba(28, 28, 30, 0.95));
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.12), rgba(28, 28, 30, 0.95));
 }
 
 .agency-hw-card-image-placeholder text {
@@ -308,8 +306,6 @@ page {
 }
 .theme-light .glass-card {
   background: var(--color-bg-card);
-  border: 1px solid var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 .theme-light .agency-chip {
   background: rgba(0, 0, 0, 0.05);
@@ -319,11 +315,11 @@ page {
   color: var(--color-text-secondary);
 }
 .theme-light .agency-chip-active {
-  background: rgba(10, 132, 255, 0.12);
-  border-color: rgba(10, 132, 255, 0.45);
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.45);
 }
 .theme-light .agency-chip-active text {
-  color: #007AFF;
+  color: var(--color-brand);
 }
 .theme-light .agency-search {
   background: #FFFFFF;
@@ -348,7 +344,6 @@ page {
   color: var(--color-text-secondary);
 }
 .theme-light .agency-hw-card {
-  border: 1px solid var(--color-divider);
 }
 /* 骨架浅色底色由全局 .theme-light .skeleton-shimmer 提供 */
 .theme-light .agency-hw-card-image-wrap {
@@ -358,7 +353,7 @@ page {
   background-color: rgba(0, 0, 0, 0.05);
 }
 .theme-light .agency-hw-card-image-placeholder {
-  background: radial-gradient(circle, rgba(90, 200, 250, 0.14), #ECECF1);
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.14), #ECECF1);
 }
 /* agency-hw-card-image-mask / overlay 白字压在图片上，保持深色渐变收边 */
 .theme-light .agency-hw-card-meta {

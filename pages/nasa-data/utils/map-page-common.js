@@ -45,12 +45,31 @@ function findItemById(list, id, key = 'id') {
 
 function buildMapLayoutData(app, options = {}) {
   const uiShellLayout = (app && app.getUiShellLayout && app.getUiShellLayout()) || getUiShellLayout(getSystemInfo())
-  const menuBtn = wx.getMenuButtonBoundingClientRect()
+  const statusBarHeight = Number(uiShellLayout.statusBarHeight) || 44
+  const rpxToPx = (Number(uiShellLayout.windowWidth) || 375) / 750
+  let menuTop = statusBarHeight
+  let menuHeight = Math.round(32 * rpxToPx) || 32
+  let menuButtonWidth = 88
+  try {
+    const menuBtn = wx.getMenuButtonBoundingClientRect()
+    if (menuBtn && menuBtn.height) {
+      menuTop = Number(menuBtn.top) || menuTop
+      menuHeight = Number(menuBtn.height) || menuHeight
+      if (menuBtn.width) menuButtonWidth = Math.max(88, Math.ceil(menuBtn.width + 24))
+    }
+  } catch (e) {}
+  // 与 top-nav--page-grid 一致：padding-top 24rpx + min-height 96rpx；再与胶囊下沿取大，紧贴导航栏下口
+  const navRowBottom = statusBarHeight + Math.round((24 + 96) * rpxToPx)
+  const capsuleBottom = menuTop + menuHeight
+  const navBottom = Math.max(capsuleBottom, navRowBottom)
+  // 下限兜底：避免胶囊 API 异常时 mapActionTop=0 叠进状态栏
+  const mapActionTop = Math.max(Math.round(navBottom + 8), statusBarHeight + Math.round(56 * rpxToPx))
   const patch = {
-    statusBarHeight: uiShellLayout.statusBarHeight,
-    capsuleTop: menuBtn.top,
-    capsuleHeight: menuBtn.height,
-    mapActionTop: menuBtn.top + menuBtn.height + 5
+    statusBarHeight,
+    capsuleTop: menuTop,
+    capsuleHeight: menuHeight,
+    menuButtonWidth,
+    mapActionTop
   }
   if (options.includeNavPlaceholder) patch.navPlaceholderHeight = uiShellLayout.navPlaceholderHeight
   if (options.includeTabBarReserved) patch.tabBarReservedHeight = uiShellLayout.tabBarReservedHeight

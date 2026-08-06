@@ -53,6 +53,8 @@ const COLLECTIONS = {
   STARSHIP_EVENT_UPDATES: 'starship_event_updates',
   GLOBAL_CONFIG: 'global_config',
   ANNOUNCEMENTS: 'system_announcements',
+  /** 公告投票用户记录：_id = ann_${公告id}_${openid}，保证一人一票 */
+  ANNOUNCEMENT_VOTE_RECORDS: 'announcement_vote_records',
   PUSH_HISTORY: 'push_history',
   LAUNCH_SUBSCRIPTIONS: 'launch_subscriptions',
   LAUNCH_VOTES: 'launch_votes',
@@ -97,7 +99,15 @@ const ADMIN_GATEWAY_EXTRA_COLLECTIONS = [
   'oa_benchmark_accounts',
   'oa_viral_articles',
   'oa_viral_titles',
-  'oa_collected_articles'
+  'oa_collected_articles',
+  'watch_party_sessions',
+  'watch_party_reservations',
+  'watch_party_merchants',
+  'watch_party_config',
+  'watch_party_merchant_leads',
+  'souvenir_cards',
+  'souvenir_draws',
+  'souvenir_draw_quota'
 ]
 
 function ensureAdminGatewayCollectionsOnce() {
@@ -398,7 +408,8 @@ const PERMISSION_MODULES = {
   milestone_rewards: '里程碑彩蛋管理',
   knowledge_cards: '知识卡管理',
   launch_votes: '发射竞猜管理',
-  oa_content: '公众号内容中台'
+  oa_content: '公众号内容中台',
+  watch_party: '观礼服务管理'
 }
 
 function hasPermission(user, mod) {
@@ -5285,6 +5296,165 @@ async function rebuildYearReviewSnapshotAdmin(body, user) {
 }
 
 // ========== 系统公告 ==========
+/**
+ * 规范化公告投票配置。返回 null 表示未启用投票。
+ * 更新时传入 prevVote，可按选项 id 保留已有票数（管理员改文案/图片不清零；删掉的选项票数随之丢弃）。
+ */
+function sanitizeAnnouncementVote(vote, prevVote) {
+  if (!vote || typeof vote !== 'object' || !vote.enabled) return null
+  const prevCountMap = {}
+  if (prevVote && Array.isArray(prevVote.options)) {
+    prevVote.options.forEach((o) => {
+      if (o && o.id) prevCountMap[o.id] = Math.max(0, Number(o.count || 0))
+    })
+  }
+  const options = (Array.isArray(vote.options) ? vote.options : [])
+    .map((o, idx) => {
+      const label = String((o && o.label) || '').trim()
+      if (!label) return null
+      const id = String((o && o.id) || '').trim() || `opt_${Date.now()}_${idx}`
+      return {
+        id,
+        label,
+        image: String((o && o.image) || '').trim(),
+        count: prevCountMap[id] || 0
+      }
+    })
+    .filter(Boolean)
+  if (options.length < 2) return null
+  return {
+    enabled: true,
+    question: String(vote.question || '').trim(),
+    intro: String(vote.intro || '').trim(),
+    image: String(vote.image || '').trim(),
+    options,
+    startTime: Math.max(0, Number(vote.startTime || 0)) || 0,
+    endTime: Math.max(0, Number(vote.endTime || 0)) || 0,
+    resultNote: String(vote.resultNote || '').trim(),
+    totalVotes: options.reduce((sum, o) => sum + (o.count || 0), 0)
+  }
+}
+
+/** 投票阶段：notStarted（未到开始时间）/ open（进行中）/ ended（已到期，结果公示） */
+function announcementVoteStatus(vote, nowTs) {
+  if (!vote || !vote.enabled) return 'disabled'
+  if (vote.startTime && nowTs < vote.startTime) return 'notStarted'
+  if (vote.endTime && nowTs >= vote.endTime) return 'ended'
+  return 'open'
+}
+
+function announcementVoteRecordId(announcementId, openid) {
+  return `ann_${announcementId}_${openid}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120)
+}
+
+/** 由内存中的投票配置组装下发状态，不再回查数据库（省读次数） */
+function buildAnnouncementVoteState(id, vote, myChoice) {
+  const status = announcementVoteStatus(vote, Date.now())
+  const options = Array.isArray(vote.options) ? vote.options : []
+  const totalVotes = options.reduce((sum, o) => sum + Math.max(0, Number((o && o.count) || 0)), 0)
+  const revealed = status === 'ended' || !!myChoice
+  return {
+    announcementId: id,
+    status,
+    myChoice: myChoice || '',
+    revealed,
+    question: vote.question || '',
+    intro: vote.intro || '',
+    image: vote.image || '',
+    startTime: vote.startTime || 0,
+    endTime: vote.endTime || 0,
+    resultNote: status === 'ended' ? (vote.resultNote || '') : '',
+    totalVotes: revealed ? totalVotes : 0,
+    options: options.map((o) => ({
+      id: o.id,
+      label: o.label || '',
+      image: o.image || '',
+      count: revealed ? Math.max(0, Number(o.count || 0)) : 0
+    }))
+  }
+}
+
+/**
+ * 小程序端查询公告投票状态（兜底接口，正常流程客户端不调用：
+ * 配置/票数走 system_announcements 直读缓存，我的选择走本地存储 + 投票响应）。
+ */
+async function getAnnouncementVote(id, openid) {
+  if (!id) return fail(4001, 'id不能为空')
+  const res = await db.collection(COLLECTIONS.ANNOUNCEMENTS).doc(id).get().catch(() => null)
+  const vote = res && res.data && res.data.vote
+  if (!vote || !vote.enabled) return fail(4040, '该公告没有投票')
+
+  let myChoice = ''
+  if (openid) {
+    const recRes = await db.collection(COLLECTIONS.ANNOUNCEMENT_VOTE_RECORDS)
+      .doc(announcementVoteRecordId(id, openid)).get().catch(() => null)
+    if (recRes && recRes.data) myChoice = recRes.data.optionId || ''
+  }
+  return ok(buildAnnouncementVoteState(id, vote, myChoice))
+}
+
+/**
+ * 小程序端投票：确定性 _id 原子去重（对齐发射竞猜模式），保证一人一票。
+ * 成功路径共 3 次 DB 操作（1 读 + 2 写），响应由内存数据组装、不回查。
+ */
+async function castAnnouncementVote(body = {}, openid) {
+  if (!openid) return fail(4010, '缺少用户身份，请稍后重试')
+  const announcementId = String(body.announcementId || '').trim()
+  const optionId = String(body.optionId || '').trim()
+  if (!announcementId || !optionId) return fail(4001, '参数不完整')
+
+  const ref = db.collection(COLLECTIONS.ANNOUNCEMENTS).doc(announcementId)
+  const res = await ref.get().catch(() => null)
+  const doc = res && res.data
+  const vote = doc && doc.vote
+  if (!doc || !vote || !vote.enabled) return fail(4040, '该公告没有投票')
+
+  const status = announcementVoteStatus(vote, Date.now())
+  if (status === 'notStarted') return fail(4003, '投票还未开始')
+  if (status === 'ended') return fail(4003, '投票已截止')
+
+  const optIndex = (Array.isArray(vote.options) ? vote.options : []).findIndex((o) => o && o.id === optionId)
+  if (optIndex < 0) return fail(4001, '投票选项不存在')
+
+  const recordId = announcementVoteRecordId(announcementId, openid)
+  try {
+    await db.collection(COLLECTIONS.ANNOUNCEMENT_VOTE_RECORDS).add({
+      data: {
+        _id: recordId,
+        announcementId,
+        openid,
+        optionId,
+        createdAt: now()
+      }
+    })
+  } catch (addErr) {
+    // 确定性 _id 冲突 = 已投过（含并发/跨设备/删除小程序后重投），只补 1 次读拿到当时的选择
+    const recRes = await db.collection(COLLECTIONS.ANNOUNCEMENT_VOTE_RECORDS)
+      .doc(recordId).get().catch(() => null)
+    const prevChoice = (recRes && recRes.data && recRes.data.optionId) || optionId
+    const state = buildAnnouncementVoteState(announcementId, vote, prevChoice)
+    state.duplicate = true
+    return ok(state)
+  }
+
+  await ref.update({
+    data: {
+      [`vote.options.${optIndex}.count`]: _.inc(1),
+      'vote.totalVotes': _.inc(1),
+      updatedAt: now()
+    }
+  }).catch((e) => {
+    console.error('[castAnnouncementVote] inc error:', e.message || String(e))
+  })
+
+  // 内存中补上这一票再下发，避免回查 2 次读
+  const bumped = {
+    ...vote,
+    options: vote.options.map((o, i) => (i === optIndex ? { ...o, count: Math.max(0, Number(o.count || 0)) + 1 } : o))
+  }
+  return ok(buildAnnouncementVoteState(announcementId, bumped, optionId))
+}
+
 async function listAnnouncements(query = {}) {
   const page = Math.max(1, Number(query.page || 1))
   const pageSize = Math.min(50, Math.max(1, Number(query.pageSize || 20)))
@@ -5311,6 +5481,7 @@ async function createAnnouncement(body, user) {
     version: body.version || '',
     forceUpdate: !!body.forceUpdate,
     maintenance: !!body.maintenance,
+    vote: sanitizeAnnouncementVote(body.vote, null),
     createdAt: ts,
     updatedAt: ts,
     createdBy: user.username
@@ -5327,6 +5498,9 @@ async function updateAnnouncement(id, body, user) {
   if (!beforeRes?.data) return fail(4040, '公告不存在')
 
   const patch = pick(body, ['title', 'content', 'type', 'active', 'version', 'forceUpdate', 'maintenance'])
+  if (body.vote !== undefined) {
+    patch.vote = sanitizeAnnouncementVote(body.vote, beforeRes.data.vote)
+  }
   patch.updatedAt = now()
   patch.updatedBy = user.username
 
@@ -8460,6 +8634,15 @@ function replayFetchApi() {
   return _replayFetchApi
 }
 
+const { createWatchPartyApi } = require('./watchParty')
+let _watchPartyApi = null
+function watchPartyApi() {
+  if (!_watchPartyApi) {
+    _watchPartyApi = createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPerm })
+  }
+  return _watchPartyApi
+}
+
 async function route(event, user) {
   const { path = '', method = 'GET', query = {}, body = {} } = event
   const headers = event.headers || {}
@@ -8512,6 +8695,12 @@ async function route(event, user) {
   if (path.startsWith('/vote/') && method === 'GET') return getVoteStats(path.split('/').pop(), event._openid, query)
   if (path === '/vote-config' && method === 'GET') return getVoteConfig()
 
+  // ===== 公告投票（小程序端，无需管理员权限） =====
+  if (path === '/announcement-vote' && method === 'POST') return castAnnouncementVote(body, event._openid)
+  if (path.startsWith('/announcement-vote/') && method === 'GET') {
+    return getAnnouncementVote(decodeURIComponent(path.split('/').pop()), event._openid)
+  }
+
   // ===== 关于我们（小程序端，无需管理员权限） =====
   if (path === '/about-config' && method === 'GET') return getAboutConfig()
 
@@ -8545,6 +8734,64 @@ async function route(event, user) {
 
   // ===== 知识卡公开接口（小程序端） =====
   if (path === '/knowledge-cards/public' && method === 'GET') return getPublicKnowledgeCards()
+
+  // ===== 火箭观礼服务（小程序端/大屏，无需管理员权限） =====
+  if (path === '/watch-party/config' && method === 'GET') return watchPartyApi().getPublicConfig()
+  if (path === '/watch-party/match' && method === 'GET') return watchPartyApi().matchPublicSession(query)
+  if (path === '/watch-party/session' && method === 'GET') return watchPartyApi().getPublicSession(query)
+  if (path === '/watch-party/sessions/public' && method === 'GET') return watchPartyApi().listPublicSessions(query)
+  if (path === '/watch-party/reserve' && method === 'POST') {
+    return watchPartyApi().reserve(body, event._openid, {
+      clientIp: event._clientIp || '',
+      deviceKey: String((body && (body.deviceKey || body.deviceId)) || '').trim()
+    })
+  }
+  if (path === '/watch-party/my-reservation' && method === 'GET') return watchPartyApi().getMyReservation(event._openid, query)
+  if (path === '/watch-party/reserve/cancel' && method === 'POST') return watchPartyApi().cancelReservation(body, event._openid)
+  if (path === '/watch-party/scan' && method === 'POST') return watchPartyApi().scanCheckIn(body, event._openid)
+  if (path === '/watch-party/draw' && method === 'POST') return watchPartyApi().draw(body, event._openid)
+  if (path === '/watch-party/my-cards' && method === 'GET') return watchPartyApi().getMyCards(event._openid)
+  if (path === '/watch-party/share-bonus' && method === 'POST') return watchPartyApi().shareBonus(body, event._openid)
+  if (path === '/watch-party/screen' && method === 'GET') return watchPartyApi().getScreenData(query)
+  if (path === '/watch-party/merchant-apply' && method === 'POST') return watchPartyApi().applyMerchantLead(body, event._openid)
+
+  // ===== 火箭观礼商家自助（小程序端，凭商家编号绑定 openid，无需管理员权限） =====
+  if (path === '/watch-party/merchant/bind' && method === 'POST') return watchPartyApi().merchantBind(body, event._openid)
+  if (path === '/watch-party/merchant/unbind' && method === 'POST') return watchPartyApi().merchantUnbind(event._openid)
+  if (path === '/watch-party/merchant/me' && method === 'GET') return watchPartyApi().merchantMe(event._openid)
+  if (path === '/watch-party/merchant/cards' && method === 'GET') return watchPartyApi().merchantListCards(event._openid, query)
+  if (path === '/watch-party/merchant/sessions' && method === 'POST') return watchPartyApi().merchantCreateSession(body, event._openid)
+  // 物料码：优先用 query 路由（兼容旧云函数部署顺序）；路径式保留兼容
+  if (path === '/watch-party/merchant/material' && method === 'GET') {
+    return watchPartyApi().merchantGetSessionMaterial(query.sessionId || query.id, event._openid)
+  }
+  if (/^\/watch-party\/merchant\/sessions\/[^/]+\/material$/.test(path) && method === 'GET') {
+    return watchPartyApi().merchantGetSessionMaterial(path.split('/')[4], event._openid)
+  }
+  // 商家点亮发射成功（须放在通用 PUT/DELETE 之前）
+  if (/^\/watch-party\/merchant\/sessions\/[^/]+\/unlock-success$/.test(path) && method === 'POST') {
+    return watchPartyApi().merchantUnlockSessionSuccess(path.split('/')[4], event._openid)
+  }
+  // 开启下一场发射（归档周期账本；须放在通用 PUT/DELETE 之前）
+  if (/^\/watch-party\/merchant\/sessions\/[^/]+\/next-cycle$/.test(path) && method === 'POST') {
+    return watchPartyApi().merchantStartNextCycle(path.split('/')[4], event._openid)
+  }
+  // 商家预约名单（须放在通用 PUT/DELETE 之前）
+  if (/^\/watch-party\/merchant\/sessions\/[^/]+\/reservations$/.test(path) && method === 'GET') {
+    return watchPartyApi().merchantListReservations(event._openid, {
+      ...query,
+      sessionId: path.split('/')[4]
+    })
+  }
+  if (/^\/watch-party\/merchant\/reservations\/[^/]+\/check-in$/.test(path) && method === 'POST') {
+    return watchPartyApi().merchantCheckInReservation(path.split('/')[4], event._openid)
+  }
+  if (path.startsWith('/watch-party/merchant/sessions/') && method === 'PUT') {
+    return watchPartyApi().merchantUpdateSession(path.split('/').pop(), body, event._openid)
+  }
+  if (path.startsWith('/watch-party/merchant/sessions/') && method === 'DELETE') {
+    return watchPartyApi().merchantDeleteSession(path.split('/').pop(), event._openid)
+  }
 
   // ===== 公众号采集插件入库（OA_COLLECTOR_TOKEN，可无管理员 JWT） =====
   if (path === '/oa-content/collector/ingest' && method === 'POST') {
@@ -9214,6 +9461,55 @@ async function route(event, user) {
     return batchImportKnowledgeCards(body, user)
   }
 
+  // ===== 火箭观礼服务管理（后台） =====
+  if (path === '/watch-party/global-config' && method === 'GET') return watchPartyApi().getGlobalConfig(user)
+  if (path === '/watch-party/global-config' && method === 'PUT') return watchPartyApi().updateGlobalConfig(body, user)
+  if (path === '/watch-party/merchants' && method === 'GET') return watchPartyApi().listMerchants(user, query)
+  if (path === '/watch-party/merchants' && method === 'POST') return watchPartyApi().createMerchant(body, user)
+  if (path === '/watch-party/upcoming-launches' && method === 'GET') return watchPartyApi().listUpcomingLaunchesAdmin(user)
+  if (path.startsWith('/watch-party/merchants/') && path.endsWith('/code') && method === 'POST') {
+    return watchPartyApi().ensureMerchantCode(path.split('/')[3], body, user)
+  }
+  if (path.startsWith('/watch-party/merchants/') && path.endsWith('/stats') && method === 'GET') {
+    return watchPartyApi().getMerchantStats(path.split('/')[3], user)
+  }
+  if (path.startsWith('/watch-party/merchants/') && method === 'PUT') {
+    return watchPartyApi().updateMerchant(path.split('/').pop(), body, user)
+  }
+  if (path.startsWith('/watch-party/merchants/') && method === 'DELETE') {
+    return watchPartyApi().deleteMerchant(path.split('/').pop(), user)
+  }
+  if (path === '/watch-party/merchant-leads' && method === 'GET') return watchPartyApi().listMerchantLeads(user, query)
+  if (path.startsWith('/watch-party/merchant-leads/') && path.endsWith('/approve') && method === 'POST') {
+    return watchPartyApi().approveMerchantLead(path.split('/')[3], user)
+  }
+  if (path.startsWith('/watch-party/merchant-leads/') && method === 'PUT') {
+    return watchPartyApi().updateMerchantLead(path.split('/').pop(), body, user)
+  }
+  if (path === '/watch-party/sessions' && method === 'GET') return watchPartyApi().listSessions(user, query)
+  if (path === '/watch-party/sessions' && method === 'POST') return watchPartyApi().createSession(body, user)
+  if (path.startsWith('/watch-party/sessions/') && method === 'PUT') {
+    return watchPartyApi().updateSession(path.split('/').pop(), body, user)
+  }
+  if (path.startsWith('/watch-party/sessions/') && method === 'DELETE') {
+    return watchPartyApi().deleteSession(path.split('/').pop(), user)
+  }
+  if (path === '/watch-party/reservations' && method === 'GET') return watchPartyApi().listReservations(user, query)
+  if (path.startsWith('/watch-party/reservations/') && path.endsWith('/check-in') && method === 'POST') {
+    return watchPartyApi().checkInReservation(path.split('/')[3], user)
+  }
+  if (path === '/watch-party/cards' && method === 'GET') return watchPartyApi().listCards(user, query)
+  if (path === '/watch-party/cards' && method === 'POST') return watchPartyApi().createCard(body, user)
+  if (path.startsWith('/watch-party/cards/') && method === 'PUT') {
+    return watchPartyApi().updateCard(path.split('/').pop(), body, user)
+  }
+  if (path.startsWith('/watch-party/cards/') && method === 'DELETE') {
+    return watchPartyApi().deleteCard(path.split('/').pop(), user)
+  }
+  if (path === '/watch-party/draws' && method === 'GET') return watchPartyApi().listDraws(user, query)
+  if (path === '/watch-party/stats' && method === 'GET') return watchPartyApi().getStats(user, query)
+  if (path === '/watch-party/wxacode' && method === 'POST') return watchPartyApi().generateWxacode(body, user)
+
   // ===== 发射回放（管理端查看/删除；抓取由 replay-agent 完成） =====
   if (path === '/mission-replays' && method === 'GET') {
     const deny = checkPerm(user, 'global_config'); if (deny) return deny
@@ -9531,7 +9827,9 @@ exports.main = async (event = {}, context) => {
     const wxContext = cloud.getWXContext()
     normalized._openid = wxContext.OPENID || ''
     normalized._unionid = wxContext.UNIONID || ''
-    normalized._clientIp = pickClientIp(event.headers || normalized.headers || {})
+    // 小程序云调用优先 CLIENTIP；HTTP 访问服务走 X-Forwarded-For
+    normalized._clientIp = String(wxContext.CLIENTIP || '').trim()
+      || pickClientIp(event.headers || normalized.headers || {})
     normalized.headers = {
       ...(event.headers || {}),
       ...(normalized.headers || {})

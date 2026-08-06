@@ -816,8 +816,8 @@ function scoreLiveWatch(q) {
 }
 
 /**
- * 现场观礼点导航（「去哪看发射」「文昌观礼点」）
- * 与 launch_site 的分界：问发射场本身参数走百科，问「人站哪儿看」走这里
+ * 现场观礼 / 去哪看发射 → 统一走火箭观礼服务入口卡（云端按发射场匹配商家场次）。
+ * 与 launch_site 的分界：问发射场本身参数走百科，问「人站哪儿看/怎么参加观礼」走这里。
  */
 function scoreViewingSpot(q) {
   if (isPureChitchat(q)) return 0
@@ -826,6 +826,10 @@ function scoreViewingSpot(q) {
   if (scoreStarlinkMap(q) >= INTENT_SCORE_THRESHOLD.starlink_map) return 0
   // 「在哪看直播」问的是画面来源，不是现场站位
   if (scoreLiveWatch(q) >= INTENT_SCORE_THRESHOLD.live_watch) return 0
+  // 观礼服务本体（预约/现场抽奖/大屏）也归此意图，统一推火箭观礼卡
+  if (/(观礼服务|火箭观礼|现场观礼|观礼预约|预约观礼)/.test(q)) return 60
+  if (/观礼/.test(q) && /(预约|报名|参加|服务|活动|门票|入场|套餐|抽卡|抽奖|奖品|纪念|大屏|讲解|通行证)/.test(q)) return 55
+  if (/(抽卡|抽奖|奖品|纪念卡|集卡|卡册|抽一张卡)/.test(q)) return 50
   const spotNamed = VIEWING_SPOT_HINT.test(q)
   if (!spotNamed && !/(发射|火箭|升空|起飞|试飞|星舰|starship|猎鹰|长征|观礼)/i.test(q)) return 0
   let s = 0
@@ -1898,31 +1902,43 @@ function enrichLaunchContextNoSpec(launchContext, kindLabel, queryText) {
 }
 
 /**
- * 观礼点导航
+ * 火箭观礼服务入口卡已展示（由云端按问句匹配最合适场次）
  * @param {object} launchContext
- * @param {{ siteName: string, spots: Array, restricted: boolean, restrictedNote: string, matched: boolean }} info
+ * @param {{ title?: string, merchantName?: string, padLocationName?: string, rocketName?: string, missionName?: string }} session
  */
-function enrichLaunchContextWithViewingSpots(launchContext, info) {
+function enrichLaunchContextWithWatchParty(launchContext, session) {
   const base = launchContext && typeof launchContext === 'object' ? { ...launchContext } : {}
-  const siteName = (info && info.siteName) || '该发射场'
+  const s = session && typeof session === 'object' ? session : {}
+  const label = s.title || ((s.rocketName || '火箭') + '发射观礼')
+  const place = [s.merchantName, s.padLocationName, s.address].filter(Boolean).join(' · ')
   base.uiCardReady = true
   base.focusMission = null
-  if (info && info.restricted) {
-    base.focusHint = '用户想去现场看「' + siteName + '」的发射，但该发射场周边没有公共观礼点。' +
-      '请如实说明：' + ((info.restrictedNote || '需通过官方渠道组织，个人不能自行抵达')) +
-      '。禁止推荐任何具体坐标或让用户自驾靠近发射场，也不要编造观礼台名称与票务信息。'
-    return base
-  }
-  const spots = Array.isArray(info && info.spots) ? info.spots : []
-  const facts = spots
-    .map((s) => s.name + '（' + [s.distanceText, s.costText, s.viewText].filter(Boolean).join('、') + '）')
-    .join('；')
-  base.viewingFacts = facts
-  base.focusHint = '用户在问去哪看「' + siteName + '」的发射，界面已展示 ' + spots.length +
-    ' 张观礼点卡片，点卡片即可调起地图导航。卡片上的真实点位：' + (facts || '（暂无）') +
-    '。只能用这些点位与距离作答，禁止编造其他观礼点、票价、开放时间或坐标；' +
-    '需提醒发射日常有交通管制与临时封控，出行前以官方公告为准。禁止说未匹配/找不到。' +
-    (info && info.matched ? '' : '用户没指定发射场，已按国内文昌给点位，可提示还能问卡纳维拉尔角、星舰基地、范登堡等。')
+  base.focusHint = '用户在问现场观礼/去哪看发射/观礼预约相关问题，界面已展示最匹配的「火箭观礼」入口卡：' +
+    label + (place ? '（' + place + '）' : '') +
+    '。请用一两句引导点击下方卡片进入观礼服务（预约、导航、现场抽奖等）；' +
+    '场次时间、地点、费用与规则以进入页面后为准，不要编造其他观礼点坐标或票务。禁止说未匹配/找不到。'
+  return base
+}
+
+/** 无可对外观礼场次时的诚实话术 */
+function enrichLaunchContextWatchPartyClosed(launchContext) {
+  const base = launchContext && typeof launchContext === 'object' ? { ...launchContext } : {}
+  base.uiCardReady = false
+  base.focusMission = null
+  base.focusHint = '用户询问现场观礼或去哪看发射，但当前没有开放中的火箭观礼场次。' +
+    '请如实告知观礼服务暂未开放或本期场次已结束，建议到「我的 → 火箭观礼」关注后续安排；' +
+    '不要编造场次时间、地点、预约方式或观礼点坐标。'
+  return base
+}
+
+/** 过审开关关闭：勿引导「我的 → 火箭观礼」入口（入口已隐藏） */
+function enrichLaunchContextWatchPartyFeatureOff(launchContext) {
+  const base = launchContext && typeof launchContext === 'object' ? { ...launchContext } : {}
+  base.uiCardReady = false
+  base.focusMission = null
+  base.focusHint = '用户询问现场观礼或去哪看发射，但火箭观礼功能当前未开放。' +
+    '请如实简短告知该服务暂未开放，不要引导打开任何观礼入口或页面，' +
+    '不要编造场次时间、地点、预约方式、观礼点坐标或票务。'
   return base
 }
 
@@ -2235,7 +2251,9 @@ module.exports = {
   enrichLaunchContextNoMissionReplay,
   enrichLaunchContextWithSpec,
   enrichLaunchContextNoSpec,
-  enrichLaunchContextWithViewingSpots,
+  enrichLaunchContextWithWatchParty,
+  enrichLaunchContextWatchPartyClosed,
+  enrichLaunchContextWatchPartyFeatureOff,
   enrichLaunchContextWithMyLaunches,
   enrichLaunchContextNoMyLaunches,
   enrichLaunchContextWithSimpleEntry

@@ -1,6 +1,6 @@
 .page {
   min-height: 100vh;
-  background: #000;
+  background: #0B0C0E;
   color: #fff;
   position: relative;
 }
@@ -20,7 +20,7 @@
 .hero-section {
   position: relative; overflow: hidden;
   padding: 0;
-  background: #000;
+  background: #0B0C0E;
 }
 .hero-bg-img {
   width: 100%;
@@ -29,7 +29,7 @@
 .hero-bg-fade {
   position: absolute; left: 0; right: 0; bottom: 0;
   height: 160rpx;
-  background: linear-gradient(to bottom, transparent 0%, #000 100%);
+  background: linear-gradient(to bottom, transparent 0%, #0B0C0E 100%);
   pointer-events: none;
 }
 
@@ -61,7 +61,6 @@
 .form-card {
   margin: 0 32rpx; padding: 32rpx;
   background: rgba(255,255,255,0.05); border-radius: 20rpx;
-  border: 1px solid rgba(255,255,255,0.08);
 }
 .form-item { margin-bottom: 28rpx; }
 .form-label { display: flex; align-items: center; font-size: 24rpx; color: rgba(255,255,255,0.6); margin-bottom: 12rpx; }
@@ -93,7 +92,6 @@
 .boarding-card {
   border-radius: 20rpx; overflow: hidden;
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-  border: 1px solid rgba(255,87,51,0.2);
 }
 .boarding-header {
   padding: 28rpx 32rpx; display: flex; justify-content: space-between; align-items: center;
@@ -211,7 +209,7 @@
   margin: 0 32rpx;
   border-radius: 20rpx;
   overflow: hidden;
-  background: #000;
+  background: #0B0C0E;
 }
 
 /* 月球背景图：宽度铺满，高度随图片比例 */
@@ -294,7 +292,9 @@
 }
 .popup-card {
   position: relative;
-  background: #000;
+  background: var(--bg-glass-popup, rgba(22, 24, 28, 0.85));
+  backdrop-filter: blur(32rpx) saturate(150%);
+  -webkit-backdrop-filter: blur(32rpx) saturate(150%);
   border-radius: 24rpx;
   padding: 0;
   overflow: hidden;
@@ -402,7 +402,7 @@
 .about-section { padding: 20rpx 32rpx 40rpx; }
 .about-card {
   padding: 32rpx; background: rgba(255,255,255,0.04);
-  border-radius: 16rpx; border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 16rpx;
 }
 .about-title { display: block; font-size: 28rpx; font-weight: 600; color: #fff; margin-bottom: 16rpx; }
 .about-text { display: block; font-size: 24rpx; color: rgba(255,255,255,0.5); line-height: 1.7; margin-bottom: 12rpx; }
@@ -437,7 +437,6 @@
 /* 统计条骑跨图片与浅色页面底：换浅色玻璃 */
 .theme-light .stats-bar {
   background: rgba(255, 255, 255, 0.62);
-  box-shadow: var(--shadow-card);
 }
 
 .theme-light .stat-label {
@@ -454,8 +453,6 @@
 
 .theme-light .form-card {
   background: var(--color-bg-card);
-  border-color: rgba(0, 0, 0, 0.06);
-  box-shadow: var(--shadow-card);
 }
 
 .theme-light .form-label {
@@ -495,8 +492,6 @@
 
 .theme-light .about-card {
   background: var(--color-bg-card);
-  border-color: rgba(0, 0, 0, 0.06);
-  box-shadow: var(--shadow-card);
 }
 
 .theme-light .about-title {

@@ -4,7 +4,14 @@
  * 设计参考 launch-site-map（全球发射基地）的 map-page 布局：
  *   全屏地图 + 顶部地图工具 + 底部可折叠玻璃信息面板
  */
-const { formatMapUpdateTime, createMapBaseState, buildMapLayoutData, buildMapShareOptions, copyMapText } = require('./utils/map-page-common.js')
+const {
+  formatMapUpdateTime,
+  createMapBaseState,
+  buildMapLayoutData,
+  buildMapPanelScrollLayout,
+  buildMapShareOptions,
+  copyMapText
+} = require('./utils/map-page-common.js')
 const launchSiteDisplay = require('./utils/launch-site-display.js')
 const { togglePageTranslation } = require('./utils/text-translate.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
@@ -61,6 +68,8 @@ Page({
 
   data: {
     statusBarHeight: 44,
+    menuButtonWidth: 88,
+    isDirectEntry: false,
     capsuleTop: 0,
     capsuleHeight: 32,
     mapActionTop: 0,
@@ -76,6 +85,8 @@ Page({
     selectedPadId: 0,
     panelCollapsed: false,
     actionMenuCollapsed: true,
+    panelExpandedStyle: '',
+    panelScrollHeight: 160,
     descI18n: { siteDesc: '' },
     descTranslated: false,
     descTranslating: false,
@@ -108,6 +119,7 @@ Page({
       ...buildMapLayoutData(app),
       isMomentsPreview
     })
+    this._syncPanelScrollLayout()
 
     // 门控复用「全球飞船图鉴」：App 内入口已在卡片点击处 gateCheck，
     // 这里只处理分享卡片 —— 24h 免门控窗口，过期后 gateCheck（会员放行，非会员弹开通引导）
@@ -251,12 +263,34 @@ Page({
 
   // ── 面板 / 工具开合 ──
 
+  /** 展开面板上沿压在地图工具下口之下；正文进 scroll-view */
+  _syncPanelScrollLayout() {
+    try {
+      const layout = buildMapPanelScrollLayout(getApp(), {
+        mapActionTop: this.data.mapActionTop,
+        actionMenuCollapsed: this.data.actionMenuCollapsed
+      })
+      this.setData({
+        panelExpandedStyle: layout.panelExpandedStyle,
+        panelScrollHeight: layout.panelScrollHeight
+      })
+    } catch (e) {}
+  },
+
+  onResize() {
+    const app = getApp()
+    this.setData({ ...buildMapLayoutData(app) })
+    this._syncPanelScrollLayout()
+  },
+
   togglePanelCollapsed() {
     this.setData({ panelCollapsed: !this.data.panelCollapsed })
   },
 
   toggleActionMenuCollapsed() {
-    this.setData({ actionMenuCollapsed: !this.data.actionMenuCollapsed })
+    this.setData({ actionMenuCollapsed: !this.data.actionMenuCollapsed }, () => {
+      this._syncPanelScrollLayout()
+    })
   },
 
   /** 卫星定位图预览（保留原卡片的预览能力） */

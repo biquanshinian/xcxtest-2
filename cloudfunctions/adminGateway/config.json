@@ -1,6 +1,8 @@
 {
   "permissions": {
-    "openapi": []
+    "openapi": [
+      "wxacode.getUnlimited"
+    ]
   },
   "timeout": 90,
   "triggers": [

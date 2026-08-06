@@ -1,5 +1,5 @@
 page {
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: var(--color-bg-page);
   overflow: hidden;
   height: 100vh;
   width: 100%;
@@ -8,7 +8,7 @@ page {
 .detail-page {
   min-height: 100vh;
   height: 100vh;
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: var(--color-bg-page);
   overflow: hidden;
 }
 
@@ -18,38 +18,49 @@ page {
 }
 
 .detail-container {
-  padding: 32rpx;
+  padding: var(--space-xl) var(--space-lg);
   box-sizing: border-box;
 }
 
 .glass-card {
-  background: rgba(18, 20, 24, 0.62);
-  backdrop-filter: blur(28rpx) saturate(170%);
-  -webkit-backdrop-filter: blur(28rpx) saturate(170%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 28rpx;
-  box-shadow: 0 16rpx 40rpx rgba(0, 0, 0, 0.35), inset 0 1rpx 0 rgba(255, 255, 255, 0.08);
+  background: var(--bg-glass);
+  border-radius: var(--radius-card);
 }
 
 .detail-card {
-  padding: 28rpx;
+  padding: var(--space-lg);
 }
 
+/* 全局 .glass-card 自带 overflow:hidden，会裁掉头图悬浮卡的横向出框与毛玻璃叠层/投影；
+ * 卡内需要裁剪的层（hero-wrap、orbit-map 容器等）各自带 overflow:hidden，不依赖卡片裁剪，放开安全 */
+.detail-card.glass-card {
+  overflow: visible;
+}
+
+/* 头图出框悬浮页内适配：容器横向总内衬 72rpx（detail-container 36rpx + detail-card 36rpx），
+ * 覆盖 --flush 默认 -16rpx 为 -52rpx，让头图最终落在屏边 20rpx（未超出视口，不引发横向滚动）；
+ * 卡片上内边距 36rpx ≥ 32rpx，-32rpx 上浮压不出卡顶，覆盖为 0 保持正常间距（不上浮） */
+.detail-card .hero-float--flush {
+  margin-top: 0;
+  margin-left: -52rpx;
+  margin-right: -52rpx;
+}
+
+/* 圆角与 hero-float-card 对齐（同特异性防止压过全局类）；下边距交给 hero-float 骨架 */
 .hero-wrap {
   position: relative;
   width: 100%;
   height: 360rpx;
-  border-radius: 24rpx;
+  border-radius: var(--radius-lg);
   overflow: hidden;
-  margin-bottom: 28rpx;
-  background: #131313;
+  background: var(--color-bg-elevated);
 }
 
 .hero-image {
   width: 100%;
   height: 100%;
-  border-radius: 24rpx;
-  background: #131313;
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-elevated);
   opacity: 0;
   transform: scale(1.02);
   transition: opacity 0.36s ease, transform 0.36s ease;
@@ -63,7 +74,7 @@ page {
 .hero-image--visual,
 .hero-image--placeholder,
 .ship-image--placeholder {
-  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.10), rgba(19, 19, 19, 1) 72%);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.10), rgba(19, 19, 19, 1) 72%);
 }
 
 .hero-visual {
@@ -243,9 +254,9 @@ page {
 }
 
 .hero-status--building {
-  color: #5ac8fa;
-  background: rgba(90, 200, 250, 0.14);
-  border: 1px solid rgba(90, 200, 250, 0.28);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.14);
+  border: 1px solid rgba(59, 130, 246, 0.28);
 }
 
 .hero-status--unknown {
@@ -308,9 +319,9 @@ page {
 }
 
 .station-badge--building {
-  color: #5ac8fa;
-  background: rgba(90, 200, 250, 0.14);
-  border: 1px solid rgba(90, 200, 250, 0.28);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.14);
+  border: 1px solid rgba(59, 130, 246, 0.28);
 }
 
 .station-badge--unknown {
@@ -353,7 +364,6 @@ page {
   padding: 22rpx 18rpx;
   border-radius: 20rpx;
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .stat-value {
@@ -405,7 +415,7 @@ page {
 }
 
 .info-value--highlight {
-  color: #4ea1ff;
+  color: var(--color-brand);
 }
 
 .section {
@@ -439,7 +449,7 @@ page {
 
 .section-toggle {
   font-size: 24rpx;
-  color: #4ea1ff;
+  color: var(--color-brand);
   flex-shrink: 0;
 }
 
@@ -471,8 +481,8 @@ page {
   border-radius: 999rpx;
   font-size: 24rpx;
   color: #d4e8ff;
-  background: rgba(78, 161, 255, 0.12);
-  border: 1px solid rgba(78, 161, 255, 0.22);
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.22);
 }
 
 .tag-item--active {
@@ -491,7 +501,6 @@ page {
   padding: 22rpx;
   border-radius: 20rpx;
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .agency-card__top {
@@ -515,8 +524,8 @@ page {
   border-radius: 999rpx;
   font-size: 22rpx;
   color: #8ebdff;
-  background: rgba(78, 161, 255, 0.12);
-  border: 1px solid rgba(78, 161, 255, 0.22);
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.22);
 }
 
 .agency-card__meta {
@@ -567,7 +576,7 @@ page {
   width: 140rpx;
   height: 140rpx;
   border-radius: 16rpx;
-  background: #131313;
+  background: var(--color-bg-elevated);
   flex-shrink: 0;
 }
 
@@ -646,9 +655,9 @@ page {
 }
 
 .ship-badge--crew {
-  background: rgba(10, 132, 255, 0.14);
-  border: 1px solid rgba(10, 132, 255, 0.24);
-  color: #5ac8fa;
+  background: rgba(59, 130, 246, 0.14);
+  border: 1px solid rgba(59, 130, 246, 0.24);
+  color: var(--color-brand);
 }
 
 .ship-badge--cargo {
@@ -665,7 +674,6 @@ page {
   padding: 22rpx;
   border-radius: 20rpx;
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .info-link-main {
@@ -691,7 +699,7 @@ page {
 .info-link-action {
   flex-shrink: 0;
   font-size: 24rpx;
-  color: #4ea1ff;
+  color: var(--color-brand);
 }
 
 .empty-inline {
@@ -723,8 +731,8 @@ page {
   width: 48rpx;
   height: 48rpx;
   border-radius: 50%;
-  border: 4rpx solid rgba(0, 122, 255, 0.2);
-  border-top-color: #4ea1ff;
+  border: 4rpx solid rgba(59, 130, 246, 0.2);
+  border-top-color: var(--color-brand);
   animation: spin 0.8s linear infinite;
 }
 
@@ -747,7 +755,7 @@ page {
   height: 76rpx;
   line-height: 76rpx;
   border-radius: 999rpx;
-  background: linear-gradient(135deg, #1677ff 0%, #55a3ff 100%);
+  background: var(--color-brand, #3B82F6);
   color: #ffffff;
   font-size: 28rpx;
   border: none;
@@ -773,7 +781,6 @@ page {
   padding: 24rpx;
   border-radius: 20rpx;
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .expedition-header {
@@ -829,15 +836,15 @@ page {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle, rgba(90, 200, 250, 0.12), #1c1c1e 72%);
-  border: 1px solid rgba(90, 200, 250, 0.15);
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.12), #1c1c1e 72%);
+  border: 1px solid rgba(59, 130, 246, 0.15);
   border-radius: 16rpx;
 }
 
 .crew-avatar__initial {
   font-size: 42rpx;
   font-weight: 600;
-  color: rgba(90, 200, 250, 0.7);
+  color: rgba(59, 130, 246, 0.7);
 }
 
 .crew-info {
@@ -855,7 +862,7 @@ page {
 .crew-role {
   display: block;
   font-size: 22rpx;
-  color: #5ac8fa;
+  color: var(--color-brand);
   margin-top: 4rpx;
   line-height: 1.5;
 }
@@ -952,13 +959,13 @@ page {
   flex-shrink: 0;
   padding: 8rpx 20rpx;
   border-radius: 999rpx;
-  background: rgba(78, 161, 255, 0.15);
-  border: 1px solid rgba(78, 161, 255, 0.3);
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
 .orbit-retry-btn text {
   font-size: 24rpx;
-  color: #4ea1ff;
+  color: var(--color-brand);
 }
 
 /* 实时数据条 */
@@ -1098,7 +1105,7 @@ page {
 }
 
 .legend-line--past {
-  background: #4ea1ff;
+  background: var(--color-brand);
   opacity: 0.5;
 }
 
@@ -1130,8 +1137,8 @@ page {
   flex: 1;
   padding: 16rpx 12rpx;
   border-radius: 14rpx;
-  background: rgba(90, 200, 250, 0.06);
-  border: 1px solid rgba(90, 200, 250, 0.15);
+  background: rgba(59, 130, 246, 0.06);
+  border: 1px solid rgba(59, 130, 246, 0.15);
   text-align: center;
 }
 
@@ -1139,7 +1146,7 @@ page {
   display: block;
   font-size: 26rpx;
   font-weight: 700;
-  color: #5ac8fa;
+  color: var(--color-brand);
   line-height: 1.3;
 }
 
@@ -1210,8 +1217,6 @@ page {
 /* 玻璃卡片：深玻璃 → 浅玻璃 */
 .theme-light .glass-card {
   background: rgba(255, 255, 255, 0.62);
-  border: 1px solid var(--color-divider);
-  box-shadow: var(--shadow-card), inset 0 1rpx 0 rgba(255, 255, 255, 0.6);
 }
 
 /* 加载 / 错误态 */
@@ -1229,7 +1234,6 @@ page {
 /* 核心指标卡 */
 .theme-light .stat-card {
   background: rgba(0, 0, 0, 0.04);
-  border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .theme-light .stat-value {
@@ -1263,7 +1267,7 @@ page {
 }
 
 .theme-light .section-toggle {
-  color: #1677ff;
+  color: var(--color-brand);
 }
 
 .theme-light .section-text {
@@ -1272,9 +1276,9 @@ page {
 
 /* 对接口标签 */
 .theme-light .tag-item {
-  color: #1677ff;
-  background: rgba(78, 161, 255, 0.10);
-  border: 1px solid rgba(78, 161, 255, 0.22);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.10);
+  border: 1px solid rgba(59, 130, 246, 0.22);
 }
 
 .theme-light .tag-item--active {
@@ -1286,7 +1290,6 @@ page {
 /* 所属机构卡 */
 .theme-light .agency-card {
   background: rgba(0, 0, 0, 0.04);
-  border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .theme-light .agency-card__name {
@@ -1294,9 +1297,9 @@ page {
 }
 
 .theme-light .agency-card__abbr {
-  color: #1677ff;
-  background: rgba(78, 161, 255, 0.10);
-  border: 1px solid rgba(78, 161, 255, 0.22);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.10);
+  border: 1px solid rgba(59, 130, 246, 0.22);
 }
 
 .theme-light .agency-card__meta {
@@ -1322,7 +1325,7 @@ page {
 }
 
 .theme-light .ship-image--placeholder {
-  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.12), rgba(0, 0, 0, 0.06) 72%);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.12), rgba(0, 0, 0, 0.06) 72%);
 }
 
 .theme-light .ship-title {
@@ -1336,7 +1339,7 @@ page {
 }
 
 .theme-light .ship-agency {
-  color: #1677ff;
+  color: var(--color-brand);
 }
 
 .theme-light .ship-detail-label {
@@ -1348,9 +1351,9 @@ page {
 }
 
 .theme-light .ship-badge--crew {
-  background: rgba(10, 132, 255, 0.10);
-  border: 1px solid rgba(10, 132, 255, 0.24);
-  color: #0071e3;
+  background: rgba(59, 130, 246, 0.10);
+  border: 1px solid rgba(59, 130, 246, 0.24);
+  color: var(--color-brand);
 }
 
 .theme-light .ship-badge--cargo {
@@ -1362,7 +1365,6 @@ page {
 /* 数据与版权 */
 .theme-light .info-link-card {
   background: rgba(0, 0, 0, 0.04);
-  border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .theme-light .info-link-name {
@@ -1374,7 +1376,7 @@ page {
 }
 
 .theme-light .info-link-action {
-  color: #1677ff;
+  color: var(--color-brand);
 }
 
 .theme-light .empty-inline {
@@ -1389,7 +1391,6 @@ page {
 /* 远征卡片 */
 .theme-light .expedition-card {
   background: rgba(0, 0, 0, 0.04);
-  border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .theme-light .expedition-name {
@@ -1415,8 +1416,8 @@ page {
 }
 
 .theme-light .crew-avatar--placeholder {
-  background: radial-gradient(circle, rgba(90, 200, 250, 0.14), #e9e9ee 72%);
-  border: 1px solid rgba(10, 132, 255, 0.18);
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.14), #e9e9ee 72%);
+  border: 1px solid rgba(59, 130, 246, 0.18);
 }
 
 .theme-light .crew-avatar__initial {
@@ -1428,7 +1429,7 @@ page {
 }
 
 .theme-light .crew-role {
-  color: #0071e3;
+  color: var(--color-brand);
 }
 
 .theme-light .crew-meta {
@@ -1466,12 +1467,12 @@ page {
 }
 
 .theme-light .orbit-retry-btn {
-  background: rgba(78, 161, 255, 0.12);
-  border: 1px solid rgba(78, 161, 255, 0.3);
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
 .theme-light .orbit-retry-btn text {
-  color: #1677ff;
+  color: var(--color-brand);
 }
 
 .theme-light .orbit-live-bar {
@@ -1511,12 +1512,12 @@ page {
 }
 
 .theme-light .orbit-look-item {
-  background: rgba(10, 132, 255, 0.06);
-  border: 1px solid rgba(10, 132, 255, 0.16);
+  background: rgba(59, 130, 246, 0.06);
+  border: 1px solid rgba(59, 130, 246, 0.16);
 }
 
 .theme-light .orbit-look-value {
-  color: #0071e3;
+  color: var(--color-brand);
 }
 
 .theme-light .orbit-look-label {

@@ -1,6 +1,6 @@
 .detail-page {
   min-height: 100vh;
-  background: linear-gradient(180deg, #000000 0%, #060a10 100%);
+  background: linear-gradient(180deg, #0B0C0E 0%, #121418 100%);
 }
 
 .detail-scroll {
@@ -8,11 +8,11 @@
 }
 
 .fd-intro {
-  margin: 8rpx 24rpx 16rpx;
-  padding: 16rpx 22rpx;
+  margin: 12rpx 28rpx 20rpx;
+  padding: 20rpx 24rpx;
   border-radius: 14rpx;
-  background: rgba(0, 255, 136, 0.06);
-  border: 1rpx solid rgba(0, 255, 136, 0.12);
+  background: rgba(59, 130, 246, 0.06);
+  border: 1rpx solid rgba(59, 130, 246, 0.12);
 }
 .fd-intro-text {
   font-size: 22rpx;
@@ -36,8 +36,8 @@
 .fd-btn {
   padding: 18rpx 48rpx;
   border-radius: 999rpx;
-  border: 1rpx solid rgba(0, 255, 136, 0.35);
-  color: #00ff88;
+  border: 1rpx solid rgba(59, 130, 246, 0.35);
+  color: #3B82F6;
   font-size: 26rpx;
 }
 

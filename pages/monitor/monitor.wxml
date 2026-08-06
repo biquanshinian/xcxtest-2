@@ -70,23 +70,20 @@
             </view>
           </view>
           <view class="section-title-right starbase-weather-cluster">
-            <text class="starbase-weather-place">博卡奇卡</text>
             <view wx:if="{{starbaseWeather.loading}}" class="starbase-weather-loading"><text>天气载入中…</text></view>
             <block wx:elif="{{starbaseWeather.loaded}}">
-              <view class="starbase-weather-row starbase-weather-row--main">
+              <view class="starbase-weather-row">
                 <image class="starbase-wx-icon" src="{{starbaseWeather.weatherIcon}}" mode="aspectFit"></image>
                 <text class="starbase-wx-condition">{{starbaseWeather.conditionText}}</text>
                 <text class="starbase-wx-temp">{{starbaseWeather.tempLine}}</text>
+                <text class="starbase-weather-dot">·</text>
+                <image class="starbase-wind-icon" src="{{starbaseWeather.windIcon}}" mode="aspectFit"></image>
+                <text class="starbase-wx-wind-text">{{starbaseWeather.windLine}}</text>
               </view>
-              <view class="starbase-weather-row starbase-weather-row--sub">
-                <text class="starbase-wx-time">{{starbaseWeather.timeLine}}</text>
-                <view class="starbase-wx-wind">
-                  <image class="starbase-wind-icon" src="{{starbaseWeather.windIcon}}" mode="aspectFit"></image>
-                  <text class="starbase-wx-wind-text">{{starbaseWeather.windLine}}</text>
-                </view>
-              </view>
+              <text class="starbase-weather-caption">博卡奇卡{{starbaseWeather.timeShort ? ' · ' + starbaseWeather.timeShort + ' CST' : ''}}</text>
             </block>
             <text wx:elif="{{starbaseWeather.error}}" class="starbase-weather-err">{{starbaseWeather.error}}</text>
+            <text wx:else class="starbase-weather-caption">博卡奇卡</text>
           </view>
         </view>
         <view class="monitor-livestream-stack">

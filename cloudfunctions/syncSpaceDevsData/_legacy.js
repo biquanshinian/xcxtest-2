@@ -23,9 +23,8 @@ const PAYLOAD_API_BASE = 'https://ll.thespacedevs.com/2.3.0'
 // 之前写成了 /v4/articles，再叠加 url='/articles/' 会变成 /v4/articles/articles/，导致同步失败
 const SPACEFLIGHT_NEWS_API = 'https://api.spaceflightnewsapi.net/v4'
 
-// 缓存有效期：3.5小时（云数据库存储时间）
-// 云函数每3小时执行1次，缓存有效期设置为3.5小时，确保在同步间隔期间数据仍然可用
-// 同时避免数据过期时间过长导致数据不够新鲜
+// 缓存有效期：3.5小时（云数据库存储时间，非核心端点默认值）
+// 全量同步定时器为每 6 小时；核心列表/资讯源另有 48h 保底 TTL，避免间隙空白
 const CACHE_DURATION = 3.5 * 60 * 60 * 1000 // 3.5小时（210分钟）
 
 // 核心发射列表（/launches/upcoming/、/launches/previous/ 的主文档 + 批次文档）保底 TTL：
@@ -36,6 +35,11 @@ const CORE_LAUNCH_LIST_CACHE_DURATION = 48 * 60 * 60 * 1000 // 48 小时
 
 // 空间站 / 对接 / 远征：同步周期 6h，给 48h 保底 TTL，避免一两轮 LL2 限流后被清理导致详情页空白
 const STATION_RELATED_CACHE_DURATION = 48 * 60 * 60 * 1000
+
+// 资讯页数据源（events/upcoming、updates、articles）：同步周期 6h，默认 3.5h TTL
+// 会在两次同步之间过期，客户端严格拒过期 →「即将发生」整页空白。
+// 与发射列表同级给 48h 保底；同步成功即覆盖刷新。
+const NEWS_FEED_CACHE_DURATION = 48 * 60 * 60 * 1000 // 48 小时
 
 // 机构列表/详情（/agencies/ 及 /agencies/{id}/）：列表每日重写；详情由自愈同步分层刷新
 // （featured 26h / 非 featured 10d），重写间隔远超默认 3.5h TTL。给 30 天保底 TTL 并在
@@ -60,6 +64,15 @@ function isStationRelatedKey(cacheKey) {
     cacheKey.indexOf('api_cache_/space_stations/') === 0 ||
     cacheKey.indexOf('api_cache_/docking_events/') === 0 ||
     cacheKey.indexOf('api_cache_/expeditions/') === 0
+  )
+}
+
+/** 是否资讯页列表缓存（即将发生 / 航天事件文章 / updates） */
+function isNewsFeedCacheKey(cacheKey) {
+  return typeof cacheKey === 'string' && (
+    cacheKey.indexOf('api_cache_/events/upcoming/') === 0 ||
+    cacheKey.indexOf('api_cache_/updates/') === 0 ||
+    cacheKey.indexOf('api_cache_/articles/') === 0
   )
 }
 
@@ -443,12 +456,14 @@ async function saveToCloudDB(cacheKey, apiData, retryCount = 0) {
     }
     
     const now = Date.now()
-    // 核心发射列表 / 空间站相关用 48h 保底 TTL，机构列表/详情 30d（低频自愈刷新），其余端点维持 3.5h
+    // 核心发射 / 空间站 / 资讯列表 48h 保底；机构 30d；其余端点维持 3.5h
     const cacheTtl = isCoreLaunchListKey(cacheKey)
       ? CORE_LAUNCH_LIST_CACHE_DURATION
       : (isStationRelatedKey(cacheKey)
         ? STATION_RELATED_CACHE_DURATION
-        : (isAgencyCacheKey(cacheKey) ? AGENCY_CACHE_DURATION : CACHE_DURATION))
+        : (isNewsFeedCacheKey(cacheKey)
+          ? NEWS_FEED_CACHE_DURATION
+          : (isAgencyCacheKey(cacheKey) ? AGENCY_CACHE_DURATION : CACHE_DURATION)))
     
     // 检查数据大小（按字节），如果超过1MB，需要分批保存
     const dataSize = Buffer.byteLength(JSON.stringify(apiData), 'utf8')
@@ -4051,15 +4066,17 @@ async function cleanExpiredCache() {
     // 清理过期缓存（仅顶层 expireAt 的旧结构文档；当前写入的文档 expireAt 嵌套在 data 内，
     // 本就不会被此查询命中——它们只在同步成功拉到新数据时被覆盖写入，绝不按过期删除，
     // 避免 LL2 限流/同步失败期间把唯一数据源删掉导致客户端整页「数据暂不可用」）。
-    // 核心发射列表（/launches/upcoming/、/launches/previous/ 及其批次文档）与
-    // 机构列表/详情（/agencies/…，自愈同步低频刷新，存量文档还带旧的 3.5h expireAt，
-    // 删掉会让详情页退回「部分数据待补全」并迫使自愈白耗 LL2 配额重拉）显式排除：
+    // 核心发射列表、机构、资讯列表（events/updates/articles）显式排除：
+    // 存量文档可能仍带旧的 3.5h expireAt，删掉会让「即将发生」等整页空白。
     // 先查出命中的 _id，在内存里过滤掉受保护 key，再按 _id 批量删除。
     const _ = db.command
     const isCore = (id) => typeof id === 'string' &&
       (id.indexOf('api_cache_/launches/upcoming/') === 0 ||
        id.indexOf('api_cache_/launches/previous/') === 0 ||
-       id.indexOf('api_cache_/agencies/') === 0)
+       id.indexOf('api_cache_/agencies/') === 0 ||
+       id.indexOf('api_cache_/events/upcoming/') === 0 ||
+       id.indexOf('api_cache_/updates/') === 0 ||
+       id.indexOf('api_cache_/articles/') === 0)
 
     const expiredDocs = await db.collection('space_devs_cache')
       .where({ expireAt: _.lt(now) })
@@ -4805,7 +4822,7 @@ function buildDefaultMediaAssets() {
     '火箭配置图/Starship V3 Flight 12.jpg',
     '火箭配置图/Long March 8A CZ-8A_SatNet_LEO-14.jpg',
     '火箭配置图/Long-March-6A-CZ-6A_SatNet_LEO_Group_05.jpg',
-    '火箭配置图/Long March 7A.jpg',
+    '火箭配置图/Long March 7A.png',
     '火箭配置图/LongMarch2C.jpg',
     '火箭配置图/Long_March_3BE.jpg',
     '火箭配置图/Long_March_4B_rocket.jpg',

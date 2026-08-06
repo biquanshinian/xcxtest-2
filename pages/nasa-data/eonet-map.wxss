@@ -1,5 +1,5 @@
 page {
-  background: #000;
+  background: #0B0C0E;
   overflow: hidden;
   height: 100vh;
 }
@@ -16,9 +16,7 @@ page {
 }
 
 .glass-card {
-  background: rgba(18, 18, 20, 0.78);
-  backdrop-filter: blur(18rpx);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-glass);
 }
 
 /* 底部面板 */
@@ -110,19 +108,18 @@ page {
 .panel-copy-btn {
   padding: 6rpx 16rpx;
   border-radius: 999rpx;
-  background: rgba(0, 122, 255, 0.14);
-  border: 1px solid rgba(0, 122, 255, 0.3);
+  background: rgba(59, 130, 246, 0.14);
+  border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
 .panel-copy-btn text {
   font-size: 20rpx;
-  color: #4ea1ff;
+  color: var(--color-brand);
 }
 
 /* ========== 明亮主题（theme-light）覆盖 ========== */
 .theme-light .glass-card {
   background: rgba(255, 255, 255, 0.85);
-  border-color: var(--color-divider);
 }
 
 .theme-light .panel-status--open {
@@ -154,10 +151,10 @@ page {
 }
 
 .theme-light .panel-copy-btn {
-  background: rgba(0, 122, 255, 0.1);
-  border-color: rgba(0, 122, 255, 0.3);
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.3);
 }
 
 .theme-light .panel-copy-btn text {
-  color: #0A84FF;
+  color: var(--color-brand);
 }

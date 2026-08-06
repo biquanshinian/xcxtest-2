@@ -406,6 +406,7 @@ const LIVE_SETTLE_METHODS = [
   'loadSpaceXStats',
   'loadAnnouncementBanner',
   'openAnnouncementDetail',
+  'onAnnouncementVoteTap',
   'onContactCallback',
   '_refreshRocketImagesFromMediaMap'
 ]
@@ -1069,6 +1070,10 @@ Page({
     // 系统通知横幅
     announcementBanner: null,
     announcementDialogVisible: false,
+    // 公告投票渲染 VM（打开公告弹窗时构建）
+    announcementVote: null,
+    // 公告弹窗滚动区高度上限（px，按屏高计算，简报弹窗同款做法）
+    announcementScrollMaxPx: 420,
     demoQrcodeUrl: COS_DEMO_QR_URL,
     // SpaceX 官网发射统计
     spacexStats: null,
@@ -1706,11 +1711,9 @@ Page({
       return
     }
     if (bucket === this._upcomingAgencyScrollHapticBucket) return
-    const jumps = Math.min(Math.abs(bucket - this._upcomingAgencyScrollHapticBucket), 4)
-    for (let i = 0; i < jumps; i++) {
-      this._vibrateMedium()
-    }
     this._upcomingAgencyScrollHapticBucket = bucket
+    // 横向滑动仅轻震一次：有明确「越过一档」指向，避免连震无感
+    this._vibrateLight()
   },
 
   async onUpcomingAgencyChipTap(e) {
@@ -2002,10 +2005,12 @@ Page({
       launchTimeCST: this.formatToCST(apiDetail.launchTime || mission.launchTime),
       windowStartCST: apiDetail.windowStart ? this.formatToCST(apiDetail.windowStart) : '',
       windowEndCST: apiDetail.windowEnd ? this.formatToCST(apiDetail.windowEnd) : '',
+      // 与详情 mergeMissionDetailData 同源：空 stamped + force，避免列表错误盖章锁死头图
       rocketImage: resolveMissionRocketImage(
-        mission.rocketImage,
-        mission.rocketName || apiDetail.rocketName,
-        mission.rocketConfiguration || apiDetail.rocketConfiguration
+        '',
+        apiDetail.rocketName || mission.rocketName,
+        apiDetail.rocketConfiguration || mission.rocketConfiguration,
+        true
       )
     }
   },
@@ -2840,7 +2845,16 @@ Page({
           // map 已就绪时，首屏盖章前按火箭名强制重算，避免把 default 写进倒计时/卡片
           try {
             upcomingList = (upcomingList || []).map((m) => {
-              if (!m || !m.rocketName) return m
+              if (!m) return m
+              const cfg = m.rocketConfiguration
+              const hasName = !!(m.rocketName && String(m.rocketName).trim())
+              const hasCfg = !!(
+                cfg &&
+                typeof cfg === 'object' &&
+                ((typeof cfg.name === 'string' && cfg.name.trim()) ||
+                  (typeof cfg.full_name === 'string' && cfg.full_name.trim()))
+              )
+              if (!hasName && !hasCfg) return m
               const rebuilt = resolveMissionRocketImage(
                 m.rocketImage || m.image || '',
                 m.rocketName,
@@ -2914,12 +2928,9 @@ Page({
           }
 
           // DB media_assets 真正加载完成后（即便 race 已超时）再刷新一次列表+倒计时火箭图
+          // 委托可能异步加载 index-extra，必须接住 Promise，避免刷新静默丢失
           loadCloudMediaMap()
-            .then(() => {
-              try {
-                this._refreshRocketImagesFromMediaMap()
-              } catch (e) {}
-            })
+            .then(() => Promise.resolve(this._refreshRocketImagesFromMediaMap()))
             .catch(() => {})
 
           try {
@@ -3007,13 +3018,13 @@ Page({
 
   _withResolvedRocketImage(mission) {
     if (!mission || typeof mission !== 'object') return mission
-    const stamped = mission.rocketImage || mission.image
-    const force = isDefaultRocketSrc(stamped)
+    // 与详情头图同源：始终 forceRecompute；保留 stamped 仅用于防 default 降级
+    const stamped = mission.rocketImage || mission.image || ''
     const resolved = resolveMissionRocketImage(
-      force ? '' : stamped,
+      stamped,
       mission.rocketName,
       mission.rocketConfiguration,
-      force
+      true
     )
     if (resolved === mission.rocketImage && resolved === mission.image) return mission
     return { ...mission, rocketImage: resolved, image: resolved }
@@ -3545,6 +3556,8 @@ Page({
     const type = e.currentTarget.dataset.type
     if (this.data.missionType === type) return
 
+    // 顶部分段导航切换：与 TabBar 同强度轻震
+    this._vibrateLight()
     this.closeMissionSwipeCells()
     this._resetMissionCardHaptics()
 
@@ -4001,7 +4014,7 @@ Page({
    */
   // 卡片图加载失败时的重试逻辑：
   //   1) 第一次构造的 URL 经常因为 cloud media map 还没加载完而是"假 URL"
-  //      （例如 Long March 7.webp 文件 COS 上其实不存在，真正的文件叫 Long March 7A.jpg）
+  //      （例如 Long March 7.webp 文件 COS 上其实不存在，真正的文件叫 Long March 7A.png）
   //   2) 这里 await loadCloudMediaMap()，等清单到位后再做 fuzzy 匹配，
   //      避免因为时序问题永远拿不到真实文件 URL
 

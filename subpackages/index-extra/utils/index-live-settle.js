@@ -1414,7 +1414,8 @@ const methods = {
       // 内容未变时跳过 setData，避免公告跑马灯动画被重置
       if (
         (!prev && !next) ||
-        (prev && next && prev.active === next.active && prev.title === next.title && prev.content === next.content)
+        (prev && next && prev.active === next.active && prev.title === next.title && prev.content === next.content &&
+          JSON.stringify(prev.vote || null) === JSON.stringify(next.vote || null))
       ) {
         return
       }
@@ -1428,9 +1429,175 @@ const methods = {
 
   openAnnouncementDetail() {
     if (this.data.missionSwipeOpenWxkey) this.closeMissionSwipeCells()
-    if (this.data.announcementBanner) {
-      this.setData({ announcementDialogVisible: true })
+    const banner = this.data.announcementBanner
+    if (!banner) return
+    const hasVote = !!(banner.vote && banner.vote.enabled && banner.id)
+    // 零云调用渲染：配置/票数来自公告直读缓存（8 分钟 TTL），我的选择来自本地存储。
+    // 跨设备已投过的极端情况由投票接口的确定性 _id 去重兜底纠正。
+    let announcementVote = null
+    if (hasVote) {
+      const payload = { ...banner.vote, announcementId: banner.id }
+      payload.myChoice = this._getLocalAnnouncementVoteChoice(banner.id)
+      announcementVote = this._announcementVoteVm(payload)
     }
+    // 滚动区用固定 height（非仅 max-height）：微信 scroll-view 否则易顶穿固定底栏。
+    // 高度 = 弹窗上限 − 标题 − 底栏（客服+我知道了），避免投票卡片边框叠进底栏。
+    let scrollMaxPx = 280
+    try {
+      const info = wx.getSystemInfoSync() || {}
+      const wh = Number(info.windowHeight) || 667
+      const dialogMax = Math.floor(wh * 0.76)
+      const headerPx = 56
+      const footerPx = 188 // 客服 80 + 间距 + 主按钮 + 内边距
+      scrollMaxPx = Math.max(200, dialogMax - headerPx - footerPx)
+    } catch (e) {}
+    this._annDialogScrollMaxPx = scrollMaxPx
+    this.setData({
+      announcementDialogVisible: true,
+      announcementVote,
+      announcementScrollMaxPx: scrollMaxPx
+    })
+    // 本地没有选择记录且投票开放时，向云端核对一次真实投票状态：
+    // 删除小程序/换设备后本地缓存丢失，不核对会误显示成可投票（云端仍会去重，只是 UI 骗人）
+    if (hasVote && announcementVote && !announcementVote.myChoice && announcementVote.status === 'open') {
+      this._syncAnnouncementVoteChoice(banner.id)
+    }
+  },
+
+  /** 云端核对我的投票记录（每个公告每次会话最多查 1 次，省读次数） */
+  _syncAnnouncementVoteChoice(announcementId) {
+    if (!this._annVoteSyncedIds) this._annVoteSyncedIds = {}
+    if (this._annVoteSyncedIds[announcementId]) return
+    this._annVoteSyncedIds[announcementId] = true
+    wx.cloud.callFunction({
+      name: 'adminGateway',
+      data: { path: '/announcement-vote/' + announcementId, method: 'GET' }
+    }).then((res) => {
+      const r = res && res.result
+      if (!r || r.code !== 0 || !r.data || !r.data.myChoice) return
+      this._saveLocalAnnouncementVoteChoice(announcementId, r.data.myChoice)
+      const vm = this.data.announcementVote
+      if (this.data.announcementDialogVisible && vm && vm.announcementId === announcementId) {
+        this.setData({ announcementVote: this._announcementVoteVm(r.data) })
+      }
+    }).catch(() => {
+      // 查询失败不阻塞：就算漏判，投票接口的确定性 _id 去重仍保证一人一票
+      this._annVoteSyncedIds[announcementId] = false
+    })
+  },
+
+  /** 本地存储的「我的选择」映射：{ 公告id: optionId }，投票成功后写入 */
+  _getLocalAnnouncementVoteChoice(announcementId) {
+    try {
+      const map = wx.getStorageSync('announcementVoteChoices') || {}
+      return map[announcementId] || ''
+    } catch (e) {
+      return ''
+    }
+  },
+
+  _saveLocalAnnouncementVoteChoice(announcementId, optionId) {
+    try {
+      const map = wx.getStorageSync('announcementVoteChoices') || {}
+      map[announcementId] = optionId
+      wx.setStorageSync('announcementVoteChoices', map)
+    } catch (e) {}
+  },
+
+  /** 把服务端/DB 的投票数据整理成渲染用 VM（阶段、时间文案、百分比） */
+  _announcementVoteVm(payload) {
+    const nowTs = Date.now()
+    const startTime = Number(payload.startTime || 0)
+    const endTime = Number(payload.endTime || 0)
+    let status = payload.status
+    if (!status) {
+      status = startTime && nowTs < startTime ? 'notStarted' : (endTime && nowTs >= endTime ? 'ended' : 'open')
+    }
+    const myChoice = payload.myChoice || ''
+    const revealed = payload.revealed !== undefined ? !!payload.revealed : (status === 'ended' || !!myChoice)
+    const rawOptions = payload.options || []
+    const totalVotes = rawOptions.reduce((sum, o) => sum + Math.max(0, Number((o && o.count) || 0)), 0)
+    const options = rawOptions.map((o) => {
+      const count = Math.max(0, Number(o.count || 0))
+      return {
+        id: o.id,
+        label: o.label || '',
+        image: o.image || '',
+        count,
+        percent: revealed && totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0
+      }
+    })
+    let timeText = ''
+    if (status === 'notStarted') {
+      timeText = formatDate(new Date(startTime), 'MM-DD HH:mm') + ' 开始'
+    } else if (status === 'open') {
+      timeText = endTime ? formatDate(new Date(endTime), 'MM-DD HH:mm') + ' 截止' : '进行中'
+    } else {
+      timeText = '已结束 · ' + totalVotes + ' 人参与'
+    }
+    return {
+      announcementId: payload.announcementId,
+      status,
+      timeText,
+      myChoice,
+      revealed,
+      question: payload.question || '',
+      intro: payload.intro || '',
+      resultNote: status === 'ended' ? (payload.resultNote || '') : '',
+      totalVotes: revealed ? totalVotes : 0,
+      options
+    }
+  },
+
+  /** 点击投票选项：一人一票，服务端确定性 _id 去重；这是投票功能唯一的云函数调用点 */
+  onAnnouncementVoteTap(e) {
+    const vm = this.data.announcementVote
+    if (!vm || this._annVoteSubmitting) return
+    if (vm.status === 'notStarted') {
+      wx.showToast({ title: '投票还未开始', icon: 'none' })
+      return
+    }
+    if (vm.status === 'ended' || vm.myChoice) return
+    const optionId = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.optionId
+    if (!optionId) return
+    this._annVoteSubmitting = true
+    wx.cloud.callFunction({
+      name: 'adminGateway',
+      data: {
+        path: '/announcement-vote',
+        method: 'POST',
+        body: { announcementId: vm.announcementId, optionId }
+      }
+    }).then((res) => {
+      this._annVoteSubmitting = false
+      const r = res && res.result
+      if (r && r.code === 0 && r.data) {
+        // 服务端返回的 myChoice 是权威值（跨设备已投过时为当时的选择）
+        if (r.data.myChoice) this._saveLocalAnnouncementVoteChoice(vm.announcementId, r.data.myChoice)
+        this.setData({ announcementVote: this._announcementVoteVm(r.data) })
+        if (r.data.duplicate) {
+          wx.showToast({ title: '你已投过票，已显示当时的选择', icon: 'none' })
+        } else {
+          wx.showToast({ title: '投票成功', icon: 'success' })
+        }
+      } else if (r && r.code === 4003) {
+        // 未开始/已截止：本地时钟与服务端不一致，按服务端语义就地修正 UI，不再发请求
+        wx.showToast({ title: r.message || '投票已截止', icon: 'none' })
+        const ended = (r.message || '').indexOf('截止') >= 0
+        const banner = this.data.announcementBanner
+        const base = banner && banner.vote
+          ? { ...banner.vote, announcementId: vm.announcementId, myChoice: vm.myChoice }
+          : vm
+        this.setData({
+          announcementVote: this._announcementVoteVm({ ...base, status: ended ? 'ended' : 'notStarted' })
+        })
+      } else {
+        wx.showToast({ title: (r && r.message) || '投票失败，请稍后重试', icon: 'none' })
+      }
+    }).catch(() => {
+      this._annVoteSubmitting = false
+      wx.showToast({ title: '网络异常，请稍后重试', icon: 'none' })
+    })
   },
 
   /** 客服会话回调：用户在会话中点击小程序卡片返回时，按卡片指定路径跳转（与 profile 页同款） */
@@ -1459,8 +1626,19 @@ const methods = {
    * 允许 default → 正确图升级；禁止正确图 → default 降级（二次刷新 fuzzy miss 时）。
    */
   _refreshRocketImagesFromMediaMap() {
+    const hasRocketMatchInput = (m) => {
+      if (!m) return false
+      if (m.rocketName && String(m.rocketName).trim()) return true
+      const cfg = m.rocketConfiguration
+      if (!cfg || typeof cfg !== 'object') return false
+      return !!(
+        (typeof cfg.name === 'string' && cfg.name.trim()) ||
+        (typeof cfg.full_name === 'string' && cfg.full_name.trim())
+      )
+    }
     const resolveOne = (m) => {
-      if (!m || !m.rocketName) return null
+      if (!hasRocketMatchInput(m)) return null
+      // 与详情头图同源：force 重算；stamped 仅防 default 降级
       return resolveMissionRocketImage(m.rocketImage || m.image || '', m.rocketName, m.rocketConfiguration, true)
     }
     const refreshList = (listKey) => {
@@ -1468,7 +1646,7 @@ const methods = {
       if (!Array.isArray(arr) || !arr.length) return null
       let mutated = false
       const next = arr.map((m) => {
-        if (!m || !m.rocketName) return m
+        if (!hasRocketMatchInput(m)) return m
         const rebuilt = resolveOne(m)
         if (!shouldReplaceRocketImage(m.rocketImage || m.image, rebuilt)) return m
         mutated = true
@@ -1488,7 +1666,7 @@ const methods = {
 
     // 倒计时区与列表同 id 任务强制对齐（同样禁止降级）
     const ld = this.data.launchData
-    if (ld && ld.id && ld.rocketName) {
+    if (ld && ld.id && hasRocketMatchInput(ld)) {
       const curLd = ld.rocketImage || ld.image || ''
       const rebuiltLd = resolveOne(ld)
       if (shouldReplaceRocketImage(curLd, rebuiltLd)) {

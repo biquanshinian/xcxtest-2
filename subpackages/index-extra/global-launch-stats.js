@@ -280,6 +280,7 @@ Page({
   onSwitchTab(e) {
     const tab = e.currentTarget.dataset.tab
     if (!tab || tab === this.data.activeTab) return
+    try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
     this.setData({ activeTab: tab, listExpanded: false })
   },
 

@@ -67,6 +67,7 @@
               <div class="draft-title" :title="row.title">{{ row.title || '未命名' }}</div>
               <div class="draft-sub">
                 <span>{{ row.strategyName || row.strategyKey || '—' }}</span>
+                <el-tag v-if="row.strategyAuto" size="small" type="info" effect="plain" style="margin-left:4px">自动</el-tag>
                 <span class="dot">·</span>
                 <span>{{ sourceLabel(row.sourceType) }}</span>
                 <span class="dot">·</span>
@@ -485,7 +486,7 @@ const openEdit = async (row) => {
       coverUrl: d.coverUrl || '',
       imageUrls: imagesOf(d),
       miniprogramPath: d.miniprogramPath || '',
-      markdown: d.markdown || '',
+      markdown: ensureHeroImage(stripPromoFooter(d.markdown || ''), d.coverUrl || ''),
       error: d.error || '',
       brandKey: d.brandKey || '',
       timeline: Array.isArray(d.pushTimeline) ? d.pushTimeline.slice().reverse() : []
@@ -507,10 +508,57 @@ const stripFallbackNotice = (md) =>
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 
+/** 剥掉旧硬广结语（—— 火星… / 打开小程序…），避营销推广限流 */
+const stripPromoFooter = (md) => {
+  let s = String(md || '')
+  for (let i = 0; i < 3; i++) {
+    const next = s
+      .replace(
+        /\n*(?:---|\*\*\*|___)\s*\n+(?:——\s*)?火星(?:探索日志|空间探索)[^\n]*(?:\n+[^\n]*){0,3}\s*$/u,
+        ''
+      )
+      .replace(/\n*(?:——\s*)?火星(?:探索日志|空间探索)\s*\n+[^#\n]*(?:小程序|打开小程序)[^\n]*\s*$/u, '')
+      .replace(/\n+想追火箭和深空任务[^\n]*\s*$/u, '')
+      .replace(/\n+小程序里能看发射[^\n]*\s*$/u, '')
+    if (next === s) break
+    s = next
+  }
+  return s.replace(/\n{3,}$/g, '\n\n').replace(/\s+$/u, '')
+}
+
+/** 单图 / 无图仅封面 → 头图置顶 */
+const ensureHeroImage = (md, coverUrl = '') => {
+  let body = String(md || '').replace(/\n{3,}/g, '\n\n').trim()
+  const imgRe = /!\[([^\]]*)\]\((https?:\/\/[^)\s]+)(?:\s+"[^"]*")?\)/gi
+  const images = []
+  let m
+  while ((m = imgRe.exec(body))) {
+    images.push({ full: m[0], index: m.index, len: m[0].length })
+  }
+  if (images.length > 1) return body
+  if (images.length === 1) {
+    const img = images[0]
+    if (!body.slice(0, img.index).trim()) return body
+    const without = (body.slice(0, img.index) + body.slice(img.index + img.len))
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+    const hero = img.full.replace(/^!\[([^\]]*)\]/, '![头图]')
+    return `${hero}\n\n${without}`.replace(/\n{3,}/g, '\n\n').trim()
+  }
+  const cover = String(coverUrl || '').trim()
+  if (/^https?:\/\//i.test(cover)) {
+    return `![头图](${cover})\n\n${body}`.replace(/\n{3,}/g, '\n\n').trim()
+  }
+  return body
+}
 const onSave = async () => {
   saving.value = true
   try {
-    const cleaned = stripFallbackNotice(form.markdown)
+    const cleaned = ensureHeroImage(
+      stripPromoFooter(stripFallbackNotice(form.markdown)),
+      form.coverUrl || ''
+    )
+    form.markdown = cleaned
     await api.updateOaDraft(editingId.value, {
       title: form.title,
       digest: form.digest,

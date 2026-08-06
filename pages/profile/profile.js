@@ -154,7 +154,9 @@ Page({
     showMilestoneEgg: false,
     currentMilestone: {},
     _milestoneQueue: [],
-    myPrizes: []
+    myPrizes: [],
+    /** 火箭观礼入口（enableWatchParty，failClosed；未确认前隐藏） */
+    enableWatchParty: false
   },
 
   onLoad() {
@@ -216,6 +218,7 @@ Page({
     this.loadMyPrizes()
     this._loadMembershipEntry()
     this.loadYearReviewEntry()
+    this._refreshWatchPartyEntryFlag()
     if (!isBoot) {
       tryShowPopupAd(4, this)
     } else {
@@ -540,6 +543,27 @@ Page({
 
   goTimeline() {
     wx.navigateTo({ url: '/subpackages/profile-extra/timeline/timeline' })
+  },
+
+  /** 过审开关：强制刷新，避免一键过审后仍显示入口 */
+  _refreshWatchPartyEntryFlag() {
+    try {
+      require('../../utils/watch-party-feature.js').isWatchPartyEnabled(true).then((on) => {
+        this.setData({ enableWatchParty: !!on })
+      }).catch(() => {
+        this.setData({ enableWatchParty: false })
+      })
+    } catch (e) {
+      this.setData({ enableWatchParty: false })
+    }
+  },
+
+  goWatchParty() {
+    if (!this.data.enableWatchParty) {
+      wx.showToast({ title: '观礼服务暂未开放', icon: 'none' })
+      return
+    }
+    wx.navigateTo({ url: '/subpackages/watch-party/merchant-list?channel=profile' })
   },
 
   goPreferences() {

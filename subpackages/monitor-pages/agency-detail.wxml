@@ -63,13 +63,15 @@
     </view>
 
     <block wx:elif="{{item}}">
-      <!-- Hero 全幅大图：原图干净展示 + 底部渐变收边（与火箭型号详情页一致），点击预览 -->
-      <view class="hero-section" bindtap="onHeroImageTap">
-        <image wx:if="{{item.imageUrl}}" class="hero-img {{heroImageLoaded ? 'hero-img--loaded' : ''}}" src="{{item.imageUrl}}" mode="aspectFill" bindload="onHeroImageLoad" binderror="onHeroImageError"></image>
-        <view class="hero-img hero-placeholder" wx:else>
-          <text class="hero-placeholder-icon"></text>
+      <!-- Hero 悬浮卡：多层毛玻璃叠层统一骨架（hero-float），点击预览 -->
+      <view class="hero-float">
+        <view class="hero-section hero-float-card" bindtap="onHeroImageTap">
+          <image wx:if="{{item.imageUrl}}" class="hero-img {{heroImageLoaded ? 'hero-img--loaded' : ''}}" src="{{item.imageUrl}}" mode="aspectFill" bindload="onHeroImageLoad" binderror="onHeroImageError"></image>
+          <view class="hero-img hero-placeholder" wx:else>
+            <text class="hero-placeholder-icon"></text>
+          </view>
+          <view class="hero-gradient"></view>
         </view>
-        <view class="hero-gradient"></view>
       </view>
 
       <!-- 信息头：logo/名称/徽标下移出头图，不再遮挡照片 -->
@@ -82,8 +84,8 @@
             <text class="info-name">{{item.name}}</text>
             <text class="info-abbrev" wx:if="{{item.abbrev}}">{{item.abbrev}}</text>
           </view>
-          <view class="fav-btn {{isFavorited ? 'fav-btn--on' : ''}}" hover-class="fav-btn--pressed" hover-stay-time="120" catchtap="onToggleFavorite">
-            <text class="fav-star">{{isFavorited ? '★' : '☆'}}</text>
+          <view class="fav-btn {{isFavorited ? 'fav-btn--on' : ''}} {{favAnimate ? 'fav-btn--animate' : ''}}" hover-class="fav-btn--pressed" hover-stay-time="120" catchtap="onToggleFavorite">
+            <text class="fav-heart">♥</text>
           </view>
         </view>
         <view class="info-tags">

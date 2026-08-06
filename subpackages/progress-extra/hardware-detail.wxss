@@ -1,12 +1,12 @@
 /* hardware-detail.wxss —— 星舰硬件设施详情页（全局深色玻璃风格） */
 page {
-  background: #000;
+  background: #0B0C0E;
   color: #fff;
 }
 
 .detail-page {
   min-height: 100vh;
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: var(--color-bg-page);
 }
 
 /* 导航标题包裹层：min-width:0 允许在 grid 中收缩，flex 保证标题始终水平居中 */
@@ -46,31 +46,39 @@ page {
 }
 .error-btn {
   font-size: 28rpx;
-  color: #007AFF;
+  color: var(--color-brand);
   padding: 12rpx 40rpx;
-  border: 1px solid rgba(0, 122, 255, 0.3);
+  border: 1px solid rgba(59, 130, 246, 0.3);
   border-radius: 999rpx;
 }
 
 .detail-body {
-  padding: 20rpx 32rpx 0;
+  padding: var(--space-md) var(--space-lg) 0;
 }
 
 .glass-card {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 24rpx;
+  background: var(--bg-glass);
+  border-radius: var(--radius-card);
   overflow: hidden;
 }
 
-/* 头图：widthFix 按原图比例自适应高度，不再固定高裁切（与任务详情页一致） */
+/* 出框悬浮统一参数适配：detail-body 横向内衬 36rpx，全局 flush 的 -16rpx
+ * 落点正好 = 36 - 16 = 20rpx 屏边，横向无需覆盖（总宽 710rpx，未超视口）。
+ * 头图在普通内衬容器（detail-body 非卡片）顶部，无卡顶可压，
+ * -32rpx 只会顶进导航占位区，覆盖 margin-top: 0 只做横向出框（不上浮）。 */
+.detail-body .hero-float--flush {
+  margin-top: 0;
+}
+
+/* 头图：widthFix 按原图比例自适应高度，不再固定高裁切（与任务详情页一致）；
+ * 外边距/下探叠层由 hero-float 承担，圆角与全局 hero-float-card 对齐 */
 .hero-wrap {
   position: relative;
   width: 100%;
-  border-radius: 24rpx;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   background: #131313;
-  margin-bottom: 20rpx;
+  margin-bottom: 0;
   /* 消除 inline image 底部基线缝隙 */
   font-size: 0;
   line-height: 0;
@@ -86,7 +94,7 @@ page {
   left: 0;
   right: 0;
   height: 140rpx;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
+  background: linear-gradient(transparent, rgba(11, 12, 14, 0.88));
   pointer-events: none;
 }
 /* 信息头：状态/名称在头图下方 */
@@ -180,11 +188,11 @@ page {
   line-height: 1;
 }
 .meta-badge--blue {
-  background: rgba(10, 132, 255, 0.16);
-  border-color: rgba(10, 132, 255, 0.42);
+  background: rgba(59, 130, 246, 0.16);
+  border-color: rgba(59, 130, 246, 0.42);
 }
 .meta-badge--blue text {
-  color: #9FD0FF;
+  color: var(--color-brand);
 }
 
 /* 简介 */
@@ -271,7 +279,7 @@ page {
 }
 .manifest-item-location {
   font-size: 24rpx;
-  color: #9FD0FF;
+  color: var(--color-brand);
 }
 .manifest-item-notes {
   font-size: 24rpx;
@@ -318,8 +326,6 @@ page {
 }
 .theme-light .glass-card {
   background: var(--color-bg-card);
-  border: 1px solid var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 /* hero-wrap 深底占位保持：照片加载前后均为深色内容 */
 /* hero-gradient 压在照片上，保持深色收边 */
@@ -369,8 +375,8 @@ page {
   color: var(--color-text-secondary);
 }
 .theme-light .meta-badge--blue {
-  background: rgba(10, 132, 255, 0.12);
-  border-color: rgba(10, 132, 255, 0.35);
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.35);
 }
 .theme-light .meta-badge--blue text {
   color: #0a6fd6;

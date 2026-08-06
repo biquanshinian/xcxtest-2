@@ -1,5 +1,5 @@
 page {
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: var(--color-bg-page);
   overflow: hidden;
   height: 100vh;
   width: 100%;
@@ -8,11 +8,9 @@ page {
 .detail-page {
   min-height: 100vh;
   height: 100vh;
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: var(--color-bg-page);
   overflow: hidden;
 }
-
-
 
 .nav-title-wrap {
   min-width: 0;
@@ -40,17 +38,13 @@ page {
 }
 
 .detail-container {
-  padding: 32rpx;
+  padding: var(--space-xl) var(--space-lg);
   box-sizing: border-box;
 }
 
 .glass-card {
-  background: rgba(18, 20, 24, 0.62);
-  backdrop-filter: blur(28rpx) saturate(170%);
-  -webkit-backdrop-filter: blur(28rpx) saturate(170%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 28rpx;
-  box-shadow: 0 16rpx 40rpx rgba(0, 0, 0, 0.35), inset 0 1rpx 0 rgba(255, 255, 255, 0.08);
+  background: var(--bg-glass);
+  border-radius: var(--radius-card);
 }
 
 /* 卡片化改版：外层不再是整块玻璃卡，改为透明容器，各版块独立成圆角卡片（参照监控中心） */
@@ -61,27 +55,32 @@ page {
 /* 版块卡片统一底座：深色玻璃卡 / 浅色白底圆角卡（.theme-light 覆盖） */
 .detail-section,
 .detail-block {
-  background: rgba(18, 20, 24, 0.62);
-  backdrop-filter: blur(28rpx) saturate(170%);
-  -webkit-backdrop-filter: blur(28rpx) saturate(170%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 24rpx;
-  box-shadow: 0 12rpx 32rpx rgba(0, 0, 0, 0.28), inset 0 1rpx 0 rgba(255, 255, 255, 0.06);
+  background: var(--bg-glass);
+  border-radius: var(--radius-card);
 }
 
 .detail-section {
-  padding: 24rpx 28rpx;
+  padding: var(--space-md) var(--space-lg);
 }
 
 /* 头部卡片：头图铺到卡片边缘 */
 .detail-hero-section {
   padding: 0;
-  overflow: hidden;
+  /* 头图悬浮卡的毛玻璃叠层要露出卡外一段，不能裁剪 */
+  overflow: visible;
+  /* flex 布局阻断外边距折叠：hero-float 的负上边距才能让图浮出卡顶，
+     而不是把整张卡一起上移 */
+  display: flex;
+  flex-direction: column;
 }
 
+/* 火箭配置图出框悬浮：统一参数走 app.wxss 的 hero-float--flush
+ *（屏边 20rpx 限宽 + 顶部 -32rpx 上浮 + hero-float-card 投影）。
+ * 祖先链 detail-hero-section / detail-card / detail-container 均无 overflow:hidden，
+ * 图不会被裁；宽度未超出 scroll-view 视口，不会引发横向滚动。 */
 .detail-hero-section .hero-image-wrap {
-  border-radius: 0;
-  margin-bottom: 24rpx;
+  margin-bottom: 0;
+  border-radius: var(--radius-lg);
 }
 
 .detail-hero-section .meta-top,
@@ -134,7 +133,7 @@ page {
 .hero-image {
   display: block;
   width: 100%;
-  background: #131313;
+  background: var(--color-bg-elevated);
 }
 
 .meta-top {
@@ -181,15 +180,15 @@ page {
 }
 
 .type-badge.status-pending {
-  color: #4ea1ff;
-  background: rgba(0, 122, 255, 0.16);
-  border: 1px solid rgba(0, 122, 255, 0.35);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.16);
+  border: 1px solid rgba(59, 130, 246, 0.35);
 }
 
 .type-badge.status-inflight {
-  color: #5ac8fa;
-  background: rgba(90, 200, 250, 0.16);
-  border: 1px solid rgba(90, 200, 250, 0.4);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.16);
+  border: 1px solid rgba(59, 130, 246, 0.4);
 }
 
 .type-badge.status-deployed {
@@ -229,10 +228,10 @@ page {
   display: block;
   font-size: 28rpx;
   font-weight: 600;
-  color: #007aff;
+  color: var(--color-brand);
   margin-bottom: 20rpx;
   padding-bottom: 10rpx;
-  border-bottom: 1px solid rgba(0, 122, 255, 0.2);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.2);
 }
 
 /* 紧凑版块：基础信息 / 规格 / 任务说明 / 火箭信息收紧版块间距与标题留白 */
@@ -290,7 +289,7 @@ page {
   justify-content: space-between;
   margin-bottom: 16rpx;
   padding-bottom: 8rpx;
-  border-bottom: 1px solid rgba(0, 122, 255, 0.2);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.2);
 }
 
 .rocket-spec-title-row .detail-section-title {
@@ -547,8 +546,8 @@ page {
 }
 
 .livestream-btn--primary {
-  border-color: rgba(78, 161, 255, 0.32);
-  background: linear-gradient(135deg, rgba(78, 161, 255, 0.12), rgba(30, 30, 30, 0.45));
+  border-color: rgba(59, 130, 246, 0.32);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(30, 30, 30, 0.45));
 }
 
 .livestream-btn--channel-live {
@@ -664,7 +663,6 @@ page {
   border-radius: 20rpx;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 /* 只有一段集锦时铺满一行，更像主卡片 */
@@ -761,7 +759,6 @@ page {
 
 .theme-light .replay-clip-card {
   background: rgba(0, 0, 0, 0.03);
-  border-color: rgba(0, 0, 0, 0.08);
 }
 
 .theme-light .replay-clip-publisher {
@@ -998,18 +995,18 @@ page {
   gap: 8rpx;
   padding: 12rpx 20rpx;
   border-radius: 999rpx;
-  background: rgba(0, 122, 255, 0.1);
-  border: 1px solid rgba(0, 122, 255, 0.25);
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.25);
 }
 
 .mission-map-quick-link-text {
   font-size: 24rpx;
-  color: #4ea1ff;
+  color: var(--color-brand);
 }
 
 .mission-map-quick-link-arrow {
   font-size: 24rpx;
-  color: rgba(78, 161, 255, 0.6);
+  color: rgba(59, 130, 246, 0.6);
 }
 
 /* ===== 可点击链接芯片（发射商 / 序列号） ===== */
@@ -1019,7 +1016,7 @@ page {
   gap: 6rpx;
   padding: 10rpx 22rpx 10rpx 20rpx;
   border-radius: 999rpx;
-  background: linear-gradient(135deg, #5ac8fa 0%, #007aff 100%);
+  background: var(--color-brand);
   transition: opacity 0.2s;
 }
 
@@ -1040,7 +1037,7 @@ page {
 }
 
 .detail-link-chip--booster .detail-link-chip-arrow {
-  color: rgba(90, 200, 250, 0.6);
+  color: rgba(59, 130, 246, 0.6);
 }
 
 .vote-box {
@@ -1062,15 +1059,39 @@ page {
   margin: 0 0 12rpx;
 }
 .vote-type-tab {
+  position: relative;
+  overflow: visible;
   font-size: 29rpx;
   line-height: 1.2;
-  color: rgba(255, 255, 255, 0.4);
-  padding: 10rpx 19rpx;
-  border-radius: 12rpx;
+  color: var(--color-text-secondary, #8E8E93);
+  padding: 10rpx 19rpx 16rpx;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  transition: color 0.25s ease;
+}
+.vote-type-tab::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 44rpx;
+  height: 6rpx;
+  border-radius: 999rpx;
+  background: var(--color-brand, #3B82F6);
+  transform: translateX(-50%) scaleX(0);
+  opacity: 0;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+  pointer-events: none;
 }
 .vote-type-tab--active {
-  color: rgba(255, 255, 255, 0.92);
-  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-text-primary);
+  font-weight: 600;
+  background: transparent;
+}
+.vote-type-tab--active::after {
+  transform: translateX(-50%) scaleX(1);
+  opacity: 1;
 }
 
 .vote-box--detail {
@@ -1313,7 +1334,6 @@ page {
 
 .lt-card {
   background: rgba(255, 255, 255, 0.035);
-  border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 20rpx;
   padding: 28rpx 32rpx;
 }
@@ -1514,19 +1534,19 @@ page {
   display: inline-block;
   margin-top: 12rpx;
   font-size: 24rpx;
-  color: #4ea1ff;
+  color: var(--color-brand);
 }
 
 .detail-tag {
   font-size: 24rpx;
-  color: #007aff;
-  background: rgba(0,122,255,0.15);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246,0.15);
   padding: 4rpx 12rpx;
   border-radius: 8rpx;
 }
 
 .detail-link {
-  color: #007aff;
+  color: var(--color-brand);
   word-break: break-all;
 }
 
@@ -1549,13 +1569,13 @@ page {
   align-items: center;
   justify-content: space-between;
   padding: 20rpx 24rpx;
-  background: rgba(0,122,255,0.08);
+  background: rgba(59, 130, 246,0.08);
 }
 
 .detail-block-title {
   font-size: 28rpx;
   font-weight: 600;
-  color: #007aff;
+  color: var(--color-brand);
   flex: 1;
 }
 
@@ -1595,7 +1615,6 @@ page {
 .detail-program-card {
   padding: 20rpx 24rpx;
   border-radius: 12rpx;
-  border: 1px solid rgba(255,255,255,0.08);
   background: rgba(255,255,255,0.03);
 }
 
@@ -1625,10 +1644,10 @@ page {
 
 .detail-program-type {
   font-size: 20rpx;
-  color: #007aff;
+  color: var(--color-brand);
   padding: 2rpx 12rpx;
   border-radius: 999rpx;
-  border: 1px solid rgba(0, 122, 255, 0.35);
+  border: 1px solid rgba(59, 130, 246, 0.35);
 }
 
 .detail-program-meta {
@@ -1670,10 +1689,10 @@ page {
 .detail-related-link-tag {
   flex-shrink: 0;
   font-size: 20rpx;
-  color: #007aff;
+  color: var(--color-brand);
   padding: 2rpx 12rpx;
   border-radius: 999rpx;
-  border: 1px solid rgba(0, 122, 255, 0.35);
+  border: 1px solid rgba(59, 130, 246, 0.35);
 }
 
 .detail-related-link-title {
@@ -1690,7 +1709,6 @@ page {
   padding: 20rpx 24rpx;
   border-radius: 12rpx;
   background: rgba(255, 69, 58, 0.08);
-  border: 1px solid rgba(255, 69, 58, 0.25);
 }
 
 .detail-failreason-text {
@@ -1737,8 +1755,8 @@ page {
 }
 
 .detail-update-node--latest {
-  background: #007aff;
-  box-shadow: 0 0 10rpx rgba(0, 122, 255, 0.6);
+  background: var(--color-brand);
+  box-shadow: 0 0 10rpx rgba(59, 130, 246, 0.6);
 }
 
 .detail-update-main {
@@ -1789,10 +1807,10 @@ page {
 .detail-related-link-copy {
   flex-shrink: 0;
   font-size: 20rpx;
-  color: #007aff;
+  color: var(--color-brand);
   padding: 4rpx 16rpx;
   border-radius: 999rpx;
-  border: 1px solid rgba(0, 122, 255, 0.35);
+  border: 1px solid rgba(59, 130, 246, 0.35);
 }
 
 .detail-related-link--tap {
@@ -1820,8 +1838,6 @@ page {
   background: rgba(255, 255, 255, 0.04);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  box-shadow: none;
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 /* 多芯火箭（Falcon Heavy 等）助推器分卡 */
@@ -1830,7 +1846,6 @@ page {
   margin-bottom: 16rpx;
   border-radius: 14rpx;
   background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .booster-stage-card:last-child {
@@ -1939,8 +1954,8 @@ page {
   width: 48rpx;
   height: 48rpx;
   border-radius: 50%;
-  border: 4rpx solid rgba(0, 122, 255, 0.2);
-  border-top-color: #4ea1ff;
+  border: 4rpx solid rgba(59, 130, 246, 0.2);
+  border-top-color: var(--color-brand);
   animation: spin 0.8s linear infinite;
 }
 
@@ -1994,7 +2009,7 @@ page {
   height: 84rpx;
   line-height: 1;
   border-radius: 999rpx;
-  background: linear-gradient(135deg, #0a84ff, #4ea1ff);
+  background: var(--color-brand);
   color: #ffffff;
   font-size: 28rpx;
   font-weight: 600;
@@ -2030,9 +2045,9 @@ page {
 .qrcode-modal-content {
   width: 600rpx;
   max-width: 90%;
-  background: rgba(28, 28, 30, 0.95);
-  backdrop-filter: blur(40rpx) saturate(150%);
-  -webkit-backdrop-filter: blur(40rpx) saturate(150%);
+  background: var(--bg-glass-popup, rgba(22, 24, 28, 0.85));
+  backdrop-filter: blur(32rpx) saturate(150%);
+  -webkit-backdrop-filter: blur(32rpx) saturate(150%);
   border-radius: 24rpx;
   overflow: hidden;
   animation: qrSlideUp 0.3s ease;
@@ -2112,13 +2127,13 @@ page {
 .qrcode-copy-btn {
   margin-top: 10rpx;
   padding: 16rpx 40rpx;
-  background: rgba(0, 122, 255, 0.9);
+  background: rgba(59, 130, 246, 0.9);
   border-radius: 12rpx;
   transition: all 0.2s ease;
 }
 
 .qrcode-copy-btn:active {
-  background: rgba(0, 122, 255, 0.7);
+  background: rgba(59, 130, 246, 0.7);
   transform: scale(0.97);
 }
 
@@ -2176,7 +2191,6 @@ page {
 }
 
 .mission-stats-card--error {
-  border-left: 4rpx solid rgba(255, 69, 58, 0.75);
 }
 
 .mission-stats-groups {
@@ -2278,7 +2292,6 @@ page {
 
 .detail-ll2-card {
   padding: 24rpx 28rpx;
-  border-left: 4rpx solid rgba(100, 210, 255, 0.75);
   box-sizing: border-box;
 }
 
@@ -2287,7 +2300,6 @@ page {
 }
 
 .detail-ll2-card--error {
-  border-left-color: rgba(255, 69, 58, 0.75);
 }
 
 .detail-ll2-card--pad {
@@ -2438,16 +2450,12 @@ page {
 /* 本文件重定义了 .glass-card（深玻璃），需局部覆盖回浅玻璃 */
 .theme-light .glass-card {
   background: var(--bg-glass);
-  border: 1px solid var(--color-border-glass);
-  box-shadow: var(--shadow-card), inset 0 1rpx 0 rgba(255, 255, 255, 0.85);
 }
 
 /* 版块卡片：浅色主题下为白底圆角卡（与监控中心一致） */
 .theme-light .detail-section,
 .theme-light .detail-block {
   background: rgba(255, 255, 255, 0.85);
-  border: 1px solid var(--color-divider);
-  box-shadow: var(--shadow-card), inset 0 1rpx 0 rgba(255, 255, 255, 0.85);
 }
 
 .theme-light .meta-patch-img {
@@ -2462,14 +2470,14 @@ page {
 /* —— 徽章 / 元信息 —— */
 .theme-light .type-badge.status-pending {
   color: var(--color-brand);
-  background: rgba(0, 122, 255, 0.12);
-  border-color: rgba(0, 122, 255, 0.3);
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.3);
 }
 
 .theme-light .type-badge.status-inflight {
-  color: #0a84ff;
-  background: rgba(90, 200, 250, 0.14);
-  border-color: rgba(10, 132, 255, 0.35);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.14);
+  border-color: rgba(59, 130, 246, 0.35);
 }
 
 .theme-light .type-badge.status-deployed {
@@ -2507,7 +2515,6 @@ page {
 /* —— 失败原因 / 发射动态（浅色主题） —— */
 .theme-light .detail-failreason-card {
   background: rgba(255, 59, 48, 0.06);
-  border-color: rgba(255, 59, 48, 0.22);
 }
 
 .theme-light .detail-failreason-text {
@@ -2531,8 +2538,8 @@ page {
 }
 
 .theme-light .detail-update-node--latest {
-  background: #007aff;
-  box-shadow: 0 0 10rpx rgba(0, 122, 255, 0.35);
+  background: var(--color-brand);
+  box-shadow: 0 0 10rpx rgba(59, 130, 246, 0.35);
 }
 
 .theme-light .detail-block-hint {
@@ -2542,8 +2549,6 @@ page {
 .theme-light .detail-stats-section .mission-stats-card,
 .theme-light .detail-section .detail-ll2-card {
   background: rgba(0, 0, 0, 0.03);
-  border: 1px solid var(--color-divider);
-  box-shadow: none;
 }
 
 .theme-light .detail-update-time,
@@ -2555,7 +2560,6 @@ page {
 
 .theme-light .detail-program-card {
   background: rgba(0, 0, 0, 0.03);
-  border-color: var(--color-divider);
 }
 
 .theme-light .detail-program-name,
@@ -2611,8 +2615,8 @@ page {
 }
 
 .theme-light .livestream-btn--primary {
-  border-color: rgba(0, 122, 255, 0.28);
-  background: linear-gradient(135deg, rgba(0, 122, 255, 0.10), rgba(255, 255, 255, 0.62));
+  border-color: rgba(59, 130, 246, 0.28);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.10), rgba(255, 255, 255, 0.62));
 }
 
 .theme-light .livestream-btn--bilibili {
@@ -2674,7 +2678,7 @@ page {
 }
 
 .theme-light .mission-map-quick-link-arrow {
-  color: rgba(0, 122, 255, 0.55);
+  color: rgba(59, 130, 246, 0.55);
 }
 
 /* —— 竞猜 —— */
@@ -2688,12 +2692,13 @@ page {
 }
 
 .theme-light .vote-type-tab {
-  color: rgba(0, 0, 0, 0.4);
+  color: var(--color-text-secondary, #8E8E93);
+  background: transparent;
 }
 
 .theme-light .vote-type-tab--active {
-  color: rgba(0, 0, 0, 0.88);
-  background: rgba(0, 0, 0, 0.06);
+  color: var(--color-text-primary);
+  background: transparent;
 }
 
 .theme-light .vote-pill {
@@ -2775,7 +2780,6 @@ page {
 
 .theme-light .lt-card {
   background: rgba(0, 0, 0, 0.03);
-  border: 1px solid var(--color-divider-faint);
 }
 
 .theme-light .lt-node {
@@ -2867,7 +2871,6 @@ page {
 
 /* —— 折叠区块 —— */
 .theme-light .detail-block {
-  border: 1px solid var(--color-divider);
 }
 
 .theme-light .icon-arrow--detail-block,
@@ -2877,7 +2880,6 @@ page {
 
 .theme-light .booster-stage-card {
   background: rgba(0, 0, 0, 0.03);
-  border: 1px solid var(--color-divider-faint);
 }
 
 .theme-light .booster-stage-title {
@@ -2922,7 +2924,7 @@ page {
 
 /* —— B站二维码弹窗（遮罩保持深色，面板转浅）—— */
 .theme-light .qrcode-modal-content {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--bg-glass-popup, rgba(255, 255, 255, 0.88));
 }
 
 .theme-light .qrcode-header {
@@ -2960,8 +2962,8 @@ page {
 /* —— 发射统计 —— */
 .theme-light .mission-stats-ordinal-chip {
   color: var(--color-brand);
-  background: rgba(0, 122, 255, 0.1);
-  border: 1px solid rgba(0, 122, 255, 0.25);
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.25);
 }
 
 .theme-light .mission-stats-global-link {
@@ -3018,8 +3020,8 @@ page {
 }
 
 .theme-light .detail-ll2-node {
-  background: rgba(0, 122, 255, 0.1);
-  border-color: rgba(0, 122, 255, 0.4);
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.4);
 }
 
 .theme-light .detail-ll2-node-mark--dot,
@@ -3061,8 +3063,8 @@ page {
   margin: 0 -32rpx 24rpx;
   padding: 12rpx 32rpx 0;
   background: rgba(8, 9, 11, 0.88);
-  backdrop-filter: blur(28rpx) saturate(170%);
-  -webkit-backdrop-filter: blur(28rpx) saturate(170%);
+  backdrop-filter: blur(24rpx) saturate(140%);
+  -webkit-backdrop-filter: blur(24rpx) saturate(140%);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
@@ -3078,12 +3080,12 @@ page {
 .detail-tab-text {
   font-size: 27rpx;
   line-height: 1.2;
-  color: rgba(255, 255, 255, 0.55);
-  transition: color 0.2s ease;
+  color: var(--color-text-secondary, #8E8E93);
+  transition: color 0.25s ease;
 }
 
 .detail-tab--active .detail-tab-text {
-  color: #ffffff;
+  color: var(--color-text-primary);
   font-weight: 600;
 }
 
@@ -3092,10 +3094,10 @@ page {
   bottom: 0;
   left: 50%;
   transform: translateX(-50%);
-  width: 48rpx;
+  width: 44rpx;
   height: 6rpx;
-  border-radius: 6rpx 6rpx 0 0;
-  background: #007aff;
+  border-radius: 999rpx;
+  background: var(--color-brand, #3B82F6);
 }
 
 .theme-light .detail-tab-bar {
@@ -3104,7 +3106,7 @@ page {
 }
 
 .theme-light .detail-tab-text {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary, #8E8E93);
 }
 
 .theme-light .detail-tab--active .detail-tab-text {
@@ -3288,4 +3290,67 @@ page {
 /* 飞行剖面演示（指挥这次任务下方） */
 .detail-flight-demo {
   margin: 0 24rpx 28rpx;
+}
+
+/* ── 现场观礼入口 ── */
+.watch-party-row {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 24rpx 28rpx;
+  border-radius: 20rpx;
+  background: linear-gradient(120deg, rgba(59, 130, 246, 0.14), rgba(168, 85, 247, 0.12));
+  border: 1rpx solid rgba(96, 165, 250, 0.3);
+}
+
+.watch-party-row-badge {
+  flex-shrink: 0;
+  padding: 8rpx 18rpx;
+  border-radius: 24rpx;
+  font-size: 22rpx;
+  color: #93C5FD;
+  background: rgba(59, 130, 246, 0.18);
+  border: 1rpx solid rgba(96, 165, 250, 0.4);
+}
+
+.watch-party-row-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.watch-party-row-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.watch-party-row-desc {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.theme-light .watch-party-row {
+  background: #FFFFFF;
+  border-color: rgba(59, 130, 246, 0.25);
+  box-shadow: var(--shadow-card);
+}
+
+.theme-light .watch-party-row-badge {
+  color: #2563EB;
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.theme-light .watch-party-row-title {
+  color: #1C1C1E;
+}
+
+.theme-light .watch-party-row-desc {
+  color: rgba(28, 28, 30, 0.55);
 }

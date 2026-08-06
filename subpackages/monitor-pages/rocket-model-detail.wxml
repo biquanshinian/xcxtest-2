@@ -40,19 +40,21 @@
     <!-- 详情内容 -->
     <block wx:elif="{{model}}">
 
-    <!-- Hero 构型大图 -->
-    <view class="hero-section" bindtap="onHeroImageTap">
-      <image class="hero-img {{heroImageLoaded ? 'hero-img--loaded' : ''}}"
-             wx:if="{{model.imageUrl}}"
-             src="{{model.imageUrl}}"
-             mode="aspectFill"
-             bindload="onHeroImageLoad" />
-      <view class="hero-img hero-placeholder" wx:else>
-        <text class="hero-placeholder-icon"></text>
-      </view>
-      <view class="hero-gradient"></view>
-      <view class="hero-credit-btn" wx:if="{{model.imageCredit}}">
-        <text class="hero-credit-text">{{model.imageCredit}}</text>
+    <!-- Hero 悬浮卡：多层毛玻璃叠层统一骨架（hero-float），点击预览 -->
+    <view class="hero-float">
+      <view class="hero-section hero-float-card" bindtap="onHeroImageTap">
+        <image class="hero-img {{heroImageLoaded ? 'hero-img--loaded' : ''}}"
+               wx:if="{{model.imageUrl}}"
+               src="{{model.imageUrl}}"
+               mode="aspectFill"
+               bindload="onHeroImageLoad" />
+        <view class="hero-img hero-placeholder" wx:else>
+          <text class="hero-placeholder-icon"></text>
+        </view>
+        <view class="hero-gradient"></view>
+        <view class="hero-credit-btn" wx:if="{{model.imageCredit}}">
+          <text class="hero-credit-text">{{model.imageCredit}}</text>
+        </view>
       </view>
     </view>
 

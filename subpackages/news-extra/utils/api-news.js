@@ -12,6 +12,18 @@ const {
   translateLocation
 } = require('../../../utils/space-terms-i18n.js')
 
+// 与云端 NEWS_FEED_CACHE_DURATION 对齐：过期但仍在窗口内的缓存可读，避免 6h 同步间隙整页空白
+const NEWS_CACHE_STALE_MAX_MS = 48 * 60 * 60 * 1000
+
+/** 云库 space_devs_cache 文档是否可用（新鲜，或未超 48h 陈旧窗口） */
+function isCloudCacheDocUsable(docData, now = Date.now()) {
+  if (!docData || typeof docData !== 'object') return false
+  if (!docData.expireAt || now <= Number(docData.expireAt)) return true
+  const ts = Number(docData.timestamp) || 0
+  if (!ts) return true
+  return (now - ts) <= NEWS_CACHE_STALE_MAX_MS
+}
+
 /**
  * Spaceflight News（云缓存 / 直连）按固定 offset 截取一页，sliceLimit 为条数
  */
@@ -647,10 +659,8 @@ async function getEventsList(page = 1, limit = 10) {
       
       if (docResult.data && docResult.data.data) {
         const docData = docResult.data.data
-        const now = Date.now()
-        
-        // 检查数据是否过期
-        if (!docData.expireAt || now <= docData.expireAt) {
+        // 未过期，或 48h 陈旧窗口内仍可读（对齐云端资讯保底 TTL）
+        if (isCloudCacheDocUsable(docData)) {
           // 获取实际的API数据 - 尝试多种可能的数据结构
           let apiData = null
           
@@ -699,9 +709,8 @@ async function getEventsList(page = 1, limit = 10) {
         
         if (fallbackResult.data && fallbackResult.data.data) {
           const fallbackDocData = fallbackResult.data.data
-          const now = Date.now()
           
-          if (!fallbackDocData.expireAt || now <= fallbackDocData.expireAt) {
+          if (isCloudCacheDocUsable(fallbackDocData)) {
             let fallbackApiData = fallbackDocData.data || fallbackDocData
             
             // 解包嵌套结构

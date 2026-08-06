@@ -666,7 +666,6 @@ async function buildMiniprogramCtaHtml({
   const p = sanitizeMiniprogramPath(path)
   const cardTitleRaw = String(title || text || '火星探索日志').slice(0, 20)
   const cardTitle = escapeAttr(cardTitleRaw)
-  const cardTitleText = escapeHtmlText(cardTitleRaw)
   const m = String(mode || 'image')
   const slot = normalizeSlot(credentialSlot)
 
@@ -698,14 +697,12 @@ async function buildMiniprogramCtaHtml({
 
   if (cardImg) {
     // 图片跳转：与官方 uploadnewsmsg 示例一致，href 必须为空字符串
+    // 仅包图，不再跟文字链（文字链易触导流/营销限流）
     return (
       `<p class="oa-mp-cta" data-oa-cta="1" style="margin:24px 0;text-align:center;">` +
       `${miniprogramAnchorOpen(p)}` +
       `<img src="${escapeAttr(cardImg)}" alt="${cardTitle}" data-width="null" data-ratio="NaN" style="max-width:100%;height:auto;border-radius:6px;" />` +
-      `</a></p>` +
-      `<p class="oa-mp-cta" data-oa-cta="1" style="margin:8px 0 24px;text-align:center;color:#576b95;font-size:14px;">` +
-      `${miniprogramAnchorOpen(p)}${cardTitleText}</a>` +
-      `</p>`
+      `</a></p>`
     )
   }
 
@@ -727,34 +724,20 @@ function isInvalidContentError(err) {
 }
 
 /**
- * 文首提示语（发射预测免责声明等）：
- * 文案里第一个【…】自动包小程序跳转锚点（默认蓝色文字）。
+ * 文首提示语（信息向免责等）：
+ * 纯文展示，不挂小程序文字链（避营销推广/内容导流限流；跳转只走配图）。
  * data-oa-lead="1" 标记，重建 HTML 时可先剥再加，避免重复。
  */
 function buildLeadDisclaimerHtml({ text, path, color } = {}) {
   const raw = String(text || '').trim()
   if (!raw) return ''
-  const appid = escapeAttr(getMiniAppId())
-  const p = escapeAttr(sanitizeMiniprogramPath(path))
-  const c = escapeAttr(String(color || '#1a73e8').slice(0, 24))
-  const m = raw.match(/【[^】]{1,30}】/)
-  let inner
-  if (m) {
-    const before = escapeHtmlText(raw.slice(0, m.index))
-    const name = escapeHtmlText(m[0])
-    const after = escapeHtmlText(raw.slice(m.index + m[0].length))
-    inner =
-      before +
-      `<a data-miniprogram-appid="${appid}" data-miniprogram-path="${p}" href="" ` +
-      `style="color:${c};text-decoration:none;font-weight:600;">${name}</a>` +
-      after
-  } else {
-    inner = escapeHtmlText(raw)
-  }
+  // path/color 保留入参兼容旧调用；限流策略下前言不再生成文字锚点
+  void path
+  void color
   return (
     `<section data-oa-lead="1" style="margin:0 0 18px;padding:10px 12px;` +
     `font-size:13px;line-height:1.8;color:#595959;background:#f6f7f8;border-radius:6px;">` +
-    inner +
+    escapeHtmlText(raw) +
     `</section>`
   )
 }

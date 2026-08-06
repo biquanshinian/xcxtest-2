@@ -1,7 +1,7 @@
 @import "./detail.wxss";
 
 .detail-card {
-  padding: 28rpx;
+  padding: var(--space-lg);
 }
 
 .section-title {
@@ -39,7 +39,7 @@
 .photo-grid-item--dragging {
   opacity: 0.72;
   transform: scale(1.04);
-  box-shadow: 0 12rpx 28rpx rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-card);
   z-index: 2;
 }
 
@@ -169,8 +169,6 @@
 
 .theme-light .glass-card {
   background: rgba(255, 255, 255, 0.62);
-  border: 1px solid var(--color-divider, rgba(0, 0, 0, 0.08));
-  box-shadow: var(--shadow-card, 0 8rpx 24rpx rgba(0, 0, 0, 0.06)), inset 0 1rpx 0 rgba(255, 255, 255, 0.85);
 }
 
 .theme-light .section-title,

@@ -66,27 +66,29 @@
       </view>
 
       <view wx:elif="{{item}}" class="detail-card glass-card">
-        <!-- 顶部 Hero 区 -->
-        <view class="hero-wrap">
-          <image wx:if="{{item.image && !heroImageFailed}}" class="hero-image {{heroImageLoaded ? 'hero-image--loaded' : ''}}" src="{{item.image}}" mode="aspectFill" bindload="onHeroImageLoad" binderror="onHeroImageError"></image>
-          <view wx:else class="hero-image hero-image--visual">
-            <view class="hero-visual hero-visual--{{isTiangong ? 'tiangong' : 'iss'}}">
-              <view class="hero-orbit hero-orbit--outer"></view>
-              <view class="hero-orbit hero-orbit--inner"></view>
-              <view class="hero-core hero-core--{{isTiangong ? 'tiangong' : 'iss'}}"></view>
-              <view class="hero-glow"></view>
-              <text class="hero-fallback-tag">{{isTiangong ? 'TIANGONG' : 'ISS'}}</text>
-            </view>
-          </view>
-          <view class="hero-overlay">
-            <view class="hero-name-row">
-              <view class="hero-name-col">
-                <text class="hero-name">{{item.name}}</text>
-                <text class="hero-name-en" wx:if="{{item.nameEn}}">{{item.nameEn}}</text>
+        <!-- 顶部 Hero 悬浮卡：多层毛玻璃叠层统一骨架（hero-float，卡片内用 flush 去左右外边距） -->
+        <view class="hero-float hero-float--flush">
+          <view class="hero-wrap hero-float-card">
+            <image wx:if="{{item.image && !heroImageFailed}}" class="hero-image {{heroImageLoaded ? 'hero-image--loaded' : ''}}" src="{{item.image}}" mode="aspectFill" bindload="onHeroImageLoad" binderror="onHeroImageError"></image>
+            <view wx:else class="hero-image hero-image--visual">
+              <view class="hero-visual hero-visual--{{isTiangong ? 'tiangong' : 'iss'}}">
+                <view class="hero-orbit hero-orbit--outer"></view>
+                <view class="hero-orbit hero-orbit--inner"></view>
+                <view class="hero-core hero-core--{{isTiangong ? 'tiangong' : 'iss'}}"></view>
+                <view class="hero-glow"></view>
+                <text class="hero-fallback-tag">{{isTiangong ? 'TIANGONG' : 'ISS'}}</text>
               </view>
-              <text class="hero-status hero-status--{{item.statusTone}}">{{item.statusBadgeText || item.statusText || item.status || '未知'}}</text>
             </view>
-            <text class="hero-dock-count">{{item.dockedCount || 0}} 艘停靠</text>
+            <view class="hero-overlay">
+              <view class="hero-name-row">
+                <view class="hero-name-col">
+                  <text class="hero-name">{{item.name}}</text>
+                  <text class="hero-name-en" wx:if="{{item.nameEn}}">{{item.nameEn}}</text>
+                </view>
+                <text class="hero-status hero-status--{{item.statusTone}}">{{item.statusBadgeText || item.statusText || item.status || '未知'}}</text>
+              </view>
+              <text class="hero-dock-count">{{item.dockedCount || 0}} 艘停靠</text>
+            </view>
           </view>
         </view>
 

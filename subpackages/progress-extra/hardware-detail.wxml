@@ -42,16 +42,18 @@
     <!-- 内容 -->
     <block wx:elif="{{vehicle}}">
       <view class="detail-body">
-        <!-- 头图：原图干净展示 + 底部渐变收边（与火箭型号详情页一致） -->
-        <view class="hero-wrap">
-          <image
-            class="hero-img"
-            src="{{vehicle.displayImage}}"
-            mode="widthFix"
-            show-menu-by-longpress="{{true}}"
-            binderror="onHeroImageError"
-          ></image>
-          <view class="hero-gradient"></view>
+        <!-- 头图：原图干净展示 + 底部渐变收边（与火箭型号详情页一致）；多层毛玻璃悬浮卡骨架（hero-float） -->
+        <view class="hero-float hero-float--flush">
+          <view class="hero-wrap hero-float-card">
+            <image
+              class="hero-img"
+              src="{{vehicle.displayImage}}"
+              mode="widthFix"
+              show-menu-by-longpress="{{true}}"
+              binderror="onHeroImageError"
+            ></image>
+            <view class="hero-gradient"></view>
+          </view>
         </view>
 
         <!-- 信息头：状态/名称下移出头图，不再遮挡照片 -->

@@ -1,10 +1,10 @@
 /* invite.wxss — 邀请得月卡（暗色玻璃风格，与订单记录页一致） */
 .container {
-  background: #000000;
+  background: #0B0C0E;
 }
 
 .content-scroll {
-  padding: 0 30rpx;
+  padding: 0 32rpx;
 }
 
 /* ── 加载骨架 ── */
@@ -60,11 +60,10 @@
   display: flex;
   align-items: center;
   gap: 20rpx;
-  margin-top: 24rpx;
+  margin-top: 28rpx;
   padding: 28rpx 30rpx;
   border-radius: 20rpx;
   background: rgba(255, 170, 0, 0.06);
-  border: 1rpx solid rgba(255, 170, 0, 0.2);
 }
 
 .iv-rule-icon {
@@ -80,11 +79,10 @@
 
 /* ── 进度卡 ── */
 .iv-progress-card {
-  margin-top: 24rpx;
+  margin-top: 28rpx;
   padding: 30rpx;
   border-radius: 20rpx;
   background: rgba(255, 255, 255, 0.04);
-  border: 1rpx solid rgba(255, 255, 255, 0.08);
 }
 
 .iv-progress-head {
@@ -156,7 +154,7 @@
 
 .iv-granted-tip {
   display: block;
-  margin-top: 24rpx;
+  margin-top: 28rpx;
   font-size: 22rpx;
   text-align: center;
   color: #4CD964;
@@ -210,7 +208,6 @@
   margin-bottom: 14rpx;
   border-radius: 16rpx;
   background: rgba(255, 255, 255, 0.04);
-  border: 1rpx solid rgba(255, 255, 255, 0.06);
 }
 
 .iv-record-text {
@@ -277,7 +274,6 @@
 
 .theme-light .iv-rule-card {
   background: rgba(255, 149, 0, 0.08);
-  border-color: rgba(255, 149, 0, 0.25);
 }
 
 .theme-light .iv-rule-text {
@@ -286,8 +282,6 @@
 
 .theme-light .iv-progress-card {
   background: var(--color-bg-card);
-  border-color: var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 
 .theme-light .iv-progress-title {
@@ -328,8 +322,6 @@
 
 .theme-light .iv-record-item {
   background: var(--color-bg-card);
-  border-color: var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 
 .theme-light .iv-record-text {

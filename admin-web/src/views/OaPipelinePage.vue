@@ -32,7 +32,8 @@
           </el-select>
         </el-form-item>
         <el-form-item label="策略">
-          <el-select v-model="strategyKey" clearable placeholder="默认策略" style="width:200px">
+          <el-select v-model="strategyKey" clearable placeholder="自动匹配" style="width:200px">
+            <el-option label="自动匹配（按正文）" value="auto" />
             <el-option v-for="s in strategies" :key="s.key || s._id" :label="s.name" :value="s.key || s._id" />
           </el-select>
         </el-form-item>
@@ -135,7 +136,7 @@ const selected = ref([])
 const loadingTopics = ref(false)
 const generating = ref(false)
 const runningDaily = ref(false)
-const strategyKey = ref('')
+const strategyKey = ref('auto')
 const brandKey = ref('')
 const brands = ref([])
 const manualTitle = ref('')
@@ -209,11 +210,15 @@ const notifyGenerated = (raw, fallbackText) => {
     return
   }
   const fell = res.status === 'needs_review'
+  const strat =
+    res.strategyName || res.strategyKey
+      ? ` · ${res.strategyName || res.strategyKey}${res.strategyAuto ? '（自动）' : ''}`
+      : ''
   ElNotification({
     title: fell ? 'AI 生成失败，已写入素材整理稿' : fallbackText,
     message: fell
       ? `《${(res.title || '未命名').slice(0, 24)}》原因：${(res.llmError || '未知').slice(0, 120)}。点击打开草稿改写`
-      : `《${(res.title || '未命名').slice(0, 24)}》点击打开草稿编辑`,
+      : `《${(res.title || '未命名').slice(0, 24)}》${strat} 点击打开草稿编辑`,
     type: fell ? 'warning' : 'success',
     duration: fell ? 12000 : 6000,
     onClick: () => gotoDraft(id)

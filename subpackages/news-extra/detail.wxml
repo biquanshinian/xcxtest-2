@@ -62,11 +62,15 @@
       </view>
 
       <view wx:elif="{{item}}" class="detail-card glass-card">
-        <view wx:if="{{detailType === 'article' && item.heroImageUrl}}" class="hero-image-wrap">
-          <image class="hero-image" src="{{item.heroImageUrl}}" mode="widthFix" binderror="onHeroImageError" bindtap="onHeroPreview"></image>
+        <view wx:if="{{detailType === 'article' && item.heroImageUrl}}" class="hero-float hero-float--flush">
+          <view class="hero-image-wrap hero-float-card">
+            <image class="hero-image" src="{{item.heroImageUrl}}" mode="widthFix" binderror="onHeroImageError" bindtap="onHeroPreview"></image>
+          </view>
         </view>
-        <view wx:elif="{{detailType === 'event' && item.image}}" class="hero-image-wrap">
-          <image class="hero-image" src="{{item.image}}" mode="widthFix" binderror="onHeroImageError" bindtap="onHeroPreview"></image>
+        <view wx:elif="{{detailType === 'event' && item.image}}" class="hero-float hero-float--flush">
+          <view class="hero-image-wrap hero-float-card">
+            <image class="hero-image" src="{{item.image}}" mode="widthFix" binderror="onHeroImageError" bindtap="onHeroPreview"></image>
+          </view>
         </view>
 
         <!-- 贴图讨论区：头图下方；topic 取自标题，组件内已截断至 20 字 -->

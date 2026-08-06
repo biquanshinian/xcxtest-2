@@ -19,14 +19,14 @@ page {
 }
 /* 顶部导航栏 */
 .content-scroll {
-  padding: 30rpx;
+  padding: var(--space-md);
 }
 .section-title {
-  font-size: 36rpx;
-  font-weight: 600;
-  color: #FFFFFF;
-  margin-bottom: 20rpx;
-  padding: 0 10rpx;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-sm);
+  padding: 0 var(--space-2xs);
   display: flex;
   align-items: center;
 }
@@ -69,7 +69,7 @@ page {
 }
 /* MARS预览区域 */
 .MARS-preview-section {
-  margin-bottom: 40rpx;
+  margin-bottom: var(--space-xl);
 }
 .MARS-preview-card {
   padding: 0;
@@ -78,24 +78,23 @@ page {
 .preview-card-content {
   display: flex;
   align-items: center;
-  /* 纵向略收紧：相对原 40rpx 上下各减 5rpx（约 5px@375 宽），卡片整体缩窄约 5px 视觉高度 */
-  padding: 35rpx 40rpx;
-  gap: 30rpx;
+  padding: var(--space-lg) var(--space-xl);
+  gap: var(--space-lg);
 }
 .preview-card-info {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 10rpx;
+  gap: var(--space-2xs);
 }
 .preview-card-title {
-  font-size: 32rpx;
-  font-weight: 600;
-  color: #FFFFFF;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
 }
 .preview-card-desc {
   font-size: 24rpx;
-  color: #8E8E93;
+  color: var(--color-text-secondary);
 }
 .icon-arrow--preview-card {
   font-size: 48rpx;
@@ -130,11 +129,11 @@ page {
 /* 与页面同级内容共用 content-scroll 的 30rpx 左右内边距，勿再叠加 padding，否则会比「星舰监控中心」卡片窄一截 */
 .monitor-livestream-section {
   padding: 0;
-  margin-bottom: 40rpx;
+  margin-bottom: var(--space-xl);
 }
-/* 紧邻「星舰监控中心」卡片下方：与「太空轨道数据中心」标题区 margin-top（32rpx）同级节奏，避免两块贴太近 */
+/* 紧邻「星舰监控中心」卡片下方：与「太空轨道数据中心」标题区同级节奏，避免两块贴太近 */
 .MARS-preview-section > .monitor-livestream-section {
-  margin-top: 32rpx;
+  margin-top: var(--space-lg);
 }
 .monitor-livestream-section .section-title {
   padding: 0;
@@ -154,24 +153,19 @@ page {
   flex-shrink: 0;
 }
 .monitor-livestream-heading-text {
-  font-size: 36rpx;
-  font-weight: 600;
-  color: #FFFFFF;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
 }
 /* 博卡奇卡实况天气（时间行为 CST 中国标准时间） */
+/* 天气簇：紧凑两行（主行 = 天气+温度+风速，小字行 = 地名·时分），右对齐 */
 .starbase-weather-cluster {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4rpx;
-}
-.starbase-weather-place {
-  font-size: 20rpx;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.42);
-  letter-spacing: 1rpx;
+  gap: 2rpx;
 }
 .starbase-weather-loading text {
   font-size: 22rpx;
@@ -182,50 +176,45 @@ page {
   flex-direction: row;
   align-items: center;
   justify-content: flex-end;
-  gap: 10rpx;
-  width: 100%;
-}
-.starbase-weather-row--main {
-  flex-wrap: wrap;
-}
-.starbase-weather-row--sub {
-  gap: 16rpx;
-  flex-wrap: wrap;
+  gap: 8rpx;
+  max-width: 100%;
 }
 .starbase-wx-icon {
-  width: 36rpx;
-  height: 36rpx;
+  width: 32rpx;
+  height: 32rpx;
   flex-shrink: 0;
 }
 .starbase-wx-condition {
   font-size: 24rpx;
   font-weight: 500;
   color: rgba(255, 255, 255, 0.92);
+  white-space: nowrap;
 }
 .starbase-wx-temp {
-  font-size: 26rpx;
+  font-size: 24rpx;
   font-weight: 600;
   color: #FFFFFF;
+  white-space: nowrap;
 }
-.starbase-wx-time {
+.starbase-weather-dot {
   font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.55);
-  text-align: right;
-}
-.starbase-wx-wind {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 8rpx;
+  color: rgba(255, 255, 255, 0.3);
 }
 .starbase-wind-icon {
-  width: 44rpx;
-  height: 22rpx;
+  width: 36rpx;
+  height: 18rpx;
   flex-shrink: 0;
 }
 .starbase-wx-wind-text {
   font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.7);
+  white-space: nowrap;
+}
+.starbase-weather-caption {
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.38);
+  letter-spacing: 0.5rpx;
+  white-space: nowrap;
 }
 .starbase-weather-err {
   font-size: 22rpx;
@@ -282,7 +271,7 @@ page {
 .monitor-livestream-stack {
   display: flex;
   flex-direction: column;
-  gap: 20rpx;
+  gap: var(--space-md);
 }
 /* ========== 通用空状态 ========== */
 .empty-state {
@@ -343,15 +332,14 @@ page {
 
 /* ========== Starlink 卫星实时分布 ========== */
 .starlink-section {
-  padding: 0 30rpx;
-  margin-bottom: 40rpx;
+  padding: 0 var(--space-lg);
+  margin-bottom: var(--space-xl);
 }
 .starlink-card {
   padding: 0;
   overflow: hidden;
-  border-radius: 24rpx;
-  border: 1px solid rgba(0, 255, 136, 0.1);
-  background: linear-gradient(135deg, rgba(28, 28, 30, 0.9), rgba(0, 255, 136, 0.02));
+  border-radius: var(--radius-card);
+  background: linear-gradient(135deg, var(--color-bg-card), rgba(52, 199, 89, 0.03));
 }
 .starlink-loading {
   height: 420rpx;
@@ -367,7 +355,7 @@ page {
   width: 72rpx;
   height: 72rpx;
   border-radius: 50%;
-  border: 2rpx solid rgba(0, 255, 136, 0.2);
+  border: 2rpx solid rgba(52, 199, 89, 0.25);
   box-sizing: border-box;
   animation: starlinkOrbitSpin 1.2s linear infinite;
 }
@@ -380,8 +368,8 @@ page {
   width: 10rpx;
   height: 10rpx;
   border-radius: 50%;
-  background: #00ff88;
-  box-shadow: 0 0 12rpx rgba(0, 255, 136, 0.8);
+  background: var(--color-success);
+  box-shadow: 0 0 12rpx rgba(52, 199, 89, 0.55);
 }
 @keyframes starlinkOrbitSpin {
   from { transform: rotate(0deg); }
@@ -405,10 +393,10 @@ page {
 }
 .starlink-retry-btn {
   font-size: 24rpx;
-  color: #00ff88;
+  color: var(--color-success);
   padding: 10rpx 32rpx;
-  border: 1px solid rgba(0, 255, 136, 0.3);
-  border-radius: 999rpx;
+  border: 1px solid rgba(52, 199, 89, 0.35);
+  border-radius: var(--radius-pill);
 }
 .starlink-canvas-wrap {
   position: relative;
@@ -440,23 +428,23 @@ page {
 }
 .starlink-hud-corners--top::before {
   left: 0;
-  border-top: 2rpx solid rgba(0, 255, 136, 0.5);
-  border-left: 2rpx solid rgba(0, 255, 136, 0.5);
+  border-top: 2rpx solid rgba(52, 199, 89, 0.45);
+  border-left: 2rpx solid rgba(52, 199, 89, 0.45);
 }
 .starlink-hud-corners--top::after {
   right: 0;
-  border-top: 2rpx solid rgba(0, 255, 136, 0.5);
-  border-right: 2rpx solid rgba(0, 255, 136, 0.5);
+  border-top: 2rpx solid rgba(52, 199, 89, 0.45);
+  border-right: 2rpx solid rgba(52, 199, 89, 0.45);
 }
 .starlink-hud-corners--bottom::before {
   left: 0;
-  border-bottom: 2rpx solid rgba(0, 255, 136, 0.5);
-  border-left: 2rpx solid rgba(0, 255, 136, 0.5);
+  border-bottom: 2rpx solid rgba(52, 199, 89, 0.45);
+  border-left: 2rpx solid rgba(52, 199, 89, 0.45);
 }
 .starlink-hud-corners--bottom::after {
   right: 0;
-  border-bottom: 2rpx solid rgba(0, 255, 136, 0.5);
-  border-right: 2rpx solid rgba(0, 255, 136, 0.5);
+  border-bottom: 2rpx solid rgba(52, 199, 89, 0.45);
+  border-right: 2rpx solid rgba(52, 199, 89, 0.45);
 }
 .starlink-canvas {
   width: 100%;
@@ -480,8 +468,8 @@ page {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 255, 136, 0.15);
-  border: 1px solid rgba(0, 255, 136, 0.3);
+  background: rgba(52, 199, 89, 0.14);
+  border: 1px solid rgba(52, 199, 89, 0.3);
   border-radius: 50%;
 }
 /* CSS 播放三角（border 三角形） */
@@ -490,7 +478,7 @@ page {
   height: 0;
   border-style: solid;
   border-width: 9rpx 0 9rpx 15rpx;
-  border-color: transparent transparent transparent #00ff88;
+  border-color: transparent transparent transparent var(--color-success);
   margin-left: 4rpx;
 }
 /* CSS 暂停：两条圆角竖线 */
@@ -505,7 +493,7 @@ page {
   width: 5rpx;
   height: 18rpx;
   border-radius: 3rpx;
-  background: #00ff88;
+  background: var(--color-success);
 }
 .starlink-ctrl-info {
   font-size: 22rpx;
@@ -519,15 +507,15 @@ page {
   right: 16rpx;
   padding: 6rpx 16rpx;
   background: rgba(0, 0, 0, 0.5);
-  border-radius: 8rpx;
-  border: 1px solid rgba(0, 255, 136, 0.35);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(52, 199, 89, 0.35);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .starlink-expand-text {
   font-size: 20rpx;
-  color: rgba(0, 255, 136, 0.85);
+  color: rgba(52, 199, 89, 0.9);
   line-height: 1;
 }
 /* ========== D2C 折叠按钮 ========== */
@@ -536,17 +524,16 @@ page {
 
 /* ========== Starlink 过境预报 ========== */
 .pass-section {
-  padding: 0 30rpx;
-  margin-bottom: 40rpx;
+  padding: 0 var(--space-lg);
+  margin-bottom: var(--space-xl);
 }
 /* 融合入口卡片 */
 .pass-hero-card {
   position: relative;
   overflow: hidden;
-  padding: 36rpx 36rpx 32rpx;
-  border-radius: 28rpx;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: var(--space-lg) var(--space-lg) var(--space-md);
+  border-radius: var(--radius-lg);
+  background: var(--color-divider-faint);
   display: flex;
   align-items: center;
   gap: 16rpx;
@@ -733,16 +720,16 @@ page {
 .pass-locate-btn {
   margin-top: 12rpx;
   padding: 12rpx 32rpx;
-  border-radius: 999rpx;
-  background: rgba(0, 122, 255, 0.15);
-  border: 1px solid rgba(0, 122, 255, 0.3);
+  border-radius: var(--radius-pill);
+  background: var(--color-brand-soft);
+  border: 1px solid rgba(59, 130, 246, 0.3);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .pass-locate-btn text {
   font-size: 26rpx;
-  color: #007AFF;
+  color: var(--color-brand);
   font-weight: 500;
 }
 /* ========== D2C 折叠按钮（续） ========== */
@@ -767,9 +754,9 @@ page {
 .qrcode-modal-content {
   width: 600rpx;
   max-width: 90%;
-  background: rgba(28, 28, 30, 0.95);
-  backdrop-filter: blur(40rpx) saturate(150%);
-  -webkit-backdrop-filter: blur(40rpx) saturate(150%);
+  background: var(--bg-glass-popup, rgba(22, 24, 28, 0.85));
+  backdrop-filter: blur(32rpx) saturate(150%);
+  -webkit-backdrop-filter: blur(32rpx) saturate(150%);
   border-radius: 24rpx;
   overflow: hidden;
   animation: qrSlideUp 0.3s ease;
@@ -836,12 +823,12 @@ page {
 .qrcode-copy-btn {
   margin-top: 10rpx;
   padding: 16rpx 40rpx;
-  background: rgba(0, 122, 255, 0.9);
-  border-radius: 12rpx;
+  background: var(--color-brand);
+  border-radius: var(--radius-sm);
   transition: all 0.2s ease;
 }
 .qrcode-copy-btn:active {
-  background: rgba(0, 122, 255, 0.7);
+  background: rgba(59, 130, 246, 0.75);
   transform: scale(0.97);
 }
 .qrcode-copy-btn text {
@@ -851,8 +838,8 @@ page {
 }
 /* ========== 空间站实时状态 ========== */
 .station-section {
-  padding: 0 30rpx;
-  margin-bottom: 40rpx;
+  padding: 0 var(--space-lg);
+  margin-bottom: var(--space-xl);
 }
 .station-loading {
   display: flex;
@@ -866,17 +853,16 @@ page {
 /* 两个空间站卡片并排 */
 .station-row {
   display: flex;
-  gap: 16rpx;
+  gap: var(--space-sm);
 }
 .station-mini-card {
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 20rpx 12rpx 16rpx;
-  border-radius: 20rpx;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: var(--space-sm) var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-card);
+  background: var(--color-bg-card);
   backdrop-filter: blur(20rpx);
   -webkit-backdrop-filter: blur(20rpx);
   transition: all 0.25s ease;
@@ -1002,9 +988,9 @@ page {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 35rpx 40rpx;
-  border-radius: 20rpx;
-  gap: 10rpx;
+  padding: var(--space-lg) var(--space-xl);
+  border-radius: var(--radius-card);
+  gap: var(--space-2xs);
   box-sizing: border-box;
 }
 .lazy-load-card:active {
@@ -1076,9 +1062,6 @@ page {
   color: #ffffff;
 }
 /* --- 博卡奇卡天气 --- */
-.theme-light .starbase-weather-place {
-  color: var(--color-text-tertiary);
-}
 .theme-light .starbase-weather-loading text {
   color: var(--color-text-tertiary);
 }
@@ -1088,11 +1071,14 @@ page {
 .theme-light .starbase-wx-temp {
   color: var(--color-text-primary);
 }
-.theme-light .starbase-wx-time {
-  color: var(--color-text-tertiary);
+.theme-light .starbase-weather-dot {
+  color: var(--color-text-quaternary, rgba(0, 0, 0, 0.2));
 }
 .theme-light .starbase-wx-wind-text {
   color: var(--color-text-secondary);
+}
+.theme-light .starbase-weather-caption {
+  color: var(--color-text-tertiary);
 }
 .theme-light .starbase-weather-err {
   color: #FF3B30;
@@ -1100,7 +1086,6 @@ page {
 /* --- 过境预报融合卡片 --- */
 .theme-light .pass-hero-card {
   background: var(--color-bg-card);
-  border: 1px solid var(--color-divider);
 }
 .theme-light .pass-hero-trail {
   background: linear-gradient(90deg, transparent 0%, rgba(0, 0, 0, 0.14) 40%, rgba(0, 0, 0, 0.24) 60%, transparent 100%);
@@ -1146,7 +1131,7 @@ page {
 }
 /* --- B站二维码弹窗（遮罩保持深色，内容面板转浅色） --- */
 .theme-light .qrcode-modal-content {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--bg-glass-popup, rgba(255, 255, 255, 0.88));
 }
 .theme-light .qrcode-header {
   border-bottom: 1px solid var(--color-divider);
@@ -1172,7 +1157,6 @@ page {
 }
 .theme-light .station-mini-card {
   background: var(--color-bg-card);
-  border: 1px solid var(--color-divider);
 }
 .theme-light .station-mini-img {
   background: rgba(0, 0, 0, 0.05);
@@ -1203,11 +1187,11 @@ page {
   color: var(--color-text-secondary);
 }
 .theme-light .agency-chip-active {
-  background: rgba(10, 132, 255, 0.12);
-  border-color: rgba(10, 132, 255, 0.45);
+  background: var(--color-brand-soft);
+  border-color: rgba(59, 130, 246, 0.45);
 }
 .theme-light .agency-chip-active text {
-  color: #007AFF;
+  color: var(--color-brand);
 }
 .theme-light .agency-search-icon {
   color: var(--color-text-secondary);

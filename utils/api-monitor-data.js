@@ -713,7 +713,9 @@ async function getActiveAnnouncement() {
       title: item.title || '',
       content: item.content || '',
       type: item.type || 'info',
-      active: true
+      active: true,
+      // 公告投票配置（选项/时间等）；票数与我的选择以 adminGateway /announcement-vote 接口为准
+      vote: item.vote && item.vote.enabled ? item.vote : null
     }
     _announcementMem = { at: now, data }
     return data

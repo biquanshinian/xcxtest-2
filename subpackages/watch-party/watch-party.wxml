@@ -1,0 +1,284 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="page {{themeClass}}" style="padding-bottom: {{keyboardHeight}}px;">
+  <!-- 自定义导航栏 -->
+  <view class="top-nav-wrapper" style="padding-top:{{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view class="page-scroll" scroll-y show-scrollbar="{{false}}" bindscroll="onComposerScroll" scroll-with-animation="{{true}}" scroll-top="{{composerScrollTop}}">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <!-- 加载 / 错误 -->
+    <view class="wp-loading" wx:if="{{loading}}">
+      <view class="loading-spinner-lg"></view>
+      <text class="wp-loading-text">正在加载观礼场次…</text>
+    </view>
+    <view class="wp-error" wx:elif="{{error}}">
+      <text class="wp-error-text">{{error}}</text>
+      <view class="wp-retry-btn" bindtap="onRetry"><text>重试</text></view>
+      <!-- 商家还没有场次时也要能进商家中心建第一场 -->
+      <view class="wp-screen-link" bindtap="onGoMerchant">
+        <text>已入驻商家？进入商家管理 ›</text>
+      </view>
+    </view>
+
+    <block wx:elif="{{session}}">
+      <!-- 场次头卡：左侧火箭配置图 + 文案 / 倒计时 -->
+      <view class="wp-hero">
+        <view class="wp-hero-top">
+          <view class="wp-hero-rocket" wx:if="{{rocketImage}}">
+            <!-- 与首页即将发射卡片左侧配置图同款：aspectFill + cover 居中撑满 -->
+            <image class="wp-hero-rocket-img" src="{{rocketImage}}" mode="aspectFill" />
+          </view>
+          <view class="wp-hero-meta">
+            <text class="wp-hero-badge">近距离观礼 · 距发射工位约1.5km</text>
+            <text class="wp-hero-title">{{session.title}}</text>
+            <text class="wp-hero-mission" wx:if="{{session.missionName || session.rocketName}}">{{session.rocketName}}{{session.missionName ? ' · ' + session.missionName : ''}}</text>
+            <text class="wp-hero-time">{{launchTimeText}}</text>
+            <text class="wp-hero-merchant" wx:if="{{session.merchantName}}">观礼点由「{{session.merchantName}}」提供</text>
+          </view>
+        </view>
+
+        <!-- 倒计时 -->
+        <view class="wp-countdown" wx:if="{{countdown}}">
+          <view class="wp-cd-cell">
+            <text class="wp-cd-num">{{countdown.days}}</text>
+            <text class="wp-cd-label">天</text>
+          </view>
+          <view class="wp-cd-cell">
+            <text class="wp-cd-num">{{countdown.hours}}</text>
+            <text class="wp-cd-label">时</text>
+          </view>
+          <view class="wp-cd-cell">
+            <text class="wp-cd-num">{{countdown.mins}}</text>
+            <text class="wp-cd-label">分</text>
+          </view>
+          <view class="wp-cd-cell">
+            <text class="wp-cd-num">{{countdown.secs}}</text>
+            <text class="wp-cd-label">秒</text>
+          </view>
+        </view>
+        <text class="wp-cd-done" wx:elif="{{countdownDone}}">发射窗口已到，祝观礼顺利！</text>
+      </view>
+
+      <!-- 现场抽奖入口：商家开启后才显示 -->
+      <view class="wp-gacha-banner" wx:if="{{session.prizeDrawEnabled}}" bindtap="onGoGacha">
+        <view class="wp-gacha-left">
+          <text class="wp-gacha-title">现场奖品抽奖</text>
+          <text class="wp-gacha-desc">扫现场物料码 · 商家确认发射成功后可抽</text>
+        </view>
+        <text class="wp-gacha-arrow">›</text>
+      </view>
+      <view class="wp-album-link" bindtap="onGoAlbum">
+        <text>查看我的奖品 ›</text>
+      </view>
+
+      <!-- 商家服务 -->
+      <block wx:if="{{session.services.length}}">
+        <view class="section-header">
+          <text class="section-title">可提供服务</text>
+        </view>
+        <view class="wp-card">
+          <view class="wp-svc-tags">
+            <text class="wp-svc-tag" wx:for="{{session.services}}" wx:key="id">{{item.label}}</text>
+          </view>
+        </view>
+      </block>
+
+      <!-- 位置与导航 -->
+      <view class="section-header">
+        <text class="section-title">位置与导航</text>
+      </view>
+      <view class="wp-card">
+        <view class="wp-loc-row" bindtap="onOpenLocation">
+          <view class="wp-loc-main">
+            <text class="wp-loc-name">{{session.address || '观礼点'}}</text>
+            <text class="wp-loc-sub">点击打开地图导航</text>
+          </view>
+          <view class="wp-loc-btn"><text>导航</text></view>
+        </view>
+        <block wx:if="{{session.parkingSpots.length}}">
+          <view class="wp-divider"></view>
+          <view class="wp-loc-row" wx:for="{{session.parkingSpots}}" wx:key="name" bindtap="onOpenParking" data-index="{{index}}">
+            <view class="wp-loc-main">
+              <text class="wp-loc-name">停车 · {{item.name}}</text>
+              <text class="wp-loc-sub">{{item.walkMinutes ? '步行约' + item.walkMinutes + '分钟' : ''}}{{item.note ? ' · ' + item.note : ''}}</text>
+            </view>
+            <view class="wp-loc-btn"><text>导航</text></view>
+          </view>
+        </block>
+        <block wx:if="{{session.vehicleBookingUrl}}">
+          <view class="wp-divider"></view>
+          <view class="wp-loc-row">
+            <view class="wp-loc-main">
+              <text class="wp-loc-name">管控区车辆预约</text>
+              <text class="wp-loc-sub wp-loc-sub--url">{{session.vehicleBookingUrl}}</text>
+            </view>
+            <view class="wp-loc-actions">
+              <view class="wp-loc-btn wp-loc-btn--ghost" catchtap="onCopyVehicleUrl"><text>复制</text></view>
+              <view class="wp-loc-btn" catchtap="onOpenVehicleUrl"><text>打开</text></view>
+            </view>
+          </view>
+        </block>
+      </view>
+
+      <!-- 观礼介绍 -->
+      <block wx:if="{{session.intro || session.wechatGroupQr}}">
+        <view class="section-header">
+          <text class="section-title">观礼介绍</text>
+        </view>
+        <view class="wp-card">
+          <text class="wp-rich-text" wx:if="{{session.intro}}">{{session.intro}}</text>
+          <view class="wp-qr-block" wx:if="{{session.wechatGroupQr}}">
+            <text class="wp-qr-label">扫码加入观礼微信群</text>
+            <image class="wp-qr-img" src="{{session.wechatGroupQr}}" mode="aspectFit" bindtap="onPreviewWechatQr" show-menu-by-longpress />
+            <text class="wp-qr-hint">长按或点击可识别 / 预览</text>
+          </view>
+        </view>
+      </block>
+
+      <!-- 预约登记 -->
+      <view class="section-header">
+        <text class="section-title">免费预约登记</text>
+      </view>
+
+      <!-- 已预约状态 -->
+      <view class="wp-card wp-reserved" wx:if="{{myReservation}}">
+        <view class="wp-reserved-main">
+          <text class="wp-reserved-title">{{myReservation.status === 'checked_in' ? '已到场核销' : '预约成功'}}</text>
+          <text class="wp-reserved-sub">{{myReservation.name}} · {{myReservation.headcount}}人 · 到场后向工作人员出示本页即可</text>
+        </view>
+        <view class="wp-cancel-btn" wx:if="{{myReservation.status !== 'checked_in'}}" catchtap="onCancelReserve">
+          <text>取消</text>
+        </view>
+      </view>
+
+      <!-- 预约表单：复用星问 AI composer-input（data-path + onTextInput） -->
+      <view class="wp-card" wx:elif="{{session.status === 'open'}}">
+        <view class="wp-form-row">
+          <text class="wp-form-label">姓名/昵称</text>
+          <input
+            id="c_form_name" class="wp-form-input"
+            value="{{form.name}}"
+            placeholder="到场核销用"
+            placeholder-class="wp-form-ph"
+            maxlength="20"
+            confirm-type="next"
+            data-path="form.name"
+            bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange"
+          />
+        </view>
+        <view class="wp-divider"></view>
+        <view class="wp-form-row">
+          <text class="wp-form-label">手机号</text>
+          <input
+            id="c_form_phone" class="wp-form-input"
+            value="{{form.phone}}"
+            type="number"
+            placeholder="接收场次变更通知"
+            placeholder-class="wp-form-ph"
+            maxlength="11"
+            confirm-type="done"
+            data-path="form.phone"
+            bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange"
+          />
+        </view>
+        <view class="wp-divider"></view>
+        <view class="wp-form-row">
+          <text class="wp-form-label">到场人数</text>
+          <slider
+            class="wp-form-slider"
+            min="1"
+            max="10"
+            step="1"
+            value="{{form.headcount}}"
+            show-value
+            activeColor="#3B82F6"
+            bindchanging="onHeadcountChanging"
+            bindchange="onHeadcountChange"
+          />
+        </view>
+        <view class="wp-submit-btn {{submitting ? 'wp-submit-btn--disabled' : ''}}" bindtap="onSubmitReserve">
+          <text>{{submitting ? '提交中…' : '提交预约'}}</text>
+        </view>
+        <text class="wp-form-note">预约免费，仅用于到场登记与人数统计；发射时间如有推迟将短信通知。</text>
+      </view>
+      <view class="wp-card" wx:else>
+        <text class="wp-closed-text">本场次已停止预约，可直接到场咨询现场工作人员。</text>
+      </view>
+
+      <!-- 观礼须知 -->
+      <block wx:if="{{session.notice}}">
+        <view class="section-header">
+          <text class="section-title">观礼须知</text>
+        </view>
+        <view class="wp-card">
+          <text class="wp-rich-text">{{session.notice}}</text>
+        </view>
+      </block>
+
+      <!-- 分享 -->
+      <view class="wp-share-wrap">
+        <button class="wp-share-btn" open-type="share">
+          <text>邀请亲友同行观礼</text>
+        </button>
+      </view>
+    </block>
+
+    <!-- 无开放场次空态：卡册照常可看，商家合作申请照常可提 -->
+    <block wx:elif="{{empty}}">
+      <view class="wp-empty">
+        <text class="wp-empty-title">暂无开放的观礼场次</text>
+        <text class="wp-empty-desc">发射任务确定后会在这里开放预约，可关注首页的发射日程</text>
+      </view>
+      <view class="wp-album-link wp-album-link--empty" bindtap="onGoAlbum">
+        <text>查看我的奖品 ›</text>
+      </view>
+    </block>
+
+    <!-- 同行商家合作申请：有无场次都开放（无场次时正是商家入驻的入口） -->
+    <block wx:if="{{!loading && !error}}">
+      <view class="wp-coop">
+        <view class="wp-coop-head" bindtap="onCoopToggle">
+          <view class="wp-coop-head-left">
+            <text class="wp-coop-title">我也有观礼点位，想合作</text>
+            <text class="wp-coop-sub">发射场周边商家/民宿/楼顶点位均可申请入驻</text>
+          </view>
+          <text class="wp-coop-chevron">{{coopOpen ? '︿' : '﹀'}}</text>
+        </view>
+        <view class="wp-coop-body" wx:if="{{coopOpen}}">
+          <block wx:if="{{coopDone}}">
+            <text class="wp-coop-done">申请已提交，运营同学会尽快与您联系</text>
+          </block>
+          <block wx:else>
+            <input id="c_coopForm_name" class="wp-input" placeholder="商家/观礼点名称（必填）" placeholder-class="wp-input-ph" maxlength="40" value="{{coopForm.name}}" confirm-type="next" data-path="coopForm.name" bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange" />
+            <input id="c_coopForm_contactName" class="wp-input" placeholder="联系人姓名（必填）" placeholder-class="wp-input-ph" maxlength="20" value="{{coopForm.contactName}}" confirm-type="next" data-path="coopForm.contactName" bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange" />
+            <input id="c_coopForm_phone" class="wp-input" type="number" placeholder="手机号（必填）" placeholder-class="wp-input-ph" maxlength="11" value="{{coopForm.phone}}" confirm-type="next" data-path="coopForm.phone" bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange" />
+            <input id="c_coopForm_location" class="wp-input" placeholder="点位位置（如：文昌龙楼镇 ×× 路，选填）" placeholder-class="wp-input-ph" maxlength="120" value="{{coopForm.location}}" confirm-type="next" data-path="coopForm.location" bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange" />
+            <textarea id="c_coopForm_note" class="wp-input wp-textarea" placeholder="补充说明：楼层视野、可容纳人数等（选填）" placeholder-class="wp-input-ph" maxlength="500" value="{{coopForm.note}}" show-confirm-bar="{{false}}" data-path="coopForm.note" bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange" />
+            <view class="wp-submit-btn {{coopSubmitting ? 'wp-submit-btn--disabled' : ''}}" bindtap="onCoopSubmit">
+              <text>{{coopSubmitting ? '提交中…' : '提交合作申请'}}</text>
+            </view>
+            <text class="wp-coop-hint" wx:if="{{session.merchantName}}">推荐来源：{{session.merchantName}}</text>
+          </block>
+        </view>
+      </view>
+
+      <!-- 已入驻商家管理入口（凭运营发放的商家编号绑定） -->
+      <view class="wp-screen-link" bindtap="onGoMerchant">
+        <text>已入驻商家？进入商家管理 ›</text>
+      </view>
+    </block>
+
+    <view class="page-footer">
+      <text class="footer-text">Per Aspera Ad Astra · 循此苦旅以达星辰</text>
+    </view>
+  </scroll-view>
+  <privacy-modal id="globalPrivacyModal"></privacy-modal>
+</view>

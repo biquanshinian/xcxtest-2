@@ -29,6 +29,7 @@
           <view wx:if="{{index === 3 && showNewsDot}}" class="red-dot"></view>
           <view wx:if="{{index === 4 && showProfileDot}}" class="red-dot"></view>
         </view>
+        <text class="tab-bar-label">{{item.text}}</text>
       </view>
     </view>
   </view>

@@ -745,5 +745,82 @@ export const api = {
   },
   deleteOaCollected(id) {
     return request(`/oa-content/collected/${id}`, { method: 'DELETE' })
+  },
+
+  // ===== 火箭观礼服务 =====
+  getWatchPartyGlobalConfig() {
+    return request('/watch-party/global-config', { method: 'GET' })
+  },
+  updateWatchPartyGlobalConfig(body) {
+    return request('/watch-party/global-config', { method: 'PUT', body })
+  },
+  listWatchPartyMerchants(query) {
+    return request('/watch-party/merchants', { method: 'GET', query })
+  },
+  createWatchPartyMerchant(body) {
+    return request('/watch-party/merchants', { method: 'POST', body })
+  },
+  updateWatchPartyMerchant(id, body) {
+    return request(`/watch-party/merchants/${id}`, { method: 'PUT', body })
+  },
+  deleteWatchPartyMerchant(id) {
+    return request(`/watch-party/merchants/${id}`, { method: 'DELETE' })
+  },
+  getWatchPartyMerchantStats(id) {
+    return request(`/watch-party/merchants/${id}/stats`, { method: 'GET' })
+  },
+  generateWatchPartyMerchantCode(id, body) {
+    return request(`/watch-party/merchants/${id}/code`, { method: 'POST', body: body || {} })
+  },
+  listWatchPartyUpcomingLaunches() {
+    return request('/watch-party/upcoming-launches', { method: 'GET' })
+  },
+  listWatchPartyMerchantLeads(query) {
+    return request('/watch-party/merchant-leads', { method: 'GET', query })
+  },
+  updateWatchPartyMerchantLead(id, body) {
+    return request(`/watch-party/merchant-leads/${id}`, { method: 'PUT', body })
+  },
+  approveWatchPartyMerchantLead(id) {
+    return request(`/watch-party/merchant-leads/${id}/approve`, { method: 'POST' })
+  },
+  listWatchPartySessions(query) {
+    return request('/watch-party/sessions', { method: 'GET', query })
+  },
+  createWatchPartySession(body) {
+    return request('/watch-party/sessions', { method: 'POST', body })
+  },
+  updateWatchPartySession(id, body) {
+    return request(`/watch-party/sessions/${id}`, { method: 'PUT', body })
+  },
+  deleteWatchPartySession(id) {
+    return request(`/watch-party/sessions/${id}`, { method: 'DELETE' })
+  },
+  listWatchPartyReservations(query) {
+    return request('/watch-party/reservations', { method: 'GET', query })
+  },
+  checkInWatchPartyReservation(id) {
+    return request(`/watch-party/reservations/${id}/check-in`, { method: 'POST' })
+  },
+  listSouvenirCards(query) {
+    return request('/watch-party/cards', { method: 'GET', query })
+  },
+  createSouvenirCard(body) {
+    return request('/watch-party/cards', { method: 'POST', body })
+  },
+  updateSouvenirCard(id, body) {
+    return request(`/watch-party/cards/${id}`, { method: 'PUT', body })
+  },
+  deleteSouvenirCard(id) {
+    return request(`/watch-party/cards/${id}`, { method: 'DELETE' })
+  },
+  listWatchPartyDraws(query) {
+    return request('/watch-party/draws', { method: 'GET', query })
+  },
+  getWatchPartyStats(sessionId) {
+    return request('/watch-party/stats', { method: 'GET', query: { sessionId } })
+  },
+  generateWatchPartyWxacode(body) {
+    return request('/watch-party/wxacode', { method: 'POST', body })
   }
 }

@@ -1,6 +1,6 @@
 /* Starlink 全屏追踪 — 横屏精简 HUD */
 page {
-  background: #000;
+  background: #0B0C0E;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
@@ -10,7 +10,7 @@ page {
   position: relative;
   width: 100vw;
   height: 100vh;
-  background: #000;
+  background: #0B0C0E;
   overflow: hidden;
 }
 
@@ -58,13 +58,15 @@ page {
 
 /* 返回 */
 .fs-back {
-  width: 44rpx;
-  height: 44rpx;
+  width: 56rpx;
+  height: 56rpx;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.08);
   border: 1rpx solid rgba(255, 255, 255, 0.14);
   box-sizing: border-box;
-  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 
@@ -72,24 +74,22 @@ page {
   background: rgba(255, 255, 255, 0.16);
 }
 
+/* 返回箭头：与全局 top-nav-slot--back 同款 CSS chevron（20rpx / 4rpx 白描边） */
 .fs-back::after {
   content: '';
-  position: absolute;
-  left: 17rpx;
-  top: 14rpx;
-  width: 12rpx;
-  height: 12rpx;
-  border-top: 2rpx solid #fff;
-  border-left: 2rpx solid #fff;
+  display: block;
+  width: 20rpx;
+  height: 20rpx;
+  border-top: 4rpx solid #ffffff;
+  border-left: 4rpx solid #ffffff;
   transform: rotate(-45deg);
   box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .fs-back--home::after {
-  left: 11rpx;
-  top: 11rpx;
-  width: 20rpx;
-  height: 20rpx;
+  width: 36rpx;
+  height: 36rpx;
   border: none;
   transform: none;
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3Cpolyline points='9 22 9 12 15 12 15 22'/%3E%3C/svg%3E") center / contain no-repeat;
@@ -119,13 +119,13 @@ page {
   gap: 6rpx;
   padding: 2rpx 10rpx;
   border-radius: 999rpx;
-  border: 1rpx solid rgba(0, 255, 136, 0.28);
-  background: rgba(0, 255, 136, 0.08);
+  border: 1rpx solid rgba(52, 199, 89, 0.28);
+  background: rgba(52, 199, 89, 0.08);
 }
 
 .fs-meta__live text {
   font-size: 16rpx;
-  color: #00ff88;
+  color: #34C759;
   letter-spacing: 0.5rpx;
   font-family: 'SF Mono', Menlo, Consolas, monospace;
   line-height: 1.3;
@@ -135,7 +135,7 @@ page {
   width: 6rpx;
   height: 6rpx;
   border-radius: 50%;
-  background: #00ff88;
+  background: #34C759;
   animation: fsBlink 1.6s ease-in-out infinite;
 }
 
@@ -149,8 +149,8 @@ page {
   width: 44rpx;
   height: 44rpx;
   border-radius: 50%;
-  border: 1rpx solid rgba(0, 255, 136, 0.28);
-  background: rgba(0, 255, 136, 0.08);
+  border: 1rpx solid rgba(59, 130, 246, 0.28);
+  background: rgba(59, 130, 246, 0.08);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -160,7 +160,7 @@ page {
 
 .fs-pause--hover,
 .fs-pause--on {
-  background: rgba(0, 255, 136, 0.16);
+  background: rgba(59, 130, 246, 0.16);
 }
 
 .fs-pause__icon.is-pause {
@@ -174,7 +174,7 @@ page {
   width: 3rpx;
   height: 14rpx;
   border-radius: 2rpx;
-  background: #00ff88;
+  background: #3B82F6;
 }
 
 .fs-pause__icon.is-play {
@@ -182,7 +182,7 @@ page {
   height: 0;
   border-style: solid;
   border-width: 6rpx 0 6rpx 10rpx;
-  border-color: transparent transparent transparent #00ff88;
+  border-color: transparent transparent transparent #3B82F6;
   margin-left: 2rpx;
 }
 
@@ -203,8 +203,7 @@ page {
   max-width: 42vw;
   padding: 14rpx 16rpx 12rpx;
   border-radius: 12rpx;
-  background: rgba(4, 12, 10, 0.78);
-  border: 1rpx solid rgba(0, 255, 136, 0.22);
+  background: rgba(11, 12, 14, 0.82);
   box-sizing: border-box;
   opacity: 0;
   transform: translateY(12rpx);
@@ -220,7 +219,6 @@ page {
 }
 
 .fs-card--dim {
-  border-color: rgba(255, 255, 255, 0.18);
 }
 
 .fs-card__head {
@@ -236,7 +234,7 @@ page {
   min-width: 0;
   font-size: 18rpx;
   font-weight: 600;
-  color: #eafff4;
+  color: #F5F5F7;
   letter-spacing: 1rpx;
   font-family: 'SF Mono', Menlo, Consolas, monospace;
   overflow: hidden;
@@ -282,7 +280,7 @@ page {
 .fs-card__k {
   display: block;
   font-size: 14rpx;
-  color: rgba(0, 255, 136, 0.55);
+  color: rgba(59, 130, 246, 0.55);
   letter-spacing: 1.5rpx;
   font-family: 'SF Mono', Menlo, Consolas, monospace;
   margin-bottom: 2rpx;
@@ -321,7 +319,7 @@ page {
   width: 56rpx;
   height: 56rpx;
   border-radius: 50%;
-  border: 2rpx solid rgba(0, 255, 136, 0.2);
+  border: 2rpx solid rgba(59, 130, 246, 0.2);
   box-sizing: border-box;
   animation: fsSpin 1.1s linear infinite;
 }
@@ -335,7 +333,7 @@ page {
   width: 8rpx;
   height: 8rpx;
   border-radius: 50%;
-  background: #00ff88;
+  background: #3B82F6;
 }
 
 @keyframes fsSpin {
@@ -354,9 +352,9 @@ page {
 .fs-retry {
   margin-top: 4rpx;
   font-size: 20rpx;
-  color: #00ff88;
+  color: #3B82F6;
   padding: 8rpx 28rpx;
   border-radius: 999rpx;
-  border: 1rpx solid rgba(0, 255, 136, 0.35);
-  background: rgba(0, 255, 136, 0.08);
+  border: 1rpx solid rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.08);
 }

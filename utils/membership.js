@@ -163,8 +163,20 @@ function hasPurchased(state, productId) {
 /**
  * 检查 AI 聊天今日剩余次数
  */
+function _hasWatchPass() {
+  try {
+    if (require('./watch-pass.js').isActive()) return true
+  } catch (e) {}
+  // 入驻商家员工免门控（后台开关）：与观礼通行证同等待遇
+  try {
+    return !!require('./merchant-staff-bypass.js').isActive()
+  } catch (e) {
+    return false
+  }
+}
+
 function getAiChatRemaining(state) {
-  if (isPro(state)) return -1 // -1 表示无限
+  if (isPro(state) || _hasWatchPass()) return -1 // -1 表示无限（含观礼通行证）
   var today = _todayStr()
   var used = (state && state.aiChatUsed && state.aiChatUsed[today]) || 0
   var limit = _freeAiLimits().AI_CHAT
@@ -178,7 +190,7 @@ function getAiChatRemaining(state) {
  * 检查 AI 图片识别今日剩余次数
  */
 function getAiImageRemaining(state) {
-  if (isPro(state)) return -1
+  if (isPro(state) || _hasWatchPass()) return -1
   var today = _todayStr()
   var used = (state && state.aiImageUsed && state.aiImageUsed[today]) || 0
   var limit = _freeAiLimits().AI_IMAGE
@@ -539,6 +551,15 @@ function _showIOSPurchaseDialog(productName, productId, opts) {
  * @returns {boolean} true=允许访问, false=已拦截（弹窗引导购买）
  */
 async function gateCheck(productId, productName, opts) {
+  // 观礼通行证（现场扫码签发，限时）：有效期内免除全部功能门控
+  try {
+    if (require('./watch-pass.js').isActive()) return true
+  } catch (e) {}
+  // 入驻商家员工：后台开启「免整个门控」后全站放行
+  try {
+    if (require('./merchant-staff-bypass.js').isActive()) return true
+  } catch (e) {}
+
   var adUnlock = require('./ad-unlock.js')
   var adUnlockId = (opts && opts.adUnlockId) || productId
   var allowAd = !opts || opts.allowAd !== false
@@ -882,6 +903,13 @@ function canUsePaidCloudSync() {
   const enabled = _readEnabledFromCache()
   if (enabled === false) return true
   if (isProSync()) return true
+  // 观礼通行证有效期内视同 Pro（现场视频预热/播放等不再被门控卡住）
+  try {
+    if (require('./watch-pass.js').isActive()) return true
+  } catch (e) {}
+  try {
+    if (require('./merchant-staff-bypass.js').isActive()) return true
+  } catch (e) {}
   return false
 }
 

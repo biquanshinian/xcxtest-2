@@ -16,6 +16,8 @@ Page({
     status: '',
     isOpen: true,
     statusBarHeight: 44,
+    menuButtonWidth: 88,
+    isDirectEntry: false,
     mapActionTop: 0
   },
 
@@ -23,7 +25,7 @@ Page({
     this.initUiShell()
     const layout = buildMapLayoutData(getApp())
     this.setData({
-      mapActionTop: layout.mapActionTop
+      ...layout
     })
 
     const lat = parseFloat(options.lat) || 0

@@ -35,6 +35,9 @@ Page({
   _fallbackTab: '/pages/monitor/monitor',
 
   data: {
+    statusBarHeight: 44,
+    menuButtonWidth: 88,
+    isDirectEntry: false,
     entryKey: '',
     ll2Id: '',
     title: '',
@@ -223,6 +226,7 @@ Page({
   setMapRegion(e) {
     const region = e.currentTarget.dataset.region
     if (!region || region === this.data.mapRegion) return
+    try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
     this.setData({ mapRegion: region }, () => this.applyLayers({ refit: true }))
   },
 

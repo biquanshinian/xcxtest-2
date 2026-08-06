@@ -347,6 +347,7 @@ const form = reactive({
   enableLiveWatch: true,
   enablePublishPanel: true,
   enableMissionSim: false,
+  enableWatchParty: true,
   // 会员策略与流量
   mediaTrafficMode: 'normal',
   freeMissionListLimit: 10,
@@ -384,7 +385,8 @@ const featureSwitches = [
   { field: 'enableBriefing', label: '每日太空简报', desc: '关闭后用户进入小程序不再弹出每日简报' },
   { field: 'enableLiveWatch', label: '直播观看（监控中心）', desc: '关闭后监控中心与任务详情的视频号/B站直播入口隐藏；需「直播功能」未关' },
   { field: 'enablePublishPanel', label: '贴图讨论区', desc: '关闭后全站详情页底部的贴图讨论区组件将隐藏，方便过审' },
-  { field: 'enableMissionSim', label: '星舰任务指挥室（互动模拟）', desc: '星舰进度页的发射流程互动模拟入口；默认关闭，建议过审通过后再灰度开启' }
+  { field: 'enableMissionSim', label: '星舰任务指挥室（互动模拟）', desc: '星舰进度页的发射流程互动模拟入口；默认关闭，建议过审通过后再灰度开启' },
+  { field: 'enableWatchParty', label: '火箭观礼', desc: '关闭后我的入口、任务详情入口、星问观礼卡、分享/扫码直达与全部公开接口均下线（failClosed），方便过审；与观礼页「一键关停」独立，过审请关本开关' }
 ]
 
 const AUDIT_FIELDS = [
@@ -399,10 +401,11 @@ const AUDIT_FIELDS = [
   'enableBriefing',
   'enableLiveWatch',
   'enablePublishPanel',
-  'enableMissionSim'
+  'enableMissionSim',
+  'enableWatchParty'
 ]
 
-const AUDIT_LABEL = '轮播图、开屏动画、事件更新视频（含播放页/背景视频）、发射回放、直播功能、AI 太空助手、月愿计划、每日太空简报、直播观看、贴图讨论区（航天摄影、星舰任务指挥室默认保持关闭）'
+const AUDIT_LABEL = '轮播图、开屏动画、事件更新视频（含播放页/背景视频）、发射回放、直播功能、AI 太空助手、月愿计划、每日太空简报、直播观看、贴图讨论区、火箭观礼（航天摄影、星舰任务指挥室默认保持关闭）'
 
 const auditModeView = computed(() => AUDIT_FIELDS.every((f) => form[f] === false))
 
@@ -442,6 +445,7 @@ const handleAuditChange = async () => {
   form.enableBriefing = true
   form.enableLiveWatch = true
   form.enablePublishPanel = true
+  form.enableWatchParty = true
   await onSave()
   return false
 }
@@ -603,6 +607,8 @@ const load = async () => {
         enablePublishPanel: data.enablePublishPanel !== false,
         // failClosed：默认关闭，只有显式 true 才算开启
         enableMissionSim: data.enableMissionSim === true,
+        // 火箭观礼：字段缺省视为开启（与小程序 !== false 一致）；一键过审写入 false
+        enableWatchParty: data.enableWatchParty !== false,
         mediaTrafficMode: mode,
         freeMissionListLimit: Number(data.freeMissionListLimit) > 0 ? Number(data.freeMissionListLimit) : 10,
         freeEventListLimit: Number(data.freeEventListLimit) > 0 ? Number(data.freeEventListLimit) : 5,

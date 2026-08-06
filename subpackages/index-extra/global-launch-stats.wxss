@@ -1,5 +1,5 @@
 page {
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: var(--color-bg-page);
   height: 100vh;
 }
 
@@ -18,8 +18,8 @@ page {
 }
 
 .detail-container {
-  padding: 24rpx;
-  padding-bottom: 48rpx;
+  padding: var(--space-md) var(--space-lg);
+  padding-bottom: var(--space-xl);
 }
 
 .filter-bar {
@@ -85,8 +85,8 @@ page {
   width: 56rpx;
   height: 56rpx;
   border-radius: 50%;
-  border: 4rpx solid rgba(90, 200, 250, 0.2);
-  border-top-color: #5ac8fa;
+  border: 4rpx solid rgba(59, 130, 246, 0.2);
+  border-top-color: var(--color-brand);
   animation: spin 0.8s linear infinite;
 }
 
@@ -113,7 +113,7 @@ page {
   height: 80rpx;
   line-height: 80rpx;
   border-radius: 40rpx;
-  background: linear-gradient(135deg, #5ac8fa 0%, #007aff 100%);
+  background: linear-gradient(135deg, #60A5FA 0%, var(--color-brand) 100%);
   color: #ffffff;
   font-size: 30rpx;
   font-weight: 600;
@@ -359,45 +359,70 @@ page {
 .rank-tabs {
   display: flex;
   padding: 6rpx;
-  border-radius: 16rpx;
-  background: rgba(255, 255, 255, 0.05);
+  background: transparent;
   margin-bottom: 8rpx;
 }
 
 .rank-tab {
+  position: relative;
+  overflow: visible;
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8rpx;
-  padding: 14rpx 0;
-  border-radius: 12rpx;
-  transition: background 0.15s ease;
+  padding: 14rpx 0 18rpx;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  transition: color 0.25s ease;
+}
+
+.rank-tab::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 44rpx;
+  height: 6rpx;
+  border-radius: 999rpx;
+  background: var(--color-brand, #3B82F6);
+  transform: translateX(-50%) scaleX(0);
+  opacity: 0;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+  pointer-events: none;
 }
 
 .rank-tab--active {
-  background: rgba(0, 122, 255, 0.22);
+  background: transparent;
+}
+
+.rank-tab--active::after {
+  transform: translateX(-50%) scaleX(1);
+  opacity: 1;
 }
 
 .rank-tab-name {
   font-size: 26rpx;
   font-weight: 500;
-  color: #8e8e93;
+  color: var(--color-text-secondary, #8e8e93);
+  transition: color 0.25s ease;
 }
 
 .rank-tab--active .rank-tab-name {
-  color: #ffffff;
+  color: var(--color-text-primary);
   font-weight: 600;
 }
 
 .rank-tab-count {
   font-size: 20rpx;
-  color: #636366;
+  color: var(--color-text-tertiary, #636366);
   font-variant-numeric: tabular-nums;
+  transition: color 0.25s ease;
 }
 
 .rank-tab--active .rank-tab-count {
-  color: #7ec3ff;
+  color: var(--color-brand, #3B82F6);
 }
 
 .rank-list {
@@ -581,10 +606,11 @@ page {
   max-height: 70vh;
   border-radius: 24rpx 24rpx 0 0;
   padding: 32rpx 0 48rpx;
-  /* 覆盖 glass-card 半透明底，避免底层内容透出看不清 */
-  background: #1c1c1e;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.45);
+  /* 磨砂弹层：较高不透明度 + 模糊，blur 失效时仍可读 */
+  background: var(--bg-glass-popup, rgba(22, 24, 28, 0.85));
+  backdrop-filter: blur(32rpx) saturate(150%);
+  -webkit-backdrop-filter: blur(32rpx) saturate(150%);
+  box-shadow: var(--shadow-card);
 }
 
 .picker-title {
@@ -610,7 +636,7 @@ page {
 }
 
 .picker-item--active {
-  background: rgba(0, 122, 255, 0.12);
+  background: rgba(59, 130, 246, 0.12);
   color: #7ec3ff;
 }
 
@@ -709,13 +735,13 @@ page {
   color: var(--color-text-secondary);
 }
 
-/* 分段 Tab：白透明衬底 → 黑透明衬底，选中态品牌蓝减淡 */
+/* 分段 Tab：文本 + 蓝色底部指示条，两主题均透明 */
 .theme-light .rank-tabs {
-  background: rgba(0, 0, 0, 0.05);
+  background: transparent;
 }
 
 .theme-light .rank-tab--active {
-  background: rgba(0, 122, 255, 0.12);
+  background: transparent;
 }
 
 .theme-light .rank-tab-name {
@@ -723,7 +749,7 @@ page {
 }
 
 .theme-light .rank-tab--active .rank-tab-name {
-  color: var(--color-brand);
+  color: var(--color-text-primary);
 }
 
 .theme-light .rank-tab-count {
@@ -799,10 +825,8 @@ page {
   color: var(--color-text-secondary);
 }
 
-/* 弹窗选择器：实心底，避免半透明玻璃透出页面内容 */
 .theme-light .picker-sheet {
-  background: #ffffff;
-  border: 1px solid var(--color-divider);
+  background: var(--bg-glass-popup, rgba(255, 255, 255, 0.88));
   box-shadow: 0 -8rpx 32rpx rgba(0, 0, 0, 0.12);
 }
 
@@ -815,7 +839,7 @@ page {
 }
 
 .theme-light .picker-item--active {
-  background: rgba(0, 122, 255, 0.1);
+  background: rgba(59, 130, 246, 0.1);
   color: var(--color-brand);
 }
 

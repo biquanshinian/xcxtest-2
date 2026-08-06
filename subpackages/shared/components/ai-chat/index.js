@@ -23,6 +23,7 @@ const {
   listFestivalHats,
   DEV_CYCLE_MS
 } = require('../../../../utils/festival-hat.js')
+const composerInput = require('../../utils/composer-input-behavior.js')
 
 const MIN_PANEL_HEIGHT = 280
 const PANEL_HEIGHT_RATIO = 0.72
@@ -93,6 +94,8 @@ function getRemainingQuota() {
 }
 
 Component({
+  behaviors: [composerInput],
+
   options: {
     // 去掉多余宿主节点，根节点直接参与详情页 flex，避免输入栏悬空
     virtualHost: true
@@ -163,26 +166,12 @@ Component({
       if (isPageMode) {
         setTimeout(() => this._playWelcomeBounce(), 60)
       }
-
-      this._kbHandler = (res) => {
-        if (this.data.visible || this.data.isPageMode) {
-          this._updateKeyboardLayout(res.height || 0)
-        }
-      }
-      try {
-        wx.onKeyboardHeightChange(this._kbHandler)
-      } catch (e) {}
+      // 键盘监听由 composer-input-behavior 挂载
     },
 
     detached() {
       this._stopFestivalHatDevCycle()
-      if (this._blurKbTimer) {
-        clearTimeout(this._blurKbTimer)
-        this._blurKbTimer = null
-      }
-      if (this._kbHandler) {
-        try { wx.offKeyboardHeightChange(this._kbHandler) } catch (e) {}
-      }
+      // 键盘解绑由 composer-input-behavior 处理
     }
   },
 
@@ -191,26 +180,8 @@ Component({
       this.syncTheme()
       // 法定假日生命周期：回前台按当天再解析一次（跨日/跨假自动戴脱帽）
       if (!isFestivalHatDevMode()) this._initFestivalHat()
-    },
-
-    /**
-     * 离开页面必须把键盘状态清零。_lastKbHeight 是去抖用的，若带着上次的
-     * 高度残留回来，下次键盘以同一高度弹起会被去抖吞掉，宿主页拿不到事件，
-     * 输入栏就留在键盘底下。
-     */
-    hide() {
-      if (this._blurKbTimer) {
-        clearTimeout(this._blurKbTimer)
-        this._blurKbTimer = null
-      }
-      this._lastKbHeight = 0
-      if (this.data.keyboardHeight || this.data.inputFocus) {
-        this.setData({ keyboardHeight: 0, inputFocus: false })
-      }
-      try {
-        this.triggerEvent('keyboardheight', { height: 0 })
-      } catch (e) {}
     }
+    // hide：键盘清零由 composer-input-behavior.pageLifetimes.hide 处理
   },
 
   methods: {
@@ -247,34 +218,21 @@ Component({
     },
 
     /**
-     * 流式吐字轻震：回调极密，约 220ms 节流一次，既跟得上又不吵。
-     * 微信 vibrateShort 过密会被系统吞掉，纯本地 Date.now 节拍即可。
+     * 流式吐字轻震：已停用以避免刷屏震动；保留空实现供调用点兼容。
      */
-    _tickStreamHaptic() {
-      const now = Date.now()
-      if (this._lastStreamHapticAt && now - this._lastStreamHapticAt < 220) return
-      this._lastStreamHapticAt = now
-      try { wx.vibrateShort({ type: 'light' }) } catch (e) {}
-    },
+    _tickStreamHaptic() {},
 
     /** 抽卡落地：中度震一次（suggested 瞬时出卡 / 流式结束后挂卡共用） */
     _pulseCardHaptic() {
       try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
     },
 
-    _updateKeyboardLayout(keyboardHeight) {
-      const kb = Math.max(0, Number(keyboardHeight) || 0)
-      // 去抖：相同高度不重复 setData
-      if (this._lastKbHeight === kb) return
-      this._lastKbHeight = kb
-
-      if (kb > 0 && this._blurKbTimer) {
-        clearTimeout(this._blurKbTimer)
-        this._blurKbTimer = null
-      }
-
+    /**
+     * 星问专用键盘布局：详情页通知宿主 padding；半屏缩 panelHeight。
+     * 去抖 / 失焦延迟 / 全局监听见 composer-input-behavior。
+     */
+    _applyComposerKeyboard(kb) {
       if (this._isPageMode()) {
-        // 详情页：通知宿主页用 padding-bottom 上收整栏（组件内不再叠一层 padding，避免双倍抬高）
         this.setData({ keyboardHeight: kb })
         try {
           this.triggerEvent('keyboardheight', { height: kb })
@@ -293,36 +251,16 @@ Component({
       }
 
       this.setData({ keyboardHeight: kb, panelHeight })
-
       if (kb > 0) this._scrollChatToBottom()
     },
 
-    /** input 聚焦：focus 事件自带键盘高度（部分机型 wx.onKeyboardHeightChange 不触发） */
-    onInputFocus(e) {
-      if (this._blurKbTimer) {
-        clearTimeout(this._blurKbTimer)
-        this._blurKbTimer = null
-      }
-      const h = (e && e.detail && e.detail.height) || 0
-      if (h > 0) this._updateKeyboardLayout(h)
+    _onComposerKeyboardHide() {
+      try {
+        this.triggerEvent('keyboardheight', { height: 0 })
+      } catch (e) {}
     },
 
-    /** input 键盘高度变化事件（adjust-position=false 时由输入框直接回调，最可靠） */
-    onInputKeyboardHeightChange(e) {
-      const h = (e && e.detail && e.detail.height) || 0
-      this._updateKeyboardLayout(h)
-    },
-
-    /** input 失焦：延迟归位，避免与 keyboardheightchange 竞态导致不上收/闪断 */
-    onInputBlur() {
-      if (this._blurKbTimer) clearTimeout(this._blurKbTimer)
-      this._blurKbTimer = setTimeout(() => {
-        this._blurKbTimer = null
-        this._updateKeyboardLayout(0)
-      }, 120)
-    },
-
-    /** 点对话区任意处：失焦并收起输入法 */
+    /** 点对话区任意处：失焦并收起输入法（受控 focus） */
     dismissKeyboard() {
       if (!this.data.inputFocus && !(this.data.keyboardHeight > 0)) return
       if (this._blurKbTimer) {
@@ -684,22 +622,19 @@ Component({
       const kind = ds.kind ? String(ds.kind) : ''
       const targetId = ds.targetid != null ? String(ds.targetid).trim() : ''
 
-      // 观礼点卡不跳页，直接调起系统地图导航（坐标已在数据层转成 GCJ-02）
+      // 旧版观礼点导航卡已下线，统一引导去火箭观礼服务（过审开关 failClosed）
       if (kind === 'viewing_spot') {
-        const lat = Number(ds.navlat)
-        const lng = Number(ds.navlng)
-        if (!isFinite(lat) || !isFinite(lng) || (!lat && !lng)) {
-          wx.showToast({ title: '该发射场需官方渠道预约观礼', icon: 'none' })
+        let wpOn = false
+        try {
+          wpOn = await require('../../../../utils/watch-party-feature.js').isWatchPartyEnabled(true)
+        } catch (err) {
+          wpOn = false
+        }
+        if (!wpOn) {
+          wx.showToast({ title: '观礼服务暂未开放', icon: 'none' })
           return
         }
-        wx.vibrateShort({ type: 'light' })
-        wx.openLocation({
-          latitude: lat,
-          longitude: lng,
-          name: ds.navname ? String(ds.navname) : '观礼点',
-          address: ds.navaddr ? String(ds.navaddr) : '',
-          scale: 14
-        })
+        wx.navigateTo({ url: '/subpackages/watch-party/watch-party?channel=ai' })
         return
       }
 
@@ -789,6 +724,10 @@ Component({
         url = ROUTES.ARTEMIS_DETAIL
       } else if (kind === 'starship_hardware') {
         url = ROUTES.HARDWARE_LIST
+      } else if (kind === 'watch_party') {
+        // missionId 为真实任务 id → 商家列表；无则进全部开放场次列表
+        url = '/subpackages/watch-party/merchant-list?channel=ai' +
+          (missionId ? '&missionId=' + encodeURIComponent(missionId) : '')
       }
       if (!url) return
 
@@ -814,6 +753,18 @@ Component({
         if (needLive && !(await isLiveEntryAllowed())) {
           wx.showToast({ title: '直播入口暂未开放', icon: 'none' })
           return
+        }
+        if (kind === 'watch_party') {
+          let wpOn = false
+          try {
+            wpOn = await require('../../../../utils/watch-party-feature.js').isWatchPartyEnabled(true)
+          } catch (err) {
+            wpOn = false
+          }
+          if (!wpOn) {
+            wx.showToast({ title: '观礼服务暂未开放', icon: 'none' })
+            return
+          }
         }
         if (gateId) {
           const allowed = await gateCheck(gateId, gateName || '该功能')

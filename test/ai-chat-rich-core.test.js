@@ -68,7 +68,8 @@ const {
   enrichLaunchContextWithLaunchStats,
   enrichLaunchContextWithAgency,
   enrichLaunchContextWithMissionReplay,
-  enrichLaunchContextWithViewingSpots
+  enrichLaunchContextWithWatchParty,
+  enrichLaunchContextWatchPartyClosed
 } = require('../subpackages/shared/utils/ai-chat-rich-core.js')
 
 function testIntentNext() {
@@ -556,12 +557,14 @@ function testExtendedIntents() {
     ['今晚能看到星链吗', 'starlink_pass'],
     ['星链过境预报', 'starlink_pass'],
     ['看看星链实时分布', 'starlink_map'],
-    // 观礼导航：问「人站哪儿看」走观礼点，问发射场本身仍走百科
+    // 观礼类：问「人站哪儿看/观礼服务」统一走 viewing_spot → 火箭观礼卡
     ['去哪看火箭发射', 'viewing_spot'],
     ['文昌哪里看发射', 'viewing_spot'],
     ['观礼点推荐', 'viewing_spot'],
     ['看星舰发射去哪', 'viewing_spot'],
     ['淇水湾怎么去', 'viewing_spot'],
+    ['现场观礼怎么参加', 'viewing_spot'],
+    ['观礼抽卡', 'viewing_spot'],
     ['文昌发射场在哪', 'launch_site'],
     ['星链有多少颗卫星', 'starlink_map'],
     ['星链在哪', 'starlink_map'],
@@ -676,73 +679,20 @@ function testSpecEnrich() {
 }
 
 function testViewingSpots() {
-  const { pickViewingSpots, toNavPoint, VIEWING_SPOTS, wgs84ToGcj02, haversineKm, spotDistanceKm } =
-    require('../subpackages/shared/utils/viewing-spots.js')
-
-  const cn = pickViewingSpots('文昌哪里看发射')
-  assert.strictEqual(cn.siteKey, 'wenchang')
-  assert.strictEqual(cn.restricted, false)
-  assert.strictEqual(cn.spots.length, 2, '默认给主推 + 备选两个点')
-  assert.strictEqual(cn.spots[0].id, 'wenchang_qishuiwan', 'rank 1 排在最前')
-
-  assert.strictEqual(pickViewingSpots('看星舰发射去哪').siteKey, 'starbase')
-  assert.strictEqual(pickViewingSpots('猎鹰9发射在哪看').siteKey, 'ksc')
-  assert.strictEqual(pickViewingSpots('范登堡观礼点').siteKey, 'vandenberg')
-  // 没指定发射场时兜底到文昌
-  assert.strictEqual(pickViewingSpots('去哪看火箭发射').siteKey, 'wenchang')
-
-  const jq = pickViewingSpots('酒泉能去现场看神舟发射吗')
-  assert.strictEqual(jq.siteKey, 'jiuquan')
-  assert.strictEqual(jq.restricted, true)
-  assert.strictEqual(jq.spots.length, 0, '管控发射场不给点位')
-  assert.ok(jq.restrictedNote.length > 10, '管控发射场要有说明文案')
-  assert.strictEqual(pickViewingSpots('太原观礼').restricted, true)
-  assert.strictEqual(pickViewingSpots('西昌观礼台').restricted, true)
-
-  // 表内一律 WGS-84（取自 OSM），出口统一转 GCJ-02；混用坐标系会把海岸点位推到海里
-  const qsw = VIEWING_SPOTS.find((s) => s.id === 'wenchang_qishuiwan')
-  const qswNav = toNavPoint(qsw)
-  const qswShift = haversineKm(qsw.lat, qsw.lng, qswNav.latitude, qswNav.longitude) * 1000
-  assert.strictEqual(qsw.coord, undefined, '不再混用 coord 标记')
-  assert.ok(qswShift > 300 && qswShift < 800, '国内点位导航前应转 GCJ-02，实测偏移 ' + qswShift.toFixed(0) + 'm')
-  // 每个点位的距离文案都必须能由坐标反算出来
-  VIEWING_SPOTS.forEach((s) => {
-    const real = spotDistanceKm(s)
-    assert.ok(real != null, s.id + ' 缺少有效 padKey')
-    assert.ok(Math.abs(real - Number(s.distanceKm)) < 0.15,
-      s.id + ' 坐标与 distanceKm 不一致：' + real.toFixed(2) + ' vs ' + s.distanceKm)
-  })
-  // 文昌观礼带在发射场以东；110.96 一带是正北海面，回退到那里就是 bug
-  VIEWING_SPOTS.filter((s) => s.siteKey === 'wenchang').forEach((s) => {
-    assert.ok(s.lng > 110.98 && s.lng < 111.05, s.id + ' 应落在文昌东侧观礼带')
-  })
-  const isla = VIEWING_SPOTS.find((s) => s.id === 'starbase_isla_blanca')
-  assert.strictEqual(toNavPoint(isla).latitude, isla.lat, '境外坐标不偏移')
-  assert.strictEqual(toNavPoint(null), null)
-  // 转换函数本身仍要在境内生效（留给未来 WGS 数据源）
-  const shifted = wgs84ToGcj02(110.951, 19.6144)
-  assert.ok(Math.abs(shifted.lat - 19.6144) > 0.0005 && Math.abs(shifted.lng - 110.951) > 0.0005)
-  assert.strictEqual(wgs84ToGcj02(-97.1566, 25.9972).lng, -97.1566, '境外原样返回')
-
-  const viewing = enrichLaunchContextWithViewingSpots({}, {
-    siteName: '文昌航天发射场',
-    spots: cn.spots,
-    restricted: false,
-    matched: true
+  // 观礼类问题已改推火箭观礼入口卡（静态观礼点导航表已下线）
+  const viewing = enrichLaunchContextWithWatchParty({}, {
+    title: '长征八号·文昌观礼专场',
+    merchantName: 'wc002',
+    padLocationName: '文昌'
   })
   assert.strictEqual(viewing.uiCardReady, true)
-  assert.ok(viewing.focusHint.indexOf('淇水湾海滩') >= 0, '提示里带真实点位名')
-  assert.ok(/交通管制/.test(viewing.focusHint), '提示里带管控免责')
-  assert.ok(/禁止编造/.test(viewing.focusHint))
+  assert.ok(viewing.focusHint.indexOf('火箭观礼') >= 0)
+  assert.ok(viewing.focusHint.indexOf('文昌') >= 0 || viewing.focusHint.indexOf('wc002') >= 0)
+  assert.ok(/不要编造/.test(viewing.focusHint))
 
-  const restrictedHint = enrichLaunchContextWithViewingSpots({}, {
-    siteName: '酒泉卫星发射中心',
-    spots: [],
-    restricted: true,
-    restrictedNote: jq.restrictedNote,
-    matched: true
-  })
-  assert.ok(/禁止推荐任何具体坐标/.test(restrictedHint.focusHint), '管控场地禁止给坐标')
+  const closed = enrichLaunchContextWatchPartyClosed({})
+  assert.strictEqual(closed.uiCardReady, false)
+  assert.ok(/暂未开放|已结束/.test(closed.focusHint))
 }
 
 function main() {

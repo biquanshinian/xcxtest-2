@@ -38,10 +38,14 @@
       </el-form-item>
       <el-form-item label="引流展示">
         <el-radio-group v-model="form.miniprogramCtaMode">
-          <el-radio value="image">图片跳转（推荐）</el-radio>
-          <el-radio value="link">文字链接</el-radio>
+          <el-radio value="none">不附加文末（推荐，仅配图跳）</el-radio>
+          <el-radio value="image">文末图片跳转</el-radio>
+          <el-radio value="link">文末文字链接</el-radio>
           <el-radio value="card">官方卡片（易失败）</el-radio>
         </el-radio-group>
+        <el-text type="info" size="small" style="display:block;margin-top:6px;">
+          避营销推广/导流限流：默认不附加文末引流，只靠正文配图点击进小程序
+        </el-text>
       </el-form-item>
       <el-form-item label="配图全跳小程序">
         <el-switch v-model="form.linkAllImagesToMiniprogram" />
@@ -52,7 +56,7 @@
       <el-form-item label="文首提示语">
         <el-switch v-model="form.leadDisclaimerEnabled" />
         <el-text type="info" size="small" style="margin-left:12px;">
-          发射/新闻/洗稿稿件统一在文章开头插入；文案里第一个【…】自动变为蓝色小程序跳转链接
+          发射/新闻/洗稿稿件统一在文章开头插入；纯文展示，不挂文字小程序链
         </el-text>
       </el-form-item>
       <el-form-item v-if="form.leadDisclaimerEnabled" label="提示语文案">
@@ -63,7 +67,7 @@
           maxlength="300"
           show-word-limit
           style="max-width:720px"
-          placeholder="例：发射时间为预测，不代表官方！…小程序【火星探索日志】可以查看…"
+          placeholder="例：本文详情信息仅供参考，有关火箭发射预报小程序【火星探索日志】可以查看…"
         />
       </el-form-item>
       <el-form-item label="开启留言">
@@ -144,7 +148,7 @@
       </el-table-column>
       <el-table-column label="策略" width="120">
         <template #default="{ row }">
-          <el-input v-model="row.strategyKey" size="small" placeholder="deep_recap" />
+          <el-input v-model="row.strategyKey" size="small" placeholder="auto" />
         </template>
       </el-table-column>
       <el-table-column label="每轮" width="80">
@@ -160,7 +164,7 @@
     </el-table>
     <el-text type="info" size="small" style="display:block;margin-bottom:16px;max-width:960px">
       「作者匹配」留空 = 该 feed 全部文章。默认只入库到「对标资产 → 采集」（同名对标账号自动建档）；
-      开启自动洗稿才会进草稿箱。定时由云函数 oaAuthorTrack 每 6 小时触发。
+      开启自动洗稿才会进草稿箱。策略填 auto（或留空）= 按正文自动匹配。定时由云函数 oaAuthorTrack 每 6 小时触发。
       NSF 等站若直连被 Cloudflare 403，会自动经 RSS 中转（rss2json）拉取。修改后记得点顶部「保存配置」。
     </el-text>
 
@@ -184,13 +188,18 @@
             <el-text type="info" size="small">两号人设拉开即可降低同质化；洗稿会严格贴合人设。</el-text>
           </el-form-item>
           <el-form-item label="文末 footer">
-            <el-input v-model="b.footer" type="textarea" :rows="3" />
+            <el-input v-model="b.footer" type="textarea" :rows="3" placeholder="建议留空：文末直接结束，避免广告宣传语限流" />
           </el-form-item>
           <el-form-item label="默认策略 Key">
             <el-input v-model="b.defaultStrategyKey" placeholder="launch_brief / space_story" />
           </el-form-item>
           <el-form-item label="小程序 CTA">
-            <el-input v-model="b.miniprogramCta" maxlength="20" show-word-limit />
+            <el-input
+              v-model="b.miniprogramCta"
+              maxlength="20"
+              show-word-limit
+              placeholder="建议留空；仅文末引流开启时使用"
+            />
           </el-form-item>
           <el-form-item label="默认封面 URL">
             <el-input v-model="b.defaultCoverUrl" placeholder="可空，沿用全局或草稿封面" />
@@ -245,10 +254,11 @@ const form = reactive({
   brands: [],
   trackSources: [],
   miniprogramPath: 'pages/index/index',
-  miniprogramCtaMode: 'image',
+  miniprogramCtaMode: 'none',
   linkAllImagesToMiniprogram: true,
   leadDisclaimerEnabled: true,
-  leadDisclaimerText: '',
+  leadDisclaimerText:
+    '本文详情信息仅供参考，有关火箭发射预报小程序【火星探索日志】可以查看火箭发射信息及相关资讯，感谢阅读，记得点赞支持',
   openComment: true,
   onlyFansCanComment: false,
   draftRetainDays: 14,
@@ -322,12 +332,29 @@ const load = async () => {
           enabled: true,
           autoWash: false,
           brandKey: 'mars_log',
-          strategyKey: 'deep_recap',
+          strategyKey: 'auto',
           maxPerRun: 3
         }
       ]
     }
     brandTab.value = form.defaultBrandKey || form.brands[0].key
+    // 客户端兜底：清掉旧硬广结语/CTA，避免未部署云函数时保存又写回
+    for (const b of form.brands || []) {
+      const foot = String(b.footer || '')
+      if (/小程序|想追火箭|打开小程序/.test(foot)) b.footer = ''
+      if (/打开小程序/.test(String(b.miniprogramCta || ''))) b.miniprogramCta = ''
+    }
+    for (const s of form.trackSources || []) {
+      if (!String(s.strategyKey || '').trim()) s.strategyKey = 'auto'
+    }
+    form.miniprogramCtaMode = form.miniprogramCtaMode || 'none'
+    if (form.miniprogramCtaMode === 'image' && !(form.brands || []).some((b) => String(b.miniprogramCta || '').trim())) {
+      form.miniprogramCtaMode = 'none'
+    }
+    if (/发射时间为预测/.test(String(form.leadDisclaimerText || ''))) {
+      form.leadDisclaimerText =
+        '本文详情信息仅供参考，有关火箭发射预报小程序【火星探索日志】可以查看火箭发射信息及相关资讯，感谢阅读，记得点赞支持'
+    }
   } catch (e) {
     ElMessage.error(e.message || '加载配置失败')
   }
@@ -345,7 +372,7 @@ const trackPresets = [
     enabled: true,
     autoWash: true,
     brandKey: 'mars_log',
-    strategyKey: 'deep_recap',
+    strategyKey: 'auto',
     maxPerRun: 2
   },
   {
@@ -358,7 +385,7 @@ const trackPresets = [
     enabled: true,
     autoWash: true,
     brandKey: 'mars_space',
-    strategyKey: 'space_story',
+    strategyKey: 'auto',
     maxPerRun: 2
   }
 ]

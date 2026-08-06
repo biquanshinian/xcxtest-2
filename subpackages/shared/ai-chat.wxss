@@ -4,7 +4,7 @@
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--color-bg, #000);
+  background: var(--color-bg, #0B0C0E);
   box-sizing: border-box;
 }
 
@@ -18,10 +18,11 @@
 }
 
 .ai-chat-nav-sub {
-  margin-top: 2rpx;
-  font-size: 20rpx;
-  line-height: 1.2;
-  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.45));
+  margin-top: 4rpx;
+  font-size: var(--font-size-xs, 20rpx);
+  font-weight: 400;
+  line-height: 1.25;
+  color: var(--color-text-tertiary, #6E6E73);
 }
 
 /* 导航保持通用骨架的 fixed 磨砂条；对话区不留 padding-top，从屏顶起算，
@@ -51,14 +52,15 @@
 
 /* ========== 明亮主题（theme-light）反色覆盖 ========== */
 .ai-chat-detail-page.theme-light {
-  background: var(--color-bg, #f2f2f7);
+  background: var(--color-bg, #F4F5F7);
 }
 
 .ai-chat-detail-page.theme-light .nav-title--page-grid {
   color: var(--color-text-primary, #1C1C1E);
+  font-weight: 600;
 }
 
 .ai-chat-detail-page.theme-light .ai-chat-nav-sub,
 .theme-light .ai-chat-nav-sub {
-  color: var(--color-text-tertiary, #86868B);
+  color: var(--color-text-tertiary, #8E8E93);
 }

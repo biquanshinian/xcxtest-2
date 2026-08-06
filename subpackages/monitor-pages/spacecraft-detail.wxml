@@ -36,11 +36,13 @@
       </view>
 
       <view wx:elif="{{item}}" class="detail-card glass-card">
-        <!-- Hero：原图干净展示 + 底部渐变收边（与火箭型号详情页一致），点击预览 -->
-        <view class="hero-wrap" bindtap="onHeroImageTap">
-          <image wx:if="{{item.imageUrl}}" class="hero-image {{heroImageLoaded ? 'hero-image--loaded' : ''}}" src="{{item.imageUrl}}" mode="aspectFill" bindload="onHeroImageLoad" binderror="onHeroImageError"></image>
-          <view wx:else class="hero-image hero-image--placeholder"></view>
-          <view class="hero-gradient"></view>
+        <!-- Hero 悬浮卡：多层毛玻璃叠层统一骨架（hero-float，卡片内用 flush 去左右外边距），点击预览 -->
+        <view class="hero-float hero-float--flush">
+          <view class="hero-wrap hero-float-card" bindtap="onHeroImageTap">
+            <image wx:if="{{item.imageUrl}}" class="hero-image {{heroImageLoaded ? 'hero-image--loaded' : ''}}" src="{{item.imageUrl}}" mode="aspectFill" bindload="onHeroImageLoad" binderror="onHeroImageError"></image>
+            <view wx:else class="hero-image hero-image--placeholder"></view>
+            <view class="hero-gradient"></view>
+          </view>
         </view>
 
         <!-- 信息头：名称/状态/徽标下移出头图，不再遮挡照片 -->

@@ -685,28 +685,28 @@ async function main() {
       mustHaveHint: true
     },
     {
+      // 有场次出火箭观礼入口卡；无场次只给诚实 focusHint（不注入静态观礼点）
       q: '去哪看火箭发射',
       opts: {},
       expectIntent: 'viewing_spot',
-      expectCard: 'spec',
-      expectSpecKind: 'viewing_spot',
+      expectCardOptional: true,
+      expectKindIfCard: 'watch_party',
       mustHaveHint: true
     },
     {
       q: '看星舰发射去哪',
       opts: {},
       expectIntent: 'viewing_spot',
-      expectCard: 'spec',
-      expectSpecKind: 'viewing_spot',
+      expectCardOptional: true,
+      expectKindIfCard: 'watch_party',
       mustHaveHint: true
     },
     {
-      // 管控发射场：只出须知卡，不给坐标
       q: '酒泉能去现场看神舟发射吗',
       opts: {},
       expectIntent: 'viewing_spot',
-      expectCard: 'spec',
-      expectSpecKind: 'viewing_spot',
+      expectCardOptional: true,
+      expectKindIfCard: 'watch_party',
       mustHaveHint: true
     },
     {
@@ -829,8 +829,16 @@ async function main() {
     if (Array.isArray(c.expectCardAny)) {
       ok(!!card && c.expectCardAny.indexOf(card.cardType) >= 0,
         'payload 出卡「' + c.q + '」type∈' + c.expectCardAny.join('|') + ' (got ' + (card && card.cardType) + ')')
-    } else {
+    } else if (c.expectCard) {
       ok(!!card && card.cardType === c.expectCard, 'payload 出卡「' + c.q + '」type=' + c.expectCard)
+    } else if (c.expectCardOptional) {
+      if (card) {
+        ok(card.cardType === 'entry', 'payload 可选卡「' + c.q + '」应为入口卡')
+        if (c.expectKindIfCard) {
+          ok(card.entryKind === c.expectKindIfCard,
+            'payload 可选卡 kind「' + c.q + '」= ' + c.expectKindIfCard)
+        }
+      }
     }
     if (c.expectKind) {
       ok(card && card.entryKind === c.expectKind, 'payload kind「' + c.q + '」= ' + c.expectKind)
@@ -911,71 +919,26 @@ async function main() {
       })
   }
 
-  // ── 观礼点卡：坐标可用性 + 管控发射场安全兜底 ──
+  // ── 观礼：统一走火箭观礼入口卡（静态观礼点导航表已下线） ──
   {
-    const spots = require(path.join(root, 'subpackages/shared/utils/viewing-spots.js'))
+    const spotsPath = path.join(root, 'subpackages/shared/utils/viewing-spots.js')
+    ok(!fs.existsSync(spotsPath), '观礼 · 静态观礼点表已移除（避免无依赖进包）')
+
     const cn = await rich.resolveRichChatPayload('文昌观礼点推荐', {})
     ok(cn.intent === 'viewing_spot', '观礼 · 文昌命中观礼意图')
-    ok(cn.cards.length === 2, '观礼 · 出主推 + 备选两张卡')
-    ok(cn.cards.every((c) => c.nav && isFinite(c.nav.latitude) && isFinite(c.nav.longitude)),
-      '观礼 · 每张卡都带可导航坐标')
-    ok(cn.cards.every((c) => c.nav.latitude > 18 && c.nav.latitude < 21 &&
-      c.nav.longitude > 110 && c.nav.longitude < 112), '观礼 · 文昌坐标落在海南境内')
-    ok(cn.cards.every((c) => /导航/.test(c.cta)), '观礼 · CTA 为一键导航')
-    ok(cn.cards.every((c) => !!c.note), '观礼 · 每张卡都带出行提示')
-    ok(/交通管制|官方公告/.test(cn.launchContext.focusHint || ''), '观礼 · 提示里带管控免责')
-
-    // 坐标 ↔ 距离自洽：改坐标忘改距离、或抄错一位小数，都会在这里红
-    spots.VIEWING_SPOTS.forEach((s) => {
-      const real = spots.spotDistanceKm(s)
-      ok(real != null && Math.abs(real - Number(s.distanceKm)) < 0.15,
-        '观礼 · ' + s.id + ' 坐标反算距离与 distanceKm 一致 (' +
-        (real == null ? 'null' : real.toFixed(2)) + ' vs ' + s.distanceKm + ')')
-      const textKm = (String(s.distanceText).match(/([\d.]+)\s*km/) || [])[1]
-      ok(textKm && Math.abs(Number(textKm) - real) < 0.6,
-        '观礼 · ' + s.id + ' 距离文案与实际吻合 (' + s.distanceText + ')')
-    })
-
-    // 全表统一 WGS-84：混用坐标系是上一轮定位跑到海里的根因，这里禁止再出现 coord 标记
-    spots.VIEWING_SPOTS.forEach((s) => {
-      ok(s.coord === undefined, '观礼 · ' + s.id + ' 不带 coord 标记（全表 WGS-84）')
-      ok(!!s.navHint, '观礼 · ' + s.id + ' 标明导航落点地物')
-    })
-
-    // 文昌：观礼岸线在发射场以东，经度必须落在 110.98–111.05；
-    // 110.96 一带是发射场正北的海面，历史上就是错在这里
-    spots.VIEWING_SPOTS.filter((s) => s.siteKey === 'wenchang').forEach((s) => {
-      ok(s.lng > 110.98 && s.lng < 111.05 && s.lat > 19.62 && s.lat < 19.69,
-        '观礼 · ' + s.id + ' 落在文昌东侧观礼带（非发射场正北海面）')
-    })
-    const qsw = spots.VIEWING_SPOTS.find((s) => s.id === 'wenchang_qishuiwan')
-    const qswNav = spots.toNavPoint(qsw)
-    const qswShift = spots.haversineKm(qsw.lat, qsw.lng, qswNav.latitude, qswNav.longitude) * 1000
-    ok(qswShift > 300 && qswShift < 800, '观礼 · 淇水湾导航前转 GCJ-02（偏移 ' + qswShift.toFixed(0) + 'm）')
-    ok(/停车场/.test(qsw.address) && /停车场/.test(qsw.navHint),
-      '观礼 · 淇水湾导航到停车场而非沙滩岸线')
-
-    const isla = spots.VIEWING_SPOTS.find((s) => s.id === 'starbase_isla_blanca')
-    const islaNav = spots.toNavPoint(isla)
-    ok(islaNav.latitude === isla.lat && islaNav.longitude === isla.lng,
-      '观礼 · 境外坐标不做偏移')
-    ok(spots.VIEWING_SPOTS.every((s) => s.name && s.address && s.lat != null && s.lng != null &&
-      s.padKey && spots.REFERENCE_PADS[s.padKey] &&
-      s.distanceText && s.costText && s.viewText && s.tips), '观礼 · 点位数据字段完备')
-    ok(spots.VIEWING_SPOTS.some((s) => s.siteKey === 'wenchang') &&
-      spots.VIEWING_SPOTS.some((s) => s.siteKey === 'ksc') &&
-      spots.VIEWING_SPOTS.some((s) => s.siteKey === 'starbase') &&
-      spots.VIEWING_SPOTS.some((s) => s.siteKey === 'vandenberg'), '观礼 · 覆盖中美四大发射场')
+    if (cn.cards && cn.cards.length) {
+      ok(cn.cards.length === 1 && cn.cards[0].cardType === 'entry' &&
+        cn.cards[0].entryKind === 'watch_party', '观礼 · 有场次时出火箭观礼入口卡')
+      ok(/进入观礼/.test(cn.cards[0].cta || ''), '观礼 · CTA 进入观礼服务')
+      ok(!(cn.cards[0].nav), '观礼 · 入口卡不带静态导航坐标')
+    } else {
+      ok(!!(cn.launchContext && /暂未开放|已结束/.test(cn.launchContext.focusHint || '')),
+        '观礼 · 无场次时诚实说明未开放')
+    }
 
     const jq = await rich.resolveRichChatPayload('酒泉能去现场看神舟发射吗', {})
-    ok(jq.cards.length === 1 && !jq.cards[0].nav, '观礼 · 管控发射场不给导航坐标')
-    ok(/官方渠道/.test(jq.cards[0].cta || ''), '观礼 · 管控卡 CTA 指向官方渠道')
-    ok(/禁止推荐任何具体坐标|不能自行抵达/.test(jq.launchContext.focusHint || ''),
-      '观礼 · 管控卡提示禁止靠近发射场')
-    ;['xichang', 'taiyuan'].forEach((key) => {
-      ok(spots.VIEWING_SITES[key] && spots.VIEWING_SITES[key].restricted === true &&
-        !!spots.VIEWING_SITES[key].restrictedNote, '观礼 · ' + key + ' 标记为管控场地')
-    })
+    ok(jq.intent === 'viewing_spot', '观礼 · 管控发射场仍命中观礼意图')
+    ok(!(jq.cards || []).some((c) => c && c.nav), '观礼 · 不再注入静态观礼点导航坐标')
   }
 
   // 无数据时仍不抛 + 给提示
@@ -1078,17 +1041,15 @@ async function main() {
     ok(new RegExp('\\b' + kind + ':\\s*\\{').test(chatJs), 'SPEC_ROUTE_MAP 含 ' + kind)
   })
   ;['booster_genealogy', 'launch_vote', 'year_review', 'astro_calendar', 'news',
-    'starlink_pass', 'starlink_map', 'artemis', 'starship_hardware'].forEach((kind) => {
+    'starlink_pass', 'starlink_map', 'artemis', 'starship_hardware', 'watch_party'].forEach((kind) => {
     ok(chatJs.includes("kind === '" + kind + "'"), 'onEntryCardTap 处理 ' + kind)
   })
-  ;['wiki', 'site', 'craft', 'booster', 'apod', 'hardware', 'viewing'].forEach((v) => {
+  ;['wiki', 'site', 'craft', 'booster', 'apod', 'hardware'].forEach((v) => {
     ok(chatWxss.includes('ai-spec-card--' + v), 'wxss spec variant ' + v)
   })
-  ok(chatWxml.includes('data-navlat') && chatWxml.includes('data-navlng'), 'wxml 观礼卡传导航坐标')
-  ok(chatWxml.includes('ai-spec-note') && chatWxss.includes('.ai-spec-note'), '观礼卡出行提示已渲染')
-  ok(/kind === 'viewing_spot'[\s\S]{0,600}wx\.openLocation/.test(chatJs), 'js 观礼卡调起系统地图导航')
-  ok(/kind === 'viewing_spot'[\s\S]{0,400}showToast/.test(chatJs), 'js 无坐标观礼卡给出提示而非静默')
-  ;['booster', 'vote', 'review', 'astro', 'news', 'starlink', 'artemis', 'hardware'].forEach((v) => {
+  ok(/kind === 'viewing_spot'[\s\S]{0,400}watch-party/.test(chatJs),
+    'js 旧观礼卡兼容跳转火箭观礼')
+  ;['booster', 'vote', 'review', 'astro', 'news', 'starlink', 'artemis', 'hardware', 'watch'].forEach((v) => {
     ok(chatWxss.includes('ai-entry-card--' + v), 'wxss entry variant ' + v)
   })
   ok(chatWxml.includes('wx:else') && chatWxml.includes('onMissionCardTap'), 'wxml mission 默认分支')

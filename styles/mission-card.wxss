@@ -16,6 +16,7 @@
   padding: 0;
   overflow: hidden;
   box-sizing: border-box;
+  border-radius: var(--radius-card);
 }
 
 .mission-card-link {
@@ -51,21 +52,23 @@
   height: 100%;
   min-width: 0;
   min-height: 345rpx;
+  /* 等比例放大居中撑满左侧槽位 */
   object-fit: cover;
-  background-color: #1a1a1a;
+  object-position: center center;
+  background-color: var(--color-bg-elevated, #1A1C20);
   display: block;
 }
 
 .mission-rocket-image--placeholder {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-divider-faint);
 }
 
 .mission-info-content {
   flex: 1;
-  padding: 24rpx 28rpx;
+  padding: var(--space-md) var(--space-lg);
   display: flex;
   flex-direction: column;
-  gap: 10rpx;
+  gap: var(--space-xs);
   box-sizing: border-box;
   min-width: 0;
   overflow: hidden;
@@ -75,7 +78,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12rpx;
+  gap: var(--space-xs);
   margin-bottom: 4rpx;
 }
 
@@ -89,22 +92,22 @@
 }
 
 .mission-status-badge {
-  font-size: 22rpx;
-  font-weight: 500;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
   padding: 4rpx 12rpx;
-  border-radius: 8rpx;
+  border-radius: var(--radius-sm);
   flex-shrink: 0;
 }
 
 .mission-status-badge.status-success,
 .mission-status-badge.status-deployed {
-  color: #34C759;
+  color: var(--color-success);
   background: rgba(52, 199, 89, 0.15);
   border: 1px solid rgba(52, 199, 89, 0.35);
 }
 
 .mission-status-badge.status-failure {
-  color: #FF3B30;
+  color: var(--color-danger);
   background: rgba(255, 59, 48, 0.15);
   border: 1px solid rgba(255, 59, 48, 0.35);
 }
@@ -112,15 +115,15 @@
 .mission-status-badge.status-partial,
 .mission-status-badge.status-delayed,
 .mission-status-badge.status-cancelled {
-  color: #FF9500;
+  color: var(--color-warning);
   background: rgba(255, 149, 0, 0.12);
   border: 1px solid rgba(255, 149, 0, 0.3);
 }
 
 .mission-status-badge.status-pending {
-  color: #007AFF;
-  background: rgba(0, 122, 255, 0.15);
-  border: 1px solid rgba(0, 122, 255, 0.35);
+  color: var(--color-brand);
+  background: var(--color-brand-soft);
+  border: 1px solid rgba(59, 130, 246, 0.35);
 }
 
 .mission-status-badge.status-inflight {
@@ -130,16 +133,16 @@
 }
 
 .mission-country {
-  font-size: 22rpx;
-  color: #8E8E93;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
   flex-shrink: 0;
 }
 
 .mission-main-title {
-  font-size: 32rpx;
-  font-weight: 600;
-  color: #FFFFFF;
-  line-height: 1.35;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  line-height: var(--line-height-tight);
   word-break: break-word;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -150,7 +153,7 @@
 
 .mission-meta {
   font-size: 24rpx;
-  color: #8E8E93;
+  color: var(--color-text-secondary);
   line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -158,10 +161,11 @@
 }
 
 .mission-time {
-  font-size: 30rpx;
-  font-weight: 600;
-  color: #E5E5EA;
-  line-height: 1.3;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  line-height: var(--line-height-tight);
+  opacity: 0.92;
 }
 
 /* 回收块：与首页 index.wxss 对齐（可回收标签 + 溅落/回收图标） */
@@ -174,26 +178,26 @@
 }
 
 .recovery-tag {
-  font-size: 22rpx;
+  font-size: var(--font-size-sm);
   padding: 2rpx 10rpx;
   border-radius: 6rpx;
   flex-shrink: 0;
 }
 
 .recovery-tag--reuse {
-  color: #34C759;
+  color: var(--color-success);
   background: rgba(52, 199, 89, 0.12);
   border: 1px solid rgba(52, 199, 89, 0.25);
 }
 
 .recovery-tag--expendable {
-  color: #636366;
+  color: var(--color-text-tertiary);
   background: rgba(99, 99, 102, 0.15);
   border: 1px solid rgba(99, 99, 102, 0.25);
 }
 
 .recovery-tag--not-reused {
-  color: #FF9500;
+  color: var(--color-warning);
   background: rgba(255, 149, 0, 0.12);
   border: 1px solid rgba(255, 149, 0, 0.28);
 }
@@ -227,9 +231,9 @@
 }
 
 .recovery-type-name {
-  font-size: 20rpx;
+  font-size: var(--font-size-xs);
   line-height: 1.2;
-  color: #34C759;
+  color: var(--color-success);
   background: rgba(52, 199, 89, 0.12);
   border: 1px solid rgba(52, 199, 89, 0.25);
   border-radius: 6rpx;

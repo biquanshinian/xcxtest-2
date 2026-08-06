@@ -1,0 +1,139 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="page {{themeClass}}" style="padding-bottom: {{keyboardHeight}}px;">
+  <!-- 自定义导航栏 -->
+  <view class="top-nav-wrapper" style="padding-top:{{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">现场抽奖</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view class="page-scroll" scroll-y enhanced show-scrollbar="{{false}}" bindscroll="onComposerScroll" scroll-with-animation="{{true}}" scroll-top="{{composerScrollTop}}">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <!-- 加载 / 错误 -->
+    <view class="gc-loading" wx:if="{{loading}}">
+      <view class="loading-spinner-lg"></view>
+      <text class="gc-loading-text">正在解锁抽奖资格…</text>
+    </view>
+    <view class="gc-error" wx:elif="{{error}}">
+      <text class="gc-error-text">{{error}}</text>
+      <view class="gc-retry-btn" bindtap="onRetry"><text>重试</text></view>
+      <view class="gc-code-fallback">
+        <text class="gc-code-fallback-tip">扫码不灵？输入现场物料上的场次码</text>
+        <view class="gc-code-row">
+          <input
+            id="c_gacha_1" class="gc-code-input"
+            value="{{codeInput}}"
+            placeholder="如 wc01"
+            placeholder-class="gc-code-ph"
+            maxlength="10"
+            confirm-type="done"
+            bindinput="onCodeInput"
+            bindconfirm="onSubmitCode" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange"
+          />
+          <view class="gc-code-btn" bindtap="onSubmitCode"><text>解锁</text></view>
+        </view>
+      </view>
+    </view>
+
+    <block wx:elif="{{session}}">
+      <view class="gc-session">
+        <text class="gc-session-title">{{session.title}}</text>
+        <text class="gc-session-sub">{{session.rocketName}}{{session.missionName ? ' · ' + session.missionName : ''}}</text>
+        <text class="gc-ssr-tip" wx:if="{{!session.prizeDrawEnabled}}">本场次未开放现场抽奖</text>
+        <text class="gc-ssr-tip" wx:elif="{{!fromMaterial}}">请扫描现场物料码解锁抽奖（站内进入无效）</text>
+        <text class="gc-ssr-tip" wx:elif="{{!successUnlocked}}">已扫码 · 等待商家确认发射成功后开放</text>
+        <text class="gc-ssr-tip" wx:elif="{{session.prizeRemaining === 0}}">奖品已抽完</text>
+      </view>
+
+      <view class="gc-pass" wx:if="{{passExpireText}}">
+        <view class="gc-pass-info">
+          <text class="gc-pass-title">观礼通行证已生效</text>
+          <text class="gc-pass-sub">星问AI会员功能免费畅用至 {{passExpireText}}</text>
+        </view>
+      </view>
+
+      <!-- 奖品预览 -->
+      <scroll-view class="gc-prize-scroll" scroll-x enhanced show-scrollbar="{{false}}" wx:if="{{session.prizeDrawEnabled && session.prizes.length}}">
+        <view class="gc-prize-chip" wx:for="{{session.prizes}}" wx:key="id">
+          <image class="gc-prize-chip-img" wx:if="{{item.image}}" src="{{item.image}}" mode="aspectFill" />
+          <view class="gc-prize-chip-body">
+            <text class="gc-prize-chip-name">{{item.name}}</text>
+            <text class="gc-prize-chip-meta">剩{{item.remaining}}{{item.valueYuan != null ? ' · ¥' + item.valueYuan : ''}}</text>
+          </view>
+        </view>
+      </scroll-view>
+
+      <view class="gc-stage" wx:if="{{session.prizeDrawEnabled && fromMaterial && successUnlocked}}">
+        <view class="gc-deck {{drawing ? 'gc-deck--shaking' : ''}}" bindtap="onDraw">
+          <view class="gc-deck-card gc-deck-card--3"></view>
+          <view class="gc-deck-card gc-deck-card--2"></view>
+          <view class="gc-deck-card gc-deck-card--1">
+            <text class="gc-deck-logo">✦</text>
+            <text class="gc-deck-text">现场奖品</text>
+          </view>
+        </view>
+        <view class="gc-draw-btn {{quota.remaining <= 0 || drawing || session.prizeRemaining === 0 ? 'gc-draw-btn--disabled' : ''}}" bindtap="onDraw">
+          <text>{{drawing ? '抽取中…' : '抽一件'}}</text>
+        </view>
+        <text class="gc-quota-text">剩余次数：{{quota.remaining}} / 共{{quota.total}}次</text>
+        <button class="gc-share-btn" open-type="share" wx:if="{{!shareBonusUsed}}">
+          <text>分享给好友 · 加抽1次</text>
+        </button>
+      </view>
+
+      <view class="gc-links">
+        <view class="gc-link" bindtap="onGoAlbum"><text>我的奖品</text></view>
+        <view class="gc-link" bindtap="onGoLanding"><text>观礼服务详情</text></view>
+      </view>
+      <view class="gc-rules">
+        <text class="gc-rules-title">抽奖规则</text>
+        <text class="gc-rules-item">· 须扫描现场物料码解锁 1 次；商家确认发射成功后开放抽取</text>
+        <text class="gc-rules-item">· 分享好友可再加抽 1 次（每场一次）</text>
+        <text class="gc-rules-item">· 奖品由观礼商家提供，按剩余库存加权；中奖后联系现场领取</text>
+      </view>
+    </block>
+
+    <view class="page-footer">
+      <text class="footer-text">Per Aspera Ad Astra · 循此苦旅以达星辰</text>
+    </view>
+  </scroll-view>
+
+  <!-- 抽奖结果覆盖层 -->
+  <view class="gc-overlay" wx:if="{{drawnCard}}" bindtap="onCloseCard">
+    <view class="gc-flip-wrap" catchtap="onCloseCard">
+      <view class="gc-flip {{flipped ? 'gc-flip--flipped' : ''}}">
+        <view class="gc-face gc-face--back">
+          <text class="gc-face-back-logo">✦</text>
+          <text class="gc-face-back-text">现场奖品</text>
+        </view>
+        <view class="gc-face gc-face--front">
+          <view class="gc-rarity-tag" wx:if="{{drawnCard.valueYuan != null}}">
+            <text>价值约 ¥{{drawnCard.valueYuan}}</text>
+          </view>
+          <image class="gc-card-image" wx:if="{{drawnCard.image}}" src="{{drawnCard.image}}" mode="aspectFill" />
+          <view class="gc-card-image gc-card-image--empty" wx:else>
+            <text>✦</text>
+          </view>
+          <text class="gc-card-name">{{drawnCard.name}}</text>
+          <text class="gc-card-desc" wx:if="{{drawnCard.desc}}">{{drawnCard.desc}}</text>
+          <text class="gc-card-serial" wx:if="{{drawnCard.limitTotal}}">No.{{drawnCard.serialNo}} / {{drawnCard.limitTotal}}</text>
+          <text class="gc-card-serial" wx:else>编号 No.{{drawnCard.serialNo}}</text>
+        </view>
+      </view>
+    </view>
+    <view class="gc-overlay-actions" wx:if="{{flipped}}">
+      <button class="gc-overlay-share" open-type="share" catchtap="">
+        <text>炫耀一下</text>
+      </button>
+      <view class="gc-overlay-row">
+        <view class="gc-overlay-btn" catchtap="onGoAlbum"><text>查看我的奖品</text></view>
+        <view class="gc-overlay-btn gc-overlay-btn--ghost" wx:if="{{quota.remaining > 0}}" catchtap="onDraw"><text>再抽一件</text></view>
+      </view>
+    </view>
+  </view>
+</view>

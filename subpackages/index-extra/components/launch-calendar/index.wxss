@@ -67,8 +67,8 @@
   justify-content: center;
   font-size: 21rpx;
   color: #7ec3ff;
-  background: rgba(0, 122, 255, 0.12);
-  border: 1px solid rgba(0, 122, 255, 0.2);
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.2);
 }
 
 .calendar-query-panel-arrow {
@@ -140,8 +140,8 @@
 }
 
 .calendar-filter-chip--active {
-  background: rgba(0, 122, 255, 0.18);
-  border-color: rgba(0, 122, 255, 0.32);
+  background: rgba(59, 130, 246, 0.18);
+  border-color: rgba(59, 130, 246, 0.32);
   color: #7ec3ff;
 }
 
@@ -219,14 +219,14 @@
   margin-right: 80rpx;
   padding: 8rpx 20rpx;
   font-size: 22rpx;
-  color: #007AFF;
-  background: rgba(0, 122, 255, 0.12);
+  color: #3B82F6;
+  background: rgba(59, 130, 246, 0.12);
   border-radius: 20rpx;
-  border: 1px solid rgba(0, 122, 255, 0.3);
+  border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
 .calendar-today-btn:active {
-  background: rgba(0, 122, 255, 0.25);
+  background: rgba(59, 130, 246, 0.25);
 }
 
 .calendar-page-stage {
@@ -265,8 +265,8 @@
 }
 
 .calendar-legend-dot--upcoming {
-  background: #007AFF;
-  box-shadow: 0 0 8rpx rgba(0, 122, 255, 0.55);
+  background: #3B82F6;
+  box-shadow: 0 0 8rpx rgba(59, 130, 246, 0.55);
 }
 
 .calendar-legend-dot--completed {
@@ -375,14 +375,14 @@
 }
 
 .calendar-cell--today {
-  border-color: rgba(0, 122, 255, 0.45);
-  background: rgba(0, 122, 255, 0.08);
+  border-color: rgba(59, 130, 246, 0.45);
+  background: rgba(59, 130, 246, 0.08);
 }
 
 .calendar-cell--selected {
-  background: rgba(0, 122, 255, 0.22);
-  border-color: rgba(0, 122, 255, 0.55);
-  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.18);
+  background: rgba(59, 130, 246, 0.22);
+  border-color: rgba(59, 130, 246, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.18);
 }
 
 .calendar-cell--heat1 {
@@ -402,8 +402,8 @@
 .calendar-cell--selected.calendar-cell--heat1,
 .calendar-cell--selected.calendar-cell--heat2,
 .calendar-cell--selected.calendar-cell--heat3 {
-  background: rgba(0, 122, 255, 0.22);
-  border-color: rgba(0, 122, 255, 0.55);
+  background: rgba(59, 130, 246, 0.22);
+  border-color: rgba(59, 130, 246, 0.55);
 }
 
 .calendar-cell-count {
@@ -436,8 +436,8 @@
 }
 
 .calendar-cell-day-wrap--today {
-  background: rgba(0, 122, 255, 0.18);
-  box-shadow: 0 0 0 2rpx rgba(0, 122, 255, 0.35);
+  background: rgba(59, 130, 246, 0.18);
+  box-shadow: 0 0 0 2rpx rgba(59, 130, 246, 0.35);
 }
 
 .calendar-cell-day {
@@ -469,8 +469,8 @@
 }
 
 .calendar-cell-dot--upcoming {
-  background: #007AFF;
-  box-shadow: 0 0 6rpx rgba(0, 122, 255, 0.6);
+  background: #3B82F6;
+  box-shadow: 0 0 6rpx rgba(59, 130, 246, 0.6);
 }
 
 .calendar-cell-dot--completed {
@@ -557,7 +557,7 @@
 }
 
 .theme-light .calendar-query-panel-count {
-  color: #007AFF;
+  color: #3B82F6;
 }
 
 .theme-light .calendar-query-panel-arrow {
@@ -576,9 +576,9 @@
 }
 
 .theme-light .calendar-filter-chip--active {
-  background: rgba(0, 122, 255, 0.12);
-  border-color: rgba(0, 122, 255, 0.32);
-  color: #007AFF;
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.32);
+  color: #3B82F6;
 }
 
 .theme-light .calendar-query-result {
@@ -586,7 +586,7 @@
 }
 
 .theme-light .calendar-query-reset {
-  color: #007AFF;
+  color: #3B82F6;
 }
 
 .theme-light .calendar-nav {
@@ -646,14 +646,14 @@
 }
 
 .theme-light .calendar-cell--today {
-  background: rgba(0, 122, 255, 0.08);
+  background: rgba(59, 130, 246, 0.08);
 }
 
 .theme-light .calendar-cell--selected,
 .theme-light .calendar-cell--selected.calendar-cell--heat1,
 .theme-light .calendar-cell--selected.calendar-cell--heat2,
 .theme-light .calendar-cell--selected.calendar-cell--heat3 {
-  background: rgba(0, 122, 255, 0.15);
+  background: rgba(59, 130, 246, 0.15);
 }
 
 .theme-light .calendar-cell-day {
@@ -661,7 +661,7 @@
 }
 
 .theme-light .calendar-cell-day--today {
-  color: #007AFF;
+  color: #3B82F6;
 }
 
 .theme-light .calendar-starship-tag text {

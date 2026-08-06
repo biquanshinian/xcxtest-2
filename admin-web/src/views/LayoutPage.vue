@@ -130,6 +130,11 @@
           />
         </el-menu-item>
         <el-menu-item v-if="hasPerm('knowledge_cards')" index="/knowledge-cards">知识卡管理</el-menu-item>
+        <el-sub-menu v-if="hasPerm('watch_party')" index="watch-party">
+          <template #title><span>观礼服务</span></template>
+          <el-menu-item index="/watch-party-merchants">商家入驻</el-menu-item>
+          <el-menu-item index="/watch-party">场次总览</el-menu-item>
+        </el-sub-menu>
         <el-menu-item v-if="hasPerm('shop_feed')" index="/shop-feed">小店数据</el-menu-item>
         <el-menu-item v-if="hasPerm('shop_feed')" index="/popup-ad">弹窗广告</el-menu-item>
         <el-menu-item v-if="hasPerm('carousel')" index="/carousel">轮播图管理</el-menu-item>
@@ -312,6 +317,9 @@ const pageTitle = computed(() => {
     '/astro-photos': '航天摄影管理',
     '/milestone-rewards': '里程碑彩蛋管理',
     '/knowledge-cards': '知识卡管理',
+    '/watch-party': '观礼场次总览',
+    '/watch-party-merchants': '商家入驻审核',
+    '/souvenir-cards': '纪念卡卡池（已下线）',
     '/logs': '操作日志',
     '/figma-design': 'SpaceX星舰追踪 · 星舰基地',
     '/orbital-config': '太空轨道数据中心'

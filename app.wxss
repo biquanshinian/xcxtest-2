@@ -2,13 +2,15 @@
 @import './styles/tokens.wxss';
 
 page {
-  /* 字面量黑色（= --color-bg）：tab 切换/新 webview 首帧可能先于 CSS 变量解析，
+  /* 字面量深空灰（≈ --color-bg）：tab 切换/新 webview 首帧可能先于 CSS 变量解析，
      用 var() 会短暂回退为白底造成闪白 */
-  background-color: #000000;
+  background-color: #0B0C0E;
   color: var(--color-text-primary);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   height: 100vh;
   overflow: hidden;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-normal);
 }
 
 /* 全局原生 switch：视觉缩小约 1/3（仍保留可点区域） */
@@ -17,47 +19,81 @@ switch {
   transform-origin: center center;
 }
 
-/* 玻璃拟物效果通用类
- * 性能：不做 backdrop-filter —— 卡片均处于纯色页面背景之上（深色 #000 / 浅色 #F2F2F7），
- * 对纯色背景做毛玻璃视觉上无差别，但每张卡都会产生一层 GPU 实时合成（长列表滚动时发热主因之一）。
- * 玻璃质感由半透明底色 + 描边 + 内高光阴影保留；真正悬浮在内容上方的遮罩/导航栏按需单独加 blur。 */
+/* 轻量玻璃卡：仅半透明底 + 圆角，无描边无投影（全局卡片均不带边框/阴影，tab 栏除外） */
 .glass-card {
   background: var(--bg-glass);
-  border: 1px solid var(--color-divider);
   border-radius: var(--radius-card);
-  box-shadow: 
-    var(--shadow-card),
-    var(--shadow-glass-inset);
   position: relative;
   overflow: hidden;
 }
 
-.glass-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2rpx;
-  background: linear-gradient(90deg, 
-    transparent 0%, 
-    rgba(255, 255, 255, 0.4) 20%,
-    rgba(255, 255, 255, 0.5) 50%,
-    rgba(255, 255, 255, 0.4) 80%,
-    transparent 100%);
-  pointer-events: none;
-  z-index: 1;
+/* ========== 详情页头图统一骨架：出框悬浮卡（多层毛玻璃 + 投影） ==========
+ * 结构（各详情页统一）：
+ *   <view class="hero-float [hero-float--flush]">
+ *     <view class="hero-float-card">…原头图内容（image/swiper/占位图）…</view>
+ *   </view>
+ * hero-float 负责外边距与下方两层错位毛玻璃叠层（::before 中层 / ::after 底层），
+ * 不设 overflow，避免裁掉叠层；裁圆角由 hero-float-card 承担。
+ *
+ * 统一悬浮参数（全站头图同一套）：
+ * - 左右限宽：距屏幕两边各 20rpx（图片等比缩放 widthFix/aspectFill 由各页自定）
+ * - 基础形态：头图直接在滚动区顶层（页面滚动区无横向内衬）
+ * - --flush 形态：头图在带 var(--space-lg)=36rpx 横向内衬的容器/卡片里，
+ *   负边距出框到同一 20rpx 屏边限宽，顶部 -32rpx 上浮压过卡片顶边。
+ *   注意：① 祖先链不得有 overflow:hidden（横向出框会被裁）；
+ *        ② 父容器无上内边距时需 display:flex column 阻断外边距折叠；
+ *        ③ 容器内衬非 36rpx 时页内微调负边距，保证最终落在屏边 20rpx。 */
+.hero-float {
+  position: relative;
+  margin: var(--space-md) 20rpx calc(var(--space-lg) + 30rpx);
+  z-index: 0;
 }
 
-.glass-card::after {
+.hero-float--flush {
+  margin: -32rpx -16rpx calc(var(--space-lg) + 30rpx);
+}
+
+.hero-float::before,
+.hero-float::after {
   content: '';
   position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 1rpx;
-  background: rgba(0, 0, 0, 0.2);
+  z-index: -1;
+  top: 55%;
+  border-radius: var(--radius-lg);
+  background: var(--bg-glass);
+  backdrop-filter: var(--blur-card);
+  -webkit-backdrop-filter: var(--blur-card);
   pointer-events: none;
+}
+
+/* 中层：略窄、下探 14rpx */
+.hero-float::before {
+  left: 22rpx;
+  right: 22rpx;
+  bottom: -14rpx;
+  opacity: 0.85;
+}
+
+/* 底层：更窄、下探 28rpx，更淡 */
+.hero-float::after {
+  left: 48rpx;
+  right: 48rpx;
+  bottom: -28rpx;
+  opacity: 0.5;
+}
+
+.hero-float-card {
+  position: relative;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--color-bg-card);
+  transform: translateZ(0);
+  /* 悬浮投影：头图出框悬浮特例，非普通卡片（普通卡片无投影） */
+  box-shadow: 0 20rpx 60rpx rgba(0, 0, 0, 0.4);
+}
+
+.theme-light .hero-float-card {
+  box-shadow: 0 16rpx 48rpx rgba(0, 0, 0, 0.14);
 }
 
 /* ============== 通用骨架屏扫光（各页共享） ==============
@@ -95,11 +131,10 @@ switch {
 }
 
 .skeleton-card {
-  background: rgba(18, 20, 24, 0.62);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 24rpx;
-  padding: 24rpx 28rpx;
-  margin-bottom: 28rpx;
+  background: var(--color-bg-card);
+  border-radius: var(--radius-card);
+  padding: var(--space-md) var(--space-lg);
+  margin-bottom: var(--space-lg);
 }
 
 .skeleton-card--hero {
@@ -150,8 +185,7 @@ switch {
 }
 
 .theme-light .skeleton-card {
-  background: #ffffff;
-  border-color: rgba(0, 0, 0, 0.05);
+  background: var(--color-bg-card);
 }
 
 /* 卡片悬浮效果 */
@@ -192,8 +226,8 @@ switch {
   z-index: 1000;
   background: var(--bg-glass-nav);
   backdrop-filter: var(--blur-nav);
-  -webkit-backdrop-filter: blur(40rpx) saturate(150%);
-  border-bottom: 1px solid var(--color-divider);
+  -webkit-backdrop-filter: blur(32rpx) saturate(140%);
+  border-bottom: 1px solid var(--color-divider-faint);
 }
 
 /* 页面容器基础定义 */
@@ -396,7 +430,7 @@ button.mission-card-share-btn::before {
   flex-shrink: 0;
 }
 
-/* 地图页顶部导航：4 张地图页共享样式 */
+/* 地图页顶部导航：与全局详情页 top-nav-slot--back / page-grid 同源 */
 .map-page .top-nav-wrapper {
   position: absolute;
   top: 0;
@@ -405,76 +439,39 @@ button.mission-card-share-btn::before {
   z-index: 20;
 }
 
-.map-page .top-nav {
-  display: flex;
+/* 覆盖旧 flex 规则，避免压过 top-nav--page-grid 的 grid 居中 */
+.map-page .top-nav.top-nav--page-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
+  justify-content: initial;
   padding: 24rpx 24rpx 0;
+  min-height: 96rpx;
 }
 
-.map-page .nav-back,
-.map-page .nav-placeholder {
-  min-width: 80rpx;
-  height: 60rpx;
-  border-radius: 999rpx;
-  background: rgba(18, 18, 20, 0.72);
-  color: #fff;
+.map-page .nav-title-wrap--page-grid {
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(16rpx);
+  text-align: center;
 }
 
-.map-page .nav-back {
-  font-size: 0;
-}
-
-.map-page .nav-back text {
-  font-size: 0;
-  width: 0;
-  height: 0;
-  overflow: hidden;
-  color: transparent;
-  line-height: 0;
-}
-
-.map-page .nav-back::after {
-  content: '';
-  display: block;
-  width: 20rpx;
-  height: 20rpx;
-  border-top: 4rpx solid #ffffff;
-  border-left: 4rpx solid #ffffff;
-  transform: rotate(-45deg);
-  box-sizing: border-box;
-}
-
-.map-page .nav-back.nav-back--home::after {
-  width: 36rpx;
-  height: 36rpx;
-  border: none;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3Cpolyline points='9 22 9 12 15 12 15 22'/%3E%3C/svg%3E") no-repeat center / contain;
-  transform: none;
-}
-
-.map-page .nav-placeholder {
-  opacity: 0;
-}
-
-.map-page .nav-title {
+.map-page .nav-title,
+.map-page .nav-title--page-grid {
   color: #fff;
-  font-size: 32rpx;
-  font-weight: 600;
+  font-size: var(--font-size-xl, 32rpx);
+  font-weight: var(--font-weight-semibold, 600);
 }
 
-/* 地图工具容器：4 张地图页共享样式 */
+/* 地图工具：紧贴导航栏下口（top 由 mapActionTop 注入），勿叠进顶栏 */
 .map-page .map-action-container {
   position: absolute;
-  right: 24rpx;
+  right: calc(24rpx + env(safe-area-inset-right));
   z-index: 21;
   width: 220rpx;
-  padding: 14rpx;
-  border-radius: 24rpx;
+  padding: var(--space-sm);
+  border-radius: var(--radius-card);
   box-sizing: border-box;
 }
 
@@ -508,9 +505,9 @@ button.mission-card-share-btn::before {
   min-width: 84rpx;
   min-height: 48rpx;
   padding: 0 14rpx;
-  border-radius: 999rpx;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-pill);
+  background: var(--color-brand-soft);
+  border: 1px solid var(--color-divider);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -538,15 +535,17 @@ button.mission-card-share-btn::before {
   min-width: 0;
   height: 60rpx;
   padding: 0 20rpx;
-  border-radius: 999rpx;
-  background: rgba(18, 18, 20, 0.72);
+  border-radius: var(--radius-pill);
+  background: var(--bg-glass);
+  border: 1px solid var(--color-divider);
   color: #fff;
   font-size: 22rpx;
   display: flex;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  backdrop-filter: blur(16rpx);
+  backdrop-filter: blur(16rpx) saturate(140%);
+  box-shadow: var(--shadow-card);
 }
 
 .map-page .map-action-btn text {
@@ -559,22 +558,32 @@ button.mission-card-share-btn::before {
 /* 地图页底部面板：3 张地图页共享样式 */
 .map-page .panel {
   position: absolute;
-  left: 20rpx;
-  right: 20rpx;
-  bottom: 24rpx;
+  left: var(--space-sm);
+  right: var(--space-sm);
+  bottom: var(--space-md);
   z-index: 10;
-  border-radius: 30rpx;
-  padding: 24rpx;
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.map-page .panel-body-scroll {
+  width: 100%;
+  min-height: 0;
+  box-sizing: border-box;
 }
 
 .map-page .panel--collapsed {
-  padding: 18rpx 20rpx 16rpx;
+  padding: var(--space-sm) var(--space-md) var(--space-xs);
 }
 
 .map-page .mini-summary-row {
-  margin-top: 10rpx;
-  padding: 10rpx 14rpx;
-  border-radius: 16rpx;
+  margin-top: var(--space-2xs);
+  padding: var(--space-2xs) var(--space-xs);
+  border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.05);
 }
 
@@ -604,9 +613,9 @@ button.mission-card-share-btn::before {
   min-width: 84rpx;
   min-height: 48rpx;
   padding: 0 14rpx;
-  border-radius: 999rpx;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-pill);
+  background: var(--color-brand-soft);
+  border: 1px solid var(--color-divider);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -643,8 +652,9 @@ button.mission-card-share-btn::before {
   flex-shrink: 0;
   min-height: 48rpx;
   padding: 0 16rpx;
-  border-radius: 999rpx;
+  border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--color-divider);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -786,47 +796,19 @@ button.mission-card-share-btn::before {
   width: 22rpx;
   height: 22rpx;
   border-radius: 50%;
-  border: 3rpx solid rgba(0, 122, 255, 0.22);
+  border: 3rpx solid rgba(59, 130, 246, 0.22);
   border-top-color: #4da0ff;
   animation: spin 0.75s linear infinite;
 }
 
-/* PRO 用户金边按钮（描边 + 外发光 + 金光扫描；默认用于绝大多数入口） */
+/* PRO 用户入口标识：金色仅保留在「我的」页会员区，其余入口不再加金边/金光。
+   类名仍被各页 wxml 条件引用，保留为空实现避免模板改动。 */
 .pro-gold-frame {
   position: relative;
-  border: 2rpx solid #ffd27a !important;
-  box-shadow:
-    0 0 0 1rpx rgba(255, 196, 92, 0.35),
-    0 0 18rpx rgba(255, 196, 92, 0.45),
-    inset 0 0 14rpx rgba(255, 196, 92, 0.15) !important;
 }
 
-.pro-gold-frame::after {
-  content: '';
-  position: absolute;
-  left: -2rpx;
-  right: -2rpx;
-  top: -2rpx;
-  bottom: -2rpx;
-  border-radius: inherit;
-  pointer-events: none;
-  background: linear-gradient(120deg, transparent 30%, rgba(255, 220, 140, 0.55) 50%, transparent 70%);
-  background-size: 200% 100%;
-  mix-blend-mode: screen;
-  animation: proGoldShine 3.2s linear infinite;
-  opacity: 0.55;
-}
-
-@keyframes proGoldShine {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-/* 仅首页「即将推出」筛选胶囊 & Progress「事件更新」账号条：纯色细金边，无扫描、无外发光 */
 .pro-gold-frame-flat {
   position: relative;
-  border: 2rpx solid #ffd27a !important;
-  box-shadow: none !important;
 }
 
 /* 页面级"翻译/原文"按钮（全局通用，utils/text-translate.js 配套，整体 1.2 倍） */
@@ -864,20 +846,6 @@ button.mission-card-share-btn::before {
  *  这里只补写死颜色的伪元素 / 图标 / 高光）
  * ============================================================ */
 
-/* 玻璃卡片顶部高光与底部压线：浅色下减淡 */
-.theme-light .glass-card::before {
-  background: linear-gradient(90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.9) 20%,
-    rgba(255, 255, 255, 1) 50%,
-    rgba(255, 255, 255, 0.9) 80%,
-    transparent 100%);
-}
-
-.theme-light .glass-card::after {
-  background: rgba(0, 0, 0, 0.06);
-}
-
 /* 返回箭头（白描边 → 深描边） */
 .theme-light .top-nav-slot--back::after,
 .theme-light .nav-back--viewer::after {
@@ -891,25 +859,9 @@ button.mission-card-share-btn::before {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231C1C1E' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3Cpolyline points='9 22 9 12 15 12 15 22'/%3E%3C/svg%3E");
 }
 
-/* —— 地图页共享 UI（导航胶囊 / 工具按钮 / 底部面板文字）浅色适配 —— */
-.theme-light.map-page .nav-back,
-.theme-light.map-page .nav-placeholder,
-.map-page.theme-light .nav-back,
-.map-page.theme-light .nav-placeholder {
-  background: rgba(255, 255, 255, 0.85);
-  color: #1C1C1E;
-}
-
-.map-page.theme-light .nav-back::after {
-  border-top-color: #1C1C1E;
-  border-left-color: #1C1C1E;
-}
-
-.map-page.theme-light .nav-back.nav-back--home::after {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231C1C1E' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3Cpolyline points='9 22 9 12 15 12 15 22'/%3E%3C/svg%3E");
-}
-
-.map-page.theme-light .nav-title {
+/* —— 地图页共享 UI（导航 / 工具按钮 / 底部面板文字）浅色适配 —— */
+.map-page.theme-light .nav-title,
+.map-page.theme-light .nav-title--page-grid {
   color: #1C1C1E;
 }
 

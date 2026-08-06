@@ -50,16 +50,18 @@
         <text class="detail-subtitle">{{detail.subtitle}}</text>
         <text class="detail-summary">{{detail.summary}}</text>
 
-        <!-- 简介图片 -->
-        <view class="detail-hero-wrap" wx:if="{{detail.heroImage}}">
-          <image
-            class="detail-hero-img"
-            src="{{detail.heroImage}}"
-            mode="widthFix"
-            lazy-load="{{true}}"
-            show-menu-by-longpress="{{true}}"
-            binderror="onHeroImageError"
-          ></image>
+        <!-- 简介图片：多层毛玻璃悬浮卡骨架（hero-float） -->
+        <view class="hero-float hero-float--flush" wx:if="{{detail.heroImage}}">
+          <view class="detail-hero-wrap hero-float-card">
+            <image
+              class="detail-hero-img"
+              src="{{detail.heroImage}}"
+              mode="widthFix"
+              lazy-load="{{true}}"
+              show-menu-by-longpress="{{true}}"
+              binderror="onHeroImageError"
+            ></image>
+          </view>
         </view>
 
         <!-- 贴图讨论区 -->

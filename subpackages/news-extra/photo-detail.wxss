@@ -4,7 +4,7 @@
 .photo-gallery {
   position: relative;
   margin: -28rpx -28rpx 28rpx;
-  background: #0a0a0a;
+  background: #0B0C0E;
   border-radius: 28rpx 28rpx 0 0;
   overflow: hidden;
 }
@@ -20,7 +20,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #0a0a0a;
+  background: #0B0C0E;
 }
 
 .photo-slide__img {
@@ -66,14 +66,12 @@
 
 .theme-light .glass-card {
   background: rgba(255, 255, 255, 0.62);
-  border: 1px solid var(--color-divider, rgba(0, 0, 0, 0.08));
-  box-shadow: var(--shadow-card, 0 8rpx 24rpx rgba(0, 0, 0, 0.06)), inset 0 1rpx 0 rgba(255, 255, 255, 0.85);
 }
 
 .theme-light .type-badge {
-  background: rgba(0, 122, 255, 0.12);
-  border: 1px solid rgba(0, 122, 255, 0.25);
-  color: var(--color-brand, #007AFF);
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  color: var(--color-brand);
 }
 
 .theme-light .date-text,

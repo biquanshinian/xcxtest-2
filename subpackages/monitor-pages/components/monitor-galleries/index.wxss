@@ -46,7 +46,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.10), rgba(255, 255, 255, 0.03) 72%);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.10), rgba(255, 255, 255, 0.03) 72%);
 }
 .booster-img-icon {
   font-size: 48rpx;
@@ -90,7 +90,7 @@
 }
 /* 信息区 */
 .booster-card-body {
-  padding: 16rpx 20rpx 20rpx;
+  padding: var(--space-sm) var(--space-md) var(--space-md);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -123,11 +123,11 @@
 }
 .booster-mfr-tag {
   font-size: 18rpx;
-  color: #5AC8FA;
+  color: var(--color-brand);
   padding: 2rpx 10rpx;
   border-radius: 6rpx;
-  background: rgba(90, 200, 250, 0.12);
-  border: 1px solid rgba(90, 200, 250, 0.25);
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.25);
 }
 
 /* 「查看全部」PRO 金色胶囊（族谱/发射商图鉴/发射场共用，示意会员内容） */
@@ -136,23 +136,18 @@
   align-items: center;
   gap: 4rpx;
   font-size: 24rpx;
-  font-weight: 600;
-  color: #5C3A00;
-  padding: 8rpx 20rpx 8rpx 26rpx;
-  border-radius: 999rpx;
-  background: linear-gradient(135deg, #FFE3A0 0%, #F7BE45 55%, #F0AE2C 100%);
-  border: 1px solid rgba(255, 210, 122, 0.65);
-  box-shadow: 0 4rpx 14rpx rgba(230, 165, 40, 0.28);
-  transition: transform 0.12s ease, opacity 0.12s ease;
+  font-weight: 500;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.55));
+  padding: 8rpx 4rpx;
+  transition: opacity 0.12s ease;
 }
 .booster-view-all--pressed {
-  transform: scale(0.94);
-  opacity: 0.85;
+  opacity: 0.6;
 }
 .booster-view-all-arrow {
   font-size: 30rpx;
   line-height: 1;
-  color: #5C3A00;
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.38));
 }
 .booster-key-stats {
   display: flex;
@@ -203,7 +198,7 @@
 }
 .booster-turnaround {
   font-size: 18rpx;
-  color: rgba(90, 200, 250, 0.8);
+  color: rgba(59, 130, 246, 0.8);
   margin-top: 2rpx;
 }
 /* 箭头 */
@@ -221,7 +216,6 @@
   justify-content: center;
   border-radius: 20rpx;
 }
-
 
 /* ========== 全球飞船图鉴（骨架镜像族谱卡片） ========== */
 .sc-card {
@@ -253,7 +247,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.10), rgba(255, 255, 255, 0.03) 72%);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.10), rgba(255, 255, 255, 0.03) 72%);
 }
 .sc-img-icon {
   font-size: 48rpx;
@@ -280,7 +274,7 @@
   border: 1px solid rgba(142, 142, 147, 0.4);
 }
 .sc-card-body {
-  padding: 16rpx 20rpx 20rpx;
+  padding: var(--space-sm) var(--space-md) var(--space-md);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -317,16 +311,15 @@
 }
 .sc-agency-tag {
   font-size: 18rpx;
-  color: #5AC8FA;
+  color: var(--color-brand);
   padding: 2rpx 10rpx;
   border-radius: 6rpx;
-  background: rgba(90, 200, 250, 0.12);
-  border: 1px solid rgba(90, 200, 250, 0.25);
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.25);
   max-width: 160rpx;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
 
 /* ========== 全球发射场分布（骨架镜像全球飞船图鉴 sc-*） ========== */
 /* ls-section 内边距/外边距由上方 .monitor-block 统一 */
@@ -380,7 +373,7 @@
   -webkit-backdrop-filter: blur(10rpx);
 }
 .ls-card-body {
-  padding: 16rpx 20rpx 20rpx;
+  padding: var(--space-sm) var(--space-md) var(--space-md);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -412,11 +405,11 @@
 }
 .ls-country-tag {
   font-size: 18rpx;
-  color: #5AC8FA;
+  color: var(--color-brand);
   padding: 2rpx 10rpx;
   border-radius: 6rpx;
-  background: rgba(90, 200, 250, 0.12);
-  border: 1px solid rgba(90, 200, 250, 0.25);
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.25);
   flex-shrink: 0;
 }
 .ls-sub-name {
@@ -426,7 +419,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
 
 /* ========== 全球发射商图鉴 ========== */
 
@@ -459,8 +451,8 @@
   line-height: 1;
 }
 .agency-chip-active {
-  background: rgba(10, 132, 255, 0.2);
-  border-color: rgba(10, 132, 255, 0.55);
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.55);
 }
 .agency-chip-active text {
   color: #9FD0FF;
@@ -520,7 +512,6 @@
   flex-direction: column;
   box-sizing: border-box;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 /* 扫光走全局 skeleton-shimmer（app.wxss） */
 .agency-hw-card-skeleton {
@@ -551,7 +542,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle, rgba(90, 200, 250, 0.12), rgba(28, 28, 30, 0.95));
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.12), rgba(28, 28, 30, 0.95));
 }
 .agency-hw-card-image-placeholder text {
   font-size: 64rpx;
@@ -663,16 +654,14 @@
   margin-top: 12rpx;
   padding: 10rpx 32rpx;
   border-radius: 999rpx;
-  background: rgba(0, 122, 255, 0.15);
-  border: 1px solid rgba(0, 122, 255, 0.3);
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
 }
 .agency-retry-btn text {
   font-size: 24rpx;
-  color: #007AFF;
+  color: var(--color-brand);
   font-weight: 500;
 }
-
-
 
 /* ── 自 pages/monitor/monitor.wxss 迁入 ── */
 /* --- 可回收火箭族谱 --- */
@@ -681,7 +670,7 @@
 }
 
 .theme-light .booster-img--placeholder {
-  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.14), rgba(0, 0, 0, 0.04) 72%);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.14), rgba(0, 0, 0, 0.04) 72%);
 }
 
 .theme-light .booster-serial {
@@ -710,7 +699,7 @@
 }
 
 .theme-light .sc-img--placeholder {
-  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.14), rgba(0, 0, 0, 0.04) 72%);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.14), rgba(0, 0, 0, 0.04) 72%);
 }
 
 .theme-light .sc-name {
@@ -735,7 +724,6 @@
 }
 
 .theme-light .agency-hw-card {
-  border: 1px solid var(--color-divider);
 }
 
 /* 骨架浅色底色由全局 .theme-light .skeleton-shimmer 提供 */
@@ -749,7 +737,7 @@
 }
 
 .theme-light .agency-hw-card-image-placeholder {
-  background: radial-gradient(circle, rgba(90, 200, 250, 0.14), #ECECF1);
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.14), #ECECF1);
 }
 
 .theme-light .agency-hw-card-meta {

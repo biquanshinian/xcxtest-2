@@ -13,6 +13,8 @@ Page({
     statusBarHeight: 44,
     capsuleTop: 0,
     capsuleHeight: 32,
+    menuButtonWidth: 88,
+    isDirectEntry: false,
     mapActionTop: 0,
     latitude: ROAD_CLOSURE_SCENE.center.latitude,
     longitude: ROAD_CLOSURE_SCENE.center.longitude,

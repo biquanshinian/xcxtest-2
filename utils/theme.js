@@ -105,7 +105,7 @@ function getThemeClassSync() {
 
 /** page-meta / wx.setBackgroundColor 用的页面底色 */
 function getPageBgSync() {
-  return isLightSync() ? '#F2F2F7' : '#000000'
+  return isLightSync() ? '#F4F5F7' : '#0B0C0E'
 }
 
 /** 把当前主题写入某个页面实例（data.themeClass / data.themeLight） */

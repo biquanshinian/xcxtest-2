@@ -91,11 +91,14 @@ const methods = {
           ? `${Number(ws).toFixed(1).replace(/\.0$/, '')}${windUnit ? ` ${windUnit}` : ''}`
           : '—'
         const timeLine = cur.time ? `${cur.time.replace('T', ' ').trim()} CST` : ''
+        // 紧凑排版用：仅时分（如 14:30），完整时间保留在 timeLine
+        const timeShort = cur.time ? String(cur.time).slice(11, 16) : ''
         const payload = {
           loaded: true,
           loading: false,
           error: '',
           timeLine,
+          timeShort,
           conditionText: wxMap.text,
           tempLine,
           windLine,

@@ -1,5 +1,5 @@
 // utils/api-launch-detail.js — launch detail parsing (heavy)
-const { getRocketImage } = require('../../../utils/util.js')
+const { getRocketImage, resolveMissionRocketImage } = require('../../../utils/util.js')
 const { inferLandingStatus, resolveLandingIconSrc, isLandRecoveryType, isZhuque3Rocket, refineLandingTypeWithContext, buildLandingIcon, isNewGlennRocket, isNewShepardRocket, isLpv1Landing, getLandingLocationObj, formatLandingPlaceLabel } = require('../../../utils/landing-icons.js')
 const {
   extractBoosterInfoForList,
@@ -933,9 +933,10 @@ async function processLaunchDetail(launch) {
     // 3. 这个查询容易超时且通常不必要
     // 如果launch详情中没有launcher信息，说明API不支持，不需要额外查询
     
-    // 可回收火箭推断兜底（复用共享逻辑）
+    // 可回收火箭推断兜底（复用共享逻辑；头图与列表同源 resolveMissionRocketImage）
     const rocketName = getRocketDisplayNameFromLaunch(launch)
-    const finalImage = getRocketImage(rocketName)
+    const rocketConfigurationForImage = pickRocketConfigurationSnapshot(launch)
+    const finalImage = resolveMissionRocketImage('', rocketName, rocketConfigurationForImage, true) || getRocketImage(rocketName)
     boosterInfo = inferRecoveryFallback(launch, rocketName, finalImage, boosterInfo)
 
     // 多芯火箭支持（Falcon Heavy 中央芯+2 助推 / SLS / 长征五号 等）
@@ -1299,6 +1300,7 @@ async function processLaunchDetail(launch) {
     const padDetail = {
       padName,
       locationName: locName,
+      locationId: (loc && loc.id != null) ? loc.id : null,
       country: padCountry,
       state: null,
       city: null,
@@ -1538,6 +1540,12 @@ async function processLaunchDetail(launch) {
 
     const webcastLive = !!(launch.webcast_live === true || launch.webcastLive === true)
 
+    // 与首页 mapLaunchToListItem 同源：resolveMissionRocketImage + configuration 快照
+    const rocketNameForImage = getRocketDisplayNameFromConfig(rocketConfig)
+    const rocketConfiguration = pickRocketConfigurationSnapshot(launch)
+    const rocketImage = resolveMissionRocketImage('', rocketNameForImage, rocketConfiguration, true) ||
+      getRocketImage(rocketNameForImage)
+
     return {
       id: launch.id,
       name: launch.name || '',
@@ -1553,7 +1561,7 @@ async function processLaunchDetail(launch) {
       launchAgencyAbbrev: launchAgencyAbbrev,
       launchSite: launchSite,
       padLocation: formatPadLocation(launch.pad),
-      rocketName: getRocketDisplayNameFromConfig(rocketConfig),
+      rocketName: rocketNameForImage,
       status: status.name || '未知状态',
       statusId: status.id != null ? Number(status.id) : null,
       statusCategory,
@@ -1579,8 +1587,8 @@ async function processLaunchDetail(launch) {
       vidUrls,
       infoUrls,
       webcastLive,
-      rocketImage: getRocketImage(getRocketDisplayNameFromConfig(rocketConfig)),
-      rocketConfiguration: pickRocketConfigurationSnapshot(launch),
+      rocketImage,
+      rocketConfiguration,
       // LL2 构型 id：族谱型号详情页（rocket-model-detail）入口用
       rocketConfigId: (rocketConfig && rocketConfig.id != null) ? rocketConfig.id : null,
       rocketSpecsVisible,

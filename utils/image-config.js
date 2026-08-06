@@ -37,6 +37,8 @@ let _localMediaMapCacheInvalid = false
 let loadCloudMediaMapInFlight = null
 // canonical key → normalized key 索引（O(1) 模糊查找，替代遍历）
 let canonicalKeyIndex = {}
+/** 火箭配置图：去扩展名 stem canonical → key（字典写 .jpg、COS 实为 .png 时仍能命中） */
+let rocketStemKeyIndex = {}
 
 const MEDIA_MAP_CACHE_KEY = '_media_map_local_cache'
 const MEDIA_MAP_CACHE_TTL = 6 * 60 * 60 * 1000
@@ -123,14 +125,25 @@ function canonicalizeMediaKey(key) {
     .trim()
 }
 
+/** 火箭配置图 key 去扩展名后的 canonical（「Long March 7A.jpg」≡「Long March 7A.png」） */
+function rocketStemCanonicalKey(key) {
+  const k = normalizeKey(key)
+  if (!k || !/^火箭配置图\//i.test(k)) return ''
+  return canonicalizeMediaKey(k.replace(/\.(jpe?g|png|webp|gif)$/i, ''))
+}
+
 /** 重建 canonical key 索引（加载/更新 runtimeCloudMediaMap 后调用） */
 function rebuildCanonicalIndex() {
   const idx = {}
+  const stemIdx = {}
   for (const k of Object.keys(runtimeCloudMediaMap || {})) {
     const ck = canonicalizeMediaKey(k)
     if (!idx[ck]) idx[ck] = k
+    const stemCk = rocketStemCanonicalKey(k)
+    if (stemCk && !stemIdx[stemCk]) stemIdx[stemCk] = k
   }
   canonicalKeyIndex = idx
+  rocketStemKeyIndex = stemIdx
 }
 
 function logMediaKeyHealthCheck() {
@@ -419,6 +432,8 @@ function getCloudUrlByKey(key) {
 
   let fuzzyRuntimeUrl = ''
   let fuzzyStaticUrl = ''
+  let stemRuntimeUrl = ''
+  let stemStaticUrl = ''
 
   if (!runtimeUrl && !staticUrl) {
     const targetCanonical = canonicalizeMediaKey(normalizedKey)
@@ -438,9 +453,27 @@ function getCloudUrlByKey(key) {
         }
       }
     }
+
+    // 火箭配置图：扩展名无关（字典 .jpg ↔ 后台 .png）
+    if (!fuzzyRuntimeUrl && !fuzzyStaticUrl && /^火箭配置图\//i.test(normalizedKey)) {
+      const stemCk = rocketStemCanonicalKey(normalizedKey)
+      const stemKey = stemCk ? rocketStemKeyIndex[stemCk] : ''
+      if (stemKey) {
+        stemRuntimeUrl = runtimeCloudMediaMap[stemKey] || ''
+      }
+      if (!stemRuntimeUrl && stemCk) {
+        const staticKeys = Object.keys(cloudMediaMap || {})
+        for (const itemKey of staticKeys) {
+          if (rocketStemCanonicalKey(itemKey) === stemCk) {
+            stemStaticUrl = cloudMediaMap[itemKey] || ''
+            break
+          }
+        }
+      }
+    }
   }
 
-  const finalUrl = runtimeUrl || staticUrl || fuzzyRuntimeUrl || fuzzyStaticUrl || ''
+  const finalUrl = runtimeUrl || staticUrl || fuzzyRuntimeUrl || fuzzyStaticUrl || stemRuntimeUrl || stemStaticUrl || ''
 
   if (shouldLogDebug() && /^火箭配置图\//.test(normalizedKey)) {
     logDebug('[image-config] 火箭图key解析', {
@@ -449,6 +482,8 @@ function getCloudUrlByKey(key) {
       hitStatic: !!staticUrl,
       hitFuzzyRuntime: !!fuzzyRuntimeUrl,
       hitFuzzyStatic: !!fuzzyStaticUrl,
+      hitStemRuntime: !!stemRuntimeUrl,
+      hitStemStatic: !!stemStaticUrl,
       hasUrl: !!finalUrl
     })
   }
@@ -560,7 +595,14 @@ function findFuzzyRocketConfigUrl(rocketName) {
     } else if (rocketCompact.length >= 3 && stemCompact === rocketCompact) {
       score = 960000
     } else if (rocketNorm.length >= 3 && (stemNorm.startsWith(rocketNorm + ' ') || stemNorm === rocketNorm)) {
+      // 前缀命中：惩罚任务特化后缀（如 CZ-7A →「cz 7a yg 45」），避免盖过通用构型图
       score = 820000
+      if (stemNorm.startsWith(rocketNorm + ' ')) {
+        const extraTokens = stemNorm.slice(rocketNorm.length).trim().split(/\s+/).filter(Boolean)
+        if (extraTokens.length > 0) {
+          score -= Math.min(300000, extraTokens.length * 90000)
+        }
+      }
     } else if (stemNorm.length >= 3 && (rocketNorm.startsWith(stemNorm + ' ') || rocketNorm === stemNorm)) {
       score = 750000
     } else if (rocketNorm.length >= 3 && stemNorm.includes(rocketNorm)) {

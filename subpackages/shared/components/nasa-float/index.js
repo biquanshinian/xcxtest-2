@@ -94,7 +94,7 @@ Component({
             (app && app.getUiShellLayout && app.getUiShellLayout()) || getUiShellLayout(getSystemInfo())
           const sys = getSystemInfo()
           const ratio = sys.windowWidth / 750
-          const btnSize = Math.round(96 * ratio)
+          const btnSize = Math.round(80 * ratio)
           const safeTop = layout.navPlaceholderHeight
           const safeBottom = layout.tabBarReservedHeight
           const btnX = sys.windowWidth - btnSize - 12

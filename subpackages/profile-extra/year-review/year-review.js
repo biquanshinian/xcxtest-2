@@ -65,7 +65,7 @@ function buildPersonalViz(m) {
       display: String(timeline),
       suffix: '条',
       pct: clampPct(timeline, 240),
-      accent: 'violet'
+      accent: 'blue'
     },
     {
       key: 'ai',
@@ -130,7 +130,7 @@ function buildPlatformViz(p) {
       raw: p.globalLaunchesInYear,
       suffix: '次',
       max: 260,
-      accent: 'violet'
+      accent: 'blue'
     },
     {
       key: 'sx',
@@ -174,7 +174,7 @@ function buildPlatformViz(p) {
       raw: p.newsEventsInYear,
       suffix: '条',
       max: 400,
-      accent: 'violet'
+      accent: 'blue'
     },
     {
       key: 'tweets',

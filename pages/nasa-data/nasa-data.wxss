@@ -1,5 +1,5 @@
 page {
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: linear-gradient(180deg, #0B0C0E 0%, #121418 100%);
   overflow: hidden;
   height: 100vh;
   width: 100%;
@@ -8,7 +8,7 @@ page {
 .detail-page {
   min-height: 100vh;
   height: 100vh;
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: linear-gradient(180deg, #0B0C0E 0%, #121418 100%);
   overflow: hidden;
 }
 
@@ -21,8 +21,8 @@ page {
 /* ========== Tab 栏 ========== */
 .nasa-tab-bar {
   display: flex;
-  margin: 16rpx 24rpx;
-  background: rgba(44, 44, 46, 0.6);
+  margin: 20rpx 28rpx;
+  background: rgba(22, 24, 28, 0.72);
   border-radius: 20rpx;
   border: 1px solid rgba(255, 255, 255, 0.06);
   overflow: hidden;
@@ -35,21 +35,38 @@ page {
   align-items: center;
   padding: 20rpx 0 16rpx;
   position: relative;
-  transition: all 0.2s;
+  overflow: visible;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  transition: color 0.25s ease;
 }
 
-.nasa-tab-item--active { background: rgba(0, 122, 255, 0.12); }
-.nasa-tab-item--active::after { content: ''; position: absolute; bottom: 0; left: 20%; right: 20%; height: 4rpx; border-radius: 2rpx; background: #007AFF; }
+.nasa-tab-item::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 44rpx;
+  height: 6rpx;
+  border-radius: 999rpx;
+  background: var(--color-brand, #3B82F6);
+  transform: translateX(-50%) scaleX(0);
+  opacity: 0;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+  pointer-events: none;
+}
+.nasa-tab-item--active { background: transparent; }
+.nasa-tab-item--active::after { transform: translateX(-50%) scaleX(1); opacity: 1; }
 .nasa-tab-icon { font-size: 36rpx; margin-bottom: 4rpx; }
-.nasa-tab-label { font-size: 24rpx; color: #8E8E93; }
-.nasa-tab-item--active .nasa-tab-label { color: #007AFF; font-weight: 600; }
+.nasa-tab-label { font-size: 24rpx; color: var(--color-text-secondary, #8E8E93); transition: color 0.25s ease; }
+.nasa-tab-item--active .nasa-tab-label { color: var(--color-text-primary); font-weight: 600; }
 
 /* ========== 通用 ========== */
 .glass-card {
-  background: rgba(44, 44, 46, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(22, 24, 28, 0.72);
   border-radius: 20rpx;
-  margin: 16rpx 24rpx;
+  margin: 20rpx 28rpx;
   overflow: hidden;
 }
 
@@ -59,20 +76,20 @@ page {
 .filter-chips { display: flex; gap: 12rpx; }
 .filter-chip { padding: 8rpx 24rpx; border-radius: 24rpx; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; }
 .filter-chip text { font-size: 24rpx; color: #8E8E93; line-height: 1; }
-.filter-chip--active { background: rgba(0,122,255,0.2); border-color: rgba(0,122,255,0.5); }
-.filter-chip--active text { color: #007AFF; font-weight: 600; line-height: 1; }
+.filter-chip--active { background: rgba(59, 130, 246,0.2); border-color: rgba(59, 130, 246,0.5); }
+.filter-chip--active text { color: #3B82F6; font-weight: 600; line-height: 1; }
 
 .section-summary { padding: 12rpx 24rpx 0; }
 .section-summary text { font-size: 24rpx; color: #636366; }
 
 .loading-state { display: flex; flex-direction: column; align-items: center; padding: 120rpx 0; gap: 24rpx; }
 .loading-text { font-size: 26rpx; color: #636366; }
-.loading-spinner { width: 48rpx; height: 48rpx; border: 4rpx solid rgba(255,255,255,0.1); border-top-color: #007AFF; border-radius: 50%; animation: spin 0.8s linear infinite; }
+.loading-spinner { width: 48rpx; height: 48rpx; border: 4rpx solid rgba(255,255,255,0.1); border-top-color: #3B82F6; border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .error-state { display: flex; flex-direction: column; align-items: center; padding: 60rpx 24rpx; gap: 24rpx; }
 .error-text { font-size: 26rpx; color: #FF453A; text-align: center; }
-.retry-btn { margin-top: 8rpx; padding: 12rpx 48rpx; border-radius: 24rpx; background: rgba(0,122,255,0.2); border: 1px solid rgba(0,122,255,0.4); font-size: 26rpx; color: #007AFF; line-height: 1; display: flex; align-items: center; justify-content: center; }
+.retry-btn { margin-top: 8rpx; padding: 12rpx 48rpx; border-radius: 24rpx; background: rgba(59, 130, 246,0.2); border: 1px solid rgba(59, 130, 246,0.4); font-size: 26rpx; color: #3B82F6; line-height: 1; display: flex; align-items: center; justify-content: center; }
 
 .list-empty { padding: 80rpx 0; text-align: center; }
 .list-empty text { font-size: 26rpx; color: #636366; }
@@ -123,19 +140,47 @@ page {
   margin-top: 16rpx;
   padding: 18rpx 20rpx;
   border-radius: 16rpx;
-  background: rgba(0, 122, 255, 0.08);
-  border: 1px solid rgba(0, 122, 255, 0.18);
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.18);
 }
 .eonet-map-icon { font-size: 30rpx; flex-shrink: 0; }
-.eonet-map-text { flex: 1; font-size: 26rpx; color: #4ea1ff; font-weight: 500; }
-.eonet-map-arrow { font-size: 36rpx; color: #4ea1ff; flex-shrink: 0; }
+.eonet-map-text { flex: 1; font-size: 26rpx; color: #3B82F6; font-weight: 500; }
+.eonet-map-arrow { font-size: 36rpx; color: #3B82F6; flex-shrink: 0; }
 
 /* ========== 火星探索 ========== */
 .rover-switch { display: flex; gap: 16rpx; padding: 16rpx 24rpx 8rpx; }
-.rover-btn { flex: 1; padding: 16rpx 0; border-radius: 16rpx; text-align: center; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; }
-.rover-btn text { font-size: 28rpx; color: #8E8E93; line-height: 1; }
-.rover-btn--active { background: rgba(0,122,255,0.15); border-color: rgba(0,122,255,0.4); }
-.rover-btn--active text { color: #007AFF; font-weight: 600; line-height: 1; }
+.rover-btn {
+  flex: 1;
+  padding: 16rpx 0 18rpx;
+  text-align: center;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: visible;
+  transition: color 0.25s ease;
+}
+.rover-btn::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 44rpx;
+  height: 6rpx;
+  border-radius: 999rpx;
+  background: var(--color-brand, #3B82F6);
+  transform: translateX(-50%) scaleX(0);
+  opacity: 0;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+  pointer-events: none;
+}
+.rover-btn text { font-size: 28rpx; color: var(--color-text-secondary, #8E8E93); line-height: 1; transition: color 0.25s ease; }
+.rover-btn--active { background: transparent; border: none; }
+.rover-btn--active::after { transform: translateX(-50%) scaleX(1); opacity: 1; }
+.rover-btn--active text { color: var(--color-text-primary); font-weight: 600; line-height: 1; }
 
 .rover-info-card { padding: 0; overflow: hidden; }
 .rover-info-body { padding: 20rpx; }
@@ -157,8 +202,8 @@ page {
 
 .mars-date-row { display: flex; justify-content: space-between; align-items: center; padding: 16rpx 24rpx; }
 .mars-date-label { font-size: 26rpx; color: #E5E5EA; }
-.mars-date-picker { padding: 8rpx 24rpx; border-radius: 16rpx; background: rgba(0,122,255,0.15); border: 1px solid rgba(0,122,255,0.3); display: flex; align-items: center; justify-content: center; }
-.mars-date-picker text { font-size: 24rpx; color: #007AFF; line-height: 1; }
+.mars-date-picker { padding: 8rpx 24rpx; border-radius: 16rpx; background: rgba(59, 130, 246,0.15); border: 1px solid rgba(59, 130, 246,0.3); display: flex; align-items: center; justify-content: center; }
+.mars-date-picker text { font-size: 24rpx; color: #3B82F6; line-height: 1; }
 
 .mars-photo-count { padding: 8rpx 24rpx 16rpx; }
 .mars-photo-count text { font-size: 24rpx; color: #636366; }
@@ -181,14 +226,12 @@ page {
   box-shadow: var(--shadow-card);
 }
 .theme-light .nasa-tab-label { color: var(--color-text-secondary); }
-.theme-light .nasa-tab-item--active { background: rgba(0, 122, 255, 0.10); }
-.theme-light .nasa-tab-item--active .nasa-tab-label { color: #007AFF; }
+.theme-light .nasa-tab-item--active { background: transparent; }
+.theme-light .nasa-tab-item--active .nasa-tab-label { color: var(--color-text-primary); }
 
 /* 通用玻璃卡片 */
 .theme-light .glass-card {
   background: rgba(255, 255, 255, 0.62);
-  border-color: var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 
 /* 筛选胶囊 */
@@ -199,18 +242,18 @@ page {
 }
 .theme-light .filter-chip text { color: var(--color-text-secondary); }
 .theme-light .filter-chip--active {
-  background: rgba(0, 122, 255, 0.12);
-  border-color: rgba(0, 122, 255, 0.4);
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.4);
 }
-.theme-light .filter-chip--active text { color: #007AFF; }
+.theme-light .filter-chip--active text { color: #3B82F6; }
 
 /* 摘要 / 加载 / 空态 */
 .theme-light .section-summary text { color: var(--color-text-tertiary); }
 .theme-light .loading-text { color: var(--color-text-tertiary); }
-.theme-light .loading-spinner { border-color: rgba(0, 0, 0, 0.08); border-top-color: #007AFF; }
+.theme-light .loading-spinner { border-color: rgba(0, 0, 0, 0.08); border-top-color: #3B82F6; }
 .theme-light .retry-btn {
-  background: rgba(0, 122, 255, 0.12);
-  border-color: rgba(0, 122, 255, 0.35);
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.35);
 }
 .theme-light .list-empty text { color: var(--color-text-tertiary); }
 
@@ -228,20 +271,20 @@ page {
 .theme-light .eonet-status--closed text { color: var(--color-text-secondary); }
 .theme-light .eonet-label { color: var(--color-text-secondary); }
 .theme-light .eonet-value { color: var(--color-text-primary); }
-.theme-light .eonet-map-text { color: #007AFF; }
-.theme-light .eonet-map-arrow { color: #007AFF; }
+.theme-light .eonet-map-text { color: #3B82F6; }
+.theme-light .eonet-map-arrow { color: #3B82F6; }
 
 /* 火星探索 */
 .theme-light .rover-btn {
-  background: rgba(0, 0, 0, 0.05);
-  border-color: var(--color-divider);
+  background: transparent;
+  border: none;
 }
 .theme-light .rover-btn text { color: var(--color-text-secondary); }
 .theme-light .rover-btn--active {
-  background: rgba(0, 122, 255, 0.12);
-  border-color: rgba(0, 122, 255, 0.4);
+  background: transparent;
+  border: none;
 }
-.theme-light .rover-btn--active text { color: #007AFF; }
+.theme-light .rover-btn--active text { color: var(--color-text-primary); }
 .theme-light .rover-info-name { color: var(--color-text-primary); }
 .theme-light .rover-detail-list { background: rgba(0, 0, 0, 0.06); }
 .theme-light .rover-detail-row { background: rgba(255, 255, 255, 0.85); }
@@ -249,8 +292,8 @@ page {
 .theme-light .rover-detail-value { color: var(--color-text-primary); }
 .theme-light .mars-date-label { color: var(--color-text-primary); }
 .theme-light .mars-date-picker {
-  background: rgba(0, 122, 255, 0.12);
-  border-color: rgba(0, 122, 255, 0.3);
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.3);
 }
 .theme-light .mars-photo-count text { color: var(--color-text-tertiary); }
 /* 照片占位底：深灰骨架 → 浅灰 */

@@ -92,7 +92,7 @@
         type="info"
         :closable="false"
         style="margin-bottom:12px"
-        title="使用 tools/oa-collector-extension：历史消息页采最新 5 篇，或文章页采单篇。需配置 OA_COLLECTOR_TOKEN。"
+        title="使用 scripts/oa-collector-extension：历史消息页采最新 5 篇，或文章页采单篇。需配置 OA_COLLECTOR_TOKEN。"
       />
       <el-table :data="collected" stripe v-loading="loading">
         <el-table-column prop="title" label="标题" min-width="200" />
@@ -155,6 +155,12 @@
     </el-dialog>
 
     <el-dialog v-model="washVisible" title="选择发稿号" width="420px" append-to-body>
+      <el-alert
+        type="info"
+        :closable="false"
+        style="margin-bottom:12px"
+        title="策略按正文自动匹配（星舰日记 / 发射短讯 / 深度复盘 / 资讯速读 / 空间叙事）"
+      />
       <p style="margin:0 0 12px;color:var(--el-text-color-secondary);font-size:13px;">
         洗稿将按所选发稿号的人设与凭证槽生成草稿，请确认后再继续。
       </p>
@@ -398,11 +404,7 @@ const delViral = async (row) => {
   }
 }
 
-const pickWashStrategy = (brandKey, fallback) => {
-  if (brandKey === 'mars_space') return 'space_story'
-  if (brandKey === 'mars_log') return fallback === 'news_digest' ? 'news_digest' : 'deep_recap'
-  return fallback
-}
+const pickWashStrategy = () => 'auto'
 
 const ensureWashBrands = async () => {
   if (washBrands.value.length) return washBrands.value
@@ -438,7 +440,6 @@ const confirmWash = async () => {
     return
   }
   const row = pending.row
-  const strategyFallback = pending.kind === 'viral' ? 'deep_recap' : 'news_digest'
   rewriteId.value = row._id
   try {
     localStorage.setItem('oa_content_brand_key', brandKey)
@@ -446,7 +447,7 @@ const confirmWash = async () => {
       .map((u) => hotlinkSafeImageUrl(u) || u)
       .filter(Boolean)
     const res = await api.generateOaContent({
-      strategyKey: pickWashStrategy(brandKey, strategyFallback),
+      strategyKey: pickWashStrategy(),
       brandKey,
       topic: {
         sourceType: pending.kind === 'viral' ? 'viral' : 'collected',
@@ -461,6 +462,10 @@ const confirmWash = async () => {
     })
     const name = washBrands.value.find((b) => b.key === brandKey)?.name || brandKey
     const first = Array.isArray(res?.results) ? res.results[0] : res
+    const matched =
+      first && (first.strategyName || first.strategyKey)
+        ? ` · 策略 ${first.strategyName || first.strategyKey}${first.strategyAuto ? '（自动）' : ''}`
+        : ''
     if (first && first.status === 'needs_review') {
       // AI 生成失败走了素材整理稿：必须把原因亮出来，否则只看到「需改写」
       ElMessage({
@@ -470,7 +475,7 @@ const confirmWash = async () => {
         message: `AI 生成失败，已写入素材整理稿（需人工改写）。原因：${first.llmError || '未知'}`
       })
     } else {
-      ElMessage.success(`已生成到草稿箱（${name}），配图可能仍在后台转存`)
+      ElMessage.success(`已生成到草稿箱（${name}${matched}），配图可能仍在后台转存`)
     }
     washVisible.value = false
     washPending.value = null

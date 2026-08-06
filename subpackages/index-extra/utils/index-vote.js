@@ -71,6 +71,7 @@ const voteMethods = {
     if (vt === this.data.activeVoteType) return
     if (vt === 'ontime' && !this.data.voteOntimeEnabled) return
     if (vt === 'outcome' && !this.data.voteOutcomeEnabled) return
+    try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
     const launchId = this.data.launchData && this.data.launchData.id
     if (!launchId) return
     this._applyVoteBundle(launchId, vt)

@@ -1,6 +1,6 @@
 /* custom-tab-bar/index.wxss
  * 布局占位见 utils/layout.js（TABBAR_* 常量）
- * 圆角：iOS 26/27 Liquid Glass 约 22pt → 44rpx；底部悬浮：TABBAR_FLOAT_BOTTOM 10rpx
+ * 轻量 Dock：约 120rpx 内容区 + 文字标签 + 柔和圆角
  */
 .custom-tab-bar-root {
   position: relative;
@@ -12,11 +12,11 @@
   bottom: 0;
   left: 0;
   right: 0;
-  height: calc((182 + 96 + 14) * 1rpx + env(safe-area-inset-bottom) - 2px);
+  height: calc((152 + 80 + 12) * 1rpx + env(safe-area-inset-bottom) - 2px);
   padding-bottom: calc(env(safe-area-inset-bottom) + 10rpx);
   z-index: 9999;
-  padding-left: 32rpx;
-  padding-right: 32rpx;
+  padding-left: 28rpx;
+  padding-right: 28rpx;
   box-sizing: border-box;
   pointer-events: none;
   background: transparent;
@@ -26,49 +26,30 @@
   opacity: 1;
   transition: opacity 0.12s ease;
 }
-/* ========== 添加到桌面提示横条（NASA 悬浮按钮同款玻璃质感） ========== */
-/* 横条外框与指引图外框共用同一套视觉（与 tab-bar-content 族一致） */
+
+/* ========== 添加到桌面提示横条 ==========
+ * 注意：custom-tab-bar 独立于页面 DOM，page{} 的 CSS 变量不保证继承进来，
+ * 所有 var() 必须带字面量兜底（深色值），浅色由 .theme-light 块覆盖 */
 .tab-add-desktop-strip,
 .desktop-guide-img-frame {
   box-sizing: border-box;
-  background: rgba(12, 14, 18, 0.06);
-  /* 性能：与 tab-bar-content 同步降半径 72→48rpx，观感一致、合成开销减半以上 */
-  backdrop-filter: blur(48rpx) saturate(220%);
-  -webkit-backdrop-filter: blur(48rpx) saturate(220%);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 44rpx;
-  box-shadow:
-    0 -8rpx 24rpx rgba(0, 0, 0, 0.16),
-    inset 0 1rpx 0 rgba(255, 255, 255, 0.18);
+  background: var(--bg-glass, rgba(22, 24, 28, 0.72));
+  backdrop-filter: blur(32rpx) saturate(160%);
+  -webkit-backdrop-filter: blur(32rpx) saturate(160%);
+  border: 1px solid var(--color-border-glass, rgba(255, 255, 255, 0.1));
+  border-radius: 36rpx;
+  box-shadow: var(--shadow-tabbar, 0 4rpx 20rpx rgba(0, 0, 0, 0.2));
   position: relative;
   overflow: hidden;
-}
-
-.tab-add-desktop-strip::before,
-.desktop-guide-img-frame::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2rpx;
-  background: linear-gradient(90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.45) 20%,
-    rgba(255, 255, 255, 0.55) 50%,
-    rgba(255, 255, 255, 0.45) 80%,
-    transparent 100%);
-  pointer-events: none;
-  z-index: 1;
 }
 
 .tab-add-desktop-strip {
   display: flex;
   align-items: center;
-  gap: 14rpx;
-  margin-bottom: 14rpx;
-  min-height: 80rpx;
-  padding: calc(16rpx - 1px) 18rpx;
+  gap: 12rpx;
+  margin-bottom: 12rpx;
+  min-height: 72rpx;
+  padding: calc(12rpx - 1px) 16rpx;
   pointer-events: auto;
 }
 
@@ -85,16 +66,16 @@
 }
 
 .tab-add-desktop-strip-close text {
-  font-size: 26rpx;
-  color: rgba(255, 255, 255, 0.55);
+  font-size: 22rpx;
+  color: var(--color-text-tertiary, #6E6E73);
 }
 
 .tab-add-desktop-strip-text {
   flex: 1;
   min-width: 0;
-  font-size: 26rpx;
+  font-size: 22rpx;
   line-height: 1.45;
-  color: rgba(255, 255, 255, 0.92);
+  color: var(--color-text-on-glass, rgba(245, 245, 247, 0.92));
   z-index: 2;
 }
 
@@ -103,14 +84,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 12rpx 28rpx;
+  padding: 10rpx 22rpx;
   border-radius: 999rpx;
-  background: #34c759;
+  background: #34C759;
   z-index: 2;
 }
 
 .tab-add-desktop-strip-btn text {
-  font-size: 26rpx;
+  font-size: 22rpx;
   font-weight: 600;
   color: #ffffff;
   line-height: 1;
@@ -124,42 +105,21 @@
   display: flex;
   align-items: center;
   justify-content: space-around;
-  height: 156rpx;
+  height: 144rpx;
   flex-shrink: 0;
-  background: rgba(12, 14, 18, 0.06);
-  /* 性能：模糊半径 72→48rpx。此半径下背后内容已完全不可辨识，观感一致；
-     模糊开销随半径平方增长，Tab 栏全程悬浮在滚动内容上，每帧都在实时合成 */
-  backdrop-filter: blur(48rpx) saturate(220%);
-  -webkit-backdrop-filter: blur(48rpx) saturate(220%);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow:
-    0 8rpx 32rpx rgba(0, 0, 0, 0.22),
-    0 -8rpx 24rpx rgba(0, 0, 0, 0.16),
-    inset 0 1rpx 0 rgba(255, 255, 255, 0.18);
-  padding: 10rpx 24rpx;
-  border-radius: 44rpx;
+  background: var(--bg-glass, rgba(22, 24, 28, 0.72));
+  backdrop-filter: blur(32rpx) saturate(160%);
+  -webkit-backdrop-filter: blur(32rpx) saturate(160%);
+  border: 1px solid var(--color-border-glass, rgba(255, 255, 255, 0.1));
+  box-shadow: var(--shadow-tabbar, 0 4rpx 20rpx rgba(0, 0, 0, 0.2));
+  padding: 8rpx 12rpx;
+  border-radius: 36rpx;
   position: relative;
   overflow: hidden;
   box-sizing: border-box;
   pointer-events: auto;
   will-change: transform;
   transform: translateZ(0);
-}
-.tab-bar-content::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2rpx;
-  background: linear-gradient(90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.45) 20%,
-    rgba(255, 255, 255, 0.55) 50%,
-    rgba(255, 255, 255, 0.45) 80%,
-    transparent 100%);
-  pointer-events: none;
-  z-index: 1;
 }
 
 .tab-bar-item {
@@ -168,49 +128,94 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 4rpx 0;
-  transition: all 0.3s ease;
+  gap: 6rpx;
+  padding: 2rpx 0;
+  transition: opacity 0.2s ease;
   height: 100%;
+  min-width: 0;
+  position: relative;
 }
+
+/* 切换指示条：与页内导航（nav-button）同款动效——蓝色胶囊条 scaleX 展开 + 淡入 */
+.tab-bar-item::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 44rpx;
+  height: 6rpx;
+  border-radius: 999rpx;
+  background: var(--color-brand, #3B82F6);
+  transform: translateX(-50%) scaleX(0);
+  opacity: 0;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.tab-bar-item-active::after {
+  transform: translateX(-50%) scaleX(1);
+  opacity: 1;
+}
+
 .icon-wrapper {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 72rpx;
-  height: 72rpx;
+  width: 70rpx;
+  height: 70rpx;
   overflow: visible;
 }
 
 .red-dot {
   position: absolute;
-  top: 0;
+  top: -2rpx;
   right: -6rpx;
-  width: 16rpx;
-  height: 16rpx;
-  background: #ff3b30;
+  width: 12rpx;
+  height: 12rpx;
+  background: var(--color-danger, #FF3B30);
   border-radius: 50%;
-  box-shadow: 0 0 8rpx rgba(255, 59, 48, 0.6);
 }
 
-.tab-bar-item-active {
-  position: relative;
-}
 
 .tab-bar-icon {
-  width: 72rpx;
-  height: 72rpx;
-  margin-bottom: 8rpx;
+  width: 62rpx;
+  height: 62rpx;
+}
+
+/* 进展（第 3 个 Tab）：星舰图标视觉偏小，单独放大 1.2 倍 */
+.tab-bar-item:nth-child(3) .tab-bar-icon {
+  width: 74rpx;
+  height: 74rpx;
 }
 
 .tab-bar-item-profile .tab-bar-icon {
-  width: 60rpx;
-  height: 60rpx;
+  width: 58rpx;
+  height: 58rpx;
+}
+
+.tab-bar-label {
+  font-size: 22rpx;
+  line-height: 1.2;
+  margin-top: -3px;
+  color: var(--color-text-tertiary, #8E8E93);
+  font-weight: 400;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  transition: color 0.2s ease;
+}
+
+.tab-bar-item-active .tab-bar-label {
+  color: var(--color-brand, #3B82F6);
+  font-weight: 600;
 }
 
 .tab-bar-item-profile .red-dot {
-  top: -6rpx;
-  right: -8rpx;
+  top: -4rpx;
+  right: -6rpx;
 }
 
 .tab-bar-hidden {
@@ -279,7 +284,6 @@
   border-radius: 28rpx;
 }
 
-/* 添加到桌面指引弹窗关闭按钮（形态参考 morning-briefing，叉号更大更醒目） */
 .desktop-guide-close-row {
   margin-top: 32rpx;
   display: flex;
@@ -291,12 +295,12 @@
 .popup-close {
   box-sizing: border-box;
   position: relative;
-  width: 88rpx;
-  height: 88rpx;
+  width: 80rpx;
+  height: 80rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 44rpx;
+  border-radius: 40rpx;
   background: rgba(255, 255, 255, 0.1);
   flex-shrink: 0;
 }
@@ -306,39 +310,35 @@
 }
 
 .popup-close-icon {
-  font-size: 36rpx;
+  font-size: 32rpx;
   color: #ffffff;
   line-height: 1;
   pointer-events: none;
 }
 
-/* ========== 明亮主题 ========== */
+/* ========== 明亮主题（同样带字面量兜底） ========== */
 .theme-light .tab-bar-content,
 .theme-light .tab-add-desktop-strip,
 .theme-light .desktop-guide-img-frame {
-  background: rgba(255, 255, 255, 0.62);
-  border-color: rgba(0, 0, 0, 0.06);
-  /* iOS 扁平风：去投影，细灰边分层 */
-  box-shadow: var(--shadow-tabbar);
-}
-
-.theme-light .tab-bar-content::before,
-.theme-light .tab-add-desktop-strip::before,
-.theme-light .desktop-guide-img-frame::before {
-  background: linear-gradient(90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.9) 20%,
-    rgba(255, 255, 255, 1) 50%,
-    rgba(255, 255, 255, 0.9) 80%,
-    transparent 100%);
+  background: var(--bg-glass, rgba(255, 255, 255, 0.78));
+  border-color: var(--color-divider, rgba(0, 0, 0, 0.07));
+  box-shadow: var(--shadow-tabbar, 0 2rpx 16rpx rgba(0, 0, 0, 0.06));
 }
 
 .theme-light .tab-add-desktop-strip-text {
-  color: rgba(28, 28, 30, 0.92);
+  color: var(--color-text-on-glass, rgba(28, 28, 30, 0.92));
 }
 
 .theme-light .tab-add-desktop-strip-close text {
-  color: rgba(60, 60, 67, 0.5);
+  color: var(--color-text-tertiary, #8E8E93);
+}
+
+.theme-light .tab-bar-label {
+  color: var(--color-text-tertiary, #8E8E93);
+}
+
+.theme-light .tab-bar-item-active .tab-bar-label {
+  color: var(--color-brand, #3B82F6);
 }
 
 .theme-light .popup-close {

@@ -172,6 +172,11 @@ function mapLaunchToListItem(launch, index, offset, type) {
     launchAgency,
     launchAgencyId,
     launchAgencyAbbrev,
+    rocketConfigId: (rocketConfiguration && rocketConfiguration.id != null) ? rocketConfiguration.id : null,
+    padLocationId: (launch.pad && launch.pad.location && launch.pad.location.id != null)
+      ? launch.pad.location.id
+      : null,
+    padLocationName: (launch.pad && launch.pad.location && (launch.pad.location.name || '')) || '',
     boosterInfo,
     isRecoverableThisMission: _isRecoverable,
     landingIcon: boosterInfo && (boosterInfo.landingType === 'ASDS' ? 'asds' : (boosterInfo.landingType === 'RTLS' || boosterInfo.landingLocation ? 'rtls' : null)) || null,

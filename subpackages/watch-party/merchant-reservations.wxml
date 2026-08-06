@@ -1,0 +1,116 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top:{{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">预约名单</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view
+    class="page-scroll"
+    scroll-y
+    enhanced
+    show-scrollbar="{{false}}"
+    bindscrolltolower="onLoadMore"
+    lower-threshold="120"
+  >
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <view class="wpr-loading" wx:if="{{loading}}">
+      <view class="loading-spinner-lg"></view>
+      <text class="wpr-loading-text">正在加载预约…</text>
+    </view>
+
+    <view class="wpr-error" wx:elif="{{error}}">
+      <text class="wpr-error-text">{{error}}</text>
+      <view class="wpr-retry-btn" bindtap="onRetry"><text>重试</text></view>
+    </view>
+
+    <block wx:else>
+      <!-- 场次抬头 -->
+      <view class="wpr-head">
+        <text class="wpr-title">{{sessionTitle}}</text>
+        <text class="wpr-sub" wx:if="{{sessionSub}}">{{sessionSub}}</text>
+      </view>
+
+      <!-- 汇总条 -->
+      <view class="wpr-summary">
+        <view class="wpr-sum-cell">
+          <text class="wpr-sum-num">{{summary.pending}}</text>
+          <text class="wpr-sum-label">待到场</text>
+        </view>
+        <view class="wpr-sum-cell">
+          <text class="wpr-sum-num">{{summary.checkedIn}}</text>
+          <text class="wpr-sum-label">已核销</text>
+        </view>
+        <view class="wpr-sum-cell">
+          <text class="wpr-sum-num">{{summary.people}}</text>
+          <text class="wpr-sum-label">有效人数</text>
+        </view>
+        <view class="wpr-sum-cell">
+          <text class="wpr-sum-num">{{summary.cancelled}}</text>
+          <text class="wpr-sum-label">已取消</text>
+        </view>
+      </view>
+
+      <!-- 筛选 -->
+      <view class="wpr-filters">
+        <view class="wpr-filter {{filter === 'all' ? 'wpr-filter--on' : ''}}" data-filter="all" bindtap="onFilterTap"><text>全部</text></view>
+        <view class="wpr-filter {{filter === 'pending' ? 'wpr-filter--on' : ''}}" data-filter="pending" bindtap="onFilterTap"><text>待到场</text></view>
+        <view class="wpr-filter {{filter === 'checked_in' ? 'wpr-filter--on' : ''}}" data-filter="checked_in" bindtap="onFilterTap"><text>已核销</text></view>
+        <view class="wpr-filter {{filter === 'cancelled' ? 'wpr-filter--on' : ''}}" data-filter="cancelled" bindtap="onFilterTap"><text>已取消</text></view>
+      </view>
+
+      <view class="wpr-empty" wx:if="{{!list.length}}">
+        <text class="wpr-empty-text">暂无预约记录</text>
+        <text class="wpr-empty-hint">用户在观礼详情页提交免费预约后，会出现在这里</text>
+      </view>
+
+      <view class="wpr-list" wx:else>
+        <view class="wpr-row" wx:for="{{list}}" wx:key="reservationId">
+          <view class="wpr-row-main">
+            <view class="wpr-row-top">
+              <text class="wpr-name">{{item.name}}</text>
+              <text class="wpr-people">{{item.headcount}}人</text>
+              <view class="wpr-tag {{item.statusClass}}">{{item.statusLabel}}</view>
+            </view>
+            <view class="wpr-row-mid">
+              <text class="wpr-phone" catchtap="onCopyPhone" data-phone="{{item.phone}}">{{item.phone || '无手机号'}}</text>
+              <text class="wpr-time" wx:if="{{item.timeText}}">{{item.timeText}}</text>
+            </view>
+          </view>
+          <view class="wpr-row-actions">
+            <view
+              class="wpr-act"
+              wx:if="{{item.phone}}"
+              catchtap="onCall"
+              data-phone="{{item.phone}}"
+            ><text>拨打</text></view>
+            <view
+              class="wpr-act wpr-act--ok"
+              wx:if="{{item.canCheckIn}}"
+              catchtap="onCheckIn"
+              data-id="{{item.reservationId}}"
+              data-name="{{item.name}}"
+            ><text>{{checkingId === item.reservationId ? '…' : '核销'}}</text></view>
+          </view>
+        </view>
+      </view>
+
+      <view class="wpr-more" wx:if="{{hasMore}}">
+        <text class="wpr-more-text">{{loadingMore ? '加载中…' : '上拉加载更多'}}</text>
+      </view>
+      <view class="wpr-more" wx:elif="{{list.length && !hasMore}}">
+        <text class="wpr-more-text">共 {{total}} 条</text>
+      </view>
+
+      <view class="page-footer">
+        <text class="footer-text">点手机号可复制 · 拨打联系客人 · 到场后点核销</text>
+      </view>
+    </block>
+  </scroll-view>
+</view>

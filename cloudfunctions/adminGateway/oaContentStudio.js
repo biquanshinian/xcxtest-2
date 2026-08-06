@@ -8,19 +8,27 @@ const {
   extractJsonBlock,
   ensureImageSlotsInBody,
   placeImagesInMarkdown,
-  placeImagesAlignedToSource
+  placeImagesAlignedToSource,
+  ensureHeroImagePlacement
 } = require('./oaContentFormat')
 const wechatApi = require('./oaWechatApi')
 const oaFetch = require('./oaFetchArticle')
 const {
   COLS,
   LEGACY_BRAND_PERSONAS,
+  LEGACY_BRAND_FOOTERS,
+  LEGACY_MINIPROGRAM_CTAS,
+  LEGACY_LEAD_DISCLAIMER_TEXTS,
+  DEFAULT_LEAD_DISCLAIMER_TEXT,
   DEFAULT_BRANDS,
   ANTI_AI_VOICE,
   GROUNDING_RULES,
   DEFAULT_CONFIG,
   SEED_PROMPTS,
-  SEED_STRATEGIES
+  SEED_STRATEGIES,
+  isPromoBrandFooter,
+  stripPromoBrandFooterMarkdown,
+  matchStrategyFromContent
 } = require('./oaContentSeeds')
 const helpers = require('./oaStudioHelpers')
 const {
@@ -85,14 +93,21 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
         credentialSlot: wechatApi.normalizeSlot(b.credentialSlot || base.credentialSlot || '1'),
         enabled: b.enabled !== false
       }
-      // 种子品牌：空人设或仍是旧默认文案 → 换成去 AI 味新版
+      // 种子品牌：空人设/旧硬广文末/旧 CTA → 升级为「文末不引流」默认
       const def = DEFAULT_BRANDS.find((d) => d.key === key)
       if (def) {
         const persona = String(merged.persona || '').trim()
         if (!persona || LEGACY_BRAND_PERSONAS.includes(persona)) {
           merged.persona = def.persona
         }
-        if (!String(merged.footer || '').trim()) merged.footer = def.footer
+        const footer = String(merged.footer || '')
+        if (!footer.trim() || isPromoBrandFooter(footer)) {
+          merged.footer = ''
+        }
+        const cta = String(merged.miniprogramCta || '').trim()
+        if (LEGACY_MINIPROGRAM_CTAS.includes(cta) || /打开小程序/.test(cta)) {
+          merged.miniprogramCta = ''
+        }
       }
       byKey.set(key, merged)
     }
@@ -116,7 +131,7 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
           enabled: coerceBool(row.enabled, true),
           autoWash: coerceBool(row.autoWash, false),
           brandKey: String(row.brandKey || 'mars_log').slice(0, 40),
-          strategyKey: String(row.strategyKey || 'deep_recap').slice(0, 40),
+          strategyKey: String(row.strategyKey || 'auto').slice(0, 40),
           maxPerRun: Math.min(10, Math.max(1, Number(row.maxPerRun) || 3))
         }
       })
@@ -131,9 +146,33 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
     }
     cfg.linkAllImagesToMiniprogram = coerceBool(cfg.linkAllImagesToMiniprogram, true)
     cfg.leadDisclaimerEnabled = coerceBool(cfg.leadDisclaimerEnabled, true)
-    cfg.leadDisclaimerText = String(
-      cfg.leadDisclaimerText == null ? DEFAULT_CONFIG.leadDisclaimerText : cfg.leadDisclaimerText
-    ).slice(0, 300)
+    {
+      const leadRaw =
+        cfg.leadDisclaimerText == null ? DEFAULT_LEAD_DISCLAIMER_TEXT : String(cfg.leadDisclaimerText)
+      const leadTrim = leadRaw.trim()
+      cfg.leadDisclaimerText = (
+        !leadTrim || LEGACY_LEAD_DISCLAIMER_TEXTS.includes(leadTrim)
+          ? DEFAULT_LEAD_DISCLAIMER_TEXT
+          : leadRaw
+      ).slice(0, 300)
+    }
+    // 旧默认文末引流（mode=image + 空/旧 CTA）→ none；自定义 link/card/image+文案保留
+    {
+      let mode = String(cfg.miniprogramCtaMode || '').trim() || 'none'
+      if (!['none', 'image', 'link', 'card'].includes(mode)) mode = 'none'
+      const topCta = String(cfg.miniprogramCta || '').trim()
+      const anyBrandCta = (cfg.brands || []).some((b) => String((b && b.miniprogramCta) || '').trim())
+      const topIsLegacyOrEmpty = !topCta || LEGACY_MINIPROGRAM_CTAS.includes(topCta)
+      if (mode === 'image' && topIsLegacyOrEmpty && !anyBrandCta) mode = 'none'
+      cfg.miniprogramCtaMode = mode
+    }
+    if (LEGACY_MINIPROGRAM_CTAS.includes(String(cfg.miniprogramCta || '').trim()) ||
+        /打开小程序/.test(String(cfg.miniprogramCta || ''))) {
+      cfg.miniprogramCta = ''
+    }
+    if (!String(cfg.footer || '').trim() || isPromoBrandFooter(cfg.footer)) {
+      cfg.footer = ''
+    }
     cfg.openComment = coerceBool(cfg.openComment, true)
     cfg.onlyFansCanComment = coerceBool(cfg.onlyFansCanComment, false)
     cfg.autoPushToWechatDraft = coerceBool(cfg.autoPushToWechatDraft, false)
@@ -142,16 +181,24 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
     cfg.enabled = coerceBool(cfg.enabled, false)
     cfg.trackSources = normalizeTrackSources(cfg.trackSources)
     // 兼容旧客户端：顶层 author/persona/footer 同步自默认发稿号
+    // 注意：空字符串是合法值，不能用 || 回退到旧硬广
     const def = cfg.brands.find((b) => b.key === cfg.defaultBrandKey) || cfg.brands[0]
     if (def) {
       cfg.author = def.author || cfg.author
       cfg.persona = def.persona || cfg.persona
-      cfg.footer = def.footer || cfg.footer
+      cfg.footer = String(def.footer || '')
       cfg.defaultStrategyKey = def.defaultStrategyKey || cfg.defaultStrategyKey
-      cfg.miniprogramCta = def.miniprogramCta || cfg.miniprogramCta
+      cfg.miniprogramCta = String(def.miniprogramCta || '')
       if (def.defaultCoverUrl) cfg.defaultCoverUrl = def.defaultCoverUrl
     }
     return cfg
+  }
+
+  /** 仅非引流文末才允许拼进成稿 */
+  function safeBrandFooter(brand, cfg) {
+    const raw = String((brand && brand.footer) || (cfg && cfg.footer) || '').trim()
+    if (!raw || isPromoBrandFooter(raw)) return ''
+    return raw
   }
 
   function resolveBrand(cfg, brandKey) {
@@ -166,7 +213,7 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
     }
   }
 
-  /** 文首提示语 HTML（发射预测免责声明；【…】自动挂小程序跳转蓝字）。关闭或空文案返回 '' */
+  /** 文首提示语 HTML（信息向免责；纯文不挂小程序文字链）。关闭或空文案返回 '' */
   function buildLeadHtml(cfg, mpPath) {
     if (!cfg || cfg.leadDisclaimerEnabled === false) return ''
     const text = String(cfg.leadDisclaimerText || '').trim()
@@ -175,6 +222,27 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
       text,
       path: mpPath || cfg.miniprogramPath || 'pages/index/index'
     })
+  }
+
+  /** 是否附加文末小程序引流（none=关；仅配图跳转时不走文末） */
+  function shouldAppendMiniprogramCta(cfg) {
+    const mode = String((cfg && cfg.miniprogramCtaMode) || 'none').trim()
+    return mode === 'image' || mode === 'link' || mode === 'card'
+  }
+
+  async function appendMiniprogramCtaHtml(html, cfg, brand, opts = {}) {
+    if (!shouldAppendMiniprogramCta(cfg)) return String(html || '')
+    const mode = String(cfg.miniprogramCtaMode || 'none')
+    const extra = await wechatApi.buildMiniprogramCtaHtml({
+      path: opts.path || cfg.miniprogramPath || 'pages/index/index',
+      text: (brand && brand.miniprogramCta) || cfg.miniprogramCta,
+      title: opts.title,
+      imageUrl: opts.imageUrl,
+      mode: opts.mode || mode,
+      credentialSlot: opts.credentialSlot || (brand && brand.credentialSlot) || '1',
+      trustMmbiz: !!opts.trustMmbiz
+    })
+    return String(html || '') + (extra || '')
   }
 
   async function ensureCols() {
@@ -197,7 +265,29 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
   async function readConfig() {
     try {
       const res = await db.collection(GLOBAL_COL).doc(CONFIG_DOC).get()
-      return normalizeConfig(res.data || {})
+      const raw = res.data || {}
+      const normalized = normalizeConfig(raw)
+      // 云端仍存旧硬广结语时静默写回清空，避免生成继续拼接
+      const rawBrands = Array.isArray(raw.brands) ? raw.brands : []
+      const dirtyFooter =
+        isPromoBrandFooter(raw.footer) ||
+        rawBrands.some((b) => isPromoBrandFooter(b && b.footer)) ||
+        /打开小程序/.test(String(raw.miniprogramCta || '')) ||
+        rawBrands.some((b) => /打开小程序/.test(String((b && b.miniprogramCta) || '')))
+      if (dirtyFooter) {
+        try {
+          await writeConfig({
+            brands: normalized.brands,
+            footer: '',
+            miniprogramCta: '',
+            miniprogramCtaMode: normalized.miniprogramCtaMode,
+            leadDisclaimerText: normalized.leadDisclaimerText
+          })
+        } catch (e) {
+          console.warn('[oaContent] persist anti-promo footer fail', e.message || e)
+        }
+      }
+      return normalized
     } catch (e) {
       return normalizeConfig({})
     }
@@ -1188,6 +1278,9 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
       let markdown = draft.markdown || ''
       if (dropped.length) markdown = stripMarkdownImages(markdown, dropped)
       if (Object.keys(map).length) markdown = applyImageMapToMarkdown(markdown, map)
+      markdown = ensureHeroImagePlacement(markdown, {
+        coverUrl: draft.coverUrl || brand.defaultCoverUrl || cfg.defaultCoverUrl || ''
+      })
       if (markdown) {
         patch.markdown = markdown
         let preparedHtml = markdownToWechatHtml(markdown, 'clean')
@@ -1197,13 +1290,12 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
         }
         patch.html =
           buildLeadHtml(cfg, mpPath) +
-          preparedHtml +
-          (await wechatApi.buildMiniprogramCtaHtml({
-            path: mpPath,
-            text: brand.miniprogramCta || cfg.miniprogramCta,
-            mode: 'link',
-            credentialSlot: slot
-          }))
+          preparedHtml
+        patch.html = await appendMiniprogramCtaHtml(patch.html, cfg, brand, {
+          path: mpPath,
+          mode: 'link',
+          credentialSlot: slot
+        })
       }
       // 同步 imageUrls 为已成功的本槽图，避免推送再捡回坏链/他人 mmbiz
       const okUrls = list
@@ -1286,13 +1378,25 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
     await ensureCols()
     const cfg = await readConfig()
     const brand = resolveBrand(cfg, brandKey || cfg.defaultBrandKey)
-    const strategy = await findStrategy(
-      strategyKey || brand.defaultStrategyKey || cfg.defaultStrategyKey
-    )
-    const prompt = await findPrompt(strategy.promptKey || 'create_from_data')
     const source = await enrichTopicFromUrl(topic || manualSource || {})
     const imageUrls = await resolveTopicImages(source)
     const rawBody = String(source.body || source.content || '')
+
+    // 策略：空 / auto → 按正文自动匹配；显式传入则尊重人工选择
+    const requestedKey = String(strategyKey || '').trim()
+    const strategyAuto = !requestedKey || requestedKey === 'auto'
+    const resolvedStrategyKey = strategyAuto
+      ? matchStrategyFromContent({
+          title: source.title,
+          body: rawBody,
+          brandKey: brand.key,
+          sourceType: source.sourceType
+        })
+      : requestedKey
+    const strategy = await findStrategy(
+      resolvedStrategyKey || brand.defaultStrategyKey || cfg.defaultStrategyKey
+    )
+    const prompt = await findPrompt(strategy.promptKey || 'create_from_data')
     // 原稿已有 [[IMG:n]] 则原样保留；仅纯文本才均匀补位
     const slottedBody = (
       /\[\[IMG:\s*\d+\s*\]\]/i.test(rawBody)
@@ -1310,7 +1414,10 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
     }
     const system = renderTemplate(prompt.system, vars)
     let userMsg = renderTemplate(prompt.user, vars)
-    if (imageUrls.length) {
+    if (imageUrls.length === 1) {
+      userMsg +=
+        '\n\n【配图要求】仅 1 张图：把 [[IMG:1]] 单独放在正文最开头作头图，之后再写正文。禁止删改编号，不要输出 http 图片链接。'
+    } else if (imageUrls.length) {
       userMsg +=
         `\n\n【配图要求】素材中有 ${imageUrls.length} 张图，占位为 [[IMG:1]]…[[IMG:${imageUrls.length}]]，位置已与原稿对齐。` +
         '成稿必须在相同叙述位置保留这些占位（单独成行），禁止删改编号、禁止把图挪到文首或文末堆放，不要输出 http 图片链接。'
@@ -1321,8 +1428,9 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
       brandKey: brand.key,
       brandName: brand.name,
       credentialSlot: brand.credentialSlot,
-      strategyKey: strategy.key || strategyKey || '',
+      strategyKey: strategy.key || resolvedStrategyKey || '',
       strategyName: strategy.name || '',
+      strategyAuto: !!strategyAuto,
       promptKey: prompt.key || '',
       sourceType: source.sourceType || 'manual',
       sourceId: source.sourceId || '',
@@ -1366,25 +1474,25 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
         raw =
           `# ${vars.sourceTitle || '航天速递'}\n\n` +
           `> 自动生成暂不可用（${llmHint}）。以下为素材整理稿，请人工改写后保存再推送。\n\n` +
-          `${vars.sourceBody || '（无素材）'}\n\n` +
-          `${brand.footer || cfg.footer || ''}`
+          `${vars.sourceBody || '（无素材）'}`
       }
       const parsed = stripTitleFromMarkdown(raw)
       const title = (parsed.title || vars.sourceTitle || '未命名').slice(0, 64)
       // 严格按原稿占位落图，避免成稿后重排错位
       let bodyMd = placeImagesAlignedToSource(parsed.body || '', slottedBody, imageUrls, 8)
+      bodyMd = ensureHeroImagePlacement(bodyMd, {
+        coverUrl: draftDoc.coverUrl || imageUrls[0] || brand.defaultCoverUrl || cfg.defaultCoverUrl || ''
+      })
+      bodyMd = stripPromoBrandFooterMarkdown(bodyMd)
+      const foot = safeBrandFooter(brand, cfg)
       const markdown =
-        bodyMd +
-        (brand.footer || cfg.footer ? `\n\n---\n\n${brand.footer || cfg.footer}` : '')
-      const html =
-        buildLeadHtml(cfg) +
-        markdownToWechatHtml(markdown, strategy.themeId || 'clean') +
-        (await wechatApi.buildMiniprogramCtaHtml({
-          path: cfg.miniprogramPath,
-          text: brand.miniprogramCta || cfg.miniprogramCta,
-          mode: 'link',
-          credentialSlot: brand.credentialSlot
-        }))
+        bodyMd + (foot ? `\n\n---\n\n${foot}` : '')
+      let html = buildLeadHtml(cfg) + markdownToWechatHtml(markdown, strategy.themeId || 'clean')
+      html = await appendMiniprogramCtaHtml(html, cfg, brand, {
+        path: cfg.miniprogramPath,
+        mode: 'link',
+        credentialSlot: brand.credentialSlot
+      })
       const digest = String(parsed.body || '')
         .replace(/[#>*`\[\]]/g, '')
         .replace(/\s+/g, ' ')
@@ -1444,6 +1552,8 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
         digest,
         brandKey: brand.key,
         strategyKey: draftDoc.strategyKey,
+        strategyName: draftDoc.strategyName,
+        strategyAuto: !!draftDoc.strategyAuto,
         imageCount: imageUrls.length,
         generatedByAi: !usedFallback,
         imagesReady: imagesReadyOut,
@@ -1751,13 +1861,24 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
             redistribute: false
           })
         }
+        mdForPush = stripPromoBrandFooterMarkdown(mdForPush)
+        mdForPush = ensureHeroImagePlacement(mdForPush, {
+          coverUrl: draft.coverUrl || brand.defaultCoverUrl || cfg.defaultCoverUrl || ''
+        })
+        // 头图策略可能改写 markdown：同步回推送稿，避免微信正文与后台不一致
+        if (mdForPush && mdForPush !== String(draft.markdown || '').trim()) {
+          draft.markdown = mdForPush
+        }
         html = markdownToWechatHtml(mdForPush, 'clean')
       } else {
         // 旧 html 里可能已带文首提示语，先剥掉，最终组装时统一加，避免重复
         html = wechatApi.stripLeadDisclaimer(wechatApi.stripMiniprogramCta(draft.html || ''))
       }
 
-      const rewritten = await rewriteHtmlImagesForWechat(html, pushImages, wxOpts, {
+      // 头图可能是封面链：并入 fallback，避免 skipCoverFallbacks 把刚置顶的头图剥掉
+      const pushImageFallbacks = pickImageUrls(pushImages, collectMarkdownImageUrls(mdForPush || draft.markdown || ''))
+
+      const rewritten = await rewriteHtmlImagesForWechat(html, pushImageFallbacks, wxOpts, {
         draftId: id,
         imageMap: decodeImageMap(draft),
         failMap: decodeFailMap(draft),
@@ -1771,7 +1892,7 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
       html = rewritten.html || rewritten
       if (rewritten.pending > 0) {
         throw new Error(
-          `配图上传未完成（${rewritten.uploaded}/${rewritten.wanted || pushImages.length}），请再点推送续传`
+          `配图上传未完成（${rewritten.uploaded}/${rewritten.wanted || pushImageFallbacks.length}），请再点推送续传`
         )
       }
       // 双保险：剥残留外链；未本槽转存的 mmbiz 也去掉（避免无点击的假锚点）
@@ -1804,10 +1925,9 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
         cover ||
         (draft.imageUrls && draft.imageUrls[0]) ||
         ''
-      const ctaMode = cfg.miniprogramCtaMode || 'image'
+      const ctaMode = cfg.miniprogramCtaMode || 'none'
       const ctaOpts = {
         path: mpPath,
-        text: brand.miniprogramCta || cfg.miniprogramCta,
         title: String(brand.miniprogramCta || brand.name || draft.title || '火星探索日志').slice(
           0,
           20
@@ -1817,9 +1937,9 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
         // 正文图已经本槽 uploadimg，文末引流可复用，避免重复上传
         trustMmbiz: true
       }
-      // 文首提示语（发射预测免责声明，【小程序名】蓝字跳转）置顶
+      // 文首提示语置顶；文末引流仅 mode≠none 时附加（默认只靠配图跳转）
       html = buildLeadHtml(cfg, mpPath) + html
-      html += await wechatApi.buildMiniprogramCtaHtml({ ...ctaOpts, mode: ctaMode })
+      html = await appendMiniprogramCtaHtml(html, cfg, brand, { ...ctaOpts, mode: ctaMode })
 
       const sourceUrl = String(draft.sourceUrl || '').trim()
       const article = {
@@ -1845,13 +1965,17 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
           if (cfg.linkAllImagesToMiniprogram !== false) {
             html = wechatApi.wrapAllImagesWithMiniprogram(html, { path: mpPath })
           }
-          html += await wechatApi.buildMiniprogramCtaHtml({
-            ...ctaOpts,
-            mode: 'link',
-            trustMmbiz: true
-          })
+          if (shouldAppendMiniprogramCta(cfg)) {
+            html = await appendMiniprogramCtaHtml(html, cfg, brand, {
+              ...ctaOpts,
+              mode: 'link',
+              trustMmbiz: true
+            })
+            ctaFallback = 'link'
+          } else {
+            ctaFallback = 'images_only'
+          }
           article.content = html
-          ctaFallback = 'link'
           try {
             wx = await wechatApi.addDraft(article, wxOpts)
           } catch (e2) {
@@ -1871,10 +1995,13 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
                   console.warn('[oaContent] draft 45166, last resort unwrap images', e3.message || e3)
                   html = wechatApi.stripMiniprogramCta(html)
                   html = wechatApi.unwrapMiniprogramImageLinks(html)
-                  html += wechatApi.buildMiniprogramLinkHtml({
-                    path: ctaOpts.path,
-                    text: ctaOpts.text || ctaOpts.title
-                  })
+                  // 最后手段才用文字链；默认 none 策略下尽量不主动插硬广
+                  if (shouldAppendMiniprogramCta(cfg)) {
+                    html += wechatApi.buildMiniprogramLinkHtml({
+                      path: ctaOpts.path,
+                      text: brand.miniprogramCta || cfg.miniprogramCta || ctaOpts.title
+                    })
+                  }
                   article.content = html
                   ctaFallback = 'unwrap'
                   wx = await wechatApi.addDraft(article, wxOpts)
@@ -1906,6 +2033,7 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
         wxMediaId: wx.media_id,
         wxThumbMediaId: thumbMediaId,
         html,
+        ...(mdForPush ? { markdown: mdForPush } : {}),
         pushLeaseAt: 0,
         pushPrevStatus: '',
         updatedAt: now(),
@@ -2154,19 +2282,9 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
       const list = (gathered.data && gathered.data.list) || []
       const results = []
       for (const t of list.slice(0, max)) {
-        const strategyKey =
-          t.sourceType === 'starship_event'
-            ? brand.key === 'mars_space'
-              ? 'space_story'
-              : 'starship_diary'
-            : t.sourceType === 'launch'
-              ? brand.key === 'mars_space'
-                ? 'space_story'
-                : 'launch_brief'
-              : brand.defaultStrategyKey || cfg.defaultStrategyKey
         const r = await runGenerate({
           topic: t,
-          strategyKey,
+          strategyKey: 'auto',
           brandKey: brand.key,
           user
         })
@@ -2602,7 +2720,7 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
                   coverUrl: art.coverUrl,
                   imageUrls: art.imageUrls
                 },
-                strategyKey: src.strategyKey || 'deep_recap',
+                strategyKey: !src.strategyKey || src.strategyKey === 'auto' ? 'auto' : src.strategyKey,
                 brandKey: src.brandKey || cfg.defaultBrandKey,
                 user: user || { username: 'track' }
               })
@@ -2855,15 +2973,37 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
       if (patch.markdown && !patch.html) {
         const cfg = await readConfig()
         const brand = resolveBrand(cfg, patch.brandKey || cur.brandKey || cfg.defaultBrandKey)
-        patch.html =
+        patch.markdown = stripPromoBrandFooterMarkdown(patch.markdown)
+        patch.markdown = ensureHeroImagePlacement(patch.markdown, {
+          coverUrl:
+            patch.coverUrl ||
+            cur.coverUrl ||
+            brand.defaultCoverUrl ||
+            cfg.defaultCoverUrl ||
+            ''
+        })
+        let nextHtml =
           buildLeadHtml(cfg, patch.miniprogramPath || cur.miniprogramPath || cfg.miniprogramPath) +
-          markdownToWechatHtml(patch.markdown, 'clean') +
-          (await wechatApi.buildMiniprogramCtaHtml({
-            path: patch.miniprogramPath || cur.miniprogramPath || cfg.miniprogramPath,
-            text: brand.miniprogramCta || cfg.miniprogramCta,
-            mode: 'link',
-            credentialSlot: brand.credentialSlot
-          }))
+          markdownToWechatHtml(patch.markdown, 'clean')
+        nextHtml = await appendMiniprogramCtaHtml(nextHtml, cfg, brand, {
+          path: patch.miniprogramPath || cur.miniprogramPath || cfg.miniprogramPath,
+          mode: 'link',
+          credentialSlot: brand.credentialSlot
+        })
+        patch.html = nextHtml
+      } else if (patch.markdown != null) {
+        let cleaned = stripPromoBrandFooterMarkdown(patch.markdown)
+        const cfg = await readConfig()
+        const brand = resolveBrand(cfg, patch.brandKey || cur.brandKey || cfg.defaultBrandKey)
+        cleaned = ensureHeroImagePlacement(cleaned, {
+          coverUrl:
+            patch.coverUrl ||
+            cur.coverUrl ||
+            brand.defaultCoverUrl ||
+            cfg.defaultCoverUrl ||
+            ''
+        })
+        if (cleaned !== patch.markdown) patch.markdown = cleaned
       }
       if (patch.brandKey) {
         const cfg = await readConfig()

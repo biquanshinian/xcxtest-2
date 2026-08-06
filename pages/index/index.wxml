@@ -921,30 +921,70 @@
     </view>
   </view>
 
-  <!-- 公告详情弹窗 -->
+  <!-- 公告详情弹窗（结构复用太空简报弹窗：定高滚动区 + 固定头尾，内容再长也不撑破） -->
   <view class="announcement-dialog-mask {{announcementDialogVisible ? 'announcement-dialog-mask--visible' : ''}}" wx:if="{{announcementDialogVisible}}" bindtap="closeAnnouncementDetail" catchtouchmove="noop">
     <view class="announcement-dialog" catchtap="noop">
       <view class="announcement-dialog-header">
         <text class="announcement-dialog-title">{{announcementBanner.title || '系统公告'}}</text>
       </view>
-      <view class="announcement-dialog-body">
-        <text class="announcement-dialog-content" user-select="{{true}}">{{announcementBanner.content || ''}}</text>
+      <view class="announcement-dialog-body-clip">
+      <scroll-view class="announcement-dialog-body" scroll-y style="height: {{announcementScrollMaxPx}}px;">
+        <text class="announcement-dialog-content" wx:if="{{announcementBanner.content}}" user-select="{{true}}">{{announcementBanner.content}}</text>
+
+        <!-- 公告投票：每人一票；未投票前不展示票数，到期后公示结果 -->
+        <view class="announcement-vote {{announcementBanner.content ? '' : 'announcement-vote--flush'}}" wx:if="{{announcementVote}}">
+          <view class="announcement-vote-head">
+            <text class="announcement-vote-question">{{announcementVote.question || '投票'}}</text>
+            <view class="announcement-vote-meta">
+              <text class="announcement-vote-time">{{announcementVote.timeText}}</text>
+              <text class="announcement-vote-once">每人限投 1 次</text>
+            </view>
+          </view>
+          <text class="announcement-vote-intro" wx:if="{{announcementVote.intro}}">{{announcementVote.intro}}</text>
+          <view class="announcement-vote-options">
+            <view
+              class="announcement-vote-option {{announcementVote.myChoice === opt.id ? 'announcement-vote-option--mine' : ''}} {{announcementVote.status !== 'open' || announcementVote.myChoice ? 'announcement-vote-option--locked' : ''}}"
+              wx:for="{{announcementVote.options}}"
+              wx:key="id"
+              wx:for-item="opt"
+              data-option-id="{{opt.id}}"
+              hover-class="{{announcementVote.status === 'open' && !announcementVote.myChoice ? 'announcement-vote-option--hover' : ''}}"
+              catchtap="onAnnouncementVoteTap"
+            >
+              <view wx:if="{{announcementVote.revealed}}" class="announcement-vote-option-fill" style="width: {{opt.percent}}%;"></view>
+              <view class="announcement-vote-option-inner">
+                <image wx:if="{{opt.image}}" class="announcement-vote-option-img" src="{{opt.image}}" mode="aspectFill" />
+                <text class="announcement-vote-option-label">{{opt.label}}</text>
+                <view class="announcement-vote-option-side">
+                  <text class="announcement-vote-option-check" wx:if="{{announcementVote.myChoice === opt.id}}">✓ 已选</text>
+                  <block wx:if="{{announcementVote.revealed}}">
+                    <text class="announcement-vote-option-percent">{{opt.percent}}%</text>
+                    <text class="announcement-vote-option-votes">{{opt.count}} 票</text>
+                  </block>
+                </view>
+              </view>
+            </view>
+          </view>
+          <view class="announcement-vote-footer" wx:if="{{announcementVote.status === 'ended'}}">
+            <text class="announcement-vote-footer-title">结果公示</text>
+            <text class="announcement-vote-footer-note">{{announcementVote.resultNote || '感谢参与，共 ' + announcementVote.totalVotes + ' 人投票'}}</text>
+          </view>
+        </view>
+      </scroll-view>
       </view>
-      <!-- 在线客服：复用「关于我们」同款入口（open-type="contact"），替换原反馈二维码 -->
-      <view class="announcement-dialog-service">
-        <button class="service-contact-row" open-type="contact" bindcontact="onContactCallback" session-from="announcement-dialog" hover-class="service-contact-row--hover">
-          <view class="service-contact-icon">
-            <image class="service-contact-icon-img" src="/images/icon-customer-service.svg" mode="aspectFit" />
-          </view>
-          <view class="service-contact-text">
-            <text class="service-contact-title">在线客服</text>
-            <text class="service-contact-sub">遇到问题或有建议？点击直接对话</text>
-          </view>
-          <text class="service-contact-arrow">›</text>
+      <!-- 底部固定：客服与主按钮分栏排布；底栏不透明遮罩滚动边框，避免投票容器顶穿 -->
+      <view class="announcement-dialog-footer">
+        <button
+          class="announcement-body-service"
+          open-type="contact"
+          bindcontact="onContactCallback"
+          session-from="announcement-dialog"
+          hover-class="announcement-body-service--hover"
+        >
+          <image class="announcement-body-service-img" src="/images/icon-customer-service.svg" mode="aspectFit" />
+          <text>在线客服</text>
         </button>
-      </view>
-      <view class="announcement-dialog-close" bindtap="closeAnnouncementDetail">
-        <text>我知道了</text>
+        <view class="announcement-footer-ok" hover-class="announcement-footer-ok--hover" bindtap="closeAnnouncementDetail">我知道了</view>
       </view>
     </view>
   </view>

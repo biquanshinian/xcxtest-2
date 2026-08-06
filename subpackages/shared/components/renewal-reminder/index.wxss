@@ -25,12 +25,11 @@
   position: relative;
   width: 100%;
   max-width: 640rpx;
-  background: var(--color-bg-card);
+  background: var(--bg-glass-popup, rgba(22, 24, 28, 0.85));
+  backdrop-filter: blur(32rpx) saturate(150%);
+  -webkit-backdrop-filter: blur(32rpx) saturate(150%);
   border-radius: 36rpx;
-  border: 1px solid var(--color-border-glass);
-  box-shadow:
-    0 32rpx 96rpx rgba(0, 0, 0, 0.55),
-    inset 0 1rpx 0 rgba(255, 255, 255, 0.16);
+  box-shadow: 0 32rpx 96rpx rgba(0, 0, 0, 0.55);
   overflow: hidden;
   animation: renewalSlideUp 0.32s cubic-bezier(0.22, 0.9, 0.32, 1.1);
 }

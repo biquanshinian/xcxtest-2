@@ -348,11 +348,9 @@ const methods = {
       return
     }
     if (bucket === this._tweetStatsScrollHapticBucket) return
-    const jumps = Math.min(Math.abs(bucket - this._tweetStatsScrollHapticBucket), 4)
-    for (let i = 0; i < jumps; i++) {
-      try { wx.vibrateShort({ type: 'medium' }) } catch (err) {}
-    }
     this._tweetStatsScrollHapticBucket = bucket
+    // 横向滑动仅轻震一次，避免无指向连震
+    try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
   },
 
   /** 事件更新胶囊 → 按账号进入列表详情（PRO 门控；与简报胶囊逻辑一致但进度 Tab 单独拦截） */

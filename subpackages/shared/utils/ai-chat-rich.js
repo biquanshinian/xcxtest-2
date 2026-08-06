@@ -13,6 +13,7 @@ const {
   getStarshipHardwareFromDB
 } = require('../../../utils/api-app-services.js')
 const { getSubscribedMissions } = require('../../../utils/subscribe.js')
+const { matchWatchPartySession } = require('./watch-party.js')
 const { workerProxyUrl } = require('../../../utils/config.js')
 const { buildMissionDetailUrl } = require('../../../utils/index-mission-nav.js')
 const { formatDate, resolveMissionRocketImage } = require('../../../utils/util.js')
@@ -91,7 +92,9 @@ const {
   enrichLaunchContextWithMyLaunches,
   enrichLaunchContextNoMyLaunches,
   enrichLaunchContextWithSimpleEntry,
-  enrichLaunchContextWithViewingSpots,
+  enrichLaunchContextWithWatchParty,
+  enrichLaunchContextWatchPartyClosed,
+  enrichLaunchContextWatchPartyFeatureOff,
   enrichLaunchContextWithCard,
   enrichLaunchContextNoStarshipSchedule,
   enrichLaunchContextNoMissionLookup,
@@ -111,7 +114,6 @@ const {
   enrichLaunchContextWithMissionReplay,
   enrichLaunchContextNoMissionReplay
 } = require('./ai-chat-rich-core.js')
-const { pickViewingSpots, toNavPoint } = require('./viewing-spots.js')
 
 const AGENCY_TYPE_ZH = {
   Government: '政府',
@@ -1180,55 +1182,57 @@ function buildSpecCard(spec) {
 }
 
 /**
- * 观礼点卡（本地静态点位，最多两张：主推 + 备选）
- * 军事管制发射场只出一张「需官方渠道」的说明卡，不带导航坐标
+ * 观礼类问题 → 火箭观礼入口卡。
+ * 点击进「商家列表」（同任务多商家由用户自选），不再直达单一场次。
  */
-function resolveViewingSpotCards(options) {
+async function resolveWatchPartyEntryCard(options) {
   const opts = options && typeof options === 'object' ? options : {}
-  const picked = pickViewingSpots(opts.queryText || '', 2)
-  const site = picked.site || {}
-  const cards = []
-
-  if (picked.restricted) {
-    cards.push(buildSpecCard({
-      specKind: 'viewing_spot',
-      targetId: picked.siteKey,
-      targetName: site.siteName || '',
-      tag: '观礼须知 · 需官方渠道',
-      title: (site.siteName || '该发射场') + '暂无公共观礼点',
-      subtitle: [site.countryLabel, site.padNote].filter(Boolean).join(' · '),
-      variant: 'viewing',
-      cta: '需官方渠道预约',
-      note: picked.restrictedNote || '',
-      rows: [
-        { label: '开放情况', value: '周边无公共观礼点' },
-        { label: '抵达方式', value: '官方组织 / 正规团队报备' }
-      ]
-    }))
-    return { cards, picked }
+  // 过审开关：关闭时不打匹配接口、不出入口卡（failClosed）
+  let featureOn = false
+  try {
+    featureOn = await require('../../../utils/watch-party-feature.js').isWatchPartyEnabled(true)
+  } catch (e) {
+    featureOn = false
   }
-
-  picked.spots.forEach((spot) => {
-    cards.push(buildSpecCard({
-      specKind: 'viewing_spot',
-      targetId: spot.id,
-      targetName: spot.name,
-      tag: '观礼点 · ' + (site.siteName || ''),
-      title: spot.name + (spot.nameEn ? '（' + spot.nameEn + '）' : ''),
-      subtitle: spot.address || '',
-      variant: 'viewing',
-      cta: '一键导航 ›',
-      note: spot.tips || '',
-      nav: toNavPoint(spot),
-      rows: [
-        { label: '距离', value: spot.distanceText || '' },
-        { label: '视角', value: spot.viewText || '' },
-        { label: '费用', value: spot.costText || '' },
-        { label: '可看', value: site.padNote || '' }
-      ]
-    }))
-  })
-  return { cards, picked }
+  if (!featureOn) return { card: null, session: null, featureOff: true }
+  let session = null
+  try {
+    session = await matchWatchPartySession(opts.queryText || '')
+  } catch (e) {
+    session = null
+  }
+  if (!session || !session.sessionId) return { card: null, session: null }
+  const mid = String(session.missionId || '').trim()
+  // match 已在同一次 DB 扫描里带上 missionSessionCount，禁止再打 list（省 1 次云函数+读）
+  const count = Math.max(1, Number(session.missionSessionCount) || 1)
+  const rocket = session.rocketName || ''
+  const mission = session.missionName || ''
+  const title = count > 1
+    ? ([rocket, mission].filter(Boolean).join(' · ') || '现场观礼') + ' · ' + count + '家观礼点'
+    : (session.title || ((rocket || '火箭') + '发射观礼'))
+  const placeBits = [
+    count > 1 ? (count + '家商家') : session.merchantName,
+    session.padLocationName,
+    rocket && mission ? (rocket + ' · ' + mission) : (rocket || mission || '')
+  ].filter(Boolean)
+  return {
+    session,
+    card: {
+      cardType: 'entry',
+      entryKind: 'watch_party',
+      id: 'entry_watch_party_' + (mid || session.sessionId),
+      tag: 'ON-SITE · 火箭观礼',
+      title,
+      desc: (placeBits.join(' · ') || '近距离观礼') + ' · 预约占位 · 停车导航 · 现场科普',
+      cta: count > 1 ? '选择商家 ›' : '进入观礼 ›',
+      variant: 'watch',
+      // 真实 missionId：列表页按任务筛商家；无任务 id 时列表展示全部开放场次
+      missionId: mid,
+      gateProductId: '',
+      gateProductName: '',
+      needMissionSimFlag: false
+    }
+  }
 }
 
 /** 火箭型号参数卡（_config_meta 数据驱动） */
@@ -2048,16 +2052,14 @@ async function resolveRichChatPayload(text, options) {
       })
     }
   } else if (intent === 'viewing_spot') {
-    const resolved = resolveViewingSpotCards({ ...opts, queryText: text })
-    if (resolved.cards.length) {
-      resolved.cards.forEach((card) => cards.push(card))
-      launchContext = enrichLaunchContextWithViewingSpots(launchContext, {
-        siteName: (resolved.picked.site && resolved.picked.site.siteName) || '',
-        spots: resolved.picked.spots,
-        restricted: resolved.picked.restricted,
-        restrictedNote: resolved.picked.restrictedNote,
-        matched: resolved.picked.matched
-      })
+    const resolved = await resolveWatchPartyEntryCard({ ...opts, queryText: text })
+    if (resolved.card) {
+      cards.push(resolved.card)
+      launchContext = enrichLaunchContextWithWatchParty(launchContext, resolved.session)
+    } else if (resolved.featureOff) {
+      launchContext = enrichLaunchContextWatchPartyFeatureOff(launchContext)
+    } else {
+      launchContext = enrichLaunchContextWatchPartyClosed(launchContext)
     }
   } else if (intent === 'starlink_map') {
     const resolved = resolveStarlinkMapEntryCard()
@@ -2168,7 +2170,7 @@ module.exports = {
   resolveStarlinkPassEntryCard,
   resolveLiveWatchEntryCard,
   resolveStarlinkMapEntryCard,
-  resolveViewingSpotCards,
+  resolveWatchPartyEntryCard,
   resolveArtemisEntryCard,
   resolveStarshipHardwareCard,
   resolveRecoveryStatsCard,

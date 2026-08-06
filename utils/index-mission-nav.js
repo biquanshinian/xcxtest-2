@@ -125,7 +125,7 @@ function buildMissionShareDisplay(options) {
     var safeTimeText = timeText || fallbackTimeText
     title = safeMissionName && safeTimeText
       ? safeMissionName + ' - ' + safeTimeText + titleSuffix
-      : (fallbackTitle || safeMissionName || ('火星探索日志' + titleSuffix))
+      : (fallbackTitle || (safeMissionName ? safeMissionName + titleSuffix : '火星探索日志'))
   }
 
   var imageUrl = explicitImageUrl || ''

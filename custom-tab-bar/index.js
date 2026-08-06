@@ -28,7 +28,7 @@ Component({
     dragHighlightIndex: -1,
     currentPath: '/pages/index/index',
     color: '#8E8E93',
-    selectedColor: '#FFFFFF',
+    selectedColor: '#3B82F6',
     hidden: false,
     showProgressDot: false,
     showProfileDot: false,
@@ -48,13 +48,13 @@ Component({
       },
       {
         pagePath: '/pages/monitor/monitor',
-        text: '监控中心',
+        text: '监控',
         iconPath: '/images/tabbar/monitor.svg',
         selectedIconPath: '/images/tabbar/monitor-active.svg'
       },
       {
         pagePath: '/pages/progress/progress',
-        text: '星舰进度',
+        text: '进展',
         iconPath: '/images/tabbar/starship.svg',
         selectedIconPath: '/images/tabbar/starship-active.svg'
       },
@@ -327,6 +327,14 @@ Component({
       } catch (_) {}
     },
 
+    _vibrateLight() {
+      try {
+        if (typeof wx.vibrateShort === 'function') {
+          wx.vibrateShort({ type: 'light' })
+        }
+      } catch (_) {}
+    },
+
     onDesktopGuideCloseButtonTap() {
       this._vibrateMedium()
       this.closeDesktopGuideImage()
@@ -476,7 +484,7 @@ Component({
       const idx = Number(data.index)
       if (idx === this.data.selected) return
 
-      this._vibrateMedium()
+      this._vibrateLight()
       wx.switchTab({
         url: url,
         success: () => {

@@ -45,12 +45,31 @@ function findItemById(list, id, key = 'id') {
 
 function buildMapLayoutData(app, options = {}) {
   const uiShellLayout = (app && app.getUiShellLayout && app.getUiShellLayout()) || getUiShellLayout(getSystemInfo())
-  const menuBtn = wx.getMenuButtonBoundingClientRect()
+  const statusBarHeight = Number(uiShellLayout.statusBarHeight) || 44
+  const rpxToPx = (Number(uiShellLayout.windowWidth) || 375) / 750
+  let menuTop = statusBarHeight
+  let menuHeight = Math.round(32 * rpxToPx) || 32
+  let menuButtonWidth = 88
+  try {
+    const menuBtn = wx.getMenuButtonBoundingClientRect()
+    if (menuBtn && menuBtn.height) {
+      menuTop = Number(menuBtn.top) || menuTop
+      menuHeight = Number(menuBtn.height) || menuHeight
+      if (menuBtn.width) menuButtonWidth = Math.max(88, Math.ceil(menuBtn.width + 24))
+    }
+  } catch (e) {}
+  // 与 top-nav--page-grid 一致：padding-top 24rpx + min-height 96rpx；再与胶囊下沿取大，紧贴导航栏下口
+  const navRowBottom = statusBarHeight + Math.round((24 + 96) * rpxToPx)
+  const capsuleBottom = menuTop + menuHeight
+  const navBottom = Math.max(capsuleBottom, navRowBottom)
+  // 下限兜底：避免胶囊 API 异常时 mapActionTop=0 叠进状态栏
+  const mapActionTop = Math.max(Math.round(navBottom + 8), statusBarHeight + Math.round(56 * rpxToPx))
   const patch = {
-    statusBarHeight: uiShellLayout.statusBarHeight,
-    capsuleTop: menuBtn.top,
-    capsuleHeight: menuBtn.height,
-    mapActionTop: menuBtn.top + menuBtn.height + 5
+    statusBarHeight,
+    capsuleTop: menuTop,
+    capsuleHeight: menuHeight,
+    menuButtonWidth,
+    mapActionTop
   }
   if (options.includeNavPlaceholder) patch.navPlaceholderHeight = uiShellLayout.navPlaceholderHeight
   if (options.includeTabBarReserved) patch.tabBarReservedHeight = uiShellLayout.tabBarReservedHeight
@@ -87,24 +106,35 @@ function buildMapOverlayTopStyle(mapActionTop, options = {}) {
   return `top: ${topPx}px;`
 }
 
-/** 底部信息面板展开时的 max-height / scroll-view 高度（避免遮挡顶栏） */
+/**
+ * 底部信息面板展开时的 max-height / scroll-view 高度。
+ * 上沿不得超过地图工具下口（否则工具钮会挡住状态/折叠）。
+ */
 function buildMapPanelScrollLayout(app, options = {}) {
   const uiShell = (app && app.getUiShellLayout && app.getUiShellLayout()) || getUiShellLayout(getSystemInfo())
   const rpxToPx = (Number(uiShell.windowWidth) || 375) / 750
   const windowHeight = Number(uiShell.windowHeight) || 667
   const bottomPx = options.bottomPx !== undefined ? Number(options.bottomPx) : Math.round(24 * rpxToPx) + 16
-  const topGapPx = options.topGapPx !== undefined ? Number(options.topGapPx) : 8
-  const chromeRpx = options.chromeRpx !== undefined ? Number(options.chromeRpx) : 112
-  const minPanelPx = options.minPanelPx !== undefined ? Number(options.minPanelPx) : 280
-  const minScrollPx = options.minScrollPx !== undefined ? Number(options.minScrollPx) : 160
-  const topPx = uiShell.navPlaceholderHeight + topGapPx
+  const topGapPx = options.topGapPx !== undefined ? Number(options.topGapPx) : 10
+  const chromeRpx = options.chromeRpx !== undefined ? Number(options.chromeRpx) : 120
+  const minPanelPx = options.minPanelPx !== undefined ? Number(options.minPanelPx) : 220
+  const minScrollPx = options.minScrollPx !== undefined ? Number(options.minScrollPx) : 120
+  const mapActionTop = Number(options.mapActionTop) || 0
+  const actionCollapsed = options.actionMenuCollapsed !== false
+  const actionHeightRpx = actionCollapsed
+    ? (options.actionCollapsedHeightRpx !== undefined ? Number(options.actionCollapsedHeightRpx) : 72)
+    : (options.actionExpandedHeightRpx !== undefined ? Number(options.actionExpandedHeightRpx) : 292)
+  const actionBottom = mapActionTop > 0
+    ? mapActionTop + Math.round(actionHeightRpx * rpxToPx)
+    : (Number(uiShell.navPlaceholderHeight) || 0)
+  const topPx = actionBottom + topGapPx
   const panelMaxHeight = Math.max(minPanelPx, Math.floor(windowHeight - topPx - bottomPx))
   const chromePx = Math.round(chromeRpx * rpxToPx)
   const panelScrollHeight = Math.max(minScrollPx, panelMaxHeight - chromePx)
   return {
     panelMaxHeight,
     panelScrollHeight,
-    panelExpandedStyle: `max-height:${panelMaxHeight}px;`
+    panelExpandedStyle: `max-height:${panelMaxHeight}px; overflow:hidden;`
   }
 }
 

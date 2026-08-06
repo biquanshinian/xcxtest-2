@@ -1,21 +1,25 @@
 <page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
 <view class="map-page {{themeClass}}">
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
-    <view class="top-nav">
-      <view class="nav-back {{isDirectEntry ? 'nav-back--home' : ''}}" bindtap="goBack"><text>‹</text></view>
-      <text class="nav-title">{{stationName}} 轨道追踪</text>
-      <view class="nav-placeholder"></view>
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">{{stationName}} 轨道追踪</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
     </view>
-    <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" style="top: {{mapActionTop}}px;">
-      <view class="map-action-header">
-        <text class="map-action-title">地图工具</text>
-        <view class="map-action-toggle-btn" bindtap="toggleActionMenu"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
-      </view>
-      <view class="map-action-stack" wx:if="{{!actionMenuCollapsed}}">
-        <view class="map-action-btn" bindtap="centerOnStation"><text>定位空间站</text></view>
-        <view class="map-action-btn" bindtap="refreshOrbitData"><text>{{refreshing ? '刷新中…' : '刷新轨道'}}</text></view>
-        <view class="map-action-btn" bindtap="resetMapView"><text>重置视角</text></view>
-      </view>
+  </view>
+  <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" wx:if="{{mapActionTop > 0}}" style="top: {{mapActionTop}}px;">
+    <view class="map-action-header">
+      <text class="map-action-title">地图工具</text>
+      <view class="map-action-toggle-btn" bindtap="toggleActionMenu"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
+    </view>
+    <view class="map-action-stack" wx:if="{{!actionMenuCollapsed}}">
+      <view class="map-action-btn" bindtap="centerOnStation"><text>定位空间站</text></view>
+      <view class="map-action-btn" bindtap="refreshOrbitData"><text>{{refreshing ? '刷新中…' : '刷新轨道'}}</text></view>
+      <view class="map-action-btn" bindtap="resetMapView"><text>重置视角</text></view>
     </view>
   </view>
 

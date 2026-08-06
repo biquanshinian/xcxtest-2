@@ -1,11 +1,11 @@
 /* membership.wxss — 星际通行证（金色会员风格，参考腾讯文档会员中心） */
 
 .container {
-  background: #000000;
+  background: #0B0C0E;
 }
 
 .content-scroll {
-  padding: 0 30rpx;
+  padding: 0 var(--space-lg);
 }
 
 /* ═══════════ 金色会员主卡 ═══════════
@@ -210,7 +210,6 @@
   padding: 30rpx 24rpx;
   border-radius: 24rpx;
   background: rgba(255, 200, 100, 0.06);
-  border: 1px solid rgba(255, 200, 100, 0.14);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -250,7 +249,6 @@
   padding: 28rpx 26rpx;
   border-radius: 22rpx;
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 .product-info {
@@ -301,7 +299,6 @@
 .manage-card {
   border-radius: 22rpx;
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.07);
   overflow: hidden;
 }
 
@@ -432,8 +429,10 @@
   width: 580rpx;
   padding: 60rpx 40rpx 40rpx;
   border-radius: 32rpx;
-  background: linear-gradient(165deg, #FFFBEE 0%, #FFF0C8 60%, #FFE7AC 100%);
-  border: 1px solid #F2D48A;
+  /* 会员金保留：改半透明金色渐变 + 磨砂，blur 失效时仍近实底可读 */
+  background: linear-gradient(165deg, rgba(255, 251, 238, 0.92) 0%, rgba(255, 240, 200, 0.88) 60%, rgba(255, 231, 172, 0.88) 100%);
+  backdrop-filter: blur(32rpx) saturate(150%);
+  -webkit-backdrop-filter: blur(32rpx) saturate(150%);
   text-align: center;
   position: relative;
 }
@@ -575,8 +574,6 @@
 /* 权益宫格：白卡 + 暖金点缀 */
 .theme-light .benefit-cell {
   background: #FFFCF3;
-  border-color: #F2E3B8;
-  box-shadow: var(--shadow-card);
 }
 
 .theme-light .benefit-cell-name {
@@ -590,8 +587,6 @@
 /* 产品与账户管理：白卡 */
 .theme-light .product-item {
   background: var(--color-bg-card);
-  border-color: var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 
 .theme-light .product-name {
@@ -612,8 +607,6 @@
 
 .theme-light .manage-card {
   background: var(--color-bg-card);
-  border-color: var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 
 .theme-light .manage-divider {

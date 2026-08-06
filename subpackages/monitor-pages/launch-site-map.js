@@ -8,6 +8,8 @@ Page({
   _fallbackTab: '/pages/monitor/monitor',
   data: {
     statusBarHeight: 44,
+    menuButtonWidth: 88,
+    isDirectEntry: false,
     capsuleTop: 0,
     capsuleHeight: 32,
     mapActionTop: 0,

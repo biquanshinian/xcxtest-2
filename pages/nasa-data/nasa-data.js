@@ -98,6 +98,7 @@ Page({
   onTabTap(e) {
     const idx = parseInt(e.currentTarget.dataset.index)
     if (idx === this.data.activeTab) return
+    try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
     this.setData({ activeTab: idx })
     if (idx === 0 && !this.data.marsPhotos.length && !this.data.marsLoading) this.loadMarsPhotos()
     if (idx === 1 && !this.data.eonetList.length && !this.data.eonetLoading) this.loadEONETData()
@@ -304,6 +305,7 @@ Page({
   onMarsRoverSwitch(e) {
     const rover = e.currentTarget.dataset.value
     if (rover === this.data.marsRover) return
+    try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
     this._marsLoading = false
     this.setData({
       marsRover: rover,

@@ -1,5 +1,5 @@
 page {
-  background: #000;
+  background: #0B0C0E;
   overflow: hidden;
   height: 100vh;
 }
@@ -24,7 +24,7 @@ page {
   justify-content: center;
   padding: 0 48rpx;
   box-sizing: border-box;
-  background: radial-gradient(ellipse at center, rgba(52, 199, 89, 0.12), #000 70%);
+  background: radial-gradient(ellipse at center, rgba(52, 199, 89, 0.12), #0B0C0E 70%);
 }
 
 .moments-map-fallback-title {
@@ -44,9 +44,7 @@ page {
 }
 
 .glass-card {
-  background: rgba(18, 18, 20, 0.78);
-  backdrop-filter: blur(18rpx);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-glass);
 }
 
 .state-card {
@@ -88,7 +86,7 @@ page {
 }
 
 .panel-focus {
-  color: #9FD0FF;
+  color: var(--color-brand);
 }
 
 .panel-badge {
@@ -233,7 +231,7 @@ page {
 }
 
 .detail-pill--blue {
-  background: rgba(10, 132, 255, 0.16);
+  background: rgba(59, 130, 246, 0.16);
 }
 
 .detail-pill text {
@@ -274,7 +272,6 @@ page {
 /* ========== 明亮主题（theme-light）覆盖 ========== */
 .theme-light .glass-card {
   background: rgba(255, 255, 255, 0.85);
-  border-color: var(--color-divider);
 }
 
 .theme-light .state-card {
@@ -298,7 +295,7 @@ page {
 }
 
 .theme-light .panel-focus {
-  color: #0A84FF;
+  color: var(--color-brand);
 }
 
 .theme-light .panel-badge {
@@ -365,7 +362,7 @@ page {
 }
 
 .theme-light .detail-pill--blue {
-  background: rgba(10, 132, 255, 0.12);
+  background: rgba(59, 130, 246, 0.12);
 }
 
 .theme-light .detail-pill text {

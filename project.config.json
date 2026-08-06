@@ -115,6 +115,10 @@
         "type": "glob"
       },
       {
+        "value": "tools/**",
+        "type": "glob"
+      },
+      {
         "value": "scripts/**",
         "type": "glob"
       },

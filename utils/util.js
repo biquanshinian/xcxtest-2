@@ -173,8 +173,8 @@ const ROCKET_IMAGE_MAP = {
   '8 a': '火箭配置图/Long March 8A CZ-8A_SatNet_LEO-14.jpg',
   '6a': '火箭配置图/Long-March-6A-CZ-6A_SatNet_LEO_Group_05.jpg',
   '6 a': '火箭配置图/Long-March-6A-CZ-6A_SatNet_LEO_Group_05.jpg',
-  '7a': '火箭配置图/Long March 7A.jpg',
-  '7 a': '火箭配置图/Long March 7A.jpg',
+  '7a': '火箭配置图/Long March 7A.png',
+  '7 a': '火箭配置图/Long March 7A.png',
   '2c': '火箭配置图/LongMarch2C.jpg',
   '2 c': '火箭配置图/LongMarch2C.jpg',
   '3be': '火箭配置图/Long_March_3BE.jpg',
@@ -201,9 +201,10 @@ const ROCKET_IMAGE_MAP = {
   'ariane 64': '火箭配置图/Ariane 64.jpg',
   'ariane 6': '火箭配置图/Ariane 64.jpg',
 
-  'cz-7a': '火箭配置图/CZ-7A_YG-45.jpg',
-  'cz7a': '火箭配置图/CZ-7A_YG-45.jpg',
-  'cz 7a': '火箭配置图/CZ-7A_YG-45.jpg',
+  // 与后台 media_assets / COS 一致（Long March 7A.png）；禁止再指向任务特化图 CZ-7A_YG-45
+  'cz-7a': '火箭配置图/Long March 7A.png',
+  'cz7a': '火箭配置图/Long March 7A.png',
+  'cz 7a': '火箭配置图/Long March 7A.png',
   'long march 11h': '火箭配置图/Long March 11H.jpg',
   'long march 2d': '火箭配置图/Long March 2D.jpg',
   'long march 2fg': '火箭配置图/Long March 2FG.jpg',
@@ -260,7 +261,7 @@ const ROCKET_IMAGE_MAP = {
   'long march 4 b': '火箭配置图/Long_March_4B_rocket.jpg',
   'long march 8a': '火箭配置图/Long March 8A CZ-8A_SatNet_LEO-14.jpg',
   'long march 6a': '火箭配置图/Long-March-6A-CZ-6A_SatNet_LEO_Group_05.jpg',
-  'long march 7a': '火箭配置图/Long March 7A.jpg',
+  'long march 7a': '火箭配置图/Long March 7A.png',
   'long march 2c': '火箭配置图/LongMarch2C.jpg',
   'long march 12a': '火箭配置图/CZ-12A Long March 12A.jpg',
   'long march 12b': '火箭配置图/LongMarch12B.jpg',
@@ -338,6 +339,35 @@ function lookupRocketImageKeyByName(rocketName) {
   return ''
 }
 
+/**
+ * 配图别名展开：CZ / Chang Zheng → Long March（优先试规范英文名，避免 fuzzy 命中任务特化文件名）。
+ * 例：CZ-7A → Long March 7A，与详情头图/字典 canonical 一致。
+ */
+function expandRocketNameAliasesForImage(rocketName) {
+  const raw = rocketName == null ? '' : String(rocketName).trim()
+  if (!raw) return []
+  const norm = raw
+    .toLowerCase()
+    .replace(/[._/\\-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const out = []
+  const push = (v) => {
+    if (!v || typeof v !== 'string') return
+    const t = v.trim()
+    if (!t) return
+    if (out.some((x) => x.toLowerCase() === t.toLowerCase())) return
+    out.push(t)
+  }
+  const cz = norm.match(/^(?:cz|chang\s*zheng)\s*(\d+)\s*([a-z]+)?$/i)
+  if (cz) {
+    const letters = cz[2] ? String(cz[2]).toUpperCase() : ''
+    push(`Long March ${cz[1]}${letters}`)
+  }
+  push(raw)
+  return out
+}
+
 function getRocketImage(rocketName) {
   if (!rocketName || typeof rocketName !== 'string') {
     return resolveRocketImagePath(DEFAULT_ROCKET_IMAGE)
@@ -348,17 +378,29 @@ function getRocketImage(rocketName) {
     return resolveRocketImagePath(DEFAULT_ROCKET_IMAGE)
   }
 
+  const candidates = expandRocketNameAliasesForImage(rawRocketTrimmed)
+  let fuzzyFallback = ''
+
   // 1) 后台 media_assets 模糊匹配优先（动态/GIF 生效；getCachedRocketConfig 内会自动走本地缓存）
-  const fuzzyCloud = findFuzzyRocketConfigUrl(rawRocketTrimmed)
-  if (fuzzyCloud && String(fuzzyCloud).trim()) {
-    return resolveRocketHttpsToLocal(String(fuzzyCloud).trim())
+  //    别名候选按「Long March… → 原始名」顺序，避免 CZ-7A 先命中 CZ-7A_YG-45 任务特化图
+  for (let i = 0; i < candidates.length; i++) {
+    const fuzzyCloud = findFuzzyRocketConfigUrl(candidates[i])
+    if (!fuzzyCloud || !String(fuzzyCloud).trim()) continue
+    const resolved = resolveRocketHttpsToLocal(String(fuzzyCloud).trim())
+    if (!resolved) continue
+    if (!isDefaultRocketSrc(resolved)) return resolved
+    if (!fuzzyFallback) fuzzyFallback = resolved
   }
 
   // 2) 字典 fallback：DB 未命中时，按字典 key 拼 COS 直链（仍受本地缓存保护）
-  const fallbackKey = lookupRocketImageKeyByName(rawRocketTrimmed)
-  if (fallbackKey) {
-    return resolveRocketImagePath(fallbackKey)
+  for (let i = 0; i < candidates.length; i++) {
+    const fallbackKey = lookupRocketImageKeyByName(candidates[i])
+    if (fallbackKey) {
+      return resolveRocketImagePath(fallbackKey)
+    }
   }
+
+  if (fuzzyFallback) return fuzzyFallback
 
   // 3) 默认占位
   return resolveRocketImagePath(DEFAULT_ROCKET_IMAGE)
@@ -372,6 +414,36 @@ function rocketConfigurationDisplayName(rocketConfiguration) {
   if (typeof n === 'string' && n.trim()) return n.trim()
   if (typeof fn === 'string' && fn.trim()) return fn.trim()
   return ''
+}
+
+/**
+ * 配图匹配候选名：full_name 通常更具体（Falcon 9 Block 5 / 带变体型号），
+ * 再短名 name、展示用 rocketName；并对 CZ/Chang Zheng 展开 Long March 别名。
+ * 去重后按长度倒序，优先更具体的命中。
+ */
+function collectRocketImageMatchNames(rocketName, rocketConfiguration) {
+  const out = []
+  const push = (v) => {
+    if (v == null || typeof v !== 'string') return
+    const t = String(v).trim()
+    if (!t) return
+    const key = t.toLowerCase()
+    if (out.some((x) => x.toLowerCase() === key)) return
+    out.push(t)
+  }
+  const cfg = rocketConfiguration && typeof rocketConfiguration === 'object' ? rocketConfiguration : null
+  if (cfg) {
+    push(cfg.full_name)
+    push(cfg.name)
+  }
+  push(rocketName)
+  // 别名展开（CZ-7A → Long March 7A），保证列表/详情/倒计时命中同一张 canonical 配置图
+  const base = out.slice()
+  for (let i = 0; i < base.length; i++) {
+    const aliases = expandRocketNameAliasesForImage(base[i])
+    for (let j = 0; j < aliases.length; j++) push(aliases[j])
+  }
+  return out.sort((a, b) => b.length - a.length)
 }
 
 function isRemoteRocketSrc(u) {
@@ -430,17 +502,34 @@ function finalizeRocketDisplaySrc(candidate) {
   return resolveRocketImagePath(raw.replace(/^\/+/, ''))
 }
 
+/** 按候选名依次 getRocketImage，优先返回首个非 default 结果 */
+function resolveRocketImageByMatchNames(names) {
+  if (!Array.isArray(names) || !names.length) return ''
+  let fallback = ''
+  for (let i = 0; i < names.length; i++) {
+    const url = finalizeRocketDisplaySrc(getRocketImage(names[i]))
+    if (!url) continue
+    if (!isDefaultRocketSrc(url)) return url
+    if (!fallback) fallback = url
+  }
+  return fallback
+}
+
 /**
  * 列表/倒计时/详情共用：优先非 default 的已盖章远程图；default 可被 getRocketImage 升级。
  * forceRecompute=true 时优先按火箭名重算，但若重算结果是 default 而已有非 default 盖章，则保留盖章（防二次刷新降级）。
+ * 配图名同时尝试 configuration.full_name / name / rocketName，避免短名误配而详情用更全名命中。
  */
 function resolveMissionRocketImage(imagePath, rocketName, rocketConfiguration, forceRecompute) {
+  const matchNames = collectRocketImageMatchNames(rocketName, rocketConfiguration)
   const fromCfg = rocketConfigurationDisplayName(rocketConfiguration)
   const nameArg = rocketName && typeof rocketName === 'string' ? String(rocketName).trim() : ''
-  const trimmedName = (nameArg || fromCfg).trim()
+  const trimmedName = (nameArg || fromCfg || (matchNames[0] || '')).trim()
 
   const stampedRaw = finalizeRocketDisplaySrc(typeof imagePath === 'string' ? imagePath : '')
-  const rebuilt = trimmedName ? finalizeRocketDisplaySrc(getRocketImage(trimmedName)) : ''
+  const rebuilt = matchNames.length
+    ? resolveRocketImageByMatchNames(matchNames)
+    : (trimmedName ? finalizeRocketDisplaySrc(getRocketImage(trimmedName)) : '')
 
   const stampedRemote = isRemoteRocketSrc(stampedRaw)
   const rebuiltRemote = isRemoteRocketSrc(rebuilt)
@@ -466,7 +555,10 @@ function resolveMissionRocketImage(imagePath, rocketName, rocketConfiguration, f
   if (rebuilt) return rebuilt
   if (stampedRaw) return stampedRaw
 
-  if (trimmedName) {
+  if (matchNames.length) {
+    const fuzzyDone = resolveRocketImageByMatchNames(matchNames)
+    if (fuzzyDone) return fuzzyDone
+  } else if (trimmedName) {
     const fuzzy = getRocketImage(trimmedName)
     const fuzzyDone = finalizeRocketDisplaySrc(typeof fuzzy === 'string' ? fuzzy : '')
     if (fuzzyDone) return fuzzyDone

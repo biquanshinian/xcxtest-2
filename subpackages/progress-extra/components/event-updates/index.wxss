@@ -9,8 +9,6 @@
 }
 
 .event-updates-card {
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-left: 4rpx solid #007AFF;
 }
 
 /* scroll-view 需明确高度，否则自定义 refresher 插槽 height:100% 会为 0，看不到转圈与文案 */
@@ -35,7 +33,7 @@
   gap: 8rpx;
   padding: 16rpx 0;
   font-size: 26rpx;
-  color: #007AFF;
+  color: #3B82F6;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -69,7 +67,7 @@
 
 .event-update-time {
   font-size: 22rpx;
-  color: #007AFF;
+  color: #3B82F6;
   font-weight: 500;
 }
 
@@ -183,7 +181,6 @@
   border-radius: 16rpx;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .event-live-cover-wrap {
@@ -408,8 +405,6 @@
 }
 
 .theme-light .event-updates-card {
-  border-color: var(--color-divider);
-  border-left: 4rpx solid #007AFF;
 }
 
 .theme-light .event-update-item--pressed {
@@ -441,7 +436,6 @@
 /* 直播卡片外壳转浅色；封面/角标/播放浮层压在视频画面上保持深色 */
 .theme-light .event-live-card {
   background: rgba(0, 0, 0, 0.04);
-  border-color: var(--color-divider);
 }
 
 .theme-light .event-live-action-text {
@@ -479,7 +473,6 @@
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.4; transform: scale(0.75); }
 }
-
 
 /* 分享小图标（自 pages/progress/progress.wxss 迁入） */
 .icon-share--event-update {
