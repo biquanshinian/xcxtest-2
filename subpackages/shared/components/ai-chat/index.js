@@ -93,6 +93,25 @@ function getRemainingQuota() {
   return Math.max(0, MAX_DAILY_QUESTIONS + bonus - info.count)
 }
 
+/**
+ * 火箭观礼快捷键与我的页/详情页观礼入口同显隐：
+ * 过审开关未确认开启前不渲染 requireWatchParty 项（failClosed 默认隐藏）。
+ * 带 icon 的项（观礼）经 icon-cache 解析：命中走本地 wxfile，未命中展示压缩 thumb 并后台落盘。
+ */
+function filterQuickShortcuts(watchPartyOn) {
+  const list = watchPartyOn
+    ? QUICK_SHORTCUTS
+    : QUICK_SHORTCUTS.filter((item) => !(item && item.requireWatchParty))
+  return list.map((item) => {
+    if (!item || !item.icon) return item
+    let icon = item.icon
+    try {
+      icon = require('../../../../utils/icon-cache.js').getCachedIcon(item.icon)
+    } catch (e) {}
+    return Object.assign({}, item, { icon })
+  })
+}
+
 Component({
   behaviors: [composerInput],
 
@@ -124,7 +143,7 @@ Component({
     sending: false,
     scrollTarget: '',
     quickQuestions: QUICK_QUESTIONS,
-    quickShortcuts: QUICK_SHORTCUTS,
+    quickShortcuts: filterQuickShortcuts(false),
     inputFocus: false,
     errorMsgId: '',
     themeClass: '',
@@ -160,6 +179,7 @@ Component({
         visible: isPageMode
       })
       this._initFestivalHat()
+      this._refreshQuickShortcuts()
       this._preloadLaunchData()
 
       // 详情页不自动聚焦：避免进页假抬键盘高度导致输入栏悬空；由用户点击后再上收
@@ -180,6 +200,8 @@ Component({
       this.syncTheme()
       // 法定假日生命周期：回前台按当天再解析一次（跨日/跨假自动戴脱帽）
       if (!isFestivalHatDevMode()) this._initFestivalHat()
+      // 一键过审后回到本页也要立即收起观礼快捷键（与我的页刷新语义一致）
+      this._refreshQuickShortcuts()
     }
     // hide：键盘清零由 composer-input-behavior.pageLifetimes.hide 处理
   },
@@ -195,6 +217,34 @@ Component({
 
     _isPageMode() {
       return this.data.isPageMode || String(this.properties.mode || '') === 'page'
+    },
+
+    /**
+     * 火箭观礼快捷键显隐：强制刷新过审开关（attached / 页面 show 各查一次，
+     * 进行中不重复发起）。开关关闭或读取失败一律隐藏（failClosed）。
+     */
+    _refreshQuickShortcuts() {
+      if (this._wpShortcutPending) return
+      this._wpShortcutPending = true
+      let flagPromise = null
+      try {
+        flagPromise = require('../../../../utils/watch-party-feature.js').isWatchPartyEnabled(true)
+      } catch (e) {
+        flagPromise = null
+      }
+      if (!flagPromise || typeof flagPromise.then !== 'function') {
+        this._wpShortcutPending = false
+        return
+      }
+      flagPromise
+        .then((on) => {
+          const next = filterQuickShortcuts(!!on)
+          if (next.length !== (this.data.quickShortcuts || []).length) {
+            this.setData({ quickShortcuts: next })
+          }
+        })
+        .catch(() => {})
+        .then(() => { this._wpShortcutPending = false })
     },
 
     /**

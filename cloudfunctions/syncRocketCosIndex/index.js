@@ -1,5 +1,5 @@
 /**
- * 列举 COS 桶「火箭配置图/」下图片，同步到云数据库 media_assets。
+ * 列举 COS 桶「火箭配置图/」「火箭配置图-机娘/」下图片，同步到云数据库 media_assets。
  * - key 与 COS 对象 Key 一致（经 normalize），url 为公开访问地址
  * - sourceTag = cos-rocket-sync 的记录与 COS 对齐；删除桶中已不存在的同步项
  * - sourceTag = manual / admin-removed 的记录不修改、不删除
@@ -16,7 +16,8 @@ const db = cloud.database()
 
 const COLLECTION = 'media_assets'
 const TOMBSTONE_COLLECTION = 'media_asset_tombstones'
-const PREFIX = '火箭配置图/'
+/** 原图与机娘风格并列目录（stem 对齐；机娘可为子集） */
+const PREFIXES = ['火箭配置图/', '火箭配置图-机娘/']
 const SOURCE_TAG = 'cos-rocket-sync'
 /** 人工维护记录：同步不得覆盖 */
 const PROTECTED_SOURCE_TAGS = new Set(['manual', 'admin-removed'])
@@ -39,6 +40,11 @@ function normalizeKey(key) {
     .replace(/\\/g, '/')
 }
 
+function isRocketConfigMediaKey(key) {
+  const k = normalizeKey(key)
+  return PREFIXES.some((p) => k.startsWith(p))
+}
+
 function createCOSClient() {
   return new COS({
     SecretId: process.env.TENCENTCLOUD_SECRETID,
@@ -57,10 +63,10 @@ function isImageObjectKey(key) {
   return /\.(jpe?g|png|webp|gif)$/i.test(key)
 }
 
-async function listRocketImageObjectsFromCos() {
-  const cos = createCOSClient()
+async function listObjectsUnderPrefix(cos, prefix) {
   const out = []
   let marker = ''
+  const dirPrefix = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix
 
   while (true) {
     const resp = await new Promise((resolve, reject) => {
@@ -68,7 +74,7 @@ async function listRocketImageObjectsFromCos() {
         {
           Bucket: COS_BUCKET,
           Region: COS_REGION,
-          Prefix: PREFIX,
+          Prefix: prefix,
           Marker: marker,
           MaxKeys: 1000
         },
@@ -77,7 +83,6 @@ async function listRocketImageObjectsFromCos() {
     })
 
     const contents = Array.isArray(resp.Contents) ? resp.Contents : []
-    const dirPrefix = PREFIX.endsWith('/') ? PREFIX.slice(0, -1) : PREFIX
 
     for (const obj of contents) {
       const rawKey = obj.Key || ''
@@ -103,6 +108,21 @@ async function listRocketImageObjectsFromCos() {
   return out
 }
 
+async function listRocketImageObjectsFromCos() {
+  const cos = createCOSClient()
+  const out = []
+  const seen = new Set()
+  for (const prefix of PREFIXES) {
+    const rows = await listObjectsUnderPrefix(cos, prefix)
+    for (const row of rows) {
+      if (seen.has(row.key)) continue
+      seen.add(row.key)
+      out.push(row)
+    }
+  }
+  return out
+}
+
 async function loadAllRocketConfigMediaDocs() {
   const all = []
   const batch = 100
@@ -113,7 +133,8 @@ async function loadAllRocketConfigMediaDocs() {
       .collection(COLLECTION)
       .where({
         key: db.RegExp({
-          regexp: '^火箭配置图/',
+          // 原图 火箭配置图/… 与机娘 火箭配置图-机娘/…
+          regexp: '^火箭配置图(/|-机娘/)',
           options: ''
         })
       })
@@ -129,7 +150,7 @@ async function loadAllRocketConfigMediaDocs() {
     if (skip > 8000) break
   }
 
-  return all
+  return all.filter((d) => isRocketConfigMediaKey(d && d.key))
 }
 
 /** 后台「删记录」写入的墓碑 key，同步时不得重新 add */

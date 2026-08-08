@@ -2,8 +2,10 @@ const { getLaunchDetail, mapRawUpdatesToLaunchUpdates } = require('./utils/api-l
 const { getUpcomingMissions, getCompletedMissions } = require('../../utils/api-launch-list.js')
 const { getRoadClosureNotice } = require('../../utils/api-road-closure.js')
 const { getVoteStats, castVote, fetchLl2LaunchTimeline, fetchLl2LaunchUpdates } = require('../../utils/api-app-services.js')
-const { formatDate, getCountdown, resolveMissionRocketImage, isDefaultRocketSrc, shouldReplaceRocketImage } = require('../../utils/util.js')
+const { formatDate, getCountdown, resolveMissionRocketImage, resolveMissionRocketImageFresh, isDefaultRocketSrc, shouldReplaceRocketImage, shouldReplaceRocketImageForArt } = require('../../utils/util.js')
 const { loadCloudMediaMap, resolveMediaUrl } = require('../../utils/image-config.js')
+const rocketArtUtil = require('../../utils/rocket-config-art.js')
+const { isMechaRocketSrc } = rocketArtUtil
 const { isPermissionDenied, getPermissionDeniedMessage } = require('./utils/single-page.js')
 const { subscribeLaunch, unsubscribeLaunch, isSubscribed } = require('../../utils/subscribe.js')
 const { isOaAlertReady, peekOaAlertReady } = require('../../utils/oa-alert.js')
@@ -459,6 +461,7 @@ Page({
 
   onShow() {
     this.setData({ pageVisible: true })
+    rocketArtUtil.applyRocketConfigArtIfNeeded(this)
     // 从 profile 取消提醒后返回时刷新订阅状态（仅看本任务是否已写入订阅，不含 OA 全覆盖）
     const mission = this.data.mission
     if (mission && mission.id) {
@@ -568,7 +571,14 @@ Page({
         if (this.data.watchPartyEntry) this.setData({ watchPartyEntry: null })
         return
       }
-      this.setData({ watchPartyEntry: entry })
+      // 观礼入口统一图标（与我的页 / 星问AI快捷键同图，走本地图标缓存）
+      let watchPartyIcon = ''
+      try {
+        watchPartyIcon = require('../../utils/icon-cache.js').getCachedIcon(
+          require('../../utils/watch-party-feature.js').WATCH_PARTY_ICON
+        )
+      } catch (e) {}
+      this.setData({ watchPartyEntry: entry, watchPartyIcon })
     }).catch(() => {
       if (this.data.watchPartyEntry) this.setData({ watchPartyEntry: null })
     })
@@ -1210,11 +1220,18 @@ Page({
 
     // 仅当详情重算仍是 default 时，用列表非 default 盖章兜底；
     // 两边都是非 default 时以 resolveMissionRocketImage 为准（与首页卡片同源），禁止列表旧图锁死头图
+    // 原图模式禁止机娘 HTTPS 盖章；wxfile 无法判定风格，一律不拿列表本地缓存盖过详情重算
+    const listStamp = listMission && listMission.rocketImage ? String(listMission.rocketImage) : ''
+    const listStampIsWxfile = /^wxfile:\/\//i.test(listStamp)
+    const listStampIsMechaBlocked =
+      rocketArtUtil.getRocketConfigArtStyle() !== 'mecha' && isMechaRocketSrc(listStamp)
     if (
       listMission &&
-      listMission.rocketImage &&
-      !isDefaultRocketSrc(listMission.rocketImage) &&
-      isDefaultRocketSrc(normalizedMission.rocketImage)
+      listStamp &&
+      !isDefaultRocketSrc(listStamp) &&
+      isDefaultRocketSrc(normalizedMission.rocketImage) &&
+      !listStampIsWxfile &&
+      !listStampIsMechaBlocked
     ) {
       normalizedMission.rocketImage = listMission.rocketImage
     }
@@ -3146,6 +3163,28 @@ Page({
       true
     )
     if (!shouldReplaceRocketImage(mission.rocketImage, nextImage)) return
+    this.setData({
+      'mission.rocketImage': nextImage,
+      shareImage: nextImage
+    })
+    this.ensureShareImageHttpUrl(nextImage)
+  },
+
+  /** 「我的」切换火箭配置图艺术风格后重算详情头图 */
+  refreshRocketConfigArt() {
+    const mission = this.data.mission
+    if (!mission) return
+    const cfg = mission.rocketConfiguration
+    const hasName = !!(mission.rocketName && String(mission.rocketName).trim())
+    const hasCfg = !!(
+      cfg &&
+      typeof cfg === 'object' &&
+      ((typeof cfg.name === 'string' && cfg.name.trim()) ||
+        (typeof cfg.full_name === 'string' && cfg.full_name.trim()))
+    )
+    if (!hasName && !hasCfg) return
+    const nextImage = resolveMissionRocketImageFresh(mission.rocketName, mission.rocketConfiguration)
+    if (!shouldReplaceRocketImageForArt(mission.rocketImage, nextImage)) return
     this.setData({
       'mission.rocketImage': nextImage,
       shareImage: nextImage

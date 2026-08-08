@@ -14,7 +14,7 @@ const {
   resolveVoteChoiceMeta,
   DEFAULT_ROCKET_IMAGE
 } = require('../../../utils/index-page-helpers.js')
-const { resolveMissionRocketImage, isDefaultRocketSrc } = require('../../../utils/util.js')
+const { resolveMissionRocketImage, resolveMissionRocketImageFresh, isDefaultRocketSrc } = require('../../../utils/util.js')
 const { loadCloudMediaMap } = require('../../../utils/image-config.js')
 const { markDownloadFailed } = require('../../../utils/download-fail-cache.js')
 const { getUpcomingMissions, getCompletedMissions } = require('../../../utils/api-launch-list.js')
@@ -34,14 +34,9 @@ const {
 } = require('./checkin.js')
 const { getDailyQuestion, answerQuestion, getQuizStats, verifyQuizSave } = require('./space-quiz.js')
 
-/** 与首页任务卡 / mapLaunchToListItem 同源 */
+/** 与首页任务卡 / mapLaunchToListItem 同源；忽略外来盖章，按当前艺术风格重算 */
 function resolveHomeRocketImage(stamped, rocketName, rocketConfiguration) {
-  return resolveMissionRocketImage(
-    stamped || '',
-    rocketName || '',
-    rocketConfiguration || null,
-    true
-  )
+  return resolveMissionRocketImageFresh(rocketName || '', rocketConfiguration || null)
 }
 
 const VOTE_STATS_TTL_MS = 5 * 60 * 1000
@@ -812,10 +807,8 @@ const methods = {
           patch['voteHistory[' + i + '].rocket'] = rocket
         }
         if (needImg) {
-          // 列表项 rocketImage 即首页卡片盖章图，直接复用；缺省再走同源 resolve
-          var img = (!isDefaultRocketSrc(m.rocketImage) && m.rocketImage)
-            ? m.rocketImage
-            : resolveHomeRocketImage(m.rocketImage || m.image, rocket, m.rocketConfiguration)
+          // 按当前艺术风格重算，禁止直接复用首页盖章（可能粘住机娘/原图）
+          var img = resolveHomeRocketImage('', rocket, m.rocketConfiguration)
           if (img && img !== h.rocketImage) {
             patch['voteHistory[' + i + '].rocketImage'] = img
           }
@@ -827,6 +820,27 @@ const methods = {
     } finally {
       this._voteEnrichPending = false
     }
+  },
+
+  /** 艺术风格切换：重算竞猜历史缩略图 */
+  _refreshVoteHistoryRocketArt() {
+    var history = this.data.voteHistory || []
+    if (!history.length) return
+    var patch = {}
+    for (var i = 0; i < history.length; i++) {
+      var h = history[i]
+      if (!h) continue
+      var mission = this._getMissionFromLocalCache
+        ? this._getMissionFromLocalCache(h.launchId)
+        : null
+      var rocket = h.rocket || (mission && mission.rocketName) || ''
+      var cfg = (mission && mission.rocketConfiguration) || null
+      var img = resolveMissionRocketImageFresh(rocket, cfg)
+      if (img && img !== h.rocketImage) {
+        patch['voteHistory[' + i + '].rocketImage'] = img
+      }
+    }
+    if (Object.keys(patch).length) this.setData(patch)
   },
 
   /** 与首页 onImageError / 任务卡同源 */

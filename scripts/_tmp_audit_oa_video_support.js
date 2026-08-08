@@ -1,0 +1,288 @@
+/**
+ * 冒烟：公众号日更流水线视频支持
+ * 1) oaStudioHelpers 视频提取 / 截帧封面 / 标注 / 丢图清理
+ * 2) gatherTopics（假 db）：视频事件选题带 videos + 封面截图进配图池
+ */
+const assert = require('assert')
+const helpers = require('../cloudfunctions/adminGateway/oaStudioHelpers')
+const { createOaContentStudioApi } = require('../cloudfunctions/adminGateway/oaContentStudio')
+
+const COS = 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com'
+let passed = 0
+const check = (name, fn) => {
+  try {
+    fn()
+    passed += 1
+    console.log('  ok -', name)
+  } catch (e) {
+    console.error('  FAIL -', name, '\n   ', e.message)
+    process.exitCode = 1
+  }
+}
+
+console.log('[1] helpers')
+
+check('pickImageUrls 放行万象截帧、仍剔除裸视频', () => {
+  const snap = `${COS}/t/v.mp4?ci-process=snapshot&time=1&format=jpg&width=720`
+  const urls = helpers.pickImageUrls([`${COS}/t/v.mp4`, snap, `${COS}/t/a.jpg`])
+  assert.deepStrictEqual(urls, [snap, `${COS}/t/a.jpg`])
+})
+
+check('pickVideoEntries：长视频（未存 COS）→ 缩略图作封面截图 + 推文页观看链', () => {
+  const list = helpers.pickVideoEntries([
+    {
+      type: 'video',
+      url: 'https://x.com/SpaceX/status/123',
+      thumbnailUrl: `${COS}/tweets/123_v0.jpg`,
+      sourceUrl: 'https://x.com/SpaceX/status/123',
+      videoUrl: 'https://video.twimg.com/amplify_video/123/vid/720x720/a.mp4',
+      isLongVideo: true
+    }
+  ])
+  assert.strictEqual(list.length, 1)
+  assert.strictEqual(list[0].isLong, true)
+  assert.strictEqual(list[0].posterUrl, `${COS}/tweets/123_v0.jpg`)
+  assert.strictEqual(list[0].pageUrl, 'https://x.com/SpaceX/status/123')
+  assert.strictEqual(list[0].watchUrl, 'https://x.com/SpaceX/status/123')
+})
+
+check('pickVideoEntries：COS 短视频无缩略图 → 万象截帧兜底；观看链=COS 原片', () => {
+  const list = helpers.pickVideoEntries([
+    { type: 'video', url: `${COS}/tweets/456_video0.mp4`, sourceUrl: 'https://x.com/s/456' }
+  ])
+  assert.strictEqual(list.length, 1)
+  assert.ok(/ci-process=snapshot/.test(list[0].posterUrl), 'posterUrl 应为截帧: ' + list[0].posterUrl)
+  assert.strictEqual(list[0].watchUrl, `${COS}/tweets/456_video0.mp4`)
+  assert.strictEqual(list[0].isLong, false)
+})
+
+check('pickVideoEntries：观看链优先 COS 压缩预览（回填/同步产物）', () => {
+  const list = helpers.pickVideoEntries([
+    {
+      type: 'video',
+      url: `${COS}/tweets/789_video0.mp4`,
+      previewUrl: `${COS}/tweets/preview/789_video0_fast.mp4`,
+      sourceUrl: 'https://x.com/s/789'
+    }
+  ])
+  assert.strictEqual(list[0].watchUrl, `${COS}/tweets/preview/789_video0_fast.mp4`)
+})
+
+check('pickVideoEntries：回填终态（isLongVideo 已摘、带 wasLongVideo/durationSec）仍判长视频', () => {
+  const list = helpers.pickVideoEntries([
+    {
+      type: 'video',
+      url: `${COS}/tweets/123_video_bf0.mp4`,
+      previewUrl: `${COS}/tweets/preview/123_video_bf0_fast.mp4`,
+      thumbnailUrl: `${COS}/tweets/123_v0.jpg`,
+      sourceUrl: 'https://x.com/s/123',
+      wasLongVideo: true,
+      durationSec: 3960
+    }
+  ])
+  assert.strictEqual(list[0].isLong, true, 'wasLongVideo/durationSec 应判长')
+  assert.strictEqual(list[0].watchUrl, `${COS}/tweets/preview/123_video_bf0_fast.mp4`)
+  assert.strictEqual(list[0].posterUrl, `${COS}/tweets/123_v0.jpg`)
+})
+
+check('pickVideoEntries：duration>120 判长视频；裸 mp4 字符串可收；去重', () => {
+  const list = helpers.pickVideoEntries(
+    [{ type: 'video', url: `${COS}/a.mp4`, duration: 300 }],
+    `${COS}/a.mp4`,
+    [`${COS}/b.mp4`]
+  )
+  assert.strictEqual(list.length, 2)
+  assert.strictEqual(list[0].isLong, true)
+  assert.ok(/ci-process=snapshot/.test(list[1].posterUrl))
+})
+
+check('annotateVideoPostersInMarkdown：补「▶」说明行，阅读原文按观看链匹配，幂等', () => {
+  const poster = `${COS}/tweets/123_v0.jpg`
+  const videos = [{ posterUrl: poster, watchUrl: 'https://x.com/s/123', isLong: true }]
+  const md = `开头\n\n![配图1](${poster})\n\n结尾`
+  const once = helpers.annotateVideoPostersInMarkdown(md, videos, { readMoreUrl: 'https://x.com/s/123' })
+  assert.ok(once.includes(`![配图1](${poster})\n\n> ▶ 长视频封面截图，完整视频点文末「阅读原文」`), once)
+  const twice = helpers.annotateVideoPostersInMarkdown(once, videos, { readMoreUrl: 'https://x.com/s/123' })
+  assert.strictEqual(twice, once, '重复标注应幂等')
+  const noLink = helpers.annotateVideoPostersInMarkdown(md, videos, { readMoreUrl: 'https://other' })
+  assert.ok(noLink.includes('> ▶ 长视频封面截图\n'), '观看链不一致时不提阅读原文')
+})
+
+check('stripMarkdownImages：丢弃视频封面时连带清掉说明行', () => {
+  const poster = `${COS}/tweets/123_v0.jpg`
+  const md = `开头\n\n![配图1](${poster})\n\n> ▶ 长视频封面截图，完整视频点文末「阅读原文」\n\n结尾`
+  const out = helpers.stripMarkdownImages(md, [poster])
+  assert.strictEqual(out, '开头\n\n结尾')
+})
+
+console.log('[2] backfillEventVideos 状态机（vm 沙箱，stub wx-server-sdk/COS）')
+
+const vm = require('vm')
+const fs = require('fs')
+const path = require('path')
+const bfSrc = fs.readFileSync(
+  path.join(__dirname, '../cloudfunctions/backfillEventVideos/index.js'),
+  'utf8'
+)
+const bfSandbox = {
+  require: (name) => {
+    if (name === 'wx-server-sdk') {
+      return { init() {}, database: () => ({ collection() { return {} } }), DYNAMIC_CURRENT_ENV: Symbol('env') }
+    }
+    if (name === 'cos-nodejs-sdk-v5') return function COSStub() {}
+    return require(name)
+  },
+  exports: {},
+  module: { exports: {} },
+  process,
+  console,
+  Buffer,
+  setTimeout,
+  clearTimeout
+}
+vm.createContext(bfSandbox)
+vm.runInContext(bfSrc, bfSandbox)
+const bf = bfSandbox.exports._internal
+
+check('needsCosBackfill：长视频（推文页 url + 直链）→ 需回填；已存 COS / 无直链信息 → 不回填', () => {
+  assert.strictEqual(
+    bf.needsCosBackfill({ type: 'video', url: 'https://x.com/s/1', videoUrl: 'https://v.twimg.com/a.mp4', isLongVideo: true }),
+    true
+  )
+  assert.strictEqual(bf.needsCosBackfill({ type: 'video', url: `${COS}/t/1_video0.mp4` }), false)
+  assert.strictEqual(bf.needsCosBackfill({ type: 'video', url: 'https://x.com/s/1' }), false)
+  assert.strictEqual(bf.needsCosBackfill({ type: 'image', url: 'https://x.com/a.jpg' }), false)
+})
+
+check('isMidBackfillState：COS 原片 + 未摘 videoUrl/isLongVideo → 中间态；终态/普通视频 → 否', () => {
+  assert.strictEqual(
+    bf.isMidBackfillState({ type: 'video', url: `${COS}/t/1_video_bf0.mp4`, videoUrl: 'https://v.twimg.com/a.mp4', isLongVideo: true }),
+    true
+  )
+  // 终态（已摘标记）与普通短视频（从未带 videoUrl）都不再处理
+  assert.strictEqual(bf.isMidBackfillState({ type: 'video', url: `${COS}/t/1_video_bf0.mp4`, previewUrl: `${COS}/t/preview/1_video_bf0_fast.mp4`, wasLongVideo: true }), false)
+  assert.strictEqual(bf.isMidBackfillState({ type: 'video', url: `${COS}/t/1_video0.mp4` }), false)
+})
+
+check('eventPreviewKey 与同步函数约定一致（folder/preview/name_fast.mp4）', () => {
+  assert.strictEqual(
+    bf.eventPreviewKey('SpaceX推文图片/123_video_bf1.mp4'),
+    'SpaceX推文图片/preview/123_video_bf1_fast.mp4'
+  )
+})
+
+check('deriveCosFolder：跟随事件已有 COS 素材目录（中文目录、preview 子目录回父级）', () => {
+  const folder = bf.deriveCosFolder([
+    { type: 'video', url: 'https://x.com/s/1', thumbnailUrl: `${COS}/SpaceX%E6%8E%A8%E6%96%87%E5%9B%BE%E7%89%87/123_v0.jpg` }
+  ])
+  assert.strictEqual(folder, 'SpaceX推文图片')
+  const fromPreview = bf.deriveCosFolder([
+    { type: 'video', url: `${COS}/t/preview/x_fast.mp4` }
+  ])
+  assert.strictEqual(fromPreview, 't')
+  assert.strictEqual(bf.deriveCosFolder([{ type: 'video', url: 'https://x.com/s/1' }]), 'EventVideos')
+})
+
+check('looksLikeMp4Head：ftyp 认 MP4，HTML 错误页拒收', () => {
+  const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 32]), Buffer.from('ftypisom....................')])
+  assert.strictEqual(bf.looksLikeMp4Head(mp4), true)
+  assert.strictEqual(bf.looksLikeMp4Head(Buffer.from('<!DOCTYPE html><html><head>....')), false)
+})
+
+console.log('[3] gatherTopics（假 db）')
+
+const makeFakeDb = (events) => {
+  const emptyRes = { data: [] }
+  const chain = (rows) => ({
+    where() { return this },
+    orderBy() { return this },
+    limit() { return this },
+    async get() { return { data: rows } }
+  })
+  return {
+    createCollection: async () => ({}),
+    collection(name) {
+      if (name === 'starship_event_updates') {
+        return {
+          ...chain(events),
+          doc: (id) => ({
+            async get() { return { data: events.find((e) => e._id === id) || null } }
+          })
+        }
+      }
+      return {
+        ...chain([]),
+        doc: () => ({ async get() { return { data: null } }, async update() { return {} } }),
+        add: async () => ({ _id: 'x' })
+      }
+    }
+  }
+}
+
+const events = [
+  {
+    _id: 'ev_long',
+    status: 'published',
+    title: '星舰 S40 完整飞行录像',
+    content: 'S40 完成第 14 次飞行测试，全程约 66 分钟。',
+    mediaList: [
+      {
+        type: 'video',
+        url: 'https://x.com/SpaceX/status/123',
+        thumbnailUrl: `${COS}/tweets/123_v0.jpg`,
+        sourceUrl: 'https://x.com/SpaceX/status/123',
+        videoUrl: 'https://video.twimg.com/amplify_video/123/vid/720x720/a.mp4',
+        isLongVideo: true
+      },
+      { type: 'image', url: `${COS}/tweets/123_0.jpg` }
+    ]
+  },
+  {
+    _id: 'ev_short',
+    status: 'published',
+    title: '发射集锦短片',
+    content: '30 秒集锦。',
+    mediaList: [
+      { type: 'video', url: `${COS}/tweets/456_video0.mp4`, previewUrl: `${COS}/tweets/preview/456_fast.mp4`, sourceUrl: 'https://x.com/s/456' }
+    ]
+  }
+]
+
+const api = createOaContentStudioApi({
+  db: makeFakeDb(events),
+  _: {},
+  ok: (data) => ({ code: 0, data }),
+  fail: (code, message) => ({ code, message }),
+  now: () => Date.now(),
+  writeOpLog: async () => {},
+  cloud: null,
+  checkPerm: () => null
+})
+
+;(async () => {
+  const res = await api.gatherTopics({ limit: 10 })
+  assert.strictEqual(res.code, 0)
+  const topics = res.data.list.filter((t) => t.sourceType === 'starship_event')
+  assert.strictEqual(topics.length, 2, '应有 2 条星舰事件选题')
+
+  const long = topics.find((t) => t.sourceId === 'ev_long')
+  check('长视频事件：videos 带 isLong + 封面截图并入配图', () => {
+    assert.strictEqual(long.videos.length, 1)
+    assert.strictEqual(long.videos[0].isLong, true)
+    assert.ok(long.imageUrls.includes(`${COS}/tweets/123_v0.jpg`), '缩略图应进配图池')
+    assert.ok(long.imageUrls.includes(`${COS}/tweets/123_0.jpg`))
+    assert.strictEqual(long.coverUrl, `${COS}/tweets/123_0.jpg`, '真图在前作封面')
+  })
+
+  const short = topics.find((t) => t.sourceId === 'ev_short')
+  check('纯视频事件不再无图：封面=万象截帧', () => {
+    assert.strictEqual(short.videos.length, 1)
+    assert.ok(/ci-process=snapshot/.test(short.coverUrl), '封面应为截帧: ' + short.coverUrl)
+    assert.strictEqual(short.imageUrls.length, 1)
+  })
+
+  console.log(`\n${passed} checks passed${process.exitCode ? '（有失败）' : ''}`)
+})().catch((e) => {
+  console.error('FATAL', e)
+  process.exitCode = 1
+})

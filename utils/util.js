@@ -4,6 +4,12 @@ const { resolveMediaUrl, findFuzzyRocketConfigUrl } = require('./image-config.js
 const { getCachedRocketConfig, appendRocketGifCgifCi } = require('./icon-cache.js')
 const { toCdnUrl } = require('./cos-url.js')
 const { getServerNow } = require('./server-clock.js')
+const {
+  ART_MECHA,
+  PREFIX_MECHA,
+  getRocketConfigArtStyle,
+  isMechaRocketSrc
+} = require('./rocket-config-art.js')
 
 /**
  * 格式化日期时间（自动处理时区）
@@ -380,6 +386,19 @@ function getRocketImage(rocketName) {
 
   const candidates = expandRocketNameAliasesForImage(rawRocketTrimmed)
   let fuzzyFallback = ''
+  const artStyle = getRocketConfigArtStyle()
+
+  // 机娘风格：仅 fuzzy 机娘前缀；命中即返回；未命中再回退原图链路（无字典机娘兜底）
+  if (artStyle === ART_MECHA) {
+    for (let i = 0; i < candidates.length; i++) {
+      const fuzzyMecha = findFuzzyRocketConfigUrl(candidates[i], { keyPrefix: PREFIX_MECHA })
+      if (!fuzzyMecha || !String(fuzzyMecha).trim()) continue
+      const resolved = resolveRocketHttpsToLocal(String(fuzzyMecha).trim())
+      if (!resolved) continue
+      if (!isDefaultRocketSrc(resolved)) return resolved
+      if (!fuzzyFallback) fuzzyFallback = resolved
+    }
+  }
 
   // 1) 后台 media_assets 模糊匹配优先（动态/GIF 生效；getCachedRocketConfig 内会自动走本地缓存）
   //    别名候选按「Long March… → 原始名」顺序，避免 CZ-7A 先命中 CZ-7A_YG-45 任务特化图
@@ -483,6 +502,20 @@ function shouldReplaceRocketImage(current, next) {
   return true
 }
 
+/** 艺术风格切换专用：允许任意重算结果覆盖（含 wxfile 机娘 → 原图 / default） */
+function shouldReplaceRocketImageForArt(current, next) {
+  if (!next || typeof next !== 'string' || !String(next).trim()) return false
+  const cur = current == null ? '' : String(current).trim()
+  const nxt = String(next).trim()
+  if (!cur) return true
+  if (cur === nxt) return false
+  const strip = (u) => {
+    const i = u.indexOf('?')
+    return i >= 0 ? u.slice(0, i) : u
+  }
+  return strip(cur) !== strip(nxt)
+}
+
 /** 将 API / 缓存中的火箭图字符串规范为可交给 <image> 的最终地址 */
 function finalizeRocketDisplaySrc(candidate) {
   if (candidate == null || typeof candidate !== 'string') return ''
@@ -519,6 +552,8 @@ function resolveRocketImageByMatchNames(names) {
  * 列表/倒计时/详情共用：优先非 default 的已盖章远程图；default 可被 getRocketImage 升级。
  * forceRecompute=true 时优先按火箭名重算，但若重算结果是 default 而已有非 default 盖章，则保留盖章（防二次刷新降级）。
  * 配图名同时尝试 configuration.full_name / name / rocketName，避免短名误配而详情用更全名命中。
+ * 艺术风格切换：机娘模式始终按名重算；原图模式若盖章为机娘 URL 则强制重算。
+ * 艺术风格切换调用方应传空 imagePath（见 resolveMissionRocketImageFresh），避免 wxfile 盖章粘住。
  */
 function resolveMissionRocketImage(imagePath, rocketName, rocketConfiguration, forceRecompute) {
   const matchNames = collectRocketImageMatchNames(rocketName, rocketConfiguration)
@@ -536,9 +571,33 @@ function resolveMissionRocketImage(imagePath, rocketName, rocketConfiguration, f
   const stampedDefault = isDefaultRocketSrc(stampedRaw)
   const rebuiltDefault = isDefaultRocketSrc(rebuilt)
 
-  if (forceRecompute) {
-    // 强制重算：非 default 的新结果优先；否则保留已有非 default 盖章，禁止降级
+  const artStyle = getRocketConfigArtStyle()
+  const artForce =
+    artStyle === ART_MECHA ||
+    (artStyle !== ART_MECHA && isMechaRocketSrc(stampedRaw))
+
+  if (forceRecompute || artForce) {
+    // 强制重算：非 default 的新结果优先
     if (rebuilt && !rebuiltDefault) return rebuilt
+    // 切回原图时禁止保留机娘盖章（含可识别的 HTTPS 机娘 URL）
+    if (artStyle !== ART_MECHA && isMechaRocketSrc(stampedRaw)) {
+      if (rebuilt) return rebuilt
+      return finalizeRocketDisplaySrc(DEFAULT_ROCKET_IMAGE)
+    }
+    // 机娘模式：重算结果（含缺图回退原图）优先于旧盖章
+    if (artStyle === ART_MECHA) {
+      if (rebuilt) return rebuilt
+      // 空 stamp（艺术切换）时不要回落旧盖章
+      if (!stampedRaw) return finalizeRocketDisplaySrc(DEFAULT_ROCKET_IMAGE)
+      if (stampedRaw && !stampedDefault) return stampedRaw
+      return finalizeRocketDisplaySrc(DEFAULT_ROCKET_IMAGE)
+    }
+    // 原图 + forceRecompute：空 stamp 时直接用重算结果（艺术切换）
+    if (!stampedRaw) {
+      if (rebuilt) return rebuilt
+      return finalizeRocketDisplaySrc(DEFAULT_ROCKET_IMAGE)
+    }
+    // 原图 + forceRecompute：与历史行为一致，禁止非 default → default 降级
     if (stampedRaw && !stampedDefault) return stampedRaw
     if (rebuilt) return rebuilt
     if (stampedRaw) return stampedRaw
@@ -546,7 +605,15 @@ function resolveMissionRocketImage(imagePath, rocketName, rocketConfiguration, f
   }
 
   // 非 default 的已盖章远程图优先（避免二次 resolve 换一套 URL 导致灰块）
-  if (stampedRemote && !stampedDefault) return stampedRaw
+  // 原图模式下禁止粘住机娘盖章
+  if (stampedRemote && !stampedDefault) {
+    if (artStyle !== ART_MECHA && isMechaRocketSrc(stampedRaw)) {
+      if (rebuilt && !rebuiltDefault) return rebuilt
+      if (rebuilt) return rebuilt
+      return finalizeRocketDisplaySrc(DEFAULT_ROCKET_IMAGE)
+    }
+    return stampedRaw
+  }
   // default / 空 stamped 允许被 fuzzy·字典结果升级
   if (rebuiltRemote && !rebuiltDefault) return rebuilt
   if (stampedRemote) return stampedRaw
@@ -566,6 +633,11 @@ function resolveMissionRocketImage(imagePath, rocketName, rocketConfiguration, f
   return finalizeRocketDisplaySrc(DEFAULT_ROCKET_IMAGE)
 }
 
+/** 按火箭名强制重算（忽略已盖章 URL；艺术风格切换 / wxfile 无路径时用） */
+function resolveMissionRocketImageFresh(rocketName, rocketConfiguration) {
+  return resolveMissionRocketImage('', rocketName, rocketConfiguration, true)
+}
+
 module.exports = {
   formatDate,
   getCountdown,
@@ -573,6 +645,8 @@ module.exports = {
   ensureLocalImage,
   getRocketImage,
   resolveMissionRocketImage,
+  resolveMissionRocketImageFresh,
   isDefaultRocketSrc,
-  shouldReplaceRocketImage
+  shouldReplaceRocketImage,
+  shouldReplaceRocketImageForArt
 }

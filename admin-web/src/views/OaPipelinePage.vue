@@ -52,22 +52,26 @@
         <el-table-column type="selection" width="48" />
         <el-table-column label="配图" width="88">
           <template #default="{ row }">
-            <el-image
-              v-if="topicCover(row)"
-              :src="topicCover(row)"
-              :preview-src-list="topicImages(row)"
-              fit="cover"
-              class="topic-thumb"
-              preview-teleported
-            />
+            <div v-if="topicCover(row)" class="thumb-wrap">
+              <el-image
+                :src="topicCover(row)"
+                :preview-src-list="topicImages(row)"
+                fit="cover"
+                class="topic-thumb"
+                preview-teleported
+              />
+              <span v-if="topicVideos(row).length" class="vid-badge" :title="hasLongVideo(row) ? '含长视频（封面截图）' : '含视频（封面截图）'">▶</span>
+            </div>
             <span v-else class="no-img">无图</span>
           </template>
         </el-table-column>
         <el-table-column prop="sourceType" label="来源" width="120" />
         <el-table-column prop="title" label="标题" min-width="200" />
         <el-table-column prop="summary" label="摘要" min-width="240" show-overflow-tooltip />
-        <el-table-column label="图数" width="70">
-          <template #default="{ row }">{{ topicImages(row).length || '-' }}</template>
+        <el-table-column label="媒体" width="110">
+          <template #default="{ row }">
+            <span>{{ mediaLabel(row) }}</span>
+          </template>
         </el-table-column>
         <el-table-column label="操作" width="100">
           <template #default="{ row }">
@@ -252,6 +256,23 @@ const topicImages = (row) => {
 
 const topicCover = (row) => topicImages(row)[0] || ''
 
+const topicVideos = (row) =>
+  Array.isArray(row?.videos)
+    ? row.videos.filter((v) => v && (v.posterUrl || v.url || v.pageUrl))
+    : []
+
+const hasLongVideo = (row) => topicVideos(row).some((v) => v.isLong)
+
+/** 媒体列：图数（含视频封面截图）+ 视频数（长视频标注） */
+const mediaLabel = (row) => {
+  const imgs = topicImages(row).length
+  const vids = topicVideos(row).length
+  const parts = []
+  if (imgs) parts.push(`${imgs}图`)
+  if (vids) parts.push(`${vids}视频${hasLongVideo(row) ? '(长)' : ''}`)
+  return parts.join(' · ') || '-'
+}
+
 const loadTopics = async () => {
   loadingTopics.value = true
   try {
@@ -394,6 +415,14 @@ onMounted(() => {
 .hdr { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
 .acts { display:flex; gap:8px; flex-wrap:wrap; }
 .topic-thumb { width:56px; height:42px; border-radius:4px; display:block; }
+.thumb-wrap { position:relative; display:inline-block; line-height:0; }
+.vid-badge {
+  position:absolute; right:3px; bottom:3px;
+  width:16px; height:16px; line-height:16px;
+  font-size:9px; text-align:center; color:#fff;
+  background:rgba(0,0,0,0.62); border-radius:50%;
+  pointer-events:none;
+}
 .no-img { font-size:12px; color:#909399; }
 .jobs-toolbar { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
 .job-result { font-size:12px; color:var(--el-text-color-secondary); word-break:break-all; }

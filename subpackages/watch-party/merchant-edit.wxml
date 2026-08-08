@@ -1,5 +1,5 @@
 <page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
-<view class="page {{themeClass}}" style="padding-bottom: {{keyboardHeight}}px;">
+<view class="page {{themeClass}}">
   <view class="top-nav-wrapper" style="padding-top:{{statusBarHeight}}px;">
     <view class="top-nav top-nav--page-grid">
       <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
@@ -10,7 +10,7 @@
     </view>
   </view>
 
-  <scroll-view class="page-scroll" scroll-y show-scrollbar="{{false}}" bindscroll="onComposerScroll" scroll-with-animation="{{true}}" scroll-top="{{composerScrollTop}}">
+  <scroll-view class="page-scroll" scroll-y show-scrollbar="{{false}}">
     <view style="height: {{navPlaceholderHeight}}px;"></view>
 
     <view class="wpe-loading" wx:if="{{loading}}">
@@ -39,7 +39,7 @@
             wx:if="{{selectedRocketImage && missionIndex >= 0}}"
             class="wpe-rocket-thumb"
             src="{{selectedRocketImage}}"
-            mode="aspectFit"
+            mode="aspectFill"
           />
           <view wx:elif="{{missionIndex >= 0}}" class="wpe-rocket-thumb wpe-rocket-thumb--empty">
             <text>🚀</text>
@@ -54,7 +54,7 @@
             wx:if="{{selectedRocketImage}}"
             class="wpe-rocket-thumb wpe-rocket-thumb--picked"
             src="{{selectedRocketImage}}"
-            mode="aspectFit"
+            mode="aspectFill"
           />
           <view wx:else class="wpe-rocket-thumb wpe-rocket-thumb--picked wpe-rocket-thumb--empty">
             <text>🚀</text>
@@ -62,7 +62,7 @@
           <view class="wpe-mission-picked-info">
             <text class="wpe-mission-line">火箭型号：{{form.rocketName || '—'}}</text>
             <text class="wpe-mission-line">任务名称：{{form.missionName || '—'}}</text>
-            <text class="wpe-hint">发射时间与任务信息已自动带入，选错可重新选择</text>
+            <text class="wpe-hint">发射时间与任务信息已自动带入，选错可重新选择；配置图已锁定，之后手动改火箭名不会换图</text>
           </view>
         </view>
       </view>
@@ -75,23 +75,23 @@
               wx:if="{{selectedRocketImage}}"
               class="wpe-rocket-thumb"
               src="{{selectedRocketImage}}"
-              mode="aspectFit"
+              mode="aspectFill"
             />
             <view wx:else class="wpe-rocket-thumb wpe-rocket-thumb--empty">
               <text>🚀</text>
             </view>
-            <text class="wpe-manual-rocket-tip">根据火箭型号自动匹配</text>
+            <text class="wpe-manual-rocket-tip">{{form.rocketImageName ? '已锁定自动获取的配置图，改火箭名不换图' : '根据火箭型号自动匹配'}}</text>
           </view>
         </view>
         <view class="wpe-divider" wx:if="{{selectedRocketImage || form.rocketName}}"></view>
         <view class="wpe-form-row">
           <text class="wpe-form-label">火箭型号</text>
-          <input id="c_form_rocketName" class="wpe-form-input" value="{{form.rocketName}}" placeholder="例：长征八号" placeholder-class="wpe-ph" maxlength="40" data-path="form.rocketName" bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange" />
+          <textarea id="c_form_rocketName" class="wpe-form-input" value="{{form.rocketName}}" placeholder="例：长征八号" placeholder-class="wpe-ph" maxlength="40" data-path="form.rocketName" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
         </view>
         <view class="wpe-divider"></view>
         <view class="wpe-form-row">
           <text class="wpe-form-label">任务名称</text>
-          <input id="c_form_missionName" class="wpe-form-input" value="{{form.missionName}}" placeholder="选填，例：卫星互联网低轨组网" placeholder-class="wpe-ph" maxlength="60" data-path="form.missionName" bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange" />
+          <textarea id="c_form_missionName" class="wpe-form-input" value="{{form.missionName}}" placeholder="选填，例：卫星互联网低轨组网" placeholder-class="wpe-ph" maxlength="60" data-path="form.missionName" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
         </view>
         <view class="wpe-divider"></view>
         <view class="wpe-form-row">
@@ -109,17 +109,47 @@
         </view>
       </view>
 
+      <!-- 任务显示名（商家自定义中文名，跨商家共享；仅该任务下最早入驻的商家可改） -->
+      <view class="wpe-card" wx:if="{{form.missionId && (missionNameEditable || missionDisplayName)}}">
+        <view class="wpe-form-row">
+          <text class="wpe-form-label">任务中文名</text>
+          <textarea
+            wx:if="{{missionNameEditable}}"
+            id="c_missionDisplayName" class="wpe-form-input"
+            value="{{missionDisplayName}}"
+            placeholder="{{missionNameLoading ? '加载中…' : '选填，例：千帆星座第六批'}}"
+            placeholder-class="wpe-ph"
+            maxlength="60"
+            data-path="missionDisplayName"
+            bindinput="onTextInput"
+            cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
+          <text wx:else class="wpe-form-value">{{missionDisplayName}}</text>
+        </view>
+        <text class="wpe-hint wpe-hint--pad" wx:if="{{missionNameEditable}}">给英文任务起个中文名，所有用户页面将优先显示；由该任务下最早入驻的商家维护，留空则显示原名</text>
+        <text class="wpe-hint wpe-hint--pad" wx:else>任务中文名由该任务下最早入驻的商家维护，您暂无修改权限</text>
+      </view>
+
       <!-- 基本信息 -->
       <view class="section-header"><text class="section-title">场次信息</text></view>
       <view class="wpe-card">
         <view class="wpe-form-row">
           <text class="wpe-form-label">场次标题</text>
-          <input id="c_form_title" class="wpe-form-input" value="{{form.title}}" placeholder="选任务后自动生成，可修改" placeholder-class="wpe-ph" maxlength="60" data-path="form.title" bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange" />
+          <textarea id="c_form_title" class="wpe-form-input" value="{{form.title}}" placeholder="选任务后自动生成，可修改" placeholder-class="wpe-ph" maxlength="60" data-path="form.title" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
+        </view>
+        <view class="wpe-divider"></view>
+        <view class="wpe-form-row">
+          <text class="wpe-form-label">亮点角标</text>
+          <textarea id="c_form_heroBadge" class="wpe-form-input" value="{{form.heroBadge}}" placeholder="例：近距离观礼 · 距工位约1.5km" placeholder-class="wpe-ph" maxlength="30" data-path="form.heroBadge" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
+        </view>
+        <view class="wpe-divider"></view>
+        <view class="wpe-form-row">
+          <text class="wpe-form-label">联系电话</text>
+          <textarea id="c_form_contactPhone" class="wpe-form-input" value="{{form.contactPhone}}" placeholder="顾客页可一键拨打，选填" placeholder-class="wpe-ph" maxlength="20" data-path="form.contactPhone" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
         </view>
         <view class="wpe-divider"></view>
         <view class="wpe-form-row">
           <text class="wpe-form-label">观礼点地址</text>
-          <input id="c_form_address" class="wpe-form-input" value="{{form.address}}" placeholder="例：龙楼镇 ×× 号楼顶观礼台" placeholder-class="wpe-ph" maxlength="120" data-path="form.address" bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange" />
+          <textarea id="c_form_address" class="wpe-form-input" value="{{form.address}}" placeholder="例：龙楼镇 ×× 号楼顶观礼台" placeholder-class="wpe-ph" maxlength="120" data-path="form.address" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
         </view>
         <view class="wpe-divider"></view>
         <view class="wpe-form-row">
@@ -146,7 +176,7 @@
             </view>
             <view class="wpe-form-row">
               <text class="wpe-form-label">名称</text>
-              <input id="c_parkingSpots_{{index}}_name" class="wpe-form-input" value="{{item.name}}" placeholder="例：村口停车场" placeholder-class="wpe-ph" maxlength="40" data-path="parkingSpots[{{index}}].name" bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange" />
+              <textarea id="c_parkingSpots_{{index}}_name" class="wpe-form-input" value="{{item.name}}" placeholder="例：村口停车场" placeholder-class="wpe-ph" maxlength="40" data-path="parkingSpots[{{index}}].name" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
             </view>
             <view class="wpe-divider"></view>
             <view class="wpe-form-row">
@@ -159,12 +189,12 @@
             <view class="wpe-divider"></view>
             <view class="wpe-form-row">
               <text class="wpe-form-label">步行分钟</text>
-              <input id="c_parkingSpots_{{index}}_walkMinutes" class="wpe-form-input" type="number" value="{{item.walkMinutes}}" placeholder="选填" placeholder-class="wpe-ph" maxlength="3" data-path="parkingSpots[{{index}}].walkMinutes" bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange" />
+              <textarea id="c_parkingSpots_{{index}}_walkMinutes" class="wpe-form-input" value="{{item.walkMinutes}}" placeholder="选填" placeholder-class="wpe-ph" maxlength="3" data-path="parkingSpots[{{index}}].walkMinutes" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
             </view>
             <view class="wpe-divider"></view>
             <view class="wpe-form-row">
               <text class="wpe-form-label">备注</text>
-              <input id="c_parkingSpots_{{index}}_note" class="wpe-form-input" value="{{item.note}}" placeholder="例：免费 / 需向村民示意" placeholder-class="wpe-ph" maxlength="80" data-path="parkingSpots[{{index}}].note" bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange" />
+              <textarea id="c_parkingSpots_{{index}}_note" class="wpe-form-input" value="{{item.note}}" placeholder="例：免费 / 需向村民示意" placeholder-class="wpe-ph" maxlength="80" data-path="parkingSpots[{{index}}].note" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
             </view>
           </view>
         </block>
@@ -196,37 +226,63 @@
       <view class="section-header"><text class="section-title">介绍与须知</text></view>
       <view class="wpe-card">
         <text class="wpe-area-label">观礼介绍（视野、设施等）</text>
-        <textarea id="c_form_intro" class="wpe-textarea" value="{{form.intro}}" placeholder="例：楼顶开阔视野，正对发射工位，提供饮水与遮阳棚…" placeholder-class="wpe-ph" maxlength="2000" show-confirm-bar="{{false}}" data-path="form.intro" bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange" />
+        <textarea id="c_form_intro" class="wpe-textarea" value="{{form.intro}}" placeholder="例：楼顶开阔视野，正对发射工位，提供饮水与遮阳棚…" placeholder-class="wpe-ph" maxlength="2000" show-confirm-bar="{{false}}" data-path="form.intro" bindinput="onTextInput" cursor-spacing="24" />
         <view class="wpe-divider"></view>
-        <text class="wpe-area-label">微信群二维码（可选，方便用户扫码加群）</text>
-        <view class="wpe-img-grid" wx:if="{{wechatGroupQr}}">
-          <view class="wpe-img-cell">
-            <image class="wpe-img" src="{{wechatGroupQr}}" mode="aspectFill" bindtap="onPreviewWechatQr" />
-            <view class="wpe-img-del" catchtap="onRemoveWechatQr"><text>×</text></view>
+        <text class="wpe-area-label">现场照片（最多 8 张，自动在顾客页展示）</text>
+        <view class="wpe-img-grid">
+          <view class="wpe-img-cell" wx:for="{{sitePhotos}}" wx:key="*this">
+            <image class="wpe-img" src="{{item}}" mode="aspectFill" bindtap="onPreviewSitePhoto" data-index="{{index}}" />
+            <view class="wpe-img-del" catchtap="onRemoveSitePhoto" data-index="{{index}}"><text>×</text></view>
+          </view>
+          <view class="wpe-img-add" bindtap="onAddSitePhotos" wx:if="{{sitePhotos.length < 8}}">
+            <text class="wpe-img-add-plus">＋</text>
+            <text class="wpe-img-add-text">{{sitePhotoUploading ? '上传中…' : '添加照片'}}</text>
           </view>
         </view>
-        <view class="wpe-img-add" wx:else bindtap="onUploadWechatQr">
+        <view class="wpe-divider"></view>
+        <text class="wpe-area-label">现场视频（可选 1 个，60 秒内；自动压缩，压缩后需小于 20MB）</text>
+        <view class="wpe-img-grid" wx:if="{{siteVideo}}">
+          <view class="wpe-img-cell">
+            <image wx:if="{{siteVideoPoster}}" class="wpe-img" src="{{siteVideoPoster}}" mode="aspectFill" />
+            <view wx:else class="wpe-img wpe-video-ph"><text>视频</text></view>
+            <view class="wpe-video-badge"><text>▶</text></view>
+            <view class="wpe-img-del" catchtap="onRemoveSiteVideo"><text>×</text></view>
+          </view>
+        </view>
+        <view class="wpe-img-add" wx:else bindtap="onUploadSiteVideo">
           <text class="wpe-img-add-plus">＋</text>
-          <text class="wpe-img-add-text">{{qrUploading ? '上传中…' : '上传群码'}}</text>
+          <text class="wpe-img-add-text">{{siteVideoUploading ? '上传中…' : '上传视频'}}</text>
+        </view>
+        <view class="wpe-divider"></view>
+        <text class="wpe-area-label">微信二维码（最多 2 张，上传几张顾客页显示几张）</text>
+        <view class="wpe-img-grid">
+          <view class="wpe-img-cell" wx:for="{{wechatGroupQrs}}" wx:key="*this">
+            <image class="wpe-img" src="{{item}}" mode="aspectFill" bindtap="onPreviewWechatQr" data-index="{{index}}" />
+            <view class="wpe-img-del" catchtap="onRemoveWechatQr" data-index="{{index}}"><text>×</text></view>
+          </view>
+          <view class="wpe-img-add" bindtap="onUploadWechatQr" wx:if="{{wechatGroupQrs.length < 2}}">
+            <text class="wpe-img-add-plus">＋</text>
+            <text class="wpe-img-add-text">{{qrUploading ? '上传中…' : '上传群码'}}</text>
+          </view>
         </view>
         <view class="wpe-divider"></view>
         <text class="wpe-area-label">观礼须知（安全提示等）</text>
-        <textarea id="c_form_notice" class="wpe-textarea" value="{{form.notice}}" placeholder="例：请勿携带无人机；发射前 30 分钟停止入场…" placeholder-class="wpe-ph" maxlength="2000" show-confirm-bar="{{false}}" data-path="form.notice" bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange" />
+        <textarea id="c_form_notice" class="wpe-textarea" value="{{form.notice}}" placeholder="例：请勿携带无人机；发射前 30 分钟停止入场…" placeholder-class="wpe-ph" maxlength="2000" show-confirm-bar="{{false}}" data-path="form.notice" bindinput="onTextInput" cursor-spacing="24" />
       </view>
 
-      <!-- 管控区车辆预约 -->
+      <!-- 管控区车辆预约（小程序短链） -->
       <view class="section-header"><text class="section-title">车辆预约</text></view>
       <view class="wpe-card">
-        <text class="wpe-area-label">管控区域车辆预约网址（按当地规定自行填写）</text>
-        <input id="c_vehicleBookingUrl" class="wpe-form-input wpe-form-input--block" value="{{vehicleBookingUrl}}" placeholder="例：https://xxx.gov.cn/vehicle-book" placeholder-class="wpe-ph" maxlength="500" data-path="vehicleBookingUrl" bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange" />
-        <text class="wpe-hint">用户可在落地页打开或复制该网址前往预约</text>
+        <text class="wpe-area-label">车辆预约小程序短链（按当地规定自行填写）</text>
+        <textarea id="c_vehicleBookingUrl" class="wpe-form-input wpe-form-input--block" value="{{vehicleBookingUrl}}" placeholder="例：#小程序://车辆预约/xxxxxx" placeholder-class="wpe-ph" maxlength="500" data-path="vehicleBookingUrl" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
+        <text class="wpe-hint">在预约小程序内「…」→ 复制链接 获取短链；顾客点击即可直接跳转到该小程序预约</text>
       </view>
 
       <!-- 大屏科普轮播 -->
       <view class="section-header"><text class="section-title">大屏科普轮播</text></view>
       <view class="wpe-card">
         <text class="wpe-area-label">科普文字（每行一条，支持「标题|正文」）</text>
-        <textarea id="c_sciencePointsText" class="wpe-textarea" value="{{sciencePointsText}}" placeholder="例：长征八号有多高？|全长约 50 米，相当于 17 层楼" placeholder-class="wpe-ph" maxlength="4000" show-confirm-bar="{{false}}" data-path="sciencePointsText" bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange" />
+        <textarea id="c_sciencePointsText" class="wpe-textarea" value="{{sciencePointsText}}" placeholder="例：长征八号有多高？|全长约 50 米，相当于 17 层楼" placeholder-class="wpe-ph" maxlength="4000" show-confirm-bar="{{false}}" data-path="sciencePointsText" bindinput="onTextInput" cursor-spacing="24" />
         <view class="wpe-divider"></view>
         <text class="wpe-area-label">发射配置图（手机相册上传，将在大屏轮播展示）</text>
         <view class="wpe-img-grid">
@@ -268,12 +324,12 @@
                 <text wx:else class="wpe-prize-img-ph">上传照片</text>
               </view>
               <view class="wpe-prize-fields">
-                <input id="c_prizes_{{index}}_name" class="wpe-form-input" value="{{item.name}}" placeholder="奖品名称（必填）" placeholder-class="wpe-ph" maxlength="40" data-path="prizes[{{index}}].name" bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange" />
+                <textarea id="c_prizes_{{index}}_name" class="wpe-form-input" value="{{item.name}}" placeholder="奖品名称（必填）" placeholder-class="wpe-ph" maxlength="40" data-path="prizes[{{index}}].name" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
                 <view class="wpe-prize-meta-row">
                   <text class="wpe-prize-meta-label">数量</text>
-                  <input id="c_prizes_{{index}}_stock" class="wpe-form-input wpe-prize-num" type="number" value="{{item.stock}}" placeholder="1" placeholder-class="wpe-ph" maxlength="4" data-path="prizes[{{index}}].stock" bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange" />
+                  <textarea id="c_prizes_{{index}}_stock" class="wpe-form-input wpe-prize-num" value="{{item.stock}}" placeholder="1" placeholder-class="wpe-ph" maxlength="4" data-path="prizes[{{index}}].stock" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
                   <text class="wpe-prize-meta-label">价值¥</text>
-                  <input id="c_prizes_{{index}}_valueYuan" class="wpe-form-input wpe-prize-num" type="digit" value="{{item.valueYuan}}" placeholder="选填" placeholder-class="wpe-ph" maxlength="8" data-path="prizes[{{index}}].valueYuan" bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange" />
+                  <textarea id="c_prizes_{{index}}_valueYuan" class="wpe-form-input wpe-prize-num" value="{{item.valueYuan}}" placeholder="选填" placeholder-class="wpe-ph" maxlength="8" data-path="prizes[{{index}}].valueYuan" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
                 </view>
                 <text class="wpe-hint" wx:if="{{editing && item.id}}">剩余 {{item.remaining}} / {{item.stock}}（已发放不可改小库存）</text>
               </view>
@@ -288,13 +344,14 @@
       <view class="wpe-card">
         <view class="wpe-form-row">
           <text class="wpe-form-label">预约人数上限</text>
-          <input id="c_form_capacity" class="wpe-form-input" type="number" value="{{form.capacity}}" placeholder="不填 = 不限制" placeholder-class="wpe-ph" maxlength="5" data-path="form.capacity" bindinput="onTextInput" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange" />
+          <textarea id="c_form_capacity" class="wpe-form-input" value="{{form.capacity}}" placeholder="不填 = 不限制" placeholder-class="wpe-ph" maxlength="5" data-path="form.capacity" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
         </view>
         <view class="wpe-divider"></view>
         <view class="wpe-form-row">
           <text class="wpe-form-label">开放预约</text>
           <switch checked="{{form.status === 'open'}}" color="#3B82F6" bindchange="onStatusToggle" />
         </view>
+        <text class="wpe-hint wpe-hint--pad">开放中也会在距发射 30 分钟时自动停止新预约，便于备场核对名单，无需手动关闭</text>
         <view class="wpe-divider"></view>
         <view class="wpe-form-row">
           <text class="wpe-form-label">对用户可见</text>
@@ -357,7 +414,7 @@
             wx:if="{{item.rocketImage}}"
             class="wpe-rocket-thumb"
             src="{{item.rocketImage}}"
-            mode="aspectFit"
+            mode="aspectFill"
           />
           <view wx:else class="wpe-rocket-thumb wpe-rocket-thumb--empty">
             <text>🚀</text>

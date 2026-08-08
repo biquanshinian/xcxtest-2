@@ -985,14 +985,16 @@ function sortManualNewsRowsOnServer(rows, max) {
 
 /** 小程序媒体映射：一次下发 enabled 的 key→url（避免客户端 N 次分页读 media_assets） */
 async function handleGetMediaAssetsMap() {
-  const MAX_ROWS = 500
+  const MAX_ROWS = 1500
   const PAGE = 100
   const map = {}
-  let skip = 0
-  let fetched = 0
+  let mapSize = 0
 
-  while (fetched < MAX_ROWS) {
-    const limit = Math.min(PAGE, MAX_ROWS - fetched)
+  // 主扫描：与旧版一致的单趟分页；集合未超容量时这是唯一的读开销
+  let skip = 0
+  let truncated = false
+  while (mapSize < MAX_ROWS) {
+    const limit = Math.min(PAGE, MAX_ROWS - mapSize)
     const res = await db.collection('media_assets')
       .where({ enabled: true })
       .field({ key: true, url: true })
@@ -1005,12 +1007,48 @@ async function handleGetMediaAssetsMap() {
     rows.forEach((item) => {
       const key = item && item.key != null ? String(item.key).trim() : ''
       const url = item && typeof item.url === 'string' ? item.url.trim() : (item && item.url)
-      if (key && url) map[key] = url
+      if (key && url && !map[key]) {
+        map[key] = url
+        mapSize += 1
+      }
     })
 
-    fetched += rows.length
     skip += rows.length
     if (rows.length < limit) break
+    if (skip > 8000) { truncated = true; break }
+  }
+  // 读满整页且容量已用尽 → 集合里可能还有剩余文档被截断
+  if (mapSize >= MAX_ROWS) truncated = true
+
+  // 仅在截断时补拉火箭配置图（原图 + 机娘），保证不被其它素材挤掉导致机娘 fuzzy miss；
+  // 未截断时零额外读，避免每次调用都白付一趟 regexp 查询 + 重复文档读
+  if (truncated) {
+    let rSkip = 0
+    let added = 0
+    while (added < 800) {
+      const res = await db.collection('media_assets')
+        .where({
+          enabled: true,
+          key: db.RegExp({ regexp: '^火箭配置图(/|-机娘/)', options: '' })
+        })
+        .field({ key: true, url: true })
+        .orderBy('_id', 'asc')
+        .skip(rSkip)
+        .limit(PAGE)
+        .get()
+      const rows = res.data || []
+      rows.forEach((item) => {
+        const key = item && item.key != null ? String(item.key).trim() : ''
+        const url = item && typeof item.url === 'string' ? item.url.trim() : (item && item.url)
+        if (key && url && !map[key]) {
+          map[key] = url
+          added += 1
+        }
+      })
+      rSkip += rows.length
+      if (rows.length < PAGE) break
+      if (rSkip > 2000) break
+    }
   }
 
   return {

@@ -1329,6 +1329,15 @@
   pointer-events: none;
 }
 
+/* 快捷键内嵌图标（观礼）：随 48rpx 胶囊自适应，方图圆角裁白底，不挤压文字 */
+.ai-shortcut-icon {
+  flex-shrink: 0;
+  width: 34rpx;
+  height: 34rpx;
+  border-radius: 8rpx;
+  margin-right: 8rpx;
+}
+
 .ai-shortcut-label {
   font-size: var(--font-size-sm, 22rpx);
   font-weight: 500;

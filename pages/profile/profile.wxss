@@ -594,6 +594,41 @@
 .appearance-section {
   margin-bottom: var(--space-xl);
 }
+/* ── 外观：主题 + 火箭配置图 并排双卡，压缩纵向空间 ── */
+.appearance-grid {
+  display: flex;
+  align-items: stretch;
+  gap: 16rpx;
+}
+.appearance-grid .oa-alert-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin-bottom: 0;
+  padding: 24rpx;
+}
+/* 主题卡 3 个选项占宽略大，保证「跟随系统」不折行 */
+.appearance-card--theme {
+  flex: 8;
+}
+.appearance-card--art {
+  flex: 6;
+}
+/* 已去掉描述小字：标题到按钮留固定间距，卡片高度随内容收紧 */
+.appearance-grid .oa-alert-row {
+  margin-bottom: 16rpx;
+}
+.appearance-grid .oa-alert-title {
+  margin-bottom: 0;
+}
+/* 按钮组沉底，两卡选项保持同一水平线；窄卡内字号收紧 */
+.appearance-grid .theme-mode-group {
+  margin-top: auto;
+}
+.appearance-grid .theme-mode-opt {
+  font-size: 22rpx;
+  padding: 14rpx 0;
+}
 /* ── 主题外观三段选择器（深色 / 浅色 / 跟随系统）── */
 .theme-mode-group {
   display: flex;
@@ -787,27 +822,31 @@
   margin-bottom: var(--space-md);
 }
 .growth-entry-icon {
-  font-size: 32rpx;
+  font-size: 48rpx;
   margin-right: 20rpx;
 }
 .growth-entry-icon-img {
-  width: 44rpx;
-  height: 44rpx;
+  width: 66rpx;
+  height: 66rpx;
   margin-right: 20rpx;
   flex-shrink: 0;
 }
-/* 火箭观礼入口：文字徽章代替图标（与详情页观礼徽章同款配色）
-   固定 44rpx 占位，与其他入口的图标同宽，保证右侧文字对齐 */
+/* 观礼图标为 JPG 方图：圆角裁掉四角白底，与其他 PNG 圆角图标观感一致 */
+.growth-entry-icon-img--wp {
+  border-radius: 14rpx;
+}
+/* 火箭观礼入口：文字徽章（图标未就绪时兜底，与详情页观礼徽章同款配色）
+   固定 66rpx 占位，与其他入口的图标同宽，保证右侧文字对齐 */
 .growth-entry-icon-badge {
   flex-shrink: 0;
   margin-right: 20rpx;
-  width: 44rpx;
-  height: 44rpx;
+  width: 66rpx;
+  height: 66rpx;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  font-size: 18rpx;
+  font-size: 26rpx;
   line-height: 1;
   color: #93C5FD;
   background: rgba(59, 130, 246, 0.18);
@@ -818,6 +857,38 @@
   color: #2563EB;
   background: rgba(59, 130, 246, 0.1);
   border-color: rgba(59, 130, 246, 0.3);
+}
+/* 观礼入口红角标：对外场次数按实显示；挂图标右上角 */
+.growth-entry-icon-wrap {
+  position: relative;
+  flex-shrink: 0;
+  margin-right: 20rpx;
+}
+.growth-entry-icon-wrap .growth-entry-icon-img,
+.growth-entry-icon-wrap .growth-entry-icon-badge {
+  margin-right: 0;
+}
+.growth-entry-count-badge {
+  position: absolute;
+  top: -10rpx;
+  right: -10rpx;
+  min-width: 30rpx;
+  height: 30rpx;
+  padding: 0 8rpx;
+  box-sizing: border-box;
+  border-radius: 16rpx;
+  background: #EF4444;
+  border: 2rpx solid var(--color-bg-card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+.growth-entry-count-badge text {
+  font-size: 20rpx;
+  line-height: 1;
+  color: #FFFFFF;
+  font-weight: 600;
 }
 .growth-entry-info {
   flex: 1;

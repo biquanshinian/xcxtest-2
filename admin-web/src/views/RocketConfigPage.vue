@@ -14,7 +14,12 @@
     </template>
 
     <div style="margin-bottom:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-      <el-text type="info" size="small">共 {{ total }} 条（当前前缀：火箭配置图/）</el-text>
+      <el-radio-group v-model="artStyle" size="small" @change="onArtStyleChange">
+        <el-radio-button value="original">原图</el-radio-button>
+        <el-radio-button value="mecha">机娘风格</el-radio-button>
+      </el-radio-group>
+      <el-text type="info" size="small">共 {{ total }} 条（当前前缀：{{ activePrefix }}）</el-text>
+      <el-text v-if="artStyle === 'mecha'" type="warning" size="small">机娘文件名 stem 请与原图对齐；可为子集，小程序缺图时回退原图。</el-text>
     </div>
 
     <el-table :data="list" v-loading="loading" stripe empty-text="暂无记录">
@@ -73,13 +78,17 @@
   <input ref="batchFileRef" type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif,.gif,.webp,.jpg,.jpeg,.png" style="display:none" @change="onBatchFileChange" />
   <input ref="replaceFileRef" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.gif,.webp,.jpg,.jpeg,.png" style="display:none" @change="onReplaceFileChange" />
 
-  <el-dialog v-model="uploadVisible" title="上传到 COS 并写入 media_assets" width="520px" @closed="resetUploadForm">
+  <el-dialog v-model="uploadVisible" :title="`上传到 COS 并写入 media_assets（${activePrefix}）`" width="520px" @closed="resetUploadForm">
     <el-form label-width="96px">
       <el-form-item label="COS Key">
-        <el-input v-model="uploadForm.objectKey" placeholder="例如：Starship.gif（将保存为 火箭配置图/…）" />
+        <el-input v-model="uploadForm.objectKey" :placeholder="`例如：Starship.gif（将保存为 ${activePrefix}…）`" />
       </el-form-item>
       <el-form-item label="说明">
-        <el-text size="small" type="info">Key 只需文件名部分；请勿包含「火箭配置图/」前缀（会自动补上）。GIF 体积建议控制在合理范围。</el-text>
+        <el-text size="small" type="info">
+          Key 只需文件名部分；请勿包含「{{ activePrefix }}」前缀（会自动补上）。
+          <template v-if="artStyle === 'mecha'">机娘图 stem 应对齐原图文件名（如 Falcon 9 Block 5.jpg），扩展名可不同。</template>
+          GIF 体积建议控制在合理范围。
+        </el-text>
       </el-form-item>
     </el-form>
     <template #footer>
@@ -108,8 +117,9 @@
     <el-form label-width="96px">
       <el-form-item label="说明">
         <el-text size="small" type="info">
-          批量选择本地图片 / GIF 文件，每个文件直接以「火箭配置图/原文件名」作为 COS Key 上传并写入 media_assets（manual）。
+          批量选择本地图片 / GIF 文件，每个文件直接以「{{ activePrefix }}原文件名」作为 COS Key 上传并写入 media_assets（manual）。
           请先调整文件名为目标火箭名（如 <code>Falcon 9 Block 5.gif</code>），以便小程序模糊匹配命中。
+          <template v-if="artStyle === 'mecha'">机娘目录可为子集，stem 须与原图对齐。</template>
         </el-text>
       </el-form-item>
     </el-form>
@@ -216,11 +226,14 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api/client'
 
-const PREFIX = '火箭配置图/'
+const PREFIX_ORIGINAL = '火箭配置图/'
+const PREFIX_MECHA = '火箭配置图-机娘/'
+const artStyle = ref('original')
+const activePrefix = computed(() => (artStyle.value === 'mecha' ? PREFIX_MECHA : PREFIX_ORIGINAL))
 const loading = ref(false)
 const syncing = ref(false)
 const list = ref([])
@@ -228,6 +241,10 @@ const total = ref(0)
 const query = reactive({ page: 1, pageSize: 50 })
 const brokenThumbs = reactive({})
 
+function onArtStyleChange() {
+  query.page = 1
+  reload()
+}
 const fileRef = ref(null)
 const uploadVisible = ref(false)
 const uploading = ref(false)
@@ -292,7 +309,7 @@ async function findAssetByKey(fullKey) {
   let page = 1
   const pageSize = 100
   for (let guard = 0; guard < 40; guard++) {
-    const data = await api.listMediaAssets({ keyPrefix: PREFIX, page, pageSize })
+    const data = await api.listMediaAssets({ keyPrefix: activePrefix.value, page, pageSize })
     const rows = data.list || []
     const hit = rows.find((row) => row.key === fullKey)
     if (hit) return hit
@@ -327,7 +344,7 @@ async function reload() {
   loading.value = true
   try {
     const data = await api.listMediaAssets({
-      keyPrefix: PREFIX,
+      keyPrefix: activePrefix.value,
       page: query.page,
       pageSize: query.pageSize
     })
@@ -392,7 +409,7 @@ async function onFileChange(e) {
     uploadVisible.value = true
     return
   }
-  const fullKey = `${PREFIX}${segment}`
+  const fullKey = `${activePrefix.value}${segment}`
 
   uploading.value = true
   uploadProgressVisible.value = true
@@ -523,7 +540,7 @@ function onReplaceFileChange(e) {
   const extChanged = !!newExt && newExt !== oldExt
 
   const segment = sanitizeObjectSegment(file.name) || `unnamed-${Date.now()}`
-  const suggestedNewKey = `${PREFIX}${segment}`
+  const suggestedNewKey = `${activePrefix.value}${segment}`
 
   _replaceTargetFile = file
   replaceCtx.value = {
@@ -664,7 +681,7 @@ async function onBatchFileChange(e) {
     return {
       file,
       name: file.name,
-      fullKey: `${PREFIX}${segment}`,
+      fullKey: `${activePrefix.value}${segment}`,
       percent: 0,
       status: 'pending',
       statusText: '排队…'
@@ -715,7 +732,11 @@ function compactRocketMatchStr(s) {
 
 function stemFromKey(k) {
   if (!k) return ''
-  let stem = k.replace(/^火箭配置图\//i, '').replace(/\.(jpe?g|png|webp|gif)$/i, '').trim()
+  let stem = String(k)
+    .replace(/^火箭配置图-机娘\//i, '')
+    .replace(/^火箭配置图\//i, '')
+    .replace(/\.(jpe?g|png|webp|gif)$/i, '')
+    .trim()
   stem = stem.replace(/\s*rocket\s*launch\s*$/i, '').trim()
   return stem
 }
@@ -725,7 +746,7 @@ async function fetchAllRocketAssets() {
   const pageSize = 100
   const out = []
   for (let guard = 0; guard < 40; guard++) {
-    const data = await api.listMediaAssets({ keyPrefix: PREFIX, page, pageSize })
+    const data = await api.listMediaAssets({ keyPrefix: activePrefix.value, page, pageSize })
     const rows = data.list || []
     out.push(...rows)
     if (rows.length < pageSize) break

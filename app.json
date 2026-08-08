@@ -218,7 +218,8 @@
         "screen",
         "merchant",
         "merchant-edit",
-        "merchant-reservations"
+        "merchant-reservations",
+        "merchant-apply"
       ]
     },
     {

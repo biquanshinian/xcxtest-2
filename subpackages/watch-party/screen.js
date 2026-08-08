@@ -11,6 +11,7 @@
 
 const watchParty = require('./utils/api.js')
 const { getRocketImage } = require('../../utils/util.js')
+const rocketArtUtil = require('../../utils/rocket-config-art.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck, canUsePaidCloudSync } = require('../../utils/membership.js')
 const { openRocketModelDetail } = require('../../utils/booster-nav.js')
@@ -97,6 +98,8 @@ function buildSciCards(points, images) {
 }
 
 Page({
+  // 现场大屏为投屏场景：恒定深色，不接入全局 themeClass（见 utils/theme.js）
+  forceDarkTheme: true,
   data: {
     loading: true,
     error: '',
@@ -164,6 +167,11 @@ Page({
       this._orientBootstrapped = true
       this._applyOrientation('portrait', { silent: true })
     }
+    rocketArtUtil.applyRocketConfigArtIfNeeded(this)
+  },
+
+  refreshRocketConfigArt() {
+    if (this._session) this.renderSession(this._session)
   },
 
   onHide() {
@@ -304,14 +312,16 @@ Page({
     const changed = JSON.stringify(nextCards) !== JSON.stringify(this._sciCards)
     this._sciCards = nextCards
 
-    const rocketName = s.rocketName ? String(s.rocketName).trim() : ''
+    // 优先用锁定的 rocketImageName（手动改火箭名不换图）
+    const rocketName = String(s.rocketImageName || '').trim() || (s.rocketName ? String(s.rocketName).trim() : '')
     const rocketImage = rocketName ? (getRocketImage(rocketName) || '') : ''
+    const missionText = s.missionDisplayName || s.missionName || ''
 
     this._safeSetData({
       loading: false,
       error: '',
       title: s.title || '火箭观礼',
-      subtitle: (s.rocketName || '') + (s.missionName ? ' · ' + s.missionName : ''),
+      subtitle: (s.rocketName || '') + (missionText ? ' · ' + missionText : ''),
       address: s.address || '',
       rocketImage,
       explainButtons: buildExplainButtons(s),

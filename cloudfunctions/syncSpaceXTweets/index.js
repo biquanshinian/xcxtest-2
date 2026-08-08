@@ -1144,6 +1144,9 @@ async function syncAccount(account, options = {}) {
             thumbnailUrl: thumbCosUrl || video.thumbnail_url || '',
             sourceUrl: tweetUrl                      // 保留原始推文链接作为备用
           }
+          // 时长入库：回填转普通视频后（isLongVideo 被摘除）仍能识别「长视频」
+          const durSec = Math.round(Number(video.duration) || 0)
+          if (durSec > 0) mediaEntry.durationSec = durSec
           // 未存储到 COS 的视频：保留直链供前端复制，长视频额外打标（前端显示"长视频"角标）
           if (!videoCosUrl) {
             mediaEntry.videoUrl = videoDirectUrl || ''

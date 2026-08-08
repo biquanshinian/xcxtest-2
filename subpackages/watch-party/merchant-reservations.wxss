@@ -181,6 +181,21 @@
   color: var(--color-text-tertiary);
   flex-shrink: 0;
 }
+/* 顾客端「我的预约」凭证卡上的核销码，现场报码对照用 */
+.wpr-code {
+  flex-shrink: 0;
+  padding: 2rpx 12rpx;
+  border-radius: 10rpx;
+  font-size: 22rpx;
+  letter-spacing: 2rpx;
+  color: #34D399;
+  background: rgba(52, 211, 153, 0.12);
+  font-variant-numeric: tabular-nums;
+}
+.theme-light .wpr-code {
+  color: #059669;
+  background: rgba(5, 150, 105, 0.08);
+}
 .wpr-tag {
   margin-left: auto;
   height: 36rpx;

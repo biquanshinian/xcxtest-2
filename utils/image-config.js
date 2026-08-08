@@ -125,11 +125,18 @@ function canonicalizeMediaKey(key) {
     .trim()
 }
 
-/** 火箭配置图 key 去扩展名后的 canonical（「Long March 7A.jpg」≡「Long March 7A.png」） */
+/** 火箭配置图 key 去扩展名后的 canonical（「Long March 7A.jpg」≡「Long March 7A.png」）
+ *  原图 / 机娘分前缀入库，避免跨风格 stem 碰撞。
+ */
 function rocketStemCanonicalKey(key) {
   const k = normalizeKey(key)
-  if (!k || !/^火箭配置图\//i.test(k)) return ''
-  return canonicalizeMediaKey(k.replace(/\.(jpe?g|png|webp|gif)$/i, ''))
+  if (!k) return ''
+  let prefix = ''
+  if (k.startsWith('火箭配置图-机娘/')) prefix = '火箭配置图-机娘/'
+  else if (k.startsWith('火箭配置图/')) prefix = '火箭配置图/'
+  else return ''
+  const stem = k.slice(prefix.length).replace(/\.(jpe?g|png|webp|gif)$/i, '')
+  return canonicalizeMediaKey(prefix + stem)
 }
 
 /** 重建 canonical key 索引（加载/更新 runtimeCloudMediaMap 后调用） */
@@ -144,6 +151,18 @@ function rebuildCanonicalIndex() {
   }
   canonicalKeyIndex = idx
   rocketStemKeyIndex = stemIdx
+  _resetFuzzyRocketUrlMemo()
+}
+
+/** findFuzzyRocketConfigUrl 结果 memo：列表里同名火箭（Falcon 9 等）重复解析时避免反复全量扫描打分。
+ *  map 任何变更（rebuildCanonicalIndex）即整体失效；未命中（''）也缓存，防止回退链路重复扫描。 */
+let _fuzzyRocketUrlMemo = Object.create(null)
+let _fuzzyRocketUrlMemoCount = 0
+const FUZZY_ROCKET_MEMO_MAX = 400
+
+function _resetFuzzyRocketUrlMemo() {
+  _fuzzyRocketUrlMemo = Object.create(null)
+  _fuzzyRocketUrlMemoCount = 0
 }
 
 function logMediaKeyHealthCheck() {
@@ -198,15 +217,15 @@ function logStarshipKeyDiagnosis() {
 
   logDebug('[image-config] Starship V3 key诊断(开发环境)', {
     runtimeMapSize: runtimeKeys.length,
-    rocketKeyCount: runtimeKeys.filter((k) => /^火箭配置图\//.test(k)).length,
-    rocketKeySamples: runtimeKeys.filter((k) => /^火箭配置图\//.test(k)).slice(0, 10),
+    rocketKeyCount: runtimeKeys.filter((k) => /^火箭配置图\//.test(k) || /^火箭配置图-机娘\//.test(k)).length,
+    rocketKeySamples: runtimeKeys.filter((k) => /^火箭配置图\//.test(k) || /^火箭配置图-机娘\//.test(k)).slice(0, 10),
     diagnosisRows
   })
 
   try {
     logDebug('[image-config] Starship V3 key诊断JSON', JSON.stringify({
       runtimeMapSize: runtimeKeys.length,
-      rocketKeyCount: runtimeKeys.filter((k) => /^火箭配置图\//.test(k)).length,
+      rocketKeyCount: runtimeKeys.filter((k) => /^火箭配置图\//.test(k) || /^火箭配置图-机娘\//.test(k)).length,
       diagnosisRows
     }))
   } catch (e) {
@@ -454,8 +473,8 @@ function getCloudUrlByKey(key) {
       }
     }
 
-    // 火箭配置图：扩展名无关（字典 .jpg ↔ 后台 .png）
-    if (!fuzzyRuntimeUrl && !fuzzyStaticUrl && /^火箭配置图\//i.test(normalizedKey)) {
+    // 火箭配置图：扩展名无关（字典 .jpg ↔ 后台 .png）；原图 / 机娘均走 stem 索引
+    if (!fuzzyRuntimeUrl && !fuzzyStaticUrl && isRocketConfigMediaKey(normalizedKey)) {
       const stemCk = rocketStemCanonicalKey(normalizedKey)
       const stemKey = stemCk ? rocketStemKeyIndex[stemCk] : ''
       if (stemKey) {
@@ -475,7 +494,7 @@ function getCloudUrlByKey(key) {
 
   const finalUrl = runtimeUrl || staticUrl || fuzzyRuntimeUrl || fuzzyStaticUrl || stemRuntimeUrl || stemStaticUrl || ''
 
-  if (shouldLogDebug() && /^火箭配置图\//.test(normalizedKey)) {
+  if (shouldLogDebug() && isRocketConfigMediaKey(normalizedKey)) {
     logDebug('[image-config] 火箭图key解析', {
       key: normalizedKey,
       hitRuntime: !!runtimeUrl,
@@ -521,10 +540,11 @@ function extractRocketModelTokens(norm) {
 }
 
 /** COS 文件名常见后缀：Atlas V 551 rocket launch.webp → stem「火箭名」参与匹配 */
-function stemFromRocketConfigFilename(mediaKey) {
+function stemFromRocketConfigFilename(mediaKey, keyPrefix) {
   const k = normalizeKey(mediaKey)
-  if (!k || !/^火箭配置图\//.test(k)) return ''
-  let stem = k.replace(/^火箭配置图\//i, '').replace(/\.(jpe?g|png|webp|gif)$/i, '').trim()
+  const prefix = keyPrefix || '火箭配置图/'
+  if (!k || !k.startsWith(prefix)) return ''
+  let stem = k.slice(prefix.length).replace(/\.(jpe?g|png|webp|gif)$/i, '').trim()
   stem = stem.replace(/\s*rocket\s*launch\s*$/i, '').trim()
   return stem
 }
@@ -541,17 +561,34 @@ function extractDigitRunsFromRocketNorm(rocketNorm) {
   return set
 }
 
+function isRocketConfigMediaKey(normalizedKey) {
+  const k = normalizeKey(normalizedKey)
+  return k.startsWith('火箭配置图/') || k.startsWith('火箭配置图-机娘/')
+}
+
 /**
- * 在已加载的 media_assets 映射中，按火箭展示名模糊匹配「火箭配置图/」下的文件 stem
+ * 在已加载的 media_assets 映射中，按火箭展示名模糊匹配指定前缀下的文件 stem
  *（同步自 COS 的 key 如「KSLV-2 rocket launch.webp」可与 API 的「KSLV-II」等对齐）
+ * @param {string} rocketName
+ * @param {{ keyPrefix?: string }} [options] keyPrefix 默认「火箭配置图/」；机娘传「火箭配置图-机娘/」
  */
-function findFuzzyRocketConfigUrl(rocketName) {
+function findFuzzyRocketConfigUrl(rocketName, options) {
   if (!config.imageCDN || !config.imageCDN.enabled) return ''
   const rocketRaw = String(rocketName || '').trim()
   const rocketNorm = normalizeRocketNameForFileMatch(rocketRaw)
   if (!rocketNorm || rocketNorm.length < 2) return ''
 
+  const keyPrefix =
+    options && typeof options.keyPrefix === 'string' && options.keyPrefix
+      ? options.keyPrefix
+      : '火箭配置图/'
+
   const rocketCompact = compactRocketMatchStr(rocketRaw)
+
+  const memoKey = keyPrefix + '\u0001' + rocketNorm + '\u0001' + rocketCompact
+  const memoHit = _fuzzyRocketUrlMemo[memoKey]
+  if (memoHit !== undefined) return memoHit
+
   const rocketModels = extractRocketModelTokens(rocketNorm)
   const FUZZY_MIN_SCORE = 340000
 
@@ -562,9 +599,9 @@ function findFuzzyRocketConfigUrl(rocketName) {
   const map = runtimeCloudMediaMap || {}
   for (const rawKey of Object.keys(map)) {
     const k = normalizeKey(rawKey)
-    if (!/^火箭配置图\//.test(k)) continue
+    if (!k.startsWith(keyPrefix)) continue
 
-    const stem = stemFromRocketConfigFilename(k)
+    const stem = stemFromRocketConfigFilename(k, keyPrefix)
     if (!stem) continue
 
     const stemNorm = normalizeRocketNameForFileMatch(stem)
@@ -644,6 +681,9 @@ function findFuzzyRocketConfigUrl(rocketName) {
     }
   }
 
+  if (_fuzzyRocketUrlMemoCount >= FUZZY_ROCKET_MEMO_MAX) _resetFuzzyRocketUrlMemo()
+  _fuzzyRocketUrlMemo[memoKey] = bestUrl
+  _fuzzyRocketUrlMemoCount += 1
   return bestUrl
 }
 
@@ -674,7 +714,7 @@ function wrapCosHttpsUrl(url, preset) {
 
 function wrapRocketHttpsUrl(normalizedKey, url) {
   const u = typeof url === 'string' ? url.trim() : ''
-  if (!u || !/^火箭配置图\//.test(normalizedKey || '')) return u
+  if (!u || !isRocketConfigMediaKey(normalizedKey || '')) return u
   if (!/^https?:\/\//i.test(u)) return u
   // 只走 rocket_config_cache，禁止先 wrapCosHttpsUrl 再套一层（会双通道 downloadFile）
   return getCachedRocketConfig(toCdnUrl(u))
@@ -687,7 +727,7 @@ function resolveMediaUrl(key, localFallback = '') {
     const cloudUrl = getCloudUrlByKey(normalizedKey)
     const mediaPreset = /^首页轮播图\//.test(normalizedKey) ? 'medium' : 'thumb'
     if (cloudUrl) {
-      if (/^火箭配置图\//.test(normalizedKey)) {
+      if (isRocketConfigMediaKey(normalizedKey)) {
         return wrapRocketHttpsUrl(normalizedKey, cloudUrl)
       }
       return wrapCosHttpsUrl(cloudUrl, mediaPreset)
@@ -695,7 +735,7 @@ function resolveMediaUrl(key, localFallback = '') {
 
     // media_assets 未命中时按 key 拼公开 URL：火箭图走 COS，其余走云开发存储 baseUrl
     if (config.imageCDN && config.imageCDN.enabled) {
-      if (/^火箭配置图\//.test(normalizedKey)) {
+      if (isRocketConfigMediaKey(normalizedKey)) {
         const base = getRocketImageCdnRoot()
         if (base) return wrapRocketHttpsUrl(normalizedKey, `${base}/${encodeURI(normalizedKey)}`)
       } else if (/^(首页轮播图|开屏动画)\//.test(normalizedKey)) {

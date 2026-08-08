@@ -8759,6 +8759,10 @@ async function route(event, user) {
   if (path === '/watch-party/merchant/bind' && method === 'POST') return watchPartyApi().merchantBind(body, event._openid)
   if (path === '/watch-party/merchant/unbind' && method === 'POST') return watchPartyApi().merchantUnbind(event._openid)
   if (path === '/watch-party/merchant/me' && method === 'GET') return watchPartyApi().merchantMe(event._openid)
+  if (path === '/watch-party/merchant/profile' && method === 'PUT') return watchPartyApi().merchantUpdateProfile(body, event._openid)
+  if (path === '/watch-party/merchant/avatar' && method === 'POST') return watchPartyApi().merchantUpdateAvatar(body, event._openid)
+  if (path === '/watch-party/merchant/mission-name' && method === 'GET') return watchPartyApi().merchantGetMissionName(query, event._openid)
+  if (path === '/watch-party/merchant/mission-name' && method === 'POST') return watchPartyApi().merchantSetMissionDisplayName(body, event._openid)
   if (path === '/watch-party/merchant/cards' && method === 'GET') return watchPartyApi().merchantListCards(event._openid, query)
   if (path === '/watch-party/merchant/sessions' && method === 'POST') return watchPartyApi().merchantCreateSession(body, event._openid)
   // 物料码：优先用 query 路由（兼容旧云函数部署顺序）；路径式保留兼容

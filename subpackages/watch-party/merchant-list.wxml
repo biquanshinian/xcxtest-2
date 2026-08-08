@@ -29,47 +29,102 @@
         <text class="wpl-hero-title">{{missionTitle}}</text>
         <text class="wpl-hero-desc">以下商家提供本场现场观礼，请选择一家进入</text>
       </view>
+      <view class="wpl-hero" wx:elif="{{multiMission}}">
+        <text class="wpl-hero-label">火箭观礼</text>
+        <text class="wpl-hero-title">选择观礼商家</text>
+        <text class="wpl-hero-desc">当前 {{groups.length}} 场发射开放观礼，可点任务标签筛选商家</text>
+      </view>
       <view class="wpl-hero" wx:else>
         <text class="wpl-hero-label">火箭观礼</text>
         <text class="wpl-hero-title">选择观礼商家</text>
         <text class="wpl-hero-desc">多家商家可提供近距离观礼，请选择一家进入详情</text>
       </view>
 
+      <!-- 多任务同时开放：任务筛选标签 -->
+      <scroll-view
+        wx:if="{{multiMission}}"
+        class="wpl-filter-bar"
+        scroll-x
+        enhanced
+        show-scrollbar="{{false}}"
+      >
+        <view
+          class="wpl-filter-chip {{!activeMissionKey ? 'wpl-filter-chip--active' : ''}}"
+          bindtap="onMissionFilterTap"
+          data-key=""
+        >全部 · {{sessions.length}}</view>
+        <view
+          wx:for="{{missionFilters}}"
+          wx:key="key"
+          class="wpl-filter-chip {{activeMissionKey === item.key ? 'wpl-filter-chip--active' : ''}}"
+          bindtap="onMissionFilterTap"
+          data-key="{{item.key}}"
+        >{{item.label}}</view>
+      </scroll-view>
+
       <view class="wpl-empty" wx:if="{{!sessions.length}}">
         <text class="wpl-empty-text">暂无开放的观礼商家</text>
         <view class="wpl-link" bindtap="onGoMerchant"><text>已入驻商家？进入商家管理 ›</text></view>
       </view>
 
-      <view
-        class="wpl-card"
-        wx:for="{{sessions}}"
-        wx:key="sessionId"
-        bindtap="onSelect"
-        data-id="{{item.sessionId}}"
-      >
-        <view class="wpl-card-main">
-          <image
-            wx:if="{{item.rocketImage}}"
-            class="wpl-rocket"
-            src="{{item.rocketImage}}"
-            mode="aspectFit"
-          />
-          <view wx:else class="wpl-rocket wpl-rocket--empty"><text>🚀</text></view>
-          <view class="wpl-card-body">
-            <text class="wpl-merchant">{{item.merchantName || '观礼商家'}}</text>
-            <text class="wpl-title">{{item.title}}</text>
-            <text class="wpl-sub" wx:if="{{item.address}}">{{item.address}}</text>
-            <text class="wpl-sub" wx:elif="{{item.padLocationName}}">发射场 · {{item.padLocationName}}</text>
-            <view class="wpl-tags" wx:if="{{item.services.length}}">
-              <text class="wpl-tag" wx:for="{{item.services}}" wx:for-item="svc" wx:key="*this">{{svc}}</text>
+      <!-- 按发射任务分组；多任务时展示分组头做视觉分割 -->
+      <block wx:for="{{groups}}" wx:for-item="group" wx:key="key">
+        <view class="wpl-group" wx:if="{{!activeMissionKey || activeMissionKey === group.key}}">
+          <view class="wpl-group-head" wx:if="{{multiMission}}">
+            <text class="wpl-group-title">{{group.title}}</text>
+            <text class="wpl-group-meta">{{group.launchTimeText ? group.launchTimeText + ' · ' : ''}}{{group.sessions.length}} 家商家</text>
+          </view>
+          <view
+            class="wpl-card"
+            wx:for="{{group.sessions}}"
+            wx:key="sessionId"
+            bindtap="onSelect"
+            data-id="{{item.sessionId}}"
+          >
+            <view class="wpl-card-main">
+              <image
+                wx:if="{{item.rocketImage}}"
+                class="wpl-rocket"
+                src="{{item.rocketImage}}"
+                mode="aspectFill"
+              />
+              <view wx:else class="wpl-rocket wpl-rocket--empty"><text>🚀</text></view>
+              <view class="wpl-card-body">
+                <view class="wpl-head">
+                  <image
+                    wx:if="{{item.merchantAvatar}}"
+                    class="wpl-avatar"
+                    src="{{item.merchantAvatar}}"
+                    mode="aspectFill"
+                  />
+                  <text class="wpl-merchant">{{item.merchantName || '观礼商家'}}</text>
+                  <view class="wpl-status wpl-status--{{item.statusType}}">{{item.statusLabel}}</view>
+                </view>
+                <text class="wpl-title">{{item.title}}</text>
+                <text class="wpl-time" wx:if="{{item.launchTimeText}}">发射窗口 · {{item.launchTimeText}}</text>
+                <text class="wpl-sub" wx:if="{{item.address}}">{{item.address}}</text>
+                <text class="wpl-sub" wx:elif="{{item.padLocationName}}">发射场 · {{item.padLocationName}}</text>
+                <view class="wpl-tags" wx:if="{{item.services.length}}">
+                  <text class="wpl-tag" wx:for="{{item.services}}" wx:for-item="svc" wx:key="*this">{{svc}}</text>
+                </view>
+              </view>
+              <text class="wpl-arrow">›</text>
             </view>
           </view>
-          <text class="wpl-arrow">›</text>
         </view>
-      </view>
+      </block>
 
       <view class="page-footer">
         <text class="footer-text">门票等费用线下结算 · 小程序仅免费预约</text>
+        <!-- 商家低调快捷入口：空状态已有醒目链接，这里只在有列表时补一个 -->
+        <view
+          wx:if="{{sessions.length}}"
+          class="wpl-merchant-entry"
+          hover-class="wpl-merchant-entry--hover"
+          bindtap="onGoMerchant"
+        >
+          <text>我是商家 ›</text>
+        </view>
       </view>
     </block>
   </scroll-view>

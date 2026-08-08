@@ -16,8 +16,8 @@ function pickImageUrls(...candidates) {
   const push = (u) => {
     const s = String(u || '').trim()
     if (!/^https?:\/\//i.test(s)) return
-    // 跳过明显视频
-    if (/\.(mp4|mov|webm|m3u8)(\?|$)/i.test(s)) return
+    // 跳过明显视频；但万象截帧（.mp4?ci-process=snapshot）出图为 jpg，属于图片
+    if (/\.(mp4|mov|webm|m3u8)(\?|$)/i.test(s) && !/ci-process=snapshot/i.test(s)) return
     if (!out.includes(s)) out.push(s)
   }
   for (const c of candidates) {
@@ -35,6 +35,158 @@ function pickImageUrls(...candidates) {
     }
   }
   return out.slice(0, 8)
+}
+
+// ===== 视频素材（公众号日更流水线支持视频：正文/封面用「视频封面截图」承载） =====
+
+/** 自有 COS（含 CDN 前缀差异，按桶 ID 判断） */
+function isOwnCosUrl(u) {
+  const s = String(u || '').trim()
+  if (!/^https?:\/\//i.test(s)) return false
+  try {
+    const host = new URL(s).hostname.toLowerCase()
+    return host.includes('1397421562') && host.endsWith('.myqcloud.com')
+  } catch (e) {
+    return /1397421562[^/]*\.myqcloud\.com/i.test(s)
+  }
+}
+
+function isVideoFileUrl(u) {
+  const path = String(u || '').split('?')[0].toLowerCase()
+  return /\.(mp4|mov|m4v|webm|mkv)$/.test(path)
+}
+
+/**
+ * 自有 COS 视频 → 万象截帧封面（jpg）。
+ * 长视频未落 COS（url 是推文页/外链）时返回 ''，封面只能靠 thumbnailUrl。
+ */
+function cosVideoSnapshotUrl(videoUrl, second) {
+  const s = String(videoUrl || '').trim()
+  if (!isOwnCosUrl(s) || !isVideoFileUrl(s)) return ''
+  const t = Number(second) > 0 ? Number(second) : 1
+  return `${s.split('?')[0]}?ci-process=snapshot&time=${t}&format=jpg&width=720&height=0`
+}
+
+const LONG_VIDEO_DURATION_SEC = 120
+
+/**
+ * 从多来源候选（mediaList / videos 字段 / 裸 mp4 链接）收敛视频列表，最多 4 条。
+ * 每条：{ url(直链 mp4，可为空), pageUrl(推文/来源页), posterUrl(封面截图), watchUrl(观看首选链), isLong }
+ * posterUrl 优先缩略图，其次自有 COS 万象截帧 —— 保证长视频也有封面截图。
+ */
+function pickVideoEntries(...candidates) {
+  const out = []
+  const seen = new Set()
+  const pushEntry = (entry) => {
+    if (!entry) return
+    const url = String(entry.url || '').trim()
+    const pageUrl = String(entry.pageUrl || '').trim()
+    const posterUrl = String(entry.posterUrl || '').trim()
+    if (!url && !pageUrl && !posterUrl) return
+    const key = url || pageUrl || posterUrl
+    if (seen.has(key)) return
+    seen.add(key)
+    // 观看首选：自有 COS 压缩预览（境内可开、体积小）→ COS 原片 → 来源页 → 站外直链
+    const watchUrl =
+      (isOwnCosUrl(entry.previewUrl) && String(entry.previewUrl || '').trim()) ||
+      (isOwnCosUrl(url) && url) ||
+      pageUrl ||
+      url ||
+      ''
+    out.push({
+      url,
+      pageUrl,
+      posterUrl,
+      watchUrl,
+      isLong: !!entry.isLong
+    })
+  }
+  const fromObject = (m) => {
+    if (!m || typeof m !== 'object') return
+    const type = String(m.type || m.mediaType || '').toLowerCase()
+    const rawUrl = String(m.url || m.src || '').trim()
+    const directUrl = String(m.videoUrl || '').trim()
+    const previewUrl = String(m.previewUrl || '').trim()
+    if (type !== 'video' && !isVideoFileUrl(rawUrl) && !directUrl && !previewUrl) return
+    // mediaList 约定：长视频未存 COS 时 url 是推文页链接
+    const fileUrl = isVideoFileUrl(rawUrl) ? rawUrl : ''
+    const pageUrl =
+      String(m.sourceUrl || m.tweetUrl || '').trim() || (!fileUrl && /^https?:\/\//i.test(rawUrl) ? rawUrl : '')
+    const duration = Number(m.duration || m.durationSec || 0)
+    const posterUrl =
+      String(m.thumbnailUrl || m.posterUrl || m.poster || m.thumb || m.cover || '').trim() ||
+      cosVideoSnapshotUrl(fileUrl) ||
+      cosVideoSnapshotUrl(previewUrl)
+    pushEntry({
+      url: fileUrl || directUrl || previewUrl,
+      previewUrl,
+      pageUrl,
+      posterUrl,
+      // wasLongVideo：回填落 COS 后 isLongVideo 被摘除时保留的长视频标记
+      isLong:
+        coerceBool(m.isLongVideo, false) ||
+        coerceBool(m.wasLongVideo, false) ||
+        duration > LONG_VIDEO_DURATION_SEC
+    })
+  }
+  for (const c of candidates) {
+    if (!c) continue
+    if (typeof c === 'string') {
+      const s = c.trim()
+      if (/^https?:\/\//i.test(s) && isVideoFileUrl(s)) {
+        pushEntry({ url: s, posterUrl: cosVideoSnapshotUrl(s) })
+      }
+      continue
+    }
+    if (Array.isArray(c)) {
+      for (const item of c) {
+        if (typeof item === 'string') {
+          const s = item.trim()
+          if (/^https?:\/\//i.test(s) && isVideoFileUrl(s)) {
+            pushEntry({ url: s, posterUrl: cosVideoSnapshotUrl(s) })
+          }
+        } else {
+          fromObject(item)
+        }
+      }
+      continue
+    }
+    fromObject(c)
+  }
+  return out.slice(0, 4)
+}
+
+/** 视频封面截图对应的图片 URL 列表（并入配图/封面池用） */
+function videoPosterUrls(videos) {
+  const out = []
+  for (const v of Array.isArray(videos) ? videos : []) {
+    const s = String((v && v.posterUrl) || '').trim()
+    if (/^https?:\/\//i.test(s) && !out.includes(s)) out.push(s)
+  }
+  return out
+}
+
+/**
+ * 在成稿 markdown 里给视频封面截图补说明行（blockquote，运营可编辑/删除）。
+ * readMoreUrl 与该视频观看链一致时提示「阅读原文」（推送时 content_source_url 即此链）。
+ */
+function annotateVideoPostersInMarkdown(md, videos, opts = {}) {
+  let s = String(md || '')
+  if (!s) return s
+  const readMoreUrl = String((opts && opts.readMoreUrl) || '').trim()
+  const done = new Set()
+  for (const v of Array.isArray(videos) ? videos : []) {
+    const poster = normalizeImgSrc(v && v.posterUrl)
+    if (!poster || done.has(poster)) continue
+    done.add(poster)
+    const esc = poster.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const re = new RegExp(`(!\\[[^\\]]*\\]\\(${esc}(?:\\s+"[^"]*")?\\))(?!\\s*\\n+>\\s*▶)`)
+    if (!re.test(s)) continue
+    const label = v.isLong ? '长视频封面截图' : '视频封面截图'
+    const tail = readMoreUrl && v.watchUrl === readMoreUrl ? '，完整视频点文末「阅读原文」' : ''
+    s = s.replace(re, `$1\n\n> ▶ ${label}${tail}`)
+  }
+  return s
 }
 
 function normalizeImgSrc(u) {
@@ -152,13 +304,16 @@ function applyImageMapToMarkdown(md, map) {
   return s
 }
 
-/** 去掉 markdown 里指定外链图（跳过坏图时用） */
+/** 去掉 markdown 里指定外链图（跳过坏图时用）；视频封面被丢时连带清掉「> ▶」说明行 */
 function stripMarkdownImages(md, urls) {
   let s = String(md || '')
   for (const u of urls || []) {
     if (!u) continue
     const esc = String(u).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    s = s.replace(new RegExp(`!\\[[^\\]]*\\]\\(${esc}(?:\\s+"[^"]*")?\\)`, 'g'), '')
+    s = s.replace(
+      new RegExp(`!\\[[^\\]]*\\]\\(${esc}(?:\\s+"[^"]*")?\\)(?:\\s*\\n+>\\s*▶[^\\n]*)?`, 'g'),
+      ''
+    )
   }
   return s.replace(/\n{3,}/g, '\n\n').trim()
 }
@@ -283,6 +438,12 @@ function appendTimeline(draft, event, detail) {
 module.exports = {
   coerceBool,
   pickImageUrls,
+  isOwnCosUrl,
+  isVideoFileUrl,
+  cosVideoSnapshotUrl,
+  pickVideoEntries,
+  videoPosterUrls,
+  annotateVideoPostersInMarkdown,
   normalizeImgSrc,
   collectHtmlImgSrcs,
   isWechatCdnUrl,

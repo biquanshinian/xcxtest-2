@@ -1,5 +1,5 @@
 <page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
-<view class="page {{themeClass}}" style="padding-bottom: {{keyboardHeight}}px;">
+<view class="page {{themeClass}}">
   <view class="top-nav-wrapper" style="padding-top:{{statusBarHeight}}px;">
     <view class="top-nav top-nav--page-grid">
       <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
@@ -10,7 +10,7 @@
     </view>
   </view>
 
-  <scroll-view class="page-scroll" scroll-y enhanced show-scrollbar="{{false}}" bindscroll="onComposerScroll" scroll-with-animation="{{true}}" scroll-top="{{composerScrollTop}}">
+  <scroll-view class="page-scroll" scroll-y enhanced show-scrollbar="{{false}}">
     <view style="height: {{navPlaceholderHeight}}px;"></view>
 
     <view class="wpm-loading" wx:if="{{loading}}">
@@ -28,7 +28,7 @@
       <view class="wpm-bind-card">
         <text class="wpm-bind-title">绑定商家身份</text>
         <text class="wpm-bind-desc">输入运营发放的商家编号，绑定后即可在手机上自助创建和管理观礼场次，无需电脑后台。</text>
-        <input
+        <textarea
           id="c_merchant_1" class="wpm-bind-input"
           value="{{codeInput}}"
           placeholder="商家编号（8位字母数字）"
@@ -36,8 +36,7 @@
           maxlength="12"
           confirm-type="done"
           bindinput="onCodeInput"
-          bindconfirm="onBind" cursor-spacing="24" hold-keyboard="{{true}}" adjust-position="{{false}}" bindfocus="onInputFocus" bindblur="onInputBlur" bindkeyboardheightchange="onInputKeyboardHeightChange"
-        />
+          bindconfirm="onBind" cursor-spacing="24" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
         <view class="wpm-primary-btn {{binding ? 'wpm-btn--disabled' : ''}}" bindtap="onBind">
           <text>{{binding ? '绑定中…' : '绑定'}}</text>
         </view>
@@ -49,7 +48,12 @@
     <block wx:else>
       <view class="wpm-merchant-card">
         <view class="wpm-merchant-head">
+          <view class="wpm-avatar" catchtap="onAvatarTap" hover-class="wpm-avatar--hover">
+            <image wx:if="{{merchant.avatar}}" class="wpm-avatar-img" src="{{merchant.avatar}}" mode="aspectFill" />
+            <text wx:else class="wpm-avatar-plus">+</text>
+          </view>
           <text class="wpm-merchant-name">{{merchant.name}}</text>
+          <view class="wpm-edit-link" catchtap="onProfileToggle"><text>{{profileOpen ? '收起' : '编辑资料'}}</text></view>
           <view class="wpm-merchant-status {{merchant.status === 'active' ? 'wpm-status--ok' : 'wpm-status--warn'}}">{{merchant.status === 'active' ? '合作中' : '已暂停'}}</view>
         </view>
         <view class="wpm-merchant-code-row">
@@ -69,15 +73,39 @@
             />
           </view>
         </view>
+
+        <!-- 入驻资料编辑：改入驻时填的名称/联系人/电话/地址 -->
+        <view class="wpm-profile" wx:if="{{profileOpen}}">
+          <view class="wpm-profile-row">
+            <text class="wpm-profile-label">名称</text>
+            <textarea id="c_profileForm_name" class="wpm-profile-input" value="{{profileForm.name}}" placeholder="商家/观礼点名称（必填）" placeholder-class="wpm-ph" maxlength="40" data-path="profileForm.name" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
+          </view>
+          <view class="wpm-profile-row">
+            <text class="wpm-profile-label">联系人</text>
+            <textarea id="c_profileForm_contactName" class="wpm-profile-input" value="{{profileForm.contactName}}" placeholder="联系人姓名" placeholder-class="wpm-ph" maxlength="20" data-path="profileForm.contactName" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
+          </view>
+          <view class="wpm-profile-row">
+            <text class="wpm-profile-label">联系电话</text>
+            <textarea id="c_profileForm_contactPhone" class="wpm-profile-input" value="{{profileForm.contactPhone}}" placeholder="手机或座机，顾客可一键拨打" placeholder-class="wpm-ph" maxlength="20" data-path="profileForm.contactPhone" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
+          </view>
+          <view class="wpm-profile-row">
+            <text class="wpm-profile-label">地址</text>
+            <textarea id="c_profileForm_address" class="wpm-profile-input" value="{{profileForm.address}}" placeholder="观礼点/门店地址" placeholder-class="wpm-ph" maxlength="120" data-path="profileForm.address" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
+          </view>
+          <view class="wpm-profile-save {{profileSaving ? 'wpm-btn--disabled' : ''}}" catchtap="onSaveProfile">
+            <text>{{profileSaving ? '保存中…' : '保存资料'}}</text>
+          </view>
+          <text class="wpm-profile-hint">名称改后顾客页「观礼点由 xx 提供」同步更新；电话与地址作为新建场次的默认值，已有场次在场次编辑里单独改</text>
+        </view>
       </view>
 
       <view class="section-header">
         <text class="section-title">我的观礼场次</text>
-        <view class="wpm-add-btn" wx:if="{{!sessions.length}}" bindtap="onCreateSession"><text>+ 创建场次</text></view>
+        <view class="wpm-add-btn" bindtap="onCreateSession"><text>+ 创建场次</text></view>
       </view>
 
       <view class="wpm-empty" wx:if="{{!sessions.length}}">
-        <text class="wpm-empty-text">每位商家仅一场观礼场次（物料码可长期使用）\n点「+ 创建场次」配置任务、奖品；换发射点「开启下一场」</text>
+        <text class="wpm-empty-text">可为不同发射任务分别创建场次（每场独立物料码）\n点「+ 创建场次」配置任务、奖品；同任务下一发射用「开启下一场」</text>
       </view>
 
       <view class="wpm-session-card" wx:for="{{sessions}}" wx:key="sessionId">
@@ -87,7 +115,7 @@
               wx:if="{{item.rocketImage}}"
               class="wpm-session-rocket"
               src="{{item.rocketImage}}"
-              mode="aspectFit"
+              mode="aspectFill"
             />
             <view wx:else class="wpm-session-rocket wpm-session-rocket--empty">
               <text>🚀</text>
@@ -97,7 +125,7 @@
                 <text class="wpm-session-title">{{item.title}}</text>
                 <view class="wpm-session-tag {{item.enabled ? (item.status === 'open' ? 'wpm-tag--open' : 'wpm-tag--closed') : 'wpm-tag--off'}}">{{!item.enabled ? '已停用' : (item.status === 'open' ? '预约中' : '停止预约')}}</view>
               </view>
-              <text class="wpm-session-sub">{{item.rocketName || '火箭待定'}}{{item.missionName ? ' · ' + item.missionName : ''}} · {{item.launchTimeText}}</text>
+              <text class="wpm-session-sub">{{item.rocketName || '火箭待定'}}{{item.missionDisplayName ? ' · ' + item.missionDisplayName : (item.missionName ? ' · ' + item.missionName : '')}} · {{item.launchTimeText}}</text>
               <text class="wpm-session-stats">本场任务 · 预约 {{item.stats.reservations || 0}} · 扫码 {{item.stats.scanUsers || 0}} · 发放 {{item.stats.draws || 0}}</text>
               <text class="wpm-session-ssr" wx:if="{{item.prizeDrawEnabled && item.successUnlocked}}">抽奖已开放（已确认发射成功）</text>
               <text class="wpm-session-ssr" wx:elif="{{item.prizeDrawEnabled}}">已开启抽奖 · 确认发射成功后用户可抽</text>
@@ -120,6 +148,13 @@
           </view>
         </view>
         <view class="wpm-session-actions">
+          <button
+            class="wpm-action-btn wpm-share-btn"
+            open-type="share"
+            data-id="{{item.sessionId}}"
+            data-title="{{item.title}}"
+            data-img="{{item.rocketImage}}"
+          ><text>转发到群</text></button>
           <view class="wpm-action-btn" bindtap="onEditSession" data-id="{{item.sessionId}}"><text>编辑</text></view>
           <view
             class="wpm-action-btn"
@@ -147,6 +182,17 @@
           </view>
           <view class="wpm-action-btn wpm-action-btn--danger" bindtap="onDeleteSession" data-id="{{item.sessionId}}" data-title="{{item.title}}"><text>删除</text></view>
         </view>
+      </view>
+
+      <!-- 推荐给同行：转发入驻申请页，落地自动带本商家推荐归属 -->
+      <view class="wpm-peer-card">
+        <view class="wpm-peer-info">
+          <text class="wpm-peer-title">推荐给同行</text>
+          <text class="wpm-peer-desc">转发给同行商家，对方填写信息即可自动入驻，推荐来源记为「{{merchant.name}}」</text>
+        </view>
+        <button class="wpm-peer-btn" open-type="share" data-share="peer">
+          <text>转发邀请</text>
+        </button>
       </view>
 
       <view class="wpm-unbind" bindtap="onUnbind">

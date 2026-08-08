@@ -34,6 +34,9 @@ const helpers = require('./oaStudioHelpers')
 const {
   coerceBool,
   pickImageUrls,
+  pickVideoEntries,
+  videoPosterUrls,
+  annotateVideoPostersInMarkdown,
   normalizeImgSrc,
   collectHtmlImgSrcs,
   isWechatCdnUrl,
@@ -676,7 +679,9 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
         .limit(Math.ceil(limit / 2))
         .get()
       for (const ev of events.data || []) {
-        const imageUrls = pickImageUrls(ev.cover, ev.mediaList, ev.images)
+        // 视频事件不再「无图」：封面截图（缩略图/万象截帧）并入配图池，长视频也有封面
+        const videos = pickVideoEntries(ev.mediaList, ev.videos)
+        const imageUrls = pickImageUrls(ev.cover, ev.mediaList, ev.images, videoPosterUrls(videos))
         topics.push({
           sourceType: 'starship_event',
           sourceId: String(ev._id),
@@ -684,7 +689,8 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
           summary: String(ev.content || '').slice(0, 200),
           body: String(ev.content || ev.title || ''),
           coverUrl: imageUrls[0] || '',
-          imageUrls
+          imageUrls,
+          videos
         })
       }
     } catch (e) {}
@@ -761,7 +767,13 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
   }
 
   async function resolveTopicImages(source) {
-    let urls = pickImageUrls(source.imageUrls, source.images, source.coverUrl, source.mediaList)
+    let urls = pickImageUrls(
+      source.imageUrls,
+      source.images,
+      source.coverUrl,
+      source.mediaList,
+      videoPosterUrls(pickVideoEntries(source.videos, source.mediaList))
+    )
     // 正文若仍是 HTML，从中抠图
     const rawBody = String(source.body || source.content || '')
     if (/<img\b/i.test(rawBody)) {
@@ -800,7 +812,14 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
       try {
         const res = await db.collection('starship_event_updates').doc(source.sourceId).get()
         const ev = res && res.data
-        if (ev) urls = pickImageUrls(ev.cover, ev.mediaList, ev.images)
+        if (ev) {
+          urls = pickImageUrls(
+            ev.cover,
+            ev.mediaList,
+            ev.images,
+            videoPosterUrls(pickVideoEntries(ev.mediaList, ev.videos))
+          )
+        }
       } catch (e) {}
     }
     if (source.sourceType === 'news_article' && source.sourceId) {
@@ -811,6 +830,19 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
       } catch (e) {}
     }
     return urls
+  }
+
+  /** 选题视频素材：优先取选题自带，缺省回读事件 mediaList（长视频仅缩略图+链接也在内） */
+  async function resolveTopicVideos(source) {
+    let videos = pickVideoEntries(source.videos, source.mediaList)
+    if (!videos.length && source.sourceType === 'starship_event' && source.sourceId) {
+      try {
+        const res = await db.collection('starship_event_updates').doc(source.sourceId).get()
+        const ev = res && res.data
+        if (ev) videos = pickVideoEntries(ev.mediaList, ev.videos)
+      } catch (e) {}
+    }
+    return videos
   }
 
   /**
@@ -1379,7 +1411,9 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
     const cfg = await readConfig()
     const brand = resolveBrand(cfg, brandKey || cfg.defaultBrandKey)
     const source = await enrichTopicFromUrl(topic || manualSource || {})
-    const imageUrls = await resolveTopicImages(source)
+    const videos = await resolveTopicVideos(source)
+    // 视频封面截图并入配图池（去重）：视频事件的正文配图与封面都有着落
+    const imageUrls = pickImageUrls(await resolveTopicImages(source), videoPosterUrls(videos))
     const rawBody = String(source.body || source.content || '')
 
     // 策略：空 / auto → 按正文自动匹配；显式传入则尊重人工选择
@@ -1422,6 +1456,16 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
         `\n\n【配图要求】素材中有 ${imageUrls.length} 张图，占位为 [[IMG:1]]…[[IMG:${imageUrls.length}]]，位置已与原稿对齐。` +
         '成稿必须在相同叙述位置保留这些占位（单独成行），禁止删改编号、禁止把图挪到文首或文末堆放，不要输出 http 图片链接。'
     }
+    if (videos.length) {
+      const posterIdxs = videoPosterUrls(videos)
+        .map((u) => imageUrls.indexOf(u) + 1)
+        .filter((n) => n > 0)
+      const longCount = videos.filter((v) => v.isLong).length
+      userMsg +=
+        `\n\n【视频素材】素材含 ${videos.length} 段视频${longCount ? `（其中 ${longCount} 段为长视频）` : ''}，` +
+        `文中只放视频封面截图${posterIdxs.length ? `，对应占位 ${posterIdxs.map((n) => `[[IMG:${n}]]`).join('、')}` : ''}。` +
+        '提及这些画面时用「视频画面/视频截图」表述，不要写成读者可在文内直接播放的视频。'
+    }
 
     const draftDoc = {
       status: 'generating',
@@ -1435,7 +1479,9 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
       sourceType: source.sourceType || 'manual',
       sourceId: source.sourceId || '',
       sourceTitle: source.title || '',
-      sourceUrl: source.sourceUrl || '',
+      // 视频选题无来源页时，「阅读原文」兜底指向视频观看链（COS 原片优先）
+      sourceUrl: source.sourceUrl || (videos[0] && videos[0].watchUrl) || '',
+      videos,
       sourceSlottedBody: slottedBody,
       /** 原始图序（与 [[IMG:n]] 下标一一对应；prepare 换链后仍可按 n 定位） */
       sourceImageUrls: imageUrls.slice(0, 8),
@@ -1483,6 +1529,8 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
       bodyMd = ensureHeroImagePlacement(bodyMd, {
         coverUrl: draftDoc.coverUrl || imageUrls[0] || brand.defaultCoverUrl || cfg.defaultCoverUrl || ''
       })
+      // 视频封面截图下补「▶ …」说明行（阅读原文指向该视频时一并提示）
+      bodyMd = annotateVideoPostersInMarkdown(bodyMd, videos, { readMoreUrl: draftDoc.sourceUrl })
       bodyMd = stripPromoBrandFooterMarkdown(bodyMd)
       const foot = safeBrandFooter(brand, cfg)
       const markdown =
@@ -1555,6 +1603,7 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
         strategyName: draftDoc.strategyName,
         strategyAuto: !!draftDoc.strategyAuto,
         imageCount: imageUrls.length,
+        videoCount: videos.length,
         generatedByAi: !usedFallback,
         imagesReady: imagesReadyOut,
         // 兜底时带回 LLM 失败原因，前端可提示（否则用户只看到「需改写」不知为何）

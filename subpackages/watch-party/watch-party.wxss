@@ -55,35 +55,84 @@
   color: #fff;
   font-size: 28rpx;
 }
+.wp-retry-btn--ghost {
+  background: transparent;
+  border: 1rpx solid rgba(96, 165, 250, 0.45);
+  color: #60A5FA;
+}
+.theme-light .wp-retry-btn--ghost {
+  border-color: rgba(37, 99, 235, 0.35);
+  color: #2563EB;
+}
 
 /* ── 头卡 ── */
 .wp-hero {
+  position: relative;
   margin: 24rpx 32rpx 0;
-  padding: 40rpx 32rpx;
-  border-radius: 24rpx;
-  background: linear-gradient(160deg, #14213d 0%, #0b0c0e 70%);
-  border: 1rpx solid rgba(96, 165, 250, 0.25);
+  padding: 44rpx 36rpx 40rpx;
+  border-radius: 28rpx;
+  background:
+    radial-gradient(120% 90% at 88% -12%, rgba(99, 102, 241, 0.32), transparent 55%),
+    radial-gradient(90% 70% at 0% 105%, rgba(59, 130, 246, 0.12), transparent 62%),
+    linear-gradient(165deg, #131a33 0%, #0b0c0e 64%);
+  border: 1rpx solid rgba(96, 165, 250, 0.3);
+  box-shadow: 0 16rpx 48rpx rgba(8, 12, 34, 0.45);
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 12rpx;
 }
 
+/* 装饰层（纯展示，不响应触摸） */
+.wp-hero-fx {
+  position: absolute;
+  pointer-events: none;
+}
+
+.wp-hero-fx--glow {
+  top: -180rpx;
+  right: -140rpx;
+  width: 560rpx;
+  height: 560rpx;
+  background: radial-gradient(closest-side, rgba(99, 102, 241, 0.35), rgba(99, 102, 241, 0.1) 55%, transparent 75%);
+}
+
+.wp-hero-fx--topline {
+  top: 0;
+  left: 36rpx;
+  right: 36rpx;
+  height: 2rpx;
+  background: linear-gradient(90deg, transparent, rgba(147, 197, 253, 0.75), transparent);
+}
+
 .wp-hero-top {
+  position: relative;
   display: flex;
   align-items: flex-start;
-  gap: 24rpx;
+  gap: 26rpx;
   min-width: 0;
 }
 
 .wp-hero-rocket {
   position: relative;
-  width: 120rpx;
-  height: 168rpx;
+  width: 132rpx;
+  height: 186rpx;
   flex-shrink: 0;
-  border-radius: 16rpx;
+  border-radius: 20rpx;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1rpx solid rgba(255, 255, 255, 0.12);
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.16), rgba(255, 255, 255, 0.04));
+  border: 1rpx solid rgba(147, 197, 253, 0.35);
+  box-shadow: 0 12rpx 32rpx rgba(59, 130, 246, 0.22);
+}
+
+.wp-hero-rocket-shine {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(200deg, rgba(255, 255, 255, 0.16) 0%, transparent 32%);
+  pointer-events: none;
 }
 
 /* 对齐 styles/mission-card .mission-rocket-image：等比例放大居中撑满槽位 */
@@ -109,20 +158,38 @@
 
 .wp-hero-badge {
   align-self: flex-start;
-  padding: 6rpx 20rpx;
-  border-radius: 24rpx;
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  padding: 8rpx 22rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.22), rgba(168, 85, 247, 0.16));
+  border: 1rpx solid rgba(147, 197, 253, 0.4);
+}
+
+.wp-hero-badge text {
   font-size: 22rpx;
-  color: #93C5FD;
-  background: rgba(59, 130, 246, 0.15);
-  border: 1rpx solid rgba(96, 165, 250, 0.35);
+  color: #BFDBFE;
+  letter-spacing: 1rpx;
+}
+
+.wp-hero-badge-dot {
+  flex-shrink: 0;
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  background: #60A5FA;
+  box-shadow: 0 0 12rpx rgba(96, 165, 250, 0.9);
+  animation: wp-dot-pulse 2s ease-in-out infinite;
 }
 
 .wp-hero-title {
-  font-size: 40rpx;
-  font-weight: 700;
+  font-size: 42rpx;
+  font-weight: 800;
   color: #fff;
   margin-top: 4rpx;
-  line-height: 1.25;
+  line-height: 1.22;
+  letter-spacing: 1rpx;
 }
 
 .wp-hero-mission {
@@ -132,6 +199,7 @@
 
 .wp-hero-time {
   font-size: 26rpx;
+  font-weight: 600;
   color: #FBBF24;
 }
 
@@ -141,10 +209,40 @@
   margin-top: 4rpx;
 }
 
+/* ── 倒计时：发射控制台风格 ── */
 .wp-countdown {
+  position: relative;
   display: flex;
-  gap: 16rpx;
-  margin-top: 20rpx;
+  flex-direction: column;
+  gap: 14rpx;
+  margin-top: 24rpx;
+}
+
+.wp-cd-head {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.wp-cd-live-dot {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  background: #34D399;
+  box-shadow: 0 0 12rpx rgba(52, 211, 153, 0.9);
+  animation: wp-dot-pulse 2s ease-in-out infinite;
+}
+
+.wp-cd-caption {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.55);
+  letter-spacing: 3rpx;
+}
+
+.wp-cd-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8rpx;
 }
 
 .wp-cd-cell {
@@ -152,69 +250,121 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 16rpx 0;
-  border-radius: 16rpx;
-  background: rgba(255, 255, 255, 0.06);
+  padding: 18rpx 0 14rpx;
+  border-radius: 18rpx;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03));
+  border: 1rpx solid rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.14);
+}
+
+.wp-cd-cell--secs {
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.22), rgba(59, 130, 246, 0.06));
+  border-color: rgba(96, 165, 250, 0.4);
 }
 
 .wp-cd-num {
-  font-size: 44rpx;
-  font-weight: 700;
+  font-size: 48rpx;
+  font-weight: 800;
   color: #fff;
   font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 24rpx rgba(96, 165, 250, 0.4);
+  line-height: 1.15;
+}
+
+.wp-cd-num--secs {
+  color: #93C5FD;
 }
 
 .wp-cd-label {
-  font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.5);
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.45);
   margin-top: 4rpx;
 }
 
+.wp-cd-sep {
+  align-self: center;
+  padding-bottom: 26rpx;
+  font-size: 36rpx;
+  font-weight: 700;
+  color: rgba(147, 197, 253, 0.45);
+}
+
 .wp-cd-done {
-  margin-top: 16rpx;
-  font-size: 28rpx;
+  margin-top: 20rpx;
+  font-size: 30rpx;
+  font-weight: 600;
   color: #34D399;
+  text-shadow: 0 0 20rpx rgba(52, 211, 153, 0.4);
+}
+
+@keyframes wp-dot-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
 }
 
 /* ── 抽卡入口 ── */
-.wp-gacha-banner {
+/* ── 奖品入口组（现场抽奖 / 我的奖品）：规整的分组入口卡 ── */
+.wp-entry-card {
   margin: 24rpx 32rpx 0;
-  padding: 28rpx 32rpx;
+  padding: 8rpx 28rpx;
   border-radius: 24rpx;
-  background: linear-gradient(120deg, rgba(168, 85, 247, 0.22), rgba(59, 130, 246, 0.18));
-  border: 1rpx solid rgba(168, 85, 247, 0.35);
+  background: var(--color-bg-card);
+  border: 1rpx solid var(--color-border-glass);
+}
+
+.wp-entry-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 24rpx;
+  padding: 24rpx 4rpx;
 }
 
-.wp-gacha-left {
+.wp-entry-icon {
+  flex-shrink: 0;
+  width: 76rpx;
+  height: 76rpx;
+  border-radius: 20rpx;
   display: flex;
-  flex-direction: column;
-  gap: 6rpx;
+  align-items: center;
+  justify-content: center;
 }
 
-.wp-gacha-title {
+.wp-entry-icon text {
   font-size: 32rpx;
   font-weight: 700;
-  color: #E9D5FF;
+  color: #fff;
 }
 
-.wp-gacha-desc {
-  font-size: 24rpx;
-  color: rgba(255, 255, 255, 0.6);
+.wp-entry-icon--gacha {
+  background: linear-gradient(135deg, #A855F7, #6366F1);
 }
 
-.wp-gacha-arrow {
-  font-size: 48rpx;
-  color: rgba(255, 255, 255, 0.4);
+.wp-entry-icon--album {
+  background: linear-gradient(135deg, #F59E0B, #EF4444);
 }
 
-.wp-album-link {
-  margin: 12rpx 40rpx 0;
-  font-size: 24rpx;
-  color: #93C5FD;
-  text-align: right;
+.wp-entry-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.wp-entry-title {
+  font-size: 29rpx;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.wp-entry-desc {
+  font-size: 23rpx;
+  color: var(--color-text-tertiary);
+}
+
+.wp-entry-arrow {
+  font-size: 44rpx;
+  color: var(--color-text-quaternary);
 }
 
 /* ── 无开放场次空态 ── */
@@ -236,12 +386,6 @@
   text-align: center;
   color: var(--color-text-tertiary);
 }
-.wp-album-link--empty {
-  text-align: center;
-  margin: 24rpx 40rpx 24rpx;
-  padding: 16rpx 0;
-}
-
 /* 现场大屏模式入口（商家工作人员用，弱化展示） */
 .wp-screen-link {
   margin: 32rpx 32rpx 0;
@@ -310,6 +454,73 @@
   font-size: 22rpx;
   color: var(--color-text-quaternary);
 }
+.wp-qr-list {
+  display: flex;
+  gap: 24rpx;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* ── 现场照片 / 现场视频 ── */
+.wp-media-label {
+  display: block;
+  font-size: 26rpx;
+  color: var(--color-text-secondary);
+  margin-bottom: 16rpx;
+}
+.wp-site-photos { margin-top: 28rpx; }
+.wp-site-photo-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+.wp-site-photo {
+  width: 200rpx;
+  height: 200rpx;
+  border-radius: 12rpx;
+  background: var(--color-divider);
+}
+.wp-site-video { margin-top: 28rpx; }
+.wp-site-video-player {
+  width: 100%;
+  height: 360rpx;
+  border-radius: 16rpx;
+  background: #000;
+}
+.wp-site-video-cover {
+  position: relative;
+  width: 100%;
+  height: 360rpx;
+  border-radius: 16rpx;
+  overflow: hidden;
+  background: #000;
+}
+.wp-site-video-poster {
+  width: 100%;
+  height: 100%;
+}
+.wp-site-video-poster--empty {
+  background: linear-gradient(135deg, #1a1f2e, #0e1220);
+}
+.wp-site-video-play {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  border: 2rpx solid rgba(255, 255, 255, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wp-site-video-play text {
+  color: #fff;
+  font-size: 36rpx;
+  margin-left: 6rpx;
+}
 
 /* ── 位置导航 ── */
 .wp-loc-row {
@@ -337,17 +548,6 @@
   color: var(--color-text-tertiary);
 }
 
-.wp-loc-sub--url {
-  word-break: break-all;
-}
-
-.wp-loc-actions {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
-}
-
 .wp-loc-btn {
   flex-shrink: 0;
   padding: 12rpx 32rpx;
@@ -361,48 +561,105 @@
   color: #fff;
 }
 
-.wp-loc-btn--ghost {
-  background: transparent;
-  border: 1rpx solid rgba(7, 193, 96, 0.55);
-  color: #07C160;
-}
-
-.wp-loc-btn--ghost text {
-  color: #07C160;
-}
-
 /* ── 预约 ── */
-.wp-reserved {
+/* ── 我的预约：凭证卡 ── */
+.wp-reserved-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 20rpx;
 }
 
-.wp-reserved-main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6rpx;
-}
-
-.wp-reserved-title {
+.wp-reserved-status text {
   font-size: 30rpx;
   font-weight: 600;
   color: #34D399;
 }
 
-.wp-reserved-sub {
-  font-size: 24rpx;
+.wp-reserved-status--in text {
+  color: #60A5FA;
+}
+
+.wp-reserved-code {
+  display: flex;
+  align-items: baseline;
+  gap: 10rpx;
+  padding: 8rpx 20rpx;
+  border-radius: 16rpx;
+  background: rgba(52, 211, 153, 0.12);
+}
+
+.wp-reserved-code-label {
+  font-size: 22rpx;
+  color: var(--color-text-tertiary);
+}
+
+.wp-reserved-code-num {
+  font-size: 32rpx;
+  font-weight: 700;
+  letter-spacing: 3rpx;
+  color: #34D399;
+  font-variant-numeric: tabular-nums;
+}
+
+.wp-reserved-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.wp-reserved-line {
+  display: flex;
+  gap: 20rpx;
+}
+
+.wp-reserved-k {
+  flex-shrink: 0;
+  width: 130rpx;
+  font-size: 25rpx;
+  color: var(--color-text-tertiary);
+}
+
+.wp-reserved-v {
+  flex: 1;
+  font-size: 25rpx;
+  color: var(--color-text-primary);
+}
+
+.wp-reserved-hint {
+  display: block;
+  margin-top: 16rpx;
+  font-size: 22rpx;
+  color: var(--color-text-quaternary);
+}
+
+.wp-reserved-actions {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 24rpx;
+}
+
+.wp-rsv-btn {
+  flex: 1;
+  height: 68rpx;
+  border-radius: 34rpx;
+  border: 1rpx solid var(--color-divider-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wp-rsv-btn text {
+  font-size: 25rpx;
   color: var(--color-text-secondary);
 }
 
-.wp-cancel-btn {
-  flex-shrink: 0;
-  padding: 10rpx 28rpx;
-  border-radius: 32rpx;
-  border: 1rpx solid var(--color-divider-strong);
-  color: var(--color-text-secondary);
-  font-size: 24rpx;
+.wp-rsv-btn--warn {
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
+.wp-rsv-btn--warn text {
+  color: #F87171;
 }
 
 .wp-form-row {
@@ -423,21 +680,22 @@
 .wp-form-input {
   flex: 1;
   min-width: 0;
-  height: 44rpx;
-  min-height: 44rpx;
-  line-height: 44rpx;
+  width: auto;
+  height: 88rpx;
+  min-height: 88rpx;
+  /* 单行 textarea：行高 + 上下 padding 垂直居中 */
+  line-height: 40rpx;
+  padding: 24rpx 0;
   font-size: 28rpx;
-  /* 原生 input：CSS 变量在聚焦输入时经常失效（回落系统黑字 → 深色底看不见），须字面色 */
+  /* 原生输入组件：CSS 变量在聚焦输入时经常失效（回落系统黑字 → 深色底看不见），须字面色 */
   color: #F5F5F7;
   caret-color: #F5F5F7;
-  /* 固定行盒，避免聚焦/键盘弹起时 placeholder 上下乱跳 */
-  box-sizing: content-box;
+  box-sizing: border-box;
 }
 
 .wp-form-ph {
-  /* 同原生 input：placeholder-class 上 var() 不可靠 */
+  /* 同原生输入组件：placeholder-class 上 var() 不可靠 */
   color: #5A5A5E;
-  line-height: 44rpx;
 }
 
 .wp-form-slider {
@@ -516,10 +774,13 @@
 }
 
 .wp-input {
+  display: block;
+  width: 100%;
   height: 80rpx;
   min-height: 80rpx;
-  line-height: 80rpx;
-  padding: 0 24rpx;
+  /* 单行 textarea：行高 + 上下 padding 垂直居中 */
+  line-height: 40rpx;
+  padding: 20rpx 24rpx;
   border-radius: 14rpx;
   background: rgba(255, 255, 255, 0.06);
   border: 1rpx solid var(--color-divider-strong);
@@ -561,7 +822,84 @@
 .wp-closed-text {
   font-size: 26rpx;
   color: var(--color-text-secondary);
+  line-height: 1.7;
 }
+
+/* ── 朋友圈单页模式引导 ── */
+.wp-single {
+  margin: 120rpx 48rpx 0;
+  padding: 72rpx 48rpx;
+  border-radius: 28rpx;
+  background: var(--color-bg-card);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24rpx;
+  text-align: center;
+}
+.wp-single-icon { font-size: 72rpx; }
+.wp-single-title { font-size: 34rpx; font-weight: 700; color: #F5F5F7; }
+.wp-single-desc { font-size: 26rpx; color: var(--color-text-secondary); line-height: 1.9; }
+.theme-light .wp-single-title { color: #1C1C1E; }
+
+/* 预约截止后的电话兜底入口 */
+.wp-closed-call {
+  margin-top: 20rpx;
+  height: 80rpx;
+  border-radius: 40rpx;
+  border: 1rpx solid rgba(96, 165, 250, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wp-closed-call text { font-size: 26rpx; color: #60A5FA; }
+.theme-light .wp-closed-call { border-color: rgba(37, 99, 235, 0.35); }
+.theme-light .wp-closed-call text { color: #2563EB; }
+
+/* ── 本观礼点·更多场次 ── */
+.wp-others { padding-top: 8rpx; padding-bottom: 8rpx; }
+.wp-other-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 24rpx 0;
+}
+.wp-other-row + .wp-other-row { border-top: 1rpx solid var(--color-divider-faint); }
+.wp-other-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6rpx; }
+.wp-other-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #F5F5F7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wp-other-sub {
+  font-size: 24rpx;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wp-other-time { font-size: 22rpx; color: var(--color-text-quaternary); }
+.wp-other-side { flex-shrink: 0; display: flex; align-items: center; gap: 10rpx; }
+.wp-other-tag {
+  font-size: 20rpx;
+  height: 40rpx;
+  padding: 0 16rpx;
+  border-radius: 20rpx;
+  display: inline-flex;
+  align-items: center;
+}
+.wp-other-tag--open { color: #34D399; background: rgba(52, 211, 153, 0.14); }
+.wp-other-tag--closed { color: #FBBF24; background: rgba(251, 191, 36, 0.14); }
+.wp-other-tag--off { color: var(--color-text-quaternary); background: rgba(148, 163, 184, 0.14); }
+.wp-other-arrow { font-size: 32rpx; color: var(--color-text-quaternary); }
+
+.theme-light .wp-other-title { color: #1C1C1E; }
+.theme-light .wp-other-tag--open { color: #059669; background: rgba(5, 150, 105, 0.1); }
+.theme-light .wp-other-tag--closed { color: #B45309; background: rgba(180, 83, 9, 0.1); }
+.theme-light .wp-other-tag--off { color: #6B7280; background: rgba(107, 114, 128, 0.1); }
 
 /* ── 分享 ── */
 .wp-share-wrap {
@@ -589,40 +927,78 @@
 
 /* 头卡：浅蓝渐变白底，保留蓝色系点缀 */
 .theme-light .wp-hero {
-  background: linear-gradient(160deg, #EAF1FE 0%, #FFFFFF 70%);
-  border-color: rgba(59, 130, 246, 0.22);
+  background:
+    radial-gradient(120% 90% at 88% -12%, rgba(99, 102, 241, 0.14), transparent 55%),
+    radial-gradient(90% 70% at 0% 105%, rgba(59, 130, 246, 0.07), transparent 62%),
+    linear-gradient(165deg, #FDFEFF 0%, #F1F5FC 70%);
+  border-color: rgba(59, 130, 246, 0.2);
+  box-shadow: 0 12rpx 36rpx rgba(30, 58, 138, 0.1);
+}
+
+.theme-light .wp-hero-fx--glow { opacity: 0.45; }
+.theme-light .wp-hero-fx--topline {
+  background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.4), transparent);
 }
 
 .theme-light .wp-hero-badge {
-  color: #2563EB;
-  background: rgba(59, 130, 246, 0.1);
-  border-color: rgba(59, 130, 246, 0.28);
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.1), rgba(168, 85, 247, 0.08));
+  border-color: rgba(59, 130, 246, 0.3);
 }
 
-.theme-light .wp-hero-title { color: #1C1C1E; }
+.theme-light .wp-hero-badge text { color: #1D4ED8; }
+.theme-light .wp-hero-badge-dot {
+  background: #2563EB;
+  box-shadow: 0 0 10rpx rgba(37, 99, 235, 0.55);
+}
+
+.theme-light .wp-hero-title { color: #101828; }
 .theme-light .wp-hero-mission { color: rgba(28, 28, 30, 0.62); }
 .theme-light .wp-hero-time { color: #B45309; }
 .theme-light .wp-hero-merchant { color: rgba(28, 28, 30, 0.45); }
 .theme-light .wp-hero-rocket {
-  background: rgba(59, 130, 246, 0.06);
-  border-color: rgba(59, 130, 246, 0.18);
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.08), rgba(255, 255, 255, 0.65));
+  border-color: rgba(59, 130, 246, 0.22);
+  box-shadow: 0 10rpx 28rpx rgba(59, 130, 246, 0.16);
 }
 
-.theme-light .wp-cd-cell { background: rgba(59, 130, 246, 0.06); }
-.theme-light .wp-cd-num { color: #1C1C1E; }
-.theme-light .wp-cd-label { color: rgba(28, 28, 30, 0.5); }
-.theme-light .wp-cd-done { color: #059669; }
+.theme-light .wp-hero-rocket-shine {
+  background: linear-gradient(200deg, rgba(255, 255, 255, 0.5) 0%, transparent 32%);
+}
+
+.theme-light .wp-cd-caption { color: rgba(28, 28, 30, 0.5); }
+.theme-light .wp-cd-live-dot {
+  background: #059669;
+  box-shadow: 0 0 10rpx rgba(5, 150, 105, 0.5);
+}
+
+.theme-light .wp-cd-cell {
+  background: #FFFFFF;
+  border-color: rgba(59, 130, 246, 0.14);
+  box-shadow: 0 4rpx 16rpx rgba(30, 58, 138, 0.07), inset 0 1rpx 0 #FFFFFF;
+}
+
+.theme-light .wp-cd-cell--secs {
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.1), rgba(59, 130, 246, 0.02));
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.theme-light .wp-cd-num {
+  color: #101828;
+  text-shadow: none;
+}
+
+.theme-light .wp-cd-num--secs { color: #2563EB; }
+.theme-light .wp-cd-label { color: rgba(28, 28, 30, 0.45); }
+.theme-light .wp-cd-sep { color: rgba(37, 99, 235, 0.35); }
+.theme-light .wp-cd-done {
+  color: #059669;
+  text-shadow: none;
+}
 
 /* 抽卡入口横幅 */
-.theme-light .wp-gacha-banner {
-  background: linear-gradient(120deg, rgba(168, 85, 247, 0.1), rgba(59, 130, 246, 0.08));
-  border-color: rgba(168, 85, 247, 0.25);
+.theme-light .wp-entry-card {
+  box-shadow: var(--shadow-card);
 }
-
-.theme-light .wp-gacha-title { color: #7C3AED; }
-.theme-light .wp-gacha-desc { color: rgba(28, 28, 30, 0.58); }
-.theme-light .wp-gacha-arrow { color: rgba(28, 28, 30, 0.35); }
-.theme-light .wp-album-link { color: #2563EB; }
 
 .theme-light .wp-loc-btn {
   background: #07C160;
@@ -633,21 +1009,17 @@
   color: #fff;
 }
 
-.theme-light .wp-loc-btn--ghost {
-  border-color: rgba(7, 193, 96, 0.5);
-  color: #07C160;
-}
-
-.theme-light .wp-loc-btn--ghost text {
-  color: #07C160;
-}
-
 .theme-light .wp-svc-tag {
   background: rgba(37, 99, 235, 0.1);
   color: #2563EB;
 }
 
-.theme-light .wp-reserved-title { color: #059669; }
+.theme-light .wp-reserved-status text { color: #059669; }
+.theme-light .wp-reserved-status--in text { color: #2563EB; }
+.theme-light .wp-reserved-code { background: rgba(5, 150, 105, 0.08); }
+.theme-light .wp-reserved-code-num { color: #059669; }
+.theme-light .wp-rsv-btn--warn { border-color: rgba(220, 38, 38, 0.35); }
+.theme-light .wp-rsv-btn--warn text { color: #DC2626; }
 .theme-light .wp-coop-done { color: #059669; }
 .theme-light .wp-coop-hint { color: #B45309; }
 

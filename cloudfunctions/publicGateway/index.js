@@ -704,8 +704,8 @@ async function handleMediaMap() {
     rows.forEach((item) => {
       const key = item && item.key != null ? String(item.key).trim() : ''
       const url = item && typeof item.url === 'string' ? item.url.trim() : ''
-      // 仅下发火箭配置图相关 key，避免其它 COS 素材被公众站滥用
-      if (key && url && (key.indexOf('火箭配置图/') === 0 || key.indexOf('火箭配置图') === 0)) {
+      // 仅下发火箭配置图相关 key（原图 / 机娘），避免其它 COS 素材被公众站滥用
+      if (key && url && (key.indexOf('火箭配置图/') === 0 || key.indexOf('火箭配置图-机娘/') === 0 || key.indexOf('火箭配置图') === 0)) {
         map[key] = url
       }
     })

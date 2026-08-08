@@ -780,6 +780,8 @@
 
         >
 
+          <image wx:if="{{item.icon}}" class="ai-shortcut-icon" src="{{item.icon}}" mode="aspectFit" />
+
           <text class="ai-shortcut-label">{{item.label}}</text>
 
         </view>

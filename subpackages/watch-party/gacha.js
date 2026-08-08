@@ -9,6 +9,7 @@ const pageBase = require('../../utils/page-base.js')
 const composerInput = require('./utils/composer-input-behavior.js')
 const watchParty = require('./utils/api.js')
 const { guardWatchPartyPage } = require('../../utils/watch-party-feature.js')
+const { decoratePrizeCard } = require('./utils/prize-card.js')
 
 Page({
   behaviors: [pageBase, composerInput],
@@ -186,14 +187,13 @@ Page({
     watchParty.drawCard(session.sessionId, 'scan').then((res) => {
       if (this._unloaded) return
       const prize = res.prize || res.card || {}
-      const card = {
-        name: prize.name || '',
-        image: prize.image || '',
-        valueYuan: prize.valueYuan != null ? prize.valueYuan : null,
-        desc: prize.valueYuan != null ? `价值约 ¥${prize.valueYuan}` : (prize.desc || ''),
-        serialNo: prize.serialNo || 0,
-        limitTotal: prize.stock || prize.limitTotal || 0
-      }
+      const card = decoratePrizeCard(prize, {
+        drawId: res.drawId || '',
+        createdAt: Date.now(),
+        sessionTitle: session.title || '',
+        rocketName: session.rocketName || '',
+        missionName: session.missionName || ''
+      })
       const nextRemain = Math.max(0, (session.prizeRemaining || 1) - 1)
       this._safeSetData({
         drawing: false,
@@ -208,7 +208,8 @@ Page({
       this._flipTimer = setTimeout(() => {
         this._flipTimer = null
         this._safeSetData({ flipped: true })
-        try { wx.vibrateShort({ type: 'medium', fail: () => {} }) } catch (e) {}
+        const strongTier = card.tier === 'SSR' || card.tier === 'SR'
+        try { wx.vibrateShort({ type: strongTier ? 'heavy' : 'medium', fail: () => {} }) } catch (e) {}
       }, 600)
     }).catch((err) => {
       this._safeSetData({ drawing: false })
@@ -259,11 +260,13 @@ Page({
     const title = card
       ? `我在火箭发射现场抽到了「${card.name}」！`
       : '火箭发射观礼现场，来抽现场奖品'
-    return {
+    const result = {
       title,
       path: s
         ? `/subpackages/watch-party/watch-party?sessionId=${encodeURIComponent(s.sessionId)}&channel=share`
         : '/subpackages/watch-party/watch-party'
     }
+    if (card && card.image) result.imageUrl = card.image
+    return result
   }
 })

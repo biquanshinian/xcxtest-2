@@ -277,8 +277,20 @@ const QUICK_QUESTIONS = [
   '阿尔忒弥斯任务进展'
 ]
 
-/** 输入栏上方横向快捷入口（对应富消息跳转卡意图，文案精简） */
+/**
+ * 输入栏上方横向快捷入口（对应富消息跳转卡意图，文案精简）
+ * requireWatchParty：火箭观礼受过审开关 enableWatchParty 控制，
+ * ai-chat 组件默认过滤该项、开关确认开启后才渲染（与我的页/详情页入口同显隐）。
+ * icon：观礼入口统一图标（与我的页/详情页入口同图），组件渲染时经 icon-cache 解析。
+ */
 const QUICK_SHORTCUTS = [
+  {
+    id: 'watch_party',
+    label: '火箭观礼',
+    q: '怎么预约火箭观礼？',
+    requireWatchParty: true,
+    icon: require('../../../utils/watch-party-feature.js').WATCH_PARTY_ICON
+  },
   { id: 'agency_casc', label: '中国航天', q: '中国航天科技集团' },
   { id: 'starship_next', label: '星舰试飞', q: '星舰下一次试飞是什么时候？' },
   { id: 'launch_list', label: '即将发射', q: '接下来有哪些发射？' },

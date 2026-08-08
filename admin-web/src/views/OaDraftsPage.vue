@@ -76,6 +76,13 @@
                   effect="plain"
                   :type="prepTagType(row)"
                 >{{ prepLabel(row) }}</el-tag>
+                <el-tag
+                  v-if="videosOf(row).length"
+                  size="small"
+                  type="warning"
+                  effect="plain"
+                  style="margin-left:4px"
+                >▶ 视频×{{ videosOf(row).length }}{{ hasLongVideos(row) ? '（长）' : '' }}</el-tag>
               </div>
               <div v-if="row.error" class="draft-err" :title="row.error">{{ errorLabel(row.error) }}</div>
               <div v-else-if="row.imagePrepNote" class="draft-note" :title="row.imagePrepNote">{{ row.imagePrepNote }}</div>
@@ -180,6 +187,35 @@
             微信图床防盗链：预览经服务端代理；推送时仍走转存，不影响发稿。
           </el-text>
         </el-form-item>
+        <el-form-item v-if="form.videos.length" label="视频素材">
+          <div class="video-list">
+            <div v-for="(v, i) in form.videos" :key="`vid-${i}`" class="video-item">
+              <el-image
+                v-if="v.posterUrl"
+                :src="thumbSrc(v.posterUrl)"
+                :preview-src-list="[thumbSrc(v.posterUrl)]"
+                fit="cover"
+                class="draft-cover draft-cover--lg"
+                preview-teleported
+                hide-on-click-modal
+              />
+              <div class="video-meta">
+                <el-tag size="small" :type="v.isLong ? 'warning' : 'info'" effect="plain">
+                  {{ v.isLong ? '长视频' : '视频' }}
+                </el-tag>
+                <el-link
+                  v-if="videoLink(v)"
+                  :href="videoLink(v)"
+                  target="_blank"
+                  type="primary"
+                >打开视频</el-link>
+              </div>
+            </div>
+          </div>
+          <el-text size="small" type="info">
+            公众号正文不支持外链视频，成稿用视频封面截图占位；无来源页时「阅读原文」指向首个视频。
+          </el-text>
+        </el-form-item>
         <el-form-item label="小程序 path"><el-input v-model="form.miniprogramPath" placeholder="pages/index/index" /></el-form-item>
         <el-form-item label="Markdown">
           <el-input v-model="form.markdown" type="textarea" :rows="16" />
@@ -237,6 +273,7 @@ const form = reactive({
   author: '',
   coverUrl: '',
   imageUrls: [],
+  videos: [],
   miniprogramPath: '',
   markdown: '',
   error: '',
@@ -373,6 +410,16 @@ const imagesOf = (row) => {
   return out
 }
 
+/** 视频素材（封面截图 + 观看链接；长视频只有截图与链接） */
+const videosOf = (row) =>
+  Array.isArray(row?.videos)
+    ? row.videos.filter((v) => v && (v.posterUrl || v.url || v.pageUrl || v.watchUrl))
+    : []
+
+const hasLongVideos = (row) => videosOf(row).some((v) => v.isLong)
+
+const videoLink = (v) => v?.watchUrl || v?.url || v?.pageUrl || ''
+
 /** 正文配图（不含与封面相同的默认封面链） */
 const bodyImagesOf = (row) => {
   const cover = String(row?.coverUrl || '').trim()
@@ -485,6 +532,7 @@ const openEdit = async (row) => {
       author: d.author || '',
       coverUrl: d.coverUrl || '',
       imageUrls: imagesOf(d),
+      videos: videosOf(d),
       miniprogramPath: d.miniprogramPath || '',
       markdown: ensureHeroImage(stripPromoFooter(d.markdown || ''), d.coverUrl || ''),
       error: d.error || '',
@@ -882,6 +930,22 @@ onUnmounted(() => {
 .draft-cover--lg {
   width: 96px;
   height: 72px;
+}
+.video-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.video-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.video-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
 }
 .draft-meta {
   min-width: 0;

@@ -9,6 +9,9 @@ const { isFeatureEnabled, fetchMainConfig } = require('./feature-flags.js')
 
 const FEATURE_FIELD = 'enableWatchParty'
 
+/** 观礼入口统一图标（我的页 / 任务详情页 / 星问AI快捷键等所有观礼入口复用） */
+const WATCH_PARTY_ICON = 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%9B%BE%E6%A0%87/1786167601470_rrgkrl.jpg'
+
 /**
  * @param {boolean} [forceRefresh] 强制刷新缓存（入口显隐；避免过审刚关仍读到旧 true）
  * @returns {Promise<boolean>}
@@ -23,6 +26,32 @@ function isWatchPartyEnabled(forceRefresh) {
       .catch(() => false)
   }
   return isFeatureEnabled(FEATURE_FIELD, { failClosed: true }).catch(() => false)
+}
+
+/** 对外观礼场次总数（入口卡红角标）：60s 内存缓存；开关关闭/失败返回 0 */
+let _sessionCountCache = { at: 0, n: 0 }
+
+function fetchWatchPartySessionCount(forceRefresh) {
+  if (!forceRefresh && Date.now() - _sessionCountCache.at < 60 * 1000) {
+    return Promise.resolve(_sessionCountCache.n)
+  }
+  return isWatchPartyEnabled().then((on) => {
+    if (!on) {
+      _sessionCountCache = { at: Date.now(), n: 0 }
+      return 0
+    }
+    if (!wx.cloud || typeof wx.cloud.callFunction !== 'function') return 0
+    return wx.cloud.callFunction({
+      name: 'adminGateway',
+      data: { path: '/watch-party/sessions/public', method: 'GET', query: { summary: 1, limit: 50 } }
+    }).then((res) => {
+      const r = (res && res.result) || {}
+      const list = (r.code === 0 && r.data && Array.isArray(r.data.list)) ? r.data.list : []
+      const n = Math.min(list.length, 99)
+      _sessionCountCache = { at: Date.now(), n }
+      return n
+    }).catch(() => _sessionCountCache.n || 0)
+  }).catch(() => 0)
 }
 
 /**
@@ -71,6 +100,8 @@ function _rejectWatchPartyPage(page) {
 
 module.exports = {
   FEATURE_FIELD,
+  WATCH_PARTY_ICON,
   isWatchPartyEnabled,
+  fetchWatchPartySessionCount,
   guardWatchPartyPage
 }

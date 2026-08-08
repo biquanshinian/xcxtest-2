@@ -10,10 +10,17 @@ const composerInput = require('./utils/composer-input-behavior.js')
 const watchParty = require('./utils/api.js')
 const launchList = require('../../utils/api-launch-list.js')
 const { getRocketImage } = require('../../utils/util.js')
+const rocketArtUtil = require('../../utils/rocket-config-art.js')
 const { guardWatchPartyPage } = require('../../utils/watch-party-feature.js')
 
 const SCIENCE_IMAGES_MAX = 10
 const PRIZES_MAX = 20
+/** 与云端对齐：现场照片 ≤8、微信群码 ≤2 */
+const SITE_PHOTOS_MAX = 8
+const WECHAT_QRS_MAX = 2
+/** 现场视频：压缩后 ≤20MB（顾客端免门控直接播，必须控制体积） */
+const SITE_VIDEO_MAX_BYTES = 20 * 1024 * 1024
+const SITE_VIDEO_MAX_SECONDS = 60
 
 /** 与云端 SESSION_SERVICE_CATALOG 对齐；优先用接口返回的 serviceOptions */
 const DEFAULT_SERVICE_OPTIONS = [
@@ -40,10 +47,20 @@ function formatMissionOption(m) {
 }
 
 function resolveRocketThumb(rocketName, rocketImage) {
-  const img = typeof rocketImage === 'string' ? rocketImage.trim() : ''
-  if (img) return img
   const name = typeof rocketName === 'string' ? rocketName.trim() : ''
-  return name ? (getRocketImage(name) || '') : ''
+  // 始终按当前艺术风格解析；外来 stamp 仅作无火箭名时的兜底
+  if (name) {
+    const resolved = getRocketImage(name) || ''
+    if (resolved) return resolved
+  }
+  const img = typeof rocketImage === 'string' ? rocketImage.trim() : ''
+  return img
+}
+
+/** 配置图匹配名：自动获取任务时锁定，手动改火箭名不换图 */
+function sessionThumbName(session) {
+  if (!session) return ''
+  return String(session.rocketImageName || '').trim() || String(session.rocketName || '').trim()
 }
 
 function buildServiceRows(options, selectedIds) {
@@ -82,6 +99,7 @@ Page({
       missionId: '',
       missionName: '',
       rocketName: '',
+      rocketImageName: '',
       agencyId: '',
       agencyName: '',
       agencyAbbrev: '',
@@ -115,12 +133,24 @@ Page({
     prizes: [],
     prizeUploading: false,
 
-    /** 服务套餐多选 + 微信群二维码 + 管控区车辆预约网址 */
+    /** 服务套餐多选 + 微信群二维码（最多 2 张）+ 管控区车辆预约小程序短链 */
     serviceRows: buildServiceRows(DEFAULT_SERVICE_OPTIONS, []),
     selectedServices: [],
-    wechatGroupQr: '',
+    wechatGroupQrs: [],
     qrUploading: false,
-    vehicleBookingUrl: ''
+    vehicleBookingUrl: '',
+
+    /** 现场照片（顾客页展示，≤8）+ 现场视频（1 个，自动压缩 ≤20MB，顾客端免门控） */
+    sitePhotos: [],
+    sitePhotoUploading: false,
+    siteVideo: '',
+    siteVideoPoster: '',
+    siteVideoUploading: false,
+
+    /** 任务显示名（商家自定义中文名；仅该任务下最早入驻的商家可改） */
+    missionDisplayName: '',
+    missionNameEditable: false,
+    missionNameLoading: false
   },
 
   onLoad(options) {
@@ -131,6 +161,36 @@ Page({
       if (!ok || this._unloaded) return
       this.loadAll()
     })
+  },
+
+  onShow() {
+    if (typeof this.syncTheme === 'function') this.syncTheme()
+    rocketArtUtil.applyRocketConfigArtIfNeeded(this)
+  },
+
+  refreshRocketConfigArt() {
+    const options = this.data.missionOptions
+    const patch = {}
+    if (Array.isArray(options) && options.length) {
+      let mutated = false
+      const next = options.map((opt) => {
+        if (!opt) return opt
+        const img = resolveRocketThumb(opt.rocketName, '')
+        if (img === opt.rocketImage) return opt
+        mutated = true
+        return Object.assign({}, opt, { rocketImage: img })
+      })
+      if (mutated) patch.missionOptions = next
+    }
+    const form = this.data.form || {}
+    const name = String(form.rocketImageName || '').trim() || String(form.rocketName || '').trim()
+    if (name) {
+      const img = resolveRocketThumb(name, '')
+      if (img && img !== this.data.selectedRocketImage) {
+        patch.selectedRocketImage = img
+      }
+    }
+    if (Object.keys(patch).length) this._safeSetData(patch)
   },
 
   onUnload() {
@@ -159,18 +219,6 @@ Page({
         this._safeSetData({ loading: false, error: '场次不存在或不属于当前商家' })
         return
       }
-      // 一商家一场：禁止在已有场次时进入「新建」
-      if (!this._sessionId && sessions.length > 0) {
-        this._safeSetData({ loading: false, error: '' })
-        wx.showToast({ title: '已有场次，请返回编辑或开启下一场', icon: 'none' })
-        setTimeout(() => {
-          if (this._unloaded) return
-          wx.navigateBack({ fail: () => {
-            wx.redirectTo({ url: '/subpackages/watch-party/merchant' })
-          } })
-        }, 400)
-        return
-      }
       this.fillForm(session)
       this._safeSetData({ loading: false })
       this.loadMissions(session)
@@ -197,6 +245,7 @@ Page({
           missionId: '',
           missionName: '',
           rocketName: '',
+          rocketImageName: '',
           agencyId: '',
           agencyName: '',
           agencyAbbrev: '',
@@ -209,6 +258,8 @@ Page({
           lng: m.lng || 0,
           intro: m.intro || '',
           notice: m.notice || '',
+          heroBadge: '',
+          contactPhone: m.contactPhone || '',
           capacity: '',
           status: 'open',
           enabled: true,
@@ -233,9 +284,15 @@ Page({
         prizes: [],
         serviceRows: buildServiceRows(DEFAULT_SERVICE_OPTIONS, []),
         selectedServices: [],
-        wechatGroupQr: '',
-        vehicleBookingUrl: ''
+        wechatGroupQrs: [],
+        vehicleBookingUrl: '',
+        sitePhotos: [],
+        siteVideo: '',
+        siteVideoPoster: '',
+        missionDisplayName: '',
+        missionNameEditable: false
       })
+      this._missionNameOriginal = ''
       return
     }
     const patch = {
@@ -244,6 +301,7 @@ Page({
         missionId: session.missionId || '',
         missionName: session.missionName || '',
         rocketName: session.rocketName || '',
+        rocketImageName: session.rocketImageName || '',
         agencyId: session.agencyId || '',
         agencyName: session.agencyName || '',
         agencyAbbrev: session.agencyAbbrev || '',
@@ -256,6 +314,8 @@ Page({
         lng: session.lng || 0,
         intro: session.intro || '',
         notice: session.notice || '',
+        heroBadge: session.heroBadge || '',
+        contactPhone: session.contactPhone || '',
         capacity: session.capacity ? String(session.capacity) : '',
         status: session.status || 'open',
         enabled: session.enabled !== false,
@@ -274,7 +334,7 @@ Page({
         : [],
       // 已填过任务信息的场次进手动模式，避免误覆盖
       missionMode: (session.missionId || session.rocketName || session.missionName) ? 'manual' : 'auto',
-      selectedRocketImage: resolveRocketThumb(session.rocketName, ''),
+      selectedRocketImage: resolveRocketThumb(sessionThumbName(session), ''),
       sciencePointsText: (session.sciencePoints || []).join('\n'),
       scienceImages: (session.scienceImages || []).slice(),
       prizeDrawEnabled: session.prizeDrawEnabled === true,
@@ -292,9 +352,17 @@ Page({
       selectedServices: Array.isArray(session.services)
         ? session.services.map((s) => (typeof s === 'string' ? s : (s && s.id))).filter(Boolean)
         : [],
-      wechatGroupQr: session.wechatGroupQr || '',
-      vehicleBookingUrl: session.vehicleBookingUrl || ''
+      wechatGroupQrs: Array.isArray(session.wechatGroupQrs) && session.wechatGroupQrs.length
+        ? session.wechatGroupQrs.slice(0, WECHAT_QRS_MAX)
+        : (session.wechatGroupQr ? [session.wechatGroupQr] : []),
+      vehicleBookingUrl: session.vehicleBookingUrl || '',
+      sitePhotos: Array.isArray(session.sitePhotos) ? session.sitePhotos.slice(0, SITE_PHOTOS_MAX) : [],
+      siteVideo: session.siteVideo || '',
+      siteVideoPoster: session.siteVideoPoster || '',
+      missionDisplayName: session.missionDisplayName || '',
+      missionNameEditable: session.missionNameEditable === true
     }
+    this._missionNameOriginal = session.missionDisplayName || ''
     const svcOpts = (Array.isArray(session.serviceOptions) && session.serviceOptions.length)
       ? session.serviceOptions
       : DEFAULT_SERVICE_OPTIONS
@@ -397,6 +465,8 @@ Page({
       'form.missionId': opt.missionId,
       'form.missionName': opt.missionName || opt.name,
       'form.rocketName': opt.rocketName,
+      // 锁定配置图匹配名：之后手动改火箭名不会换图
+      'form.rocketImageName': opt.rocketName || '',
       'form.launchTime': opt.launchTime,
       'form.agencyId': opt.agencyId || '',
       'form.agencyName': opt.agencyName || '',
@@ -409,6 +479,30 @@ Page({
       patch['form.title'] = `${opt.rocketName || '火箭'}发射观礼`
     }
     this.setData(patch)
+    this._loadMissionName(opt.missionId)
+  },
+
+  /** 任务显示名：选任务后拉当前中文名与命名权 */
+  _loadMissionName(missionId) {
+    const mid = String(missionId || '').trim()
+    if (!mid) {
+      this._missionNameOriginal = ''
+      this.setData({ missionDisplayName: '', missionNameEditable: false, missionNameLoading: false })
+      return
+    }
+    this.setData({ missionNameLoading: true })
+    watchParty.fetchMerchantMissionName(mid).then((res) => {
+      if (this._unloaded) return
+      this._missionNameOriginal = (res && res.displayName) || ''
+      this._safeSetData({
+        missionNameLoading: false,
+        missionDisplayName: (res && res.displayName) || '',
+        missionNameEditable: !!(res && res.editable)
+      })
+    }).catch(() => {
+      // 接口未部署/失败时不阻塞编辑，仅隐藏输入框
+      this._safeSetData({ missionNameLoading: false })
+    })
   },
 
   onManualDateChange(e) {
@@ -433,6 +527,8 @@ Page({
   /** 文字输入额外 patch：改火箭名时刷新缩略图（基座 onTextInput 在 composer-input-behavior） */
   _onTextInputPatch(path, value) {
     if (path === 'form.rocketName') {
+      // 已从任务自动获取过（rocketImageName 已锁定）：手动改名不换配置图
+      if (String(this.data.form.rocketImageName || '').trim()) return null
       return { selectedRocketImage: resolveRocketThumb(value, '') }
     }
     return null
@@ -470,12 +566,40 @@ Page({
     this.setData({ parkingSpots: list })
   },
 
+  /**
+   * 删除类操作统一二次确认：说明移除后的影响 + 宽心提示（随时可再补），避免误删。
+   * 编辑页的移除均为「保存后生效」，文案中一并说明。
+   */
+  _confirmRemove({ title, content, confirmText = '移除' }, onOk) {
+    wx.showModal({
+      title,
+      content,
+      confirmText,
+      cancelText: '再想想',
+      confirmColor: '#EF4444',
+      success: (res) => {
+        if (this._unloaded) return
+        if (res.confirm && typeof onOk === 'function') onOk()
+      }
+    })
+  },
+
   onRemoveParking(e) {
     const idx = Number(e.currentTarget.dataset.index)
     const list = (this.data.parkingSpots || []).slice()
     if (idx < 0 || idx >= list.length) return
-    list.splice(idx, 1)
-    this.setData({ parkingSpots: list })
+    const spot = list[idx] || {}
+    const isBlank = !String(spot.name || '').trim() && !spot.lat && !spot.lng
+    const doRemove = () => {
+      const next = (this.data.parkingSpots || []).slice()
+      next.splice(idx, 1)
+      this.setData({ parkingSpots: next })
+    }
+    if (isBlank) { doRemove(); return }
+    this._confirmRemove({
+      title: '移除这个停车点吗',
+      content: '移除后，顾客的到场指引里就不再显示这个停车点了（保存后生效）。之后随时可以再添加。'
+    }, doRemove)
   },
 
   onChooseParkingLocation(e) {
@@ -663,10 +787,9 @@ Page({
     })
   },
 
-  _uploadImages(paths) {
-    this._safeSetData({ uploading: true })
-    wx.showLoading({ title: '上传中…', mask: true })
-    const uploadOne = (filePath) => new Promise((resolve) => {
+  /** 单文件上传到云存储指定目录，失败返回 ''（弱网下由调用方顺序串联） */
+  _uploadOneTo(dir, filePath) {
+    return new Promise((resolve) => {
       const extMatch = /\.(\w+)$/.exec(filePath || '')
       const ext = (extMatch && extMatch[1].toLowerCase()) || 'jpg'
       if (!wx.cloud || typeof wx.cloud.uploadFile !== 'function') {
@@ -674,45 +797,64 @@ Page({
         return
       }
       wx.cloud.uploadFile({
-        cloudPath: `watch_party/science/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`,
+        cloudPath: `watch_party/${dir}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`,
         filePath,
         success: (res) => resolve((res && res.fileID) || ''),
         fail: () => resolve('')
       })
     })
-    // 顺序上传（现场弱网下比并发稳）
+  },
+
+  /** 顺序批量上传并追加到 data[dataKey]（现场弱网下比并发稳） */
+  _uploadImageList(paths, { dir, dataKey, max, flagKey }) {
+    this._safeSetData({ [flagKey]: true })
+    wx.showLoading({ title: '上传中…', mask: true })
     const results = []
     const run = (paths || []).reduce(
-      (p, path) => p.then(() => uploadOne(path)).then((id) => { results.push(id) }),
+      (p, path) => p.then(() => this._uploadOneTo(dir, path)).then((id) => { results.push(id) }),
       Promise.resolve()
     )
     run.then(() => {
-      try { wx.hideLoading() } catch {}
+      try { wx.hideLoading() } catch (e) {}
       if (this._unloaded) return
       const okIds = results.filter(Boolean)
       const failCount = results.length - okIds.length
-      const prev = this.data.scienceImages || []
+      const prev = this.data[dataKey] || []
       this._safeSetData({
-        uploading: false,
-        scienceImages: prev.concat(okIds).slice(0, SCIENCE_IMAGES_MAX)
+        [flagKey]: false,
+        [dataKey]: prev.concat(okIds).slice(0, max)
       })
       if (failCount > 0) {
         wx.showToast({ title: `${failCount} 张上传失败，请重试`, icon: 'none' })
       }
     }).catch(() => {
-      try { wx.hideLoading() } catch {}
-      this._safeSetData({ uploading: false })
+      try { wx.hideLoading() } catch (e) {}
+      this._safeSetData({ [flagKey]: false })
       wx.showToast({ title: '上传失败，请重试', icon: 'none' })
+    })
+  },
+
+  _uploadImages(paths) {
+    this._uploadImageList(paths, {
+      dir: 'science',
+      dataKey: 'scienceImages',
+      max: SCIENCE_IMAGES_MAX,
+      flagKey: 'uploading'
     })
   },
 
   onRemoveImage(e) {
     const idx = Number(e.currentTarget.dataset.index)
     const list = this.data.scienceImages.slice()
-    if (idx >= 0 && idx < list.length) {
-      list.splice(idx, 1)
-      this.setData({ scienceImages: list })
-    }
+    if (idx < 0 || idx >= list.length) return
+    this._confirmRemove({
+      title: '移除这张图片吗',
+      content: '移除后，现场大屏轮播中就不再展示这张图片了（保存后生效）。之后随时可以重新上传。'
+    }, () => {
+      const next = this.data.scienceImages.slice()
+      next.splice(idx, 1)
+      this.setData({ scienceImages: next })
+    })
   },
 
   onPreviewImage(e) {
@@ -720,6 +862,194 @@ Page({
     const list = this.data.scienceImages
     if (!list.length) return
     wx.previewImage({ current: list[idx] || list[0], urls: list, fail: () => {} })
+  },
+
+  // ── 现场照片（顾客页展示，≤8）+ 现场视频（1 个） ──
+
+  onAddSitePhotos() {
+    if (this.data.sitePhotoUploading) return
+    const remain = SITE_PHOTOS_MAX - (this.data.sitePhotos || []).length
+    if (remain <= 0) {
+      wx.showToast({ title: `最多上传 ${SITE_PHOTOS_MAX} 张现场照片`, icon: 'none' })
+      return
+    }
+    if (typeof wx.chooseMedia !== 'function') {
+      wx.showToast({ title: '当前微信版本不支持选图', icon: 'none' })
+      return
+    }
+    wx.chooseMedia({
+      count: remain,
+      mediaType: ['image'],
+      sourceType: ['album', 'camera'],
+      sizeType: ['compressed'],
+      success: (res) => {
+        if (this._unloaded) return
+        const files = ((res && res.tempFiles) || []).map((f) => f && f.tempFilePath).filter(Boolean)
+        if (files.length) {
+          this._uploadImageList(files, {
+            dir: 'site_photos',
+            dataKey: 'sitePhotos',
+            max: SITE_PHOTOS_MAX,
+            flagKey: 'sitePhotoUploading'
+          })
+        }
+      },
+      fail: (err) => {
+        if (this._unloaded) return
+        const msg = (err && err.errMsg) || ''
+        if (/cancel/i.test(msg)) return
+        wx.showToast({ title: '选图失败，请重试', icon: 'none' })
+      }
+    })
+  },
+
+  onRemoveSitePhoto(e) {
+    const idx = Number(e.currentTarget.dataset.index)
+    const list = (this.data.sitePhotos || []).slice()
+    if (idx < 0 || idx >= list.length) return
+    this._confirmRemove({
+      title: '移除这张照片吗',
+      content: '移除后，顾客在场次页就看不到这张现场照片了（保存后生效）。之后随时可以补传新照片。'
+    }, () => {
+      const next = (this.data.sitePhotos || []).slice()
+      next.splice(idx, 1)
+      this.setData({ sitePhotos: next })
+    })
+  },
+
+  onPreviewSitePhoto(e) {
+    const idx = Number(e.currentTarget.dataset.index)
+    const list = this.data.sitePhotos || []
+    if (!list.length) return
+    wx.previewImage({ current: list[idx] || list[0], urls: list, fail: () => {} })
+  },
+
+  onUploadSiteVideo() {
+    if (this.data.siteVideoUploading) return
+    if (typeof wx.chooseMedia !== 'function') {
+      wx.showToast({ title: '当前微信版本不支持选视频', icon: 'none' })
+      return
+    }
+    wx.chooseMedia({
+      count: 1,
+      mediaType: ['video'],
+      sourceType: ['album', 'camera'],
+      maxDuration: SITE_VIDEO_MAX_SECONDS,
+      sizeType: ['compressed'],
+      success: (res) => {
+        if (this._unloaded) return
+        const f = res && res.tempFiles && res.tempFiles[0]
+        if (!f || !f.tempFilePath) return
+        // maxDuration 只约束现场拍摄，相册长视频需自行校验
+        if (Number(f.duration) > SITE_VIDEO_MAX_SECONDS + 1) {
+          wx.showToast({ title: `视频请控制在 ${SITE_VIDEO_MAX_SECONDS} 秒内`, icon: 'none' })
+          return
+        }
+        this._compressSiteVideo(f)
+      },
+      fail: (err) => {
+        if (this._unloaded) return
+        const msg = (err && err.errMsg) || ''
+        if (/cancel/i.test(msg)) return
+        wx.showToast({ title: '选视频失败，请重试', icon: 'none' })
+      }
+    })
+  },
+
+  /** 文件真实字节数（getFileInfo 失败返回 0，由调用方回退其他已知值） */
+  _fileSizeBytes(path) {
+    return new Promise((resolve) => {
+      try {
+        wx.getFileSystemManager().getFileInfo({
+          filePath: path,
+          success: (r) => resolve(Number(r.size) || 0),
+          fail: () => resolve(0)
+        })
+      } catch (e) {
+        resolve(0)
+      }
+    })
+  },
+
+  /**
+   * 先压缩再限 20MB：顾客端播放的就是这份压缩产物。
+   * 压缩失败/不可用回退原文件（同样受 20MB 限制）；个别机型压缩反而变大时取小的一份。
+   */
+  _compressSiteVideo(file) {
+    const rawPath = file.tempFilePath
+    const rawSize = Number(file.size) || 0
+    const thumb = file.thumbTempFilePath || ''
+    const finish = (path, sizeBytes) => {
+      try { wx.hideLoading() } catch (e) {}
+      if (this._unloaded) return
+      if (sizeBytes > SITE_VIDEO_MAX_BYTES) {
+        wx.showToast({ title: '视频压缩后仍超 20MB，请剪短或降低画质后再传', icon: 'none', duration: 2600 })
+        return
+      }
+      this._uploadSiteVideo(path, thumb)
+    }
+    if (typeof wx.compressVideo !== 'function') {
+      finish(rawPath, rawSize)
+      return
+    }
+    wx.showLoading({ title: '视频压缩中…', mask: true })
+    wx.compressVideo({
+      src: rawPath,
+      quality: 'medium',
+      success: (r) => {
+        const outPath = (r && r.tempFilePath) || ''
+        if (!outPath) {
+          finish(rawPath, rawSize)
+          return
+        }
+        // compressVideo 返回的 size 单位不稳定（kB），以文件系统真实字节数为准
+        this._fileSizeBytes(outPath).then((outBytes) => {
+          if (!outBytes) {
+            finish(outPath, Number(r && r.size) ? Number(r.size) * 1024 : rawSize)
+            return
+          }
+          if (rawSize > 0 && outBytes >= rawSize) {
+            finish(rawPath, rawSize)
+            return
+          }
+          finish(outPath, outBytes)
+        })
+      },
+      fail: () => finish(rawPath, rawSize)
+    })
+  },
+
+  _uploadSiteVideo(videoPath, thumbPath) {
+    this._safeSetData({ siteVideoUploading: true })
+    wx.showLoading({ title: '视频上传中…', mask: true })
+    this._uploadOneTo('site_video', videoPath).then((videoId) => {
+      if (!videoId) throw new Error('upload failed')
+      // 封面缺失不阻塞（顾客端有兜底占位）
+      return (thumbPath ? this._uploadOneTo('site_video', thumbPath) : Promise.resolve(''))
+        .then((posterId) => ({ videoId, posterId }))
+    }).then(({ videoId, posterId }) => {
+      try { wx.hideLoading() } catch (e) {}
+      if (this._unloaded) return
+      this._safeSetData({
+        siteVideoUploading: false,
+        siteVideo: videoId,
+        siteVideoPoster: posterId || ''
+      })
+      wx.showToast({ title: '视频已上传', icon: 'success' })
+    }).catch(() => {
+      try { wx.hideLoading() } catch (e) {}
+      this._safeSetData({ siteVideoUploading: false })
+      wx.showToast({ title: '视频上传失败，请重试', icon: 'none' })
+    })
+  },
+
+  onRemoveSiteVideo() {
+    this._confirmRemove({
+      title: '移除现场视频吗',
+      content: '移除后，顾客在场次页就看不到现场视频了（保存后生效）。之后随时可以重新上传一段。'
+    }, () => {
+      this.setData({ siteVideo: '', siteVideoPoster: '' })
+    })
   },
 
   // ── 现场奖品 ──
@@ -750,9 +1080,20 @@ Page({
     const idx = Number(e.currentTarget.dataset.index)
     const list = (this.data.prizes || []).slice()
     if (idx < 0 || idx >= list.length) return
-    list.splice(idx, 1)
-    list.forEach((p, i) => { p.sort = i })
-    this.setData({ prizes: list })
+    const prize = list[idx] || {}
+    const isBlank = !String(prize.name || '').trim() && !prize.image
+    const doRemove = () => {
+      const next = (this.data.prizes || []).slice()
+      next.splice(idx, 1)
+      next.forEach((p, i) => { p.sort = i })
+      this.setData({ prizes: next })
+    }
+    if (isBlank) { doRemove(); return }
+    const name = String(prize.name || '').trim() || '这件奖品'
+    this._confirmRemove({
+      title: '移除这件奖品吗',
+      content: `移除后，本场次就不会再抽出「${name}」了（保存后生效）。已经抽中它的顾客不受影响，请放心。`
+    }, doRemove)
   },
 
   onMovePrize(e) {
@@ -800,7 +1141,7 @@ Page({
     const extMatch = /\.(\w+)$/.exec(filePath || '')
     const ext = (extMatch && extMatch[1].toLowerCase()) || 'jpg'
     if (!wx.cloud || typeof wx.cloud.uploadFile !== 'function') {
-      try { wx.hideLoading() } catch {}
+      try { wx.hideLoading() } catch (e) {}
       this._safeSetData({ prizeUploading: false })
       wx.showToast({ title: '云能力不可用', icon: 'none' })
       return
@@ -809,7 +1150,7 @@ Page({
       cloudPath: `watch_party/prizes/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`,
       filePath,
       success: (res) => {
-        try { wx.hideLoading() } catch {}
+        try { wx.hideLoading() } catch (e) {}
         if (this._unloaded) return
         const fileID = (res && res.fileID) || ''
         this._safeSetData({ prizeUploading: false })
@@ -821,7 +1162,7 @@ Page({
         wx.showToast({ title: '已上传', icon: 'success' })
       },
       fail: () => {
-        try { wx.hideLoading() } catch {}
+        try { wx.hideLoading() } catch (e) {}
         this._safeSetData({ prizeUploading: false })
         wx.showToast({ title: '上传失败，请重试', icon: 'none' })
       }
@@ -846,20 +1187,31 @@ Page({
 
   onUploadWechatQr() {
     if (this.data.qrUploading) return
+    const remain = WECHAT_QRS_MAX - (this.data.wechatGroupQrs || []).length
+    if (remain <= 0) {
+      wx.showToast({ title: `最多上传 ${WECHAT_QRS_MAX} 张微信二维码`, icon: 'none' })
+      return
+    }
     if (typeof wx.chooseMedia !== 'function') {
       wx.showToast({ title: '当前微信版本不支持选图', icon: 'none' })
       return
     }
     wx.chooseMedia({
-      count: 1,
+      count: remain,
       mediaType: ['image'],
       sourceType: ['album', 'camera'],
       sizeType: ['compressed'],
       success: (res) => {
         if (this._unloaded) return
-        const path = res && res.tempFiles && res.tempFiles[0] && res.tempFiles[0].tempFilePath
-        if (!path) return
-        this._uploadWechatQr(path)
+        const files = ((res && res.tempFiles) || []).map((f) => f && f.tempFilePath).filter(Boolean)
+        if (files.length) {
+          this._uploadImageList(files, {
+            dir: 'wechat_qr',
+            dataKey: 'wechatGroupQrs',
+            max: WECHAT_QRS_MAX,
+            flagKey: 'qrUploading'
+          })
+        }
       },
       fail: (err) => {
         if (this._unloaded) return
@@ -879,43 +1231,25 @@ Page({
     })
   },
 
-  _uploadWechatQr(filePath) {
-    this._safeSetData({ qrUploading: true })
-    wx.showLoading({ title: '上传中…', mask: true })
-    const extMatch = /\.(\w+)$/.exec(filePath || '')
-    const ext = (extMatch && extMatch[1].toLowerCase()) || 'jpg'
-    if (!wx.cloud || typeof wx.cloud.uploadFile !== 'function') {
-      try { wx.hideLoading() } catch {}
-      this._safeSetData({ qrUploading: false })
-      wx.showToast({ title: '云能力不可用', icon: 'none' })
-      return
-    }
-    wx.cloud.uploadFile({
-      cloudPath: `watch_party/wechat_qr/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`,
-      filePath,
-      success: (res) => {
-        try { wx.hideLoading() } catch {}
-        if (this._unloaded) return
-        const fileID = (res && res.fileID) || ''
-        this._safeSetData({ qrUploading: false, wechatGroupQr: fileID })
-        if (!fileID) wx.showToast({ title: '上传失败，请重试', icon: 'none' })
-      },
-      fail: () => {
-        try { wx.hideLoading() } catch {}
-        this._safeSetData({ qrUploading: false })
-        wx.showToast({ title: '上传失败，请重试', icon: 'none' })
-      }
+  onPreviewWechatQr(e) {
+    const idx = Number(e.currentTarget.dataset.index) || 0
+    const list = this.data.wechatGroupQrs || []
+    if (!list.length) return
+    wx.previewImage({ current: list[idx] || list[0], urls: list, fail: () => {} })
+  },
+
+  onRemoveWechatQr(e) {
+    const idx = Number(e.currentTarget.dataset.index)
+    const list = (this.data.wechatGroupQrs || []).slice()
+    if (idx < 0 || idx >= list.length) return
+    this._confirmRemove({
+      title: '移除这个群码吗',
+      content: '移除后，新顾客就扫不到这个群二维码了（保存后生效），已入群的顾客不受影响。之后随时可以再传新群码。'
+    }, () => {
+      const next = (this.data.wechatGroupQrs || []).slice()
+      next.splice(idx, 1)
+      this.setData({ wechatGroupQrs: next })
     })
-  },
-
-  onPreviewWechatQr() {
-    const url = this.data.wechatGroupQr
-    if (!url) return
-    wx.previewImage({ urls: [url], current: url })
-  },
-
-  onRemoveWechatQr() {
-    this.setData({ wechatGroupQr: '' })
   },
 
   // ── 保存 ──
@@ -956,11 +1290,23 @@ Page({
     ;(this.data.serviceRows || DEFAULT_SERVICE_OPTIONS).forEach((s) => { if (s && s.id) allowed[s.id] = true })
     const services = (this.data.selectedServices || []).filter((id) => allowed[id])
 
+    const wechatGroupQrs = (this.data.wechatGroupQrs || [])
+      .map((s) => String(s || '').trim())
+      .filter(Boolean)
+      .slice(0, WECHAT_QRS_MAX)
+
+    const vehicleBookingUrl = String(this.data.vehicleBookingUrl || '').trim()
+    if (vehicleBookingUrl && !/^#小程序:\/\//.test(vehicleBookingUrl) && !/^https?:\/\//i.test(vehicleBookingUrl)) {
+      wx.showToast({ title: '车辆预约请填小程序短链（#小程序://…）', icon: 'none' })
+      return
+    }
+
     const body = {
       title,
       missionId: form.missionId,
       missionName: form.missionName,
       rocketName: form.rocketName,
+      rocketImageName: String(form.rocketImageName || '').trim(),
       agencyId: form.agencyId || '',
       agencyName: form.agencyName || '',
       agencyAbbrev: form.agencyAbbrev || '',
@@ -973,9 +1319,15 @@ Page({
       lng: form.lng || 0,
       intro: form.intro,
       notice: form.notice,
+      heroBadge: String(form.heroBadge || '').trim(),
+      contactPhone: String(form.contactPhone || '').trim(),
       services,
-      wechatGroupQr: String(this.data.wechatGroupQr || '').trim(),
-      vehicleBookingUrl: String(this.data.vehicleBookingUrl || '').trim(),
+      wechatGroupQrs,
+      wechatGroupQr: wechatGroupQrs[0] || '',
+      vehicleBookingUrl,
+      sitePhotos: (this.data.sitePhotos || []).slice(0, SITE_PHOTOS_MAX),
+      siteVideo: String(this.data.siteVideo || '').trim(),
+      siteVideoPoster: String(this.data.siteVideoPoster || '').trim(),
       sciencePoints: String(sciencePointsText || '').split('\n').map((s) => s.trim()).filter(Boolean),
       scienceImages,
       prizeDrawEnabled,
@@ -1001,8 +1353,9 @@ Page({
       ? watchParty.merchantUpdateSession(this._sessionId, body)
       : watchParty.merchantCreateSession(body)
     req.then((res) => {
-      try { watchParty.invalidateEntryCache() } catch {}
-      try { wx.vibrateShort({ type: 'light', fail: () => {} }) } catch {}
+      this._saveMissionNameIfNeeded()
+      try { watchParty.invalidateEntryCache() } catch (e) {}
+      try { wx.vibrateShort({ type: 'light', fail: () => {} }) } catch (e) {}
       if (this._unloaded) return
       this._safeSetData({ saving: false })
       if (this._sessionId) {
@@ -1028,6 +1381,22 @@ Page({
     }).catch((err) => {
       this._safeSetData({ saving: false })
       wx.showToast({ title: (err && err.message) || '保存失败，请重试', icon: 'none' })
+    })
+  },
+
+  /** 任务显示名有改动且有命名权时随保存一并提交（失败不阻塞场次保存） */
+  _saveMissionNameIfNeeded() {
+    const mid = String((this.data.form || {}).missionId || '').trim()
+    if (!mid || !this.data.missionNameEditable) return
+    const name = String(this.data.missionDisplayName || '').trim().slice(0, 60)
+    if (name === String(this._missionNameOriginal || '')) return
+    watchParty.merchantSetMissionName(mid, name).then(() => {
+      this._missionNameOriginal = name
+    }).catch((err) => {
+      wx.showToast({
+        title: (err && err.message) || '任务显示名保存失败',
+        icon: 'none'
+      })
     })
   }
 })

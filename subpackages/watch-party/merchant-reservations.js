@@ -115,6 +115,7 @@ Page({
         const meta = statusMeta(row.status)
         return {
           reservationId: row.reservationId,
+          checkinCode: row.checkinCode || '',
           name: row.name || '未填姓名',
           phone: row.phone || '',
           headcount: row.headcount || 1,

@@ -4,15 +4,18 @@ const { warmProfilePageStorageSync } = require('../../utils/page-storage-boot.js
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const storageCache = require('../../utils/storage-sync-cache.js')
 const { getSubscribedMissions, unsubscribeLaunch, syncSubscribedMissions } = require('../../utils/subscribe.js')
-const { resolveMissionRocketImage } = require('../../utils/util.js')
+const { resolveMissionRocketImageFresh } = require('../../utils/util.js')
 const { getMembershipState, isPro, isMembershipEnabled, MEMBER_ICONS, gateCheck } = require('../../utils/membership.js')
 const { getFavoriteAgencies, removeFavoriteAgency } = require('../../utils/agency-favorites.js')
 const themeUtil = require('../../utils/theme.js')
+const rocketArtUtil = require('../../utils/rocket-config-art.js')
 const { getCachedIcon, preloadIcons } = require('../../utils/icon-cache.js')
 
 const GROWTH_ICONS = {
   BRIEFING: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%A4%AA%E7%A9%BA%E6%8E%A2%E7%B4%A2%E7%94%9F%E6%88%90%E8%83%8C%E6%99%AF%E5%9B%BE/1778755615793_c11otc.png',
-  TIMELINE: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%A4%AA%E7%A9%BA%E6%8E%A2%E7%B4%A2%E7%94%9F%E6%88%90%E8%83%8C%E6%99%AF%E5%9B%BE/1778755614206_yklby8.png'
+  TIMELINE: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%A4%AA%E7%A9%BA%E6%8E%A2%E7%B4%A2%E7%94%9F%E6%88%90%E8%83%8C%E6%99%AF%E5%9B%BE/1778755614206_yklby8.png',
+  // 观礼入口统一图标：单一真相源在 utils/watch-party-feature.js
+  WATCH_PARTY: require('../../utils/watch-party-feature.js').WATCH_PARTY_ICON
 }
 
 const { getUiShellLayout } = require('../../utils/layout.js')
@@ -44,6 +47,7 @@ const PROFILE_LAZY_METHODS = [
   'onOaAlertSwitch',
   'onCopyOaName',
   '_enrichIncompleteReminders',
+  '_refreshVoteHistoryRocketArt',
   'loadMyPrizes',
   'onCopyTracking',
   'onCopyWechat',
@@ -100,6 +104,7 @@ Page({
     themeLight: false,
     scrollRefreshing: false,
     themeMode: 'dark',
+    rocketArtStyle: 'original',
     pageBgColor: '#000000',
     popupAdItem: null,
     popupAdVisible: false,
@@ -145,6 +150,7 @@ Page({
     memberIcon: '',
     briefingIcon: '',
     timelineIcon: '',
+    watchPartyIcon: '',
     // 年度报告（后台配置时间窗）
     yearReviewVisible: false,
     yearReviewTitle: '',
@@ -156,7 +162,9 @@ Page({
     _milestoneQueue: [],
     myPrizes: [],
     /** 火箭观礼入口（enableWatchParty，failClosed；未确认前隐藏） */
-    enableWatchParty: false
+    enableWatchParty: false,
+    /** 观礼入口红角标：对外场次总数（0 = 不显示） */
+    watchPartyCount: 0
   },
 
   onLoad() {
@@ -182,6 +190,7 @@ Page({
       themeClass: themeUtil.getThemeClassSync(),
       themeLight: themeUtil.isLightSync(),
       themeMode: themeUtil.getThemeModeSync(),
+      rocketArtStyle: rocketArtUtil.getRocketConfigArtStyle(),
       pageBgColor: themeUtil.getPageBgSync()
     })
     this._profileBootPending = true
@@ -243,6 +252,10 @@ Page({
   onShow() {
     // 主题兜底同步（与其他 Tab 页一致）
     themeUtil.applyThemeToPage(this)
+    const art = rocketArtUtil.getRocketConfigArtStyle()
+    if (this.data.rocketArtStyle !== art) this.setData({ rocketArtStyle: art })
+    // 艺术风格切换后回到本 Tab：补刷提醒 / 竞猜缩略图
+    rocketArtUtil.applyRocketConfigArtIfNeeded(this)
     try {
       const app = getApp && getApp()
       if (app && typeof app.syncAllTabBarsDesktopStrip === 'function') app.syncAllTabBarsDesktopStrip()
@@ -276,6 +289,28 @@ Page({
     // setThemeMode 会遍历在栈页面（含本页）即时下发 themeClass / pageBgColor
     themeUtil.setThemeMode(mode)
     this.setData({ themeMode: mode })
+  },
+
+  /** ══ 外观：火箭配置图原图 / 机娘风格 ══ */
+  onRocketArtTap(e) {
+    const style = (e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.style) || 'original'
+    if (style === this.data.rocketArtStyle) return
+    try { wx.vibrateShort({ type: 'medium' }) } catch (err) {}
+    rocketArtUtil.setRocketConfigArtStyle(style)
+    this.setData({ rocketArtStyle: rocketArtUtil.getRocketConfigArtStyle() })
+  },
+
+  /** 艺术风格切换后刷新本页提醒 / 竞猜缩略图 */
+  refreshRocketConfigArt() {
+    try {
+      this.loadMyReminders(true)
+    } catch (e) {}
+    try {
+      if (typeof this._refreshVoteHistoryRocketArt === 'function') {
+        this._refreshVoteHistoryRocketArt()
+      }
+    } catch (e2) {}
+    return true
   },
 
   /** ══ 我的收藏（发射商）══ */
@@ -429,8 +464,8 @@ Page({
       // 已过期的任务不再显示在提醒列表中
       if (status === 'past') return
 
-      // 与首页卡片同源
-      const rocketImg = resolveMissionRocketImage(rocketImage || '', rocket || '', rocketConfiguration, true)
+      // 与首页卡片同源；忽略订阅记录里的旧盖章，按当前艺术风格重算
+      const rocketImg = resolveMissionRocketImageFresh(rocket || '', rocketConfiguration)
 
       list.push({
         key: 'launch_' + m.id,
@@ -545,16 +580,24 @@ Page({
     wx.navigateTo({ url: '/subpackages/profile-extra/timeline/timeline' })
   },
 
-  /** 过审开关：强制刷新，避免一键过审后仍显示入口 */
+  /** 过审开关：强制刷新，避免一键过审后仍显示入口；开启时顺带拉场次数刷红角标 */
   _refreshWatchPartyEntryFlag() {
     try {
-      require('../../utils/watch-party-feature.js').isWatchPartyEnabled(true).then((on) => {
+      const feature = require('../../utils/watch-party-feature.js')
+      feature.isWatchPartyEnabled(true).then((on) => {
         this.setData({ enableWatchParty: !!on })
+        if (!on) {
+          this.setData({ watchPartyCount: 0 })
+          return
+        }
+        feature.fetchWatchPartySessionCount().then((n) => {
+          this.setData({ watchPartyCount: Number(n) || 0 })
+        }).catch(() => {})
       }).catch(() => {
-        this.setData({ enableWatchParty: false })
+        this.setData({ enableWatchParty: false, watchPartyCount: 0 })
       })
     } catch (e) {
-      this.setData({ enableWatchParty: false })
+      this.setData({ enableWatchParty: false, watchPartyCount: 0 })
     }
   },
 
@@ -590,10 +633,11 @@ Page({
   },
 
   _loadGrowthIcons() {
-    preloadIcons([GROWTH_ICONS.BRIEFING, GROWTH_ICONS.TIMELINE])
+    preloadIcons([GROWTH_ICONS.BRIEFING, GROWTH_ICONS.TIMELINE, GROWTH_ICONS.WATCH_PARTY])
     this.setData({
       briefingIcon: getCachedIcon(GROWTH_ICONS.BRIEFING),
-      timelineIcon: getCachedIcon(GROWTH_ICONS.TIMELINE)
+      timelineIcon: getCachedIcon(GROWTH_ICONS.TIMELINE),
+      watchPartyIcon: getCachedIcon(GROWTH_ICONS.WATCH_PARTY)
     })
   },
 

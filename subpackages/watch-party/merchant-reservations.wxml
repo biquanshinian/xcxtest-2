@@ -76,6 +76,7 @@
             <view class="wpr-row-top">
               <text class="wpr-name">{{item.name}}</text>
               <text class="wpr-people">{{item.headcount}}人</text>
+              <text class="wpr-code" wx:if="{{item.checkinCode}}">{{item.checkinCode}}</text>
               <view class="wpr-tag {{item.statusClass}}">{{item.statusLabel}}</view>
             </view>
             <view class="wpr-row-mid">

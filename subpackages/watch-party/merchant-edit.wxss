@@ -54,6 +54,7 @@
   border-radius: 12rpx;
   background: var(--color-divider-faint);
   border: 1rpx solid var(--color-divider);
+  overflow: hidden;
 }
 .wpe-rocket-thumb--picked {
   width: 96rpx;
@@ -179,20 +180,23 @@
   font-weight: 700;
 }
 
-/* ── 表单行（固定行盒，避免聚焦/键盘时 placeholder 乱跳、错位） ── */
+/* ── 表单行（输入框不写死 line-height，光标高度跟随字号，避免漂移） ── */
 .wpe-form-row { display: flex; align-items: center; min-height: 96rpx; gap: 20rpx; }
-.wpe-form-label { width: 190rpx; font-size: 27rpx; line-height: 44rpx; color: var(--color-text-secondary); flex-shrink: 0; }
+.wpe-form-label { width: 190rpx; font-size: 27rpx; color: var(--color-text-secondary); flex-shrink: 0; }
 .wpe-form-input {
   flex: 1;
   min-width: 0;
-  height: 44rpx;
-  min-height: 44rpx;
-  line-height: 44rpx;
+  width: auto;
+  height: 88rpx;
+  min-height: 88rpx;
+  /* 单行 textarea：文本贴顶排版，行高 + 上下 padding 垂直居中 */
+  line-height: 40rpx;
+  padding: 24rpx 0;
   font-size: 28rpx;
-  /* 原生 input：深色字面色，避免聚焦时 var 失效看不见 */
+  /* 原生输入组件：深色字面色，避免聚焦时 var 失效看不见 */
   color: #F5F5F7;
   caret-color: #F5F5F7;
-  box-sizing: content-box;
+  box-sizing: border-box;
 }
 .wpe-form-input--block {
   display: block;
@@ -200,11 +204,11 @@
   flex: none;
   height: 88rpx;
   min-height: 88rpx;
-  line-height: 88rpx;
-  padding: 0;
+  line-height: 40rpx;
+  padding: 24rpx 0;
   box-sizing: border-box;
 }
-.wpe-form-value { font-size: 28rpx; line-height: 44rpx; color: var(--color-text-primary); }
+.wpe-form-value { font-size: 28rpx; line-height: 1.5; color: var(--color-text-primary); }
 /* 原生 placeholder 不继承 color；勿写死行高（单行/多行共用会错位） */
 .wpe-ph { color: #5A5A5E; }
 
@@ -230,7 +234,7 @@
 .wpe-prize-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12rpx; }
 .wpe-prize-meta-row { display: flex; align-items: center; gap: 12rpx; }
 .wpe-prize-meta-label { font-size: 24rpx; color: var(--color-text-tertiary); flex-shrink: 0; }
-.wpe-prize-num { width: 120rpx; flex: none; height: 44rpx; min-height: 44rpx; line-height: 44rpx; }
+.wpe-prize-num { width: 120rpx; flex: none; height: 72rpx; min-height: 72rpx; padding: 16rpx 0; }
 
 .wpe-hint { display: block; font-size: 22rpx; color: var(--color-text-quaternary); line-height: 1.6; padding: 12rpx 0; }
 .wpe-hint--pad { padding-bottom: 20rpx; }
@@ -267,6 +271,20 @@
 }
 .wpe-img-add-plus { font-size: 48rpx; color: var(--color-text-quaternary); line-height: 1; }
 .wpe-img-add-text { font-size: 22rpx; color: var(--color-text-quaternary); }
+
+/* 现场视频：无封面占位 + 播放角标 */
+.wpe-video-ph {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24rpx; color: var(--color-text-quaternary);
+}
+.wpe-video-badge {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 56rpx; height: 56rpx; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24rpx; pointer-events: none;
+}
 
 /* ── 卡片勾选 ── */
 .wpe-card-row { display: flex; align-items: center; gap: 20rpx; padding: 20rpx 0; }

@@ -38,7 +38,7 @@
       <view class="scr-left">
         <view class="scr-left-top">
           <view class="scr-rocket" wx:if="{{rocketImage}}">
-            <image class="scr-rocket-img" src="{{rocketImage}}" mode="aspectFit" />
+            <image class="scr-rocket-img" src="{{rocketImage}}" mode="aspectFill" />
           </view>
           <view class="scr-left-meta">
             <text class="scr-phase">{{phaseLabel}}</text>

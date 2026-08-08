@@ -1,0 +1,102 @@
+/* 同行商家入驻申请页（商家「推荐给同行」分享落地页；中性色走 tokens 变量） */
+
+.page {
+  min-height: 100vh;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  box-sizing: border-box;
+}
+.page-scroll { height: 100vh; width: 100%; box-sizing: border-box; padding-bottom: env(safe-area-inset-bottom); }
+.loading-spinner-lg { width: 56rpx; height: 56rpx; border: 4rpx solid var(--color-divider); border-top-color: #3B82F6; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.page-footer { text-align: center; padding: 40rpx 0 80rpx; }
+.footer-text { font-size: 22rpx; color: var(--color-text-quaternary); }
+
+.wpa-loading { display: flex; flex-direction: column; align-items: center; padding: 160rpx 0; gap: 24rpx; }
+.wpa-loading-text { font-size: 26rpx; color: var(--color-text-tertiary); }
+
+/* ── 页头 ── */
+.wpa-hero {
+  padding: 28rpx 36rpx 4rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+.wpa-hero-label { font-size: 22rpx; color: var(--color-text-quaternary); letter-spacing: 2rpx; }
+.wpa-hero-title { font-size: 40rpx; font-weight: 700; color: var(--color-text-primary); }
+.wpa-hero-desc { font-size: 25rpx; line-height: 1.7; color: var(--color-text-tertiary); }
+.wpa-ref {
+  margin-top: 8rpx;
+  align-self: flex-start;
+  padding: 8rpx 20rpx;
+  border-radius: 24rpx;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1rpx solid rgba(59, 130, 246, 0.30);
+}
+.wpa-ref text { font-size: 23rpx; color: #60A5FA; }
+
+/* ── 卡片（表单 / 已入驻 / 完成态共用） ── */
+.wpa-card {
+  margin: 28rpx 32rpx 0;
+  padding: 36rpx 32rpx;
+  border-radius: 24rpx;
+  background: var(--color-bg-card);
+  border: 1rpx solid var(--color-divider);
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+.wpa-title { font-size: 34rpx; font-weight: 700; margin-bottom: 12rpx; }
+.wpa-desc { font-size: 26rpx; line-height: 1.7; color: var(--color-text-secondary); margin-bottom: 28rpx; }
+
+/* ── 表单行 ── */
+.wpa-row { display: flex; align-items: center; gap: 20rpx; min-height: 96rpx; }
+.wpa-row + .wpa-row { border-top: 1rpx solid var(--color-divider-faint); }
+.wpa-row--multi { align-items: flex-start; padding: 22rpx 0; }
+.wpa-row--multi .wpa-label { padding-top: 6rpx; }
+.wpa-label { width: 140rpx; flex-shrink: 0; font-size: 26rpx; color: var(--color-text-secondary); }
+.wpa-input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  height: 88rpx;
+  min-height: 88rpx;
+  /* 单行 textarea：行高 + 上下 padding 垂直居中 */
+  line-height: 40rpx;
+  padding: 24rpx 0;
+  font-size: 28rpx;
+  /* 原生输入组件：深色字面色，避免聚焦时 var 失效看不见 */
+  color: #F5F5F7;
+  caret-color: #F5F5F7;
+  box-sizing: border-box;
+}
+.wpa-input--multi {
+  height: auto;
+  min-height: 120rpx;
+  padding: 6rpx 0;
+}
+.wpa-ph { color: #5A5A5E; font-size: 26rpx; }
+
+.wpa-primary-btn {
+  margin-top: 28rpx;
+  height: 88rpx;
+  border-radius: 44rpx;
+  background: #3B82F6;
+  color: #fff;
+  font-size: 30rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wpa-btn--disabled { opacity: 0.5; }
+.wpa-hint { margin-top: 20rpx; font-size: 22rpx; color: var(--color-text-quaternary); line-height: 1.6; }
+
+/* ── 浅色主题 ── */
+.theme-light .wpa-input { color: #1C1C1E; caret-color: #1C1C1E; }
+.theme-light .wpa-ph { color: #8E8E93; }
+.theme-light .wpa-ref {
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.28);
+}
+.theme-light .wpa-ref text { color: #2563EB; }

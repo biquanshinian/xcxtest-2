@@ -37,12 +37,16 @@ const QUOTA = 'souvenir_draw_quota'
 const MERCHANTS = 'watch_party_merchants'
 const CONFIG = 'watch_party_config'
 const LEADS = 'watch_party_merchant_leads'
+/** 任务显示名（商家自定义中文名，_id = missionId；仅该任务下最早入驻的商家可改） */
+const MISSION_NAMES = 'watch_party_mission_names'
 const GLOBAL_CONFIG_ID = 'global'
 
 /** 预约防刷：openid 24h 全站创建上限；同场次取消后再约冷却 */
 const RESERVE_OPENID_24H_MAX = 5
 const RESERVE_OPENID_24H_MS = 24 * 60 * 60 * 1000
 const RESERVE_CANCEL_COOLDOWN_MS = 60 * 1000
+/** 预约自动截止：发射前 30 分钟停止新预约（商家备场/核对名单窗口）；发射时间待定的场次不自动截止 */
+const RESERVE_CLOSE_BEFORE_MS = 30 * 60 * 1000
 /** IP / 设备短窗：容器内存粗限流（零 DB，挡脚本连打；跨实例靠 openid 日限兜底） */
 const RESERVE_IP_WINDOW_MS = 60 * 1000
 const RESERVE_IP_MAX = 30
@@ -66,6 +70,12 @@ const SESSION_CODE_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789'
 const SCIENCE_IMAGES_MAX = 10
 /** 现场奖品：每场最多条数 */
 const PRIZES_MAX = 20
+/** 现场照片（顾客页展示）：每场最多张数 */
+const SITE_PHOTOS_MAX = 8
+/** 微信群二维码：每场最多张数 */
+const WECHAT_QRS_MAX = 2
+/** 每位商家最多可同时持有的场次数（同月多次发射各建一场） */
+const MERCHANT_SESSIONS_MAX = 10
 
 /** 商家可选服务套餐（固定目录，多选） */
 const SESSION_SERVICE_CATALOG = [
@@ -302,7 +312,16 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     _mainFlagCache = { at: 0, on: false }
     _entryCache = { at: 0, has: false, data: null }
     _listCache = Object.create(null)
+    _missionNameCache = Object.create(null)
+    _missionOwnerCache = Object.create(null)
     if (merchantId) delete _merchantCache[merchantId]
+  }
+
+  /** 预约截止时刻（ms）：发射前 30 分钟；发射时间缺失/非法返回 0（不自动截止） */
+  function reserveCloseAtOf(doc) {
+    const t = doc && doc.launchTime ? Date.parse(doc.launchTime) : NaN
+    if (!t || isNaN(t)) return 0
+    return t - RESERVE_CLOSE_BEFORE_MS
   }
 
   /** 列表页轻量视图：不含奖品库存，降低入口探测/列表传输 */
@@ -316,10 +335,12 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       missionId: doc.missionId || '',
       missionName: doc.missionName || '',
       rocketName: doc.rocketName || '',
+      rocketImageName: doc.rocketImageName || '',
       launchTime: doc.launchTime || '',
       address: doc.address || '',
       padLocationName: doc.padLocationName || '',
       status: doc.status || 'open',
+      reserveCloseAt: reserveCloseAtOf(doc),
       services: servicesView(doc.services),
       prizeDrawEnabled: doc.prizeDrawEnabled === true
     }
@@ -507,6 +528,134 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     return Number(res.total || 0) || 0
   }
 
+  // ── 任务显示名（商家自定义中文名，跨商家共享） ──
+
+  /** 容器内任务显示名缓存：missionId -> { at, doc } */
+  let _missionNameCache = Object.create(null)
+
+  async function getMissionNameDoc(missionId) {
+    const mid = String(missionId || '').trim()
+    if (!mid) return null
+    const cached = _missionNameCache[mid]
+    if (cached && Date.now() - cached.at < GATE_CACHE_TTL) return cached.doc
+    const res = await db.collection(MISSION_NAMES).doc(mid).get().catch(() => null)
+    const doc = (res && res.data) || null
+    _missionNameCache[mid] = { at: Date.now(), doc }
+    return doc
+  }
+
+  async function loadMissionDisplayName(missionId) {
+    const doc = await getMissionNameDoc(missionId)
+    return (doc && String(doc.displayName || '').trim()) || ''
+  }
+
+  /** 命名权归属缓存：missionId -> { at, owner }（场次/商家变更会走 invalidateGateCache 清掉） */
+  let _missionOwnerCache = Object.create(null)
+
+  /**
+   * 任务命名权归属：该 missionId 下有场次的商家中，入驻（createdAt）最早者。
+   * 尚无任何场次时返回 ''（视为谁先建场次谁可改）。
+   */
+  async function resolveMissionNameOwner(missionId) {
+    const mid = String(missionId || '').trim()
+    if (!mid) return ''
+    const cached = _missionOwnerCache[mid]
+    if (cached && Date.now() - cached.at < GATE_CACHE_TTL) return cached.owner
+    const owner = await resolveMissionNameOwnerUncached(mid)
+    _missionOwnerCache[mid] = { at: Date.now(), owner }
+    return owner
+  }
+
+  async function resolveMissionNameOwnerUncached(mid) {
+    const res = await db.collection(SESSIONS)
+      .where({ missionId: mid })
+      .field({ merchantId: true })
+      .limit(50)
+      .get()
+      .catch(() => ({ data: [] }))
+    const merchantIds = []
+    const seen = Object.create(null)
+    ;(res.data || []).forEach((s) => {
+      const id = s && s.merchantId
+      if (id && !seen[id]) { seen[id] = 1; merchantIds.push(id) }
+    })
+    if (!merchantIds.length) return ''
+    const merchants = await Promise.all(merchantIds.map((id) => findMerchant(id)))
+    let owner = ''
+    let earliest = Infinity
+    merchants.forEach((m) => {
+      if (!m || m.status === 'terminated') return
+      const t = Number(m.createdAt || 0) || 0
+      if (t < earliest) { earliest = t; owner = m._id }
+    })
+    return owner
+  }
+
+  /** 商家查任务显示名与自己是否可改（编辑场次页选任务后调用） */
+  async function merchantGetMissionName(query = {}, openid) {
+    const closed = await serviceGate()
+    if (closed) return fail(4030, closed)
+    const { merchant, err } = await requireMerchant(openid)
+    if (err) return err
+    const mid = String(query.missionId || '').trim()
+    if (!mid) return fail(4001, '缺少任务ID')
+    const [doc, owner] = await Promise.all([
+      getMissionNameDoc(mid),
+      resolveMissionNameOwner(mid)
+    ])
+    return ok({
+      missionId: mid,
+      displayName: (doc && doc.displayName) || '',
+      editable: !owner || owner === merchant._id
+    })
+  }
+
+  /** 商家设置任务显示名（仅该任务下最早入驻的商家可改；空值 = 清除） */
+  async function merchantSetMissionDisplayName(body = {}, openid) {
+    const closed = await serviceGate()
+    if (closed) return fail(4030, closed)
+    const { merchant, err } = await requireMerchant(openid)
+    if (err) return err
+    if (merchant.status !== 'active') return fail(4030, '商家合作已暂停，暂不能修改任务显示名')
+    const mid = String(body.missionId || '').trim()
+    if (!mid) return fail(4001, '缺少任务ID')
+    const displayName = String(body.displayName || '').trim().slice(0, 60)
+    const owner = await resolveMissionNameOwner(mid)
+    if (owner && owner !== merchant._id) {
+      return fail(4030, '任务显示名由该任务下最早入驻的商家维护，您暂无修改权限')
+    }
+    const data = {
+      displayName,
+      merchantId: merchant._id,
+      merchantName: merchant.name || '',
+      updatedAt: now()
+    }
+    const up = await db.collection(MISSION_NAMES).doc(mid)
+      .update({ data })
+      .catch(() => null)
+    if (!up || !up.stats || up.stats.updated < 1) {
+      const added = await db.collection(MISSION_NAMES).add({ data: { _id: mid, ...data } }).catch(() => null)
+      if (!added) {
+        // 新环境集合尚未创建：建集合后重试一次
+        if (typeof db.createCollection === 'function') {
+          await db.createCollection(MISSION_NAMES).catch(() => {})
+        }
+        const retried = await db.collection(MISSION_NAMES).add({ data: { _id: mid, ...data } }).catch(() => null)
+        if (!retried) return fail(5000, '任务显示名保存失败，请稍后重试')
+      }
+    }
+    delete _missionNameCache[mid]
+    invalidateGateCache()
+    await writeOpLog({
+      user: merchantOperator(merchant),
+      module: 'watch_party',
+      action: 'merchant_set_mission_name',
+      targetId: mid,
+      after: { displayName }
+    })
+    return ok({ missionId: mid, displayName })
+  }
+
   // ── 工具 ──
 
   function sanitizeParkingSpots(raw) {
@@ -644,9 +793,46 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     return /^(cloud|https):\/\//.test(s) ? s : ''
   }
 
+  /** 微信群二维码列表（最多 2 张，cloud:// 或 https） */
+  function sanitizeWechatGroupQrs(raw) {
+    if (!Array.isArray(raw)) return []
+    return raw
+      .map((s) => sanitizeWechatGroupQr(s))
+      .filter(Boolean)
+      .slice(0, WECHAT_QRS_MAX)
+  }
+
+  /** 兼容读：优先数组字段，旧单字段并入 */
+  function wechatGroupQrsOf(doc) {
+    const arr = sanitizeWechatGroupQrs(doc && doc.wechatGroupQrs)
+    if (arr.length) return arr
+    const legacy = sanitizeWechatGroupQr(doc && doc.wechatGroupQr)
+    return legacy ? [legacy] : []
+  }
+
+  /** 现场照片（顾客页展示）：最多 8 张 */
+  function sanitizeSitePhotos(raw) {
+    if (!Array.isArray(raw)) return []
+    return raw
+      .slice(0, SITE_PHOTOS_MAX)
+      .map((s) => String(s || '').trim().slice(0, 600))
+      .filter((s) => /^(cloud|https):\/\//.test(s))
+  }
+
+  /** 现场视频 / 视频封面：cloud:// 或 https 单条 */
+  function sanitizeCloudMediaUrl(raw) {
+    const s = String(raw || '').trim().slice(0, 600)
+    return /^(cloud|https):\/\//.test(s) ? s : ''
+  }
+
+  /**
+   * 车辆预约：现要求填小程序短链（#小程序://…，顾客点击直接跳转）；
+   * 旧 https 网址数据保留不报错（顾客端仅对短链展示跳转入口）。
+   */
   function sanitizeVehicleBookingUrl(raw) {
     const s = String(raw || '').trim().slice(0, 500)
     if (!s) return ''
+    if (/^#小程序:\/\//.test(s)) return s
     if (/^https?:\/\//i.test(s)) return s
     // 允许商家只填域名，前端打开时再补 https
     if (/^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(s)) return 'https://' + s
@@ -689,8 +875,25 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       out.prizeDrawEnabled = body.prizeDrawEnabled === true || body.prizeDrawEnabled === 'true' || body.prizeDrawEnabled === 1
     }
     if (body.services !== undefined) out.services = sanitizeServices(body.services)
-    if (body.wechatGroupQr !== undefined) out.wechatGroupQr = sanitizeWechatGroupQr(body.wechatGroupQr)
+    if (body.wechatGroupQrs !== undefined) {
+      out.wechatGroupQrs = sanitizeWechatGroupQrs(body.wechatGroupQrs)
+      out.wechatGroupQr = out.wechatGroupQrs[0] || ''
+    } else if (body.wechatGroupQr !== undefined) {
+      out.wechatGroupQr = sanitizeWechatGroupQr(body.wechatGroupQr)
+      out.wechatGroupQrs = out.wechatGroupQr ? [out.wechatGroupQr] : []
+    }
     if (body.vehicleBookingUrl !== undefined) out.vehicleBookingUrl = sanitizeVehicleBookingUrl(body.vehicleBookingUrl)
+    if (body.sitePhotos !== undefined) out.sitePhotos = sanitizeSitePhotos(body.sitePhotos)
+    if (body.siteVideo !== undefined) out.siteVideo = sanitizeCloudMediaUrl(body.siteVideo)
+    if (body.siteVideoPoster !== undefined) out.siteVideoPoster = sanitizeCloudMediaUrl(body.siteVideoPoster)
+    /** 自动获取任务时锁定的配置图匹配名：手动改火箭名后配置图不变（展示端优先按它取图） */
+    if (body.rocketImageName !== undefined) out.rocketImageName = String(body.rocketImageName || '').trim().slice(0, 40)
+    /** 头卡亮点角标（商家自定义，如「近距离观礼 · 距发射工位约1.5km」），空 = 用客户端默认文案 */
+    if (body.heroBadge !== undefined) out.heroBadge = String(body.heroBadge || '').trim().slice(0, 30)
+    /** 顾客可一键拨打的联系电话（手机或座机，仅数字/+/-） */
+    if (body.contactPhone !== undefined) {
+      out.contactPhone = String(body.contactPhone || '').trim().replace(/[^\d+-]/g, '').slice(0, 20)
+    }
     // prizes 由 create/update 路径单独 merge，避免全量保存把 remaining 重置为 stock
     // 大屏讲解跳转元数据（商家选任务时写入）
     if (
@@ -719,6 +922,7 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       missionId: doc.missionId || '',
       missionName: doc.missionName || '',
       rocketName: doc.rocketName || '',
+      rocketImageName: doc.rocketImageName || '',
       agencyId: doc.agencyId || '',
       agencyName: doc.agencyName || '',
       agencyAbbrev: doc.agencyAbbrev || '',
@@ -733,11 +937,18 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       notice: doc.notice || '',
       parkingSpots: Array.isArray(doc.parkingSpots) ? doc.parkingSpots : [],
       sciencePoints: Array.isArray(doc.sciencePoints) ? doc.sciencePoints : [],
+      sitePhotos: sanitizeSitePhotos(doc.sitePhotos),
+      siteVideo: sanitizeCloudMediaUrl(doc.siteVideo),
+      siteVideoPoster: sanitizeCloudMediaUrl(doc.siteVideoPoster),
       capacity: doc.capacity || 0,
       status: doc.status || 'open',
+      reserveCloseAt: reserveCloseAtOf(doc),
       services: servicesView(doc.services),
-      wechatGroupQr: doc.wechatGroupQr || '',
+      wechatGroupQr: wechatGroupQrsOf(doc)[0] || '',
+      wechatGroupQrs: wechatGroupQrsOf(doc),
       vehicleBookingUrl: doc.vehicleBookingUrl || '',
+      heroBadge: doc.heroBadge || '',
+      contactPhone: doc.contactPhone || '',
       prizeDrawEnabled: doc.prizeDrawEnabled === true,
       /** 商家已确认发射成功后开放抽奖 */
       successUnlocked: !!doc.successUnlockedAt,
@@ -889,6 +1100,9 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       for (const doc of (res.data || [])) {
         if (!(await sessionGate(doc))) { data = publicSessionView(doc); break }
       }
+      if (data && data.missionId) {
+        data.missionDisplayName = await loadMissionDisplayName(data.missionId)
+      }
     }
     _entryCache = { at: Date.now(), has: true, data }
     return ok(data)
@@ -997,17 +1211,60 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     view.missionSessionCount = mid
       ? passed.filter((d) => String(d.missionId || '') === mid).length
       : 1
+    if (mid) view.missionDisplayName = await loadMissionDisplayName(mid)
     return ok(view)
   }
 
   /** 场次详情（支持 sessionId 或短码 code 查询） */
+  /**
+   * 同商家其他在售场次（详情页「本观礼点·更多场次」）：
+   * 轻量卡片按发射时间近→远；商家 active 已由主场次 gate 保证，只需 enabled 过滤。
+   * 单商家场次上限 10，一次 where 查询即可，无放大风险。
+   */
+  async function listMerchantOtherSessions(doc) {
+    if (!doc || !doc.merchantId) return []
+    const res = await db.collection(SESSIONS)
+      .where({ merchantId: doc.merchantId, enabled: true, _id: _.neq(doc._id) })
+      .limit(MERCHANT_SESSIONS_MAX)
+      .get()
+      .catch(() => ({ data: [] }))
+    const rows = (res.data || []).slice()
+    rows.sort((a, b) => {
+      const ta = a && a.launchTime ? (Date.parse(a.launchTime) || Infinity) : Infinity
+      const tb = b && b.launchTime ? (Date.parse(b.launchTime) || Infinity) : Infinity
+      return ta - tb
+    })
+    const names = await Promise.all(rows.map((d) => (
+      d && d.missionId ? loadMissionDisplayName(d.missionId) : Promise.resolve('')
+    )))
+    return rows.map((d, i) => ({
+      sessionId: d._id,
+      title: d.title || '',
+      missionId: d.missionId || '',
+      missionName: d.missionName || '',
+      missionDisplayName: names[i] || '',
+      rocketName: d.rocketName || '',
+      rocketImageName: d.rocketImageName || '',
+      launchTime: d.launchTime || '',
+      status: d.status || 'open',
+      reserveCloseAt: reserveCloseAtOf(d)
+    }))
+  }
+
   async function getPublicSession(query = {}) {
     const closed = await serviceGate()
     if (closed) return fail(4030, closed)
     const doc = await resolveSession(query)
     const gated = await sessionGate(doc)
     if (gated) return fail(4040, gated)
-    return ok(publicSessionView(doc))
+    const view = publicSessionView(doc)
+    if (view && view.missionId) {
+      view.missionDisplayName = await loadMissionDisplayName(view.missionId)
+    }
+    if (view) {
+      view.merchantOtherSessions = await listMerchantOtherSessions(doc)
+    }
+    return ok(view)
   }
 
   /**
@@ -1052,16 +1309,40 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     const list = []
     for (const doc of rows) {
       if (await sessionGate(doc)) continue
-      list.push(viewFn(doc))
+      const view = viewFn(doc)
+      // 商家头像（圆形展示于选商家卡片）：商家文档已批量预取，这里读缓存零额外查询
+      let merchantAvatar = ''
+      if (doc.merchantId) {
+        const m = await findMerchant(doc.merchantId)
+        merchantAvatar = (m && sanitizeCloudMediaUrl(m.avatar)) || ''
+      }
+      view.merchantAvatar = merchantAvatar
+      list.push(view)
     }
     // 同任务下再按商家名稳定排序，便于用户扫读
     if (missionId) {
       list.sort((a, b) => String(a.merchantName || '').localeCompare(String(b.merchantName || ''), 'zh'))
     }
+    // 任务显示名（商家自定义中文名）：按 missionId 批量附到条目与头部
+    const nameMids = []
+    const seenMid = Object.create(null)
+    list.forEach((v) => {
+      const mid = v && v.missionId
+      if (mid && !seenMid[mid]) { seenMid[mid] = 1; nameMids.push(mid) }
+    })
+    if (nameMids.length) {
+      const names = await Promise.all(nameMids.map((mid) => loadMissionDisplayName(mid)))
+      const nameMap = Object.create(null)
+      nameMids.forEach((mid, i) => { nameMap[mid] = names[i] || '' })
+      list.forEach((v) => {
+        if (v && v.missionId) v.missionDisplayName = nameMap[v.missionId] || ''
+      })
+    }
     const head = list[0] || null
     const data = {
       missionId: missionId || (head && head.missionId) || '',
       missionName: (head && head.missionName) || '',
+      missionDisplayName: (head && head.missionDisplayName) || '',
       rocketName: (head && head.rocketName) || '',
       count: list.length,
       summary: !!summary,
@@ -1157,6 +1438,11 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     const gated = await sessionGate(session)
     if (gated) return fail(4040, gated)
     if (session.status === 'closed') return fail(4002, '该场次已停止预约')
+    // 发射前 30 分钟自动截止（云端硬校验，客户端仅做展示）
+    const closeAt = reserveCloseAtOf(session)
+    if (closeAt > 0 && now() >= closeAt) {
+      return fail(4002, '距发射不足 30 分钟，线上预约已截止，可直接到场参与')
+    }
     session = await ensureSessionCycleFields(session)
     const cycleId = sessionCycleId(session)
 
@@ -1227,6 +1513,12 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     return ok({ reservationId: addRes._id })
   }
 
+  /** 到场核销码：预约ID尾 6 位（展示用，顾客报码 / 商家名单对码，无需扫码设备） */
+  function reservationCheckinCode(id) {
+    const s = String(id || '').replace(/[^a-zA-Z0-9]/g, '')
+    return s.slice(-6).toUpperCase()
+  }
+
   /** 我的预约状态 */
   async function getMyReservation(openid, query = {}) {
     if (!openid) return fail(4010, '未获取到用户身份')
@@ -1255,6 +1547,7 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     const doc = (res.data && res.data[0]) || null
     return ok(doc ? {
       reservationId: doc._id,
+      checkinCode: reservationCheckinCode(doc._id),
       name: doc.name,
       headcount: doc.headcount,
       status: doc.status,
@@ -1685,6 +1978,8 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     return ok({
       ...publicSessionView(session),
       ...explain,
+      // 大屏副标题优先商家自定义中文任务名（容器内缓存，轮询不放大读量）
+      missionDisplayName: await loadMissionDisplayName(session.missionId),
       scienceImages,
       qrCodeUrl: qrResolved,
       drawCount: stats.draws,
@@ -1695,8 +1990,11 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
   }
 
   /**
-   * 同行商家合作申请（公开）：观礼页提交，推荐归属自动取当前场次的挂靠商家（服务端反查，防伪造）
-   * 防滥用：每个 openid / 手机号各只允许一条待处理申请
+   * 同行商家合作申请（公开）：观礼页表单或商家「推荐给同行」分享落地页提交。
+   * 推荐归属（均服务端反查，防伪造）：refMerchantId（商家分享链接）优先，其次 sessionId 挂靠商家；
+   * referrerSource 区分 merchant_share / session。
+   * 提交即自动通过：直接创建商家（active + 商家编号）并把申请人微信绑定为员工，无需运营审核。
+   * 防滥用：一个微信只允许一个商家；手机号已入驻/已申请不可重复。
    */
   async function applyMerchantLead(body = {}, openid) {
     if (!openid) return fail(4010, '未获取到用户身份')
@@ -1711,13 +2009,19 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     if (!contactName) return fail(4001, '请填写联系人姓名')
     if (!/^1\d{10}$/.test(phone)) return fail(4001, '请填写正确的手机号')
 
-    const dupByOpenid = await db.collection(LEADS)
-      .where({ openid, status: 'pending' })
+    // 一个微信只绑一个商家：已绑定的直接引导去商家中心
+    const bound = await findMerchantByStaffOpenid(openid)
+    if (bound) {
+      return fail(4002, `当前微信已绑定「${bound.name || '商家'}」，请直接进入商家中心管理场次`)
+    }
+    // 手机号查重：已入驻商家或历史待处理申请
+    const dupMerchant = await db.collection(MERCHANTS)
+      .where({ contactPhone: phone })
       .limit(1)
       .get()
       .catch(() => ({ data: [] }))
-    if (dupByOpenid.data && dupByOpenid.data.length > 0) {
-      return fail(4002, '您已提交过合作申请，运营同学会尽快联系您')
+    if (dupMerchant.data && dupMerchant.data.length > 0) {
+      return fail(4002, '该手机号已入驻商家，请用绑定过的微信进入商家中心')
     }
     const dupByPhone = await db.collection(LEADS)
       .where({ phone, status: 'pending' })
@@ -1730,13 +2034,54 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
 
     let referrerMerchantId = ''
     let referrerMerchantName = ''
-    if (body.sessionId) {
+    /** 推荐来源：merchant_share 商家「推荐给同行」分享 / session 观礼场次页表单 */
+    let referrerSource = ''
+    // 商家分享链接直达（refMerchantId）：服务端反查商家存在性，名称以库内为准，防链接伪造/篡改
+    const refMerchantId = String(body.refMerchantId || '').trim()
+    if (refMerchantId) {
+      const refMerchant = await findMerchant(refMerchantId)
+      if (refMerchant) {
+        referrerMerchantId = refMerchant._id || refMerchantId
+        referrerMerchantName = refMerchant.name || ''
+        referrerSource = 'merchant_share'
+      }
+    }
+    if (!referrerMerchantId && body.sessionId) {
       const session = await findSessionById(String(body.sessionId))
       if (session && session.merchantId) {
         referrerMerchantId = session.merchantId
         referrerMerchantName = session.merchantName || ''
+        referrerSource = 'session'
       }
     }
+
+    // 自动入驻：创建商家（active）并绑定申请人微信为员工
+    const merchantCode = await genUniqueMerchantCode()
+    const ts = now()
+    const merchantAdd = await db.collection(MERCHANTS).add({
+      data: {
+        name,
+        contactName,
+        contactPhone: phone,
+        address: location,
+        lat: 0,
+        lng: 0,
+        intro: '',
+        notice: '',
+        parkingSpots: [],
+        note: note ? `前端申请自动入驻：${note}` : '前端申请自动入驻',
+        status: 'active',
+        merchantCode,
+        staffOpenids: [openid],
+        referrerMerchantId,
+        referrerMerchantName,
+        referrerSource,
+        createdAt: ts,
+        updatedAt: ts,
+        createdBy: 'lead:auto',
+        updatedBy: 'lead:auto'
+      }
+    })
 
     const addRes = await db.collection(LEADS).add({
       data: {
@@ -1748,15 +2093,30 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
         note,
         referrerMerchantId,
         referrerMerchantName,
+        referrerSource,
         /** pending 待跟进 / contacted 已联系 / approved 已入驻 / rejected 已婉拒 */
-        status: 'pending',
-        adminNote: '',
-        merchantId: '',
-        createdAt: now(),
-        updatedAt: now()
+        status: 'approved',
+        adminNote: '前端提交自动入驻',
+        merchantId: merchantAdd._id,
+        createdAt: ts,
+        updatedAt: ts
       }
     })
-    return ok({ leadId: addRes._id })
+    invalidateGateCache()
+    await writeOpLog({
+      user: { id: 'merchant', username: 'lead:auto' },
+      module: 'watch_party',
+      action: 'auto_approve_merchant_lead',
+      targetId: addRes._id,
+      after: { merchantId: merchantAdd._id, name }
+    })
+    return ok({
+      leadId: addRes._id,
+      merchantId: merchantAdd._id,
+      merchantCode,
+      bound: true,
+      autoApproved: true
+    })
   }
 
   // ══════════════════ 商家自助接口（小程序端，凭商家编号绑定 openid） ══════════════════
@@ -1769,7 +2129,10 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       merchantId: doc._id,
       merchantCode: doc.merchantCode || '',
       name: doc.name || '',
+      avatar: sanitizeCloudMediaUrl(doc.avatar),
       status: doc.status || 'active',
+      contactName: doc.contactName || '',
+      contactPhone: doc.contactPhone || '',
       address: doc.address || '',
       lat: doc.lat || 0,
       lng: doc.lng || 0,
@@ -1777,6 +2140,68 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       notice: doc.notice || '',
       parkingSpots: Array.isArray(doc.parkingSpots) ? doc.parkingSpots : []
     }
+  }
+
+  /**
+   * 商家自助更新入驻资料（名称/联系人/联系电话/地址）。
+   * 改名会同步名下所有场次的冗余 merchantName（顾客页「观礼点由 xx 提供」）；
+   * 换手机号与其他商家判重，避免影响后续入驻申请的查重逻辑。
+   */
+  async function merchantUpdateProfile(body = {}, openid) {
+    const { merchant, err } = await requireMerchant(openid)
+    if (err) return err
+    const name = String(body.name || '').trim().slice(0, 40)
+    const contactName = String(body.contactName || '').trim().slice(0, 20)
+    const contactPhone = String(body.contactPhone || '').trim().replace(/[^\d+-]/g, '').slice(0, 20)
+    const address = String(body.address || '').trim().slice(0, 120)
+    if (!name) return fail(4001, '请填写商家/观礼点名称')
+    if (contactPhone && contactPhone.replace(/\D/g, '').length < 6) {
+      return fail(4001, '联系电话格式不正确')
+    }
+    if (contactPhone && contactPhone !== (merchant.contactPhone || '')) {
+      const dup = await db.collection(MERCHANTS)
+        .where({ contactPhone })
+        .limit(1)
+        .get()
+        .catch(() => ({ data: [] }))
+      if (dup.data && dup.data[0] && dup.data[0]._id !== merchant._id) {
+        return fail(4002, '该手机号已被其他商家使用')
+      }
+    }
+    await db.collection(MERCHANTS).doc(merchant._id).update({
+      data: { name, contactName, contactPhone, address, updatedAt: now() }
+    })
+    if (name !== (merchant.name || '')) {
+      await db.collection(SESSIONS)
+        .where({ merchantId: merchant._id })
+        .update({ data: { merchantName: name, updatedAt: now() } })
+        .catch(() => {})
+    }
+    invalidateGateCache(merchant._id)
+    return ok({ name, contactName, contactPhone, address })
+  }
+
+  /**
+   * 商家头像：小程序端先传云存储（≤2M 由端上限制），这里只收 cloud fileID / https。
+   * 空值 = 移除头像。改动即清列表缓存，顾客选商家页头像同步更新。
+   */
+  async function merchantUpdateAvatar(body = {}, openid) {
+    const { merchant, err } = await requireMerchant(openid)
+    if (err) return err
+    const raw = String(body.avatar || '').trim()
+    const avatar = sanitizeCloudMediaUrl(raw)
+    if (raw && !avatar) return fail(4001, '头像地址不合法，请重新上传')
+    const prevAvatar = String(merchant.avatar || '').trim()
+    await db.collection(MERCHANTS).doc(merchant._id).update({
+      data: { avatar, updatedAt: now() }
+    })
+    // 换头像/移除头像：旧云存储文件一并删除，不残留
+    if (prevAvatar && prevAvatar !== avatar && /^cloud:\/\//i.test(prevAvatar) &&
+        cloud && typeof cloud.deleteFile === 'function') {
+      await cloud.deleteFile({ fileList: [prevAvatar] }).catch(() => {})
+    }
+    invalidateGateCache(merchant._id)
+    return ok({ avatar })
   }
 
   /** 商家端场次视图：编辑回填 + 概览统计（scienceImages 保留原始 cloud:// 供小程序显示与再编辑） */
@@ -1789,6 +2214,7 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       missionId: doc.missionId || '',
       missionName: doc.missionName || '',
       rocketName: doc.rocketName || '',
+      rocketImageName: doc.rocketImageName || '',
       agencyId: doc.agencyId || '',
       agencyName: doc.agencyName || '',
       agencyAbbrev: doc.agencyAbbrev || '',
@@ -1804,6 +2230,9 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       parkingSpots: Array.isArray(doc.parkingSpots) ? doc.parkingSpots : [],
       sciencePoints: Array.isArray(doc.sciencePoints) ? doc.sciencePoints : [],
       scienceImages: Array.isArray(doc.scienceImages) ? doc.scienceImages : [],
+      sitePhotos: sanitizeSitePhotos(doc.sitePhotos),
+      siteVideo: sanitizeCloudMediaUrl(doc.siteVideo),
+      siteVideoPoster: sanitizeCloudMediaUrl(doc.siteVideoPoster),
       capacity: doc.capacity || 0,
       status: doc.status || 'open',
       enabled: doc.enabled !== false,
@@ -1811,8 +2240,11 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       passHours: Math.min(PASS_MAX_HOURS, Math.max(1, Number(doc.passHours || PASS_DEFAULT_HOURS) || PASS_DEFAULT_HOURS)),
       services: sanitizeServices(doc.services),
       serviceOptions: SESSION_SERVICE_CATALOG,
-      wechatGroupQr: doc.wechatGroupQr || '',
+      wechatGroupQr: wechatGroupQrsOf(doc)[0] || '',
+      wechatGroupQrs: wechatGroupQrsOf(doc),
       vehicleBookingUrl: doc.vehicleBookingUrl || '',
+      heroBadge: doc.heroBadge || '',
+      contactPhone: doc.contactPhone || '',
       prizeDrawEnabled: doc.prizeDrawEnabled === true,
       prizes: publicPrizesView(doc.prizes),
       successUnlocked: !!doc.successUnlockedAt,
@@ -1925,9 +2357,35 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       .limit(30)
       .get()
       .catch(() => ({ data: [] }))
+    const sessions = (sessRes.data || []).map(merchantSessionView)
+    // 任务显示名：附中文名 + 当前商家是否有命名权（编辑页据此展示输入框）
+    const mids = []
+    const seenMid = Object.create(null)
+    sessions.forEach((s) => {
+      const mid = s && s.missionId
+      if (mid && !seenMid[mid]) { seenMid[mid] = 1; mids.push(mid) }
+    })
+    if (mids.length) {
+      const pairs = await Promise.all(mids.map(async (mid) => {
+        const [name, owner] = await Promise.all([
+          loadMissionDisplayName(mid),
+          resolveMissionNameOwner(mid)
+        ])
+        return { mid, name, editable: !owner || owner === merchant._id }
+      }))
+      const map = Object.create(null)
+      pairs.forEach((p) => { map[p.mid] = p })
+      sessions.forEach((s) => {
+        const p = s && s.missionId ? map[s.missionId] : null
+        if (p) {
+          s.missionDisplayName = p.name
+          s.missionNameEditable = p.editable
+        }
+      })
+    }
     return ok({
       merchant: merchantSelfView(merchant),
-      sessions: (sessRes.data || []).map(merchantSessionView),
+      sessions,
       gateBypass: await resolveMerchantStaffGateBypass(merchant)
     })
   }
@@ -1939,7 +2397,7 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     return ok({ list: [], deprecated: true })
   }
 
-  /** 商家自建场次：短码/归属/抽卡码全自动；每位商家仅允许一场（物料码长期复用） */
+  /** 商家自建场次：短码/归属/抽卡码全自动；支持多场次（同月多次发射各建一场），上限 MERCHANT_SESSIONS_MAX */
   async function merchantCreateSession(body = {}, openid) {
     const { merchant, err } = await requireMerchant(openid)
     if (err) return err
@@ -1947,8 +2405,8 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     const closed = await serviceGate()
     if (closed) return fail(4030, closed)
     const existed = await countMerchantSessions(merchant._id)
-    if (existed > 0) {
-      return fail(4002, '每位商家仅可创建一场观礼场次，请编辑现有场次或开启下一场')
+    if (existed >= MERCHANT_SESSIONS_MAX) {
+      return fail(4002, `场次数量已达上限（${MERCHANT_SESSIONS_MAX} 场），请删除不再使用的场次后再创建`)
     }
     const data = normalizeSessionBody(body)
     if (!data.title) return fail(4001, '请填写场次标题')
@@ -1962,9 +2420,18 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       return fail(4001, '开启现场抽奖时请至少添加一件奖品')
     }
     if (body.services === undefined) data.services = []
-    if (body.wechatGroupQr === undefined) data.wechatGroupQr = ''
+    if (body.wechatGroupQrs === undefined && body.wechatGroupQr === undefined) {
+      data.wechatGroupQr = ''
+      data.wechatGroupQrs = []
+    }
     if (body.vehicleBookingUrl === undefined) data.vehicleBookingUrl = ''
-    // 商家资料模板兜底（地址/坐标/介绍/须知/停车点）
+    if (body.sitePhotos === undefined) data.sitePhotos = []
+    if (body.siteVideo === undefined) data.siteVideo = ''
+    if (body.siteVideoPoster === undefined) data.siteVideoPoster = ''
+    if (body.rocketImageName === undefined) data.rocketImageName = ''
+    if (body.heroBadge === undefined) data.heroBadge = ''
+    // 商家资料模板兜底（地址/坐标/介绍/须知/停车点/联系电话）
+    if (!data.contactPhone) data.contactPhone = merchant.contactPhone || ''
     if (!data.address) data.address = merchant.address || ''
     if (!data.lat && merchant.lat) data.lat = merchant.lat
     if (!data.lng && merchant.lng) data.lng = merchant.lng
@@ -2036,8 +2503,15 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       return fail(4001, '开启现场抽奖时请至少添加一件奖品')
     }
     if (body.services === undefined) data.services = sanitizeServices(exist.services)
-    if (body.wechatGroupQr === undefined) data.wechatGroupQr = exist.wechatGroupQr || ''
+    if (body.wechatGroupQrs === undefined && body.wechatGroupQr === undefined) {
+      data.wechatGroupQrs = wechatGroupQrsOf(exist)
+      data.wechatGroupQr = data.wechatGroupQrs[0] || ''
+    }
     if (body.vehicleBookingUrl === undefined) data.vehicleBookingUrl = exist.vehicleBookingUrl || ''
+    if (body.sitePhotos === undefined) data.sitePhotos = sanitizeSitePhotos(exist.sitePhotos)
+    if (body.siteVideo === undefined) data.siteVideo = sanitizeCloudMediaUrl(exist.siteVideo)
+    if (body.siteVideoPoster === undefined) data.siteVideoPoster = sanitizeCloudMediaUrl(exist.siteVideoPoster)
+    if (body.rocketImageName === undefined) data.rocketImageName = exist.rocketImageName || ''
     const operator = merchantOperator(merchant)
     await db.collection(SESSIONS).doc(id).update({
       data: { ...data, updatedAt: now(), updatedBy: operator.username }
@@ -2153,6 +2627,74 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
   }
 
   /** 商家删除自己的场次（预约与抽卡记录保留） */
+  /** 场次文档携带的云存储文件（大屏图/现场照片/视频/群码/物料码），删除场次时清理用 */
+  function collectSessionMediaFileIds(doc) {
+    const out = []
+    const push = (v) => {
+      const s = String(v || '').trim()
+      if (s && /^cloud:\/\//i.test(s) && out.indexOf(s) < 0) out.push(s)
+    }
+    if (!doc || typeof doc !== 'object') return out
+    ;(Array.isArray(doc.scienceImages) ? doc.scienceImages : []).forEach(push)
+    ;(Array.isArray(doc.sitePhotos) ? doc.sitePhotos : []).forEach(push)
+    push(doc.siteVideo)
+    push(doc.siteVideoPoster)
+    push(doc.wechatGroupQr)
+    ;(Array.isArray(doc.wechatGroupQrs) ? doc.wechatGroupQrs : []).forEach(push)
+    push(doc.qrCodeFileId)
+    return out
+  }
+
+  /** prizes[].image 单独收集：被中奖记录引用的须保留（顾客卡册/中奖历史还要显示） */
+  function collectSessionPrizeImageFileIds(doc) {
+    const out = []
+    ;(Array.isArray(doc && doc.prizes) ? doc.prizes : []).forEach((p) => {
+      const s = String((p && p.image) || '').trim()
+      if (s && /^cloud:\/\//i.test(s) && out.indexOf(s) < 0) out.push(s)
+    })
+    return out
+  }
+
+  /**
+   * 删除场次后清理其云存储媒体，不残留：
+   * - 大屏图/现场照片/现场视频及封面/群码/物料码：直接删；
+   * - 奖品图：先查中奖记录（souvenir_draws）引用，被引用的保留，避免用户奖品破图；
+   *   引用查询失败或记录超上限未取全时保守保留全部奖品图。
+   * 文件删除失败静默（残留可接受，不阻塞业务删除）。
+   */
+  async function cleanupSessionCloudFiles(doc) {
+    try {
+      if (!doc || !cloud || typeof cloud.deleteFile !== 'function') return 0
+      const files = collectSessionMediaFileIds(doc)
+      const prizeImages = collectSessionPrizeImageFileIds(doc)
+      if (prizeImages.length) {
+        const res = await db.collection(DRAWS)
+          .where({ sessionId: doc._id })
+          .limit(1000)
+          .field({ image: true })
+          .get()
+          .catch(() => null)
+        const rows = res && Array.isArray(res.data) ? res.data : null
+        if (rows && rows.length < 1000) {
+          const referenced = {}
+          rows.forEach((r) => { if (r && r.image) referenced[String(r.image)] = true })
+          prizeImages.forEach((img) => { if (!referenced[img]) files.push(img) })
+        }
+      }
+      if (!files.length) return 0
+      let n = 0
+      for (let i = 0; i < files.length; i += 50) {
+        const batch = files.slice(i, i + 50)
+        await cloud.deleteFile({ fileList: batch })
+          .then(() => { n += batch.length })
+          .catch(() => {})
+      }
+      return n
+    } catch (e) {
+      return 0
+    }
+  }
+
   async function merchantDeleteSession(id, openid) {
     const closed = await serviceGate()
     if (closed) return fail(4030, closed)
@@ -2162,12 +2704,14 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     const exist = await findSessionById(id)
     if (!exist || exist.merchantId !== merchant._id) return fail(4040, '场次不存在或不属于当前商家')
     await db.collection(SESSIONS).doc(id).remove()
+    const cleanedFiles = await cleanupSessionCloudFiles(exist)
     invalidateGateCache()
     await writeOpLog({
       user: merchantOperator(merchant),
       module: 'watch_party',
       action: 'merchant_delete_session',
-      targetId: id
+      targetId: id,
+      after: { cleanedFiles }
     })
     return ok(true)
   }
@@ -2288,6 +2832,7 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
 
     const list = (listRes.data || []).map((d) => ({
       reservationId: d._id,
+      checkinCode: reservationCheckinCode(d._id),
       name: d.name || '',
       phone: d.phone || '',
       headcount: Math.max(1, Number(d.headcount || 1) || 1),
@@ -2500,7 +3045,13 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     if ((usedRes.total || 0) > 0) {
       return fail(4002, `该商家名下还有 ${usedRes.total} 个场次，请先删除场次或将商家状态改为「终止合作」`)
     }
+    const mDoc = await findMerchant(id).catch(() => null)
     await db.collection(MERCHANTS).doc(id).remove()
+    // 商家头像云存储文件一并删除，不残留
+    const avatar = String((mDoc && mDoc.avatar) || '').trim()
+    if (avatar && /^cloud:\/\//i.test(avatar) && cloud && typeof cloud.deleteFile === 'function') {
+      await cloud.deleteFile({ fileList: [avatar] }).catch(() => {})
+    }
     invalidateGateCache(id)
     await writeOpLog({ user, module: 'watch_party', action: 'delete_merchant', targetId: id })
     return ok(true)
@@ -2625,14 +3176,21 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     if (body.prizeDrawEnabled === undefined) data.prizeDrawEnabled = false
     data.prizes = sanitizePrizesCreate(body.prizes)
     if (body.services === undefined) data.services = []
-    if (body.wechatGroupQr === undefined) data.wechatGroupQr = ''
+    if (body.wechatGroupQrs === undefined && body.wechatGroupQr === undefined) {
+      data.wechatGroupQr = ''
+      data.wechatGroupQrs = []
+    }
     if (body.vehicleBookingUrl === undefined) data.vehicleBookingUrl = ''
+    if (body.sitePhotos === undefined) data.sitePhotos = []
+    if (body.siteVideo === undefined) data.siteVideo = ''
+    if (body.siteVideoPoster === undefined) data.siteVideoPoster = ''
+    if (body.rocketImageName === undefined) data.rocketImageName = ''
     const merchantErr = await attachMerchantSnapshot(data)
     if (merchantErr) return merchantErr
     if (data.merchantId) {
       const existed = await countMerchantSessions(data.merchantId)
-      if (existed > 0) {
-        return fail(4002, '该商家已有观礼场次；一商家仅一场，请编辑现有场次或让商家开启下一场')
+      if (existed >= MERCHANT_SESSIONS_MAX) {
+        return fail(4002, `该商家场次数量已达上限（${MERCHANT_SESSIONS_MAX} 场），请先删除不用的场次`)
       }
     }
     const dup = await findSessionByCode(data.code)
@@ -2677,8 +3235,15 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       data.prizes = Array.isArray(exist.prizes) ? exist.prizes : []
     }
     if (body.services === undefined) data.services = sanitizeServices(exist.services)
-    if (body.wechatGroupQr === undefined) data.wechatGroupQr = exist.wechatGroupQr || ''
+    if (body.wechatGroupQrs === undefined && body.wechatGroupQr === undefined) {
+      data.wechatGroupQrs = wechatGroupQrsOf(exist)
+      data.wechatGroupQr = data.wechatGroupQrs[0] || ''
+    }
     if (body.vehicleBookingUrl === undefined) data.vehicleBookingUrl = exist.vehicleBookingUrl || ''
+    if (body.sitePhotos === undefined) data.sitePhotos = sanitizeSitePhotos(exist.sitePhotos)
+    if (body.siteVideo === undefined) data.siteVideo = sanitizeCloudMediaUrl(exist.siteVideo)
+    if (body.siteVideoPoster === undefined) data.siteVideoPoster = sanitizeCloudMediaUrl(exist.siteVideoPoster)
+    if (body.rocketImageName === undefined) data.rocketImageName = exist.rocketImageName || ''
     const merchantErr = await attachMerchantSnapshot(data)
     if (merchantErr) return merchantErr
     const dup = await findSessionByCode(data.code)
@@ -2694,9 +3259,11 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
   async function deleteSession(id, user) {
     const deny = checkPerm(user, 'watch_party'); if (deny) return deny
     if (!id) return fail(4001, '缺少场次ID')
+    const exist = await findSessionById(id)
     await db.collection(SESSIONS).doc(id).remove()
+    const cleanedFiles = exist ? await cleanupSessionCloudFiles(exist) : 0
     invalidateGateCache()
-    await writeOpLog({ user, module: 'watch_party', action: 'delete_session', targetId: id })
+    await writeOpLog({ user, module: 'watch_party', action: 'delete_session', targetId: id, after: { cleanedFiles } })
     return ok(true)
   }
 
@@ -3103,9 +3670,13 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     merchantBind,
     merchantUnbind,
     merchantMe,
+    merchantUpdateProfile,
+    merchantUpdateAvatar,
     merchantListCards,
     merchantCreateSession,
     merchantUpdateSession,
+    merchantGetMissionName,
+    merchantSetMissionDisplayName,
     merchantUnlockSessionSuccess,
     merchantStartNextCycle,
     merchantDeleteSession,

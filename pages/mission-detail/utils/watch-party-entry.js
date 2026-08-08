@@ -4,7 +4,8 @@
  */
 
 const ENTRY_CACHE_PREFIX = '_watch_party_mission_entry_'
-const ENTRY_CACHE_TTL = 30 * 60 * 1000
+/** 入口卡红角标要按实显示场次数，缓存收紧到 5 分钟（云端另有 30s 列表缓存兜底） */
+const ENTRY_CACHE_TTL = 5 * 60 * 1000
 
 function callWatchParty(path, query) {
   if (!wx.cloud || !wx.cloud.callFunction) return Promise.resolve(null)
@@ -57,7 +58,9 @@ function _fetchWatchPartyEntryForMissionInner(mid) {
     let entry = null
     if (count > 0) {
       const rocket = (data && data.rocketName) || list[0].rocketName || ''
-      const mission = (data && data.missionName) || list[0].missionName || ''
+      // 优先商家自定义中文任务名
+      const mission = (data && data.missionDisplayName) || list[0].missionDisplayName
+        || (data && data.missionName) || list[0].missionName || ''
       entry = {
         missionId: mid,
         count,

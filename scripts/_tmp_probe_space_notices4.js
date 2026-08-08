@@ -1,0 +1,8 @@
+const fs = require('fs')
+const b = fs.readFileSync('scripts/_tmp_sn_notice.html', 'utf8')
+const idx = b.indexOf('rawText')
+const slice = b.slice(idx, idx + 3000)
+console.log(slice.slice(0, 1200))
+console.log('---keys---')
+const keys = [...slice.matchAll(/\\?"([a-zA-Z]+)\\?":/g)].map((m) => m[1])
+console.log([...new Set(keys)].join(', '))

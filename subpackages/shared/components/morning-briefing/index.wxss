@@ -497,12 +497,12 @@
 }
 
 .inline-icon {
-  font-size: 40rpx;
+  font-size: 60rpx;
 }
 
 .inline-icon-img {
-  width: 44rpx;
-  height: 44rpx;
+  width: 66rpx;
+  height: 66rpx;
 }
 
 .inline-body {

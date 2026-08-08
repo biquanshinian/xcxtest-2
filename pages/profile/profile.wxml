@@ -180,7 +180,11 @@
       </view>
       <!-- 火箭观礼：受 enableWatchParty 过审开关控制（failClosed，默认隐藏至读到允许） -->
       <view class="growth-entry" wx:if="{{enableWatchParty}}" bindtap="goWatchParty">
-        <view class="growth-entry-icon-badge"><text>观礼</text></view>
+        <view class="growth-entry-icon-wrap">
+          <image wx:if="{{watchPartyIcon}}" class="growth-entry-icon-img growth-entry-icon-img--wp" src="{{watchPartyIcon}}" mode="aspectFit" />
+          <view wx:else class="growth-entry-icon-badge"><text>观礼</text></view>
+          <view class="growth-entry-count-badge" wx:if="{{watchPartyCount > 0}}"><text>{{watchPartyCount}}</text></view>
+        </view>
         <view class="growth-entry-info">
           <text class="growth-entry-title">火箭观礼</text>
           <text class="growth-entry-desc">现场观礼预约 · 我的奖品 · 商家合作</text>
@@ -255,29 +259,49 @@
       <view class="section-title-row">
         <text class="section-title-text">外观</text>
       </view>
-      <view class="oa-alert-card glass-card">
-        <view class="oa-alert-row">
-          <view class="oa-alert-info">
-            <text class="oa-alert-title">主题外观</text>
-            <text class="oa-alert-desc">深色、浅色或跟随系统，全局即时生效</text>
+      <view class="appearance-grid">
+        <view class="oa-alert-card glass-card appearance-card appearance-card--theme">
+          <view class="oa-alert-row">
+            <view class="oa-alert-info">
+              <text class="oa-alert-title">主题外观</text>
+            </view>
+          </view>
+          <view class="theme-mode-group">
+            <view
+              class="theme-mode-opt {{themeMode === 'dark' ? 'theme-mode-opt--active' : ''}}"
+              data-mode="dark"
+              bindtap="onThemeModeTap"
+            >深色</view>
+            <view
+              class="theme-mode-opt {{themeMode === 'light' ? 'theme-mode-opt--active' : ''}}"
+              data-mode="light"
+              bindtap="onThemeModeTap"
+            >浅色</view>
+            <view
+              class="theme-mode-opt {{themeMode === 'system' ? 'theme-mode-opt--active' : ''}}"
+              data-mode="system"
+              bindtap="onThemeModeTap"
+            >跟随系统</view>
           </view>
         </view>
-        <view class="theme-mode-group">
-          <view
-            class="theme-mode-opt {{themeMode === 'dark' ? 'theme-mode-opt--active' : ''}}"
-            data-mode="dark"
-            bindtap="onThemeModeTap"
-          >深色</view>
-          <view
-            class="theme-mode-opt {{themeMode === 'light' ? 'theme-mode-opt--active' : ''}}"
-            data-mode="light"
-            bindtap="onThemeModeTap"
-          >浅色</view>
-          <view
-            class="theme-mode-opt {{themeMode === 'system' ? 'theme-mode-opt--active' : ''}}"
-            data-mode="system"
-            bindtap="onThemeModeTap"
-          >跟随系统</view>
+        <view class="oa-alert-card glass-card appearance-card appearance-card--art">
+          <view class="oa-alert-row">
+            <view class="oa-alert-info">
+              <text class="oa-alert-title">火箭配置图</text>
+            </view>
+          </view>
+          <view class="theme-mode-group">
+            <view
+              class="theme-mode-opt {{rocketArtStyle === 'original' ? 'theme-mode-opt--active' : ''}}"
+              data-style="original"
+              bindtap="onRocketArtTap"
+            >原图</view>
+            <view
+              class="theme-mode-opt {{rocketArtStyle === 'mecha' ? 'theme-mode-opt--active' : ''}}"
+              data-style="mecha"
+              bindtap="onRocketArtTap"
+            >机娘风格</view>
+          </view>
         </view>
       </view>
     </view>

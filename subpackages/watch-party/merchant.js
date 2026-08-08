@@ -7,6 +7,7 @@ const pageBase = require('../../utils/page-base.js')
 const composerInput = require('./utils/composer-input-behavior.js')
 const watchParty = require('./utils/api.js')
 const { getRocketImage } = require('../../utils/util.js')
+const rocketArtUtil = require('../../utils/rocket-config-art.js')
 const { renderMaterialPoster } = require('./utils/material-poster.js')
 const { guardWatchPartyPage } = require('../../utils/watch-party-feature.js')
 
@@ -22,9 +23,17 @@ function formatLaunchTime(iso) {
 }
 
 function resolveSessionRocketImage(session) {
-  const name = session && session.rocketName ? String(session.rocketName).trim() : ''
+  // 优先用落库的 rocketImageName（自动获取任务时锁定），手动改火箭名不换图
+  const lockName = session && session.rocketImageName ? String(session.rocketImageName).trim() : ''
+  const name = lockName || (session && session.rocketName ? String(session.rocketName).trim() : '')
   return name ? (getRocketImage(name) || '') : ''
 }
+
+/** 与云端 MERCHANT_SESSIONS_MAX 对齐：单商家最多同时持有的场次数 */
+const SESSIONS_MAX = 10
+
+/** 商家头像大小上限：2M */
+const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 
 Page({
   behaviors: [pageBase, composerInput],
@@ -40,6 +49,12 @@ Page({
     sessions: [],
     codeInput: '',
     binding: false,
+    /** 入驻资料编辑（名称/联系人/联系电话/地址） */
+    profileOpen: false,
+    profileSaving: false,
+    /** 商家头像上传/保存中（防重复点按） */
+    avatarUploading: false,
+    profileForm: { name: '', contactName: '', contactPhone: '', address: '' },
     materialVisible: false,
     materialBuilding: false,
     materialSaving: false,
@@ -53,6 +68,9 @@ Page({
 
   onLoad() {
     this.initUiShell()
+    // 管理页不允许从右上角菜单转发（防误分享商家中心）；
+    // 场次卡「转发到群」按钮（open-type=share）不受影响
+    try { wx.hideShareMenu({ fail: () => {} }) } catch (e) {}
     this.setData(this._calcMaterialPreviewLayout())
     this._featureAllowed = false
     guardWatchPartyPage(this).then((ok) => {
@@ -65,6 +83,21 @@ Page({
     // 回前台默认重新掩码，降低截图/录屏误泄编号风险
     if (this.data.codeVisible) this.setData({ codeVisible: false })
     if (this._featureAllowed) this.loadMe()
+    rocketArtUtil.applyRocketConfigArtIfNeeded(this)
+  },
+
+  refreshRocketConfigArt() {
+    const sessions = this.data.sessions
+    if (!Array.isArray(sessions) || !sessions.length) return
+    let mutated = false
+    const next = sessions.map((s) => {
+      if (!s) return s
+      const img = resolveSessionRocketImage(s)
+      if (img === s.rocketImage) return s
+      mutated = true
+      return Object.assign({}, s, { rocketImage: img })
+    })
+    if (mutated) this._safeSetData({ sessions: next })
   },
 
   onHide() {
@@ -187,6 +220,183 @@ Page({
     this.setData({ codeVisible: !this.data.codeVisible })
   },
 
+  // ── 入驻资料编辑 ──
+
+  onProfileToggle() {
+    if (this.data.profileOpen) {
+      this.setData({ profileOpen: false })
+      return
+    }
+    const m = this.data.merchant || {}
+    this.setData({
+      profileOpen: true,
+      profileForm: {
+        name: m.name || '',
+        contactName: m.contactName || '',
+        contactPhone: m.contactPhone || '',
+        address: m.address || ''
+      }
+    })
+  },
+
+  onSaveProfile() {
+    if (this.data.profileSaving) return
+    const f = this.data.profileForm || {}
+    const name = String(f.name || '').trim()
+    if (!name) {
+      wx.showToast({ title: '请填写商家/观礼点名称', icon: 'none' })
+      return
+    }
+    const contactPhone = String(f.contactPhone || '').trim()
+    if (contactPhone && contactPhone.replace(/\D/g, '').length < 6) {
+      wx.showToast({ title: '联系电话格式不正确', icon: 'none' })
+      return
+    }
+    this.setData({ profileSaving: true })
+    watchParty.merchantUpdateProfile({
+      name,
+      contactName: String(f.contactName || '').trim(),
+      contactPhone,
+      address: String(f.address || '').trim()
+    }).then(() => {
+      // 改名会体现在顾客页「观礼点由 xx 提供」，本地入口缓存一并失效
+      try { watchParty.invalidateEntryCache() } catch (e) {}
+      try { wx.vibrateShort({ type: 'light', fail: () => {} }) } catch (e) {}
+      if (this._unloaded) return
+      this._safeSetData({ profileSaving: false, profileOpen: false })
+      wx.showToast({ title: '资料已更新', icon: 'success' })
+      this.loadMe()
+    }).catch((err) => {
+      this._safeSetData({ profileSaving: false })
+      wx.showToast({ title: (err && err.message) || '保存失败，请重试', icon: 'none' })
+    })
+  },
+
+  // ── 商家头像（≤2M：相册选图 → 云存储 → 云端存 fileID，顾客选商家页圆形展示） ──
+
+  onAvatarTap() {
+    if (this.data.avatarUploading) return
+    const hasAvatar = !!(this.data.merchant && this.data.merchant.avatar)
+    if (!hasAvatar) {
+      this._chooseAvatar()
+      return
+    }
+    wx.showActionSheet({
+      itemList: ['更换头像', '移除头像'],
+      success: (r) => {
+        if (this._unloaded) return
+        if (r.tapIndex === 0) this._chooseAvatar()
+        else if (r.tapIndex === 1) this._confirmRemoveAvatar()
+      },
+      fail: () => {}
+    })
+  },
+
+  /** 移除头像前二次确认：说明影响 + 宽心提示（删除类操作统一需确认） */
+  _confirmRemoveAvatar() {
+    wx.showModal({
+      title: '移除头像吗',
+      content: '移除后，顾客在选择商家时会看到默认样式。之后随时可以再上传新头像。',
+      confirmText: '移除',
+      cancelText: '再想想',
+      confirmColor: '#EF4444',
+      success: (res) => {
+        if (this._unloaded) return
+        if (res.confirm) this._saveAvatar('')
+      }
+    })
+  },
+
+  _chooseAvatar() {
+    if (typeof wx.chooseMedia !== 'function') {
+      wx.showToast({ title: '当前微信版本不支持选图', icon: 'none' })
+      return
+    }
+    wx.chooseMedia({
+      count: 1,
+      mediaType: ['image'],
+      sourceType: ['album', 'camera'],
+      sizeType: ['compressed'],
+      success: (res) => {
+        if (this._unloaded) return
+        const f = res && res.tempFiles && res.tempFiles[0]
+        if (!f || !f.tempFilePath) return
+        if (Number(f.size) > AVATAR_MAX_BYTES) {
+          wx.showToast({ title: '头像需小于 2M，请换一张或压缩后再传', icon: 'none' })
+          return
+        }
+        this._uploadAvatar(f.tempFilePath)
+      },
+      fail: (err) => {
+        if (this._unloaded) return
+        const msg = (err && err.errMsg) || ''
+        if (/cancel/i.test(msg)) return
+        if (/privacy agreement|not declared|privacy/i.test(msg) || (err && Number(err.errno) === 112)) {
+          wx.showModal({
+            title: '选图接口未声明',
+            content: '请在微信公众平台 → 用户隐私保护指引中声明「收集你选中的照片或视频信息」（对应 wx.chooseMedia），审核通过后再试。',
+            showCancel: false,
+            confirmText: '知道了'
+          })
+          return
+        }
+        wx.showToast({ title: '选图失败，请重试', icon: 'none' })
+      }
+    })
+  },
+
+  _uploadAvatar(filePath) {
+    if (!wx.cloud || typeof wx.cloud.uploadFile !== 'function') {
+      wx.showToast({ title: '云能力不可用', icon: 'none' })
+      return
+    }
+    this._safeSetData({ avatarUploading: true })
+    wx.showLoading({ title: '上传中…', mask: true })
+    const extMatch = /\.(\w+)$/.exec(filePath || '')
+    const ext = (extMatch && extMatch[1].toLowerCase()) || 'jpg'
+    wx.cloud.uploadFile({
+      cloudPath: `watch_party/merchant_avatar/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`,
+      filePath,
+      success: (res) => {
+        const fileID = (res && res.fileID) || ''
+        if (!fileID) {
+          try { wx.hideLoading() } catch (e) {}
+          this._safeSetData({ avatarUploading: false })
+          wx.showToast({ title: '上传失败，请重试', icon: 'none' })
+          return
+        }
+        this._saveAvatar(fileID, { keepLoading: true })
+      },
+      fail: () => {
+        try { wx.hideLoading() } catch (e) {}
+        if (this._unloaded) return
+        this._safeSetData({ avatarUploading: false })
+        wx.showToast({ title: '上传失败，请重试', icon: 'none' })
+      }
+    })
+  },
+
+  /** 保存头像 fileID（空串 = 移除）；成功后本地即时生效并清入口缓存 */
+  _saveAvatar(avatar, opts = {}) {
+    if (!opts.keepLoading) {
+      this._safeSetData({ avatarUploading: true })
+      wx.showLoading({ title: avatar ? '保存中…' : '移除中…', mask: true })
+    }
+    watchParty.merchantUpdateAvatar(avatar).then(() => {
+      try { wx.hideLoading() } catch (e) {}
+      if (this._unloaded) return
+      this._safeSetData({ avatarUploading: false, 'merchant.avatar': avatar })
+      try { watchParty.invalidateEntryCache() } catch (e) {}
+      try { wx.vibrateShort({ type: 'light', fail: () => {} }) } catch (e) {}
+      wx.showToast({ title: avatar ? '头像已更新' : '已移除头像', icon: 'success' })
+    }).catch((err) => {
+      try { wx.hideLoading() } catch (e) {}
+      if (this._unloaded) return
+      this._safeSetData({ avatarUploading: false })
+      wx.showToast({ title: (err && err.message) || '保存失败，请重试', icon: 'none' })
+    })
+  },
+
   // ── 绑定 ──
 
   // onCodeInput：composer-input-behavior（大小写仅提交时变换）
@@ -200,7 +410,7 @@ Page({
     if (this.data.binding) return
     this.setData({ binding: true })
     watchParty.merchantBind(code).then(() => {
-      try { wx.vibrateShort({ type: 'light', fail: () => {} }) } catch {}
+      try { wx.vibrateShort({ type: 'light', fail: () => {} }) } catch (e) {}
       wx.showToast({ title: '绑定成功', icon: 'success' })
       this._safeSetData({ binding: false, codeInput: '' })
       this.loadMe()
@@ -234,8 +444,8 @@ Page({
       wx.showToast({ title: '商家合作已暂停，暂不能新建场次', icon: 'none' })
       return
     }
-    if ((this.data.sessions || []).length > 0) {
-      wx.showToast({ title: '已有场次，请编辑或开启下一场', icon: 'none' })
+    if ((this.data.sessions || []).length >= SESSIONS_MAX) {
+      wx.showToast({ title: `最多同时保留 ${SESSIONS_MAX} 个场次，请先删除不用的场次`, icon: 'none' })
       return
     }
     wx.navigateTo({ url: '/subpackages/watch-party/merchant-edit' })
@@ -367,6 +577,56 @@ Page({
 
   noop() {},
 
+  /**
+   * 场次转发（群通知顾客填预约）：
+   * - 「转发到群」按钮（open-type=share）带 dataset，精确分享该场次的顾客详情页
+   * - 「推荐给同行」按钮（data-share=peer）：分享入驻申请页，带本商家推荐归属
+   * - 右上角菜单转发兜底：分享第一个可预约场次；无场次时分享商家列表页
+   * - 任何情况都不会把商家管理页本身分享出去
+   */
+  onShareAppMessage(e) {
+    const ds = (e && e.from === 'button' && e.target && e.target.dataset) || {}
+    // 推荐给同行：落地入驻申请页，ref 供服务端反查归属（refName 仅展示）
+    if (ds.share === 'peer') {
+      const m = this.data.merchant || {}
+      const mid = String(m.merchantId || '').trim()
+      const mname = String(m.name || '').trim()
+      let path = '/subpackages/watch-party/merchant-apply?channel=peer_share'
+      if (mid) path += '&ref=' + encodeURIComponent(mid)
+      if (mname) path += '&refName=' + encodeURIComponent(mname)
+      return {
+        title: (mname ? mname + ' 邀请你' : '邀请你') + '入驻火箭观礼商家｜自助建场次，接发射观礼客流',
+        path
+      }
+    }
+    let sessionId = ds.id || ''
+    let title = ds.title || ''
+    let img = ds.img || ''
+    if (!sessionId) {
+      const sessions = this.data.sessions || []
+      const best = sessions.find((s) => s && s.enabled && s.status === 'open') || sessions[0]
+      if (best) {
+        sessionId = best.sessionId
+        title = best.title || ''
+        img = best.rocketImage || ''
+      }
+    }
+    const m = this.data.merchant
+    const merchantName = (m && m.name) ? String(m.name).trim() : ''
+    if (!sessionId) {
+      return {
+        title: '火箭发射现场观礼 · 免费预约',
+        path: '/subpackages/watch-party/merchant-list?channel=merchant_share'
+      }
+    }
+    const share = {
+      title: (merchantName ? merchantName + '·' : '') + (title || '火箭发射观礼') + '｜点开填预约信息',
+      path: '/subpackages/watch-party/watch-party?sessionId=' + encodeURIComponent(sessionId) + '&channel=merchant_share'
+    }
+    if (img) share.imageUrl = img
+    return share
+  },
+
   onCloseMaterial() {
     this._safeSetData({
       materialVisible: false,
@@ -435,7 +695,7 @@ Page({
         success: () => {
           if (this._unloaded) return
           this._safeSetData({ materialSaving: false })
-          try { wx.vibrateShort({ type: 'light', fail: () => {} }) } catch {}
+          try { wx.vibrateShort({ type: 'light', fail: () => {} }) } catch (e) {}
           wx.showToast({ title: '已保存到相册', icon: 'success' })
         },
         fail: (err) => {
@@ -480,14 +740,16 @@ Page({
     const title = ds.title || '该场次'
     if (!id) return
     wx.showModal({
-      title: '删除场次',
-      content: `确定删除「${title}」？短码与物料码将作废（已打印海报需重打），预约与奖品发放记录会保留。删除后可重新创建唯一场次。`,
+      title: '删除这个场次吗',
+      content: `删除「${title}」后：顾客将不能再查看和预约本场次；已上传的图片、视频等资料会一并清理；短码和物料码会作废（已打印的海报需要重新打印）。顾客的预约记录和已抽中的奖品记录都会保留，不受影响。`,
+      confirmText: '删除',
+      cancelText: '再想想',
       confirmColor: '#EF4444',
       success: (res) => {
         if (!res.confirm) return
         watchParty.merchantDeleteSession(id).then(() => {
           if (this._unloaded) return
-          try { watchParty.invalidateEntryCache() } catch {}
+          try { watchParty.invalidateEntryCache() } catch (e) {}
           wx.showToast({ title: '已删除', icon: 'none' })
           this.loadMe()
         }).catch((err) => {

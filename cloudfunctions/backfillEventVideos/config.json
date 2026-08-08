@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "openapi": []
+  },
+  "timeout": 800,
+  "triggers": [
+    {
+      "name": "backfillEventVideosTimer",
+      "type": "timer",
+      "config": "0 10,40 * * * * *"
+    }
+  ]
+}

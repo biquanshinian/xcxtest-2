@@ -4,10 +4,9 @@
 const pageBase = require('../../utils/page-base.js')
 const watchParty = require('./utils/api.js')
 const { guardWatchPartyPage } = require('../../utils/watch-party-feature.js')
+const { decoratePrizeCard } = require('./utils/prize-card.js')
 
-function pad2(n) {
-  return n < 10 ? '0' + n : '' + n
-}
+const TIER_ORDER = ['SSR', 'SR', 'R', 'N']
 
 Page({
   behaviors: [pageBase],
@@ -18,6 +17,7 @@ Page({
     error: '',
     total: 0,
     list: [],
+    tierCounts: [],
     viewCard: null
   },
 
@@ -52,22 +52,29 @@ Page({
   loadCards() {
     this.setData({ loading: true, error: '' })
     watchParty.fetchMyCards().then((raw) => {
-      const list = (raw || []).map((c) => ({
-        ...c,
-        dateText: this._formatDate(c.createdAt),
-        valueText: c.valueYuan != null ? `¥${c.valueYuan}` : (c.desc || '')
-      }))
-      this._safeSetData({ loading: false, total: list.length, list })
+      const list = (raw || []).map((c) => {
+        const decorated = decoratePrizeCard(c, {
+          drawId: c.drawId || '',
+          createdAt: c.createdAt,
+          sessionTitle: c.sessionTitle || ''
+        })
+        return {
+          ...c,
+          ...decorated,
+          // 网格里价值优先，无价值时回落商家文案
+          valueText: decorated.valueText || decorated.desc
+        }
+      })
+      const tierCounts = TIER_ORDER
+        .map((tier) => {
+          const hit = list.filter((item) => item.tier === tier)
+          return { tier, count: hit.length, label: hit.length ? hit[0].tierLabel : '' }
+        })
+        .filter((x) => x.count > 0)
+      this._safeSetData({ loading: false, total: list.length, list, tierCounts })
     }).catch((err) => {
       this._safeSetData({ loading: false, error: (err && err.message) || '加载失败，请重试' })
     })
-  },
-
-  _formatDate(ts) {
-    if (!ts) return ''
-    const d = new Date(Number(ts))
-    if (isNaN(d.getTime())) return ''
-    return `${d.getFullYear()}.${pad2(d.getMonth() + 1)}.${pad2(d.getDate())}`
   },
 
   onRetry() {
@@ -115,15 +122,8 @@ Page({
       title: `我已抽到${this.data.total}件火箭观礼现场奖品`,
       path: `/subpackages/watch-party/watch-party?channel=album${inviterQs}`
     }
-  },
-
-  onShareTimeline() {
-    const card = this.data.viewCard
-    return {
-      title: card
-        ? `我在火箭发射现场抽到了「${card.name}」`
-        : '火箭观礼现场奖品',
-      query: this._openid ? `inviter=${this._openid}` : ''
-    }
   }
+
+  // 不提供 onShareTimeline：朋友圈单页模式会打开「查看者自己的」奖品册
+  // （个人数据页 + 云能力不可用），落地必然空白/报错；好友转发已指向观礼详情页
 })

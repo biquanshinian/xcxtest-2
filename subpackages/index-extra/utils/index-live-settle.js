@@ -36,7 +36,9 @@ const {
 const {
   formatDate,
   resolveMissionRocketImage,
-  shouldReplaceRocketImage
+  resolveMissionRocketImageFresh,
+  shouldReplaceRocketImage,
+  shouldReplaceRocketImageForArt
 } = require('../../../utils/util.js')
 const {
   formatHomeLaunchTimeParts,
@@ -1624,8 +1626,10 @@ const methods = {
   /**
    * DB media_assets 加载完成后，重算列表 + 倒计时区火箭图（三处同源）。
    * 允许 default → 正确图升级；禁止正确图 → default 降级（二次刷新 fuzzy miss 时）。
+   * opts.artStyleSwitch=true：忽略已盖章 URL（防 wxfile 机娘粘住），允许任意结果覆盖。
    */
-  _refreshRocketImagesFromMediaMap() {
+  _refreshRocketImagesFromMediaMap(opts) {
+    const artSwitch = !!(opts && opts.artStyleSwitch)
     const hasRocketMatchInput = (m) => {
       if (!m) return false
       if (m.rocketName && String(m.rocketName).trim()) return true
@@ -1638,9 +1642,14 @@ const methods = {
     }
     const resolveOne = (m) => {
       if (!hasRocketMatchInput(m)) return null
+      if (artSwitch) {
+        return resolveMissionRocketImageFresh(m.rocketName, m.rocketConfiguration)
+      }
       // 与详情头图同源：force 重算；stamped 仅防 default 降级
       return resolveMissionRocketImage(m.rocketImage || m.image || '', m.rocketName, m.rocketConfiguration, true)
     }
+    const canReplace = (cur, next) =>
+      artSwitch ? shouldReplaceRocketImageForArt(cur, next) : shouldReplaceRocketImage(cur, next)
     const refreshList = (listKey) => {
       const arr = this.data[listKey]
       if (!Array.isArray(arr) || !arr.length) return null
@@ -1648,7 +1657,7 @@ const methods = {
       const next = arr.map((m) => {
         if (!hasRocketMatchInput(m)) return m
         const rebuilt = resolveOne(m)
-        if (!shouldReplaceRocketImage(m.rocketImage || m.image, rebuilt)) return m
+        if (!canReplace(m.rocketImage || m.image, rebuilt)) return m
         mutated = true
         return { ...m, rocketImage: rebuilt, image: rebuilt }
       })
@@ -1664,17 +1673,17 @@ const methods = {
     const calNext = refreshList('calendarAllMissions')
     if (calNext) patch.calendarAllMissions = calNext
 
-    // 倒计时区与列表同 id 任务强制对齐（同样禁止降级）
+    // 倒计时区与列表同 id 任务强制对齐（同样禁止降级；艺术切换除外）
     const ld = this.data.launchData
     if (ld && ld.id && hasRocketMatchInput(ld)) {
       const curLd = ld.rocketImage || ld.image || ''
       const rebuiltLd = resolveOne(ld)
-      if (shouldReplaceRocketImage(curLd, rebuiltLd)) {
+      if (canReplace(curLd, rebuiltLd)) {
         patch['launchData.image'] = rebuiltLd
         patch['launchData.rocketImage'] = rebuiltLd
       } else if (upNext) {
         const row = upNext.find((m) => m && String(m.id) === String(ld.id))
-        if (row && shouldReplaceRocketImage(curLd, row.rocketImage)) {
+        if (row && canReplace(curLd, row.rocketImage)) {
           patch['launchData.image'] = row.rocketImage
           patch['launchData.rocketImage'] = row.rocketImage
         }

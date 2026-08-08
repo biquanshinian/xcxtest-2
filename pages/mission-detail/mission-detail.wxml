@@ -295,7 +295,11 @@
         <!-- 现场观礼入口：本任务有可对外商家场次时显示，点击进商家列表 -->
         <view class="detail-section detail-watch-party-section" wx:if="{{detailType === 'upcoming' && watchPartyEntry}}">
           <view class="watch-party-row" bindtap="onWatchPartyTap">
-            <text class="watch-party-row-badge">观礼</text>
+            <view class="watch-party-row-iconwrap">
+              <image wx:if="{{watchPartyIcon}}" class="watch-party-row-icon" src="{{watchPartyIcon}}" mode="aspectFit" />
+              <text wx:else class="watch-party-row-badge">观礼</text>
+              <view class="watch-party-count-badge" wx:if="{{watchPartyEntry.count > 0}}"><text>{{watchPartyEntry.count}}</text></view>
+            </view>
             <view class="watch-party-row-info">
               <text class="watch-party-row-title">{{watchPartyEntry.title}}</text>
               <text class="watch-party-row-desc" wx:if="{{watchPartyEntry.count > 1}}">{{watchPartyEntry.count}}家观礼商家可选，免费预约登记</text>

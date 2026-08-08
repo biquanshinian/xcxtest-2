@@ -564,6 +564,7 @@ function testExtendedIntents() {
     ['看星舰发射去哪', 'viewing_spot'],
     ['淇水湾怎么去', 'viewing_spot'],
     ['现场观礼怎么参加', 'viewing_spot'],
+    ['怎么预约火箭观礼', 'viewing_spot'],
     ['观礼抽卡', 'viewing_spot'],
     ['文昌发射场在哪', 'launch_site'],
     ['星链有多少颗卫星', 'starlink_map'],

@@ -150,6 +150,16 @@ function fetchMerchantMe() {
   return callIdempotent('/watch-party/merchant/me', 'GET').then(_syncMerchantGateBypass)
 }
 
+/** 商家自助更新入驻资料（名称/联系人/联系电话/地址）；改名云端同步名下场次 */
+function merchantUpdateProfile(body) {
+  return callOnce('/watch-party/merchant/profile', 'PUT', body)
+}
+
+/** 商家头像：端上先传云存储再存 fileID；传空串 = 移除头像 */
+function merchantUpdateAvatar(avatar) {
+  return callOnce('/watch-party/merchant/avatar', 'POST', { avatar: avatar || '' })
+}
+
 /** 商家自建场次：短码与大屏抽卡码由云端自动生成 */
 function merchantCreateSession(body) {
   return callOnce('/watch-party/merchant/sessions', 'POST', body)
@@ -157,6 +167,21 @@ function merchantCreateSession(body) {
 
 function merchantUpdateSession(sessionId, body) {
   return callOnce('/watch-party/merchant/sessions/' + encodeURIComponent(sessionId), 'PUT', body)
+}
+
+/** 任务显示名（商家自定义中文名）：查当前值与是否有命名权 */
+function fetchMerchantMissionName(missionId) {
+  return callIdempotent('/watch-party/merchant/mission-name', 'GET', {
+    missionId: String(missionId || '').trim()
+  })
+}
+
+/** 设置任务显示名（仅该任务下最早入驻的商家可改；空值 = 清除） */
+function merchantSetMissionName(missionId, displayName) {
+  return callOnce('/watch-party/merchant/mission-name', 'POST', {
+    missionId: String(missionId || '').trim(),
+    displayName: String(displayName || '').trim()
+  })
 }
 
 function merchantDeleteSession(sessionId) {
@@ -231,8 +256,12 @@ module.exports = {
   merchantBind,
   merchantUnbind,
   fetchMerchantMe,
+  merchantUpdateProfile,
+  merchantUpdateAvatar,
   merchantCreateSession,
   merchantUpdateSession,
+  fetchMerchantMissionName,
+  merchantSetMissionName,
   merchantUnlockSessionSuccess,
   merchantStartNextCycle,
   merchantDeleteSession,

@@ -1,5 +1,6 @@
 // pages/index/index.js
 const themeUtil = require('../../utils/theme.js')
+const rocketArtUtil = require('../../utils/rocket-config-art.js')
 const {
   resolveFestivalHatId,
   isFestivalHatDevMode,
@@ -664,6 +665,8 @@ Page({
     this._countdownPageHidden = false
     // 主题兜底同步：在其他 Tab 切了主题后回到本 Tab（getCurrentPages 只含当前栈，切主题时刷不到本页）
     themeUtil.applyThemeToPage(this)
+    // 火箭配置图艺术风格：在「我的」切换后回到首页补刷列表/倒计时图
+    rocketArtUtil.applyRocketConfigArtIfNeeded(this)
 
     // 节日帽与星问对齐：回前台按当天再解析（开发模式则续轮播预览）
     this._syncFestivalHat()
@@ -1132,6 +1135,11 @@ Page({
       'launchData.image': rocketImageSrc,
       'launchData.rocketImage': rocketImageSrc
     })
+  },
+
+  /** 「我的」切换火箭配置图艺术风格后重算列表/倒计时图 */
+  refreshRocketConfigArt() {
+    return this._refreshRocketImagesFromMediaMap({ artStyleSwitch: true })
   },
 
   /** 批量刷新列表后（如下拉），用当前列表里同 id 任务的图覆盖倒计时（列表已走完 resolve/onImageError） */

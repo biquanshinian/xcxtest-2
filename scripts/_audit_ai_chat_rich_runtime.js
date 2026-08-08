@@ -149,6 +149,8 @@ async function main() {
   const rich = require(path.join(root, 'subpackages/shared/utils/ai-chat-rich.js'))
   const { ROUTES } = require(path.join(root, 'utils/routes.js'))
   const pages = collectAppPages()
+  // 发射列表只出「未来 60 天窗」内任务：fixture 日期写死会随时间过期变红，一律动态生成
+  const futureIso = (days) => new Date(Date.now() + days * 24 * 3600 * 1000).toISOString()
 
   // ── 1. 导出一致性 ──
   const coreExports = [
@@ -190,7 +192,7 @@ async function main() {
     'resolveBoosterCard', 'resolveMySubscriptionsCard', 'resolveLaunchVoteEntryCard',
     'resolveYearReviewEntryCard', 'resolveAstroCalendarEntryCard', 'resolveNewsEntryCard',
     'resolveApodCard', 'buildSpecCard',
-    'resolveStarlinkPassEntryCard', 'resolveStarlinkMapEntryCard', 'resolveViewingSpotCards',
+    'resolveStarlinkPassEntryCard', 'resolveStarlinkMapEntryCard', 'resolveWatchPartyEntryCard',
     'resolveArtemisEntryCard',
     'resolveStarshipHardwareCard', 'resolveRecoveryStatsCard'
   ]
@@ -339,7 +341,7 @@ async function main() {
       id: 'm10',
       name: 'Starship Flight 10',
       rocketName: 'Starship',
-      launchTime: '2026-08-01T12:00:00Z'
+      launchTime: futureIso(3)
     }
   })
   ok(demo.card && demo.card.cardType === 'entry', 'demo cardType=entry')
@@ -382,7 +384,7 @@ async function main() {
     id: 'ss-10',
     name: 'Starship Flight 10',
     rocketName: 'Starship',
-    launchTime: '2026-08-01T12:00:00Z',
+    launchTime: futureIso(3),
     statusBadgeText: 'Go',
     statusCategory: 'go',
     padLocation: 'Starbase',
@@ -394,7 +396,7 @@ async function main() {
       id: 'f9-1',
       name: 'Starlink Group 1',
       rocketName: 'Falcon 9',
-      launchTime: '2026-08-02T00:00:00Z',
+      launchTime: futureIso(5),
       statusBadgeText: 'TBD',
       padLocation: 'CCSFS'
     }
@@ -537,7 +539,7 @@ async function main() {
             id: 'zq3',
             name: 'Zhuque-3 | Demo Flight',
             rocketName: 'Zhuque-3',
-            launchTime: '2026-09-01T00:00:00Z',
+            launchTime: futureIso(30),
             statusBadgeText: 'TBD',
             padLocation: 'Jiuquan'
           }
@@ -963,7 +965,8 @@ async function main() {
   })
   const lc = listPayload.cards[0]
   ok(lc && Array.isArray(lc.items) && lc.items.length >= 2, 'launch_list items≥2')
-  ok(lc.items.every((it) => it.id && it.name && it.detailUrl), 'launch_list 行字段完备')
+  ok(!!lc && Array.isArray(lc.items) && lc.items.every((it) => it.id && it.name && it.detailUrl),
+    'launch_list 行字段完备')
 
   const stPayload = await rich.resolveRichChatPayload('星舰最新进展如何？', {
     cachedStatus: fixtureStatus
