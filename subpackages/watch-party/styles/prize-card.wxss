@@ -1,6 +1,6 @@
 /* 现场奖品卡（抽卡结果 / 卡册详情共用）
  * 票券式领奖凭证：品牌栏 + 奖品大图 + 价值行 + 撕裂线 + 凭证存根。
- * 深色实体卡质感，双主题一致，颜色一律字面值不翻转。
+ * 默认深色实体卡；宿主根节点挂 theme-light 时走文末浅色反色（票券纸质感）。
  * 分档由 utils/prize-card.js 按奖品价值解析：N 纪念 / R 甄选 / SR 珍稀 / SSR 压轴。
  */
 
@@ -306,4 +306,112 @@
   color: #FDE68A;
   text-align: center;
   letter-spacing: 1rpx;
+}
+
+/* ============================================================
+ * 明亮主题：浅色票券纸质感（深色字 / 浅底 / 撕裂孔对齐浅色遮罩）
+ * ============================================================ */
+
+.theme-light .pcard {
+  background:
+    radial-gradient(120% 90% at 85% -10%, rgba(99, 102, 241, 0.1), transparent 55%),
+    linear-gradient(170deg, #ffffff, #f3f4f6);
+  border-color: rgba(28, 28, 30, 0.12);
+}
+
+.theme-light .pcard--N { border-color: rgba(107, 114, 128, 0.45); }
+
+.theme-light .pcard--R {
+  border-color: rgba(37, 99, 235, 0.55);
+  box-shadow: 0 0 36rpx rgba(37, 99, 235, 0.16);
+}
+
+.theme-light .pcard--SR {
+  border-color: rgba(124, 58, 237, 0.55);
+  box-shadow: 0 0 48rpx rgba(124, 58, 237, 0.18);
+}
+
+.theme-light .pcard--SSR {
+  border-color: rgba(180, 83, 9, 0.55);
+  box-shadow: 0 0 56rpx rgba(245, 158, 11, 0.22);
+}
+
+.theme-light .pcard-shine {
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+}
+
+.theme-light .pcard-brand-mark {
+  background: linear-gradient(150deg, #e0e7ff, #ffffff);
+  border-color: rgba(99, 102, 241, 0.4);
+  color: #4338CA;
+}
+
+.theme-light .pcard-brand-name { color: #1C1C1E; }
+.theme-light .pcard-brand-en { color: rgba(28, 28, 30, 0.4); }
+
+.theme-light .pcard-tier--N {
+  color: #4B5563;
+  background: rgba(156, 163, 175, 0.18);
+  border-color: rgba(107, 114, 128, 0.35);
+}
+
+.theme-light .pcard-tier--R {
+  color: #1D4ED8;
+  background: rgba(37, 99, 235, 0.1);
+  border-color: rgba(37, 99, 235, 0.4);
+}
+
+.theme-light .pcard-tier--SR {
+  color: #6D28D9;
+  background: rgba(124, 58, 237, 0.1);
+  border-color: rgba(124, 58, 237, 0.4);
+}
+
+.theme-light .pcard-tier--SSR {
+  color: #B45309;
+  background: linear-gradient(120deg, rgba(251, 191, 36, 0.22), rgba(249, 115, 22, 0.1));
+  border-color: rgba(180, 83, 9, 0.45);
+}
+
+.theme-light .pcard-media {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(28, 28, 30, 0.08);
+}
+
+.theme-light .pcard-image--empty { color: rgba(67, 56, 202, 0.55); }
+
+.theme-light .pcard-media-en {
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.55);
+}
+
+.theme-light .pcard-serial-chip {
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(28, 28, 30, 0.12);
+  color: #1C1C1E;
+}
+
+.theme-light .pcard-name { color: #1C1C1E; }
+
+.theme-light .pcard-value-sym,
+.theme-light .pcard-value-num { color: #B45309; }
+
+.theme-light .pcard-value-note { color: rgba(28, 28, 30, 0.45); }
+.theme-light .pcard-desc { color: rgba(28, 28, 30, 0.55); }
+
+.theme-light .pcard-tear-line { border-top-color: rgba(28, 28, 30, 0.16); }
+
+/* 撕裂孔对齐浅色遮罩底色（album / gacha overlay） */
+.theme-light .pcard-tear-notch {
+  background: #E8EAED;
+  border-color: rgba(28, 28, 30, 0.12);
+}
+
+.theme-light .pcard-stub-label { color: rgba(28, 28, 30, 0.4); }
+.theme-light .pcard-stub-value { color: rgba(28, 28, 30, 0.78); }
+
+.theme-light .pcard-redeem {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(180, 83, 9, 0.4);
+  color: #B45309;
 }

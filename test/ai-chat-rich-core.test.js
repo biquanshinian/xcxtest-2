@@ -69,7 +69,10 @@ const {
   enrichLaunchContextWithAgency,
   enrichLaunchContextWithMissionReplay,
   enrichLaunchContextWithWatchParty,
-  enrichLaunchContextWatchPartyClosed
+  enrichLaunchContextWatchPartyClosed,
+  matchMerchantJoinIntent,
+  enrichLaunchContextWithMerchantJoin,
+  enrichLaunchContextMerchantJoinFeatureOff
 } = require('../subpackages/shared/utils/ai-chat-rich-core.js')
 
 function testIntentNext() {
@@ -696,6 +699,55 @@ function testViewingSpots() {
   assert.ok(/暂未开放|已结束/.test(closed.focusHint))
 }
 
+function testIntentMerchantJoin() {
+  // 商家侧问入驻 → merchant_join（出入驻邀请抽卡）
+  ;[
+    '商家入驻',
+    '商家入驻怎么弄',
+    '我想入驻商家',
+    '观礼商家怎么入驻',
+    '怎么成为观礼合作商家',
+    '民宿可以入驻吗',
+    '怎么加盟观礼点',
+    '商户合作怎么申请',
+    '如何入驻',
+    '入驻流程是什么',
+    '入驻',
+    '能入驻吗'
+  ].forEach((q) => {
+    assert.strictEqual(resolveAiChatRichIntent(q), 'merchant_join', q)
+    assert.strictEqual(matchMerchantJoinIntent(q), true, q)
+  })
+
+  // 顾客侧观礼问法不许被抢走
+  ;[
+    ['去哪看火箭发射', 'viewing_spot'],
+    ['现场观礼怎么参加', 'viewing_spot'],
+    ['怎么预约火箭观礼', 'viewing_spot'],
+    ['观礼抽卡', 'viewing_spot']
+  ].forEach(([q, expect]) => {
+    assert.strictEqual(resolveAiChatRichIntent(q), expect, q + ' → ' + expect)
+  })
+
+  // 航天语义的「进驻/入驻」不误伤
+  assert.strictEqual(matchMerchantJoinIntent('宇航员什么时候进驻空间站'), false, '进驻空间站')
+  assert.strictEqual(matchMerchantJoinIntent('神舟乘组入驻天宫了吗'), false, '入驻天宫')
+  assert.strictEqual(matchMerchantJoinIntent('星链入驻美国市场了吗'), false, '入驻市场（非问句形态）')
+
+  // launchContext：出卡走本地固定文案；开关关闭时不引导入口
+  const on = enrichLaunchContextWithMerchantJoin({})
+  assert.strictEqual(on.uiCardReady, true)
+  assert.ok(on.focusHint.indexOf('商家入驻邀请') >= 0)
+  assert.ok(on.suggestedReply && on.suggestedReply.indexOf('抽卡') >= 0, '固定文案含抽卡引导')
+  assert.ok(/不要编造/.test(on.focusHint))
+
+  const off = enrichLaunchContextMerchantJoinFeatureOff({ suggestedReply: '旧文案' })
+  assert.strictEqual(off.uiCardReady, false)
+  assert.strictEqual(off.suggestedReply, undefined, '开关关闭必须清掉固定文案')
+  assert.ok(/暂未开放/.test(off.focusHint))
+  assert.ok(/不要引导/.test(off.focusHint))
+}
+
 function main() {
   const tests = [
     testIntentNext,
@@ -722,6 +774,7 @@ function main() {
     testSpecPickers,
     testSpecEnrich,
     testViewingSpots,
+    testIntentMerchantJoin,
     testEnrich
   ]
   let failed = 0

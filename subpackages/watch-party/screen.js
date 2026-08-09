@@ -18,6 +18,7 @@ const { openRocketModelDetail } = require('../../utils/booster-nav.js')
 const { getCompletedMissions, getUpcomingMissions } = require('../../utils/api-launch-list.js')
 const { isFeatureEnabled } = require('../../utils/feature-flags.js')
 const { guardWatchPartyPage } = require('../../utils/watch-party-feature.js')
+const themeUtil = require('../../utils/theme.js')
 
 const PHASE_LABELS = {
   checkin: '签到入场 · 扫码抽奖',
@@ -98,8 +99,6 @@ function buildSciCards(points, images) {
 }
 
 Page({
-  // 现场大屏为投屏场景：恒定深色，不接入全局 themeClass（见 utils/theme.js）
-  forceDarkTheme: true,
   data: {
     loading: true,
     error: '',
@@ -131,6 +130,9 @@ Page({
     clock: '',
     qrUrl: '',
     landscapeMode: false,
+    themeClass: '',
+    themeLight: false,
+    pageBgColor: '#05070f',
     /** 内容区从微信胶囊下沿起算（px） */
     contentPadTop: 48,
     exitTop: 8,
@@ -150,6 +152,7 @@ Page({
     this._voteTimer = null
     this._sessionTimer = null
     this._tickTimer = null
+    this._syncTheme()
     this._syncCapsuleLayout()
     this._syncOrientationFlag()
     guardWatchPartyPage(this).then((ok) => {
@@ -160,6 +163,7 @@ Page({
 
   onShow() {
     try { wx.setKeepScreenOn({ keepScreenOn: true, fail: () => {} }) } catch (e) {}
+    this._syncTheme()
     this._syncCapsuleLayout()
     this._syncOrientationFlag()
     // 默认竖屏；需要投屏横屏时点右上角「横屏」手动切换
@@ -849,6 +853,19 @@ Page({
     } else {
       wx.redirectTo({ url: '/subpackages/watch-party/watch-party' })
     }
+  },
+
+  /** 同步全局主题到本页（投屏页可明暗切换，便于日间观礼） */
+  _syncTheme() {
+    themeUtil.applyThemeToPage(this)
+    themeUtil.syncWindowBackground()
+  },
+
+  /** 右上角：深色 / 浅色一键切换（写回全局主题） */
+  onToggleTheme() {
+    try { wx.vibrateShort({ type: 'light', fail: () => {} }) } catch (e) {}
+    const next = themeUtil.isLightSync() ? themeUtil.THEME_DARK : themeUtil.THEME_LIGHT
+    themeUtil.setThemeMode(next)
   },
 
   /** 右上角：横屏 / 竖屏一键切换 */

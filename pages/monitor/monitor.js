@@ -106,7 +106,7 @@ const GALLERIES_METHODS = [
   'onRetrySpacecraftLoad', 'onSpacecraftImageError', 'onSpacecraftCardTap',
   'loadLaunchSiteGallery', 'onViewAllLaunchSites',
   'onRetryLaunchSiteLoad', 'onLaunchSiteImageError', 'onLaunchSiteCardTap',
-  'loadAgencies', 'onAgencyImageError', 'onViewAllAgencies', 'onAgencyTap',
+  'loadAgencies', 'onAgencyImageLoad', 'onAgencyImageError', 'onViewAllAgencies', 'onAgencyTap',
   'tryOpenPendingAgencyDetail', 'retryLoadAgencies'
 ]
 function delegateGalleries(name) {

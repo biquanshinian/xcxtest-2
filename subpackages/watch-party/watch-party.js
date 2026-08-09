@@ -69,6 +69,16 @@ Page({
     navTitle: '火箭观礼',
     rocketImage: '',
     launchTimeText: '',
+    /** 联系商家入口（电话/微信好友二维码至少其一时展示，文案按组合派生） */
+    hasContact: false,
+    contactHint: '',
+    contactBtnText: '',
+    contactClosedBtnText: '',
+    /** 微信联系弹层：展示添加好友二维码，顾客长按识别 */
+    contactQrVisible: false,
+    contactQrUrl: '',
+    /** 合作申请：可选微信好友二维码 fileID */
+    coopQrUploading: false,
     countdown: null,
     countdownDone: false,
     /** 朋友圈单页模式：仅浏览引导，云能力不可用 */
@@ -86,7 +96,7 @@ Page({
     coopOpen: false,
     coopDone: false,
     coopSubmitting: false,
-    coopForm: { name: '', contactName: '', phone: '', location: '', note: '' },
+    coopForm: { name: '', contactName: '', phone: '', wechatQr: '', location: '', note: '' },
     /** 现场视频：默认只显示封面，点击才挂 src 播放（省流量；商家压缩短视频，免门控） */
     siteVideoPlaying: false
   },
@@ -222,7 +232,8 @@ Page({
         reserveClosed: closeAt > 0 && Date.now() >= closeAt,
         reserveCloseText: this._formatCloseTime(closeAt),
         merchantOtherSessions: this._mapOtherSessions(session.merchantOtherSessions),
-        siteVideoPlaying: false
+        siteVideoPlaying: false,
+        ...this._buildContactUi(session)
       })
       this._startCountdown()
       this._loadMyReservation()
@@ -233,6 +244,37 @@ Page({
       }
       this._safeSetData({ loading: false, error: (err && err.message) || '加载失败，请重试' })
     })
+  },
+
+  /** 「联系商家」入口文案：按电话/微信好友二维码有无组合（hasContact 供 wxml 控显隐） */
+  _buildContactUi(session) {
+    const phone = session && session.contactPhone ? String(session.contactPhone).trim() : ''
+    const qr = session && session.contactWechatQr ? String(session.contactWechatQr).trim() : ''
+    if (phone && qr) {
+      return {
+        hasContact: true,
+        contactHint: phone + ' · 支持微信扫码 / 电话咨询',
+        contactBtnText: '联系',
+        contactClosedBtnText: '联系商家协调（电话 / 微信）'
+      }
+    }
+    if (qr) {
+      return {
+        hasContact: true,
+        contactHint: '微信扫码添加 · 观礼咨询 / 到场协调',
+        contactBtnText: '加微信',
+        contactClosedBtnText: '扫码添加商家微信'
+      }
+    }
+    if (phone) {
+      return {
+        hasContact: true,
+        contactHint: phone + ' · 观礼咨询 / 到场协调',
+        contactBtnText: '拨打',
+        contactClosedBtnText: '拨打商家电话 ' + phone
+      }
+    }
+    return { hasContact: false, contactHint: '', contactBtnText: '', contactClosedBtnText: '' }
   },
 
   _formatLaunchTime(iso) {
@@ -521,13 +563,50 @@ Page({
     })
   },
 
-  /** 一键拨打商家电话（预约卡 / 位置导航卡共用） */
+  /**
+   * 联系商家（预约卡 / 位置导航卡 / 预约截止卡共用）：
+   * 电话、微信好友二维码都有时弹窗二选一；只有其一则直达对应方式。
+   * 微信联系 = 弹层展示二维码，顾客长按识别添加（小程序无法直接跳转加好友页）。
+   */
   onContactMerchant() {
-    const s = this.data.session
-    const phone = s && s.contactPhone ? String(s.contactPhone).trim() : ''
-    if (!phone) return
-    wx.makePhoneCall({ phoneNumber: phone, fail: () => {} })
+    const s = this.data.session || {}
+    const phone = s.contactPhone ? String(s.contactPhone).trim() : ''
+    const qr = s.contactWechatQr ? String(s.contactWechatQr).trim() : ''
+    if (phone && qr) {
+      wx.showActionSheet({
+        itemList: ['微信联系（扫码添加）', '电话联系 ' + phone],
+        success: (r) => {
+          if (this._unloaded) return
+          if (r.tapIndex === 0) this._showContactWechatQr(qr)
+          else if (r.tapIndex === 1) wx.makePhoneCall({ phoneNumber: phone, fail: () => {} })
+        },
+        fail: () => {}
+      })
+      return
+    }
+    if (qr) {
+      this._showContactWechatQr(qr)
+      return
+    }
+    if (phone) wx.makePhoneCall({ phoneNumber: phone, fail: () => {} })
   },
+
+  _showContactWechatQr(url) {
+    if (!url) return
+    this.setData({ contactQrVisible: true, contactQrUrl: url })
+  },
+
+  onCloseContactQr() {
+    this.setData({ contactQrVisible: false, contactQrUrl: '' })
+  },
+
+  onPreviewContactQr() {
+    const url = this.data.contactQrUrl
+    if (!url) return
+    wx.previewImage({ urls: [url], current: url, fail: () => {} })
+  },
+
+  noop() {},
 
   /** 把发射窗口写入手机日历（提前 2 小时提醒，方便赶往观礼点） */
   onAddCalendar() {
@@ -616,6 +695,62 @@ Page({
     this.setData({ coopOpen: !this.data.coopOpen })
   },
 
+  /** 合作申请：上传微信「添加朋友」二维码（选填，云存储 fileID） */
+  onUploadCoopWechatQr() {
+    if (this.data.coopQrUploading) return
+    if (typeof wx.chooseMedia !== 'function') {
+      wx.showToast({ title: '当前微信版本不支持选图', icon: 'none' })
+      return
+    }
+    wx.chooseMedia({
+      count: 1,
+      mediaType: ['image'],
+      sourceType: ['album', 'camera'],
+      sizeType: ['compressed'],
+      success: (res) => {
+        if (this._unloaded) return
+        const f = res && res.tempFiles && res.tempFiles[0]
+        if (!f || !f.tempFilePath) return
+        if (!wx.cloud || typeof wx.cloud.uploadFile !== 'function') {
+          wx.showToast({ title: '云能力不可用', icon: 'none' })
+          return
+        }
+        this._safeSetData({ coopQrUploading: true })
+        wx.showLoading({ title: '上传中…', mask: true })
+        const extMatch = /\.(\w+)$/.exec(f.tempFilePath || '')
+        const ext = (extMatch && extMatch[1].toLowerCase()) || 'jpg'
+        wx.cloud.uploadFile({
+          cloudPath: `watch_party/contact_wechat_qr/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`,
+          filePath: f.tempFilePath,
+          success: (up) => {
+            try { wx.hideLoading() } catch (e) {}
+            if (this._unloaded) return
+            const fileID = (up && up.fileID) || ''
+            this._safeSetData({ coopQrUploading: false, 'coopForm.wechatQr': fileID })
+            if (!fileID) wx.showToast({ title: '上传失败，请重试', icon: 'none' })
+            else wx.showToast({ title: '二维码已上传', icon: 'success' })
+          },
+          fail: () => {
+            try { wx.hideLoading() } catch (e) {}
+            if (this._unloaded) return
+            this._safeSetData({ coopQrUploading: false })
+            wx.showToast({ title: '上传失败，请重试', icon: 'none' })
+          }
+        })
+      },
+      fail: (err) => {
+        if (this._unloaded) return
+        const msg = (err && err.errMsg) || ''
+        if (/cancel/i.test(msg)) return
+        wx.showToast({ title: '选图失败，请重试', icon: 'none' })
+      }
+    })
+  },
+
+  onRemoveCoopWechatQr() {
+    this.setData({ 'coopForm.wechatQr': '' })
+  },
+
   onCoopSubmit() {
     const { coopForm, coopSubmitting, session } = this.data
     if (coopSubmitting) return
@@ -639,6 +774,7 @@ Page({
       name,
       contactName,
       phone,
+      wechatQr: String(coopForm.wechatQr || '').trim(),
       location: String(coopForm.location || '').trim(),
       note: String(coopForm.note || '').trim(),
       sessionId: (session && session.sessionId) || ''

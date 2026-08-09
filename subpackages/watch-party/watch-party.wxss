@@ -461,6 +461,105 @@
   flex-wrap: wrap;
 }
 
+/* ── 联系商家：微信好友二维码弹层 ── */
+.wp-contact-mask {
+  position: fixed;
+  left: 0; right: 0; top: 0; bottom: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48rpx;
+  box-sizing: border-box;
+}
+.wp-contact-sheet {
+  width: 100%;
+  max-width: 560rpx;
+  background: var(--color-bg-card);
+  border-radius: 24rpx;
+  padding: 40rpx 36rpx 32rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16rpx;
+  box-sizing: border-box;
+}
+.wp-contact-title {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+.wp-contact-sub {
+  font-size: 24rpx;
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+.wp-contact-qr {
+  width: 360rpx;
+  height: 360rpx;
+  margin-top: 12rpx;
+  border-radius: 16rpx;
+  background: #fff;
+}
+.wp-contact-hint {
+  font-size: 22rpx;
+  color: var(--color-text-quaternary);
+}
+.wp-contact-close {
+  margin-top: 12rpx;
+  padding: 16rpx 64rpx;
+  border-radius: 40rpx;
+  background: rgba(255, 255, 255, 0.08);
+}
+.wp-contact-close text {
+  font-size: 28rpx;
+  color: var(--color-text-secondary);
+}
+.theme-light .wp-contact-close { background: rgba(0, 0, 0, 0.06); }
+
+/* 合作申请内上传微信好友二维码 */
+.wp-coop-qr {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+.wp-coop-qr-label {
+  font-size: 24rpx;
+  color: var(--color-text-tertiary);
+}
+.wp-coop-qr-row {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+}
+.wp-coop-qr-img {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 12rpx;
+  background: #fff;
+}
+.wp-coop-qr-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+.wp-coop-qr-link {
+  font-size: 26rpx;
+  color: #60A5FA;
+}
+.wp-coop-qr-add {
+  padding: 24rpx;
+  border-radius: 16rpx;
+  border: 1rpx dashed var(--color-divider);
+  text-align: center;
+}
+.wp-coop-qr-add text {
+  font-size: 26rpx;
+  color: var(--color-text-secondary);
+}
+.theme-light .wp-coop-qr-link { color: #2563EB; }
+
 /* ── 现场照片 / 现场视频 ── */
 .wp-media-label {
   display: block;

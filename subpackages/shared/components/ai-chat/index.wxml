@@ -328,13 +328,21 @@
 
                     <image
 
-                      class="ai-agency-logo"
+                      class="ai-agency-logo {{card.logoBgTone === 'dark' ? 'agency-logo-bg--dark' : ''}} {{card.logoBgTone === 'light' ? 'agency-logo-bg--light' : ''}}"
 
                       wx:if="{{card.logoUrl}}"
 
                       src="{{card.logoUrl}}"
 
                       mode="aspectFit"
+
+                      data-msgid="{{item.id}}"
+
+                      data-cardid="{{card.id}}"
+
+                      data-logourl="{{card.logoUrl}}"
+
+                      bindload="onAgencyLogoLoad"
 
                     ></image>
 
@@ -545,6 +553,93 @@
                   <view class="ai-entry-arrow">
 
                     <text>{{card.cta || '进入 ›'}}</text>
+
+                  </view>
+
+                </view>
+
+                <!-- 商家入驻邀请抽卡：卡背点击翻牌，翻开后再点进入入驻申请 -->
+
+                <view class="ai-mgacha" wx:elif="{{card.cardType === 'merchant_gacha'}}">
+
+                  <view
+                    class="ai-mgacha-flip {{card.flipped ? 'ai-mgacha-flip--flipped' : ''}} {{card.drawing ? 'ai-mgacha-flip--shaking' : ''}}"
+                    bindtap="onMerchantGachaTap"
+                    data-msgid="{{item.id}}"
+                    data-id="{{card.id}}"
+                  >
+
+                    <view class="ai-mgacha-face ai-mgacha-face--back">
+
+                      <view class="ai-mgacha-ring ai-mgacha-ring--1"></view>
+
+                      <view class="ai-mgacha-ring ai-mgacha-ring--2"></view>
+
+                      <text class="ai-mgacha-back-logo">✦</text>
+
+                      <text class="ai-mgacha-back-title">{{card.backTitle}}</text>
+
+                      <text class="ai-mgacha-back-en">{{card.backEn}}</text>
+
+                      <view class="ai-mgacha-back-hint">
+
+                        <text>{{card.drawing ? '抽取中…' : card.backHint}}</text>
+
+                      </view>
+
+                    </view>
+
+                    <view class="ai-mgacha-face ai-mgacha-face--front">
+
+                      <view class="ai-mgacha-shine"></view>
+
+                      <view class="ai-mgacha-head">
+
+                        <view class="ai-mgacha-brand">
+
+                          <text class="ai-mgacha-brand-mark">✦</text>
+
+                          <view class="ai-mgacha-brand-col">
+
+                            <text class="ai-mgacha-brand-name">火箭观礼</text>
+
+                            <text class="ai-mgacha-brand-en">ROCKET WATCH PARTY</text>
+
+                          </view>
+
+                        </view>
+
+                        <view class="ai-mgacha-tier">
+
+                          <text>邀请函</text>
+
+                        </view>
+
+                      </view>
+
+                      <text class="ai-mgacha-title">{{card.title}}</text>
+
+                      <view class="ai-mgacha-perks">
+
+                        <view class="ai-mgacha-perk" wx:for="{{card.perks}}" wx:for-item="perk" wx:key="*this">
+
+                          <text class="ai-mgacha-perk-dot">✦</text>
+
+                          <text class="ai-mgacha-perk-text">{{perk}}</text>
+
+                        </view>
+
+                      </view>
+
+                      <view class="ai-mgacha-cta">
+
+                        <text>{{card.cta}}</text>
+
+                      </view>
+
+                      <text class="ai-mgacha-foot">{{card.foot}}</text>
+
+                    </view>
 
                   </view>
 

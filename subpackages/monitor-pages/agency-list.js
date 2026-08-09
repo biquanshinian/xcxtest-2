@@ -7,6 +7,11 @@ const pageBase = require('../../utils/page-base.js')
 const { AGENCY_FILTERS, getAllAgencies, filterAgencies, toDisplayRow } = require('./utils/agency-data.js')
 const { gateCheck, isProSync } = require('../../utils/membership.js')
 const { ROUTES } = require('../../utils/routes.js')
+const {
+  persistAgencyLogoAfterRemoteLoad,
+  isRemoteAgencyLogoUrl
+} = require('../../utils/agency-logo-cache.js')
+const { ensureAgencyLogoBgTone } = require('../../utils/agency-logo-bg.js')
 
 Page({
   behaviors: [pageBase],
@@ -99,6 +104,24 @@ Page({
     } catch (err) {}
     wx.navigateTo({
       url: `${ROUTES.AGENCY_DETAIL}?id=${encodeURIComponent(id)}`
+    })
+  },
+
+  /** 仅-logo 卡片：落盘后分析透明底色 */
+  onCardImageLoad(e) {
+    const idx = Number(e.currentTarget.dataset.index)
+    const item = this.data.list[idx]
+    if (!item || item.imageMode !== 'aspectFit') return
+    const remote = String(item.logoUrlRaw || item.logoUrl || '').trim()
+    if (!remote || !isRemoteAgencyLogoUrl(remote)) return
+    const self = this
+    persistAgencyLogoAfterRemoteLoad(remote, function (localPath) {
+      if (!localPath) return
+      ensureAgencyLogoBgTone(remote, localPath, function (tone) {
+        if (!tone || !self.data.list[idx]) return
+        if (self.data.list[idx].logoBgTone === tone) return
+        self.setData({ [`list[${idx}].logoBgTone`]: tone })
+      })
     })
   },
 

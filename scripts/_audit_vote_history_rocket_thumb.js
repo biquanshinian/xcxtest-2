@@ -78,12 +78,8 @@ assert('lazy: loadVoteStats await media map', /async loadVoteStats[\s\S]*await l
 assert('lazy: enrich 用 launchId', /var launchId = h\.launchId[\s\S]*byId\[String\(launchId\)\]/.test(lazy))
 assert('lazy: enrich 不用复合 h.id', !/byId\[String\(h\.id\)\]/.test(lazy))
 assert(
-  'lazy: enrich 优先直接复用列表 m.rocketImage',
-  /needImg[\s\S]*!isDefaultRocketSrc\(m\.rocketImage\)\s*&&\s*m\.rocketImage[\s\S]*\?\s*m\.rocketImage/.test(lazy)
-)
-assert(
-  'lazy: enrich 缺省再 resolveHomeRocketImage',
-  /needImg[\s\S]*resolveHomeRocketImage\(m\.rocketImage/.test(lazy)
+  'lazy: enrich 按当前风格重算（不复用旧盖章）',
+  /needImg[\s\S]{0,200}resolveHomeRocketImage\(\s*''\s*,\s*rocket\s*,\s*m\.rocketConfiguration\)/.test(lazy)
 )
 assert('lazy: enrich 拉 upcoming+completed', /getUpcomingMissions\(50[\s\S]*getCompletedMissions\(50/.test(lazy))
 assert('lazy: onVoteHistoryRocketImageError', /async onVoteHistoryRocketImageError\(e\)/.test(lazy))
@@ -99,13 +95,13 @@ assert('lazy: error 单次 setData', (lazy.match(/onVoteHistoryRocketImageError[
 assert('profile: PROFILE_LAZY 含 error', /PROFILE_LAZY_METHODS\s*=\s*\[[\s\S]*'onVoteHistoryRocketImageError'/.test(profile))
 assert('profile: SECTION 含 error', /SECTION_EVENT_METHODS\s*=\s*\[[\s\S]*'onVoteHistoryRocketImageError'/.test(profile))
 assert(
-  'profile: reminders 直接 resolveMissionRocketImage',
-  /rocketImg\s*=\s*resolveMissionRocketImage\(rocketImage\s*\|\|\s*''[\s\S]*true\)/.test(profile)
+  'profile: reminders 按当前风格重算 resolveMissionRocketImageFresh',
+  /rocketImg\s*=\s*resolveMissionRocketImageFresh\(rocket\s*\|\|\s*''\s*,\s*rocketConfiguration\)/.test(profile)
 )
 assert('profile: 无 DEFAULT_ROCKET_IMAGE 旁路 import', !/DEFAULT_ROCKET_IMAGE/.test(profile))
 
 // ---- UI ----
-assert('wxml: aspectFit', /vote-history-rocket-img[\s\S]*?mode="aspectFit"/.test(secWxml))
+assert('wxml: aspectFill 撑满圆形容器（同早报/首页卡片）', /vote-history-rocket-img[\s\S]*?mode="aspectFill"/.test(secWxml))
 assert('wxml: binderror', /binderror="emitOnVoteHistoryRocketImageError"/.test(secWxml))
 assert('wxml: data-index', /data-index="\{\{index\}\}"/.test(secWxml))
 assert('wxml: 无多余 data-id', !/vote-history-rocket-img[\s\S]{0,200}data-id=/.test(secWxml))

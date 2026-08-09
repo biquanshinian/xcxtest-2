@@ -33,7 +33,7 @@
             maxlength="10"
             confirm-type="done"
             bindinput="onCodeInput"
-            bindconfirm="onSubmitCode" cursor-spacing="24" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
+            bindconfirm="onSubmitCode" cursor-spacing="24" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" bindkeyboardheightchange="onInputKeyboardHeightChange" bindblur="onInputBlur" />
           <view class="gc-code-btn" bindtap="onSubmitCode"><text>解锁</text></view>
         </view>
       </view>
@@ -100,6 +100,7 @@
     <view class="page-footer">
       <text class="footer-text">Per Aspera Ad Astra · 循此苦旅以达星辰</text>
     </view>
+    <view class="kb-pad" style="height: {{keyboardHeight}}px;"></view>
   </scroll-view>
 
   <!-- 抽奖结果覆盖层：票券式领奖凭证（分档视觉见 utils/prize-card.js） -->

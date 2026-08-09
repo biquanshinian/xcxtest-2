@@ -84,9 +84,10 @@
               <text class="wpr-time" wx:if="{{item.timeText}}">{{item.timeText}}</text>
             </view>
           </view>
-          <view class="wpr-row-actions">
+          <!-- 操作区独立一行：拨打小按钮在左、高频的核销大按钮在右，水平拉开防误触 -->
+          <view class="wpr-row-actions" wx:if="{{item.phone || item.canCheckIn}}">
             <view
-              class="wpr-act"
+              class="wpr-act wpr-act--call"
               wx:if="{{item.phone}}"
               catchtap="onCall"
               data-phone="{{item.phone}}"
@@ -97,7 +98,7 @@
               catchtap="onCheckIn"
               data-id="{{item.reservationId}}"
               data-name="{{item.name}}"
-            ><text>{{checkingId === item.reservationId ? '…' : '核销'}}</text></view>
+            ><text>{{checkingId === item.reservationId ? '核销中…' : '到场核销'}}</text></view>
           </view>
         </view>
       </view>

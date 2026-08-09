@@ -13,7 +13,12 @@ const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { isVideoUrl, videoSnapshotUrl } = require('../../utils/cos-url.js')
 const { getCachedMediaImage } = require('../../utils/icon-cache.js')
 const { buildLl2ImageChain, advanceImageFallback, proxiedImageUrl } = require('../../utils/ll2-image.js')
-const { resolveAgencyLogoForDisplay } = require('../../utils/agency-logo-cache.js')
+const {
+  resolveAgencyLogoForDisplay,
+  persistAgencyLogoAfterRemoteLoad,
+  isRemoteAgencyLogoUrl
+} = require('../../utils/agency-logo-cache.js')
+const { resolveAgencyLogoBgTone, ensureAgencyLogoBgTone } = require('../../utils/agency-logo-bg.js')
 // 必须走主包薄壳（内部 require.async 拉 shared 分包）：直接同步 require ../shared/**
 // 在分享卡片 / 朋友圈单页直达本页时 shared 分包尚未下载，模块加载即报错导致整页黑屏
 const { resolveEventAuthorAvatarUrl, warmEventShareImage } = require('../../utils/event-share-image.js')
@@ -142,6 +147,7 @@ function formatAgencyDetail(agency) {
     age,
     // SpaceX logo 全局统一（与全球发射统计页同源）
     logoUrl: logoUrlRaw,
+    logoBgTone: logoUrlRaw ? resolveAgencyLogoBgTone(logoUrlRaw) : '',
     imageUrl: heroChain[0] || imageThumbRaw || '',
     imageFallbacks: heroChain.slice(1),
     socialLogoUrl: agency.social_logo ? (agency.social_logo.thumbnail_url || agency.social_logo.image_url) : '',
@@ -370,6 +376,7 @@ Page({
         shareTitle: `${(item && item.name) || '发射商详情'} | 火星探索日志`
       })
       this._syncShareImage(item)
+      this._ensureAgencyLogoBg(item)
       this._markLauncherArchives()
       this._loadSpacexRecoveryStats(item)
       this._initArtemisSection(item)
@@ -936,6 +943,26 @@ Page({
         wx.showToast({ title: '链接已复制', icon: 'none' })
       }
     })
+  },
+
+  /** 详情 logo：落盘后分析透明底色并写回 logoBgTone */
+  _ensureAgencyLogoBg(item) {
+    const remote = item && item.logoUrl ? String(item.logoUrl).trim() : ''
+    if (!remote || !isRemoteAgencyLogoUrl(remote)) return
+    const self = this
+    persistAgencyLogoAfterRemoteLoad(remote, function (localPath) {
+      if (!localPath) return
+      ensureAgencyLogoBgTone(remote, localPath, function (tone) {
+        if (!tone) return
+        const cur = self.data.item
+        if (!cur || cur.logoBgTone === tone) return
+        self.setData({ 'item.logoBgTone': tone })
+      })
+    })
+  },
+
+  onAgencyLogoLoad() {
+    this._ensureAgencyLogoBg(this.data.item)
   },
 
   /**

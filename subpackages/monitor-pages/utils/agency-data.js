@@ -5,6 +5,7 @@
  */
 const { getAgencies } = require('../../../utils/api-monitor-data.js')
 const { resolveAgencyLogoForDisplay } = require('../../../utils/agency-logo-cache.js')
+const { resolveAgencyLogoBgTone } = require('../../../utils/agency-logo-bg.js')
 const { overrideAgencyLogoUrl } = require('../../../utils/agency-logo-overrides.js')
 const { translateAgencyName } = require('../../../utils/space-terms-i18n.js')
 const { buildLl2ImageChain } = require('../../../utils/ll2-image.js')
@@ -161,6 +162,7 @@ function formatAgency(agency) {
   // 卡片图链：代理大图 → 大图 → 代理 logo → logo（与详情头图同源，避免卡空白详有图）
   const imageChain = buildLl2ImageChain(imageUrl, imageUrlRaw, imageUrlFullRaw, logoUrl, logoUrlRaw)
   const displayImage = imageChain[0] || imageUrl || logoUrl
+  const logoBgTone = logoUrlRaw ? resolveAgencyLogoBgTone(logoUrlRaw) : ''
 
   const foundingYear = agency.founding_year || null
   const countryZh = COUNTRY_ZH[countryName] || ''
@@ -189,6 +191,7 @@ function formatAgency(agency) {
     displayImage,
     imageFallbacks: imageChain.slice(1),
     imageMode: (imageUrl || imageUrlRaw) ? 'aspectFill' : 'aspectFit',
+    logoBgTone,
     description,
     featured: !!agency.featured,
     // 总发射次数（云端 detailed 同步提供；旧缓存无此字段时为 null，排序按 0 处理）

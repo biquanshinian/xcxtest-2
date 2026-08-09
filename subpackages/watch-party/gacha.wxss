@@ -1,7 +1,6 @@
 /* 观礼现场奖品抽奖页
  * 中性色走 tokens.wxss 变量（根节点 themeClass 挂 theme-light 时自动翻转）。
- * 抽卡台卡背 / 结果覆盖层保持深色「实体卡」质感，两种主题下一致，不做翻转。
- * 结果卡票券样式与卡册共用：styles/prize-card.wxss。
+ * 抽卡台卡背默认深色；结果票券与卡册共用 styles/prize-card.wxss（含 theme-light 反色）。
  */
 @import "styles/prize-card.wxss";
 
@@ -347,7 +346,7 @@
   color: var(--color-text-tertiary);
 }
 
-/* ── 抽卡结果覆盖层（深色实体卡质感，双主题一致，颜色用字面值不翻转） ── */
+/* ── 抽卡结果覆盖层 ── */
 .gc-overlay {
   position: fixed;
   inset: 0;
@@ -358,6 +357,10 @@
   align-items: center;
   justify-content: center;
   gap: 48rpx;
+}
+
+.theme-light .gc-overlay {
+  background: rgba(232, 234, 237, 0.94);
 }
 
 .gc-flip-wrap {
@@ -579,3 +582,16 @@
   border-color: rgba(37, 99, 235, 0.45);
   color: #2563EB;
 }
+
+.theme-light .gc-face--back {
+  background:
+    radial-gradient(100% 70% at 50% 0%, rgba(99, 102, 241, 0.16), transparent 60%),
+    linear-gradient(160deg, #eef2ff, #f8fafc);
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.theme-light .gc-face-back-ring { border-color: rgba(99, 102, 241, 0.28); }
+.theme-light .gc-face-back-ring--2 { border-color: rgba(99, 102, 241, 0.14); }
+.theme-light .gc-face-back-logo { color: #4338CA; }
+.theme-light .gc-face-back-text { color: rgba(28, 28, 30, 0.72); }
+.theme-light .gc-face-back-en { color: rgba(28, 28, 30, 0.38); }

@@ -160,6 +160,11 @@ function merchantUpdateAvatar(avatar) {
   return callOnce('/watch-party/merchant/avatar', 'POST', { avatar: avatar || '' })
 }
 
+/** 商家奖品库：保存常用奖品模板（整份覆盖），多场次编辑时一键导入 */
+function merchantSavePrizePresets(prizes) {
+  return callOnce('/watch-party/merchant/prize-presets', 'PUT', { prizes: prizes || [] })
+}
+
 /** 商家自建场次：短码与大屏抽卡码由云端自动生成 */
 function merchantCreateSession(body) {
   return callOnce('/watch-party/merchant/sessions', 'POST', body)
@@ -258,6 +263,7 @@ module.exports = {
   fetchMerchantMe,
   merchantUpdateProfile,
   merchantUpdateAvatar,
+  merchantSavePrizePresets,
   merchantCreateSession,
   merchantUpdateSession,
   fetchMerchantMissionName,

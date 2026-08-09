@@ -821,6 +821,12 @@
   border-radius: var(--radius-md);
   margin-bottom: var(--space-md);
 }
+/* 火箭发射观礼入口置顶（不在 .growth-entries 容器内）：自带左右外边距，
+   下边距沿用 .growth-entry 的 space-md，与下方简报卡片间距一致 */
+.growth-entry--standalone {
+  margin-left: var(--space-md);
+  margin-right: var(--space-md);
+}
 .growth-entry-icon {
   font-size: 48rpx;
   margin-right: 20rpx;

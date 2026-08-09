@@ -15,6 +15,9 @@ const { guardWatchPartyPage } = require('../../utils/watch-party-feature.js')
 
 const SCIENCE_IMAGES_MAX = 10
 const PRIZES_MAX = 20
+/** wx:for 动态行的稳定 key：iOS 上无 key 复用会串原生输入组件状态 */
+let rowKeySeq = 0
+const nextRowKey = () => 'rk' + (++rowKeySeq)
 /** 与云端对齐：现场照片 ≤8、微信群码 ≤2 */
 const SITE_PHOTOS_MAX = 8
 const WECHAT_QRS_MAX = 2
@@ -84,6 +87,9 @@ Page({
     editing: false,
     saving: false,
 
+    /** 平台是否已为本商家开通「扫码赠通行证」（后台按商家授权，默认关；未开通时开关可存但不生效） */
+    passGrantAllowed: false,
+
     /** 任务信息：auto = 从即将发射任务选择（默认），manual = 手动填写 */
     missionMode: 'auto',
     missionOptions: [],
@@ -132,12 +138,16 @@ Page({
     prizeDrawEnabled: false,
     prizes: [],
     prizeUploading: false,
+    /** 商家奖品库（常用奖品模板）：配置一次，多场次一键导入 */
+    prizePresetCount: 0,
+    presetSaving: false,
 
     /** 服务套餐多选 + 微信群二维码（最多 2 张）+ 管控区车辆预约小程序短链 */
     serviceRows: buildServiceRows(DEFAULT_SERVICE_OPTIONS, []),
     selectedServices: [],
     wechatGroupQrs: [],
     qrUploading: false,
+    contactQrUploading: false,
     vehicleBookingUrl: '',
 
     /** 现场照片（顾客页展示，≤8）+ 现场视频（1 个，自动压缩 ≤20MB，顾客端免门控） */
@@ -220,7 +230,15 @@ Page({
         return
       }
       this.fillForm(session)
-      this._safeSetData({ loading: false })
+      this._prizePresets = Array.isArray(res.merchant && res.merchant.prizePresets)
+        ? res.merchant.prizePresets
+        : []
+      // 扫码赠通行证为双开关：平台按商家授权 + 场次开关；此处仅影响提示文案
+      this._safeSetData({
+        loading: false,
+        passGrantAllowed: !!(res.merchant && res.merchant.passGrantEnabled),
+        prizePresetCount: this._prizePresets.length
+      })
       this.loadMissions(session)
     }).catch((err) => {
       if (this._unloaded) return
@@ -260,6 +278,7 @@ Page({
           notice: m.notice || '',
           heroBadge: '',
           contactPhone: m.contactPhone || '',
+          contactWechatQr: m.contactWechatQr || '',
           capacity: '',
           status: 'open',
           enabled: true,
@@ -316,6 +335,7 @@ Page({
         notice: session.notice || '',
         heroBadge: session.heroBadge || '',
         contactPhone: session.contactPhone || '',
+        contactWechatQr: session.contactWechatQr || '',
         capacity: session.capacity ? String(session.capacity) : '',
         status: session.status || 'open',
         enabled: session.enabled !== false,
@@ -325,6 +345,7 @@ Page({
       located: !!(session.lat && session.lng),
       parkingSpots: Array.isArray(session.parkingSpots)
         ? session.parkingSpots.map((p) => ({
+          _k: nextRowKey(),
           name: p.name || '',
           lat: p.lat || 0,
           lng: p.lng || 0,
@@ -340,6 +361,7 @@ Page({
       prizeDrawEnabled: session.prizeDrawEnabled === true,
       prizes: Array.isArray(session.prizes)
         ? session.prizes.map((p, i) => ({
+          _k: nextRowKey(),
           id: p.id || '',
           name: p.name || '',
           image: p.image || '',
@@ -543,10 +565,18 @@ Page({
   },
 
   onPassToggle(e) {
+    // 平台未开通时开关 disabled 不会触发 change，此处双保险
+    if (!this.data.passGrantAllowed) return
     const on = !!e.detail.value
     const patch = { 'form.passEnabled': on }
     if (on && !(Number(this.data.form.passHours) > 0)) patch['form.passHours'] = 12
     this.setData(patch)
+  },
+
+  /** 平台未开通时点击灰色开关行：解释为什么不可用 */
+  onPassRowTap() {
+    if (this.data.passGrantAllowed) return
+    wx.showToast({ title: '该功能需平台开通后使用，请联系运营申请', icon: 'none' })
   },
 
   onPassHoursChange(e) {
@@ -562,7 +592,7 @@ Page({
       wx.showToast({ title: '最多添加 10 个停车点', icon: 'none' })
       return
     }
-    list.push({ name: '', lat: 0, lng: 0, walkMinutes: '', note: '' })
+    list.push({ _k: nextRowKey(), name: '', lat: 0, lng: 0, walkMinutes: '', note: '' })
     this.setData({ parkingSpots: list })
   },
 
@@ -1058,6 +1088,104 @@ Page({
     this.setData({ prizeDrawEnabled: !!e.detail.value })
   },
 
+  /** 奖品库预设 → 场次奖品行（id 留空 = 新奖品，保存时生成库存） */
+  _presetToPrizeRow(p, sort) {
+    return {
+      _k: nextRowKey(),
+      id: '',
+      name: String((p && p.name) || ''),
+      image: String((p && p.image) || ''),
+      stock: p && p.stock != null ? String(p.stock) : '1',
+      remaining: Math.max(1, Number(p && p.stock) || 1),
+      valueYuan: p && p.valueYuan != null && p.valueYuan !== '' ? String(p.valueYuan) : '',
+      sort
+    }
+  },
+
+  /** 一键导入奖品库：现有奖品非空时询问「追加 / 替换」 */
+  onImportPrizePresets() {
+    const presets = this._prizePresets || []
+    if (!presets.length) {
+      wx.showToast({ title: '奖品库为空，请先把当前奖品「存入奖品库」', icon: 'none' })
+      return
+    }
+    const current = (this.data.prizes || [])
+    const hasContent = current.some((p) => String((p && p.name) || '').trim() || (p && p.image))
+    if (!hasContent) {
+      this._applyPrizePresets('replace')
+      return
+    }
+    wx.showActionSheet({
+      itemList: ['追加到现有奖品后面', '替换现有奖品'],
+      success: (res) => {
+        if (this._unloaded) return
+        this._applyPrizePresets(res.tapIndex === 0 ? 'append' : 'replace')
+      },
+      fail: () => {}
+    })
+  },
+
+  _applyPrizePresets(mode) {
+    const presets = this._prizePresets || []
+    const base = mode === 'append' ? (this.data.prizes || []).slice() : []
+    const room = PRIZES_MAX - base.length
+    if (room <= 0) {
+      wx.showToast({ title: `奖品已达上限 ${PRIZES_MAX} 件，请先删减`, icon: 'none' })
+      return
+    }
+    const imported = presets.slice(0, room).map((p, i) => this._presetToPrizeRow(p, base.length + i))
+    const list = base.concat(imported)
+    list.forEach((p, i) => { p.sort = i })
+    this.setData({ prizes: list })
+    const truncated = presets.length - imported.length
+    wx.showToast({
+      title: truncated > 0
+        ? `已导入 ${imported.length} 件（超出上限，${truncated} 件未导入）`
+        : `已导入 ${imported.length} 件奖品`,
+      icon: 'none'
+    })
+  },
+
+  /** 把当前奖品（名称+照片齐全的）存为商家奖品库，供其他场次一键导入 */
+  onSavePrizePresets() {
+    if (this.data.presetSaving) return
+    const valid = (this.data.prizes || [])
+      .map((p) => ({
+        name: String((p && p.name) || '').trim(),
+        image: String((p && p.image) || '').trim(),
+        stock: Math.min(9999, Math.max(1, Number(p && p.stock) || 1)),
+        valueYuan: (p && p.valueYuan !== '' && p.valueYuan != null) ? Number(p.valueYuan) : null
+      }))
+      .filter((p) => p.name && p.image)
+    if (!valid.length) {
+      wx.showToast({ title: '请先给奖品补全名称和照片', icon: 'none' })
+      return
+    }
+    const hadPresets = (this._prizePresets || []).length > 0
+    wx.showModal({
+      title: '存入奖品库',
+      content: hadPresets
+        ? `将用当前 ${valid.length} 件奖品覆盖原奖品库，新建其他场次时可一键导入。`
+        : `将当前 ${valid.length} 件奖品存入奖品库，新建其他场次时可一键导入。`,
+      confirmText: '存入',
+      cancelText: '再想想',
+      success: (res) => {
+        if (!res.confirm || this._unloaded) return
+        this.setData({ presetSaving: true })
+        watchParty.merchantSavePrizePresets(valid).then((r) => {
+          if (this._unloaded) return
+          this._prizePresets = Array.isArray(r && r.prizePresets) ? r.prizePresets : valid
+          this.setData({ presetSaving: false, prizePresetCount: this._prizePresets.length })
+          wx.showToast({ title: `已存入奖品库（${this._prizePresets.length} 件）`, icon: 'success' })
+        }).catch((err) => {
+          if (this._unloaded) return
+          this.setData({ presetSaving: false })
+          wx.showToast({ title: (err && err.message) || '存入失败，请重试', icon: 'none' })
+        })
+      }
+    })
+  },
+
   onAddPrize() {
     const list = (this.data.prizes || []).slice()
     if (list.length >= PRIZES_MAX) {
@@ -1065,6 +1193,7 @@ Page({
       return
     }
     list.push({
+      _k: nextRowKey(),
       id: '',
       name: '',
       image: '',
@@ -1185,6 +1314,59 @@ Page({
     })
   },
 
+  onUploadContactWechatQr() {
+    if (this.data.contactQrUploading) return
+    if (typeof wx.chooseMedia !== 'function') {
+      wx.showToast({ title: '当前微信版本不支持选图', icon: 'none' })
+      return
+    }
+    wx.chooseMedia({
+      count: 1,
+      mediaType: ['image'],
+      sourceType: ['album', 'camera'],
+      sizeType: ['compressed'],
+      success: (res) => {
+        if (this._unloaded) return
+        const f = res && res.tempFiles && res.tempFiles[0]
+        if (!f || !f.tempFilePath) return
+        this._safeSetData({ contactQrUploading: true })
+        wx.showLoading({ title: '上传中…', mask: true })
+        this._uploadOneTo('contact_wechat_qr', f.tempFilePath).then((fileID) => {
+          try { wx.hideLoading() } catch (e) {}
+          if (this._unloaded) return
+          this._safeSetData({ contactQrUploading: false })
+          if (!fileID) {
+            wx.showToast({ title: '上传失败，请重试', icon: 'none' })
+            return
+          }
+          this.setData({ 'form.contactWechatQr': fileID })
+          wx.showToast({ title: '二维码已上传', icon: 'success' })
+        })
+      },
+      fail: (err) => {
+        if (this._unloaded) return
+        const msg = (err && err.errMsg) || ''
+        if (/cancel/i.test(msg)) return
+        wx.showToast({ title: '选图失败，请重试', icon: 'none' })
+      }
+    })
+  },
+
+  onPreviewContactWechatQr() {
+    const url = this.data.form && this.data.form.contactWechatQr
+    if (!url) return
+    wx.previewImage({ urls: [url], current: url, fail: () => {} })
+  },
+
+  onRemoveContactWechatQr() {
+    this._confirmRemove({
+      title: '移除微信好友码吗',
+      content: '移除后，顾客页将不再展示微信联系入口（保存后生效）。之后随时可以再传。'
+    }, () => {
+      this.setData({ 'form.contactWechatQr': '' })
+    })
+  },
+
   onUploadWechatQr() {
     if (this.data.qrUploading) return
     const remain = WECHAT_QRS_MAX - (this.data.wechatGroupQrs || []).length
@@ -1300,7 +1482,6 @@ Page({
       wx.showToast({ title: '车辆预约请填小程序短链（#小程序://…）', icon: 'none' })
       return
     }
-
     const body = {
       title,
       missionId: form.missionId,
@@ -1321,6 +1502,7 @@ Page({
       notice: form.notice,
       heroBadge: String(form.heroBadge || '').trim(),
       contactPhone: String(form.contactPhone || '').trim(),
+      contactWechatQr: String(form.contactWechatQr || '').trim(),
       services,
       wechatGroupQrs,
       wechatGroupQr: wechatGroupQrs[0] || '',
@@ -1335,7 +1517,8 @@ Page({
       capacity: Math.max(0, Number(form.capacity) || 0),
       status: form.status,
       enabled: form.enabled,
-      passEnabled: form.passEnabled === true,
+      // 平台未开通时不写入开启状态（与置灰的开关显示一致）
+      passEnabled: this.data.passGrantAllowed === true && form.passEnabled === true,
       passHours: Math.min(48, Math.max(1, Number(form.passHours) || 12)),
       parkingSpots: (this.data.parkingSpots || [])
         .map((p) => ({

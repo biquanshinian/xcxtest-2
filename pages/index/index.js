@@ -127,6 +127,7 @@ const { getMemberPolicy, getMemberPolicySync } = require('../../utils/member-pol
 const { fetchMainConfig } = require('../../utils/feature-flags.js')
 const { warmUserPreferencesSync, warmBriefingPopupShownSync } = require('../../utils/user-growth.js')
 const { persistAgencyLogoAfterRemoteLoad, isRemoteAgencyLogoUrl } = require('../../utils/agency-logo-cache.js')
+const { ensureAgencyLogoBgTone } = require('../../utils/agency-logo-bg.js')
 const { enrichMissionsLaunchAgencyImages } = require('../../utils/upcoming-agency-logo-enrich.js')
 const { buildUpcomingAgencyFilterState, getAgencyKeyFromMission } = require('../../utils/upcoming-agency-filter.js')
 
@@ -347,6 +348,7 @@ const SPLASH_METHODS = [
   'onSplashVideoEnded',
   'onSplashSkipTap',
   'onSplashMissionTap',
+  'onSplashAgencyLogoLoad',
   'closeSplash'
 ]
 function delegateSplash(name) {
@@ -1749,7 +1751,7 @@ Page({
     this.setData(patch, () => this.scheduleUpcomingAgencyChipsOverflowHint())
   },
 
-  /** 发射商远程 Logo 渲染成功后下载到 USER_DATA_PATH 并替换为本地路径 */
+  /** 发射商远程 Logo 渲染成功后下载到 USER_DATA_PATH 并替换为本地路径；透明图分析底色 */
   onAgencyChipLogoLoad(e) {
     const remoteUrl = (e.currentTarget.dataset.logoRemote || '').trim()
     if (!isRemoteAgencyLogoUrl(remoteUrl)) return
@@ -1757,6 +1759,9 @@ Page({
     persistAgencyLogoAfterRemoteLoad(remoteUrl, function (localPath) {
       if (!localPath) return
       self._applyAgencyChipLocalLogo(remoteUrl, localPath)
+      ensureAgencyLogoBgTone(remoteUrl, localPath, function (tone) {
+        if (tone) self._applyAgencyChipLogoBgTone(remoteUrl, tone)
+      })
     })
   },
 
@@ -1773,6 +1778,22 @@ Page({
     })
     if (changed) {
       this.setData({ upcomingAgencyChipsDisplayed: next }, () => this.scheduleUpcomingAgencyChipsOverflowHint())
+    }
+  },
+
+  _applyAgencyChipLogoBgTone(remoteUrl, tone) {
+    const chips = this.data.upcomingAgencyChipsDisplayed
+    if (!Array.isArray(chips) || !chips.length || !tone) return
+    let changed = false
+    const next = chips.map(function (c) {
+      if ((c.logoRemoteSrc === remoteUrl || c.logoUrl === remoteUrl) && c.logoBgTone !== tone) {
+        changed = true
+        return { ...c, logoBgTone: tone }
+      }
+      return c
+    })
+    if (changed) {
+      this.setData({ upcomingAgencyChipsDisplayed: next })
     }
   },
 

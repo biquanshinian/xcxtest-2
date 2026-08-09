@@ -147,6 +147,15 @@ function _flushQueue(remoteUrl, localPath) {
   }
 }
 
+/** 落盘成功后后台分析透明 logo 底色（懒加载，避免与 agency-logo-bg 循环依赖） */
+function _warmLogoBgTone(remoteUrl, localPath) {
+  if (!remoteUrl || !localPath) return
+  try {
+    const { ensureAgencyLogoBgTone } = require('./agency-logo-bg.js')
+    ensureAgencyLogoBgTone(remoteUrl, localPath)
+  } catch (e) {}
+}
+
 /**
  * 远程图在界面加载成功后调用：写入 USER_DATA_PATH，并索引 URL → 本地路径
  * @param {string} remoteUrl
@@ -169,6 +178,7 @@ function persistAgencyLogoAfterRemoteLoad(remoteUrl, onDone) {
 
   const existing = getCachedAgencyLogoPath(u)
   if (existing) {
+    _warmLogoBgTone(u, existing)
     cb(existing)
     return
   }
@@ -196,6 +206,7 @@ function persistAgencyLogoAfterRemoteLoad(remoteUrl, onDone) {
             index[u] = localPath
             _evictOverflow()
             _saveIndex()
+            _warmLogoBgTone(u, localPath)
             _flushQueue(u, localPath)
             resolve(res)
           } else {
@@ -216,9 +227,15 @@ function persistAgencyLogoAfterRemoteLoad(remoteUrl, onDone) {
   })
 }
 
+/** 与落盘/底色缓存共用的 URL key（COS thumb / Worker 代理后） */
+function normalizeAgencyLogoCacheKey(url) {
+  return typeof url === 'string' ? _optimizedLogoUrl(url) : ''
+}
+
 module.exports = {
   isRemoteAgencyLogoUrl,
   getCachedAgencyLogoPath,
   resolveAgencyLogoForDisplay,
-  persistAgencyLogoAfterRemoteLoad
+  persistAgencyLogoAfterRemoteLoad,
+  normalizeAgencyLogoCacheKey
 }

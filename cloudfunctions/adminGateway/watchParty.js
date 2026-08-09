@@ -11,12 +11,16 @@
  * 管理接口（perm: watch_party）：
  *   - 全局开关（终止合作一键关停，公开接口全部下线，仅保留用户奖品查看）
  *   - 合作商家（观礼点）CRUD：入驻/暂停/终止，场次挂靠商家，商家非 active 即整体下线
+ *   - 商家会员计费（试行默认关）：merchantMembershipBillingEnabled 一键开收费；
+ *     未缴费商家宽限至下月 1 号后自动终止；运营可续费 1 月/1 季/1 年（系统算截止日期）
+ *   - 同行推荐成功：推荐人赠 1 个月商家会员（原价 188 元/月）
+ *   - 按商家授权「扫码赠通行证」（passGrantEnabled，默认关）：与商家场次开关双开才发证
  *   - 场次总览 / 预约名单与核销 / 发放记录 / 数据统计（奖品由商家小程序配置，后台只读）
  *   - 现场物料小程序码生成（wxacode.getUnlimited，scene: wp:<场次码>:<渠道>）
  *
  * 集合：
- *   watch_party_config       全局配置（单文档 _id=global：enabled 总开关 + closedNotice）
- *   watch_party_merchants    合作商家（观礼点），status: active/paused/terminated
+ *   watch_party_config       全局配置（单文档 _id=global：enabled / closedNotice / 商家会员收费开关）
+ *   watch_party_merchants    合作商家（观礼点），status: active/paused/terminated；membershipExpireAt 会员截止
  *   watch_party_merchant_leads 同行商家合作申请（观礼页提交，带推荐商家归属，后台审核一键入驻）
  *   watch_party_sessions     场次（含 prizeDrawEnabled / prizes；code 为短码）
  *   watch_party_reservations 预约记录
@@ -55,6 +59,10 @@ const RESERVE_DEVICE_MAX = 20
 const RESERVE_RATE_MEM_MAX = 400
 
 const MERCHANT_STATUSES = ['active', 'paused', 'terminated']
+/** 商家会员原价（元/月）；推荐成功赠 1 个月；后台续费按月/季/年叠加截止日期 */
+const MERCHANT_MEMBERSHIP_PRICE_YUAN = 188
+const MERCHANT_MEMBERSHIP_RENEW_MONTHS = { month: 1, quarter: 3, year: 12 }
+const MERCHANT_MEMBERSHIP_PAY_NOTICE = '请联系运营人员缴费开通商家会员（' + MERCHANT_MEMBERSHIP_PRICE_YUAN + '元/月）'
 /** 容器内配置/商家缓存 TTL（发射现场高并发时省读；后台改开关后其他容器最多延迟 30s 生效） */
 const GATE_CACHE_TTL = 30 * 1000
 
@@ -248,6 +256,152 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     const res = await db.collection(CONFIG).doc(GLOBAL_CONFIG_ID).get().catch(() => null)
     _cfgCache = { at: Date.now(), doc: (res && res.data) || null }
     return _cfgCache.doc
+  }
+
+  /** 商家会员收费是否已开启（试行阶段默认关） */
+  async function isMerchantMembershipBillingEnabled() {
+    const doc = await getGlobalConfigDoc()
+    return !!(doc && doc.merchantMembershipBillingEnabled === true)
+  }
+
+  /** 下月 1 日 00:00（云函数环境为东八区）本地时间戳 */
+  function nextMonthFirstTs(fromTs) {
+    const d = new Date(typeof fromTs === 'number' ? fromTs : now())
+    return new Date(d.getFullYear(), d.getMonth() + 1, 1, 0, 0, 0, 0).getTime()
+  }
+
+  /** 从基准时间叠加 N 个自然月（按日钳制，避免 1/31+1月溢出到 3 月） */
+  function addMonthsTs(baseTs, months) {
+    const d = new Date(Math.max(0, Number(baseTs) || 0))
+    const day = d.getDate()
+    const n = Math.max(0, Number(months) || 0)
+    d.setDate(1)
+    d.setMonth(d.getMonth() + n)
+    const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+    d.setDate(Math.min(day, lastDay))
+    return d.getTime()
+  }
+
+  function hasValidMembership(merchant, ts) {
+    const t = typeof ts === 'number' ? ts : now()
+    return Number((merchant && merchant.membershipExpireAt) || 0) > t
+  }
+
+  function isInMembershipGrace(merchant, ts) {
+    const t = typeof ts === 'number' ? ts : now()
+    return Number((merchant && merchant.membershipGraceUntil) || 0) > t
+  }
+
+  function formatMembershipDate(ts) {
+    const n = Number(ts) || 0
+    if (!n) return ''
+    const d = new Date(n)
+    if (isNaN(d.getTime())) return ''
+    const p = (x) => (x < 10 ? '0' : '') + x
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+  }
+
+  function membershipPayNoticeFor(merchant, billingEnabled, ts) {
+    if (!billingEnabled || hasValidMembership(merchant, ts)) return ''
+    const graceUntil = Number((merchant && merchant.membershipGraceUntil) || 0)
+    if (graceUntil > ts) {
+      return '商家会员收费已开启，请在 ' + formatMembershipDate(graceUntil)
+        + ' 前联系运营人员缴费开通（' + MERCHANT_MEMBERSHIP_PRICE_YUAN
+        + '元/月），逾期将自动终止合作'
+    }
+    return MERCHANT_MEMBERSHIP_PAY_NOTICE
+  }
+
+  /**
+   * 开启收费时：给尚无有效会员期的合作中/已暂停商家写入「下月 1 日」宽限截止。
+   * 已有 membershipExpireAt（含推荐赠送）的不覆盖。
+   */
+  /** 分页拉取商家；优先 orderBy(createdAt) 保证 skip 稳定，失败则降级无序（商家量通常 <100） */
+  async function listMerchantsByStatusPaged(status, skip, limit) {
+    const ordered = await db.collection(MERCHANTS)
+      .where({ status })
+      .orderBy('createdAt', 'asc')
+      .skip(skip)
+      .limit(limit)
+      .get()
+      .catch(() => null)
+    if (ordered) return ordered.data || []
+    const fallback = await db.collection(MERCHANTS)
+      .where({ status })
+      .skip(skip)
+      .limit(limit)
+      .get()
+      .catch(() => ({ data: [] }))
+    return fallback.data || []
+  }
+
+  async function seedMembershipGraceForUnpaidMerchants(actor) {
+    const ts = now()
+    const graceUntil = nextMonthFirstTs(ts)
+    let seeded = 0
+    for (const status of ['active', 'paused']) {
+      let skip = 0
+      for (;;) {
+        const list = await listMerchantsByStatusPaged(status, skip, 100)
+        if (!list.length) break
+        for (const m of list) {
+          if (hasValidMembership(m, ts)) continue
+          const existingGrace = Number(m.membershipGraceUntil || 0)
+          if (existingGrace >= graceUntil) continue
+          const up = await db.collection(MERCHANTS).doc(m._id).update({
+            data: {
+              membershipGraceUntil: graceUntil,
+              updatedAt: ts,
+              updatedBy: (actor && actor.username) || 'system'
+            }
+          }).catch(() => null)
+          if (!up || !up.stats || up.stats.updated < 1) continue
+          invalidateGateCache(m._id)
+          seeded++
+        }
+        if (list.length < 100) break
+        skip += 100
+      }
+    }
+    return seeded
+  }
+
+  /** 推荐成功：给推荐人叠加 1 个月商家会员截止日（从 max(现在, 原截止) 起算） */
+  async function grantReferralMembershipReward(referrerMerchantId, meta = {}) {
+    if (!referrerMerchantId) return null
+    const ref = await findMerchant(referrerMerchantId)
+    if (!ref || ref.status === 'terminated') return null
+    const ts = now()
+    const base = Math.max(ts, Number(ref.membershipExpireAt || 0))
+    const membershipExpireAt = addMonthsTs(base, 1)
+    const up = await db.collection(MERCHANTS).doc(ref._id).update({
+      data: {
+        membershipExpireAt,
+        membershipGraceUntil: 0,
+        referralRewardCount: _.inc(1),
+        updatedAt: ts,
+        updatedBy: 'referral_reward'
+      }
+    }).catch((e) => {
+      console.error('[watchParty] grantReferralMembershipReward update failed:', e && (e.message || e))
+      return null
+    })
+    // 写入失败不得返回成功，否则入驻侧会标记 referralRewarded 导致奖励永久丢失
+    if (!up || !up.stats || up.stats.updated < 1) return null
+    invalidateGateCache(ref._id)
+    await writeOpLog({
+      user: { id: 'system', username: 'referral_reward' },
+      module: 'watch_party',
+      action: 'referral_membership_reward',
+      targetId: ref._id,
+      after: {
+        membershipExpireAt,
+        fromMerchantId: meta.fromMerchantId || '',
+        fromMerchantName: meta.fromMerchantName || '',
+        months: 1
+      }
+    }).catch(() => {})
+    return { referrerMerchantId: ref._id, membershipExpireAt }
   }
 
   /**
@@ -793,6 +947,11 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     return /^(cloud|https):\/\//.test(s) ? s : ''
   }
 
+  /** 商家「添加好友」二维码：单张 cloud:// 或 https（与群码同源清洗） */
+  function sanitizeContactWechatQr(raw) {
+    return sanitizeWechatGroupQr(raw)
+  }
+
   /** 微信群二维码列表（最多 2 张，cloud:// 或 https） */
   function sanitizeWechatGroupQrs(raw) {
     if (!Array.isArray(raw)) return []
@@ -894,6 +1053,10 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     if (body.contactPhone !== undefined) {
       out.contactPhone = String(body.contactPhone || '').trim().replace(/[^\d+-]/g, '').slice(0, 20)
     }
+    /** 顾客「微信联系」用的添加好友二维码（长按识别；cloud:// 或 https） */
+    if (body.contactWechatQr !== undefined) {
+      out.contactWechatQr = sanitizeContactWechatQr(body.contactWechatQr)
+    }
     // prizes 由 create/update 路径单独 merge，避免全量保存把 remaining 重置为 stock
     // 大屏讲解跳转元数据（商家选任务时写入）
     if (
@@ -949,6 +1112,7 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       vehicleBookingUrl: doc.vehicleBookingUrl || '',
       heroBadge: doc.heroBadge || '',
       contactPhone: doc.contactPhone || '',
+      contactWechatQr: sanitizeContactWechatQr(doc.contactWechatQr),
       prizeDrawEnabled: doc.prizeDrawEnabled === true,
       /** 商家已确认发射成功后开放抽奖 */
       successUnlocked: !!doc.successUnlockedAt,
@@ -956,6 +1120,25 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       prizes,
       prizeRemaining: prizeRemain
     }
+  }
+
+  /**
+   * 顾客页联系方式：场次字段优先；缺省时回落商家入驻资料。
+   * 解决「商家资料已传微信二维码，但旧场次只有电话 → 顾客页仍只显示拨打」的断层。
+   * findMerchant 有缓存，且 sessionGate 通常已预热，额外开销可忽略。
+   */
+  async function enrichPublicContact(view, doc) {
+    if (!view || !doc || !doc.merchantId) return view
+    if (view.contactPhone && view.contactWechatQr) return view
+    const m = await findMerchant(doc.merchantId)
+    if (!m) return view
+    if (!view.contactPhone && m.contactPhone) {
+      view.contactPhone = String(m.contactPhone || '').trim().replace(/[^\d+-]/g, '').slice(0, 20)
+    }
+    if (!view.contactWechatQr && m.contactWechatQr) {
+      view.contactWechatQr = sanitizeContactWechatQr(m.contactWechatQr)
+    }
+    return view
   }
 
   /** 是否现场物料扫码资格（兼容旧配额：非 app 渠道视为现场） */
@@ -1098,7 +1281,10 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
         .get()
         .catch(() => ({ data: [] }))
       for (const doc of (res.data || [])) {
-        if (!(await sessionGate(doc))) { data = publicSessionView(doc); break }
+        if (!(await sessionGate(doc))) {
+          data = await enrichPublicContact(publicSessionView(doc), doc)
+          break
+        }
       }
       if (data && data.missionId) {
         data.missionDisplayName = await loadMissionDisplayName(data.missionId)
@@ -1205,7 +1391,7 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       }
     }
     if (!best) return ok(null)
-    const view = publicSessionView(best)
+    const view = await enrichPublicContact(publicSessionView(best), best)
     // 同批结果内统计同任务场次数，避免星问再打一次 list 接口
     const mid = String(best.missionId || '').trim()
     view.missionSessionCount = mid
@@ -1257,7 +1443,7 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     const doc = await resolveSession(query)
     const gated = await sessionGate(doc)
     if (gated) return fail(4040, gated)
-    const view = publicSessionView(doc)
+    const view = await enrichPublicContact(publicSessionView(doc), doc)
     if (view && view.missionId) {
       view.missionDisplayName = await loadMissionDisplayName(view.missionId)
     }
@@ -1305,11 +1491,12 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     }
     if (merchantIds.length) await Promise.all(merchantIds.map((id) => findMerchant(id)))
 
-    const viewFn = summary ? publicSessionSummaryView : publicSessionView
     const list = []
     for (const doc of rows) {
       if (await sessionGate(doc)) continue
-      const view = viewFn(doc)
+      const view = summary
+        ? publicSessionSummaryView(doc)
+        : await enrichPublicContact(publicSessionView(doc), doc)
       // 商家头像（圆形展示于选商家卡片）：商家文档已批量预取，这里读缓存零额外查询
       let merchantAvatar = ''
       if (doc.merchantId) {
@@ -1647,10 +1834,17 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       quota = { ...quota, total: quota.total || 0, used: quota.used || 0 }
     }
 
-    // 观礼通行证：仅现场扫码发放（防站内白嫖）
+    // 观礼通行证：仅现场扫码发放（防站内白嫖）。
+    // 商家场次双开关：后台按商家授权 passGrantEnabled（默认关）+ 商家场次自行开启，缺一不发证；
+    // 无 merchantId 的平台自建场次不受商家授权约束
     let pass = null
     let passNewlyGranted = false
-    if (fromMaterial && session.passEnabled === true && quota) {
+    let passAllowed = session.passEnabled === true
+    if (passAllowed && session.merchantId) {
+      const passMerchant = await findMerchant(session.merchantId)
+      passAllowed = !!(passMerchant && passMerchant.passGrantEnabled === true)
+    }
+    if (fromMaterial && passAllowed && quota) {
       let inWindow = true
       if (session.launchTime) {
         const t = new Date(session.launchTime).getTime()
@@ -1686,7 +1880,7 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     const total = materialOk ? (quota.total || 0) : 0
     const used = materialOk ? (quota.used || 0) : 0
     return ok({
-      session: publicSessionView(session),
+      session: await enrichPublicContact(publicSessionView(session), session),
       fromMaterial: materialOk,
       successUnlocked: !!session.successUnlockedAt,
       total,
@@ -2003,6 +2197,8 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     const name = String(body.name || '').trim().slice(0, 40)
     const contactName = String(body.contactName || '').trim().slice(0, 20)
     const phone = String(body.phone || '').trim()
+    /** 选填：顾客页「微信联系」长按识别的添加好友二维码 */
+    const wechatQr = sanitizeContactWechatQr(body.wechatQr || body.contactWechatQr)
     const location = String(body.location || '').trim().slice(0, 120)
     const note = String(body.note || '').slice(0, 500)
     if (!name) return fail(4001, '请填写商家/观礼点名称')
@@ -2058,11 +2254,14 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     // 自动入驻：创建商家（active）并绑定申请人微信为员工
     const merchantCode = await genUniqueMerchantCode()
     const ts = now()
+    const billingEnabled = await isMerchantMembershipBillingEnabled()
+    const membershipGraceUntil = billingEnabled ? nextMonthFirstTs(ts) : 0
     const merchantAdd = await db.collection(MERCHANTS).add({
       data: {
         name,
         contactName,
         contactPhone: phone,
+        contactWechatQr: wechatQr,
         address: location,
         lat: 0,
         lng: 0,
@@ -2076,6 +2275,10 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
         referrerMerchantId,
         referrerMerchantName,
         referrerSource,
+        membershipExpireAt: 0,
+        membershipGraceUntil,
+        membershipPaid: false,
+        referralRewardGranted: false,
         createdAt: ts,
         updatedAt: ts,
         createdBy: 'lead:auto',
@@ -2083,12 +2286,27 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       }
     })
 
+    // 推荐成功：给推荐人赠 1 个月商家会员（原价 188 元/月）
+    let referralReward = null
+    if (referrerMerchantId) {
+      referralReward = await grantReferralMembershipReward(referrerMerchantId, {
+        fromMerchantId: merchantAdd._id,
+        fromMerchantName: name
+      })
+      if (referralReward) {
+        await db.collection(MERCHANTS).doc(merchantAdd._id).update({
+          data: { referralRewardGranted: true, updatedAt: now() }
+        }).catch(() => {})
+      }
+    }
+
     const addRes = await db.collection(LEADS).add({
       data: {
         openid,
         name,
         contactName,
         phone,
+        wechatQr,
         location,
         note,
         referrerMerchantId,
@@ -2098,6 +2316,7 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
         status: 'approved',
         adminNote: '前端提交自动入驻',
         merchantId: merchantAdd._id,
+        referralRewarded: !!referralReward,
         createdAt: ts,
         updatedAt: ts
       }
@@ -2108,14 +2327,22 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       module: 'watch_party',
       action: 'auto_approve_merchant_lead',
       targetId: addRes._id,
-      after: { merchantId: merchantAdd._id, name }
+      after: { merchantId: merchantAdd._id, name, billingEnabled, membershipGraceUntil }
     })
     return ok({
       leadId: addRes._id,
       merchantId: merchantAdd._id,
       merchantCode,
       bound: true,
-      autoApproved: true
+      autoApproved: true,
+      membershipBillingEnabled: billingEnabled,
+      membershipNeedPay: billingEnabled,
+      membershipGraceUntil,
+      membershipPayNotice: billingEnabled
+        ? membershipPayNoticeFor({ membershipExpireAt: 0, membershipGraceUntil }, true, ts)
+        : '',
+      membershipPriceYuan: MERCHANT_MEMBERSHIP_PRICE_YUAN,
+      referralRewarded: !!referralReward
     })
   }
 
@@ -2124,28 +2351,84 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
   // 身份模型：运营在后台把「商家编号」发给入驻商家 → 商家在小程序输入编号绑定微信 →
   // 之后可全程在小程序端自建/管理观礼场次（短码与抽卡码自动生成，无需再进后台）。
 
-  function merchantSelfView(doc) {
+  function merchantSelfView(doc, opts = {}) {
+    const ts = now()
+    const billingEnabled = opts.billingEnabled === true
+    const membershipExpireAt = Number(doc.membershipExpireAt || 0)
+    const membershipGraceUntil = Number(doc.membershipGraceUntil || 0)
+    const membershipNeedPay = billingEnabled && !hasValidMembership(doc, ts)
     return {
       merchantId: doc._id,
       merchantCode: doc.merchantCode || '',
       name: doc.name || '',
       avatar: sanitizeCloudMediaUrl(doc.avatar),
       status: doc.status || 'active',
+      /** 平台是否已为本商家开通「扫码赠通行证」（后台按商家授权，默认关闭） */
+      passGrantEnabled: doc.passGrantEnabled === true,
       contactName: doc.contactName || '',
       contactPhone: doc.contactPhone || '',
+      contactWechatQr: sanitizeContactWechatQr(doc.contactWechatQr),
       address: doc.address || '',
       lat: doc.lat || 0,
       lng: doc.lng || 0,
       intro: doc.intro || '',
       notice: doc.notice || '',
-      parkingSpots: Array.isArray(doc.parkingSpots) ? doc.parkingSpots : []
+      parkingSpots: Array.isArray(doc.parkingSpots) ? doc.parkingSpots : [],
+      prizePresets: sanitizePrizePresets(doc.prizePresets),
+      membershipExpireAt,
+      membershipGraceUntil,
+      membershipPaid: doc.membershipPaid === true,
+      membershipBillingEnabled: billingEnabled,
+      membershipNeedPay,
+      membershipExpireText: formatMembershipDate(membershipExpireAt),
+      membershipGraceText: formatMembershipDate(membershipGraceUntil),
+      membershipPayNotice: membershipPayNoticeFor(doc, billingEnabled, ts),
+      membershipPriceYuan: MERCHANT_MEMBERSHIP_PRICE_YUAN,
+      referralRewardCount: Number(doc.referralRewardCount || 0) || 0
     }
   }
 
   /**
-   * 商家自助更新入驻资料（名称/联系人/联系电话/地址）。
+   * 商家奖品库（常用奖品模板）：只存 name/image/stock/valueYuan，
+   * 不含 id/remaining——导入场次时再生成，避免多场次共用库存状态。
+   * 读写共用本清洗（读时兜底旧脏数据）。
+   */
+  function sanitizePrizePresets(raw) {
+    if (!Array.isArray(raw)) return []
+    return raw.slice(0, PRIZES_MAX).map((p, i) => {
+      const name = String((p && p.name) || '').trim().slice(0, 40)
+      const image = String((p && p.image) || '').trim().slice(0, 600)
+      if (!name || !/^(cloud|https):\/\//.test(image)) return null
+      return {
+        name,
+        image,
+        stock: Math.min(9999, Math.max(1, Number(p.stock) || 1)),
+        valueYuan: parsePrizeValueYuan(p && p.valueYuan),
+        sort: i
+      }
+    }).filter(Boolean)
+  }
+
+  /** 保存商家奖品库（整份覆盖；传空数组 = 清空） */
+  async function merchantSavePrizePresets(body = {}, openid) {
+    const { merchant, err } = await requireMerchant(openid)
+    if (err) return err
+    const raw = Array.isArray(body.prizes) ? body.prizes : []
+    const presets = sanitizePrizePresets(raw)
+    if (raw.length && !presets.length) {
+      return fail(4001, '奖品库保存失败：每件奖品需要名称和已上传的照片')
+    }
+    await db.collection(MERCHANTS).doc(merchant._id).update({
+      data: { prizePresets: presets, updatedAt: now() }
+    })
+    invalidateGateCache(merchant._id)
+    return ok({ prizePresets: presets, count: presets.length })
+  }
+
+  /**
+   * 商家自助更新入驻资料（名称/联系人/联系电话/微信好友二维码/地址）。
    * 改名会同步名下所有场次的冗余 merchantName（顾客页「观礼点由 xx 提供」）；
-   * 换手机号与其他商家判重，避免影响后续入驻申请的查重逻辑。
+   * 微信二维码变更同步名下场次，避免旧场次只剩电话。
    */
   async function merchantUpdateProfile(body = {}, openid) {
     const { merchant, err } = await requireMerchant(openid)
@@ -2153,6 +2436,7 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     const name = String(body.name || '').trim().slice(0, 40)
     const contactName = String(body.contactName || '').trim().slice(0, 20)
     const contactPhone = String(body.contactPhone || '').trim().replace(/[^\d+-]/g, '').slice(0, 20)
+    const contactWechatQr = sanitizeContactWechatQr(body.contactWechatQr)
     const address = String(body.address || '').trim().slice(0, 120)
     if (!name) return fail(4001, '请填写商家/观礼点名称')
     if (contactPhone && contactPhone.replace(/\D/g, '').length < 6) {
@@ -2169,16 +2453,22 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       }
     }
     await db.collection(MERCHANTS).doc(merchant._id).update({
-      data: { name, contactName, contactPhone, address, updatedAt: now() }
+      data: { name, contactName, contactPhone, contactWechatQr, address, updatedAt: now() }
     })
-    if (name !== (merchant.name || '')) {
+    const sessionPatch = {}
+    if (name !== (merchant.name || '')) sessionPatch.merchantName = name
+    if (contactWechatQr !== sanitizeContactWechatQr(merchant.contactWechatQr)) {
+      sessionPatch.contactWechatQr = contactWechatQr
+    }
+    if (Object.keys(sessionPatch).length) {
+      sessionPatch.updatedAt = now()
       await db.collection(SESSIONS)
         .where({ merchantId: merchant._id })
-        .update({ data: { merchantName: name, updatedAt: now() } })
+        .update({ data: sessionPatch })
         .catch(() => {})
     }
     invalidateGateCache(merchant._id)
-    return ok({ name, contactName, contactPhone, address })
+    return ok({ name, contactName, contactPhone, contactWechatQr, address })
   }
 
   /**
@@ -2245,6 +2535,7 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       vehicleBookingUrl: doc.vehicleBookingUrl || '',
       heroBadge: doc.heroBadge || '',
       contactPhone: doc.contactPhone || '',
+      contactWechatQr: sanitizeContactWechatQr(doc.contactWechatQr),
       prizeDrawEnabled: doc.prizeDrawEnabled === true,
       prizes: publicPrizesView(doc.prizes),
       successUnlocked: !!doc.successUnlockedAt,
@@ -2278,7 +2569,17 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     if (!openid) return { err: fail(4010, '未获取到用户身份') }
     const m = await findMerchantByStaffOpenid(openid)
     if (!m) return { err: fail(4011, '尚未绑定商家，请输入运营发放的商家编号') }
-    if (m.status === 'terminated') return { err: fail(4030, '该商家已终止合作，如有疑问请联系运营') }
+    if (m.status === 'terminated') {
+      const unpaid = m.terminatedReason === 'membership_unpaid'
+      return {
+        err: fail(
+          4030,
+          unpaid
+            ? ('该商家因未缴费已终止合作，' + MERCHANT_MEMBERSHIP_PAY_NOTICE)
+            : '该商家已终止合作，如有疑问请联系运营'
+        )
+      }
+    }
     return { merchant: m }
   }
 
@@ -2297,8 +2598,9 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     const bound = await findMerchantByStaffOpenid(openid)
     if (bound) {
       if ((bound.merchantCode || '') === code) {
+        const billingEnabled = await isMerchantMembershipBillingEnabled()
         return ok({
-          ...merchantSelfView(bound),
+          ...merchantSelfView(bound, { billingEnabled }),
           gateBypass: await resolveMerchantStaffGateBypass(bound)
         })
       }
@@ -2311,7 +2613,15 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       .catch(() => ({ data: [] }))
     const m = res.data && res.data[0]
     if (!m) return fail(4040, '商家编号不存在，请核对运营发放的编号（区分数字与字母）')
-    if (m.status === 'terminated') return fail(4030, '该商家已终止合作，无法绑定')
+    if (m.status === 'terminated') {
+      const unpaid = m.terminatedReason === 'membership_unpaid'
+      return fail(
+        4030,
+        unpaid
+          ? ('该商家因未缴费已终止合作，无法绑定；' + MERCHANT_MEMBERSHIP_PAY_NOTICE)
+          : '该商家已终止合作，无法绑定'
+      )
+    }
     const staff = Array.isArray(m.staffOpenids) ? m.staffOpenids : []
     if (staff.length >= MERCHANT_STAFF_MAX) return fail(4002, '该商家绑定人数已达上限，请联系运营处理')
     await db.collection(MERCHANTS).doc(m._id).update({
@@ -2326,8 +2636,9 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     })
     const fresh = await findMerchantByStaffOpenid(openid)
     const merchant = fresh || m
+    const billingEnabled = await isMerchantMembershipBillingEnabled()
     return ok({
-      ...merchantSelfView(merchant),
+      ...merchantSelfView(merchant, { billingEnabled }),
       gateBypass: await resolveMerchantStaffGateBypass(merchant)
     })
   }
@@ -2383,8 +2694,9 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
         }
       })
     }
+    const billingEnabled = await isMerchantMembershipBillingEnabled()
     return ok({
-      merchant: merchantSelfView(merchant),
+      merchant: merchantSelfView(merchant, { billingEnabled }),
       sessions,
       gateBypass: await resolveMerchantStaffGateBypass(merchant)
     })
@@ -2430,8 +2742,9 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     if (body.siteVideoPoster === undefined) data.siteVideoPoster = ''
     if (body.rocketImageName === undefined) data.rocketImageName = ''
     if (body.heroBadge === undefined) data.heroBadge = ''
-    // 商家资料模板兜底（地址/坐标/介绍/须知/停车点/联系电话）
+    // 商家资料模板兜底（地址/坐标/介绍/须知/停车点/联系电话/微信好友二维码）
     if (!data.contactPhone) data.contactPhone = merchant.contactPhone || ''
+    if (!data.contactWechatQr) data.contactWechatQr = sanitizeContactWechatQr(merchant.contactWechatQr)
     if (!data.address) data.address = merchant.address || ''
     if (!data.lat && merchant.lat) data.lat = merchant.lat
     if (!data.lng && merchant.lng) data.lng = merchant.lng
@@ -2914,6 +3227,9 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       enabled: !doc || doc.enabled !== false,
       closedNotice: (doc && doc.closedNotice) || '',
       merchantStaffGateBypass: !!(doc && doc.merchantStaffGateBypass === true),
+      /** 商家会员收费开关：关=试行免费；开=新入驻需缴费，未缴费宽限至下月1号后自动终止 */
+      merchantMembershipBillingEnabled: !!(doc && doc.merchantMembershipBillingEnabled === true),
+      merchantMembershipPriceYuan: MERCHANT_MEMBERSHIP_PRICE_YUAN,
       updatedAt: (doc && doc.updatedAt) || 0,
       updatedBy: (doc && doc.updatedBy) || ''
     })
@@ -2921,15 +3237,25 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
 
   async function updateGlobalConfig(body, user) {
     const deny = checkPerm(user, 'watch_party'); if (deny) return deny
+    const prev = (await getGlobalConfigDoc()) || {}
+    const boolFrom = (v, fallback) => {
+      if (v === undefined) return fallback
+      return v === true || v === 'true' || v === 1
+    }
     const data = {
-      enabled: body.enabled !== false,
-      closedNotice: String(body.closedNotice || '').slice(0, 200),
-      merchantStaffGateBypass: body.merchantStaffGateBypass === true
-        || body.merchantStaffGateBypass === 'true'
-        || body.merchantStaffGateBypass === 1,
+      enabled: body.enabled !== undefined ? body.enabled !== false : (prev.enabled !== false),
+      closedNotice: body.closedNotice !== undefined
+        ? String(body.closedNotice || '').slice(0, 200)
+        : String(prev.closedNotice || ''),
+      merchantStaffGateBypass: boolFrom(body.merchantStaffGateBypass, !!prev.merchantStaffGateBypass),
+      merchantMembershipBillingEnabled: boolFrom(
+        body.merchantMembershipBillingEnabled,
+        !!prev.merchantMembershipBillingEnabled
+      ),
       updatedAt: now(),
       updatedBy: user.username
     }
+    const billingJustEnabled = data.merchantMembershipBillingEnabled && !prev.merchantMembershipBillingEnabled
     const up = await db.collection(CONFIG).doc(GLOBAL_CONFIG_ID)
       .update({ data })
       .catch(() => null)
@@ -2937,13 +3263,26 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       await db.collection(CONFIG).add({ data: { _id: GLOBAL_CONFIG_ID, ...data } }).catch(() => {})
     }
     invalidateGateCache()
+    let graceSeeded = 0
+    if (billingJustEnabled) {
+      graceSeeded = await seedMembershipGraceForUnpaidMerchants(user)
+    }
+    let action = data.enabled ? 'enable_service' : 'disable_service'
+    if (billingJustEnabled) action = 'enable_merchant_membership_billing'
+    else if (
+      body.merchantMembershipBillingEnabled !== undefined
+      && !data.merchantMembershipBillingEnabled
+      && !!prev.merchantMembershipBillingEnabled
+    ) {
+      action = 'disable_merchant_membership_billing'
+    }
     await writeOpLog({
       user,
       module: 'watch_party',
-      action: data.enabled ? 'enable_service' : 'disable_service',
-      after: data
+      action,
+      after: { ...data, graceSeeded }
     })
-    return ok(true)
+    return ok({ graceSeeded })
   }
 
   // ── 合作商家（观礼点）：入驻/暂停/终止 ──
@@ -2953,6 +3292,7 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       name: String(body.name || '').trim().slice(0, 40),
       contactName: String(body.contactName || '').trim().slice(0, 20),
       contactPhone: String(body.contactPhone || '').trim().slice(0, 20),
+      contactWechatQr: sanitizeContactWechatQr(body.contactWechatQr),
       address: String(body.address || '').trim().slice(0, 120),
       lat: Number(body.lat || 0) || 0,
       lng: Number(body.lng || 0) || 0,
@@ -2984,20 +3324,32 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     const data = normalizeMerchantBody(body)
     if (!data.name) return fail(4001, '请填写商家/观礼点名称')
     const merchantCode = await genUniqueMerchantCode()
+    const ts = now()
+    const billingEnabled = await isMerchantMembershipBillingEnabled()
+    const membershipGraceUntil = billingEnabled ? nextMonthFirstTs(ts) : 0
     const addRes = await db.collection(MERCHANTS).add({
       data: {
         ...data,
         /** 商家固定编号：运营复制发给商家，商家在小程序端凭它绑定后自助建场次 */
         merchantCode,
         staffOpenids: [],
-        createdAt: now(),
-        updatedAt: now(),
+        membershipExpireAt: 0,
+        membershipGraceUntil,
+        membershipPaid: false,
+        createdAt: ts,
+        updatedAt: ts,
         createdBy: user.username,
         updatedBy: user.username
       }
     })
-    await writeOpLog({ user, module: 'watch_party', action: 'create_merchant', targetId: addRes._id, after: data })
-    return ok({ id: addRes._id, merchantCode })
+    await writeOpLog({
+      user,
+      module: 'watch_party',
+      action: 'create_merchant',
+      targetId: addRes._id,
+      after: { ...data, membershipGraceUntil, billingEnabled }
+    })
+    return ok({ id: addRes._id, merchantCode, membershipGraceUntil, membershipNeedPay: billingEnabled })
   }
 
   /** 老商家补发编号 / 重新生成编号（regenerate=true 时旧编号作废，已绑定微信保留） */
@@ -3022,17 +3374,172 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     if (!id) return fail(4001, '缺少商家ID')
     const data = normalizeMerchantBody(body)
     if (!data.name) return fail(4001, '请填写商家/观礼点名称')
-    await db.collection(MERCHANTS).doc(id).update({
-      data: { ...data, updatedAt: now(), updatedBy: user.username }
-    })
-    // 商家改名同步到名下场次快照（对外展示「由 xx 提供」）
+    const prev = await findMerchant(id)
+    if (!prev) return fail(4040, '商家不存在')
+    const ts = now()
+    const patch = { ...data, updatedAt: ts, updatedBy: user.username }
+    // 收费开启后：
+    // - 已终止 → 合作中：禁止裸恢复（须走「续费」）
+    // - 暂停 → 合作中：若无有效会员/宽限，补写下月1日宽限，避免恢复后立刻被清扫
+    // - 本就合作中：只改资料时不改动会员/宽限字段
+    if (data.status === 'active' && prev.status !== 'active') {
+      const billingOn = await isMerchantMembershipBillingEnabled()
+      if (billingOn) {
+        const probe = {
+          membershipExpireAt: prev.membershipExpireAt,
+          membershipGraceUntil: prev.membershipGraceUntil
+        }
+        if (!hasValidMembership(probe, ts) && !isInMembershipGrace(probe, ts)) {
+          if (prev.status === 'terminated') {
+            return fail(4002, '该商家无有效会员期，请使用「续费」恢复合作（续费会自动算截止日期）')
+          }
+          patch.membershipGraceUntil = nextMonthFirstTs(ts)
+        }
+      }
+      if (prev.terminatedReason === 'membership_unpaid') {
+        patch.terminatedReason = ''
+        patch.terminatedAt = 0
+      }
+    }
+    await db.collection(MERCHANTS).doc(id).update({ data: patch })
+    // 改名 + 微信号同步到名下场次（顾客页联系入口读场次字段，缺省另有商家资料回落）
     await db.collection(SESSIONS)
       .where({ merchantId: id })
-      .update({ data: { merchantName: data.name } })
+      .update({
+        data: {
+          merchantName: data.name,
+          contactWechatQr: data.contactWechatQr || '',
+          updatedAt: ts
+        }
+      })
       .catch(() => {})
     invalidateGateCache(id)
-    await writeOpLog({ user, module: 'watch_party', action: 'update_merchant', targetId: id, after: data })
+    await writeOpLog({ user, module: 'watch_party', action: 'update_merchant', targetId: id, after: patch })
     return ok(true)
+  }
+
+  /**
+   * 后台按商家授权「扫码赠通行证」（默认关闭）。
+   * 双开关：平台授权 + 商家在小程序场次里自行开启，缺一不发证；关闭立即止发（容器缓存最多延迟 30s）。
+   */
+  async function updateMerchantPassGrant(id, body, user) {
+    const deny = checkPerm(user, 'watch_party'); if (deny) return deny
+    if (!id) return fail(4001, '缺少商家ID')
+    const res = await db.collection(MERCHANTS).doc(id).get().catch(() => null)
+    if (!res || !res.data) return fail(4040, '商家不存在')
+    const enabled = !!(body && (body.enabled === true || body.enabled === 'true' || body.enabled === 1))
+    await db.collection(MERCHANTS).doc(id).update({
+      data: { passGrantEnabled: enabled, updatedAt: now(), updatedBy: user.username }
+    })
+    invalidateGateCache(id)
+    await writeOpLog({
+      user,
+      module: 'watch_party',
+      action: enabled ? 'enable_merchant_pass_grant' : 'disable_merchant_pass_grant',
+      targetId: id
+    })
+    return ok(true)
+  }
+
+  /**
+   * 运营确认收款后续费：从 max(现在, 原截止) 叠加 1 月 / 1 季 / 1 年。
+   * 因未缴费被终止的商户续费后自动恢复为合作中。
+   */
+  async function renewMerchantMembership(id, body, user) {
+    const deny = checkPerm(user, 'watch_party'); if (deny) return deny
+    if (!id) return fail(4001, '缺少商家ID')
+    const plan = String((body && body.plan) || '').trim()
+    const months = MERCHANT_MEMBERSHIP_RENEW_MONTHS[plan]
+    if (!months) return fail(4001, '请选择续费时长：month（1个月）/ quarter（1季度）/ year（1年）')
+    const m = await findMerchant(id)
+    if (!m) return fail(4040, '商家不存在')
+    const ts = now()
+    const base = Math.max(ts, Number(m.membershipExpireAt || 0))
+    const membershipExpireAt = addMonthsTs(base, months)
+    const patch = {
+      membershipExpireAt,
+      membershipGraceUntil: 0,
+      membershipPaid: true,
+      membershipLastRenewPlan: plan,
+      membershipLastRenewAt: ts,
+      membershipLastRenewMonths: months,
+      updatedAt: ts,
+      updatedBy: user.username
+    }
+    if (m.status === 'terminated' && m.terminatedReason === 'membership_unpaid') {
+      patch.status = 'active'
+      patch.terminatedReason = ''
+      patch.terminatedAt = 0
+    }
+    await db.collection(MERCHANTS).doc(id).update({ data: patch })
+    invalidateGateCache(id)
+    await writeOpLog({
+      user,
+      module: 'watch_party',
+      action: 'renew_merchant_membership',
+      targetId: id,
+      after: { plan, months, membershipExpireAt, priceYuan: MERCHANT_MEMBERSHIP_PRICE_YUAN * months }
+    })
+    return ok({
+      membershipExpireAt,
+      membershipExpireText: formatMembershipDate(membershipExpireAt),
+      plan,
+      months,
+      priceYuan: MERCHANT_MEMBERSHIP_PRICE_YUAN * months
+    })
+  }
+
+  /**
+   * 收费开启后清扫：无有效会员期且宽限已过的合作中/已暂停商家 → 终止合作。
+   * 供定时任务与后台手动触发。
+   * 先收集候选再终止：边分页边改 status 会让 skip 错位漏单。
+   */
+  async function sweepMerchantMemberships(user) {
+    if (!user || user.username !== 'cron') {
+      const deny = checkPerm(user, 'watch_party'); if (deny) return deny
+    }
+    const billingEnabled = await isMerchantMembershipBillingEnabled()
+    if (!billingEnabled) return ok({ skipped: true, reason: 'billing_off', terminated: 0 })
+    const ts = now()
+    let terminated = 0
+    const actor = (user && user.username) || 'cron'
+    const victims = []
+    for (const status of ['active', 'paused']) {
+      let skip = 0
+      for (;;) {
+        const list = await listMerchantsByStatusPaged(status, skip, 100)
+        if (!list.length) break
+        for (const m of list) {
+          if (hasValidMembership(m, ts) || isInMembershipGrace(m, ts)) continue
+          victims.push(m._id)
+        }
+        if (list.length < 100) break
+        skip += 100
+      }
+    }
+    for (const id of victims) {
+      const up = await db.collection(MERCHANTS).doc(id).update({
+        data: {
+          status: 'terminated',
+          terminatedReason: 'membership_unpaid',
+          terminatedAt: ts,
+          updatedAt: ts,
+          updatedBy: actor
+        }
+      }).catch(() => null)
+      if (!up || !up.stats || up.stats.updated < 1) continue
+      invalidateGateCache(id)
+      terminated++
+    }
+    if (terminated > 0) {
+      await writeOpLog({
+        user: user || { id: 'system', username: 'cron' },
+        module: 'watch_party',
+        action: 'sweep_merchant_memberships',
+        after: { terminated }
+      }).catch(() => {})
+    }
+    return ok({ terminated })
   }
 
   async function deleteMerchant(id, user) {
@@ -3105,11 +3612,16 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     if (lead.status === 'approved') return fail(4002, '该申请已入驻，请勿重复操作')
 
     const merchantCode = await genUniqueMerchantCode()
+    const ts = now()
+    const billingEnabled = await isMerchantMembershipBillingEnabled()
+    const membershipGraceUntil = billingEnabled ? nextMonthFirstTs(ts) : 0
+    const referrerMerchantId = lead.referrerMerchantId || ''
     const addRes = await db.collection(MERCHANTS).add({
       data: {
         name: lead.name || '',
         contactName: lead.contactName || '',
         contactPhone: lead.phone || '',
+        contactWechatQr: sanitizeContactWechatQr(lead.wechatQr || lead.contactWechatQr),
         address: lead.location || '',
         lat: 0,
         lng: 0,
@@ -3120,19 +3632,47 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
         status: 'active',
         merchantCode,
         staffOpenids: [],
-        referrerMerchantId: lead.referrerMerchantId || '',
+        referrerMerchantId,
         referrerMerchantName: lead.referrerMerchantName || '',
-        createdAt: now(),
-        updatedAt: now(),
+        referrerSource: lead.referrerSource || '',
+        membershipExpireAt: 0,
+        membershipGraceUntil,
+        membershipPaid: false,
+        referralRewardGranted: false,
+        createdAt: ts,
+        updatedAt: ts,
         createdBy: user.username,
         updatedBy: user.username
       }
     })
+    let referralReward = null
+    if (referrerMerchantId && !lead.referralRewarded) {
+      referralReward = await grantReferralMembershipReward(referrerMerchantId, {
+        fromMerchantId: addRes._id,
+        fromMerchantName: lead.name || ''
+      })
+      if (referralReward) {
+        await db.collection(MERCHANTS).doc(addRes._id).update({
+          data: { referralRewardGranted: true, updatedAt: now() }
+        }).catch(() => {})
+      }
+    }
     await db.collection(LEADS).doc(id).update({
-      data: { status: 'approved', merchantId: addRes._id, updatedAt: now() }
+      data: {
+        status: 'approved',
+        merchantId: addRes._id,
+        referralRewarded: !!referralReward || !!lead.referralRewarded,
+        updatedAt: now()
+      }
     })
-    await writeOpLog({ user, module: 'watch_party', action: 'approve_merchant_lead', targetId: id, after: { merchantId: addRes._id } })
-    return ok({ merchantId: addRes._id })
+    await writeOpLog({
+      user,
+      module: 'watch_party',
+      action: 'approve_merchant_lead',
+      targetId: id,
+      after: { merchantId: addRes._id, membershipGraceUntil, referralRewarded: !!referralReward }
+    })
+    return ok({ merchantId: addRes._id, merchantCode, membershipGraceUntil })
   }
 
   // ── 场次 ──
@@ -3624,9 +4164,12 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     return { results: allResults, updatedAt }
   }
 
-  /** 即将发射任务（管理端）：任务id/名称/火箭型号/发射时间，供新增场次一键带入 */
-  async function listUpcomingLaunchesAdmin(user) {
-    const deny = checkPerm(user, 'watch_party'); if (deny) return deny
+  /**
+   * 即将发射任务核心列表（无权限门）：读 LL2 upcoming 缓存，保持 sync 时的 ordering=net 顺序
+   *（与小程序 getUpcomingMissions 同源，勿再按 Date.parse 重排，避免 TBD 占位日打乱顺序）
+   */
+  async function listUpcomingLaunchesCore(limit = 30) {
+    const max = Math.min(100, Math.max(1, Number(limit) || 30))
     const { results, updatedAt } = await readLl2UpcomingCache()
     const nowMs = Date.now()
     const list = []
@@ -3637,6 +4180,9 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       if (isNaN(t) || t < nowMs - 2 * 3600 * 1000) continue
       const cfg = (launch.rocket && launch.rocket.configuration) || {}
       const fullName = String(launch.name || '')
+      const flightMatch =
+        fullName.match(/flight\s*(?:test\s*)?#?\s*(\d+)/i) ||
+        fullName.match(/\bift[-\s]?(\d+)/i)
       list.push({
         missionId: String(launch.id),
         name: fullName,
@@ -3644,11 +4190,19 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
         rocketName: cfg.name || fullName.split('|')[0].trim(),
         launchTime: net,
         status: (launch.status && (launch.status.name || launch.status.abbrev)) || '',
-        pad: (launch.pad && launch.pad.name) || ''
+        pad: (launch.pad && launch.pad.name) || '',
+        flightNumber: flightMatch ? Number(flightMatch[1]) || 0 : 0
       })
-      if (list.length >= 30) break
+      if (list.length >= max) break
     }
-    return ok({ list, updatedAt })
+    return { list, updatedAt }
+  }
+
+  /** 即将发射任务（管理端）：任务id/名称/火箭型号/发射时间，供新增场次一键带入 */
+  async function listUpcomingLaunchesAdmin(user) {
+    const deny = checkPerm(user, 'watch_party'); if (deny) return deny
+    const data = await listUpcomingLaunchesCore(30)
+    return ok(data)
   }
 
   return {
@@ -3672,6 +4226,7 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     merchantMe,
     merchantUpdateProfile,
     merchantUpdateAvatar,
+    merchantSavePrizePresets,
     merchantListCards,
     merchantCreateSession,
     merchantUpdateSession,
@@ -3690,7 +4245,11 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     createMerchant,
     ensureMerchantCode,
     listUpcomingLaunchesAdmin,
+    listUpcomingLaunchesCore,
     updateMerchant,
+    updateMerchantPassGrant,
+    renewMerchantMembership,
+    sweepMerchantMemberships,
     deleteMerchant,
     listMerchantLeads,
     updateMerchantLead,

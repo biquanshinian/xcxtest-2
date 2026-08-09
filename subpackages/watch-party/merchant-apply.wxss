@@ -54,6 +54,27 @@
 .wpa-row + .wpa-row { border-top: 1rpx solid var(--color-divider-faint); }
 .wpa-row--multi { align-items: flex-start; padding: 22rpx 0; }
 .wpa-row--multi .wpa-label { padding-top: 6rpx; }
+.wpa-row--qr { align-items: flex-start; padding: 20rpx 0; }
+.wpa-qr-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16rpx;
+  padding: 8rpx 0;
+}
+.wpa-qr-thumb {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 12rpx;
+  background: #fff;
+}
+.wpa-qr-link {
+  font-size: 26rpx;
+  color: #60A5FA;
+}
+.theme-light .wpa-qr-link { color: #2563EB; }
 .wpa-label { width: 140rpx; flex-shrink: 0; font-size: 26rpx; color: var(--color-text-secondary); }
 .wpa-input {
   flex: 1;

@@ -22,6 +22,11 @@ const { getFeaturedAgencies, filterAgencies, toDisplayRow } = require('./agency-
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
 const { gateCheck } = require('../../../utils/membership.js')
 const { openBoosterEntityDetail } = require('../../../utils/booster-nav.js')
+const {
+  persistAgencyLogoAfterRemoteLoad,
+  isRemoteAgencyLogoUrl
+} = require('../../../utils/agency-logo-cache.js')
+const { ensureAgencyLogoBgTone } = require('../../../utils/agency-logo-bg.js')
 
 const methods = {
   // ========== 可回收火箭族谱（Tab 仅预览 2 张，全量留给族谱页） ==========
@@ -259,6 +264,24 @@ const methods = {
       console.error('[Agency] loadAgencies error:', e)
       this.setData({ agencyLoading: false, agencyError: '加载失败，请稍后重试' })
     }
+  },
+
+  /** 仅-logo 预览卡：落盘后分析透明底色 */
+  onAgencyImageLoad(e) {
+    const idx = Number(e.currentTarget.dataset.index)
+    const item = this.data.agencyVisible[idx]
+    if (!item || item.imageMode !== 'aspectFit') return
+    const remote = String(item.logoUrlRaw || item.logoUrl || '').trim()
+    if (!remote || !isRemoteAgencyLogoUrl(remote)) return
+    const self = this
+    persistAgencyLogoAfterRemoteLoad(remote, function (localPath) {
+      if (!localPath) return
+      ensureAgencyLogoBgTone(remote, localPath, function (tone) {
+        if (!tone || !self.data.agencyVisible[idx]) return
+        if (self.data.agencyVisible[idx].logoBgTone === tone) return
+        self.setData({ [`agencyVisible[${idx}].logoBgTone`]: tone })
+      })
+    })
   },
 
   /** 卡片图加载失败：优先走统一 imageFallbacks，再兜底压缩链/logo */

@@ -156,14 +156,14 @@
             <view class="wp-loc-btn"><text>去预约</text></view>
           </view>
         </block>
-        <block wx:if="{{session.contactPhone}}">
+        <block wx:if="{{hasContact}}">
           <view class="wp-divider"></view>
           <view class="wp-loc-row" bindtap="onContactMerchant">
             <view class="wp-loc-main">
               <text class="wp-loc-name">联系商家</text>
-              <text class="wp-loc-sub">{{session.contactPhone}} · 观礼咨询 / 到场协调</text>
+              <text class="wp-loc-sub">{{contactHint}}</text>
             </view>
-            <view class="wp-loc-btn"><text>拨打</text></view>
+            <view class="wp-loc-btn"><text>{{contactBtnText}}</text></view>
           </view>
         </block>
       </view>
@@ -235,7 +235,7 @@
               </view>
             </block>
             <image wx:else class="wp-qr-img" src="{{session.wechatGroupQr}}" mode="aspectFit" bindtap="onPreviewWechatQr" data-index="0" show-menu-by-longpress />
-            <text class="wp-qr-hint">长按或点击可识别 / 预览</text>
+            <text class="wp-qr-hint">长按识别加好友进群</text>
           </view>
         </view>
       </block>
@@ -274,7 +274,7 @@
         <text class="wp-reserved-hint">到场后向工作人员报核销码或出示本页即可</text>
         <view class="wp-reserved-actions">
           <view class="wp-rsv-btn" bindtap="onAddCalendar"><text>日历提醒</text></view>
-          <view class="wp-rsv-btn" wx:if="{{session.contactPhone}}" bindtap="onContactMerchant"><text>联系商家</text></view>
+          <view class="wp-rsv-btn" wx:if="{{hasContact}}" bindtap="onContactMerchant"><text>联系商家</text></view>
           <view class="wp-rsv-btn wp-rsv-btn--warn" wx:if="{{myReservation.status !== 'checked_in'}}" bindtap="onCancelReserve">
             <text>{{cancelling ? '取消中…' : '取消预约'}}</text>
           </view>
@@ -291,9 +291,9 @@
             placeholder="到场核销用"
             placeholder-class="wp-form-ph"
             maxlength="20"
-            confirm-type="next"
+            confirm-type="done"
             data-path="form.name"
-            bindinput="onTextInput" cursor-spacing="24" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
+            bindinput="onTextInput" cursor-spacing="24" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" bindkeyboardheightchange="onInputKeyboardHeightChange" bindblur="onInputBlur" />
         </view>
         <view class="wp-divider"></view>
         <view class="wp-form-row">
@@ -306,7 +306,7 @@
             maxlength="11"
             confirm-type="done"
             data-path="form.phone"
-            bindinput="onTextInput" cursor-spacing="24" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
+            bindinput="onTextInput" cursor-spacing="24" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" bindkeyboardheightchange="onInputKeyboardHeightChange" bindblur="onInputBlur" />
         </view>
         <view class="wp-divider"></view>
         <view class="wp-form-row">
@@ -329,9 +329,9 @@
         <text class="wp-form-note">预约免费，仅用于到场登记与人数统计；发射时间如有推迟将短信通知。{{reserveCloseText ? '本场 ' + reserveCloseText + '（发射前30分钟）。' : ''}}</text>
       </view>
       <view class="wp-card" wx:elif="{{session.status === 'open' && reserveClosed}}">
-        <text class="wp-closed-text">距发射不足 30 分钟，线上预约已截止。欢迎直接到场，现场登记参与观礼{{session.contactPhone ? '，或电话联系商家协调' : ''}}。</text>
-        <view class="wp-closed-call" wx:if="{{session.contactPhone}}" bindtap="onContactMerchant">
-          <text>拨打商家电话 {{session.contactPhone}}</text>
+        <text class="wp-closed-text">距发射不足 30 分钟，线上预约已截止。欢迎直接到场，现场登记参与观礼{{hasContact ? '，或联系商家协调' : ''}}。</text>
+        <view class="wp-closed-call" wx:if="{{hasContact}}" bindtap="onContactMerchant">
+          <text>{{contactClosedBtnText}}</text>
         </view>
       </view>
       <view class="wp-card" wx:else>
@@ -418,11 +418,24 @@
             </view>
           </block>
           <block wx:else>
-            <textarea id="c_coopForm_name" class="wp-input" placeholder="商家/观礼点名称（必填）" placeholder-class="wp-input-ph" maxlength="40" value="{{coopForm.name}}" confirm-type="next" data-path="coopForm.name" bindinput="onTextInput" cursor-spacing="24" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
-            <textarea id="c_coopForm_contactName" class="wp-input" placeholder="联系人姓名（必填）" placeholder-class="wp-input-ph" maxlength="20" value="{{coopForm.contactName}}" confirm-type="next" data-path="coopForm.contactName" bindinput="onTextInput" cursor-spacing="24" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
-            <textarea id="c_coopForm_phone" class="wp-input" placeholder="手机号（必填）" placeholder-class="wp-input-ph" maxlength="11" value="{{coopForm.phone}}" confirm-type="next" data-path="coopForm.phone" bindinput="onTextInput" cursor-spacing="24" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
-            <textarea id="c_coopForm_location" class="wp-input" placeholder="点位位置（如：文昌龙楼镇 ×× 路，选填）" placeholder-class="wp-input-ph" maxlength="120" value="{{coopForm.location}}" confirm-type="next" data-path="coopForm.location" bindinput="onTextInput" cursor-spacing="24" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
-            <textarea id="c_coopForm_note" class="wp-input wp-textarea" placeholder="补充说明：楼层视野、可容纳人数等（选填）" placeholder-class="wp-input-ph" maxlength="500" value="{{coopForm.note}}" show-confirm-bar="{{false}}" data-path="coopForm.note" bindinput="onTextInput" cursor-spacing="24" />
+            <textarea id="c_coopForm_name" class="wp-input" placeholder="商家/观礼点名称（必填）" placeholder-class="wp-input-ph" maxlength="40" value="{{coopForm.name}}" confirm-type="done" data-path="coopForm.name" bindinput="onTextInput" cursor-spacing="24" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" bindkeyboardheightchange="onInputKeyboardHeightChange" bindblur="onInputBlur" />
+            <textarea id="c_coopForm_contactName" class="wp-input" placeholder="联系人姓名（必填）" placeholder-class="wp-input-ph" maxlength="20" value="{{coopForm.contactName}}" confirm-type="done" data-path="coopForm.contactName" bindinput="onTextInput" cursor-spacing="24" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" bindkeyboardheightchange="onInputKeyboardHeightChange" bindblur="onInputBlur" />
+            <textarea id="c_coopForm_phone" class="wp-input" placeholder="手机号（必填）" placeholder-class="wp-input-ph" maxlength="11" value="{{coopForm.phone}}" confirm-type="done" data-path="coopForm.phone" bindinput="onTextInput" cursor-spacing="24" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" bindkeyboardheightchange="onInputKeyboardHeightChange" bindblur="onInputBlur" />
+            <view class="wp-coop-qr">
+              <text class="wp-coop-qr-label">微信好友二维码（选填，顾客可长按添加）</text>
+              <view class="wp-coop-qr-row" wx:if="{{coopForm.wechatQr}}">
+                <image class="wp-coop-qr-img" src="{{coopForm.wechatQr}}" mode="aspectFit" />
+                <view class="wp-coop-qr-actions">
+                  <text class="wp-coop-qr-link" bindtap="onUploadCoopWechatQr">更换</text>
+                  <text class="wp-coop-qr-link" bindtap="onRemoveCoopWechatQr">移除</text>
+                </view>
+              </view>
+              <view class="wp-coop-qr-add" wx:else bindtap="onUploadCoopWechatQr">
+                <text>{{coopQrUploading ? '上传中…' : '上传添加好友二维码'}}</text>
+              </view>
+            </view>
+            <textarea id="c_coopForm_location" class="wp-input" placeholder="点位位置（如：文昌龙楼镇 ×× 路，选填）" placeholder-class="wp-input-ph" maxlength="120" value="{{coopForm.location}}" confirm-type="done" data-path="coopForm.location" bindinput="onTextInput" cursor-spacing="24" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" bindkeyboardheightchange="onInputKeyboardHeightChange" bindblur="onInputBlur" />
+            <textarea id="c_coopForm_note" class="wp-input wp-textarea" placeholder="补充说明：楼层视野、可容纳人数等（选填）" placeholder-class="wp-input-ph" maxlength="500" value="{{coopForm.note}}" show-confirm-bar="{{false}}" data-path="coopForm.note" bindinput="onTextInput" cursor-spacing="24" bindkeyboardheightchange="onInputKeyboardHeightChange" bindblur="onInputBlur" />
             <view class="wp-submit-btn {{coopSubmitting ? 'wp-submit-btn--disabled' : ''}}" bindtap="onCoopSubmit">
               <text>{{coopSubmitting ? '提交中…' : '提交合作申请'}}</text>
             </view>
@@ -440,6 +453,24 @@
     <view class="page-footer">
       <text class="footer-text">Per Aspera Ad Astra · 循此苦旅以达星辰</text>
     </view>
+    <view class="kb-pad" style="height: {{keyboardHeight}}px;"></view>
   </scroll-view>
+  <!-- 微信联系：展示商家添加好友二维码，长按识别 -->
+  <view class="wp-contact-mask" wx:if="{{contactQrVisible}}" catchtouchmove="noop" bindtap="onCloseContactQr">
+    <view class="wp-contact-sheet" catchtap="noop">
+      <text class="wp-contact-title">添加商家微信</text>
+      <text class="wp-contact-sub">长按下方二维码识别，添加好友咨询</text>
+      <image
+        class="wp-contact-qr"
+        src="{{contactQrUrl}}"
+        mode="aspectFit"
+        show-menu-by-longpress
+        bindtap="onPreviewContactQr"
+      />
+      <text class="wp-contact-hint">也可点击放大后长按识别</text>
+      <view class="wp-contact-close" bindtap="onCloseContactQr"><text>关闭</text></view>
+    </view>
+  </view>
+
   <privacy-modal id="globalPrivacyModal"></privacy-modal>
 </view>

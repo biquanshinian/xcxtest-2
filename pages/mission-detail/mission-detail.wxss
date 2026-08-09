@@ -3293,6 +3293,14 @@ page {
 }
 
 /* ── 现场观礼入口 ── */
+/* 入口卡挂在头部卡片内、火箭配置图正下方：压掉 detail-section 默认内衬，
+   左右对齐头图区文字的 28rpx；上方间距由 hero-float 的 66rpx 下边距
+  （含毛玻璃叠层下探 28rpx）提供，不再额外加 */
+.detail-hero-section .detail-watch-party-section {
+  padding: 0;
+  margin: 0 28rpx 24rpx;
+}
+
 .watch-party-row {
   display: flex;
   align-items: center;

@@ -6,6 +6,7 @@ const {
   isRemoteAgencyLogoUrl,
   resolveAgencyLogoForDisplay
 } = require('./agency-logo-cache.js')
+const { resolveAgencyLogoBgTone } = require('./agency-logo-bg.js')
 const { applyLaunchAgencyLogoOverridesToMission } = require('./agency-logo-overrides.js')
 
 const ALL_TASKS_CHIP_LOGO = '/images/icons/ic-orbit-globe.svg'
@@ -18,7 +19,8 @@ function finalizeChipLogoFields(rawLogoUrl) {
     : AGENCY_FALLBACK_LOGO
   const logoRemoteSrc = isRemoteAgencyLogoUrl(raw) ? raw : ''
   const logoUrl = logoRemoteSrc ? resolveAgencyLogoForDisplay(raw) : raw
-  return { logoUrl, logoRemoteSrc }
+  const logoBgTone = logoRemoteSrc ? resolveAgencyLogoBgTone(logoRemoteSrc) : ''
+  return { logoUrl, logoRemoteSrc, logoBgTone }
 }
 
 function normalizeAgencyName(name) {
@@ -83,7 +85,8 @@ function collectAgencyAggregation(missions) {
     return {
       ...row,
       logoUrl: fin.logoUrl,
-      logoRemoteSrc: fin.logoRemoteSrc
+      logoRemoteSrc: fin.logoRemoteSrc,
+      logoBgTone: fin.logoBgTone
     }
   })
   return { list, total: list.length, agencies }
@@ -102,6 +105,7 @@ function buildUpcomingAgencyFilterState(missions, selectedKey) {
     count: total,
     logoUrl: ALL_TASKS_CHIP_LOGO,
     logoRemoteSrc: '',
+    logoBgTone: '',
     active: selectedKey === '_all' || !selectedKey
   }
 

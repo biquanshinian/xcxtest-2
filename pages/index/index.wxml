@@ -644,7 +644,7 @@
               >
                 <image
                   wx:if="{{item.key !== '_all'}}"
-                  class="tweet-stat-avatar upcoming-agency-chip-logo"
+                  class="tweet-stat-avatar upcoming-agency-chip-logo {{item.logoBgTone === 'dark' ? 'agency-logo-bg--dark' : ''}} {{item.logoBgTone === 'light' ? 'agency-logo-bg--light' : ''}}"
                   src="{{item.logoUrl}}"
                   mode="aspectFit"
                   data-logo-remote="{{item.logoRemoteSrc}}"
@@ -843,9 +843,11 @@
           <view class="splash-mission-agency">
             <image
               wx:if="{{splashMission.agencyLogo}}"
-              class="splash-mission-agency-logo"
+              class="splash-mission-agency-logo {{splashMission.agencyLogoBgTone === 'dark' ? 'agency-logo-bg--dark' : ''}} {{splashMission.agencyLogoBgTone === 'light' ? 'agency-logo-bg--light' : ''}}"
               src="{{splashMission.agencyLogo}}"
               mode="aspectFill"
+              data-logo-remote="{{splashMission.agencyLogo}}"
+              bindload="onSplashAgencyLogoLoad"
             ></image>
             <text class="splash-mission-agency-name">{{splashMission.agencyName}}</text>
           </view>

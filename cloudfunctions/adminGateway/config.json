@@ -10,6 +10,11 @@
       "name": "syncSpacexSplashTimer",
       "type": "timer",
       "config": "0 10 */2 * * * *"
+    },
+    {
+      "name": "merchantMembershipSweepTimer",
+      "type": "timer",
+      "config": "0 20 0 * * * *"
     }
   ]
 }

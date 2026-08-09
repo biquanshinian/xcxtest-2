@@ -1,7 +1,6 @@
 /* 我的观礼卡册
  * 中性色走 tokens.wxss 变量（根节点 themeClass 挂 theme-light 时自动翻转）。
- * 单卡查看覆盖层保持深色「实体卡」质感，双主题一致，不做翻转。
- * 单卡卡面与抽卡结果共用：styles/prize-card.wxss。
+ * 单卡卡面与抽卡结果共用：styles/prize-card.wxss（含 theme-light 票券反色）。
  */
 @import "styles/prize-card.wxss";
 
@@ -198,7 +197,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ── 单卡查看（深色实体卡质感，双主题一致，颜色用字面值不翻转） ── */
+/* ── 单卡查看 ── */
 .ab-overlay {
   position: fixed;
   inset: 0;
@@ -207,6 +206,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.theme-light .ab-overlay {
+  background: rgba(232, 234, 237, 0.94);
 }
 
 .ab-view-wrap {

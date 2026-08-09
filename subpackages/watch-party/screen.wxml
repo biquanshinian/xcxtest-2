@@ -1,6 +1,7 @@
-<!-- 现场大屏模式：横屏常亮，始终深色（投屏显示页，不随主题切换） -->
+<!-- 现场大屏模式：横屏常亮；跟随全局主题，右上角可一键切换明暗 -->
 <!-- 内容区从微信胶囊下沿起算，避免顶栏与系统胶囊重叠 -->
-<view class="scr scr--{{phase}}" style="padding-top: {{contentPadTop}}px;">
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="scr scr--{{phase}} {{themeClass}}" style="padding-top: {{contentPadTop}}px;">
   <!-- 左上角返回：与全站通用返回图标一致，不干扰投屏画面 -->
   <view class="scr-exit" style="top: {{exitTop}}px;" bindtap="onExit">
     <view class="top-nav-slot--back">
@@ -8,14 +9,22 @@
     </view>
   </view>
 
-  <!-- 横/竖屏切换：贴在系统胶囊左侧，避免叠进胶囊 -->
-  <view
-    class="scr-orient"
-    style="top: {{orientTop}}px; right: {{orientRight}}px;"
-    bindtap="onToggleOrientation"
-    hover-class="scr-orient--hover"
-  >
-    <text class="scr-orient-text">{{landscapeMode ? '竖屏' : '横屏'}}</text>
+  <!-- 明暗 + 横/竖屏：贴在系统胶囊左侧，统一 0.8 缩放 -->
+  <view class="scr-tools" style="top: {{orientTop}}px; right: {{orientRight}}px;">
+    <view
+      class="scr-tool"
+      bindtap="onToggleTheme"
+      hover-class="scr-tool--hover"
+    >
+      <text class="scr-tool-text">{{themeLight ? '深色' : '浅色'}}</text>
+    </view>
+    <view
+      class="scr-tool"
+      bindtap="onToggleOrientation"
+      hover-class="scr-tool--hover"
+    >
+      <text class="scr-tool-text">{{landscapeMode ? '竖屏' : '横屏'}}</text>
+    </view>
   </view>
 
   <view class="scr-loading" wx:if="{{loading}}">

@@ -77,8 +77,8 @@
       <!-- 信息头：logo/名称/徽标下移出头图，不再遮挡照片 -->
       <view class="info-header">
         <view class="info-main-row">
-          <view class="agency-logo-chip" wx:if="{{item.logoUrl}}">
-            <image class="agency-logo" src="{{item.logoUrl}}" mode="aspectFit"></image>
+          <view class="agency-logo-chip {{item.logoBgTone === 'dark' ? 'agency-logo-bg--dark' : ''}} {{item.logoBgTone === 'light' ? 'agency-logo-bg--light' : ''}}" wx:if="{{item.logoUrl}}">
+            <image class="agency-logo" src="{{item.logoUrl}}" mode="aspectFit" bindload="onAgencyLogoLoad"></image>
           </view>
           <view class="info-title-col">
             <text class="info-name">{{item.name}}</text>

@@ -28,8 +28,9 @@
 
       <!-- 提交完成 -->
       <view class="wpa-card" wx:elif="{{done}}">
-        <text class="wpa-title">入驻成功</text>
-        <text class="wpa-desc">您已成为观礼合作商家{{doneMerchantCode ? '（编号 ' + doneMerchantCode + '）' : ''}}，当前微信已自动绑定，现在就去创建第一个观礼场次吧。</text>
+        <text class="wpa-title">{{doneNeedPay ? '入驻成功 · 待缴费开通' : '入驻成功'}}</text>
+        <text class="wpa-desc" wx:if="{{doneNeedPay}}">您已成为观礼合作商家{{doneMerchantCode ? '（编号 ' + doneMerchantCode + '）' : ''}}。{{donePayNotice || '请联系运营人员缴费开通商家会员'}}</text>
+        <text class="wpa-desc" wx:else>您已成为观礼合作商家{{doneMerchantCode ? '（编号 ' + doneMerchantCode + '）' : ''}}，当前微信已自动绑定，现在就去创建第一个观礼场次吧。</text>
         <view class="wpa-primary-btn" bindtap="onGoMerchant"><text>进入商家中心</text></view>
       </view>
 
@@ -38,37 +39,47 @@
         <view class="wpa-hero">
           <text class="wpa-hero-label">火箭观礼 · 商家合作</text>
           <text class="wpa-hero-title">入驻观礼商家</text>
-          <text class="wpa-hero-desc">填写信息即可自动入驻，微信自动绑定，手机上自助创建观礼场次、接待发射观礼客流。</text>
           <view class="wpa-ref" wx:if="{{refName}}">
-            <text>由「{{refName}}」推荐</text>
+            <text>由「{{refName}}」推荐 · 对方成功入驻可获赠 1 个月商家会员</text>
           </view>
         </view>
 
         <view class="wpa-card">
           <view class="wpa-row">
             <text class="wpa-label">名称</text>
-            <textarea id="c_apply_name" class="wpa-input" value="{{form.name}}" placeholder="商家/观礼点名称（必填）" placeholder-class="wpa-ph" maxlength="40" data-path="form.name" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
+            <textarea id="c_apply_name" class="wpa-input" value="{{form.name}}" placeholder="商家/观礼点名称（必填）" placeholder-class="wpa-ph" maxlength="40" data-path="form.name" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" bindkeyboardheightchange="onInputKeyboardHeightChange" bindblur="onInputBlur" />
           </view>
           <view class="wpa-row">
             <text class="wpa-label">联系人</text>
-            <textarea id="c_apply_contact" class="wpa-input" value="{{form.contactName}}" placeholder="联系人姓名（必填）" placeholder-class="wpa-ph" maxlength="20" data-path="form.contactName" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
+            <textarea id="c_apply_contact" class="wpa-input" value="{{form.contactName}}" placeholder="联系人姓名（必填）" placeholder-class="wpa-ph" maxlength="20" data-path="form.contactName" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" bindkeyboardheightchange="onInputKeyboardHeightChange" bindblur="onInputBlur" />
           </view>
           <view class="wpa-row">
             <text class="wpa-label">手机号</text>
-            <textarea id="c_apply_phone" class="wpa-input" value="{{form.phone}}" placeholder="11 位手机号（必填）" placeholder-class="wpa-ph" maxlength="11" data-path="form.phone" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
+            <textarea id="c_apply_phone" class="wpa-input" value="{{form.phone}}" placeholder="11 位手机号（必填）" placeholder-class="wpa-ph" maxlength="11" data-path="form.phone" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" bindkeyboardheightchange="onInputKeyboardHeightChange" bindblur="onInputBlur" />
+          </view>
+          <view class="wpa-row wpa-row--qr">
+            <text class="wpa-label">微信码</text>
+            <view class="wpa-qr-field">
+              <block wx:if="{{form.wechatQr}}">
+                <image class="wpa-qr-thumb" src="{{form.wechatQr}}" mode="aspectFit" />
+                <text class="wpa-qr-link" bindtap="onUploadWechatQr">更换</text>
+                <text class="wpa-qr-link" bindtap="onRemoveWechatQr">移除</text>
+              </block>
+              <text wx:else class="wpa-qr-link" bindtap="onUploadWechatQr">{{qrUploading ? '上传中…' : '上传添加好友二维码（选填）'}}</text>
+            </view>
           </view>
           <view class="wpa-row">
             <text class="wpa-label">所在地区</text>
-            <textarea id="c_apply_location" class="wpa-input" value="{{form.location}}" placeholder="观礼点/门店位置，如 海南文昌（选填）" placeholder-class="wpa-ph" maxlength="120" data-path="form.location" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" />
+            <textarea id="c_apply_location" class="wpa-input" value="{{form.location}}" placeholder="观礼点/门店位置，如 海南文昌（选填）" placeholder-class="wpa-ph" maxlength="120" data-path="form.location" bindinput="onTextInput" cursor-spacing="24" confirm-type="done" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" data-single="1" bindkeyboardheightchange="onInputKeyboardHeightChange" bindblur="onInputBlur" />
           </view>
           <view class="wpa-row wpa-row--multi">
             <text class="wpa-label">备注</text>
-            <textarea id="c_apply_note" class="wpa-input wpa-input--multi" value="{{form.note}}" placeholder="可提供的观礼服务、场地情况等（选填）" placeholder-class="wpa-ph" maxlength="500" auto-height data-path="form.note" bindinput="onTextInput" cursor-spacing="24" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" />
+            <textarea id="c_apply_note" class="wpa-input wpa-input--multi" value="{{form.note}}" placeholder="可提供的观礼服务、场地情况等（选填）" placeholder-class="wpa-ph" maxlength="500" auto-height data-path="form.note" bindinput="onTextInput" cursor-spacing="24" show-confirm-bar="{{false}}" disable-default-padding="{{true}}" bindkeyboardheightchange="onInputKeyboardHeightChange" bindblur="onInputBlur" />
           </view>
           <view class="wpa-primary-btn {{submitting ? 'wpa-btn--disabled' : ''}}" bindtap="onSubmit">
             <text>{{submitting ? '提交中…' : '提交入驻'}}</text>
           </view>
-          <text class="wpa-hint">提交即自动开通商家身份并绑定当前微信；入驻与预约均免费，门票等费用由商家线下自行结算。</text>
+          <text class="wpa-hint">提交即自动开通商家身份并绑定当前微信。</text>
         </view>
       </block>
     </block>
@@ -76,6 +87,7 @@
     <view class="page-footer">
       <text class="footer-text">Per Aspera Ad Astra · 循此苦旅以达星辰</text>
     </view>
+    <view class="kb-pad" style="height: {{keyboardHeight}}px;"></view>
   </scroll-view>
 
   <privacy-modal />

@@ -7,7 +7,7 @@
       </div>
     </template>
 
-    <el-form :model="form" label-width="120px" style="max-width:720px;">
+    <el-form :model="form" label-width="120px" class="splash-form">
       <el-form-item label="启用开屏动画">
         <el-switch v-model="form.enabled" />
       </el-form-item>
@@ -55,103 +55,156 @@
         </div>
       </el-form-item>
 
-      <el-form-item label="开屏媒体池">
-        <div class="splash-upload-area">
-          <div class="splash-pool-hint">
-            最多 {{ MEDIA_MAX }} 个（图片/视频均可）。小程序每次冷启动会<strong>随机</strong>展示其中一条。视频保存后自动压缩预览。
-            填写「任务名称」后，小程序会自动匹配最近的同名即将发射任务，并在开屏上展示可点击的倒计时组件（点击跳转任务详情）；不填则不显示。
-            <span style="margin-left:8px;">已上传 {{ form.mediaItems.length }} / {{ MEDIA_MAX }}</span>
-          </div>
+      <el-form-item label="开屏媒体池" class="splash-pool-item">
+        <div class="splash-pool-layout">
+          <div class="splash-upload-area">
+            <div class="splash-pool-hint">
+              最多 {{ MEDIA_MAX }} 个（图片/视频均可）。小程序每次冷启动会<strong>随机</strong>展示其中一条。视频保存后自动压缩预览。
+              选中左侧媒体后，在右侧「任务选项列表」点选对应发射任务；保存后小程序会按与官网自动同步相同的名称匹配逻辑，展示可点击倒计时组件。不选则不显示。
+              <span style="margin-left:8px;">已上传 {{ form.mediaItems.length }} / {{ MEDIA_MAX }}</span>
+            </div>
 
-          <div v-if="form.mediaItems.length" class="splash-media-grid">
-            <div v-for="(item, idx) in form.mediaItems" :key="item.id" class="splash-preview">
-              <video
-                v-if="item.mediaType === 'video'"
-                :src="item.previewUrl || item.mediaUrl"
-                class="splash-preview-media"
-                controls
-                :poster="item.posterUrl || undefined"
-              />
-              <img v-else class="splash-preview-media" :src="item.mediaUrl" />
-              <div class="splash-preview-actions">
-                <el-tag size="small" :type="item.mediaType === 'video' ? 'warning' : ''">
-                  {{ idx + 1 }}. {{ item.mediaType === 'video' ? '视频' : '图片' }}
-                </el-tag>
-                <el-tag v-if="item.autoSource === 'spacex'" size="small" type="primary" effect="dark">官网自动</el-tag>
-                <el-tag v-if="item.mediaType === 'video' && item.previewStatus === 'ready'" size="small" type="success">预览就绪</el-tag>
-                <el-tag v-else-if="item.mediaType === 'video' && (item.previewStatus === 'processing' || item.previewStatus === 'pending')" size="small" type="info">转码中</el-tag>
-                <el-tag v-else-if="item.mediaType === 'video' && item.previewStatus === 'failed'" size="small" type="danger">转码失败</el-tag>
-                <el-button size="small" type="danger" @click="removeMediaAt(idx)">移除</el-button>
-              </div>
-              <div class="splash-mission-input">
-                <el-input
-                  v-model="item.missionName"
-                  size="small"
-                  :clearable="item.autoSource !== 'spacex'"
-                  :readonly="item.autoSource === 'spacex'"
-                  :placeholder="item.autoSource === 'spacex' ? '由官网自动同步填写' : '任务名称（不填则不显示倒计时组件）'"
+            <div v-if="form.mediaItems.length" class="splash-media-grid">
+              <div
+                v-for="(item, idx) in form.mediaItems"
+                :key="item.id"
+                class="splash-preview"
+                :class="{ 'splash-preview-active': selectedMediaId === item.id }"
+                @click="selectMediaItem(item.id)"
+              >
+                <video
+                  v-if="item.mediaType === 'video'"
+                  :src="item.previewUrl || item.mediaUrl"
+                  class="splash-preview-media"
+                  controls
+                  :poster="item.posterUrl || undefined"
+                  @click.stop
                 />
+                <img v-else class="splash-preview-media" :src="item.mediaUrl" />
+                <div class="splash-preview-actions">
+                  <el-tag size="small" :type="item.mediaType === 'video' ? 'warning' : ''">
+                    {{ idx + 1 }}. {{ item.mediaType === 'video' ? '视频' : '图片' }}
+                  </el-tag>
+                  <el-tag v-if="item.autoSource === 'spacex'" size="small" type="primary" effect="dark">官网自动</el-tag>
+                  <el-tag v-if="item.mediaType === 'video' && item.previewStatus === 'ready'" size="small" type="success">预览就绪</el-tag>
+                  <el-tag v-else-if="item.mediaType === 'video' && (item.previewStatus === 'processing' || item.previewStatus === 'pending')" size="small" type="info">转码中</el-tag>
+                  <el-tag v-else-if="item.mediaType === 'video' && item.previewStatus === 'failed'" size="small" type="danger">转码失败</el-tag>
+                  <el-button size="small" type="danger" @click.stop="removeMediaAt(idx)">移除</el-button>
+                </div>
+                <div class="splash-mission-bound">
+                  <span v-if="item.missionName" class="splash-mission-bound-name" :title="item.missionName">
+                    倒计时：{{ item.missionName }}
+                  </span>
+                  <span v-else class="splash-mission-bound-empty">未关联任务（无倒计时）</span>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div v-if="uploadTasks.length" class="upload-tasks">
-            <div v-for="(task, i) in uploadTasks" :key="i" class="upload-task-row">
-              <span class="task-name">{{ task.name }}</span>
-              <el-progress
-                :percentage="task.percent"
-                :status="task.error ? 'exception' : task.percent >= 100 ? 'success' : ''"
-                :stroke-width="6"
-                style="flex:1"
-              />
-              <span v-if="task.error" class="task-error">{{ task.error }}</span>
+            <div v-if="uploadTasks.length" class="upload-tasks">
+              <div v-for="(task, i) in uploadTasks" :key="i" class="upload-task-row">
+                <span class="task-name">{{ task.name }}</span>
+                <el-progress
+                  :percentage="task.percent"
+                  :status="task.error ? 'exception' : task.percent >= 100 ? 'success' : ''"
+                  :stroke-width="6"
+                  style="flex:1"
+                />
+                <span v-if="task.error" class="task-error">{{ task.error }}</span>
+              </div>
             </div>
+
+            <div v-if="form.mediaItems.length < MEDIA_MAX" class="splash-source-area">
+              <div
+                class="drop-zone"
+                :class="{ 'drop-zone-active': isDragActive }"
+                @dragover.prevent="isDragActive = true"
+                @dragleave="isDragActive = false"
+                @drop.prevent="onDrop"
+                @click="triggerFilePicker"
+              >
+                <div class="drop-zone-content">
+                  <svg viewBox="0 0 48 48" width="36" height="36" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 32l8-8 6 6 8-10 10 12"/><rect x="4" y="4" width="40" height="40" rx="4"/><circle cx="14" cy="16" r="3"/></svg>
+                  <span class="drop-zone-title">拖拽或点击继续添加（可多选）</span>
+                  <span class="drop-zone-hint">要求 9:16 竖版，图片 ≤ 3MB，视频 ≤ 20MB · jpg/png/webp/mp4/mov</span>
+                </div>
+              </div>
+
+              <div class="source-divider">
+                <span class="source-divider-text">或</span>
+              </div>
+
+              <div class="cos-pick-zone" @click="openCosPicker">
+                <div class="drop-zone-content">
+                  <svg viewBox="0 0 48 48" width="36" height="36" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="8" width="40" height="32" rx="4"/><path d="M20 8V6a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M16 24h16M16 30h10"/></svg>
+                  <span class="drop-zone-title">从 COS 桶选择</span>
+                  <span class="drop-zone-hint">浏览已上传到 COS 的图片或视频文件</span>
+                </div>
+              </div>
+            </div>
+
+            <div v-else class="splash-pool-full">已达上限 {{ MEDIA_MAX }} 个，请先移除后再添加</div>
+
+            <div v-if="form.mediaItems.some(i => i.mediaType === 'video')" class="splash-preview-tip" style="margin-top:12px;">
+              <el-button size="small" :loading="refreshingPreview" @click="refreshPreviewStatus">刷新全部预览状态</el-button>
+              <span style="margin-left:8px;">视频转码通常 1–3 分钟</span>
+            </div>
+
+            <input
+              ref="fileInputRef"
+              type="file"
+              accept=".jpg,.jpeg,.png,.webp,.mp4,.mov"
+              multiple
+              style="display:none"
+              @change="onFileInputChange"
+            />
           </div>
 
-          <div v-if="form.mediaItems.length < MEDIA_MAX" class="splash-source-area">
-            <div
-              class="drop-zone"
-              :class="{ 'drop-zone-active': isDragActive }"
-              @dragover.prevent="isDragActive = true"
-              @dragleave="isDragActive = false"
-              @drop.prevent="onDrop"
-              @click="triggerFilePicker"
+          <aside class="splash-mission-panel">
+            <div class="splash-mission-panel-head">
+              <div>
+                <div class="splash-mission-panel-title">任务选项列表</div>
+                <div class="splash-mission-panel-sub">
+                  {{ selectedMedia
+                    ? (selectedMedia.autoSource === 'spacex'
+                      ? '官网自动项任务已锁定'
+                      : `为「媒体 ${selectedMediaIndex + 1}」选择倒计时任务`)
+                    : '请先在左侧选中一条媒体' }}
+                </div>
+              </div>
+              <el-button size="small" :loading="missionsLoading" @click="loadUpcomingMissions">刷新</el-button>
+            </div>
+
+            <button
+              type="button"
+              class="splash-mission-option splash-mission-option-clear"
+              :disabled="!canAssignMission"
+              :class="{ active: selectedMedia && !selectedMedia.missionName }"
+              @click="clearSelectedMission"
             >
-              <div class="drop-zone-content">
-                <svg viewBox="0 0 48 48" width="36" height="36" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 32l8-8 6 6 8-10 10 12"/><rect x="4" y="4" width="40" height="40" rx="4"/><circle cx="14" cy="16" r="3"/></svg>
-                <span class="drop-zone-title">拖拽或点击继续添加（可多选）</span>
-                <span class="drop-zone-hint">要求 9:16 竖版，图片 ≤ 3MB，视频 ≤ 20MB · jpg/png/webp/mp4/mov</span>
+              不关联任务（不显示倒计时）
+            </button>
+
+            <div v-loading="missionsLoading" class="splash-mission-list">
+              <button
+                v-for="m in upcomingMissions"
+                :key="m.missionId || m.name"
+                type="button"
+                class="splash-mission-option"
+                :disabled="!canAssignMission"
+                :class="{ active: isMissionActive(m) }"
+                @click="assignMissionToSelected(m)"
+              >
+                <span class="splash-mission-option-name">{{ m.name }}</span>
+                <span class="splash-mission-option-meta">
+                  <span>{{ formatMissionNet(m.launchTime) }}</span>
+                  <span v-if="m.status">{{ m.status }}</span>
+                </span>
+              </button>
+              <div v-if="!missionsLoading && !upcomingMissions.length" class="splash-mission-empty">
+                暂无即将发射任务，请稍后刷新
               </div>
             </div>
-
-            <div class="source-divider">
-              <span class="source-divider-text">或</span>
-            </div>
-
-            <div class="cos-pick-zone" @click="openCosPicker">
-              <div class="drop-zone-content">
-                <svg viewBox="0 0 48 48" width="36" height="36" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="8" width="40" height="32" rx="4"/><path d="M20 8V6a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M16 24h16M16 30h10"/></svg>
-                <span class="drop-zone-title">从 COS 桶选择</span>
-                <span class="drop-zone-hint">浏览已上传到 COS 的图片或视频文件</span>
-              </div>
-            </div>
-          </div>
-
-          <div v-else class="splash-pool-full">已达上限 {{ MEDIA_MAX }} 个，请先移除后再添加</div>
-
-          <div v-if="form.mediaItems.some(i => i.mediaType === 'video')" class="splash-preview-tip" style="margin-top:12px;">
-            <el-button size="small" :loading="refreshingPreview" @click="refreshPreviewStatus">刷新全部预览状态</el-button>
-            <span style="margin-left:8px;">视频转码通常 1–3 分钟</span>
-          </div>
-
-          <input
-            ref="fileInputRef"
-            type="file"
-            accept=".jpg,.jpeg,.png,.webp,.mp4,.mov"
-            multiple
-            style="display:none"
-            @change="onFileInputChange"
-          />
+          </aside>
         </div>
       </el-form-item>
     </el-form>
@@ -204,7 +257,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref, watchEffect } from 'vue'
+import { computed, onMounted, reactive, ref, watch, watchEffect } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api/client'
 import SplashNoticeEditor from '../components/SplashNoticeEditor.vue'
@@ -236,6 +289,99 @@ const refreshingPreview = ref(false)
 const isDragActive = ref(false)
 const uploadTasks = ref([])
 const fileInputRef = ref(null)
+const selectedMediaId = ref('')
+const upcomingMissions = ref([])
+const missionsLoading = ref(false)
+
+const selectedMediaIndex = computed(() =>
+  form.mediaItems.findIndex((it) => it && it.id === selectedMediaId.value)
+)
+const selectedMedia = computed(() => {
+  const idx = selectedMediaIndex.value
+  return idx >= 0 ? form.mediaItems[idx] : null
+})
+const canAssignMission = computed(() => {
+  const item = selectedMedia.value
+  return !!(item && item.autoSource !== 'spacex')
+})
+
+function selectMediaItem(id) {
+  selectedMediaId.value = id || ''
+}
+
+function ensureSelectedMedia() {
+  if (!form.mediaItems.length) {
+    selectedMediaId.value = ''
+    return
+  }
+  if (!form.mediaItems.some((it) => it && it.id === selectedMediaId.value)) {
+    selectedMediaId.value = form.mediaItems[0].id
+  }
+}
+
+function formatMissionNet(net) {
+  if (!net) return '时间待定'
+  const t = Date.parse(net)
+  if (!Number.isFinite(t)) return String(net)
+  return new Date(t).toLocaleString()
+}
+
+function isMissionActive(mission) {
+  const item = selectedMedia.value
+  if (!item || !item.missionName || !mission) return false
+  const bound = String(item.missionName).trim()
+  if (!bound) return false
+  if (bound === String(mission.name || '').trim() || bound === String(mission.missionName || '').trim()) {
+    return true
+  }
+  // 星舰绑定名可能被规范化为 Starship Flight N
+  const fn = Number(mission.flightNumber || 0) || 0
+  return !!(fn && bound === `Starship Flight ${fn}`)
+}
+
+/** 绑定任务名：写入 missionName 后，小程序侧与官网自动同步同一套按名匹配 + 倒计时组件逻辑 */
+function assignMissionToSelected(mission) {
+  if (!canAssignMission.value || !mission) return
+  const item = selectedMedia.value
+  if (!item) return
+  const rawName = String(mission.name || mission.missionName || '').trim()
+  if (!rawName) return
+  const flightNumber = Number(mission.flightNumber || 0) || 0
+  // 星舰：与官网自动同步同一命名，便于复用 Flight 号匹配
+  const isStarship = /starship|星舰/i.test(rawName)
+  const name = isStarship && flightNumber
+    ? `Starship Flight ${flightNumber}`
+    : rawName
+  item.missionName = name
+  item.flightNumber = isStarship ? flightNumber : 0
+  ElMessage.success(`已关联：${name}`)
+}
+
+function clearSelectedMission() {
+  if (!canAssignMission.value) return
+  const item = selectedMedia.value
+  if (!item) return
+  item.missionName = ''
+  item.flightNumber = 0
+}
+
+async function loadUpcomingMissions() {
+  missionsLoading.value = true
+  try {
+    const data = await api.listSplashUpcomingMissions()
+    upcomingMissions.value = Array.isArray(data && data.list) ? data.list : []
+  } catch (e) {
+    upcomingMissions.value = []
+    ElMessage.error('加载任务列表失败: ' + (e.message || ''))
+  } finally {
+    missionsLoading.value = false
+  }
+}
+
+watch(
+  () => form.mediaItems.map((it) => it && it.id).join(','),
+  () => ensureSelectedMedia()
+)
 
 function newId() {
   return `sp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
@@ -310,11 +456,15 @@ function applySplashData(data) {
   // 以媒体池为准校正开关（加载时不弹提示）
   form.autoSyncSpacex = data.autoSyncSpacex !== false
   applyManualAutoPolicy({ notify: false })
+  ensureSelectedMedia()
 }
 
 onMounted(async () => {
   try {
-    const data = await api.getStarshipSplash()
+    const [data] = await Promise.all([
+      api.getStarshipSplash(),
+      loadUpcomingMissions()
+    ])
     applySplashData(data)
   } catch (e) {
     ElMessage.error('加载配置失败: ' + (e.message || ''))
@@ -378,8 +528,9 @@ function pushMediaItem(mediaType, cosUrl) {
     ElMessage.warning(`最多上传 ${MEDIA_MAX} 个开屏媒体`)
     return false
   }
+  const id = newId()
   form.mediaItems.push({
-    id: newId(),
+    id,
     mediaType,
     mediaUrl: cosUrl,
     previewUrl: '',
@@ -390,6 +541,7 @@ function pushMediaItem(mediaType, cosUrl) {
     sourceUrl: '',
     flightNumber: 0
   })
+  selectedMediaId.value = id
   applyManualAutoPolicy()
   return true
 }
@@ -420,8 +572,13 @@ async function uploadOneFile(file) {
 }
 
 function removeMediaAt(idx) {
+  const removed = form.mediaItems[idx]
   form.mediaItems.splice(idx, 1)
+  if (removed && removed.id === selectedMediaId.value) {
+    selectedMediaId.value = form.mediaItems[0] ? form.mediaItems[0].id : ''
+  }
   applyManualAutoPolicy()
+  ensureSelectedMedia()
 }
 
 function triggerFilePicker() {
@@ -632,8 +789,25 @@ function onCosConfirm() {
 </script>
 
 <style scoped>
-.splash-upload-area {
+.splash-form {
+  max-width: 1100px;
+}
+
+.splash-pool-item :deep(.el-form-item__content) {
+  display: block;
+  max-width: none;
+}
+
+.splash-pool-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
   width: 100%;
+}
+
+.splash-upload-area {
+  flex: 1;
+  min-width: 0;
 }
 
 .splash-pool-hint {
@@ -657,6 +831,13 @@ function onCosConfirm() {
   border-radius: 8px;
   overflow: hidden;
   border: 1px solid var(--t-border-card, rgba(0,0,0,0.08));
+  cursor: pointer;
+  transition: border-color .15s, box-shadow .15s;
+}
+
+.splash-preview-active {
+  border-color: var(--el-color-primary);
+  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.25);
 }
 
 .splash-preview-media {
@@ -676,8 +857,118 @@ function onCosConfirm() {
   gap: 6px;
 }
 
-.splash-mission-input {
+.splash-mission-bound {
   padding: 0 8px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.splash-mission-bound-name {
+  display: block;
+  color: var(--el-color-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.splash-mission-bound-empty {
+  color: var(--t-text-muted, #999);
+}
+
+.splash-mission-panel {
+  width: 300px;
+  flex-shrink: 0;
+  border: 1px solid var(--t-border-card, rgba(0,0,0,0.1));
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--el-fill-color-blank, transparent);
+}
+
+.splash-mission-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.splash-mission-panel-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--t-text-primary, #303133);
+}
+
+.splash-mission-panel-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--t-text-muted, #888);
+}
+
+.splash-mission-list {
+  max-height: 420px;
+  overflow: auto;
+  min-height: 120px;
+}
+
+.splash-mission-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--t-border-card, rgba(0,0,0,0.1));
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+
+.splash-mission-option:hover:not(:disabled) {
+  border-color: var(--el-color-primary);
+  background: rgba(64, 158, 255, 0.04);
+}
+
+.splash-mission-option.active {
+  border-color: var(--el-color-primary);
+  background: rgba(64, 158, 255, 0.08);
+}
+
+.splash-mission-option:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.splash-mission-option-clear {
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--t-text-secondary, #666);
+}
+
+.splash-mission-option-name {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.splash-mission-option-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--t-text-muted, #999);
+}
+
+.splash-mission-empty {
+  padding: 24px 8px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--t-text-muted, #999);
 }
 
 .splash-preview-tip {
@@ -769,5 +1060,15 @@ function onCosConfirm() {
 .source-divider-text {
   font-size: 12px;
   color: var(--t-text-muted, #999);
+}
+
+@media (max-width: 900px) {
+  .splash-pool-layout {
+    flex-direction: column;
+  }
+
+  .splash-mission-panel {
+    width: 100%;
+  }
 }
 </style>

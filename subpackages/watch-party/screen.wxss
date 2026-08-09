@@ -1,4 +1,4 @@
-/* 现场大屏模式：始终深色（投屏显示页，不随主题切换），横竖屏自由切换
+/* 现场大屏模式：横竖屏自由切换；根节点挂 theme-light 时走文末浅色反色
  *
  * 关键：rpx 基准是「当前窗口宽度」——竖屏 750rpx = 短边，横屏 750rpx = 长边，
  * 同一数值在两个方向下物理大小差约 1.8 倍。因此尺寸全部走 CSS 变量，
@@ -114,11 +114,19 @@ page {
   height: 56rpx;
 }
 
-/* ── 横/竖屏切换（磨砂玻璃；位置由 JS 贴系统胶囊左侧） ── */
+/* ── 明暗 + 横/竖屏（磨砂玻璃；位置由 JS 贴系统胶囊左侧；统一 0.8） ── */
 
-.scr-orient {
+.scr-tools {
   position: absolute;
   z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  transform: scale(0.8);
+  transform-origin: top right;
+}
+
+.scr-tool {
   padding: 10rpx 22rpx;
   border-radius: 999rpx;
   background: rgba(255, 255, 255, 0.12);
@@ -126,15 +134,14 @@ page {
   backdrop-filter: blur(24rpx) saturate(160%);
   -webkit-backdrop-filter: blur(24rpx) saturate(160%);
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.18);
-  opacity: 1;
 }
 
-.scr-orient--hover {
+.scr-tool--hover {
   background: rgba(255, 255, 255, 0.2);
   border-color: rgba(255, 255, 255, 0.38);
 }
 
-.scr-orient-text {
+.scr-tool-text {
   font-size: var(--fs-exit);
   font-weight: 600;
   color: rgba(255, 255, 255, 0.92);
@@ -822,3 +829,158 @@ page {
   font-size: var(--fs-qr);
   color: rgba(245, 247, 255, 0.6);
 }
+
+/* ============================================================
+ * 明亮主题：日间投屏可读（浅底 + 深字）；工具钮同步反色
+ * ============================================================ */
+
+.scr.theme-light {
+  background: radial-gradient(ellipse at 30% 0%, rgba(59, 130, 246, 0.1), transparent 55%), #F4F5F7;
+  color: #1C1C1E;
+}
+
+.scr.theme-light.scr--final {
+  background: radial-gradient(ellipse at 30% 0%, rgba(249, 115, 22, 0.12), transparent 55%), #FFF7ED;
+}
+
+.scr.theme-light.scr--launched {
+  background: radial-gradient(ellipse at 30% 0%, rgba(16, 185, 129, 0.12), transparent 55%), #ECFDF5;
+}
+
+.theme-light .scr-exit { opacity: 0.7; }
+
+.theme-light .scr-tool {
+  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(28, 28, 30, 0.14);
+  box-shadow: 0 4rpx 16rpx rgba(15, 23, 42, 0.08);
+}
+
+.theme-light .scr-tool--hover {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(28, 28, 30, 0.22);
+}
+
+.theme-light .scr-tool-text { color: rgba(28, 28, 30, 0.88); }
+
+.theme-light .scr-loading,
+.theme-light .scr-error { color: rgba(28, 28, 30, 0.5); }
+
+.theme-light .scr-phase {
+  color: #1D4ED8;
+  background: rgba(37, 99, 235, 0.1);
+  border-color: rgba(37, 99, 235, 0.35);
+}
+
+.theme-light.scr--final .scr-phase {
+  color: #C2410C;
+  background: rgba(249, 115, 22, 0.12);
+  border-color: rgba(234, 88, 12, 0.35);
+}
+
+.theme-light.scr--launched .scr-phase {
+  color: #047857;
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(5, 150, 105, 0.35);
+}
+
+.theme-light .scr-subtitle { color: rgba(28, 28, 30, 0.5); }
+
+.theme-light .scr-explain-btn {
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(28, 28, 30, 0.12);
+  box-shadow: 0 4rpx 12rpx rgba(15, 23, 42, 0.06);
+}
+
+.theme-light .scr-explain-label { color: rgba(28, 28, 30, 0.9); }
+
+.theme-light .scr-cd-caption { color: rgba(28, 28, 30, 0.5); }
+
+.theme-light .scr-cd-cell {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(28, 28, 30, 0.1);
+}
+
+.theme-light .scr-cd-num { color: #111827; }
+
+.theme-light.scr--final .scr-cd-num { color: #EA580C; }
+
+.theme-light.scr--final .scr-cd-cell {
+  border-color: rgba(234, 88, 12, 0.35);
+  background: rgba(255, 247, 237, 0.95);
+}
+
+.theme-light .scr-cd-label { color: rgba(28, 28, 30, 0.45); }
+
+.theme-light .scr-cd-done-wrap {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(5, 150, 105, 0.35);
+}
+
+.theme-light .scr-cd-done { color: #047857; }
+.theme-light .scr-cd-done-sub { color: rgba(28, 28, 30, 0.78); }
+.theme-light .scr-cd-done-hint { color: rgba(28, 28, 30, 0.42); }
+
+.theme-light .scr-vote-title { color: rgba(28, 28, 30, 0.55); }
+.theme-light .scr-vote-bar { background: rgba(0, 0, 0, 0.06); }
+
+.theme-light .scr-stat { color: rgba(28, 28, 30, 0.48); }
+.theme-light .scr-clock { color: rgba(28, 28, 30, 0.35); }
+
+.theme-light .scr-sci {
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(28, 28, 30, 0.1);
+}
+
+.theme-light.scr--final .scr-sci {
+  background: rgba(255, 247, 237, 0.95);
+  border-color: rgba(234, 88, 12, 0.28);
+}
+
+.theme-light .scr-sci-tag { color: #B45309; }
+.theme-light .scr-sci-progress { color: rgba(28, 28, 30, 0.35); }
+
+.theme-light .scr-sci-pause {
+  color: rgba(28, 28, 30, 0.7);
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(28, 28, 30, 0.12);
+}
+
+.theme-light .scr-sci-pause--on {
+  color: #1D4ED8;
+  background: rgba(37, 99, 235, 0.1);
+  border-color: rgba(37, 99, 235, 0.35);
+}
+
+.theme-light .scr-sci-title { color: #1D4ED8; }
+.theme-light.scr--final .scr-sci-title { color: #C2410C; }
+.theme-light .scr-sci-body { color: rgba(28, 28, 30, 0.82); }
+.theme-light .scr-sci-hint { color: rgba(28, 28, 30, 0.35); }
+
+.theme-light .scr-rocket {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(28, 28, 30, 0.1);
+}
+
+.theme-light .scr-qr-text { color: rgba(28, 28, 30, 0.55); }
+
+.theme-light .scr-retry {
+  background: rgba(37, 99, 235, 0.1);
+  border-color: rgba(37, 99, 235, 0.4);
+  color: #2563EB;
+}
+
+.theme-light .scr-ssr {
+  color: #B45309;
+  background: rgba(251, 191, 36, 0.14);
+  border-color: rgba(180, 83, 9, 0.35);
+}
+
+.theme-light .scr-replay {
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(28, 28, 30, 0.1);
+}
+
+.theme-light .scr-replay-tag { color: #B45309; }
+.theme-light .scr-replay-title { color: rgba(28, 28, 30, 0.85); }
+.theme-light .scr-replay-unmute { color: #2563EB; }
+.theme-light .scr-replay-empty { color: rgba(28, 28, 30, 0.42); }

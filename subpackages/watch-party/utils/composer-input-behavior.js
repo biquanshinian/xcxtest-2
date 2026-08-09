@@ -19,7 +19,24 @@
  * （always-embed 实测无效），textarea 同层渲染稳定。单行 textarea 带
  * data-single="1" 标记 + confirm-type 非 return（回车不换行），这里兜底
  * 过滤粘贴带入的换行符。
+ * 注意：wx:for 动态行（停车点/奖品）保持 input——动态插入的 textarea 在
+ * iOS 同层渲染易失败（整组件退化原生浮层：不显示+内容乱飘）。
+ *
+ * 键盘垫高（防 iOS「顶穿」，仅 iOS 启用）：页面整体在 scroll-view(100vh)
+ * 里滚动，页面末尾的输入框聚焦时键盘 adjust-position 顶起，但 scroll-view
+ * 底部无可滚空间 → WKWebView 越界扩展滚动 → 巨大空白且收起后不回收。
+ * 解法：keyboardheightchange 时在内容末尾垫等高空间（wxml 绑
+ * bindkeyboardheightchange + bindblur，末尾放 {{keyboardHeight}}px 垫块），
+ * 收起延迟回收（防切换输入框时闪跳）。
+ * Android 键盘为窗口缩放/平移模式，无顶穿问题；垫高反而放大系统
+ * scrollIntoView 滚动量（点击末尾输入框页面猛往上跑）→ 不启用。
  */
+let isIOS = false
+try {
+  const info = (typeof wx.getDeviceInfo === 'function' ? wx.getDeviceInfo() : wx.getSystemInfoSync()) || {}
+  isIOS = /ios/i.test(String(info.platform || ''))
+} catch (e) {}
+
 module.exports = Behavior({
   data: {
     keyboardHeight: 0,
@@ -30,8 +47,34 @@ module.exports = Behavior({
     /** 兼容遗留绑定：原生 adjust-position 下无需任何滚动补偿 */
     onComposerScroll() {},
     onInputFocus() {},
-    onInputBlur() {},
-    onInputKeyboardHeightChange() {},
+
+    /** 键盘高度变化：弹起立即垫高，归零走延迟回收（仅 iOS，见文件头注释） */
+    onInputKeyboardHeightChange(e) {
+      if (!isIOS) return
+      const h = Math.max(0, Math.round((e && e.detail && e.detail.height) || 0))
+      if (h > 0) {
+        if (this._kbPadTimer) { clearTimeout(this._kbPadTimer); this._kbPadTimer = null }
+        if (h !== this.data.keyboardHeight) this.setData({ keyboardHeight: h })
+        return
+      }
+      this._scheduleKbPadReset()
+    },
+
+    /** 失焦兜底（部分机型收键盘不发 height=0 事件） */
+    onInputBlur() {
+      this._scheduleKbPadReset()
+    },
+
+    /** 延迟回收垫高：切换输入框时（A blur→B focus）不闪跳 */
+    _scheduleKbPadReset() {
+      if (this._kbPadTimer) clearTimeout(this._kbPadTimer)
+      this._kbPadTimer = setTimeout(() => {
+        this._kbPadTimer = null
+        try {
+          if (this.data && this.data.keyboardHeight !== 0) this.setData({ keyboardHeight: 0 })
+        } catch (err) {}
+      }, 260)
+    },
 
     /** 点非输入区收起键盘（个别页面主动调用） */
     dismissKeyboard() {

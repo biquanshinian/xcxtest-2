@@ -46,6 +46,7 @@ Component({
 
     emitOnViewAllAgencies(e) { this._emit('onViewAllAgencies', e) },
     emitOnAgencyTap(e) { this._emit('onAgencyTap', e) },
+    emitOnAgencyImageLoad(e) { this._emit('onAgencyImageLoad', e) },
     emitOnAgencyImageError(e) { this._emit('onAgencyImageError', e) },
     emitRetryLoadAgencies(e) { this._emit('retryLoadAgencies', e) },
     emitOnViewAllBoosters(e) { this._emit('onViewAllBoosters', e) },

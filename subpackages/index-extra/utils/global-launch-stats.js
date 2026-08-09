@@ -12,6 +12,7 @@ const { getAgencies } = require('../../../utils/api-monitor-data.js')
 const { logoUrlFromAgencyRecord } = require('../../../utils/upcoming-agency-logo-enrich.js')
 const { SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL } = require('../../../utils/agency-logo-overrides.js')
 const { resolveAgencyLogoForDisplay } = require('../../../utils/agency-logo-cache.js')
+const { resolveAgencyLogoBgTone } = require('../../../utils/agency-logo-bg.js')
 const { getRocketImage } = require('../../../utils/util.js')
 const { translateAgencyName } = require('../../../utils/space-terms-i18n.js')
 
@@ -422,6 +423,7 @@ function decorateAgencyRows(rows, logoMap) {
       displayName: translateAgencyName(row.name, row.abbrev) || row.name,
       logo: remote ? resolveAgencyLogoForDisplay(remote) : '',
       logoRemote: remote,
+      logoBgTone: remote ? resolveAgencyLogoBgTone(remote) : '',
       initial: firstGlyphOfName(row.name)
     }
   })

@@ -174,6 +174,7 @@ async function main() {
     'enrichLaunchContextWithMyLaunches', 'enrichLaunchContextNoMyLaunches',
     'enrichLaunchContextWithSimpleEntry',
     'matchStarlinkPassIntent', 'matchStarlinkMapIntent', 'matchViewingSpotIntent', 'matchArtemisIntent',
+    'matchMerchantJoinIntent',
     'matchStarshipHardwareIntent', 'matchRecoveryStatsIntent',
     'extractStarshipHardwareRef', 'pickStarshipHardware', 'parseHardwareVehicleRef'
   ]
@@ -193,6 +194,7 @@ async function main() {
     'resolveYearReviewEntryCard', 'resolveAstroCalendarEntryCard', 'resolveNewsEntryCard',
     'resolveApodCard', 'buildSpecCard',
     'resolveStarlinkPassEntryCard', 'resolveStarlinkMapEntryCard', 'resolveWatchPartyEntryCard',
+    'resolveMerchantJoinCard',
     'resolveArtemisEntryCard',
     'resolveStarshipHardwareCard', 'resolveRecoveryStatsCard'
   ]
@@ -249,6 +251,13 @@ async function main() {
     ['文昌观礼点推荐', 'viewing_spot'],
     ['看星舰发射去哪', 'viewing_spot'],
     ['淇水湾怎么去', 'viewing_spot'],
+    // 商家侧问入驻 → 入驻邀请抽卡；顾客侧观礼问法不受影响
+    ['商家入驻', 'merchant_join'],
+    ['观礼商家怎么入驻', 'merchant_join'],
+    ['怎么成为观礼合作商家', 'merchant_join'],
+    ['民宿可以入驻吗', 'merchant_join'],
+    ['现场观礼怎么参加', 'viewing_spot'],
+    ['观礼抽卡', 'viewing_spot'],
     ['文昌发射场在哪', 'launch_site'],
     ['阿尔忒弥斯任务进展', 'artemis'],
     ['S38在哪', 'starship_hardware'],
@@ -943,6 +952,23 @@ async function main() {
     ok(!(jq.cards || []).some((c) => c && c.nav), '观礼 · 不再注入静态观礼点导航坐标')
   }
 
+  // ── 商家入驻：意图 → 入驻邀请抽卡（merchant_gacha，开关开启时） ──
+  {
+    const mj = await rich.resolveRichChatPayload('商家入驻', {})
+    ok(mj.intent === 'merchant_join', '入驻 · 意图命中 merchant_join')
+    const card = (mj.cards || [])[0]
+    ok(!!card && card.cardType === 'merchant_gacha', '入驻 · 出抽卡卡片')
+    ok(!!card && card.flipped === false && card.drawing === false, '入驻 · 初始未翻牌')
+    ok(!!card && Array.isArray(card.perks) && card.perks.length >= 3, '入驻 · 权益条目 ≥ 3')
+    ok(!!card && !!card.backHint && !!card.title && !!card.cta, '入驻 · 卡背/卡面文案完备')
+    ok(!!card && !card.detailUrl, '入驻 · 卡不带 URL（跳转在组件内拼白名单）')
+    const hint = (mj.launchContext && mj.launchContext.focusHint) || ''
+    const suggested = (mj.launchContext && mj.launchContext.suggestedReply) || ''
+    ok(/入驻/.test(hint) && /不要编造/.test(hint), '入驻 · focusHint 完整')
+    ok(!!suggested && /抽/.test(suggested), '入驻 · 固定文案短路大模型（suggestedReply）')
+    ok(pageExists(pages, '/subpackages/watch-party/merchant-apply'), '入驻 · merchant-apply 页在 app.json')
+  }
+
   // 无数据时仍不抛 + 给提示
   const emptyNext = await rich.resolveRichChatPayload('星舰下一次试飞是什么时候？', {})
   ok(emptyNext.intent === 'starship_next', '空数据仍识别下一飞')
@@ -1058,6 +1084,15 @@ async function main() {
   ok(chatWxml.includes('wx:else') && chatWxml.includes('onMissionCardTap'), 'wxml mission 默认分支')
   ok(chatWxml.includes('data-stationid'), 'wxml stationId dataset')
   ok(!chatWxml.includes('data-url='), '禁用 data-url')
+  // 商家入驻抽卡接线：wxml 分支 + 组件翻牌处理 + 跳转入驻页 + 样式
+  ok(chatWxml.includes("card.cardType === 'merchant_gacha'"), 'wxml merchant_gacha 分支')
+  ok(chatWxml.includes('onMerchantGachaTap') && chatWxml.includes('data-msgid'), 'wxml 抽卡点击 + msgid')
+  ok(chatJs.includes('onMerchantGachaTap'), 'js 抽卡翻牌处理')
+  ok(chatJs.includes('/subpackages/watch-party/merchant-apply?channel=ai_chat'), 'js 抽卡跳入驻申请页')
+  ;['ai-mgacha-flip--flipped', 'ai-mgacha-flip--shaking', 'ai-mgacha-face--back',
+    'ai-mgacha-face--front', 'ai-mgacha-cta'].forEach((cls) => {
+    ok(chatWxss.includes(cls), 'wxss 抽卡样式 ' + cls)
+  })
   ;['demo', 'tracker', 'sim', 'road', 'station'].forEach((v) => {
     ok(chatWxss.includes('ai-entry-card--' + v), 'wxss variant ' + v)
   })

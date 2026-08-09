@@ -146,6 +146,9 @@ export const api = {
   updateStarshipSplash(body) {
     return request('/starship/splash', { method: 'PUT', body })
   },
+  listSplashUpcomingMissions() {
+    return request('/starship/splash/upcoming-missions', { method: 'GET' })
+  },
   listChecklistHistory(query) {
     return request('/starship/checklist-history', { method: 'GET', query })
   },
@@ -762,6 +765,16 @@ export const api = {
   },
   updateWatchPartyMerchant(id, body) {
     return request(`/watch-party/merchants/${id}`, { method: 'PUT', body })
+  },
+  updateWatchPartyMerchantPassGrant(id, enabled) {
+    return request(`/watch-party/merchants/${id}/pass-grant`, { method: 'PUT', body: { enabled: enabled === true } })
+  },
+  /** 运营确认收款后续费：plan = month | quarter | year */
+  renewWatchPartyMerchantMembership(id, plan) {
+    return request(`/watch-party/merchants/${id}/membership-renew`, { method: 'POST', body: { plan } })
+  },
+  sweepWatchPartyMerchantMemberships() {
+    return request('/watch-party/merchants/membership-sweep', { method: 'POST', body: {} })
   },
   deleteWatchPartyMerchant(id) {
     return request(`/watch-party/merchants/${id}`, { method: 'DELETE' })

@@ -176,6 +176,7 @@ const INTENT_PRIORITY = [
   'live_watch',
   'starlink_pass',
   'starlink_map',
+  'merchant_join',
   'viewing_spot',
   'artemis',
   'my_launches',
@@ -208,6 +209,7 @@ const INTENT_SCORE_THRESHOLD = {
   live_watch: 45,
   starlink_pass: 50,
   starlink_map: 50,
+  merchant_join: 55,
   viewing_spot: 50,
   artemis: 50,
   my_launches: 45,
@@ -816,6 +818,29 @@ function scoreLiveWatch(q) {
 }
 
 /**
+ * 商家入驻 / 商务合作意向 → 入驻邀请抽卡（merchant_gacha）。
+ * 与 viewing_spot 的分界：问「怎么参加观礼」是顾客，问「怎么入驻/成为商家」是商家。
+ */
+function scoreMerchantJoin(q) {
+  if (isPureChitchat(q)) return 0
+  // 「宇航员入驻/进驻空间站」是航天问题，不是商务合作
+  if (/(空间站|太空站|天宫|国际站|\bISS\b|宇航员|航天员|乘组|机组)/i.test(q) &&
+    !/(商家|商户|门店|店铺|观礼点|合作|加盟|开店)/.test(q)) return 0
+  const joinAsk = /(入驻|进驻|加盟)/.test(q)
+  const merchantWord = /(商家|商户|门店|店铺|民宿|酒店|餐厅|农家乐|观礼点|摊位)/.test(q)
+  if (/(商家入驻|入驻商家|商户入驻|观礼入驻|入驻观礼)/.test(q)) return 85
+  if (joinAsk && merchantWord) return 75
+  if (/(成为|申请|开|做|想当).{0,8}(观礼商家|合作商家|观礼点|观礼合作)/.test(q)) return 70
+  if (joinAsk && /(观礼|发射|火箭)/.test(q)) return 66
+  if (/(商家|商户).{0,8}(合作|申请|加入|报名|注册)/.test(q) || /招商/.test(q)) return 62
+  // 光问「怎么入驻/入驻流程」在本小程序语境下也基本是商家入驻，但要求问句形态
+  if (joinAsk && /(怎么|如何|怎样|想|申请|流程|条件|费用|要求)/.test(q)) return 58
+  // 「入驻」「能入驻吗」这类超短问法也算（长句如「星链入驻美国了吗」不在此列）
+  if (joinAsk && q.length <= 8 && !/(星链|starlink|卫星|市场)/i.test(q)) return 58
+  return 0
+}
+
+/**
  * 现场观礼 / 去哪看发射 → 统一走火箭观礼服务入口卡（云端按发射场匹配商家场次）。
  * 与 launch_site 的分界：问发射场本身参数走百科，问「人站哪儿看/怎么参加观礼」走这里。
  */
@@ -826,6 +851,8 @@ function scoreViewingSpot(q) {
   if (scoreStarlinkMap(q) >= INTENT_SCORE_THRESHOLD.starlink_map) return 0
   // 「在哪看直播」问的是画面来源，不是现场站位
   if (scoreLiveWatch(q) >= INTENT_SCORE_THRESHOLD.live_watch) return 0
+  // 「观礼商家怎么入驻」是商务合作，不是找观礼位
+  if (scoreMerchantJoin(q) >= INTENT_SCORE_THRESHOLD.merchant_join) return 0
   // 观礼服务本体（预约/现场抽奖/大屏）也归此意图，统一推火箭观礼卡
   if (/(观礼服务|火箭观礼|现场观礼|观礼预约|预约观礼)/.test(q)) return 60
   if (/观礼/.test(q) && /(预约|报名|参加|服务|活动|门票|入场|套餐|抽卡|抽奖|奖品|纪念|大屏|讲解|通行证)/.test(q)) return 55
@@ -1159,6 +1186,7 @@ function scoreAllRichIntents(text) {
       live_watch: 0,
       starlink_pass: 0,
       starlink_map: 0,
+      merchant_join: 0,
       viewing_spot: 0,
       artemis: 0,
       my_launches: 0,
@@ -1191,6 +1219,7 @@ function scoreAllRichIntents(text) {
     live_watch: scoreLiveWatch(q),
     starlink_pass: scoreStarlinkPass(q),
     starlink_map: scoreStarlinkMap(q),
+    merchant_join: scoreMerchantJoin(q),
     viewing_spot: scoreViewingSpot(q),
     artemis: scoreArtemis(q),
     my_launches: scoreMyLaunches(q),
@@ -1312,6 +1341,10 @@ function matchLiveWatchIntent(text) {
 
 function matchStarlinkMapIntent(text) {
   return scoreStarlinkMap(String(text || '').trim()) >= INTENT_SCORE_THRESHOLD.starlink_map
+}
+
+function matchMerchantJoinIntent(text) {
+  return scoreMerchantJoin(String(text || '').trim()) >= INTENT_SCORE_THRESHOLD.merchant_join
 }
 
 function matchViewingSpotIntent(text) {
@@ -1942,6 +1975,31 @@ function enrichLaunchContextWatchPartyFeatureOff(launchContext) {
   return base
 }
 
+/** 商家入驻意向：界面已出「入驻邀请」抽卡，固定文案本地回复（不走大模型） */
+function enrichLaunchContextWithMerchantJoin(launchContext) {
+  const base = launchContext && typeof launchContext === 'object' ? { ...launchContext } : {}
+  base.uiCardReady = true
+  base.focusMission = null
+  base.focusHint = '用户在咨询观礼商家入驻/商务合作，界面已展示「商家入驻邀请」抽卡：' +
+    '点击卡背翻开邀请函，再点一次进入入驻申请页填写资料即可开通。' +
+    '入驻免费、可自建观礼场次；不要编造费用、分成比例或审核时限。禁止说未匹配。'
+  base.suggestedReply = '好眼光！观礼合作商家入驻现已开放，送你一次专属抽卡机会——' +
+    '点击下方卡背抽出你的入驻邀请函，翻开后再点一下即可进入申请页，填写资料马上开通。'
+  return base
+}
+
+/** 过审开关关闭：不出抽卡、不引导任何入驻入口 */
+function enrichLaunchContextMerchantJoinFeatureOff(launchContext) {
+  const base = launchContext && typeof launchContext === 'object' ? { ...launchContext } : {}
+  base.uiCardReady = false
+  base.focusMission = null
+  base.focusHint = '用户在咨询观礼商家入驻，但观礼服务当前未开放。' +
+    '请如实简短告知商家入驻暂未开放、后续开放会在小程序内公告；' +
+    '不要引导打开任何入驻入口或页面，不要编造开放时间、费用或合作条件。'
+  delete base.suggestedReply
+  return base
+}
+
 /** 我的发射提醒（本地订阅） */
 function enrichLaunchContextWithMyLaunches(launchContext, card) {
   const base = launchContext && typeof launchContext === 'object' ? { ...launchContext } : {}
@@ -2185,6 +2243,7 @@ module.exports = {
   matchStarlinkPassIntent,
   matchLiveWatchIntent,
   matchStarlinkMapIntent,
+  matchMerchantJoinIntent,
   matchViewingSpotIntent,
   matchArtemisIntent,
   matchStarshipHardwareIntent,
@@ -2254,6 +2313,8 @@ module.exports = {
   enrichLaunchContextWithWatchParty,
   enrichLaunchContextWatchPartyClosed,
   enrichLaunchContextWatchPartyFeatureOff,
+  enrichLaunchContextWithMerchantJoin,
+  enrichLaunchContextMerchantJoinFeatureOff,
   enrichLaunchContextWithMyLaunches,
   enrichLaunchContextNoMyLaunches,
   enrichLaunchContextWithSimpleEntry

@@ -147,37 +147,58 @@
 
 .wpl-card {
   margin: 20rpx 32rpx 0;
-  padding: 24rpx;
+  padding: 0;
   border-radius: 20rpx;
   background: var(--color-bg-card);
   border: 1rpx solid var(--color-divider);
+  overflow: hidden;
+  /* 与首页即将发射卡 .mission-card min-height 对齐 */
+  min-height: 345rpx;
+  box-sizing: border-box;
 }
 .wpl-card-main {
   display: flex;
-  align-items: center;
-  gap: 20rpx;
+  flex-direction: row;
+  align-items: stretch;
+  width: 100%;
+  min-height: 345rpx;
+  box-sizing: border-box;
 }
-.wpl-rocket {
-  /* 竖版比例（≈0.73）与详情页英雄卡/商家中心一致，aspectFill 撑满无留白 */
-  width: 96rpx;
-  height: 132rpx;
+/* 对齐 styles/mission-card .mission-rocket-slot：约 40% 宽、随卡高拉伸 */
+.wpl-rocket-slot {
+  position: relative;
+  width: 40%;
+  min-width: 200rpx;
+  min-height: 345rpx;
   flex-shrink: 0;
-  border-radius: 16rpx;
+  align-self: stretch;
   background: rgba(59, 130, 246, 0.08);
-  overflow: hidden;
 }
-.wpl-rocket--empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 40rpx;
+/* 对齐 .mission-rocket-image：绝对铺满 + cover 居中裁切 */
+.wpl-rocket-image {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  object-fit: cover;
+  object-position: center center;
+  display: block;
+  background-color: var(--color-bg-elevated, #1A1C20);
+}
+.wpl-rocket-image--placeholder {
+  background: var(--color-divider-faint, rgba(148, 163, 184, 0.12));
 }
 .wpl-card-body {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 6rpx;
+  justify-content: center;
+  gap: 8rpx;
+  padding: 24rpx 28rpx 24rpx 24rpx;
+  box-sizing: border-box;
 }
 .wpl-merchant {
   font-size: 30rpx;
@@ -236,16 +257,19 @@
   background: rgba(59, 130, 246, 0.12);
   color: #93C5FD;
 }
-.wpl-arrow {
-  flex-shrink: 0;
-  font-size: 36rpx;
-  color: var(--color-text-quaternary);
-  line-height: 1;
-}
 
 .theme-light .wpl-card {
   background: #fff;
   border-color: rgba(28, 28, 30, 0.08);
+}
+.theme-light .wpl-rocket-slot {
+  background: rgba(37, 99, 235, 0.06);
+}
+.theme-light .wpl-rocket-image {
+  background-color: #F3F4F6;
+}
+.theme-light .wpl-rocket-image--placeholder {
+  background: rgba(28, 28, 30, 0.06);
 }
 .theme-light .wpl-filter-chip {
   background: #fff;

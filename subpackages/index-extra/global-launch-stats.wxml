@@ -161,7 +161,7 @@
             <block wx:elif="{{activeTab === 'agency'}}">
               <view class="stat-row" wx:for="{{byAgency}}" wx:key="key" wx:if="{{listExpanded || index < 8}}">
                 <text class="stat-rank">{{index + 1}}</text>
-                <view class="stat-avatar stat-avatar--logo" wx:if="{{item.logo}}">
+                <view class="stat-avatar stat-avatar--logo {{item.logoBgTone === 'dark' ? 'agency-logo-bg--dark' : ''}} {{item.logoBgTone === 'light' ? 'agency-logo-bg--light' : ''}}" wx:if="{{item.logo}}">
                   <image
                     class="stat-avatar-img"
                     src="{{item.logo}}"

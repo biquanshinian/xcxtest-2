@@ -2035,6 +2035,16 @@ async function getStarshipSplashConfig() {
   return ok(doc)
 }
 
+/**
+ * 开屏媒体池右侧「任务选项列表」：
+ * 与小程序即将发射同源（LL2 upcoming 缓存，ordering=net），保持前端列表顺序
+ */
+async function listSplashUpcomingMissions() {
+  const data = await watchPartyApi().listUpcomingLaunchesCore(50)
+  const list = Array.isArray(data && data.list) ? data.list : []
+  return ok({ list, total: list.length, updatedAt: (data && data.updatedAt) || 0 })
+}
+
 function splashCosKeyFromUrl(url) {
   if (!url || typeof url !== 'string') return ''
   try {
@@ -8761,6 +8771,7 @@ async function route(event, user) {
   if (path === '/watch-party/merchant/me' && method === 'GET') return watchPartyApi().merchantMe(event._openid)
   if (path === '/watch-party/merchant/profile' && method === 'PUT') return watchPartyApi().merchantUpdateProfile(body, event._openid)
   if (path === '/watch-party/merchant/avatar' && method === 'POST') return watchPartyApi().merchantUpdateAvatar(body, event._openid)
+  if (path === '/watch-party/merchant/prize-presets' && method === 'PUT') return watchPartyApi().merchantSavePrizePresets(body, event._openid)
   if (path === '/watch-party/merchant/mission-name' && method === 'GET') return watchPartyApi().merchantGetMissionName(query, event._openid)
   if (path === '/watch-party/merchant/mission-name' && method === 'POST') return watchPartyApi().merchantSetMissionDisplayName(body, event._openid)
   if (path === '/watch-party/merchant/cards' && method === 'GET') return watchPartyApi().merchantListCards(event._openid, query)
@@ -8926,6 +8937,7 @@ async function route(event, user) {
   if (path === '/starship/status' && method === 'PUT') return updateStarshipStatus(body, user)
   if (path === '/starship/splash' && method === 'GET') return getStarshipSplashConfig()
   if (path === '/starship/splash' && method === 'PUT') return updateStarshipSplashConfig(body, user)
+  if (path === '/starship/splash/upcoming-missions' && method === 'GET') return listSplashUpcomingMissions()
 
   if (path === '/starship/checklist-history' && method === 'GET') return listChecklistHistory(query)
   if (path.startsWith('/starship/checklist-history/') && method === 'GET') return getChecklistHistoryById(path.split('/').pop())
@@ -9477,6 +9489,18 @@ async function route(event, user) {
   if (path.startsWith('/watch-party/merchants/') && path.endsWith('/stats') && method === 'GET') {
     return watchPartyApi().getMerchantStats(path.split('/')[3], user)
   }
+  // 按商家授权「扫码赠通行证」（须放在通用 PUT 之前）
+  if (path.startsWith('/watch-party/merchants/') && path.endsWith('/pass-grant') && method === 'PUT') {
+    return watchPartyApi().updateMerchantPassGrant(path.split('/')[3], body, user)
+  }
+  // 运营确认收款后续费：1 月 / 1 季 / 1 年（系统自动算截止日期）
+  if (path.startsWith('/watch-party/merchants/') && path.endsWith('/membership-renew') && method === 'POST') {
+    return watchPartyApi().renewMerchantMembership(path.split('/')[3], body, user)
+  }
+  // 手动触发未缴费商家清扫（定时任务也会跑）
+  if (path === '/watch-party/merchants/membership-sweep' && method === 'POST') {
+    return watchPartyApi().sweepMerchantMemberships(user)
+  }
   if (path.startsWith('/watch-party/merchants/') && method === 'PUT') {
     return watchPartyApi().updateMerchant(path.split('/').pop(), body, user)
   }
@@ -9806,8 +9830,13 @@ exports.main = async (event = {}, context) => {
     // 定时器无法在配置里传 event 字段，按 TriggerName 分流到对应任务
     if (event && (event.Type === 'Timer' || event.scheduleAction)) {
       const triggerName = String(event.TriggerName || event.triggerName || '').trim()
-      const action = event.scheduleAction ||
-        (triggerName === 'syncSpacexSplashTimer' ? 'sync_spacex_splash' : 'recheck_pending_orders')
+      const action = event.scheduleAction || (
+        triggerName === 'syncSpacexSplashTimer'
+          ? 'sync_spacex_splash'
+          : (triggerName === 'merchantMembershipSweepTimer'
+            ? 'sweep_merchant_memberships'
+            : 'recheck_pending_orders')
+      )
       console.log('[cron] triggered:', action, 'trigger:', triggerName)
       try {
         if (action === 'recheck_pending_orders') {
@@ -9818,6 +9847,18 @@ exports.main = async (event = {}, context) => {
         if (action === 'sync_spacex_splash') {
           const r = await runSpacexSplashAutoSync()
           console.log('[cron] runSpacexSplashAutoSync result:', JSON.stringify(r))
+          // 顺带清扫商家会员：收费开启后，宽限已过且无有效会员期的商家自动终止合作
+          try {
+            const sweep = await watchPartyApi().sweepMerchantMemberships({ id: 'system', username: 'cron' })
+            console.log('[cron] sweepMerchantMemberships result:', JSON.stringify(sweep))
+          } catch (sweepErr) {
+            console.error('[cron] sweepMerchantMemberships error:', sweepErr && (sweepErr.message || sweepErr))
+          }
+          return r
+        }
+        if (action === 'sweep_merchant_memberships') {
+          const r = await watchPartyApi().sweepMerchantMemberships({ id: 'system', username: 'cron' })
+          console.log('[cron] sweepMerchantMemberships result:', JSON.stringify(r))
           return r
         }
         return ok({ skipped: true, reason: 'unknown_action' })

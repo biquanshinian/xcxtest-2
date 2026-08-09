@@ -9,6 +9,7 @@ const {
   decorateRocketRows
 } = require('./utils/global-launch-stats.js')
 const { persistAgencyLogoAfterRemoteLoad } = require('../../utils/agency-logo-cache.js')
+const { ensureAgencyLogoBgTone } = require('../../utils/agency-logo-bg.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
 // 确保首页 require.async 能加载这些分包模块（未被引用时不会打进分包）
@@ -301,12 +302,20 @@ Page({
     this.loadStats({ forceRefresh: true })
   },
 
-  /** 机构 logo 远程首次展示成功 → 落盘本地磁盘缓存，下次打开零流量 */
+  /** 机构 logo 远程首次展示成功 → 落盘本地磁盘缓存，并分析透明 logo 底色 */
   onAgencyLogoLoad(e) {
     const url = e.currentTarget.dataset.url
-    if (url && /^https?:\/\//i.test(url)) {
-      persistAgencyLogoAfterRemoteLoad(url)
-    }
+    const idx = Number(e.currentTarget.dataset.index)
+    if (!url || !/^https?:\/\//i.test(url)) return
+    const self = this
+    persistAgencyLogoAfterRemoteLoad(url, function (localPath) {
+      if (!localPath) return
+      ensureAgencyLogoBgTone(url, localPath, function (tone) {
+        if (!tone || !Number.isFinite(idx) || !self.data.byAgency[idx]) return
+        if (self.data.byAgency[idx].logoBgTone === tone) return
+        self.setData({ [`byAgency[${idx}].logoBgTone`]: tone })
+      })
+    })
   },
 
   /** logo 加载失败 → 回退首字母占位 */

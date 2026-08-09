@@ -924,3 +924,11 @@ button.mission-card-share-btn::before {
 .theme-light .wx-native-dots__dot {
   background: rgba(0, 0, 0, 0.35);
 }
+
+/* 发射商透明 logo 自动底色（由 logoBgTone 驱动；无 tone 时沿用各页默认衬底） */
+.agency-logo-bg--light {
+  background-color: #ffffff !important;
+}
+.agency-logo-bg--dark {
+  background-color: #111111 !important;
+}

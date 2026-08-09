@@ -27,6 +27,7 @@ const {
 } = require('../../../utils/launch-stats-cloud.js')
 const { getAgencies, getAgencyDetail } = require('../../../utils/api-monitor-data.js')
 const { overrideAgencyLogoUrl } = require('../../../utils/agency-logo-overrides.js')
+const { resolveAgencyLogoBgTone } = require('../../../utils/agency-logo-bg.js')
 const { translateAgencyName } = require('../../../utils/space-terms-i18n.js')
 const {
   isStarshipMissionLike,
@@ -56,6 +57,7 @@ const {
   matchNewsIntent,
   matchStarlinkPassIntent,
   matchStarlinkMapIntent,
+  matchMerchantJoinIntent,
   matchViewingSpotIntent,
   matchArtemisIntent,
   matchStarshipHardwareIntent,
@@ -95,6 +97,8 @@ const {
   enrichLaunchContextWithWatchParty,
   enrichLaunchContextWatchPartyClosed,
   enrichLaunchContextWatchPartyFeatureOff,
+  enrichLaunchContextWithMerchantJoin,
+  enrichLaunchContextMerchantJoinFeatureOff,
   enrichLaunchContextWithCard,
   enrichLaunchContextNoStarshipSchedule,
   enrichLaunchContextNoMissionLookup,
@@ -973,6 +977,7 @@ function toAgencyChatCard(agency) {
     ? (agency.logo.thumbnail_url || agency.logo.image_url || '')
     : ''
   const logoUrl = overrideAgencyLogoUrl(agency, logoRaw) || logoRaw
+  const logoBgTone = logoUrl ? resolveAgencyLogoBgTone(logoUrl) : ''
   const desc = String(agency.description || '').trim()
   const descShort = desc.length > 72 ? (desc.slice(0, 72) + '…') : desc
   const metaParts = []
@@ -993,6 +998,7 @@ function toAgencyChatCard(agency) {
     successfulLaunches: success,
     successRateText,
     logoUrl: logoUrl || '',
+    logoBgTone,
     metaLine: metaParts.join(' · '),
     desc: descShort,
     cta: '进入发射商详情 ›',
@@ -1231,6 +1237,42 @@ async function resolveWatchPartyEntryCard(options) {
       gateProductId: '',
       gateProductName: '',
       needMissionSimFlag: false
+    }
+  }
+}
+
+/**
+ * 商家入驻意向 → 入驻邀请抽卡（merchant_gacha）。
+ * 卡背点击翻牌出「邀请函」，再点进入 merchant-apply 填表即入驻；
+ * 观礼过审开关关闭时不出卡（failClosed）。
+ */
+async function resolveMerchantJoinCard() {
+  let featureOn = false
+  try {
+    featureOn = await require('../../../utils/watch-party-feature.js').isWatchPartyEnabled(true)
+  } catch (e) {
+    featureOn = false
+  }
+  if (!featureOn) return { card: null, featureOff: true }
+  return {
+    card: {
+      cardType: 'merchant_gacha',
+      id: 'merchant_gacha_' + Date.now(),
+      // 翻牌交互状态：组件内 setData 就地更新
+      flipped: false,
+      drawing: false,
+      backTitle: '商家入驻邀请',
+      backEn: 'MERCHANT INVITATION',
+      backHint: '点击抽卡',
+      title: '观礼合作商家邀请函',
+      perks: [
+        '免费入驻 · 无平台费用',
+        '手机自建观礼场次',
+        '发射客流 · 预约直达',
+        '现场抽奖 · 大屏互动'
+      ],
+      cta: '立即入驻，填表即开通 ›',
+      foot: '点击卡片进入入驻申请'
     }
   }
 }
@@ -2051,6 +2093,14 @@ async function resolveRichChatPayload(text, options) {
         action: '授权位置后查看可见过境时间与方位'
       })
     }
+  } else if (intent === 'merchant_join') {
+    const resolved = await resolveMerchantJoinCard()
+    if (resolved.card) {
+      cards.push(resolved.card)
+      launchContext = enrichLaunchContextWithMerchantJoin(launchContext)
+    } else {
+      launchContext = enrichLaunchContextMerchantJoinFeatureOff(launchContext)
+    }
   } else if (intent === 'viewing_spot') {
     const resolved = await resolveWatchPartyEntryCard({ ...opts, queryText: text })
     if (resolved.card) {
@@ -2135,6 +2185,7 @@ module.exports = {
   matchNewsIntent,
   matchStarlinkPassIntent,
   matchStarlinkMapIntent,
+  matchMerchantJoinIntent,
   matchViewingSpotIntent,
   matchArtemisIntent,
   matchStarshipHardwareIntent,
@@ -2171,6 +2222,7 @@ module.exports = {
   resolveLiveWatchEntryCard,
   resolveStarlinkMapEntryCard,
   resolveWatchPartyEntryCard,
+  resolveMerchantJoinCard,
   resolveArtemisEntryCard,
   resolveStarshipHardwareCard,
   resolveRecoveryStatsCard,

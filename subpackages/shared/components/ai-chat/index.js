@@ -24,6 +24,11 @@ const {
   DEV_CYCLE_MS
 } = require('../../../../utils/festival-hat.js')
 const composerInput = require('../../utils/composer-input-behavior.js')
+const {
+  persistAgencyLogoAfterRemoteLoad,
+  isRemoteAgencyLogoUrl
+} = require('../../../../utils/agency-logo-cache.js')
+const { ensureAgencyLogoBgTone } = require('../../../../utils/agency-logo-bg.js')
 
 const MIN_PANEL_HEIGHT = 280
 const PANEL_HEIGHT_RATIO = 0.72
@@ -555,6 +560,30 @@ Component({
       this._switchTabFromChat(ROUTES.PROGRESS)
     },
 
+    /** 发射商卡 logo：落盘后分析透明底色 */
+    onAgencyLogoLoad(e) {
+      const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
+      const msgId = ds.msgid
+      const cardId = ds.cardid
+      const logoUrl = String(ds.logourl || '').trim()
+      if (!msgId || !cardId || !logoUrl || !isRemoteAgencyLogoUrl(logoUrl)) return
+      const self = this
+      persistAgencyLogoAfterRemoteLoad(logoUrl, function (localPath) {
+        if (!localPath) return
+        ensureAgencyLogoBgTone(logoUrl, localPath, function (tone) {
+          if (!tone) return
+          const msgs = self.data.messages || []
+          const mi = msgs.findIndex((m) => m && m.id === msgId)
+          if (mi < 0) return
+          const cards = msgs[mi].cards || []
+          const ci = cards.findIndex((c) => c && String(c.id) === String(cardId))
+          if (ci < 0) return
+          if (cards[ci].logoBgTone === tone) return
+          self.setData({ [`messages[${mi}].cards[${ci}].logoBgTone`]: tone })
+        })
+      })
+    },
+
     /** 发射商卡 → 发射商详情（门控与监控页图鉴一致） */
     async onAgencyCardTap(e) {
       const id = e.currentTarget.dataset.id
@@ -837,6 +866,57 @@ Component({
         } else {
           this._navigateAwayFromChat(url)
         }
+      } finally {
+        this._entryGatePending = false
+      }
+    },
+
+    /**
+     * 商家入驻邀请抽卡：第一击翻牌（抖动 → 3D 翻面出邀请函），
+     * 第二击进入入驻申请页（观礼过审开关 failClosed，页面内还有 guard 兜底）
+     */
+    async onMerchantGachaTap(e) {
+      const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
+      const msgId = ds.msgid
+      const cardId = ds.id
+      const msgs = this.data.messages || []
+      const mi = msgs.findIndex((m) => m && m.id === msgId)
+      if (mi < 0) return
+      const cards = msgs[mi].cards || []
+      const ci = cards.findIndex((c) => c && String(c.id) === String(cardId))
+      if (ci < 0) return
+      const card = cards[ci]
+      const base = `messages[${mi}].cards[${ci}]`
+
+      if (!card.flipped) {
+        if (card.drawing) return
+        wx.vibrateShort({ type: 'light' })
+        this.setData({ [`${base}.drawing`]: true })
+        setTimeout(() => {
+          wx.vibrateShort({ type: 'medium' })
+          this.setData({
+            [`${base}.drawing`]: false,
+            [`${base}.flipped`]: true
+          })
+        }, 520)
+        return
+      }
+
+      if (this._entryGatePending) return
+      this._entryGatePending = true
+      try {
+        let wpOn = false
+        try {
+          wpOn = await require('../../../../utils/watch-party-feature.js').isWatchPartyEnabled(true)
+        } catch (err) {
+          wpOn = false
+        }
+        if (!wpOn) {
+          wx.showToast({ title: '商家入驻暂未开放', icon: 'none' })
+          return
+        }
+        wx.vibrateShort({ type: 'light' })
+        this._navigateAwayFromChat('/subpackages/watch-party/merchant-apply?channel=ai_chat')
       } finally {
         this._entryGatePending = false
       }

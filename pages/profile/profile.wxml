@@ -165,6 +165,20 @@
       <text class="year-review-entry-arrow">查看年鉴 ›</text>
     </view>
 
+    <!-- ══ 火箭发射观礼入口（置顶）：受 enableWatchParty 过审开关控制（failClosed，默认隐藏至读到允许） ══ -->
+    <view class="growth-entry growth-entry--standalone" wx:if="{{enableWatchParty}}" bindtap="goWatchParty">
+      <view class="growth-entry-icon-wrap">
+        <image wx:if="{{watchPartyIcon}}" class="growth-entry-icon-img growth-entry-icon-img--wp" src="{{watchPartyIcon}}" mode="aspectFit" />
+        <view wx:else class="growth-entry-icon-badge"><text>观礼</text></view>
+        <view class="growth-entry-count-badge" wx:if="{{watchPartyCount > 0}}"><text>{{watchPartyCount}}</text></view>
+      </view>
+      <view class="growth-entry-info">
+        <text class="growth-entry-title">火箭发射观礼</text>
+        <text class="growth-entry-desc">现场观礼预约 · 我的奖品 · 商家合作</text>
+      </view>
+      <text class="growth-entry-arrow">›</text>
+    </view>
+
     <!-- ══ 每日简报（内联模式） ══ -->
     <morning-briefing mode="inline" icon="{{briefingIcon}}" />
 
@@ -175,19 +189,6 @@
         <view class="growth-entry-info">
           <text class="growth-entry-title">我的太空旅程</text>
           <text class="growth-entry-desc">查看你的探索里程碑时间线</text>
-        </view>
-        <text class="growth-entry-arrow">›</text>
-      </view>
-      <!-- 火箭观礼：受 enableWatchParty 过审开关控制（failClosed，默认隐藏至读到允许） -->
-      <view class="growth-entry" wx:if="{{enableWatchParty}}" bindtap="goWatchParty">
-        <view class="growth-entry-icon-wrap">
-          <image wx:if="{{watchPartyIcon}}" class="growth-entry-icon-img growth-entry-icon-img--wp" src="{{watchPartyIcon}}" mode="aspectFit" />
-          <view wx:else class="growth-entry-icon-badge"><text>观礼</text></view>
-          <view class="growth-entry-count-badge" wx:if="{{watchPartyCount > 0}}"><text>{{watchPartyCount}}</text></view>
-        </view>
-        <view class="growth-entry-info">
-          <text class="growth-entry-title">火箭观礼</text>
-          <text class="growth-entry-desc">现场观礼预约 · 我的奖品 · 商家合作</text>
         </view>
         <text class="growth-entry-arrow">›</text>
       </view>
@@ -243,7 +244,7 @@
             <view class="favorite-remove" catchtap="onRemoveFavorite" data-id="{{item.id}}" data-name="{{item.name}}">
               <text>✕</text>
             </view>
-            <view class="favorite-logo-chip">
+            <view class="favorite-logo-chip {{item.logoBgTone === 'dark' ? 'agency-logo-bg--dark' : ''}} {{item.logoBgTone === 'light' ? 'agency-logo-bg--light' : ''}}">
               <image class="favorite-logo" wx:if="{{item.logoUrl}}" src="{{item.logoUrl}}" mode="aspectFit" lazy-load />
               <text class="favorite-logo-fallback" wx:else>🛰️</text>
             </view>

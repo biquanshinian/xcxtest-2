@@ -163,9 +163,8 @@
 
             <text class="article-title">{{item.title}}</text>
 
-            <text class="article-summary" wx:if="{{item.summary}}">
-              {{item.summary}}
-            </text>
+            <!-- text 内容必须单行书写：text 保留内部换行，多行缩进会让首行空行占掉 line-clamp 的一行 -->
+            <text class="article-summary" wx:if="{{item.summary}}">{{item.summary}}</text>
           </view>
         </navigator>
 

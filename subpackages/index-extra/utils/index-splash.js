@@ -18,6 +18,11 @@ const { buildMissionDetailUrl } = require('../../../utils/index-mission-nav.js')
 const { fetchLaunchStatusSnapshot } = require('../../../utils/api-app-services.js')
 const { enrichMissionsLaunchAgencyImages } = require('../../../utils/upcoming-agency-logo-enrich.js')
 const { applyLaunchAgencyLogoOverridesToMission } = require('../../../utils/agency-logo-overrides.js')
+const { resolveAgencyLogoBgTone, ensureAgencyLogoBgTone } = require('../../../utils/agency-logo-bg.js')
+const {
+  persistAgencyLogoAfterRemoteLoad,
+  isRemoteAgencyLogoUrl
+} = require('../../../utils/agency-logo-cache.js')
 
 const SPLASH_NOTICE_FONTS = { default: true, yahei: true, 'yahei-bold': true }
 const SPLASH_NOTICE_MAX_LEN = 80
@@ -358,12 +363,14 @@ function normalizeSplashNotice(cfg) {
 function buildSplashMissionPayload(hit) {
   if (!hit || !hit.id) return null
   const patched = applyLaunchAgencyLogoOverridesToMission(hit) || hit
+  const agencyLogo = String(patched.launchAgencyImage || '').trim()
   return {
     id: patched.id,
     name: patched.missionName || patched.name || '',
     launchTime: patched.launchTime,
     agencyName: String(patched.launchAgency || '').trim(),
-    agencyLogo: String(patched.launchAgencyImage || '').trim(),
+    agencyLogo,
+    agencyLogoBgTone: agencyLogo ? resolveAgencyLogoBgTone(agencyLogo) : '',
     rocketName: String(patched.rocketName || patched.rocketConfiguration || '').trim()
   }
 }
@@ -1039,13 +1046,15 @@ const methods = {
       ) {
         const ts = new Date(cachedHit.launchTime).getTime()
         if (Number.isFinite(ts) && ts - Date.now() > SPLASH_LIVE_CHECK_WINDOW_MS) {
+          const cachedLogo = cachedHit.agencyLogo || ''
           this.setData({
             splashMission: {
               id: cachedHit.id,
               name: cachedHit.name || '',
               launchTime: cachedHit.launchTime,
               agencyName: cachedHit.agencyName || '',
-              agencyLogo: cachedHit.agencyLogo || '',
+              agencyLogo: cachedLogo,
+              agencyLogoBgTone: cachedLogo ? resolveAgencyLogoBgTone(cachedLogo) : '',
               rocketName: cachedHit.rocketName || ''
             }
           })
@@ -1245,6 +1254,23 @@ const methods = {
     }
     update()
     this._splashMissionTimer = setInterval(update, 1000)
+  },
+
+  /** 开屏任务卡发射商 logo：落盘并分析透明底色 */
+  onSplashAgencyLogoLoad(e) {
+    const remote = ((e && e.currentTarget && e.currentTarget.dataset) || {}).logoRemote || ''
+    const url = String(remote || '').trim()
+    if (!url || !isRemoteAgencyLogoUrl(url)) return
+    const self = this
+    persistAgencyLogoAfterRemoteLoad(url, function (localPath) {
+      if (!localPath) return
+      ensureAgencyLogoBgTone(url, localPath, function (tone) {
+        if (!tone) return
+        const cur = self.data.splashMission
+        if (!cur || cur.agencyLogoBgTone === tone) return
+        self.setData({ 'splashMission.agencyLogoBgTone': tone })
+      })
+    })
   },
 
   /** 点击开屏任务倒计时卡片：关闭开屏并跳转任务详情 */

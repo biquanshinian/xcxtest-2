@@ -829,6 +829,14 @@
   flex-shrink: 0;
 }
 
+/* 与 app.wxss 同源：组件 isolated，需本地声明才能覆盖 logo 底色 */
+.ai-agency-logo.agency-logo-bg--light {
+  background-color: #ffffff !important;
+}
+.ai-agency-logo.agency-logo-bg--dark {
+  background-color: #111111 !important;
+}
+
 .ai-agency-logo-ph {
   width: 88rpx;
   height: 88rpx;
@@ -1632,6 +1640,248 @@
 }
 .ai-entry-card--watch .ai-entry-dot { background: #ff9f0a; }
 .ai-entry-card--watch .ai-entry-arrow { color: #ff9f0a; }
+
+/* ═══ 商家入驻邀请抽卡（卡背 → 3D 翻牌 → 金色邀请函） ═══ */
+.ai-mgacha {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding: 8rpx 0 4rpx;
+  perspective: 1200rpx;
+}
+
+.ai-mgacha-flip {
+  position: relative;
+  width: 420rpx;
+  height: 560rpx;
+  transform-style: preserve-3d;
+  transition: transform 0.6s cubic-bezier(0.4, 0.2, 0.2, 1);
+}
+
+.ai-mgacha-flip--flipped {
+  transform: rotateY(180deg);
+}
+
+.ai-mgacha-flip--shaking {
+  animation: ai-mgacha-shake 0.4s ease-in-out infinite;
+}
+
+@keyframes ai-mgacha-shake {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-2deg); }
+  75% { transform: rotate(2deg); }
+}
+
+.ai-mgacha-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 24rpx;
+  backface-visibility: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* 卡背：深蓝紫牌堆风（与现场抽奖 gc-face--back 同族） */
+.ai-mgacha-face--back {
+  justify-content: center;
+  gap: 16rpx;
+  background:
+    radial-gradient(100% 70% at 50% 0%, rgba(245, 158, 11, 0.18), transparent 60%),
+    linear-gradient(160deg, #1e1b4b, #0b0c0e);
+  border: 1rpx solid rgba(253, 230, 138, 0.4);
+}
+
+.ai-mgacha-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 50%;
+  border: 1rpx solid rgba(253, 230, 138, 0.22);
+  transform: translate(-50%, -50%);
+}
+
+.ai-mgacha-ring--1 { width: 280rpx; height: 280rpx; }
+.ai-mgacha-ring--2 { width: 420rpx; height: 420rpx; border-color: rgba(253, 230, 138, 0.12); }
+
+.ai-mgacha-back-logo {
+  font-size: 80rpx;
+  color: #FDE68A;
+}
+
+.ai-mgacha-back-title {
+  font-size: 30rpx;
+  color: rgba(255, 255, 255, 0.78);
+  letter-spacing: 6rpx;
+}
+
+.ai-mgacha-back-en {
+  font-size: 18rpx;
+  letter-spacing: 4rpx;
+  color: rgba(255, 255, 255, 0.32);
+}
+
+.ai-mgacha-back-hint {
+  margin-top: 12rpx;
+  padding: 10rpx 36rpx;
+  border-radius: 999rpx;
+  border: 1rpx solid rgba(253, 230, 138, 0.5);
+  background: rgba(245, 158, 11, 0.14);
+  animation: ai-mgacha-hint-pulse 1.6s ease-in-out infinite;
+}
+
+.ai-mgacha-back-hint text {
+  font-size: 24rpx;
+  color: #FDE68A;
+  letter-spacing: 2rpx;
+}
+
+@keyframes ai-mgacha-hint-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.65; transform: scale(0.97); }
+}
+
+/* 卡面：金色邀请函 */
+.ai-mgacha-face--front {
+  transform: rotateY(180deg);
+  align-items: stretch;
+  padding: 24rpx 26rpx 20rpx;
+  gap: 14rpx;
+  background:
+    radial-gradient(120% 60% at 50% 0%, rgba(245, 158, 11, 0.24), transparent 62%),
+    linear-gradient(165deg, #2a2113, #14100a 58%, #0b0a08);
+  border: 1rpx solid rgba(253, 230, 138, 0.55);
+}
+
+/* 翻面后扫光掠过 */
+.ai-mgacha-shine {
+  position: absolute;
+  top: -20%;
+  left: -60%;
+  width: 40%;
+  height: 140%;
+  background: linear-gradient(100deg, transparent, rgba(255, 244, 214, 0.28), transparent);
+  transform: skewX(-18deg);
+  pointer-events: none;
+}
+
+.ai-mgacha-flip--flipped .ai-mgacha-shine {
+  animation: ai-mgacha-shine-sweep 1.5s ease 0.5s both;
+}
+
+@keyframes ai-mgacha-shine-sweep {
+  from { left: -60%; }
+  to { left: 130%; }
+}
+
+.ai-mgacha-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+}
+
+.ai-mgacha-brand {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  min-width: 0;
+}
+
+.ai-mgacha-brand-mark {
+  font-size: 34rpx;
+  color: #FDE68A;
+}
+
+.ai-mgacha-brand-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-mgacha-brand-name {
+  font-size: 24rpx;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.ai-mgacha-brand-en {
+  font-size: 16rpx;
+  letter-spacing: 2rpx;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.ai-mgacha-tier {
+  flex-shrink: 0;
+  padding: 6rpx 18rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(135deg, #FDE68A, #F59E0B);
+  box-shadow: 0 4rpx 14rpx rgba(245, 158, 11, 0.4);
+}
+
+.ai-mgacha-tier text {
+  font-size: 20rpx;
+  font-weight: 700;
+  color: #451A03;
+  letter-spacing: 2rpx;
+}
+
+.ai-mgacha-title {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #FDE68A;
+  letter-spacing: 2rpx;
+  text-align: center;
+  margin-top: 6rpx;
+}
+
+.ai-mgacha-perks {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1rpx solid rgba(253, 230, 138, 0.18);
+}
+
+.ai-mgacha-perk {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.ai-mgacha-perk-dot {
+  font-size: 18rpx;
+  color: #F59E0B;
+}
+
+.ai-mgacha-perk-text {
+  font-size: 24rpx;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.ai-mgacha-cta {
+  margin-top: auto;
+  padding: 18rpx 0;
+  border-radius: 999rpx;
+  text-align: center;
+  background: linear-gradient(135deg, #FDE68A, #F59E0B);
+  box-shadow: 0 6rpx 20rpx rgba(245, 158, 11, 0.35);
+}
+
+.ai-mgacha-cta text {
+  font-size: 26rpx;
+  font-weight: 700;
+  color: #451A03;
+}
+
+.ai-mgacha-foot {
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.4);
+  text-align: center;
+}
 
 .theme-light .ai-spec-row-value {
   color: var(--color-text-secondary);

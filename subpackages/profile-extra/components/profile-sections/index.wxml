@@ -112,7 +112,7 @@
               <image
                 class="vote-history-rocket-img"
                 src="{{item.rocketImage}}"
-                mode="aspectFit"
+                mode="aspectFill"
                 binderror="emitOnVoteHistoryRocketImageError"
                 data-index="{{index}}"
               />

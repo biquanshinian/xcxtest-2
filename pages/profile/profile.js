@@ -7,6 +7,7 @@ const { getSubscribedMissions, unsubscribeLaunch, syncSubscribedMissions } = req
 const { resolveMissionRocketImageFresh } = require('../../utils/util.js')
 const { getMembershipState, isPro, isMembershipEnabled, MEMBER_ICONS, gateCheck } = require('../../utils/membership.js')
 const { getFavoriteAgencies, removeFavoriteAgency } = require('../../utils/agency-favorites.js')
+const { resolveAgencyLogoBgTone, ensureAgencyLogoBgToneIfCached } = require('../../utils/agency-logo-bg.js')
 const themeUtil = require('../../utils/theme.js')
 const rocketArtUtil = require('../../utils/rocket-config-art.js')
 const { getCachedIcon, preloadIcons } = require('../../utils/icon-cache.js')
@@ -316,7 +317,25 @@ Page({
   /** ══ 我的收藏（发射商）══ */
   loadMyFavorites() {
     try {
-      this.setData({ myFavorites: getFavoriteAgencies() })
+      const list = getFavoriteAgencies().map((item) => {
+        const logoUrl = item && item.logoUrl ? String(item.logoUrl) : ''
+        return {
+          ...item,
+          logoBgTone: logoUrl ? resolveAgencyLogoBgTone(logoUrl) : ''
+        }
+      })
+      this.setData({ myFavorites: list })
+      const self = this
+      list.forEach((item, idx) => {
+        if (!item || !item.logoUrl || item.logoBgTone) return
+        ensureAgencyLogoBgToneIfCached(item.logoUrl, '', function (tone) {
+          if (!tone) return
+          const cur = self.data.myFavorites
+          if (!cur || !cur[idx] || cur[idx].id !== item.id) return
+          if (cur[idx].logoBgTone === tone) return
+          self.setData({ [`myFavorites[${idx}].logoBgTone`]: tone })
+        })
+      })
     } catch (e) {}
   },
 

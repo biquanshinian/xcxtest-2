@@ -40,11 +40,12 @@
         <view class="agency-hw-card-image-wrap">
           <image
             wx:if="{{item.displayImage}}"
-            class="agency-hw-card-image {{item.imageMode === 'aspectFit' ? 'agency-hw-card-image--logo' : ''}}"
+            class="agency-hw-card-image {{item.imageMode === 'aspectFit' ? 'agency-hw-card-image--logo' : ''}} {{item.imageMode === 'aspectFit' && item.logoBgTone === 'dark' ? 'agency-logo-bg--dark' : ''}} {{item.imageMode === 'aspectFit' && item.logoBgTone === 'light' ? 'agency-logo-bg--light' : ''}}"
             src="{{item.displayImage}}"
             mode="{{item.imageMode}}"
             lazy-load="{{true}}"
             data-index="{{index}}"
+            bindload="emitOnAgencyImageLoad"
             binderror="emitOnAgencyImageError"
           ></image>
           <view class="agency-hw-card-image-placeholder" wx:else>
