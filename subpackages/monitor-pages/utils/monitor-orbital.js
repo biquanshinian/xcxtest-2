@@ -7,7 +7,7 @@
  *
  * 主包 monitor.js 通过 require.async + attachTo 委托加载（与 monitor-galleries 一致）。
  */
-const { getSpaceXLaunchStats } = require('../../../utils/api-app-services.js')
+const { getUpcomingOrbitalEvents } = require('../../../utils/api-app-services.js')
 const { getOrbitalConfig: getOrbitalConfigCached } = require('./orbital-config-cache.js')
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
 const { gateCheck, canUsePaidCloudSync } = require('../../../utils/membership.js')
@@ -15,6 +15,7 @@ const { getMemberPolicySync } = require('../../../utils/member-policy.js')
 const { optimizeImageUrl, toCdnUrl, isVideoUrl, videoSnapshotUrl } = require('../../../utils/cos-url.js')
 const { getCachedVideo } = require('./video-cache.js')
 const { buildLl2ImageChain, advanceImageFallback } = require('../../../utils/ll2-image.js')
+const { translateEventType, translateLocation } = require('../../../utils/space-terms-i18n.js')
 
 /** 监控页入口卡背景视频（远程 card.bgImage 为空时的本地兜底） */
 const ORBITAL_CARD_BG_VIDEO_DEFAULT =
@@ -47,8 +48,22 @@ const methods = {
       const dateText = isFinite(dateMs) ? this._formatLocalDate(dateMs) : ''
       // 与飞船/发射商一致：Worker 代理优先，原链作 binderror 兜底
       const imageChain = buildLl2ImageChain(ev.imageUrl)
+      const typeLabel =
+        ev.typeNameZh ||
+        translateEventType(ev.typeName) ||
+        ev.typeName ||
+        ''
+      const locationLabel =
+        ev.locationZh ||
+        translateLocation(ev.location) ||
+        ev.location ||
+        ''
+      const nameLabel = ev.nameZh || ev.name || ''
       return {
         ...ev,
+        name: nameLabel,
+        typeName: typeLabel,
+        location: locationLabel,
         imageUrl: imageChain[0] || ev.imageUrl || '',
         imageFallbacks: imageChain.slice(1),
         countdownText,
@@ -86,8 +101,8 @@ const methods = {
     if (this.data.orbitalReady || this.data.orbitalLoading) return
     this.setData({ orbitalReady: true, orbitalLoading: true })
     try {
-      const stats = await getSpaceXLaunchStats()
-      const list = stats && Array.isArray(stats.upcomingOrbitalEvents) ? stats.upcomingOrbitalEvents : []
+      // 官方文档字段为空时回退 events/upcoming 缓存（见 getUpcomingOrbitalEvents）
+      const list = await getUpcomingOrbitalEvents({ limit: 8 })
       this.setData({
         orbitalLoading: false,
         upcomingOrbitalEvents: this._formatUpcomingOrbitalEvents(list)

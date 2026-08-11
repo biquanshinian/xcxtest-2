@@ -1,4 +1,6 @@
 /* spacecraft-gallery.wxss — 独立全屏全球飞船图鉴页（暗色毛玻璃，骨架镜像族谱页） */
+@import "./styles/gallery-toolbar.wxss";
+@import "/styles/fav-btn.wxss";
 page {
   background: #0B0C0E;
   color: #fff;
@@ -84,16 +86,9 @@ page {
   border-color: rgba(59, 130, 246, 0.55);
 }
 
-/* 机构筛选 chip：单行横向滚动（机构数多，换行会占太高） */
-.agency-filter-scroll {
-  width: 100%;
-  margin-top: 12rpx;
-  white-space: nowrap;
-}
+/* 机构筛选：折叠展开胶囊（多行换行） */
 .agency-filter-row {
-  display: inline-flex;
-  gap: 12rpx;
-  padding: 0 var(--space-lg);
+  margin-top: 12rpx;
 }
 .filter-chip--agency {
   display: inline-flex;
@@ -101,6 +96,10 @@ page {
   gap: 8rpx;
   padding: 10rpx 24rpx;
   font-size: 24rpx;
+}
+.filter-chip--toggle {
+  color: rgba(255, 255, 255, 0.55);
+  border-style: dashed;
 }
 .agency-chip-count {
   font-size: 20rpx;
@@ -205,7 +204,10 @@ page {
 }
 /* 机构标签：可点按筛选（再点一次取消），做成小胶囊提示可交互 */
 .scg-agency {
+  display: inline-flex;
+  align-items: center;
   align-self: flex-start;
+  gap: 6rpx;
   max-width: 100%;
   padding: 4rpx 14rpx;
   border-radius: 999rpx;
@@ -213,10 +215,19 @@ page {
   color: var(--color-brand);
   background: rgba(59, 130, 246, 0.12);
   border: 1px solid rgba(59, 130, 246, 0.25);
+  box-sizing: border-box;
+}
+.scg-agency-logo {
+  width: 24rpx;
+  height: 24rpx;
+  flex-shrink: 0;
+  border-radius: 4rpx;
+}
+.scg-agency-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  box-sizing: border-box;
 }
 .scg-agency:active {
   opacity: 0.7;
@@ -249,6 +260,9 @@ page {
   color: #fff;
   background: linear-gradient(135deg, var(--color-brand), #60A5FA);
   border-color: rgba(59, 130, 246, 0.55);
+}
+.theme-light .filter-chip--toggle {
+  color: var(--color-text-tertiary);
 }
 .theme-light .agency-chip-count {
   color: var(--color-text-tertiary);

@@ -383,6 +383,8 @@ const SPLASH_LIVE_CHECK_WINDOW_MS = 2 * 60 * 60 * 1000
 // 开屏视频最长展示 12 秒（与云端预览转码截取一致；原片兜底也硬切）
 const SPLASH_VIDEO_MAX_SEC = 12
 const SPLASH_VIDEO_MAX_MS = SPLASH_VIDEO_MAX_SEC * 1000
+// 图片开屏：跳过倒计时固定秒数（视频则随片长自动判定，不再读后台 countdownSeconds）
+const SPLASH_IMAGE_COUNTDOWN_SEC = 5
 // 起播保障：超时强制 play；再超时则降级封面图，避免一直卡在封面上「假死」
 const SPLASH_VIDEO_FORCE_PLAY_MS = 1200
 const SPLASH_VIDEO_FALLBACK_MS = 2800
@@ -453,7 +455,8 @@ const methods = {
                   : isVideoItem
                     ? carouselVideoPosterUrl(it.mediaUrl, '')
                     : '',
-                missionName: String(it.missionName || '').trim()
+                missionName: String(it.missionName || '').trim(),
+                launchId: String(it.launchId || '').trim()
               }
             })
         }
@@ -471,7 +474,8 @@ const methods = {
                 : isVideoCfg
                   ? carouselVideoPosterUrl(cfg.mediaUrl, '')
                   : '',
-              missionName: String(cfg.missionName || '').trim()
+              missionName: String(cfg.missionName || '').trim(),
+              launchId: String(cfg.launchId || '').trim()
             }
           ]
         }
@@ -488,7 +492,8 @@ const methods = {
           posterUrl: item.posterUrl || '',
           originalUrl: item.mediaUrl,
           playUrl,
-          missionName: item.missionName || ''
+          missionName: item.missionName || '',
+          launchId: item.launchId || ''
         }
       }
 
@@ -583,10 +588,10 @@ const methods = {
       const resolved = resolvePlay(picked)
       if (!resolved) return
 
-      // 配了任务名：立刻预热即将发射列表（fire-and-forget），
+      // 配了任务：立刻预热即将发射列表（fire-and-forget），
       // 让 _showSplash 后的倒计时卡片匹配少等一整段网络往返
       // （下方会员门控 / 视频预取的 await 期间请求已在路上，withListSnapshot 会去重复用）
-      if (resolved.missionName) {
+      if (resolved.missionName || resolved.launchId) {
         try {
           getUpcomingMissions(20, 0).catch(() => {})
         } catch (e) {}
@@ -663,10 +668,9 @@ const methods = {
         }
       }
 
-      const countdown = Math.min(
-        SPLASH_VIDEO_MAX_SEC,
-        Math.max(1, Number((cfg && cfg.countdownSeconds) || (cached && cached.countdownSeconds) || 5) || 5)
-      )
+      // 跳过倒计时：视频先按上限占位，元数据/播放进度到位后按实际片长校正；图片固定秒数
+      const countdown =
+        resolved.mediaType === 'video' ? SPLASH_VIDEO_MAX_SEC : SPLASH_IMAGE_COUNTDOWN_SEC
       // 有云端配置时以云端为准（含「清空文案」）；仅无云端时才读本地缓存
       const splashNotice = cfg ? normalizeSplashNotice(cfg) : normalizeSplashNotice(cached)
       this._showSplash({
@@ -676,6 +680,7 @@ const methods = {
         originalUrl: resolved.originalUrl,
         countdown,
         missionName: resolved.missionName,
+        launchId: resolved.launchId,
         notice: splashNotice
       })
 
@@ -724,7 +729,7 @@ const methods = {
       this._cacheSplashMedia(
         {
           enabled: true,
-          countdownSeconds: countdown,
+          countdownSeconds: resolved.mediaType === 'video' ? SPLASH_VIDEO_MAX_SEC : SPLASH_IMAGE_COUNTDOWN_SEC,
           noticeText: noticeTextForCache,
           noticeFont: noticeFontForCache,
           noticeLineHeight: noticeLineHeightForCache,
@@ -755,7 +760,8 @@ const methods = {
             this._cacheSplashMedia(
               {
                 enabled: true,
-                countdownSeconds: lateCfg.countdownSeconds || countdown,
+                countdownSeconds:
+                  resolved.mediaType === 'video' ? SPLASH_VIDEO_MAX_SEC : SPLASH_IMAGE_COUNTDOWN_SEC,
                 noticeText: lateNotice ? lateNotice.html || lateCfg.noticeText || '' : String(lateCfg.noticeText || '').trim(),
                 noticeFont: lateNotice ? lateNotice.font : String(lateCfg.noticeFont || 'default'),
                 noticeLineHeight: Number(lateCfg.noticeLineHeight) || 1.4,
@@ -790,10 +796,15 @@ const methods = {
     const mediaUrl = opts.mediaUrl || ''
     const posterUrl = opts.posterUrl || ''
     const originalUrl = opts.originalUrl || mediaUrl
-    const countdown = Math.min(
-      SPLASH_VIDEO_MAX_SEC,
-      Math.max(1, Number(opts.countdown || 5) || 5)
-    )
+    // 视频：先按上限占位，loadedmetadata / timeupdate 后按实际片长校正
+    const countdown =
+      mediaType === 'video'
+        ? SPLASH_VIDEO_MAX_SEC
+        : Math.min(
+            SPLASH_VIDEO_MAX_SEC,
+            Math.max(1, Number(opts.countdown || SPLASH_IMAGE_COUNTDOWN_SEC) || SPLASH_IMAGE_COUNTDOWN_SEC)
+          )
+    this._splashVideoDurationSec = mediaType === 'video' ? SPLASH_VIDEO_MAX_SEC : 0
     const notice =
       opts.notice && Array.isArray(opts.notice.lines) && opts.notice.lines.length
         ? {
@@ -836,14 +847,53 @@ const methods = {
       splashNotice: notice
     })
 
-    this._startSplashTick(mediaType)
+    // 图片走秒表；视频跳过秒数跟播片进度（timeupdate），不另开墙钟倒计时
+    if (mediaType === 'image') {
+      this._startSplashTick('image')
+    } else if (this._splashTimer) {
+      clearInterval(this._splashTimer)
+      this._splashTimer = null
+    }
     this._armSplashVideoMaxGuard(mediaType)
     this._armSplashVideoPlayGuards(mediaType)
 
-    // 运营配置了任务名称：异步匹配最近的即将发射任务，叠加可点击倒计时卡片
-    if (opts.missionName) {
-      this._loadSplashMission(String(opts.missionName).trim())
+    // 运营配置了关联任务：按 launchId / 名称匹配即将发射，叠加可点击倒计时（改期自动跟踪）
+    if (opts.launchId || opts.missionName) {
+      this._loadSplashMission(String(opts.missionName || '').trim(), String(opts.launchId || '').trim())
     }
+  },
+
+  /** 按视频实际时长（上限 12s）收紧硬关屏；可选校正跳过秒数（仅元数据首次就绪时） */
+  _applySplashVideoDuration(durationSec, opts) {
+    const raw = Number(durationSec)
+    if (!Number.isFinite(raw) || raw <= 0) return 0
+    const sec = Math.min(SPLASH_VIDEO_MAX_SEC, Math.max(1, Math.ceil(raw)))
+    const prev = Number(this._splashVideoDurationSec) || 0
+    const changed = prev !== sec
+    this._splashVideoDurationSec = sec
+    if (changed && this.data.splashVisible && !this.data.splashFading) {
+      // 片长短于 12s 时收紧硬上限，避免播完仍挂着等到墙钟
+      this._armSplashVideoMaxGuard('video', { durationSec: sec })
+      if (opts && opts.resetCountdown) {
+        // 若 timeupdate 已推进进度，按剩余秒数校正，禁止回跳到整段片长
+        const played = Math.max(0, Number(opts.currentTime) || 0)
+        const left = Math.max(0, Math.ceil(sec - played))
+        if (Number(this.data.splashCountdown) !== left) {
+          this.setData({ splashCountdown: left })
+        }
+      }
+    }
+    return sec
+  },
+
+  _syncSplashCountdownFromPlayback(currentTime) {
+    const dur = Number(this._splashVideoDurationSec) || SPLASH_VIDEO_MAX_SEC
+    const t = Math.max(0, Number(currentTime) || 0)
+    const left = Math.max(0, Math.ceil(dur - t))
+    if (Number(this.data.splashCountdown) !== left) {
+      this.setData({ splashCountdown: left })
+    }
+    return left
   },
 
   /**
@@ -898,13 +948,13 @@ const methods = {
       return
     }
     this._clearSplashVideoPlayGuards()
-    // 已降级为图片：清掉视频 12s 墙钟，改由图片倒计时负责关闭
+    // 已降级为图片：清掉视频墙钟，改走固定图片倒计时
     this._clearSplashVideoMaxGuard()
     this._splashVideoShownAt = 0
-    const left = Math.max(1, Number(this.data.splashCountdown) || 1)
+    this._splashVideoDurationSec = 0
     this.setData({
       splashVideoReady: true,
-      splashCountdown: left,
+      splashCountdown: SPLASH_IMAGE_COUNTDOWN_SEC,
       splashConfig: {
         ...cfg,
         mediaType: 'image',
@@ -966,17 +1016,28 @@ const methods = {
   },
 
   /** 视频开屏硬上限：到点强制关闭（防预览未就绪时播原片超时、或 timeupdate 丢失） */
-  _armSplashVideoMaxGuard(mediaType) {
+  _armSplashVideoMaxGuard(mediaType, opts) {
     if (this._splashVideoMaxTimer) {
       clearTimeout(this._splashVideoMaxTimer)
       this._splashVideoMaxTimer = null
     }
     if (mediaType !== 'video') return
-    this._splashVideoShownAt = Date.now()
+    const durSec = Math.min(
+      SPLASH_VIDEO_MAX_SEC,
+      Math.max(
+        1,
+        Number((opts && opts.durationSec) || this._splashVideoDurationSec || SPLASH_VIDEO_MAX_SEC) ||
+          SPLASH_VIDEO_MAX_SEC
+      )
+    )
+    // 首次 arm 记展示起点；按片长收紧时保留起点，按剩余墙钟续跑
+    if (!this._splashVideoShownAt) this._splashVideoShownAt = Date.now()
+    const elapsed = Date.now() - this._splashVideoShownAt
+    const leftMs = Math.max(0, durSec * 1000 - elapsed)
     this._splashVideoMaxTimer = setTimeout(() => {
       this._splashVideoMaxTimer = null
       if (this.data.splashVisible && !this.data.splashFading) this.closeSplash()
-    }, SPLASH_VIDEO_MAX_MS)
+    }, leftMs || 0)
   },
 
   _clearSplashVideoMaxGuard() {
@@ -992,9 +1053,15 @@ const methods = {
   },
 
   onSplashVideoTimeUpdate(e) {
-    const t = Number(e.detail && e.detail.currentTime) || 0
-    // 播到上限立即关闭（截取预览未就绪、或仍在播原片时兜底）
-    if (t >= SPLASH_VIDEO_MAX_SEC) {
+    const detail = (e && e.detail) || {}
+    const t = Number(detail.currentTime) || 0
+    const metaDur = Number(detail.duration) || 0
+    // 播放中只记片长、不重置倒计时；剩余秒数由进度同步
+    if (metaDur > 0) this._applySplashVideoDuration(metaDur)
+    const dur = Number(this._splashVideoDurationSec) || SPLASH_VIDEO_MAX_SEC
+    this._syncSplashCountdownFromPlayback(t)
+    // 播到实际上限立即关闭（截取预览未就绪、或仍在播原片时兜底）
+    if (t >= dur || t >= SPLASH_VIDEO_MAX_SEC) {
       if (this.data.splashVisible && !this.data.splashFading) this.closeSplash()
       return
     }
@@ -1005,11 +1072,20 @@ const methods = {
     }
   },
 
-  /** 元数据就绪：流量在动、即将起播。再踢一次 play，并把降级窗口一次性延长，慢网不误降级封面 */
-  onSplashVideoLoadedMeta() {
-    if (!this.data.splashVisible || this.data.splashFading || this.data.splashVideoReady) return
+  /** 元数据就绪：按片长设定跳过倒计时；再踢 play，并把降级窗口一次性延长 */
+  onSplashVideoLoadedMeta(e) {
+    const detail = (e && e.detail) || {}
+    const metaDur = Number(detail.duration) || 0
+    const cur = Number(detail.currentTime) || 0
+    if (metaDur > 0) {
+      this._applySplashVideoDuration(metaDur, { resetCountdown: true, currentTime: cur })
+    }
+
+    if (!this.data.splashVisible || this.data.splashFading) return
     const cfg = this.data.splashConfig || {}
     if (cfg.mediaType !== 'video') return
+    // 已起播仍可校正片长；仅未就绪时延长降级窗 / 踢 play
+    if (this.data.splashVideoReady) return
     if (this._splashVideoMetaExtended) return
     this._splashVideoMetaExtended = true
     this._forceSplashVideoPlay()
@@ -1029,21 +1105,27 @@ const methods = {
     this._fallbackSplashVideoToPoster()
   },
 
-  /** 按后台配置的任务名称，在即将发射列表中匹配最近的一条 */
-  async _loadSplashMission(missionName) {
-    if (!missionName) return
+  /**
+   * 按后台关联的 launchId / 任务名，在即将发射列表中匹配并跟踪 NET（改期自动更新倒计时）。
+   * 探针确认飞行中 → 关开屏；终态 → 不挂任务卡（云端随后下架该媒体）。
+   */
+  async _loadSplashMission(missionName, launchId) {
+    const boundId = String(launchId || '').trim()
+    const boundName = String(missionName || '').trim()
+    if (!boundId && !boundName) return
 
-    // 秒显快路径：上次同名配置匹配到的任务本地有缓存 → 先展示卡片（~0ms），云端返回后校正。
+    // 秒显快路径：同 launchId / 同名配置命中缓存 → 先展示（~0ms），云端校正 NET。
     // 距发射 ≤2h 不快显：此时可能已在飞行中/终态，等实时确认，避免卡片闪现后又整屏关闭
     let fastShown = false
     try {
       const cachedHit = wx.getStorageSync(SPLASH_MISSION_HIT_KEY) || null
-      if (
+      const sameBind =
         cachedHit &&
         cachedHit.id &&
         cachedHit.launchTime &&
-        String(cachedHit.configName || '') === String(missionName)
-      ) {
+        ((boundId && String(cachedHit.id) === boundId) ||
+          (!boundId && String(cachedHit.configName || '') === boundName))
+      if (sameBind) {
         const ts = new Date(cachedHit.launchTime).getTime()
         if (Number.isFinite(ts) && ts - Date.now() > SPLASH_LIVE_CHECK_WINDOW_MS) {
           const cachedLogo = cachedHit.agencyLogo || ''
@@ -1084,12 +1166,13 @@ const methods = {
           String(s || '').match(/\bift[-\s]?(\d+)/i)
         return m ? Number(m[1]) : 0
       }
-      const target = softNorm(missionName)
-      const targetFlight = extractFlightNo(missionName)
-      if (!target && !targetFlight) return
+      const target = softNorm(boundName)
+      const targetFlight = extractFlightNo(boundName)
 
       const nowTs = Date.now()
       const nameMatches = (m) => {
+        if (boundId && m && String(m.id) === boundId) return true
+        if (!target && !targetFlight) return false
         const candidates = [m.name, m.missionName]
         if (targetFlight) {
           const byNo = candidates.some((c) => extractFlightNo(c) === targetFlight) &&
@@ -1097,7 +1180,7 @@ const methods = {
           // 仅当双方都能抽出同一 Flight 号且候选侧含星舰时，用编号命中（避免 Falcon Flight 误配）
           if (byNo) return true
           // 配置侧无星舰关键字时，纯编号命中也放行（运营手填「Flight 13」）
-          if (!/starship|星舰/i.test(missionName) && candidates.some((c) => extractFlightNo(c) === targetFlight)) {
+          if (!/starship|星舰/i.test(boundName) && candidates.some((c) => extractFlightNo(c) === targetFlight)) {
             return true
           }
         }
@@ -1106,29 +1189,59 @@ const methods = {
           return n && target && (n.indexOf(target) !== -1 || target.indexOf(n) !== -1)
         })
       }
+
+      // launchId 优先：改期后仍锁定同一任务（名称/Flight 文案变化也不丢）
+      let idHit = null
+      if (boundId) {
+        idHit = list.find((m) => m && String(m.id) === boundId) || null
+      }
+
       const matches = list.filter((m) => {
         if (!m || !m.id || !m.launchTime) return false
         const ts = new Date(m.launchTime).getTime()
-        if (!Number.isFinite(ts) || ts <= nowTs) return false
+        // 已过点但仍在列表（短暂 hold）：launchId 命中仍跟踪；纯名称匹配要求未来 NET
+        if (!Number.isFinite(ts)) return false
+        if (ts <= nowTs && !(boundId && String(m.id) === boundId)) return false
         return nameMatches(m)
       })
 
-      // 生命周期：列表缓存里同名任务已是飞行中 → 直接关闭开屏（不显示卡片）
-      const inflightHit = list.find((m) => m && m.id && Number(m.statusId) === SPLASH_STATUS_INFLIGHT && nameMatches(m))
+      // 生命周期：列表缓存里同任务已是飞行中 → 直接关闭开屏（不显示卡片）
+      const inflightHit =
+        (idHit && Number(idHit.statusId) === SPLASH_STATUS_INFLIGHT && idHit) ||
+        list.find((m) => m && m.id && Number(m.statusId) === SPLASH_STATUS_INFLIGHT && nameMatches(m))
       if (inflightHit) {
         if (this.data.splashVisible && !this.data.splashFading) this.closeSplash()
         return
       }
 
       if (!matches.length) {
+        // 有 launchId 但已离开 upcoming：用探针确认是否飞行中/终态
+        if (boundId) {
+          try {
+            const rows = await fetchLaunchStatusSnapshot([boundId])
+            const row = Array.isArray(rows)
+              ? rows.find((r) => r && String(r.id) === boundId)
+              : null
+            const sid = row && row.status ? Number(row.status.id) : 0
+            if (sid === SPLASH_STATUS_INFLIGHT) {
+              if (this.data.splashVisible && !this.data.splashFading) this.closeSplash()
+              return
+            }
+            if (SPLASH_STATUS_TERMINAL[sid]) {
+              if (fastShown) this._clearSplashMissionCard(true)
+              return
+            }
+          } catch (e) {}
+        }
         // 快显的缓存卡片已过时（任务不在即将发射列表里了）：移除并清缓存
         if (fastShown) this._clearSplashMissionCard(true)
         return
       }
 
-      // 命中多条取发射时间最近的
+      // 命中多条：优先 launchId，否则取发射时间最近的
       matches.sort((a, b) => new Date(a.launchTime).getTime() - new Date(b.launchTime).getTime())
-      const hit = matches[0]
+      const hit =
+        (boundId && matches.find((m) => String(m.id) === boundId)) || matches[0]
 
       // 临近发射（±2h）：用状态探针库（launch_status，零 LL2 成本）实时确认；
       // 探明飞行中 → 自动关闭开屏；终态 → 不显示卡片
@@ -1162,10 +1275,10 @@ const methods = {
       const payload = buildSplashMissionPayload(enrichedHit)
       if (!payload) return
 
-      // 命中即写缓存（无论开屏是否还在）：下次同名配置的开屏可秒显卡片
+      // 命中即写缓存（无论开屏是否还在）：下次同绑定的开屏可秒显卡片；NET 改期写入新时间
       try {
         wx.setStorageSync(SPLASH_MISSION_HIT_KEY, {
-          configName: String(missionName),
+          configName: boundName || String(payload.name || ''),
           id: payload.id,
           name: payload.name,
           launchTime: payload.launchTime,
@@ -1292,46 +1405,35 @@ const methods = {
     })
   },
 
-  /** 启动开屏倒计时 interval（onHide 停表后由 _resumeSplashTimer 复用） */
+  /** 启动图片开屏跳过倒计时（视频改由播片进度驱动，见 timeupdate） */
   _startSplashTick(mediaType) {
     if (this._splashTimer) {
       clearInterval(this._splashTimer)
       this._splashTimer = null
     }
-    if (mediaType === 'image') {
-      this._splashTimer = setInterval(() => {
-        const next = this.data.splashCountdown - 1
-        if (next <= 0) {
-          this.closeSplash()
-        } else {
-          this.setData({ splashCountdown: next })
-        }
-      }, 1000)
-    } else {
-      this._splashTimer = setInterval(() => {
-        const next = this.data.splashCountdown - 1
-        if (next <= 0) {
-          clearInterval(this._splashTimer)
-          this._splashTimer = null
-          this.setData({ splashCountdown: 0 })
-        } else {
-          this.setData({ splashCountdown: next })
-        }
-      }, 1000)
-    }
+    if (mediaType !== 'image') return
+    this._splashTimer = setInterval(() => {
+      const next = this.data.splashCountdown - 1
+      if (next <= 0) {
+        this.closeSplash()
+      } else {
+        this.setData({ splashCountdown: next })
+      }
+    }, 1000)
   },
 
   _resumeSplashTimer() {
     const cfg = this.data.splashConfig || {}
-    // 视频分支倒计时到 0 后 timer 已自清，剩余秒数 > 0 才需要续跑
-    if (this.data.splashCountdown > 0) {
-      this._startSplashTick(cfg.mediaType || 'image')
+    // 图片：剩余秒数 > 0 续跑秒表；视频由 timeupdate 驱动，不恢复墙钟 tick
+    if (cfg.mediaType !== 'video' && this.data.splashCountdown > 0) {
+      this._startSplashTick('image')
     }
-    // 视频硬上限按墙钟剩余时间续跑（切后台期间也计入 12 秒额度）
+    // 视频硬上限按片长墙钟剩余续跑（切后台期间也计入额度）
     if (cfg.mediaType === 'video' && this.data.splashVisible && !this.data.splashFading) {
+      const durSec = Number(this._splashVideoDurationSec) || SPLASH_VIDEO_MAX_SEC
       const startedAt = Number(this._splashVideoShownAt || 0)
-      const elapsed = startedAt ? Date.now() - startedAt : SPLASH_VIDEO_MAX_MS
-      const left = Math.max(0, SPLASH_VIDEO_MAX_MS - elapsed)
+      const elapsed = startedAt ? Date.now() - startedAt : durSec * 1000
+      const left = Math.max(0, durSec * 1000 - elapsed)
       this._clearSplashVideoMaxGuard()
       if (left <= 0) {
         this.closeSplash()
@@ -1342,7 +1444,6 @@ const methods = {
         }, left)
       }
       // 回前台若仍未起播：立刻再踢 play，降级定时按首次展示起算剩余时间（不整段重计）
-      // 注意：已因 12s 墙钟用尽而 closeSplash 时不要再 arm（避免 fading 中同步 fallback）
       if (left > 0 && !this.data.splashVideoReady) {
         this._forceSplashVideoPlay()
         this._armSplashVideoPlayGuards('video', { preserveStart: true })
@@ -1376,7 +1477,10 @@ const methods = {
       previewUrl: cfg.previewUrl || '',
       posterUrl: cfg.posterUrl || '',
       mediaType: cfg.mediaType || 'image',
-      countdownSeconds: cfg.countdownSeconds || 5,
+      countdownSeconds:
+        cfg.mediaType === 'video'
+          ? SPLASH_VIDEO_MAX_SEC
+          : Number(cfg.countdownSeconds) || SPLASH_IMAGE_COUNTDOWN_SEC,
       noticeText,
       noticeFont: SPLASH_NOTICE_FONTS[noticeFontRaw] ? noticeFontRaw : 'default',
       noticeLineHeight: Number.isFinite(lhNum) ? Math.min(2.5, Math.max(1, Math.round(lhNum * 10) / 10)) : 1.4,

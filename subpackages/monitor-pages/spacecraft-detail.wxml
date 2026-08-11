@@ -42,16 +42,27 @@
             <image wx:if="{{item.imageUrl}}" class="hero-image {{heroImageLoaded ? 'hero-image--loaded' : ''}}" src="{{item.imageUrl}}" mode="aspectFill" bindload="onHeroImageLoad" binderror="onHeroImageError"></image>
             <view wx:else class="hero-image hero-image--placeholder"></view>
             <view class="hero-gradient"></view>
+            <!-- 状态：头图左上角 -->
+            <text class="hero-status-badge {{item.inUse ? 'hero-status-badge--active' : 'hero-status-badge--inactive'}}">{{item.inUse ? '现役' : '已退役'}}</text>
           </view>
         </view>
 
-        <!-- 信息头：名称/状态/徽标下移出头图，不再遮挡照片 -->
+        <!-- 信息头：名称 + 收藏 -->
         <view class="info-header">
           <view class="hero-name-row">
             <view class="hero-name-col">
               <text class="hero-name">{{item.name}}</text>
             </view>
-            <text class="hero-status {{item.inUse ? 'hero-status--active' : 'hero-status--inactive'}}">{{item.inUse ? '现役' : '已退役'}}</text>
+            <view
+              class="fav-btn {{isFavorited ? 'fav-btn--on' : ''}} {{favAnimate ? 'fav-btn--animate' : ''}}"
+              hover-class="fav-btn--pressed"
+              hover-stay-time="120"
+              catchtap="onToggleFavorite"
+              aria-role="button"
+              aria-label="收藏"
+            >
+              <view class="fav-heart"></view>
+            </view>
           </view>
           <view class="hero-badge-row">
             <view class="hero-agency-btn" wx:if="{{item.agencyName}}" catchtap="onTapAgency">

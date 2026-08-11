@@ -1,8 +1,24 @@
+@import "/styles/fav-btn.wxss";
+
 page {
   background: var(--color-bg-page);
   overflow: hidden;
   height: 100vh;
   width: 100%;
+}
+
+.hero-overlay-right {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  flex-shrink: 0;
+  pointer-events: auto;
+}
+
+.fav-btn--hero {
+  width: 72rpx;
+  height: 72rpx;
+  background: rgba(0, 0, 0, 0.28);
 }
 
 .detail-page {
@@ -79,16 +95,313 @@ page {
  * 祖先链 detail-hero-section / detail-card / detail-container 均无 overflow:hidden，
  * 图不会被裁；宽度未超出 scroll-view 视口，不会引发横向滚动。 */
 .detail-hero-section .hero-image-wrap {
+  position: relative;
   margin-bottom: 0;
   border-radius: var(--radius-lg);
 }
 
 .detail-hero-section .meta-top,
-.detail-hero-section .detail-title,
-.detail-hero-section .detail-subhead,
-.detail-hero-section .detail-status-note--hero {
+.detail-hero-section .hero-title-row,
+.detail-hero-section .hero-countdown-block,
+.detail-hero-section .hero-time-only,
+.detail-hero-section .hero-countdown {
   margin-left: 28rpx;
   margin-right: 28rpx;
+}
+
+/* 头图叠层：右上收藏+提醒铃铛 */
+.hero-overlay-top {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 22rpx;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0) 72%);
+}
+
+/* 头图底栏：左下状态+徽章，右下发射商，垂直居中对齐 */
+.hero-overlay-bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 16rpx 12rpx 16rpx 22rpx;
+  pointer-events: none;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0) 78%);
+}
+
+.hero-overlay-bottom-left {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  flex: 1;
+  min-width: 0;
+  pointer-events: auto;
+}
+
+.meta-patches--hero {
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+}
+
+.meta-patch-img--hero {
+  /* 原 72rpx × 1.3 */
+  width: 94rpx;
+  height: 94rpx;
+  background: rgba(0, 0, 0, 0.4);
+  border: 3rpx solid #ffffff;
+  box-shadow: none;
+}
+
+.type-badge--hero {
+  max-width: none;
+  flex-shrink: 0;
+  /* 原 padding/字号 × 1.3 */
+  padding: 16rpx 34rpx;
+  font-size: 36rpx;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.5rpx;
+  color: #ffffff !important;
+  /* 与 tabBar selectedColor / 选中图标同色蓝 */
+  background: rgba(59, 130, 246, 0.92) !important;
+  border: 2rpx solid rgba(255, 255, 255, 0.92) !important;
+  box-shadow: none;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.type-badge--hero.status-success,
+.type-badge--hero.status-deployed {
+  /* 微信绿 */
+  background: rgba(7, 193, 96, 0.94) !important;
+}
+
+.type-badge--hero.status-failure {
+  background: rgba(160, 40, 35, 0.72) !important;
+}
+
+.type-badge--hero.status-partial,
+.type-badge--hero.status-delayed,
+.type-badge--hero.status-cancelled {
+  background: rgba(150, 90, 10, 0.72) !important;
+}
+
+.type-badge--hero.status-pending,
+.type-badge--hero.status-inflight {
+  background: rgba(59, 130, 246, 0.92) !important;
+}
+
+.hero-bell-btn {
+  pointer-events: auto;
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  flex-shrink: 0;
+  transform: none;
+  transform-origin: center center;
+}
+
+/* 头图底栏右侧：发射商胶囊（0.8 缩放，与左侧状态/徽章垂直居中） */
+.hero-agency-chip {
+  position: relative;
+  z-index: 2;
+  max-width: 52%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  padding: 10rpx 18rpx 10rpx 10rpx;
+  border-radius: 999rpx;
+  background: rgba(0, 0, 0, 0.52);
+  border: 1rpx solid rgba(255, 255, 255, 0.28);
+  box-shadow: none;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  pointer-events: auto;
+  transform: scale(0.8);
+  transform-origin: center right;
+}
+
+.hero-agency-chip:active {
+  opacity: 0.88;
+  transform: scale(0.78);
+  transform-origin: center right;
+}
+
+.hero-agency-logo {
+  width: 52rpx;
+  height: 52rpx;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2rpx solid rgba(255, 255, 255, 0.88);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.hero-agency-name {
+  min-width: 0;
+  flex: 1;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #ffffff;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.theme-light .hero-agency-chip {
+  background: rgba(0, 0, 0, 0.48);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.hero-bell-btn--active {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.hero-bell-btn:active {
+  opacity: 0.88;
+  transform: scale(0.94);
+  transform-origin: center center;
+}
+
+/* 原 38rpx × 1.5 → 57rpx；无绿底，直接叠在头图上 */
+.icon-bell--hero {
+  width: 57rpx;
+  height: 57rpx;
+  filter: none;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+/* 已提醒：与描边同形的实心白铃 */
+.icon-bell--hero.bell-on {
+  background-image: url("data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PScwIDAgMjQgMjQnIHhtbG5zPSdodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2Zyc+PHBhdGggZmlsbD0nI2ZmZmZmZicgZD0nTTEyIDNhMSAxIDAgMCAxIDEgMXYuMUE2LjUgNi41IDAgMCAxIDE4LjUgMTAuNVYxNWwxLjggMS44YS43NS43NSAwIDAgMS0uNTMgMS4yOEg0LjIzYS43NS43NSAwIDAgMS0uNTMtMS4yOEw1LjUgMTV2LTQuNUE2LjUgNi41IDAgMCAxIDExIDQuMVY0YTEgMSAwIDAgMSAxLTF6Jy8+PHBhdGggZD0nTTkuNSAxOC4yNWEyLjUgMi41IDAgMCAwIDUgMCcgc3Ryb2tlPScjZmZmZmZmJyBzdHJva2Utd2lkdGg9JzIuMicgc3Ryb2tlLWxpbmVjYXA9J3JvdW5kJy8+PC9zdmc+");
+  filter: none;
+}
+
+/* 未开：白线铃铛 + 红色斜杠 */
+.icon-bell--hero.bell-off {
+  background-image: url("data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PScwIDAgMjQgMjQnIHhtbG5zPSdodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZycgZmlsbD0nbm9uZSc+PHBhdGggZD0nTTEyIDNhMSAxIDAgMCAxIDEgMXYuMUE2LjUgNi41IDAgMCAxIDE4LjUgMTAuNVYxNWwxLjggMS44YS43NS43NSAwIDAgMS0uNTMgMS4yOEg0LjIzYS43NS43NSAwIDAgMS0uNTMtMS4yOEw1LjUgMTV2LTQuNUE2LjUgNi41IDAgMCAxIDExIDQuMVY0YTEgMSAwIDAgMSAxLTF6JyBzdHJva2U9JyNmZmZmZmYnIHN0cm9rZS13aWR0aD0nMS43JyBzdHJva2UtbGluZWpvaW49J3JvdW5kJy8+PHBhdGggZD0nTTkuNSAxOC4yNWEyLjUgMi41IDAgMCAwIDUgMCcgc3Ryb2tlPScjZmZmZmZmJyBzdHJva2Utd2lkdGg9JzEuNycgc3Ryb2tlLWxpbmVjYXA9J3JvdW5kJy8+PGxpbmUgeDE9JzQnIHkxPSc0JyB4Mj0nMjAnIHkyPScyMCcgc3Ryb2tlPScjRkYzQjMwJyBzdHJva2Utd2lkdGg9JzInIHN0cm9rZS1saW5lY2FwPSdyb3VuZCcvPjwvc3ZnPg==");
+  filter: none;
+}
+
+.hero-title-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 8rpx;
+  margin-bottom: 20rpx;
+}
+
+.detail-title--inline {
+  display: inline;
+  margin-bottom: 0;
+  font-size: 36rpx;
+}
+
+.hero-title-sep {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
+  line-height: 1.45;
+}
+
+.hero-countdown-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 8rpx;
+}
+
+.hero-time-only {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 16rpx;
+}
+
+.date-text--countdown {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin-bottom: 12rpx;
+  font-size: 26rpx;
+  color: #8e8e93;
+}
+
+.hero-countdown {
+  margin-top: 0;
+  margin-bottom: 8rpx;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.countdown-display--hero {
+  margin-top: 0;
+  width: 100%;
+  justify-content: center;
+}
+
+.theme-light .hero-overlay-top {
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.4) 0%, rgba(0, 0, 0, 0) 70%);
+}
+
+.theme-light .hero-overlay-bottom {
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.42) 0%, rgba(0, 0, 0, 0) 78%);
+}
+
+.theme-light .hero-bell-btn,
+.theme-light .hero-bell-btn--active {
+  background: transparent;
+  border: none;
+}
+
+.theme-light .hero-title-sep {
+  color: rgba(0, 0, 0, 0.28);
+}
+
+.theme-light .date-text--countdown {
+  color: #8e8e93;
+}
+
+.theme-light .icon-bell--hero,
+.theme-light .icon-bell--hero.bell-on,
+.theme-light .icon-bell--hero.bell-off {
+  filter: none;
+}
+
+.theme-light .meta-patch-img--hero {
+  background: rgba(255, 255, 255, 0.92);
+  border: 3rpx solid #ffffff;
+  box-shadow: none;
+}
+
+.theme-light .type-badge--hero {
+  color: #ffffff !important;
 }
 
 .detail-hero-section official-account-publish-panel {
@@ -203,6 +516,11 @@ page {
   text-align: right;
 }
 
+/* 须盖过上方 .date-text 的 text-align:right（同权单类时后者生效） */
+.date-text.date-text--countdown {
+  text-align: left;
+}
+
 .detail-title {
   display: block;
   font-size: 40rpx;
@@ -307,35 +625,40 @@ page {
   font-size: 24rpx;
 }
 
-/* LL2 rocket.configuration：长度 / 直径 / 质量 / 推力 / 运力（紧凑胶囊流式排列） */
-.rocket-spec-section .rocket-spec-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12rpx;
+/* LL2 rocket.configuration：两列整齐网格（对齐型号档案「技术规格」） */
+.rocket-spec-section .rocket-spec-grid,
+.rocket-spec-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14rpx;
 }
 
 .rocket-spec-cell {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 10rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4rpx;
   box-sizing: border-box;
-  padding: 10rpx 20rpx;
-  border-radius: 999rpx;
+  padding: 14rpx 18rpx;
+  border-radius: 10rpx;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
+  min-width: 0;
 }
 
 .rocket-spec-label {
-  font-size: 21rpx;
-  color: rgba(255, 255, 255, 0.45);
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.4);
   white-space: nowrap;
 }
 
 .rocket-spec-value {
-  font-size: 24rpx;
+  font-size: 28rpx;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.92);
   line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
 }
 
 .countdown-display {
@@ -359,6 +682,12 @@ page {
   justify-content: space-between;
   gap: 14rpx;
   margin: 4rpx 0 0;
+}
+
+/* 头图倒计时：盖过 --detail 的 space-between，整条居中铺满 */
+.countdown-display--detail.countdown-display--hero {
+  justify-content: center;
+  width: 100%;
 }
 
 .countdown-item--tech {
@@ -529,6 +858,13 @@ page {
   gap: 14rpx;
 }
 
+/* 直播观看：左右并排，压缩纵向高度 */
+.livestream-row--duo {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 12rpx;
+}
+
 .livestream-btn {
   display: flex;
   align-items: center;
@@ -538,6 +874,34 @@ page {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 20rpx;
   transition: all 0.18s ease;
+}
+
+.livestream-btn--duo {
+  flex: 1;
+  min-width: 0;
+  gap: 12rpx;
+  padding: 16rpx 14rpx;
+  border-radius: 18rpx;
+}
+
+.livestream-row--duo .livestream-btn-icon {
+  width: 52rpx;
+  height: 52rpx;
+  border-radius: 12rpx;
+}
+
+.livestream-row--duo .livestream-icon-img {
+  width: 52rpx;
+  height: 52rpx;
+}
+
+.livestream-row--duo .livestream-btn-title {
+  font-size: 28rpx;
+}
+
+.livestream-row--duo .livestream-btn-sub {
+  font-size: 20rpx;
+  margin-top: 2rpx;
 }
 
 .livestream-btn:active {
@@ -1036,8 +1400,9 @@ page {
   margin-left: 2rpx;
 }
 
+/* 型号档案胶囊底为 brand 蓝，箭头需用白色，否则蓝叠蓝看不见 */
 .detail-link-chip--booster .detail-link-chip-arrow {
-  color: rgba(59, 130, 246, 0.6);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .vote-box {
@@ -1817,11 +2182,8 @@ page {
   opacity: 0.6;
 }
 
-/* 发射统计卡内的序号网格与上方大数字卡留距 */
+/* 发射统计卡内的序号网格与上方大数字卡留距（复用两列规格网格） */
 .mission-stats-seq-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12rpx;
   margin-top: 16rpx;
 }
 

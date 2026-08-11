@@ -15,7 +15,6 @@ const PLACEHOLDER_NET_MAX_AGE_MS = 48 * 60 * 60 * 1000
 function buildThinCompletedFromSettled(entry) {
   const statusObj = (entry && entry.status) || {}
   const category = getStatusCategory(statusObj)
-  const badge = getStatusBadgeText(statusObj, category)
   const name = (entry && entry.name) || ''
   const parts = String(name)
     .split('|')
@@ -26,6 +25,12 @@ function buildThinCompletedFromSettled(entry) {
   const id = entry.id
   const rocketName = parts[0] || ''
   const missionName = parts[1] || ''
+  // 结算行无 pad/服务商，用「火箭 | 任务」文本兜底推断国家
+  const countryDisplay = getCountryDisplay(null, null, { name })
+  const badge = getStatusBadgeText(statusObj, category, {
+    chineseRocket: countryDisplay === '中国',
+    countryDisplay
+  })
   return {
     id,
     name,
@@ -43,8 +48,7 @@ function buildThinCompletedFromSettled(entry) {
     isFailure: category === 'failure' || category === 'partial',
     missionDescription: '',
     padLocation: '',
-    // 结算行无 pad/服务商，用「火箭 | 任务」文本兜底推断国家
-    countryDisplay: getCountryDisplay(null, null, { name }),
+    countryDisplay,
     isExpired: false,
     _optimisticSettled: true,
     _fromRecentSettled: true,

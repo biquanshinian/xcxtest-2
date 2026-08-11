@@ -1,12 +1,144 @@
 <!-- 我的页下半屏区块（从 pages/profile/profile.wxml 原样拆出，交互经 sectionevent 回传页面） -->
 <view class="{{themeClass}}">
+  <!-- 左抽屉设置（约 2/3 屏；由导航栏「设置」打开；含外观 + 提醒偏好） -->
+  <root-portal wx:if="{{settingsPanelOpen}}">
+    <view class="settings-drawer-root {{themeClass}}" catchtouchmove="noop">
+      <view class="settings-drawer-mask" catchtap="emitCloseSettingsPanel"></view>
+      <view class="settings-drawer-panel" catchtap="noop">
+        <view class="settings-drawer-head" style="padding-top: {{settingsPanelPadTop}}px;">
+          <text class="settings-drawer-title">设置</text>
+          <view class="settings-drawer-close" catchtap="emitCloseSettingsPanel" aria-role="button" aria-label="关闭">
+            <text>✕</text>
+          </view>
+        </view>
+        <scroll-view class="settings-drawer-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+          <view class="settings-body">
+            <!-- 通用：语言 + 简报（侧栏白卡组） -->
+            <view class="drawer-card">
+              <view class="drawer-block">
+                <text class="drawer-block-title">语言设置</text>
+                <view class="theme-mode-group drawer-seg">
+                  <view
+                    class="theme-mode-opt {{contentLang === 'zh' ? 'theme-mode-opt--active' : ''}}"
+                    data-value="zh"
+                    catchtap="emitOnContentLangChange"
+                  >中文</view>
+                  <view
+                    class="theme-mode-opt {{contentLang === 'en' ? 'theme-mode-opt--active' : ''}}"
+                    data-value="en"
+                    catchtap="emitOnContentLangChange"
+                  >English</view>
+                </view>
+              </view>
+              <view class="drawer-divider"></view>
+              <view class="drawer-row">
+                <view class="drawer-row-text">
+                  <text class="drawer-block-title">每日太空简报</text>
+                  <text class="drawer-block-desc">首页展示当日太空简报入口</text>
+                </view>
+                <switch
+                  class="oa-alert-switch"
+                  checked="{{briefingEnabled}}"
+                  color="#0A84FF"
+                  catchchange="emitOnBriefingToggle"
+                />
+              </view>
+            </view>
+
+            <!-- 外观 -->
+            <view class="drawer-card">
+              <view class="drawer-block">
+                <text class="drawer-block-title">主题外观</text>
+                <view class="theme-mode-group drawer-seg">
+                  <view
+                    class="theme-mode-opt {{themeMode === 'dark' ? 'theme-mode-opt--active' : ''}}"
+                    data-mode="dark"
+                    catchtap="emitOnThemeModeTap"
+                  >深色</view>
+                  <view
+                    class="theme-mode-opt {{themeMode === 'light' ? 'theme-mode-opt--active' : ''}}"
+                    data-mode="light"
+                    catchtap="emitOnThemeModeTap"
+                  >浅色</view>
+                  <view
+                    class="theme-mode-opt {{themeMode === 'system' ? 'theme-mode-opt--active' : ''}}"
+                    data-mode="system"
+                    catchtap="emitOnThemeModeTap"
+                  >跟随系统</view>
+                </view>
+              </view>
+              <view class="drawer-divider"></view>
+              <view class="drawer-block">
+                <text class="drawer-block-title">火箭配置图</text>
+                <view class="theme-mode-group drawer-seg">
+                  <view
+                    class="theme-mode-opt {{rocketArtStyle === 'original' ? 'theme-mode-opt--active' : ''}}"
+                    data-style="original"
+                    catchtap="emitOnRocketArtTap"
+                  >原图</view>
+                  <view
+                    class="theme-mode-opt {{rocketArtStyle === 'mecha' ? 'theme-mode-opt--active' : ''}}"
+                    data-style="mecha"
+                    catchtap="emitOnRocketArtTap"
+                  >机娘风格</view>
+                </view>
+              </view>
+            </view>
+
+            <!-- 提醒偏好 -->
+            <view class="drawer-card">
+              <view class="drawer-block">
+                <text class="drawer-block-title">提醒偏好</text>
+                <text class="drawer-block-desc">按火箭型号 / 发射场自动接收提醒</text>
+              </view>
+              <text class="pref-sub-label">关注的火箭型号</text>
+              <view class="pref-tag-grid">
+                <view
+                  wx:for="{{rocketOptions}}"
+                  wx:key="*this"
+                  class="pref-tag {{rocketMap[item] ? 'pref-tag--active' : ''}}"
+                  data-name="{{item}}"
+                  catchtap="emitOnTogglePrefRocket"
+                >{{item}}</view>
+              </view>
+              <text class="pref-sub-label">关注的发射场</text>
+              <view class="pref-tag-grid">
+                <view
+                  wx:for="{{siteOptions}}"
+                  wx:key="*this"
+                  class="pref-tag {{siteMap[item] ? 'pref-tag--active' : ''}}"
+                  data-name="{{item}}"
+                  catchtap="emitOnTogglePrefSite"
+                >{{item}}</view>
+              </view>
+              <text class="pref-sub-label">提前提醒时间</text>
+              <view class="pref-radio-group">
+                <view
+                  wx:for="{{notifyOptions}}"
+                  wx:key="value"
+                  class="pref-radio {{notifyMinutes === item.value ? 'pref-radio--active' : ''}}"
+                  data-value="{{item.value}}"
+                  catchtap="emitOnNotifyPrefChange"
+                >{{item.label}}</view>
+              </view>
+              <view
+                class="pref-save-btn {{prefSaving ? 'pref-save-btn--loading' : ''}}"
+                catchtap="emitOnSaveReminderPrefs"
+              >
+                <text>{{prefSaving ? '保存中...' : '保存提醒偏好'}}</text>
+              </view>
+            </view>
+          </view>
+          <view class="settings-drawer-bottom-space"></view>
+        </scroll-view>
+      </view>
+    </view>
+  </root-portal>
+
   <!-- ══ 我的提醒 ══ -->
   <view class="reminder-section">
     <view class="section-title-row">
       <text class="section-title-text">我的提醒</text>
-      <view class="section-title-action" bindtap="emitGoPreferences">
-        <image class="section-settings-icon" src="/images/icon-settings.svg" mode="aspectFit" />
-      </view>
     </view>
 
     <!-- 服务号 B 通道：自动发射提醒 -->
@@ -64,10 +196,21 @@
         </view>
       </view>
     </view>
+
+    <!-- 客服介绍：低调附在提醒区底部（浅色小字，不抢视线） -->
+    <view class="reminder-about" wx:if="{{aboutText || aboutWechat}}">
+      <text class="reminder-about-text" wx:if="{{aboutText}}">{{aboutText}}</text>
+      <text
+        class="reminder-about-wechat"
+        wx:if="{{aboutWechat}}"
+        catchtap="emitOnCopyWechat"
+      >微信 {{aboutWechat}}</text>
+    </view>
   </view>
 
-  <!-- ══ 发射竞猜统计 ══ -->
-  <view class="vote-stats-section" wx:if="{{voteStats.total > 0}}">
+  <!-- 竞猜 / 每日挑战 / 客服已迁到「更多服务」详情页，此处不再重复展示 -->
+  <!-- ══ 发射竞猜统计（保留代码路径时可用；默认隐藏） ══ -->
+  <view class="vote-stats-section" wx:if="{{false && voteStats.total > 0}}">
     <view class="section-title-row">
       <text class="section-title-text">竞猜战绩</text>
       <text class="section-title-count">参与 {{voteStats.total}} 场</text>
@@ -107,7 +250,7 @@
           </view>
         </view>
         <view class="vote-history-list">
-          <view class="vote-history-item" wx:for="{{voteHistoryExpanded ? voteHistory : voteHistory}}" wx:if="{{voteHistoryExpanded || index < 5}}" wx:key="id" bindtap="emitOnVoteHistoryTap" data-id="{{item.launchId || item.id}}">
+          <view class="vote-history-item" wx:for="{{voteHistoryExpanded ? voteHistory : voteHistory}}" wx:if="{{voteHistoryExpanded || index < 1}}" wx:key="id" bindtap="emitOnVoteHistoryTap" data-id="{{item.launchId || item.id}}">
             <view class="vote-history-icon vote-history-icon--launch">
               <image
                 class="vote-history-rocket-img"
@@ -130,15 +273,15 @@
             </view>
           </view>
         </view>
-        <view class="vote-history-expand" wx:if="{{voteHistory.length > 5}}" bindtap="emitOnToggleVoteHistory">
+        <view class="vote-history-expand" wx:if="{{voteHistory.length > 1}}" bindtap="emitOnToggleVoteHistory">
           <text>{{voteHistoryExpanded ? '收起' : '展开全部 (' + voteHistory.length + ')'}}</text>
         </view>
       </view>
     </view>
   </view>
 
-  <!-- ══ 每日问答挑战 ══ -->
-  <view class="quiz-section" wx:if="{{quizQuestion}}">
+  <!-- ══ 每日问答挑战（已迁详情页） ══ -->
+  <view class="quiz-section" wx:if="{{false && quizQuestion}}">
     <view class="section-title-row">
       <text class="section-title-text">每日挑战</text>
       <text class="section-title-count">正确率 {{quizStats.accuracy}}%</text>
@@ -172,8 +315,8 @@
     </view>
   </view>
 
-  <!-- ══ 在线客服 ══ -->
-  <view class="about-section">
+  <!-- ══ 在线客服（已迁详情页） ══ -->
+  <view class="about-section" wx:if="{{false}}">
     <view class="section-title-row">
       <text class="section-title-text">在线客服</text>
     </view>

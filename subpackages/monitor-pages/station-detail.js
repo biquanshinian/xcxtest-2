@@ -356,18 +356,16 @@ Page({
   },
 
   _calloutStyle() {
-    const light = !!this.data.themeLight
-    return light
-      ? {
-          bgColor: 'rgba(255,255,255,0.92)',
-          color: '#248A3D',
-          borderColor: 'rgba(52,199,89,0.35)'
-        }
-      : {
-          bgColor: 'rgba(0,0,0,0.82)',
-          color: '#00ff88',
-          borderColor: 'rgba(0,255,136,0.4)'
-        }
+    // map callout 颜色必须用 6/8 位十六进制；rgba 真机会失效变黑底，再配深色字就看不见
+    return {
+      bgColor: '#FFFFFFF5',
+      color: '#111111',
+      borderColor: '#00000024'
+    }
+  },
+
+  _calloutContent(name, altText, speedText) {
+    return String(name || '空间站') + '\n高度 ' + altText + '\n速度 ' + speedText
   },
 
   _buildMarker(pos, name, altText, speedText) {
@@ -380,11 +378,11 @@ Page({
       width: 20,
       height: 20,
       callout: {
-        content: name + '\n' + altText + ' · ' + speedText,
+        content: this._calloutContent(name, altText, speedText),
         display: 'ALWAYS',
-        fontSize: 11,
+        fontSize: 13,
         borderRadius: 10,
-        padding: 8,
+        padding: 10,
         bgColor: style.bgColor,
         color: style.color,
         borderWidth: 1,
@@ -397,11 +395,11 @@ Page({
   _smoothMoveMarker(pos, name, altText, speedText) {
     const style = this._calloutStyle()
     const callout = {
-      content: name + '\n' + altText + ' · ' + speedText,
+      content: this._calloutContent(name, altText, speedText),
       display: 'ALWAYS',
-      fontSize: 11,
+      fontSize: 13,
       borderRadius: 10,
-      padding: 8,
+      padding: 10,
       bgColor: style.bgColor,
       color: style.color,
       borderWidth: 1,

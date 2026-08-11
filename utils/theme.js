@@ -96,16 +96,21 @@ function _scheduleNavBarSync(force) {
   }, 0)
 }
 
-/** 页面根 view 的主题类名（深色为空串，保持现有样式零改动） */
-function getThemeClassSync() {
-  const cls = isLightSync() ? 'theme-light' : ''
+/**
+ * 页面根 view 的主题类名（深色为空串，保持现有样式零改动）
+ * @param {boolean} [isMomentsPreview] 朋友圈单页时追加 is-moments-single，用于隐藏自定义顶栏
+ */
+function getThemeClassSync(isMomentsPreview) {
+  const parts = []
+  if (isLightSync()) parts.push('theme-light')
+  if (isMomentsPreview) parts.push('is-moments-single')
   _scheduleNavBarSync(false)
-  return cls
+  return parts.join(' ')
 }
 
-/** page-meta / wx.setBackgroundColor 用的页面底色 */
+/** page-meta / wx.setBackgroundColor 用的页面底色（与 Tab 全屏磨砂同色，切 Tab 不闪黑/闪白） */
 function getPageBgSync() {
-  return isLightSync() ? '#F4F5F7' : '#0B0C0E'
+  return isLightSync() ? '#F2F2F7' : '#000000'
 }
 
 /** 把当前主题写入某个页面实例（data.themeClass / data.themeLight） */
@@ -116,12 +121,13 @@ function applyThemeToPage(page) {
   applyThemeToTabBar(page)
   // 沉浸式恒深色页（如指挥控制台）不写入 themeClass
   if (page.forceDarkTheme) return
-  const cls = getThemeClassSync()
   const data = page.data || {}
-  if (data.themeClass === cls && data.themeLight === (cls !== '')) return
+  const cls = getThemeClassSync(!!data.isMomentsPreview)
+  const themeLight = isLightSync()
+  if (data.themeClass === cls && data.themeLight === themeLight) return
   page.setData({
     themeClass: cls,
-    themeLight: cls !== '',
+    themeLight,
     pageBgColor: getPageBgSync()
   })
 }

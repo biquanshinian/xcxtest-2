@@ -133,6 +133,9 @@ Page({
 
   onLoad(options) {
     this.initUiShell()
+    try {
+      wx.showShareMenu({ withShareTicket: true, menus: ['shareAppMessage', 'shareTimeline'] })
+    } catch (e) {}
     this._options = options || {}
     this._missionId = String((options && options.missionId) || '').trim()
     this._channel = String((options && options.channel) || '').trim() || 'list'
@@ -264,6 +267,19 @@ Page({
         ? missionTitle + '｜现场观礼商家任选，免费预约'
         : '火箭发射现场观礼，多家商家免费预约',
       path
+    }
+  },
+
+  onShareTimeline() {
+    const missionTitle = String(this.data.missionTitle || '').trim()
+    const mid = String(this.data.missionId || this._missionId || '').trim()
+    return {
+      title: missionTitle
+        ? missionTitle + '｜现场观礼商家任选，免费预约'
+        : '火箭发射现场观礼，多家商家免费预约',
+      query: mid
+        ? 'missionId=' + encodeURIComponent(mid) + '&channel=timeline'
+        : 'channel=timeline'
     }
   }
 })

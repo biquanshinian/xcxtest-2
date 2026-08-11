@@ -16,9 +16,9 @@
 
       <view class="ai-panel-header-left">
 
-        <text class="ai-panel-title">✦ 星问</text>
+        <text class="ai-panel-title">{{ui.panelTitle}}</text>
 
-        <text class="ai-panel-subtitle">AI太空助手</text>
+        <text class="ai-panel-subtitle">{{ui.panelSubtitle}}</text>
 
       </view>
 
@@ -119,9 +119,9 @@
           </scroll-view>
         </view>
 
-        <text class="ai-welcome-title">你好，我是星问</text>
+        <text class="ai-welcome-title">{{ui.welcomeTitle}}</text>
 
-        <text class="ai-welcome-desc">查发射、看回放与统计，或打开飞行剖面、在轨追踪等互动工具——有航天问题都可以问我。</text>
+        <text class="ai-welcome-desc">{{ui.welcomeDesc}}</text>
 
       </view>
 
@@ -182,7 +182,7 @@
 
                     <text class="ai-rich-card-title">{{card.title}}</text>
 
-                    <text class="ai-rich-card-count">{{card.items.length}} 次</text>
+                    <text class="ai-rich-card-count">{{card.items.length}}{{ui.listCountSuffix}}</text>
 
                   </view>
 
@@ -242,9 +242,13 @@
 
                   </view>
 
-                  <view class="ai-rich-card-footer" bindtap="onLaunchListMoreTap">
+                  <view
+                    class="ai-rich-card-footer"
+                    data-mode="{{card.listMode || 'upcoming'}}"
+                    bindtap="onLaunchListMoreTap"
+                  >
 
-                    <text class="ai-rich-card-cta">查看首页更多 ›</text>
+                    <text class="ai-rich-card-cta">{{card.listMode === 'history' ? ui.seeMoreHistory : ui.seeMoreOnHome}}</text>
 
                   </view>
 
@@ -264,9 +268,9 @@
 
                     <view class="ai-ss-vehicle" catchtap="onStarshipStatusTap" data-vehicle="booster">
 
-                      <text class="ai-ss-id">{{card.booster.id || '待公布'}}</text>
+                      <text class="ai-ss-id">{{card.booster.id || ui.pendingAnnounce}}</text>
 
-                      <text class="ai-ss-label">超重助推器</text>
+                      <text class="ai-ss-label">{{ui.superHeavyBooster}}</text>
 
                       <text class="ai-ss-status">{{card.booster.status}}</text>
 
@@ -280,9 +284,9 @@
 
                     <view class="ai-ss-vehicle" catchtap="onStarshipStatusTap" data-vehicle="ship">
 
-                      <text class="ai-ss-id">{{card.ship.id || '待公布'}}</text>
+                      <text class="ai-ss-id">{{card.ship.id || ui.pendingAnnounce}}</text>
 
-                      <text class="ai-ss-label">星舰飞船</text>
+                      <text class="ai-ss-label">{{ui.starshipShip}}</text>
 
                       <text class="ai-ss-status">{{card.ship.status}}</text>
 
@@ -298,11 +302,11 @@
 
                   <view class="ai-ss-checklist" wx:if="{{card.checklist}}">
 
-                    <text class="ai-ss-checklist-text">飞行准备清单：{{card.checklist.done}}/{{card.checklist.total}} 项完成</text>
+                    <text class="ai-ss-checklist-text">{{card.checklist.text}}</text>
 
                   </view>
 
-                  <text class="ai-rich-card-cta ai-ss-cta">进入星舰进度 ›</text>
+                  <text class="ai-rich-card-cta ai-ss-cta">{{ui.enterStarshipProgress}}</text>
 
                 </view>
 
@@ -370,7 +374,7 @@
 
                   </view>
 
-                  <text class="ai-rich-card-cta ai-agency-cta">{{card.cta || '进入发射商详情 ›'}}</text>
+                  <text class="ai-rich-card-cta ai-agency-cta">{{card.cta || ui.agencyCta}}</text>
 
                 </view>
 
@@ -408,7 +412,7 @@
 
                       <text class="ai-stats-num">{{card.total}}</text>
 
-                      <text class="ai-stats-num-label">总发射</text>
+                      <text class="ai-stats-num-label">{{ui.statsTotal}}</text>
 
                     </view>
 
@@ -416,7 +420,7 @@
 
                       <text class="ai-stats-num ai-stats-num--ok">{{card.success}}</text>
 
-                      <text class="ai-stats-num-label">成功</text>
+                      <text class="ai-stats-num-label">{{ui.statsSuccess}}</text>
 
                     </view>
 
@@ -424,7 +428,7 @@
 
                       <text class="ai-stats-num ai-stats-num--fail">{{card.failure}}</text>
 
-                      <text class="ai-stats-num-label">失败</text>
+                      <text class="ai-stats-num-label">{{ui.statsFailure}}</text>
 
                     </view>
 
@@ -432,7 +436,7 @@
 
                   <text class="ai-stats-sub" wx:if="{{card.subtitle}}">{{card.subtitle}}</text>
 
-                  <text class="ai-rich-card-cta ai-stats-cta">{{card.cta || '查看全球发射统计 ›'}}</text>
+                  <text class="ai-rich-card-cta ai-stats-cta">{{card.cta || ui.statsCta}}</text>
 
                 </view>
 
@@ -496,7 +500,7 @@
 
                     <text class="ai-replay-desc">{{card.desc}}</text>
 
-                    <text class="ai-rich-card-cta ai-replay-cta">{{card.cta || '观看集锦 ›'}}</text>
+                    <text class="ai-rich-card-cta ai-replay-cta">{{card.cta || ui.watchHighlightsCta}}</text>
 
                   </view>
 
@@ -552,7 +556,7 @@
 
                   <view class="ai-entry-arrow">
 
-                    <text>{{card.cta || '进入 ›'}}</text>
+                    <text>{{card.cta || ui.enterCta}}</text>
 
                   </view>
 
@@ -583,7 +587,7 @@
 
                       <view class="ai-mgacha-back-hint">
 
-                        <text>{{card.drawing ? '抽取中…' : card.backHint}}</text>
+                        <text>{{card.drawing ? ui.drawing : card.backHint}}</text>
 
                       </view>
 
@@ -601,7 +605,7 @@
 
                           <view class="ai-mgacha-brand-col">
 
-                            <text class="ai-mgacha-brand-name">火箭观礼</text>
+                            <text class="ai-mgacha-brand-name">{{ui.watchPartyBrand}}</text>
 
                             <text class="ai-mgacha-brand-en">ROCKET WATCH PARTY</text>
 
@@ -611,7 +615,7 @@
 
                         <view class="ai-mgacha-tier">
 
-                          <text>邀请函</text>
+                          <text>{{ui.invitation}}</text>
 
                         </view>
 
@@ -719,10 +723,49 @@
 
                     <text class="ai-spec-note" wx:if="{{card.note}}">{{card.note}}</text>
 
-                    <text class="ai-rich-card-cta ai-spec-cta">{{card.cta || '查看详情 ›'}}</text>
+                    <text class="ai-rich-card-cta ai-spec-cta">{{card.cta || ui.viewDetailsCta}}</text>
 
                   </view>
 
+                </view>
+
+                <!-- 发射提醒结果卡（自动开提醒成功 / 待授权） -->
+                <view
+                  class="ai-reminder-card glass-card {{card.ok ? 'ai-reminder-card--ok' : ''}} ai-reminder-card--{{card.status || 'need_auth'}}"
+                  wx:elif="{{card.cardType === 'reminder'}}"
+                  bindtap="onReminderCardTap"
+                  data-msgid="{{item.id}}"
+                  data-status="{{card.status}}"
+                  data-missionid="{{card.missionId}}"
+                  data-id="{{card.missionId}}"
+                  data-type="{{card.detailType}}"
+                  data-name="{{card.missionName}}"
+                  data-rocket="{{card.rocketName}}"
+                  data-launchtime="{{card.launchTime}}"
+                >
+                  <view class="ai-reminder-head">
+                    <view class="ai-reminder-badge {{card.ok ? 'ai-reminder-badge--ok' : ''}}">
+                      <text>{{card.ok ? '✓' : '!'}}</text>
+                    </view>
+                    <view class="ai-reminder-head-text">
+                      <text class="ai-reminder-title">{{card.title}}</text>
+                      <text class="ai-reminder-desc">{{card.desc}}</text>
+                    </view>
+                  </view>
+                  <view class="ai-reminder-mission" wx:if="{{card.missionName}}">
+                    <image
+                      wx:if="{{card.rocketImage}}"
+                      class="ai-reminder-thumb"
+                      src="{{card.rocketImage}}"
+                      mode="aspectFill"
+                    />
+                    <view class="ai-reminder-mission-info">
+                      <text class="ai-reminder-mission-name">{{card.missionName}}</text>
+                      <text class="ai-reminder-mission-meta" wx:if="{{card.rocketName}}">{{card.rocketName}}</text>
+                      <text class="ai-reminder-mission-meta" wx:if="{{card.formattedTime}}">{{card.formattedTime}}</text>
+                    </view>
+                  </view>
+                  <text class="ai-rich-card-cta ai-reminder-cta">{{card.cta}}</text>
                 </view>
 
                 <!-- 默认：单任务卡（与首页 mission-card 同结构） -->
@@ -787,7 +830,7 @@
 
                       <text class="mission-meta mission-pad" wx:if="{{card.padLocation}}">{{card.padLocation}}</text>
 
-                      <text class="mission-meta ai-mission-card-cta">点击查看详情</text>
+                      <text class="mission-meta ai-mission-card-cta">{{ui.tapForDetail}}</text>
 
                     </view>
 
@@ -805,7 +848,7 @@
 
               <text class="ai-retry-icon">↻</text>
 
-              <text class="ai-retry-text">重试</text>
+              <text class="ai-retry-text">{{ui.retry}}</text>
 
             </view>
 
@@ -839,7 +882,7 @@
 
       <text class="ai-disclaimer-icon">⚠</text>
 
-      <text class="ai-disclaimer-text">本服务由人工智能(AI)生成内容，结果仅供参考，不代表专业意见</text>
+      <text class="ai-disclaimer-text">{{ui.disclaimer}}</text>
 
     </view>
 
@@ -891,7 +934,7 @@
 
         class="ai-input"
 
-        placeholder="{{sending ? '星问正在思考...' : ''}}"
+        placeholder="{{sending ? ui.thinkingPlaceholder : ''}}"
 
         placeholder-class="ai-input-placeholder"
 

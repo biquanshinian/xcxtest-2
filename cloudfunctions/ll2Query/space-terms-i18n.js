@@ -21,7 +21,36 @@ const ORBIT_ZH = {
   'lunar orbit': '月球轨道',
   'heliocentric orbit': '日心轨道',
   'mars orbit': '火星轨道',
-  'interplanetary': '行星际'
+  'interplanetary': '行星际',
+  unknown: '未知',
+  'n/a': '未知',
+  na: '未知'
+}
+
+/** LL2 config/missiontype 全量 */
+const MISSION_TYPE_ZH = {
+  'earth science': '地球科学',
+  'planetary science': '行星科学',
+  astrophysics: '天体物理',
+  heliophysics: '日地物理',
+  'human exploration': '载人探索',
+  'robotic exploration': '机器人探索',
+  'government/top secret': '政府/机密',
+  tourism: '太空旅游',
+  unknown: '未知',
+  communications: '通信',
+  resupply: '补给',
+  suborbital: '亚轨道',
+  'test flight': '试飞',
+  'dedicated rideshare': '专属拼车发射',
+  navigation: '导航',
+  'test target': '试验靶标',
+  'lunar exploration': '月球探索',
+  'materials science': '材料科学',
+  biology: '生物学',
+  'space situational awareness': '空间态势感知',
+  technology: '技术验证',
+  'mission extension': '任务延寿'
 }
 
 /** 回收 / 着陆类型 */
@@ -124,6 +153,9 @@ const LOCATION_ZH = {
 
 /** 按长度降序的短语替换（长文本机翻前预处理）；专有名词保留由 TERM_PROTECT 负责 */
 const PHRASE_RULES = [
+  [/Nancy\s+Grace\s+Roman\s+Space\s+Telescope/gi, '南希-格蕾丝-罗曼太空望远镜'],
+  [/Roman\s+Space\s+Telescope/gi, '罗曼太空望远镜'],
+  [/James\s+Webb\s+Space\s+Telescope/gi, '詹姆斯·韦伯太空望远镜'],
   [/Low Earth Orbit/gi, '近地轨道'],
   [/Geostationary Transfer Orbit/gi, '地球同步转移轨道'],
   [/Geosynchronous Orbit/gi, '地球同步轨道'],
@@ -133,6 +165,14 @@ const PHRASE_RULES = [
   [/Return to Launch Site/gi, '返回发射场着陆'],
   [/Wet Dress Rehearsal/gi, '湿彩排'],
   [/Static Fire/gi, '静态点火'],
+  [/Starlink\s+Group\s+/gi, '星链组 '],
+  [/\bUnknown\s+Payloads?\b/gi, '未知有效载荷'],
+  [/\bFlight\s+Test\s+(\d+)\b/gi, '第$1次试飞'],
+  [/\bFlight\s+Test\b/gi, '试飞'],
+  [/\bFlight[-\s]?(\d+)\b/gi, '第$1次飞行'],
+  [/\bFlight\b/gi, '飞行'],
+  [/\bCRS[-\s]?(\d+)\b/gi, '商业补给$1'],
+  [/\bCrew[-\s]?(\d+)\b/gi, '载人-$1'],
   [/\bISS\b/g, '国际空间站']
 ]
 
@@ -151,6 +191,13 @@ function translateOrbit(orbit) {
   const name = orbit.name || ''
   const abbrev = orbit.abbrev || ''
   return lookupDict(ORBIT_ZH, name) || lookupDict(ORBIT_ZH, abbrev) || ''
+}
+
+function translateMissionType(type) {
+  if (type == null) return ''
+  if (typeof type === 'string') return lookupDict(MISSION_TYPE_ZH, type) || ''
+  if (typeof type === 'object') return lookupDict(MISSION_TYPE_ZH, type.name) || ''
+  return ''
 }
 
 function translateStatusName(name) {
@@ -187,13 +234,12 @@ function applyPhraseRules(text) {
   return s.trim()
 }
 
-/** 机翻前保护专有名词，避免被误译 */
+/** 机翻前保护专有名词（机构/地点/缩写）；火箭型号名不再保护，需译成中文 */
 const TERM_PROTECT = [
-  'Falcon 9', 'Falcon Heavy', 'Starship', 'Super Heavy', 'Starlink', 'Crew Dragon',
-  'Dragon', 'SpaceX', 'NASA', 'ESA', 'JAXA', 'Roscosmos', 'Blue Origin', 'ULA',
+  'SpaceX', 'NASA', 'ESA', 'JAXA', 'Roscosmos', 'Blue Origin', 'ULA',
   'Boeing', 'Lockheed Martin', 'Northrop Grumman', 'Rocket Lab', 'Firefly',
   'Cape Canaveral', 'Kennedy Space Center', 'Vandenberg', 'Starbase', 'Boca Chica',
-  'ISS', 'Tiangong', 'Artemis', 'Gateway', 'Orion', 'SLS', 'New Glenn', 'Electron',
+  'ISS', 'Tiangong', 'Artemis', 'Gateway', 'Orion', 'SLS',
   'Raptor', 'Merlin', 'Draco', 'SuperDraco', 'KSC', 'LC-39A', 'LC-39B', 'SLC-40',
   'SLC-4E', 'ASDS', 'RTLS', 'LEO', 'GTO', 'GEO', 'MEO', 'SSO'
 ]
@@ -227,16 +273,19 @@ function restoreTerms(text, placeholders) {
 function shouldMachineTranslate(text) {
   const s = String(text || '').trim()
   if (!s) return false
-  if (s.length < 4) return false
-  // 纯数字/编号/缩写
-  if (/^[A-Z0-9\s\-/.]+$/.test(s) && s.length < 30) return false
-  // 已含大量中文则跳过
+  if (s.length < 2) return false
+  // 已含中文则跳过
   if (/[\u4e00-\u9fff]/.test(s)) return false
+  // 纯数字
+  if (/^\d+(\.\d+)?$/.test(s)) return false
+  // 极短全大写机构/轨道缩写（ISS、LEO、GTO）跳过；含数字的型号（H3-22、KZ-1A）仍可机翻
+  if (/^[A-Z]{2,6}$/.test(s)) return false
   return true
 }
 
 module.exports = {
   ORBIT_ZH,
+  MISSION_TYPE_ZH,
   LANDING_ZH,
   STATUS_ZH,
   EVENT_TYPE_ZH,
@@ -244,6 +293,7 @@ module.exports = {
   LOCATION_ZH,
   lookupDict,
   translateOrbit,
+  translateMissionType,
   translateStatusName,
   translateEventType,
   translateDatePrecision,

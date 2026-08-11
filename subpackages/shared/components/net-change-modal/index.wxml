@@ -1,0 +1,76 @@
+<!-- 发射时间变更弹窗：root-portal 脱离页面树，遮罩自带主题变量（与 morning-briefing 同因） -->
+<root-portal wx:if="{{visible}}">
+  <view class="ncm-mask {{themeClass}}" catchtouchmove="noop">
+    <view class="ncm-popup" catchtap="noop">
+      <view class="ncm-glow"></view>
+      <view class="ncm-stars" aria-hidden="true">
+        <view class="ncm-star s1"></view>
+        <view class="ncm-star s2"></view>
+        <view class="ncm-star s3"></view>
+        <view class="ncm-star s4"></view>
+        <view class="ncm-star s5"></view>
+      </view>
+
+      <view class="ncm-close" hover-class="ncm-close--hover" catchtap="onClose" aria-role="button" aria-label="关闭">
+        <text class="ncm-close-icon">✕</text>
+      </view>
+
+      <view class="ncm-body">
+        <text class="ncm-kicker" wx:if="{{devMode}}">开发预览</text>
+        <text class="ncm-title">发射时间变更</text>
+
+        <!-- 圆形火箭配置图（同源首页任务卡 rocketImage） -->
+        <view class="ncm-hero">
+          <view class="ncm-rocket-slot">
+            <image
+              wx:if="{{rocketImage}}"
+              class="ncm-rocket-img"
+              src="{{rocketImage}}"
+              mode="aspectFill"
+              binderror="onRocketImageError"
+            />
+            <view wx:else class="ncm-rocket-placeholder"></view>
+          </view>
+        </view>
+
+        <text class="ncm-headline" wx:if="{{headlineText}}" user-select="{{true}}">{{headlineText}}</text>
+
+        <!-- 发射商：圆形 logo 在名称左侧 -->
+        <view class="ncm-agency-row" wx:if="{{agencyName}}">
+          <image
+            class="ncm-agency-logo {{logoBgTone === 'dark' ? 'agency-logo-bg--dark' : ''}} {{logoBgTone === 'light' ? 'agency-logo-bg--light' : ''}}"
+            src="{{agencyLogoUrl}}"
+            mode="aspectFit"
+            binderror="onAgencyLogoError"
+          />
+          <text class="ncm-agency-name" user-select="{{true}}">{{agencyName}}</text>
+        </view>
+
+        <!-- 时间轴：原 → 新 -->
+        <view class="ncm-timeline">
+          <view class="ncm-time-row ncm-time-row--old">
+            <view class="ncm-time-rail">
+              <view class="ncm-time-node ncm-time-node--old"></view>
+              <view class="ncm-time-line"></view>
+            </view>
+            <view class="ncm-time-content">
+              <text class="ncm-time-label">原时间</text>
+              <text class="ncm-time-value ncm-time-value--old" user-select="{{true}}">{{oldTimeText}}</text>
+            </view>
+          </view>
+          <view class="ncm-time-row ncm-time-row--new">
+            <view class="ncm-time-rail">
+              <view class="ncm-time-node ncm-time-node--new"></view>
+            </view>
+            <view class="ncm-time-content">
+              <text class="ncm-time-label ncm-time-label--new">新时间</text>
+              <text class="ncm-time-value ncm-time-value--new" user-select="{{true}}">{{newTimeText}}</text>
+            </view>
+          </view>
+        </view>
+
+        <button class="ncm-btn" hover-class="ncm-btn--hover" catchtap="onConfirm">我知道了</button>
+      </view>
+    </view>
+  </view>
+</root-portal>

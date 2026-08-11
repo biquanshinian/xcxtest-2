@@ -417,8 +417,9 @@
 .footer-text { font-size: 22rpx; color: rgba(255,255,255,0.2); letter-spacing: 4rpx; }
 
 /* ========== 明亮主题（theme-light）覆盖 ========== */
-/* 保持深色不动：hero 月球图、starfield 星空容器及其内部弹窗/空态（压在图片上的白字浮层）、
- * 登机牌正反面（品牌深色票券设计）、submit-btn 实色按钮白字。 */
+/* 保持深色不动：hero 月球图、starfield 星空底图上的空态/星点（压在图片上的白字浮层）、
+ * 登机牌正反面（品牌深色票券设计）、submit-btn 实色按钮白字。
+ * 心愿消息弹窗使用 --bg-glass-popup（浅色为白玻璃），需同步反色文字与分享图标。 */
 
 .page.theme-light {
   background: var(--color-bg);
@@ -483,6 +484,36 @@
 
 .theme-light .starfield-count {
   color: #E63916;
+}
+
+/* 心愿消息弹窗：白玻璃底 + 深色字，避免白字叠白底 */
+.theme-light .popup-card {
+  box-shadow: 0 12rpx 36rpx rgba(0, 0, 0, 0.16);
+}
+.theme-light .popup-close {
+  color: rgba(28, 28, 30, 0.45);
+  background: rgba(0, 0, 0, 0.06);
+}
+.theme-light .popup-wish-text {
+  color: var(--color-text-secondary);
+}
+.theme-light .popup-divider {
+  background: rgba(0, 0, 0, 0.08);
+}
+.theme-light .popup-name {
+  color: var(--color-text-primary);
+}
+.theme-light .popup-location {
+  color: var(--color-text-tertiary);
+}
+.theme-light .popup-time {
+  color: var(--color-text-quaternary);
+}
+.theme-light .popup-action-split {
+  background: rgba(0, 0, 0, 0.08);
+}
+.theme-light .popup-action-icon {
+  filter: invert(var(--icon-invert, 0));
 }
 
 /* 星空容器外部的提示文字（位于浅色页面底上） */

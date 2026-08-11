@@ -11,6 +11,10 @@ var { getRocketImage } = require('../../../utils/util.js')
 var { getCachedMediaImage } = require('../../../utils/icon-cache.js')
 var { optimizeImageUrl } = require('../../../utils/cos-url.js')
 var { proxiedImageUrl } = require('../../../utils/ll2-image.js')
+var { translateRocketName } = require('../../../utils/rocket-name-i18n.js')
+var { translateAgencyName } = require('../../../utils/space-terms-i18n.js')
+var { SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL } = require('../../../utils/agency-logo-overrides.js')
+var { resolveAgencyLogoForDisplay } = require('../../../utils/agency-logo-cache.js')
 
 /** Tab 预览条数：与发射商图鉴一致，完整列表留给「查看全部」页 */
 var TAB_PREVIEW_COUNT = 2
@@ -30,7 +34,7 @@ function remoteThumbImage(url) {
 
 var STATUS_TEXT_MAP = { active: '现役', retired: '退役', destroyed: '损毁', expended: '已消耗', unknown: '未知' }
 
-/** 厂商英文名 → 中文显示名（SpaceX 保留原文；不在表内的原样显示，保持数据驱动兜底） */
+/** 厂商英文名 → 中文显示名（SpaceX 品牌保留原文；不在表内的原样显示，保持数据驱动兜底） */
 var MFR_ZH_MAP = {
   'Blue Origin': '蓝色起源',
   'Rocket Lab': '火箭实验室',
@@ -61,13 +65,82 @@ var MFR_ZH_MAP = {
   'Northrop Grumman': '诺斯罗普·格鲁曼',
   'Firefly Aerospace': '萤火虫航天',
   'Relativity Space': '相对论空间',
-  'Stoke Space': '斯托克航天'
+  'Stoke Space': '斯托克航天',
+  'McDonnell Douglas': '麦克唐纳·道格拉斯',
+  'Convair': '康维尔',
+  'Orbital Sciences Corporation': '轨道科学公司',
+  'Orbital ATK': '轨道 ATK',
+  'NASA': '美国国家航空航天局',
+  'Roscosmos': '俄罗斯国家航天集团',
+  'ISRO': '印度空间研究组织',
+  'JAXA': '日本宇宙航空研究开发机构',
+  'ESA': '欧洲航天局'
 }
 
-/** 厂商显示名（筛选 chip 等 UI 用；筛选 id 仍用英文原名，不影响过滤逻辑） */
-function mfrDisplayName(name) {
-  if (!name) return ''
-  return MFR_ZH_MAP[name] || name
+function isSpaceXMfr(name, abbrev) {
+  var n = String(name || '').toLowerCase()
+  var a = String(abbrev || '').toLowerCase()
+  return n.indexOf('spacex') >= 0 || n.indexOf('space exploration technologies') >= 0 ||
+    a === 'spx' || a.indexOf('spacex') >= 0
+}
+
+/** 厂商显示名（筛选 chip / 卡片；筛选 id 仍用英文原名。SpaceX 一律显示品牌原文） */
+function mfrDisplayName(name, abbrev) {
+  if (!name && !abbrev) return ''
+  if (isSpaceXMfr(name, abbrev)) return 'SpaceX'
+  return MFR_ZH_MAP[name] || translateAgencyName(name, abbrev || '') || name || abbrev || ''
+}
+
+/** 卡片用发射商 logo：SpaceX 统一图；其它可由 attachManufacturerLogos 从发射商列表补全 */
+function mfrLogoUrl(name, abbrev) {
+  if (!isSpaceXMfr(name, abbrev)) return ''
+  return resolveAgencyLogoForDisplay(SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL) ||
+    SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL
+}
+
+/**
+ * 用发射商图鉴列表给卡片补 manufacturerLogoUrl / agencyLogoUrl
+ * @param {Array} cards
+ * @param {Array} agencies formatAgency 行（含 name/abbrev/logoUrl）
+ * @param {'manufacturer'|'agency'} kind
+ */
+function attachManufacturerLogos(cards, agencies, kind) {
+  var list = Array.isArray(cards) ? cards : []
+  // 兼容 getFeaturedAgencies() 返回 { list } 与直接传数组
+  var ags = Array.isArray(agencies)
+    ? agencies
+    : (agencies && Array.isArray(agencies.list) ? agencies.list : [])
+  if (!list.length) return list
+  var byKey = {}
+  for (var i = 0; i < ags.length; i++) {
+    var a = ags[i]
+    if (!a || !a.logoUrl) continue
+    var logo = resolveAgencyLogoForDisplay(a.logoUrl) || a.logoUrl
+    ;[a.name, a.abbrev, a.displayName].forEach(function (k) {
+      var key = String(k || '').trim().toLowerCase()
+      if (key && !byKey[key]) byKey[key] = logo
+    })
+  }
+  var logoField = kind === 'agency' ? 'agencyLogoUrl' : 'manufacturerLogoUrl'
+  var nameField = kind === 'agency' ? 'agencyName' : 'manufacturer'
+  var abbrevField = kind === 'agency' ? 'agencyAbbrev' : 'manufacturerAbbrev'
+  return list.map(function (card) {
+    if (!card) return card
+    if (card[logoField]) return card
+    var name = card[nameField] || ''
+    var abbrev = card[abbrevField] || ''
+    var logo = mfrLogoUrl(name, abbrev) ||
+      byKey[String(name).trim().toLowerCase()] ||
+      byKey[String(abbrev).trim().toLowerCase()] ||
+      ''
+    if (!logo) return card
+    var next = {}
+    for (var k in card) {
+      if (Object.prototype.hasOwnProperty.call(card, k)) next[k] = card[k]
+    }
+    next[logoField] = logo
+    return next
+  })
 }
 
 /** alpha-2 国家代码 → emoji 国旗（区域指示符拼接，任意国家自动支持） */
@@ -138,8 +211,10 @@ function processBoosterItem(item, configsMap, options) {
     }
   }
   var countryCode = item.countryCode || ''
-  var cfgImage = configImageOf(item.configId, item.rocketFamily, configsMap)
-  var cosImage = cosRocketImageOf(item.rocketFamily)
+  var familyEn = item.rocketFamily || 'Unknown'
+  var mfrEn = item.manufacturer || ''
+  var cfgImage = configImageOf(item.configId, familyEn, configsMap)
+  var cosImage = cosRocketImageOf(familyEn)
   // 多级兜底链（binderror 逐级切换）：COS 镜像 → 代理缩略/原图 → LL2 缩略/原图 → 构型图 → COS 配置图库
   // LL2 缩略图会被官方重新生成导致旧链接 404，原图往往仍有效，必须纳入链条；
   // DigitalOcean 图床国内直连易失败，代理 URL 优先于原链
@@ -159,12 +234,15 @@ function processBoosterItem(item, configsMap, options) {
     flights: flights,
     status: item.status || 'unknown',
     statusText: STATUS_TEXT_MAP[item.status] || '未知',
-    rocketFamily: item.rocketFamily || 'Unknown',
-    manufacturer: item.manufacturer || '',
+    rocketFamilyEn: familyEn,
+    rocketFamily: translateRocketName(familyEn) || familyEn,
+    manufacturer: mfrEn,
+    manufacturerDisplay: mfrDisplayName(mfrEn),
+    manufacturerLogoUrl: mfrLogoUrl(mfrEn),
     configId: item.configId != null ? item.configId : null,
     countryCode: countryCode,
     countryFlag: countryCodeToFlag(countryCode),
-    isStarship: (item.rocketFamily || '').indexOf('Super Heavy') >= 0 || (item.rocketFamily || '').indexOf('Starship') >= 0,
+    isStarship: familyEn.indexOf('Super Heavy') >= 0 || familyEn.indexOf('Starship') >= 0,
     flightBlocks: flightBlocks,
     firstFlight: item.firstFlight || '',
     lastFlight: item.lastFlight || '',
@@ -226,7 +304,10 @@ function computeBoosterStats(processed) {
  * chip.id 约定：'all' | 'country:CN' | 'mfr:SpaceX'
  */
 function buildBoosterFilterChips(processed, options) {
-  var maxMfrChips = (options && options.maxManufacturerChips) || 6
+  // maxManufacturerChips：兼容旧调用；picker 模式传 Infinity / 很大值拿全量厂商
+  var maxMfrChips = (options && options.maxManufacturerChips != null)
+    ? options.maxManufacturerChips
+    : 6
   var chips = [{ id: 'all', label: '全部' }]
 
   var hasCN = false
@@ -242,7 +323,12 @@ function buildBoosterFilterChips(processed, options) {
 
   var mfrNames = Object.keys(mfrCount).sort(function (a, b) { return mfrCount[b] - mfrCount[a] })
   for (var j = 0; j < mfrNames.length && j < maxMfrChips; j++) {
-    chips.push({ id: 'mfr:' + mfrNames[j], label: mfrDisplayName(mfrNames[j]) })
+    chips.push({
+      id: 'mfr:' + mfrNames[j],
+      label: mfrDisplayName(mfrNames[j]),
+      nameEn: mfrNames[j],
+      count: mfrCount[mfrNames[j]]
+    })
   }
   return chips
 }
@@ -281,14 +367,22 @@ function buildModelCards(configsMap) {
     ;[c.cosImageUrl, c.thumbnail_url, c.image_url, cosRocketImageOf(c.name || c.full_name)].forEach(function (u) {
       if (u && chain.indexOf(u) < 0) chain.push(u)
     })
+    var nameEn = c.name || ''
+    var fullEn = c.full_name || c.name || ''
+    var mfrEn = c.manufacturerName || ''
     cards.push({
       configId: c.id,
-      name: c.name || '',
-      fullName: c.full_name || c.name || '',
+      nameEn: nameEn,
+      fullNameEn: fullEn,
+      name: translateRocketName(nameEn) || nameEn,
+      fullName: translateRocketName(fullEn) || fullEn,
       alias: c.alias || '',
       variant: c.variant || '',
-      manufacturer: c.manufacturerName || '',
+      // manufacturer 保留英文，供 mfr: 筛选；展示用 manufacturerDisplay
+      manufacturer: mfrEn,
+      manufacturerDisplay: mfrDisplayName(mfrEn, c.manufacturerAbbrev || '') || mfrEn,
       manufacturerAbbrev: c.manufacturerAbbrev || '',
+      manufacturerLogoUrl: mfrLogoUrl(mfrEn, c.manufacturerAbbrev || ''),
       countryCode: countryCode,
       countryFlag: countryCodeToFlag(countryCode),
       reusable: c.reusable === true,
@@ -311,7 +405,10 @@ function buildModelCards(configsMap) {
 
 module.exports = {
   countryCodeToFlag: countryCodeToFlag,
+  isSpaceXMfr: isSpaceXMfr,
   mfrDisplayName: mfrDisplayName,
+  mfrLogoUrl: mfrLogoUrl,
+  attachManufacturerLogos: attachManufacturerLogos,
   configImageOf: configImageOf,
   cosRocketImageOf: cosRocketImageOf,
   processBoosterItem: processBoosterItem,

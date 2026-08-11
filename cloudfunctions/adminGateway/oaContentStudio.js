@@ -28,6 +28,7 @@ const {
   SEED_STRATEGIES,
   isPromoBrandFooter,
   stripPromoBrandFooterMarkdown,
+  isLegacySpaceStory,
   matchStrategyFromContent
 } = require('./oaContentSeeds')
 const helpers = require('./oaStudioHelpers')
@@ -37,6 +38,8 @@ const {
   pickVideoEntries,
   videoPosterUrls,
   annotateVideoPostersInMarkdown,
+  resolveDraftSourceUrl,
+  sanitizeContentSourceUrl,
   normalizeImgSrc,
   collectHtmlImgSrcs,
   isWechatCdnUrl,
@@ -566,11 +569,14 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
         .get()
         .catch(() => ({ data: [] }))
       if (exist.data && exist.data[0] && exist.data[0]._id) {
-        if (!overwrite) {
+        const row = exist.data[0]
+        // 槽2 旧「口语讲任务」即使未勾选覆盖也强制升级为平实解说
+        const forceLegacy = s.key === 'space_story' && isLegacySpaceStory(row)
+        if (!overwrite && !forceLegacy) {
           skipped += 1
           continue
         }
-        await db.collection(STRATEGIES_COL).doc(exist.data[0]._id).update({
+        await db.collection(STRATEGIES_COL).doc(row._id).update({
           data: {
             name: s.name,
             promptKey: s.promptKey,
@@ -750,11 +756,46 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
     return SEED_PROMPTS.find((p) => p.key === key) || SEED_PROMPTS[0]
   }
 
+  function applySpaceStorySeedUpgrade(row) {
+    if (!isLegacySpaceStory(row)) return row
+    const seed = SEED_STRATEGIES.find((s) => s.key === 'space_story')
+    if (!seed) return row
+    const upgraded = {
+      ...row,
+      name: seed.name,
+      promptKey: seed.promptKey,
+      themeId: seed.themeId,
+      structureHint: seed.structureHint,
+      titleHint: seed.titleHint,
+      enabled: seed.enabled !== false,
+      priority: seed.priority
+    }
+    const id = row._id
+    if (id) {
+      db.collection(STRATEGIES_COL)
+        .doc(id)
+        .update({
+          data: {
+            name: seed.name,
+            promptKey: seed.promptKey,
+            themeId: seed.themeId,
+            structureHint: seed.structureHint,
+            titleHint: seed.titleHint,
+            enabled: seed.enabled !== false,
+            priority: seed.priority,
+            updatedAt: now()
+          }
+        })
+        .catch(() => {})
+    }
+    return upgraded
+  }
+
   async function findStrategy(keyOrId) {
     if (!keyOrId) return SEED_STRATEGIES[0]
     try {
       const byId = await db.collection(STRATEGIES_COL).doc(keyOrId).get()
-      if (byId && byId.data) return { _id: keyOrId, ...byId.data }
+      if (byId && byId.data) return applySpaceStorySeedUpgrade({ _id: keyOrId, ...byId.data })
     } catch (e) {}
     const res = await db
       .collection(STRATEGIES_COL)
@@ -762,7 +803,7 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
       .limit(1)
       .get()
       .catch(() => ({ data: [] }))
-    if (res.data && res.data[0]) return res.data[0]
+    if (res.data && res.data[0]) return applySpaceStorySeedUpgrade(res.data[0])
     return SEED_STRATEGIES.find((s) => s.key === keyOrId) || SEED_STRATEGIES[0]
   }
 
@@ -1479,8 +1520,8 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
       sourceType: source.sourceType || 'manual',
       sourceId: source.sourceId || '',
       sourceTitle: source.title || '',
-      // 视频选题无来源页时，「阅读原文」兜底指向视频观看链（COS 原片优先）
-      sourceUrl: source.sourceUrl || (videos[0] && videos[0].watchUrl) || '',
+      // 「阅读原文」只挂网页（来源页/推文页）；禁止 COS/外链裸 mp4（微信内打不开）
+      sourceUrl: resolveDraftSourceUrl(source, videos),
       videos,
       sourceSlottedBody: slottedBody,
       /** 原始图序（与 [[IMG:n]] 下标一一对应；prepare 换链后仍可按 n 定位） */
@@ -1990,13 +2031,13 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
       html = buildLeadHtml(cfg, mpPath) + html
       html = await appendMiniprogramCtaHtml(html, cfg, brand, { ...ctaOpts, mode: ctaMode })
 
-      const sourceUrl = String(draft.sourceUrl || '').trim()
+      const sourceUrl = sanitizeContentSourceUrl(draft.sourceUrl)
       const article = {
         title: sanitizeWxTitle(draft.title),
         author: String(draft.author || brand.author || cfg.author || '火星探索日志').slice(0, 16),
         digest: String(draft.digest || '').slice(0, 120),
         content: html,
-        content_source_url: /^https?:\/\//i.test(sourceUrl) ? sourceUrl : '',
+        content_source_url: sourceUrl,
         thumb_media_id: thumbMediaId,
         need_open_comment: cfg.openComment === false ? 0 : 1,
         only_fans_can_comment: cfg.onlyFansCanComment ? 1 : 0

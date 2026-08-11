@@ -14,19 +14,19 @@
         <view class="countdown-display countdown-display--tech countdown-display--mission-card">
           <view class="countdown-item countdown-item--tech">
             <text class="countdown-value">{{item.cardCountdown.days}}</text>
-            <text class="countdown-label countdown-label--tech">天</text>
+            <text class="countdown-label countdown-label--tech">{{item.langCdDay}}</text>
           </view>
           <view class="countdown-item countdown-item--tech">
             <text class="countdown-value">{{item.cardCountdown.hours}}</text>
-            <text class="countdown-label countdown-label--tech">时</text>
+            <text class="countdown-label countdown-label--tech">{{item.langCdHour}}</text>
           </view>
           <view class="countdown-item countdown-item--tech">
             <text class="countdown-value">{{item.cardCountdown.minutes}}</text>
-            <text class="countdown-label countdown-label--tech">分</text>
+            <text class="countdown-label countdown-label--tech">{{item.langCdMin}}</text>
           </view>
           <view class="countdown-item countdown-item--tech countdown-item--seconds">
             <text class="countdown-value countdown-value-seconds">{{item.cardCountdown.seconds}}</text>
-            <text class="countdown-label countdown-label--tech">秒</text>
+            <text class="countdown-label countdown-label--tech">{{item.langCdSec}}</text>
           </view>
         </view>
       </view>
@@ -35,13 +35,13 @@
       <view class="mission-card-header">
         <text class="mission-status-badge status-{{item.statusCategory}}">{{item.statusBadgeText}}</text>
         <view class="mission-card-header-right">
-          <view class="recovery-icon-name" wx:if="{{item.boosterInfo && item.boosterInfo.flights >= 1}}">
-            <text class="recovery-type-name">第{{item.boosterInfo.flights}}次飞行</text>
+          <view class="recovery-icon-name" wx:if="{{item.flightCountLabel}}">
+            <text class="recovery-type-name">{{item.flightCountLabel}}</text>
           </view>
-          <text class="mission-country">{{item.countryDisplay || '未知'}}</text>
+          <text class="mission-country">{{item.countryDisplay || item.langUnknownCountry || '未知'}}</text>
         </view>
       </view>
-      <text class="mission-main-title" user-select="{{true}}">{{item.missionName || item.name || '未知任务'}}</text>
+      <text class="mission-main-title" user-select="{{true}}">{{item.missionName || item.name || item.langUnknownMission || '未知任务'}}</text>
       <text class="mission-meta mission-rocket" user-select="{{true}}">{{item.rocketName}}</text>
       <text class="mission-time" user-select="{{true}}">{{item.formattedTime}}</text>
       <text class="mission-meta mission-pad" user-select="{{true}}">{{item.padLocation}}</text>
@@ -82,7 +82,7 @@
           <view class="mission-swipe-btn-grow" style="{{mswipe.btnGrowStyle(item._wxkey, swipeOpenKey, swipeDragKey, swipeDragPx, swipeActionW, 0, 'bell')}}">
             <view class="icon-bell icon-bell--countdown {{item.reminderOn ? 'bell-on' : 'bell-off'}}"></view>
           </view>
-          <text class="mission-swipe-btn-label">提醒</text>
+          <text class="mission-swipe-btn-label">{{langRemind}}</text>
         </view>
       </view>
       <view class="mission-swipe-btn mission-swipe-btn--pin {{item.pinnedOn ? 'mission-swipe-btn--on-pin' : ''}}" catchtap="onMissionSwipePinTap" data-id="{{item.id}}">
@@ -93,7 +93,7 @@
               <image class="mission-swipe-icon mission-swipe-icon-layer mission-swipe-pin-img-on" src="/images/ic-swipe-pin-on.svg" mode="aspectFit" />
             </view>
           </view>
-          <text class="mission-swipe-btn-label">置顶</text>
+          <text class="mission-swipe-btn-label">{{langPin}}</text>
         </view>
       </view>
     </view>
@@ -113,7 +113,11 @@
   </view>
 </template>
 
-<view class="container {{themeClass}}">
+<view class="container {{themeClass}} tab-bg-video-host">
+  <view class="tab-bg-shell" aria-hidden="true">
+    <view class="tab-bg-cover"></view>
+    <view class="tab-bg-frost"></view>
+  </view>
   <!-- 顶部导航栏（包含状态栏） -->
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
     <!-- 吸顶精简倒计时（滚动后显示在胶囊按钮左侧） -->
@@ -124,21 +128,25 @@
       </view>
       <text class="compact-cd-name">{{launchData.missionName || ''}}</text>
       <text class="compact-cd-time" wx:if="{{launchData.launchTime && !countdownTimeUnknown}}">{{cdfmt.compactClock(countdown.days, countdown.hours, countdown.minutes, countdown.seconds)}}</text>
-      <text class="compact-cd-time" wx:elif="{{countdownTimeUnknown}}">时间待定</text>
+      <text class="compact-cd-time" wx:elif="{{countdownTimeUnknown}}">{{langTimeTbd}}</text>
       <text class="compact-cd-time" wx:else></text>
     </view>
     <view class="top-nav">
-      <view class="nav-search-btn {{showCompactCountdown && missionType === 'upcoming' && !loadError ? 'nav-search-btn--hidden' : ''}}" bindtap="openAISearch">
+      <view
+        wx:if="{{showNavAiSearch}}"
+        class="nav-search-btn {{showCompactCountdown && missionType === 'upcoming' && !loadError ? 'nav-search-btn--hidden' : ''}}"
+        bindtap="openAISearch"
+      >
         <text class="icon-search icon-search--nav">⌕</text>
       </view>
       <view class="nav-button nav-button--upcoming {{missionType === 'upcoming' ? 'active' : ''}}" bindtap="switchMissionType" data-type="upcoming">
-        <text>即将发射</text>
+        <text>{{langUpcoming}}</text>
       </view>
       <view class="nav-button nav-button--completed {{missionType === 'completed' ? 'active' : ''}}" bindtap="switchMissionType" data-type="completed">
-        <text>历史发射</text>
+        <text>{{langPrevious}}</text>
       </view>
       <view class="nav-button nav-button--calendar {{missionType === 'calendar' ? 'active' : ''}}" bindtap="switchMissionType" data-type="calendar">
-        <text>发射日历</text>
+        <text>{{langCalendar}}</text>
       </view>
     </view>
   </view>
@@ -256,7 +264,7 @@
 
               <!-- NET 缺失/待定：不展示会误导的精确时钟，也不残留上一条任务的数字 -->
               <view class="countdown-display countdown-display--tbd" wx:if="{{countdownTimeUnknown}}">
-                <text class="countdown-tbd-text">{{countdownTimeUnknownText || '发射时间待定'}}</text>
+                <text class="countdown-tbd-text">{{countdownTimeUnknownText || langTimeTbd}}</text>
               </view>
               <view class="countdown-display countdown-display--tech" wx:else>
                 <view class="countdown-item countdown-item--tech">
@@ -393,7 +401,7 @@
                 <view class="vote-pills-with-meta">
                   <view class="vote-pill {{myVote === 'ge' || myVote === 'failure' ? 'vote-pill--active-ge' : ''}} {{myVote ? 'vote-pill--voted' : ''}} {{voteData.votingClosed ? 'vote-pill--disabled' : ''}}" catchtap="onVote" data-pill="left">
                     <view class="vote-pill-dot vote-pill-dot--ge"></view>
-                    <text class="vote-pill-text">{{activeVoteType === 'outcome' ? (voteData.failureLabel || '失败') : (voteData.geLabel || '鸽')}}</text>
+                    <text class="vote-pill-text">{{activeVoteType === 'outcome' ? (voteData.failureLabel || (launchData.countryDisplay === '中国' ? '失利' : '失败')) : (voteData.geLabel || '鸽')}}</text>
                     <text class="vote-pill-count" wx:if="{{voteData.geCount > 0}}">{{voteData.geCount}}</text>
                   </view>
                   <view class="vote-pill {{myVote === 'buge' || myVote === 'success' ? 'vote-pill--active-buge' : ''}} {{myVote ? 'vote-pill--voted' : ''}} {{voteData.votingClosed ? 'vote-pill--disabled' : ''}}" catchtap="onVote" data-pill="right">
@@ -626,10 +634,10 @@
     <!-- 任务列表（即将发射/历史发射） -->
     <view class="missions-section" wx:if="{{missionType !== 'calendar'}}">
       <view class="section-title">
-        <text>{{missionType === 'upcoming' ? '即将发射' : '历史发射'}}</text>
+        <text>{{missionType === 'upcoming' ? langUpcoming : langPrevious}}</text>
       </view>
 
-      <!-- 即将发射：发射商胶囊（FREE 可浏览；PRO 可使用筛选） -->
+      <!-- 即将发射：发射商横向滑动胶囊（FREE 可浏览；非「所有任务」走会员引导） -->
       <view class="upcoming-agency-filter" wx:if="{{missionType === 'upcoming' && !missionsLoadError && upcomingMissions.length > 0}}">
         <view class="upcoming-agency-scroll-wrap">
           <scroll-view class="upcoming-agency-scroll" scroll-x="true" enhanced="true" show-scrollbar="false" bindscroll="onUpcomingAgencyChipsScroll">
@@ -660,7 +668,7 @@
           <view class="upcoming-agency-scroll-fade" wx:if="{{upcomingAgencyChipsHasOverflow}}"></view>
         </view>
       </view>
-      
+
       <!-- 加载错误状态 -->
       <view class="missions-error" wx:if="{{missionsLoadError}}">
         <text class="error-message">{{missionsErrorMessage || '加载失败'}}</text>
@@ -692,7 +700,9 @@
                   swipeOpenKey: missionSwipeOpenWxkey,
                   swipeDragKey: missionSwipeDragWxkey,
                   swipeDragPx: missionSwipeDragPx,
-                  swipeActionW: missionSwipeActionWidthPx
+                  swipeActionW: missionSwipeActionWidthPx,
+                  langRemind: langRemind,
+                  langPin: langPin
                 }}"
               />
             </block>
@@ -721,7 +731,7 @@
         </view>
 
         <view class="missions-agency-empty" wx:if="{{missionType === 'upcoming' && isProUser && !missionsLoadError && !showMissionsEmpty && upcomingAgencyFilterEmpty}}">
-          <text class="empty-text">当前筛选下暂无任务，可点击「所有任务」查看全部</text>
+          <text class="empty-text">{{langAgencyFilterEmpty}}</text>
         </view>
         
         <!-- 空状态 -->
@@ -755,7 +765,10 @@
   <morning-briefing id="morningBriefing" mode="popup" bind:sharebriefing="onShareBriefing" bind:closed="onBriefingClosed" />
 
   <!-- 会员到期续费提醒：串行在太空简报弹窗之后，避免叠层 -->
-  <renewal-reminder id="renewalReminder" />
+  <renewal-reminder id="renewalReminder" bind:closed="onRenewalClosed" />
+
+  <!-- 发射时间变更：分包 shared；DEV 自动预览；正式仅当天、多任务取最近 NET -->
+  <net-change-modal id="netChangeModal" />
 
   <!-- 开屏动画 -->
   <view class="splash-overlay {{splashFading ? 'splash-overlay--out' : 'splash-overlay--in'}}" wx:if="{{splashVisible}}" catchtouchmove="preventMove">

@@ -101,7 +101,7 @@ const CARD_DEFS = {
   roadClosure: { label: '封路通知', hint: '博卡奇卡封路信息', route: '/road-closure', color: 'orange', statKey: 'roadClosure' },
   starshipStatus: { label: '星舰状态', hint: '星舰发射准备状态总览', route: '/starship-status', color: 'red', fixedValue: '查看' },
   cosStorage: { label: 'COS云存储', hint: 'COS 对象存储文件管理', route: '/cos-storage', color: 'teal', statKey: 'cosFileCount' },
-  splashScreen: { label: '开屏动画', hint: '开屏动画配置管理', route: '/splash-screen', color: 'pink', statKey: 'splashCountdown' },
+  splashScreen: { label: '开屏动画', hint: '跳过倒计时随视频时长', route: '/splash-screen', color: 'pink', statKey: 'splashCountdown' },
   launchData: { label: '发射数据', hint: '发射任务数据管理', route: '/launch-data', color: 'blue', statKey: 'spaceDevsCache' },
   tweetMonitor: { label: '推文监控', hint: 'SpaceX推文同步监控', route: '/tweet-monitor', color: 'cyan', fixedValue: '查看' },
   pushNotify: { label: '推送通知', hint: '订阅消息与推送管理', route: '/push-notify', color: 'orange', fixedValue: '管理' },
@@ -134,7 +134,7 @@ const sortedCards = computed(() =>
     const def = CARD_DEFS[key]
     const card = { key, ...def, value: def.fixedValue ?? stats[def.statKey] ?? 0 }
     if (key === 'splashScreen') {
-      card.value = stats.splashCountdown ? stats.splashCountdown + 's' : '—'
+      card.value = stats.splashEnabled ? '自动' : '—'
       card.badge = stats.splashEnabled ? '已开启' : '已关闭'
       card.badgeType = stats.splashEnabled ? 'on' : 'off'
     }

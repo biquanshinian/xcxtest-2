@@ -1,11 +1,12 @@
 // 飞船构型详情页：数据来自 apiProxy ll2SpacecraftDetail（LL2 spacecraft_configurations）
 const pageBase = require('../../utils/page-base.js')
 const { togglePageTranslation } = require('./utils/text-translate.js')
-const { translateAgencyName } = require('../../utils/space-terms-i18n.js')
-const { cachedImage, proxiedImageUrl } = require('./utils/spacecraft-display.js')
+const { translateAgencyName, translateSpacecraftName } = require('../../utils/space-terms-i18n.js')
+const { cachedImage, proxiedImageUrl, typeDisplayName } = require('./utils/spacecraft-display.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
+const { isFavorite, toggleFavorite } = require('../../utils/favorites.js')
 
 const CACHE_TTL = 24 * 60 * 60 * 1000
 
@@ -86,16 +87,18 @@ function formatSpacecraft(raw) {
     ? Math.round(success / total * 100) + '%'
     : ''
 
+  const nameEn = raw.name || ''
   return {
     id: raw.id,
-    name: raw.name || '未知飞船',
-    typeName: raw.typeName || '',
+    name: translateSpacecraftName(nameEn) || nameEn || '未知飞船',
+    nameEn,
+    typeName: typeDisplayName(raw.typeName) || raw.typeName || '',
     agencyName: translateAgencyName(raw.agencyName, raw.agencyAbbrev) || raw.agencyName || '',
     // 原文名/缩写保留供发射商详情页路由解析
     agencyNameEn: raw.agencyName || '',
     agencyAbbrev: raw.agencyAbbrev || '',
     agencyId: raw.agencyId || null,
-    familyName: raw.familyName || '',
+    familyName: translateSpacecraftName(raw.familyName) || raw.familyName || '',
     inUse: !!raw.inUse,
     // 头图：原图优先（与火箭型号详情页一致，缩略图放大显示会糊），走代理 + 本地缓存
     imageUrl: cachedImage(proxiedImageUrl(raw.fullImageUrl || raw.imageUrl) || raw.fullImageUrl || raw.imageUrl || ''),
@@ -134,6 +137,8 @@ Page({
     shareTitle: '飞船档案 | 火星探索日志',
     /** 分享缩略图：对应飞船图（本地预下载），避免朋友圈落到默认图/截图 */
     shareImage: '',
+    isFavorited: false,
+    favAnimate: false,
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
     tabBarReservedHeight: 0,
@@ -230,10 +235,30 @@ Page({
     this.setData({
       loading: false,
       item,
+      isFavorited: !!(item && item.id != null && isFavorite('spacecraft', item.id)),
       navTitle: '飞船详情',
       shareTitle: `${(item && item.name) || '飞船详情'} | 火星探索日志`
     })
     this._syncShareImage(item)
+  },
+
+  onToggleFavorite() {
+    const item = this.data.item
+    if (!item || item.id == null) {
+      wx.showToast({ title: '数据加载中，请稍后', icon: 'none' })
+      return
+    }
+    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+    const favorited = toggleFavorite({
+      type: 'spacecraft',
+      id: item.id,
+      title: item.name || '飞船',
+      subtitle: item.agencyName || item.typeName || '',
+      imageUrl: item.imageUrl || '',
+      category: 'spacecraft'
+    })
+    this.setData({ isFavorited: favorited, favAnimate: favorited })
+    wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
   },
 
   retryLoad() {

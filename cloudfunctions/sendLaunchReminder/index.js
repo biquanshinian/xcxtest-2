@@ -3,6 +3,7 @@ const axios = require('axios')
 // 微信 HTTPS 调用统一 10s 超时，避免网络抖动时挂满整个函数超时时间
 axios.defaults.timeout = 10000
 const { syncLaunchDataFromCache } = require('./launch-data-sync.js')
+const { resolveOaLaunchDisplay, isThingFieldKey } = require('./oa-launch-display.js')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const _ = db.command
@@ -28,6 +29,24 @@ const OA_AUTO_ALERT_USERS = 'oa_auto_alert_users'
 const OA_PUSH_LEDGER = 'oa_push_ledger'
 const LAUNCH_DATA_COLLECTION = 'launch_data'
 const LAUNCH_STATUS_COLLECTION = 'launch_status'
+
+/** 结果通知见终态 → 开屏关联任务下架（失败不影响推送主路径） */
+async function triggerSplashMissionPrune(reason) {
+  try {
+    const res = await cloud.callFunction({
+      name: 'adminGateway',
+      data: {
+        scheduleAction: 'prune_mission_splash',
+        pruneSource: 'sendLaunchReminder',
+        pruneReason: String(reason || 'result_notify').slice(0, 80)
+      }
+    })
+    return (res && res.result) || { ok: true }
+  } catch (e) {
+    console.warn('[splash-prune] trigger fail:', e.message || e)
+    return { skipped: true, error: e.message || String(e) }
+  }
+}
 
 async function loadLaunchStatuses(ids) {
   const unique = Array.from(new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean)))
@@ -57,6 +76,13 @@ async function loadLaunchStatuses(ids) {
   return rows
 }
 const OA_LEAD_MINUTES = 30
+// OA 发射前提醒：目标 ≈T-30，用「主窗 + 改期兜底 + 最晚下限」三层，而不是 [now, now+30] 全开。
+// - 主窗宽度对齐 5min 定时器，正常任务落在 T-30～T-22
+// - 上界多给 2min，避免刚进 T-30 时因时钟/查询抖动漏掉
+// - MIN_LEAD：NET 突然改近时仍可补推，但绝不贴着/过后才发（体感「发射后才到」）
+const OA_NOTIFY_WINDOW_MINUTES = 8
+const OA_LEAD_UPPER_SLACK_MINUTES = 2
+const OA_MIN_LEAD_MINUTES = 12
 
 // ── C 通道：服务号「订阅通知」(bizsend) ──
 // 一次性订阅模板「火箭发射任务提醒」，额度由 oaWebhook 在用户点「同意」时入账到 oa_subscribe_quota。
@@ -397,7 +423,9 @@ async function resolveFreshLaunchMeta(launchId) {
       if (isoLd) {
         out.iso = isoLd
         out.missionName = String(ld.missionName || ld.name || '').substring(0, 20)
-        out.rocketName = String(ld.rocketName || '').substring(0, 20)
+        // 小程序订阅 thing 可中文：优先 rocketNameZh，英文原名留在 rocketNameEn
+        out.rocketName = String(ld.rocketNameZh || ld.rocketName || '').substring(0, 20)
+        out.rocketNameEn = String(ld.rocketName || '').substring(0, 40)
         out.source = 'launch_data'
         return out
       }
@@ -494,8 +522,13 @@ async function reconcilePendingSubscriptionsNotifyTimes() {
         var lead = getLeadMinutesForRecord(record)
         var notifyAt = launchMs - lead * 60 * 1000
         var formatted = formatLaunchTimeStr(iso)
-        var mName = (meta.missionName || record.missionName || '未知任务').substring(0, 20)
-        var rName = (meta.rocketName || record.rocketName || '未知火箭').substring(0, 20)
+        var dispMeta = resolveOaLaunchDisplay({
+          missionName: meta.missionName || record.missionName,
+          rocketName: meta.rocketNameEn || record.rocketName || meta.rocketName,
+          rocketNameZh: meta.rocketNameZh || (meta.rocketNameEn ? '' : meta.rocketName)
+        })
+        var mName = dispMeta.missionName
+        var rName = dispMeta.rocketNameZh
 
         if (record.notifyAt === notifyAt && record.launchTime === iso) {
           stats.skipped++
@@ -629,13 +662,14 @@ async function matchPreferencesAndCreateSubscriptions() {
 
         // 创建订阅记录（确定性 _id 作为并发护栏，避免重复创建）
         try {
+          var dispPref = resolveOaLaunchDisplay(launch)
           await db.collection(SUBSCRIBE_COLLECTION).add({
             data: {
               _id: dedupKey,
               _openid: userOpenid,
               missionId: missionId,
-              missionName: (launch.missionName || launch.name || '').substring(0, 20),
-              rocketName: (launch.rocketName || '').substring(0, 20),
+              missionName: dispPref.missionName,
+              rocketName: dispPref.rocketNameZh,
               launchTime: launchTime,
               launchTimeFormatted: formatLaunchTimeStr(launchTime),
               recoveryMethod: launch.recoveryMethod || launch.recovery || '待确认',
@@ -935,16 +969,15 @@ exports.main = async (event) => {
 
   await ensureSendLaunchReminderCollectionsOnce()
 
-  // 生产自动链路（定时器 launchReminderTrigger 每 10 分钟，config: 0 */10 * * * * *）：
+  // 生产自动链路（定时器 launchReminderTrigger 每 5 分钟，config: 0 */5 * * * * *）：
   // 1) syncLaunchDataFromCache ← space_devs_cache upcoming
   // 1b) 空跑早退 ← 无待发 A/结果、且无 OA 窗（过去 24h / 未来 T-30）时到此为止
-  // 2) reconcilePendingSubscriptionsNotifyTimes ← A 通道改期对齐
-  // 3) sendPendingReminders ← launch_subscriptions 小程序发射前提醒
-  // 3b) sendPendingResultNotifications ← 终态后「任务完成提醒」（跳过 OA 就绪用户）
-  // 3c) sendOAResultAlerts ← 终态后服务号结果模板 → oa_auto_alert_users
-  // 4) sendOATemplateAlerts ← launch_data 扫 T-30min 窗 + oa_auto_alert_users
-  // 5) sendOASubscribeAlerts ← 服务号订阅通知
-  // 6) matchPreferencesAndCreateSubscriptions ← 偏好自动建订阅
+  // 2) sendOATemplateAlerts / sendOASubscribeAlerts ← 同步后立刻发 T-30（勿排在 A/结果之后）
+  // 3) reconcilePendingSubscriptionsNotifyTimes ← A 通道改期对齐
+  // 4) sendPendingReminders ← launch_subscriptions 小程序发射前提醒
+  // 4b) sendPendingResultNotifications ← 终态后「任务完成提醒」（跳过 OA 就绪用户）
+  // 4c) sendOAResultAlerts ← 终态后服务号结果模板 → oa_auto_alert_users
+  // 5) matchPreferencesAndCreateSubscriptions ← 偏好自动建订阅
   if (action === 'sendPending') {
     let launchDataSync
     try {
@@ -981,6 +1014,19 @@ exports.main = async (event) => {
         }
       }
     } catch { /* 检查失败照常执行，宁可多跑不能漏发 */ }
+    // T-30 必须尽早：原先排在 reconcile + A + 结果之后，前置耗时可把「窗内」拖到贴 T-0
+    let oaResult = { skipped: true }
+    try {
+      oaResult = await sendOATemplateAlerts()
+    } catch (oaErr) {
+      oaResult = { success: false, error: oaErr.message || String(oaErr) }
+    }
+    let oaSubscribeResult = { skipped: true }
+    try {
+      oaSubscribeResult = await sendOASubscribeAlerts()
+    } catch (subErr) {
+      oaSubscribeResult = { success: false, error: subErr.message || String(subErr) }
+    }
     let reconcileStats
     try {
       reconcileStats = await reconcilePendingSubscriptionsNotifyTimes()
@@ -1000,23 +1046,27 @@ exports.main = async (event) => {
     } catch (oaRnErr) {
       oaResultNotify = { success: false, error: oaRnErr.message || String(oaRnErr) }
     }
-    let oaResult = { skipped: true }
-    try {
-      oaResult = await sendOATemplateAlerts()
-    } catch (oaErr) {
-      oaResult = { success: false, error: oaErr.message || String(oaErr) }
-    }
-    let oaSubscribeResult = { skipped: true }
-    try {
-      oaSubscribeResult = await sendOASubscribeAlerts()
-    } catch (subErr) {
-      oaSubscribeResult = { success: false, error: subErr.message || String(subErr) }
-    }
-    // 偏好匹配降频：全球 24h 内几乎总有发射，若每个 10 分钟 tick 都跑，
-    // user_profile(50) + 已有订阅去重查询会一直白读。改为每小时首个 tick 执行；
+    // 偏好匹配降频：全球 24h 内几乎总有发射，若每个 5 分钟 tick 都跑，
+    // user_profile(50) + 已有订阅去重查询会一直白读。改为每小时整点 tick 执行；
     // 订阅提前量默认 60 分钟，最迟晚 50 分钟建订阅仍在 notifyAt 之前，不影响送达
-    if (new Date().getMinutes() < 10) {
+    if (new Date().getMinutes() < 5) {
       await matchPreferencesAndCreateSubscriptions()
+    }
+    // 小程序/服务号结果通道确认终态后：下架对应开屏关联项（与推送成功解耦）
+    let splashMissionPrune = { skipped: true }
+    const mpTerminals = Number(resultNotify && resultNotify.terminalsFound) || 0
+    const oaTerminals = Number(oaResultNotify && oaResultNotify.missions) || 0
+    const resultHit =
+      mpTerminals > 0 ||
+      oaTerminals > 0 ||
+      Number(resultNotify && resultNotify.sentOk) > 0 ||
+      Number(oaResultNotify && oaResultNotify.sentOk) > 0
+    if (resultHit) {
+      splashMissionPrune = await triggerSplashMissionPrune(
+        oaTerminals > 0 || Number(oaResultNotify && oaResultNotify.sentOk) > 0
+          ? 'oa_result_notify'
+          : 'mp_result_notify'
+      )
     }
     return {
       ...result,
@@ -1024,6 +1074,7 @@ exports.main = async (event) => {
       oaResultNotify,
       oaResult,
       oaSubscribeResult,
+      splashMissionPrune,
       reconcileStats,
       launchDataSync
     }
@@ -1091,16 +1142,24 @@ exports.main = async (event) => {
 
     // 「服务号自动提醒只通知一次」排查：launch_data 未来窗口命中情况 + oa_push_ledger 失败记录
     const now = Date.now()
+    const oaBounds = getOaNotifyWindowBounds(now)
     const diagnostics = {
       now: new Date(now).toISOString(),
       oaLeadMinutes: OA_LEAD_MINUTES,
+      oaMinLeadMinutes: OA_MIN_LEAD_MINUTES,
+      oaNotifyWindowMinutes: OA_NOTIFY_WINDOW_MINUTES,
+      oaLeadUpperSlackMinutes: OA_LEAD_UPPER_SLACK_MINUTES,
+      oaWindow: {
+        launchMin: oaBounds.launchMin.toISOString(),
+        launchMax: oaBounds.launchMax.toISOString(),
+        targetLeadMinutes: oaBounds.targetLeadMinutes
+      },
       launchData: {},
       oaPushLedger: {}
     }
 
     try {
       const launchMin = new Date(now)
-      const launchMax = new Date(now + OA_LEAD_MINUTES * 60 * 1000)
       const futureRes = await db
         .collection(LAUNCH_DATA_COLLECTION)
         .where({ windowStart: _.gte(launchMin) })
@@ -1112,7 +1171,9 @@ exports.main = async (event) => {
 
       const inWindowRes = await db
         .collection(LAUNCH_DATA_COLLECTION)
-        .where({ windowStart: _.gte(launchMin).and(_.lte(launchMax)) })
+        .where({
+          windowStart: _.gte(oaBounds.launchMin).and(_.lte(oaBounds.launchMax))
+        })
         .limit(50)
         .get()
       diagnostics.launchData.inWindowCount = (inWindowRes.data || []).length
@@ -1246,7 +1307,22 @@ exports.main = async (event) => {
       } catch (oaRnErr) {
         oaResultNotify = { success: false, error: oaRnErr.message || String(oaRnErr) }
       }
-      return { success: true, resultNotify, oaResultNotify }
+      let splashMissionPrune = { skipped: true }
+      const mpTerminals = Number(resultNotify && resultNotify.terminalsFound) || 0
+      const oaTerminals = Number(oaResultNotify && oaResultNotify.missions) || 0
+      const resultHit =
+        mpTerminals > 0 ||
+        oaTerminals > 0 ||
+        Number(resultNotify && resultNotify.sentOk) > 0 ||
+        Number(oaResultNotify && oaResultNotify.sentOk) > 0
+      if (resultHit) {
+        splashMissionPrune = await triggerSplashMissionPrune(
+          oaTerminals > 0 || Number(oaResultNotify && oaResultNotify.sentOk) > 0
+            ? 'oa_result_notify'
+            : 'mp_result_notify'
+        )
+      }
+      return { success: true, resultNotify, oaResultNotify, splashMissionPrune }
     } catch (e) {
       return { success: false, error: e.message || String(e) }
     }
@@ -1255,6 +1331,40 @@ exports.main = async (event) => {
   // 「任务完成提醒」断点定位：一次调用查全 模板配置 / 订阅文档状态 / 终态缓存
   if (action === 'resultDiag') {
     return runResultDiag()
+  }
+
+  // 强制测推服务号模板（绕过 T-30 / 台账）。必须 force:true；默认只发 1 人。
+  // 例：{ "action":"testOaPush", "force":true, "channel":"both" }
+  //     { "action":"testOaPush", "force":true, "channel":"template", "missionId":"...", "oaOpenid":"..." }
+  if (action === 'testOaPush') {
+    try {
+      return await runTestOaPush(ev || {})
+    } catch (e) {
+      return { success: false, error: e.message || String(e) }
+    }
+  }
+
+  // 列出可测推的服务号 openid（从 oa_auto_alert_users）
+  if (action === 'listOaTestUsers') {
+    try {
+      const rows = await loadOaAutoAlertCandidates(Math.min(20, Number(ev && ev.limit) || 10))
+      return {
+        success: true,
+        count: rows.length,
+        users: rows.map(function (u) {
+          return {
+            oaOpenid: String(u.oaOpenid || ''),
+            mpOpenid: u.mpOpenid ? String(u.mpOpenid).slice(0, 8) + '…' : '',
+            enabled: !!u.enabled,
+            followed: !!u.followed,
+            refused: !!isOaUserMsgRefused(u)
+          }
+        }),
+        tip: '把 users[].oaOpenid 填进 testOaPush；不要填小程序 openid'
+      }
+    } catch (e) {
+      return { success: false, error: e.message || String(e) }
+    }
   }
 
   return { success: false, message: 'unknown action' }
@@ -1497,14 +1607,15 @@ async function sendPendingReminders() {
           continue
         }
 
+        var dispMp = resolveOaLaunchDisplay(record)
         await sendSubscribeMessageByHttp(
           record._openid,
           TEMPLATE_ID,
           '/pages/index/index',
           {
-            thing1: { value: (record.missionName || '未知任务').substring(0, 20) },
+            thing1: { value: toOaThingValue(dispMp.missionName, '未知任务') },
             time2: { value: mpTimeVal },
-            thing3: { value: (record.rocketName || '未知火箭').substring(0, 20) },
+            thing3: { value: toOaThingValue(dispMp.rocketNameZh, '未知火箭') },
             thing4: { value: recoveryValue.substring(0, 20) }
           }
         )
@@ -1536,7 +1647,7 @@ async function sendPendingReminders() {
         }
         const errStr = String(errDetail)
         const keepResult = Number(record.resultQuota) > 0
-        // 永久错误（43101/47003 等）结案，避免卡在 sent:false 每 10 分钟烧配额
+        // 永久错误（43101/47003 等）结案，避免卡在 sent:false 每个 tick 烧配额
         if (isPermanentOaErrorText(errStr) || /43101|43107|user refuse|user deny/i.test(errStr)) {
           await markReminderDone(record._id, { keepForResult: keepResult })
         } else {
@@ -1628,6 +1739,17 @@ function resultTextFromStatus(status) {
   if (/fail|失败/.test(n)) return '失败'
   if (/deploy/.test(n)) return '载荷已部署'
   return ''
+}
+
+/** 中国箭结果通知：失败→失利（与小程序角标策略一致） */
+function softenResultTextForChineseRocket(text, hint) {
+  const s = String(text || '')
+  if (!s) return s
+  const hay = String(hint || '')
+  if (!/(wenchang|jiuquan|taiyuan|xichang|china|\bprc\b|long march|长征|kuaizhou|快舟|\bgravity-?\s?1\b|引力一号|\bceres-?\s?1\b|谷神星|hyperbola|双曲线|zhuque|朱雀|jielong|smart dragon|捷龙|tianlong|天龙|kinetica|lijian|力箭|landspace|galactic energy|expace|cas space|中科宇航|casc|calt|中国航天)/i.test(hay)) {
+    return s
+  }
+  return s.replace(/部分失败/g, '部分失利').replace(/失败/g, '失利')
 }
 
 // ── 结果模板字段自动对齐 ──
@@ -1740,14 +1862,19 @@ function clampValueForKey(key, value) {
 }
 
 function buildResultSubscribeData(record, statusInfo, fieldEntries) {
-  const rocket = String(record.rocketName || '').substring(0, 12)
+  const disp = resolveOaLaunchDisplay(record)
+  const rocket = String(disp.rocketNameZh || '').substring(0, 12)
   const timeVal =
     toOaTimeValue(record && record.launchTime) ||
     toOaTimeValue(record && record.launchTimeFormatted)
+  const rawResult = String((statusInfo && statusInfo.resultText) || '已完成')
+  const resultHint = [disp.rocketNameZh, disp.missionName, record && record.name]
+    .filter(Boolean)
+    .join(' ')
   const roleValues = {
-    mission: String(record.missionName || '未知任务'),
+    mission: String(disp.missionName || '未知任务'),
     time: timeVal || '',
-    result: String(statusInfo.resultText || '已完成'),
+    result: softenResultTextForChineseRocket(rawResult, resultHint),
     remark: rocket ? rocket + ' · 点击查看' : '点击查看详情'
   }
   const entries = Array.isArray(fieldEntries) && fieldEntries.length ? fieldEntries : defaultResultFieldEntries()
@@ -1764,7 +1891,15 @@ function buildResultSubscribeData(record, statusInfo, fieldEntries) {
  */
 async function sendPendingResultNotifications() {
   const now = Date.now()
-  const stats = { sentOk: 0, failed: 0, skipped: 0, skippedOaReady: 0, checked: 0 }
+  const stats = {
+    sentOk: 0,
+    failed: 0,
+    skipped: 0,
+    skippedOaReady: 0,
+    checked: 0,
+    // 已确认终态的订阅条数（与是否成功发出推送解耦，供开屏下架触发）
+    terminalsFound: 0
+  }
   if (!RESULT_TEMPLATE_ID) {
     return { success: true, skipped: true, reason: 'no_result_template', ...stats }
   }
@@ -1907,6 +2042,7 @@ async function sendPendingResultNotifications() {
       }
       continue
     }
+    stats.terminalsFound++
 
     var resultTimeVal =
       toOaTimeValue(record.launchTime) || toOaTimeValue(record.launchTimeFormatted)
@@ -2055,12 +2191,12 @@ async function removeRecord(docId) {
 // - WECHAT_OA_TMPL_FIELD_REMARK            备注/发射场字段 key（可选；未设置则不写入）
 // - WECHAT_OA_TMPL_FIELD_CODE              任务编号字段 key（可选；未设置则不写入）
 //
-// 旧模板库「巡检任务工单派发通知」仅 3 字段（FBII5P7WK3Eqf7-nmcOxBHWz-pHzfyVEdxY2nB79KdU）：
-//   WECHAT_OA_TMPL_FIELD_MISSION = thing9             → 任务名称 missionName（thing，可含中文，≤20）
-//   WECHAT_OA_TMPL_FIELD_TIME    = time14             → 发射时间 launchTimeFormatted（time）
-//   WECHAT_OA_TMPL_FIELD_CODE    = character_string1  → 工单编号槽位展示火箭型号 rocketName（character_string，仅 ASCII；为空退回 launch.id）
-// 任务名/发射场等中文字段须用 thing 类型；character_string 仅允许 ASCII，写中文会报 47003。
-// rocket/recovery/remark 留空即不写入；代码内 OA_TMPL_FIELD_DEFAULTS 已含 mission/time/code 默认值。
+// 当前默认「巡检任务工单派发通知」FBII5P7WK3Eqf7-nmcOxBG4A7PbuuGFyr-Q1QSs53P8（全 thing/time，可中文）：
+//   项目名称     → mission（火箭｜任务）
+//   开始时间     → time
+//   巡检地点     → remark（发射场）
+//   运维巡检公司 → rocket 槽位改填发射商（标签语义匹配）
+// 字段 key 优先读环境变量；未配置时按模板 content 中文标签自动识别。
 
 function getOaCredentials() {
   const appid = String(process.env.WECHAT_OA_APPID || '').trim()
@@ -2108,20 +2244,89 @@ async function getOaAccessToken() {
 }
 
 var OA_TMPL_FIELD_DEFAULTS = {
-  // 「巡检任务工单派发通知」FBII5P7WK3Eqf7-nmcOxBHWz-pHzfyVEdxY2nB79KdU 仅 3 字段：
-  //   thing9          → 任务名称 missionName（thing，可含中文，≤20 字符）
-  //   time14          → 发射时间 launchTimeFormatted（time）
-  //   character_string1 → 工单编号槽位展示火箭型号 ASCII（为空再试任务名，禁止 UUID）
-  // 火箭名走 character_string1 槽位；如模板另有 thing 字段可用 WECHAT_OA_TMPL_FIELD_ROCKET 指定。
-  mission: 'thing9',
-  time: 'time14',
+  // key 由 resolveOaTemplateFieldKeys 按模板 content 自动识别；此处仅作极端兜底
+  mission: '',
+  time: '',
   rocket: '',
   recovery: '',
   remark: '',
-  code: 'character_string1'
+  code: ''
 }
 
-function getOaTemplateFieldKeys() {
+var _oaTmplFieldCache = { templateId: '', keys: null, fetchedAt: 0 }
+var OA_TMPL_FIELD_CACHE_TTL = 60 * 60 * 1000
+
+/** 解析服务号模板 content，按中文标签映射到 mission/time/remark/agency(rocket) */
+function parseOaDispatchTemplateContent(content) {
+  var lines = String(content || '').split('\n')
+  var parsed = []
+  for (var i = 0; i < lines.length; i++) {
+    var m = lines[i].match(/^(.*?)[:：]?\s*\{\{(\w+)\.DATA\}\}/)
+    if (m) parsed.push({ label: m[1].trim(), key: m[2] })
+  }
+  if (!parsed.length) return null
+  var keys = { mission: '', time: '', rocket: '', recovery: '', remark: '', code: '' }
+  for (var pi = 0; pi < parsed.length; pi++) {
+    var label = parsed[pi].label || ''
+    var key = parsed[pi].key || ''
+    if (!key) continue
+    if (!keys.time && (/开始时间|作业时间|创建时间|时间|日期/.test(label) || /^time/.test(key))) {
+      keys.time = key
+    } else if (!keys.mission && /项目名称|任务名称|工单名称/.test(label)) {
+      keys.mission = key
+    } else if (!keys.remark && /巡检地点|作业地点|地点|位置/.test(label)) {
+      keys.remark = key
+    } else if (!keys.rocket && /运维巡检公司|公司|单位|发射商|机构/.test(label)) {
+      // rocket 槽位在本模板用于「运维巡检公司」= 发射商
+      keys.rocket = key
+    } else if (!keys.code && /编号/.test(label) && /^character_string/.test(key)) {
+      keys.code = key
+    } else if (!keys.remark && /负责人|发起人|派单人/.test(label) && !keys.rocket) {
+      // 无公司字段时，人名类 thing 可兜底放发射商
+      keys.rocket = key
+    }
+  }
+  return keys
+}
+
+async function fetchOaDispatchTemplateFieldKeys(templateId) {
+  var tid = String(templateId || '').trim()
+  if (!tid) return null
+  var now = Date.now()
+  if (
+    _oaTmplFieldCache.keys &&
+    _oaTmplFieldCache.templateId === tid &&
+    now - _oaTmplFieldCache.fetchedAt < OA_TMPL_FIELD_CACHE_TTL
+  ) {
+    return _oaTmplFieldCache.keys
+  }
+  try {
+    var token = await getOaAccessToken()
+    var url =
+      'https://api.weixin.qq.com/cgi-bin/template/get_all_private_template?access_token=' +
+      encodeURIComponent(token)
+    var res = await axios.get(url)
+    var list = (res.data && res.data.template_list) || []
+    var hit = null
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && String(list[i].template_id) === tid) {
+        hit = list[i]
+        break
+      }
+    }
+    if (!hit || !hit.content) return null
+    var keys = parseOaDispatchTemplateContent(hit.content)
+    if (!keys) return null
+    _oaTmplFieldCache = { templateId: tid, keys: keys, fetchedAt: now }
+    console.log('[OA] auto field keys', tid, keys)
+    return keys
+  } catch (e) {
+    console.warn('[OA] fetch template fields fail', e.message || e)
+    return null
+  }
+}
+
+function getOaTemplateFieldKeysFromEnv() {
   return {
     mission: String(process.env.WECHAT_OA_TMPL_FIELD_MISSION || OA_TMPL_FIELD_DEFAULTS.mission).trim(),
     time: String(process.env.WECHAT_OA_TMPL_FIELD_TIME || OA_TMPL_FIELD_DEFAULTS.time).trim(),
@@ -2129,6 +2334,27 @@ function getOaTemplateFieldKeys() {
     recovery: String(process.env.WECHAT_OA_TMPL_FIELD_RECOVERY || OA_TMPL_FIELD_DEFAULTS.recovery).trim(),
     remark: String(process.env.WECHAT_OA_TMPL_FIELD_REMARK || OA_TMPL_FIELD_DEFAULTS.remark).trim(),
     code: String(process.env.WECHAT_OA_TMPL_FIELD_CODE || OA_TMPL_FIELD_DEFAULTS.code).trim()
+  }
+}
+
+function getOaTemplateFieldKeys() {
+  // 同步路径：仅环境变量；发送前会用 resolveOaTemplateFieldKeys 覆盖
+  return getOaTemplateFieldKeysFromEnv()
+}
+
+async function resolveOaTemplateFieldKeys(templateId) {
+  var envKeys = getOaTemplateFieldKeysFromEnv()
+  var hasEnv = !!(envKeys.mission || envKeys.time || envKeys.remark || envKeys.rocket || envKeys.code)
+  if (hasEnv && envKeys.mission && envKeys.time) return envKeys
+  var autoKeys = await fetchOaDispatchTemplateFieldKeys(templateId)
+  if (!autoKeys) return envKeys
+  return {
+    mission: envKeys.mission || autoKeys.mission || '',
+    time: envKeys.time || autoKeys.time || '',
+    rocket: envKeys.rocket || autoKeys.rocket || '',
+    recovery: envKeys.recovery || autoKeys.recovery || '',
+    remark: envKeys.remark || autoKeys.remark || '',
+    code: envKeys.code || autoKeys.code || ''
   }
 }
 
@@ -2170,8 +2396,8 @@ function pickLaunchCodeId(launch) {
 
 function pickLaunchRemark(launch) {
   if (!launch) return ''
-  var pad = String(launch.padName || launch.pad || '').trim()
-  var site = String(launch.site || '').trim()
+  var pad = String(launch.padNameZh || launch.padName || launch.pad || '').trim()
+  var site = String(launch.siteZh || launch.site || '').trim()
   if (pad && site && pad !== site) {
     return (pad + ' ' + site).substring(0, 20)
   }
@@ -2181,11 +2407,12 @@ function pickLaunchRemark(launch) {
 function buildOaTemplateData(opts) {
   var missionName = opts && opts.missionName
   var rocketName = opts && opts.rocketName
+  var agencyName = opts && opts.agencyName
   var launchTimeFormatted = opts && opts.launchTimeFormatted
   var recoveryMethod = opts && opts.recoveryMethod
   var remark = opts && opts.remark
   var codeId = opts && opts.codeId
-  var keys = getOaTemplateFieldKeys()
+  var keys = (opts && opts.fieldKeys) || getOaTemplateFieldKeys()
   var data = {}
   if (keys.mission) {
     data[keys.mission] = { value: toOaThingValue(missionName, '未知任务') }
@@ -2196,7 +2423,8 @@ function buildOaTemplateData(opts) {
     data[keys.time] = { value: timeVal }
   }
   if (keys.rocket) {
-    data[keys.rocket] = { value: toOaThingValue(rocketName, '未知火箭') }
+    // 新模板「运维巡检公司」槽：只填发射商，禁止回退火箭名
+    data[keys.rocket] = { value: toOaThingValue(agencyName, '待确认') }
   }
   if (keys.recovery) {
     data[keys.recovery] = { value: toOaThingValue(recoveryMethod, '待确认') }
@@ -2205,7 +2433,12 @@ function buildOaTemplateData(opts) {
     data[keys.remark] = { value: toOaThingValue(remark, '') }
   }
   if (keys.code) {
-    data[keys.code] = { value: toOaCharacterStringValue(codeId, 'Launch') }
+    // character_string 仅 ASCII；若运营把编号槽改成 thing*，则可写中文火箭名
+    if (isThingFieldKey(keys.code)) {
+      data[keys.code] = { value: toOaThingValue(codeId || rocketName, '未知火箭') }
+    } else {
+      data[keys.code] = { value: toOaCharacterStringValue(codeId, 'Launch') }
+    }
   }
   return data
 }
@@ -2780,37 +3013,552 @@ async function purgePushJunk(event) {
   return { success: true, ...stats }
 }
 
+/** 距发射剩余毫秒；无效 NET 返回 NaN */
+function oaLaunchRemainingMs(launch, nowMs) {
+  if (!launch) return NaN
+  var raw = launch.windowStart || launch.launchTime || ''
+  var iso = toLaunchIso(raw) || ''
+  var ms = new Date(iso || raw).getTime()
+  if (!(ms > 0)) return NaN
+  return ms - Number(nowMs)
+}
+
+/**
+ * 是否仍适合发发射前提醒（发送前二次校验，防止前置耗时把「窗内」拖成贴 T-0）。
+ * 允许区间：[MIN_LEAD, LEAD+slack] ≈ [T-12, T-32]
+ */
+function shouldSendOaPreLaunchAlert(launch, nowMs) {
+  var remain = oaLaunchRemainingMs(launch, nowMs)
+  if (!(remain > 0)) return false
+  var minMs = OA_MIN_LEAD_MINUTES * 60 * 1000
+  var maxMs = (OA_LEAD_MINUTES + OA_LEAD_UPPER_SLACK_MINUTES) * 60 * 1000
+  return remain >= minMs && remain <= maxMs
+}
+
+function getOaNotifyWindowBounds(nowMs) {
+  // 查询窗 = 主窗 ∪ 改期兜底：
+  //   [now+MIN_LEAD, now+LEAD+slack] ≈ [T-12, T-32]
+  // 正常节奏（5min tick + 同步后立刻发）命中靠近上沿的主窗 T-30～T-22；
+  // NET 临时改近时仍可在 ≥12 分钟时补一刀，避免「完全漏推」，也不会发射后才推。
+  var minMs = OA_MIN_LEAD_MINUTES * 60 * 1000
+  var maxMs = (OA_LEAD_MINUTES + OA_LEAD_UPPER_SLACK_MINUTES) * 60 * 1000
+  return {
+    launchMin: new Date(nowMs + minMs),
+    launchMax: new Date(nowMs + maxMs),
+    minLeadMinutes: OA_MIN_LEAD_MINUTES,
+    maxLeadMinutes: OA_LEAD_MINUTES + OA_LEAD_UPPER_SLACK_MINUTES,
+    targetLeadMinutes: OA_LEAD_MINUTES,
+    primaryWindowMinutes: OA_NOTIFY_WINDOW_MINUTES
+  }
+}
+
 async function findLaunchesInOaNotifyWindow(nowMs) {
-  const leadMs = OA_LEAD_MINUTES * 60 * 1000
-  // 捕获「未来 leadMs 分钟内尚未发射」的全部任务：下界放宽到 now，上界 now+lead。
-  //
-  // 旧实现窗口仅 6min（[now+24min, now+30min]）。表面上 6min 窗 > 5min 定时器间隔可覆盖，
-  // 但本通道在 sendPending 链路里排在最后：syncLaunchDataFromCache（逐条 upsert 至多 100 条 +
-  // 清理）→（total 为 0 时）兜底再调 syncSpaceDevsData 全量同步 →
-  // reconcilePendingSubscriptionsNotifyTimes（最多 200 条、每条可能再 callFunction 拉详情）→
-  // A 通道发送，之后才执行到这里。这些前置步骤耗时数十秒~分钟级且很不稳定，导致每次 tick 真正
-  // 采样到的 nowMs 抖动远超 1min，相邻两次窗口之间会出现缝隙，使「自然任务」的 windowStart 落入
-  // 缝隙而被永久漏过（甚至前置步骤超时导致本通道整轮没跑到）。
-  //
-  // 放宽下界到 now 后，任务只要进入未来 30min 内，就一定会在最近一次 tick 命中；不会因抖动/延迟漏发。
-  // 重复发送由 oa_push_ledger（B 通道，missionId+oaOpenid+status:'ok'）与
-  // oa_push_ledger channel='subscribe'（C 通道）去重，故放宽窗口不会造成重复推送。
-  // 上界仍为 now+lead，windowStart<now 的已发射任务被自然排除。
-  const launchMin = new Date(nowMs)
-  const launchMax = new Date(nowMs + leadMs)
+  // 设计取舍（相对旧版 [now, now+30]）：
+  // 1) 旧版下界=now 是为了防漏（链路排最后、10min tick、前置同步抖动会撕开窄窗），
+  //    副作用是星链改期后会在 T-1～T+几分钟才推到，体感「发射后才提醒」。
+  // 2) 现改为：定时器 5min + 同步后立刻跑 OA（不再等 A/结果），抖动可控；
+  //    下界抬到 MIN_LEAD=12min，上界 T-32，目标落在约 T-30。
+  // 3) 台账去重仍在，窗内多次 tick 不会双推。
+  var bounds = getOaNotifyWindowBounds(nowMs)
 
   try {
     const res = await db
       .collection(LAUNCH_DATA_COLLECTION)
       .where({
-        windowStart: _.gte(launchMin).and(_.lte(launchMax))
+        windowStart: _.gte(bounds.launchMin).and(_.lte(bounds.launchMax))
       })
       .limit(20)
       .get()
-    return res.data || []
+    var rows = res.data || []
+    // 二次过滤：DB 边界含等于；发送时再按最新 now 校验一次
+    return rows.filter(function (row) {
+      return shouldSendOaPreLaunchAlert(row, nowMs)
+    })
   } catch (e) {
     console.warn('[OA] query launch_data fail', e.message || e)
     return []
+  }
+}
+
+async function loadLaunchDataDoc(missionId) {
+  const id = String(missionId || '').trim()
+  if (!id) return null
+  try {
+    const doc = await db.collection(LAUNCH_DATA_COLLECTION).doc(id).get()
+    if (doc && doc.data) return Object.assign({ _id: id }, doc.data)
+  } catch (e) {}
+  try {
+    const res = await db
+      .collection(LAUNCH_DATA_COLLECTION)
+      .where({ id: id })
+      .limit(1)
+      .get()
+    const row = (res.data || [])[0]
+    if (row) return row
+  } catch (e2) {}
+  return null
+}
+
+function pickTestOaOpenid(opts) {
+  opts = opts || {}
+  return String(
+    opts.oaOpenid || opts.oaOpenId || opts.openid || opts.openId || ''
+  ).trim()
+}
+
+function normalizeTestMissionId(raw) {
+  var id = String(raw || '').trim()
+  if (!id) return ''
+  // 示例占位「任务ID」勿当真
+  if (id === '任务ID' || id === 'missionId' || id === 'MISSION_ID') return ''
+  return id
+}
+
+async function loadOaAutoAlertCandidates(limit) {
+  const n = Math.max(1, Math.min(20, Number(limit) || 5))
+  const usersRes = await db
+    .collection(OA_AUTO_ALERT_USERS)
+    .where({ enabled: true, followed: true })
+    .limit(200)
+    .get()
+    .catch(function () {
+      return { data: [] }
+    })
+  return (usersRes.data || [])
+    .filter(function (u) {
+      return u && u.oaOpenid && !isOaUserMsgRefused(u)
+    })
+    .slice(0, n)
+}
+
+async function resolveTestOaUserByAnyId(want) {
+  const id = String(want || '').trim()
+  if (!id) return { users: [], resolve: null }
+
+  // 1) 已是服务号 openid，且在可用名单
+  var ready = await loadOaAutoAlertCandidates(200)
+  var byOa = ready.filter(function (u) {
+    return String(u.oaOpenid) === id
+  })
+  if (byOa.length) {
+    return { users: byOa, resolve: 'oaOpenid' }
+  }
+
+  // 2) 前端复制的通常是小程序 openid → 用 mpOpenid 反查
+  try {
+    var byMp = await db
+      .collection(OA_AUTO_ALERT_USERS)
+      .where({ mpOpenid: id })
+      .limit(5)
+      .get()
+    var mpRows = byMp.data || []
+    if (mpRows.length) {
+      var usable = mpRows.filter(function (u) {
+        return u && u.oaOpenid && u.enabled && u.followed && !isOaUserMsgRefused(u)
+      })
+      if (usable.length) {
+        return { users: usable, resolve: 'mpOpenid→oaOpenid' }
+      }
+      var row = mpRows[0]
+      return {
+        users: [],
+        resolve: 'mpOpenid',
+        error:
+          '已用小程序 openid 找到档案，但服务号侧未就绪：' +
+          'enabled=' +
+          !!row.enabled +
+          ', followed=' +
+          !!row.followed +
+          ', oaOpenid=' +
+          (row.oaOpenid ? '有' : '无') +
+          (isOaUserMsgRefused(row) ? ', refused=true' : '') +
+          '。请先关注服务号「火星探索日志」，并在菜单/小程序里开启自动提醒后再测。'
+      }
+    }
+  } catch (e) {}
+
+  // 3) 再按 oaOpenid 查未启用/未关注记录，给出明确原因
+  try {
+    var byOaAll = await db
+      .collection(OA_AUTO_ALERT_USERS)
+      .where({ oaOpenid: id })
+      .limit(3)
+      .get()
+    var oaRows = byOaAll.data || []
+    if (oaRows.length) {
+      var r0 = oaRows[0]
+      return {
+        users: [],
+        resolve: 'oaOpenid',
+        error:
+          '找到该 oaOpenid，但未满足推送条件：enabled=' +
+          !!r0.enabled +
+          ', followed=' +
+          !!r0.followed +
+          (isOaUserMsgRefused(r0) ? ', refused=true' : '')
+      }
+    }
+  } catch (e2) {}
+
+  return {
+    users: [],
+    resolve: null,
+    error:
+      '库中未找到该 ID（既不是可用 oaOpenid，也不是已绑定的 mpOpenid）。' +
+      '前端会员页复制的是小程序 openid；请确认已关注服务号且开启自动提醒，或先跑 listOaTestUsers。'
+  }
+}
+
+async function pickTestOaUsers(opts) {
+  const want = pickTestOaOpenid(opts)
+  const limit = Math.max(1, Math.min(5, Number((opts && opts.limitUsers) || 1) || 1))
+  if (!want) {
+    var users = await loadOaAutoAlertCandidates(200)
+    return { users: users.slice(0, limit), resolve: 'default', error: '' }
+  }
+  var resolved = await resolveTestOaUserByAnyId(want)
+  if (resolved.users && resolved.users.length) {
+    return {
+      users: resolved.users.slice(0, limit),
+      resolve: resolved.resolve,
+      error: ''
+    }
+  }
+  // 仍允许 force 直推原值（仅当你确定它就是本服务号 openid）
+  if (opts && (opts.direct === true || opts.direct === 1 || opts.direct === '1')) {
+    return {
+      users: [{ oaOpenid: want, mpOpenid: '', _direct: true }],
+      resolve: 'direct',
+      error: resolved.error || ''
+    }
+  }
+  return { users: [], resolve: resolved.resolve, error: resolved.error || '无法解析收件人' }
+}
+
+/**
+ * 调试专用：强制推送服务号发射前 / 结果模板。
+ * - 不要求 T-30 窗口；跳过 oa_push_ledger 去重
+ * - 默认不写台账（可反复测）；writeLedger:true 才写入
+ * - 默认只发给 1 个自动提醒用户，避免误推全量
+ */
+async function runTestOaPush(opts) {
+  opts = opts || {}
+  const force = opts.force === true || opts.force === 1 || opts.force === '1' || opts.force === 'true'
+  if (!force) {
+    return {
+      success: false,
+      message: 'testOaPush 需 force:true。例：{"action":"testOaPush","force":true,"channel":"both"}'
+    }
+  }
+  if (!getOaCredentials()) {
+    return { success: false, message: '服务号凭证未配置' }
+  }
+
+  var channel = String(opts.channel || 'both').trim().toLowerCase()
+  if (channel !== 'template' && channel !== 'result' && channel !== 'both') {
+    channel = 'both'
+  }
+  const writeLedger = opts.writeLedger === true || opts.writeLedger === 1 || opts.writeLedger === '1'
+  // 规范化 missionId，避免把示例文案「任务ID」传进查询
+  opts = Object.assign({}, opts, {
+    missionId: normalizeTestMissionId(opts.missionId),
+    templateMissionId: normalizeTestMissionId(opts.templateMissionId),
+    resultMissionId: normalizeTestMissionId(opts.resultMissionId),
+    oaOpenid: pickTestOaOpenid(opts)
+  })
+  const picked = await pickTestOaUsers(opts)
+  const users = (picked && picked.users) || []
+  if (!users.length) {
+    return {
+      success: false,
+      message: (picked && picked.error) || '无法解析收件人',
+      resolve: picked && picked.resolve,
+      tip:
+        '前端复制的是小程序 openid，可直接传：代码会按 mpOpenid 换成服务号 oaOpenid。' +
+        '若仍失败，先确认已关注服务号并开启自动提醒；确需原值直推则加 "direct":true。'
+    }
+  }
+
+  const out = {
+    success: true,
+    force: true,
+    writeLedger: writeLedger,
+    resolve: picked.resolve || '',
+    directOpenid: !!(users[0] && users[0]._direct),
+    users: users.map(function (u) {
+      return {
+        oaOpenid: String(u.oaOpenid).slice(0, 8) + '…',
+        mpOpenid: u.mpOpenid ? String(u.mpOpenid).slice(0, 8) + '…' : '',
+        direct: !!u._direct
+      }
+    }),
+    template: null,
+    result: null
+  }
+
+  if (channel === 'template' || channel === 'both') {
+    out.template = await testSendOaTemplateOnce(opts, users, writeLedger)
+  }
+  if (channel === 'result' || channel === 'both') {
+    out.result = await testSendOaResultOnce(opts, users, writeLedger)
+  }
+  out.success = !!(
+    (out.template && out.template.success) ||
+    (out.result && out.result.success)
+  )
+
+  // 40003：openid 不属于当前 WECHAT_OA_APPID（常见：填了小程序 openid，或未关注本服务号）
+  var hit40003 =
+    (out.template &&
+      out.template.sends &&
+      out.template.sends.some(function (s) {
+        return s && s.errcode === 40003
+      })) ||
+    (out.result &&
+      out.result.sends &&
+      out.result.sends.some(function (s) {
+        return s && s.errcode === 40003
+      }))
+  if (hit40003) {
+    out.hint =
+      'errcode 40003=invalid openid：当前 openid 不是本服务号粉丝 openid。' +
+      '请去掉 oaOpenid 改用名单内用户，或在库 oa_auto_alert_users 里复制 oaOpenid 字段。'
+    try {
+      var samples = await loadOaAutoAlertCandidates(5)
+      out.sampleOaOpenids = samples.map(function (u) {
+        return String(u.oaOpenid)
+      })
+    } catch (eHint) {
+      out.sampleOaOpenids = []
+    }
+  }
+  return out
+}
+
+async function testSendOaTemplateOnce(opts, users, writeLedger) {
+  const templateId = getOaTemplateId()
+  if (!templateId) return { success: false, reason: 'WECHAT_OA_TEMPLATE_ID empty' }
+
+  var launch = null
+  var missionId = String((opts && opts.missionId) || (opts && opts.templateMissionId) || '').trim()
+  if (missionId) {
+    launch = await loadLaunchDataDoc(missionId)
+  } else {
+    try {
+      const res = await db
+        .collection(LAUNCH_DATA_COLLECTION)
+        .where({ windowStart: _.gte(new Date()) })
+        .orderBy('windowStart', 'asc')
+        .limit(1)
+        .get()
+      launch = (res.data || [])[0] || null
+    } catch (e) {
+      return { success: false, reason: 'query upcoming fail: ' + (e.message || e) }
+    }
+  }
+  if (!launch) {
+    return { success: false, reason: missionId ? 'mission not found in launch_data' : 'no upcoming launch_data' }
+  }
+  missionId = String(launch._id || launch.id || missionId)
+
+  const launchTime = launch.windowStart || launch.launchTime || ''
+  const launchTimeIso = toLaunchIso(launchTime)
+  const launchTimeOa = toOaTimeValue(launchTimeIso || launchTime)
+  if (!launchTimeOa) {
+    return { success: false, reason: 'invalid time for template', missionId: missionId }
+  }
+  const launchNetKey = netKeyFromIso(launchTimeIso || launchTime) || 'test'
+  const disp = resolveOaLaunchDisplay(launch)
+  const fieldKeys = await resolveOaTemplateFieldKeys(templateId)
+  const pagepath = 'pages/mission-detail/mission-detail?id=' + missionId + '&type=upcoming'
+  const templateData = buildOaTemplateData({
+    missionName: disp.projectTitle || disp.missionName,
+    rocketName: disp.rocketNameZh,
+    agencyName: disp.agencyName || '待确认',
+    launchTimeFormatted: formatLaunchTimeStr(launchTimeIso || launchTime),
+    launchTimeOa: launchTimeOa,
+    recoveryMethod: launch.recoveryMethod || launch.recovery || '待确认',
+    remark: disp.siteName || disp.remark || pickLaunchRemark(launch),
+    codeId: disp.rocketNameEn,
+    fieldKeys: fieldKeys
+  })
+
+  const sends = []
+  for (var i = 0; i < users.length; i++) {
+    var user = users[i]
+    var oaOpenid = user.oaOpenid
+    try {
+      await sendOaTemplateMessage(oaOpenid, templateId, pagepath, templateData)
+      if (writeLedger) {
+        await writeOaPushLedger({
+          missionId: missionId,
+          oaOpenid: oaOpenid,
+          mpOpenid: user.mpOpenid || '',
+          missionName: disp.missionName,
+          netKey: launchNetKey,
+          status: 'ok',
+          error: 'testOaPush'
+        })
+      }
+      sends.push({ oaOpenid: String(oaOpenid).slice(0, 8) + '…', ok: true })
+    } catch (sendErr) {
+      sends.push({
+        oaOpenid: String(oaOpenid).slice(0, 8) + '…',
+        ok: false,
+        errcode: sendErr && sendErr.errcode,
+        error: (sendErr && sendErr.message) || String(sendErr)
+      })
+    }
+  }
+  return {
+    success: sends.some(function (s) { return s.ok }),
+    channel: 'template',
+    templateId: templateId,
+    missionId: missionId,
+    missionName: disp.missionName,
+    projectTitle: disp.projectTitle,
+    fieldKeys: fieldKeys,
+    data: templateData,
+    sends: sends
+  }
+}
+
+async function testSendOaResultOnce(opts, users, writeLedger) {
+  const templateId = getOaResultTemplateId()
+  if (!templateId) return { success: false, reason: 'WECHAT_OA_RESULT_TEMPLATE_ID empty' }
+  const resultFieldKeys = getOaResultTemplateFieldKeys()
+  if (!resultFieldKeys.mission || !resultFieldKeys.result) {
+    return { success: false, reason: 'oa_result_fields_not_configured' }
+  }
+
+  var launch = null
+  var missionId = String((opts && opts.resultMissionId) || (opts && opts.missionId) || '').trim()
+  var resultText = String((opts && opts.resultText) || '').trim()
+
+  if (missionId) {
+    launch = await loadLaunchDataDoc(missionId)
+  } else {
+    const past = await findOaResultCandidateLaunches(Date.now())
+    for (var pi = 0; pi < past.length; pi++) {
+      var cand = past[pi]
+      var cid = String((cand && (cand._id || cand.id)) || '')
+      if (!cid) continue
+      var st = null
+      try {
+        const list = await loadLaunchStatuses([cid])
+        st = list && list[0]
+      } catch (e) {}
+      var text = ''
+      if (st && st.status && isTerminalStatusId(st.status.id)) {
+        text = resultTextFromStatus(st.status)
+      } else if (cand && isTerminalStatusId(cand.statusId)) {
+        text =
+          TERMINAL_RESULT_TEXT[Number(cand.statusId)] ||
+          resultTextFromStatus({ id: cand.statusId, name: cand.status })
+      }
+      if (!text) continue
+      launch = cand
+      missionId = cid
+      if (!resultText) {
+        const hint = [cand.rocketName, cand.missionName, cand.name].filter(Boolean).join(' ')
+        resultText = softenResultTextForChineseRocket(text, hint)
+      }
+      break
+    }
+  }
+
+  if (!launch) {
+    return {
+      success: false,
+      reason: missionId
+        ? 'mission not found / not usable'
+        : 'no terminal launch in lookback; pass missionId + resultText'
+    }
+  }
+  missionId = String(launch._id || launch.id || missionId)
+
+  if (!resultText) {
+    if (isTerminalStatusId(launch.statusId)) {
+      resultText =
+        TERMINAL_RESULT_TEXT[Number(launch.statusId)] ||
+        resultTextFromStatus({ id: launch.statusId, name: launch.status }) ||
+        '已成功'
+    } else {
+      try {
+        const list = await loadLaunchStatuses([missionId])
+        const st = list && list[0]
+        if (st && st.status) resultText = resultTextFromStatus(st.status)
+      } catch (e) {}
+    }
+    if (!resultText) resultText = String(opts.resultText || '已成功')
+  }
+
+  const launchTime = launch.windowStart || launch.launchTime || ''
+  const launchTimeIso = toLaunchIso(launchTime)
+  const launchTimeOa = toOaTimeValue(launchTimeIso || launchTime)
+  if (!launchTimeOa) {
+    return { success: false, reason: 'invalid time for result template', missionId: missionId }
+  }
+  const disp = resolveOaLaunchDisplay(launch)
+  const rocketName = disp.rocketNameZh
+  const agencyName = disp.agencyName || '待确认'
+  const codeId = isThingFieldKey(resultFieldKeys.code)
+    ? agencyName
+    : pickLaunchCodeId({
+        rocketName: disp.rocketNameEn,
+        missionName: launch.missionNameEn || launch.nameEn || disp.rocketNameEn
+      })
+  const pagepath = 'pages/mission-detail/mission-detail?id=' + missionId + '&type=completed'
+  const resultProjectTitle = disp.projectTitle || disp.missionName
+  const templateData = buildOaResultTemplateData({
+    missionName: resultProjectTitle,
+    rocketName: rocketName,
+    agencyName: agencyName,
+    launchTimeFormatted: formatLaunchTimeStr(launchTimeIso || launchTime),
+    launchTimeOa: launchTimeOa,
+    resultText: resultText,
+    remark: disp.remark || pickLaunchRemark(launch),
+    codeId: codeId
+  })
+
+  const sends = []
+  for (var i = 0; i < users.length; i++) {
+    var user = users[i]
+    var oaOpenid = user.oaOpenid
+    try {
+      await sendOaTemplateMessage(oaOpenid, templateId, pagepath, templateData)
+      if (writeLedger) {
+        await writeOaPushLedger({
+          channel: 'result',
+          missionId: missionId,
+          oaOpenid: oaOpenid,
+          mpOpenid: user.mpOpenid || '',
+          missionName: resultProjectTitle,
+          resultText: resultText,
+          status: 'ok',
+          error: 'testOaPush'
+        })
+      }
+      sends.push({ oaOpenid: String(oaOpenid).slice(0, 8) + '…', ok: true })
+    } catch (sendErr) {
+      sends.push({
+        oaOpenid: String(oaOpenid).slice(0, 8) + '…',
+        ok: false,
+        errcode: sendErr && sendErr.errcode,
+        error: (sendErr && sendErr.message) || String(sendErr)
+      })
+    }
+  }
+  return {
+    success: sends.some(function (s) { return s.ok }),
+    channel: 'result',
+    templateId: templateId,
+    missionId: missionId,
+    missionName: resultProjectTitle,
+    resultText: resultText,
+    fieldKeys: resultFieldKeys,
+    data: templateData,
+    sends: sends
   }
 }
 
@@ -2851,6 +3599,12 @@ async function sendOATemplateAlerts() {
     var missionId = String(launch._id || launch.id || '')
     if (!missionId) continue
 
+    // 发送前再取 now：避免本批多任务循环中耗时把剩余时间压进 MIN_LEAD 以下
+    if (!shouldSendOaPreLaunchAlert(launch, Date.now())) {
+      stats.skipped++
+      continue
+    }
+
     var launchTime = launch.windowStart || launch.launchTime || ''
     var launchTimeIso = toLaunchIso(launchTime)
     var launchNetKey = netKeyFromIso(launchTimeIso || launchTime)
@@ -2867,20 +3621,31 @@ async function sendOATemplateAlerts() {
       continue
     }
     var launchTimeFormatted = formatLaunchTimeStr(launchTimeIso || launchTime)
-    var missionName = (launch.missionName || launch.name || '未知任务').substring(0, 20)
-    var rocketName = (launch.rocketName || '未知火箭').substring(0, 20)
+    var disp = resolveOaLaunchDisplay(launch)
+    var missionName = disp.missionName
+    var rocketName = disp.rocketNameZh
+    var projectTitle = disp.projectTitle || missionName
     var recoveryMethod = launch.recoveryMethod || launch.recovery || '待确认'
-    var remark = pickLaunchRemark(launch)
-    var codeId = pickLaunchCodeId(launch)
+    // 巡检地点 = 发射场；运维巡检公司 = 发射商
+    var remark = disp.siteName || disp.remark || pickLaunchRemark(launch)
+    var agencyName = disp.agencyName || '待确认'
+    var fieldKeys = await resolveOaTemplateFieldKeys(templateId)
+    // 工单编号 character_string 仅 ASCII：继续用英文火箭名（本模板通常无此槽）
+    var codeId = pickLaunchCodeId({
+      rocketName: disp.rocketNameEn,
+      missionName: launch.missionNameEn || launch.nameEn || disp.rocketNameEn
+    })
     var pagepath = 'pages/mission-detail/mission-detail?id=' + missionId + '&type=upcoming'
     var templateData = buildOaTemplateData({
-      missionName: missionName,
+      missionName: projectTitle,
       rocketName: rocketName,
+      agencyName: agencyName,
       launchTimeFormatted: launchTimeFormatted,
       launchTimeOa: launchTimeOa,
       recoveryMethod: recoveryMethod,
       remark: remark,
-      codeId: codeId
+      codeId: isThingFieldKey(fieldKeys.code) ? rocketName : codeId,
+      fieldKeys: fieldKeys
     })
 
     // 本次执行内对同一任务的 oaOpenid 去重：oa_auto_alert_users 可能因 oaWebhook（按 unionid/
@@ -3005,11 +3770,12 @@ async function sendOATemplateAlerts() {
 // - WECHAT_OA_RESULT_TEMPLATE_ID              结果模板 ID（必填才发送；字段有代码默认值）
 // - WECHAT_OA_RESULT_TMPL_FIELD_*             可选覆盖；未设置则用下方「工单已生成通知」默认 key
 //
-// 当前默认对应「工单已生成通知」g8f6Aa4G2BW0QDiYX74nLuxYCsF0DrXc-Z3EkRJTLcE：
-//   thing33            → 项目名称 missionName
-//   time20             → 发起时间 launchTimeFormatted
-//   thing4             → 工单状态 resultText（已成功/失败等）
-//   character_string46 → 车辆编号槽位展示火箭型号（ASCII）
+// 当前默认对应「工单已生成通知」g8f6Aa4G2BW0QDiYX74nLlJ6PfVfOIIEOJGGj0ngiuQ：
+//   thing33 → 项目名称 missionName（中文）
+//   time20  → 发起时间
+//   thing2  → 单位名称 = 发射商中文（thing；中国发射商对齐卡片词典）
+//   thing4  → 工单状态 resultText（已成功/失败等）
+// 已去掉 character_string 车辆编号，结果通知可全中文。
 //
 // 未配置模板 ID 时整段跳过，不影响 T-30。
 // 去重：oa_push_ledger channel='result' + missionId + oaOpenid（终态每任务只推一次）。
@@ -3023,7 +3789,7 @@ var OA_RESULT_TMPL_FIELD_DEFAULTS = {
   result: 'thing4',
   rocket: '',
   remark: '',
-  code: 'character_string46'
+  code: 'thing2'
 }
 
 function getOaResultTemplateId() {
@@ -3044,6 +3810,7 @@ function getOaResultTemplateFieldKeys() {
 function buildOaResultTemplateData(opts) {
   var missionName = opts && opts.missionName
   var rocketName = opts && opts.rocketName
+  var agencyName = opts && opts.agencyName
   var launchTimeFormatted = opts && opts.launchTimeFormatted
   var resultText = opts && opts.resultText
   var remark = opts && opts.remark
@@ -3068,7 +3835,12 @@ function buildOaResultTemplateData(opts) {
     data[keys.remark] = { value: toOaThingValue(remark, '') }
   }
   if (keys.code) {
-    data[keys.code] = { value: toOaCharacterStringValue(codeId, 'Launch') }
+    // thing2「单位名称」= 发射商中文；character_string 仍走 ASCII codeId
+    if (isThingFieldKey(keys.code)) {
+      data[keys.code] = { value: toOaThingValue(agencyName || codeId, '待确认') }
+    } else {
+      data[keys.code] = { value: toOaCharacterStringValue(codeId, 'Launch') }
+    }
   }
   return data
 }
@@ -3261,10 +4033,11 @@ async function sendOAResultAlerts() {
     }
     if (!resultText) continue
 
+    const resultHint = [launch.rocketName, launch.missionName, launch.name].filter(Boolean).join(' ')
     terminals.push({
       launch: launch,
       missionId: missionId,
-      resultText: resultText
+      resultText: softenResultTextForChineseRocket(resultText, resultHint)
     })
   }
 
@@ -3289,14 +4062,25 @@ async function sendOAResultAlerts() {
       continue
     }
     const launchTimeFormatted = formatLaunchTimeStr(launchTimeIso || launchTime)
-    const missionName = (launch.missionName || launch.name || '未知任务').substring(0, 20)
-    const rocketName = (launch.rocketName || '未知火箭').substring(0, 20)
-    const remark = pickLaunchRemark(launch)
-    const codeId = pickLaunchCodeId(launch)
+    const disp = resolveOaLaunchDisplay(launch)
+    // 项目名称与发射卡对齐（火箭｜任务中文）；thing≤20 由 projectTitle 截断
+    const missionName = disp.projectTitle || disp.missionName
+    const rocketName = disp.rocketNameZh
+    const agencyName = disp.agencyName || '待确认'
+    const remark = disp.remark || pickLaunchRemark(launch)
+    // thing2「单位名称」= 发射商；character_string 仍用 ASCII
+    const resultFieldKeys = getOaResultTemplateFieldKeys()
+    const codeId = isThingFieldKey(resultFieldKeys.code)
+      ? agencyName
+      : pickLaunchCodeId({
+          rocketName: disp.rocketNameEn,
+          missionName: launch.missionNameEn || launch.nameEn || disp.rocketNameEn
+        })
     const pagepath = 'pages/mission-detail/mission-detail?id=' + missionId + '&type=completed'
     const templateData = buildOaResultTemplateData({
       missionName: missionName,
       rocketName: rocketName,
+      agencyName: agencyName,
       launchTimeFormatted: launchTimeFormatted,
       launchTimeOa: launchTimeOa,
       resultText: resultText,
@@ -3363,7 +4147,7 @@ async function sendOAResultAlerts() {
             error: '40258 dedup-as-delivered'
           })
         } else if (isPermanentOaErrcode(ec) || isPermanentOaErrorText(errMsg)) {
-          // 日志里大量 43101 user refuse / 47003 time20 invalid：必须结案，否则每 10 分钟风暴
+          // 日志里大量 43101 user refuse / 47003 time20 invalid：必须结案，否则每个 tick 风暴
           stats.failed++
           ledgerDone.add(String(oaOpenid))
           if (ec === 43101 || /43101|user refuse/i.test(errMsg)) {
@@ -3420,13 +4204,14 @@ async function sendOAResultAlerts() {
   return { success: true, message: 'oa result done', ...stats }
 }
 
-// ── C 通道：服务号「订阅通知」(bizsend) 发射前 30 分钟推送 ──
+// ── C 通道：服务号「订阅通知」(bizsend) 约发射前 30 分钟推送 ──
 //
 // 与旧 B 通道（message/template/send + oa_auto_alert_users）并存、互不干扰。
 // 机制区别：订阅通知是「一次性订阅」，用户每点一次「同意」只授予【一次】下发额度，
 // 额度由 oaWebhook 在 subscribe_msg_popup_event(accept) 时写入 oa_subscribe_quota。
 // 本通道按 remaining>0 的用户发送 bizsend，成功后原子扣减 1 次，并按 missionId+oaOpenid
 // 在 oa_push_ledger（channel='subscribe'）去重，避免同任务重复推送。
+// 时间窗与 B 共用 findLaunchesInOaNotifyWindow（目标 T-30，最晚不低于 T-12）。
 //
 // 接口（务必以官方为准）：
 //   POST https://api.weixin.qq.com/cgi-bin/message/subscribe/bizsend?access_token=TOKEN
@@ -3594,6 +4379,11 @@ async function sendOASubscribeAlerts() {
     var missionId = String(launch._id || launch.id || '')
     if (!missionId) continue
 
+    if (!shouldSendOaPreLaunchAlert(launch, Date.now())) {
+      stats.skipped++
+      continue
+    }
+
     var launchTime = launch.windowStart || launch.launchTime || ''
     var launchTimeIso = toLaunchIso(launchTime)
     var launchNetKey = netKeyFromIso(launchTimeIso || launchTime)
@@ -3608,10 +4398,11 @@ async function sendOASubscribeAlerts() {
       continue
     }
     var launchTimeFormatted = formatLaunchTimeStr(launchTimeIso || launchTime)
-    var missionName = (launch.missionName || launch.name || '未知任务').substring(0, 20)
-    var rocketName = (launch.rocketName || '未知火箭').substring(0, 20)
+    var dispC = resolveOaLaunchDisplay(launch)
+    var missionName = dispC.missionName
+    var rocketName = dispC.rocketNameZh
     var recoveryMethod = launch.recoveryMethod || launch.recovery || '待确认'
-    var remark = pickLaunchRemark(launch)
+    var remark = dispC.remark || pickLaunchRemark(launch)
     var page = 'pages/mission-detail/mission-detail?id=' + missionId + '&type=upcoming'
     var subData = buildOaSubscribeData({
       missionName: missionName,

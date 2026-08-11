@@ -2298,8 +2298,9 @@ function normalizeSplashMediaItem(raw) {
     previewStatus: String(raw.previewStatus || '').trim(),
     previewJobAt: Number(raw.previewJobAt || 0) || 0,
     previewError: String(raw.previewError || '').trim(),
-    // 开屏倒计时组件：填写后小程序按名称匹配最近的即将发射任务
+    // 开屏倒计时：launchId 优先；改期后仍按同一任务跟踪；无 id 时回退 missionName
     missionName: String(raw.missionName || '').trim(),
+    launchId: String(raw.launchId || '').trim(),
     // 官网自动同步项标识（autoSource='spacex'）；sourceUrl 用于去重，flightNumber 用于生命周期匹配
     autoSource: String(raw.autoSource || '').trim(),
     sourceUrl: String(raw.sourceUrl || '').trim(),
@@ -2513,7 +2514,10 @@ async function updateStarshipSplashConfig(body, user) {
     previewUrl: first ? first.previewUrl : '',
     posterUrl: first ? first.posterUrl : '',
     previewStatus: first ? first.previewStatus : '',
-    countdownSeconds: Math.max(1, Math.min(12, Number(body.countdownSeconds) || 5)),
+    // 跳过倒计时改由小程序按视频实际时长判定；未显式传入时保留旧值（兼容），默认 12（上限）
+    countdownSeconds: Object.prototype.hasOwnProperty.call(body, 'countdownSeconds')
+      ? Math.max(1, Math.min(12, Number(body.countdownSeconds) || 12))
+      : Math.max(1, Math.min(12, Number(before && before.countdownSeconds) || 12)),
     updatedAt: now(),
     updatedBy: user.username
   }
@@ -2536,7 +2540,10 @@ async function updateStarshipSplashConfig(body, user) {
 //   开启：排期库（launch_data / launch_status）显示星舰任务 NET 距今 ≤ 5 天才扫官网 featured-launch-tiles，
 //        有视频 → 下载上传 COS → 写入开屏媒体池（auto 项，带 missionName 对接倒计时组件）
 //   推迟：NET 后移出 T-5 窗（小时级探针自动跟随改期）→ auto 项自动下架；回窗后自动恢复
-//   关闭：任务飞行中(6)/终态(3/4/7/9) 或 官网撤下 tile → 自动移除 auto 项
+//         （手动关联任务项不因推迟下架，客户端按 launchId 跟踪新 NET 继续展示）
+//   关闭：任务飞行中(6)/终态(3/4/7/9) 或 官网撤下 tile → 自动移除；
+//         关联任务的手动项亦由 pruneSettledMissionBoundSplash 按探针/结果通知下架，
+//         清空手动池后无缝重新开启 autoSyncSpacex
 const SPACEX_CMS_API_BASE = 'https://api.marsx.com.cn/spacex-api'
 const SPACEX_MEDIA_PROXY = 'https://api.marsx.com.cn/spacex-media'
 const SPLASH_AUTO_VIDEO_MAX_BYTES = 30 * 1024 * 1024
@@ -2650,9 +2657,22 @@ function findStarshipFlightRow(rows, flightNumber) {
   return null
 }
 
+/** 读取状态 id：兼容 launch_status.status.id 与 launch_data.statusId */
+function splashStatusIdOf(row) {
+  if (!row) return 0
+  const raw =
+    row.status && row.status.id != null
+      ? row.status.id
+      : row.statusId != null
+        ? row.statusId
+        : 0
+  const sid = Number(raw)
+  return Number.isFinite(sid) ? sid : 0
+}
+
 /** 该行是否已飞行中(6)或终态(3/4/7/9) */
 function isRowSettledOrInFlight(row) {
-  const sid = Number(row && row.status && row.status.id)
+  const sid = splashStatusIdOf(row)
   return sid === LAUNCH_STATUS_INFLIGHT_ID || !!LAUNCH_STATUS_TERMINAL_IDS[sid]
 }
 
@@ -2686,9 +2706,302 @@ async function splashAutoUploadToCOS(buffer, key) {
   return splashPublicUrl(key)
 }
 
+function splashEscapeRegExp(s) {
+  return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function splashRowLaunchId(row) {
+  if (!row) return ''
+  return String(row.id || row._id || '').trim()
+}
+
+/**
+ * 关联任务的开屏项：探针/结果通知确认飞行中或终态后自动下架。
+ * 推迟只跟踪展示（不删）；下架后若已无手动项 → 重新开启官网自动同步。
+ * 可由 syncSpacexSplashTimer、小时探针、服务号/小程序结果通知触发。
+ */
+async function pruneSettledMissionBoundSplash(opts = {}) {
+  const startedAt = Date.now()
+  const updatedBy = String(opts.updatedBy || 'splash-mission-prune').slice(0, 40)
+  const ref = db.collection(COLLECTIONS.STARSHIP_SPLASH).doc('current')
+
+  let doc = null
+  try {
+    const res = await ref.get()
+    doc = res && res.data ? res.data : null
+  } catch (e) {}
+  if (!doc) {
+    return { skipped: true, reason: 'no_doc', elapsedMs: Date.now() - startedAt }
+  }
+
+  const normalized = normalizeSplashDoc(doc)
+  const items = Array.isArray(normalized.mediaItems) ? normalized.mediaItems : []
+  if (!items.length) {
+    if (doc.autoSyncSpacex === false) {
+      try {
+        await ref.update({
+          data: { autoSyncSpacex: true, updatedAt: now(), updatedBy }
+        })
+      } catch (e) {
+        console.warn('[splash-prune] heal empty autoSync failed:', e.message || e)
+      }
+      return {
+        skipped: false,
+        removed: [],
+        autoSyncSpacex: true,
+        healedEmpty: true,
+        elapsedMs: Date.now() - startedAt
+      }
+    }
+    return { skipped: true, reason: 'empty_pool', elapsedMs: Date.now() - startedAt }
+  }
+
+  const boundItems = items.filter((it) => it && (it.launchId || it.missionName))
+  if (!boundItems.length) {
+    const hasManual = items.some((it) => it && it.autoSource !== 'spacex')
+    if (!hasManual && doc.autoSyncSpacex === false) {
+      try {
+        await ref.update({
+          data: { autoSyncSpacex: true, updatedAt: now(), updatedBy }
+        })
+      } catch (e) {}
+      return {
+        skipped: false,
+        removed: [],
+        autoSyncSpacex: true,
+        // 与主下架路径字段名一致，供 runSplashMissionLifecycle 立刻回填官网
+        switchHealed: true,
+        elapsedMs: Date.now() - startedAt
+      }
+    }
+    return { skipped: true, reason: 'no_bound_items', elapsedMs: Date.now() - startedAt }
+  }
+
+  const launchIds = Array.from(
+    new Set(boundItems.map((it) => String(it.launchId || '').trim()).filter(Boolean))
+  )
+  const statusById = new Map()
+  const CHUNK = 20
+  for (let i = 0; i < launchIds.length; i += CHUNK) {
+    const chunk = launchIds.slice(i, i + CHUNK)
+    try {
+      const res = await db.collection('launch_status').where({ _id: _.in(chunk) }).limit(chunk.length).get()
+      for (const row of (res && res.data) || []) {
+        if (row && row._id) statusById.set(String(row._id), row)
+      }
+    } catch (e) {
+      console.warn('[splash-prune] launch_status batch fail:', e.message || e)
+      return {
+        skipped: true,
+        reason: 'status_unavailable',
+        error: String(e.message || e),
+        elapsedMs: Date.now() - startedAt
+      }
+    }
+  }
+
+  let statusRows = []
+  let upcomingRows = []
+  const needNameFallback = boundItems.some((it) => it && !it.launchId && (it.missionName || it.flightNumber))
+  if (needNameFallback) {
+    try {
+      const rows = await fetchStarshipSyncRows()
+      statusRows = rows.statusRows || []
+      upcomingRows = rows.upcomingRows || []
+    } catch (e) {
+      console.warn('[splash-prune] starship rows fail:', e.message || e)
+    }
+  }
+
+  async function resolveStatusRow(it) {
+    const lid = String((it && it.launchId) || '').trim()
+    if (lid) {
+      if (statusById.has(lid)) return statusById.get(lid)
+      try {
+        const one = await db.collection('launch_status').doc(lid).get()
+        if (one && one.data) {
+          statusById.set(lid, one.data)
+          return one.data
+        }
+      } catch (e) {}
+      try {
+        const ld = await db.collection('launch_data').doc(lid).get()
+        const row = ld && ld.data
+        if (row && row.statusId != null) {
+          return {
+            _id: lid,
+            id: lid,
+            name: row.name || row.missionName || '',
+            status: { id: Number(row.statusId) }
+          }
+        }
+      } catch (e) {}
+    }
+    const flightNumber = Number((it && it.flightNumber) || 0) || 0
+    if (flightNumber) {
+      const hit =
+        findStarshipFlightRow(statusRows, flightNumber) ||
+        findStarshipFlightRow(upcomingRows, flightNumber)
+      if (hit) return hit
+    }
+    const missionName = String((it && it.missionName) || '').trim()
+    if (missionName) {
+      const target = missionName.toLowerCase()
+      for (const row of statusRows.concat(upcomingRows)) {
+        if (!row) continue
+        const n = String(row.name || row.missionName || '').toLowerCase()
+        if (n && (n.indexOf(target) !== -1 || target.indexOf(n) !== -1)) return row
+      }
+      try {
+        const nameRe = db.RegExp({ regexp: splashEscapeRegExp(missionName), options: 'i' })
+        const ldRes = await db.collection('launch_data').where({ name: nameRe }).limit(5).get()
+        const hit = ((ldRes && ldRes.data) || []).find((row) => row && splashStatusIdOf(row) > 0)
+        if (hit) {
+          const sid = splashStatusIdOf(hit)
+          return {
+            _id: String(hit._id || hit.id || ''),
+            id: String(hit.id || hit._id || ''),
+            name: hit.name || hit.missionName || '',
+            statusId: sid,
+            status: { id: sid }
+          }
+        }
+      } catch (e) {}
+    }
+    return null
+  }
+
+  const removed = []
+  const kept = []
+  for (const it of items) {
+    if (!it) continue
+    const isBound = !!(it.launchId || it.missionName)
+    if (!isBound) {
+      kept.push(it)
+      continue
+    }
+    let row = null
+    try {
+      row = await resolveStatusRow(it)
+    } catch (e) {
+      kept.push(it)
+      continue
+    }
+    if (row && isRowSettledOrInFlight(row)) {
+      removed.push({
+        id: it.id,
+        launchId: it.launchId || splashRowLaunchId(row),
+        missionName: it.missionName || '',
+        flightNumber: it.flightNumber || 0,
+        reason: 'inflight_or_settled'
+      })
+    } else {
+      kept.push(it)
+    }
+  }
+
+  const hasManual = kept.some((it) => it && it.autoSource !== 'spacex')
+  const nextAutoSync = !hasManual
+  let nextItems = kept
+  if (hasManual) {
+    nextItems = kept.filter((it) => it && it.autoSource !== 'spacex')
+  }
+
+  const switchHealed = nextAutoSync && doc.autoSyncSpacex === false
+  if (!removed.length && !switchHealed && nextItems.length === items.length) {
+    return {
+      skipped: true,
+      reason: 'no_settled',
+      boundItems: boundItems.length,
+      elapsedMs: Date.now() - startedAt
+    }
+  }
+
+  const first = nextItems[0] || null
+  const patch = {
+    autoSyncSpacex: nextAutoSync,
+    mediaItems: nextItems,
+    mediaType: first ? first.mediaType : '',
+    mediaUrl: first ? first.mediaUrl : '',
+    previewUrl: first ? first.previewUrl : '',
+    posterUrl: first ? first.posterUrl : '',
+    previewStatus: first ? first.previewStatus : '',
+    updatedAt: now(),
+    updatedBy
+  }
+  try {
+    await ref.update({ data: patch })
+  } catch (e) {
+    console.warn('[splash-prune] update failed:', e.message || e)
+    return {
+      skipped: true,
+      reason: 'update_failed',
+      error: String(e.message || e),
+      elapsedMs: Date.now() - startedAt
+    }
+  }
+
+  try {
+    await writeOpLog({
+      user: { id: 'system', username: updatedBy },
+      module: COLLECTIONS.STARSHIP_SPLASH,
+      action: 'mission_prune',
+      targetId: 'current',
+      detail: {
+        removed,
+        autoSyncSpacex: nextAutoSync,
+        reason: opts.reason || '',
+        elapsedMs: Date.now() - startedAt
+      }
+    })
+  } catch (e) {}
+
+  return {
+    skipped: false,
+    removed,
+    autoSyncSpacex: nextAutoSync,
+    totalItems: nextItems.length,
+    switchHealed,
+    elapsedMs: Date.now() - startedAt
+  }
+}
+
+/** 探针/结果通知入口：先下架已结算关联项，必要时立刻跑官网自动同步回填 */
+async function runSplashMissionLifecycle(opts = {}) {
+  const prune = await pruneSettledMissionBoundSplash(opts)
+  const shouldSync =
+    !!(prune && prune.autoSyncSpacex) &&
+    !!(
+      (prune.removed && prune.removed.length) ||
+      prune.switchHealed ||
+      prune.healedSwitch ||
+      prune.healedEmpty
+    )
+  if (shouldSync) {
+    try {
+      const sync = await runSpacexSplashAutoSync()
+      return { prune, sync }
+    } catch (e) {
+      console.warn('[splash-lifecycle] auto sync after prune failed:', e.message || e)
+      return { prune, syncError: String(e.message || e) }
+    }
+  }
+  return { prune }
+}
+
 async function runSpacexSplashAutoSync() {
   const startedAt = Date.now()
   const ref = db.collection(COLLECTIONS.STARSHIP_SPLASH).doc('current')
+
+  // 0) 关联任务已飞行中/终态 → 先下架（手动项亦清），清空后才能衔接官网同步
+  try {
+    await pruneSettledMissionBoundSplash({
+      updatedBy: 'spacex-auto-sync',
+      reason: 'pre_auto_sync'
+    })
+  } catch (e) {
+    console.warn('[splash-auto] mission prune failed:', e.message || e)
+  }
 
   // 1) 读现有配置；不存在则首启引导创建（enabled 默认开，已有文档绝不改 enabled）
   let doc = null
@@ -2858,12 +3171,14 @@ async function runSpacexSplashAutoSync() {
           const hash = crypto.createHash('md5').update(target.sourceUrl).digest('hex').slice(0, 8)
           const key = `${SPLASH_AUTO_COS_PREFIX}starship_flight_${target.flightNumber}_${hash}.mp4`
           const cosUrl = await splashAutoUploadToCOS(buffer, key)
+          const windowRow = findWindowRow(target.flightNumber)
           added = normalizeSplashMediaItem({
             mediaType: 'video',
             mediaUrl: cosUrl,
             posterUrl: splashPosterUrl(key),
             previewStatus: 'pending',
             missionName: `Starship Flight ${target.flightNumber}`,
+            launchId: splashRowLaunchId(windowRow),
             autoSource: 'spacex',
             sourceUrl: target.sourceUrl,
             flightNumber: target.flightNumber
@@ -2877,9 +3192,20 @@ async function runSpacexSplashAutoSync() {
     }
   }
 
+  // 6.5) 存量 auto 项补 launchId，便于探针/结果通知按任务 ID 精确下架
+  keptAuto = keptAuto.map((it) => {
+    if (!it || it.launchId || !it.flightNumber) return it
+    const lid = splashRowLaunchId(findWindowRow(it.flightNumber))
+    return lid ? { ...it, launchId: lid } : it
+  })
+
   // 7) 无增删时也要推进转码/封面：存量 auto 项可能一直卡在 pending（早退会永久不转码）
   const nextItems = [...manualItems, ...keptAuto].slice(0, SPLASH_MEDIA_MAX)
-  const changed = !!added || removed.length > 0 || !docExists
+  const launchIdBackfilled = keptAuto.some((it, idx) => {
+    const prev = autoItems.find((a) => a && it && a.id === it.id)
+    return !!(it && it.launchId && prev && !prev.launchId)
+  })
+  const changed = !!added || removed.length > 0 || !docExists || launchIdBackfilled
   if (!changed) {
     let ensureResult = null
     try {
@@ -4512,15 +4838,41 @@ async function listCloudFunctions() {
   return ok(functions)
 }
 
-async function triggerCloudFunction(name, user) {
+async function triggerCloudFunction(name, user, body) {
   const allowed = ['syncSpaceDevsData', 'syncSpaceXTweets', 'sendLaunchReminder', 'publishBilibiliFromEvents']
   if (!allowed.includes(name)) return fail(4001, '不允许手动触发该云函数')
 
+  // 云函数互调 = 服务端身份，可绕开 syncSpaceDevsData 对 wx_client 控制台测试的拦截
+  const action =
+    body && typeof body.action === 'string' && body.action.trim()
+      ? body.action.trim()
+      : 'manual_trigger'
+  const data = { action }
+  if (body && body.force) data.force = true
+
   try {
-    cloud.callFunction({ name, data: { action: 'manual_trigger' } }).then(res => {
+    // syncLaunchNetHourly 等运维探针：等待结果，便于确认是否写回/重排成功
+    if (name === 'syncSpaceDevsData' && action !== 'manual_trigger' && action !== 'sync') {
+      const res = await cloud.callFunction({
+        name,
+        data,
+        config: { timeout: 90000 }
+      })
+      const result = (res && res.result) || null
+      writeOpLog({
+        user,
+        module: 'cloud_functions',
+        action: 'trigger',
+        targetId: name,
+        after: result
+      }).catch(() => {})
+      return ok({ message: `云函数 ${name} 已执行`, action, result })
+    }
+
+    cloud.callFunction({ name, data }).then(res => {
       writeOpLog({ user, module: 'cloud_functions', action: 'trigger', targetId: name, after: res.result || null }).catch(() => {})
     }).catch(() => {})
-    return ok({ message: `云函数 ${name} 已触发` })
+    return ok({ message: `云函数 ${name} 已触发`, action })
   } catch (e) {
     return fail(5001, `触发失败: ${e.message || String(e)}`)
   }
@@ -8680,6 +9032,8 @@ async function route(event, user) {
     if (path === '/replay-agent/claim' && method === 'POST') return replayFetchApi().claimJob(body)
     if (path === '/replay-agent/complete' && method === 'POST') return replayFetchApi().completeJob(body)
     if (path === '/replay-agent/fail' && method === 'POST') return replayFetchApi().failJob(body)
+    // 清退避 / 复活 failed，避免代理修好后仍空转数小时
+    if (path === '/replay-agent/nudge-queue' && method === 'POST') return replayFetchApi().nudgeQueue(body)
     // 幂等设置 COS「发射回放/」前缀 30 天生命周期（保留桶上其他已有规则）
     if (path === '/replay-agent/ensure-lifecycle' && method === 'POST') return replayFetchApi().ensureLifecycleRule()
     // 手动触发一次回放扫描（跨云函数调用 = 服务端身份，绕开 syncSpaceDevsData 的客户端拦截）
@@ -9201,7 +9555,17 @@ async function route(event, user) {
   if (path.startsWith('/cloud-functions/') && path.endsWith('/trigger') && method === 'POST') {
     const deny = checkPerm(user, 'cloud_functions'); if (deny) return deny
     const fnName = path.split('/')[2]
-    return triggerCloudFunction(fnName, user)
+    return triggerCloudFunction(fnName, user, body)
+  }
+
+  // 小时 NET 探针（含待定排序降权自愈）；经云函数互调，不走网页控制台 wx_client
+  if (path === '/system/sync-launch-net-hourly' && method === 'POST') {
+    const deny = checkPerm(user, 'cloud_functions')
+    if (deny) return deny
+    return triggerCloudFunction('syncSpaceDevsData', user, {
+      action: 'syncLaunchNetHourly',
+      force: true
+    })
   }
 
   // ===== 弹窗广告配置 =====
@@ -9817,6 +10181,25 @@ function normalizeEvent(event = {}) {
   return merged
 }
 
+/** 定时器 / 云函数互调才允许跑 cron 动作；禁止小程序伪造 scheduleAction 绕过鉴权 */
+function isAdminGatewayServerInvocation() {
+  try {
+    const ctx = cloud.getWXContext() || {}
+    const chain = String(ctx.SOURCE || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    // 无 SOURCE：控制台测试 / 部分 SCF 触发器
+    if (!chain.length) return true
+    const last = chain[chain.length - 1]
+    // 网页控制台「运行测试」偶发标成 wx_client 但不带 OPENID
+    if (last === 'wx_client' && !String(ctx.OPENID || '').trim()) return true
+    return last !== 'wx_client' && last !== 'wx_devtools'
+  } catch (e) {
+    return false
+  }
+}
+
 exports.main = async (event = {}, context) => {
   try {
     ensureAdminGatewayCollectionsOnce()
@@ -9826,16 +10209,26 @@ exports.main = async (event = {}, context) => {
       return ok({ pong: true, ts: Date.now() })
     }
 
-    // 定时触发器（微信云开发 cron）：event.Type === 'Timer' 或 event.scheduleAction
+    // 定时触发器（微信云开发 cron）：event.Type === 'Timer'
+    // 云函数互调：event.scheduleAction（须服务端调用；禁止客户端伪造）
     // 定时器无法在配置里传 event 字段，按 TriggerName 分流到对应任务
     if (event && (event.Type === 'Timer' || event.scheduleAction)) {
+      if (!isAdminGatewayServerInvocation()) {
+        console.warn(
+          '[cron] rejected client-forged scheduleAction:',
+          String(event.scheduleAction || event.TriggerName || '').slice(0, 80)
+        )
+        return fail(4010, '定时/内部任务仅允许服务端调用')
+      }
       const triggerName = String(event.TriggerName || event.triggerName || '').trim()
       const action = event.scheduleAction || (
         triggerName === 'syncSpacexSplashTimer'
           ? 'sync_spacex_splash'
           : (triggerName === 'merchantMembershipSweepTimer'
             ? 'sweep_merchant_memberships'
-            : 'recheck_pending_orders')
+            : (triggerName === 'pruneMissionSplashTimer'
+              ? 'prune_mission_splash'
+              : 'recheck_pending_orders'))
       )
       console.log('[cron] triggered:', action, 'trigger:', triggerName)
       try {
@@ -9855,6 +10248,15 @@ exports.main = async (event = {}, context) => {
             console.error('[cron] sweepMerchantMemberships error:', sweepErr && (sweepErr.message || sweepErr))
           }
           return r
+        }
+        // 探针 / 服务号结果通知：只跑关联任务下架 + 必要时回填官网同步（比整轮 CMS 扫描轻）
+        if (action === 'prune_mission_splash') {
+          const r = await runSplashMissionLifecycle({
+            updatedBy: String(event.pruneSource || event.updatedBy || 'splash-mission-prune').slice(0, 40),
+            reason: String(event.pruneReason || event.reason || '').slice(0, 80)
+          })
+          console.log('[cron] runSplashMissionLifecycle result:', JSON.stringify(r))
+          return ok(r)
         }
         if (action === 'sweep_merchant_memberships') {
           const r = await watchPartyApi().sweepMerchantMemberships({ id: 'system', username: 'cron' })

@@ -7,10 +7,15 @@
  * - 写入：hourly / resolve / detail-settle / updates(低优) → launch_status.merge
  * - 读取：列表与详情统一 observationFromMission → mergeLaunchObservation → projectBadgeOntoMission
  */
-const { getStatusCategory, getStatusBadgeText } = require('./api-request.js')
+const { getStatusCategory, getStatusBadgeTextPair, isChineseRocketContext } = require('./api-request.js')
+const { formatMissionListTime, applyContentLangToMission } = require('./launch-card-i18n.js')
+const { pickLocalized } = require('./locale.js')
 
 const TERMINAL_STATUS_IDS = new Set([3, 4, 7, 9])
 const INFLIGHT_STATUS_ID = 6
+/** 与云侧 net-patch-policy / index-launch-state 对齐：TBD/Hold/TBC 排序沉底 */
+const UNCERTAIN_STATUS_IDS = new Set([2, 5, 8])
+const UNCERTAIN_SORT_PENALTY_MS = 21 * 24 * 60 * 60 * 1000
 
 const SOURCE_PRIORITY = {
   list: 10,
@@ -101,11 +106,13 @@ function compareObservation(incoming, current) {
   if (incoming.revision && current.revision && incoming.revision !== current.revision) {
     return incoming.revision > current.revision ? 1 : -1
   }
-  if (incoming.observedAtMs !== current.observedAtMs) {
-    return incoming.observedAtMs > current.observedAtMs ? 1 : -1
-  }
+  // 来源优先级优先于时间戳：否则几秒后的 list 再吸收会盖掉 detail 的 Go/近窗 NET，
+  // 卡片回到 8/31 待定，倒计时先闪近窗再被 TBD 沉底顶掉。
   if (incoming.sourcePriority !== current.sourcePriority) {
     return incoming.sourcePriority > current.sourcePriority ? 1 : -1
+  }
+  if (incoming.observedAtMs !== current.observedAtMs) {
+    return incoming.observedAtMs > current.observedAtMs ? 1 : -1
   }
   return 0
 }
@@ -229,10 +236,22 @@ function projectBadgeOntoMission(mission, record) {
   if (!status.id && !status.name && !status.abbrev) return mission
   const statusObj = { id: status.id, name: status.name, abbrev: status.abbrev }
   const category = getStatusCategory(statusObj)
-  const badge = getStatusBadgeText(statusObj, category)
-  return {
+  const badgePair = getStatusBadgeTextPair(statusObj, category, {
+    chineseRocket: isChineseRocketContext(mission),
+    countryDisplay: (mission._langPack && mission._langPack.countryDisplayZh) || mission.countryDisplay
+  })
+  const badge = pickLocalized(badgePair.statusBadgeTextZh, badgePair.statusBadgeTextEn)
+  const nextLaunchTime = record.net || mission.launchTime
+  const launchTimeChanged =
+    !!nextLaunchTime && String(nextLaunchTime) !== String(mission.launchTime || '')
+  const next = {
     ...mission,
-    launchTime: record.net || mission.launchTime,
+    launchTime: nextLaunchTime,
+    // 卡片 wxml 绑的是 formattedTime；只改 launchTime 会继续显示旧的「8月31日」
+    formattedTime:
+      launchTimeChanged && nextLaunchTime
+        ? formatMissionListTime(nextLaunchTime) || mission.formattedTime
+        : mission.formattedTime,
     windowStart: record.windowStart || mission.windowStart,
     windowEnd: record.windowEnd || mission.windowEnd,
     status: badge,
@@ -247,6 +266,13 @@ function projectBadgeOntoMission(mission, record) {
     _launchStateSource: record.source || mission._launchStateSource || '',
     _launchStateObservedAtMs: record.observedAtMs || mission._launchStateObservedAtMs || 0
   }
+  if (mission._langPack) {
+    next._langPack = Object.assign({}, mission._langPack, {
+      statusBadgeTextZh: badgePair.statusBadgeTextZh,
+      statusBadgeTextEn: badgePair.statusBadgeTextEn
+    })
+  }
+  return applyContentLangToMission(next)
 }
 
 /**
@@ -303,16 +329,24 @@ function projectLaunchRecords(options = {}) {
     let mission = record && !ignoreFutureSettled ? applyRecordToMission(base, record) : base
     let statusId = record && !ignoreFutureSettled ? recordStatusId : statusIdOf(mission)
     if (isSettledStatusId(statusId) && Number.isFinite(recordNetMs) && recordNetMs > now) {
+      const tbd = pickLocalized('待定', 'TBD')
+      const langPack = mission._langPack
+        ? Object.assign({}, mission._langPack, {
+            statusBadgeTextZh: '待定',
+            statusBadgeTextEn: 'TBD'
+          })
+        : mission._langPack
       mission = {
         ...mission,
-        status: '待定',
+        status: tbd,
         statusId: null,
         statusAbbrev: '',
         statusCategory: 'unknown',
-        statusBadgeText: '待定',
+        statusBadgeText: tbd,
         success: false,
         isPartialFailure: false,
-        isFailure: false
+        isFailure: false,
+        _langPack: langPack
       }
       statusId = 0
     }
@@ -321,7 +355,23 @@ function projectLaunchRecords(options = {}) {
   })
 
   const timeOf = (item) => new Date((item && (item.launchTime || item.net)) || 0).getTime() || 0
-  upcoming.sort((a, b) => timeOf(a) - timeOf(b))
+  const isUncertainMission = (item) => {
+    if (!item) return false
+    const sid = statusIdOf(item)
+    if (UNCERTAIN_STATUS_IDS.has(sid)) return true
+    const abbrev = String(item.statusAbbrev || '').toLowerCase()
+    return abbrev === 'tbd' || abbrev === 'tbc' || abbrev === 'hold'
+  }
+  // 与云侧 slim / 改期重选一致：待定沉底，避免冷启动把近窗 TBD 顶回倒计时
+  upcoming.sort((a, b) => {
+    let va = timeOf(a) || Number.MAX_SAFE_INTEGER
+    let vb = timeOf(b) || Number.MAX_SAFE_INTEGER
+    if (!Number.isFinite(va) || va <= 0) va = Number.MAX_SAFE_INTEGER
+    if (!Number.isFinite(vb) || vb <= 0) vb = Number.MAX_SAFE_INTEGER
+    if (isUncertainMission(a)) va += UNCERTAIN_SORT_PENALTY_MS
+    if (isUncertainMission(b)) vb += UNCERTAIN_SORT_PENALTY_MS
+    return va - vb
+  })
   completed.sort((a, b) => timeOf(b) - timeOf(a))
   const countdown = upcoming.find((item) => timeOf(item) > now) || null
   return { upcoming, completed, countdown }

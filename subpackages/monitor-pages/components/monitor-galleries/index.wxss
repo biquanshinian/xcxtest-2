@@ -100,12 +100,15 @@
 .booster-serial-row {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8rpx;
+  width: 100%;
 }
 .booster-serial {
   font-size: 28rpx;
   font-weight: 700;
   color: #fff;
+  text-align: center;
 }
 .booster-country-flag {
   font-size: 24rpx;
@@ -113,21 +116,43 @@
 }
 .booster-tag-row {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  flex-wrap: wrap;
+  justify-content: center;
   gap: 8rpx;
+  width: 100%;
 }
 .booster-family-tag {
   font-size: 20rpx;
-  color: rgba(255, 149, 0, 0.9);
+  color: var(--color-brand);
+  text-align: center;
 }
 .booster-mfr-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6rpx;
+  max-width: 100%;
   font-size: 18rpx;
   color: var(--color-brand);
   padding: 2rpx 10rpx;
   border-radius: 6rpx;
   background: rgba(59, 130, 246, 0.12);
   border: 1px solid rgba(59, 130, 246, 0.25);
+  box-sizing: border-box;
+}
+.booster-mfr-logo {
+  width: 22rpx;
+  height: 22rpx;
+  flex-shrink: 0;
+  border-radius: 4rpx;
+}
+.booster-mfr-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
 }
 
 /* 「查看全部」PRO 金色胶囊（族谱/发射商图鉴/发射场共用，示意会员内容） */
@@ -274,51 +299,71 @@
   border: 1px solid rgba(142, 142, 147, 0.4);
 }
 .sc-card-body {
-  padding: var(--space-sm) var(--space-md) var(--space-md);
+  width: 100%;
+  box-sizing: border-box;
+  padding: 14rpx 16rpx 16rpx;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 8rpx;
+  text-align: center;
   white-space: normal;
 }
 .sc-name {
+  display: block;
+  width: 100%;
   font-size: 26rpx;
   font-weight: 700;
   color: #fff;
   text-align: center;
-  line-height: 34rpx;
-  /* 固定两行高度并截断：长短船名卡片高度一致，横排不错位 */
-  height: 68rpx;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-}
-.sc-tag-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8rpx;
-  /* 标签单行截断，避免换行撑高卡片 */
+  line-height: 1.35;
+  /* Tab 预览卡单行截断，避免为两行预留空白把卡片撑高 */
   max-width: 100%;
   overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .sc-type-tag {
+  display: block;
+  width: 100%;
   font-size: 20rpx;
-  color: rgba(255, 149, 0, 0.9);
-  flex-shrink: 0;
-}
-.sc-agency-tag {
-  font-size: 18rpx;
   color: var(--color-brand);
-  padding: 2rpx 10rpx;
-  border-radius: 6rpx;
-  background: rgba(59, 130, 246, 0.12);
-  border: 1px solid rgba(59, 130, 246, 0.25);
-  max-width: 160rpx;
+  text-align: center;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.35;
+}
+.sc-agency-tag {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  gap: 6rpx;
+  max-width: 100%;
+  width: auto;
+  font-size: 20rpx;
+  color: var(--color-brand);
+  box-sizing: border-box;
+  line-height: 1.35;
+  text-align: center;
+}
+.sc-agency-logo {
+  width: 24rpx;
+  height: 24rpx;
+  flex-shrink: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+}
+.sc-agency-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
 }
 
 /* ========== 全球发射场分布（骨架镜像全球飞船图鉴 sc-*） ========== */
@@ -373,40 +418,49 @@
   -webkit-backdrop-filter: blur(10rpx);
 }
 .ls-card-body {
-  padding: var(--space-sm) var(--space-md) var(--space-md);
+  width: 100%;
+  box-sizing: border-box;
+  padding: 14rpx 16rpx 16rpx;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 8rpx;
+  text-align: center;
   white-space: normal;
 }
 .ls-name {
+  display: block;
+  width: 100%;
   font-size: 26rpx;
   font-weight: 700;
   color: #fff;
   text-align: center;
-  line-height: 34rpx;
-  /* 固定两行高度并截断：长短场名卡片高度一致，横排不错位 */
-  height: 68rpx;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  line-height: 1.35;
+  /* Tab 预览卡单行截断，避免为两行预留空白把卡片撑高 */
+  max-width: 100%;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .ls-tag-row {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8rpx;
+  align-self: center;
+  gap: 6rpx;
   /* 标签单行截断，避免换行撑高卡片 */
+  width: auto;
   max-width: 100%;
   overflow: hidden;
   white-space: nowrap;
+  line-height: 1.35;
+  text-align: center;
 }
 .ls-country-tag {
   font-size: 18rpx;
   color: var(--color-brand);
-  padding: 2rpx 10rpx;
+  padding: 1rpx 8rpx;
   border-radius: 6rpx;
   background: rgba(59, 130, 246, 0.12);
   border: 1px solid rgba(59, 130, 246, 0.25);
@@ -729,7 +783,27 @@
   color: var(--color-text-tertiary);
 }
 
-.theme-light .agency-hw-card {
+/* 浅色主题：内层预览卡加细灰边，与白色 section / 全局 glass-card 去边规则区分开
+   （pages 根 .tab-bg-video-host.theme-light .glass-card 有 border:none !important，须对等覆盖） */
+.theme-light .agency-hw-card.glass-card,
+.theme-light .booster-card.glass-card,
+.theme-light .sc-card.glass-card,
+.theme-light .ls-card.glass-card {
+  background: #FFFFFF !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 1rpx solid rgba(0, 0, 0, 0.12) !important;
+  box-sizing: border-box;
+}
+
+.theme-light .booster-mfr-tag,
+.theme-light .ls-country-tag {
+  background: rgba(0, 0, 0, 0.06);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.theme-light .sc-agency-logo {
+  background: rgba(0, 0, 0, 0.06);
 }
 
 /* 骨架浅色底色由全局 .theme-light .skeleton-shimmer 提供 */

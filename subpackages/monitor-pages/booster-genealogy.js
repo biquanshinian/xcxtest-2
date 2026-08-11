@@ -10,6 +10,7 @@ const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
 const { openBoosterEntityDetail } = require('../../utils/booster-nav.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
+const { isCollectionFavorite, toggleCollection } = require('../../utils/favorites.js')
 
 const STATUS_FILTERS = [
   { id: 'all', label: '全部状态' },
@@ -38,6 +39,7 @@ Page({
 
     filterChips: [],
     filter: 'all',
+    keyword: '',
     statusFilters: STATUS_FILTERS,
     statusFilter: 'all',
     sortOptions: SORT_OPTIONS,
@@ -47,11 +49,14 @@ Page({
     boosterCards: [],
     stats: { activeCount: 0, maxFlights: 0, totalFlights: 0, manufacturerCount: 0 },
     filterEmpty: false,
+    isFavorited: false,
+    favAnimate: false,
     imageLoadedMap: {}
   },
 
   onLoad(options) {
     this.initUiShell()
+    this.setData({ isFavorited: isCollectionFavorite('booster_genealogy') })
     // 分享/入口可带 filter 参数：country:CN（兼容简写 CN）/ mfr:SpaceX
     var filter = options && options.filter ? decodeURIComponent(options.filter) : 'all'
     if (/^[A-Za-z]{2}$/.test(filter)) filter = 'country:' + filter.toUpperCase()
@@ -74,17 +79,17 @@ Page({
       this._rawBySerial = processed.rawBySerial
       this._allModels = boosterDisplay.buildModelCards(configMeta.configs)
 
-      // chip 由箭实体 + 型号两侧数据合并生成（未首飞型号也能出现在筛选里）
+      // chip 由箭实体 + 型号两侧数据合并；控制数量，单排横滑
       var chipSource = this._allBoosters.concat(this._allModels.map(function (m) {
         return { countryCode: m.countryCode, manufacturer: m.manufacturer }
       }))
-      var chips = boosterDisplay.buildBoosterFilterChips(chipSource, { maxManufacturerChips: 10 })
+      var chips = boosterDisplay.buildBoosterFilterChips(chipSource, { maxManufacturerChips: 5 })
+      this._filterChips = chips
 
       var filter = this._pendingFilter || 'all'
       var chipIds = chips.map(function (c) { return c.id })
       if (chipIds.indexOf(filter) === -1) filter = 'all'
 
-      this.setData({ loading: false, filterChips: chips })
       this.applyFilters({ filter: filter })
     } catch (err) {
       console.error('[Genealogy] load error:', err)
@@ -92,15 +97,27 @@ Page({
     }
   },
 
-  /** 统一应用 国家厂商筛选 + 状态筛选 + 排序 */
+  /** 统一应用 国家厂商筛选 + 关键词 + 状态筛选 + 排序 */
   applyFilters(patch) {
     var filter = (patch && patch.filter) || this.data.filter
     var statusFilter = (patch && patch.statusFilter) || this.data.statusFilter
     var sortBy = (patch && patch.sortBy) || this.data.sortBy
+    var keyword = String((patch && patch.keyword != null) ? patch.keyword : this.data.keyword || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '')
 
     var boosters = boosterDisplay.applyBoosterFilter(this._allBoosters || [], filter)
     if (statusFilter !== 'all') {
       boosters = boosters.filter(function (b) { return b.status === statusFilter })
+    }
+    if (keyword) {
+      boosters = boosters.filter(function (b) {
+        var fields = [b.serial, b.rocketFamily, b.manufacturer, b.manufacturerZh, b.statusText]
+        return fields.some(function (f) {
+          return String(f || '').toLowerCase().replace(/\s+/g, '').indexOf(keyword) >= 0
+        })
+      })
     }
     if (sortBy === 'recent') {
       boosters.sort(function (a, b) {
@@ -111,8 +128,18 @@ Page({
     }
 
     var models = boosterDisplay.applyModelFilter(this._allModels || [], filter)
+    if (keyword) {
+      models = models.filter(function (m) {
+        var fields = [m.fullName, m.fullNameEn, m.name, m.nameEn, m.alias, m.manufacturer, m.manufacturerZh]
+        return fields.some(function (f) {
+          return String(f || '').toLowerCase().replace(/\s+/g, '').indexOf(keyword) >= 0
+        })
+      })
+    }
+    var chips = this._filterChips || this.data.filterChips || []
 
     this.setData({
+      loading: false,
       filter: filter,
       statusFilter: statusFilter,
       sortBy: sortBy,
@@ -120,7 +147,8 @@ Page({
       boosterCards: boosters,
       stats: boosterDisplay.computeBoosterStats(boosters),
       filterEmpty: boosters.length === 0 && models.length === 0,
-      imageLoadedMap: {}
+      imageLoadedMap: {},
+      filterChips: chips
     })
   },
 
@@ -128,6 +156,29 @@ Page({
     var id = e.currentTarget.dataset.filter
     if (!id || id === this.data.filter) return
     this.applyFilters({ filter: id })
+  },
+
+  onSearchInput(e) {
+    var value = (e.detail && e.detail.value) || ''
+    this.setData({ keyword: value })
+    if (this._searchTimer) clearTimeout(this._searchTimer)
+    var self = this
+    this._searchTimer = setTimeout(function () {
+      self._searchTimer = null
+      self.applyFilters({ keyword: value })
+    }, 200)
+  },
+
+  onSearchClear() {
+    if (!this.data.keyword) return
+    if (this._searchTimer) {
+      clearTimeout(this._searchTimer)
+      this._searchTimer = null
+    }
+    var self = this
+    this.setData({ keyword: '' }, function () {
+      self.applyFilters({ keyword: '' })
+    })
   },
 
   onStatusFilterTap(e) {
@@ -204,6 +255,13 @@ Page({
     runPullRefresh(this, () => this.loadData({ silent: true }))
   },
 
+  onUnload() {
+    if (this._searchTimer) {
+      clearTimeout(this._searchTimer)
+      this._searchTimer = null
+    }
+  },
+
   _sharePath() {
     var path = '/subpackages/monitor-pages/booster-genealogy'
     if (this.data.filter && this.data.filter !== 'all') {
@@ -218,6 +276,13 @@ Page({
       return this.data.filter.slice(4) + ' 可回收火箭族谱 | 火星探索日志'
     }
     return '全球可回收火箭族谱 | 火星探索日志'
+  },
+
+  onToggleFavorite() {
+    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+    var favorited = toggleCollection('booster_genealogy')
+    this.setData({ isFavorited: favorited, favAnimate: favorited })
+    wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
   },
 
   onShareAppMessage() {

@@ -49,12 +49,13 @@ function getAgencyKeyFromMission(mission) {
   return `name:${name || '_'}`
 }
 
-/** 胶囊优先展示完整英文名，过长由样式省略 */
+/** 胶囊优先展示机构名（已随 contentLang 本地化），过长由样式省略 */
 function pickChipLabel(mission) {
-  if (!mission || typeof mission !== 'object') return '未知'
+  const { launchCardUiText } = require('./locale.js')
+  if (!mission || typeof mission !== 'object') return launchCardUiText('unknownCountry')
   const full = String(mission.launchAgency || '').trim()
   const abbr = String(mission.launchAgencyAbbrev || '').trim()
-  return full || abbr || '未知'
+  return full || abbr || launchCardUiText('unknownCountry')
 }
 
 function collectAgencyAggregation(missions) {
@@ -99,9 +100,10 @@ function collectAgencyAggregation(missions) {
 function buildUpcomingAgencyFilterState(missions, selectedKey) {
   const { list, total, agencies } = collectAgencyAggregation(missions)
 
+  const { launchCardUiText } = require('./locale.js')
   const allChip = {
     key: '_all',
-    label: '所有任务',
+    label: launchCardUiText('allTasks'),
     count: total,
     logoUrl: ALL_TASKS_CHIP_LOGO,
     logoRemoteSrc: '',

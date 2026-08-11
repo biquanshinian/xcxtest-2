@@ -160,6 +160,22 @@ page {
 .sn-card--past {
   opacity: 0.88;
 }
+/* 与简报 / 竞猜历史同款圆形火箭配置图 */
+.sn-card-rocket {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  margin-right: 20rpx;
+  background: var(--color-divider-faint, rgba(0, 0, 0, 0.06));
+}
+.sn-card-rocket-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: block;
+}
 .sn-card-main {
   flex: 1;
   min-width: 0;

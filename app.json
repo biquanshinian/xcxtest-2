@@ -27,6 +27,9 @@
     "enablePullDownRefresh": false,
     "navigationStyle": "custom"
   },
+  "singlePage": {
+    "navigationBarFit": "squeezed"
+  },
   "permission": {
     "scope.userFuzzyLocation": {
       "desc": "用于获取当前大致地理位置，以计算卫星过境时间、方位角、仰角及观测方向"
@@ -130,7 +133,12 @@
         "preferences/preferences",
         "timeline/timeline",
         "year-review/year-review",
-        "invite/invite"
+        "invite/invite",
+        "vote-record/vote-record",
+        "daily-quiz/daily-quiz",
+        "contact/contact",
+        "badges/badges",
+        "favorites/favorites"
       ]
     },
     {

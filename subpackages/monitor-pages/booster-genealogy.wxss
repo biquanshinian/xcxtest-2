@@ -1,4 +1,6 @@
 /* booster-genealogy.wxss — 独立全屏可回收火箭族谱页（暗色毛玻璃，与监控中心一致） */
+@import "./styles/gallery-toolbar.wxss";
+@import "/styles/fav-btn.wxss";
 page {
   background: #0B0C0E;
   color: #fff;
@@ -82,6 +84,10 @@ page {
   font-weight: 600;
   background: var(--color-brand-soft);
   border-color: rgba(59, 130, 246, 0.55);
+}
+.filter-chip--toggle {
+  color: rgba(255, 255, 255, 0.55);
+  border-style: dashed;
 }
 
 /* 状态筛选 + 排序 */
@@ -377,6 +383,9 @@ page {
   color: #fff;
   background: linear-gradient(135deg, var(--color-brand), #60A5FA);
   border-color: rgba(59, 130, 246, 0.55);
+}
+.theme-light .filter-chip--toggle {
+  color: var(--color-text-tertiary);
 }
 .theme-light .sub-chip {
   color: var(--color-text-secondary);

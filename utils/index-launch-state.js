@@ -79,9 +79,11 @@ function buildLaunchDataFromMission(mission, getStatusTextZh) {
         ? getStatusTextZh(
           source.statusId != null
             ? { id: source.statusId, name: source.status, abbrev: source.statusAbbrev }
-            : (source.status || source.statusAbbrev || '')
+            : (source.status || source.statusAbbrev || ''),
+          { countryDisplay: source.countryDisplay, chineseRocket: source.countryDisplay === '中国' }
         )
         : (source.status || '计划中')),
+    countryDisplay: source.countryDisplay || '',
     probability: source.probability,
     rocketConfiguration: source.rocketConfiguration || null,
     // 与详情头图同源：按火箭名 forceRecompute，禁止整包 setData 把已正确的图降级回列表里的 default 快照
@@ -315,6 +317,34 @@ function pickCountdownDisplayMission(missions, now = getServerNow(), options = {
     now,
     holdMissionId: options.holdMissionId,
     recordsById: options.recordsById
+  })
+}
+
+/** 与云侧 net-patch-policy 对齐：LL2 TBD/Hold/TBC */
+const UNCERTAIN_STATUS_IDS = { 2: true, 5: true, 8: true }
+const UNCERTAIN_SORT_PENALTY_MS = 21 * 24 * 60 * 60 * 1000
+
+function isUncertainListMission(mission) {
+  if (!mission) return false
+  const sid = mission.statusId != null ? Number(mission.statusId) : NaN
+  if (Number.isFinite(sid) && UNCERTAIN_STATUS_IDS[sid]) return true
+  const abbrev = String(mission.statusAbbrev || '').toLowerCase()
+  return abbrev === 'tbd' || abbrev === 'tbc' || abbrev === 'hold'
+}
+
+/**
+ * upcoming 本地重排：按 launchTime 升序，待定/Hold/TBC 沉底（与云侧 slim 排序一致，不改展示时间）。
+ */
+function sortUpcomingMissionsByNetAsc(missions) {
+  if (!Array.isArray(missions)) return missions
+  return missions.sort((a, b) => {
+    const ta = a && a.launchTime ? new Date(a.launchTime).getTime() : NaN
+    const tb = b && b.launchTime ? new Date(b.launchTime).getTime() : NaN
+    let va = Number.isFinite(ta) ? ta : Number.MAX_SAFE_INTEGER
+    let vb = Number.isFinite(tb) ? tb : Number.MAX_SAFE_INTEGER
+    if (isUncertainListMission(a)) va += UNCERTAIN_SORT_PENALTY_MS
+    if (isUncertainListMission(b)) vb += UNCERTAIN_SORT_PENALTY_MS
+    return va - vb
   })
 }
 
@@ -669,6 +699,8 @@ module.exports = {
   buildCurrentLaunchPanelState,
   getNextUpcomingLaunch,
   pickCountdownDisplayMission,
+  sortUpcomingMissionsByNetAsc,
+  isUncertainListMission,
   collectPastNetUpcomingHeads,
   withCountdownConfirmingStatus,
   isPastNetMission,

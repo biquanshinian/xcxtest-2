@@ -1,6 +1,6 @@
 // utils/api-monitor-data.js — monitor tab heavy data
 const { getBoosterGenealogy } = require('./api-app-services.js')
-const { translateAgencyName } = require('./space-terms-i18n.js')
+const { translateAgencyName, translateSpacecraftName } = require('./space-terms-i18n.js')
 const { optimizeImageUrl } = require('./cos-url.js')
 const { buildLl2ImageChain } = require('./ll2-image.js')
 const {
@@ -205,11 +205,22 @@ async function getStationStatus() {
     const agencyName = translateAgencyName(agencyNameEn, agencyAbbrev) || agencyNameEn
     const dockingTimeStr = e.docking ? e.docking.replace('T', ' ').replace('Z', '').slice(0, 19) : ''
     const portName = (e.docking_location && e.docking_location.name) || portNameFallback || ''
+    const nameEn = sc ? String(sc.name || '').trim() : ''
+    const configNameEn = config ? String(config.name || '').trim() : ''
+    // 展示/跳转均优先中文：实例名 → 构型名（与飞船图鉴 translateSpacecraftName 同源）
+    const nameZh =
+      translateSpacecraftName(nameEn) ||
+      translateSpacecraftName(configNameEn) ||
+      nameEn ||
+      '未知飞船'
+    const configNameZh = translateSpacecraftName(configNameEn) || configNameEn
     return {
       id: e.id,
       configId: config && config.id != null ? config.id : null,
-      name: sc ? sc.name : '未知飞船',
-      configName: config ? config.name : '',
+      name: nameZh,
+      nameEn: nameEn || configNameEn,
+      configName: configNameZh,
+      configNameEn,
       image: resolveApiImageUrl(sc && sc.image),
       portName,
       isCrew: !!isCrew,
@@ -643,7 +654,7 @@ async function getAgencyDetail(agencyId, options = {}) {
  * @param {Object} params 查询参数
  * @param {String} params.launchId SpaceDevs launch UUID（优先使用）
  * @param {String} params.missionId Launch Dashboard 任务名（如 crs-18）
- * @param {Number} params.flightNumber SpaceX 航班号
+ * @param {Number} params.flightNumber SpaceX 飞行序号
  * @param {Number} params.interval 数据点间隔秒数（默认2秒，减少数据量）
  * @returns {Promise<Object|null>} 遥测数据或 null
  */

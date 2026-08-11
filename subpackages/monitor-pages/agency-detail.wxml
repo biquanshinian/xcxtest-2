@@ -85,17 +85,17 @@
             <text class="info-abbrev" wx:if="{{item.abbrev}}">{{item.abbrev}}</text>
           </view>
           <view class="fav-btn {{isFavorited ? 'fav-btn--on' : ''}} {{favAnimate ? 'fav-btn--animate' : ''}}" hover-class="fav-btn--pressed" hover-stay-time="120" catchtap="onToggleFavorite">
-            <text class="fav-heart">♥</text>
+            <view class="fav-heart" aria-role="img" aria-label="收藏"></view>
           </view>
         </view>
         <view class="info-tags">
           <text class="type-badge agency-type--{{item.typeClass}}">{{item.typeName}}</text>
           <text class="featured-badge" wx:if="{{item.featured}}">重点机构</text>
-        </view>
-        <view class="info-meta">
-          <text class="meta-item">{{item.countryText || '未知地区'}}</text>
-          <text class="meta-divider" wx:if="{{item.foundingYear}}">·</text>
-          <text class="meta-item" wx:if="{{item.foundingYear}}">{{item.foundingYear}}年成立</text>
+          <view class="info-meta">
+            <text class="meta-item">{{item.countryText || '未知地区'}}</text>
+            <text class="meta-divider" wx:if="{{item.foundingYear}}">·</text>
+            <text class="meta-item" wx:if="{{item.foundingYear}}">{{item.foundingYear}}年成立</text>
+          </view>
         </view>
       </view>
 
@@ -104,9 +104,6 @@
         <text class="partial-banner__title">部分数据待补全</text>
         <text class="partial-banner__desc">{{partialMessage}}</text>
       </view>
-
-      <!-- 贴图讨论区：发射商详情；topic 取自机构名称，组件内已截断至 20 字 -->
-      <official-account-publish-panel topic="{{item.name || '发射商讨论'}}" />
 
       <!-- 事件更新（推文，仅 SpaceX / 蓝箭等映射机构展示；页内预览 2 条，更多进列表页） -->
       <view class="stats-section" wx:if="{{agencyTweetsVisible}}">
@@ -459,7 +456,8 @@
       <view class="info-section glass-card">
         <text class="section-title">机构信息</text>
         <view class="info-grid">
-          <view class="info-row"><text class="info-label">全称</text><text class="info-value">{{item.nameEn}}</text></view>
+          <view class="info-row"><text class="info-label">全称</text><text class="info-value">{{item.name}}</text></view>
+          <view class="info-row" wx:if="{{item.nameEn && item.nameEn !== item.name}}"><text class="info-label">英文名</text><text class="info-value">{{item.nameEn}}</text></view>
           <view class="info-row" wx:if="{{item.abbrev}}"><text class="info-label">缩写</text><text class="info-value">{{item.abbrev}}</text></view>
           <view class="info-row"><text class="info-label">类型</text><text class="info-value">{{item.typeName}}</text></view>
           <view class="info-row"><text class="info-label">国家/地区</text><text class="info-value">{{item.countryText || '未知'}}</text></view>
@@ -502,24 +500,20 @@
         </view>
       </view>
 
-      <!-- 社交媒体 -->
+      <!-- 社交媒体：一排最多 6 个 logo，点击复制链接；不足/换行均居中 -->
       <view class="social-section glass-card" wx:if="{{item.socialLinks && item.socialLinks.length}}">
         <text class="section-title">社交媒体与链接</text>
         <view class="social-grid">
-          <view class="social-item" wx:for="{{item.socialLinks}}" wx:key="id" bindtap="copyLink" data-url="{{item.url}}">
-            <text class="social-name">{{item.name}}</text>
-            <text class="social-url" user-select="{{true}}">{{item.url}}</text>
-          </view>
-          <view class="social-item" wx:if="{{item.infoUrl}}" bindtap="copyLink" data-url="{{item.infoUrl}}">
-            <text class="social-name">官方网站</text>
-            <text class="social-url" user-select="{{true}}">{{item.infoUrl}}</text>
-          </view>
-          <view class="social-item" wx:if="{{item.wikiUrl}}" bindtap="copyLink" data-url="{{item.wikiUrl}}">
-            <text class="social-name">维基百科</text>
-            <text class="social-url" user-select="{{true}}">{{item.wikiUrl}}</text>
+          <view class="social-item" wx:for="{{item.socialLinks}}" wx:key="id"
+                hover-class="social-item--pressed" hover-stay-time="80"
+                bindtap="copyLink" data-url="{{item.url}}" data-name="{{item.name}}">
+            <image class="social-logo" src="{{item.icon}}" mode="aspectFit" />
           </view>
         </view>
       </view>
+
+      <!-- 贴图讨论区：发射商详情最底部；topic 取自机构名称，组件内已截断至 20 字 -->
+      <official-account-publish-panel topic="{{item.name || '发射商讨论'}}" />
 
       <view style="height: {{tabBarReservedHeight}}px;"></view>
       </view>

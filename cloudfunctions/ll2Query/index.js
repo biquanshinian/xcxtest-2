@@ -559,6 +559,52 @@ function isTerminalLaunchDetail(detail) {
  * 详情缓存可能仍是发射前 Go；若 launch_status 已是飞行中/终态，用 store 覆盖返回 status，
  * 避免详情角标「就绪」与历史卡「飞行中」分裂。不回写详情缓存正文（等 TTL / 强制刷新）。
  */
+/**
+ * 详情确认的 NET/status 回写 upcoming slim，治愈列表「8/31+待定」与详情「就绪」分裂。
+ * 走与小时探针同一套 NET 迟滞；失败不阻塞详情响应。
+ */
+async function healUpcomingFromDetail(detail) {
+  if (!detail || detail.id == null || !detail.status) return null
+  const sid = detail.status.id != null ? Number(detail.status.id) : 0
+  // 仅用非终态详情治愈列表（终态由 settle/previous 路径处理）
+  if (TERMINAL_STATUS_IDS[sid]) return null
+  const liveRow = {
+    id: detail.id,
+    name: typeof detail.name === 'string' ? detail.name : '',
+    net: detail.net || '',
+    window_start: detail.window_start || '',
+    window_end: detail.window_end || '',
+    status: {
+      id: detail.status.id,
+      name: detail.status.name || '',
+      abbrev: detail.status.abbrev || ''
+    }
+  }
+  try {
+    // 同步治愈 launch_status：否则首页下拉 3s 后的 getLaunchStatusSnapshot
+    // 仍吐旧 8/31+待定，客户端会 _applyPostponedNet 把倒计时顶回其它任务。
+    await launchStatusStore.upsertOne(
+      {
+        id: String(detail.id),
+        name: liveRow.name,
+        net: liveRow.net,
+        windowStart: liveRow.window_start,
+        windowEnd: liveRow.window_end,
+        status: liveRow.status
+      },
+      { source: 'fetchLaunchDetail_status', observedAtMs: Date.now() }
+    )
+  } catch (eUpsert) {
+    console.warn('[healUpcomingFromDetail] launch_status', eUpsert.message || eUpsert)
+  }
+  try {
+    return await upcomingCachePatcher.patchUpcomingCacheWithLiveRows([liveRow])
+  } catch (e) {
+    console.warn('[healUpcomingFromDetail]', e.message || e)
+    return null
+  }
+}
+
 async function overlayDetailStatusFromLaunchStore(detail, launchId) {
   if (!detail || !launchId) return false
   let rows = []
@@ -639,6 +685,9 @@ async function fetchLaunchDetailAction(event) {
           }
           try {
             await overlayDetailStatusFromLaunchStore(detail, launchId)
+          } catch (e) {}
+          try {
+            await healUpcomingFromDetail(detail)
           } catch (e) {}
 
           // 时序闭环：NET 已过但详情缓存仍是 Go，且 store 也 overlay 不上 →
@@ -836,6 +885,9 @@ async function fetchLaunchDetailAction(event) {
     try {
       await overlayDetailStatusFromLaunchStore(apiData, launchId)
     } catch (e) {}
+    try {
+      await healUpcomingFromDetail(apiData)
+    } catch (e) {}
 
     return { success: true, cached: false, data: apiData, timestamp: Date.now(), elapsed: Date.now() - startTime }
   } catch (e) {
@@ -977,7 +1029,16 @@ function buildPreviousStubFromLaunch(launch) {
         }
       : null,
     mission: launch.mission ? { name: launch.mission.name || '', description: launch.mission.description || '' } : null,
-    rocket: cfg ? { configuration: { name: cfg.name || '', full_name: cfg.full_name || '' } } : undefined,
+    rocket: cfg
+      ? {
+          configuration: {
+            name: cfg.name || '',
+            nameZh: cfg.nameZh || undefined,
+            full_name: cfg.full_name || '',
+            full_nameZh: cfg.full_nameZh || undefined
+          }
+        }
+      : undefined,
     launch_service_provider: lsp ? { id: lsp.id, name: lsp.name || '', abbrev: lsp.abbrev || '' } : undefined,
     pad: pad
       ? {
@@ -1065,7 +1126,9 @@ function stubFromTerminalEntry(term) {
               ? {
                   id: cfg.id,
                   name: cfg.name || '',
+                  nameZh: cfg.nameZh || undefined,
                   full_name: cfg.full_name || '',
+                  full_nameZh: cfg.full_nameZh || undefined,
                   reusable: cfg.reusable === true || undefined
                 }
               : undefined,

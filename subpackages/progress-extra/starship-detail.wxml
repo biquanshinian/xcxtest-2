@@ -64,11 +64,6 @@
           </view>
         </view>
 
-        <!-- 贴图讨论区 -->
-        <view class="discussion-section glass-card">
-          <official-account-publish-panel topic="{{discussionTopic}}" />
-        </view>
-
         <!-- 清单 -->
         <view class="detail-checklist" wx:if="{{detail.showChecklist && detail.checklist.length}}">
           <view class="checklist-heading"><text>清单</text></view>
@@ -84,6 +79,11 @@
               <text class="checklist-desc" user-select="{{true}}">{{item.description}}</text>
             </view>
           </view>
+        </view>
+
+        <!-- 贴图讨论区：详情最底部 -->
+        <view class="discussion-section glass-card">
+          <official-account-publish-panel topic="{{discussionTopic}}" />
         </view>
       </view>
 

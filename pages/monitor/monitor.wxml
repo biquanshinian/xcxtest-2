@@ -1,7 +1,11 @@
 <wxs module="navPad" src="/utils/nav-scroll-pad.wxs"></wxs>
 <!--pages/monitor/monitor.wxml-->
 <page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
-<view class="container {{themeClass}}">
+<view class="container {{themeClass}} tab-bg-video-host">
+  <view class="tab-bg-shell" aria-hidden="true">
+    <view class="tab-bg-cover"></view>
+    <view class="tab-bg-frost"></view>
+  </view>
   <!-- 顶部导航栏（包含状态栏） -->
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
     <view class="top-nav top-nav--page-center">
@@ -38,22 +42,6 @@
   >
     
     <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
-<!-- 星舰基地监控中心：MARS 预览（云中转）+ 关于 / 收藏（原生，防套壳） -->
-    <view class="MARS-preview-section monitor-block">
-      <view class="section-title">
-        <text>星舰基地监控</text>
-      </view>
-      <!-- 新增：用户网页预览入口 -->
-      <view class="MARS-preview-card glass-card card-hover" bindtap="openUserWebPreview">
-        <view class="preview-card-content">
-          <view class="preview-card-info">
-            <text class="preview-card-title">星舰监控中心</text>
-            <text class="preview-card-desc">实时监控星舰基地建设进度（网页版）</text>
-          </view>
-          <view class="icon-arrow icon-arrow--preview-card">›</view>
-        </view>
-      </view>
-    </view>
 
     <!-- 直播观看：视频号 channel-live + B站入口（后台 enableLiveWatch 开关控制） -->
     <view class="monitor-livestream-section monitor-block" wx:if="{{enableLiveWatch}}">
@@ -349,6 +337,22 @@
       bind:eventtap="onOrbitEventTapFromComp"
       bind:imageerror="onOrbitEventImageErrorFromComp"
     />
+
+    <!-- 星舰基地监控：低频入口，置于页底 -->
+    <view class="MARS-preview-section monitor-block">
+      <view class="section-title">
+        <text>星舰基地监控</text>
+      </view>
+      <view class="MARS-preview-card glass-card card-hover" bindtap="openUserWebPreview">
+        <view class="preview-card-content">
+          <view class="preview-card-info">
+            <text class="preview-card-title">星舰监控中心</text>
+            <text class="preview-card-desc">实时监控星舰基地建设进度（网页版）</text>
+          </view>
+          <view class="icon-arrow icon-arrow--preview-card">›</view>
+        </view>
+      </view>
+    </view>
 
     <view style="height: {{tabBarReservedHeight}}px;"></view>
   </scroll-view>

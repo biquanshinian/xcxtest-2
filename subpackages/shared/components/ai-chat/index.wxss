@@ -268,10 +268,10 @@
   transform: translate3d(0, 0, 0);
 }
 
-.ai-welcome-particle--2 { width: 5rpx; height: 5rpx; margin-left: -2.5rpx; background: rgba(191, 219, 254, 0.55); }
-.ai-welcome-particle--3 { width: 7rpx; height: 7rpx; margin-left: -3.5rpx; background: rgba(96, 165, 250, 0.65); }
-.ai-welcome-particle--4 { width: 4rpx; height: 4rpx; margin-left: -2rpx; background: rgba(219, 234, 254, 0.5); }
-.ai-welcome-particle--5 { width: 5rpx; height: 5rpx; margin-left: -2.5rpx; background: rgba(147, 197, 253, 0.6); }
+.ai-welcome-particle--2 { width: 5rpx; height: 5rpx; margin-left: -2.5rpx; background: rgba(147, 197, 253, 0.85); }
+.ai-welcome-particle--3 { width: 7rpx; height: 7rpx; margin-left: -3.5rpx; background: rgba(59, 130, 246, 0.9); }
+.ai-welcome-particle--4 { width: 4rpx; height: 4rpx; margin-left: -2rpx; background: rgba(96, 165, 250, 0.8); }
+.ai-welcome-particle--5 { width: 5rpx; height: 5rpx; margin-left: -2.5rpx; background: rgba(37, 99, 235, 0.85); }
 
 .ai-welcome-mascot-ring {
   position: absolute;
@@ -296,9 +296,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(145deg, #243044 0%, #2B5CB8 52%, #3B82F6 100%);
+  /* 提高饱和度：亮天蓝 → 正蓝 → 宝蓝，避免灰蓝闷色 */
+  background: linear-gradient(160deg, #5BA8FF 0%, #2F6BFF 48%, #1554E8 100%);
   /* 静态轻阴影，避免多层 inset 阴影拖慢合成 */
-  box-shadow: 0 8rpx 20rpx rgba(59, 130, 246, 0.22);
+  box-shadow: 0 10rpx 26rpx rgba(37, 99, 235, 0.42);
   /* 帽探出头顶，禁止裁切；帽不做独立 transform 动画 */
   overflow: visible;
 }
@@ -370,7 +371,7 @@
   width: 14rpx;
   height: 10rpx;
   border-radius: 50%;
-  background: rgba(255, 150, 180, 0.45);
+  background: rgba(255, 92, 148, 0.82);
 }
 
 .ai-welcome-mascot-cheek--l { left: 18rpx; }
@@ -388,7 +389,8 @@
 .ai-welcome-mascot-star-glyph {
   font-size: 52rpx;
   line-height: 1;
-  color: #E8F1FE;
+  color: #FFFFFF;
+  text-shadow: 0 0 14rpx rgba(255, 255, 255, 0.55);
 }
 
 .ai-welcome-mascot-shadow {
@@ -396,7 +398,7 @@
   height: 14rpx;
   margin-top: 10rpx;
   border-radius: 50%;
-  background: rgba(59, 130, 246, 0.14);
+  background: rgba(37, 99, 235, 0.28);
   transform: translate3d(0, 0, 0) scaleX(1);
 }
 
@@ -534,17 +536,17 @@
 
 .theme-light .ai-welcome-mascot-shadow,
 .ai-panel-body.theme-light .ai-welcome-mascot-shadow {
-  background: rgba(59, 130, 246, 0.1);
+  background: rgba(37, 99, 235, 0.22);
 }
 
 .theme-light .ai-welcome-mascot-ring,
 .ai-panel-body.theme-light .ai-welcome-mascot-ring {
-  border-color: rgba(59, 130, 246, 0.18);
+  border-color: rgba(47, 107, 255, 0.32);
 }
 
 .theme-light .ai-welcome-mascot-face,
 .ai-panel-body.theme-light .ai-welcome-mascot-face {
-  box-shadow: 0 8rpx 18rpx rgba(59, 130, 246, 0.16);
+  box-shadow: 0 10rpx 24rpx rgba(37, 99, 235, 0.34);
 }
 
 /* ═══ 消息列表 ═══ */
@@ -595,8 +597,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #243044 0%, #3B82F6 100%);
-  color: #E8F1FE;
+  background: linear-gradient(145deg, #5BA8FF 0%, #2F6BFF 55%, #1554E8 100%);
+  color: #FFFFFF;
   flex-shrink: 0;
   margin-top: 4rpx;
   /* 节日帽绝对定位挂在这个圆上，并要探出圆顶 */
@@ -1038,6 +1040,102 @@
 .ai-ss-cta {
   display: block;
   margin-top: 12rpx;
+}
+
+/* 发射提醒结果卡 */
+.ai-reminder-card {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 22rpx 22rpx 18rpx;
+  border-radius: var(--radius-card, 20rpx);
+}
+.ai-reminder-card:active { opacity: 0.92; }
+.ai-reminder-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16rpx;
+}
+.ai-reminder-badge {
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 50%;
+  background: rgba(255, 159, 10, 0.2);
+  color: #FF9F0A;
+  font-size: 28rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.ai-reminder-badge--ok {
+  background: rgba(7, 193, 96, 0.2);
+  color: #07C160;
+}
+.ai-reminder-head-text { flex: 1; min-width: 0; }
+.ai-reminder-title {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 700;
+  color: var(--color-text-primary, #F5F5F7);
+  line-height: 1.3;
+}
+.ai-reminder-desc {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.55);
+  line-height: 1.4;
+}
+.ai-reminder-mission {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  margin-top: 16rpx;
+  padding: 14rpx;
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, 0.06);
+}
+.ai-reminder-thumb {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 12rpx;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.06);
+}
+.ai-reminder-mission-info { flex: 1; min-width: 0; }
+.ai-reminder-mission-name {
+  display: block;
+  font-size: 26rpx;
+  font-weight: 650;
+  color: var(--color-text-primary, #F5F5F7);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-reminder-mission-meta {
+  display: block;
+  margin-top: 4rpx;
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.45);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-reminder-cta {
+  display: block;
+  margin-top: 14rpx;
+}
+.theme-light .ai-reminder-desc,
+.theme-light .ai-reminder-mission-meta {
+  color: rgba(60, 60, 67, 0.55);
+}
+.theme-light .ai-reminder-mission {
+  background: rgba(0, 0, 0, 0.04);
+}
+.theme-light .ai-reminder-title,
+.theme-light .ai-reminder-mission-name {
+  color: var(--color-text-primary);
 }
 
 /* 入口卡（对齐 progress mission-sim-entry 视觉语言） */

@@ -56,18 +56,25 @@
           </view>
         </view>
 
-        <!-- 信息头：状态/名称下移出头图，不再遮挡照片 -->
+        <!-- 信息头：型号 + 收藏，状态在下 -->
         <view class="info-header">
-          <text class="hero-title" user-select="{{true}}">{{vehicle.name}}</text>
+          <view class="hero-title-row">
+            <text class="hero-title" user-select="{{true}}">{{vehicle.name}}</text>
+            <view
+              class="fav-btn {{isFavorited ? 'fav-btn--on' : ''}} {{favAnimate ? 'fav-btn--animate' : ''}}"
+              hover-class="fav-btn--pressed"
+              hover-stay-time="120"
+              catchtap="onToggleFavorite"
+              aria-role="button"
+              aria-label="收藏"
+            >
+              <view class="fav-heart"></view>
+            </view>
+          </view>
           <view class="hero-status status-{{vehicle.statusType}}">
             <view class="status-dot"></view>
             <text class="status-value">{{vehicle.statusZh}}（{{vehicle.status}}）</text>
           </view>
-        </view>
-
-        <!-- 贴图讨论区：话题为对应型号名称（如 Ship 39） -->
-        <view class="discussion-section glass-card">
-          <official-account-publish-panel topic="{{vehicle.name || '星舰硬件讨论'}}" />
         </view>
 
         <!-- 类型徽标 -->
@@ -108,7 +115,7 @@
                 <text class="manifest-item-date" user-select="{{true}}">{{item.dateLabel}}</text>
               </view>
               <text class="manifest-item-location" user-select="{{true}}">{{item.locationZh}}</text>
-              <text class="manifest-item-notes" wx:if="{{item.notesEn}}" user-select="{{true}}">{{descI18n.testNotes[index] || item.notesEn}}</text>
+              <text class="manifest-item-notes" wx:if="{{item.notesZh || item.notesEn || descI18n.testNotes[index]}}" user-select="{{true}}">{{testsTranslated ? (descI18n.testNotes[index] || item.notesZh || item.notesEn) : (item.notesEn || item.notesZh)}}</text>
               <view class="manifest-item-video" wx:if="{{item.vidUrl}}" data-url="{{item.vidUrl}}" catchtap="onCopyVideoLink">
                 <text>复制视频链接</text>
               </view>
@@ -119,6 +126,11 @@
         <!-- 数据来源 -->
         <view class="source-note">
           <text>数据来源：Next Spaceflight</text>
+        </view>
+
+        <!-- 贴图讨论区：详情最底部；话题为对应型号名称（如 Ship 39） -->
+        <view class="discussion-section glass-card">
+          <official-account-publish-panel topic="{{vehicle.name || '星舰硬件讨论'}}" />
         </view>
       </view>
 

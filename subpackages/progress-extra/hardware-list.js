@@ -7,6 +7,7 @@ const { getStarshipHardwareFromDB } = require('../../utils/api-app-services.js')
 const { resolveMediaUrl } = require('../../utils/image-config.js')
 const { getCachedMediaImage } = require('../../utils/icon-cache.js')
 const { gateCheck } = require('../../utils/membership.js')
+const { isCollectionFavorite, toggleCollection } = require('../../utils/favorites.js')
 
 const B19_IMAGE_KEY = '最新版星舰组合体进展一二级图/b19_spacex3.webp'
 const S39_IMAGE_KEY = '最新版星舰组合体进展一二级图/s39_spacex.webp'
@@ -61,7 +62,9 @@ Page({
     category: 'all',
     keyword: '',
     list: [],
-    totalCount: 0
+    totalCount: 0,
+    isFavorited: false,
+    favAnimate: false
   },
 
   onLoad(options) {
@@ -74,7 +77,11 @@ Page({
       ? options.category
       : 'all'
     const keyword = options && options.keyword ? decodeURIComponent(options.keyword) : ''
-    this.setData({ category, keyword })
+    this.setData({
+      category,
+      keyword,
+      isFavorited: isCollectionFavorite('hardware_list')
+    })
     this.loadList()
   },
 
@@ -162,6 +169,13 @@ Page({
     const keyword = String(this.data.keyword || '').trim()
     if (keyword) params.push('keyword=' + encodeURIComponent(keyword))
     return params.join('&')
+  },
+
+  onToggleFavorite() {
+    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+    const favorited = toggleCollection('hardware_list')
+    this.setData({ isFavorited: favorited, favAnimate: favorited })
+    wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
   },
 
   onShareAppMessage() {

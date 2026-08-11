@@ -63,14 +63,21 @@
       </view>
     </view>
 
-    <!-- 贴图讨论区：助推器详情头图下方；话题优先火箭名称，组件内已截断至 20 字 -->
-    <view class="booster-discuss-wrap">
-      <official-account-publish-panel topic="{{item.rocketFamily || item.serial || '火箭族谱讨论'}}" />
-    </view>
-
-    <!-- 基本信息头 -->
+    <!-- 基本信息头：型号 + 收藏 -->
     <view class="info-header">
-      <text class="info-serial">{{item.serial}}</text>
+      <view class="info-serial-row">
+        <text class="info-serial">{{item.serial}}</text>
+        <view
+          class="fav-btn {{isFavorited ? 'fav-btn--on' : ''}} {{favAnimate ? 'fav-btn--animate' : ''}}"
+          hover-class="fav-btn--pressed"
+          hover-stay-time="120"
+          catchtap="onToggleFavorite"
+          aria-role="button"
+          aria-label="收藏"
+        >
+          <view class="fav-heart"></view>
+        </view>
+      </view>
       <view class="info-tags">
         <!-- 有构型 id 时型号标签可点 → 族谱型号详情页；否则保持纯文本 -->
         <text class="info-tag info-tag--family info-tag--link" wx:if="{{item.configId != null}}" bindtap="onTapRocketFamily">{{item.rocketFamily}}<text class="info-tag-arrow">›</text></text>
@@ -124,27 +131,34 @@
       </view>
     </view>
 
-    <!-- 时间线 -->
+    <!-- 服役时间线：首尾航迹 + 指标两列网格 -->
     <view class="timeline-section glass-card">
       <text class="section-label">服役时间线</text>
-      <view class="timeline-grid">
-        <view class="timeline-item">
+      <view class="timeline-span">
+        <view class="timeline-span-end">
           <text class="timeline-label">首飞</text>
-          <text class="timeline-value">{{item.firstFlight}}</text>
+          <text class="timeline-value">{{item.firstFlight || '—'}}</text>
         </view>
-        <view class="timeline-item">
+        <view class="timeline-span-track" aria-hidden="true">
+          <view class="timeline-span-dot"></view>
+          <view class="timeline-span-line"></view>
+          <view class="timeline-span-dot"></view>
+        </view>
+        <view class="timeline-span-end timeline-span-end--right">
           <text class="timeline-label">最近飞行</text>
-          <text class="timeline-value">{{item.lastFlight}}</text>
+          <text class="timeline-value">{{item.lastFlight || '—'}}</text>
         </view>
+      </view>
+      <view class="timeline-grid">
         <view class="timeline-item">
           <text class="timeline-label">服役时长</text>
           <text class="timeline-value">{{item.serviceDays || '—'}}</text>
         </view>
         <view class="timeline-item">
           <text class="timeline-label">复用次数</text>
-          <text class="timeline-value">{{item.reuseCount}}</text>
+          <text class="timeline-value">{{item.reuseCount != null ? item.reuseCount : '—'}}</text>
         </view>
-        <view class="timeline-item" wx:if="{{item.fastestTurnaroundText}}">
+        <view class="timeline-item timeline-item--full" wx:if="{{item.fastestTurnaroundText}}">
           <text class="timeline-label">最快周转</text>
           <text class="timeline-value turnaround-value">⚡ {{item.fastestTurnaroundText}}</text>
         </view>
@@ -177,6 +191,11 @@
         maxCollapsed="{{2}}"
         showTitle="{{false}}"
       />
+    </view>
+
+    <!-- 贴图讨论区：助推器详情最底部；话题优先火箭名称，组件内已截断至 20 字 -->
+    <view class="booster-discuss-wrap">
+      <official-account-publish-panel topic="{{item.rocketFamily || item.serial || '火箭族谱讨论'}}" />
     </view>
 
     <!-- 底部安全区 -->

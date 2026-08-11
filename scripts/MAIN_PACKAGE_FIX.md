@@ -33,6 +33,7 @@
 | `channels-live.js` | `subpackages/shared/utils/` |
 | `channels-live-config-cache.js` | `subpackages/shared/utils/` |
 | `official-account-scene.js` | `subpackages/shared/utils/` |
+| `ai-chat-i18n.js` | `subpackages/shared/utils/`（仅星问出卡/欢迎区文案） |
 | `artemis-arow.js` | `subpackages/monitor-pages/utils/` |
 | `starbase-weather.js` | `subpackages/monitor-pages/utils/` |
 

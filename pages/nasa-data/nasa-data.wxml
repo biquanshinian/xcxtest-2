@@ -77,11 +77,6 @@
         </view>
       </view>
 
-      <!-- 贴图讨论区：火星车简介与照片日期之间；topic 固定，组件内已截断至 20 字 -->
-      <view class="mars-discuss-wrap">
-        <official-account-publish-panel topic="火星探索" />
-      </view>
-
       <view class="mars-date-row">
         <text class="mars-date-label">照片日期：{{marsDate}}{{marsSol ? ' · Sol ' + marsSol : ''}}</text>
         <picker mode="date" value="{{marsDate}}" bindchange="onMarsDateChange">
@@ -108,6 +103,11 @@
           </view>
         </view>
         <view class="list-empty" wx:if="{{!marsPhotos.length && !marsLoading}}"><text>该日期暂无照片，请选择其他日期</text></view>
+      </view>
+
+      <!-- 贴图讨论区：火星探索 Tab 最底部；topic 固定，组件内已截断至 20 字 -->
+      <view class="mars-discuss-wrap">
+        <official-account-publish-panel topic="火星探索" />
       </view>
     </view>
 

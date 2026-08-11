@@ -1,5 +1,7 @@
 // pages/index/index.js
 const themeUtil = require('../../utils/theme.js')
+const tabLoadPage = require('../../utils/tab-load-page.js')
+const { buildMomentsSinglePagePatch } = require('../../utils/moments-single.js')
 const rocketArtUtil = require('../../utils/rocket-config-art.js')
 const {
   resolveFestivalHatId,
@@ -13,11 +15,25 @@ const {
   invalidateListSnapshots
 } = require('../../utils/api-launch-list.js')
 const {
+  getContentLang,
+  launchCardUiText,
+  invalidateContentLangCache
+} = require('../../utils/locale.js')
+const {
+  applyContentLangToMissionList,
+  rocketNameForImage
+} = require('../../utils/launch-card-i18n.js')
+const {
   shareMission,
   getVoteStats,
   fetchLaunchStatusSnapshot
 } = require('../../utils/api-app-services.js')
-const { onLaunchListStale, forceLaunchListCloudBgCheck } = require('../../utils/api-request.js')
+const {
+  onLaunchListStale,
+  forceLaunchListCloudBgCheck,
+  patchUpcomingLocalCacheById
+} = require('../../utils/api-request.js')
+const { mergeLiveRowNetHysteresis } = require('../../utils/net-patch-policy.js')
 const {
   filterExpiredMissions,
   getStatusTextZh,
@@ -81,7 +97,7 @@ const {
 const { nextProbeAction } = require('../../utils/countdown-window-machine.js')
 // NET 相关判定统一走校准时钟；纯本地节拍（节流/去抖/震动间隔）仍用 Date.now()
 const { getServerNow, syncServerClock } = require('../../utils/server-clock.js')
-const { mergeObservationList, projectLaunchRecords, isSettledStatusId } = require('../../utils/launch-status-store.js')
+const { mergeObservationList, projectLaunchRecords } = require('../../utils/launch-status-store.js')
 const {
   resolveMissionDetailSourceData,
   buildMissionDetailNavigation,
@@ -124,7 +140,8 @@ const {
   warmMembershipStateAsync
 } = require('../../utils/membership.js')
 const { getMemberPolicy, getMemberPolicySync } = require('../../utils/member-policy.js')
-const { fetchMainConfig } = require('../../utils/feature-flags.js')
+const { fetchMainConfig, isFeatureEnabled } = require('../../utils/feature-flags.js')
+const { isAIAvailable } = require('../../utils/aiService.js')
 const { warmUserPreferencesSync, warmBriefingPopupShownSync } = require('../../utils/user-growth.js')
 const { persistAgencyLogoAfterRemoteLoad, isRemoteAgencyLogoUrl } = require('../../utils/agency-logo-cache.js')
 const { ensureAgencyLogoBgTone } = require('../../utils/agency-logo-bg.js')
@@ -452,7 +469,9 @@ const UX_METHODS = [
   "onShareSheetItemTap",
   "onShareBriefing",
   "onBriefingClosed",
+  "onRenewalClosed",
   "_tryShowRenewalReminder",
+  "_tryShowNetChangeModal",
   "ensureShareImageHttpUrl"
 ]
 function delegateUx(name) {
@@ -488,6 +507,8 @@ Page({
     this._pageLoadAt = Date.now()
     this._launchRecordsById = new Map()
     this._launchStateGeneration = 0
+    this._appliedContentLang = getContentLang()
+    this.setData(this._buildContentLangUiPatch())
     // 尽早校时：设备时钟偏移会让倒计时整体错位并误触发 T-0 探针。
     // 失败静默降级为 offset=0（等同未校时），不阻塞任何首屏逻辑
     syncServerClock().catch(() => {})
@@ -537,7 +558,11 @@ Page({
       }
     }
 
-    this.setData({
+    const momentsPatch = buildMomentsSinglePagePatch(
+      uiShellLayout,
+      themeUtil.getThemeClassSync()
+    )
+    this.setData(Object.assign({
       themeClass: themeUtil.getThemeClassSync(),
       themeLight: themeUtil.isLightSync(),
       pageBgColor: themeUtil.getPageBgSync(),
@@ -550,7 +575,7 @@ Page({
       isProUser: false,
       missionSwipeActionWidthPx: Math.round((windowWidth * 176) / 750),
       pinnedUpcomingMissionId: ''
-    })
+    }, momentsPatch || {}))
 
     // 置顶 id / Pro 态非首屏必需：异步读 storage，避免阻塞首帧
     wx.getStorage({
@@ -616,7 +641,15 @@ Page({
         }
       })
 
-      this.loadInitialData()
+      // Tab 切换加载门控：首屏列表加载期间可显示全屏星闪（热切无重载不闪）
+      try {
+        var self = this
+        tabLoadPage.withTabLoad(tabLoadPage.TAB_ROUTES.index, function () {
+          return typeof self.loadInitialData === 'function'
+            ? self.loadInitialData()
+            : Promise.resolve()
+        })
+      } catch (e) {}
       this.loadSplashScreen()
         .then(() => {
           // 无开屏动画时，首屏稳定后主动检查隐私授权；有开屏则由 closeSplash 触发
@@ -625,6 +658,7 @@ Page({
           }
         })
         .catch(() => {})
+      try { this._syncNavAiSearchVisible() } catch (e) {}
       try { this._syncFestivalHat() } catch (e) {}
 
       // 首屏后：轮播/封路（与倒计时面板相关，略延后）
@@ -663,12 +697,66 @@ Page({
     this.startCountdown()
   },
 
+  _buildContentLangUiPatch() {
+    return {
+      contentLang: getContentLang(),
+      langUpcoming: launchCardUiText('upcoming'),
+      langPrevious: launchCardUiText('previous'),
+      langCalendar: getContentLang() === 'en' ? 'Calendar' : '发射日历',
+      langRemind: launchCardUiText('remind'),
+      langPin: launchCardUiText('pin'),
+      langCdDay: launchCardUiText('cdDay'),
+      langCdHour: launchCardUiText('cdHour'),
+      langCdMin: launchCardUiText('cdMin'),
+      langCdSec: launchCardUiText('cdSec'),
+      langUnknownMission: launchCardUiText('unknownMission'),
+      langUnknownCountry: launchCardUiText('unknownCountry'),
+      langTimeTbd: launchCardUiText('timeTbdLong'),
+      langAgencyFilterEmpty: launchCardUiText('agencyFilterEmpty'),
+      langAllTasks: launchCardUiText('allTasks'),
+      langExpand: launchCardUiText('expand'),
+      langCollapse: launchCardUiText('collapse')
+    }
+  },
+
+  /** 偏好切换内容语言后：就地套用列表字段 + 壳文案 */
+  _applyContentLangIfNeeded(force) {
+    invalidateContentLangCache()
+    const next = getContentLang()
+    if (!force && next === this._appliedContentLang) return false
+    this._appliedContentLang = next
+    const upcoming = applyContentLangToMissionList((this.data.upcomingMissions || []).map((m) => Object.assign({}, m)))
+    const completed = applyContentLangToMissionList((this.data.completedMissions || []).map((m) => Object.assign({}, m)))
+    const filterState = buildUpcomingAgencyFilterState(upcoming, this.data.selectedUpcomingAgencyKey)
+    const patch = Object.assign(this._buildContentLangUiPatch(), {
+      upcomingMissions: upcoming,
+      completedMissions: completed,
+      upcomingAgencyChipsDisplayed: filterState.upcomingAgencyChipsDisplayed,
+      displayedUpcomingMissions: filterState.displayedUpcomingMissions,
+      upcomingAgencyFilterEmpty: filterState.upcomingAgencyFilterEmpty
+    })
+    if (this.data.launchData && this.data.launchData.id) {
+      const { applyContentLangToMission } = require('../../utils/launch-card-i18n.js')
+      patch.launchData = applyContentLangToMission(Object.assign({}, this.data.launchData))
+    }
+    if (this.data.countdownTimeUnknown) {
+      patch.countdownTimeUnknownText = launchCardUiText('timeTbdLong')
+    }
+    this.setData(patch)
+    return true
+  },
+
   onShow() {
     this._countdownPageHidden = false
     // 主题兜底同步：在其他 Tab 切了主题后回到本 Tab（getCurrentPages 只含当前栈，切主题时刷不到本页）
     themeUtil.applyThemeToPage(this)
     // 火箭配置图艺术风格：在「我的」切换后回到首页补刷列表/倒计时图
     rocketArtUtil.applyRocketConfigArtIfNeeded(this)
+    // 提醒偏好里切换了中/英文：回首页立即套用
+    this._applyContentLangIfNeeded(false)
+
+    // 一键过审 / 关星问后回前台：同步左上角放大镜显隐
+    this._syncNavAiSearchVisible()
 
     // 节日帽与星问对齐：回前台按当天再解析（开发模式则续轮播预览）
     this._syncFestivalHat()
@@ -712,7 +800,7 @@ Page({
         success: (res) => {
           if (res.data) {
             wx.removeStorage({ key: 'profile_open_search' })
-            navigateTo(ROUTES.SEARCH)
+            navigateTo(ROUTES.AI_CHAT)
           }
         }
       })
@@ -848,6 +936,81 @@ Page({
     })
   },
 
+  /**
+   * 用 launch_status 快照治愈即将发射列表：收回「slim 仍 TBD+远窗、权威已是近窗 Go」。
+   * 供冷启动首屏与 3s 后台补偿共用。
+   */
+  _hydrateUpcomingFromStatusSnapshot(upcomingList, rows) {
+    const list = Array.isArray(upcomingList) ? upcomingList : []
+    if (!list.length || !Array.isArray(rows) || !rows.length) return list
+    const now = getServerNow()
+    const byId = new Map()
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]
+      if (row && row.id != null) byId.set(String(row.id), row)
+    }
+    const safeRows = []
+    for (let i = 0; i < list.length; i++) {
+      const mission = list[i]
+      if (!mission || mission.id == null) continue
+      const live = byId.get(String(mission.id))
+      if (!live) continue
+      const cached = {
+        net: mission.launchTime || mission.net || '',
+        window_start: mission.windowStart || '',
+        window_end: mission.windowEnd || '',
+        status:
+          mission.statusId != null
+            ? {
+                id: Number(mission.statusId),
+                name: mission.statusBadgeText || mission.status || '',
+                abbrev: mission.statusAbbrev || ''
+              }
+            : null
+      }
+      const liveNorm = {
+        ...live,
+        net: live.net || '',
+        window_start: live.window_start || live.windowStart || '',
+        window_end: live.window_end || live.windowEnd || '',
+        status: live.status || null
+      }
+      const merged = mergeLiveRowNetHysteresis(cached, liveNorm, now)
+      if (!merged) continue
+      safeRows.push(merged)
+      // 近窗 Go 收回远窗占位：写回本地 slim，避免下次冷启动再读 8/31
+      const cachedNet = cached.net ? new Date(cached.net).getTime() : NaN
+      const mergedNet = merged.net ? new Date(merged.net).getTime() : NaN
+      const mergedSid = merged.status && merged.status.id != null ? Number(merged.status.id) : 0
+      if (
+        mergedSid === 1 &&
+        Number.isFinite(mergedNet) &&
+        Number.isFinite(cachedNet) &&
+        cachedNet - mergedNet > 7 * 24 * 60 * 60 * 1000
+      ) {
+        try {
+          patchUpcomingLocalCacheById(mission.id, {
+            net: merged.net,
+            window_start: merged.window_start,
+            window_end: merged.window_end,
+            status: merged.status
+          })
+        } catch (ePatch) {}
+      }
+    }
+    if (!safeRows.length) return list
+    this._absorbLaunchStateObservations(
+      safeRows.map((row) => ({
+        ...row,
+        source: 'live',
+        observedAtMs: row.observedAtMs || Date.now()
+      })),
+      'live'
+    )
+    const projected = this._projectAuthoritativeLaunchState(list, this.data.completedMissions, now)
+    return Array.isArray(projected.upcoming) ? projected.upcoming : list
+  },
+
   applyLaunchObservationFromDetail(observation) {
     if (!observation || observation.id == null) return
     this._absorbLaunchStateObservations(
@@ -877,8 +1040,21 @@ Page({
     this.applyUpcomingAgencyFilterToPatch(patch, projected.upcoming)
     this.setData(patch, () => {
       this.updateMissionListView('completed', completed)
-      if (this.data.launchData && String(this.data.launchData.id) === String(observation.id)) {
-        this._scrubKnownSettleableCountdown()
+      // 详情治愈 NET/状态后重选型：避免「近窗闪一下 → 列表待定沉底顶掉」
+      try {
+        const now = getServerNow()
+        const { panelMission } = this._resolveCountdownPanelMission(projected.upcoming, now)
+        if (panelMission) {
+          this._applyInitialUpcomingLaunchStateSync(panelMission, projected.upcoming, null, {
+            completedMissions: completed
+          })
+        } else if (this.data.launchData && String(this.data.launchData.id) === String(observation.id)) {
+          this._scrubKnownSettleableCountdown()
+        }
+      } catch (e) {
+        if (this.data.launchData && String(this.data.launchData.id) === String(observation.id)) {
+          this._scrubKnownSettleableCountdown()
+        }
       }
     })
   },
@@ -954,6 +1130,26 @@ Page({
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
     tabBarReservedHeight: 0,
+    /** 发射卡片内容语言 zh|en（偏好设置） */
+    contentLang: 'zh',
+    langUpcoming: '即将发射',
+    langPrevious: '历史发射',
+    langCalendar: '发射日历',
+    langRemind: '提醒',
+    langPin: '置顶',
+    langCdDay: '天',
+    langCdHour: '时',
+    langCdMin: '分',
+    langCdSec: '秒',
+    langUnknownMission: '未知任务',
+    langUnknownCountry: '未知',
+    langTimeTbd: '发射时间待定',
+    langAgencyFilterEmpty: '当前筛选下暂无任务，可点击「所有任务」查看全部',
+    langAllTasks: '所有任务',
+    langExpand: '展开',
+    langCollapse: '收起',
+    /** 左上角放大镜 → 星问；enableAIChat 关闭（含一键过审）时不展示 */
+    showNavAiSearch: false,
     missionType: 'upcoming', // upcoming / completed / calendar
     // 任务卡片长按 → 分享面板（朋友/群 + 朋友圈）
     shareSheetVisible: false,
@@ -990,7 +1186,7 @@ Page({
     upcomingAgencyChipsDisplayed: [],
     upcomingAgencyChipsHasOverflow: false,
     displayedUpcomingMissions: [],
-    /** 即将发射卡片火箭图倒计时：默认仅前 N 张显示 */
+    /** 即将发射卡片倒计时：默认仅前 N 张显示 */
     missionCardCountdownVisibleCount: (missionCardCountdown && missionCardCountdown.visibleCount) || 2,
     upcomingAgencyFilterEmpty: false,
     pinnedUpcomingMissionId: '',
@@ -998,7 +1194,7 @@ Page({
     missionSwipeDragWxkey: '',
     missionSwipeDragPx: 0,
     missionSwipeActionWidthPx: 88,
-    /** PRO：发射商筛选生效；FREE：仍可横向浏览胶囊，点选非「所有任务」走会员引导 */
+    /** PRO：发射商筛选生效；FREE：可浏览胶囊，点选非「所有任务」走会员引导 */
     isProUser: false,
     completedMissions: [],
     carouselImages: [],
@@ -1177,7 +1373,7 @@ Page({
 
     const curImg = ld.image || ld.rocketImage || ''
     // 按火箭名重算；已有正确图时传入 stamped，避免 fuzzy miss 降级成 default
-    const url = resolveMissionRocketImage(curImg, ld.rocketName, ld.rocketConfiguration, true)
+    const url = resolveMissionRocketImage(curImg, rocketNameForImage(ld), ld.rocketConfiguration, true)
     if (!shouldReplaceRocketImage(curImg, url)) return
 
     this.setData({
@@ -1202,7 +1398,7 @@ Page({
     if (this._countdownRocketImageErrorPasses > 5) return
 
     const failedImage = ld.rocketImage || ld.image || ''
-    const rocketName = ld.rocketName
+    const rocketName = rocketNameForImage(ld)
 
     // 与列表卡片一致：记录失败 URL，后续 resolve 不再返回同一个坏链接
     if (failedImage && /^https?:\/\//i.test(String(failedImage).trim())) {
@@ -1708,7 +1904,7 @@ Page({
   },
 
   /**
-   * 横向滑动：按 scrollLeft 阶梯触发中度震动（左右双向一致；单帧封顶避免过猛）
+   * 横向滑动：按 scrollLeft 阶梯触发轻震（左右双向一致；单帧封顶避免过猛）
    */
   onUpcomingAgencyChipsScroll(e) {
     if (this.data.missionSwipeOpenWxkey) this.closeMissionSwipeCells()
@@ -1722,7 +1918,6 @@ Page({
     }
     if (bucket === this._upcomingAgencyScrollHapticBucket) return
     this._upcomingAgencyScrollHapticBucket = bucket
-    // 横向滑动仅轻震一次：有明确「越过一档」指向，避免连震无感
     this._vibrateLight()
   },
 
@@ -1730,8 +1925,10 @@ Page({
     if (this.data.missionSwipeOpenWxkey) this.closeMissionSwipeCells()
     const key = e.currentTarget.dataset.key
     if (key === undefined || key === null) return
-    const keyStr = key === '_all' ? '_all' : String(key)
+    await this._selectUpcomingAgencyKey(key === '_all' ? '_all' : String(key))
+  },
 
+  async _selectUpcomingAgencyKey(keyStr) {
     if (!this.data.isProUser) {
       if (keyStr === '_all') return
       const allowed = await gateCheck('home_upcoming_agency_filter', '即将发射 · 按发射商筛选')
@@ -2037,7 +2234,7 @@ Page({
       // 与详情 mergeMissionDetailData 同源：空 stamped + force，避免列表错误盖章锁死头图
       rocketImage: resolveMissionRocketImage(
         '',
-        apiDetail.rocketName || mission.rocketName,
+        rocketNameForImage(apiDetail) || rocketNameForImage(mission),
         apiDetail.rocketConfiguration || mission.rocketConfiguration,
         true
       )
@@ -2821,6 +3018,18 @@ Page({
       try {
         forceLaunchListCloudBgCheck()
       } catch (eForce) {}
+      // 丢掉 list/live 等低优观测（常残留 8/31+待定），保留 detail/resolve/hourly；
+      // 否则下拉先吃到 slim 近窗 Go，随后被内存里旧 live 盖回待定。
+      try {
+        if (this._launchRecordsById instanceof Map) {
+          const { SOURCE_PRIORITY } = require('../../utils/launch-status-store.js')
+          const maxDrop = Number(SOURCE_PRIORITY && SOURCE_PRIORITY.live) || 30
+          Array.from(this._launchRecordsById.entries()).forEach(([id, rec]) => {
+            const p = Number(rec && rec.sourcePriority) || 0
+            if (p > 0 && p <= maxDrop) this._launchRecordsById.delete(id)
+          })
+        }
+      } catch (ePurge) {}
     }
 
     return this.runManagedPageRequest(
@@ -2886,7 +3095,7 @@ Page({
               if (!hasName && !hasCfg) return m
               const rebuilt = resolveMissionRocketImage(
                 m.rocketImage || m.image || '',
-                m.rocketName,
+                rocketNameForImage(m),
                 m.rocketConfiguration,
                 true
               )
@@ -2894,6 +3103,35 @@ Page({
               return { ...m, rocketImage: rebuilt, image: rebuilt }
             })
           } catch (eStamp) {}
+
+          // 首屏前：用 launch_status 收回「列表仍 8/31 待定、权威已是近窗 Go」
+          // （详情治愈过 launch_status 后，不必再点进详情才能上倒计时）
+          const snapshotIds = (upcomingList || [])
+            .map((mission) => mission && mission.id)
+            .filter(Boolean)
+          const STATUS_SNAPSHOT_FIRST_PAINT_BUDGET_MS = 1500
+          if (snapshotIds.length) {
+            let snapRows = null
+            try {
+              snapRows = await Promise.race([
+                fetchLaunchStatusSnapshot(snapshotIds),
+                new Promise((resolve) =>
+                  setTimeout(() => resolve(null), STATUS_SNAPSHOT_FIRST_PAINT_BUDGET_MS)
+                )
+              ])
+            } catch (eSnap) {
+              snapRows = null
+            }
+            if (
+              this._isLaunchStateGenerationCurrent(stateGeneration) &&
+              Array.isArray(snapRows) &&
+              snapRows.length
+            ) {
+              try {
+                upcomingList = this._hydrateUpcomingFromStatusSnapshot(upcomingList, snapRows)
+              } catch (eHydra) {}
+            }
+          }
 
           const firstPaintList = upcomingList.slice(0, 5)
 
@@ -2924,12 +3162,9 @@ Page({
               } catch (e3) {}
             })
             .catch(() => {})
-          // 2) 按 id 状态快照（NET 改期 / 状态变化）：走实况 patch 路径整体修正列表与面板。
-          // 延迟 3s 发起：避免与「上屏后立刻点卡片进详情」的 fetchLaunchDetail 并发抢
-          // ll2Query 实例（并发会摊上冷启动实例，拖慢详情页首包）
-          const snapshotIds = (upcomingList || []).map((mission) => mission && mission.id).filter(Boolean)
+          // 2) 首屏预算内未拿到的状态快照：后台补齐并重选型倒计时（不再只改列表不换面板）
           if (snapshotIds.length) {
-            new Promise((resolve) => setTimeout(resolve, 3000))
+            new Promise((resolve) => setTimeout(resolve, 500))
               .then(() => {
                 if (!this._isLaunchStateGenerationCurrent(stateGeneration)) return null
                 return fetchLaunchStatusSnapshot(snapshotIds)
@@ -2938,20 +3173,6 @@ Page({
                 if (!this._isLaunchStateGenerationCurrent(stateGeneration)) return
                 if (!Array.isArray(rows) || !rows.length) return
                 this._patchUpcomingListLiveStatuses(rows)
-                // 面板任务 NET 比列表缓存新（快照来自小时级探针）：重建倒计时面板
-                try {
-                  const curId =
-                    this.data.launchData && this.data.launchData.id != null ? String(this.data.launchData.id) : ''
-                  const row = curId ? rows.find((r) => r && String(r.id) === curId) : null
-                  const sid = row && row.status && row.status.id != null ? Number(row.status.id) : 0
-                  if (row && row.net && !isSettledStatusId(sid)) {
-                    const newMs = new Date(row.net).getTime()
-                    const curMs = new Date(this.data.launchData.launchTime || 0).getTime()
-                    if (Number.isFinite(newMs) && newMs > 0 && newMs !== curMs) {
-                      this._applyPostponedNet(row)
-                    }
-                  }
-                } catch (eNet) {}
               })
               .catch(() => {})
           }
@@ -3051,7 +3272,7 @@ Page({
     const stamped = mission.rocketImage || mission.image || ''
     const resolved = resolveMissionRocketImage(
       stamped,
-      mission.rocketName,
+      rocketNameForImage(mission),
       mission.rocketConfiguration,
       true
     )
@@ -3327,7 +3548,7 @@ Page({
    * @param {string} text 面板展示文案
    */
   _applyCountdownTimeUnknown(text) {
-    const label = text || '发射时间待定'
+    const label = text || launchCardUiText('timeTbdLong')
     if (this.data.countdownTimeUnknown && this.data.countdownTimeUnknownText === label) return
     this.setData({
       countdownTimeUnknown: true,
@@ -3364,7 +3585,7 @@ Page({
       flushCardCountdownPatch()
       // 面板任务没有可用 NET（LL2 对部分 TBD 任务不给 net）：必须显式置「待定」，
       // 否则 countdown 会留着上一条任务的数字并停止跳秒，看着像倒计时卡死
-      this._applyCountdownTimeUnknown('发射时间待定')
+      this._applyCountdownTimeUnknown()
       return
     }
 
@@ -3382,7 +3603,7 @@ Page({
     // 「预计发射时间」那行仍会显示已知日期，信息不丢失
     if (!resolveCountdownPrecision(ld).clockCapable) {
       flushCardCountdownPatch()
-      this._applyCountdownTimeUnknown('发射时间待定')
+      this._applyCountdownTimeUnknown()
       return
     }
     this._clearCountdownTimeUnknown()
@@ -3846,8 +4067,8 @@ Page({
 
     const serial = normalized.serialNumber
     const serialText = serial == null ? '' : String(serial).trim()
-    // 纯数字序列号通常是内部ID，不给用户展示
-    if (!serialText || /^\d+$/.test(serialText)) {
+    // 纯数字序列号通常是内部ID；Unknown* 为 LL2 占位，不给用户展示/跳转
+    if (!serialText || /^\d+$/.test(serialText) || /^unknown/i.test(serialText)) {
       const serialMatch = textPool.match(/\bB\d{3,5}\b/i)
       normalized.serialNumber = serialMatch ? serialMatch[0].toUpperCase() : null
     }
@@ -4062,7 +4283,7 @@ Page({
     if (!missions || !missions[index]) return
     const mission = missions[index]
     const failedImage = mission.rocketImage
-    const rocketName = mission.rocketName
+    const rocketName = rocketNameForImage(mission)
 
     if (failedImage && /^https?:\/\//i.test(String(failedImage).trim())) {
       markDownloadFailed(String(failedImage).trim(), 404)
@@ -4222,6 +4443,19 @@ Page({
       () => this.loadInitialData({ suppressLoading: true, forceRefresh: true }),
       key
     )
+  },
+
+  /** 左上角放大镜：与星问同闸 enableAIChat（一键过审关闭时一并隐藏） */
+  async _syncNavAiSearchVisible() {
+    let on = false
+    try {
+      on = !!(isAIAvailable() && await isFeatureEnabled('enableAIChat', { failClosed: true }))
+    } catch (e) {
+      on = false
+    }
+    if (!!this.data.showNavAiSearch !== on) {
+      this.setData({ showNavAiSearch: on })
+    }
   },
 
   /** 倒计时圆图节日帽：与星问同源日期；开发模式轮播预览 */

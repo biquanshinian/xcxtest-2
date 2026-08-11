@@ -3,8 +3,14 @@
  * 与 syncSpaceDevsData/launch-data-sync.js 保持逻辑一致。
  */
 const cloud = require('wx-server-sdk')
+const { translateRocketName } = require('./rocket-name-i18n.js')
+const { localizeMissionTitle } = require('./mission-title-i18n.js')
+const { translateAgencyName } = require('./agency-name-i18n.js')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
+
+/** 与 sync meta 一起存；升版可强制跑一轮回填（如 launchAgency） */
+const LAUNCH_DATA_SCHEMA = 2
 
 const LAUNCH_DATA_COLLECTION = 'launch_data'
 const SPACE_DEVS_CACHE = 'space_devs_cache'
@@ -104,17 +110,32 @@ function pickWindowStartIso(launch) {
   return launch.net || launch.window_start || launch.window_end || ''
 }
 
-function missionNameFromLaunch(launch) {
-  if (!launch) return ''
-  const mn = launch.mission && launch.mission.name
-  return String(mn || launch.name || '').substring(0, 20)
+function zhField(obj, key) {
+  if (!obj) return ''
+  const zh = obj[key + 'Zh'] || obj[key + '_zh']
+  return zh ? String(zh).trim() : ''
 }
 
 function rocketNameFromLaunch(launch) {
   if (!launch) return ''
   const cfg = launch.rocket && launch.rocket.configuration
   const name = cfg && (cfg.full_name || cfg.name)
-  return String(name || '').substring(0, 20)
+  return String(name || '').substring(0, 40)
+}
+
+function missionNameEnFromLaunch(launch) {
+  if (!launch) return ''
+  const mn = launch.mission && launch.mission.name
+  return String(mn || launch.name || '').substring(0, 40)
+}
+
+/** 提醒 / 卡片展示用中文任务名（优先云端 nameZh，再套短语词典） */
+function missionNameZhFromLaunch(launch, rocketEn, rocketZh) {
+  if (!launch) return ''
+  const en = missionNameEnFromLaunch(launch)
+  const fromCloud = zhField(launch.mission, 'name') || zhField(launch, 'name')
+  const zh = localizeMissionTitle(fromCloud || en, rocketEn, rocketZh)
+  return String(zh || en || '').substring(0, 20)
 }
 
 function padNameFromLaunch(launch) {
@@ -174,16 +195,50 @@ function isUpcomingLaunch(launch, nowMs) {
 function mapLaunchToLaunchDataDoc(launch, nowMs) {
   const iso = pickWindowStartIso(launch)
   const windowDate = iso ? new Date(iso) : null
+  const rocketEn = rocketNameFromLaunch(launch)
+  const cfg = (launch.rocket && launch.rocket.configuration) || null
+  const rocketZhFromCloud = cfg
+    ? String(cfg.full_nameZh || cfg.nameZh || '').trim()
+    : ''
+  const rocketZh =
+    (rocketZhFromCloud && /[\u4e00-\u9fff]/.test(rocketZhFromCloud) ? rocketZhFromCloud : '') ||
+    translateRocketName(rocketEn) ||
+    rocketEn
+  const missionEn = missionNameEnFromLaunch(launch)
+  const missionZh = missionNameZhFromLaunch(launch, rocketEn, rocketZh)
+  const nameEn = String(launch.name || '').substring(0, 40)
+  const nameZh = String(
+    zhField(launch, 'name') ||
+      localizeMissionTitle(nameEn, rocketEn, rocketZh) ||
+      nameEn
+  ).substring(0, 40)
+  const padEn = padNameFromLaunch(launch)
+  const siteEn = siteFromLaunch(launch)
+  const lsp = launch.launch_service_provider || launch.lsp || null
+  const agencyEn = lsp && lsp.name ? String(lsp.name).trim() : ''
+  const agencyAbbrev = lsp && lsp.abbrev ? String(lsp.abbrev).trim() : ''
+  const agencyZh = translateAgencyName(agencyEn, agencyAbbrev) || agencyEn
   return {
     id: String(launch.id),
-    missionName: missionNameFromLaunch(launch),
-    name: String(launch.name || '').substring(0, 40),
-    rocketName: rocketNameFromLaunch(launch),
+    // 展示字段走中文（与发射卡对齐）；英文原名另存供偏好匹配 / character_string 编号槽
+    missionName: missionZh,
+    missionNameEn: missionEn,
+    name: nameZh,
+    nameEn: nameEn,
+    rocketName: rocketEn.substring(0, 40),
+    rocketNameZh: String(rocketZh || '').substring(0, 20),
+    launchAgency: agencyEn.substring(0, 40),
+    launchAgencyAbbrev: agencyAbbrev.substring(0, 20),
+    launchAgencyZh: String(agencyZh || '').substring(0, 20),
     windowStart: windowDate,
     launchTime: iso,
-    padName: padNameFromLaunch(launch),
-    pad: padNameFromLaunch(launch),
-    site: siteFromLaunch(launch),
+    padName: padEn,
+    padNameZh: String(zhField(launch.pad, 'name') || padEn).substring(0, 40),
+    pad: padEn,
+    site: siteEn,
+    siteZh: String(
+      (launch.pad && launch.pad.location && zhField(launch.pad.location, 'name')) || siteEn
+    ).substring(0, 40),
     recoveryMethod: recoveryMethodFromLaunch(launch),
     status: launch.status && launch.status.name ? String(launch.status.name) : '',
     statusId: launch.status && launch.status.id != null ? Number(launch.status.id) : null,
@@ -232,8 +287,9 @@ async function removeStaleLaunchData(activeIds, nowMs) {
 function isLaunchDataDocUnchanged(existing, payload) {
   if (!existing) return false
   const COMPARE_FIELDS = [
-    'id', 'missionName', 'name', 'rocketName', 'launchTime',
-    'padName', 'pad', 'site', 'recoveryMethod', 'status', 'statusId', 'source'
+    'id', 'missionName', 'name', 'rocketName', 'rocketNameZh', 'launchTime',
+    'launchAgency', 'launchAgencyZh', 'launchAgencyAbbrev',
+    'padName', 'pad', 'site', 'siteZh', 'recoveryMethod', 'status', 'statusId', 'source'
   ]
   for (const f of COMPARE_FIELDS) {
     const a = existing[f] == null ? null : existing[f]
@@ -296,6 +352,7 @@ async function syncLaunchDataFromCache() {
   if (
     meta &&
     meta.signature === signature &&
+    Number(meta.schemaVersion) === LAUNCH_DATA_SCHEMA &&
     Number(meta.lastSyncAtMs) > 0 &&
     nowMs - Number(meta.lastSyncAtMs) < FORCE_RESYNC_INTERVAL_MS
   ) {
@@ -315,7 +372,12 @@ async function syncLaunchDataFromCache() {
   stats.total = upcoming.length
 
   if (upcoming.length === 0) {
-    await writeSyncMeta({ signature, lastSyncAtMs: nowMs, total: 0 })
+    await writeSyncMeta({
+      signature,
+      lastSyncAtMs: nowMs,
+      total: 0,
+      schemaVersion: LAUNCH_DATA_SCHEMA
+    })
     return { success: true, message: 'no upcoming launches in cache', ...stats }
   }
 
@@ -349,7 +411,12 @@ async function syncLaunchDataFromCache() {
 
   stats.removed = await removeStaleLaunchData(activeIds, nowMs)
 
-  await writeSyncMeta({ signature, lastSyncAtMs: nowMs, total: stats.total })
+  await writeSyncMeta({
+    signature,
+    lastSyncAtMs: nowMs,
+    total: stats.total,
+    schemaVersion: LAUNCH_DATA_SCHEMA
+  })
 
   return {
     success: true,
@@ -358,4 +425,4 @@ async function syncLaunchDataFromCache() {
   }
 }
 
-module.exports = { syncLaunchDataFromCache }
+module.exports = { syncLaunchDataFromCache, LAUNCH_DATA_SCHEMA }

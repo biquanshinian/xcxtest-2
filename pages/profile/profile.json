@@ -12,14 +12,12 @@
     "nasa-float": "/subpackages/shared/components/nasa-float/index",
     "milestone-egg": "/subpackages/shared/components/milestone-egg/index",
     "privacy-modal": "/components/privacy-modal/privacy-modal",
-    "morning-briefing": "/subpackages/shared/components/morning-briefing/index",
     "demo-overlay": "/subpackages/shared/components/demo-overlay/index",
     "profile-sections": "/subpackages/profile-extra/components/profile-sections/index"
   },
   "componentPlaceholder": {
     "demo-overlay": "view",
     "milestone-egg": "view",
-    "morning-briefing": "view",
     "nasa-float": "view",
     "profile-sections": "view"
   }

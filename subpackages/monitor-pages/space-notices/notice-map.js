@@ -14,7 +14,7 @@ const {
   withShareStampPath,
   withShareStampQuery
 } = require('../utils/share-gate.js')
-const { decorateNotice, sortNotices, buildStats } = require('./utils/notice-format.js')
+const { decorateNotice, decorateSpaceNoticeEntry, sortNotices, buildStats } = require('./utils/notice-format.js')
 const {
   buildPolygonsFromNotices,
   buildPolylinesFromNotices,
@@ -142,6 +142,12 @@ Page({
       this._notices = res.notices || []
       const notices = sortNotices(this._notices.map((n) => decorateNotice(n, hasGeometry)))
       const entry = res.entry || {}
+      const display = decorateSpaceNoticeEntry(
+        Object.assign({}, entry, {
+          missionName: entry.missionName || entry.siteTitle || '',
+          rocketName: entry.rocketName || ''
+        })
+      )
       const traj = resolveTrajectory(entry)
       const hasTrajectory = !!(traj && traj.length >= 2)
       this.setData({
@@ -149,8 +155,8 @@ Page({
         errorText: '',
         entryKey: entry.entryKey || entryKey || '',
         ll2Id: entry.ll2Id || ll2Id || '',
-        title: entry.missionName || entry.siteTitle || '通告地图',
-        subtitle: entry.rocketName || '',
+        title: display.title || entry.missionName || entry.siteTitle || '通告地图',
+        subtitle: display.subtitle || entry.rocketName || '',
         padName: (entry.pad && entry.pad.name) || '',
         netText: entry.net ? formatDate(new Date(entry.net), 'MM-DD HH:mm') : '',
         notices,

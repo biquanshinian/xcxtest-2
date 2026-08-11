@@ -1,5 +1,6 @@
 /**
  * 我的页下半屏区块组件（从 pages/profile/profile.wxml 拆出，wxml/wxss 不占主包）：
+ * - 设置（导航栏打开左半屏抽屉：语言 / 简报 / 主题 / 火箭配置图 / 提醒偏好）
  * - 我的提醒（服务号开关 + 发射时间线）
  * - 竞猜战绩
  * - 每日问答挑战
@@ -19,6 +20,19 @@ Component({
     /* 组件 wxss 的 .theme-light 后代选择器无法匹配组件外的页面根节点，
        须把主题类挂到组件自身根节点上才能生效 */
     themeClass: { type: String, value: '' },
+    themeMode: { type: String, value: 'dark' },
+    rocketArtStyle: { type: String, value: 'original' },
+    contentLang: { type: String, value: 'zh' },
+    briefingEnabled: { type: Boolean, value: true },
+    settingsPanelOpen: { type: Boolean, value: false },
+    settingsPanelPadTop: { type: Number, value: 44 },
+    rocketOptions: { type: Array, value: [] },
+    siteOptions: { type: Array, value: [] },
+    notifyOptions: { type: Array, value: [] },
+    rocketMap: { type: Object, value: {} },
+    siteMap: { type: Object, value: {} },
+    notifyMinutes: { type: Number, value: 60 },
+    prefSaving: { type: Boolean, value: false },
     myReminders: { type: Array, value: [] },
     oaAlertEnabled: { type: Boolean, value: false },
     oaAlertFollowed: { type: Boolean, value: false },
@@ -48,7 +62,17 @@ Component({
       })
     },
 
-    emitGoPreferences(e) { this._emit('goPreferences', e) },
+    noop() {},
+
+    emitCloseSettingsPanel(e) { this._emit('closeSettingsPanel', e) },
+    emitOnThemeModeTap(e) { this._emit('onThemeModeTap', e) },
+    emitOnRocketArtTap(e) { this._emit('onRocketArtTap', e) },
+    emitOnContentLangChange(e) { this._emit('onContentLangChange', e) },
+    emitOnBriefingToggle(e) { this._emit('onBriefingToggle', e) },
+    emitOnTogglePrefRocket(e) { this._emit('onTogglePrefRocket', e) },
+    emitOnTogglePrefSite(e) { this._emit('onTogglePrefSite', e) },
+    emitOnNotifyPrefChange(e) { this._emit('onNotifyPrefChange', e) },
+    emitOnSaveReminderPrefs(e) { this._emit('onSaveReminderPrefs', e) },
     emitOnOaAlertSwitch(e) { this._emit('onOaAlertSwitch', e) },
     emitOnCopyOaName(e) { this._emit('onCopyOaName', e) },
     emitOnReminderTap(e) { this._emit('onReminderTap', e) },

@@ -253,9 +253,6 @@
             </view>
           </view>
 
-          <!-- 贴图讨论区：LL2 事件头图下方；topic 取自标题，组件内已截断至 20 字 -->
-          <official-account-publish-panel topic="{{item.title || '即将发生'}}" />
-
           <!-- 信息行：日期 / 地点（图标线条统一风格） -->
           <view class="ll2-event-info glass-card">
             <view class="ll2-event-info-row">
@@ -391,6 +388,9 @@
           </block>
 
           <text class="ll2-event-source-tip">数据来源：LL2</text>
+
+          <!-- 贴图讨论区：LL2 事件详情最底部；topic 取自标题，组件内已截断至 20 字 -->
+          <official-account-publish-panel topic="{{item.title || '即将发生'}}" />
         </view>
       </block>
 

@@ -16,6 +16,7 @@
     "share-guide": "/subpackages/shared/components/share-guide/index",
     "official-account-bar": "/subpackages/shared/components/official-account-bar/index",
     "renewal-reminder": "/subpackages/shared/components/renewal-reminder/index",
+    "net-change-modal": "/subpackages/shared/components/net-change-modal/index",
     "launch-calendar": "/subpackages/index-extra/components/launch-calendar/index",
     "calendar-stats": "/subpackages/index-extra/components/calendar-stats/index",
     "festival-hat": "/components/festival-hat/index"
@@ -26,6 +27,7 @@
     "share-guide": "view",
     "official-account-bar": "view",
     "renewal-reminder": "view",
+    "net-change-modal": "view",
     "launch-calendar": "view",
     "calendar-stats": "view",
     "nasa-float": "view"

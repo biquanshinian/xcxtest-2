@@ -61,7 +61,15 @@ const voteMethods = {
   _applyVoteBundle(launchId, preferredType) {
     const bundle = (this._voteBundle && this._voteBundle[String(launchId)]) || {}
     const active = preferredType || this.data.activeVoteType || 'ontime'
-    this.setData(buildDualVoteUiPatch(bundle, active, launchId))
+    const ld = this.data.launchData || {}
+    this.setData(
+      buildDualVoteUiPatch(bundle, active, launchId, {
+        countryDisplay: ld.countryDisplay,
+        chineseRocket: ld.countryDisplay === '中国',
+        rocketName: ld.rocketName,
+        launchAgency: ld.launchAgency
+      })
+    )
     this._voteRenderedLaunchId = String(launchId)
   },
 
@@ -326,7 +334,13 @@ const voteMethods = {
       voteFailMsg = (err && err.message) || ''
     }
     if (serverData) {
-      var normalized = buildVoteState(serverData, choice, voteType)
+      var ldVote = this.data.launchData || {}
+      var normalized = buildVoteState(serverData, choice, voteType, {
+        countryDisplay: ldVote.countryDisplay,
+        chineseRocket: ldVote.countryDisplay === '中国',
+        rocketName: ldVote.rocketName,
+        launchAgency: ldVote.launchAgency
+      })
       // 服务端若未带回票数，至少保留乐观更新的人数与比例条
       if (!normalized.voteTotal && total > 0) {
         normalized.voteData.geCount = newGe

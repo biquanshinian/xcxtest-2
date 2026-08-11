@@ -1,6 +1,10 @@
 <page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
 <wxs module="navPad" src="/utils/nav-scroll-pad.wxs"></wxs>
-<view class="container {{themeClass}}">
+<view class="container {{themeClass}} tab-bg-video-host">
+  <view class="tab-bg-shell" aria-hidden="true">
+    <view class="tab-bg-cover"></view>
+    <view class="tab-bg-frost"></view>
+  </view>
   <!-- 顶部导航栏 -->
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
     <view class="top-nav top-nav--page-center">

@@ -297,6 +297,10 @@ export const api = {
   triggerSync() {
     return request('/system/sync', { method: 'POST', body: { scope: 'all' } })
   },
+  /** 小时 NET 探针 + 待定排序自愈（服务端互调，不走云开发控制台） */
+  triggerLaunchNetHourly() {
+    return request('/system/sync-launch-net-hourly', { method: 'POST', body: { force: true } })
+  },
   cleanCache() {
     return request('/system/cache/clean', { method: 'POST' })
   },
@@ -387,8 +391,8 @@ export const api = {
   listCloudFunctions() {
     return request('/cloud-functions', { method: 'GET' })
   },
-  triggerCloudFunction(name) {
-    return request(`/cloud-functions/${name}/trigger`, { method: 'POST' })
+  triggerCloudFunction(name, body = {}) {
+    return request(`/cloud-functions/${name}/trigger`, { method: 'POST', body })
   },
   getGlobalConfig() {
     return request('/global-config', { method: 'GET' })

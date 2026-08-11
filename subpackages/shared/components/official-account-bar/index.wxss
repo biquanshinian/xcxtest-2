@@ -135,3 +135,31 @@
   width: 100%;
   height: 84px;
 }
+
+/*
+ * 名称遮罩：与原生条内部排版对齐（裁掉顶栏后的可见区）。
+ * 必须用 px：原生头像/按钮按 px 布局，rpx 会随屏宽漂移盖到按钮或露灰字。
+ */
+.official-account-name-mask {
+  position: absolute;
+  left: 62px;
+  top: 10px;
+  right: 86px;
+  height: 22px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  background: #ffffff;
+  pointer-events: none;
+}
+
+.official-account-name-mask-text {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+  color: #000000;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

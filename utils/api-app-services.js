@@ -431,6 +431,43 @@ async function getSpaceXLaunchStats() {
   }
 }
 
+/**
+ * 即将进行的在轨任务列表：
+ * 1) spacex_launch_stats.upcomingOrbitalEvents
+ * 2) 本地缓存为空时强制再读云库（避免 30min 空列表毒缓存）
+ * 3) 仍空则从已同步的 events/upcoming 缓存筛选（与封路通知同源兜底）
+ */
+async function getUpcomingOrbitalEvents(options) {
+  const {
+    pickUpcomingOrbitalEvents,
+    filterFreshOrbitalEvents
+  } = require('./upcoming-orbital-events.js')
+  const limit = (options && options.limit) || 8
+
+  const take = (raw) => filterFreshOrbitalEvents(raw || []).slice(0, limit)
+
+  let stats = await getSpaceXLaunchStats()
+  let list = take(stats && stats.upcomingOrbitalEvents)
+  if (list.length) return list
+
+  // 本地命中但在轨列表为空：绕过 TTL 再读一次云库
+  try {
+    const freshStats = await fetchSpaceXLaunchStats()
+    list = take(freshStats && freshStats.upcomingOrbitalEvents)
+    if (list.length) return list
+  } catch (e) {}
+
+  try {
+    const { request } = require('./api-request.js')
+    const data = await request('/events/upcoming/', { limit: 100, offset: 0 }, 5000, true)
+    const results = (data && data.results) || []
+    list = pickUpcomingOrbitalEvents(results, { limit })
+    if (list.length) return list
+  } catch (e) {}
+
+  return []
+}
+
 const BOOSTER_META_DOC_IDS = ['_sync_meta', '_img_cos_map', '_ll2_launchers_cache', '_config_meta', '_flight_history_progress']
 
 async function getBoosterGenealogy(options) {
@@ -846,6 +883,7 @@ module.exports = {
   resolveLaunchStatuses,
   shareMission,
   getSpaceXLaunchStats,
+  getUpcomingOrbitalEvents,
   getBoosterGenealogy,
   getRocketConfigMeta,
   getVoteStats,

@@ -7,7 +7,7 @@
         <text class="icon-back icon-back--nav">‹</text>
       </view>
       <view class="nav-title-wrap nav-title-wrap--page-grid">
-        <text class="nav-title nav-title--page-grid">星问</text>
+        <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
         <text class="ai-chat-nav-sub">AI太空助手</text>
       </view>
       <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>

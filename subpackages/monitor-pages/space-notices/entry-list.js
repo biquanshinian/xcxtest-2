@@ -3,6 +3,7 @@
  */
 const pageBase = require('../../../utils/page-base.js')
 const { listSpaceNoticeEntries, syncSpaceNotices } = require('./utils/api-space-notices.js')
+const { decorateSpaceNoticeEntry } = require('./utils/notice-format.js')
 const { isSpaceNoticesEnabled } = require('../../../utils/space-notices-feature.js')
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
 const { gateCheck } = require('../../../utils/membership.js')
@@ -32,17 +33,14 @@ function formatNet(net, windowStartMs) {
 }
 
 function decorateEntry(e) {
-  const mission = e.missionName || e.entryKey || '未命名任务'
-  const rocket = e.rocketName || ''
+  const base = decorateSpaceNoticeEntry(e)
   const metaBits = []
-  metaBits.push(formatNet(e.net, e.windowStartMs))
-  metaBits.push('通告 ' + (e.noticeCount || 0))
-  if (e.hasTrajectory) metaBits.push('含轨迹')
-  if (e.agency) metaBits.push(e.agency)
-  return Object.assign({}, e, {
-    title: mission,
-    subtitle: rocket || (e.isStarship ? 'Starship' : '发射任务'),
-    netText: formatNet(e.net, e.windowStartMs),
+  metaBits.push(formatNet(base.net, base.windowStartMs))
+  metaBits.push('通告 ' + (base.noticeCount || 0))
+  if (base.hasTrajectory) metaBits.push('含轨迹')
+  if (base.agencyDisplay) metaBits.push(base.agencyDisplay)
+  return Object.assign({}, base, {
+    netText: formatNet(base.net, base.windowStartMs),
     metaText: metaBits.join(' · ')
   })
 }

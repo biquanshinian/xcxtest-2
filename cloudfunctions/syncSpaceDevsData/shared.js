@@ -106,22 +106,31 @@ async function saveToCloudDB(cacheKey, apiData, retryCount) {
   if (retryCount === undefined) retryCount = 0
   const MAX_RETRIES = 3
   const collection = db.collection('space_devs_cache')
+  const {
+    verifyBatchedCache,
+    makeGenerationBatchKey,
+    readExistingBatchKeys,
+    removeOrphanBatchDocs
+  } = require('./cache-write-guard.js')
+
+  // updates 剥离由调用方在 split 成功后完成；此处不再无条件 strip
+  const payload = apiData
 
   const record = {
     cacheKey,
-    data: apiData,
+    data: payload,
     updatedAt: db.serverDate(),
     updatedAtMs: Date.now(),
     timestamp: Date.now(),
     expiresAt: new Date(Date.now() + CACHE_DURATION)
   }
 
-  const dataStr = JSON.stringify(apiData)
+  const dataStr = JSON.stringify(payload)
   const sizeKB = Math.ceil(dataStr.length / 1024)
 
   try {
     if (sizeKB > 800) {
-      const results = (apiData && Array.isArray(apiData.results)) ? apiData.results : null
+      const results = (payload && Array.isArray(payload.results)) ? payload.results : null
       // 非列表（如单机构 detailed）无 results：禁止写空 isBatched 元文档（会导致前端读到无 data 的空洞）
       if (!results || results.length === 0) {
         throw new Error(
@@ -134,31 +143,43 @@ async function saveToCloudDB(cacheKey, apiData, retryCount) {
         batches.push(results.slice(i, i + batchSize))
       }
       const batchKeys = []
+      // 以实际条数为准：API 的 count 可能大于本页 results.length
+      const expectedCount = results.length
+      const writeId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+      const prevBatchKeys = await readExistingBatchKeys(db, cacheKey)
       for (let i = 0; i < batches.length; i++) {
-        const batchKey = cacheKey + '_batch_' + i
+        const batchKey = makeGenerationBatchKey(cacheKey, i, writeId)
         batchKeys.push(batchKey)
         const batchRecord = {
           cacheKey: batchKey,
           parentKey: cacheKey,
           batchIndex: i,
           totalBatches: batches.length,
-          data: { results: batches[i], count: apiData.count || results.length },
+          data: { results: batches[i], count: expectedCount },
           updatedAt: db.serverDate(),
           updatedAtMs: Date.now(),
           expiresAt: new Date(Date.now() + CACHE_DURATION)
         }
         await upsertDoc(collection, batchKey, batchRecord)
       }
+      const verified = await verifyBatchedCache(db, cacheKey, expectedCount, batchKeys)
+      if (!verified.ok) {
+        throw new Error(
+          `batched cache verify failed: ${verified.reason}` +
+            (verified.missingKey ? ` missing=${verified.missingKey}` : '') +
+            ` merged=${verified.mergedCount}/${verified.expectedCount}`
+        )
+      }
       const metaRecord = {
         cacheKey,
         isBatched: true,
         totalBatches: batches.length,
-        totalCount: apiData.count || results.length,
+        totalCount: expectedCount,
         // 主文档也挂 data，便于读端识别列表分批（含 batchKeys）
         data: {
           isBatched: true,
           batchKeys: batchKeys,
-          count: apiData.count || results.length,
+          count: expectedCount,
           results: []
         },
         updatedAt: db.serverDate(),
@@ -167,13 +188,16 @@ async function saveToCloudDB(cacheKey, apiData, retryCount) {
         expiresAt: new Date(Date.now() + CACHE_DURATION)
       }
       await upsertDoc(collection, cacheKey, metaRecord)
+      await removeOrphanBatchDocs(db, cacheKey, batchKeys, prevBatchKeys)
     } else {
+      const prevBatchKeys = await readExistingBatchKeys(db, cacheKey)
       await upsertDoc(collection, cacheKey, record)
+      await removeOrphanBatchDocs(db, cacheKey, [], prevBatchKeys)
     }
   } catch (e) {
     const msg = String((e && e.message) || e || '')
     // 体积/结构类错误重试无意义，直接失败让上层瘦身或报错
-    if (/without results\[\] for batching|payload too large/i.test(msg)) {
+    if (/without results\[\] for batching|payload too large|batched cache verify failed/i.test(msg)) {
       throw e
     }
     if (retryCount < MAX_RETRIES) {

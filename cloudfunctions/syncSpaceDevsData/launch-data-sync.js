@@ -7,6 +7,8 @@
  * 目标字段：id、missionName、rocketName、windowStart、padName、recoveryMethod、site
  */
 const { db } = require('./shared.js')
+const { translateRocketName } = require('./rocket-name-i18n.js')
+const { localizeMissionTitle, resolveLaunchMissionOverride } = require('./mission-title-i18n.js')
 
 const LAUNCH_DATA_COLLECTION = 'launch_data'
 const SPACE_DEVS_CACHE = 'space_devs_cache'
@@ -79,17 +81,38 @@ function pickWindowStartIso(launch) {
   return launch.net || launch.window_start || launch.window_end || ''
 }
 
-function missionNameFromLaunch(launch) {
-  if (!launch) return ''
-  const mn = launch.mission && launch.mission.name
-  return String(mn || launch.name || '').substring(0, 20)
+function zhField(obj, key) {
+  if (!obj) return ''
+  const zh = obj[key + 'Zh'] || obj[key + '_zh']
+  return zh ? String(zh).trim() : ''
 }
 
 function rocketNameFromLaunch(launch) {
   if (!launch) return ''
   const cfg = launch.rocket && launch.rocket.configuration
   const name = cfg && (cfg.full_name || cfg.name)
-  return String(name || '').substring(0, 20)
+  return String(name || '').substring(0, 40)
+}
+
+function missionNameEnFromLaunch(launch) {
+  if (!launch) return ''
+  const ov = resolveLaunchMissionOverride(launch.id)
+  const mn = launch.mission && launch.mission.name
+  const raw = String(mn || launch.name || '').trim()
+  if (ov && (!raw || /^unknown(\s+payloads?)?$/i.test(raw) || /未知有效载荷/.test(raw))) {
+    return ov.missionNameEn.substring(0, 40)
+  }
+  return raw.substring(0, 40)
+}
+
+function missionNameZhFromLaunch(launch, rocketEn, rocketZh) {
+  if (!launch) return ''
+  const ov = resolveLaunchMissionOverride(launch.id)
+  if (ov) return ov.missionNameZh.substring(0, 20)
+  const en = missionNameEnFromLaunch(launch)
+  const fromCloud = zhField(launch.mission, 'name') || zhField(launch, 'name')
+  const zh = localizeMissionTitle(fromCloud || en, rocketEn, rocketZh)
+  return String(zh || en || '').substring(0, 20)
 }
 
 function padNameFromLaunch(launch) {
@@ -152,11 +175,32 @@ function mapLaunchToLaunchDataDoc(launch, nowMs) {
   const windowDate = iso ? new Date(iso) : null
   const cfg = (launch.rocket && launch.rocket.configuration) || null
   const lsp = launch.launch_service_provider || launch.lsp || null
+  const rocketEn = rocketNameFromLaunch(launch)
+  const rocketZhFromCloud = cfg
+    ? String(cfg.full_nameZh || cfg.nameZh || '').trim()
+    : ''
+  const rocketZh =
+    (rocketZhFromCloud && /[\u4e00-\u9fff]/.test(rocketZhFromCloud) ? rocketZhFromCloud : '') ||
+    translateRocketName(rocketEn) ||
+    rocketEn
+  const missionEn = missionNameEnFromLaunch(launch)
+  const missionZh = missionNameZhFromLaunch(launch, rocketEn, rocketZh)
+  const nameEn = String(launch.name || '').substring(0, 40)
+  const nameZh = String(
+    zhField(launch, 'name') ||
+      localizeMissionTitle(nameEn, rocketEn, rocketZh) ||
+      nameEn
+  ).substring(0, 40)
+  const padEn = padNameFromLaunch(launch)
+  const siteEn = siteFromLaunch(launch)
   return {
     id: String(launch.id),
-    missionName: missionNameFromLaunch(launch),
-    name: String(launch.name || '').substring(0, 40),
-    rocketName: rocketNameFromLaunch(launch),
+    missionName: missionZh,
+    missionNameEn: missionEn,
+    name: nameZh,
+    nameEn: nameEn,
+    rocketName: rocketEn.substring(0, 40),
+    rocketNameZh: String(rocketZh || '').substring(0, 20),
     // 供 getLaunchStats 定时预热型号/发射商统计使用：
     // rocketConfigName 必须是 LL2 configuration.name 原值（统计过滤参数 rocket__configuration__name）
     rocketConfigName: String((cfg && cfg.name) || ''),
@@ -164,9 +208,13 @@ function mapLaunchToLaunchDataDoc(launch, nowMs) {
     launchAgencyId: lsp && lsp.id != null ? lsp.id : null,
     windowStart: windowDate,
     launchTime: iso,
-    padName: padNameFromLaunch(launch),
-    pad: padNameFromLaunch(launch),
-    site: siteFromLaunch(launch),
+    padName: padEn,
+    padNameZh: String(zhField(launch.pad, 'name') || padEn).substring(0, 40),
+    pad: padEn,
+    site: siteEn,
+    siteZh: String(
+      (launch.pad && launch.pad.location && zhField(launch.pad.location, 'name')) || siteEn
+    ).substring(0, 40),
     recoveryMethod: recoveryMethodFromLaunch(launch),
     status: launch.status && launch.status.name ? String(launch.status.name) : '',
     syncedAt: nowMs,

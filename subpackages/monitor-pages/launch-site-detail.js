@@ -16,6 +16,7 @@ const launchSiteDisplay = require('./utils/launch-site-display.js')
 const { togglePageTranslation } = require('./utils/text-translate.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
 const pageBase = require('../../utils/page-base.js')
+const { isFavorite, toggleFavorite } = require('../../utils/favorites.js')
 
 /** 地图 marker id 约定：0 = 发射场主标记；>0 = 工位（pad.id） */
 const SITE_MARKER_ID = 0
@@ -95,6 +96,8 @@ Page({
     /** 分享缩略图：对应发射场卫星/配图（本地预下载），避免朋友圈落到默认图/截图 */
     shareImage: '',
     isMomentsPreview: false,
+    isFavorited: false,
+    favAnimate: false,
     ...createMapBaseState({
       dataSourceText: 'Launch Library 2 · Locations / Pads',
       dataUpdatedText: '待更新',
@@ -165,6 +168,7 @@ Page({
       const patch = {
         loading: false,
         site,
+        isFavorited: isFavorite('launch_site', site.id),
         hasCoords,
         coordsText: hasCoords ? `${Number(site.latitude).toFixed(4)}, ${Number(site.longitude).toFixed(4)}` : '',
         dataUpdatedText: formatMapUpdateTime(new Date()),
@@ -367,6 +371,25 @@ Page({
         if (self._shareImageSourceUrl === trimmed) self._shareImageSourceUrl = ''
       }
     })
+  },
+
+  onToggleFavorite() {
+    const site = this.data.site
+    if (!site || site.id == null) {
+      wx.showToast({ title: '数据加载中，请稍后', icon: 'none' })
+      return
+    }
+    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+    const favorited = toggleFavorite({
+      type: 'launch_site',
+      id: site.id,
+      title: site.nameZh || site.name || '发射场',
+      subtitle: site.countryLabel || site.countryCode || '',
+      imageUrl: site.mapImage || site.imageUrl || '',
+      category: 'launch_site'
+    })
+    this.setData({ isFavorited: favorited, favAnimate: favorited })
+    wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
   },
 
   onShareAppMessage() {

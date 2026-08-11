@@ -15,6 +15,7 @@
 const { getUiShellLayout } = require('./layout.js')
 const { getSystemInfo } = require('./system.js')
 const theme = require('./theme.js')
+const { isMomentsSinglePage } = require('./moments-single.js')
 
 module.exports = Behavior({
   data: {
@@ -23,6 +24,8 @@ module.exports = Behavior({
     tabBarReservedHeight: 0,
     menuButtonWidth: 88,
     isDirectEntry: false,
+    /** 朋友圈单页预览：微信提供原生导航，页面需挤压适配 */
+    isMomentsPreview: false,
     themeClass: '',
     themeLight: false,
     pageBgColor: '#000000'
@@ -44,10 +47,19 @@ module.exports = Behavior({
     initUiShell() {
       const app = getApp()
       const layout = (app && app.getUiShellLayout && app.getUiShellLayout()) || getUiShellLayout(getSystemInfo())
+      const isMomentsPreview = isMomentsSinglePage()
       const update = {
         statusBarHeight: layout.statusBarHeight,
-        navPlaceholderHeight: layout.navPlaceholderHeight,
-        tabBarReservedHeight: layout.tabBarReservedHeight
+        // 单页 squeezed：原生顶栏已占位，自定义顶栏隐藏，内容区顶占位归零
+        navPlaceholderHeight: isMomentsPreview ? 0 : layout.navPlaceholderHeight,
+        tabBarReservedHeight: layout.tabBarReservedHeight,
+        isMomentsPreview
+      }
+
+      if (isMomentsPreview) {
+        const safeBottom = Number(layout.safeBottomInset) || 0
+        // 微信底栏「前往小程序」约占 52px；无自定义 TabBar
+        update.tabBarReservedHeight = 52 + safeBottom
       }
 
       let menuButtonWidth = 88
@@ -63,7 +75,8 @@ module.exports = Behavior({
       update.isDirectEntry = pages.length <= 1
 
       // 主题注入：根 view 绑定 class="{{themeClass}}" 即可获得浅色变量覆盖
-      update.themeClass = theme.getThemeClassSync()
+      // is-moments-single：全局隐藏自定义顶栏（见 app.wxss）
+      update.themeClass = theme.getThemeClassSync(isMomentsPreview)
       update.themeLight = theme.isLightSync()
       update.pageBgColor = theme.getPageBgSync()
 

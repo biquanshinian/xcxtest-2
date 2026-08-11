@@ -6,8 +6,9 @@ const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
 const { openRocketModelDetail } = require('../../utils/booster-nav.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
-const { translateAgencyName } = require('../../utils/space-terms-i18n.js')
+const { translateRocketName } = require('../../utils/rocket-name-i18n.js')
 const { advanceImageFallback } = require('../../utils/ll2-image.js')
+const { isFavorite, toggleFavorite } = require('../../utils/favorites.js')
 
 Page({
   behaviors: [pageBase],
@@ -26,7 +27,9 @@ Page({
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
     tabBarReservedHeight: 0,
-    menuButtonWidth: 88
+    menuButtonWidth: 88,
+    isFavorited: false,
+    favAnimate: false
   },
 
   async onLoad(options) {
@@ -165,6 +168,8 @@ Page({
       }
     }
 
+    // 中国箭飞行史：展示「失利」而非「失败」
+    var failWord = (String(raw.countryCode || '').toUpperCase() === 'CN') ? '失利' : '失败'
     // 格式化飞行历史
     var formattedHistory = history.map(function (h, idx) {
       var isSuccess = h.success === true
@@ -178,7 +183,7 @@ Page({
         success: isSuccess,
         failed: isFailed,
         pending: isPending,
-        successText: isSuccess ? '成功' : (isFailed ? '失败' : '待定')
+        successText: isSuccess ? '成功' : (isFailed ? failWord : '待定')
       }
     })
 
@@ -208,13 +213,13 @@ Page({
       status: status,
       statusText: statusTextMap[status] || '未知',
       statusColor: statusColorMap[status] || '#8E8E93',
-      rocketFamily: raw.rocketFamily || 'Unknown',
+      rocketFamilyEn: raw.rocketFamily || 'Unknown',
+      rocketFamily: translateRocketName(raw.rocketFamily) || raw.rocketFamily || 'Unknown',
       // LL2 构型 id：型号标签跳 rocket-model-detail 用；无则标签退化为纯文本
       configId: raw.configId != null ? raw.configId : null,
       manufacturer: raw.manufacturer || '',
       // 展示用中文名（与发射商详情页同源词典）；manufacturer 保留原文供跳转解析
-      manufacturerDisplay: translateAgencyName(raw.manufacturer, '') ||
-        boosterDisplay.mfrDisplayName(raw.manufacturer || ''),
+      manufacturerDisplay: boosterDisplay.mfrDisplayName(raw.manufacturer || ''),
       block: raw.block || null,
       imageUrl: primaryImage,
       thumbnailUrl: primaryImage,
@@ -244,6 +249,7 @@ Page({
     this.setData({
       loading: false,
       item: item,
+      isFavorited: isFavorite('booster', item.serial),
       navTitle: item.serial + ' 详情',
       shareTitle: item.serial + ' ' + item.rocketFamily + ' | 火星探索日志'
     })
@@ -257,12 +263,14 @@ Page({
 
   _applyHeroImageFallback(raw, item) {
     var self = this
+    // 查图必须用英文族名（COS/构型索引按 LL2 原文）；界面展示用已汉化的 rocketFamily
+    var familyEn = (item && item.rocketFamilyEn) || (raw && raw.rocketFamily) || ''
     var applyCos = function () {
-      var url = boosterDisplay.cosRocketImageOf(item.rocketFamily)
+      var url = boosterDisplay.cosRocketImageOf(familyEn)
       if (url) self.setData({ 'item.imageUrl': url })
     }
     getRocketConfigMeta().then(function (meta) {
-      var url = boosterDisplay.configImageOf(raw.configId, item.rocketFamily, (meta && meta.configs) || {})
+      var url = boosterDisplay.configImageOf(raw.configId, familyEn, (meta && meta.configs) || {})
       if (url) {
         self.setData({ 'item.imageUrl': url })
       } else {
@@ -340,6 +348,25 @@ Page({
     if (item && item.imageUrl) {
       wx.previewImage({ current: item.imageUrl, urls: [item.imageUrl] })
     }
+  },
+
+  onToggleFavorite() {
+    var item = this.data.item
+    if (!item || !item.serial) {
+      wx.showToast({ title: '数据加载中，请稍后', icon: 'none' })
+      return
+    }
+    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+    var favorited = toggleFavorite({
+      type: 'booster',
+      id: item.serial,
+      title: item.serial,
+      subtitle: item.rocketFamily || '',
+      imageUrl: item.imageUrl || '',
+      category: 'booster'
+    })
+    this.setData({ isFavorited: favorited, favAnimate: favorited })
+    wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
   },
 
   onShareAppMessage() {

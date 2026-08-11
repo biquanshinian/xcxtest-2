@@ -1,4 +1,6 @@
 /* 发射场详情页 — map-page 布局（导航/工具/面板骨架样式来自 app.wxss .map-page） */
+@import "/styles/fav-btn.wxss";
+
 page {
   background: #0B0C0E;
   overflow: hidden;
@@ -125,6 +127,29 @@ page {
 .panel-header-text {
   flex: 1;
   min-width: 0;
+}
+
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
+}
+
+.panel-title-row .panel-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.fav-btn--panel {
+  width: 56rpx;
+  height: 56rpx;
+  margin: 0;
+}
+
+.fav-btn--panel .fav-heart {
+  width: 34rpx;
+  height: 34rpx;
 }
 
 .panel-subtitle {

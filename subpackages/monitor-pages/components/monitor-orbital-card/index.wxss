@@ -12,11 +12,15 @@
   margin-top: var(--space-md);
   padding: var(--space-lg) var(--space-md) var(--space-md);
   border-radius: var(--radius-lg);
-  background: var(--bg-glass);
+  /* 深色底：浅色主题下勿吃全局 glass-card 半透明白，否则会透过 bg-mask 发灰 */
+  background: #0B0C0E !important;
   overflow: hidden;
   /* 性能：卡片在纯色页面背景上，backdrop-filter 视觉无差别但每帧实时合成（本卡另有多路常驻动画），已移除 */
   /* 与首页倒计时卡一致：去掉外阴影与底部压线 */
   box-shadow: none;
+  border: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 .orbital-card.glass-card::after,
 .orbital-card::after {

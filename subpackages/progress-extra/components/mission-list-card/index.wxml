@@ -19,13 +19,13 @@
       <view class="mission-card-header">
         <text class="mission-status-badge status-{{item.statusCategory || 'pending'}}">{{item.statusBadgeText || item.status || '计划中'}}</text>
         <view class="mission-card-header-right">
-          <view class="recovery-icon-name" wx:if="{{item.boosterInfo && item.boosterInfo.flights >= 1}}">
-            <text class="recovery-type-name">第{{item.boosterInfo.flights}}次飞行</text>
+          <view class="recovery-icon-name" wx:if="{{item.flightCountLabel}}">
+            <text class="recovery-type-name">{{item.flightCountLabel}}</text>
           </view>
-          <text class="mission-country">{{item.countryDisplay || '未知'}}</text>
+          <text class="mission-country">{{item.countryDisplay || item.langUnknownCountry || '未知'}}</text>
         </view>
       </view>
-      <text class="mission-main-title">{{item.missionName || item.name || '未知任务'}}</text>
+      <text class="mission-main-title">{{item.missionName || item.name || item.langUnknownMission || '未知任务'}}</text>
       <text class="mission-meta mission-rocket" wx:if="{{item.rocketName}}">{{item.rocketName}}</text>
       <text class="mission-time">{{item.formattedTime}}</text>
       <text class="mission-meta mission-pad" wx:if="{{item.padLocation}}">{{item.padLocation}}</text>

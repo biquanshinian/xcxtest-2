@@ -213,7 +213,7 @@
             </div>
           </div>
           <el-text size="small" type="info">
-            公众号正文不支持外链视频，成稿用视频封面截图占位；无来源页时「阅读原文」指向首个视频。
+            公众号正文不支持外链视频，成稿用视频封面截图占位；「阅读原文」仅挂来源/推文网页，不挂 COS 视频直链。
           </el-text>
         </el-form-item>
         <el-form-item label="小程序 path"><el-input v-model="form.miniprogramPath" placeholder="pages/index/index" /></el-form-item>

@@ -3,6 +3,7 @@ const { getUiShellLayout } = require('../utils/layout.js')
 const { getSystemInfo } = require('../utils/system.js')
 const storageCache = require('../utils/storage-sync-cache.js')
 const themeUtil = require('../utils/theme.js')
+const tabLoadGate = require('../utils/tab-load-gate.js')
 
 const STORAGE_SNOOZE_UNTIL = 'add_desktop_strip_snooze_until'
 const STORAGE_GUIDE_IMAGE_PATH = 'add_desktop_guide_saved_path'
@@ -39,6 +40,8 @@ Component({
     desktopGuideDisplaySrc: '',
     desktopGuidePendingTempSave: false,
     desktopGuideTempPath: '',
+    /** Tab 切换全屏星星加载遮罩 */
+    tabLoadVisible: false,
     list: [
       {
         pagePath: '/pages/index/index',
@@ -79,6 +82,13 @@ Component({
       const boot = this._collectBootPatch()
       this.setData(Object.assign({ dragHighlightIndex: -1 }, boot))
       this._refreshAddDesktopStripVisibility(true)
+      this._bindTabLoadGate()
+    },
+    detached() {
+      if (typeof this._unsubTabLoad === 'function') {
+        try { this._unsubTabLoad() } catch (e) {}
+        this._unsubTabLoad = null
+      }
     }
   },
 
@@ -87,6 +97,7 @@ Component({
       const patch = this._collectBootPatch()
       this._setTabBarData(patch)
       this._refreshAddDesktopStripVisibility(true)
+      this._bindTabLoadGate()
     }
   },
 
@@ -110,6 +121,27 @@ Component({
       if (!patch || typeof patch !== 'object') return
       this._patchAppCache(patch)
       this.setData(patch)
+    },
+
+    _bindTabLoadGate() {
+      if (this._unsubTabLoad) return
+      const self = this
+      this._unsubTabLoad = tabLoadGate.subscribe(function (snap) {
+        try {
+          if (!self || typeof self.setData !== 'function') return
+          const vis = !!(snap && snap.visible)
+          const cur = self.data && self.data.tabLoadVisible
+          if (cur !== vis) {
+            self.setData({ tabLoadVisible: vis })
+          }
+        } catch (e) {}
+      })
+    },
+
+    _beginTabLoadSwitch(url) {
+      try {
+        tabLoadGate.beginTabSwitch(url)
+      } catch (e) {}
     },
 
     _resolveSelectedFromRoute() {
@@ -450,6 +482,7 @@ Component({
       ) {
         const item = this.data.list[commitIdx]
         if (item && item.pagePath) {
+          this._beginTabLoadSwitch(item.pagePath)
           wx.switchTab({
             url: item.pagePath,
             success: () => {
@@ -461,6 +494,7 @@ Component({
             },
             fail: () => {
               this._setTabBarData({ dragHighlightIndex: -1 })
+              try { tabLoadGate.cancelTabSwitch(item.pagePath) } catch (e) {}
             }
           })
         } else {
@@ -485,6 +519,7 @@ Component({
       if (idx === this.data.selected) return
 
       this._vibrateLight()
+      this._beginTabLoadSwitch(url)
       wx.switchTab({
         url: url,
         success: () => {
@@ -493,6 +528,9 @@ Component({
             currentPath: url,
             dragHighlightIndex: -1
           })
+        },
+        fail: () => {
+          try { tabLoadGate.cancelTabSwitch(url) } catch (err) {}
         }
       })
     }

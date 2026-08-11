@@ -211,6 +211,8 @@ const ROCKET_IMAGE_MAP = {
   'cz-7a': '火箭配置图/Long March 7A.png',
   'cz7a': '火箭配置图/Long March 7A.png',
   'cz 7a': '火箭配置图/Long March 7A.png',
+  '长征七号改': '火箭配置图/Long March 7A.png',
+  '长征七号甲': '火箭配置图/Long March 7A.png',
   'long march 11h': '火箭配置图/Long March 11H.jpg',
   'long march 2d': '火箭配置图/Long March 2D.jpg',
   'long march 2fg': '火箭配置图/Long March 2FG.jpg',
@@ -345,9 +347,22 @@ function lookupRocketImageKeyByName(rocketName) {
   return ''
 }
 
+/** 中文数字 → 阿拉伯（长征型号用，支持一～十二） */
+function zhNumeralToInt(zh) {
+  const s = zh == null ? '' : String(zh).trim()
+  if (!s) return 0
+  const map = {
+    一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6,
+    七: 7, 八: 8, 九: 9, 十: 10, 十一: 11, 十二: 12
+  }
+  if (map[s] != null) return map[s]
+  const n = parseInt(s, 10)
+  return Number.isFinite(n) ? n : 0
+}
+
 /**
- * 配图别名展开：CZ / Chang Zheng → Long March（优先试规范英文名，避免 fuzzy 命中任务特化文件名）。
- * 例：CZ-7A → Long March 7A，与详情头图/字典 canonical 一致。
+ * 配图别名展开：CZ / Chang Zheng / 长征中文名 → Long March（优先试规范英文名，避免 fuzzy 命中任务特化文件名）。
+ * 例：CZ-7A / 长征七号改 → Long March 7A，与详情头图/字典 canonical 一致。
  */
 function expandRocketNameAliasesForImage(rocketName) {
   const raw = rocketName == null ? '' : String(rocketName).trim()
@@ -369,6 +384,37 @@ function expandRocketNameAliasesForImage(rocketName) {
   if (cz) {
     const letters = cz[2] ? String(cz[2]).toUpperCase() : ''
     push(`Long March ${cz[1]}${letters}`)
+  }
+  // 中文展示名 → 英文配图名（与首页任务卡一致：字典/fuzzy 认英文）
+  if (/^猎鹰重型/.test(raw)) {
+    push('Falcon Heavy')
+  } else if (/^猎鹰/.test(raw)) {
+    push('Falcon 9 Block 5')
+    push('Falcon 9')
+  }
+  // 中文展示名兜底：长征七号改 / 长征八号甲 → Long March 7A / 8A
+  const czZh = raw.match(/^长征([一二三四五六七八九十两\d]+)号([甲乙丙丁改A-Za-z]+)?/)
+  if (czZh) {
+    const num = zhNumeralToInt(czZh[1])
+    if (num > 0) {
+      const sufRaw = czZh[2] ? String(czZh[2]) : ''
+      const letterMap = { 甲: 'A', 乙: 'B', 丙: 'C', 丁: 'D', 改: 'A' }
+      let letters = ''
+      if (sufRaw) {
+        if (letterMap[sufRaw]) {
+          letters = letterMap[sufRaw]
+        } else if (/^[a-z]+$/i.test(sufRaw)) {
+          letters = sufRaw.toUpperCase()
+        } else {
+          for (let i = 0; i < sufRaw.length; i++) {
+            const ch = sufRaw[i]
+            letters += letterMap[ch] || (/[a-z]/i.test(ch) ? ch.toUpperCase() : '')
+          }
+        }
+      }
+      push(`Long March ${num}${letters}`)
+      push(`CZ-${num}${letters}`)
+    }
   }
   push(raw)
   return out

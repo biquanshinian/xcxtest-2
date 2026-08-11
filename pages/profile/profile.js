@@ -3,14 +3,31 @@ const { ROUTES } = require('../../utils/routes.js')
 const { warmProfilePageStorageSync } = require('../../utils/page-storage-boot.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const storageCache = require('../../utils/storage-sync-cache.js')
+const userIdentity = require('../../utils/user-identity.js')
 const { getSubscribedMissions, unsubscribeLaunch, syncSubscribedMissions } = require('../../utils/subscribe.js')
-const { resolveMissionRocketImageFresh } = require('../../utils/util.js')
-const { getMembershipState, isPro, isMembershipEnabled, MEMBER_ICONS, gateCheck } = require('../../utils/membership.js')
-const { getFavoriteAgencies, removeFavoriteAgency } = require('../../utils/agency-favorites.js')
-const { resolveAgencyLogoBgTone, ensureAgencyLogoBgToneIfCached } = require('../../utils/agency-logo-bg.js')
+const { resolveMissionRocketImageFresh, isDefaultRocketSrc } = require('../../utils/util.js')
+const { getMembershipState, isPro, isMembershipEnabled, MEMBER_ICONS, MEMBER_BENEFIT_ICONS, MEMBER_PASS_BENEFITS } = require('../../utils/membership.js')
+const { getFavoriteCount } = require('../../utils/favorites.js')
 const themeUtil = require('../../utils/theme.js')
+const tabLoadPage = require('../../utils/tab-load-page.js')
 const rocketArtUtil = require('../../utils/rocket-config-art.js')
 const { getCachedIcon, preloadIcons } = require('../../utils/icon-cache.js')
+const {
+  loadPreferences,
+  savePreferences,
+  ROCKET_TYPE_OPTIONS,
+  LAUNCH_SITE_OPTIONS
+} = require('../../utils/user-growth.js')
+const { normalizeContentLang } = require('../../utils/locale.js')
+const { invalidateListSnapshots } = require('../../utils/api-launch-list.js')
+
+function prefsArrayToMap(arr) {
+  const map = {}
+  if (arr && arr.length) {
+    for (let i = 0; i < arr.length; i++) map[arr[i]] = true
+  }
+  return map
+}
 
 const GROWTH_ICONS = {
   BRIEFING: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%A4%AA%E7%A9%BA%E6%8E%A2%E7%B4%A2%E7%94%9F%E6%88%90%E8%83%8C%E6%99%AF%E5%9B%BE/1778755615793_c11otc.png',
@@ -35,6 +52,7 @@ const PROFILE_LAZY_METHODS = [
   'syncCloudProfile',
   'loadVoteStats',
   '_enrichVoteHistory',
+  '_applyVoteHistoryContentLang',
   'onVoteHistoryRocketImageError',
   'onVoteHistoryTap',
   'onToggleVoteHistory',
@@ -61,7 +79,15 @@ const PROFILE_LAZY_METHODS = [
 
 // profile-sections 分包组件（我的提醒 / 竞猜战绩 / 每日问答 / 在线客服）回传事件白名单
 const SECTION_EVENT_METHODS = [
-  'goPreferences',
+  'closeSettingsPanel',
+  'onThemeModeTap',
+  'onRocketArtTap',
+  'onContentLangChange',
+  'onBriefingToggle',
+  'onTogglePrefRocket',
+  'onTogglePrefSite',
+  'onNotifyPrefChange',
+  'onSaveReminderPrefs',
   'onOaAlertSwitch',
   'onCopyOaName',
   'onReminderTap',
@@ -75,6 +101,12 @@ const SECTION_EVENT_METHODS = [
   'onCopyWechat',
   'onContactCallback',
   'onShareFigma'
+]
+
+const NOTIFY_PREF_OPTIONS = [
+  { value: 30, label: '30分钟前' },
+  { value: 60, label: '1小时前' },
+  { value: 120, label: '2小时前' }
 ]
 function delegateProfileLazy(name) {
   return function (...args) {
@@ -106,6 +138,21 @@ Page({
     scrollRefreshing: false,
     themeMode: 'dark',
     rocketArtStyle: 'original',
+    contentLang: 'zh',
+    briefingEnabled: true,
+    settingsPanelOpen: false,
+    settingsPanelPadTop: 44,
+    menuButtonTop: 48,
+    menuButtonHeight: 32,
+    rocketOptions: ROCKET_TYPE_OPTIONS,
+    siteOptions: LAUNCH_SITE_OPTIONS,
+    notifyOptions: NOTIFY_PREF_OPTIONS,
+    selectedRockets: [],
+    selectedSites: [],
+    rocketMap: {},
+    siteMap: {},
+    notifyMinutes: 60,
+    prefSaving: false,
     pageBgColor: '#000000',
     popupAdItem: null,
     popupAdVisible: false,
@@ -113,6 +160,12 @@ Page({
     isAndroid: false,
     navPlaceholderHeight: 0,
     tabBarReservedHeight: 0,
+    // 身份展示
+    identityDisplayName: userIdentity.DEFAULT_DISPLAY_NAME,
+    identityAvatarUrl: '',
+    identityHasAvatar: false,
+    identityOpenId: '',
+    identityOpenIdMasked: '',
     // 签到
     checkinSummary: { totalDays: 0, currentStreak: 0, factsCollected: 0, totalFacts: 60, isCheckedInToday: false },
     weekDots: [],
@@ -122,8 +175,8 @@ Page({
     achievementInfo: { achievements: [], unlockedCount: 0, totalCount: 0 },
     showBadgeModal: false,
     badgeModalData: {},
-    // 我的收藏（发射商）
-    myFavorites: [],
+    // 我的收藏数量（角标）
+    favoritesCount: 0,
     // 我的提醒
     myReminders: [],
     oaAlertEnabled: false,
@@ -149,6 +202,7 @@ Page({
     membershipEnabled: false,
     memberIsPro: false,
     memberIcon: '',
+    passBenefits: [],
     briefingIcon: '',
     timelineIcon: '',
     watchPartyIcon: '',
@@ -183,17 +237,33 @@ Page({
     const app = getApp()
     const uiShellLayout = (app && app.getUiShellLayout && app.getUiShellLayout()) || getUiShellLayout(systemInfo)
 
+    let menuButtonTop = uiShellLayout.statusBarHeight + 6
+    let menuButtonHeight = 32
+    try {
+      const menuBtn = wx.getMenuButtonBoundingClientRect()
+      if (menuBtn && menuBtn.height) {
+        menuButtonTop = menuBtn.top
+        menuButtonHeight = menuBtn.height
+      }
+    } catch (e) {}
+
     this.setData({
       statusBarHeight: uiShellLayout.statusBarHeight,
       isAndroid: platform.includes('android'),
       navPlaceholderHeight: uiShellLayout.navPlaceholderHeight,
       tabBarReservedHeight: uiShellLayout.tabBarReservedHeight,
+      menuButtonTop,
+      menuButtonHeight,
+      settingsPanelPadTop: menuButtonTop,
       themeClass: themeUtil.getThemeClassSync(),
       themeLight: themeUtil.isLightSync(),
       themeMode: themeUtil.getThemeModeSync(),
       rocketArtStyle: rocketArtUtil.getRocketConfigArtStyle(),
-      pageBgColor: themeUtil.getPageBgSync()
+      pageBgColor: themeUtil.getPageBgSync(),
+      ...userIdentity.getIdentityView()
     })
+    this._syncSettingsPrefs()
+    this._loadReminderPrefs()
     this._profileBootPending = true
     this._profileShowRefreshPending = false
     try { warmProfilePageStorageSync() } catch (e) {}
@@ -201,14 +271,204 @@ Page({
     setTimeout(function () {
       self._runProfileBoot()
     }, 0)
+    this.refreshIdentity(true)
+  },
+
+  /** 刷新昵称 / 头像；needOpenId 时会向云端补 openid（内部用，不展示） */
+  refreshIdentity(needOpenId) {
+    this.setData(userIdentity.getIdentityView())
+    if (!needOpenId && this.data.identityOpenId) return
+    var self = this
+    userIdentity.ensureOpenId().then(function () {
+      self.setData(userIdentity.getIdentityView())
+    })
+  },
+
+  onAvatarTap() {
+    if (this._avatarUploading) return
+    this._avatarUploading = true
+    var self = this
+    userIdentity
+      .chooseAndUploadAvatar()
+      .then(function () {
+        self.setData(userIdentity.getIdentityView())
+        wx.showToast({ title: '头像已更新', icon: 'success' })
+      })
+      .catch(function (err) {
+        if (err && err.message === 'cancel') return
+      })
+      .then(function () {
+        self._avatarUploading = false
+      })
+  },
+
+  onDisplayNameTap() {
+    var cur = this.data.identityDisplayName || userIdentity.DEFAULT_DISPLAY_NAME
+    var self = this
+    wx.showModal({
+      title: '设置昵称',
+      editable: true,
+      placeholderText: '太空探索者',
+      content: cur === userIdentity.DEFAULT_DISPLAY_NAME ? '' : cur,
+      success: function (res) {
+        if (!res.confirm) return
+        var next = userIdentity.setDisplayName(res.content)
+        self.setData(userIdentity.getIdentityView())
+        wx.showToast({ title: next ? '昵称已更新' : '已恢复默认', icon: 'none' })
+      }
+    })
+  },
+
+  /** 同步统一设置区：发射卡片语言 + 每日简报开关 */
+  _syncSettingsPrefs() {
+    try {
+      const prefs = loadPreferences() || {}
+      const contentLang = normalizeContentLang(prefs.contentLang)
+      const briefingEnabled = prefs.briefingEnabled !== false
+      if (this.data.contentLang !== contentLang || this.data.briefingEnabled !== briefingEnabled) {
+        this.setData({ contentLang, briefingEnabled })
+      }
+    } catch (e) {}
+  },
+
+  _loadReminderPrefs() {
+    try {
+      const prefs = loadPreferences() || {}
+      const rockets = prefs.rocketTypes || []
+      const sites = prefs.launchSites || []
+      this.setData({
+        selectedRockets: rockets,
+        selectedSites: sites,
+        rocketMap: prefsArrayToMap(rockets),
+        siteMap: prefsArrayToMap(sites),
+        notifyMinutes: prefs.notifyMinutes || 60
+      })
+    } catch (e) {}
+  },
+
+  onToggleSettingsPanel() {
+    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+    const next = !this.data.settingsPanelOpen
+    if (next) {
+      this._syncSettingsPrefs()
+      this._loadReminderPrefs()
+    }
+    this.setData({ settingsPanelOpen: next })
+  },
+
+  closeSettingsPanel() {
+    if (!this.data.settingsPanelOpen) return
+    this.setData({ settingsPanelOpen: false })
+  },
+
+  onTogglePrefRocket(e) {
+    const name = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.name
+    if (!name) return
+    const list = this.data.selectedRockets.slice()
+    const map = Object.assign({}, this.data.rocketMap)
+    const idx = list.indexOf(name)
+    if (idx >= 0) {
+      list.splice(idx, 1)
+      delete map[name]
+    } else {
+      list.push(name)
+      map[name] = true
+    }
+    this.setData({ selectedRockets: list, rocketMap: map })
+  },
+
+  onTogglePrefSite(e) {
+    const name = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.name
+    if (!name) return
+    const list = this.data.selectedSites.slice()
+    const map = Object.assign({}, this.data.siteMap)
+    const idx = list.indexOf(name)
+    if (idx >= 0) {
+      list.splice(idx, 1)
+      delete map[name]
+    } else {
+      list.push(name)
+      map[name] = true
+    }
+    this.setData({ selectedSites: list, siteMap: map })
+  },
+
+  onNotifyPrefChange(e) {
+    const value = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.value
+    this.setData({ notifyMinutes: Number(value) || 60 })
+  },
+
+  onSaveReminderPrefs() {
+    if (this.data.prefSaving) return
+    this.setData({ prefSaving: true })
+    const prefs = loadPreferences() || {}
+    prefs.rocketTypes = this.data.selectedRockets
+    prefs.launchSites = this.data.selectedSites
+    prefs.notifyMinutes = this.data.notifyMinutes
+    savePreferences(prefs)
+
+    const finish = () => {
+      this.setData({ prefSaving: false })
+      wx.showToast({ title: '保存成功', icon: 'success' })
+    }
+    const RESULT_TMPL = 'ulf34VqAS9Tj32BMqj4M1qudtKKy04iiBM7Qb9_VDb4'
+    const REMINDER_TMPL = 'T5J5sRh2UdEwFE7q_VTbdowA0PeXrz_3bUweWEL6uBs'
+    try {
+      const oaAlert = require('../../utils/oa-alert.js')
+      if (oaAlert && typeof oaAlert.isOaAlertReady === 'function') {
+        oaAlert.isOaAlertReady().then((ready) => {
+          if (ready) {
+            finish()
+            return
+          }
+          wx.requestSubscribeMessage({
+            tmplIds: [REMINDER_TMPL, RESULT_TMPL],
+            complete: finish
+          })
+        }).catch(() => {
+          wx.requestSubscribeMessage({
+            tmplIds: [REMINDER_TMPL, RESULT_TMPL],
+            complete: finish
+          })
+        })
+        return
+      }
+    } catch (e) {}
+    wx.requestSubscribeMessage({
+      tmplIds: [REMINDER_TMPL, RESULT_TMPL],
+      complete: finish
+    })
   },
 
   _runProfileBoot() {
     if (!this._profileBootPending) return
     this._profileBootPending = false
-    this._runProfileShowRefresh(true)
-    this.syncCloudProfile()
-    this.loadAboutConfig()
+    var route = tabLoadPage.TAB_ROUTES.profile
+    var finished = false
+    function finish() {
+      if (finished) return
+      finished = true
+      try { tabLoadPage.endPageLoad(route) } catch (e) {}
+    }
+    try {
+      tabLoadPage.beginPageLoad(route)
+      try { this._runProfileShowRefresh(true) } catch (e) {}
+      try { this.syncCloudProfile() } catch (e) {}
+      try { this.loadAboutConfig() } catch (e) {}
+      var self = this
+      // 首屏本地 boot 很快；membership 异步补全，统一在短延迟后揭开遮罩
+      Promise.resolve()
+        .then(function () {
+          return typeof self._loadMembershipEntry === 'function'
+            ? self._loadMembershipEntry()
+            : null
+        })
+        .catch(function () {})
+        .then(finish)
+      setTimeout(finish, 800)
+    } catch (e) {
+      finish()
+    }
   },
 
   _runProfileShowRefresh(isBoot) {
@@ -255,6 +515,7 @@ Page({
     themeUtil.applyThemeToPage(this)
     const art = rocketArtUtil.getRocketConfigArtStyle()
     if (this.data.rocketArtStyle !== art) this.setData({ rocketArtStyle: art })
+    this._syncSettingsPrefs()
     // 艺术风格切换后回到本 Tab：补刷提醒 / 竞猜缩略图
     rocketArtUtil.applyRocketConfigArtIfNeeded(this)
     try {
@@ -273,6 +534,7 @@ Page({
 
     // 收藏为本地读取零成本，从发射商详情页返回即刷新
     this.loadMyFavorites()
+    this.refreshIdentity(false)
 
     if (this._profileBootPending) return
 
@@ -282,7 +544,7 @@ Page({
     }, 0)
   },
 
-  /** ══ 外观：深色 / 浅色 / 跟随系统 三档切换 ══ */
+  /** ══ 设置：深色 / 浅色 / 跟随系统 三档切换 ══ */
   onThemeModeTap(e) {
     const mode = (e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.mode) || 'dark'
     if (mode === this.data.themeMode) return
@@ -292,13 +554,45 @@ Page({
     this.setData({ themeMode: mode })
   },
 
-  /** ══ 外观：火箭配置图原图 / 机娘风格 ══ */
+  /** ══ 设置：火箭配置图原图 / 机娘风格 ══ */
   onRocketArtTap(e) {
     const style = (e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.style) || 'original'
     if (style === this.data.rocketArtStyle) return
     try { wx.vibrateShort({ type: 'medium' }) } catch (err) {}
     rocketArtUtil.setRocketConfigArtStyle(style)
     this.setData({ rocketArtStyle: rocketArtUtil.getRocketConfigArtStyle() })
+  },
+
+  /** ══ 设置：发射卡片语言（即时保存）══ */
+  onContentLangChange(e) {
+    const next = normalizeContentLang(e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.value)
+    if (next === this.data.contentLang) return
+    try { wx.vibrateShort({ type: 'medium' }) } catch (err) {}
+    const prefs = loadPreferences() || {}
+    prefs.contentLang = next
+    savePreferences(prefs)
+    this.setData({ contentLang: next })
+    try { invalidateListSnapshots() } catch (err2) {}
+    // 详情 10 分钟缓存会带着旧语言展示字段；切换语言后清掉，避免 skipRebuild 卡在英文/中文
+    try {
+      storageCache.writeMem('mission_detail_cache', {})
+      wx.removeStorage({ key: 'mission_detail_cache', fail: function () {} })
+    } catch (err3) {}
+    try {
+      if (typeof this._applyVoteHistoryContentLang === 'function') {
+        this._applyVoteHistoryContentLang()
+      }
+    } catch (err4) {}
+  },
+
+  /** ══ 设置：每日太空简报开关（即时保存）══ */
+  onBriefingToggle(e) {
+    const enabled = !!(e && e.detail && e.detail.value)
+    if (enabled === this.data.briefingEnabled) return
+    const prefs = loadPreferences() || {}
+    prefs.briefingEnabled = enabled
+    savePreferences(prefs)
+    this.setData({ briefingEnabled: enabled })
   },
 
   /** 艺术风格切换后刷新本页提醒 / 竞猜缩略图 */
@@ -314,58 +608,17 @@ Page({
     return true
   },
 
-  /** ══ 我的收藏（发射商）══ */
+  /** ══ 我的收藏（数量角标；详情见 favorites 页）══ */
   loadMyFavorites() {
     try {
-      const list = getFavoriteAgencies().map((item) => {
-        const logoUrl = item && item.logoUrl ? String(item.logoUrl) : ''
-        return {
-          ...item,
-          logoBgTone: logoUrl ? resolveAgencyLogoBgTone(logoUrl) : ''
-        }
-      })
-      this.setData({ myFavorites: list })
-      const self = this
-      list.forEach((item, idx) => {
-        if (!item || !item.logoUrl || item.logoBgTone) return
-        ensureAgencyLogoBgToneIfCached(item.logoUrl, '', function (tone) {
-          if (!tone) return
-          const cur = self.data.myFavorites
-          if (!cur || !cur[idx] || cur[idx].id !== item.id) return
-          if (cur[idx].logoBgTone === tone) return
-          self.setData({ [`myFavorites[${idx}].logoBgTone`]: tone })
-        })
-      })
-    } catch (e) {}
+      this.setData({ favoritesCount: getFavoriteCount() })
+    } catch (e) {
+      this.setData({ favoritesCount: 0 })
+    }
   },
 
-  async onFavoriteTap(e) {
-    const id = e.currentTarget.dataset.id
-    if (!id) return
-    try { wx.vibrateShort({ type: 'medium' }) } catch (err) {}
-    // 与全项目发射商入口门控一致
-    const allowed = await gateCheck('agency_encyclopedia', '全球发射商图鉴')
-    if (!allowed) return
-    wx.navigateTo({ url: `${ROUTES.AGENCY_DETAIL}?id=${encodeURIComponent(id)}` })
-  },
-
-  onRemoveFavorite(e) {
-    const ds = e.currentTarget.dataset
-    const id = ds.id
-    if (!id) return
-    const self = this
-    wx.showModal({
-      title: '取消收藏',
-      content: `确定取消收藏「${ds.name || '该发射商'}」吗？`,
-      confirmText: '取消收藏',
-      cancelText: '再想想',
-      success(res) {
-        if (!res.confirm) return
-        removeFavoriteAgency(id)
-        self.loadMyFavorites()
-        wx.showToast({ title: '已取消收藏', icon: 'none' })
-      }
-    })
+  goFavorites() {
+    wx.navigateTo({ url: ROUTES.FAVORITES })
   },
 
   onPopupAdClose() {
@@ -413,12 +666,20 @@ Page({
     }, 400)
   },
 
+  goBadges(e) {
+    const raw = e && e.currentTarget && e.currentTarget.dataset
+      ? e.currentTarget.dataset.index
+      : undefined
+    const index = Number(raw)
+    let url = ROUTES.BADGES
+    if (Number.isFinite(index) && index >= 0) {
+      url += '?index=' + index
+    }
+    wx.navigateTo({ url })
+  },
+
   onAchievementTap(e) {
-    const index = e.currentTarget.dataset.index
-    const achievements = this.data.achievementInfo.achievements || []
-    const item = achievements[index]
-    if (!item) return
-    this.setData({ showBadgeModal: true, badgeModalData: item })
+    this.goBadges(e)
   },
 
   closeBadgeModal() {
@@ -444,19 +705,26 @@ Page({
       // 老记录缺失信息时，从本地任务详情缓存补全
       let name = m.name
       let rocket = m.rocket
-      let rocketImage = m.rocketImage
+      let rocketNameEn = m.rocketNameEn || ''
       let launchTime = m.launchTime
       let rocketConfiguration = m.rocketConfiguration || null
+      const cached = this._getMissionFromLocalCache(m.id)
 
-      if (!name || !rocket || !rocketImage || !launchTime || !rocketConfiguration) {
-        const cached = this._getMissionFromLocalCache(m.id)
-        if (cached) {
-          if (!name || name === '未知任务' || name === '发射任务 #' + m.id) name = cached.missionName || cached.name || name
-          if (!rocket) rocket = cached.rocketName || rocket
-          if (!rocketImage) rocketImage = cached.rocketImage || cached.image || rocketImage
-          if (!launchTime) launchTime = cached.launchTime || cached.windowStart || launchTime
-          if (!rocketConfiguration) rocketConfiguration = cached.rocketConfiguration || null
+      if (cached) {
+        if (!name || name === '未知任务' || name === '发射任务 #' + m.id) {
+          name = cached.missionName || cached.name || name
         }
+        if (!rocket) rocket = cached.rocketName || rocket
+        if (!launchTime) launchTime = cached.launchTime || cached.windowStart || launchTime
+        if (!rocketConfiguration) rocketConfiguration = cached.rocketConfiguration || null
+        // 配图链路与首页一致：优先英文火箭名
+        if (!rocketNameEn) {
+          const cachedEn = cached.rocketName || ''
+          if (cachedEn && !/[\u4e00-\u9fff]/.test(cachedEn)) rocketNameEn = cachedEn
+        }
+      }
+      if (!rocketNameEn && rocket && !/[\u4e00-\u9fff]/.test(String(rocket))) {
+        rocketNameEn = rocket
       }
 
       let launchMs = 0
@@ -483,8 +751,8 @@ Page({
       // 已过期的任务不再显示在提醒列表中
       if (status === 'past') return
 
-      // 与首页卡片同源；忽略订阅记录里的旧盖章，按当前艺术风格重算
-      const rocketImg = resolveMissionRocketImageFresh(rocket || '', rocketConfiguration)
+      // 与首页任务卡同源：英文火箭名 + rocketConfiguration 强制重算
+      const rocketImg = resolveMissionRocketImageFresh(rocketNameEn || rocket || '', rocketConfiguration)
 
       list.push({
         key: 'launch_' + m.id,
@@ -499,7 +767,8 @@ Page({
         sortTime: launchMs || (nowMs + 999999999),
         status,
         missionId: m.id,
-        daysLabel: status === 'today' ? '即将发射' : status === 'past' ? '已发射' : launchMs ? daysLeft + '天后' : '待定'
+        daysLabel: status === 'today' ? '即将发射' : status === 'past' ? '已发射' : launchMs ? daysLeft + '天后' : '待定',
+        _needsEnrich: !rocketConfiguration || !rocketNameEn || isDefaultRocketSrc(rocketImg)
       })
     })
 
@@ -591,12 +860,21 @@ Page({
     wx.navigateTo({ url: '/subpackages/profile-extra/membership/membership' })
   },
 
-  goInvite() {
-    wx.navigateTo({ url: '/subpackages/profile-extra/invite/invite' })
-  },
-
   goTimeline() {
     wx.navigateTo({ url: '/subpackages/profile-extra/timeline/timeline' })
+  },
+
+  openProfileBriefing() {
+    if (!this.data.briefingEnabled) return
+    wx.navigateTo({ url: ROUTES.BRIEFING })
+  },
+
+  goVoteRecord() {
+    wx.navigateTo({ url: ROUTES.VOTE_RECORD })
+  },
+
+  goDailyQuiz() {
+    wx.navigateTo({ url: ROUTES.DAILY_QUIZ })
   },
 
   /** 过审开关：强制刷新，避免一键过审后仍显示入口；开启时顺带拉场次数刷红角标 */
@@ -629,7 +907,9 @@ Page({
   },
 
   goPreferences() {
-    wx.navigateTo({ url: '/subpackages/profile-extra/preferences/preferences' })
+    // 兼容旧入口：改为打开设置左半屏（提醒偏好已并入设置）
+    this._loadReminderPrefs()
+    this.setData({ settingsPanelOpen: true })
   },
 
   async _loadMembershipEntry() {
@@ -643,9 +923,19 @@ Page({
       const state = await getMembershipState()
       const pro = isPro(state)
       const memberIconUrl = pro ? MEMBER_ICONS.PRO : MEMBER_ICONS.FREE
-      preloadIcons([memberIconUrl])
+      const benefitUrls = MEMBER_PASS_BENEFITS.map(function (b) {
+        return MEMBER_BENEFIT_ICONS[b.iconIndex]
+      }).filter(Boolean)
+      preloadIcons([memberIconUrl].concat(benefitUrls))
       const memberIcon = getCachedIcon(memberIconUrl)
-      this.setData({ memberIsPro: pro, memberIcon })
+      const passBenefits = MEMBER_PASS_BENEFITS.map(function (b) {
+        const url = MEMBER_BENEFIT_ICONS[b.iconIndex] || ''
+        return {
+          name: b.name,
+          iconUrl: url ? getCachedIcon(url) : ''
+        }
+      })
+      this.setData({ memberIsPro: pro, memberIcon, passBenefits })
     } catch (e) {
       this.setData({ membershipEnabled: false })
     }

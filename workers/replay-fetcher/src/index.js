@@ -11,10 +11,19 @@
  */
 import fs from 'fs'
 import path from 'path'
+import { pathToFileURL } from 'url'
 import { spawn } from 'child_process'
-import { getConfig, tmpDir } from './config.js'
-import { claimJob, completeJob, failJob } from './api.js'
-import { tokenVariantGroups, hits, scoreClipText } from './clip-match.js'
+import { getConfig, tmpDir, agentRoot } from './config.js'
+import { claimJob, completeJob, failJob, nudgeQueue } from './api.js'
+import {
+  tokenVariantGroups,
+  hits,
+  scoreClipText,
+  parseUploadDateMs,
+  pickBestClipCandidate,
+  dateTextCandidates
+} from './clip-match.js'
+import { buildProxyCandidates } from './proxy-discover.js'
 
 function log(...args) {
   console.log(`[${new Date().toISOString()}]`, ...args)
@@ -43,6 +52,15 @@ function ytdlpFormatSelector(maxHeight) {
   ].join('/')
 }
 
+/** 403 时用的宽松格式（不强制 AVC，下载后再兼容转码） */
+function ytdlpFormatSelectorLoose(maxHeight) {
+  const h = maxHeight
+  return [
+    `bv*[height<=${h}]+ba/b[height<=${h}]`,
+    `bv*+ba/b`
+  ].join('/')
+}
+
 /** Windows 上 child.kill 杀不掉 yt-dlp 拉起的 ffmpeg 子进程，必须整树查杀 */
 function killTree(child) {
   if (!child || !child.pid) return
@@ -54,50 +72,88 @@ function killTree(child) {
 }
 
 // ---- 出口（代理/直连）自动选择 ----------------------------------------------
-// REPLAY_PROXY 支持逗号分隔的候选列表（代理 URL 或 'direct'），领到任务时逐个
-// 探测能否连通 YouTube，用第一个可用的。主代理挂了自动切备用/直连，不再卡死任务。
+// 1) REPLAY_PROXY 配置优先  2) 扫本机常见代理口（7890/10808…）  3) 直连
+// 成功出口缓存 5 分钟；全挂不缓存死端口，下轮任务继续自动扫，避免「端口变了就不动」。
 const PROXY_PROBE_URL = 'https://www.youtube.com/generate_204'
 const PROXY_PROBE_CACHE_MS = 5 * 60 * 1000
-let proxyCache = { at: 0, value: null }
+let proxyCache = { at: 0, value: null, failed: false }
 
 /** 用系统 curl 探测某出口能否连通 YouTube（'' = 直连）；Win10+/mac/linux 都自带 curl */
 function probeExit(proxy) {
   return new Promise((resolve) => {
     const devNull = process.platform === 'win32' ? 'NUL' : '/dev/null'
-    const args = ['-sS', '-m', '10', '-o', devNull, '-w', '%{http_code}', PROXY_PROBE_URL]
+    const args = ['-sS', '-m', '5', '-o', devNull, '-w', '%{http_code}', PROXY_PROBE_URL]
     if (proxy) args.unshift('-x', proxy)
     const child = spawn('curl', args, { stdio: ['ignore', 'pipe', 'ignore'] })
     let out = ''
-    const timer = setTimeout(() => { killTree(child); resolve(false) }, 15000)
+    const timer = setTimeout(() => { killTree(child); resolve(false) }, 8000)
     child.stdout.on('data', (d) => { out += d })
     child.on('error', () => { clearTimeout(timer); resolve(false) })
     child.on('exit', () => { clearTimeout(timer); resolve(/^[23]\d\d$/.test(out.trim())) })
   })
 }
 
-/** 选出口：探测结果缓存 5 分钟；全挂时回落第一候选，交给服务端退避重试 */
+/** 选出口：配置 + 本机自动发现；只缓存成功结果 */
 async function pickProxy(cfg) {
-  const cands = (cfg.proxies && cfg.proxies.length) ? cfg.proxies : ['direct']
   const now = Date.now()
-  if (proxyCache.value !== null && now - proxyCache.at < PROXY_PROBE_CACHE_MS) return proxyCache.value
-  for (const c of cands) {
+  if (
+    !proxyCache.failed &&
+    proxyCache.value !== null &&
+    now - proxyCache.at < PROXY_PROBE_CACHE_MS
+  ) {
+    return proxyCache.value
+  }
+
+  const { candidates, discoveredPorts } = await buildProxyCandidates(cfg.proxies || [])
+  if (discoveredPorts.length) {
+    log(`出口扫描: 本机监听 ${discoveredPorts.join(',')}`)
+  } else {
+    log('出口扫描: 未发现本机常见代理口，将试配置项与直连')
+  }
+
+  for (const c of candidates) {
     const proxy = c.toLowerCase() === 'direct' ? '' : c
     if (await probeExit(proxy)) {
-      if (proxyCache.value !== proxy) log(`出口探测: 使用 ${proxy || '直连'}`)
-      proxyCache = { at: now, value: proxy }
+      if (proxyCache.value !== proxy || proxyCache.failed) {
+        log(`出口探测: 使用 ${proxy || '直连'}`)
+      }
+      proxyCache = { at: now, value: proxy, failed: false }
       return proxy
     }
     log(`出口探测: ${proxy || '直连'} 不可用`)
   }
-  const first = cands[0].toLowerCase() === 'direct' ? '' : cands[0]
-  proxyCache = { at: now, value: first }
-  log(`出口探测: 全部不可用，暂用 ${first || '直连'}（等服务端退避重试）`)
-  return first
+
+  // 全挂：不缓存坏端口，下个 claim 重新扫（VPN 后开/换端口也能跟上）
+  proxyCache = { at: now, value: '', failed: true }
+  log('出口探测: 全部不可用（已含本机自动扫端口）；下轮任务将重新扫描')
+  return ''
+}
+
+/**
+ * 开机/VPN 后开：在真正领任务前阻塞等待出口就绪，避免空烧 attempts、卡数小时退避。
+ * 每 20s 自动扫本机代理口；VPN 一开立即继续。
+ */
+async function waitForProxyReady(cfg) {
+  const intervalMs = 20 * 1000
+  let n = 0
+  for (;;) {
+    invalidateProxyCache()
+    const proxy = await pickProxy(cfg)
+    if (!proxyCache.failed) {
+      if (n > 0) log(`VPN/代理已就绪: ${proxy || '直连'}（等待了 ${n} 轮）`)
+      return proxy
+    }
+    n += 1
+    if (n === 1 || n % 3 === 0) {
+      log(`等待 VPN/代理…（已轮询 ${n} 次，请保持规则模式开启；将自动搜索本地端口）`)
+    }
+    await new Promise((r) => setTimeout(r, intervalMs))
+  }
 }
 
 /** 任务失败时调用：作废探测缓存，下个任务重新选出口 */
 function invalidateProxyCache() {
-  proxyCache = { at: 0, value: null }
+  proxyCache = { at: 0, value: null, failed: false }
 }
 
 /** 跑 yt-dlp 并捕获 stdout（用于 --print / --flat-playlist 查询类调用） */
@@ -403,43 +459,51 @@ async function uploadToCos(uploadUrl, file) {
 async function findClipVideo(cfg, clipSearch) {
   const channel = clipSearch.channel
   const dateText = String(clipSearch.dateText || '').toLowerCase()
+  const dateOpts = dateTextCandidates(dateText)
   const tokens = tokenVariantGroups((clipSearch.tokens || []).map((t) => String(t).toLowerCase()))
   const rocketTokens = tokenVariantGroups((clipSearch.rocketTokens || []).map((t) => String(t).toLowerCase()))
   if (!channel || !dateText) return null
+  const netMs = Number(clipSearch.netMs) || 0
+  const titleHasDate = (title) => {
+    const t = String(title || '').toLowerCase()
+    return dateOpts.some((d) => t.includes(d))
+  }
 
   const out = await runYtdlpCapture(cfg, [
     '--flat-playlist',
     '--playlist-end', '30',
-    '--print', '%(id)s\t%(duration)s\t%(title)s',
+    // upload_date：模糊匹配同日多候选时按接近发射时间挑
+    '--print', '%(id)s\t%(duration)s\t%(upload_date)s\t%(title)s',
     channel
   ])
   const rows = out.split(/\r?\n/).filter(Boolean).map((line) => {
     const parts = line.split('\t')
-    if (parts.length < 3) return null
+    if (parts.length < 4) return null
     return {
       id: parts[0].trim(),
       durationSec: Math.round(Number(parts[1])) || 0,
-      title: parts.slice(2).join('\t').trim()
+      uploadDate: parts[2].trim(),
+      title: parts.slice(3).join('\t').trim()
     }
   }).filter(Boolean)
 
   const maxDurSec = Number(clipSearch.maxDurationSec || 300) + 30
 
-  // 候选：时长合规，且标题带日期，或标题含 launch 且命中任一任务/火箭关键词
+  // 候选：时长合规，且标题带日期（含近邻日），或标题含 launch 且命中任一任务/火箭关键词
   const pre = rows.filter((r) => (!r.durationSec || r.durationSec <= maxDurSec))
-  const dateInTitle = pre.filter((r) => r.title.toLowerCase().includes(dateText))
+  const dateInTitle = pre.filter((r) => titleHasDate(r.title))
   const needVerify = pre.filter((r) => {
     const t = r.title.toLowerCase()
-    return !t.includes(dateText) && /launch/i.test(r.title) &&
+    return !titleHasDate(r.title) && /launch/i.test(r.title) &&
       (hits(tokens, t) > 0 || hits(rocketTokens, t) > 0)
   })
   const candidates = dateInTitle.concat(needVerify.slice(0, 3))
   if (!candidates.length) return null
 
   // 全发射商场景：同一天可能多家发射，一律拉简介核验；细则见 clip-match.scoreClipText
-  let best = null
-  let bestScore = 0
-  for (const r of candidates.slice(0, 5)) {
+  // 精细失败时走 fuzzy（家族词+火箭+日期），再按 upload≈net 挑最近
+  const scoredItems = []
+  for (const r of candidates.slice(0, 8)) {
     let description = ''
     try {
       description = await runYtdlpCapture(cfg, [
@@ -450,54 +514,82 @@ async function findClipVideo(cfg, clipSearch) {
     } catch (e) {}
     const scored = scoreClipText(r.title, description, clipSearch)
     if (!scored.ok) continue
-    // score 可能为 0（极端空线索）；首次命中也要收下，不能只写 > bestScore
-    if (!best || scored.score > bestScore) {
-      best = r
-      bestScore = scored.score
-    }
+    scoredItems.push({
+      r,
+      scored,
+      uploadMs: parseUploadDateMs(r.uploadDate)
+    })
   }
-  if (!best) return null
+  const bestItem = pickBestClipCandidate(scoredItems, netMs)
+  if (!bestItem) return null
+  const best = bestItem.r
+  if (bestItem.scored.fuzzy && !bestItem.scored.strict) {
+    log(`集锦模糊匹配 [${clipSearch.publisher || 'clip'}] ${best.title}`)
+  }
   return { url: `https://www.youtube.com/watch?v=${best.id}`, title: best.title }
 }
 
 /** kind=clip：匹配 → 下载 ≤480p 短片 → 直传 COS → complete 回写 agentClips */
 async function processClipJob(cfg, data) {
   const { job, upload } = data
-  const clipSearch = job.clipSearch || {}
+  const clipSearch = { ...(job.clipSearch || {}) }
+  // 接近时间匹配：优先 clipSearch.netMs，否则用任务 net
+  if (!Number(clipSearch.netMs)) {
+    const fromJob = Date.parse(job.net || '') || 0
+    if (fromJob) clipSearch.netMs = fromJob
+  }
   const outFile = path.join(tmpDir(), `clip_${job.launchId}.mp4`)
   try { fs.rmSync(outFile, { force: true }) } catch (e) {}
 
+  log(`集锦匹配开始: ${job.missionName || job.launchId} date=${clipSearch.dateText || '?'} tokens=${(clipSearch.tokens || []).join(',')}`)
   let video = null
   try {
     video = await findClipVideo(cfg, clipSearch)
   } catch (e) {
+    log(`集锦匹配异常: ${e.message}`)
     await failJob({ id: job.id, claimToken: job.claimToken, error: `clip_search_failed: ${e.message}` })
     return
   }
   if (!video) {
     // 视频可能还没发布：非终态失败，服务端退避后重试
+    log(`集锦未匹配: ${job.missionName || job.launchId}（clip_not_found_yet）`)
     await failJob({ id: job.id, claimToken: job.claimToken, error: 'clip_not_found_yet' })
     return
   }
 
   const maxDur = Number(clipSearch.maxDurationSec || 300) + 30
+  const buildDlArgs = (fmt) => [
+    '-f', fmt,
+    '--merge-output-format', 'mp4',
+    '--no-playlist',
+    '--match-filter', `duration <= ${maxDur}`,
+    '--max-filesize', '200M',
+    '--socket-timeout', '30',
+    '--retries', '3',
+    '-o', outFile,
+    video.url
+  ]
   try {
     log(`集锦下载 [${clipSearch.publisher || 'clip'}] ${video.title}`)
-    const args = [
-      '-f', ytdlpFormatSelector(cfg.maxHeight),
-      '--merge-output-format', 'mp4',
-      '--no-playlist',
-      '--match-filter', `duration <= ${maxDur}`,
-      '--max-filesize', '200M',
-      '--socket-timeout', '30',
-      '--retries', '3',
-      '-o', outFile,
-      video.url
-    ]
-    await runYtdlpDownload(cfg, args, outFile, CLIP_DOWNLOAD_TIMEOUT_MS)
+    await runYtdlpDownload(cfg, buildDlArgs(ytdlpFormatSelector(cfg.maxHeight)), outFile, CLIP_DOWNLOAD_TIMEOUT_MS)
   } catch (e) {
-    await failJob({ id: job.id, claimToken: job.claimToken, error: `clip_download_failed: ${e.message}` })
-    return
+    const msg = String(e.message || e)
+    // YouTube 偶发 403：换宽松格式 + 重选出口再试一次，减少人工介入
+    if (/403|forbidden/i.test(msg)) {
+      log(`集锦下载 403，自动换格式/出口重试: ${video.title}`)
+      try { fs.rmSync(outFile, { force: true }) } catch (e2) {}
+      invalidateProxyCache()
+      cfg.proxy = await pickProxy(cfg)
+      try {
+        await runYtdlpDownload(cfg, buildDlArgs(ytdlpFormatSelectorLoose(cfg.maxHeight)), outFile, CLIP_DOWNLOAD_TIMEOUT_MS)
+      } catch (e2) {
+        await failJob({ id: job.id, claimToken: job.claimToken, error: `clip_download_failed: 403/forbidden ${e2.message}` })
+        return
+      }
+    } else {
+      await failJob({ id: job.id, claimToken: job.claimToken, error: `clip_download_failed: ${msg}` })
+      return
+    }
   }
 
   try {
@@ -605,33 +697,88 @@ function cleanupTmpDir() {
   } catch (e) {}
 }
 
+function writeAgentPid() {
+  try {
+    const dir = path.join(agentRoot(), 'logs')
+    fs.mkdirSync(dir, { recursive: true })
+    const pidFile = path.join(dir, 'agent.pid')
+    fs.writeFileSync(pidFile, String(process.pid))
+    const clear = () => { try { fs.rmSync(pidFile, { force: true }) } catch (e) {} }
+    process.on('exit', clear)
+    process.on('SIGINT', () => { clear(); process.exit(0) })
+    process.on('SIGTERM', () => { clear(); process.exit(0) })
+  } catch (e) {}
+}
+
 async function loop() {
+  writeAgentPid()
   const cfg = getConfig()
   log(`replay-fetcher 启动 poll=${cfg.pollMs}ms maxHeight=${cfg.maxHeight}p compat=${cfg.compatTranscode ? 'on' : 'off'}`)
+  log('自愈策略: 自动扫代理口 → VPN 未开则等待不领任务 → 空队列 nudge → 下载 403 自动重试')
   await assertFfmpegReady(cfg)
   cleanupTmpDir()
+  let lastNudgeAt = 0
   for (;;) {
     try {
-      const data = await claimJob()
+      // 先等出口：开机后 VPN 晚开也不烧 attempts
+      cfg.proxy = await waitForProxyReady(cfg)
+
+      let data = await claimJob()
+      // 空领：清退避 / 复活 failed（adminGateway nudge-queue）
+      if ((!data || !data.job) && Date.now() - lastNudgeAt > 10 * 60 * 1000) {
+        try {
+          const nudged = await nudgeQueue({ resetAttempts: true })
+          lastNudgeAt = Date.now()
+          log(`队列 nudge: nudged=${nudged && nudged.nudged} revived=${nudged && nudged.revived}`)
+          data = await claimJob()
+        } catch (e) {
+          lastNudgeAt = Date.now()
+          if (!/未知 Agent 路由|4040/.test(String(e.message || ''))) {
+            log('队列 nudge 失败:', e.message)
+          }
+        }
+      }
       if (data && data.job) {
+        // 领到任务后再确认一次出口（长等待后 VPN 可能已换端口）
+        invalidateProxyCache()
         cfg.proxy = await pickProxy(cfg)
+        if (proxyCache.failed) {
+          log('领到任务但出口又不可用，短退避归还并等待 VPN')
+          try {
+            await failJob({
+              id: data.job.id,
+              claimToken: data.job.claimToken,
+              error: 'proxy_unavailable_retry'
+            })
+          } catch (e) {}
+          continue
+        }
         try {
           await processJob(cfg, data)
         } catch (e) {
-          invalidateProxyCache() // 失败可能是出口问题，下个任务重新探测
+          invalidateProxyCache()
           throw e
         }
-        continue // 有任务时不等轮询间隔，立即领下一条
+        continue
       }
     } catch (e) {
       log('轮询/处理异常:', e.message)
+      invalidateProxyCache()
     }
     await new Promise((r) => setTimeout(r, cfg.pollMs))
   }
 }
 
+
 // 直接运行时才进主循环；被 import 时只导出（便于单测匹配逻辑）
-const isMain = process.argv[1] && import.meta.url === new URL(`file:///${process.argv[1].replace(/\\/g, '/')}`).href
+const isMain = (() => {
+  if (!process.argv[1]) return false
+  try {
+    return import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+  } catch (e) {
+    return false
+  }
+})()
 if (isMain) loop()
 
-export { findClipVideo, pickProxy, scoreClipText, isCompatMp4, ytdlpFormatSelector }
+export { findClipVideo, pickProxy, scoreClipText, isCompatMp4, ytdlpFormatSelector, waitForProxyReady }

@@ -12,11 +12,19 @@ const {
   getRocketConfigMeta,
   getStarshipHardwareFromDB
 } = require('../../../utils/api-app-services.js')
-const { getSubscribedMissions } = require('../../../utils/subscribe.js')
+const { getSubscribedMissions, isSubscribed } = require('../../../utils/subscribe.js')
+const { peekOaAlertReady } = require('../../../utils/oa-alert.js')
 const { matchWatchPartySession } = require('./watch-party.js')
 const { workerProxyUrl } = require('../../../utils/config.js')
 const { buildMissionDetailUrl } = require('../../../utils/index-mission-nav.js')
 const { formatDate, resolveMissionRocketImage } = require('../../../utils/util.js')
+const {
+  applyContentLangToMission,
+  formatMissionListTimeOrUnknown,
+  rocketNameForImage
+} = require('../../../utils/launch-card-i18n.js')
+const { launchCardUiText, isContentLangEn } = require('../../../utils/locale.js')
+const { aiChatUiText, localizeCountryName, localizeAgencyType } = require('./ai-chat-i18n.js')
 const { loadCloudMediaMap } = require('../../../utils/image-config.js')
 const { ROUTES } = require('../../../utils/routes.js')
 const { isFeatureEnabled } = require('../../../utils/feature-flags.js')
@@ -37,6 +45,7 @@ const {
   matchStarshipStatusIntent,
   matchLaunchStatsIntent,
   matchLaunchListIntent,
+  matchHistoryListIntent,
   matchFlightDemoIntent,
   matchMissionSimIntent,
   matchVehicleTrackerIntent,
@@ -44,6 +53,7 @@ const {
   matchStationIntent,
   matchAgencyIntent,
   matchMissionLookupIntent,
+  matchSetReminderIntent,
   matchMissionReplayIntent,
   matchRocketModelIntent,
   matchLaunchSiteIntent,
@@ -68,11 +78,19 @@ const {
   countLaunchesInBounds,
   pickStarshipMission,
   pickLaunchList,
+  pickHistoryList,
   pickStation,
   pickBestMissionMatch,
+  pickSoonestUpcomingMission,
+  isBareNextLaunchAsk,
   missionLookupTimePreference,
+  resolveMissionDetailType,
   pickBestAgencyMatch,
+  resolveAgencyFromRocketConfig,
+  hasAgencyOwnershipAsk,
   parseLaunchListFilter,
+  parseHistoryListFilter,
+  buildHistoryCloudSearchKeys,
   launchListFilterLabel,
   extractAgencySearchKey,
   resolveAgencyCanonicalSearchKey,
@@ -116,16 +134,10 @@ const {
   enrichLaunchContextWithAgency,
   enrichLaunchContextNoAgency,
   enrichLaunchContextWithMissionReplay,
-  enrichLaunchContextNoMissionReplay
+  enrichLaunchContextNoMissionReplay,
+  enrichLaunchContextWithSetReminder,
+  stripReminderAskNoise
 } = require('./ai-chat-rich-core.js')
-
-const AGENCY_TYPE_ZH = {
-  Government: '政府',
-  Commercial: '商业',
-  Multinational: '跨国',
-  Educational: '教育',
-  Private: '私营'
-}
 
 const AGENCY_COUNTRY_ZH = {
   China: '中国',
@@ -147,7 +159,7 @@ async function resolveChatCardRocketImage(mission) {
   try {
     await loadCloudMediaMap()
   } catch (e) {}
-  const rocketName = safe.rocketName || 'Rocket'
+  const rocketName = rocketNameForImage(safe) || safe.rocketName || 'Rocket'
   return resolveMissionRocketImage(
     safe.rocketImage || safe.image || '',
     rocketName,
@@ -161,26 +173,26 @@ async function toChatMissionCard(mission, detailType, options) {
   const usable = starshipOnly ? isUsableMissionForCard(mission) : isUsableLaunchForCard(mission)
   if (!usable) return null
   const type = detailType === 'completed' ? 'completed' : 'upcoming'
-  const name = mission.missionName || mission.name || '发射任务'
-  const rocketName = mission.rocketName || ''
-  const rocketImage = await resolveChatCardRocketImage(mission)
-  const formattedTime = mission.formattedTime
-    || (mission.launchTime ? formatDate(mission.launchTime, 'MM月DD日 HH:mm') : '时间待定')
+  const localized = applyContentLangToMission(Object.assign({}, mission || {}))
+  const name = localized.missionName || localized.name || launchCardUiText('launchMission')
+  const rocketName = localized.rocketName || ''
+  const rocketImage = await resolveChatCardRocketImage(localized)
+  const formattedTime = localized.formattedTime || formatMissionListTimeOrUnknown(localized.launchTime)
   return {
     cardType: 'mission',
-    id: String(mission.id),
+    id: String(localized.id),
     name,
     rocketName,
     rocketImage: rocketImage || '',
-    rocketConfiguration: mission.rocketConfiguration || null,
-    launchTime: mission.launchTime || '',
+    rocketConfiguration: localized.rocketConfiguration || null,
+    launchTime: localized.launchTime || '',
     formattedTime,
-    statusText: mission.statusBadgeText || mission.status || '计划中',
-    statusCategory: mission.statusCategory || 'pending',
-    padLocation: mission.padLocation || mission.launchSite || '',
-    launchAgency: mission.launchAgency || '',
+    statusText: localized.statusBadgeText || localized.status || launchCardUiText('planned'),
+    statusCategory: localized.statusCategory || 'pending',
+    padLocation: localized.padLocation || localized.launchSite || '',
+    launchAgency: localized.launchAgency || '',
     detailType: type,
-    detailUrl: buildMissionDetailUrl({ id: mission.id, detailType: type })
+    detailUrl: buildMissionDetailUrl({ id: localized.id, detailType: type })
   }
 }
 
@@ -238,22 +250,25 @@ async function resolveLaunchListCard(options) {
   }
   let picked = pickLaunchList(list, limit, listFilter || undefined)
 
-  // 有国家/场站/机构筛且本地不足时探云（仅 upcoming + 60 天内）
+  // 有国家/场站/机构筛且本地不足时探云（仅 upcoming + 60 天内；最多 2 词早停）
   const needCloud = listFilter && (listFilter.country || listFilter.siteKey || listFilter.agencyKey)
-  if (needCloud && picked.length < limit) {
+  if (needCloud && picked.length < Math.min(2, limit)) {
     const cloudKeys = []
-    if (listFilter.country) {
-      cloudKeys.push(listFilter.country)
-      if (listFilter.country === '中国') cloudKeys.push('China', 'CASC')
-    } else {
-      const filterLabel = launchListFilterLabel(listFilter)
-      if (filterLabel) cloudKeys.push(filterLabel)
+    const pushKey = (s) => {
+      const t = String(s || '').trim()
+      if (!t || cloudKeys.length >= 2) return
+      if (cloudKeys.some((k) => k.toLowerCase() === t.toLowerCase())) return
+      cloudKeys.push(t)
     }
+    if (listFilter.agencyKey) pushKey(listFilter.agencyKey)
+    if (listFilter.country === '中国') pushKey('China')
+    else if (listFilter.country) pushKey(listFilter.country)
+    pushKey(launchListFilterLabel(listFilter))
     const cloudPool = list.slice()
     for (let i = 0; i < cloudKeys.length && picked.length < limit; i++) {
       try {
         const res = await searchLaunchesByKeyword(cloudKeys[i], {
-          limit: 40,
+          limit: 24,
           withinDays,
           upcomingOnly: true
         })
@@ -270,22 +285,97 @@ async function resolveLaunchListCard(options) {
 
   if (!picked.length) return { card: null, scheduled: false, listFilter: listFilter || null }
 
-  const items = []
-  for (let i = 0; i < picked.length; i++) {
-    const card = await toChatMissionCard(picked[i], 'upcoming', { anyLaunch: true })
-    if (card) items.push(card)
-  }
+  const upcomingItemCards = await Promise.all(
+    picked.map((m) => toChatMissionCard(m, 'upcoming', { anyLaunch: true }))
+  )
+  const items = upcomingItemCards.filter(Boolean)
   if (!items.length) return { card: null, scheduled: false, listFilter: listFilter || null }
 
   const filterLabel = launchListFilterLabel(listFilter)
+  const upcomingLabel = launchCardUiText('upcoming')
   return {
     card: {
       cardType: 'launch_list',
       id: 'launch_list_' + items[0].id,
-      title: filterLabel ? (filterLabel + '即将发射') : '即将发射',
+      title: filterLabel
+        ? (isContentLangEn() ? (filterLabel + ' · ' + upcomingLabel) : (filterLabel + upcomingLabel))
+        : upcomingLabel,
       items,
       moreUrl: ROUTES.INDEX,
-      listFilter: listFilter || null
+      listFilter: listFilter || null,
+      listMode: 'upcoming'
+    },
+    scheduled: true,
+    listFilter: listFilter || null
+  }
+}
+
+/**
+ * 历史发射列表卡（已完成任务；可按火箭/场站/国家/发射商筛）
+ */
+async function resolveHistoryListCard(options) {
+  const opts = options && typeof options === 'object' ? options : {}
+  const limit = opts.limit || 5
+  const listFilter = opts.listFilter != null
+    ? opts.listFilter
+    : parseHistoryListFilter(opts.queryText || '')
+  const fetchLimit = Math.max(80, limit * 16)
+  let list = Array.isArray(opts.completedHint) ? opts.completedHint.slice() : []
+  if (!list.length) {
+    try {
+      const res = await getCompletedMissions(fetchLimit, 0)
+      list = (res && res.list) || []
+    } catch (e) {
+      list = []
+    }
+  }
+  let picked = pickHistoryList(list, limit, listFilter || undefined)
+
+  // 本地不足才探云：最多 2 个关键词、串行早停，避免 search 风暴
+  const needCloud = listFilter && (listFilter.country || listFilter.siteKey ||
+    listFilter.agencyKey || listFilter.rocketKey)
+  if (needCloud && picked.length < Math.min(2, limit)) {
+    const cloudKeys = buildHistoryCloudSearchKeys(listFilter, opts.queryText || '')
+    const cloudPool = list.slice()
+    for (let i = 0; i < cloudKeys.length && picked.length < limit; i++) {
+      try {
+        const res = await searchLaunchesByKeyword(cloudKeys[i], {
+          limit: 24,
+          completedOnly: true
+        })
+        const rows = (res && res.list) || []
+        for (let j = 0; j < rows.length; j++) {
+          const id = rows[j] && rows[j].id != null ? String(rows[j].id) : ''
+          if (!id || cloudPool.some((m) => String(m && m.id) === id)) continue
+          cloudPool.push(rows[j])
+        }
+        picked = pickHistoryList(cloudPool, limit, listFilter || undefined)
+      } catch (e) {}
+    }
+  }
+
+  if (!picked.length) return { card: null, scheduled: false, listFilter: listFilter || null }
+
+  const itemCards = await Promise.all(
+    picked.map((m) => toChatMissionCard(m, 'completed', { anyLaunch: true }))
+  )
+  const items = itemCards.filter(Boolean)
+  if (!items.length) return { card: null, scheduled: false, listFilter: listFilter || null }
+
+  const filterLabel = launchListFilterLabel(listFilter)
+  const historyLabel = launchCardUiText('previous')
+  return {
+    card: {
+      cardType: 'launch_list',
+      id: 'history_list_' + items[0].id,
+      title: filterLabel
+        ? (isContentLangEn() ? (filterLabel + ' · ' + historyLabel) : (filterLabel + historyLabel))
+        : historyLabel,
+      items,
+      moreUrl: ROUTES.SEARCH,
+      listFilter: listFilter || null,
+      listMode: 'history',
+      timeBucket: 'completed'
     },
     scheduled: true,
     listFilter: listFilter || null
@@ -372,14 +462,15 @@ async function resolveStarshipStatusCard(options) {
   }
 
   const stack = await resolveCurrentStackUnits(opts.hardwareHint)
+  const statusPending = aiChatUiText('statusPendingUpdate')
   const boosterView = mergeStackUnit({
     id: booster.id || '',
-    status: booster.status || '状态待更新',
+    status: booster.status || statusPending,
     progress: clampProgress(booster.progress)
   }, stack.booster)
   const shipView = mergeStackUnit({
     id: ship.id || '',
-    status: ship.status || '状态待更新',
+    status: ship.status || statusPending,
     progress: clampProgress(ship.progress)
   }, stack.ship)
 
@@ -387,10 +478,10 @@ async function resolveStarshipStatusCard(options) {
     card: {
       cardType: 'starship_status',
       id: 'starship_status',
-      title: '星舰下一飞组合体',
+      title: aiChatUiText('starshipStackTitle'),
       booster: {
         id: boosterView.id,
-        status: boosterView.status || '状态待更新',
+        status: boosterView.status || statusPending,
         progress: boosterView.progress,
         progressStyle: boosterView.progress != null
           ? ('width: ' + boosterView.progress + '%;')
@@ -398,14 +489,18 @@ async function resolveStarshipStatusCard(options) {
       },
       ship: {
         id: shipView.id,
-        status: shipView.status || '状态待更新',
+        status: shipView.status || statusPending,
         progress: shipView.progress,
         progressStyle: shipView.progress != null
           ? ('width: ' + shipView.progress + '%;')
           : ''
       },
       checklist: checklistTotal
-        ? { done: checklistDone, total: checklistTotal }
+        ? {
+          done: checklistDone,
+          total: checklistTotal,
+          text: aiChatUiText('flightChecklist', { done: checklistDone, total: checklistTotal })
+        }
         : null,
       detailUrl: ROUTES.PROGRESS
     },
@@ -427,8 +522,9 @@ function resolveFlightDemoEntryCard(options) {
 
   const missionId = mission && mission.id != null ? String(mission.id).trim() : ''
   const detailType = 'upcoming'
-  const missionName = mission
-    ? String(mission.missionName || mission.name || '').trim()
+  const localized = mission ? applyContentLangToMission(Object.assign({}, mission)) : null
+  const missionName = localized
+    ? String(localized.missionName || localized.name || '').trim()
     : ''
   const parts = []
   if (missionId) {
@@ -444,18 +540,18 @@ function resolveFlightDemoEntryCard(options) {
       entryKind: 'flight_demo',
       id: 'entry_flight_demo',
       tag: 'FLIGHT PROFILE',
-      title: '飞行剖面演示',
+      title: aiChatUiText('flightDemoTitle'),
       desc: missionName
-        ? ('关联「' + missionName + '」· LL2 时间线动画演示')
-        : '按任务时间线回放飞行剖面 · 双级遥测示意',
-      cta: '进入演示 ›',
+        ? aiChatUiText('flightDemoDescLinked', { name: missionName })
+        : aiChatUiText('flightDemoDesc'),
+      cta: aiChatUiText('flightDemoCta'),
       variant: 'demo',
       missionId,
       detailType,
       missionName,
       detailUrl,
       gateProductId: 'mission_sim',
-      gateProductName: '飞行剖面演示',
+      gateProductName: aiChatUiText('flightDemoTitle'),
       needMissionSimFlag: true
     },
     scheduled: true
@@ -470,13 +566,13 @@ function resolveVehicleTrackerEntryCard() {
       entryKind: 'vehicle_tracker',
       id: 'entry_vehicle_tracker',
       tag: 'VEHICLE TRACKER',
-      title: 'SpaceX 在轨飞行器追踪',
-      desc: '官网同源遥测 · 可拖动 3D 地球实时定位在飞星舰与龙飞船',
-      cta: '进入追踪 ›',
+      title: aiChatUiText('vehicleTrackerTitle'),
+      desc: aiChatUiText('vehicleTrackerDesc'),
+      cta: aiChatUiText('vehicleTrackerCta'),
       variant: 'tracker',
       detailUrl: ROUTES.VEHICLE_TRACKER,
       gateProductId: 'orbital_data_center',
-      gateProductName: '在轨飞行器追踪',
+      gateProductName: aiChatUiText('vehicleTrackerGate'),
       needMissionSimFlag: false
     },
     scheduled: true
@@ -491,13 +587,13 @@ function resolveMissionSimEntryCard() {
       entryKind: 'mission_sim',
       id: 'entry_mission_sim',
       tag: 'GO / NO-GO · SIM',
-      title: '星舰任务指挥室',
-      desc: '以飞行总监视角完成一次发射：席位轮询、天气权衡、筷子捕获决策',
-      cta: '进入指挥室 ›',
+      title: aiChatUiText('missionSimTitle'),
+      desc: aiChatUiText('missionSimDesc'),
+      cta: aiChatUiText('missionSimCta'),
       variant: 'sim',
       detailUrl: '/subpackages/mission-sim/mission-sim',
       gateProductId: 'mission_sim',
-      gateProductName: '星舰任务指挥室',
+      gateProductName: aiChatUiText('missionSimTitle'),
       needMissionSimFlag: true
     },
     scheduled: true
@@ -512,9 +608,9 @@ function resolveStarshipProgressEntryCard() {
       entryKind: 'starship_progress',
       id: 'entry_starship_progress',
       tag: 'STARSHIP · PROGRESS',
-      title: '星舰进度',
-      desc: '星舰硬件设施、事件更新与封路提醒 · 进入进度页查看最新动态',
-      cta: '打开星舰进度 ›',
+      title: aiChatUiText('starshipProgressTitle'),
+      desc: aiChatUiText('starshipProgressDesc'),
+      cta: aiChatUiText('starshipProgressCta'),
       variant: 'demo',
       detailUrl: ROUTES.PROGRESS,
       useSwitchTab: true,
@@ -585,7 +681,7 @@ function pickReplayClipFromDoc(data) {
           : videoSnapshotUrl(c.videoUrl, 1),
         publisher: c.publisher || '',
         durationSec: dur,
-        title: c.title || '发射集锦'
+        title: c.title || aiChatUiText('clipHighlight')
       }
     }
   }
@@ -595,7 +691,7 @@ function pickReplayClipFromDoc(data) {
       poster: videoSnapshotUrl(data.videoUrl, 30),
       publisher: data.sourcePublisher || '',
       durationSec: Number(data.durationSec) || 0,
-      title: '发射回放'
+      title: aiChatUiText('clipReplay')
     }
   }
   return null
@@ -679,7 +775,7 @@ async function resolveMissionReplayCard(options) {
   const hit = await findMissionMatchForQuery(opts, queryText)
   if (!hit || !hit.mission) return { card: null, scheduled: false }
 
-  const mission = hit.mission
+  const mission = applyContentLangToMission(Object.assign({}, hit.mission))
   const launchId = String(mission.id)
   const missionName = String(mission.missionName || mission.name || '').trim()
   const detailType = hit.detailType === 'upcoming' ? 'upcoming' : 'completed'
@@ -697,7 +793,7 @@ async function resolveMissionReplayCard(options) {
   const subParts = []
   if (publisher) subParts.push(publisher)
   if (durationText) subParts.push(durationText)
-  subParts.push(playable ? '集锦回放' : '回放入口')
+  subParts.push(playable ? aiChatUiText('highlightReel') : aiChatUiText('replayEntry'))
 
   return {
     card: {
@@ -706,17 +802,19 @@ async function resolveMissionReplayCard(options) {
       launchId,
       missionName,
       detailType,
-      title: (missionName || '发射任务') + ' · 集锦回放',
+      title: aiChatUiText('replayTitle', {
+        name: missionName || aiChatUiText('launchMission')
+      }),
       desc: playable
         ? subParts.join(' · ')
-        : '在线集锦暂未就绪，点击打开任务详情查看回放',
-      cta: playable ? '观看集锦 ›' : '打开详情 ›',
+        : aiChatUiText('replayDescPending'),
+      cta: playable ? aiChatUiText('watchHighlightsCta') : aiChatUiText('openDetailCta'),
       poster,
       /** 仅供点击后写入 pendingEventVideo；卡片层只用 poster，不预加载 */
       videoUrl: playable ? clip.videoUrl : '',
       playable,
       gateProductId: 'mission_replay',
-      gateProductName: '发射回放',
+      gateProductName: aiChatUiText('missionReplayGate'),
       rocketImage
     },
     scheduled: true
@@ -737,62 +835,84 @@ async function resolveMissionLookupCard(options) {
   _mergeMissionPool(pool, upcoming, 'upcoming')
   _mergeMissionPool(pool, completed, 'completed')
 
-  // 本地扩大：即将 100 + 已完成 80（覆盖更多火箭，不单靠预热缓存）
+  // 先判时间倾向：历史问法只扩 completed，避免无谓拉 upcoming
+  const prefer = missionLookupTimePreference(queryText)
   try {
-    const [upRes, compRes] = await Promise.all([
-      getUpcomingMissions(100, 0).catch(() => ({ list: [] })),
-      getCompletedMissions(80, 0).catch(() => ({ list: [] }))
-    ])
-    _mergeMissionPool(pool, upRes.list, 'upcoming')
-    _mergeMissionPool(pool, compRes.list, 'completed')
+    if (prefer === 'completed') {
+      const compRes = await getCompletedMissions(100, 0).catch(() => ({ list: [] }))
+      _mergeMissionPool(pool, compRes.list, 'completed')
+    } else if (prefer === 'upcoming') {
+      const upRes = await getUpcomingMissions(100, 0).catch(() => ({ list: [] }))
+      _mergeMissionPool(pool, upRes.list, 'upcoming')
+    } else {
+      const [upRes, compRes] = await Promise.all([
+        getUpcomingMissions(100, 0).catch(() => ({ list: [] })),
+        getCompletedMissions(80, 0).catch(() => ({ list: [] }))
+      ])
+      _mergeMissionPool(pool, upRes.list, 'upcoming')
+      _mergeMissionPool(pool, compRes.list, 'completed')
+    }
   } catch (e) {}
 
   let deduped = _dedupeMissions(pool)
-  // 「什么时候发射」等未来问法：优先即将发射，本地无排期才回落历史
-  const prefer = missionLookupTimePreference(queryText)
+  // 「下一次发射」裸问：直接抽最近一场 upcoming 任务卡（不依赖实体检索串）
+  if (isBareNextLaunchAsk(queryText)) {
+    if (!deduped.some((m) => resolveMissionDetailType(m) !== 'completed')) {
+      try {
+        const upRes = await getUpcomingMissions(100, 0).catch(() => ({ list: [] }))
+        _mergeMissionPool(pool, upRes.list, 'upcoming')
+        deduped = _dedupeMissions(pool)
+      } catch (e) {}
+    }
+    const next = pickSoonestUpcomingMission(deduped)
+    if (!next) return { card: null, scheduled: false }
+    const card = await toChatMissionCard(next, 'upcoming', { anyLaunch: true })
+    return { card, scheduled: !!card }
+  }
   let hit = pickBestMissionMatch(deduped, queryText)
   if (hit && prefer && hit.detailType !== prefer) hit = null
 
-  // 云端回退：本地未命中时按中英查询词打 LL2 search
+  // 云端回退：本地未命中时按中英查询词打 LL2 search（最多 2 词，早停）
   if (!hit || !hit.mission) {
-    const queries = buildLaunchSearchQueries(queryText)
+    const queries = buildLaunchSearchQueries(queryText).slice(0, 2)
     const cloudPool = []
     for (let i = 0; i < queries.length; i++) {
       try {
-        // 未来问法先只搜 upcoming（LL2 previous 按 -net 排序会盖过未排期任务）
-        const res = await searchLaunchesByKeyword(queries[i], {
-          limit: 24,
-          upcomingOnly: prefer === 'upcoming'
-        })
-        _mergeMissionPool(cloudPool, res && res.list, null)
+        // 未来问法先只搜 upcoming；历史问法只搜 previous，避免串成即将发射
+        const searchOpts = { limit: 24 }
+        if (prefer === 'upcoming') searchOpts.upcomingOnly = true
+        if (prefer === 'completed') searchOpts.completedOnly = true
+        const res = await searchLaunchesByKeyword(queries[i], searchOpts)
+        _mergeMissionPool(cloudPool, res && res.list, prefer || null)
       } catch (e) {}
-      // 每搜完一轮就尝试命中，命中即停，省流量
-      const cloudHit = pickBestMissionMatch(_dedupeMissions(cloudPool), queryText)
+      const cloudHit = pickBestMissionMatch(_dedupeMissions(cloudPool), queryText, { prefer: prefer || '' })
       if (cloudHit && cloudHit.mission) {
         hit = cloudHit
         break
       }
     }
-    // upcoming 侧仍无命中：放开窗口再搜一轮（含 previous），至少给出历史任务卡
-    if ((!hit || !hit.mission) && prefer === 'upcoming') {
-      for (let i = 0; i < queries.length; i++) {
-        try {
-          const res = await searchLaunchesByKeyword(queries[i], { limit: 24 })
-          _mergeMissionPool(cloudPool, res && res.list, null)
-        } catch (e) {}
-        const cloudHit = pickBestMissionMatch(_dedupeMissions(cloudPool), queryText)
-        if (cloudHit && cloudHit.mission) {
-          hit = cloudHit
-          break
-        }
-      }
+    // upcoming 侧仍无命中：最多再搜 1 词放开窗口（含 previous），至少给出历史任务卡
+    if ((!hit || !hit.mission) && prefer === 'upcoming' && queries[0]) {
+      try {
+        const res = await searchLaunchesByKeyword(queries[0], { limit: 24 })
+        _mergeMissionPool(cloudPool, res && res.list, null)
+      } catch (e) {}
+      const cloudHit = pickBestMissionMatch(_dedupeMissions(cloudPool), queryText)
+      if (cloudHit && cloudHit.mission) hit = cloudHit
     }
     if ((!hit || !hit.mission) && cloudPool.length) {
-      // 打分略宽：云端结果里取最高分（阈值已在 score 内）
-      hit = pickBestMissionMatch(_dedupeMissions(cloudPool), queryText)
+      hit = pickBestMissionMatch(_dedupeMissions(cloudPool), queryText, { prefer: prefer || '' })
     }
-    // 云端也没有即将发射：回落本地全池（含历史），避免完全不出卡
-    if ((!hit || !hit.mission) && prefer) {
+    // 仅 upcoming 无排期时回落本地全池；历史问法禁止回落到即将发射
+    if ((!hit || !hit.mission) && prefer === 'upcoming') {
+      // 本地 initially 未拉 completed：此时补一枪 completed 再回落
+      if (!deduped.some((m) => resolveMissionDetailType(m) === 'completed')) {
+        try {
+          const compRes = await getCompletedMissions(60, 0).catch(() => ({ list: [] }))
+          _mergeMissionPool(pool, compRes.list, 'completed')
+          deduped = _dedupeMissions(pool)
+        } catch (e) {}
+      }
       hit = pickBestMissionMatch(deduped, queryText, { prefer: '' })
     }
   }
@@ -800,6 +920,95 @@ async function resolveMissionLookupCard(options) {
   if (!hit || !hit.mission) return { card: null, scheduled: false }
   const card = await toChatMissionCard(hit.mission, hit.detailType, { anyLaunch: true })
   return { card, scheduled: !!card }
+}
+
+function buildReminderResultCard(missionCard, status) {
+  const st = String(status || 'need_auth')
+  const name = (missionCard && (missionCard.name || missionCard.missionName)) || '该任务'
+  const titleMap = {
+    success: '提醒已开启',
+    already: '提醒已开启',
+    oa_ready: '自动提醒已生效',
+    need_auth: '待确认开启提醒',
+    failed: '提醒开启失败',
+    past: '无法设置提醒',
+    no_mission: '未找到任务'
+  }
+  const descMap = {
+    success: '发射前将通过微信通知你',
+    already: '你已订阅该任务提醒',
+    oa_ready: '服务号会自动推送发射前与结果通知',
+    need_auth: '点击本卡完成微信授权即可开启',
+    failed: '可点击本卡重试，或打开任务详情再开',
+    past: '历史任务不能再设发射前提醒',
+    no_mission: '请补充火箭或任务名称后再试'
+  }
+  const ok = st === 'success' || st === 'already' || st === 'oa_ready'
+  return {
+    cardType: 'reminder',
+    id: 'reminder_' + (missionCard && missionCard.id ? missionCard.id : 'none') + '_' + st,
+    status: st,
+    ok: !!ok,
+    title: titleMap[st] || '发射提醒',
+    desc: descMap[st] || '',
+    missionName: name,
+    rocketName: (missionCard && missionCard.rocketName) || '',
+    rocketImage: (missionCard && missionCard.rocketImage) || '',
+    launchTime: (missionCard && missionCard.launchTime) || '',
+    formattedTime: (missionCard && missionCard.formattedTime) || '',
+    padLocation: (missionCard && missionCard.padLocation) || '',
+    detailType: (missionCard && missionCard.detailType) || 'upcoming',
+    detailUrl: (missionCard && missionCard.detailUrl) || '',
+    missionId: missionCard && missionCard.id ? String(missionCard.id) : '',
+    cta: st === 'need_auth' || st === 'failed'
+      ? '点击开启提醒'
+      : (missionCard && missionCard.detailUrl ? '查看任务详情' : '知道了')
+  }
+}
+
+/**
+ * 「提醒我一下」：定位即将发射任务 → 返回提醒卡；需授权时由组件侧自动 subscribe
+ */
+async function resolveSetReminderCard(options) {
+  const opts = options && typeof options === 'object' ? options : {}
+  const queryText = opts.queryText || opts.text || ''
+  const cleaned = stripReminderAskNoise(queryText) || queryText
+  // 强制走即将发射检索（避免命中历史任务）
+  const lookupQuery = cleaned + (/什么时候|即将|下次|下一次/.test(cleaned) ? '' : ' 什么时候发射')
+  const resolved = await resolveMissionLookupCard({ ...opts, queryText: lookupQuery })
+  if (!resolved || !resolved.card) {
+    const card = buildReminderResultCard(null, 'no_mission')
+    return { card, scheduled: true, subscribeMission: null, rawMission: null }
+  }
+  const missionCard = resolved.card
+  if (missionCard.detailType === 'completed') {
+    const card = buildReminderResultCard(missionCard, 'past')
+    return { card, scheduled: true, subscribeMission: null, rawMission: null }
+  }
+
+  let status = 'need_auth'
+  try {
+    if (peekOaAlertReady()) status = 'oa_ready'
+    else if (missionCard.id && isSubscribed(missionCard.id)) status = 'already'
+  } catch (e) {}
+
+  const card = buildReminderResultCard(missionCard, status)
+  // 供组件调用 subscribeLaunchForChat 的原始任务字段
+  const rawMission = {
+    id: missionCard.id,
+    name: missionCard.name,
+    missionName: missionCard.name,
+    rocketName: missionCard.rocketName,
+    launchTime: missionCard.launchTime,
+    windowStart: missionCard.launchTime,
+    padLocation: missionCard.padLocation
+  }
+  return {
+    card,
+    scheduled: true,
+    subscribeMission: status === 'need_auth' ? rawMission : null,
+    rawMission
+  }
 }
 
 function buildLaunchStatsDetailUrl(year, country) {
@@ -828,12 +1037,12 @@ function softStatsFetch(promise, ms) {
 }
 
 function scopeLabelOf(scope, year) {
-  if (scope === 'today') return '今日'
-  if (scope === 'week') return '本周'
-  if (scope === 'month') return '本月'
+  if (scope === 'today') return aiChatUiText('scopeToday')
+  if (scope === 'week') return aiChatUiText('scopeWeek')
+  if (scope === 'month') return aiChatUiText('scopeMonth')
   const nowYear = new Date().getUTCFullYear()
-  if (Number(year) === nowYear) return '本年度'
-  return String(year) + ' 年'
+  if (Number(year) === nowYear) return aiChatUiText('scopeThisYear')
+  return aiChatUiText('scopeYear', { year })
 }
 
 /**
@@ -847,7 +1056,7 @@ async function resolveLaunchStatsCard(options) {
   const country = focus.country || ''
   const scope = focus.scope || 'year'
   const countryKey = country || '_all'
-  const countryLabel = country || '全球'
+  const countryLabel = localizeCountryName(country || '全球')
   const scopeLabel = scopeLabelOf(scope, year)
 
   let total = 0
@@ -904,14 +1113,18 @@ async function resolveLaunchStatsCard(options) {
 
   const title = scope === 'year'
     ? (country
-      ? (year + ' 年' + country + '发射统计')
-      : (year + ' 年全球发射统计'))
-    : (scopeLabel + countryLabel + '发射')
+      ? aiChatUiText('statsTitleYearCountry', { year, country: countryLabel })
+      : aiChatUiText('statsTitleYearGlobal', { year }))
+    : aiChatUiText('statsTitleScope', {
+      scope: scopeLabel,
+      country: countryLabel,
+      countryLabel
+    })
 
   const subtitle = !dataReady
-    ? '统计数据暂未就绪，可进入详情页查看'
+    ? aiChatUiText('statsSubtitlePending')
     : (yearTotal != null
-      ? ('本年度累计 ' + yearTotal + ' 次')
+      ? aiChatUiText('statsYearTotal', { n: yearTotal })
       : (topCountries.length
         ? ('Top：' + topCountries.map((r) => r.name + ' ' + r.total).join(' · '))
         : ''))
@@ -932,10 +1145,10 @@ async function resolveLaunchStatsCard(options) {
       topCountries,
       subtitle,
       dataReady,
-      cta: '查看全球发射统计 ›',
+      cta: aiChatUiText('statsCta'),
       detailUrl: buildLaunchStatsDetailUrl(year, country || ''),
       gateProductId: 'global_launch_stats',
-      gateProductName: '全球发射统计'
+      gateProductName: aiChatUiText('statsGate')
     },
     scheduled: true
   }
@@ -960,13 +1173,15 @@ function softAgencyFetch(promise, ms) {
 
 function toAgencyChatCard(agency) {
   if (!agency || agency.id == null) return null
-  const name = agency.name || '发射商'
+  const name = agency.name || aiChatUiText('agencyFallback')
   const abbrev = agency.abbrev || ''
   const displayName = translateAgencyName(name, abbrev) || abbrev || name
   const typeName = agency.type && agency.type.name ? agency.type.name : ''
-  const typeZh = AGENCY_TYPE_ZH[typeName] || typeName || ''
+  const typeZh = localizeAgencyType(typeName) || typeName || ''
   const countryName = agency.country && agency.country[0] ? agency.country[0].name : ''
-  const countryLabel = AGENCY_COUNTRY_ZH[countryName] || countryName || ''
+  const countryLabel = isContentLangEn()
+    ? (countryName || '')
+    : (AGENCY_COUNTRY_ZH[countryName] || countryName || '')
   const foundingYear = agency.founding_year || null
   const total = agency.total_launch_count != null ? Number(agency.total_launch_count) : null
   const success = agency.successful_launches != null ? Number(agency.successful_launches) : null
@@ -982,8 +1197,8 @@ function toAgencyChatCard(agency) {
   const descShort = desc.length > 72 ? (desc.slice(0, 72) + '…') : desc
   const metaParts = []
   if (countryLabel) metaParts.push(countryLabel)
-  if (foundingYear) metaParts.push(foundingYear + ' 年成立')
-  if (total != null) metaParts.push('历史 ' + total + ' 次发射')
+  if (foundingYear) metaParts.push(aiChatUiText('agencyFounded', { year: foundingYear }))
+  if (total != null) metaParts.push(aiChatUiText('agencyHistoryLaunches', { n: total }))
 
   return {
     cardType: 'agency',
@@ -1001,15 +1216,15 @@ function toAgencyChatCard(agency) {
     logoBgTone,
     metaLine: metaParts.join(' · '),
     desc: descShort,
-    cta: '进入发射商详情 ›',
+    cta: aiChatUiText('agencyCta'),
     detailUrl: ROUTES.AGENCY_DETAIL + '?id=' + encodeURIComponent(String(agency.id)),
     gateProductId: 'agency_encyclopedia',
-    gateProductName: '全球发射商图鉴'
+    gateProductName: aiChatUiText('agencyGate')
   }
 }
 
 /**
- * 发射商信息卡：本地图鉴模糊匹配 → search 回退
+ * 发射商信息卡：本地图鉴模糊匹配 → search 回退 → 型号归属时按构型 manufacturer 反查
  */
 async function resolveAgencyLookupCard(options) {
   const opts = options && typeof options === 'object' ? options : {}
@@ -1018,6 +1233,7 @@ async function resolveAgencyLookupCard(options) {
   // 中文别名优先用英文 canonical 搜（中国航天科技集团 → casc），避免云端乱配
   const searchKey = resolveAgencyCanonicalSearchKey(queryText) || key
   const knownCanon = detectKnownAgencyCanonical(queryText)
+  const ownershipAsk = hasAgencyOwnershipAsk(queryText)
 
   let list = Array.isArray(opts.agencyHint) ? opts.agencyHint.filter((a) => a && a.id != null) : []
   if (!list.length) {
@@ -1042,7 +1258,22 @@ async function resolveAgencyLookupCard(options) {
     }
   }
 
-  if ((!hit || !hit.agency) && searchKey.length >= 2 && !opts.agencyHint) {
+  // 型号+归属：机构名搜不到时，用火箭构型 manufacturer 反查（长征系可回落 CASC）
+  if ((!hit || !hit.agency) && (ownershipAsk || /长征|猎鹰|朱雀|falcon|long\s*march/i.test(queryText))) {
+    let configs = opts.rocketConfigsHint || null
+    if (!configs) {
+      try {
+        const meta = await getRocketConfigMeta()
+        configs = (meta && meta.configs) || {}
+      } catch (e) {
+        configs = {}
+      }
+    }
+    const fromRocket = resolveAgencyFromRocketConfig(configs, list, queryText)
+    if (fromRocket && fromRocket.agency) hit = fromRocket
+  }
+
+  if ((!hit || !hit.agency) && searchKey.length >= 2 && !opts.agencyHint && !ownershipAsk) {
     const searched = await softAgencyFetch(
       getAgencies({ featured: false, limit: 20, offset: 0, search: searchKey }),
       2500
@@ -1070,9 +1301,9 @@ function resolveRoadClosureEntryCard() {
       entryKind: 'road_closure',
       id: 'entry_road_closure',
       tag: 'STARBASE · ROAD',
-      title: '星舰基地封路通知',
-      desc: '查看最新道路/海滩封闭时段 · 常预示测试或试飞临近',
-      cta: '查看封路 ›',
+      title: aiChatUiText('roadClosureTitle'),
+      desc: aiChatUiText('roadClosureDesc'),
+      cta: aiChatUiText('roadClosureCta'),
       variant: 'road',
       detailUrl: ROUTES.ROAD_CLOSURE_DETAIL,
       gateProductId: '',
@@ -1101,10 +1332,10 @@ async function resolveStationEntryCard(options) {
     ? String(station.name || station.stationName || '').trim()
     : ''
   const isTiangong = /天宫|tiangong/i.test(stationName) || stationId === '18'
-  const title = stationName || '空间站实时状态'
+  const title = stationName || aiChatUiText('stationDefaultTitle')
   const desc = stationName
-    ? ('查看「' + stationName + '」乘组、停靠与轨道实时状态')
-    : 'ISS / 天宫 · 乘组与轨道实时状态'
+    ? aiChatUiText('stationDescNamed', { name: stationName })
+    : aiChatUiText('stationDescDefault')
 
   return {
     card: {
@@ -1114,7 +1345,7 @@ async function resolveStationEntryCard(options) {
       tag: isTiangong ? 'TIANGONG' : (stationId === '4' ? 'ISS' : 'STATION'),
       title,
       desc,
-      cta: stationId ? '进入详情 ›' : '打开监控中心 ›',
+      cta: stationId ? aiChatUiText('enterDetailCta') : aiChatUiText('openMonitorCta'),
       variant: 'station',
       stationId,
       stationName,
@@ -1180,7 +1411,7 @@ function buildSpecCard(spec) {
     rows,
     note: s.note || '',
     nav: s.nav || null,
-    cta: s.cta || '查看详情 ›',
+    cta: s.cta || aiChatUiText('viewDetailsCta'),
     variant: s.variant || 'wiki',
     gateProductId: s.gateProductId || '',
     gateProductName: s.gateProductName || ''
@@ -1211,13 +1442,21 @@ async function resolveWatchPartyEntryCard(options) {
   const mid = String(session.missionId || '').trim()
   // match 已在同一次 DB 扫描里带上 missionSessionCount，禁止再打 list（省 1 次云函数+读）
   const count = Math.max(1, Number(session.missionSessionCount) || 1)
-  const rocket = session.rocketName || ''
-  const mission = session.missionName || ''
+  const localized = applyContentLangToMission({
+    missionName: session.missionName || '',
+    name: session.missionName || '',
+    rocketName: session.rocketName || ''
+  })
+  const rocket = localized.rocketName || session.rocketName || ''
+  const mission = localized.missionName || localized.name || session.missionName || ''
   const title = count > 1
-    ? ([rocket, mission].filter(Boolean).join(' · ') || '现场观礼') + ' · ' + count + '家观礼点'
-    : (session.title || ((rocket || '火箭') + '发射观礼'))
+    ? ([rocket, mission].filter(Boolean).join(' · ') || aiChatUiText('watchOnSite')) +
+      ' · ' + aiChatUiText('watchSpots', { n: count })
+    : (session.title || aiChatUiText('watchLaunchTitle', {
+      rocket: rocket || aiChatUiText('watchRocket')
+    }))
   const placeBits = [
-    count > 1 ? (count + '家商家') : session.merchantName,
+    count > 1 ? aiChatUiText('watchMerchants', { n: count }) : session.merchantName,
     session.padLocationName,
     rocket && mission ? (rocket + ' · ' + mission) : (rocket || mission || '')
   ].filter(Boolean)
@@ -1227,10 +1466,10 @@ async function resolveWatchPartyEntryCard(options) {
       cardType: 'entry',
       entryKind: 'watch_party',
       id: 'entry_watch_party_' + (mid || session.sessionId),
-      tag: 'ON-SITE · 火箭观礼',
+      tag: aiChatUiText('watchTag'),
       title,
-      desc: (placeBits.join(' · ') || '近距离观礼') + ' · 预约占位 · 停车导航 · 现场科普',
-      cta: count > 1 ? '选择商家 ›' : '进入观礼 ›',
+      desc: (placeBits.join(' · ') || aiChatUiText('watchNear')) + aiChatUiText('watchDescSuffix'),
+      cta: count > 1 ? aiChatUiText('watchCtaPick') : aiChatUiText('watchCtaEnter'),
       variant: 'watch',
       // 真实 missionId：列表页按任务筛商家；无任务 id 时列表展示全部开放场次
       missionId: mid,
@@ -1261,18 +1500,18 @@ async function resolveMerchantJoinCard() {
       // 翻牌交互状态：组件内 setData 就地更新
       flipped: false,
       drawing: false,
-      backTitle: '商家入驻邀请',
-      backEn: 'MERCHANT INVITATION',
-      backHint: '点击抽卡',
-      title: '观礼合作商家邀请函',
+      backTitle: aiChatUiText('mgachaBackTitle'),
+      backEn: aiChatUiText('mgachaBackEn'),
+      backHint: aiChatUiText('mgachaBackHint'),
+      title: aiChatUiText('mgachaTitle'),
       perks: [
-        '免费入驻 · 无平台费用',
-        '手机自建观礼场次',
-        '发射客流 · 预约直达',
-        '现场抽奖 · 大屏互动'
+        aiChatUiText('mgachaPerk1'),
+        aiChatUiText('mgachaPerk2'),
+        aiChatUiText('mgachaPerk3'),
+        aiChatUiText('mgachaPerk4')
       ],
-      cta: '立即入驻，填表即开通 ›',
-      foot: '点击卡片进入入驻申请'
+      cta: aiChatUiText('mgachaCta'),
+      foot: aiChatUiText('mgachaFoot')
     }
   }
 }
@@ -1299,24 +1538,27 @@ async function resolveRocketModelCard(options) {
   const success = Number(cfg.successful_launches) || 0
   const subtitleParts = []
   if (cfg.manufacturerName) subtitleParts.push(cfg.manufacturerName)
-  if (cfg.reusable === true) subtitleParts.push('可复用')
+  if (cfg.reusable === true) subtitleParts.push(aiChatUiText('reusable'))
   const card = buildSpecCard({
     specKind: 'rocket_model',
     targetId: hit.id,
     targetName: cfg.name || '',
     tag: 'ROCKET',
-    title: cfg.full_name || cfg.name || '运载火箭',
+    title: cfg.full_name || cfg.name || aiChatUiText('launchVehicle'),
     subtitle: subtitleParts.join(' · '),
     desc: cfg.description || '',
     variant: 'wiki',
-    cta: '查看型号档案 ›',
+    cta: aiChatUiText('rocketModelCta'),
     rows: [
-      { label: '全长', value: fmtSpecNum(cfg.length, ' m', 1) },
-      { label: '直径', value: fmtSpecNum(cfg.diameter, ' m', 1) },
-      { label: '起飞质量', value: fmtSpecNum(cfg.launch_mass, ' t') },
-      { label: 'LEO 运力', value: fmtSpecNum(cfg.leo_capacity, ' kg') },
-      { label: '起飞推力', value: fmtSpecNum(cfg.to_thrust, ' kN') },
-      { label: '发射战绩', value: total ? (total + ' 次 · 成功 ' + success) : '' }
+      { label: aiChatUiText('rowLength'), value: fmtSpecNum(cfg.length, ' m', 1) },
+      { label: aiChatUiText('rowDiameter'), value: fmtSpecNum(cfg.diameter, ' m', 1) },
+      { label: aiChatUiText('rowLaunchMass'), value: fmtSpecNum(cfg.launch_mass, ' t') },
+      { label: aiChatUiText('rowLeo'), value: fmtSpecNum(cfg.leo_capacity, ' kg') },
+      { label: aiChatUiText('rowThrust'), value: fmtSpecNum(cfg.to_thrust, ' kN') },
+      {
+        label: aiChatUiText('rowRecord'),
+        value: total ? aiChatUiText('rowRecordVal', { total, success }) : ''
+      }
     ]
   })
   return { card, scheduled: true }
@@ -1342,21 +1584,33 @@ async function resolveLaunchSiteCard(options) {
     targetId: site.id,
     targetName: site.name || '',
     tag: 'LAUNCH SITE',
-    title: site.name || '发射场',
-    subtitle: [site.countryName, site.active ? '在用' : '已停用'].filter(Boolean).join(' · '),
+    title: site.name || aiChatUiText('launchSite'),
+    subtitle: [
+      site.countryName,
+      site.active ? aiChatUiText('siteActive') : aiChatUiText('siteInactive')
+    ].filter(Boolean).join(' · '),
     image: site.imageUrl || site.mapImage || '',
     desc: site.description || '',
     variant: 'site',
-    cta: '查看发射场详情 ›',
+    cta: aiChatUiText('launchSiteCta'),
     gateProductId: 'launch_site_encyclopedia',
-    gateProductName: '全球发射场',
+    gateProductName: aiChatUiText('launchSiteGate'),
     rows: [
-      { label: '累计发射', value: launches ? launches + ' 次' : '' },
-      { label: '累计回收', value: landings ? landings + ' 次' : '' },
-      { label: '时区', value: site.timezoneName || '' },
-      { label: '坐标', value: (site.latitude != null && site.longitude != null)
-        ? (Number(site.latitude).toFixed(2) + ', ' + Number(site.longitude).toFixed(2))
-        : '' }
+      {
+        label: aiChatUiText('rowTotalLaunches'),
+        value: launches ? aiChatUiText('nTimes', { n: launches }) : ''
+      },
+      {
+        label: aiChatUiText('rowTotalLandings'),
+        value: landings ? aiChatUiText('nTimes', { n: landings }) : ''
+      },
+      { label: aiChatUiText('rowTimezone'), value: site.timezoneName || '' },
+      {
+        label: aiChatUiText('rowCoords'),
+        value: (site.latitude != null && site.longitude != null)
+          ? (Number(site.latitude).toFixed(2) + ', ' + Number(site.longitude).toFixed(2))
+          : ''
+      }
     ]
   })
   return { card, scheduled: true }
@@ -1389,23 +1643,32 @@ async function resolveSpacecraftCard(options) {
     targetId: sc.id,
     targetName: sc.name || '',
     tag: 'SPACECRAFT',
-    title: sc.name || '航天器',
-    subtitle: [translateAgencyName(sc.agencyName) || sc.agencyName, sc.inUse ? '现役' : '退役']
-      .filter(Boolean).join(' · '),
+    title: sc.name || aiChatUiText('spacecraft'),
+    subtitle: [
+      translateAgencyName(sc.agencyName) || sc.agencyName,
+      sc.inUse ? aiChatUiText('inService') : aiChatUiText('retired')
+    ].filter(Boolean).join(' · '),
     image: sc.imageUrl || '',
     desc: sc.capability || sc.details || '',
     variant: 'craft',
-    cta: '查看飞船档案 ›',
+    cta: aiChatUiText('spacecraftCta'),
     gateProductId: 'spacecraft_encyclopedia',
-    gateProductName: '航天器图鉴',
+    gateProductName: aiChatUiText('spacecraftGate'),
     rows: [
-      { label: '乘员', value: sc.crewCapacity != null && Number(sc.crewCapacity) > 0
-        ? Number(sc.crewCapacity) + ' 人' : '' },
-      { label: '高度', value: fmtSpecNum(sc.height, ' m', 1) },
-      { label: '直径', value: fmtSpecNum(sc.diameter, ' m', 1) },
-      { label: '上行载荷', value: fmtSpecNum(sc.payloadCapacity, ' kg') },
-      { label: '首飞', value: String(sc.maidenFlight || '').slice(0, 10) },
-      { label: '发射次数', value: total ? total + ' 次' : '' }
+      {
+        label: aiChatUiText('rowCrew'),
+        value: sc.crewCapacity != null && Number(sc.crewCapacity) > 0
+          ? aiChatUiText('rowCrewVal', { n: Number(sc.crewCapacity) })
+          : ''
+      },
+      { label: aiChatUiText('rowHeight'), value: fmtSpecNum(sc.height, ' m', 1) },
+      { label: aiChatUiText('rowDiameter'), value: fmtSpecNum(sc.diameter, ' m', 1) },
+      { label: aiChatUiText('rowUplink'), value: fmtSpecNum(sc.payloadCapacity, ' kg') },
+      { label: aiChatUiText('rowMaiden'), value: String(sc.maidenFlight || '').slice(0, 10) },
+      {
+        label: aiChatUiText('rowLaunchCount'),
+        value: total ? aiChatUiText('nTimes', { n: total }) : ''
+      }
     ]
   })
   return { card, scheduled: true }
@@ -1432,13 +1695,22 @@ async function resolveBoosterCard(options) {
         title: item.serial || serial,
         subtitle: [item.rocketFamily, item.statusZh].filter(Boolean).join(' · '),
         variant: 'booster',
-        cta: '查看助推器档案 ›',
+        cta: aiChatUiText('boosterCta'),
         rows: [
-          { label: '飞行次数', value: item.flights ? item.flights + ' 次' : '' },
-          { label: '成功回收', value: attempts ? (landings + ' / ' + attempts) : '' },
-          { label: '首飞', value: item.firstFlight || '' },
-          { label: '最近一飞', value: item.lastFlight || '' },
-          { label: '最近任务', value: recent && recent.mission ? recent.mission : '' }
+          {
+            label: aiChatUiText('rowFlights'),
+            value: item.flights ? aiChatUiText('nTimes', { n: item.flights }) : ''
+          },
+          {
+            label: aiChatUiText('rowLandingOk'),
+            value: attempts ? (landings + ' / ' + attempts) : ''
+          },
+          { label: aiChatUiText('rowMaiden'), value: item.firstFlight || '' },
+          { label: aiChatUiText('rowLastFlight'), value: item.lastFlight || '' },
+          {
+            label: aiChatUiText('rowLastMission'),
+            value: recent && recent.mission ? recent.mission : ''
+          }
         ]
       })
       return { card, scheduled: true }
@@ -1452,13 +1724,13 @@ async function resolveBoosterCard(options) {
       entryKind: 'booster_genealogy',
       id: 'entry_booster_genealogy',
       tag: 'BOOSTER · GENEALOGY',
-      title: '助推器家谱',
-      desc: '按编号追每一枚一级的复用与回收战绩 · 支持复用次数排行',
-      cta: '打开家谱 ›',
+      title: aiChatUiText('boosterGeneTitle'),
+      desc: aiChatUiText('boosterGeneDesc'),
+      cta: aiChatUiText('boosterGeneCta'),
       variant: 'booster',
       detailUrl: ROUTES.BOOSTER_GENEALOGY,
       gateProductId: 'booster_genealogy',
-      gateProductName: '助推器家谱',
+      gateProductName: aiChatUiText('boosterGeneTitle'),
       needMissionSimFlag: false
     },
     scheduled: true
@@ -1504,7 +1776,7 @@ async function resolveMySubscriptionsCard(options) {
     const fresh = freshById[String(row.id)]
     const mission = fresh || {
       id: row.id,
-      name: row.name || ('发射任务 #' + row.id),
+      name: row.name || aiChatUiText('missionFallbackId', { id: row.id }),
       rocketName: row.rocket || '',
       rocketImage: row.rocketImage || '',
       launchTime: row.launchTime || '',
@@ -1519,7 +1791,7 @@ async function resolveMySubscriptionsCard(options) {
     card: {
       cardType: 'launch_list',
       id: 'my_launches_' + items[0].id,
-      title: '我订阅的发射提醒',
+      title: aiChatUiText('mySubsTitle'),
       items,
       moreUrl: ROUTES.INDEX,
       listFilter: null
@@ -1542,16 +1814,17 @@ async function resolveLaunchVoteEntryCard(options) {
   }
   const mission = list.filter(isUsableLaunchForCard)[0] || null
   if (!mission) return { card: null, scheduled: false }
-  const name = mission.missionName || mission.name || '下一场发射'
+  const localized = applyContentLangToMission(Object.assign({}, mission))
+  const name = localized.missionName || localized.name || aiChatUiText('nextLaunch')
   return {
     card: {
       cardType: 'entry',
       entryKind: 'launch_vote',
       id: 'entry_launch_vote_' + mission.id,
-      tag: 'VOTE · 竞猜',
-      title: '猜一下：' + name,
-      desc: '在任务详情页投票押准时/推迟或成败，发射后可回看自己猜得准不准',
-      cta: '去投票 ›',
+      tag: aiChatUiText('voteTag'),
+      title: aiChatUiText('voteTitle', { name }),
+      desc: aiChatUiText('voteDesc'),
+      cta: aiChatUiText('voteCta'),
       variant: 'vote',
       missionId: String(mission.id),
       missionName: name,
@@ -1572,9 +1845,9 @@ function resolveYearReviewEntryCard() {
       entryKind: 'year_review',
       id: 'entry_year_review',
       tag: 'YEAR IN REVIEW',
-      title: '我的航天年度回顾',
-      desc: '这一年你追了多少场发射、最常看哪家发射商 · 生成可分享长图',
-      cta: '打开年度回顾 ›',
+      title: aiChatUiText('yearReviewTitle'),
+      desc: aiChatUiText('yearReviewDesc'),
+      cta: aiChatUiText('yearReviewCta'),
       variant: 'review',
       detailUrl: ROUTES.YEAR_REVIEW,
       gateProductId: '',
@@ -1593,9 +1866,9 @@ function resolveAstroCalendarEntryCard() {
       entryKind: 'astro_calendar',
       id: 'entry_astro_calendar',
       tag: 'SKY CALENDAR',
-      title: '天象日历',
-      desc: '流星雨、日月食、行星冲日与大距 · 按时间排好并可设提醒',
-      cta: '打开天象日历 ›',
+      title: aiChatUiText('astroTitle'),
+      desc: aiChatUiText('astroDesc'),
+      cta: aiChatUiText('astroCta'),
       variant: 'astro',
       detailUrl: ROUTES.ASTRO_CALENDAR,
       gateProductId: '',
@@ -1613,13 +1886,102 @@ function resolveNewsEntryCard() {
       cardType: 'entry',
       entryKind: 'news',
       id: 'entry_news',
-      tag: 'NEWS · 事件',
-      title: '航天事件与新闻',
-      desc: '发射事件、任务动态与航天资讯 · 中文摘要与图集',
-      cta: '打开事件页 ›',
+      tag: aiChatUiText('newsTag'),
+      title: aiChatUiText('newsTitle'),
+      desc: aiChatUiText('newsDesc'),
+      cta: aiChatUiText('newsCta'),
       variant: 'news',
       detailUrl: ROUTES.NEWS,
       useSwitchTab: true,
+      gateProductId: '',
+      gateProductName: '',
+      needMissionSimFlag: false
+    },
+    scheduled: true
+  }
+}
+
+/** 通用功能入口卡（徽章/收藏/图鉴/NASA 等） */
+function resolveSimpleFeatureEntryCard(kind) {
+  const map = {
+    badges: {
+      tag: 'BADGES',
+      titleKey: 'badgesTitle',
+      descKey: 'badgesDesc',
+      ctaKey: 'badgesCta',
+      url: ROUTES.BADGES,
+      variant: 'review'
+    },
+    favorites: {
+      tag: 'FAVORITES',
+      titleKey: 'favoritesTitle',
+      descKey: 'favoritesDesc',
+      ctaKey: 'favoritesCta',
+      url: ROUTES.FAVORITES,
+      variant: 'review'
+    },
+    daily_quiz: {
+      tag: 'QUIZ',
+      titleKey: 'dailyQuizTitle',
+      descKey: 'dailyQuizDesc',
+      ctaKey: 'dailyQuizCta',
+      url: ROUTES.DAILY_QUIZ,
+      variant: 'vote'
+    },
+    collect: {
+      tag: 'WISH',
+      titleKey: 'collectTitle',
+      descKey: 'collectDesc',
+      ctaKey: 'collectCta',
+      url: ROUTES.COLLECT,
+      variant: 'astro'
+    },
+    exoplanet: {
+      tag: 'EXOPLANET',
+      titleKey: 'exoplanetTitle',
+      descKey: 'exoplanetDesc',
+      ctaKey: 'exoplanetCta',
+      url: ROUTES.EXOPLANET,
+      variant: 'astro'
+    },
+    nasa_data: {
+      tag: 'NASA',
+      titleKey: 'nasaDataTitle',
+      descKey: 'nasaDataDesc',
+      ctaKey: 'nasaDataCta',
+      url: ROUTES.NASA_DATA,
+      variant: 'news'
+    },
+    spacecraft_gallery: {
+      tag: 'SPACECRAFT',
+      titleKey: 'spacecraftGalleryTitle',
+      descKey: 'spacecraftGalleryDesc',
+      ctaKey: 'spacecraftGalleryCta',
+      url: ROUTES.SPACECRAFT_GALLERY,
+      variant: 'agency'
+    },
+    launch_site_gallery: {
+      tag: 'SITES',
+      titleKey: 'launchSiteGalleryTitle',
+      descKey: 'launchSiteGalleryDesc',
+      ctaKey: 'launchSiteGalleryCta',
+      url: ROUTES.LAUNCH_SITE_MAP,
+      variant: 'agency'
+    }
+  }
+  const conf = map[kind]
+  if (!conf) return { card: null, scheduled: false }
+  return {
+    card: {
+      cardType: 'entry',
+      entryKind: kind,
+      id: 'entry_' + kind,
+      tag: conf.tag,
+      title: aiChatUiText(conf.titleKey),
+      desc: aiChatUiText(conf.descKey),
+      cta: aiChatUiText(conf.ctaKey),
+      variant: conf.variant,
+      detailUrl: conf.url,
       gateProductId: '',
       gateProductName: '',
       needMissionSimFlag: false
@@ -1678,16 +2040,19 @@ async function resolveApodCard(options) {
     targetId: doc.date || 'today',
     targetName: doc.title || '',
     tag: 'NASA APOD',
-    title: doc.title || '每日天文图',
+    title: doc.title || aiChatUiText('apodTitle'),
     subtitle: [doc.date || '', doc.copyright ? '© ' + String(doc.copyright).trim() : '']
       .filter(Boolean).join(' · '),
     image,
     desc: doc.explanation || '',
     variant: 'apod',
-    cta: '打开天象页看大图 ›',
+    cta: aiChatUiText('apodCta'),
     rows: [
-      { label: '日期', value: doc.date || '' },
-      { label: '类型', value: isVideo ? '视频' : '图片' }
+      { label: aiChatUiText('rowDate'), value: doc.date || '' },
+      {
+        label: aiChatUiText('rowType'),
+        value: isVideo ? aiChatUiText('typeVideo') : aiChatUiText('typeImage')
+      }
     ]
   })
   return { card, scheduled: true }
@@ -1700,10 +2065,10 @@ function resolveStarlinkPassEntryCard() {
       cardType: 'entry',
       entryKind: 'starlink_pass',
       id: 'entry_starlink_pass',
-      tag: 'STARLINK · 过境',
-      title: '星链过境预报',
-      desc: '按你的位置算未来可见过境 · 含方位角、仰角与观测地图',
-      cta: '打开监控中心 ›',
+      tag: aiChatUiText('starlinkPassTag'),
+      title: aiChatUiText('starlinkPassTitle'),
+      desc: aiChatUiText('starlinkPassDesc'),
+      cta: aiChatUiText('openMonitorCta'),
       variant: 'starlink',
       detailUrl: ROUTES.MONITOR,
       useSwitchTab: true,
@@ -1726,10 +2091,10 @@ function resolveLiveWatchEntryCard() {
       cardType: 'entry',
       entryKind: 'live_watch',
       id: 'entry_live_watch',
-      tag: 'LIVE · 直播观看',
-      title: '看发射直播',
-      desc: '监控中心内嵌视频号直播间 · 另有 B站直播与推荐直播入口',
-      cta: '打开直播观看 ›',
+      tag: aiChatUiText('liveTag'),
+      title: aiChatUiText('liveTitle'),
+      desc: aiChatUiText('liveDesc'),
+      cta: aiChatUiText('liveCta'),
       variant: 'live',
       detailUrl: ROUTES.MONITOR,
       useSwitchTab: true,
@@ -1749,14 +2114,14 @@ function resolveStarlinkMapEntryCard() {
       cardType: 'entry',
       entryKind: 'starlink_map',
       id: 'entry_starlink_map',
-      tag: 'STARLINK · 星座',
-      title: '星链实时分布',
-      desc: '全球在轨星链的实时位置与在轨颗数 · 可拖动缩放的 3D 星座视图',
-      cta: '查看实时分布 ›',
+      tag: aiChatUiText('starlinkMapTag'),
+      title: aiChatUiText('starlinkMapTitle'),
+      desc: aiChatUiText('starlinkMapDesc'),
+      cta: aiChatUiText('starlinkMapCta'),
       variant: 'starlink',
       detailUrl: ROUTES.STARLINK_FULLSCREEN,
       gateProductId: 'starlink_pro',
-      gateProductName: '星链高级追踪',
+      gateProductName: aiChatUiText('starlinkMapGate'),
       needMissionSimFlag: false
     },
     scheduled: true
@@ -1770,14 +2135,14 @@ function resolveArtemisEntryCard() {
       cardType: 'entry',
       entryKind: 'artemis',
       id: 'entry_artemis',
-      tag: 'ARTEMIS · 绕月',
-      title: 'Artemis II 任务面板',
-      desc: '任务阶段、绕月轨迹与遥测简报 · 载人绕月飞行进度',
-      cta: '进入任务面板 ›',
+      tag: aiChatUiText('artemisTag'),
+      title: aiChatUiText('artemisTitle'),
+      desc: aiChatUiText('artemisDesc'),
+      cta: aiChatUiText('artemisCta'),
       variant: 'artemis',
       detailUrl: ROUTES.ARTEMIS_DETAIL,
       gateProductId: 'artemis_telemetry',
-      gateProductName: 'Artemis 遥测面板',
+      gateProductName: aiChatUiText('artemisGate'),
       needMissionSimFlag: false
     },
     scheduled: true
@@ -1803,18 +2168,18 @@ async function resolveStarshipHardwareCard(options) {
       specKind: 'starship_hardware',
       targetId: hit.id,
       targetName: hit.name || '',
-      tag: 'STARSHIP · 硬件',
-      title: hit.name || '星舰硬件',
+      tag: aiChatUiText('hardwareTag'),
+      title: hit.name || aiChatUiText('hardwareTitle'),
       subtitle: [hit.typeZh || hit.type, hit.categoryZh].filter(Boolean).join(' · '),
       image: hit.imageMissing ? '' : (hit.image || ''),
       desc: hit.notesZh || hit.notesEn || '',
       variant: 'hardware',
-      cta: '查看硬件详情 ›',
+      cta: aiChatUiText('hardwareCta'),
       gateProductId: 'starship_hardware',
-      gateProductName: '星舰硬件设施',
+      gateProductName: aiChatUiText('hardwareGate'),
       rows: [
-        { label: '状态', value: hit.statusZh || hit.status || '' },
-        { label: '类型', value: hit.typeZh || hit.type || '' }
+        { label: aiChatUiText('rowStatus'), value: hit.statusZh || hit.status || '' },
+        { label: aiChatUiText('rowType'), value: hit.typeZh || hit.type || '' }
       ]
     })
     return { card, scheduled: true }
@@ -1825,14 +2190,14 @@ async function resolveStarshipHardwareCard(options) {
       cardType: 'entry',
       entryKind: 'starship_hardware',
       id: 'entry_starship_hardware',
-      tag: 'STARSHIP · 硬件',
-      title: '星舰硬件设施',
-      desc: '在建与在役的助推器、飞船与地面设施 · 状态、测试与图片',
-      cta: '打开硬件列表 ›',
+      tag: aiChatUiText('hardwareTag'),
+      title: aiChatUiText('hardwareListTitle'),
+      desc: aiChatUiText('hardwareListDesc'),
+      cta: aiChatUiText('hardwareListCta'),
       variant: 'hardware',
       detailUrl: ROUTES.HARDWARE_LIST,
       gateProductId: 'starship_hardware',
-      gateProductName: '星舰硬件设施',
+      gateProductName: aiChatUiText('hardwareGate'),
       needMissionSimFlag: false
     },
     scheduled: true
@@ -1850,13 +2215,13 @@ async function resolveRecoveryStatsCard(options) {
         entryKind: 'booster_genealogy',
         id: 'entry_booster_genealogy',
         tag: 'BOOSTER · GENEALOGY',
-        title: '助推器家谱',
-        desc: '复用次数排行、单枚战绩与回收记录',
-        cta: '打开家谱 ›',
+        title: aiChatUiText('boosterGeneTitle'),
+        desc: aiChatUiText('boosterGeneDescShort'),
+        cta: aiChatUiText('boosterGeneCta'),
         variant: 'booster',
         detailUrl: ROUTES.BOOSTER_GENEALOGY,
         gateProductId: 'booster_genealogy',
-        gateProductName: '助推器家谱',
+        gateProductName: aiChatUiText('boosterGeneTitle'),
         needMissionSimFlag: false
       },
       scheduled: true
@@ -1867,21 +2232,37 @@ async function resolveRecoveryStatsCard(options) {
   const card = buildSpecCard({
     specKind: 'recovery_stats',
     targetId: 'all',
-    targetName: '回收总览',
-    tag: 'RECOVERY · 总览',
-    title: '助推器回收与复用总览',
-    subtitle: res.totalBoosters ? (res.totalBoosters + ' 枚在册 · ' + (res.activeBoosters || 0) + ' 枚在役') : '',
+    targetName: aiChatUiText('recoveryOverview'),
+    tag: aiChatUiText('recoveryTag'),
+    title: aiChatUiText('recoveryTitle'),
+    subtitle: res.totalBoosters
+      ? aiChatUiText('recoverySubtitle', {
+        total: res.totalBoosters,
+        active: res.activeBoosters || 0
+      })
+      : '',
     variant: 'booster',
-    cta: '查看助推器家谱 ›',
+    cta: aiChatUiText('recoveryCta'),
     gateProductId: 'booster_genealogy',
-    gateProductName: '助推器家谱',
+    gateProductName: aiChatUiText('boosterGeneTitle'),
     rows: [
-      { label: '累计飞行', value: res.totalFlights ? res.totalFlights + ' 次' : '' },
-      { label: '成功回收', value: res.totalAttempts
-        ? (res.totalLandings + ' / ' + res.totalAttempts) : '' },
-      { label: '回收成功率', value: res.landingSuccessRate || '' },
-      { label: '复用榜首', value: top && top.serial
-        ? (top.serial + ' · ' + (top.flights || 0) + ' 飞') : '' }
+      {
+        label: aiChatUiText('rowTotalFlights'),
+        value: res.totalFlights ? aiChatUiText('nTimes', { n: res.totalFlights }) : ''
+      },
+      {
+        label: aiChatUiText('rowLandingOk'),
+        value: res.totalAttempts
+          ? (res.totalLandings + ' / ' + res.totalAttempts)
+          : ''
+      },
+      { label: aiChatUiText('rowLandingRate'), value: res.landingSuccessRate || '' },
+      {
+        label: aiChatUiText('rowTopReuse'),
+        value: top && top.serial
+          ? aiChatUiText('rowTopReuseVal', { serial: top.serial, n: top.flights || 0 })
+          : ''
+      }
     ]
   })
   return { card, scheduled: true }
@@ -1892,8 +2273,16 @@ async function resolveRichChatPayload(text, options) {
   const intent = resolveAiChatRichIntent(text)
   let launchContext = opts.launchContext || null
   const cards = []
+  let subscribeMission = null
 
-  if (intent === 'starship_next') {
+  if (intent === 'set_reminder') {
+    const resolved = await resolveSetReminderCard({ ...opts, queryText: text })
+    if (resolved.card) {
+      cards.push(resolved.card)
+      launchContext = enrichLaunchContextWithSetReminder(launchContext, resolved.card)
+    }
+    subscribeMission = resolved.subscribeMission || null
+  } else if (intent === 'starship_next') {
     const resolved = await resolveStarshipNextFlightCard(opts)
     if (resolved.card) {
       cards.push(resolved.card)
@@ -1944,6 +2333,14 @@ async function resolveRichChatPayload(text, options) {
       launchContext = enrichLaunchContextWithAgency(launchContext, resolved.card)
     } else {
       launchContext = enrichLaunchContextNoAgency(launchContext, text)
+    }
+  } else if (intent === 'history_list') {
+    const resolved = await resolveHistoryListCard({ ...opts, queryText: text })
+    if (resolved.card) {
+      cards.push(resolved.card)
+      launchContext = enrichLaunchContextWithLaunchList(launchContext, resolved.card, resolved.listFilter)
+    } else {
+      launchContext = enrichLaunchContextNoLaunchList(launchContext, text)
     }
   } else if (intent === 'launch_list') {
     const resolved = await resolveLaunchListCard({ ...opts, queryText: text })
@@ -2155,9 +2552,46 @@ async function resolveRichChatPayload(text, options) {
     } else {
       launchContext = enrichLaunchContextNoSpec(launchContext, '回收统计', text)
     }
+  } else if (
+    intent === 'badges' || intent === 'favorites' || intent === 'daily_quiz' ||
+    intent === 'collect' || intent === 'exoplanet' || intent === 'nasa_data' ||
+    intent === 'spacecraft_gallery' || intent === 'launch_site_gallery'
+  ) {
+    const resolved = resolveSimpleFeatureEntryCard(intent)
+    if (resolved.card) {
+      cards.push(resolved.card)
+      const labels = {
+        badges: { label: '我的徽章', action: '查看与点亮徽章' },
+        favorites: { label: '我的收藏', action: '查看收藏的任务与资料' },
+        daily_quiz: { label: '每日挑战', action: '开始航天问答' },
+        collect: { label: '月愿计划', action: '写下你的月球心愿' },
+        exoplanet: { label: '系外行星', action: '浏览宜居带与系外行星' },
+        nasa_data: { label: 'NASA 开放数据', action: '查看地球观测与开放数据' },
+        spacecraft_gallery: { label: '全球飞船图鉴', action: '浏览飞船档案' },
+        launch_site_gallery: { label: '全球发射场分布', action: '打开发射场地图' }
+      }
+      launchContext = enrichLaunchContextWithSimpleEntry(launchContext, labels[intent])
+    }
   }
 
-  return { intent, cards, launchContext }
+  return { intent, cards, launchContext, subscribeMission }
+}
+
+/** 订阅结果回写提醒卡文案（供星问发送链路调用） */
+function applyReminderSubscribeStatus(card, status) {
+  if (!card || card.cardType !== 'reminder') return card
+  return buildReminderResultCard({
+    id: card.missionId,
+    name: card.missionName,
+    missionName: card.missionName,
+    rocketName: card.rocketName,
+    rocketImage: card.rocketImage,
+    launchTime: card.launchTime,
+    formattedTime: card.formattedTime,
+    padLocation: card.padLocation,
+    detailType: card.detailType,
+    detailUrl: card.detailUrl
+  }, status)
 }
 
 module.exports = {
@@ -2172,6 +2606,7 @@ module.exports = {
   matchStationIntent,
   matchAgencyIntent,
   matchMissionLookupIntent,
+  matchSetReminderIntent,
   matchMissionReplayIntent,
   matchRocketModelIntent,
   matchLaunchSiteIntent,
@@ -2205,6 +2640,8 @@ module.exports = {
   resolveMissionSimEntryCard,
   resolveStarshipProgressEntryCard,
   resolveMissionLookupCard,
+  resolveSetReminderCard,
+  applyReminderSubscribeStatus,
   resolveMissionReplayCard,
   resolveRoadClosureEntryCard,
   resolveStationEntryCard,
@@ -2228,6 +2665,7 @@ module.exports = {
   resolveRecoveryStatsCard,
   buildSpecCard,
   resolveRichChatPayload,
+  enrichLaunchContextWithSetReminder,
   enrichLaunchContextWithCard,
   enrichLaunchContextNoStarshipSchedule,
   enrichLaunchContextNoMissionLookup,

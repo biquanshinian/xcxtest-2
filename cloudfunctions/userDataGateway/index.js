@@ -11,6 +11,7 @@
  *   - syncAll           客户端本地数据整体上传（首次云同步 / 恢复场景）
  *   - savePreferences   保存用户偏好（提醒/简报）
  *   - getPreferences    读取用户偏好
+ *   - saveIdentity      保存展示昵称 / 头像 fileID
  *   - recordMilestone   记录时间线里程碑
  *   - getTodayBriefing  获取今日简报
  *   - getNewsManualForApp         公共只读：航天事件手写稿列表（服务端读 news_articles）
@@ -232,6 +233,18 @@ async function handleSyncAll(openid, localData) {
     }
   }
 
+  // 合并身份展示（取较新的）
+  if (localData.identity && localData.identity.updatedAt) {
+    const cloudId = profile.identity || {}
+    if ((localData.identity.updatedAt || 0) >= (cloudId.updatedAt || 0)) {
+      updateData.identity = {
+        displayName: String(localData.identity.displayName || '').trim().slice(0, 16),
+        avatarFileID: String(localData.identity.avatarFileID || '').trim().slice(0, 512),
+        updatedAt: Number(localData.identity.updatedAt) || Date.now()
+      }
+    }
+  }
+
   await db.collection(COLLECTION).doc(openid).update({ data: updateData })
 
   return { success: true, checkin: mergedCheckin, quiz: mergedQuiz, achievements: mergedAchievements, behaviorStats: mergedBehaviorStats }
@@ -309,6 +322,24 @@ async function handleSavePreferences(openid, preferences) {
     data: { preferences: { ...preferences, updatedAt: Date.now() } }
   })
   return { success: true }
+}
+
+// ── 保存身份展示（昵称 / 头像）──
+async function handleSaveIdentity(openid, identity) {
+  await getOrCreateProfile(openid)
+  const src = identity && typeof identity === 'object' ? identity : {}
+  const displayName = String(src.displayName || '').trim().slice(0, 16)
+  const avatarFileID = String(src.avatarFileID || '').trim().slice(0, 512)
+  const updatedAt = Number(src.updatedAt) || Date.now()
+  const next = {
+    displayName,
+    avatarFileID,
+    updatedAt
+  }
+  await db.collection(COLLECTION).doc(openid).update({
+    data: { identity: next }
+  })
+  return { success: true, identity: next, openid }
 }
 
 // ── 读取偏好 ──
@@ -1149,6 +1180,10 @@ exports.main = async (event) => {
 
     case 'getPreferences': {
       return handleGetPreferences(OPENID)
+    }
+
+    case 'saveIdentity': {
+      return handleSaveIdentity(OPENID, event.identity || {})
     }
 
     case 'recordMilestone': {

@@ -52,7 +52,19 @@
     <!-- 标题/状态/折叠固定在面板顶，不被地图工具遮挡 -->
     <view class="panel-header panel-header--with-action" wx:if="{{site}}">
       <view class="panel-header-text">
-        <text class="panel-title">{{site.nameZh || site.name}}</text>
+        <view class="panel-title-row">
+          <text class="panel-title">{{site.nameZh || site.name}}</text>
+          <view
+            class="fav-btn fav-btn--panel {{isFavorited ? 'fav-btn--on' : ''}} {{favAnimate ? 'fav-btn--animate' : ''}}"
+            hover-class="fav-btn--pressed"
+            hover-stay-time="120"
+            catchtap="onToggleFavorite"
+            aria-role="button"
+            aria-label="收藏"
+          >
+            <view class="fav-heart"></view>
+          </view>
+        </view>
         <text class="panel-subtitle" wx:if="{{site.nameZh}}">{{site.fullName || site.name}}</text>
       </view>
       <view class="panel-header-actions">

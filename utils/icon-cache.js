@@ -443,6 +443,8 @@ const MEDIA_BG_DOWNLOAD_DELAY_MS = 2500
 
 let _mediaIndex = null
 let _mediaDownloading = {}
+/** @type {Record<string, Array<(p: string|null) => void>>} */
+let _mediaPersistWaiters = Object.create(null)
 let _mediaUrlMemo = Object.create(null)
 
 function _isWifiNetwork() {
@@ -568,15 +570,24 @@ function _downloadMediaInBackground(url, preset) {
   }
 
   setTimeout(function () {
-    // 蜂窝下只走 <image> 一次远程拉取，不后台 downloadFile 双计费
+    // 蜂窝下不主动后台双下；若已有 persist 等待者（展示成功后强制落盘）则仍下载
     _isWifiNetwork().then(function (wifi) {
-      if (!wifi) {
+      const hasWaiters = !!( _mediaPersistWaiters[url] && _mediaPersistWaiters[url].length )
+      if (!wifi && !hasWaiters) {
         finish()
         return
       }
       _startMediaDownload(url, preset, finish)
     })
   }, MEDIA_BG_DOWNLOAD_DELAY_MS)
+}
+
+function _flushMediaPersistWaiters(url, localPath) {
+  const waiters = _mediaPersistWaiters[url] || []
+  delete _mediaPersistWaiters[url]
+  for (let i = 0; i < waiters.length; i++) {
+    try { waiters[i](localPath || null) } catch (e) {}
+  }
 }
 
 function _startMediaDownload(url, preset, finish) {
@@ -595,17 +606,25 @@ function _startMediaDownload(url, preset, finish) {
   }
 
   _downloadFileOnce(downloadUrl, localPath)
-    .then(commitMediaEntry)
+    .then(function () {
+      commitMediaEntry()
+      _flushMediaPersistWaiters(url, localPath)
+    })
     .catch(function (err) {
       const code = err && err.statusCode
       if (code === 404 && fallbackUrl && fallbackUrl !== downloadUrl && !shouldSkipDownload(fallbackUrl)) {
-        return _downloadFileOnce(fallbackUrl, localPath).then(commitMediaEntry).catch(function (err2) {
+        return _downloadFileOnce(fallbackUrl, localPath).then(function () {
+          commitMediaEntry()
+          _flushMediaPersistWaiters(url, localPath)
+        }).catch(function (err2) {
           markDownloadFailed(url, code)
           markDownloadFailed(fallbackUrl, err2 && err2.statusCode)
+          _flushMediaPersistWaiters(url, null)
         })
       }
       markDownloadFailed(downloadUrl, code)
       if (downloadUrl !== url) markDownloadFailed(url, code)
+      _flushMediaPersistWaiters(url, null)
     })
     .catch(function () {})
     .then(function () { finish() }, function () { finish() })
@@ -617,6 +636,66 @@ function preloadMediaImages(urls, preset) {
     if (u && isRemoteCacheableImageUrl(u) && !shouldSkipDownload(u)) {
       getCachedMediaImage(u, preset)
     }
+  })
+}
+
+/**
+ * <image> 已成功展示后强制落盘（不限 Wi‑Fi：流量已在展示时产生，落盘避免下次再拉）。
+ * @param {string} remoteUrl
+ * @param {(localPath: string|null) => void} [onDone]
+ * @param {'thumb'|'medium'|'none'} [preset='thumb']
+ */
+function persistMediaImageAfterRemoteLoad(remoteUrl, onDone, preset) {
+  const cb = typeof onDone === 'function' ? onDone : function () {}
+  const raw = typeof remoteUrl === 'string' ? remoteUrl.trim() : ''
+  if (!raw || !/^https?:\/\//i.test(raw) || !isOwnCdnUrl(raw)) {
+    cb(null)
+    return
+  }
+  const url = toCdnUrl(raw)
+  if (!url) {
+    cb(null)
+    return
+  }
+
+  const memo = _mediaUrlMemo[url]
+  if (memo) {
+    cb(memo)
+    return
+  }
+  const index = _getMediaIndex()
+  const cached = index[url]
+  if (cached) {
+    try {
+      wx.getFileSystemManager().accessSync(cached)
+      _touchLruKey(index, url)
+      _mediaUrlMemo[url] = cached
+      cb(cached)
+      return
+    } catch (e) {
+      delete index[url]
+      _saveMediaIndex()
+    }
+  }
+
+  if (shouldSkipDownload(url)) {
+    cb(null)
+    return
+  }
+
+  // 与后台下载共用队列键，避免双下
+  if (_mediaDownloading[url]) {
+    const prev = _mediaPersistWaiters[url] || (_mediaPersistWaiters[url] = [])
+    prev.push(cb)
+    return
+  }
+  _mediaDownloading[url] = true
+  _mediaPersistWaiters[url] = [cb]
+
+  _startMediaDownload(url, preset || 'thumb', function () {
+    delete _mediaDownloading[url]
+    // waiters 已在 _startMediaDownload 成功/失败路径 flush；兜底空队列
+    if (_mediaPersistWaiters[url]) _flushMediaPersistWaiters(url, _mediaUrlMemo[url] || null)
   })
 }
 
@@ -649,5 +728,6 @@ module.exports = {
   isRemoteCacheableImageUrl,
   getCachedMediaImage,
   preloadMediaImages,
+  persistMediaImageAfterRemoteLoad,
   preloadStaticMediaUrls
 }

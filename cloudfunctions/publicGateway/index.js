@@ -128,6 +128,7 @@ function slimLaunch(launch) {
   return {
     id: launch.id,
     name: launch.name || '',
+    nameZh: launch.nameZh || undefined,
     net: launch.net || '',
     net_precision,
     window_start: launch.window_start || '',
@@ -135,13 +136,16 @@ function slimLaunch(launch) {
     status: {
       id: status.id,
       name: status.name || '',
-      abbrev: status.abbrev || ''
+      abbrev: status.abbrev || '',
+      nameZh: status.nameZh || undefined
     },
     rocket: {
       configuration: {
         id: configuration.id,
         name: configuration.name || '',
+        nameZh: configuration.nameZh || undefined,
         full_name: configuration.full_name || '',
+        full_nameZh: configuration.full_nameZh || undefined,
         family: configuration.family || '',
         variant: configuration.variant || '',
         length: configuration.length,
@@ -155,16 +159,20 @@ function slimLaunch(launch) {
     },
     mission: {
       name: mission.name || '',
+      nameZh: mission.nameZh || undefined,
       type: mission.type || '',
-      description: mission.description || ''
+      description: mission.description || '',
+      descriptionZh: mission.descriptionZh || undefined
     },
     pad: {
       name: pad.name || '',
+      nameZh: pad.nameZh || undefined,
       latitude: pad.latitude,
       longitude: pad.longitude,
       location: {
         id: location.id,
         name: location.name || '',
+        nameZh: location.nameZh || undefined,
         country_code: location.country_code || ''
       }
     },

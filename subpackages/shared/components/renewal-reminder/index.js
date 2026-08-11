@@ -173,6 +173,7 @@ Component({
     onRenew() {
       this._markDismissed()
       this.setData({ visible: false })
+      this.triggerEvent('closed')
       wx.navigateTo({ url: '/subpackages/profile-extra/membership/membership' })
     },
 

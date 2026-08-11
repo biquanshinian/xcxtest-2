@@ -29,6 +29,9 @@ page {
 
 .detail-card {
   padding: var(--space-lg);
+  /* 阻断外边距折叠，否则负上边距会把整张白卡一起上移，而不是只让头图贴顶 */
+  display: flex;
+  flex-direction: column;
 }
 
 /* 全局 .glass-card 自带 overflow:hidden，会裁掉头图悬浮卡的横向出框与毛玻璃叠层/投影；
@@ -37,11 +40,9 @@ page {
   overflow: visible;
 }
 
-/* 头图出框悬浮页内适配：容器横向总内衬 72rpx（detail-container 36rpx + detail-card 36rpx），
- * 覆盖 --flush 默认 -16rpx 为 -52rpx，让头图最终落在屏边 20rpx（未超出视口，不引发横向滚动）；
- * 卡片上内边距 36rpx ≥ 32rpx，-32rpx 上浮压不出卡顶，覆盖为 0 保持正常间距（不上浮） */
+/* 头图出框：横向 -52rpx 落到屏边 20rpx；顶部抵消卡内 36rpx 上内边距，贴齐白卡顶沿 */
 .detail-card .hero-float--flush {
-  margin-top: 0;
+  margin-top: calc(-1 * var(--space-lg));
   margin-left: -52rpx;
   margin-right: -52rpx;
 }
@@ -489,6 +490,51 @@ page {
   color: #b8ffd2;
   background: rgba(52, 199, 89, 0.14);
   border: 1px solid rgba(52, 199, 89, 0.28);
+}
+
+/* 对接口：两列整齐网格（label 上 / value 下） */
+.dock-port-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14rpx;
+}
+
+.dock-port-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4rpx;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 14rpx 18rpx;
+  border-radius: 10rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dock-port-item--active {
+  background: rgba(52, 199, 89, 0.10);
+  border-color: rgba(52, 199, 89, 0.28);
+}
+
+.dock-port-label {
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.4);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dock-port-value {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  line-height: 1.35;
+}
+
+.dock-port-item--active .dock-port-value {
+  color: #b8ffd2;
 }
 
 .agency-list {
@@ -1274,7 +1320,7 @@ page {
   color: var(--color-text-secondary);
 }
 
-/* 对接口标签 */
+/* 对接口标签 / 网格 */
 .theme-light .tag-item {
   color: var(--color-brand);
   background: rgba(59, 130, 246, 0.10);
@@ -1285,6 +1331,28 @@ page {
   color: #248a3d;
   background: rgba(52, 199, 89, 0.12);
   border: 1px solid rgba(52, 199, 89, 0.28);
+}
+
+.theme-light .dock-port-item {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--color-divider);
+}
+
+.theme-light .dock-port-item--active {
+  background: rgba(52, 199, 89, 0.10);
+  border-color: rgba(52, 199, 89, 0.28);
+}
+
+.theme-light .dock-port-label {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .dock-port-value {
+  color: var(--color-text-primary);
+}
+
+.theme-light .dock-port-item--active .dock-port-value {
+  color: #248a3d;
 }
 
 /* 所属机构卡 */

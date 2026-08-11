@@ -15,9 +15,13 @@ function resolveCardRocketImage(item, forceRecompute) {
   if (!item || typeof item !== 'object') {
     return resolveMissionRocketImage(DEFAULT_ROCKET_IMAGE)
   }
+  const rocketEn =
+    (item._langPack && item._langPack.rocketNameEn) ||
+    item.rocketName ||
+    ''
   return resolveMissionRocketImage(
     item.rocketImage || item.image || '',
-    item.rocketName,
+    rocketEn,
     item.rocketConfiguration,
     !!forceRecompute
   )

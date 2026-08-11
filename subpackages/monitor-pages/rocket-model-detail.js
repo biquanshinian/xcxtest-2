@@ -13,7 +13,7 @@ const { openBoosterEntityDetail } = require('../../utils/booster-nav.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
 const { togglePageTranslation } = require('./utils/text-translate.js')
 const { getRocketImage } = require('../../utils/util.js')
-const { translateAgencyName } = require('../../utils/space-terms-i18n.js')
+const { translateRocketName } = require('../../utils/rocket-name-i18n.js')
 
 function fmtNum(v, unit, digits) {
   if (v == null || v === '') return ''
@@ -129,7 +129,7 @@ Page({
         icon: netRecovery ? buildLandingIcon('NET_CATCH', 'neutral') : buildLandingIcon('RTLS', 'neutral'),
         desc: netRecovery
           ? '通过带拦阻网与支撑框架的回收平台捕获箭体'
-          : '构型设计支持回收复用（具体方式以各次任务 LL2 数据为准）'
+          : '构型设计支持回收复用'
       }
     }
 
@@ -161,7 +161,7 @@ Page({
     }
     var hasRecord = record.totalLaunches > 0 || record.attemptedLandings > 0
 
-    // ── 旗下箭实体（configId 精确匹配，兜底 rocketFamily 名称匹配） ──
+    // ── 旗下箭实体（configId 精确匹配，兜底 rocketFamily 英文名匹配） ──
     var processed = boosterDisplay.processBoosterList(boosterList, configsMap)
     this._rawBySerial = processed.rawBySerial
     var cfgId = cfg.id
@@ -170,26 +170,32 @@ Page({
     var fleet = processed.processed.filter(function (b) {
       if (b.configId != null && String(b.configId) === String(cfgId)) return true
       if (b.configId != null) return false
-      var fam = String(b.rocketFamily || '').toLowerCase()
+      var fam = String(b.rocketFamilyEn || b.rocketFamily || '').toLowerCase()
       return fam && (fam === nameLower || (nameShortLower && fam === nameShortLower))
     })
     fleet.sort(function (a, b) { return b.flights - a.flights })
 
+    var nameZh = translateRocketName(cfg.name || '') || cfg.name || ''
+    var fullNameZh = translateRocketName(fullName) || fullName
     var model = {
       configId: cfg.id,
-      name: cfg.name || '',
-      fullName: fullName,
+      nameEn: cfg.name || '',
+      fullNameEn: fullName,
+      name: nameZh,
+      fullName: fullNameZh,
       alias: cfg.alias || '',
       variant: cfg.variant || '',
       manufacturer: cfg.manufacturerName || '',
       manufacturerAbbrev: cfg.manufacturerAbbrev || '',
       // 展示用中文名（与发射商详情页同源词典）；manufacturer 保留原文供跳转解析
-      manufacturerDisplay: translateAgencyName(cfg.manufacturerName, cfg.manufacturerAbbrev) ||
-        boosterDisplay.mfrDisplayName(cfg.manufacturerName || ''),
+      manufacturerDisplay: boosterDisplay.mfrDisplayName(
+        cfg.manufacturerName || '',
+        cfg.manufacturerAbbrev || ''
+      ),
       countryCode: countryCode,
       countryFlag: boosterDisplay.countryCodeToFlag(countryCode),
       reusable: cfg.reusable === true,
-      // 构型无图时兜底 COS 火箭配置图库（与族谱列表卡兜底链一致）
+      // 构型无图时兜底 COS 火箭配置图库（与族谱列表卡兜底链一致；查图用英文原名）
       imageUrl: cfg.cosImageUrl || cfg.image_url || cfg.thumbnail_url || getRocketImage(cfg.name || fullName) || '',
       imageCredit: cfg.imageCredit || '',
       // 默认英文原文；预翻译中文单独携带，翻译按钮命中时本地秒切

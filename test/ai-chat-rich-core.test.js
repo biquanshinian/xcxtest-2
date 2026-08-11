@@ -8,6 +8,7 @@ const {
   matchStarshipStatusIntent,
   matchLaunchStatsIntent,
   matchLaunchListIntent,
+  matchHistoryListIntent,
   matchFlightDemoIntent,
   matchMissionSimIntent,
   matchVehicleTrackerIntent,
@@ -29,6 +30,14 @@ const {
   pickBestMissionMatch,
   pickBestAgencyMatch,
   missionLookupTimePreference,
+  hasHistorySense,
+  hasSingularRecentLaunchAsk,
+  hasAgencyOwnershipAsk,
+  hasSetReminderAsk,
+  resolveAgencyFromRocketConfig,
+  matchSetReminderIntent,
+  buildHistoryCloudSearchKeys,
+  parseHistoryListFilter,
   resolveMissionDetailType,
   normalizeMatchText,
   extractBoosterSerial,
@@ -234,6 +243,10 @@ function testIntentAgency() {
     assert.strictEqual(resolveAiChatRichIntent(q), 'agency', q)
     assert.strictEqual(matchAgencyIntent(q), true, q)
   })
+  // 型号+归属 → 机构卡（不得误进 mission_lookup）
+  assert.ok(hasAgencyOwnershipAsk('长征七号甲属于哪家发射商？'))
+  assert.strictEqual(resolveAiChatRichIntent('长征七号甲属于哪家发射商？'), 'agency')
+  assert.strictEqual(resolveAiChatRichIntent('猎鹰9是哪家公司的'), 'agency')
   // 日程问法仍走列表 / 任务，不抢发射商
   assert.strictEqual(resolveAiChatRichIntent('SpaceX接下来发什么'), 'launch_list')
   assert.strictEqual(resolveAiChatRichIntent('朱雀三号什么时候发射？'), 'mission_lookup')
@@ -262,6 +275,29 @@ function testIntentAgency() {
   assert.ok(!noCasc, '无 CASC 时不得回落 Aérospatiale')
   assert.strictEqual(resolveAgencyCanonicalSearchKey('中国航天科技集团'), 'casc')
   assert.strictEqual(detectKnownAgencyCanonical('中国航天科技集团'), 'casc')
+
+  // 型号归属反查：构型 manufacturerAbbrev → CASC
+  const configs = {
+    cz7a: {
+      id: 'cz7a',
+      name: 'Long March 7A',
+      full_name: 'Long March 7A',
+      alias: '长征七号甲',
+      manufacturerName: 'China Aerospace Science and Technology Corporation',
+      manufacturerAbbrev: 'CASC',
+      total_launch_count: 20
+    }
+  }
+  const fromMfr = resolveAgencyFromRocketConfig(configs, agencies, '长征七号甲属于哪家发射商？')
+  assert.ok(fromMfr && String(fromMfr.agency.id) === '88', 'manufacturer 反查 CASC')
+  assert.strictEqual(fromMfr.via, 'manufacturer')
+  // 无 manufacturer 时长征系回落 CASC
+  const bareConfigs = {
+    cz7a: { id: 'cz7a', name: 'Long March 7A', alias: '长征七号甲', total_launch_count: 20 }
+  }
+  const fallback = resolveAgencyFromRocketConfig(bareConfigs, agencies, '长征七号甲属于哪家发射商？')
+  assert.ok(fallback && String(fallback.agency.id) === '88', '长征系无 manufacturer 仍回落 CASC')
+  assert.strictEqual(fallback.via, 'long_march_fallback')
 
   // 知名发射商：有干扰项时仍锁本尊；硬 ID 优先
   ;[
@@ -311,13 +347,20 @@ function testIntentMissionLookup() {
     '朱雀三号什么时候发射？',
     '猎鹰9号下次发射',
     'Falcon 9',
-    '星链任务'
+    '星链任务',
+    // 裸问下一场：此前意图为 null、模型空口说有卡但不抽卡
+    '下一次发射',
+    '下次发射',
+    '下一场发射',
+    'next launch'
   ].forEach((q) => {
     assert.strictEqual(resolveAiChatRichIntent(q), 'mission_lookup', q)
     assert.strictEqual(matchMissionLookupIntent(q), true, q)
   })
   // 非星舰 + 进展 → 检索该火箭，不进星舰状态
   assert.strictEqual(resolveAiChatRichIntent('朱雀三号进展'), 'mission_lookup')
+  // 带型号的「下次」仍走任务检索，不与星舰下一飞抢
+  assert.strictEqual(resolveAiChatRichIntent('猎鹰9号下一次发射'), 'mission_lookup')
 }
 
 function testIntentNegative() {
@@ -535,6 +578,82 @@ function testMissionLookupPrefersUpcoming() {
   const queries = buildLaunchSearchQueries('长征十号甲什么时候发射？')
   assert.ok(queries.some((q) => /Long March 10A/i.test(q)), '云端查询含 Long March 10A，实得 ' + queries.join('|'))
   assert.ok(buildLaunchSearchQueries('长征七号什么时候发射').some((q) => /Long March 7/i.test(q)))
+
+  assert.strictEqual(missionLookupTimePreference('长征七号甲最近的历史发射'), 'completed')
+}
+
+/** 历史发射问法：不得误判为即将发射列表 */
+function testHistoryLaunchIntent() {
+  assert.ok(hasHistorySense('长征七号甲最近的历史发射'))
+  assert.strictEqual(matchLaunchListIntent('长征七号甲最近的历史发射'), false, '历史问法不进 launch_list')
+  assert.strictEqual(
+    resolveAiChatRichIntent('长征七号甲最近的历史发射'),
+    'mission_lookup',
+    '单场历史 → mission_lookup'
+  )
+  // 用户原话：具体火箭「最近发射状态」≠ 通用即将发射列表
+  assert.ok(hasSingularRecentLaunchAsk('长征七号甲最近发射状态'))
+  assert.ok(hasHistorySense('长征七号甲最近发射状态'))
+  assert.strictEqual(matchLaunchListIntent('长征七号甲最近发射状态'), false)
+  assert.strictEqual(
+    resolveAiChatRichIntent('长征七号甲最近发射状态'),
+    'mission_lookup',
+    '最近发射状态 → 单场任务卡'
+  )
+  assert.strictEqual(missionLookupTimePreference('长征七号甲最近发射状态'), 'completed')
+  assert.strictEqual(resolveAiChatRichIntent('猎鹰9最近一次发射'), 'mission_lookup')
+  assert.strictEqual(resolveAiChatRichIntent('有哪些历史发射'), 'history_list')
+  assert.strictEqual(resolveAiChatRichIntent('SpaceX过往发射有哪些'), 'history_list')
+  assert.ok(matchHistoryListIntent('中国历史发射列表'))
+  assert.strictEqual(resolveAiChatRichIntent('接下来有哪些发射？'), 'launch_list')
+  assert.strictEqual(resolveAiChatRichIntent('最近有火箭要打吗'), 'launch_list')
+}
+
+/** 「提醒我一下」→ 自动开提醒意图，不是任务卡 / 我的提醒列表 */
+function testSetReminderIntent() {
+  assert.ok(hasSetReminderAsk('朱雀三号发射提醒我一下'))
+  assert.ok(matchSetReminderIntent('朱雀三号发射提醒我一下'))
+  assert.strictEqual(resolveAiChatRichIntent('朱雀三号发射提醒我一下'), 'set_reminder')
+  assert.strictEqual(resolveAiChatRichIntent('猎鹰9提醒我一下'), 'set_reminder')
+  assert.strictEqual(resolveAiChatRichIntent('帮我设个朱雀三号提醒'), 'set_reminder')
+  // 查看列表仍走 my_launches
+  assert.strictEqual(resolveAiChatRichIntent('我的提醒'), 'my_launches')
+  assert.strictEqual(resolveAiChatRichIntent('我订阅了哪些发射'), 'my_launches')
+  // 普通查任务不被抢走
+  assert.strictEqual(resolveAiChatRichIntent('朱雀三号什么时候发射'), 'mission_lookup')
+}
+
+/** 小程序功能入口抽卡覆盖 */
+function testFeatureEntryIntents() {
+  ;[
+    ['打开我的徽章', 'badges'],
+    ['我的收藏', 'favorites'],
+    ['每日挑战', 'daily_quiz'],
+    ['月愿计划', 'collect'],
+    ['系外行星', 'exoplanet'],
+    ['NASA数据', 'nasa_data'],
+    ['全球飞船图鉴', 'spacecraft_gallery'],
+    ['全球发射场分布', 'launch_site_gallery']
+  ].forEach(([q, expect]) => {
+    assert.strictEqual(resolveAiChatRichIntent(q), expect, q + ' → ' + expect)
+  })
+}
+
+/** 历史云探关键词：最多 2 个，优先英文代号 */
+function testHistoryCloudSearchKeysCap() {
+  const spacexKeys = buildHistoryCloudSearchKeys(
+    parseHistoryListFilter('SpaceX过往发射有哪些'),
+    'SpaceX过往发射有哪些'
+  )
+  assert.ok(spacexKeys.length <= 2, '云探词不超过 2：' + spacexKeys.join('|'))
+  assert.ok(spacexKeys.some((k) => /spacex/i.test(k)), '应含 spacex：' + spacexKeys.join('|'))
+
+  const czKeys = buildHistoryCloudSearchKeys(
+    { rocketKey: '长征七号甲', timeBucket: 'completed' },
+    '长征七号甲历史发射有哪些'
+  )
+  assert.ok(czKeys.length <= 2, '火箭云探词不超过 2：' + czKeys.join('|'))
+  assert.ok(czKeys.some((k) => /Long March|cz7|长征/i.test(k)), '应含长征检索词：' + czKeys.join('|'))
 }
 
 /** 新增百科 / 个人化 / 内容意图：既要能命中，也不能抢走排期问法 */
@@ -770,6 +889,10 @@ function main() {
     testPriorityRoadOverStatus,
     testExtractAndPick,
     testMissionLookupPrefersUpcoming,
+    testHistoryLaunchIntent,
+    testSetReminderIntent,
+    testFeatureEntryIntents,
+    testHistoryCloudSearchKeysCap,
     testExtendedIntents,
     testSpecPickers,
     testSpecEnrich,

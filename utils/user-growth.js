@@ -84,17 +84,49 @@ function getDefaultPreferences() {
     astroEventTypes: [],
     notifyMinutes: 60,
     briefingEnabled: true,
+    /** 发射卡片等内容语言：zh（默认）| en */
+    contentLang: 'zh',
     updatedAt: 0
   }
 }
 
 function savePreferences(prefs) {
   prefs.updatedAt = Date.now()
+  if (prefs.contentLang != null) {
+    try {
+      const locale = require('./locale.js')
+      prefs.contentLang = locale.normalizeContentLang(prefs.contentLang)
+      locale.setContentLangMem(prefs.contentLang)
+    } catch (e) {
+      prefs.contentLang = String(prefs.contentLang).toLowerCase() === 'en' ? 'en' : 'zh'
+    }
+  }
   storageCache.writeMem(PREFS_STORAGE_KEY, prefs)
   try {
     wx.setStorage({ key: PREFS_STORAGE_KEY, data: prefs, fail: function () {} })
   } catch (e) {}
   syncPreferencesToCloud(prefs)
+}
+
+/**
+ * 云端偏好回灌：缺 contentLang 时保留本地语言，避免旧云数据把 en 冲回默认 zh。
+ */
+function mergePreferencesFromCloud(cloudPrefs, localPrefs) {
+  const defaults = getDefaultPreferences()
+  const local = localPrefs && typeof localPrefs === 'object' ? localPrefs : {}
+  const cloud = cloudPrefs && typeof cloudPrefs === 'object' ? cloudPrefs : {}
+  const merged = Object.assign({}, defaults, local, cloud)
+  try {
+    const locale = require('./locale.js')
+    if (cloud.contentLang == null || cloud.contentLang === '') {
+      merged.contentLang = locale.normalizeContentLang(local.contentLang || defaults.contentLang)
+    } else {
+      merged.contentLang = locale.normalizeContentLang(cloud.contentLang)
+    }
+  } catch (e) {
+    merged.contentLang = String(merged.contentLang || 'zh').toLowerCase() === 'en' ? 'en' : 'zh'
+  }
+  return merged
 }
 
 function syncPreferencesToCloud(prefs) {
@@ -441,6 +473,7 @@ module.exports = {
   // 偏好
   loadPreferences: loadPreferences,
   savePreferences: savePreferences,
+  mergePreferencesFromCloud: mergePreferencesFromCloud,
   syncPreferencesToCloud: syncPreferencesToCloud,
   getDefaultPreferences: getDefaultPreferences,
   warmUserPreferencesSync: warmUserPreferencesSync,

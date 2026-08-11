@@ -8,6 +8,7 @@ const pageBase = require('./page-base.js')
 const { ROUTES } = require('../../utils/routes.js')
 const { isAIAvailable, fetchAIChatEnabled } = require('./utils/aiService.js')
 const { isFeatureEnabled } = require('../../utils/feature-flags.js')
+const { aiChatUiText } = require('./utils/ai-chat-i18n.js')
 
 Page({
   behaviors: [pageBase],
@@ -15,12 +16,16 @@ Page({
   data: {
     shareHint: '',
     keyboardHeight: 0,
+    navTitle: '星问',
     /** 未通过开关前不挂载对话组件，避免审核员看到星问 UI */
     pageAllowed: false
   },
 
   onLoad() {
     this.initUiShell()
+    try {
+      this.setData({ navTitle: aiChatUiText('pageNavTitle') })
+    } catch (e) {}
     try {
       wx.showShareMenu({
         withShareTicket: true,
@@ -50,7 +55,7 @@ Page({
 
     if (!allowed) {
       this.setData({ pageAllowed: false })
-      wx.showToast({ title: '星问AI暂未开放', icon: 'none' })
+      wx.showToast({ title: aiChatUiText('pageAiOff'), icon: 'none' })
       setTimeout(() => {
         try { this.goBack() } catch (err) {}
       }, 400)
@@ -60,6 +65,9 @@ Page({
   },
 
   onShow() {
+    try {
+      this.setData({ navTitle: aiChatUiText('pageNavTitle') })
+    } catch (e) {}
     try {
       if (typeof this.syncTheme === 'function') this.syncTheme()
     } catch (e) {}
@@ -92,8 +100,8 @@ Page({
 
   _buildShareTitle() {
     const hint = (this.data.shareHint || '').trim()
-    if (hint) return '星问：' + hint
-    return '星问 — 有太空问题，问我就对了'
+    if (hint) return aiChatUiText('shareTitlePrefix') + hint
+    return aiChatUiText('shareTitleDefault')
   },
 
   onShareAppMessage() {

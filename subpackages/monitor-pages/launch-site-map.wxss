@@ -1,3 +1,5 @@
+@import "/styles/fav-btn.wxss";
+
 page {
   background: #0B0C0E;
   overflow: hidden;

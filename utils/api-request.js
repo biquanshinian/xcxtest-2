@@ -1046,6 +1046,28 @@ const COUNTRY_DISPLAY = {
   KAZ: '哈萨克斯坦'
 }
 
+const COUNTRY_DISPLAY_EN = {
+  USA: 'USA', US: 'USA',
+  CHN: 'China', CN: 'China', PRC: 'China',
+  RUS: 'Russia', RU: 'Russia',
+  JPN: 'Japan', JP: 'Japan',
+  IND: 'India', IN: 'India',
+  KOR: 'South Korea', KR: 'South Korea', PRK: 'North Korea', KP: 'North Korea',
+  FRA: 'France', FR: 'France',
+  GBR: 'UK', UK: 'UK', GB: 'UK',
+  DEU: 'Germany', DE: 'Germany',
+  ITA: 'Italy', IT: 'Italy',
+  ESA: 'ESA', EU: 'Europe',
+  NZL: 'New Zealand', NZ: 'New Zealand',
+  AUS: 'Australia', AU: 'Australia',
+  CAN: 'Canada', CA: 'Canada',
+  ISR: 'Israel', IL: 'Israel',
+  IRN: 'Iran', BRA: 'Brazil',
+  UAE: 'UAE', ARE: 'UAE',
+  SAU: 'Saudi Arabia', MEX: 'Mexico',
+  KAZ: 'Kazakhstan'
+}
+
 /** 从任务对象提取可用于国家推断的文本（火箭 full_name、任务名等） */
 function collectLaunchCountryHintText(launch) {
   if (!launch || typeof launch !== 'object') return ''
@@ -1063,26 +1085,27 @@ function collectLaunchCountryHintText(launch) {
   return parts.filter(Boolean).join(' ').toLowerCase()
 }
 
-function getCountryDisplay(pad, launchServiceProvider = null, launch = null) {
+function resolveCountryCode(pad, launchServiceProvider = null, launch = null) {
   const loc = pad && pad.location ? pad.location : null
-
-  // 1) 优先使用发射场国家
   let code = loc && loc.country_code ? String(loc.country_code).toUpperCase() : ''
 
-  // 兼容：部分接口会给 GB/UK、UAE/ARE 等
   if (!code && loc && loc.country) {
     const c = loc.country
     if (typeof c === 'string') code = c.toUpperCase().slice(0, 3)
     else if (c && c.abbrev) code = String(c.abbrev || '').toUpperCase()
-    else if (c && c.name) return c.name
+    else if (c && c.name) {
+      const n = String(c.name).toLowerCase()
+      if (/china|中国/.test(n)) return 'CHN'
+      if (/united states|america|美国/.test(n)) return 'USA'
+      if (/russia|俄罗斯/.test(n)) return 'RUS'
+      return ''
+    }
   }
 
-  // 2) 发射场缺失时，回退到发射服务商国家
   if (!code && launchServiceProvider && launchServiceProvider.country_code) {
     code = String(launchServiceProvider.country_code).toUpperCase()
   }
 
-  // 3) 最后兜底：从地点/发射台/服务商/火箭型号/任务名推断（应对部分接口缺少 country_code）
   if (!code) {
     const hintFromLaunch = collectLaunchCountryHintText(launch)
     const text = [
@@ -1111,7 +1134,25 @@ function getCountryDisplay(pad, launchServiceProvider = null, launch = null) {
     else if (/\bkorea\b/.test(text)) code = 'KOR'
   }
 
-  return COUNTRY_DISPLAY[code] || code || ''
+  return code || ''
+}
+
+function getCountryDisplayPair(pad, launchServiceProvider = null, launch = null) {
+  const code = resolveCountryCode(pad, launchServiceProvider, launch)
+  return {
+    countryDisplayZh: COUNTRY_DISPLAY[code] || code || '未知',
+    countryDisplayEn: COUNTRY_DISPLAY_EN[code] || code || 'Unknown'
+  }
+}
+
+function getCountryDisplay(pad, launchServiceProvider = null, launch = null) {
+  const pair = getCountryDisplayPair(pad, launchServiceProvider, launch)
+  try {
+    const { pickLocalized } = require('./locale.js')
+    return pickLocalized(pair.countryDisplayZh, pair.countryDisplayEn)
+  } catch (e) {
+    return pair.countryDisplayZh || pair.countryDisplayEn
+  }
 }
 
 /**
@@ -1142,6 +1183,18 @@ const STATUS_ID_BADGE_TEXT = {
   7: '部分失败',
   8: '待确认',
   9: '载荷已部署'
+}
+
+const STATUS_ID_BADGE_TEXT_EN = {
+  1: 'Go',
+  2: 'TBD',
+  3: 'Success',
+  4: 'Failure',
+  5: 'Hold',
+  6: 'In Flight',
+  7: 'Partial',
+  8: 'TBC',
+  9: 'Deployed'
 }
 
 /** 可落历史的终态：Success / Failure / Partial / Payload Deployed */
@@ -1181,30 +1234,161 @@ function getStatusCategory(status) {
 }
 
 /**
- * 状态 → 卡片角标文案（优先 LL2 id，再按 category / 英文名兜底）
+ * 是否中国火箭语境（发射场/服务商国家为中国，或型号/机构名可判定为中国箭）。
+ * 用于展示文案：失败→失利（不影响 statusCategory / 结算逻辑）。
  */
-function getStatusBadgeText(status, category) {
-  const id = status && status.id
-  if (id != null && Object.prototype.hasOwnProperty.call(STATUS_ID_BADGE_TEXT, id)) {
-    return STATUS_ID_BADGE_TEXT[id]
+function isChineseRocketContext(context) {
+  if (!context) return false
+  if (context === true) return true
+  if (typeof context === 'string') {
+    return context === '中国' || context.toUpperCase() === 'CHN' || context.toUpperCase() === 'CN'
   }
-  if (category === 'success') return '已成功'
-  if (category === 'deployed') return '载荷已部署'
-  if (category === 'failure') return '失败'
-  if (category === 'partial') return '部分失败'
-  if (category === 'delayed') return '推迟'
-  if (category === 'cancelled') return '取消'
-  if (category === 'inflight') return '飞行中'
-  const n = ((status && status.name) || '').toLowerCase()
-  const a = ((status && status.abbrev) || '').toLowerCase()
-  if (/^go\b|go for launch|就绪/.test(n) || a === 'go') return '就绪'
-  if (/\btbd\b|to be determined|待定/.test(n) || a === 'tbd') return '待定'
-  if (/\btbc\b|to be confirmed|待确认/.test(n) || a === 'tbc') return '待确认'
-  if (/in\s*flight|飞行中/.test(n)) return '飞行中'
-  if (/payload\s*deployed|载荷已部署/.test(n)) return '载荷已部署'
-  return '计划中'
+  if (typeof context !== 'object') return false
+  if (context.chineseRocket === true) return true
+  if (context.countryDisplay === '中国') return true
+  const fromFields = getCountryDisplay(
+    context.pad,
+    context.launch_service_provider || context.launchServiceProvider || null,
+    context.launch || context
+  )
+  if (fromFields === '中国' || fromFields === 'China') return true
+  if ((context.countryDisplay === '中国' || context.countryDisplay === 'China')) return true
+  const hint = [
+    context.rocketName,
+    context.launchAgency,
+    context.launchAgencyAbbrev,
+    context.name,
+    context.missionName,
+    collectLaunchCountryHintText(context.launch || context)
+  ]
+    .filter(Boolean)
+    .join(' ')
+  if (!hint) return false
+  return /(wenchang|jiuquan|taiyuan|xichang|china|\bprc\b|haiyang|oriental spaceport|orienspace|东方空间|long march|长征|kuaizhou|快舟|\bgravity-?\s?1\b|引力一号|\bceres-?\s?1\b|谷神星|hyperbola|双曲线|zhuque|朱雀|jielong|smart dragon|捷龙|tianlong|天龙|kinetica|lijian|力箭|landspace|galactic energy|expace|cas space|中科宇航|casc|calt|中国航天)/i.test(
+    hint
+  )
 }
 
+/** 中国火箭展示用：失败→失利（先替换「部分失败」避免被拆开） */
+function softenChineseRocketFailureText(text) {
+  const s = String(text || '')
+  if (!s) return s
+  return s.replace(/部分失败/g, '部分失利').replace(/失败/g, '失利')
+}
+
+/**
+ * 状态 → 卡片角标中英对照（不读当前语言）
+ */
+function getStatusBadgeTextPair(status, category, options) {
+  const id = status && status.id
+  let zh = ''
+  let en = ''
+  if (id != null && Object.prototype.hasOwnProperty.call(STATUS_ID_BADGE_TEXT, id)) {
+    zh = STATUS_ID_BADGE_TEXT[id]
+    en = STATUS_ID_BADGE_TEXT_EN[id] || zh
+  } else if (category === 'success') { zh = '已成功'; en = 'Success' }
+  else if (category === 'deployed') { zh = '载荷已部署'; en = 'Deployed' }
+  else if (category === 'failure') { zh = '失败'; en = 'Failure' }
+  else if (category === 'partial') { zh = '部分失败'; en = 'Partial' }
+  else if (category === 'delayed') { zh = '推迟'; en = 'Hold' }
+  else if (category === 'cancelled') { zh = '取消'; en = 'Cancelled' }
+  else if (category === 'inflight') { zh = '飞行中'; en = 'In Flight' }
+  else {
+    const n = ((status && status.name) || '').toLowerCase()
+    const a = ((status && status.abbrev) || '').toLowerCase()
+    if (/^go\b|go for launch|就绪/.test(n) || a === 'go') { zh = '就绪'; en = 'Go' }
+    else if (/\btbd\b|to be determined|待定/.test(n) || a === 'tbd') { zh = '待定'; en = 'TBD' }
+    else if (/\btbc\b|to be confirmed|待确认/.test(n) || a === 'tbc') { zh = '待确认'; en = 'TBC' }
+    else if (/in\s*flight|飞行中/.test(n)) { zh = '飞行中'; en = 'In Flight' }
+    else if (/payload\s*deployed|载荷已部署/.test(n)) { zh = '载荷已部署'; en = 'Deployed' }
+    else { zh = '计划中'; en = 'Planned' }
+  }
+  if (isChineseRocketContext(options)) {
+    zh = softenChineseRocketFailureText(zh)
+  }
+  return { statusBadgeTextZh: zh, statusBadgeTextEn: en }
+}
+
+/**
+ * 状态 → 卡片角标文案（优先 LL2 id，再按 category / 英文名兜底；随 contentLang 切换）
+ * @param {object} status
+ * @param {string} [category]
+ * @param {{ chineseRocket?: boolean, countryDisplay?: string }|boolean} [options]
+ */
+function getStatusBadgeText(status, category, options) {
+  const pair = getStatusBadgeTextPair(status, category, options)
+  try {
+    const { pickLocalized } = require('./locale.js')
+    return pickLocalized(pair.statusBadgeTextZh, pair.statusBadgeTextEn)
+  } catch (e) {
+    return pair.statusBadgeTextZh || pair.statusBadgeTextEn
+  }
+}
+
+
+/**
+ * 详情确认的 NET/status 写回本地 upcoming slim，避免会话内仍吐 8/31 待定。
+ * 云侧 healUpcomingFromDetail 异步；本地先对齐，且 forceLaunchListCloudBgCheck 后可拉新云缓存。
+ */
+function patchUpcomingLocalCacheById(launchId, liveFields) {
+  if (launchId == null || !liveFields || typeof liveFields !== 'object') return false
+  const idStr = String(launchId)
+  const url = '/launches/upcoming/'
+  const limits = [100, 50, 20, 10]
+  const bases = []
+  for (let i = 0; i < limits.length; i++) {
+    const limit = limits[i]
+    bases.push({
+      format: 'json',
+      hide_recent_previous: true,
+      limit,
+      mode: 'detailed',
+      offset: 0,
+      ordering: 'net'
+    })
+    bases.push({
+      format: 'json',
+      limit,
+      mode: 'detailed',
+      offset: 0,
+      ordering: 'net'
+    })
+  }
+  let any = false
+  const seen = Object.create(null)
+  for (let b = 0; b < bases.length; b++) {
+    const cacheKey = getCacheKey(url, bases[b])
+    if (seen[cacheKey]) continue
+    seen[cacheKey] = true
+    const payload = getCacheFromLocal(cacheKey, true)
+    if (!payload || !Array.isArray(payload.results)) continue
+    let hit = false
+    const nextResults = payload.results.map((row) => {
+      if (!row || String(row.id) !== idStr) return row
+      hit = true
+      const next = { ...row }
+      if (liveFields.net != null && liveFields.net !== '') next.net = liveFields.net
+      if (liveFields.window_start != null && liveFields.window_start !== '') {
+        next.window_start = liveFields.window_start
+      } else if (liveFields.windowStart != null && liveFields.windowStart !== '') {
+        next.window_start = liveFields.windowStart
+      }
+      if (liveFields.window_end != null && liveFields.window_end !== '') {
+        next.window_end = liveFields.window_end
+      } else if (liveFields.windowEnd != null && liveFields.windowEnd !== '') {
+        next.window_end = liveFields.windowEnd
+      }
+      if (liveFields.status && typeof liveFields.status === 'object') {
+        next.status = { ...(row.status || {}), ...liveFields.status }
+      }
+      return next
+    })
+    if (!hit) continue
+    setCache(cacheKey, { ...payload, results: nextResults })
+    any = true
+  }
+  return any
+}
 
 module.exports = {
   request,
@@ -1212,20 +1396,27 @@ module.exports = {
   onStaleUpdate,
   onLaunchListStale,
   forceLaunchListCloudBgCheck,
+  patchUpcomingLocalCacheById,
   formatPadLocation,
   getCountryDisplay,
+  getCountryDisplayPair,
+  isChineseRocketContext,
+  softenChineseRocketFailureText,
   getStatusCategory,
   getStatusCategoryById,
   STATUS_ID_CATEGORY,
   STATUS_ID_BADGE_TEXT,
+  STATUS_ID_BADGE_TEXT_EN,
   TERMINAL_STATUS_IDS,
   isTerminalStatusId,
   isTerminalStatus,
   getStatusBadgeText,
+  getStatusBadgeTextPair,
   unwrapCacheData,
   emptyListResult,
   withTimeout,
   isLaunchExpired,
   COUNTRY_DISPLAY,
+  COUNTRY_DISPLAY_EN,
   USE_DEV_API
 }

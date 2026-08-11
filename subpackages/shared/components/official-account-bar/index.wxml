@@ -27,6 +27,10 @@
       <view class="official-account-native-inner">
         <official-account bindload="onOfficialAccountLoad" binderror="onOfficialAccountError"></official-account>
       </view>
+      <!-- 原生条名称色固定且在白底上近乎不可见；同层渲染下用白底黑字盖住名称行，头像/简介/查看按钮仍透传点击 -->
+      <view class="official-account-name-mask" aria-hidden="true">
+        <text class="official-account-name-mask-text">火星探索日志</text>
+      </view>
     </view>
   </view>
 </view>

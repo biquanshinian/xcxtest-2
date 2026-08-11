@@ -1,4 +1,10 @@
-const { getStatusCategory, getStatusBadgeText, isTerminalStatusId } = require('./api-request.js')
+const {
+  getStatusCategory,
+  getStatusBadgeText,
+  isTerminalStatusId,
+  isChineseRocketContext,
+  softenChineseRocketFailureText
+} = require('./api-request.js')
 const { getServerNow } = require('./server-clock.js')
 
 function filterExpiredMissions(missions) {
@@ -21,25 +27,41 @@ function filterExpiredMissions(missions) {
 /**
  * 倒计时/列表状态中文：与角标同一套映射。
  * 入参可为 LL2 status 对象 { id, name, abbrev }，或已本地化/英文的字符串。
+ * @param {object|string} status
+ * @param {{ chineseRocket?: boolean, countryDisplay?: string }|boolean} [options]
  */
-function getStatusTextZh(status) {
+function getStatusTextZh(status, options) {
+  const chinese = isChineseRocketContext(options)
   if (status && typeof status === 'object') {
-    return getStatusBadgeText(status, getStatusCategory(status))
+    return getStatusBadgeText(status, getStatusCategory(status), options)
   }
   const text = String(status || '').trim()
   if (!text) return '计划中'
   const lower = text.toLowerCase()
-  if (lower.includes('payload deployed') || text.includes('载荷已部署') || text.includes('已部署')) return '载荷已部署'
-  if (lower.includes('in flight') || lower.includes('inflight') || text.includes('飞行中')) return '飞行中'
-  if (lower.includes('partial') || text.includes('部分失败') || text.includes('部分成功')) return '部分失败'
-  if (lower.includes('success') || lower.includes('succeeded') || text.includes('成功')) return '已成功'
-  if (lower.includes('failure') || lower.includes('failed') || text.includes('失败')) return '失败'
-  if (lower.includes('delayed') || lower.includes('hold') || text.includes('推迟') || text.includes('延迟') || text.includes('暂停') || text.includes('保持')) return '推迟'
-  if (lower.includes('tbd') || lower.includes('to be determined') || text.includes('待定')) return '待定'
-  if (lower.includes('tbc') || lower.includes('to be confirmed') || text.includes('待确认')) return '待确认'
-  if (lower.includes('go') || lower.includes('ready') || lower.includes('green') || text.includes('就绪') || text.includes('准备') || text === '正常') return '就绪'
-  if (lower.includes('scheduled') || lower.includes('schedule') || lower.includes('pending') || text.includes('计划')) return '计划中'
-  return text
+  let out = text
+  if (lower.includes('payload deployed') || text.includes('载荷已部署') || text.includes('已部署')) out = '载荷已部署'
+  else if (lower.includes('in flight') || lower.includes('inflight') || text.includes('飞行中')) out = '飞行中'
+  else if (
+    lower.includes('partial') ||
+    text.includes('部分失败') ||
+    text.includes('部分失利') ||
+    text.includes('部分成功')
+  ) {
+    out = '部分失败'
+  } else if (lower.includes('success') || lower.includes('succeeded') || text.includes('成功')) out = '已成功'
+  else if (
+    lower.includes('failure') ||
+    lower.includes('failed') ||
+    text.includes('失败') ||
+    text.includes('失利')
+  ) {
+    out = '失败'
+  } else if (lower.includes('delayed') || lower.includes('hold') || text.includes('推迟') || text.includes('延迟') || text.includes('暂停') || text.includes('保持')) out = '推迟'
+  else if (lower.includes('tbd') || lower.includes('to be determined') || text.includes('待定')) out = '待定'
+  else if (lower.includes('tbc') || lower.includes('to be confirmed') || text.includes('待确认')) out = '待确认'
+  else if (lower.includes('go') || lower.includes('ready') || lower.includes('green') || text.includes('就绪') || text.includes('准备') || text === '正常') out = '就绪'
+  else if (lower.includes('scheduled') || lower.includes('schedule') || lower.includes('pending') || text.includes('计划')) out = '计划中'
+  return chinese ? softenChineseRocketFailureText(out) : out
 }
 
 function formatSecondsText(value) {
@@ -132,14 +154,15 @@ function normalizeVoteType(t) {
  * - 成败：success/failure（历史误存的 buge/ge 会纠正）
  * - 准时：ge/buge
  */
-function resolveVoteChoiceMeta(choice, voteType) {
+function resolveVoteChoiceMeta(choice, voteType, options) {
   let raw = String(choice || '').trim()
   let vt = normalizeVoteType(voteType)
   if (raw === 'success' || raw === 'failure') vt = 'outcome'
   if (vt === 'outcome') {
     if (raw === 'buge') raw = 'success'
     else if (raw === 'ge') raw = 'failure'
-    const choiceLabel = raw === 'success' ? '成功' : raw === 'failure' ? '失败' : (raw || '未知')
+    const failureWord = isChineseRocketContext(options) ? '失利' : '失败'
+    const choiceLabel = raw === 'success' ? '成功' : raw === 'failure' ? failureWord : (raw || '未知')
     return {
       voteType: 'outcome',
       voteTypeLabel: '成败',
@@ -159,9 +182,11 @@ function resolveVoteChoiceMeta(choice, voteType) {
 }
 
 /** 成败票数映射到左侧 ge / 右侧 buge，便于复用现有 pill 样式 */
-function normalizeVoteStatsForUi(stats, voteType) {
+function normalizeVoteStatsForUi(stats, voteType, options) {
   const vt = normalizeVoteType(voteType || (stats && stats.voteType))
   const safeStats = stats ? { ...DEFAULT_VOTE_DATA, ...stats, voteType: vt } : { ...DEFAULT_VOTE_DATA, voteType: vt }
+  const chinese = isChineseRocketContext(options)
+  const failureDefault = chinese ? '失利' : '失败'
   if (vt === 'outcome') {
     // 成败票数始终映射到左右 pill / 比例条字段
     const failureCount = Number(
@@ -175,10 +200,17 @@ function normalizeVoteStatsForUi(stats, voteType) {
     safeStats.geCount = failureCount
     safeStats.buGeCount = successCount
     // 成败文案不得回退到准时默认的「鸽/不鸽」（DEFAULT 里带了这两项）
-    const failureLabel = safeStats.failureLabel || ''
+    let failureLabel = safeStats.failureLabel || ''
     const successLabel = safeStats.successLabel || ''
-    const left = failureLabel || ((safeStats.geLabel === '鸽' || !safeStats.geLabel) ? '失败' : safeStats.geLabel)
-    const right = successLabel || ((safeStats.bugeLabel === '不鸽' || !safeStats.bugeLabel) ? '成功' : safeStats.bugeLabel)
+    if (chinese && (!failureLabel || failureLabel === '失败')) {
+      failureLabel = softenChineseRocketFailureText(failureLabel || '失败')
+    }
+    const left =
+      failureLabel ||
+      ((safeStats.geLabel === '鸽' || !safeStats.geLabel) ? failureDefault : safeStats.geLabel)
+    const right =
+      successLabel ||
+      ((safeStats.bugeLabel === '不鸽' || !safeStats.bugeLabel) ? '成功' : safeStats.bugeLabel)
     safeStats.failureLabel = failureLabel || left
     safeStats.successLabel = successLabel || right
     safeStats.geLabel = left
@@ -190,7 +222,9 @@ function normalizeVoteStatsForUi(stats, voteType) {
       safeStats.customQuestion = '会成功吗？'
     }
   } else {
-    if (!safeStats.geLabel || safeStats.geLabel === '失败') safeStats.geLabel = '鸽'
+    if (!safeStats.geLabel || safeStats.geLabel === '失败' || safeStats.geLabel === '失利') {
+      safeStats.geLabel = '鸽'
+    }
     if (!safeStats.bugeLabel || safeStats.bugeLabel === '成功') safeStats.bugeLabel = '不鸽'
     if (!safeStats.customQuestion) safeStats.customQuestion = '会准时吗？'
   }
@@ -211,8 +245,8 @@ function getInitialVoteState() {
   }
 }
 
-function buildVoteState(stats, myVote, voteType) {
-  const safeStats = normalizeVoteStatsForUi(stats, voteType)
+function buildVoteState(stats, myVote, voteType, options) {
+  const safeStats = normalizeVoteStatsForUi(stats, voteType, options)
   const total = Number(safeStats.geCount || 0) + Number(safeStats.buGeCount || 0)
   return {
     voteData: safeStats,
@@ -225,7 +259,7 @@ function buildVoteState(stats, myVote, voteType) {
 }
 
 /** 根据双题型缓存拼出页面 setData 补丁 */
-function buildDualVoteUiPatch(bundle, activeVoteType, launchId) {
+function buildDualVoteUiPatch(bundle, activeVoteType, launchId, options) {
   const ontime = (bundle && bundle.ontime) || null
   const outcome = (bundle && bundle.outcome) || null
   const ontimeEnabled = !!(ontime && ontime.enabled)
@@ -235,7 +269,7 @@ function buildDualVoteUiPatch(bundle, activeVoteType, launchId) {
   if (vt === 'outcome' && !outcomeEnabled && ontimeEnabled) vt = 'ontime'
   const stats = vt === 'outcome' ? outcome : ontime
   const myVote = (stats && stats.myVote) || (launchId ? getLocalVote(launchId, vt) : '')
-  const base = buildVoteState(stats, myVote, vt)
+  const base = buildVoteState(stats, myVote, vt, options)
   return {
     ...base,
     activeVoteType: vt,

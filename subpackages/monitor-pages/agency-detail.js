@@ -1,14 +1,15 @@
 const { getAgencyDetail, resolveAgencyReference } = require('../../utils/api-monitor-data.js')
 const { fetchAgencyLaunchCards } = require('./utils/agency-launch-cards.js')
 const pageBase = require('../../utils/page-base.js')
-const { translateAgencyName } = require('../../utils/space-terms-i18n.js')
+const { translateAgencyName, translateSpacecraftName } = require('../../utils/space-terms-i18n.js')
+const { translateRocketName } = require('../../utils/rocket-name-i18n.js')
 const { togglePageTranslation } = require('./utils/text-translate.js')
 const { getRocketConfigMeta, getSpaceXLaunchStats } = require('../../utils/api-app-services.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { overrideAgencyLogoUrl } = require('../../utils/agency-logo-overrides.js')
 const { gateCheck, isProSync } = require('../../utils/membership.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
-const { isFavoriteAgency, toggleFavoriteAgency } = require('../../utils/agency-favorites.js')
+const { isFavorite, toggleFavorite } = require('../../utils/favorites.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { isVideoUrl, videoSnapshotUrl } = require('../../utils/cos-url.js')
 const { getCachedMediaImage } = require('../../utils/icon-cache.js')
@@ -19,6 +20,12 @@ const {
   isRemoteAgencyLogoUrl
 } = require('../../utils/agency-logo-cache.js')
 const { resolveAgencyLogoBgTone, ensureAgencyLogoBgTone } = require('../../utils/agency-logo-bg.js')
+const {
+  translateAgencyType,
+  translateCountryName,
+  translateAdministrator,
+  resolveSocialLinkMeta
+} = require('./utils/agency-data.js')
 // 必须走主包薄壳（内部 require.async 拉 shared 分包）：直接同步 require ../shared/**
 // 在分享卡片 / 朋友圈单页直达本页时 shared 分包尚未下载，模块加载即报错导致整页黑屏
 const { resolveEventAuthorAvatarUrl, warmEventShareImage } = require('../../utils/event-share-image.js')
@@ -48,7 +55,8 @@ function formatAgencyDetail(agency) {
   const launchers = agency.launchers || ''
   const spacecraft = agency.spacecraft || ''
   const countryList = Array.isArray(agency.country) ? agency.country : []
-  const countryNames = countryList.map(item => item && item.name).filter(Boolean)
+  const countryNamesEn = countryList.map(item => item && item.name).filter(Boolean)
+  const countryNames = countryNamesEn.map((n) => translateCountryName(n) || n)
   const countryCodes = countryList.map(item => item && item.alpha_2_code).filter(Boolean)
   // 保留 LL2 构型 id：火箭标签匹配族谱档案跳 rocket-model-detail，飞船标签跳 spacecraft-detail
   // LL2 按构型 id 返回，同名型号（如 Falcon 9 的多个 Block）会出现多条 → 按名称去重、合并 id
@@ -57,12 +65,19 @@ function formatAgencyDetail(agency) {
     const byName = {}
     agency.launcher_list.forEach((entry) => {
       if (!entry || !entry.name) return
-      if (byName[entry.name]) {
-        if (entry.id != null) byName[entry.name].ids.push(entry.id)
+      const nameEn = String(entry.name || '').trim()
+      if (byName[nameEn]) {
+        if (entry.id != null) byName[nameEn].ids.push(entry.id)
         return
       }
-      const rec = { name: entry.name, ids: entry.id != null ? [entry.id] : [], hasDetail: false, archiveId: null }
-      byName[entry.name] = rec
+      const rec = {
+        name: translateRocketName(nameEn) || nameEn,
+        nameEn,
+        ids: entry.id != null ? [entry.id] : [],
+        hasDetail: false,
+        archiveId: null
+      }
+      byName[nameEn] = rec
       launcherList.push(rec)
     })
   }
@@ -73,26 +88,67 @@ function formatAgencyDetail(agency) {
     agency.spacecraft_list.forEach((entry) => {
       if (!entry || !entry.name || seen[entry.name]) return
       seen[entry.name] = true
-      spacecraftList.push({ id: entry.id != null ? entry.id : null, name: entry.name })
+      const nameEn = String(entry.name || '').trim()
+      spacecraftList.push({
+        id: entry.id != null ? entry.id : null,
+        name: translateSpacecraftName(nameEn) || nameEn,
+        nameEn
+      })
       // 内嵌对象已含全量详情字段，点击跳转时直传飞船详情页秒开
       if (entry.id != null) spacecraftRawById[String(entry.id)] = entry
     })
   }
-  const socialLinks = Array.isArray(agency.social_media_links)
-    ? agency.social_media_links.map((item) => {
+  const socialLinks = []
+  if (Array.isArray(agency.social_media_links)) {
+    agency.social_media_links.forEach((item) => {
+      const url = item && item.url ? String(item.url).trim() : ''
+      if (!url) return
       const social = item && item.social_media
-      return {
-        id: item && item.id,
-        name: (social && social.name) || '社交媒体',
-        url: item && item.url ? item.url : '',
+      const socialNameEn = (social && social.name) || ''
+      const meta = resolveSocialLinkMeta(socialNameEn, url)
+      socialLinks.push({
+        id: item && item.id != null ? item.id : ('sm-' + socialLinks.length),
+        name: meta.name,
+        url,
+        icon: meta.icon,
+        key: meta.key,
         priority: item && item.priority != null ? item.priority : 999
-      }
-    }).filter(item => item.url).sort((a, b) => a.priority - b.priority)
-    : []
+      })
+    })
+    socialLinks.sort((a, b) => a.priority - b.priority)
+  }
+  // 官网 / 维基并入同一 logo 行（去重：已有同 URL 则跳过）
+  const seenSocialUrls = {}
+  socialLinks.forEach((s) => { if (s.url) seenSocialUrls[s.url] = true })
+  ;[
+    { id: 'info-url', name: '官方网站', url: agency.info_url || '', forceKey: 'website' },
+    { id: 'wiki-url', name: '维基百科', url: agency.wiki_url || '', forceKey: 'wikipedia' }
+  ].forEach((extra) => {
+    const url = String(extra.url || '').trim()
+    if (!url || seenSocialUrls[url]) return
+    seenSocialUrls[url] = true
+    const meta = resolveSocialLinkMeta(extra.name, url)
+    socialLinks.push({
+      id: extra.id,
+      name: meta.name || extra.name,
+      url,
+      icon: meta.icon,
+      key: extra.forceKey || meta.key,
+      priority: 1000
+    })
+  })
 
   const vehicleTags = []
-  if (launchers) launchers.split('|').map(s => s.trim()).filter(Boolean).forEach(t => vehicleTags.push(t))
-  if (spacecraft) spacecraft.split('|').map(s => s.trim()).filter(Boolean).forEach(t => vehicleTags.push(t))
+  if (launchers) {
+    launchers.split('|').map(s => s.trim()).filter(Boolean).forEach((t) => {
+      vehicleTags.push(translateRocketName(t) || t)
+    })
+  }
+  if (spacecraft) {
+    spacecraft.split('|').map(s => s.trim()).filter(Boolean).forEach((t) => {
+      vehicleTags.push(translateSpacecraftName(t) || t)
+    })
+  }
   launcherList.forEach((entry) => {
     if (!vehicleTags.includes(entry.name)) vehicleTags.push(entry.name)
   })
@@ -124,6 +180,14 @@ function formatAgencyDetail(agency) {
   )
 
   const nameZh = translateAgencyName(agency.name, agency.abbrev)
+  const displayName = nameZh || agency.name || '未知机构'
+  const typeNameEn = (agency.type && agency.type.name) || ''
+  const parentRaw = (agency.parent && agency.parent.name) ||
+    (typeof agency.parent === 'string' ? agency.parent : '')
+  const parentAbbrev = (agency.parent && agency.parent.abbrev) || ''
+  const parentZh = parentRaw
+    ? (translateAgencyName(parentRaw, parentAbbrev) || parentRaw)
+    : ''
   const logoUrlRaw = overrideAgencyLogoUrl(agency, agency.logo ? (agency.logo.thumbnail_url || agency.logo.image_url) : '')
   const imageThumbRaw = agency.image ? (agency.image.thumbnail_url || agency.image.image_url) : ''
   const imageFullRaw = agency.image ? (agency.image.image_url || agency.image.thumbnail_url) : ''
@@ -132,12 +196,12 @@ function formatAgencyDetail(agency) {
 
   return {
     id: agency.id,
-    // Hero/讨论区用中文名（词典命中时），"全称"行保留英文原名
-    name: nameZh || agency.name || '未知机构',
+    // Hero / 机构信息「全称」统一中文展示名（词典未命中时回落英文；SpaceX 等品牌保留原文）
+    name: displayName,
     nameEn: agency.name || '未知机构',
     abbrev: agency.abbrev || '',
-    typeName: agency.type ? agency.type.name : '未知',
-    typeClass: ((agency.type && agency.type.name) || '').toLowerCase().replace(/\s+/g, '-'),
+    typeName: translateAgencyType(typeNameEn),
+    typeClass: (typeNameEn || '').toLowerCase().replace(/\s+/g, '-'),
     featured: !!agency.featured,
     countryName: countryNames[0] || '',
     countryCode: countryCodes[0] || '',
@@ -152,9 +216,8 @@ function formatAgencyDetail(agency) {
     imageFallbacks: heroChain.slice(1),
     socialLogoUrl: agency.social_logo ? (agency.social_logo.thumbnail_url || agency.social_logo.image_url) : '',
     description: agency.description || '暂无简介',
-    administrator: agency.administrator || '',
-    // LL2 parent 可能是字符串或对象（含 name），统一取字符串
-    parent: (agency.parent && agency.parent.name) || (typeof agency.parent === 'string' ? agency.parent : ''),
+    administrator: translateAdministrator(agency.administrator || ''),
+    parent: parentZh,
     infoUrl: agency.info_url || '',
     wikiUrl: agency.wiki_url || '',
     totalLaunchCount,
@@ -371,7 +434,7 @@ Page({
         item,
         partialData,
         partialMessage: partialData ? partialMessage : '',
-        isFavorited: isFavoriteAgency(item && item.id),
+        isFavorited: !!(item && item.id != null && isFavorite('agency', item.id)),
         navTitle: '发射商详情',
         shareTitle: `${(item && item.name) || '发射商详情'} | 火星探索日志`
       })
@@ -589,12 +652,18 @@ Page({
       return
     }
     try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
-    const favorited = toggleFavoriteAgency({
+    const favorited = toggleFavorite({
+      type: 'agency',
       id: item.id,
-      name: item.name || '',
-      abbrev: item.abbrev || '',
-      logoUrl: item.logoUrl || '',
-      typeName: item.typeName || ''
+      title: item.name || '',
+      subtitle: item.typeName || item.abbrev || '',
+      imageUrl: item.logoUrl || '',
+      category: 'agency',
+      extra: {
+        abbrev: item.abbrev || '',
+        typeName: item.typeName || '',
+        logoUrl: item.logoUrl || ''
+      }
     })
     // favAnimate：仅收藏动作触发弹跳动画；取消收藏或初始渲染不播
     this.setData({ isFavorited: favorited, favAnimate: favorited })
@@ -937,10 +1006,14 @@ Page({
   copyLink(e) {
     const url = e.currentTarget.dataset.url
     if (!url) return
+    const name = e.currentTarget.dataset.name || ''
     wx.setClipboardData({
       data: url,
       success: () => {
-        wx.showToast({ title: '链接已复制', icon: 'none' })
+        wx.showToast({
+          title: name ? (name + '链接已复制') : '链接已复制',
+          icon: 'none'
+        })
       }
     })
   },

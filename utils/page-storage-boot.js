@@ -32,6 +32,7 @@ function warmProfilePageStorageSync() {
   storageCache.warmSync('_knowledge_cards_cache', null)
   storageCache.warmSync('_voted_launches', {})
   storageCache.warmSync('_achievements_data', {})
+  storageCache.warmSync('_user_identity', {})
   storageCache.warmSync('mission_detail_cache', {})
 }
 

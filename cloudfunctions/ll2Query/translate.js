@@ -1,6 +1,10 @@
 /**
- * 页面按需翻译：词典 + translation_cache + 混元 AI（主通道）+ TMT（仅兜底）
+ * 同步管线翻译：词典 + translation_cache + 混元 AI（主通道）+ TMT（仅兜底）
  * 环境变量: TMT_SECRET_ID, TMT_SECRET_KEY（未配置时跳过 TMT；混元走云开发 AI+，零密钥）
+ *
+ * 与 ll2Query/translate.js 同源，差异只在这里是离线批量场景：
+ * 一轮同步可能翻几百条，混元比 TMT 慢一个量级，所以混元受 beginTranslateRun 的
+ * 时间预算约束，超预算的条目留给 TMT / 下一轮（结果进 translation_cache，逐轮补齐）。
  */
 const crypto = require('crypto')
 const https = require('https')
@@ -255,22 +259,76 @@ async function tmtTranslateBatch(sourceTexts) {
   return list.map((s) => String(s || '').trim())
 }
 
-// ── 混元大模型翻译（云端主通道；与 syncSpaceXTweets / 星问 AI 同一套 AI+） ──
+// ── 混元大模型翻译（主通道；与 ll2Query / syncSpaceXTweets 同一套 AI+） ──
 
 const AI_TRANSLATE_CHUNK_CHARS = 1200
 const AI_TRANSLATE_CONCURRENCY = 3
+/**
+ * 一次云函数调用内混元的总时间预算。函数 timeout 是 800s，留足抓取与写库的时间；
+ * 超预算的条目落 TMT 或留到下一轮（6 小时一次，命中缓存后逐轮补齐）。
+ */
+const AI_RUN_BUDGET_MS = 300000
+/** 剩余预算低于这个值就不再开新条目，避免最后一条卡在半路白等 */
+const AI_MIN_SLICE_MS = 15000
+
 const AI_TRANSLATE_SYSTEM_PROMPT = `你是航天领域的专业中英翻译。把用户消息中的英文原文翻译成简体中文，要求：
 1. 只输出译文本身，不要任何解释、注释、前缀或引号
-2. 保留 SpaceX、Falcon 9、Starship、Starlink、NASA、ISS 等专有名词、机构缩写与火箭/飞船型号原文
-3. 术语准确：booster=助推器，static fire=静态点火，splashdown=溅落，payload=载荷，flyback=返场
-4. 语气自然流畅，符合中文航天报道习惯`
+2. 火箭/飞船型号必须译成通行中文（Falcon 9→猎鹰9号，Falcon Heavy→猎鹰重型，Long March 7A→长征七号改，Zhuque-3/ZQ-3→朱雀三号，Starship→星舰，Electron→电子号，New Glenn→新格伦）；机构缩写（SpaceX、NASA、ISS、NROL、USSF）可保留原文
+3. 任务与载荷名称应译成通行中文，例如 Nancy Grace Roman Space Telescope→南希-格蕾丝-罗曼太空望远镜，Unknown Payload→未知有效载荷，Starlink Group→星链组，Flight N→第N次飞行（绝不能译成民航「航班」或「飞行N」）
+4. 强制术语（禁止影视/日常义）：Crew-N / Crew N → 载人-N（绝不能译成「人物」「船员」「剧组」）；Crew Dragon → 载人龙飞船；Cargo Dragon → 货运龙飞船；crewed → 载人；crew（乘组语境）→ 乘组；Flight N → 第N次飞行（绝不能译成「航班」/「飞行N」）；Flight Test N → 第N次试飞；单独 Flight → 飞行
+5. 术语准确：booster=助推器，static fire=静态点火，splashdown=溅落，payload=载荷，flyback=返场；同一英文术语全文必须使用同一中文译名
+6. 语气自然流畅，符合中文航天报道习惯`
+
+/** 机翻后纠偏：通译模型常把 Crew 译成「人物」、Flight 译成「航班」 */
+function sanitizeAerospaceTranslation(zh, srcEn) {
+  let s = String(zh || '')
+  if (!s) return ''
+  const en = String(srcEn || '')
+  if (/\bCrew\b/i.test(en) || /人物|船员|剧组/.test(s)) {
+    s = s
+      .replace(/人物龙飞船/g, '载人龙飞船')
+      .replace(/人物\s*Dragon/gi, '载人龙飞船')
+      .replace(/人物[-\s]?(\d+)/g, '载人-$1')
+      .replace(/船员[-\s]?(\d+)/g, '载人-$1')
+      .replace(/剧组[-\s]?(\d+)/g, '载人-$1')
+      .replace(/全体人员[-\s]?(\d+)/g, '载人-$1')
+  }
+  if (/\bCrew\s+Dragon\b/i.test(en)) {
+    s = s.replace(/\bCrew\s+Dragon\b/gi, '载人龙飞船')
+  }
+  if (/\bCrew[-\s]?\d+\b/i.test(en)) {
+    s = s.replace(/\bCrew[-\s]?(\d+)\b/gi, '载人-$1')
+  }
+  if (/\bFlight\b/i.test(en) || /航班|飞行\s*\d+|试飞\s*\d+/.test(s)) {
+    s = s
+      .replace(/航班[-\s]?(\d+)/g, '第$1次飞行')
+      .replace(/航班/g, '飞行')
+      .replace(/飞行\s*(\d+)/g, '第$1次飞行')
+      .replace(/试飞\s*(\d+)/g, '第$1次试飞')
+      .replace(/\bFlight\s+Test\s+(\d+)\b/gi, '第$1次试飞')
+      .replace(/\bFlight\s+Test\b/gi, '试飞')
+      .replace(/\bFlight[-\s]?(\d+)\b/gi, '第$1次飞行')
+      .replace(/\bFlight\b/gi, '飞行')
+  }
+  return s
+}
+
+let _aiDeadline = 0
 
 /**
- * 云函数端 AI 入口：新版 cloud.ai()，旧版 cloud.extend.AI。
- * 注意：cloud.ai() 需要 wx-server-sdk >= 3.0.5-beta.1，低版本两个入口都不存在，
- * 混元主通道会被整段跳过而只剩 TMT 兜底（额度用尽后前端就只能报错）。
- * package.json 的版本若回退，这里会静默失效——改动前先确认依赖版本。
+ * 每次云函数调用开始时重置混元预算，须在 exports.main 里调用。
+ * 没调用时预算为 0 → 混元整段跳过、退回纯 TMT 行为，
+ * 也就是说漏接线只会退化成旧逻辑，不会把同步拖到超时。
  */
+function beginTranslateRun(budgetMs) {
+  _aiDeadline = Date.now() + (budgetMs > 0 ? budgetMs : AI_RUN_BUDGET_MS)
+}
+
+function aiBudgetLeftMs() {
+  return _aiDeadline ? Math.max(0, _aiDeadline - Date.now()) : 0
+}
+
+/** 云函数端 AI 入口：新版 cloud.ai()，旧版 cloud.extend.AI（需 wx-server-sdk >= 3.0.5-beta.1） */
 function getAIEntry() {
   try {
     if (typeof cloud.ai === 'function') {
@@ -309,7 +367,7 @@ async function collectTextStream(textStream) {
   return out.trim()
 }
 
-function cleanAITranslation(s) {
+function cleanAITranslation(s, srcEn) {
   let out = String(s || '').trim()
   out = out.replace(/^(译文|翻译|中文译文)[:：]\s*/, '')
   const wrapped =
@@ -317,7 +375,7 @@ function cleanAITranslation(s) {
     (out.startsWith('\u201c') && out.endsWith('\u201d')) ||
     (out.startsWith('「') && out.endsWith('」'))
   if (wrapped) out = out.slice(1, -1).trim()
-  return out
+  return sanitizeAerospaceTranslation(out, srcEn)
 }
 
 function isTmtPermanentError(err) {
@@ -354,7 +412,6 @@ async function translateViaAIChunk(text) {
     { provider: 'hunyuan-v3', model: 'hy3-preview' },
     { provider: 'hunyuan-open', model: 'hunyuan-lite' }
   ]
-  // 云函数 timeout=30s、客户端 callFunction 也是 30s：单段封顶 12s，避免拖垮整单
   const maxTokens = Math.min(2048, Math.max(400, Math.ceil(src.length * 1.2)))
   const timeoutMs = Math.min(12000, 8000 + Math.ceil(src.length * 4))
   const messages = [
@@ -374,11 +431,8 @@ async function translateViaAIChunk(text) {
         }),
         new Promise((_, reject) => setTimeout(() => reject(new Error('AI 翻译超时')), timeoutMs))
       ])
-      const cleaned = cleanAITranslation(extractLLMText(res))
-      if (cleaned && looksLikelyChinese(cleaned)) {
-        console.log(`[translate] hunyuan ok (${p.provider}/${p.model}) len=${src.length}`)
-        return cleaned
-      }
+      const cleaned = cleanAITranslation(extractLLMText(res), src)
+      if (cleaned && looksLikelyChinese(cleaned)) return cleaned
     } catch (e) {
       console.warn(`[translate] generateText 失败 (${p.provider}/${p.model}):`, e.message || e)
     }
@@ -397,11 +451,8 @@ async function translateViaAIChunk(text) {
         }),
         new Promise((_, reject) => setTimeout(() => reject(new Error('AI stream 超时')), timeoutMs))
       ])
-      const cleaned = cleanAITranslation(await collectTextStream(streamRes && streamRes.textStream))
-      if (cleaned && looksLikelyChinese(cleaned)) {
-        console.log(`[translate] hunyuan stream ok (${p.provider}/${p.model}) len=${src.length}`)
-        return cleaned
-      }
+      const cleaned = cleanAITranslation(await collectTextStream(streamRes && streamRes.textStream), src)
+      if (cleaned && looksLikelyChinese(cleaned)) return cleaned
     } catch (e) {
       console.warn(`[translate] streamText 失败 (${p.provider}/${p.model}):`, e.message || e)
     }
@@ -424,20 +475,30 @@ async function translateViaAI(text) {
 
 /**
  * 对未命中缓存的条目走混元；成功则写入 results / cache，返回仍需 TMT 的项。
+ * 预算耗尽后剩余条目原样退回，由 TMT 或下一轮同步接手。
  */
 async function translatePendingViaAI(toMachine, hashToIndices, results) {
-  if (!toMachine.length) return { remaining: [], aiHit: 0 }
+  if (!toMachine.length) return { remaining: [], aiHit: 0, aiBudgetOut: false }
   if (!getAIEntry()) {
-    console.warn('[translate] 云开发 AI 不可用，跳过混元主通道')
-    return { remaining: toMachine, aiHit: 0 }
+    console.warn('[translate] 云开发 AI 不可用，跳过混元主通道（确认 wx-server-sdk >= 3.0.5-beta.1）')
+    return { remaining: toMachine, aiHit: 0, aiBudgetOut: false }
+  }
+  if (aiBudgetLeftMs() <= 0) {
+    return { remaining: toMachine, aiHit: 0, aiBudgetOut: true }
   }
 
   const cacheWrites = []
-  let aiHit = 0
   const remaining = []
+  let aiHit = 0
+  let aiBudgetOut = false
 
   await mapPool(toMachine, AI_TRANSLATE_CONCURRENCY, async (item) => {
-    const zh = await translateViaAI(item.raw)
+    if (aiBudgetLeftMs() < AI_MIN_SLICE_MS) {
+      aiBudgetOut = true
+      remaining.push(item)
+      return
+    }
+    const zh = sanitizeAerospaceTranslation(await translateViaAI(item.raw), item.raw)
     if (zh && looksLikelyChinese(zh)) {
       aiHit++
       for (const idx of hashToIndices[item.hash]) {
@@ -452,19 +513,21 @@ async function translatePendingViaAI(toMachine, hashToIndices, results) {
   })
 
   await writeCacheBatch(cacheWrites)
-  return { remaining, aiHit }
+  if (aiBudgetOut) {
+    console.warn(`[translate] 混元预算用尽，${remaining.length} 条留给 TMT / 下一轮同步`)
+  }
+  console.log(`[translate] 混元命中 ${aiHit}/${toMachine.length}`)
+  return { remaining, aiHit, aiBudgetOut }
 }
 
 /**
  * 批量翻译英文文本 → 中文（词典预处理 + 缓存 + 混元 + TMT 兜底）
  * @param {string[]} texts
- * @param {Object} [options]
- *   - skipTmt: 只走词典 + translation_cache，未命中项留空（不调混元/TMT）
- *     （客户端"混元优先"链路第一步：先免费查缓存）
+ * @param {{ forceAt?: boolean[] }} [opts] forceAt[i]=true 时跳过 shouldMachineTranslate（型号短名）
  * @returns {Promise<string[]>}
  */
-async function translateTextsBatch(texts, options) {
-  const skipTmt = !!(options && options.skipTmt)
+async function translateTextsBatch(texts, opts) {
+  const forceAt = (opts && opts.forceAt) || null
   const inputs = (texts || []).map((t) => String(t || '').trim())
   const results = new Array(inputs.length).fill('')
   const pending = []
@@ -472,26 +535,18 @@ async function translateTextsBatch(texts, options) {
   for (let i = 0; i < inputs.length; i++) {
     const raw = inputs[i]
     if (!raw) continue
-    if (!shouldMachineTranslate(raw)) {
+    const forced = !!(forceAt && forceAt[i])
+    if (!forced && !shouldMachineTranslate(raw)) {
       results[i] = applyPhraseRules(raw) || raw
       continue
     }
-    const hash = hashText(raw)
-    pending.push({ index: i, raw, hash })
+    // 强制机翻的短型号：先套短语规则，再进 AI（避免只剩英文原串）
+    const prepared = forced ? (applyPhraseRules(raw) || raw) : raw
+    const hash = hashText(prepared)
+    pending.push({ index: i, raw: prepared, hash })
   }
 
-  if (!pending.length) {
-    if (options && options.withMeta) {
-      return {
-        list: results,
-        tmtConfigured: isTmtConfigured(),
-        tmtNeeded: 0,
-        tmtLastError: '',
-        tmtBatchesFailed: 0
-      }
-    }
-    return results
-  }
+  if (!pending.length) return results
 
   const cacheMap = await readCacheBatch(pending.map((p) => p.hash))
   // 同一文本（如发射台名）在一次同步里出现几十次：按 hash 去重，只机翻一次
@@ -500,7 +555,7 @@ async function translateTextsBatch(texts, options) {
 
   for (const item of pending) {
     if (cacheMap[item.hash]) {
-      results[item.index] = cacheMap[item.hash]
+      results[item.index] = sanitizeAerospaceTranslation(cacheMap[item.hash], item.raw)
       continue
     }
     if (hashToIndices[item.hash]) {
@@ -511,50 +566,13 @@ async function translateTextsBatch(texts, options) {
     }
   }
 
-  if (skipTmt) {
-    if (options && options.withMeta) {
-      return {
-        list: results,
-        tmtConfigured: isTmtConfigured(),
-        tmtNeeded: 0,
-        tmtLastError: '',
-        tmtBatchesFailed: 0
-      }
-    }
-    return results
-  }
-
-  // 主通道：混元 AI（不依赖 TMT 额度）
+  // 主通道：混元 AI（不依赖 TMT 额度）；未覆盖的才落 TMT
   const aiOut = await translatePendingViaAI(toMachine, hashToIndices, results)
   const toTmt = aiOut.remaining
-
-  if (!toTmt.length) {
-    if (options && options.withMeta) {
-      return {
-        list: results,
-        tmtConfigured: isTmtConfigured(),
-        tmtNeeded: 0,
-        tmtLastError: '',
-        tmtBatchesFailed: 0,
-        aiHit: aiOut.aiHit
-      }
-    }
-    return results
-  }
+  if (!toTmt.length) return results
 
   if (!isTmtConfigured()) {
     warnTmtUnconfiguredOnce()
-    if (options && options.withMeta) {
-      return {
-        list: results,
-        tmtConfigured: false,
-        // 混元已尽力；仍有缺口且无 TMT → 仅当全部为空时上层才报「未配置」
-        tmtNeeded: results.some(Boolean) ? 0 : toTmt.length,
-        tmtLastError: results.some(Boolean) ? '' : 'TMT_SECRET_ID/KEY 未配置',
-        tmtBatchesFailed: 0,
-        aiHit: aiOut.aiHit
-      }
-    }
     return results
   }
 
@@ -593,14 +611,12 @@ async function translateTextsBatch(texts, options) {
   }
   if (current.length > 0) batches.push(current)
 
-  // groupKey → 按 partIndex 收集的片段译文
   const segmentParts = {}
 
   let batchIndex = 0
-  let tmtLastError = null
-  let tmtBatchesFailed = 0
   let tmtQuotaExhausted = false
   for (const batch of batches) {
+    // 额度已用尽：剩余批次直接留空，否则几百批每批还要重试 + sleep，白烧同步时间
     if (tmtQuotaExhausted) {
       for (let j = 0; j < batch.length; j++) {
         const item = batch[j]
@@ -639,9 +655,7 @@ async function translateTextsBatch(texts, options) {
       }
     }
     if (lastErr) {
-      tmtBatchesFailed++
-      tmtLastError = lastErr
-      console.error('[translate] TMT batch failed:', lastErr.message || lastErr)
+      console.error('[translate] TMT batch failed after retry:', lastErr.message || lastErr)
     }
 
     for (let j = 0; j < batch.length; j++) {
@@ -662,36 +676,24 @@ async function translateTextsBatch(texts, options) {
   for (const item of toTmt) {
     const parts = segmentParts[item.hash]
     if (!parts || !parts.length || !parts.every(Boolean)) continue
-    const zh = parts.join('')
+    const zh = sanitizeAerospaceTranslation(parts.join(''), item.raw)
     if (!zh || !looksLikelyChinese(zh)) continue
     for (const idx of hashToIndices[item.hash]) {
       results[idx] = zh
     }
-    if (zh !== item.raw) {
+    if (isTmtConfigured() && zh !== item.raw) {
       cacheWrites.push({ hash: item.hash, zh, sourceLen: item.raw.length })
     }
   }
   await writeCacheBatch(cacheWrites)
 
-  if (options && options.withMeta) {
-    // 混元已产出部分译文时，不再把「仍需 TMT」当成整单失败条件
-    const stillEmpty = toTmt.filter((item) => !results[hashToIndices[item.hash][0]]).length
-    return {
-      list: results,
-      tmtConfigured: isTmtConfigured(),
-      tmtNeeded: results.some(Boolean) ? 0 : stillEmpty,
-      tmtLastError: tmtLastError ? String(tmtLastError.message || tmtLastError) : '',
-      tmtBatchesFailed,
-      aiHit: aiOut.aiHit
-    }
-  }
   return results
 }
 
 /**
- * 诊断：混元主通道 + TMT 兜底 + 缓存，一次调用看清整条链路。
- * aiEntry 为空 = 当前 wx-server-sdk 太旧（cloud.ai 需要 >= 3.0.5-beta.1），
- * 混元会被整段跳过，只剩 TMT——这正是「详情页翻译按钮报错」的典型现场。
+ * 诊断：混元主通道 + TMT 兜底 + 缓存。
+ * aiEntry 为空 = wx-server-sdk 太旧（cloud.ai 需要 >= 3.0.5-beta.1），
+ * 同步就只剩 TMT，额度用尽后新数据不再产出 xxxZh 预翻译。
  */
 async function runTranslateDiag() {
   const out = {
@@ -789,6 +791,7 @@ async function cleanTranslationCache() {
 
 module.exports = {
   translateTextsBatch,
+  beginTranslateRun,
   hashText,
   isTmtConfigured,
   looksLikelyChinese,

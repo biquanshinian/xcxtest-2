@@ -33,7 +33,8 @@ const {
   getStatusCategory,
   getStatusBadgeText,
   isTerminalStatusId,
-  getCountryDisplay
+  getCountryDisplay,
+  isChineseRocketContext
 } = require('../../../utils/api-request.js')
 const { isSettledStatusId, projectBadgeOntoMission } = require('../../../utils/launch-status-store.js')
 const { formatDate, resolveMissionRocketImage } = require('../../../utils/util.js')
@@ -421,7 +422,10 @@ const methods = {
         return repaired
       }
       const category = getStatusCategory(hit.status)
-      const badge = getStatusBadgeText(hit.status, category)
+      const badge = getStatusBadgeText(hit.status, category, {
+        chineseRocket: isChineseRocketContext(item),
+        countryDisplay: item.countryDisplay
+      })
       if (item.statusCategory === category && item.statusBadgeText === badge && prevSid === sid) return item
       changed = true
       const projected = projectBadgeOntoMission(item, {
@@ -671,7 +675,18 @@ const methods = {
     const idStr = String(patch.id)
     const category =
       patch.statusCategory || getStatusCategory({ id: sid, name: patch.statusBadgeText, abbrev: patch.statusAbbrev })
-    const badge = patch.statusBadgeText || getStatusBadgeText({ id: sid, abbrev: patch.statusAbbrev }, category)
+    const list = this.data.completedMissions || []
+    const idx = list.findIndex((m) => m && String(m.id) === idStr)
+    const chineseHint =
+      (idx >= 0 && list[idx]) ||
+      (this.data.upcomingMissions || []).find((m) => m && String(m.id) === idStr) ||
+      { name: patch.name, countryDisplay: patch.countryDisplay, rocketName: patch.rocketName }
+    const badge =
+      patch.statusBadgeText ||
+      getStatusBadgeText({ id: sid, abbrev: patch.statusAbbrev }, category, {
+        chineseRocket: isChineseRocketContext(chineseHint),
+        countryDisplay: chineseHint && chineseHint.countryDisplay
+      })
 
     // 同步写入 recent_settled 内存（终态优先，覆盖飞行中）
     const mem = Array.isArray(this._recentSettledCache) ? this._recentSettledCache.slice() : []
@@ -685,9 +700,6 @@ const methods = {
       source: 'detail_page_backfill'
     }
     this._absorbRecentSettled([settledRow])
-
-    const list = this.data.completedMissions || []
-    const idx = list.findIndex((m) => m && String(m.id) === idStr)
     let nextCompleted
     if (idx >= 0) {
       const item = list[idx]

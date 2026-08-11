@@ -92,8 +92,6 @@
           </view>
         </view>
 
-        <official-account-publish-panel topic="{{item.name || '空间站讨论'}}" />
-
         <!-- 核心数据指标 -->
         <view class="stats-grid">
           <view class="stat-card">
@@ -346,7 +344,7 @@
           <text class="section-title">当前停靠飞船</text>
           <view class="link-list" wx:if="{{item.dockedSpacecraft && item.dockedSpacecraft.length}}">
             <view class="ship-item {{ship.configId ? 'ship-item--tappable' : ''}}" hover-class="{{ship.configId ? 'card-pressed' : ''}}" wx:for="{{item.dockedSpacecraft}}" wx:for-item="ship" wx:key="id"
-                  data-cid="{{ship.configId}}" data-name="{{ship.configName || ship.name}}" bindtap="onShipTap">
+                  data-cid="{{ship.configId}}" data-name="{{ship.configName || ship.name}}" data-name-en="{{ship.configNameEn || ship.nameEn || ''}}" bindtap="onShipTap">
               <image class="ship-image" wx:if="{{ship.image}}" src="{{ship.image}}" mode="aspectFill" catchtap="onShipImageTap" data-url="{{ship.image}}"></image>
               <view class="ship-image ship-image--placeholder" wx:else></view>
               <view class="ship-main">
@@ -396,11 +394,15 @@
           </view>
         </view>
 
-        <!-- 对接口状态 -->
+        <!-- 对接口状态（两列整齐网格，对齐型号档案规格排版） -->
         <view class="section" wx:if="{{item.dockingPorts && item.dockingPorts.length}}">
           <text class="section-title">对接口状态</text>
-          <view class="tag-list">
-            <text class="tag-item {{port.occupied ? 'tag-item--active' : ''}}" wx:for="{{item.dockingPorts}}" wx:for-item="port" wx:key="id">{{port.name}} · {{port.occupiedText}}</text>
+          <view class="dock-port-grid">
+            <view class="dock-port-item {{port.occupied ? 'dock-port-item--active' : ''}}"
+                  wx:for="{{item.dockingPorts}}" wx:for-item="port" wx:key="id">
+              <text class="dock-port-label">{{port.name}}</text>
+              <text class="dock-port-value">{{port.occupiedText}}</text>
+            </view>
           </view>
         </view>
 
@@ -423,6 +425,9 @@
             </view>
           </view>
         </view>
+
+        <!-- 贴图讨论区：空间站详情最底部 -->
+        <official-account-publish-panel topic="{{item.name || '空间站讨论'}}" />
       </view>
       <view style="height: {{tabBarReservedHeight}}px;"></view>
     </view>

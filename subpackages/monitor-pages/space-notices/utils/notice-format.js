@@ -1,10 +1,104 @@
 /**
  * SPACE_NOTICES_FEATURE — 通告展示层格式化（纯函数，便于单测）
  * 生效状态按 dates 窗口与当前时间推导；时间一律转本地时区展示。
+ * 条目卡片：任务/火箭/机构汉化 + 火箭配置图（与列表卡同源 resolveMissionRocketImage）。
  */
-const { formatDate } = require('../../../../utils/util.js')
+const { formatDate, getRocketImage, resolveMissionRocketImage } = require('../../../../utils/util.js')
+const { pickLocalized, isContentLangEn } = require('../../../../utils/locale.js')
+const { translateRocketName } = require('../../../../utils/rocket-name-i18n.js')
+const { localizeMissionTitle } = require('../../../../utils/mission-title-i18n.js')
+const { translateAgencyName } = require('../../../../utils/space-terms-i18n.js')
 
 const TONE_LABEL = { notam: '航空 NOTAM', nav: '航海警告', adp: '空域走廊' }
+
+/**
+ * 站点 slug（launch-f9-starlink-10-19）→ 可读英文任务/火箭名，供词典与配图匹配
+ * @returns {{ missionName: string, rocketName: string }}
+ */
+function humanizeEntrySlug(entryKey) {
+  const key = String(entryKey || '').trim()
+  if (!/^launch[-_]/i.test(key)) return { missionName: '', rocketName: '' }
+  let body = key.replace(/^launch[-_]/i, '')
+  let rocketName = ''
+  const rocketRules = [
+    [/^f9[-_]/i, 'Falcon 9'],
+    [/^fh[-_]/i, 'Falcon Heavy'],
+    [/^falcon[-_]?9[-_]/i, 'Falcon 9'],
+    [/^falcon[-_]?heavy[-_]/i, 'Falcon Heavy'],
+    [/^starship[-_]/i, 'Starship'],
+    [/^electron[-_]/i, 'Electron'],
+    [/^new[-_]?glenn[-_]/i, 'New Glenn'],
+    [/^cz[-_]?(\d+[a-z]*)[-_]?/i, function (m, n) { return 'Long March ' + String(n || '').toUpperCase() }],
+    [/^long[-_]?march[-_]?(\d+[a-z]*)[-_]?/i, function (m, n) { return 'Long March ' + String(n || '').toUpperCase() }]
+  ]
+  for (let i = 0; i < rocketRules.length; i += 1) {
+    const re = rocketRules[i][0]
+    const nameOrFn = rocketRules[i][1]
+    const m = body.match(re)
+    if (!m) continue
+    rocketName = typeof nameOrFn === 'function' ? nameOrFn(m[0], m[1]) : nameOrFn
+    body = body.slice(m[0].length)
+    break
+  }
+  let missionName = body.replace(/[-_]+/g, ' ').trim()
+  const sl = missionName.match(/^starlink\s+(\d+)\s+(\d+)$/i)
+  if (sl) {
+    missionName = 'Starlink Group ' + sl[1] + '-' + sl[2]
+  } else if (/^starlink\b/i.test(missionName)) {
+    missionName = missionName.replace(/^starlink\s*/i, 'Starlink Group ').replace(/\s+/g, ' ').trim()
+  } else if (/^flight\s+(\d+)$/i.test(missionName)) {
+    missionName = missionName.replace(/^flight\s+/i, 'Flight ')
+  } else if (missionName) {
+    missionName = missionName.replace(/\b([a-z])/g, function (c) { return c.toUpperCase() })
+  }
+  return { missionName: missionName || '', rocketName: rocketName || '' }
+}
+
+/**
+ * 列表 / 地图共用：条目展示字段（汉化标题、火箭、机构 + 圆形配置图用 URL）
+ */
+function decorateSpaceNoticeEntry(e) {
+  const row = e && typeof e === 'object' ? e : {}
+  const key = String(row.entryKey || '').trim()
+  let missionEn = String(row.missionName || '').trim()
+  let rocketEn = String(row.rocketName || '').trim()
+  const looksLikeSlug =
+    !missionEn ||
+    missionEn === key ||
+    /^launch[-_]/i.test(missionEn)
+  if (looksLikeSlug || !rocketEn) {
+    const hum = humanizeEntrySlug(key)
+    if (looksLikeSlug && hum.missionName) missionEn = hum.missionName
+    if (!rocketEn && hum.rocketName) rocketEn = hum.rocketName
+  }
+  if (!rocketEn && row.isStarship) rocketEn = 'Starship'
+
+  const rocketZh = translateRocketName(rocketEn) || rocketEn
+  const missionZh = localizeMissionTitle(missionEn, rocketEn, rocketZh) || missionEn
+  const agencyEn = String(row.agency || '').trim()
+  const agencyZh = translateAgencyName(agencyEn) || agencyEn
+
+  const title = pickLocalized(missionZh, missionEn) || key || (isContentLangEn() ? 'Untitled' : '未命名任务')
+  const subtitle =
+    pickLocalized(rocketZh, rocketEn) ||
+    (isContentLangEn() ? 'Launch' : '发射任务')
+  const agencyDisplay = pickLocalized(agencyZh, agencyEn)
+
+  // 与详情/列表卡同源：空 stamp + 英文火箭名 forceRecompute
+  const rocketImage =
+    resolveMissionRocketImage('', rocketEn || rocketZh, null, true) ||
+    getRocketImage(rocketEn || rocketZh) ||
+    ''
+
+  return Object.assign({}, row, {
+    missionNameEn: missionEn,
+    rocketNameEn: rocketEn,
+    title,
+    subtitle,
+    agencyDisplay,
+    rocketImage
+  })
+}
 
 function noticeTypeTone(type) {
   const t = String(type || '')
@@ -128,6 +222,8 @@ module.exports = {
   windowText,
   describeDates,
   decorateNotice,
+  decorateSpaceNoticeEntry,
+  humanizeEntrySlug,
   sortNotices,
   buildStats,
   TONE_LABEL

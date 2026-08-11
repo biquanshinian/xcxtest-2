@@ -9,6 +9,7 @@ const { getNewsListThumbTargetWidthPx, optimizeNewsThumbUrl } = require('../../u
 const storageCache = require('../../utils/storage-sync-cache.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const themeUtil = require('../../utils/theme.js')
+const tabLoadPage = require('../../utils/tab-load-page.js')
 
 // 新闻接口已移入 news-extra 分包（仅 news tab 与详情页使用），按需异步加载以削减主包体积
 const NEWS_API_PKG = '../../subpackages/news-extra/utils/api-news.js'
@@ -182,62 +183,82 @@ Page({
       })
     }
 
+    try { tabLoadPage.beginPageLoad(tabLoadPage.TAB_ROUTES.news) } catch (e) {}
+
     // 新闻 Tab 默认落在「航天摄影」；开关关闭时由 _refreshPhotosNavFlag 回退到航天事件
     const contentType = 'photos'
+    var self = this
+    var sharedInitData = null
 
-    const app = getApp()
-    const uiShellLayout = (app && app.getUiShellLayout && app.getUiShellLayout()) || getUiShellLayout(getSystemInfo())
-    const rpxToPx = uiShellLayout.windowWidth / 750
-    const statusBarHeightRpx = uiShellLayout.statusBarHeight / rpxToPx
-    const winW = uiShellLayout.windowWidth
-    const winH = uiShellLayout.windowHeight
-    const btnSize = 100 * rpxToPx
-    const right = 30 * rpxToPx
-    const bottom = 220 * rpxToPx + 40
+    try {
+      const app = getApp()
+      const uiShellLayout = (app && app.getUiShellLayout && app.getUiShellLayout()) || getUiShellLayout(getSystemInfo())
+      const rpxToPx = uiShellLayout.windowWidth / 750
+      const statusBarHeightRpx = uiShellLayout.statusBarHeight / rpxToPx
+      const winW = uiShellLayout.windowWidth
+      const winH = uiShellLayout.windowHeight
+      const btnSize = 100 * rpxToPx
+      const right = 30 * rpxToPx
+      const bottom = 220 * rpxToPx + 40
 
-    const sharedInitData = {
-      themeClass: themeUtil.getThemeClassSync(),
-      themeLight: themeUtil.isLightSync(),
-      pageBgColor: themeUtil.getPageBgSync(),
-      contentType,
-      statusBarHeight: uiShellLayout.statusBarHeight,
-      statusBarHeightRpx,
-      navPlaceholderHeight: uiShellLayout.navPlaceholderHeight,
-      tabBarReservedHeight: uiShellLayout.tabBarReservedHeight,
-      windowWidth: winW,
-      windowHeight: winH,
-      buttonSize: btnSize,
-      buttonX: winW - right - btnSize,
-      buttonY: winH - bottom - btnSize,
-      qrcodeImage: NEWS_QR_IMAGE_FALLBACK_URL,
-      errorType: null
+      sharedInitData = {
+        themeClass: themeUtil.getThemeClassSync(),
+        themeLight: themeUtil.isLightSync(),
+        pageBgColor: themeUtil.getPageBgSync(),
+        contentType,
+        statusBarHeight: uiShellLayout.statusBarHeight,
+        statusBarHeightRpx,
+        navPlaceholderHeight: uiShellLayout.navPlaceholderHeight,
+        tabBarReservedHeight: uiShellLayout.tabBarReservedHeight,
+        windowWidth: winW,
+        windowHeight: winH,
+        buttonSize: btnSize,
+        buttonX: winW - right - btnSize,
+        buttonY: winH - bottom - btnSize,
+        qrcodeImage: NEWS_QR_IMAGE_FALLBACK_URL,
+        errorType: null
+      }
+
+      this.setData(sharedInitData)
+    } catch (e) {
+      try { tabLoadPage.endPageLoad(tabLoadPage.TAB_ROUTES.news) } catch (err) {}
     }
 
-    this.setData(sharedInitData)
-
-    var self = this
     void loadCloudMediaMap().then(function () {
-      self.setData({ qrcodeImage: self.getNewsQrImageUrl() })
+      try {
+        if (typeof self.getNewsQrImageUrl === 'function') {
+          self.setData({ qrcodeImage: self.getNewsQrImageUrl() })
+        }
+      } catch (e) {}
     }).catch(function () {})
 
     // 先等开关，再 boot，避免摄影缓存在关入口时污染「航天事件」列表
     // 预热摄影 helper，与 preloadRule 叠加，减少首屏委托等待
-    void ensureNewsPhotos(this).catch(() => {})
-    this._refreshPhotosNavFlag({ fromLoad: true })
-      .then((show) => {
+    void ensureNewsPhotos(this).catch(function () {})
+    var refreshFlag = typeof this._refreshPhotosNavFlag === 'function'
+      ? this._refreshPhotosNavFlag({ fromLoad: true })
+      : Promise.resolve(false)
+    Promise.resolve(refreshFlag)
+      .then(function (show) {
         const type = show ? 'photos' : 'articles'
-        if (self.data.contentType !== type) {
-          self.setData({ contentType: type })
-        }
+        try {
+          if (self.data.contentType !== type) {
+            self.setData({ contentType: type })
+          }
+        } catch (e) {}
         self._bootNewsData(type, sharedInitData)
       })
-      .catch(() => {
-        self.setData({
-          contentType: 'articles',
-          showPhotosNav: false,
-          showPhotosNavDot: false
-        })
-        self._bootNewsData('articles', sharedInitData)
+      .catch(function () {
+        try {
+          self.setData({
+            contentType: 'articles',
+            showPhotosNav: false,
+            showPhotosNavDot: false
+          })
+        } catch (e) {}
+        try { self._bootNewsData('articles', sharedInitData) } catch (err) {
+          try { tabLoadPage.endPageLoad(tabLoadPage.TAB_ROUTES.news) } catch (e2) {}
+        }
       })
   },
 
@@ -271,33 +292,63 @@ Page({
   },
 
   _bootNewsData(contentType, sharedInitData) {
-    // 与当前 Tab / 开关不一致时不灌缓存，防止摄影列表污染航天事件
-    if (this.data.contentType !== contentType) return
-    if (contentType === 'photos' && !this.data.showPhotosNav) return
-    this._clearLegacyArticleCaches()
-    const cached = this.getCache(contentType)
-    const cachedList = this._sanitizeCachedNewsList(contentType, cached && cached.newsList)
-    if (cachedList.length > 0) {
-      const pagePatch = {
-        page: (cached.page || 1) + 1,
-        hasMore: cached.hasMore !== false
-      }
-      if (contentType === 'photos') {
-        void ensureNewsPhotos(this).then(() => {
-          if (this.data.contentType !== 'photos') return
-          this._setPhotosViewList(this._formatPhotosList(cachedList), pagePatch)
-          this._silentRefreshFirstPage(contentType)
-        }).catch(() => {
-          this.loadNews()
-        })
+    var route = tabLoadPage.TAB_ROUTES.news
+    var finish = function () {
+      try { tabLoadPage.endPageLoad(route) } catch (e) {}
+    }
+    try {
+      // 与当前 Tab / 开关不一致时不灌缓存，防止摄影列表污染航天事件
+      if (this.data.contentType !== contentType) {
+        finish()
         return
       }
-      this.setData(Object.assign({ newsList: cachedList }, pagePatch))
-      // 先显旧数据，后台静默换新（手写稿排序/新事件不丢）
-      this._silentRefreshFirstPage(contentType)
-      return
+      if (contentType === 'photos' && !this.data.showPhotosNav) {
+        finish()
+        return
+      }
+      this._clearLegacyArticleCaches()
+      const cached = typeof this.getCache === 'function' ? this.getCache(contentType) : null
+      const cachedList = this._sanitizeCachedNewsList(contentType, cached && cached.newsList)
+      if (cachedList.length > 0) {
+        const pagePatch = {
+          page: (cached.page || 1) + 1,
+          hasMore: cached.hasMore !== false
+        }
+        if (contentType === 'photos') {
+          var self = this
+          void ensureNewsPhotos(this).then(function () {
+            try {
+              if (self.data.contentType !== 'photos') {
+                finish()
+                return
+              }
+              if (typeof self._setPhotosViewList === 'function' && typeof self._formatPhotosList === 'function') {
+                self._setPhotosViewList(self._formatPhotosList(cachedList), pagePatch)
+              }
+              finish()
+              try { self._silentRefreshFirstPage(contentType) } catch (e) {}
+            } catch (e) {
+              finish()
+            }
+          }).catch(function () {
+            Promise.resolve(
+              typeof self.loadNews === 'function' ? self.loadNews() : null
+            ).catch(function () {}).then(finish)
+          })
+          return
+        }
+        this.setData(Object.assign({ newsList: cachedList }, pagePatch))
+        finish()
+        // 先显旧数据，后台静默换新（手写稿排序/新事件不丢）
+        try { this._silentRefreshFirstPage(contentType) } catch (e) {}
+        return
+      }
+      Promise.resolve(
+        typeof this.loadNews === 'function' ? this.loadNews() : null
+      ).catch(function () {}).then(finish)
+    } catch (e) {
+      finish()
     }
-    this.loadNews()
   },
 
   onShow() {

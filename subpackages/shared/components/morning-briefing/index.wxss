@@ -285,10 +285,10 @@
   border-bottom: none;
 }
 
-/* 昨日回顾：角标贴右（小程序嵌套 flex 时 space-between 常不生效，改用绝对定位） */
+/* 昨日回顾：与今日同一 flex 行（icon + left），角标绝对定位贴右，避免嵌套 main 挤偏文案 */
 .vote-history-item--briefing-yesterday {
   position: relative;
-  align-items: flex-start;
+  align-items: center;
   padding-right: 168rpx;
   box-sizing: border-box;
 }
@@ -296,20 +296,10 @@
 .vote-history-item--briefing-yesterday .vote-history-right {
   position: absolute;
   right: 0;
-  top: 16rpx;
+  top: 50%;
+  transform: translateY(-50%);
   margin-top: 0;
   margin-left: 0;
-}
-
-.vote-history-main {
-  display: flex;
-  flex-direction: row;
-  align-items: flex-start;
-  flex: 1;
-  min-width: 0;
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
 }
 
 .vote-history-icon {

@@ -233,7 +233,7 @@
     <div class="brand-add">
       <el-button @click="addBrand">新增发稿号</el-button>
       <el-text type="info" size="small" style="margin-left:10px;">
-        策略可到「策略引擎」种子：space_story（空间叙事）与 launch_brief（硬核短讯）搭配两号使用。
+        策略可到「策略引擎」种子：space_story（平实解说，槽2）与 launch_brief（硬核短讯，槽1）搭配两号使用。
       </el-text>
     </div>
   </el-card>

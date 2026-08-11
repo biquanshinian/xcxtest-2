@@ -112,7 +112,16 @@ const CLIENT_ALLOWED_ACTIONS = new Set([
 ])
 
 // 开发者工具「云端测试」(SOURCE=wx_devtools) 可手动跑的运维探针；正式小程序端 (wx_client) 仍拦截
-const DEVTOOLS_TESTABLE_ACTIONS = new Set(['syncLaunchNetHourly', 'syncMissionReplayQueue', 'fillFlightHistory', 'syncSpaceXStats', 'syncStations', 'syncFeaturedAgencyDetails'])
+// syncLaunches：运维重写 upcoming/previous 分片（解决客户端 cache_miss）；仍禁止真机 wx_client 直调
+const DEVTOOLS_TESTABLE_ACTIONS = new Set([
+  'syncLaunchNetHourly',
+  'syncMissionReplayQueue',
+  'fillFlightHistory',
+  'syncSpaceXStats',
+  'syncStations',
+  'syncFeaturedAgencyDetails',
+  'syncLaunches'
+])
 
 function getInvocationSourceTail() {
   try {
@@ -127,8 +136,9 @@ function getInvocationSourceTail() {
   }
 }
 
-function isServerSideInvocation(event) {
-  if (event && (event.TriggerName || event.triggerName)) return true
+function isServerSideInvocation(_event) {
+  // 禁止用 event.TriggerName 当信任根：小程序 callFunction 可伪造该字段绕过白名单。
+  // 定时器 / 云函数互调的 SOURCE 不会落在 wx_client / wx_devtools。
   try {
     const ctx = cloud.getWXContext() || {}
     const chain = String(ctx.SOURCE || '')

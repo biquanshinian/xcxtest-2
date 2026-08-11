@@ -313,13 +313,6 @@
   pointer-events: none;
 }
 
-.channels-live-custom-tap-hint {
-  display: block;
-  margin-top: 6rpx;
-  font-size: 22rpx;
-  color: var(--color-text-secondary);
-}
-
 .channels-live-custom-hover {
   opacity: 0.92;
   transform: scale(0.995);
@@ -405,8 +398,19 @@
 .channels-live-action-btn--primary {
   flex: 1.15;
   color: #fff;
+  /* 相对默认 28rpx 放大 1.4 倍 */
+  font-size: 39rpx;
+  font-weight: 600;
+  min-height: 88rpx;
   background: linear-gradient(135deg, #07C160, #06AD56);
   border: 1px solid rgba(7, 193, 96, 0.45);
+}
+
+.channels-live-actions-row--compact .channels-live-action-btn--primary {
+  /* 紧凑行默认 22rpx × 1.4 */
+  font-size: 31rpx;
+  min-height: 80rpx;
+  padding: 0 16rpx;
 }
 
 /* 与推荐直播 / B站同排时，主按钮更宽 */

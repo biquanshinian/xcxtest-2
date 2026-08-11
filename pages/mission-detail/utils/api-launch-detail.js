@@ -9,6 +9,7 @@ const {
   extractLaunchAgency,
   resolveLauncher,
   resolveLandingType,
+  normalizeBoosterSerial,
   REUSABLE_ROCKET_REGEX,
   SHIP_BOOSTER_REGEX
 } = require('../../../utils/api-booster-extract.js')
@@ -17,6 +18,8 @@ const {
   getCacheKey,
   formatPadLocation,
   getCountryDisplay,
+  getCountryDisplayPair,
+  getStatusBadgeTextPair,
   unwrapCacheData,
   getStatusCategory,
   getStatusBadgeText,
@@ -24,7 +27,22 @@ const {
   USE_DEV_API
 } = require('../../../utils/api-request.js')
 const { pickLocalized, zhField } = require('../../../utils/locale.js')
-const { translateOrbit, translateLocation } = require('../../../utils/space-terms-i18n.js')
+const {
+  translateOrbit,
+  translateOrbitLabel,
+  translateMissionType,
+  translateLocation,
+  translateAgencyName
+} = require('../../../utils/space-terms-i18n.js')
+const {
+  applyContentLangToMission,
+  buildRocketNamePair,
+  buildTitlePair,
+  buildLaunchSitePair
+} = require('../../../utils/launch-card-i18n.js')
+const { optimizeImageUrl, isCosOriginUrl } = require('../../../utils/cos-url.js')
+const { proxiedImageUrl, isOwnCdnUrl } = require('../../../utils/ll2-image.js')
+const { applyLaunchAgencyLogoOverridesToMission } = require('../../../utils/agency-logo-overrides.js')
 
 function getRocketDisplayNameFromConfig(configuration) {
   if (!configuration || typeof configuration !== 'object') return '未知火箭'
@@ -45,7 +63,9 @@ function pickRocketConfigurationSnapshot(launch) {
   if (!cfg || typeof cfg !== 'object') return null
   return {
     name: typeof cfg.name === 'string' ? cfg.name : '',
-    full_name: typeof cfg.full_name === 'string' ? cfg.full_name : ''
+    nameZh: typeof cfg.nameZh === 'string' ? cfg.nameZh : '',
+    full_name: typeof cfg.full_name === 'string' ? cfg.full_name : '',
+    full_nameZh: typeof cfg.full_nameZh === 'string' ? cfg.full_nameZh : ''
   }
 }
 
@@ -152,6 +172,16 @@ function formatIsoDurationToText(raw) {
   return ''
 }
 
+/** 徽章 / logo：已镜像 COS 则走压缩 thumb；外链走 Worker 代理（国内直连 DO 极差） */
+function resolvePatchOrLogoDisplayUrl(url) {
+  const raw = String(url || '').trim()
+  if (!raw || !/^https?:\/\//i.test(raw)) return ''
+  if (isCosOriginUrl(raw) || isOwnCdnUrl(raw)) {
+    return optimizeImageUrl(raw, 'thumb') || raw
+  }
+  return proxiedImageUrl(raw) || raw
+}
+
 /** LL2 mission_patches → 详情页「任务徽章」数据 */
 function buildMissionPatches(launch) {
   const raw = launch && launch.mission_patches
@@ -161,7 +191,7 @@ function buildMissionPatches(launch) {
     .sort((a, b) => (a.priority != null ? a.priority : 0) - (b.priority != null ? b.priority : 0))
     .map((p, idx) => ({
       name: (p.name != null ? String(p.name) : '').trim(),
-      imageUrl: p.image_url,
+      imageUrl: resolvePatchOrLogoDisplayUrl(p.image_url),
       agency: (p.agency && p.agency.name) || '',
       _wxkey: `patch-${p.id != null ? p.id : idx}`
     }))
@@ -332,7 +362,7 @@ function getLauncherInstanceDetail(launcherId) {
     // 如果是配置，会有configuration字段
     if (launcher.serial_number || launcher.flights !== undefined) {
       // 这是launcher实例
-      const serialNumber = launcher.serial_number || null
+      const serialNumber = normalizeBoosterSerial(launcher.serial_number)
       const flights = launcher.flights !== undefined && launcher.flights !== null ? launcher.flights : null
       const successfulLandings = launcher.successful_landings !== undefined && launcher.successful_landings !== null ? launcher.successful_landings : null
       const attemptedLandings = launcher.attempted_landings !== undefined && launcher.attempted_landings !== null ? launcher.attempted_landings : null
@@ -484,8 +514,15 @@ function buildMissionOrbitDisplayString(orbit) {
   const abbrevStr = normalizeOrbitAbbrevField(orbit.abbrev)
   const nameEn = ((orbit.name != null ? String(orbit.name) : '').trim() ||
     (orbit.full_name != null ? String(orbit.full_name).trim() : ''))
-  const name = pickLocalized(zhField(orbit, 'name') || translateOrbit(orbit), nameEn)
-  let orbitStr = [name, abbrevStr ? `(${abbrevStr})` : ''].filter(Boolean).join(' ').trim()
+  const nameZh =
+    zhField(orbit, 'name') ||
+    translateOrbit(orbit) ||
+    translateOrbitLabel(nameEn) ||
+    translateOrbitLabel(abbrevStr)
+  const name = pickLocalized(nameZh, nameEn)
+  // N/A / Unknown 缩写不拼接，避免「未知 (N/A)」双语夹杂
+  const showAbbrev = abbrevStr && !/^(n\/a|na|unknown)$/i.test(abbrevStr)
+  let orbitStr = [name, showAbbrev ? `(${abbrevStr})` : ''].filter(Boolean).join(' ').trim()
   if (orbit.perigee != null || orbit.apogee != null) {
     orbitStr += (orbitStr ? ' ' : '') + String(orbit.perigee != null ? orbit.perigee : orbit.apogee) + 'km'
     orbitStr = orbitStr.trim()
@@ -637,7 +674,7 @@ async function processLaunchDetail(launch) {
     // 提取任务详情信息
     
     // 获取发射机构名称（优先使用launch_service_provider，其次使用program中的agencies）
-    const { launchAgency, launchAgencyId, launchAgencyAbbrev } = extractLaunchAgency(launch)
+    const { launchAgency, launchAgencyId, launchAgencyAbbrev, launchAgencyImage } = extractLaunchAgency(launch)
     
     // 获取火箭配置详细信息
     let rocketInfo = ''
@@ -789,15 +826,17 @@ async function processLaunchDetail(launch) {
     if (launcher) {
       // 从Launcher_stage数组中提取详细信息
       // 序列号可能在多个位置，优先从launcher.launcher中获取
-      let serialNumber = (launcher.launcher && launcher.launcher.serial_number) ||
-                        launcher.serial_number ||
-                        null
+      let serialNumber = normalizeBoosterSerial(
+        (launcher.launcher && launcher.launcher.serial_number) ||
+        launcher.serial_number ||
+        null
+      )
       
       // 如果还没有序列号，尝试从着陆描述中提取（例如："B1080"）
       if (!serialNumber && launcher.landing && launcher.landing.description) {
         const descMatch = launcher.landing.description.match(/B\d+/i) // 匹配 B1080, B1060 等格式
         if (descMatch) {
-          serialNumber = descMatch[0]
+          serialNumber = normalizeBoosterSerial(descMatch[0])
         }
       }
       
@@ -811,7 +850,7 @@ async function processLaunchDetail(launch) {
       // 不再回退到内部 ID（如 886）作为序列号，只从真实序列字段或描述文本中提取 Bxxxx
       if (!serialNumber && textPool) {
         const textSerialMatch = textPool.match(/\bB\d{3,5}\b/i)
-        if (textSerialMatch) serialNumber = textSerialMatch[0].toUpperCase()
+        if (textSerialMatch) serialNumber = normalizeBoosterSerial(textSerialMatch[0].toUpperCase())
       }
       
       // 飞行次数可能在 launcher.launcher_flight_number / launcher.flights，或描述中的 "11th flight"
@@ -917,7 +956,7 @@ async function processLaunchDetail(launch) {
         // 如果查询失败，尝试使用launch详情中的基本信息
         if (launcher) {
           boosterInfo = {
-            serialNumber: launcher.serial_number || null,
+            serialNumber: normalizeBoosterSerial(launcher.serial_number),
             flights: launcher.flights || null,
             successfulLandings: launcher.successful_landings || null,
             attemptedLandings: launcher.attempted_landings || null,
@@ -1040,14 +1079,14 @@ async function processLaunchDetail(launch) {
       boosterStages = launcherStagesArray.map((item, idx) => {
         if (!item || typeof item !== 'object') return null
         const innerLauncher = item.launcher || {}
-        // 序列号
-        let sn = innerLauncher.serial_number || item.serial_number || null
+        // 序列号（过滤 LL2 Unknown12A 等占位值）
+        let sn = normalizeBoosterSerial(innerLauncher.serial_number || item.serial_number || null)
         if (!sn && item.landing && item.landing.description) {
           const m = item.landing.description.match(/B\d{3,5}/i)
-          if (m) sn = m[0].toUpperCase()
+          if (m) sn = normalizeBoosterSerial(m[0].toUpperCase())
         }
         // 星舰任务 Super Heavy 兜底用 launcher.name（如 "Booster 19"）
-        if (!sn && innerLauncher.name) sn = innerLauncher.name
+        if (!sn && innerLauncher.name) sn = normalizeBoosterSerial(innerLauncher.name)
         // 飞行次数
         const fl = (item.launcher_flight_number !== undefined && item.launcher_flight_number !== null)
           ? item.launcher_flight_number
@@ -1148,6 +1187,9 @@ async function processLaunchDetail(launch) {
       }
     }
 
+    // 与列表 mapLaunchToListItem 同源：供角标「失败→失利」与返回态文案共用
+    const countryDisplay = getCountryDisplay(launch.pad, launch.launch_service_provider, launch)
+
     // 飞船 / 载荷返回：凡 LL2 给出 spacecraft_stage（含着陆计划）都并入分卡
     // —— 不限星舰；长征 2F 空天飞机（CSSHQ）、Dragon 等一次性火箭 + 可返回载荷也要显示
     {
@@ -1216,7 +1258,9 @@ async function processLaunchDetail(launch) {
         const missionEnded = !!(it.mission_end || sc.mission_end)
         let returnStatusLabel = ''
         if (ld.success === true) returnStatusLabel = '已返回着陆'
-        else if (ld.success === false) returnStatusLabel = '返回失败'
+        else if (ld.success === false) {
+          returnStatusLabel = countryDisplay === '中国' ? '返回失利' : '返回失败'
+        }
         else if (inSpace || (!missionEnded && ld.attempt === false)) returnStatusLabel = '在轨 · 待返回'
         else if (ld.attempt === true) returnStatusLabel = '返回进行中'
 
@@ -1269,11 +1313,20 @@ async function processLaunchDetail(launch) {
     const orbitStr = orbitResolved.display || orbitResolved.shortLabel
     // missionFull.description 默认英文原文；云端预翻译的 descriptionZh 单独携带，
     // 页面"翻译"按钮命中时本地秒切，无需再调云端翻译
+    const typeEn = (mission && mission.type && (typeof mission.type === 'string'
+      ? mission.type
+      : (mission.type && mission.type.name))) || ''
+    const typeZh =
+      (mission && mission.type && typeof mission.type === 'object'
+        ? zhField(mission.type, 'name')
+        : '') ||
+      translateMissionType(mission && mission.type) ||
+      translateMissionType(typeEn)
     const missionFull = {
       name: (mission && mission.name) || '',
       description: (mission && mission.description) || '',
       descriptionZh: mission ? zhField(mission, 'description') : '',
-      type: (mission && mission.type && (typeof mission.type === 'string' ? mission.type : (mission.type && mission.type.name))) || '',
+      type: pickLocalized(typeZh, typeEn),
       orbit: orbitStr
     }
     
@@ -1297,6 +1350,11 @@ async function processLaunchDetail(launch) {
     const totalLaunchCount = (pad && pad.total_launch_count != null ? pad.total_launch_count : (loc && loc.total_launch_count != null ? loc.total_launch_count : null))
     const nameLower = (padName + ' ' + locName).toLowerCase()
     const padType = /ship|marine|sea|海上|mobile|maritime|drone|asds|floating|海上/.test(nameLower) ? '海上' : '陆上'
+    const sitePairForPad = buildLaunchSitePair(launch)
+    const padNameZh = zhField(pad, 'name') || translateLocation(padName) || padName
+    const locNameZh = loc
+      ? (zhField(loc, 'name') || translateLocation(locName) || locName)
+      : ''
     const padDetail = {
       padName,
       locationName: locName,
@@ -1347,7 +1405,10 @@ async function processLaunchDetail(launch) {
     
     const status = launch.status || {}
     const statusCategory = getStatusCategory(status)
-    const statusBadgeText = getStatusBadgeText(status, statusCategory)
+    const statusBadgeText = getStatusBadgeText(status, statusCategory, {
+      chineseRocket: countryDisplay === '中国',
+      countryDisplay
+    })
     
     // 根据 launch 的 payload_flights、mission.payloads 或 /payload_flights/ 取 payload id 与 amount，再请求 /payloads/{id}/
     // 优化：优先使用launch详情中已有的payload信息，避免不必要的API调用
@@ -1442,7 +1503,7 @@ async function processLaunchDetail(launch) {
       if (!it || typeof it !== 'object') continue
       const l = it.launcher || it
       const cfg = (l && typeof l.configuration === 'object') ? l.configuration : null
-      const sn = (l && l.serial_number != null ? l.serial_number : it.serial_number)
+      const sn = normalizeBoosterSerial(l && l.serial_number != null ? l.serial_number : it.serial_number)
       const land = it.landing || (l && l.landing) || null
       const loc = (land && land.landing_location) || null
       const locAbbrev = (loc && loc.abbrev) || null
@@ -1540,32 +1601,61 @@ async function processLaunchDetail(launch) {
 
     const webcastLive = !!(launch.webcast_live === true || launch.webcastLive === true)
 
-    // 与首页 mapLaunchToListItem 同源：resolveMissionRocketImage + configuration 快照
+    // 与首页 mapLaunchToListItem 同源：配图用英文火箭名；展示字段走 _langPack + contentLang
     const rocketNameForImage = getRocketDisplayNameFromConfig(rocketConfig)
     const rocketConfiguration = pickRocketConfigurationSnapshot(launch)
     const rocketImage = resolveMissionRocketImage('', rocketNameForImage, rocketConfiguration, true) ||
       getRocketImage(rocketNameForImage)
 
-    return {
+    const rocketPair = buildRocketNamePair(rocketNameForImage, rocketConfiguration)
+    const titlePair = buildTitlePair(launch, rocketPair.rocketNameEn, rocketPair.rocketNameZh)
+    const sitePair = buildLaunchSitePair(launch)
+    const countryPair = getCountryDisplayPair(launch.pad, launch.launch_service_provider, launch)
+    const badgePair = getStatusBadgeTextPair(status, statusCategory, {
+      chineseRocket: countryPair.countryDisplayZh === '中国',
+      countryDisplay: countryPair.countryDisplayZh
+    })
+    const agencyProvider = launch.launch_service_provider
+    const agencyEn = (agencyProvider && agencyProvider.name) || launchAgency || ''
+    // Zh 只收词典命中，禁止把英文原名写进 launchAgencyZh（否则右下角芯片中文模式仍显示 English）
+    const agencyZh =
+      translateAgencyName(
+        (agencyProvider && agencyProvider.name) || '',
+        (agencyProvider && agencyProvider.abbrev) || launchAgencyAbbrev || ''
+      ) ||
+      translateAgencyName(launchAgency, launchAgencyAbbrev) ||
+      ''
+
+    const detailItem = {
       id: launch.id,
-      name: launch.name || '',
-      missionName: (launch.mission && launch.mission.name) || launch.name || '未知任务',
+      name: titlePair.nameEn,
+      missionName: titlePair.missionNameEn,
       launchTime: launch.net || launch.window_start || launch.window_end,
       windowStart: launch.window_start,
       windowEnd: launch.window_end,
       description: description,
       missionDetails: missionDetails,
       rocketInfo: rocketInfo,
-      launchAgency: launchAgency,
+      launchAgency: agencyZh || agencyEn,
       launchAgencyId: launchAgencyId,
       launchAgencyAbbrev: launchAgencyAbbrev,
-      launchSite: launchSite,
-      padLocation: formatPadLocation(launch.pad),
-      rocketName: rocketNameForImage,
-      status: status.name || '未知状态',
+      // SpaceX 强制 COS 统一 logo；其它机构优先 COS 压缩 / Worker 代理
+      launchAgencyImage: resolvePatchOrLogoDisplayUrl(
+        (applyLaunchAgencyLogoOverridesToMission({
+          launchAgency: agencyEn || agencyZh,
+          launchAgencyId,
+          launchAgencyAbbrev,
+          launchAgencyImage: launchAgencyImage || ''
+        }).launchAgencyImage) || launchAgencyImage || ''
+      ),
+      launchSite: sitePair.launchSiteEn || launchSite,
+      padLocation: sitePair.padLocationEn || formatPadLocation(launch.pad),
+      rocketName: rocketPair.rocketNameEn,
+      countryDisplay: countryPair.countryDisplayZh || countryDisplay,
+      status: badgePair.statusBadgeTextZh || status.name || '未知状态',
       statusId: status.id != null ? Number(status.id) : null,
       statusCategory,
-      statusBadgeText,
+      statusBadgeText: badgePair.statusBadgeTextZh || statusBadgeText,
       // 供 applyAuthoritativeStatus 归并：云端已 overlay launch_status 时等价 detail 源
       _launchStateSource: 'fetchLaunchDetail_status',
       _launchStateObservedAtMs: Date.now(),
@@ -1609,8 +1699,33 @@ async function processLaunchDetail(launch) {
       agencyLaunchAttemptCount: (launch.agency_launch_attempt_count != null && Number.isFinite(Number(launch.agency_launch_attempt_count)))
         ? Number(launch.agency_launch_attempt_count) : null,
       agencyLaunchAttemptCountYear: (launch.agency_launch_attempt_count_year != null && Number.isFinite(Number(launch.agency_launch_attempt_count_year)))
-        ? Number(launch.agency_launch_attempt_count_year) : null
+        ? Number(launch.agency_launch_attempt_count_year) : null,
+      _langPack: {
+        rocketNameEn: rocketPair.rocketNameEn,
+        rocketNameZh: rocketPair.rocketNameZh,
+        padLocationEn: sitePair.padLocationEn,
+        padLocationZh: sitePair.padLocationZh,
+        launchSiteEn: sitePair.launchSiteEn,
+        launchSiteZh: sitePair.launchSiteZh,
+        padNameEn: padName || sitePairForPad.padLocationEn,
+        padNameZh: padNameZh || sitePairForPad.padLocationZh,
+        locationNameEn: locName,
+        locationNameZh: locNameZh || locName,
+        nameEn: titlePair.nameEn,
+        nameZh: titlePair.nameZh,
+        missionNameEn: titlePair.missionNameEn,
+        missionNameZh: titlePair.missionNameZh,
+        launchAgencyEn: agencyEn,
+        launchAgencyZh: agencyZh || agencyEn,
+        countryDisplayEn: countryPair.countryDisplayEn,
+        countryDisplayZh: countryPair.countryDisplayZh,
+        statusBadgeTextEn: badgePair.statusBadgeTextEn,
+        statusBadgeTextZh: badgePair.statusBadgeTextZh,
+        recoveryTagTextEn: '',
+        recoveryTagTextZh: ''
+      }
     }
+    return applyContentLangToMission(detailItem)
 }
 
 function getPayloadDetail(payloadId) {

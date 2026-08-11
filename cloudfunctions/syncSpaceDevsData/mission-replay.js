@@ -262,7 +262,9 @@ async function maybeEnqueueAgentJob(db, launch, cfg) {
 
 // —— 指定博主集锦（SciNews）Agent 入队 ——
 // SciNews 每次发射后几小时内发 2~3 分钟「launch and landing」集锦，
-// 标题固定含 UTC 日期（如 "…, 14 July 2026"），据此 + 任务关键词精确匹配。
+// 标题固定含 UTC 日期（如 "…, 14 July 2026"）。
+// 全部历史发射统一策略：Agent 先精细关键词匹配，失败一律兜底
+// 「模糊（家族词+火箭+日期）+ 近时（upload≈net）」——不限发射商/任务类型。
 
 // SciNews 频道（handle 是 @SciNewsRo，用 channel_id 形式更稳，不受改名影响）
 const CLIP_CHANNEL_URL = 'https://www.youtube.com/channel/UCjU6ZwoTQtKWfz1urL7XcbA/videos'
@@ -318,23 +320,42 @@ async function maybeEnqueueClipJob(db, launch, cfg, existingDoc, tweetClipCount,
   if (!netMs || nowMs - netMs < CLIP_AGENT_MIN_AGE_MS) return false
   const launchId = String(launch.id)
   const state = await reviveOrCheckQueueRow(db, launchId, 'clip', nowMs)
-  if (state === 'requeued') return true
-  if (state === 'exists') return false
   const { tokens, rocketTokens } = clipMatchTokens(launch.name)
+  const clipSearch = {
+    channel: CLIP_CHANNEL_URL,
+    publisher: CLIP_PUBLISHER,
+    dateText: clipDateText(netMs),
+    netMs,
+    tokens,
+    rocketTokens,
+    maxDurationSec: 300
+  }
+  // 复活失败任务时同步刷新线索（netMs / tokens），保证「模糊+近时」兜底对老队列也生效
+  if (state === 'requeued') {
+    try {
+      const q = await db.collection(REPLAY_QUEUE_COL).where({ launchId, kind: 'clip' }).limit(1).get()
+      const row = (q.data || [])[0]
+      if (row && row._id) {
+        await db.collection(REPLAY_QUEUE_COL).doc(row._id).update({
+          data: {
+            missionName: launch.name || '',
+            net: launch.net || '',
+            clipSearch,
+            updatedAt: nowMs
+          }
+        })
+      }
+    } catch (e) {}
+    return true
+  }
+  if (state === 'exists') return false
   await db.collection(REPLAY_QUEUE_COL).add({
     data: {
       kind: 'clip',
       launchId,
       missionName: launch.name || '',
       net: launch.net || '',
-      clipSearch: {
-        channel: CLIP_CHANNEL_URL,
-        publisher: CLIP_PUBLISHER,
-        dateText: clipDateText(netMs),
-        tokens,
-        rocketTokens,
-        maxDurationSec: 300
-      },
+      clipSearch,
       status: 'pending',
       attempts: 0,
       claimToken: '',
@@ -349,6 +370,48 @@ async function maybeEnqueueClipJob(db, launch, cfg, existingDoc, tweetClipCount,
 }
 
 /**
+ * 解开卡死的集锦队列：pending 仍在退避 / failed 终态。
+ * 代理端口修好或匹配逻辑更新后，靠小时扫描或 trigger-scan 立即恢复，不必干等数小时。
+ */
+async function unlockStuckClipJobs(db, nowMs) {
+  let unlocked = 0
+  let revived = 0
+  try {
+    const pending = await db.collection(REPLAY_QUEUE_COL).where({ status: 'pending', kind: 'clip' }).limit(50).get()
+    for (const row of pending.data || []) {
+      if (!row.nextRetryAt || Number(row.nextRetryAt) <= nowMs) continue
+      await db.collection(REPLAY_QUEUE_COL).doc(row._id).update({
+        data: {
+          nextRetryAt: 0,
+          attempts: 0,
+          updatedAt: nowMs,
+          lastError: ('unlocked_scan: ' + String(row.lastError || '')).slice(0, 200)
+        }
+      })
+      unlocked += 1
+    }
+  } catch (e) {}
+  try {
+    const failed = await db.collection(REPLAY_QUEUE_COL).where({ status: 'failed', kind: 'clip' }).limit(50).get()
+    for (const row of failed.data || []) {
+      await db.collection(REPLAY_QUEUE_COL).doc(row._id).update({
+        data: {
+          status: 'pending',
+          nextRetryAt: 0,
+          attempts: 0,
+          claimToken: '',
+          claimedAt: 0,
+          updatedAt: nowMs,
+          lastError: ('revived_scan: ' + String(row.lastError || '')).slice(0, 200)
+        }
+      })
+      revived += 1
+    }
+  } catch (e) {}
+  return { unlocked, revived }
+}
+
+/**
  * 扫描最近已完成发射 → 生成/刷新 mission_replays 文档（集锦 + 外链）
  */
 async function runSyncMissionReplayQueue(db, fetchAPI, apiBase) {
@@ -360,6 +423,12 @@ async function runSyncMissionReplayQueue(db, fetchAPI, apiBase) {
   if (cfg.replayFetchEnabled === false) {
     return { success: true, skipped: 'replayFetchEnabled=false' }
   }
+
+  const unlockNow = Date.now()
+  let unlockStats = { unlocked: 0, revived: 0 }
+  try {
+    unlockStats = await unlockStuckClipJobs(db, unlockNow)
+  } catch (e) {}
 
   const url = `${apiBase}/launches/previous/?mode=detailed&format=json&limit=${SCAN_LIMIT}&ordering=-net`
   let data
@@ -467,7 +536,18 @@ async function runSyncMissionReplayQueue(db, fetchAPI, apiBase) {
     cleaned = await cleanupOldQueueRows(db, nowMs)
   } catch (e) {}
 
-  return { success: true, scanned: launches.length, targets: targets.length, updated, enqueued, clipJobs, cleaned, detail }
+  return {
+    success: true,
+    scanned: launches.length,
+    targets: targets.length,
+    updated,
+    enqueued,
+    clipJobs,
+    cleaned,
+    unlocked: unlockStats.unlocked,
+    revived: unlockStats.revived,
+    detail
+  }
 }
 
 /** 删除 updatedAt 超过 30 天的队列记录，每轮最多 20 条（claimed 状态跳过） */

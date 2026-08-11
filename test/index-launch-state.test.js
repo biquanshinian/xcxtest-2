@@ -13,6 +13,7 @@ const {
   attachCardCountdownToMissions,
   buildMissionCardCountdownTickPatch,
   pickCountdownDisplayMission,
+  sortUpcomingMissionsByNetAsc,
   shouldHoldPastNetCountdownMission,
   resolveCountdownPrecision,
   buildOverlapSideCardView,
@@ -189,6 +190,36 @@ test('pickCountdownDisplayMission：holdMissionId 在窗口内优先于列表头
   }
   const picked = pickCountdownDisplayMission([a, b], now, { holdMissionId: 'b' })
   assert.equal(picked && picked.id, 'b')
+})
+
+test('sortUpcomingMissionsByNetAsc：近窗 TBD 沉到就绪任务之后', () => {
+  const rows = [
+    { id: 'michibiki', launchTime: '2026-08-10T19:15:00Z', statusId: 2, statusAbbrev: 'TBD' },
+    { id: 'zhuque', launchTime: '2026-08-10T23:45:00Z', statusId: 1, statusAbbrev: 'Go' },
+    { id: 'starlink', launchTime: '2026-08-11T14:26:00Z', statusId: 1, statusAbbrev: 'Go' }
+  ]
+  sortUpcomingMissionsByNetAsc(rows)
+  assert.equal(rows[0].id, 'zhuque')
+  assert.equal(rows[1].id, 'starlink')
+  assert.equal(rows[2].id, 'michibiki')
+})
+
+test('pickCountdownDisplayMission：scrub 到远窗后不传 hold → 选更近未来任务', () => {
+  const now = Date.parse('2026-08-10T15:00:00Z')
+  const michibiki = {
+    id: 'michibiki',
+    launchTime: '2026-08-31T00:00:00Z',
+    statusId: 2
+  }
+  const zhuque = {
+    id: 'zhuque',
+    launchTime: '2026-08-10T23:45:00Z',
+    statusId: 1
+  }
+  const picked = pickCountdownDisplayMission([zhuque, michibiki], now, {
+    holdMissionId: '' // scrub 后 PRE_WINDOW 不保留 hold
+  })
+  assert.equal(picked && picked.id, 'zhuque')
 })
 
 test('attachCardCountdownToMissions：窗口挂住的面板任务显示 00:00 且未过期', () => {

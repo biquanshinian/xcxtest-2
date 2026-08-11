@@ -7,6 +7,18 @@ const { gateCheck } = require('../../../../utils/membership.js')
 const storageCache = require('../../../../utils/storage-sync-cache.js')
 const themeUtil = require('../../../../utils/theme.js')
 const { resolveTweetAccountAvatarUrl } = require('../../utils/event-share-image.js')
+const {
+  isChineseRocketContext,
+  softenChineseRocketFailureText
+} = require('../../../../utils/api-request.js')
+const {
+  applyContentLangToMission,
+  rocketNameForImage,
+  isGenericMissionTitle
+} = require('../../../../utils/launch-card-i18n.js')
+const { localizeMissionTitle, resolveLaunchMissionOverride } = require('../../../../utils/mission-title-i18n.js')
+const { getContentLang } = require('../../../../utils/locale.js')
+const { translateRocketName } = require('../../../../utils/rocket-name-i18n.js')
 
 /** progress 为 tabBar 页，switchTab 不能带 query，用本地存储传筛选账号 */
 var BRIEFING_PROGRESS_FILTER_KEY = '_briefing_progress_filter_source'
@@ -31,13 +43,30 @@ function resolveRocketImg(rocketName) {
   return getRocketImage(n) || ''
 }
 
-/** 与详情头图同源：按火箭名 forceRecompute，不锁死列表里可能过期的 default 盖章 */
+/**
+ * 与列表卡 / 详情头图同源：空 stamp + 英文火箭名 forceRecompute，
+ * 避免中文展示名 miss 字典、以及缓存里机娘盖章粘住。
+ */
 function resolveBriefingRocketImage(m, rocketName) {
   if (!m) return resolveRocketImg(rocketName)
-  var name = rocketName || m.rocketName || m.rocket || ''
+  var nameEn = ''
+  try {
+    nameEn = rocketNameForImage(m) || ''
+  } catch (eImg) {
+    nameEn = ''
+  }
+  if (!nameEn) {
+    nameEn =
+      (m._langPack && m._langPack.rocketNameEn) ||
+      m.rocketNameEn ||
+      m.rocketName ||
+      rocketName ||
+      m.rocket ||
+      ''
+  }
+  nameEn = nameEn == null ? '' : String(nameEn).trim()
   var cfg = m.rocketConfiguration || null
-  var stamped = m.rocketImage || m.image || ''
-  return resolveMissionRocketImage(stamped, name, cfg, true)
+  return resolveMissionRocketImage('', nameEn, cfg, true) || getRocketImage(nameEn) || ''
 }
 
 /** 标题常为「火箭型号 | 任务/载荷名」，简报第一行只展示竖线后任务名（第二行已是火箭型号） */
@@ -375,13 +404,13 @@ Component({
 
       if (briefing.todayLaunches && briefing.todayLaunches.length > 0) {
         briefing.todayLaunches = briefing.todayLaunches.map(function (item) {
-          item.rocketImage = resolveBriefingRocketImage(item, item.rocket)
+          item.rocketImage = resolveBriefingRocketImage(item, item.rocketNameEn || item.rocket)
           return item
         })
       }
       if (briefing.yesterdayResults && briefing.yesterdayResults.length > 0) {
         briefing.yesterdayResults = briefing.yesterdayResults.map(function (item) {
-          item.rocketImage = resolveBriefingRocketImage(item, item.rocket)
+          item.rocketImage = resolveBriefingRocketImage(item, item.rocketNameEn || item.rocket)
           return item
         })
       }
@@ -489,8 +518,51 @@ Component({
 
       var pool = mergeMissionListsForBriefing([calendar, upcoming, completed])
       function mapMission(m) {
-        var rawTitle = (m.name || m.missionName || m.title || '').trim()
-        var rocketName = briefingRocketNameFromMission(m, rawTitle)
+        // 与任务卡同源：先套内容语言包 / 本地任务名词典，避免简报仍显示 Michibiki 等英文
+        var src = m && typeof m === 'object' ? Object.assign({}, m) : {}
+        if (m && m._langPack) src._langPack = m._langPack
+        if (m && m.rocketConfiguration) src.rocketConfiguration = m.rocketConfiguration
+        if (m && m.boosterInfo) src.boosterInfo = m.boosterInfo
+        try {
+          applyContentLangToMission(src)
+        } catch (eLang) {}
+        // 任务段优先（列表卡同源）；避免整段「火箭|未知有效载荷」占位盖住已译任务名
+        var rawTitle = (
+          src.missionName || src.name || src.title ||
+          m.missionName || m.name || m.title || ''
+        ).trim()
+        var ovTitle = resolveLaunchMissionOverride(m.id || m._id || src.id)
+        if (ovTitle && isGenericMissionTitle(briefingMissionDisplayName(rawTitle) || rawTitle)) {
+          rawTitle = ovTitle.missionNameZh || ovTitle.missionNameEn
+        }
+        var rocketName = briefingRocketNameFromMission(src, rawTitle) || briefingRocketNameFromMission(m, rawTitle)
+        // 配图专用英文名（与列表卡 rocketNameForImage 同源）；展示名可再译中文
+        var rocketNameEn =
+          rocketNameForImage(src) ||
+          rocketNameForImage(m) ||
+          (src._langPack && src._langPack.rocketNameEn) ||
+          (m._langPack && m._langPack.rocketNameEn) ||
+          ''
+        if (!rocketNameEn && rocketName && !/[\u4e00-\u9fff]/.test(rocketName)) {
+          rocketNameEn = rocketName
+        }
+        if (getContentLang() !== 'en') {
+          var rocketEn =
+            rocketNameEn ||
+            (src._langPack && src._langPack.rocketNameEn) ||
+            rocketName ||
+            ''
+          var rocketZh =
+            (src._langPack && src._langPack.rocketNameZh) ||
+            translateRocketName(rocketEn) ||
+            rocketName
+          var localized = localizeMissionTitle(rawTitle, rocketEn, rocketZh)
+          if (localized) rawTitle = localized
+          if (rocketZh) rocketName = rocketZh
+          if (!rocketNameEn && rocketEn) rocketNameEn = rocketEn
+        } else if (!rocketNameEn) {
+          rocketNameEn = rocketName
+        }
         var cat = m.statusCategory || ''
         var statusLabel = ''
         if (m.statusBadgeText) {
@@ -512,13 +584,16 @@ Component({
           var nameStr = String(typeof m.status === 'string' ? m.status : '')
           if (abbrev.indexOf('success') !== -1 || /成功|succeed/i.test(nameStr)) {
             statusLabel = '成功'
-          } else if (abbrev.indexOf('fail') !== -1 || /^failure|fail/i.test(abbrev) || /失败/.test(nameStr)) {
+          } else if (abbrev.indexOf('fail') !== -1 || /^failure|fail/i.test(abbrev) || /失败|失利/.test(nameStr)) {
             statusLabel = '失败'
           } else if (/partial/i.test(abbrev) || /部分/.test(nameStr)) {
             statusLabel = '部分失败'
           } else {
             statusLabel = nameStr ? nameStr.slice(0, 24) : '已完成'
           }
+        }
+        if (isChineseRocketContext(m)) {
+          statusLabel = softenChineseRocketFailureText(statusLabel)
         }
 
         var briefingStatus = 'unknown'
@@ -537,8 +612,8 @@ Component({
           statusCategory = m.statusCategory
         } else {
           if (/已成功|^成功|succeed/i.test(statusLabel)) statusCategory = 'success'
-          else if (/部分失败/.test(statusLabel)) statusCategory = 'partial'
-          else if (/失败/.test(statusLabel)) statusCategory = 'failure'
+          else if (/部分失败|部分失利/.test(statusLabel)) statusCategory = 'partial'
+          else if (/失败|失利/.test(statusLabel)) statusCategory = 'failure'
           else if (/推迟/.test(statusLabel)) statusCategory = 'delayed'
           else if (/取消/.test(statusLabel)) statusCategory = 'cancelled'
         }
@@ -548,11 +623,22 @@ Component({
         else if (m._isUpcoming === false) detailType = 'completed'
         else if (isMissionCompletedCalendar(m)) detailType = 'completed'
 
+        var imageSrc = Object.assign({}, m, {
+          rocketName: rocketNameEn || m.rocketName || rocketName,
+          rocketNameEn: rocketNameEn || '',
+          rocketConfiguration: m.rocketConfiguration || src.rocketConfiguration || null,
+          _langPack: Object.assign({}, m._langPack || {}, src._langPack || {}, {
+            rocketNameEn: rocketNameEn || (m._langPack && m._langPack.rocketNameEn) || ''
+          })
+        })
         return {
           id: m.id || m._id || '',
           name: briefingMissionDisplayName(rawTitle) || rawTitle,
           rocket: rocketName,
-          rocketImage: resolveBriefingRocketImage(m, rocketName),
+          rocketNameEn: rocketNameEn || '',
+          rocketConfiguration: imageSrc.rocketConfiguration,
+          _langPack: imageSrc._langPack,
+          rocketImage: resolveBriefingRocketImage(imageSrc, rocketNameEn || rocketName),
           status: briefingStatus,
           statusLabel: statusLabel,
           statusCategory: statusCategory,

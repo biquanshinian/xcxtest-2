@@ -19,13 +19,28 @@ const methods = {
     this.setData({ announcementDialogVisible: false })
   },
 
+  /** 首页放大镜：直达星问详情（智能搜索能力已并入星问） */
   openAISearch() {
     this.closeMissionSwipeCells()
-    wx.navigateTo({
-      url: ROUTES.SEARCH,
-      fail: () => {
-        wx.showToast({ title: '打开搜索失败', icon: 'none' })
+    const { isAIAvailable } = require('../../../utils/aiService.js')
+    const { isFeatureEnabled } = require('../../../utils/feature-flags.js')
+    if (!isAIAvailable()) {
+      wx.showToast({ title: '星问AI暂未开放', icon: 'none' })
+      return
+    }
+    isFeatureEnabled('enableAIChat', { failClosed: true }).then((on) => {
+      if (!on) {
+        wx.showToast({ title: '星问AI暂未开放', icon: 'none' })
+        return
       }
+      wx.navigateTo({
+        url: ROUTES.AI_CHAT,
+        fail: () => {
+          wx.showToast({ title: '打开星问失败', icon: 'none' })
+        }
+      })
+    }).catch(() => {
+      wx.showToast({ title: '星问AI暂未开放', icon: 'none' })
     })
   },
 
@@ -168,19 +183,59 @@ const methods = {
     this._tryShowRenewalReminder()
   },
 
+  onRenewalClosed() {
+    this._tryShowNetChangeModal()
+  },
+
   _tryShowRenewalReminder() {
     try {
       // 错峰隐私授权：首次进入需授权时本次跳过（隐私弹窗关闭后下次 onShow 再走原逻辑）
       const appInst = getApp()
       if (appInst && appInst.globalData && appInst.globalData.needPrivacyAuthorization) return
       const comp = this.selectComponent('#renewalReminder')
-      if (!comp || typeof comp.maybeShow !== 'function') return
+      if (!comp || typeof comp.maybeShow !== 'function') {
+        this._tryShowNetChangeModal()
+        return
+      }
       const self = this
-      comp.maybeShow(function () {
+      const p = comp.maybeShow(function () {
         // 异步取会员状态期间简报弹窗若已占屏，本次放弃（closed 事件会再触发）
         try {
           const briefing = self.selectComponent('#morningBriefing')
           return !!(briefing && briefing.data && briefing.data.showPopup)
+        } catch (e) {
+          return false
+        }
+      })
+      // 未弹出续费时接力改期提醒；已弹出则等 bind:closed
+      Promise.resolve(p)
+        .then(function (shown) {
+          if (!shown) self._tryShowNetChangeModal()
+        })
+        .catch(function () {
+          self._tryShowNetChangeModal()
+        })
+    } catch (e) {
+      this._tryShowNetChangeModal()
+    }
+  },
+
+  _tryShowNetChangeModal() {
+    try {
+      const appInst = getApp()
+      if (appInst && appInst.globalData && appInst.globalData.needPrivacyAuthorization) return
+      const comp = this.selectComponent('#netChangeModal')
+      if (!comp || typeof comp.maybeShow !== 'function') return
+      // DEV 模式组件自驱预览，避免与队列重复弹
+      if (typeof comp.isDevMode === 'function' && comp.isDevMode()) return
+      const self = this
+      comp.maybeShow(function () {
+        try {
+          const briefing = self.selectComponent('#morningBriefing')
+          if (briefing && briefing.data && briefing.data.showPopup) return true
+          const renewal = self.selectComponent('#renewalReminder')
+          if (renewal && renewal.data && renewal.data.visible) return true
+          return false
         } catch (e) {
           return false
         }

@@ -1,0 +1,137 @@
+/* 图鉴页共用：单排分类胶囊 + 搜索横条（对齐全球发射商图鉴） */
+
+.gal-filter-scroll {
+  width: 100%;
+  white-space: nowrap;
+  margin: 0 0 16rpx;
+  padding: 0 4rpx;
+  box-sizing: border-box;
+}
+
+.gal-filter-row {
+  display: inline-flex;
+  gap: 14rpx;
+  padding: 0 2rpx;
+}
+
+.gal-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-height: 52rpx;
+  padding: 0 26rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-sizing: border-box;
+}
+
+.gal-chip text {
+  color: #C7C7CC;
+  font-size: 24rpx;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.gal-chip-active {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.55);
+}
+
+.gal-chip-active text {
+  color: var(--color-brand, #0A84FF);
+  font-weight: 600;
+}
+
+.gal-search {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  padding: 14rpx 24rpx;
+  margin: 0 4rpx 20rpx;
+  border-radius: var(--radius-card, 20rpx);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid transparent;
+  box-sizing: border-box;
+}
+
+.gal-search-icon {
+  color: #8E8E93;
+  font-size: 34rpx;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.gal-search-input {
+  flex: 1;
+  min-width: 0;
+  color: #FFFFFF;
+  font-size: 26rpx;
+  height: 52rpx;
+  line-height: 52rpx;
+}
+
+.gal-search-placeholder {
+  color: #636366;
+}
+
+.gal-search-clear {
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+}
+
+.gal-search-clear text {
+  color: #C7C7CC;
+  font-size: 30rpx;
+  line-height: 1;
+}
+
+.theme-light .gal-chip {
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--color-divider, rgba(0, 0, 0, 0.08));
+}
+
+.theme-light .gal-chip text {
+  color: var(--color-text-secondary, #8E8E93);
+}
+
+.theme-light .gal-chip-active {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.45);
+}
+
+.theme-light .gal-chip-active text {
+  color: var(--color-brand, #0A84FF);
+}
+
+.theme-light .gal-search {
+  background: #FFFFFF;
+  border: 1px solid var(--color-divider, rgba(0, 0, 0, 0.08));
+}
+
+.theme-light .gal-search-icon {
+  color: var(--color-text-secondary, #8E8E93);
+}
+
+.theme-light .gal-search-input {
+  color: var(--color-text-primary, #1C1C1E);
+}
+
+.theme-light .gal-search-placeholder {
+  color: var(--color-text-tertiary, #AEAEB2);
+}
+
+.theme-light .gal-search-clear {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .gal-search-clear text {
+  color: var(--color-text-secondary, #8E8E93);
+}

@@ -3,6 +3,50 @@
  */
 
 const { fetchMissionLaunchStatsFromCloud } = require('../../../utils/launch-stats-cloud.js')
+const { translateRocketName } = require('../../../utils/rocket-name-i18n.js')
+const { getContentLang } = require('../../../utils/locale.js')
+const { translateAgencyName } = require('../../../utils/space-terms-i18n.js')
+
+/** 统计卡型号/发射商标签跟任务卡语言对齐 */
+function localizeMissionStatsLabels(stats, mission) {
+  if (!stats) return stats
+  const pack = (mission && mission._langPack) || null
+  const en = getContentLang() === 'en'
+  const out = { ...stats }
+
+  if (en) {
+    out.rocketLabel =
+      (pack && pack.rocketNameEn) ||
+      out.rocketLabel ||
+      (mission && mission.rocketName) ||
+      ''
+    // 右侧栏标题多为「Provider / 发射商」分类名，不是具体机构
+    const p = String(out.providerLabel || '').trim()
+    if (!p || p === '发射商' || /^provider$/i.test(p)) out.providerLabel = 'Provider'
+    return out
+  }
+
+  const rocketZh =
+    (pack && pack.rocketNameZh) ||
+    (mission && mission.rocketName && /[\u4e00-\u9fff]/.test(mission.rocketName)
+      ? mission.rocketName
+      : '') ||
+    translateRocketName(out.rocketLabel || (pack && pack.rocketNameEn) || '') ||
+    out.rocketLabel ||
+    ''
+  out.rocketLabel = rocketZh
+
+  const rawProvider = String(out.providerLabel || '').trim()
+  if (!rawProvider || rawProvider === '发射商' || /^provider$/i.test(rawProvider)) {
+    out.providerLabel = '发射商'
+  } else if (!/[\u4e00-\u9fff]/.test(rawProvider)) {
+    out.providerLabel =
+      translateAgencyName(rawProvider, mission && mission.launchAgencyAbbrev) ||
+      (pack && pack.launchAgencyZh) ||
+      rawProvider
+  }
+  return out
+}
 
 /** 从序号行解析「第 N 次」（排除「年内第」）与「年内第 N 次」 */
 function parseAttemptLine(line) {
@@ -83,7 +127,7 @@ function sanitizeMissionStats(stats) {
 
 async function loadMissionLaunchStats(mission, options = {}) {
   const data = await fetchMissionLaunchStatsFromCloud(mission, options)
-  return applyClientAgencyFallback(sanitizeMissionStats({
+  const raw = applyClientAgencyFallback(sanitizeMissionStats({
     year: data.year,
     rocketLabel: data.rocketLabel || '',
     providerLabel: data.providerLabel || '',
@@ -95,6 +139,7 @@ async function loadMissionLaunchStats(mission, options = {}) {
     staleCache: !!data.staleCache,
     clientStaleFallback: !!data.clientStaleFallback
   }), mission)
+  return localizeMissionStatsLabels(raw, mission)
 }
 
 module.exports = {

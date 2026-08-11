@@ -10,79 +10,169 @@
   -webkit-backdrop-filter: blur(48rpx) saturate(170%);
   border-bottom: 1rpx solid rgba(255, 255, 255, 0.07);
 }
+.top-nav--profile {
+  position: relative;
+}
 .nav-title--profile {
   letter-spacing: 2rpx;
+}
+/* 导航左侧「设置」：纯文字，与微信胶囊同 top/height 垂直居中 */
+.profile-settings-entry {
+  position: fixed;
+  left: calc(24rpx + env(safe-area-inset-left));
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8rpx;
+  box-sizing: border-box;
+  background: transparent;
+  border: none;
+}
+.profile-settings-entry:active {
+  opacity: 0.72;
+}
+.profile-settings-entry-text {
+  font-size: 34rpx; /* 原 26rpx × 1.3 */
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  line-height: 1;
+}
+.theme-light .profile-settings-entry-text {
+  color: #1C1C1E;
 }
 .content-scroll {
   padding-left: var(--space-lg);
   padding-right: var(--space-lg);
 }
-/* ═══════ 签到卡片 ═══════ */
-.checkin-section {
-  margin-bottom: var(--space-xl);
+
+/* ═══════ 「我的」新版布局（身份 / 通行证 / 数据 / 服务） ═══════ */
+.pf-identity {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  margin-bottom: 28rpx;
+}
+.pf-avatar {
   position: relative;
-}
-.checkin-card {
-  padding: var(--space-lg) var(--space-lg) var(--space-md);
-}
-.checkin-header {
+  width: 112rpx;
+  height: 112rpx;
+  border-radius: 50%;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: #1a2438;
+  border: 3rpx solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.25);
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 24rpx;
+  justify-content: center;
 }
-.checkin-stats {
-  display: flex;
-  align-items: center;
-  gap: 0;
+.pf-avatar--empty {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: none;
+}
+.pf-avatar:active {
+  opacity: 0.88;
+}
+.pf-avatar-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.pf-avatar-plus {
+  font-size: 52rpx;
+  font-weight: 300;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.55);
+  transform: translateY(-2rpx);
+}
+.pf-identity-main {
   flex: 1;
+  min-width: 0;
 }
-.checkin-stat {
+.pf-name-row {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  flex: 1;
+  min-width: 0;
+  margin-bottom: 10rpx;
 }
-.checkin-stat-num {
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text-primary);
-  line-height: 1.2;
-  font-variant-numeric: tabular-nums;
+.pf-name {
+  min-width: 0;
+  max-width: 100%;
+  font-size: 34rpx;
+  font-weight: 700;
+  color: var(--color-text-primary, #F5F5F7);
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.checkin-stat-label {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
-  margin-top: 4rpx;
+.pf-name:active {
+  opacity: 0.75;
 }
-.checkin-stat-divider {
-  width: 1rpx;
-  height: 40rpx;
-  background: rgba(255, 255, 255, 0.1);
-}
-.checkin-btn-wrap {
-  margin-left: 20rpx;
-}
-.checkin-btn {
+.pf-badge-meta {
   display: flex;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
+}
+.pf-badge-meta-text {
+  flex-shrink: 0;
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.45);
+}
+.pf-badge-scroll {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+}
+.pf-badge-row {
+  display: inline-flex;
   align-items: center;
   gap: 8rpx;
-  padding: var(--space-xs) var(--space-lg);
-  border-radius: var(--radius-pill);
-  background: var(--color-brand);
-  box-shadow: 0 4rpx 16rpx var(--color-brand-glow);
-  transition: all 0.3s ease;
+}
+.pf-badge-dot {
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1rpx solid rgba(255, 255, 255, 0.12);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.pf-badge-dot--locked {
+  opacity: 0.35;
+  filter: grayscale(1);
+}
+.pf-badge-dot-img {
+  width: 30rpx;
+  height: 30rpx;
+}
+
+.checkin-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  padding: 14rpx 28rpx;
+  border-radius: 999rpx;
+  background: var(--color-brand, #0A84FF);
+  box-shadow: 0 4rpx 16rpx rgba(10, 132, 255, 0.35);
 }
 .checkin-btn:active {
   transform: scale(0.95);
   opacity: 0.9;
 }
 .checkin-btn--done {
-  background: var(--color-bg-elevated);
+  background: rgba(255, 255, 255, 0.1);
   box-shadow: none;
 }
 .checkin-btn-icon {
-  font-size: 28rpx;
+  font-size: 26rpx;
   color: #07C160;
 }
 .checkin-btn-text {
@@ -90,6 +180,321 @@
   font-weight: 600;
   color: #fff;
 }
+
+/* 通行证主卡：与会员详情页 gold-hero 同色系 */
+.pf-pass-card {
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 28rpx;
+  padding: 28rpx 28rpx 24rpx;
+  border-radius: 28rpx;
+  background: linear-gradient(165deg, #FFFBEE 0%, #FFF3D3 42%, #FFE9B4 100%);
+  border: none;
+  box-shadow: none;
+}
+.pf-pass-card--pro {
+  background: linear-gradient(165deg, #FFF9E4 0%, #FFEDBB 40%, #FFDF95 100%);
+}
+.pf-pass-card__shine {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, rgba(255, 255, 255, 0.35) 0%, transparent 38%, rgba(255, 248, 220, 0.18) 70%, transparent 100%);
+}
+.pf-pass-top {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-bottom: 22rpx;
+}
+.pf-pass-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-bottom: 8rpx;
+}
+.pf-pass-badge {
+  width: 40rpx;
+  height: 40rpx;
+}
+.pf-pass-title {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #5C3A00;
+}
+.pf-pass-desc {
+  display: block;
+  font-size: 22rpx;
+  color: #A97B1E;
+  line-height: 1.4;
+}
+.pf-pass-cta {
+  flex-shrink: 0;
+  padding: 12rpx 22rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(90deg, #FFDE8F, #F5B93F);
+  color: #5C3A00;
+  font-size: 22rpx;
+  font-weight: 600;
+}
+.pf-pass-benefits {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 8rpx;
+  padding: 16rpx 8rpx 14rpx;
+  border-radius: 20rpx;
+  background: rgba(255, 255, 255, 0.62);
+}
+.pf-pass-benefit {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6rpx;
+}
+.pf-pass-benefit-icon {
+  width: 72rpx;
+  height: 72rpx;
+  display: block;
+}
+.pf-pass-benefit-name {
+  font-size: 20rpx;
+  color: #6B4A0E;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.pf-section {
+  margin-bottom: 28rpx;
+}
+
+/* 我的数据四格 */
+.pf-assets-card {
+  padding: 28rpx 12rpx 16rpx;
+  border-radius: 24rpx;
+}
+.pf-assets-grid {
+  display: flex;
+  align-items: stretch;
+}
+.pf-asset {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8rpx;
+}
+.pf-asset-num {
+  font-size: 36rpx;
+  font-weight: 700;
+  color: var(--color-text-primary, #F5F5F7);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+.pf-asset-label {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.45);
+}
+.pf-week {
+  margin-top: 20rpx;
+  border-top: 1rpx solid rgba(255, 255, 255, 0.06);
+}
+
+/* 推广条 */
+.pf-promo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  margin-bottom: 28rpx;
+  padding: 28rpx;
+  border-radius: 24rpx;
+  background: linear-gradient(120deg, #0A84FF 0%, #5AC8FA 55%, #64D2FF 100%);
+  box-shadow: 0 10rpx 28rpx rgba(10, 132, 255, 0.28);
+}
+.pf-promo--year {
+  background: linear-gradient(120deg, #0B4F6C 0%, #1B7F9A 100%);
+  box-shadow: 0 10rpx 28rpx rgba(11, 79, 108, 0.28);
+}
+.pf-promo-text {
+  flex: 1;
+  min-width: 0;
+}
+.pf-promo-title {
+  display: block;
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #FFFFFF;
+  margin-bottom: 6rpx;
+}
+.pf-promo-desc {
+  display: block;
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.86);
+  line-height: 1.35;
+}
+.pf-promo-btn {
+  flex-shrink: 0;
+  padding: 14rpx 26rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.95);
+  color: #0A84FF;
+  font-size: 24rpx;
+  font-weight: 700;
+}
+.pf-promo--year .pf-promo-btn {
+  color: #0B4F6C;
+}
+
+/* 更多服务宫格 */
+.pf-services-card {
+  padding: 28rpx 12rpx 16rpx;
+  border-radius: 24rpx;
+}
+.pf-services-grid {
+  display: flex;
+  flex-wrap: wrap;
+}
+.pf-service {
+  width: 25%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12rpx;
+  padding: 12rpx 8rpx 20rpx;
+  position: relative;
+}
+.pf-service:active,
+.pf-service--pressed {
+  opacity: 0.75;
+}
+/* 宫格项伪装成 button：强制与其它 25% 格同宽，避免微信 button 默认撑满/错位 */
+button.pf-service--contact {
+  width: 25% !important;
+  margin: 0 !important;
+  padding: 12rpx 8rpx 20rpx !important;
+  height: auto !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12rpx;
+  box-sizing: border-box;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  line-height: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+  box-shadow: none;
+}
+button.pf-service--contact::after {
+  border: none;
+}
+.pf-service-icon-wrap {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pf-service-icon {
+  width: 48rpx;
+  height: 48rpx;
+}
+/* 收藏心形为黑底 SVG：深色主题反白，浅色保持深色 */
+.pf-service-icon--fav {
+  width: 44rpx;
+  height: 44rpx;
+  opacity: 0.82;
+  filter: invert(1);
+}
+.pf-service-fallback {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.75);
+}
+.pf-service-label {
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.72);
+  text-align: center;
+}
+.pf-service-badge {
+  position: absolute;
+  top: 4rpx;
+  right: 18rpx;
+  min-width: 28rpx;
+  height: 28rpx;
+  padding: 0 8rpx;
+  border-radius: 999rpx;
+  background: #FF3B30;
+  color: #fff;
+  font-size: 18rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.theme-light .pf-avatar {
+  border-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 8rpx 24rpx rgba(10, 132, 255, 0.18);
+  background: #E8EEF7;
+}
+.theme-light .pf-avatar--empty {
+  border-color: rgba(60, 60, 67, 0.28);
+  background: rgba(0, 0, 0, 0.04);
+  box-shadow: none;
+}
+.theme-light .pf-avatar-plus {
+  color: rgba(60, 60, 67, 0.45);
+}
+.theme-light .pf-badge-meta-text {
+  color: rgba(60, 60, 67, 0.55);
+}
+.theme-light .pf-badge-dot {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+.theme-light .checkin-btn--done {
+  background: rgba(0, 0, 0, 0.06);
+}
+.theme-light .checkin-btn--done .checkin-btn-text {
+  color: #1C1C1E;
+}
+.theme-light .pf-asset-label {
+  color: rgba(60, 60, 67, 0.55);
+}
+.theme-light .pf-week {
+  border-top-color: rgba(0, 0, 0, 0.06);
+}
+.theme-light .pf-service-icon-wrap {
+  background: rgba(0, 0, 0, 0.04);
+}
+.theme-light .pf-service-icon--fav {
+  filter: none;
+  opacity: 0.72;
+}
+.theme-light .pf-service-fallback {
+  color: rgba(28, 28, 30, 0.7);
+}
+.theme-light .pf-service-label {
+  color: rgba(28, 28, 30, 0.78);
+}
+
+/* ═══════ 签到周点（沿用） ═══════ */
 /* 本周签到点 */
 .checkin-week {
   display: flex;
@@ -143,7 +548,8 @@
 }
 /* ═══════ 知识卡片 ═══════ */
 .fact-card {
-  margin-top: var(--space-md);
+  margin-bottom: var(--space-xl);
+  margin-top: 0;
   padding: var(--space-lg);
   position: relative;
   opacity: 0;
@@ -591,10 +997,7 @@
   font-size: 20rpx;
   color: rgba(255, 255, 255, 0.4);
 }
-.appearance-section {
-  margin-bottom: var(--space-xl);
-}
-/* ── 外观：主题 + 火箭配置图 并排双卡，压缩纵向空间 ── */
+/* ── 设置区：主题 + 火箭配置图 并排双卡（由 profile-sections 复用）── */
 .appearance-grid {
   display: flex;
   align-items: stretch;
@@ -808,10 +1211,86 @@
 .prize-copy-btn--hover {
   opacity: 0.6;
 }
-/* ══ 太空旅程入口 ══ */
-.growth-entries {
+/* ══ 今日简报 + 太空旅程：一排双卡（等宽等高） ══ */
+.growth-duo {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 16rpx;
   margin: 0 var(--space-md) var(--space-xl);
+  box-sizing: border-box;
 }
+/* 外层 slot 锁尺寸：自定义组件作 flex 子项时宽高不可靠 */
+.growth-duo > .growth-duo-slot {
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+  /* 仅图标+标题：由原 200rpx 收窄 */
+  height: 140rpx;
+  display: flex;
+  box-sizing: border-box;
+}
+.growth-duo--single > .growth-duo-slot {
+  width: auto;
+  flex: 1 1 auto;
+}
+.growth-duo > .growth-duo-slot > morning-briefing {
+  display: block;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+}
+/* 提高优先级，避免被下方通用 .growth-entry / 组件内联样式覆盖 */
+.growth-duo .briefing-inline,
+.growth-duo .growth-duo-card {
+  width: 100%;
+  height: 100%;
+  margin: 0 !important;
+  margin-bottom: 0 !important;
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 8rpx;
+  padding: 20rpx var(--space-md);
+  padding-right: 40rpx;
+  overflow: hidden;
+}
+.growth-duo .inline-left,
+.growth-duo .growth-duo-card .growth-entry-icon-img {
+  margin-right: 0;
+  flex-shrink: 0;
+}
+.growth-duo .inline-icon-img,
+.growth-duo .growth-duo-card .growth-entry-icon-img {
+  width: 52rpx;
+  height: 52rpx;
+}
+.growth-duo .inline-body,
+.growth-duo .growth-duo-card .growth-entry-info {
+  width: 100%;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.growth-duo .inline-title,
+.growth-duo .growth-duo-card .growth-entry-title {
+  font-size: 26rpx;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.growth-duo .inline-arrow,
+.growth-duo .growth-duo-card .growth-entry-arrow {
+  position: absolute;
+  top: 16rpx;
+  right: 16rpx;
+  margin: 0;
+}
+
 .growth-entry {
   display: flex;
   align-items: center;

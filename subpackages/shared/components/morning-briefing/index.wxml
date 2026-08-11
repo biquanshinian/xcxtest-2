@@ -37,7 +37,7 @@
     </view>
   </view>
 
-  <!-- 昨日回顾 -->
+  <!-- 昨日回顾：与今日发射同一行结构（icon + 文案），角标绝对定位贴右，保证任务名左缘对齐 -->
   <view class="briefing-section briefing-section--launch" wx:if="{{briefing.yesterdayResults.length > 0}}">
     <view class="section-content">
       <text class="section-label">昨日回顾</text>
@@ -51,19 +51,17 @@
           data-id="{{item.id}}"
           data-type="{{item.detailType}}"
         >
-          <view class="vote-history-main">
-            <view class="vote-history-icon vote-history-icon--launch">
-              <image class="vote-history-rocket-img" src="{{item.rocketImage}}" mode="aspectFill" />
-            </view>
-            <view class="vote-history-left">
-              <block wx:if="{{item.name}}">
-                <text class="vote-history-name">{{item.name}}</text>
-                <text class="vote-history-rocket" wx:if="{{item.rocket}}">{{item.rocket}}</text>
-              </block>
-              <block wx:else>
-                <text class="vote-history-name">{{item.rocket}}</text>
-              </block>
-            </view>
+          <view class="vote-history-icon vote-history-icon--launch">
+            <image class="vote-history-rocket-img" src="{{item.rocketImage}}" mode="aspectFill" />
+          </view>
+          <view class="vote-history-left">
+            <block wx:if="{{item.name}}">
+              <text class="vote-history-name">{{item.name}}</text>
+              <text class="vote-history-rocket" wx:if="{{item.rocket}}">{{item.rocket}}</text>
+            </block>
+            <block wx:else>
+              <text class="vote-history-name">{{item.rocket}}</text>
+            </block>
           </view>
           <view class="vote-history-right">
             <text class="mission-status-badge status-{{item.statusCategory}}">{{item.statusLabel}}</text>
@@ -160,16 +158,6 @@
   </view>
   <view class="inline-body">
     <text class="inline-title">今日太空简报</text>
-    <view class="inline-summary">
-      <block wx:if="{{hasData}}">
-        <text class="inline-line" wx:if="{{briefing.todayLaunches.length > 0}}">{{briefing.todayLaunches[0].rocket}} | {{briefing.todayLaunches[0].name}}</text>
-        <text class="inline-line" wx:elif="{{briefing.yesterdayResults.length > 0}}">昨日 {{briefing.yesterdayResults[0].rocket}} {{briefing.yesterdayResults[0].statusLabel}}</text>
-        <text class="inline-line" wx:elif="{{briefing.spaceFact}}">💡 {{briefing.spaceFact.fact}}</text>
-        <text class="inline-line" wx:else>点击查看今日太空动态</text>
-        <text class="inline-line" wx:if="{{briefing.astroEvent}}">🌟 {{briefing.astroEvent.title}}</text>
-      </block>
-      <text class="inline-line inline-line--loading" wx:else>加载中…</text>
-    </view>
   </view>
   <text class="inline-arrow">›</text>
 </view>

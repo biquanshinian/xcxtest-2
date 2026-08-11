@@ -234,13 +234,27 @@ async function fetchMissionLaunchStatsFromCloud(mission, options = {}) {
   const cacheKey = `${MISSION_STATS_CACHE_KEY}_${missionId || mission.rocketName || 'unknown'}_${mission.launchTime || ''}`
   const forceRefresh = !!(options && options.forceRefresh)
 
+  // 统计过滤必须用英文型号名（LL2 configuration__name）；展示中文由客户端本地化
+  const pack = mission._langPack || null
+  const rocketNameEn =
+    (pack && pack.rocketNameEn) ||
+    (mission.rocketConfiguration &&
+      (mission.rocketConfiguration.full_name || mission.rocketConfiguration.name)) ||
+    mission.rocketName ||
+    ''
+  const agencyEn =
+    (pack && pack.launchAgencyEn) ||
+    mission.launchAgencyAbbrev ||
+    mission.launchAgency ||
+    ''
+
   const data = await fetchWithCache(cacheKey, {
     action: 'getMissionStats',
     mission: {
       id: mission.id,
-      rocketName: mission.rocketName,
+      rocketName: rocketNameEn,
       rocketConfiguration: mission.rocketConfiguration || null,
-      launchAgency: mission.launchAgency,
+      launchAgency: agencyEn,
       launchAgencyId: mission.launchAgencyId,
       launchAgencyAbbrev: mission.launchAgencyAbbrev,
       launchTime: mission.launchTime,

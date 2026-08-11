@@ -6,8 +6,8 @@
  *   - 筛选 chip 生成（全部 / 现役 / 各类型，数据驱动）与过滤、汇总统计
  */
 
-var { mfrDisplayName } = require('./booster-display.js')
-var { translateAgencyName } = require('../../../utils/space-terms-i18n.js')
+var { mfrDisplayName, mfrLogoUrl } = require('./booster-display.js')
+var { translateSpacecraftName } = require('../../../utils/space-terms-i18n.js')
 var { getCachedMediaImage } = require('../../../utils/icon-cache.js')
 var { optimizeImageUrl } = require('../../../utils/cos-url.js')
 var { proxiedImageUrl } = require('../../../utils/ll2-image.js')
@@ -37,11 +37,15 @@ function remoteThumbImage(url) {
 var TYPE_ZH_MAP = {
   'Capsule': '太空舱',
   'Cargo': '货运飞船',
+  'Cargo Resupply': '货运补给',
   'Spaceplane': '航天飞机',
   'Space Station': '空间站',
   'Station': '空间站',
   'Tug': '太空拖船',
   'Lander': '着陆器',
+  'Reuseable Upper Stage': '可复用上级',
+  'Reusable Upper Stage': '可复用上级',
+  'Mass Simulator': '质量模拟器',
   'Unknown': '未知'
 }
 
@@ -121,14 +125,17 @@ function buildSpacecraftCards(list, options) {
     ;[proxiedImageUrl(s.imageUrl), s.imageUrl, proxiedImageUrl(s.fullImageUrl), s.fullImageUrl].forEach(function (u) {
       if (u && chain.indexOf(u) < 0) chain.push(u)
     })
+    var nameEn = s.name || ''
     return {
       id: s.id,
-      name: s.name || '',
+      nameEn: nameEn,
+      name: translateSpacecraftName(nameEn) || nameEn,
       typeName: s.typeName || '',
       typeLabel: typeDisplayName(s.typeName),
       agencyName: s.agencyName || '',
-      agencyLabel: translateAgencyName(s.agencyName, s.agencyAbbrev) || mfrDisplayName(s.agencyName || ''),
+      agencyLabel: mfrDisplayName(s.agencyName || '', s.agencyAbbrev || ''),
       agencyAbbrev: s.agencyAbbrev || '',
+      agencyLogoUrl: mfrLogoUrl(s.agencyName || '', s.agencyAbbrev || ''),
       inUse: !!s.inUse,
       statusText: s.inUse ? '现役' : '退役',
       _imageChain: chain
@@ -136,7 +143,7 @@ function buildSpacecraftCards(list, options) {
   })
   cards.sort(function (a, b) {
     if (a.inUse !== b.inUse) return a.inUse ? -1 : 1
-    return String(a.name).localeCompare(String(b.name))
+    return String(a.name).localeCompare(String(b.name), 'zh')
   })
   for (var i = 0; i < cards.length; i++) {
     var chain = cards[i]._imageChain || []

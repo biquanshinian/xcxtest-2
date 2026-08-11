@@ -58,11 +58,6 @@
       </view>
     </view>
 
-    <!-- 贴图讨论区：型号详情头图下方；话题取火箭名称，组件内已截断至 20 字 -->
-    <view class="model-discuss-wrap">
-      <official-account-publish-panel topic="{{model.name || model.fullName || '火箭族谱讨论'}}" />
-    </view>
-
     <!-- 型号信息头 -->
     <view class="info-header">
       <view class="info-name-row">
@@ -175,6 +170,11 @@
         <text class="fleet-empty-text">暂无箭实体记录 · 首飞待定</text>
         <text class="fleet-empty-hint">该型号首飞后 LL2 将收录箭体档案，届时自动展示</text>
       </view>
+    </view>
+
+    <!-- 贴图讨论区：型号详情最底部；话题取火箭名称，组件内已截断至 20 字 -->
+    <view class="model-discuss-wrap">
+      <official-account-publish-panel topic="{{model.name || model.fullName || '火箭族谱讨论'}}" />
     </view>
 
     <view style="height: {{tabBarReservedHeight + 40}}px;"></view>

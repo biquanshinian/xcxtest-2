@@ -1,9 +1,23 @@
 <wxs module="navPad" src="/utils/nav-scroll-pad.wxs"></wxs>
 <!--pages/profile/profile.wxml-->
 <page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
-<view class="container {{themeClass}}">
+<view class="container {{themeClass}} tab-bg-video-host">
+  <view class="tab-bg-shell" aria-hidden="true">
+    <view class="tab-bg-cover"></view>
+    <view class="tab-bg-frost"></view>
+  </view>
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
-    <view class="top-nav top-nav--page-center">
+    <view class="top-nav top-nav--page-center top-nav--profile">
+      <!-- 与右侧胶囊水平居中对齐 -->
+      <view
+        class="profile-settings-entry"
+        style="top: {{menuButtonTop}}px; height: {{menuButtonHeight}}px;"
+        bindtap="onToggleSettingsPanel"
+        aria-role="button"
+        aria-label="设置"
+      >
+        <text class="profile-settings-entry-text">设置</text>
+      </view>
       <text class="nav-title nav-title--page-center nav-title--profile">我的太空</text>
     </view>
   </view>
@@ -38,36 +52,90 @@
   >
     
     <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
-<!-- ══ 每日签到卡片 ══ -->
-    <view class="checkin-section">
-      <view class="checkin-card glass-card">
-        <view class="checkin-header">
-          <view class="checkin-stats">
-            <view class="checkin-stat">
-              <text class="checkin-stat-num">{{checkinSummary.totalDays}}</text>
-              <text class="checkin-stat-label">累计签到</text>
+
+    <!-- ══ 身份区（头像可上传 · 昵称可改） ══ -->
+    <view class="pf-identity">
+      <view class="pf-avatar {{identityHasAvatar ? '' : 'pf-avatar--empty'}}" bindtap="onAvatarTap" aria-role="button" aria-label="{{identityHasAvatar ? '更换头像' : '添加头像'}}">
+        <image wx:if="{{identityHasAvatar}}" class="pf-avatar-img" src="{{identityAvatarUrl}}" mode="aspectFill" />
+        <text wx:else class="pf-avatar-plus">+</text>
+      </view>
+      <view class="pf-identity-main">
+        <view class="pf-name-row">
+          <text class="pf-name" bindtap="onDisplayNameTap">{{identityDisplayName}}</text>
+        </view>
+        <view class="pf-badge-meta" bindtap="goBadges">
+          <text class="pf-badge-meta-text">成就徽章 {{achievementInfo.unlockedCount}}/{{achievementInfo.totalCount}}</text>
+          <scroll-view class="pf-badge-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+            <view class="pf-badge-row">
+              <view
+                class="pf-badge-dot {{item.unlocked ? '' : 'pf-badge-dot--locked'}}"
+                wx:for="{{achievementInfo.achievements}}"
+                wx:key="id"
+                catchtap="onAchievementTap"
+                data-index="{{index}}"
+              >
+                <image class="pf-badge-dot-img" src="{{item.iconUrl}}" mode="aspectFit" />
+              </view>
             </view>
-            <view class="checkin-stat-divider"></view>
-            <view class="checkin-stat">
-              <text class="checkin-stat-num">{{checkinSummary.currentStreak}}</text>
-              <text class="checkin-stat-label">连续天数</text>
-            </view>
-            <view class="checkin-stat-divider"></view>
-            <view class="checkin-stat">
-              <text class="checkin-stat-num">{{checkinSummary.factsCollected}}/{{checkinSummary.totalFacts}}</text>
-              <text class="checkin-stat-label">知识卡</text>
-            </view>
+          </scroll-view>
+        </view>
+      </view>
+      <view class="checkin-btn {{checkinSummary.isCheckedInToday ? 'checkin-btn--done' : ''}}" bindtap="onCheckIn">
+        <text class="checkin-btn-icon" wx:if="{{checkinSummary.isCheckedInToday}}">✓</text>
+        <text class="checkin-btn-text">{{checkinSummary.isCheckedInToday ? '已签到' : '签到'}}</text>
+      </view>
+    </view>
+
+    <!-- ══ 通行证主卡 ══ -->
+    <view
+      class="pf-pass-card {{memberIsPro ? 'pf-pass-card--pro' : ''}}"
+      wx:if="{{membershipEnabled}}"
+      bindtap="goMembership"
+    >
+      <view class="pf-pass-card__shine" wx:if="{{memberIsPro}}"></view>
+      <view class="pf-pass-top">
+        <view class="pf-pass-top-text">
+          <view class="pf-pass-title-row">
+            <image wx:if="{{memberIcon}}" class="pf-pass-badge" src="{{memberIcon}}" mode="aspectFit" />
+            <text class="pf-pass-title">星际通行证</text>
           </view>
-          <view class="checkin-btn-wrap">
-            <view class="checkin-btn {{checkinSummary.isCheckedInToday ? 'checkin-btn--done' : ''}}" bindtap="onCheckIn">
-              <text class="checkin-btn-icon" wx:if="{{checkinSummary.isCheckedInToday}}">✓</text>
-              <text class="checkin-btn-text">{{checkinSummary.isCheckedInToday ? '已签到' : '签到'}}</text>
-            </view>
+          <text class="pf-pass-desc">{{memberIsPro ? '已开通 · 尊享全部权益' : '解锁 AI 无限对话、去广告等权益'}}</text>
+        </view>
+        <text class="pf-pass-cta">{{memberIsPro ? '查看权益' : '去开通'}}</text>
+      </view>
+      <view class="pf-pass-benefits">
+        <view class="pf-pass-benefit" wx:for="{{passBenefits}}" wx:key="name">
+          <image class="pf-pass-benefit-icon" src="{{item.iconUrl}}" mode="aspectFit" />
+          <text class="pf-pass-benefit-name">{{item.name}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- ══ 我的数据 ══ -->
+    <view class="pf-section">
+      <view class="section-title-row">
+        <text class="section-title-text">我的数据</text>
+      </view>
+      <view class="pf-assets-card glass-card">
+        <view class="pf-assets-grid">
+          <view class="pf-asset">
+            <text class="pf-asset-num">{{checkinSummary.totalDays}}</text>
+            <text class="pf-asset-label">累计签到</text>
+          </view>
+          <view class="pf-asset">
+            <text class="pf-asset-num">{{checkinSummary.currentStreak}}</text>
+            <text class="pf-asset-label">连续天数</text>
+          </view>
+          <view class="pf-asset">
+            <text class="pf-asset-num">{{checkinSummary.factsCollected}}</text>
+            <text class="pf-asset-label">知识卡</text>
+          </view>
+          <view class="pf-asset">
+            <text class="pf-asset-num">{{myReminders.length}}</text>
+            <text class="pf-asset-label">我的提醒</text>
           </view>
         </view>
-
-        <!-- 本周签到点 -->
-        <view class="checkin-week">
+        <view class="checkin-week pf-week">
           <view class="checkin-dot-wrap" wx:for="{{weekDots}}" wx:key="date">
             <view class="checkin-dot {{item.checked ? 'checkin-dot--checked' : ''}} {{item.isToday ? 'checkin-dot--today' : ''}}">
               <text class="checkin-dot-num">{{item.dayNum}}</text>
@@ -76,60 +144,104 @@
           </view>
         </view>
       </view>
-
-      <!-- 签到成功弹出的知识卡 -->
-      <view class="fact-card glass-card {{showFactCard ? 'fact-card--show' : ''}}" wx:if="{{todayFact}}">
-        <view class="fact-card-close" bindtap="closeFactCard">
-          <text>✕</text>
-        </view>
-        <view class="fact-card-header">
-          <text class="fact-card-badge">🌌 太空知识卡 #{{todayFact.id}}</text>
-          <text class="fact-card-category">{{todayFact.category}}</text>
-        </view>
-        <text class="fact-card-text">{{todayFact.fact}}</text>
-        <text class="fact-card-source">— {{todayFact.source}}</text>
-      </view>
     </view>
 
-    <!-- ══ 星际通行证入口 ══ -->
-    <view class="membership-entry {{memberIsPro ? 'membership-entry--pro' : ''}}" wx:if="{{membershipEnabled}}" bindtap="goMembership">
-      <!-- PRO 专属：金光扫描层 -->
-      <view class="membership-entry__shine" wx:if="{{memberIsPro}}"></view>
-      <view class="membership-entry-left">
-        <image class="membership-entry-badge" src="{{memberIcon}}" mode="aspectFit" />
-        <view class="membership-entry-info">
-          <text class="membership-entry-title">星际通行证</text>
-          <text class="membership-entry-desc">{{memberIsPro ? '已开通 · 尊享全部权益' : '解锁 AI 无限对话、去广告等权益'}}</text>
-        </view>
+    <!-- 签到成功知识卡 -->
+    <view class="fact-card glass-card {{showFactCard ? 'fact-card--show' : ''}}" wx:if="{{todayFact}}">
+      <view class="fact-card-close" bindtap="closeFactCard"><text>✕</text></view>
+      <view class="fact-card-header">
+        <text class="fact-card-badge">🌌 太空知识卡 #{{todayFact.id}}</text>
+        <text class="fact-card-category">{{todayFact.category}}</text>
       </view>
-      <text class="membership-entry-arrow">查看权益</text>
+      <text class="fact-card-text">{{todayFact.fact}}</text>
+      <text class="fact-card-source">— {{todayFact.source}}</text>
     </view>
 
-    <!-- ══ 邀请得月卡入口 ══ -->
-    <view class="growth-entry invite-entry" wx:if="{{membershipEnabled}}" bindtap="goInvite">
-      <text class="growth-entry-icon">🎁</text>
-      <view class="growth-entry-info">
-        <text class="growth-entry-title">邀请得月卡</text>
-        <text class="growth-entry-desc">每邀 15 位好友点开，自动得 30 天通行证</text>
+    <!-- ══ 推广条：观礼 / 年鉴 ══ -->
+    <view class="pf-promo" wx:if="{{enableWatchParty}}" bindtap="goWatchParty">
+      <view class="pf-promo-text">
+        <text class="pf-promo-title">火箭发射观礼</text>
+        <text class="pf-promo-desc">现场预约 · 奖品 · 商家合作{{watchPartyCount > 0 ? ' · ' + watchPartyCount + ' 场' : ''}}</text>
       </view>
-      <text class="growth-entry-arrow">›</text>
+      <text class="pf-promo-btn">去看看</text>
+    </view>
+    <view class="pf-promo pf-promo--year" wx:elif="{{yearReviewVisible}}" bindtap="goYearReview">
+      <view class="pf-promo-text">
+        <text class="pf-promo-title">{{yearReviewTitle}}</text>
+        <text class="pf-promo-desc">{{yearReviewSubtitle}}</text>
+      </view>
+      <text class="pf-promo-btn">查看年鉴</text>
     </view>
 
-    <!-- ══ 成就徽章 ══ -->
-    <view class="achievement-section">
+    <!-- ══ 更多服务 ══ -->
+    <view class="pf-section">
       <view class="section-title-row">
-        <text class="section-title-text">成就徽章</text>
-        <text class="section-title-count">{{achievementInfo.unlockedCount}}/{{achievementInfo.totalCount}}</text>
+        <text class="section-title-text">更多服务</text>
       </view>
-      <scroll-view class="achievement-scroll" scroll-x enhanced show-scrollbar="{{false}}">
-        <view class="achievement-list">
-          <view class="achievement-item {{item.unlocked ? '' : 'achievement-item--locked'}}" wx:for="{{achievementInfo.achievements}}" wx:key="id" bindtap="onAchievementTap" data-index="{{index}}">
-            <image class="achievement-icon-img" src="{{item.iconUrl}}" mode="aspectFit" />
-            <text class="achievement-name">{{item.name}}</text>
-            <text class="achievement-desc">{{item.desc}}</text>
+      <view class="pf-services-card glass-card">
+        <view class="pf-services-grid">
+          <view class="pf-service" wx:if="{{briefingEnabled}}" bindtap="openProfileBriefing">
+            <view class="pf-service-icon-wrap pf-service-icon-wrap--briefing">
+              <image wx:if="{{briefingIcon}}" class="pf-service-icon" src="{{briefingIcon}}" mode="aspectFit" />
+              <text wx:else class="pf-service-fallback">报</text>
+            </view>
+            <text class="pf-service-label">今日简报</text>
           </view>
+          <view class="pf-service" bindtap="goTimeline">
+            <view class="pf-service-icon-wrap">
+              <image wx:if="{{timelineIcon}}" class="pf-service-icon" src="{{timelineIcon}}" mode="aspectFit" />
+              <text wx:else class="pf-service-fallback">旅</text>
+            </view>
+            <text class="pf-service-label">太空旅程</text>
+          </view>
+          <view class="pf-service" wx:if="{{membershipEnabled}}" bindtap="goMembership">
+            <view class="pf-service-icon-wrap">
+              <image wx:if="{{memberIcon}}" class="pf-service-icon" src="{{memberIcon}}" mode="aspectFit" />
+              <text wx:else class="pf-service-fallback">证</text>
+            </view>
+            <text class="pf-service-label">通行证</text>
+          </view>
+          <view class="pf-service" wx:if="{{enableWatchParty}}" bindtap="goWatchParty">
+            <view class="pf-service-icon-wrap">
+              <image wx:if="{{watchPartyIcon}}" class="pf-service-icon" src="{{watchPartyIcon}}" mode="aspectFit" />
+              <text wx:else class="pf-service-fallback">观</text>
+            </view>
+            <text class="pf-service-label">发射观礼</text>
+            <view class="pf-service-badge" wx:if="{{watchPartyCount > 0}}"><text>{{watchPartyCount}}</text></view>
+          </view>
+          <view class="pf-service" bindtap="goFavorites">
+            <view class="pf-service-icon-wrap">
+              <image class="pf-service-icon pf-service-icon--fav" src="/images/icons/ic-fav-heart.svg" mode="aspectFit" />
+            </view>
+            <text class="pf-service-label">我的收藏</text>
+            <view class="pf-service-badge" wx:if="{{favoritesCount > 0}}"><text>{{favoritesCount}}</text></view>
+          </view>
+          <view class="pf-service" bindtap="goVoteRecord">
+            <view class="pf-service-icon-wrap">
+              <text class="pf-service-fallback">猜</text>
+            </view>
+            <text class="pf-service-label">竞猜战绩</text>
+          </view>
+          <view class="pf-service" bindtap="goDailyQuiz">
+            <view class="pf-service-icon-wrap">
+              <text class="pf-service-fallback">挑</text>
+            </view>
+            <text class="pf-service-label">每日挑战</text>
+          </view>
+          <button
+            class="pf-service pf-service--contact"
+            open-type="contact"
+            bindcontact="onContactCallback"
+            session-from="profile-services"
+            hover-class="pf-service--pressed"
+          >
+            <view class="pf-service-icon-wrap">
+              <image class="pf-service-icon" src="/images/icon-customer-service.svg" mode="aspectFit" />
+            </view>
+            <text class="pf-service-label">在线客服</text>
+          </button>
         </view>
-      </scroll-view>
+      </view>
     </view>
 
     <!-- 徽章详情弹窗 -->
@@ -151,46 +263,6 @@
         <view class="badge-modal-status" wx:else>
           <text class="badge-modal-status-text badge-modal-status--locked">💡 {{badgeModalData.hint || badgeModalData.desc}}</text>
         </view>
-      </view>
-    </view>
-
-    <!-- ══ 年度报告（跨年等期间由后台开启） ══ -->
-    <view class="year-review-entry glass-card" wx:if="{{yearReviewVisible}}" bindtap="goYearReview">
-      <view class="year-review-entry-inner">
-        <view class="year-review-entry-text">
-          <text class="year-review-entry-title">{{yearReviewTitle}}</text>
-          <text class="year-review-entry-desc">{{yearReviewSubtitle}}</text>
-        </view>
-      </view>
-      <text class="year-review-entry-arrow">查看年鉴 ›</text>
-    </view>
-
-    <!-- ══ 火箭发射观礼入口（置顶）：受 enableWatchParty 过审开关控制（failClosed，默认隐藏至读到允许） ══ -->
-    <view class="growth-entry growth-entry--standalone" wx:if="{{enableWatchParty}}" bindtap="goWatchParty">
-      <view class="growth-entry-icon-wrap">
-        <image wx:if="{{watchPartyIcon}}" class="growth-entry-icon-img growth-entry-icon-img--wp" src="{{watchPartyIcon}}" mode="aspectFit" />
-        <view wx:else class="growth-entry-icon-badge"><text>观礼</text></view>
-        <view class="growth-entry-count-badge" wx:if="{{watchPartyCount > 0}}"><text>{{watchPartyCount}}</text></view>
-      </view>
-      <view class="growth-entry-info">
-        <text class="growth-entry-title">火箭发射观礼</text>
-        <text class="growth-entry-desc">现场观礼预约 · 我的奖品 · 商家合作</text>
-      </view>
-      <text class="growth-entry-arrow">›</text>
-    </view>
-
-    <!-- ══ 每日简报（内联模式） ══ -->
-    <morning-briefing mode="inline" icon="{{briefingIcon}}" />
-
-    <!-- ══ 太空旅程入口 ══ -->
-    <view class="growth-entries">
-      <view class="growth-entry" bindtap="goTimeline">
-        <image class="growth-entry-icon-img" src="{{timelineIcon}}" mode="aspectFit" />
-        <view class="growth-entry-info">
-          <text class="growth-entry-title">我的太空旅程</text>
-          <text class="growth-entry-desc">查看你的探索里程碑时间线</text>
-        </view>
-        <text class="growth-entry-arrow">›</text>
       </view>
     </view>
 
@@ -230,87 +302,23 @@
       </view>
     </view>
 
-    <!-- ══ 我的收藏（发射商）：无收藏时整个板块隐藏 ══ -->
-    <view class="favorite-section" wx:if="{{myFavorites.length > 0}}">
-      <view class="section-title-row">
-        <text class="section-title-text">我的收藏</text>
-        <text class="section-title-count">{{myFavorites.length}} 个发射商</text>
-      </view>
-      <scroll-view class="favorite-scroll" scroll-x="true" enhanced="{{true}}" show-scrollbar="{{false}}">
-        <view class="favorite-row">
-          <view class="favorite-card glass-card" hover-class="favorite-card--pressed" hover-stay-time="120"
-                wx:for="{{myFavorites}}" wx:key="id"
-                data-id="{{item.id}}" bindtap="onFavoriteTap">
-            <view class="favorite-remove" catchtap="onRemoveFavorite" data-id="{{item.id}}" data-name="{{item.name}}">
-              <text>✕</text>
-            </view>
-            <view class="favorite-logo-chip {{item.logoBgTone === 'dark' ? 'agency-logo-bg--dark' : ''}} {{item.logoBgTone === 'light' ? 'agency-logo-bg--light' : ''}}">
-              <image class="favorite-logo" wx:if="{{item.logoUrl}}" src="{{item.logoUrl}}" mode="aspectFit" lazy-load />
-              <text class="favorite-logo-fallback" wx:else>🛰️</text>
-            </view>
-            <text class="favorite-name">{{item.name}}</text>
-            <text class="favorite-type" wx:if="{{item.typeName}}">{{item.typeName}}</text>
-          </view>
-        </view>
-      </scroll-view>
-    </view>
-
-    <!-- ══ 外观 ══ -->
-    <view class="appearance-section">
-      <view class="section-title-row">
-        <text class="section-title-text">外观</text>
-      </view>
-      <view class="appearance-grid">
-        <view class="oa-alert-card glass-card appearance-card appearance-card--theme">
-          <view class="oa-alert-row">
-            <view class="oa-alert-info">
-              <text class="oa-alert-title">主题外观</text>
-            </view>
-          </view>
-          <view class="theme-mode-group">
-            <view
-              class="theme-mode-opt {{themeMode === 'dark' ? 'theme-mode-opt--active' : ''}}"
-              data-mode="dark"
-              bindtap="onThemeModeTap"
-            >深色</view>
-            <view
-              class="theme-mode-opt {{themeMode === 'light' ? 'theme-mode-opt--active' : ''}}"
-              data-mode="light"
-              bindtap="onThemeModeTap"
-            >浅色</view>
-            <view
-              class="theme-mode-opt {{themeMode === 'system' ? 'theme-mode-opt--active' : ''}}"
-              data-mode="system"
-              bindtap="onThemeModeTap"
-            >跟随系统</view>
-          </view>
-        </view>
-        <view class="oa-alert-card glass-card appearance-card appearance-card--art">
-          <view class="oa-alert-row">
-            <view class="oa-alert-info">
-              <text class="oa-alert-title">火箭配置图</text>
-            </view>
-          </view>
-          <view class="theme-mode-group">
-            <view
-              class="theme-mode-opt {{rocketArtStyle === 'original' ? 'theme-mode-opt--active' : ''}}"
-              data-style="original"
-              bindtap="onRocketArtTap"
-            >原图</view>
-            <view
-              class="theme-mode-opt {{rocketArtStyle === 'mecha' ? 'theme-mode-opt--active' : ''}}"
-              data-style="mecha"
-              bindtap="onRocketArtTap"
-            >机娘风格</view>
-          </view>
-        </view>
-      </view>
-    </view>
-
-    <!-- ══ 我的提醒 / 竞猜战绩 / 每日问答 / 在线客服：profile-extra 分包组件 ══
+    <!-- ══ 设置 / 我的提醒 / 竞猜战绩 / 每日问答 / 在线客服：profile-extra 分包组件 ══
          纯展示组件，状态由页面下发；交互经单一 sectionevent 通道回传（detail: { name, dataset, edetail }） -->
     <profile-sections
       theme-class="{{themeClass}}"
+      theme-mode="{{themeMode}}"
+      rocket-art-style="{{rocketArtStyle}}"
+      content-lang="{{contentLang}}"
+      briefing-enabled="{{briefingEnabled}}"
+      settings-panel-open="{{settingsPanelOpen}}"
+      settings-panel-pad-top="{{settingsPanelPadTop}}"
+      rocket-options="{{rocketOptions}}"
+      site-options="{{siteOptions}}"
+      notify-options="{{notifyOptions}}"
+      rocket-map="{{rocketMap}}"
+      site-map="{{siteMap}}"
+      notify-minutes="{{notifyMinutes}}"
+      pref-saving="{{prefSaving}}"
       my-reminders="{{myReminders}}"
       oa-alert-enabled="{{oaAlertEnabled}}"
       oa-alert-followed="{{oaAlertFollowed}}"
@@ -333,6 +341,7 @@
 
     <view style="height: {{tabBarReservedHeight}}px;"></view>
   </scroll-view>
+
 <nasa-float id="nasaFloat" />
   <popup-ad visible="{{popupAdVisible}}" shop-item="{{popupAdItem}}" bind:close="onPopupAdClose"></popup-ad>
   <milestone-egg visible="{{showMilestoneEgg}}" milestone="{{currentMilestone}}" bindclose="onMilestoneClose" bindclaimed="onMilestoneClaimed" />

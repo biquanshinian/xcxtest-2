@@ -57,6 +57,35 @@ function isVideoFileUrl(u) {
 }
 
 /**
+ * 微信「阅读原文」content_source_url 只适合网页，不适合裸视频文件。
+ * COS/CDN 直链 mp4 在微信内置浏览器里常打不开或被强制下载。
+ */
+function isHttpPageUrl(u) {
+  const s = String(u || '').trim()
+  if (!/^https?:\/\//i.test(s)) return false
+  if (isVideoFileUrl(s)) return false
+  return true
+}
+
+/**
+ * 草稿「阅读原文」候选：真实来源页 / 推文页优先；绝不回落 COS/外链裸 mp4。
+ */
+function resolveDraftSourceUrl(source, videos) {
+  const src = String((source && source.sourceUrl) || '').trim()
+  if (isHttpPageUrl(src)) return src
+  for (const v of Array.isArray(videos) ? videos : []) {
+    const page = String((v && v.pageUrl) || '').trim()
+    if (isHttpPageUrl(page)) return page
+  }
+  return ''
+}
+
+/** 推送前再挡一层：旧草稿若已写入视频直链，不落 content_source_url */
+function sanitizeContentSourceUrl(u) {
+  return isHttpPageUrl(u) ? String(u).trim() : ''
+}
+
+/**
  * 自有 COS 视频 → 万象截帧封面（jpg）。
  * 长视频未落 COS（url 是推文页/外链）时返回 ''，封面只能靠 thumbnailUrl。
  */
@@ -168,12 +197,12 @@ function videoPosterUrls(videos) {
 
 /**
  * 在成稿 markdown 里给视频封面截图补说明行（blockquote，运营可编辑/删除）。
- * readMoreUrl 与该视频观看链一致时提示「阅读原文」（推送时 content_source_url 即此链）。
+ * readMoreUrl 与该视频 pageUrl/watchUrl 一致且为网页时，才提示「阅读原文」。
  */
 function annotateVideoPostersInMarkdown(md, videos, opts = {}) {
   let s = String(md || '')
   if (!s) return s
-  const readMoreUrl = String((opts && opts.readMoreUrl) || '').trim()
+  const readMoreUrl = sanitizeContentSourceUrl((opts && opts.readMoreUrl) || '')
   const done = new Set()
   for (const v of Array.isArray(videos) ? videos : []) {
     const poster = normalizeImgSrc(v && v.posterUrl)
@@ -183,7 +212,10 @@ function annotateVideoPostersInMarkdown(md, videos, opts = {}) {
     const re = new RegExp(`(!\\[[^\\]]*\\]\\(${esc}(?:\\s+"[^"]*")?\\))(?!\\s*\\n+>\\s*▶)`)
     if (!re.test(s)) continue
     const label = v.isLong ? '长视频封面截图' : '视频封面截图'
-    const tail = readMoreUrl && v.watchUrl === readMoreUrl ? '，完整视频点文末「阅读原文」' : ''
+    const matchesVideo =
+      readMoreUrl &&
+      (v.watchUrl === readMoreUrl || v.pageUrl === readMoreUrl)
+    const tail = matchesVideo ? '，完整视频点文末「阅读原文」' : ''
     s = s.replace(re, `$1\n\n> ▶ ${label}${tail}`)
   }
   return s
@@ -440,6 +472,9 @@ module.exports = {
   pickImageUrls,
   isOwnCosUrl,
   isVideoFileUrl,
+  isHttpPageUrl,
+  resolveDraftSourceUrl,
+  sanitizeContentSourceUrl,
   cosVideoSnapshotUrl,
   pickVideoEntries,
   videoPosterUrls,

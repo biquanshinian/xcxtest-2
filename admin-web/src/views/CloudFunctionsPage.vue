@@ -67,10 +67,26 @@ async function loadFunctions() {
 
 async function onTrigger(name) {
   try {
-    await ElMessageBox.confirm(`确认手动触发云函数 ${name}？`, '确认', { type: 'warning' })
+    let payload = {}
+    if (name === 'syncSpaceDevsData') {
+      const { value } = await ElMessageBox.prompt(
+        '要执行的 action（默认：小时 NET 探针 + 待定排序自愈）',
+        '触发 syncSpaceDevsData',
+        {
+          inputValue: 'syncLaunchNetHourly',
+          confirmButtonText: '执行',
+          cancelButtonText: '取消',
+          inputPlaceholder: 'syncLaunchNetHourly'
+        }
+      )
+      const action = String(value || 'syncLaunchNetHourly').trim() || 'syncLaunchNetHourly'
+      payload = { action, force: action === 'syncLaunchNetHourly' }
+    } else {
+      await ElMessageBox.confirm(`确认手动触发云函数 ${name}？`, '确认', { type: 'warning' })
+    }
     triggering[name] = true
-    await api.triggerCloudFunction(name)
-    ElMessage.success('触发成功')
+    const res = await api.triggerCloudFunction(name, payload)
+    ElMessage.success(res && res.message ? res.message : '触发成功')
   } catch (e) {
     if (e !== 'cancel' && e?.action !== 'cancel' && e?.toString?.() !== 'cancel') {
       ElMessage.error(e.message || '触发失败')

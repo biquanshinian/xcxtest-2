@@ -48,6 +48,8 @@ const methods = {
         imageCacheLimit: previewLimit
       })
       var preview = (result.processed || []).slice(0, previewLimit)
+      var agencies = await getFeaturedAgencies().catch(function () { return { list: [] } })
+      preview = boosterDisplay.attachManufacturerLogos(preview, agencies, 'manufacturer')
       var rawBySerial = {}
       preview.forEach(function (b) {
         if (!b || !b.serial) return
@@ -127,8 +129,14 @@ const methods = {
       var cards = spacecraftDisplay.buildSpacecraftCards(list, {
         imageCacheLimit: previewLimit
       })
+      var agencies = await getFeaturedAgencies().catch(function () { return { list: [] } })
+      var preview = boosterDisplay.attachManufacturerLogos(
+        (cards || []).slice(0, previewLimit),
+        agencies,
+        'agency'
+      )
       this.setData({
-        spacecraftList: (cards || []).slice(0, previewLimit),
+        spacecraftList: preview,
         spacecraftLoading: false
       })
     } catch (err) {

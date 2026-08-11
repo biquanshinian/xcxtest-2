@@ -73,9 +73,6 @@
           </view>
         </view>
 
-        <!-- 贴图讨论区：头图下方；topic 取自标题，组件内已截断至 20 字 -->
-        <official-account-publish-panel topic="{{item.title || (detailType === 'article' ? '航天事件' : '即将发生')}}" />
-
         <view class="meta-top">
           <text class="type-badge" wx:if="{{detailType === 'event'}}">{{item.type}}</text>
           <text class="type-badge article" wx:elif="{{detailType === 'article'}}">{{item.newsSite || '文章'}}</text>
@@ -172,6 +169,9 @@
             <text class="link-action">复制</text>
           </view>
         </view>
+
+        <!-- 贴图讨论区：详情最底部；topic 取自标题，组件内已截断至 20 字 -->
+        <official-account-publish-panel topic="{{item.title || (detailType === 'article' ? '航天事件' : '即将发生')}}" />
       </view>
       <view style="height: {{tabBarReservedHeight}}px;"></view>
     </view>

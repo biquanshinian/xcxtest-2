@@ -1,0 +1,361 @@
+/* 发射时间变更弹窗 — 深空玻璃拟态（与简报 / 续费同体系）
+   root-portal 真机不继承 page 主题变量，故在 .ncm-mask 上自挂整套 token */
+
+.ncm-mask {
+  --color-bg-card: #16181C;
+  --bg-glass-popup: rgba(22, 24, 28, 0.88);
+  --color-text-primary: #F5F5F7;
+  --color-text-secondary: #8E8E93;
+  --color-text-tertiary: #6E6E73;
+  --color-text-on-glass: rgba(245, 245, 247, 0.92);
+  --color-divider: rgba(255, 255, 255, 0.08);
+  --color-divider-strong: rgba(255, 255, 255, 0.12);
+  --color-divider-faint: rgba(255, 255, 255, 0.04);
+  --color-brand: #3B82F6;
+  --color-warning: #FF9500;
+  --shadow-card: 0 32rpx 96rpx rgba(0, 0, 0, 0.55);
+  --radius-lg: 28rpx;
+  --ncm-accent: #5B9DFF;
+  --ncm-accent-soft: rgba(91, 157, 255, 0.22);
+  --ncm-new: #07C160;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.58);
+  z-index: 12000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 36rpx calc(16px + env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+  animation: ncmFadeIn 0.24s ease;
+}
+
+.ncm-mask.theme-light {
+  --color-bg-card: #FFFFFF;
+  --bg-glass-popup: rgba(255, 255, 255, 0.92);
+  --color-text-primary: #1C1C1E;
+  --color-text-secondary: #6E6E73;
+  --color-text-tertiary: #8E8E93;
+  --color-text-on-glass: rgba(28, 28, 30, 0.92);
+  --color-divider: rgba(0, 0, 0, 0.07);
+  --color-divider-strong: rgba(0, 0, 0, 0.1);
+  --color-divider-faint: rgba(0, 0, 0, 0.04);
+  --shadow-card: 0 24rpx 64rpx rgba(0, 0, 0, 0.12);
+  --ncm-accent: #2563EB;
+  --ncm-accent-soft: rgba(37, 99, 235, 0.12);
+  --ncm-new: #07C160;
+}
+
+@keyframes ncmFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.ncm-popup {
+  position: relative;
+  width: 100%;
+  max-width: 640rpx;
+  background: var(--bg-glass-popup);
+  backdrop-filter: blur(32rpx) saturate(150%);
+  -webkit-backdrop-filter: blur(32rpx) saturate(150%);
+  border-radius: 36rpx;
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  animation: ncmSlideUp 0.32s cubic-bezier(0.22, 0.9, 0.32, 1.1);
+}
+
+@keyframes ncmSlideUp {
+  from { transform: translateY(72rpx) scale(0.96); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+.ncm-glow {
+  position: absolute;
+  top: -200rpx;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 520rpx;
+  height: 360rpx;
+  background: radial-gradient(ellipse at center, var(--ncm-accent-soft) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.ncm-stars {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.ncm-star {
+  position: absolute;
+  width: 6rpx;
+  height: 6rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  animation: ncmTwinkle 2.8s ease-in-out infinite;
+}
+
+.theme-light .ncm-star {
+  background: rgba(37, 99, 235, 0.45);
+}
+
+.ncm-star.s1 { top: 10%; left: 16%; }
+.ncm-star.s2 { top: 7%; right: 24%; width: 4rpx; height: 4rpx; animation-delay: 0.5s; }
+.ncm-star.s3 { top: 18%; right: 12%; animation-delay: 1.1s; }
+.ncm-star.s4 { top: 26%; left: 10%; width: 4rpx; height: 4rpx; animation-delay: 1.7s; }
+.ncm-star.s5 { top: 4%; left: 48%; animation-delay: 0.9s; }
+
+@keyframes ncmTwinkle {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 1; }
+}
+
+.ncm-close {
+  position: absolute;
+  top: 22rpx;
+  right: 22rpx;
+  width: 68rpx;
+  height: 68rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 34rpx;
+  background: var(--color-divider);
+  z-index: 2;
+}
+
+.ncm-close--hover { background: var(--color-divider-strong); }
+
+.ncm-close-icon {
+  font-size: 26rpx;
+  color: var(--color-text-secondary);
+  line-height: 1;
+  pointer-events: none;
+}
+
+.ncm-body {
+  position: relative;
+  padding: 52rpx 44rpx 40rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ncm-kicker {
+  font-size: 20rpx;
+  color: var(--ncm-accent);
+  letter-spacing: 4rpx;
+  margin-bottom: 8rpx;
+  opacity: 0.9;
+}
+
+.ncm-title {
+  font-size: 36rpx;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  letter-spacing: 2rpx;
+  margin-bottom: 36rpx;
+}
+
+/* ── 英雄区：大圆火箭配置图 ── */
+.ncm-hero {
+  margin-bottom: 28rpx;
+}
+
+.ncm-rocket-slot {
+  width: 196rpx;
+  height: 196rpx;
+  border-radius: 50%;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.04);
+  border: 3rpx solid rgba(91, 157, 255, 0.35);
+  box-shadow:
+    0 0 0 10rpx rgba(91, 157, 255, 0.08),
+    0 16rpx 40rpx rgba(0, 0, 0, 0.35);
+  box-sizing: border-box;
+}
+
+.theme-light .ncm-rocket-slot {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(37, 99, 235, 0.28);
+  box-shadow:
+    0 0 0 10rpx rgba(37, 99, 235, 0.06),
+    0 12rpx 28rpx rgba(0, 0, 0, 0.08);
+}
+
+.ncm-rocket-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.ncm-rocket-placeholder {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(145deg, rgba(91, 157, 255, 0.18), rgba(255, 255, 255, 0.04));
+}
+
+.ncm-headline {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  letter-spacing: 1rpx;
+  text-align: center;
+  line-height: 1.35;
+  margin-bottom: 14rpx;
+  padding: 0 8rpx;
+  box-sizing: border-box;
+}
+
+/* 发射商：logo 在名称左侧 */
+.ncm-agency-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-bottom: 28rpx;
+  max-width: 100%;
+}
+
+.ncm-agency-logo {
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: block;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--color-divider);
+  box-sizing: border-box;
+}
+
+.ncm-agency-name {
+  font-size: 24rpx;
+  color: var(--color-text-secondary);
+  letter-spacing: 1rpx;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 时间轴卡片 ── */
+.ncm-timeline {
+  width: 100%;
+  background: var(--color-divider-faint);
+  border: 1px solid var(--color-divider);
+  border-radius: 24rpx;
+  padding: 28rpx 28rpx 24rpx;
+  box-sizing: border-box;
+  margin-bottom: 36rpx;
+}
+
+.ncm-time-row {
+  display: flex;
+  align-items: stretch;
+  gap: 20rpx;
+}
+
+.ncm-time-rail {
+  width: 28rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  padding-top: 8rpx;
+}
+
+.ncm-time-node {
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ncm-time-node--old {
+  background: var(--color-text-tertiary);
+  box-shadow: 0 0 0 6rpx rgba(142, 142, 147, 0.18);
+}
+
+.ncm-time-node--new {
+  background: var(--ncm-new);
+  box-shadow: 0 0 0 6rpx rgba(7, 193, 96, 0.22);
+}
+
+.ncm-time-line {
+  width: 2rpx;
+  flex: 1;
+  min-height: 36rpx;
+  margin: 8rpx 0;
+  background: linear-gradient(180deg, rgba(142, 142, 147, 0.55), rgba(7, 193, 96, 0.75));
+}
+
+.ncm-time-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+  padding-bottom: 22rpx;
+}
+
+.ncm-time-row--new .ncm-time-content {
+  padding-bottom: 0;
+}
+
+.ncm-time-label {
+  font-size: 22rpx;
+  color: var(--color-text-tertiary);
+  letter-spacing: 2rpx;
+}
+
+.ncm-time-label--new {
+  color: var(--ncm-new);
+}
+
+.ncm-time-value {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--color-text-on-glass);
+  line-height: 1.35;
+}
+
+.ncm-time-value--old {
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  text-decoration: line-through;
+  text-decoration-color: rgba(142, 142, 147, 0.55);
+}
+
+.ncm-time-value--new {
+  color: var(--color-text-primary);
+  font-size: 30rpx;
+}
+
+.ncm-btn {
+  width: 100%;
+  height: 92rpx;
+  line-height: 92rpx;
+  border-radius: 46rpx;
+  background: linear-gradient(135deg, #6AA8FF 0%, #3B82F6 100%);
+  color: #FFFFFF;
+  font-size: 32rpx;
+  font-weight: 700;
+  letter-spacing: 4rpx;
+  border: none;
+  padding: 0;
+  box-shadow: 0 12rpx 32rpx rgba(59, 130, 246, 0.35);
+}
+
+.ncm-btn::after { border: none; }
+
+.ncm-btn--hover {
+  opacity: 0.9;
+  transform: scale(0.985);
+}
+
+.theme-light .ncm-btn {
+  box-shadow: 0 10rpx 24rpx rgba(37, 99, 235, 0.22);
+}

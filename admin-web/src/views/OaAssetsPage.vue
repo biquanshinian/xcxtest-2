@@ -159,7 +159,7 @@
         type="info"
         :closable="false"
         style="margin-bottom:12px"
-        title="策略按正文自动匹配（星舰日记 / 发射短讯 / 深度复盘 / 资讯速读 / 空间叙事）"
+        title="策略按正文自动匹配（星舰日记 / 发射短讯 / 深度复盘 / 资讯速读 / 平实解说）"
       />
       <p style="margin:0 0 12px;color:var(--el-text-color-secondary);font-size:13px;">
         洗稿将按所选发稿号的人设与凭证槽生成草稿，请确认后再继续。

@@ -159,6 +159,45 @@ test('projectBadgeOntoMission 投影角标与分类', () => {
   assert.equal(projected.rocketName, 'Vikram-I')
 })
 
+test('详情 Go/近窗不被更新的 list 待定盖掉', () => {
+  const detailGo = mergeLaunchObservation(null, {
+    id: 'b89ab080-66c3-4831-85a9-38d85da71d30',
+    net: '2026-08-10T19:23:31Z',
+    status: { id: 1, name: 'Go for Launch', abbrev: 'Go' },
+    source: 'detail',
+    observedAtMs: 1000
+  })
+  const listTbd = mergeLaunchObservation(detailGo, {
+    id: 'b89ab080-66c3-4831-85a9-38d85da71d30',
+    net: '2026-08-31T00:00:00Z',
+    status: { id: 2, name: 'To Be Determined', abbrev: 'TBD' },
+    source: 'list',
+    observedAtMs: 5000
+  })
+  assert.equal(listTbd.status.id, 1)
+  assert.equal(listTbd.net, '2026-08-10T19:23:31Z')
+})
+
+test('projectBadgeOntoMission 同步 formattedTime', () => {
+  const { projectBadgeOntoMission } = require('../utils/launch-status-store.js')
+  const base = {
+    id: SKYROOT_ID,
+    launchTime: '2026-08-31T00:00:00Z',
+    formattedTime: '08月31日 08:00',
+    statusId: 2,
+    statusBadgeText: '待定'
+  }
+  const projected = projectBadgeOntoMission(base, {
+    id: SKYROOT_ID,
+    net: '2026-08-10T19:23:31Z',
+    status: { id: 1, name: 'Go for Launch', abbrev: 'Go' },
+    source: 'detail',
+    observedAtMs: 1
+  })
+  assert.equal(projected.launchTime, '2026-08-10T19:23:31Z')
+  assert.match(String(projected.formattedTime), /08月1[01]日/)
+})
+
 test('applyAuthoritativeStatus：列表飞行中优先于详情就绪（NET 已过）', () => {
   const { applyAuthoritativeStatus } = require('../utils/launch-status-store.js')
   const enrichment = {
@@ -209,4 +248,31 @@ test('applyAuthoritativeStatus：无时间戳的列表就绪不能压过详情�
   const merged = applyAuthoritativeStatus(enrichment, [staleListGo, detailInflight])
   assert.equal(merged.statusId, 6)
   assert.equal(merged.statusBadgeText, '飞行中')
+})
+
+test('projectLaunchRecords：近窗 TBD 沉底，countdown 选更远的就绪任务', () => {
+  const { projectLaunchRecords } = require('../utils/launch-status-store.js')
+  const now = Date.parse('2026-08-10T14:45:00Z')
+  const michibiki = {
+    id: 'michibiki',
+    launchTime: '2026-08-10T19:15:00Z',
+    statusId: 2,
+    statusAbbrev: 'TBD',
+    statusBadgeText: '待定'
+  }
+  const zhuque = {
+    id: 'zhuque',
+    launchTime: '2026-08-10T23:45:00Z',
+    statusId: 1,
+    statusAbbrev: 'Go',
+    statusBadgeText: '就绪'
+  }
+  const projected = projectLaunchRecords({
+    upcoming: [michibiki, zhuque],
+    completed: [],
+    now
+  })
+  assert.equal(projected.upcoming[0].id, 'zhuque')
+  assert.equal(projected.upcoming[1].id, 'michibiki')
+  assert.equal(projected.countdown && projected.countdown.id, 'zhuque')
 })

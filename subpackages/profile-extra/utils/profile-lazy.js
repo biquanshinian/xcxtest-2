@@ -20,6 +20,9 @@ const { markDownloadFailed } = require('../../../utils/download-fail-cache.js')
 const { getUpcomingMissions, getCompletedMissions } = require('../../../utils/api-launch-list.js')
 const { getMyVoteResults, getVoteStats, clearMyVoteResults } = require('../../../utils/api-app-services.js')
 const { getSubscribedMissions, saveLocalSubscription } = require('../../../utils/subscribe.js')
+const { isContentLangEn, zhField } = require('../../../utils/locale.js')
+const { translateRocketName } = require('../../../utils/rocket-name-i18n.js')
+const { localizeMissionTitle } = require('../../../utils/mission-title-i18n.js')
 const { getOaAlertStatus, enableOaAlert, disableOaAlert } = require('./oa-alert.js')
 const {
   doCheckIn,
@@ -37,6 +40,92 @@ const { getDailyQuestion, answerQuestion, getQuizStats, verifyQuizSave } = requi
 /** 与首页任务卡 / mapLaunchToListItem 同源；忽略外来盖章，按当前艺术风格重算 */
 function resolveHomeRocketImage(stamped, rocketName, rocketConfiguration) {
   return resolveMissionRocketImageFresh(rocketName || '', rocketConfiguration || null)
+}
+
+/**
+ * 竞猜战绩标题/火箭名：与发射卡片同一套 contentLang + 词典。
+ * 配图始终用英文火箭名（rocketNameEn），避免中文 miss 媒体字典。
+ * @param {string} missionName
+ * @param {string} rocketName
+ * @param {object|null} cachedMission
+ * @param {{ nameEn?: string, rocketNameEn?: string }} [stored] 历史项已缓存的英文字段
+ */
+function localizeVoteHistoryDisplay(missionName, rocketName, cachedMission, stored) {
+  stored = stored || {}
+  var pack = cachedMission && cachedMission._langPack
+  var cfg = cachedMission && cachedMission.rocketConfiguration
+  var rocketEn =
+    stored.rocketNameEn ||
+    (pack && pack.rocketNameEn) ||
+    (cfg && (cfg.full_name || cfg.name)) ||
+    (cachedMission && cachedMission.rocketName) ||
+    rocketName ||
+    ''
+  rocketEn = String(rocketEn || '').trim()
+  // 若传入的是中文展示名，尽量别当英文原名用
+  if (rocketEn && /[\u4e00-\u9fff]/.test(rocketEn) && !stored.rocketNameEn) {
+    rocketEn =
+      (pack && pack.rocketNameEn) ||
+      (cfg && (cfg.full_name || cfg.name)) ||
+      (cachedMission && cachedMission.rocketName) ||
+      ''
+  }
+  var rocketZh =
+    (pack && pack.rocketNameZh) ||
+    translateRocketName(rocketEn) ||
+    rocketEn
+
+  var nameEn =
+    stored.nameEn ||
+    (pack && (pack.nameEn || pack.missionNameEn)) ||
+    ''
+  var nameRaw = String(missionName || '').trim()
+  if (!nameEn) {
+    if (nameRaw && !/[\u4e00-\u9fff]/.test(nameRaw)) nameEn = nameRaw
+    else if (cachedMission) {
+      nameEn = String(
+        (pack && (pack.nameEn || pack.missionNameEn)) ||
+          cachedMission.missionName ||
+          cachedMission.name ||
+          ''
+      ).trim()
+      // 缓存里若已是中文展示名，勿当 English
+      if (nameEn && /[\u4e00-\u9fff]/.test(nameEn) && !(pack && pack.nameEn)) nameEn = ''
+    }
+  }
+  if (!nameEn && nameRaw && !/[\u4e00-\u9fff]/.test(nameRaw)) nameEn = nameRaw
+
+  var nameZhFromData = ''
+  if (cachedMission) {
+    nameZhFromData =
+      (pack && (pack.nameZh || pack.missionNameZh)) ||
+      zhField(cachedMission, 'name') ||
+      (cachedMission.mission ? zhField(cachedMission.mission, 'name') : '') ||
+      ''
+  }
+  var nameZh =
+    localizeMissionTitle(nameZhFromData || nameEn || nameRaw, rocketEn, rocketZh) ||
+    nameZhFromData ||
+    nameEn ||
+    nameRaw
+
+  if (isContentLangEn()) {
+    return {
+      name: String(nameEn || nameRaw || nameZh || '').trim(),
+      nameEn: String(nameEn || nameRaw || '').trim(),
+      rocket: String((pack && pack.rocketNameEn) || rocketEn || '').trim(),
+      rocketNameEn: rocketEn,
+      rocketNameZh: String(rocketZh || '').trim()
+    }
+  }
+
+  return {
+    name: String(nameZh || nameRaw || '').trim(),
+    nameEn: String(nameEn || '').trim(),
+    rocket: String(rocketZh || rocketEn || '').trim(),
+    rocketNameEn: rocketEn,
+    rocketNameZh: String(rocketZh || '').trim()
+  }
 }
 
 const VOTE_STATS_TTL_MS = 5 * 60 * 1000
@@ -218,6 +307,7 @@ const methods = {
         this.loadDailyQuiz()
       }
       pushAllToCloud()
+      if (typeof this.refreshIdentity === 'function') this.refreshIdentity(false)
     } catch (e) {}
   },
 
@@ -266,6 +356,13 @@ const methods = {
         const { invalidateOaAlertCache } = require('./oa-alert.js')
         if (invalidateOaAlertCache) invalidateOaAlertCache()
       } catch (e) {}
+      // 主包 utils/oa-alert 有独立缓存；详情/首页读主包，关掉服务号后必须一并清掉
+      try {
+        const mainOa = require('../../../utils/oa-alert.js')
+        if (mainOa && typeof mainOa.invalidateOaAlertCache === 'function') {
+          mainOa.invalidateOaAlertCache()
+        }
+      } catch (e2) {}
     }
   },
 
@@ -276,11 +373,25 @@ const methods = {
     })
   },
 
-  /** 对缺少名称或发射时间的老订阅记录，尝试从本地详情缓存或 API 获取完整数据 */
+  /** 对缺少名称/构型/英文火箭名的老订阅，从本地详情或列表 API 补全（配图与首页同源） */
   async _enrichIncompleteReminders() {
     const missions = this._cachedSubscribedMissions || getSubscribedMissions()
+    const uiList = this.data.myReminders || []
+    const needByUi = {}
+    for (let i = 0; i < uiList.length; i++) {
+      if (uiList[i] && uiList[i]._needsEnrich && uiList[i].missionId) {
+        needByUi[String(uiList[i].missionId)] = true
+      }
+    }
     const incomplete = missions.filter(m =>
-      !m.name || m.name === '发射任务 #' + m.id || m.name === '未知任务' || !m.launchTime || !m.rocketImage
+      !m.name ||
+      m.name === '发射任务 #' + m.id ||
+      m.name === '未知任务' ||
+      !m.launchTime ||
+      !m.rocketConfiguration ||
+      !m.rocketNameEn ||
+      isDefaultRocketSrc(m.rocketImage) ||
+      needByUi[String(m.id)]
     )
     if (!incomplete.length) return
 
@@ -308,27 +419,44 @@ const methods = {
     for (const m of incomplete) {
       // 先查本地详情缓存
       let detail = this._getMissionFromLocalCache(m.id)
-      if (!detail) {
+      if (!detail || !detail.rocketConfiguration) {
         await fetchListsOnce()
         detail = upcomingList.find(item => String(item.id) === String(m.id)) ||
-          (completedList || []).find(item => String(item.id) === String(m.id))
+          (completedList || []).find(item => String(item.id) === String(m.id)) ||
+          detail
       }
       if (!detail) continue
+
+      const rocketNameEn =
+        (detail.rocketName && !/[\u4e00-\u9fff]/.test(String(detail.rocketName))
+          ? detail.rocketName
+          : '') ||
+        m.rocketNameEn ||
+        ''
+      const cfg = detail.rocketConfiguration || m.rocketConfiguration || null
+      const rocketImage = resolveMissionRocketImageFresh(
+        rocketNameEn || detail.rocketName || m.rocket || '',
+        cfg
+      )
 
       const enriched = {
         id: m.id,
         missionName: detail.missionName || detail.name || m.name,
         name: detail.missionName || detail.name || m.name,
         rocketName: detail.rocketName || m.rocket,
-        rocketImage: detail.rocketImage || m.rocketImage,
+        rocketNameEn: rocketNameEn,
+        rocketImage: rocketImage,
+        rocketConfiguration: cfg,
         launchTime: detail.launchTime || detail.windowStart || m.launchTime,
         padName: (detail.padDetail && detail.padDetail.padName) || m.pad
       }
 
       const nameChanged = enriched.missionName && enriched.missionName !== m.name
       const timeChanged = enriched.launchTime && enriched.launchTime !== m.launchTime
-      const imgChanged = enriched.rocketImage && !m.rocketImage
-      if (nameChanged || timeChanged || imgChanged) {
+      const imgChanged = enriched.rocketImage && enriched.rocketImage !== m.rocketImage
+      const cfgChanged = !!cfg && !m.rocketConfiguration
+      const enChanged = !!rocketNameEn && rocketNameEn !== m.rocketNameEn
+      if (nameChanged || timeChanged || imgChanged || cfgChanged || enChanged) {
         saveLocalSubscription(m.id, enriched)
         changed = true
       }
@@ -667,7 +795,7 @@ const methods = {
         }
 
         // 服务器老投票记录可能没存任务名/火箭名（主记录首建时缺失就不再回填），
-        // 先从本地任务详情缓存补全，仍缺的稍后统一从任务列表补
+        // 先从本地任务详情缓存补全，再按 contentLang 套与发射卡同源的中英显示
         var missionName = item.missionName || ''
         var rocketName = item.rocketName || ''
         var cachedMission = self._getMissionFromLocalCache(item.launchId)
@@ -675,11 +803,14 @@ const methods = {
           if (!missionName) missionName = cachedMission.missionName || cachedMission.name || ''
           if (!rocketName) rocketName = cachedMission.rocketName || ''
         }
+        var disp = localizeVoteHistoryDisplay(missionName, rocketName, cachedMission, {
+          rocketNameEn: item.rocketName || rocketName
+        })
 
-        // 与首页卡片同源：复用缓存盖章图 + resolveMissionRocketImage
+        // 与首页卡片同源：配图用英文火箭名
         var rocketImage = resolveHomeRocketImage(
           cachedMission && (cachedMission.rocketImage || cachedMission.image),
-          rocketName,
+          disp.rocketNameEn || rocketName,
           cachedMission && cachedMission.rocketConfiguration
         )
 
@@ -708,8 +839,11 @@ const methods = {
           launchId: item.launchId,
           voteType: voteType,
           voteTypeLabel: voteTypeLabel,
-          name: missionName || '任务 #' + item.launchId,
-          rocket: rocketName,
+          name: disp.name || ('任务 #' + item.launchId),
+          nameEn: disp.nameEn,
+          rocket: disp.rocket,
+          rocketNameEn: disp.rocketNameEn,
+          rocketNameZh: disp.rocketNameZh,
           rocketImage: rocketImage,
           choice: choice,
           choiceLabel: choiceLabel,
@@ -760,11 +894,12 @@ const methods = {
     }
   },
 
-  /** 对仍缺任务名/火箭图的竞猜记录，从首页同源任务列表补全盖章图 */
+  /** 对仍缺任务名/火箭图的竞猜记录，从首页同源任务列表补全，并统一套 contentLang */
   async _enrichVoteHistory() {
     var history = this.data.voteHistory || []
     var needFix = history.some(function (h) {
-      return !h.rocketImage || isDefaultRocketSrc(h.rocketImage) || h.name.indexOf('任务 #') === 0
+      return !h.rocketImage || isDefaultRocketSrc(h.rocketImage) || h.name.indexOf('任务 #') === 0 ||
+        (!isContentLangEn() && /[A-Za-z]{3,}/.test(String(h.name || '') + ' ' + String(h.rocket || '')))
     })
     if (!needFix) return
     if (this._voteEnrichPending) return
@@ -780,7 +915,11 @@ const methods = {
         getCompletedMissions(50, 0).catch(function () { return { list: [] } })
       ])
       var all = (lists[0].list || []).concat(lists[1].list || [])
-      if (!all.length) return
+      if (!all.length) {
+        // 列表拉不到时仍就地汉化已有英文名
+        this._applyVoteHistoryContentLang()
+        return
+      }
 
       var byId = {}
       all.forEach(function (m) { byId[String(m.id)] = m })
@@ -790,25 +929,46 @@ const methods = {
       for (var i = 0; i < latest.length; i++) {
         var h = latest[i]
         var launchId = h.launchId || String(h.id || '').split('::')[0]
-        var needName = h.name.indexOf('任务 #') === 0
-        var needImg = !h.rocketImage || isDefaultRocketSrc(h.rocketImage)
-        if (!needName && !needImg) continue
-
         var m = byId[String(launchId)]
-        if (!m) continue
+        var cached = this._getMissionFromLocalCache
+          ? this._getMissionFromLocalCache(launchId)
+          : null
+        var source = m || cached
+        var needName = !h.name || h.name.indexOf('任务 #') === 0
+        var needImg = !h.rocketImage || isDefaultRocketSrc(h.rocketImage)
+        var needLang = !isContentLangEn() &&
+          /[A-Za-z]{3,}/.test(String(h.name || '') + ' ' + String(h.rocket || ''))
 
-        var name = m.missionName || m.name || ''
-        var rocket = m.rocketName || h.rocket || ''
+        if (!needName && !needImg && !needLang) continue
 
-        if (name && needName) {
-          patch['voteHistory[' + i + '].name'] = name
+        var rawName = h.nameEn || (source && (source.missionName || source.name)) || h.name || ''
+        var rawRocket = h.rocketNameEn || (source && source.rocketName) || h.rocket || ''
+        var disp = localizeVoteHistoryDisplay(rawName, rawRocket, source || cached, {
+          nameEn: h.nameEn,
+          rocketNameEn: h.rocketNameEn
+        })
+
+        if (disp.name && (needName || needLang) && disp.name !== h.name) {
+          patch['voteHistory[' + i + '].name'] = disp.name
         }
-        if (rocket && !h.rocket) {
-          patch['voteHistory[' + i + '].rocket'] = rocket
+        if (disp.nameEn && disp.nameEn !== h.nameEn) {
+          patch['voteHistory[' + i + '].nameEn'] = disp.nameEn
         }
-        if (needImg) {
-          // 按当前艺术风格重算，禁止直接复用首页盖章（可能粘住机娘/原图）
-          var img = resolveHomeRocketImage('', rocket, m.rocketConfiguration)
+        if (disp.rocket && (needLang || !h.rocket) && disp.rocket !== h.rocket) {
+          patch['voteHistory[' + i + '].rocket'] = disp.rocket
+        }
+        if (disp.rocketNameEn && disp.rocketNameEn !== h.rocketNameEn) {
+          patch['voteHistory[' + i + '].rocketNameEn'] = disp.rocketNameEn
+        }
+        if (disp.rocketNameZh && disp.rocketNameZh !== h.rocketNameZh) {
+          patch['voteHistory[' + i + '].rocketNameZh'] = disp.rocketNameZh
+        }
+        if (needImg || (disp.rocketNameEn && disp.rocketNameEn !== h.rocketNameEn)) {
+          var img = resolveHomeRocketImage(
+            '',
+            disp.rocketNameEn || rawRocket,
+            (source && source.rocketConfiguration) || (cached && cached.rocketConfiguration)
+          )
           if (img && img !== h.rocketImage) {
             patch['voteHistory[' + i + '].rocketImage'] = img
           }
@@ -822,6 +982,36 @@ const methods = {
     }
   },
 
+  /** 语言切换后就地重套竞猜战绩展示字段（无需等服务端重拉） */
+  _applyVoteHistoryContentLang() {
+    var history = this.data.voteHistory || []
+    if (!history.length) return
+    var patch = {}
+    for (var i = 0; i < history.length; i++) {
+      var h = history[i]
+      if (!h) continue
+      var cached = this._getMissionFromLocalCache
+        ? this._getMissionFromLocalCache(h.launchId)
+        : null
+      var disp = localizeVoteHistoryDisplay(
+        h.nameEn || h.name,
+        h.rocketNameEn || h.rocket,
+        cached,
+        { nameEn: h.nameEn, rocketNameEn: h.rocketNameEn }
+      )
+      if (disp.name && disp.name !== h.name) patch['voteHistory[' + i + '].name'] = disp.name
+      if (disp.nameEn && disp.nameEn !== h.nameEn) patch['voteHistory[' + i + '].nameEn'] = disp.nameEn
+      if (disp.rocket && disp.rocket !== h.rocket) patch['voteHistory[' + i + '].rocket'] = disp.rocket
+      if (disp.rocketNameEn && disp.rocketNameEn !== h.rocketNameEn) {
+        patch['voteHistory[' + i + '].rocketNameEn'] = disp.rocketNameEn
+      }
+      if (disp.rocketNameZh && disp.rocketNameZh !== h.rocketNameZh) {
+        patch['voteHistory[' + i + '].rocketNameZh'] = disp.rocketNameZh
+      }
+    }
+    if (Object.keys(patch).length) this.setData(patch)
+  },
+
   /** 艺术风格切换：重算竞猜历史缩略图 */
   _refreshVoteHistoryRocketArt() {
     var history = this.data.voteHistory || []
@@ -833,7 +1023,7 @@ const methods = {
       var mission = this._getMissionFromLocalCache
         ? this._getMissionFromLocalCache(h.launchId)
         : null
-      var rocket = h.rocket || (mission && mission.rocketName) || ''
+      var rocket = h.rocketNameEn || h.rocket || (mission && mission.rocketName) || ''
       var cfg = (mission && mission.rocketConfiguration) || null
       var img = resolveMissionRocketImageFresh(rocket, cfg)
       if (img && img !== h.rocketImage) {
@@ -869,7 +1059,7 @@ const methods = {
     var mission = this._getMissionFromLocalCache
       ? this._getMissionFromLocalCache(h.launchId)
       : null
-    var rocket = h.rocket || (mission && mission.rocketName) || ''
+    var rocket = h.rocketNameEn || h.rocket || (mission && mission.rocketName) || ''
     var cfg = (mission && mission.rocketConfiguration) || null
     var next = resolveHomeRocketImage(failed, rocket, cfg)
     if (!next || next === failed) {

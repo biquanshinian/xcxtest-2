@@ -1,16 +1,9 @@
 const { getUiShellLayout } = require('../../../utils/layout.js')
 const { getThemeClassSync, isLightSync, getPageBgSync } = require('../../../utils/theme.js')
-const { getMembershipState, isPro, hasPurchased, purchaseSubscription, purchaseProduct, PRODUCTS, PLANS, MEMBER_ICONS, getEffectivePrices, resolvePriceFromMap, formatPriceYuan, warmMembershipStateSync } = require('../../../utils/membership.js')
+const { getMembershipState, isPro, hasPurchased, purchaseSubscription, purchaseProduct, PRODUCTS, PLANS, MEMBER_ICONS, MEMBER_BENEFIT_ICONS, getEffectivePrices, resolvePriceFromMap, formatPriceYuan, warmMembershipStateSync } = require('../../../utils/membership.js')
 const { getCachedIcon, preloadIcons } = require('../../../utils/icon-cache.js')
 
-// 权益图标 URL
-const BENEFIT_ICONS = [
-  'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/徽章/1778741192678_gsejhy.png',
-  'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/徽章/1778741195115_g7z847.png',
-  'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/徽章/1778741195886_bbbiph.png',
-  'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/徽章/1778741196495_ltn8qz.png',
-  'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/徽章/1778741197093_xhd41j.png'
-]
+const BENEFIT_ICONS = MEMBER_BENEFIT_ICONS
 
 const PRODUCT_META = [
   { id: 'starlink_ar', vpayProductId: 'vp_starlink_ar', name: PRODUCTS.STARLINK_AR.name, desc: '实景增强现实观测星链卫星', defaultPrice: PRODUCTS.STARLINK_AR.price },
@@ -309,6 +302,12 @@ Page({
   goOrders() {
     try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
     wx.navigateTo({ url: '/subpackages/profile-extra/membership/orders' })
+  },
+
+  /** 邀请得月卡 */
+  goInvite() {
+    try { wx.vibrateShort({ type: 'light' }) } catch (e) {}
+    wx.navigateTo({ url: '/subpackages/profile-extra/invite/invite' })
   },
 
   selectPlan(e) {

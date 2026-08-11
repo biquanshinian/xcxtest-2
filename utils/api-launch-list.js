@@ -9,18 +9,24 @@ const { extractRecoveryIcons } = require('./landing-icons.js')
 const {
   request,
   getCacheKey,
-  formatPadLocation,
-  getCountryDisplay,
+  getCountryDisplayPair,
   getStatusCategory,
-  getStatusBadgeText,
-  emptyListResult
+  getStatusBadgeTextPair,
+  emptyListResult,
+  patchUpcomingLocalCacheById
 } = require('./api-request.js')
-const { pickLocalized, zhField } = require('./locale.js')
-const { translateLocation } = require('./space-terms-i18n.js')
+const { pickLocalized, zhField, launchCardUiText } = require('./locale.js')
+const { translateAgencyName } = require('./space-terms-i18n.js')
+const {
+  applyContentLangToMission,
+  buildRocketNamePair,
+  buildTitlePair,
+  buildLaunchSitePair
+} = require('./launch-card-i18n.js')
 
 function getRocketDisplayNameFromConfig(configuration) {
-  if (!configuration || typeof configuration !== 'object') return '未知火箭'
-  return configuration.name || configuration.full_name || '未知火箭'
+  if (!configuration || typeof configuration !== 'object') return 'Unknown rocket'
+  return configuration.name || configuration.full_name || 'Unknown rocket'
 }
 
 function getRocketDisplayNameFromLaunch(launch) {
@@ -37,7 +43,9 @@ function pickRocketConfigurationSnapshot(launch) {
   if (!cfg || typeof cfg !== 'object') return null
   return {
     name: typeof cfg.name === 'string' ? cfg.name : '',
-    full_name: typeof cfg.full_name === 'string' ? cfg.full_name : ''
+    nameZh: typeof cfg.nameZh === 'string' ? cfg.nameZh : '',
+    full_name: typeof cfg.full_name === 'string' ? cfg.full_name : '',
+    full_nameZh: typeof cfg.full_nameZh === 'string' ? cfg.full_nameZh : ''
   }
 }
 
@@ -103,57 +111,78 @@ function buildRocketSpecsForDetail(rocketConfig) {
 }
 
 /**
- * 预计算回收标签的 CSS 类名和文案（避免 WXML 中写复杂三元表达式）
+ * 预计算回收标签的 CSS 类名和中英文案
  */
-function computeRecoveryTag(boosterInfo, isRecoverableThisMission) {
+function computeRecoveryTagPair(boosterInfo, isRecoverableThisMission) {
   if (boosterInfo && boosterInfo.reused === false) {
-    return { recoveryTagClass: 'recovery-tag--not-reused', recoveryTagText: '未复用/首次' }
+    return {
+      recoveryTagClass: 'recovery-tag--not-reused',
+      recoveryTagTextZh: '未复用/首次',
+      recoveryTagTextEn: 'New / first flight'
+    }
   }
   if (isRecoverableThisMission) {
-    return { recoveryTagClass: 'recovery-tag--reuse', recoveryTagText: '可回收' }
+    return {
+      recoveryTagClass: 'recovery-tag--reuse',
+      recoveryTagTextZh: '可回收',
+      recoveryTagTextEn: 'Recoverable'
+    }
   }
   if (boosterInfo && boosterInfo.inferredRecovery) {
-    return { recoveryTagClass: 'recovery-tag--expendable', recoveryTagText: '回收信息待确认' }
+    return {
+      recoveryTagClass: 'recovery-tag--expendable',
+      recoveryTagTextZh: '回收信息待确认',
+      recoveryTagTextEn: 'Recovery TBD'
+    }
   }
-  return { recoveryTagClass: 'recovery-tag--expendable', recoveryTagText: '一次性' }
+  return {
+    recoveryTagClass: 'recovery-tag--expendable',
+    recoveryTagTextZh: '一次性',
+    recoveryTagTextEn: 'Expendable'
+  }
 }
 
-
 function buildLocalizedLaunchSite(launch) {
-  const pad = launch && launch.pad
-  if (!pad) return '未知地点'
-  const padEn = (pad.name || '').trim()
-  const locEn = (pad.location && pad.location.name) ? String(pad.location.name).trim() : ''
-  // 中文候选 = 云端 nameZh → 客户端词典；pickLocalized 再按语言选中文或英文
-  const padDisplay = pickLocalized(zhField(pad, 'name') || translateLocation(padEn), padEn)
-  const locDisplay = pickLocalized(
-    (pad.location ? (zhField(pad.location, 'name') || translateLocation(locEn)) : ''),
-    locEn
-  )
-  if (padDisplay && locDisplay) return `${padDisplay}, ${locDisplay}`.trim()
-  return padDisplay || locDisplay || '未知地点'
+  const pair = buildLaunchSitePair(launch)
+  return pickLocalized(pair.launchSiteZh, pair.launchSiteEn) || launchCardUiText('unknownPlace')
 }
 
 function mapLaunchToListItem(launch, index, offset, type) {
-  const rocketName = getRocketDisplayNameFromLaunch(launch)
+  const rocketNameEn = getRocketDisplayNameFromLaunch(launch)
   const rocketConfiguration = pickRocketConfigurationSnapshot(launch)
-  // 与详情头图同源：resolveMissionRocketImage 会走 fuzzy/字典/default，并做 CDN/本地缓存规范化
-  const finalImage = resolveMissionRocketImage('', rocketName, rocketConfiguration, true) || getRocketImage(rocketName)
-  const boosterInfo = extractBoosterInfoForList(launch, rocketName, finalImage)
+  // 优先云端 AI/学习词典写入的 nameZh，本地静态词典仅作兜底
+  const rocketPair = buildRocketNamePair(rocketNameEn, rocketConfiguration)
+  // 配图始终用英文原名匹配字典，避免中文名 miss
+  const finalImage = resolveMissionRocketImage('', rocketNameEn, rocketConfiguration, true) || getRocketImage(rocketNameEn)
+  const boosterInfo = extractBoosterInfoForList(launch, rocketNameEn, finalImage)
   const status = launch.status || {}
   const statusCategory = getStatusCategory(status)
   const { launchAgency, launchAgencyId, launchAgencyAbbrev } = extractLaunchAgency(launch)
+  const lsp = launch.launch_service_provider
+  const agencyEn = (lsp && lsp.name) || launchAgency || ''
+  const agencyZh =
+    (lsp && translateAgencyName(lsp.name, lsp.abbrev)) ||
+    translateAgencyName(launchAgency, launchAgencyAbbrev) ||
+    ''
   const _isRecoverable = isRecoverable(boosterInfo)
   const idPrefix = type === 'completed' ? 'completed' : 'mission'
-  const statusBadgeText = getStatusBadgeText(status, statusCategory)
+  const countryPair = getCountryDisplayPair(launch.pad, launch.launch_service_provider, launch)
+  const badgeOpts = {
+    chineseRocket: countryPair.countryDisplayZh === '中国',
+    countryDisplay: countryPair.countryDisplayZh
+  }
+  const badgePair = getStatusBadgeTextPair(status, statusCategory, badgeOpts)
+  const sitePair = buildLaunchSitePair(launch)
+  const titlePair = buildTitlePair(launch, rocketPair.rocketNameEn, rocketPair.rocketNameZh)
+  const recoveryPair = computeRecoveryTagPair(boosterInfo, _isRecoverable)
 
   const item = {
     id: launch.id || `${idPrefix}-${offset + index}`,
-    name: launch.name || '',
-    missionName: (launch.mission && launch.mission.name) || '',
-    rocketName,
-    launchSite: buildLocalizedLaunchSite(launch),
-    padLocation: formatPadLocation(launch.pad),
+    name: titlePair.nameEn,
+    missionName: titlePair.missionNameEn,
+    rocketName: rocketPair.rocketNameEn,
+    launchSite: sitePair.launchSiteEn,
+    padLocation: sitePair.padLocationEn,
     launchTime: launch.net || launch.window_start,
     windowStart: launch.window_start,
     windowEnd: launch.window_end,
@@ -161,15 +190,14 @@ function mapLaunchToListItem(launch, index, offset, type) {
     netPrecision: (launch.net_precision && (launch.net_precision.name || launch.net_precision.abbrev)) || '',
     rocketImage: finalImage,
     rocketConfiguration,
-    // 与角标同源（按 LL2 status.id），避免「成功 / 已成功 / 发射成功」混用
-    status: statusBadgeText,
+    status: badgePair.statusBadgeTextZh,
     statusId: status.id != null ? Number(status.id) : null,
     statusAbbrev: status.abbrev || '',
     statusCategory,
-    statusBadgeText,
+    statusBadgeText: badgePair.statusBadgeTextZh,
     probability: launch.probability,
-    countryDisplay: getCountryDisplay(launch.pad, launch.launch_service_provider, launch),
-    launchAgency,
+    countryDisplay: countryPair.countryDisplayZh,
+    launchAgency: agencyZh || agencyEn,
     launchAgencyId,
     launchAgencyAbbrev,
     rocketConfigId: (rocketConfiguration && rocketConfiguration.id != null) ? rocketConfiguration.id : null,
@@ -181,7 +209,28 @@ function mapLaunchToListItem(launch, index, offset, type) {
     isRecoverableThisMission: _isRecoverable,
     landingIcon: boosterInfo && (boosterInfo.landingType === 'ASDS' ? 'asds' : (boosterInfo.landingType === 'RTLS' || boosterInfo.landingLocation ? 'rtls' : null)) || null,
     recoveryIcons: extractRecoveryIcons(launch, type === 'completed' ? 'completed' : 'upcoming'),
-    ...computeRecoveryTag(boosterInfo, _isRecoverable)
+    recoveryTagClass: recoveryPair.recoveryTagClass,
+    recoveryTagText: recoveryPair.recoveryTagTextZh,
+    _langPack: {
+      rocketNameEn: rocketPair.rocketNameEn,
+      rocketNameZh: rocketPair.rocketNameZh,
+      padLocationEn: sitePair.padLocationEn,
+      padLocationZh: sitePair.padLocationZh,
+      launchSiteEn: sitePair.launchSiteEn,
+      launchSiteZh: sitePair.launchSiteZh,
+      nameEn: titlePair.nameEn,
+      nameZh: titlePair.nameZh,
+      missionNameEn: titlePair.missionNameEn,
+      missionNameZh: titlePair.missionNameZh,
+      launchAgencyEn: agencyEn,
+      launchAgencyZh: agencyZh || agencyEn,
+      countryDisplayEn: countryPair.countryDisplayEn,
+      countryDisplayZh: countryPair.countryDisplayZh,
+      statusBadgeTextEn: badgePair.statusBadgeTextEn,
+      statusBadgeTextZh: badgePair.statusBadgeTextZh,
+      recoveryTagTextEn: recoveryPair.recoveryTagTextEn,
+      recoveryTagTextZh: recoveryPair.recoveryTagTextZh
+    }
   }
 
   if (type === 'completed') {
@@ -197,7 +246,7 @@ function mapLaunchToListItem(launch, index, offset, type) {
     item.isExpired = false
   }
 
-  return item
+  return applyContentLangToMission(item)
 }
 
 // ── 模块级内存快照 + inflight 去重 ──
@@ -210,7 +259,13 @@ const _listInflight = {}
 /** 每次命中都返回浅拷贝的列表项，避免调用方就地改写污染共享快照 */
 function cloneListResult(result) {
   return {
-    list: (result.list || []).map((item) => ({ ...item })),
+    list: (result.list || []).map((item) => {
+      const next = { ...item }
+      if (item && item._langPack && typeof item._langPack === 'object') {
+        next._langPack = Object.assign({}, item._langPack)
+      }
+      return applyContentLangToMission(next)
+    }),
     hasMore: result.hasMore,
     nextOffset: result.nextOffset
   }
@@ -237,7 +292,8 @@ function withListSnapshot(key, fetcher) {
 }
 
 function getUpcomingMissions(limit = 10, offset = 0) {
-  return withListSnapshot(`upcoming:${limit}:${offset}`, () => fetchUpcomingMissions(limit, offset))
+  const { getContentLang } = require('./locale.js')
+  return withListSnapshot(`upcoming:${limit}:${offset}:${getContentLang()}`, () => fetchUpcomingMissions(limit, offset))
 }
 
 function fetchUpcomingMissions(limit = 10, offset = 0) {
@@ -282,7 +338,8 @@ function fetchUpcomingMissions(limit = 10, offset = 0) {
  * @returns {Promise} 返回已完成任务列表
  */
 function getCompletedMissions(limit = 10, offset = 0) {
-  return withListSnapshot(`completed:${limit}:${offset}`, () => fetchCompletedMissions(limit, offset))
+  const { getContentLang } = require('./locale.js')
+  return withListSnapshot(`completed:${limit}:${offset}:${getContentLang()}`, () => fetchCompletedMissions(limit, offset))
 }
 
 function fetchCompletedMissions(limit = 10, offset = 0) {
@@ -389,9 +446,10 @@ function filterLaunchesWithinUpcomingDays(list, withinDays) {
  * 云端关键词搜索发射任务（LL2 search）。
  * 用于星问「问谁出谁」本地缓存未命中时的回退。
  * @param {string} keyword
- * @param {{ limit?: number, withinDays?: number, upcomingOnly?: boolean }} [options]
+ * @param {{ limit?: number, withinDays?: number, upcomingOnly?: boolean, completedOnly?: boolean }} [options]
  *   - withinDays: 只保留未来 N 天内任务（发射列表探云用）
  *   - upcomingOnly: 只搜 upcoming，不合并 previous
+ *   - completedOnly: 只搜 previous（历史发射）
  * @returns {Promise<{ list: object[] }>}
  */
 function searchLaunchesByKeyword(keyword, options) {
@@ -399,7 +457,10 @@ function searchLaunchesByKeyword(keyword, options) {
   if (!q) return Promise.resolve({ list: [] })
   const limit = Math.max(1, Math.min(Number(options && options.limit) || 20, 40))
   const withinDays = Number(options && options.withinDays)
-  const upcomingOnly = !!(options && options.upcomingOnly) || (Number.isFinite(withinDays) && withinDays > 0)
+  const completedOnly = !!(options && options.completedOnly)
+  const upcomingOnly = !completedOnly && (
+    !!(options && options.upcomingOnly) || (Number.isFinite(withinDays) && withinDays > 0)
+  )
 
   const applyWindow = (list) => {
     if (!Number.isFinite(withinDays) || withinDays <= 0) return list || []
@@ -415,6 +476,21 @@ function searchLaunchesByKeyword(keyword, options) {
     format: 'json',
     hide_recent_previous: true
   }, null, true).then((d) => mapSearchResultsToList(d, 'upcoming'))
+
+  const fetchPreviousSearch = () => request('/launches/previous/', {
+    search: q,
+    limit: Math.min(limit, 40),
+    offset: 0,
+    ordering: '-net',
+    mode: 'detailed',
+    format: 'json'
+  }, null, true).then((d) => mapSearchResultsToList(d, 'completed'))
+
+  if (completedOnly) {
+    return fetchPreviousSearch()
+      .then((list) => ({ list: (list || []).slice(0, limit) }))
+      .catch(() => ({ list: [] }))
+  }
 
   if (upcomingOnly) {
     return fetchUpcomingSearch()
@@ -468,7 +544,8 @@ module.exports = {
   filterLaunchesWithinUpcomingDays,
   isStarshipListItem,
   mapLaunchToListItem,
-  invalidateListSnapshots
+  invalidateListSnapshots,
+  patchUpcomingLocalCacheById
 }
 
 function invalidateListSnapshots() {

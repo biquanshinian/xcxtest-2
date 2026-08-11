@@ -273,9 +273,47 @@ const AI_MIN_SLICE_MS = 15000
 
 const AI_TRANSLATE_SYSTEM_PROMPT = `你是航天领域的专业中英翻译。把用户消息中的英文原文翻译成简体中文，要求：
 1. 只输出译文本身，不要任何解释、注释、前缀或引号
-2. 保留 SpaceX、Falcon 9、Starship、Starlink、NASA、ISS 等专有名词、机构缩写与火箭/飞船型号原文
-3. 术语准确：booster=助推器，static fire=静态点火，splashdown=溅落，payload=载荷，flyback=返场
-4. 语气自然流畅，符合中文航天报道习惯`
+2. 火箭/飞船型号必须译成通行中文（Falcon 9→猎鹰9号，Falcon Heavy→猎鹰重型，Long March 7A→长征七号改，Zhuque-3/ZQ-3→朱雀三号，Starship→星舰，Electron→电子号，New Glenn→新格伦）；机构缩写（SpaceX、NASA、ISS、NROL、USSF）可保留原文
+3. 任务与载荷名称应译成通行中文，例如 Nancy Grace Roman Space Telescope→南希-格蕾丝-罗曼太空望远镜，Unknown Payload→未知有效载荷，Starlink Group→星链组，Flight N→第N次飞行（绝不能译成民航「航班」或「飞行N」）
+4. 强制术语（禁止影视/日常义）：Crew-N / Crew N → 载人-N（绝不能译成「人物」「船员」「剧组」）；Crew Dragon → 载人龙飞船；Cargo Dragon → 货运龙飞船；crewed → 载人；crew（乘组语境）→ 乘组；Flight N → 第N次飞行（绝不能译成「航班」/「飞行N」）；Flight Test N → 第N次试飞；单独 Flight → 飞行
+5. 术语准确：booster=助推器，static fire=静态点火，splashdown=溅落，payload=载荷，flyback=返场；同一英文术语全文必须使用同一中文译名
+6. 语气自然流畅，符合中文航天报道习惯`
+
+/** 机翻后纠偏：通译模型常把 Crew 译成「人物」、Flight 译成「航班」 */
+function sanitizeAerospaceTranslation(zh, srcEn) {
+  let s = String(zh || '')
+  if (!s) return ''
+  const en = String(srcEn || '')
+  // 源文含 Crew 任务号 / Crew Dragon 时强制纠偏
+  if (/\bCrew\b/i.test(en) || /人物|船员|剧组/.test(s)) {
+    s = s
+      .replace(/人物龙飞船/g, '载人龙飞船')
+      .replace(/人物\s*Dragon/gi, '载人龙飞船')
+      .replace(/人物[-\s]?(\d+)/g, '载人-$1')
+      .replace(/船员[-\s]?(\d+)/g, '载人-$1')
+      .replace(/剧组[-\s]?(\d+)/g, '载人-$1')
+      .replace(/全体人员[-\s]?(\d+)/g, '载人-$1')
+  }
+  if (/\bCrew\s+Dragon\b/i.test(en)) {
+    s = s.replace(/\bCrew\s+Dragon\b/gi, '载人龙飞船')
+  }
+  if (/\bCrew[-\s]?\d+\b/i.test(en)) {
+    s = s.replace(/\bCrew[-\s]?(\d+)\b/gi, '载人-$1')
+  }
+  // Flight → 飞行（纠偏民航「航班」误译与英文残留）
+  if (/\bFlight\b/i.test(en) || /航班|飞行\s*\d+|试飞\s*\d+/.test(s)) {
+    s = s
+      .replace(/航班[-\s]?(\d+)/g, '第$1次飞行')
+      .replace(/航班/g, '飞行')
+      .replace(/飞行\s*(\d+)/g, '第$1次飞行')
+      .replace(/试飞\s*(\d+)/g, '第$1次试飞')
+      .replace(/\bFlight\s+Test\s+(\d+)\b/gi, '第$1次试飞')
+      .replace(/\bFlight\s+Test\b/gi, '试飞')
+      .replace(/\bFlight[-\s]?(\d+)\b/gi, '第$1次飞行')
+      .replace(/\bFlight\b/gi, '飞行')
+  }
+  return s
+}
 
 let _aiDeadline = 0
 
@@ -331,7 +369,7 @@ async function collectTextStream(textStream) {
   return out.trim()
 }
 
-function cleanAITranslation(s) {
+function cleanAITranslation(s, srcEn) {
   let out = String(s || '').trim()
   out = out.replace(/^(译文|翻译|中文译文)[:：]\s*/, '')
   const wrapped =
@@ -339,7 +377,7 @@ function cleanAITranslation(s) {
     (out.startsWith('\u201c') && out.endsWith('\u201d')) ||
     (out.startsWith('「') && out.endsWith('」'))
   if (wrapped) out = out.slice(1, -1).trim()
-  return out
+  return sanitizeAerospaceTranslation(out, srcEn)
 }
 
 function isTmtPermanentError(err) {
@@ -395,7 +433,7 @@ async function translateViaAIChunk(text) {
         }),
         new Promise((_, reject) => setTimeout(() => reject(new Error('AI 翻译超时')), timeoutMs))
       ])
-      const cleaned = cleanAITranslation(extractLLMText(res))
+      const cleaned = cleanAITranslation(extractLLMText(res), src)
       if (cleaned && looksLikelyChinese(cleaned)) return cleaned
     } catch (e) {
       console.warn(`[translate] generateText 失败 (${p.provider}/${p.model}):`, e.message || e)
@@ -415,7 +453,7 @@ async function translateViaAIChunk(text) {
         }),
         new Promise((_, reject) => setTimeout(() => reject(new Error('AI stream 超时')), timeoutMs))
       ])
-      const cleaned = cleanAITranslation(await collectTextStream(streamRes && streamRes.textStream))
+      const cleaned = cleanAITranslation(await collectTextStream(streamRes && streamRes.textStream), src)
       if (cleaned && looksLikelyChinese(cleaned)) return cleaned
     } catch (e) {
       console.warn(`[translate] streamText 失败 (${p.provider}/${p.model}):`, e.message || e)
@@ -462,7 +500,7 @@ async function translatePendingViaAI(toMachine, hashToIndices, results) {
       remaining.push(item)
       return
     }
-    const zh = await translateViaAI(item.raw)
+    const zh = sanitizeAerospaceTranslation(await translateViaAI(item.raw), item.raw)
     if (zh && looksLikelyChinese(zh)) {
       aiHit++
       for (const idx of hashToIndices[item.hash]) {
@@ -487,9 +525,11 @@ async function translatePendingViaAI(toMachine, hashToIndices, results) {
 /**
  * 批量翻译英文文本 → 中文（词典预处理 + 缓存 + 混元 + TMT 兜底）
  * @param {string[]} texts
+ * @param {{ forceAt?: boolean[] }} [opts] forceAt[i]=true 时跳过 shouldMachineTranslate（型号短名）
  * @returns {Promise<string[]>}
  */
-async function translateTextsBatch(texts) {
+async function translateTextsBatch(texts, opts) {
+  const forceAt = (opts && opts.forceAt) || null
   const inputs = (texts || []).map((t) => String(t || '').trim())
   const results = new Array(inputs.length).fill('')
   const pending = []
@@ -497,12 +537,15 @@ async function translateTextsBatch(texts) {
   for (let i = 0; i < inputs.length; i++) {
     const raw = inputs[i]
     if (!raw) continue
-    if (!shouldMachineTranslate(raw)) {
+    const forced = !!(forceAt && forceAt[i])
+    if (!forced && !shouldMachineTranslate(raw)) {
       results[i] = applyPhraseRules(raw) || raw
       continue
     }
-    const hash = hashText(raw)
-    pending.push({ index: i, raw, hash })
+    // 强制机翻的短型号：先套短语规则，再进 AI（避免只剩英文原串）
+    const prepared = forced ? (applyPhraseRules(raw) || raw) : raw
+    const hash = hashText(prepared)
+    pending.push({ index: i, raw: prepared, hash })
   }
 
   if (!pending.length) return results
@@ -514,7 +557,8 @@ async function translateTextsBatch(texts) {
 
   for (const item of pending) {
     if (cacheMap[item.hash]) {
-      results[item.index] = cacheMap[item.hash]
+      // 纠偏历史缓存里的「人物-13」等误译，避免继续污染列表
+      results[item.index] = sanitizeAerospaceTranslation(cacheMap[item.hash], item.raw)
       continue
     }
     if (hashToIndices[item.hash]) {
@@ -635,7 +679,7 @@ async function translateTextsBatch(texts) {
   for (const item of toTmt) {
     const parts = segmentParts[item.hash]
     if (!parts || !parts.length || !parts.every(Boolean)) continue
-    const zh = parts.join('')
+    const zh = sanitizeAerospaceTranslation(parts.join(''), item.raw)
     if (!zh || !looksLikelyChinese(zh)) continue
     for (const idx of hashToIndices[item.hash]) {
       results[idx] = zh

@@ -104,22 +104,24 @@ const SYSTEM_PROMPT = `你是「空叉火星探索日志」微信小程序的内
 - 查具体任务/火箭（如朱雀三号、猎鹰9、星链）
 - 星舰下一次试飞、星舰组合体/进展
 - 即将发射列表：可按国家（中国/美国等）、发射场（文昌等）、发射商（SpaceX 等）筛选；日程窗口约未来 60 天
+- 历史发射列表：问「历史/上次/过往发射」时出已完成任务列表或单场历史任务卡（禁止把历史答成即将发射）
 - 发射次数统计（今天/今年、中国或全球等）
 - 发射商介绍（SpaceX、中国航天科技集团等）
 - 火箭型号参数（如「猎鹰9多高」「长征五号运力多少」）、发射场资料（文昌、39A 工位等）、飞船资料（神舟、龙飞船乘员与尺寸）
+- 全球飞船图鉴、全球发射场分布地图
 - 助推器战绩（按编号，如 B1067 飞了几次）、回收与复用总览（成功率、复用排行）
 - 星舰在建硬件（如 S38 在哪、B16 什么状态）、Artemis II 任务面板
 - 星链：过境预报（需授权位置）与星座实时分布（在轨颗数以页面为准，不要凭记忆报数）
 - 火箭观礼服务（如「去哪看发射」「文昌观礼」「现场观礼怎么参加」）：出最匹配的火箭观礼入口卡（按发射场/最近任务匹配商家场次），点卡片进入观礼服务
-- 我订阅的发射提醒、发射竞猜、我的航天年度回顾
-- NASA 每日天文图、天象日历（流星雨/日月食）、航天事件与新闻
+- 我订阅的发射提醒、发射竞猜、我的航天年度回顾、我的徽章、我的收藏、每日挑战、月愿计划
+- NASA 每日天文图、天象日历（流星雨/日月食）、航天事件与新闻、NASA 开放数据、系外行星
 - 发射集锦回放、飞行剖面演示、星舰任务指挥室、在轨飞行器追踪、基地封路、空间站实时状态
 若本轮已展示可点击卡片：优先用一两句话引导用户点击下方卡片，再补充关键信息。
 参数类问题（尺寸/运力/推力/乘员/复用次数）只能用本轮注入的卡片数据作答，缺失字段直说暂无，绝不凭记忆报数字。
 观礼类问题统一引导点击下方「火箭观礼」卡片；场次时间、地点、费用与规则以进入页面后为准，禁止编造其他观礼点坐标、票价或开放时间。
 
 【小程序导航速查 - 问"在哪看/怎么用"时据此指路】
-- 首页：发射倒计时与列表；左上角搜索（文本/AI 识图）；点任务卡进详情
+- 首页：发射倒计时与列表；左上角放大镜进入星问；点任务卡进详情
 - 监控中心：视频号/B站直播、星链过境（含观测地图/AR）、星链实时分布、空间站状态、可回收火箭族谱、在轨追踪入口
 - 星舰进度：星舰硬件设施、事件更新、封路通知、发射场/Starbase 地图
 - 事件：即将发生与航天事件
@@ -138,7 +140,7 @@ SpaceX（猎鹰9、星舰、星链、龙飞船）、中国航天（长征、神�
 5. 指路时用上面的导航信息，表述通俗。
 
 【回答风格】
-简洁通俗中文，控制在 200 字以内；关键数据用具体数字；可点卡时先引导再补充；热情与严谨并重，少空话。`
+简洁通俗，控制在 200 字以内；关键数据用具体数字；可点卡时先引导再补充；热情与严谨并重，少空话。`
 
 function isAIAvailable() {
   if (!AI_ENABLED) return false
@@ -151,10 +153,14 @@ function isAIAvailable() {
 
 async function streamChat(messages, onChunk, launchContext) {
   if (!isAIAvailable()) {
-    throw new Error('AI功能不可用')
+    throw new Error(require('./ai-chat-i18n.js').aiChatUiText('errAiUnavailable') || 'AI功能不可用')
   }
 
   let systemContent = SYSTEM_PROMPT
+  try {
+    const { aiChatUiText } = require('./ai-chat-i18n.js')
+    systemContent += '\n\n' + aiChatUiText('replyLangRule')
+  } catch (e) {}
   if (launchContext && typeof launchContext === 'object') {
     systemContent += '\n\n【本小程序实时数据 - 严格基于以下数据回答，不要编造】\n'
 
@@ -247,7 +253,7 @@ async function streamChat(messages, onChunk, launchContext) {
       if (fullText) return fullText
     }
   }
-  throw new Error('AI服务暂时不可用，请稍后再试')
+  throw new Error(require('./ai-chat-i18n.js').aiChatUiText('errAiBusy') || 'AI服务暂时不可用，请稍后再试')
 }
 
 
@@ -297,6 +303,11 @@ const QUICK_SHORTCUTS = [
   { id: 'live_watch', label: '看直播', q: '在哪看发射直播？' },
   { id: 'launch_stats', label: '发射统计', q: '今天中国发射了多少次？' },
   { id: 'agency', label: 'SpaceX', q: 'SpaceX是什么公司？' },
+  // 原智能搜索热门建议 → 星问快捷入口
+  { id: 'agency_blue', label: '蓝色起源', q: 'Blue Origin是什么公司？' },
+  { id: 'site_vandenberg', label: '范登堡', q: '范登堡发射场在哪？' },
+  { id: 'site_kennedy', label: '肯尼迪', q: '肯尼迪航天中心在哪？' },
+  { id: 'rocket_cz', label: '长征火箭', q: '长征系列火箭有哪些？' },
   { id: 'starship_status', label: '星舰组合体', q: '星舰组合体最新进展如何？' },
   { id: 'mission_lookup', label: '查任务', q: '朱雀三号什么时候发射？' },
   { id: 'flight_demo', label: '飞行剖面', q: '看看飞行剖面演示' },

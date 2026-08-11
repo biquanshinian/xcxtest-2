@@ -30,7 +30,6 @@ Page({
     rocketMap: {},
     siteMap: {},
     notifyMinutes: 60,
-    briefingEnabled: true,
     saving: false  },
 
   onLoad() {
@@ -58,8 +57,8 @@ Page({
       selectedSites: sites,
       rocketMap: arrayToMap(rockets),
       siteMap: arrayToMap(sites),
-      notifyMinutes: prefs.notifyMinutes || 60,
-      briefingEnabled: prefs.briefingEnabled !== false    })
+      notifyMinutes: prefs.notifyMinutes || 60
+    })
   },
 
   onToggleRocket(e) {
@@ -96,19 +95,14 @@ Page({
     this.setData({ notifyMinutes: Number(e.currentTarget.dataset.value) || 60 })
   },
 
-  onBriefingToggle(e) {
-    this.setData({ briefingEnabled: !!e.detail.value })
-  },
-
   onSave() {    if (this.data.saving) return
     this.setData({ saving: true })
 
-    // 在现有 preferences 上合并保存，避免覆盖掉其它字段（如收藏 favoriteAgencies）
+    // 在现有 preferences 上合并保存，避免覆盖语言/简报/收藏等已迁出字段
     var prefs = loadPreferences() || {}
     prefs.rocketTypes = this.data.selectedRockets
     prefs.launchSites = this.data.selectedSites
     prefs.notifyMinutes = this.data.notifyMinutes
-    prefs.briefingEnabled = this.data.briefingEnabled
     savePreferences(prefs)
     var self = this
     // 服务号已覆盖发射前与结果：保存偏好时不再弹小程序订阅模板

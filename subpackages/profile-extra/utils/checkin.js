@@ -424,15 +424,22 @@ async function pullProfileFromCloud() {
       } catch (e) {}
     }
 
-    // 恢复偏好设置
+    // 恢复偏好设置（缺 contentLang 时保留本地语言，避免旧云数据冲掉 en）
     if (cloud.preferences && typeof cloud.preferences === 'object' && cloud.preferences.updatedAt) {
       try {
-        var localPrefs = require('../../../utils/user-growth.js').loadPreferences()
+        var ug = require('../../../utils/user-growth.js')
+        var localPrefs = ug.loadPreferences()
         if ((cloud.preferences.updatedAt || 0) > (localPrefs.updatedAt || 0)) {
-          require('../../../utils/user-growth.js').savePreferences(cloud.preferences)
+          ug.savePreferences(ug.mergePreferencesFromCloud(cloud.preferences, localPrefs))
         }
       } catch (e) {}
     }
+
+    // 合并身份展示（昵称 / 头像 / openid）
+    try {
+      const userIdentity = require('../../../utils/user-identity.js')
+      userIdentity.mergeIdentityFromCloud(cloud.identity, result.openid)
+    } catch (e) {}
 
     return { profile: result.profile, openid: result.openid }
   } catch (e) {
@@ -460,12 +467,21 @@ function pushAllToCloud(force) {
   const timeline = storageCache.readSync('_user_timeline', []) || []
   let preferences = {}
   try { preferences = require('../../../utils/user-growth.js').loadPreferences() } catch (e) {}
+  let identity = null
+  try {
+    const id = require('../../../utils/user-identity.js').loadIdentity()
+    identity = {
+      displayName: id.displayName || '',
+      avatarFileID: id.avatarFileID || '',
+      updatedAt: id.updatedAt || 0
+    }
+  } catch (e) {}
 
   wx.cloud.callFunction({
     name: CLOUD_FUNCTION_NAME,
     data: {
       action: 'syncAll',
-      localData: { checkin, achievements, quiz, behaviorStats, timeline, preferences }
+      localData: { checkin, achievements, quiz, behaviorStats, timeline, preferences, identity }
     }
   }).then(() => {
     storageCache.persistAsync(SYNC_FLAG_KEY, Date.now())

@@ -40,6 +40,12 @@ const CORE_LIST_TTL_MS = 48 * 60 * 60 * 1000
 /** LL2 终态：Success / Failure / Partial Failure / Payload Deployed */
 const TERMINAL_STATUS_IDS = { 3: true, 4: true, 7: true, 9: true }
 
+const {
+  shouldRejectNetAdvance,
+  sortResultsByNetAsc: sortResultsByNetPolicy,
+  mergeLiveRowNetHysteresis
+} = require('./net-patch-policy.js')
+
 function sortedParamsString(params) {
   const sorted = Object.keys(params)
     .sort()
@@ -90,14 +96,17 @@ function slimStatusFromLive(live) {
 }
 
 function applyNetPatch(target, live) {
-  target.net = live.net || target.net || ''
-  target.window_start = live.window_start || target.window_start || ''
-  target.window_end = live.window_end || target.window_end || ''
-  const st = slimStatusFromLive(live)
-  if (!st) return
-  // 终态不可被 Go/飞行中等非终态覆盖（LL2 短暂回退或探针乱序时防污染）
-  if (isTerminalStatus(target.status) && !isTerminalStatus(st)) return
-  target.status = st
+  // 与 syncLaunches / launch-net-hourly 共用 NET 迟滞语义
+  const liveRow = {
+    ...live,
+    status: slimStatusFromLive(live) || live.status
+  }
+  const merged = mergeLiveRowNetHysteresis(target, liveRow)
+  if (!merged) return
+  target.net = merged.net || target.net || ''
+  target.window_start = merged.window_start || target.window_start || ''
+  target.window_end = merged.window_end || target.window_end || ''
+  if (merged.status) target.status = merged.status
 }
 
 function rowPatchSnapshot(row) {
@@ -205,16 +214,9 @@ function wouldPruneTerminalRow(row, liveById, extraTerminalIds) {
   return false
 }
 
-/** patch 后按 net 升序重排（缺失/非法 net 的行沉底），改期任务不滞留数组前部 */
+/** patch 后按 net 升序重排；远期待定排序降权（与 hourly 一致） */
 function sortResultsByNetAsc(results) {
-  if (!Array.isArray(results)) return results
-  return results.sort((a, b) => {
-    const ta = a && (a.net || a.window_start) ? new Date(a.net || a.window_start).getTime() : NaN
-    const tb = b && (b.net || b.window_start) ? new Date(b.net || b.window_start).getTime() : NaN
-    const va = Number.isFinite(ta) ? ta : Number.MAX_SAFE_INTEGER
-    const vb = Number.isFinite(tb) ? tb : Number.MAX_SAFE_INTEGER
-    return va - vb
-  })
+  return sortResultsByNetPolicy(results)
 }
 
 /** 读出的文档再 set 回去时必须去掉 _id，否则 TCB 报「不能更新_id的值」 */
@@ -339,7 +341,20 @@ function createUpcomingCachePatcher(db) {
       if (wouldPruneTerminalRow(row, liveById)) return true
       return liveById.has(id) && wouldChangeRow(row, liveById.get(id))
     })
-    if (!anyChange) return { patched: 0, docsWritten: 0, skipped: 'no_change' }
+    const sortRepairNeeded = (() => {
+      if (preLoaded.results.length < 2) return false
+      const ranked = preLoaded.results.slice()
+      sortResultsByNetAsc(ranked)
+      for (let i = 0; i < ranked.length; i++) {
+        const a = preLoaded.results[i] && preLoaded.results[i].id != null
+          ? String(preLoaded.results[i].id)
+          : ''
+        const b = ranked[i] && ranked[i].id != null ? String(ranked[i].id) : ''
+        if (a !== b) return true
+      }
+      return false
+    })()
+    if (!anyChange && !sortRepairNeeded) return { patched: 0, docsWritten: 0, skipped: 'no_change' }
 
     const locked = await acquireLock()
     if (!locked) return { patched: 0, docsWritten: 0, skipped: 'lock_busy' }
@@ -362,7 +377,20 @@ function createUpcomingCachePatcher(db) {
         const pruneRes = pruneTerminalUpcomingResults(mergedResults, liveById)
         pruned = pruneRes.pruned
         mergedResults = pruneRes.results
-        if (!changes.length && !pruned.length) return { patched: 0, docsWritten: 0, skipped: 'no_change' }
+        const sortRepair = (() => {
+          if (mergedResults.length < 2) return false
+          const ranked = mergedResults.slice()
+          sortResultsByNetAsc(ranked)
+          for (let i = 0; i < ranked.length; i++) {
+            const a = mergedResults[i] && mergedResults[i].id != null ? String(mergedResults[i].id) : ''
+            const b = ranked[i] && ranked[i].id != null ? String(ranked[i].id) : ''
+            if (a !== b) return true
+          }
+          return false
+        })()
+        if (!changes.length && !pruned.length && !sortRepair) {
+          return { patched: 0, docsWritten: 0, skipped: 'no_change' }
+        }
         // 改期可能跨批移动：跨批整体按 net 升序重排，再按原批大小切块写回
         sortResultsByNetAsc(mergedResults)
         const batchSizes = loaded.batches.map((b) => b.results.length)
@@ -392,7 +420,18 @@ function createUpcomingCachePatcher(db) {
       const changes = patchResultsInPlace(loaded.results, liveById)
       const pruneRes = pruneTerminalUpcomingResults(loaded.results, liveById)
       loaded.results = pruneRes.results
-      if (!changes.length && !pruneRes.pruned.length) {
+      const sortRepairInline = (() => {
+        if (loaded.results.length < 2) return false
+        const ranked = loaded.results.slice()
+        sortResultsByNetAsc(ranked)
+        for (let i = 0; i < ranked.length; i++) {
+          const a = loaded.results[i] && loaded.results[i].id != null ? String(loaded.results[i].id) : ''
+          const b = ranked[i] && ranked[i].id != null ? String(ranked[i].id) : ''
+          if (a !== b) return true
+        }
+        return false
+      })()
+      if (!changes.length && !pruneRes.pruned.length && !sortRepairInline) {
         return { patched: 0, docsWritten: 0, skipped: 'no_change' }
       }
       sortResultsByNetAsc(loaded.results)

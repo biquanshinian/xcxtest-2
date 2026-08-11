@@ -1,4 +1,6 @@
 /* hardware-detail.wxss —— 星舰硬件设施详情页（全局深色玻璃风格） */
+@import "/styles/fav-btn.wxss";
+
 page {
   background: #0B0C0E;
   color: #fff;
@@ -105,17 +107,24 @@ page {
   margin-bottom: 20rpx;
   padding: 0 4rpx;
 }
+.hero-title-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  min-width: 0;
+}
 .hero-status {
   display: flex;
   align-items: center;
   gap: 10rpx;
 }
 .hero-title {
+  flex: 1;
+  min-width: 0;
   font-size: 52rpx;
   font-weight: 700;
   color: #FFFFFF;
   line-height: 1.15;
-  align-self: flex-start;
 }
 
 /* 状态四态 */

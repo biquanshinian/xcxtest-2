@@ -1,7 +1,14 @@
 /**
  * LL2 / SNAPI 同步数据翻译富化 — 写入 xxxZh 字段供小程序按语言展示
+ * 火箭型号名：本地词典 → 学习词典 → AI 机翻；译出后回写 rocket_name_dict。
  */
 const { translateTextsBatch } = require('./translate.js')
+const { translateRocketName } = require('./rocket-name-i18n.js')
+const {
+  warmRocketNameDict,
+  lookupLearnedRocketName,
+  rememberRocketName
+} = require('./rocket-name-learn.js')
 const {
   translateOrbit,
   translateStatusName,
@@ -10,6 +17,20 @@ const {
   translateLocation,
   translateLandingType
 } = require('./space-terms-i18n.js')
+const { repairAerospaceZhMistranslations } = require('./mission-title-i18n.js')
+
+/** 纠偏已写入的 nameZh（含旧缓存「人物-13」），不依赖本轮是否再机翻 */
+function repairExistingLaunchZhTitles(launch) {
+  if (!launch || typeof launch !== 'object') return
+  if (launch.nameZh) {
+    const next = repairAerospaceZhMistranslations(launch.nameZh)
+    if (next && next !== launch.nameZh) launch.nameZh = next
+  }
+  if (launch.mission && launch.mission.nameZh) {
+    const next = repairAerospaceZhMistranslations(launch.mission.nameZh)
+    if (next && next !== launch.mission.nameZh) launch.mission.nameZh = next
+  }
+}
 
 function shouldSlimLaunchList(url, params) {
   const u = String(url || '')
@@ -42,7 +63,15 @@ function collectLaunchTexts(launch) {
 
   if (!launch || typeof launch !== 'object') return { texts, slots }
 
+  // 列表卡标题：launch.name（常为「火箭 | 任务」）与 mission.name
+  if (launch.name && !/[\u4e00-\u9fff]/.test(String(launch.name))) {
+    add({ type: 'nameZh', launch }, launch.name)
+  }
+
   const mission = launch.mission
+  if (mission && mission.name && !/[\u4e00-\u9fff]/.test(String(mission.name))) {
+    add({ type: 'mission.nameZh', launch }, mission.name)
+  }
   if (mission && mission.description) {
     add({ type: 'mission.descriptionZh', launch }, mission.description)
   }
@@ -72,21 +101,56 @@ function collectLaunchTexts(launch) {
   }
 
   const rocketCfg = launch.rocket && launch.rocket.configuration
-  if (rocketCfg && rocketCfg.description) {
-    add({ type: 'rocket.configuration.descriptionZh', launch }, rocketCfg.description)
+  if (rocketCfg) {
+    // 型号名：词典/学习库命中则当场写 Zh；否则进 AI，保证新型号也能自动汉化
+    const fullEn = String(rocketCfg.full_name || '').trim()
+    const nameEn = String(rocketCfg.name || '').trim()
+    if (fullEn && !rocketCfg.full_nameZh && !/[\u4e00-\u9fff]/.test(fullEn)) {
+      const localZh =
+        translateRocketName(fullEn) ||
+        lookupLearnedRocketName(fullEn) ||
+        ''
+      if (localZh && localZh !== fullEn && /[\u4e00-\u9fff]/.test(localZh)) {
+        rocketCfg.full_nameZh = localZh
+      } else {
+        add({ type: 'rocket.configuration.full_nameZh', launch }, fullEn)
+      }
+    }
+    if (nameEn && !rocketCfg.nameZh && !/[\u4e00-\u9fff]/.test(nameEn)) {
+      const localZh =
+        translateRocketName(nameEn) ||
+        lookupLearnedRocketName(nameEn) ||
+        (rocketCfg.full_nameZh && nameEn === fullEn ? rocketCfg.full_nameZh : '') ||
+        ''
+      if (localZh && localZh !== nameEn && /[\u4e00-\u9fff]/.test(localZh)) {
+        rocketCfg.nameZh = localZh
+      } else if (!(rocketCfg.full_nameZh && nameEn === fullEn)) {
+        add({ type: 'rocket.configuration.nameZh', launch }, nameEn)
+      } else if (rocketCfg.full_nameZh) {
+        rocketCfg.nameZh = rocketCfg.full_nameZh
+      }
+    }
+    if (rocketCfg.description) {
+      add({ type: 'rocket.configuration.descriptionZh', launch }, rocketCfg.description)
+    }
   }
 
   return { texts, slots }
 }
 
 function applyLaunchTranslations(slots, translations) {
+  const learnJobs = []
   for (let i = 0; i < slots.length; i++) {
     const slot = slots[i]
     const zh = translations[i] || ''
     // 降级路径可能原样返回英文——与原文相同视为未翻译，不写入 zh 字段
     // （否则会存下假中文，之后配好 TMT 也不会重翻）
     if (!zh || zh === slot.src) continue
-    if (slot.type === 'mission.descriptionZh') {
+    if (slot.type === 'nameZh') {
+      slot.launch.nameZh = zh
+    } else if (slot.type === 'mission.nameZh') {
+      if (slot.launch.mission) slot.launch.mission.nameZh = zh
+    } else if (slot.type === 'mission.descriptionZh') {
       if (slot.launch.mission) slot.launch.mission.descriptionZh = zh
     } else if (slot.type === 'pad.nameZh') {
       if (slot.launch.pad) slot.launch.pad.nameZh = zh
@@ -94,19 +158,35 @@ function applyLaunchTranslations(slots, translations) {
       if (slot.launch.pad && slot.launch.pad.location) slot.launch.pad.location.nameZh = zh
     } else if (slot.type === 'status.nameZh') {
       if (slot.launch.status) slot.launch.status.nameZh = zh
+    } else if (slot.type === 'rocket.configuration.full_nameZh') {
+      const cfg = slot.launch.rocket && slot.launch.rocket.configuration
+      if (cfg) {
+        cfg.full_nameZh = zh
+        if (!cfg.nameZh && cfg.name && String(cfg.name) === slot.src) cfg.nameZh = zh
+        learnJobs.push(rememberRocketName(slot.src, zh))
+      }
+    } else if (slot.type === 'rocket.configuration.nameZh') {
+      const cfg = slot.launch.rocket && slot.launch.rocket.configuration
+      if (cfg) {
+        cfg.nameZh = zh
+        learnJobs.push(rememberRocketName(slot.src, zh))
+      }
     } else if (slot.type === 'rocket.configuration.descriptionZh') {
       const cfg = slot.launch.rocket && slot.launch.rocket.configuration
       if (cfg) cfg.descriptionZh = zh
     }
   }
+  return learnJobs
 }
 
 async function enrichLaunchList(apiData) {
   if (!apiData || !Array.isArray(apiData.results)) return apiData
+  try { await warmRocketNameDict() } catch (e) {}
   const allTexts = []
   const allSlots = []
 
   for (const launch of apiData.results) {
+    repairExistingLaunchZhTitles(launch)
     const { texts, slots } = collectLaunchTexts(launch)
     for (let i = 0; i < texts.length; i++) {
       allTexts.push(texts[i])
@@ -114,20 +194,43 @@ async function enrichLaunchList(apiData) {
     }
   }
 
-  if (!allTexts.length) return apiData
+  if (!allTexts.length) {
+    for (const launch of apiData.results) repairExistingLaunchZhTitles(launch)
+    return apiData
+  }
 
-  const translations = await translateTextsBatch(allTexts)
-  applyLaunchTranslations(allSlots, translations)
+  // 型号短名单独 force，避免 H3-22 / KZ-1A 被 shouldMachineTranslate 挡掉
+  const forceAt = allSlots.map(function (s) {
+    return !!(s && (s.type === 'rocket.configuration.nameZh' || s.type === 'rocket.configuration.full_nameZh'))
+  })
+  const translations = await translateTextsBatch(allTexts, { forceAt: forceAt })
+  const learnJobs = applyLaunchTranslations(allSlots, translations) || []
+  if (learnJobs.length) {
+    try { await Promise.all(learnJobs) } catch (e2) {}
+  }
+  for (const launch of apiData.results) repairExistingLaunchZhTitles(launch)
   return apiData
 }
 
 /** 单条 launch 详情富化（fetchLaunchDetail 等绕过列表同步的路径使用） */
 async function enrichSingleLaunch(launch) {
   if (!launch || typeof launch !== 'object') return launch
+  try { await warmRocketNameDict() } catch (e) {}
+  repairExistingLaunchZhTitles(launch)
   const { texts, slots } = collectLaunchTexts(launch)
-  if (!texts.length) return launch
-  const translations = await translateTextsBatch(texts)
-  applyLaunchTranslations(slots, translations)
+  if (!texts.length) {
+    repairExistingLaunchZhTitles(launch)
+    return launch
+  }
+  const forceAt = slots.map(function (s) {
+    return !!(s && (s.type === 'rocket.configuration.nameZh' || s.type === 'rocket.configuration.full_nameZh'))
+  })
+  const translations = await translateTextsBatch(texts, { forceAt: forceAt })
+  const learnJobs = applyLaunchTranslations(slots, translations) || []
+  if (learnJobs.length) {
+    try { await Promise.all(learnJobs) } catch (e2) {}
+  }
+  repairExistingLaunchZhTitles(launch)
   return launch
 }
 

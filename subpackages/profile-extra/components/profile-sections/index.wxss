@@ -2,6 +2,28 @@
   margin-bottom: 28rpx;
 }
 
+/* 提醒区底部客服介绍：浅色小字，居中，不显眼 */
+.reminder-about {
+  margin-top: 20rpx;
+  padding: 0 24rpx 2rpx;
+  text-align: center;
+}
+.reminder-about-text {
+  display: block;
+  font-size: 20rpx;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.28);
+  text-align: center;
+}
+.reminder-about-wechat {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 20rpx;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.22);
+  text-align: center;
+}
+
 .rm-item {
   display: flex;
   gap: 20rpx;
@@ -37,7 +59,7 @@
 }
 
 .rm-time--today {
-  color: #ffce5d;
+  color: #F5B93F;
 }
 
 .rm-badge {
@@ -49,8 +71,8 @@
 }
 
 .rm-badge--today {
-  background: rgba(255, 184, 0, 0.15);
-  color: #ffce5d;
+  background: rgba(245, 185, 63, 0.18);
+  color: #D98E12;
 }
 
 .rm-badge--upcoming {
@@ -183,7 +205,7 @@
 }
 
 .vote-stats-num--streak {
-  color: #ffce5d;
+  color: #F5B93F;
 }
 
 .vote-stats-label {
@@ -195,14 +217,14 @@
 .vote-streak-bar {
   margin-top: 20rpx;
   padding: 12rpx 20rpx;
-  background: rgba(255,206,93,0.1);
+  background: rgba(245, 185, 63, 0.12);
   border-radius: 12rpx;
   text-align: center;
 }
 
 .vote-streak-text {
   font-size: 24rpx;
-  color: #ffce5d;
+  color: #D98E12;
   font-weight: 600;
 }
 
@@ -732,8 +754,8 @@
 
 /* 24 小时内：琥珀色 + 呼吸光晕，最高优先级一眼可辨 */
 .rm-node--today {
-  background: #ffce5d;
-  box-shadow: 0 0 0 6rpx rgba(255, 184, 0, 0.15), 0 0 16rpx rgba(255, 184, 0, 0.5);
+  background: #F5B93F;
+  box-shadow: 0 0 0 6rpx rgba(245, 185, 63, 0.18), 0 0 16rpx rgba(245, 185, 63, 0.45);
   animation: rm-node-pulse 2s ease-in-out infinite;
 }
 
@@ -832,8 +854,8 @@
 }
 
 @keyframes rm-node-pulse {
-  0%, 100% { box-shadow: 0 0 0 6rpx rgba(255, 184, 0, 0.15), 0 0 16rpx rgba(255, 184, 0, 0.5); }
-  50% { box-shadow: 0 0 0 10rpx rgba(255, 184, 0, 0.08), 0 0 24rpx rgba(255, 184, 0, 0.65); }
+  0%, 100% { box-shadow: 0 0 0 6rpx rgba(245, 185, 63, 0.18), 0 0 16rpx rgba(245, 185, 63, 0.45); }
+  50% { box-shadow: 0 0 0 10rpx rgba(245, 185, 63, 0.1), 0 0 24rpx rgba(245, 185, 63, 0.6); }
 }
 
 /* ── 自 pages/profile/profile.wxss 迁入 ── */
@@ -860,7 +882,7 @@
 }
 
 .theme-light .oa-alert-status-text {
-  color: var(--color-warning);
+  color: #D98E12;
 }
 
 .theme-light .oa-alert-status-text--ready {
@@ -915,6 +937,16 @@
 
 .theme-light .reminder-empty-hint {
   color: #07C160;
+}
+
+.theme-light .reminder-about-text {
+  color: rgba(0, 0, 0, 0.28);
+  text-align: center;
+}
+
+.theme-light .reminder-about-wechat {
+  color: rgba(0, 0, 0, 0.22);
+  text-align: center;
 }
 
 /* —— 竞猜统计 / 竞猜记录 —— */
@@ -1019,7 +1051,7 @@
 
 .oa-alert-status-text {
   font-size: 22rpx;
-  color: rgba(255, 200, 120, 0.9);
+  color: #D98E12;
 }
 
 .oa-alert-status-text--ready {
@@ -1048,4 +1080,304 @@
   padding: 8rpx 16rpx;
   border-radius: 999rpx;
   background: rgba(7, 193, 96, 0.12);
+}
+
+/* ── 左抽屉设置（约 2/3 屏，灰底 + 浮层白/深色卡，深浅反色）── */
+.settings-drawer-root {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 10050;
+}
+
+.settings-drawer-mask {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.theme-light .settings-drawer-mask {
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.settings-drawer-panel {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 66.666%;
+  max-width: 66.666vw;
+  /* 深色默认：反色于浅色侧栏 —— 深灰底 + 深色浮卡 */
+  background: #121316;
+  border-right: none;
+  box-shadow: 16rpx 0 56rpx rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  animation: settingsDrawerIn 0.24s ease-out;
+}
+
+.theme-light .settings-drawer-panel {
+  /* 浅色：对齐参考侧栏 —— 浅灰底 + 白卡 */
+  background: #F3F4F6;
+  box-shadow: 16rpx 0 56rpx rgba(0, 0, 0, 0.14);
+}
+
+@keyframes settingsDrawerIn {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+.settings-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8rpx 28rpx 18rpx;
+  flex-shrink: 0;
+}
+
+.settings-drawer-title {
+  font-size: 36rpx;
+  font-weight: 650;
+  color: #F5F5F7;
+}
+
+.theme-light .settings-drawer-title {
+  color: #1C1C1E;
+}
+
+.settings-drawer-close {
+  width: 56rpx;
+  height: 56rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 26rpx;
+}
+
+.theme-light .settings-drawer-close {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(28, 28, 30, 0.65);
+}
+
+.settings-drawer-scroll {
+  flex: 1;
+  height: 0;
+  min-height: 0;
+  padding: 0 20rpx;
+  box-sizing: border-box;
+}
+
+.settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+/* 侧栏浮层卡 */
+.drawer-card {
+  background: #1C1E22;
+  border-radius: 24rpx;
+  padding: 8rpx 24rpx 24rpx;
+  box-sizing: border-box;
+}
+
+.theme-light .drawer-card {
+  background: #FFFFFF;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.04);
+}
+
+.drawer-block {
+  padding-top: 20rpx;
+}
+
+.drawer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding-top: 20rpx;
+}
+
+.drawer-row-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.drawer-block-title {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #F5F5F7;
+  line-height: 1.3;
+}
+
+.theme-light .drawer-block-title {
+  color: #1C1C1E;
+}
+
+.drawer-block-desc {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.theme-light .drawer-block-desc {
+  color: rgba(60, 60, 67, 0.55);
+}
+
+.drawer-divider {
+  height: 1rpx;
+  margin-top: 22rpx;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.theme-light .drawer-divider {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.settings-drawer-panel .drawer-seg {
+  margin-top: 16rpx;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1rpx solid rgba(255, 255, 255, 0.08);
+}
+
+.theme-light .settings-drawer-panel .drawer-seg {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+.settings-drawer-panel .theme-mode-opt {
+  font-size: 24rpx;
+  padding: 16rpx 4rpx;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.theme-light .settings-drawer-panel .theme-mode-opt {
+  color: rgba(60, 60, 67, 0.72);
+}
+
+.settings-drawer-panel .theme-mode-opt--active {
+  background: rgba(10, 132, 255, 0.22);
+  color: #64B5FF;
+}
+
+.theme-light .settings-drawer-panel .theme-mode-opt--active {
+  background: rgba(10, 132, 255, 0.14);
+  color: #0A84FF;
+}
+
+.settings-drawer-bottom-space {
+  height: calc(56rpx + env(safe-area-inset-bottom));
+}
+
+/* 提醒偏好标签 */
+.pref-sub-label {
+  display: block;
+  margin-top: 22rpx;
+  margin-bottom: 12rpx;
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.theme-light .pref-sub-label {
+  color: rgba(60, 60, 67, 0.55);
+}
+
+.pref-tag-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.pref-tag {
+  padding: 12rpx 18rpx;
+  border-radius: 999rpx;
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1rpx solid rgba(255, 255, 255, 0.1);
+}
+
+.pref-tag--active {
+  color: #FFFFFF;
+  background: rgba(10, 132, 255, 0.28);
+  border-color: rgba(10, 132, 255, 0.55);
+}
+
+.pref-radio-group {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.pref-radio {
+  flex: 1;
+  min-width: 28%;
+  text-align: center;
+  padding: 16rpx 8rpx;
+  border-radius: 14rpx;
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1rpx solid rgba(255, 255, 255, 0.1);
+  box-sizing: border-box;
+}
+
+.pref-radio--active {
+  color: #FFFFFF;
+  background: rgba(10, 132, 255, 0.28);
+  border-color: rgba(10, 132, 255, 0.55);
+}
+
+.pref-save-btn {
+  margin-top: 28rpx;
+  height: 80rpx;
+  border-radius: 999rpx;
+  background: #0A84FF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #FFFFFF;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.pref-save-btn--loading {
+  opacity: 0.6;
+}
+
+.theme-light .pref-tag {
+  color: rgba(60, 60, 67, 0.78);
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .pref-tag--active {
+  color: #0A84FF;
+  background: rgba(10, 132, 255, 0.12);
+  border-color: rgba(10, 132, 255, 0.35);
+}
+
+.theme-light .pref-radio {
+  color: rgba(60, 60, 67, 0.78);
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .pref-radio--active {
+  color: #0A84FF;
+  background: rgba(10, 132, 255, 0.12);
+  border-color: rgba(10, 132, 255, 0.35);
 }

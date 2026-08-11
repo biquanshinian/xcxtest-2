@@ -26,7 +26,19 @@ const {
 } = require('../../../utils/api-app-services.js')
 const { inferTerminalStatusFromUpdates, buildSettledRowFromUpdates } = require('./ll2-updates-outcome.js')
 const { computeLaunchDelayInfo } = require('./launch-delay.js')
-const { getStatusCategory, getStatusBadgeText, isTerminalStatusId } = require('../../../utils/api-request.js')
+const {
+  getStatusCategory,
+  getStatusBadgeText,
+  isTerminalStatusId,
+  isChineseRocketContext
+} = require('../../../utils/api-request.js')
+
+function chineseStatusOpts(missionOrLaunchData) {
+  if (isChineseRocketContext(missionOrLaunchData)) {
+    return { chineseRocket: true, countryDisplay: '中国' }
+  }
+  return undefined
+}
 const { isLiveEntryAllowed } = require('../../../utils/feature-flags.js')
 const { resolveRoadClosureStatus } = require('../../../utils/progress-road-closure.js')
 const {
@@ -43,12 +55,108 @@ const {
 const {
   formatHomeLaunchTimeParts,
   buildCurrentLaunchPanelState,
+  pickCountdownDisplayMission,
+  sortUpcomingMissionsByNetAsc,
   collectPastNetUpcomingHeads,
   buildUpcomingLaunchEmptyState
 } = require('../../../utils/index-launch-state.js')
 const windowMachine = require('../../../utils/countdown-window-machine.js')
 // NET/阶段判定统一走校准时钟；缓存 TTL 等本地时长仍用 Date.now()
 const { getServerNow } = require('../../../utils/server-clock.js')
+const {
+  shouldRejectNetAdvance,
+  mergeLiveRowNetHysteresis
+} = require('../../../utils/net-patch-policy.js')
+
+/** 用列表卡 + 权威观测 + 面板拼出迟滞用的 cached 行（优先近窗 Go，防被旧 TBD 占位污染） */
+function buildCachedNetRowForHysteresis(mission, record, panel) {
+  const cands = []
+  const push = (net, status, windowStart, windowEnd) => {
+    if (!net && !(status && status.id != null)) return
+    cands.push({
+      net: net || '',
+      window_start: windowStart || '',
+      window_end: windowEnd || '',
+      status: status && status.id != null ? status : null
+    })
+  }
+  if (record) {
+    push(
+      record.net,
+      record.status && typeof record.status === 'object' ? record.status : null,
+      record.windowStart,
+      record.windowEnd
+    )
+  }
+  if (panel) {
+    push(
+      panel.launchTime || panel.net,
+      panel.statusId != null
+        ? {
+            id: Number(panel.statusId),
+            name: panel.statusBadgeText || panel.status || '',
+            abbrev: panel.statusAbbrev || ''
+          }
+        : null,
+      panel.windowStart,
+      panel.windowEnd
+    )
+  }
+  if (mission) {
+    push(
+      mission.launchTime || mission.net,
+      mission.statusId != null
+        ? {
+            id: Number(mission.statusId),
+            name: mission.statusBadgeText || mission.status || '',
+            abbrev: mission.statusAbbrev || ''
+          }
+        : null,
+      mission.windowStart,
+      mission.windowEnd
+    )
+  }
+  if (!cands.length) {
+    return { net: '', window_start: '', window_end: '', status: null }
+  }
+  const now = Date.now()
+  const nearGo = cands.filter((c) => {
+    if (!c.status || Number(c.status.id) !== 1) return false
+    const t = c.net ? new Date(c.net).getTime() : NaN
+    return Number.isFinite(t) && t > now - 2 * 60 * 60 * 1000 && t - now < 7 * 24 * 60 * 60 * 1000
+  })
+  if (nearGo.length) {
+    nearGo.sort((a, b) => new Date(a.net).getTime() - new Date(b.net).getTime())
+    return nearGo[0]
+  }
+  return cands[0]
+}
+
+/** 实况/snapshot 行相对当前列表·观测做 NET 迟滞（与云侧 net-patch-policy 一致） */
+function applyClientNetHysteresis(page, liveRow, nowMs) {
+  if (!liveRow || liveRow.id == null) return liveRow
+  const id = String(liveRow.id)
+  const missions = (page && page.data && page.data.upcomingMissions) || []
+  const mission = missions.find((m) => m && String(m.id) === id) || null
+  const record =
+    page && page._launchRecordsById instanceof Map ? page._launchRecordsById.get(id) : null
+  const panel =
+    page &&
+    page.data &&
+    page.data.launchData &&
+    String(page.data.launchData.id) === id
+      ? page.data.launchData
+      : null
+  const cached = buildCachedNetRowForHysteresis(mission, record, panel)
+  const live = {
+    ...liveRow,
+    net: liveRow.net || '',
+    window_start: liveRow.window_start || liveRow.windowStart || '',
+    window_end: liveRow.window_end || liveRow.windowEnd || '',
+    status: liveRow.status || null
+  }
+  return mergeLiveRowNetHysteresis(cached, live, nowMs)
+}
 const { attachMissionDetailMeta } = require('../../../utils/index-mission-nav.js')
 const { buildMissionListSetData } = require('../../../utils/index-mission-services.js')
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
@@ -447,17 +555,25 @@ const methods = {
   _applyQuietPostponedNet(mission, row) {
     if (!row || !row.net || row.id == null) return false
     const id = String(row.id)
-    const netMs = new Date(row.net).getTime()
-    if (!Number.isFinite(netMs) || netMs - getServerNow() <= 60 * 1000) return false
+    const now = getServerNow()
+    const cachedRow = buildCachedNetRowForHysteresis(
+      mission,
+      this._launchRecordsById instanceof Map ? this._launchRecordsById.get(id) : null,
+      this.data.launchData && String(this.data.launchData.id) === id ? this.data.launchData : null
+    )
+    if (shouldRejectNetAdvance(cachedRow, row, now)) return false
+    const safeRow = applyClientNetHysteresis(this, row, now) || row
+    const netMs = new Date(safeRow.net).getTime()
+    if (!Number.isFinite(netMs) || netMs - now <= 60 * 1000) return false
     const prevMs = mission && mission.launchTime ? new Date(mission.launchTime).getTime() : 0
     if (Number.isFinite(prevMs) && prevMs === netMs) return false
 
     // 写入权威状态记录：本会话后续投影不再回退到旧时间。
     // 注意必须带真实 status 对象才能吸收：normalizeStatus 对空 status 会
     // 错误地把观测对象的 name（任务名）当状态名（launch-status-store 的既有行为）
-    if (row.status && row.status.id != null) {
+    if (safeRow.status && safeRow.status.id != null) {
       this._absorbLaunchStateObservations(
-        [{ id, name: row.name || '', net: row.net, status: row.status, observedAtMs: Date.now() }],
+        [{ id, name: safeRow.name || '', net: safeRow.net, status: safeRow.status, observedAtMs: Date.now() }],
         'resolve'
       )
     }
@@ -466,7 +582,7 @@ const methods = {
     const curId = ld && ld.id != null ? String(ld.id) : ''
     // 面板正停在该任务：走既有改期路径（重置 30 分钟兜底窗口 + 重建面板）
     if (curId && curId === id) {
-      this._applyPostponedNet({ ...row, id })
+      this._applyPostponedNet({ ...safeRow, id })
       return true
     }
 
@@ -475,32 +591,55 @@ const methods = {
     if (idx < 0) return false
     const updated = {
       ...missions[idx],
-      launchTime: row.net,
-      formattedTime: formatDate(row.net, 'MM月DD日 HH:mm')
+      launchTime: safeRow.net,
+      formattedTime: formatDate(safeRow.net, 'MM月DD日 HH:mm')
     }
-    if (row.status && row.status.name) {
-      updated.status = getStatusTextZh(row.status)
-      updated.statusId = row.status.id != null ? Number(row.status.id) : updated.statusId
-      updated.statusAbbrev = row.status.abbrev || updated.statusAbbrev
-      updated.statusCategory = getStatusCategory(row.status)
-      updated.statusBadgeText = getStatusBadgeText(row.status, updated.statusCategory)
+    if (safeRow.status && safeRow.status.name) {
+      updated.status = getStatusTextZh(safeRow.status, chineseStatusOpts(updated))
+      updated.statusId = safeRow.status.id != null ? Number(safeRow.status.id) : updated.statusId
+      updated.statusAbbrev = safeRow.status.abbrev || updated.statusAbbrev
+      updated.statusCategory = getStatusCategory(safeRow.status)
+      updated.statusBadgeText = getStatusBadgeText(
+        safeRow.status,
+        updated.statusCategory,
+        chineseStatusOpts(updated)
+      )
     }
     missions[idx] = updated
-    missions.sort((a, b) => new Date((a && a.launchTime) || 0) - new Date((b && b.launchTime) || 0))
+    sortUpcomingMissionsByNetAsc(missions)
 
     const patch = { upcomingMissions: missions }
     this.applyUpcomingAgencyFilterToPatch(patch)
 
-    // 面板停在未来任务、而改期后本任务更早 → 面板应换成本任务；
+    // 面板停在未来任务、而改期后有更早任务 → 按状态机重新选型（不裸钉 updated）
     // 面板停在过点确认中的任务上 → 禁止裸切，保持不动
+    const nowTs = getServerNow()
     const curMs = ld && ld.launchTime ? new Date(ld.launchTime).getTime() : 0
-    const panelOnFuture = Number.isFinite(curMs) && curMs > getServerNow()
-    const shouldSwitchPanel = !curId || (panelOnFuture && netMs < curMs)
-    if (shouldSwitchPanel) {
+    const panelOnFuture = Number.isFinite(curMs) && curMs > nowTs
+    const shouldReselectPanel = !curId || (panelOnFuture && netMs < curMs)
+    let panelMission = null
+    let switched = false
+    if (shouldReselectPanel) {
+      const holdMission = curId
+        ? missions.find((m) => m && String(m.id) === curId)
+        : null
+      const holdRecord =
+        curId && this._launchRecordsById instanceof Map
+          ? this._launchRecordsById.get(curId)
+          : null
+      const keepHold = !!(
+        holdMission && windowMachine.isPanelHoldActive(holdMission, holdRecord, nowTs)
+      )
+      panelMission =
+        pickCountdownDisplayMission(missions, nowTs, {
+          holdMissionId: keepHold ? curId : '',
+          recordsById: this._launchRecordsById
+        }) || updated
+      switched = !curId || String(panelMission.id) !== curId
       Object.assign(
         patch,
         buildCurrentLaunchPanelState({
-          mission: updated,
+          mission: panelMission,
           formatDate,
           getStatusTextZh,
           subscribedIdSet: this._getPageSubscribedIdSet()
@@ -511,13 +650,21 @@ const methods = {
       try {
         this.scheduleUpcomingAgencyChipsOverflowHint()
       } catch (e) {}
-      if (shouldSwitchPanel) {
-        try {
-          this.applyLaunchSwitchEffects(updated)
-        } catch (e2) {}
-        try {
-          this.updateCountdown()
-        } catch (e3) {}
+      try {
+        if (typeof this._syncCountdownOverlapSideCard === 'function') {
+          this._syncCountdownOverlapSideCard()
+        }
+      } catch (eSide) {}
+      if (shouldReselectPanel && panelMission) {
+        if (switched && typeof this.applyLaunchSwitchEffects === 'function') {
+          try {
+            this.applyLaunchSwitchEffects(panelMission)
+          } catch (e2) {}
+        } else {
+          try {
+            this.updateCountdown()
+          } catch (e3) {}
+        }
       }
     })
     return true
@@ -673,7 +820,11 @@ const methods = {
     let liveCategory = 'pending'
     if (settleRow && settleRow.status) {
       liveCategory = getStatusCategory(settleRow.status)
-      liveText = getStatusBadgeText(settleRow.status, liveCategory)
+      liveText = getStatusBadgeText(
+        settleRow.status,
+        liveCategory,
+        chineseStatusOpts(this.data.launchData)
+      )
     }
     this._applyLiveStatusPanel(currentId, liveText, liveCategory)
     this._armLiveStatusRecheck(currentId, LIVE_STATUS_UNRESOLVED_RECHECK_MS)
@@ -715,7 +866,7 @@ const methods = {
   _moveMissionToCompleted(mission, row, options) {
     const statusObj = row.status || {}
     const category = getStatusCategory(statusObj)
-    const statusZh = getStatusBadgeText(statusObj, category)
+    const statusZh = getStatusBadgeText(statusObj, category, chineseStatusOpts(mission))
     const resolveInflight = !!(options && options.resolveInflight)
 
     const completedItem = attachMissionDetailMeta(
@@ -785,7 +936,10 @@ const methods = {
     })
   },
 
-  /** NET 已推后：更新当前任务发射时间与列表卡片，倒计时自然恢复 */
+  /**
+   * NET 已推后：更新列表卡片并按新顺序重新选型倒计时面板。
+   * 不可再钉死原任务——短 NET 顶上后 scrub 到远窗时，应让位给列表里真正最近的就绪任务。
+   */
   _applyPostponedNet(row) {
     if (this._statusRecheckTimer) {
       clearTimeout(this._statusRecheckTimer)
@@ -795,52 +949,160 @@ const methods = {
     // 放开节流：新 T-0 到点后状态机按新 NET 重新推导
     this._lastExpiredRoundAt = 0
 
+    if (!row || row.id == null || !row.net) return
     const currentId = String(row.id)
+    const now = getServerNow()
+
+    // 拒「近窗 Go/近窗 → 远窗 8/31 待定占位」：下拉 3s snapshot 常带旧 launch_status
+    const missionsForCache = this.data.upcomingMissions || []
+    const cachedMission = missionsForCache.find((m) => m && String(m.id) === currentId)
+    const cachedRecord =
+      this._launchRecordsById instanceof Map ? this._launchRecordsById.get(currentId) : null
+    const cachedPanel =
+      this.data.launchData && String(this.data.launchData.id) === currentId
+        ? this.data.launchData
+        : null
+    const cachedRow = buildCachedNetRowForHysteresis(cachedMission, cachedRecord, cachedPanel)
+    if (shouldRejectNetAdvance(cachedRow, row, now)) {
+      return
+    }
+    const safeRow = applyClientNetHysteresis(this, row, now) || row
+
+    // 先写入权威观测，避免 keepHold 仍读到旧短 NET
+    if (typeof this._absorbLaunchStateObservations === 'function') {
+      const obs = {
+        id: currentId,
+        name: safeRow.name || row.name || '',
+        net: safeRow.net,
+        window_start: safeRow.window_start || safeRow.windowStart || '',
+        window_end: safeRow.window_end || safeRow.windowEnd || '',
+        observedAtMs: Date.now()
+      }
+      if (safeRow.status && safeRow.status.id != null) {
+        obs.status = safeRow.status
+      } else if (row.statusId != null) {
+        obs.status = {
+          id: row.statusId,
+          name: row.statusName || '',
+          abbrev: row.statusAbbrev || ''
+        }
+      }
+      try {
+        this._absorbLaunchStateObservations([obs], 'live')
+      } catch (eAbs) {}
+    }
+
     const missions = (this.data.upcomingMissions || []).slice()
     const idx = missions.findIndex((m) => m && String(m.id) === currentId)
+    const prevPanelId =
+      this.data.launchData && this.data.launchData.id != null
+        ? String(this.data.launchData.id)
+        : currentId
 
     if (idx >= 0) {
-      const mission = { ...missions[idx], launchTime: row.net }
-      mission.formattedTime = formatDate(row.net, 'MM月DD日 HH:mm')
-      if (row.status && row.status.name) {
-        mission.status = getStatusTextZh(row.status)
-        mission.statusId = row.status.id != null ? Number(row.status.id) : mission.statusId
-        mission.statusAbbrev = row.status.abbrev || mission.statusAbbrev
-        mission.statusCategory = getStatusCategory(row.status)
-        mission.statusBadgeText = getStatusBadgeText(row.status, mission.statusCategory)
+      const mission = { ...missions[idx], launchTime: safeRow.net }
+      mission.formattedTime = formatDate(safeRow.net, 'MM月DD日 HH:mm')
+      if (safeRow.window_start || safeRow.windowStart) {
+        mission.windowStart = safeRow.window_start || safeRow.windowStart
+      }
+      if (safeRow.window_end || safeRow.windowEnd) {
+        mission.windowEnd = safeRow.window_end || safeRow.windowEnd
+      }
+      if (safeRow.status && safeRow.status.name) {
+        mission.status = getStatusTextZh(safeRow.status, chineseStatusOpts(mission))
+        mission.statusId = safeRow.status.id != null ? Number(safeRow.status.id) : mission.statusId
+        mission.statusAbbrev = safeRow.status.abbrev || mission.statusAbbrev
+        mission.statusCategory = getStatusCategory(safeRow.status)
+        mission.statusBadgeText = getStatusBadgeText(
+          safeRow.status,
+          mission.statusCategory,
+          chineseStatusOpts(mission)
+        )
       }
       missions[idx] = mission
-      // NET 变化可能影响顺序，按时间重排
-      missions.sort((a, b) => new Date((a && a.launchTime) || 0) - new Date((b && b.launchTime) || 0))
+      // 与云侧一致：待定沉底，避免本地 scrub 重排把近窗 TBD 再顶回队首
+      sortUpcomingMissionsByNetAsc(missions)
+
+      // 改期后重新选型：仅窗口内未决才保留 hold；已 scrub 到 PRE_WINDOW 必须让位
+      const holdId = prevPanelId
+      const holdMission =
+        holdId ? missions.find((m) => m && String(m.id) === holdId) : null
+      const holdRecord =
+        holdId && this._launchRecordsById instanceof Map
+          ? this._launchRecordsById.get(holdId)
+          : null
+      const keepHold = !!(
+        holdMission && windowMachine.isPanelHoldActive(holdMission, holdRecord, now)
+      )
+      let picked = pickCountdownDisplayMission(missions, now, {
+        holdMissionId: keepHold ? holdId : '',
+        recordsById: this._launchRecordsById
+      })
+      if (!picked) picked = mission
 
       const patch = { upcomingMissions: missions }
       this.applyUpcomingAgencyFilterToPatch(patch)
-      this.setData(patch, () => this.scheduleUpcomingAgencyChipsOverflowHint())
-
-      // 用改期后的任务重建倒计时面板
-      this.setData(
+      Object.assign(
+        patch,
         buildCurrentLaunchPanelState({
-          mission,
+          mission: picked,
           formatDate,
           getStatusTextZh,
           subscribedIdSet: this._getPageSubscribedIdSet()
         })
       )
-    } else {
-      // 列表中找不到（边缘情况）：直接改面板时间
-      const timeParts = formatHomeLaunchTimeParts(row.net, formatDate)
-      this.setData({
-        'launchData.launchTime': row.net,
-        formattedLaunchTime: timeParts.full,
-        formattedLaunchDate: timeParts.date,
-        formattedLaunchWeekTime: timeParts.weekTime,
-        'launchData.statusTextZh': row.status ? getStatusTextZh(row.status) : '计划中',
-        'launchData.statusCategory': row.status ? getStatusCategory(row.status) : 'pending'
+
+      const switched = String(picked.id) !== String(prevPanelId)
+      this.setData(patch, () => {
+        try {
+          this.scheduleUpcomingAgencyChipsOverflowHint()
+        } catch (e) {}
+        try {
+          if (typeof this._syncCountdownOverlapSideCard === 'function') {
+            this._syncCountdownOverlapSideCard()
+          }
+        } catch (eSide) {}
+        if (switched && typeof this.applyLaunchSwitchEffects === 'function') {
+          try {
+            this.applyLaunchSwitchEffects(picked)
+          } catch (e2) {}
+        } else {
+          try {
+            this.updateCountdown()
+          } catch (e3) {}
+          try {
+            this.refreshLaunchDelayInfo(
+              picked.id != null ? String(picked.id) : currentId,
+              picked.launchTime || safeRow.net
+            )
+          } catch (e4) {}
+        }
       })
+      return
     }
+
+    // 列表中找不到（边缘情况）：直接改面板时间
+    const timeParts = formatHomeLaunchTimeParts(safeRow.net, formatDate)
+    const panelPatch = {
+      'launchData.launchTime': safeRow.net,
+      formattedLaunchTime: timeParts.full,
+      formattedLaunchDate: timeParts.date,
+      formattedLaunchWeekTime: timeParts.weekTime,
+      'launchData.statusTextZh': safeRow.status
+        ? getStatusTextZh(safeRow.status, chineseStatusOpts(this.data.launchData))
+        : '计划中',
+      'launchData.statusCategory': safeRow.status ? getStatusCategory(safeRow.status) : 'pending'
+    }
+    if (safeRow.status && safeRow.status.id != null) {
+      panelPatch['launchData.statusId'] = Number(safeRow.status.id)
+      panelPatch['launchData.statusAbbrev'] = safeRow.status.abbrev || ''
+    }
+    if (safeRow.window_end || safeRow.windowEnd) {
+      panelPatch['launchData.windowEnd'] = safeRow.window_end || safeRow.windowEnd
+    }
+    this.setData(panelPatch)
     this.updateCountdown()
-    // NET 改期后重新计算推迟徽标（loadKey 含 NET，改期后必然重新拉取）
-    this.refreshLaunchDelayInfo(currentId, row.net)
+    this.refreshLaunchDelayInfo(currentId, safeRow.net)
   },
 
   /**
@@ -962,7 +1224,11 @@ const methods = {
     let liveCategory = 'pending'
     if (liveSource) {
       liveCategory = getStatusCategory(liveSource.status)
-      liveText = getStatusBadgeText(liveSource.status, liveCategory)
+      liveText = getStatusBadgeText(
+        liveSource.status,
+        liveCategory,
+        chineseStatusOpts(this.data.launchData)
+      )
     }
     this._scheduleStatusRecheck(currentId, liveText, liveCategory)
   },
@@ -1121,11 +1387,25 @@ const methods = {
     await this._settleExpiredLaunch(row)
   },
 
-  /** 把同一次返回的前 5 行实况（状态 + NET）patch 进即将发射源列表，再一次 filter 同步 displayed */
-  _patchUpcomingListLiveStatuses(rows) {
-    if (!Array.isArray(rows) || !rows.length) return
+  /**
+   * 把同一次返回的前 5 行实况（状态 + NET）patch 进即将发射源列表，再一次 filter 同步 displayed。
+   * @param {Array} rows
+   * @param {function} [onDone] setData 完成回调（避免与 _applyPostponedNet 双写竞态）
+   */
+  _patchUpcomingListLiveStatuses(rows, onDone) {
+    if (!Array.isArray(rows) || !rows.length) {
+      if (typeof onDone === 'function') {
+        try {
+          onDone()
+        } catch (e) {}
+      }
+      return
+    }
+    const now = getServerNow()
+    // snapshot/live 可能仍是 8/31+待定占位；先按当前近窗 Go 迟滞，再吸收
+    const safeRows = rows.map((row) => applyClientNetHysteresis(this, row, now))
     this._absorbLaunchStateObservations(
-      rows.map((row) => ({
+      safeRows.map((row) => ({
         ...row,
         source: 'live',
         observedAtMs: row.observedAtMs || Date.now()
@@ -1137,8 +1417,9 @@ const methods = {
       projected.completed,
       Array.from(this._launchRecordsById.values())
     )
+    const upcoming = filterExpiredMissions(projected.upcoming)
     const patch = {
-      upcomingMissions: filterExpiredMissions(projected.upcoming),
+      upcomingMissions: upcoming,
       completedMissions: completed
     }
     this.applyUpcomingAgencyFilterToPatch(patch, patch.upcomingMissions)
@@ -1146,6 +1427,34 @@ const methods = {
       this.updateMissionListView('completed', completed)
       if (this.data.launchData && this._isKnownSettleableId(this.data.launchData.id)) {
         this._scrubKnownSettleableCountdown()
+      }
+      // 快照可能把某条从「远窗待定」收回「近窗 Go」——必须重选型面板，
+      // 否则列表已是 Michibiki 在前，倒计时仍停在朱雀。
+      try {
+        const { panelMission } = this._resolveCountdownPanelMission(upcoming, now)
+        if (panelMission && typeof this._applyInitialUpcomingLaunchStateSync === 'function') {
+          const curId =
+            this.data.launchData && this.data.launchData.id != null
+              ? String(this.data.launchData.id)
+              : ''
+          if (!curId || String(panelMission.id) !== curId) {
+            this._applyInitialUpcomingLaunchStateSync(panelMission, upcoming, null, {
+              completedMissions: completed
+            })
+          } else if (
+            panelMission.launchTime &&
+            String(panelMission.launchTime) !== String(this.data.launchData.launchTime || '')
+          ) {
+            this._applyInitialUpcomingLaunchStateSync(panelMission, upcoming, null, {
+              completedMissions: completed
+            })
+          }
+        }
+      } catch (ePick) {}
+      if (typeof onDone === 'function') {
+        try {
+          onDone()
+        } catch (eDone) {}
       }
     })
   },

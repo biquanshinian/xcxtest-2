@@ -35,9 +35,11 @@
         <span style="margin-left:8px;color:var(--t-text-muted);font-size:12px;">全局字体族；局部加粗/字号在上方编辑器设置</span>
       </el-form-item>
 
-      <el-form-item label="倒计时秒数">
-        <el-input-number v-model="form.countdownSeconds" :min="1" :max="12" :step="1" />
-        <span style="margin-left:8px;color:var(--t-text-muted);font-size:12px;">跳过按钮倒计时；视频开屏最长只播 12 秒（超长会自动截取前 12 秒）</span>
+      <el-form-item label="跳过倒计时">
+        <el-tag type="info" effect="plain">随视频时长自动</el-tag>
+        <span style="margin-left:8px;color:var(--t-text-muted);font-size:12px;">
+          小程序按实际片长同步跳过秒数（最长 12 秒，超长预览已截取）；图片开屏固定 5 秒，无需再调。
+        </span>
       </el-form-item>
 
       <el-form-item label="官网自动同步">
@@ -50,8 +52,9 @@
         <div style="margin-top:6px;color:var(--t-text-muted);font-size:12px;line-height:1.5;">
           由媒体池自动决定，无需手拨：
           <strong>有手动上传</strong>时关闭官网同步并清掉自动项；
-          <strong>手动全部删光</strong>后重新开启，由定时任务在 T-5 窗口内回填官网视频。
-          开启后每 2 小时扫描 SpaceX；推迟出窗自动下架，回窗恢复；飞行中/结束或官网撤下后移除。
+          <strong>手动全部删光</strong>（含关联任务发射后自动下架）后重新开启，由定时任务在 T-5 窗口内回填官网视频。
+          开启后每 2 小时扫描 SpaceX；官网自动项推迟出窗下架、回窗恢复。
+          关联任务的媒体：改期继续跟踪展示；探针/服务号结果确认飞行中或终态后自动关闭，并无缝接回本开关。
         </div>
       </el-form-item>
 
@@ -60,7 +63,8 @@
           <div class="splash-upload-area">
             <div class="splash-pool-hint">
               最多 {{ MEDIA_MAX }} 个（图片/视频均可）。小程序每次冷启动会<strong>随机</strong>展示其中一条。视频保存后自动压缩预览。
-              选中左侧媒体后，在右侧「任务选项列表」点选对应发射任务；保存后小程序会按与官网自动同步相同的名称匹配逻辑，展示可点击倒计时组件。不选则不显示。
+              选中左侧媒体后，在右侧「任务选项列表」点选对应发射任务；保存后按任务 ID 跟踪（改期仍关联），展示可点击倒计时。
+              任务飞行中/结束后由探针或服务号结果自动下架该条；未关联任务的媒体不会自动删除。
               <span style="margin-left:8px;">已上传 {{ form.mediaItems.length }} / {{ MEDIA_MAX }}</span>
             </div>
 
@@ -92,8 +96,9 @@
                   <el-button size="small" type="danger" @click.stop="removeMediaAt(idx)">移除</el-button>
                 </div>
                 <div class="splash-mission-bound">
-                  <span v-if="item.missionName" class="splash-mission-bound-name" :title="item.missionName">
-                    倒计时：{{ item.missionName }}
+                  <span v-if="item.missionName || item.launchId" class="splash-mission-bound-name" :title="item.missionName || item.launchId">
+                    倒计时：{{ item.missionName || item.launchId }}
+                    <template v-if="item.launchId"> · 跟踪中</template>
                   </span>
                   <span v-else class="splash-mission-bound-empty">未关联任务（无倒计时）</span>
                 </div>
@@ -178,7 +183,7 @@
               type="button"
               class="splash-mission-option splash-mission-option-clear"
               :disabled="!canAssignMission"
-              :class="{ active: selectedMedia && !selectedMedia.missionName }"
+              :class="{ active: selectedMedia && !selectedMedia.missionName && !selectedMedia.launchId }"
               @click="clearSelectedMission"
             >
               不关联任务（不显示倒计时）
@@ -275,7 +280,6 @@ const NOTICE_MAX_LEN = 80
 const form = reactive({
   enabled: false,
   autoSyncSpacex: true,
-  countdownSeconds: 5,
   noticeText: '',
   noticeFont: 'default',
   noticeLineHeight: 1.4,
@@ -328,7 +332,10 @@ function formatMissionNet(net) {
 
 function isMissionActive(mission) {
   const item = selectedMedia.value
-  if (!item || !item.missionName || !mission) return false
+  if (!item || !mission) return false
+  const mid = String(mission.missionId || '').trim()
+  if (mid && String(item.launchId || '').trim() === mid) return true
+  if (!item.missionName) return false
   const bound = String(item.missionName).trim()
   if (!bound) return false
   if (bound === String(mission.name || '').trim() || bound === String(mission.missionName || '').trim()) {
@@ -339,13 +346,18 @@ function isMissionActive(mission) {
   return !!(fn && bound === `Starship Flight ${fn}`)
 }
 
-/** 绑定任务名：写入 missionName 后，小程序侧与官网自动同步同一套按名匹配 + 倒计时组件逻辑 */
+/** 绑定任务：写 launchId + missionName；改期按 ID 跟踪，发射后由探针/结果通知自动下架 */
 function assignMissionToSelected(mission) {
   if (!canAssignMission.value || !mission) return
   const item = selectedMedia.value
   if (!item) return
   const rawName = String(mission.name || mission.missionName || '').trim()
   if (!rawName) return
+  const launchId = String(mission.missionId || '').trim()
+  if (!launchId) {
+    ElMessage.warning('该任务缺少 ID，无法关联跟踪')
+    return
+  }
   const flightNumber = Number(mission.flightNumber || 0) || 0
   // 星舰：与官网自动同步同一命名，便于复用 Flight 号匹配
   const isStarship = /starship|星舰/i.test(rawName)
@@ -353,6 +365,7 @@ function assignMissionToSelected(mission) {
     ? `Starship Flight ${flightNumber}`
     : rawName
   item.missionName = name
+  item.launchId = launchId
   item.flightNumber = isStarship ? flightNumber : 0
   ElMessage.success(`已关联：${name}`)
 }
@@ -362,6 +375,7 @@ function clearSelectedMission() {
   const item = selectedMedia.value
   if (!item) return
   item.missionName = ''
+  item.launchId = ''
   item.flightNumber = 0
 }
 
@@ -420,7 +434,6 @@ function applyManualAutoPolicy(opts = {}) {
 function applySplashData(data) {
   if (!data) return
   form.enabled = !!data.enabled
-  form.countdownSeconds = data.countdownSeconds || 5
   form.noticeText = String(data.noticeText || '').trim()
   const font = String(data.noticeFont || 'default').trim()
   form.noticeFont = NOTICE_FONTS.includes(font) ? font : 'default'
@@ -449,6 +462,7 @@ function applySplashData(data) {
     posterUrl: it.posterUrl || '',
     previewStatus: it.previewStatus || '',
     missionName: it.missionName || '',
+    launchId: it.launchId || '',
     autoSource: it.autoSource || '',
     sourceUrl: it.sourceUrl || '',
     flightNumber: it.flightNumber || 0
@@ -457,6 +471,14 @@ function applySplashData(data) {
   form.autoSyncSpacex = data.autoSyncSpacex !== false
   applyManualAutoPolicy({ notify: false })
   ensureSelectedMedia()
+  const legacyBound = form.mediaItems.filter(
+    (it) => it && it.missionName && !it.launchId && it.autoSource !== 'spacex'
+  )
+  if (legacyBound.length) {
+    ElMessage.warning(
+      `${legacyBound.length} 条关联任务缺少任务 ID，请重新点选关联，否则发射后可能无法自动下架`
+    )
+  }
 }
 
 onMounted(async () => {
@@ -537,6 +559,7 @@ function pushMediaItem(mediaType, cosUrl) {
     posterUrl: '',
     previewStatus: mediaType === 'video' ? 'pending' : '',
     missionName: '',
+    launchId: '',
     autoSource: '',
     sourceUrl: '',
     flightNumber: 0
@@ -636,7 +659,6 @@ async function onSave() {
     const data = await api.updateStarshipSplash({
       enabled: form.enabled,
       autoSyncSpacex: form.autoSyncSpacex,
-      countdownSeconds: form.countdownSeconds,
       noticeText: String(form.noticeText || '').trim(),
       noticeFont: NOTICE_FONTS.includes(form.noticeFont) ? form.noticeFont : 'default',
       noticeLineHeight: form.noticeLineHeight,
@@ -650,6 +672,7 @@ async function onSave() {
         posterUrl: it.posterUrl || '',
         previewStatus: it.previewStatus || '',
         missionName: (it.missionName || '').trim(),
+        launchId: (it.launchId || '').trim(),
         autoSource: it.autoSource || '',
         sourceUrl: it.sourceUrl || '',
         flightNumber: it.flightNumber || 0

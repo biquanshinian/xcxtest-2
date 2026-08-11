@@ -1,5 +1,15 @@
 <!--custom-tab-bar/index.wxml-->
 <view class="custom-tab-bar-root {{themeClass}}">
+  <!-- Tab 切换全屏加载：盖住页面内容，底栏 Dock 仍在上层可点 -->
+  <view class="tab-load-overlay {{tabLoadVisible ? 'tab-load-overlay--show' : ''}}" aria-hidden="true">
+    <view class="tab-load-stage">
+      <image class="tab-load-star tab-load-star--a" src="/images/tabbar/profile-active.svg" mode="aspectFit" />
+      <image class="tab-load-star tab-load-star--main" src="/images/tabbar/profile-active.svg" mode="aspectFit" />
+      <image class="tab-load-star tab-load-star--b" src="/images/tabbar/profile-active.svg" mode="aspectFit" />
+      <image class="tab-load-star tab-load-star--c" src="/images/tabbar/profile-active.svg" mode="aspectFit" />
+    </view>
+  </view>
+
   <view class="tab-bar {{hidden ? 'tab-bar-hidden' : ''}}">
     <view wx:if="{{showAddDesktopStrip}}" class="tab-add-desktop-strip">
       <view class="tab-add-desktop-strip-close" catchtap="onAddDesktopStripClose">

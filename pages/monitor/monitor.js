@@ -13,6 +13,7 @@ const { isLiveEntryAllowed, isPlaybackAllowed } = require('../../utils/feature-f
 // SPACE_NOTICES_FEATURE
 const { isSpaceNoticesEnabled } = require('../../utils/space-notices-feature.js')
 const themeUtil = require('../../utils/theme.js')
+const tabLoadPage = require('../../utils/tab-load-page.js')
 const { optimizeImageUrl, videoSnapshotUrl } = require('../../utils/cos-url.js')
 const { advanceImageFallback } = require('../../utils/ll2-image.js')
 
@@ -275,12 +276,25 @@ Page({
     // 推荐视频号引导（运营后台可改）
     this.loadChannelsFallbackGuide()
 
-    // 首屏只加载轻量数据（云数据库单次查询）
-    this.loadSpaceXTilesData()
-    this.loadBoosterGenealogy()
-    this.loadSpacecraftGallery()
-    this.loadLaunchSiteGallery()
-    this.loadAgencies()
+    // 首屏只加载轻量数据（云数据库单次查询）；接 Tab 全屏加载门控
+    var self = this
+    function safeLoad(fn) {
+      try {
+        if (typeof fn !== 'function') return Promise.resolve()
+        return Promise.resolve(fn.call(self)).catch(function () {})
+      } catch (e) {
+        return Promise.resolve()
+      }
+    }
+    tabLoadPage.withTabLoad(tabLoadPage.TAB_ROUTES.monitor, function () {
+      return Promise.all([
+        safeLoad(self.loadSpaceXTilesData),
+        safeLoad(self.loadBoosterGenealogy),
+        safeLoad(self.loadSpacecraftGallery),
+        safeLoad(self.loadLaunchSiteGallery),
+        safeLoad(self.loadAgencies)
+      ])
+    })
 
     // 重量级模块改为懒加载：用户点击「加载」按钮才请求
     // - Starlink 卫星实时分布（多分片TLE + Canvas渲染）
@@ -720,17 +734,23 @@ Page({
   },
 
 
-  /** 打开智能搜索页 */
+  /** 兼容旧入口：智能搜索已并入星问（门控与首页放大镜对齐） */
   openAISearch() {
-    wx.navigateTo({
-      url: '/pages/search/search',
-      fail: () => {
-        wx.showToast({
-          title: '打开搜索失败，请稍后重试',
-          icon: 'none',
-          duration: 2000
-        })
+    const { ROUTES, navigateTo } = require('../../utils/routes.js')
+    const { isFeatureEnabled } = require('../../utils/feature-flags.js')
+    const { isAIAvailable } = require('../../utils/aiService.js')
+    if (!isAIAvailable()) {
+      wx.showToast({ title: '星问AI暂未开放', icon: 'none' })
+      return
+    }
+    isFeatureEnabled('enableAIChat', { failClosed: true }).then((on) => {
+      if (!on) {
+        wx.showToast({ title: '星问AI暂未开放', icon: 'none' })
+        return
       }
+      navigateTo(ROUTES.AI_CHAT)
+    }).catch(() => {
+      wx.showToast({ title: '星问AI暂未开放', icon: 'none' })
     })
   },
 

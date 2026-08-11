@@ -1,5 +1,6 @@
 // pages/progress/progress.js
 const themeUtil = require('../../utils/theme.js')
+const tabLoadPage = require('../../utils/tab-load-page.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { getRoadClosureNotice } = require('../../utils/api-road-closure.js')
 const {
@@ -176,12 +177,27 @@ Page({
       if (on) this.setData({ enableMissionSim: true })
     }).catch(() => {})
 
-    // 首屏关键路径：云媒体映射 → 星舰卡片数据
-    void loadCloudMediaMap()
-      .then(() => this.loadStarshipStatusFromDB({ deferLl2: true }))
-      .catch(() => {
-        this.loadStarshipStatusFromDB({ deferLl2: true }).catch(() => {})
-      })
+    // 首屏关键路径：云媒体映射 → 星舰卡片数据（接 Tab 全屏加载门控）
+    var self = this
+    tabLoadPage.withTabLoad(tabLoadPage.TAB_ROUTES.progress, function () {
+      return Promise.resolve()
+        .then(function () { return loadCloudMediaMap() })
+        .catch(function () {})
+        .then(function () {
+          return typeof self.loadStarshipStatusFromDB === 'function'
+            ? self.loadStarshipStatusFromDB({ deferLl2: true })
+            : null
+        })
+        .catch(function () {
+          try {
+            if (typeof self.loadStarshipStatusFromDB === 'function') {
+              return self.loadStarshipStatusFromDB({ deferLl2: true })
+            }
+          } catch (e) {}
+          return null
+        })
+        .catch(function () {})
+    })
 
     // 次优先：封路 + 硬件设施 + 事件列表（略延后，不阻塞首帧绘制）
     setTimeout(() => {

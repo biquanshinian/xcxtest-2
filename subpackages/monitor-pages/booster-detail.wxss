@@ -1,4 +1,6 @@
 /* booster-detail.wxss */
+@import "/styles/fav-btn.wxss";
+
 page {
   background: #0B0C0E;
   color: #fff;
@@ -123,11 +125,19 @@ page {
 .info-header {
   padding: var(--space-lg) var(--space-lg) 0;
 }
+.info-serial-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-bottom: 4rpx;
+}
 .info-serial {
+  flex: 1;
+  min-width: 0;
   font-size: 48rpx;
   font-weight: 800;
   color: #fff;
-  display: block;
+  line-height: 1.2;
 }
 .info-tags {
   display: flex;
@@ -267,35 +277,87 @@ page {
   margin-top: 4rpx;
 }
 
-/* 时间线 */
+/* 服役时间线：首尾航迹 + 两列指标（对齐型号档案规格网格） */
 .timeline-section {
   margin: 0 30rpx 16rpx;
   padding: 24rpx;
   border-radius: 16rpx;
   background: rgba(255, 255, 255, 0.06);
+  box-sizing: border-box;
 }
-.timeline-grid {
+.timeline-span {
   display: flex;
-  flex-wrap: wrap;
-  gap: 16rpx;
+  align-items: center;
+  gap: 12rpx;
+  padding: 18rpx 20rpx;
+  margin-bottom: 14rpx;
+  border-radius: 12rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-sizing: border-box;
 }
-.timeline-item {
-  flex: 0 0 calc(50% - 8rpx);
+.timeline-span-end {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  padding: 12rpx 16rpx;
+  gap: 4rpx;
+}
+.timeline-span-end--right {
+  align-items: flex-end;
+  text-align: right;
+}
+.timeline-span-track {
+  flex: 0 0 72rpx;
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  padding: 0 4rpx;
+}
+.timeline-span-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: var(--color-brand);
+  flex-shrink: 0;
+}
+.timeline-span-line {
+  flex: 1;
+  height: 3rpx;
+  border-radius: 2rpx;
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.85), rgba(59, 130, 246, 0.25));
+}
+.timeline-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14rpx;
+}
+.timeline-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4rpx;
+  min-width: 0;
+  padding: 14rpx 18rpx;
   background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10rpx;
+  box-sizing: border-box;
+}
+.timeline-item--full {
+  grid-column: 1 / -1;
 }
 .timeline-label {
   font-size: 20rpx;
   color: rgba(255, 255, 255, 0.4);
 }
 .timeline-value {
-  font-size: 26rpx;
+  font-size: 28rpx;
   font-weight: 600;
   color: #fff;
-  margin-top: 4rpx;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
 }
 .turnaround-value {
   color: var(--color-brand);
@@ -514,14 +576,22 @@ page {
 .theme-light .landing-label {
   color: var(--color-text-tertiary);
 }
+.theme-light .timeline-span,
 .theme-light .timeline-item {
   background: rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--color-divider);
 }
 .theme-light .timeline-label {
   color: var(--color-text-tertiary);
 }
 .theme-light .timeline-value {
   color: var(--color-text-primary);
+}
+.theme-light .timeline-span-dot {
+  background: var(--color-brand);
+}
+.theme-light .timeline-span-line {
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.7), rgba(59, 130, 246, 0.2));
 }
 .theme-light .turnaround-value {
   color: var(--color-brand);

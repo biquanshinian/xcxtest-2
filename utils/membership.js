@@ -52,6 +52,23 @@ const MEMBER_ICONS = {
   PRO: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/通行证图标/1778744106480_5ngzmf.png'
 }
 
+/** 会员权益插画（与会员页宫格一致；索引 3 为预留） */
+const MEMBER_BENEFIT_ICONS = [
+  'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/徽章/1778741192678_gsejhy.png',
+  'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/徽章/1778741195115_g7z847.png',
+  'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/徽章/1778741195886_bbbiph.png',
+  'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/徽章/1778741196495_ltn8qz.png',
+  'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/徽章/1778741197093_xhd41j.png'
+]
+
+/** 「我的」通行证卡权益条：名称 + 图标下标 */
+const MEMBER_PASS_BENEFITS = [
+  { name: '无限对话', iconIndex: 0 },
+  { name: '去除广告', iconIndex: 1 },
+  { name: '过境预报', iconIndex: 2 },
+  { name: '专属徽章', iconIndex: 4 }
+]
+
 // 免费用户每日限制（默认值；运行时以 global_config 会员策略为准）
 const FREE_LIMITS = {
   AI_CHAT: 3,
@@ -945,6 +962,8 @@ module.exports = {
   PRODUCTS: PRODUCTS,
   FREE_LIMITS: FREE_LIMITS,
   MEMBER_ICONS: MEMBER_ICONS,
+  MEMBER_BENEFIT_ICONS: MEMBER_BENEFIT_ICONS,
+  MEMBER_PASS_BENEFITS: MEMBER_PASS_BENEFITS,
   getMembershipState: getMembershipState,
   isPro: isPro,
   isProSync: isProSync,

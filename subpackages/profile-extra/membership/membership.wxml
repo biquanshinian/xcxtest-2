@@ -66,6 +66,18 @@
       </view>
     </view>
 
+    <!-- ═══ 邀请得月卡 ═══ -->
+    <view class="section">
+      <view class="invite-entry" hover-class="invite-entry--pressed" hover-stay-time="120" bindtap="goInvite">
+        <text class="invite-entry-icon">🎁</text>
+        <view class="invite-entry-info">
+          <text class="invite-entry-title">邀请得月卡</text>
+          <text class="invite-entry-desc">每邀 15 位好友点开，自动得 30 天通行证</text>
+        </view>
+        <text class="invite-entry-arrow">›</text>
+      </view>
+    </view>
+
     <!-- ═══ 账户管理：订单记录 + 用户ID ═══ -->
     <view class="section">
       <view class="section-title">账户管理</view>

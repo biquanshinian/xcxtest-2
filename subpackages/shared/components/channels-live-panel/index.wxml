@@ -83,7 +83,6 @@
     </view>
     <view class="channels-live-player-footer">
       <text class="channels-live-player-title">{{coverTitle || statusHint}}</text>
-      <text class="channels-live-custom-tap-hint" wx:if="{{canOpenLive}}">点击进入直播间</text>
     </view>
   </view>
 

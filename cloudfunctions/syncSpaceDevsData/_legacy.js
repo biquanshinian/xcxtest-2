@@ -196,6 +196,7 @@ function slimOrbit(orbit) {
   return {
     id: orbit.id != null ? orbit.id : null,
     name: orbit.name != null ? orbit.name : null,
+    nameZh: orbit.nameZh || undefined,
     abbrev: abbrevFlat != null ? abbrevFlat : null,
     perigee: orbit.perigee != null ? orbit.perigee : null,
     apogee: orbit.apogee != null ? orbit.apogee : null
@@ -378,29 +379,54 @@ function slimLaunch(launch) {
       }
     : (netPrecisionRaw || null)
 
+  // 中英展示字段：enrich 写在 slim 之后；旁路再 slim / 迟滞合并时也要带上，避免丢 nameZh
+  const statusSlim = status
+    ? {
+        id: status.id,
+        name: status.name,
+        abbrev: status.abbrev,
+        nameZh: status.nameZh || undefined
+      }
+    : null
+  const missionSlim = mission
+    ? {
+        name: mission.name,
+        nameZh: mission.nameZh || undefined,
+        description: mission.description,
+        descriptionZh: mission.descriptionZh || undefined,
+        type: slimMissionType(mission.type),
+        orbit: mission.orbit ? slimOrbit(mission.orbit) : null,
+        payloads: payloads_slim || undefined
+      }
+    : null
+
   return {
     id: launch.id,
     url: launch.url,
     name: launch.name,
+    nameZh: launch.nameZh || undefined,
     net: launch.net,
     net_precision,
     window_start: launch.window_start,
     window_end: launch.window_end,
-    status: status ? { id: status.id, name: status.name, abbrev: status.abbrev } : null,
+    status: statusSlim,
     probability: launch.probability,
     weather_concerns: launch.weather_concerns,
-    mission: mission ? {
-      name: mission.name,
-      description: mission.description,
-      type: slimMissionType(mission.type),
-      orbit: mission.orbit ? slimOrbit(mission.orbit) : null,
-      payloads: payloads_slim || undefined
-    } : null,
+    mission: missionSlim,
     payload_flights: payload_flights_slim || undefined,
     launch_service_provider: provider ? { id: provider.id, name: provider.name, abbrev: provider.abbrev, country_code: provider.country_code || slimCountryCode(provider.country) || null } : null,
     rocket: rocketCfg ? {
       // reusable：LL2 构型级可复用标记（长十乙网系回收等中国火箭无 stage 级着陆数据，靠它判定「可回收」）——_v5 起保留
-      configuration: { id: rocketCfg.id, name: rocketCfg.name, full_name: rocketCfg.full_name, family: rocketCfg.family, variant: rocketCfg.variant, reusable: rocketCfg.reusable === true || undefined },
+      configuration: {
+        id: rocketCfg.id,
+        name: rocketCfg.name,
+        nameZh: rocketCfg.nameZh || undefined,
+        full_name: rocketCfg.full_name,
+        full_nameZh: rocketCfg.full_nameZh || undefined,
+        family: rocketCfg.family,
+        variant: rocketCfg.variant,
+        reusable: rocketCfg.reusable === true || undefined
+      },
       launcher_stage,
       spacecraft_stage
     } : (launch.rocket && launch.rocket.configuration
@@ -409,11 +435,19 @@ function slimLaunch(launch) {
     pad: launch.pad ? {
       id: launch.pad.id,
       name: launch.pad.name,
+      nameZh: launch.pad.nameZh || undefined,
       // 保留坐标：发射通告地图等依赖 pad.lat/lon；缺失时只能靠名称表回填
       latitude: launch.pad.latitude != null ? Number(launch.pad.latitude) : null,
       longitude: launch.pad.longitude != null ? Number(launch.pad.longitude) : null,
       country_code: padCountryCode,
-      location: padLoc ? { id: padLoc.id, name: padLoc.name, country_code: slimCountryCode(padLoc.country) || slimCountryCode(padLoc.country_code) || padCountryCode || null } : null
+      location: padLoc
+        ? {
+            id: padLoc.id,
+            name: padLoc.name,
+            nameZh: padLoc.nameZh || undefined,
+            country_code: slimCountryCode(padLoc.country) || slimCountryCode(padLoc.country_code) || padCountryCode || null
+          }
+        : null
     } : null,
     webcast_live: launch.webcast_live,
     infographic: launch.infographic,
@@ -425,35 +459,42 @@ function slimLaunch(launch) {
 // === END slimLaunch ====================================================================
 
 /**
- * 清理指定 key 上一代残留的批次文档（_batch_N，N >= fromIndex）。
- * 只在新数据成功写入后调用；逐个删除直到遇到第一个不存在的文档。
- * 删除失败静默忽略，不影响主流程。
+ * 清理指定 key 上一代残留的批次文档。
+ * keepKeys 为本轮应保留的分片；未传时按 fromIndex 扫描经典 _batch_N（兼容旧调用）。
  */
-async function removeOrphanBatchDocs(cacheKey, fromIndex) {
-  const MAX_SCAN = 30 // 防御性上限
-  for (let i = fromIndex; i < fromIndex + MAX_SCAN; i++) {
-    try {
-      const res = await db.collection('space_devs_cache').doc(`${cacheKey}_batch_${i}`).remove()
-      const removed = res && res.stats ? res.stats.removed : 0
-      if (!removed) break
-    } catch (e) {
-      break // 文档不存在或删除失败：停止扫描
-    }
+async function removeOrphanBatchDocs(cacheKey, fromIndexOrKeepKeys, extraCandidates) {
+  const { removeOrphanBatchDocs: removeOrphans } = require('./cache-write-guard.js')
+  if (Array.isArray(fromIndexOrKeepKeys)) {
+    await removeOrphans(db, cacheKey, fromIndexOrKeepKeys, extraCandidates)
+    return
   }
+  const fromIndex = typeof fromIndexOrKeepKeys === 'number' ? fromIndexOrKeepKeys : 0
+  const keep = []
+  for (let i = 0; i < fromIndex; i++) keep.push(`${cacheKey}_batch_${i}`)
+  await removeOrphans(db, cacheKey, keep, extraCandidates)
 }
 
 /**
  * 保存数据到云数据库（带重试）
+ * 加固：slim 发射列表先剥 updates 优先单文档；分片须全部写齐并回读校验后才切换主文档。
  */
 async function saveToCloudDB(cacheKey, apiData, retryCount = 0) {
   const MAX_RETRIES = 3
   const SAVE_TIMEOUT = 10000 // 增加到10秒，确保大数据也能保存
+  const {
+    verifyBatchedCache,
+    makeGenerationBatchKey,
+    readExistingBatchKeys
+  } = require('./cache-write-guard.js')
   
   try {
     // 验证数据完整性
     if (!apiData) {
       throw new Error('API数据为空')
     }
+
+    // updates 剥离在 syncAPIEndpoint（split 成功后）完成；此处不再无条件 strip，避免 split 失败丢冷路径
+    const payload = apiData
     
     const now = Date.now()
     // 核心发射 / 空间站 / 资讯列表 48h 保底；机构 30d；其余端点维持 3.5h
@@ -466,33 +507,23 @@ async function saveToCloudDB(cacheKey, apiData, retryCount = 0) {
           : (isAgencyCacheKey(cacheKey) ? AGENCY_CACHE_DURATION : CACHE_DURATION)))
     
     // 检查数据大小（按字节），如果超过1MB，需要分批保存
-    const dataSize = Buffer.byteLength(JSON.stringify(apiData), 'utf8')
-    
-    // 如果数据包含results数组，验证数组长度
-    if (apiData.results && Array.isArray(apiData.results)) {
-      const resultsCount = apiData.results.length
-      
-      // 如果预期应该有更多数据，记录警告
-      if (resultsCount === 0) {
-      }
-      
-      // 如果数据大小接近1MB限制，记录警告
-      if (dataSize > 1024 * 1024 * 0.8) {
-      }
-    }
+    const dataSize = Buffer.byteLength(JSON.stringify(payload), 'utf8')
     const MAX_DOC_SIZE = 1024 * 1024 * 0.8 // 约 800KB，留足余量避免 BSON/索引等开销导致超过 1MB
     
-    if (dataSize > MAX_DOC_SIZE && apiData.results && Array.isArray(apiData.results)) {
+    if (dataSize > MAX_DOC_SIZE && payload.results && Array.isArray(payload.results)) {
 
-      const results = apiData.results
+      const results = payload.results
+      const prevBatchKeys = await readExistingBatchKeys(db, cacheKey)
 
       const batchKeys = []
       let currentBatch = []
       let batchIndex = 0
+      // 一代一写：新 key 写齐并校验后再切主文档，避免原地覆盖造成新旧拼接窗口
+      const writeId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 
       // 估算“除 results 外的固定部分”大小，避免每次都 stringify 全量
       const baseWithoutResults = {
-        ...apiData,
+        ...payload,
         results: [],
         count: results.length,
         isBatch: true
@@ -502,9 +533,9 @@ async function saveToCloudDB(cacheKey, apiData, retryCount = 0) {
       const flushBatch = async () => {
         if (currentBatch.length === 0) return
 
-        const batchCacheKey = `${cacheKey}_batch_${batchIndex}`
+        const batchCacheKey = makeGenerationBatchKey(cacheKey, batchIndex, writeId)
         const batchApiData = {
-          ...apiData,
+          ...payload,
           results: currentBatch,
           count: results.length,
           batchIndex: batchIndex,
@@ -555,6 +586,16 @@ async function saveToCloudDB(cacheKey, apiData, retryCount = 0) {
 
       await flushBatch()
 
+      // 分片全部写完后回读校验：失败则不切换主文档，保留上一代可读缓存
+      const verified = await verifyBatchedCache(db, cacheKey, results.length, batchKeys)
+      if (!verified.ok) {
+        throw new Error(
+          `batched cache verify failed: ${verified.reason}` +
+            (verified.missingKey ? ` missing=${verified.missingKey}` : '') +
+            ` merged=${verified.mergedCount}/${verified.expectedCount}`
+        )
+      }
+
       // 保存主文档（包含元数据，指向批次数据）
       const mainCacheData = {
         data: {
@@ -580,9 +621,18 @@ async function saveToCloudDB(cacheKey, apiData, retryCount = 0) {
         )
       ])
 
-      // 新数据已成功落库：此时才清理上一代多余的批次文档（批次数变少时的孤儿文档）。
-      // 若本轮拉取/写入在前面任何一步失败，绝不会走到这里，旧缓存原样保留。
-      await removeOrphanBatchDocs(cacheKey, batchKeys.length)
+      // 主文档切换成功后再删旧分片（含上一代 generation key）
+      const keep = new Set(batchKeys)
+      const toRemove = (prevBatchKeys || []).filter((k) => k && !keep.has(k))
+      for (let i = 0; i < 40; i++) {
+        const classic = `${cacheKey}_batch_${i}`
+        if (!keep.has(classic)) toRemove.push(classic)
+      }
+      for (const oldKey of toRemove) {
+        try {
+          await db.collection('space_devs_cache').doc(oldKey).remove()
+        } catch (e) {}
+      }
 
       return true
     }
@@ -590,11 +640,14 @@ async function saveToCloudDB(cacheKey, apiData, retryCount = 0) {
     // 数据大小在限制内，正常保存
     // 云数据库文档结构：{ _id: cacheKey, data: { data: apiData, timestamp, expireAt }, ... }
     const cacheData = {
-      data: apiData,  // 实际的API数据
+      data: payload,  // 实际的API数据
       timestamp: now,
       expireAt: now + cacheTtl,
       updatedAt: now
     }
+
+    // 单文档路径：先记下旧分片 key（主文档改写后就读不到 generation keys 了）
+    const prevInlineBatchKeys = await readExistingBatchKeys(db, cacheKey)
 
     // 使用 set 操作，如果存在则更新，不存在则创建
     // 注意：云数据库的 set 方法会自动处理文档的创建和更新
@@ -609,7 +662,7 @@ async function saveToCloudDB(cacheKey, apiData, retryCount = 0) {
     ])
 
     // 上一代若是分批存储（数据缩小后不再分批），新主文档落库成功后清掉旧批次孤儿文档
-    await removeOrphanBatchDocs(cacheKey, 0)
+    await removeOrphanBatchDocs(cacheKey, 0, prevInlineBatchKeys)
 
     // set 操作成功即可信赖，无需额外验证读取（节省数据库读操作）
     return true
@@ -836,6 +889,34 @@ async function syncAPIEndpoint(url, params = {}, apiBase = null, fetchAll = fals
       } catch (e) {
         console.warn('[net-recovery-enrich]', e.message || e)
       }
+      // upcoming 整表覆写前按旧 slim 做 NET 迟滞（与小时探针 / resolve 同源），防 6h detailed 把 8/31 占位盖回
+      if (
+        typeof url === 'string' &&
+        url.indexOf('/launches/upcoming/') >= 0 &&
+        apiData.results.length
+      ) {
+        try {
+          const { applyUpcomingNetHysteresisFromCache } = require('./upcoming-net-merge.js')
+          const hyst = await applyUpcomingNetHysteresisFromCache(db, apiData.results)
+          if (hyst && Array.isArray(hyst.results)) {
+            apiData = { ...apiData, results: hyst.results }
+            if (hyst.preserved > 0 || hyst.hadPrevious) {
+              console.log(
+                '[net-hysteresis] syncLaunches upcoming',
+                JSON.stringify({
+                  preserved: hyst.preserved,
+                  applied: hyst.applied,
+                  previousCount: hyst.previousCount,
+                  reasons: hyst.reasons,
+                  cacheKey: hyst.cacheKey
+                })
+              )
+            }
+          }
+        } catch (e) {
+          console.warn('[net-hysteresis]', e.message || e)
+        }
+      }
     }
     
     // 如果数据包含results数组，记录数量
@@ -890,6 +971,13 @@ async function syncAPIEndpoint(url, params = {}, apiBase = null, fetchAll = fals
         updatesSplit = await splitLaunchUpdatesIntoTimelineCache(db, apiData.results, {
           source: 'sync_launches_slim_v6'
         })
+        // 仅当 updates 文档全部写成功（或本页本来就没有 updates）才剥列表，避免 timeline 半写 + 列表已剥的冷路径双丢
+        const withUpdates = Number(updatesSplit && updatesSplit.launches) || 0
+        const written = Number(updatesSplit && updatesSplit.docsWritten) || 0
+        if (updatesSplit && !updatesSplit.error && (withUpdates === 0 || written >= withUpdates)) {
+          const { stripUpdatesFromListPayload } = require('./cache-write-guard.js')
+          apiData = stripUpdatesFromListPayload(apiData)
+        }
       } catch (splitErr) {
         console.warn('[updates-split]', splitErr.message || splitErr)
         updatesSplit = { error: splitErr.message || String(splitErr) }
@@ -999,6 +1087,12 @@ async function runModularSyncEvents() {
   results.push(await syncAPIEndpoint('/events/upcoming/', { limit: 100, offset: 0 }, null, true, 2, 2))
   results.push(await syncAPIEndpoint('/updates/', { limit: 100, offset: 0 }, null, true, 1, 1))
   results.push(await syncAPIEndpoint('/articles/', { format: 'json', limit: 100, offset: 0, ordering: '-published_at' }, SPACEFLIGHT_NEWS_API, true, 1, 1))
+  // events 落库后同步回填监控页「即将进行的在轨任务」
+  try {
+    results.push({ orbitalEventsPatch: await patchUpcomingOrbitalEventsFromEventsCache(8) })
+  } catch (e) {
+    results.push({ orbitalEventsPatch: { success: false, error: e && e.message } })
+  }
   return results
 }
 
@@ -3622,61 +3716,123 @@ async function fetchOngoingSpaceXMissionsFromLL2() {
 }
 
 // 即将进行的在轨任务/事件（不限 SpaceX）：Docking / Undocking / Berthing / EVA / Crew Handover 等
-// 数据源：LL2 /events/upcoming/?mode=list（list 模式已含 description/image/location/type/date/vid_urls）
+// 优先读 space_devs_cache 已同步的 events/upcoming（零额外 LL2）；失败再直拉 LL2 list
 // 返回 null 表示拉取失败（调用方应保留库中已有数据，不要覆盖为空）
-async function fetchUpcomingOrbitalEvents(limit = 8) {
-  // LL2 实际类型名为 Spacecraft Undocking / Spacecraft Berthing / Change of Command 等，
-  // 精确 Set 匹配会漏掉大部分 ISS 事件，这里改为关键词匹配
-  const ORBITAL_TYPE_RE = /dock|berth|\beva\b|spacewalk|hatch|orbital insertion|reboost|crew handover|change of command/
+const ORBITAL_EVENT_TYPE_RE =
+  /dock|berth|\beva\b|spacewalk|hatch|orbital insertion|reboost|crew handover|change of command|spacecraft landing|spacecraft release|spacecraft event|splashdown|crew departure/
+
+function mapUpcomingOrbitalFromResults(results, limit = 8) {
+  if (!Array.isArray(results)) return []
+  const now = Date.now()
+  const matched = []
+  for (const ev of results) {
+    if (!ev) continue
+    const typeNameRaw = ev.type && ev.type.name ? String(ev.type.name) : (ev.typeName || '')
+    if (!ORBITAL_EVENT_TYPE_RE.test(String(typeNameRaw).toLowerCase())) continue
+    const dateMs = ev.date ? Date.parse(ev.date) : (isFinite(ev.dateMs) ? Number(ev.dateMs) : NaN)
+    if (!isFinite(dateMs)) continue
+    // 仅保留未来事件，向前再保留 6 小时容差（避免临近 T-0 抖动）
+    if (dateMs < now - 6 * 60 * 60 * 1000) continue
+    // 太远期事件（>18 个月）剔除
+    if (dateMs > now + 18 * 30 * 86400 * 1000) continue
+    const imageObj = ev.image
+    const image = typeof imageObj === 'string'
+      ? imageObj
+      : (imageObj && (imageObj.image_url || imageObj.thumbnail_url || '')) || ev.imageUrl || ''
+    const vid = Array.isArray(ev.vid_urls) && ev.vid_urls.length ? ev.vid_urls[0] : null
+    matched.push({
+      id: ev.id,
+      slug: ev.slug || '',
+      name: ev.name || '',
+      nameZh: ev.nameZh || '',
+      typeName: typeNameRaw,
+      typeNameZh: (ev.type && ev.type.nameZh) || ev.typeNameZh || '',
+      date: ev.date || '',
+      dateMs,
+      location: ev.location || '',
+      locationZh: ev.locationZh || '',
+      description: ev.description || '',
+      descriptionZh: ev.descriptionZh || '',
+      imageUrl: image || '',
+      webcastUrl: (vid && vid.url) || ev.webcastUrl || '',
+      webcastTitle: (vid && vid.title) || ev.webcastTitle || '',
+      webcastPublisher: (vid && vid.publisher) || ev.webcastPublisher || '',
+      precision: (ev.date_precision && ev.date_precision.name) || ev.precision || ''
+    })
+  }
+  matched.sort((a, b) => a.dateMs - b.dateMs)
+  return matched.slice(0, limit)
+}
+
+async function readEventsUpcomingFromCache() {
+  const key = `api_cache_/events/upcoming/_${JSON.stringify({ limit: 100, offset: 0 })}`
   try {
+    const doc = await db.collection('space_devs_cache').doc(key).get()
+    const payload = doc && doc.data && doc.data.data
+    if (!payload) return null
+    if (Array.isArray(payload.results) && payload.results.length) return payload.results
+    // 分批落库：主文档 results 为空，需合并 batchKeys
+    if (payload.isBatched && Array.isArray(payload.batchKeys) && payload.batchKeys.length) {
+      const merged = []
+      for (const batchKey of payload.batchKeys) {
+        try {
+          const bDoc = await db.collection('space_devs_cache').doc(batchKey).get()
+          const bPayload = bDoc && bDoc.data && bDoc.data.data
+          if (bPayload && Array.isArray(bPayload.results)) merged.push(...bPayload.results)
+        } catch (e) { /* 单批缺失跳过 */ }
+      }
+      return merged.length ? merged : null
+    }
+    return Array.isArray(payload.results) ? payload.results : null
+  } catch (e) {}
+  return null
+}
+
+async function fetchUpcomingOrbitalEvents(limit = 8) {
+  try {
+    // 1) 已同步的 events 缓存（全量同步后更稳，且不占 LL2 配额）
+    const cachedResults = await readEventsUpcomingFromCache()
+    if (Array.isArray(cachedResults) && cachedResults.length) {
+      const fromCache = mapUpcomingOrbitalFromResults(cachedResults, limit)
+      if (fromCache.length) return fromCache
+    }
+
+    // 2) 直拉 LL2 list（冷启动 / 缓存尚未写入）
     const url = `${LAUNCH_LIBRARY_API}/events/upcoming/?limit=50&mode=list&format=json`
     const resp = await fetchAPI(url).catch(() => null)
-    if (!resp || !Array.isArray(resp.results)) return null
+    if (!resp || !Array.isArray(resp.results)) {
+      // 缓存有数据但类型未命中 → 返回空数组；缓存与 LL2 都不可用 → null 保旧
+      return Array.isArray(cachedResults) ? [] : null
+    }
     const list = resp.results
-    // 该路径绕过 syncAPIEndpoint，同样补充中文字段
     try {
       await enrichEventsList({ results: list })
     } catch (translateErr) {
       console.warn('[translate-enrich orbital-events]', translateErr.message || translateErr)
     }
-    const now = Date.now()
-    const matched = []
-    for (const ev of list) {
-      const typeName = ev.type && ev.type.name ? String(ev.type.name).toLowerCase() : ''
-      if (!ORBITAL_TYPE_RE.test(typeName)) continue
-      const dateMs = ev.date ? Date.parse(ev.date) : NaN
-      if (!isFinite(dateMs)) continue
-      // 仅保留未来事件，向前再保留 6 小时容差（避免临近 T-0 抖动）
-      if (dateMs < now - 6 * 60 * 60 * 1000) continue
-      // 太远期事件（>18 个月）剔除：Juice/BepiColombo 等深空插入暂不展示在「即将进行」
-      if (dateMs > now + 18 * 30 * 86400 * 1000) continue
-      const image = ev.image && (ev.image.image_url || (ev.image.thumbnail_url || ''))
-      const vid = Array.isArray(ev.vid_urls) && ev.vid_urls.length ? ev.vid_urls[0] : null
-      matched.push({
-        id: ev.id,
-        slug: ev.slug || '',
-        name: ev.name || '',
-        nameZh: ev.nameZh || '',
-        typeName: ev.type && ev.type.name ? ev.type.name : '',
-        typeNameZh: (ev.type && ev.type.nameZh) || '',
-        date: ev.date || '',
-        dateMs,
-        location: ev.location || '',
-        locationZh: ev.locationZh || '',
-        description: ev.description || '',
-        descriptionZh: ev.descriptionZh || '',
-        imageUrl: image || '',
-        webcastUrl: vid && vid.url ? vid.url : '',
-        webcastTitle: vid && vid.title ? vid.title : '',
-        webcastPublisher: vid && vid.publisher ? vid.publisher : '',
-        precision: (ev.date_precision && ev.date_precision.name) || ''
-      })
-    }
-    matched.sort((a, b) => a.dateMs - b.dateMs)
-    return matched.slice(0, limit)
+    return mapUpcomingOrbitalFromResults(list, limit)
   } catch (e) {
     console.warn('[UpcomingOrbitalEvents] fetch failed:', e && e.message)
     return null
+  }
+}
+
+/** 全量同步写完 events 后回填 upcomingOrbitalEvents（避免 SpaceX 步骤抢跑时缓存仍空） */
+async function patchUpcomingOrbitalEventsFromEventsCache(limit = 8) {
+  try {
+    const list = await fetchUpcomingOrbitalEvents(limit)
+    if (!Array.isArray(list)) return { success: false, skipped: true }
+    const now = Date.now()
+    await db.collection('spacex_launch_stats').doc('spacex_official_live').update({
+      data: {
+        upcomingOrbitalEvents: list,
+        upcomingOrbitalPatchedAt: now,
+        updatedAt: now
+      }
+    })
+    return { success: true, count: list.length }
+  } catch (e) {
+    return { success: false, error: e && e.message }
   }
 }
 
@@ -3689,6 +3845,17 @@ async function syncSpaceXLaunchStats(forceRefresh = false) {
     try {
       const lastSync = await collection.doc(docId).get().catch(() => null)
       if (lastSync && lastSync.data && lastSync.data.syncedAt && (now - lastSync.data.syncedAt < SPACEX_STATS_CACHE_DURATION)) {
+        const existingOrbital = lastSync.data.upcomingOrbitalEvents
+        // 缓存期内但在轨列表为空：仍尝试从 events 缓存补写，避免长期空列表
+        if (!(Array.isArray(existingOrbital) && existingOrbital.length)) {
+          const patched = await patchUpcomingOrbitalEventsFromEventsCache(8)
+          return {
+            success: true,
+            message: '缓存有效，已尝试补写在轨任务',
+            cacheAge: Math.round((now - lastSync.data.syncedAt) / 60000) + '分钟',
+            orbitalPatch: patched
+          }
+        }
         return { success: true, message: '缓存有效，跳过同步', cacheAge: Math.round((now - lastSync.data.syncedAt) / 60000) + '分钟' }
       }
     } catch (_) {}
@@ -6252,6 +6419,14 @@ exports.main = async (event, context) => {
         } catch (e) { /* 保留首次结果 */ }
       }
 
+      // events 已落库后回填「即将进行的在轨任务」（SpaceX 步骤在前时缓存可能仍空）
+      let orbitalEventsPatch = null
+      try {
+        orbitalEventsPatch = await patchUpcomingOrbitalEventsFromEventsCache(8)
+      } catch (e) {
+        orbitalEventsPatch = { success: false, error: e.message }
+      }
+
       // 各步骤独立兜底：任一失败不阻断后续同步
       let statsResult = null
       try {
@@ -6293,6 +6468,7 @@ exports.main = async (event, context) => {
         stats: statsResult,
         roadClosure: roadClosureResult,
         spacexStats: spacexStatsResult,
+        orbitalEventsPatch,
         crossValidate: crossValidateResult,
         boosters: boosterResult,
         timestamp: Date.now()

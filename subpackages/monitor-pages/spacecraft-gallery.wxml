@@ -7,7 +7,16 @@
         <text class="icon-back icon-back--nav">‹</text>
       </view>
       <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
-      <view class="top-nav-slot--spacer"></view>
+      <view class="top-nav-slot--spacer top-nav-slot--fav">
+        <view
+          class="fav-btn fav-btn--nav {{isFavorited ? 'fav-btn--on' : ''}} {{favAnimate ? 'fav-btn--animate' : ''}}"
+          hover-class="fav-btn--pressed"
+          hover-stay-time="120"
+          catchtap="onToggleFavorite"
+        >
+          <view class="fav-heart"></view>
+        </view>
+      </view>
     </view>
   </view>
   <scroll-view
@@ -41,26 +50,37 @@
 
     <block wx:else>
 
-    <!-- 现役/类型筛选 chip（固定式，多行换行全部可见） -->
-    <view class="filter-wrap">
-      <view class="filter-row">
-        <view class="filter-chip {{filter === chip.id ? 'filter-chip--active' : ''}}"
-              wx:for="{{filterChips}}" wx:for-item="chip" wx:key="id"
-              data-filter="{{chip.id}}" bindtap="onFilterTap">
+    <!-- 分类：单排横向滚动（对齐发射商图鉴；机构改走搜索 / 卡片标签） -->
+    <scroll-view class="gal-filter-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+      <view class="gal-filter-row">
+        <view
+          class="gal-chip {{filter === chip.id ? 'gal-chip-active' : ''}}"
+          wx:for="{{filterChips}}"
+          wx:for-item="chip"
+          wx:key="id"
+          data-filter="{{chip.id}}"
+          bindtap="onFilterTap"
+        >
           <text>{{chip.label}}</text>
         </view>
       </view>
-      <!-- 机构筛选 chip（数据驱动，横向滚动） -->
-      <scroll-view class="agency-filter-scroll" scroll-x enable-flex wx:if="{{agencyChips.length}}">
-        <view class="agency-filter-row">
-          <view class="filter-chip filter-chip--agency {{filter === chip.id ? 'filter-chip--active' : ''}}"
-                wx:for="{{agencyChips}}" wx:for-item="chip" wx:key="id"
-                data-filter="{{chip.id}}" bindtap="onFilterTap">
-            <text>{{chip.label}}</text>
-            <text class="agency-chip-count">{{chip.count}}</text>
-          </view>
-        </view>
-      </scroll-view>
+    </scroll-view>
+
+    <!-- 搜索横条 -->
+    <view class="gal-search">
+      <text class="gal-search-icon">⌕</text>
+      <input
+        class="gal-search-input"
+        type="text"
+        confirm-type="search"
+        placeholder="搜索"
+        placeholder-class="gal-search-placeholder"
+        value="{{keyword}}"
+        bindinput="onSearchInput"
+      />
+      <view class="gal-search-clear" wx:if="{{keyword}}" bindtap="onSearchClear">
+        <text>×</text>
+      </view>
     </view>
 
     <!-- 汇总条 -->
@@ -98,7 +118,10 @@
           <view class="scg-card-body">
             <text class="scg-name">{{item.name}}</text>
             <text class="scg-type" wx:if="{{item.typeLabel}}">{{item.typeLabel}}</text>
-            <text class="scg-agency" wx:if="{{item.agencyLabel}}" data-agency="{{item.agencyName}}" catchtap="onAgencyTagTap">{{item.agencyLabel}}</text>
+            <view class="scg-agency" wx:if="{{item.agencyLabel}}" data-agency="{{item.agencyName}}" catchtap="onAgencyTagTap">
+              <image class="scg-agency-logo" wx:if="{{item.agencyLogoUrl}}" src="{{item.agencyLogoUrl}}" mode="aspectFit" lazy-load />
+              <text class="scg-agency-name">{{item.agencyLabel}}</text>
+            </view>
           </view>
         </view>
       </view>

@@ -4,7 +4,12 @@
  */
 
 function normalizeSerial(serial) {
-  return String(serial || '').trim()
+  const s = String(serial || '').trim()
+  // LL2 占位序列号（Unknown / Unknown12A）不可进助推器详情
+  if (!s || /^unknown/i.test(s) || /^(tbd|n\/?a|null|none|未披露|未知|\?+|-+)$/i.test(s)) {
+    return ''
+  }
+  return s
 }
 
 function serialMatch(item, serial) {

@@ -9,6 +9,7 @@
  *   POST /replay-agent/claim     → 领取 1 条 pending 任务 + COS 预签 PUT URL
  *   POST /replay-agent/complete  → 上传成功回写 mission_replays（_id=launchId）
  *   POST /replay-agent/fail      → 失败重试计数（3 次后终态 failed）
+ *   POST /replay-agent/nudge-queue → 清 pending 退避 / 复活 failed，立即再领
  */
 
 const QUEUE_COL = 'replay_fetch_queue'
@@ -194,6 +195,17 @@ function createReplayFetchApi({ db, ok, fail, now, crypto, createCOSClient, COS_
     return ok({ launchId: job.launchId, kind: job.kind === 'clip' ? 'clip' : 'full', videoUrl: cosUrl })
   }
 
+  /** 失败退避：代理/网络短退避；片源未找到仍按 2h 阶梯（视频可能晚发） */
+  function retryDelayMs(kind, attempts, message) {
+    const n = Math.max(1, Number(attempts) || 1)
+    const msg = String(message || '').toLowerCase()
+    if (/proxy|出口|econn|timed?\s*out|fetch failed|unavailable|tunnel|socket|network|enotfound|presign|403|forbidden/.test(msg)) {
+      return Math.min(n, 4) * 15 * 60 * 1000 // 15/30/45/60 分钟
+    }
+    if (kind === 'clip') return n * 2 * 60 * 60 * 1000
+    return n * 2 * 60 * 60 * 1000
+  }
+
   async function failJob(body = {}) {
     const { job, err } = await verifyClaim(body)
     if (err) return err
@@ -203,18 +215,65 @@ function createReplayFetchApi({ db, ok, fail, now, crypto, createCOSClient, COS_
     // 集锦任务允许更多次重试（视频可能几小时后才发布），且失败后按次数退避 2h/4h/6h…
     const maxAttempts = job.kind === 'clip' ? 6 : MAX_ATTEMPTS
     const terminal = attempts >= maxAttempts || body.permanent === true
+    const delay = terminal ? 0 : retryDelayMs(job.kind, attempts, message)
     await db.collection(QUEUE_COL).doc(job._id).update({
       data: {
         status: terminal ? 'failed' : 'pending',
         attempts,
         claimToken: '',
         claimedAt: 0,
-        nextRetryAt: terminal ? 0 : ts + attempts * 2 * 60 * 60 * 1000,
+        nextRetryAt: terminal ? 0 : ts + delay,
         lastError: message,
         updatedAt: ts
       }
     })
-    return ok({ action: terminal ? 'terminal_failed' : 'retry_later', attempts })
+    return ok({ action: terminal ? 'terminal_failed' : 'retry_later', attempts, nextRetryInMs: delay })
+  }
+
+  /**
+   * 立即解开队列：清 pending 的 nextRetryAt；failed → pending。
+   * 解决「代理口修好了但仍卡在数小时退避」；Agent 空转时可调用。
+   */
+  async function nudgeQueue(body = {}) {
+    const ts = now()
+    const resetAttempts = body && body.resetAttempts === true
+    let nudged = 0
+    let revived = 0
+    try {
+      const res = await db.collection(QUEUE_COL).where({ status: 'pending' }).limit(50).get()
+      for (const row of res.data || []) {
+        const due = !row.nextRetryAt || Number(row.nextRetryAt) <= ts
+        if (due && !resetAttempts) continue
+        await db.collection(QUEUE_COL).doc(row._id).update({
+          data: {
+            nextRetryAt: 0,
+            updatedAt: ts,
+            ...(resetAttempts ? { attempts: 0 } : {}),
+            lastError: ('nudged: ' + String(row.lastError || '')).slice(0, 200)
+          }
+        })
+        nudged += 1
+      }
+    } catch (e) {}
+    try {
+      const res = await db.collection(QUEUE_COL).where({ status: 'failed' }).limit(50).get()
+      for (const row of res.data || []) {
+        if (row.kind !== 'clip' && row.kind !== 'full') continue
+        await db.collection(QUEUE_COL).doc(row._id).update({
+          data: {
+            status: 'pending',
+            nextRetryAt: 0,
+            claimToken: '',
+            claimedAt: 0,
+            attempts: resetAttempts ? 0 : Number(row.attempts || 0),
+            updatedAt: ts,
+            lastError: ('revived_nudge: ' + String(row.lastError || '')).slice(0, 200)
+          }
+        })
+        revived += 1
+      }
+    } catch (e) {}
+    return ok({ nudged, revived, resetAttempts: !!resetAttempts })
   }
 
   /** 管理后台：队列与成品概览 */
@@ -301,7 +360,7 @@ function createReplayFetchApi({ db, ok, fail, now, crypto, createCOSClient, COS_
     return ok({ action: 'created', ruleId: LIFECYCLE_RULE_ID, days: LIFECYCLE_DAYS, prefix: `${COS_FOLDER}/`, totalRules: rules.length })
   }
 
-  return { verifyAgentToken, claimJob, completeJob, failJob, listReplays, deleteReplay, ensureLifecycleRule }
+  return { verifyAgentToken, claimJob, completeJob, failJob, nudgeQueue, listReplays, deleteReplay, ensureLifecycleRule }
 }
 
 module.exports = { createReplayFetchApi }

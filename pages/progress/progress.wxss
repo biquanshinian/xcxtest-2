@@ -277,7 +277,7 @@ page {
   padding: var(--space-lg) var(--space-lg) var(--space-lg) var(--space-xl);
   border-radius: var(--radius-card);
   overflow: hidden;
-  background: linear-gradient(118deg, #0b1210 0%, #060a08 55%, #04120c 100%);
+  background: linear-gradient(118deg, #06140c 0%, #0a1f14 55%, #05140c 100%);
 }
 /* 四角 L 形取景角标（与指挥室页面同语言） */
 .mission-sim-entry::before,
@@ -377,7 +377,7 @@ page {
 }
 /* —— 浅色主题：浅底深字，绿色加深保证对比度 —— */
 .theme-light .mission-sim-entry {
-  background: linear-gradient(118deg, #ffffff 0%, #f4faf7 55%, #ecf7f1 100%);
+  background: linear-gradient(118deg, #ffffff 0%, #f3fbf6 55%, #eaf8f0 100%);
 }
 .theme-light .mission-sim-entry::before {
 }

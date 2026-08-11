@@ -129,15 +129,11 @@ Page({
 
   applyMomentsPreviewLayout() {
     try {
-      const launchInfo = wx.getLaunchOptionsSync()
-      if (!launchInfo || launchInfo.scene !== 1154) return
+      const { buildMomentsSinglePagePatch } = require('../../utils/moments-single.js')
       const app = getApp()
       const layout = (app && app.getUiShellLayout && app.getUiShellLayout()) || {}
-      const safeBottom = Number(layout.safeBottomInset) || 0
-      this.setData({
-        isMomentsPreview: true,
-        tabBarReservedHeight: 52 + safeBottom
-      })
+      const patch = buildMomentsSinglePagePatch(layout, this.data.themeClass)
+      if (patch) this.setData(patch)
     } catch (_) {}
   },
 

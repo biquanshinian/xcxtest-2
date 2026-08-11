@@ -149,7 +149,7 @@
   <view class="starfield-section">
     <view class="section-header">
       <text class="section-title">月球心愿星空</text>
-      <text class="starfield-count">{{wishList.length}} 颗心愿星</text>
+      <text class="starfield-count">{{stats.totalWishes || 0}} 颗心愿星</text>
     </view>
 
     <view class="starfield-container" bind:tap="onFieldTap">

@@ -1,4 +1,5 @@
 const { isAIAvailable, streamChat, QUICK_QUESTIONS, QUICK_SHORTCUTS } = require('../../utils/aiService.js')
+const { aiChatUiText, localizeQuickShortcuts, getAiChatShellTexts } = require('../../utils/ai-chat-i18n.js')
 const { getUpcomingMissions, getCompletedMissions, getUpcomingStarshipMissions } = require('../../../../utils/api-launch-list.js')
 const { getStarshipStatusFromDB } = require('../../../../utils/api-app-services.js')
 const { buildMissionDetailUrl } = require('../../../../utils/index-mission-nav.js')
@@ -8,8 +9,11 @@ const { getSystemInfo } = require('../../../../utils/system.js')
 const { getUiShellLayout } = require('../../../../utils/layout.js')
 const {
   resolveRichChatPayload,
-  resolveChatCardRocketImage
+  resolveChatCardRocketImage,
+  applyReminderSubscribeStatus,
+  enrichLaunchContextWithSetReminder
 } = require('../../utils/ai-chat-rich.js')
+const { subscribeLaunchForChat } = require('../../../../utils/subscribe.js')
 const { shouldReplaceRocketImage } = require('../../../../utils/util.js')
 const { markDownloadFailed } = require('../../../../utils/download-fail-cache.js')
 const { loadCloudMediaMap } = require('../../../../utils/image-config.js')
@@ -41,33 +45,35 @@ const MAX_DAILY_QUESTIONS = 10
 const DAILY_QUOTA_KEY = '_ai_chat_daily_quota'
 
 /** 参数卡跳转白名单：卡片只带 specKind + targetId，URL 在本地拼 */
-const SPEC_ROUTE_MAP = {
-  rocket_model: { route: ROUTES.ROCKET_MODEL_DETAIL, param: 'configId' },
-  launch_site: {
-    route: ROUTES.LAUNCH_SITE_DETAIL,
-    param: 'id',
-    gateId: 'launch_site_encyclopedia',
-    gateName: '全球发射场'
-  },
-  spacecraft: {
-    route: ROUTES.SPACECRAFT_DETAIL,
-    param: 'id',
-    gateId: 'spacecraft_encyclopedia',
-    gateName: '航天器图鉴'
-  },
-  booster: { route: ROUTES.BOOSTER_DETAIL, param: 'serial' },
-  apod: { route: ROUTES.ASTRO_CALENDAR, param: '' },
-  starship_hardware: {
-    route: ROUTES.HARDWARE_DETAIL,
-    param: 'id',
-    gateId: 'starship_hardware',
-    gateName: '星舰硬件设施'
-  },
-  recovery_stats: {
-    route: ROUTES.BOOSTER_GENEALOGY,
-    param: '',
-    gateId: 'booster_genealogy',
-    gateName: '助推器家谱'
+function getSpecRouteMap() {
+  return {
+    rocket_model: { route: ROUTES.ROCKET_MODEL_DETAIL, param: 'configId' },
+    launch_site: {
+      route: ROUTES.LAUNCH_SITE_DETAIL,
+      param: 'id',
+      gateId: 'launch_site_encyclopedia',
+      gateName: aiChatUiText('launchSiteGate')
+    },
+    spacecraft: {
+      route: ROUTES.SPACECRAFT_DETAIL,
+      param: 'id',
+      gateId: 'spacecraft_encyclopedia',
+      gateName: aiChatUiText('spacecraftGate')
+    },
+    booster: { route: ROUTES.BOOSTER_DETAIL, param: 'serial' },
+    apod: { route: ROUTES.ASTRO_CALENDAR, param: '' },
+    starship_hardware: {
+      route: ROUTES.HARDWARE_DETAIL,
+      param: 'id',
+      gateId: 'starship_hardware',
+      gateName: aiChatUiText('hardwareGate')
+    },
+    recovery_stats: {
+      route: ROUTES.BOOSTER_GENEALOGY,
+      param: '',
+      gateId: 'booster_genealogy',
+      gateName: aiChatUiText('boosterGeneTitle')
+    }
   }
 }
 
@@ -104,9 +110,10 @@ function getRemainingQuota() {
  * 带 icon 的项（观礼）经 icon-cache 解析：命中走本地 wxfile，未命中展示压缩 thumb 并后台落盘。
  */
 function filterQuickShortcuts(watchPartyOn) {
-  const list = watchPartyOn
+  const base = watchPartyOn
     ? QUICK_SHORTCUTS
     : QUICK_SHORTCUTS.filter((item) => !(item && item.requireWatchParty))
+  const list = localizeQuickShortcuts(base)
   return list.map((item) => {
     if (!item || !item.icon) return item
     let icon = item.icon
@@ -149,6 +156,7 @@ Component({
     scrollTarget: '',
     quickQuestions: QUICK_QUESTIONS,
     quickShortcuts: filterQuickShortcuts(false),
+    ui: getAiChatShellTexts(),
     inputFocus: false,
     errorMsgId: '',
     themeClass: '',
@@ -181,7 +189,8 @@ Component({
         panelHeight: this._defaultPanelHeight,
         themeClass,
         panelMounted: isPageMode,
-        visible: isPageMode
+        visible: isPageMode,
+        ui: getAiChatShellTexts()
       })
       this._initFestivalHat()
       this._refreshQuickShortcuts()
@@ -205,7 +214,8 @@ Component({
       this.syncTheme()
       // 法定假日生命周期：回前台按当天再解析一次（跨日/跨假自动戴脱帽）
       if (!isFestivalHatDevMode()) this._initFestivalHat()
-      // 一键过审后回到本页也要立即收起观礼快捷键（与我的页刷新语义一致）
+      // 语言偏好 / 过审开关变更后回前台：刷新壳文案与快捷键
+      this.setData({ ui: getAiChatShellTexts() })
       this._refreshQuickShortcuts()
     }
     // hide：键盘清零由 composer-input-behavior.pageLifetimes.hide 处理
@@ -405,7 +415,7 @@ Component({
       // 详情页模式已常驻，仅聚焦输入
       if (this._isPageMode()) {
         if (!isAIAvailable()) {
-          wx.showToast({ title: 'AI功能暂未开放', icon: 'none' })
+          wx.showToast({ title: aiChatUiText('toastAiOff'), icon: 'none' })
           return
         }
         this.setData({ inputFocus: true })
@@ -415,7 +425,7 @@ Component({
       wx.vibrateShort({ type: 'medium' })
 
       if (!isAIAvailable()) {
-        wx.showToast({ title: 'AI功能暂未开放', icon: 'none' })
+        wx.showToast({ title: aiChatUiText('toastAiOff'), icon: 'none' })
         return
       }
 
@@ -525,6 +535,55 @@ Component({
       this._navigateAwayFromChat(url)
     },
 
+    /** 提醒卡：待授权/失败时点按重试开提醒；已成功则进任务详情 */
+    async onReminderCardTap(e) {
+      const ds = (e.currentTarget && e.currentTarget.dataset) || {}
+      const status = String(ds.status || '')
+      const missionId = ds.missionid || ds.id || ''
+      const detailType = ds.type === 'completed' ? 'completed' : 'upcoming'
+      const msgId = ds.msgid || ''
+      if (status === 'need_auth' || status === 'failed') {
+        if (!missionId || this._reminderRetryLock) return
+        this._reminderRetryLock = true
+        try {
+          wx.vibrateShort({ type: 'medium' })
+          const mission = {
+            id: missionId,
+            name: ds.name || '',
+            missionName: ds.name || '',
+            rocketName: ds.rocket || '',
+            launchTime: ds.launchtime || ''
+          }
+          const sub = await subscribeLaunchForChat(mission, { quiet: true })
+          const nextStatus = (sub && sub.status) || (sub && sub.ok ? 'success' : 'failed')
+          const messages = this.data.messages || []
+          const msgIdx = messages.findIndex((m) => m && String(m.id) === String(msgId))
+          if (msgIdx < 0) return
+          const cards = Array.isArray(messages[msgIdx].cards) ? messages[msgIdx].cards.slice() : []
+          const cardIdx = cards.findIndex((c) => c && c.cardType === 'reminder')
+          if (cardIdx < 0) return
+          cards[cardIdx] = applyReminderSubscribeStatus(cards[cardIdx], nextStatus)
+          const patch = {}
+          patch[`messages[${msgIdx}].cards`] = cards
+          if (nextStatus === 'success' || nextStatus === 'already' || nextStatus === 'oa_ready') {
+            patch[`messages[${msgIdx}].content`] = enrichLaunchContextWithSetReminder(
+              {},
+              cards[cardIdx]
+            ).suggestedReply || messages[msgIdx].content
+          }
+          this._stickToBottom(patch)
+          this._pulseCardHaptic()
+        } finally {
+          this._reminderRetryLock = false
+        }
+        return
+      }
+      if (!missionId) return
+      const url = buildMissionDetailUrl({ id: missionId, detailType })
+      wx.vibrateShort({ type: 'light' })
+      this._navigateAwayFromChat(url)
+    },
+
     _switchTabFromChat(url) {
       if (this._isPageMode()) {
         wx.switchTab({ url })
@@ -541,8 +600,15 @@ Component({
     },
 
     /** 发射列表「查看首页」 */
-    onLaunchListMoreTap() {
+    onLaunchListMoreTap(e) {
       wx.vibrateShort({ type: 'light' })
+      const mode = e && e.currentTarget && e.currentTarget.dataset
+        ? e.currentTarget.dataset.mode
+        : ''
+      if (mode === 'history') {
+        this._navigateAwayFromChat(ROUTES.SEARCH)
+        return
+      }
       this._switchTabFromChat(ROUTES.INDEX)
     },
 
@@ -589,7 +655,7 @@ Component({
       const id = e.currentTarget.dataset.id
       if (!id) return
       const gateId = e.currentTarget.dataset.gateid || 'agency_encyclopedia'
-      const gateName = e.currentTarget.dataset.gatename || '全球发射商图鉴'
+      const gateName = e.currentTarget.dataset.gatename || aiChatUiText('agencyGate')
       const url = ROUTES.AGENCY_DETAIL + '?id=' + encodeURIComponent(String(id))
 
       if (this._entryGatePending) return
@@ -609,7 +675,7 @@ Component({
       const year = e.currentTarget.dataset.year
       const country = e.currentTarget.dataset.country || ''
       const gateId = e.currentTarget.dataset.gateid || 'global_launch_stats'
-      const gateName = e.currentTarget.dataset.gatename || '全球发射统计'
+      const gateName = e.currentTarget.dataset.gatename || aiChatUiText('statsGate')
       const parts = []
       if (year) parts.push('year=' + encodeURIComponent(String(year)))
       if (country && country !== '_all') {
@@ -639,7 +705,7 @@ Component({
       const videoUrl = ds.videourl ? String(ds.videourl) : ''
       const poster = ds.poster ? String(ds.poster) : ''
       const gateId = ds.gateid || 'mission_replay'
-      const gateName = ds.gatename || '发射回放'
+      const gateName = ds.gatename || aiChatUiText('missionReplayGate')
 
       if (!playable || !videoUrl) {
         if (!launchId) return
@@ -658,14 +724,16 @@ Component({
           enabled = false
         }
         if (!enabled) {
-          wx.showToast({ title: '发射回放暂未开放', icon: 'none' })
+          wx.showToast({ title: aiChatUiText('toastReplayOff'), icon: 'none' })
           return
         }
         const allowed = await gateCheck(gateId, gateName)
         if (!allowed) return
         wx.vibrateShort({ type: 'light' })
 
-        const title = (missionName ? missionName + ' 发射集锦' : '发射集锦') + ' | 火星探索日志'
+        const title = (missionName
+          ? aiChatUiText('replayTitle', { name: missionName })
+          : aiChatUiText('clipHighlight')) + ' | 火星探索日志'
         const sharePath = launchId
           ? buildMissionDetailUrl({ id: launchId, detailType: 'completed' })
           : ''
@@ -710,14 +778,14 @@ Component({
           wpOn = false
         }
         if (!wpOn) {
-          wx.showToast({ title: '观礼服务暂未开放', icon: 'none' })
+          wx.showToast({ title: aiChatUiText('toastWatchOff'), icon: 'none' })
           return
         }
         wx.navigateTo({ url: '/subpackages/watch-party/watch-party?channel=ai' })
         return
       }
 
-      const rule = SPEC_ROUTE_MAP[kind]
+      const rule = getSpecRouteMap()[kind]
       if (!rule) return
       if (rule.param && !targetId) return
 
@@ -725,7 +793,7 @@ Component({
         ? rule.route + '?' + rule.param + '=' + encodeURIComponent(targetId)
         : rule.route
       const gateId = ds.gateid || rule.gateId || ''
-      const gateName = ds.gatename || rule.gateName || '该功能'
+      const gateName = ds.gatename || rule.gateName || aiChatUiText('gateGeneric')
 
       if (this._entryGatePending) return
       this._entryGatePending = true
@@ -807,6 +875,22 @@ Component({
         // missionId 为真实任务 id → 商家列表；无则进全部开放场次列表
         url = '/subpackages/watch-party/merchant-list?channel=ai' +
           (missionId ? '&missionId=' + encodeURIComponent(missionId) : '')
+      } else if (kind === 'badges') {
+        url = ROUTES.BADGES
+      } else if (kind === 'favorites') {
+        url = ROUTES.FAVORITES
+      } else if (kind === 'daily_quiz') {
+        url = ROUTES.DAILY_QUIZ
+      } else if (kind === 'collect') {
+        url = ROUTES.COLLECT
+      } else if (kind === 'exoplanet') {
+        url = ROUTES.EXOPLANET
+      } else if (kind === 'nasa_data') {
+        url = ROUTES.NASA_DATA
+      } else if (kind === 'spacecraft_gallery') {
+        url = ROUTES.SPACECRAFT_GALLERY
+      } else if (kind === 'launch_site_gallery') {
+        url = ROUTES.LAUNCH_SITE_MAP
       }
       if (!url) return
 
@@ -822,7 +906,7 @@ Component({
           }
           if (!enabled) {
             wx.showToast({
-              title: kind === 'mission_sim' ? '任务指挥室暂未开放' : '飞行演示暂未开放',
+              title: kind === 'mission_sim' ? aiChatUiText('toastSimOff') : aiChatUiText('toastDemoOff'),
               icon: 'none'
             })
             return
@@ -830,7 +914,7 @@ Component({
         }
         // 直播入口受过审开关控制（enableLiveWatch / enableLive），关时监控中心也不显示直播区
         if (needLive && !(await isLiveEntryAllowed())) {
-          wx.showToast({ title: '直播入口暂未开放', icon: 'none' })
+          wx.showToast({ title: aiChatUiText('toastLiveOff'), icon: 'none' })
           return
         }
         if (kind === 'watch_party') {
@@ -841,12 +925,12 @@ Component({
             wpOn = false
           }
           if (!wpOn) {
-            wx.showToast({ title: '观礼服务暂未开放', icon: 'none' })
+            wx.showToast({ title: aiChatUiText('toastWatchOff'), icon: 'none' })
             return
           }
         }
         if (gateId) {
-          const allowed = await gateCheck(gateId, gateName || '该功能')
+          const allowed = await gateCheck(gateId, gateName || aiChatUiText('gateGeneric'))
           if (!allowed) return
         }
         wx.vibrateShort({ type: 'light' })
@@ -912,7 +996,7 @@ Component({
           wpOn = false
         }
         if (!wpOn) {
-          wx.showToast({ title: '商家入驻暂未开放', icon: 'none' })
+          wx.showToast({ title: aiChatUiText('toastMerchantOff'), icon: 'none' })
           return
         }
         wx.vibrateShort({ type: 'light' })
@@ -926,7 +1010,7 @@ Component({
       if (this._isPageMode()) {
         wx.navigateTo({
           url,
-          fail: () => wx.showToast({ title: '打开失败', icon: 'none' })
+          fail: () => wx.showToast({ title: aiChatUiText('toastOpenFail'), icon: 'none' })
         })
         return
       }
@@ -942,7 +1026,7 @@ Component({
             if (page && typeof page.getTabBar === 'function' && page.getTabBar()) {
               page.getTabBar().setData({ hidden: false })
             }
-            wx.showToast({ title: '打开失败', icon: 'none' })
+            wx.showToast({ title: aiChatUiText('toastOpenFail'), icon: 'none' })
           },
           complete: () => {
             this._skipTabBarRestore = false
@@ -1090,6 +1174,30 @@ Component({
         })
         richCards = Array.isArray(rich.cards) ? rich.cards : []
         launchContext = rich.launchContext
+        // 「提醒我一下」：发送手势链路内自动开提醒，并刷新成功卡
+        if (rich.subscribeMission && rich.subscribeMission.id) {
+          try {
+            const sub = await subscribeLaunchForChat(rich.subscribeMission, { quiet: true })
+            const status = (sub && sub.status) || (sub && sub.ok ? 'success' : 'failed')
+            richCards = richCards.map((c) => {
+              if (!c || c.cardType !== 'reminder') return c
+              return applyReminderSubscribeStatus(c, status)
+            })
+            const reminderCard = richCards.find((c) => c && c.cardType === 'reminder')
+            if (reminderCard) {
+              launchContext = enrichLaunchContextWithSetReminder(launchContext, reminderCard)
+            }
+          } catch (subErr) {
+            richCards = richCards.map((c) => {
+              if (!c || c.cardType !== 'reminder') return c
+              return applyReminderSubscribeStatus(c, 'failed')
+            })
+            const reminderCard = richCards.find((c) => c && c.cardType === 'reminder')
+            if (reminderCard) {
+              launchContext = enrichLaunchContextWithSetReminder(launchContext, reminderCard)
+            }
+          }
+        }
         // 回写星舰下一飞缓存
         const missionCard = richCards.find((c) => c && c.cardType === 'mission')
         if (missionCard && Array.isArray(this._cachedUpcoming)) {
@@ -1136,7 +1244,7 @@ Component({
           incrementDailyQuota()
         }
       } catch (err) {
-        const errorText = err.message || '抱歉，我暂时无法回答，请稍后再试。'
+        const errorText = err.message || aiChatUiText('errDefaultReply')
         // 报错气泡带「重试」按钮，同样要滚进视野
         this._stickToBottom({
           [`messages[${botIdx}].content`]: errorText,

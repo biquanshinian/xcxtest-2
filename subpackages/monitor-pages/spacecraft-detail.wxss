@@ -1,4 +1,6 @@
 /* spacecraft-detail.wxss — 飞船构型详情页（暗色毛玻璃，与监控中心一致） */
+@import "/styles/fav-btn.wxss";
+
 page {
   background: var(--color-bg-page);
   overflow: hidden;
@@ -29,6 +31,8 @@ page {
 
 .detail-card {
   padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
 }
 
 /* 全局 .glass-card 自带 overflow:hidden，会裁掉头图悬浮卡的横向出框与毛玻璃叠层/投影；
@@ -37,11 +41,9 @@ page {
   overflow: visible;
 }
 
-/* 头图出框悬浮页内适配：容器横向总内衬 72rpx（detail-container 36rpx + detail-card 36rpx），
- * 覆盖 --flush 默认 -16rpx 为 -52rpx，让头图最终落在屏边 20rpx（未超出视口，不引发横向滚动）；
- * 卡片上内边距 36rpx ≥ 32rpx，-32rpx 上浮压不出卡顶，覆盖为 0 保持正常间距（不上浮） */
+/* 头图出框：横向 -52rpx 落到屏边 20rpx；顶部抵消卡内上内边距，贴齐白卡顶沿 */
 .detail-card .hero-float--flush {
-  margin-top: 0;
+  margin-top: calc(-1 * var(--space-lg));
   margin-left: -52rpx;
   margin-right: -52rpx;
 }
@@ -137,9 +139,34 @@ page {
   margin-bottom: 28rpx;
 }
 
+.hero-status-badge {
+  position: absolute;
+  top: 20rpx;
+  left: 20rpx;
+  z-index: 2;
+  padding: 8rpx 20rpx;
+  border-radius: 999rpx;
+  font-size: 22rpx;
+  font-weight: 600;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.hero-status-badge--active {
+  color: #30d158;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(48, 209, 88, 0.45);
+}
+
+.hero-status-badge--inactive {
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+}
+
 .hero-name-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16rpx;
 }
@@ -412,10 +439,10 @@ page {
 .theme-light .hero-sub {
   color: var(--color-text-secondary);
 }
-.theme-light .hero-status--inactive {
-  color: var(--color-text-secondary);
-  background: rgba(0, 0, 0, 0.05);
-  border: 1px solid rgba(0, 0, 0, 0.1);
+.theme-light .hero-status-badge--inactive {
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.3);
 }
 .theme-light .hero-badge {
   color: var(--color-brand);

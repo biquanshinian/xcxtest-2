@@ -1,4 +1,5 @@
 const { attachMissionDetailMeta } = require('./index-mission-nav.js')
+const { formatMissionListTimeOrUnknown, applyContentLangToMission } = require('./launch-card-i18n.js')
 
 function normalizeMissionType(type) {
   return type === 'completed' ? 'completed' : 'upcoming'
@@ -8,21 +9,21 @@ function normalizeMissionItem(mission, options) {
   const {
     type,
     index = 0,
-    baseIndex = 0,
-    formatDate
+    baseIndex = 0
   } = options || {}
 
   const normalizedType = normalizeMissionType(type)
   const isCompleted = normalizedType === 'completed'
 
-  return attachMissionDetailMeta({
+  const next = attachMissionDetailMeta({
     ...mission,
     _wxkey: `${isCompleted ? 'm-1' : 'm-0'}-${baseIndex + index}-${(mission.id != null ? mission.id : '')}`,
-    formattedTime: mission.launchTime ? formatDate(mission.launchTime, 'MM月DD日 HH:mm') : '时间未知'
+    formattedTime: formatMissionListTimeOrUnknown(mission.launchTime)
   }, {
     id: mission.id,
     detailType: normalizedType
   })
+  return applyContentLangToMission(next)
 }
 
 async function fetchMissionListData(options) {
