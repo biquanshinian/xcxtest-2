@@ -2330,7 +2330,7 @@ async function resolveRichChatPayload(text, options) {
     const resolved = await resolveAgencyLookupCard({ ...opts, queryText: text })
     if (resolved.card) {
       cards.push(resolved.card)
-      launchContext = enrichLaunchContextWithAgency(launchContext, resolved.card)
+      launchContext = enrichLaunchContextWithAgency(launchContext, resolved.card, text)
     } else {
       launchContext = enrichLaunchContextNoAgency(launchContext, text)
     }

@@ -61,6 +61,14 @@ function getIdentityView() {
   }
 }
 
+function _hasCustomIdentity(id) {
+  if (!id || typeof id !== 'object') return false
+  const avatar = String(id.avatarFileID || id.avatarUrl || '').trim()
+  if (avatar && normalizeAvatarUrl(avatar, id.avatarFileID)) return true
+  const name = String(id.displayName || '').trim()
+  return !!(name && name !== DEFAULT_DISPLAY_NAME)
+}
+
 function saveIdentityLocal(patch) {
   const cur = _raw()
   const next = {
@@ -68,44 +76,67 @@ function saveIdentityLocal(patch) {
     avatarUrl: cur.avatarUrl || '',
     avatarFileID: cur.avatarFileID || '',
     openid: cur.openid || '',
-    updatedAt: Date.now()
+    // 默认保留旧时间戳：仅写 openid 时绝不能把 updatedAt 刷成「现在」，
+    // 否则删小程序重装后会判定本地比云端新，导致云端头像/昵称拉不回来。
+    updatedAt: Number(cur.updatedAt) || 0
   }
+  var contentChanged = false
   if (patch && typeof patch === 'object') {
     if (patch.displayName != null) {
       next.displayName = String(patch.displayName || '').trim().slice(0, MAX_NAME_LEN)
+      contentChanged = true
     }
-    if (patch.avatarUrl != null) next.avatarUrl = String(patch.avatarUrl || '').trim()
-    if (patch.avatarFileID != null) next.avatarFileID = String(patch.avatarFileID || '').trim()
+    if (patch.avatarUrl != null) {
+      next.avatarUrl = String(patch.avatarUrl || '').trim()
+      contentChanged = true
+    }
+    if (patch.avatarFileID != null) {
+      next.avatarFileID = String(patch.avatarFileID || '').trim()
+      contentChanged = true
+    }
     if (patch.openid != null) next.openid = String(patch.openid || '').trim()
-    if (patch.updatedAt != null) next.updatedAt = Number(patch.updatedAt) || next.updatedAt
+    if (patch.updatedAt != null) {
+      next.updatedAt = Number(patch.updatedAt) || 0
+    } else if (contentChanged) {
+      next.updatedAt = Date.now()
+    }
   }
   storageCache.persistAsync(STORAGE_KEY, next)
   return loadIdentity()
 }
 
-/** 云端 identity 字段合并到本地（较新者胜） */
+/** 云端 identity 字段合并到本地（较新者胜；本地无自定义内容时优先恢复云端） */
 function mergeIdentityFromCloud(cloudIdentity, openid) {
   if (openid) {
     const cur = _raw()
-    if (!cur.openid) saveIdentityLocal({ openid: String(openid) })
-    else if (cur.openid !== openid) saveIdentityLocal({ openid: String(openid) })
+    if (!cur.openid || cur.openid !== String(openid)) {
+      saveIdentityLocal({ openid: String(openid) })
+    }
   }
   if (!cloudIdentity || typeof cloudIdentity !== 'object') {
     return loadIdentity()
   }
   const local = loadIdentity()
   const cloudAt = Number(cloudIdentity.updatedAt) || 0
-  if (cloudAt && cloudAt > (local.updatedAt || 0)) {
-    const fileID = String(cloudIdentity.avatarFileID || '').trim()
-    return saveIdentityLocal({
-      displayName: cloudIdentity.displayName || '',
-      avatarFileID: fileID,
-      avatarUrl: fileID || '',
-      openid: openid || local.openid,
-      updatedAt: cloudAt
-    })
-  }
-  return local
+  const localAt = Number(local.updatedAt) || 0
+  const cloudHas = _hasCustomIdentity(cloudIdentity) || !!cloudAt
+  const localHas = _hasCustomIdentity(local)
+  // 重装后本地空：即使云端 updatedAt 不比本地「新」，也要恢复
+  const shouldTakeCloud =
+    (cloudAt > localAt) ||
+    (!localHas && cloudHas)
+
+  if (!shouldTakeCloud) return local
+
+  const fileID = String(cloudIdentity.avatarFileID || '').trim()
+  const name = String(cloudIdentity.displayName || '').trim()
+  return saveIdentityLocal({
+    displayName: name || DEFAULT_DISPLAY_NAME,
+    avatarFileID: fileID,
+    avatarUrl: fileID || '',
+    openid: openid || local.openid,
+    updatedAt: cloudAt || Date.now()
+  })
 }
 
 function pushIdentityToCloud() {

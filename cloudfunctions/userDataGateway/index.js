@@ -233,13 +233,20 @@ async function handleSyncAll(openid, localData) {
     }
   }
 
-  // 合并身份展示（取较新的）
+  // 合并身份展示（取较新的；空本地不得覆盖已有云端头像/昵称，防止删小程序重装后把云端洗掉）
   if (localData.identity && localData.identity.updatedAt) {
     const cloudId = profile.identity || {}
-    if ((localData.identity.updatedAt || 0) >= (cloudId.updatedAt || 0)) {
+    const localName = String(localData.identity.displayName || '').trim()
+    const localAvatar = String(localData.identity.avatarFileID || '').trim()
+    const cloudName = String(cloudId.displayName || '').trim()
+    const cloudAvatar = String(cloudId.avatarFileID || '').trim()
+    const localEmpty = !localAvatar && (!localName || localName === '太空探索者')
+    const cloudHasData = !!(cloudAvatar || (cloudName && cloudName !== '太空探索者'))
+    if (!(localEmpty && cloudHasData) &&
+        (localData.identity.updatedAt || 0) >= (cloudId.updatedAt || 0)) {
       updateData.identity = {
-        displayName: String(localData.identity.displayName || '').trim().slice(0, 16),
-        avatarFileID: String(localData.identity.avatarFileID || '').trim().slice(0, 512),
+        displayName: localName.slice(0, 16),
+        avatarFileID: localAvatar.slice(0, 512),
         updatedAt: Number(localData.identity.updatedAt) || Date.now()
       }
     }

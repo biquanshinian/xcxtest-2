@@ -386,7 +386,7 @@ function extractAgencySearchKey(text) {
   q = q
     .replace(/[？?！!。．.，,、；;：:…]+/g, ' ')
     .replace(/(是什么公司|哪家公司|那家公司|什么机构|什么公司|靠谱吗|实力如何|干嘛的|干什么的|做什么的|发射商图鉴|全球发射商|发射商信息|发射商简介|机构简介|公司简介|航天机构|航天公司|发射商|介绍一下|介绍下|介绍|讲讲|聊聊|说说|告诉我|查一下|看看|怎么样|怎样|如何|咋样|的信息|详情|图鉴|百科|档案)/g, ' ')
-    .replace(/(属于|谁造的|哪家造的|制造商|研制单位|研制|是哪家的|哪家的|是哪家|哪家厂商|哪家|谁家|商是谁)/g, ' ')
+    .replace(/(属于|谁造的|哪家造的|制造商|研制单位|研制|是哪家的|哪家的|是哪家|哪家厂商|哪家|谁家|商是谁|哪个)/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
   return q
@@ -1874,11 +1874,25 @@ function resolveAgencyFromRocketConfig(configs, agencies, queryText) {
     return { agency: agencyHit.agency, score: agencyHit.score, via: 'manufacturer' }
   }
 
-  // 长征系无 manufacturer 时硬回落 CASC，避免再误配任务卡
-  if (/长征|long\s*march|\bcz\s*-?\s*\d/i.test(q + ' ' + rocketKey)) {
-    const casc = pickBestAgencyMatch(rows, 'CASC') || pickBestAgencyMatch(rows, '中国航天科技集团')
-    if (casc && casc.agency) {
-      return { agency: casc.agency, score: casc.score, via: 'long_march_fallback' }
+  // 构型缺 manufacturer 时按型号族硬回落，避免归属问法配不出卡 / 误配任务卡
+  const blob = q + ' ' + rocketKey
+  const familyFallbacks = [
+    [/长征|long\s*march|\bcz\s*-?\s*\d/i, ['CASC', '中国航天科技集团'], 'long_march_fallback'],
+    [/朱雀|zhuque|\bzq\s*-?\s*\d/i, ['LandSpace', '蓝箭航天'], 'zhuque_fallback'],
+    [/猎鹰|falcon|星舰|starship/i, ['SpaceX', '太空探索技术公司'], 'falcon_fallback'],
+    [/谷神|ceres/i, ['Galactic Energy', '星河动力'], 'ceres_fallback'],
+    [/引力|gravity/i, ['Orienspace', '东方空间'], 'gravity_fallback'],
+    [/电子号|\belectron\b/i, ['Rocket Lab', '火箭实验室'], 'electron_fallback']
+  ]
+  for (let i = 0; i < familyFallbacks.length; i += 1) {
+    const rule = familyFallbacks[i]
+    if (!rule[0].test(blob)) continue
+    const keys = rule[1]
+    for (let j = 0; j < keys.length; j += 1) {
+      const hitAgency = pickBestAgencyMatch(rows, keys[j])
+      if (hitAgency && hitAgency.agency) {
+        return { agency: hitAgency.agency, score: hitAgency.score, via: rule[2] }
+      }
     }
   }
   return null
@@ -2710,10 +2724,14 @@ function enrichLaunchContextNoLaunchStats(launchContext) {
   return base
 }
 
-function enrichLaunchContextWithAgency(launchContext, agencyCard) {
+function enrichLaunchContextWithAgency(launchContext, agencyCard, queryText) {
   const base = launchContext && typeof launchContext === 'object' ? { ...launchContext } : {}
   const card = agencyCard && typeof agencyCard === 'object' ? agencyCard : {}
   const name = card.displayName || card.name || '该发射商'
+  const abbrev = card.abbrev ? String(card.abbrev).trim() : ''
+  const nameWithAbbrev = abbrev && abbrev.toUpperCase() !== name.toUpperCase()
+    ? (name + '（' + abbrev + '）')
+    : name
   const lines = []
   if (card.countryLabel) lines.push('国家/地区：' + card.countryLabel)
   if (card.foundingYear) lines.push('成立：' + card.foundingYear + ' 年')
@@ -2724,6 +2742,25 @@ function enrichLaunchContextWithAgency(launchContext, agencyCard) {
   base.focusHint = '用户在询问发射商「' + name + '」；界面会展示可点击的发射商卡片。请基于以下真实信息简要介绍，并提醒可点击进入发射商详情页：\n' +
     (lines.length ? lines.join('\n') : '详情见卡片') +
     '\n不要编造未给出的发射次数、火箭名单或财务数据。禁止说未匹配到。'
+  // 固定文案，跳过大模型，避免「没匹配」与下方卡片矛盾
+  const metaBits = []
+  if (card.countryLabel) metaBits.push(card.countryLabel)
+  if (card.foundingYear) metaBits.push(card.foundingYear + ' 年成立')
+  if (card.totalLaunchCount != null) metaBits.push('历史 ' + card.totalLaunchCount + ' 次发射')
+  let rocketKey = extractAgencySearchKey(queryText) || extractRocketModelKey(queryText) || ''
+  rocketKey = String(rocketKey)
+    .replace(/(属于|谁造的|哪家造的|制造商|研制单位|研制|是哪家的|哪家的|是哪家|哪家厂商|哪家|谁家|商是谁|哪个|发射商|公司)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (hasAgencyOwnershipAsk(queryText) && rocketKey) {
+    base.suggestedReply = '「' + rocketKey + '」属于' + nameWithAbbrev +
+      (metaBits.length ? '（' + metaBits.join(' · ') + '）' : '') +
+      '。点下方卡片可进入发射商详情。'
+  } else {
+    base.suggestedReply = '已为你找到' + nameWithAbbrev +
+      (metaBits.length ? '：' + metaBits.join(' · ') : '') +
+      '。点下方卡片可查看完整档案。'
+  }
   return base
 }
 
@@ -2731,6 +2768,10 @@ function enrichLaunchContextNoAgency(launchContext, queryText) {
   const base = launchContext && typeof launchContext === 'object' ? { ...launchContext } : {}
   const key = extractAgencySearchKey(queryText) || String(queryText || '').trim()
   base.focusHint = '用户在询问发射商「' + (key || '某机构') + '」，本地图鉴未匹配到对应机构。请如实说明未找到，建议改用英文名或缩写（如 SpaceX、CASC、Rocket Lab）或打开「全球发射商图鉴」；不要编造机构信息。'
+  base.suggestedReply = '本地图鉴里暂时没有匹配到「' + (key || '该机构') +
+    '」相关发射商信息。你可以试着换英文名或缩写（如 SpaceX、CASC），或打开「全球发射商图鉴」手动查找。'
+  // 无卡时不要走 suggested+cards 短路；仅作兜底文案给调用方选用
+  delete base.uiCardReady
   return base
 }
 

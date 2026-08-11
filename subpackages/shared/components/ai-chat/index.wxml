@@ -152,9 +152,12 @@
 
           <view class="ai-msg-col" wx:if="{{item.role !== 'user'}}">
 
-            <view class="ai-msg-bubble ai-msg-bubble--bot {{item.error ? 'ai-msg-bubble--error' : ''}}">
+            <view class="ai-msg-bubble ai-msg-bubble--bot {{item.error ? 'ai-msg-bubble--error' : ''}} {{item.streaming ? 'ai-msg-bubble--streaming' : ''}} {{item.typing ? 'ai-msg-bubble--thinking' : ''}}">
 
-              <text class="ai-msg-text" user-select wx:if="{{item.content}}">{{item.content}}</text>
+              <view class="ai-msg-text-row" wx:if="{{item.content || item.streaming}}">
+                <text class="ai-msg-text" user-select>{{item.content}}</text>
+                <text class="ai-msg-caret" wx:if="{{item.streaming}}">▍</text>
+              </view>
 
               <view class="ai-msg-typing" wx:if="{{item.typing}}">
 

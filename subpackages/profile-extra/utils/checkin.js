@@ -470,10 +470,18 @@ function pushAllToCloud(force) {
   let identity = null
   try {
     const id = require('../../../utils/user-identity.js').loadIdentity()
-    identity = {
-      displayName: id.displayName || '',
-      avatarFileID: id.avatarFileID || '',
-      updatedAt: id.updatedAt || 0
+    const name = String(id.displayName || '').trim()
+    const avatar = String(id.avatarFileID || '').trim()
+    const hasCustom =
+      !!avatar ||
+      (!!name && name !== '太空探索者')
+    // 重装后本地尚无身份时不要把空包推上去（即使带了 updatedAt）
+    if (hasCustom && id.updatedAt) {
+      identity = {
+        displayName: name || '',
+        avatarFileID: avatar,
+        updatedAt: id.updatedAt || 0
+      }
     }
   } catch (e) {}
 

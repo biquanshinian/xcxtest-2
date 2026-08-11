@@ -36,6 +36,12 @@ const { ensureAgencyLogoBgTone } = require('../../../../utils/agency-logo-bg.js'
 
 const MIN_PANEL_HEIGHT = 280
 const PANEL_HEIGHT_RATIO = 0.72
+/** 流式 setData 合并间隔：削峰防卡顿 */
+const STREAM_UI_MIN_MS = 48
+/** 流式轻震最小间隔：随字出现但不刷屏 */
+const STREAM_HAPTIC_MIN_MS = 120
+/** 固定文案打字机步进 */
+const TYPEWRITER_STEP_MS = 20
 
 let _msgId = 0
 function nextMsgId() { return 'msg_' + (++_msgId) + '_' + Date.now() }
@@ -205,6 +211,7 @@ Component({
 
     detached() {
       this._stopFestivalHatDevCycle()
+      this._abortStreamPresentation()
       // 键盘解绑由 composer-input-behavior 处理
     }
   },
@@ -282,14 +289,119 @@ Component({
       setTimeout(() => this._stickToBottom(), 260)
     },
 
+    /** 中止流式/打字机展示（组件销毁或下一次发送前） */
+    _abortStreamPresentation() {
+      this._typewriterToken = (this._typewriterToken || 0) + 1
+      if (this._typewriterTimer) {
+        clearTimeout(this._typewriterTimer)
+        this._typewriterTimer = null
+      }
+      if (this._streamUiTimer) {
+        clearTimeout(this._streamUiTimer)
+        this._streamUiTimer = null
+      }
+      this._streamPending = null
+      this._streamLastLen = 0
+    },
+
     /**
-     * 流式吐字轻震：已停用以避免刷屏震动；保留空实现供调用点兼容。
+     * 流式吐字轻震：节流后的 light，随可见文字增长触发。
      */
-    _tickStreamHaptic() {},
+    _tickStreamHaptic() {
+      const now = Date.now()
+      if (this._lastStreamHapticAt && now - this._lastStreamHapticAt < STREAM_HAPTIC_MIN_MS) return
+      this._lastStreamHapticAt = now
+      try { wx.vibrateShort({ type: 'light' }) } catch (e) {}
+    },
 
     /** 抽卡落地：中度震一次（suggested 瞬时出卡 / 流式结束后挂卡共用） */
     _pulseCardHaptic() {
       try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+    },
+
+    _flushStreamUi(force) {
+      const pending = this._streamPending
+      if (!pending) return
+      const now = Date.now()
+      const last = this._streamLastUiAt || 0
+      if (!force && last && now - last < STREAM_UI_MIN_MS) {
+        if (!this._streamUiTimer) {
+          const wait = Math.max(8, STREAM_UI_MIN_MS - (now - last))
+          this._streamUiTimer = setTimeout(() => {
+            this._streamUiTimer = null
+            this._flushStreamUi(true)
+          }, wait)
+        }
+        return
+      }
+      if (this._streamUiTimer) {
+        clearTimeout(this._streamUiTimer)
+        this._streamUiTimer = null
+      }
+      this._streamLastUiAt = now
+      const content = String(pending.content || '')
+      const botIdx = pending.botIdx
+      const prevLen = this._streamLastLen || 0
+      const grew = content.length > prevLen
+      this._streamLastLen = content.length
+      this._stickToBottom({
+        [`messages[${botIdx}].content`]: content,
+        [`messages[${botIdx}].typing`]: false,
+        [`messages[${botIdx}].streaming`]: true
+      })
+      if (grew) this._tickStreamHaptic()
+    },
+
+    _onStreamPartial(botIdx, partial) {
+      this._streamPending = { botIdx: botIdx, content: String(partial || '') }
+      this._flushStreamUi(false)
+    },
+
+    _finishStreamUi(botIdx, content, extraPatch) {
+      this._streamPending = { botIdx: botIdx, content: String(content || '') }
+      this._flushStreamUi(true)
+      const patch = Object.assign({
+        [`messages[${botIdx}].streaming`]: false,
+        sending: false
+      }, extraPatch || {})
+      this._stickToBottom(patch)
+      this._streamPending = null
+      this._streamLastLen = 0
+    },
+
+    /**
+     * 固定引导文案打字机：丝滑出字 + 轻震，掩饰瞬时整段贴上的生硬感。
+     */
+    _playTypewriter(botIdx, fullText, opts) {
+      const self = this
+      const options = opts && typeof opts === 'object' ? opts : {}
+      const token = options.token
+      const text = String(fullText || '')
+      return new Promise(function (resolve) {
+        if (!text) {
+          self._finishStreamUi(botIdx, '', options.patch || {})
+          resolve()
+          return
+        }
+        const stepChars = Math.max(2, Math.ceil(text.length / 56))
+        let i = 0
+        const tick = function () {
+          if (self._typewriterToken !== token) {
+            resolve()
+            return
+          }
+          i = Math.min(text.length, i + stepChars)
+          self._onStreamPartial(botIdx, text.slice(0, i))
+          if (i >= text.length) {
+            self._typewriterTimer = null
+            self._finishStreamUi(botIdx, text, options.patch || {})
+            resolve()
+            return
+          }
+          self._typewriterTimer = setTimeout(tick, TYPEWRITER_STEP_MS)
+        }
+        tick()
+      })
     },
 
     /**
@@ -1140,13 +1252,16 @@ Component({
         role: 'assistant',
         content: '',
         typing: true,
+        streaming: false,
         error: false,
         cards: []
       }
 
       const messages = [...this.data.messages, userMsg, botMsg]
       const botIdx = messages.length - 1
+      this._abortStreamPresentation()
       this._lastStreamHapticAt = 0
+      this._streamLastUiAt = 0
       this._stickToBottom({
         messages,
         inputValue: '',
@@ -1209,32 +1324,27 @@ Component({
       }
 
       try {
-        // 出卡成功且有固定引导文案时不再走大模型，避免文案说「没匹配」与下方卡片矛盾
+        // 有固定引导文案时不再走大模型；打字机出字 + 轻震，避免整段硬贴 / 与卡片矛盾
         const suggested = launchContext && typeof launchContext.suggestedReply === 'string'
           ? String(launchContext.suggestedReply).trim()
           : ''
-        if (suggested && richCards.length) {
-          this._stickToBottom({
-            [`messages[${botIdx}].content`]: suggested,
-            [`messages[${botIdx}].typing`]: false,
-            [`messages[${botIdx}].cards`]: richCards,
-            sending: false
+        if (suggested) {
+          const patch = {}
+          if (richCards.length) patch[`messages[${botIdx}].cards`] = richCards
+          this._typewriterToken = (this._typewriterToken || 0) + 1
+          await this._playTypewriter(botIdx, suggested, {
+            token: this._typewriterToken,
+            patch: patch
           })
-          this._pulseCardHaptic()
+          if (richCards.length) this._pulseCardHaptic()
         } else {
-          await streamChat(recentMessages, (partial) => {
-            this._tickStreamHaptic()
-            this._stickToBottom({
-              [`messages[${botIdx}].content`]: partial,
-              [`messages[${botIdx}].typing`]: false
-            })
+          const finalText = await streamChat(recentMessages, (partial) => {
+            this._onStreamPartial(botIdx, partial)
           }, launchContext)
 
-          const patch = { sending: false }
-          if (richCards.length) {
-            patch[`messages[${botIdx}].cards`] = richCards
-          }
-          this._stickToBottom(patch)
+          const patch = {}
+          if (richCards.length) patch[`messages[${botIdx}].cards`] = richCards
+          this._finishStreamUi(botIdx, finalText || '', patch)
           if (richCards.length) this._pulseCardHaptic()
         }
 
@@ -1246,9 +1356,11 @@ Component({
       } catch (err) {
         const errorText = err.message || aiChatUiText('errDefaultReply')
         // 报错气泡带「重试」按钮，同样要滚进视野
+        this._abortStreamPresentation()
         this._stickToBottom({
           [`messages[${botIdx}].content`]: errorText,
           [`messages[${botIdx}].typing`]: false,
+          [`messages[${botIdx}].streaming`]: false,
           [`messages[${botIdx}].error`]: true,
           [`messages[${botIdx}].cards`]: [],
           errorMsgId: (messages[botIdx] && messages[botIdx].id) || '',
