@@ -7,6 +7,14 @@ const { translateRocketName } = require('./rocket-name-i18n.js')
 const { localizeMissionTitle } = require('./mission-title-i18n.js')
 const { translateAgencyName, inferAgencyFromRocket } = require('./agency-name-i18n.js')
 
+/** thing 字段偏短：去掉 Block N 构型后缀，避免「猎鹰9号 Block 5｜…」截断 */
+function stripRocketBlockSuffix(s) {
+  return String(s || '')
+    .replace(/\s*Block\s*\d+/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
 function resolveOaLaunchDisplay(launch) {
   launch = launch || {}
   var rocketEn = String(launch.rocketName || '').trim()
@@ -19,6 +27,7 @@ function resolveOaLaunchDisplay(launch) {
   }
 
   if (!rocketZh) rocketZh = translateRocketName(rocketEn) || rocketEn
+  rocketZh = stripRocketBlockSuffix(rocketZh)
   if (!rocketZh) rocketZh = '未知火箭'
   if (!rocketEn) {
     var ascii = rocketZh.replace(/[^\x20-\x7E]/g, '').trim()
@@ -71,15 +80,16 @@ function resolveOaLaunchDisplay(launch) {
   // 运维巡检公司 / 结果「单位名称」= 发射商；切勿回退成火箭名
   var agency = (agencyZh || agencyEn || '待确认').substring(0, 20)
 
-  // 项目名称：与卡片「火箭｜任务」对齐（thing ≤20）
+  // 项目名称：与卡片「火箭｜任务」对齐（thing ≤20）；去掉 Block N 防截断
   var projectTitle = ''
   if (localizedFull && /[\u4e00-\u9fff]/.test(localizedFull)) {
-    projectTitle = localizedFull.replace(/\s*\|\s*/g, '｜')
+    projectTitle = stripRocketBlockSuffix(localizedFull.replace(/\s*\|\s*/g, '｜'))
   } else if (rocketZh && missionZh) {
+    missionZh = stripRocketBlockSuffix(missionZh)
     if (missionZh.indexOf(rocketZh) === 0) projectTitle = missionZh
     else projectTitle = rocketZh + '｜' + missionZh
   } else {
-    projectTitle = missionZh || rocketZh || '未知任务'
+    projectTitle = stripRocketBlockSuffix(missionZh || rocketZh || '未知任务')
   }
   projectTitle = projectTitle.substring(0, 20)
 

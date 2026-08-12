@@ -8,9 +8,8 @@ const { getBoosterGenealogy, getRocketConfigMeta } = require('../../utils/api-ap
 const boosterDisplay = require('./utils/booster-display.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
-const { openBoosterEntityDetail } = require('../../utils/booster-nav.js')
+const { openBoosterEntityDetail } = require('./utils/booster-nav.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
-const { isCollectionFavorite, toggleCollection } = require('../../utils/favorites.js')
 
 const STATUS_FILTERS = [
   { id: 'all', label: '全部状态' },
@@ -49,14 +48,11 @@ Page({
     boosterCards: [],
     stats: { activeCount: 0, maxFlights: 0, totalFlights: 0, manufacturerCount: 0 },
     filterEmpty: false,
-    isFavorited: false,
-    favAnimate: false,
     imageLoadedMap: {}
   },
 
   onLoad(options) {
     this.initUiShell()
-    this.setData({ isFavorited: isCollectionFavorite('booster_genealogy') })
     // 分享/入口可带 filter 参数：country:CN（兼容简写 CN）/ mfr:SpaceX
     var filter = options && options.filter ? decodeURIComponent(options.filter) : 'all'
     if (/^[A-Za-z]{2}$/.test(filter)) filter = 'country:' + filter.toUpperCase()
@@ -276,13 +272,6 @@ Page({
       return this.data.filter.slice(4) + ' 可回收火箭族谱 | 火星探索日志'
     }
     return '全球可回收火箭族谱 | 火星探索日志'
-  },
-
-  onToggleFavorite() {
-    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
-    var favorited = toggleCollection('booster_genealogy')
-    this.setData({ isFavorited: favorited, favAnimate: favorited })
-    wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
   },
 
   onShareAppMessage() {

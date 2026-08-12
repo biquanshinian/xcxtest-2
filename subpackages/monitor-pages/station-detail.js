@@ -355,21 +355,7 @@ Page({
     }
   },
 
-  _calloutStyle() {
-    // map callout 颜色必须用 6/8 位十六进制；rgba 真机会失效变黑底，再配深色字就看不见
-    return {
-      bgColor: '#FFFFFFF5',
-      color: '#111111',
-      borderColor: '#00000024'
-    }
-  },
-
-  _calloutContent(name, altText, speedText) {
-    return String(name || '空间站') + '\n高度 ' + altText + '\n速度 ' + speedText
-  },
-
-  _buildMarker(pos, name, altText, speedText) {
-    const style = this._calloutStyle()
+  _buildMarker(pos) {
     return {
       id: 1,
       latitude: pos.lat,
@@ -377,36 +363,16 @@ Page({
       iconPath: STATION_MARKER_ICON,
       width: 20,
       height: 20,
-      callout: {
-        content: this._calloutContent(name, altText, speedText),
+      customCallout: {
         display: 'ALWAYS',
-        fontSize: 13,
-        borderRadius: 10,
-        padding: 10,
-        bgColor: style.bgColor,
-        color: style.color,
-        borderWidth: 1,
-        borderColor: style.borderColor,
-        textAlign: 'center'
+        anchorX: 0.5,
+        anchorY: 0
       }
     }
   },
 
   _smoothMoveMarker(pos, name, altText, speedText) {
-    const style = this._calloutStyle()
-    const callout = {
-      content: this._calloutContent(name, altText, speedText),
-      display: 'ALWAYS',
-      fontSize: 13,
-      borderRadius: 10,
-      padding: 10,
-      bgColor: style.bgColor,
-      color: style.color,
-      borderWidth: 1,
-      borderColor: style.borderColor,
-      textAlign: 'center'
-    }
-    // 预览地图的 translateMarker
+    // 预览地图的 translateMarker；HUD 文案由 page data + customCallout 槽刷新
     if (!this._mapCtx) {
       this._mapCtx = wx.createMapContext('orbitMapPreview', this)
     }
@@ -416,9 +382,7 @@ Page({
         destination: { latitude: pos.lat, longitude: pos.lng },
         duration: 900,
         autoRotate: false,
-        callout,
         fail: () => {
-          // translateMarker 失败时回退到 setData
           this.setData({
             mapMarkers: [this._buildMarker(pos, name, altText, speedText)]
           })

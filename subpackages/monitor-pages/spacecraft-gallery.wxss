@@ -1,6 +1,5 @@
 /* spacecraft-gallery.wxss — 独立全屏全球飞船图鉴页（暗色毛玻璃，骨架镜像族谱页） */
 @import "./styles/gallery-toolbar.wxss";
-@import "/styles/fav-btn.wxss";
 page {
   background: #0B0C0E;
   color: #fff;

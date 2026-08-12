@@ -13,12 +13,7 @@ const {
 const ANNOUNCEMENT_MEM_TTL_MS = 8 * 60 * 1000
 let _announcementMem = null
 
-/**
- * 获取空间站实时状态（ISS + 天宫）
- * 从缓存获取 space_stations 和 docking_events 数据；
- * docking 列表缺失时回退站详情 docking_location[].currently_docked
- * @returns {Promise<Array>} 空间站列表，含当前停靠飞船
- */
+
 async function getStationStatus() {
   const resolveApiImageUrl = (image) => {
     if (!image) return ''
@@ -499,12 +494,7 @@ async function resolveAgencyReference(options = {}) {
   }
 }
 
-/**
- * 获取发射商列表
- * 优先走本地缓存 → 云缓存 → 直接请求 API
- * @param {Object} options - { featured, limit, offset, search, type }
- * @returns {Promise<Object>} { count, results: [...] }
- */
+
 async function getAgencies(options = {}) {
   const featured = options.featured !== undefined ? options.featured : true
   const rawLimit = options.limit || 50
@@ -556,11 +546,7 @@ async function getAgencies(options = {}) {
   return { count: 0, results: [], __cacheMiss: true }
 }
 
-/**
- * 获取单个发射商详情
- * @param {Number} agencyId
- * @returns {Promise<Object>}
- */
+
 async function getAgencyDetail(agencyId, options = {}) {
   if (!agencyId) return null
   const cacheId = `_agency_detail_${agencyId}`
@@ -649,15 +635,7 @@ async function getAgencyDetail(agencyId, options = {}) {
 
 // ==================== 遥测数据 ====================
 
-/**
- * 获取发射遥测数据（通过云函数代理 Launch Dashboard API）
- * @param {Object} params 查询参数
- * @param {String} params.launchId SpaceDevs launch UUID（优先使用）
- * @param {String} params.missionId Launch Dashboard 任务名（如 crs-18）
- * @param {Number} params.flightNumber SpaceX 飞行序号
- * @param {Number} params.interval 数据点间隔秒数（默认2秒，减少数据量）
- * @returns {Promise<Object|null>} 遥测数据或 null
- */
+
 function getTelemetryData(params = {}) {
   const { launchId, missionId, flightNumber, interval = 2 } = params
 

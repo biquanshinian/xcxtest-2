@@ -1,4 +1,4 @@
-/* pages/profile/profile.wxss */
+
 @import "../../styles/tweet-stats-bar.wxss";
 .container {
   background: var(--color-bg-page);
@@ -16,7 +16,7 @@
 .nav-title--profile {
   letter-spacing: 2rpx;
 }
-/* 导航左侧「设置」：纯文字，与微信胶囊同 top/height 垂直居中 */
+
 .profile-settings-entry {
   position: fixed;
   left: calc(24rpx + env(safe-area-inset-left));
@@ -33,7 +33,7 @@
   opacity: 0.72;
 }
 .profile-settings-entry-text {
-  font-size: 34rpx; /* 原 26rpx × 1.3 */
+  font-size: 34rpx; 
   font-weight: 600;
   color: rgba(255, 255, 255, 0.92);
   line-height: 1;
@@ -46,7 +46,7 @@
   padding-right: var(--space-lg);
 }
 
-/* ═══════ 「我的」新版布局（身份 / 通行证 / 数据 / 服务） ═══════ */
+
 .pf-identity {
   display: flex;
   align-items: center;
@@ -181,7 +181,7 @@
   color: #fff;
 }
 
-/* 通行证主卡：与会员详情页 gold-hero 同色系 */
+
 .pf-pass-card {
   position: relative;
   overflow: hidden;
@@ -273,7 +273,7 @@
   margin-bottom: 28rpx;
 }
 
-/* 我的数据四格 */
+
 .pf-assets-card {
   padding: 28rpx 12rpx 16rpx;
   border-radius: 24rpx;
@@ -306,7 +306,7 @@
   border-top: 1rpx solid rgba(255, 255, 255, 0.06);
 }
 
-/* 推广条 */
+
 .pf-promo {
   display: flex;
   align-items: center;
@@ -352,7 +352,7 @@
   color: #0B4F6C;
 }
 
-/* 更多服务宫格 */
+
 .pf-services-card {
   padding: 28rpx 12rpx 16rpx;
   border-radius: 24rpx;
@@ -375,7 +375,7 @@
 .pf-service--pressed {
   opacity: 0.75;
 }
-/* 宫格项伪装成 button：强制与其它 25% 格同宽，避免微信 button 默认撑满/错位 */
+
 button.pf-service--contact {
   width: 25% !important;
   margin: 0 !important;
@@ -414,7 +414,7 @@ button.pf-service--contact::after {
   width: 48rpx;
   height: 48rpx;
 }
-/* 收藏心形为黑底 SVG：深色主题反白，浅色保持深色 */
+
 .pf-service-icon--fav {
   width: 44rpx;
   height: 44rpx;
@@ -494,8 +494,8 @@ button.pf-service--contact::after {
   color: rgba(28, 28, 30, 0.78);
 }
 
-/* ═══════ 签到周点（沿用） ═══════ */
-/* 本周签到点 */
+
+
 .checkin-week {
   display: flex;
   justify-content: space-between;
@@ -546,7 +546,7 @@ button.pf-service--contact::after {
   color: rgba(7, 193, 96, 0.9);
   font-weight: 600;
 }
-/* ═══════ 知识卡片 ═══════ */
+
 .fact-card {
   margin-bottom: var(--space-xl);
   margin-top: 0;
@@ -604,7 +604,7 @@ button.pf-service--contact::after {
   display: block;
   text-align: right;
 }
-/* ═══════ 成就徽章 ═══════ */
+
 .achievement-section {
   margin-bottom: var(--space-xl);
 }
@@ -676,84 +676,10 @@ button.pf-service--contact::after {
   text-overflow: ellipsis;
   max-width: 130rpx;
 }
-/* ── 徽章详情弹窗 ── */
-.badge-modal-mask {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  /* 无边框设计：深色主题用深色遮罩做舞台，浅色主题见下方 .theme-light 透明磨砂覆盖 */
-  background: rgba(8, 10, 16, 0.86);
-  backdrop-filter: blur(24rpx) saturate(140%);
-  -webkit-backdrop-filter: blur(24rpx) saturate(140%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-}
-/* 无框弹层：徽章与文字直接悬浮在遮罩上 */
-.badge-modal {
-  width: 620rpx;
-  padding: 40rpx;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  position: relative;
-}
-.badge-modal-close {
-  position: absolute;
-  top: -60rpx;
-  right: 20rpx;
-  width: 64rpx;
-  height: 64rpx;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: rgba(255, 255, 255, 0.75);
-  font-size: 28rpx;
-}
-/* ── 徽章弹窗图标区域 ── */
-.badge-modal-icon-wrap {
-  position: relative;
-  width: 280rpx;
-  height: 280rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 32rpx;
-}
-.badge-modal-icon-img {
-  width: 232rpx;
-  height: 232rpx;
-  position: relative;
-  z-index: 2;
-  filter: drop-shadow(0 12rpx 32rpx rgba(0, 0, 0, 0.45));
-}
-.badge-modal-icon--locked {
-  opacity: 0.3;
-  filter: grayscale(1);
-}
-.badge-modal-icon--locked .badge-modal-icon-img {
-  filter: grayscale(1);
-}
-/* 金色柔光：深色遮罩上做呼吸光晕，不再是刺眼的橙色实心圆 */
-.badge-modal-glow {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 340rpx;
-  height: 340rpx;
-  margin-top: -170rpx;
-  margin-left: -170rpx;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(255, 210, 110, 0.4) 0%, rgba(255, 180, 60, 0.16) 42%, transparent 68%);
-  animation: glowPulse 2.4s ease-in-out infinite;
-  z-index: 1;
-}
+
+
+
+
 @keyframes glowPulse {
   0%, 100% {
     transform: scale(1);
@@ -764,165 +690,12 @@ button.pf-service--contact::after {
     opacity: 1;
   }
 }
-/* 3D 旋转登场动画 */
-.badge-modal-icon--entrance {
-  animation: badgeEntrance 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-}
-@keyframes badgeEntrance {
-  0% {
-    transform: perspective(800rpx) rotateY(180deg) scale(0.3);
-    opacity: 0;
-  }
-  40% {
-    transform: perspective(800rpx) rotateY(-20deg) scale(1.1);
-    opacity: 1;
-  }
-  60% {
-    transform: perspective(800rpx) rotateY(10deg) scale(0.95);
-  }
-  80% {
-    transform: perspective(800rpx) rotateY(-5deg) scale(1.02);
-  }
-  100% {
-    transform: perspective(800rpx) rotateY(0deg) scale(1);
-    opacity: 1;
-  }
-}
-.badge-modal-name {
-  font-size: 40rpx;
-  font-weight: 700;
-  color: #FFFFFF;
-  letter-spacing: 2rpx;
-  margin-bottom: 14rpx;
-  text-shadow: 0 2rpx 16rpx rgba(0, 0, 0, 0.4);
-}
-.badge-modal-desc {
-  font-size: 26rpx;
-  color: rgba(255, 255, 255, 0.6);
-  margin-bottom: 30rpx;
-  text-align: center;
-  line-height: 1.6;
-}
-.badge-modal-status {
-  margin-top: 4rpx;
-  padding: 14rpx 34rpx;
-  border-radius: 999rpx;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-.badge-modal-status-text {
-  font-size: 24rpx;
-}
-.badge-modal-status--unlocked {
-  color: #6EE787;
-}
-.badge-modal-status--locked {
-  color: rgba(255, 255, 255, 0.55);
-}
-/* ═══════ 每日问答挑战 ═══════ */
 
-/* ═══ 我的奖品 ═══ */
-.prize-section {
-  margin-bottom: var(--space-xl);
-}
-.prize-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-}
-.prize-card {
-  padding: var(--space-md);
-  border-radius: var(--radius-card);
-}
-.prize-card-top {
-  display: flex;
-  align-items: center;
-  gap: 20rpx;
-}
-.prize-card-img {
-  width: 88rpx;
-  height: 88rpx;
-  border-radius: 14rpx;
-  flex-shrink: 0;
-}
-.prize-card-icon {
-  width: 88rpx;
-  height: 88rpx;
-  font-size: 48rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255,215,0,0.12);
-  border-radius: 14rpx;
-  flex-shrink: 0;
-}
-.prize-card-info {
-  flex: 1;
-  min-width: 0;
-}
-.prize-card-title {
-  font-size: 28rpx;
-  font-weight: 600;
-  color: #fff;
-  line-height: 1.4;
-}
-.prize-card-desc {
-  font-size: 22rpx;
-  color: rgba(255,255,255,0.55);
-  margin-top: 4rpx;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.prize-card-size {
-  font-size: 22rpx;
-  color: rgba(255,255,255,0.55);
-  margin-top: 2rpx;
-}
-.prize-status {
-  flex-shrink: 0;
-  font-size: 22rpx;
-  padding: 6rpx 16rpx;
-  border-radius: 20rpx;
-  font-weight: 600;
-}
-.prize-status--pending {
-  background: rgba(255,152,0,0.15);
-  color: #ff9800;
-}
-.prize-status--shipped {
-  background: rgba(33,150,243,0.15);
-  color: #42a5f5;
-}
-.prize-status--completed {
-  background: rgba(76,175,80,0.15);
-  color: #66bb6a;
-}
-.prize-tracking {
-  margin-top: 16rpx;
-  padding-top: 16rpx;
-  border-top: 1rpx solid rgba(255,255,255,0.08);
-  display: flex;
-  align-items: center;
-  font-size: 24rpx;
-}
-.prize-tracking--waiting {
-  color: rgba(255,255,255,0.4);
-  font-size: 22rpx;
-}
-.prize-tracking-label {
-  color: rgba(255,255,255,0.5);
-  flex-shrink: 0;
-}
-.prize-tracking-number {
-  color: #42a5f5;
-  margin-right: 12rpx;
-  flex: 1;
-  min-width: 0;
-  word-break: break-all;
-}
-/* ═══ 我的提醒 ═══ */
-/* ══ 我的收藏（发射商）══ */
+
+
+
+
+
 .favorite-section {
   margin-bottom: var(--space-xl);
 }
@@ -965,7 +738,7 @@ button.pf-service--contact::after {
   color: rgba(255, 255, 255, 0.5);
   z-index: 2;
 }
-/* logo 白底圆片（与发射商详情页 logo-chip 同视觉） */
+
 .favorite-logo-chip {
   width: 96rpx;
   height: 96rpx;
@@ -997,182 +770,32 @@ button.pf-service--contact::after {
   font-size: 20rpx;
   color: rgba(255, 255, 255, 0.4);
 }
-/* ── 设置区：主题 + 火箭配置图 并排双卡（由 profile-sections 复用）── */
+
 .appearance-grid {
   display: flex;
   align-items: stretch;
   gap: 16rpx;
 }
-.appearance-grid .oa-alert-card {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  margin-bottom: 0;
-  padding: 24rpx;
-}
-/* 主题卡 3 个选项占宽略大，保证「跟随系统」不折行 */
+
 .appearance-card--theme {
   flex: 8;
 }
 .appearance-card--art {
   flex: 6;
 }
-/* 已去掉描述小字：标题到按钮留固定间距，卡片高度随内容收紧 */
-.appearance-grid .oa-alert-row {
-  margin-bottom: 16rpx;
-}
-.appearance-grid .oa-alert-title {
-  margin-bottom: 0;
-}
-/* 按钮组沉底，两卡选项保持同一水平线；窄卡内字号收紧 */
-.appearance-grid .theme-mode-group {
-  margin-top: auto;
-}
-.appearance-grid .theme-mode-opt {
-  font-size: 22rpx;
-  padding: 14rpx 0;
-}
-/* ── 主题外观三段选择器（深色 / 浅色 / 跟随系统）── */
-.theme-mode-group {
-  display: flex;
-  gap: 8rpx;
-  margin-top: 20rpx;
-  padding: 6rpx;
-  background: var(--color-divider-faint, rgba(255, 255, 255, 0.06));
-  border: 1rpx solid var(--color-divider, rgba(255, 255, 255, 0.08));
-  border-radius: 16rpx;
-}
-.theme-mode-opt {
-  flex: 1;
-  text-align: center;
-  padding: 16rpx 0;
-  font-size: 26rpx;
-  line-height: 1;
-  border-radius: 12rpx;
-  color: var(--color-text-secondary, rgba(255, 255, 255, 0.55));
-  transition: background 0.2s ease, color 0.2s ease;
-}
-.theme-mode-opt--active {
-  background: rgba(7, 193, 96, 0.18);
-  color: #07C160;
-  font-weight: 600;
-}
+
+
+
 .content-scroll-android {
   -webkit-overflow-scrolling: auto;
 }
-/* ══ 关于我们 ══ */
-/* 星际通行证入口 */
-.membership-entry {
-  margin: 24rpx 0;
-  padding: 28rpx 24rpx;
-  border-radius: 20rpx;
-  background: linear-gradient(135deg, rgba(255,170,0,0.08) 0%, rgba(255,100,0,0.04) 100%);
-  border: 1px solid rgba(255,170,0,0.2);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.membership-entry-left {
-  display: flex;
-  align-items: center;
-  gap: 20rpx;
-  flex: 1;
-  min-width: 0;
-}
-.membership-entry-badge {
-  width: 72rpx;
-  height: 72rpx;
-  flex-shrink: 0;
-  background: transparent;
-}
-.membership-entry-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4rpx;
-}
-.membership-entry-title {
-  font-size: 30rpx;
-  font-weight: 600;
-  color: #FFAA00;
-}
-.membership-entry-desc {
-  font-size: 22rpx;
-  color: rgba(255,255,255,0.5);
-}
-.membership-entry-arrow {
-  font-size: 22rpx;
-  color: rgba(255,170,0,0.7);
-  flex-shrink: 0;
-  padding: 8rpx 20rpx;
-  border-radius: 20rpx;
-  border: 1px solid rgba(255,170,0,0.3);
-  background: rgba(255,170,0,0.08);
-}
-/* ══ PRO 专属：金光扫描效果 ══ */
-.membership-entry--pro {
-  position: relative;
-  overflow: hidden;
-  background:
-    linear-gradient(135deg, rgba(255, 196, 84, 0.18) 0%, rgba(255, 138, 0, 0.08) 50%, rgba(255, 196, 84, 0.16) 100%);
-  border-color: rgba(255, 196, 84, 0.55);
-  box-shadow:
-    0 0 0 1rpx rgba(255, 196, 84, 0.18),
-    0 8rpx 24rpx rgba(255, 138, 0, 0.18),
-    inset 0 1rpx 0 rgba(255, 255, 255, 0.1);
-}
-/* 缓慢呼吸的金色边框，让卡片本身有 PRO 感 */
-.membership-entry--pro::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background:
-    linear-gradient(135deg,
-      rgba(255, 222, 130, 0) 0%,
-      rgba(255, 222, 130, 0.18) 50%,
-      rgba(255, 222, 130, 0) 100%);
-  opacity: 0;
-  animation: membership-pro-breath 3.6s ease-in-out infinite;
-}
-/* 扫光层：斜向高光从左到右扫过 */
-.membership-entry__shine {
-  position: absolute;
-  top: -50%;
-  left: -60%;
-  width: 50%;
-  height: 200%;
-  background: linear-gradient(
-    100deg,
-    transparent 0%,
-    rgba(255, 232, 170, 0) 30%,
-    rgba(255, 232, 170, 0.55) 50%,
-    rgba(255, 232, 170, 0) 70%,
-    transparent 100%
-  );
-  filter: blur(2rpx);
-  transform: skewX(-18deg);
-  pointer-events: none;
-  animation: membership-pro-shine 3.6s ease-in-out infinite;
-  animation-delay: 0.8s;
-}
-/* PRO 状态下文字配色升级为金色 */
-.membership-entry--pro .membership-entry-title {
-  color: #FFD27A;
-  text-shadow: 0 0 12rpx rgba(255, 196, 84, 0.4);
-  letter-spacing: 0.6rpx;
-}
-.membership-entry--pro .membership-entry-desc {
-  color: rgba(255, 220, 160, 0.78);
-}
-.membership-entry--pro .membership-entry-arrow {
-  color: #FFE3A8;
-  border-color: rgba(255, 220, 160, 0.55);
-  background: rgba(255, 196, 84, 0.18);
-  box-shadow: 0 0 12rpx rgba(255, 196, 84, 0.25);
-}
-/* 性能：原先动画 left（每帧触发布局+重绘），改为等效 translateX（合成器层动画，不占 CPU）。
- * 元素宽 50%、起点 left:-60%，位移 190% 父宽 = 380% 自身宽，视觉轨迹与原来一致 */
+
+
+
+
+
+
+
 @keyframes membership-pro-shine {
   0%   { transform: translateX(0) skewX(-18deg); opacity: 0; }
   10%  { opacity: 0.9; }
@@ -1184,217 +807,15 @@ button.pf-service--contact::after {
   0%, 100% { opacity: 0.3; }
   50%      { opacity: 0.7; }
 }
-.prize-copy-btn {
-  margin-left: 12rpx !important;
-  margin-right: 0 !important;
-  padding: 0 14rpx !important;
-  height: 52rpx !important;
-  line-height: 50rpx !important;
-  min-height: 52rpx !important;
-  width: auto !important;
-  max-width: 100rpx !important;
-  min-width: 0 !important;
-  flex: 0 0 auto !important;
-  box-sizing: border-box !important;
-  font-size: 22rpx !important;
-  color: var(--color-brand) !important;
-  background: var(--color-brand-soft) !important;
-  border: 1rpx solid rgba(59, 130, 246, 0.3) !important;
-  border-radius: var(--radius-pill) !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-}
-.prize-copy-btn::after {
-  border: none !important;
-}
-.prize-copy-btn--hover {
-  opacity: 0.6;
-}
-/* ══ 今日简报 + 太空旅程：一排双卡（等宽等高） ══ */
-.growth-duo {
-  display: flex;
-  flex-direction: row;
-  align-items: stretch;
-  gap: 16rpx;
-  margin: 0 var(--space-md) var(--space-xl);
-  box-sizing: border-box;
-}
-/* 外层 slot 锁尺寸：自定义组件作 flex 子项时宽高不可靠 */
-.growth-duo > .growth-duo-slot {
-  flex: 1 1 0;
-  width: 0;
-  min-width: 0;
-  /* 仅图标+标题：由原 200rpx 收窄 */
-  height: 140rpx;
-  display: flex;
-  box-sizing: border-box;
-}
-.growth-duo--single > .growth-duo-slot {
-  width: auto;
-  flex: 1 1 auto;
-}
-.growth-duo > .growth-duo-slot > morning-briefing {
-  display: block;
-  width: 100%;
-  height: 100%;
-  box-sizing: border-box;
-}
-/* 提高优先级，避免被下方通用 .growth-entry / 组件内联样式覆盖 */
-.growth-duo .briefing-inline,
-.growth-duo .growth-duo-card {
-  width: 100%;
-  height: 100%;
-  margin: 0 !important;
-  margin-bottom: 0 !important;
-  box-sizing: border-box;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 8rpx;
-  padding: 20rpx var(--space-md);
-  padding-right: 40rpx;
-  overflow: hidden;
-}
-.growth-duo .inline-left,
-.growth-duo .growth-duo-card .growth-entry-icon-img {
-  margin-right: 0;
-  flex-shrink: 0;
-}
-.growth-duo .inline-icon-img,
-.growth-duo .growth-duo-card .growth-entry-icon-img {
-  width: 52rpx;
-  height: 52rpx;
-}
-.growth-duo .inline-body,
-.growth-duo .growth-duo-card .growth-entry-info {
-  width: 100%;
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-}
-.growth-duo .inline-title,
-.growth-duo .growth-duo-card .growth-entry-title {
-  font-size: 26rpx;
-  line-height: 1.3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.growth-duo .inline-arrow,
-.growth-duo .growth-duo-card .growth-entry-arrow {
-  position: absolute;
-  top: 16rpx;
-  right: 16rpx;
-  margin: 0;
-}
 
-.growth-entry {
-  display: flex;
-  align-items: center;
-  padding: var(--space-md) var(--space-lg);
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-divider);
-  border-radius: var(--radius-md);
-  margin-bottom: var(--space-md);
-}
-/* 火箭发射观礼入口置顶（不在 .growth-entries 容器内）：自带左右外边距，
-   下边距沿用 .growth-entry 的 space-md，与下方简报卡片间距一致 */
-.growth-entry--standalone {
-  margin-left: var(--space-md);
-  margin-right: var(--space-md);
-}
-.growth-entry-icon {
-  font-size: 48rpx;
-  margin-right: 20rpx;
-}
-.growth-entry-icon-img {
-  width: 66rpx;
-  height: 66rpx;
-  margin-right: 20rpx;
-  flex-shrink: 0;
-}
-/* 观礼图标为 JPG 方图：圆角裁掉四角白底，与其他 PNG 圆角图标观感一致 */
-.growth-entry-icon-img--wp {
-  border-radius: 14rpx;
-}
-/* 火箭观礼入口：文字徽章（图标未就绪时兜底，与详情页观礼徽章同款配色）
-   固定 66rpx 占位，与其他入口的图标同宽，保证右侧文字对齐 */
-.growth-entry-icon-badge {
-  flex-shrink: 0;
-  margin-right: 20rpx;
-  width: 66rpx;
-  height: 66rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  font-size: 26rpx;
-  line-height: 1;
-  color: #93C5FD;
-  background: rgba(59, 130, 246, 0.18);
-  border: 1rpx solid rgba(96, 165, 250, 0.4);
-  box-sizing: border-box;
-}
-.theme-light .growth-entry-icon-badge {
-  color: #2563EB;
-  background: rgba(59, 130, 246, 0.1);
-  border-color: rgba(59, 130, 246, 0.3);
-}
-/* 观礼入口红角标：对外场次数按实显示；挂图标右上角 */
-.growth-entry-icon-wrap {
-  position: relative;
-  flex-shrink: 0;
-  margin-right: 20rpx;
-}
-.growth-entry-icon-wrap .growth-entry-icon-img,
-.growth-entry-icon-wrap .growth-entry-icon-badge {
-  margin-right: 0;
-}
-.growth-entry-count-badge {
-  position: absolute;
-  top: -10rpx;
-  right: -10rpx;
-  min-width: 30rpx;
-  height: 30rpx;
-  padding: 0 8rpx;
-  box-sizing: border-box;
-  border-radius: 16rpx;
-  background: #EF4444;
-  border: 2rpx solid var(--color-bg-card);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1;
-}
-.growth-entry-count-badge text {
-  font-size: 20rpx;
-  line-height: 1;
-  color: #FFFFFF;
-  font-weight: 600;
-}
-.growth-entry-info {
-  flex: 1;
-}
-.growth-entry-title {
-  font-size: var(--font-size-base);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-primary);
-  display: block;
-}
-.growth-entry-desc {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-  margin-top: 4rpx;
-  display: block;
-}
-.growth-entry-arrow {
-  font-size: var(--font-size-lg);
-  color: var(--color-text-tertiary);
-}
-/* ══ 年度报告入口 ══ */
+
+
+
+
+
+
+
+
 .year-review-entry {
   margin-bottom: var(--space-xl);
   padding: var(--space-lg) var(--space-md);
@@ -1434,9 +855,9 @@ button.pf-service--contact::after {
   flex-shrink: 0;
   margin-left: 16rpx;
 }
-/* ========== 明亮主题（theme-light）覆盖 ========== */
 
-/* —— 页面骨架 / 顶部导航 —— */
+
+
 .container.theme-light {
   background: var(--color-bg-page);
 }
@@ -1444,7 +865,7 @@ button.pf-service--contact::after {
   background: rgba(255, 255, 255, 0.62);
   border-bottom: 1rpx solid var(--color-divider);
 }
-/* —— 签到卡 —— */
+
 .theme-light .checkin-stat-num {
   color: var(--color-text-primary);
 }
@@ -1492,7 +913,7 @@ button.pf-service--contact::after {
 .theme-light .checkin-dot-label {
   color: var(--color-text-tertiary);
 }
-/* —— 知识卡 —— */
+
 .theme-light .fact-card-close {
   color: var(--color-text-tertiary);
 }
@@ -1509,20 +930,15 @@ button.pf-service--contact::after {
 .theme-light .fact-card-badge {
   color: var(--color-brand);
 }
-/* —— 我的奖品复制按钮（基础样式带 !important，需同权重覆盖） —— */
-.theme-light .prize-copy-btn {
-  color: var(--color-brand) !important;
-  background: var(--color-brand-soft) !important;
-  border: 1rpx solid rgba(59, 130, 246, 0.35) !important;
-}
-/* —— 区块标题 —— */
+
+
 .theme-light .section-title-text {
   color: var(--color-text-primary);
 }
 .theme-light .section-title-count {
   color: var(--color-text-tertiary);
 }
-/* —— 成就徽章 —— */
+
 .theme-light .achievement-item {
   background: var(--color-bg-card);
   border-color: var(--color-divider);
@@ -1533,61 +949,10 @@ button.pf-service--contact::after {
 .theme-light .achievement-desc {
   color: var(--color-text-tertiary);
 }
-/* —— 徽章弹窗（遮罩保持深色，弹窗体随玻璃卡变浅）—— */
-/* —— 徽章弹窗（无框设计）：浅色主题下去掉黑底，遮罩透明磨砂 + 深色文字 —— */
-.theme-light .badge-modal-mask {
-  background: rgba(255, 255, 255, 0.25);
-  backdrop-filter: blur(48rpx) saturate(140%);
-  -webkit-backdrop-filter: blur(48rpx) saturate(140%);
-}
-.theme-light .badge-modal-close {
-  background: rgba(0, 0, 0, 0.06);
-  border-color: rgba(0, 0, 0, 0.1);
-  color: rgba(0, 0, 0, 0.55);
-}
-.theme-light .badge-modal-icon-img {
-  filter: drop-shadow(0 12rpx 32rpx rgba(0, 0, 0, 0.18));
-}
-.theme-light .badge-modal-icon--locked .badge-modal-icon-img {
-  filter: grayscale(1);
-}
-.theme-light .badge-modal-name {
-  color: var(--color-text-primary);
-  text-shadow: none;
-}
-.theme-light .badge-modal-desc {
-  color: var(--color-text-secondary);
-}
-.theme-light .badge-modal-status {
-  background: rgba(0, 0, 0, 0.05);
-  border-color: rgba(0, 0, 0, 0.08);
-}
-.theme-light .badge-modal-status--unlocked {
-  color: #34C759;
-}
-.theme-light .badge-modal-status--locked {
-  color: var(--color-text-secondary);
-}
-/* —— 我的奖品 —— */
-.theme-light .prize-card-title {
-  color: var(--color-text-primary);
-}
-.theme-light .prize-card-desc {
-  color: var(--color-text-tertiary);
-}
-.theme-light .prize-card-size {
-  color: var(--color-text-tertiary);
-}
-.theme-light .prize-tracking {
-  border-top-color: var(--color-divider);
-}
-.theme-light .prize-tracking--waiting {
-  color: var(--color-text-tertiary);
-}
-.theme-light .prize-tracking-label {
-  color: var(--color-text-tertiary);
-}
-/* —— 我的收藏 —— */
+
+
+
+
 .theme-light .favorite-remove {
   background: rgba(0, 0, 0, 0.05);
   color: var(--color-text-tertiary);
@@ -1601,106 +966,12 @@ button.pf-service--contact::after {
 .theme-light .favorite-type {
   color: var(--color-text-tertiary);
 }
-/* —— 外观 / 公众号提醒卡（.oa-alert-card 复用）—— */
-.theme-light .oa-alert-title {
-  color: var(--color-text-primary);
-}
-.theme-light .oa-alert-desc {
-  color: var(--color-text-secondary);
-}
-.theme-light .vote-history {
-  border-top-color: var(--color-divider);
-}
-.theme-light .vote-history-expand {
-  color: var(--color-text-tertiary);
-}
-.theme-light .vote-history-expand:active {
-  color: var(--color-text-secondary);
-}
-.theme-light .vote-history-type--ontime {
-  color: var(--color-brand);
-  background: var(--color-brand-soft);
-}
-.theme-light .vote-history-type--outcome {
-  color: #e07800;
-  background: rgba(224, 120, 0, 0.12);
-}
-.theme-light .quiz-question {
-  color: var(--color-text-primary);
-}
-.theme-light .quiz-result {
-  background: rgba(0, 0, 0, 0.03);
-  border-color: rgba(0, 0, 0, 0.06);
-}
-/* —— 星际通行证入口（浅金文字/低透明度金底在白底下几乎不可见，整体压深保持金色语义）—— */
-.theme-light .membership-entry {
-  background: linear-gradient(135deg, rgba(255, 150, 0, 0.14) 0%, rgba(255, 120, 0, 0.06) 100%);
-  border-color: rgba(210, 130, 0, 0.35);
-}
-.theme-light .membership-entry-title {
-  color: #B25E00;
-}
-.theme-light .membership-entry-desc {
-  color: var(--color-text-tertiary);
-}
-.theme-light .membership-entry-arrow {
-  color: #B25E00;
-  border-color: rgba(178, 94, 0, 0.4);
-  background: rgba(255, 150, 0, 0.12);
-}
-/* PRO 态：背景改饱和浅金渐变，浅金文案压深为深琥珀 */
-.theme-light .membership-entry--pro {
-  background: linear-gradient(135deg, rgba(255, 190, 60, 0.30) 0%, rgba(255, 150, 0, 0.16) 50%, rgba(255, 190, 60, 0.28) 100%);
-  border-color: rgba(200, 130, 0, 0.5);
-  /* 扁平风：只留 1rpx 描边环与顶部高光，去掉金色投影 */
-  box-shadow:
-    0 0 0 1rpx rgba(200, 130, 0, 0.18),
-    inset 0 1rpx 0 rgba(255, 255, 255, 0.5);
-}
-.theme-light .membership-entry--pro .membership-entry-title {
-  color: #8A5A00;
-  text-shadow: none;
-}
-.theme-light .membership-entry--pro .membership-entry-desc {
-  color: rgba(146, 100, 12, 0.85);
-}
-.theme-light .membership-entry--pro .membership-entry-arrow {
-  color: #8A5A00;
-  border-color: rgba(160, 105, 0, 0.5);
-  background: rgba(255, 190, 60, 0.30);
-  box-shadow: none;
-}
-/* 金光扫描层在浅金底上过曝：降低渐变峰值透明度（keyframes 动画会覆盖元素 opacity，只能改背景） */
-.theme-light .membership-entry__shine {
-  background: linear-gradient(
-    100deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0) 30%,
-    rgba(255, 255, 255, 0.55) 50%,
-    rgba(255, 255, 255, 0) 70%,
-    transparent 100%
-  );
-}
-.theme-light .about-text {
-  color: var(--color-text-secondary);
-}
-.theme-light .about-wechat {
-  background: rgba(0, 0, 0, 0.04);
-}
-/* —— 太空旅程入口 —— */
-.theme-light .growth-entry {
-  background: var(--color-bg-card);
-}
-.theme-light .growth-entry-title {
-  color: var(--color-text-primary);
-}
-.theme-light .growth-entry-desc {
-  color: var(--color-text-secondary);
-}
-.theme-light .growth-entry-arrow {
-  color: var(--color-text-tertiary);
-}
-/* —— 年度报告入口 —— */
+
+
+
+
+
+
 .theme-light .year-review-entry {
   background: linear-gradient(135deg, var(--color-brand-soft) 0%, var(--color-bg-card) 100%);
 }
@@ -1713,7 +984,7 @@ button.pf-service--contact::after {
 .theme-light .year-review-entry-arrow {
   color: var(--color-brand);
 }
-/* —— 今日更新统计条（@import styles/tweet-stats-bar.wxss）—— */
+
 .theme-light .tweet-stat-item {
   background: rgba(0, 0, 0, 0.05);
   border-color: var(--color-divider);
@@ -1721,38 +992,11 @@ button.pf-service--contact::after {
 .theme-light .tweet-stat-name {
   color: var(--color-text-secondary);
 }
-/* 浅青色计数在白底不可读，压深（保持青色语义） */
+
 .theme-light .tweet-stat-count {
   color: #0288D1;
 }
 .theme-light .tweet-stat-briefing-empty-text {
   color: var(--color-text-tertiary);
 }
-/* ── 服务号提醒卡 / 外观卡共用样式（组件经 apply-shared 复用） ── */
-.oa-alert-card {
-  padding: var(--space-md);
-  margin-bottom: var(--space-md);
-}
-.oa-alert-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16rpx;
-}
-.oa-alert-info {
-  flex: 1;
-  min-width: 0;
-}
-.oa-alert-title {
-  display: block;
-  font-size: 28rpx;
-  font-weight: 600;
-  color: #fff;
-  margin-bottom: 8rpx;
-}
-.oa-alert-desc {
-  display: block;
-  font-size: 22rpx;
-  line-height: 1.5;
-  color: rgba(255, 255, 255, 0.55);
-}
+

@@ -72,12 +72,19 @@ const cachedNearTbd = {
 }
 assert.strictEqual(shouldRejectNetAdvance(cachedNearTbd, livePlaceholderTbd, now), true)
 
-// 近窗 Go → 远窗仍标 Go（预备期末日）：拒
+// 近窗 Go → 远窗仍标 Go（预备期末日 00:00Z）：拒
 const liveFarGo = {
   net: '2026-08-31T00:00:00Z',
   status: { id: 1, abbrev: 'Go', name: 'Go' }
 }
 assert.strictEqual(shouldRejectNetAdvance(cachedNearGo, liveFarGo, now), true)
+
+// 近窗 Go → 十天后仍 Go 且带具体钟点（真实改期）：放行
+const liveRealPostponeGo = {
+  net: '2026-08-20T15:30:00Z',
+  status: { id: 1, abbrev: 'Go', name: 'Go for Launch' }
+}
+assert.strictEqual(shouldRejectNetAdvance(cachedNearGo, liveRealPostponeGo, now), false)
 
 // 拒写必须整包保留：net 与 status 都仍是近窗 Go（禁止近窗+待定半更新）
 {
@@ -105,33 +112,33 @@ const liveHoldNear = {
 }
 assert.strictEqual(shouldRejectNetAdvance(cachedHoldFar, liveHoldNear, now), true)
 
-// 排序：即便 TBD 被临时短 NET 污染到比就绪更早，也要沉到就绪之后
+// 排序：严格按 NET 升序，TBD 不再因状态沉底
 const rows = [
   {
+    id: 'starlink',
+    net: '2026-08-11T14:26:00Z',
+    status: { id: 1, abbrev: 'Go' }
+  },
+  {
     id: 'michibiki',
-    net: '2026-08-10T19:15:00Z', // 假近窗
+    net: '2026-08-10T19:15:00Z',
     status: { id: 2, abbrev: 'TBD' }
   },
   {
     id: 'zhuque',
     net: '2026-08-10T23:45:00Z',
     status: { id: 1, abbrev: 'Go' }
-  },
-  {
-    id: 'starlink',
-    net: '2026-08-11T14:26:00Z',
-    status: { id: 1, abbrev: 'Go' }
   }
 ]
 sortResultsByNetAsc(rows, now)
-assert.strictEqual(rows[0].id, 'zhuque')
-assert.strictEqual(rows[1].id, 'starlink')
-assert.strictEqual(rows[2].id, 'michibiki')
+assert.strictEqual(rows[0].id, 'michibiki')
+assert.strictEqual(rows[1].id, 'zhuque')
+assert.strictEqual(rows[2].id, 'starlink')
 
 const nearTbdKey = sortNetKeyMs(
   { net: '2026-08-10T19:15:00Z', status: { id: 2 } },
   now
 )
-assert.ok(nearTbdKey > Date.parse('2026-08-10T19:15:00Z'))
+assert.strictEqual(nearTbdKey, Date.parse('2026-08-10T19:15:00Z'))
 
 console.log('net-patch-policy.test.js OK')

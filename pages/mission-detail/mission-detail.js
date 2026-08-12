@@ -1,5 +1,9 @@
 const { getLaunchDetail, mapRawUpdatesToLaunchUpdates } = require('./utils/api-launch-detail.js')
-const { getUpcomingMissions, getCompletedMissions } = require('../../utils/api-launch-list.js')
+const {
+  getUpcomingMissions,
+  getCompletedMissions,
+  findMissionInListSnapshots
+} = require('../../utils/api-launch-list.js')
 const { getRoadClosureNotice } = require('../../utils/api-road-closure.js')
 const { getVoteStats, castVote, fetchLl2LaunchTimeline, fetchLl2LaunchUpdates } = require('../../utils/api-app-services.js')
 const { formatDate, getCountdown, resolveMissionRocketImage, resolveMissionRocketImageFresh, isDefaultRocketSrc, shouldReplaceRocketImage, shouldReplaceRocketImageForArt } = require('../../utils/util.js')
@@ -33,9 +37,18 @@ const { formatCloudError } = require('../../utils/launch-stats-cloud.js')
 const config = require('../../utils/config.js')
 const { isLiveEntryAllowed, isFeatureEnabled } = require('../../utils/feature-flags.js')
 const { videoSnapshotUrl, optimizeImageUrl } = require('../../utils/cos-url.js')
-const { openBoosterEntityDetail, openRocketModelDetail } = require('../../utils/booster-nav.js')
-const { applyAuthoritativeStatus } = require('../../utils/launch-status-store.js')
-const { applyContentLangToMission, mergeMissionLangPack } = require('../../utils/launch-card-i18n.js')
+const { openBoosterEntityDetail, openRocketModelDetail } = require('./utils/booster-nav.js')
+const { applyAuthoritativeStatus, projectBadgeOntoMission } = require('../../utils/launch-status-store.js')
+const {
+  applyContentLangToMission,
+  mergeMissionLangPack,
+  formatMissionListTime,
+  formatMissionListDate
+} = require('../../utils/launch-card-i18n.js')
+const {
+  alignMissionScheduleAndStatus,
+  scheduleFieldsDiffer
+} = require('./utils/mission-schedule-align.js')
 const { applyLaunchAgencyLogoOverridesToMission } = require('../../utils/agency-logo-overrides.js')
 const {
   resolveAgencyLogoForDisplay,
@@ -286,7 +299,7 @@ function buildHeroTitleParts(mission) {
 function buildMissionSeoMeta(mission, detailType) {
   const safeMission = mission || {}
   const statusText = String(safeMission.statusBadgeText || safeMission.statusTextZh || '').trim()
-  const dateText = safeMission.launchTime ? formatDate(safeMission.launchTime, 'MM月DD日') : ''
+  const dateText = safeMission.launchTime ? formatMissionListDate(safeMission.launchTime) : ''
   const isUpcoming = detailType !== 'completed'
   const pageLabel = isUpcoming ? '发射倒计时' : '任务复盘'
   const hero = buildHeroTitleParts(safeMission)
@@ -590,14 +603,18 @@ Page({
       backgroundColorBottom: '#000000'
     })
 
-    // 列表页（index/search）经 eventChannel 传入的任务快照：仅作首屏加速，
+    // 列表页（index/search）经 eventChannel 传入的任务快照：首屏与日程权威；
     // storage 快照与网络刷新逻辑保留作兜底（分享/冷启动无 opener 时走原路径）
     this._openerMissionSnapshot = null
+    this._listAuthorityMission = null
     try {
       const channel = typeof this.getOpenerEventChannel === 'function' ? this.getOpenerEventChannel() : null
       if (channel && typeof channel.on === 'function') {
         channel.on('missionSnapshot', (mission) => {
-          if (mission && mission.id) this._openerMissionSnapshot = mission
+          if (mission && mission.id) {
+            this._openerMissionSnapshot = mission
+            this._listAuthorityMission = mission
+          }
         })
       }
     } catch (e) {}
@@ -1187,18 +1204,35 @@ Page({
     const type = detailType === 'completed' ? 'completed' : 'upcoming'
 
     // 列表页刚点进来时经 eventChannel 传入的快照天然新鲜，最优先复用；
-    // 一次性消费（与 event-detail 对齐）：后续刷新走 storage 快照（10 分钟 TTL）/网络，
-    // 避免整个页面存续期都把点击时刻的旧快照当作时间权威源
+    // opener 只消费一次，但保留 _listAuthorityMission 供后台刷新对齐日程
     const openerSnapshot = this._openerMissionSnapshot
     if (openerSnapshot && String(openerSnapshot.id) === String(id)) {
       this._openerMissionSnapshot = null
+      this._listAuthorityMission = openerSnapshot
       return openerSnapshot
     }
+
+    if (
+      this._listAuthorityMission &&
+      String(this._listAuthorityMission.id) === String(id)
+    ) {
+      return this._listAuthorityMission
+    }
+
+    // 首页等已拉过的内存快照：深链/无 opener 时优先作日程权威，避免纯 detail 远窗占位
+    try {
+      const fromSnap = findMissionInListSnapshots(id, type)
+      if (fromSnap) {
+        this._listAuthorityMission = fromSnap
+        return fromSnap
+      }
+    } catch (eSnap) {}
 
     try {
       const cache = storageCache.readMemOrSync('mission_detail_cache', {}) || {}
       const cachedMission = getMissionDetailCacheEntry(cache, id, type)
       if (shouldReuseMissionListSnapshot({ mission: cachedMission, ttlMs: MISSION_DETAIL_CACHE_TTL })) {
+        this._listAuthorityMission = cachedMission
         return cachedMission
       }
     } catch (e) {}
@@ -1207,6 +1241,7 @@ Page({
     const res = await fetcher(50, 0)
     const list = (res && res.list) || []
     const mission = list.find((item) => String(item.id) === String(id))
+    if (mission) this._listAuthorityMission = mission
     return mission || null
   },
 
@@ -1236,38 +1271,6 @@ Page({
       merged.rocketConfiguration || detail.rocketConfiguration || base.rocketConfiguration || null,
       true
     )
-    // 角标收敛：enrichment 合并后，status* 只走 launch_status 同构归并。
-    // 列表快照若无真实 observedAt，禁止补 Date.now()——否则陈旧「就绪」会因时间戳更新
-    // 把云端已 overlay 的飞行中/终态判成 older 而拒收。
-    const statusMerged = applyAuthoritativeStatus(
-      merged,
-      [
-        base.statusId
-          ? {
-              ...base,
-              _launchStateSource: base._launchStateSource || 'list',
-              _launchStateObservedAtMs: Number(base._launchStateObservedAtMs) || 0
-            }
-          : null,
-        detail.statusId
-          ? {
-              ...detail,
-              _launchStateSource: detail._launchStateSource || 'fetchLaunchDetail_status',
-              _launchStateObservedAtMs:
-                Number(detail._launchStateObservedAtMs) || Date.now()
-            }
-          : null
-      ]
-    )
-    merged.status = statusMerged.status
-    merged.statusId = statusMerged.statusId
-    merged.statusAbbrev = statusMerged.statusAbbrev
-    merged.statusCategory = statusMerged.statusCategory || 'pending'
-    merged.statusBadgeText = statusMerged.statusBadgeText || '计划中'
-    merged.success = statusMerged.success
-    merged.isPartialFailure = statusMerged.isPartialFailure
-    merged.isFailure = statusMerged.isFailure
-    if (statusMerged._langPack) merged._langPack = statusMerged._langPack
     // 机构/统计等非标题字段仍可优先详情；标题/地点/火箭名交给末尾 applyContentLangToMission
     merged.launchAgencyId = detail.launchAgencyId != null ? detail.launchAgencyId : (base.launchAgencyId != null ? base.launchAgencyId : null)
     merged.launchAgencyAbbrev = detail.launchAgencyAbbrev || base.launchAgencyAbbrev || ''
@@ -1305,30 +1308,78 @@ Page({
       merged.rocketSpecsVisible = false
     }
 
-    // 时间字段默认以列表为准（拉取更勤）；但若列表已是远窗待定占位、详情为近窗就绪，
-    // 整包改用详情日程——避免「角标就绪 + 时间 8/31」与列表「待定」精神分裂。
-    const preferDetailSchedule = (() => {
-      const detailSid = detail.statusId != null ? Number(detail.statusId) : 0
-      const baseSid = base.statusId != null ? Number(base.statusId) : 0
-      const dNet = detail.launchTime ? new Date(detail.launchTime).getTime() : NaN
-      const bNet = base.launchTime ? new Date(base.launchTime).getTime() : NaN
-      if (detailSid !== 1 || !Number.isFinite(dNet) || !Number.isFinite(bNet)) return false
-      const baseUncertain = baseSid === 2 || baseSid === 5 || baseSid === 8
-      const weekMs = 7 * 24 * 60 * 60 * 1000
-      if (bNet - dNet > weekMs) return true
-      if (baseUncertain && Math.abs(bNet - dNet) > 12 * 60 * 60 * 1000) return true
-      return false
-    })()
-    this._detailSchedulePreferredOverList = !!preferDetailSchedule
-    if (preferDetailSchedule) {
-      if (detail.launchTime) merged.launchTime = detail.launchTime
-      if (detail.windowStart) merged.windowStart = detail.windowStart
-      if (detail.windowEnd) merged.windowEnd = detail.windowEnd
-    } else {
-      if (base.launchTime) merged.launchTime = base.launchTime
-      if (base.windowStart) merged.windowStart = base.windowStart
-      if (base.windowEnd) merged.windowEnd = base.windowEnd
+    // 时间 + 状态同源：列表会话态 vs 详情 API，走与首页相同的 NET 迟滞
+    // （拒远窗推迟占位；放行近窗 Go 治愈）。避免「角标一套、时间一套」。
+    const aligned = alignMissionScheduleAndStatus(base, detail, Date.now())
+    this._detailSchedulePreferredOverList = !!aligned.preferredDetail
+    if (aligned.launchTime) merged.launchTime = aligned.launchTime
+    else if (base.launchTime) merged.launchTime = base.launchTime
+    else if (detail.launchTime) merged.launchTime = detail.launchTime
+    if (aligned.windowStart) merged.windowStart = aligned.windowStart
+    else if (base.windowStart) merged.windowStart = base.windowStart
+    else if (detail.windowStart) merged.windowStart = detail.windowStart
+    if (aligned.windowEnd) merged.windowEnd = aligned.windowEnd
+    else if (base.windowEnd) merged.windowEnd = base.windowEnd
+    else if (detail.windowEnd) merged.windowEnd = detail.windowEnd
+
+    // 角标：先按 launch_status 多源归并；再强制投影对齐后的 status（与日程同事务）
+    const statusMerged = applyAuthoritativeStatus(
+      merged,
+      [
+        base.statusId
+          ? {
+              ...base,
+              _launchStateSource: base._launchStateSource || 'list',
+              _launchStateObservedAtMs: Number(base._launchStateObservedAtMs) || 0
+            }
+          : null,
+        detail.statusId
+          ? {
+              ...detail,
+              _launchStateSource: detail._launchStateSource || 'fetchLaunchDetail_status',
+              _launchStateObservedAtMs:
+                Number(detail._launchStateObservedAtMs) || Date.now()
+            }
+          : null
+      ]
+    )
+    Object.assign(merged, {
+      status: statusMerged.status,
+      statusId: statusMerged.statusId,
+      statusAbbrev: statusMerged.statusAbbrev,
+      statusCategory: statusMerged.statusCategory || 'pending',
+      statusBadgeText: statusMerged.statusBadgeText || '计划中',
+      success: statusMerged.success,
+      isPartialFailure: statusMerged.isPartialFailure,
+      isFailure: statusMerged.isFailure
+    })
+    if (statusMerged._langPack) merged._langPack = statusMerged._langPack
+    // 仅当迟滞明确保留列表日程时，强制角标与列表同事务；
+    // 否则尊重 applyAuthoritativeStatus（飞行中/终态不被 Go 盖回）
+    if (aligned.keptCached && aligned.status && aligned.status.id) {
+      const projected = projectBadgeOntoMission(merged, {
+        id: merged.id,
+        net: aligned.launchTime || merged.launchTime || '',
+        windowStart: aligned.windowStart || merged.windowStart || '',
+        windowEnd: aligned.windowEnd || merged.windowEnd || '',
+        status: aligned.status,
+        source: 'list',
+        observedAtMs: Date.now()
+      })
+      merged.status = projected.status
+      merged.statusId = projected.statusId
+      merged.statusAbbrev = projected.statusAbbrev
+      merged.statusCategory = projected.statusCategory || 'pending'
+      merged.statusBadgeText = projected.statusBadgeText || '计划中'
+      merged.success = projected.success
+      merged.isPartialFailure = projected.isPartialFailure
+      merged.isFailure = projected.isFailure
+      if (projected._langPack) merged._langPack = projected._langPack
+      if (projected.formattedTime) merged.formattedTime = projected.formattedTime
+    } else if (aligned.launchTime) {
+      merged.formattedTime = formatMissionListTime(aligned.launchTime) || merged.formattedTime
     }
+
     // 旧 detail 上派生过的本地化字符串必须丢弃，否则 buildNormalizedMissionState
     // 里 `mission.launchTimeCST || formatToCST(...)` 这类短路会沿用旧值。
     if (merged.launchTime || merged.windowStart || merged.windowEnd) {
@@ -2098,19 +2149,31 @@ Page({
     })
     const cacheMissingPadCoords = !!(cachedMission && !hasPrecisePadCoords(cachedMission))
 
-    // 有缓存时立即渲染首屏，跳过 loading spinner 阶段
+    // 有缓存时立即渲染首屏，跳过 loading spinner 阶段。
+    // 若 opener/列表权威快照已到，先按同源对齐合并，避免首帧闪出旧 detail 缓存的推迟时间。
     let instantRendered = false
     if (cachedMission) {
-      const fallback = applyContentLangToMission(this.getMissionDetailFallback(cachedMission))
+      const earlyList =
+        (this._openerMissionSnapshot && String(this._openerMissionSnapshot.id) === String(id)
+          ? this._openerMissionSnapshot
+          : null) ||
+        (this._listAuthorityMission && String(this._listAuthorityMission.id) === String(id)
+          ? this._listAuthorityMission
+          : null)
+      const instantSource = earlyList
+        ? this.mergeMissionDetailData(cachedMission, earlyList)
+        : cachedMission
+      const fallback = applyContentLangToMission(this.getMissionDetailFallback(instantSource))
       // 配图始终用英文火箭名；缓存可能带着上一次语言套用后的中文 rocketName
       const rocketEnForImage =
         (fallback._langPack && fallback._langPack.rocketNameEn) ||
+        (instantSource._langPack && instantSource._langPack.rocketNameEn) ||
         (cachedMission._langPack && cachedMission._langPack.rocketNameEn) ||
         fallback.rocketName
       fallback.rocketImage = resolveMissionRocketImage(
         '',
         rocketEnForImage,
-        fallback.rocketConfiguration || cachedMission.rocketConfiguration,
+        fallback.rocketConfiguration || instantSource.rocketConfiguration || cachedMission.rocketConfiguration,
         true
       )
       try {
@@ -2172,11 +2235,9 @@ Page({
       this.setData(buildMissionDetailBaseState(normalizedDetailType))
     }
 
-    // 时间字段以列表为准（mergeMissionDetailData 会用 list 的 launchTime 覆盖 detail 的旧值），
-    // 即使已有 detailMission/cachedMission，也尝试取一份 list snapshot 用作时间权威源。
-    // findMissionInList 内部会优先走 storage 短路（命中 _cacheSource='list'），
-    // 仅在缺失时才回源 getUpcomingMissions 网络请求。
-    // 与详情拉取并行启动：列表快照缺失需回源网络时，不再串在详情之后多等一轮 RTT
+    // 日程经 alignMissionScheduleAndStatus 与列表会话态同源对齐（拒远窗占位、放行近窗 Go）。
+    // findMissionInList：opener > 内存 list 快照 > storage list > 网络。
+    // 与详情拉取并行，避免列表回源时串在详情之后多等一轮 RTT。
     const listMissionPromise = this.findMissionInList(id, normalizedDetailType).catch(() => null)
 
     let detailMission = null
@@ -2211,7 +2272,18 @@ Page({
     if (detailMission) {
       mission = this.mergeMissionDetailData(detailMission, listMission || cachedMission)
     } else if (cachedMission) {
-      const skipRebuild = instantRendered && hasFreshCachedMission && !cacheMissingPadCoords
+      // 即使 detail 缓存新鲜，只要有列表卡快照且日程/状态不一致，必须重 merge，
+      // 否则 skipRebuild 会留下「列表 A、详情缓存 B」。
+      const alignedPreview = listMission
+        ? alignMissionScheduleAndStatus(listMission, cachedMission, Date.now())
+        : null
+      const mustAlignList =
+        !!listMission && scheduleFieldsDiffer(cachedMission, alignedPreview)
+      const skipRebuild =
+        instantRendered &&
+        hasFreshCachedMission &&
+        !cacheMissingPadCoords &&
+        !mustAlignList
       if (skipRebuild) {
         mission = null
       } else {
@@ -2335,10 +2407,22 @@ Page({
       }
       const mission = await this._detailRequestMap[requestKey]
       if (!mission || !this.data.mission || String(this.data.mission.id) !== String(id)) return
-      const mergedMission = this.mergeMissionDetailData(mission, this.data.mission)
+      // 日程权威：列表快照 > 内存 list 短路 > 当前页已渲染（作 cached 防远窗占位回盖）
+      let listAuth =
+        this._listAuthorityMission && String(this._listAuthorityMission.id) === String(id)
+          ? this._listAuthorityMission
+          : null
+      if (!listAuth) {
+        try {
+          listAuth = findMissionInListSnapshots(id, detailType)
+          if (listAuth) this._listAuthorityMission = listAuth
+        } catch (eSnap) {}
+      }
+      const scheduleBase = listAuth || this.data.mission || null
+      const mergedMission = this.mergeMissionDetailData(mission, scheduleBase)
       const normalizedState = await this.buildNormalizedMissionState(mergedMission, {
-        listMission: this.data.mission,
-        detailType: 'completed'
+        listMission: listAuth || scheduleBase,
+        detailType: detailType === 'completed' ? 'completed' : 'upcoming'
       })
       const refreshed = normalizedState.mission
       const effectiveDetailType = normalizedState.effectiveDetailType

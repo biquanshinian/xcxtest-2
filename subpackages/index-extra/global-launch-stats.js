@@ -20,6 +20,8 @@ require('./utils/index-vote.js')
 require('./utils/index-save-image.js')
 require('./utils/index-live-settle.js')
 require('./utils/index-ux.js')
+require('./utils/index-interaction.js')
+require('./utils/index-agency-sub.js')
 
 const CURRENT_YEAR = new Date().getUTCFullYear()
 

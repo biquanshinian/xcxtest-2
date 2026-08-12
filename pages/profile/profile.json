@@ -13,12 +13,14 @@
     "milestone-egg": "/subpackages/shared/components/milestone-egg/index",
     "privacy-modal": "/components/privacy-modal/privacy-modal",
     "demo-overlay": "/subpackages/shared/components/demo-overlay/index",
-    "profile-sections": "/subpackages/profile-extra/components/profile-sections/index"
+    "profile-sections": "/subpackages/profile-extra/components/profile-sections/index",
+    "badge-modal": "/subpackages/profile-extra/components/badge-modal/index"
   },
   "componentPlaceholder": {
     "demo-overlay": "view",
     "milestone-egg": "view",
     "nasa-float": "view",
-    "profile-sections": "view"
+    "profile-sections": "view",
+    "badge-modal": "view"
   }
 }

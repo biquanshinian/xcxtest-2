@@ -147,12 +147,7 @@ function _memDel(key) {
   delete _memCache[key]
 }
 
-/**
- * 同步读取 storage，但带去重层。同一个 key 在 STORAGE_READ_DEDUP_TTL 内
- * 只真正同步读 1 次，后续直接复用结果。
- * 这样 stale / non-stale 两条路径就不会重复读同一 key。
- * @returns {*|null} storage 中保存的原始对象（含 timestamp），不存在返回 null
- */
+
 function _readStorageEntryDeduped(cacheKey) {
   const cached = _storageReadCache[cacheKey]
   if (cached && Date.now() < cached.expireAt) {
@@ -222,15 +217,10 @@ function _isLegacySlimKey(key) {
 // ── 后台缓存更新监听器 ──
 // 当 request 命中本地缓存后，后台发现云数据库有更新时，通知订阅方刷新 UI
 const _staleUpdateListeners = Object.create(null)
-/** 发射列表（upcoming/previous）任意 key 变新鲜时的总线；首页/搜索可订阅而不用绑死精确 key */
+
 const _launchListStaleListeners = []
 
-/**
- * 注册后台缓存更新监听器
- * @param {String} cacheKey 缓存 key
- * @param {Function} callback 回调函数，参数为新数据
- * @returns {Function} 取消监听的函数
- */
+
 function onStaleUpdate(cacheKey, callback) {
   if (!_staleUpdateListeners[cacheKey]) {
     _staleUpdateListeners[cacheKey] = []
@@ -245,11 +235,7 @@ function onStaleUpdate(cacheKey, callback) {
   }
 }
 
-/**
- * 订阅发射列表母缓存后台变新鲜（不依赖精确 limit key）。
- * @param {Function} callback (info: { cacheKey, kind: 'upcoming'|'previous'|'other', data })
- * @returns {Function} off
- */
+
 function onLaunchListStale(callback) {
   if (typeof callback !== 'function') return function () {}
   _launchListStaleListeners.push(callback)
@@ -259,10 +245,7 @@ function onLaunchListStale(callback) {
   }
 }
 
-/**
- * 强制下一次发射列表本地命中时立刻后台探云（清节流时间戳）。
- * 用于下拉刷新等用户显式刷新；不影响非列表缓存的 30 分钟探云节奏。
- */
+
 function forceLaunchListCloudBgCheck() {
   Object.keys(cloudCacheBgCheckAt).forEach((key) => {
     if (isLaunchListCacheKey(key)) delete cloudCacheBgCheckAt[key]
@@ -299,12 +282,7 @@ function _fireStaleUpdate(cacheKey, newData) {
   })
 }
 
-/**
- * 生成缓存key
- * @param {String} url API路径
- * @param {Object} params 请求参数
- * @returns {String} 缓存key
- */
+
 function getCacheKey(url, params = {}) {
   // 对参数对象进行排序，确保属性顺序一致，避免 cacheKey 不匹配
   const sortedParams = Object.keys(params)
@@ -332,16 +310,7 @@ function getCacheKey(url, params = {}) {
   return `${CACHE_PREFIX}${url}_${paramsStr}${shouldUseSlimList ? '_slim' + SLIM_LIST_VERSION : ''}`
 }
 
-/**
- * 从本地存储获取缓存数据（同步）
- * 内部走两级缓存：
- *   1. _memCache —— 仅缓存「新鲜数据」(非 stale)
- *   2. _storageReadCache —— 缓存 storage 同步读到的「原始 entry」，
- *      stale / non-stale 路径共享，避免重复 getStorageSync
- * @param {String} cacheKey 缓存key
- * @param {Boolean} allowStale 是否允许返回过期但未超龄的数据（stale-while-revalidate）
- * @returns {Object|null} 缓存数据，如果不存在或已过期则返回null
- */
+
 function getCacheFromLocal(cacheKey, allowStale) {
   try {
     if (!allowStale) {
@@ -384,11 +353,7 @@ function getCacheFromLocal(cacheKey, allowStale) {
   }
 }
 
-/**
- * 从云数据库获取缓存数据（异步）
- * @param {String} cacheKey 缓存key
- * @returns {Promise<Object|null>} 缓存数据，如果不存在或已过期则返回null
- */
+
 async function getCacheFromCloud(cacheKey, timeout = 5000) {
   if (!cacheKey) return null
 
@@ -572,14 +537,7 @@ async function getCacheFromCloud(cacheKey, timeout = 5000) {
   }
 }
 
-/**
- * 获取缓存数据（优先从云数据库读取，降级到本地存储）
- * @param {String} cacheKey 缓存key
- * @returns {Object|null} 缓存数据，如果不存在或已过期则返回null
- * 
- * 注意：此函数保持同步接口以兼容现有代码
- * 实际会先尝试本地缓存（快速），同时异步检查云数据库（后台更新）
- */
+
 function getCache(cacheKey) {
   // 先尝试本地缓存（同步，快速响应）
   const localCache = getCacheFromLocal(cacheKey)
@@ -630,12 +588,7 @@ function cleanDataForJSON(obj) {
   }
 }
 
-/**
- * 保存缓存到云数据库（异步）
- * @param {String} cacheKey 缓存key
- * @param {*} data 要缓存的数据
- * @returns {Promise} 保存结果
- */
+
 async function setCacheToCloud(cacheKey, data) {
   try {
     // 验证参数
@@ -682,13 +635,7 @@ async function setCacheToCloud(cacheKey, data) {
   }
 }
 
-/**
- * 设置缓存数据（同时保存到本地和云数据库）
- * @param {String} cacheKey 缓存key
- * @param {*} data 要缓存的数据
- * 
- * 注意：优先保存到本地（同步），然后异步保存到云数据库（所有用户共享缓存）
- */
+
 function setCache(cacheKey, data) {
   // 本地缓存最大字节数（避免触发 10MB 上限；并给其它业务留空间）
   const MAX_LOCAL_CACHE_BYTES = 512 * 1024 // 512KB
@@ -772,10 +719,7 @@ function clearExpiredCache() {
   cleanExpiredApiCache()
 }
 
-/**
- * 构建缓存候选 key 列表（按命中概率降序排列，已去重）
- * 供 request() 在精确 key 未命中时依次探查
- */
+
 function _buildCandidateKeys(url, params, exactKey) {
   const candidates = []
   const seen = new Set()
@@ -870,15 +814,7 @@ function _sliceCacheResult(cache, params) {
   }
 }
 
-/**
- * 通用请求方法 - 对接Launch Library API（带缓存和重试）
- * @param {String} url API路径
- * @param {Object} params 请求参数
- * @param {Number} timeout 超时时间（毫秒），开发环境默认20000，生产环境默认10000
- * @param {Boolean} useCache 是否使用缓存，默认true
- * @param {Number} retryCount 当前重试次数（内部使用）
- * @returns {Promise} 返回请求结果
- */
+
 function request(url, params = {}, timeout = null, useCache = true, retryCount = 0) {
   if (timeout === null) {
     timeout = USE_DEV_API ? 20000 : 10000
@@ -993,11 +929,7 @@ function request(url, params = {}, timeout = null, useCache = true, retryCount =
   })
 }
 
-/**
- * 检查任务是否已过期
- * @param {String} launchTime 发射时间
- * @returns {Boolean} 是否已过期
- */
+
 function isLaunchExpired(launchTime) {
   if (!launchTime) return true
   const now = new Date().getTime()
@@ -1005,11 +937,7 @@ function isLaunchExpired(launchTime) {
   return launchTimeMs <= now
 }
 
-/**
- * 格式化发射台+地点，卡片用：「发射台名称 @ 地区/国家」
- * @param {Object} pad launch.pad
- * @returns {String}
- */
+
 function formatPadLocation(pad) {
   if (!pad) return '未知地点'
   const a = pad.name || ''
@@ -1155,11 +1083,7 @@ function getCountryDisplay(pad, launchServiceProvider = null, launch = null) {
   }
 }
 
-/**
- * LL2 官方状态码 → 色标分类（唯一权威映射，getStatusCategory 与 mapLaunchToListItem 共用）
- * 1=Go 2=TBD 3=Success 4=Failure 5=On Hold 6=In Flight 7=Partial Failure 8=TBC 9=Payload Deployed
- * 色标：success|failure|partial|delayed|cancelled|pending|inflight|deployed
- */
+
 const STATUS_ID_CATEGORY = {
   1: 'pending',
   2: 'pending',
@@ -1197,7 +1121,7 @@ const STATUS_ID_BADGE_TEXT_EN = {
   9: 'Deployed'
 }
 
-/** 可落历史的终态：Success / Failure / Partial / Payload Deployed */
+
 const TERMINAL_STATUS_IDS = { 3: true, 4: true, 7: true, 9: true }
 
 function isTerminalStatusId(id) {
@@ -1209,16 +1133,12 @@ function isTerminalStatus(status) {
   return isTerminalStatusId(status && status.id)
 }
 
-/**
- * 仅按 LL2 状态 id 取分类，命中返回对应 category，未命中返回 null（交由调用方做文本兜底）
- */
+
 function getStatusCategoryById(id) {
   return Object.prototype.hasOwnProperty.call(STATUS_ID_CATEGORY, id) ? STATUS_ID_CATEGORY[id] : null
 }
 
-/**
- * 状态 → 色标分类：success|failure|partial|delayed|cancelled|pending|inflight|deployed
- */
+
 function getStatusCategory(status) {
   if (!status) return 'pending'
   const id = status.id
@@ -1233,10 +1153,7 @@ function getStatusCategory(status) {
   return 'pending'
 }
 
-/**
- * 是否中国火箭语境（发射场/服务商国家为中国，或型号/机构名可判定为中国箭）。
- * 用于展示文案：失败→失利（不影响 statusCategory / 结算逻辑）。
- */
+
 function isChineseRocketContext(context) {
   if (!context) return false
   if (context === true) return true
@@ -1309,12 +1226,7 @@ function getStatusBadgeTextPair(status, category, options) {
   return { statusBadgeTextZh: zh, statusBadgeTextEn: en }
 }
 
-/**
- * 状态 → 卡片角标文案（优先 LL2 id，再按 category / 英文名兜底；随 contentLang 切换）
- * @param {object} status
- * @param {string} [category]
- * @param {{ chineseRocket?: boolean, countryDisplay?: string }|boolean} [options]
- */
+
 function getStatusBadgeText(status, category, options) {
   const pair = getStatusBadgeTextPair(status, category, options)
   try {
@@ -1326,10 +1238,7 @@ function getStatusBadgeText(status, category, options) {
 }
 
 
-/**
- * 详情确认的 NET/status 写回本地 upcoming slim，避免会话内仍吐 8/31 待定。
- * 云侧 healUpcomingFromDetail 异步；本地先对齐，且 forceLaunchListCloudBgCheck 后可拉新云缓存。
- */
+
 function patchUpcomingLocalCacheById(launchId, liveFields) {
   if (launchId == null || !liveFields || typeof liveFields !== 'object') return false
   const idStr = String(launchId)

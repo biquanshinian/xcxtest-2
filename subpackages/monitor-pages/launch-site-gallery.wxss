@@ -1,7 +1,5 @@
 /* launch-site-gallery.wxss — 独立全屏全球发射场分布页（暗色毛玻璃，骨架镜像飞船图鉴页） */
-@import "./styles/gallery-toolbar.wxss";
-@import "/styles/fav-btn.wxss";
-page {
+@import "./styles/gallery-toolbar.wxss";page {
   background: #0B0C0E;
   color: #fff;
 }

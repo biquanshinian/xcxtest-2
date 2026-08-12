@@ -256,7 +256,7 @@
           <!-- 信息行：日期 / 地点（图标线条统一风格） -->
           <view class="ll2-event-info glass-card">
             <view class="ll2-event-info-row">
-              <image class="ll2-event-info-icon" src="/images/icon-calendar.svg" mode="aspectFit"></image>
+              <image class="ll2-event-info-icon" src="/subpackages/progress-extra/images/icon-calendar.svg" mode="aspectFit"></image>
               <view class="ll2-event-info-body">
                 <text class="ll2-event-info-label">预计时间</text>
                 <text class="ll2-event-info-value" user-select="{{true}}">{{item.dateText}}</text>
@@ -275,7 +275,7 @@
           <!-- 描述 -->
           <view class="ll2-event-section glass-card" wx:if="{{item.description}}">
             <view class="ll2-event-section-title">
-              <image class="ll2-event-section-icon" src="/images/icon-orbit.svg" mode="aspectFit"></image>
+              <image class="ll2-event-section-icon" src="/subpackages/progress-extra/images/icon-orbit.svg" mode="aspectFit"></image>
               <text>任务概述</text>
               <text class="translate-toggle translate-toggle--inline {{evtDescTranslating ? 'translate-toggle--busy' : ''}}" catchtap="onToggleEventDescTranslate">{{evtDescTranslating ? '翻译中…' : (evtDescTranslated ? '原文' : '翻译')}}</text>
             </view>

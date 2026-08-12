@@ -214,10 +214,6 @@ function getAiImageRemaining(state) {
   return Math.max(0, limit - used)
 }
 
-/**
- * 记录一次 AI 使用（本地 + 云端）
- * @param {'aiChat'|'aiImage'} usageType
- */
 async function _recordUsage(usageType) {
   var field = usageType === 'aiImage' ? 'aiImageUsed' : 'aiChatUsed'
   var today = _todayStr()
@@ -266,10 +262,6 @@ function isProSync() {
   return false
 }
 
-/**
- * 通用：调用 wx.requestVirtualPayment 走道具直购流程
- * 返回 { success, cancelled, error }
- */
 function _wxLogin() {
   return new Promise(function (resolve) {
     wx.login({
@@ -456,11 +448,6 @@ function warmMembershipStateAsync() {
   })
 }
 
-/**
- * 显示购买引导弹窗；选「看广告」且看完则返回 true（临时放行）
- * 单品标价走后台 vpaySkuPrices（与管理端一致），失败时才用本地 PRODUCTS 兜底
- * @param {Object} [opts] { adUnlockId, allowAd } 广告解锁键（缺省用 productId）/ 是否提供广告通道
- */
 async function _showPurchaseDialog(productId, productName, opts) {
   var adUnlock = require('./ad-unlock.js')
   var allowAd = !opts || opts.allowAd !== false
@@ -511,10 +498,6 @@ async function _showPurchaseDialog(productId, productName, opts) {
   })
 }
 
-/**
- * iOS 用户的付费拦截弹窗 — 可看广告试用；开通引导去其他端购买
- * @param {Object} [opts] { adUnlockId, allowAd }
- */
 function _showIOSPurchaseDialog(productName, productId, opts) {
   var adUnlock = require('./ad-unlock.js')
   var allowAd = !opts || opts.allowAd !== false
@@ -558,15 +541,6 @@ function _showIOSPurchaseDialog(productName, productId, opts) {
   })
 }
 
-/**
- * 付费功能门控检查
- * 会员功能关闭时直接放行；开启时检查是否已购买或是 Pro 会员
- * 优化：缓存命中走 fast-path 不显示 loading；缓存 miss 时 700ms 超时 fail-open
- * @param {Object} [opts]
- * @param {string} [opts.adUnlockId] 广告解锁读写键；缺省用 productId。用于把广告权益缩小到单条资源（如单条视频）
- * @param {boolean} [opts.allowAd] 为 false 时弹窗不提供「看广告」通道（如原视频下载）
- * @returns {boolean} true=允许访问, false=已拦截（弹窗引导购买）
- */
 async function gateCheck(productId, productName, opts) {
   // 观礼通行证（现场扫码签发，限时）：有效期内免除全部功能门控
   try {
@@ -677,10 +651,6 @@ async function gateCheck(productId, productName, opts) {
   return _showPurchaseDialog(productId, productName, { adUnlockId: adUnlockId, allowAd: allowAd })
 }
 
-/**
- * AI 图片识别次数门控
- * @returns {boolean} true=允许使用, false=已拦截
- */
 async function aiImageGateCheck() {
   var adUnlock = require('./ad-unlock.js')
   var AI_AD_PRODUCT = 'ai_image'
@@ -910,12 +880,6 @@ async function deleteMyOrder(orderId) {
   }
 }
 
-/**
- * 同步判断：是否允许预拉「会员功能」云资源（列表全量 / 图缓存预热等）
- * - 会员总开关关闭：全体放行（与 gateCheck 一致）
- * - Pro：放行
- * - 其余（含开关未知）：不预拉，等用户点开过门控后再加载
- */
 function canUsePaidCloudSync() {
   const enabled = _readEnabledFromCache()
   if (enabled === false) return true
@@ -930,10 +894,6 @@ function canUsePaidCloudSync() {
   return false
 }
 
-/**
- * 原视频下载资格（同步）：会员功能关闭、Pro 或已购对应单品时为 true。
- * 广告临时解锁不算 —— 原片体积大（COS 成本高），不开放广告通道。
- */
 function canSaveOriginalVideoSync(productId) {
   const enabled = _readEnabledFromCache()
   if (enabled === false) return true
@@ -942,10 +902,6 @@ function canSaveOriginalVideoSync(productId) {
   return !!(state && hasPurchased(state, productId))
 }
 
-/**
- * 非会员是否允许预写可播视频地址 / 自动播（受 forceNonMemberVideoPoster 与流量档约束）
- * 会员关或 Pro：true；否则看策略。
- */
 function canPrefetchVideoSync() {
   if (canUsePaidCloudSync()) return true
   try {

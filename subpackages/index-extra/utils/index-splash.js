@@ -931,7 +931,9 @@ const methods = {
 
   _forceSplashVideoPlay() {
     try {
-      const ctx = wx.createVideoContext(SPLASH_VIDEO_ID, this)
+      const splashComp =
+        (this.selectComponent && this.selectComponent('#indexSplash')) || this
+      const ctx = wx.createVideoContext(SPLASH_VIDEO_ID, splashComp)
       if (ctx && typeof ctx.play === 'function') ctx.play()
     } catch (e) {}
   },
@@ -1371,7 +1373,9 @@ const methods = {
 
   /** 开屏任务卡发射商 logo：落盘并分析透明底色 */
   onSplashAgencyLogoLoad(e) {
-    const remote = ((e && e.currentTarget && e.currentTarget.dataset) || {}).logoRemote || ''
+    const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
+    const fromComp = (e && e.detail) || {}
+    const remote = ds.logoRemote || fromComp.logoRemote || ''
     const url = String(remote || '').trim()
     if (!url || !isRemoteAgencyLogoUrl(url)) return
     const self = this
@@ -1634,6 +1638,7 @@ module.exports = {
   methods,
   /** 把全部方法挂到页面实例上（委托加载后调用） */
   attachTo(page) {
+    page.__splashMethods = methods
     Object.keys(methods).forEach((k) => {
       page[k] = methods[k].bind(page)
     })

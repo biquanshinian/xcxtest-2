@@ -13,13 +13,11 @@ const PROGRESS_DOT_CACHE_KEY = '_progress_dot_cache'
 // 30 分钟探测一次足够；5 分钟 TTL 会让每次切 Tab 都可能打一次库读
 const PROGRESS_DOT_CACHE_TTL = 30 * 60 * 1000
 
-/** 后台 news_articles 手动更新红点（与 pages/news 顶部「航天事件」、Tab 事件图标共用数据源） */
 const NEWS_MANUAL_DOT_CACHE_KEY = '_news_manual_dot_cache'
 const NEWS_MANUAL_DOT_CACHE_TTL = 30 * 60 * 1000
 const NEWS_TAB_ACK_MANUAL_UPDATED_AT_KEY = '_news_tab_ack_manual_updated_at'
 const ARTICLES_NAV_ACK_MANUAL_UPDATED_AT_KEY = '_articles_nav_ack_manual_updated_at'
 
-/** 与 custom-tab-bar 共用：添加到桌面横条 snooze（启动时同步读入 globalData，避免 WebView 每页重建 TabBar 时异步闪动） */
 const TABBAR_DESKTOP_STRIP_SNOOZE_KEY = 'add_desktop_strip_snooze_until'
 
 // ── 内存缓存：避免 checkProgressDot 被多次调用时重复读 storage ──
@@ -66,11 +64,14 @@ App({
     //   getApp().resetPopupAd()           // 清掉本地弹窗广告所有缓存与会话标记
     //   getApp().debugPopupAdConfig()     // 打印当前弹窗广告配置
     this.resetPopupAd = function () {
-      try { require('./utils/popup-ad.js').resetPopupAdLocalState() } catch (e) { console.warn(e) }
+      require.async('./subpackages/shared/utils/popup-ad.js')
+        .then((m) => { m.resetPopupAdLocalState() })
+        .catch((e) => console.warn(e))
     }
     this.debugPopupAdConfig = async function () {
       try {
-        const cfg = await require('./utils/popup-ad.js').fetchPopupAdConfig()
+        const m = await require.async('./subpackages/shared/utils/popup-ad.js')
+        const cfg = await m.fetchPopupAdConfig()
         console.log('[popup-ad] current config:', cfg)
         return cfg
       } catch (e) { console.warn(e); return null }
@@ -118,10 +119,7 @@ App({
     }
   },
 
-  /**
-   * 小程序 AI 开发模式：接收原子接口 handoff 数据（按 pageId 暂存，目标页 onLoad 领取）
-   * 低版本基础库无 wx.onAgentHandoff，静默跳过
-   */
+  
   initAgentHandoff() {
     if (typeof wx.onAgentHandoff !== 'function') return
     try {
@@ -189,12 +187,7 @@ App({
     this._notifyPrivacyGateListeners()
   },
 
-  /**
-   * 开屏动画展示中标记：开屏层本身已全屏遮挡（含 TabBar），此时隐私禁触遮罩
-   * 必须让位——遮罩挂在 root-portal 根层级，会压住整个开屏层（层叠上下文隔离，
-   * 开屏内部子元素 z-index 再大也无效），导致「跳过」按钮点击无反应。
-   * TabBar 切页守卫直接读 privacyGateActive，不受此标记影响，门控依旧生效。
-   */
+  
   setSplashActive(active) {
     const next = !!active
     if (this.globalData.splashActive === next) return
@@ -428,7 +421,7 @@ App({
     return this.globalData.uiShellLayout
   },
 
-  /** WebView 下 custom-tab-bar 每 Tab 重建：用内存缓存首帧桌面横条显隐，避免 wx.getStorage 异步跳变 */
+  
   readAddDesktopStripVisibleSync() {
     try {
       const snoozeUntil = Number(storageCache.readMemOrSync(TABBAR_DESKTOP_STRIP_SNOOZE_KEY, 0)) || 0
@@ -593,10 +586,7 @@ App({
     return maxTs
   },
 
-  /**
-   * 拉取 news_articles 已发布手写稿的「全局最新更新时间」
-   * 优先走 userDataGateway（与列表一致，绕开客户端库读权限）；失败再直连 DB，并带索引降级。
-   */
+  
   _fetchNewsManualLatestUpdatedAtFromCloud(done) {
     const finish = (ts) => done && done(Number(ts) || 0)
 
@@ -815,10 +805,7 @@ App({
     }
   },
 
-  /**
-   * 「添加到桌面」横条：多端 Tab 栏可能存在多个实例，切换 Tab 时需统一按本地 snooze 刷新。
-   * 关闭横条后调用，或在各个 Tab 页 onShow 调用。
-   */
+  
   syncAllTabBarsDesktopStrip() {
     try {
       const cache = this.globalData.tabBarUiCache
@@ -846,9 +833,7 @@ App({
     } catch (e) {}
   },
 
-  /**
-   * 旧版路径 / 分享链接兜底：页面挪到分包后，历史入口仍可能命中 pages/progress/* 等旧路径
-   */
+  
   onPageNotFound(res) {
     const path = String((res && res.path) || '').replace(/^\//, '')
     const query = (res && res.query) || {}
@@ -896,9 +881,9 @@ App({
     splashActive: false,
     demoMode: false,
     isLiveAccount: false,
-    /** 星舰状态共享快照 { data, fetchedAt }：progress 加载成功后写入，progress-extra 分包页 10 分钟内复用 */
+    
     starshipStatus: null,
-    /** 搜索页 → 监控页一次性交接的发射商 id（switchTab 不能带 query，内存传递即可，无需落 storage） */
+    
     pendingAgencyDetailId: '',
     /** 事件更新视频 → 播放页一次性交接（URL 可能很长，避免走 query） */
     pendingEventVideo: null

@@ -2,27 +2,6 @@
  * pages/index/utils/index-settled-merge.js
  * 「结算 → 历史列表」合并域（主包同步加载：大量调用点依赖同步返回值，不可 require.async）：
  * - recent_settled 内存缓存 / 本地持久化 / 冷启动 hydrate
- * - 终态角标覆盖、缺卡补插、占位卡修复、飞行中状态解析（reconcile）
- * - 历史列表加载成功编排、详情页终态回写
- *
- * index.js 通过 `...settledMergeMethods` 展开进 Page，方法内 this 即页面实例。
- *
- * ── 实例属性契约（本模块拥有读写权） ──
- *   _recentSettledCache / _recentSettledCacheAt     recent_settled 内存缓存及时间戳
- *   _recentSettledCloudFetchAt                      最近一次云端拉取时间（60s 内 force 降级读内存）
- *   _recentSettledFetchInflight                     在途去重 promise
- *   _recentSettledPersistAt / _recentSettledHydrating / _recentSettledHydratePromise
- *                                                   本地持久化节流与 hydrate 状态
- *   _completedStateGeneration                       历史列表应用代际（防旧请求覆盖新状态）
- *   _statusResolveInflight                          飞行中解析在途 id 集合
- *   _fullMissionCardStash                           流经首页的完整任务卡按 id 囤存（结算瘦卡修复素材）
- *
- * ── 依赖页面其它域提供的方法（保留在 index.js / 其它模块） ──
- *   _absorbLaunchStateObservations / _projectAuthoritativeLaunchState（权威状态域）
- *   _isKnownSettleableId / _scrubKnownSettleableCountdown / switchToNextUpcomingMission（倒计时域）
- *   applyUpcomingAgencyFilterToPatch / updateMissionListView /
- *   scheduleUpcomingAgencyChipsOverflowHint / _preloadVisibleRocketImages（列表域）
- *   hydrateCalendarFromLoadedMissionLists（日历分包委托）
  */
 const {
   fetchLaunchStatusSnapshot,
@@ -37,7 +16,8 @@ const {
   isChineseRocketContext
 } = require('../../../utils/api-request.js')
 const { isSettledStatusId, projectBadgeOntoMission } = require('../../../utils/launch-status-store.js')
-const { formatDate, resolveMissionRocketImage } = require('../../../utils/util.js')
+const { resolveMissionRocketImage } = require('../../../utils/util.js')
+const { formatMissionListTimeOrUnknown } = require('../../../utils/launch-card-i18n.js')
 const { buildMissionListSetData } = require('../../../utils/index-mission-services.js')
 const { filterExpiredMissions } = require('../../../utils/index-page-helpers.js')
 const { attachMissionDetailMeta } = require('../../../utils/index-mission-nav.js')
@@ -56,10 +36,7 @@ function isSettleableLiveStatusId(id) {
 }
 
 const methods = {
-  /**
-   * 合并云端 recent_settled 到内存：空数组不冲掉已有终态；会话终态优先保留。
-   * 解决：云读空窗 / setData 竞态后历史卡消失、即将发射又冒出就绪。
-   */
+  
   _absorbRecentSettled(incoming) {
     if (!Array.isArray(incoming)) {
       return Array.isArray(this._recentSettledCache) ? this._recentSettledCache : null
@@ -90,11 +67,7 @@ const methods = {
     } catch (e) {}
   },
 
-  /**
-   * 冷启动 hydrate：读上次会话持久化的 recent_settled 快照进内存。
-   * _recentSettledCacheAt 用落盘时间而非当前时间：快照过期语义不变，
-   * 云端强制刷新（onShow / loadInitialData 并行拉取）照常进行。
-   */
+  
   _hydrateRecentSettledFromStorage() {
     if (this._recentSettledHydratePromise) return this._recentSettledHydratePromise
     this._recentSettledHydratePromise = new Promise((resolve) => {
@@ -254,10 +227,7 @@ const methods = {
     return this._isPlaceholderMissionField(item.rocketName)
   },
 
-  /**
-   * 结算瘦卡修复素材：缓存流经首页的完整任务卡（含 countryDisplay/padLocation/图）。
-   * 结算发生时即将发射列表里同 id 卡可能已被剔除，这里按 id 兜底取用。
-   */
+  
   _stashFullMissionCards(list) {
     if (!Array.isArray(list) || !list.length) return
     if (!this._fullMissionCardStash) this._fullMissionCardStash = new Map()
@@ -346,7 +316,7 @@ const methods = {
       image: rocketImage,
       launchTime,
       formattedTime: launchTime
-        ? formatDate(launchTime, 'MM月DD日 HH:mm')
+        ? formatMissionListTimeOrUnknown(launchTime)
         : (baseMission && baseMission.formattedTime) ||
           (stashed && stashed.formattedTime) ||
           '时间未知',
@@ -440,7 +410,7 @@ const methods = {
         revision: Number(hit.revision) || 0
       })
       if (hit.net) {
-        projected.formattedTime = formatDate(hit.net, 'MM月DD日 HH:mm')
+        projected.formattedTime = formatMissionListTimeOrUnknown(hit.net)
       }
       return projected
     })
@@ -478,10 +448,7 @@ const methods = {
     return inserts.length ? inserts.concat(next) : next
   },
 
-  /**
-   * 可落历史 id（终态 + 飞行中）：recent_settled + 本机会话历史卡。
-   * 用于从即将发射剔除，避免「详情已部署 / 列表仍就绪」。
-   */
+  
   _collectSettleableSettledIdSet() {
     const ids = new Set()
     if (this._launchRecordsById && this._launchRecordsById.size) {
@@ -493,10 +460,7 @@ const methods = {
     return ids
   },
 
-  /**
-   * @param {Array} list
-   * @param {Array} [completedOverride] 即将写入的历史列表（setData 前 data 里还没有时传入）
-   */
+  
   _filterUpcomingAgainstSettled(list, completedOverride) {
     if (!Array.isArray(list) || !list.length) return list || []
     // 剔除前先囤完整卡：结算后重建历史卡时这是唯一还留有 pad/国家等字段的来源
@@ -513,9 +477,7 @@ const methods = {
     return filtered.length === list.length ? list : filtered
   },
 
-  /**
-   * 读云库 recent_settled 写入内存缓存（供 settle / 历史角标复用）。
-   */
+  
   async _ensureRecentSettledCache(force) {
     const now = Date.now()
     // 60 秒内刚从云端拉过 → force 降级读内存：冷启动 onLoad(loadInitialData) 与
@@ -596,10 +558,7 @@ const methods = {
     this._absorbRecentSettled(entries)
   },
 
-  /**
-   * 历史列表仍有「飞行中」时，按 id 主动解析终态后再合并。
-   * 权威链：LL2 list（经云 resolve）> recent_settled 终态 > previous/乐观缓存。
-   */
+  
   async _reconcileInflightHistoryStatuses(list) {
     const base = Array.isArray(list) ? list : []
     const ids = this._collectInflightCompletedIds(base)
@@ -664,10 +623,7 @@ const methods = {
     )
   },
 
-  /**
-   * 详情页终态回写：升角标；历史没有该卡则补插；并从即将发射剔除。
-   * @param {{ id: string, statusId?: number, statusBadgeText?: string, statusCategory?: string, statusAbbrev?: string, name?: string, net?: string }} patch
-   */
+  
   applyCompletedMissionStatusFromDetail(patch) {
     if (!patch || patch.id == null) return
     const sid = patch.statusId != null ? Number(patch.statusId) : 0

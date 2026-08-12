@@ -12,7 +12,7 @@
  *
  * 不收清明：扫墓祭扫的日子不适合戴喜庆帽，故七个法定假日里只覆盖六个。
  *
- * UI 组件：components/festival-hat（按圆直径 size rpx 缩放贴合）
+ * UI 组件：subpackages/shared/components/festival-hat（按圆直径 size rpx 缩放贴合）
  * 开发：FESTIVAL_HAT_DEV_MODE=true 时循环预览；看完改 false
  */
 

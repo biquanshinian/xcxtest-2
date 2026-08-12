@@ -1,0 +1,133 @@
+<view class="splash-overlay {{fading ? 'splash-overlay--out' : 'splash-overlay--in'}}" wx:if="{{visible}}" catchtouchmove="preventMove">
+    <block wx:if="{{config.mediaType === 'video'}}">
+      <video
+        id="splash-video"
+        class="splash-media"
+        src="{{config.mediaUrl}}"
+        poster="{{config.posterUrl}}"
+        autoplay
+        muted
+        show-play-btn="{{false}}"
+        show-center-play-btn="{{false}}"
+        show-loading="{{false}}"
+        controls="{{false}}"
+        enable-progress-gesture="{{false}}"
+        object-fit="cover"
+        http-cache="{{true}}"
+        bindplay="onSplashVideoPlay"
+        bindtimeupdate="onSplashVideoTimeUpdate"
+        bindloadedmetadata="onSplashVideoLoadedMeta"
+        bindended="onSplashVideoEnded"
+        binderror="onSplashVideoError"
+      ></video>
+      <view class="splash-video-cover" wx:if="{{!videoReady}}">
+        <image
+          wx:if="{{config.posterUrl}}"
+          class="splash-media"
+          src="{{config.posterUrl}}"
+          mode="aspectFill"
+        ></image>
+        <view class="splash-video-cover-fallback" wx:else></view>
+      </view>
+    </block>
+    <image
+      wx:else
+      class="splash-media"
+      src="{{config.mediaUrl}}"
+      mode="aspectFill"
+    ></image>
+    <view class="splash-skip" style="top: {{compactCdTop + compactCdHeight + 20}}px;" bindtap="onSplashSkipTap">
+      <view class="splash-skip-countdown">{{countdown}}</view>
+      <view class="splash-skip-divider"></view>
+      <text class="splash-skip-text">跳过</text>
+    </view>
+    <!-- 底部叠层：全局通知（可选）+ 任务倒计时卡（可选） -->
+    <view
+      class="splash-bottom-stack"
+      wx:if="{{(notice && ((notice.lines && notice.lines.length) || notice.text)) || (mission && missionCd)}}"
+    >
+      <view
+        class="splash-notice splash-notice--{{notice.font || 'default'}}"
+        wx:if="{{notice && ((notice.lines && notice.lines.length) || notice.text)}}"
+      >
+        <!-- 用原生行渲染，保证与后台 contenteditable 换行一致（rich-text 易丢 br/div 换行） -->
+        <view
+          wx:if="{{notice.lines && notice.lines.length}}"
+          class="splash-notice-lines splash-notice-lines--{{notice.align || 'center'}}"
+          style="gap: {{notice.lineGap}}rpx; letter-spacing: {{notice.letterSpacing}}rpx;"
+        >
+          <view
+            wx:for="{{notice.lines}}"
+            wx:key="index"
+            class="splash-notice-line splash-notice-line--{{item.align || notice.align || 'center'}} {{item.empty ? 'splash-notice-line--empty' : ''}}"
+            style="text-align: {{item.align || notice.align || 'center'}}; line-height: {{item.lineHeight || notice.lineHeight}}; min-height: {{item.minHeightRpx}}rpx;"
+          >
+            <block wx:if="{{!item.empty}}">
+              <text
+                wx:for="{{item.segs}}"
+                wx:for-item="seg"
+                wx:for-index="si"
+                wx:key="si"
+                class="splash-notice-seg {{seg.bold ? 'splash-notice-seg--bold' : ''}}"
+                style="font-size: {{seg.fontSize}}rpx; line-height: {{seg.lineHeight || item.lineHeight || notice.lineHeight}};"
+              >{{seg.text}}</text>
+            </block>
+          </view>
+        </view>
+        <view wx:else class="splash-notice-text">{{notice.text}}</view>
+      </view>
+      <!-- 任务倒计时卡片：后台给开屏媒体配置任务名称后展示，点击跳任务详情 -->
+      <view class="splash-mission-card" wx:if="{{mission && missionCd}}" catchtap="onSplashMissionTap">
+        <view class="splash-mission-eyebrow">MISSION COUNTDOWN</view>
+        <view class="splash-mission-meta" wx:if="{{mission.agencyName}}">
+          <view class="splash-mission-agency">
+            <image
+              wx:if="{{mission.agencyLogo}}"
+              class="splash-mission-agency-logo {{mission.agencyLogoBgTone === 'dark' ? 'agency-logo-bg--dark' : ''}} {{mission.agencyLogoBgTone === 'light' ? 'agency-logo-bg--light' : ''}}"
+              src="{{mission.agencyLogo}}"
+              mode="aspectFill"
+              data-logo-remote="{{mission.agencyLogo}}"
+              bindload="onSplashAgencyLogoLoad"
+            ></image>
+            <text class="splash-mission-agency-name">{{mission.agencyName}}</text>
+          </view>
+        </view>
+        <view class="splash-mission-title-row">
+          <text class="splash-mission-name">{{mission.name}}</text>
+          <text class="splash-mission-rocket" wx:if="{{mission.rocketName}}">{{mission.rocketName}}</text>
+        </view>
+        <view class="splash-mission-cd" wx:if="{{!missionCd.imminent}}">
+          <text class="splash-mission-cd-prefix">T-</text>
+          <view class="splash-mission-cd-cells">
+            <view class="splash-mission-cd-cell" wx:if="{{missionCd.d !== '0'}}">
+              <text class="splash-mission-cd-num">{{missionCd.d}}</text>
+              <text class="splash-mission-cd-unit">天</text>
+            </view>
+            <text class="splash-mission-cd-sep" wx:if="{{missionCd.d !== '0'}}">:</text>
+            <view class="splash-mission-cd-cell">
+              <text class="splash-mission-cd-num">{{missionCd.h}}</text>
+              <text class="splash-mission-cd-unit">时</text>
+            </view>
+            <text class="splash-mission-cd-sep">:</text>
+            <view class="splash-mission-cd-cell">
+              <text class="splash-mission-cd-num">{{missionCd.m}}</text>
+              <text class="splash-mission-cd-unit">分</text>
+            </view>
+            <text class="splash-mission-cd-sep">:</text>
+            <view class="splash-mission-cd-cell splash-mission-cd-cell--sec">
+              <text class="splash-mission-cd-num">{{missionCd.s}}</text>
+              <text class="splash-mission-cd-unit">秒</text>
+            </view>
+          </view>
+        </view>
+        <view class="splash-mission-cd splash-mission-cd--imminent" wx:else>
+          <view class="splash-mission-imminent-dot"></view>
+          <text>即将发射</text>
+        </view>
+        <view class="splash-mission-hint">
+          <text class="splash-mission-hint-text">查看任务详情</text>
+          <text class="splash-mission-hint-arrow">›</text>
+        </view>
+      </view>
+    </view>
+  </view>

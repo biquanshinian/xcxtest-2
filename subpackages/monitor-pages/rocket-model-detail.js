@@ -9,11 +9,12 @@ const boosterDisplay = require('./utils/booster-display.js')
 const { buildLandingIcon, inferNetRecoveryFromLaunch } = require('../../utils/landing-icons.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
-const { openBoosterEntityDetail } = require('../../utils/booster-nav.js')
+const { openBoosterEntityDetail } = require('./utils/booster-nav.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
 const { togglePageTranslation } = require('./utils/text-translate.js')
 const { getRocketImage } = require('../../utils/util.js')
 const { translateRocketName } = require('../../utils/rocket-name-i18n.js')
+const { isFavorite, toggleFavorite } = require('../../utils/favorites.js')
 
 function fmtNum(v, unit, digits) {
   if (v == null || v === '') return ''
@@ -45,6 +46,8 @@ Page({
     descI18n: { modelDesc: '' },
     heroImageLoaded: false,
     imageLoadedMap: {},
+    isFavorited: false,
+    favAnimate: false,
     navTitle: '火箭型号详情',
     shareTitle: '火箭型号档案 | 火星探索日志',
     statusBarHeight: 44,
@@ -221,8 +224,30 @@ Page({
       model: model,
       boosterCards: fleet,
       navTitle: displayName,
-      shareTitle: displayName + shareSuffix
+      shareTitle: displayName + shareSuffix,
+      isFavorited: !!(model.configId != null && isFavorite('rocket_model', model.configId)),
+      favAnimate: false
     })
+  },
+
+  onToggleFavorite() {
+    var model = this.data.model
+    if (!model || model.configId == null) {
+      wx.showToast({ title: '数据加载中，请稍后', icon: 'none' })
+      return
+    }
+    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+    var favorited = toggleFavorite({
+      type: 'rocket_model',
+      id: model.configId,
+      title: model.fullName || model.name || '',
+      subtitle: model.manufacturerDisplay || model.manufacturer || '',
+      imageUrl: model.imageUrl || '',
+      category: 'booster',
+      route: ROUTES.ROCKET_MODEL_DETAIL + '?configId=' + encodeURIComponent(String(model.configId))
+    })
+    this.setData({ isFavorited: favorited, favAnimate: favorited })
+    wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
   },
 
   /** 型号简介「翻译为中文/显示原文」 */

@@ -58,11 +58,21 @@
       </view>
     </view>
 
-    <!-- 型号信息头 -->
+    <!-- 型号信息头：型号名 + 收藏 -->
     <view class="info-header">
       <view class="info-name-row">
         <text class="info-name">{{model.fullName}}</text>
         <text class="info-flag" wx:if="{{model.countryFlag}}">{{model.countryFlag}}</text>
+        <view
+          class="fav-btn {{isFavorited ? 'fav-btn--on' : ''}} {{favAnimate ? 'fav-btn--animate' : ''}}"
+          hover-class="fav-btn--pressed"
+          hover-stay-time="120"
+          catchtap="onToggleFavorite"
+          aria-role="button"
+          aria-label="收藏"
+        >
+          <view class="fav-heart"></view>
+        </view>
       </view>
       <text class="info-alias" wx:if="{{model.alias}}">{{model.alias}}</text>
       <view class="info-tags">
@@ -168,7 +178,7 @@
       </view>
       <view class="fleet-empty glass-card" wx:else>
         <text class="fleet-empty-text">暂无箭实体记录 · 首飞待定</text>
-        <text class="fleet-empty-hint">该型号首飞后 LL2 将收录箭体档案，届时自动展示</text>
+        <text class="fleet-empty-hint">该型号首飞后，届时自动展示</text>
       </view>
     </view>
 

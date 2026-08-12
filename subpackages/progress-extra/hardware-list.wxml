@@ -8,16 +8,7 @@
       <view class="nav-title-wrap nav-title-wrap--page-grid">
         <text class="nav-title nav-title--page-grid">星舰硬件设施</text>
       </view>
-      <view class="nav-right-space top-nav-slot--spacer top-nav-slot--fav" style="width: {{menuButtonWidth}}px;">
-        <view
-          class="fav-btn fav-btn--nav {{isFavorited ? 'fav-btn--on' : ''}} {{favAnimate ? 'fav-btn--animate' : ''}}"
-          hover-class="fav-btn--pressed"
-          hover-stay-time="120"
-          catchtap="onToggleFavorite"
-        >
-          <view class="fav-heart"></view>
-        </view>
-      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
     </view>
   </view>
 

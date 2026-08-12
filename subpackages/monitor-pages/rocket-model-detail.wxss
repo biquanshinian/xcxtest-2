@@ -1,4 +1,6 @@
 /* rocket-model-detail.wxss — 火箭型号详情页（暗色毛玻璃，与监控中心一致） */
+@import "/styles/fav-btn.wxss";
+
 page {
   background: #0B0C0E;
   color: #fff;
@@ -121,13 +123,20 @@ page {
   gap: 14rpx;
 }
 .info-name {
+  flex: 1;
+  min-width: 0;
   font-size: 46rpx;
   font-weight: 800;
   color: #fff;
 }
 .info-flag {
+  flex-shrink: 0;
   font-size: 40rpx;
   line-height: 1;
+}
+.info-name-row .fav-btn {
+  flex-shrink: 0;
+  margin-left: auto;
 }
 .info-alias {
   display: block;

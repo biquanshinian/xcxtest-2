@@ -10,7 +10,6 @@ const { getFeaturedAgencies } = require('./utils/agency-data.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
-const { isCollectionFavorite, toggleCollection } = require('../../utils/favorites.js')
 
 Page({
   behaviors: [pageBase],
@@ -32,14 +31,11 @@ Page({
     cards: [],
     stats: { inUseCount: 0, typeCount: 0, agencyCount: 0 },
     filterEmpty: false,
-    imageLoadedMap: {},
-    isFavorited: false,
-    favAnimate: false
+    imageLoadedMap: {}
   },
 
   onLoad(options) {
     this.initUiShell()
-    this.setData({ isFavorited: isCollectionFavorite('spacecraft_gallery') })
     // 分享/入口可带 filter 参数：inuse / type:Capsule
     var filter = options && options.filter ? decodeURIComponent(options.filter) : 'all'
     this._pendingFilter = filter
@@ -198,13 +194,6 @@ Page({
       path += '?filter=' + encodeURIComponent(this.data.filter)
     }
     return path
-  },
-
-  onToggleFavorite() {
-    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
-    var favorited = toggleCollection('spacecraft_gallery')
-    this.setData({ isFavorited: favorited, favAnimate: favorited })
-    wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
   },
 
   onShareAppMessage() {

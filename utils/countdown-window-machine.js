@@ -117,12 +117,13 @@ function isPanelHoldActive(mission, record, now = getServerNow()) {
  * 面板选型唯一入口。
  * 优先级：
  *   1. 当前面板任务（holdMissionId）处于 IN_WINDOW → 继续挂住
- *   2. 列表头处于 IN_WINDOW → 挂住列表头
- *   3. 第一条 NET 在未来且未落库的任务
- *   4. 无未来任务时：头条 POST_WINDOW 未决任务继续展示（状态确认中），不空面板
+ *   2. 所有 IN_WINDOW 未决里取 NET 最近者挂住（窗口内不让位）
+ *   3. 所有 PRE_WINDOW 未决里取 NET 最近者（只认最近时间，无视状态/列表顺序；
+ *      推迟到更晚的任务自然让位给更近的一发）
+ *   4. 无未来任务时：未决里 NET 最近者继续展示（状态确认中），不空面板
  *   5. 全部落库/空列表 → null
  *
- * @param {Array} missions upcoming 升序列表（应已 peel 已落库任务；此处仍防御过滤）
+ * @param {Array} missions upcoming 列表（应已 peel 已落库任务；此处仍防御过滤）
  * @param {{ now?: number, holdMissionId?: string|number, recordsById?: Map }} options
  * @returns {{ mission: object|null, phase: string|null, reason: string }}
  */
@@ -141,33 +142,50 @@ function resolvePanelSelection(missions, options = {}) {
     }
   }
 
-  // 生效头条 = 第一条未落库任务（调用方应已 peel，此处防御跳过 SETTLED 残留行）
-  for (let i = 0; i < safeList.length; i++) {
-    const head = safeList[i]
-    if (!head || head.id == null) continue
-    const headPhase = derivePhase(head, recordOf(records, head.id), now)
-    if (headPhase === PHASE.SETTLED) continue
-    if (headPhase === PHASE.IN_WINDOW) return { mission: head, phase: headPhase, reason: 'hold_head' }
-    break
-  }
+  let soonestInWindow = null
+  let soonestInWindowNet = Infinity
+  let soonestFuture = null
+  let soonestFutureNet = Infinity
+  let soonestUnresolved = null
+  let soonestUnresolvedNet = Infinity
+  let soonestUnresolvedPhase = null
 
-  let firstUnresolved = null
-  let firstUnresolvedPhase = null
   for (let i = 0; i < safeList.length; i++) {
     const mission = safeList[i]
     if (!mission || mission.id == null) continue
     const record = recordOf(records, mission.id)
     const phase = derivePhase(mission, record, now)
     if (phase === PHASE.SETTLED) continue
-    if (!firstUnresolved) {
-      firstUnresolved = mission
-      firstUnresolvedPhase = phase
+    const net = getEffectiveNetMs(mission, record)
+    const netKey = Number.isFinite(net) ? net : Number.MAX_SAFE_INTEGER
+
+    if (netKey < soonestUnresolvedNet) {
+      soonestUnresolved = mission
+      soonestUnresolvedNet = netKey
+      soonestUnresolvedPhase = phase
     }
-    if (phase === PHASE.PRE_WINDOW) return { mission, phase, reason: 'next_future' }
+    if (phase === PHASE.IN_WINDOW && netKey < soonestInWindowNet) {
+      soonestInWindow = mission
+      soonestInWindowNet = netKey
+    }
+    if (phase === PHASE.PRE_WINDOW && netKey < soonestFutureNet) {
+      soonestFuture = mission
+      soonestFutureNet = netKey
+    }
   }
 
-  if (firstUnresolved) {
-    return { mission: firstUnresolved, phase: firstUnresolvedPhase, reason: 'unresolved_fallback' }
+  if (soonestInWindow) {
+    return { mission: soonestInWindow, phase: PHASE.IN_WINDOW, reason: 'hold_head' }
+  }
+  if (soonestFuture) {
+    return { mission: soonestFuture, phase: PHASE.PRE_WINDOW, reason: 'next_future' }
+  }
+  if (soonestUnresolved) {
+    return {
+      mission: soonestUnresolved,
+      phase: soonestUnresolvedPhase,
+      reason: 'unresolved_fallback'
+    }
   }
   return { mission: null, phase: null, reason: 'empty' }
 }

@@ -323,12 +323,29 @@ function mergeBehaviorStats(cloud, local) {
 }
 
 // ── 保存偏好 ──
+// 合并写入：避免语言/简报等局部保存冲掉 mpResultCredits；
+// 结果额度只允许客户端通过 mpResultCreditsDelta 上调，扣减由 sendLaunchReminder 权威回写。
 async function handleSavePreferences(openid, preferences) {
-  await getOrCreateProfile(openid)
+  const profile = await getOrCreateProfile(openid)
+  const prev = (profile && profile.preferences) || {}
+  const incoming = preferences && typeof preferences === 'object' ? { ...preferences } : {}
+  const delta = Math.max(0, Number(incoming.mpResultCreditsDelta) || 0)
+  delete incoming.mpResultCredits
+  delete incoming.mpResultCreditsDelta
+  const next = { ...prev, ...incoming, updatedAt: Date.now() }
+  if (incoming.mpReminderGrantedAt) {
+    next.mpReminderGrantedAt = Number(incoming.mpReminderGrantedAt) || Date.now()
+  } else if (prev.mpReminderGrantedAt) {
+    next.mpReminderGrantedAt = prev.mpReminderGrantedAt
+  }
+  const prevCredits = Math.max(0, Number(prev.mpResultCredits) || 0)
+  next.mpResultCredits = delta > 0
+    ? Math.min(5, prevCredits + delta)
+    : prevCredits
   await db.collection(COLLECTION).doc(openid).update({
-    data: { preferences: { ...preferences, updatedAt: Date.now() } }
+    data: { preferences: next }
   })
-  return { success: true }
+  return { success: true, preferences: next }
 }
 
 // ── 保存身份展示（昵称 / 头像）──

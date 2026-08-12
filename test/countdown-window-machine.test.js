@@ -115,6 +115,29 @@ test('resolvePanelSelection：窗口+宽限过后让位给第一条未来 NET', 
   assert.equal(sel.reason, 'next_future')
 })
 
+test('resolvePanelSelection：乱序列表仍选最近未来 NET（推迟任务让位）', () => {
+  const now = Date.parse('2026-08-12T06:00:00Z')
+  const postponed = {
+    id: 'roman',
+    launchTime: '2026-08-30T11:26:00Z',
+    statusId: 1
+  }
+  const nearerTbc = {
+    id: 'cz12',
+    launchTime: '2026-08-17T02:00:00Z',
+    statusId: 8,
+    statusAbbrev: 'TBC'
+  }
+  const soonest = {
+    id: 'ussf-366',
+    launchTime: '2026-08-15T12:00:00Z',
+    statusId: 1
+  }
+  const sel = resolvePanelSelection([postponed, nearerTbc, soonest], { now })
+  assert.equal(sel.mission && sel.mission.id, 'ussf-366')
+  assert.equal(sel.reason, 'next_future')
+})
+
 test('resolvePanelSelection：无未来任务时头条过窗未决继续展示（不空面板）', () => {
   const now = WINDOW_END + WINDOW_PROBE_GRACE_MS + 60 * 1000
   const sel = resolvePanelSelection([goMission()], { now })

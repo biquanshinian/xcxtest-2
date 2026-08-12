@@ -130,7 +130,6 @@
       "pages": [
         "membership/membership",
         "membership/orders",
-        "preferences/preferences",
         "timeline/timeline",
         "year-review/year-review",
         "invite/invite",

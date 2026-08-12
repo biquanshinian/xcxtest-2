@@ -1,0 +1,19 @@
+<!-- 封路通知横幅（点击跳转详情页，日历视图隐藏） -->
+<view class="road-closure-banner" wx:if="{{notice && notice.isActive && missionType !== 'calendar'}}" bindtap="emitOpen">
+  <view class="road-closure-icon-wrap">
+    <text class="road-closure-icon">⚠</text>
+  </view>
+  <view class="road-closure-content">
+    <view class="road-closure-title-row">
+      <text class="road-closure-title">星舰基地封路通知</text>
+      <text class="road-closure-source" wx:if="{{notice.sourceLabel}}">{{notice.sourceLabel}}</text>
+    </view>
+    <view class="road-closure-msg-scroll">
+      <view class="road-closure-msg-track">
+        <text class="road-closure-msg" user-select="{{true}}">{{notice.message || 'Boca Chica 道路封闭中'}}</text>
+        <text class="road-closure-msg" aria-hidden="true">{{notice.message || 'Boca Chica 道路封闭中'}}</text>
+      </view>
+    </view>
+  </view>
+  <text class="road-closure-arrow">›</text>
+</view>

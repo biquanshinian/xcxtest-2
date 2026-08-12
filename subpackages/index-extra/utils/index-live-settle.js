@@ -67,6 +67,7 @@ const {
   shouldRejectNetAdvance,
   mergeLiveRowNetHysteresis
 } = require('../../../utils/net-patch-policy.js')
+const { formatMissionListTimeOrUnknown } = require('../../../utils/launch-card-i18n.js')
 
 /** 用列表卡 + 权威观测 + 面板拼出迟滞用的 cached 行（优先近窗 Go，防被旧 TBD 占位污染） */
 function buildCachedNetRowForHysteresis(mission, record, panel) {
@@ -592,7 +593,7 @@ const methods = {
     const updated = {
       ...missions[idx],
       launchTime: safeRow.net,
-      formattedTime: formatDate(safeRow.net, 'MM月DD日 HH:mm')
+      formattedTime: formatMissionListTimeOrUnknown(safeRow.net)
     }
     if (safeRow.status && safeRow.status.name) {
       updated.status = getStatusTextZh(safeRow.status, chineseStatusOpts(updated))
@@ -1001,7 +1002,7 @@ const methods = {
 
     if (idx >= 0) {
       const mission = { ...missions[idx], launchTime: safeRow.net }
-      mission.formattedTime = formatDate(safeRow.net, 'MM月DD日 HH:mm')
+      mission.formattedTime = formatMissionListTimeOrUnknown(safeRow.net)
       if (safeRow.window_start || safeRow.windowStart) {
         mission.windowStart = safeRow.window_start || safeRow.windowStart
       }
@@ -1020,7 +1021,7 @@ const methods = {
         )
       }
       missions[idx] = mission
-      // 与云侧一致：待定沉底，避免本地 scrub 重排把近窗 TBD 再顶回队首
+      // 改期后按纯 NET 重排（无视状态）
       sortUpcomingMissionsByNetAsc(missions)
 
       // 改期后重新选型：仅窗口内未决才保留 hold；已 scrub 到 PRE_WINDOW 必须让位
@@ -1869,7 +1870,9 @@ const methods = {
       return
     }
     if (vm.status === 'ended' || vm.myChoice) return
-    const optionId = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.optionId
+    const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
+    const fromComp = (e && e.detail) || {}
+    const optionId = ds.optionId || fromComp.optionId
     if (!optionId) return
     this._annVoteSubmitting = true
     wx.cloud.callFunction({
@@ -2038,6 +2041,7 @@ const methods = {
 module.exports = {
   methods,
   attachTo(page) {
+    page.__liveSettleMethods = methods
     Object.keys(methods).forEach((name) => {
       page[name] = methods[name].bind(page)
     })

@@ -1593,6 +1593,8 @@ page {
 /* —— 页面底色（根节点自身挂 theme-light）—— */
 .detail-page.theme-light {
   background: var(--color-bg-page);
+  /* page{} 的 color 按深色 token 算死后会继承进未显式着色的提示字；此处按主题重置 */
+  color: var(--color-text-primary);
 }
 
 /* —— 下拉刷新指示 —— */
@@ -1820,8 +1822,10 @@ page {
   background: rgba(18, 20, 24, 0.62);
 }
 
+/* 信息区图标：SVG 为深色描边；深色页用 invert 提亮，浅色页取消 invert 保持深灰 */
 .theme-light .ll2-event-info-icon {
-  filter: invert(45%) sepia(8%) saturate(245%) hue-rotate(180deg);
+  filter: none;
+  opacity: 0.55;
 }
 
 .theme-light .ll2-event-info-label {
@@ -1837,19 +1841,35 @@ page {
 }
 
 .theme-light .ll2-event-section-icon {
-  filter: invert(45%) sepia(10%) saturate(245%) hue-rotate(180deg);
+  filter: none;
+  opacity: 0.55;
 }
 
 .theme-light .ll2-event-section-title text {
   color: var(--color-text-primary);
 }
 
+/* 勿让上面的 text 选择器盖掉翻译按钮品牌色 */
+.theme-light .ll2-event-section-title text.translate-toggle {
+  color: #4a9eff;
+}
+
+.theme-light .ll2-event-section-title text.translate-toggle.translate-toggle--busy {
+  color: #8e8e93;
+}
+
+.theme-light .ll2-event-section-title text.translate-toggle.translate-toggle--active {
+  color: #ffffff;
+}
+
 .theme-light .ll2-event-section-body {
   color: var(--color-text-secondary);
 }
 
+/* 浅色：用品牌蓝滤镜（深色页的 invert+sepia 在白底上会发灰发白） */
 .theme-light .ll2-event-webcast-icon {
-  filter: invert(48%) sepia(60%) saturate(500%) hue-rotate(180deg);
+  filter: invert(42%) sepia(98%) saturate(1200%) hue-rotate(202deg) brightness(95%) contrast(96%);
+  opacity: 1;
 }
 
 .theme-light .ll2-event-webcast-title {

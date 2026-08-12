@@ -415,7 +415,8 @@ const methods = {
   /** 停止当前视频播放 */
   _stopCarouselVideo(index) {
     if (index == null) return
-    const ctx = wx.createVideoContext(`carousel-video-${index}`, this)
+    const host = (typeof this.selectComponent === "function" && (this.selectComponent("#indexCarousel") || this.selectComponent("index-carousel"))) || this;
+    const ctx = wx.createVideoContext(`carousel-video-${index}`, host)
     if (ctx) {
       try {
         ctx.pause()
@@ -492,7 +493,8 @@ const methods = {
     const current = this.data.carouselCurrent || 0
     if (!items || !items[current] || items[current].type !== 'video') return
     if (!items[current].videoActive) return
-    const ctx = wx.createVideoContext(`carousel-video-${current}`, this)
+    const host = (typeof this.selectComponent === "function" && (this.selectComponent("#indexCarousel") || this.selectComponent("index-carousel"))) || this;
+    const ctx = wx.createVideoContext(`carousel-video-${current}`, host)
     if (ctx) {
       try {
         ctx.play()
@@ -599,7 +601,8 @@ const methods = {
   onCarouselImageError(e) {
     if (this.data.carouselLoadFailed) return
 
-    const index = Number(e.currentTarget.dataset.index)
+    const ds = (e && e.detail) || {}
+    const index = Number(ds.index != null ? ds.index : e.currentTarget.dataset.index)
     const items = [...this.data.carouselItems]
 
     // 移除加载失败的项
@@ -635,7 +638,8 @@ const methods = {
    * 预览轮播图（点击直接预览）/ 视频由 onCarouselVideoTap 处理
    */
   previewCarouselImage(e) {
-    const current = e.currentTarget.dataset.url
+    const ds = (e && e.detail) || {}
+    const current = ds.url != null ? ds.url : e.currentTarget.dataset.url
     // 只预览图片项
     const imageUrls = (this.data.carouselItems || []).filter((i) => i.type === 'image').map((i) => i.src)
     if (!imageUrls.length) return
@@ -658,6 +662,7 @@ module.exports = {
   methods,
   /** 把全部方法挂到页面实例上（委托加载后调用） */
   attachTo(page) {
+    page.__carouselMethods = methods
     Object.keys(methods).forEach((k) => {
       page[k] = methods[k].bind(page)
     })

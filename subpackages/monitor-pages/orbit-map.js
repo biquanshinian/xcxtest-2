@@ -204,21 +204,7 @@ Page({
     }
   },
 
-  _calloutStyle() {
-    // map callout 颜色必须用 6/8 位十六进制；rgba 真机会失效变黑底，再配深色字就看不见
-    return {
-      bgColor: '#FFFFFFF5',
-      color: '#111111',
-      borderColor: '#00000024'
-    }
-  },
-
-  _calloutContent(name, altText, speedText) {
-    return String(name || '空间站') + '\n高度 ' + altText + '\n速度 ' + speedText
-  },
-
-  _buildMarker(pos, name, altText, speedText) {
-    const style = this._calloutStyle()
+  _buildMarker(pos) {
     return {
       id: 1,
       latitude: pos.lat,
@@ -226,17 +212,11 @@ Page({
       iconPath: STATION_MARKER_ICON,
       width: 20,
       height: 20,
-      callout: {
-        content: this._calloutContent(name, altText, speedText),
+      // 文案走 cover-view customCallout，随 page data 实时刷新
+      customCallout: {
         display: 'ALWAYS',
-        fontSize: 13,
-        borderRadius: 10,
-        padding: 10,
-        bgColor: style.bgColor,
-        color: style.color,
-        borderWidth: 1,
-        borderColor: style.borderColor,
-        textAlign: 'center'
+        anchorX: 0.5,
+        anchorY: 0
       }
     }
   },
@@ -244,18 +224,11 @@ Page({
   _smoothMove(pos, name, altText, speedText) {
     if (!this._mapCtx) this._mapCtx = wx.createMapContext('orbitMap', this)
     if (!this._mapCtx) return
-    const style = this._calloutStyle()
     this._mapCtx.translateMarker({
       markerId: 1,
       destination: { latitude: pos.lat, longitude: pos.lng },
       duration: 1800,
       autoRotate: false,
-      callout: {
-        content: this._calloutContent(name, altText, speedText),
-        display: 'ALWAYS', fontSize: 13, borderRadius: 10, padding: 10,
-        bgColor: style.bgColor, color: style.color,
-        borderWidth: 1, borderColor: style.borderColor, textAlign: 'center'
-      },
       fail: () => {
         this.setData({ markers: [this._buildMarker(pos, name, altText, speedText)] })
       }

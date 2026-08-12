@@ -1,6 +1,5 @@
 // pages/news/news.js
 const { formatDate } = require('../../utils/util.js')
-const { tryShowPopupAd } = require('../../utils/popup-ad.js')
 const { loadMoreInteraction } = require('../../utils/config.js')
 const { loadCloudMediaMap, resolveMediaUrl } = require('../../utils/image-config.js')
 const { getUiShellLayout } = require('../../utils/layout.js')
@@ -52,7 +51,7 @@ function extractFirstImgSrcFromHtml(html) {
   return m ? String(m[1]).trim() : ''
 }
 
-/** 与详情页 normalizeArticle 的头图逻辑对齐：images[0] → image → 正文 HTML 首图 */
+
 function resolveArticleCardImage(item) {
   if (!item) return ''
   const images = Array.isArray(item.images)
@@ -421,7 +420,9 @@ Page({
           self.loadNews()
         }
       }
-      tryShowPopupAd(3, self)
+      require.async('../../subpackages/shared/utils/popup-ad.js')
+        .then(({ tryShowPopupAd }) => tryShowPopupAd(3, self))
+        .catch(() => {})
     }, 0)
   },
 
@@ -941,7 +942,7 @@ Page({
     }
   },
 
-  /** 滑动列表时收起投稿 FAB → news-photos-lazy._pulsePhotoFabOnScroll */
+  
 
   onNewsScroll(e) {
     this._pulsePhotoFabOnScroll()
@@ -995,7 +996,7 @@ Page({
     })
   },
 
-  /** 原生三点下拉刷新（页面级 / scroll-view refresher 共用）：清缓存后静默换新当前 Tab */
+  
   onScrollRefresh() {
     this._runNewsPullRefresh('scrollRefreshing')
   },
@@ -1040,10 +1041,7 @@ Page({
 
   stopPropagation() {},
 
-  /**
-   * 点卡片跳详情时把列表项一次性暂存到 app 级（navigator 无 eventChannel）：
-   * 详情页先用快照上屏做首屏加速，网络详情照常拉取兜底
-   */
+  
   onNewsCardSnapshotTap(e) {
     const id = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.id : ''
     if (!id) return

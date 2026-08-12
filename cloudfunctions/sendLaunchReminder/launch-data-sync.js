@@ -11,6 +11,8 @@ const db = cloud.database()
 
 /** 与 sync meta 一起存；升版可强制跑一轮回填（如 launchAgency） */
 const LAUNCH_DATA_SCHEMA = 2
+/** NET 推迟超过此时长 → 标记 netChangePending，供改期推送扫描 */
+const NET_CHANGE_DELAY_MS = 30 * 60 * 1000
 
 const LAUNCH_DATA_COLLECTION = 'launch_data'
 const SPACE_DEVS_CACHE = 'space_devs_cache'
@@ -248,6 +250,40 @@ function mapLaunchToLaunchDataDoc(launch, nowMs) {
   }
 }
 
+/**
+ * 相对库内旧 NET：显著推迟则打改期待推标记；否则尽量保留未消费的 pending。
+ */
+function attachNetChangeMeta(existing, payload) {
+  const oldIso = existing && existing.launchTime ? String(existing.launchTime) : ''
+  const newIso = payload && payload.launchTime ? String(payload.launchTime) : ''
+  const oldMs = oldIso ? new Date(oldIso).getTime() : 0
+  const newMs = newIso ? new Date(newIso).getTime() : 0
+  const lastPushed = (existing && existing.lastNetChangePushedKey) || ''
+
+  if (oldMs > 0 && newMs > 0 && newMs - oldMs >= NET_CHANGE_DELAY_MS) {
+    payload.previousNet = oldIso
+    payload.netChangedAt = Date.now()
+    payload.netChangePending = true
+  } else if (
+    existing &&
+    existing.netChangePending &&
+    oldIso &&
+    newIso &&
+    oldIso === newIso
+  ) {
+    // 同步未改 NET，保留待推（可能上轮推送未跑完）
+    payload.previousNet = existing.previousNet || oldIso
+    payload.netChangedAt = existing.netChangedAt || 0
+    payload.netChangePending = true
+  } else {
+    payload.previousNet = (existing && existing.previousNet) || ''
+    payload.netChangedAt = (existing && existing.netChangedAt) || 0
+    payload.netChangePending = false
+  }
+  payload.lastNetChangePushedKey = lastPushed
+  return payload
+}
+
 async function upsertLaunchDataDoc(docId, data) {
   // TCB/wx-server-sdk 下 doc(id).update() 对不存在的文档不抛错、静默返回 updated:0、
   // 也不会创建文档，因此不能靠 update 抛错来 fallback set。
@@ -397,12 +433,15 @@ async function syncLaunchDataFromCache() {
 
     try {
       const payload = mapLaunchToLaunchDataDoc(launch, nowMs)
-      if (existingMap && isLaunchDataDocUnchanged(existingMap[docId], payload)) {
+      const existing = existingMap ? existingMap[docId] : null
+      if (existing && isLaunchDataDocUnchanged(existing, payload)) {
         stats.unchanged++
         continue
       }
+      attachNetChangeMeta(existing, payload)
       await upsertLaunchDataDoc(docId, payload)
       stats.upserted++
+      if (payload.netChangePending) stats.netChangePending = (stats.netChangePending || 0) + 1
     } catch (e) {
       stats.skipped++
       console.warn('[launch-data-sync] upsert fail', docId, e.message || e)
@@ -425,4 +464,9 @@ async function syncLaunchDataFromCache() {
   }
 }
 
-module.exports = { syncLaunchDataFromCache, LAUNCH_DATA_SCHEMA }
+module.exports = {
+  syncLaunchDataFromCache,
+  LAUNCH_DATA_SCHEMA,
+  NET_CHANGE_DELAY_MS,
+  attachNetChangeMeta
+}

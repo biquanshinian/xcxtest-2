@@ -158,7 +158,7 @@
 
       <!-- 音乐按钮 -->
       <view class="music-btn {{musicPlaying ? 'playing' : ''}}" catch:tap="onToggleMusic">
-        <image class="music-icon" src="/images/icons/ic-music.svg" />
+        <image class="music-icon" src="/pages/collect/images/ic-music.svg" />
       </view>
       <view class="lunar-bg-overlay"></view>
 
@@ -200,7 +200,7 @@
             </button>
             <view class="popup-action-split"></view>
             <view class="popup-action-btn" catch:tap="onShareToMoments">
-              <image class="popup-action-icon" src="/images/icons/ic-share-moments.svg" />
+              <image class="popup-action-icon" src="/pages/collect/images/ic-share-moments.svg" />
             </view>
           </view>
         </view>

@@ -245,62 +245,8 @@
     </view>
 
     <!-- 徽章详情弹窗 -->
-    <view class="badge-modal-mask" wx:if="{{showBadgeModal}}" bindtap="closeBadgeModal">
-      <view class="badge-modal" catchtap="">
-        <view class="badge-modal-close" bindtap="closeBadgeModal"><text>✕</text></view>
-        <view class="badge-modal-icon-wrap {{badgeModalData.unlocked ? 'badge-modal-icon--unlocked' : 'badge-modal-icon--locked'}}">
-          <view class="badge-modal-glow" wx:if="{{badgeModalData.unlocked}}"></view>
-          <image class="badge-modal-icon-img {{badgeModalData.isNewUnlock ? 'badge-modal-icon--entrance' : ''}}" src="{{badgeModalData.iconUrl}}" mode="aspectFit" />
-        </view>
-        <text class="badge-modal-name">{{badgeModalData.name}}</text>
-        <text class="badge-modal-desc">{{badgeModalData.desc}}</text>
-        <view class="badge-modal-status" wx:if="{{badgeModalData.isNewUnlock}}">
-          <text class="badge-modal-status-text badge-modal-status--unlocked">🎉 恭喜解锁新成就！</text>
-        </view>
-        <view class="badge-modal-status" wx:elif="{{badgeModalData.unlocked}}">
-          <text class="badge-modal-status-text badge-modal-status--unlocked">✓ 已解锁</text>
-        </view>
-        <view class="badge-modal-status" wx:else>
-          <text class="badge-modal-status-text badge-modal-status--locked">💡 {{badgeModalData.hint || badgeModalData.desc}}</text>
-        </view>
-      </view>
-    </view>
+    <badge-modal visible="{{showBadgeModal}}" badge="{{badgeModalData}}" bind:close="closeBadgeModal" />
 
-    <!-- ══ 我的奖品 ══ -->
-    <view class="prize-section" wx:if="{{myPrizes.length > 0}}">
-      <view class="section-title-row">
-        <text class="section-title-text">我的奖品</text>
-        <text class="section-title-count">{{myPrizes.length}}件</text>
-      </view>
-      <view class="prize-list">
-        <view class="prize-card glass-card" wx:for="{{myPrizes}}" wx:key="_id">
-          <view class="prize-card-top">
-            <image wx:if="{{item.prizeImage}}" class="prize-card-img" src="{{item.prizeImage}}" mode="aspectFit" />
-            <view wx:else class="prize-card-icon">🎁</view>
-            <view class="prize-card-info">
-              <view class="prize-card-title">{{item.prizeTitle || '奖品'}}</view>
-              <view class="prize-card-desc">{{item.prizeDesc || ''}}</view>
-              <view class="prize-card-size" wx:if="{{item.selectionsText}}">{{item.selectionsText}}</view>
-              <view class="prize-card-size" wx:elif="{{item.size}}">尺码：{{item.size}}</view>
-            </view>
-            <view class="prize-status prize-status--{{item.status}}">
-              {{item.status === 'pending' ? '待发货' : item.status === 'shipped' ? '已发货' : '已完成'}}
-            </view>
-          </view>
-          <view class="prize-tracking" wx:if="{{item.trackingNumber}}">
-            <text class="prize-tracking-label">物流单号：</text>
-            <text class="prize-tracking-number">{{item.trackingNumber}}</text>
-            <button class="prize-copy-btn" size="mini" catchtap="onCopyTracking" data-num="{{item.trackingNumber}}" hover-class="prize-copy-btn--hover">复制</button>
-          </view>
-          <view class="prize-tracking prize-tracking--waiting" wx:elif="{{item.status === 'pending'}}">
-            <text>正在为您准备奖品，请耐心等待～</text>
-          </view>
-          <view class="prize-tracking prize-tracking--waiting" wx:elif="{{item.status === 'shipped' && !item.trackingNumber}}">
-            <text>已发出，物流单号更新中…</text>
-          </view>
-        </view>
-      </view>
-    </view>
 
     <!-- ══ 设置 / 我的提醒 / 竞猜战绩 / 每日问答 / 在线客服：profile-extra 分包组件 ══
          纯展示组件，状态由页面下发；交互经单一 sectionevent 通道回传（detail: { name, dataset, edetail }） -->
@@ -317,7 +263,12 @@
       notify-options="{{notifyOptions}}"
       rocket-map="{{rocketMap}}"
       site-map="{{siteMap}}"
+      selected-rocket-count="{{selectedRocketCount}}"
+      selected-site-count="{{selectedSiteCount}}"
+      pref-rockets-expanded="{{prefRocketsExpanded}}"
+      pref-sites-expanded="{{prefSitesExpanded}}"
       notify-minutes="{{notifyMinutes}}"
+      road-closure-alert="{{roadClosureAlert}}"
       pref-saving="{{prefSaving}}"
       my-reminders="{{myReminders}}"
       oa-alert-enabled="{{oaAlertEnabled}}"
@@ -325,6 +276,8 @@
       oa-alert-ready="{{oaAlertReady}}"
       oa-alert-message="{{oaAlertMessage}}"
       oa-alert-loading="{{oaAlertLoading}}"
+      oa-qr-guide-open="{{oaQrGuideOpen}}"
+      oa-follow-qr-url="{{oaFollowQrUrl}}"
       vote-stats="{{voteStats}}"
       vote-history="{{voteHistory}}"
       vote-history-expanded="{{voteHistoryExpanded}}"

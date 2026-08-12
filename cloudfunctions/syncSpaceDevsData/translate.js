@@ -275,7 +275,7 @@ const AI_TRANSLATE_SYSTEM_PROMPT = `你是航天领域的专业中英翻译。�
 1. 只输出译文本身，不要任何解释、注释、前缀或引号
 2. 火箭/飞船型号必须译成通行中文（Falcon 9→猎鹰9号，Falcon Heavy→猎鹰重型，Long March 7A→长征七号改，Zhuque-3/ZQ-3→朱雀三号，Starship→星舰，Electron→电子号，New Glenn→新格伦）；机构缩写（SpaceX、NASA、ISS、NROL、USSF）可保留原文
 3. 任务与载荷名称应译成通行中文，例如 Nancy Grace Roman Space Telescope→南希-格蕾丝-罗曼太空望远镜，Unknown Payload→未知有效载荷，Starlink Group→星链组，Flight N→第N次飞行（绝不能译成民航「航班」或「飞行N」）
-4. 强制术语（禁止影视/日常义）：Crew-N / Crew N → 载人-N（绝不能译成「人物」「船员」「剧组」）；Crew Dragon → 载人龙飞船；Cargo Dragon → 货运龙飞船；crewed → 载人；crew（乘组语境）→ 乘组；Flight N → 第N次飞行（绝不能译成「航班」/「飞行N」）；Flight Test N → 第N次试飞；单独 Flight → 飞行
+4. 强制术语（禁止影视/日常义）：Crew-N / Crew N → 载人-N（绝不能译成「人物」「船员」「剧组」）；Crew Dragon → 载人龙飞船；Cargo Dragon → 货运龙飞船；crewed → 载人；crew（乘组语境）→ 乘组；Flight N → 第N次飞行（绝不能译成「航班」/「飞行N」）；Flight Test N → 第N次试飞；单独 Flight → 飞行；Zhuque / ZQ → 朱雀（绝不能译成「麻雀」）
 5. 术语准确：booster=助推器，static fire=静态点火，splashdown=溅落，payload=载荷，flyback=返场；同一英文术语全文必须使用同一中文译名
 6. 语气自然流畅，符合中文航天报道习惯`
 
@@ -311,6 +311,15 @@ function sanitizeAerospaceTranslation(zh, srcEn) {
       .replace(/\bFlight\s+Test\b/gi, '试飞')
       .replace(/\bFlight[-\s]?(\d+)\b/gi, '第$1次飞行')
       .replace(/\bFlight\b/gi, '飞行')
+  }
+  // Zhuque → 绝不能落成「麻雀」
+  if (/zhuque|\bzq\b/i.test(en) || /麻雀/.test(s)) {
+    const numZh = { 1: '一', 2: '二', 3: '三', 4: '四', 5: '五', 6: '六', 7: '七', 8: '八', 9: '九', 10: '十' }
+    s = s
+      .replace(/麻雀\s*二\s*号?\s*[改eE]/g, '朱雀二号改')
+      .replace(/麻雀\s*[-–]?\s*(\d+)\s*([eE])\b/g, (_, n, e) => '朱雀' + (numZh[Number(n)] || n) + '号' + (String(e).toLowerCase() === 'e' ? '改' : ''))
+      .replace(/麻雀\s*[-–]?\s*(\d+)号?(?=\s|[|｜]|$|[^\d号])/g, (_, n) => '朱雀' + (numZh[Number(n)] || n) + '号')
+      .replace(/麻雀\s*([一二三四五六七八九十]+)\s*号/g, '朱雀$1号')
   }
   return s
 }

@@ -74,7 +74,9 @@ const voteMethods = {
   },
 
   onVoteTypeSwitch(e) {
-    const vt = (e.currentTarget.dataset && e.currentTarget.dataset.type) || ''
+    const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
+    const fromComp = (e && e.detail) || {}
+    const vt = ds.type || fromComp.type || ''
     if (vt !== 'ontime' && vt !== 'outcome') return
     if (vt === this.data.activeVoteType) return
     if (vt === 'ontime' && !this.data.voteOntimeEnabled) return
@@ -272,7 +274,9 @@ const voteMethods = {
   },
 
   async onVote(e) {
-    var pill = (e.currentTarget.dataset && (e.currentTarget.dataset.pill || e.currentTarget.dataset.side)) || ''
+    var ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
+    var fromComp = (e && e.detail) || {}
+    var pill = ds.pill || ds.side || fromComp.pill || ''
     var launchId = this.data.launchData.id
     var voteType = this.data.activeVoteType === 'outcome' ? 'outcome' : 'ontime'
     // 左右侧在 JS 内映射，避免把成败投成 ge/buge
@@ -402,6 +406,7 @@ const voteMethods = {
 
 function attachTo(page) {
   if (page.__voteAttached) return voteMethods
+  page.__voteMethods = voteMethods
   Object.keys(voteMethods).forEach((key) => {
     page[key] = voteMethods[key]
   })
@@ -409,4 +414,4 @@ function attachTo(page) {
   return voteMethods
 }
 
-module.exports = { attachTo }
+module.exports = { attachTo, methods: voteMethods }

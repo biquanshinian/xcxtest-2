@@ -118,14 +118,22 @@ const LOCATION_ZH = {
   taiyuan: '太原卫星发射中心',
   'wenchang space launch site': '文昌航天发射场',
   wenchang: '文昌航天发射场',
+  'kennedy space center': '肯尼迪航天中心',
+  'cape canaveral sfs': '卡纳维拉尔角太空军基地',
+  'vandenberg sfb': '范登堡太空军基地',
+  'spacex starbase': '星舰基地（博卡奇卡）',
   'wallops flight facility': '瓦勒普斯飞行设施',
   'mahia launch complex 1': '马希亚 1 号发射场',
+  'rocket lab launch complex 1': '火箭实验室 1 号发射场',
   'lop nur airbase': '罗布泊空军实验基地',
   lna: '罗布泊空军实验基地',
   'plesetsk cosmodrome': '普列谢茨克航天发射场',
   'vostochny cosmodrome': '东方航天发射场',
   'satish dhawan space centre': '萨蒂什·达万航天中心',
-  sriharikota: '斯里哈里科塔'
+  sriharikota: '斯里哈里科塔',
+  'uchinoura space center': '内之浦宇宙空间观测所',
+  'naro space center': '罗老宇航中心',
+  'kodiak launch complex': '科迪亚克发射场'
 }
 
 /** 发射商 / 机构名（key 为 LL2 name 或 abbrev 的小写；SpaceX 等品牌名不译） */
@@ -293,7 +301,17 @@ function translateDatePrecision(name) {
 }
 
 function translateLocation(name) {
-  return lookupDict(LOCATION_ZH, name) || ''
+  const raw = String(name || '').trim()
+  if (!raw) return ''
+  let hit = lookupDict(LOCATION_ZH, raw) || lookupDict(LOCATION_ZH, softenKey(raw))
+  if (hit) return hit
+  // "Wenchang Space Launch Site, People's Republic of China" → 先取逗号前主体
+  const main = raw.split(',')[0].trim()
+  if (main && main !== raw) {
+    hit = lookupDict(LOCATION_ZH, main) || lookupDict(LOCATION_ZH, softenKey(main))
+    if (hit) return hit
+  }
+  return ''
 }
 
 function softenKey(raw) {

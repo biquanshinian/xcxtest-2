@@ -5930,6 +5930,78 @@ async function exportCollectionData(body, user) {
 // ========== 服务号 B 通道：自动发射提醒 opt-in ==========
 const OA_AUTO_ALERT_USERS = 'oa_auto_alert_users'
 
+function httpsGetJson(url) {
+  return new Promise(function (resolve, reject) {
+    try {
+      require('https')
+        .get(url, function (res) {
+          var buf = ''
+          res.on('data', function (c) {
+            buf += c
+          })
+          res.on('end', function () {
+            try {
+              resolve(JSON.parse(buf || '{}'))
+            } catch (e) {
+              reject(e)
+            }
+          })
+        })
+        .on('error', reject)
+    } catch (e) {
+      reject(e)
+    }
+  })
+}
+
+var _adminOaTokenCache = { token: '', expireAt: 0 }
+async function getAdminOaAccessToken() {
+  var appid = String(process.env.WECHAT_OA_APPID || '').trim()
+  var secret = String(process.env.WECHAT_OA_SECRET || '').trim()
+  if (!appid || !secret) return ''
+  var nowMs = Date.now()
+  if (_adminOaTokenCache.token && _adminOaTokenCache.expireAt > nowMs + 60 * 1000) {
+    return _adminOaTokenCache.token
+  }
+  var url =
+    'https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=' +
+    encodeURIComponent(appid) +
+    '&secret=' +
+    encodeURIComponent(secret)
+  var data = await httpsGetJson(url)
+  if (!data || !data.access_token) return ''
+  _adminOaTokenCache = {
+    token: data.access_token,
+    expireAt: nowMs + (Number(data.expires_in) || 7200) * 1000
+  }
+  return _adminOaTokenCache.token
+}
+
+/**
+ * 用微信 user/info 核对真实关注状态，纠正「取关事件丢失」导致的 followed 残留。
+ * subscribe===1 已关注；0 未关注。失败时返回 null（不改库）。
+ */
+async function fetchOaSubscribeFlag(oaOpenid) {
+  var oid = String(oaOpenid || '').trim()
+  if (!oid) return null
+  try {
+    var token = await getAdminOaAccessToken()
+    if (!token) return null
+    var url =
+      'https://api.weixin.qq.com/cgi-bin/user/info?access_token=' +
+      encodeURIComponent(token) +
+      '&openid=' +
+      encodeURIComponent(oid) +
+      '&lang=zh_CN'
+    var data = await httpsGetJson(url)
+    if (!data || data.errcode) return null
+    if (data.subscribe === 0 || data.subscribe === 1) return data.subscribe === 1
+    return null
+  } catch (e) {
+    return null
+  }
+}
+
 async function findOaAlertUser(openid, unionid) {
   if (unionid) {
     const byUnion = await db.collection(OA_AUTO_ALERT_USERS).where({ unionid }).limit(1).get().catch(() => ({ data: [] }))
@@ -5950,6 +6022,17 @@ async function enableOaAlert(openid, unionid) {
 
   const nowTs = now()
   const existing = await findOaAlertUser(openid, unionid)
+  // 未关注不得写 enabled：避免「开关开着但收不到」的假状态
+  if (!existing || !existing.followed || !existing.oaOpenid) {
+    return fail(4003, '请先关注服务号「火星探索日志」', {
+      needFollow: true,
+      enabled: false,
+      followed: !!(existing && existing.followed),
+      ready: false,
+      oaOpenidBound: !!(existing && existing.oaOpenid)
+    })
+  }
+
   const patch = {
     mpOpenid: openid,
     unionid,
@@ -5958,26 +6041,13 @@ async function enableOaAlert(openid, unionid) {
     updatedAt: nowTs
   }
 
-  if (existing) {
-    await db.collection(OA_AUTO_ALERT_USERS).doc(existing._id).update({ data: patch })
-    const merged = { ...existing, ...patch }
-    return ok({
-      enabled: true,
-      followed: !!merged.followed,
-      ready: !!(merged.followed && merged.oaOpenid),
-      oaOpenidBound: !!merged.oaOpenid
-    })
-  }
-
-  await db.collection(OA_AUTO_ALERT_USERS).add({
-    data: {
-      oaOpenid: '',
-      followed: false,
-      createdAt: nowTs,
-      ...patch
-    }
+  await db.collection(OA_AUTO_ALERT_USERS).doc(existing._id).update({ data: patch })
+  return ok({
+    enabled: true,
+    followed: true,
+    ready: true,
+    oaOpenidBound: true
   })
-  return ok({ enabled: true, followed: false, ready: false, oaOpenidBound: false })
 }
 
 async function disableOaAlert(openid, unionid) {
@@ -6042,23 +6112,64 @@ async function getOaAlertStatus(openid, unionid) {
       followed: false,
       ready: false,
       hasUnionid: !!unionid,
-      message: unionid ? '请先关注服务号并开启提醒' : '需绑定微信开放平台'
+      oaOpenidBound: false,
+      needFollow: true,
+      message: unionid ? '请先扫码关注服务号，再开启提醒' : '需绑定微信开放平台'
     })
   }
+
+  // 有 oaOpenid 时向微信核对真实关注，避免取关事件丢失导致「已关注」假阳性
+  if (existing.oaOpenid) {
+    const liveFollowed = await fetchOaSubscribeFlag(existing.oaOpenid)
+    if (liveFollowed === false && existing.followed) {
+      try {
+        await db.collection(OA_AUTO_ALERT_USERS).doc(existing._id).update({
+          data: {
+            followed: false,
+            enabled: false,
+            unsubscribedAt: now(),
+            updatedAt: now(),
+            disabledReason: 'wechat_subscribe_0'
+          }
+        })
+      } catch (e) {}
+      existing.followed = false
+      existing.enabled = false
+    } else if (liveFollowed === true && !existing.followed) {
+      try {
+        await db.collection(OA_AUTO_ALERT_USERS).doc(existing._id).update({
+          data: { followed: true, subscribedAt: now(), updatedAt: now() }
+        })
+      } catch (e2) {}
+      existing.followed = true
+    }
+  }
+
+  // 纠正历史假状态：未关注却 enabled=true → 关掉
+  if (existing.enabled && (!existing.followed || !existing.oaOpenid)) {
+    try {
+      await db.collection(OA_AUTO_ALERT_USERS).doc(existing._id).update({
+        data: { enabled: false, updatedAt: now(), disabledReason: 'not_followed' }
+      })
+    } catch (e) {}
+    existing.enabled = false
+  }
+
   const ready = !!(existing.enabled && existing.followed && existing.oaOpenid)
+  const followed = !!existing.followed
+  const oaBound = !!existing.oaOpenid
   return ok({
-    enabled: !!existing.enabled,
-    followed: !!existing.followed,
+    enabled: ready, // 对外只暴露真实可推送状态，避免假「已开启」
+    followed,
     ready,
     hasUnionid: !!unionid,
-    oaOpenidBound: !!existing.oaOpenid,
+    oaOpenidBound: oaBound,
+    needFollow: !followed || !oaBound,
     message: ready
       ? '已就绪，发射前约30分钟及完成后结果将由微信自动推送'
-      : existing.enabled && !existing.followed
-        ? '已开启开关，请先关注服务号「火星探索日志」'
-        : existing.enabled && !existing.oaOpenid
-          ? '已开启开关，等待服务号身份同步（关注后约1分钟生效）'
-          : '未开启'
+      : !followed || !oaBound
+        ? '请先长按识别二维码关注服务号「火星探索日志」'
+        : '已关注，打开开关即可接收自动提醒'
   })
 }
 

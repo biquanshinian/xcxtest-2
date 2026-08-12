@@ -12,12 +12,14 @@
     "nasa-float": "/subpackages/shared/components/nasa-float/index",
     "demo-overlay": "/subpackages/shared/components/demo-overlay/index",
     "share-guide": "/subpackages/shared/components/share-guide/index",
-    "event-updates": "/subpackages/progress-extra/components/event-updates/index"
+    "event-updates": "/subpackages/progress-extra/components/event-updates/index",
+    "progress-below-fold": "/subpackages/progress-extra/components/progress-below-fold/index"
   },
   "componentPlaceholder": {
     "demo-overlay": "view",
     "share-guide": "view",
     "nasa-float": "view",
-    "event-updates": "view"
+    "event-updates": "view",
+    "progress-below-fold": "view"
   }
 }

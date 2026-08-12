@@ -250,7 +250,7 @@ test('applyAuthoritativeStatus：无时间戳的列表就绪不能压过详情�
   assert.equal(merged.statusBadgeText, '飞行中')
 })
 
-test('projectLaunchRecords：近窗 TBD 沉底，countdown 选更远的就绪任务', () => {
+test('projectLaunchRecords：列表按纯 NET 排，countdown 取最近未来时间', () => {
   const { projectLaunchRecords } = require('../utils/launch-status-store.js')
   const now = Date.parse('2026-08-10T14:45:00Z')
   const michibiki = {
@@ -267,12 +267,20 @@ test('projectLaunchRecords：近窗 TBD 沉底，countdown 选更远的就绪任
     statusAbbrev: 'Go',
     statusBadgeText: '就绪'
   }
+  const postponed = {
+    id: 'roman',
+    launchTime: '2026-08-30T11:26:00Z',
+    statusId: 1,
+    statusAbbrev: 'Go',
+    statusBadgeText: '就绪'
+  }
   const projected = projectLaunchRecords({
-    upcoming: [michibiki, zhuque],
+    upcoming: [postponed, zhuque, michibiki],
     completed: [],
     now
   })
-  assert.equal(projected.upcoming[0].id, 'zhuque')
-  assert.equal(projected.upcoming[1].id, 'michibiki')
-  assert.equal(projected.countdown && projected.countdown.id, 'zhuque')
+  assert.equal(projected.upcoming[0].id, 'michibiki')
+  assert.equal(projected.upcoming[1].id, 'zhuque')
+  assert.equal(projected.upcoming[2].id, 'roman')
+  assert.equal(projected.countdown && projected.countdown.id, 'michibiki')
 })

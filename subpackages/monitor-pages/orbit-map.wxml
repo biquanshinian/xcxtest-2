@@ -37,7 +37,23 @@
     enable-overlooking="false"
     show-compass="true"
     layer-style="1"
-  ></map>
+  >
+    <!-- 自定义 HUD 气泡：替代原生 callout 的白底黑字 -->
+    <cover-view slot="callout">
+      <cover-view marker-id="1" class="station-hud">
+        <cover-view class="station-hud-live">LIVE · TRACK</cover-view>
+        <cover-view class="station-hud-title">{{stationName}}</cover-view>
+        <cover-view class="station-hud-row">
+          <cover-view class="station-hud-k">ALT</cover-view>
+          <cover-view class="station-hud-v">{{stationAlt}}</cover-view>
+        </cover-view>
+        <cover-view class="station-hud-row">
+          <cover-view class="station-hud-k">VEL</cover-view>
+          <cover-view class="station-hud-v">{{stationSpeed}}</cover-view>
+        </cover-view>
+      </cover-view>
+    </cover-view>
+  </map>
 
   <view class="panel glass-card {{panelCollapsed ? 'panel--collapsed' : ''}}">
     <view class="panel-header panel-header--with-action">

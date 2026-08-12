@@ -1,19 +1,19 @@
-/* pages/index/index.wxss */
+
 @import "../../styles/tweet-stats-bar.wxss";
 .container {
   padding-bottom: 0;
   padding-top: 0;
 }
-/* 顶部导航栏容器（包含状态栏和导航栏） */
+
 .top-nav-wrapper {
   background: rgba(12, 14, 18, 0.08);
   backdrop-filter: blur(48rpx) saturate(170%);
   -webkit-backdrop-filter: blur(48rpx) saturate(170%);
   display: flex;
   flex-direction: column;
-  /* 导航栏总高度：状态栏 + 40rpx(padding-top) + 80rpx(按钮) + 30rpx(padding-bottom) = 约150rpx + 状态栏 */
+  
 }
-/* 顶部导航栏：上内边距加大，避免与右上角胶囊碰撞；整体下移 */
+
 .top-nav {
   display: flex;
   justify-content: center;
@@ -48,20 +48,20 @@
   font-size: 51rpx;
   transform: translate(-50%, -55%) scaleX(-1);
 }
-/* 倒计时卡片底部操作栏 */
+
 .countdown-card-actions {
   position: relative;
   width: 100%;
   margin-top: 16rpx;
 }
-/* 顶部分段导航：文字 + 底部蓝色滑入横条（参考小红书式导航；类切换触发 CSS 过渡，无 JS 动画） */
+
 .nav-button {
   flex: 1;
   height: 64rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  /* 视觉微调：三按钮（即将发射/历史发射/发射日历）整体下移 3px 与胶囊对齐 */
+  
   transform: translateY(3px);
   background: transparent;
   border: none;
@@ -98,15 +98,15 @@
   transform: translateX(-50%) scaleX(1);
   opacity: 1;
 }
-/* 历史发射不再单独用橙色：横条统一蓝色 */
+
 .nav-button--completed.active {
   color: var(--color-text-primary);
 }
-/* 内容滚动区域 */
+
 .content-scroll {
   padding: 0 var(--space-lg);
 }
-/* 倒计时卡片 - 减少高度 */
+
 .countdown-card {
   width: 100%;
   max-width: 100%;
@@ -120,14 +120,14 @@
   overflow: visible;
   position: relative;
 }
-/* 去掉大倒计时卡底部玻璃压线（glass-card::after） */
+
 .countdown-card.glass-card::after,
 .countdown-card::after {
   content: none;
   display: none;
 }
 
-/* 重叠窗口副卡：精简条，倒计时字号偏大便于一眼扫到 */
+
 .countdown-side-card {
   width: 100%;
   box-sizing: border-box;
@@ -261,7 +261,7 @@
   opacity: 0.92;
   background: rgba(255, 255, 255, 0.03);
 }
-/* 倒计时区：左侧圆形火箭配置图 + 时间与倒计时 */
+
 .countdown-visual-row {
   display: flex;
   flex-direction: row;
@@ -270,7 +270,7 @@
   gap: 22rpx;
   flex-shrink: 0;
 }
-/* 圆图 + 直播涟漪 / 下标签的定位容器 */
+
 .countdown-rocket-wrap {
   position: relative;
   width: 132rpx;
@@ -279,13 +279,13 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* 节日帽探出圆顶，勿裁切 */
+  
   overflow: visible;
 }
 .countdown-rocket-wrap.is-live {
   padding-bottom: 22rpx;
 }
-/* 外层定宽圆形容器：避免图片裁剪重心偏一侧，并让圆心在列方向稳定 */
+
 .countdown-rocket-slot {
   position: relative;
   z-index: 2;
@@ -319,7 +319,7 @@
 .countdown-rocket-avatar--placeholder {
   background: rgba(255, 255, 255, 0.05);
 }
-/* 抖音式外扩涟漪（放在 overflow:hidden 的 slot 外，避免被裁） */
+
 .cd-live-ripple {
   position: absolute;
   top: 66rpx;
@@ -338,7 +338,7 @@
 .cd-live-ripple--2 {
   animation-delay: 0.9s;
 }
-/* 下标签：声波 + 直播中 */
+
 .cd-avatar-tag {
   position: absolute;
   left: 50%;
@@ -367,7 +367,7 @@
   line-height: 1;
   letter-spacing: 0.5rpx;
 }
-/* 三柱声波均衡器 */
+
 .cd-live-eq {
   display: flex;
   flex-direction: row;
@@ -387,7 +387,7 @@
 .cd-live-eq-bar:nth-child(1) { animation-delay: 0s; }
 .cd-live-eq-bar:nth-child(2) { animation-delay: 0.15s; }
 .cd-live-eq-bar:nth-child(3) { animation-delay: 0.3s; }
-/* 点击进直播：压缩 → 微弹，再调起视频号 */
+
 .countdown-rocket-wrap.is-entering .countdown-rocket-slot--live {
   animation: cd-live-enter 0.22s ease-out forwards;
 }
@@ -397,7 +397,7 @@
 .countdown-rocket-wrap.is-entering .cd-live-ripple {
   animation: cd-live-ripple-burst 0.22s ease-out forwards;
 }
-/* 后台/隐藏时停动画省电（进入动画除外，避免打断跳转反馈） */
+
 .countdown-rocket-wrap.is-paused:not(.is-entering) .countdown-rocket-slot--live,
 .countdown-rocket-wrap.is-paused:not(.is-entering) .cd-live-ripple,
 .countdown-rocket-wrap.is-paused:not(.is-entering) .cd-live-eq-bar {
@@ -464,7 +464,7 @@
   flex: 1;
   min-width: 0;
 }
-/* 右侧：状态顶对齐「预计发射时间」；推迟徽标底对齐时间 */
+
 .header-right {
   display: flex;
   flex-direction: column;
@@ -474,7 +474,7 @@
   min-width: 0;
   align-self: stretch;
 }
-/* 任务状态呼吸灯 */
+
 .status-indicator {
   display: flex;
   flex-direction: row;
@@ -493,7 +493,7 @@
   animation: breathe 2s ease-in-out infinite;
   flex-shrink: 0;
 }
-/* 根据 statusCategory 设置颜色（与列表角标同源） */
+
 .status-indicator[data-status="pending"] .status-light {
   background: var(--color-brand);
   box-shadow: 0 0 8rpx var(--color-brand-glow);
@@ -546,7 +546,7 @@
   line-height: 1;
   white-space: nowrap;
 }
-/* 呼吸灯动画 */
+
 @keyframes breathe {
   0%, 100% {
     opacity: 1;
@@ -557,7 +557,7 @@
     transform: scale(0.8);
   }
 }
-/* label 行：仅「预计发射时间」；推迟徽标在右侧底对齐 */
+
 .launch-time-label-row {
   display: flex;
   flex-direction: row;
@@ -572,7 +572,7 @@
   flex-shrink: 0;
   line-height: 1.2;
 }
-/* 推迟徽标：右下，底边与时间底对齐；上移约 4px（8rpx） */
+
 .launch-delay-badge {
   margin-left: 0;
   margin-bottom: 8rpx;
@@ -605,7 +605,7 @@
   font-weight: 500;
   line-height: 1.25;
 }
-/* 日期单独一行，缩短横向占用，给右侧状态留空 */
+
 .launch-time-date {
   display: block;
   font-size: inherit;
@@ -613,7 +613,7 @@
   font-weight: inherit;
   line-height: inherit;
 }
-/* 星期与时刻并排 */
+
 .launch-time-weekclock {
   display: block;
   font-size: inherit;
@@ -622,7 +622,7 @@
   line-height: inherit;
   white-space: nowrap;
 }
-/* 倒计时显示 */
+
 .countdown-display {
   display: flex;
   align-items: stretch;
@@ -638,7 +638,7 @@
   border: none;
   box-shadow: none;
 }
-/* NET 缺失 / 精度过粗：占位高度与天时分秒格一致，避免卡片高度抖动 */
+
 .countdown-display--tbd {
   align-items: center;
   min-height: 92rpx;
@@ -746,7 +746,7 @@
     transform: translateY(-54rpx);
   }
 }
-/* 任务信息 */
+
 .mission-info {
   display: flex;
   flex-direction: column;
@@ -760,7 +760,7 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  /* 每项上下各多出约 2px 呼吸感（约 4rpx，随屏宽缩放） */
+  
   padding: 10rpx 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   min-height: 44rpx;
@@ -785,7 +785,7 @@
   -webkit-box-orient: vertical;
   line-height: 1.4;
 }
-/* 值右侧带跳转按钮的行：改 flex 布局，文本收缩、按钮不压缩 */
+
 .info-value--with-jump {
   display: flex;
   align-items: center;
@@ -797,7 +797,7 @@
   min-width: 0;
   word-break: break-word;
 }
-/* 品牌色跳转胶囊（去掉紫渐变，统一低饱和品牌蓝） */
+
 .info-jump-btn {
   flex-shrink: 0;
   display: flex;
@@ -815,166 +815,11 @@
   font-size: 29rpx;
   line-height: 1;
 }
-/* 分享按钮 */
-/* 滚动图片区域 - 与倒计时卡片高度一致 */
-.image-carousel {
-  width: 100%;
-  max-width: 100%;
-  height: 400rpx;
-  margin-top: var(--space-md);
-  margin-bottom: var(--space-xl);
-  border-radius: var(--radius-card);
-  overflow: hidden;
-  box-sizing: border-box;
-  background-color: var(--color-bg-elevated);
-  position: relative;
-}
-.swiper {
-  width: 100%;
-  height: 100%;
-  background-color: transparent;
-}
-.swiper-item {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-}
-.carousel-image-wrap {
-  position: relative;
-  width: 100%;
-  height: 100%;
-}
-.carousel-image {
-  width: 100%;
-  height: 100%;
-  display: block;
-  background-color: #1a1a1a;
-  object-fit: cover;
-  border-radius: 16rpx;
-  min-height: 300rpx;
-}
-.carousel-video-wrap {
-  width: 100%;
-  height: 100%;
-  position: relative;
-  border-radius: 16rpx;
-  overflow: hidden;
-  background-color: #000;
-}
-.carousel-video {
-  width: 100%;
-  height: 100%;
-}
-/* 视频缓冲期占位封面：poster 图 + 半透明遮罩，替代 video 组件的原始黑屏 */
-.carousel-video-cover {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(150deg, #1c2430 0%, #10151d 55%, #0a0d12 100%);
-  pointer-events: none;
-  overflow: hidden;
-}
-.carousel-video-cover-img {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-.carousel-video-cover-mask {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 16rpx;
-  background: rgba(0, 0, 0, 0.28);
-}
-.carousel-video-cover-icon {
-  width: 96rpx;
-  height: 96rpx;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.carousel-video-cover-play {
-  font-size: 36rpx;
-  color: rgba(255, 255, 255, 0.85);
-  margin-left: 6rpx;
-}
-.carousel-video-cover-text {
-  font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.45);
-  letter-spacing: 2rpx;
-}
-.carousel-video-caption {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 16rpx 20rpx;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
-  pointer-events: auto;
-}
-.carousel-video-caption-text {
-  font-size: 24rpx;
-  line-height: 1.5;
-  color: rgba(255, 255, 255, 0.9);
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  word-break: break-all;
-}
-/* 推文账号胶囊（左上角来源标识） */
-.carousel-account-badge {
-  position: absolute;
-  left: 20rpx;
-  top: 20rpx;
-  display: flex;
-  align-items: center;
-  gap: 10rpx;
-  max-width: 60%;
-  padding: 8rpx 20rpx 8rpx 10rpx;
-  border-radius: 999rpx;
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(8px);
-  border: 1rpx solid rgba(255, 255, 255, 0.18);
-  pointer-events: none;
-  z-index: 3;
-  transform: scale(0.7);
-  transform-origin: top left;
-}
-.carousel-account-avatar {
-  width: 44rpx;
-  height: 44rpx;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.15);
-}
-.carousel-account-name {
-  font-size: 24rpx;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.95);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-/* 任务列表区域 */
+
+
+
+
+
 .missions-section {
   margin-bottom: var(--space-xl);
 }
@@ -1071,7 +916,7 @@
   padding: 28rpx 16rpx 8rpx;
   text-align: center;
 }
-/* 非会员任务列表深度门控横幅 */
+
 .mission-gate-banner {
   display: flex;
   align-items: center;
@@ -1127,7 +972,7 @@
   width: 100%;
   box-sizing: border-box;
 }
-/* 首屏任务列表骨架占位 */
+
 .mission-skeleton-card {
   width: 100%;
   aspect-ratio: 4 / 2;
@@ -1170,14 +1015,14 @@
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
 }
-/* 即将发射列表：左滑 提醒 / 置顶 */
+
 .mission-swipe-cell {
   position: relative;
   width: 100%;
   overflow: hidden;
   border-radius: 24rpx;
 }
-/* 置顶：包在前景层上，避免 glass-card 伪元素盖住背景 */
+
 .mission-swipe-cell--pinned > .mission-swipe-front {
   background: rgba(52, 199, 89, 0.22);
   border-radius: 24rpx;
@@ -1197,15 +1042,14 @@
   justify-content: center;
   gap: 28rpx;
   padding: 24rpx 18rpx;
-  /* 未左滑时隐藏：前景卡片是半透明玻璃底，操作区常驻会透出来；
-     关闭时延迟 300ms 再隐藏，让 260ms 回弹动画期间按钮不消失 */
+  
   opacity: 0;
   pointer-events: none;
   transition: opacity 0s linear 300ms;
   background: rgba(10, 14, 22, 0.94);
   z-index: 0;
 }
-/* 拖动中 / 已展开：立即显示操作区 */
+
 .mission-swipe-actions--visible {
   opacity: 1;
   pointer-events: auto;
@@ -1255,7 +1099,7 @@
   min-height: 52rpx;
   will-change: transform, opacity;
 }
-/* 双图层置顶图标：白 pin-off / 绿 pin-on，由 item.pinnedOn → .mission-swipe-btn--on-pin */
+
 .mission-swipe-icon-slot,
 .mission-swipe-pin-slot {
   position: relative;
@@ -1307,12 +1151,11 @@
   display: flex;
   flex-direction: row;
   width: 100%;
-  /* 高度跟随内容并由父级 flex stretch 撑满 min-height，不再固定 100% */
+  
   height: auto;
   min-height: 0;
 }
-/* 任务卡片 - 默认 4:2 比例（min-height = 690rpx 卡宽 / 2）；
-   任务名折行等内容超高时允许卡片自然长高，避免 aspect-ratio 锁死高度把文字压成半截 */
+
 .mission-card {
   width: 100%;
   max-width: 100%;
@@ -1323,9 +1166,7 @@
   overflow: hidden;
   box-sizing: border-box;
 }
-/* 历史发射：判定失败 → 红边；部分失败 → 橙边
-   .glass-card / .mission-card 均 overflow:hidden，外阴影会被裁掉；
-   用 border 简写 + inset 描边，保证浅色主题也清晰可见。 */
+
 .mission-card.mission-card--failure {
 }
 .mission-card.mission-card--partial {
@@ -1347,15 +1188,15 @@
 .mission-rocket-slot {
   position: relative;
   width: 40%;
-  /* 卡片高度改为可增长后，图片槽靠 flex 拉伸填满整列高度 */
+  
   height: auto;
   align-self: stretch;
   min-width: 200rpx;
   flex-shrink: 0;
 }
 .mission-rocket-image {
-  /* 绝对定位铺满图片槽：不依赖百分比高度链，卡片长高时同步拉伸 */
-  /* 等比例放大居中撑满（aspectFill / cover），裁切溢出边缘 */
+  
+  
   position: absolute;
   top: 0;
   left: 0;
@@ -1383,7 +1224,7 @@
   pointer-events: none;
   box-sizing: border-box;
 }
-/* 复用首页 countdown-display--tech，在卡片火箭图内紧凑缩放 */
+
 .mission-rocket-countdown .countdown-display--mission-card {
   width: 100%;
   margin: 0;
@@ -1418,7 +1259,7 @@
   min-width: 0;
   overflow: hidden;
 }
-/* 顶行：状态角标 + 右上方回收（图标+着陆方式名+地点）+ 发射国家 */
+
 .mission-card-header {
   display: flex;
   align-items: flex-start;
@@ -1482,7 +1323,7 @@
   color: var(--color-text-secondary);
   flex-shrink: 0;
 }
-/* 主标题：仅任务名称，加粗大号 */
+
 .mission-main-title {
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-semibold);
@@ -1495,7 +1336,7 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
-/* 火箭名称、发射台：灰色次要信息，单行省略，详情见弹窗 */
+
 .mission-meta {
   font-size: 24rpx;
   color: var(--color-text-secondary);
@@ -1504,7 +1345,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* 标称发射时间 net，大号核心位 */
+
 .mission-time {
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-semibold);
@@ -1512,7 +1353,7 @@
   line-height: 1.3;
   opacity: 0.92;
 }
-/* 回收块：可回收(绿)/一次性(灰) + 仅图标区分 ASDS/RTLS，预定回收点不展示；分享图标与可回收标签同行右对齐 */
+
 .mission-recovery-block {
   display: flex;
   align-items: center;
@@ -1520,7 +1361,7 @@
   gap: 10rpx;
   margin-top: 4rpx;
 }
-/* 任务卡片分享：图片展示 + 透明 button 覆盖层，仅箭头无边框占位 */
+
 .mission-card-share-wrap {
   position: relative;
   flex: 0 0 28rpx;
@@ -1581,22 +1422,22 @@
   border-radius: 6rpx;
   flex-shrink: 0;
 }
-/* 回收结果图标组：紧贴在 recovery-tag 右边，撑满中间空隙之前 */
+
 .mission-recovery-icons {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-left: 6px;         /* 与左侧「可回收/一次性」标签拉开间距 */
-  margin-right: auto;       /* 把分享按钮推到最右 */
+  margin-left: 6px;         
+  margin-right: auto;       
   flex-shrink: 0;
 }
 .mission-recovery-icon {
   width: 28rpx;
   height: 28rpx;
-  /* 任务卡片回收图标统一放大 1.15 倍（transform 不改变占位，不影响布局） */
+  
   transform: scale(1.15);
 }
-/* 网系回收图标视觉重量偏小，在统一 1.15 倍基础上再放大 1.1 倍（1.15 × 1.1 = 1.265） */
+
 .mission-recovery-icon--net {
   transform: scale(1.265);
 }
@@ -1628,13 +1469,12 @@
   opacity: 0.9;
   flex-shrink: 0;
 }
-/* 倒计时板块「回收地点」图标统一放大 1.2 倍（transform 不改变占位，不影响行内布局）；
-   scale 溢出会吃掉 gap，用 margin-right 补偿，保证图标与文字视觉间距统一约 3px */
+
 .recovery-place-inline .recovery-icon {
   transform: scale(1.2);
   margin-right: 3rpx;
 }
-/* 网系回收 SVG 为宽扁形，同尺寸下视觉偏小，额外放大（与列表卡片 .mission-recovery-icon--net 同理），溢出更多故补偿更大 */
+
 .recovery-place-inline .recovery-icon--net {
   transform: scale(1.5);
   margin-right: 7rpx;
@@ -1660,7 +1500,7 @@
   line-height: 1.2;
   white-space: nowrap;
 }
-/* 错误状态 */
+
 .error-state {
   width: 100%;
   height: 100%;
@@ -1697,7 +1537,7 @@
 .retry-button::after {
   border: none;
 }
-/* 任务列表错误状态 */
+
 .missions-error {
   padding: 60rpx 30rpx;
   display: flex;
@@ -1729,7 +1569,7 @@
   font-size: 24rpx;
   color: #8E8E93;
 }
-/* ========== 吸顶精简倒计时（胶囊按钮左侧） ========== */
+
 
 .compact-cd {
   position: absolute;
@@ -1809,924 +1649,30 @@
   transform: scale(0.8);
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
-/* 封路通知横幅 */
-.road-closure-banner {
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
-  margin: 16rpx 0 8rpx;
-  padding: 16rpx 20rpx;
-  border-radius: 16rpx;
-  background: linear-gradient(135deg, rgba(255, 152, 0, 0.15) 0%, rgba(255, 87, 34, 0.12) 100%);
-  border: 1px solid rgba(255, 152, 0, 0.3);
-  /* 性能：横幅在纯色页面背景之上，backdrop-filter 视觉无差别但持续占用 GPU，已移除 */
-  animation: roadClosurePulse 3s ease-in-out infinite;
-  text-align: left;
-  line-height: normal;
-  box-sizing: border-box;
-  overflow: hidden;
-}
-.road-closure-banner::after {
-  border: none;
-}
+
 @keyframes roadClosurePulse {
   0%, 100% { border-color: rgba(255, 152, 0, 0.3); }
   50% { border-color: rgba(255, 152, 0, 0.6); }
-}
-.road-closure-icon-wrap {
-  flex-shrink: 0;
-  width: 44rpx;
-  height: 44rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 152, 0, 0.25);
-  border-radius: 50%;
-  margin-top: 2rpx;
-}
-.road-closure-icon {
-  font-size: 26rpx;
-  line-height: 1;
-  color: #FF9800;
-}
-.road-closure-content {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4rpx;
-  overflow: hidden;
-}
-.road-closure-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12rpx;
-}
-.road-closure-title {
-  font-size: 24rpx;
-  font-weight: 600;
-  color: #FF9800;
-  line-height: 1.3;
-}
-.road-closure-msg-scroll {
-  width: 100%;
-  overflow: hidden;
-  white-space: nowrap;
-}
-.road-closure-msg-track {
-  display: inline-flex;
-  flex-wrap: nowrap;
-  width: max-content;
-  will-change: transform;
-  backface-visibility: hidden;
-  animation: marqueeScroll 18s linear infinite;
-}
-.road-closure-msg {
-  font-size: 24rpx;
-  color: rgba(255, 255, 255, 0.85);
-  line-height: 1.4;
-  flex-shrink: 0;
-  white-space: nowrap;
-  padding-right: 80rpx;
-  box-sizing: content-box;
 }
 @keyframes marqueeScroll {
   from { transform: translate3d(0, 0, 0); }
   to { transform: translate3d(-50%, 0, 0); }
 }
-.road-closure-arrow {
-  flex-shrink: 0;
-  font-size: 36rpx;
-  color: rgba(255, 255, 255, 0.4);
-  font-weight: 300;
-}
-.road-closure-source {
-  font-size: 20rpx;
-  color: rgba(255, 152, 0, 0.7);
-  padding: 2rpx 10rpx;
-  border: 1px solid rgba(255, 152, 0, 0.3);
-  border-radius: 6rpx;
-  flex-shrink: 0;
-}
-/* 系统通知滚动横幅 */
-.announcement-banner {
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
-  margin: 12rpx 0 8rpx;
-  padding: 14rpx 20rpx;
-  border-radius: 16rpx;
-  background: linear-gradient(135deg, rgba(255, 152, 0, 0.15) 0%, rgba(255, 87, 34, 0.12) 100%);
-  border: 1px solid rgba(255, 152, 0, 0.3);
-  /* 性能：横幅在纯色页面背景之上，backdrop-filter 视觉无差别但持续占用 GPU，已移除 */
-  overflow: hidden;
-  box-sizing: border-box;
-}
-.announcement-banner-icon-wrap {
-  flex-shrink: 0;
-  width: 44rpx;
-  height: 44rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 152, 0, 0.25);
-  border-radius: 50%;
-}
-.announcement-banner-icon {
-  font-size: 26rpx;
-  line-height: 1;
-  color: #FF9800;
-}
-.announcement-banner-content {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-}
-.announcement-banner-scroll {
-  width: 100%;
-  overflow: hidden;
-  white-space: nowrap;
-}
-.announcement-banner-track {
-  display: inline-flex;
-  flex-wrap: nowrap;
-  width: max-content;
-  will-change: transform;
-  backface-visibility: hidden;
-  animation: announcementMarquee 18s linear infinite;
-}
-.announcement-banner-text {
-  font-size: 24rpx;
-  color: rgba(255, 255, 255, 0.9);
-  line-height: 1.4;
-  flex-shrink: 0;
-  white-space: nowrap;
-  padding-right: 80rpx;
-  box-sizing: content-box;
-}
-@keyframes announcementMarquee {
-  from { transform: translate3d(0, 0, 0); }
-  to { transform: translate3d(-50%, 0, 0); }
-}
-.announcement-banner-close {
-  flex-shrink: 0;
-  width: 60rpx;
-  height: 60rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 48rpx;
-  color: rgba(255, 255, 255, 0.6);
-  border-radius: 50%;
-}
-.announcement-banner-close:active {
-  background: rgba(255, 255, 255, 0.1);
-}
-/* 公告详情弹窗（结构对齐太空简报弹窗：安全区留白 + 定高滚动区 + 固定头尾） */
-.announcement-dialog-mask {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  /* 全透明：只负责拦截点击/滚动与点空白关闭。
-   * 若铺深色半透明层，卡片 backdrop-filter 只会糊到这层灰罩，而不是背后页面。 */
-  background: transparent;
-  /* 与简报弹窗同层：高于自定义 TabBar(9999)，低于开屏(99999+) */
-  z-index: 12000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: opacity 0.22s ease;
-  pointer-events: none;
-  /* 顶底预留安全区 + 呼吸边距：避免刘海遮标题、底部压 TabBar */
-  padding: calc(12px + env(safe-area-inset-top, 0px)) 40rpx calc(16px + env(safe-area-inset-bottom, 0px));
-  box-sizing: border-box;
-}
-.announcement-dialog-mask--visible {
-  opacity: 1;
-  pointer-events: auto;
-}
-.announcement-dialog {
-  width: 100%;
-  max-width: 640rpx;
-  max-height: 76vh;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  /* 半透明磨砂卡：模糊的是背后页面内容 */
-  background: rgba(22, 24, 28, 0.72);
-  backdrop-filter: blur(48rpx) saturate(170%);
-  -webkit-backdrop-filter: blur(48rpx) saturate(170%);
-  border-radius: var(--radius-lg, 28rpx);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 8rpx 32rpx rgba(0, 0, 0, 0.28);
-  /* 裁掉底栏不透明矩形与滚动内容，避免盖出圆角外（底部穿透重叠） */
-  overflow: hidden;
-  animation: announcement-dialog-pop 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.15);
-}
-@keyframes announcement-dialog-pop {
-  0% { transform: scale(0.82); opacity: 0; }
-  100% { transform: scale(1); opacity: 1; }
-}
-.announcement-dialog-header {
-  padding: 30rpx 32rpx 20rpx;
-  text-align: center;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  flex-shrink: 0;
-  /* 与整卡同一层磨砂，不另铺底色 */
-  background: transparent;
-}
-.announcement-dialog-title {
-  font-size: 32rpx;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.95);
-  line-height: 1.4;
-}
-/* 裁切层：挡住 scroll-view 在真机上偶发画出分配高度的边框/内容 */
-.announcement-dialog-body-clip {
-  flex: 1 1 auto;
-  min-height: 0;
-  width: 100%;
-  overflow: hidden;
-  position: relative;
-  z-index: 1;
-}
-.announcement-dialog-body {
-  box-sizing: border-box;
-  width: 100%;
-  height: 100%;
-  padding: 20rpx 32rpx 28rpx;
-  /* height 由内联 style 显式指定，避免仅 max-height 时顶穿底栏 */
-}
-.announcement-dialog-content {
-  display: block;
-  font-size: 28rpx;
-  color: rgba(255, 255, 255, 0.85);
-  line-height: 1.75;
-  text-align: left;
-  word-break: break-word;
-}
-/* 公告投票 */
-/* 公告正文为空时投票卡顶到滚动区顶部，不留默认空隙 */
-.announcement-vote--flush {
-  margin-top: 0 !important;
-}
-.announcement-vote {
-  margin-top: 28rpx;
-  padding: 24rpx;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 20rpx;
-  text-align: left;
-}
-.announcement-vote-head {
-  display: flex;
-  flex-direction: column;
-  gap: 8rpx;
-}
-.announcement-vote-question {
-  font-size: 30rpx;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.92);
-  line-height: 1.45;
-}
-.announcement-vote-meta {
-  display: flex;
-  align-items: center;
-  gap: 16rpx;
-}
-.announcement-vote-time {
-  font-size: 22rpx;
-  color: #FFB74D;
-}
-.announcement-vote-once {
-  font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.4);
-}
-.announcement-vote-intro {
-  display: block;
-  margin-top: 12rpx;
-  font-size: 24rpx;
-  color: rgba(255, 255, 255, 0.6);
-  line-height: 1.6;
-}
-.announcement-vote-options {
-  margin-top: 20rpx;
-}
-/* 选项卡片：公示后由底层填充条表达占比，内容浮在其上 */
-.announcement-vote-option {
-  position: relative;
-  overflow: hidden;
-  margin-bottom: 14rpx;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16rpx;
-  transition: border-color 0.2s ease, background 0.2s ease;
-}
-.announcement-vote-option:last-child {
-  margin-bottom: 0;
-}
-.announcement-vote-option--hover {
-  background: rgba(255, 152, 0, 0.12);
-  border-color: rgba(255, 152, 0, 0.5);
-}
-.announcement-vote-option--mine {
-  border-color: rgba(255, 152, 0, 0.65);
-}
-.announcement-vote-option--locked:not(.announcement-vote-option--mine) {
-  opacity: 0.72;
-}
-.announcement-vote-option-fill {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  background: linear-gradient(90deg, rgba(255, 152, 0, 0.22), rgba(255, 152, 0, 0.1));
-  border-radius: 0 12rpx 12rpx 0;
-  transition: width 0.5s ease;
-}
-.announcement-vote-option-inner {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 16rpx;
-  padding: 18rpx 20rpx;
-}
-.announcement-vote-option-img {
-  width: 76rpx;
-  height: 76rpx;
-  border-radius: 12rpx;
-  background: rgba(255, 255, 255, 0.06);
-  flex-shrink: 0;
-}
-.announcement-vote-option-label {
-  flex: 1;
-  min-width: 0;
-  font-size: 26rpx;
-  color: rgba(255, 255, 255, 0.88);
-  line-height: 1.5;
-  word-break: break-word;
-}
-.announcement-vote-option-side {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4rpx;
-  flex-shrink: 0;
-}
-.announcement-vote-option-check {
-  font-size: 20rpx;
-  color: #FF9800;
-  border: 1px solid rgba(255, 152, 0, 0.6);
-  border-radius: 8rpx;
-  padding: 2rpx 10rpx;
-  white-space: nowrap;
-}
-.announcement-vote-option-percent {
-  font-size: 28rpx;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.92);
-  line-height: 1.2;
-}
-.announcement-vote-option-votes {
-  font-size: 20rpx;
-  color: rgba(255, 255, 255, 0.5);
-  line-height: 1.2;
-  white-space: nowrap;
-}
-.announcement-vote-footer {
-  margin-top: 20rpx;
-  padding: 16rpx 20rpx;
-  background: rgba(255, 152, 0, 0.08);
-  border-radius: 12rpx;
-}
-.announcement-vote-footer-title {
-  display: block;
-  font-size: 24rpx;
-  font-weight: 600;
-  color: #FF9800;
-}
-.announcement-vote-footer-note {
-  display: block;
-  margin-top: 6rpx;
-  font-size: 24rpx;
-  color: rgba(255, 255, 255, 0.7);
-  line-height: 1.6;
-}
-/* 在线客服：固定底栏内整行入口（彻底重置原生 button，避免默认高度顶穿下一按钮） */
-.announcement-body-service {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 10rpx;
-  width: 100% !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  min-height: 80rpx !important;
-  height: 80rpx !important;
-  border-radius: 16rpx !important;
-  background: rgba(7, 193, 96, 0.1) !important;
-  border: 1rpx solid rgba(7, 193, 96, 0.28) !important;
-  box-sizing: border-box !important;
-  line-height: 80rpx !important;
-  font-size: 26rpx !important;
-  font-weight: 500 !important;
-  color: #07C160 !important;
-  overflow: hidden !important;
-  position: relative !important;
-}
-.announcement-body-service::after {
-  border: none !important;
-  display: none !important;
-}
-.announcement-body-service--hover {
-  opacity: 0.75;
-}
-.announcement-body-service-img {
-  width: 34rpx;
-  height: 34rpx;
-  display: block;
-  flex-shrink: 0;
-}
-/* 底部：客服 + 主按钮；背景透明，沿用整卡磨砂，深浅主题风格一致 */
-.announcement-dialog-footer {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 20rpx;
-  padding: 20rpx 32rpx 28rpx;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  background: transparent;
-  flex-shrink: 0;
-  position: relative;
-  z-index: 3;
-}
-.announcement-footer-ok {
-  width: 100%;
-  text-align: center;
-  padding: 20rpx 0;
-  border-radius: 999rpx;
-  background: linear-gradient(135deg, #FF9800, #FFB74D);
-  color: #fff;
-  font-size: 28rpx;
-  font-weight: 600;
-  line-height: 1.2;
-  box-sizing: border-box;
-}
-.announcement-footer-ok--hover {
-  opacity: 0.85;
-}
+
+
+
+
+
+
+
+
 .service-contact-arrow {
   color: rgba(7, 193, 96, 0.9);
   font-size: 36rpx;
   font-weight: 300;
   flex-shrink: 0;
 }
-/* ========== 开屏动画 ========== */
-.splash-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  z-index: 99999;
-  background: #000;
-}
-.splash-overlay--in {
-  animation: splashFadeIn 0.45s ease-out forwards;
-}
-.splash-overlay--out {
-  animation: splashFadeOut 0.5s ease-in forwards;
-  pointer-events: none;
-}
-@keyframes splashFadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-@keyframes splashFadeOut {
-  from { opacity: 1; }
-  to   { opacity: 0; }
-}
-.splash-media {
-  width: 100vw;
-  height: 100vh;
-  /* 视频/图都必须 cover 裁剪，禁止 stretch 变形 */
-  object-fit: cover;
-}
-.splash-video-cover {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  z-index: 1;
-  pointer-events: none;
-  background: #000;
-}
-.splash-video-cover-fallback {
-  width: 100%;
-  height: 100%;
-  background: #000;
-}
-.splash-skip {
-  position: fixed;
-  right: 28rpx;
-  display: flex;
-  align-items: center;
-  gap: 0;
-  height: 64rpx;
-  background: rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 36rpx;
-  /* 注意：隐私禁触遮罩挂在 root-portal 根层级，与本按钮不在同一层叠上下文，
-     单纯抬 z-index 压不过它；开屏期间由 app.setSplashActive(true) 让遮罩不渲染
-     （见 _showSplash / closeSplash），「跳过」才能收到点击 */
-  z-index: 200000;
-  animation: splashSkipIn 0.4s 0.3s ease-out both;
-  overflow: hidden;
-}
-.splash-skip-countdown {
-  width: 64rpx;
-  height: 64rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 28rpx;
-  font-weight: 600;
-  color: #fff;
-  font-variant-numeric: tabular-nums;
-}
-.splash-skip-divider {
-  width: 1px;
-  height: 28rpx;
-  background: rgba(255, 255, 255, 0.25);
-  flex-shrink: 0;
-}
-.splash-skip-text {
-  padding: 0 24rpx;
-  font-size: 24rpx;
-  color: rgba(255, 255, 255, 0.9);
-  letter-spacing: 1rpx;
-  line-height: 64rpx;
-}
-@keyframes splashSkipIn {
-  from { opacity: 0; transform: translateY(-12rpx) scale(0.92); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-/* 开屏底部叠层：通知条 + 倒计时卡纵向排列 */
-.splash-bottom-stack {
-  position: fixed;
-  left: 50%;
-  bottom: 180rpx;
-  transform: translateX(-50%);
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 18rpx;
-  width: 672rpx;
-  max-width: calc(100vw - 48rpx);
-  box-sizing: border-box;
-  pointer-events: none;
-}
-.splash-bottom-stack .splash-mission-card {
-  pointer-events: auto;
-}
 
-/* 开屏全局通知条：贴在倒计时卡上方；无任务卡时单独显示 */
-.splash-notice {
-  box-sizing: border-box;
-  width: 100%;
-  max-width: 672rpx;
-  padding: 18rpx 28rpx;
-  border-radius: 24rpx;
-  background: linear-gradient(
-    165deg,
-    rgba(255, 255, 255, 0.08) 0%,
-    rgba(0, 0, 0, 0.22) 100%
-  );
-  backdrop-filter: blur(8px) saturate(1.3);
-  -webkit-backdrop-filter: blur(8px) saturate(1.3);
-  border: 1rpx solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 10rpx 28rpx rgba(0, 0, 0, 0.18);
-  animation: splashNoticeIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both;
-}
-@keyframes splashNoticeIn {
-  from {
-    opacity: 0;
-    transform: translateY(16rpx);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-.splash-notice-text {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 6;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  word-break: break-word;
-  overflow-wrap: anywhere;
-  font-size: 32rpx;
-  line-height: 1.4;
-  text-align: center;
-  color: rgba(255, 255, 255, 0.92);
-  letter-spacing: 0.5rpx;
-  text-shadow: 0 2rpx 10rpx rgba(0, 0, 0, 0.4);
-}
-.splash-notice-lines {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  color: rgba(255, 255, 255, 0.92);
-  text-shadow: 0 2rpx 10rpx rgba(0, 0, 0, 0.4);
-  word-break: break-word;
-}
-.splash-notice-lines--left { align-items: flex-start; text-align: left; }
-.splash-notice-lines--center { align-items: center; text-align: center; }
-.splash-notice-lines--right { align-items: flex-end; text-align: right; }
-.splash-notice-line {
-  display: block;
-  width: 100%;
-  white-space: pre-wrap;
-  box-sizing: border-box;
-}
-.splash-notice-line--left { text-align: left; }
-.splash-notice-line--center { text-align: center; }
-.splash-notice-line--right { text-align: right; }
-.splash-notice-line--empty {
-  min-height: 1.2em;
-}
-.splash-notice-seg {
-  font-size: 32rpx;
-  font-weight: 500;
-  color: inherit;
-}
-.splash-notice-seg--bold {
-  font-weight: 700;
-}
-.splash-notice--default .splash-notice-text,
-.splash-notice--default .splash-notice-seg {
-  font-weight: 500;
-}
-.splash-notice--default .splash-notice-seg--bold {
-  font-weight: 700;
-}
-.splash-notice--yahei .splash-notice-text,
-.splash-notice--yahei .splash-notice-seg {
-  font-family: "Microsoft YaHei", "微软雅黑", "PingFang SC", "Helvetica Neue", sans-serif;
-  font-weight: 400;
-}
-.splash-notice--yahei .splash-notice-seg--bold {
-  font-weight: 700;
-}
-.splash-notice--yahei-bold .splash-notice-text,
-.splash-notice--yahei-bold .splash-notice-seg {
-  font-family: "Microsoft YaHei", "微软雅黑", "PingFang SC", "Helvetica Neue", sans-serif;
-  font-weight: 700;
-}
-
-/* 开屏任务倒计时卡片：下部居中；尺寸按 1.2 倍实算（不用 transform scale，避免点击热区错位） */
-.splash-mission-card {
-  position: relative;
-  left: auto;
-  bottom: auto;
-  transform: none;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16rpx;
-  min-width: 504rpx;
-  width: 100%;
-  max-width: 672rpx;
-  padding: 34rpx 44rpx 28rpx;
-  box-sizing: border-box;
-  background: linear-gradient(
-    165deg,
-    rgba(255, 255, 255, 0.04) 0%,
-    rgba(0, 0, 0, 0.13) 48%,
-    rgba(0, 0, 0, 0.16) 100%
-  );
-  backdrop-filter: blur(7px) saturate(1.35);
-  -webkit-backdrop-filter: blur(7px) saturate(1.35);
-  border-radius: 38rpx;
-  animation: splashMissionIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.18s both;
-}
-.splash-mission-meta {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  max-width: 600rpx;
-  width: 100%;
-}
-.splash-mission-agency {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12rpx;
-  max-width: 100%;
-}
-.splash-mission-agency-logo {
-  width: 44rpx;
-  height: 44rpx;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1rpx solid rgba(255, 255, 255, 0.2);
-  overflow: hidden;
-}
-.splash-mission-agency-name {
-  min-width: 0;
-  max-width: 520rpx;
-  font-size: 26rpx;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.88);
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.splash-mission-title-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  flex-wrap: nowrap;
-  gap: 14rpx;
-  max-width: 600rpx;
-  width: 100%;
-  box-sizing: border-box;
-}
-.splash-mission-title-row .splash-mission-name {
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 58%;
-}
-.splash-mission-title-row .splash-mission-rocket {
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 40%;
-  font-size: 36rpx;
-  font-weight: 600;
-  color: #fff;
-  letter-spacing: 0.5rpx;
-  line-height: 1.25;
-  text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  text-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.35);
-}
-.splash-mission-card:active {
-  opacity: 0.92;
-}
-@keyframes splashMissionIn {
-  from {
-    opacity: 0;
-    transform: translateY(28rpx);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-.splash-mission-eyebrow {
-  font-size: 22rpx;
-  font-weight: 600;
-  letter-spacing: 3.6rpx;
-  color: rgba(255, 255, 255, 0.55);
-  line-height: 1;
-}
-.splash-mission-name {
-  max-width: 600rpx;
-  font-size: 36rpx;
-  font-weight: 600;
-  color: #fff;
-  text-align: center;
-  letter-spacing: 0.5rpx;
-  line-height: 1.25;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  text-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.35);
-}
-.splash-mission-cd {
-  display: flex;
-  align-items: center;
-  gap: 14rpx;
-  margin-top: 4rpx;
-  color: #fff;
-}
-.splash-mission-cd-prefix {
-  font-size: 34rpx;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.78);
-  letter-spacing: 1rpx;
-  padding-top: 2rpx;
-}
-.splash-mission-cd-cells {
-  display: flex;
-  align-items: stretch;
-  gap: 0;
-}
-.splash-mission-cd-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-width: 76rpx;
-  padding: 12rpx 14rpx 10rpx;
-  border-radius: 16rpx;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1rpx solid rgba(255, 255, 255, 0.14);
-}
-.splash-mission-cd-cell--sec {
-  background: rgba(255, 255, 255, 0.16);
-  border-color: rgba(255, 255, 255, 0.26);
-}
-.splash-mission-cd-sep {
-  align-self: center;
-  width: 22rpx;
-  text-align: center;
-  font-size: 34rpx;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.4);
-  line-height: 1;
-  padding-bottom: 16rpx;
-}
-.splash-mission-cd-num {
-  font-size: 48rpx;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: 'tnum' 1;
-  line-height: 1;
-  letter-spacing: 0.5rpx;
-}
-.splash-mission-cd-unit {
-  margin-top: 8rpx;
-  font-size: 22rpx;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.58);
-  letter-spacing: 1rpx;
-  line-height: 1;
-}
-.splash-mission-cd--imminent {
-  display: flex;
-  align-items: center;
-  gap: 14rpx;
-  margin-top: 4rpx;
-  padding: 14rpx 34rpx;
-  border-radius: 999rpx;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1rpx solid rgba(255, 255, 255, 0.2);
-  font-size: 40rpx;
-  font-weight: 700;
-  letter-spacing: 6rpx;
-  color: #fff;
-}
-.splash-mission-imminent-dot {
-  width: 14rpx;
-  height: 14rpx;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: #7dffb3;
-  box-shadow: 0 0 12rpx rgba(125, 255, 179, 0.75);
-  animation: splashMissionPulse 1.2s ease-in-out infinite;
-}
-@keyframes splashMissionPulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.55; transform: scale(0.85); }
-}
-.splash-mission-hint {
-  display: flex;
-  align-items: center;
-  gap: 4rpx;
-  margin-top: 2rpx;
-  padding-top: 12rpx;
-  border-top: 1rpx solid rgba(255, 255, 255, 0.12);
-  width: 100%;
-  justify-content: center;
-  box-sizing: border-box;
-}
-.splash-mission-hint-text {
-  font-size: 26rpx;
-  color: rgba(255, 255, 255, 0.62);
-  letter-spacing: 1.5rpx;
-}
-.splash-mission-hint-arrow {
-  font-size: 34rpx;
-  line-height: 1;
-  color: rgba(255, 255, 255, 0.7);
-  transform: translateY(-1rpx);
-}
-/* ========== 发射提醒 ========== */
 .detail-subscribe-section {
   margin-bottom: 20rpx;
 }
@@ -2772,7 +1718,7 @@
   color: #34C759;
   font-weight: 600;
 }
-/* ========== 发射日历 ========== */
+
 .calendar-section {
   padding: 24rpx 0 40rpx;
 }
@@ -2892,247 +1838,22 @@
   color: #fff;
   font-size: 20rpx;
 }
-/* ========== 倒计时卡片底部操作栏 ========== */
+
 .countdown-action-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  /* VOTE_ANTIMIS_V1:START 原 gap: 14rpx；略增与铃铛间距 */
+  
   gap: 18rpx;
-  /* VOTE_ANTIMIS_V1:END */
+  
   margin-top: 18rpx;
 }
-.vote-box-placeholder { flex: 1; }
-/* 竞猜容器（带边框） */
-.vote-box {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  flex-wrap: nowrap;
-  gap: 6rpx 8rpx;
-  padding: 8rpx 12rpx;
-  border-radius: 14rpx;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.03);
-}
-/* VOTE_ANTIMIS_V1:START 槽内防误触样式；回滚删除本块即可（并恢复上方 gap: 14rpx） */
-.vote-box--antimiss {
-  padding-right: 14rpx;
-}
-.vote-box--antimiss.vote-box--dual {
-  /* 上下各再压约 1px（2rpx） */
-  padding: 8rpx 14rpx 10rpx 10rpx;
-  gap: 12rpx;
-}
-.vote-type-row {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10rpx;
-  min-width: 0;
-}
-.vote-type-meta {
-  flex-shrink: 0;
-  font-size: 20rpx;
-  color: rgba(255, 255, 255, 0.34);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.vote-box--antimiss .vote-box-label.vote-box-label--polling {
-  flex: 1;
-  min-width: 0;
-  flex-shrink: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 26rpx;
-  color: rgba(255, 255, 255, 0.72);
-}
-.vote-box--antimiss .vote-pills-with-meta {
-  flex-shrink: 0;
-  gap: 14rpx;
-}
-.vote-box--antimiss .vote-pill {
-  min-height: 48rpx;
-  padding: 6rpx 14rpx;
-}
-/* VOTE_ANTIMIS_V1:END */
-.vote-box--dual {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6rpx;
-  padding: 8rpx 10rpx 10rpx;
-}
-.vote-type-tabs {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 5rpx;
-}
-.vote-type-tab {
-  position: relative;
-  overflow: visible;
-  font-size: 24rpx;
-  line-height: 1.2;
-  color: var(--color-text-secondary, #8E8E93);
-  padding: 2rpx 12rpx 12rpx;
-  background: transparent;
-  border: none;
-  box-shadow: none;
-  transition: color 0.25s ease;
-}
-.vote-type-tab::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  bottom: 0;
-  width: 44rpx;
-  height: 6rpx;
-  border-radius: 999rpx;
-  background: var(--color-brand, #3B82F6);
-  transform: translateX(-50%) scaleX(0);
-  opacity: 0;
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
-  pointer-events: none;
-}
-.vote-type-tab--active {
-  color: var(--color-text-primary);
-  font-weight: 600;
-  background: transparent;
-}
-.vote-type-tab--active::after {
-  transform: translateX(-50%) scaleX(1);
-  opacity: 1;
-}
-.vote-box-body {
-  display: flex;
-  align-items: center;
-  flex-wrap: nowrap;
-  gap: 6rpx 8rpx;
-  min-width: 0;
-}
-.vote-box-label {
-  font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.45);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.vote-box-flex-fill {
-  flex: 1;
-  min-width: 0;
-  margin-right: 4rpx;
-}
-.vote-pills-with-meta {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 8rpx;
-  max-width: 100%;
-}
-/* 单行竞猜：题干完整显示（不换行、不省略），靠收紧右侧胶囊与人数区换空间 */
-/* VOTE_ANTIMIS_V1: 双题型时由 .vote-box--antimiss 覆盖为 ellipsis；单题型仍尽量完整显示 */
-.vote-box-label.vote-box-label--polling {
-  flex-shrink: 0;
-  overflow: visible;
-  text-overflow: clip;
-  white-space: nowrap;
-}
-.vote-pills-with-meta--compact .vote-pill {
-  min-height: 48rpx;
-  gap: 4rpx;
-  padding: 6rpx 10rpx;
-}
-.vote-pills-with-meta--compact .vote-pill-dot {
-  width: 12rpx;
-  height: 12rpx;
-}
-.vote-pills-with-meta--compact .vote-pill-text {
-  font-size: 22rpx;
-}
-.vote-pills-with-meta--compact .vote-pill-count {
-  font-size: 18rpx;
-}
-.vote-pills-with-meta--compact .vote-total-inline {
-  margin-left: 2rpx;
-  padding-left: 6rpx;
-}
-.vote-total-inline {
-  margin-left: 4rpx;
-  padding-left: 10rpx;
-  border-left: 1rpx solid rgba(255, 255, 255, 0.08);
-  font-size: 20rpx;
-  color: rgba(255, 255, 255, 0.34);
-  line-height: 1.15;
-  white-space: nowrap;
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-}
-.vote-box-label--closed {
-  color: rgba(255, 152, 0, 0.7);
-  font-size: 20rpx;
-}
-.vote-box-label--result {
-  font-size: 22rpx;
-}
-.vote-pill--disabled {
-  opacity: 0.5;
-  pointer-events: none;
-}
-.vote-pill {
-  min-height: 52rpx;
-  display: flex;
-  align-items: center;
-  gap: 6rpx;
-  padding: 8rpx 16rpx;
-  border-radius: 999rpx;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-sizing: border-box;
-  transition: all 0.25s ease;
-}
-.vote-pill:active {
-  transform: scale(0.96);
-}
-.vote-pill-dot {
-  width: 14rpx;
-  height: 14rpx;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.vote-pill-dot--ge {
-  background: #FF9500;
-  box-shadow: 0 0 6rpx rgba(255, 149, 0, 0.4);
-}
-.vote-pill-dot--buge {
-  background: #07C160;
-  box-shadow: 0 0 6rpx rgba(7, 193, 96, 0.4);
-}
-.vote-pill-text {
-  font-size: 24rpx;
-  color: rgba(255, 255, 255, 0.8);
-  font-weight: 500;
-}
-.vote-pill-count {
-  font-size: 20rpx;
-  color: rgba(255, 255, 255, 0.35);
-  font-variant-numeric: tabular-nums;
-}
-.vote-pill--active-ge {
-  background: rgba(255, 149, 0, 0.15);
-  border-color: rgba(255, 149, 0, 0.35);
-}
-.vote-pill--active-ge .vote-pill-text { color: #FF9500; }
-.vote-pill--active-buge {
-  background: rgba(7, 193, 96, 0.15);
-  border-color: rgba(7, 193, 96, 0.35);
-}
-.vote-pill--active-buge .vote-pill-text { color: #07C160; }
-.vote-pill--voted { pointer-events: none; }
-/* 提醒 + 分享图标（独立 flex 子项，space-between 自动等距） */
+
+
+
+
+
+
 .cd-icon-btn {
   width: 72rpx;
   height: 72rpx;
@@ -3155,7 +1876,7 @@
   position: relative;
 }
 .icon-share--countdown {
-  /* 原 54rpx，缩小三分之一 → 36rpx */
+  
   width: 36rpx;
   height: 36rpx;
 }
@@ -3169,145 +1890,13 @@
   min-height: 0 !important;
   background: transparent !important;
 }
-/* 投票比例条 */
-.vote-bar-row {
-  margin-top: 8rpx;
-}
-.vote-bar {
-  display: flex;
-  height: 6rpx;
-  border-radius: 3rpx;
-  overflow: hidden;
-}
-.vote-bar-ge {
-  background: linear-gradient(90deg, #FF9500, #FF6B00);
-  transition: width 0.6s ease;
-}
-.vote-bar-buge {
-  background: linear-gradient(90deg, #07C160, #06AD56);
-  transition: width 0.6s ease;
-}
-/* ============ 任务卡片长按分享对话框（居中） ============ */
-.share-dialog-mask {
-  position: fixed;
-  left: 0;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.55);
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: opacity 0.22s ease;
-  padding: 0 60rpx;
-}
-.share-dialog-mask--visible {
-  opacity: 1;
-}
-.share-dialog {
-  width: 100%;
-  max-width: 560rpx;
-  background: var(--bg-glass-popup, rgba(22, 24, 28, 0.85));
-  backdrop-filter: blur(32rpx) saturate(150%);
-  -webkit-backdrop-filter: blur(32rpx) saturate(150%);
-  border-radius: 28rpx;
-  padding: 44rpx 36rpx 28rpx;
-  box-shadow: 0 12rpx 36rpx rgba(0, 0, 0, 0.5);
-  animation: share-dialog-pop 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.15);
-}
-@keyframes share-dialog-pop {
-  0% { transform: scale(0.82); opacity: 0; }
-  100% { transform: scale(1); opacity: 1; }
-}
-.share-dialog-header {
-  text-align: center;
-  margin-bottom: 40rpx;
-}
-.share-dialog-title {
-  display: block;
-  font-size: 32rpx;
-  color: #ffffff;
-  font-weight: 600;
-}
-.share-dialog-subtitle {
-  display: block;
-  margin-top: 10rpx;
-  font-size: 24rpx;
-  color: rgba(255, 255, 255, 0.55);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 0 20rpx;
-}
-.share-dialog-actions {
-  display: flex;
-  justify-content: space-around;
-  align-items: flex-start;
-  padding: 0 0 36rpx;
-}
-/* 只有一个按钮时居中（移除朋友圈入口后，微信好友按钮单独使用） */
-.share-dialog-actions--single {
-  justify-content: center;
-}
-.share-dialog-btn {
-  background: transparent !important;
-  border: none !important;
-  padding: 14rpx 10rpx !important;
-  margin: 0 !important;
-  display: flex !important;
-  flex-direction: column;
-  align-items: center;
-  width: 180rpx;
-  line-height: 1;
-  border-radius: 16rpx;
-  transition: background 0.18s ease;
-}
-.share-dialog-btn::after {
-  border: none !important;
-}
-.share-dialog-btn--hover {
-  background: rgba(255, 255, 255, 0.06) !important;
-}
-.share-dialog-icon {
-  width: 96rpx;
-  height: 96rpx;
-  border-radius: 20rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 16rpx;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1rpx solid rgba(255, 255, 255, 0.08);
-  overflow: hidden;
-}
-.share-dialog-icon-img {
-  width: 52rpx;
-  height: 52rpx;
-}
-.share-dialog-label {
-  font-size: 26rpx;
-  color: rgba(255, 255, 255, 0.9);
-}
-.share-dialog-cancel {
-  height: 88rpx;
-  line-height: 88rpx;
-  text-align: center;
-  font-size: 30rpx;
-  color: rgba(255, 255, 255, 0.9);
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 16rpx;
-}
-.share-dialog-cancel--hover {
-  background: rgba(255, 255, 255, 0.12);
-}
-/* ========== 明亮主题（theme-light）覆盖 ========== */
-/* 根 view (.container) 挂 theme-light 后，以下覆盖沿 DOM 生效；
-   例外（保持深色）：开屏 splash、图片/视频轮播底、压在火箭图上的卡片倒计时、
-   全屏遮罩 mask、媒体上的文字浮层 */
 
-/* --- 顶部导航 --- */
+
+
+
+
+
+
 .theme-light .top-nav-wrapper {
   background: var(--bg-glass-nav);
 }
@@ -3316,7 +1905,7 @@
   border: 1px solid var(--color-divider);
   box-shadow: var(--shadow-card);
 }
-/* 浅色主题：文字色由 token 变量自动反色，横条恒蓝，无需底色覆盖 */
+
 .theme-light .nav-button,
 .theme-light .nav-button.active,
 .theme-light .nav-button--completed.active {
@@ -3324,7 +1913,7 @@
   border: none;
   box-shadow: none;
 }
-/* --- 吸顶精简倒计时 --- */
+
 .theme-light .compact-cd {
   background: var(--bg-glass);
 }
@@ -3341,7 +1930,7 @@
 .theme-light .compact-cd-time {
   color: var(--color-text-primary);
 }
-/* --- 倒计时卡片 --- */
+
 .theme-light .countdown-card-main:active {
   background: rgba(0, 0, 0, 0.03);
 }
@@ -3397,7 +1986,7 @@
 .theme-light .launch-time-label {
   color: var(--color-text-tertiary);
 }
-/* 浅色主题：加深警示橙，保证浅色背景下可读 */
+
 .theme-light .launch-delay-badge {
   color: #E07800;
   border-color: rgba(224, 120, 0, 0.5);
@@ -3438,56 +2027,13 @@
 .theme-light .info-value {
   color: var(--color-text-primary);
 }
-/* --- 竞猜 / 底部操作栏 --- */
-.theme-light .vote-box {
-  border: 1px solid var(--color-divider);
-  background: rgba(0, 0, 0, 0.03);
-}
-.theme-light .vote-type-tab {
-  color: var(--color-text-secondary, #8E8E93);
-  background: transparent;
-}
-.theme-light .vote-type-tab--active {
-  color: var(--color-text-primary);
-  background: transparent;
-}
-.theme-light .vote-box-label {
-  color: var(--color-text-tertiary);
-}
-.theme-light .vote-total-inline {
-  border-left: 1rpx solid var(--color-divider);
-  color: var(--color-text-tertiary);
-}
-/* VOTE_ANTIMIS_V1:START */
-.theme-light .vote-type-meta {
-  color: var(--color-text-tertiary);
-}
-.theme-light .vote-box--antimiss .vote-box-label.vote-box-label--polling {
-  color: rgba(0, 0, 0, 0.72);
-}
-/* VOTE_ANTIMIS_V1:END */
-.theme-light .vote-pill {
-  background: rgba(0, 0, 0, 0.05);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-}
-.theme-light .vote-pill-text {
-  color: var(--color-text-primary);
-}
-.theme-light .vote-pill-count {
-  color: var(--color-text-tertiary);
-}
-.theme-light .vote-pill--active-ge {
-  background: rgba(255, 149, 0, 0.12);
-  border-color: rgba(255, 149, 0, 0.35);
-}
-.theme-light .vote-pill--active-buge {
-  background: rgba(7, 193, 96, 0.12);
-  border-color: rgba(7, 193, 96, 0.35);
-}
+
+
+
 .theme-light .cd-icon-btn:active {
   background: rgba(0, 0, 0, 0.06);
 }
-/* --- 任务列表 --- */
+
 .theme-light .section-title {
   color: var(--color-text-primary);
 }
@@ -3559,17 +2105,16 @@
 .theme-light .recovery-location-name {
   color: var(--color-text-secondary);
 }
-/* 倒计时卡片「回收地点」静态白 SVG / 中性 dataURI（含朱雀 landspace neutral）；
-   成功/失败色 dataURI 不加 --mono，不受影响 */
+
 .theme-light .recovery-icon--mono,
 .theme-light .recovery-place-inline .recovery-icon--mono {
   filter: invert(0.72);
 }
-/* 任务卡片回收图标：upcoming / 待确认等白色中性态；成功绿/失败红 dataURI 不受影响 */
+
 .theme-light .mission-recovery-icon--neutral {
   filter: invert(0.72);
 }
-/* 例外：压在火箭图上的卡片倒计时保持深色（背景为图片，白字+深渐变不变） */
+
 .theme-light .mission-rocket-countdown .countdown-item--tech {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -3587,96 +2132,15 @@
 .theme-light .mission-rocket-countdown .countdown-label--tech {
   color: rgba(149, 208, 255, 0.62);
 }
-/* --- 错误 / 空状态 / 页脚 --- */
+
 .theme-light .error-message,
 .theme-light .empty-text,
 .theme-light .missions-list-footer .footer-text {
   color: var(--color-text-secondary);
 }
-/* --- 封路 / 公告横幅（橙色半透明衬底两种主题通用，仅改白字） --- */
-.theme-light .road-closure-msg {
-  color: var(--color-text-primary);
-}
-.theme-light .road-closure-arrow {
-  color: var(--color-text-tertiary);
-}
-.theme-light .announcement-banner-text {
-  color: var(--color-text-primary);
-}
-.theme-light .announcement-banner-close {
-  color: var(--color-text-tertiary);
-}
-.theme-light .announcement-banner-close:active {
-  background: rgba(0, 0, 0, 0.06);
-}
-/* --- 公告详情弹窗：无彩色遮罩，卡片自身半透明磨砂 --- */
-.theme-light .announcement-dialog-mask {
-  background: transparent;
-}
-.theme-light .announcement-dialog {
-  background: rgba(255, 255, 255, 0.58);
-  backdrop-filter: blur(48rpx) saturate(180%);
-  -webkit-backdrop-filter: blur(48rpx) saturate(180%);
-  border-color: rgba(255, 255, 255, 0.75);
-  box-shadow: 0 8rpx 28rpx rgba(15, 23, 42, 0.1);
-}
-.theme-light .announcement-dialog-header {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  background: transparent;
-}
-.theme-light .announcement-dialog-title {
-  color: var(--color-text-primary);
-}
-.theme-light .announcement-dialog-content {
-  color: var(--color-text-primary);
-}
-.theme-light .announcement-vote {
-  background: rgba(0, 0, 0, 0.025);
-  border-color: var(--color-divider);
-}
-.theme-light .announcement-vote-question {
-  color: var(--color-text-primary);
-}
-.theme-light .announcement-vote-time {
-  color: #E65100;
-}
-.theme-light .announcement-vote-once {
-  color: var(--color-text-tertiary, rgba(0, 0, 0, 0.4));
-}
-.theme-light .announcement-vote-intro {
-  color: var(--color-text-secondary, rgba(0, 0, 0, 0.55));
-}
-.theme-light .announcement-vote-option {
-  background: rgba(0, 0, 0, 0.03);
-  border-color: rgba(0, 0, 0, 0.1);
-}
-.theme-light .announcement-vote-option--hover {
-  background: rgba(255, 152, 0, 0.1);
-}
-.theme-light .announcement-vote-option-fill {
-  background: linear-gradient(90deg, rgba(255, 152, 0, 0.28), rgba(255, 152, 0, 0.12));
-}
-.theme-light .announcement-vote-option-label {
-  color: var(--color-text-primary);
-}
-.theme-light .announcement-vote-option-percent {
-  color: var(--color-text-primary);
-}
-.theme-light .announcement-vote-option-votes {
-  color: var(--color-text-secondary, rgba(0, 0, 0, 0.5));
-}
-.theme-light .announcement-vote-footer-note {
-  color: var(--color-text-secondary, rgba(0, 0, 0, 0.6));
-}
-.theme-light .announcement-dialog-footer {
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-  background: transparent;
-}
-.theme-light .announcement-body-service {
-  background: rgba(7, 193, 96, 0.12) !important;
-  border-color: rgba(7, 193, 96, 0.28) !important;
-}
-/* --- 发射提醒 / 地图入口 --- */
+
+
+
 .theme-light .subscribe-row {
   background: var(--color-bg-card);
   border: 1px solid var(--color-divider);
@@ -3706,36 +2170,9 @@
   background: rgba(0, 0, 0, 0.08);
   color: var(--color-text-primary);
 }
-/* --- 长按分享对话框（mask 保持深色） --- */
-.theme-light .share-dialog {
-  background: var(--bg-glass-popup, rgba(255, 255, 255, 0.88));
-  box-shadow: 0 12rpx 36rpx rgba(0, 0, 0, 0.16);
-}
-.theme-light .share-dialog-title {
-  color: var(--color-text-primary);
-}
-.theme-light .share-dialog-subtitle {
-  color: var(--color-text-secondary);
-}
-.theme-light .share-dialog-btn--hover {
-  background: rgba(0, 0, 0, 0.05) !important;
-}
-.theme-light .share-dialog-icon {
-  background: rgba(0, 0, 0, 0.05);
-  border: 1rpx solid var(--color-divider);
-}
-.theme-light .share-dialog-label {
-  color: var(--color-text-primary);
-}
-.theme-light .share-dialog-cancel {
-  color: var(--color-text-primary);
-  background: rgba(0, 0, 0, 0.05);
-}
-.theme-light .share-dialog-cancel--hover {
-  background: rgba(0, 0, 0, 0.1);
-}
-/* --- 白色 SVG 图标（app.wxss / images 中写死白色，页面内用 filter 压深） --- */
-/* 铃铛：invert 压深 + hue-rotate 让 bell-off 的红色斜杠保持红色系 */
+
+
+
 .theme-light .icon-bell--countdown {
   filter: invert(0.82) hue-rotate(180deg);
 }

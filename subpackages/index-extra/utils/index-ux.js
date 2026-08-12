@@ -276,6 +276,7 @@ const methods = {
 }
 
 function attachTo(page) {
+  page.__uxMethods = methods
   Object.assign(page, methods)
   page.__uxAttached = true
 }

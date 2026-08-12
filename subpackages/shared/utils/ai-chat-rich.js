@@ -24,7 +24,12 @@ const {
   rocketNameForImage
 } = require('../../../utils/launch-card-i18n.js')
 const { launchCardUiText, isContentLangEn } = require('../../../utils/locale.js')
-const { aiChatUiText, localizeCountryName, localizeAgencyType } = require('./ai-chat-i18n.js')
+const {
+  aiChatUiText,
+  localizeCountryName,
+  localizeTimezoneName,
+  localizeAgencyType
+} = require('./ai-chat-i18n.js')
 const { loadCloudMediaMap } = require('../../../utils/image-config.js')
 const { ROUTES } = require('../../../utils/routes.js')
 const { isFeatureEnabled } = require('../../../utils/feature-flags.js')
@@ -36,7 +41,13 @@ const {
 const { getAgencies, getAgencyDetail } = require('../../../utils/api-monitor-data.js')
 const { overrideAgencyLogoUrl } = require('../../../utils/agency-logo-overrides.js')
 const { resolveAgencyLogoBgTone } = require('../../../utils/agency-logo-bg.js')
-const { translateAgencyName } = require('../../../utils/space-terms-i18n.js')
+const {
+  translateAgencyName,
+  translateLocation,
+  translateSpacecraftName
+} = require('../../../utils/space-terms-i18n.js')
+const { translateRocketName } = require('../../../utils/rocket-name-i18n.js')
+const { localizeMissionTitle } = require('../../../utils/mission-title-i18n.js')
 const {
   isStarshipMissionLike,
   isUsableMissionForCard,
@@ -539,7 +550,7 @@ function resolveFlightDemoEntryCard(options) {
       cardType: 'entry',
       entryKind: 'flight_demo',
       id: 'entry_flight_demo',
-      tag: 'FLIGHT PROFILE',
+      tag: aiChatUiText('tagFlightProfile'),
       title: aiChatUiText('flightDemoTitle'),
       desc: missionName
         ? aiChatUiText('flightDemoDescLinked', { name: missionName })
@@ -565,7 +576,7 @@ function resolveVehicleTrackerEntryCard() {
       cardType: 'entry',
       entryKind: 'vehicle_tracker',
       id: 'entry_vehicle_tracker',
-      tag: 'VEHICLE TRACKER',
+      tag: aiChatUiText('tagVehicleTracker'),
       title: aiChatUiText('vehicleTrackerTitle'),
       desc: aiChatUiText('vehicleTrackerDesc'),
       cta: aiChatUiText('vehicleTrackerCta'),
@@ -586,7 +597,7 @@ function resolveMissionSimEntryCard() {
       cardType: 'entry',
       entryKind: 'mission_sim',
       id: 'entry_mission_sim',
-      tag: 'GO / NO-GO · SIM',
+      tag: aiChatUiText('tagMissionSim'),
       title: aiChatUiText('missionSimTitle'),
       desc: aiChatUiText('missionSimDesc'),
       cta: aiChatUiText('missionSimCta'),
@@ -607,7 +618,7 @@ function resolveStarshipProgressEntryCard() {
       cardType: 'entry',
       entryKind: 'starship_progress',
       id: 'entry_starship_progress',
-      tag: 'STARSHIP · PROGRESS',
+      tag: aiChatUiText('tagStarshipProgress'),
       title: aiChatUiText('starshipProgressTitle'),
       desc: aiChatUiText('starshipProgressDesc'),
       cta: aiChatUiText('starshipProgressCta'),
@@ -1181,7 +1192,7 @@ function toAgencyChatCard(agency) {
   const countryName = agency.country && agency.country[0] ? agency.country[0].name : ''
   const countryLabel = isContentLangEn()
     ? (countryName || '')
-    : (AGENCY_COUNTRY_ZH[countryName] || countryName || '')
+    : (AGENCY_COUNTRY_ZH[countryName] || localizeCountryName(countryName) || countryName || '')
   const foundingYear = agency.founding_year || null
   const total = agency.total_launch_count != null ? Number(agency.total_launch_count) : null
   const success = agency.successful_launches != null ? Number(agency.successful_launches) : null
@@ -1300,7 +1311,7 @@ function resolveRoadClosureEntryCard() {
       cardType: 'entry',
       entryKind: 'road_closure',
       id: 'entry_road_closure',
-      tag: 'STARBASE · ROAD',
+      tag: aiChatUiText('tagStarbaseRoad'),
       title: aiChatUiText('roadClosureTitle'),
       desc: aiChatUiText('roadClosureDesc'),
       cta: aiChatUiText('roadClosureCta'),
@@ -1332,9 +1343,15 @@ async function resolveStationEntryCard(options) {
     ? String(station.name || station.stationName || '').trim()
     : ''
   const isTiangong = /天宫|tiangong/i.test(stationName) || stationId === '18'
-  const title = stationName || aiChatUiText('stationDefaultTitle')
+  const isIss = stationId === '4' || /\bISS\b|国际空间站/i.test(stationName)
+  const titleRaw = stationName || aiChatUiText('stationDefaultTitle')
+  const title = isTiangong
+    ? (isContentLangEn() ? (stationName || 'Tiangong') : (stationName || '中国空间站天宫'))
+    : (isIss
+      ? (isContentLangEn() ? (stationName || 'ISS') : (stationName && /[\u4e00-\u9fff]/.test(stationName) ? stationName : '国际空间站（ISS）'))
+      : titleRaw)
   const desc = stationName
-    ? aiChatUiText('stationDescNamed', { name: stationName })
+    ? aiChatUiText('stationDescNamed', { name: title })
     : aiChatUiText('stationDescDefault')
 
   return {
@@ -1342,7 +1359,9 @@ async function resolveStationEntryCard(options) {
       cardType: 'entry',
       entryKind: 'station',
       id: 'entry_station_' + (stationId || 'monitor'),
-      tag: isTiangong ? 'TIANGONG' : (stationId === '4' ? 'ISS' : 'STATION'),
+      tag: isTiangong
+        ? aiChatUiText('tagTiangong')
+        : (isIss ? aiChatUiText('tagIss') : aiChatUiText('tagStation')),
       title,
       desc,
       cta: stationId ? aiChatUiText('enterDetailCta') : aiChatUiText('openMonitorCta'),
@@ -1536,15 +1555,20 @@ async function resolveRocketModelCard(options) {
   const cfg = hit.config
   const total = Number(cfg.total_launch_count) || 0
   const success = Number(cfg.successful_launches) || 0
+  const rawTitle = cfg.full_name || cfg.name || ''
+  const title = (!isContentLangEn()
+    ? (translateRocketName(rawTitle) || rawTitle)
+    : rawTitle) || aiChatUiText('launchVehicle')
+  const maker = translateAgencyName(cfg.manufacturerName) || cfg.manufacturerName || ''
   const subtitleParts = []
-  if (cfg.manufacturerName) subtitleParts.push(cfg.manufacturerName)
+  if (maker) subtitleParts.push(maker)
   if (cfg.reusable === true) subtitleParts.push(aiChatUiText('reusable'))
   const card = buildSpecCard({
     specKind: 'rocket_model',
     targetId: hit.id,
     targetName: cfg.name || '',
-    tag: 'ROCKET',
-    title: cfg.full_name || cfg.name || aiChatUiText('launchVehicle'),
+    tag: aiChatUiText('tagRocket'),
+    title,
     subtitle: subtitleParts.join(' · '),
     desc: cfg.description || '',
     variant: 'wiki',
@@ -1579,14 +1603,19 @@ async function resolveLaunchSiteCard(options) {
   const site = hit.site
   const launches = Number(site.totalLaunchCount) || 0
   const landings = Number(site.totalLandingCount) || 0
+  const rawName = site.name || ''
+  const title = (!isContentLangEn()
+    ? (translateLocation(rawName) || rawName)
+    : rawName) || aiChatUiText('launchSite')
+  const country = localizeCountryName(site.countryName) || site.countryName || ''
   const card = buildSpecCard({
     specKind: 'launch_site',
     targetId: site.id,
     targetName: site.name || '',
-    tag: 'LAUNCH SITE',
-    title: site.name || aiChatUiText('launchSite'),
+    tag: aiChatUiText('tagLaunchSite'),
+    title,
     subtitle: [
-      site.countryName,
+      country,
       site.active ? aiChatUiText('siteActive') : aiChatUiText('siteInactive')
     ].filter(Boolean).join(' · '),
     image: site.imageUrl || site.mapImage || '',
@@ -1604,7 +1633,10 @@ async function resolveLaunchSiteCard(options) {
         label: aiChatUiText('rowTotalLandings'),
         value: landings ? aiChatUiText('nTimes', { n: landings }) : ''
       },
-      { label: aiChatUiText('rowTimezone'), value: site.timezoneName || '' },
+      {
+        label: aiChatUiText('rowTimezone'),
+        value: localizeTimezoneName(site.timezoneName) || site.timezoneName || ''
+      },
       {
         label: aiChatUiText('rowCoords'),
         value: (site.latitude != null && site.longitude != null)
@@ -1638,12 +1670,16 @@ async function resolveSpacecraftCard(options) {
   }
 
   const total = Number(sc.totalLaunchCount) || 0
+  const rawScName = sc.name || ''
+  const scTitle = (!isContentLangEn()
+    ? (translateSpacecraftName(rawScName) || rawScName)
+    : rawScName) || aiChatUiText('spacecraft')
   const card = buildSpecCard({
     specKind: 'spacecraft',
     targetId: sc.id,
     targetName: sc.name || '',
-    tag: 'SPACECRAFT',
-    title: sc.name || aiChatUiText('spacecraft'),
+    tag: aiChatUiText('tagSpacecraft'),
+    title: scTitle,
     subtitle: [
       translateAgencyName(sc.agencyName) || sc.agencyName,
       sc.inUse ? aiChatUiText('inService') : aiChatUiText('retired')
@@ -1687,13 +1723,21 @@ async function resolveBoosterCard(options) {
       const landings = Number(item.successfulLandings) || 0
       const attempts = Number(item.attemptedLandings) || 0
       const recent = Array.isArray(item.recentFlights) ? item.recentFlights[0] : null
+      const familyRaw = item.rocketFamily || ''
+      const family = (!isContentLangEn()
+        ? (translateRocketName(familyRaw) || familyRaw)
+        : familyRaw)
+      let lastMission = recent && recent.mission ? String(recent.mission) : ''
+      if (lastMission && !isContentLangEn()) {
+        lastMission = localizeMissionTitle(lastMission, familyRaw, family) || lastMission
+      }
       const card = buildSpecCard({
         specKind: 'booster',
         targetId: item.serial,
         targetName: item.serial,
-        tag: 'BOOSTER',
+        tag: aiChatUiText('tagBooster'),
         title: item.serial || serial,
-        subtitle: [item.rocketFamily, item.statusZh].filter(Boolean).join(' · '),
+        subtitle: [family, item.statusZh].filter(Boolean).join(' · '),
         variant: 'booster',
         cta: aiChatUiText('boosterCta'),
         rows: [
@@ -1709,7 +1753,7 @@ async function resolveBoosterCard(options) {
           { label: aiChatUiText('rowLastFlight'), value: item.lastFlight || '' },
           {
             label: aiChatUiText('rowLastMission'),
-            value: recent && recent.mission ? recent.mission : ''
+            value: lastMission
           }
         ]
       })
@@ -1723,7 +1767,7 @@ async function resolveBoosterCard(options) {
       cardType: 'entry',
       entryKind: 'booster_genealogy',
       id: 'entry_booster_genealogy',
-      tag: 'BOOSTER · GENEALOGY',
+      tag: aiChatUiText('tagBoosterGene'),
       title: aiChatUiText('boosterGeneTitle'),
       desc: aiChatUiText('boosterGeneDesc'),
       cta: aiChatUiText('boosterGeneCta'),
@@ -1844,7 +1888,7 @@ function resolveYearReviewEntryCard() {
       cardType: 'entry',
       entryKind: 'year_review',
       id: 'entry_year_review',
-      tag: 'YEAR IN REVIEW',
+      tag: aiChatUiText('tagYearReview'),
       title: aiChatUiText('yearReviewTitle'),
       desc: aiChatUiText('yearReviewDesc'),
       cta: aiChatUiText('yearReviewCta'),
@@ -1865,7 +1909,7 @@ function resolveAstroCalendarEntryCard() {
       cardType: 'entry',
       entryKind: 'astro_calendar',
       id: 'entry_astro_calendar',
-      tag: 'SKY CALENDAR',
+      tag: aiChatUiText('tagSkyCalendar'),
       title: aiChatUiText('astroTitle'),
       desc: aiChatUiText('astroDesc'),
       cta: aiChatUiText('astroCta'),
@@ -1905,7 +1949,7 @@ function resolveNewsEntryCard() {
 function resolveSimpleFeatureEntryCard(kind) {
   const map = {
     badges: {
-      tag: 'BADGES',
+      tag: aiChatUiText('tagBadges'),
       titleKey: 'badgesTitle',
       descKey: 'badgesDesc',
       ctaKey: 'badgesCta',
@@ -1913,7 +1957,7 @@ function resolveSimpleFeatureEntryCard(kind) {
       variant: 'review'
     },
     favorites: {
-      tag: 'FAVORITES',
+      tag: aiChatUiText('tagFavorites'),
       titleKey: 'favoritesTitle',
       descKey: 'favoritesDesc',
       ctaKey: 'favoritesCta',
@@ -1921,7 +1965,7 @@ function resolveSimpleFeatureEntryCard(kind) {
       variant: 'review'
     },
     daily_quiz: {
-      tag: 'QUIZ',
+      tag: aiChatUiText('tagQuiz'),
       titleKey: 'dailyQuizTitle',
       descKey: 'dailyQuizDesc',
       ctaKey: 'dailyQuizCta',
@@ -1929,7 +1973,7 @@ function resolveSimpleFeatureEntryCard(kind) {
       variant: 'vote'
     },
     collect: {
-      tag: 'WISH',
+      tag: aiChatUiText('tagWish'),
       titleKey: 'collectTitle',
       descKey: 'collectDesc',
       ctaKey: 'collectCta',
@@ -1937,7 +1981,7 @@ function resolveSimpleFeatureEntryCard(kind) {
       variant: 'astro'
     },
     exoplanet: {
-      tag: 'EXOPLANET',
+      tag: aiChatUiText('tagExoplanet'),
       titleKey: 'exoplanetTitle',
       descKey: 'exoplanetDesc',
       ctaKey: 'exoplanetCta',
@@ -1945,7 +1989,7 @@ function resolveSimpleFeatureEntryCard(kind) {
       variant: 'astro'
     },
     nasa_data: {
-      tag: 'NASA',
+      tag: aiChatUiText('tagNasa'),
       titleKey: 'nasaDataTitle',
       descKey: 'nasaDataDesc',
       ctaKey: 'nasaDataCta',
@@ -1953,7 +1997,7 @@ function resolveSimpleFeatureEntryCard(kind) {
       variant: 'news'
     },
     spacecraft_gallery: {
-      tag: 'SPACECRAFT',
+      tag: aiChatUiText('tagSpacecraft'),
       titleKey: 'spacecraftGalleryTitle',
       descKey: 'spacecraftGalleryDesc',
       ctaKey: 'spacecraftGalleryCta',
@@ -1961,7 +2005,7 @@ function resolveSimpleFeatureEntryCard(kind) {
       variant: 'agency'
     },
     launch_site_gallery: {
-      tag: 'SITES',
+      tag: aiChatUiText('tagSites'),
       titleKey: 'launchSiteGalleryTitle',
       descKey: 'launchSiteGalleryDesc',
       ctaKey: 'launchSiteGalleryCta',
@@ -2039,7 +2083,7 @@ async function resolveApodCard(options) {
     specKind: 'apod',
     targetId: doc.date || 'today',
     targetName: doc.title || '',
-    tag: 'NASA APOD',
+    tag: aiChatUiText('tagApod'),
     title: doc.title || aiChatUiText('apodTitle'),
     subtitle: [doc.date || '', doc.copyright ? '© ' + String(doc.copyright).trim() : '']
       .filter(Boolean).join(' · '),
@@ -2214,7 +2258,7 @@ async function resolveRecoveryStatsCard(options) {
         cardType: 'entry',
         entryKind: 'booster_genealogy',
         id: 'entry_booster_genealogy',
-        tag: 'BOOSTER · GENEALOGY',
+        tag: aiChatUiText('tagBoosterGene'),
         title: aiChatUiText('boosterGeneTitle'),
         desc: aiChatUiText('boosterGeneDescShort'),
         cta: aiChatUiText('boosterGeneCta'),

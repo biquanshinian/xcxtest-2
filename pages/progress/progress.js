@@ -9,7 +9,6 @@ const {
   getStarshipHardwareFromDB
 } = require('../../utils/api-app-services.js')
 const { formatDate } = require('../../utils/util.js')
-const { tryShowPopupAd } = require('../../utils/popup-ad.js')
 const { loadCloudMediaMap, resolveMediaUrl } = require('../../utils/image-config.js')
 const { getUiShellLayout } = require('../../utils/layout.js')
 const { getSystemInfo } = require('../../utils/system.js')
@@ -217,15 +216,7 @@ Page({
     try { warmProgressPageStorageSync() } catch (e) {}
   },
 
-  /**
-   * 读取从 mission-detail 页跳转过来时携带的"自动打开 Ship/Booster 详情"意图
-   *
-   * 来源有两个：
-   *   1. getApp()._progressAutoOpenStarship  —— switchTab 不支持 query，用 app 全局变量
-   *   2. options.type                        —— navigateTo 回退时携带的 query
-   *
-   * 意图只消费一次，读完立刻清掉。5 秒内有效（防止用户手动进来时误触发）
-   */
+  
   _consumeAutoOpenStarshipIntent(options) {
     const app = getApp && getApp()
     const intent = app && app._progressAutoOpenStarship
@@ -278,7 +269,9 @@ Page({
       try { warmEventShareImage() } catch (e) {}
       self.setData({ isProUser: isProSync() })
       storageCache.persistAsync(PROGRESS_LAST_VIEWED_KEY, Date.now())
-      tryShowPopupAd(2, self)
+      require.async('../../subpackages/shared/utils/popup-ad.js')
+        .then(({ tryShowPopupAd }) => tryShowPopupAd(2, self))
+        .catch(() => {})
       self._applyBriefingProgressFilter()
       self._consumeAutoOpenStarshipIntent({})
     }, 0)
@@ -588,10 +581,7 @@ Page({
     })
   },
 
-  /**
-   * 当前载具 = 该分类下状态 Active 且 ordering 最小（与云端 sync 逻辑一致）
-   * @param {any[]} [list] 不传时用已加载的 _hardwareAll
-   */
+  
   _pickCurrentHardwareVehicle(category, list) {
     const all = list || this._hardwareAll || []
     let best = null
@@ -604,10 +594,7 @@ Page({
     return best
   },
 
-  /**
-   * 载具编号（如 S39 / B19）或全称（Ship 39）→ NSF 硬件库 vehicle id。
-   * 优先用「星舰硬件设施」板块已加载的列表；未加载时读缓存接口兜底。
-   */
+  
   async _resolveHardwareVehicleId(serial, type) {
     const key = String(serial || '').trim().toLowerCase().replace(/[\s/]+/g, '')
 
@@ -703,8 +690,7 @@ Page({
 
   // 封路手动同步 / 录入流程在 progress-extra 分包（经顶部 progressLazyDelegates 委托加载）
 
-  /** 原生三点下拉刷新（页面级 / scroll-view refresher 共用）
-   *  只重读云数据库缓存：不触发 NSF 抓取、不重拉 LL2（节奏由云函数自动分配） */
+  
   onProgressScroll() {
     try {
       const { pulseNasaFloatOnScroll } = require('../../utils/nasa-float-scroll.js')
@@ -781,7 +767,7 @@ Page({
     })
   },
 
-  /** 星舰任务指挥室入口（PRO 门控；专属 id 不在 PRODUCTS 单品表内 → 弹窗只提供开通星际通行证） */
+  
   async openMissionSim() {
     if (!this.data.enableMissionSim) return
     if (this._missionSimGatePending) return
@@ -888,10 +874,16 @@ Page({
     this.setData({ pressedEventId: '' })
   },
 
-  /** 事件更新区组件统一事件通道：还原 currentTarget.dataset / detail 后分发给对应方法 */
+  
   onProgressSectionEvent(e) {
     const { name, dataset, edetail } = (e && e.detail) || {}
     if (!name || PROGRESS_SECTION_EVENT_METHODS.indexOf(name) < 0 || typeof this[name] !== 'function') return
+    return this[name]({ currentTarget: { dataset: dataset || {} }, detail: edetail || {} })
+  },
+
+  onProgressBelowFoldEvent(e) {
+    const { name, dataset, edetail } = (e && e.detail) || {}
+    if (!name || typeof this[name] !== 'function') return
     return this[name]({ currentTarget: { dataset: dataset || {} }, detail: edetail || {} })
   },
 

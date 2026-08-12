@@ -8,7 +8,6 @@ const launchSiteDisplay = require('./utils/launch-site-display.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
-const { isCollectionFavorite, toggleCollection } = require('../../utils/favorites.js')
 
 Page({
   behaviors: [pageBase],
@@ -30,14 +29,11 @@ Page({
     cards: [],
     stats: { siteCount: 0, activeCount: 0, countryCount: 0, totalLaunches: 0 },
     filterEmpty: false,
-    imageLoadedMap: {},
-    isFavorited: false,
-    favAnimate: false
+    imageLoadedMap: {}
   },
 
   onLoad(options) {
     this.initUiShell()
-    this.setData({ isFavorited: isCollectionFavorite('launch_site_gallery') })
     // 分享/入口可带 filter 参数：active / country:China
     var filter = options && options.filter ? decodeURIComponent(options.filter) : 'all'
     this._pendingFilter = filter
@@ -185,13 +181,6 @@ Page({
       path += '?filter=' + encodeURIComponent(this.data.filter)
     }
     return path
-  },
-
-  onToggleFavorite() {
-    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
-    var favorited = toggleCollection('launch_site_gallery')
-    this.setData({ isFavorited: favorited, favAnimate: favorited })
-    wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
   },
 
   onShareAppMessage() {

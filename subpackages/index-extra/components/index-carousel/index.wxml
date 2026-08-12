@@ -1,0 +1,73 @@
+<view class="image-carousel image-carousel--skeleton" wx:if="{{carouselPending && carouselItems.length === 0 && missionType === 'upcoming'}}"></view>
+
+    <!-- 滚动图片/视频区域（广告位，仅「即将发射」显示；历史发射/日历不显示） -->
+    <view class="image-carousel" wx:if="{{carouselItems.length > 0 && missionType === 'upcoming'}}">
+      <swiper class="swiper" indicator-dots="{{true}}" autoplay="{{false}}" current="{{carouselCurrent}}" duration="{{500}}" circular="{{true}}" bindchange="emitChange">
+        <swiper-item wx:for="{{carouselItems}}" wx:key="index">
+          <!-- 图片 -->
+          <block wx:if="{{item.type === 'image'}}">
+            <view class="carousel-image-wrap">
+              <image class="carousel-image" src="{{item.src}}" mode="aspectFill" lazy-load="{{true}}" binderror="emitImageError" bindload="emitImageLoad" data-index="{{index}}" bindtap="emitPreview" bindlongpress="emitSave" data-url="{{item.src}}"></image>
+              <view wx:if="{{item.caption}}" class="carousel-video-caption" catchtap="emitCaption" data-eventid="{{item.eventId}}">
+                <text class="carousel-video-caption-text" user-select="{{true}}">{{item.caption}}</text>
+              </view>
+            </view>
+          </block>
+          <!-- 视频 -->
+          <block wx:else>
+            <view class="carousel-video-wrap" bindtap="emitVideoTap" data-index="{{index}}">
+              <video
+                id="carousel-video-{{index}}"
+                class="carousel-video"
+                src="{{item.videoActive && item.playSrc ? item.playSrc : ''}}"
+                poster="{{item.poster}}"
+                muted="{{true}}"
+                autoplay="{{false}}"
+                loop="{{true}}"
+                controls="{{false}}"
+                show-center-play-btn="{{false}}"
+                show-play-btn="{{false}}"
+                show-fullscreen-btn="{{false}}"
+                show-mute-btn="{{false}}"
+                object-fit="cover"
+                enable-progress-gesture="{{false}}"
+                http-cache="{{true}}"
+                bindtimeupdate="{{item.videoStarted ? '' : 'onCarouselVideoTimeUpdate'}}"
+                binderror="emitVideoError"
+                data-index="{{index}}"
+              ></video>
+              <!-- 首帧就绪前用 poster 封面遮住原生黑底 -->
+              <view class="carousel-video-cover" wx:if="{{!item.videoStarted}}">
+                <image
+                  wx:if="{{item.poster}}"
+                  class="carousel-video-cover-img"
+                  src="{{item.poster}}"
+                  mode="aspectFill"
+                ></image>
+                <view class="carousel-video-cover-mask">
+                  <view class="carousel-video-cover-icon">
+                    <text class="carousel-video-cover-play">▶</text>
+                  </view>
+                  <text class="carousel-video-cover-text">{{item.videoActive ? '视频加载中' : '预览'}}</text>
+                </view>
+              </view>
+              <view wx:if="{{item.caption}}" class="carousel-video-caption" catchtap="emitCaption" data-eventid="{{item.eventId}}">
+                <text class="carousel-video-caption-text" user-select="{{true}}">{{item.caption}}</text>
+              </view>
+            </view>
+          </block>
+          <!-- 推文账号胶囊（左上角，标识视频来源账号） -->
+          <view wx:if="{{item.accountLabel}}" class="carousel-account-badge">
+            <image
+              wx:if="{{item.accountAvatar}}"
+              class="carousel-account-avatar"
+              src="{{item.accountAvatar}}"
+              mode="aspectFill"
+              binderror="emitAvatarError"
+              data-index="{{index}}"
+            ></image>
+            <text class="carousel-account-name">{{item.accountLabel}}</text>
+          </view>
+        </swiper-item>
+      </swiper>
+    </view>

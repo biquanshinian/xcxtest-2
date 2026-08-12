@@ -128,7 +128,7 @@
           >
             <image
               class="wpm-code-eye-icon"
-              src="{{codeVisible ? '/images/icons/ic-eye-off.svg' : '/images/icons/ic-eye.svg'}}"
+              src="{{codeVisible ? '/subpackages/watch-party/images/ic-eye-off.svg' : '/subpackages/watch-party/images/ic-eye.svg'}}"
               mode="aspectFit"
             />
           </view>

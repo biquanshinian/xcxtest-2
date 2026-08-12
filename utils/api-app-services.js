@@ -36,12 +36,6 @@ function _writeStorageAsync(key, data) {
   } catch (e) {}
 }
 
-/**
- * 优先从内存命中；内存未命中时改用异步 storage 读，避免阻塞首屏
- * @param {String} key 存储 key
- * @param {Number} ttl 缓存有效期（毫秒）
- * @returns {*|null} 命中则返回 data，否则返回 null
- */
 async function _readCachedAsync(key, ttl) {
   const mem = _memCacheStore[key]
   if (mem && mem.ts && (Date.now() - mem.ts < ttl)) {
@@ -103,10 +97,6 @@ function normalizeNsfChecklistItems(raw) {
   })).filter((row) => row.title)
 }
 
-/**
- * 读取云函数同步的 Next Spaceflight statuses（集合 nextspaceflight_starship_cache / latest）
- * @param {{ skipCache?: boolean }} options
- */
 async function getNsfStarshipChecklistFromDB(options) {
   const skipCache = options && options.skipCache === true
   if (!skipCache) {
@@ -167,11 +157,6 @@ function normalizeHardwareVehicles(raw) {
   })).filter((row) => row.name && !Number.isNaN(row.id))
 }
 
-/**
- * 读取云函数同步的 NSF 星舰硬件设施列表（集合 nextspaceflight_hardware_cache / vehicles）
- * @param {{ skipCache?: boolean }} options
- * @returns {Promise<{ vehicles: any[], updatedAtMs: number, fetchError: string }>}
- */
 async function getStarshipHardwareFromDB(options) {
   const skipCache = options && options.skipCache === true
   if (!skipCache) {
@@ -200,11 +185,6 @@ async function getStarshipHardwareFromDB(options) {
   }
 }
 
-/**
- * 读取 NSF 星舰硬件的测试/飞行记录（集合 nextspaceflight_hardware_cache / tests）
- * 数据量较大（约 300 条），仅详情页按需调用
- * @returns {Promise<{ tests: any[], updatedAtMs: number }>}
- */
 async function getStarshipHardwareTestsFromDB(options) {
   const skipCache = options && options.skipCache === true
   if (!skipCache) {
@@ -431,12 +411,6 @@ async function getSpaceXLaunchStats() {
   }
 }
 
-/**
- * 即将进行的在轨任务列表：
- * 1) spacex_launch_stats.upcomingOrbitalEvents
- * 2) 本地缓存为空时强制再读云库（避免 30min 空列表毒缓存）
- * 3) 仍空则从已同步的 events/upcoming 缓存筛选（与封路通知同源兜底）
- */
 async function getUpcomingOrbitalEvents(options) {
   const {
     pickUpcomingOrbitalEvents,
@@ -564,10 +538,6 @@ async function getBoosterGenealogy(options) {
 const ROCKET_CONFIG_META_CACHE_KEY = '_rocket_config_meta'
 const ROCKET_CONFIG_META_CACHE_TTL = 30 * 60 * 1000
 
-/**
- * 读取火箭构型元数据（booster_genealogy/_config_meta）
- * 返回 { configs: { [configId]: {...} }, updatedAt }，字段全部来自 LL2 launcher_configurations，数据驱动
- */
 async function getRocketConfigMeta() {
   const cachedData = await _readCachedAsync(ROCKET_CONFIG_META_CACHE_KEY, ROCKET_CONFIG_META_CACHE_TTL)
   if (cachedData) return cachedData
@@ -756,11 +726,6 @@ async function fetchLiveLaunchStatuses() {
   }
 }
 
-/**
- * 小时探针 / 到点查询写入的近期 settle 行：终态(3/4/7/9) 或飞行中(6)。
- * 历史列表角标仅消费终态；倒计时 settle 可读飞行中。不打 LL2。
- * @returns {Promise<Array<{id,status,net,name}>|null>}
- */
 async function fetchLaunchStatusSnapshot(ids) {
   if (!wx.cloud || typeof wx.cloud.callFunction !== 'function') return null
   try {
@@ -781,12 +746,6 @@ function fetchRecentSettledLaunches() {
   return fetchLaunchStatusSnapshot()
 }
 
-/**
- * 按 id 解析发射状态（云端 mode=list；recent_settled 已终态则 0 LL2）。
- * 用于历史列表「飞行中」升级为 Success/Deployed，不必先进详情。
- * @param {string[]} ids
- * @returns {Promise<Array<{id,name,status,net}>|null>}
- */
 async function resolveLaunchStatuses(ids) {
   if (!wx.cloud || typeof wx.cloud.callFunction !== 'function') return null
   const list = Array.isArray(ids) ? ids.map((id) => String(id || '').trim()).filter(Boolean).slice(0, 5) : []

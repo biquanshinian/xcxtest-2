@@ -1,9 +1,8 @@
-/* app.wxss */
+
 @import './styles/tokens.wxss';
 
 page {
-  /* 字面量深空灰（≈ --color-bg）：tab 切换/新 webview 首帧可能先于 CSS 变量解析，
-     用 var() 会短暂回退为白底造成闪白 */
+  
   background-color: #0B0C0E;
   color: var(--color-text-primary);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
@@ -13,13 +12,13 @@ page {
   line-height: var(--line-height-normal);
 }
 
-/* 全局原生 switch：视觉缩小约 1/3（仍保留可点区域） */
+
 switch {
   transform: scale(0.67);
   transform-origin: center center;
 }
 
-/* 轻量玻璃卡：仅半透明底 + 圆角，无描边无投影（全局卡片均不带边框/阴影，tab 栏除外） */
+
 .glass-card {
   background: var(--bg-glass);
   border-radius: var(--radius-card);
@@ -27,22 +26,7 @@ switch {
   overflow: hidden;
 }
 
-/* ========== 详情页头图统一骨架：出框悬浮卡（多层毛玻璃 + 投影） ==========
- * 结构（各详情页统一）：
- *   <view class="hero-float [hero-float--flush]">
- *     <view class="hero-float-card">…原头图内容（image/swiper/占位图）…</view>
- *   </view>
- * hero-float 负责外边距与下方两层错位毛玻璃叠层（::before 中层 / ::after 底层），
- * 不设 overflow，避免裁掉叠层；裁圆角由 hero-float-card 承担。
- *
- * 统一悬浮参数（全站头图同一套）：
- * - 左右限宽：距屏幕两边各 20rpx（图片等比缩放 widthFix/aspectFill 由各页自定）
- * - 基础形态：头图直接在滚动区顶层（页面滚动区无横向内衬）
- * - --flush 形态：头图在带 var(--space-lg)=36rpx 横向内衬的容器/卡片里，
- *   负边距出框到同一 20rpx 屏边限宽，顶部 -32rpx 上浮压过卡片顶边。
- *   注意：① 祖先链不得有 overflow:hidden（横向出框会被裁）；
- *        ② 父容器无上内边距时需 display:flex column 阻断外边距折叠；
- *        ③ 容器内衬非 36rpx 时页内微调负边距，保证最终落在屏边 20rpx。 */
+
 .hero-float {
   position: relative;
   margin: var(--space-md) 20rpx calc(var(--space-lg) + 30rpx);
@@ -66,7 +50,7 @@ switch {
   pointer-events: none;
 }
 
-/* 中层：略窄、下探 14rpx */
+
 .hero-float::before {
   left: 22rpx;
   right: 22rpx;
@@ -74,7 +58,7 @@ switch {
   opacity: 0.85;
 }
 
-/* 底层：更窄、下探 28rpx，更淡 */
+
 .hero-float::after {
   left: 48rpx;
   right: 48rpx;
@@ -88,7 +72,7 @@ switch {
   overflow: hidden;
   background: var(--color-bg-card);
   transform: translateZ(0);
-  /* 悬浮投影：头图出框悬浮特例，非普通卡片（普通卡片无投影） */
+  
   box-shadow: 0 20rpx 60rpx rgba(0, 0, 0, 0.4);
 }
 
@@ -96,9 +80,7 @@ switch {
   box-shadow: 0 16rpx 48rpx rgba(0, 0, 0, 0.14);
 }
 
-/* ============== 通用骨架屏扫光（各页共享） ==============
- * 原先首页/监控/进度/列表/邀请/订单各自重复定义同款 shimmer keyframes，统一收敛到这里。
- * 用法：骨架节点加 skeleton-shimmer 类；尺寸/圆角仍由各页自己的骨架类控制。 */
+
 .skeleton-shimmer {
   background: linear-gradient(110deg, rgba(255, 255, 255, 0.04) 30%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0.04) 70%);
   background-size: 200% 100%;
@@ -115,12 +97,7 @@ switch {
   100% { background-position: -200% 0; }
 }
 
-/* ============== 详情页加载骨架（各详情页共享） ==============
- * 全站禁用页面级滚动（page overflow:hidden），详情页靠页内 scroll-view 滚动；
- * 分享/直达冷启动无缓存时若内容区留白，scroll-view 无内容可滚（整页「滑不动」）。
- * 骨架撑满一屏以上让页面立即可滑动、下拉刷新可响应；扫光复用上方 skeleton-shimmer。
- * 内容区自带 padding（如 .detail-container）时直接用 .detail-skeleton；
- * 骨架直挂 scroll-view 下时加 .detail-skeleton--pad 补内衬。 */
+
 .detail-skeleton {
   min-height: 100vh;
 }
@@ -188,7 +165,7 @@ switch {
   background: var(--color-bg-card);
 }
 
-/* 卡片悬浮效果 */
+
 .card-hover {
   transition: all 0.3s ease;
 }
@@ -198,14 +175,7 @@ switch {
   opacity: 0.8;
 }
 
-/*
-  布局防回归约束（重要）：
-  1) 自定义导航磨砂：scroll-view 全屏 100vh，内容滚入 fixed 导航下方
-  2) 顶占位 <nav-scroll-pad> 保持导航高度；下拉由 /utils/nav-scroll-pad.wxs
-     在视图层定位自定义三点（勿在下拉过程整页 setData）
-  3) 有 scroll-view refresher 的页面关闭 enablePullDownRefresh，只保留一条刷新通道
-  4) TabBar 底栏仍用页面内 tabBarReservedHeight 占位
-*/
+
 .main-content-scroll {
   padding-top: 0 !important;
   padding-bottom: 0 !important;
@@ -217,7 +187,7 @@ switch {
   box-sizing: border-box;
 }
 
-/* 顶部导航基础定义（各页面共享） */
+
 .top-nav-wrapper {
   position: fixed;
   top: 0;
@@ -230,7 +200,7 @@ switch {
   border-bottom: 1px solid var(--color-divider-faint);
 }
 
-/* 页面容器基础定义 */
+
 .container {
   min-height: 100vh;
   height: 100vh;
@@ -238,10 +208,10 @@ switch {
   overflow: hidden;
 }
 
-/* Tab 氛围底：主包内联层（非分包组件），切 Tab 首帧即可绘制，避免闪黑 */
+
 .container.tab-bg-video-host {
   position: relative;
-  /* 与全屏磨砂同色，作 page 底与内容之间的兜底，防止透明空窗 */
+  
   background: #000000;
   --color-bg-card: rgba(0, 0, 0, 0.28);
   --color-bg-elevated: rgba(0, 0, 0, 0.34);
@@ -268,7 +238,7 @@ switch {
   --icon-invert: 1;
 }
 
-/* absolute 垫底：不占文档流（container overflow:hidden 时 fixed 易失效并撑高页面） */
+
 .tab-bg-shell {
   pointer-events: none;
   position: absolute;
@@ -285,7 +255,7 @@ switch {
   background: #F2F2F7;
 }
 
-/* 深色：原火星片封装的暖橙行星 + 深空渐变；浅色不画这层 */
+
 .tab-bg-cover {
   position: absolute;
   left: -200px;
@@ -318,15 +288,16 @@ switch {
   background: rgba(242, 242, 247, 0.92);
 }
 
-/* 前景叠在氛围层之上（top-nav 本身已 fixed + z-index:1000） */
+
 .container.tab-bg-video-host .content-scroll,
 .container.tab-bg-video-host .pull-refresh-dots {
   position: relative;
   z-index: 1;
 }
 
-/* 深色磨砂卡 */
-.container.tab-bg-video-host .glass-card,
+
+/* orbit-card：浅色要白底细灰边，勿套半透明磨砂底 */
+.container.tab-bg-video-host .glass-card:not(.orbit-card),
 .container.tab-bg-video-host .growth-entry,
 .container.tab-bg-video-host .growth-duo-card,
 .container.tab-bg-video-host .briefing-inline,
@@ -341,11 +312,9 @@ switch {
   -webkit-backdrop-filter: blur(22px) saturate(140%);
 }
 
-/* 浅色白色磨砂卡（无描边，与全局 glass-card 一致）
-   排除：
-   - 监控图鉴内层预览卡（agency-hw/booster/sc/ls）— 组件自行加细灰边
-   - 轨道数据中心入口卡（orbital-card）— 刻意保持深色科幻底，避免白底透进蒙版发灰 */
-.container.tab-bg-video-host.theme-light .glass-card:not(.agency-hw-card):not(.booster-card):not(.sc-card):not(.ls-card):not(.orbital-card),
+
+/* orbit-card / orbit-hero / 图鉴小卡：需保留细灰边，勿被 border:none 抹掉 */
+.container.tab-bg-video-host.theme-light .glass-card:not(.agency-hw-card):not(.booster-card):not(.sc-card):not(.ls-card):not(.orbital-card):not(.orbit-card):not(.orbit-hero),
 .container.tab-bg-video-host.theme-light .growth-entry,
 .container.tab-bg-video-host.theme-light .growth-duo-card,
 .container.tab-bg-video-host.theme-light .briefing-inline,
@@ -360,20 +329,33 @@ switch {
   -webkit-backdrop-filter: blur(22px) saturate(140%);
 }
 
-/* 通行证入口保留金色语义，只加磨砂 */
+/* 图鉴四类小卡 + 在轨小卡：浅色强制白底细灰边（压过上方深色磨砂 !important） */
+.container.tab-bg-video-host.theme-light .agency-hw-card.glass-card,
+.container.tab-bg-video-host.theme-light .booster-card.glass-card,
+.container.tab-bg-video-host.theme-light .sc-card.glass-card,
+.container.tab-bg-video-host.theme-light .ls-card.glass-card,
+.container.tab-bg-video-host.theme-light .orbit-card.glass-card {
+  background: #ffffff !important;
+  border: 1rpx solid rgba(0, 0, 0, 0.12) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+
 .container.tab-bg-video-host .membership-entry {
   backdrop-filter: blur(22px) saturate(140%);
   -webkit-backdrop-filter: blur(22px) saturate(140%);
 }
 
-/* 内容滚动区域基础定义 */
+
 .content-scroll {
   height: 100vh;
   box-sizing: border-box;
   width: 100%;
 }
 
-/* 任务卡片分享按钮：全局覆盖微信 button 默认边框（部分机型需 app 级样式才生效） */
+
 button.mission-card-share-btn,
 button.mission-card-share-btn::after,
 button.mission-card-share-btn::before {
@@ -403,7 +385,7 @@ button.mission-card-share-btn::before {
   flex-shrink: 0;
 }
 
-/* share-arrow.svg 为白底稿：浅色主题统一反色为深灰 */
+
 .theme-light .icon-share {
   filter: invert(0.72);
 }
@@ -436,18 +418,17 @@ button.mission-card-share-btn::before {
   background-image: url("data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMTAyNCAxMDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIj48cGF0aCBkPSJNNTA5LjM1NDY2NyAxMzEuNzEyYzg3Ljg5MzMzMy0xNC40MjEzMzMgMTczLjQ0IDEzLjkwOTMzMyAyMzMuODk4NjY2IDc0LjI0YTI2NS44OTg2NjcgMjY1Ljg5ODY2NyAwIDAgMSA3Ny45OTQ2NjcgMTg4LjcxNDY2N3YxMzYuMTA2NjY2YzAgMjcuODYxMzMzIDEyLjY3MiA1NC4xODY2NjcgMzcuMDM0NjY3IDczLjk4NGwzLjYyNjY2NiAyLjk4NjY2N2MyMy44OTMzMzMgMjIuMDU4NjY3IDM3LjY3NDY2NyA1My4xNjI2NjcgMzcuNjc0NjY3IDg1LjkzMDY2N3YxMC41Mzg2NjZjMCA0MS4xMzA2NjctMzMuMzY1MzMzIDc0LjQ1MzMzMy03NC40NTMzMzMgNzQuNDUzMzM0aC0xNjAuMjEzMzM0djIuOTg2NjY2YzAgNTIuNzM2LTM1LjExNDY2NyA5OS45MjUzMzMtODUuMTIgMTExLjUzMDY2N2wtNi44NjkzMzMgMS4zMjI2NjdhMTEwLjI5MzMzMyAxMTAuMjkzMzMzIDAgMCAxLTEyOC40NjkzMzMtMTA4LjcxNDY2N3YtNy4xNjhsLTE2MC4yNTYgMC4wNDI2NjdhNzQuNDUzMzMzIDc0LjQ1MzMzMyAwIDAgMS03NC4xOTczMzQtNjguMzk0NjY3bC0wLjI1Ni02LjEwMTMzM3YtMTAuNjY2NjY3YTExNi45MDY2NjcgMTE2LjkwNjY2NyAwIDAgMSA0My44MTg2NjctOTEuMDkzMzMzbDUuNjc0NjY3LTQuOTQ5MzM0YzE4LjI2MTMzMy0xNy4yOCAyOC42NzItNDEuMzg2NjY3IDI4LjY3Mi02Ni42NDUzMzNWNDAyLjk0NGMwLTEzMy4yOTA2NjcgOTMuMjI2NjY3LTI1MC4xOTczMzMgMjIxLjQ0LTI3MS4yMzJ6IG05MS41MiA2NDYuOTU0NjY3aC05Mi40NTg2Njd2Ny4xMjUzMzNjMCAyNi43OTQ2NjcgMjIuNDg1MzMzIDQ3LjY1ODY2NyA0OS4xOTQ2NjcgNDYuMDhsNS4wNzczMzMtMC41MTJjMjEuNDYxMzMzLTMuNDk4NjY3IDM4LjIyOTMzMy0yNC45MTczMzMgMzguMjI5MzMzLTQ5LjcwNjY2N2wtMC4wNDI2NjYtMi45ODY2NjZ6IG05Ny4xMDkzMzMtNTI3LjQ0NTMzNGMtNDUuOTk0NjY3LTQ1LjkwOTMzMy0xMTAuODkwNjY3LTY3LjQxMzMzMy0xNzguMjYxMzMzLTU2LjMyLTk2LjQyNjY2NyAxNS43ODY2NjctMTY3LjgwOCAxMDUuMjU4NjY3LTE2Ny44MDggMjA4LjA0MjY2N3YxMjcuODcyYTE1NS45MDQgMTU1LjkwNCAwIDAgMS01OC4zMjUzMzQgMTIxLjU1NzMzMyA1Mi45MDY2NjcgNTIuOTA2NjY3IDAgMCAwLTE5Ljg0IDQxLjE3MzMzNHYxMC42NjY2NjZjMCA1Ljc2IDQuNjkzMzMzIDEwLjQ1MzMzMyAxMC40NTMzMzQgMTAuNDUzMzM0aDU0MC44ODUzMzNjNS44MDI2NjcgMCA5LjQ1MzMzMy00LjY5MzMzMyAxMC40NTMzMzMtMTAuNDUzMzM0di0xMC41Mzg2NjZjMC0xNi4wNDI2NjctNy4yNTMzMzMtMzEuMjMyLTIyLjQ0MjY2Ni00My42MDUzMzRsMi41NiAyLjI2MTMzNGExNTUuNzc2IDE1NS43NzYgMCAwIDEtNTguNDEwNjY3LTEyMS41NTczMzRWMzk0LjY2NjY3YTIwMS44OTg2NjcgMjAxLjg5ODY2NyAwIDAgMC01OS4yNjQtMTQzLjQ0NTMzNHoiIGZpbGw9IiNmZmZmZmYiPjwvcGF0aD48bGluZSB4MT0iMTgwIiB5MT0iMTgwIiB4Mj0iODQ0IiB5Mj0iODQ0IiBzdHJva2U9IiNGRjNCMzAiIHN0cm9rZS13aWR0aD0iNjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvc3ZnPg==");
 }
 
+/* 与标签页 .top-nav--page-center 同高：上内边距 70rpx / min-height 90rpx */
 .top-nav--page-grid {
   position: relative;
   display: grid;
-  /* minmax(0, 1fr)：两侧列不受内容最小宽度影响、永远等宽
-     标题改 absolute 相对屏宽居中，避免左右槽内容/胶囊宽度差导致视觉偏斜 */
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  padding: 24rpx 24rpx 0;
-  min-height: 96rpx;
+  padding: 70rpx 30rpx 0rpx;
+  min-height: 90rpx;
 }
 
-/* 标题相对整条导航绝对居中（好友分享冷启动 / 胶囊宽度不对称时也不偏） */
+
 .nav-title-wrap--page-grid {
   position: absolute;
   left: 0;
@@ -462,6 +443,9 @@ button.mission-card-share-btn::before {
   pointer-events: none;
   text-align: center;
   min-width: 0;
+  /* 与标签页一致：标题落在上内边距之下的内容带内垂直居中 */
+  padding-top: 70rpx;
+  box-sizing: border-box;
 }
 
 .top-nav-slot--back {
@@ -487,7 +471,7 @@ button.mission-card-share-btn::before {
   flex-shrink: 0;
 }
 
-/* 分享卡片直接进入 → 返回按钮变为主页图标 */
+
 .top-nav-slot--home::after {
   width: 40rpx;
   height: 40rpx;
@@ -496,15 +480,17 @@ button.mission-card-share-btn::before {
   transform: none;
 }
 
+/* 字号/字重对齐标签页 .nav-title--page-center（36 / 600） */
 .nav-title--page-grid {
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-semibold);
+  font-size: 36rpx;
+  font-weight: 600;
   color: var(--color-text-primary);
   justify-self: center;
-  max-width: 360rpx;
+  max-width: 420rpx;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.25;
 }
 
 .top-nav-slot--spacer {
@@ -515,7 +501,7 @@ button.mission-card-share-btn::before {
   height: 64rpx;
 }
 
-/* 朋友圈单页（scene 1154）：微信原生顶栏 + navigationBarFit:squeezed，隐藏自定义顶栏避免双栏/遮挡 */
+
 .is-moments-single .top-nav-wrapper,
 .detail-page--moments .top-nav-wrapper {
   display: none !important;
@@ -586,7 +572,7 @@ button.mission-card-share-btn::before {
   flex-shrink: 0;
 }
 
-/* 地图页顶部导航：与全局详情页 top-nav-slot--back / page-grid 同源 */
+
 .map-page .top-nav-wrapper {
   position: absolute;
   top: 0;
@@ -595,7 +581,7 @@ button.mission-card-share-btn::before {
   z-index: 20;
 }
 
-/* 覆盖旧 flex 规则，避免压过 top-nav--page-grid 的 grid 居中 */
+
 .map-page .top-nav.top-nav--page-grid {
   position: relative;
   display: grid;
@@ -628,7 +614,7 @@ button.mission-card-share-btn::before {
   font-weight: var(--font-weight-semibold, 600);
 }
 
-/* 地图工具：紧贴导航栏下口（top 由 mapActionTop 注入），勿叠进顶栏 */
+
 .map-page .map-action-container {
   position: absolute;
   right: calc(24rpx + env(safe-area-inset-right));
@@ -719,7 +705,7 @@ button.mission-card-share-btn::before {
   line-height: 1.2;
 }
 
-/* 地图页底部面板：3 张地图页共享样式 */
+
 .map-page .panel {
   position: absolute;
   left: var(--space-sm);
@@ -799,7 +785,7 @@ button.mission-card-share-btn::before {
   font-weight: 600;
 }
 
-/* 底部面板副标题 / 实时坐标 / 状态徽章（orbit-map 等共用，勿只写在单页 wxss） */
+
 .map-page .panel-subtitle,
 .map-page .panel-live {
   display: block;
@@ -838,7 +824,7 @@ button.mission-card-share-btn::before {
   color: #A7FFCA;
 }
 
-/* ========== 公共动画 & 加载组件（从各页面提取去重） ========== */
+
 
 @keyframes spin {
   from { transform: rotate(0deg); }
@@ -868,7 +854,7 @@ button.mission-card-share-btn::before {
   }
 }
 
-/* 固定导航页面共用的下拉刷新三点，由 nav-scroll-pad.wxs 跟手定位 */
+
 .pull-refresh-dots {
   position: fixed;
   left: 50%;
@@ -917,7 +903,7 @@ button.mission-card-share-btn::before {
   }
 }
 
-/* 微信原生下拉刷新同款三点（上拉加载更多 / 列表底部加载中） */
+
 .wx-native-dots {
   display: flex;
   align-items: center;
@@ -955,7 +941,7 @@ button.mission-card-share-btn::before {
   }
 }
 
-/* 行内加载指示器 */
+
 .loading-spinner {
   width: 22rpx;
   height: 22rpx;
@@ -965,8 +951,7 @@ button.mission-card-share-btn::before {
   animation: spin 0.75s linear infinite;
 }
 
-/* PRO 用户入口标识：金色仅保留在「我的」页会员区，其余入口不再加金边/金光。
-   类名仍被各页 wxml 条件引用，保留为空实现避免模板改动。 */
+
 .pro-gold-frame {
   position: relative;
 }
@@ -975,7 +960,7 @@ button.mission-card-share-btn::before {
   position: relative;
 }
 
-/* 页面级"翻译/原文"按钮（全局通用，utils/text-translate.js 配套，整体 1.2 倍） */
+
 .translate-toggle {
   padding: 3rpx 22rpx;
   font-size: 26rpx;
@@ -998,32 +983,28 @@ button.mission-card-share-btn::before {
   border-color: rgba(74, 158, 255, 0.6);
 }
 
-/* 标题行内还有其他右侧元素（箭头/展开）时：翻译按钮靠右并留出间距 */
+
 .translate-toggle--inline {
   margin-left: auto;
   margin-right: 16rpx;
 }
 
-/* ============================================================
- * 明亮主题：全局公共类覆盖
- * （变量类样式已由 tokens.wxss 的 .theme-light 变量自动切换，
- *  这里只补写死颜色的伪元素 / 图标 / 高光）
- * ============================================================ */
 
-/* 返回箭头（白描边 → 深描边） */
+
+
 .theme-light .top-nav-slot--back::after,
 .theme-light .nav-back--viewer::after {
   border-top-color: #1C1C1E;
   border-left-color: #1C1C1E;
 }
 
-/* 主页图标（分享冷启动入口） */
+
 .theme-light .top-nav-slot--home::after,
 .theme-light .nav-back--viewer.nav-back--home::after {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231C1C1E' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3Cpolyline points='9 22 9 12 15 12 15 22'/%3E%3C/svg%3E");
 }
 
-/* —— 地图页共享 UI（导航 / 工具按钮 / 底部面板文字）浅色适配 —— */
+
 .map-page.theme-light .nav-title,
 .map-page.theme-light .nav-title--page-grid {
   color: #1C1C1E;
@@ -1089,7 +1070,7 @@ button.mission-card-share-btn::before {
   background: rgba(0, 0, 0, 0.35);
 }
 
-/* 发射商透明 logo 自动底色（由 logoBgTone 驱动；无 tone 时沿用各页默认衬底） */
+
 .agency-logo-bg--light {
   background-color: #ffffff !important;
 }

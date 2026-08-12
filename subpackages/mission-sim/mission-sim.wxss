@@ -288,7 +288,7 @@
   color: rgba(255, 255, 255, 0.55);
 }
 .ms-legend-dot { width: 12rpx; height: 12rpx; border-radius: 50%; }
-.ms-legend-dot--booster { background: #3B82F6; }
+.ms-legend-dot--booster { background: #00ff88; }
 .ms-legend-dot--ship { background: #4da3ff; }
 
 .ms-diagram {

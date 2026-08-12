@@ -1,5 +1,5 @@
 /**
- * list/探针写回 upcoming 时的 NET 迟滞与排序降权。
+ * list/探针写回 upcoming 时的 NET 迟滞与排序。
  *
  * 背景：LL2 mode=list / detailed 都可能把 TBD 拨到近窗或预备期末日占位；
  * 小时探针、ll2Query resolve、syncLaunches 整表覆写均须同一套迟滞（见 upcoming-net-merge）。
@@ -7,8 +7,11 @@
  * 策略：
  * 1) live 仍为 TBD/Hold/TBC 时，拒绝大幅前移（假近窗）
  * 2) live 已是 Go（确认 T-0）：允许从远窗占位收回近窗——勿因 cached 曾是 TBD/8-31 钉死
- * 3) 近窗 Go 被 live TBD 一把拨到远窗预备期末日：整包拒绝（保留 net+status，禁止近窗+待定）
- * 4) 排序时对 TBD/Hold/TBC 加 penalty（只影响顺序，不改展示用 net）
+ * 3) 近窗被一把拨到远窗「预备期末日占位」（00:00Z + 月初/月末，或变待定）：整包拒绝
+ * 4) 近窗 Go → 更远但仍是具体钟点的真实改期（仍 Go）：放行
+ * 5) 列表排序严格按 NET 升序，无视就绪/待定等状态（倒计时面板另按最近 NET 选型）
+ *
+ * 拒写时：整包保留 cached 的 net/window/status（禁止「近窗 + 待定」半更新）。
  */
 
 /** LL2: 2 TBD / 5 Hold / 8 To Be Confirmed */
@@ -22,12 +25,9 @@ const MAX_BENIGN_FORWARD_MS = 12 * 60 * 60 * 1000
 const FAR_HORIZON_MS = 7 * 24 * 60 * 60 * 1000
 /** live 落入该近窗视为「突然临近」 */
 const NEAR_WINDOW_MS = 48 * 60 * 60 * 1000
-/**
- * 待定/Hold/TBC 排序沉底幅度（不改展示用 net）。
- * 含「已被临时短 NET 污染」的近窗 TBD：前端倒计时只认列表顺序，必须靠排序让位给就绪任务。
- */
-const UNCERTAIN_SORT_PENALTY_MS = 21 * 24 * 60 * 60 * 1000
-/** 超过该跨度的「近窗 Go → 远窗 TBD」视为预备期占位 scrub，而非真实改期 */
+/** @deprecated 列表已改为纯 NET 排序；保留导出以免旧脚本引用报错 */
+const UNCERTAIN_SORT_PENALTY_MS = 0
+/** 超过该跨度的大幅后移才进入「占位 scrub vs 真实改期」判别 */
 const PLACEHOLDER_SCRUB_MS = 7 * 24 * 60 * 60 * 1000
 
 function statusIdOf(status) {
@@ -52,7 +52,23 @@ function netMsOf(row) {
 }
 
 /**
- * 是否应拒绝把 live 的 NET/window 覆盖到 cached（状态仍可更新）。
+ * LL2 预备期占位常见形态：UTC 00:00:00 且落在月初/月末。
+ * 真实改期通常带具体钟点（如 15:30），即使后移超过 7 天也应放行。
+ */
+function isLikelyPlaceholderNet(netMs) {
+  if (!Number.isFinite(netMs)) return false
+  const d = new Date(netMs)
+  if (d.getUTCHours() !== 0 || d.getUTCMinutes() !== 0 || d.getUTCSeconds() !== 0) {
+    return false
+  }
+  if (d.getUTCMilliseconds() !== 0) return false
+  const day = d.getUTCDate()
+  const lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()
+  return day === 1 || day === lastDay
+}
+
+/**
+ * 是否应拒绝把 live 的 NET/window 覆盖到 cached。
  * @returns {{ reject: boolean, reason?: string }}
  */
 function evaluateNetAdvance(cached, live, nowMs) {
@@ -64,20 +80,33 @@ function evaluateNetAdvance(cached, live, nowMs) {
   }
   const deltaMs = liveNet - cachedNet // >0 后移；<0 前移
 
-  // 后移：近窗被一把拨到远窗预备期占位 → 拒（含已污染的近窗 TBD，防钉死 8/31）
+  // 大幅后移：仅拒绝「远窗预备期占位」，真实改期（具体钟点 / 仍 Go）放行
   if (deltaMs > PLACEHOLDER_SCRUB_MS) {
     const cachedWasNear =
       cachedNet > now - 2 * 60 * 60 * 1000 && cachedNet - now < FAR_HORIZON_MS
-    const liveIsFarUncertain =
-      isUncertainStatus(live && live.status) && liveNet - now > FAR_HORIZON_MS
-    if (cachedWasNear && liveIsFarUncertain) {
+    const liveIsFar = liveNet - now > FAR_HORIZON_MS
+    const livePlaceholder = isLikelyPlaceholderNet(liveNet)
+    const liveUncertain = isUncertainStatus(live && live.status)
+
+    // 近窗 → 远窗待定占位（含已污染的近窗 TBD）
+    if (cachedWasNear && liveIsFar && liveUncertain && livePlaceholder) {
       return { reject: true, reason: 'uncertain_placeholder_scrub' }
     }
-    // 近窗 Go 被拨成远窗（即便 live 仍标 Go）——预备期末日占位，拒
-    if (cachedWasNear && isGoStatus(cached && cached.status) && liveNet - now > FAR_HORIZON_MS) {
+    // 近窗 → 远窗待定但非典型占位时刻：仍拒（待定大幅后移不可信）
+    if (cachedWasNear && liveIsFar && liveUncertain) {
+      return { reject: true, reason: 'uncertain_placeholder_scrub' }
+    }
+    // 近窗 Go → 远窗仍标 Go，但时间是月末 00:00Z 占位
+    if (
+      cachedWasNear &&
+      isGoStatus(cached && cached.status) &&
+      liveIsFar &&
+      livePlaceholder
+    ) {
       return { reject: true, reason: 'far_placeholder_from_near_go' }
     }
-    return { reject: false } // 正常 scrub / 真实改期后移
+    // 近窗 Go → 更远但仍是具体钟点的真实改期（Go/非占位）→ 放行
+    return { reject: false }
   }
 
   if (deltaMs >= 0) return { reject: false } // 小幅后移或不变
@@ -147,12 +176,10 @@ function mergeLiveRowNetHysteresis(cached, live, nowMs) {
   return row
 }
 
-/** 排序键：待定/Hold/TBC 一律沉底；就绪/Go 仍按真实 NET */
+/** 排序键：严格按 NET 升序（缺失/非法沉底） */
 function sortNetKeyMs(row, nowMs) {
   const t = netMsOf(row)
-  const base = Number.isFinite(t) ? t : Number.MAX_SAFE_INTEGER
-  if (isUncertainStatus(row && row.status)) return base + UNCERTAIN_SORT_PENALTY_MS
-  return base
+  return Number.isFinite(t) ? t : Number.MAX_SAFE_INTEGER
 }
 
 function sortResultsByNetAsc(results, nowMs) {
@@ -173,6 +200,7 @@ module.exports = {
   isUncertainStatus,
   isGoStatus,
   isTerminalStatus,
+  isLikelyPlaceholderNet,
   netMsOf,
   evaluateNetAdvance,
   shouldRejectNetAdvance,

@@ -31,7 +31,12 @@ Component({
     notifyOptions: { type: Array, value: [] },
     rocketMap: { type: Object, value: {} },
     siteMap: { type: Object, value: {} },
-    notifyMinutes: { type: Number, value: 60 },
+    selectedRocketCount: { type: Number, value: 0 },
+    selectedSiteCount: { type: Number, value: 0 },
+    prefRocketsExpanded: { type: Boolean, value: false },
+    prefSitesExpanded: { type: Boolean, value: false },
+    notifyMinutes: { type: Number, value: 30 },
+    roadClosureAlert: { type: Boolean, value: true },
     prefSaving: { type: Boolean, value: false },
     myReminders: { type: Array, value: [] },
     oaAlertEnabled: { type: Boolean, value: false },
@@ -39,6 +44,8 @@ Component({
     oaAlertReady: { type: Boolean, value: false },
     oaAlertMessage: { type: String, value: '' },
     oaAlertLoading: { type: Boolean, value: false },
+    oaQrGuideOpen: { type: Boolean, value: false },
+    oaFollowQrUrl: { type: String, value: '' },
     voteStats: { type: Object, value: { total: 0 } },
     voteHistory: { type: Array, value: [] },
     voteHistoryExpanded: { type: Boolean, value: false },
@@ -49,7 +56,8 @@ Component({
     quizStats: { type: Object, value: { accuracy: 0 } },
     aboutText: { type: String, value: '' },
     aboutWechat: { type: String, value: '' },
-    figmaShareEnabled: { type: Boolean, value: false }
+    figmaShareEnabled: { type: Boolean, value: false },
+    myPrizes: { type: Array, value: [] }
   },
 
   methods: {
@@ -69,12 +77,17 @@ Component({
     emitOnRocketArtTap(e) { this._emit('onRocketArtTap', e) },
     emitOnContentLangChange(e) { this._emit('onContentLangChange', e) },
     emitOnBriefingToggle(e) { this._emit('onBriefingToggle', e) },
+    emitOnTogglePrefRocketsExpand(e) { this._emit('onTogglePrefRocketsExpand', e) },
+    emitOnTogglePrefSitesExpand(e) { this._emit('onTogglePrefSitesExpand', e) },
     emitOnTogglePrefRocket(e) { this._emit('onTogglePrefRocket', e) },
     emitOnTogglePrefSite(e) { this._emit('onTogglePrefSite', e) },
     emitOnNotifyPrefChange(e) { this._emit('onNotifyPrefChange', e) },
+    emitOnRoadClosurePrefChange(e) { this._emit('onRoadClosurePrefChange', e) },
     emitOnSaveReminderPrefs(e) { this._emit('onSaveReminderPrefs', e) },
     emitOnOaAlertSwitch(e) { this._emit('onOaAlertSwitch', e) },
     emitOnCopyOaName(e) { this._emit('onCopyOaName', e) },
+    emitShowOaQrGuide(e) { this._emit('showOaQrGuide', e) },
+    emitCloseOaQrGuide(e) { this._emit('closeOaQrGuide', e) },
     emitOnReminderTap(e) { this._emit('onReminderTap', e) },
     emitOnCancelReminder(e) { this._emit('onCancelReminder', e) },
     emitOnGoAstroCalendar(e) { this._emit('onGoAstroCalendar', e) },
@@ -85,6 +98,7 @@ Component({
     emitOnQuizSelect(e) { this._emit('onQuizSelect', e) },
     emitOnCopyWechat(e) { this._emit('onCopyWechat', e) },
     emitOnContactCallback(e) { this._emit('onContactCallback', e) },
-    emitOnShareFigma(e) { this._emit('onShareFigma', e) }
+    emitOnShareFigma(e) { this._emit('onShareFigma', e) },
+    emitOnCopyTracking(e) { this._emit('onCopyTracking', e) }
   }
 })

@@ -26,7 +26,7 @@ const {
   isFestivalHatDevMode,
   listFestivalHats,
   DEV_CYCLE_MS
-} = require('../../../../utils/festival-hat.js')
+} = require('../../utils/festival-hat.js')
 const composerInput = require('../../utils/composer-input-behavior.js')
 const {
   persistAgencyLogoAfterRemoteLoad,

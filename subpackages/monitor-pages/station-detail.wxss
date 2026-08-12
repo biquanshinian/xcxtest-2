@@ -1100,6 +1100,60 @@ page {
   pointer-events: none;
 }
 
+/* 预览地图 HUD（与全屏 orbit-map 同款） */
+.station-hud {
+  min-width: 240rpx;
+  padding: 12rpx 14rpx 14rpx;
+  border-radius: 10rpx;
+  background-color: rgba(8, 14, 20, 0.92);
+  border: 1px solid rgba(0, 255, 136, 0.45);
+}
+
+.station-hud--preview {
+  transform: scale(0.92);
+}
+
+.station-hud-live {
+  font-size: 16rpx;
+  font-weight: 700;
+  letter-spacing: 2rpx;
+  color: #00ff88;
+  margin-bottom: 4rpx;
+}
+
+.station-hud-title {
+  font-size: 22rpx;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 8rpx;
+  max-width: 300rpx;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.station-hud-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  margin-top: 2rpx;
+}
+
+.station-hud-k {
+  width: 48rpx;
+  font-size: 18rpx;
+  font-weight: 700;
+  color: rgba(0, 255, 136, 0.75);
+}
+
+.station-hud-v {
+  flex: 1;
+  font-size: 20rpx;
+  font-weight: 600;
+  color: #e8fff4;
+  font-family: Menlo, Courier, monospace;
+}
+
 .orbit-map-tap-hint {
   position: absolute;
   top: 0;

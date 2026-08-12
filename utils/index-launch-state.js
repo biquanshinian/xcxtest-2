@@ -125,17 +125,13 @@ function mergePreservedRocketImages(nextList, prevList) {
   })
 }
 
+const {
+  formatHomeLaunchTimeParts: formatHomeLaunchTimePartsCst
+} = require('./launch-card-i18n.js')
+
+/** 首页倒计时时间文案：固定北京时间（formatDate 仅兼容旧调用签名） */
 function formatHomeLaunchTimeParts(launchTime, formatDate) {
-  if (!launchTime || typeof formatDate !== 'function') {
-    return { date: '时间未知', weekTime: '', full: '时间未知' }
-  }
-  const date = formatDate(launchTime, 'YYYY年MM月DD日')
-  const weekTime = formatDate(launchTime, 'WW HH:mm:ss')
-  return {
-    date,
-    weekTime,
-    full: `${date} ${weekTime}`
-  }
+  return formatHomeLaunchTimePartsCst(launchTime, formatDate)
 }
 
 function formatHomeLaunchTime(launchTime, formatDate) {
@@ -203,11 +199,20 @@ function buildCurrentLaunchPanelState(options = {}) {
 
 function getNextUpcomingLaunch(missions, currentId, now = getServerNow()) {
   const safeList = Array.isArray(missions) ? missions : []
-  return safeList.find((mission) => {
-    if (!mission || !mission.launchTime) return false
-    if (mission.id === currentId) return false
-    return new Date(mission.launchTime).getTime() > now
-  }) || null
+  let best = null
+  let bestNet = Infinity
+  for (let i = 0; i < safeList.length; i++) {
+    const mission = safeList[i]
+    if (!mission || !mission.launchTime) continue
+    if (currentId != null && String(mission.id) === String(currentId)) continue
+    const t = new Date(mission.launchTime).getTime()
+    if (!Number.isFinite(t) || t <= now) continue
+    if (t < bestNet) {
+      best = mission
+      bestNet = t
+    }
+  }
+  return best
 }
 
 /** 副卡倒计时文案：有剩余时间显示紧凑时钟，过点显示「确认中」 */
@@ -320,9 +325,8 @@ function pickCountdownDisplayMission(missions, now = getServerNow(), options = {
   })
 }
 
-/** 与云侧 net-patch-policy 对齐：LL2 TBD/Hold/TBC */
+/** LL2 TBD/Hold/TBC（列表排序不再降权；供其它判定复用） */
 const UNCERTAIN_STATUS_IDS = { 2: true, 5: true, 8: true }
-const UNCERTAIN_SORT_PENALTY_MS = 21 * 24 * 60 * 60 * 1000
 
 function isUncertainListMission(mission) {
   if (!mission) return false
@@ -333,17 +337,15 @@ function isUncertainListMission(mission) {
 }
 
 /**
- * upcoming 本地重排：按 launchTime 升序，待定/Hold/TBC 沉底（与云侧 slim 排序一致，不改展示时间）。
+ * upcoming 本地重排：严格按 launchTime 升序，无视就绪/待定等状态。
  */
 function sortUpcomingMissionsByNetAsc(missions) {
   if (!Array.isArray(missions)) return missions
   return missions.sort((a, b) => {
     const ta = a && a.launchTime ? new Date(a.launchTime).getTime() : NaN
     const tb = b && b.launchTime ? new Date(b.launchTime).getTime() : NaN
-    let va = Number.isFinite(ta) ? ta : Number.MAX_SAFE_INTEGER
-    let vb = Number.isFinite(tb) ? tb : Number.MAX_SAFE_INTEGER
-    if (isUncertainListMission(a)) va += UNCERTAIN_SORT_PENALTY_MS
-    if (isUncertainListMission(b)) vb += UNCERTAIN_SORT_PENALTY_MS
+    const va = Number.isFinite(ta) ? ta : Number.MAX_SAFE_INTEGER
+    const vb = Number.isFinite(tb) ? tb : Number.MAX_SAFE_INTEGER
     return va - vb
   })
 }

@@ -19,7 +19,13 @@
     "net-change-modal": "/subpackages/shared/components/net-change-modal/index",
     "launch-calendar": "/subpackages/index-extra/components/launch-calendar/index",
     "calendar-stats": "/subpackages/index-extra/components/calendar-stats/index",
-    "festival-hat": "/components/festival-hat/index"
+    "index-splash": "/subpackages/index-extra/components/index-splash/index",
+    "index-share-sheet": "/subpackages/index-extra/components/index-share-sheet/index",
+    "index-announcement": "/subpackages/index-extra/components/index-announcement/index",
+    "index-vote-box": "/subpackages/index-extra/components/index-vote-box/index",
+    "festival-hat": "/components/festival-hat/index",
+    "index-carousel": "/subpackages/index-extra/components/index-carousel/index",
+    "index-road-closure": "/subpackages/index-extra/components/index-road-closure/index"
   },
   "componentPlaceholder": {
     "demo-overlay": "view",
@@ -30,6 +36,12 @@
     "net-change-modal": "view",
     "launch-calendar": "view",
     "calendar-stats": "view",
-    "nasa-float": "view"
+    "index-splash": "view",
+    "index-share-sheet": "view",
+    "index-announcement": "view",
+    "index-vote-box": "view",
+    "nasa-float": "view",
+    "index-carousel": "view",
+    "index-road-closure": "view"
   }
 }

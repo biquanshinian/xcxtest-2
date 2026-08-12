@@ -13,9 +13,6 @@ const { pickLocalized } = require('./locale.js')
 
 const TERMINAL_STATUS_IDS = new Set([3, 4, 7, 9])
 const INFLIGHT_STATUS_ID = 6
-/** 与云侧 net-patch-policy / index-launch-state 对齐：TBD/Hold/TBC 排序沉底 */
-const UNCERTAIN_STATUS_IDS = new Set([2, 5, 8])
-const UNCERTAIN_SORT_PENALTY_MS = 21 * 24 * 60 * 60 * 1000
 
 const SOURCE_PRIORITY = {
   list: 10,
@@ -107,7 +104,7 @@ function compareObservation(incoming, current) {
     return incoming.revision > current.revision ? 1 : -1
   }
   // 来源优先级优先于时间戳：否则几秒后的 list 再吸收会盖掉 detail 的 Go/近窗 NET，
-  // 卡片回到 8/31 待定，倒计时先闪近窗再被 TBD 沉底顶掉。
+  // 卡片回到 8/31 待定，倒计时会先闪近窗再被远窗占位顶掉。
   if (incoming.sourcePriority !== current.sourcePriority) {
     return incoming.sourcePriority > current.sourcePriority ? 1 : -1
   }
@@ -355,25 +352,26 @@ function projectLaunchRecords(options = {}) {
   })
 
   const timeOf = (item) => new Date((item && (item.launchTime || item.net)) || 0).getTime() || 0
-  const isUncertainMission = (item) => {
-    if (!item) return false
-    const sid = statusIdOf(item)
-    if (UNCERTAIN_STATUS_IDS.has(sid)) return true
-    const abbrev = String(item.statusAbbrev || '').toLowerCase()
-    return abbrev === 'tbd' || abbrev === 'tbc' || abbrev === 'hold'
-  }
-  // 与云侧 slim / 改期重选一致：待定沉底，避免冷启动把近窗 TBD 顶回倒计时
+  // 即将发射列表：严格按 NET 升序，无视就绪/待定等状态
   upcoming.sort((a, b) => {
     let va = timeOf(a) || Number.MAX_SAFE_INTEGER
     let vb = timeOf(b) || Number.MAX_SAFE_INTEGER
     if (!Number.isFinite(va) || va <= 0) va = Number.MAX_SAFE_INTEGER
     if (!Number.isFinite(vb) || vb <= 0) vb = Number.MAX_SAFE_INTEGER
-    if (isUncertainMission(a)) va += UNCERTAIN_SORT_PENALTY_MS
-    if (isUncertainMission(b)) vb += UNCERTAIN_SORT_PENALTY_MS
     return va - vb
   })
   completed.sort((a, b) => timeOf(b) - timeOf(a))
-  const countdown = upcoming.find((item) => timeOf(item) > now) || null
+  // 倒计时候选：未来 NET 里最近的一发（推迟到更晚则自然让位）
+  let countdown = null
+  let countdownNet = Infinity
+  for (let i = 0; i < upcoming.length; i++) {
+    const item = upcoming[i]
+    const t = timeOf(item)
+    if (t > now && t < countdownNet) {
+      countdown = item
+      countdownNet = t
+    }
+  }
   return { upcoming, completed, countdown }
 }
 

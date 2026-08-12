@@ -85,14 +85,20 @@
               </view>
             </view>
 
-            <!-- 提醒偏好 -->
+            <!-- 提醒偏好：标题 + 列表行，无长说明 -->
             <view class="drawer-card">
               <view class="drawer-block">
                 <text class="drawer-block-title">提醒偏好</text>
-                <text class="drawer-block-desc">按火箭型号 / 发射场自动接收提醒</text>
               </view>
-              <text class="pref-sub-label">关注的火箭型号</text>
-              <view class="pref-tag-grid">
+
+              <view class="pref-row" catchtap="emitOnTogglePrefRocketsExpand">
+                <text class="pref-row-label">火箭型号</text>
+                <view class="pref-row-trail">
+                  <text class="pref-row-value">{{selectedRocketCount > 0 ? selectedRocketCount + ' 项' : '全部'}}</text>
+                  <text class="pref-row-chevron">{{prefRocketsExpanded ? '▴' : '▾'}}</text>
+                </view>
+              </view>
+              <view class="pref-tag-grid" wx:if="{{prefRocketsExpanded}}">
                 <view
                   wx:for="{{rocketOptions}}"
                   wx:key="*this"
@@ -101,8 +107,16 @@
                   catchtap="emitOnTogglePrefRocket"
                 >{{item}}</view>
               </view>
-              <text class="pref-sub-label">关注的发射场</text>
-              <view class="pref-tag-grid">
+
+              <view class="drawer-divider"></view>
+              <view class="pref-row" catchtap="emitOnTogglePrefSitesExpand">
+                <text class="pref-row-label">发射场</text>
+                <view class="pref-row-trail">
+                  <text class="pref-row-value">{{selectedSiteCount > 0 ? selectedSiteCount + ' 项' : '全部'}}</text>
+                  <text class="pref-row-chevron">{{prefSitesExpanded ? '▴' : '▾'}}</text>
+                </view>
+              </view>
+              <view class="pref-tag-grid" wx:if="{{prefSitesExpanded}}">
                 <view
                   wx:for="{{siteOptions}}"
                   wx:key="*this"
@@ -111,21 +125,43 @@
                   catchtap="emitOnTogglePrefSite"
                 >{{item}}</view>
               </view>
-              <text class="pref-sub-label">提前提醒时间</text>
-              <view class="pref-radio-group">
-                <view
-                  wx:for="{{notifyOptions}}"
-                  wx:key="value"
-                  class="pref-radio {{notifyMinutes === item.value ? 'pref-radio--active' : ''}}"
-                  data-value="{{item.value}}"
-                  catchtap="emitOnNotifyPrefChange"
-                >{{item.label}}</view>
+
+              <view class="drawer-divider"></view>
+              <view class="drawer-block pref-seg-block">
+                <text class="pref-row-label">提前提醒</text>
+                <view class="theme-mode-group drawer-seg">
+                  <view
+                    wx:for="{{notifyOptions}}"
+                    wx:key="value"
+                    class="theme-mode-opt {{notifyMinutes === item.value ? 'theme-mode-opt--active' : ''}}"
+                    data-value="{{item.value}}"
+                    catchtap="emitOnNotifyPrefChange"
+                  >{{item.label}}</view>
+                </view>
               </view>
+
+              <view class="drawer-divider"></view>
+              <view class="drawer-block pref-seg-block">
+                <text class="pref-row-label">星舰封路</text>
+                <view class="theme-mode-group drawer-seg">
+                  <view
+                    class="theme-mode-opt {{roadClosureAlert ? 'theme-mode-opt--active' : ''}}"
+                    data-value="1"
+                    catchtap="emitOnRoadClosurePrefChange"
+                  >接收</view>
+                  <view
+                    class="theme-mode-opt {{!roadClosureAlert ? 'theme-mode-opt--active' : ''}}"
+                    data-value="0"
+                    catchtap="emitOnRoadClosurePrefChange"
+                  >不接收</view>
+                </view>
+              </view>
+
               <view
                 class="pref-save-btn {{prefSaving ? 'pref-save-btn--loading' : ''}}"
                 catchtap="emitOnSaveReminderPrefs"
               >
-                <text>{{prefSaving ? '保存中...' : '保存提醒偏好'}}</text>
+                <text>{{prefSaving ? '保存中...' : '保存'}}</text>
               </view>
             </view>
           </view>
@@ -141,7 +177,7 @@
       <text class="section-title-text">我的提醒</text>
     </view>
 
-    <!-- 服务号 B 通道：自动发射提醒 -->
+    <!-- 服务号 B 通道：仅 ready（已关注+已开）才显示开启；未关注弹二维码 -->
     <view class="oa-alert-card glass-card">
       <view class="oa-alert-row">
         <view class="oa-alert-info">
@@ -150,7 +186,7 @@
         </view>
         <switch
           class="oa-alert-switch"
-          checked="{{oaAlertEnabled}}"
+          checked="{{oaAlertReady}}"
           color="#07C160"
           disabled="{{oaAlertLoading}}"
           bindchange="emitOnOaAlertSwitch"
@@ -159,11 +195,30 @@
       <view class="oa-alert-status" wx:if="{{oaAlertMessage}}">
         <text class="oa-alert-status-text {{oaAlertReady ? 'oa-alert-status-text--ready' : ''}}">{{oaAlertMessage}}</text>
       </view>
-      <view class="oa-alert-guide" wx:if="{{oaAlertEnabled && !oaAlertFollowed}}">
-        <text class="oa-alert-guide-text">请先微信搜索并关注服务号「火星探索日志」</text>
-        <text class="oa-alert-guide-copy" catchtap="emitOnCopyOaName">复制名称</text>
+      <!-- 仅未关注时出扫码入口，避免与上方「已关注」文案重复 -->
+      <view class="oa-alert-guide" wx:if="{{!oaAlertFollowed}}" catchtap="emitShowOaQrGuide">
+        <text class="oa-alert-guide-text">未关注服务号？点此扫码关注</text>
+        <text class="oa-alert-guide-copy">查看二维码</text>
       </view>
     </view>
+
+    <!-- 关注服务号二维码：长按识别 -->
+    <root-portal wx:if="{{oaQrGuideOpen}}">
+      <view class="oa-qr-root {{themeClass}}" catchtouchmove="noop">
+        <view class="oa-qr-mask" catchtap="emitCloseOaQrGuide"></view>
+        <view class="oa-qr-panel" catchtap="noop">
+          <text class="oa-qr-title">关注服务号</text>
+          <text class="oa-qr-desc">长按下方二维码 → 识别图中二维码 → 关注「火星探索日志」后，再回来打开开关</text>
+          <image
+            class="oa-qr-img"
+            src="{{oaFollowQrUrl}}"
+            mode="aspectFit"
+            show-menu-by-longpress="{{true}}"
+          />
+          <view class="oa-qr-btn" catchtap="emitCloseOaQrGuide">我知道了</view>
+        </view>
+      </view>
+    </root-portal>
 
     <!-- 有单独铃铛提醒时才展示时间线；无提醒则不显示空态引导卡 -->
     <view class="reminder-timeline glass-card" wx:if="{{myReminders.length > 0}}">
@@ -314,6 +369,43 @@
       </view>
     </view>
   </view>
+
+  <!-- ══ 我的奖品 ══ -->
+  <view class="prize-section" wx:if="{{myPrizes.length > 0}}">
+    <view class="section-title-row">
+      <text class="section-title-text">我的奖品</text>
+      <text class="section-title-count">{{myPrizes.length}}件</text>
+    </view>
+    <view class="prize-list">
+      <view class="prize-card glass-card" wx:for="{{myPrizes}}" wx:key="_id">
+        <view class="prize-card-top">
+          <image wx:if="{{item.prizeImage}}" class="prize-card-img" src="{{item.prizeImage}}" mode="aspectFit" />
+          <view wx:else class="prize-card-icon">🎁</view>
+          <view class="prize-card-info">
+            <view class="prize-card-title">{{item.prizeTitle || '奖品'}}</view>
+            <view class="prize-card-desc">{{item.prizeDesc || ''}}</view>
+            <view class="prize-card-size" wx:if="{{item.selectionsText}}">{{item.selectionsText}}</view>
+            <view class="prize-card-size" wx:elif="{{item.size}}">尺码：{{item.size}}</view>
+          </view>
+          <view class="prize-status prize-status--{{item.status}}">
+            {{item.status === 'pending' ? '待发货' : item.status === 'shipped' ? '已发货' : '已完成'}}
+          </view>
+        </view>
+        <view class="prize-tracking" wx:if="{{item.trackingNumber}}">
+          <text class="prize-tracking-label">物流单号：</text>
+          <text class="prize-tracking-number">{{item.trackingNumber}}</text>
+          <button class="prize-copy-btn" size="mini" catchtap="emitOnCopyTracking" data-num="{{item.trackingNumber}}" hover-class="prize-copy-btn--hover">复制</button>
+        </view>
+        <view class="prize-tracking prize-tracking--waiting" wx:elif="{{item.status === 'pending'}}">
+          <text>正在为您准备奖品，请耐心等待～</text>
+        </view>
+        <view class="prize-tracking prize-tracking--waiting" wx:elif="{{item.status === 'shipped' && !item.trackingNumber}}">
+          <text>已发出，物流单号更新中…</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
 
   <!-- ══ 在线客服（已迁详情页） ══ -->
   <view class="about-section" wx:if="{{false}}">

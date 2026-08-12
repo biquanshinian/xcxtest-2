@@ -325,11 +325,13 @@ const methods = {
     if (!force && this._oaAlertStatusAt && now - this._oaAlertStatusAt < OA_ALERT_STATUS_TTL_MS) return
     this._oaAlertStatusAt = now
     try {
-      const status = await getOaAlertStatus()
+      const status = await getOaAlertStatus(!!force)
+      const ready = !!status.ready
       this.setData({
-        oaAlertEnabled: !!status.enabled,
+        // 开关只反映 ready，杜绝「未关注却显示开启」
+        oaAlertEnabled: ready,
         oaAlertFollowed: !!status.followed,
-        oaAlertReady: !!status.ready,
+        oaAlertReady: ready,
         oaAlertMessage: status.message || ''
       })
     } catch (e) {}
@@ -338,19 +340,32 @@ const methods = {
   async onOaAlertSwitch(e) {
     const wantOn = !!(e && e.detail && e.detail.value)
     if (this.data.oaAlertLoading) return
+    // 开关受控于 ready：未关注时立刻拨回关，并弹二维码
+    if (wantOn && !this.data.oaAlertFollowed) {
+      this.setData({ oaAlertEnabled: false, oaAlertReady: false, oaQrGuideOpen: true })
+      return
+    }
     this.setData({ oaAlertLoading: true })
 
     try {
       if (wantOn) {
-        const ok = await enableOaAlert()
-        if (!ok) {
-          this.setData({ oaAlertEnabled: false })
+        const res = await enableOaAlert()
+        if (res && res.needFollow) {
+          this.setData({
+            oaAlertEnabled: false,
+            oaAlertReady: false,
+            oaQrGuideOpen: true
+          })
+        } else if (!res || !res.ok) {
+          this.setData({ oaAlertEnabled: false, oaAlertReady: false })
         }
       } else {
         await disableOaAlert()
       }
     } finally {
       this.setData({ oaAlertLoading: false })
+      // 强制刷新：关注服务号后 followed/ready 会变，避免 10 分钟缓存挡住状态
+      this._oaAlertStatusAt = 0
       this.loadOaAlertStatus(true)
       try {
         const { invalidateOaAlertCache } = require('./oa-alert.js')
@@ -366,11 +381,18 @@ const methods = {
     }
   },
 
+  showOaQrGuide() {
+    this.setData({ oaQrGuideOpen: true })
+  },
+
+  closeOaQrGuide() {
+    this.setData({ oaQrGuideOpen: false })
+    this._oaAlertStatusAt = 0
+    this.loadOaAlertStatus(true)
+  },
+
   onCopyOaName() {
-    wx.setClipboardData({
-      data: '火星探索日志',
-      success: () => wx.showToast({ title: '已复制服务号名称', icon: 'success' })
-    })
+    this.showOaQrGuide()
   },
 
   /** 对缺少名称/构型/英文火箭名的老订阅，从本地详情或列表 API 补全（配图与首页同源） */

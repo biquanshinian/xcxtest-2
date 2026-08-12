@@ -37,6 +37,22 @@
       "value": "g8f6Aa4G2BW0QDiYX74nLlJ6PfVfOIIEOJGGj0ngiuQ"
     },
     {
+      "key": "WECHAT_OA_NET_CHANGE_TEMPLATE_ID",
+      "value": "AUknDNSmaLhK2lN2Kzq0lHbBkaeYSmcAINelxcxc6yA"
+    },
+    {
+      "key": "WECHAT_OA_NET_CHANGE_REASON",
+      "value": "发射时间推迟"
+    },
+    {
+      "key": "NET_CHANGE_PUSH_ENABLED",
+      "value": "1"
+    },
+    {
+      "key": "NET_CHANGE_FORCE_SIM",
+      "value": "0"
+    },
+    {
       "key": "WECHAT_OA_RESULT_TMPL_FIELD_MISSION",
       "value": "thing33"
     },

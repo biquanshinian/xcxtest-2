@@ -253,6 +253,8 @@ function resolveFavoriteUrl(item) {
     }
     case 'booster':
       return ROUTES.BOOSTER_DETAIL + '?serial=' + id
+    case 'rocket_model':
+      return ROUTES.ROCKET_MODEL_DETAIL + '?configId=' + id
     case 'spacecraft':
       return ROUTES.SPACECRAFT_DETAIL + '?id=' + id
     case 'launch_site':

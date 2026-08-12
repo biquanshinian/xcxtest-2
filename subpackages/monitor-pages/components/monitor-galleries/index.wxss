@@ -783,16 +783,16 @@
   color: var(--color-text-tertiary);
 }
 
-/* 浅色主题：内层预览卡加细灰边，与白色 section / 全局 glass-card 去边规则区分开
-   （pages 根 .tab-bg-video-host.theme-light .glass-card 有 border:none !important，须对等覆盖） */
+/* 浅色：白底 + 细灰边（不要灰底/磨砂；须 !important 压过全局 glass 变量） */
 .theme-light .agency-hw-card.glass-card,
 .theme-light .booster-card.glass-card,
 .theme-light .sc-card.glass-card,
 .theme-light .ls-card.glass-card {
-  background: #FFFFFF !important;
+  background: #ffffff !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   border: 1rpx solid rgba(0, 0, 0, 0.12) !important;
+  box-shadow: none !important;
   box-sizing: border-box;
 }
 

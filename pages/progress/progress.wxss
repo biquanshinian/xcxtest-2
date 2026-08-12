@@ -1,6 +1,6 @@
-/* pages/progress/progress.wxss */
+
 @import "../../styles/tweet-stats-bar.wxss";
-/* 禁止页面级滚动，避免空白区域下滑触发整页移动；仅由 scroll-view 负责滚动 */
+
 page {
   overflow: hidden;
   height: 100vh;
@@ -10,14 +10,14 @@ page {
   padding-bottom: 0;
   padding-top: 0;
 }
-/* 顶部导航栏容器（包含状态栏和导航栏） */
+
 .top-nav-wrapper {
   background: rgba(12, 14, 18, 0.08);
   backdrop-filter: blur(48rpx) saturate(170%);
   -webkit-backdrop-filter: blur(48rpx) saturate(170%);
   border-bottom: 1px solid rgba(255, 255, 255, 0.07);
 }
-/* 顶部导航栏 */
+
 .content-scroll {
   padding: var(--space-lg);
 }
@@ -62,23 +62,7 @@ page {
 .progress-map-btn--blue text {
   color: var(--color-brand);
 }
-.notice-map-entry {
-  margin-bottom: 18rpx;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 44rpx;
-  padding: 0 16rpx;
-  border-radius: 999rpx;
-  background: rgba(255, 69, 58, 0.16);
-  border: 1px solid rgba(255, 69, 58, 0.35);
-  box-sizing: border-box;
-}
-.notice-map-entry text {
-  color: #FFD1CC;
-  font-size: 22rpx;
-}
-/* 硬件卡片状态标签（hardware-card-status） */
+
 .status-dot {
   width: 12rpx;
   height: 12rpx;
@@ -91,7 +75,7 @@ page {
   color: #8E8E93;
   font-weight: 500;
 }
-/* 四态：ACTIVE / DESTROYED / EXPENDED / RETIRED */
+
 .status-active .status-dot {
   background: #34C759;
   box-shadow: 0 0 10rpx rgba(52, 199, 89, 0.7);
@@ -120,11 +104,11 @@ page {
 .status-retired .status-value {
   color: #8E8E93;
 }
-/* ── 星舰硬件设施 ── */
+
 .hardware-section {
   margin-bottom: var(--space-xl);
 }
-/* 标题右侧「查看全部」：PRO 金色胶囊，示意会员内容 */
+
 .booster-view-all {
   display: flex;
   align-items: center;
@@ -143,7 +127,7 @@ page {
   line-height: 1;
   color: var(--color-text-tertiary, rgba(255, 255, 255, 0.38));
 }
-/* 红底白字数量角标（与监控页全球发射场分布同款） */
+
 .section-badge {
   display: inline-flex;
   align-items: center;
@@ -261,192 +245,18 @@ page {
   color: #8E8E93;
   font-size: 26rpx;
 }
-/* ===== 星舰任务指挥室入口 ===== */
 
-.mission-sim-section {
-  margin-bottom: var(--space-xl);
-}
-/* 深空 HUD 风入口卡：不复用 glass-card（其白色高光线在深色渐变上发灰），
-   固定深色底 + 角落辉光 + L 形取景角标，深浅主题下观感一致 */
-.mission-sim-entry {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-md);
-  padding: var(--space-lg) var(--space-lg) var(--space-lg) var(--space-xl);
-  border-radius: var(--radius-card);
-  overflow: hidden;
-  background: linear-gradient(118deg, #06140c 0%, #0a1f14 55%, #05140c 100%);
-}
-/* 四角 L 形取景角标（与指挥室页面同语言） */
-.mission-sim-entry::before,
-.mission-sim-entry::after {
-  content: '';
-  position: absolute;
-  width: 20rpx;
-  height: 20rpx;
-  pointer-events: none;
-  z-index: 2;
-}
-.mission-sim-entry::before {
-  top: 0;
-  left: 0;
-  border-top-left-radius: var(--radius-sm);
-}
-.mission-sim-entry::after {
-  bottom: 0;
-  right: 0;
-  border-bottom-right-radius: var(--radius-sm);
-}
-/* 右上角青绿辉光 */
-.mission-sim-entry-glow {
-  position: absolute;
-  top: -80rpx;
-  right: -40rpx;
-  width: 280rpx;
-  height: 220rpx;
-  background: radial-gradient(closest-side, rgba(52, 199, 89, 0.12), transparent);
-  pointer-events: none;
-}
-.mission-sim-entry--pressed {
-  transform: scale(0.98);
-  opacity: 0.85;
-}
-.mission-sim-entry-left {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 10rpx;
-  min-width: 0;
-}
-.mission-sim-entry-tagrow {
-  display: flex;
-  align-items: center;
-  gap: 10rpx;
-}
-.mission-sim-entry-dot {
-  width: 10rpx;
-  height: 10rpx;
-  border-radius: 50%;
-  background: var(--color-success);
-  box-shadow: 0 0 12rpx rgba(52, 199, 89, 0.7);
-  animation: mission-sim-dot-pulse 1.6s ease-in-out infinite;
-}
+
+
+
+
 @keyframes mission-sim-dot-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
 }
-.mission-sim-entry-tag {
-  font-family: 'Courier New', monospace;
-  font-size: 20rpx;
-  letter-spacing: 4rpx;
-  color: rgba(52, 199, 89, 0.9);
-}
-.mission-sim-entry-title {
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text-primary);
-  letter-spacing: 1rpx;
-  text-shadow: 0 0 24rpx rgba(52, 199, 89, 0.2);
-}
-.mission-sim-entry-desc {
-  font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.55);
-  line-height: 1.6;
-}
-.mission-sim-entry-arrow {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 6rpx;
-  flex-shrink: 0;
-  font-size: 24rpx;
-  font-weight: 600;
-  color: #041008;
-  background: var(--color-success);
-  border-radius: var(--radius-pill);
-  padding: 14rpx 26rpx;
-  box-shadow: 0 4rpx 18rpx rgba(52, 199, 89, 0.28);
-}
-.mission-sim-entry-arrow-icon {
-  font-size: 28rpx;
-  font-weight: 700;
-  line-height: 1;
-  margin-top: -2rpx;
-}
-/* —— 浅色主题：浅底深字，绿色加深保证对比度 —— */
-.theme-light .mission-sim-entry {
-  background: linear-gradient(118deg, #ffffff 0%, #f3fbf6 55%, #eaf8f0 100%);
-}
-.theme-light .mission-sim-entry::before {
-}
-.theme-light .mission-sim-entry::after {
-}
-.theme-light .mission-sim-entry-glow {
-  background: radial-gradient(closest-side, rgba(0, 200, 120, 0.12), transparent);
-}
-.theme-light .mission-sim-entry-dot {
-  background: #00a862;
-  box-shadow: 0 0 10rpx rgba(0, 168, 98, 0.6);
-}
-.theme-light .mission-sim-entry-tag {
-  color: #00915a;
-}
-.theme-light .mission-sim-entry-title {
-  color: #1C1C1E;
-  text-shadow: none;
-}
-.theme-light .mission-sim-entry-desc {
-  color: rgba(28, 28, 30, 0.55);
-}
-.theme-light .mission-sim-entry-arrow {
-  color: #ffffff;
-  background: linear-gradient(135deg, #00c46a, #00a862);
-  box-shadow: 0 4rpx 16rpx rgba(0, 168, 98, 0.3);
-}
 
-/* 在轨飞行器追踪：复用入口卡结构，仅覆盖为微信绿 */
-.mission-sim-entry--wechat {
-  background: linear-gradient(118deg, #06140c 0%, #0a1f14 55%, #05140c 100%);
-}
-.mission-sim-entry--wechat::before {
-}
-.mission-sim-entry--wechat::after {
-}
-.mission-sim-entry--wechat .mission-sim-entry-glow {
-  background: radial-gradient(closest-side, rgba(7, 193, 96, 0.16), transparent);
-}
-.mission-sim-entry--wechat .mission-sim-entry-dot {
-  background: #07C160;
-  box-shadow: 0 0 12rpx rgba(7, 193, 96, 0.9);
-}
-.mission-sim-entry--wechat .mission-sim-entry-tag {
-  color: rgba(7, 193, 96, 0.9);
-}
-.mission-sim-entry--wechat .mission-sim-entry-title {
-  text-shadow: 0 0 24rpx rgba(7, 193, 96, 0.28);
-}
-.mission-sim-entry--wechat .mission-sim-entry-arrow {
-  color: #ffffff;
-  background: linear-gradient(135deg, #1ad97a 0%, #07C160 55%, #06a852 100%);
-  box-shadow: 0 4rpx 18rpx rgba(7, 193, 96, 0.4);
-}
-.theme-light .mission-sim-entry--wechat {
-  background: linear-gradient(118deg, #ffffff 0%, #f3fbf6 55%, #eaf8f0 100%);
-}
-.theme-light .mission-sim-entry--wechat .mission-sim-entry-tag {
-  color: #06a852;
-}
-.theme-light .mission-sim-entry--wechat .mission-sim-entry-dot {
-  background: #07C160;
-  box-shadow: 0 0 10rpx rgba(7, 193, 96, 0.65);
-}
-.theme-light .mission-sim-entry--wechat .mission-sim-entry-arrow {
-  color: #ffffff;
-  background: linear-gradient(135deg, #1ad97a, #07C160 55%, #06a852);
-  box-shadow: 0 4rpx 16rpx rgba(7, 193, 96, 0.35);
-}
+
+
 
 .detail-status-row {
   display: flex;
@@ -493,7 +303,7 @@ page {
   line-height: 1.15;
   display: block;
 }
-/* ===== 可滚动内容 ===== */
+
 .popup-body {
   flex: 1;
   min-height: 0;
@@ -531,16 +341,7 @@ page {
   line-height: 1.5;
   display: block;
 }
-/* 封路通知区域 */
-.notice-section {
-  margin-bottom: var(--space-xl);
-}
-.notice-card {
-  padding: var(--space-lg);
-  box-sizing: border-box;
-  width: 100%;
-  max-width: 100%;
-}
+
 button.notice-card {
   display: block !important;
   width: 100% !important;
@@ -549,178 +350,9 @@ button.notice-card {
   min-height: 0 !important;
   margin: 0 !important;
 }
-.notice-header {
-  display: flex;
-  align-items: center;
-  gap: 15rpx;
-  margin-bottom: 20rpx;
-}
-.notice-icon {
-  flex-shrink: 0;
-  width: 36rpx;
-  height: 36rpx;
-  background-size: contain;
-  background-repeat: no-repeat;
-  background-position: center;
-}
-.notice-icon--closure {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23FF9500' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z'/%3E%3Cline x1='12' y1='9' x2='12' y2='13'/%3E%3Cline x1='12' y1='17' x2='12.01' y2='17'/%3E%3C/svg%3E");
-}
-.notice-title {
-  font-size: 32rpx;
-  font-weight: 600;
-  color: #FFFFFF;
-}
-.notice-message {
-  font-size: 28rpx;
-  color: #FFFFFF;
-  line-height: 1.6;
-  margin-bottom: 20rpx;
-}
-.notice-empty {
-  display: flex;
-  flex-direction: column;
-  gap: 8rpx;
-  margin-bottom: 10rpx;
-}
-.notice-no-data {
-  color: #8E8E93;
-  font-size: 28rpx;
-  font-style: italic;
-}
-.notice-hint {
-  font-size: 22rpx;
-  color: rgba(255, 149, 0, 0.6);
-}
-/* 飞行检查清单（进度页封路下方） */
-.flight-checklist-section {
-  margin-bottom: var(--space-xl);
-}
-/* 星舰飞行检查清单：进度页仅 3 条预览，「展开」门控进详情 */
-.nsf-checklist-card {
-  padding: 0;
-  box-sizing: border-box;
-  overflow: hidden;
-}
-.nsf-checklist-card-header {
-  padding: 24rpx 28rpx;
-}
-.nsf-checklist-summary-row {
-  display: flex;
-  align-items: center;
-  gap: 16rpx;
-}
-.nsf-checklist-summary-title {
-  font-size: 34rpx;
-  font-weight: 600;
-  color: #ffffff;
-}
-.nsf-checklist-summary-ratio {
-  font-size: 28rpx;
-  font-weight: 600;
-  color: rgba(52, 199, 89, 0.95);
-  font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
-}
-.nsf-checklist-summary-row .nsf-checklist-summary-title {
-  flex: 1;
-  min-width: 0;
-}
-.nsf-checklist-muted {
-  font-size: 26rpx;
-  color: rgba(142, 142, 147, 0.95);
-}
-.nsf-checklist-muted--pad {
-  padding: 0 28rpx 20rpx;
-}
-.nsf-checklist-preview-rows {
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
-}
-.nsf-checklist-preview-rows .nsf-checklist-preview-row:last-child {
-  border-bottom: none;
-}
-.nsf-checklist-expand-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10rpx;
-  padding: 22rpx 28rpx 24rpx;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-}
-.nsf-checklist-expand-row--active {
-  opacity: 0.75;
-}
-.nsf-checklist-expand-text {
-  font-size: 28rpx;
-  font-weight: 500;
-  color: var(--color-brand);
-}
-.nsf-checklist-expand-chevron {
-  font-size: 34rpx;
-  line-height: 1;
-  color: rgba(59, 130, 246, 0.8);
-}
-.nsf-checklist-progress-block {
-  padding: 20rpx 0 8rpx;
-  margin-bottom: 0;
-}
-.nsf-checklist-progress-bar-row {
-  display: flex;
-  align-items: center;
-  gap: 16rpx;
-}
-.nsf-checklist-progress-bar-row .nsf-checklist-progress-track {
-  flex: 1;
-  min-width: 0;
-}
-.nsf-checklist-bar-refresh {
-  flex-shrink: 0;
-}
-.nsf-checklist-progress-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 12rpx;
-}
-.nsf-checklist-progress-title {
-  font-size: 26rpx;
-  color: rgba(255, 255, 255, 0.72);
-  font-weight: 500;
-}
-.nsf-checklist-progress-ratio {
-  font-size: 26rpx;
-  font-weight: 600;
-  color: rgba(52, 199, 89, 0.95);
-  font-variant-numeric: tabular-nums;
-}
-.nsf-checklist-progress-track {
-  height: 16rpx;
-  border-radius: 999rpx;
-  background: rgba(255, 255, 255, 0.08);
-  overflow: hidden;
-}
-.nsf-checklist-progress-fill {
-  height: 100%;
-  border-radius: 999rpx;
-  background: linear-gradient(
-    90deg,
-    rgba(48, 209, 88, 0.85) 0%,
-    rgba(52, 199, 89, 1) 45%,
-    rgba(142, 232, 112, 0.92) 100%
-  );
-  min-width: 0;
-  transition: width 0.35s ease-out;
-}
-.flight-checklist-empty {
-  display: flex;
-  flex-direction: column;
-  gap: 12rpx;
-}
-.flight-checklist-empty-title {
-  font-size: 28rpx;
-  color: #8e8e93;
-}
-/* 进度页 · LL2 星舰时间与动态（结构与检查清单预览一致） */
+
+
+
 .ll2-progress-pack {
   margin-bottom: var(--space-xl);
 }
@@ -736,12 +368,12 @@ button.notice-card {
   padding-top: 16rpx;
   padding-bottom: 16rpx;
 }
-/* 星舰动态追踪预览：与 nsf-checklist-card-header / flight-checklist-row 左右 28rpx 对齐 */
+
 .ll2-progress-pack .nsf-checklist-preview-rows:not(.ll2-preview-timeline-rows) .ll2-update-row {
   padding-left: 28rpx;
   padding-right: 28rpx;
 }
-/* Launch Library 飞行时间线（launch.timeline） */
+
 .ll2-timeline-section {
   margin-bottom: var(--space-xl);
 }
@@ -777,7 +409,7 @@ button.notice-card {
   flex-shrink: 0;
   box-sizing: border-box;
 }
-/* LL2 时间线节点：单色几何图形（与 utils/ll2-launch-timeline iconVariant 一致） */
+
 .ll2-timeline-node-mark {
   flex-shrink: 0;
   box-sizing: border-box;
@@ -897,105 +529,7 @@ button.notice-card {
 .ll2-update-chevron {
   margin-top: 4rpx;
 }
-.flight-checklist-row {
-  display: flex;
-  align-items: center;
-  gap: 20rpx;
-  padding: 22rpx 28rpx;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-.flight-checklist-row:last-child {
-  border-bottom: none;
-}
-.flight-checklist-check {
-  flex-shrink: 0;
-  width: 40rpx;
-  height: 40rpx;
-  border-radius: 8rpx;
-  border: 2rpx solid rgba(142, 142, 147, 0.65);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-}
-.flight-checklist-check--done {
-  border-color: rgba(52, 199, 89, 0.85);
-  background: rgba(52, 199, 89, 0.18);
-}
-.flight-checklist-check-mark {
-  font-size: 26rpx;
-  color: #34c759;
-  font-weight: 700;
-  line-height: 1;
-}
-.flight-checklist-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6rpx;
-}
-.flight-checklist-category {
-  font-size: 22rpx;
-  color: rgba(142, 142, 147, 0.95);
-}
-.flight-checklist-row-title {
-  font-size: 29rpx;
-  color: #ffffff;
-  line-height: 1.45;
-}
-.flight-checklist-chevron {
-  flex-shrink: 0;
-  font-size: 44rpx;
-  color: rgba(142, 142, 147, 0.85);
-  font-weight: 300;
-  padding: 8rpx 4rpx 8rpx 16rpx;
-  line-height: 1;
-}
-.notice-source {
-  font-size: 20rpx;
-  color: rgba(255, 149, 0, 0.7);
-  padding: 2rpx 10rpx;
-  border: 1px solid rgba(255, 149, 0, 0.3);
-  border-radius: 6rpx;
-  margin-left: auto;
-}
-.notice-schedule {
-  display: flex;
-  flex-direction: column;
-  gap: 8rpx;
-  padding-top: 16rpx;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-  margin-bottom: 12rpx;
-}
-.schedule-label {
-  font-size: 24rpx;
-  color: #8E8E93;
-  margin-bottom: 4rpx;
-}
-.schedule-item {
-  font-size: 26rpx;
-  color: #FF9500;
-  line-height: 1.5;
-  padding-left: 16rpx;
-  border-left: 3rpx solid rgba(255, 149, 0, 0.4);
-}
-.notice-time {
-  display: flex;
-  flex-direction: column;
-  gap: 5rpx;
-  padding-top: 15rpx;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-}
-.time-label {
-  font-size: 24rpx;
-  color: #8E8E93;
-}
-.time-value {
-  font-size: 26rpx;
-  color: #FF9500;
-}
-/* 标题下方横向滑动（复用首页发射商胶囊交互：scroll-x + 右侧渐隐提示） */
+
 .tweet-stats-scroll-wrap {
   position: relative;
   margin-bottom: 20rpx;
@@ -1126,7 +660,7 @@ button.notice-card {
   color: rgba(255, 255, 255, 0.72);
 }
 
-/* 事件更新：多图选择保存原图 */
+
 .event-image-save-mask {
   position: fixed;
   left: 0;
@@ -1214,9 +748,9 @@ button.notice-card {
   flex: 1;
 }
 
-/* ========== 明亮主题（theme-light）覆盖 ========== */
 
-/* 顶部导航与标题 */
+
+
 .theme-light .top-nav-wrapper {
   background: var(--bg-glass-nav);
   border-bottom: 1px solid var(--color-divider);
@@ -1224,7 +758,7 @@ button.notice-card {
 .theme-light .section-title {
   color: var(--color-text-primary);
 }
-/* 地图按钮：品牌色保持，衬底降透明度、文字加深 */
+
 .theme-light .progress-map-btn {
   background: rgba(52, 199, 89, 0.12);
   border-color: rgba(52, 199, 89, 0.45);
@@ -1239,16 +773,9 @@ button.notice-card {
 .theme-light .progress-map-btn--blue text {
   color: var(--color-brand);
 }
-.theme-light .notice-map-entry {
-  background: rgba(255, 69, 58, 0.12);
-  border-color: rgba(255, 69, 58, 0.4);
-}
-.theme-light .notice-map-entry text {
-  color: #D70015;
-}
-/* 状态色（active/destroyed/expended/retired）保持不变 */
 
-/* 星舰硬件设施 */
+
+
 .theme-light .hardware-card {
 }
 .theme-light .hardware-card-image-wrap {
@@ -1257,7 +784,7 @@ button.notice-card {
 .theme-light .hardware-card-image {
   background-color: rgba(0, 0, 0, 0.05);
 }
-/* .hardware-card-image-mask / .hardware-card-overlay / .hardware-card-name 压在硬件照片上，保持深色渐变与白字 */
+
 
 .theme-light .hardware-card-type {
   color: var(--color-text-secondary);
@@ -1268,81 +795,8 @@ button.notice-card {
 .theme-light .hardware-empty text {
   color: var(--color-text-secondary);
 }
-/* 封路通知 */
-.theme-light .notice-icon--closure {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23FF9500' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z'/%3E%3Cline x1='12' y1='9' x2='12' y2='13'/%3E%3Cline x1='12' y1='17' x2='12.01' y2='17'/%3E%3C/svg%3E");
-}
-.theme-light .notice-title {
-  color: var(--color-text-primary);
-}
-.theme-light .notice-message {
-  color: var(--color-text-primary);
-}
-.theme-light .notice-no-data {
-  color: var(--color-text-secondary);
-}
-.theme-light .notice-schedule {
-  border-top: 1px solid var(--color-divider);
-}
-.theme-light .schedule-label {
-  color: var(--color-text-secondary);
-}
-.theme-light .notice-time {
-  border-top: 1px solid var(--color-divider);
-}
-.theme-light .time-label {
-  color: var(--color-text-secondary);
-}
-.theme-light .nsf-checklist-summary-title {
-  color: var(--color-text-primary);
-}
-.theme-light .nsf-checklist-muted {
-  color: var(--color-text-secondary);
-}
-.theme-light .nsf-checklist-preview-rows {
-  border-top: 1px solid var(--color-divider);
-}
-.theme-light .nsf-checklist-expand-row {
-  border-top: 1px solid var(--color-divider);
-}
-.theme-light .nsf-checklist-expand-text {
-  color: var(--color-brand);
-}
-.theme-light .nsf-checklist-expand-chevron {
-  color: rgba(59, 130, 246, 0.8);
-}
-.theme-light .nsf-checklist-progress-title {
-  color: var(--color-text-secondary);
-}
-.theme-light .nsf-checklist-progress-track {
-  background: rgba(0, 0, 0, 0.06);
-}
-.theme-light .flight-checklist-empty-title {
-  color: var(--color-text-secondary);
-}
-.theme-light .flight-checklist-row {
-  border-bottom: 1px solid var(--color-divider);
-}
-.theme-light .flight-checklist-row:last-child {
-  border-bottom: none;
-}
-.theme-light .flight-checklist-check {
-  border-color: rgba(142, 142, 147, 0.55);
-}
-.theme-light .flight-checklist-check--done {
-  border-color: rgba(52, 199, 89, 0.85);
-  background: rgba(52, 199, 89, 0.14);
-}
-.theme-light .flight-checklist-category {
-  color: var(--color-text-secondary);
-}
-.theme-light .flight-checklist-row-title {
-  color: var(--color-text-primary);
-}
-.theme-light .flight-checklist-chevron {
-  color: var(--color-text-tertiary);
-}
-/* LL2 时间线 / 动态追踪 */
+
+
 .theme-light .ll2-preview-timeline-rows {
   border-top: 1px solid var(--color-divider);
 }
@@ -1399,11 +853,11 @@ button.notice-card {
 .theme-light .ll2-update-meta {
   color: var(--color-text-secondary);
 }
-/* 事件更新 */
+
 .theme-light .tweet-stats-scroll-fade {
   background: linear-gradient(90deg, rgba(242, 242, 247, 0), rgba(242, 242, 247, 0.92));
 }
-/* 账号统计胶囊（styles/tweet-stats-bar.wxss 引入，本页覆盖） */
+
 .theme-light .tweet-stat-item {
   background: rgba(0, 0, 0, 0.05);
   border-color: var(--color-divider);
@@ -1414,7 +868,7 @@ button.notice-card {
 .theme-light .tweet-stat-count {
   color: #0071A9;
 }
-/* 分享面板：遮罩保持深色，面板转浅色 */
+
 .theme-light .event-share-sheet {
   background: var(--bg-glass-popup, rgba(255, 255, 255, 0.88));
   box-shadow: 0 24rpx 80rpx rgba(0, 0, 0, 0.15);
@@ -1430,7 +884,7 @@ button.notice-card {
   background: rgba(0, 0, 0, 0.05);
   border: 1px solid var(--color-divider);
 }
-/* .event-share-sheet-btn--primary 实色蓝底白字保持 */
+
 
 .theme-light .event-share-sheet-btn--cancel {
   color: var(--color-text-secondary);

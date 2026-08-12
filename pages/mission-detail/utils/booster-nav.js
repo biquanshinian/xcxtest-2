@@ -1,11 +1,11 @@
 /**
  * 可回收火箭实体详情统一跳转：门控 → 预塞族谱档案 → booster-detail
- * 任务详情 / 首页倒计时 / 族谱 / 监控图鉴共用，保证同一数据骨架。
+ * 各分包本地副本（禁止放主包：主包 Tab 未引用会被「未使用 JS」扫描拦截；
+ * 亦不可只放 shared 再被其它分包 sync require，分享冷启动会黑屏）。
  */
 
 function normalizeSerial(serial) {
   const s = String(serial || '').trim()
-  // LL2 占位序列号（Unknown / Unknown12A）不可进助推器详情
   if (!s || /^unknown/i.test(s) || /^(tbd|n\/?a|null|none|未披露|未知|\?+|-+)$/i.test(s)) {
     return ''
   }
@@ -19,14 +19,6 @@ function serialMatch(item, serial) {
   return a === serial || a.toUpperCase() === serial.toUpperCase()
 }
 
-/**
- * @param {string} serial
- * @param {Object} [options]
- *   - raw: 已有族谱原始文档（族谱列表入口可直接传入，免再拉）
- *   - heroImage: 卡片当前已显示的图（详情头图复用，避免卡有图详无图）
- *   - skipGate: 已在外层做过门控时跳过
- * @returns {Promise<boolean>} 是否已发起跳转
- */
 async function openBoosterEntityDetail(serial, options) {
   options = options || {}
   serial = normalizeSerial(serial)
@@ -37,18 +29,16 @@ async function openBoosterEntityDetail(serial, options) {
 
   if (!options.skipGate) {
     try {
-      const { gateCheck } = require('./membership.js')
+      const { gateCheck } = require('../../../utils/membership.js')
       const allowed = await gateCheck('booster_genealogy', '全球可回收火箭族谱')
       if (!allowed) return false
-    } catch (e) {
-      // 门控异常 fail-open，与 membership 其它入口一致
-    }
+    } catch (e) {}
   }
 
   let raw = options.raw || null
   if (!raw) {
     try {
-      const { getBoosterGenealogy } = require('./api-app-services.js')
+      const { getBoosterGenealogy } = require('../../../utils/api-app-services.js')
       const list = await getBoosterGenealogy()
       raw = (list || []).find(function (b) { return serialMatch(b, serial) }) || null
     } catch (e) {
@@ -59,24 +49,16 @@ async function openBoosterEntityDetail(serial, options) {
   try {
     const app = typeof getApp === 'function' ? getApp() : null
     if (app && raw) app._boosterDetailData = raw
-    // 与飞船图鉴 _spacecraftHeroImage 同模式：卡面图直传详情头图
     if (app && options.heroImage) {
       app._boosterHeroImage = { serial: serial, src: String(options.heroImage) }
     }
   } catch (e) {}
 
-  const { ROUTES, navigateTo } = require('./routes.js')
+  const { ROUTES, navigateTo } = require('../../../utils/routes.js')
   navigateTo(ROUTES.BOOSTER_DETAIL, { serial: serial })
   return true
 }
 
-/**
- * 火箭型号详情统一跳转：门控 → rocket-model-detail（_config_meta 缺失时页面自带 LL2 兜底）
- * @param {string|number} configId LL2 launcher_configuration id
- * @param {Object} [options]
- *   - skipGate: 已在外层做过门控时跳过
- * @returns {Promise<boolean>} 是否已发起跳转
- */
 async function openRocketModelDetail(configId, options) {
   options = options || {}
   if (configId == null || configId === '') {
@@ -86,15 +68,13 @@ async function openRocketModelDetail(configId, options) {
 
   if (!options.skipGate) {
     try {
-      const { gateCheck } = require('./membership.js')
+      const { gateCheck } = require('../../../utils/membership.js')
       const allowed = await gateCheck('booster_genealogy', '全球可回收火箭族谱')
       if (!allowed) return false
-    } catch (e) {
-      // 门控异常 fail-open，与 membership 其它入口一致
-    }
+    } catch (e) {}
   }
 
-  const { ROUTES, navigateTo } = require('./routes.js')
+  const { ROUTES, navigateTo } = require('../../../utils/routes.js')
   navigateTo(ROUTES.ROCKET_MODEL_DETAIL, { configId: configId })
   return true
 }

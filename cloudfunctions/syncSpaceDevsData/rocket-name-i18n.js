@@ -84,8 +84,19 @@ function parseCzKey(key) {
  * 火箭英文/原文名 → 中文显示名；已含中文或无法识别时原样返回。
  */
 function translateRocketName(name) {
-  const raw = String(name || '').trim()
+  let raw = String(name || '').trim()
   if (!raw) return ''
+  // 机翻误译：Zhuque → 麻雀（须先纠偏，否则会原样返回）
+  if (raw.indexOf('麻雀') >= 0) {
+    raw = raw
+      .replace(/麻雀\s*二\s*号?\s*[改eE]/g, '朱雀二号改')
+      .replace(/麻雀\s*[-–]?\s*(\d+)\s*([eE])\b/g, (_, n, e) => {
+        const num = CZ_NUM_ZH[Number(n)] || n
+        return '朱雀' + num + '号' + (String(e).toLowerCase() === 'e' ? '改' : '')
+      })
+      .replace(/麻雀\s*[-–]?\s*(\d+)号?(?=\s|[|｜]|$|[^\d号])/g, (_, n) => '朱雀' + (CZ_NUM_ZH[Number(n)] || n) + '号')
+      .replace(/麻雀\s*([一二三四五六七八九十]+)\s*号/g, '朱雀$1号')
+  }
   if (/[\u4e00-\u9fff]/.test(raw)) return raw
 
   const key = normKey(raw)

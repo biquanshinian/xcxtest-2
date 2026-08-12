@@ -21,7 +21,7 @@ const launchSiteDisplay = require('./launch-site-display.js')
 const { getFeaturedAgencies, filterAgencies, toDisplayRow } = require('./agency-data.js')
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
 const { gateCheck } = require('../../../utils/membership.js')
-const { openBoosterEntityDetail } = require('../../../utils/booster-nav.js')
+const { openBoosterEntityDetail } = require('./booster-nav.js')
 const {
   persistAgencyLogoAfterRemoteLoad,
   isRemoteAgencyLogoUrl

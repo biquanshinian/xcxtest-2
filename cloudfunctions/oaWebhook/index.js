@@ -286,21 +286,26 @@ async function handleSubscribe(oaOpenid) {
 
 async function handleUnsubscribe(oaOpenid) {
   const now = Date.now()
+  // 可能存在同 oaOpenid 多档，全部清掉，避免残留 followed=true
   const existing = await db
     .collection(OA_USERS_COLLECTION)
     .where({ oaOpenid: oaOpenid })
-    .limit(1)
+    .limit(20)
     .get()
     .catch(() => ({ data: [] }))
-  if (!existing.data || !existing.data.length) return
-  await db.collection(OA_USERS_COLLECTION).doc(existing.data[0]._id).update({
-    data: {
-      followed: false,
-      enabled: false,
-      unsubscribedAt: now,
-      updatedAt: now
-    }
-  })
+  const rows = existing.data || []
+  if (!rows.length) return
+  const patch = {
+    followed: false,
+    enabled: false,
+    unsubscribedAt: now,
+    updatedAt: now
+  }
+  for (var i = 0; i < rows.length; i++) {
+    try {
+      await db.collection(OA_USERS_COLLECTION).doc(rows[i]._id).update({ data: patch })
+    } catch (e) {}
+  }
 }
 
 async function findOaAlertUserForEnable(oaOpenid, unionid) {

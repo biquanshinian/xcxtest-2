@@ -213,6 +213,37 @@ function aiChatUiText(key, vars) {
     watchCtaEnter: en ? 'Enter Watch Party ›' : '进入观礼 ›',
 
     reusable: en ? 'Reusable' : '可复用',
+    // 抽卡角标（统一跟 contentLang，禁硬编码英文 ROCKET / LAUNCH SITE）
+    tagRocket: en ? 'ROCKET' : '运载火箭',
+    tagLaunchSite: en ? 'LAUNCH SITE' : '发射场',
+    tagSpacecraft: en ? 'SPACECRAFT' : '航天器',
+    tagBooster: en ? 'BOOSTER' : '助推器',
+    tagBoosterGene: en ? 'BOOSTER · GENEALOGY' : '助推器 · 家谱',
+    tagFlightProfile: en ? 'FLIGHT PROFILE' : '飞行剖面',
+    tagVehicleTracker: en ? 'VEHICLE TRACKER' : '在轨追踪',
+    tagMissionSim: en ? 'GO / NO-GO · SIM' : '指挥室 · 模拟',
+    tagStarshipProgress: en ? 'STARSHIP · PROGRESS' : '星舰 · 进度',
+    tagStarbaseRoad: en ? 'STARBASE · ROAD' : '星舰基地 · 封路',
+    tagYearReview: en ? 'YEAR IN REVIEW' : '年度回顾',
+    tagSkyCalendar: en ? 'SKY CALENDAR' : '天象日历',
+    tagBadges: en ? 'BADGES' : '徽章',
+    tagFavorites: en ? 'FAVORITES' : '收藏',
+    tagQuiz: en ? 'QUIZ' : '问答',
+    tagWish: en ? 'WISH' : '许愿',
+    tagExoplanet: en ? 'EXOPLANET' : '系外行星',
+    tagNasa: en ? 'NASA' : 'NASA',
+    tagSites: en ? 'SITES' : '发射场',
+    tagApod: en ? 'NASA APOD' : 'NASA 天文图',
+    tagTiangong: en ? 'TIANGONG' : '天宫',
+    tagIss: en ? 'ISS' : '国际空间站',
+    tagStation: en ? 'STATION' : '空间站',
+    tzAsiaShanghai: en ? 'Asia/Shanghai' : '中国标准时间（北京时间）',
+    tzAmericaNewYork: en ? 'America/New_York' : '美国东部时间',
+    tzAmericaChicago: en ? 'America/Chicago' : '美国中部时间',
+    tzAmericaDenver: en ? 'America/Denver' : '美国山地时间',
+    tzAmericaLosAngeles: en ? 'America/Los_Angeles' : '美国太平洋时间',
+    tzEuropeParis: en ? 'Europe/Paris' : '欧洲中部时间',
+    tzUTC: en ? 'UTC' : '协调世界时 UTC',
     launchVehicle: en ? 'Launch vehicle' : '运载火箭',
     rocketModelCta: en ? 'Open model archive ›' : '查看型号档案 ›',
     rowLength: en ? 'Length' : '全长',
@@ -414,7 +445,7 @@ function aiChatUiText(key, vars) {
 
 function localizeCountryName(zhOrGlobal) {
   const s = String(zhOrGlobal || '').trim()
-  if (!s || s === '全球') return aiChatUiText('countryGlobal')
+  if (!s || s === '全球' || /^global$/i.test(s)) return aiChatUiText('countryGlobal')
   const keyMap = {
     中国: 'countryChina',
     美国: 'countryUSA',
@@ -425,10 +456,54 @@ function localizeCountryName(zhOrGlobal) {
     法国: 'countryFrance',
     英国: 'countryUK',
     以色列: 'countryIsrael',
-    澳大利亚: 'countryAustralia'
+    澳大利亚: 'countryAustralia',
+    // LL2 英文国名 / 全称
+    china: 'countryChina',
+    "people's republic of china": 'countryChina',
+    prc: 'countryChina',
+    'united states': 'countryUSA',
+    'united states of america': 'countryUSA',
+    usa: 'countryUSA',
+    us: 'countryUSA',
+    russia: 'countryRussia',
+    'russian federation': 'countryRussia',
+    india: 'countryIndia',
+    japan: 'countryJapan',
+    'south korea': 'countryKorea',
+    korea: 'countryKorea',
+    'republic of korea': 'countryKorea',
+    france: 'countryFrance',
+    'united kingdom': 'countryUK',
+    uk: 'countryUK',
+    israel: 'countryIsrael',
+    australia: 'countryAustralia'
   }
-  const k = keyMap[s]
+  const soft = s.toLowerCase().replace(/[.,/()]/g, ' ').replace(/\s+/g, ' ').trim()
+  const k = keyMap[s] || keyMap[soft]
   return k ? aiChatUiText(k) : s
+}
+
+/** IANA 时区 → 展示文案（中文偏好友好名，英文保留 IANA） */
+function localizeTimezoneName(tz) {
+  const raw = String(tz || '').trim()
+  if (!raw) return ''
+  if (isContentLangEn()) return raw
+  const key = raw.toLowerCase()
+  const map = {
+    'asia/shanghai': 'tzAsiaShanghai',
+    'asia/beijing': 'tzAsiaShanghai',
+    'asia/chongqing': 'tzAsiaShanghai',
+    'america/new_york': 'tzAmericaNewYork',
+    'america/chicago': 'tzAmericaChicago',
+    'america/denver': 'tzAmericaDenver',
+    'america/los_angeles': 'tzAmericaLosAngeles',
+    'europe/paris': 'tzEuropeParis',
+    utc: 'tzUTC',
+    gmt: 'tzUTC',
+    'etc/utc': 'tzUTC'
+  }
+  const k = map[key]
+  return k ? aiChatUiText(k) : raw
 }
 
 function localizeSiteLabel(siteKey, fallback) {
@@ -508,6 +583,7 @@ function getAiChatShellTexts() {
 module.exports = {
   aiChatUiText,
   localizeCountryName,
+  localizeTimezoneName,
   localizeSiteLabel,
   localizeAgencyType,
   localizeQuickShortcuts,

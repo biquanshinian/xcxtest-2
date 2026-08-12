@@ -4,12 +4,6 @@ const tabLoadPage = require('../../utils/tab-load-page.js')
 const { buildMomentsSinglePagePatch } = require('../../utils/moments-single.js')
 const rocketArtUtil = require('../../utils/rocket-config-art.js')
 const {
-  resolveFestivalHatId,
-  isFestivalHatDevMode,
-  listFestivalHats,
-  DEV_CYCLE_MS
-} = require('../../utils/festival-hat.js')
-const {
   getUpcomingMissions,
   getCompletedMissions,
   invalidateListSnapshots
@@ -157,7 +151,7 @@ const {
   isSettleableLiveStatusId,
   RECENT_SETTLED_MEM_TTL_MS
 } = require('./utils/index-settled-merge.js')
-/** 首屏渲染前等云端 recent_settled 的最大预算（本地快照过期时才等） */
+
 const RECENT_SETTLED_FIRST_PAINT_BUDGET_MS = 2000
 
 
@@ -220,14 +214,20 @@ const CALENDAR_METHODS = [
 function delegateCalendar(name) {
   return function (...args) {
     const page = this
-    if (page.__calendarAttached) return page[name](...args)
+    const run = () => {
+      const fnImpl = page.__calendarMethods && page.__calendarMethods[name]
+      if (typeof fnImpl === 'function') return fnImpl.apply(page, args)
+      return page[name](...args)
+    }
+    if (page.__calendarAttached && page.__calendarMethods) return run()
     if (!page.__calendarLoadPromise) {
       page.__calendarLoadPromise = require.async(CALENDAR_PKG).then((mod) => {
         mod.attachTo(page)
+        page.__calendarMethods = (mod && mod.methods) || page.__calendarMethods
         return mod
       })
     }
-    return page.__calendarLoadPromise.then(() => page[name](...args))
+    return page.__calendarLoadPromise.then(() => run())
   }
 }
 const calendarDelegates = {}
@@ -241,14 +241,20 @@ const SAVE_IMAGE_METHODS = ['saveCarouselImage', 'saveImageToAlbum', 'handleSave
 function delegateSaveImage(name) {
   return function (...args) {
     const page = this
-    if (page.__saveImageAttached) return page[name](...args)
+    const run = () => {
+      const fnImpl = page.__saveImageMethods && page.__saveImageMethods[name]
+      if (typeof fnImpl === 'function') return fnImpl.apply(page, args)
+      return page[name](...args)
+    }
+    if (page.__saveImageAttached && page.__saveImageMethods) return run()
     if (!page.__saveImageLoadPromise) {
       page.__saveImageLoadPromise = require.async(SAVE_IMAGE_PKG).then((mod) => {
         mod.attachTo(page)
+        page.__saveImageMethods = (mod && mod.methods) || page.__saveImageMethods
         return mod
       })
     }
-    return page.__saveImageLoadPromise.then(() => page[name](...args))
+    return page.__saveImageLoadPromise.then(() => run())
   }
 }
 const saveImageDelegates = {}
@@ -270,14 +276,20 @@ const VOTE_METHODS = [
 function delegateVote(name) {
   return function (...args) {
     const page = this
-    if (page.__voteAttached) return page[name](...args)
+    const run = () => {
+      const fnImpl = page.__voteMethods && page.__voteMethods[name]
+      if (typeof fnImpl === 'function') return fnImpl.apply(page, args)
+      return page[name](...args)
+    }
+    if (page.__voteAttached && page.__voteMethods) return run()
     if (!page.__voteLoadPromise) {
       page.__voteLoadPromise = require.async(VOTE_PKG).then((mod) => {
         mod.attachTo(page)
+        page.__voteMethods = (mod && mod.methods) || page.__voteMethods
         return mod
       })
     }
-    return page.__voteLoadPromise.then(() => page[name](...args))
+    return page.__voteLoadPromise.then(() => run())
   }
 }
 const voteDelegates = {}
@@ -332,18 +344,23 @@ const CAROUSEL_METHODS = [
 function delegateCarousel(name) {
   return function (...args) {
     const page = this
-    if (page.__carouselAttached) return page[name](...args)
+    const run = () => {
+      const fnImpl = page.__carouselMethods && page.__carouselMethods[name]
+      if (typeof fnImpl === 'function') return fnImpl.apply(page, args)
+      return page[name](...args)
+    }
+    if (page.__carouselAttached && page.__carouselMethods) return run()
     if (!page.__carouselLoadPromise) {
       page.__carouselLoadPromise = require.async(CAROUSEL_PKG).then((mod) => {
         mod.attachTo(page)
+        page.__carouselMethods = (mod && mod.methods) || page.__carouselMethods
         return mod
       }).catch((err) => {
         page.__carouselLoadPromise = null
-        console.error('[Index] 轮播分包模块加载失败:', err)
         throw err
       })
     }
-    return page.__carouselLoadPromise.then(() => page[name](...args))
+    return page.__carouselLoadPromise.then(() => run())
   }
 }
 const carouselDelegates = {}
@@ -371,18 +388,23 @@ const SPLASH_METHODS = [
 function delegateSplash(name) {
   return function (...args) {
     const page = this
-    if (page.__splashAttached) return page[name](...args)
+    const run = () => {
+      const fnImpl = page.__splashMethods && page.__splashMethods[name]
+      if (typeof fnImpl === 'function') return fnImpl.apply(page, args)
+      return page[name](...args)
+    }
+    if (page.__splashAttached && page.__splashMethods) return run()
     if (!page.__splashLoadPromise) {
       page.__splashLoadPromise = require.async(SPLASH_PKG).then((mod) => {
         mod.attachTo(page)
+        page.__splashMethods = (mod && mod.methods) || page.__splashMethods
         return mod
       }).catch((err) => {
         page.__splashLoadPromise = null
-        console.error('[Index] 开屏分包模块加载失败:', err)
         throw err
       })
     }
-    return page.__splashLoadPromise.then(() => page[name](...args))
+    return page.__splashLoadPromise.then(() => run())
   }
 }
 const splashDelegates = {}
@@ -433,17 +455,23 @@ const LIVE_SETTLE_METHODS = [
 function delegateLiveSettle(name) {
   return function (...args) {
     const page = this
-    if (page.__liveSettleAttached) return page[name](...args)
+    const run = () => {
+      const fnImpl = page.__liveSettleMethods && page.__liveSettleMethods[name]
+      if (typeof fnImpl === 'function') return fnImpl.apply(page, args)
+      return page[name](...args)
+    }
+    if (page.__liveSettleAttached && page.__liveSettleMethods) return run()
     if (!page.__liveSettleLoadPromise) {
       page.__liveSettleLoadPromise = require.async(LIVE_SETTLE_PKG).then((mod) => {
         mod.attachTo(page)
+        page.__liveSettleMethods = (mod && mod.methods) || page.__liveSettleMethods
         return mod
       }).catch((err) => {
         page.__liveSettleLoadPromise = null
         throw err
       })
     }
-    return page.__liveSettleLoadPromise.then(() => page[name](...args))
+    return page.__liveSettleLoadPromise.then(() => run())
   }
 }
 const liveSettleDelegates = {}
@@ -477,17 +505,23 @@ const UX_METHODS = [
 function delegateUx(name) {
   return function (...args) {
     const page = this
-    if (page.__uxAttached) return page[name](...args)
+    const run = () => {
+      const fnImpl = page.__uxMethods && page.__uxMethods[name]
+      if (typeof fnImpl === 'function') return fnImpl.apply(page, args)
+      return page[name](...args)
+    }
+    if (page.__uxAttached && page.__uxMethods) return run()
     if (!page.__uxLoadPromise) {
       page.__uxLoadPromise = require.async(UX_PKG).then((mod) => {
         mod.attachTo(page)
+        page.__uxMethods = (mod && mod.methods) || page.__uxMethods
         return mod
       }).catch((err) => {
         page.__uxLoadPromise = null
         throw err
       })
     }
-    return page.__uxLoadPromise.then(() => page[name](...args))
+    return page.__uxLoadPromise.then(() => run())
   }
 }
 const uxDelegates = {}
@@ -495,7 +529,108 @@ UX_METHODS.forEach((name) => {
   uxDelegates[name] = delegateUx(name)
 })
 
+
+// ========== 发射商筛选 / 提醒订阅（用户触发）：index-extra ==========
+const AGENCY_SUB_PKG = '../../subpackages/index-extra/utils/index-agency-sub.js'
+const AGENCY_SUB_METHODS = [
+  "subscribeReminderForMission",
+  "unsubscribeReminderForMission",
+  "onMissionSwipeSubscribeTap",
+  "onCountdownRemind",
+  "onUpcomingAgencyChipsScroll",
+  "onUpcomingAgencyChipTap",
+  "_selectUpcomingAgencyKey",
+  "onAgencyChipLogoLoad",
+  "_applyAgencyChipLocalLogo",
+  "_applyAgencyChipLogoBgTone",
+  "scheduleUpcomingAgencyChipsOverflowHint",
+  "updateUpcomingAgencyChipsOverflowHint",
+  "_syncUpcomingAgencyScrollHapticBaseline"
+]
+function delegateAgencySub(name) {
+  return function (...args) {
+    const page = this
+    const run = () => {
+      const fn = page.__agencySubMethods && page.__agencySubMethods[name]
+      if (typeof fn === 'function') return fn.apply(page, args)
+      return page[name](...args)
+    }
+    if (page.__agencySubAttached && page.__agencySubMethods) return run()
+    if (!page.__agencySubLoadPromise) {
+      page.__agencySubLoadPromise = require.async(AGENCY_SUB_PKG).then((mod) => {
+        mod.attachTo(page)
+        page.__agencySubMethods = (mod && mod.methods) || page.__agencySubMethods
+        return mod
+      }).catch((err) => {
+        page.__agencySubLoadPromise = null
+        throw err
+      })
+    }
+    return page.__agencySubLoadPromise.then(() => run())
+  }
+}
+const agencySubDelegates = {}
+AGENCY_SUB_METHODS.forEach((name) => {
+  agencySubDelegates[name] = delegateAgencySub(name)
+})
+
+// ========== 用户触发交互（详情/图片错误/助推器）：index-extra ==========
+const INTERACTION_PKG = '../../subpackages/index-extra/utils/index-interaction.js'
+const INTERACTION_METHODS = [
+  "viewMissionDetail",
+  "getMissionDetailCacheStore",
+  "setMissionDetailCacheStore",
+  "updateMissionDetailCacheEntries",
+  "sanitizeMissionDetailCacheStore",
+  "buildMissionDetailViewContext",
+  "persistMissionDetailListSnapshot",
+  "buildPrefetchedMissionDetail",
+  "buildDetailPrefetchCacheEntries",
+  "normalizeBoosterInfo",
+  "onGoBoosterDetail",
+  "onGoAgencyDetail",
+  "onImageError",
+  "onCountdownRocketImageError",
+  "refreshLaunchPanelRocketImageUrl",
+  "syncLaunchPanelRocketImageWithUpcomingList",
+  "syncLaunchDataRocketImageFromListByMissionId",
+  "_patchUpcomingListsRocketImage",
+  "_preloadVisibleRocketImages",
+  "_withResolvedRocketImage",
+  "shareMission",
+  "onCountdownCardTap",
+  "onOverlapSideCardTap"
+]
+function delegateInteraction(name) {
+  return function (...args) {
+    const page = this
+    const run = () => {
+      const fn = page.__interactionMethods && page.__interactionMethods[name]
+      if (typeof fn === 'function') return fn.apply(page, args)
+      return page[name](...args)
+    }
+    if (page.__interactionAttached && page.__interactionMethods) return run()
+    if (!page.__interactionLoadPromise) {
+      page.__interactionLoadPromise = require.async(INTERACTION_PKG).then((mod) => {
+        mod.attachTo(page)
+        page.__interactionMethods = (mod && mod.methods) || page.__interactionMethods
+        return mod
+      }).catch((err) => {
+        page.__interactionLoadPromise = null
+        throw err
+      })
+    }
+    return page.__interactionLoadPromise.then(() => run())
+  }
+}
+const interactionDelegates = {}
+INTERACTION_METHODS.forEach((name) => {
+  interactionDelegates[name] = delegateInteraction(name)
+})
+
 Page({
+  ...agencySubDelegates,
+  ...interactionDelegates,
   ...uxDelegates,
   ...liveSettleDelegates,
   ...splashDelegates,
@@ -936,10 +1071,7 @@ Page({
     })
   },
 
-  /**
-   * 用 launch_status 快照治愈即将发射列表：收回「slim 仍 TBD+远窗、权威已是近窗 Go」。
-   * 供冷启动首屏与 3s 后台补偿共用。
-   */
+  
   _hydrateUpcomingFromStatusSnapshot(upcomingList, rows) {
     const list = Array.isArray(upcomingList) ? upcomingList : []
     if (!list.length || !Array.isArray(rows) || !rows.length) return list
@@ -1040,7 +1172,7 @@ Page({
     this.applyUpcomingAgencyFilterToPatch(patch, projected.upcoming)
     this.setData(patch, () => {
       this.updateMissionListView('completed', completed)
-      // 详情治愈 NET/状态后重选型：避免「近窗闪一下 → 列表待定沉底顶掉」
+      // 详情治愈 NET/状态后重选型：按最近未来 NET 对齐倒计时面板
       try {
         const now = getServerNow()
         const { panelMission } = this._resolveCountdownPanelMission(projected.upcoming, now)
@@ -1064,10 +1196,7 @@ Page({
     return this._collectSettleableSettledIdSet().has(String(id))
   },
 
-  /**
-   * 已明确可落库（recent_settled 终态/飞行中，或本机历史卡）的任务：
-   * 从即将发射剥离并补进历史，倒计时一次切到下一任务——禁止先闪该任务再消失。
-   */
+  
   _peelKnownSettleableFromUpcoming(list) {
     const source = Array.isArray(list) ? list : []
     const ids = this._collectSettleableSettledIdSet()
@@ -1148,7 +1277,7 @@ Page({
     langAllTasks: '所有任务',
     langExpand: '展开',
     langCollapse: '收起',
-    /** 左上角放大镜 → 星问；enableAIChat 关闭（含一键过审）时不展示 */
+    
     showNavAiSearch: false,
     missionType: 'upcoming', // upcoming / completed / calendar
     // 任务卡片长按 → 分享面板（朋友/群 + 朋友圈）
@@ -1164,7 +1293,7 @@ Page({
     formattedLaunchWeekTime: '',
     // 当前任务的推迟徽标文案（如「已推迟 2 次 · 累计 3 天」），无推迟/无数据时为空
     launchDelayText: '',
-    /** 与主倒计时窗口重叠的相邻任务副卡（精简单行）；无重叠时为 null */
+    
     overlapSideCard: null,
     countdown: {
       days: 0,
@@ -1194,7 +1323,7 @@ Page({
     missionSwipeDragWxkey: '',
     missionSwipeDragPx: 0,
     missionSwipeActionWidthPx: 88,
-    /** PRO：发射商筛选生效；FREE：可浏览胶囊，点选非「所有任务」走会员引导 */
+    
     isProUser: false,
     completedMissions: [],
     carouselImages: [],
@@ -1223,9 +1352,7 @@ Page({
     missionsOffset: 0,
     missionsHasMore: true,
     missionsLoadingMore: false,
-    /** 非会员任务列表可见条数上限；0 = 不限制。
-     * 初始按「可能开启会员」收紧为免费额度，避免 onLoad 竞态窗口里先拉 50 条 / 可翻页；
-     * _updateMissionListGate 异步确认后会放宽（会员关 / Pro / 广告解锁 → 0） */
+    
     missionGateLimit: FREE_MISSION_LIST_LIMIT,
     loadMoreLowerThreshold: (loadMoreInteraction && loadMoreInteraction.lowerThreshold) || 120,
     loadMoreTriggerZone: (loadMoreInteraction && loadMoreInteraction.triggerZone) || 280,
@@ -1320,138 +1447,21 @@ Page({
 
 
 
-  /** 卡片列表把某条的 rocketImage 修好后，与当前倒计时为同一 mission 时对齐到 launchData（列表与倒计时同源显示） */
-  syncLaunchDataRocketImageFromListByMissionId(missionId, rocketImageSrc) {
-    if (this.data.missionType !== 'upcoming' || this.data.loadError) return
-    const ld = this.data.launchData
-    if (!ld || ld.id == null || missionId == null) return
-    if (String(ld.id) !== String(missionId)) return
-    if (!rocketImageSrc || typeof rocketImageSrc !== 'string' || !rocketImageSrc.trim()) return
-    const cur = (ld.rocketImage || ld.image || '').trim()
-    if (!shouldReplaceRocketImage(cur, rocketImageSrc)) return
-    this.setData({
-      'launchData.image': rocketImageSrc,
-      'launchData.rocketImage': rocketImageSrc
-    })
-  },
+  
 
   /** 「我的」切换火箭配置图艺术风格后重算列表/倒计时图 */
   refreshRocketConfigArt() {
     return this._refreshRocketImagesFromMediaMap({ artStyleSwitch: true })
   },
 
-  /** 批量刷新列表后（如下拉），用当前列表里同 id 任务的图覆盖倒计时（列表已走完 resolve/onImageError） */
-  syncLaunchPanelRocketImageWithUpcomingList() {
-    if (this.data.missionType !== 'upcoming') return
-    const ld = this.data.launchData
-    const list = this.data.upcomingMissions || []
-    if (!ld || !ld.id || !list.length) return
-    let row = null
-    for (let i = 0; i < list.length; i++) {
-      if (list[i] && String(list[i].id) === String(ld.id)) {
-        row = list[i]
-        break
-      }
-    }
-    if (!row || !row.rocketImage) return
-    this.syncLaunchDataRocketImageFromListByMissionId(ld.id, row.rocketImage)
-  },
+  
 
-  async refreshLaunchPanelRocketImageUrl() {
-    const ld = this.data.launchData
-    if (!ld || !ld.id) return
 
-    const idStr = String(ld.id)
-    if (this._countdownRocketImageLaunchId !== idStr) {
-      this._countdownRocketImageLaunchId = idStr
-      this._countdownRocketImageErrorPasses = 0
-    }
+  
 
-    try {
-      await loadCloudMediaMap()
-    } catch (e) {}
+  
 
-    const curImg = ld.image || ld.rocketImage || ''
-    // 按火箭名重算；已有正确图时传入 stamped，避免 fuzzy miss 降级成 default
-    const url = resolveMissionRocketImage(curImg, rocketNameForImage(ld), ld.rocketConfiguration, true)
-    if (!shouldReplaceRocketImage(curImg, url)) return
-
-    this.setData({
-      'launchData.image': url,
-      'launchData.rocketImage': url
-    })
-    this._patchUpcomingListsRocketImage(idStr, url)
-  },
-
-  /** 大号倒计时圆图 / 吸顶条火箭图加载失败：复用列表卡片 onImageError 的回退链（标记失败 → 模糊匹配 → 默认图） */
-  async onCountdownRocketImageError() {
-    if (this.data.missionType !== 'upcoming' || this.data.loadError) return
-    const ld = this.data.launchData
-    if (!ld || !ld.id) return
-
-    const idStr = String(ld.id)
-    if (this._countdownRocketImageLaunchId !== idStr) {
-      this._countdownRocketImageLaunchId = idStr
-      this._countdownRocketImageErrorPasses = 0
-    }
-    this._countdownRocketImageErrorPasses = (this._countdownRocketImageErrorPasses || 0) + 1
-    if (this._countdownRocketImageErrorPasses > 5) return
-
-    const failedImage = ld.rocketImage || ld.image || ''
-    const rocketName = rocketNameForImage(ld)
-
-    // 与列表卡片一致：记录失败 URL，后续 resolve 不再返回同一个坏链接
-    if (failedImage && /^https?:\/\//i.test(String(failedImage).trim())) {
-      markDownloadFailed(String(failedImage).trim(), 404)
-    }
-
-    const applyImage = (nextImage) => {
-      if (!nextImage || nextImage === (this.data.launchData && this.data.launchData.rocketImage)) return
-      // 用户可能已切到别的任务，校验 id 再写
-      if (!this.data.launchData || String(this.data.launchData.id) !== idStr) return
-      this.setData({
-        'launchData.image': nextImage,
-        'launchData.rocketImage': nextImage
-      })
-      // 倒计时与列表同源显示：把修好的图回写到列表同 id 行
-      this._patchUpcomingListsRocketImage(idStr, nextImage)
-    }
-
-    try {
-      await loadCloudMediaMap()
-    } catch (err) {}
-
-    const nextImage = resolveMissionRocketImage(failedImage, rocketName, ld.rocketConfiguration, true)
-    if (nextImage && nextImage !== failedImage) {
-      applyImage(nextImage)
-      return
-    }
-
-    if (!rocketName) {
-      applyImage(resolveMissionRocketImage(DEFAULT_ROCKET_IMAGE))
-    }
-  },
-
-  /** 把倒计时区修好的配置图回写到 upcomingMissions / displayedUpcomingMissions 的同 id 行 */
-  _patchUpcomingListsRocketImage(missionId, nextImage) {
-    if (!missionId || !nextImage) return
-    const patch = {}
-    const list = this.data.upcomingMissions || []
-    const idx = list.findIndex((m) => m && String(m.id) === String(missionId))
-    if (idx >= 0 && shouldReplaceRocketImage(list[idx].rocketImage, nextImage)) {
-      patch[`upcomingMissions[${idx}].rocketImage`] = nextImage
-    }
-    const disp = this.data.displayedUpcomingMissions || []
-    const dIdx = disp.findIndex((m) => m && String(m.id) === String(missionId))
-    if (dIdx >= 0 && shouldReplaceRocketImage(disp[dIdx].rocketImage, nextImage)) {
-      patch[`displayedUpcomingMissions[${dIdx}].rocketImage`] = nextImage
-    }
-    if (Object.keys(patch).length) this.setData(patch)
-  },
-
-  /**
-   * PRO 状态刷新后重建发射商胶囊展示（FREE 仍可展示胶囊，仅筛选能力不同）
-   */
+  
   _getPageSubscribedIdSet(forceRefresh) {
     if (forceRefresh) this._pageSubscribedIdSet = null
     if (this._pageSubscribedIdSet instanceof Set) return this._pageSubscribedIdSet
@@ -1501,7 +1511,7 @@ Page({
     safePatch.displayedUpcomingMissions = disp
   },
 
-  /** 列表项：reminderOn = 本任务已写入小程序订阅；OA 就绪时结果改由服务号推，铃铛通常为关 */
+  
   _attachSwipeRowFlagsToDisplayedPatch(safePatch) {
     const disp = safePatch.displayedUpcomingMissions
     if (!Array.isArray(disp) || !disp.length) return
@@ -1554,11 +1564,7 @@ Page({
     )
   },
 
-  /**
-   * 合并「即将发射」发射商胶囊与 displayedUpcomingMissions。
-   * @param {Object} patch 写入 setData 的对象（会被就地合并筛选字段）
-   * @param {Array|undefined} upcomingOverride 可选，覆盖 upcoming 列表源（避免尚未写入 data 的旧值）
-   */
+  
   applyUpcomingAgencyFilterToPatch(patch = {}, upcomingOverride) {
     const safePatch = patch && typeof patch === 'object' ? patch : {}
     const proFlag = safePatch.isProUser !== undefined ? !!safePatch.isProUser : !!this.data.isProUser
@@ -1782,72 +1788,10 @@ Page({
     return null
   },
 
-  /**
-   * 发射提醒：与倒计时卡片「提醒」同源（subscribeLaunch + 同步列表项 reminderOn）
-   * 与「倒计时提醒」「左滑提醒」共用 _subscribeReminderBusy，避免并发重复请求。
-   */
-  async subscribeReminderForMission(mission) {
-    if (!mission || !mission.id) return false
-    const ok = await subscribeLaunch(mission)
-    if (ok) {
-      this._invalidatePageSubscribedIdSet()
-      const mid = String(mission.id)
-      const cur = this.data.launchData && this.data.launchData.id != null ? String(this.data.launchData.id) : ''
-      if (cur === mid) {
-        this.setData({ _countdownSubscribed: true })
-      }
-      this._syncDisplayedUpcomingSwipeRowFlags()
-    }
-    return !!ok
-  },
+  
 
   /** 关闭发射提醒（本地 + 云端），并同步铃铛 / 列表左滑态 */
-  async unsubscribeReminderForMission(missionId, options) {
-    if (!missionId) return false
-    const silent = !!(options && options.silent)
-    const ok = await unsubscribeLaunch(missionId)
-    if (ok) {
-      this._invalidatePageSubscribedIdSet()
-      const mid = String(missionId)
-      const cur = this.data.launchData && this.data.launchData.id != null ? String(this.data.launchData.id) : ''
-      if (cur === mid) {
-        this.setData({ _countdownSubscribed: false })
-      }
-      this._syncDisplayedUpcomingSwipeRowFlags()
-      if (!silent) wx.showToast({ title: '提醒已关闭', icon: 'none' })
-    }
-    return !!ok
-  },
 
-  async onMissionSwipeSubscribeTap(e) {
-    const id = e.currentTarget.dataset.id
-    if (!id) return
-    const row = this._findUpcomingMissionRow(id)
-    if (!row) return
-    if (this._subscribeReminderBusy) return
-    this._vibrateMedium()
-    this._subscribeReminderBusy = true
-    try {
-      const oaReady = !!(this.data.oaAlertReady || peekOaAlertReady())
-      if (oaReady) {
-        // 服务号已覆盖发射前与结果：遗留小程序结果订阅可关，否则仅提示
-        if (isSubscribed(id)) {
-          await this.unsubscribeReminderForMission(id, { silent: true })
-          wx.showToast({ title: '已关闭本任务小程序结果订阅（服务号仍有效）', icon: 'none' })
-        } else {
-          wx.showToast({ title: '服务号已覆盖发射前与结果通知', icon: 'none' })
-        }
-        return
-      }
-      if (isSubscribed(id)) {
-        await this.unsubscribeReminderForMission(id)
-      } else {
-        await this.subscribeReminderForMission(row)
-      }
-    } finally {
-      this._subscribeReminderBusy = false
-    }
-  },
 
   onMissionSwipePinTap(e) {
     const id = e.currentTarget.dataset.id
@@ -1869,130 +1813,16 @@ Page({
       icon: 'none'
     })
   },
-  _syncUpcomingAgencyScrollHapticBaseline(chips) {
-    const sig =
-      Array.isArray(chips) && chips.length
-        ? chips.map((c) => (c && c.key != null ? String(c.key) : '')).join('\x1e')
-        : ''
-    if (sig !== this._upcomingAgencyChipsHapticSig) {
-      this._upcomingAgencyChipsHapticSig = sig
-      this._upcomingAgencyScrollHapticBucket = null
-    }
-  },
 
-  scheduleUpcomingAgencyChipsOverflowHint() {
-    if (this.data.missionType !== 'upcoming') return
-    const self = this
-    setTimeout(function () {
-      self.updateUpcomingAgencyChipsOverflowHint()
-    }, 0)
-  },
 
-  updateUpcomingAgencyChipsOverflowHint() {
-    if (this.data.missionType !== 'upcoming') return
-    const query = wx.createSelectorQuery().in(this)
-    query.select('.upcoming-agency-scroll').boundingClientRect()
-    query.select('.upcoming-agency-chips-row').boundingClientRect()
-    query.exec((res) => {
-      const scrollRect = res && res[0]
-      const gridRect = res && res[1]
-      const hasOverflow = !!(scrollRect && gridRect && gridRect.width > scrollRect.width + 2)
-      if (hasOverflow !== this.data.upcomingAgencyChipsHasOverflow) {
-        this.setData({ upcomingAgencyChipsHasOverflow: hasOverflow })
-      }
-    })
-  },
 
-  /**
-   * 横向滑动：按 scrollLeft 阶梯触发轻震（左右双向一致；单帧封顶避免过猛）
-   */
-  onUpcomingAgencyChipsScroll(e) {
-    if (this.data.missionSwipeOpenWxkey) this.closeMissionSwipeCells()
-    if (this.data.missionType !== 'upcoming') return
-    const left = Math.max(0, Number((e.detail && e.detail.scrollLeft) || 0))
-    const stepPx = 52
-    const bucket = Math.floor(left / stepPx)
-    if (this._upcomingAgencyScrollHapticBucket == null) {
-      this._upcomingAgencyScrollHapticBucket = bucket
-      return
-    }
-    if (bucket === this._upcomingAgencyScrollHapticBucket) return
-    this._upcomingAgencyScrollHapticBucket = bucket
-    this._vibrateLight()
-  },
+  
 
-  async onUpcomingAgencyChipTap(e) {
-    if (this.data.missionSwipeOpenWxkey) this.closeMissionSwipeCells()
-    const key = e.currentTarget.dataset.key
-    if (key === undefined || key === null) return
-    await this._selectUpcomingAgencyKey(key === '_all' ? '_all' : String(key))
-  },
 
-  async _selectUpcomingAgencyKey(keyStr) {
-    if (!this.data.isProUser) {
-      if (keyStr === '_all') return
-      const allowed = await gateCheck('home_upcoming_agency_filter', '即将发射 · 按发射商筛选')
-      if (!allowed) return
-      try {
-        await getMembershipState(true)
-      } catch (e) {}
-      if (!isProSync()) return
-      const upgradedPatch = { isProUser: true, selectedUpcomingAgencyKey: keyStr }
-      this.applyUpcomingAgencyFilterToPatch(upgradedPatch)
-      this.setData(upgradedPatch, () => this.scheduleUpcomingAgencyChipsOverflowHint())
-      return
-    }
 
-    const patch = { selectedUpcomingAgencyKey: keyStr }
-    this.applyUpcomingAgencyFilterToPatch(patch)
-    this.setData(patch, () => this.scheduleUpcomingAgencyChipsOverflowHint())
-  },
+  
 
-  /** 发射商远程 Logo 渲染成功后下载到 USER_DATA_PATH 并替换为本地路径；透明图分析底色 */
-  onAgencyChipLogoLoad(e) {
-    const remoteUrl = (e.currentTarget.dataset.logoRemote || '').trim()
-    if (!isRemoteAgencyLogoUrl(remoteUrl)) return
-    const self = this
-    persistAgencyLogoAfterRemoteLoad(remoteUrl, function (localPath) {
-      if (!localPath) return
-      self._applyAgencyChipLocalLogo(remoteUrl, localPath)
-      ensureAgencyLogoBgTone(remoteUrl, localPath, function (tone) {
-        if (tone) self._applyAgencyChipLogoBgTone(remoteUrl, tone)
-      })
-    })
-  },
 
-  _applyAgencyChipLocalLogo(remoteUrl, localPath) {
-    const chips = this.data.upcomingAgencyChipsDisplayed
-    if (!Array.isArray(chips) || !chips.length || !localPath) return
-    let changed = false
-    const next = chips.map(function (c) {
-      if (c.logoRemoteSrc === remoteUrl && c.logoUrl !== localPath) {
-        changed = true
-        return { ...c, logoUrl: localPath }
-      }
-      return c
-    })
-    if (changed) {
-      this.setData({ upcomingAgencyChipsDisplayed: next }, () => this.scheduleUpcomingAgencyChipsOverflowHint())
-    }
-  },
-
-  _applyAgencyChipLogoBgTone(remoteUrl, tone) {
-    const chips = this.data.upcomingAgencyChipsDisplayed
-    if (!Array.isArray(chips) || !chips.length || !tone) return
-    let changed = false
-    const next = chips.map(function (c) {
-      if ((c.logoRemoteSrc === remoteUrl || c.logoUrl === remoteUrl) && c.logoBgTone !== tone) {
-        changed = true
-        return { ...c, logoBgTone: tone }
-      }
-      return c
-    })
-    if (changed) {
-      this.setData({ upcomingAgencyChipsDisplayed: next })
-    }
-  },
 
   updateMissionListView(type, list) {
     const isActiveType = this.data.missionType === type
@@ -2053,10 +1883,7 @@ Page({
     return pack
   },
 
-  /**
-   * 优化后的初始数据加载：一次性加载倒计时和即将发射数据（使用同一个API）
-   * 然后并行加载历史发射数据，避免重复API请求
-   */
+  
   runManagedPageRequest(promiseKey, requestFactory, options = {}) {
     const safeOptions = options || {}
     const allowReuse = safeOptions.allowReuse !== false
@@ -2079,179 +1906,13 @@ Page({
     return requestPromise
   },
 
-  getMissionDetailCacheStore() {
-    // 全局共享内存缓存（storage-sync-cache）：index / mission-detail / search / profile
-    // 共用同一份内存层，同一进程内 mission_detail_cache 最多同步读 1 次
-    const stored = storageCache.readMemOrSync('mission_detail_cache', {})
-    const safe = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {}
-    return { ...safe }
-  },
 
-  setMissionDetailCacheStore(cache, options = {}) {
-    const safe = cache && typeof cache === 'object' && !Array.isArray(cache) ? cache : {}
-    try {
-      if (options && options.syncWrite) {
-        // 同步写入：navigateTo 跳详情页前落盘（详情页同进程读内存层，磁盘兜底冷启动场景）
-        storageCache.persistSync('mission_detail_cache', safe)
-      } else {
-        // 异步写入，避免阻塞主线程；内存层已立即生效，下次读不会回源 storage
-        storageCache.persistAsync('mission_detail_cache', safe)
-      }
-    } catch (err) {}
-  },
 
-  updateMissionDetailCacheEntries(entries = [], options = {}) {
-    const safeEntries = Array.isArray(entries) ? entries : []
-    let cache =
-      options && options.cache && typeof options.cache === 'object' && !Array.isArray(options.cache)
-        ? { ...options.cache }
-        : this.getMissionDetailCacheStore()
 
-    safeEntries.forEach((entry) => {
-      const safeEntry = entry && typeof entry === 'object' ? entry : null
-      if (!safeEntry || safeEntry.id == null || !safeEntry.mission) return
-      cache = setMissionDetailCacheEntry(cache, safeEntry.id, safeEntry.detailType, safeEntry.mission, {
-        source: safeEntry.source,
-        cachedAt: safeEntry.cachedAt
-      })
-    })
 
-    if (safeEntries.length > 0 && options.persist !== false) {
-      this.setMissionDetailCacheStore(cache, { syncWrite: !!options.syncWrite })
-    }
 
-    return cache
-  },
 
-  sanitizeMissionDetailCacheStore() {
-    // 经共享内存层异步预热读取：已 warm 时直接用内存值，避免读到落后于内存的磁盘数据
-    storageCache
-      .warmAsync('mission_detail_cache', {})
-      .then((raw) => {
-        const stored = raw && typeof raw === 'object' && !Array.isArray(raw) ? { ...raw } : {}
-        const keys = Object.keys(stored)
-        if (!keys.length) return
 
-        const sanitized = {}
-        const cleanFallback = (value) => (value === '加载失败' ? '' : value)
-        let i = 0
-        const CHUNK = 20
-        const self = this
-
-        const step = () => {
-          const end = Math.min(i + CHUNK, keys.length)
-          for (; i < end; i++) {
-            const key = keys[i]
-            const mission = stored[key]
-            if (!mission || typeof mission !== 'object') continue
-            sanitized[key] = {
-              ...mission,
-              description: cleanFallback(mission.description),
-              missionDetails: cleanFallback(mission.missionDetails),
-              rocketInfo: cleanFallback(mission.rocketInfo),
-              launchAgency: cleanFallback(mission.launchAgency),
-              launchSite: cleanFallback(mission.launchSite),
-              boosterInfo: self.normalizeBoosterInfo(mission.boosterInfo, mission)
-            }
-          }
-          if (i < keys.length) {
-            setTimeout(step, 0)
-          } else {
-            self.setMissionDetailCacheStore(sanitized)
-          }
-        }
-
-        setTimeout(step, 0)
-      })
-      .catch(() => {})
-  },
-
-  buildMissionDetailViewContext(dataset = {}) {
-    const safeDataset = dataset && typeof dataset === 'object' ? dataset : {}
-    const id = safeDataset.id
-    if (!id) return null
-
-    const resolved = resolveMissionDetailSourceData(this.data, safeDataset.type, id)
-    const navigation = buildMissionDetailNavigation({
-      id: resolved.id,
-      detailType: resolved.detailType,
-      fromSearch: safeDataset.source === 'search'
-    })
-    const mission =
-      collectMissionShareCandidates(this.data).find((item) => String(item && item.id) === String(resolved.id)) || null
-
-    return {
-      resolved,
-      navigation,
-      mission
-    }
-  },
-
-  persistMissionDetailListSnapshot(context) {
-    const safeContext = context && typeof context === 'object' ? context : {}
-    const resolved = safeContext.resolved || {}
-    const mission = safeContext.mission
-    if (!resolved.id || !mission) return
-
-    this.updateMissionDetailCacheEntries(
-      [
-        {
-          id: resolved.id,
-          detailType: resolved.detailType,
-          mission,
-          source: 'list'
-        }
-      ],
-      { syncWrite: true }
-    )
-  },
-
-  buildPrefetchedMissionDetail(mission, apiDetail) {
-    const hasRecovery =
-      apiDetail.boosterInfo &&
-      (apiDetail.boosterInfo.configReusable === true ||
-        (!apiDetail.boosterInfo.inferredRecovery &&
-          (apiDetail.boosterInfo.landingType ||
-            apiDetail.boosterInfo.landingLocation ||
-            (typeof apiDetail.boosterInfo.landingDescription === 'string' &&
-              apiDetail.boosterInfo.landingDescription.trim()))))
-    const boosterInfo = hasRecovery ? apiDetail.boosterInfo : mission.boosterInfo || apiDetail.boosterInfo
-
-    return {
-      ...apiDetail,
-      boosterInfo,
-      isRecoverableThisMission: !!(
-        boosterInfo &&
-        (boosterInfo.configReusable === true ||
-          (!boosterInfo.inferredRecovery &&
-            (boosterInfo.landingType ||
-              boosterInfo.landingLocation ||
-              (typeof boosterInfo.landingDescription === 'string' && boosterInfo.landingDescription.trim()))))
-      ),
-      launchTimeCST: this.formatToCST(apiDetail.launchTime || mission.launchTime),
-      windowStartCST: apiDetail.windowStart ? this.formatToCST(apiDetail.windowStart) : '',
-      windowEndCST: apiDetail.windowEnd ? this.formatToCST(apiDetail.windowEnd) : '',
-      // 与详情 mergeMissionDetailData 同源：空 stamped + force，避免列表错误盖章锁死头图
-      rocketImage: resolveMissionRocketImage(
-        '',
-        rocketNameForImage(apiDetail) || rocketNameForImage(mission),
-        apiDetail.rocketConfiguration || mission.rocketConfiguration,
-        true
-      )
-    }
-  },
-
-  buildDetailPrefetchCacheEntries(results = []) {
-    const safeResults = Array.isArray(results) ? results : []
-    return safeResults
-      .filter((result) => result && result.status === 'fulfilled' && result.value)
-      .map((result) => ({
-        id: result.value.data.id,
-        detailType: result.value.data.missionType || result.value.type || 'upcoming',
-        mission: result.value.data,
-        source: 'prefetch'
-      }))
-  },
 
   shouldSkipManagedPageRefresh(options = {}) {
     const safeOptions = options || {}
@@ -2341,11 +2002,7 @@ Page({
     return launchEffects
   },
 
-  /**
-   * 倒计时面板任务（窗口期状态机唯一入口）：
-   * 窗口内未决挂住 → 未来 NET → 无未来时头条未决兜底；已落库任务绝不入选。
-   * 权威状态记录（_launchRecordsById）优先于列表行残留字段。
-   */
+  
   _resolveCountdownPanelMission(upcomingList, now) {
     const list = Array.isArray(upcomingList) ? upcomingList : []
     const ts = now != null ? now : getServerNow()
@@ -2358,10 +2015,7 @@ Page({
     return { panelMission: picked, list }
   },
 
-  /**
-   * 重叠窗口副卡：仅当与主面板发射窗口相交时显示下一条未决任务。
-   * 主卡落库并顶上后，按新主卡再查下一轮重叠；无重叠则副卡消失。
-   */
+  
   _buildOverlapSideCardState(now) {
     const ld = this.data.launchData
     const panelId = ld && ld.id != null ? String(ld.id) : ''
@@ -2376,11 +2030,7 @@ Page({
     })
   },
 
-  /**
-   * 同步副卡；返回可并入 setData 的补丁（无变化则空对象）。
-   * 同一任务只下发变化字段的 dotted path——countdownText 每秒都在变，
-   * 整对象替换会让这张卡每秒走一次全量 diff。
-   */
+  
   _buildOverlapSideCardPatch(now) {
     const next = this._buildOverlapSideCardState(now)
     const prev = this.data.overlapSideCard
@@ -2538,7 +2188,7 @@ Page({
       .catch(() => {})
   },
 
-  /** 比较同一顺序列表的发射商展示图是否变化（用于跳过无意义的二次 setData） */
+  
   _upcomingAgencyLogoFieldsChanged(before, after) {
     const a = Array.isArray(before) ? before : []
     const b = Array.isArray(after) ? after : []
@@ -2552,12 +2202,7 @@ Page({
     return false
   },
 
-  /**
-   * 发射商 logo 补全后的增量写入：不重跑 applyLaunchSwitchEffects / 详情预取（阶段一已执行）
-   * 关键：enrichedList / firstMission 来自 enrich 前的 baseline 快照，rocketImage 可能仍是 default；
-   * 若此时 media map 已把列表/倒计时升级为正确图，整包 setData 会把正确图盖回 default。
-   * 因此合并时保留当前 data 里已升级的火箭图，并优先用当前列表同 id 行作为面板 mission。
-   */
+  
   _patchUpcomingListAfterAgencyEnrich(firstMission, enrichedList, upcomingRes) {
     const prevUpcoming = this.data.upcomingMissions || []
     const prevDisplayed = this.data.displayedUpcomingMissions || []
@@ -2653,10 +2298,7 @@ Page({
     )
   },
 
-  /**
-   * 首屏/刷新即将发射列表写入；与已剥离的历史卡同一拍 setData，避免倒计时先闪已落库任务。
-   * @param {{ completedMissions?: Array|null }} options
-   */
+  
   _applyInitialUpcomingLaunchStateSync(firstMission, upcomingList, upcomingRes, options) {
     const safeOptions = options || {}
     const extraState = buildMissionReadyState({
@@ -3210,30 +2852,9 @@ Page({
     )
   },
 
-  /**
-   * 预下载列表中前 N 张火箭配置图到本地缓存（HTTPS → wxfile），下次冷启动可直接命中本地。
-   * @param {Array} list 任务列表
-   * @param {Number} n 预热数量
-   */
-  _preloadVisibleRocketImages(list, n) {
-    if (!Array.isArray(list) || !list.length) return
-    const max = Math.max(0, Math.min(Number(n) || 0, list.length))
-    if (!max) return
+  
 
-    const urls = []
-    for (let i = 0; i < max; i++) {
-      const item = list[i]
-      const ru = item && (item.rocketImage || item.image)
-      if (typeof ru === 'string' && /^https?:\/\//i.test(ru.trim())) {
-        urls.push(ru.trim())
-      }
-    }
-    if (urls.length) preloadRocketConfigMedia(urls)
-  },
-
-  /**
-   * 加载当前 tab 的任务列表（仅在缺失时补拉）
-   */
+  
   async loadMissions() {
     if (this.data.missionType === 'calendar') return
 
@@ -3266,19 +2887,6 @@ Page({
     this.loadMoreMissions()
   },
 
-  _withResolvedRocketImage(mission) {
-    if (!mission || typeof mission !== 'object') return mission
-    // 与详情头图同源：始终 forceRecompute；保留 stamped 仅用于防 default 降级
-    const stamped = mission.rocketImage || mission.image || ''
-    const resolved = resolveMissionRocketImage(
-      stamped,
-      rocketNameForImage(mission),
-      mission.rocketConfiguration,
-      true
-    )
-    if (resolved === mission.rocketImage && resolved === mission.image) return mission
-    return { ...mission, rocketImage: resolved, image: resolved }
-  },
 
   _vibrateLight() {
     try {
@@ -3455,9 +3063,7 @@ Page({
     }, measureDelay)
   },
 
-  /**
-   * 加载更多任务（追加到列表，直至 API 无下一页）
-   */
+  
   async loadMoreMissions() {
     const type = this.getActiveMissionListType()
 
@@ -3543,10 +3149,7 @@ Page({
     this._onCountdownExpired()
   },
 
-  /**
-   * 面板切到「无可用 NET」的任务：清零数字并打上待定标记（幂等，避免每秒重复 setData）。
-   * @param {string} text 面板展示文案
-   */
+  
   _applyCountdownTimeUnknown(text) {
     const label = text || launchCardUiText('timeTbdLong')
     if (this.data.countdownTimeUnknown && this.data.countdownTimeUnknownText === label) return
@@ -3654,12 +3257,7 @@ Page({
     }, 540)
   },
 
-  /**
-   * 切换倒计时到下一个未过期的任务（从已加载的列表中取，无需重新请求）
-   * 当前任务仍在发射窗口内且未决时禁止因「有下一条未来任务」切走。
-   * 落库/显式切换（_switchingCountdown 或 options.force）不受窗口挂住拦截——
-   * _moveMissionToCompleted 的 setData 尚未回写时，列表里仍是旧「就绪」，否则会误挡。
-   */
+  
   switchToNextUpcomingMission(options) {
     const force = !!(options && options.force) || !!this._switchingCountdown
     const currentId = this.data.launchData && this.data.launchData.id
@@ -3721,13 +3319,7 @@ Page({
   // 历史任务发射动态靠 6h slim 拆分的 updates_{uuid} 冷路径。
   // ══════════════════════════════════════════════════════════════
 
-  /**
-   * 倒计时到期入口（每秒 tick 都可能进来，需防重入 + 节流）。
-   * 探针动作由窗口期状态机决策：
-   *   wait      → T-0 定格面板，NET+10m 首查（LL2 状态滞后）
-   *   probeById → 窗口内立即进入复查循环（3 分钟间隔）
-   *   bestEffort/slowProbe → 窗口（+宽限）已过：bestEffort 落库；未决则 15 分钟慢探
-   */
+  
   _onCountdownExpired() {
     if (this._launchStatusPolling) return
     // 轮次节流量的是「本地过了多久」，用设备时钟；NET 判定另用校准时钟
@@ -3784,7 +3376,7 @@ Page({
     }, firstCheckDelay)
   },
 
-  /** 读 recent_settled 中该 id 的可 settle 行（终态或飞行中；优先内存缓存） */
+  
   async _lookupRecentSettledRow(currentId) {
     try {
       const settled = await this._ensureRecentSettledCache(false)
@@ -3897,17 +3489,8 @@ Page({
     }
   },
 
-  /**
-   * 监听滚动事件，记录当前滚动位置（使用节流优化性能）
-   */
-  /**
-   * scroll 高频事件入口：保持轻量（只读 detail + 节流标记），
-   * 把震动/进度计算/setData 等耗时逻辑放到 _processScrollFrame 里，
-   * 通过 leading + trailing 时间片节流合并到 ≤ 20fps 执行一次。
-   *
-   * 微信「最佳实践」明确建议：scroll/touchmove 等高频事件回调中
-   * 不要做耗时操作或频繁 setData。
-   */
+  
+  
   onScroll(e) {
     if (this.data.isSwitchingTab) return
 
@@ -3952,11 +3535,7 @@ Page({
     )
   },
 
-  /**
-   * 实际的滚动帧处理：耗时部分集中在这里，调用频率被节流到 ≤ 20fps。
-   * 不再依赖原始 event 对象，统一从 this._latestMissionListScrollTop 读取，
-   * 避免闭包持有整个 event 导致的内存压力。
-   */
+  
   _processScrollFrame() {
     if (this.data.isSwitchingTab) return
 
@@ -4028,95 +3607,8 @@ Page({
   /**
    * 查看任务详情
    */
-  viewMissionDetail(e) {
-    this.closeMissionSwipeCells()
-    const dataset = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset : {}
-    const context = this.buildMissionDetailViewContext(dataset)
-    if (!context) return
 
-    this.persistMissionDetailListSnapshot(context)
-
-    wx.navigateTo({
-      url: context.navigation.url,
-      success: (res) => {
-        // 快照经 eventChannel 直达详情页做首屏加速；storage 快照保留作分享冷启动兜底
-        try {
-          if (res && res.eventChannel && context.mission) {
-            res.eventChannel.emit('missionSnapshot', context.mission)
-          }
-        } catch (err) {}
-      }
-    })
-  },
-
-  /**
-   * 规范化助推器信息：避免展示内部ID，并尽量从描述中提取序列号/飞行次数
-   */
-  normalizeBoosterInfo(boosterInfo, detailSource = {}) {
-    if (!boosterInfo || typeof boosterInfo !== 'object') return boosterInfo
-
-    const normalized = { ...boosterInfo }
-    const textPool = [
-      normalized.landingDescription || '',
-      (detailSource.missionFull && detailSource.missionFull.description) ||
-        detailSource.missionDetails ||
-        detailSource.description ||
-        '',
-      detailSource.missionName || detailSource.name || ''
-    ].join(' ')
-
-    const serial = normalized.serialNumber
-    const serialText = serial == null ? '' : String(serial).trim()
-    // 纯数字序列号通常是内部ID；Unknown* 为 LL2 占位，不给用户展示/跳转
-    if (!serialText || /^\d+$/.test(serialText) || /^unknown/i.test(serialText)) {
-      const serialMatch = textPool.match(/\bB\d{3,5}\b/i)
-      normalized.serialNumber = serialMatch ? serialMatch[0].toUpperCase() : null
-    }
-
-    const pickValidFlightCount = (val) => {
-      const n = Number(val)
-      return Number.isFinite(n) && n > 0 ? Math.floor(n) : null
-    }
-
-    if (normalized.flights == null) {
-      const flightCandidates = [
-        normalized.flight,
-        normalized.flightCount,
-        normalized.flight_count,
-        normalized.reuseCount,
-        normalized.reuse_count,
-        detailSource.flight,
-        detailSource.flights,
-        detailSource.flightCount,
-        detailSource.flight_count,
-        detailSource.reuseCount,
-        detailSource.reuse_count,
-        detailSource.launcherLanding &&
-          detailSource.launcherLanding.general &&
-          detailSource.launcherLanding.general.flights
-      ]
-
-      for (const candidate of flightCandidates) {
-        const flightCount = pickValidFlightCount(candidate)
-        if (flightCount) {
-          normalized.flights = flightCount
-          break
-        }
-      }
-    }
-
-    if (normalized.flights == null) {
-      const flightMatchEn = textPool.match(/\b(\d{1,3})(?:st|nd|rd|th)?\s+flight\b/i)
-      const flightMatchCn = textPool.match(/第\s*(\d{1,3})\s*次飞行/)
-      const flightMatch = flightMatchEn || flightMatchCn
-      if (flightMatch) {
-        const n = Number(flightMatch[1])
-        if (!isNaN(n) && n > 0) normalized.flights = Math.floor(n)
-      }
-    }
-
-    return normalized
-  },
+  
 
   /**
    * 格式化时间为CST（中国标准时间）
@@ -4143,18 +3635,8 @@ Page({
   /**
    * 倒计时卡片 — 点击卡片打开详情
    */
-  onCountdownCardTap(e) {
-    const id = e.currentTarget.dataset.id
-    if (!id) return
-    this.viewMissionDetail(e)
-  },
 
   /** 重叠窗口副卡 — 点击进详情 */
-  onOverlapSideCardTap(e) {
-    const id = e.currentTarget.dataset.id
-    if (!id) return
-    this.viewMissionDetail(e)
-  },
 
   _clearCountdownChannelsLivePoll() {
     if (this._channelsLivePollTimer) {
@@ -4163,7 +3645,7 @@ Page({
     }
   },
 
-  /** 清掉实时状态确认的复查定时器（页面卸载时调用）；onHide 不调此函数以免丢复查节奏 */
+  
   _clearLiveStatusPolling() {
     if (this._statusRecheckTimer) {
       clearTimeout(this._statusRecheckTimer)
@@ -4188,69 +3670,11 @@ Page({
     }
   },
 
-  /**
-   * 倒计时卡片 — 助推器行「详情」按钮：按序列号（如 B1090）跳该箭实体详情页
-   */
-  async onGoBoosterDetail() {
-    try {
-      wx.vibrateShort({ type: 'medium' })
-    } catch (e) {}
-    const launch = this.data.launchData || {}
-    const serial = String((launch.boosterInfo && launch.boosterInfo.serialNumber) || '').trim()
-    const { openBoosterEntityDetail } = require('../../utils/booster-nav.js')
-    await openBoosterEntityDetail(serial)
-  },
+  
 
-  /**
-   * 倒计时卡片 — 发射商行「详情」按钮：跳发射商详情页（id 优先，缺失时用缩写解析）
-   */
-  async onGoAgencyDetail() {
-    try {
-      wx.vibrateShort({ type: 'medium' })
-    } catch (e) {}
-    const launch = this.data.launchData || {}
-    const id = launch.launchAgencyId
-    const abbrev = launch.launchAgencyAbbrev || ''
-    if (id == null && !abbrev) return
-    const allowed = await gateCheck('agency_encyclopedia', '全球发射商图鉴')
-    if (!allowed) return
-    const params = {}
-    if (id != null) params.id = id
-    else params.abbrev = abbrev
-    navigateTo(ROUTES.AGENCY_DETAIL, params)
-  },
+  
 
-  /**
-   * 倒计时卡片 — 提醒按钮：未开则开启，已开则关闭（切换）
-   */
-  async onCountdownRemind() {
-    if (this._subscribeReminderBusy) return
-    const launch = this.data.launchData
-    if (!launch || !launch.id) return
-    this._vibrateMedium()
-    this._subscribeReminderBusy = true
-    try {
-      const oaReady = !!(this.data.oaAlertReady || peekOaAlertReady())
-      if (oaReady) {
-        // 服务号已覆盖发射前与结果：遗留小程序结果订阅可关，否则仅提示
-        if (isSubscribed(launch.id)) {
-          await this.unsubscribeReminderForMission(launch.id, { silent: true })
-          wx.showToast({ title: '已关闭本任务小程序结果订阅（服务号仍有效）', icon: 'none' })
-        } else {
-          wx.showToast({ title: '服务号已覆盖发射前与结果通知', icon: 'none' })
-        }
-        return
-      }
-      const on = this.data._countdownSubscribed || isSubscribed(launch.id)
-      if (on) {
-        await this.unsubscribeReminderForMission(launch.id)
-      } else {
-        await this.subscribeReminderForMission(launch)
-      }
-    } finally {
-      this._subscribeReminderBusy = false
-    }
-  },
+  
 
 
 
@@ -4258,81 +3682,13 @@ Page({
   preventMove() {},
   stopPropagation() {},
 
-  /**
-   * 图片加载错误处理
-   * 如果特殊匹配的图片加载失败，会重新执行模糊匹配
-   */
+  
   // 卡片图加载失败时的重试逻辑：
   //   1) 第一次构造的 URL 经常因为 cloud media map 还没加载完而是"假 URL"
   //      （例如 Long March 7.webp 文件 COS 上其实不存在，真正的文件叫 Long March 7A.png）
   //   2) 这里 await loadCloudMediaMap()，等清单到位后再做 fuzzy 匹配，
   //      避免因为时序问题永远拿不到真实文件 URL
 
-  async onImageError(e) {
-    const index = e.currentTarget.dataset.index
-    const missionType = this.data.missionType
-    const isCalendar = missionType === 'calendar'
-    const listKey =
-      missionType === 'upcoming' ? 'upcomingMissions' : isCalendar ? 'calendarAllMissions' : 'completedMissions'
-    const missions = isCalendar
-      ? this.data.expandedDateMissions || []
-      : missionType === 'upcoming'
-        ? this.data.displayedUpcomingMissions || []
-        : this.data.completedMissions || []
-
-    if (!missions || !missions[index]) return
-    const mission = missions[index]
-    const failedImage = mission.rocketImage
-    const rocketName = rocketNameForImage(mission)
-
-    if (failedImage && /^https?:\/\//i.test(String(failedImage).trim())) {
-      markDownloadFailed(String(failedImage).trim(), 404)
-    }
-
-    const fallbackDefault = resolveMissionRocketImage(DEFAULT_ROCKET_IMAGE, rocketName, mission.rocketConfiguration)
-    const applyImage = (nextImage) => {
-      if (isCalendar) {
-        this._patchCalendarMissionRocketImage(mission.id, nextImage)
-        return
-      }
-      const currentList = this.data[listKey]
-      if (!Array.isArray(currentList)) return
-      const idx = currentList.findIndex((m) => m && String(m.id) === String(mission.id))
-      if (idx < 0) return
-      currentList[idx].rocketImage = nextImage
-      this.setData({ [listKey]: currentList })
-      // 即将发射卡片实际渲染自 displayedUpcomingMissions（筛选后列表），必须同步补图，
-      // 否则加载失败的配置图永远停留在破图状态
-      if (missionType === 'upcoming') {
-        const disp = this.data.displayedUpcomingMissions || []
-        const dIdx = disp.findIndex((m) => m && String(m.id) === String(mission.id))
-        if (dIdx >= 0 && disp[dIdx].rocketImage !== nextImage) {
-          this.setData({ [`displayedUpcomingMissions[${dIdx}].rocketImage`]: nextImage })
-        }
-      }
-      this.syncLaunchDataRocketImageFromListByMissionId(mission.id, nextImage)
-    }
-
-    // 等云端文件清单加载完成（已加载会立刻 resolve；并发请求会被去重）
-    try {
-      await loadCloudMediaMap()
-    } catch (err) {}
-
-    // 即使当前已是 default，也强制重算：default 能加载成功不会触发 error，但 map 晚到时需主动升级
-    const fuzzyMatchImage = resolveMissionRocketImage(failedImage, rocketName, mission.rocketConfiguration, true)
-
-    if (fuzzyMatchImage && fuzzyMatchImage !== failedImage) {
-      applyImage(fuzzyMatchImage)
-      return
-    }
-
-    if (!rocketName || isDefaultRocketSrc(failedImage)) {
-      applyImage(fallbackDefault)
-      return
-    }
-
-    applyImage(fallbackDefault)
-  },
 
   /**
    * 轮播图加载错误处理
@@ -4342,12 +3698,7 @@ Page({
     return this._carouselAutoplayAllowed === true
   },
 
-  /**
-   * 非会员任务列表翻页深度门控：
-   * - 会员功能未开启 / Pro / 广告解锁期内：不限制（missionGateLimit = 0）
-   * - 其余：即将发射与历史发射列表各只展示前 FREE_MISSION_LIST_LIMIT 条，
-   *   底部出现解锁横幅，继续上拉触发开通引导（gateCheck 弹窗）
-   */
+  
   _updateMissionListGate() {
     Promise.all([isMembershipEnabled(), getMemberPolicy()])
       .then(([enabled, policy]) => {
@@ -4377,27 +3728,8 @@ Page({
   /**
    * 分享任务
    */
-  async shareMission() {
-    try {
-      // TODO: 调用分享API
-      await shareMission(this.data.launchData)
 
-      wx.showShareMenu({
-        withShareTicket: true,
-        menus: ['shareAppMessage', 'shareTimeline']
-      })
-    } catch (error) {
-      wx.showToast({
-        title: '分享失败',
-        icon: 'none'
-      })
-    }
-  },
-
-  /**
-   * 原生三点下拉刷新（页面级 / scroll-view refresher 共用）
-   * 即将发射重拉首屏；历史发射强制 merge recent_settled 修正角标
-   */
+  
   onScrollRefresh() {
     this._runMissionPullRefresh('scrollRefreshing')
   },
@@ -4445,7 +3777,7 @@ Page({
     )
   },
 
-  /** 左上角放大镜：与星问同闸 enableAIChat（一键过审关闭时一并隐藏） */
+  
   async _syncNavAiSearchVisible() {
     let on = false
     try {
@@ -4458,35 +3790,70 @@ Page({
     }
   },
 
+  
+  _ensureFestivalHatUtil() {
+    if (this.__festivalHatUtil) return Promise.resolve(this.__festivalHatUtil)
+    if (!this.__festivalHatUtilPromise) {
+      this.__festivalHatUtilPromise = require
+        .async('../../subpackages/shared/utils/festival-hat.js')
+        .then((mod) => {
+          this.__festivalHatUtil = mod
+          return mod
+        })
+        .catch((err) => {
+          this.__festivalHatUtilPromise = null
+          throw err
+        })
+    }
+    return this.__festivalHatUtilPromise
+  },
+
   /** 倒计时圆图节日帽：与星问同源日期；开发模式轮播预览 */
   _syncFestivalHat() {
-    const list = listFestivalHats()
-    if (isFestivalHatDevMode()) {
-      if (!this._festivalHatDevIdx && this._festivalHatDevIdx !== 0) this._festivalHatDevIdx = 0
-      const id = (list[this._festivalHatDevIdx] && list[this._festivalHatDevIdx].id) || (list[0] && list[0].id) || ''
-      if (id !== this.data.festivalHat) this.setData({ festivalHat: id })
-      this._startFestivalHatDevCycle()
-      return
-    }
-    this._stopFestivalHatDevCycle()
-    const id = resolveFestivalHatId(new Date()) || ''
-    if (id !== (this.data.festivalHat || '')) this.setData({ festivalHat: id })
+    this._ensureFestivalHatUtil()
+      .then((mod) => {
+        const {
+          resolveFestivalHatId,
+          isFestivalHatDevMode,
+          listFestivalHats
+        } = mod
+        const list = listFestivalHats()
+        if (isFestivalHatDevMode()) {
+          if (!this._festivalHatDevIdx && this._festivalHatDevIdx !== 0) this._festivalHatDevIdx = 0
+          const id =
+            (list[this._festivalHatDevIdx] && list[this._festivalHatDevIdx].id) ||
+            (list[0] && list[0].id) ||
+            ''
+          if (id !== this.data.festivalHat) this.setData({ festivalHat: id })
+          this._startFestivalHatDevCycle()
+          return
+        }
+        this._stopFestivalHatDevCycle()
+        const id = resolveFestivalHatId(new Date()) || ''
+        if (id !== (this.data.festivalHat || '')) this.setData({ festivalHat: id })
+      })
+      .catch(() => {})
   },
 
   _startFestivalHatDevCycle() {
     this._stopFestivalHatDevCycle()
-    const list = listFestivalHats()
-    if (!list.length) return
-    this._festivalHatDevTimer = setInterval(() => {
-      if (!isFestivalHatDevMode()) {
-        this._stopFestivalHatDevCycle()
-        return
-      }
-      const next = ((this._festivalHatDevIdx || 0) + 1) % list.length
-      this._festivalHatDevIdx = next
-      const id = list[next] && list[next].id
-      if (id) this.setData({ festivalHat: id })
-    }, DEV_CYCLE_MS)
+    this._ensureFestivalHatUtil()
+      .then((mod) => {
+        const { isFestivalHatDevMode, listFestivalHats, DEV_CYCLE_MS } = mod
+        const list = listFestivalHats()
+        if (!list.length) return
+        this._festivalHatDevTimer = setInterval(() => {
+          if (!isFestivalHatDevMode()) {
+            this._stopFestivalHatDevCycle()
+            return
+          }
+          const next = ((this._festivalHatDevIdx || 0) + 1) % list.length
+          this._festivalHatDevIdx = next
+          const id = list[next] && list[next].id
+          if (id) this.setData({ festivalHat: id })
+        }, DEV_CYCLE_MS)
+      })
+      .catch(() => {})
   },
 
   _stopFestivalHatDevCycle() {
@@ -4574,10 +3941,7 @@ Page({
 
 
 
-  /**
-   * 本地命中后后台探云发现发射列表母缓存更新：重拉对应列表并 merge settled，
-   * 否则 UI 会一直停在旧 previous（探云只写 storage、无人刷新页面）。
-   */
+  
   _onLaunchListCacheStale(info) {
     const kind = info && info.kind
     if (kind !== 'previous' && kind !== 'upcoming') return
@@ -4792,13 +4156,7 @@ Page({
     })
   },
 
-  /**
-   * 分享到朋友圈
-   *
-   * 注意：onShareTimeline 不接收 e 参数（小程序限制），无法读 button 上的 dataset。
-   * 因此优先使用 pendingShareMission（长按面板时已预存的任务 id），
-   * 没有则回退到首页的 launchData。
-   */
+  
   onShareTimeline() {
     const pending = this.data.pendingShareMission
     if (pending && pending.id) {

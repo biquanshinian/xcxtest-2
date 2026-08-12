@@ -163,6 +163,7 @@ const saveImageMethods = {
 
 function attachTo(page) {
   if (page.__saveImageAttached) return saveImageMethods
+  page.__saveImageMethods = saveImageMethods
   Object.keys(saveImageMethods).forEach((key) => {
     page[key] = saveImageMethods[key]
   })

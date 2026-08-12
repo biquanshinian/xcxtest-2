@@ -12,10 +12,10 @@ const LUNAR_CACHE_TTL = 30 * 60 * 1000
 
 // invert: 纯白单色 SVG，浅色主题下经 --icon-invert 反色为深色（NASA 彩色 logo 不反色）
 const BASE_MENU_ITEMS = [
-  { key: 'nasa', label: 'NASA数据', icon: '', image: '/images/icons/nasa-logo.png' },
-  { key: 'lunar', label: '月愿计划', icon: '', image: '/images/icons/moon-crescent.svg', invert: true },
-  { key: 'astro', label: '天文日历', icon: '', image: '/images/icons/ic-telescope.svg', invert: true },
-  { key: 'exoplanet', label: '系外行星', icon: '', image: '/images/icons/ic-exoplanet.svg', invert: true }
+  { key: 'nasa', label: 'NASA数据', icon: '', image: '/subpackages/shared/images/icons/nasa-logo.png' },
+  { key: 'lunar', label: '月愿计划', icon: '', image: '/subpackages/shared/images/icons/moon-crescent.svg', invert: true },
+  { key: 'astro', label: '天文日历', icon: '', image: '/subpackages/shared/images/icons/ic-telescope.svg', invert: true },
+  { key: 'exoplanet', label: '系外行星', icon: '', image: '/subpackages/shared/images/icons/ic-exoplanet.svg', invert: true }
 ]
 
 const AI_MENU_ITEM = { key: 'aichat', label: '星问AI', icon: '✦', image: '' }

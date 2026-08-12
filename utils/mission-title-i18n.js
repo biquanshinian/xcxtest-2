@@ -92,6 +92,9 @@ const MISSION_PHRASE_RULES = [
   [/\bRideshare\b/gi, '拼车发射'],
   [/\bTransporter[-\s]?(\d+)\b/gi, 'Transporter-$1'],
   [/\bBandwagon[-\s]?(\d+)\b/gi, 'Bandwagon-$1'],
+  [/\bUSSF[-\s]?(\d+)\b/gi, '美国太空军-$1'],
+  [/\bNROL[-\s]?(\d+)\b/gi, '国家侦察局-$1'],
+  [/Globalstar\s*2\s*[-–]?\s*R/gi, '全球星2-R'],
   [/\bCRS[-\s]?(\d+)\b/gi, '商业补给$1'],
   // Crew-N = SpaceX 载人任务编号，绝不能落成「人物」（通机翻影视义）
   [/\bCrew[-\s]?(\d+)\b/gi, '载人-$1'],
@@ -105,8 +108,14 @@ const MISSION_PHRASE_RULES = [
 
 /**
  * 纠偏通机翻/旧缓存的航天术语误译（已是中文也要跑）。
- * 统一用词：Crew* → 载人（任务号）/ 载人龙飞船；Flight → 飞行（禁「航班」）。
+ * 统一用词：Crew* → 载人（任务号）/ 载人龙飞船；Flight → 飞行（禁「航班」）；
+ * Zhuque 绝不能落成「麻雀」（通机翻把 vermilion/que 误成 sparrow）。
  */
+const ZHUQUE_NUM_ZH = {
+  1: '一', 2: '二', 3: '三', 4: '四', 5: '五', 6: '六',
+  7: '七', 8: '八', 9: '九', 10: '十', 11: '十一', 12: '十二'
+}
+
 const AEROSPACE_ZH_REPAIR_RULES = [
   [/人物龙飞船/g, '载人龙飞船'],
   [/人物\s*Dragon/gi, '载人龙飞船'],
@@ -125,12 +134,31 @@ const AEROSPACE_ZH_REPAIR_RULES = [
   [/\bFlight\s+Test\s+(\d+)\b/gi, '第$1次试飞'],
   [/\bFlight\s+Test\b/gi, '试飞'],
   [/\bFlight[-\s]?(\d+)\b/gi, '第$1次飞行'],
-  [/\bFlight\b/gi, '飞行']
+  [/\bFlight\b/gi, '飞行'],
+  // 朱雀误译「麻雀」：先处理带「改/E」与中文数字号
+  [/麻雀\s*二\s*号?\s*[改eE]/g, '朱雀二号改'],
+  [/麻雀\s*([一二三四五六七八九十]+)\s*号/g, '朱雀$1号']
 ]
+
+/** 麻雀-3 / 麻雀3号 → 朱雀三号（机翻 Zhuque→麻雀） */
+function repairZhuqueSparrowMistranslation(text) {
+  let s = String(text || '')
+  if (!s || s.indexOf('麻雀') < 0) return s
+  s = s.replace(/麻雀\s*[-–]?\s*(\d+)\s*([eE])\b/g, (_, n, e) => {
+    const num = ZHUQUE_NUM_ZH[Number(n)] || n
+    return '朱雀' + num + '号' + (String(e).toLowerCase() === 'e' ? '改' : '')
+  })
+  // 注意：数字后不要写 \s*号?，否则会吞掉「麻雀-3 | …」里的空格
+  s = s.replace(/麻雀\s*[-–]?\s*(\d+)号?(?=\s|[|｜]|$|[^\d号])/g, (_, n) => {
+    return '朱雀' + (ZHUQUE_NUM_ZH[Number(n)] || n) + '号'
+  })
+  return s
+}
 
 function repairAerospaceZhMistranslations(text) {
   let s = String(text || '')
   if (!s) return ''
+  s = repairZhuqueSparrowMistranslation(s)
   for (let i = 0; i < AEROSPACE_ZH_REPAIR_RULES.length; i++) {
     const pair = AEROSPACE_ZH_REPAIR_RULES[i]
     s = s.replace(pair[0], pair[1])

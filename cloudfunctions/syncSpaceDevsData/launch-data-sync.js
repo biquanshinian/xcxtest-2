@@ -223,6 +223,31 @@ function mapLaunchToLaunchDataDoc(launch, nowMs) {
   }
 }
 
+const NET_CHANGE_DELAY_MS = 30 * 60 * 1000
+
+function attachNetChangeMeta(existing, payload) {
+  const oldIso = existing && existing.launchTime ? String(existing.launchTime) : ''
+  const newIso = payload && payload.launchTime ? String(payload.launchTime) : ''
+  const oldMs = oldIso ? new Date(oldIso).getTime() : 0
+  const newMs = newIso ? new Date(newIso).getTime() : 0
+  const lastPushed = (existing && existing.lastNetChangePushedKey) || ''
+  if (oldMs > 0 && newMs > 0 && newMs - oldMs >= NET_CHANGE_DELAY_MS) {
+    payload.previousNet = oldIso
+    payload.netChangedAt = Date.now()
+    payload.netChangePending = true
+  } else if (existing && existing.netChangePending && oldIso && newIso && oldIso === newIso) {
+    payload.previousNet = existing.previousNet || oldIso
+    payload.netChangedAt = existing.netChangedAt || 0
+    payload.netChangePending = true
+  } else {
+    payload.previousNet = (existing && existing.previousNet) || ''
+    payload.netChangedAt = (existing && existing.netChangedAt) || 0
+    payload.netChangePending = false
+  }
+  payload.lastNetChangePushedKey = lastPushed
+  return payload
+}
+
 async function upsertLaunchDataDoc(docId, data) {
   // TCB/wx-server-sdk 下 doc(id).update() 对不存在的文档不抛错、静默返回 updated:0、
   // 也不会创建文档，因此不能靠 update 抛错来 fallback set。
@@ -295,6 +320,12 @@ async function syncLaunchDataFromCache() {
 
     try {
       const payload = mapLaunchToLaunchDataDoc(launch, nowMs)
+      var existing = null
+      try {
+        var er = await db.collection(LAUNCH_DATA_COLLECTION).doc(docId).get()
+        existing = (er && er.data) || null
+      } catch (eRead) {}
+      attachNetChangeMeta(existing, payload)
       await upsertLaunchDataDoc(docId, payload)
       stats.upserted++
     } catch (e) {

@@ -66,7 +66,9 @@
 
       <!-- 其余任务：保持原有小卡片 -->
       <view class="orbit-card glass-card orbit-card--clickable" wx:for="{{upcomingOrbitalEvents}}" wx:if="{{index > 0}}" wx:key="id" data-id="{{item.id}}" bindtap="emitEventTap">
-        <image class="orbit-card-img" wx:if="{{item.imageUrl}}" src="{{item.imageUrl}}" mode="aspectFill" lazy-load data-index="{{index}}" data-id="{{item.id}}" binderror="emitImageError" />
+        <view class="orbit-card-media" wx:if="{{item.imageUrl}}">
+          <image class="orbit-card-img" src="{{item.imageUrl}}" mode="aspectFill" lazy-load data-index="{{index}}" data-id="{{item.id}}" binderror="emitImageError" />
+        </view>
         <view class="orbit-card-body">
           <view class="orbit-card-meta orbit-card-meta--top">
             <text class="orbit-meta-tag orbit-meta-tag--type">{{item.typeName}}</text>

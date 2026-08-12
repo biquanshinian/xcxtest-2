@@ -2,6 +2,7 @@
  * 首页「发射日历」Tab 逻辑 — 分包异步加载，减轻主包体积
  */
 const { formatDate, resolveMissionRocketImage } = require('../../../utils/util.js')
+const { rocketNameForImage, formatMissionListTimeOrUnknown } = require('../../../utils/launch-card-i18n.js')
 const { attachMissionDetailMeta } = require('../../../utils/index-mission-nav.js')
 const { getMissionNextOffset } = require('../../../utils/index-mission-services.js')
 const { CALENDAR_SITE_META } = require('../../../utils/index-page-helpers.js')
@@ -122,13 +123,27 @@ function buildCalendarMissionBatch(options) {
   }
 }
 
+/** 日历包内同步解析配图，禁止走主包 interaction 委托壳（会返回 Promise，展开后丢 launchTime） */
+function withResolvedRocketImage(mission) {
+  if (!mission || typeof mission !== 'object') return mission
+  const stamped = mission.rocketImage || mission.image || ''
+  const resolved = resolveMissionRocketImage(
+    stamped,
+    rocketNameForImage(mission),
+    mission.rocketConfiguration,
+    true
+  )
+  if (resolved === mission.rocketImage && resolved === mission.image) return mission
+  return { ...mission, rocketImage: resolved, image: resolved }
+}
+
 const calendarMethods = {
   _processCalendarMission(m, idx, isUpcoming) {
     const mission = attachMissionDetailMeta({
-      ...this._withResolvedRocketImage(m),
+      ...withResolvedRocketImage(m),
       _wxkey: `cal-${isUpcoming ? 'up' : 'comp'}-${idx}-${m.id || ''}`,
       _isUpcoming: isUpcoming,
-      formattedTime: m.launchTime ? formatDate(m.launchTime, 'MM月DD日 HH:mm') : '时间未知'
+      formattedTime: m.launchTime ? formatMissionListTimeOrUnknown(m.launchTime) : '时间未知'
     }, {
       id: m.id,
       detailType: isUpcoming ? 'upcoming' : 'completed'
@@ -427,7 +442,7 @@ const calendarMethods = {
   },
 
   applyCalendarMissionSnapshot(allMissions, options = {}) {
-    const missions = (Array.isArray(allMissions) ? allMissions : []).map((m) => this._withResolvedRocketImage(m))
+    const missions = (Array.isArray(allMissions) ? allMissions : []).map((m) => withResolvedRocketImage(m))
     const keepExpanded = options.keepExpanded !== false
     const saveCache = options.saveCache !== false
     this.setData({
@@ -982,6 +997,7 @@ const calendarMethods = {
 
 function attachTo(page) {
   if (page.__calendarAttached) return calendarMethods
+  page.__calendarMethods = calendarMethods
   Object.keys(calendarMethods).forEach((key) => {
     page[key] = calendarMethods[key]
   })
@@ -990,5 +1006,6 @@ function attachTo(page) {
 }
 
 module.exports = {
-  attachTo
+  attachTo,
+  methods: calendarMethods
 }

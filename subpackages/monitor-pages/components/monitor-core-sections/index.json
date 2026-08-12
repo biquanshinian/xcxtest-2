@@ -1,0 +1,7 @@
+{
+  "component": true,
+  "styleIsolation": "apply-shared",
+  "usingComponents": {
+    "lazy-load-card": "/components/lazy-load-card/index"
+  }
+}

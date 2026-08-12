@@ -287,6 +287,37 @@ async function subscribeResultOnlyViaOa(mission) {
   return true
 }
 
+/**
+ * 偏好保存：合并 prefsPatch + 弹双模板，accept 后与偏好字段一次写入云端（避免先 save 再 grant 竞态丢额度）。
+ * OA 就绪则只存偏好、不弹窗（由服务号 B 通道覆盖）。
+ * @param {object} [prefsPatch] 如 { rocketTypes, launchSites, notifyMinutes }
+ * @returns {Promise<{ oaReady: boolean, reminder: boolean, result: boolean }>}
+ */
+async function requestPreferenceSubscribeGrant(prefsPatch) {
+  var ug = require('./user-growth.js')
+  var prefs = Object.assign({}, ug.loadPreferences() || {}, prefsPatch || {})
+
+  try {
+    var oaAlert = require('./oa-alert.js')
+    if (oaAlert && typeof oaAlert.isOaAlertReady === 'function') {
+      var ready = await oaAlert.isOaAlertReady()
+      if (ready) {
+        ug.savePreferences(prefs)
+        return { oaReady: true, reminder: false, result: false }
+      }
+    }
+  } catch (oaErr) { /* 回退弹窗 */ }
+
+  var perm = await requestSubscribePermission()
+  var reminder = !!(perm && perm.reminder)
+  var result = !!(perm && perm.result)
+  if (reminder) prefs.mpReminderGrantedAt = Date.now()
+  if (result) prefs.mpResultCreditsDelta = 1
+  // 无论是否 accept，都落盘偏好字段；有 accept 时同一次写入带上额度 delta
+  ug.savePreferences(prefs)
+  return { oaReady: false, reminder: reminder, result: result }
+}
+
 
 
 /**
@@ -727,6 +758,8 @@ module.exports = {
   requestSubscribePermission: requestSubscribePermission,
 
   requestResultSubscribePermission: requestResultSubscribePermission,
+
+  requestPreferenceSubscribeGrant: requestPreferenceSubscribeGrant,
 
   warmSubscribedStoreSync: warmSubscribedStoreSync,
 

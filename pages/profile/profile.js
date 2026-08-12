@@ -37,8 +37,6 @@ const GROWTH_ICONS = {
 }
 
 const { getUiShellLayout } = require('../../utils/layout.js')
-const { tryShowPopupAd } = require('../../utils/popup-ad.js')
-
 // ========== 低频非首屏逻辑：在 profile-extra 分包（profile-lazy.js） ==========
 // 竞猜战绩、里程碑彩蛋、服务号提醒、奖品、年鉴、客服区块均为 onShow 后异步触发或用户点击触发，
 // require.async + attachTo 委托加载；profile 页在 preloadRule 中预下载 profile-extra 分包，实际几乎无加载等待
@@ -65,6 +63,8 @@ const PROFILE_LAZY_METHODS = [
   'loadOaAlertStatus',
   'onOaAlertSwitch',
   'onCopyOaName',
+  'showOaQrGuide',
+  'closeOaQrGuide',
   '_enrichIncompleteReminders',
   '_refreshVoteHistoryRocketArt',
   'loadMyPrizes',
@@ -79,17 +79,23 @@ const PROFILE_LAZY_METHODS = [
 
 // profile-sections 分包组件（我的提醒 / 竞猜战绩 / 每日问答 / 在线客服）回传事件白名单
 const SECTION_EVENT_METHODS = [
+  'onCopyTracking',
   'closeSettingsPanel',
   'onThemeModeTap',
   'onRocketArtTap',
   'onContentLangChange',
   'onBriefingToggle',
+  'onTogglePrefRocketsExpand',
+  'onTogglePrefSitesExpand',
   'onTogglePrefRocket',
   'onTogglePrefSite',
   'onNotifyPrefChange',
+  'onRoadClosurePrefChange',
   'onSaveReminderPrefs',
   'onOaAlertSwitch',
   'onCopyOaName',
+  'showOaQrGuide',
+  'closeOaQrGuide',
   'onReminderTap',
   'onCancelReminder',
   'onGoAstroCalendar',
@@ -151,7 +157,13 @@ Page({
     selectedSites: [],
     rocketMap: {},
     siteMap: {},
-    notifyMinutes: 60,
+    selectedRocketCount: 0,
+    selectedSiteCount: 0,
+    prefRocketsExpanded: false,
+    prefSitesExpanded: false,
+    reminderPrefsDirty: false,
+    notifyMinutes: 30,
+    roadClosureAlert: true,
     prefSaving: false,
     pageBgColor: '#000000',
     popupAdItem: null,
@@ -184,6 +196,9 @@ Page({
     oaAlertReady: false,
     oaAlertMessage: '',
     oaAlertLoading: false,
+    oaQrGuideOpen: false,
+    oaFollowQrUrl:
+      'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E4%BA%8C%E7%BB%B4%E7%A0%81/1786523995939_ilory0.png',
     // 每日问答
     quizQuestion: null,
     quizAnswered: false,
@@ -341,24 +356,70 @@ Page({
         selectedSites: sites,
         rocketMap: prefsArrayToMap(rockets),
         siteMap: prefsArrayToMap(sites),
-        notifyMinutes: prefs.notifyMinutes || 60
+        selectedRocketCount: rockets.length,
+        selectedSiteCount: sites.length,
+        notifyMinutes: [30, 60, 120].indexOf(Number(prefs.notifyMinutes)) >= 0
+          ? Number(prefs.notifyMinutes)
+          : 30,
+        roadClosureAlert: prefs.roadClosureAlert !== false,
+        prefRocketsExpanded: false,
+        prefSitesExpanded: false,
+        reminderPrefsDirty: false
       })
     } catch (e) {}
   },
 
+  _buildReminderPrefsPatch() {
+    return {
+      rocketTypes: this.data.selectedRockets,
+      launchSites: this.data.selectedSites,
+      notifyMinutes: this.data.notifyMinutes,
+      roadClosureAlert: !!this.data.roadClosureAlert
+    }
+  },
+
+  /** 关闭抽屉时静默落盘（不弹订阅授权，避免挡关闭） */
+  _persistReminderPrefsQuiet() {
+    try {
+      savePreferences(Object.assign(loadPreferences() || {}, this._buildReminderPrefsPatch()))
+      this.setData({ reminderPrefsDirty: false })
+      return true
+    } catch (e) {
+      return false
+    }
+  },
+
   onToggleSettingsPanel() {
     try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
-    const next = !this.data.settingsPanelOpen
-    if (next) {
-      this._syncSettingsPrefs()
-      this._loadReminderPrefs()
+    if (this.data.settingsPanelOpen) {
+      this.closeSettingsPanel()
+      return
     }
-    this.setData({ settingsPanelOpen: next })
+    this._syncSettingsPrefs()
+    this._loadReminderPrefs()
+    this.setData({ settingsPanelOpen: true })
   },
 
   closeSettingsPanel() {
     if (!this.data.settingsPanelOpen) return
-    this.setData({ settingsPanelOpen: false })
+    const dirty = !!this.data.reminderPrefsDirty
+    const saved = this._persistReminderPrefsQuiet()
+    this.setData({
+      settingsPanelOpen: false,
+      prefRocketsExpanded: false,
+      prefSitesExpanded: false
+    })
+    if (dirty && saved) {
+      try { wx.showToast({ title: '已自动保存', icon: 'success' }) } catch (e) {}
+    }
+  },
+
+  onTogglePrefRocketsExpand() {
+    this.setData({ prefRocketsExpanded: !this.data.prefRocketsExpanded })
+  },
+
+  onTogglePrefSitesExpand() {
+    this.setData({ prefSitesExpanded: !this.data.prefSitesExpanded })
   },
 
   onTogglePrefRocket(e) {
@@ -374,7 +435,12 @@ Page({
       list.push(name)
       map[name] = true
     }
-    this.setData({ selectedRockets: list, rocketMap: map })
+    this.setData({
+      selectedRockets: list,
+      rocketMap: map,
+      selectedRocketCount: list.length,
+      reminderPrefsDirty: true
+    })
   },
 
   onTogglePrefSite(e) {
@@ -390,54 +456,53 @@ Page({
       list.push(name)
       map[name] = true
     }
-    this.setData({ selectedSites: list, siteMap: map })
+    this.setData({
+      selectedSites: list,
+      siteMap: map,
+      selectedSiteCount: list.length,
+      reminderPrefsDirty: true
+    })
   },
 
   onNotifyPrefChange(e) {
     const value = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.value
-    this.setData({ notifyMinutes: Number(value) || 60 })
+    this.setData({ notifyMinutes: Number(value) || 30, reminderPrefsDirty: true })
+  },
+
+  onRoadClosurePrefChange(e) {
+    const value = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.value
+    this.setData({ roadClosureAlert: value === 1 || value === '1', reminderPrefsDirty: true })
   },
 
   onSaveReminderPrefs() {
     if (this.data.prefSaving) return
     this.setData({ prefSaving: true })
-    const prefs = loadPreferences() || {}
-    prefs.rocketTypes = this.data.selectedRockets
-    prefs.launchSites = this.data.selectedSites
-    prefs.notifyMinutes = this.data.notifyMinutes
-    savePreferences(prefs)
+    const patch = this._buildReminderPrefsPatch()
 
-    const finish = () => {
-      this.setData({ prefSaving: false })
-      wx.showToast({ title: '保存成功', icon: 'success' })
+    const finish = (msg) => {
+      this.setData({ prefSaving: false, reminderPrefsDirty: false })
+      wx.showToast({ title: msg || '保存成功', icon: 'success' })
     }
-    const RESULT_TMPL = 'ulf34VqAS9Tj32BMqj4M1qudtKKy04iiBM7Qb9_VDb4'
-    const REMINDER_TMPL = 'T5J5sRh2UdEwFE7q_VTbdowA0PeXrz_3bUweWEL6uBs'
     try {
-      const oaAlert = require('../../utils/oa-alert.js')
-      if (oaAlert && typeof oaAlert.isOaAlertReady === 'function') {
-        oaAlert.isOaAlertReady().then((ready) => {
-          if (ready) {
-            finish()
+      const subscribe = require('../../utils/subscribe.js')
+      if (subscribe && typeof subscribe.requestPreferenceSubscribeGrant === 'function') {
+        subscribe.requestPreferenceSubscribeGrant(patch).then((grant) => {
+          if (grant && grant.oaReady) {
+            finish('保存成功（服务号已覆盖通知）')
             return
           }
-          wx.requestSubscribeMessage({
-            tmplIds: [REMINDER_TMPL, RESULT_TMPL],
-            complete: finish
-          })
+          if (grant && grant.reminder && grant.result) finish('保存成功（含结果通知）')
+          else if (grant && grant.reminder) finish('保存成功（结果通知未授权）')
+          else finish('保存成功')
         }).catch(() => {
-          wx.requestSubscribeMessage({
-            tmplIds: [REMINDER_TMPL, RESULT_TMPL],
-            complete: finish
-          })
+          try { savePreferences(Object.assign(loadPreferences() || {}, patch)) } catch (e2) {}
+          finish('保存成功')
         })
         return
       }
     } catch (e) {}
-    wx.requestSubscribeMessage({
-      tmplIds: [REMINDER_TMPL, RESULT_TMPL],
-      complete: finish
-    })
+    try { savePreferences(Object.assign(loadPreferences() || {}, patch)) } catch (e3) {}
+    finish('保存成功')
   },
 
   _runProfileBoot() {
@@ -490,11 +555,15 @@ Page({
     this.loadYearReviewEntry()
     this._refreshWatchPartyEntryFlag()
     if (!isBoot) {
-      tryShowPopupAd(4, this)
+      require.async('../../subpackages/shared/utils/popup-ad.js')
+        .then(({ tryShowPopupAd }) => tryShowPopupAd(4, this))
+        .catch(() => {})
     } else {
       setTimeout(function () {
         self.checkMilestones()
-        tryShowPopupAd(4, self)
+        require.async('../../subpackages/shared/utils/popup-ad.js')
+          .then(({ tryShowPopupAd }) => tryShowPopupAd(4, self))
+          .catch(() => {})
       }, 100)
     }
 
@@ -625,7 +694,7 @@ Page({
     this.setData({ popupAdVisible: false, popupAdItem: null })
   },
 
-  /** 原生三点下拉刷新（页面级 / scroll-view refresher 共用）：最多等 800ms 兜底复位 */
+  
   onProfileScroll() {
     try {
       const { pulseNasaFloatOnScroll } = require('../../utils/nasa-float-scroll.js')
@@ -686,7 +755,7 @@ Page({
     this.setData({ showBadgeModal: false })
   },
 
-  /** profile-sections 分包组件统一事件通道：还原 currentTarget.dataset / detail 后分发 */
+  
   onProfileSectionEvent(e) {
     const { name, dataset, edetail } = (e && e.detail) || {}
     if (!name || SECTION_EVENT_METHODS.indexOf(name) < 0 || typeof this[name] !== 'function') return

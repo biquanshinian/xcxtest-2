@@ -30,23 +30,72 @@ function buildLaunchSitePair(launch) {
   return { padLocationZh, padLocationEn, launchSiteZh, launchSiteEn }
 }
 
-function formatMissionListTime(iso) {
-  if (!iso) return ''
+const WEEKDAYS_ZH = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
+const WEEKDAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+/** 北京时间（UTC+8）拆件；非法返回 null */
+function getBeijingDateParts(iso) {
+  if (!iso) return null
   const d = iso instanceof Date ? iso : new Date(iso)
-  if (!Number.isFinite(d.getTime())) return ''
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const hour = String(d.getHours()).padStart(2, '0')
-  const minute = String(d.getMinutes()).padStart(2, '0')
-  if (isContentLangEn()) {
-    return `${month}/${day} ${hour}:${minute}`
+  if (!Number.isFinite(d.getTime())) return null
+  const cst = new Date(d.getTime() + 8 * 60 * 60 * 1000)
+  return {
+    year: cst.getUTCFullYear(),
+    month: cst.getUTCMonth() + 1,
+    day: cst.getUTCDate(),
+    hour: cst.getUTCHours(),
+    minute: cst.getUTCMinutes(),
+    second: cst.getUTCSeconds(),
+    weekdayZh: WEEKDAYS_ZH[cst.getUTCDay()],
+    weekdayEn: WEEKDAYS_EN[cst.getUTCDay()]
   }
-  return `${month}月${day}日 ${hour}:${minute}`
+}
+
+function pad2(n) {
+  return String(n).padStart(2, '0')
+}
+
+function formatMissionListTime(iso) {
+  const p = getBeijingDateParts(iso)
+  if (!p) return ''
+  if (isContentLangEn()) {
+    return `${pad2(p.month)}/${pad2(p.day)} ${pad2(p.hour)}:${pad2(p.minute)}`
+  }
+  return `${pad2(p.month)}月${pad2(p.day)}日 ${pad2(p.hour)}:${pad2(p.minute)}`
 }
 
 function formatMissionListTimeOrUnknown(iso) {
   const t = formatMissionListTime(iso)
   return t || launchCardUiText('unknownTime')
+}
+
+/** 仅日期（分享/SEO）；固定北京时间 */
+function formatMissionListDate(iso) {
+  const p = getBeijingDateParts(iso)
+  if (!p) return ''
+  if (isContentLangEn()) {
+    return `${pad2(p.month)}/${pad2(p.day)}`
+  }
+  return `${pad2(p.month)}月${pad2(p.day)}日`
+}
+
+/**
+ * 首页倒计时大字时间：YYYY年MM月DD日 + 星期 HH:mm:ss（北京时间）
+ * formatDate 参数保留兼容，不再参与时区计算。
+ */
+function formatHomeLaunchTimeParts(launchTime, _formatDate) {
+  const p = getBeijingDateParts(launchTime)
+  if (!p) {
+    return { date: '时间未知', weekTime: '', full: '时间未知' }
+  }
+  if (isContentLangEn()) {
+    const date = `${p.year}-${pad2(p.month)}-${pad2(p.day)}`
+    const weekTime = `${p.weekdayEn} ${pad2(p.hour)}:${pad2(p.minute)}:${pad2(p.second)}`
+    return { date, weekTime, full: `${date} ${weekTime}` }
+  }
+  const date = `${p.year}年${pad2(p.month)}月${pad2(p.day)}日`
+  const weekTime = `${p.weekdayZh} ${pad2(p.hour)}:${pad2(p.minute)}:${pad2(p.second)}`
+  return { date, weekTime, full: `${date} ${weekTime}` }
 }
 
 /**
@@ -119,23 +168,70 @@ function applyContentLangToMission(mission) {
     mission.statusBadgeText = badge
     mission.status = badge
     mission.recoveryTagText = en ? pack.recoveryTagTextEn : pack.recoveryTagTextZh
+    // 中文：缓存可能滞后于短语/地点词典，展示前再对齐一次
+    // （USSF、文昌全称、以及纯中文误译如「麻雀」←Zhuque）
+    if (!en) {
+      if (mission.missionName) {
+        mission.missionName = localizeMissionTitle(
+          mission.missionName,
+          pack.rocketNameEn,
+          pack.rocketNameZh
+        ) || mission.missionName
+      }
+      if (mission.name) {
+        mission.name = localizeMissionTitle(
+          mission.name,
+          pack.rocketNameEn,
+          pack.rocketNameZh
+        ) || mission.name
+      }
+      if (mission.padLocation && /[A-Za-z]{3,}/.test(mission.padLocation)) {
+        mission.padLocation =
+          translateLocation(mission.padLocation) ||
+          translateLocation(pack.padLocationEn) ||
+          mission.padLocation
+      }
+      if (mission.launchSite && /[A-Za-z]{3,}/.test(mission.launchSite)) {
+        mission.launchSite =
+          translateLocation(mission.launchSite) ||
+          translateLocation(pack.launchSiteEn || pack.padLocationEn) ||
+          mission.launchSite
+      }
+      if (mission.rocketName) {
+        mission.rocketName =
+          translateRocketName(mission.rocketName) ||
+          pack.rocketNameZh ||
+          mission.rocketName
+      }
+    }
     // 详情页发射场地块 / missionFull.name 与列表标题同源
     if (mission.padDetail && typeof mission.padDetail === 'object') {
-      const padName = en
+      let padName = en
         ? (pack.padNameEn || mission.padDetail.padName)
         : (pack.padNameZh || mission.padDetail.padName)
-      const locationName = en
+      let locationName = en
         ? (pack.locationNameEn || mission.padDetail.locationName)
         : (pack.locationNameZh || mission.padDetail.locationName)
+      if (!en) {
+        if (padName && /[A-Za-z]{3,}/.test(padName)) {
+          padName = translateLocation(padName) || padName
+        }
+        if (locationName && /[A-Za-z]{3,}/.test(locationName)) {
+          locationName = translateLocation(locationName) || locationName
+        }
+      }
       mission.padDetail = Object.assign({}, mission.padDetail, {
         padName: padName || mission.padDetail.padName,
         locationName: locationName || mission.padDetail.locationName
       })
     }
     if (mission.missionFull && typeof mission.missionFull === 'object') {
-      const mfName = en
+      let mfName = en
         ? (pack.missionNameEn || pack.nameEn)
         : (pack.missionNameZh || pack.nameZh)
+      if (!en && mfName && /[A-Za-z]{3,}/.test(mfName)) {
+        mfName = localizeMissionTitle(mfName, pack.rocketNameEn, pack.rocketNameZh) || mfName
+      }
       if (mfName) {
         mission.missionFull = Object.assign({}, mission.missionFull, { name: mfName })
       }
@@ -339,8 +435,11 @@ function mergeMissionLangPack(listPack, detailPack) {
 }
 
 module.exports = {
+  getBeijingDateParts,
   formatMissionListTime,
   formatMissionListTimeOrUnknown,
+  formatMissionListDate,
+  formatHomeLaunchTimeParts,
   applyContentLangToMission,
   applyContentLangToMissionList,
   buildRocketNamePair,

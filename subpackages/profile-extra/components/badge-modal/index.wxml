@@ -1,0 +1,13 @@
+<view class="badge-modal-mask" wx:if="{{visible}}" bindtap="onClose">
+  <view
+    class="badge-modal-icon-wrap {{badge.unlocked ? 'badge-modal-icon--unlocked' : 'badge-modal-icon--locked'}}"
+    catchtap="onClose"
+  >
+    <view class="badge-modal-glow" wx:if="{{badge.unlocked}}"></view>
+    <image
+      class="badge-modal-icon-img {{badge.isNewUnlock ? 'badge-modal-icon--entrance' : ''}}"
+      src="{{badge.iconUrl}}"
+      mode="aspectFit"
+    />
+  </view>
+</view>

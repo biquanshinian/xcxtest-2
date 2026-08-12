@@ -545,6 +545,7 @@ module.exports = {
   isStarshipListItem,
   mapLaunchToListItem,
   invalidateListSnapshots,
+  findMissionInListSnapshots,
   patchUpcomingLocalCacheById
 }
 
@@ -552,4 +553,33 @@ function invalidateListSnapshots() {
   Object.keys(_listSnapshots).forEach((k) => {
     delete _listSnapshots[k]
   })
+}
+
+/**
+ * 从模块级列表快照里按 id 找任务（不发网络）。
+ * 供详情页深链/无 opener 时作日程权威短路。
+ */
+function findMissionInListSnapshots(id, detailType) {
+  if (id == null || id === '') return null
+  const idStr = String(id)
+  const prefix = detailType === 'completed' ? 'completed:' : 'upcoming:'
+  const keys = Object.keys(_listSnapshots)
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i]
+    if (key.indexOf(prefix) !== 0) continue
+    const entry = _listSnapshots[key]
+    const list = entry && entry.result && Array.isArray(entry.result.list) ? entry.result.list : null
+    if (!list || !list.length) continue
+    for (let j = 0; j < list.length; j++) {
+      const m = list[j]
+      if (m && String(m.id) === idStr) {
+        const next = { ...m }
+        if (m._langPack && typeof m._langPack === 'object') {
+          next._langPack = Object.assign({}, m._langPack)
+        }
+        return applyContentLangToMission(next)
+      }
+    }
+  }
+  return null
 }

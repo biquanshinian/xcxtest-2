@@ -17,7 +17,8 @@
     "channels-live-panel": "/subpackages/shared/components/channels-live-panel/index",
     "monitor-galleries": "/subpackages/monitor-pages/components/monitor-galleries/index",
     "monitor-orbital-card": "/subpackages/monitor-pages/components/monitor-orbital-card/index",
-    "monitor-orbit-events": "/subpackages/monitor-pages/components/monitor-orbit-events/index"
+    "monitor-orbit-events": "/subpackages/monitor-pages/components/monitor-orbit-events/index",
+    "monitor-core-sections": "/subpackages/monitor-pages/components/monitor-core-sections/index"
   },
   "componentPlaceholder": {
     "demo-overlay": "view",
@@ -26,6 +27,7 @@
     "nasa-float": "view",
     "monitor-galleries": "view",
     "monitor-orbital-card": "view",
-    "monitor-orbit-events": "view"
+    "monitor-orbit-events": "view",
+    "monitor-core-sections": "view"
   }
 }

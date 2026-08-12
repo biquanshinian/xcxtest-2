@@ -8,7 +8,7 @@ const {
   isTerminalStatusId,
   getCountryDisplay
 } = require('../../utils/api-request.js')
-const { formatDate } = require('../../utils/util.js')
+const { formatMissionListTimeOrUnknown } = require('../../utils/launch-card-i18n.js')
 
 const PLACEHOLDER_NET_MAX_AGE_MS = 48 * 60 * 60 * 1000
 
@@ -37,7 +37,7 @@ function buildThinCompletedFromSettled(entry) {
     missionName: missionName || name,
     rocketName: rocketName || '未知火箭',
     launchTime,
-    formattedTime: launchTime ? formatDate(launchTime, 'MM月DD日 HH:mm') : '时间未知',
+    formattedTime: launchTime ? formatMissionListTimeOrUnknown(launchTime) : '时间未知',
     status: badge,
     statusId: sid,
     statusAbbrev: statusObj.abbrev || '',

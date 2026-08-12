@@ -192,16 +192,16 @@ test('pickCountdownDisplayMission：holdMissionId 在窗口内优先于列表头
   assert.equal(picked && picked.id, 'b')
 })
 
-test('sortUpcomingMissionsByNetAsc：近窗 TBD 沉到就绪任务之后', () => {
+test('sortUpcomingMissionsByNetAsc：严格按 NET 升序，无视 TBD/就绪', () => {
   const rows = [
+    { id: 'starlink', launchTime: '2026-08-11T14:26:00Z', statusId: 1, statusAbbrev: 'Go' },
     { id: 'michibiki', launchTime: '2026-08-10T19:15:00Z', statusId: 2, statusAbbrev: 'TBD' },
-    { id: 'zhuque', launchTime: '2026-08-10T23:45:00Z', statusId: 1, statusAbbrev: 'Go' },
-    { id: 'starlink', launchTime: '2026-08-11T14:26:00Z', statusId: 1, statusAbbrev: 'Go' }
+    { id: 'zhuque', launchTime: '2026-08-10T23:45:00Z', statusId: 1, statusAbbrev: 'Go' }
   ]
   sortUpcomingMissionsByNetAsc(rows)
-  assert.equal(rows[0].id, 'zhuque')
-  assert.equal(rows[1].id, 'starlink')
-  assert.equal(rows[2].id, 'michibiki')
+  assert.equal(rows[0].id, 'michibiki')
+  assert.equal(rows[1].id, 'zhuque')
+  assert.equal(rows[2].id, 'starlink')
 })
 
 test('pickCountdownDisplayMission：scrub 到远窗后不传 hold → 选更近未来任务', () => {

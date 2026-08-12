@@ -7,16 +7,7 @@
         <text class="icon-back icon-back--nav">‹</text>
       </view>
       <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
-      <view class="top-nav-slot--spacer top-nav-slot--fav">
-        <view
-          class="fav-btn fav-btn--nav {{isFavorited ? 'fav-btn--on' : ''}} {{favAnimate ? 'fav-btn--animate' : ''}}"
-          hover-class="fav-btn--pressed"
-          hover-stay-time="120"
-          catchtap="onToggleFavorite"
-        >
-          <view class="fav-heart"></view>
-        </view>
-      </view>
+      <view class="top-nav-slot--spacer"></view>
     </view>
   </view>
   <scroll-view

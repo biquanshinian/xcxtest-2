@@ -1,9 +1,14 @@
 /**
  * 服务号 B 通道：自动发射提醒 opt-in 状态（主包）
  * 就绪后发射前提醒与终态结果均由服务号全自动推送，无需再逐条点铃铛。
+ * 未关注服务号时不得显示「已开启」（假状态）；引导扫码关注后再开。
  */
 
 const OA_ALERT_STATUS_TTL_MS = 10 * 60 * 1000
+
+/** 服务号「火星探索日志」关注二维码（长按识别） */
+const OA_FOLLOW_QR_URL =
+  'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E4%BA%8C%E7%BB%B4%E7%A0%81/1786523995939_ilory0.png'
 
 var _cacheAt = 0
 var _cacheStatus = null
@@ -75,24 +80,60 @@ async function isOaAlertReady(force) {
   return !!(status && status.ready)
 }
 
+function seedDefaultReminderPrefsIfNeeded() {
+  try {
+    var ug = require('./user-growth.js')
+    var prefs = ug.loadPreferences() || {}
+    if (!Array.isArray(prefs.rocketTypes)) {
+      var seeded = Object.assign({}, ug.getDefaultPreferences(), prefs, {
+        rocketTypes: [],
+        launchSites: Array.isArray(prefs.launchSites) ? prefs.launchSites : [],
+        notifyMinutes: [30, 60, 120].indexOf(Number(prefs.notifyMinutes)) >= 0
+          ? Number(prefs.notifyMinutes)
+          : 30,
+        roadClosureAlert: prefs.roadClosureAlert !== false
+      })
+      ug.savePreferences(seeded)
+    }
+  } catch (seedErr) { /* 忽略 */ }
+}
+
+/**
+ * 开启服务号提醒。未关注时不写开启、返回 needFollow（由页面弹二维码）。
+ * @returns {Promise<{ ok: boolean, needFollow?: boolean, ready?: boolean }>}
+ */
 async function enableOaAlert() {
   if (!wx.cloud || !wx.cloud.callFunction) {
     wx.showToast({ title: '云能力不可用', icon: 'none' })
-    return false
+    return { ok: false }
   }
   try {
+    invalidateOaAlertCache()
+    var pre = await getOaAlertStatus(true)
+    if (!pre.followed || !pre.oaOpenidBound) {
+      return { ok: false, needFollow: true, followed: !!pre.followed, ready: false }
+    }
+
     var res = await callGateway('/oa-alert/enable', 'POST', {})
     var result = res && res.result
     invalidateOaAlertCache()
     if (result && result.code === 0) {
+      seedDefaultReminderPrefsIfNeeded()
+      var data = (result && result.data) || {}
+      if (!data.ready) {
+        return { ok: false, needFollow: !data.followed, ready: false }
+      }
       wx.showToast({ title: '已开启服务号提醒', icon: 'success' })
-      return true
+      return { ok: true, ready: true, followed: true }
+    }
+    if (result && (result.code === 4003 || (result.data && result.data.needFollow))) {
+      return { ok: false, needFollow: true }
     }
     wx.showToast({ title: (result && result.message) || '开启失败', icon: 'none' })
-    return false
+    return { ok: false }
   } catch (e) {
     wx.showToast({ title: '开启失败', icon: 'none' })
-    return false
+    return { ok: false }
   }
 }
 
@@ -116,6 +157,7 @@ async function disableOaAlert() {
 
 module.exports = {
   OA_ALERT_STATUS_TTL_MS: OA_ALERT_STATUS_TTL_MS,
+  OA_FOLLOW_QR_URL: OA_FOLLOW_QR_URL,
   getOaAlertStatus: getOaAlertStatus,
   isOaAlertReady: isOaAlertReady,
   peekOaAlertReady: peekOaAlertReady,

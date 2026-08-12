@@ -156,7 +156,7 @@
             <text class="detail-title detail-title--inline">{{heroTitle || mission.missionName || mission.name || '未知任务'}}</text>
           </view>
 
-          <!-- 发射时间左对齐置于倒计时上方；倒计时条居中 -->
+          <!-- 发射时间 + 倒计时：与标题同行水平居中 -->
           <view class="hero-countdown-block" wx:if="{{detailType === 'upcoming' && !missionCountdown.isExpired}}">
             <text class="date-text date-text--countdown" wx:if="{{mission.launchTimeCST}}">{{mission.launchTimeCST}}</text>
             <view class="hero-countdown">
@@ -490,7 +490,7 @@
           <view class="detail-section-content">
             <view class="detail-icon-summary-grid" wx:if="{{mission.missionFull.type || mission.missionFull.orbit}}">
               <view class="detail-icon-summary" wx:if="{{mission.missionFull.type}}">
-                <image class="detail-icon-summary__img" src="/images/icons/ic-mission-shield.svg" mode="aspectFit"></image>
+                <image class="detail-icon-summary__img" src="/pages/mission-detail/images/ic-mission-shield.svg" mode="aspectFit"></image>
                 <view class="detail-icon-summary__col">
                   <text class="detail-icon-summary__label">任务类型</text>
                   <text class="detail-icon-summary__value">{{mission.missionFull.type}}</text>

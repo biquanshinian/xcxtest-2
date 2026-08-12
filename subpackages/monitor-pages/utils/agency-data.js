@@ -100,7 +100,7 @@ function translateSocialMediaName(name) {
   return map[key] || raw
 }
 
-const SOCIAL_ICON_BASE = '/images/icons/social/'
+const SOCIAL_ICON_BASE = '/subpackages/monitor-pages/images/icons/social/'
 const SOCIAL_ICON_MAP = {
   x: SOCIAL_ICON_BASE + 'ic-social-x.svg',
   youtube: SOCIAL_ICON_BASE + 'ic-social-youtube.svg',

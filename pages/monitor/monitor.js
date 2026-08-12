@@ -3,7 +3,6 @@ const { getSpaceXLaunchStats } = require('../../utils/api-app-services.js')
 const { getStationStatus } = require('../../utils/api-monitor-data.js')
 const { onStaleUpdate, getCacheKey } = require('../../utils/api-request.js')
 const { loadCloudMediaMap } = require('../../utils/image-config.js')
-const { tryShowPopupAd } = require('../../utils/popup-ad.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { getUiShellLayout } = require('../../utils/layout.js')
 const { getSystemInfo } = require('../../utils/system.js')
@@ -215,12 +214,28 @@ Page({
     return this.onOrbitEventImageError({ currentTarget: { dataset: { index } } })
   },
 
-  /** 图鉴组件统一事件通道：还原 currentTarget.dataset / detail 后分发给对应委托方法 */
+  
   onGalleryEvent(e) {
     const { name, dataset, edetail } = (e && e.detail) || {}
     if (!name || GALLERIES_METHODS.indexOf(name) < 0 || typeof this[name] !== 'function') return
     return this[name]({ currentTarget: { dataset: dataset || {} }, detail: edetail || {} })
   },
+
+  /** 分包核心板块交互回传（还原 dataset/detail/touches） */
+  onCoreSectionEvent(e) {
+    const d = (e && e.detail) || {}
+    const name = d.name
+    if (!name || typeof this[name] !== 'function') return
+    const fake = {
+      currentTarget: { dataset: d.dataset || {} },
+      target: { dataset: d.dataset || {} },
+      detail: d.edetail || {},
+      touches: d.touches || [],
+      changedTouches: d.changedTouches || []
+    }
+    this[name](fake)
+  },
+
   async onLoad() {
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
       this.getTabBar().setData({
@@ -364,8 +379,10 @@ Page({
     }
     this.tryOpenPendingAgencyDetail()
 
-    // 弹窗广告
-    tryShowPopupAd(1, this)
+    // 弹窗广告（shared 分包，preloadRule 预下载）
+    require.async('../../subpackages/shared/utils/popup-ad.js')
+      .then(({ tryShowPopupAd }) => tryShowPopupAd(1, this))
+      .catch(() => {})
 
     // 进入监控页走缓存刷新推荐引导（30 分钟 TTL）；打开引导弹窗时才强制拉最新二维码
     this.loadChannelsFallbackGuide()
@@ -500,7 +517,7 @@ Page({
     agencyTotal: 0
   },
 
-  /** 加载 SpaceX tiles 预计算数据（复用现有 getSpaceXLaunchStats，零额外云调用） */
+  
   async loadSpaceXTilesData() {
     try {
       const stats = await getSpaceXLaunchStats()
@@ -523,6 +540,15 @@ Page({
   },
 
   // ========== Starlink 卫星实时分布 ==========
+  /** canvas 在 monitor-core-sections 分包组件内，查询/观察须挂组件实例 */
+  _getStarlinkHost() {
+    return (
+      this.selectComponent('#monitorCoreSections') ||
+      this.selectComponent('monitor-core-sections') ||
+      this
+    )
+  },
+
   /** 用户点击「加载」按钮触发 */
   onLoadStarlink() {
     this.setData({ starlinkReady: true })
@@ -558,7 +584,7 @@ Page({
       }
       setTimeout(async () => {
         try {
-          await starlinkRenderer.bindCanvas(this)
+          await starlinkRenderer.bindCanvas(this._getStarlinkHost())
           this._setupStarlinkObserver()
         } catch (err) {
           console.error('[Starlink] bindCanvas error:', err)
@@ -578,14 +604,12 @@ Page({
     this.initStarlink()
   },
 
-  /**
-   * 卡片滚出视野自动暂停渲染循环、滚回恢复。
-   * 只接管"自动暂停"（_starlinkAutoPaused 标记）；用户手动暂停不被覆盖。
-   */
+  
   _setupStarlinkObserver() {
     this._teardownStarlinkObserver()
     try {
-      const observer = wx.createIntersectionObserver(this)
+      const host = this._getStarlinkHost()
+      const observer = wx.createIntersectionObserver(host)
       observer.relativeToViewport().observe('#starlinkCanvas', (res) => {
         const renderer = getStarlinkRenderer()
         if (!renderer) return
@@ -733,7 +757,6 @@ Page({
     })
   },
 
-
   /** 兼容旧入口：智能搜索已并入星问（门控与首页放大镜对齐） */
   openAISearch() {
     const { ROUTES, navigateTo } = require('../../utils/routes.js')
@@ -754,7 +777,7 @@ Page({
     })
   },
 
-  /** SPACE_NOTICES_FEATURE：打开发射通告列表（会员 / 看广告门控，复用现成 gateCheck） */
+  
   async openSpaceNotices() {
     if (this._gateChecking) return
     this._gateChecking = true
@@ -777,9 +800,7 @@ Page({
     navigateTo(ROUTES.COLLECT)
   },
 
-  /**
-   * 原生三点下拉刷新（页面级 / scroll-view refresher 共用）— 只刷新已加载的模块
-   */
+  
   onMonitorScroll() {
     try {
       const { pulseNasaFloatOnScroll } = require('../../utils/nasa-float-scroll.js')
@@ -1003,10 +1024,7 @@ Page({
     }
   },
 
-  /**
-   * 注册空间站相关 cacheKey 的后台更新监听器
-   * 当 request 后台发现云数据库数据比本地缓存新时，自动重新加载空间站数据
-   */
+  
   _registerStationStaleListeners() {
     // 先清理旧监听器
     this._clearStationStaleListeners()

@@ -1,9 +1,9 @@
 /**
  * 弹窗广告：读 global_config.popup_ad_config + shop_feed，频率与触发页由后台配置
  */
-const { storeAppid: DEFAULT_STORE_APPID } = require('./config.js')
-const storageCache = require('./storage-sync-cache.js')
-const { optimizeImageUrl } = require('./cos-url.js')
+const { storeAppid: DEFAULT_STORE_APPID } = require('../../../utils/config.js')
+const storageCache = require('../../../utils/storage-sync-cache.js')
+const { optimizeImageUrl } = require('../../../utils/cos-url.js')
 
 /** 弹窗封面约全宽展示：https 直链走 medium 压缩；cloud:// fileID 原样（加 query 会失效） */
 function _optimizedCoverUrl(raw) {

@@ -4,6 +4,8 @@ const axios = require('axios')
 axios.defaults.timeout = 10000
 const { syncLaunchDataFromCache } = require('./launch-data-sync.js')
 const { resolveOaLaunchDisplay, isThingFieldKey } = require('./oa-launch-display.js')
+const { sendNetChangeAlerts } = require('./net-change-push.js')
+const { sendRoadClosureAlerts } = require('./road-closure-push.js')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const _ = db.command
@@ -79,10 +81,10 @@ const OA_LEAD_MINUTES = 30
 // OA 发射前提醒：目标 ≈T-30，用「主窗 + 改期兜底 + 最晚下限」三层，而不是 [now, now+30] 全开。
 // - 主窗宽度对齐 5min 定时器，正常任务落在 T-30～T-22
 // - 上界多给 2min，避免刚进 T-30 时因时钟/查询抖动漏掉
-// - MIN_LEAD：NET 突然改近时仍可补推，但绝不贴着/过后才发（体感「发射后才到」）
+// - MIN_LEAD=8：NET 改近仍可补推；低于约 8 分钟不发，避免贴脸/发射后才到
 const OA_NOTIFY_WINDOW_MINUTES = 8
 const OA_LEAD_UPPER_SLACK_MINUTES = 2
-const OA_MIN_LEAD_MINUTES = 12
+const OA_MIN_LEAD_MINUTES = 8
 
 // ── C 通道：服务号「订阅通知」(bizsend) ──
 // 一次性订阅模板「火箭发射任务提醒」，额度由 oaWebhook 在用户点「同意」时入账到 oa_subscribe_quota。
@@ -369,13 +371,13 @@ function netKeyFromIso(iso) {
 }
 
 /**
- * 未写入 notifyLeadMinutes 的旧记录：手动订阅默认 30；偏好自动匹配应为 60
+ * 未写入 notifyLeadMinutes 的旧记录：手动订阅 / 偏好默认均为 30
  */
 function getLeadMinutesForRecord(record) {
   var raw = record && record.notifyLeadMinutes
   var n = Number(raw)
   if (n >= 1 && n <= 24 * 60) return Math.floor(n)
-  if (record && record.source === 'preference_match') return 60
+  // 手动订阅 / 偏好自动匹配：未写 lead 时均按截图默认 30 分钟
   return 30
 }
 
@@ -579,6 +581,78 @@ function prefMatchesHaystack(selected, haystack, aliasTable) {
   return false
 }
 
+/** 设置页截图默认：全部型号/场站、T-30、接收封路（未做过提醒偏好时走这里） */
+var DEFAULT_REMINDER_PREFS = {
+  rocketTypes: [],
+  launchSites: [],
+  notifyMinutes: 30,
+  roadClosureAlert: true
+}
+
+function resolveReminderPrefs(prefs) {
+  // 未写过 rocketTypes = 未进行偏好设置 → 截图默认
+  if (!prefs || prefs.rocketTypes == null) {
+    return {
+      rocketTypes: DEFAULT_REMINDER_PREFS.rocketTypes.slice(),
+      launchSites: DEFAULT_REMINDER_PREFS.launchSites.slice(),
+      notifyMinutes: DEFAULT_REMINDER_PREFS.notifyMinutes,
+      roadClosureAlert: DEFAULT_REMINDER_PREFS.roadClosureAlert,
+      configured: false
+    }
+  }
+  var nm = Number(prefs.notifyMinutes)
+  if ([30, 60, 120].indexOf(nm) < 0) nm = DEFAULT_REMINDER_PREFS.notifyMinutes
+  return {
+    rocketTypes: Array.isArray(prefs.rocketTypes) ? prefs.rocketTypes : [],
+    launchSites: Array.isArray(prefs.launchSites) ? prefs.launchSites : [],
+    notifyMinutes: nm,
+    roadClosureAlert: prefs.roadClosureAlert !== false,
+    configured: true
+  }
+}
+
+/** 空数组=不过滤；两侧都有选择时需同时命中 */
+function launchMatchesReminderPrefs(launch, prefs) {
+  var p = resolveReminderPrefs(prefs)
+  var rocketOk =
+    !p.rocketTypes.length ||
+    prefMatchesHaystack(p.rocketTypes, (launch && launch.rocketName) || '', ROCKET_NAME_ALIASES)
+  var siteHay =
+    ((launch && (launch.padName || launch.pad)) || '') + ' ' + ((launch && launch.site) || '')
+  var siteOk =
+    !p.launchSites.length || prefMatchesHaystack(p.launchSites, siteHay, LAUNCH_SITE_ALIASES)
+  return rocketOk && siteOk
+}
+
+async function loadReminderPrefsByMpOpenids(mpOpenids) {
+  var map = {}
+  var ids = []
+  var seen = {}
+  for (var i = 0; i < (mpOpenids || []).length; i++) {
+    var id = mpOpenids[i] && String(mpOpenids[i])
+    if (!id || seen[id]) continue
+    seen[id] = true
+    ids.push(id)
+  }
+  for (var c = 0; c < ids.length; c += 20) {
+    var chunk = ids.slice(c, c + 20)
+    try {
+      var res = await db
+        .collection(PROFILE_COLLECTION)
+        .where({ _id: _.in(chunk) })
+        .field({ preferences: true })
+        .limit(20)
+        .get()
+      var rows = (res && res.data) || []
+      for (var ri = 0; ri < rows.length; ri++) {
+        var row = rows[ri]
+        if (row && row._id) map[String(row._id)] = row.preferences || null
+      }
+    } catch (e) {}
+  }
+  return map
+}
+
 async function matchPreferencesAndCreateSubscriptions() {
   try {
     const now = Date.now()
@@ -601,7 +675,7 @@ async function matchPreferencesAndCreateSubscriptions() {
     const launches = launchesRes.data || []
     if (launches.length === 0) return
 
-    // 查询有偏好设置的用户（最多50个）
+    // 查保存过偏好的用户（rocketTypes 字段存在即可，含空数组=默认全推；最多50）
     const usersRes = await db.collection(PROFILE_COLLECTION)
       .where({ 'preferences.rocketTypes': _.exists(true) })
       .field({ _id: true, openid: true, preferences: true })
@@ -609,14 +683,13 @@ async function matchPreferencesAndCreateSubscriptions() {
       .get()
 
     const users = (usersRes.data || []).filter(function (u) {
-      var p = u.preferences
-      return p && ((p.rocketTypes && p.rocketTypes.length > 0) || (p.launchSites && p.launchSites.length > 0))
+      return !!(u && u.preferences)
     })
 
     if (users.length === 0) return
 
-    // 服务号自动提醒已就绪的用户由 B 通道覆盖，不再自动创建 A 通道订阅
-    var oaReadyPrefs = await loadOaReadyUserSets()
+    // B 可投递时就绪用户由 B 覆盖；凭证缺失时仍建 A 订，避免偏好用户空窗
+    var oaReadyPrefs = gateOaReadySets(await loadOaReadyUserSets(), isOaPreLaunchDeliverable())
     var oaReadyMpPrefs = oaReadyPrefs.mpSet
 
     // 一次批量查询代替「用户×任务」逐对查询（旧实现最坏 50×20=1000 次读/tick）：
@@ -640,18 +713,18 @@ async function matchPreferencesAndCreateSubscriptions() {
     for (const user of users) {
       var userOpenid = user.openid || user._openid || user._id
       if (userOpenid && oaReadyMpPrefs.has(String(userOpenid))) continue
-      var prefs = user.preferences
-      var notifyMinutes = prefs.notifyMinutes || 60
+      var prefs = user.preferences || {}
+      var resolved = resolveReminderPrefs(prefs)
+      var notifyMinutes = resolved.notifyMinutes
+      // 偏好页 accept 入账的结果额度；本 tick 内扣减并回写 profile
+      var resultCredits = Math.max(0, Math.min(5, Number(prefs.mpResultCredits) || 0))
+      var creditsDirty = false
 
       for (const launch of launches) {
-        var rocketMatch = !prefs.rocketTypes || prefs.rocketTypes.length === 0 ||
-          prefMatchesHaystack(prefs.rocketTypes, launch.rocketName || '', ROCKET_NAME_ALIASES)
-        var siteMatch = !prefs.launchSites || prefs.launchSites.length === 0 ||
-          prefMatchesHaystack(prefs.launchSites, (launch.padName || launch.pad || '') + ' ' + (launch.site || ''), LAUNCH_SITE_ALIASES)
-
-        if (!rocketMatch && !siteMatch) continue
+        if (!launchMatchesReminderPrefs(launch, prefs)) continue
 
         var launchTime = launch.windowStart || launch.launchTime || ''
+        if (!launchTime) continue
         var notifyAt = new Date(launchTime).getTime() - notifyMinutes * 60 * 1000
         if (notifyAt <= now) continue
 
@@ -659,6 +732,7 @@ async function matchPreferencesAndCreateSubscriptions() {
         if (!userOpenid || existingPairs.has(String(userOpenid) + '_' + missionId)) continue
 
         var dedupKey = (userOpenid + '_' + missionId).replace(/[^a-zA-Z0-9_-]/g, '_')
+        var attachResult = resultCredits > 0
 
         // 创建订阅记录（确定性 _id 作为并发护栏，避免重复创建）
         try {
@@ -676,13 +750,34 @@ async function matchPreferencesAndCreateSubscriptions() {
               notifyAt: notifyAt,
               notifyLeadMinutes: notifyMinutes,
               templateId: TEMPLATE_ID,
+              resultTemplateId: RESULT_TEMPLATE_ID,
+              resultQuota: attachResult ? 1 : 0,
+              resultSent: false,
+              reminderSent: false,
               sent: false,
               source: 'preference_match',
               createdAt: now
             }
           })
           existingPairs.add(String(userOpenid) + '_' + missionId)
+          if (attachResult) {
+            resultCredits -= 1
+            creditsDirty = true
+          }
         } catch (e) {}
+      }
+
+      if (creditsDirty && user._id) {
+        try {
+          await db.collection(PROFILE_COLLECTION).doc(user._id).update({
+            data: {
+              'preferences.mpResultCredits': resultCredits,
+              'preferences.updatedAt': now
+            }
+          })
+        } catch (credErr) {
+          console.warn('[PrefsMatch] debit result credits fail', credErr.message || credErr)
+        }
       }
     }
   } catch (e) {
@@ -751,8 +846,11 @@ function isPermanentOaErrorText(err) {
   )
 }
 
-/** 瞬时失败冷却：1h 内不重试，避免网络抖动时每个 tick Insert failed */
-const OA_FAILED_COOLDOWN_MS = 60 * 60 * 1000
+/**
+ * 瞬时失败冷却：略短于 5min 定时器，保证发送窗 [T-8,T-32] 内至少还能再试几次。
+ * 旧值 1h 长于窗宽，首次超时≈本次发射前永远不重试。
+ */
+const OA_FAILED_COOLDOWN_MS = 4 * 60 * 1000
 /** 同一 key 瞬时失败超过此次数后记 final，停止慢泄漏 */
 const OA_TRANSIENT_FAIL_MAX = 3
 
@@ -765,6 +863,7 @@ function isOaLedgerSettled(row) {
   var retries = Number(row.retryCount) || 0
   if (retries >= OA_TRANSIENT_FAIL_MAX) return true
   var sentAt = Number(row.sentAt) || 0
+  // 冷却中：视为「暂不重试」但对调用方等同 settled（跳过本 tick）
   if (sentAt && Date.now() - sentAt < OA_FAILED_COOLDOWN_MS) return true
   return false
 }
@@ -852,13 +951,15 @@ async function isIdleTick() {
     return false
   }
 
-  // 3) OA 相关发射窗：过去 24h（结果）或未来 T-30（发射前提醒）
+  // 3) OA 相关发射窗：过去 24h（结果）或未来 T-32（与发送窗上界 LEAD+slack 对齐，避免早退漏推）
   try {
+    const oaIdleHorizonMs =
+      (OA_LEAD_MINUTES + OA_LEAD_UPPER_SLACK_MINUTES) * 60 * 1000
     const windowRes = await db
       .collection(LAUNCH_DATA_COLLECTION)
       .where({
         windowStart: _.gte(new Date(now - IDLE_RESULT_BACK_MS)).and(
-          _.lte(new Date(now + OA_LEAD_MINUTES * 60 * 1000))
+          _.lte(new Date(now + oaIdleHorizonMs))
         )
       })
       .limit(1)
@@ -911,7 +1012,16 @@ let _sendLaunchReminderCollectionsEnsured = false
 async function ensureSendLaunchReminderCollectionsOnce() {
   if (_sendLaunchReminderCollectionsEnsured) return
   _sendLaunchReminderCollectionsEnsured = true
-  const names = ['user_profile', 'launch_data', 'launch_subscriptions', 'push_history', 'oa_auto_alert_users', 'oa_push_ledger', 'oa_subscribe_quota']
+  const names = [
+    'user_profile',
+    'launch_data',
+    'launch_subscriptions',
+    'push_history',
+    'oa_auto_alert_users',
+    'oa_push_ledger',
+    'oa_subscribe_quota',
+    'road_closure_notice'
+  ]
   for (const n of names) {
     try {
       await db.createCollection(n)
@@ -971,7 +1081,8 @@ exports.main = async (event) => {
 
   // 生产自动链路（定时器 launchReminderTrigger 每 5 分钟，config: 0 */5 * * * * *）：
   // 1) syncLaunchDataFromCache ← space_devs_cache upcoming
-  // 1b) 空跑早退 ← 无待发 A/结果、且无 OA 窗（过去 24h / 未来 T-30）时到此为止
+  // 1a) sendNetChangeAlerts / sendRoadClosureAlerts ← 改期与封路（须在 idle 前，避免漏扫）
+  // 1b) 空跑早退 ← 无待发 A/结果、且无 OA 窗（过去 24h / 未来 T-32）时到此为止
   // 2) sendOATemplateAlerts / sendOASubscribeAlerts ← 同步后立刻发 T-30（勿排在 A/结果之后）
   // 3) reconcilePendingSubscriptionsNotifyTimes ← A 通道改期对齐
   // 4) sendPendingReminders ← launch_subscriptions 小程序发射前提醒
@@ -996,6 +1107,19 @@ exports.main = async (event) => {
     } catch (syncErr) {
       launchDataSync = { success: false, error: syncErr.message || String(syncErr) }
     }
+    const pushCtx = buildAlertPushContext()
+    let netChangeResult = { skipped: true }
+    try {
+      netChangeResult = await sendNetChangeAlerts(pushCtx)
+    } catch (ncErr) {
+      netChangeResult = { success: false, error: ncErr.message || String(ncErr) }
+    }
+    let roadClosureResult = { skipped: true }
+    try {
+      roadClosureResult = await sendRoadClosureAlerts(pushCtx)
+    } catch (rcErr) {
+      roadClosureResult = { success: false, error: rcErr.message || String(rcErr) }
+    }
     try {
       if (await isIdleTick()) {
         // idle 时顺手清一小批推送垃圾，避免只靠手动/凌晨定时
@@ -1010,6 +1134,8 @@ exports.main = async (event) => {
           message: 'idle tick: no pending A/result work and no OA launch window',
           idleSkip: true,
           launchDataSync,
+          netChangeResult,
+          roadClosureResult,
           idlePurge
         }
       }
@@ -1048,7 +1174,7 @@ exports.main = async (event) => {
     }
     // 偏好匹配降频：全球 24h 内几乎总有发射，若每个 5 分钟 tick 都跑，
     // user_profile(50) + 已有订阅去重查询会一直白读。改为每小时整点 tick 执行；
-    // 订阅提前量默认 60 分钟，最迟晚 50 分钟建订阅仍在 notifyAt 之前，不影响送达
+    // 订阅提前量默认 30 分钟（与设置页截图默认一致）
     if (new Date().getMinutes() < 5) {
       await matchPreferencesAndCreateSubscriptions()
     }
@@ -1076,7 +1202,9 @@ exports.main = async (event) => {
       oaSubscribeResult,
       splashMissionPrune,
       reconcileStats,
-      launchDataSync
+      launchDataSync,
+      netChangeResult,
+      roadClosureResult
     }
   }
 
@@ -1344,6 +1472,69 @@ exports.main = async (event) => {
     }
   }
 
+  // 手动跑改期推送（生产全量：扫真实 netChangePending，推全体 OA 就绪用户）。
+  // 假改期自测已关闭；若需再开模拟：环境变量 NET_CHANGE_FORCE_SIM=1 且 force:true。
+  // 例：{ "action":"pushNetChangeNow" }
+  if (action === 'pushNetChangeNow') {
+    try {
+      if (!isNetChangePushEnabled()) {
+        return {
+          success: false,
+          message: 'NET_CHANGE_PUSH_ENABLED 已关闭',
+          tip: '生产全量请设 NET_CHANGE_PUSH_ENABLED=1 后重新部署'
+        }
+      }
+      var ncCtx = buildAlertPushContext()
+      var ncOnly = (ev && (ev.oaOpenid || ev.openid || ev.mpOpenid)) || ''
+      // 未指定 openid = 全量；指定则仅测推一人（不造假改期）
+      if (ncOnly) ncCtx.onlyOaOpenid = String(ncOnly).trim()
+      var wantForce =
+        ev && (ev.force === true || ev.force === 1 || ev.force === 'true')
+      if (wantForce) {
+        if (!isNetChangeForceSimAllowed()) {
+          return {
+            success: false,
+            message: '模拟改期已关闭（生产全量模式）',
+            tip:
+              '真实推迟≥30min 会由定时器自动全量推送。若仍需 force 假改期，设 NET_CHANGE_FORCE_SIM=1 后部署。',
+            forceSim: false,
+            pushEnabled: true
+          }
+        }
+        ncCtx.forceNetChange = true
+      }
+      // 覆盖「处理原因」常量：必须与公众平台枚举项完全一致
+      var reasonOverride = ev && (ev.reason || ev.reasonText || ev.处理原因)
+      if (reasonOverride) {
+        var reasonStr = String(reasonOverride).trim()
+        ncCtx.getOaNetChangeReasonText = function () {
+          return reasonStr
+        }
+      }
+      ncCtx.isNetChangePushEnabled = isNetChangePushEnabled
+      ncCtx.isNetChangeForceSimAllowed = isNetChangeForceSimAllowed
+      return await sendNetChangeAlerts(ncCtx)
+    } catch (e) {
+      return { success: false, error: e.message || String(e) }
+    }
+  }
+
+  // 手动测封路推送：{ action, force:true, event:'started'|'cleared'|'updated', oaOpenid? }
+  if (action === 'pushRoadClosureNow') {
+    try {
+      var rcCtx = buildAlertPushContext()
+      if (ev && (ev.force === true || ev.force === 1 || ev.force === 'true')) {
+        rcCtx.forceRoadClosureEvent = String(ev.event || 'started')
+      }
+      var only =
+        (ev && (ev.oaOpenid || ev.openid || ev.mpOpenid)) || ''
+      if (only) rcCtx.onlyOaOpenid = String(only).trim()
+      return await sendRoadClosureAlerts(rcCtx)
+    } catch (e) {
+      return { success: false, error: e.message || String(e) }
+    }
+  }
+
   // 列出可测推的服务号 openid（从 oa_auto_alert_users）
   if (action === 'listOaTestUsers') {
     try {
@@ -1510,8 +1701,9 @@ async function sendPendingReminders() {
       return { success: true, message: 'no pending reminders', ...sentCount }
     }
 
-    // 服务号自动提醒已就绪的用户由 B 通道全自动推送，A 通道不再发发射前提醒（避免双推 / 误耗额度）
-    var oaReady = await loadOaReadyUserSets()
+    // 服务号 B 真正可投递时，就绪用户改走 B，A 不再发发射前提醒（避免双推）
+    // 凭证/模板缺失时不互斥，继续走 A，防止三通道全空
+    var oaReady = gateOaReadySets(await loadOaReadyUserSets(), isOaPreLaunchDeliverable())
     var oaReadyMp = oaReady.mpSet
 
     // 按 openid+missionId 去重，同一用户同一任务只发第一条
@@ -1526,8 +1718,9 @@ async function sendPendingReminders() {
         }
 
         if (oaReadyMp.has(String(record._openid))) {
+          // B 可投递且已覆盖：结案删除；B 不可投递时 oaReadyMp 为空，不会进这里
           sentCount.skipped++
-          await markReminderDone(record._id, { keepForResult: Number(record.resultQuota) > 0 })
+          await markReminderDone(record._id, { keepForResult: false })
           continue
         }
 
@@ -1937,10 +2130,10 @@ async function sendPendingResultNotifications() {
     return { success: true, message: 'no pending results', ...stats }
   }
 
-  // 服务号就绪用户改由 sendOAResultAlerts 推结果，避免双推
+  // B 结果可投递时就绪用户改由 sendOAResultAlerts；否则继续走 A 结果
   let oaReadyMpSet = new Set()
   try {
-    const sets = await loadOaReadyUserSets()
+    const sets = gateOaReadySets(await loadOaReadyUserSets(), isOaResultDeliverable())
     oaReadyMpSet = sets.mpSet || new Set()
   } catch (e) {}
 
@@ -2017,17 +2210,20 @@ async function sendPendingResultNotifications() {
       continue
     }
     if (oaReadyMpSet.has(String(record._openid))) {
+      // B 结果可投递：清理 A 残留；B 不可投递时集合为空，不会进这里
       stats.skipped++
       stats.skippedOaReady++
+      try { await removeRecord(record._id) } catch (e) {}
       continue
     }
-    var resultFailCount = Number(record.failCount) || 0
+    // 与发射前提醒 failCount 分离，避免提醒失败拖死结果
+    var resultFailCount = Number(record.resultFailCount) || 0
     if (resultFailCount >= OA_TRANSIENT_FAIL_MAX) {
       try { await removeRecord(record._id) } catch (e) {}
       stats.skipped++
       continue
     }
-    var resultFailAt = Number(record.failedAt) || 0
+    var resultFailAt = Number(record.resultFailedAt) || 0
     if (resultFailAt && now - resultFailAt < OA_FAILED_COOLDOWN_MS) {
       stats.skipped++
       continue
@@ -2100,20 +2296,20 @@ async function sendPendingResultNotifications() {
           })
         } catch (_) {}
       }
-      // 永久错误结案；瞬时失败记 failCount，超限删除，避免每 tick 重试
+      // 永久错误结案；瞬时失败记 resultFailCount（不与提醒 failCount 混用）
       if (isPermanentOaErrorText(errStr) || /43101|43107|user refuse|user deny/i.test(errStr)) {
         try { await removeRecord(record._id) } catch (e) {}
       } else {
-        const nextFail = (Number(record.failCount) || 0) + 1
+        const nextFail = (Number(record.resultFailCount) || 0) + 1
         if (nextFail >= OA_TRANSIENT_FAIL_MAX) {
           try { await removeRecord(record._id) } catch (e) {}
         } else {
           try {
             await db.collection(SUBSCRIBE_COLLECTION).doc(record._id).update({
               data: {
-                failReason: errStr.slice(0, 500),
-                failedAt: now,
-                failCount: nextFail,
+                resultFailReason: errStr.slice(0, 500),
+                resultFailedAt: now,
+                resultFailCount: nextFail,
                 updatedAt: now
               }
             })
@@ -2207,6 +2403,207 @@ function getOaCredentials() {
 
 function getOaTemplateId() {
   return String(process.env.WECHAT_OA_TEMPLATE_ID || '').trim()
+}
+
+/** B 发射前提醒是否真正可投递（凭证+模板）；不可投递时 A/C 不得因「就绪」被互斥掉 */
+function isOaPreLaunchDeliverable() {
+  return !!(getOaCredentials() && getOaTemplateId())
+}
+
+/** B 结果模板是否真正可投递 */
+function isOaResultDeliverable() {
+  return !!(getOaCredentials() && getOaResultTemplateId())
+}
+
+/** 凭证/模板不可用时清空就绪集，避免 A 被跳过/删除后三通道全空 */
+function gateOaReadySets(sets, deliverable) {
+  if (deliverable) return sets || { mpSet: new Set(), oaSet: new Set() }
+  return { mpSet: new Set(), oaSet: new Set() }
+}
+
+function getOaNetChangeTemplateId() {
+  return String(
+    process.env.WECHAT_OA_NET_CHANGE_TEMPLATE_ID ||
+      'AUknDNSmaLhK2lN2Kzq0lHbBkaeYSmcAINelxcxc6yA'
+  ).trim()
+}
+
+function getOaNetChangeReasonText() {
+  return String(process.env.WECHAT_OA_NET_CHANGE_REASON || '发射时间推迟').trim() || '发射时间推迟'
+}
+
+function envFlagOn(name, defaultOn) {
+  var raw = String(process.env[name] == null ? '' : process.env[name]).trim().toLowerCase()
+  if (!raw) return !!defaultOn
+  return raw === '1' || raw === 'true' || raw === 'on' || raw === 'yes'
+}
+
+/** 生产全量：定时器扫描真实 netChangePending 并推全体 OA 就绪用户 */
+function isNetChangePushEnabled() {
+  return envFlagOn('NET_CHANGE_PUSH_ENABLED', true)
+}
+
+/** 假改期自测（force 造 upcoming）；生产关闭，避免误推 */
+function isNetChangeForceSimAllowed() {
+  return envFlagOn('NET_CHANGE_FORCE_SIM', false)
+}
+
+function isOaNetChangeDeliverable() {
+  return !!(getOaCredentials() && getOaNetChangeTemplateId() && isNetChangePushEnabled())
+}
+
+/** 解析改期模板：项目名称 / 原日期 / 新日期 / 处理原因 / 单位名称 */
+function parseOaNetChangeTemplateContent(content) {
+  var lines = String(content || '').split('\n')
+  var parsed = []
+  for (var i = 0; i < lines.length; i++) {
+    var m = lines[i].match(/^(.*?)[:：]?\s*\{\{(\w+)\.DATA\}\}/)
+    if (m) parsed.push({ label: m[1].trim(), key: m[2] })
+  }
+  if (!parsed.length) return null
+  var keys = { mission: '', oldDate: '', newDate: '', reason: '', agency: '' }
+  for (var pi = 0; pi < parsed.length; pi++) {
+    var label = parsed[pi].label || ''
+    var key = parsed[pi].key || ''
+    if (!key) continue
+    if (!keys.mission && /项目名称|任务名称|工单名称/.test(label)) keys.mission = key
+    else if (!keys.oldDate && /原日期|原时间|旧日期|变更前/.test(label)) keys.oldDate = key
+    else if (!keys.newDate && /新日期|新时间|变更后|目标时间/.test(label)) keys.newDate = key
+    else if (!keys.reason && /处理原因|改期原因|原因|工单状态/.test(label)) keys.reason = key
+    else if (!keys.agency && /单位名称|公司|发射商|机构/.test(label)) keys.agency = key
+  }
+  // 若只识别出一个时间槽，优先给新日期
+  if (!keys.newDate || !keys.oldDate) {
+    for (var pj = 0; pj < parsed.length; pj++) {
+      var lb = parsed[pj].label || ''
+      var ky = parsed[pj].key || ''
+      if (!ky) continue
+      if (/日期|时间/.test(lb) || /^time/.test(ky)) {
+        if (!keys.oldDate) keys.oldDate = ky
+        else if (!keys.newDate && ky !== keys.oldDate) keys.newDate = ky
+      }
+    }
+  }
+  return keys.mission || keys.newDate ? keys : null
+}
+
+var _oaNetChangeFieldCache = { templateId: '', keys: null, fetchedAt: 0 }
+
+async function resolveOaNetChangeTemplateFieldKeys(templateId) {
+  var tid = String(templateId || getOaNetChangeTemplateId() || '').trim()
+  if (!tid) return null
+  var envKeys = {
+    mission: String(process.env.WECHAT_OA_NET_CHANGE_FIELD_MISSION || '').trim(),
+    oldDate: String(process.env.WECHAT_OA_NET_CHANGE_FIELD_OLD || '').trim(),
+    newDate: String(process.env.WECHAT_OA_NET_CHANGE_FIELD_NEW || '').trim(),
+    reason: String(process.env.WECHAT_OA_NET_CHANGE_FIELD_REASON || '').trim(),
+    agency: String(process.env.WECHAT_OA_NET_CHANGE_FIELD_AGENCY || '').trim()
+  }
+  if (envKeys.mission && envKeys.newDate) return envKeys
+
+  var now = Date.now()
+  if (
+    _oaNetChangeFieldCache.keys &&
+    _oaNetChangeFieldCache.templateId === tid &&
+    now - _oaNetChangeFieldCache.fetchedAt < OA_TMPL_FIELD_CACHE_TTL
+  ) {
+    return _oaNetChangeFieldCache.keys
+  }
+  try {
+    var token = await getOaAccessToken()
+    var url =
+      'https://api.weixin.qq.com/cgi-bin/template/get_all_private_template?access_token=' +
+      encodeURIComponent(token)
+    var res = await axios.get(url)
+    var list = (res.data && res.data.template_list) || []
+    var hit = null
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && String(list[i].template_id) === tid) {
+        hit = list[i]
+        break
+      }
+    }
+    if (!hit || !hit.content) return envKeys.mission ? envKeys : null
+    var keys = parseOaNetChangeTemplateContent(hit.content) || envKeys
+    _oaNetChangeFieldCache = { templateId: tid, keys: keys, fetchedAt: now }
+    console.log('[OA] net-change field keys', tid, keys)
+    return keys
+  } catch (e) {
+    console.warn('[OA] fetch net-change template fields fail', e.message || e)
+    return envKeys.mission ? envKeys : null
+  }
+}
+
+/** 原日期/新日期：time* 用完整时间；其余按日期 yyyy-MM-dd（预览样例格式） */
+function formatOaNetChangeDateField(fieldKey, timeOaFull) {
+  var full = String(timeOaFull || '').trim()
+  if (!full) return ''
+  var key = String(fieldKey || '')
+  if (/^time/i.test(key)) return full
+  // 日期类关键词多为 date，带时分秒会 47003
+  var m = full.match(/^(\d{4}-\d{2}-\d{2})/)
+  return m ? m[1] : full
+}
+
+function buildOaNetChangeTemplateData(opts) {
+  var keys = (opts && opts.fieldKeys) || {}
+  var data = {}
+  if (keys.mission) {
+    data[keys.mission] = { value: toOaThingValue(opts.missionName, '未知任务') }
+  }
+  if (keys.oldDate) {
+    data[keys.oldDate] = {
+      value: formatOaNetChangeDateField(keys.oldDate, opts.oldTimeOa || opts.newTimeOa)
+    }
+  }
+  if (keys.newDate) {
+    data[keys.newDate] = {
+      value: formatOaNetChangeDateField(keys.newDate, opts.newTimeOa)
+    }
+  }
+  if (keys.reason) {
+    // 常量枚举：必须与公众平台「填写枚举项」完全一致
+    data[keys.reason] = {
+      value: toOaThingValue(opts.reasonText || getOaNetChangeReasonText(), '发射时间推迟')
+    }
+  }
+  if (keys.agency) {
+    data[keys.agency] = { value: toOaThingValue(opts.agencyName, '待确认') }
+  }
+  return data
+}
+
+/** 改期 / 封路推送共用上下文（避免子模块再复制发送工具） */
+function buildAlertPushContext() {
+  return {
+    TEMPLATE_ID: TEMPLATE_ID,
+    isOaPreLaunchDeliverable: isOaPreLaunchDeliverable,
+    isOaNetChangeDeliverable: isOaNetChangeDeliverable,
+    isNetChangePushEnabled: isNetChangePushEnabled,
+    isNetChangeForceSimAllowed: isNetChangeForceSimAllowed,
+    getOaTemplateId: getOaTemplateId,
+    getOaNetChangeTemplateId: getOaNetChangeTemplateId,
+    getOaNetChangeReasonText: getOaNetChangeReasonText,
+    loadOaEnabledUsers: loadOaEnabledUsers,
+    loadOaReadyUserSets: loadOaReadyUserSets,
+    gateOaReadySets: gateOaReadySets,
+    dedupeOaUsersByOpenid: dedupeOaUsersByOpenid,
+    isOaUserMsgRefused: isOaUserMsgRefused,
+    isPermanentOaErrcode: isPermanentOaErrcode,
+    resolveOaTemplateFieldKeys: resolveOaTemplateFieldKeys,
+    resolveOaNetChangeTemplateFieldKeys: resolveOaNetChangeTemplateFieldKeys,
+    buildOaTemplateData: buildOaTemplateData,
+    buildOaNetChangeTemplateData: buildOaNetChangeTemplateData,
+    sendOaTemplateMessage: sendOaTemplateMessage,
+    writeOaPushLedger: writeOaPushLedger,
+    resolveOaLaunchDisplay: resolveOaLaunchDisplay,
+    toOaTimeValue: toOaTimeValue,
+    toOaThingValue: toOaThingValue,
+    formatLaunchTimeStr: formatLaunchTimeStr,
+    netKeyFromIso: netKeyFromIso,
+    sendSubscribeMessageByHttp: sendSubscribeMessageByHttp,
+    markReminderDone: markReminderDone
+  }
 }
 
 function getOaMiniProgramAppid() {
@@ -2558,17 +2955,41 @@ async function markOaUserRefused(oaOpenid, reason) {
   }
 }
 
+/** OA 启用用户分页上限（每页 200；超出旧版单次 200 截断） */
+const OA_USERS_PAGE_SIZE = 200
+const OA_USERS_MAX_PAGES = 5
+
+/** 拉取 enabled+followed 的服务号用户（分页，最多 1000） */
+async function loadOaEnabledUsers() {
+  var all = []
+  var skip = 0
+  for (var page = 0; page < OA_USERS_MAX_PAGES; page++) {
+    try {
+      var res = await db
+        .collection(OA_AUTO_ALERT_USERS)
+        .where({ enabled: true, followed: true })
+        .skip(skip)
+        .limit(OA_USERS_PAGE_SIZE)
+        .get()
+      var rows = (res && res.data) || []
+      if (!rows.length) break
+      for (var i = 0; i < rows.length; i++) all.push(rows[i])
+      if (rows.length < OA_USERS_PAGE_SIZE) break
+      skip += rows.length
+    } catch (e) {
+      console.warn('[OA] load users page fail', page, e.message || e)
+      break
+    }
+  }
+  return all
+}
+
 /** 已就绪的服务号自动提醒用户：mpOpenid / oaOpenid 集合（B 通道覆盖，无需再走 A/C） */
 async function loadOaReadyUserSets() {
   const mpSet = new Set()
   const oaSet = new Set()
   try {
-    const res = await db
-      .collection(OA_AUTO_ALERT_USERS)
-      .where({ enabled: true, followed: true })
-      .limit(200)
-      .get()
-    const rows = (res && res.data) || []
+    const rows = await loadOaEnabledUsers()
     for (var i = 0; i < rows.length; i++) {
       var u = rows[i]
       if (!u || !u.oaOpenid) continue
@@ -3025,7 +3446,7 @@ function oaLaunchRemainingMs(launch, nowMs) {
 
 /**
  * 是否仍适合发发射前提醒（发送前二次校验，防止前置耗时把「窗内」拖成贴 T-0）。
- * 允许区间：[MIN_LEAD, LEAD+slack] ≈ [T-12, T-32]
+ * 允许区间：[MIN_LEAD, LEAD+slack] ≈ [T-8, T-32]
  */
 function shouldSendOaPreLaunchAlert(launch, nowMs) {
   var remain = oaLaunchRemainingMs(launch, nowMs)
@@ -3037,9 +3458,9 @@ function shouldSendOaPreLaunchAlert(launch, nowMs) {
 
 function getOaNotifyWindowBounds(nowMs) {
   // 查询窗 = 主窗 ∪ 改期兜底：
-  //   [now+MIN_LEAD, now+LEAD+slack] ≈ [T-12, T-32]
+  //   [now+MIN_LEAD, now+LEAD+slack] ≈ [T-8, T-32]
   // 正常节奏（5min tick + 同步后立刻发）命中靠近上沿的主窗 T-30～T-22；
-  // NET 临时改近时仍可在 ≥12 分钟时补一刀，避免「完全漏推」，也不会发射后才推。
+  // NET 临时改近时仍可在 ≥8 分钟时补一刀，避免「完全漏推」，也不会贴脸/发射后才推。
   var minMs = OA_MIN_LEAD_MINUTES * 60 * 1000
   var maxMs = (OA_LEAD_MINUTES + OA_LEAD_UPPER_SLACK_MINUTES) * 60 * 1000
   return {
@@ -3057,7 +3478,7 @@ async function findLaunchesInOaNotifyWindow(nowMs) {
   // 1) 旧版下界=now 是为了防漏（链路排最后、10min tick、前置同步抖动会撕开窄窗），
   //    副作用是星链改期后会在 T-1～T+几分钟才推到，体感「发射后才提醒」。
   // 2) 现改为：定时器 5min + 同步后立刻跑 OA（不再等 A/结果），抖动可控；
-  //    下界抬到 MIN_LEAD=12min，上界 T-32，目标落在约 T-30。
+  //    下界 MIN_LEAD=8min，上界 T-32，目标落在约 T-30；改近任务仍有补推空间。
   // 3) 台账去重仍在，窗内多次 tick 不会双推。
   var bounds = getOaNotifyWindowBounds(nowMs)
 
@@ -3116,15 +3537,8 @@ function normalizeTestMissionId(raw) {
 
 async function loadOaAutoAlertCandidates(limit) {
   const n = Math.max(1, Math.min(20, Number(limit) || 5))
-  const usersRes = await db
-    .collection(OA_AUTO_ALERT_USERS)
-    .where({ enabled: true, followed: true })
-    .limit(200)
-    .get()
-    .catch(function () {
-      return { data: [] }
-    })
-  return (usersRes.data || [])
+  const rows = await loadOaEnabledUsers()
+  return rows
     .filter(function (u) {
       return u && u.oaOpenid && !isOaUserMsgRefused(u)
     })
@@ -3209,17 +3623,32 @@ async function resolveTestOaUserByAnyId(want) {
   }
 }
 
+/** 按 oaOpenid 去重，避免双档把同一人测推/实推打两遍 */
+function dedupeOaUsersByOpenid(rows) {
+  var seen = {}
+  var out = []
+  var list = rows || []
+  for (var i = 0; i < list.length; i++) {
+    var u = list[i]
+    var oid = u && u.oaOpenid ? String(u.oaOpenid) : ''
+    if (!oid || seen[oid]) continue
+    seen[oid] = true
+    out.push(u)
+  }
+  return out
+}
+
 async function pickTestOaUsers(opts) {
   const want = pickTestOaOpenid(opts)
   const limit = Math.max(1, Math.min(5, Number((opts && opts.limitUsers) || 1) || 1))
   if (!want) {
-    var users = await loadOaAutoAlertCandidates(200)
+    var users = dedupeOaUsersByOpenid(await loadOaAutoAlertCandidates(200))
     return { users: users.slice(0, limit), resolve: 'default', error: '' }
   }
   var resolved = await resolveTestOaUserByAnyId(want)
   if (resolved.users && resolved.users.length) {
     return {
-      users: resolved.users.slice(0, limit),
+      users: dedupeOaUsersByOpenid(resolved.users).slice(0, limit),
       resolve: resolved.resolve,
       error: ''
     }
@@ -3578,19 +4007,19 @@ async function sendOATemplateAlerts() {
     return { success: true, message: 'no launches in notify window', ...stats }
   }
 
-  const usersRes = await db
-    .collection(OA_AUTO_ALERT_USERS)
-    .where({ enabled: true, followed: true })
-    .limit(200)
-    .get()
-    .catch(() => ({ data: [] }))
-
-  const users = (usersRes.data || []).filter(function (u) {
+  const users = (await loadOaEnabledUsers()).filter(function (u) {
     return u && u.oaOpenid && !isOaUserMsgRefused(u)
   })
   if (users.length === 0) {
     return { success: true, message: 'no oa subscribers', ...stats }
   }
+
+  // 提醒偏好：未设置 → 截图默认（全部/30 分钟/收封路）；已设置则按型号·场站过滤
+  var prefsByMp = await loadReminderPrefsByMpOpenids(
+    users.map(function (u) {
+      return u && u.mpOpenid
+    })
+  )
 
   stats.missions = launches.length
 
@@ -3676,6 +4105,15 @@ async function sendOATemplateAlerts() {
       seenOaOpenids[oaOpenid] = true
 
       if (ledgerDone.has(String(oaOpenid))) {
+        stats.skipped++
+        continue
+      }
+
+      var mpKey = user.mpOpenid ? String(user.mpOpenid) : ''
+      var userPrefs = mpKey && Object.prototype.hasOwnProperty.call(prefsByMp, mpKey)
+        ? prefsByMp[mpKey]
+        : null
+      if (!launchMatchesReminderPrefs(launch, userPrefs)) {
         stats.skipped++
         continue
       }
@@ -3964,13 +4402,7 @@ async function sendOAResultAlerts() {
     return { success: true, message: 'no recent past launches', ...stats }
   }
 
-  const usersRes = await db
-    .collection(OA_AUTO_ALERT_USERS)
-    .where({ enabled: true, followed: true })
-    .limit(200)
-    .get()
-    .catch(() => ({ data: [] }))
-  const users = (usersRes.data || []).filter(function (u) {
+  const users = (await loadOaEnabledUsers()).filter(function (u) {
     return u && u.oaOpenid && !isOaUserMsgRefused(u)
   })
   if (!users.length) {
@@ -4211,7 +4643,7 @@ async function sendOAResultAlerts() {
 // 额度由 oaWebhook 在 subscribe_msg_popup_event(accept) 时写入 oa_subscribe_quota。
 // 本通道按 remaining>0 的用户发送 bizsend，成功后原子扣减 1 次，并按 missionId+oaOpenid
 // 在 oa_push_ledger（channel='subscribe'）去重，避免同任务重复推送。
-// 时间窗与 B 共用 findLaunchesInOaNotifyWindow（目标 T-30，最晚不低于 T-12）。
+// 时间窗与 B 共用 findLaunchesInOaNotifyWindow（目标 T-30，最晚不低于 T-8）。
 //
 // 接口（务必以官方为准）：
 //   POST https://api.weixin.qq.com/cgi-bin/message/subscribe/bizsend?access_token=TOKEN
@@ -4370,8 +4802,8 @@ async function sendOASubscribeAlerts() {
   }
   stats.missions = launches.length
 
-  // 已开服务号自动提醒（B）的用户不再走一次性订阅通知（C），避免双推与额度消耗
-  var oaReadyForC = await loadOaReadyUserSets()
+  // B 可投递时就绪用户跳过 C；B 不可用时仍走 C，避免额度闲置且无人收到
+  var oaReadyForC = gateOaReadySets(await loadOaReadyUserSets(), isOaPreLaunchDeliverable())
   var oaReadyOa = oaReadyForC.oaSet
 
   for (var li = 0; li < launches.length; li++) {

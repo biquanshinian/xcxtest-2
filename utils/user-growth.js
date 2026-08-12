@@ -82,10 +82,16 @@ function getDefaultPreferences() {
     rocketTypes: [],
     launchSites: [],
     astroEventTypes: [],
-    notifyMinutes: 60,
+    /** 与设置页截图默认一致：未选型号/场站=全部，提前提醒 30 分钟 */
+    notifyMinutes: 30,
     briefingEnabled: true,
+    /** 星舰基地封路服务号通知；false=明确退订，默认接收 */
+    roadClosureAlert: true,
     /** 发射卡片等内容语言：zh（默认）| en */
     contentLang: 'zh',
+    /** 偏好匹配用：结果模板剩余额度（云端权威，本地仅展示参考） */
+    mpResultCredits: 0,
+    mpReminderGrantedAt: 0,
     updatedAt: 0
   }
 }
@@ -101,11 +107,17 @@ function savePreferences(prefs) {
       prefs.contentLang = String(prefs.contentLang).toLowerCase() === 'en' ? 'en' : 'zh'
     }
   }
+  // delta 只给云端累加额度，本地不落盘，避免再次保存时重复 +1
+  var toCloud = prefs
+  if (prefs.mpResultCreditsDelta) {
+    toCloud = Object.assign({}, prefs)
+    try { delete prefs.mpResultCreditsDelta } catch (e2) {}
+  }
   storageCache.writeMem(PREFS_STORAGE_KEY, prefs)
   try {
     wx.setStorage({ key: PREFS_STORAGE_KEY, data: prefs, fail: function () {} })
   } catch (e) {}
-  syncPreferencesToCloud(prefs)
+  syncPreferencesToCloud(toCloud)
 }
 
 /**
