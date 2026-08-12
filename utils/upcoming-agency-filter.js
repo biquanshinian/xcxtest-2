@@ -12,15 +12,25 @@ const { applyLaunchAgencyLogoOverridesToMission } = require('./agency-logo-overr
 const ALL_TASKS_CHIP_LOGO = '/images/icons/ic-orbit-globe.svg'
 const AGENCY_FALLBACK_LOGO = '/images/icons/ic-rocket-outline.svg'
 
-/** 为胶囊补齐 logoUrl（优先本地缓存）与 logoRemoteSrc（用于 bindload 后持久化） */
+/**
+ * 为胶囊补齐 logoUrl（优先本地缓存）与 logoRemoteSrc（用于 bindload 后持久化）。
+ * 与图鉴 formatAgency 同一口径：resolveAgencyLogoForDisplay + 透明 logo 自动取色填底
+ * （resolveAgencyLogoBgTone 命中缓存立即生效；未采样为 '' 走默认衬底，bindload 后回写）。
+ */
 function finalizeChipLogoFields(rawLogoUrl) {
   const raw = typeof rawLogoUrl === 'string' && rawLogoUrl.trim()
     ? rawLogoUrl.trim()
     : AGENCY_FALLBACK_LOGO
-  const logoRemoteSrc = isRemoteAgencyLogoUrl(raw) ? raw : ''
-  const logoUrl = logoRemoteSrc ? resolveAgencyLogoForDisplay(raw) : raw
-  const logoBgTone = logoRemoteSrc ? resolveAgencyLogoBgTone(logoRemoteSrc) : ''
-  return { logoUrl, logoRemoteSrc, logoBgTone }
+
+  if (!isRemoteAgencyLogoUrl(raw)) {
+    // 本地占位火箭为白色描边，固定黑底衬托；自动取色只作用于远程真 logo
+    const logoBgTone = raw.indexOf('ic-rocket-outline') !== -1 ? 'dark' : ''
+    return { logoUrl: raw, logoRemoteSrc: '', logoBgTone }
+  }
+
+  const logoUrl = resolveAgencyLogoForDisplay(raw) || raw
+  const logoBgTone = resolveAgencyLogoBgTone(raw)
+  return { logoUrl, logoRemoteSrc: raw, logoBgTone }
 }
 
 function normalizeAgencyName(name) {

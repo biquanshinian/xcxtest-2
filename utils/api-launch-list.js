@@ -157,7 +157,7 @@ function mapLaunchToListItem(launch, index, offset, type) {
   const boosterInfo = extractBoosterInfoForList(launch, rocketNameEn, finalImage)
   const status = launch.status || {}
   const statusCategory = getStatusCategory(status)
-  const { launchAgency, launchAgencyId, launchAgencyAbbrev } = extractLaunchAgency(launch)
+  const { launchAgency, launchAgencyId, launchAgencyAbbrev, launchAgencyImage } = extractLaunchAgency(launch)
   const lsp = launch.launch_service_provider
   const agencyEn = (lsp && lsp.name) || launchAgency || ''
   const agencyZh =
@@ -200,6 +200,8 @@ function mapLaunchToListItem(launch, index, offset, type) {
     launchAgency: agencyZh || agencyEn,
     launchAgencyId,
     launchAgencyAbbrev,
+    // 列表 LSP 若带 logo 则直接带上；瘦列表无图时由 enrichMissionsLaunchAgencyImages 补齐
+    launchAgencyImage: launchAgencyImage || '',
     rocketConfigId: (rocketConfiguration && rocketConfiguration.id != null) ? rocketConfiguration.id : null,
     padLocationId: (launch.pad && launch.pad.location && launch.pad.location.id != null)
       ? launch.pad.location.id

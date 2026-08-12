@@ -16,7 +16,8 @@ const {
 } = require('../../../utils/membership.js')
 const {
   isRemoteAgencyLogoUrl,
-  persistAgencyLogoAfterRemoteLoad
+  persistAgencyLogoAfterRemoteLoad,
+  invalidateAgencyLogoCache
 } = require('../../../utils/agency-logo-cache.js')
 const { ensureAgencyLogoBgTone } = require('../../../utils/agency-logo-bg.js')
 
@@ -158,6 +159,7 @@ const methods = {
     const remoteUrl = (e.currentTarget.dataset.logoRemote || '').trim()
     if (!isRemoteAgencyLogoUrl(remoteUrl)) return
     const self = this
+    // 与图鉴同链路：落盘本地路径 + 透明 logo 自动取色填底（tone 持久化，冷启动直接命中）
     persistAgencyLogoAfterRemoteLoad(remoteUrl, function (localPath) {
       if (!localPath) return
       self._applyAgencyChipLocalLogo(remoteUrl, localPath)
@@ -165,6 +167,26 @@ const methods = {
         if (tone) self._applyAgencyChipLogoBgTone(remoteUrl, tone)
       })
     })
+  },
+
+  onAgencyChipLogoError(e) {
+    const remoteUrl = (e.currentTarget.dataset.logoRemote || '').trim()
+    if (!isRemoteAgencyLogoUrl(remoteUrl)) return
+    // 本地缓存文件损坏等：清索引回退远程 URL，tone 复位待重新采样
+    invalidateAgencyLogoCache(remoteUrl)
+    const chips = this.data.upcomingAgencyChipsDisplayed
+    if (!Array.isArray(chips) || !chips.length) return
+    let changed = false
+    const next = chips.map(function (c) {
+      if (c.logoRemoteSrc === remoteUrl && c.logoUrl !== remoteUrl) {
+        changed = true
+        return { ...c, logoUrl: remoteUrl, logoBgTone: '' }
+      }
+      return c
+    })
+    if (changed) {
+      this.setData({ upcomingAgencyChipsDisplayed: next })
+    }
   },
 
   _applyAgencyChipLocalLogo(remoteUrl, localPath) {

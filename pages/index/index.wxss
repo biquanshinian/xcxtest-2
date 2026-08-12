@@ -863,7 +863,8 @@
 }
 .upcoming-agency-chip.tweet-stat-item {
   flex: 0 0 auto;
-  min-width: 168rpx;
+  /* 宽度随内容收缩，避免短名胶囊被 min-width 撑开、数字被顶到右侧 */
+  min-width: 0;
   max-width: 300rpx;
   width: auto;
   box-sizing: border-box;
@@ -875,7 +876,7 @@
   border-radius: 999rpx;
   overflow: visible;
   min-height: calc(60rpx - 2px);
-  padding: calc(8rpx - 1px) 10rpx;
+  padding: calc(8rpx - 1px) 14rpx;
   background: var(--color-bg) !important;
 }
 .upcoming-agency-chip--free.tweet-stat-item {
@@ -891,11 +892,15 @@
   margin-right: 6rpx;
   flex-shrink: 0;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  /* 默认中性衬底；透明 logo 由自动取色写入 agency-logo-bg--dark/--light 接管 */
+  background: rgba(255, 255, 255, 0.08);
+  box-sizing: border-box;
 }
 .upcoming-agency-chip-label-col {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 220rpx;
   overflow: hidden;
 }
 .upcoming-agency-chip-label-text {

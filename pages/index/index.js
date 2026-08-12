@@ -541,6 +541,7 @@ const AGENCY_SUB_METHODS = [
   "onUpcomingAgencyChipTap",
   "_selectUpcomingAgencyKey",
   "onAgencyChipLogoLoad",
+  "onAgencyChipLogoError",
   "_applyAgencyChipLocalLogo",
   "_applyAgencyChipLogoBgTone",
   "scheduleUpcomingAgencyChipsOverflowHint",

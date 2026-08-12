@@ -550,9 +550,10 @@
                   wx:if="{{item.key !== '_all'}}"
                   class="tweet-stat-avatar upcoming-agency-chip-logo {{item.logoBgTone === 'dark' ? 'agency-logo-bg--dark' : ''}} {{item.logoBgTone === 'light' ? 'agency-logo-bg--light' : ''}}"
                   src="{{item.logoUrl}}"
-                  mode="aspectFit"
+                  mode="aspectFill"
                   data-logo-remote="{{item.logoRemoteSrc}}"
                   bindload="onAgencyChipLogoLoad"
+                  binderror="onAgencyChipLogoError"
                 />
                 <view class="upcoming-agency-chip-label-col">
                   <text class="upcoming-agency-chip-label-text" overflow="ellipsis">{{item.label}}</text>

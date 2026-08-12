@@ -232,10 +232,27 @@ function normalizeAgencyLogoCacheKey(url) {
   return typeof url === 'string' ? _optimizedLogoUrl(url) : ''
 }
 
+/** 本地缓存文件损坏/无法解码时清除索引，下次回退远程 URL */
+function invalidateAgencyLogoCache(url) {
+  const key = normalizeAgencyLogoCacheKey(url)
+  if (!key) return
+  const index = _getIndex()
+  const p = index[key]
+  if (p === undefined) return
+  delete index[key]
+  _saveIndex()
+  if (p && typeof p === 'string') {
+    try {
+      wx.getFileSystemManager().unlink({ filePath: p, fail: function () {} })
+    } catch (e) {}
+  }
+}
+
 module.exports = {
   isRemoteAgencyLogoUrl,
   getCachedAgencyLogoPath,
   resolveAgencyLogoForDisplay,
   persistAgencyLogoAfterRemoteLoad,
-  normalizeAgencyLogoCacheKey
+  normalizeAgencyLogoCacheKey,
+  invalidateAgencyLogoCache
 }

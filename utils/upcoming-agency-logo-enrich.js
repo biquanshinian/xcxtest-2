@@ -1,12 +1,14 @@
 /**
- * 首页「即将发射」胶囊：任务列表里的 launch_service_provider 往往不带 logo，
- * 与监控页「全球发射商图鉴」一致，从 /agencies/ 批量记录解析 logo（thumbnail_url / image_url）。
+ * 首页「即将发射」胶囊 logo：与监控页发射商图鉴同一条链路。
+ * 权威来源 = getAgencies() 缓存里的 agency.logo（云端 syncImageMirror 后多为 COS LL2镜像），
+ * 再经 overrideAgencyLogoUrl（SpaceX → 发射商logo/ 固定图）。
  */
 
 const { getAgencies, getAgencyDetail } = require('./api-monitor-data.js')
-const { applyLaunchAgencyLogoOverridesToMissions } = require('./agency-logo-overrides.js')
-
-const AGENCY_LOGO_FALLBACK_SUBSTR = '/images/icons/ic-rocket-outline'
+const {
+  overrideAgencyLogoUrl,
+  applyLaunchAgencyLogoOverridesToMissions
+} = require('./agency-logo-overrides.js')
 
 function absolutizeAgencyAssetUrl(url) {
   const s = String(url || '').trim()
@@ -18,26 +20,17 @@ function absolutizeAgencyAssetUrl(url) {
   return s
 }
 
-/** 与 monitor.js _formatAgency 中 logo 解析逻辑对齐 */
+/**
+ * 与 agency-data.formatAgency 一致：
+ * overrideAgencyLogoUrl(agency, agency.logo.thumbnail_url || agency.logo.image_url)
+ */
 function logoUrlFromAgencyRecord(agency) {
   if (!agency || typeof agency !== 'object') return ''
-  const pick = (obj) => {
-    if (!obj || typeof obj !== 'object') return ''
-    const u = (obj.thumbnail_url || obj.image_url || obj.url || '').trim()
-    return typeof u === 'string' ? u : ''
-  }
-  const raw = pick(agency.logo) || pick(agency.image) || pick(agency.social_logo)
-  return raw ? absolutizeAgencyAssetUrl(raw) : ''
-}
-
-function missionNeedsAgencyLogoEnrichment(mission) {
-  if (!mission || mission.launchAgencyId == null || String(mission.launchAgencyId).trim() === '') {
-    return false
-  }
-  const img = String(mission.launchAgencyImage || '').trim()
-  if (!img) return true
-  if (img.indexOf(AGENCY_LOGO_FALLBACK_SUBSTR) !== -1) return true
-  return false
+  const raw = agency.logo
+    ? absolutizeAgencyAssetUrl(agency.logo.thumbnail_url || agency.logo.image_url || '')
+    : ''
+  const out = overrideAgencyLogoUrl(agency, raw)
+  return typeof out === 'string' ? out.trim() : ''
 }
 
 let _bulkLogoMapPromise = null
@@ -61,29 +54,22 @@ function getBulkAgencyLogoMap() {
 }
 
 /**
- * 为即将发射列表项补齐 launchAgencyImage（不改顺序与其它字段）
+ * 按 agencyId 写成与图鉴相同的 logo URL（目录有图则覆盖 launch 内嵌外链）。
  * @param {Object[]} missions
  * @returns {Promise<Object[]>}
  */
 async function enrichMissionsLaunchAgencyImages(missions) {
   const list = Array.isArray(missions) ? missions : []
-  let anyNeed = false
-  for (let i = 0; i < list.length; i++) {
-    if (missionNeedsAgencyLogoEnrichment(list[i])) {
-      anyNeed = true
-      break
-    }
-  }
-  // 即使无需补图，也要套用 SpaceX 统一 logo 覆盖
-  if (!anyNeed) return applyLaunchAgencyLogoOverridesToMissions(list)
+  if (!list.length) return list
 
   const map = new Map(await getBulkAgencyLogoMap())
 
   const missingIds = new Set()
   for (let i = 0; i < list.length; i++) {
     const m = list[i]
-    if (!missionNeedsAgencyLogoEnrichment(m)) continue
-    const id = String(m.launchAgencyId)
+    if (!m || m.launchAgencyId == null) continue
+    const id = String(m.launchAgencyId).trim()
+    if (!id) continue
     if (!map.has(id)) missingIds.add(id)
   }
 
@@ -100,18 +86,24 @@ async function enrichMissionsLaunchAgencyImages(missions) {
 
   let changed = false
   const next = list.map((m) => {
-    if (!missionNeedsAgencyLogoEnrichment(m)) return m
-    const u = map.get(String(m.launchAgencyId))
-    if (!u) return m
-    changed = true
-    return { ...m, launchAgencyImage: u }
+    if (!m || typeof m !== 'object') return m
+    const id = m.launchAgencyId != null ? String(m.launchAgencyId).trim() : ''
+    const catalog = id ? map.get(id) || '' : ''
+    const prev = String(m.launchAgencyImage || '').trim()
+    // 图鉴 COS 优先；无目录图时保留 launch 内嵌
+    if (catalog && catalog !== prev) {
+      changed = true
+      return { ...m, launchAgencyImage: catalog }
+    }
+    return m
   })
 
-  const enriched = changed ? next : list
-  return applyLaunchAgencyLogoOverridesToMissions(enriched)
+  const withCatalog = changed ? next : list
+  return applyLaunchAgencyLogoOverridesToMissions(withCatalog)
 }
 
 module.exports = {
   enrichMissionsLaunchAgencyImages,
-  logoUrlFromAgencyRecord
+  logoUrlFromAgencyRecord,
+  getBulkAgencyLogoMap
 }
