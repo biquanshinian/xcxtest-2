@@ -3,7 +3,6 @@
 <page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
 <view class="container {{themeClass}} tab-bg-video-host">
   <view class="tab-bg-shell" aria-hidden="true">
-    <view class="tab-bg-cover"></view>
     <view class="tab-bg-frost"></view>
   </view>
   <!-- 顶部导航栏（包含状态栏） -->

@@ -40,12 +40,8 @@ const COLLECTION_DEFS = {
     subtitle: '图鉴入口',
     route: ROUTES.LAUNCH_SITE_GALLERY
   },
-  launch_site_map: {
-    category: 'launch_site',
-    title: '全球发射场分布',
-    subtitle: '地图入口',
-    route: ROUTES.LAUNCH_SITE_MAP
-  },
+  // launch_site_map（全球发射基地）已下架收藏入口：定义移除，
+  // 历史收藏条目由 _readRawList 统一过滤并在下次写入时物理清除
   hardware_list: {
     category: 'hardware',
     title: '星舰硬件设施',
@@ -88,6 +84,8 @@ function _readRawList() {
   const prefs = loadPreferences() || {}
   let list = Array.isArray(prefs.favorites) ? prefs.favorites.slice() : []
   list = list.filter((f) => f && f.type && f.id != null)
+  // 已下架的合集入口（如 launch_site_map）：历史条目不再展示，下次写入时随之清除
+  list = list.filter((f) => f.type !== 'collection' || !!COLLECTION_DEFS[f.id])
   // 一次性把旧 favoriteAgencies 迁入
   if (Array.isArray(prefs.favoriteAgencies) && prefs.favoriteAgencies.length) {
     const before = list.length
@@ -270,6 +268,37 @@ function getFavoriteCount() {
   return _readRawList().length
 }
 
+/**
+ * 按 type/id 把详情页爱心同步成当前收藏态（不播动画）。
+ * 从「我的收藏」进入、缓存秒开、onShow 回前台时用，避免爱心停在初始 false。
+ */
+function syncFavoriteState(page, type, id) {
+  if (!page || typeof page.setData !== 'function') return false
+  const favorited = !!(type && id != null && String(id) !== '' && isFavorite(type, id))
+  if (page.data && !!page.data.isFavorited === favorited) return favorited
+  page.setData({ isFavorited: favorited })
+  return favorited
+}
+
+/** 收藏成功时重播爱心 pop（先关再开 class，同会话第二次收藏也能播） */
+function pulseFavAnimate(page, favorited) {
+  if (!page || typeof page.setData !== 'function') return
+  if (page._favAnimTimer) {
+    clearTimeout(page._favAnimTimer)
+    page._favAnimTimer = null
+  }
+  page.setData({ isFavorited: !!favorited, favAnimate: false })
+  if (!favorited) return
+  setTimeout(function () {
+    if (!page || typeof page.setData !== 'function') return
+    page.setData({ favAnimate: true })
+  }, 20)
+  page._favAnimTimer = setTimeout(function () {
+    if (page && typeof page.setData === 'function') page.setData({ favAnimate: false })
+    page._favAnimTimer = null
+  }, 450)
+}
+
 module.exports = {
   CATEGORIES,
   COLLECTION_DEFS,
@@ -283,5 +312,7 @@ module.exports = {
   removeFavorite,
   toggleCollection,
   isCollectionFavorite,
-  resolveFavoriteUrl
+  resolveFavoriteUrl,
+  syncFavoriteState,
+  pulseFavAnimate
 }

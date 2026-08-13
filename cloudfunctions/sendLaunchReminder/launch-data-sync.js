@@ -1,16 +1,23 @@
 /**
- * 将 space_devs_cache upcoming 同步到 launch_data（sendLaunchReminder 本地副本）。
- * 与 syncSpaceDevsData/launch-data-sync.js 保持逻辑一致。
+ * 将 space_devs_cache upcoming 同步到 launch_data（sendLaunchReminder 副本）。
+ *
+ * ⚠ 本文件与 cloudfunctions/syncSpaceDevsData/launch-data-sync.js 为同源双副本：
+ * 除顶部 db 初始化方式外必须逐字一致（云函数目录间无法共享代码）。
+ * 改动任意一份时，必须同步另一份，否则会重现「字段互相覆盖 / 保留期不一致」的数据漂移。
+ *
+ * launch_data 字段为两侧消费方的并集：
+ * - 提醒链路（sendLaunchReminder）：missionName/rocketNameZh/statusId/netPrecision/netChangePending…
+ * - 统计链路（getLaunchStats 兜底源）：rocketConfigName / launchAgencyId
  */
 const cloud = require('wx-server-sdk')
 const { translateRocketName } = require('./rocket-name-i18n.js')
-const { localizeMissionTitle } = require('./mission-title-i18n.js')
+const { localizeMissionTitle, resolveLaunchMissionOverride } = require('./mission-title-i18n.js')
 const { translateAgencyName } = require('./agency-name-i18n.js')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 
-/** 与 sync meta 一起存；升版可强制跑一轮回填（如 launchAgency） */
-const LAUNCH_DATA_SCHEMA = 2
+/** 与 sync meta 一起存；升版可强制跑一轮回填（v3：补 rocketConfigName/launchAgencyId/netPrecision） */
+const LAUNCH_DATA_SCHEMA = 3
 /** NET 推迟超过此时长 → 标记 netChangePending，供改期推送扫描 */
 const NET_CHANGE_DELAY_MS = 30 * 60 * 1000
 
@@ -127,13 +134,20 @@ function rocketNameFromLaunch(launch) {
 
 function missionNameEnFromLaunch(launch) {
   if (!launch) return ''
+  const ov = resolveLaunchMissionOverride(launch.id)
   const mn = launch.mission && launch.mission.name
-  return String(mn || launch.name || '').substring(0, 40)
+  const raw = String(mn || launch.name || '').trim()
+  if (ov && (!raw || /^unknown(\s+payloads?)?$/i.test(raw) || /未知有效载荷/.test(raw))) {
+    return ov.missionNameEn.substring(0, 40)
+  }
+  return raw.substring(0, 40)
 }
 
-/** 提醒 / 卡片展示用中文任务名（优先云端 nameZh，再套短语词典） */
+/** 提醒 / 卡片展示用中文任务名（优先人工 override，再云端 nameZh，再短语词典） */
 function missionNameZhFromLaunch(launch, rocketEn, rocketZh) {
   if (!launch) return ''
+  const ov = resolveLaunchMissionOverride(launch.id)
+  if (ov) return ov.missionNameZh.substring(0, 20)
   const en = missionNameEnFromLaunch(launch)
   const fromCloud = zhField(launch.mission, 'name') || zhField(launch, 'name')
   const zh = localizeMissionTitle(fromCloud || en, rocketEn, rocketZh)
@@ -148,6 +162,13 @@ function padNameFromLaunch(launch) {
 function siteFromLaunch(launch) {
   if (!launch || !launch.pad || !launch.pad.location) return ''
   return String(launch.pad.location.name || '').substring(0, 40)
+}
+
+/** NET 精度名（Second/Minute/Hour/Day/Month…）；发射前推送用于识别占位时间 */
+function netPrecisionFromLaunch(launch) {
+  const p = launch && launch.net_precision
+  if (!p || typeof p !== 'object') return ''
+  return String(p.name || p.abbrev || '').substring(0, 20)
 }
 
 function recoveryMethodFromLaunch(launch) {
@@ -229,7 +250,12 @@ function mapLaunchToLaunchDataDoc(launch, nowMs) {
     nameEn: nameEn,
     rocketName: rocketEn.substring(0, 40),
     rocketNameZh: String(rocketZh || '').substring(0, 20),
-    launchAgency: agencyEn.substring(0, 40),
+    // 供 getLaunchStats 定时预热型号/发射商统计使用：
+    // rocketConfigName 必须是 LL2 configuration.name 原值（统计过滤参数 rocket__configuration__name）
+    rocketConfigName: String((cfg && cfg.name) || ''),
+    // launchAgency 截 80：NASA 全称 46 字符，40 会截断导致 lsp__name 精确过滤失效
+    launchAgency: agencyEn.substring(0, 80),
+    launchAgencyId: lsp && lsp.id != null ? lsp.id : null,
     launchAgencyAbbrev: agencyAbbrev.substring(0, 20),
     launchAgencyZh: String(agencyZh || '').substring(0, 20),
     windowStart: windowDate,
@@ -244,6 +270,8 @@ function mapLaunchToLaunchDataDoc(launch, nowMs) {
     recoveryMethod: recoveryMethodFromLaunch(launch),
     status: launch.status && launch.status.name ? String(launch.status.name) : '',
     statusId: launch.status && launch.status.id != null ? Number(launch.status.id) : null,
+    // 发射前推送门控：Day/Month 等粗精度的 net 只是占位时刻，不能按确切时间发 T-30
+    netPrecision: netPrecisionFromLaunch(launch),
     syncedAt: nowMs,
     updatedAt: nowMs,
     source: 'space_devs_cache'
@@ -261,7 +289,11 @@ function attachNetChangeMeta(existing, payload) {
   const lastPushed = (existing && existing.lastNetChangePushedKey) || ''
 
   if (oldMs > 0 && newMs > 0 && newMs - oldMs >= NET_CHANGE_DELAY_MS) {
-    payload.previousNet = oldIso
+    // 已有未消费 pending 时保留最早 previousNet（推送展示「原时间 → 最新时间」）
+    payload.previousNet =
+      existing && existing.netChangePending && existing.previousNet
+        ? String(existing.previousNet)
+        : oldIso
     payload.netChangedAt = Date.now()
     payload.netChangePending = true
   } else if (
@@ -323,9 +355,10 @@ async function removeStaleLaunchData(activeIds, nowMs) {
 function isLaunchDataDocUnchanged(existing, payload) {
   if (!existing) return false
   const COMPARE_FIELDS = [
-    'id', 'missionName', 'name', 'rocketName', 'rocketNameZh', 'launchTime',
-    'launchAgency', 'launchAgencyZh', 'launchAgencyAbbrev',
-    'padName', 'pad', 'site', 'siteZh', 'recoveryMethod', 'status', 'statusId', 'source'
+    'id', 'missionName', 'name', 'rocketName', 'rocketNameZh', 'rocketConfigName', 'launchTime',
+    'launchAgency', 'launchAgencyId', 'launchAgencyZh', 'launchAgencyAbbrev',
+    'padName', 'pad', 'site', 'siteZh', 'recoveryMethod', 'status', 'statusId',
+    'netPrecision', 'source'
   ]
   for (const f of COMPARE_FIELDS) {
     const a = existing[f] == null ? null : existing[f]
@@ -352,7 +385,7 @@ async function readExistingLaunchDataMap() {
 }
 
 // 代际标记文档：记录上次同步时源缓存的签名，源缓存没更新就跳过全量同步。
-// 源缓存最多每小时被 syncSpaceDevsData 刷新一次，而本函数每 10 分钟触发，
+// 源缓存最多每小时被 syncSpaceDevsData 刷新一次，而本函数每 5 分钟触发，
 // 大多数 tick 只需 2 次读（主缓存文档 + 标记文档）即可确认无事可做。
 const SYNC_META_DOC_ID = '_sync_meta'
 // 签名未变时也强制重同步的最大间隔：兜底清理已过期任务 / 标记文档异常
@@ -468,5 +501,8 @@ module.exports = {
   syncLaunchDataFromCache,
   LAUNCH_DATA_SCHEMA,
   NET_CHANGE_DELAY_MS,
-  attachNetChangeMeta
+  attachNetChangeMeta,
+  isLaunchDataDocUnchanged,
+  mapLaunchToLaunchDataDoc,
+  isUpcomingLaunch
 }

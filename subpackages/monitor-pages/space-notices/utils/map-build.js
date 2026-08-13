@@ -7,6 +7,8 @@
 // 小程序 require 不支持 .json（会被补成 .json.js 而整模块加载失败），轨迹副本必须是 .js
 const SITE_TRAJ = require('./flight13-trajectory.js')
 const { resolvePadCoords } = require('./pad-coords.js')
+const { pickLocalized, isContentLangEn } = require('../../../../utils/locale.js')
+const { localizeMissionTitle } = require('../../../../utils/mission-title-i18n.js')
 const SITE_TRAJ_COLOR = (SITE_TRAJ && SITE_TRAJ.color) || '#ffcc00'
 const SITE_TRAJ_VERSION = Number((SITE_TRAJ && SITE_TRAJ.version) || 1)
 const FLIGHT13_LL2_ID = 'ac897b9f-44d2-4ff4-8416-1a0a076e98a2'
@@ -199,26 +201,35 @@ function buildTrajectoryPolyline(trajectory, color) {
   }
 }
 
+/** 角标文案：任意任务名都走与列表卡同一套汉化，缺省再回落发射台名 */
+function localizePadMarkerLabel(title, pad) {
+  const raw = String(title || '').trim()
+  if (raw) {
+    const zh = localizeMissionTitle(raw) || raw
+    return pickLocalized(zh, raw) || raw
+  }
+  const padName = String((pad && pad.name) || '').trim()
+  if (padName) return padName
+  return isContentLangEn() ? 'Launch pad' : '发射台'
+}
+
 function buildPadMarker(pad, title, opts) {
   if (!pad || pad.latitude == null || pad.longitude == null) return []
   const lat = Number(pad.latitude)
   const lon = Number(pad.longitude)
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return []
   const light = !!(opts && opts.light)
-  // 默认红色坐标钉（勿用 ISS 的绿色 station-marker）
+  const label = localizePadMarkerLabel(title, pad)
+  // 不传 iconPath：微信渲染腾讯地图原生默认红钉（自带钉尖锚点，勿再拼自定义图片，
+  // 也勿用 ISS 的绿色 station-marker）
   return [
     {
       id: 1,
       latitude: lat,
       longitude: lon,
-      width: 28,
-      height: 36,
-      // 锚点在钉尖，保证视觉落点与经纬度一致
-      anchor: { x: 0.5, y: 1 },
-      iconPath: '/subpackages/monitor-pages/space-notices/pad-marker-red.png',
-      title: title || pad.name || 'Launch pad',
+      title: label,
       callout: {
-        content: title || pad.name || 'Launch pad',
+        content: label,
         display: 'ALWAYS',
         padding: 6,
         borderRadius: 6,
@@ -465,6 +476,7 @@ module.exports = {
   buildTrajectoryPolyline,
   resolveTrajectory,
   buildPadMarker,
+  localizePadMarkerLabel,
   resolveEffectivePad,
   fitCenter,
   fitNotice,

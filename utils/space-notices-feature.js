@@ -14,6 +14,9 @@
  * - utils/routes.js 中 SPACE_NOTICE_* 路由
  * - app.json monitor-pages 中 space-notices/* 页
  * - pages/monitor/monitor.{js,wxml} 入口卡相关
+ * - pages/mission-detail/mission-detail.{js,wxml} 通告地图快捷入口
+ * - pages/mission-detail/utils/space-notice-shortcut.js
+ * - pages/progress/progress.{js,wxml} 与 progress-below-fold 星舰通告入口卡
  * 云库集合（可选清理）：space_notice_entry、space_notice
  * ============================================================================
  */
@@ -41,9 +44,44 @@ function isSpaceNoticesCodeEnabled() {
   return !!CODE_ENABLED
 }
 
+/** 进度页直达兜底：库空或 lookup 未部署时仍能进星舰通告地图 */
+const STARSHIP_NOTICE_FALLBACK_KEY = 'launch-starship-flight-13'
+
+function lookupStarshipSpaceNotice() {
+  if (!CODE_ENABLED) return Promise.resolve(null)
+  if (typeof wx === 'undefined' || !wx.cloud || !wx.cloud.callFunction) {
+    return Promise.resolve(null)
+  }
+  return isSpaceNoticesEnabled()
+    .catch(() => false)
+    .then((on) => {
+      if (!on) return null
+      return wx.cloud.callFunction({
+        name: 'spaceNotices',
+        data: { action: 'lookupStarshipEntry' }
+      })
+    })
+    .then((res) => {
+      if (!res) return null
+      const r = (res && res.result) || res
+      if (!r || r.success === false) return null
+      const entryKey = String(r.entryKey || '').trim()
+      if (!entryKey) return null
+      return {
+        entryKey,
+        ll2Id: String(r.ll2Id || '').trim(),
+        missionName: r.missionName || '',
+        noticeCount: Number(r.noticeCount) || 0
+      }
+    })
+    .catch(() => null)
+}
+
 module.exports = {
   CODE_ENABLED,
   FEATURE_FIELD,
+  STARSHIP_NOTICE_FALLBACK_KEY,
   isSpaceNoticesEnabled,
-  isSpaceNoticesCodeEnabled
+  isSpaceNoticesCodeEnabled,
+  lookupStarshipSpaceNotice
 }

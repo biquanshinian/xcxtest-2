@@ -109,17 +109,23 @@ function formatLaunchTime(isoTime) {
 
   try {
 
+    // 固定北京时间（UTC+8），与云端 sendLaunchReminder.formatLaunchTimeStr 同口径；
+    // 设备本地时区渲染会导致订阅入库文案与云端 reconcile 覆盖后短暂不一致
     var d = new Date(isoTime)
 
-    var y = d.getFullYear()
+    if (!(d.getTime() > 0)) return '时间未知'
 
-    var m = String(d.getMonth() + 1).padStart(2, '0')
+    var bj = new Date(d.getTime() + 8 * 60 * 60 * 1000)
 
-    var day = String(d.getDate()).padStart(2, '0')
+    var y = bj.getUTCFullYear()
 
-    var h = String(d.getHours()).padStart(2, '0')
+    var m = String(bj.getUTCMonth() + 1).padStart(2, '0')
 
-    var min = String(d.getMinutes()).padStart(2, '0')
+    var day = String(bj.getUTCDate()).padStart(2, '0')
+
+    var h = String(bj.getUTCHours()).padStart(2, '0')
+
+    var min = String(bj.getUTCMinutes()).padStart(2, '0')
 
     return y + '年' + m + '月' + day + '日 ' + h + ':' + min
 

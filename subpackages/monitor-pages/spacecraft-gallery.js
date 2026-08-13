@@ -6,6 +6,7 @@
 const pageBase = require('../../utils/page-base.js')
 const spacecraftDisplay = require('./utils/spacecraft-display.js')
 const boosterDisplay = require('./utils/booster-display.js')
+const gallerySearch = require('./utils/gallery-search.js')
 const { getFeaturedAgencies } = require('./utils/agency-data.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
@@ -30,8 +31,7 @@ Page({
 
     cards: [],
     stats: { inUseCount: 0, typeCount: 0, agencyCount: 0 },
-    filterEmpty: false,
-    imageLoadedMap: {}
+    filterEmpty: false
   },
 
   onLoad(options) {
@@ -55,9 +55,9 @@ Page({
       var chips = spacecraftDisplay.buildSpacecraftFilterChips(this._allCards, { maxTypeChips: 5 })
 
       var filter = this._pendingFilter || 'all'
-      var chipIds = chips.map(function (c) { return c.id })
-      // 分享直达机构筛选仍支持，但不占分类条
-      if (chipIds.indexOf(filter) === -1 && String(filter).indexOf('agency:') !== 0) filter = 'all'
+      if (!gallerySearch.isKnownSpacecraftFilter(filter)) filter = 'all'
+      chips = gallerySearch.ensureActiveChip(chips, filter, spacecraftDisplay.extraChipForFilter(filter))
+      this._filterChips = chips
 
       this.setData({ loading: false, filterChips: chips })
       this.applyFilter(filter)
@@ -70,21 +70,20 @@ Page({
   applyFilter(filterId) {
     var all = this._allCards || []
     var filtered = spacecraftDisplay.applySpacecraftFilter(all, filterId)
-    var keyword = String(this.data.keyword || '').trim().toLowerCase().replace(/\s+/g, '')
-    if (keyword) {
-      filtered = filtered.filter(function (card) {
-        var fields = [card.name, card.nameEn, card.typeLabel, card.typeName, card.agencyLabel, card.agencyName]
-        return fields.some(function (f) {
-          return String(f || '').toLowerCase().replace(/\s+/g, '').indexOf(keyword) >= 0
-        })
-      })
-    }
+    filtered = gallerySearch.filterCardsByKeyword(filtered, this.data.keyword)
+
+    var chips = gallerySearch.ensureActiveChip(
+      this._filterChips || this.data.filterChips || [],
+      filterId,
+      spacecraftDisplay.extraChipForFilter(filterId)
+    )
+
     this.setData({
       filter: filterId,
       cards: filtered,
       stats: spacecraftDisplay.computeSpacecraftStats(filtered),
       filterEmpty: all.length > 0 && filtered.length === 0,
-      imageLoadedMap: {}
+      filterChips: chips
     })
   },
 
@@ -147,24 +146,15 @@ Page({
     navigateTo(ROUTES.SPACECRAFT_DETAIL, params)
   },
 
-  onImageLoad(e) {
-    var index = e.currentTarget.dataset.index
-    if (index == null) return
-    var kv = {}
-    kv['imageLoadedMap.' + index] = true
-    this.setData(kv)
-  },
-
-  /** 图片加载失败：沿兜底链切换（缩略图 404 时回退原图），链耗尽显示占位 */
   onImageError(e) {
-    var idx = Number(e.currentTarget.dataset.index)
-    if (!Number.isInteger(idx) || idx < 0) return
-    var card = (this.data.cards || [])[idx]
-    if (!card) return
-    var fallbacks = card.imageFallbacks || []
+    var id = e.currentTarget.dataset.id
+    var idx = gallerySearch.findCardIndexByKey(this.data.cards, 'id', id)
+    if (idx < 0) return
+    var card = this.data.cards[idx]
+    if (!gallerySearch.advanceCardImage(card, spacecraftDisplay.cachedImage)) return
     var kv = {}
-    kv['cards[' + idx + '].imageUrl'] = spacecraftDisplay.cachedImage(fallbacks[0])
-    kv['cards[' + idx + '].imageFallbacks'] = fallbacks.slice(1)
+    kv['cards[' + idx + '].imageUrl'] = card.imageUrl
+    kv['cards[' + idx + '].imageFallbacks'] = card.imageFallbacks
     this.setData(kv)
   },
 

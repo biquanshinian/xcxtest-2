@@ -411,10 +411,11 @@ async function fetchLaunchDetailForReconcile(launchId) {
 /**
  * 解析「当前」发射 NET：优先 launch_data（hourly 改期写入）→ launch_status → 详情缓存/LL2。
  * 详情缓存 TTL 最长 3.5h，不能作为改期对齐的第一信源。
+ * 同时带回 statusId / netPrecision，供发射前推送状态门控（TBD/Hold/占位时间不发）。
  */
 async function resolveFreshLaunchMeta(launchId) {
   var sid = String(launchId || '')
-  var out = { iso: '', missionName: '', rocketName: '', source: '' }
+  var out = { iso: '', missionName: '', rocketName: '', source: '', statusId: null, netPrecision: '' }
   if (!sid) return out
 
   try {
@@ -428,6 +429,8 @@ async function resolveFreshLaunchMeta(launchId) {
         // 小程序订阅 thing 可中文：优先 rocketNameZh，英文原名留在 rocketNameEn
         out.rocketName = String(ld.rocketNameZh || ld.rocketName || '').substring(0, 20)
         out.rocketNameEn = String(ld.rocketName || '').substring(0, 40)
+        out.statusId = ld.statusId != null ? Number(ld.statusId) : null
+        out.netPrecision = String(ld.netPrecision || '')
         out.source = 'launch_data'
         return out
       }
@@ -442,6 +445,7 @@ async function resolveFreshLaunchMeta(launchId) {
       if (isoSt) {
         out.iso = isoSt
         out.missionName = String(st.name || '').substring(0, 20)
+        out.statusId = st.status && st.status.id != null ? Number(st.status.id) : null
         out.source = 'launch_status'
         return out
       }
@@ -455,6 +459,11 @@ async function resolveFreshLaunchMeta(launchId) {
       out.iso = isoD
       out.missionName = missionNameFromDetail(detail)
       out.rocketName = rocketNameFromDetail(detail)
+      out.statusId = detail.status && detail.status.id != null ? Number(detail.status.id) : null
+      out.netPrecision =
+        detail.net_precision && typeof detail.net_precision === 'object'
+          ? String(detail.net_precision.name || detail.net_precision.abbrev || '')
+          : ''
       out.source = 'detail'
       return out
     }
@@ -675,14 +684,24 @@ async function matchPreferencesAndCreateSubscriptions() {
     const launches = launchesRes.data || []
     if (launches.length === 0) return
 
-    // 查保存过偏好的用户（rocketTypes 字段存在即可，含空数组=默认全推；最多50）
-    const usersRes = await db.collection(PROFILE_COLLECTION)
-      .where({ 'preferences.rocketTypes': _.exists(true) })
-      .field({ _id: true, openid: true, preferences: true })
-      .limit(50)
-      .get()
+    // 查保存过偏好的用户（rocketTypes 字段存在即可，含空数组=默认全推）。
+    // 分批翻页至多 500 人：旧版 limit(50) 在用户量增长后会静默漏掉后面的用户
+    const PREFS_USER_PAGE = 100
+    const PREFS_USER_MAX = 500
+    let prefUserRows = []
+    for (let po = 0; po < PREFS_USER_MAX; po += PREFS_USER_PAGE) {
+      const pageRes = await db.collection(PROFILE_COLLECTION)
+        .where({ 'preferences.rocketTypes': _.exists(true) })
+        .field({ _id: true, openid: true, preferences: true })
+        .skip(po)
+        .limit(PREFS_USER_PAGE)
+        .get()
+      const page = (pageRes && pageRes.data) || []
+      prefUserRows = prefUserRows.concat(page)
+      if (page.length < PREFS_USER_PAGE) break
+    }
 
-    const users = (usersRes.data || []).filter(function (u) {
+    const users = prefUserRows.filter(function (u) {
       return !!(u && u.preferences)
     })
 
@@ -1772,11 +1791,30 @@ async function sendPendingReminders() {
               sentCount.skipped++
               continue
             }
+            // 状态门控：TBD/Hold/粗精度占位时间不发「即将发射」，保留 sent:false——
+            // 状态转 Go / NET 更新后 reconcile 会重新对齐时点再发；
+            // 占位时间已过 48h 仍未决则结案（与 launch_data 保留窗一致，避免每 tick 空扫）
+            if (!isLaunchPreAlertEligible(freshMeta)) {
+              sentCount.skipped++
+              if (freshLaunchMs > 0 && now - freshLaunchMs > 48 * 60 * 60 * 1000) {
+                await markReminderDone(record._id, { keepForResult: Number(record.resultQuota) > 0 })
+              }
+              continue
+            }
             record.launchTime = freshMeta.iso
             record.launchTimeFormatted = formatLaunchTimeStr(freshMeta.iso)
             if (freshMeta.missionName) record.missionName = freshMeta.missionName
             if (freshMeta.rocketName) record.rocketName = freshMeta.rocketName
           }
+        }
+
+        // 已过 T-0：发射前提醒失去意义，不再发送（避免「发射后才提醒」），
+        // 结案但保留结果额度——发射结果仍由结果通道通知
+        var recLaunchMs = record.launchTime ? new Date(record.launchTime).getTime() : 0
+        if (recLaunchMs > 0 && recLaunchMs <= now) {
+          sentCount.skipped++
+          await markReminderDone(record._id, { keepForResult: Number(record.resultQuota) > 0 })
+          continue
         }
 
         // 旧记录可能误把订阅来源「自动匹配」写进了回收方式字段，发送前纠正
@@ -2602,7 +2640,10 @@ function buildAlertPushContext() {
     formatLaunchTimeStr: formatLaunchTimeStr,
     netKeyFromIso: netKeyFromIso,
     sendSubscribeMessageByHttp: sendSubscribeMessageByHttp,
-    markReminderDone: markReminderDone
+    markReminderDone: markReminderDone,
+    // 改期推送偏好过滤（与 T-30 发射前提醒同口径）
+    loadReminderPrefsByMpOpenids: loadReminderPrefsByMpOpenids,
+    launchMatchesReminderPrefs: launchMatchesReminderPrefs
   }
 }
 
@@ -2617,11 +2658,11 @@ function getOaMiniProgramAppid() {
 }
 
 let _oaTokenCache = { token: '', expireAt: 0 }
-async function getOaAccessToken() {
+async function getOaAccessToken(forceRefresh) {
   const cred = getOaCredentials()
   if (!cred) throw new Error('缺少 WECHAT_OA_APPID / WECHAT_OA_SECRET')
   const nowMs = Date.now()
-  if (_oaTokenCache.token && _oaTokenCache.expireAt > nowMs + 60 * 1000) {
+  if (!forceRefresh && _oaTokenCache.token && _oaTokenCache.expireAt > nowMs + 60 * 1000) {
     return _oaTokenCache.token
   }
   const url =
@@ -2841,26 +2882,33 @@ function buildOaTemplateData(opts) {
 }
 
 async function sendOaTemplateMessage(oaOpenid, templateId, pagepath, data) {
-  const accessToken = await getOaAccessToken()
-  const url =
-    'https://api.weixin.qq.com/cgi-bin/message/template/send?access_token=' +
-    encodeURIComponent(accessToken)
-  const res = await axios.post(url, {
-    touser: oaOpenid,
-    template_id: templateId,
-    miniprogram: {
-      appid: getOaMiniProgramAppid(),
-      pagepath: pagepath
-    },
-    data: data
-  })
-  const errcode = res.data ? res.data.errcode : -1
-  if (errcode !== 0) {
-    const err = new Error('服务号模板消息失败: errcode=' + errcode + ', errmsg=' + (res.data && res.data.errmsg))
-    err.errcode = errcode
+  async function postOnce(token) {
+    const url =
+      'https://api.weixin.qq.com/cgi-bin/message/template/send?access_token=' +
+      encodeURIComponent(token)
+    const res = await axios.post(url, {
+      touser: oaOpenid,
+      template_id: templateId,
+      miniprogram: {
+        appid: getOaMiniProgramAppid(),
+        pagepath: pagepath
+      },
+      data: data
+    })
+    return res.data || {}
+  }
+  let result = await postOnce(await getOaAccessToken())
+  // 缓存 token 失效/被顶掉（40001 invalid credential / 42001 expired）→ 强刷后重试一次
+  // （与小程序 sendSubscribeMessageByHttp 同口径）
+  if (result.errcode === 40001 || result.errcode === 42001) {
+    result = await postOnce(await getOaAccessToken(true))
+  }
+  if (result.errcode !== 0) {
+    const err = new Error('服务号模板消息失败: errcode=' + result.errcode + ', errmsg=' + result.errmsg)
+    err.errcode = result.errcode
     throw err
   }
-  return res.data
+  return result
 }
 
 /** 批量加载某任务 template 通道已结案的 oaOpenid（每 tick 1~N 次 in 查询，替代每人 1~2 次） */
@@ -3444,11 +3492,16 @@ function oaLaunchRemainingMs(launch, nowMs) {
   return ms - Number(nowMs)
 }
 
+// ── 发射前推送状态门控（实现在 pre-alert-gate.js，纯函数可单测） ──
+// TBD/Hold 或粗精度占位 NET 不发「即将发射」；TBC 放行（中国发射常态）。
+const { isLaunchPreAlertEligible } = require('./pre-alert-gate.js')
+
 /**
  * 是否仍适合发发射前提醒（发送前二次校验，防止前置耗时把「窗内」拖成贴 T-0）。
- * 允许区间：[MIN_LEAD, LEAD+slack] ≈ [T-8, T-32]
+ * 允许区间：[MIN_LEAD, LEAD+slack] ≈ [T-8, T-32]；且状态/精度须可信（见 isLaunchPreAlertEligible）。
  */
 function shouldSendOaPreLaunchAlert(launch, nowMs) {
+  if (!isLaunchPreAlertEligible(launch)) return false
   var remain = oaLaunchRemainingMs(launch, nowMs)
   if (!(remain > 0)) return false
   var minMs = OA_MIN_LEAD_MINUTES * 60 * 1000
@@ -4653,10 +4706,6 @@ async function sendOAResultAlerts() {
 
 /** 订阅通知发送：bizsend；errcode!=0 抛出带 errcode 的错误 */
 async function sendOaSubscribeMessage(oaOpenid, templateId, page, data) {
-  const accessToken = await getOaAccessToken()
-  const url =
-    'https://api.weixin.qq.com/cgi-bin/message/subscribe/bizsend?access_token=' +
-    encodeURIComponent(accessToken)
   const { miniprogramState, lang } = getSubscribeSendOptions()
   const payload = {
     touser: oaOpenid,
@@ -4666,14 +4715,24 @@ async function sendOaSubscribeMessage(oaOpenid, templateId, page, data) {
     lang: lang
   }
   if (page) payload.page = page
-  const res = await axios.post(url, payload)
-  const errcode = res.data ? res.data.errcode : -1
-  if (errcode !== 0) {
-    const err = new Error('订阅通知发送失败: errcode=' + errcode + ', errmsg=' + (res.data && res.data.errmsg))
-    err.errcode = errcode
+  async function postOnce(token) {
+    const url =
+      'https://api.weixin.qq.com/cgi-bin/message/subscribe/bizsend?access_token=' +
+      encodeURIComponent(token)
+    const res = await axios.post(url, payload)
+    return res.data || {}
+  }
+  let result = await postOnce(await getOaAccessToken())
+  // token 失效强刷重试一次（与模板消息/小程序订阅消息同口径）
+  if (result.errcode === 40001 || result.errcode === 42001) {
+    result = await postOnce(await getOaAccessToken(true))
+  }
+  if (result.errcode !== 0) {
+    const err = new Error('订阅通知发送失败: errcode=' + result.errcode + ', errmsg=' + result.errmsg)
+    err.errcode = result.errcode
     throw err
   }
-  return res.data
+  return result
 }
 
 /** 发送成功后原子扣减 1 次额度 */

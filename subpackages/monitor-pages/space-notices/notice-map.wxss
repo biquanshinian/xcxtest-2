@@ -1,6 +1,8 @@
 /* SPACE_NOTICES_FEATURE
- * 配色一律走 tokens.wxss 变量，浅色主题由根 view 的 theme-light 自动反色；
- * 只有玻璃底/地图叠加物需要显式浅色覆盖。
+ * 配色一律走 tokens.wxss 变量，浅色主题由根 view 的 theme-light 自动反色。
+ *
+ * 注意：面板/弹层压在地图上。微信 map 是原生组件，半透明和 backdrop-filter
+ * 采不到地图像素，只会透出复杂底图显得杂乱。叠层卡片一律实底。
  */
 page {
   background: var(--color-bg);
@@ -20,12 +22,13 @@ page {
 }
 
 .glass-card {
-  background: var(--bg-glass);
+  background: var(--color-bg-card);
   border-radius: var(--radius-card);
-  backdrop-filter: var(--blur-card);
+  border: 1rpx solid var(--color-border-glass);
+  box-shadow: var(--shadow-card);
 }
 .theme-light .glass-card {
-  background: rgba(255, 255, 255, 0.93);
+  background: var(--color-bg-card);
 }
 
 /* ---------- 通用按钮：一律 flex 居中，text 撑满并居中 ---------- */
@@ -84,7 +87,7 @@ page {
   margin-top: 10rpx;
   font-size: var(--font-size-sm);
   line-height: var(--line-height-normal);
-  color: var(--color-text-secondary);
+  color: var(--color-text-on-glass);
   word-break: break-word;
 }
 .sn-state-btn {
@@ -156,7 +159,7 @@ page {
   text-align: center;
   line-height: 1;
   font-size: var(--font-size-sm);
-  color: var(--color-text-secondary, #8E8E93);
+  color: var(--color-text-on-glass);
   transition: color 0.25s ease;
 }
 .sn-seg-item--on {
@@ -196,7 +199,7 @@ page {
   display: block;
   line-height: 1;
   font-size: var(--font-size-sm);
-  color: var(--color-text-tertiary);
+  color: var(--color-text-on-glass);
 }
 .sn-chip-dot {
   width: 14rpx;
@@ -222,7 +225,7 @@ page {
   opacity: 1;
 }
 .sn-chip--ghost text {
-  color: var(--color-text-secondary);
+  color: var(--color-text-on-glass);
 }
 
 .sn-note {
@@ -230,7 +233,7 @@ page {
   margin-top: 16rpx;
   font-size: var(--font-size-2xs);
   line-height: var(--line-height-normal);
-  color: var(--color-text-quaternary);
+  color: var(--color-text-on-glass);
 }
 
 /* ---------- 通告列表 ---------- */
@@ -283,13 +286,13 @@ page {
   display: block;
   margin-top: 6rpx;
   font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
+  color: var(--color-text-on-glass);
 }
 .sn-item-reason {
   display: block;
   margin-top: 4rpx;
   font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
+  color: var(--color-text-on-glass);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -300,8 +303,8 @@ page {
   margin-left: 12rpx;
   align-self: center;
   flex-shrink: 0;
-  border-top: 3rpx solid var(--color-text-quaternary);
-  border-right: 3rpx solid var(--color-text-quaternary);
+  border-top: 3rpx solid var(--color-text-on-glass);
+  border-right: 3rpx solid var(--color-text-on-glass);
   transform: rotate(45deg);
   box-sizing: border-box;
 }
@@ -311,7 +314,7 @@ page {
 .sn-empty text {
   font-size: var(--font-size-sm);
   line-height: var(--line-height-normal);
-  color: var(--color-text-tertiary);
+  color: var(--color-text-on-glass);
 }
 
 /* ---------- 状态标签 ---------- */
@@ -331,7 +334,7 @@ page {
   display: block;
   line-height: 1;
   font-size: var(--font-size-2xs);
-  color: var(--color-text-secondary);
+  color: var(--color-text-on-glass);
 }
 .theme-light .sn-tag {
   background: rgba(0, 0, 0, 0.05);
@@ -352,10 +355,10 @@ page {
   color: var(--color-brand);
 }
 .sn-tag--off text {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-on-glass);
 }
 .sn-tag--plain text {
-  color: var(--color-text-secondary);
+  color: var(--color-text-on-glass);
 }
 
 /* ---------- 通告详情弹层 ---------- */
@@ -411,7 +414,7 @@ page {
   display: block;
   margin-top: 8rpx;
   font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
+  color: var(--color-text-on-glass);
 }
 .sn-sheet-close {
   flex-shrink: 0;
@@ -432,7 +435,7 @@ page {
   text-align: center;
   line-height: 1;
   font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
+  color: var(--color-text-on-glass);
 }
 .theme-light .sn-sheet-close {
   background: rgba(0, 0, 0, 0.05);
@@ -457,13 +460,13 @@ page {
   margin-bottom: 10rpx;
   font-size: var(--font-size-2xs);
   letter-spacing: 1rpx;
-  color: var(--color-text-quaternary);
+  color: var(--color-text-on-glass);
 }
 .sn-sheet-text {
   display: block;
   font-size: var(--font-size-sm);
   line-height: var(--line-height-normal);
-  color: var(--color-text-secondary);
+  color: var(--color-text-on-glass);
   word-break: break-word;
 }
 .sn-win {
@@ -485,7 +488,7 @@ page {
   font-family: 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 20rpx;
   line-height: 1.55;
-  color: var(--color-text-secondary);
+  color: var(--color-text-on-glass);
   word-break: break-all;
 }
 .sn-sheet-actions {

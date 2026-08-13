@@ -122,6 +122,7 @@
         <text class="ai-welcome-title">{{ui.welcomeTitle}}</text>
 
         <text class="ai-welcome-desc">{{ui.welcomeDesc}}</text>
+        <!-- 查发射 / 回放：文案在 ai-chat-i18n welcomeDesc -->
 
       </view>
 
@@ -135,10 +136,12 @@
 
           <!-- 机器人头像 -->
 
-          <view class="ai-bot-avatar" wx:if="{{item.role !== 'user'}}">
+          <view class="ai-bot-avatar {{item.toolStatus ? 'ai-bot-avatar--working' : ''}}" wx:if="{{item.role !== 'user'}}">
 
             <!-- 节日期间每条回复都戴帽（欢迎区一问就消失，氛围留不住）；
                  非节日 festivalHat 为空，wx:if 让组件根本不创建 -->
+
+            <view class="ai-bot-work-ring"></view>
 
             <festival-hat wx:if="{{festivalHat}}" hat="{{festivalHat}}" size="{{48}}" />
 
@@ -152,14 +155,21 @@
 
           <view class="ai-msg-col" wx:if="{{item.role !== 'user'}}">
 
-            <view class="ai-msg-bubble ai-msg-bubble--bot {{item.error ? 'ai-msg-bubble--error' : ''}} {{item.streaming ? 'ai-msg-bubble--streaming' : ''}} {{item.typing ? 'ai-msg-bubble--thinking' : ''}}">
+            <view class="ai-msg-bubble ai-msg-bubble--bot {{item.error ? 'ai-msg-bubble--error' : ''}} {{item.streaming ? 'ai-msg-bubble--streaming' : ''}} {{item.typing ? 'ai-msg-bubble--thinking' : ''}} {{item.toolStatus ? 'ai-msg-bubble--tooling' : ''}}">
 
               <view class="ai-msg-text-row" wx:if="{{item.content || item.streaming}}">
                 <text class="ai-msg-text" user-select>{{item.content}}</text>
                 <text class="ai-msg-caret" wx:if="{{item.streaming}}">▍</text>
               </view>
 
-              <view class="ai-msg-typing" wx:if="{{item.typing}}">
+              <view class="ai-tool-status" wx:if="{{item.toolStatus}}">
+                <text class="ai-tool-status-label">{{item.toolStatus}}</text>
+                <view class="ai-tool-status-track">
+                  <view class="ai-tool-status-bar"></view>
+                </view>
+              </view>
+
+              <view class="ai-msg-typing" wx:if="{{item.typing && !item.toolStatus}}">
 
                 <view class="typing-dot"></view>
 
@@ -858,9 +868,7 @@
           </view>
 
           <view class="ai-msg-bubble ai-msg-bubble--user" wx:else>
-
             <text class="ai-msg-text" user-select wx:if="{{item.content}}">{{item.content}}</text>
-
           </view>
 
         </view>
@@ -889,6 +897,31 @@
 
     </view>
 
+    <scroll-view
+      wx:if="{{followupChips.length}}"
+      class="ai-followup-scroll"
+      scroll-x
+      enhanced
+      show-scrollbar="{{false}}"
+      enable-flex
+    >
+      <view class="ai-followup-row">
+        <view
+          class="ai-followup-in"
+          wx:for="{{followupChips}}"
+          wx:key="id"
+        >
+          <view
+            class="ai-followup-chip {{sending ? 'ai-followup-chip--disabled' : ''}}"
+            bindtap="onFollowupChip"
+            data-q="{{item.q}}"
+          >
+            <text>{{item.label}}</text>
+          </view>
+        </view>
+      </view>
+    </scroll-view>
+
     <!-- 输入栏上方：跳转卡快捷入口（横向滑动） -->
 
     <scroll-view
@@ -909,7 +942,7 @@
 
         <view
 
-          class="ai-shortcut-chip {{sending ? 'ai-shortcut-chip--disabled' : ''}}"
+          class="ai-shortcut-chip {{sending ? 'ai-shortcut-chip--disabled' : ''}} {{glowShortcutId === item.id ? 'ai-shortcut-chip--glow' : ''}}"
 
           wx:for="{{quickShortcuts}}"
 
@@ -932,7 +965,6 @@
     </scroll-view>
 
     <view class="ai-input-bar {{keyboardHeight > 0 ? 'ai-input-bar--keyboard' : ''}}">
-
       <input
 
         class="ai-input"

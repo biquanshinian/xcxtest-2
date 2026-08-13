@@ -55,7 +55,9 @@
             </view>
             <view class="ncm-time-content">
               <text class="ncm-time-label">原时间</text>
-              <text class="ncm-time-value ncm-time-value--old" user-select="{{true}}">{{oldTimeText}}</text>
+              <view class="ncm-time-value ncm-time-value--old">
+                <text user-select="{{true}}">{{oldTimeText}}</text>
+              </view>
             </view>
           </view>
           <view class="ncm-time-row ncm-time-row--new">
@@ -64,7 +66,9 @@
             </view>
             <view class="ncm-time-content">
               <text class="ncm-time-label ncm-time-label--new">新时间</text>
-              <text class="ncm-time-value ncm-time-value--new" user-select="{{true}}">{{newTimeText}}</text>
+              <view class="ncm-time-value ncm-time-value--new">
+                <text user-select="{{true}}">{{newTimeText}}</text>
+              </view>
             </view>
           </view>
         </view>

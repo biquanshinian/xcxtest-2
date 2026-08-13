@@ -105,6 +105,14 @@ const LL2_UPCOMING_PARAMS = {
   offset: 0,
   ordering: 'net'
 }
+const LL2_PREVIOUS_PATH = '/launches/previous/'
+const LL2_PREVIOUS_PARAMS = {
+  format: 'json',
+  limit: 100,
+  mode: 'detailed',
+  offset: 0,
+  ordering: '-net'
+}
 const LL2_SLIM_SUFFIXES = ['_slim_v6', '_slim_v5', '_slim_v4', '_slim_v3', '_slim_v2', '_slim', '']
 
 /** 旧纪念卡稀有度（仅兼容历史发放记录展示） */
@@ -4126,17 +4134,17 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
   // ── 即将发射任务列表（后台「新增场次」自动获取用，读 LL2 同步缓存，零外网请求） ──
 
   /** 批次感知读取 space_devs_cache 列表缓存（与 apiProxy/agent-actions 同一套约定） */
-  async function readLl2UpcomingCache() {
+  async function readLl2ListCache(path, params) {
     const sortedParams = JSON.stringify(
-      Object.keys(LL2_UPCOMING_PARAMS).sort().reduce((acc, k) => {
-        acc[k] = LL2_UPCOMING_PARAMS[k]
+      Object.keys(params).sort().reduce((acc, k) => {
+        acc[k] = params[k]
         return acc
       }, {})
     )
     let cacheKey = null
     let doc = null
     for (const sfx of LL2_SLIM_SUFFIXES) {
-      const key = `api_cache_${LL2_UPCOMING_PATH}_${sortedParams}${sfx}`
+      const key = `api_cache_${path}_${sortedParams}${sfx}`
       const d = await db.collection(SPACE_DEVS_COL).doc(key).get().catch(() => null)
       if (d && d.data && d.data.data) {
         cacheKey = key
@@ -4164,6 +4172,28 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     return { results: allResults, updatedAt }
   }
 
+  async function readLl2UpcomingCache() {
+    return readLl2ListCache(LL2_UPCOMING_PATH, LL2_UPCOMING_PARAMS)
+  }
+
+  function mapLaunchToAdminMission(launch) {
+    const cfg = (launch.rocket && launch.rocket.configuration) || {}
+    const fullName = String(launch.name || '')
+    const flightMatch =
+      fullName.match(/flight\s*(?:test\s*)?#?\s*(\d+)/i) ||
+      fullName.match(/\bift[-\s]?(\d+)/i)
+    return {
+      missionId: String(launch.id),
+      name: fullName,
+      missionName: (launch.mission && launch.mission.name) || fullName.split('|').pop().trim(),
+      rocketName: cfg.name || fullName.split('|')[0].trim(),
+      launchTime: launch.net || launch.window_start || '',
+      status: (launch.status && (launch.status.name || launch.status.abbrev)) || '',
+      pad: (launch.pad && launch.pad.name) || '',
+      flightNumber: flightMatch ? Number(flightMatch[1]) || 0 : 0
+    }
+  }
+
   /**
    * 即将发射任务核心列表（无权限门）：读 LL2 upcoming 缓存，保持 sync 时的 ordering=net 顺序
    *（与小程序 getUpcomingMissions 同源，勿再按 Date.parse 重排，避免 TBD 占位日打乱顺序）
@@ -4178,21 +4208,22 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       const net = launch.net || launch.window_start || ''
       const t = Date.parse(net)
       if (isNaN(t) || t < nowMs - 2 * 3600 * 1000) continue
-      const cfg = (launch.rocket && launch.rocket.configuration) || {}
-      const fullName = String(launch.name || '')
-      const flightMatch =
-        fullName.match(/flight\s*(?:test\s*)?#?\s*(\d+)/i) ||
-        fullName.match(/\bift[-\s]?(\d+)/i)
-      list.push({
-        missionId: String(launch.id),
-        name: fullName,
-        missionName: (launch.mission && launch.mission.name) || fullName.split('|').pop().trim(),
-        rocketName: cfg.name || fullName.split('|')[0].trim(),
-        launchTime: net,
-        status: (launch.status && (launch.status.name || launch.status.abbrev)) || '',
-        pad: (launch.pad && launch.pad.name) || '',
-        flightNumber: flightMatch ? Number(flightMatch[1]) || 0 : 0
-      })
+      list.push(mapLaunchToAdminMission(launch))
+      if (list.length >= max) break
+    }
+    return { list, updatedAt }
+  }
+
+  /**
+   * 历史发射任务核心列表：读 LL2 previous 缓存（ordering=-net），与小程序历史列表同源
+   */
+  async function listPreviousLaunchesCore(limit = 50) {
+    const max = Math.min(100, Math.max(1, Number(limit) || 50))
+    const { results, updatedAt } = await readLl2ListCache(LL2_PREVIOUS_PATH, LL2_PREVIOUS_PARAMS)
+    const list = []
+    for (const launch of results) {
+      if (!launch || launch.id == null) continue
+      list.push(mapLaunchToAdminMission(launch))
       if (list.length >= max) break
     }
     return { list, updatedAt }
@@ -4246,6 +4277,7 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     ensureMerchantCode,
     listUpcomingLaunchesAdmin,
     listUpcomingLaunchesCore,
+    listPreviousLaunchesCore,
     updateMerchant,
     updateMerchantPassGrant,
     renewMerchantMembership,

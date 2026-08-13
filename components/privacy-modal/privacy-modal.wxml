@@ -17,7 +17,7 @@
         <text class="privacy-modal-card-title">我们将使用以下信息/能力</text>
         <text class="privacy-modal-card-text">位置信息：用于计算卫星过境时间与观测方位</text>
         <text class="privacy-modal-card-text">摄像头与传感器：用于 AR 观测与方向校准</text>
-        <text class="privacy-modal-card-text">相册/选图：用于保存图片、上传图片进行识别</text>
+        <text class="privacy-modal-card-text">相册/选图：用于保存用户导出的图片与海报</text>
       </view>
 
       <text wx:if="{{referrer}}" class="privacy-modal-scene">当前触发场景：{{referrer}}</text>

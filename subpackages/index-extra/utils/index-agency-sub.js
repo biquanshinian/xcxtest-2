@@ -33,8 +33,20 @@ const methods = {
         this.setData({ _countdownSubscribed: true })
       }
       this._syncDisplayedUpcomingSwipeRowFlags()
+      this._pulseBellRing(mission.id)
     }
     return !!ok
+  },
+
+  _pulseBellRing(missionId) {
+    const id = missionId != null ? String(missionId) : ''
+    if (!id) return
+    this.setData({ _bellRing: true, bellRingId: id })
+    if (this._bellRingTimer) clearTimeout(this._bellRingTimer)
+    this._bellRingTimer = setTimeout(() => {
+      this.setData({ _bellRing: false, bellRingId: '' })
+      this._bellRingTimer = null
+    }, 580)
   },
 
   async unsubscribeReminderForMission(missionId, options) {

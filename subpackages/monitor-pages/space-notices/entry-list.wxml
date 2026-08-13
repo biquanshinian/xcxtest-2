@@ -17,14 +17,6 @@
     <view style="height: {{navPlaceholderHeight}}px;"></view>
 
     <view class="list-body">
-      <view class="sn-hint glass-card">
-        <view class="sn-hint-row">
-          <text class="sn-hint-title">Space Notices 数据</text>
-          <view class="sn-hint-sync" bindtap="onSync"><text>立即同步</text></view>
-        </view>
-        <text class="sn-hint-desc">站点全量发射通告轮转入库；点右侧可马上刷新一轮。{{progressText ? ' ' + progressText : ''}}</text>
-      </view>
-
       <view class="detail-skeleton" wx:if="{{loading}}" aria-hidden="{{true}}">
         <view class="skeleton-card" wx:for="{{[1, 2, 3, 4]}}" wx:key="*this">
           <view class="skeleton-line skeleton-line--title skeleton-shimmer"></view>
@@ -42,7 +34,7 @@
 
       <view class="sn-state glass-card" wx:elif="{{!upcoming.length && !past.length}}">
         <text class="sn-state-title">暂无条目</text>
-        <text class="sn-state-desc">请先在开发者工具上传并部署云函数 spaceNotices，再点「同步条目」。成功后会出现站点收录的发射任务。</text>
+        <text class="sn-state-desc">云函数每 15 分钟会自动入库。若刚部署，等一轮或点下方「同步条目」。</text>
         <view class="sn-btn" bindtap="onSync"><text>同步条目</text></view>
       </view>
 

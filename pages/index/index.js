@@ -999,6 +999,11 @@ Page({
       }
       this._refreshOaAlertReady(false)
 
+      // 日历 Tab：回前台按 TTL/年份校验刷新全球统计（跨年时 isLaunchStatsFreshForCurrentYear 会强制重拉）
+      if (this.data.missionType === 'calendar' && typeof this.loadLaunchStats === 'function') {
+        this.loadLaunchStats()
+      }
+
       // 冷启动 3s 内 onLoad 已调度会员/筛选刷新，避免 onShow 重复 setData
       const sinceLoad = Date.now() - (this._pageLoadAt || 0)
       if (sinceLoad >= 3000) {
@@ -1306,6 +1311,7 @@ Page({
     /** NET 缺失或精度过粗：面板改显文案而非会误导的精确时钟 */
     countdownTimeUnknown: false,
     countdownTimeUnknownText: '',
+    countdownT10: false,
     countdownSecondsPrev: '',
     countdownSecondsCurrent: '',
     countdownSecondsRolling: false,
@@ -1417,6 +1423,7 @@ Page({
     voteSlotVisible: false,
     voteOntimeEnabled: false,
     voteOutcomeEnabled: false,
+    voteLaunchId: '',
     // 开屏动画
     splashVisible: false,
     splashFading: false,
@@ -1429,6 +1436,8 @@ Page({
     splashMission: null,
     splashMissionCd: null,
     _countdownSubscribed: false,
+    _bellRing: false,
+    bellRingId: '',
     /** 服务号自动提醒已就绪：全任务覆盖，不再引导逐条订阅 */
     oaAlertReady: false,
     launchStats: {},
@@ -1980,6 +1989,7 @@ Page({
   },
 
   applyLaunchSwitchEffects(mission, options = {}) {
+    this._t10Entered = false
     const launchEffects = buildLaunchSwitchEffects(mission, options)
     // 同一任务重复应用（如快速包→完整包两阶段首屏）时不清空已渲染的竞猜 UI，避免闪烁
     const voteTargetId = String(launchEffects.launchId || '')
@@ -3154,9 +3164,11 @@ Page({
   _applyCountdownTimeUnknown(text) {
     const label = text || launchCardUiText('timeTbdLong')
     if (this.data.countdownTimeUnknown && this.data.countdownTimeUnknownText === label) return
+    this._t10Entered = false
     this.setData({
       countdownTimeUnknown: true,
       countdownTimeUnknownText: label,
+      countdownT10: false,
       countdown: { days: 0, hours: 0, minutes: 0, seconds: 0, total: 0, isExpired: false },
       countdownSecondsCurrent: '00',
       countdownSecondsPrev: '00',
@@ -3169,6 +3181,33 @@ Page({
   _clearCountdownTimeUnknown() {
     if (!this.data.countdownTimeUnknown) return
     this.setData({ countdownTimeUnknown: false, countdownTimeUnknownText: '' })
+  },
+
+  _syncCountdownT10(countdown, patch, didSecondsChange) {
+    const cd = countdown || {}
+    const live = !!(this.data.enableLiveEntry && this.data.isChannelsLive)
+    const t10 = !live &&
+      !this.data.countdownTimeUnknown &&
+      !cd.isExpired &&
+      Number(cd.days) === 0 &&
+      Number(cd.hours) === 0 &&
+      Number(cd.minutes) === 0 &&
+      Number(cd.seconds) <= 10 &&
+      Number(cd.seconds) >= 0
+    if (!!this.data.countdownT10 !== !!t10) {
+      patch.countdownT10 = !!t10
+    }
+    if (t10 && !this._t10Entered) {
+      this._t10Entered = true
+      try { wx.vibrateShort({ type: 'heavy' }) } catch (e) {}
+    } else if (!t10) {
+      this._t10Entered = false
+    } else if (didSecondsChange) {
+      const s = Number(cd.seconds)
+      if (s === 3 || s === 2 || s === 1 || s === 0) {
+        try { wx.vibrateShort({ type: 'light' }) } catch (e) {}
+      }
+    }
   },
 
   /**
@@ -3235,6 +3274,7 @@ Page({
     if (!tickState.didSecondsChange) {
       // 秒位没变仍可能有天/时/分变化（切任务撞上同一秒位），一并下发
       const merged = { ...(tickState.immediateState || {}), ...cardCountdownPatch, ...sideCardPatch }
+      this._syncCountdownT10(countdown, merged, false)
       if (Object.keys(merged).length) this.setData(merged)
       return
     }
@@ -3249,6 +3289,7 @@ Page({
       ...cardCountdownPatch,
       ...sideCardPatch
     }
+    this._syncCountdownT10(countdown, immediateState, true)
     this.setData(immediateState)
     // 跳秒时不播滚轮动画，也就没有需要复位的 settle（省一次 setData）
     if (!tickState.settleState) return
@@ -3360,8 +3401,10 @@ Page({
 
     this._launchStatusPolling = true
     // 面板定格 00:00:00，状态置「确认中」（竞猜框随 isExpired 自动隐藏）
+    this._t10Entered = false
     this.setData({
       countdown: { days: 0, hours: 0, minutes: 0, seconds: 0, total: 0, isExpired: true },
+      countdownT10: false,
       countdownSecondsCurrent: 0,
       countdownSecondsRolling: false,
       countdownSecondsReel: getSecondsReel(0),

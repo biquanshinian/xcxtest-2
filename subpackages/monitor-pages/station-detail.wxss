@@ -1105,7 +1105,7 @@ page {
   min-width: 240rpx;
   padding: 12rpx 14rpx 14rpx;
   border-radius: 10rpx;
-  background-color: rgba(8, 14, 20, 0.92);
+  background-color: #16181C;
   border: 1px solid rgba(0, 255, 136, 0.45);
 }
 
@@ -1171,8 +1171,7 @@ page {
   border-radius: 999rpx;
   font-size: 24rpx;
   color: #ffffff;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(10rpx);
+  background: #16181C;
   border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
@@ -1191,7 +1190,7 @@ page {
   gap: 8rpx;
   padding: 6rpx 12rpx;
   border-radius: 8rpx;
-  background: rgba(18, 20, 24, 0.8);
+  background: #16181C;
 }
 
 .legend-line {

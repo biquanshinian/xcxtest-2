@@ -57,6 +57,63 @@
   animation: badgeEntrance 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
+.badge-sparks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.badge-spark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10rpx;
+  height: 10rpx;
+  margin: -5rpx 0 0 -5rpx;
+  border-radius: 50%;
+  background: #FFD56A;
+  box-shadow: 0 0 8rpx rgba(255, 213, 106, 0.85);
+}
+
+.badge-spark.s1 { animation: badge-spark-1 0.7s ease-out 0.12s both; }
+.badge-spark.s2 { width: 8rpx; height: 8rpx; animation: badge-spark-2 0.7s ease-out 0.18s both; }
+.badge-spark.s3 { animation: badge-spark-3 0.7s ease-out 0.22s both; }
+.badge-spark.s4 { width: 7rpx; height: 7rpx; animation: badge-spark-4 0.7s ease-out 0.16s both; }
+.badge-spark.s5 { animation: badge-spark-5 0.7s ease-out 0.28s both; }
+.badge-spark.s6 { width: 8rpx; height: 8rpx; animation: badge-spark-6 0.7s ease-out 0.24s both; }
+
+@keyframes badge-spark-1 {
+  0% { transform: translate(0, 0) scale(0.4); opacity: 0; }
+  35% { opacity: 1; }
+  100% { transform: translate(-86rpx, -72rpx) scale(0.2); opacity: 0; }
+}
+@keyframes badge-spark-2 {
+  0% { transform: translate(0, 0) scale(0.4); opacity: 0; }
+  35% { opacity: 1; }
+  100% { transform: translate(92rpx, -64rpx) scale(0.2); opacity: 0; }
+}
+@keyframes badge-spark-3 {
+  0% { transform: translate(0, 0) scale(0.4); opacity: 0; }
+  35% { opacity: 1; }
+  100% { transform: translate(-70rpx, 78rpx) scale(0.2); opacity: 0; }
+}
+@keyframes badge-spark-4 {
+  0% { transform: translate(0, 0) scale(0.4); opacity: 0; }
+  35% { opacity: 1; }
+  100% { transform: translate(78rpx, 86rpx) scale(0.2); opacity: 0; }
+}
+@keyframes badge-spark-5 {
+  0% { transform: translate(0, 0) scale(0.4); opacity: 0; }
+  35% { opacity: 1; }
+  100% { transform: translate(0, -98rpx) scale(0.2); opacity: 0; }
+}
+@keyframes badge-spark-6 {
+  0% { transform: translate(0, 0) scale(0.4); opacity: 0; }
+  35% { opacity: 1; }
+  100% { transform: translate(-18rpx, 96rpx) scale(0.2); opacity: 0; }
+}
+
 @keyframes glowPulse {
   0%, 100% { opacity: 0.7; transform: scale(1); }
   50% { opacity: 1; transform: scale(1.06); }

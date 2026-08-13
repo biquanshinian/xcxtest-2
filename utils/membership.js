@@ -71,8 +71,7 @@ const MEMBER_PASS_BENEFITS = [
 
 // 免费用户每日限制（默认值；运行时以 global_config 会员策略为准）
 const FREE_LIMITS = {
-  AI_CHAT: 3,
-  AI_IMAGE: 1
+  AI_CHAT: 3
 }
 
 function _freeAiLimits() {
@@ -80,11 +79,10 @@ function _freeAiLimits() {
     const { getMemberPolicySync } = require('./member-policy.js')
     const p = getMemberPolicySync()
     return {
-      AI_CHAT: p.freeAiChatDaily,
-      AI_IMAGE: p.freeAiImageDaily
+      AI_CHAT: p.freeAiChatDaily
     }
   } catch (e) {
-    return { AI_CHAT: FREE_LIMITS.AI_CHAT, AI_IMAGE: FREE_LIMITS.AI_IMAGE }
+    return { AI_CHAT: FREE_LIMITS.AI_CHAT }
   }
 }
 
@@ -203,17 +201,6 @@ function getAiChatRemaining(state) {
   return Math.max(0, limit - used)
 }
 
-/**
- * 检查 AI 图片识别今日剩余次数
- */
-function getAiImageRemaining(state) {
-  if (isPro(state) || _hasWatchPass()) return -1
-  var today = _todayStr()
-  var used = (state && state.aiImageUsed && state.aiImageUsed[today]) || 0
-  var limit = _freeAiLimits().AI_IMAGE
-  return Math.max(0, limit - used)
-}
-
 async function _recordUsage(usageType) {
   var field = usageType === 'aiImage' ? 'aiImageUsed' : 'aiChatUsed'
   var today = _todayStr()
@@ -243,13 +230,6 @@ async function _recordUsage(usageType) {
  */
 async function recordAiChatUse() {
   return _recordUsage('aiChat')
-}
-
-/**
- * 记录一次 AI 图片识别使用
- */
-async function recordAiImageUse() {
-  return _recordUsage('aiImage')
 }
 
 /**
@@ -651,57 +631,6 @@ async function gateCheck(productId, productName, opts) {
   return _showPurchaseDialog(productId, productName, { adUnlockId: adUnlockId, allowAd: allowAd })
 }
 
-async function aiImageGateCheck() {
-  var adUnlock = require('./ad-unlock.js')
-  var AI_AD_PRODUCT = 'ai_image'
-  if (adUnlock.isUnlocked(AI_AD_PRODUCT)) return true
-
-  if (isIOS()) {
-    // iOS 不开放付费，但 PRO 用户（其他端购买的同账号）应该正常放行
-    try {
-      var stateForIOS = await getMembershipState()
-      if (isPro(stateForIOS)) return true
-      var remainingFree = getAiImageRemaining(stateForIOS)
-      if (remainingFree !== 0) return true
-    } catch (e) {
-      return true // 查询异常 fail-open
-    }
-    return _showIOSPurchaseDialog('AI太空图像识别', AI_AD_PRODUCT)
-  }
-  try {
-    var enabled = await isMembershipEnabled()
-    if (!enabled) return true
-    var state = await getMembershipState()
-    var remaining = getAiImageRemaining(state)
-    if (remaining !== 0) return true
-  } catch (e) {
-    return true
-  }
-
-  return new Promise(function (resolve) {
-    wx.showActionSheet({
-      alertText: '今日识别次数已用完\n免费用户每日 ' + _freeAiLimits().AI_IMAGE + ' 次',
-      itemList: [
-        '升级星际通行证（无限使用）',
-        '看广告免费体验'
-      ],
-      success: function (res) {
-        if (res.tapIndex === 0) {
-          wx.navigateTo({ url: '/subpackages/profile-extra/membership/membership' })
-          resolve(false)
-          return
-        }
-        if (res.tapIndex === 1) {
-          adUnlock.showRewardedAdForUnlock(AI_AD_PRODUCT).then(resolve)
-          return
-        }
-        resolve(false)
-      },
-      fail: function () { resolve(false) }
-    })
-  })
-}
-
 // ── 内部工具 ──
 
 function _getDefaultState() {
@@ -930,15 +859,12 @@ module.exports = {
   warmMembershipStateAsync: warmMembershipStateAsync,
   hasPurchased: hasPurchased,
   getAiChatRemaining: getAiChatRemaining,
-  getAiImageRemaining: getAiImageRemaining,
   recordAiChatUse: recordAiChatUse,
-  recordAiImageUse: recordAiImageUse,
   purchaseSubscription: purchaseSubscription,
   purchaseProduct: purchaseProduct,
   clearCache: clearCache,
   isMembershipEnabled: isMembershipEnabled,
   gateCheck: gateCheck,
-  aiImageGateCheck: aiImageGateCheck,
   getEffectivePrices: getEffectivePrices,
   clearPriceCache: clearPriceCache,
   resolvePriceFromMap: resolvePriceFromMap,

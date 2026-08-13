@@ -36,6 +36,10 @@ function isLl2TokenConfigured() {
 
 function noteLl2Request(source) {
   try {
+    // 精确账本：跨函数共享的小时配额计数（软预算，供全量轮附加任务让路决策）
+    require('./ll2-budget.js').recordLl2Request(db, source || 'syncSpaceDevsData').catch(() => {})
+  } catch (eBudget) {}
+  try {
     const now = Date.now()
     const bucket = ll2HourBucket(now)
     if (_ll2UsageBucket !== bucket) {
@@ -89,8 +93,18 @@ async function fetchAPI(url) {
       let data = ''
       res.on('data', chunk => { data += chunk })
       res.on('end', () => {
+        // 只要发出了请求就记账（429 同样消耗一次尝试）
+        if (/thespacedevs\.com$/i.test(urlObj.hostname)) noteLl2Request('syncSpaceDevsData')
+        // 非 200 必须显式失败：429 限流 body 是 { detail: ... }，静默 resolve 会被
+        // 上层当成「成功但无 results」而误判数据为空（分页断点、探针限流识别都依赖 reject）
+        if (res.statusCode !== 200) {
+          const err = new Error(`HTTP ${res.statusCode}: ${String(data).slice(0, 200)}`)
+          err.statusCode = res.statusCode
+          if (res.statusCode === 429 || /throttl/i.test(String(data))) err.code = 'LL2_RATE_LIMIT'
+          reject(err)
+          return
+        }
         try {
-          if (/thespacedevs\.com$/i.test(urlObj.hostname)) noteLl2Request('syncSpaceDevsData')
           resolve(JSON.parse(data))
         }
         catch (e) { reject(new Error('JSON parse error: ' + e.message)) }

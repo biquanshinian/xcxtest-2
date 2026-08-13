@@ -59,6 +59,30 @@
   background: rgba(255, 59, 48, 0.12);
   border-color: rgba(255, 59, 48, 0.4);
 }
+.quiz-option--shake {
+  animation: quiz-shake 0.28s ease;
+}
+@keyframes quiz-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-10rpx); }
+  75% { transform: translateX(10rpx); }
+}
+.quiz-check {
+  flex-shrink: 0;
+  display: inline-block;
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #07C160;
+  line-height: 1;
+}
+.quiz-check--pop {
+  animation: quiz-check-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes quiz-check-pop {
+  0% { transform: scale(0.4); opacity: 0; }
+  60% { transform: scale(1.18); opacity: 1; }
+  100% { transform: scale(1); }
+}
 .quiz-letter {
   width: 40rpx;
   font-weight: 700;

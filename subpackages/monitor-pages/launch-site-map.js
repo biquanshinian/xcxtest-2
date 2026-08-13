@@ -1,8 +1,7 @@
-const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, buildMapLayoutData, buildSelectionPatch, copyMapText, runMapRefresh } = require('./utils/map-page-common.js')
+const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, buildMapLayoutData, buildSelectionPatch, copyMapText, runMapRefresh, setMapSatelliteFromTap } = require('./utils/map-page-common.js')
 const { getUpcomingMissions, getCompletedMissions } = require('../../utils/api-launch-list.js')
 const { LAUNCH_SITES, toMarker } = require('./utils/map-scenes.js')
 const pageBase = require('../../utils/page-base.js')
-const { isCollectionFavorite, toggleCollection } = require('../../utils/favorites.js')
 
 Page({
   behaviors: [pageBase],
@@ -25,8 +24,6 @@ Page({
     panelCollapsed: true,
     actionMenuCollapsed: true,
     isMomentsPreview: false,
-    isFavorited: false,
-    favAnimate: false,
     ...createMapBaseState({
       dataSourceText: 'Upcoming + Completed Missions',
       dataUpdatedText: '待更新',
@@ -60,8 +57,7 @@ Page({
       ...buildMapLayoutData(app),
       markers,
       selectedSite: preferred,
-      isMomentsPreview,
-      isFavorited: isCollectionFavorite('launch_site_map')
+      isMomentsPreview
     })
 
     if (isMomentsPreview) {
@@ -306,6 +302,10 @@ Page({
     this.setData({ actionMenuCollapsed: !this.data.actionMenuCollapsed })
   },
 
+  setMapSatellite(e) {
+    setMapSatelliteFromTap(this, e)
+  },
+
   _shareTitle() {
     const site = this.data.selectedSite || {}
     const detail = site.shortName || '全球发射场'
@@ -316,13 +316,6 @@ Page({
     const site = this.data.selectedSite || {}
     const id = Number(site.id || this._focusSiteId || 0)
     return id ? ('focusId=' + id) : ''
-  },
-
-  onToggleFavorite() {
-    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
-    const favorited = toggleCollection('launch_site_map')
-    this.setData({ isFavorited: favorited, favAnimate: favorited })
-    wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
   },
 
   onShareAppMessage() {

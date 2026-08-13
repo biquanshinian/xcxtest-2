@@ -303,6 +303,14 @@
 
 .ncm-time-row--new .ncm-time-content {
   padding-bottom: 0;
+  border-radius: 12rpx;
+  animation: ncm-new-hl 0.5s ease 0.38s both;
+}
+
+@keyframes ncm-new-hl {
+  0% { background: rgba(7, 193, 96, 0); }
+  40% { background: rgba(7, 193, 96, 0.12); }
+  100% { background: rgba(7, 193, 96, 0); }
 }
 
 .ncm-time-label {
@@ -316,22 +324,50 @@
 }
 
 .ncm-time-value {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
   font-size: 28rpx;
   font-weight: 600;
   color: var(--color-text-on-glass);
   line-height: 1.35;
 }
 
+.ncm-time-value text {
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
 .ncm-time-value--old {
   color: var(--color-text-secondary);
   font-weight: 500;
-  text-decoration: line-through;
-  text-decoration-color: rgba(142, 142, 147, 0.55);
+}
+
+.ncm-time-value--old::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 2rpx;
+  width: 0;
+  background: rgba(142, 142, 147, 0.7);
+  animation: ncm-strike 0.42s ease 0.28s forwards;
+}
+
+@keyframes ncm-strike {
+  to { width: 100%; }
 }
 
 .ncm-time-value--new {
   color: var(--color-text-primary);
   font-size: 30rpx;
+  animation: ncm-new-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) 0.38s both;
+}
+
+@keyframes ncm-new-in {
+  from { opacity: 0; transform: translateY(14rpx); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .ncm-btn {

@@ -14,7 +14,9 @@ Page({
     quizAnswered: false,
     quizSelectedIndex: -1,
     quizResult: null,
-    quizStats: { accuracy: 0, totalAnswered: 0 }
+    quizStats: { accuracy: 0, totalAnswered: 0 },
+    quizShake: false,
+    quizCheckPop: false
   },
 
   onLoad() {
@@ -59,12 +61,32 @@ Page({
     const qId = this.data.quizQuestion.id
     const result = answerQuestion(qId, index)
     try { verifyQuizSave() } catch (e2) {}
+    const correct = !!(result && result.correct)
+    const stats = (result && result.stats) || getQuizStats()
+    if (correct) {
+      this.setData({
+        quizSelectedIndex: index,
+        quizAnswered: true,
+        quizResult: result,
+        quizStats: stats,
+        quizCheckPop: true,
+        quizShake: false
+      })
+      return
+    }
     this.setData({
       quizSelectedIndex: index,
       quizAnswered: true,
-      quizResult: result,
-      quizStats: (result && result.stats) || getQuizStats()
+      quizResult: null,
+      quizStats: stats,
+      quizShake: true,
+      quizCheckPop: false
     })
+    if (this._quizShakeTimer) clearTimeout(this._quizShakeTimer)
+    this._quizShakeTimer = setTimeout(() => {
+      this.setData({ quizResult: result, quizShake: false })
+      this._quizShakeTimer = null
+    }, 280)
   },
 
   goBack() {

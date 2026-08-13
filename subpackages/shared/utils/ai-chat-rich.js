@@ -2314,7 +2314,9 @@ async function resolveRecoveryStatsCard(options) {
 
 async function resolveRichChatPayload(text, options) {
   const opts = options && typeof options === 'object' ? options : {}
-  const intent = resolveAiChatRichIntent(text)
+  const rawText = String(text || '').trim()
+  text = String(opts.queryText || rawText).trim() || rawText
+  const intent = opts.forcedIntent || resolveAiChatRichIntent(text)
   let launchContext = opts.launchContext || null
   const cards = []
   let subscribeMission = null

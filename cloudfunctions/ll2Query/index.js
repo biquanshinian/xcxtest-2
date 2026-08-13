@@ -50,6 +50,10 @@ function isLl2TokenConfigured() {
 
 function noteLl2Request(source) {
   try {
+    // 精确账本：跨函数共享的小时配额计数（软预算；syncSpaceDevsData 附加任务据此让路）
+    require('./ll2-budget.js').recordLl2Request(db, source || 'll2Query').catch(() => {})
+  } catch (eBudget) {}
+  try {
     const now = Date.now()
     const bucket = ll2HourBucket(now)
     if (_ll2UsageBucket !== bucket) {
@@ -118,8 +122,18 @@ function fetchAPI(url) {
         data += chunk
       })
       res.on('end', () => {
+        // 只要发出了请求就记账（429 同样消耗一次尝试）
+        if (/thespacedevs\.com$/i.test(urlObj.hostname)) noteLl2Request('ll2Query')
+        // 非 200 显式失败：429 的 { detail } body 不能被当成「成功但无 results」，
+        // 调用方（fetchLaunchStatuses 等）的失败记忆/stale 回落依赖 reject 语义
+        if (res.statusCode !== 200) {
+          const httpErr = new Error(`HTTP ${res.statusCode}: ${String(data).slice(0, 200)}`)
+          httpErr.statusCode = res.statusCode
+          if (res.statusCode === 429 || /throttl/i.test(String(data))) httpErr.code = 'LL2_RATE_LIMIT'
+          reject(httpErr)
+          return
+        }
         try {
-          if (/thespacedevs\.com$/i.test(urlObj.hostname)) noteLl2Request('ll2Query')
           resolve(JSON.parse(data))
         } catch (e) {
           reject(new Error('JSON parse error: ' + e.message))

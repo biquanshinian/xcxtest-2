@@ -7,16 +7,7 @@
       <view class="nav-title-wrap nav-title-wrap--page-grid">
         <text class="nav-title nav-title--page-grid">全球发射基地</text>
       </view>
-      <view class="nav-right-space top-nav-slot--spacer top-nav-slot--fav" style="width: {{menuButtonWidth}}px;">
-        <view
-          class="fav-btn fav-btn--nav {{isFavorited ? 'fav-btn--on' : ''}} {{favAnimate ? 'fav-btn--animate' : ''}}"
-          hover-class="fav-btn--pressed"
-          hover-stay-time="120"
-          catchtap="onToggleFavorite"
-        >
-          <view class="fav-heart"></view>
-        </view>
-      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
     </view>
   </view>
   <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" wx:if="{{!isMomentsPreview && mapActionTop > 0}}" style="top: {{mapActionTop}}px;">
@@ -25,6 +16,10 @@
       <view class="map-action-toggle-btn" bindtap="toggleActionMenuCollapsed"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
     </view>
     <view class="map-action-stack" wx:if="{{!actionMenuCollapsed}}">
+      <view class="map-action-type-row">
+        <view class="map-action-btn {{enableSatellite ? 'map-action-btn--active' : ''}}" bindtap="setMapSatellite" data-map-mode="satellite"><text>卫星</text></view>
+        <view class="map-action-btn {{!enableSatellite ? 'map-action-btn--active' : ''}}" bindtap="setMapSatellite" data-map-mode="standard"><text>平面</text></view>
+      </view>
       <view class="map-action-btn" bindtap="refreshMapData"><text>{{refreshing ? '刷新中…' : '刷新'}}</text></view>
       <view class="map-action-btn" bindtap="resetWorldView"><text>全局视图</text></view>
       <view class="map-action-btn" bindtap="copySummary"><text>复制信息</text></view>
@@ -40,6 +35,8 @@
     markers="{{markers}}"
     enable-scroll="true"
     enable-zoom="true"
+    enable-satellite="{{enableSatellite}}"
+    setting="{{mapSetting}}"
     bindmarkertap="onMarkerTap"
   ></map>
 

@@ -49,6 +49,7 @@ const COLLECTIONS = {
   LIVE_CONFIG: 'live_config',
   CHANNELS_LIVE_CONFIG: 'channels_live_config',
   STARSHIP_SPLASH: 'starship_splash_config',
+  ORBIT_PANO: 'orbit_pano_config',
   CHECKLIST_HISTORY: 'starship_checklist_history',
   STARSHIP_EVENT_UPDATES: 'starship_event_updates',
   GLOBAL_CONFIG: 'global_config',
@@ -2045,6 +2046,12 @@ async function listSplashUpcomingMissions() {
   return ok({ list, total: list.length, updatedAt: (data && data.updatedAt) || 0 })
 }
 
+async function listOrbitPanoPreviousMissions() {
+  const data = await watchPartyApi().listPreviousLaunchesCore(50)
+  const list = Array.isArray(data && data.list) ? data.list : []
+  return ok({ list, total: list.length, updatedAt: (data && data.updatedAt) || 0 })
+}
+
 function splashCosKeyFromUrl(url) {
   if (!url || typeof url !== 'string') return ''
   try {
@@ -2533,6 +2540,129 @@ async function updateStarshipSplashConfig(body, user) {
 
   await writeOpLog({ user, module: COLLECTIONS.STARSHIP_SPLASH, action: 'upsert', targetId: id, before, after })
   return ok(after)
+}
+
+// ========== 任务头图环绕全景（Earth Studio 视频，后台按火箭型号绑定） ==========
+const ORBIT_PANO_ITEMS_MAX = 20
+
+function newOrbitPanoId() {
+  return `op_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function normalizeOrbitPanoItem(raw) {
+  if (!raw || typeof raw !== 'object') return null
+  const videoUrl = String(raw.videoUrl || raw.mediaUrl || raw.url || '').trim()
+  if (!videoUrl) return null
+  let posterUrl = String(raw.posterUrl || '').trim()
+  if (!posterUrl || splashPosterNeedsRefresh(posterUrl)) {
+    const key = splashCosKeyFromUrl(videoUrl)
+    if (key) posterUrl = splashPosterUrl(key)
+  }
+  const rocketName = String(raw.rocketName || '').trim()
+  return {
+    id: String(raw.id || newOrbitPanoId()),
+    videoUrl,
+    posterUrl,
+    title: String(raw.title || '').trim().slice(0, 40),
+    launchId: rocketName ? '' : String(raw.launchId || '').trim(),
+    missionName: rocketName ? '' : String(raw.missionName || '').trim(),
+    rocketName,
+    matchRocket: true,
+    enabled: raw.enabled !== false
+  }
+}
+
+function normalizeOrbitPanoDoc(doc) {
+  const items = Array.isArray(doc && doc.items)
+    ? doc.items.map(normalizeOrbitPanoItem).filter(Boolean).slice(0, ORBIT_PANO_ITEMS_MAX)
+    : []
+  return {
+    enabled: !doc || doc.enabled !== false,
+    items,
+    updatedAt: Number((doc && doc.updatedAt) || 0) || 0,
+    updatedBy: String((doc && doc.updatedBy) || '')
+  }
+}
+
+function defaultOrbitPanoDoc(userName) {
+  return {
+    enabled: true,
+    items: [],
+    updatedAt: now(),
+    updatedBy: userName || 'system'
+  }
+}
+
+function orbitPanoEnabledFromMain(main) {
+  if (!main || typeof main !== 'object') return true
+  if (main.enableOrbitPano === false) return false
+  if (main.orbitPanoEnabled === false) return false
+  return true
+}
+
+async function mirrorOrbitPanoToMain(doc) {
+  const on = !doc || doc.enabled !== false
+  const payload = {
+    enableOrbitPano: on,
+    orbitPanoEnabled: on,
+    orbitPanoItems: Array.isArray(doc && doc.items) ? doc.items : [],
+    orbitPanoUpdatedAt: Number((doc && doc.updatedAt) || now()) || now()
+  }
+  try {
+    await db.collection(COLLECTIONS.GLOBAL_CONFIG).doc('main').update({ data: payload })
+  } catch (e) {
+    console.warn('[orbit-pano] 同步到 global_config.main 失败:', e.message || e)
+  }
+}
+
+async function getOrbitPanoConfig() {
+  const ref = db.collection(COLLECTIONS.ORBIT_PANO).doc('current')
+  const existing = await ref.get().catch(() => null)
+  const raw = existing && existing.data
+  const mainRes = await db.collection(COLLECTIONS.GLOBAL_CONFIG).doc('main').get().catch(() => null)
+  const main = (mainRes && mainRes.data) || {}
+  if (!raw) {
+    const empty = defaultOrbitPanoDoc('system')
+    empty.enabled = orbitPanoEnabledFromMain(main)
+    try {
+      await ref.set({ data: empty })
+    } catch (e) {
+      console.warn('[orbit-pano] empty doc write failed:', e.message || e)
+    }
+    if (!Object.prototype.hasOwnProperty.call(main, 'orbitPanoItems')) {
+      await mirrorOrbitPanoToMain(empty)
+    }
+    return ok(empty)
+  }
+  const doc = normalizeOrbitPanoDoc(raw)
+  doc.enabled = orbitPanoEnabledFromMain(main)
+  try {
+    if (!Object.prototype.hasOwnProperty.call(main, 'orbitPanoItems') ||
+        !Object.prototype.hasOwnProperty.call(main, 'enableOrbitPano')) {
+      await mirrorOrbitPanoToMain(doc)
+    }
+  } catch (e) {}
+  return ok(doc)
+}
+
+async function updateOrbitPanoConfig(body, user) {
+  const id = 'current'
+  const ref = db.collection(COLLECTIONS.ORBIT_PANO).doc(id)
+  const beforeRes = await ref.get().catch(() => null)
+  const before = beforeRes?.data || null
+  const items = Array.isArray(body && body.items)
+    ? body.items.map(normalizeOrbitPanoItem).filter(Boolean).slice(0, ORBIT_PANO_ITEMS_MAX)
+    : []
+  const patch = {
+    enabled: !body || body.enabled !== false,
+    items,
+    updatedAt: now(),
+    updatedBy: (user && user.username) || ''
+  }
+  await ref.set({ data: patch })
+  await mirrorOrbitPanoToMain(patch)
+  await writeOpLog({ user, module: COLLECTIONS.ORBIT_PANO, action: 'upsert', targetId: id, before, after: patch })
+  return ok(patch)
 }
 
 // ========== SpaceX 官网星舰视频自动同步（开屏动画全自动化） ==========
@@ -4850,9 +4980,26 @@ async function triggerCloudFunction(name, user, body) {
   const data = { action }
   if (body && body.force) data.force = true
 
+  // 长任务（LL2 多页拉取，动辄 1 分钟+）：等待结果必然撞 callFunction 超时，
+  // 一律 fire-and-forget；被调函数不受调用方超时影响，会继续跑完（自身超时 800s）
+  const LONG_RUNNING_ACTIONS = new Set([
+    'syncAgencies',
+    'syncBoosters',
+    'syncStarshipHardware',
+    'syncImageMirror',
+    'syncFeaturedAgencyDetails',
+    'fillFlightHistory',
+    'rebuildVoteSettle'
+  ])
+
   try {
     // syncLaunchNetHourly 等运维探针：等待结果，便于确认是否写回/重排成功
-    if (name === 'syncSpaceDevsData' && action !== 'manual_trigger' && action !== 'sync') {
+    if (
+      name === 'syncSpaceDevsData' &&
+      action !== 'manual_trigger' &&
+      action !== 'sync' &&
+      !LONG_RUNNING_ACTIONS.has(action)
+    ) {
       const res = await cloud.callFunction({
         name,
         data,
@@ -5044,9 +5191,6 @@ function sanitizeMemberPolicyFields(body) {
   if (Object.prototype.hasOwnProperty.call(body, 'freeAiChatDaily')) {
     out.freeAiChatDaily = _clampPolicyInt(body.freeAiChatDaily, 0, 200, 3)
   }
-  if (Object.prototype.hasOwnProperty.call(body, 'freeAiImageDaily')) {
-    out.freeAiImageDaily = _clampPolicyInt(body.freeAiImageDaily, 0, 50, 1)
-  }
   if (Object.prototype.hasOwnProperty.call(body, 'adUnlockMinutes')) {
     out.adUnlockMinutes = _clampPolicyInt(body.adUnlockMinutes, 1, 1440, 10)
   }
@@ -5071,6 +5215,11 @@ async function updateGlobalConfig(body, user) {
     updatedBy: user.username
   }
   delete patch._id
+  if (Object.prototype.hasOwnProperty.call(body || {}, 'enableOrbitPano')) {
+    const on = body.enableOrbitPano !== false
+    patch.enableOrbitPano = on
+    patch.orbitPanoEnabled = on
+  }
 
   // 必须用 update（字段合并）而不是 set（整文档替换）：
   // main 文档还挂着 proWhitelistOpenids / vpayConfig / newsManualArticlesEnabled 等
@@ -9403,6 +9552,9 @@ async function route(event, user) {
   if (path === '/starship/splash' && method === 'GET') return getStarshipSplashConfig()
   if (path === '/starship/splash' && method === 'PUT') return updateStarshipSplashConfig(body, user)
   if (path === '/starship/splash/upcoming-missions' && method === 'GET') return listSplashUpcomingMissions()
+  if (path === '/orbit-pano' && method === 'GET') return getOrbitPanoConfig()
+  if (path === '/orbit-pano' && method === 'PUT') return updateOrbitPanoConfig(body, user)
+  if (path === '/orbit-pano/previous-missions' && method === 'GET') return listOrbitPanoPreviousMissions()
 
   if (path === '/starship/checklist-history' && method === 'GET') return listChecklistHistory(query)
   if (path.startsWith('/starship/checklist-history/') && method === 'GET') return getChecklistHistoryById(path.split('/').pop())

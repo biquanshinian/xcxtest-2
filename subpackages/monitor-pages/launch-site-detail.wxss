@@ -30,6 +30,14 @@ page {
   background: radial-gradient(ellipse at center, rgba(59, 130, 246, 0.14), #0B0C0E 70%);
 }
 
+.moments-map-fallback-img {
+  width: 100%;
+  height: 420rpx;
+  border-radius: 24rpx;
+  margin-bottom: 32rpx;
+  background: rgba(255, 255, 255, 0.06);
+}
+
 .moments-map-fallback-title {
   display: block;
   font-size: 36rpx;
@@ -48,8 +56,7 @@ page {
 }
 
 .glass-card {
-  background: rgba(18, 18, 20, 0.78);
-  backdrop-filter: blur(18rpx);
+  background: var(--color-bg-card);
 }
 
 /* ── 无坐标兜底：卫星定位图占满地图区域 ── */
@@ -347,7 +354,7 @@ page {
 
 /* ========== 明亮主题（theme-light）覆盖 ========== */
 .theme-light .glass-card {
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--color-bg-card);
 }
 
 .theme-light .no-coords-stage {

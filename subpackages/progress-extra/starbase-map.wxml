@@ -16,6 +16,11 @@
       <view class="map-action-toggle-btn" bindtap="toggleActionMenuCollapsed"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
     </view>
     <view class="map-action-stack" wx:if="{{!actionMenuCollapsed}}">
+      <view class="map-action-type-row">
+        <view class="map-action-btn {{enableSatellite ? 'map-action-btn--active' : ''}}" bindtap="setMapSatellite" data-map-mode="satellite"><text>卫星</text></view>
+        <view class="map-action-btn {{!enableSatellite ? 'map-action-btn--active' : ''}}" bindtap="setMapSatellite" data-map-mode="standard"><text>平面</text></view>
+      </view>
+      <view class="map-action-btn" wx:if="{{orbitPanoEnabled}}" bindtap="playOrbitPano"><text>环绕全景</text></view>
       <view class="map-action-btn" bindtap="refreshMapData"><text>{{refreshing ? '刷新中…' : '刷新'}}</text></view>
       <view class="map-action-btn" bindtap="resetMapView"><text>重置视角</text></view>
       <view class="map-action-btn" bindtap="copySummary"><text>复制信息</text></view>
@@ -31,6 +36,8 @@
     markers="{{markers}}"
     enable-scroll="true"
     enable-zoom="true"
+    enable-satellite="{{enableSatellite}}"
+    setting="{{mapSetting}}"
     bindmarkertap="onMarkerTap"
   ></map>
 

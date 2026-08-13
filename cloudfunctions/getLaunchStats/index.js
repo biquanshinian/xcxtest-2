@@ -110,6 +110,12 @@ function fetchAPIRaw(url) {
       let data = ''
       res.on('data', (chunk) => { data += chunk })
       res.on('end', () => {
+        // LL2 请求记入跨函数小时配额账本（软预算；429 同样消耗一次尝试）
+        try {
+          if (/thespacedevs\.com$/i.test(urlObj.hostname)) {
+            require('./ll2-budget.js').recordLl2Request(db, 'getLaunchStats').catch(() => {})
+          }
+        } catch (eBudget) {}
         const status = res.statusCode || 0
         if (status === 429) {
           let detail = ''
@@ -1817,7 +1823,7 @@ async function recomputeMissionStats(mission, year, yearParams, cacheKey, startT
 }
 
 /**
- * 刷新当前年（2026）统计缓存：由定时触发器调用，把 count-only 精确口径与
+ * 刷新当前 UTC 年统计缓存：由定时触发器调用，把 count-only 精确口径与
  * 明细聚合都强制重算并写入云数据库，让客户端始终秒读最新缓存。
  * 仅 _all 维度；每次最多 ~4 次 LL2 请求（summary 3 + breakdown count/页）。
  */

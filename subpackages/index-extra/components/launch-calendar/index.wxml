@@ -3,7 +3,7 @@
   <view class="calendar-nav" bindtap="calendarPrevMonth">
     <view class="calendar-arrow calendar-arrow--left"></view>
   </view>
-  <picker mode="date" fields="month" value="{{calendarYear + '-' + (calendarMonth < 10 ? '0' : '') + calendarMonth}}" start="2020-01" end="2030-12" bindchange="onCalendarMonthPickerChange">
+  <picker mode="date" fields="month" value="{{calendarYear + '-' + (calendarMonth < 10 ? '0' : '') + calendarMonth}}" start="{{pickerStart}}" end="{{pickerEnd}}" bindchange="onCalendarMonthPickerChange">
     <text class="calendar-month-title">{{calendarYear}}年{{calendarMonth}}月</text>
   </picker>
   <view class="calendar-nav" bindtap="calendarNextMonth">

@@ -26,7 +26,7 @@ function buildMapStatePatch(options = {}) {
 }
 
 function createMapBaseState(extra = {}) {
-  return {
+  const base = {
     loading: false,
     errorText: '',
     emptyText: '',
@@ -35,8 +35,25 @@ function createMapBaseState(extra = {}) {
     dataSourceText: '',
     dataUpdatedText: '待更新',
     refreshing: false,
+    enableSatellite: true,
     ...extra
   }
+  const enableSatellite = base.enableSatellite !== false
+  base.enableSatellite = enableSatellite
+  base.mapSetting = { enableSatellite }
+  return base
+}
+
+function setMapSatelliteFromTap(page, e) {
+  if (!page || typeof page.setData !== 'function') return
+  const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
+  const mode = String(ds.mapMode || ds.type || '')
+  const enableSatellite = mode !== 'standard'
+  try { wx.vibrateShort({ type: 'medium' }) } catch (err) {}
+  page.setData({
+    enableSatellite,
+    mapSetting: { enableSatellite }
+  })
 }
 
 function findItemById(list, id, key = 'id') {
@@ -98,7 +115,7 @@ function buildMapOverlayTopStyle(mapActionTop, options = {}) {
   const uiShellLayout = (app && app.getUiShellLayout && app.getUiShellLayout()) || getUiShellLayout(getSystemInfo())
   const rpxToPx = (Number(uiShellLayout.windowWidth) || 375) / 750
   const collapsedHeightRpx = options.collapsedHeightRpx !== undefined ? Number(options.collapsedHeightRpx) : 72
-  const expandedHeightRpx = options.expandedHeightRpx !== undefined ? Number(options.expandedHeightRpx) : 364
+  const expandedHeightRpx = options.expandedHeightRpx !== undefined ? Number(options.expandedHeightRpx) : 436
   const gapPx = options.gapPx !== undefined ? Number(options.gapPx) : 16
   const isCollapsed = options.collapsed !== false
   const overlayHeightPx = (isCollapsed ? collapsedHeightRpx : expandedHeightRpx) * rpxToPx
@@ -171,5 +188,6 @@ module.exports = {
   buildMapPanelScrollLayout,
   buildMapShareOptions,
   copyMapText,
-  runMapRefresh
+  runMapRefresh,
+  setMapSatelliteFromTap
 }

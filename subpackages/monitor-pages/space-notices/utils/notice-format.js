@@ -100,6 +100,18 @@ function decorateSpaceNoticeEntry(e) {
   })
 }
 
+/** 页头 / 定位角标共用：任意通告条目都走同一套任务名汉化 */
+function spaceNoticeDisplayTitle(entry) {
+  const row = entry && typeof entry === 'object' ? entry : {}
+  return decorateSpaceNoticeEntry({
+    entryKey: row.entryKey || '',
+    missionName: row.missionName || row.siteTitle || '',
+    rocketName: row.rocketName || '',
+    isStarship: row.isStarship,
+    agency: row.agency
+  }).title
+}
+
 function noticeTypeTone(type) {
   const t = String(type || '')
   if (/NAV|BNM|LNM/i.test(t)) return 'nav'
@@ -223,6 +235,7 @@ module.exports = {
   describeDates,
   decorateNotice,
   decorateSpaceNoticeEntry,
+  spaceNoticeDisplayTitle,
   humanizeEntrySlug,
   sortNotices,
   buildStats,

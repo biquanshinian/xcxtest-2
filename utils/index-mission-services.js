@@ -102,10 +102,15 @@ function mergeMissionPages(type, currentList, incomingList, filterExpiredMission
     })
   }
 
+  // 缺失/非法 launchTime 沉底：与 sortUpcomingMissionsByNetAsc、云端探针排序
+  // （net-patch-policy.sortResultsByNetAsc）同口径。若按 0 排会顶到列表最前，
+  // 首屏与 live patch 重排后同一任务位置对调
   return filterExpiredMissions(merged.sort((a, b) => {
-    const timeA = a && a.launchTime ? new Date(a.launchTime).getTime() : 0
-    const timeB = b && b.launchTime ? new Date(b.launchTime).getTime() : 0
-    return timeA - timeB
+    const ta = a && a.launchTime ? new Date(a.launchTime).getTime() : NaN
+    const tb = b && b.launchTime ? new Date(b.launchTime).getTime() : NaN
+    const va = Number.isFinite(ta) ? ta : Number.MAX_SAFE_INTEGER
+    const vb = Number.isFinite(tb) ? tb : Number.MAX_SAFE_INTEGER
+    return va - vb
   }))
 }
 

@@ -65,7 +65,8 @@ Page({
     hasUserLocation: false,
     tleUpdateTime: '--',
     orbitMapExpanded: true,
-    orbitParamsExpanded: false
+    orbitParamsExpanded: false,
+    mapSetting: { enableSatellite: true }
   },
 
   _satrec: null,
@@ -76,6 +77,12 @@ Page({
   async onLoad(options) {
     const id = options.id ? String(options.id).trim() : ''
     this._stationId = id
+    let previewName = ''
+    if (options && options.name) {
+      try { previewName = decodeURIComponent(String(options.name)) } catch (e) { previewName = String(options.name) }
+      previewName = String(previewName || '').trim().slice(0, 40)
+    }
+    if (previewName) this.setData({ navTitle: previewName, shareTitle: `${previewName} | 火星探索日志` })
 
     // 如果源页面传递了封面图 URL，立即展示 Hero 大图（不等 API 返回）
     let preloadImage = options.image ? decodeURIComponent(options.image) : ''
@@ -151,7 +158,7 @@ Page({
         loading: false,
         item: merged,
         isTiangong: Number(merged.id) === 18,
-        navTitle: '空间站详情',
+        navTitle: merged.name || '空间站详情',
         shareTitle: `${merged.name || '空间站详情'} | 火星探索日志`
       })
 
@@ -629,11 +636,16 @@ Page({
   onShareAppMessage() {
     const item = this.data.item
     const stationId = (item && item.id != null) ? item.id : this._stationId
+    const id = stationId != null && stationId !== '' ? encodeURIComponent(String(stationId)) : ''
+    const name = String((item && item.name) || this.data.navTitle || '').trim().slice(0, 40)
+    let path = '/pages/monitor/monitor'
+    if (id) {
+      path = `/subpackages/monitor-pages/station-detail?id=${id}`
+      if (name && name !== '空间站详情') path += `&name=${encodeURIComponent(name)}`
+    }
     return {
       title: this.data.shareTitle,
-      path: stationId != null && stationId !== ''
-        ? `/subpackages/monitor-pages/station-detail?id=${stationId}`
-        : '/pages/monitor/monitor',
+      path,
       imageUrl: item && item.image ? item.image : ''
     }
   },
@@ -641,9 +653,16 @@ Page({
   onShareTimeline() {
     const item = this.data.item
     const stationId = (item && item.id != null) ? item.id : this._stationId
+    const id = stationId != null && stationId !== '' ? encodeURIComponent(String(stationId)) : ''
+    const name = String((item && item.name) || this.data.navTitle || '').trim().slice(0, 40)
+    let query = ''
+    if (id) {
+      query = `id=${id}`
+      if (name && name !== '空间站详情') query += `&name=${encodeURIComponent(name)}`
+    }
     return {
       title: this.data.shareTitle,
-      query: stationId != null && stationId !== '' ? `id=${stationId}` : '',
+      query,
       imageUrl: item && item.image ? item.image : ''
     }
   }

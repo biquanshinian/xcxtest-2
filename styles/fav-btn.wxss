@@ -1,5 +1,6 @@
 /* 统一收藏爱心按钮（详情页 / 导航栏） */
 .fav-btn {
+  position: relative;
   flex-shrink: 0;
   width: 72rpx;
   height: 72rpx;
@@ -41,13 +42,28 @@
 }
 
 .fav-btn--animate .fav-heart {
-  animation: fav-heart-pop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: fav-heart-pop 0.38s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.fav-btn--animate::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2rpx solid rgba(255, 69, 58, 0.55);
+  pointer-events: none;
+  animation: fav-ring 0.42s ease-out forwards;
 }
 
 @keyframes fav-heart-pop {
   0% { transform: scale(0.6); }
-  60% { transform: scale(1.18); }
+  60% { transform: scale(1.22); }
   100% { transform: scale(1); }
+}
+
+@keyframes fav-ring {
+  0% { transform: scale(0.72); opacity: 0.75; }
+  100% { transform: scale(1.48); opacity: 0; }
 }
 
 .theme-light .fav-btn {

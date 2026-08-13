@@ -1,5 +1,5 @@
 const pageBase = require('../../utils/page-base.js')
-const { buildMapLayoutData } = require('./utils/map-page-common.js')
+const { buildMapLayoutData, setMapSatelliteFromTap } = require('./utils/map-page-common.js')
 const {
   STATION_MARKER_ICON, resolveNoradId, pickStationTle,
   createSatrec, getCurrentPosition, getPositionAt,
@@ -36,7 +36,9 @@ Page({
     tleUpdateTime: '--',
     panelCollapsed: true,
     actionMenuCollapsed: true,
-    refreshing: false
+    refreshing: false,
+    enableSatellite: true,
+    mapSetting: { enableSatellite: true }
   },
 
   _satrec: null,
@@ -195,8 +197,8 @@ Page({
       this._smoothMove(pos, name, altText, speedText)
     }
 
-    // 实时切分轨道线：图标走到哪，虚线就跟到哪
-    this._splitOrbitByTime()
+    // 实时切分轨道线：虚实分界点锚定在当前位置，图标走到哪线就切到哪
+    this._splitOrbitByTime(pos)
 
     // 每 5 分钟重建完整轨道点（补充新的未来轨迹）
     if (this._orbitBuiltAt && Date.now() - this._orbitBuiltAt > 5 * 60 * 1000) {
@@ -255,16 +257,15 @@ Page({
     this._orbitBuiltAt = now
   },
 
-  _splitOrbitByTime() {
+  /**
+   * 已飞过 = 蓝色彗尾实线（三段渐隐，越近当前越亮）；
+   * 未来 = 亮绿虚线（预测轨迹）。
+   * 分界点用实时推算位置锚定，跟随图标每次刷新移动，不再卡在 30s 网格上。
+   */
+  _splitOrbitByTime(livePos) {
     if (!this._fullOrbitPoints || !this._fullOrbitPoints.length) return
     const now = Date.now()
-
-    // 轨道点步长 30s：分界点索引没变时 polyline 内容不变，跳过整条线的 setData
-    let splitIdx = 0
-    while (splitIdx < this._fullOrbitPoints.length && this._fullOrbitPoints[splitIdx].time <= now) splitIdx++
-    if (this._lastOrbitSplitIdx === splitIdx && this._orbitBuiltAt === this._lastOrbitBuiltAtUsed) return
-    this._lastOrbitSplitIdx = splitIdx
-    this._lastOrbitBuiltAtUsed = this._orbitBuiltAt
+    const pos = livePos || (this._satrec ? getCurrentPosition(this._satrec) : null)
 
     const pastPoints = []
     const futurePoints = []
@@ -275,14 +276,31 @@ Page({
         futurePoints.push({ latitude: p.latitude, longitude: p.longitude })
       }
     })
-    const pastSegs = this._splitByDateline(pastPoints)
-    const futureSegs = this._splitByDateline(futurePoints)
+    if (pos && Number.isFinite(pos.lat) && Number.isFinite(pos.lng)) {
+      const anchor = { latitude: pos.lat, longitude: pos.lng }
+      pastPoints.push(anchor)
+      futurePoints.unshift(anchor)
+    }
+
     const polylines = []
-    pastSegs.forEach(function (seg) {
-      polylines.push({ points: seg, color: '#4ea1ff66', width: 3, dottedLine: true })
-    })
-    futureSegs.forEach(function (seg) {
-      polylines.push({ points: seg, color: '#00ff88', width: 3, dottedLine: false })
+    const self = this
+
+    // 彗尾：按时间三等分，透明度由远及近递增；相邻段共享端点保证连续
+    const TAIL_COLORS = ['#4EA1FF24', '#4EA1FF4D', '#4EA1FF8F']
+    if (pastPoints.length > 1) {
+      const chunkSize = Math.ceil(pastPoints.length / TAIL_COLORS.length)
+      TAIL_COLORS.forEach(function (color, i) {
+        const start = i * chunkSize
+        const chunk = pastPoints.slice(start, Math.min(pastPoints.length, start + chunkSize + 1))
+        if (chunk.length < 2) return
+        self._splitByDateline(chunk).forEach(function (seg) {
+          polylines.push({ points: seg, color: color, width: 3, dottedLine: false })
+        })
+      })
+    }
+
+    this._splitByDateline(futurePoints).forEach(function (seg) {
+      polylines.push({ points: seg, color: '#12E896', width: 4, dottedLine: true })
     })
     this.setData({ polylines: polylines })
   },
@@ -380,6 +398,10 @@ Page({
 
   toggleActionMenu() {
     this.setData({ actionMenuCollapsed: !this.data.actionMenuCollapsed })
+  },
+
+  setMapSatellite(e) {
+    setMapSatelliteFromTap(this, e)
   },
 
   // goBack inherited from pageBase

@@ -17,6 +17,10 @@
       <view class="map-action-toggle-btn" bindtap="toggleActionMenu"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
     </view>
     <view class="map-action-stack" wx:if="{{!actionMenuCollapsed}}">
+      <view class="map-action-type-row">
+        <view class="map-action-btn {{enableSatellite ? 'map-action-btn--active' : ''}}" bindtap="setMapSatellite" data-map-mode="satellite"><text>卫星</text></view>
+        <view class="map-action-btn {{!enableSatellite ? 'map-action-btn--active' : ''}}" bindtap="setMapSatellite" data-map-mode="standard"><text>平面</text></view>
+      </view>
       <view class="map-action-btn" bindtap="centerOnStation"><text>定位空间站</text></view>
       <view class="map-action-btn" bindtap="refreshOrbitData"><text>{{refreshing ? '刷新中…' : '刷新轨道'}}</text></view>
       <view class="map-action-btn" bindtap="resetMapView"><text>重置视角</text></view>
@@ -36,13 +40,18 @@
     enable-rotate="false"
     enable-overlooking="false"
     show-compass="true"
-    layer-style="1"
+    enable-satellite="{{enableSatellite}}"
+    setting="{{mapSetting}}"
   >
     <!-- 自定义 HUD 气泡：替代原生 callout 的白底黑字 -->
     <cover-view slot="callout">
       <cover-view marker-id="1" class="station-hud">
-        <cover-view class="station-hud-live">LIVE · TRACK</cover-view>
+        <cover-view class="station-hud-top">
+          <cover-view class="station-hud-live-dot"></cover-view>
+          <cover-view class="station-hud-live">LIVE · TRACK</cover-view>
+        </cover-view>
         <cover-view class="station-hud-title">{{stationName}}</cover-view>
+        <cover-view class="station-hud-divider"></cover-view>
         <cover-view class="station-hud-row">
           <cover-view class="station-hud-k">ALT</cover-view>
           <cover-view class="station-hud-v">{{stationAlt}}</cover-view>
@@ -51,6 +60,7 @@
           <cover-view class="station-hud-k">VEL</cover-view>
           <cover-view class="station-hud-v">{{stationSpeed}}</cover-view>
         </cover-view>
+        <cover-view class="station-hud-coord">{{stationCoord}}</cover-view>
       </cover-view>
     </cover-view>
   </map>

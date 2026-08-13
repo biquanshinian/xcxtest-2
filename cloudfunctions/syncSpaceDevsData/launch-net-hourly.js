@@ -391,7 +391,8 @@ function patchResultsInPlace(results, liveById) {
       },
       net: row.net || '',
       window_start: row.window_start || '',
-      statusName: (row.status && row.status.name) || ''
+      statusName: (row.status && row.status.name) || '',
+      statusId: row.status && row.status.id != null ? Number(row.status.id) : null
     })
   }
   return changes
@@ -1021,33 +1022,85 @@ async function syncPreviousAfterProbe(terminalEntries, nowMs) {
   return { ...primary, backfill }
 }
 
-/** 仅更新已有 launch_data 文档的时间字段，供提醒扫窗；不存在则跳过 */
+/** NET 推迟超过该值 → 打 netChangePending 改期待推标记（与 launch-data-sync 口径一致） */
+const NET_CHANGE_DELAY_MS = 30 * 60 * 1000
+
+/**
+ * 由「launch_data 现状 + 本轮探针变更行」构造更新补丁（纯函数，供单测直跑）。
+ *
+ * 关键：显著推迟（≥30min）时必须同步打 netChangePending——本探针会把 launch_data
+ * 直接拨到新时间，若不在此打标，5 分钟 tick 的 attachNetChangeMeta 看到新旧一致，
+ * 服务号「发射时间推迟」推送（sendLaunchReminder/net-change-push）将永远不触发。
+ *
+ * @param {object|null} existing launch_data 现有文档（null = 无文档，跳过）
+ * @param {object} change 探针变更行（net/window_start/statusName/statusId）
+ * @param {number} [nowMs]
+ * @returns {{ patch: object|null, flagged: boolean, reason?: string }}
+ */
+function buildLaunchDataNetPatch(existing, change, nowMs) {
+  const now = Number(nowMs) || Date.now()
+  const iso = (change && (change.net || change.window_start)) || ''
+  if (!change || !change.id || !iso) return { patch: null, flagged: false, reason: 'no_iso' }
+  const t = new Date(iso).getTime()
+  if (!(t > 0)) return { patch: null, flagged: false, reason: 'bad_iso' }
+  if (!existing) return { patch: null, flagged: false, reason: 'no_doc' }
+
+  const patch = {
+    launchTime: iso,
+    windowStart: new Date(iso),
+    status: change.statusName || '',
+    updatedAt: now,
+    syncedAt: now,
+    source: 'launch_net_hourly'
+  }
+  // 状态 id 一并写入：结果通知/发射前门控消费 statusId，只写状态名会造成新旧字段分裂
+  if (change.statusId != null && Number.isFinite(Number(change.statusId))) {
+    patch.statusId = Number(change.statusId)
+  }
+
+  let flagged = false
+  const oldMs = existing.launchTime ? new Date(existing.launchTime).getTime() : 0
+  if (oldMs > 0 && t - oldMs >= NET_CHANGE_DELAY_MS) {
+    // 已有未消费 pending 时保留最早 previousNet（推送展示「原时间 → 最新时间」）
+    patch.previousNet =
+      existing.netChangePending && existing.previousNet
+        ? String(existing.previousNet)
+        : String(existing.launchTime)
+    patch.netChangedAt = now
+    patch.netChangePending = true
+    flagged = true
+  }
+  return { patch, flagged }
+}
+
+/**
+ * 仅更新已有 launch_data 文档的时间/状态字段，供提醒扫窗；不存在则跳过。
+ * 补丁构造与改期打标逻辑见 buildLaunchDataNetPatch。
+ */
 async function patchLaunchDataNets(changes) {
   let updated = 0
   let skipped = 0
+  let netChangeFlagged = 0
   for (let i = 0; i < changes.length; i++) {
     const c = changes[i]
-    const iso = c.net || c.window_start || ''
-    if (!c.id || !iso) {
-      skipped++
-      continue
-    }
-    const t = new Date(iso).getTime()
-    if (!(t > 0)) {
-      skipped++
-      continue
-    }
     try {
-      const res = await db.collection(LAUNCH_DATA_COLLECTION).doc(String(c.id)).update({
-        data: {
-          launchTime: iso,
-          windowStart: new Date(iso),
-          status: c.statusName || '',
-          updatedAt: Date.now(),
-          syncedAt: Date.now(),
-          source: 'launch_net_hourly'
-        }
-      })
+      // 先读现状：拿旧 NET 判断是否为显著推迟（changes.before 是列表缓存视角，
+      // launch_data 可能有不同代际，以库内 launchTime 为准）
+      let existing = null
+      if (c && c.id) {
+        try {
+          const exDoc = await db.collection(LAUNCH_DATA_COLLECTION).doc(String(c.id)).get()
+          existing = exDoc && exDoc.data
+        } catch (eRead) { /* 文档不存在：跳过 */ }
+      }
+      const built = buildLaunchDataNetPatch(existing, c)
+      if (!built.patch) {
+        skipped++
+        continue
+      }
+      if (built.flagged) netChangeFlagged++
+
+      const res = await db.collection(LAUNCH_DATA_COLLECTION).doc(String(c.id)).update({ data: built.patch })
       const n = res && res.stats && typeof res.stats.updated === 'number' ? res.stats.updated : 0
       if (n > 0) updated++
       else skipped++
@@ -1055,7 +1108,7 @@ async function patchLaunchDataNets(changes) {
       skipped++
     }
   }
-  return { updated, skipped }
+  return { updated, skipped, netChangeFlagged }
 }
 
 async function fetchUpcomingNetProbe() {
@@ -1588,6 +1641,9 @@ async function runLaunchNetHourly(options) {
 
 module.exports = {
   runLaunchNetHourly,
+  patchLaunchDataNets,
+  buildLaunchDataNetPatch,
+  NET_CHANGE_DELAY_MS,
   shouldSkipDueToFullSyncHour,
   isInLaunchTimeWindow,
   pruneStaleUpcomingResults,

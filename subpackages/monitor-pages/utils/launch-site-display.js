@@ -10,6 +10,7 @@ var { COUNTRY_ZH } = require('./agency-data.js')
 var { getCachedMediaImage } = require('../../../utils/icon-cache.js')
 var { optimizeImageUrl } = require('../../../utils/cos-url.js')
 var { proxiedImageUrl } = require('../../../utils/ll2-image.js')
+var gallerySearch = require('./gallery-search.js')
 
 var CACHE_KEY = '_launch_site_list_v2' // v2：新增 description/timezoneName 字段
 var CACHE_TTL = 24 * 60 * 60 * 1000
@@ -53,6 +54,25 @@ var SITE_ZH_MAP = {
   'Semnan Space Center': '塞姆南航天中心',
   'Palmachim Airbase': '帕勒马希姆空军基地',
   'Alcântara Space Center': '阿尔坎塔拉航天中心'
+}
+
+/** 中文/英文简称，补 SITE_ZH_MAP 主体名覆盖不到的口语检索 */
+var SITE_SEARCH_ALIASES = {
+  'Cape Canaveral SFS': '卡角|卡纳维拉尔|CCAFS|CCSFS',
+  'Kennedy Space Center': '肯尼迪|KSC',
+  'Vandenberg SFB': '范登堡|VAFB|VSFB',
+  'SpaceX Starbase': '星舰基地|博卡奇卡|星堡|Starbase|Boca Chica',
+  'Baikonur Cosmodrome': '拜科努尔',
+  'Jiuquan Satellite Launch Center': '酒泉|东风',
+  'Taiyuan Satellite Launch Center': '太原',
+  'Xichang Satellite Launch Center': '西昌',
+  'Wenchang Space Launch Site': '文昌',
+  'Guiana Space Centre': '库鲁|圭亚那',
+  'Tanegashima Space Center': '种子岛',
+  'Rocket Lab Launch Complex 1': '马希亚|Mahia',
+  'Wallops Flight Facility': '瓦勒普斯|Wallops',
+  'Naro Space Center': '罗老',
+  'Semnan Space Center': '塞姆南'
 }
 
 /** "Cape Canaveral SFS, FL, USA" → 主体名 "Cape Canaveral SFS" */
@@ -190,6 +210,16 @@ function buildLaunchSiteCards(list, options) {
       timezoneName: loc.timezoneName || '',
       totalLaunchCount: Number(loc.totalLaunchCount) || 0,
       totalLandingCount: Number(loc.totalLandingCount) || 0,
+      searchText: gallerySearch.joinSearchText([
+        main,
+        SITE_ZH_MAP[main] || '',
+        loc.name || '',
+        loc.countryName || '',
+        countryDisplayName(loc.countryName),
+        loc.countryCode || '',
+        loc.active ? '活跃|active' : '停用|retired|inactive',
+        SITE_SEARCH_ALIASES[main] || ''
+      ]),
       _imageChain: chain
     }
   })
@@ -227,9 +257,21 @@ function applyLaunchSiteFilter(cards, filterId) {
   if (!filterId || filterId === 'all') return (cards || []).slice()
   return (cards || []).filter(function (c) {
     if (filterId === 'active') return c.active
-    if (filterId.indexOf('country:') === 0) return c.countryName === filterId.slice(8)
+    if (filterId.indexOf('country:') === 0) {
+      var key = filterId.slice(8)
+      return c.countryName === key || c.countryLabel === key || c.countryCode === key
+    }
     return true
   })
+}
+
+function extraChipForFilter(filterId) {
+  if (!filterId || filterId === 'all') return null
+  if (filterId === 'active') return { id: 'active', label: '活跃' }
+  if (filterId.indexOf('country:') === 0) {
+    return { id: filterId, label: countryDisplayName(filterId.slice(8)) }
+  }
+  return { id: filterId, label: filterId }
 }
 
 /** 汇总统计（发射场总数 / 活跃数 / 覆盖国家数 / 累计发射） */
@@ -261,6 +303,7 @@ module.exports = {
   buildLaunchSiteCards: buildLaunchSiteCards,
   buildLaunchSiteFilterChips: buildLaunchSiteFilterChips,
   applyLaunchSiteFilter: applyLaunchSiteFilter,
+  extraChipForFilter: extraChipForFilter,
   computeLaunchSiteStats: computeLaunchSiteStats,
   TAB_PREVIEW_COUNT: TAB_PREVIEW_COUNT
 }

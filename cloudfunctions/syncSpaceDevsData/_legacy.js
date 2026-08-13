@@ -152,12 +152,21 @@ async function fetchAPI(url) {
       })
       
       res.on('end', () => {
+        // LL2 请求记入跨函数小时配额账本（软预算；429 同样消耗一次尝试）
+        try {
+          if (/thespacedevs\.com$/i.test(urlObj.hostname)) {
+            require('./ll2-budget.js').recordLl2Request(db, 'syncSpaceDevsData_legacy').catch(() => {})
+          }
+        } catch (eBudget) {}
         try {
           if (res.statusCode === 200) {
             const jsonData = JSON.parse(data)
             resolve(jsonData)
           } else {
-            reject(new Error(`HTTP ${res.statusCode}: ${data}`))
+            const httpErr = new Error(`HTTP ${res.statusCode}: ${data}`)
+            httpErr.statusCode = res.statusCode
+            if (res.statusCode === 429) httpErr.code = 'LL2_RATE_LIMIT'
+            reject(httpErr)
           }
         } catch (error) {
           reject(new Error(`解析响应失败: ${error.message}`))
@@ -696,8 +705,9 @@ async function syncAPIEndpointWithPagination(url, baseParams = {}, apiBase = nul
   let pageCount = 0
   let apiCallCount = 0 // 记录API调用次数，防止超过速率限制
   
-  // API速率限制：每小时最多15次请求（整个账户，包括小程序端和云函数）
-  // 云函数每3小时执行1次，每次最多使用maxApiCalls次API调用，确保不超过限制
+  // API速率限制：匿名档每小时约 15 次（按出口 IP；可用 LL2_HOURLY_BUDGET 覆盖）
+  // 全量同步定时器为每 6 小时 1 次（见 config.json），每次最多 maxApiCalls 次调用；
+  // 全部出网请求另计入 ll2-budget.js 小时账本，附加任务按剩余额度让路
   while (hasMore && pageCount < maxPages && apiCallCount < maxApiCalls) {
     // 检查是否超时
     if (Date.now() - startTime > maxExecutionTime) {
@@ -1152,7 +1162,7 @@ async function syncCommonEndpoints() {
   // 空间站清单动态解析（1 次 API 调用），新站自动进详情同步
   const stationIds = await resolveActiveStationIds()
   // 设计策略：
-  // - 云函数每3小时执行1次，每次最多使用15次API调用（充分利用限制）：
+  // - 全量同步定时器每 6 小时执行 1 次（见 config.json），单轮预算约 15 次 API 调用：
   //   * /launches/upcoming/ 分页最多5次（最多500条）
   //   * /launches/previous/ 分页最多4次（最多400条）
   //   * /events/upcoming/ 分页最多2次（最多200条）

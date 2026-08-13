@@ -6,7 +6,7 @@ const { cachedImage, proxiedImageUrl, typeDisplayName } = require('./utils/space
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
-const { isFavorite, toggleFavorite } = require('../../utils/favorites.js')
+const { isFavorite, toggleFavorite, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
 
 const CACHE_TTL = 24 * 60 * 60 * 1000
 
@@ -149,6 +149,8 @@ Page({
     this.initUiShell()
     const id = options && options.id ? String(options.id).trim() : ''
     const name = options && options.name ? decodeURIComponent(String(options.name)).trim() : ''
+    this._spacecraftId = id
+    if (id) syncFavoriteState(this, 'spacecraft', id)
 
     // 分享卡片 24h 免门控窗口：过期后走 gateCheck（会员放行，非会员弹开通引导）
     const shareAllowed = await checkShareEntryGate(this, options, 'spacecraft_encyclopedia', '全球飞船图鉴')
@@ -162,8 +164,7 @@ Page({
       this.setData({ loading: false, errorMessage: '缺少飞船参数，请返回重试' })
       return
     }
-    this._spacecraftId = id
-    if (name) this.setData({ shareTitle: `${name} | 火星探索日志` })
+    if (name) this.setData({ shareTitle: `${name} | 火星探索日志`, navTitle: name })
 
     // 列表卡片直传的已显示图（同一张缩略图，可能是本地缓存路径）：头图零加载复用
     const appRef = getApp && getApp()
@@ -182,6 +183,11 @@ Page({
       return
     }
     this.loadDetail(id)
+  },
+
+  onShow() {
+    const sid = (this.data.item && this.data.item.id) || this._spacecraftId
+    if (sid != null && String(sid) !== '') syncFavoriteState(this, 'spacecraft', sid)
   },
 
   async loadDetail(id) {
@@ -236,7 +242,7 @@ Page({
       loading: false,
       item,
       isFavorited: !!(item && item.id != null && isFavorite('spacecraft', item.id)),
-      navTitle: '飞船详情',
+      navTitle: (item && item.name) || '飞船详情',
       shareTitle: `${(item && item.name) || '飞船详情'} | 火星探索日志`
     })
     this._syncShareImage(item)
@@ -257,7 +263,7 @@ Page({
       imageUrl: item.imageUrl || '',
       category: 'spacecraft'
     })
-    this.setData({ isFavorited: favorited, favAnimate: favorited })
+    pulseFavAnimate(this, favorited)
     wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
   },
 
@@ -406,9 +412,17 @@ Page({
   onShareAppMessage() {
     const item = this.data.item
     const imageUrl = this.data.shareImage || this._pickSpacecraftShareImage(item)
+    const id = this._spacecraftId ? encodeURIComponent(String(this._spacecraftId)) : ''
+    const name = String((item && item.name) || this.data.navTitle || '').trim().slice(0, 40)
+    let path = '/subpackages/monitor-pages/spacecraft-gallery'
+    if (id) {
+      path = `/subpackages/monitor-pages/spacecraft-detail?id=${id}`
+      if (name && name !== '飞船详情') path += `&name=${encodeURIComponent(name)}`
+      path = withShareStampPath(path, this)
+    }
     const result = {
       title: this.data.shareTitle,
-      path: withShareStampPath(`/subpackages/monitor-pages/spacecraft-detail?id=${encodeURIComponent(this._spacecraftId || '')}`, this)
+      path
     }
     if (imageUrl) result.imageUrl = imageUrl
     return result
@@ -417,9 +431,17 @@ Page({
   onShareTimeline() {
     const item = this.data.item
     const imageUrl = this.data.shareImage || this._pickSpacecraftShareImage(item)
+    const id = this._spacecraftId ? encodeURIComponent(String(this._spacecraftId)) : ''
+    const name = String((item && item.name) || this.data.navTitle || '').trim().slice(0, 40)
+    let query = ''
+    if (id) {
+      query = `id=${id}`
+      if (name && name !== '飞船详情') query += `&name=${encodeURIComponent(name)}`
+      query = withShareStampQuery(query, this)
+    }
     const result = {
       title: this.data.shareTitle,
-      query: withShareStampQuery(`id=${encodeURIComponent(this._spacecraftId || '')}`, this)
+      query
     }
     if (imageUrl) result.imageUrl = imageUrl
     return result

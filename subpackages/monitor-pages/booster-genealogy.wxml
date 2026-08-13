@@ -3,11 +3,13 @@
   <!-- 自定义导航栏 -->
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
     <view class="top-nav top-nav--page-grid">
-      <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
         <text class="icon-back icon-back--nav">‹</text>
       </view>
-      <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
-      <view class="top-nav-slot--spacer"></view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
     </view>
   </view>
   <scroll-view
@@ -74,22 +76,23 @@
       </view>
     </view>
 
-    <!-- 状态筛选 + 排序 -->
+    <!-- 状态筛选 + 排序（同一横滑行，避免状态 scroll-view 挡住下方排序点击） -->
     <view class="sub-filter-bar">
-      <view class="sub-filter-group">
-        <view class="sub-chip {{statusFilter === s.id ? 'sub-chip--active' : ''}}"
-              wx:for="{{statusFilters}}" wx:for-item="s" wx:key="id"
-              data-status="{{s.id}}" bindtap="onStatusFilterTap">
-          <text>{{s.label}}</text>
+      <scroll-view class="sub-filter-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+        <view class="sub-filter-group">
+          <view class="sub-chip {{statusFilter === st.id ? 'sub-chip--active' : ''}}"
+                wx:for="{{statusFilters}}" wx:for-item="st" wx:key="id"
+                data-status="{{st.id}}" catchtap="onStatusFilterTap">
+            <text>{{st.label}}</text>
+          </view>
+          <view class="sub-chip-gap"></view>
+          <view class="sub-chip sub-chip--sort {{sortBy === so.id ? 'sub-chip--active' : ''}}"
+                wx:for="{{sortOptions}}" wx:for-item="so" wx:key="id"
+                data-sort-by="{{so.id}}" catchtap="onSortTap">
+            <text>{{so.label}}</text>
+          </view>
         </view>
-      </view>
-      <view class="sub-filter-group sub-filter-group--sort">
-        <view class="sub-chip sub-chip--sort {{sortBy === s.id ? 'sub-chip--active' : ''}}"
-              wx:for="{{sortOptions}}" wx:for-item="s" wx:key="id"
-              data-sort="{{s.id}}" bindtap="onSortTap">
-          <text>{{s.label}}</text>
-        </view>
-      </view>
+      </scroll-view>
     </view>
 
     <!-- 汇总条 -->
@@ -119,11 +122,11 @@
           <view class="model-card glass-card" wx:for="{{modelCards}}" wx:for-item="m" wx:key="configId"
                 data-config-id="{{m.configId}}" bindtap="onModelCardTap">
             <view class="model-img-wrap">
-              <image class="model-img {{imageLoadedMap['m' + index] ? 'model-img--loaded' : ''}}"
+              <image class="model-img"
                      wx:if="{{m.thumbnailUrl}}" src="{{m.thumbnailUrl}}" mode="aspectFill" lazy-load
-                     data-img-key="m{{index}}" bindload="onImageLoad" binderror="onImageError" />
+                     data-id="{{m.configId}}" data-kind="model" binderror="onImageError" />
               <view class="model-img model-img--placeholder" wx:else></view>
-              <text class="model-reusable-badge" wx:if="{{m.reusable}}">可复用</text>
+              <text class="model-reuse-badge {{m.reusable ? 'model-reuse-badge--reusable' : 'model-reuse-badge--expendable'}}">{{m.reuseLabel}}</text>
             </view>
             <view class="model-card-body">
               <view class="model-name-row">
@@ -131,10 +134,9 @@
                 <text class="model-flag" wx:if="{{m.countryFlag}}">{{m.countryFlag}}</text>
               </view>
               <text class="model-alias" wx:if="{{m.alias}}">{{m.alias}}</text>
-              <text class="model-mfr" wx:if="{{m.manufacturer}}">{{m.manufacturer}}</text>
+              <text class="model-mfr" wx:if="{{m.manufacturerDisplay || m.manufacturer}}">{{m.manufacturerDisplay || m.manufacturer}}</text>
               <view class="model-stats-row">
-                <text class="model-stat" wx:if="{{m.hasFlown}}">着陆 {{m.successfulLandings}}/{{m.attemptedLandings}}</text>
-                <text class="model-stat model-stat--pending" wx:else>首飞待定</text>
+                <text class="model-stat {{m.statPending ? 'model-stat--pending' : ''}}">{{m.statText}}</text>
               </view>
             </view>
           </view>
@@ -148,11 +150,12 @@
         <view class="bg-card glass-card" wx:for="{{boosterCards}}" wx:key="serial"
               data-serial="{{item.serial}}" bindtap="onBoosterCardTap">
           <view class="bg-img-wrap">
-            <image class="bg-img {{imageLoadedMap['b' + index] ? 'bg-img--loaded' : ''}}"
+            <image class="bg-img"
                    wx:if="{{item.thumbnailUrl}}" src="{{item.thumbnailUrl}}" mode="aspectFill" lazy-load
-                   data-img-key="b{{index}}" bindload="onImageLoad" binderror="onImageError" />
+                   data-id="{{item.serial}}" data-kind="booster" binderror="onImageError" />
             <view class="bg-img bg-img--placeholder" wx:else></view>
             <text class="bg-status-badge bg-status-badge--{{item.status}}">{{item.statusText}}</text>
+            <text class="model-reuse-badge {{item.reusable ? 'model-reuse-badge--reusable' : 'model-reuse-badge--expendable'}}">{{item.reuseLabel}}</text>
           </view>
           <view class="bg-card-body">
             <view class="bg-serial-row">
@@ -162,9 +165,9 @@
             <text class="bg-family">{{item.rocketFamily}}</text>
             <view class="bg-stats-row">
               <text class="bg-stat">{{item.flights}} 飞行</text>
-              <text class="bg-stat">{{item.successfulLandings}} 着陆</text>
+              <text class="bg-stat" wx:if="{{item.showLanding}}">{{item.successfulLandings}} 着陆</text>
             </view>
-            <view class="bg-flights-bar">
+            <view class="bg-flights-bar" wx:if="{{item.reusable}}">
               <view class="flight-block {{flight.pending ? 'flight-pending' : (flight.success ? 'flight-success' : (flight.failed ? 'flight-fail' : 'flight-unknown'))}}"
                     wx:for="{{item.flightBlocks}}" wx:for-item="flight" wx:key="idx"></view>
             </view>

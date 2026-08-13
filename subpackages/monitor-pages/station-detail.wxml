@@ -178,7 +178,8 @@
                 enable-rotate="false"
                 enable-overlooking="false"
                 show-compass="false"
-                layer-style="1"
+                enable-satellite="true"
+                setting="{{mapSetting}}"
               >
                 <cover-view slot="callout">
                   <cover-view marker-id="1" class="station-hud station-hud--preview">

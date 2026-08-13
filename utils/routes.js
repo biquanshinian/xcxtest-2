@@ -12,12 +12,10 @@ const ROUTES = {
   PROFILE: '/pages/profile/profile',
 
   // ── 主包详情页 ──
-  INDEX_MISSION_DETAIL: '/subpackages/index-extra/mission-detail',
   GLOBAL_LAUNCH_STATS: '/subpackages/index-extra/global-launch-stats',
   TIMELINE: '/subpackages/profile-extra/timeline/timeline',
   VOTE_RECORD: '/subpackages/profile-extra/vote-record/vote-record',
   DAILY_QUIZ: '/subpackages/profile-extra/daily-quiz/daily-quiz',
-  CONTACT_SERVICE: '/subpackages/profile-extra/contact/contact',
   BADGES: '/subpackages/profile-extra/badges/badges',
   FAVORITES: '/subpackages/profile-extra/favorites/favorites',
   YEAR_REVIEW: '/subpackages/profile-extra/year-review/year-review',

@@ -14,7 +14,7 @@ const {
   withShareStampPath,
   withShareStampQuery
 } = require('../utils/share-gate.js')
-const { decorateNotice, decorateSpaceNoticeEntry, sortNotices, buildStats } = require('./utils/notice-format.js')
+const { decorateNotice, decorateSpaceNoticeEntry, spaceNoticeDisplayTitle, sortNotices, buildStats } = require('./utils/notice-format.js')
 const {
   buildPolygonsFromNotices,
   buildPolylinesFromNotices,
@@ -26,6 +26,7 @@ const {
   fitNotice,
   hasGeometry
 } = require('./utils/map-build.js')
+const { buildMapLayoutData, setMapSatelliteFromTap } = require('../utils/map-page-common.js')
 
 const GATE_PRODUCT_ID = 'space_notices'
 const GATE_PRODUCT_NAME = '发射通告地图'
@@ -61,21 +62,31 @@ Page({
     /** 仅当本任务有轨迹数据时才显示「轨迹」chip */
     hasTrajectory: false,
     showPad: true,
-    mapRegion: 'pad',
+    /** 默认「全程」：首屏一眼看到所有通告几何/轨迹，再按需切发射区/溅落区 */
+    mapRegion: 'global',
     panelCollapsed: false,
     selectedKey: '',
     selectedNotice: null,
-    shareGateExpireAt: 0
+    shareGateExpireAt: 0,
+    mapActionTop: 0,
+    actionMenuCollapsed: true,
+    enableSatellite: true,
+    mapSetting: { enableSatellite: true }
   },
 
   _entry: null,
   _notices: [],
+  _display: null,
 
   async onLoad(options) {
     this.initUiShell()
     const entryKey = options && options.entryKey ? decodeURIComponent(options.entryKey) : ''
     const ll2Id = options && options.ll2Id ? decodeURIComponent(options.ll2Id) : ''
-    this.setData({ entryKey, ll2Id })
+    this.setData({
+      entryKey,
+      ll2Id,
+      ...buildMapLayoutData(getApp())
+    })
 
     const on = await isSpaceNoticesEnabled().catch(() => true)
     if (!on) {
@@ -148,6 +159,7 @@ Page({
           rocketName: entry.rocketName || ''
         })
       )
+      this._display = display
       const traj = resolveTrajectory(entry)
       const hasTrajectory = !!(traj && traj.length >= 2)
       this.setData({
@@ -155,7 +167,7 @@ Page({
         errorText: '',
         entryKey: entry.entryKey || entryKey || '',
         ll2Id: entry.ll2Id || ll2Id || '',
-        title: display.title || entry.missionName || entry.siteTitle || '通告地图',
+        title: display.title || '通告地图',
         subtitle: display.subtitle || entry.rocketName || '',
         padName: (entry.pad && entry.pad.name) || '',
         netText: entry.net ? formatDate(new Date(entry.net), 'MM-DD HH:mm') : '',
@@ -203,17 +215,17 @@ Page({
     }
     // 与星舰同链路：先建图层，再解析有效红色坐标（缺 pad 时用通告密度中心兜底）
     const pad = resolveEffectivePad(this._entry, polygons, polylines)
+    const markerTitle =
+      (this._display && this._display.title) || spaceNoticeDisplayTitle(this._entry)
     const markers = this.data.showPad
-      ? buildPadMarker(pad, this._entry && (this._entry.missionName || this._entry.siteTitle), {
-          light: !!this.data.themeLight
-        })
+      ? buildPadMarker(pad, markerTitle, { light: !!this.data.themeLight })
       : []
     const next = { polygons, polylines, markers }
     if (pad && pad.name && !this.data.padName) {
       next.padName = pad.name
     }
     if (refit) {
-      const center = fitCenter(pad, polygons, polylines, { region: this.data.mapRegion || 'pad' })
+      const center = fitCenter(pad, polygons, polylines, { region: this.data.mapRegion || 'global' })
       next.includePoints = center.includePoints || []
       next.latitude = center.latitude
       next.longitude = center.longitude
@@ -238,6 +250,14 @@ Page({
 
   togglePanel() {
     this.setData({ panelCollapsed: !this.data.panelCollapsed })
+  },
+
+  toggleActionMenuCollapsed() {
+    this.setData({ actionMenuCollapsed: !this.data.actionMenuCollapsed })
+  },
+
+  setMapSatellite(e) {
+    setMapSatelliteFromTap(this, e)
   },
 
   resetView() {

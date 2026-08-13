@@ -3,11 +3,13 @@
   <!-- 自定义导航栏 -->
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
     <view class="top-nav top-nav--page-grid">
-      <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
         <text class="icon-back icon-back--nav">‹</text>
       </view>
-      <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
-      <view class="top-nav-slot--spacer"></view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
     </view>
   </view>
   <scroll-view
@@ -100,9 +102,9 @@
         <view class="scg-card glass-card" wx:for="{{cards}}" wx:key="id"
               data-id="{{item.id}}" data-name="{{item.name}}" data-img="{{item.imageUrl}}" bindtap="onCardTap">
           <view class="scg-img-wrap">
-            <image class="scg-img {{imageLoadedMap[index] ? 'scg-img--loaded' : ''}}"
+            <image class="scg-img"
                    wx:if="{{item.imageUrl}}" src="{{item.imageUrl}}" mode="aspectFill" lazy-load
-                   data-index="{{index}}" bindload="onImageLoad" binderror="onImageError" />
+                   data-id="{{item.id}}" binderror="onImageError" />
             <view class="scg-img scg-img--placeholder" wx:else></view>
             <text class="scg-status-badge {{item.inUse ? 'scg-status-badge--active' : 'scg-status-badge--retired'}}">{{item.statusText}}</text>
           </view>

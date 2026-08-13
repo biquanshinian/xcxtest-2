@@ -30,7 +30,11 @@
  * 小时级 NSF 请在「触发器配置」增加 `syncNextSpaceflightStarshipHourly`（Cron 见 config.json），
  * NET 探针请增加 `syncLaunchNetHourly`（Cron 见 config.json），
  * 或在测试里手动传 `event.action`。
- * 云函数超时见 config.json（当前 300s，全量同步实测约 136s，留足缓冲）。
+ * 云函数超时见 config.json（当前 800s，全量同步实测约 136s，留足缓冲）。
+ *
+ * LL2 配额治理：所有出网请求计入 launch_timeline_cache/_ll2_budget_hourly 小时账本
+ * （ll2-budget.js，跨函数共享）；全量轮的附加任务（agencies 自愈/机构详情/统计预热/
+ * 飞行历史回填）按剩余额度自适应让路。上限默认匿名档 15/h，可用 LL2_HOURLY_BUDGET 覆盖。
  */
 const { db, cloud, syncAPIEndpoint, LAUNCH_LIBRARY_API, fetchAPI } = require('./shared.js')
 const { syncLaunchDataFromCache } = require('./launch-data-sync.js')
@@ -244,14 +248,23 @@ exports.main = async (event) => {
         // 每小时最多 5 个详情请求（+本轮 NET 探针 1 个，远低于限额），20 个小时级窗口/日
         // 与 6h 全量轮合计约 148 个/日吞吐，约 300 家积压 2~3 天自动补齐。
         // 全绿后 respectAllFreshMarker 用 1 次读库短路，不会每小时白扫 350 个详情文档。
-        // 全量同窗小时（UTC 0/6/12/18）跳过：该轮 :00 已附带 maxSync 12 自愈且 LL2 请求密集
+        // 全量同窗小时（UTC 0/6/12/18）跳过：该轮 :00 已附带自愈且 LL2 请求密集；
+        // 非全量小时也按配额账本自适应（客户端实况/回放探针突发时自动让路）
         if (new Date().getUTCHours() % 6 !== 0) {
           try {
-            netRes.agencyDetails = await getLegacy().syncFeaturedAgencyDetails({
-              maxSync: 5,
-              budgetMs: 60 * 1000,
-              respectAllFreshMarker: true
-            })
+            const { getLl2BudgetRemaining } = require('./ll2-budget.js')
+            let remainTrickle = 99
+            try { remainTrickle = await getLl2BudgetRemaining(db) } catch (eB) {}
+            const trickleMax = Math.max(0, Math.min(5, remainTrickle - 1))
+            if (trickleMax > 0) {
+              netRes.agencyDetails = await getLegacy().syncFeaturedAgencyDetails({
+                maxSync: trickleMax,
+                budgetMs: 60 * 1000,
+                respectAllFreshMarker: true
+              })
+            } else {
+              netRes.agencyDetails = { success: true, skipped: true, reason: 'll2_budget_low', remaining: remainTrickle }
+            }
           } catch (e) {
             netRes.agencyDetails = { success: false, error: e.message || String(e) }
           }
@@ -351,6 +364,13 @@ exports.main = async (event) => {
           result._voteMaintainError = e.message || String(e)
           console.error('[syncSpaceDevsData] vote settle/clean failed:', e)
         }
+        // ── 附加任务统一按小时配额账本让路 ──
+        // 全量主体（~15 次 LL2）已在本小时消耗大头；下面的自愈/预热/回填全部可延期，
+        // 剩余额度不足时跳过，交给小时级涓流或下一轮，避免匿名档 15/h 被打爆连环 429
+        const { getLl2BudgetRemaining } = require('./ll2-budget.js')
+        const budgetLeft = async () => {
+          try { return await getLl2BudgetRemaining(db) } catch (e) { return 99 }
+        }
         // agencies 自愈式低频同步：每 6h 轮检查聚合缓存，缺失或超过 26h 才真正同步。
         // 旧逻辑只在 UTC 0 点那一轮同步，一旦该轮失败/超时，「全球发射商图鉴」
         // 要再等 24h 才有机会恢复；现在最多 6h 内自动补上。
@@ -368,13 +388,19 @@ exports.main = async (event) => {
             if (hasData && ts && Date.now() - ts < AGENCIES_MAX_AGE_MS) needAgencySync = false
           } catch (e) { /* 文档不存在：需要同步 */ }
           if (needAgencySync) {
-            console.log('[syncSpaceDevsData] agencies 缓存缺失或超 26h，自动同步...')
-            const agencyResult = await getLegacy().main({ action: 'syncAgencies' })
-            const agencies = agencyResult && agencyResult.agencies
-            result._dailyAgencies = {
-              success: !!(agencies && agencies.success !== false),
-              total: (agencies && agencies.total) || 0,
-              skippedWrite: !!(agencies && agencies.skippedWrite)
+            // 聚合同步最多翻 ~8 页：剩余额度不足时让路到下一轮（缓存过期不致命）
+            const remainAg = await budgetLeft()
+            if (remainAg >= 9) {
+              console.log('[syncSpaceDevsData] agencies 缓存缺失或超 26h，自动同步...')
+              const agencyResult = await getLegacy().main({ action: 'syncAgencies' })
+              const agencies = agencyResult && agencyResult.agencies
+              result._dailyAgencies = {
+                success: !!(agencies && agencies.success !== false),
+                total: (agencies && agencies.total) || 0,
+                skippedWrite: !!(agencies && agencies.skippedWrite)
+              }
+            } else {
+              result._dailyAgencies = { success: true, skipped: true, reason: 'll2_budget_low', remaining: remainAg }
             }
           } else {
             result._dailyAgencies = { success: true, skipped: true, reason: 'cache_fresh' }
@@ -386,33 +412,55 @@ exports.main = async (event) => {
         // （api_cache_/agencies/{id}/），前端已不再触发 syncAgencyDetail，若服务端不补位，
         // 详情缓存永远为空，详情页会永远显示「部分数据待补全」。
         // 函数内置分层 TTL（featured 26h / 非 featured 10d），缓存新鲜时零外部请求。
-        // LL2 免费档 15 次/小时限流：本 6h 轮已有大量 LL2 请求同窗，maxSync 压在 12 不加码；
-        // 主要吞吐由小时级 NET 探针的涓流通道（每小时 5 个）承担，合计约 148 个/日
+        // maxSync 按剩余额度自适应（上限 12）；额度耗尽时本轮跳过，
+        // 吞吐由小时级 NET 探针的涓流通道（每小时 5 个）承担
         try {
-          result._agencyDetails = await getLegacy().syncFeaturedAgencyDetails({
-            maxSync: 12,
-            budgetMs: 120 * 1000
-          })
+          const remainAd = await budgetLeft()
+          const adaptiveMaxSync = Math.max(0, Math.min(12, remainAd - 1))
+          if (adaptiveMaxSync > 0) {
+            result._agencyDetails = await getLegacy().syncFeaturedAgencyDetails({
+              maxSync: adaptiveMaxSync,
+              budgetMs: 120 * 1000
+            })
+          } else {
+            result._agencyDetails = { success: true, skipped: true, reason: 'll2_budget_low', remaining: remainAd }
+          }
         } catch (e) {
           result._agencyDetails = { success: false, error: e.message || String(e) }
         }
         // 复用本 6 小时定时器刷新「当前年全球发射统计」缓存（getLaunchStats 侧落库），
         // 客户端只读云端缓存即可秒回；往年已是 final 永久缓存，这里只动当前年。
+        // getLaunchStats 自身有 12 次/run 上限与 429 stale 回落，此处只做粗粒度让路
         try {
-          const statsRefresh = await cloud.callFunction({
-            name: 'getLaunchStats',
-            data: { action: 'refreshCurrentYear' }
-          })
-          result._currentYearStats = statsRefresh.result || { success: false, error: 'empty' }
-          console.log('[stats] 定时预热 refreshCurrentYear 完成:', JSON.stringify(result._currentYearStats))
+          const remainSt = await budgetLeft()
+          if (remainSt >= 4) {
+            const statsRefresh = await cloud.callFunction({
+              name: 'getLaunchStats',
+              data: { action: 'refreshCurrentYear' }
+            })
+            result._currentYearStats = statsRefresh.result || { success: false, error: 'empty' }
+            console.log('[stats] 定时预热 refreshCurrentYear 完成:', JSON.stringify(result._currentYearStats))
+          } else {
+            result._currentYearStats = { success: true, skipped: true, reason: 'll2_budget_low', remaining: remainSt }
+          }
         } catch (e) {
           result._currentYearStats = { success: false, error: e.message || String(e) }
           console.error('[stats] 定时预热转发 getLaunchStats 失败:', e && (e.message || e))
         }
         // 定时维护助推器飞行历史：已全量完成后每轮只刷第 1 页捕获新发射（预算 120s 防撞函数超时）
+        // 回填条数按剩余额度自适应，额度紧张时先保证第 1 页刷新
         try {
-          result._flightHistory = await fillFlightHistoryAction({ useProd: true, budgetMs: 120 * 1000 })
-          console.log('[flightHistory] 定时刷新:', JSON.stringify(result._flightHistory))
+          const remainFh = await budgetLeft()
+          if (remainFh >= 3) {
+            result._flightHistory = await fillFlightHistoryAction({
+              useProd: true,
+              budgetMs: 120 * 1000,
+              backfillLimit: Math.max(0, Math.min(15, remainFh - 2))
+            })
+            console.log('[flightHistory] 定时刷新:', JSON.stringify(result._flightHistory))
+          } else {
+            result._flightHistory = { success: true, skipped: true, reason: 'll2_budget_low', remaining: remainFh }
+          }
         } catch (e) {
           result._flightHistory = { success: false, error: e.message || String(e) }
         }
@@ -720,8 +768,17 @@ function _httpGetJson(url, timeout) {
         res.on('data', (c) => chunks.push(c))
         res.on('end', () => {
           const text = Buffer.concat(chunks).toString('utf8')
+          // LL2 请求记入跨函数小时配额账本（软预算）
+          try {
+            if (/thespacedevs\.com$/i.test(urlObj.hostname)) {
+              require('./ll2-budget.js').recordLl2Request(db, 'flight_history').catch(() => {})
+            }
+          } catch (eBudget) {}
           if (res.statusCode !== 200) {
-            reject(new Error(`HTTP ${res.statusCode}: ${text.slice(0, 120)}`))
+            const httpErr = new Error(`HTTP ${res.statusCode}: ${text.slice(0, 120)}`)
+            httpErr.statusCode = res.statusCode
+            if (res.statusCode === 429) httpErr.code = 'LL2_RATE_LIMIT'
+            reject(httpErr)
             return
           }
           try {

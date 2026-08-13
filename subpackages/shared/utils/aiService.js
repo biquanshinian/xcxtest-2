@@ -151,16 +151,31 @@ function isAIAvailable() {
   }
 }
 
-async function streamChat(messages, onChunk, launchContext) {
-  if (!isAIAvailable()) {
-    throw new Error(require('./ai-chat-i18n.js').aiChatUiText('errAiUnavailable') || 'AI功能不可用')
-  }
+function isXingwenAgentEnabledSync() {
+  try {
+    const { getCachedMainConfig } = require('../../../utils/feature-flags.js')
+    const cfg = getCachedMainConfig()
+    if (cfg && cfg._id) return cfg.enableXingwenAgent !== false
+  } catch (e) {}
+  return true
+}
 
+function isXingwenAgentEnabled() {
+  try {
+    const { isFeatureEnabled } = require('../../../utils/feature-flags.js')
+    return isFeatureEnabled('enableXingwenAgent')
+  } catch (e) {
+    return Promise.resolve(true)
+  }
+}
+
+function buildXingwenSystemContent(launchContext, extraAddendum) {
   let systemContent = SYSTEM_PROMPT
   try {
     const { aiChatUiText } = require('./ai-chat-i18n.js')
     systemContent += '\n\n' + aiChatUiText('replyLangRule')
   } catch (e) {}
+  if (extraAddendum) systemContent += '\n\n' + String(extraAddendum)
   if (launchContext && typeof launchContext === 'object') {
     systemContent += '\n\n【本小程序实时数据 - 严格基于以下数据回答，不要编造】\n'
 
@@ -215,10 +230,26 @@ async function streamChat(messages, onChunk, launchContext) {
       if (f.launchSite) systemContent += `\n地点：${f.launchSite}`
       if (f.status) systemContent += `\n状态：${f.status}`
     }
+    if (launchContext.userMemory) {
+      systemContent += '\n\n【用户记忆】\n' + String(launchContext.userMemory)
+    }
+    if (launchContext.sessionHint) {
+      systemContent += '\n\n【本轮对话状态】\n' + String(launchContext.sessionHint)
+    }
+    if (launchContext.historySummary) {
+      systemContent += '\n\n【更早对话摘要】\n' + String(launchContext.historySummary)
+    }
+  }
+  return systemContent
+}
+
+async function streamChat(messages, onChunk, launchContext) {
+  if (!isAIAvailable()) {
+    throw new Error(require('./ai-chat-i18n.js').aiChatUiText('errAiUnavailable') || 'AI功能不可用')
   }
 
   const fullMessages = [
-    { role: 'system', content: systemContent },
+    { role: 'system', content: buildXingwenSystemContent(launchContext) },
     ...messages
   ]
 
@@ -256,6 +287,84 @@ async function streamChat(messages, onChunk, launchContext) {
   throw new Error(require('./ai-chat-i18n.js').aiChatUiText('errAiBusy') || 'AI服务暂时不可用，请稍后再试')
 }
 
+/**
+ * 混元原生 tools 循环。失败（含 SDK 不支持 tools）时回退到无工具 streamChat。
+ * @param {Array} messages
+ * @param {Function} onChunk
+ * @param {object} launchContext
+ * @param {{ tools: Array, onToolEvent?: Function }} options
+ */
+async function streamChatWithTools(messages, onChunk, launchContext, options) {
+  const toolList = options && Array.isArray(options.tools) ? options.tools : []
+  if (!toolList.length) return streamChat(messages, onChunk, launchContext)
+  if (!isAIAvailable()) {
+    throw new Error(require('./ai-chat-i18n.js').aiChatUiText('errAiUnavailable') || 'AI功能不可用')
+  }
+
+  let addendum = ''
+  try {
+    addendum = require('./xingwen-agent-core.js').AGENT_SYSTEM_ADDENDUM
+  } catch (e) {}
+
+  const fullMessages = [
+    { role: 'system', content: buildXingwenSystemContent(launchContext, addendum) },
+    ...messages
+  ]
+  const onToolEvent = options && typeof options.onToolEvent === 'function' ? options.onToolEvent : null
+
+  for (const entry of buildAiProviderChain('hy3-preview')) {
+    let model = null
+    try {
+      model = wx.cloud.extend.AI.createModel(entry.provider)
+    } catch (e) {
+      console.warn('[ai-chat] createModel 失败 (' + entry.provider + '):', (e && e.message) || e)
+    }
+    if (!model) continue
+
+    let fullText = ''
+    try {
+      const res = await model.streamText({
+        data: {
+          model: entry.model,
+          messages: fullMessages,
+          temperature: 0.4,
+          max_tokens: 600
+        },
+        tools: {
+          autoExecute: true,
+          maxStep: 4,
+          list: toolList,
+          onToolEvent: onToolEvent || undefined
+        }
+      })
+      for await (const chunk of res.textStream) {
+        fullText += chunk
+        if (typeof onChunk === 'function') onChunk(fullText)
+      }
+      if (fullText) return fullText
+    } catch (e) {
+      console.warn('[ai-chat] streamText(tools) 失败 (' + entry.provider + '/' + entry.model + '):', (e && e.message) || e)
+      if (fullText) return fullText
+    }
+  }
+  return streamChat(messages, onChunk, launchContext)
+}
+
+async function summarizeChatHistory(messages) {
+  const { extractiveSummary } = require('./xingwen-session.js')
+  const fallback = extractiveSummary(messages)
+  if (!fallback) return ''
+  try {
+    const text = await generateTextAdvanced(
+      '你是对话摘要器。用不超过 120 字的中文记下用户关心的发射/筛选条件，不要编造数字。',
+      fallback,
+      { model: 'hy3-preview', temperature: 0.2, maxTokens: 200, timeout: 8000 }
+    )
+    return String(text || '').trim().slice(0, 400) || fallback
+  } catch (e) {
+    return fallback
+  }
+}
 
 const QUICK_QUESTIONS = [
   '星舰下一次试飞是什么时候？',
@@ -468,6 +577,10 @@ async function answerQuestion(question, contextData) {
 module.exports = {
   isAIAvailable,
   streamChat,
+  streamChatWithTools,
+  summarizeChatHistory,
+  isXingwenAgentEnabled,
+  isXingwenAgentEnabledSync,
   QUICK_QUESTIONS,
   QUICK_SHORTCUTS,
   answerQuestion,

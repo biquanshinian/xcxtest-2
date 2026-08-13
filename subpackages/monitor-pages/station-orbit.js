@@ -288,7 +288,8 @@ function formatCoord(lat, lng) {
   if (lat === undefined || lng === undefined) return '--'
   const latDir = lat >= 0 ? 'N' : 'S'
   const lngDir = lng >= 0 ? 'E' : 'W'
-  return `${Math.abs(lat).toFixed(4)}°${latDir}, ${Math.abs(lng).toFixed(4)}°${lngDir}`
+  // 2 位小数（约 1km 精度）对轨道目标足够，展示更干净
+  return `${Math.abs(lat).toFixed(2)}°${latDir} · ${Math.abs(lng).toFixed(2)}°${lngDir}`
 }
 
 module.exports = {

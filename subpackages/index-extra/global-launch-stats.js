@@ -23,7 +23,9 @@ require('./utils/index-ux.js')
 require('./utils/index-interaction.js')
 require('./utils/index-agency-sub.js')
 
-const CURRENT_YEAR = new Date().getUTCFullYear()
+function getCurrentStatsYear() {
+  return new Date().getUTCFullYear()
+}
 
 /** 成功率文案：总数为 0 时返回空串（不显示徽章） */
 function successRateText(summary) {
@@ -45,7 +47,7 @@ Page({
     errorMessage: '',
     scrollRefreshing: false,
     navTitle: '全球发射统计',
-    selectedYear: CURRENT_YEAR,
+    selectedYear: getCurrentStatsYear(),
     selectedCountryKey: ALL_COUNTRY_KEY,
     selectedCountryLabel: '全部国家',
     yearLabel: '本年度',
@@ -85,9 +87,10 @@ Page({
         this._agentHandoff = app.takeAgentHandoff(this.getPageId())
       }
     } catch (e) {}
-    let initialYear = CURRENT_YEAR
+    const currentYear = getCurrentStatsYear()
+    let initialYear = currentYear
     const queryYear = Number(options && options.year)
-    if (queryYear >= 1957 && queryYear <= CURRENT_YEAR + 1) initialYear = queryYear
+    if (queryYear >= 1957 && queryYear <= currentYear + 1) initialYear = queryYear
 
     let initialCountryKey = ALL_COUNTRY_KEY
     let initialCountryLabel = '全部国家'
@@ -106,8 +109,8 @@ Page({
       selectedYear: initialYear,
       selectedCountryKey: initialCountryKey,
       selectedCountryLabel: initialCountryLabel,
-      yearOptions: buildYearOptions(CURRENT_YEAR),
-      yearLabel: initialYear === CURRENT_YEAR ? '本年度' : `${initialYear} 年`
+      yearOptions: buildYearOptions(currentYear),
+      yearLabel: initialYear === currentYear ? '本年度' : `${initialYear} 年`
     })
     // 机构 logo 映射：getAgencies 自带本地 Storage 缓存，首次拉取后离线可用
     this._agencyLogoMap = null
@@ -177,7 +180,7 @@ Page({
       byRocket: decorateRocketRows(stats.byRocket || []),
       countryOptions: (stats.countryOptions || []).length ? stats.countryOptions : this.data.countryOptions,
       selectedCountryLabel,
-      yearLabel: this.data.selectedYear === CURRENT_YEAR ? '本年度' : `${this.data.selectedYear}年`
+      yearLabel: this.data.selectedYear === getCurrentStatsYear() ? '本年度' : `${this.data.selectedYear}年`
     })
   },
 

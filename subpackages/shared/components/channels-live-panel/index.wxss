@@ -162,6 +162,9 @@
   top: 16rpx;
   left: 16rpx;
   z-index: 2;
+  /* 封面直播徽标整体缩至 0.7，锚定左上角不跑位 */
+  transform: scale(0.7);
+  transform-origin: top left;
 }
 
 .channels-live-status-badge {

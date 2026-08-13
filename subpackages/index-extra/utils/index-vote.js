@@ -318,7 +318,8 @@ const voteMethods = {
       'voteData.successCount': voteType === 'outcome' ? newBuge : oldData.successCount || 0,
       voteTotal: total,
       voteGePct: Math.round((newGe / total) * 100),
-      voteBugePct: Math.round((newBuge / total) * 100)
+      voteBugePct: Math.round((newBuge / total) * 100),
+      voteLaunchId: String(launchId)
     }
     this.setData(votePatch)
     var serverData = null

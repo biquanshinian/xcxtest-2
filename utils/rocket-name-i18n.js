@@ -239,7 +239,91 @@ function localizeRocketInTitle(title, rocketNameEn, rocketNameZh) {
   return raw
 }
 
+const CZ_CN_NUMERALS = {
+  一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9,
+  十: 10, 十一: 11, 十二: 12
+}
+const CZ_LETTER_FROM_ZH = { 甲: 'a', 乙: 'b', 丙: 'c', 丁: 'd' }
+
+/**
+ * 火箭型号身份键：长征十号乙 / Long March 10B / CZ-10B → cz10b
+ * 供环绕全景等同型号匹配（中英显示名不能靠字符串包含）。
+ */
+function rocketIdentityKey(name) {
+  const raw = String(name || '').trim()
+  if (!raw) return ''
+  if (/starship|super\s*heavy|星舰|超重/i.test(raw)) return 'starship'
+  if (/zhuque\s*-?\s*3|zq\s*-?\s*3|朱雀\s*[三3]\s*号/i.test(raw)) return 'zhuque3'
+
+  const zhCz = raw.match(/长征\s*(十一|十二|十|[一二三四五六七八九]|\d{1,2})\s*号?\s*([甲乙丙丁]|[a-dA-D])?/)
+  if (zhCz) {
+    const numPart = zhCz[1]
+    const num = Object.prototype.hasOwnProperty.call(CZ_CN_NUMERALS, numPart)
+      ? CZ_CN_NUMERALS[numPart]
+      : Number(numPart)
+    const sfxRaw = zhCz[2] || ''
+    const sfx = CZ_LETTER_FROM_ZH[sfxRaw] || String(sfxRaw).toLowerCase()
+    if (Number.isFinite(num) && num > 0) return 'cz' + num + sfx
+  }
+
+  const key = normKey(
+    raw.toLowerCase().replace(/long\s*march/g, 'cz').replace(/chang\s*zheng/g, 'cz')
+  )
+  const cz = parseCzKey(key)
+  if (cz) return 'cz' + cz.num + (cz.letters || '')
+  return key
+}
+
+function missionRocketTexts(mission) {
+  if (!mission || typeof mission !== 'object') return []
+  const pack = mission._langPack || {}
+  const rocket = mission.rocket
+  const nested = (rocket && typeof rocket === 'object')
+    ? [rocket.name, rocket.configuration && rocket.configuration.name]
+    : [rocket]
+  return [
+    mission.rocketName,
+    mission.rocketNameEn,
+    mission.rocketNameZh,
+    mission.rocketConfigName,
+    pack.rocketNameEn,
+    pack.rocketNameZh,
+    mission.vehicleName,
+    nested[0],
+    nested[1],
+    mission.missionName,
+    mission.name,
+    mission.translatedName,
+    pack.nameEn,
+    pack.nameZh
+  ].map((s) => String(s || '').trim()).filter(Boolean)
+}
+
+/** 后台锁定的型号 vs 任务详情（含中英切换后的显示名） */
+function matchOrbitPanoRocket(itemRocket, mission) {
+  const stored = String(itemRocket || '').trim()
+  if (!stored) return false
+  const texts = missionRocketTexts(mission)
+  if (!texts.length) return false
+  const storedKey = rocketIdentityKey(stored)
+  if (storedKey) {
+    for (let i = 0; i < texts.length; i++) {
+      if (rocketIdentityKey(texts[i]) === storedKey) return true
+    }
+  }
+  const blob = texts.join(' ')
+  if (/starship|super\s*heavy|星舰|超重/i.test(stored) && /starship|super\s*heavy|星舰|超重/i.test(blob)) return true
+  if (/zhuque\s*-?\s*3|zq\s*-?\s*3|朱雀\s*[三3]\s*号/i.test(stored) && /zhuque\s*-?\s*3|zq\s*-?\s*3|朱雀\s*[三3]\s*号/i.test(blob)) return true
+  const lower = stored.toLowerCase()
+  if (lower && blob.toLowerCase().indexOf(lower) >= 0) return true
+  const zh = translateRocketName(stored)
+  if (zh && zh !== stored && blob.indexOf(zh) >= 0) return true
+  return false
+}
+
 module.exports = {
   translateRocketName,
-  localizeRocketInTitle
+  localizeRocketInTitle,
+  rocketIdentityKey,
+  matchOrbitPanoRocket
 }

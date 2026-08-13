@@ -135,16 +135,8 @@
         "invite/invite",
         "vote-record/vote-record",
         "daily-quiz/daily-quiz",
-        "contact/contact",
         "badges/badges",
         "favorites/favorites"
-      ]
-    },
-    {
-      "root": "subpackages/images",
-      "name": "images",
-      "pages": [
-        "pages/placeholder"
       ]
     },
     {

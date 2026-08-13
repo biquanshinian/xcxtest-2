@@ -54,7 +54,6 @@ Page({
     errorText: '',
     upcoming: [],
     past: [],
-    progressText: '',
     totalCount: 0,
     shareGateExpireAt: 0
   },
@@ -105,21 +104,11 @@ Page({
       const rows = (res.results || []).map(decorateEntry)
       const upcoming = rows.filter((e) => !e.isPast)
       const past = rows.filter((e) => e.isPast)
-      const prog = res.progress || {}
-      const covered = Number(prog.covered || 0)
-      const total = Number(prog.total || rows.length)
-      let progressText = ''
-      if (total > 0 && covered < total) {
-        progressText = `已同步 ${covered}/${total} 场 · 定时器每 15 分钟继续补拉`
-      } else if (total > 0) {
-        progressText = `共 ${rows.length} 场任务`
-      }
       this.setData({
         loading: false,
         upcoming,
         past,
-        totalCount: rows.length,
-        progressText
+        totalCount: rows.length
       })
     } catch (e) {
       this.setData({

@@ -31,6 +31,39 @@ function reserveCloseAtOf(session) {
   return t - 30 * 60 * 1000
 }
 
+function decodeQueryValue(raw) {
+  if (raw == null || raw === '') return ''
+  let s = String(raw).trim()
+  if (!s) return ''
+  try { s = decodeURIComponent(s) } catch (e) {}
+  return s.trim()
+}
+
+function formatLaunchTimeText(iso) {
+  const ts = Date.parse(iso)
+  if (!ts || isNaN(ts)) return ''
+  const d = new Date(ts + 8 * 60 * 60 * 1000)
+  const pad = (n) => (n < 10 ? '0' + n : '' + n)
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}（北京时间）`
+}
+
+function buildWatchPartyShareQuery(session, extra) {
+  const s = session || {}
+  const parts = []
+  if (s.sessionId) parts.push('sessionId=' + encodeURIComponent(s.sessionId))
+  const channel = extra && extra.channel ? extra.channel : 'share'
+  parts.push('channel=' + encodeURIComponent(channel))
+  const title = String(s.title || '').trim().slice(0, 40)
+  const rocket = String(s.rocketName || '').trim().slice(0, 32)
+  const merchant = String(s.merchantName || '').trim().slice(0, 24)
+  const lt = s.launchTime ? String(s.launchTime).slice(0, 32) : ''
+  if (title) parts.push('t=' + encodeURIComponent(title))
+  if (rocket) parts.push('r=' + encodeURIComponent(rocket))
+  if (merchant) parts.push('m=' + encodeURIComponent(merchant))
+  if (lt) parts.push('lt=' + encodeURIComponent(lt))
+  return parts.join('&')
+}
+
 /** 分享标题：默认场次名已是「火箭名发射观礼」，避免再拼一次前缀造成重复 */
 function buildWatchPartyShareTitle(session, opts) {
   const s = session || {}
@@ -81,7 +114,10 @@ Page({
     coopQrUploading: false,
     countdown: null,
     countdownDone: false,
-    /** 朋友圈单页模式：仅浏览引导，云能力不可用 */
+    /** 朋友圈单页：query 里带的场次预览（云能力不可用时仍尽量展示） */
+    singlePageTitle: '',
+    singlePageMeta: '',
+    singlePageTime: '',
     singlePage: false,
     /** 预约截止（发射前 30 分钟，云端硬校验，这里只做展示） */
     reserveClosed: false,
@@ -114,7 +150,25 @@ Page({
       enterScene = Number(enter.scene) || 0
     } catch (e) {}
     if (enterScene === 1154) {
-      this.setData({ loading: false, singlePage: true })
+      const title = decodeQueryValue(options.t || options.title)
+      const rocketName = decodeQueryValue(options.r || options.rocket)
+      const merchantName = decodeQueryValue(options.m || options.merchant)
+      const launchTime = decodeQueryValue(options.lt || options.launchTime)
+      const rocketImage = rocketName ? (resolveRocketImage({ rocketName, rocketImageName: rocketName }) || '') : ''
+      const metaParts = []
+      if (rocketName) metaParts.push(rocketName)
+      if (merchantName) metaParts.push(merchantName)
+      const navTitle = title || '火箭观礼'
+      this.setData({
+        loading: false,
+        singlePage: true,
+        navTitle,
+        rocketImage,
+        singlePageTitle: title || '火箭发射现场观礼',
+        singlePageMeta: metaParts.join(' · '),
+        singlePageTime: formatLaunchTimeText(launchTime)
+      })
+      try { wx.setNavigationBarTitle({ title: navTitle, fail() {} }) } catch (e) {}
       return
     }
     // 过审开关：分享/扫码直达也要拦下（failClosed）
@@ -835,10 +889,9 @@ Page({
       ? buildWatchPartyShareTitle(s, { withDistance: true })
       : '火箭发射现场观礼，近距离感受升空震撼'
     const path = s
-      ? `/subpackages/watch-party/watch-party?sessionId=${encodeURIComponent(s.sessionId)}&channel=share`
+      ? `/subpackages/watch-party/watch-party?${buildWatchPartyShareQuery(s, { channel: 'share' })}`
       : '/subpackages/watch-party/watch-party'
     const share = { title, path }
-    // 配置图为包内本地图，可直接作分享卡封面；无图时微信自动截图
     if (this.data.rocketImage) share.imageUrl = this.data.rocketImage
     return share
   },
@@ -847,7 +900,7 @@ Page({
     const s = this.data.session
     const share = {
       title: s ? buildWatchPartyShareTitle(s) : '火箭发射现场观礼',
-      query: s ? `sessionId=${encodeURIComponent(s.sessionId)}&channel=timeline` : ''
+      query: s ? buildWatchPartyShareQuery(s, { channel: 'timeline' }) : ''
     }
     if (this.data.rocketImage) share.imageUrl = this.data.rocketImage
     return share

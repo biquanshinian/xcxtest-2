@@ -9,7 +9,7 @@ const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { overrideAgencyLogoUrl } = require('../../utils/agency-logo-overrides.js')
 const { gateCheck, isProSync } = require('../../utils/membership.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
-const { isFavorite, toggleFavorite } = require('../../utils/favorites.js')
+const { isFavorite, toggleFavorite, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { isVideoUrl, videoSnapshotUrl } = require('../../utils/cos-url.js')
 const { getCachedMediaImage } = require('../../utils/icon-cache.js')
@@ -325,6 +325,8 @@ Page({
     const abbrev = options.abbrev ? decodeURIComponent(String(options.abbrev)).trim() : ''
     this._agencyId = id
     this.initUiShell()
+    if (id) syncFavoriteState(this, 'agency', id)
+    if (name) this.setData({ navTitle: name, shareTitle: `${name} | 火星探索日志` })
 
     // 卡片已显示的图直传头图（与飞船/助推器一致）
     try {
@@ -435,7 +437,7 @@ Page({
         partialData,
         partialMessage: partialData ? partialMessage : '',
         isFavorited: !!(item && item.id != null && isFavorite('agency', item.id)),
-        navTitle: '发射商详情',
+        navTitle: (item && item.name) || '发射商详情',
         shareTitle: `${(item && item.name) || '发射商详情'} | 火星探索日志`
       })
       this._syncShareImage(item)
@@ -470,7 +472,8 @@ Page({
           item: minimalItem,
           partialData: true,
           partialMessage: '完整数据正在云端同步，当前仅展示基础信息。稍后重新打开即可查看完整统计与扩展资料。',
-          navTitle: '发射商详情',
+          isFavorited: !!(minimalItem && minimalItem.id != null && isFavorite('agency', minimalItem.id)),
+          navTitle: requestParams.name || '发射商详情',
           shareTitle: `${requestParams.name || '发射商详情'} | 火星探索日志`
         })
         this._syncShareImage(minimalItem)
@@ -666,7 +669,7 @@ Page({
       }
     })
     // favAnimate：仅收藏动作触发弹跳动画；取消收藏或初始渲染不播
-    this.setData({ isFavorited: favorited, favAnimate: favorited })
+    pulseFavAnimate(this, favorited)
     wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
   },
 
@@ -886,6 +889,8 @@ Page({
   },
 
   onShow() {
+    const favId = (this.data.item && this.data.item.id) || this._agencyId
+    if (favId != null && String(favId) !== '') syncFavoriteState(this, 'agency', favId)
     // 返回本页时恢复遥测轮询（active 阶段）
     if (this.data.artemisSectionVisible && this.data.artemisMissionPhase === 'active') {
       this._scheduleArtemisPoll()
@@ -1107,11 +1112,17 @@ Page({
     const item = this.data.item
     const imageUrl = this.data.shareImage || this._pickAgencyShareImage(item)
     const agencyId = (item && item.id != null) ? item.id : this._agencyId
+    const id = agencyId != null && agencyId !== '' ? encodeURIComponent(String(agencyId)) : ''
+    const name = String((item && item.name) || this.data.navTitle || '').trim().slice(0, 40)
+    let path = '/pages/monitor/monitor'
+    if (id) {
+      path = `/subpackages/monitor-pages/agency-detail?id=${id}`
+      if (name && name !== '发射商详情') path += `&name=${encodeURIComponent(name)}`
+      path = withShareStampPath(path, this)
+    }
     const result = {
       title: this.data.shareTitle,
-      path: agencyId != null && agencyId !== ''
-        ? withShareStampPath(`/subpackages/monitor-pages/agency-detail?id=${agencyId}`, this)
-        : '/pages/monitor/monitor'
+      path
     }
     if (imageUrl) result.imageUrl = imageUrl
     return result
@@ -1121,11 +1132,17 @@ Page({
     const item = this.data.item
     const imageUrl = this.data.shareImage || this._pickAgencyShareImage(item)
     const agencyId = (item && item.id != null) ? item.id : this._agencyId
+    const id = agencyId != null && agencyId !== '' ? encodeURIComponent(String(agencyId)) : ''
+    const name = String((item && item.name) || this.data.navTitle || '').trim().slice(0, 40)
+    let query = ''
+    if (id) {
+      query = `id=${id}`
+      if (name && name !== '发射商详情') query += `&name=${encodeURIComponent(name)}`
+      query = withShareStampQuery(query, this)
+    }
     const result = {
       title: this.data.shareTitle,
-      query: agencyId != null && agencyId !== ''
-        ? withShareStampQuery(`id=${agencyId}`, this)
-        : ''
+      query
     }
     if (imageUrl) result.imageUrl = imageUrl
     return result

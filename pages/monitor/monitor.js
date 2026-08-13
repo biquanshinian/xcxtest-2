@@ -757,27 +757,6 @@ Page({
     })
   },
 
-  /** 兼容旧入口：智能搜索已并入星问（门控与首页放大镜对齐） */
-  openAISearch() {
-    const { ROUTES, navigateTo } = require('../../utils/routes.js')
-    const { isFeatureEnabled } = require('../../utils/feature-flags.js')
-    const { isAIAvailable } = require('../../utils/aiService.js')
-    if (!isAIAvailable()) {
-      wx.showToast({ title: '星问AI暂未开放', icon: 'none' })
-      return
-    }
-    isFeatureEnabled('enableAIChat', { failClosed: true }).then((on) => {
-      if (!on) {
-        wx.showToast({ title: '星问AI暂未开放', icon: 'none' })
-        return
-      }
-      navigateTo(ROUTES.AI_CHAT)
-    }).catch(() => {
-      wx.showToast({ title: '星问AI暂未开放', icon: 'none' })
-    })
-  },
-
-  
   async openSpaceNotices() {
     if (this._gateChecking) return
     this._gateChecking = true
@@ -790,17 +769,6 @@ Page({
     }
   },
 
-  /** 关于预览（合规说明） */
-  goAbout() {
-    navigateTo(ROUTES.ABOUT)
-  },
-
-  /** 我的收藏（原生功能，防套壳） */
-  goCollect() {
-    navigateTo(ROUTES.COLLECT)
-  },
-
-  
   onMonitorScroll() {
     try {
       const { pulseNasaFloatOnScroll } = require('../../utils/nasa-float-scroll.js')

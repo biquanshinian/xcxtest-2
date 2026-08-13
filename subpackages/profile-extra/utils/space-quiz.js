@@ -56,7 +56,7 @@ const QUIZ_QUESTIONS = [
   },
   {
     id: 4,
-    question: '目前（2026年）中国空间站叫什么？',
+    question: '目前中国空间站叫什么？',
     options: ['和平号', '天宫', '天舟', '神舟'],
     answer: 1,
     explanation: '中国空间站命名为"天宫"，由天和核心舱、问天实验舱和梦天实验舱组成。'

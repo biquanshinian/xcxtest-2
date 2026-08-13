@@ -241,7 +241,8 @@ function getInitialVoteState() {
     activeVoteType: 'ontime',
     voteSlotVisible: false,
     voteOntimeEnabled: false,
-    voteOutcomeEnabled: false
+    voteOutcomeEnabled: false,
+    voteLaunchId: ''
   }
 }
 
@@ -275,7 +276,8 @@ function buildDualVoteUiPatch(bundle, activeVoteType, launchId, options) {
     activeVoteType: vt,
     voteSlotVisible: ontimeEnabled || outcomeEnabled,
     voteOntimeEnabled: ontimeEnabled,
-    voteOutcomeEnabled: outcomeEnabled
+    voteOutcomeEnabled: outcomeEnabled,
+    voteLaunchId: launchId != null && launchId !== '' ? String(launchId) : ''
   }
 }
 

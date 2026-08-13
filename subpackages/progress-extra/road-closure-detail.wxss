@@ -353,10 +353,14 @@ page {
   color: #d7d7db;
 }
 
-.map-section {
+.map-section.glass-card,
+.theme-light .map-section.glass-card {
   overflow: hidden;
   padding: 0;
   margin-bottom: 20rpx;
+  background: var(--color-bg-card);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .map-section-head {

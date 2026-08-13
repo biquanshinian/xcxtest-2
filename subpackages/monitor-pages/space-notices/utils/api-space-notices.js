@@ -58,9 +58,23 @@ function syncSpaceNotices() {
   return callSpaceNotices('sync', { force: true })
 }
 
+/** 只读：任务是否已有通告条目（不触发同步） */
+function lookupSpaceNoticeEntry(opts) {
+  return callSpaceNotices('lookupEntry', {
+    entryKey: (opts && opts.entryKey) || '',
+    ll2Id: (opts && opts.ll2Id) || ''
+  })
+}
+
+function lookupStarshipSpaceNoticeEntry() {
+  return callSpaceNotices('lookupStarshipEntry', {})
+}
+
 module.exports = {
   listSpaceNoticeEntries,
   getSpaceNoticeEntry,
+  lookupSpaceNoticeEntry,
+  lookupStarshipSpaceNoticeEntry,
   syncSpaceNotices,
   callSpaceNotices
 }

@@ -74,6 +74,8 @@ Page({
     themeClass: '',
     themeLight: false,
     pageBgColor: '#000000',
+    menuButtonWidth: 88,
+    isDirectEntry: false,
     /** 功能开关未确认前不渲染详情，避免审核直达先看到完整页 */
     featureAllowed: false
   },
@@ -84,15 +86,22 @@ Page({
     const systemInfo = Object.assign({}, deviceInfo, windowInfo, wx.getAppBaseInfo())
     const uiShellLayout = getUiShellLayout(systemInfo)
     const pages = typeof getCurrentPages === 'function' ? getCurrentPages() : []
+    let menuButtonWidth = 88
+    try {
+      const rect = wx.getMenuButtonBoundingClientRect()
+      if (rect && rect.width) menuButtonWidth = Math.max(88, Math.ceil(rect.width + 24))
+    } catch (_) {}
     this.setData({
       statusBarHeight: uiShellLayout.statusBarHeight,
       navPlaceholderHeight: uiShellLayout.navPlaceholderHeight,
+      menuButtonWidth,
       isDirectEntry: pages.length <= 1,
       themeClass: getThemeClassSync(),
       themeLight: isLightSync(),
       pageBgColor: getPageBgSync(),
       featureAllowed: false
     })
+    try { wx.setNavigationBarTitle({ title: '月愿计划', fail() {} }) } catch (_) {}
 
     // 先门禁再初始化：读不到配置 / 显式关闭都拦截（failClosed）
     isFeatureEnabled('enableLunarWishes', { failClosed: true })

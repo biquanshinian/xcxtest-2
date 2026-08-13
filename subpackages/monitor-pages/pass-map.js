@@ -1,6 +1,6 @@
 const pageBase = require('../../utils/page-base.js')
 const { ROUTES } = require('../../utils/routes.js')
-const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, findItemById, buildMapLayoutData, buildSelectionPatch, buildMapOverlayTopStyle, buildMapShareOptions, copyMapText, runMapRefresh } = require('./utils/map-page-common.js')
+const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, findItemById, buildMapLayoutData, buildSelectionPatch, buildMapOverlayTopStyle, buildMapShareOptions, copyMapText, runMapRefresh, setMapSatelliteFromTap } = require('./utils/map-page-common.js')
 const { buildObservationCandidates, getPassQualityMeta } = require('./utils/map-scenes.js')
 
 Page({
@@ -281,6 +281,10 @@ Page({
       actionMenuCollapsed: nextCollapsed,
       summaryCardTopStyle: buildMapOverlayTopStyle(this.data.mapActionTop, { collapsed: nextCollapsed })
     })
+  },
+
+  setMapSatellite(e) {
+    setMapSatelliteFromTap(this, e)
   },
 
 

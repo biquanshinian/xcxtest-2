@@ -20,7 +20,7 @@
       <text class="quiz-question">{{quizQuestion.question}}</text>
       <view class="quiz-options">
         <view
-          class="quiz-option {{quizSelectedIndex === index ? 'quiz-option--selected' : ''}} {{quizAnswered && index === quizQuestion.answer ? 'quiz-option--correct' : ''}} {{quizAnswered && quizSelectedIndex === index && index !== quizQuestion.answer ? 'quiz-option--wrong' : ''}}"
+          class="quiz-option {{quizSelectedIndex === index ? 'quiz-option--selected' : ''}} {{quizAnswered && index === quizQuestion.answer ? 'quiz-option--correct' : ''}} {{quizAnswered && quizSelectedIndex === index && index !== quizQuestion.answer ? 'quiz-option--wrong' : ''}} {{quizShake && quizSelectedIndex === index && index !== quizQuestion.answer ? 'quiz-option--shake' : ''}}"
           wx:for="{{quizQuestion.options}}"
           wx:key="*this"
           bindtap="onSelect"
@@ -28,6 +28,7 @@
         >
           <text class="quiz-letter">{{['A','B','C','D'][index]}}</text>
           <text class="quiz-text">{{item}}</text>
+          <text class="quiz-check {{quizCheckPop ? 'quiz-check--pop' : ''}}" wx:if="{{quizAnswered && index === quizQuestion.answer}}">✓</text>
         </view>
       </view>
       <view class="quiz-result" wx:if="{{quizResult}}">

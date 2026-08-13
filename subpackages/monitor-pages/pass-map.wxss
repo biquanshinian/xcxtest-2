@@ -23,7 +23,7 @@ page {
 }
 
 .glass-card {
-  background: var(--bg-glass);
+  background: var(--color-bg-card);
 }
 
 .state-card,
@@ -393,7 +393,7 @@ page {
 
 /* ========== 明亮主题（theme-light）覆盖 ========== */
 .theme-light .glass-card {
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--color-bg-card);
 }
 
 .theme-light .state-title {

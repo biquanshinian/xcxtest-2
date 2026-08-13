@@ -15,6 +15,79 @@ page {
   pointer-events: auto;
 }
 
+/* 头图左上：360 环绕全景（房产/VR 通用动态图标：双环绕转 + 360） */
+.hero-pano-btn {
+  position: absolute;
+  left: 22rpx;
+  top: 22rpx;
+  z-index: 3;
+  width: 80rpx;
+  height: 80rpx;
+  pointer-events: auto;
+  font-size: 20rpx;
+  line-height: 1;
+}
+
+.hero-pano-btn--pressed {
+  opacity: 0.72;
+  transform: scale(0.94);
+}
+
+.hero-pano-orbit {
+  position: absolute;
+  left: 4rpx;
+  top: 4rpx;
+  right: 4rpx;
+  bottom: 4rpx;
+  border-radius: 50%;
+  border: 3rpx solid rgba(255, 255, 255, 0.22);
+  border-top-color: #ffffff;
+  border-right-color: rgba(255, 255, 255, 0.55);
+  box-sizing: border-box;
+  animation: hero-pano-spin 1.8s linear infinite;
+}
+
+.hero-pano-orbit--tilt {
+  left: -2rpx;
+  right: -2rpx;
+  top: 20rpx;
+  bottom: 20rpx;
+  border-top-color: rgba(255, 255, 255, 0.95);
+  border-bottom-color: rgba(255, 255, 255, 0.28);
+  border-left-color: rgba(255, 255, 255, 0.12);
+  border-right-color: rgba(255, 255, 255, 0.12);
+  animation-duration: 2.8s;
+  animation-direction: reverse;
+}
+
+.hero-pano-core {
+  position: absolute;
+  left: 18rpx;
+  top: 18rpx;
+  right: 18rpx;
+  bottom: 18rpx;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.58);
+  border: 2rpx solid rgba(255, 255, 255, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.hero-pano-360 {
+  font-size: 20rpx;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1;
+  letter-spacing: -1rpx;
+}
+
+@keyframes hero-pano-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* 头图收藏：与铃铛同款——无圆底、无阴影，爱心与铃铛同大 */
 .fav-btn--hero {
   width: 88rpx;
@@ -1406,8 +1479,7 @@ page {
   border-radius: 999rpx;
   font-size: 24rpx;
   color: #ffffff;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(10rpx);
+  background: #16181C;
   border: 1px solid rgba(255, 255, 255, 0.15);
 }
 

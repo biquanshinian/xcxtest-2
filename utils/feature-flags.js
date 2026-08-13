@@ -124,10 +124,32 @@ function isLiveEntryAllowed() {
     .catch(() => false)
 }
 
+function _orbitPanoOnFromCfg(cfg) {
+  if (!cfg || !cfg._id) return false
+  if (cfg.enableOrbitPano === false) return false
+  if (cfg.orbitPanoEnabled === false) return false
+  return true
+}
+
+/**
+ * 任务头图 / 设施图「环绕全景」过审开关（enableOrbitPano）。
+ * failClosed：读不到 main 视为关闭，避免审核分享/单页模式露出 360 入口。
+ * 字段缺省视为开启（!== false）；一键过审写入 false。
+ * @param {boolean} [forceRefresh]
+ * @returns {Promise<Boolean>}
+ */
+function isOrbitPanoEnabled(forceRefresh) {
+  if (forceRefresh) {
+    return fetchMainConfig(true).then(_orbitPanoOnFromCfg).catch(() => false)
+  }
+  return fetchMainConfig().then(_orbitPanoOnFromCfg).catch(() => false)
+}
+
 module.exports = {
   isFeatureEnabled,
   isPlaybackAllowed,
   isLiveEntryAllowed,
+  isOrbitPanoEnabled,
   fetchMainConfig,
   getCachedMainConfig
 }

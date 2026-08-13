@@ -175,7 +175,8 @@ Page({
     mapScale: 13,
     mapMarkers: ROAD_CLOSURE_SCENE.markers,
     mapPolylines: ROAD_CLOSURE_SCENE.polylines,
-    mapPolygons: ROAD_CLOSURE_SCENE.polygons
+    mapPolygons: ROAD_CLOSURE_SCENE.polygons,
+    mapSetting: { enableSatellite: true }
   },
 
   onLoad(options) {

@@ -1,4 +1,4 @@
-const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, findItemById, buildMapLayoutData, buildMapPanelScrollLayout, buildMapShareOptions, copyMapText, runMapRefresh } = require('./utils/map-page-common.js')
+const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, findItemById, buildMapLayoutData, buildMapPanelScrollLayout, buildMapShareOptions, copyMapText, runMapRefresh, setMapSatelliteFromTap } = require('./utils/map-page-common.js')
 const { getRoadClosureNotice } = require('./utils/api-road-closure.js')
 const { ROAD_CLOSURE_SCENE } = require('./utils/map-scenes.js')
 const { resolveRoadClosureStatus } = require('../../utils/progress-road-closure.js')
@@ -170,6 +170,10 @@ Page({
 
   toggleActionMenuCollapsed() {
     this.setData({ actionMenuCollapsed: !this.data.actionMenuCollapsed })
+  },
+
+  setMapSatellite(e) {
+    setMapSatelliteFromTap(this, e)
   },
 
   onShareAppMessage() {

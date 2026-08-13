@@ -31,6 +31,18 @@ Component({
     calendarPageAnimClass: { type: String, value: '' }
   },
 
+  data: {
+    pickerStart: '2020-01',
+    pickerEnd: '2030-12'
+  },
+
+  lifetimes: {
+    attached() {
+      const y = new Date().getFullYear()
+      this.setData({ pickerEnd: `${y + 5}-12` })
+    }
+  },
+
   methods: {
     calendarPrevMonth() {
       this.triggerEvent('prevmonth')

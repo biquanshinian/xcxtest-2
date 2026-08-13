@@ -20,58 +20,90 @@ page {
 }
 
 /* 空间站 marker 自定义 HUD（cover-view，深底青绿遥测风） */
+/* HUD 气泡：暗玻璃 + 荧光绿描边（cover-view 仅支持基础样式，不用渐变/阴影/动画） */
 .station-hud {
-  min-width: 280rpx;
-  padding: 14rpx 18rpx 16rpx;
-  border-radius: 12rpx;
-  background-color: rgba(8, 14, 20, 0.92);
-  border: 1px solid rgba(0, 255, 136, 0.45);
+  min-width: 300rpx;
+  padding: 16rpx 20rpx 18rpx;
+  border-radius: 20rpx;
+  background-color: #16181C;
+  border: 1rpx solid rgba(44, 245, 155, 0.4);
+}
+
+.station-hud-top {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+
+.station-hud-live-dot {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  background-color: #2CF59B;
+  margin-right: 10rpx;
 }
 
 .station-hud-live {
   font-size: 18rpx;
   font-weight: 700;
-  letter-spacing: 2rpx;
-  color: #00ff88;
-  margin-bottom: 6rpx;
+  letter-spacing: 3rpx;
+  color: #2CF59B;
 }
 
 .station-hud-title {
-  font-size: 24rpx;
+  margin-top: 8rpx;
+  font-size: 26rpx;
   font-weight: 700;
   color: #ffffff;
-  margin-bottom: 10rpx;
   max-width: 360rpx;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
+.station-hud-divider {
+  margin: 12rpx 0 6rpx;
+  height: 2rpx;
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
 .station-hud-row {
   display: flex;
   flex-direction: row;
   align-items: center;
-  margin-top: 4rpx;
+  margin-top: 6rpx;
 }
 
 .station-hud-k {
-  width: 56rpx;
-  font-size: 20rpx;
+  width: 64rpx;
+  font-size: 18rpx;
   font-weight: 700;
-  color: rgba(0, 255, 136, 0.75);
-  letter-spacing: 1rpx;
+  color: rgba(139, 247, 199, 0.6);
+  letter-spacing: 2rpx;
 }
 
 .station-hud-v {
   flex: 1;
-  font-size: 22rpx;
+  font-size: 23rpx;
   font-weight: 600;
-  color: #e8fff4;
+  color: #F2FFF8;
+  font-family: Menlo, Courier, monospace;
+}
+
+/* 坐标胶囊：与数值区分层，弱发光底 */
+.station-hud-coord {
+  margin-top: 12rpx;
+  padding: 6rpx 14rpx;
+  border-radius: 999rpx;
+  background-color: rgba(44, 245, 155, 0.12);
+  font-size: 19rpx;
+  letter-spacing: 1rpx;
+  color: #9BF7CC;
   font-family: Menlo, Courier, monospace;
 }
 
 .glass-card {
-  background: var(--bg-glass);
+  background: var(--color-bg-card);
 }
 
 /* 轨道实时数据网格 */
@@ -155,12 +187,14 @@ page {
 }
 
 .legend-line--future {
-  background: #00ff88;
+  height: 0;
+  background: none;
+  border-top: 4rpx dashed #12E896;
+  border-radius: 0;
 }
 
 .legend-line--past {
-  background: var(--color-brand);
-  opacity: 0.5;
+  background: linear-gradient(90deg, rgba(78, 161, 255, 0.14), rgba(78, 161, 255, 0.62));
 }
 
 .legend-text {
@@ -184,7 +218,7 @@ page {
 
 /* ========== 明亮主题（theme-light）覆盖 ========== */
 .theme-light .glass-card {
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--color-bg-card);
 }
 
 .theme-light .orbit-stat-card {

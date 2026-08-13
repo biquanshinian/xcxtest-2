@@ -1087,8 +1087,8 @@ Page({
       const title = ((item.authorName || '航天摄影') + (item.location ? ' · ' + item.location : '')) + ' | 火星探索日志'
       return {
         title,
-        path: `/subpackages/news-extra/photo-detail?id=${item.id}`,
-        query: `id=${item.id}`,
+        path: `/subpackages/news-extra/photo-detail?id=${encodeURIComponent(item.id)}`,
+        query: `id=${encodeURIComponent(item.id)}`,
         // 优先缩略图，避免自定义分享图体积过大
         imageUrl: item.cardImage || item.coverUrl || shareDefault
       }
@@ -1096,16 +1096,16 @@ Page({
     if (kind === 'event') {
       return {
         title: (item.title || '即将发生') + ' | 火星探索日志',
-        path: `/subpackages/news-extra/detail?id=${item.id}&type=event`,
-        query: `id=${item.id}&type=event`,
+        path: `/subpackages/news-extra/detail?id=${encodeURIComponent(item.id)}&type=event`,
+        query: `id=${encodeURIComponent(item.id)}&type=event`,
         imageUrl: item.image || item.cardImage || shareDefault
       }
     }
     if (kind === 'article') {
       return {
         title: (item.title || '航天事件') + ' | 火星探索日志',
-        path: `/subpackages/news-extra/detail?id=${item.id}&type=article`,
-        query: `id=${item.id}&type=article`,
+        path: `/subpackages/news-extra/detail?id=${encodeURIComponent(item.id)}&type=article`,
+        query: `id=${encodeURIComponent(item.id)}&type=article`,
         imageUrl: item.image || item.cardImage || shareDefault
       }
     }

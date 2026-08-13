@@ -241,7 +241,7 @@ Page({
             item: snapItem,
             shareTitle: `${snapItem.title || (detailType === 'article' ? '航天事件' : '即将发生')} | 火星探索日志`,
             shareImage: this.resolveShareImage(detailType === 'article' ? (snapItem.heroImageUrl || snapItem.image) : snapItem.image),
-            navTitle: detailType === 'article' ? '文章详情' : '事件详情'
+            navTitle: snapItem.title || (detailType === 'article' ? '文章详情' : '事件详情')
           })
           opts = { ...opts, silent: true }
         }
@@ -266,7 +266,7 @@ Page({
         item,
         shareTitle,
         shareImage,
-        navTitle: detailType === 'article' ? '文章详情' : '事件详情'
+        navTitle: item.title || (detailType === 'article' ? '文章详情' : '事件详情')
       })
 
       const searchMeta = buildNewsDetailSearchMeta(item, detailType, shareImage)
@@ -427,7 +427,7 @@ Page({
 
     return {
       title: this.data.shareTitle || '航天事件详情 | 火星探索日志',
-      path: `/subpackages/news-extra/detail?id=${entryId}&type=${entryType}`,
+      path: `/subpackages/news-extra/detail?id=${encodeURIComponent(entryId)}&type=${encodeURIComponent(entryType)}`,
       imageUrl: this.data.shareImage
     }
   },
@@ -441,7 +441,7 @@ Page({
     const entryType = this.data.detailType || route.detailType || 'event'
     return {
       title: this.data.shareTitle,
-      query: entryId ? `id=${entryId}&type=${entryType}` : '',
+      query: entryId ? `id=${encodeURIComponent(entryId)}&type=${encodeURIComponent(entryType)}` : '',
       imageUrl: this.data.shareImage
     }
   }

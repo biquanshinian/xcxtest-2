@@ -16,6 +16,7 @@ import UsersPage from '../views/UsersPage.vue'
 import CosStoragePage from '../views/CosStoragePage.vue'
 import RocketConfigPage from '../views/RocketConfigPage.vue'
 import SplashScreenPage from '../views/SplashScreenPage.vue'
+import OrbitPanoPage from '../views/OrbitPanoPage.vue'
 import PushNotifyPage from '../views/PushNotifyPage.vue'
 import LaunchDataPage from '../views/LaunchDataPage.vue'
 import TweetMonitorPage from '../views/TweetMonitorPage.vue'
@@ -52,6 +53,7 @@ const routes = [
       { path: 'popup-ad', component: PopupAdPage, meta: { perm: 'shop_feed' } },
       { path: 'carousel', component: CarouselPage, meta: { perm: 'carousel' } },
       { path: 'splash-screen', component: SplashScreenPage, meta: { perm: 'splash_screen' } },
+      { path: 'orbit-pano', component: OrbitPanoPage, meta: { perm: 'splash_screen' } },
       { path: 'cos-storage', component: CosStoragePage, meta: { perm: 'cos_storage' } },
       { path: 'rocket-config', component: RocketConfigPage, meta: { perm: 'cos_storage' } },
       { path: 'users', component: UsersPage, meta: { perm: 'users' } },

@@ -3,7 +3,6 @@
 <page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
 <view class="container {{themeClass}} tab-bg-video-host">
   <view class="tab-bg-shell" aria-hidden="true">
-    <view class="tab-bg-cover"></view>
     <view class="tab-bg-frost"></view>
   </view>
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
@@ -55,9 +54,18 @@
 
     <!-- ══ 身份区（头像可上传 · 昵称可改） ══ -->
     <view class="pf-identity">
-      <view class="pf-avatar {{identityHasAvatar ? '' : 'pf-avatar--empty'}}" bindtap="onAvatarTap" aria-role="button" aria-label="{{identityHasAvatar ? '更换头像' : '添加头像'}}">
-        <image wx:if="{{identityHasAvatar}}" class="pf-avatar-img" src="{{identityAvatarUrl}}" mode="aspectFill" />
-        <text wx:else class="pf-avatar-plus">+</text>
+      <view class="pf-avatar-halo {{memberIsPro ? 'pf-avatar-halo--pro' : ''}}">
+        <view
+          class="pf-avatar-ring {{memberIsPro ? 'pf-avatar-ring--pro' : ''}}"
+          bindtap="onAvatarTap"
+          aria-role="button"
+          aria-label="{{identityHasAvatar ? '更换头像' : '添加头像'}}"
+        >
+          <view class="pf-avatar {{identityHasAvatar ? '' : 'pf-avatar--empty'}}">
+            <image wx:if="{{identityHasAvatar}}" class="pf-avatar-img" src="{{identityAvatarUrl}}" mode="aspectFill" />
+            <text wx:else class="pf-avatar-plus">+</text>
+          </view>
+        </view>
       </view>
       <view class="pf-identity-main">
         <view class="pf-name-row">
@@ -123,7 +131,7 @@
             <text class="pf-asset-label">累计签到</text>
           </view>
           <view class="pf-asset">
-            <text class="pf-asset-num">{{checkinSummary.currentStreak}}</text>
+            <text class="pf-asset-num {{streakPop ? 'pf-asset-num--pop' : ''}}">{{checkinSummary.currentStreak}}</text>
             <text class="pf-asset-label">连续天数</text>
           </view>
           <view class="pf-asset">
@@ -137,7 +145,7 @@
         </view>
         <view class="checkin-week pf-week">
           <view class="checkin-dot-wrap" wx:for="{{weekDots}}" wx:key="date">
-            <view class="checkin-dot {{item.checked ? 'checkin-dot--checked' : ''}} {{item.isToday ? 'checkin-dot--today' : ''}}">
+            <view class="checkin-dot {{item.checked ? 'checkin-dot--checked' : ''}} {{item.isToday ? 'checkin-dot--today' : ''}} {{item.isToday && checkinPop ? 'checkin-dot--pop' : ''}}">
               <text class="checkin-dot-num">{{item.dayNum}}</text>
             </view>
             <text class="checkin-dot-label {{item.isToday ? 'checkin-dot-label--today' : ''}}">{{item.day}}</text>

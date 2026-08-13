@@ -14,7 +14,7 @@ const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShare
 const { togglePageTranslation } = require('./utils/text-translate.js')
 const { getRocketImage } = require('../../utils/util.js')
 const { translateRocketName } = require('../../utils/rocket-name-i18n.js')
-const { isFavorite, toggleFavorite } = require('../../utils/favorites.js')
+const { isFavorite, toggleFavorite, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
 
 function fmtNum(v, unit, digits) {
   if (v == null || v === '') return ''
@@ -58,7 +58,16 @@ Page({
 
   async onLoad(options) {
     this.initUiShell()
-    var configId = options && options.configId ? decodeURIComponent(options.configId) : ''
+    var configId = ''
+    if (options && options.configId) {
+      try { configId = decodeURIComponent(String(options.configId)) } catch (e) { configId = String(options.configId) }
+    }
+    if (!configId && options && options.id) {
+      try { configId = decodeURIComponent(String(options.id)) } catch (e) { configId = String(options.id) }
+    }
+    configId = String(configId || '').trim()
+    this._configId = configId
+    if (configId) syncFavoriteState(this, 'rocket_model', configId)
 
     // 分享卡片 24h 免门控窗口：过期后走 gateCheck（会员放行，非会员弹开通引导）
     var shareAllowed = await checkShareEntryGate(this, options, 'booster_genealogy', '全球可回收火箭族谱')
@@ -72,8 +81,12 @@ Page({
       this.setData({ loading: false, errorMessage: '缺少型号参数，请返回重试' })
       return
     }
-    this._configId = configId
     this.loadDetail(configId)
+  },
+
+  onShow() {
+    const configId = (this.data.model && this.data.model.configId) || this._configId
+    if (configId != null && String(configId) !== '') syncFavoriteState(this, 'rocket_model', configId)
   },
 
   async loadDetail(configId) {
@@ -246,7 +259,7 @@ Page({
       category: 'booster',
       route: ROUTES.ROCKET_MODEL_DETAIL + '?configId=' + encodeURIComponent(String(model.configId))
     })
-    this.setData({ isFavorited: favorited, favAnimate: favorited })
+    pulseFavAnimate(this, favorited)
     wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
   },
 

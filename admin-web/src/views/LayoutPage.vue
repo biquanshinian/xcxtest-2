@@ -139,6 +139,7 @@
         <el-menu-item v-if="hasPerm('shop_feed')" index="/popup-ad">弹窗广告</el-menu-item>
         <el-menu-item v-if="hasPerm('carousel')" index="/carousel">轮播图管理</el-menu-item>
         <el-menu-item v-if="hasPerm('splash_screen')" index="/splash-screen">开屏动画</el-menu-item>
+        <el-menu-item v-if="hasPerm('splash_screen')" index="/orbit-pano">环绕全景</el-menu-item>
         <el-menu-item
           v-if="hasPerm('road_closure')"
           index="/road-closure"
@@ -288,6 +289,7 @@ const pageTitle = computed(() => {
     '/popup-ad': '弹窗广告',
     '/carousel': '轮播图管理',
     '/splash-screen': '开屏动画',
+    '/orbit-pano': '环绕全景',
     '/road-closure': '封路通知',
     '/spacex-stats': 'SpaceX统计',
     '/cos-storage': 'COS 云存储',

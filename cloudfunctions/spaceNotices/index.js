@@ -5,6 +5,8 @@
  *   (timer/default) sync   — 轮转增量：抓站点 entry 索引 → 每次处理 ENTRIES_PER_RUN 个 entry 的通告
  *   listEntries            — 条目列表（含即将 / 历史分类）
  *   getEntry               — 单条 + notices（缺数据时按需补拉该 entry）
+ *   lookupEntry            — 按 entryKey / ll2Id 查是否已有通告（不补拉、不写库）
+ *   lookupStarshipEntry    — 取当前最合适的星舰通告条目（不补拉、不写库）
  *   ingestRaw              — 粘贴原文解析入库 { entryKey|ll2Id, rawText, type?, name?, reason? }
  *   parsePreview           — 仅解析 areas，不写库
  *
@@ -558,7 +560,7 @@ async function listEntries(event) {
       success: false,
       error: syncError
         ? `暂无数据：${syncError}`
-        : '暂无数据：请部署云函数 spaceNotices 后点「同步条目」'
+        : '暂无数据：请部署云函数 spaceNotices，定时器每 15 分钟会自动入库'
     }
   }
   return {
@@ -569,6 +571,70 @@ async function listEntries(event) {
       covered: Number(meta.coveredKeys && meta.coveredKeys.length) || list.length,
       lastSyncAt: Number(meta.lastSyncAt) || 0
     }
+  }
+}
+
+function noticeCountOf(entry) {
+  if (!entry) return 0
+  const fromField = Number(entry.noticeCount)
+  const fromKeys = Array.isArray(entry.noticeKeys) ? entry.noticeKeys.length : 0
+  return Math.max(Number.isFinite(fromField) ? fromField : 0, fromKeys)
+}
+
+/** 任务详情快捷入口：只读，绝不触发 sync */
+async function lookupEntry(event) {
+  const entryKey = String(event.entryKey || event.key || '').trim()
+  const ll2Id = String(event.ll2Id || '').trim()
+  if (!entryKey && !ll2Id) return { success: false, error: 'missing entryKey' }
+  const entry = await findEntryDoc(entryKey, ll2Id)
+  if (!entry) return { success: true, found: false, hasNotices: false }
+  const noticeCount = noticeCountOf(entry)
+  return {
+    success: true,
+    found: true,
+    hasNotices: noticeCount > 0,
+    entryKey: entry.entryKey || '',
+    ll2Id: entry.ll2Id || ll2Id,
+    noticeCount
+  }
+}
+
+function isStarshipEntryDoc(d) {
+  if (!d) return false
+  if (d.isStarship) return true
+  return /starship/i.test(d.entryKey || '') || /starship/i.test(d.rocketName || '')
+}
+
+/** 进度页星舰通告卡：优先即将发射、其次最近历史；只读 */
+async function lookupStarshipEntry() {
+  const res = await db.collection(ENTRY_COL).limit(100).get().catch(() => ({ data: [] }))
+  const rows = (res.data || []).filter((d) => d && !d._meta && d.entryKey && isStarshipEntryDoc(d))
+  const withNotices = rows.filter((d) => noticeCountOf(d) > 0)
+  const pool = withNotices.length ? withNotices : rows
+  if (!pool.length) {
+    return {
+      success: true,
+      found: false,
+      hasNotices: false,
+      entryKey: FLIGHT13_ENTRY_KEY
+    }
+  }
+  pool.sort((a, b) => {
+    if (a.isPast !== b.isPast) return a.isPast ? 1 : -1
+    const ta = a.windowStartMs || Date.parse(a.net) || 0
+    const tb = b.windowStartMs || Date.parse(b.net) || 0
+    return a.isPast ? tb - ta : ta - tb
+  })
+  const entry = pool[0]
+  const noticeCount = noticeCountOf(entry)
+  return {
+    success: true,
+    found: true,
+    hasNotices: noticeCount > 0,
+    entryKey: entry.entryKey || FLIGHT13_ENTRY_KEY,
+    ll2Id: entry.ll2Id || '',
+    missionName: entry.missionName || '',
+    noticeCount
   }
 }
 
@@ -745,6 +811,8 @@ exports.main = async (event) => {
     if (action !== 'parsePreview') await ensureCollections()
     if (action === 'listEntries') return await listEntries(ev)
     if (action === 'getEntry') return await getEntry(ev)
+    if (action === 'lookupEntry') return await lookupEntry(ev)
+    if (action === 'lookupStarshipEntry') return await lookupStarshipEntry(ev)
     if (action === 'ingestRaw') return await ingestRaw(ev)
     if (action === 'parsePreview') return await parsePreview(ev)
     if (action === 'sync') {

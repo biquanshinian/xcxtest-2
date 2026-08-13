@@ -6,7 +6,7 @@ const storageCache = require('../../utils/storage-sync-cache.js')
 const userIdentity = require('../../utils/user-identity.js')
 const { getSubscribedMissions, unsubscribeLaunch, syncSubscribedMissions } = require('../../utils/subscribe.js')
 const { resolveMissionRocketImageFresh, isDefaultRocketSrc } = require('../../utils/util.js')
-const { getMembershipState, isPro, isMembershipEnabled, MEMBER_ICONS, MEMBER_BENEFIT_ICONS, MEMBER_PASS_BENEFITS } = require('../../utils/membership.js')
+const { getMembershipState, isPro, isProSync, isMembershipEnabled, MEMBER_ICONS, MEMBER_BENEFIT_ICONS, MEMBER_PASS_BENEFITS } = require('../../utils/membership.js')
 const { getFavoriteCount } = require('../../utils/favorites.js')
 const themeUtil = require('../../utils/theme.js')
 const tabLoadPage = require('../../utils/tab-load-page.js')
@@ -183,6 +183,8 @@ Page({
     weekDots: [],
     todayFact: null,
     showFactCard: false,
+    checkinPop: false,
+    streakPop: false,
     // 成就
     achievementInfo: { achievements: [], unlockedCount: 0, totalCount: 0 },
     showBadgeModal: false,
@@ -275,6 +277,7 @@ Page({
       themeMode: themeUtil.getThemeModeSync(),
       rocketArtStyle: rocketArtUtil.getRocketConfigArtStyle(),
       pageBgColor: themeUtil.getPageBgSync(),
+      memberIsPro: isProSync(),
       ...userIdentity.getIdentityView()
     })
     this._syncSettingsPrefs()
@@ -985,7 +988,7 @@ Page({
     try {
       const enabled = await isMembershipEnabled()
       if (!enabled) {
-        this.setData({ membershipEnabled: false })
+        this.setData({ membershipEnabled: false, memberIsPro: false })
         return
       }
       this.setData({ membershipEnabled: true })

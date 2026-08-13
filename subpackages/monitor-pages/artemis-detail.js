@@ -48,6 +48,7 @@ Page({
   data: {
     loading: true,
     errorMsg: '',
+    navTitle: 'Artemis II 实时遥测',
     missionPhase: 'active',
     missionSummary: null,
     met: '—',

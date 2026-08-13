@@ -1,7 +1,7 @@
 <!-- 全球发射数据（未选中日期时显示） -->
 <view class="calendar-stats-section {{themeClass}}" wx:if="{{!expandedDateKey && !calendarLoading}}">
   <view class="calendar-stats-title">
-    <text>2026全球发射数据</text>
+    <text>{{statsYear}}全球发射数据</text>
   </view>
   <view class="stats-grid" wx:if="{{launchStats && launchStats.globalThisYear != null}}">
     <view class="stats-highlight-card glass-card" bindtap="goGlobalLaunchStats" hover-class="stats-highlight-card--active">

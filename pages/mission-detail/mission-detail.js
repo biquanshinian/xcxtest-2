@@ -12,10 +12,11 @@ const rocketArtUtil = require('../../utils/rocket-config-art.js')
 const { isMechaRocketSrc } = rocketArtUtil
 const { isPermissionDenied, getPermissionDeniedMessage } = require('./utils/single-page.js')
 const { subscribeLaunch, unsubscribeLaunch, isSubscribed } = require('../../utils/subscribe.js')
-const { isFavorite, toggleFavorite } = require('../../utils/favorites.js')
+const { isFavorite, toggleFavorite, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
 const { isOaAlertReady, peekOaAlertReady } = require('../../utils/oa-alert.js')
 const { buildMissionShareOptions, buildMissionDetailUrl } = require('../../utils/index-mission-nav.js')
-const { ROUTES, buildUrl } = require('../../utils/routes.js')
+const { ROUTES, buildUrl, navigateTo } = require('../../utils/routes.js')
+const { lookupSpaceNoticeShortcut } = require('./utils/space-notice-shortcut.js')
 const { applyPageSearchInfo, buildMissionDetailSearchMeta } = require('./utils/page-search-info.js')
 const pageBase = require('../../utils/page-base.js')
 const storageCache = require('../../utils/storage-sync-cache.js')
@@ -35,7 +36,8 @@ const { computeLaunchTimelineProgress } = require('./utils/launch-timeline-progr
 const { loadMissionLaunchStats, applyClientAgencyFallback } = require('./utils/mission-launch-stats.js')
 const { formatCloudError } = require('../../utils/launch-stats-cloud.js')
 const config = require('../../utils/config.js')
-const { isLiveEntryAllowed, isFeatureEnabled } = require('../../utils/feature-flags.js')
+const { isLiveEntryAllowed, isFeatureEnabled, isPlaybackAllowed } = require('../../utils/feature-flags.js')
+const { resolveOrbitPanoForMission, playOrbitPanoVideo } = require('./utils/orbit-pano.js')
 const { videoSnapshotUrl, optimizeImageUrl } = require('../../utils/cos-url.js')
 const { openBoosterEntityDetail, openRocketModelDetail } = require('./utils/booster-nav.js')
 const { applyAuthoritativeStatus, projectBadgeOntoMission } = require('../../utils/launch-status-store.js')
@@ -478,6 +480,11 @@ Page({
     mapPreviewScale: 10,
     mapPreviewMarkers: [],
     mapPreviewSiteName: '',
+    mapSetting: { enableSatellite: true },
+    /** SPACE_NOTICES_FEATURE：当前任务若已有通告则显示一键直达 */
+    spaceNoticeShortcut: null,
+    /** 任务头图左上角环绕全景；过审关闭或未绑定视频不显示 */
+    orbitPanoEnabled: false,
     // 直播入口（与监控中心同款逻辑）
     liveFinderUserName: getLiveFinderUserNameFromConfig(),
     biliLive: {
@@ -547,6 +554,10 @@ Page({
     rocketArtUtil.applyRocketConfigArtIfNeeded(this)
     // 偏好切换中/英文后返回详情：就地重套展示字段（不依赖重新拉详情）
     this._applyContentLangIfNeeded()
+    // 从「我的收藏」进入或缓存秒开时补齐爱心；从收藏页返回时也要跟上最新状态
+    const favId = (this.data.mission && this.data.mission.id) ||
+      (this._entryRoute && this._entryRoute.id) || ''
+    if (favId) syncFavoriteState(this, 'mission', favId)
     // 从 profile 取消提醒后返回时刷新订阅状态（仅看本任务是否已写入订阅，不含 OA 全覆盖）
     const mission = this.data.mission
     if (mission && mission.id) {
@@ -564,6 +575,8 @@ Page({
     }
     // force：偏好里开关服务号后主包缓存可能仍是旧 ready，回详情必须重拉
     this._refreshOaAlertReady(true)
+    // 一键过审后回前台：强制刷新环绕全景显隐，避免审核分享仍看到 360
+    if (this.data.mission) this._syncOrbitPanoEntry(this.data.mission, true)
   },
 
   _applyContentLangIfNeeded() {
@@ -644,6 +657,7 @@ Page({
     this.initUiShell()
     this.applyMomentsPreviewLayout()
     this._measureTabStickyTop()
+    if (id) syncFavoriteState(this, 'mission', id)
     // 头图与首页倒计时/卡片同源：先等 media_assets，再渲染，避免先闪 default 再纠正
     try {
       await Promise.race([
@@ -656,7 +670,8 @@ Page({
       detailType,
       fromSearch,
       navTitle: detailType === 'completed' ? '任务复盘' : '任务详情',
-      shareImage: resolveMissionRocketImage(DEFAULT_SHARE_IMAGE)
+      shareImage: resolveMissionRocketImage(DEFAULT_SHARE_IMAGE),
+      isFavorited: !!(id && isFavorite('mission', id))
     })
     this.ensureShareImageHttpUrl(this.data.shareImage)
 
@@ -1520,6 +1535,8 @@ Page({
       this.clearMissionCountdownTimer()
     }
     this.ensureHeroAgencyLogo(normalizedState.mission)
+    this._syncOrbitPanoEntry(normalizedState.mission)
+    this.loadSpaceNoticeShortcut(normalizedState.mission)
     // 概览默认展示统计；飞行时间线仍延迟到页签首次切入才拉取
     if (this.data.visitedTabs.overview) {
       this.loadMissionLaunchStatsForMission(normalizedState.mission)
@@ -1693,6 +1710,55 @@ Page({
   /** 分享 sst 免门控窗口（24h）当前是否生效 */
   _replayShareGateActive() {
     return !!(this._shareSst && Date.now() - this._shareSst <= SHARE_GATE_TTL_MS)
+  },
+
+  _syncOrbitPanoEntry(mission, forceRefresh) {
+    const token = String((mission && mission.id) || '')
+    this._orbitPanoSyncToken = token
+    if (this.data.isMomentsPreview || !mission) {
+      this._orbitPanoItem = null
+      if (this.data.orbitPanoEnabled) this.setData({ orbitPanoEnabled: false })
+      return
+    }
+    resolveOrbitPanoForMission(mission, !!forceRefresh)
+      .then((item) => {
+        if (this._orbitPanoSyncToken !== token) return
+        if (!item) {
+          this._orbitPanoItem = null
+          if (this.data.orbitPanoEnabled) this.setData({ orbitPanoEnabled: false })
+          return
+        }
+        return isPlaybackAllowed().then((ok) => {
+          if (this._orbitPanoSyncToken !== token) return
+          this._orbitPanoItem = ok ? item : null
+          if (!!this.data.orbitPanoEnabled === !!ok) return
+          this.setData({ orbitPanoEnabled: !!ok })
+        })
+      })
+      .catch(() => {
+        if (this._orbitPanoSyncToken !== token) return
+        this._orbitPanoItem = null
+        if (this.data.orbitPanoEnabled) this.setData({ orbitPanoEnabled: false })
+      })
+  },
+
+  async onTapOrbitPano() {
+    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+    if (!this.data.orbitPanoEnabled || !this._orbitPanoItem) {
+      wx.showToast({ title: '功能暂未开放', icon: 'none' })
+      return
+    }
+    const mission = this.data.mission
+    const item = this._orbitPanoItem
+    const panoTitle = String((item && item.title) || '环绕全景').trim() || '环绕全景'
+    const detailType = this.data.detailType === 'completed' ? 'completed' : 'upcoming'
+    const share = mission && mission.id
+      ? {
+          title: `${panoTitle} | 火星探索日志`,
+          path: withShareStampPath(buildMissionDetailUrl({ id: mission.id, detailType }), this)
+        }
+      : null
+    await playOrbitPanoVideo(share, item)
   },
 
   /** 门控通过后进全站播放页播视频（回放/集锦共用） */
@@ -2135,6 +2201,8 @@ Page({
       this._replayLoadedKey = ''
       this.setData({ enableReplayEntry: false, missionReplay: null, replayClips: [], replayLinks: [] })
     }
+    this._orbitPanoItem = null
+    if (this.data.orbitPanoEnabled) this.setData({ orbitPanoEnabled: false })
 
     let cache = {}
     let cachedMission = null
@@ -2194,11 +2262,13 @@ Page({
         showHeroRocket: seoMeta.showHeroRocket,
         shareImage: cacheShareImage,
         missionSubscribed: isSubscribed(fallback.id),
+        isFavorited: isFavorite('mission', fallback.id),
         detailExpanded: buildDefaultDetailExpanded(),
         detailBlocks: buildDefaultDetailBlocks()
       })
       this._measureDescOverflow()
       this.applyMissionPageSearchInfo(fallback, normalizedDetailType, cacheShareImage)
+      this._syncOrbitPanoEntry(fallback)
       if (normalizedDetailType === 'upcoming' && fallback.launchTime) {
         this.startMissionCountdown(fallback.launchTime)
       } else {
@@ -2208,6 +2278,7 @@ Page({
       if (!cacheMissingPadCoords) {
         this._patchMapPreviewAsync(fallback)
       }
+      this.loadSpaceNoticeShortcut(fallback)
       if (this.data.visitedTabs.overview) this.loadMissionLaunchStatsForMission(fallback)
       if (this.data.visitedTabs.timeline) this.loadLl2FlightTimelineForMission(fallback.id)
       // 当缓存新鲜且坐标完整时，下面 skipRebuild 会令 mission=null、syncMissionRuntimeState 整体跳过。
@@ -2350,7 +2421,9 @@ Page({
       })
     } else {
       // 详情拉取失败但已有缓存渲染（或 skipRebuild）：结束转圈，交给后台刷新兜底
-      if (this.data.detailHydrating) this.setData({ detailHydrating: false })
+      const skipPatch = { isFavorited: isFavorite('mission', id) }
+      if (this.data.detailHydrating) skipPatch.detailHydrating = false
+      this.setData(skipPatch)
       this.refreshMissionDetailInBackground(id, normalizedDetailType, {
         skipIfFresh: false
       })
@@ -2752,7 +2825,7 @@ Page({
         rocketName: mission.rocketName || ''
       }
     })
-    this.setData({ isFavorited: favorited, favAnimate: favorited })
+    pulseFavAnimate(this, favorited)
     wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
   },
 
@@ -3328,6 +3401,42 @@ Page({
     if (!path) return
     const url = query ? `${path}?${query}` : path
     wx.navigateTo({ url })
+  },
+
+  /** SPACE_NOTICES_FEATURE：有通告的任务显示一键直达（只读 lookup，不补拉） */
+  loadSpaceNoticeShortcut(mission) {
+    const id = mission && mission.id != null ? String(mission.id).trim() : ''
+    if (!id) {
+      if (this.data.spaceNoticeShortcut) this.setData({ spaceNoticeShortcut: null })
+      this._spaceNoticeLookupKey = ''
+      return
+    }
+    if (this._spaceNoticeLookupKey === id) return
+    this._spaceNoticeLookupKey = id
+    lookupSpaceNoticeShortcut(id).then((hit) => {
+      if (this._spaceNoticeLookupKey !== id) return
+      this.setData({ spaceNoticeShortcut: hit || null })
+    })
+  },
+
+  async openSpaceNoticeMap() {
+    const shortcut = this.data.spaceNoticeShortcut
+    if (!shortcut) return
+    if (this._spaceNoticeGatePending) return
+    this._spaceNoticeGatePending = true
+    let allowed = false
+    try {
+      const { gateCheck } = require('../../utils/membership.js')
+      allowed = await gateCheck('space_notices', '发射通告地图')
+    } finally {
+      this._spaceNoticeGatePending = false
+    }
+    if (!allowed) return
+    const params = {}
+    if (shortcut.entryKey) params.entryKey = shortcut.entryKey
+    else if (shortcut.ll2Id) params.ll2Id = shortcut.ll2Id
+    if (!params.entryKey && !params.ll2Id) return
+    navigateTo(ROUTES.SPACE_NOTICE_MAP, params)
   },
 
   openAgencyDetail() {

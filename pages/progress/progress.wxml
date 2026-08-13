@@ -2,7 +2,6 @@
 <wxs module="navPad" src="/utils/nav-scroll-pad.wxs"></wxs>
 <view class="container {{themeClass}} tab-bg-video-host">
   <view class="tab-bg-shell" aria-hidden="true">
-    <view class="tab-bg-cover"></view>
     <view class="tab-bg-frost"></view>
   </view>
   <!-- 顶部导航栏 -->
@@ -133,6 +132,7 @@
     <progress-below-fold
       below-fold-sections-ready="{{belowFoldSectionsReady}}"
       enable-mission-sim="{{enableMissionSim}}"
+      enable-space-notices="{{enableSpaceNotices}}"
       show-launch-library-updates="{{showLaunchLibraryUpdates}}"
       ll2-launch-updates="{{ll2LaunchUpdates}}"
       ll2-launch-updates-error="{{ll2LaunchUpdatesError}}"

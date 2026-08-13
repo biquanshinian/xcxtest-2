@@ -10,7 +10,7 @@ const { resolveMediaUrl } = require('../../utils/image-config.js')
 const { getCachedMediaImage } = require('../../utils/icon-cache.js')
 const { togglePageTranslation, translateTextsSmart, isMostlyChinese } = require('./utils/text-translate.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
-const { isFavorite, toggleFavorite } = require('../../utils/favorites.js')
+const { isFavorite, toggleFavorite, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
 
 const B19_IMAGE_KEY = '最新版星舰组合体进展一二级图/b19_spacex3.webp'
 const S39_IMAGE_KEY = '最新版星舰组合体进展一二级图/s39_spacex.webp'
@@ -137,6 +137,7 @@ Page({
     })
     const id = Number(options && options.id)
     this._vehicleId = id
+    if (id || id === 0) syncFavoriteState(this, 'hardware', id)
 
     // 分享卡片 24h 免门控窗口：过期后走 gateCheck（会员放行，非会员弹开通引导）
     const shareAllowed = await checkShareEntryGate(this, options, 'starship_hardware', '星舰硬件设施')
@@ -151,6 +152,11 @@ Page({
       return
     }
     this.loadDetail(id)
+  },
+
+  onShow() {
+    const vid = (this.data.vehicle && this.data.vehicle.id) || this._vehicleId
+    if (vid != null && String(vid) !== '') syncFavoriteState(this, 'hardware', vid)
   },
 
   async loadDetail(id) {
@@ -282,22 +288,38 @@ Page({
       imageUrl: vehicle.displayImage || vehicle.rawImage || '',
       category: 'hardware'
     })
-    this.setData({ isFavorited: favorited, favAnimate: favorited })
+    pulseFavAnimate(this, favorited)
     wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
   },
 
   onShareAppMessage() {
+    const id = this._vehicleId
+    if (id == null || id === '' || Number.isNaN(Number(id))) {
+      return {
+        title: this._buildShareTitle(),
+        path: '/subpackages/progress-extra/hardware-list',
+        imageUrl: this._buildShareImage()
+      }
+    }
     return {
       title: this._buildShareTitle(),
-      path: withShareStampPath(`/subpackages/progress-extra/hardware-detail?id=${this._vehicleId}`, this),
+      path: withShareStampPath(`/subpackages/progress-extra/hardware-detail?id=${encodeURIComponent(id)}`, this),
       imageUrl: this._buildShareImage()
     }
   },
 
   onShareTimeline() {
+    const id = this._vehicleId
+    if (id == null || id === '' || Number.isNaN(Number(id))) {
+      return {
+        title: this._buildShareTitle(),
+        query: '',
+        imageUrl: this._buildShareImage()
+      }
+    }
     return {
       title: this._buildShareTitle(),
-      query: withShareStampQuery(`id=${this._vehicleId}`, this),
+      query: withShareStampQuery(`id=${encodeURIComponent(id)}`, this),
       imageUrl: this._buildShareImage()
     }
   }

@@ -115,7 +115,7 @@
       <text class="gc-fx-star gc-fx-star--5">✦</text>
       <text class="gc-fx-star gc-fx-star--6">✦</text>
     </view>
-    <view class="gc-flip-wrap" catchtap="onCloseCard">
+    <view class="gc-flip-wrap {{flipped ? 'gc-flip-wrap--punched' : ''}}" catchtap="onCloseCard">
       <view class="gc-flip {{flipped ? 'gc-flip--flipped' : ''}}">
         <view class="gc-face gc-face--back">
           <view class="gc-face-back-ring gc-face-back-ring--1"></view>

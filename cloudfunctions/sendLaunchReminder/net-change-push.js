@@ -1,17 +1,29 @@
 /**
- * NET 改期推送：launch_data.netChangePending → 服务号改期模板（B）+ 未发提醒的小程序订阅（A）。
+ * NET 改期推送：launch_data.netChangePending → 服务号改期模板（B 通道）。
  * 模板默认：工单处理通知 AUknDNSmaLhK2lN2Kzq0lHbBkaeYSmcAINelxcxc6yA
  *   项目名称 / 原日期 / 新日期 / 处理原因 / 单位名称
+ *
+ * 范围控制（防刷屏）：
+ * - 仅原时间或新时间落在未来 48h 近窗的任务才推（远期任务例行改期是噪音）
+ * - 按用户提醒偏好（型号/场站）过滤接收人，与 T-30 发射前提醒同一套口径
+ * - TBD / 粗精度占位新时间不推（新日期不可信，推了误导）
+ *
+ * A 通道（小程序订阅）不在此发送：一次性订阅额度必须留给新时间的正式 T-30 提醒，
+ * 改期对齐由 reconcilePendingSubscriptionsNotifyTimes + 发送前 resolveFreshLaunchMeta 完成。
  */
 const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const _ = db.command
 
+const { isNetChangeAnnouncable } = require('./pre-alert-gate.js')
+
 const LAUNCH_DATA_COLLECTION = 'launch_data'
-const SUBSCRIBE_COLLECTION = 'launch_subscriptions'
 const OA_PUSH_LEDGER = 'oa_push_ledger'
 const CHANNEL = 'net_change'
+/* SUBSCRIBE_COLLECTION 已移除：A 通道改期不再直接发送（见文件头说明） */
+/** 原/新 NET 距 now 在此窗内才向全体就绪用户播报改期 */
+const NET_CHANGE_NEAR_WINDOW_MS = 48 * 60 * 60 * 1000
 
 function toOaThingValue(ctx, value, fallback) {
   if (typeof ctx.toOaThingValue === 'function') return ctx.toOaThingValue(value, fallback)
@@ -143,10 +155,10 @@ async function sendNetChangeAlerts(ctx) {
       var sample = rows[0]
       if (sample && sample.launchTime) {
         var newMs = new Date(sample.launchTime).getTime()
-        var oldIso = new Date(newMs - 2 * 60 * 60 * 1000).toISOString()
+        var oldIsoSim = new Date(newMs - 2 * 60 * 60 * 1000).toISOString()
         launches = [
           Object.assign({}, sample, {
-            previousNet: oldIso,
+            previousNet: oldIsoSim,
             netChangePending: true,
             lastNetChangePushedKey: ''
           })
@@ -203,14 +215,23 @@ async function sendNetChangeAlerts(ctx) {
     }
   }
 
-  var oaReadyMp = new Set()
-  try {
-    var ready = ctx.gateOaReadySets(await ctx.loadOaReadyUserSets(), oaOk)
-    oaReadyMp = ready.mpSet || new Set()
-  } catch (e) {}
+  // 偏好过滤：与 T-30 发射前提醒同口径（未配置偏好 = 默认全推）
+  var prefsByMp = {}
+  if (oaOk && templateId && users.length && typeof ctx.loadReminderPrefsByMpOpenids === 'function') {
+    try {
+      prefsByMp = await ctx.loadReminderPrefsByMpOpenids(
+        users.map(function (u) {
+          return u && u.mpOpenid
+        })
+      )
+    } catch (ePrefs) {
+      prefsByMp = {}
+    }
+  }
 
   var reasonText =
     (ctx.getOaNetChangeReasonText && ctx.getOaNetChangeReasonText()) || '发射时间推迟'
+  var nowScopeMs = Date.now()
 
   for (var li = 0; li < launches.length; li++) {
     var launch = launches[li]
@@ -234,6 +255,28 @@ async function sendNetChangeAlerts(ctx) {
     ) {
       await clearNetChangePending(missionId, netKey)
       continue
+    }
+
+    // 近窗范围：原时间或新时间在未来 48h 内（原时间已过也算「曾经临近」）；
+    // 远期任务的例行改期不播报，只消费掉 pending 标记
+    if (!forced) {
+      var oldMsScope = oldIso ? new Date(oldIso).getTime() : 0
+      var newMsScope = newIso ? new Date(newIso).getTime() : 0
+      var nearOld = oldMsScope > 0 && oldMsScope - nowScopeMs <= NET_CHANGE_NEAR_WINDOW_MS
+      var nearNew = newMsScope > 0 && newMsScope - nowScopeMs <= NET_CHANGE_NEAR_WINDOW_MS
+      if (!nearOld && !nearNew) {
+        await clearNetChangePending(missionId, netKey)
+        stats.scopeSkipped = (stats.scopeSkipped || 0) + 1
+        continue
+      }
+      // 新时间不可信（TBD/占位精度）：不播报假日期，直接消费 pending——
+      // 留着会长期占用每轮 10 个扫描位；之后时间转可信必然伴随新一次 NET 变更，
+      // 届时会重新打标并按新 netKey 播报
+      if (!isNetChangeAnnouncable(launch)) {
+        await clearNetChangePending(missionId, netKey)
+        stats.unannouncableSkipped = (stats.unannouncableSkipped || 0) + 1
+        continue
+      }
     }
 
     stats.missions++
@@ -273,6 +316,18 @@ async function sendNetChangeAlerts(ctx) {
         if (ledgerDone.has(String(oaOpenid))) {
           stats.oaSkipped++
           continue
+        }
+        // 偏好过滤：只推给关注该型号/场站的用户（与 T-30 提醒同口径；无偏好=全推）
+        if (!forced && typeof ctx.launchMatchesReminderPrefs === 'function') {
+          var mpKeyNc = user.mpOpenid ? String(user.mpOpenid) : ''
+          var userPrefsNc =
+            mpKeyNc && Object.prototype.hasOwnProperty.call(prefsByMp, mpKeyNc)
+              ? prefsByMp[mpKeyNc]
+              : null
+          if (!ctx.launchMatchesReminderPrefs(launch, userPrefsNc)) {
+            stats.oaPrefSkipped = (stats.oaPrefSkipped || 0) + 1
+            continue
+          }
         }
         try {
           await ctx.sendOaTemplateMessage(oaOpenid, templateId, pagepath, templateData)
@@ -330,40 +385,10 @@ async function sendNetChangeAlerts(ctx) {
       }
     }
 
-    // A：仅非 OA 就绪、尚未发出射前提醒的订阅
-    try {
-      var subRes = await db
-        .collection(SUBSCRIBE_COLLECTION)
-        .where({ missionId: missionId, sent: false })
-        .limit(50)
-        .get()
-      var subs = subRes.data || []
-      for (var si = 0; si < subs.length; si++) {
-        var rec = subs[si]
-        if (!rec || !rec._openid) {
-          stats.mpSkipped++
-          continue
-        }
-        if (oaReadyMp.has(String(rec._openid))) {
-          stats.mpSkipped++
-          continue
-        }
-        try {
-          await ctx.sendSubscribeMessageByHttp(rec._openid, ctx.TEMPLATE_ID, '/pages/index/index', {
-            thing1: { value: toOaThingValue(ctx, missionLabel, '发射改期') },
-            time2: { value: newTimeOa },
-            thing3: { value: toOaThingValue(ctx, disp.rocketNameZh, '未知火箭') },
-            thing4: { value: '时间已改期' }
-          })
-          stats.mpSent++
-          await ctx.markReminderDone(rec._id, { keepForResult: Number(rec.resultQuota) > 0 })
-        } catch (mpErr) {
-          stats.mpFailed++
-        }
-      }
-    } catch (subErr) {
-      console.warn('[NetChange] A channel fail', subErr.message || subErr)
-    }
+    // A 通道（小程序订阅）不在此发送改期消息：一次性额度必须留给新时间的正式 T-30 提醒。
+    // 未发订阅的时点对齐由 reconcilePendingSubscriptionsNotifyTimes（每 tick，12h 视界）
+    // 与 sendPendingReminders 发送前 resolveFreshLaunchMeta 双重保障，无需在此烧额度。
+    stats.mpRealign = 'delegated_to_reconcile'
 
     if (!forced) await clearNetChangePending(missionId, netKey)
   }

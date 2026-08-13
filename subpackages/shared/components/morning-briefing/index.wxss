@@ -120,7 +120,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 40rpx 36rpx 28rpx;
+  /* 原顶栏约 156rpx（40+88+28），高度缩窄三分之一 → 104rpx；左右仍 36rpx */
+  padding: 18rpx 36rpx 16rpx;
   border-bottom: 1px solid var(--color-divider-faint);
   flex-shrink: 0;
 }
@@ -131,18 +132,28 @@
   color: var(--color-text-primary);
 }
 
-/* 可点区域 ≥ 约 44pt，整格可点避免点中空档 */
+/* 视觉 0.8（70rpx）；::after 把可点热区扩回约 88rpx，避免点空 */
 .popup-close {
   box-sizing: border-box;
   position: relative;
-  width: 88rpx;
-  height: 88rpx;
+  width: 70rpx;
+  height: 70rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 44rpx;
+  border-radius: 35rpx;
   background: var(--color-divider);
   flex-shrink: 0;
+}
+
+.popup-close::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 88rpx;
+  height: 88rpx;
+  transform: translate(-50%, -50%);
 }
 
 .popup-close--hover {
@@ -150,7 +161,7 @@
 }
 
 .popup-close-icon {
-  font-size: 28rpx;
+  font-size: 22rpx;
   color: var(--color-text-secondary);
   line-height: 1;
   pointer-events: none;

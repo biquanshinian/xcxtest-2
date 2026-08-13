@@ -4,6 +4,14 @@
     catchtap="onClose"
   >
     <view class="badge-modal-glow" wx:if="{{badge.unlocked}}"></view>
+    <view class="badge-sparks" wx:if="{{badge.isNewUnlock}}" aria-hidden="true">
+      <view class="badge-spark s1"></view>
+      <view class="badge-spark s2"></view>
+      <view class="badge-spark s3"></view>
+      <view class="badge-spark s4"></view>
+      <view class="badge-spark s5"></view>
+      <view class="badge-spark s6"></view>
+    </view>
     <image
       class="badge-modal-icon-img {{badge.isNewUnlock ? 'badge-modal-icon--entrance' : ''}}"
       src="{{badge.iconUrl}}"

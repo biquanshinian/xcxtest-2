@@ -240,12 +240,19 @@ const methods = {
       weekDots: dots,
       achievementInfo: achInfo,
       todayFact: result.fact,
-      showFactCard: false
+      showFactCard: false,
+      checkinPop: true,
+      streakPop: true
     })
 
     setTimeout(() => {
       this.setData({ showFactCard: true })
-    }, 300)
+    }, 280)
+    if (this._checkinPopTimer) clearTimeout(this._checkinPopTimer)
+    this._checkinPopTimer = setTimeout(() => {
+      this.setData({ checkinPop: false, streakPop: false })
+      this._checkinPopTimer = null
+    }, 700)
 
     if (achInfo.newlyUnlocked && achInfo.newlyUnlocked.length > 0) {
       const badge = achInfo.newlyUnlocked[0]

@@ -237,7 +237,7 @@ Component({
         var totalRatio = short ? 0.68 : 0.74
         var maxPopupTotal = Math.floor(wh * totalRatio - safeTop * 0.25 - safeBottom * 0.25)
         // 标题栏 + 分享按钮 + 内边距（经验 px，与 wxss 大致对齐）
-        var chromePx = 188
+        var chromePx = 162
         var h = maxPopupTotal - chromePx
         // 滚动区硬顶：约为屏高的 42%～46%，内容不多时少留大块空白
         var scrollCap = Math.floor(wh * (short ? 0.42 : 0.46))

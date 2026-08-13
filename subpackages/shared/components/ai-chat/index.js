@@ -1,4 +1,4 @@
-const { isAIAvailable, streamChat, QUICK_QUESTIONS, QUICK_SHORTCUTS } = require('../../utils/aiService.js')
+const { isAIAvailable, streamChat, streamChatWithTools, summarizeChatHistory, isXingwenAgentEnabled, QUICK_QUESTIONS, QUICK_SHORTCUTS } = require('../../utils/aiService.js')
 const { aiChatUiText, localizeQuickShortcuts, getAiChatShellTexts } = require('../../utils/ai-chat-i18n.js')
 const { getUpcomingMissions, getCompletedMissions, getUpcomingStarshipMissions } = require('../../../../utils/api-launch-list.js')
 const { getStarshipStatusFromDB } = require('../../../../utils/api-app-services.js')
@@ -13,8 +13,21 @@ const {
   applyReminderSubscribeStatus,
   enrichLaunchContextWithSetReminder
 } = require('../../utils/ai-chat-rich.js')
-const { subscribeLaunchForChat } = require('../../../../utils/subscribe.js')
+const { subscribeLaunchForChat, getSubscribedMissions } = require('../../../../utils/subscribe.js')
+const { loadPreferences } = require('../../../../utils/user-growth.js')
 const { shouldReplaceRocketImage } = require('../../../../utils/util.js')
+const {
+  createEmptySession,
+  decideXingwenRoute,
+  mergeSessionFromPayload,
+  formatSessionHint,
+  formatMemorySnapshot,
+  pickNextSubscribed,
+  buildPersonalizedShortcuts,
+  buildFollowupChips,
+  mergeExtractiveSummary
+} = require('../../utils/xingwen-session.js')
+const { buildXingwenToolList, onXingwenToolEvent } = require('../../utils/xingwen-agent-tools.js')
 const { markDownloadFailed } = require('../../../../utils/download-fail-cache.js')
 const { loadCloudMediaMap } = require('../../../../utils/image-config.js')
 const themeUtil = require('../../../../utils/theme.js')
@@ -39,7 +52,6 @@ const PANEL_HEIGHT_RATIO = 0.72
 /** 流式 setData 合并间隔：削峰防卡顿 */
 const STREAM_UI_MIN_MS = 48
 /** 流式轻震最小间隔：随字出现但不刷屏 */
-const STREAM_HAPTIC_MIN_MS = 120
 /** 固定文案打字机步进 */
 const TYPEWRITER_STEP_MS = 20
 
@@ -172,7 +184,9 @@ Component({
     festivalHatName: '',
     festivalHatTip: '',
     festivalHatDev: false,
-    festivalHatList: []
+    festivalHatList: [],
+    followupChips: [],
+    glowShortcutId: ''
   },
 
   lifetimes: {
@@ -199,6 +213,8 @@ Component({
         ui: getAiChatShellTexts()
       })
       this._initFestivalHat()
+      this._xingwenSession = createEmptySession()
+      this._refreshUserMemory()
       this._refreshQuickShortcuts()
       this._preloadLaunchData()
 
@@ -212,6 +228,10 @@ Component({
     detached() {
       this._stopFestivalHatDevCycle()
       this._abortStreamPresentation()
+      if (this._glowShortcutTimer) {
+        clearTimeout(this._glowShortcutTimer)
+        this._glowShortcutTimer = null
+      }
       // 键盘解绑由 composer-input-behavior 处理
     }
   },
@@ -223,6 +243,7 @@ Component({
       if (!isFestivalHatDevMode()) this._initFestivalHat()
       // 语言偏好 / 过审开关变更后回前台：刷新壳文案与快捷键
       this.setData({ ui: getAiChatShellTexts() })
+      this._refreshUserMemory()
       this._refreshQuickShortcuts()
     }
     // hide：键盘清零由 composer-input-behavior.pageLifetimes.hide 处理
@@ -239,6 +260,31 @@ Component({
 
     _isPageMode() {
       return this.data.isPageMode || String(this.properties.mode || '') === 'page'
+    },
+
+    _refreshUserMemory() {
+      let prefs = {}
+      try { prefs = loadPreferences() || {} } catch (e) { prefs = {} }
+      let subscribed = []
+      try { subscribed = getSubscribedMissions() || [] } catch (e) { subscribed = [] }
+      const next = pickNextSubscribed(subscribed)
+      let briefingHeadline = ''
+      try {
+        const cache = wx.getStorageSync('_briefing_cache')
+        if (cache && cache.headline) briefingHeadline = String(cache.headline)
+        else if (cache && cache.title) briefingHeadline = String(cache.title)
+        else if (cache && cache.lead) briefingHeadline = String(cache.lead)
+      } catch (e) {}
+      const memory = {
+        rocketTypes: Array.isArray(prefs.rocketTypes) ? prefs.rocketTypes : [],
+        launchSites: Array.isArray(prefs.launchSites) ? prefs.launchSites : [],
+        nextSubscribedName: next && (next.name || next.missionName) ? (next.name || next.missionName) : '',
+        nextSubscribedTime: next && next.launchTime ? next.launchTime : '',
+        subscribedCount: subscribed.length,
+        briefingHeadline: briefingHeadline
+      }
+      this._xingwenMemory = memory
+      this._xingwenMemoryText = formatMemorySnapshot(memory)
     },
 
     /**
@@ -260,10 +306,35 @@ Component({
       }
       flagPromise
         .then((on) => {
-          const next = filterQuickShortcuts(!!on)
-          if (next.length !== (this.data.quickShortcuts || []).length) {
-            this.setData({ quickShortcuts: next })
+          const base = filterQuickShortcuts(!!on)
+          const extra = buildPersonalizedShortcuts(this._xingwenMemory || {})
+          const seen = {}
+          const merged = []
+          extra.concat(base).forEach((item) => {
+            if (!item || !item.id || seen[item.id]) return
+            seen[item.id] = 1
+            merged.push(item)
+          })
+          const patch = { quickShortcuts: merged }
+          let glowId = ''
+          for (let i = 0; i < extra.length; i++) {
+            if (extra[i] && extra[i].id === 'mem_next_sub') {
+              glowId = 'mem_next_sub'
+              break
+            }
           }
+          if (!glowId && extra[0] && extra[0].id) glowId = extra[0].id
+          this._personalGlowSeen = this._personalGlowSeen || {}
+          if (glowId && !this._personalGlowSeen[glowId]) {
+            this._personalGlowSeen[glowId] = 1
+            patch.glowShortcutId = glowId
+            if (this._glowShortcutTimer) clearTimeout(this._glowShortcutTimer)
+            this._glowShortcutTimer = setTimeout(() => {
+              this._glowShortcutTimer = null
+              if (this.data.glowShortcutId === glowId) this.setData({ glowShortcutId: '' })
+            }, 1500)
+          }
+          this.setData(patch)
         })
         .catch(() => {})
         .then(() => { this._wpShortcutPending = false })
@@ -309,7 +380,7 @@ Component({
      */
     _tickStreamHaptic() {
       const now = Date.now()
-      if (this._lastStreamHapticAt && now - this._lastStreamHapticAt < STREAM_HAPTIC_MIN_MS) return
+      if (this._lastStreamHapticAt && now - this._lastStreamHapticAt < 220) return
       this._lastStreamHapticAt = now
       try { wx.vibrateShort({ type: 'light' }) } catch (e) {}
     },
@@ -317,6 +388,21 @@ Component({
     /** 抽卡落地：中度震一次（suggested 瞬时出卡 / 流式结束后挂卡共用） */
     _pulseCardHaptic() {
       try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+    },
+
+    /**
+     * 工具查询态：写独立 toolStatus，不占用气泡正文。
+     * 正式回答开始后由 _flushStreamUi / _finishStreamUi 清掉。
+     */
+    _setToolStatus(botIdx, label) {
+      const text = String(label || '').trim()
+      if (!text) return
+      const msg = (this.data.messages || [])[botIdx]
+      if (msg && msg.toolStatus === text) return
+      this._stickToBottom({
+        [`messages[${botIdx}].toolStatus`]: text,
+        [`messages[${botIdx}].typing`]: true
+      })
     },
 
     _flushStreamUi(force) {
@@ -344,11 +430,13 @@ Component({
       const prevLen = this._streamLastLen || 0
       const grew = content.length > prevLen
       this._streamLastLen = content.length
-      this._stickToBottom({
+      const patch = {
         [`messages[${botIdx}].content`]: content,
         [`messages[${botIdx}].typing`]: false,
         [`messages[${botIdx}].streaming`]: true
-      })
+      }
+      if (content) patch[`messages[${botIdx}].toolStatus`] = ''
+      this._stickToBottom(patch)
       if (grew) this._tickStreamHaptic()
     },
 
@@ -362,6 +450,8 @@ Component({
       this._flushStreamUi(true)
       const patch = Object.assign({
         [`messages[${botIdx}].streaming`]: false,
+        [`messages[${botIdx}].typing`]: false,
+        [`messages[${botIdx}].toolStatus`]: '',
         sending: false
       }, extraPatch || {})
       this._stickToBottom(patch)
@@ -606,7 +696,15 @@ Component({
       const q = e.currentTarget.dataset.q
       if (!q) return
       this.setData({ inputValue: q })
-      this._doSend(q)
+      this._doSend(q, { fromShortcut: true })
+    },
+
+    onFollowupChip(e) {
+      if (this.data.sending) return
+      const q = e.currentTarget.dataset.q
+      if (!q) return
+      this.setData({ inputValue: q, followupChips: [] })
+      this._doSend(q, { fromFollowup: true })
     },
 
     sendMessage() {
@@ -1211,9 +1309,71 @@ Component({
       this._rocketRetrying[retryKey] = false
     },
 
-    async _doSend(text) {
+    _attachXingwenMeta(launchContext) {
+      const base = launchContext && typeof launchContext === 'object' ? launchContext : {}
+      const session = this._xingwenSession || createEmptySession()
+      if (this._xingwenMemoryText) base.userMemory = this._xingwenMemoryText
+      const hint = formatSessionHint(session)
+      if (hint) base.sessionHint = hint
+      if (session.summary) base.historySummary = session.summary
+      return base
+    },
+
+    _resolveOpts(launchContext) {
+      return {
+        launchContext,
+        cached: this._cachedStarshipNext,
+        upcomingHint: this._cachedUpcoming,
+        completedHint: this._cachedCompleted,
+        trackedId: this._trackedStarshipLaunchId || '',
+        cachedStatus: this._cachedStarshipStatus || null,
+        limit: 5
+      }
+    },
+
+    async _applySubscribeIfNeeded(rich) {
+      let richCards = Array.isArray(rich.cards) ? rich.cards.slice() : []
+      let launchContext = rich.launchContext
+      if (rich.subscribeMission && rich.subscribeMission.id) {
+        try {
+          const sub = await subscribeLaunchForChat(rich.subscribeMission, { quiet: true })
+          const status = (sub && sub.status) || (sub && sub.ok ? 'success' : 'failed')
+          richCards = richCards.map((c) => {
+            if (!c || c.cardType !== 'reminder') return c
+            return applyReminderSubscribeStatus(c, status)
+          })
+          const reminderCard = richCards.find((c) => c && c.cardType === 'reminder')
+          if (reminderCard) {
+            launchContext = enrichLaunchContextWithSetReminder(launchContext, reminderCard)
+          }
+        } catch (subErr) {
+          richCards = richCards.map((c) => {
+            if (!c || c.cardType !== 'reminder') return c
+            return applyReminderSubscribeStatus(c, 'failed')
+          })
+          const reminderCard = richCards.find((c) => c && c.cardType === 'reminder')
+          if (reminderCard) {
+            launchContext = enrichLaunchContextWithSetReminder(launchContext, reminderCard)
+          }
+        }
+      }
+      const missionCard = richCards.find((c) => c && c.cardType === 'mission')
+      if (missionCard && Array.isArray(this._cachedUpcoming)) {
+        const hit = this._cachedUpcoming.find((m) => m && String(m.id) === String(missionCard.id))
+        if (hit) this._cachedStarshipNext = hit
+      }
+      return { cards: richCards, launchContext, intent: rich.intent, subscribeMission: rich.subscribeMission }
+    },
+
+    _commitSession(payload, text) {
+      this._xingwenSession = mergeSessionFromPayload(this._xingwenSession, payload, text)
+      this.setData({ followupChips: buildFollowupChips(this._xingwenSession, payload.cards) })
+    },
+
+    async _doSend(text, sendOpts) {
       if (this._sendLock || this.data.sending) return
       this._sendLock = true
+      sendOpts = sendOpts || {}
       try {
         this.triggerEvent('sharehint', { question: String(text || '').trim() })
       } catch (e) {}
@@ -1232,7 +1392,6 @@ Component({
             this._sendLock = false
             const recovered = await offerAiChatQuotaRecover({ offerUpgrade: true })
             if (!recovered) return
-            // 加次成功后继续发送
             this._sendLock = true
           }
         }
@@ -1246,13 +1405,18 @@ Component({
         }
       }
 
-      const userMsg = { id: nextMsgId(), role: 'user', content: text }
+      const userMsg = {
+        id: nextMsgId(),
+        role: 'user',
+        content: text
+      }
       const botMsg = {
         id: nextMsgId(),
         role: 'assistant',
         content: '',
         typing: true,
         streaming: false,
+        toolStatus: '',
         error: false,
         cards: []
       }
@@ -1266,87 +1430,113 @@ Component({
         messages,
         inputValue: '',
         sending: true,
+        followupChips: [],
         errorMsgId: ''
       })
 
-      const recentMessages = messages
+      const historyAll = messages
         .filter(m => !m.typing && m.content && !m.error)
         .map(m => ({ role: m.role, content: m.content }))
-        .slice(-(MAX_HISTORY_ROUNDS * 2))
-
-      let launchContext = this._getLaunchContext()
-      let richCards = []
-
-      try {
-        const rich = await resolveRichChatPayload(text, {
-          launchContext,
-          cached: this._cachedStarshipNext,
-          upcomingHint: this._cachedUpcoming,
-          completedHint: this._cachedCompleted,
-          trackedId: this._trackedStarshipLaunchId || '',
-          cachedStatus: this._cachedStarshipStatus || null,
-          limit: 5
-        })
-        richCards = Array.isArray(rich.cards) ? rich.cards : []
-        launchContext = rich.launchContext
-        // 「提醒我一下」：发送手势链路内自动开提醒，并刷新成功卡
-        if (rich.subscribeMission && rich.subscribeMission.id) {
-          try {
-            const sub = await subscribeLaunchForChat(rich.subscribeMission, { quiet: true })
-            const status = (sub && sub.status) || (sub && sub.ok ? 'success' : 'failed')
-            richCards = richCards.map((c) => {
-              if (!c || c.cardType !== 'reminder') return c
-              return applyReminderSubscribeStatus(c, status)
+      const recentMessages = historyAll.slice(-(MAX_HISTORY_ROUNDS * 2))
+      if (historyAll.length > MAX_HISTORY_ROUNDS * 2) {
+        const dropped = historyAll.slice(0, historyAll.length - MAX_HISTORY_ROUNDS * 2)
+        this._xingwenSession = this._xingwenSession || createEmptySession()
+        this._xingwenSession.summary = mergeExtractiveSummary(this._xingwenSession.summary, dropped)
+        if (!this._summaryInflight && dropped.length >= 4) {
+          this._summaryInflight = true
+          summarizeChatHistory(dropped)
+            .then((s) => {
+              if (s && this._xingwenSession) this._xingwenSession.summary = String(s).slice(0, 400)
             })
-            const reminderCard = richCards.find((c) => c && c.cardType === 'reminder')
-            if (reminderCard) {
-              launchContext = enrichLaunchContextWithSetReminder(launchContext, reminderCard)
-            }
-          } catch (subErr) {
-            richCards = richCards.map((c) => {
-              if (!c || c.cardType !== 'reminder') return c
-              return applyReminderSubscribeStatus(c, 'failed')
-            })
-            const reminderCard = richCards.find((c) => c && c.cardType === 'reminder')
-            if (reminderCard) {
-              launchContext = enrichLaunchContextWithSetReminder(launchContext, reminderCard)
-            }
-          }
+            .catch(() => {})
+            .then(() => { this._summaryInflight = false })
         }
-        // 回写星舰下一飞缓存
-        const missionCard = richCards.find((c) => c && c.cardType === 'mission')
-        if (missionCard && Array.isArray(this._cachedUpcoming)) {
-          const hit = this._cachedUpcoming.find((m) => m && String(m.id) === String(missionCard.id))
-          if (hit) this._cachedStarshipNext = hit
-        }
-      } catch (e) {
-        richCards = []
       }
 
-      try {
-        // 有固定引导文案时不再走大模型；打字机出字 + 轻震，避免整段硬贴 / 与卡片矛盾
-        const suggested = launchContext && typeof launchContext.suggestedReply === 'string'
-          ? String(launchContext.suggestedReply).trim()
-          : ''
-        if (suggested) {
-          const patch = {}
-          if (richCards.length) patch[`messages[${botIdx}].cards`] = richCards
-          this._typewriterToken = (this._typewriterToken || 0) + 1
-          await this._playTypewriter(botIdx, suggested, {
-            token: this._typewriterToken,
-            patch: patch
-          })
-          if (richCards.length) this._pulseCardHaptic()
-        } else {
-          const finalText = await streamChat(recentMessages, (partial) => {
-            this._onStreamPartial(botIdx, partial)
-          }, launchContext)
+      let launchContext = this._attachXingwenMeta(this._getLaunchContext())
+      let richCards = []
+      let richPayload = { intent: null, cards: [], launchContext }
 
+      try {
+        let agentOn = true
+        try { agentOn = await isXingwenAgentEnabled() } catch (e) { agentOn = true }
+        const route = decideXingwenRoute({
+          text,
+          fromShortcut: !!sendOpts.fromShortcut,
+          fromFollowup: !!sendOpts.fromFollowup,
+          agentEnabled: agentOn,
+          session: this._xingwenSession || createEmptySession()
+        })
+
+        if (route.mode === 'agent') {
+          const collector = {
+            cards: [],
+            subscribeMission: null,
+            launchContext: launchContext,
+            intent: null
+          }
+          const tools = buildXingwenToolList({
+            resolveOpts: this._resolveOpts(launchContext),
+            session: this._xingwenSession,
+            collector,
+            onStatus: (label) => {
+              this._setToolStatus(botIdx, label)
+            }
+          })
+          const finalText = await streamChatWithTools(recentMessages, (partial) => {
+            this._onStreamPartial(botIdx, partial)
+          }, launchContext, {
+            tools,
+            onToolEvent: (ev) => onXingwenToolEvent(ev, (label) => this._setToolStatus(botIdx, label))
+          })
+          const applied = await this._applySubscribeIfNeeded({
+            cards: collector.cards,
+            launchContext: collector.launchContext || launchContext,
+            intent: collector.intent,
+            subscribeMission: collector.subscribeMission
+          })
+          richCards = applied.cards
+          launchContext = this._attachXingwenMeta(applied.launchContext)
+          richPayload = { intent: applied.intent, cards: richCards, launchContext }
           const patch = {}
           if (richCards.length) patch[`messages[${botIdx}].cards`] = richCards
           this._finishStreamUi(botIdx, finalText || '', patch)
           if (richCards.length) this._pulseCardHaptic()
+        } else {
+          const rich = await resolveRichChatPayload(route.queryText || text, Object.assign(
+            this._resolveOpts(launchContext),
+            { forcedIntent: route.forcedIntent || undefined, queryText: route.queryText }
+          ))
+          const applied = await this._applySubscribeIfNeeded(rich)
+          richCards = applied.cards
+          launchContext = this._attachXingwenMeta(applied.launchContext)
+          richPayload = { intent: applied.intent, cards: richCards, launchContext }
+
+          const suggested = launchContext && typeof launchContext.suggestedReply === 'string'
+            ? String(launchContext.suggestedReply).trim()
+            : ''
+          if (suggested) {
+            const patch = {}
+            if (richCards.length) patch[`messages[${botIdx}].cards`] = richCards
+            this._typewriterToken = (this._typewriterToken || 0) + 1
+            await this._playTypewriter(botIdx, suggested, {
+              token: this._typewriterToken,
+              patch: patch
+            })
+            if (richCards.length) this._pulseCardHaptic()
+          } else {
+            const finalText = await streamChat(recentMessages, (partial) => {
+              this._onStreamPartial(botIdx, partial)
+            }, launchContext)
+            // streamChat → _onStreamPartial → _tickStreamHaptic()
+            const patch = {}
+            if (richCards.length) patch[`messages[${botIdx}].cards`] = richCards
+            this._finishStreamUi(botIdx, finalText || '', patch)
+            if (richCards.length) this._pulseCardHaptic()
+          }
         }
+
+        this._commitSession(richPayload, text)
 
         if (membershipOn) {
           recordAiChatUse()
@@ -1355,17 +1545,18 @@ Component({
         }
       } catch (err) {
         const errorText = err.message || aiChatUiText('errDefaultReply')
-        // 报错气泡带「重试」按钮，同样要滚进视野
         this._abortStreamPresentation()
-        this._stickToBottom({
+        const patch = {
           [`messages[${botIdx}].content`]: errorText,
           [`messages[${botIdx}].typing`]: false,
           [`messages[${botIdx}].streaming`]: false,
+          [`messages[${botIdx}].toolStatus`]: '',
           [`messages[${botIdx}].error`]: true,
           [`messages[${botIdx}].cards`]: [],
           errorMsgId: (messages[botIdx] && messages[botIdx].id) || '',
           sending: false
-        })
+        }
+        this._stickToBottom(patch)
       } finally {
         this._sendLock = false
       }
@@ -1424,7 +1615,12 @@ Component({
           completed = this._cachedCompleted.slice(0, 5)
         }
 
-        if (!countdown && !upcoming.length && !completed.length) return null
+        if (!countdown && !upcoming.length && !completed.length) {
+          if (this._xingwenMemoryText || (this._xingwenSession && this._xingwenSession.lastIntent)) {
+            return { countdown: null, upcoming: [], completed: [] }
+          }
+          return null
+        }
 
         return {
           countdown,

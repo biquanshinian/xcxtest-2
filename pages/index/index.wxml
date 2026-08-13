@@ -80,7 +80,7 @@
       <view class="mission-swipe-btn mission-swipe-btn--bell {{item.reminderOn ? 'mission-swipe-btn--on-bell' : ''}}" catchtap="onMissionSwipeSubscribeTap" data-id="{{item.id}}">
         <view class="mission-swipe-btn-stack">
           <view class="mission-swipe-btn-grow" style="{{mswipe.btnGrowStyle(item._wxkey, swipeOpenKey, swipeDragKey, swipeDragPx, swipeActionW, 0, 'bell')}}">
-            <view class="icon-bell icon-bell--countdown {{item.reminderOn ? 'bell-on' : 'bell-off'}}"></view>
+            <view class="icon-bell icon-bell--countdown {{item.reminderOn ? 'bell-on' : 'bell-off'}} {{_bellRing && bellRingId == item.id ? 'icon-bell--ring' : ''}}"></view>
           </view>
           <text class="mission-swipe-btn-label">{{langRemind}}</text>
         </view>
@@ -115,7 +115,6 @@
 
 <view class="container {{themeClass}} tab-bg-video-host">
   <view class="tab-bg-shell" aria-hidden="true">
-    <view class="tab-bg-cover"></view>
     <view class="tab-bg-frost"></view>
   </view>
   <!-- 顶部导航栏（包含状态栏） -->
@@ -216,7 +215,7 @@
         <view class="countdown-card-main" bindtap="onCountdownCardTap" data-id="{{launchData.id}}">
           <view class="countdown-visual-row">
             <view
-              class="countdown-rocket-wrap {{enableLiveEntry && isChannelsLive ? 'is-live' : ''}} {{channelsLiveAnimPaused ? 'is-paused' : ''}} {{isEnteringLive ? 'is-entering' : ''}}"
+              class="countdown-rocket-wrap {{enableLiveEntry && isChannelsLive ? 'is-live' : ''}} {{countdownT10 && !(enableLiveEntry && isChannelsLive) ? 'is-t10' : ''}} {{channelsLiveAnimPaused ? 'is-paused' : ''}} {{isEnteringLive ? 'is-entering' : ''}}"
               catchtap="onCountdownLiveAvatarTap"
             >
               <view wx:if="{{enableLiveEntry && isChannelsLive}}" class="cd-live-ripple cd-live-ripple--1"></view>
@@ -372,6 +371,7 @@
             <!-- 竞猜：index-extra 组件 -->
             <index-vote-box
               theme-class="{{themeClass}}"
+              launch-id="{{voteLaunchId}}"
               slot-visible="{{voteSlotVisible}}"
               cd-expired="{{countdown.isExpired}}"
               cd-unknown="{{countdownTimeUnknown}}"
@@ -390,7 +390,7 @@
             <view wx:if="{{!(!countdown.isExpired && !countdownTimeUnknown && voteSlotVisible)}}" class="vote-box-placeholder"></view>
             <!-- 中：铃铛 -->
             <view class="cd-icon-btn" catchtap="onCountdownRemind">
-              <view class="icon-bell icon-bell--countdown {{_countdownSubscribed ? 'bell-on' : 'bell-off'}}"></view>
+              <view class="icon-bell icon-bell--countdown {{_countdownSubscribed ? 'bell-on' : 'bell-off'}} {{_bellRing && bellRingId == launchData.id ? 'icon-bell--ring' : ''}}"></view>
             </view>
             <!-- 右：分享箭头 -->
             <view class="cd-icon-btn cd-share-btn-wrap">
@@ -599,7 +599,9 @@
                   swipeDragPx: missionSwipeDragPx,
                   swipeActionW: missionSwipeActionWidthPx,
                   langRemind: langRemind,
-                  langPin: langPin
+                  langPin: langPin,
+                  _bellRing: _bellRing,
+                  bellRingId: bellRingId
                 }}"
               />
             </block>

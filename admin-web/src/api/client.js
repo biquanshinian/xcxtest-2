@@ -149,6 +149,15 @@ export const api = {
   listSplashUpcomingMissions() {
     return request('/starship/splash/upcoming-missions', { method: 'GET' })
   },
+  listOrbitPanoPreviousMissions() {
+    return request('/orbit-pano/previous-missions', { method: 'GET' })
+  },
+  getOrbitPano() {
+    return request('/orbit-pano', { method: 'GET' })
+  },
+  updateOrbitPano(body) {
+    return request('/orbit-pano', { method: 'PUT', body })
+  },
   listChecklistHistory(query) {
     return request('/starship/checklist-history', { method: 'GET', query })
   },

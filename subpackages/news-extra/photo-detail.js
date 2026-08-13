@@ -141,7 +141,8 @@ Page({
             photoTotal: (snapItem.photos || []).length,
             galleryHeightRpx: snapItem.galleryHeightRpx || 686,
             shareTitle: `${snapItem.authorName || '航天摄影'} | 火星探索日志`,
-            shareImage: snapItem.coverThumb || snapItem.coverUrl || ''
+            shareImage: snapItem.coverThumb || snapItem.coverUrl || '',
+            navTitle: snapItem.authorName || '航天摄影'
           })
           opts = Object.assign({}, opts, { silent: true })
         }
@@ -166,7 +167,8 @@ Page({
         photoTotal: total,
         galleryHeightRpx: (item && item.galleryHeightRpx) || 686,
         shareTitle: `${(item && item.authorName) || '航天摄影'} | 火星探索日志`,
-        shareImage: (item && (item.coverThumb || item.coverUrl)) || ''
+        shareImage: (item && (item.coverThumb || item.coverUrl)) || '',
+        navTitle: (item && item.authorName) || '航天摄影'
       })
     } catch (error) {
       const msg = (error && (error.message || error.errMsg)) || '内容加载失败，请稍后重试'
@@ -307,7 +309,7 @@ Page({
     const shareDefault = resolveMediaUrl(NEWS_SHARE_DEFAULT_KEY, '')
     return {
       title: this.data.shareTitle || '航天摄影 | 火星探索日志',
-      path: `/subpackages/news-extra/photo-detail?id=${item.id || this._photoId || ''}`,
+      path: `/subpackages/news-extra/photo-detail?id=${encodeURIComponent(item.id || this._photoId || '')}`,
       imageUrl: item.coverThumb || this.data.shareImage || item.coverUrl || shareDefault
     }
   },
@@ -317,7 +319,7 @@ Page({
     const shareDefault = resolveMediaUrl(NEWS_SHARE_DEFAULT_KEY, '')
     return {
       title: this.data.shareTitle || '航天摄影 | 火星探索日志',
-      query: `id=${item.id || this._photoId || ''}`,
+      query: `id=${encodeURIComponent(item.id || this._photoId || '')}`,
       imageUrl: item.coverThumb || this.data.shareImage || item.coverUrl || shareDefault
     }
   }

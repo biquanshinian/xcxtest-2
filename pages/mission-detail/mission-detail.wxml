@@ -73,6 +73,22 @@
           <view class="hero-float hero-float--flush">
             <view class="hero-image-wrap hero-float-card">
               <image class="hero-image" src="{{mission.rocketImage}}" mode="widthFix" binderror="onHeroImageError"></image>
+              <!-- 头图左上角 360 环绕全景（后台绑定视频；行业通用动态图标） -->
+              <view
+                class="hero-pano-btn"
+                wx:if="{{orbitPanoEnabled}}"
+                hover-class="hero-pano-btn--pressed"
+                hover-stay-time="120"
+                catchtap="onTapOrbitPano"
+                aria-role="button"
+                aria-label="环绕全景"
+              >
+                <view class="hero-pano-orbit"></view>
+                <view class="hero-pano-orbit hero-pano-orbit--tilt"></view>
+                <view class="hero-pano-core">
+                  <text class="hero-pano-360">360</text>
+                </view>
+              </view>
               <!-- 头图右上：收藏 + 提醒铃铛 -->
               <view class="hero-overlay-top">
                 <view class="hero-overlay-right">
@@ -390,8 +406,8 @@
           </view>
         </view>
 
-        <view class="detail-section" wx:if="{{mission.mapLinkMeta && mission.mapLinkMeta.entries && mission.mapLinkMeta.entries.length > 0}}">
-          <text class="detail-section-title">发射场地图</text>
+        <view class="detail-section" wx:if="{{(mission.mapLinkMeta && mission.mapLinkMeta.entries && mission.mapLinkMeta.entries.length > 0) || spaceNoticeShortcut}}">
+          <text class="detail-section-title">{{mission.mapLinkMeta && mission.mapLinkMeta.entries && mission.mapLinkMeta.entries.length > 0 ? '发射场地图' : '发射通告'}}</text>
           <view class="mission-map-preview-wrap" wx:if="{{mapPreviewReady}}" bindtap="openFirstMapLink">
             <map
               class="mission-map-preview"
@@ -405,7 +421,8 @@
               enable-overlooking="false"
               enable-poi="{{false}}"
               show-compass="false"
-              layer-style="1"
+              enable-satellite="true"
+              setting="{{mapSetting}}"
             ></map>
             <view class="mission-map-overlay">
               <view class="mission-map-tap-hint">
@@ -417,9 +434,16 @@
             <view class="mission-map-site-dot"></view>
             <text class="mission-map-site-name">{{mapPreviewSiteName}}</text>
           </view>
-          <view class="mission-map-quick-links" wx:if="{{mapPreviewReady && mission.mapLinkMeta.entries.length > 1}}">
-            <view class="mission-map-quick-link" wx:for="{{mission.mapLinkMeta.entries}}" wx:key="key" wx:if="{{index > 0}}" bindtap="openMissionMapLink" data-path="{{item.path}}" data-query="{{item.query}}">
-              <text class="mission-map-quick-link-text">{{item.label}}</text>
+          <view class="mission-map-quick-links" wx:if="{{(mapPreviewReady && mission.mapLinkMeta && mission.mapLinkMeta.entries.length > 1) || spaceNoticeShortcut}}">
+            <block wx:if="{{mission.mapLinkMeta && mission.mapLinkMeta.entries}}">
+              <view class="mission-map-quick-link" wx:for="{{mission.mapLinkMeta.entries}}" wx:key="key" wx:if="{{index > 0}}" bindtap="openMissionMapLink" data-path="{{item.path}}" data-query="{{item.query}}">
+                <text class="mission-map-quick-link-text">{{item.label}}</text>
+                <text class="mission-map-quick-link-arrow">›</text>
+              </view>
+            </block>
+            <!-- SPACE_NOTICES_FEATURE：有通告才显示，点击走会员/广告门控 -->
+            <view class="mission-map-quick-link" wx:if="{{spaceNoticeShortcut}}" bindtap="openSpaceNoticeMap">
+              <text class="mission-map-quick-link-text">发射通告地图</text>
               <text class="mission-map-quick-link-arrow">›</text>
             </view>
           </view>

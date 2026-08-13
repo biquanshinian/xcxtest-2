@@ -2,7 +2,7 @@
  * 观礼通行证（现场扫码临时免除会员门控）
  *
  * 发放：观礼现场扫场次小程序码 → 云端按场次配置与发射时间窗发证（每人每场次一张）
- * 生效：gateCheck / canUsePaidCloudSync / AI 对话与识图次数等与 Pro 会员一视同仁
+ * 生效：gateCheck / canUsePaidCloudSync / AI 对话次数等与 Pro 会员一视同仁
  * 失效：到期自动失效；证由云端签发，全局开关关停或场次未开启通行证时不再发新证
  */
 const storageCache = require('./storage-sync-cache.js')

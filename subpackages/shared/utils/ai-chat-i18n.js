@@ -32,6 +32,7 @@ function aiChatUiText(key, vars) {
       ? 'Content is AI-generated for reference only and is not professional advice.'
       : '本服务由人工智能(AI)生成内容，结果仅供参考，不代表专业意见',
     thinkingPlaceholder: en ? 'Xingwen is thinking…' : '星问正在思考...',
+    recordingPlaceholder: en ? 'Release to send' : '松手发送，上滑取消',
     seeMoreOnHome: en ? 'See more on Home ›' : '查看首页更多 ›',
     seeMoreHistory: en ? 'Search more history ›' : '搜索更多历史 ›',
     retry: en ? 'Retry' : '重试',
@@ -69,6 +70,11 @@ function aiChatUiText(key, vars) {
     errAiUnavailable: en ? 'AI is unavailable' : 'AI功能不可用',
     errAiBusy: en ? 'AI is temporarily busy. Please try again later.' : 'AI服务暂时不可用，请稍后再试',
     errDefaultReply: en ? 'Sorry, I can’t answer right now. Please try again later.' : '抱歉，我暂时无法回答，请稍后再试。',
+    toastRecordFail: en ? 'Recording failed' : '录音失败',
+    toastAsrFail: en ? 'Didn’t catch that. Try again or type.' : '没听清，请再说一次或改用文字',
+    asrLoading: en ? 'Transcribing…' : '正在识别…',
+    recordAuthTitle: en ? 'Microphone access' : '需要麦克风权限',
+    recordAuthDesc: en ? 'Voice questions need the microphone. Enable it in Settings.' : '语音提问需要使用麦克风，请在设置中开启。',
 
     // 国家（展示用；筛选匹配仍用中文 key）
     countryGlobal: en ? 'Global' : '全球',

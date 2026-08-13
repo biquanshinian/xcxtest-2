@@ -19,6 +19,7 @@ const {
   buildRoadClosureState
 } = require('../../utils/progress-road-closure.js')
 const { isLiveEntryAllowed, isFeatureEnabled } = require('../../utils/feature-flags.js')
+const { isSpaceNoticesEnabled, lookupStarshipSpaceNotice, STARSHIP_NOTICE_FALLBACK_KEY } = require('../../utils/space-notices-feature.js')
 const { pickEventShareImageUrl, warmEventShareImage } = require('../../utils/event-share-image.js')
 const { SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL } = require('../../utils/agency-logo-overrides.js')
 const { optimizeImageUrl } = require('../../utils/cos-url.js')
@@ -175,6 +176,13 @@ Page({
     isFeatureEnabled('enableMissionSim', { failClosed: true, defaultOff: true }).then((on) => {
       if (on) this.setData({ enableMissionSim: true })
     }).catch(() => {})
+
+    // SPACE_NOTICES_FEATURE：星舰发射通告地图入口
+    isSpaceNoticesEnabled().then((on) => {
+      this.setData({ enableSpaceNotices: !!on })
+    }).catch(() => {
+      this.setData({ enableSpaceNotices: false })
+    })
 
     // 首屏关键路径：云媒体映射 → 星舰卡片数据（接 Tab 全屏加载门控）
     var self = this
@@ -413,6 +421,8 @@ Page({
     enableLiveEntry: false,
     // 星舰任务指挥室入口（enableMissionSim，failClosed）：过审时整卡隐藏
     enableMissionSim: false,
+    // SPACE_NOTICES_FEATURE：星舰发射通告地图入口卡
+    enableSpaceNotices: false,
     showEventShareSheet: false,
     showEventImageSavePicker: false,
     eventImageSaveThumbs: [],
@@ -797,6 +807,25 @@ Page({
       navigateTo(ROUTES.VEHICLE_TRACKER)
     } finally {
       this._vtGatePending = false
+    }
+  },
+
+  /** SPACE_NOTICES_FEATURE：直达当前星舰通告地图详情（会员 / 广告门控） */
+  async openStarshipSpaceNotices() {
+    if (!this.data.enableSpaceNotices) return
+    if (this._snGatePending) return
+    this._snGatePending = true
+    try {
+      const allowed = await gateCheck('space_notices', '发射通告地图')
+      if (!allowed) return
+      if (wx.vibrateShort) {
+        try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+      }
+      const hit = await lookupStarshipSpaceNotice()
+      const entryKey = (hit && hit.entryKey) || STARSHIP_NOTICE_FALLBACK_KEY
+      navigateTo(ROUTES.SPACE_NOTICE_MAP, { entryKey })
+    } finally {
+      this._snGatePending = false
     }
   },
 

@@ -93,9 +93,6 @@
           <el-input-number v-model="form.aiChatAdBonusPerWatch" :min="1" :max="1" />
           <el-text type="info" style="margin-left:12px">看完一条激励视频只解锁 1 次提问</el-text>
         </el-form-item>
-        <el-form-item label="AI 识图每日次数">
-          <el-input-number v-model="form.freeAiImageDaily" :min="0" :max="50" />
-        </el-form-item>
         <el-form-item label="广告解锁时长(分)">
           <el-input-number v-model="form.adUnlockMinutes" :min="1" :max="1440" />
         </el-form-item>
@@ -339,6 +336,7 @@ const form = reactive({
   enableEventVideo: true,
   enableMissionReplay: true,
   enableAIChat: true,
+  enableXingwenAgent: true,
   enableLunarWishes: true,
   enableAstroPhotos: false,
   enableMembership: false,
@@ -348,13 +346,13 @@ const form = reactive({
   enablePublishPanel: true,
   enableMissionSim: false,
   enableWatchParty: true,
+  enableOrbitPano: true,
   // 会员策略与流量
   mediaTrafficMode: 'normal',
   freeMissionListLimit: 10,
   freeEventListLimit: 5,
   freeAiChatDaily: 3,
   aiChatAdBonusPerWatch: 1,
-  freeAiImageDaily: 1,
   adUnlockMinutes: 10,
   enableMissionListGate: true,
   enableEventListGate: true,
@@ -378,6 +376,7 @@ const featureSwitches = [
   { field: 'enableEventVideo', label: '事件更新视频', desc: '关闭后隐藏事件视频、全站播放页与静音背景视频，方便过审' },
   { field: 'enableMissionReplay', label: '发射回放', desc: '关闭后任务详情页「观看回放」卡片（发射集锦 + 完整回放外链）隐藏，方便过审' },
   { field: 'enableAIChat', label: 'AI 太空助手（星问）', desc: '关闭后圆盘入口、首页放大镜与星问详情页均不可用（含分享直达）；一键过审时同步隐藏，方便过审' },
+  { field: 'enableXingwenAgent', label: '星问 Agent 工具循环', desc: '关闭后星问回退为纯正则出卡 + 混元润色，不走 Hy3 工具调用。字段缺省视为开启' },
   { field: 'enableLunarWishes', label: '月愿计划', desc: '关闭后 NASA 圆盘菜单中的月愿入口将隐藏，方便过审' },
   { field: 'enableAstroPhotos', label: '航天摄影', desc: '默认关闭；开启后新闻页显示「航天摄影」分区并允许用户投稿，过审期间请保持关闭' },
   { field: 'enableMembership', label: '会员系统（星际通行证）', desc: '关闭后隐藏所有付费入口，AI 保持 10 次/日免费额度' },
@@ -386,7 +385,8 @@ const featureSwitches = [
   { field: 'enableLiveWatch', label: '直播观看（监控中心）', desc: '关闭后监控中心与任务详情的视频号/B站直播入口隐藏；需「直播功能」未关' },
   { field: 'enablePublishPanel', label: '贴图讨论区', desc: '关闭后全站详情页底部的贴图讨论区组件将隐藏，方便过审' },
   { field: 'enableMissionSim', label: '星舰任务指挥室（互动模拟）', desc: '星舰进度页的发射流程互动模拟入口；默认关闭，建议过审通过后再灰度开启' },
-  { field: 'enableWatchParty', label: '火箭观礼', desc: '关闭后我的入口、任务详情入口、星问观礼卡、分享/扫码直达与全部公开接口均下线（failClosed），方便过审；与观礼页「一键关停」独立，过审请关本开关' }
+  { field: 'enableWatchParty', label: '火箭观礼', desc: '关闭后我的入口、任务详情入口、星问观礼卡、分享/扫码直达与全部公开接口均下线（failClosed），方便过审；与观礼页「一键关停」独立，过审请关本开关' },
+  { field: 'enableOrbitPano', label: '环绕全景', desc: '关闭后任务详情头图 360、Starbase 设施图入口、播放页与分享直达全部隐藏（failClosed），方便过审；环绕全景页「一键过审」写同一字段' }
 ]
 
 const AUDIT_FIELDS = [
@@ -402,10 +402,11 @@ const AUDIT_FIELDS = [
   'enableLiveWatch',
   'enablePublishPanel',
   'enableMissionSim',
-  'enableWatchParty'
+  'enableWatchParty',
+  'enableOrbitPano'
 ]
 
-const AUDIT_LABEL = '轮播图、开屏动画、事件更新视频（含播放页/背景视频）、发射回放、直播功能、AI 太空助手、月愿计划、每日太空简报、直播观看、贴图讨论区、火箭观礼（航天摄影、星舰任务指挥室默认保持关闭）'
+const AUDIT_LABEL = '轮播图、开屏动画、事件更新视频（含播放页/背景视频）、发射回放、直播功能、AI 太空助手、月愿计划、每日太空简报、直播观看、贴图讨论区、火箭观礼、环绕全景（航天摄影、星舰任务指挥室默认保持关闭）'
 
 const auditModeView = computed(() => AUDIT_FIELDS.every((f) => form[f] === false))
 
@@ -446,6 +447,7 @@ const handleAuditChange = async () => {
   form.enableLiveWatch = true
   form.enablePublishPanel = true
   form.enableWatchParty = true
+  form.enableOrbitPano = true
   await onSave()
   return false
 }
@@ -596,6 +598,7 @@ const load = async () => {
         enableEventVideo: data.enableEventVideo !== false,
         enableMissionReplay: data.enableMissionReplay !== false,
         enableAIChat: data.enableAIChat !== false,
+        enableXingwenAgent: data.enableXingwenAgent !== false,
         enableLunarWishes: data.enableLunarWishes !== false,
         // failClosed：默认关闭，只有显式 true 才算开启
         enableAstroPhotos: data.enableAstroPhotos === true,
@@ -609,12 +612,12 @@ const load = async () => {
         enableMissionSim: data.enableMissionSim === true,
         // 火箭观礼：字段缺省视为开启（与小程序 !== false 一致）；一键过审写入 false
         enableWatchParty: data.enableWatchParty !== false,
+        enableOrbitPano: data.enableOrbitPano !== false && data.orbitPanoEnabled !== false,
         mediaTrafficMode: mode,
         freeMissionListLimit: Number(data.freeMissionListLimit) > 0 ? Number(data.freeMissionListLimit) : 10,
         freeEventListLimit: Number(data.freeEventListLimit) > 0 ? Number(data.freeEventListLimit) : 5,
         freeAiChatDaily: Number.isFinite(Number(data.freeAiChatDaily)) ? Number(data.freeAiChatDaily) : 3,
         aiChatAdBonusPerWatch: 1,
-        freeAiImageDaily: Number.isFinite(Number(data.freeAiImageDaily)) ? Number(data.freeAiImageDaily) : 1,
         adUnlockMinutes: Number(data.adUnlockMinutes) > 0 ? Number(data.adUnlockMinutes) : 10,
         enableMissionListGate: data.enableMissionListGate !== false,
         enableEventListGate: data.enableEventListGate !== false,
@@ -678,8 +681,9 @@ onMounted(load)
 }
 
 .audit-card {
-  border: 1px solid var(--el-color-warning-light-5);
-  background: var(--el-color-warning-light-9);
+  border: 1px solid rgba(251, 191, 36, 0.42);
+  background: rgba(245, 158, 11, 0.14);
+  color: rgba(255, 255, 255, 0.92);
 }
 
 .audit-row {
@@ -704,16 +708,30 @@ onMounted(load)
 .audit-name {
   font-size: 16px;
   font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
 }
 
 .audit-desc {
-  color: var(--el-text-color-regular);
+  color: rgba(255, 255, 255, 0.72);
   font-size: 13px;
   line-height: 1.6;
 }
 
+.audit-desc :deep(b) {
+  color: #fbbf24;
+  font-weight: 600;
+}
+
 .audit-switch {
   flex-shrink: 0;
+}
+
+.audit-switch :deep(.el-switch__label) {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.audit-switch :deep(.el-switch__label.is-active) {
+  color: rgba(255, 255, 255, 0.92);
 }
 
 .section-card {

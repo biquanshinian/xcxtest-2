@@ -1,7 +1,9 @@
-const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, buildMapLayoutData, buildSelectionPatch, copyMapText, runMapRefresh } = require('./utils/map-page-common.js')
+const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, buildMapLayoutData, buildSelectionPatch, copyMapText, runMapRefresh, setMapSatelliteFromTap } = require('./utils/map-page-common.js')
 const { getStarshipStatusFromDB } = require('../../utils/api-app-services.js')
 const { STARBASE_CENTER, STARBASE_FACILITIES, toMarker } = require('./utils/map-scenes.js')
 const { getThemeClassSync, isLightSync, getPageBgSync } = require('../../utils/theme.js')
+const { isPlaybackAllowed } = require('../../utils/feature-flags.js')
+const { playOrbitPanoVideo, resolveOrbitPanoForStarbase } = require('./utils/orbit-pano.js')
 
 const STARSHIP_SHARED_TTL = 10 * 60 * 1000
 
@@ -39,6 +41,7 @@ Page({
     panelCollapsed: true,
     actionMenuCollapsed: true,
     isMomentsPreview: false,
+    orbitPanoEnabled: false,
     ...createMapBaseState({
       dataSourceText: 'starshipStatus 云数据库',
       dataUpdatedText: '待更新',
@@ -90,6 +93,33 @@ Page({
     } catch (e) {}
 
     this.loadLiveFacilityData()
+    this._syncOrbitPanoEntry()
+  },
+
+  onShow() {
+    this._syncOrbitPanoEntry(true)
+  },
+
+  _syncOrbitPanoEntry(forceRefresh) {
+    if (this.data.isMomentsPreview) {
+      this._orbitPanoItem = null
+      if (this.data.orbitPanoEnabled) this.setData({ orbitPanoEnabled: false })
+      return
+    }
+    Promise.all([
+      isPlaybackAllowed().catch(() => false),
+      resolveOrbitPanoForStarbase(!!forceRefresh)
+    ])
+      .then(([play, item]) => {
+        const ok = !!(play && item)
+        this._orbitPanoItem = ok ? item : null
+        if (!!this.data.orbitPanoEnabled === ok) return
+        this.setData({ orbitPanoEnabled: ok })
+      })
+      .catch(() => {
+        this._orbitPanoItem = null
+        if (this.data.orbitPanoEnabled) this.setData({ orbitPanoEnabled: false })
+      })
   },
 
 
@@ -218,6 +248,22 @@ Page({
 
   toggleActionMenuCollapsed() {
     this.setData({ actionMenuCollapsed: !this.data.actionMenuCollapsed })
+  },
+
+  setMapSatellite(e) {
+    setMapSatelliteFromTap(this, e)
+  },
+
+  /** 环绕全景：过审开关 + 会员/广告门控通过后才进播放页，不预热 mp4 */
+  async playOrbitPano() {
+    if (!this.data.orbitPanoEnabled || !this._orbitPanoItem) {
+      wx.showToast({ title: '功能暂未开放', icon: 'none' })
+      return
+    }
+    const query = this._shareQuery()
+    await playOrbitPanoVideo({
+      path: '/subpackages/progress-extra/starbase-map' + (query ? '?' + query : '')
+    }, this._orbitPanoItem)
   },
 
   _shareTitle() {

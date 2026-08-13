@@ -40,6 +40,25 @@
       </view>
     </view>
 
+    <!-- SPACE_NOTICES_FEATURE：星舰发射通告地图（与在轨追踪同款入口卡） -->
+    <view class="mission-sim-section" wx:if="{{enableSpaceNotices}}">
+      <view class="mission-sim-entry mission-sim-entry--wechat" bindtap="emitOpenStarshipSpaceNotices" hover-class="mission-sim-entry--pressed" hover-stay-time="120">
+        <view class="mission-sim-entry-glow"></view>
+        <view class="mission-sim-entry-left">
+          <view class="mission-sim-entry-tagrow">
+            <view class="mission-sim-entry-dot"></view>
+            <text class="mission-sim-entry-tag">SPACE NOTICES</text>
+          </view>
+          <text class="mission-sim-entry-title">星舰发射通告地图</text>
+          <text class="mission-sim-entry-desc">一键直达星舰发射 NOTAM / 航海危险区与飞行走廊</text>
+        </view>
+        <view class="mission-sim-entry-arrow">
+          <text>进入</text>
+          <text class="mission-sim-entry-arrow-icon">›</text>
+        </view>
+      </view>
+    </view>
+
     <!-- 在轨飞行器追踪（复用 mission-sim 入口卡样式，微信绿变体） -->
     <view class="mission-sim-section">
       <view class="mission-sim-entry mission-sim-entry--wechat" bindtap="emitOpenVehicleTracker" hover-class="mission-sim-entry--pressed" hover-stay-time="120">

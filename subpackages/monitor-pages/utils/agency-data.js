@@ -13,7 +13,9 @@ const { buildLl2ImageChain } = require('../../../utils/ll2-image.js')
 const CACHE_TTL_MS = 10 * 60 * 1000
 // v3: SpaceX logo 全局统一覆盖 + totalLaunchCount 排序，升版本让旧持久缓存失效
 // v4: 补全 CHNR/AP-MCSTA/PLA/TiSPACE 等图鉴显示名汉化
-const AGENCY_PERSIST_KEY = '_agency_list_persist_v4'
+// v5: 修复聚合缓存 __cacheMiss 被误判为全量（featured 15 家冒充完整列表持久化 24h），
+//     升版本作废所有已被污染的本地持久缓存
+const AGENCY_PERSIST_KEY = '_agency_list_persist_v5'
 const AGENCY_PERSIST_TTL_MS = 24 * 60 * 60 * 1000
 
 const TYPE_ZH = {
@@ -386,12 +388,17 @@ async function fetchAllAgencies() {
   addResults(firstFull && firstFull.results)
   if (byId.size === 0) throw new Error('agencies_unavailable')
 
-  const firstCount = (firstFull && firstFull.results && firstFull.results.length) || 0
-  const totalCount = (firstFull && typeof firstFull.count === 'number') ? firstFull.count : 0
+  // 关键：聚合缓存未命中时 getAgencies 不 reject，而是 resolve 空 results（__cacheMiss）。
+  // 必须按「聚合读取失败」处理，否则 featured 十几家会被标成全量、持久化 24h，
+  // 图鉴完整列表就只剩 15 家且不再重试
+  const fullOk = !!(firstFull && Array.isArray(firstFull.results) && firstFull.results.length > 0)
+  const firstCount = fullOk ? firstFull.results.length : 0
+  const totalCount = fullOk && typeof firstFull.count === 'number' ? firstFull.count : 0
 
-  if (firstCount < totalCount) {
+  const pageLimit = 100
+  let recoveredFromPages = false
+  if (fullOk && firstCount < totalCount) {
     let offset = firstCount
-    const pageLimit = 100
     const maxOffset = Math.min(totalCount + 100, 2000)
     while (offset < maxOffset) {
       try {
@@ -405,12 +412,32 @@ async function fetchAllAgencies() {
         break
       }
     }
+  } else if (!fullOk) {
+    // 聚合缓存缺失：探测 syncAgencies 同轮写入的分页缓存（limit=100）。
+    // offset=0 会被 getAgencies 改写回 400 聚合 key，故从 offset=100 起；
+    // offset=0 那一页由 request() 的候选 key 回退（limit 400→100）覆盖
+    let offset = pageLimit
+    for (let p = 0; p < 7; p++) {
+      try {
+        const page = await getAgencies({ featured: false, limit: pageLimit, offset })
+        const chunk = (page && page.results) || []
+        if (!chunk.length) break
+        recoveredFromPages = true
+        addResults(chunk)
+        offset += chunk.length
+        if (chunk.length < pageLimit || !page.next) break
+      } catch (e) {
+        break
+      }
+    }
   }
 
   const list = Array.from(byId.values()).map(formatAgency)
   list.sort(compareAgenciesByLaunchCount)
 
-  return { list, totalCount: totalCount || list.length, partial: !firstFull }
+  // partial=true → getAllAgencies 不落盘、不快速返回，每次进页都会重试云端
+  const partial = !(fullOk || recoveredFromPages)
+  return { list, totalCount: totalCount || list.length, partial }
 }
 
 /**
@@ -514,12 +541,14 @@ function _writeAgencyPersist(payload) {
 /** 全量列表（模块级内存缓存 10 分钟，页面间共享；并发去重；冷启动读本地持久缓存） */
 function getAllAgencies(options) {
   const opts = options || {}
-  if (!opts.forceRefresh && _cache && Date.now() - _cache.at < CACHE_TTL_MS) {
+  // partial（如监控页 featured 预览写入的十几家）不得冒充全量返回，
+  // 否则完整列表页「全部/政府/商业」只剩知名机构
+  if (!opts.forceRefresh && _cache && Date.now() - _cache.at < CACHE_TTL_MS && !_cache.partial) {
     return Promise.resolve(_cache)
   }
   if (!opts.forceRefresh) {
     const persist = _readAgencyPersist()
-    if (persist) {
+    if (persist && !persist.partial) {
       _cache = {
         list: persist.list,
         totalCount: persist.totalCount,
@@ -542,7 +571,8 @@ function getAllAgencies(options) {
   _inflight = fetchAllAgencies()
     .then((r) => {
       _cache = { list: r.list, totalCount: r.totalCount, partial: r.partial, at: Date.now() }
-      _writeAgencyPersist(_cache)
+      // 部分结果（聚合缓存未命中等）不落盘，保住上一份全量持久缓存供 stale 兜底
+      if (!r.partial) _writeAgencyPersist(_cache)
       _inflight = null
       return _cache
     })
@@ -553,6 +583,10 @@ function getAllAgencies(options) {
       const stale = _readAgencyPersist(true)
       if (stale) {
         return { list: stale.list, totalCount: stale.totalCount, partial: true, stale: true }
+      }
+      // 内存里若还有 featured 预览等部分结果，宁可先展示部分列表也不报错
+      if (_cache && _cache.list && _cache.list.length) {
+        return _cache
       }
       throw e
     })

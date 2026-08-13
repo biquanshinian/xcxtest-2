@@ -28,10 +28,28 @@ module.exports = Behavior({
     isMomentsPreview: false,
     themeClass: '',
     themeLight: false,
-    pageBgColor: '#000000'
+    pageBgColor: '#000000',
+    navTitle: ''
+  },
+
+  observers: {
+    navTitle(title) {
+      this.syncNativeNavTitle(title)
+    }
   },
 
   methods: {
+    /**
+     * 朋友圈单页走微信原生顶栏：把自定义 navTitle 同步过去，避免只显示 json 里的泛称。
+     */
+    syncNativeNavTitle(title) {
+      const t = String(title || '').trim()
+      if (!t) return
+      try {
+        wx.setNavigationBarTitle({ title: t, fail() {} })
+      } catch (_) {}
+    },
+
     /**
      * 同步当前主题到页面（onLoad 由 initUiShell 自动完成；
      * setTheme() 会遍历在栈页面即时刷新，一般无需手动调用）
@@ -81,6 +99,7 @@ module.exports = Behavior({
       update.pageBgColor = theme.getPageBgSync()
 
       this.setData(update)
+      if (this.data.navTitle) this.syncNativeNavTitle(this.data.navTitle)
       return layout
     },
 

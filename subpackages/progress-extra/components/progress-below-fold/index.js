@@ -19,7 +19,8 @@ Component({
     roadClosureSyncing: { type: Boolean, value: false },
     showLaunchLibraryUpdates: { type: Boolean, value: true },
     tabBarReservedHeight: { type: Number, value: 0 },
-    themeClass: { type: String, value: '' }
+    themeClass: { type: String, value: '' },
+    enableSpaceNotices: { type: Boolean, value: false }
   },
   methods: {
     _emit(name, e) {
@@ -32,6 +33,7 @@ Component({
     emitOpenRoadClosureDetail(e) { this._emit('openRoadClosureDetail', e) },
     emitOpenRoadClosureMap(e) { this._emit('openRoadClosureMap', e) },
     emitOpenVehicleTracker(e) { this._emit('openVehicleTracker', e) },
+    emitOpenStarshipSpaceNotices(e) { this._emit('openStarshipSpaceNotices', e) },
     emitOpenMissionSim(e) { this._emit('openMissionSim', e) },
     emitOnNsfChecklistExpandTap(e) { this._emit('onNsfChecklistExpandTap', e) },
     emitOnLl2TimelineExpandTap(e) { this._emit('onLl2TimelineExpandTap', e) },

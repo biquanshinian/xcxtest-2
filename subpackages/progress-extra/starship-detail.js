@@ -133,6 +133,12 @@ Page({
 
   onLoad(options) {
     this.initUiShell()
+    try {
+      wx.showShareMenu({
+        withShareTicket: true,
+        menus: ['shareAppMessage', 'shareTimeline']
+      })
+    } catch (_) {}
     const type = options && options.type === 'ship' ? 'ship' : 'booster'
     this.setData({ type })
     this.loadDetail(type)
@@ -183,9 +189,19 @@ Page({
 
   onShareAppMessage() {
     const title = (this.data.detail && this.data.detail.title) || (this.data.type === 'ship' ? '星舰飞船' : '超重型助推器')
+    const type = this.data.type === 'ship' ? 'ship' : 'booster'
     return {
       title: title + ' 进展详情 | 火星探索日志',
-      path: '/subpackages/progress-extra/starship-detail?type=' + this.data.type
+      path: '/subpackages/progress-extra/starship-detail?type=' + type
+    }
+  },
+
+  onShareTimeline() {
+    const title = (this.data.detail && this.data.detail.title) || (this.data.type === 'ship' ? '星舰飞船' : '超重型助推器')
+    const type = this.data.type === 'ship' ? 'ship' : 'booster'
+    return {
+      title: title + ' 进展详情 | 火星探索日志',
+      query: 'type=' + type
     }
   }
 })

@@ -8,7 +8,7 @@ const { openRocketModelDetail } = require('./utils/booster-nav.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
 const { translateRocketName } = require('../../utils/rocket-name-i18n.js')
 const { advanceImageFallback } = require('../../utils/ll2-image.js')
-const { isFavorite, toggleFavorite } = require('../../utils/favorites.js')
+const { isFavorite, toggleFavorite, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
 
 Page({
   behaviors: [pageBase],
@@ -33,8 +33,17 @@ Page({
   },
 
   async onLoad(options) {
-    var serial = options.serial ? decodeURIComponent(options.serial) : ''
+    var serial = ''
+    if (options && options.serial) {
+      try { serial = decodeURIComponent(String(options.serial)) } catch (e) { serial = String(options.serial) }
+    }
+    if (!serial && options && options.id) {
+      try { serial = decodeURIComponent(String(options.id)) } catch (e) { serial = String(options.id) }
+    }
+    serial = String(serial || '').trim()
     this.initUiShell()
+    this._serial = serial
+    if (serial) syncFavoriteState(this, 'booster', serial)
 
     // 分享卡片 24h 免门控窗口：过期后走 gateCheck（会员放行，非会员弹开通引导）
     var shareAllowed = await checkShareEntryGate(this, options, 'booster_genealogy', '全球可回收火箭族谱')
@@ -49,9 +58,13 @@ Page({
       return
     }
 
-    this._serial = serial
     this.setData({ loading: true, errorMessage: '', item: null, heroImageLoaded: false })
     this.loadDetail(serial, getApp())
+  },
+
+  onShow() {
+    const serial = (this.data.item && this.data.item.serial) || this._serial
+    if (serial) syncFavoriteState(this, 'booster', serial)
   },
 
   loadDetail(serial, app) {
@@ -365,7 +378,7 @@ Page({
       imageUrl: item.imageUrl || '',
       category: 'booster'
     })
-    this.setData({ isFavorited: favorited, favAnimate: favorited })
+    pulseFavAnimate(this, favorited)
     wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
   },
 

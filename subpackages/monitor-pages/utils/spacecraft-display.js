@@ -11,6 +11,7 @@ var { translateSpacecraftName } = require('../../../utils/space-terms-i18n.js')
 var { getCachedMediaImage } = require('../../../utils/icon-cache.js')
 var { optimizeImageUrl } = require('../../../utils/cos-url.js')
 var { proxiedImageUrl } = require('../../../utils/ll2-image.js')
+var gallerySearch = require('./gallery-search.js')
 
 var CACHE_KEY = '_spacecraft_list_v1'
 var CACHE_TTL = 24 * 60 * 60 * 1000
@@ -138,6 +139,16 @@ function buildSpacecraftCards(list, options) {
       agencyLogoUrl: mfrLogoUrl(s.agencyName || '', s.agencyAbbrev || ''),
       inUse: !!s.inUse,
       statusText: s.inUse ? '现役' : '退役',
+      searchText: gallerySearch.joinSearchText([
+        nameEn,
+        translateSpacecraftName(nameEn) || nameEn,
+        s.typeName || '',
+        typeDisplayName(s.typeName),
+        s.agencyName || '',
+        mfrDisplayName(s.agencyName || '', s.agencyAbbrev || ''),
+        s.agencyAbbrev || '',
+        s.inUse ? '现役|inuse' : '退役|retired'
+      ]),
       _imageChain: chain
     }
   })
@@ -206,6 +217,18 @@ function applySpacecraftFilter(cards, filterId) {
   })
 }
 
+function extraChipForFilter(filterId) {
+  if (!filterId || filterId === 'all') return null
+  if (filterId === 'inuse') return { id: 'inuse', label: '现役' }
+  if (filterId.indexOf('type:') === 0) {
+    return { id: filterId, label: typeDisplayName(filterId.slice(5)) }
+  }
+  if (filterId.indexOf('agency:') === 0) {
+    return { id: filterId, label: mfrDisplayName(filterId.slice(7)) }
+  }
+  return { id: filterId, label: filterId }
+}
+
 /** 汇总统计（现役 / 类型数 / 机构数） */
 function computeSpacecraftStats(cards) {
   var inUseCount = 0
@@ -233,6 +256,7 @@ module.exports = {
   buildSpacecraftFilterChips: buildSpacecraftFilterChips,
   buildSpacecraftAgencyChips: buildSpacecraftAgencyChips,
   applySpacecraftFilter: applySpacecraftFilter,
+  extraChipForFilter: extraChipForFilter,
   computeSpacecraftStats: computeSpacecraftStats,
   TAB_PREVIEW_COUNT: TAB_PREVIEW_COUNT
 }

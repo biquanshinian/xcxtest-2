@@ -12,6 +12,18 @@
       <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
     </view>
   </view>
+  <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" wx:if="{{mapActionTop > 0}}" style="top: {{mapActionTop}}px;">
+    <view class="map-action-header">
+      <text class="map-action-title">地图工具</text>
+      <view class="map-action-toggle-btn" bindtap="toggleActionMenuCollapsed"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
+    </view>
+    <view class="map-action-stack" wx:if="{{!actionMenuCollapsed}}">
+      <view class="map-action-type-row">
+        <view class="map-action-btn {{enableSatellite ? 'map-action-btn--active' : ''}}" bindtap="setMapSatellite" data-map-mode="satellite"><text>卫星</text></view>
+        <view class="map-action-btn {{!enableSatellite ? 'map-action-btn--active' : ''}}" bindtap="setMapSatellite" data-map-mode="standard"><text>平面</text></view>
+      </view>
+    </view>
+  </view>
 
   <map
     class="sn-map"
@@ -25,6 +37,8 @@
     enable-scroll="{{true}}"
     enable-zoom="{{true}}"
     show-location="{{false}}"
+    enable-satellite="{{enableSatellite}}"
+    setting="{{mapSetting}}"
   />
 
   <view class="sn-state glass-card" wx:if="{{loading || errorText}}">
@@ -90,7 +104,7 @@
         </view>
       </view>
 
-      <text class="sn-note">{{hasTrajectory ? '黄线与 space-notices.com Trajectory 同源（Ship 40）。点通告可高亮并定位，切「全程」看完整航迹。' : '本任务无飞行轨迹数据；地图展示 NOTAM / 航海危险区多边形。点通告可高亮并定位。'}}</text>
+      <text class="sn-note">{{hasTrajectory ? '黄线与 space-notices.com Trajectory 同源（Ship 40）。点通告可高亮并定位，切「发射区」聚焦场区细节。' : '本任务无飞行轨迹数据；地图展示 NOTAM / 航海危险区多边形。点通告可高亮并定位。'}}</text>
 
       <scroll-view scroll-y class="sn-list" enhanced="{{true}}" show-scrollbar="{{false}}">
         <view
