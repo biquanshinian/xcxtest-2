@@ -80,6 +80,19 @@ function decodePath(p) {
   }
 }
 
+function normalizeNoticeKey(k) {
+  return decodePath(String(k || ''))
+    .replace(/^\/notice\//, '')
+    .replace(/\/+$/, '')
+}
+
+/** 解析出的 id 必须对应当前 URL，避免 RSC 里串到别的 notice 对象 */
+function noticeKeysAlign(id, fallbackKey) {
+  if (!fallbackKey) return true
+  if (!id) return true
+  return normalizeNoticeKey(id) === normalizeNoticeKey(fallbackKey)
+}
+
 function noticeKeyFromPath(pathname) {
   // /notice/notam-YMMM-E2700%2F26 → notam-YMMM-E2700/26
   const raw = String(pathname || '')
@@ -220,6 +233,7 @@ function parseNoticeFromHtml(html, fallbackKey) {
   if (!obj || typeof obj !== 'object') return null
 
   const id = String(obj.id || fallbackKey || '')
+  if (fallbackKey && obj.id && !noticeKeysAlign(obj.id, fallbackKey)) return null
   const name = String(obj.name || id)
   const reason = String(obj.reason || '')
   const rawText = String(obj.rawText || '')
@@ -370,6 +384,8 @@ module.exports = {
   parseNoticeFromHtml,
   extractNoticeLinks,
   noticeKeyFromPath,
+  normalizeNoticeKey,
+  noticeKeysAlign,
   httpGet,
   mapPool
 }

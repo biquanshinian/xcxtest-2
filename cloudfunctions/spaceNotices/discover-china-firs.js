@@ -9,6 +9,9 @@
  * 2. sitemap 里全部中国 FIR（含港澳台）+ 溅落常用 RPHI
  * 3. 按情报区从 sitemap 最大编号往后扫，抓尚未编进 sitemap 的孤儿页
  *    （space-notices 对不存在的 URL 也返回 200，用 <title> 区分）
+ *
+ * 不把马尼拉 RPHI 整库灌进中国桶：溅落只收官网合集页已挂的那些。
+ * 已挂在 launch-* 条目上的中国 FIR 通告只打 chinaBulletin，不改 entryKey。
  */
 
 const {
@@ -16,8 +19,10 @@ const {
   httpGet,
   parseNoticeFromHtml,
   noticeKeyFromPath,
+  noticeKeysAlign,
   mapPool
 } = require('./fetch-external.js')
+const { CHINESE_COLLECTION_KEY } = require('./discover-entries.js')
 
 /** 大陆九区 + 港澳台。与客户端 china-filter FIR_LABELS 对齐（不含马尼拉） */
 const CHINA_FIR_CODES = [
@@ -35,9 +40,10 @@ const CHINA_FIR_CODES = [
   'VMMC',
   'RCAA'
 ]
-/** 文昌等任务的海外溅落航警，sitemap / 合集都会出现 */
+/** 文昌等任务的海外溅落：只从官网合集页收，不按 sitemap 整库灌入 */
 const SPLASH_FIR_CODES = ['RPHI', 'RPLI']
-const SCAN_FIR_CODES = CHINA_FIR_CODES.concat(SPLASH_FIR_CODES)
+/** 编号扫描 / sitemap 只走中国 FIR，避免马尼拉、日本等任务通告污染中国公告 */
+const SCAN_FIR_CODES = CHINA_FIR_CODES.slice()
 
 const FIR_SERIES_LETTER = {
   RPHI: 'B',
@@ -56,6 +62,14 @@ const SITEMAP_PATH = '/sitemap.xml'
 const SCAN_FIR_SET = {}
 SCAN_FIR_CODES.forEach((c) => {
   SCAN_FIR_SET[c] = true
+})
+const CHINA_FIR_SET = {}
+CHINA_FIR_CODES.forEach((c) => {
+  CHINA_FIR_SET[c] = true
+})
+const SPLASH_FIR_SET = {}
+SPLASH_FIR_CODES.forEach((c) => {
+  SPLASH_FIR_SET[c] = true
 })
 
 function currentNotamYear(now) {
@@ -102,18 +116,71 @@ function seriesLetterForFir(fir) {
 /**
  * 真通告：`<title>A3624/26 - NOTAM | Space Notices</title>`
  * 占位 200：`<title>Space Notices</title>`（站点对任意 notam-FIR-编号 都给 200）
+ * expectedSeries 存在时必须出现在标题里，避免扫到串页。
  */
-function titleIndicatesNotice(html) {
+function titleIndicatesNotice(html, expectedSeries) {
   const m = String(html || '').match(/<title>([^<]*)<\/title>/i)
   if (!m) return false
   const t = m[1].replace(/\s*\|\s*Space Notices\s*$/i, '').trim()
   if (!t) return false
   if (/^space notices$/i.test(t)) return false
+  if (expectedSeries) {
+    const want = String(expectedSeries).trim()
+    const compact = want.replace(/^([A-Z])0+(\d)/, '$1$2')
+    if (t.indexOf(want) < 0 && t.indexOf(compact) < 0) return false
+  }
   return true
 }
 
 function isScanFirCode(code) {
   return !!SCAN_FIR_SET[String(code || '').trim().toUpperCase()]
+}
+
+function isChinaFirCode(code) {
+  return !!CHINA_FIR_SET[String(code || '').trim().toUpperCase()]
+}
+
+function isChinaFirNoticeKey(noticeKey) {
+  const series = parseFirSeriesFromPath('/notice/' + String(noticeKey || '').replace(/^\/notice\//, ''))
+  return !!(series && isChinaFirCode(series.fir))
+}
+
+function isSplashFirNoticeKey(noticeKey) {
+  const series = parseFirSeriesFromPath('/notice/' + String(noticeKey || '').replace(/^\/notice\//, ''))
+  return !!(series && SPLASH_FIR_SET[series.fir])
+}
+
+function allowChinaIngestKey(noticeKey, collectionKeys) {
+  const key = String(noticeKey || '')
+  if (!key) return false
+  if (collectionKeys && collectionKeys[key]) return true
+  return isChinaFirNoticeKey(key)
+}
+
+function allowChinaIngestPath(path, collectionKeys) {
+  return allowChinaIngestKey(noticeKeyFromPath(path), collectionKeys)
+}
+
+/**
+ * 通告文档全局主键是 noticeKey。中国桶不能把 launch-* 的通告抢走，
+ * 具名任务可以把「未知发射」桶里的孤儿认领走。
+ */
+function resolveNoticeOwner(prevEntryKey, requestedEntryKey) {
+  const prev = String(prevEntryKey || '').trim()
+  const req = String(requestedEntryKey || '').trim()
+  if (!prev) return req
+  if (!req || prev === req) return prev
+  function rank(k) {
+    if (!k) return 0
+    if (k === CHINESE_COLLECTION_KEY) return 1
+    if (/^collection-/i.test(k)) return 2
+    return 3
+  }
+  return rank(req) > rank(prev) ? req : prev
+}
+
+function seriesLabel(letter, num, yy) {
+  return String(letter || 'A') + String(Math.max(0, Number(num) || 0)).padStart(4, '0') + '/' + String(yy || '')
 }
 
 /**
@@ -338,11 +405,12 @@ function noticeWindowEndMs(notice) {
   return end
 }
 
-/** 合集/sitemap/本轮扫到的，或窗口仍在（含结束后 14 天）→ 保留 */
+/** 合集页挂上的，或中国 FIR 且窗口仍在（含结束后 14 天）→ 保留。马尼拉等非中国 FIR 不靠「还没过期」留在中国桶。 */
 function shouldKeepStoredNotice(notice, discoveredSet, now, keepEndedMs) {
   const key = notice && notice.noticeKey
   if (!key) return false
   if (discoveredSet && discoveredSet[key]) return true
+  if (!isChinaFirNoticeKey(key)) return false
   const end = noticeWindowEndMs(notice)
   if (!end) return true
   const keep = Number(keepEndedMs) >= 0 ? Number(keepEndedMs) : KEEP_ENDED_MS
@@ -362,8 +430,13 @@ async function probeFirNoticePages(targets, opts) {
     if (!t || Date.now() > deadline) return
     try {
       const html = await httpGet(BASE + t.path)
-      const exists = titleIndicatesNotice(html)
-      const notice = exists ? parseNoticeFromHtml(html, noticeKeyFromPath(t.path)) : null
+      const series = seriesLabel(t.letter, t.num, t.yy)
+      const titleHit = titleIndicatesNotice(html, series)
+      let notice = null
+      if (titleHit) {
+        notice = parseNoticeFromHtml(html, noticeKeyFromPath(t.path))
+        if (notice && !noticeKeysAlign(notice.noticeKey, t.path)) notice = null
+      }
       completed.push({
         fir: t.fir,
         letter: t.letter,
@@ -371,7 +444,7 @@ async function probeFirNoticePages(targets, opts) {
         yy: t.yy,
         path: t.path,
         ok: true,
-        exists,
+        exists: titleHit,
         notice
       })
     } catch (e) {
@@ -407,6 +480,13 @@ module.exports = {
   seriesLetterForFir,
   titleIndicatesNotice,
   isScanFirCode,
+  isChinaFirCode,
+  isChinaFirNoticeKey,
+  isSplashFirNoticeKey,
+  allowChinaIngestKey,
+  allowChinaIngestPath,
+  resolveNoticeOwner,
+  seriesLabel,
   parseSitemapChinaNoticePaths,
   sitemapMaxByFir,
   lastmodByNoticeKey,

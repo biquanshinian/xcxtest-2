@@ -62,12 +62,31 @@ function testPureParsing() {
     '<url><loc>https://space-notices.com/notice/notam-ZLHW-A3378%2F26</loc><lastmod>2026-08-05T06:17:14.132Z</lastmod></url>',
     '<url><loc>https://space-notices.com/notice/notam-ZHWH-A3497%2F26</loc><lastmod>2026-08-10T08:58:07.427Z</lastmod></url>',
     '<url><loc>https://space-notices.com/notice/notam-YMMM-E2700%2F26</loc><lastmod>2026-08-01T00:00:00.000Z</lastmod></url>',
-    '<url><loc>https://space-notices.com/notice/nav-warning-HYDROPAC 2308/26</loc><lastmod>2026-08-12T00:00:00.000Z</lastmod></url>',
+    '<url><loc>https://space-notices.com/notice/notam-RPHI-B4090%2F26</loc><lastmod>2026-08-12T07:45:10.132Z</lastmod></url>',
     '</urlset>'
   ].join('')
   const smRows = chinaFirs.parseSitemapChinaNoticePaths(sitemapXml)
-  ok(smRows.length === 2 && smRows.some((r) => r.fir === 'ZLHW') && smRows.some((r) => r.fir === 'ZHWH'), 'sitemap 只收中国/溅落 FIR', smRows.map((r) => r.fir))
-  ok(!smRows.some((r) => r.fir === 'YMMM'), '澳洲 FIR 不进中国桶')
+  ok(smRows.length === 2 && smRows.some((r) => r.fir === 'ZLHW') && smRows.some((r) => r.fir === 'ZHWH'), 'sitemap 只收中国 FIR', smRows.map((r) => r.fir))
+  ok(!smRows.some((r) => r.fir === 'YMMM' || r.fir === 'RPHI'), '澳洲/马尼拉不进中国扫描')
+  ok(chinaFirs.allowChinaIngestKey('notam-RPHI-B4090/26', { 'notam-RPHI-B4090/26': true }), '合集页挂上的马尼拉溅落可收')
+  ok(!chinaFirs.allowChinaIngestKey('notam-RPHI-B4090/26', {}), '未上合集的马尼拉通告不收')
+  ok(chinaFirs.allowChinaIngestKey('notam-ZGZU-A2863/26', {}), '广州情报区可收')
+  ok(
+    chinaFirs.resolveNoticeOwner('launch-long-march-3be-tianlian-2-06', 'collection-chinese-unknown') ===
+      'launch-long-march-3be-tianlian-2-06',
+    '中国桶不能抢走任务通告'
+  )
+  ok(
+    chinaFirs.resolveNoticeOwner('collection-chinese-unknown', 'launch-long-march-3be-tianlian-2-06') ===
+      'launch-long-march-3be-tianlian-2-06',
+    '具名任务可认领孤儿通告'
+  )
+  ok(chinaFirs.resolveNoticeOwner('launch-a', 'launch-b') === 'launch-a', '任务之间不互抢')
+  ok(chinaFirs.titleIndicatesNotice('<title>A3624/26 - NOTAM | Space Notices</title>', 'A3624/26'), '标题带目标编号')
+  ok(!chinaFirs.titleIndicatesNotice('<title>A3624/26 - NOTAM | Space Notices</title>', 'A3497/26'), '标题对不上则拒收')
+  const { noticeKeysAlign } = require('../cloudfunctions/spaceNotices/fetch-external.js')
+  ok(noticeKeysAlign('notam-ZLHW-A3624/26', '/notice/notam-ZLHW-A3624%2F26'), '编号与路径对齐')
+  ok(!noticeKeysAlign('notam-ZGZU-A2863/26', '/notice/notam-ZLHW-A3624/26'), '串页 id 拒收')
   const plan = chinaFirs.pickProbeTargets({
     firs: ['ZLHW', 'ZHWH'],
     yy: '26',
@@ -89,6 +108,8 @@ function testPureParsing() {
   ok(chinaFirs.shouldKeepStoredNotice(future, {}, Date.parse('2026-08-14T00:00:00Z'), chinaFirs.KEEP_ENDED_MS), '未上合集的未来窗口不删')
   ok(!chinaFirs.shouldKeepStoredNotice(old, {}, Date.parse('2026-08-14T00:00:00Z'), chinaFirs.KEEP_ENDED_MS), '过期很久且不在发现集才删')
   ok(chinaFirs.shouldKeepStoredNotice(old, { 'notam-ZLHW-A0312/26': true }, Date.parse('2026-08-14T00:00:00Z'), chinaFirs.KEEP_ENDED_MS), '仍在 sitemap 的过期条保留到源站下架')
+  const rphi = { noticeKey: 'notam-RPHI-B3623/26', dates: [{ start: '2026-08-20T00:00:00Z', end: '2026-08-21T00:00:00Z' }] }
+  ok(!chinaFirs.shouldKeepStoredNotice(rphi, {}, Date.parse('2026-08-14T00:00:00Z'), chinaFirs.KEEP_ENDED_MS), '未上合集的马尼拉通告不靠窗口留在中国桶')
   const metaCn = parseEntryMeta(
     '<title>Chinese Notices - Unknown launches | Space Notices</title>2099-01-01T00:00 2026-08-17T02:53',
     CHINESE_COLLECTION_KEY
@@ -203,8 +224,9 @@ async function testLive() {
     const chinaFirs = require('../cloudfunctions/spaceNotices/discover-china-firs.js')
     const rows = await chinaFirs.fetchSitemapChinaNoticePaths()
     const firs = [...new Set(rows.map((r) => r.fir))]
-    ok(rows.length >= 40, `sitemap 中国/溅落 FIR 通告 ${rows.length} 条`)
+    ok(rows.length >= 40, `sitemap 中国 FIR 通告 ${rows.length} 条`)
     ok(firs.indexOf('ZLHW') >= 0 && firs.indexOf('ZWUQ') >= 0, 'sitemap 含兰州与乌鲁木齐', firs)
+    ok(firs.indexOf('RPHI') < 0, '中国扫描不含马尼拉整库', firs)
     ok(firs.filter((c) => /^Z/.test(c)).length >= 6, `大陆情报区 ${firs.filter((c) => /^Z/.test(c)).length} 个`, firs)
     const missHtml = await require('../cloudfunctions/spaceNotices/fetch-external.js').httpGet(
       'https://space-notices.com/notice/notam-ZLHW-A0001/26'

@@ -36,7 +36,7 @@ const {
 } = require('./seed-demo.js')
 const { loadLaunchesFromCache } = require('./read-ll2-cache.js')
 const { resolvePadCoords } = require('./pad-coords.js')
-const { extractNoticeLinks, noticeKeyFromPath, fetchNoticesByPaths } = require('./fetch-external.js')
+const { extractNoticeLinks, noticeKeyFromPath, fetchNoticesByPaths, mapPool } = require('./fetch-external.js')
 const { discoverEntrySlugs, fetchEntryPage, BASE, isCollectionKey, isChineseCollectionKey, CHINESE_COLLECTION_KEY } = require('./discover-entries.js')
 const chinaFirs = require('./discover-china-firs.js')
 const { matchEntryToLaunch } = require('./match-ll2.js')
@@ -109,6 +109,7 @@ function windowBoundsOf(notices) {
 /**
  * @param {object} opts
  * @param {boolean} [opts.forceWrite] 忽略 hash，强制覆盖
+ * @param {boolean} [opts.chinaBulletin] 纳入中国航警公告（不改变具名任务归属）
  * @returns {Promise<{ noticeKey: string, written: boolean, skipped: boolean }>}
  */
 async function upsertNotice(entryKey, notice, opts) {
@@ -129,16 +130,39 @@ async function upsertNotice(entryKey, notice, opts) {
     areas = prev.areas
   }
   const contentHash = noticeContentHash(notice, areas)
+  const nextEntryKey = chinaFirs.resolveNoticeOwner(prev && prev.entryKey, entryKey)
+  const chinaBulletin = !!(
+    (prev && prev.chinaBulletin) ||
+    isChineseCollectionKey(entryKey) ||
+    isChineseCollectionKey(nextEntryKey) ||
+    (opts && opts.chinaBulletin) ||
+    chinaFirs.isChinaFirNoticeKey(noticeKey)
+  )
+  const nextLl2 = String(ll2Id || (prev && prev.ll2Id) || '')
   // 老库文档只有 ll2Id 没有 entryKey，需强制改写一次完成 schema 升级
   const needsSchemaUpgrade = !!prev && !prev.entryKey
   if (!forceWrite && !needsSchemaUpgrade && prev && prev.contentHash === contentHash &&
       !!prev.cancelled === !!notice.cancelled) {
-    return { noticeKey, written: false, skipped: true }
+    const sameOwner = String(prev.entryKey || '') === String(nextEntryKey || '')
+    const sameFlag = !!prev.chinaBulletin === !!chinaBulletin
+    const sameLl2 = String(prev.ll2Id || '') === nextLl2
+    if (sameOwner && sameFlag && sameLl2) {
+      return { noticeKey, written: false, skipped: true }
+    }
+    const patch = stripDocMeta(Object.assign({}, prev, {
+      entryKey: nextEntryKey,
+      chinaBulletin,
+      ll2Id: nextLl2,
+      updatedAt: nowMs()
+    }))
+    await db.collection(NOTICE_COL).doc(docId).set({ data: patch })
+    return { noticeKey, written: true, skipped: false }
   }
   const data = {
     noticeKey,
-    entryKey: String(entryKey),
-    ll2Id: String(ll2Id || (prev && prev.ll2Id) || ''),
+    entryKey: String(nextEntryKey || entryKey),
+    chinaBulletin,
+    ll2Id: nextLl2,
     type: notice.type || 'NOTAM',
     name: notice.name || noticeKey,
     reason: notice.reason || '',
@@ -162,22 +186,81 @@ async function upsertNotice(entryKey, notice, opts) {
 const NOTICE_READ_PAGE = 100
 const NOTICE_READ_CAP = 400
 
-async function readNoticesOfEntry(entryKey) {
+async function queryNoticesWhere(where, cap) {
   const all = []
   let skip = 0
+  const limit = Math.min(NOTICE_READ_PAGE, Number(cap) || NOTICE_READ_CAP)
   for (;;) {
-    const res = await db
-      .collection(NOTICE_COL)
-      .where({ entryKey: String(entryKey) })
-      .skip(skip)
-      .limit(NOTICE_READ_PAGE)
-      .get()
+    let res
+    try {
+      res = await db
+        .collection(NOTICE_COL)
+        .where(where)
+        .orderBy('noticeKey', 'asc')
+        .skip(skip)
+        .limit(limit)
+        .get()
+    } catch (e) {
+      res = await db.collection(NOTICE_COL).where(where).skip(skip).limit(limit).get()
+    }
     const batch = (res.data || []).filter((n) => n && n.noticeKey !== STALE_DEMO_CORRIDOR_KEY)
     all.push(...batch)
-    if (batch.length < NOTICE_READ_PAGE || all.length >= NOTICE_READ_CAP) break
-    skip += NOTICE_READ_PAGE
+    if (batch.length < limit || all.length >= NOTICE_READ_CAP) break
+    skip += limit
   }
   return all.slice(0, NOTICE_READ_CAP)
+}
+
+async function readNoticesOfEntry(entryKey) {
+  return queryNoticesWhere({ entryKey: String(entryKey) })
+}
+
+function mergeNoticesByKey(lists) {
+  const map = {}
+  ;(lists || []).forEach((list) => {
+    ;(list || []).forEach((n) => {
+      if (n && n.noticeKey) map[n.noticeKey] = n
+    })
+  })
+  return Object.keys(map).map((k) => map[k])
+}
+
+/** 中国公告 = 桶内孤儿 ∪ 打了 chinaBulletin 的具名任务通告（不改对方 entryKey） */
+async function readChinaBulletinNotices() {
+  const owned = await readNoticesOfEntry(CHINESE_COLLECTION_KEY)
+  let flagged = []
+  try {
+    flagged = await queryNoticesWhere({ chinaBulletin: true })
+  } catch (e) {
+    flagged = []
+  }
+  return mergeNoticesByKey([owned, flagged])
+}
+
+async function lookupNoticeDoc(noticeKey) {
+  try {
+    const got = await db.collection(NOTICE_COL).doc(docIdOf(noticeKey)).get()
+    return (got && got.data) || null
+  } catch (e) {
+    return null
+  }
+}
+
+function noticeFromStored(d) {
+  if (!d) return null
+  return {
+    noticeKey: d.noticeKey,
+    type: d.type,
+    name: d.name,
+    reason: d.reason,
+    rawText: d.rawText,
+    areas: d.areas,
+    centerline: d.centerline,
+    dates: d.dates,
+    sourceName: d.sourceName,
+    sourceLink: d.sourceLink,
+    cancelled: d.cancelled
+  }
 }
 
 /** 源站已下架的航警从库里删掉，避免公告页残留。抓取不完整时不要调用。 */
@@ -406,30 +489,50 @@ async function pruneExpiredChinaNotices(slug, discoveredKeys) {
   ;(discoveredKeys || []).forEach((k) => {
     if (k) disc[String(k)] = true
   })
-  const stored = await readNoticesOfEntry(slug)
   const now = nowMs()
   let removed = 0
-  for (let i = 0; i < stored.length; i++) {
-    if (chinaFirs.shouldKeepStoredNotice(stored[i], disc, now, chinaFirs.KEEP_ENDED_MS)) continue
-    const key = stored[i] && stored[i].noticeKey
+  const owned = await readNoticesOfEntry(slug)
+  for (let i = 0; i < owned.length; i++) {
+    if (chinaFirs.shouldKeepStoredNotice(owned[i], disc, now, chinaFirs.KEEP_ENDED_MS)) continue
+    const key = owned[i] && owned[i].noticeKey
     if (!key) continue
     try {
       await db.collection(NOTICE_COL).doc(docIdOf(key)).remove()
       removed += 1
     } catch (e) { /* ignore */ }
   }
+  let flagged = []
+  try {
+    flagged = await queryNoticesWhere({ chinaBulletin: true })
+  } catch (e) {
+    flagged = []
+  }
+  for (let j = 0; j < flagged.length; j++) {
+    const n = flagged[j]
+    if (!n || !n.noticeKey) continue
+    if (isChineseCollectionKey(n.entryKey)) continue
+    if (chinaFirs.shouldKeepStoredNotice(n, disc, now, chinaFirs.KEEP_ENDED_MS)) continue
+    try {
+      const patch = stripDocMeta(Object.assign({}, n, { chinaBulletin: false, updatedAt: now }))
+      await db.collection(NOTICE_COL).doc(docIdOf(n.noticeKey)).set({ data: patch })
+    } catch (e) { /* ignore */ }
+  }
   return removed
 }
 
-async function writeNotices(slug, notices, ll2Id) {
+async function writeNotices(slug, notices, ll2Id, opts) {
   let written = 0
   let skipped = 0
   const errors = []
+  const forceBulletin = !!(opts && opts.chinaBulletin)
   for (let i = 0; i < (notices || []).length; i++) {
     const n = notices[i]
     if (!n || !n.noticeKey) continue
     try {
-      const r = await upsertNotice(slug, n, { ll2Id })
+      const r = await upsertNotice(slug, n, {
+        ll2Id,
+        chinaBulletin: forceBulletin || chinaFirs.isChinaFirNoticeKey(n.noticeKey)
+      })
       if (r.written) written += 1
       if (r.skipped) skipped += 1
     } catch (e) {
@@ -516,12 +619,18 @@ async function syncChineseCollection(slug, deadline) {
     })
   }
 
+  const collectionKeySet = {}
+  collectionPaths.map(noticeKeyFromPath).forEach((k) => {
+    if (k) collectionKeySet[k] = true
+  })
   const sitemapPaths = sitemapRows.map((r) => r.path)
   const probePaths = probeHits.map((r) => r.path)
-  const paths = chinaFirs.uniqueNoticePaths(collectionPaths.concat(sitemapPaths, probePaths))
+  const paths = chinaFirs
+    .uniqueNoticePaths(collectionPaths.concat(sitemapPaths, probePaths))
+    .filter((p) => chinaFirs.allowChinaIngestPath(p, collectionKeySet))
   const discoveredKeys = paths.map(noticeKeyFromPath).filter(Boolean)
 
-  const storedBefore = await readNoticesOfEntry(slug)
+  const storedBefore = await readChinaBulletinNotices()
   const have = {}
   storedBefore.forEach((n) => {
     if (n && n.noticeKey) have[n.noticeKey] = true
@@ -531,9 +640,27 @@ async function syncChineseCollection(slug, deadline) {
   let skipped = 0
   const parsedNotices = []
 
-  const probeParsed = probeHits.map((r) => r.notice).filter((n) => n && n.noticeKey)
+  const missing = discoveredKeys.filter((k) => !have[k])
+  if (missing.length) {
+    await mapPool(missing, 8, async (key) => {
+      const existing = await lookupNoticeDoc(key)
+      if (!existing || !existing.noticeKey) return
+      try {
+        const r = await upsertNotice(slug, noticeFromStored(existing), { chinaBulletin: true })
+        if (r.written) written += 1
+        if (r.skipped) skipped += 1
+        have[key] = true
+      } catch (e) {
+        errors.push(`${key}: ${(e && e.message) || String(e)}`)
+      }
+    })
+  }
+
+  const probeParsed = probeHits
+    .map((r) => r.notice)
+    .filter((n) => n && n.noticeKey && chinaFirs.allowChinaIngestKey(n.noticeKey, collectionKeySet))
   if (probeParsed.length) {
-    const w = await writeNotices(slug, probeParsed, '')
+    const w = await writeNotices(slug, probeParsed, '', { chinaBulletin: true })
     written += w.written
     skipped += w.skipped
     errors.push(...w.errors)
@@ -547,8 +674,11 @@ async function syncChineseCollection(slug, deadline) {
   const pending = chinaFirs.prioritizeFetchPaths(paths, { have, lastmodByKey })
   const fetchRes = await fetchNoticesByPaths(pending, { deadline })
   if (fetchRes.errors && fetchRes.errors.length) errors.push(...fetchRes.errors.slice(0, 5))
-  parsedNotices.push(...(fetchRes.notices || []))
-  const w2 = await writeNotices(slug, fetchRes.notices, '')
+  const fetchKeep = (fetchRes.notices || []).filter(
+    (n) => n && n.noticeKey && chinaFirs.allowChinaIngestKey(n.noticeKey, collectionKeySet)
+  )
+  parsedNotices.push(...fetchKeep)
+  const w2 = await writeNotices(slug, fetchKeep, '', { chinaBulletin: true })
   written += w2.written
   skipped += w2.skipped
   errors.push(...w2.errors)
@@ -559,7 +689,7 @@ async function syncChineseCollection(slug, deadline) {
     } catch (e) { /* 下一轮再对齐 */ }
   }
 
-  const stored = await readNoticesOfEntry(slug)
+  const stored = await readChinaBulletinNotices()
   const doc = finishChinaEntryDoc(meta, stored, prev, nextProbe)
   await upsertEntry(doc)
 
@@ -609,8 +739,14 @@ async function syncOneEntry(slug, launches, deadline) {
 
   const fetchRes = await fetchNoticesByPaths(paths, { deadline })
   if (fetchRes.errors && fetchRes.errors.length) errors.push(...fetchRes.errors.slice(0, 5))
+  const wantKeys = {}
+  paths.forEach((p) => {
+    const k = noticeKeyFromPath(p)
+    if (k) wantKeys[k] = true
+  })
+  const launchNotices = (fetchRes.notices || []).filter((n) => n && n.noticeKey && wantKeys[n.noticeKey])
 
-  const w = await writeNotices(slug, fetchRes.notices, ll2Id)
+  const w = await writeNotices(slug, launchNotices, ll2Id)
   const written = w.written
   const skipped = w.skipped
   if (w.errors.length) errors.push(...w.errors)
@@ -631,7 +767,7 @@ async function syncOneEntry(slug, launches, deadline) {
   return {
     entryKey: slug,
     fetched: paths.length,
-    parsed: fetchRes.notices.length,
+    parsed: launchNotices.length,
     written,
     skipped,
     errors: errors.slice(0, 5)
@@ -935,7 +1071,12 @@ async function getEntry(event) {
   if (!entryKey && !ll2Id) return { success: false, error: 'missing entryKey' }
 
   let entry = await findEntryDoc(entryKey, ll2Id)
-  let notices = entry ? await readNoticesOfEntry(entry.entryKey) : []
+  const loadNotices = async (ent) => {
+    if (!ent) return []
+    if (isChineseCollectionKey(ent.entryKey)) return readChinaBulletinNotices()
+    return readNoticesOfEntry(ent.entryKey)
+  }
+  let notices = await loadNotices(entry)
 
   const noticeHasGeom = (n) =>
     Array.isArray(n && n.areas) && n.areas.some((r) => Array.isArray(r) && r.length >= 3)
@@ -971,7 +1112,7 @@ async function getEntry(event) {
       if (target) await syncSpaceNotices({ entryKeys: [target], budgetMs: 40000 })
       else await syncSpaceNoticesThrottled({ force: true })
       entry = await findEntryDoc(target || entryKey, ll2Id)
-      notices = hydrateNoticeAreas(entry ? await readNoticesOfEntry(entry.entryKey) : [])
+      notices = hydrateNoticeAreas(await loadNotices(entry))
     } catch (e) { /* 用已有数据继续 */ }
   }
   if (!entry) return { success: false, error: 'not_found' }

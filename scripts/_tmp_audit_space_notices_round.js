@@ -117,6 +117,8 @@ check('中国航警每轮核对', /CHINESE_COLLECTION_KEY/.test(cfIndex) && /las
 check('中国航警超时补拉', /CHINA_BULLETIN_STALE_MS/.test(cfIndex) && /chinaStale/.test(cfIndex))
 check('中国情报区 sitemap+FIR 扫描', /discover-china-firs/.test(cfIndex) && /syncChineseCollection/.test(cfIndex) && /fetchSitemapChinaNoticePaths/.test(read('cloudfunctions/spaceNotices/discover-china-firs.js')))
 check('中国桶保留未上合集的未来窗口', /pruneExpiredChinaNotices/.test(cfIndex) && /shouldKeepStoredNotice/.test(cfIndex))
+check('通告归属不互抢', /resolveNoticeOwner/.test(read('cloudfunctions/spaceNotices/discover-china-firs.js')) && /chinaBulletin/.test(cfIndex) && /readChinaBulletinNotices/.test(cfIndex))
+check('解析拒收串页 id', /noticeKeysAlign/.test(cfFetch) && /allowChinaIngest/.test(cfIndex))
 check('列表中国卡写明核对节奏', /15 分钟核对一次/.test(listJs) && /chinaBulletin\.syncLine/.test(listWxml))
 check('监控卡改名发射航警地图', /发射航警地图/.test(read('subpackages/monitor-pages/components/monitor-core-sections/index.wxml')))
 check('监控卡中国卫星预览', /enable-satellite/.test(read('subpackages/monitor-pages/components/monitor-core-sections/index.wxml')) && /chinaPreviewLat/.test(read('subpackages/monitor-pages/components/monitor-core-sections/index.js')))
