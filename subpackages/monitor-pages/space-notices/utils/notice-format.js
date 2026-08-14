@@ -314,7 +314,7 @@ function decorateNotice(notice, hasGeometry, now) {
  * 源站没有推送，只能定时拉；哈希没变就告诉用户「没有新航警」。
  */
 function formatChinaBulletinSync(entry, now) {
-  const cadenceText = '约 15 分钟核对一次，有新航警才刷新'
+  const cadenceText = '约 15 分钟核对一次全国情报区，有新航警才刷新'
   const row = entry && typeof entry === 'object' ? entry : {}
   const checked = Number(row.lastCheckedAt) || Number(row.syncedAt) || 0
   const changed = Number(row.lastChangedAt) || 0

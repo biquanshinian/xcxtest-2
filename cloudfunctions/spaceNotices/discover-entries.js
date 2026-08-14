@@ -11,7 +11,7 @@ const { httpGet } = require('./fetch-external.js')
 const BASE = 'https://space-notices.com'
 /**
  * 首页只索引 launch-*。collection-* 多数是主题汇总（如 Starbase testing），
- * 不进轮转；中国航警合集除外——官网独立页，挂真实 NOTAM / 航海警告。
+ * 不进轮转；中国航警桶除外——入库时合集页 + sitemap 全国 FIR + 按编号扫描。
  * https://space-notices.com/entry/collection-chinese-unknown
  */
 const CHINESE_COLLECTION_KEY = 'collection-chinese-unknown'

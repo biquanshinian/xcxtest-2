@@ -364,10 +364,12 @@ module.exports = {
   BASE,
   WATCH_ENTRIES,
   MAX_NOTICES_PER_ENTRY,
+  FETCH_CONCURRENCY,
   fetchNoticesByPaths,
   fetchWatchedEntries,
   parseNoticeFromHtml,
   extractNoticeLinks,
   noticeKeyFromPath,
-  httpGet
+  httpGet,
+  mapPool
 }

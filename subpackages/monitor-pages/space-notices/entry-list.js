@@ -52,7 +52,7 @@ function decorateChinaCard(res) {
   const n = Number(row.noticeCount) || 0
   const found = !!row.found
   let sub
-  if (!found) sub = '兰州、武汉等情报区的临时危险区'
+  if (!found) sub = '覆盖全国情报区，含尚未上官网合集的未来窗口'
   else if (!n) sub = '这一轮没有中国区航警'
   else sub = n + ' 条临时危险区 · ' + sync.changeText
   return {
@@ -75,9 +75,9 @@ Page({
     totalCount: 0,
     chinaBulletin: {
       title: '中国航警公告',
-      sub: '兰州、武汉等情报区的临时危险区',
+      sub: '覆盖全国情报区，含尚未上官网合集的未来窗口',
       meta: '点开后会拉取最新航警',
-      syncLine: '约 15 分钟核对一次，有新航警才刷新'
+      syncLine: '约 15 分钟核对一次全国情报区，有新航警才刷新'
     },
     shareGateExpireAt: 0
   },

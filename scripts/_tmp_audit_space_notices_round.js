@@ -48,6 +48,7 @@ console.log('[1] files')
   'subpackages/monitor-pages/space-notices/utils/map-build.js',
   'subpackages/monitor-pages/space-notices/utils/api-space-notices.js',
   'subpackages/monitor-pages/space-notices/utils/flight13-trajectory.js',
+  'cloudfunctions/spaceNotices/discover-china-firs.js',
   'utils/space-notices-feature.js'
 ].forEach((f) => check(f, exists(f)))
 check('main-package api removed', !exists('utils/api-space-notices.js'))
@@ -114,7 +115,8 @@ check('列表中国通告入口', /openChinaMap/.test(listJs) && /中国航警�
 check('云函数置顶中国合集', /collection-chinese-unknown/.test(read('cloudfunctions/spaceNotices/discover-entries.js')) && /withPinnedEntries/.test(read('cloudfunctions/spaceNotices/discover-entries.js')) && /isCollectionKey/.test(cfIndex))
 check('中国航警每轮核对', /CHINESE_COLLECTION_KEY/.test(cfIndex) && /lastCheckedAt/.test(cfIndex) && /bulletinFingerprint/.test(cfIndex) && /lookupChinaBulletin/.test(cfIndex))
 check('中国航警超时补拉', /CHINA_BULLETIN_STALE_MS/.test(cfIndex) && /chinaStale/.test(cfIndex))
-check('中国合集全量抓取', /max:\s*100/.test(cfIndex) && /pruneNoticesNotIn/.test(cfIndex))
+check('中国情报区 sitemap+FIR 扫描', /discover-china-firs/.test(cfIndex) && /syncChineseCollection/.test(cfIndex) && /fetchSitemapChinaNoticePaths/.test(read('cloudfunctions/spaceNotices/discover-china-firs.js')))
+check('中国桶保留未上合集的未来窗口', /pruneExpiredChinaNotices/.test(cfIndex) && /shouldKeepStoredNotice/.test(cfIndex))
 check('列表中国卡写明核对节奏', /15 分钟核对一次/.test(listJs) && /chinaBulletin\.syncLine/.test(listWxml))
 check('监控卡改名发射航警地图', /发射航警地图/.test(read('subpackages/monitor-pages/components/monitor-core-sections/index.wxml')))
 check('监控卡中国卫星预览', /enable-satellite/.test(read('subpackages/monitor-pages/components/monitor-core-sections/index.wxml')) && /chinaPreviewLat/.test(read('subpackages/monitor-pages/components/monitor-core-sections/index.js')))

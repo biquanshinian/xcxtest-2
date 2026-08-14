@@ -46,7 +46,49 @@ function testPureParsing() {
   ok(pinned.indexOf('collection-starbase-testing') < 0, '不置顶其它 collection')
   const many = Array.from({ length: 40 }, (_, i) => `href="/notice/notam-ZLHW-A${i}/26"`).join(' ')
   ok(extractNoticeLinks(many).length === 28, '默认可截 28 条')
-  ok(extractNoticeLinks(many, { max: 100 }).length === 40, '中国合集可全量')
+  ok(extractNoticeLinks(many, { max: 100 }).length === 40, 'extractNoticeLinks 可抬到 100')
+  ok(extractNoticeLinks(many, { max: Infinity }).length === 40, 'max Infinity 不截断')
+
+  console.log('\n[2b] 中国情报区 sitemap / FIR 扫描')
+  const chinaFirs = require('../cloudfunctions/spaceNotices/discover-china-firs.js')
+  ok(chinaFirs.CHINA_FIR_CODES.indexOf('ZLHW') === 0, '扫描优先兰州情报区')
+  ok(chinaFirs.CHINA_FIR_CODES.indexOf('ZYSH') >= 0 && chinaFirs.CHINA_FIR_CODES.indexOf('RCAA') >= 0, '含沈阳与台北')
+  ok(chinaFirs.titleIndicatesNotice('<title>A3624/26 - NOTAM | Space Notices</title>'), '真通告 title')
+  ok(!chinaFirs.titleIndicatesNotice('<title>Space Notices</title>'), '占位 200 title 不算命中')
+  ok(chinaFirs.noticePathForSeries('ZLHW', 'A', 3624, '26') === '/notice/notam-ZLHW-A3624/26', '编号拼路径')
+  ok(chinaFirs.advanceContiguous(3379, [3380, 3381, 3383]) === 3381, 'scanned 只连续推进')
+  const sitemapXml = [
+    '<?xml version="1.0"?><urlset>',
+    '<url><loc>https://space-notices.com/notice/notam-ZLHW-A3378%2F26</loc><lastmod>2026-08-05T06:17:14.132Z</lastmod></url>',
+    '<url><loc>https://space-notices.com/notice/notam-ZHWH-A3497%2F26</loc><lastmod>2026-08-10T08:58:07.427Z</lastmod></url>',
+    '<url><loc>https://space-notices.com/notice/notam-YMMM-E2700%2F26</loc><lastmod>2026-08-01T00:00:00.000Z</lastmod></url>',
+    '<url><loc>https://space-notices.com/notice/nav-warning-HYDROPAC 2308/26</loc><lastmod>2026-08-12T00:00:00.000Z</lastmod></url>',
+    '</urlset>'
+  ].join('')
+  const smRows = chinaFirs.parseSitemapChinaNoticePaths(sitemapXml)
+  ok(smRows.length === 2 && smRows.some((r) => r.fir === 'ZLHW') && smRows.some((r) => r.fir === 'ZHWH'), 'sitemap 只收中国/溅落 FIR', smRows.map((r) => r.fir))
+  ok(!smRows.some((r) => r.fir === 'YMMM'), '澳洲 FIR 不进中国桶')
+  const plan = chinaFirs.pickProbeTargets({
+    firs: ['ZLHW', 'ZHWH'],
+    yy: '26',
+    sitemapMax: { ZLHW: 3379, ZHWH: 3497 },
+    state: { yy: '26', cursors: {} },
+    budget: 260
+  })
+  ok(plan.targets[0] && plan.targets[0].fir === 'ZLHW' && plan.targets[0].num === 3380, '从 sitemap 最大编号之后扫', plan.targets[0])
+  ok(plan.targets.some((t) => t.fir === 'ZLHW' && t.num === 3624), '一轮能扫到 A3624', plan.targets.length)
+  ok(plan.nextState.cursors.ZLHW.scanned === 3379, '计划前 scanned 落在 sitemap 最大号')
+  const after = chinaFirs.applyProbeResults(plan.nextState, [
+    { fir: 'ZLHW', num: 3624, ok: true, exists: true },
+    { fir: 'ZLHW', num: 3380, ok: true, exists: false }
+  ], '26')
+  ok(after.cursors.ZLHW.scanned === 3380, '只连续推进到已返回的编号', after.cursors.ZLHW)
+  ok(after.cursors.ZLHW.lastHit === 3624, '命中页提升 lastHit', after.cursors.ZLHW)
+  const future = { noticeKey: 'notam-ZLHW-A3624/26', dates: [{ start: '2026-08-18T23:27:00Z', end: '2026-08-19T00:04:00Z' }] }
+  const old = { noticeKey: 'notam-ZLHW-A0312/26', dates: [{ start: '2026-01-01T00:00:00Z', end: '2026-01-02T00:00:00Z' }] }
+  ok(chinaFirs.shouldKeepStoredNotice(future, {}, Date.parse('2026-08-14T00:00:00Z'), chinaFirs.KEEP_ENDED_MS), '未上合集的未来窗口不删')
+  ok(!chinaFirs.shouldKeepStoredNotice(old, {}, Date.parse('2026-08-14T00:00:00Z'), chinaFirs.KEEP_ENDED_MS), '过期很久且不在发现集才删')
+  ok(chinaFirs.shouldKeepStoredNotice(old, { 'notam-ZLHW-A0312/26': true }, Date.parse('2026-08-14T00:00:00Z'), chinaFirs.KEEP_ENDED_MS), '仍在 sitemap 的过期条保留到源站下架')
   const metaCn = parseEntryMeta(
     '<title>Chinese Notices - Unknown launches | Space Notices</title>2099-01-01T00:00 2026-08-17T02:53',
     CHINESE_COLLECTION_KEY
@@ -152,8 +194,33 @@ async function testLive() {
       ok(!!series, `${n.name} 抽出编号 ${series && series[0]}`)
       ok((dates && dates.length) || /HYDROPAC|NAV/i.test(n.noticeKey + n.name), `${n.name} 有生效窗口`)
     })
-    const uncapped = extractNoticeLinks(html, { max: 100 })
-    ok(uncapped.length >= paths.length, `中国合集全量链接 ${uncapped.length}`)
+    const uncapped = extractNoticeLinks(html, { max: Infinity })
+    ok(uncapped.length >= paths.length, `中国合集页链接 ${uncapped.length}`)
+  }
+
+  console.log('\n[6c] sitemap 全国 FIR + 孤儿通告探测')
+  {
+    const chinaFirs = require('../cloudfunctions/spaceNotices/discover-china-firs.js')
+    const rows = await chinaFirs.fetchSitemapChinaNoticePaths()
+    const firs = [...new Set(rows.map((r) => r.fir))]
+    ok(rows.length >= 40, `sitemap 中国/溅落 FIR 通告 ${rows.length} 条`)
+    ok(firs.indexOf('ZLHW') >= 0 && firs.indexOf('ZWUQ') >= 0, 'sitemap 含兰州与乌鲁木齐', firs)
+    ok(firs.filter((c) => /^Z/.test(c)).length >= 6, `大陆情报区 ${firs.filter((c) => /^Z/.test(c)).length} 个`, firs)
+    const missHtml = await require('../cloudfunctions/spaceNotices/fetch-external.js').httpGet(
+      'https://space-notices.com/notice/notam-ZLHW-A0001/26'
+    )
+    ok(!chinaFirs.titleIndicatesNotice(missHtml), '不存在的编号是占位页')
+    const probed = await chinaFirs.probeFirNoticePages([
+      { fir: 'ZLHW', letter: 'A', num: 3624, yy: '26', path: '/notice/notam-ZLHW-A3624/26' }
+    ], { deadline: Date.now() + 15000, concurrency: 1 })
+    const hit = probed[0]
+    if (hit && hit.exists && hit.notice) {
+      ok(/ZLHW/i.test(hit.notice.noticeKey || ''), `扫到孤儿 A3624 ${hit.notice.name}`)
+      ok((hit.notice.areas || []).length >= 1, 'A3624 带多边形')
+    } else {
+      const sitemapZlhw = rows.filter((r) => r.fir === 'ZLHW')
+      ok(sitemapZlhw.length >= 10, 'A3624 已下架时 sitemap 仍覆盖兰州情报区', sitemapZlhw.length)
+    }
   }
 
   console.log('\n[7] 抓取预算：deadline 已过时立即返回不卡死')
