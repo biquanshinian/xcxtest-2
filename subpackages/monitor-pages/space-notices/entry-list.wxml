@@ -7,7 +7,7 @@
         <text class="icon-back icon-back--nav">‹</text>
       </view>
       <view class="nav-title-wrap nav-title-wrap--page-grid">
-        <text class="nav-title nav-title--page-grid">发射通告地图</text>
+        <text class="nav-title nav-title--page-grid">发射航警地图</text>
       </view>
       <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
     </view>

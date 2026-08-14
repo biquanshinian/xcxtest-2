@@ -18,12 +18,19 @@ Component({
     starlinkPaused: { type: Boolean, value: false },
     starlinkUpdateTime: { type: String, value: '' },
     enableSpaceNotices: { type: Boolean, value: false },
+    chinaBulletinHint: { type: String, value: '点开查看情报区危险区' },
     passReady: { type: Boolean, value: false },
     passLoading: { type: Boolean, value: false },
     passNoLocation: { type: Boolean, value: false },
     passError: { type: String, value: '' },
     passLocation: { type: String, value: '' },
     passList: { type: null, value: null }
+  },
+  data: {
+    chinaPreviewLat: 35,
+    chinaPreviewLng: 104,
+    chinaPreviewScale: 4,
+    chinaMapSetting: { enableSatellite: true }
   },
   methods: {
     _emit(name, e) {

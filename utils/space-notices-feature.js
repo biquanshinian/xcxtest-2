@@ -26,6 +26,12 @@ const CODE_ENABLED = true
 
 const FEATURE_FIELD = 'enableSpaceNotices'
 
+/** 会员/广告门控展示名，与页面标题一致 */
+const SPACE_NOTICES_PRODUCT_NAME = '发射航警地图'
+
+/** 官网 https://space-notices.com/entry/collection-chinese-unknown */
+const CHINESE_COLLECTION_KEY = 'collection-chinese-unknown'
+
 /**
  * @returns {Promise<boolean>}
  */
@@ -77,11 +83,42 @@ function lookupStarshipSpaceNotice() {
     .catch(() => null)
 }
 
+function lookupChinaBulletinPreview() {
+  if (!CODE_ENABLED) return Promise.resolve(null)
+  if (typeof wx === 'undefined' || !wx.cloud || !wx.cloud.callFunction) {
+    return Promise.resolve(null)
+  }
+  return isSpaceNoticesEnabled()
+    .catch(() => false)
+    .then((on) => {
+      if (!on) return null
+      return wx.cloud.callFunction({
+        name: 'spaceNotices',
+        data: { action: 'lookupChinaBulletin' }
+      })
+    })
+    .then((res) => {
+      if (!res) return null
+      const r = (res && res.result) || res
+      if (!r || r.success === false) return null
+      return {
+        found: !!r.found,
+        noticeCount: Number(r.noticeCount) || 0,
+        lastCheckedAt: Number(r.lastCheckedAt) || 0,
+        lastChangedAt: Number(r.lastChangedAt) || 0
+      }
+    })
+    .catch(() => null)
+}
+
 module.exports = {
   CODE_ENABLED,
   FEATURE_FIELD,
+  SPACE_NOTICES_PRODUCT_NAME,
+  CHINESE_COLLECTION_KEY,
   STARSHIP_NOTICE_FALLBACK_KEY,
   isSpaceNoticesEnabled,
   isSpaceNoticesCodeEnabled,
-  lookupStarshipSpaceNotice
+  lookupStarshipSpaceNotice,
+  lookupChinaBulletinPreview
 }

@@ -406,6 +406,8 @@ check('无轨迹时隐藏轨迹 chip', /hasTrajectory/.test(js) && /wx:if="\{\{h
 check('列表用 entryKey 打开详情', /entryKey/.test(listJs) && /data-key="\{\{item\.entryKey\}\}"/.test(listWxml))
 check('列表即将/历史分段', /upcoming/.test(listJs) && /past/.test(listJs) && /即将/.test(listWxml) && /历史发射/.test(listWxml))
 check('列表中国通告入口', /中国航警公告/.test(listJs) && /openChinaMap/.test(listJs) && /CHINESE_COLLECTION_KEY/.test(listJs))
+check('列表页标题发射航警地图', /发射航警地图/.test(listWxml))
+check('中国航警可回全部任务', /openAllMissions/.test(js) && /全部任务/.test(wxml))
 
 // 分享冷启动不能被功能开关误杀：必须 fail-open
 const flag = read('utils/space-notices-feature.js')

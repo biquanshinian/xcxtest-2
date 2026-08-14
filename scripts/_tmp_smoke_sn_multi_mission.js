@@ -44,6 +44,9 @@ function testPureParsing() {
   const pinned = withPinnedEntries(slugs)
   ok(pinned[0] === CHINESE_COLLECTION_KEY && pinned.indexOf('launch-f9-nrol-95') === 1, '置顶中国合集', pinned)
   ok(pinned.indexOf('collection-starbase-testing') < 0, '不置顶其它 collection')
+  const many = Array.from({ length: 40 }, (_, i) => `href="/notice/notam-ZLHW-A${i}/26"`).join(' ')
+  ok(extractNoticeLinks(many).length === 28, '默认可截 28 条')
+  ok(extractNoticeLinks(many, { max: 100 }).length === 40, '中国合集可全量')
   const metaCn = parseEntryMeta(
     '<title>Chinese Notices - Unknown launches | Space Notices</title>2099-01-01T00:00 2026-08-17T02:53',
     CHINESE_COLLECTION_KEY
@@ -139,6 +142,18 @@ async function testLive() {
     ok(res.notices.length >= 3 && withGeo.length === res.notices.length,
       `合集 ${res.notices.length} 条通告全部带多边形`,
       { names: res.notices.map((n) => n.name), errors: res.errors })
+    const { firCodeFromNotice } = require('../subpackages/monitor-pages/space-notices/utils/china-filter.js')
+    const { fillNoticeDates } = require('../cloudfunctions/spaceNotices/parse-dates.js')
+    res.notices.forEach((n) => {
+      const fir = firCodeFromNotice(n)
+      const series = String(n.name || n.noticeKey || '').match(/[A-Z]\d{3,5}\/\d{2}|HYDROPAC\s+\d+\/\d+/i)
+      const dates = fillNoticeDates(n.dates, n.rawText)
+      ok(!!fir, `${n.name} 抽出情报区 ${fir || '空'}`)
+      ok(!!series, `${n.name} 抽出编号 ${series && series[0]}`)
+      ok((dates && dates.length) || /HYDROPAC|NAV/i.test(n.noticeKey + n.name), `${n.name} 有生效窗口`)
+    })
+    const uncapped = extractNoticeLinks(html, { max: 100 })
+    ok(uncapped.length >= paths.length, `中国合集全量链接 ${uncapped.length}`)
   }
 
   console.log('\n[7] 抓取预算：deadline 已过时立即返回不卡死')

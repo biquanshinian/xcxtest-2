@@ -407,7 +407,7 @@
         </view>
 
         <view class="detail-section" wx:if="{{(mission.mapLinkMeta && mission.mapLinkMeta.entries && mission.mapLinkMeta.entries.length > 0) || spaceNoticeShortcut}}">
-          <text class="detail-section-title">{{mission.mapLinkMeta && mission.mapLinkMeta.entries && mission.mapLinkMeta.entries.length > 0 ? '发射场地图' : '发射通告'}}</text>
+          <text class="detail-section-title">{{mission.mapLinkMeta && mission.mapLinkMeta.entries && mission.mapLinkMeta.entries.length > 0 ? '发射场地图' : '发射航警'}}</text>
           <view class="mission-map-preview-wrap" wx:if="{{mapPreviewReady}}" bindtap="openFirstMapLink">
             <map
               class="mission-map-preview"
@@ -443,7 +443,7 @@
             </block>
             <!-- SPACE_NOTICES_FEATURE：有通告才显示，点击走会员/广告门控 -->
             <view class="mission-map-quick-link" wx:if="{{spaceNoticeShortcut}}" bindtap="openSpaceNoticeMap">
-              <text class="mission-map-quick-link-text">发射通告地图</text>
+              <text class="mission-map-quick-link-text">发射航警地图</text>
               <text class="mission-map-quick-link-arrow">›</text>
             </view>
           </view>

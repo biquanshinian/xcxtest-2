@@ -5,7 +5,7 @@ const pageBase = require('../../../utils/page-base.js')
 const { listSpaceNoticeEntries, syncSpaceNotices, lookupChinaBulletin } = require('./utils/api-space-notices.js')
 const { decorateSpaceNoticeEntry, formatChinaBulletinSync } = require('./utils/notice-format.js')
 const { CHINESE_COLLECTION_KEY } = require('./utils/china-filter.js')
-const { isSpaceNoticesEnabled } = require('../../../utils/space-notices-feature.js')
+const { isSpaceNoticesEnabled, SPACE_NOTICES_PRODUCT_NAME } = require('../../../utils/space-notices-feature.js')
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
 const { gateCheck } = require('../../../utils/membership.js')
 const {
@@ -16,7 +16,7 @@ const {
 } = require('../utils/share-gate.js')
 
 const GATE_PRODUCT_ID = 'space_notices'
-const GATE_PRODUCT_NAME = '发射通告地图'
+const GATE_PRODUCT_NAME = SPACE_NOTICES_PRODUCT_NAME
 
 function formatNet(net, windowStartMs) {
   const raw = net || (windowStartMs ? new Date(windowStartMs).toISOString() : '')
@@ -105,7 +105,7 @@ Page({
     if (!this._shareSst && stack.length <= 1) {
       const allowed = await gateCheck(GATE_PRODUCT_ID, GATE_PRODUCT_NAME)
       if (!allowed) {
-        this.setData({ loading: false, errorText: '开通星际通行证或看广告后可使用发射通告地图' })
+        this.setData({ loading: false, errorText: '开通星际通行证或看广告后可使用发射航警地图' })
         setTimeout(() => this.goBack(), 500)
         return
       }
@@ -190,7 +190,7 @@ Page({
 
   _shareTitle() {
     const n = this.data.totalCount || 0
-    return n ? `发射通告地图 · ${n} 场任务的危险区` : '发射通告地图 · NOTAM / 航海警告'
+    return n ? `发射航警地图 · ${n} 场任务的危险区` : '发射航警地图 · 中国航警 / NOTAM'
   },
 
   onShareAppMessage() {

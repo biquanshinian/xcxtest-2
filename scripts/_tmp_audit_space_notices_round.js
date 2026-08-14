@@ -114,7 +114,12 @@ check('列表中国通告入口', /openChinaMap/.test(listJs) && /中国航警�
 check('云函数置顶中国合集', /collection-chinese-unknown/.test(read('cloudfunctions/spaceNotices/discover-entries.js')) && /withPinnedEntries/.test(read('cloudfunctions/spaceNotices/discover-entries.js')) && /isCollectionKey/.test(cfIndex))
 check('中国航警每轮核对', /CHINESE_COLLECTION_KEY/.test(cfIndex) && /lastCheckedAt/.test(cfIndex) && /bulletinFingerprint/.test(cfIndex) && /lookupChinaBulletin/.test(cfIndex))
 check('中国航警超时补拉', /CHINA_BULLETIN_STALE_MS/.test(cfIndex) && /chinaStale/.test(cfIndex))
+check('中国合集全量抓取', /max:\s*100/.test(cfIndex) && /pruneNoticesNotIn/.test(cfIndex))
 check('列表中国卡写明核对节奏', /15 分钟核对一次/.test(listJs) && /chinaBulletin\.syncLine/.test(listWxml))
+check('监控卡改名发射航警地图', /发射航警地图/.test(read('subpackages/monitor-pages/components/monitor-core-sections/index.wxml')))
+check('监控卡中国卫星预览', /enable-satellite/.test(read('subpackages/monitor-pages/components/monitor-core-sections/index.wxml')) && /chinaPreviewLat/.test(read('subpackages/monitor-pages/components/monitor-core-sections/index.js')))
+check('点监控卡进中国航警', /SPACE_NOTICE_MAP/.test(read('pages/monitor/monitor.js')) && /CHINESE_COLLECTION_KEY/.test(read('pages/monitor/monitor.js')))
+check('产品名常量对齐', /SPACE_NOTICES_PRODUCT_NAME/.test(read('utils/space-notices-feature.js')) && /发射航警地图/.test(listJs) && /发射航警地图/.test(mapJs))
 check('云函数 B\/C 日期回填', /fillNoticeDates/.test(read('cloudfunctions/spaceNotices/index.js')) && exists('cloudfunctions/spaceNotices/parse-dates.js'))
 
 // WXML mustache balance

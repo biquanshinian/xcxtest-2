@@ -7,7 +7,7 @@
         <text class="icon-back icon-back--nav">‹</text>
       </view>
       <view class="nav-title-wrap nav-title-wrap--page-grid">
-        <text class="nav-title nav-title--page-grid">{{title || '通告地图'}}</text>
+        <text class="nav-title nav-title--page-grid">{{title || '发射航警地图'}}</text>
       </view>
       <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
     </view>
@@ -125,6 +125,9 @@
         <view class="sn-chip {{showPad ? 'sn-chip--on' : ''}}" data-key="showPad" bindtap="toggleLayer" wx:if="{{!chinaView}}">
           <view class="sn-chip-dot sn-chip-dot--pad"></view>
           <text>发射台</text>
+        </view>
+        <view class="sn-chip sn-chip--ghost" bindtap="openAllMissions" wx:if="{{chinaView}}">
+          <text>全部任务</text>
         </view>
         <view class="sn-chip sn-chip--ghost" bindtap="resetView">
           <text>重置视野</text>

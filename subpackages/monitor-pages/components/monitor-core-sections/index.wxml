@@ -105,10 +105,10 @@
       </view>
     </view>
 
-    <!-- SPACE_NOTICES_FEATURE：发射通告地图入口（可整块删除本 block + monitor.js 对应逻辑） -->
+    <!-- SPACE_NOTICES_FEATURE：发射航警地图（中国卫星预览，点开进中国航警公告） -->
     <view class="space-notices-section monitor-block" wx:if="{{enableSpaceNotices}}">
       <view class="section-title">
-        <text>发射通告地图</text>
+        <text>发射航警地图</text>
         <view class="section-title-right">
           <view class="monitor-share-wrap">
             <image class="icon-share icon-share--monitor" src="/images/share-arrow.svg" mode="aspectFit"></image>
@@ -116,13 +116,28 @@
           </view>
         </view>
       </view>
-      <view class="MARS-preview-card glass-card card-hover" bindtap="emitOpenSpaceNotices">
-        <view class="preview-card-content">
-          <view class="preview-card-info">
-            <text class="preview-card-title">点击加载发射通告地图</text>
-            <text class="preview-card-desc">航海飞行器及飞行轨迹绘制</text>
+      <view class="sn-preview-card glass-card card-hover" bindtap="emitOpenSpaceNotices">
+        <map
+          class="sn-preview-map"
+          latitude="{{chinaPreviewLat}}"
+          longitude="{{chinaPreviewLng}}"
+          scale="{{chinaPreviewScale}}"
+          enable-scroll="{{false}}"
+          enable-zoom="{{false}}"
+          enable-rotate="{{false}}"
+          enable-overlooking="{{false}}"
+          enable-poi="{{false}}"
+          show-location="{{false}}"
+          show-compass="{{false}}"
+          enable-satellite="{{true}}"
+          setting="{{chinaMapSetting}}"
+        ></map>
+        <view class="sn-preview-caption">
+          <view class="sn-preview-copy">
+            <text class="sn-preview-kicker">中国航警</text>
+            <text class="sn-preview-hint">{{chinaBulletinHint}}</text>
           </view>
-          <view class="icon-arrow icon-arrow--preview-card">›</view>
+          <text class="sn-preview-arrow">›</text>
         </view>
       </view>
     </view>

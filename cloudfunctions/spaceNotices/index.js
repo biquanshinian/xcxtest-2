@@ -162,6 +162,25 @@ async function readNoticesOfEntry(entryKey) {
   return (res.data || []).filter((n) => n && n.noticeKey !== STALE_DEMO_CORRIDOR_KEY)
 }
 
+/** 源站已下架的航警从库里删掉，避免公告页残留。抓取不完整时不要调用。 */
+async function pruneNoticesNotIn(entryKey, keepKeys) {
+  const keep = {}
+  ;(keepKeys || []).forEach((k) => {
+    if (k) keep[String(k)] = true
+  })
+  const stored = await readNoticesOfEntry(entryKey)
+  let removed = 0
+  for (let i = 0; i < stored.length; i++) {
+    const key = stored[i] && stored[i].noticeKey
+    if (!key || keep[key]) continue
+    try {
+      await db.collection(NOTICE_COL).doc(docIdOf(key)).remove()
+      removed += 1
+    } catch (e) { /* ignore */ }
+  }
+  return removed
+}
+
 function bulletinFingerprint(notices) {
   const sig = (notices || [])
     .map((n) => String((n && n.noticeKey) || '') + ':' + String((n && n.contentHash) || ''))
@@ -366,7 +385,7 @@ async function syncOneEntry(slug, launches, deadline) {
   try {
     const page = await fetchEntryPage(slug)
     meta = page.meta
-    paths = extractNoticeLinks(page.html)
+    paths = extractNoticeLinks(page.html, isChineseCollectionKey(slug) ? { max: 100 } : null)
   } catch (e) {
     return {
       entryKey: slug,
@@ -394,6 +413,14 @@ async function syncOneEntry(slug, launches, deadline) {
     } catch (e) {
       errors.push(`${n.noticeKey}: ${(e && e.message) || String(e)}`)
     }
+  }
+
+  const fetchIncomplete = (fetchRes.errors || []).some((e) => /budget exceeded/i.test(String(e)))
+  if (isChineseCollectionKey(slug) && paths.length && !fetchIncomplete) {
+    const sourceKeys = paths.map(noticeKeyFromPath).filter(Boolean)
+    try {
+      await pruneNoticesNotIn(slug, sourceKeys)
+    } catch (e) { /* 保留库内，下一轮再对齐 */ }
   }
 
   // 统计以库内为准：本轮预算用尽时也不会把历史通告数抹低

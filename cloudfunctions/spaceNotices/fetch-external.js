@@ -95,7 +95,7 @@ function prefixRank(pathName) {
   return ra < 0 ? 99 : ra
 }
 
-function extractNoticeLinks(entryHtml) {
+function extractNoticeLinks(entryHtml, opts) {
   const links = []
   const re = /href="(\/notice\/[^"]+)"/g
   let m
@@ -111,7 +111,11 @@ function extractNoticeLinks(entryHtml) {
   })
   rest.sort((a, b) => prefixRank(a) - prefixRank(b) || decodePath(a).localeCompare(decodePath(b)))
   must.sort((a, b) => decodePath(a).localeCompare(decodePath(b)))
-  return must.concat(rest).slice(0, MAX_NOTICES_PER_ENTRY)
+  const ranked = must.concat(rest)
+  const rawMax = opts && opts.max
+  if (rawMax === 0 || rawMax === Infinity) return ranked
+  const cap = Number(rawMax) > 0 ? Number(rawMax) : MAX_NOTICES_PER_ENTRY
+  return ranked.slice(0, cap)
 }
 
 /**

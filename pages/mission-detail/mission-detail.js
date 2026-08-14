@@ -3427,7 +3427,7 @@ Page({
     let allowed = false
     try {
       const { gateCheck } = require('../../utils/membership.js')
-      allowed = await gateCheck('space_notices', '发射通告地图')
+      allowed = await gateCheck('space_notices', require('../../utils/space-notices-feature.js').SPACE_NOTICES_PRODUCT_NAME)
     } finally {
       this._spaceNoticeGatePending = false
     }

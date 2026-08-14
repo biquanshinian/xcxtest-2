@@ -49,7 +49,7 @@
             <view class="mission-sim-entry-dot"></view>
             <text class="mission-sim-entry-tag">SPACE NOTICES</text>
           </view>
-          <text class="mission-sim-entry-title">星舰发射通告地图</text>
+          <text class="mission-sim-entry-title">星舰发射航警地图</text>
           <text class="mission-sim-entry-desc">一键直达星舰发射 NOTAM / 航海危险区与飞行走廊</text>
         </view>
         <view class="mission-sim-entry-arrow">

@@ -79,18 +79,16 @@ const monWxml = read('pages/monitor/monitor.wxml')
 check('monitor imports feature flag', /space-notices-feature/.test(monJs))
 check('monitor has enableSpaceNotices data', /enableSpaceNotices/.test(monJs))
 check('monitor openSpaceNotices', /openSpaceNotices/.test(monJs))
-check('monitor openSpaceNotices gateCheck', /gateCheck\('space_notices',\s*'发射通告地图'\)/.test(monJs))
-check('monitor wxml entry card', /openSpaceNotices/.test(monWxml) && /enableSpaceNotices/.test(monWxml))
-// 板块标题右上角分享：图标 + 覆盖式 open-type=share 按钮，并在 onShareAppMessage 里有对应深链
+check('monitor openSpaceNotices gateCheck', /gateCheck\('space_notices',\s*SPACE_NOTICES_PRODUCT_NAME\)/.test(monJs) && /发射航警地图/.test(read('utils/space-notices-feature.js')))
+check('monitor wxml 入口开关', /enableSpaceNotices/.test(monWxml) && /onCoreSectionEvent/.test(monWxml))
+const coreWxml = read('subpackages/monitor-pages/components/monitor-core-sections/index.wxml')
 check(
   'monitor 板块分享图标',
-  /data-share-type="spaceNotices"/.test(monWxml) &&
-    /icon-share--monitor/.test(
-      (monWxml.match(/<view class="space-notices-section[\s\S]*?<\/view>\s*<\/view>\s*<\/view>/) || [''])[0]
-    )
+  /data-share-type="spaceNotices"/.test(coreWxml) && /icon-share--monitor/.test(coreWxml)
 )
-check('monitor 分享深链到通告列表', /type === 'spaceNotices'/.test(monJs) && /ROUTES\.SPACE_NOTICE_LIST/.test(monJs))
-check('monitor 分享带 sst 时间戳', /spaceNotices[\s\S]{0,400}sst=/.test(monJs))
+check('monitor 中国卫星预览', /enable-satellite/.test(coreWxml) && /发射航警地图/.test(coreWxml) && /chinaPreviewLat/.test(coreWxml))
+check('monitor 分享深链到中国航警地图', /type === 'spaceNotices'/.test(monJs) && /SPACE_NOTICE_MAP/.test(monJs) && /CHINESE_COLLECTION_KEY/.test(monJs))
+check('monitor 分享带 sst 时间戳', /spaceNotices[\s\S]{0,800}sst=/.test(monJs))
 
 // ── 列表/详情会员门控 ──
 const listJsGate = read('subpackages/monitor-pages/space-notices/entry-list.js')

@@ -5,8 +5,8 @@
 const pageBase = require('../../../utils/page-base.js')
 const { formatDate } = require('../../../utils/util.js')
 const { getSpaceNoticeEntry, syncSpaceNotices } = require('./utils/api-space-notices.js')
-const { isSpaceNoticesEnabled } = require('../../../utils/space-notices-feature.js')
-const { ROUTES, buildUrl } = require('../../../utils/routes.js')
+const { isSpaceNoticesEnabled, SPACE_NOTICES_PRODUCT_NAME } = require('../../../utils/space-notices-feature.js')
+const { ROUTES, buildUrl, navigateTo } = require('../../../utils/routes.js')
 const { gateCheck } = require('../../../utils/membership.js')
 const {
   checkShareEntryGate,
@@ -30,7 +30,7 @@ const { buildMapLayoutData, setMapSatelliteFromTap } = require('../utils/map-pag
 const { isChinaPad, CHINA_OVERVIEW, isChineseCollectionKey, CHINESE_COLLECTION_KEY } = require('./utils/china-filter.js')
 
 const GATE_PRODUCT_ID = 'space_notices'
-const GATE_PRODUCT_NAME = '发射通告地图'
+const GATE_PRODUCT_NAME = SPACE_NOTICES_PRODUCT_NAME
 
 function buildFirChips(notices) {
   const seen = {}
@@ -119,6 +119,7 @@ Page({
       ll2Id,
       chinaView: isChineseCollectionKey(entryKey),
       chinaOnly: isChineseCollectionKey(entryKey),
+      title: isChineseCollectionKey(entryKey) ? '中国航警公告' : '',
       ...buildMapLayoutData(getApp())
     })
 
@@ -143,7 +144,7 @@ Page({
     if (!this._shareSst && stack.length <= 1) {
       const allowed = await gateCheck(GATE_PRODUCT_ID, GATE_PRODUCT_NAME)
       if (!allowed) {
-        this.setData({ loading: false, errorText: '开通星际通行证或看广告后可使用发射通告地图' })
+        this.setData({ loading: false, errorText: '开通星际通行证或看广告后可使用发射航警地图' })
         setTimeout(() => this.goBack(), 500)
         return
       }
@@ -419,6 +420,10 @@ Page({
     this.setData({ selectedKey: '', selectedNotice: null }, () => this.applyLayers({ refit: true }))
   },
 
+  openAllMissions() {
+    navigateTo(ROUTES.SPACE_NOTICE_LIST)
+  },
+
   selectNotice(e) {
     const key = e.currentTarget.dataset.key
     if (!key) return
@@ -471,7 +476,7 @@ Page({
   noop() {},
 
   _shareTitle() {
-    const title = this.data.title || '发射通告地图'
+    const title = this.data.title || '发射航警地图'
     const detail = this.data.subtitle || this.data.padName
     const live = this.data.stats && this.data.stats.live
     const soon = this.data.stats && this.data.stats.soon

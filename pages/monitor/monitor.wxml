@@ -117,6 +117,7 @@
       starlink-paused="{{starlinkPaused}}"
       starlink-update-time="{{starlinkUpdateTime}}"
       enable-space-notices="{{enableSpaceNotices}}"
+      china-bulletin-hint="{{chinaBulletinHint}}"
       pass-ready="{{passReady}}"
       pass-loading="{{passLoading}}"
       pass-no-location="{{passNoLocation}}"

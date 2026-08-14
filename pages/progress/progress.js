@@ -19,7 +19,7 @@ const {
   buildRoadClosureState
 } = require('../../utils/progress-road-closure.js')
 const { isLiveEntryAllowed, isFeatureEnabled } = require('../../utils/feature-flags.js')
-const { isSpaceNoticesEnabled, lookupStarshipSpaceNotice, STARSHIP_NOTICE_FALLBACK_KEY } = require('../../utils/space-notices-feature.js')
+const { isSpaceNoticesEnabled, lookupStarshipSpaceNotice, STARSHIP_NOTICE_FALLBACK_KEY, SPACE_NOTICES_PRODUCT_NAME } = require('../../utils/space-notices-feature.js')
 const { pickEventShareImageUrl, warmEventShareImage } = require('../../utils/event-share-image.js')
 const { SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL } = require('../../utils/agency-logo-overrides.js')
 const { optimizeImageUrl } = require('../../utils/cos-url.js')
@@ -816,7 +816,7 @@ Page({
     if (this._snGatePending) return
     this._snGatePending = true
     try {
-      const allowed = await gateCheck('space_notices', '发射通告地图')
+      const allowed = await gateCheck('space_notices', SPACE_NOTICES_PRODUCT_NAME)
       if (!allowed) return
       if (wx.vibrateShort) {
         try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
