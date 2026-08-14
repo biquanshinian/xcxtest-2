@@ -21,6 +21,7 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 
 const { parseAreasFromRawText } = require('./parse-areas.js')
+const { fillNoticeDates } = require('./parse-dates.js')
 const {
   FLIGHT13_ENTRY_KEY,
   FLIGHT13_LL2_ID,
@@ -142,7 +143,7 @@ async function upsertNotice(entryKey, notice, opts) {
     centerline: Array.isArray(notice.centerline) && notice.centerline.length
       ? notice.centerline
       : (prev && prev.centerline) || [],
-    dates: notice.dates || [],
+    dates: fillNoticeDates(notice.dates, notice.rawText),
     contentHash,
     cancelled: !!notice.cancelled,
     updatedAt: nowMs(),
@@ -753,7 +754,7 @@ async function getEntry(event) {
       sourceLink: n.sourceLink,
       areas: n.areas || [],
       centerline: Array.isArray(n.centerline) ? n.centerline : [],
-      dates: n.dates || [],
+      dates: fillNoticeDates(n.dates, n.rawText),
       rawText: n.rawText || '',
       cancelled: !!n.cancelled
     }))
@@ -783,7 +784,7 @@ async function ingestRaw(event) {
     sourceLink: event.sourceLink || '',
     rawText,
     areas,
-    dates: event.dates || []
+    dates: fillNoticeDates(event.dates, rawText)
   }, { forceWrite: true })
   try {
     const stored = await readNoticesOfEntry(entryKey)

@@ -16,6 +16,19 @@ page {
   color: var(--color-text-primary);
 }
 
+.map-page .panel-badge--soon {
+  background: rgba(255, 149, 0, 0.18);
+}
+.map-page .panel-badge--soon text {
+  color: var(--color-warning);
+}
+.map-page.theme-light .panel-badge--soon {
+  background: rgba(255, 149, 0, 0.14);
+}
+.map-page.theme-light .panel-badge--soon text {
+  color: var(--color-warning);
+}
+
 .sn-map {
   width: 100%;
   height: 100%;
@@ -213,6 +226,8 @@ page {
 .sn-chip-dot--nav { background: var(--color-brand); }
 .sn-chip-dot--adp { background: #ffcc00; }
 .sn-chip-dot--pad { background: #FF3B30; }
+.sn-chip-dot--live { background: #34C759; }
+.sn-chip-dot--soon { background: #FF9500; }
 .sn-chip--on {
   background: var(--color-brand-soft);
   border-color: var(--color-brand-glow);
@@ -349,10 +364,16 @@ page {
   color: #248A3D;
 }
 .sn-tag--soon {
-  background: var(--color-brand-soft);
+  background: rgba(255, 149, 0, 0.2);
 }
 .sn-tag--soon text {
-  color: var(--color-brand);
+  color: var(--color-warning);
+}
+.theme-light .sn-tag--soon {
+  background: rgba(255, 149, 0, 0.16);
+}
+.theme-light .sn-tag--soon text {
+  color: var(--color-warning);
 }
 .sn-tag--off text {
   color: var(--color-text-on-glass);

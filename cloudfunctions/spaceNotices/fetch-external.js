@@ -5,6 +5,7 @@
 
 const https = require('https')
 const { parseAreasFromRawText } = require('./parse-areas.js')
+const { fillNoticeDates } = require('./parse-dates.js')
 
 const BASE = 'https://space-notices.com'
 const UA =
@@ -222,7 +223,7 @@ function parseNoticeFromHtml(html, fallbackKey) {
   if (type === 'NAV_WARNING') type = 'NAVWARNING'
   const cancelled = !!obj.cancelled
   let areas = Array.isArray(obj.areas) ? obj.areas : []
-  const dates = Array.isArray(obj.dates) ? obj.dates : []
+  const dates = fillNoticeDates(Array.isArray(obj.dates) ? obj.dates : [], rawText)
   const sourceName = (obj.source && obj.source.name) || 'Space Notices'
   const sourceLink =
     (obj.source && obj.source.link) ||

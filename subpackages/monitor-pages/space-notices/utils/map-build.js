@@ -24,6 +24,7 @@ const TYPE_BASE_COLOR = {
 }
 
 const CANCELLED_COLOR = '#8E8E93'
+const SOON_COLOR = '#FF9500'
 
 /** 填充透明度（16 进制后缀）：浅色底图需要更实 */
 const FILL_ALPHA = {
@@ -49,13 +50,13 @@ function baseColorForType(type) {
 
 /**
  * @param {string} type
- * @param {{ light?: boolean, state?: 'normal'|'selected'|'dimmed', cancelled?: boolean }} [opts]
+ * @param {{ light?: boolean, state?: 'normal'|'selected'|'dimmed', cancelled?: boolean, soon?: boolean }} [opts]
  */
 function styleForType(type, opts) {
   const o = opts || {}
   const alpha = FILL_ALPHA[o.light ? 'light' : 'dark']
   const state = o.state || 'normal'
-  const color = o.cancelled ? CANCELLED_COLOR : baseColorForType(type)
+  const color = o.cancelled ? CANCELLED_COLOR : o.soon ? SOON_COLOR : baseColorForType(type)
   return {
     strokeColor: color,
     fillColor: color + (alpha[state] || alpha.normal)
@@ -117,7 +118,8 @@ function buildPolygonsFromNotices(notices, enabledTypes, opts) {
     if (allow && allow[t] === false) return
     const isSelected = !!selectedKey && String(n.noticeKey) === selectedKey
     const state = selectedKey ? (isSelected ? 'selected' : 'dimmed') : 'normal'
-    const style = styleForType(t, { light: o.light, state, cancelled: !!n.cancelled })
+    const soon = !n.cancelled && n.statusTone === 'soon'
+    const style = styleForType(t, { light: o.light, state, cancelled: !!n.cancelled, soon })
     drawableRings(n).forEach((ring) => {
       const points = ring.map(toLonLatPair).filter(Boolean)
       if (points.length < 3) return
@@ -160,9 +162,9 @@ function buildPolylinesFromNotices(notices, enabledTypes, opts) {
     polylines.push({
       id: id++,
       points,
-      color: n.cancelled ? CANCELLED_COLOR : baseColorForType(t),
+      color: n.cancelled ? CANCELLED_COLOR : n.statusTone === 'soon' ? SOON_COLOR : baseColorForType(t),
       width: t === 'ADP_LINK_FILE' ? 3 : 2,
-      dottedLine: !!n.cancelled,
+      dottedLine: !!n.cancelled || n.statusTone === 'soon',
       arrowLine: false
     })
   })
@@ -487,5 +489,7 @@ module.exports = {
   hasGeometry,
   SKIP_NOTICE_KEYS,
   SITE_TRAJ_VERSION,
-  SITE_TRAJ_COLOR
+  SITE_TRAJ_COLOR,
+  SOON_COLOR,
+  CANCELLED_COLOR
 }

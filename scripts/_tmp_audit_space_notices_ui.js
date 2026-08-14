@@ -48,7 +48,7 @@ dynamic.forEach((d) => {
 // 后缀拼接类：sn-item-bar--{{item.typeTone}} / sn-tag--{{item.statusTone}}
 const SUFFIX_SETS = {
   'sn-item-bar': ['notam', 'nav', 'adp'],
-  'sn-chip-dot': ['notam', 'nav', 'adp', 'pad'],
+  'sn-chip-dot': ['notam', 'nav', 'adp', 'pad', 'live', 'soon'],
   'sn-tag': ['live', 'soon', 'off', 'plain']
 }
 Object.keys(SUFFIX_SETS).forEach((base) => {
@@ -192,7 +192,7 @@ global.wx = {
   setStorageSync: () => {},
   getFileSystemManager: () => ({ access: () => {}, readdirSync: () => [] })
 }
-const { describeDates, decorateNotice, sortNotices, buildStats, shortType, noticeTypeTone } = require(`../${DIR}/utils/notice-format.js`)
+const { describeDates, decorateNotice, sortNotices, buildStats, shortType, noticeTypeTone, datesFromNotice, noticeStatusVisible } = require(`../${DIR}/utils/notice-format.js`)
 const NOW = Date.parse('2026-07-24T01:00:00Z')
 const dates = [
   { start: '2026-07-23T23:34:00.000Z', end: '2026-07-24T02:59:00.000Z' },
@@ -203,12 +203,30 @@ check('窗口内 = 生效中', live.statusText === '生效中' && live.statusTon
 check('生效中带时间文案', /→/.test(live.timeText), live.timeText)
 check('窗口全部列出', live.windows.length === 2, String(live.windows.length))
 const soon = describeDates(dates, false, Date.parse('2026-07-24T10:00:00Z'))
-check('窗口间隙 = 未生效', soon.statusText === '未生效' && soon.statusTone === 'soon', soon.statusText)
+check('窗口间隙 = 提前预警', soon.statusText === '提前预警' && soon.statusTone === 'soon', soon.statusText)
+check('提前预警带倒计时', /后生效/.test(soon.timeText) && !!soon.leadText, soon.timeText)
 const past = describeDates(dates, false, Date.parse('2026-07-26T00:00:00Z'))
 check('全部过期 = 已结束', past.statusText === '已结束' && past.statusTone === 'off', past.statusText)
 const cancelled = describeDates(dates, true, NOW)
 check('cancelled 优先级最高', cancelled.statusText === '已取消' && cancelled.statusTone === 'off')
 check('无 dates 不编状态', describeDates([], false, NOW).statusText === '')
+const icaoOnly = datesFromNotice({
+  rawText: 'B) 2608010000 C) 2608021200\nE) HAZARD AREA'
+})
+check('原文 B/C 回填 dates', icaoOnly.length === 1 && Number(icaoOnly[0].start) > 0, JSON.stringify(icaoOnly))
+const icaoSoon = decorateNotice({
+  name: 'ICAO-soon',
+  type: 'NOTAM',
+  rawText: 'B) 2608010000 C) 2608021200'
+}, () => false, NOW)
+check('缺 dates 的未来窗口 = 提前预警', icaoSoon.statusText === '提前预警', icaoSoon.statusText)
+const endOnlySoon = decorateNotice({
+  name: 'end-only',
+  type: 'NOTAM',
+  dates: [{ end: '2026-08-02T12:00:00.000Z' }],
+  rawText: 'B) 2608010000 C) 2608021200'
+}, () => false, NOW)
+check('只有结束时间时用 B) 判预警', endOnlySoon.statusText === '提前预警', endOnlySoon.statusText)
 
 check('type tone 映射', noticeTypeTone('NAVWARNING') === 'nav' && noticeTypeTone('ADP_LINK_FILE') === 'adp' && noticeTypeTone('NOTAM') === 'notam')
 check('type 短标签', shortType('ADP_LINK_FILE') === 'ADP' && shortType('NAVWARNING') === 'NAVWARN')
@@ -228,8 +246,11 @@ const mixed = [
   decorateNotice({ name: 'B-live', type: 'NOTAM', dates }, hasGeometry, NOW),
   decorateNotice({ name: 'D-soon', type: 'NOTAM', dates: [{ start: '2026-08-01T00:00:00Z', end: '2026-08-02T00:00:00Z' }] }, hasGeometry, NOW)
 ]
+const mixedStats = buildStats(mixed)
+check('预警计入 stats.soon', mixedStats.soon >= 1 && mixedStats.live >= 1 && mixedStats.ended >= 1 && mixedStats.cancelled >= 1, JSON.stringify(mixedStats))
+check('状态筛选可关预警', !noticeStatusVisible(mixed.find((n) => n.name === 'D-soon'), { showSoon: false }))
 const sorted = sortNotices(mixed).map((n) => n.name)
-check('排序：生效中→未生效→已结束→已取消', sorted.join(',') === 'B-live,D-soon,A-past,C-cancel', sorted.join(','))
+check('排序：生效中→提前预警→已结束→已取消', sorted.join(',') === 'B-live,D-soon,A-past,C-cancel', sorted.join(','))
 check('排序不改变条数', sortNotices(mixed).length === mixed.length)
 check('sortNotices 不原地改数组', mixed[0].name === 'C-cancel')
 check('页面用排序后的列表', /sortNotices\(/.test(js))
@@ -251,6 +272,13 @@ const dark = styleForType('NOTAM', { light: false })
 const light = styleForType('NOTAM', { light: true })
 check('浅色主题填充更实', parseInt(light.fillColor.slice(-2), 16) > parseInt(dark.fillColor.slice(-2), 16), `${dark.fillColor} → ${light.fillColor}`)
 check('cancelled 走灰色', styleForType('NOTAM', { cancelled: true }).strokeColor === '#8E8E93')
+check('提前预警走橙色', styleForType('NOTAM', { soon: true }).strokeColor === '#FF9500')
+const soonPoly = buildPolygonsFromNotices(
+  [Object.assign({}, target, { statusTone: 'soon' })],
+  allow,
+  {}
+)
+check('预警多边形橙色填充', soonPoly.length > 0 && soonPoly[0].strokeColor === '#FF9500', soonPoly[0] && soonPoly[0].strokeColor)
 
 const focus = fitNotice(target)
 check('fitNotice 返回可用视野', !!focus && focus.scale >= 3 && focus.scale <= 20 && focus.includePoints.length >= 2, focus && `scale=${focus.scale} pts=${focus.includePoints.length}`)
@@ -267,6 +295,9 @@ check('复制原文/来源', /copyRawText/.test(js) && /copySourceLink/.test(js)
 check('面板可折叠', /togglePanel/.test(js) && /panelCollapsed/.test(wxml))
 check('重置视野', /resetView/.test(js) && /重置视野/.test(wxml))
 check('折叠态有摘要', /mini-summary-row/.test(wxml) && /stats\.notam/.test(wxml))
+check('预警状态 chip', /预警/.test(wxml) && /showSoon/.test(js) && /data-key="showSoon"/.test(wxml))
+check('四态状态筛选', /showLive/.test(js) && /showEnded/.test(js) && /showCancelled/.test(js) && /refreshVisible/.test(js))
+check('详情卡提前预警文案', /selectedNotice\.leadText/.test(wxml))
 check('生效窗口本地时间标注', /生效窗口（本地时间）/.test(wxml))
 // map 是原生组件，数值属性写成字面量会以字符串下发；scale 区间已由 scaleFromSpan 兜住（3~20）
 const mapTag = (wxml.match(/<map[\s\S]*?\/>/) || [''])[0]

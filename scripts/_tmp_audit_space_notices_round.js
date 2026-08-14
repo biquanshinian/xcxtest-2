@@ -36,6 +36,7 @@ console.log('[1] files')
   'cloudfunctions/spaceNotices/index.js',
   'cloudfunctions/spaceNotices/fetch-external.js',
   'cloudfunctions/spaceNotices/parse-areas.js',
+  'cloudfunctions/spaceNotices/parse-dates.js',
   'cloudfunctions/spaceNotices/seed-demo.js',
   'cloudfunctions/spaceNotices/flight13-trajectory.json',
   'cloudfunctions/spaceNotices/config.json',
@@ -104,6 +105,9 @@ check('resolveTrajectory wired', /resolveTrajectory/.test(mapJs) && /buildTrajec
 check('layer toggle keeps zoom', /refit:\s*false/.test(mapJs))
 check('trajectory joins fit', /fitCenter\(pad, polygons, polylines/.test(mapJs))
 check('api -504003 mapping', /-504003/.test(read('subpackages/monitor-pages/space-notices/utils/api-space-notices.js')))
+check('提前预警状态', /提前预警/.test(mapJs) && /statusTone === 'soon'/.test(read('subpackages/monitor-pages/space-notices/utils/notice-format.js')))
+check('预警状态筛选 chip', /showSoon/.test(mapJs) && /预警/.test(mapWxml))
+check('云函数 B\/C 日期回填', /fillNoticeDates/.test(read('cloudfunctions/spaceNotices/index.js')) && exists('cloudfunctions/spaceNotices/parse-dates.js'))
 
 // WXML mustache balance
 function mustacheBalance(rel) {

@@ -14,7 +14,7 @@ const {
   withShareStampPath,
   withShareStampQuery
 } = require('../utils/share-gate.js')
-const { decorateNotice, decorateSpaceNoticeEntry, spaceNoticeDisplayTitle, sortNotices, buildStats } = require('./utils/notice-format.js')
+const { decorateNotice, decorateSpaceNoticeEntry, spaceNoticeDisplayTitle, sortNotices, buildStats, noticeStatusVisible } = require('./utils/notice-format.js')
 const {
   buildPolygonsFromNotices,
   buildPolylinesFromNotices,
@@ -53,12 +53,17 @@ Page({
     polylines: [],
     includePoints: [],
     notices: [],
-    stats: { notam: 0, nav: 0, adp: 0, live: 0, cancelled: 0 },
+    stats: { notam: 0, nav: 0, adp: 0, live: 0, soon: 0, ended: 0, cancelled: 0 },
     loading: true,
     errorText: '',
     showNotam: true,
     showNav: true,
     showCorridor: true,
+    /** 状态图层：生效 / 提前预警 / 已结束 / 已取消，默认全开 */
+    showLive: true,
+    showSoon: true,
+    showEnded: true,
+    showCancelled: true,
     /** 仅当本任务有轨迹数据时才显示「轨迹」chip */
     hasTrajectory: false,
     showPad: true,
@@ -76,6 +81,7 @@ Page({
 
   _entry: null,
   _notices: [],
+  _decorated: [],
   _display: null,
 
   async onLoad(options) {
@@ -151,7 +157,7 @@ Page({
       }
       this._entry = res.entry
       this._notices = res.notices || []
-      const notices = sortNotices(this._notices.map((n) => decorateNotice(n, hasGeometry)))
+      this._decorated = sortNotices(this._notices.map((n) => decorateNotice(n, hasGeometry)))
       const entry = res.entry || {}
       const display = decorateSpaceNoticeEntry(
         Object.assign({}, entry, {
@@ -171,13 +177,12 @@ Page({
         subtitle: display.subtitle || entry.rocketName || '',
         padName: (entry.pad && entry.pad.name) || '',
         netText: entry.net ? formatDate(new Date(entry.net), 'MM-DD HH:mm') : '',
-        notices,
-        stats: buildStats(notices),
+        stats: buildStats(this._decorated),
         hasTrajectory,
         // 无轨迹时强制关掉，避免空 chip 被点开
         showCorridor: hasTrajectory ? this.data.showCorridor : false
       })
-      this.applyLayers()
+      this.refreshVisible({ refit: true })
     } catch (e) {
       this.setData({
         loading: false,
@@ -188,6 +193,24 @@ Page({
 
   retryLoad() {
     this.loadEntry(this.data.entryKey, this.data.ll2Id)
+  },
+
+  visibleNotices() {
+    return (this._decorated || []).filter((n) => noticeStatusVisible(n, this.data))
+  },
+
+  /**
+   * 按状态开关刷新列表与地图。stats 始终按全量通告计数，chip 数字不随筛选消失。
+   */
+  refreshVisible(opts) {
+    const notices = this.visibleNotices()
+    const selectedKey = this.data.selectedKey
+    const keep = !!(selectedKey && notices.some((n) => n.noticeKey === selectedKey))
+    this.setData({
+      notices,
+      selectedKey: keep ? selectedKey : '',
+      selectedNotice: keep ? this.data.selectedNotice : null
+    }, () => this.applyLayers({ refit: !opts || opts.refit !== false }))
   },
 
   /**
@@ -204,8 +227,9 @@ Page({
       LNM: !!this.data.showNav
     }
     const styleOpts = { light: !!this.data.themeLight, selectedKey: this.data.selectedKey || '' }
-    const polygons = buildPolygonsFromNotices(this._notices, enabledTypes, styleOpts)
-    const polylines = buildPolylinesFromNotices(this._notices, enabledTypes, styleOpts)
+    const source = this.visibleNotices()
+    const polygons = buildPolygonsFromNotices(source, enabledTypes, styleOpts)
+    const polylines = buildPolylinesFromNotices(source, enabledTypes, styleOpts)
     if (this.data.showCorridor && this.data.hasTrajectory) {
       const traj = buildTrajectoryPolyline(
         resolveTrajectory(this._entry),
@@ -238,7 +262,11 @@ Page({
     const key = e.currentTarget.dataset.key
     if (!key) return
     if (key === 'showCorridor' && !this.data.hasTrajectory) return
-    this.setData({ [key]: !this.data[key] }, () => this.applyLayers({ refit: false }))
+    const statusKey = key === 'showLive' || key === 'showSoon' || key === 'showEnded' || key === 'showCancelled'
+    this.setData({ [key]: !this.data[key] }, () => {
+      if (statusKey) this.refreshVisible({ refit: false })
+      else this.applyLayers({ refit: false })
+    })
   },
 
   setMapRegion(e) {
@@ -267,12 +295,11 @@ Page({
   selectNotice(e) {
     const key = e.currentTarget.dataset.key
     if (!key) return
-    const notice = this.data.notices.find((n) => n.noticeKey === key)
+    const notice = (this._decorated || []).find((n) => n.noticeKey === key)
     if (!notice) return
-    const raw = this._notices.find((n) => n.noticeKey === key)
     this.setData({ selectedKey: key, selectedNotice: notice }, () => {
       this.applyLayers({ refit: false })
-      const fit = fitNotice(raw)
+      const fit = fitNotice(notice)
       if (fit) {
         this.setData({
           latitude: fit.latitude,
@@ -320,7 +347,10 @@ Page({
     const title = this.data.title || '发射通告地图'
     const detail = this.data.subtitle || this.data.padName
     const live = this.data.stats && this.data.stats.live
+    const soon = this.data.stats && this.data.stats.soon
+    if (live && soon) return `${title} · ${live} 条生效 · ${soon} 条提前预警`
     if (live) return `${title} · ${live} 条通告生效中`
+    if (soon) return `${title} · ${soon} 条提前预警`
     return detail ? `${title} · ${detail}` : title
   },
 

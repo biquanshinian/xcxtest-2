@@ -1,6 +1,7 @@
 /**
  * SPACE_NOTICES_FEATURE — 通告展示层格式化（纯函数，便于单测）
- * 生效状态按 dates 窗口与当前时间推导；时间一律转本地时区展示。
+ * 生效状态按 dates 窗口与当前时间推导：生效中 / 提前预警 / 已结束 / 已取消。
+ * 缺 start 时从原文 B)/C) 回填。时间一律转本地时区展示。
  * 条目卡片：任务/火箭/机构汉化 + 火箭配置图（与列表卡同源 resolveMissionRocketImage）。
  */
 const { formatDate, getRocketImage, resolveMissionRocketImage } = require('../../../../utils/util.js')
@@ -143,11 +144,61 @@ function windowText(start, end) {
   return formatDate(new Date(s), 'MM-DD HH:mm') + ' → ' + tail
 }
 
+/** ICAO B)/C) yyMMddHHmm（UTC） */
+function parseIcaoStamp(token) {
+  const s = String(token || '').trim().toUpperCase()
+  if (s === 'PERM') return 0
+  const m = s.match(/^(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/)
+  if (!m) return 0
+  let year = Number(m[1])
+  year += year >= 70 ? 1900 : 2000
+  const ms = Date.UTC(year, Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]))
+  return Number.isFinite(ms) ? ms : 0
+}
+
+function parseIcaoWindow(raw) {
+  const text = String(raw || '')
+  const same = text.match(/B\)\s*(\d{10})\s+C\)\s*(PERM|\d{10})/i)
+  const b = same ? same[1] : ((text.match(/(?:^|\n)B\)\s*(\d{10})/i) || [])[1])
+  const c = same ? same[2] : ((text.match(/(?:^|\n)C\)\s*(PERM|\d{10})/i) || [])[1])
+  const start = parseIcaoStamp(b)
+  if (String(c || '').toUpperCase() === 'PERM') {
+    return start ? { start, end: 0, perm: true } : null
+  }
+  const end = parseIcaoStamp(c)
+  if (!start && !end) return null
+  return { start, end, perm: false }
+}
+
+/**
+ * 优先用库内 dates；缺 start 时用原文 B)/C) 回填，避免「只有结束时间」被当成已生效。
+ */
+function datesFromNotice(notice) {
+  const n = notice || {}
+  const listed = (Array.isArray(n.dates) ? n.dates : []).filter((d) => d && (d.start || d.end))
+  const hasStart = listed.some((d) => d && d.start)
+  if (listed.length && hasStart) return listed
+  const w = parseIcaoWindow(n.rawText || '')
+  if (!w) return listed
+  return [{ start: w.start || undefined, end: w.perm ? undefined : w.end || undefined }]
+}
+
+function remainingLead(start, at) {
+  const ms = start - at
+  if (!Number.isFinite(ms) || ms <= 0) return ''
+  const mins = Math.round(ms / 60000)
+  if (mins < 60) return mins + ' 分钟后生效'
+  const hours = Math.round(mins / 60)
+  if (hours < 48) return hours + ' 小时后生效'
+  const days = Math.round(hours / 24)
+  return days + ' 天后生效'
+}
+
 /**
  * @param {object[]} dates [{ start, end }]
  * @param {boolean} [cancelled]
  * @param {number} [now] 注入当前时间便于测试
- * @returns {{statusText:string, statusTone:string, timeText:string, windows:object[]}}
+ * @returns {{statusText:string, statusTone:string, timeText:string, leadText:string, windows:object[]}}
  */
 function describeDates(dates, cancelled, now) {
   const at = Number.isFinite(now) ? now : Date.now()
@@ -161,20 +212,41 @@ function describeDates(dates, cancelled, now) {
       statusText: '已取消',
       statusTone: 'off',
       timeText: windows.length ? windows[0].text : '',
+      leadText: '',
       windows
     }
   }
-  if (!list.length) return { statusText: '', statusTone: '', timeText: '', windows }
+  if (!list.length) return { statusText: '', statusTone: '', timeText: '', leadText: '', windows }
   const active = list.find((d) => (!d.start || d.start <= at) && (!d.end || d.end >= at))
   if (active) {
-    return { statusText: '生效中', statusTone: 'live', timeText: windowText(active.start, active.end), windows }
+    return {
+      statusText: '生效中',
+      statusTone: 'live',
+      timeText: windowText(active.start, active.end),
+      leadText: '',
+      windows
+    }
   }
   const next = list.find((d) => d.start && d.start > at)
   if (next) {
-    return { statusText: '未生效', statusTone: 'soon', timeText: windowText(next.start, next.end), windows }
+    const leadText = remainingLead(next.start, at)
+    const win = windowText(next.start, next.end)
+    return {
+      statusText: '提前预警',
+      statusTone: 'soon',
+      timeText: leadText ? leadText + (win ? ' · ' + win : '') : win,
+      leadText,
+      windows
+    }
   }
   const last = list[list.length - 1]
-  return { statusText: '已结束', statusTone: 'off', timeText: windowText(last.start, last.end), windows }
+  return {
+    statusText: '已结束',
+    statusTone: 'off',
+    timeText: windowText(last.start, last.end),
+    leadText: '',
+    windows
+  }
 }
 
 /**
@@ -185,7 +257,8 @@ function describeDates(dates, cancelled, now) {
 function decorateNotice(notice, hasGeometry, now) {
   const n = notice || {}
   const tone = noticeTypeTone(n.type)
-  const d = describeDates(n.dates, n.cancelled, now)
+  const dates = datesFromNotice(n)
+  const d = describeDates(dates, n.cancelled, now)
   return Object.assign({}, n, {
     typeTone: tone,
     typeLabel: TONE_LABEL[tone] || 'NOTAM',
@@ -193,6 +266,7 @@ function decorateNotice(notice, hasGeometry, now) {
     statusText: d.statusText,
     statusTone: d.statusTone,
     timeText: d.timeText,
+    leadText: d.leadText || '',
     windows: d.windows,
     hasGeo: typeof hasGeometry === 'function' ? !!hasGeometry(n) : false,
     rawLines: n.rawText
@@ -204,7 +278,7 @@ function decorateNotice(notice, hasGeometry, now) {
   })
 }
 
-/** 生效中优先、已取消垫底；同级把有坐标图形的排前面 */
+/** 生效中优先、提前预警其次、已取消垫底；同级把有坐标图形的排前面 */
 const TONE_RANK = { live: 0, soon: 1, '': 2, off: 3 }
 
 function sortNotices(notices) {
@@ -219,19 +293,35 @@ function sortNotices(notices) {
 }
 
 function buildStats(notices) {
-  const stats = { notam: 0, nav: 0, adp: 0, live: 0, cancelled: 0 }
+  const stats = { notam: 0, nav: 0, adp: 0, live: 0, soon: 0, ended: 0, cancelled: 0 }
   ;(notices || []).forEach((n) => {
     if (stats[n.typeTone] != null) stats[n.typeTone] += 1
     if (n.cancelled) stats.cancelled += 1
     else if (n.statusTone === 'live') stats.live += 1
+    else if (n.statusTone === 'soon') stats.soon += 1
+    else if (n.statusTone === 'off') stats.ended += 1
   })
   return stats
+}
+
+/** 状态图层开关：默认全开。cancelled 优先于 tone=off。 */
+function noticeStatusVisible(n, flags) {
+  const f = flags || {}
+  if (n && n.cancelled) return f.showCancelled !== false
+  const tone = n && n.statusTone
+  if (tone === 'live') return f.showLive !== false
+  if (tone === 'soon') return f.showSoon !== false
+  if (tone === 'off') return f.showEnded !== false
+  return true
 }
 
 module.exports = {
   noticeTypeTone,
   shortType,
   windowText,
+  parseIcaoWindow,
+  datesFromNotice,
+  remainingLead,
   describeDates,
   decorateNotice,
   decorateSpaceNoticeEntry,
@@ -239,5 +329,6 @@ module.exports = {
   humanizeEntrySlug,
   sortNotices,
   buildStats,
+  noticeStatusVisible,
   TONE_LABEL
 }

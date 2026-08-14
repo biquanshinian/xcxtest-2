@@ -56,8 +56,9 @@
         <text class="panel-subtitle">{{subtitle || padName || '发射危险区'}}{{netText ? ' · NET ' + netText : ''}}</text>
       </view>
       <view class="panel-header-actions">
-        <view class="panel-badge {{stats.live ? 'panel-badge--green' : ''}}">
-          <text>{{stats.live ? '生效 ' + stats.live : notices.length + ' 条'}}</text>
+        <view class="panel-badge {{stats.live ? 'panel-badge--green' : (stats.soon ? 'panel-badge--soon' : '')}}">
+          <text wx:if="{{stats.live || stats.soon}}">{{stats.live ? '生效 ' + stats.live : ''}}{{stats.live && stats.soon ? ' · ' : ''}}{{stats.soon ? '预警 ' + stats.soon : ''}}</text>
+          <text wx:else>{{notices.length}} 条</text>
         </view>
         <view class="panel-toggle-btn" bindtap="togglePanel">
           <text>{{panelCollapsed ? '展开' : '收起'}}</text>
@@ -66,7 +67,7 @@
     </view>
 
     <view class="mini-summary-row" wx:if="{{panelCollapsed}}">
-      <text class="mini-summary-text">NOTAM {{stats.notam}} · 航海 {{stats.nav}} · 走廊 {{stats.adp}}{{stats.cancelled ? ' · 已取消 ' + stats.cancelled : ''}}</text>
+      <text class="mini-summary-text">NOTAM {{stats.notam}} · 航海 {{stats.nav}} · 走廊 {{stats.adp}}{{stats.soon ? ' · 预警 ' + stats.soon : ''}}{{stats.ended ? ' · 已结束 ' + stats.ended : ''}}{{stats.cancelled ? ' · 已取消 ' + stats.cancelled : ''}}</text>
     </view>
 
     <block wx:if="{{!panelCollapsed}}">
@@ -104,7 +105,24 @@
         </view>
       </view>
 
-      <text class="sn-note">{{hasTrajectory ? '黄线与 space-notices.com Trajectory 同源（Ship 40）。点通告可高亮并定位，切「发射区」聚焦场区细节。' : '本任务无飞行轨迹数据；地图展示 NOTAM / 航海危险区多边形。点通告可高亮并定位。'}}</text>
+      <view class="sn-chips">
+        <view class="sn-chip {{showLive ? 'sn-chip--on' : ''}}" data-key="showLive" bindtap="toggleLayer">
+          <view class="sn-chip-dot sn-chip-dot--live"></view>
+          <text>生效{{stats.live ? ' ' + stats.live : ''}}</text>
+        </view>
+        <view class="sn-chip {{showSoon ? 'sn-chip--on' : ''}}" data-key="showSoon" bindtap="toggleLayer">
+          <view class="sn-chip-dot sn-chip-dot--soon"></view>
+          <text>预警{{stats.soon ? ' ' + stats.soon : ''}}</text>
+        </view>
+        <view class="sn-chip {{showEnded ? 'sn-chip--on' : ''}}" data-key="showEnded" bindtap="toggleLayer">
+          <text>结束{{stats.ended ? ' ' + stats.ended : ''}}</text>
+        </view>
+        <view class="sn-chip {{showCancelled ? 'sn-chip--on' : ''}}" data-key="showCancelled" bindtap="toggleLayer">
+          <text>取消{{stats.cancelled ? ' ' + stats.cancelled : ''}}</text>
+        </view>
+      </view>
+
+      <text class="sn-note">{{hasTrajectory ? '黄线与 space-notices.com Trajectory 同源（Ship 40）。橙虚线 = 尚未生效的提前预警。点通告可高亮并定位，切「发射区」聚焦场区细节。' : '橙虚线 = 尚未生效的提前预警。本任务无飞行轨迹数据；地图展示 NOTAM / 航海危险区多边形。点通告可高亮并定位。'}}</text>
 
       <scroll-view scroll-y class="sn-list" enhanced="{{true}}" show-scrollbar="{{false}}">
         <view
@@ -155,6 +173,10 @@
     </view>
 
     <scroll-view scroll-y class="sn-sheet-scroll" enhanced="{{true}}" show-scrollbar="{{false}}">
+      <view class="sn-sheet-block" wx:if="{{selectedNotice.leadText}}">
+        <text class="sn-sheet-label">提前预警</text>
+        <text class="sn-sheet-text">{{selectedNotice.leadText}}，窗口开始后自动改为生效中。</text>
+      </view>
       <view class="sn-sheet-block" wx:if="{{selectedNotice.reason}}">
         <text class="sn-sheet-label">说明</text>
         <text class="sn-sheet-text">{{selectedNotice.reason}}</text>
