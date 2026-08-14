@@ -47,8 +47,8 @@
   />
 
   <view class="sn-state glass-card" wx:if="{{loading || errorText}}">
-    <text class="sn-state-title">{{loading ? '加载中…' : '加载失败'}}</text>
-    <text class="sn-state-desc">{{loading ? '正在读取通告与发射台点位' : errorText}}</text>
+    <text class="sn-state-title">{{loading ? (chinaView ? '正在读取中国航警公告…' : '加载中…') : (chinaView ? '中国航警公告' : '加载失败')}}</text>
+    <text class="sn-state-desc">{{loading ? (chinaView ? '正在拉取全国情报区危险区' : '正在读取通告与发射台点位') : errorText}}</text>
     <view class="sn-btn sn-btn--primary sn-state-btn" wx:if="{{errorText && !loading}}" bindtap="retryLoad">
       <text>重试</text>
     </view>

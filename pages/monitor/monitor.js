@@ -265,12 +265,13 @@ Page({
       this.setData({ enableLiveWatch: false })
     })
 
-    // SPACE_NOTICES_FEATURE：发射航警地图入口
+    // SPACE_NOTICES_FEATURE：发射航警地图入口（缺配置时仍显示，后台显式 false 才藏）
     isSpaceNoticesEnabled().then((on) => {
       this.setData({ enableSpaceNotices: !!on })
       if (on) this.loadChinaBulletinPreview()
     }).catch(() => {
-      this.setData({ enableSpaceNotices: false })
+      this.setData({ enableSpaceNotices: true })
+      this.loadChinaBulletinPreview()
     })
 
     // 过审关闭可播视频时，轨道卡片不用 mp4 背景（默认先关，读到允许再开）
@@ -445,9 +446,9 @@ Page({
     channelsLiveStatus: 0,
     // 「直播观看」板块开关（后台 enableLive + enableLiveWatch；初始 failClosed）
     enableLiveWatch: false,
-    // SPACE_NOTICES_FEATURE
-    enableSpaceNotices: false,
-    chinaBulletinHint: '点开查看情报区危险区',
+    // SPACE_NOTICES_FEATURE：与代码开关 fail-open 对齐，避免首屏先藏卡
+    enableSpaceNotices: true,
+    chinaBulletinHint: '覆盖全国情报区 · 点开查看',
     // B站直播
     biliLive: {
       roomId: '390508',
@@ -776,7 +777,7 @@ Page({
       .then((row) => {
         if (!row) return
         const n = Number(row.noticeCount) || 0
-        const hint = n ? (n + ' 条航警 · 点开查看') : '点开查看情报区危险区'
+        const hint = n ? (n + ' 条航警 · 点开查看') : '覆盖全国情报区 · 点开查看'
         this.setData({ chinaBulletinHint: hint })
       })
       .catch(() => {})

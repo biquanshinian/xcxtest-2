@@ -121,7 +121,14 @@ check('通告归属不互抢', /resolveNoticeOwner/.test(read('cloudfunctions/sp
 check('解析拒收串页 id', /noticeKeysAlign/.test(cfFetch) && /allowChinaIngest/.test(cfIndex))
 check('列表中国卡写明核对节奏', /15 分钟核对一次/.test(listJs) && /chinaBulletin\.syncLine/.test(listWxml))
 check('监控卡改名发射航警地图', /发射航警地图/.test(read('subpackages/monitor-pages/components/monitor-core-sections/index.wxml')))
-check('监控卡中国卫星预览', /enable-satellite/.test(read('subpackages/monitor-pages/components/monitor-core-sections/index.wxml')) && /chinaPreviewLat/.test(read('subpackages/monitor-pages/components/monitor-core-sections/index.js')))
+check(
+  '监控卡中国卫星预览',
+  /sn-preview-sat/.test(read('subpackages/monitor-pages/components/monitor-core-sections/index.wxml')) &&
+    /中国航警公告/.test(read('subpackages/monitor-pages/components/monitor-core-sections/index.wxml')) &&
+    /sn-preview-hit/.test(read('subpackages/monitor-pages/components/monitor-core-sections/index.wxml')) &&
+    /catchtap="emitOpenSpaceNotices"/.test(read('subpackages/monitor-pages/components/monitor-core-sections/index.wxml')) &&
+    !/<map[\s>]/.test(read('subpackages/monitor-pages/components/monitor-core-sections/index.wxml'))
+)
 check('点监控卡进中国航警', /SPACE_NOTICE_MAP/.test(read('pages/monitor/monitor.js')) && /CHINESE_COLLECTION_KEY/.test(read('pages/monitor/monitor.js')))
 check('产品名常量对齐', /SPACE_NOTICES_PRODUCT_NAME/.test(read('utils/space-notices-feature.js')) && /发射航警地图/.test(listJs) && /发射航警地图/.test(mapJs))
 check('云函数 B\/C 日期回填', /fillNoticeDates/.test(read('cloudfunctions/spaceNotices/index.js')) && exists('cloudfunctions/spaceNotices/parse-dates.js'))

@@ -36,8 +36,17 @@ const CHINA_BOXES = [
 /** 官网 https://space-notices.com/entry/collection-chinese-unknown */
 const CHINESE_COLLECTION_KEY = 'collection-chinese-unknown'
 
+function normalizeEntryKey(key) {
+  let s = String(key == null ? '' : key).trim()
+  if (!s) return ''
+  try {
+    s = decodeURIComponent(s)
+  } catch (e) { /* 已解码或非法 % 序列 */ }
+  return String(s || '').trim()
+}
+
 function isChineseCollectionKey(key) {
-  return String(key || '').trim() === CHINESE_COLLECTION_KEY
+  return normalizeEntryKey(key) === CHINESE_COLLECTION_KEY
 }
 
 /** 用户能看懂的情报区名；NAV 表示航海警告（无 FIR） */
@@ -212,6 +221,7 @@ module.exports = {
   isChinaPad,
   noticeChinaVisible,
   isChineseCollectionKey,
+  normalizeEntryKey,
   firCodeFromNotice,
   firLabel,
   FIR_LABELS,

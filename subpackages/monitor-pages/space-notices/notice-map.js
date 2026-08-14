@@ -27,7 +27,7 @@ const {
   hasGeometry
 } = require('./utils/map-build.js')
 const { buildMapLayoutData, setMapSatelliteFromTap } = require('../utils/map-page-common.js')
-const { isChinaPad, CHINA_OVERVIEW, isChineseCollectionKey, CHINESE_COLLECTION_KEY } = require('./utils/china-filter.js')
+const { isChinaPad, CHINA_OVERVIEW, isChineseCollectionKey, CHINESE_COLLECTION_KEY, normalizeEntryKey } = require('./utils/china-filter.js')
 
 const GATE_PRODUCT_ID = 'space_notices'
 const GATE_PRODUCT_NAME = SPACE_NOTICES_PRODUCT_NAME
@@ -112,14 +112,16 @@ Page({
 
   async onLoad(options) {
     this.initUiShell()
-    const entryKey = options && options.entryKey ? decodeURIComponent(options.entryKey) : ''
-    const ll2Id = options && options.ll2Id ? decodeURIComponent(options.ll2Id) : ''
+    let entryKey = normalizeEntryKey((options && (options.entryKey || options.entrykey)) || '')
+    const ll2Id = normalizeEntryKey((options && options.ll2Id) || '')
+    if (!entryKey && !ll2Id) entryKey = CHINESE_COLLECTION_KEY
+    const chinaCollection = isChineseCollectionKey(entryKey)
     this.setData({
       entryKey,
       ll2Id,
-      chinaView: isChineseCollectionKey(entryKey),
-      chinaOnly: isChineseCollectionKey(entryKey),
-      title: isChineseCollectionKey(entryKey) ? '中国航警公告' : '',
+      chinaView: chinaCollection,
+      chinaOnly: chinaCollection,
+      title: chinaCollection ? '中国航警公告' : '',
       ...buildMapLayoutData(getApp())
     })
 
@@ -150,11 +152,6 @@ Page({
       }
     }
     warmShareEntitlement(this, GATE_PRODUCT_ID)
-
-    if (!entryKey && !ll2Id) {
-      this.setData({ loading: false, errorText: '缺少任务 id' })
-      return
-    }
     this.loadEntry(entryKey, ll2Id)
   },
 
@@ -188,10 +185,14 @@ Page({
       if (!res || !res.success) {
         const err = (res && res.error) || '加载失败，请先部署云函数 spaceNotices'
         const missing = err === 'not_found'
+        const chinaCollection = isChineseCollectionKey(entryKey)
         this.setData({
           loading: false,
+          chinaView: chinaCollection || this.data.chinaView,
+          chinaOnly: chinaCollection || this.data.chinaOnly,
+          title: chinaCollection ? '中国航警公告' : this.data.title,
           errorText: missing
-            ? (isChineseCollectionKey(entryKey)
+            ? (chinaCollection
               ? '暂未入库中国通告，请稍后重试或先部署云函数 spaceNotices'
               : '未找到该任务通告，请先在列表页同步')
             : err
@@ -245,8 +246,11 @@ Page({
       this._loadedAt = Date.now()
       this.refreshVisible({ refit: true })
     } catch (e) {
+      const chinaCollection = isChineseCollectionKey(entryKey) || isChineseCollectionKey(this.data.entryKey)
       this.setData({
         loading: false,
+        chinaView: chinaCollection || this.data.chinaView,
+        title: chinaCollection ? '中国航警公告' : this.data.title,
         errorText: '加载失败：' + ((e && e.message) || '网络错误')
       })
     }

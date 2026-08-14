@@ -105,7 +105,7 @@
       </view>
     </view>
 
-    <!-- SPACE_NOTICES_FEATURE：发射航警地图（中国卫星预览，点开进中国航警公告） -->
+    <!-- SPACE_NOTICES_FEATURE：发射航警地图。禁止在此嵌套原生 map：scroll-view + 分包组件里会整块变白并吞掉点击。 -->
     <view class="space-notices-section monitor-block" wx:if="{{enableSpaceNotices}}">
       <view class="section-title">
         <text>发射航警地图</text>
@@ -116,29 +116,25 @@
           </view>
         </view>
       </view>
-      <view class="sn-preview-card glass-card card-hover" bindtap="emitOpenSpaceNotices">
-        <map
-          class="sn-preview-map"
-          latitude="{{chinaPreviewLat}}"
-          longitude="{{chinaPreviewLng}}"
-          scale="{{chinaPreviewScale}}"
-          enable-scroll="{{false}}"
-          enable-zoom="{{false}}"
-          enable-rotate="{{false}}"
-          enable-overlooking="{{false}}"
-          enable-poi="{{false}}"
-          show-location="{{false}}"
-          show-compass="{{false}}"
-          enable-satellite="{{true}}"
-          setting="{{chinaMapSetting}}"
-        ></map>
-        <view class="sn-preview-caption">
-          <view class="sn-preview-copy">
-            <text class="sn-preview-kicker">中国航警</text>
+      <view class="sn-preview-card glass-card card-hover" hover-class="sn-preview-card--pressed" hover-stay-time="80" bindtap="emitOpenSpaceNotices">
+        <view class="sn-preview-stage" aria-hidden="true">
+          <view class="sn-preview-sat">
+            <view class="sn-preview-grid"></view>
+            <view class="sn-preview-land sn-preview-land--main"></view>
+            <view class="sn-preview-land sn-preview-land--west"></view>
+            <view class="sn-preview-land sn-preview-land--south"></view>
+            <view class="sn-preview-hainan"></view>
+            <view class="sn-preview-taiwan"></view>
+            <view class="sn-preview-zone"></view>
+          </view>
+          <view class="sn-preview-hud">
+            <text class="sn-preview-kicker">发射航警地图</text>
+            <text class="sn-preview-title">中国航警公告</text>
             <text class="sn-preview-hint">{{chinaBulletinHint}}</text>
           </view>
           <text class="sn-preview-arrow">›</text>
         </view>
+        <view class="sn-preview-hit" catchtap="emitOpenSpaceNotices"></view>
       </view>
     </view>
 

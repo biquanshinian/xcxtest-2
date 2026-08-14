@@ -1,5 +1,5 @@
 /**
- * 监控页核心板块：空间站 / 星链分布 / 发射通告 / 过境预报
+ * 监控页核心板块：空间站 / 星链分布 / 发射航警地图 / 过境预报
  * 展示在 monitor-pages 分包；交互经 coreevent 回传页面。
  */
 Component({
@@ -17,20 +17,14 @@ Component({
     starlinkCount: { type: Number, value: 0 },
     starlinkPaused: { type: Boolean, value: false },
     starlinkUpdateTime: { type: String, value: '' },
-    enableSpaceNotices: { type: Boolean, value: false },
-    chinaBulletinHint: { type: String, value: '点开查看情报区危险区' },
+    enableSpaceNotices: { type: Boolean, value: true },
+    chinaBulletinHint: { type: String, value: '覆盖全国情报区 · 点开查看' },
     passReady: { type: Boolean, value: false },
     passLoading: { type: Boolean, value: false },
     passNoLocation: { type: Boolean, value: false },
     passError: { type: String, value: '' },
     passLocation: { type: String, value: '' },
     passList: { type: null, value: null }
-  },
-  data: {
-    chinaPreviewLat: 35,
-    chinaPreviewLng: 104,
-    chinaPreviewScale: 4,
-    chinaMapSetting: { enableSatellite: true }
   },
   methods: {
     _emit(name, e) {
