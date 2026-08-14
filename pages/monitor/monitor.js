@@ -548,8 +548,6 @@ Page({
     return (
       this.selectComponent('#monitorCorePanel') ||
       this.selectComponent('monitor-core-panel') ||
-      this.selectComponent('#monitorCoreSections') ||
-      this.selectComponent('monitor-core-sections') ||
       this
     )
   },
