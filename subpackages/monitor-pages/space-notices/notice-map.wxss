@@ -265,6 +265,34 @@ page {
   color: var(--color-text-on-glass);
 }
 
+.sn-sync {
+  margin: 12rpx 0 4rpx;
+  padding: 12rpx 16rpx;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.04);
+}
+.sn-sync-line {
+  display: block;
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-primary);
+}
+.sn-sync-line--quiet {
+  color: var(--color-text-on-glass);
+}
+.sn-sync-line--new {
+  color: var(--color-warning);
+}
+.sn-sync-cadence {
+  display: block;
+  margin-top: 4rpx;
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-on-glass);
+}
+.theme-light .sn-sync {
+  background: rgba(0, 0, 0, 0.04);
+}
+
 /* ---------- 通告列表 ---------- */
 .sn-list {
   max-height: 30vh;

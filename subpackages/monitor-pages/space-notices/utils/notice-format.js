@@ -9,7 +9,7 @@ const { pickLocalized, isContentLangEn } = require('../../../../utils/locale.js'
 const { translateRocketName } = require('../../../../utils/rocket-name-i18n.js')
 const { localizeMissionTitle } = require('../../../../utils/mission-title-i18n.js')
 const { translateAgencyName } = require('../../../../utils/space-terms-i18n.js')
-const { isChinaNotice, noticeChinaVisible, isChineseCollectionKey } = require('./china-filter.js')
+const { isChinaNotice, noticeChinaVisible, isChineseCollectionKey, firCodeFromNotice, firLabel } = require('./china-filter.js')
 
 const TONE_LABEL = { notam: '航空 NOTAM', nav: '航海警告', adp: '空域走廊' }
 
@@ -78,7 +78,7 @@ function decorateSpaceNoticeEntry(e) {
   let rocketZh = translateRocketName(rocketEn) || rocketEn
   let missionZh = localizeMissionTitle(missionEn, rocketEn, rocketZh) || missionEn
   if (isChineseCollectionKey(key) || /chinese notices/i.test(missionEn)) {
-    missionZh = '中国通告'
+    missionZh = '中国航警公告'
     if (!rocketEn || /unknown/i.test(rocketEn)) rocketZh = '未知发射'
   }
   const agencyEn = String(row.agency || '').trim()
@@ -254,16 +254,37 @@ function describeDates(dates, cancelled, now) {
   }
 }
 
-/**
- * @param {object} notice 云端 getEntry 返回的单条通告
- * @param {(n:object)=>boolean} hasGeometry map-build 的几何判定
- * @param {number} [now]
- */
+/** A3624/26、HYDROPAC 2308/26 — 用户对照官网编号用 */
+function extractNotamSeries(notice) {
+  const n = notice || {}
+  const name = String(n.name || '')
+  const key = String(n.noticeKey || '')
+  const raw = String(n.rawText || '')
+  const blob = name + '\n' + key + '\n' + raw
+  const hyd = blob.match(/HYDROPAC\s*(\d+)\s*\/\s*(\d+)/i)
+  if (hyd) return 'HYDROPAC ' + hyd[1] + '/' + hyd[2]
+  const series = blob.match(/\b([A-Z]\d{3,5}\/\d{2})\b/)
+  if (series) return series[1].toUpperCase()
+  const fromKey = key.match(/([A-Z]\d{3,5})[-_/](\d{2})/i)
+  if (fromKey) return fromKey[1].toUpperCase() + '/' + fromKey[2]
+  return name.trim()
+}
+
+function chinaNoticeTitle(notice, firCode, series) {
+  const label = firLabel(firCode)
+  const num = String(series || '').trim()
+  if (label && num) return label + ' · ' + num
+  return num || label || String((notice && notice.name) || '')
+}
+
 function decorateNotice(notice, hasGeometry, now) {
   const n = notice || {}
   const tone = noticeTypeTone(n.type)
   const dates = datesFromNotice(n)
   const d = describeDates(dates, n.cancelled, now)
+  const firCode = firCodeFromNotice(n)
+  const series = extractNotamSeries(n)
+  const label = firLabel(firCode)
   return Object.assign({}, n, {
     typeTone: tone,
     typeLabel: TONE_LABEL[tone] || 'NOTAM',
@@ -273,6 +294,10 @@ function decorateNotice(notice, hasGeometry, now) {
     timeText: d.timeText,
     leadText: d.leadText || '',
     windows: d.windows,
+    firCode,
+    firLabel: label,
+    series,
+    displayName: chinaNoticeTitle(n, firCode, series),
     inChina: isChinaNotice(n),
     hasGeo: typeof hasGeometry === 'function' ? !!hasGeometry(n) : false,
     rawLines: n.rawText
@@ -282,6 +307,39 @@ function decorateNotice(notice, hasGeometry, now) {
           .map((text, i) => ({ i, text }))
       : []
   })
+}
+
+/**
+ * 中国航警公告的核对文案：检查时间 ≠ 内容变化时间。
+ * 源站没有推送，只能定时拉；哈希没变就告诉用户「没有新航警」。
+ */
+function formatChinaBulletinSync(entry, now) {
+  const cadenceText = '约 15 分钟核对一次，有新航警才刷新'
+  const row = entry && typeof entry === 'object' ? entry : {}
+  const checked = Number(row.lastCheckedAt) || Number(row.syncedAt) || 0
+  const changed = Number(row.lastChangedAt) || 0
+  if (!checked) {
+    return {
+      checkText: '还没有自动核对',
+      changeText: '点开后会拉取最新航警',
+      unchanged: true,
+      cadenceText,
+      syncLine: '还没有自动核对 · 点开后会拉取最新航警'
+    }
+  }
+  const at = now instanceof Date ? now : new Date(now || Date.now())
+  const checkClock = formatDate(new Date(checked), 'HH:mm')
+  const sameDay = formatDate(new Date(checked), 'YYYY-MM-DD') === formatDate(at, 'YYYY-MM-DD')
+  const checkText = sameDay ? ('上次核对 ' + checkClock) : ('上次核对 ' + formatDate(new Date(checked), 'MM-DD HH:mm'))
+  const unchanged = !changed || Math.abs(checked - changed) > 90 * 1000
+  const changeText = unchanged ? '这一轮没有新航警' : '刚收到新航警'
+  return {
+    checkText,
+    changeText,
+    unchanged,
+    cadenceText,
+    syncLine: checkText + ' · ' + changeText
+  }
 }
 
 /** 生效中优先、提前预警其次、已取消垫底；同级把有坐标图形的排前面 */
@@ -331,6 +389,9 @@ module.exports = {
   remainingLead,
   describeDates,
   decorateNotice,
+  extractNotamSeries,
+  chinaNoticeTitle,
+  formatChinaBulletinSync,
   decorateSpaceNoticeEntry,
   spaceNoticeDisplayTitle,
   humanizeEntrySlug,

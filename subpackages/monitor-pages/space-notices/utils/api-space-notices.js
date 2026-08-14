@@ -70,11 +70,16 @@ function lookupStarshipSpaceNoticeEntry() {
   return callSpaceNotices('lookupStarshipEntry', {})
 }
 
+function lookupChinaBulletin() {
+  return callSpaceNotices('lookupChinaBulletin', {})
+}
+
 module.exports = {
   listSpaceNoticeEntries,
   getSpaceNoticeEntry,
   lookupSpaceNoticeEntry,
   lookupStarshipSpaceNoticeEntry,
+  lookupChinaBulletin,
   syncSpaceNotices,
   callSpaceNotices
 }

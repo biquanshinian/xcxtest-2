@@ -190,6 +190,12 @@ page {
   font-size: 22rpx;
   color: var(--color-text-tertiary, rgba(255, 255, 255, 0.5));
 }
+.sn-card-sync {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 20rpx;
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.42));
+}
 .sn-card-arrow {
   font-size: 40rpx;
   color: var(--color-text-tertiary, rgba(255, 255, 255, 0.4));

@@ -40,6 +40,45 @@ function isChineseCollectionKey(key) {
   return String(key || '').trim() === CHINESE_COLLECTION_KEY
 }
 
+/** 用户能看懂的情报区名；NAV 表示航海警告（无 FIR） */
+const FIR_LABELS = {
+  ZLHW: '兰州',
+  ZHWH: '武汉',
+  ZBPE: '北京',
+  ZSHA: '上海',
+  ZGZU: '广州',
+  ZPKM: '昆明',
+  ZWUQ: '乌鲁木齐',
+  ZYSH: '沈阳',
+  ZJSA: '三亚',
+  VHHK: '香港',
+  VHHH: '香港',
+  VMMC: '澳门',
+  RCAA: '台北',
+  RPHI: '马尼拉',
+  RPLI: '马尼拉'
+}
+
+function firCodeFromNotice(notice) {
+  const icaos = extractIcaoLocations(notice)
+  const chinaHit = icaos.find(isChinaIcao)
+  if (chinaHit) return chinaHit
+  const key = String((notice && notice.noticeKey) || '')
+  const fromKey = key.match(/notam-([A-Z]{4})[-_/]/i)
+  if (fromKey) return fromKey[1].toUpperCase()
+  const blob = key + '\n' + String((notice && notice.rawText) || '') + '\n' + String((notice && notice.name) || '')
+  if (/HYDROPAC|HYDROLANT|NAVAREA|NAVWARNING/i.test(blob)) return 'NAV'
+  return (icaos[0] || '').toUpperCase()
+}
+
+function firLabel(code) {
+  const c = String(code || '').trim().toUpperCase()
+  if (!c) return ''
+  if (c === 'NAV') return '航海警告'
+  if (FIR_LABELS[c]) return FIR_LABELS[c] + '情报区'
+  return c + ' 情报区'
+}
+
 function isChinaIcao(code) {
   const c = String(code || '').trim().toUpperCase()
   if (!c || NOT_ICAO_WORD.test(c)) return false
@@ -173,6 +212,9 @@ module.exports = {
   isChinaPad,
   noticeChinaVisible,
   isChineseCollectionKey,
+  firCodeFromNotice,
+  firLabel,
+  FIR_LABELS,
   CHINESE_COLLECTION_KEY,
   CHINA_OVERVIEW: { latitude: 35.0, longitude: 104.0, scale: 4 }
 }

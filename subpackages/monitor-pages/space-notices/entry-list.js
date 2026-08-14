@@ -2,8 +2,8 @@
  * SPACE_NOTICES_FEATURE — 发射通告条目列表（即将 / 历史分段）
  */
 const pageBase = require('../../../utils/page-base.js')
-const { listSpaceNoticeEntries, syncSpaceNotices } = require('./utils/api-space-notices.js')
-const { decorateSpaceNoticeEntry } = require('./utils/notice-format.js')
+const { listSpaceNoticeEntries, syncSpaceNotices, lookupChinaBulletin } = require('./utils/api-space-notices.js')
+const { decorateSpaceNoticeEntry, formatChinaBulletinSync } = require('./utils/notice-format.js')
 const { CHINESE_COLLECTION_KEY } = require('./utils/china-filter.js')
 const { isSpaceNoticesEnabled } = require('../../../utils/space-notices-feature.js')
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
@@ -46,6 +46,23 @@ function decorateEntry(e) {
   })
 }
 
+function decorateChinaCard(res) {
+  const row = res && res.success ? res : {}
+  const sync = formatChinaBulletinSync(row)
+  const n = Number(row.noticeCount) || 0
+  const found = !!row.found
+  let sub
+  if (!found) sub = '兰州、武汉等情报区的临时危险区'
+  else if (!n) sub = '这一轮没有中国区航警'
+  else sub = n + ' 条临时危险区 · ' + sync.changeText
+  return {
+    title: '中国航警公告',
+    sub,
+    meta: found ? sync.checkText : '点开后会拉取最新航警',
+    syncLine: sync.cadenceText
+  }
+}
+
 Page({
   behaviors: [pageBase],
   _fallbackTab: '/pages/monitor/monitor',
@@ -56,6 +73,12 @@ Page({
     upcoming: [],
     past: [],
     totalCount: 0,
+    chinaBulletin: {
+      title: '中国航警公告',
+      sub: '兰州、武汉等情报区的临时危险区',
+      meta: '点开后会拉取最新航警',
+      syncLine: '约 15 分钟核对一次，有新航警才刷新'
+    },
     shareGateExpireAt: 0
   },
 
@@ -94,10 +117,15 @@ Page({
   async loadList() {
     this.setData({ loading: true, errorText: '' })
     try {
-      const res = await listSpaceNoticeEntries(40)
+      const [res, chinaRes] = await Promise.all([
+        listSpaceNoticeEntries(40),
+        lookupChinaBulletin().catch(() => null)
+      ])
+      const chinaBulletin = decorateChinaCard(chinaRes)
       if (!res || !res.success) {
         this.setData({
           loading: false,
+          chinaBulletin,
           errorText: (res && res.error) || '加载失败，请先部署云函数 spaceNotices'
         })
         return
@@ -109,7 +137,8 @@ Page({
         loading: false,
         upcoming,
         past,
-        totalCount: rows.length
+        totalCount: rows.length,
+        chinaBulletin
       })
     } catch (e) {
       this.setData({

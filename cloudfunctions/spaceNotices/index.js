@@ -7,6 +7,7 @@
  *   getEntry               — 单条 + notices（缺数据时按需补拉该 entry）
  *   lookupEntry            — 按 entryKey / ll2Id 查是否已有通告（不补拉、不写库）
  *   lookupStarshipEntry    — 取当前最合适的星舰通告条目（不补拉、不写库）
+ *   lookupChinaBulletin    — 中国航警公告卡片：核对时间 / 条数（不补拉）
  *   ingestRaw              — 粘贴原文解析入库 { entryKey|ll2Id, rawText, type?, name?, reason? }
  *   parsePreview           — 仅解析 areas，不写库
  *
@@ -35,7 +36,7 @@ const {
 const { loadLaunchesFromCache } = require('./read-ll2-cache.js')
 const { resolvePadCoords } = require('./pad-coords.js')
 const { extractNoticeLinks, noticeKeyFromPath, fetchNoticesByPaths } = require('./fetch-external.js')
-const { discoverEntrySlugs, fetchEntryPage, BASE, isCollectionKey } = require('./discover-entries.js')
+const { discoverEntrySlugs, fetchEntryPage, BASE, isCollectionKey, isChineseCollectionKey, CHINESE_COLLECTION_KEY } = require('./discover-entries.js')
 const { matchEntryToLaunch } = require('./match-ll2.js')
 
 const crypto = require('crypto')
@@ -49,6 +50,8 @@ const SYNC_COOLDOWN_MS = 60 * 1000
 const ENTRIES_PER_RUN = 4
 /** 抓取预算，留足余量给 DB 写入（云函数 timeout 90s） */
 const DEFAULT_BUDGET_MS = 60000
+/** 打开中国航警页时，超过该间隔则强制补拉（定时器本身每 15 分钟核对一次） */
+const CHINA_BULLETIN_STALE_MS = 60 * 60 * 1000
 
 function nowMs() {
   return Date.now()
@@ -157,6 +160,15 @@ async function upsertNotice(entryKey, notice, opts) {
 async function readNoticesOfEntry(entryKey) {
   const res = await db.collection(NOTICE_COL).where({ entryKey: String(entryKey) }).limit(100).get()
   return (res.data || []).filter((n) => n && n.noticeKey !== STALE_DEMO_CORRIDOR_KEY)
+}
+
+function bulletinFingerprint(notices) {
+  const sig = (notices || [])
+    .map((n) => String((n && n.noticeKey) || '') + ':' + String((n && n.contentHash) || ''))
+    .filter(Boolean)
+    .sort()
+    .join('|')
+  return crypto.createHash('sha1').update(sig).digest('hex').slice(0, 16)
 }
 
 // ───────────────────────── 条目读写 ─────────────────────────
@@ -386,7 +398,20 @@ async function syncOneEntry(slug, launches, deadline) {
 
   // 统计以库内为准：本轮预算用尽时也不会把历史通告数抹低
   const stored = await readNoticesOfEntry(slug)
-  await upsertEntry(buildEntryDoc(meta, matched, stored))
+  const doc = buildEntryDoc(meta, matched, stored)
+  if (isCollectionKey(slug)) {
+    let prev = null
+    try {
+      const got = await db.collection(ENTRY_COL).doc(docIdOf(slug)).get()
+      prev = got && got.data
+    } catch (e) { /* new */ }
+    const fp = bulletinFingerprint(stored)
+    const same = !!(prev && prev.bulletinFingerprint === fp)
+    doc.lastCheckedAt = nowMs()
+    doc.bulletinFingerprint = fp
+    doc.lastChangedAt = same && prev.lastChangedAt ? prev.lastChangedAt : nowMs()
+  }
+  await upsertEntry(doc)
 
   return {
     entryKey: slug,
@@ -436,6 +461,8 @@ async function syncSpaceNotices(opts) {
     targets = []
     for (let i = 0; i < per; i++) targets.push(slugs[(cursor + i) % slugs.length])
     cursor = (cursor + per) % slugs.length
+    // 中国航警公告：每轮都核对一次。网页没有推送，只能轮询；内容哈希没变则 skipped、不改 lastChangedAt
+    if (targets.indexOf(CHINESE_COLLECTION_KEY) < 0) targets.unshift(CHINESE_COLLECTION_KEY)
   }
 
   const perEntry = []
@@ -521,6 +548,8 @@ function slimEntryRow(d) {
     noticeCount: Number(d.noticeCount || (Array.isArray(d.noticeKeys) ? d.noticeKeys.length : 0)),
     hasTrajectory: Array.isArray(d.trajectory) && d.trajectory.length > 1,
     hasPad: !!(d.pad && d.pad.latitude != null),
+    lastCheckedAt: Number(d.lastCheckedAt) || Number(d.syncedAt) || 0,
+    lastChangedAt: Number(d.lastChangedAt) || 0,
     syncedAt: d.syncedAt || 0
   }
 }
@@ -600,6 +629,32 @@ async function lookupEntry(event) {
     entryKey: entry.entryKey || '',
     ll2Id: entry.ll2Id || ll2Id,
     noticeCount
+  }
+}
+
+/** 列表页中国航警卡：只读核对时间，不补拉 */
+async function lookupChinaBulletin() {
+  const entry = await findEntryDoc(CHINESE_COLLECTION_KEY, '')
+  if (!entry) {
+    return {
+      success: true,
+      found: false,
+      hasNotices: false,
+      entryKey: CHINESE_COLLECTION_KEY,
+      noticeCount: 0,
+      lastCheckedAt: 0,
+      lastChangedAt: 0
+    }
+  }
+  const noticeCount = noticeCountOf(entry)
+  return {
+    success: true,
+    found: true,
+    hasNotices: noticeCount > 0,
+    entryKey: CHINESE_COLLECTION_KEY,
+    noticeCount,
+    lastCheckedAt: Number(entry.lastCheckedAt) || Number(entry.syncedAt) || 0,
+    lastChangedAt: Number(entry.lastChangedAt) || 0
   }
 }
 
@@ -685,10 +740,15 @@ async function getEntry(event) {
 
   notices = hydrateNoticeAreas(notices)
 
-  // 按需补拉：无条目 / 无通告 / 通告既无几何也无原文（脏数据）时同步
+  // 按需补拉：无条目 / 无通告 / 通告既无几何也无原文（脏数据）时同步。
+  // 中国航警：超过 1 小时没核对也补拉（定时器未部署时的兜底；有更新才改 lastChangedAt）
+  const chinaKey = isChineseCollectionKey(entryKey) || (entry && isChineseCollectionKey(entry.entryKey))
+  const checkedAt = entry ? (Number(entry.lastCheckedAt) || Number(entry.syncedAt) || 0) : 0
+  const chinaStale = !!(chinaKey && (!checkedAt || nowMs() - checkedAt >= CHINA_BULLETIN_STALE_MS))
   const needSync =
     !entry ||
     !notices.length ||
+    chinaStale ||
     (notices.length > 0 && !notices.some(noticeHasGeom) && !notices.some((n) => n && n.rawText))
   if (needSync) {
     const target = (entry && entry.entryKey) || entryKey
@@ -743,6 +803,9 @@ async function getEntry(event) {
       windowStartMs: entry.windowStartMs || 0,
       windowEndMs: entry.windowEndMs || 0,
       noticeKeys: entry.noticeKeys || [],
+      lastCheckedAt: Number(entry.lastCheckedAt) || Number(entry.syncedAt) || 0,
+      lastChangedAt: Number(entry.lastChangedAt) || 0,
+      bulletinFingerprint: entry.bulletinFingerprint || '',
       trajectory,
       trajectoryColor,
       trajectoryVersion,
@@ -818,6 +881,7 @@ exports.main = async (event) => {
     if (action === 'getEntry') return await getEntry(ev)
     if (action === 'lookupEntry') return await lookupEntry(ev)
     if (action === 'lookupStarshipEntry') return await lookupStarshipEntry(ev)
+    if (action === 'lookupChinaBulletin') return await lookupChinaBulletin()
     if (action === 'ingestRaw') return await ingestRaw(ev)
     if (action === 'parsePreview') return await parsePreview(ev)
     if (action === 'sync') {

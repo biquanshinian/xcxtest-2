@@ -29,11 +29,12 @@
         <view class="sn-card glass-card card-hover sn-card--china" bindtap="openChinaMap">
           <view class="sn-card-main">
             <view class="sn-card-top">
-              <text class="sn-card-title">中国通告</text>
-              <view class="sn-chip sn-chip--china"><text>官网</text></view>
+              <text class="sn-card-title">{{chinaBulletin.title}}</text>
+              <view class="sn-chip sn-chip--china"><text>航警</text></view>
             </view>
-            <text class="sn-card-sub">space-notices.com · Chinese Notices</text>
-            <text class="sn-card-meta">未知发射航警合集 · 点开看地图危险区</text>
+            <text class="sn-card-sub">{{chinaBulletin.sub}}</text>
+            <text class="sn-card-meta">{{chinaBulletin.meta}}</text>
+            <text class="sn-card-sync">{{chinaBulletin.syncLine}}</text>
           </view>
           <text class="sn-card-arrow">›</text>
         </view>

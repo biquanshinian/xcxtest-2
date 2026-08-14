@@ -192,7 +192,7 @@ global.wx = {
   setStorageSync: () => {},
   getFileSystemManager: () => ({ access: () => {}, readdirSync: () => [] })
 }
-const { describeDates, decorateNotice, sortNotices, buildStats, shortType, noticeTypeTone, datesFromNotice, noticeStatusVisible } = require(`../${DIR}/utils/notice-format.js`)
+const { describeDates, decorateNotice, sortNotices, buildStats, shortType, noticeTypeTone, datesFromNotice, noticeStatusVisible, formatChinaBulletinSync, extractNotamSeries, chinaNoticeTitle } = require(`../${DIR}/utils/notice-format.js`)
 const NOW = Date.parse('2026-07-24T01:00:00Z')
 const dates = [
   { start: '2026-07-23T23:34:00.000Z', end: '2026-07-24T02:59:00.000Z' },
@@ -249,7 +249,7 @@ const mixed = [
 const mixedStats = buildStats(mixed)
 check('预警计入 stats.soon', mixedStats.soon >= 1 && mixedStats.live >= 1 && mixedStats.ended >= 1 && mixedStats.cancelled >= 1, JSON.stringify(mixedStats))
 check('状态筛选可关预警', !noticeStatusVisible(mixed.find((n) => n.name === 'D-soon'), { showSoon: false }))
-const { isChinaNotice, extractIcaoLocations, pointInChina, isChinaPad, noticeChinaVisible, isChineseCollectionKey } = require(`../${DIR}/utils/china-filter.js`)
+const { isChinaNotice, extractIcaoLocations, pointInChina, isChinaPad, noticeChinaVisible, isChineseCollectionKey, firLabel, firCodeFromNotice } = require(`../${DIR}/utils/china-filter.js`)
 check('YMMM 溅落不是中国', !isChinaNotice({ rawText: 'Q) YMMM/QRDCA\nA) YMMM\n', noticeKey: 'notam-YMMM-E2700/26', areas: [[[92.9, -21.6], [93.1, -21.6], [93.1, -21.4], [92.9, -21.6]]] }))
 check('美国 ZHU 三字码不是中国', !isChinaNotice({ noticeKey: 'notam-ZHU-07/270-26', name: '07/270', rawText: 'HOUSTON ARTCC ZHU\n', areas: [[[-97.15, 25.99], [-97.1, 25.99], [-97.1, 26.1], [-97.15, 25.99]]] }))
 check('ZONE/ZULU 不误判', !isChinaNotice({ rawText: 'HAZARD ZONE UNTIL 1200ZULU', name: 'ZONE' }))
@@ -260,6 +260,32 @@ check('文昌地名是中国', isChinaNotice({ reason: 'Wenchang coastal hazard'
 check('文昌坐标是中国', isChinaNotice({ areas: [[[110.95, 19.61], [111.1, 19.61], [111.1, 19.8], [110.95, 19.61]]] }))
 check('苏禄海官网溅落区算中国海域', isChinaNotice({ areas: [[[119.22, 9.1], [119.37, 9.1], [119.37, 9.28], [119.22, 9.1]]] }))
 check('官网中国合集 slug', isChineseCollectionKey('collection-chinese-unknown'))
+check('ZLHW 显示兰州情报区', firLabel('ZLHW') === '兰州情报区')
+check('空 FIR 不显示未知区域', firLabel('') === '')
+check('航警编号带出 FIR', firCodeFromNotice({ noticeKey: 'notam-ZLHW-A3624/26' }) === 'ZLHW')
+check('编号抽取 A3624/26', extractNotamSeries({ noticeKey: 'notam-ZLHW-A3624/26', name: 'A3624/26' }) === 'A3624/26')
+check(
+  '中国航警标题',
+  chinaNoticeTitle({ name: 'A3624/26' }, 'ZLHW', 'A3624/26') === '兰州情报区 · A3624/26'
+)
+check(
+  'decorate 标题带情报区',
+  decorateNotice({ name: 'A3624/26', type: 'NOTAM', noticeKey: 'notam-ZLHW-A3624/26' }, () => false, NOW).displayName ===
+    '兰州情报区 · A3624/26'
+)
+check(
+  '核对无变化文案',
+  formatChinaBulletinSync({ lastCheckedAt: NOW, lastChangedAt: NOW - 3600000 }, NOW).unchanged &&
+    /没有新航警/.test(formatChinaBulletinSync({ lastCheckedAt: NOW, lastChangedAt: NOW - 3600000 }, NOW).changeText)
+)
+check(
+  '刚收到新航警文案',
+  !formatChinaBulletinSync({ lastCheckedAt: NOW, lastChangedAt: NOW }, NOW).unchanged
+)
+check(
+  '核对节奏文案',
+  /15 分钟/.test(formatChinaBulletinSync({ lastCheckedAt: NOW, lastChangedAt: NOW - 3600000 }, NOW).cadenceText)
+)
 check('Texas 坐标不是中国', !pointInChina(25.99677, -97.15799))
 check('东方发射场坐标不是中国', !pointInChina(51.8844, 128.3339))
 check('种子岛坐标不是中国', !pointInChina(30.401, 130.978))
@@ -329,6 +355,9 @@ check('折叠态有摘要', /mini-summary-row/.test(wxml) && /stats\.notam/.test
 check('预警状态 chip', /预警/.test(wxml) && /showSoon/.test(js) && /data-key="showSoon"/.test(wxml))
 check('中国筛选 chip', /data-key="chinaOnly"/.test(wxml) && /toggleChinaView/.test(js) && /noticeChinaVisible/.test(js))
 check('中国按钮在地图工具栏', /map-action-container/.test(wxml) && /bindtap="toggleChinaView"/.test(wxml) && /map-action-china-wrap/.test(wxml))
+check('中国航警按情报区筛选', /toggleFirFilter/.test(js) && /firChips/.test(wxml) && /全部情报区/.test(wxml))
+check('中国航警列表用情报区标题', /displayName/.test(wxml) && /chinaNoticeTitle/.test(read(`${DIR}/utils/notice-format.js`)))
+check('中国航警核对条', /sn-sync/.test(wxml) && /cadenceText/.test(js) && /syncUnchanged/.test(wxml))
 check('中国空态文案', /没有中国相关通告/.test(wxml))
 check('四态状态筛选', /showLive/.test(js) && /showEnded/.test(js) && /showCancelled/.test(js) && /refreshVisible/.test(js))
 check('详情卡提前预警文案', /selectedNotice\.leadText/.test(wxml))
@@ -376,7 +405,7 @@ check('无 id 时回落列表页', /ROUTES\.SPACE_NOTICE_LIST/.test(js))
 check('无轨迹时隐藏轨迹 chip', /hasTrajectory/.test(js) && /wx:if="\{\{hasTrajectory\}\}"/.test(wxml))
 check('列表用 entryKey 打开详情', /entryKey/.test(listJs) && /data-key="\{\{item\.entryKey\}\}"/.test(listWxml))
 check('列表即将/历史分段', /upcoming/.test(listJs) && /past/.test(listJs) && /即将/.test(listWxml) && /历史发射/.test(listWxml))
-check('列表中国通告入口', /中国通告/.test(listWxml) && /openChinaMap/.test(listJs) && /CHINESE_COLLECTION_KEY/.test(listJs))
+check('列表中国通告入口', /中国航警公告/.test(listJs) && /openChinaMap/.test(listJs) && /CHINESE_COLLECTION_KEY/.test(listJs))
 
 // 分享冷启动不能被功能开关误杀：必须 fail-open
 const flag = read('utils/space-notices-feature.js')

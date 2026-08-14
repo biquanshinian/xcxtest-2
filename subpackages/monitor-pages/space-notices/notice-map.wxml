@@ -57,8 +57,8 @@
   <view class="panel sn-panel glass-card {{panelCollapsed ? 'panel--collapsed' : ''}}" wx:if="{{!loading && !errorText}}">
     <view class="panel-header">
       <view class="sn-head-main">
-        <text class="panel-title">通告图层</text>
-        <text class="panel-subtitle">{{subtitle || padName || '发射危险区'}}{{netText ? ' · NET ' + netText : ''}}</text>
+        <text class="panel-title">{{chinaView ? '中国航警公告' : '通告图层'}}</text>
+        <text class="panel-subtitle">{{chinaView ? (syncLine || '临时危险区') : (subtitle || padName || '发射危险区')}}{{!chinaView && netText ? ' · NET ' + netText : ''}}</text>
       </view>
       <view class="panel-header-actions">
         <view class="panel-badge {{stats.live ? 'panel-badge--green' : (stats.soon ? 'panel-badge--soon' : '')}}">
@@ -72,11 +72,17 @@
     </view>
 
     <view class="mini-summary-row" wx:if="{{panelCollapsed}}">
-      <text class="mini-summary-text">{{chinaView ? '中国合集' : '全部'}} · NOTAM {{stats.notam}} · 航海 {{stats.nav}} · 走廊 {{stats.adp}}{{stats.china ? ' · 中国 ' + stats.china : ''}}{{stats.soon ? ' · 预警 ' + stats.soon : ''}}{{stats.ended ? ' · 已结束 ' + stats.ended : ''}}{{stats.cancelled ? ' · 已取消 ' + stats.cancelled : ''}}</text>
+      <text class="mini-summary-text">{{chinaView ? (syncLine || '中国航警') : '全部'}} · NOTAM {{stats.notam}} · 航海 {{stats.nav}}{{stats.soon ? ' · 预警 ' + stats.soon : ''}}{{stats.ended ? ' · 已结束 ' + stats.ended : ''}}</text>
     </view>
 
     <block wx:if="{{!panelCollapsed}}">
-      <view class="sn-seg">
+      <view class="sn-sync" wx:if="{{chinaView}}">
+        <text class="sn-sync-line">{{checkText}}</text>
+        <text class="sn-sync-line {{syncUnchanged ? 'sn-sync-line--quiet' : 'sn-sync-line--new'}}">{{changeText}}</text>
+        <text class="sn-sync-cadence">{{cadenceText}}</text>
+      </view>
+
+      <view class="sn-seg" wx:if="{{!chinaView}}">
         <view class="sn-seg-item {{mapRegion === 'pad' ? 'sn-seg-item--on' : ''}}" data-region="pad" bindtap="setMapRegion">
           <text>发射区</text>
         </view>
@@ -85,6 +91,21 @@
         </view>
         <view class="sn-seg-item {{mapRegion === 'global' ? 'sn-seg-item--on' : ''}}" data-region="global" bindtap="setMapRegion">
           <text>全程</text>
+        </view>
+      </view>
+
+      <view class="sn-chips" wx:if="{{chinaView}}">
+        <view class="sn-chip {{!firFilter ? 'sn-chip--on' : ''}}" data-code="" bindtap="toggleFirFilter">
+          <text>全部情报区</text>
+        </view>
+        <view
+          class="sn-chip {{firFilter === item.code ? 'sn-chip--on' : ''}}"
+          wx:for="{{firChips}}"
+          wx:key="code"
+          data-code="{{item.code}}"
+          bindtap="toggleFirFilter"
+        >
+          <text>{{item.label}}</text>
         </view>
       </view>
 
@@ -101,7 +122,7 @@
           <view class="sn-chip-dot sn-chip-dot--nav"></view>
           <text>航海</text>
         </view>
-        <view class="sn-chip {{showPad ? 'sn-chip--on' : ''}}" data-key="showPad" bindtap="toggleLayer">
+        <view class="sn-chip {{showPad ? 'sn-chip--on' : ''}}" data-key="showPad" bindtap="toggleLayer" wx:if="{{!chinaView}}">
           <view class="sn-chip-dot sn-chip-dot--pad"></view>
           <text>发射台</text>
         </view>
@@ -127,7 +148,7 @@
         </view>
       </view>
 
-      <text class="sn-note">{{chinaView ? '数据来自 space-notices.com「Chinese Notices」。关闭右上角「中国」可返回原任务。橙虚线 = 尚未生效的提前预警。' : (hasTrajectory ? '黄线与 space-notices.com Trajectory 同源（Ship 40）。橙虚线 = 尚未生效的提前预警。点通告可高亮并定位，切「发射区」聚焦场区细节。' : '橙虚线 = 尚未生效的提前预警。本任务无飞行轨迹数据；地图展示 NOTAM / 航海危险区多边形。点通告可高亮并定位。')}}</text>
+      <text class="sn-note">{{chinaView ? '每条先看情报区和编号。橙虚线是尚未开始的窗口。时间按你手机时区（国内即北京时间）。' : (hasTrajectory ? '黄线与 space-notices.com Trajectory 同源（Ship 40）。橙虚线 = 尚未生效的提前预警。点通告可高亮并定位，切「发射区」聚焦场区细节。' : '橙虚线 = 尚未生效的提前预警。本任务无飞行轨迹数据；地图展示 NOTAM / 航海危险区多边形。点通告可高亮并定位。')}}</text>
 
       <scroll-view scroll-y class="sn-list" enhanced="{{true}}" show-scrollbar="{{false}}">
         <view
@@ -140,18 +161,19 @@
           <view class="sn-item-bar sn-item-bar--{{item.typeTone}}"></view>
           <view class="sn-item-body">
             <view class="sn-item-top">
-              <text class="sn-item-name">{{item.name}}</text>
+              <text class="sn-item-name">{{chinaView ? (item.displayName || item.name) : item.name}}</text>
               <view class="sn-tag sn-tag--{{item.statusTone}}" wx:if="{{item.statusText}}">
                 <text>{{item.statusText}}</text>
               </view>
             </view>
-            <text class="sn-item-meta">{{item.typeShort}}{{item.timeText ? ' · ' + item.timeText : ''}}{{item.hasGeo ? '' : ' · 无坐标'}}</text>
+            <text class="sn-item-meta" wx:if="{{chinaView}}">{{item.timeText}}{{item.hasGeo ? '' : ' · 无坐标'}}</text>
+            <text class="sn-item-meta" wx:else>{{item.firLabel}}{{item.firLabel && item.timeText ? ' · ' : ''}}{{item.timeText}}{{item.hasGeo ? '' : ' · 无坐标'}}</text>
             <text class="sn-item-reason" wx:if="{{item.reason}}">{{item.reason}}</text>
           </view>
           <view class="sn-item-arrow"></view>
         </view>
         <view class="sn-empty" wx:if="{{!notices.length}}">
-          <text wx:if="{{chinaView}}">当前没有中国相关通告。关闭右上角「中国」可返回原任务。</text>
+          <text wx:if="{{chinaView}}">当前没有中国相关通告。定时核对后若仍为空，说明这一轮没有中国区航警。</text>
           <text wx:else>该任务暂无通告多边形。可在云函数 ingestRaw 粘贴 NOTAM 原文。</text>
         </view>
       </scroll-view>
@@ -173,7 +195,7 @@
       <view class="sn-tag sn-tag--{{selectedNotice.statusTone}}" wx:if="{{selectedNotice.statusText}}">
         <text>{{selectedNotice.statusText}}</text>
       </view>
-      <view class="sn-tag sn-tag--plain"><text>{{selectedNotice.typeShort}}</text></view>
+      <view class="sn-tag sn-tag--plain" wx:if="{{selectedNotice.firLabel}}"><text>{{selectedNotice.firLabel}}</text></view>
       <view class="sn-tag sn-tag--plain" wx:if="{{selectedNotice.hasGeo}}"><text>已在地图高亮</text></view>
       <view class="sn-tag sn-tag--off" wx:else><text>无坐标图形</text></view>
     </view>
@@ -188,7 +210,7 @@
         <text class="sn-sheet-text">{{selectedNotice.reason}}</text>
       </view>
       <view class="sn-sheet-block" wx:if="{{selectedNotice.windows.length}}">
-        <text class="sn-sheet-label">生效窗口（本地时间）</text>
+        <text class="sn-sheet-label">{{chinaView ? '生效窗口（北京时间）' : '生效窗口（本地时间）'}}</text>
         <view class="sn-win" wx:for="{{selectedNotice.windows}}" wx:key="i">
           <text>{{item.text}}</text>
         </view>

@@ -14,7 +14,7 @@ const {
   withShareStampPath,
   withShareStampQuery
 } = require('../utils/share-gate.js')
-const { decorateNotice, decorateSpaceNoticeEntry, spaceNoticeDisplayTitle, sortNotices, buildStats, noticeStatusVisible, noticeChinaVisible } = require('./utils/notice-format.js')
+const { decorateNotice, decorateSpaceNoticeEntry, spaceNoticeDisplayTitle, sortNotices, buildStats, noticeStatusVisible, noticeChinaVisible, formatChinaBulletinSync } = require('./utils/notice-format.js')
 const {
   buildPolygonsFromNotices,
   buildPolylinesFromNotices,
@@ -31,6 +31,18 @@ const { isChinaPad, CHINA_OVERVIEW, isChineseCollectionKey, CHINESE_COLLECTION_K
 
 const GATE_PRODUCT_ID = 'space_notices'
 const GATE_PRODUCT_NAME = '发射通告地图'
+
+function buildFirChips(notices) {
+  const seen = {}
+  const chips = []
+  ;(notices || []).forEach((n) => {
+    const code = n && n.firCode
+    if (!code || seen[code]) return
+    seen[code] = true
+    chips.push({ code, label: n.firLabel || code })
+  })
+  return chips
+}
 
 Page({
   behaviors: [pageBase],
@@ -69,6 +81,13 @@ Page({
     chinaView: false,
     /** 仅显示中国相关通告；进入官网合集时为 true */
     chinaOnly: false,
+    firFilter: '',
+    firChips: [],
+    checkText: '',
+    changeText: '',
+    cadenceText: '',
+    syncLine: '',
+    syncUnchanged: true,
     /** 仅当本任务有轨迹数据时才显示「轨迹」chip */
     hasTrajectory: false,
     showPad: true,
@@ -89,6 +108,7 @@ Page({
   _decorated: [],
   _display: null,
   _prevMission: null,
+  _loadedAt: 0,
 
   async onLoad(options) {
     this.initUiShell()
@@ -143,6 +163,15 @@ Page({
     if (this._notices.length && this.data.themeLight !== before) {
       this.applyLayers({ refit: false })
     }
+    const staleMs = 15 * 60 * 1000
+    if (
+      !this.data.loading &&
+      this.data.chinaView &&
+      this._loadedAt &&
+      Date.now() - this._loadedAt > staleMs
+    ) {
+      this.loadEntry(this.data.entryKey, this.data.ll2Id)
+    }
   },
 
   async loadEntry(entryKey, ll2Id) {
@@ -186,22 +215,33 @@ Page({
       this._display = display
       const traj = resolveTrajectory(entry)
       const hasTrajectory = !!(traj && traj.length >= 2)
+      const sync = formatChinaBulletinSync(entry)
+      const firChips = chinaCollection ? buildFirChips(this._decorated) : []
+      const firFilter = firChips.some((c) => c.code === this.data.firFilter) ? this.data.firFilter : ''
       this.setData({
         loading: false,
         errorText: '',
         entryKey: entry.entryKey || entryKey || '',
         ll2Id: entry.ll2Id || ll2Id || '',
-        title: display.title || '通告地图',
-        subtitle: display.subtitle || entry.rocketName || '',
+        title: chinaCollection ? '中国航警公告' : (display.title || '通告地图'),
+        subtitle: chinaCollection ? (sync.syncLine || '临时危险区') : (display.subtitle || entry.rocketName || ''),
         padName: (entry.pad && entry.pad.name) || '',
         netText: entry.net ? formatDate(new Date(entry.net), 'MM-DD HH:mm') : '',
         stats: buildStats(this._decorated),
         hasTrajectory,
         chinaView: chinaCollection,
         chinaOnly: chinaCollection,
+        firChips,
+        firFilter,
+        checkText: sync.checkText,
+        changeText: sync.changeText,
+        cadenceText: sync.cadenceText || '',
+        syncLine: sync.syncLine,
+        syncUnchanged: !!sync.unchanged,
         // 无轨迹时强制关掉，避免空 chip 被点开
         showCorridor: hasTrajectory ? this.data.showCorridor : false
       })
+      this._loadedAt = Date.now()
       this.refreshVisible({ refit: true })
     } catch (e) {
       this.setData({
@@ -216,9 +256,12 @@ Page({
   },
 
   visibleNotices() {
-    return (this._decorated || []).filter(
-      (n) => noticeStatusVisible(n, this.data) && noticeChinaVisible(n, this.data)
-    )
+    const fir = this.data.firFilter
+    return (this._decorated || []).filter((n) => {
+      if (!noticeStatusVisible(n, this.data) || !noticeChinaVisible(n, this.data)) return false
+      if (fir && n.firCode !== fir) return false
+      return true
+    })
   },
 
   /**
@@ -311,7 +354,7 @@ Page({
 
   /**
    * 右上角「中国」：加载官网 collection-chinese-unknown，而不是在当前星舰任务里筛 0 条。
-   * 再点一次回到进入前的任务。
+   * 再点一次回到进入前的任务。从列表直进公告时保持本页，不当成「关掉筛选」。
    */
   toggleChinaView() {
     if (this.data.loading) return
@@ -328,12 +371,29 @@ Page({
       return
     }
     const prev = this._prevMission || {}
-    this.setData({ chinaView: false, chinaOnly: false })
     if ((prev.entryKey || prev.ll2Id) && !isChineseCollectionKey(prev.entryKey)) {
+      this.setData({
+        chinaView: false,
+        chinaOnly: false,
+        firFilter: '',
+        firChips: [],
+        checkText: '',
+        changeText: '',
+        cadenceText: '',
+        syncLine: '',
+        syncUnchanged: true
+      })
       this.loadEntry(prev.entryKey, prev.ll2Id)
       return
     }
-    this.refreshVisible({ refit: true })
+    this.setData({ chinaView: true, chinaOnly: true })
+  },
+
+  toggleFirFilter(e) {
+    const code = (e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.code) || ''
+    const next = code === this.data.firFilter ? '' : code
+    try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
+    this.setData({ firFilter: next }, () => this.refreshVisible({ refit: true }))
   },
 
   setMapRegion(e) {
