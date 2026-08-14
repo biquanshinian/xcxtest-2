@@ -9,7 +9,13 @@
 const { httpGet } = require('./fetch-external.js')
 
 const BASE = 'https://space-notices.com'
-/** collection-* 是汇总页（如 collection-starbase-testing），本身不挂通告 */
+/**
+ * 首页只索引 launch-*。collection-* 多数是主题汇总（如 Starbase testing），
+ * 不进轮转；中国航警合集除外——官网独立页，挂真实 NOTAM / 航海警告。
+ * https://space-notices.com/entry/collection-chinese-unknown
+ */
+const CHINESE_COLLECTION_KEY = 'collection-chinese-unknown'
+const PINNED_ENTRY_SLUGS = [CHINESE_COLLECTION_KEY]
 const ENTRY_PATH_RE = /\/entry\/(launch-[a-z0-9\-_%]+)/gi
 const MAX_ENTRIES = 40
 
@@ -52,6 +58,24 @@ function parseEntrySlugs(html) {
   return out
 }
 
+function isCollectionKey(slug) {
+  return /^collection-/i.test(String(slug || ''))
+}
+
+function isChineseCollectionKey(slug) {
+  return String(slug || '').trim() === CHINESE_COLLECTION_KEY
+}
+
+/** 首页 launch-* 之后置顶中国合集，保证定时器第一轮就会抓 */
+function withPinnedEntries(slugs) {
+  const out = Array.isArray(slugs) ? slugs.slice() : []
+  PINNED_ENTRY_SLUGS.forEach((s) => {
+    if (s && out.indexOf(s) < 0) out.unshift(s)
+  })
+  if (out.length > MAX_ENTRIES) out.length = MAX_ENTRIES
+  return out
+}
+
 function metaContent(html, attr, value) {
   const re = new RegExp(`<meta[^>]+${attr}="${value}"[^>]+content="([^"]*)"`, 'i')
   const m = String(html || '').match(re)
@@ -88,7 +112,10 @@ function parseEntryMeta(html, slug) {
   const ogTitle = metaContent(html, 'property', 'og:title')
   const description = metaContent(html, 'name', 'description')
   // 页面渲染的通告窗口时间，用于 LL2 日期比对（通告入库后会用更权威的 dates 覆盖）
-  const siteDates = [...new Set(String(html || '').match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/g) || [])].sort()
+  // 合集页常用 2099-01-01 占位，不能当真实窗口
+  const siteDates = [...new Set(String(html || '').match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/g) || [])]
+    .filter((d) => !/^2099-01-01/.test(d))
+    .sort()
   return {
     entryKey: slug,
     missionName: missionName || ogTitle || slug,
@@ -105,7 +132,7 @@ function parseEntryMeta(html, slug) {
  */
 async function discoverEntrySlugs() {
   const html = await httpGet(BASE + '/')
-  return parseEntrySlugs(html)
+  return withPinnedEntries(parseEntrySlugs(html))
 }
 
 /**
@@ -120,8 +147,13 @@ async function fetchEntryPage(slug) {
 module.exports = {
   BASE,
   MAX_ENTRIES,
+  CHINESE_COLLECTION_KEY,
+  PINNED_ENTRY_SLUGS,
   decodeEntities,
   parseEntrySlugs,
+  withPinnedEntries,
+  isCollectionKey,
+  isChineseCollectionKey,
   splitTitle,
   parseEntryMeta,
   discoverEntrySlugs,

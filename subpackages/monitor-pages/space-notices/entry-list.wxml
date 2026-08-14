@@ -25,73 +25,87 @@
         </view>
       </view>
 
-      <view class="sn-state glass-card" wx:elif="{{errorText}}">
-        <text class="sn-state-title">加载失败</text>
-        <text class="sn-state-desc">{{errorText}}</text>
-        <view class="sn-btn" bindtap="retryLoad"><text>重试</text></view>
-        <view class="sn-btn sn-btn--ghost" bindtap="onSync"><text>同步条目</text></view>
-      </view>
-
-      <view class="sn-state glass-card" wx:elif="{{!upcoming.length && !past.length}}">
-        <text class="sn-state-title">暂无条目</text>
-        <text class="sn-state-desc">云函数每 15 分钟会自动入库。若刚部署，等一轮或点下方「同步条目」。</text>
-        <view class="sn-btn" bindtap="onSync"><text>同步条目</text></view>
-      </view>
-
       <block wx:else>
-        <view class="sn-section" wx:if="{{upcoming.length}}">
-          <view class="sn-section-head">
-            <text class="sn-section-title">即将 / 进行中</text>
-            <text class="sn-section-count">{{upcoming.length}}</text>
-          </view>
-          <view
-            class="sn-card glass-card card-hover"
-            wx:for="{{upcoming}}"
-            wx:key="entryKey"
-            data-key="{{item.entryKey}}"
-            bindtap="openMap"
-          >
-            <view class="sn-card-rocket" wx:if="{{item.rocketImage}}">
-              <image class="sn-card-rocket-img" src="{{item.rocketImage}}" mode="aspectFill" />
+        <view class="sn-card glass-card card-hover sn-card--china" bindtap="openChinaMap">
+          <view class="sn-card-main">
+            <view class="sn-card-top">
+              <text class="sn-card-title">中国通告</text>
+              <view class="sn-chip sn-chip--china"><text>官网</text></view>
             </view>
-            <view class="sn-card-main">
-              <view class="sn-card-top">
-                <text class="sn-card-title">{{item.title}}</text>
-                <view class="sn-chip sn-chip--traj" wx:if="{{item.hasTrajectory}}"><text>轨迹</text></view>
-              </view>
-              <text class="sn-card-sub">{{item.subtitle}}</text>
-              <text class="sn-card-meta">{{item.metaText}}</text>
-            </view>
-            <text class="sn-card-arrow">›</text>
+            <text class="sn-card-sub">space-notices.com · Chinese Notices</text>
+            <text class="sn-card-meta">未知发射航警合集 · 点开看地图危险区</text>
           </view>
+          <text class="sn-card-arrow">›</text>
         </view>
 
-        <view class="sn-section" wx:if="{{past.length}}">
-          <view class="sn-section-head">
-            <text class="sn-section-title">历史发射</text>
-            <text class="sn-section-count">{{past.length}}</text>
-          </view>
-          <view
-            class="sn-card glass-card card-hover sn-card--past"
-            wx:for="{{past}}"
-            wx:key="entryKey"
-            data-key="{{item.entryKey}}"
-            bindtap="openMap"
-          >
-            <view class="sn-card-rocket" wx:if="{{item.rocketImage}}">
-              <image class="sn-card-rocket-img" src="{{item.rocketImage}}" mode="aspectFill" />
-            </view>
-            <view class="sn-card-main">
-              <view class="sn-card-top">
-                <text class="sn-card-title">{{item.title}}</text>
-                <view class="sn-chip sn-chip--traj" wx:if="{{item.hasTrajectory}}"><text>轨迹</text></view>
-              </view>
-              <text class="sn-card-sub">{{item.subtitle}}</text>
-              <text class="sn-card-meta">{{item.metaText}}</text>
-            </view>
-            <text class="sn-card-arrow">›</text>
-          </view>
+        <view class="sn-state glass-card" wx:if="{{errorText}}">
+          <text class="sn-state-title">加载失败</text>
+          <text class="sn-state-desc">{{errorText}}</text>
+          <view class="sn-btn" bindtap="retryLoad"><text>重试</text></view>
+          <view class="sn-btn sn-btn--ghost" bindtap="onSync"><text>同步条目</text></view>
         </view>
+
+        <view class="sn-state glass-card" wx:elif="{{!upcoming.length && !past.length}}">
+          <text class="sn-state-title">暂无条目</text>
+          <text class="sn-state-desc">云函数每 15 分钟会自动入库。若刚部署，等一轮或点下方「同步条目」。</text>
+          <view class="sn-btn" bindtap="onSync"><text>同步条目</text></view>
+        </view>
+
+        <block wx:else>
+          <view class="sn-section" wx:if="{{upcoming.length}}">
+            <view class="sn-section-head">
+              <text class="sn-section-title">即将 / 进行中</text>
+              <text class="sn-section-count">{{upcoming.length}}</text>
+            </view>
+            <view
+              class="sn-card glass-card card-hover"
+              wx:for="{{upcoming}}"
+              wx:key="entryKey"
+              data-key="{{item.entryKey}}"
+              bindtap="openMap"
+            >
+              <view class="sn-card-rocket" wx:if="{{item.rocketImage}}">
+                <image class="sn-card-rocket-img" src="{{item.rocketImage}}" mode="aspectFill" />
+              </view>
+              <view class="sn-card-main">
+                <view class="sn-card-top">
+                  <text class="sn-card-title">{{item.title}}</text>
+                  <view class="sn-chip sn-chip--traj" wx:if="{{item.hasTrajectory}}"><text>轨迹</text></view>
+                </view>
+                <text class="sn-card-sub">{{item.subtitle}}</text>
+                <text class="sn-card-meta">{{item.metaText}}</text>
+              </view>
+              <text class="sn-card-arrow">›</text>
+            </view>
+          </view>
+
+          <view class="sn-section" wx:if="{{past.length}}">
+            <view class="sn-section-head">
+              <text class="sn-section-title">历史发射</text>
+              <text class="sn-section-count">{{past.length}}</text>
+            </view>
+            <view
+              class="sn-card glass-card card-hover sn-card--past"
+              wx:for="{{past}}"
+              wx:key="entryKey"
+              data-key="{{item.entryKey}}"
+              bindtap="openMap"
+            >
+              <view class="sn-card-rocket" wx:if="{{item.rocketImage}}">
+                <image class="sn-card-rocket-img" src="{{item.rocketImage}}" mode="aspectFill" />
+              </view>
+              <view class="sn-card-main">
+                <view class="sn-card-top">
+                  <text class="sn-card-title">{{item.title}}</text>
+                  <view class="sn-chip sn-chip--traj" wx:if="{{item.hasTrajectory}}"><text>轨迹</text></view>
+                </view>
+                <text class="sn-card-sub">{{item.subtitle}}</text>
+                <text class="sn-card-meta">{{item.metaText}}</text>
+              </view>
+              <text class="sn-card-arrow">›</text>
+            </view>
+          </view>
+        </block>
       </block>
     </view>
   </scroll-view>

@@ -10,7 +10,8 @@
  *   ingestRaw              — 粘贴原文解析入库 { entryKey|ll2Id, rawText, type?, name?, reason? }
  *   parsePreview           — 仅解析 areas，不写库
  *
- * 数据源：space-notices.com 的 entry（历史 + 即将，含猎鹰9 / 长征 / 星舰等），
+ * 数据源：space-notices.com 的 launch-* entry（历史 + 即将）以及置顶的
+ * collection-chinese-unknown（官网「Chinese Notices」合集）。
  * 每个 entry 自带真实 NOTAM / 航海警告多边形。entry 主键用站点 slug（站点不暴露 LL2 id）；
  * LL2（space_devs_cache）只做尽力匹配，用来补发射台坐标、NET 与任务状态。
  * 不单独请求 LL2（无 token、不占免费 15 次/小时配额）
@@ -34,7 +35,7 @@ const {
 const { loadLaunchesFromCache } = require('./read-ll2-cache.js')
 const { resolvePadCoords } = require('./pad-coords.js')
 const { extractNoticeLinks, noticeKeyFromPath, fetchNoticesByPaths } = require('./fetch-external.js')
-const { discoverEntrySlugs, fetchEntryPage, BASE } = require('./discover-entries.js')
+const { discoverEntrySlugs, fetchEntryPage, BASE, isCollectionKey } = require('./discover-entries.js')
 const { matchEntryToLaunch } = require('./match-ll2.js')
 
 const crypto = require('crypto')
@@ -196,12 +197,13 @@ function buildEntryDoc(meta, matched, notices) {
     agency: launch ? launch.agency || '' : '',
     orbitName: launch ? launch.orbitName || '' : '',
     isStarship: launch ? !!launch.isStarship : /starship/i.test(meta.entryKey),
+    isCollection: isCollectionKey(meta.entryKey),
     noticeKeys: (notices || []).map((n) => n.noticeKey).filter(Boolean),
     noticeCount: (notices || []).length,
     windowStartMs: bounds.startMs,
     windowEndMs: bounds.endMs,
-    // 全部危险区窗口都已过期 → 归入历史发射
-    isPast: !!(refMs && refMs < nowMs()),
+    // 合集是持续桶，不进历史；其余按危险区窗口是否过期
+    isPast: isCollectionKey(meta.entryKey) ? false : !!(refMs && refMs < nowMs()),
     syncedAt: nowMs()
   }
 }
@@ -364,7 +366,7 @@ async function syncOneEntry(slug, launches, deadline) {
     }
   }
 
-  const matched = matchEntryToLaunch(meta, launches)
+  const matched = isCollectionKey(slug) ? null : matchEntryToLaunch(meta, launches)
   const ll2Id = matched ? matched.launch.ll2Id : ''
 
   const fetchRes = await fetchNoticesByPaths(paths, { deadline })
@@ -513,6 +515,7 @@ function slimEntryRow(d) {
     windowEndMs: d.windowEndMs || 0,
     isPast: !!d.isPast,
     isStarship: !!d.isStarship,
+    isCollection: !!d.isCollection || isCollectionKey(d.entryKey),
     statusName: d.statusName || '',
     agency: d.agency || '',
     noticeCount: Number(d.noticeCount || (Array.isArray(d.noticeKeys) ? d.noticeKeys.length : 0)),
@@ -735,6 +738,7 @@ async function getEntry(event) {
       agency: entry.agency || '',
       orbitName: entry.orbitName || '',
       isStarship: !!entry.isStarship,
+      isCollection: !!entry.isCollection || isCollectionKey(entry.entryKey),
       isPast: !!entry.isPast,
       windowStartMs: entry.windowStartMs || 0,
       windowEndMs: entry.windowEndMs || 0,

@@ -9,7 +9,7 @@ const { pickLocalized, isContentLangEn } = require('../../../../utils/locale.js'
 const { translateRocketName } = require('../../../../utils/rocket-name-i18n.js')
 const { localizeMissionTitle } = require('../../../../utils/mission-title-i18n.js')
 const { translateAgencyName } = require('../../../../utils/space-terms-i18n.js')
-const { isChinaNotice, noticeChinaVisible } = require('./china-filter.js')
+const { isChinaNotice, noticeChinaVisible, isChineseCollectionKey } = require('./china-filter.js')
 
 const TONE_LABEL = { notam: '航空 NOTAM', nav: '航海警告', adp: '空域走廊' }
 
@@ -75,8 +75,12 @@ function decorateSpaceNoticeEntry(e) {
   }
   if (!rocketEn && row.isStarship) rocketEn = 'Starship'
 
-  const rocketZh = translateRocketName(rocketEn) || rocketEn
-  const missionZh = localizeMissionTitle(missionEn, rocketEn, rocketZh) || missionEn
+  let rocketZh = translateRocketName(rocketEn) || rocketEn
+  let missionZh = localizeMissionTitle(missionEn, rocketEn, rocketZh) || missionEn
+  if (isChineseCollectionKey(key) || /chinese notices/i.test(missionEn)) {
+    missionZh = '中国通告'
+    if (!rocketEn || /unknown/i.test(rocketEn)) rocketZh = '未知发射'
+  }
   const agencyEn = String(row.agency || '').trim()
   const agencyZh = translateAgencyName(agencyEn) || agencyEn
 

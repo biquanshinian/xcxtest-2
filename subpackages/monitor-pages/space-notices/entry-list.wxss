@@ -114,6 +114,9 @@ page {
 .sn-card--past {
   opacity: 0.88;
 }
+.sn-card--china {
+  border: 1rpx solid rgba(255, 59, 48, 0.38);
+}
 /* 与简报 / 竞猜历史同款圆形火箭配置图 */
 .sn-card-rocket {
   width: 88rpx;
@@ -169,6 +172,12 @@ page {
 .sn-chip--traj text {
   color: #ffcc00;
 }
+.sn-chip--china {
+  background: rgba(255, 59, 48, 0.16);
+}
+.sn-chip--china text {
+  color: #FF3B30;
+}
 .sn-card-sub {
   display: block;
   margin-top: 6rpx;
@@ -221,4 +230,10 @@ page {
 }
 .theme-light .sn-chip--traj text {
   color: #B8860B;
+}
+.theme-light .sn-card--china {
+  border-color: rgba(255, 59, 48, 0.28);
+}
+.theme-light .sn-chip--china {
+  background: rgba(255, 59, 48, 0.12);
 }

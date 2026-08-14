@@ -8,7 +8,9 @@ const {
   parseEntryMeta,
   discoverEntrySlugs,
   fetchEntryPage,
-  decodeEntities
+  decodeEntities,
+  withPinnedEntries,
+  CHINESE_COLLECTION_KEY
 } = require('../cloudfunctions/spaceNotices/discover-entries.js')
 const { extractNoticeLinks, fetchNoticesByPaths } = require('../cloudfunctions/spaceNotices/fetch-external.js')
 const { matchEntryToLaunch, scoreMatch, digitGroups } = require('../cloudfunctions/spaceNotices/match-ll2.js')
@@ -35,10 +37,19 @@ function testPureParsing() {
   ok(splitTitle('Flight 13 - Starship | Space Notices').missionName === 'Flight 13', '星舰任务名')
   ok(decodeEntities('SpaceX&#x27;s Falcon 9') === "SpaceX's Falcon 9", 'HTML 实体解码')
 
-  console.log('\n[2] entry slug 过滤（collection-* 是汇总页，无通告）')
-  const html = 'a href="/entry/launch-f9-nrol-95" b href="/entry/collection-chinese-unknown" c href="/entry/launch-f9-nrol-95"'
+  console.log('\n[2] entry slug 过滤（普通 collection 不进首页；中国合集另行置顶）')
+  const html = 'a href="/entry/launch-f9-nrol-95" b href="/entry/collection-chinese-unknown" c href="/entry/launch-f9-nrol-95" d href="/entry/collection-starbase-testing"'
   const slugs = parseEntrySlugs(html)
-  ok(slugs.length === 1 && slugs[0] === 'launch-f9-nrol-95', '只保留 launch-* 且去重', slugs)
+  ok(slugs.length === 1 && slugs[0] === 'launch-f9-nrol-95', '首页解析只保留 launch-* 且去重', slugs)
+  const pinned = withPinnedEntries(slugs)
+  ok(pinned[0] === CHINESE_COLLECTION_KEY && pinned.indexOf('launch-f9-nrol-95') === 1, '置顶中国合集', pinned)
+  ok(pinned.indexOf('collection-starbase-testing') < 0, '不置顶其它 collection')
+  const metaCn = parseEntryMeta(
+    '<title>Chinese Notices - Unknown launches | Space Notices</title>2099-01-01T00:00 2026-08-17T02:53',
+    CHINESE_COLLECTION_KEY
+  )
+  ok(metaCn.missionName === 'Chinese Notices' && metaCn.rocketName === 'Unknown launches', '中国合集标题')
+  ok(metaCn.siteDates.join(',') === '2026-08-17T02:53', '丢掉 2099 占位日期', metaCn.siteDates)
 
   console.log('\n[3] 数字序列硬约束')
   ok(digitGroups('starlink group 17 51').join('-') === '17-51', '数字组抽取')
@@ -90,11 +101,14 @@ function testMatching() {
 async function testLive() {
   console.log('\n[5] 真实站点：entry 索引')
   const slugs = await discoverEntrySlugs()
-  ok(slugs.length >= 8, `首页发现 ${slugs.length} 个发射 entry`, slugs.length)
-  ok(!slugs.some((s) => s.indexOf('collection-') === 0), '不含 collection 汇总页')
-  ok(slugs.some((s) => /starship/.test(s)), '含星舰')
+  ok(slugs.length >= 8, `首页发现 ${slugs.length} 个 entry`, slugs.length)
+  ok(slugs[0] === CHINESE_COLLECTION_KEY, '中国合集置顶', slugs[0])
+  ok(!slugs.some((s) => s.indexOf('collection-') === 0 && s !== CHINESE_COLLECTION_KEY), '不含其它 collection 汇总页')
   ok(slugs.some((s) => /f9|falcon/.test(s)), '含猎鹰9')
   ok(slugs.some((s) => /long-march/.test(s)), '含长征')
+  // 星舰不常驻首页；出现时必须被索引（当前站没有则跳过）
+  const hasStarship = slugs.some((s) => /starship/.test(s))
+  ok(hasStarship || slugs.length >= 8, hasStarship ? '含星舰' : '首页当前无星舰条目（已跳过）')
   console.log('     ' + slugs.join('\n     '))
 
   console.log('\n[6] 真实站点：非星舰 entry 元信息 + 通告几何')
@@ -111,6 +125,20 @@ async function testLive() {
       `${slug} 抽样 ${res.notices.length} 条通告全部带多边形（${pts} 点）`,
       { parsed: res.notices.length, withGeo: withGeo.length, errors: res.errors })
     ok(res.notices.every((n) => n.type && n.name), `${slug} 通告类型/编号完整`)
+  }
+
+  console.log('\n[6b] 官网中国合集 collection-chinese-unknown')
+  {
+    const { meta, html } = await fetchEntryPage(CHINESE_COLLECTION_KEY)
+    const paths = extractNoticeLinks(html)
+    ok(/chinese notices/i.test(meta.missionName || meta.siteTitle), `合集标题 ${meta.missionName}`)
+    ok(paths.length >= 3, `合集通告链接 ${paths.length} 条`, paths)
+    ok(paths.some((p) => /ZHWH|ZJHK|ZLHW|ZJSY/i.test(p)), '含中国 FIR NOTAM', paths)
+    const res = await fetchNoticesByPaths(paths, { deadline: Date.now() + 40000 })
+    const withGeo = res.notices.filter((n) => (n.areas || []).length)
+    ok(res.notices.length >= 3 && withGeo.length === res.notices.length,
+      `合集 ${res.notices.length} 条通告全部带多边形`,
+      { names: res.notices.map((n) => n.name), errors: res.errors })
   }
 
   console.log('\n[7] 抓取预算：deadline 已过时立即返回不卡死')

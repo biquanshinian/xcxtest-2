@@ -17,6 +17,11 @@
       <text class="map-action-title">地图工具</text>
       <view class="map-action-toggle-btn" bindtap="toggleActionMenuCollapsed"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
     </view>
+    <view class="map-action-china-wrap">
+      <view class="map-action-btn map-action-btn--china {{chinaView ? 'map-action-btn--active' : ''}}" data-key="chinaOnly" bindtap="toggleChinaView">
+        <text>中国</text>
+      </view>
+    </view>
     <view class="map-action-stack" wx:if="{{!actionMenuCollapsed}}">
       <view class="map-action-type-row">
         <view class="map-action-btn {{enableSatellite ? 'map-action-btn--active' : ''}}" bindtap="setMapSatellite" data-map-mode="satellite"><text>卫星</text></view>
@@ -67,7 +72,7 @@
     </view>
 
     <view class="mini-summary-row" wx:if="{{panelCollapsed}}">
-      <text class="mini-summary-text">{{chinaOnly ? '仅中国' : '全部'}} · NOTAM {{stats.notam}} · 航海 {{stats.nav}} · 走廊 {{stats.adp}}{{stats.china ? ' · 中国 ' + stats.china : ''}}{{stats.soon ? ' · 预警 ' + stats.soon : ''}}{{stats.ended ? ' · 已结束 ' + stats.ended : ''}}{{stats.cancelled ? ' · 已取消 ' + stats.cancelled : ''}}</text>
+      <text class="mini-summary-text">{{chinaView ? '中国合集' : '全部'}} · NOTAM {{stats.notam}} · 航海 {{stats.nav}} · 走廊 {{stats.adp}}{{stats.china ? ' · 中国 ' + stats.china : ''}}{{stats.soon ? ' · 预警 ' + stats.soon : ''}}{{stats.ended ? ' · 已结束 ' + stats.ended : ''}}{{stats.cancelled ? ' · 已取消 ' + stats.cancelled : ''}}</text>
     </view>
 
     <block wx:if="{{!panelCollapsed}}">
@@ -84,10 +89,6 @@
       </view>
 
       <view class="sn-chips">
-        <view class="sn-chip {{chinaOnly ? 'sn-chip--on' : ''}}" data-key="chinaOnly" bindtap="toggleLayer">
-          <view class="sn-chip-dot sn-chip-dot--china"></view>
-          <text>中国{{stats.china ? ' ' + stats.china : ''}}</text>
-        </view>
         <view class="sn-chip {{showCorridor ? 'sn-chip--on' : ''}}" data-key="showCorridor" bindtap="toggleLayer" wx:if="{{hasTrajectory}}">
           <view class="sn-chip-dot sn-chip-dot--adp"></view>
           <text>轨迹</text>
@@ -126,7 +127,7 @@
         </view>
       </view>
 
-      <text class="sn-note">{{chinaOnly ? '仅显示中国相关航警（飞行情报区 / 发射场 / 危险区坐标）。关闭「中国」可看全部。' : (hasTrajectory ? '黄线与 space-notices.com Trajectory 同源（Ship 40）。橙虚线 = 尚未生效的提前预警。点通告可高亮并定位，切「发射区」聚焦场区细节。' : '橙虚线 = 尚未生效的提前预警。本任务无飞行轨迹数据；地图展示 NOTAM / 航海危险区多边形。点通告可高亮并定位。')}}</text>
+      <text class="sn-note">{{chinaView ? '数据来自 space-notices.com「Chinese Notices」。关闭右上角「中国」可返回原任务。橙虚线 = 尚未生效的提前预警。' : (hasTrajectory ? '黄线与 space-notices.com Trajectory 同源（Ship 40）。橙虚线 = 尚未生效的提前预警。点通告可高亮并定位，切「发射区」聚焦场区细节。' : '橙虚线 = 尚未生效的提前预警。本任务无飞行轨迹数据；地图展示 NOTAM / 航海危险区多边形。点通告可高亮并定位。')}}</text>
 
       <scroll-view scroll-y class="sn-list" enhanced="{{true}}" show-scrollbar="{{false}}">
         <view
@@ -150,7 +151,7 @@
           <view class="sn-item-arrow"></view>
         </view>
         <view class="sn-empty" wx:if="{{!notices.length}}">
-          <text wx:if="{{chinaOnly}}">当前没有中国相关通告，关闭「中国」可查看全部。</text>
+          <text wx:if="{{chinaView}}">当前没有中国相关通告。关闭右上角「中国」可返回原任务。</text>
           <text wx:else>该任务暂无通告多边形。可在云函数 ingestRaw 粘贴 NOTAM 原文。</text>
         </view>
       </scroll-view>

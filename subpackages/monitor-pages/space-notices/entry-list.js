@@ -4,6 +4,7 @@
 const pageBase = require('../../../utils/page-base.js')
 const { listSpaceNoticeEntries, syncSpaceNotices } = require('./utils/api-space-notices.js')
 const { decorateSpaceNoticeEntry } = require('./utils/notice-format.js')
+const { CHINESE_COLLECTION_KEY } = require('./utils/china-filter.js')
 const { isSpaceNoticesEnabled } = require('../../../utils/space-notices-feature.js')
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
 const { gateCheck } = require('../../../utils/membership.js')
@@ -102,8 +103,8 @@ Page({
         return
       }
       const rows = (res.results || []).map(decorateEntry)
-      const upcoming = rows.filter((e) => !e.isPast)
-      const past = rows.filter((e) => e.isPast)
+      const upcoming = rows.filter((e) => !e.isPast && !e.isCollection && e.entryKey !== CHINESE_COLLECTION_KEY)
+      const past = rows.filter((e) => e.isPast && !e.isCollection && e.entryKey !== CHINESE_COLLECTION_KEY)
       this.setData({
         loading: false,
         upcoming,
@@ -152,6 +153,10 @@ Page({
     const key = e.currentTarget.dataset.key
     if (!key) return
     navigateTo(ROUTES.SPACE_NOTICE_MAP, { entryKey: key })
+  },
+
+  openChinaMap() {
+    navigateTo(ROUTES.SPACE_NOTICE_MAP, { entryKey: CHINESE_COLLECTION_KEY })
   },
 
   _shareTitle() {

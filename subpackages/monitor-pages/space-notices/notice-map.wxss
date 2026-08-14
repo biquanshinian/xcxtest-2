@@ -34,6 +34,19 @@ page {
   height: 100%;
 }
 
+/* 中国按钮始终露在「地图工具」里，折叠卫星/平面时也能点 */
+.sn-map-page .map-action-china-wrap {
+  margin-top: 12rpx;
+}
+.sn-map-page .map-action-btn--china.map-action-btn--active {
+  background: #FF3B30;
+  border-color: #FF3B30;
+}
+.sn-map-page.theme-light .map-action-btn--china.map-action-btn--active {
+  background: #FF3B30;
+  border-color: #FF3B30;
+}
+
 .glass-card {
   background: var(--color-bg-card);
   border-radius: var(--radius-card);

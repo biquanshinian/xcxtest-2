@@ -27,7 +27,7 @@ const {
   hasGeometry
 } = require('./utils/map-build.js')
 const { buildMapLayoutData, setMapSatelliteFromTap } = require('../utils/map-page-common.js')
-const { isChinaPad, CHINA_OVERVIEW } = require('./utils/china-filter.js')
+const { isChinaPad, CHINA_OVERVIEW, isChineseCollectionKey, CHINESE_COLLECTION_KEY } = require('./utils/china-filter.js')
 
 const GATE_PRODUCT_ID = 'space_notices'
 const GATE_PRODUCT_NAME = '发射通告地图'
@@ -65,7 +65,9 @@ Page({
     showSoon: true,
     showEnded: true,
     showCancelled: true,
-    /** 仅显示中国相关通告（FIR / 发射场 / 坐标），默认关闭 */
+    /** 官网中国合集视图（collection-chinese-unknown），与底部图层 chip 无关 */
+    chinaView: false,
+    /** 仅显示中国相关通告；进入官网合集时为 true */
     chinaOnly: false,
     /** 仅当本任务有轨迹数据时才显示「轨迹」chip */
     hasTrajectory: false,
@@ -86,6 +88,7 @@ Page({
   _notices: [],
   _decorated: [],
   _display: null,
+  _prevMission: null,
 
   async onLoad(options) {
     this.initUiShell()
@@ -94,6 +97,8 @@ Page({
     this.setData({
       entryKey,
       ll2Id,
+      chinaView: isChineseCollectionKey(entryKey),
+      chinaOnly: isChineseCollectionKey(entryKey),
       ...buildMapLayoutData(getApp())
     })
 
@@ -152,15 +157,25 @@ Page({
       }
       if (!res || !res.success) {
         const err = (res && res.error) || '加载失败，请先部署云函数 spaceNotices'
+        const missing = err === 'not_found'
         this.setData({
           loading: false,
-          errorText: err === 'not_found' ? '未找到该任务通告，请先在列表页同步' : err
+          errorText: missing
+            ? (isChineseCollectionKey(entryKey)
+              ? '暂未入库中国通告，请稍后重试或先部署云函数 spaceNotices'
+              : '未找到该任务通告，请先在列表页同步')
+            : err
         })
         return
       }
       this._entry = res.entry
       this._notices = res.notices || []
-      this._decorated = sortNotices(this._notices.map((n) => decorateNotice(n, hasGeometry)))
+      const chinaCollection = isChineseCollectionKey((res.entry && res.entry.entryKey) || entryKey)
+      this._decorated = sortNotices(this._notices.map((n) => {
+        const row = decorateNotice(n, hasGeometry)
+        if (chinaCollection) row.inChina = true
+        return row
+      }))
       const entry = res.entry || {}
       const display = decorateSpaceNoticeEntry(
         Object.assign({}, entry, {
@@ -182,6 +197,8 @@ Page({
         netText: entry.net ? formatDate(new Date(entry.net), 'MM-DD HH:mm') : '',
         stats: buildStats(this._decorated),
         hasTrajectory,
+        chinaView: chinaCollection,
+        chinaOnly: chinaCollection,
         // 无轨迹时强制关掉，避免空 chip 被点开
         showCorridor: hasTrajectory ? this.data.showCorridor : false
       })
@@ -231,7 +248,7 @@ Page({
       BNM: !!this.data.showNav,
       LNM: !!this.data.showNav
     }
-    const chinaOnly = !!this.data.chinaOnly
+    const chinaOnly = !!(this.data.chinaView || this.data.chinaOnly)
     const styleOpts = { light: !!this.data.themeLight, selectedKey: this.data.selectedKey || '' }
     const source = this.visibleNotices()
     const polygons = buildPolygonsFromNotices(source, enabledTypes, styleOpts)
@@ -282,11 +299,41 @@ Page({
     if (!key) return
     if (key === 'showCorridor' && !this.data.hasTrajectory) return
     const statusKey = key === 'showLive' || key === 'showSoon' || key === 'showEnded' || key === 'showCancelled'
-    const chinaKey = key === 'chinaOnly'
+    if (key === 'chinaOnly') {
+      this.toggleChinaView()
+      return
+    }
     this.setData({ [key]: !this.data[key] }, () => {
-      if (statusKey || chinaKey) this.refreshVisible({ refit: !!chinaKey })
+      if (statusKey) this.refreshVisible({ refit: false })
       else this.applyLayers({ refit: false })
     })
+  },
+
+  /**
+   * 右上角「中国」：加载官网 collection-chinese-unknown，而不是在当前星舰任务里筛 0 条。
+   * 再点一次回到进入前的任务。
+   */
+  toggleChinaView() {
+    if (this.data.loading) return
+    try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
+    const turningOn = !this.data.chinaView
+    if (turningOn) {
+      if (isChineseCollectionKey(this.data.entryKey)) {
+        this.setData({ chinaView: true, chinaOnly: true }, () => this.refreshVisible({ refit: true }))
+        return
+      }
+      this._prevMission = { entryKey: this.data.entryKey || '', ll2Id: this.data.ll2Id || '' }
+      this.setData({ chinaView: true, chinaOnly: true })
+      this.loadEntry(CHINESE_COLLECTION_KEY, '')
+      return
+    }
+    const prev = this._prevMission || {}
+    this.setData({ chinaView: false, chinaOnly: false })
+    if ((prev.entryKey || prev.ll2Id) && !isChineseCollectionKey(prev.entryKey)) {
+      this.loadEntry(prev.entryKey, prev.ll2Id)
+      return
+    }
+    this.refreshVisible({ refit: true })
   },
 
   setMapRegion(e) {

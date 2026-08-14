@@ -108,7 +108,10 @@ check('trajectory joins fit', /fitCenter\(/.test(mapJs) && /polygons, polylines/
 check('api -504003 mapping', /-504003/.test(read('subpackages/monitor-pages/space-notices/utils/api-space-notices.js')))
 check('提前预警状态', /提前预警/.test(mapJs) && /statusTone === 'soon'/.test(read('subpackages/monitor-pages/space-notices/utils/notice-format.js')))
 check('预警状态筛选 chip', /showSoon/.test(mapJs) && /预警/.test(mapWxml))
-check('中国筛选按钮', /chinaOnly/.test(mapJs) && /data-key="chinaOnly"/.test(mapWxml) && /isChinaNotice/.test(read('subpackages/monitor-pages/space-notices/utils/china-filter.js')))
+check('中国筛选按钮', /chinaOnly/.test(mapJs) && /data-key="chinaOnly"/.test(mapWxml) && /toggleChinaView/.test(mapJs) && /isChinaNotice/.test(read('subpackages/monitor-pages/space-notices/utils/china-filter.js')))
+check('中国按钮在地图工具栏', /map-action-china-wrap/.test(mapWxml) && /bindtap="toggleChinaView"/.test(mapWxml) && /中国/.test(mapWxml))
+check('列表中国通告入口', /openChinaMap/.test(listJs) && /中国通告/.test(listWxml) && /CHINESE_COLLECTION_KEY/.test(listJs))
+check('云函数置顶中国合集', /collection-chinese-unknown/.test(read('cloudfunctions/spaceNotices/discover-entries.js')) && /withPinnedEntries/.test(read('cloudfunctions/spaceNotices/discover-entries.js')) && /isCollectionKey/.test(cfIndex))
 check('云函数 B\/C 日期回填', /fillNoticeDates/.test(read('cloudfunctions/spaceNotices/index.js')) && exists('cloudfunctions/spaceNotices/parse-dates.js'))
 
 // WXML mustache balance

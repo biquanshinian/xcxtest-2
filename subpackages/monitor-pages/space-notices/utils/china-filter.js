@@ -30,8 +30,15 @@ const CHINA_BOXES = [
   [27.0, 37.0, 78.0, 103.5], // 青藏
   [40.0, 50.6, 122.0, 135.0], // 东北（不含东方发射场 51.9N）
   [21.8, 25.4, 119.9, 122.1], // 台湾
-  [8.0, 18.2, 109.5, 118.5] // 南海诸岛附近
+  [8.0, 18.2, 109.5, 120.0] // 南海 / 苏禄海西缘（官网中国合集溅落区约 9N 119E）
 ]
+
+/** 官网 https://space-notices.com/entry/collection-chinese-unknown */
+const CHINESE_COLLECTION_KEY = 'collection-chinese-unknown'
+
+function isChineseCollectionKey(key) {
+  return String(key || '').trim() === CHINESE_COLLECTION_KEY
+}
 
 function isChinaIcao(code) {
   const c = String(code || '').trim().toUpperCase()
@@ -165,5 +172,7 @@ module.exports = {
   isChinaNotice,
   isChinaPad,
   noticeChinaVisible,
+  isChineseCollectionKey,
+  CHINESE_COLLECTION_KEY,
   CHINA_OVERVIEW: { latitude: 35.0, longitude: 104.0, scale: 4 }
 }
