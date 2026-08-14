@@ -18,7 +18,7 @@
     "monitor-galleries": "/subpackages/monitor-pages/components/monitor-galleries/index",
     "monitor-orbital-card": "/subpackages/monitor-pages/components/monitor-orbital-card/index",
     "monitor-orbit-events": "/subpackages/monitor-pages/components/monitor-orbit-events/index",
-    "monitor-core-sections": "/subpackages/monitor-pages/components/monitor-core-sections/index"
+    "monitor-core-panel": "/subpackages/monitor-pages/components/monitor-core-panel/index"
   },
   "componentPlaceholder": {
     "demo-overlay": "view",
@@ -28,6 +28,6 @@
     "monitor-galleries": "view",
     "monitor-orbital-card": "view",
     "monitor-orbit-events": "view",
-    "monitor-core-sections": "view"
+    "monitor-core-panel": "view"
   }
 }

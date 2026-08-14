@@ -543,9 +543,11 @@ Page({
   },
 
   // ========== Starlink 卫星实时分布 ==========
-  /** canvas 在 monitor-core-sections 分包组件内，查询/观察须挂组件实例 */
+  /** canvas 在 monitor-core-panel 分包组件内，查询/观察须挂组件实例 */
   _getStarlinkHost() {
     return (
+      this.selectComponent('#monitorCorePanel') ||
+      this.selectComponent('monitor-core-panel') ||
       this.selectComponent('#monitorCoreSections') ||
       this.selectComponent('monitor-core-sections') ||
       this

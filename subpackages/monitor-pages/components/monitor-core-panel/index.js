@@ -3,7 +3,7 @@
  * 展示在 monitor-pages 分包；交互经 coreevent 回传页面。
  */
 Component({
-  options: { styleIsolation: 'apply-shared' },
+  options: { styleIsolation: 'apply-shared', multipleSlots: true },
   properties: {
     themeClass: { type: String, value: '' },
     isProUser: { type: Boolean, value: false },
@@ -17,8 +17,6 @@ Component({
     starlinkCount: { type: Number, value: 0 },
     starlinkPaused: { type: Boolean, value: false },
     starlinkUpdateTime: { type: String, value: '' },
-    enableSpaceNotices: { type: Boolean, value: true },
-    chinaBulletinHint: { type: String, value: '覆盖全国情报区 · 点开查看' },
     passReady: { type: Boolean, value: false },
     passLoading: { type: Boolean, value: false },
     passNoLocation: { type: Boolean, value: false },
@@ -48,7 +46,6 @@ Component({
     emitOnStarlinkTouchMove(e) { this._emit('onStarlinkTouchMove', e) },
     emitOnStarlinkTouchEnd(e) { this._emit('onStarlinkTouchEnd', e) },
     emitOpenStarlinkFullscreen(e) { this._emit('openStarlinkFullscreen', e) },
-    emitOpenSpaceNotices(e) { this._emit('openSpaceNotices', e) },
     emitRefreshPasses(e) { this._emit('refreshPasses', e) },
     emitOnLoadStarlinkPasses(e) { this._emit('onLoadStarlinkPasses', e) },
     emitOpenPassDetail(e) { this._emit('openPassDetail', e) },

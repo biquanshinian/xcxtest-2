@@ -81,12 +81,13 @@ check('monitor has enableSpaceNotices data', /enableSpaceNotices/.test(monJs))
 check('monitor openSpaceNotices', /openSpaceNotices/.test(monJs))
 check('monitor openSpaceNotices gateCheck', /gateCheck\('space_notices',\s*SPACE_NOTICES_PRODUCT_NAME\)/.test(monJs) && /发射航警地图/.test(read('utils/space-notices-feature.js')))
 check('monitor wxml 入口开关', /enableSpaceNotices/.test(monWxml) && /onCoreSectionEvent/.test(monWxml))
-const coreWxml = read('subpackages/monitor-pages/components/monitor-core-sections/index.wxml')
+const coreWxml = read('pages/monitor/monitor.wxml')
 check(
   'monitor 板块分享图标',
   /data-share-type="spaceNotices"/.test(coreWxml) && /icon-share--monitor/.test(coreWxml)
 )
 check('monitor 中国卫星预览', /sn-preview-sat/.test(coreWxml) && /发射航警地图/.test(coreWxml) && /中国航警公告/.test(coreWxml) && !/<map[\s>]/.test(coreWxml))
+check('monitor 航警卡写在主包页', /slot="space-notices"/.test(coreWxml) && /monitor-core-panel/.test(coreWxml) && /bindtap="openSpaceNotices"/.test(coreWxml))
 check('monitor 分享深链到中国航警地图', /type === 'spaceNotices'/.test(monJs) && /SPACE_NOTICE_MAP/.test(monJs) && /CHINESE_COLLECTION_KEY/.test(monJs))
 check('monitor 分享带 sst 时间戳', /spaceNotices[\s\S]{0,800}sst=/.test(monJs))
 
