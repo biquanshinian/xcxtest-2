@@ -37,6 +37,7 @@ console.log('[1] files')
   'cloudfunctions/spaceNotices/fetch-external.js',
   'cloudfunctions/spaceNotices/parse-areas.js',
   'cloudfunctions/spaceNotices/parse-dates.js',
+  'subpackages/monitor-pages/space-notices/utils/china-filter.js',
   'cloudfunctions/spaceNotices/seed-demo.js',
   'cloudfunctions/spaceNotices/flight13-trajectory.json',
   'cloudfunctions/spaceNotices/config.json',
@@ -103,10 +104,11 @@ check('region toggles', /mapRegion/.test(mapJs) && /发射区/.test(mapWxml) && 
 check('轨迹 toggle', /轨迹/.test(mapWxml) && /showCorridor/.test(mapJs) && /hasTrajectory/.test(mapJs))
 check('resolveTrajectory wired', /resolveTrajectory/.test(mapJs) && /buildTrajectoryPolyline/.test(mapJs))
 check('layer toggle keeps zoom', /refit:\s*false/.test(mapJs))
-check('trajectory joins fit', /fitCenter\(pad, polygons, polylines/.test(mapJs))
+check('trajectory joins fit', /fitCenter\(/.test(mapJs) && /polygons, polylines/.test(mapJs))
 check('api -504003 mapping', /-504003/.test(read('subpackages/monitor-pages/space-notices/utils/api-space-notices.js')))
 check('提前预警状态', /提前预警/.test(mapJs) && /statusTone === 'soon'/.test(read('subpackages/monitor-pages/space-notices/utils/notice-format.js')))
 check('预警状态筛选 chip', /showSoon/.test(mapJs) && /预警/.test(mapWxml))
+check('中国筛选按钮', /chinaOnly/.test(mapJs) && /data-key="chinaOnly"/.test(mapWxml) && /isChinaNotice/.test(read('subpackages/monitor-pages/space-notices/utils/china-filter.js')))
 check('云函数 B\/C 日期回填', /fillNoticeDates/.test(read('cloudfunctions/spaceNotices/index.js')) && exists('cloudfunctions/spaceNotices/parse-dates.js'))
 
 // WXML mustache balance

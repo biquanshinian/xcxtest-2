@@ -48,7 +48,7 @@ dynamic.forEach((d) => {
 // 后缀拼接类：sn-item-bar--{{item.typeTone}} / sn-tag--{{item.statusTone}}
 const SUFFIX_SETS = {
   'sn-item-bar': ['notam', 'nav', 'adp'],
-  'sn-chip-dot': ['notam', 'nav', 'adp', 'pad', 'live', 'soon'],
+  'sn-chip-dot': ['notam', 'nav', 'adp', 'pad', 'live', 'soon', 'china'],
   'sn-tag': ['live', 'soon', 'off', 'plain']
 }
 Object.keys(SUFFIX_SETS).forEach((base) => {
@@ -249,6 +249,35 @@ const mixed = [
 const mixedStats = buildStats(mixed)
 check('预警计入 stats.soon', mixedStats.soon >= 1 && mixedStats.live >= 1 && mixedStats.ended >= 1 && mixedStats.cancelled >= 1, JSON.stringify(mixedStats))
 check('状态筛选可关预警', !noticeStatusVisible(mixed.find((n) => n.name === 'D-soon'), { showSoon: false }))
+const { isChinaNotice, extractIcaoLocations, pointInChina, isChinaPad, noticeChinaVisible } = require(`../${DIR}/utils/china-filter.js`)
+check('YMMM 溅落不是中国', !isChinaNotice({ rawText: 'Q) YMMM/QRDCA\nA) YMMM\n', noticeKey: 'notam-YMMM-E2700/26', areas: [[[92.9, -21.6], [93.1, -21.6], [93.1, -21.4], [92.9, -21.6]]] }))
+check('美国 ZHU 三字码不是中国', !isChinaNotice({ noticeKey: 'notam-ZHU-07/270-26', name: '07/270', rawText: 'HOUSTON ARTCC ZHU\n', areas: [[[-97.15, 25.99], [-97.1, 25.99], [-97.1, 26.1], [-97.15, 25.99]]] }))
+check('ZONE/ZULU 不误判', !isChinaNotice({ rawText: 'HAZARD ZONE UNTIL 1200ZULU', name: 'ZONE' }))
+check('China Lake 不是中国', !isChinaNotice({ reason: 'CHINA LAKE NAWS RESTRICTED AREA', rawText: 'A) KZLA\nCHINA LAKE' }))
+check('Q) ZJHK 是中国', isChinaNotice({ rawText: 'Q) ZJHK/QRDCA/IV/BO/W/000/999\nA) ZJHK\n', noticeKey: 'notam-ZJHK-A0123/26' }))
+check('A) ZBAA 是中国', isChinaNotice({ rawText: 'A) ZBAA\nE) TEMPO RESTRICTED' }))
+check('文昌地名是中国', isChinaNotice({ reason: 'Wenchang coastal hazard', name: '文昌发射' }))
+check('文昌坐标是中国', isChinaNotice({ areas: [[[110.95, 19.61], [111.1, 19.61], [111.1, 19.8], [110.95, 19.61]]] }))
+check('Texas 坐标不是中国', !pointInChina(25.99677, -97.15799))
+check('东方发射场坐标不是中国', !pointInChina(51.8844, 128.3339))
+check('种子岛坐标不是中国', !pointInChina(30.401, 130.978))
+check('拜科努尔坐标不是中国', !pointInChina(45.965, 63.305))
+check('香港 FIR 算中国', isChinaNotice({ rawText: 'Q) VHHK/QRDCA\nA) VHHK' }))
+check('台湾 FIR 算中国', isChinaNotice({ rawText: 'Q) RCAA/QRDCA\nA) RCAA' }))
+check('extract 不把 ZHU 当成四字 ICAO', extractIcaoLocations({ noticeKey: 'notam-ZHU-07/270-26' }).indexOf('ZHU') === -1)
+check('演示星舰通告不含中国', decorated.every((n) => !n.inChina), decorated.map((n) => n.name + ':' + n.inChina).join(' '))
+const chinaRow = decorateNotice({
+  name: 'A1234/26',
+  type: 'NOTAM',
+  rawText: 'Q) ZJHK/QRDCA/IV/BO/W/000/999\nA) ZJHK\nB) 2608200000 C) 2608210000\nE) Wenchang',
+  areas: [[[110.95, 19.61], [111.2, 19.61], [111.2, 19.9], [110.95, 19.61]]]
+}, hasGeometry, NOW)
+check('decorateNotice.inChina', chinaRow.inChina === true)
+check('chinaOnly 只留中国', noticeChinaVisible(chinaRow, { chinaOnly: true }) && !noticeChinaVisible(decorated[0], { chinaOnly: true }))
+check('未开 chinaOnly 全可见', noticeChinaVisible(decorated[0], { chinaOnly: false }) && noticeChinaVisible(decorated[0], {}))
+check('stats.china 计数', buildStats([chinaRow].concat(decorated)).china === 1)
+check('文昌发射台 isChinaPad', isChinaPad({ name: 'Wenchang LC-1', latitude: 19.6145, longitude: 110.951 }))
+check('Starbase 不是中国发射台', !isChinaPad({ name: 'Orbital Launch Pad 2', latitude: 25.99677, longitude: -97.15799 }))
 const sorted = sortNotices(mixed).map((n) => n.name)
 check('排序：生效中→提前预警→已结束→已取消', sorted.join(',') === 'B-live,D-soon,A-past,C-cancel', sorted.join(','))
 check('排序不改变条数', sortNotices(mixed).length === mixed.length)
@@ -296,6 +325,8 @@ check('面板可折叠', /togglePanel/.test(js) && /panelCollapsed/.test(wxml))
 check('重置视野', /resetView/.test(js) && /重置视野/.test(wxml))
 check('折叠态有摘要', /mini-summary-row/.test(wxml) && /stats\.notam/.test(wxml))
 check('预警状态 chip', /预警/.test(wxml) && /showSoon/.test(js) && /data-key="showSoon"/.test(wxml))
+check('中国筛选 chip', /data-key="chinaOnly"/.test(wxml) && /chinaOnly/.test(js) && /noticeChinaVisible/.test(js))
+check('中国空态文案', /没有中国相关通告/.test(wxml))
 check('四态状态筛选', /showLive/.test(js) && /showEnded/.test(js) && /showCancelled/.test(js) && /refreshVisible/.test(js))
 check('详情卡提前预警文案', /selectedNotice\.leadText/.test(wxml))
 check('生效窗口本地时间标注', /生效窗口（本地时间）/.test(wxml))

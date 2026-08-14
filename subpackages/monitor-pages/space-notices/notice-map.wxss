@@ -228,6 +228,7 @@ page {
 .sn-chip-dot--pad { background: #FF3B30; }
 .sn-chip-dot--live { background: #34C759; }
 .sn-chip-dot--soon { background: #FF9500; }
+.sn-chip-dot--china { background: #FF3B30; }
 .sn-chip--on {
   background: var(--color-brand-soft);
   border-color: var(--color-brand-glow);

@@ -14,7 +14,7 @@ const {
   withShareStampPath,
   withShareStampQuery
 } = require('../utils/share-gate.js')
-const { decorateNotice, decorateSpaceNoticeEntry, spaceNoticeDisplayTitle, sortNotices, buildStats, noticeStatusVisible } = require('./utils/notice-format.js')
+const { decorateNotice, decorateSpaceNoticeEntry, spaceNoticeDisplayTitle, sortNotices, buildStats, noticeStatusVisible, noticeChinaVisible } = require('./utils/notice-format.js')
 const {
   buildPolygonsFromNotices,
   buildPolylinesFromNotices,
@@ -27,6 +27,7 @@ const {
   hasGeometry
 } = require('./utils/map-build.js')
 const { buildMapLayoutData, setMapSatelliteFromTap } = require('../utils/map-page-common.js')
+const { isChinaPad, CHINA_OVERVIEW } = require('./utils/china-filter.js')
 
 const GATE_PRODUCT_ID = 'space_notices'
 const GATE_PRODUCT_NAME = '发射通告地图'
@@ -53,7 +54,7 @@ Page({
     polylines: [],
     includePoints: [],
     notices: [],
-    stats: { notam: 0, nav: 0, adp: 0, live: 0, soon: 0, ended: 0, cancelled: 0 },
+    stats: { notam: 0, nav: 0, adp: 0, live: 0, soon: 0, ended: 0, cancelled: 0, china: 0 },
     loading: true,
     errorText: '',
     showNotam: true,
@@ -64,6 +65,8 @@ Page({
     showSoon: true,
     showEnded: true,
     showCancelled: true,
+    /** 仅显示中国相关通告（FIR / 发射场 / 坐标），默认关闭 */
+    chinaOnly: false,
     /** 仅当本任务有轨迹数据时才显示「轨迹」chip */
     hasTrajectory: false,
     showPad: true,
@@ -196,7 +199,9 @@ Page({
   },
 
   visibleNotices() {
-    return (this._decorated || []).filter((n) => noticeStatusVisible(n, this.data))
+    return (this._decorated || []).filter(
+      (n) => noticeStatusVisible(n, this.data) && noticeChinaVisible(n, this.data)
+    )
   },
 
   /**
@@ -226,11 +231,12 @@ Page({
       BNM: !!this.data.showNav,
       LNM: !!this.data.showNav
     }
+    const chinaOnly = !!this.data.chinaOnly
     const styleOpts = { light: !!this.data.themeLight, selectedKey: this.data.selectedKey || '' }
     const source = this.visibleNotices()
     const polygons = buildPolygonsFromNotices(source, enabledTypes, styleOpts)
     const polylines = buildPolylinesFromNotices(source, enabledTypes, styleOpts)
-    if (this.data.showCorridor && this.data.hasTrajectory) {
+    if (this.data.showCorridor && this.data.hasTrajectory && !chinaOnly) {
       const traj = buildTrajectoryPolyline(
         resolveTrajectory(this._entry),
         (this._entry && this._entry.trajectoryColor) || undefined
@@ -239,9 +245,10 @@ Page({
     }
     // 与星舰同链路：先建图层，再解析有效红色坐标（缺 pad 时用通告密度中心兜底）
     const pad = resolveEffectivePad(this._entry, polygons, polylines)
+    const padOk = !!(pad && (!chinaOnly || isChinaPad(pad)))
     const markerTitle =
       (this._display && this._display.title) || spaceNoticeDisplayTitle(this._entry)
-    const markers = this.data.showPad
+    const markers = this.data.showPad && padOk
       ? buildPadMarker(pad, markerTitle, { light: !!this.data.themeLight })
       : []
     const next = { polygons, polylines, markers }
@@ -249,11 +256,23 @@ Page({
       next.padName = pad.name
     }
     if (refit) {
-      const center = fitCenter(pad, polygons, polylines, { region: this.data.mapRegion || 'global' })
-      next.includePoints = center.includePoints || []
-      next.latitude = center.latitude
-      next.longitude = center.longitude
-      next.scale = center.scale
+      const hasShape =
+        polygons.length > 0 ||
+        polylines.some((l) => l && Array.isArray(l.points) && l.points.length >= 2)
+      if (chinaOnly && !hasShape) {
+        next.latitude = CHINA_OVERVIEW.latitude
+        next.longitude = CHINA_OVERVIEW.longitude
+        next.scale = CHINA_OVERVIEW.scale
+        next.includePoints = []
+      } else {
+        const center = fitCenter(chinaOnly ? (padOk ? pad : null) : pad, polygons, polylines, {
+          region: chinaOnly ? 'global' : (this.data.mapRegion || 'global')
+        })
+        next.includePoints = center.includePoints || []
+        next.latitude = center.latitude
+        next.longitude = center.longitude
+        next.scale = center.scale
+      }
     }
     this.setData(next)
   },
@@ -263,8 +282,9 @@ Page({
     if (!key) return
     if (key === 'showCorridor' && !this.data.hasTrajectory) return
     const statusKey = key === 'showLive' || key === 'showSoon' || key === 'showEnded' || key === 'showCancelled'
+    const chinaKey = key === 'chinaOnly'
     this.setData({ [key]: !this.data[key] }, () => {
-      if (statusKey) this.refreshVisible({ refit: false })
+      if (statusKey || chinaKey) this.refreshVisible({ refit: !!chinaKey })
       else this.applyLayers({ refit: false })
     })
   },

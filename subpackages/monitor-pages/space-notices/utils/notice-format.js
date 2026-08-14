@@ -9,6 +9,7 @@ const { pickLocalized, isContentLangEn } = require('../../../../utils/locale.js'
 const { translateRocketName } = require('../../../../utils/rocket-name-i18n.js')
 const { localizeMissionTitle } = require('../../../../utils/mission-title-i18n.js')
 const { translateAgencyName } = require('../../../../utils/space-terms-i18n.js')
+const { isChinaNotice, noticeChinaVisible } = require('./china-filter.js')
 
 const TONE_LABEL = { notam: '航空 NOTAM', nav: '航海警告', adp: '空域走廊' }
 
@@ -268,6 +269,7 @@ function decorateNotice(notice, hasGeometry, now) {
     timeText: d.timeText,
     leadText: d.leadText || '',
     windows: d.windows,
+    inChina: isChinaNotice(n),
     hasGeo: typeof hasGeometry === 'function' ? !!hasGeometry(n) : false,
     rawLines: n.rawText
       ? String(n.rawText)
@@ -293,9 +295,10 @@ function sortNotices(notices) {
 }
 
 function buildStats(notices) {
-  const stats = { notam: 0, nav: 0, adp: 0, live: 0, soon: 0, ended: 0, cancelled: 0 }
+  const stats = { notam: 0, nav: 0, adp: 0, live: 0, soon: 0, ended: 0, cancelled: 0, china: 0 }
   ;(notices || []).forEach((n) => {
     if (stats[n.typeTone] != null) stats[n.typeTone] += 1
+    if (n.inChina) stats.china += 1
     if (n.cancelled) stats.cancelled += 1
     else if (n.statusTone === 'live') stats.live += 1
     else if (n.statusTone === 'soon') stats.soon += 1
@@ -330,5 +333,6 @@ module.exports = {
   sortNotices,
   buildStats,
   noticeStatusVisible,
+  noticeChinaVisible,
   TONE_LABEL
 }
