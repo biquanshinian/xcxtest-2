@@ -23,7 +23,7 @@ Component({
     themeMode: { type: String, value: 'dark' },
     rocketArtStyle: { type: String, value: 'original' },
     contentLang: { type: String, value: 'zh' },
-    briefingEnabled: { type: Boolean, value: true },
+    briefingEnabled: { type: Boolean, value: false },
     settingsPanelOpen: { type: Boolean, value: false },
     settingsPanelPadTop: { type: Number, value: 44 },
     rocketOptions: { type: Array, value: [] },

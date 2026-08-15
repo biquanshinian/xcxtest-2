@@ -5,7 +5,7 @@
  * 用 yt-dlp 下载 ≤480p 回放后经预签 URL 直传 COS，再回写结果。
  * 队列由 syncSpaceDevsData 的 mission-replay.js 小时级扫描产生。
  *
- * 路由（Bearer REPLAY_AGENT_TOKEN，缺省回退 BILI_AGENT_TOKEN，免管理员 JWT）：
+ * 路由（Bearer REPLAY_AGENT_TOKEN；历史兼容可回退 BILI_AGENT_TOKEN，免管理员 JWT）：
  *   POST /replay-agent/claim     → 领取 1 条 pending 任务 + COS 预签 PUT URL
  *   POST /replay-agent/complete  → 上传成功回写 mission_replays（_id=launchId）
  *   POST /replay-agent/fail      → 失败重试计数（3 次后终态 failed）

@@ -14,6 +14,8 @@ const {
   setMapSatelliteFromTap
 } = require('./utils/map-page-common.js')
 const launchSiteDisplay = require('./utils/launch-site-display.js')
+const { pickLocalized, takeDescI18nSeed } = require('../../utils/locale.js')
+const { translateLocation } = require('../../utils/space-terms-display.js')
 const { togglePageTranslation } = require('./utils/text-translate.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
 const pageBase = require('../../utils/page-base.js')
@@ -44,6 +46,11 @@ function siteMarker(site) {
   }
 }
 
+function padDisplayName(pad) {
+  if (!pad) return ''
+  return pickLocalized(pad.nameZh || '', '') || translateLocation(pad.name) || pad.name || ''
+}
+
 function padMarker(pad) {
   return {
     id: pad.id,
@@ -53,7 +60,7 @@ function padMarker(pad) {
     height: 22,
     alpha: pad.active ? 1 : 0.6,
     callout: {
-      content: pad.name,
+      content: padDisplayName(pad),
       color: '#FFFFFF',
       fontSize: 11,
       borderRadius: 10,
@@ -182,7 +189,7 @@ Page({
         return
       }
       const hasCoords = site.latitude != null && site.longitude != null
-      const patch = {
+      const patch = Object.assign({
         loading: false,
         site,
         isFavorited: isFavorite('launch_site', site.id),
@@ -190,7 +197,7 @@ Page({
         coordsText: hasCoords ? `${Number(site.latitude).toFixed(4)}, ${Number(site.longitude).toFixed(4)}` : '',
         dataUpdatedText: formatMapUpdateTime(new Date()),
         shareTitle: (site.nameZh || site.name) + ' · 发射场详情'
-      }
+      }, takeDescI18nSeed(this, { siteDesc: site.descriptionZh }))
       if (hasCoords) {
         patch.latitude = site.latitude
         patch.longitude = site.longitude
@@ -218,7 +225,10 @@ Page({
       const rows = await launchSiteDisplay.loadPadList(site.id)
       // 页面已切换（理论上不会，防御）或站点变化时丢弃
       if (!this.data.site || Number(this.data.site.id) !== Number(site.id)) return
-      const pads = (rows || []).filter((p) => p.latitude != null && p.longitude != null)
+      const pads = (rows || []).filter((p) => p.latitude != null && p.longitude != null).map((p) => {
+        const name = padDisplayName(p) || p.name
+        return Object.assign({}, p, { name: name })
+      })
       const markers = [siteMarker(site)].concat(pads.map(padMarker))
       this.setData({ pads, padsLoading: false, markers })
     } catch (e) {
@@ -238,7 +248,7 @@ Page({
     togglePageTranslation(this, {
       switchKey: 'descTranslated',
       loadingKey: 'descTranslating',
-      fields: [{ path: 'descI18n.siteDesc', text: site.description || '' }]
+      fields: [{ path: 'descI18n.siteDesc', text: site.description || '', zh: site.descriptionZh || '' }]
     })
   },
 

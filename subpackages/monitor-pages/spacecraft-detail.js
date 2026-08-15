@@ -1,8 +1,9 @@
 // 飞船构型详情页：数据来自 apiProxy ll2SpacecraftDetail（LL2 spacecraft_configurations）
 const pageBase = require('../../utils/page-base.js')
 const { togglePageTranslation } = require('./utils/text-translate.js')
-const { translateAgencyName, translateSpacecraftName } = require('../../utils/space-terms-i18n.js')
+const { pickLocalized, zhField, takeDescI18nSeed } = require('../../utils/locale.js')
 const { cachedImage, proxiedImageUrl, typeDisplayName } = require('./utils/spacecraft-display.js')
+const { resolveSpacecraftDisplayZh } = require('../../utils/spacecraft-name-i18n.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
@@ -26,18 +27,25 @@ function normalizeLl2Spacecraft(raw) {
   return {
     id: raw.id,
     name: raw.name || '',
+    nameZh: raw.nameZh || '',
     typeName: raw.type && raw.type.name ? raw.type.name : '',
+    typeNameZh: raw.typeNameZh || (raw.type && raw.type.nameZh) || '',
     agencyId: agency.id || null,
     agencyName: agency.name || '',
+    agencyNameZh: raw.agencyNameZh || agency.nameZh || '',
     agencyAbbrev: agency.abbrev || '',
     familyName: family && family.name ? family.name : '',
+    familyNameZh: raw.familyNameZh || (family && family.nameZh) || '',
     inUse: !!raw.in_use,
     // 缩略图优先（与全项目一致）：LL2 原图托管在海外，国内直连原图经常超时
     imageUrl: raw.image && (raw.image.thumbnail_url || raw.image.image_url) || '',
     fullImageUrl: raw.image && (raw.image.image_url || raw.image.thumbnail_url) || '',
     capability: raw.capability || '',
+    capabilityZh: raw.capabilityZh || '',
     history: raw.history || '',
+    historyZh: raw.historyZh || '',
     details: raw.details || '',
+    detailsZh: raw.detailsZh || '',
     maidenFlight: raw.maiden_flight || '',
     height: raw.height != null ? raw.height : null,
     diameter: raw.diameter != null ? raw.diameter : null,
@@ -90,15 +98,15 @@ function formatSpacecraft(raw) {
   const nameEn = raw.name || ''
   return {
     id: raw.id,
-    name: translateSpacecraftName(nameEn) || nameEn || '未知飞船',
+    name: resolveSpacecraftDisplayZh(nameEn, zhField(raw, 'name')) || pickLocalized(zhField(raw, 'name'), nameEn) || '未知飞船',
     nameEn,
-    typeName: typeDisplayName(raw.typeName) || raw.typeName || '',
-    agencyName: translateAgencyName(raw.agencyName, raw.agencyAbbrev) || raw.agencyName || '',
+    typeName: typeDisplayName(raw.typeName, raw.typeNameZh) || raw.typeName || '',
+    agencyName: pickLocalized(raw.agencyNameZh, raw.agencyName) || '',
     // 原文名/缩写保留供发射商详情页路由解析
     agencyNameEn: raw.agencyName || '',
     agencyAbbrev: raw.agencyAbbrev || '',
     agencyId: raw.agencyId || null,
-    familyName: translateSpacecraftName(raw.familyName) || raw.familyName || '',
+    familyName: pickLocalized(raw.familyNameZh, raw.familyName) || '',
     inUse: !!raw.inUse,
     // 头图：原图优先（与火箭型号详情页一致，缩略图放大显示会糊），走代理 + 本地缓存
     imageUrl: cachedImage(proxiedImageUrl(raw.fullImageUrl || raw.imageUrl) || raw.fullImageUrl || raw.imageUrl || ''),
@@ -106,8 +114,11 @@ function formatSpacecraft(raw) {
     imageFallbacks: buildHeroFallbacks(raw.fullImageUrl, raw.imageUrl),
     fullImageUrl: raw.fullImageUrl || raw.imageUrl || '',
     capability: raw.capability || '',
+    capabilityZh: raw.capabilityZh || zhField(raw, 'capability'),
     history: raw.history || '',
+    historyZh: raw.historyZh || zhField(raw, 'history'),
     details: raw.details || '',
+    detailsZh: raw.detailsZh || zhField(raw, 'details'),
     hasDesc: !!(raw.capability || raw.history || raw.details),
     specs,
     totalLaunchCount: total != null ? total : null,
@@ -200,6 +211,7 @@ Page({
       descI18n: { capability: '', history: '', details: '' }
     })
     this._textTranslateCache = null
+    this._textTranslateReverted = false
 
     // v2: 缩略图优先 + fullImageUrl 字段；升版本使旧缓存失效
     const cacheKey = `_spacecraft_detail_v2_${id}`
@@ -238,13 +250,17 @@ Page({
       item.imageFallbacks = [item.imageUrl].concat(item.imageFallbacks || []).filter(Boolean)
       item.imageUrl = this._heroOverrideSrc
     }
-    this.setData({
+    this.setData(Object.assign({
       loading: false,
       item,
       isFavorited: !!(item && item.id != null && isFavorite('spacecraft', item.id)),
       navTitle: (item && item.name) || '飞船详情',
       shareTitle: `${(item && item.name) || '飞船详情'} | 火星探索日志`
-    })
+    }, takeDescI18nSeed(this, {
+      capability: item && item.capabilityZh,
+      history: item && item.historyZh,
+      details: item && item.detailsZh
+    })))
     this._syncShareImage(item)
   },
 
@@ -323,9 +339,9 @@ Page({
       switchKey: 'descTranslated',
       loadingKey: 'descTranslating',
       fields: [
-        { path: 'descI18n.capability', text: item.capability || '' },
-        { path: 'descI18n.history', text: item.history || '' },
-        { path: 'descI18n.details', text: item.details || '' }
+        { path: 'descI18n.capability', text: item.capability || '', zh: item.capabilityZh || '' },
+        { path: 'descI18n.history', text: item.history || '', zh: item.historyZh || '' },
+        { path: 'descI18n.details', text: item.details || '', zh: item.detailsZh || '' }
       ]
     })
   },

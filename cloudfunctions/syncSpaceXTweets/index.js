@@ -967,8 +967,7 @@ async function createEvent(data) {
       tweetUrl: data.tweetUrl,
       publishedAt,
       createdAt: now,
-      updatedAt: now,
-      bilibiliSyncStatus: 'idle'
+      updatedAt: now
     }
   const res = await db.collection(COLLECTION).add({ data: payload })
   return res._id
@@ -1223,6 +1222,17 @@ async function deleteCOSFiles(keys) {
   return removed
 }
 
+/** SpaceX 官方发射短片要留给 mission-replay 匹配，7 天内有 COS 预览的不进清理 */
+function shouldKeepForReplayClips(item) {
+  if (String(item && item.source || '').toLowerCase() !== 'spacex') return false
+  const age = Date.now() - Number(item.publishedAt || 0)
+  if (age <= 0 || age > 7 * 24 * 60 * 60 * 1000) return false
+  return (item.mediaList || []).some((m) =>
+    m && m.type === 'video' && !m.isLongVideo &&
+    typeof m.previewUrl === 'string' && m.previewUrl.startsWith(COS_BASE_URL)
+  )
+}
+
 async function cleanOldEvents() {
   const countRes = await db.collection(COLLECTION).count()
   const total = countRes.total
@@ -1231,18 +1241,24 @@ async function cleanOldEvents() {
   const toDelete = total - MAX_EVENTS
   const oldEvents = await db.collection(COLLECTION)
     .orderBy('publishedAt', 'asc')
-    .limit(toDelete)
+    .limit(toDelete + 30)
     .get()
 
   let deleted = 0
+  let skipped = 0
   let cosRemoved = 0
   for (const item of oldEvents.data) {
+    if (deleted >= toDelete) break
+    if (shouldKeepForReplayClips(item)) {
+      skipped++
+      continue
+    }
     const keys = extractCOSKeys(item.mediaList)
     cosRemoved += await deleteCOSFiles(keys)
     await db.collection(COLLECTION).doc(item._id).remove()
     deleted++
   }
-  console.log(`[Sync] 清理旧事件: 删除 ${deleted} 条记录 + ${cosRemoved} 个COS文件，剩余 ${MAX_EVENTS} 条`)
+  console.log(`[Sync] 清理旧事件: 删除 ${deleted} 条记录 + ${cosRemoved} 个COS文件，保留 SpaceX 集锦 ${skipped} 条`)
   return deleted
 }
 
@@ -1585,21 +1601,6 @@ exports.main = async (event = {}) => {
   const elapsed = Date.now() - startTime
   console.log(`[Sync] 全部完成: ${totalPublished} 条发布, ${totalFailed} 条失败, 补翻译 ${retranslated} 条, 清理 ${cleaned} 条, 预览回填 ${JSON.stringify(videoPreviewBackfill)}, 耗时 ${elapsed}ms`)
 
-  // 有新事件时立刻触发 B 站入队（不等 publishBilibiliFromEvents 定时器）
-  let bilibiliEnqueue = null
-  if (totalPublished > 0) {
-    try {
-      const biliRes = await cloud.callFunction({
-        name: 'publishBilibiliFromEvents',
-        data: { from: 'tweet_sync', published: totalPublished }
-      })
-      bilibiliEnqueue = biliRes && biliRes.result ? biliRes.result : biliRes
-      console.log('[Sync] 已触发 B 站入队', JSON.stringify(bilibiliEnqueue))
-    } catch (e) {
-      console.warn('[Sync] 触发 B 站入队失败（请确认已部署 publishBilibiliFromEvents 及定时触发器）:', e.message || e)
-    }
-  }
-
   return {
     code: 0,
     message: totalPublished > 0 ? 'ok' : '没有新推文',
@@ -1608,7 +1609,6 @@ exports.main = async (event = {}) => {
     retranslated,
     cleaned,
     videoPreviewBackfill,
-    bilibiliEnqueue,
     elapsed
   }
 }

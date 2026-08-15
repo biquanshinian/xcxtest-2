@@ -7,7 +7,8 @@ const { getAgencies } = require('../../../utils/api-monitor-data.js')
 const { resolveAgencyLogoForDisplay } = require('../../../utils/agency-logo-cache.js')
 const { resolveAgencyLogoBgTone } = require('../../../utils/agency-logo-bg.js')
 const { overrideAgencyLogoUrl } = require('../../../utils/agency-logo-overrides.js')
-const { translateAgencyName } = require('../../../utils/space-terms-i18n.js')
+const { pickLocalized, zhField } = require('../../../utils/locale.js')
+const { resolveAgencyDisplayZh } = require('../../../utils/launch-card-i18n.js')
 const { buildLl2ImageChain } = require('../../../utils/ll2-image.js')
 
 const CACHE_TTL_MS = 10 * 60 * 1000
@@ -15,7 +16,8 @@ const CACHE_TTL_MS = 10 * 60 * 1000
 // v4: 补全 CHNR/AP-MCSTA/PLA/TiSPACE 等图鉴显示名汉化
 // v5: 修复聚合缓存 __cacheMiss 被误判为全量（featured 15 家冒充完整列表持久化 24h），
 //     升版本作废所有已被污染的本地持久缓存
-const AGENCY_PERSIST_KEY = '_agency_list_persist_v5'
+// v6: 展示名只读云端 nameZh，作废仍按前端词典拼出来的旧缓存
+const AGENCY_PERSIST_KEY = '_agency_list_persist_v7'
 const AGENCY_PERSIST_TTL_MS = 24 * 60 * 60 * 1000
 
 const TYPE_ZH = {
@@ -36,6 +38,19 @@ function translateAgencyType(typeName) {
   if (!raw) return '未知'
   if (/[\u4e00-\u9fff]/.test(raw)) return raw
   return TYPE_ZH[raw] || TYPE_ZH[raw.replace(/\b\w/g, (c) => c.toUpperCase())] || raw
+}
+
+/** 卡片分类标签：云端 nameZh → 前端词典 → 英文原文（空则不渲染胶囊） */
+function resolveAgencyTypeLabel(typeName, typeObj) {
+  const en = String(
+    (typeObj && typeof typeObj === 'object' ? typeObj.name : typeObj) || typeName || ''
+  ).trim()
+  if (!en || en === '未知') {
+    const zhOnly = typeObj && typeof typeObj === 'object' ? zhField(typeObj, 'name') : ''
+    return pickLocalized(zhOnly, '') || ''
+  }
+  const zh = (typeObj && typeof typeObj === 'object' && zhField(typeObj, 'name')) || translateAgencyType(en)
+  return pickLocalized(zh, en) || ''
 }
 
 /** 国家/地区英文名 → 中文（LL2 country.name） */
@@ -318,15 +333,10 @@ function formatAgency(agency) {
   const logoBgTone = logoUrlRaw ? resolveAgencyLogoBgTone(logoUrlRaw) : ''
 
   const foundingYear = agency.founding_year || null
-  const countryZh = COUNTRY_ZH[countryName] || ''
+  const countryZh = (agency.country && agency.country[0] && zhField(agency.country[0], 'name')) || ''
   const zhAliases = getZhAliases(name, abbrev)
-  // 词典优先；别名表首项作兜底（如搜索别名已有中文而主词典漏配）
-  const nameZh =
-    translateAgencyName(name, abbrev) ||
-    (zhAliases[0] && /[\u4e00-\u9fff]/.test(zhAliases[0]) ? zhAliases[0] : '') ||
-    ''
-  // 有中文则用中文；勿优先 abbrev（否则 China Rocket 未命中时卡片只显示 CHNR）
-  const displayName = nameZh || name || abbrev || '未知机构'
+  const nameZh = resolveAgencyDisplayZh(name, abbrev, zhField(agency, 'name'))
+  const displayName = pickLocalized(nameZh, name) || abbrev || '未知机构'
   return {
     id: agency.id,
     name,
@@ -335,7 +345,7 @@ function formatAgency(agency) {
     metaLine: (countryZh || countryName || '未知地区') + (foundingYear ? ' · ' + foundingYear + ' 年成立' : ''),
     countryZh,
     typeName,
-    typeZh: translateAgencyType(typeName),
+    typeZh: resolveAgencyTypeLabel(typeName, agency.type),
     typeClass: (typeName || '').toLowerCase().replace(/\s+/g, '-'),
     countryFlag: getCountryFlag(agency.country),
     countryName,
@@ -358,7 +368,7 @@ function formatAgency(agency) {
     // 仅 JS 层搜索用，setData 前会被剔除
     _zhAliases: zhAliases,
     _searchText: [
-      name, abbrev, countryName, description,
+      name, displayName, nameZh, abbrev, countryName, description,
       launchers, spacecraft,
       agency.parent || '', agency.administrator || ''
     ].join(' ').toLowerCase()
@@ -671,11 +681,14 @@ function filterAgencies(all, filter, keyword) {
   return filtered
 }
 
-/** setData 前剔除 JS 层搜索字段 */
+/** setData 前剔除 JS 层搜索字段；顺带补齐旧持久缓存里空掉的分类标签 */
 function toDisplayRow(item) {
   const row = { ...item }
   delete row._searchText
   delete row._zhAliases
+  if (!row.typeZh) {
+    row.typeZh = resolveAgencyTypeLabel(row.typeName, null)
+  }
   return row
 }
 

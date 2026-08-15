@@ -16,13 +16,15 @@ const {
   patchUpcomingLocalCacheById
 } = require('./api-request.js')
 const { pickLocalized, zhField, launchCardUiText } = require('./locale.js')
-const { translateAgencyName } = require('./space-terms-i18n.js')
 const {
   applyContentLangToMission,
   buildRocketNamePair,
   buildTitlePair,
-  buildLaunchSitePair
+  buildLaunchSitePair,
+  resolveAgencyDisplayZh
 } = require('./launch-card-i18n.js')
+const { missionHasOrbitPano } = require('./orbit-pano-list-flag.js')
+const { hydrateMissionAgencyLogo } = require('./upcoming-agency-logo-enrich.js')
 
 function getRocketDisplayNameFromConfig(configuration) {
   if (!configuration || typeof configuration !== 'object') return 'Unknown rocket'
@@ -160,10 +162,7 @@ function mapLaunchToListItem(launch, index, offset, type) {
   const { launchAgency, launchAgencyId, launchAgencyAbbrev, launchAgencyImage } = extractLaunchAgency(launch)
   const lsp = launch.launch_service_provider
   const agencyEn = (lsp && lsp.name) || launchAgency || ''
-  const agencyZh =
-    (lsp && translateAgencyName(lsp.name, lsp.abbrev)) ||
-    translateAgencyName(launchAgency, launchAgencyAbbrev) ||
-    ''
+  const agencyZh = resolveAgencyDisplayZh(agencyEn, lsp && lsp.abbrev, lsp && zhField(lsp, 'name'))
   const _isRecoverable = isRecoverable(boosterInfo)
   const idPrefix = type === 'completed' ? 'completed' : 'mission'
   const countryPair = getCountryDisplayPair(launch.pad, launch.launch_service_provider, launch)
@@ -200,7 +199,7 @@ function mapLaunchToListItem(launch, index, offset, type) {
     launchAgency: agencyZh || agencyEn,
     launchAgencyId,
     launchAgencyAbbrev,
-    // 列表 LSP 若带 logo 则直接带上；瘦列表无图时由 enrichMissionsLaunchAgencyImages 补齐
+    // 列表 LSP 若带 logo 则直接带上；瘦列表无图时先读本地按 id 缓存，再由 enrich 补齐
     launchAgencyImage: launchAgencyImage || '',
     rocketConfigId: (rocketConfiguration && rocketConfiguration.id != null) ? rocketConfiguration.id : null,
     padLocationId: (launch.pad && launch.pad.location && launch.pad.location.id != null)
@@ -225,7 +224,7 @@ function mapLaunchToListItem(launch, index, offset, type) {
       missionNameEn: titlePair.missionNameEn,
       missionNameZh: titlePair.missionNameZh,
       launchAgencyEn: agencyEn,
-      launchAgencyZh: agencyZh || agencyEn,
+      launchAgencyZh: agencyZh,
       countryDisplayEn: countryPair.countryDisplayEn,
       countryDisplayZh: countryPair.countryDisplayZh,
       statusBadgeTextEn: badgePair.statusBadgeTextEn,
@@ -248,6 +247,9 @@ function mapLaunchToListItem(launch, index, offset, type) {
     item.isExpired = false
   }
 
+  item.hasOrbitPano = missionHasOrbitPano(item)
+  const hydrated = hydrateMissionAgencyLogo(item)
+  if (hydrated && hydrated.launchAgencyImage) item.launchAgencyImage = hydrated.launchAgencyImage
   return applyContentLangToMission(item)
 }
 
@@ -266,6 +268,7 @@ function cloneListResult(result) {
       if (item && item._langPack && typeof item._langPack === 'object') {
         next._langPack = Object.assign({}, item._langPack)
       }
+      next.hasOrbitPano = missionHasOrbitPano(next)
       return applyContentLangToMission(next)
     }),
     hasMore: result.hasMore,
@@ -548,6 +551,8 @@ module.exports = {
   mapLaunchToListItem,
   invalidateListSnapshots,
   findMissionInListSnapshots,
+  peekUpcomingMissionsList,
+  getUpcomingMissionsAny,
   patchUpcomingLocalCacheById
 }
 
@@ -561,6 +566,48 @@ function invalidateListSnapshots() {
  * 从模块级列表快照里按 id 找任务（不发网络）。
  * 供详情页深链/无 opener 时作日程权威短路。
  */
+/** 任意一份未过期的 upcoming 内存快照（不发网络），优先更长的那份 */
+function peekUpcomingMissionsList() {
+  const now = Date.now()
+  let best = null
+  const keys = Object.keys(_listSnapshots)
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i]
+    if (key.indexOf('upcoming:') !== 0) continue
+    const entry = _listSnapshots[key]
+    if (!entry || now - entry.at >= LIST_SNAPSHOT_TTL) continue
+    const list = entry.result && Array.isArray(entry.result.list) ? entry.result.list : null
+    if (!list || !list.length) continue
+    if (!best || list.length > best.length) best = list
+  }
+  if (!best) return null
+  return best.map((item) => {
+    const next = { ...item }
+    if (item && item._langPack && typeof item._langPack === 'object') {
+      next._langPack = Object.assign({}, item._langPack)
+    }
+    next.hasOrbitPano = missionHasOrbitPano(next)
+    return applyContentLangToMission(next)
+  })
+}
+
+function peekUpcomingMissionsInflight() {
+  const keys = Object.keys(_listInflight)
+  for (let i = 0; i < keys.length; i++) {
+    if (keys[i].indexOf('upcoming:') === 0) return _listInflight[keys[i]]
+  }
+  return null
+}
+
+/** 开屏/倒计时：复用首页已在飞的 upcoming，避免再打一枪 limit=20 */
+function getUpcomingMissionsAny(fallbackLimit) {
+  const peeked = peekUpcomingMissionsList()
+  if (peeked && peeked.length) return Promise.resolve({ list: peeked })
+  const inflight = peekUpcomingMissionsInflight()
+  if (inflight) return inflight.then(cloneListResult)
+  return getUpcomingMissions(fallbackLimit || 20, 0)
+}
+
 function findMissionInListSnapshots(id, detailType) {
   if (id == null || id === '') return null
   const idStr = String(id)

@@ -60,4 +60,20 @@ test('agency-name-i18n.js 双副本完全一致', () => {
   )
 })
 
+test('nsf-checklist-i18n 管理端与小程序短语副本一致', () => {
+  assert.equal(
+    readNormalized('../utils/nsf-checklist-i18n.js'),
+    readNormalized('adminGateway/nsf-checklist-i18n.js'),
+    'adminGateway/nsf-checklist-i18n.js 与 utils 副本不一致'
+  )
+})
+
+test('ll2-updates-i18n.js 双副本完全一致', () => {
+  assert.equal(
+    readNormalized('syncSpaceDevsData/ll2-updates-i18n.js'),
+    readNormalized('ll2Query/ll2-updates-i18n.js'),
+    'll2-updates-i18n 两份副本不一致'
+  )
+})
+
 console.log('dual-copy-parity.test.js: all assertions queued (node:test will report)')

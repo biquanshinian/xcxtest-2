@@ -3,7 +3,10 @@
  * 模板默认：工单处理通知 AUknDNSmaLhK2lN2Kzq0lHbBkaeYSmcAINelxcxc6yA
  *   项目名称 / 原日期 / 新日期 / 处理原因 / 单位名称
  *
- * 范围控制（防刷屏）：
+ * 打标口径（与首页改期弹窗对齐）：
+ * - launch_data 在 NET 提前或延期满 1 分钟时打 netChangePending
+ *
+ * 范围控制（防刷屏，推送比弹窗更严）：
  * - 仅原时间或新时间落在未来 48h 近窗的任务才推（远期任务例行改期是噪音）
  * - 按用户提醒偏好（型号/场站）过滤接收人，与 T-30 发射前提醒同一套口径
  * - TBD / 粗精度占位新时间不推（新日期不可信，推了误导）
@@ -182,7 +185,7 @@ async function sendNetChangeAlerts(ctx) {
       success: true,
       message: 'no pending net changes',
       tip:
-        '生产全量已开：真实推迟≥30min 会打 netChangePending，由 5 分钟定时器推全体服务号就绪用户。假改期模拟已关闭。',
+        '生产全量已开：真实改期满 1 分钟（提前或延期）会打 netChangePending，由 5 分钟定时器推全体服务号就绪用户。假改期模拟已关闭。',
       forceSim: false,
       ...stats
     }
@@ -229,8 +232,6 @@ async function sendNetChangeAlerts(ctx) {
     }
   }
 
-  var reasonText =
-    (ctx.getOaNetChangeReasonText && ctx.getOaNetChangeReasonText()) || '发射时间推迟'
   var nowScopeMs = Date.now()
 
   for (var li = 0; li < launches.length; li++) {
@@ -241,6 +242,12 @@ async function sendNetChangeAlerts(ctx) {
     var oldIso = launch.previousNet || ''
     var newTimeOa = ctx.toOaTimeValue(newIso)
     var oldTimeOa = ctx.toOaTimeValue(oldIso) || newTimeOa
+    var oldMsReason = oldIso ? new Date(oldIso).getTime() : 0
+    var newMsReason = newIso ? new Date(newIso).getTime() : 0
+    var changeKind = oldMsReason > 0 && newMsReason > 0 && newMsReason < oldMsReason ? 'advance' : 'delay'
+    var reasonText =
+      (ctx.getOaNetChangeReasonText && ctx.getOaNetChangeReasonText(changeKind)) ||
+      (changeKind === 'advance' ? '发射时间提前' : '发射时间推迟')
     if (!newTimeOa) {
       await clearNetChangePending(missionId, '')
       stats.oaSkipped++

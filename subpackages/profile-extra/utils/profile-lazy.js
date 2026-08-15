@@ -20,8 +20,7 @@ const { markDownloadFailed } = require('../../../utils/download-fail-cache.js')
 const { getUpcomingMissions, getCompletedMissions } = require('../../../utils/api-launch-list.js')
 const { getMyVoteResults, getVoteStats, clearMyVoteResults } = require('../../../utils/api-app-services.js')
 const { getSubscribedMissions, saveLocalSubscription } = require('../../../utils/subscribe.js')
-const { isContentLangEn, zhField } = require('../../../utils/locale.js')
-const { translateRocketName } = require('../../../utils/rocket-name-i18n.js')
+const { isContentLangEn, zhField, isUsableZhText } = require('../../../utils/locale.js')
 const { localizeMissionTitle } = require('../../../utils/mission-title-i18n.js')
 const { getOaAlertStatus, enableOaAlert, disableOaAlert } = require('./oa-alert.js')
 const {
@@ -70,10 +69,7 @@ function localizeVoteHistoryDisplay(missionName, rocketName, cachedMission, stor
       (cachedMission && cachedMission.rocketName) ||
       ''
   }
-  var rocketZh =
-    (pack && pack.rocketNameZh) ||
-    translateRocketName(rocketEn) ||
-    rocketEn
+  var rocketZh = (pack && pack.rocketNameZh) || rocketEn
 
   var nameEn =
     stored.nameEn ||
@@ -103,11 +99,11 @@ function localizeVoteHistoryDisplay(missionName, rocketName, cachedMission, stor
       (cachedMission.mission ? zhField(cachedMission.mission, 'name') : '') ||
       ''
   }
-  var nameZh =
-    localizeMissionTitle(nameZhFromData || nameEn || nameRaw, rocketEn, rocketZh) ||
-    nameZhFromData ||
-    nameEn ||
-    nameRaw
+  var nameZh = nameZhFromData
+  if (!isUsableZhText(nameZh) && nameEn) {
+    nameZh = localizeMissionTitle(nameEn) || ''
+  }
+  if (!isUsableZhText(nameZh)) nameZh = ''
 
   if (isContentLangEn()) {
     return {
@@ -120,7 +116,7 @@ function localizeVoteHistoryDisplay(missionName, rocketName, cachedMission, stor
   }
 
   return {
-    name: String(nameZh || nameRaw || '').trim(),
+    name: String(nameZh || nameEn || nameRaw || '').trim(),
     nameEn: String(nameEn || '').trim(),
     rocket: String(rocketZh || rocketEn || '').trim(),
     rocketNameEn: rocketEn,

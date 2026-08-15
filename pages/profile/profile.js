@@ -145,7 +145,7 @@ Page({
     themeMode: 'dark',
     rocketArtStyle: 'original',
     contentLang: 'zh',
-    briefingEnabled: true,
+    briefingEnabled: false,
     settingsPanelOpen: false,
     settingsPanelPadTop: 44,
     menuButtonTop: 48,
@@ -342,7 +342,7 @@ Page({
     try {
       const prefs = loadPreferences() || {}
       const contentLang = normalizeContentLang(prefs.contentLang)
-      const briefingEnabled = prefs.briefingEnabled !== false
+      const briefingEnabled = prefs.briefingEnabled === true
       if (this.data.contentLang !== contentLang || this.data.briefingEnabled !== briefingEnabled) {
         this.setData({ contentLang, briefingEnabled })
       }

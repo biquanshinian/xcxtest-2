@@ -173,113 +173,6 @@
       </el-col>
     </el-row>
 
-    <el-card class="section-card bili-card" shadow="never" style="margin-top:16px;">
-      <template #header>
-        <div class="bili-header">
-          <div class="bili-header-main">
-            <div class="bili-header-title">
-              <el-tag type="danger" effect="plain" round size="small">B站</el-tag>
-              <span class="section-title">B 站自动发文</span>
-              <el-tag v-if="biliAutoPaused" type="warning" size="small" effect="light">连败自动暂停</el-tag>
-            </div>
-            <div class="bili-header-desc">
-              开启后仅同步「开启时刻」之后的事件；每次自动/扫库入队只发当时最新一条推文，会取消积压的旧待发。关闭会取消待发队列。实际发帖需本机/VPS Agent 在线。
-            </div>
-          </div>
-          <el-switch
-            v-model="biliForm.enabled"
-            size="large"
-            inline-prompt
-            active-text="开"
-            inactive-text="关"
-            :loading="biliSaving"
-            @change="onBiliToggle"
-          />
-        </div>
-      </template>
-
-      <div class="bili-status-grid">
-        <div class="bili-stat">
-          <div class="bili-stat-label">今日已发</div>
-          <div class="bili-stat-value">{{ biliHealth.publishedToday || 0 }}</div>
-        </div>
-        <div class="bili-stat">
-          <div class="bili-stat-label">本小时</div>
-          <div class="bili-stat-value">{{ biliHealth.publishedHour || 0 }}</div>
-        </div>
-        <div class="bili-stat">
-          <div class="bili-stat-label">待发队列</div>
-          <div class="bili-stat-value">{{ biliHealth.pendingQueue || 0 }}</div>
-        </div>
-        <div class="bili-stat" :class="{ 'bili-stat--danger': (biliHealth.consecutiveFails || 0) > 0 }">
-          <div class="bili-stat-label">连续失败</div>
-          <div class="bili-stat-value">{{ biliHealth.consecutiveFails || 0 }}</div>
-          <div v-if="biliAutoPaused" class="bili-stat-sub bili-stat-sub--danger">已自动暂停</div>
-        </div>
-        <div class="bili-stat">
-          <div class="bili-stat-label">上次扫库</div>
-          <div class="bili-stat-value bili-stat-value--time">{{ formatTs(biliHealth.lastEnqueueAt) }}</div>
-          <div class="bili-stat-sub">
-            来源 {{ biliHealth.lastEnqueueFrom || '-' }} · 结果
-            <el-tag size="small" effect="plain" :type="biliHealth.lastEnqueueResult === 'enqueued' ? 'success' : 'info'">
-              {{ biliHealth.lastEnqueueResult || '-' }}
-            </el-tag>
-          </div>
-        </div>
-        <div class="bili-stat">
-          <div class="bili-stat-label">同步起点</div>
-          <div class="bili-stat-value bili-stat-value--time">{{ formatTs(biliHealth.syncFromAt) }}</div>
-          <div class="bili-stat-sub">早于此时间的「未同步」不会入队</div>
-        </div>
-      </div>
-
-      <div v-if="biliHealth.cooling || biliHealth.lastError" class="bili-alerts">
-        <el-alert
-          v-if="biliHealth.cooling"
-          type="warning"
-          :closable="false"
-          show-icon
-          :title="`冷却中至 ${formatTs(biliHealth.cooldownUntil)}`"
-        />
-        <el-alert v-if="biliHealth.lastError" type="error" :closable="false" show-icon>
-          <template #title>
-            <div class="bili-error-row">
-              <span class="bili-error-text">{{ biliHealth.lastError }}</span>
-              <el-button size="small" type="danger" plain :loading="biliResetting" @click="onBiliResetFails">
-                重置失败并清除错误
-              </el-button>
-            </div>
-          </template>
-        </el-alert>
-      </div>
-
-      <div class="bili-actions">
-        <el-button :loading="biliEnqueueing" type="primary" @click="onBiliEnqueue">立即扫库入队</el-button>
-        <el-button @click="onBiliBackdate">把起点拨回 1 小时（纳入刚发的事件）</el-button>
-        <el-button @click="loadBili">刷新状态</el-button>
-      </div>
-
-      <el-collapse class="bili-advanced">
-        <el-collapse-item title="高级风控参数" name="adv">
-          <el-form :model="biliForm" label-width="140px">
-            <div class="bili-adv-grid">
-              <el-form-item label="最小间隔(秒)"><el-input-number v-model="biliForm.minIntervalSec" :min="300" :max="86400" /></el-form-item>
-              <el-form-item label="间隔抖动(秒)"><el-input-number v-model="biliForm.intervalJitterSec" :min="0" :max="3600" /></el-form-item>
-              <el-form-item label="每小时上限"><el-input-number v-model="biliForm.maxPerHour" :min="1" :max="20" /></el-form-item>
-              <el-form-item label="每天上限"><el-input-number v-model="biliForm.maxPerDay" :min="1" :max="50" /></el-form-item>
-              <el-form-item label="纯文字每天上限"><el-input-number v-model="biliForm.textOnlyMaxPerDay" :min="0" :max="20" /></el-form-item>
-              <el-form-item label="话题上限"><el-input-number v-model="biliForm.topicMax" :min="1" :max="8" /></el-form-item>
-              <el-form-item label="连败自动暂停(次)"><el-input-number v-model="biliForm.autoPauseAfterFails" :min="1" :max="20" /></el-form-item>
-              <el-form-item label="限频冷却(分钟)"><el-input-number v-model="biliForm.onRateLimitCooldownMin" :min="5" :max="1440" /></el-form-item>
-              <el-form-item label="AI 补话题"><el-switch v-model="biliForm.aiTopicEnabled" /></el-form-item>
-              <el-form-item label="AI 自动入库"><el-switch v-model="biliForm.aiTopicAutopromote" /></el-form-item>
-            </div>
-            <el-form-item label="页脚"><el-input v-model="biliForm.footer" style="max-width:420px;" /></el-form-item>
-          </el-form>
-          <el-button type="primary" :loading="biliSaving" @click="saveBiliAdvanced">保存高级参数</el-button>
-        </el-collapse-item>
-      </el-collapse>
-    </el-card>
   </div>
 </template>
 
@@ -289,43 +182,6 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api/client'
 
 const saving = ref(false)
-const biliSaving = ref(false)
-const biliEnqueueing = ref(false)
-const biliResetting = ref(false)
-const biliHealth = reactive({
-  publishedToday: 0,
-  publishedHour: 0,
-  pendingQueue: 0,
-  consecutiveFails: 0,
-  cooling: false,
-  cooldownUntil: 0,
-  lastError: '',
-  syncFromAt: 0,
-  lastEnqueueAt: 0,
-  lastEnqueueFrom: '',
-  lastEnqueueResult: ''
-})
-const biliForm = reactive({
-  enabled: false,
-  minIntervalSec: 1800,
-  intervalJitterSec: 600,
-  maxPerHour: 2,
-  maxPerDay: 8,
-  textOnlyMaxPerDay: 3,
-  topicMax: 5,
-  autoPauseAfterFails: 3,
-  onRateLimitCooldownMin: 120,
-  aiTopicEnabled: true,
-  aiTopicAutopromote: true,
-  footer: '—— 火星探索日志'
-})
-
-/** 连败达到阈值且总开关已被关掉 → 大概率是自动暂停 */
-const biliAutoPaused = computed(
-  () =>
-    !biliForm.enabled &&
-    Number(biliHealth.consecutiveFails || 0) >= Number(biliForm.autoPauseAfterFails || 3)
-)
 
 const form = reactive({
   enableCarousel: true,
@@ -452,135 +308,12 @@ const handleAuditChange = async () => {
   return false
 }
 
-const formatTs = (t) => (t ? new Date(t).toLocaleString() : '-')
 
-const loadBili = async () => {
-  try {
-    const data = await api.getBilibiliAutoPublish()
-    if (!data) return
-    Object.assign(biliForm, {
-      enabled: !!data.enabled,
-      minIntervalSec: Number(data.minIntervalSec || 1800),
-      intervalJitterSec: Number(data.intervalJitterSec || 600),
-      maxPerHour: Number(data.maxPerHour || 2),
-      maxPerDay: Number(data.maxPerDay || 8),
-      textOnlyMaxPerDay: Number(data.textOnlyMaxPerDay || 3),
-      topicMax: Number(data.topicMax || 5),
-      autoPauseAfterFails: Number(data.autoPauseAfterFails || 3),
-      onRateLimitCooldownMin: Number(data.onRateLimitCooldownMin || 120),
-      aiTopicEnabled: data.aiTopicEnabled !== false,
-      aiTopicAutopromote: data.aiTopicAutopromote !== false,
-      footer: data.footer || '—— 火星探索日志'
-    })
-    const h = data.health || {}
-    Object.assign(biliHealth, {
-      publishedToday: h.publishedToday || 0,
-      publishedHour: h.publishedHour || 0,
-      pendingQueue: h.pendingQueue || 0,
-      consecutiveFails: h.consecutiveFails || 0,
-      cooling: !!h.cooling,
-      cooldownUntil: h.cooldownUntil || 0,
-      lastError: h.lastError || '',
-      syncFromAt: h.syncFromAt || 0,
-      lastEnqueueAt: h.lastEnqueueAt || 0,
-      lastEnqueueFrom: h.lastEnqueueFrom || '',
-      lastEnqueueResult: h.lastEnqueueResult || ''
-    })
-  } catch (e) {
-    ElMessage.error(e.message || '加载 B 站配置失败')
-  }
-}
 
-const onBiliToggle = async (val) => {
-  biliSaving.value = true
-  try {
-    if (val) {
-      await ElMessageBox.confirm(
-        '开启后将从「现在」起同步新事件到 B 站队列（不回灌历史）。确认开启？',
-        '开启 B 站自动发文',
-        { type: 'warning' }
-      )
-    }
-    await api.updateBilibiliAutoPublish({ enabled: !!val })
-    ElMessage.success(val ? '已开启' : '已关闭')
-    await loadBili()
-  } catch (e) {
-    biliForm.enabled = !val
-    if (e !== 'cancel' && e?.action !== 'cancel') {
-      ElMessage.error(e.message || '切换失败')
-    }
-  } finally {
-    biliSaving.value = false
-  }
-}
 
-const saveBiliAdvanced = async () => {
-  biliSaving.value = true
-  try {
-    await api.updateBilibiliAutoPublish({
-      minIntervalSec: biliForm.minIntervalSec,
-      intervalJitterSec: biliForm.intervalJitterSec,
-      maxPerHour: biliForm.maxPerHour,
-      maxPerDay: biliForm.maxPerDay,
-      textOnlyMaxPerDay: biliForm.textOnlyMaxPerDay,
-      topicMax: biliForm.topicMax,
-      autoPauseAfterFails: biliForm.autoPauseAfterFails,
-      onRateLimitCooldownMin: biliForm.onRateLimitCooldownMin,
-      aiTopicEnabled: biliForm.aiTopicEnabled,
-      aiTopicAutopromote: biliForm.aiTopicAutopromote,
-      footer: biliForm.footer
-    })
-    ElMessage.success('高级参数已保存')
-    await loadBili()
-  } catch (e) {
-    ElMessage.error(e.message || '保存失败')
-  } finally {
-    biliSaving.value = false
-  }
-}
 
-const onBiliResetFails = async () => {
-  biliResetting.value = true
-  try {
-    await api.updateBilibiliAutoPublish({ consecutiveFails: 0, lastError: '', cooldownUntil: 0 })
-    ElMessage.success('已重置失败计数并清除错误')
-    await loadBili()
-  } catch (e) {
-    ElMessage.error(e.message || '重置失败')
-  } finally {
-    biliResetting.value = false
-  }
-}
 
-const onBiliBackdate = async () => {
-  try {
-    await ElMessageBox.confirm('将同步起点拨回 1 小时，使最近发布但未同步的事件可以入队。是否继续？', '调整同步起点', { type: 'info' })
-    const ts = Date.now() - 60 * 60 * 1000
-    await api.updateBilibiliAutoPublish({ syncFromAt: ts })
-    ElMessage.success('已拨回 1 小时，请再点「立即扫库入队」')
-    await loadBili()
-  } catch (e) {
-    if (e !== 'cancel' && e?.action !== 'cancel') ElMessage.error(e.message || '操作失败')
-  }
-}
 
-const onBiliEnqueue = async () => {
-  biliEnqueueing.value = true
-  try {
-    const res = await api.enqueueBilibiliPublish()
-    const n = Number(res?.enqueued || 0)
-    const reason = res?.reason || res?.skipped
-    if (n > 0) ElMessage.success(`已入队 ${n} 条`)
-    else if (reason) ElMessage.warning(`未入队：${reason}（候选 ${res?.candidates ?? '-'}）`)
-    else ElMessage.info(`未入队新任务（候选 ${res?.candidates ?? 0}，跳过相似 ${res?.skippedSimilar ?? 0}）`)
-    console.log('[bili enqueue]', res)
-    await loadBili()
-  } catch (e) {
-    ElMessage.error(e.message || '触发失败')
-  } finally {
-    biliEnqueueing.value = false
-  }
-}
 
 const load = async () => {
   try {
@@ -635,7 +368,6 @@ const load = async () => {
   } catch (e) {
     ElMessage.error(e.message || '加载配置失败')
   }
-  await loadBili()
 }
 
 const onSave = async () => {
@@ -806,215 +538,41 @@ onMounted(load)
 /* ============== B 站自动发文卡片（深色玻璃主题适配） ==============
  * 全站是深空玻璃底（styles/theme.css），Element Plus 变量仍是亮色默认值，
  * 这里一律用 --cx-* 暗色 token / 半透明色，避免亮色块糊在黑底上看不清。 */
-.bili-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
-}
 
-.bili-header-main {
-  flex: 1;
-  min-width: 0;
-}
 
-.bili-header-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
 
-.bili-header-title :deep(.el-tag--danger) {
-  background: rgba(239, 68, 68, 0.14) !important;
-  border-color: rgba(248, 113, 113, 0.45) !important;
-  color: #fca5a5 !important;
-}
 
-.bili-header-title :deep(.el-tag--warning) {
-  background: rgba(245, 158, 11, 0.14) !important;
-  border-color: rgba(251, 191, 36, 0.45) !important;
-  color: #fbbf24 !important;
-}
 
-.bili-header-desc {
-  margin-top: 6px;
-  color: var(--cx-text-3, rgba(255, 255, 255, 0.52));
-  font-size: 12px;
-  line-height: 1.6;
-  font-weight: 400;
-}
 
-.bili-status-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
-}
 
-.bili-stat {
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--cx-glass-stroke, rgba(255, 255, 255, 0.08));
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
 
-.bili-stat--danger {
-  background: rgba(239, 68, 68, 0.12);
-  border-color: rgba(248, 113, 113, 0.38);
-}
 
-.bili-stat--danger .bili-stat-value {
-  color: #f87171;
-}
 
-.bili-stat-label {
-  font-size: 12px;
-  color: var(--cx-text-3, rgba(255, 255, 255, 0.52));
-}
 
-.bili-stat-value {
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 1.3;
-  color: var(--cx-text-1, rgba(255, 255, 255, 0.92));
-}
 
-.bili-stat-value--time {
-  font-size: 14px;
-}
 
-.bili-stat-sub {
-  font-size: 12px;
-  color: var(--cx-text-3, rgba(255, 255, 255, 0.52));
-  line-height: 1.5;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
-}
 
-.bili-stat-sub--danger {
-  color: #f87171;
-  font-weight: 500;
-}
 
 /* 结果 tag（plain 效果在亮色变量下是白底）改为暗色胶囊 */
-.bili-stat-sub :deep(.el-tag) {
-  background: rgba(255, 255, 255, 0.06) !important;
-  border-color: rgba(255, 255, 255, 0.16) !important;
-  color: var(--cx-text-2, rgba(255, 255, 255, 0.72)) !important;
-}
 
-.bili-stat-sub :deep(.el-tag--success) {
-  background: rgba(16, 185, 129, 0.14) !important;
-  border-color: rgba(52, 211, 153, 0.4) !important;
-  color: #34d399 !important;
-}
 
-.bili-alerts {
-  margin-top: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
 
 /* el-alert 默认是亮色浅底：换成深色玻璃 + 高对比文字 */
-.bili-alerts :deep(.el-alert) {
-  border-radius: 10px;
-  padding: 10px 14px;
-}
 
-.bili-alerts :deep(.el-alert--error) {
-  background: rgba(239, 68, 68, 0.12) !important;
-  border: 1px solid rgba(248, 113, 113, 0.38);
-}
 
-.bili-alerts :deep(.el-alert--error .el-alert__title),
-.bili-alerts :deep(.el-alert--error .el-alert__icon) {
-  color: #fca5a5 !important;
-}
 
-.bili-alerts :deep(.el-alert--warning) {
-  background: rgba(245, 158, 11, 0.12) !important;
-  border: 1px solid rgba(251, 191, 36, 0.38);
-}
 
-.bili-alerts :deep(.el-alert--warning .el-alert__title),
-.bili-alerts :deep(.el-alert--warning .el-alert__icon) {
-  color: #fbbf24 !important;
-}
 
-.bili-error-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-}
 
-.bili-error-text {
-  flex: 1;
-  min-width: 0;
-  word-break: break-all;
-  line-height: 1.5;
-}
 
 /* 危险 plain 按钮在亮色变量下是白底红字：改为深色描边款 */
-.bili-error-row :deep(.el-button--danger.is-plain) {
-  background: rgba(239, 68, 68, 0.16) !important;
-  border-color: rgba(248, 113, 113, 0.55) !important;
-  color: #fecaca !important;
-  border-radius: 8px;
-  flex-shrink: 0;
-}
 
-.bili-error-row :deep(.el-button--danger.is-plain:hover) {
-  background: rgba(239, 68, 68, 0.3) !important;
-  border-color: #f87171 !important;
-  color: #fff !important;
-}
 
-.bili-actions {
-  margin-top: 14px;
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
 
 /* 折叠面板：去掉亮色底/分隔线，融入玻璃卡片 */
-.bili-advanced {
-  margin-top: 14px;
-  border-top: 1px solid var(--cx-glass-stroke, rgba(255, 255, 255, 0.08));
-  border-bottom: none;
-}
 
-.bili-advanced :deep(.el-collapse-item__header) {
-  background: transparent !important;
-  color: var(--cx-text-2, rgba(255, 255, 255, 0.72)) !important;
-  border-bottom-color: var(--cx-glass-stroke, rgba(255, 255, 255, 0.08)) !important;
-  font-size: 13px;
-}
 
-.bili-advanced :deep(.el-collapse-item__wrap) {
-  background: transparent !important;
-  border-bottom-color: var(--cx-glass-stroke, rgba(255, 255, 255, 0.08)) !important;
-}
 
-.bili-advanced :deep(.el-collapse-item__content) {
-  color: var(--cx-text-1, rgba(255, 255, 255, 0.92));
-  padding-top: 16px;
-}
 
-.bili-advanced :deep(.el-form-item__label) {
-  color: var(--cx-text-2, rgba(255, 255, 255, 0.72));
-}
 
-.bili-adv-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  column-gap: 24px;
-}
 </style>

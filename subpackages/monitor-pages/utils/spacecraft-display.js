@@ -7,13 +7,15 @@
  */
 
 var { mfrDisplayName, mfrLogoUrl } = require('./booster-display.js')
-var { translateSpacecraftName } = require('../../../utils/space-terms-i18n.js')
+var { pickLocalized, zhField } = require('../../../utils/locale.js')
+var { resolveSpacecraftDisplayZh } = require('../../../utils/spacecraft-name-i18n.js')
+var { resolveAgencyDisplayZh } = require('../../../utils/launch-card-i18n.js')
 var { getCachedMediaImage } = require('../../../utils/icon-cache.js')
 var { optimizeImageUrl } = require('../../../utils/cos-url.js')
 var { proxiedImageUrl } = require('../../../utils/ll2-image.js')
 var gallerySearch = require('./gallery-search.js')
 
-var CACHE_KEY = '_spacecraft_list_v1'
+var CACHE_KEY = '_spacecraft_list_v2'
 var CACHE_TTL = 24 * 60 * 60 * 1000
 var TAB_PREVIEW_COUNT = 2
 
@@ -34,25 +36,8 @@ function remoteThumbImage(url) {
   return optimizeImageUrl(url, 'thumb')
 }
 
-/** LL2 飞船类型 → 中文（未命中回退英文原文，数据驱动兜底） */
-var TYPE_ZH_MAP = {
-  'Capsule': '太空舱',
-  'Cargo': '货运飞船',
-  'Cargo Resupply': '货运补给',
-  'Spaceplane': '航天飞机',
-  'Space Station': '空间站',
-  'Station': '空间站',
-  'Tug': '太空拖船',
-  'Lander': '着陆器',
-  'Reuseable Upper Stage': '可复用上级',
-  'Reusable Upper Stage': '可复用上级',
-  'Mass Simulator': '质量模拟器',
-  'Unknown': '未知'
-}
-
-function typeDisplayName(name) {
-  if (!name) return ''
-  return TYPE_ZH_MAP[name] || name
+function typeDisplayName(name, nameZh) {
+  return pickLocalized(nameZh || '', name || '')
 }
 
 // ── 本地缓存（内存 + storage，TTL 24h） ──
@@ -127,25 +112,33 @@ function buildSpacecraftCards(list, options) {
       if (u && chain.indexOf(u) < 0) chain.push(u)
     })
     var nameEn = s.name || ''
+    var nameZh = resolveSpacecraftDisplayZh(nameEn, zhField(s, 'name'))
+    var typeZh = s.typeNameZh || ''
+    var agencyZh = s.agencyNameZh || ''
+    var name = nameZh || pickLocalized(nameZh, nameEn) || nameEn
+    var typeLabel = typeDisplayName(s.typeName, typeZh)
+    var agencyLabel = mfrDisplayName(s.agencyName || '', s.agencyAbbrev || '', agencyZh)
+      || resolveAgencyDisplayZh(s.agencyName || '', s.agencyAbbrev || '', agencyZh)
+      || s.agencyName || ''
     return {
       id: s.id,
       nameEn: nameEn,
-      name: translateSpacecraftName(nameEn) || nameEn,
+      name: name,
       typeName: s.typeName || '',
-      typeLabel: typeDisplayName(s.typeName),
+      typeLabel: typeLabel,
       agencyName: s.agencyName || '',
-      agencyLabel: mfrDisplayName(s.agencyName || '', s.agencyAbbrev || ''),
+      agencyLabel: agencyLabel,
       agencyAbbrev: s.agencyAbbrev || '',
       agencyLogoUrl: mfrLogoUrl(s.agencyName || '', s.agencyAbbrev || ''),
       inUse: !!s.inUse,
       statusText: s.inUse ? '现役' : '退役',
       searchText: gallerySearch.joinSearchText([
         nameEn,
-        translateSpacecraftName(nameEn) || nameEn,
+        nameZh,
         s.typeName || '',
-        typeDisplayName(s.typeName),
+        typeLabel,
         s.agencyName || '',
-        mfrDisplayName(s.agencyName || '', s.agencyAbbrev || ''),
+        agencyLabel,
         s.agencyAbbrev || '',
         s.inUse ? '现役|inuse' : '退役|retired'
       ]),
@@ -173,13 +166,17 @@ function buildSpacecraftFilterChips(cards, options) {
   var maxTypeChips = (options && options.maxTypeChips) || 6
   var chips = [{ id: 'all', label: '全部' }, { id: 'inuse', label: '现役' }]
   var typeCount = {}
+  var typeLabel = {}
   for (var i = 0; i < (cards || []).length; i++) {
     var t = cards[i].typeName
-    if (t) typeCount[t] = (typeCount[t] || 0) + 1
+    if (t) {
+      typeCount[t] = (typeCount[t] || 0) + 1
+      if (cards[i].typeLabel) typeLabel[t] = cards[i].typeLabel
+    }
   }
   var names = Object.keys(typeCount).sort(function (a, b) { return typeCount[b] - typeCount[a] })
   for (var j = 0; j < names.length && j < maxTypeChips; j++) {
-    chips.push({ id: 'type:' + names[j], label: typeDisplayName(names[j]) })
+    chips.push({ id: 'type:' + names[j], label: typeLabel[names[j]] || names[j] })
   }
   return chips
 }

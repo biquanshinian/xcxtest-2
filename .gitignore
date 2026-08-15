@@ -29,6 +29,13 @@ workers/replay-fetcher/tmp/
 .vscode/
 .cursor/hooks/.admin-web-dirty
 .cursor/hooks/admin-web-autobuild.log
+.cursor/hooks/.oa-update-log-dirty
+.cursor/hooks/.oa-update-log-last.json
+.cursor/oa-admin.local.env
 
 # 微信开发者工具
 project.private.config.json
+
+# Windows reserved device name artifact
+workers/replay-fetcher/NUL.webm
+**/NUL.webm

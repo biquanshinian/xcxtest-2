@@ -23,7 +23,7 @@ const warn = (...a) => { problems++; console.log('[!]', ...a) }
 const changed = execSync('git status --porcelain', { encoding: 'utf8' })
   .split('\n').map((l) => l.slice(3).trim().replace(/\\/g, '/')).filter(Boolean)
 const jsChanged = changed.filter((f) => f.endsWith('.js') && !f.startsWith('scripts/') && !f.startsWith('admin-web') && !f.startsWith('cloudfunctions') && fs.existsSync(f))
-const jsKey = ['pages/monitor/monitor.js', 'subpackages/monitor-pages/utils/monitor-weather.js', 'subpackages/monitor-pages/agency-detail.js', 'custom-tab-bar/index.js', 'utils/layout.js', 'utils/agency-favorites.js', 'pages/search/search.js']
+const jsKey = ['pages/monitor/monitor.js', 'subpackages/monitor-pages/utils/monitor-weather.js', 'subpackages/monitor-pages/agency-detail.js', 'custom-tab-bar/index.js', 'utils/layout.js', 'utils/favorites.js', 'pages/search/search.js']
 const jsAll = [...new Set([...jsChanged, ...jsKey])].filter((f) => fs.existsSync(f))
 for (const f of jsAll) {
   try { execSync(`node --check "${f}"`, { stdio: 'pipe' }) } catch (e) { warn('JS 语法错误:', f, String(e.stderr || e.message).split('\n')[0]) }

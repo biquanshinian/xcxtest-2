@@ -98,7 +98,7 @@ check('pickVideoEntries：duration>120 判长视频；裸 mp4 字符串可收；
 
 check('annotateVideoPostersInMarkdown：补「▶」说明行，阅读原文按观看链匹配，幂等', () => {
   const poster = `${COS}/tweets/123_v0.jpg`
-  const videos = [{ posterUrl: poster, watchUrl: 'https://x.com/s/123', isLong: true }]
+  const videos = [{ posterUrl: poster, watchUrl: 'https://x.com/s/123', pageUrl: 'https://x.com/s/123', isLong: true }]
   const md = `开头\n\n![配图1](${poster})\n\n结尾`
   const once = helpers.annotateVideoPostersInMarkdown(md, videos, { readMoreUrl: 'https://x.com/s/123' })
   assert.ok(once.includes(`![配图1](${poster})\n\n> ▶ 长视频封面截图，完整视频点文末「阅读原文」`), once)
@@ -106,6 +106,41 @@ check('annotateVideoPostersInMarkdown：补「▶」说明行，阅读原文按�
   assert.strictEqual(twice, once, '重复标注应幂等')
   const noLink = helpers.annotateVideoPostersInMarkdown(md, videos, { readMoreUrl: 'https://other' })
   assert.ok(noLink.includes('> ▶ 长视频封面截图\n'), '观看链不一致时不提阅读原文')
+  const cosMp4 = helpers.annotateVideoPostersInMarkdown(md, videos, {
+    readMoreUrl: `${COS}/tweets/123.mp4`
+  })
+  assert.ok(cosMp4.includes('> ▶ 长视频封面截图\n'), '裸 mp4 不得提示阅读原文')
+  assert.ok(!cosMp4.includes('阅读原文'), '裸 mp4 不得提示阅读原文')
+  // watchUrl 是 COS、pageUrl 是推文页：按 pageUrl 仍可提示阅读原文
+  const cosWatch = [
+    { posterUrl: poster, watchUrl: `${COS}/tweets/123.mp4`, pageUrl: 'https://x.com/s/123', isLong: true }
+  ]
+  const byPage = helpers.annotateVideoPostersInMarkdown(md, cosWatch, {
+    readMoreUrl: 'https://x.com/s/123'
+  })
+  assert.ok(byPage.includes('完整视频点文末「阅读原文」'), byPage)
+})
+
+check('resolveDraftSourceUrl / sanitizeContentSourceUrl：禁裸视频直链', () => {
+  const cosMp4 = `${COS}/tweets/a.mp4`
+  const page = 'https://x.com/SpaceX/status/1'
+  assert.strictEqual(helpers.sanitizeContentSourceUrl(cosMp4), '')
+  assert.strictEqual(helpers.sanitizeContentSourceUrl(page), page)
+  assert.strictEqual(helpers.isHttpPageUrl(cosMp4), false)
+  assert.strictEqual(
+    helpers.resolveDraftSourceUrl({ sourceUrl: cosMp4 }, [{ watchUrl: cosMp4, pageUrl: page }]),
+    page,
+    'sourceUrl 是 mp4 时回落 pageUrl'
+  )
+  assert.strictEqual(
+    helpers.resolveDraftSourceUrl({}, [{ watchUrl: cosMp4 }]),
+    '',
+    '仅有 COS mp4 时不挂阅读原文'
+  )
+  assert.strictEqual(
+    helpers.resolveDraftSourceUrl({ sourceUrl: page }, [{ watchUrl: cosMp4 }]),
+    page
+  )
 })
 
 check('stripMarkdownImages：丢弃视频封面时连带清掉说明行', () => {

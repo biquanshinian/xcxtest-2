@@ -26,6 +26,7 @@ const {
 
 // ══ 事件动态 / LL2 折叠区依赖（原 progress.js 首屏后延迟加载逻辑） ══
 const { fetchLl2LaunchUpdates, fetchLl2LaunchTimeline } = require('../../../utils/api-app-services.js')
+const { pickDisplayComment } = require('./ll2-updates-i18n.js')
 const { normalizeLl2TimelineList } = require('./ll2-launch-timeline.js')
 const { formatCloudError } = require('../../../utils/launch-stats-cloud.js')
 const { getCachedMediaImage } = require('../../../utils/icon-cache.js')
@@ -193,6 +194,7 @@ const methods = {
       const res = await fetchLl2LaunchUpdates(manualId, 15, { autoStarship })
       const list = (res.list || []).map((item) => ({
         ...item,
+        commentZh: pickDisplayComment(item.comment, item.commentZh),
         timeLabel: this.formatEventTime(item.createdOn)
       }))
       this.setData({

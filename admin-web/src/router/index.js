@@ -65,7 +65,6 @@ const routes = [
       { path: 'live-management', component: LiveManagementPage, meta: { perm: 'live_mgmt' } },
       { path: 'cloud-functions', component: CloudFunctionsPage, meta: { perm: 'cloud_functions' } },
       { path: 'global-config', component: GlobalConfigPage, meta: { perm: 'global_config' } },
-      { path: 'bilibili-topics', component: () => import('../views/BilibiliTopicsPage.vue'), meta: { perm: 'global_config' } },
       { path: 'oa-content/pipeline', component: () => import('../views/OaPipelinePage.vue'), meta: { perm: 'oa_content' } },
       { path: 'oa-content/drafts', component: () => import('../views/OaDraftsPage.vue'), meta: { perm: 'oa_content' } },
       { path: 'oa-content/prompts', component: () => import('../views/OaPromptsPage.vue'), meta: { perm: 'oa_content' } },

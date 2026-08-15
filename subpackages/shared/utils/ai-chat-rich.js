@@ -21,14 +21,18 @@ const { formatDate, resolveMissionRocketImage } = require('../../../utils/util.j
 const {
   applyContentLangToMission,
   formatMissionListTimeOrUnknown,
-  rocketNameForImage
+  rocketNameForImage,
+  resolveAgencyDisplayZh
 } = require('../../../utils/launch-card-i18n.js')
-const { launchCardUiText, isContentLangEn } = require('../../../utils/locale.js')
+const { launchCardUiText, isContentLangEn, pickLocalized, zhField } = require('../../../utils/locale.js')
+const { translateRocketName } = require('../../../utils/rocket-name-i18n.js')
+const { translateLocation } = require('../../../utils/space-terms-display.js')
+const { resolveSpacecraftDisplayZh } = require('../../../utils/spacecraft-name-i18n.js')
+const { localizeMissionTitle } = require('../../../utils/mission-title-i18n.js')
 const {
   aiChatUiText,
   localizeCountryName,
-  localizeTimezoneName,
-  localizeAgencyType
+  localizeTimezoneName
 } = require('./ai-chat-i18n.js')
 const { loadCloudMediaMap } = require('../../../utils/image-config.js')
 const { ROUTES } = require('../../../utils/routes.js')
@@ -41,13 +45,6 @@ const {
 const { getAgencies, getAgencyDetail } = require('../../../utils/api-monitor-data.js')
 const { overrideAgencyLogoUrl } = require('../../../utils/agency-logo-overrides.js')
 const { resolveAgencyLogoBgTone } = require('../../../utils/agency-logo-bg.js')
-const {
-  translateAgencyName,
-  translateLocation,
-  translateSpacecraftName
-} = require('../../../utils/space-terms-i18n.js')
-const { translateRocketName } = require('../../../utils/rocket-name-i18n.js')
-const { localizeMissionTitle } = require('../../../utils/mission-title-i18n.js')
 const {
   isStarshipMissionLike,
   isUsableMissionForCard,
@@ -149,19 +146,6 @@ const {
   enrichLaunchContextWithSetReminder,
   stripReminderAskNoise
 } = require('./ai-chat-rich-core.js')
-
-const AGENCY_COUNTRY_ZH = {
-  China: '中国',
-  'United States of America': '美国',
-  Russia: '俄罗斯',
-  Japan: '日本',
-  India: '印度',
-  France: '法国',
-  Germany: '德国',
-  'United Kingdom': '英国',
-  'South Korea': '韩国',
-  'New Zealand': '新西兰'
-}
 
 const DEFAULT_ROCKET_IMAGE = '火箭配置图/default.jpg'
 
@@ -1186,13 +1170,14 @@ function toAgencyChatCard(agency) {
   if (!agency || agency.id == null) return null
   const name = agency.name || aiChatUiText('agencyFallback')
   const abbrev = agency.abbrev || ''
-  const displayName = translateAgencyName(name, abbrev) || abbrev || name
+  const displayName = resolveAgencyDisplayZh(name, abbrev, zhField(agency, 'name')) || abbrev || name
   const typeName = agency.type && agency.type.name ? agency.type.name : ''
-  const typeZh = localizeAgencyType(typeName) || typeName || ''
+  const typeZh = pickLocalized(agency.type && zhField(agency.type, 'name'), typeName)
   const countryName = agency.country && agency.country[0] ? agency.country[0].name : ''
-  const countryLabel = isContentLangEn()
-    ? (countryName || '')
-    : (AGENCY_COUNTRY_ZH[countryName] || localizeCountryName(countryName) || countryName || '')
+  const countryLabel = pickLocalized(
+    agency.country && agency.country[0] && zhField(agency.country[0], 'name'),
+    countryName
+  )
   const foundingYear = agency.founding_year || null
   const total = agency.total_launch_count != null ? Number(agency.total_launch_count) : null
   const success = agency.successful_launches != null ? Number(agency.successful_launches) : null
@@ -1556,10 +1541,8 @@ async function resolveRocketModelCard(options) {
   const total = Number(cfg.total_launch_count) || 0
   const success = Number(cfg.successful_launches) || 0
   const rawTitle = cfg.full_name || cfg.name || ''
-  const title = (!isContentLangEn()
-    ? (translateRocketName(rawTitle) || rawTitle)
-    : rawTitle) || aiChatUiText('launchVehicle')
-  const maker = translateAgencyName(cfg.manufacturerName) || cfg.manufacturerName || ''
+  const title = pickLocalized(cfg.full_nameZh || cfg.nameZh, '') || translateRocketName(rawTitle) || rawTitle || aiChatUiText('launchVehicle')
+  const maker = resolveAgencyDisplayZh(cfg.manufacturerName, cfg.manufacturerAbbrev, cfg.manufacturerNameZh) || ''
   const subtitleParts = []
   if (maker) subtitleParts.push(maker)
   if (cfg.reusable === true) subtitleParts.push(aiChatUiText('reusable'))
@@ -1604,10 +1587,8 @@ async function resolveLaunchSiteCard(options) {
   const launches = Number(site.totalLaunchCount) || 0
   const landings = Number(site.totalLandingCount) || 0
   const rawName = site.name || ''
-  const title = (!isContentLangEn()
-    ? (translateLocation(rawName) || rawName)
-    : rawName) || aiChatUiText('launchSite')
-  const country = localizeCountryName(site.countryName) || site.countryName || ''
+  const title = pickLocalized(site.nameZh, '') || translateLocation(rawName) || rawName || aiChatUiText('launchSite')
+  const country = pickLocalized(site.countryNameZh, '') || localizeCountryName(site.countryName) || site.countryName || ''
   const card = buildSpecCard({
     specKind: 'launch_site',
     targetId: site.id,
@@ -1671,9 +1652,7 @@ async function resolveSpacecraftCard(options) {
 
   const total = Number(sc.totalLaunchCount) || 0
   const rawScName = sc.name || ''
-  const scTitle = (!isContentLangEn()
-    ? (translateSpacecraftName(rawScName) || rawScName)
-    : rawScName) || aiChatUiText('spacecraft')
+  const scTitle = resolveSpacecraftDisplayZh(rawScName, sc.nameZh) || rawScName || aiChatUiText('spacecraft')
   const card = buildSpecCard({
     specKind: 'spacecraft',
     targetId: sc.id,
@@ -1681,7 +1660,7 @@ async function resolveSpacecraftCard(options) {
     tag: aiChatUiText('tagSpacecraft'),
     title: scTitle,
     subtitle: [
-      translateAgencyName(sc.agencyName) || sc.agencyName,
+      resolveAgencyDisplayZh(sc.agencyName, sc.agencyAbbrev, sc.agencyNameZh),
       sc.inUse ? aiChatUiText('inService') : aiChatUiText('retired')
     ].filter(Boolean).join(' · '),
     image: sc.imageUrl || '',
@@ -1724,13 +1703,10 @@ async function resolveBoosterCard(options) {
       const attempts = Number(item.attemptedLandings) || 0
       const recent = Array.isArray(item.recentFlights) ? item.recentFlights[0] : null
       const familyRaw = item.rocketFamily || ''
-      const family = (!isContentLangEn()
-        ? (translateRocketName(familyRaw) || familyRaw)
-        : familyRaw)
-      let lastMission = recent && recent.mission ? String(recent.mission) : ''
-      if (lastMission && !isContentLangEn()) {
-        lastMission = localizeMissionTitle(lastMission, familyRaw, family) || lastMission
-      }
+      const family = pickLocalized(item.rocketFamilyZh, '') || translateRocketName(familyRaw) || familyRaw
+      const lastMission = recent && recent.mission
+        ? (pickLocalized(recent.missionZh, '') || localizeMissionTitle(String(recent.mission)) || String(recent.mission))
+        : ''
       const card = buildSpecCard({
         specKind: 'booster',
         targetId: item.serial,

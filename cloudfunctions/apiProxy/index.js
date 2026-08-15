@@ -14,6 +14,34 @@ const http = require('http')
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
+const {
+  translateAgencyName,
+  translateSpacecraftName,
+  translateLocation,
+  translateEventType,
+  translateCountryName
+} = require('./entity-i18n.js')
+const { isAgencyNameResolved } = require('./agency-name-i18n.js')
+
+const SPACECRAFT_TYPE_ZH = {
+  Capsule: '太空舱',
+  Cargo: '货运飞船',
+  'Cargo Resupply': '货运补给',
+  Spaceplane: '航天飞机',
+  'Space Station': '空间站',
+  Station: '空间站',
+  Tug: '太空拖船',
+  Lander: '着陆器',
+  'Reuseable Upper Stage': '可复用上级',
+  'Reusable Upper Stage': '可复用上级',
+  'Mass Simulator': '质量模拟器',
+  Unknown: '未知'
+}
+
+function agencyNameZh(name, abbrev) {
+  if (!isAgencyNameResolved(name, abbrev)) return ''
+  return translateAgencyName(name, abbrev) || ''
+}
 
 // 复用连接，降低重复 TLS/TCP 握手开销
 const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 16 })
@@ -257,7 +285,7 @@ async function handleLl2EventDetail(event) {
   const eventId = event && event.eventId ? String(event.eventId).trim() : ''
   if (!eventId) return { success: false, error: 'missing eventId' }
 
-  const cacheKey = `ll2_event_detail_${eventId}`
+  const cacheKey = `ll2_event_detail_v2_${eventId}`
   const cached = await getCache('space_devs_cache', cacheKey, LL2_EVENT_CACHE_TTL)
   if (cached) return { success: true, data: cached, cached: true }
 
@@ -271,9 +299,12 @@ async function handleLl2EventDetail(event) {
       name: resp.name || '',
       slug: resp.slug || '',
       type: resp.type && resp.type.name ? resp.type.name : '',
+      typeZh: (resp.type && resp.type.nameZh) || translateEventType((resp.type && resp.type.name) || '') || '',
       date: resp.date || '',
       dateMs: resp.date ? Date.parse(resp.date) : 0,
       location: resp.location || '',
+      locationZh: resp.locationZh || translateLocation(resp.location || '') || '',
+      nameZh: resp.nameZh || '',
       description: resp.description || '',
       datePrecision: resp.date_precision && resp.date_precision.name ? resp.date_precision.name : '',
       imageUrl: resp.image && (resp.image.image_url || resp.image.thumbnail_url) || '',
@@ -290,6 +321,7 @@ async function handleLl2EventDetail(event) {
       agencies: (resp.agencies || []).map(a => ({
         id: a.id,
         name: a.name || '',
+        nameZh: a.nameZh || agencyNameZh(a.name, a.abbrev),
         abbrev: a.abbrev || '',
         type: a.type && a.type.name ? a.type.name : ''
       })),
@@ -342,7 +374,7 @@ async function handleLl2SpacecraftDetail(event) {
   if (!scId) return { success: false, error: 'missing spacecraftId' }
 
   // v2: 缩略图优先 + fullImageUrl 字段；升版本使旧缓存失效
-  const cacheKey = `ll2_spacecraft_detail_v2_${scId}`
+  const cacheKey = `ll2_spacecraft_detail_v3_${scId}`
   const cached = await getCache('space_devs_cache', cacheKey, LL2_SPACECRAFT_CACHE_TTL)
   if (cached) return { success: true, data: cached, cached: true }
 
@@ -354,14 +386,19 @@ async function handleLl2SpacecraftDetail(event) {
     const agency = resp.agency || {}
     const family = Array.isArray(resp.family) && resp.family[0] ? resp.family[0] : null
     const mirrorMap = await getMirrorMap()
+    const typeName = resp.type && resp.type.name ? resp.type.name : ''
     const result = {
       id: resp.id,
       name: resp.name || '',
-      typeName: resp.type && resp.type.name ? resp.type.name : '',
+      nameZh: resp.nameZh || translateSpacecraftName(resp.name || '') || '',
+      typeName,
+      typeNameZh: (resp.type && resp.type.nameZh) || SPACECRAFT_TYPE_ZH[typeName] || '',
       agencyId: agency.id || null,
       agencyName: agency.name || '',
+      agencyNameZh: agency.nameZh || agencyNameZh(agency.name, agency.abbrev),
       agencyAbbrev: agency.abbrev || '',
       familyName: family && family.name ? family.name : '',
+      familyNameZh: (family && family.nameZh) || translateSpacecraftName((family && family.name) || '') || '',
       inUse: !!resp.in_use,
       // 缩略图优先：LL2 原图托管在海外对象存储，国内直连大图经常加载失败；已镜像的替换为 COS
       imageUrl: applyMirror(resp.image && (resp.image.thumbnail_url || resp.image.image_url) || '', mirrorMap),
@@ -400,7 +437,7 @@ async function handleLl2SpacecraftDetail(event) {
 //  跟随 next 分页拉全量：LL2 新增飞船构型自动进列表，前端零改动
 // ══════════════════════════════════════════════
 async function handleLl2SpacecraftList() {
-  const cacheKey = 'll2_spacecraft_list_v1'
+  const cacheKey = 'll2_spacecraft_list_v2'
   const cached = await getCache('space_devs_cache', cacheKey, LL2_SPACECRAFT_CACHE_TTL)
   if (cached) return { success: true, data: cached, cached: true }
 
@@ -419,12 +456,16 @@ async function handleLl2SpacecraftList() {
     const mirrorMap = await getMirrorMap()
     const list = rows.map((s) => {
       const agency = s.agency || {}
+      const typeName = s.type && s.type.name ? s.type.name : ''
       return {
         id: s.id,
         name: s.name || '',
-        typeName: s.type && s.type.name ? s.type.name : '',
+        nameZh: s.nameZh || translateSpacecraftName(s.name || '') || '',
+        typeName,
+        typeNameZh: (s.type && s.type.nameZh) || SPACECRAFT_TYPE_ZH[typeName] || '',
         agencyId: agency.id || null,
         agencyName: agency.name || '',
+        agencyNameZh: agency.nameZh || agencyNameZh(agency.name, agency.abbrev),
         agencyAbbrev: agency.abbrev || '',
         inUse: !!s.in_use,
         // 缩略图优先：LL2 原图托管在海外对象存储，国内直连大图经常加载失败；已镜像的替换为 COS
@@ -445,8 +486,8 @@ async function handleLl2SpacecraftList() {
 //  按累计发射数倒序；全量 ~68 条，单次 limit=100 可取完，跟随 next 兜底
 // ══════════════════════════════════════════════
 async function handleLl2LocationList() {
-  // v2：补 description / timezoneName（发射场详情页信息面板用）
-  const cacheKey = 'll2_location_list_v2'
+  // v3：写入 nameZh（词典，不打机翻）
+  const cacheKey = 'll2_location_list_v4'
   const cached = await getCache('space_devs_cache', cacheKey, LL2_SPACECRAFT_CACHE_TTL)
   if (cached) return { success: true, data: cached, cached: true }
 
@@ -468,7 +509,9 @@ async function handleLl2LocationList() {
       return {
         id: loc.id,
         name: loc.name || '',
+        nameZh: loc.nameZh || translateLocation(loc.name || '') || '',
         countryName: country.name || '',
+        countryNameZh: country.nameZh || translateCountryName(country.name) || '',
         countryCode: country.alpha_2_code || '',
         active: !!loc.active,
         // map_image 为 LL2 生成的卫星定位图，尺寸统一适合卡片展示；已镜像的替换为 COS

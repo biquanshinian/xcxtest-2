@@ -1,6 +1,9 @@
 // utils/api-monitor-data.js — monitor tab heavy data
 const { getBoosterGenealogy } = require('./api-app-services.js')
-const { translateAgencyName, translateSpacecraftName } = require('./space-terms-i18n.js')
+const { pickLocalized, zhField } = require('./locale.js')
+const { translateLocation, translateOrbit } = require('./space-terms-display.js')
+const { resolveAgencyDisplayZh } = require('./launch-card-i18n.js')
+const { resolveSpacecraftDisplayZh } = require('./spacecraft-name-i18n.js')
 const { optimizeImageUrl } = require('./cos-url.js')
 const { buildLl2ImageChain } = require('./ll2-image.js')
 const {
@@ -101,11 +104,11 @@ async function getStationStatus() {
   }
 
   // 中文展示名词典（未收录的新站回退 LL2 原名，不影响是否显示）
-  const STATION_NAME_ZH = {
-    4: { name: '国际空间站 ISS', nameEn: 'International Space Station' },
-    18: { name: '天宫空间站', nameEn: 'Tiangong Space Station' }
-  }
   const DEFAULT_STATION_IDS = [4, 18]
+  const DEFAULT_STATION_EN = {
+    4: 'International Space Station',
+    18: 'Tiangong Space Station'
+  }
 
   // ── 动态站点清单（数据驱动）：LL2 /space_stations/ 里 active/在建 的站自动纳入监控 ──
   // 列表缓存由云函数 syncCommonEndpoints / syncStations 写入；缓存缺失时回退 ISS+天宫
@@ -117,11 +120,10 @@ async function getStationStatus() {
       const st = String((s.status && s.status.name) || '').toLowerCase()
       return st.includes('active') || st.includes('construction') || st.includes('assembly')
     }).map(s => {
-      const zh = STATION_NAME_ZH[s.id]
       return {
         id: s.id,
-        name: (zh && zh.name) || s.name || '',
-        nameEn: (zh && zh.nameEn) || s.name || '',
+        name: pickLocalized(zhField(s, 'name'), '') || translateLocation(s.name) || s.name || '',
+        nameEn: s.name || '',
         // 列表行自带 status/founded/description/orbit/owners 等字段，
         // 详情缓存缺失或读取失败时兜底，避免状态显示「未知」
         listRow: s
@@ -134,7 +136,11 @@ async function getStationStatus() {
     })
   } catch (e) { /* 列表缓存尚未同步：走兜底 */ }
   if (!stationMetas.length) {
-    stationMetas = DEFAULT_STATION_IDS.map(id => ({ id, name: STATION_NAME_ZH[id].name, nameEn: STATION_NAME_ZH[id].nameEn }))
+    stationMetas = DEFAULT_STATION_IDS.map(id => ({
+      id,
+      name: translateLocation(DEFAULT_STATION_EN[id]) || DEFAULT_STATION_EN[id],
+      nameEn: DEFAULT_STATION_EN[id]
+    }))
   }
 
   // 并行请求各空间站详情和对接事件
@@ -197,18 +203,19 @@ async function getStationStatus() {
     const agency = config && config.agency
     const agencyNameEn = agency ? (agency.name || '') : ''
     const agencyAbbrev = agency ? (agency.abbrev || '') : ''
-    const agencyName = translateAgencyName(agencyNameEn, agencyAbbrev) || agencyNameEn
+    const agencyName = resolveAgencyDisplayZh(agencyNameEn, agencyAbbrev, agency ? zhField(agency, 'name') : '') || agencyNameEn
     const dockingTimeStr = e.docking ? e.docking.replace('T', ' ').replace('Z', '').slice(0, 19) : ''
-    const portName = (e.docking_location && e.docking_location.name) || portNameFallback || ''
+    const portEn = (e.docking_location && e.docking_location.name) || portNameFallback || ''
+    const portName = (e.docking_location && zhField(e.docking_location, 'name')) || translateLocation(portEn) || portEn
     const nameEn = sc ? String(sc.name || '').trim() : ''
     const configNameEn = config ? String(config.name || '').trim() : ''
-    // 展示/跳转均优先中文：实例名 → 构型名（与飞船图鉴 translateSpacecraftName 同源）
     const nameZh =
-      translateSpacecraftName(nameEn) ||
-      translateSpacecraftName(configNameEn) ||
+      resolveSpacecraftDisplayZh(nameEn, sc && zhField(sc, 'name')) ||
+      resolveSpacecraftDisplayZh(configNameEn, config && zhField(config, 'name')) ||
       nameEn ||
       '未知飞船'
-    const configNameZh = translateSpacecraftName(configNameEn) || configNameEn
+    const configNameZh =
+      resolveSpacecraftDisplayZh(configNameEn, config && zhField(config, 'name')) || configNameEn
     return {
       id: e.id,
       configId: config && config.id != null ? config.id : null,
@@ -269,7 +276,7 @@ async function getStationStatus() {
     const docked = mergeDocked(meta.id, raw)
     const owners = raw && Array.isArray(raw.owners) ? raw.owners : []
     const ownerNames = owners
-      .map(item => item && (translateAgencyName(item.name, item.abbrev) || item.name))
+      .map(item => item && (resolveAgencyDisplayZh(item.name, item.abbrev, zhField(item, 'name')) || pickLocalized(zhField(item, 'name'), item.name)))
       .filter(Boolean)
     // 详情缺 active_expeditions 时回退列表行，避免远征整块消失
     const listRowExps = meta.listRow && Array.isArray(meta.listRow.active_expeditions)
@@ -302,21 +309,27 @@ async function getStationStatus() {
       typeName: raw && raw.type ? raw.type.name : '',
       founded: raw ? raw.founded : '',
       deorbited: raw ? raw.deorbited : '',
-      orbit: raw ? (raw.orbit || 'LEO') : 'LEO',
+      orbit: (() => {
+        const orbitRaw = raw ? (raw.orbit || 'LEO') : 'LEO'
+        return translateOrbit(orbitRaw) || orbitRaw
+      })(),
       description: raw && raw.description ? raw.description : '',
+      descriptionZh: raw ? zhField(raw, 'description') : '',
       owners: ownerNames,
       ownerText: ownerNames.join(' / '),
       ownerCount: ownerNames.length,
       ownerAgencies: owners.map(item => ({
         id: item && item.id,
-        name: item ? (translateAgencyName(item.name, item.abbrev) || item.name || '') : '',
+        name: item ? (resolveAgencyDisplayZh(item.name, item.abbrev, zhField(item, 'name')) || pickLocalized(zhField(item, 'name'), item.name) || '') : '',
         abbrev: item && item.abbrev ? item.abbrev : '',
         typeName: item && item.type && item.type.name ? item.type.name : '',
         countryText: item && Array.isArray(item.country)
           ? item.country.map(country => country && country.name).filter(Boolean).join(' / ')
           : ''
       })).filter(item => item.name),
-      expedition: activeExpeditions.length > 0 ? activeExpeditions[0].name : '',
+      expedition: activeExpeditions.length > 0
+        ? (zhField(activeExpeditions[0], 'name') || translateLocation(activeExpeditions[0].name) || activeExpeditions[0].name)
+        : '',
       expeditionCount: activeExpeditions.length,
       expeditionList: activeExpeditions.map(item => {
         // 优先使用详情API的数据（包含完整crew信息）
@@ -325,7 +338,9 @@ async function getStationStatus() {
         
         return {
           id: item && item.id,
-          name: item && item.name ? item.name : '',
+          name: item
+            ? (zhField(item, 'name') || translateLocation(item.name) || item.name || '')
+            : '',
           start: item && item.start ? item.start : '',
           end: item && item.end ? item.end : '',
           crew: crewArray.map(c => {
@@ -359,7 +374,11 @@ async function getStationStatus() {
               nationality: nationality,
               countryCode: countryCode,
               countryFlag: countryFlag,
-              agency: c.astronaut && c.astronaut.agency && c.astronaut.agency.name ? c.astronaut.agency.name : '',
+              agency: (() => {
+                const ag = c.astronaut && c.astronaut.agency
+                if (!ag) return ''
+                return resolveAgencyDisplayZh(ag.name, ag.abbrev, zhField(ag, 'name')) || ag.name || ''
+              })(),
               agencyAbbrev: c.astronaut && c.astronaut.agency && c.astronaut.agency.abbrev ? c.astronaut.agency.abbrev : '',
               image: imageUrl,
               status: c.astronaut && c.astronaut.status && c.astronaut.status.name ? c.astronaut.status.name : '',
@@ -385,7 +404,9 @@ async function getStationStatus() {
       dockingPortCount: dockingLocations.length,
       dockingPorts: dockingLocations.map(item => ({
         id: item && item.id,
-        name: item && item.name ? item.name : '',
+        name: item
+          ? (zhField(item, 'name') || translateLocation(item.name) || item.name || '')
+          : '',
         occupied: !!(item && item.currently_docked),
         occupiedText: item && item.currently_docked ? '已占用' : '空闲'
       })).filter(item => item.name),

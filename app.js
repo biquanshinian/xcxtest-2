@@ -44,6 +44,8 @@ function _dedupAsync(name, starter, callback) {
 
 App({
   onLaunch(options) {
+    // 改期弹窗：仅本进程冷启动给一次机会（切后台 / 切 Tab 不弹）
+    this._netChangeColdStartPending = true
     this.refreshUiShellLayout()
     // 邀请得月卡：截获分享链接里的 inviter，延迟上报核销（不阻塞启动）
     try { require('./utils/invite.js').captureInviteFromOptions(options) } catch (e) {}
@@ -89,6 +91,16 @@ App({
           env: cloudEnv,
           traceUser: true
         })
+
+        // 开屏：启动即预拉配置/预览片，并预下载首页分包，缩短首次展示等待
+        try {
+          require('./utils/splash-prefetch.js').startSplashPrefetch(this)
+        } catch (e) {}
+        try {
+          if (typeof wx.preloadSubpackage === 'function') {
+            wx.preloadSubpackage({ name: 'index-extra', fail() {} })
+          }
+        } catch (e) {}
 
         // 已移除冷启动 /ping 预热：当前日活下 adminGateway 实例常驻为热，
         // 每次冷启动多打一次纯预热调用只增加计费调用量，收益趋近于零

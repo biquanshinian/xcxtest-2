@@ -1,17 +1,23 @@
 /**
- * 发射时间变更提醒：基线对比 + 当天候选挑选（纯逻辑，无 UI）
+ * 发射时间变更提醒：基线对比 + 未发射任务挑选（纯逻辑，无 UI）
  *
  * 规则：
  * 1) 首次见到某任务只记 NET，不弹
- * 2) 再次见到且 NET 向后推迟超过容差 → 记为「当天改期事件」
- * 3) 仅提醒「改期发生日 = 今天」的事件；一天最多弹一次
- * 4) 当天多个推迟任务 → 取新 NET 最近（最早）的一条
+ * 2) 再次见到且 NET 变动满 1 分钟（提前或延期）→ 记为变更事件，直到发射才清掉
+ * 3) 任务已发射 / 已离开即将列表 → 不再作为候选
+ * 4) 多条未发射变更 → 取新 NET 最近（最早）的一条
+ * 5) 是否弹出由首页冷启动队列决定（同一进程只弹一次）
  */
+
+const { isSettledStatusId } = require('../../../utils/launch-status-store.js')
 
 const NET_WATCH_KEY = '_net_change_watch_map'
 const NET_EVENTS_KEY = '_net_change_events_map'
 const POPUP_SHOWN_KEY = '_net_change_popup_shown_date'
-const DELAY_TOLERANCE_MS = 30 * 60 * 1000
+const POPUP_SHOWN_EVENTS_KEY = '_net_change_popup_shown_events'
+/** 任意方向，满 1 分钟即记为变更（秒级抖动忽略） */
+const CHANGE_TOLERANCE_MS = 60 * 1000
+const DELAY_TOLERANCE_MS = CHANGE_TOLERANCE_MS
 
 function getTodayStr() {
   const d = new Date()
@@ -43,6 +49,64 @@ function writeMap(key, map) {
   try {
     wx.setStorage({ key: key, data: map || {}, fail: function () {} })
   } catch (e) {}
+}
+
+function formatChangeDelta(absMs) {
+  const mins = Math.max(1, Math.round(Math.abs(absMs) / 60000))
+  if (mins < 60) return mins + '分钟'
+  const hours = Math.floor(mins / 60)
+  const rem = mins % 60
+  if (hours < 24) return rem ? hours + '小时' + rem + '分钟' : hours + '小时'
+  const days = Math.floor(hours / 24)
+  const h = hours % 24
+  if (!h) return days + '天'
+  return days + '天' + h + '小时'
+}
+
+function resolveChangeMeta(oldNet, newNet) {
+  const oldMs = parseNetMs(oldNet)
+  const newMs = parseNetMs(newNet)
+  if (!oldMs || !newMs) {
+    return { kind: 'delay', deltaMs: 0, deltaText: '', titleText: '发射时间变更' }
+  }
+  const deltaMs = newMs - oldMs
+  const kind = deltaMs < 0 ? 'advance' : 'delay'
+  const label = kind === 'advance' ? '提前' : '延期'
+  return {
+    kind: kind,
+    deltaMs: deltaMs,
+    deltaText: label + ' ' + formatChangeDelta(deltaMs),
+    titleText: '发射时间' + label
+  }
+}
+
+function eventFingerprint(ev) {
+  if (!ev) return ''
+  return [ev.missionId || '', ev.oldNet || '', ev.newNet || ''].join('|')
+}
+
+function readShownState() {
+  const today = getTodayStr()
+  const raw = readMap(POPUP_SHOWN_EVENTS_KEY)
+  if (raw.date !== today || !raw.keys || typeof raw.keys !== 'object') {
+    return { date: today, keys: {} }
+  }
+  return { date: today, keys: raw.keys }
+}
+
+function isEventShown(ev) {
+  const fp = eventFingerprint(ev)
+  if (!fp) return false
+  const state = readShownState()
+  return !!state.keys[fp]
+}
+
+function markEventShown(ev) {
+  const fp = eventFingerprint(ev)
+  if (!fp) return
+  const state = readShownState()
+  state.keys[fp] = 1
+  writeMap(POPUP_SHOWN_EVENTS_KEY, state)
 }
 
 function isPopupShownToday() {
@@ -90,8 +154,57 @@ function missionAgencyName(m) {
   ).trim()
 }
 
+function isMissionAlreadyLaunched(m) {
+  if (!m) return true
+  const sid =
+    m.statusId != null
+      ? Number(m.statusId)
+      : m.status && m.status.id != null
+        ? Number(m.status.id)
+        : 0
+  if (isSettledStatusId(sid)) return true
+  const cat = String(m.statusCategory || '').toLowerCase()
+  return cat === 'success' || cat === 'failure' || cat === 'partial' || cat === 'deployed'
+}
+
+function buildEvent(id, oldNet, newNet, today) {
+  const meta = resolveChangeMeta(oldNet, newNet)
+  return {
+    oldNet: oldNet,
+    newNet: newNet,
+    changedDate: today,
+    missionId: id,
+    kind: meta.kind,
+    deltaMs: meta.deltaMs
+  }
+}
+
+function buildReminderPayload(m, ev) {
+  const oldNet = ev.oldNet
+  const newNet = ev.newNet || (m && m.launchTime) || ''
+  const meta = resolveChangeMeta(oldNet, newNet)
+  return {
+    missionId: String(m.id),
+    rocketName: missionRocketName(m),
+    missionName: missionDisplayName(m),
+    agencyName: missionAgencyName(m),
+    agencyAbbrev: String(m.launchAgencyAbbrev || '').trim(),
+    launchAgencyId: m.launchAgencyId,
+    rocketImage: m.rocketImage || m.image || '',
+    rocketConfiguration: m.rocketConfiguration || null,
+    rocketNameEn: (m._langPack && m._langPack.rocketNameEn) || m.rocketName || '',
+    launchAgencyImage: m.launchAgencyImage || '',
+    oldNet: oldNet,
+    newNet: newNet,
+    changeKind: meta.kind,
+    deltaMs: meta.deltaMs,
+    deltaText: meta.deltaText,
+    titleText: meta.titleText
+  }
+}
+
 /**
- * 用首页列表扫描改期；更新基线；返回当天应提醒的 payload（或 null）
+ * 用首页列表扫描 NET 变更；更新基线；返回未发射变更 payload 列表（新 NET 早的在前）
  * @param {Object[]} missions upcoming 列表项（含 id / launchTime / rocketImage …）
  */
 function scanAndPickTodayReminder(missions) {
@@ -111,6 +224,18 @@ function scanAndPickTodayReminder(missions) {
     const netMs = parseNetMs(net)
     if (!netMs) continue
 
+    if (isMissionAlreadyLaunched(m)) {
+      if (events[id]) {
+        delete events[id]
+        eventsDirty = true
+      }
+      if (watch[id] !== net) {
+        watch[id] = net
+        watchDirty = true
+      }
+      continue
+    }
+
     const prev = watch[id]
     const prevMs = parseNetMs(prev)
 
@@ -120,8 +245,8 @@ function scanAndPickTodayReminder(missions) {
       continue
     }
 
-    // NET 未变：保持
-    if (Math.abs(netMs - prevMs) <= DELAY_TOLERANCE_MS) {
+    // 未满 1 分钟：视为同一时刻，只同步字符串
+    if (Math.abs(netMs - prevMs) < CHANGE_TOLERANCE_MS) {
       if (watch[id] !== net) {
         watch[id] = net
         watchDirty = true
@@ -129,41 +254,27 @@ function scanAndPickTodayReminder(missions) {
       continue
     }
 
-    // 仅「向后推迟」记为改期提醒；提前不弹
-    if (netMs <= prevMs) {
+    const prevEvent = events[id]
+    // 改回当天首次原时间：视为变更已撤销
+    if (prevEvent && prevEvent.oldNet && Math.abs(netMs - parseNetMs(prevEvent.oldNet)) < CHANGE_TOLERANCE_MS) {
+      delete events[id]
+      eventsDirty = true
       watch[id] = net
       watchDirty = true
       continue
     }
 
-    const prevEvent = events[id]
-    // 同一天内连续多次 scrub：保留当天首次 oldNet，刷新 newNet
-    if (prevEvent && prevEvent.changedDate === today && prevEvent.oldNet) {
-      events[id] = {
-        oldNet: prevEvent.oldNet,
-        newNet: net,
-        changedDate: today,
-        missionId: id
-      }
+    // 连续改期：保留首次 oldNet，刷新 newNet，方向按「首次原时间 → 最新」重算
+    if (prevEvent && prevEvent.oldNet) {
+      events[id] = buildEvent(id, prevEvent.oldNet, net, today)
     } else {
-      events[id] = {
-        oldNet: prev,
-        newNet: net,
-        changedDate: today,
-        missionId: id
-      }
+      events[id] = buildEvent(id, prev, net, today)
     }
     eventsDirty = true
     watch[id] = net
     watchDirty = true
   }
 
-  if (watchDirty) writeMap(NET_WATCH_KEY, watch)
-  if (eventsDirty) writeMap(NET_EVENTS_KEY, events)
-
-  if (isPopupShownToday()) return null
-
-  // 当天改期事件 ∩ 仍在列表中的任务
   const byId = {}
   for (let i = 0; i < list.length; i++) {
     const m = list[i]
@@ -175,38 +286,31 @@ function scanAndPickTodayReminder(missions) {
   for (let i = 0; i < ids.length; i++) {
     const id = ids[i]
     const ev = events[id]
-    if (!ev || ev.changedDate !== today) continue
+    if (!ev) continue
     const m = byId[id]
-    if (!m) continue
+    if (!m || isMissionAlreadyLaunched(m)) {
+      delete events[id]
+      eventsDirty = true
+      continue
+    }
     const newMs = parseNetMs(ev.newNet || m.launchTime)
     if (!newMs) continue
     candidates.push({ mission: m, event: ev, newMs: newMs })
   }
 
-  if (!candidates.length) return null
+  if (watchDirty) writeMap(NET_WATCH_KEY, watch)
+  if (eventsDirty) writeMap(NET_EVENTS_KEY, events)
 
-  // 最近：新 NET 最早者
+  if (!candidates.length) return []
+
   candidates.sort(function (a, b) {
     return a.newMs - b.newMs
   })
-  const best = candidates[0]
-  const m = best.mission
-  const ev = best.event
-
-  return {
-    missionId: String(m.id),
-    rocketName: missionRocketName(m),
-    missionName: missionDisplayName(m),
-    agencyName: missionAgencyName(m),
-    agencyAbbrev: String(m.launchAgencyAbbrev || '').trim(),
-    launchAgencyId: m.launchAgencyId,
-    rocketImage: m.rocketImage || m.image || '',
-    rocketConfiguration: m.rocketConfiguration || null,
-    rocketNameEn: (m._langPack && m._langPack.rocketNameEn) || m.rocketName || '',
-    launchAgencyImage: m.launchAgencyImage || '',
-    oldNet: ev.oldNet,
-    newNet: ev.newNet || m.launchTime
+  const payloads = []
+  for (let i = 0; i < candidates.length; i++) {
+    payloads.push(buildReminderPayload(candidates[i].mission, candidates[i].event))
   }
+  return payloads
 }
 
 /** 开发预览：从首页列表/倒计时挑一条有图的任务（优先朱雀），叠 mock 时间 */
@@ -234,6 +338,9 @@ function pickDevPreviewPayload(missions, mockTimes, extraMission) {
   if (!picked) return null
 
   const times = mockTimes || {}
+  const oldNet = times.oldNet || '2026-08-11T07:45:00+08:00'
+  const newNet = times.newNet || '2026-08-31T08:00:00+08:00'
+  const meta = resolveChangeMeta(oldNet, newNet)
   return {
     missionId: String(picked.id || 'dev-net-change'),
     rocketName: missionRocketName(picked) || '朱雀三号',
@@ -245,18 +352,84 @@ function pickDevPreviewPayload(missions, mockTimes, extraMission) {
     rocketConfiguration: picked.rocketConfiguration || null,
     rocketNameEn: (picked._langPack && picked._langPack.rocketNameEn) || picked.rocketName || '',
     launchAgencyImage: picked.launchAgencyImage || '',
-    oldNet: times.oldNet || '2026-08-11T07:45:00+08:00',
-    newNet: times.newNet || '2026-08-31T08:00:00+08:00'
+    oldNet: oldNet,
+    newNet: newNet,
+    changeKind: meta.kind,
+    deltaMs: meta.deltaMs,
+    deltaText: meta.deltaText,
+    titleText: meta.titleText
   }
 }
 
+function payloadFromMission(m, oldNet, newNet, fallbackId) {
+  const meta = resolveChangeMeta(oldNet, newNet)
+  return {
+    missionId: String((m && m.id) || fallbackId || 'dev-net-change'),
+    rocketName: missionRocketName(m) || '朱雀三号',
+    missionName: missionDisplayName(m) || '第 2 次试飞',
+    agencyName: missionAgencyName(m) || '蓝箭航天',
+    agencyAbbrev: String((m && m.launchAgencyAbbrev) || 'LandSpace').trim(),
+    launchAgencyId: m && m.launchAgencyId,
+    rocketImage: (m && (m.rocketImage || m.image)) || '',
+    rocketConfiguration: (m && m.rocketConfiguration) || null,
+    rocketNameEn: (m && m._langPack && m._langPack.rocketNameEn) || (m && m.rocketName) || '',
+    launchAgencyImage: (m && m.launchAgencyImage) || '',
+    oldNet: oldNet,
+    newNet: newNet,
+    changeKind: meta.kind,
+    deltaMs: meta.deltaMs,
+    deltaText: meta.deltaText,
+    titleText: meta.titleText
+  }
+}
+
+/** 开发预览：最多 3 张卡（延期 / 提前 / 短延期），方便滑卡 */
+function pickDevPreviewPayloads(missions, mockTimes, extraMission) {
+  const list = Array.isArray(missions) ? missions.slice() : []
+  if (extraMission && typeof extraMission === 'object') list.unshift(extraMission)
+  const picked = []
+  const seen = {}
+  for (let i = 0; i < list.length && picked.length < 3; i++) {
+    const m = list[i]
+    if (!m || !(m.rocketImage || m.image)) continue
+    const id = String(m.id || i)
+    if (seen[id]) continue
+    seen[id] = true
+    picked.push(m)
+  }
+  if (!picked.length) {
+    const one = pickDevPreviewPayload(missions, mockTimes, extraMission)
+    return one ? [one] : []
+  }
+  const mocks = [
+    { oldNet: '2026-08-11T07:45:00+08:00', newNet: '2026-08-31T08:00:00+08:00' },
+    { oldNet: '2026-08-20T14:00:00+08:00', newNet: '2026-08-20T09:30:00+08:00' },
+    { oldNet: '2026-08-16T10:00:00+08:00', newNet: '2026-08-16T12:15:00+08:00' }
+  ]
+  const out = []
+  for (let i = 0; i < picked.length; i++) {
+    const t = mocks[i] || mocks[0]
+    out.push(payloadFromMission(picked[i], t.oldNet, t.newNet, 'dev-net-change-' + i))
+  }
+  if (out.length === 1) {
+    out.push(payloadFromMission(picked[0], mocks[1].oldNet, mocks[1].newNet, 'dev-net-change-1'))
+  }
+  return out
+}
+
 module.exports = {
+  CHANGE_TOLERANCE_MS,
   DELAY_TOLERANCE_MS,
   getTodayStr,
   isPopupShownToday,
   markPopupShownToday,
+  isEventShown,
+  markEventShown,
+  resolveChangeMeta,
+  formatChangeDelta,
   scanAndPickTodayReminder,
   pickDevPreviewPayload,
+  pickDevPreviewPayloads,
   missionRocketName,
   missionDisplayName,
   missionAgencyName

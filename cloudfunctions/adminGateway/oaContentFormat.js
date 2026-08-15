@@ -1,6 +1,9 @@
 /**
  * Markdown / 纯文本 → 微信公众号兼容内联 HTML（轻量）
+ * 主题表见 oaContentThemes.js（与 xiaohu-wechat-format 画廊对齐）
  */
+const { THEMES, listThemeMeta, resolveThemeId } = require('./oaContentThemes')
+
 function escapeHtml(s) {
   return String(s || '')
     .replace(/&/g, '&amp;')
@@ -22,34 +25,8 @@ function inlineFormat(text) {
   return s
 }
 
-const THEMES = {
-  clean: {
-    h2: 'margin:28px 0 12px;font-size:18px;font-weight:700;color:#1a1a1a;border-left:4px solid #2f6bff;padding-left:10px;',
-    h3: 'margin:20px 0 10px;font-size:16px;font-weight:600;color:#333;',
-    p: 'margin:0 0 14px;line-height:1.85;font-size:15px;color:#3a3a3a;letter-spacing:0.02em;',
-    quote:
-      'margin:16px 0;padding:12px 14px;background:#f7f8fa;border-left:3px solid #c0c4cc;color:#606266;line-height:1.7;',
-    li: 'margin:0 0 8px;line-height:1.7;font-size:15px;color:#3a3a3a;'
-  },
-  diary: {
-    h2: 'margin:28px 0 12px;font-size:18px;font-weight:700;color:#1f2a44;text-align:center;',
-    h3: 'margin:20px 0 10px;font-size:16px;font-weight:600;color:#334155;',
-    p: 'margin:0 0 16px;line-height:1.9;font-size:15px;color:#334155;',
-    quote:
-      'margin:16px 0;padding:14px;background:#f0f4ff;border-radius:8px;color:#475569;line-height:1.75;',
-    li: 'margin:0 0 8px;line-height:1.75;font-size:15px;color:#334155;'
-  },
-  brief: {
-    h2: 'margin:22px 0 10px;font-size:17px;font-weight:700;color:#111;border-bottom:1px solid #eee;padding-bottom:6px;',
-    h3: 'margin:16px 0 8px;font-size:15px;font-weight:600;color:#222;',
-    p: 'margin:0 0 12px;line-height:1.75;font-size:15px;color:#333;',
-    quote: 'margin:12px 0;padding:10px 12px;background:#fafafa;color:#666;line-height:1.6;',
-    li: 'margin:0 0 6px;line-height:1.65;font-size:15px;color:#333;'
-  }
-}
-
 function markdownToWechatHtml(md, themeId = 'clean') {
-  const theme = THEMES[themeId] || THEMES.clean
+  const theme = THEMES[resolveThemeId(themeId)] || THEMES.clean
   // 行内图 / 带 title 的图拆成独立行，避免被 inlineFormat 误当成 <a>
   const normalized = String(md || '')
     .replace(/\r\n/g, '\n')
@@ -126,7 +103,9 @@ function markdownToWechatHtml(md, themeId = 'clean') {
     if (/^#\s+/.test(line)) {
       closeList()
       closeQuote()
-      out.push(`<h2 style="${theme.h2}">${inlineFormat(line.replace(/^#\s+/, ''))}</h2>`)
+      // 与 xiaohu gallery 一致：一级标题用 h1 样式（不再降成 h2）
+      const h1Style = theme.h1 || theme.h2
+      out.push(`<h1 style="${h1Style}">${inlineFormat(line.replace(/^#\s+/, ''))}</h1>`)
       continue
     }
     if (/^>\s?/.test(line)) {
@@ -135,7 +114,11 @@ function markdownToWechatHtml(md, themeId = 'clean') {
         out.push(`<blockquote style="${theme.quote}">`)
         inQuote = true
       }
-      out.push(`<p style="margin:0 0 8px;">${inlineFormat(line.replace(/^>\s?/, ''))}</p>`)
+      // 兼容 GitHub callout：> [!tip] 标题
+      const quoteBody = line
+        .replace(/^>\s?/, '')
+        .replace(/^\[!(important|tip|warning|note|caution|callout)\]\s*/i, '')
+      out.push(`<p style="margin:0 0 8px;">${inlineFormat(quoteBody)}</p>`)
       continue
     }
     if (/^[-*]\s+/.test(line)) {
@@ -454,6 +437,8 @@ function mergeImageMarkdown(bodyMd, urls, max = 8) {
 
 module.exports = {
   THEMES,
+  listThemeMeta,
+  resolveThemeId,
   markdownToWechatHtml,
   stripTitleFromMarkdown,
   extractJsonBlock,

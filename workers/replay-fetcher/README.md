@@ -56,6 +56,14 @@ cp .env.example .env   # 填 REPLAY_ADMIN_API_BASE / REPLAY_AGENT_TOKEN
 node src/index.js
 ```
 
+本机保活（必须一直在线）：
+
+1. `install-autostart.bat`：登录自启 + 每 2 分钟 `watchdog-silent.vbs` 探活（`wscript //B`，不弹窗）。
+2. Agent 每 15 秒写 `logs/agent.heartbeat`；进程没了或心跳超过 8 分钟，watchdog 自动拉起。
+3. `start-agent.bat` 自己也会在 node 退出后 5 秒重启。
+
+不要只靠手动开一次窗口；关掉窗口或异常退出后，应在 2 分钟内自我复活。
+
 - 无任务时每 `REPLAY_POLL_MS`（默认 10 分钟）轮询一次；有任务时连续处理。
 - 下载失败自动换下一视频源（官方 X 直播 → Spaceflight Now → The Space Devs 转播）；
   全部失败上报 fail，服务端计数 3 次后终态 failed。

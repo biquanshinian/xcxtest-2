@@ -6,7 +6,7 @@ const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
 const { openRocketModelDetail } = require('./utils/booster-nav.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
-const { translateRocketName } = require('../../utils/rocket-name-i18n.js')
+const { pickLocalized } = require('../../utils/locale.js')
 const { advanceImageFallback } = require('../../utils/ll2-image.js')
 const { isFavorite, toggleFavorite, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
 
@@ -227,12 +227,16 @@ Page({
       statusText: statusTextMap[status] || '未知',
       statusColor: statusColorMap[status] || '#8E8E93',
       rocketFamilyEn: raw.rocketFamily || 'Unknown',
-      rocketFamily: translateRocketName(raw.rocketFamily) || raw.rocketFamily || 'Unknown',
+      rocketFamily: pickLocalized(raw.rocketFamilyZh || '', raw.rocketFamily || 'Unknown'),
       // LL2 构型 id：型号标签跳 rocket-model-detail 用；无则标签退化为纯文本
       configId: raw.configId != null ? raw.configId : null,
       manufacturer: raw.manufacturer || '',
       // 展示用中文名（与发射商详情页同源词典）；manufacturer 保留原文供跳转解析
-      manufacturerDisplay: boosterDisplay.mfrDisplayName(raw.manufacturer || ''),
+      manufacturerDisplay: boosterDisplay.mfrDisplayName(
+        raw.manufacturer || '',
+        '',
+        raw.manufacturerZh || ''
+      ),
       block: raw.block || null,
       imageUrl: primaryImage,
       thumbnailUrl: primaryImage,

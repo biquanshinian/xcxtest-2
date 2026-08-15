@@ -497,6 +497,7 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       missionId: doc.missionId || '',
       missionName: doc.missionName || '',
       rocketName: doc.rocketName || '',
+      rocketNameZh: doc.rocketNameZh || '',
       rocketImageName: doc.rocketImageName || '',
       launchTime: doc.launchTime || '',
       address: doc.address || '',
@@ -1015,6 +1016,7 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       missionId: String(body.missionId || '').trim(),
       missionName: String(body.missionName || '').trim().slice(0, 60),
       rocketName: String(body.rocketName || '').trim().slice(0, 40),
+      rocketNameZh: String(body.rocketNameZh || '').trim().slice(0, 40),
       launchTime: String(body.launchTime || '').trim(),
       address: String(body.address || '').trim().slice(0, 120),
       lat: Number(body.lat || 0) || 0,
@@ -1093,6 +1095,7 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       missionId: doc.missionId || '',
       missionName: doc.missionName || '',
       rocketName: doc.rocketName || '',
+      rocketNameZh: doc.rocketNameZh || '',
       rocketImageName: doc.rocketImageName || '',
       agencyId: doc.agencyId || '',
       agencyName: doc.agencyName || '',
@@ -1438,6 +1441,7 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       missionName: d.missionName || '',
       missionDisplayName: names[i] || '',
       rocketName: d.rocketName || '',
+      rocketNameZh: d.rocketNameZh || '',
       rocketImageName: d.rocketImageName || '',
       launchTime: d.launchTime || '',
       status: d.status || 'open',
@@ -4133,7 +4137,19 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
 
   // ── 即将发射任务列表（后台「新增场次」自动获取用，读 LL2 同步缓存，零外网请求） ──
 
-  /** 批次感知读取 space_devs_cache 列表缓存（与 apiProxy/agent-actions 同一套约定） */
+  function unwrapLl2CacheDoc(doc) {
+    if (!doc || !doc.data) return null
+    const wrapper = doc.data
+    if (wrapper.data && typeof wrapper.data === 'object') {
+      return { wrapper, payload: wrapper.data }
+    }
+    if (Array.isArray(wrapper.results) || wrapper.isBatched || wrapper.isBatch) {
+      return { wrapper, payload: wrapper }
+    }
+    return null
+  }
+
+  /** 批次感知读取 space_devs_cache：优先主文档 batchKeys（含 generation 分片） */
   async function readLl2ListCache(path, params) {
     const sortedParams = JSON.stringify(
       Object.keys(params).sort().reduce((acc, k) => {
@@ -4141,39 +4157,116 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
         return acc
       }, {})
     )
+    const col = db.collection(SPACE_DEVS_COL)
     let cacheKey = null
-    let doc = null
+    let wrapper = null
+    let payload = null
     for (const sfx of LL2_SLIM_SUFFIXES) {
       const key = `api_cache_${path}_${sortedParams}${sfx}`
-      const d = await db.collection(SPACE_DEVS_COL).doc(key).get().catch(() => null)
-      if (d && d.data && d.data.data) {
+      const d = await col.doc(key).get().catch(() => null)
+      const unwrapped = unwrapLl2CacheDoc(d)
+      if (unwrapped && unwrapped.payload) {
         cacheKey = key
-        doc = d
+        wrapper = unwrapped.wrapper
+        payload = unwrapped.payload
         break
       }
     }
-    if (!doc) return { results: [], updatedAt: 0 }
-    const apiData = doc.data.data
-    const updatedAt = doc.data.updatedAt || doc.data.timestamp || 0
+    if (!payload) {
+      try {
+        const escaped = String(path).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const fallbackDocs = await col
+          .where({ _id: db.RegExp({ regexp: `api_cache_${escaped}`, options: 'i' }) })
+          .limit(8)
+          .get()
+        const rows = (fallbackDocs && fallbackDocs.data) || []
+        rows.sort((a, b) => {
+          const as = String(a._id || '').includes('_slim_v6') ? 0 : 1
+          const bs = String(b._id || '').includes('_slim_v6') ? 0 : 1
+          return as - bs
+        })
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i]
+          const unwrapped = unwrapLl2CacheDoc({ data: row })
+          if (!unwrapped || !unwrapped.payload) continue
+          cacheKey = row._id
+          wrapper = unwrapped.wrapper
+          payload = unwrapped.payload
+          break
+        }
+      } catch (e) {}
+    }
+    if (!payload) return { results: [], updatedAt: 0 }
+    const updatedAt = (wrapper && (wrapper.updatedAt || wrapper.timestamp)) || 0
     let allResults = []
-    const isBatched = !!(apiData.isBatched || apiData.isBatch)
-      || (Array.isArray(apiData.results) && apiData.results.length === 0 && Number(apiData.count) > 0)
+    const isBatched = !!(payload.isBatched || payload.isBatch)
+      || (Array.isArray(payload.results) && payload.results.length === 0 && Number(payload.count) > 0)
     if (isBatched) {
-      let batchIdx = 0
-      while (batchIdx < 40) {
-        const batchDoc = await db.collection(SPACE_DEVS_COL).doc(`${cacheKey}_batch_${batchIdx}`).get().catch(() => null)
-        const batchData = batchDoc && batchDoc.data && batchDoc.data.data
-        if (!batchData || !Array.isArray(batchData.results)) break
-        allResults = allResults.concat(batchData.results)
-        batchIdx++
+      const declared = Array.isArray(payload.batchKeys) && payload.batchKeys.length
+        ? payload.batchKeys.slice()
+        : null
+      if (declared) {
+        for (let i = 0; i < declared.length; i++) {
+          const batchDoc = await col.doc(declared[i]).get().catch(() => null)
+          const batchUnwrapped = unwrapLl2CacheDoc(batchDoc)
+          const batchPayload = batchUnwrapped && batchUnwrapped.payload
+          if (batchPayload && Array.isArray(batchPayload.results)) {
+            allResults = allResults.concat(batchPayload.results)
+          }
+        }
+      } else if (cacheKey) {
+        let batchIdx = 0
+        while (batchIdx < 40) {
+          const batchDoc = await col.doc(`${cacheKey}_batch_${batchIdx}`).get().catch(() => null)
+          const batchUnwrapped = unwrapLl2CacheDoc(batchDoc)
+          const batchPayload = batchUnwrapped && batchUnwrapped.payload
+          if (!batchPayload || !Array.isArray(batchPayload.results)) break
+          allResults = allResults.concat(batchPayload.results)
+          batchIdx++
+        }
       }
     }
-    if (!allResults.length && Array.isArray(apiData.results)) allResults = apiData.results
+    if (!allResults.length && Array.isArray(payload.results)) allResults = payload.results
     return { results: allResults, updatedAt }
   }
 
   async function readLl2UpcomingCache() {
     return readLl2ListCache(LL2_UPCOMING_PATH, LL2_UPCOMING_PARAMS)
+  }
+
+  function extractAdminRecovery(launch) {
+    const rocket = (launch && launch.rocket) || {}
+    let raw = rocket.launcher_stage || (rocket.rocket && rocket.rocket.launcher_stage) || rocket.first_stage
+    if (!raw) return { landingType: '', landingLocation: '', recoveryKey: '' }
+    const stages = Array.isArray(raw) ? raw : [raw]
+    let asds = false
+    let rtls = false
+    let expended = false
+    let landingType = ''
+    let landingLocation = ''
+    for (let i = 0; i < stages.length; i++) {
+      const stage = stages[i]
+      if (!stage || typeof stage !== 'object') continue
+      const ld = stage.landing || {}
+      const typeObj = ld.type && typeof ld.type === 'object' ? ld.type : null
+      const typeStr = String((typeObj && (typeObj.abbrev || typeObj.name)) || stage.landing_type || ld.type || '').toUpperCase()
+      const locObj = ld.landing_location && typeof ld.landing_location === 'object' ? ld.landing_location : null
+      const locStr = String((locObj && (locObj.abbrev || locObj.name)) || stage.landing_location || '').toUpperCase()
+      const desc = String(ld.description || '').toUpperCase()
+      const blob = typeStr + ' ' + locStr + ' ' + desc
+      if (!landingType && typeStr) landingType = typeStr
+      if (!landingLocation && (locObj && (locObj.abbrev || locObj.name))) {
+        landingLocation = locObj.abbrev || locObj.name
+      }
+      if (/ASDS|ASOG|OCISLY|JRTI|DRONE|SHORTFALL|STILL LOVE|INSTRUCTIONS|OCEAN/.test(blob)) asds = true
+      if (/RTLS|LZ-|LANDING ZONE|GROUND PAD/.test(blob)) rtls = true
+      if (/EXP|EXPEND|DISPOSED/.test(typeStr) || ld.attempt === false) expended = true
+    }
+    return {
+      landingType,
+      landingLocation,
+      recoveryKey: asds ? 'asds' : (rtls ? 'rtls' : (expended ? 'expended' : ''))
+    }
   }
 
   function mapLaunchToAdminMission(launch) {
@@ -4182,6 +4275,7 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     const flightMatch =
       fullName.match(/flight\s*(?:test\s*)?#?\s*(\d+)/i) ||
       fullName.match(/\bift[-\s]?(\d+)/i)
+    const recovery = extractAdminRecovery(launch)
     return {
       missionId: String(launch.id),
       name: fullName,
@@ -4190,6 +4284,10 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
       launchTime: launch.net || launch.window_start || '',
       status: (launch.status && (launch.status.name || launch.status.abbrev)) || '',
       pad: (launch.pad && launch.pad.name) || '',
+      launchSite: (launch.pad && launch.pad.location && launch.pad.location.name) || '',
+      landingType: recovery.landingType,
+      landingLocation: recovery.landingLocation,
+      recoveryKey: recovery.recoveryKey,
       flightNumber: flightMatch ? Number(flightMatch[1]) || 0 : 0
     }
   }
@@ -4202,16 +4300,21 @@ function createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPer
     const max = Math.min(100, Math.max(1, Number(limit) || 30))
     const { results, updatedAt } = await readLl2UpcomingCache()
     const nowMs = Date.now()
-    const list = []
+    const raw = []
     for (const launch of results) {
       if (!launch || launch.id == null) continue
+      raw.push(launch)
+    }
+    const list = []
+    for (const launch of raw) {
       const net = launch.net || launch.window_start || ''
       const t = Date.parse(net)
-      if (isNaN(t) || t < nowMs - 2 * 3600 * 1000) continue
+      if (Number.isFinite(t) && t < nowMs - 2 * 3600 * 1000) continue
       list.push(mapLaunchToAdminMission(launch))
       if (list.length >= max) break
     }
-    return { list, updatedAt }
+    if (list.length) return { list, updatedAt }
+    return { list: raw.slice(0, max).map(mapLaunchToAdminMission), updatedAt }
   }
 
   /**

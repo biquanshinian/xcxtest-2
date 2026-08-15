@@ -187,32 +187,74 @@ const methods = {
     this._tryShowNetChangeModal()
   },
 
+  _isIndexPageCurrent() {
+    try {
+      const pages = typeof getCurrentPages === 'function' ? getCurrentPages() : []
+      const top = pages.length ? pages[pages.length - 1] : null
+      const route = top && top.route != null ? String(top.route).replace(/^\//, '') : ''
+      return route === 'pages/index/index'
+    } catch (e) {
+      return false
+    }
+  },
+
+  /**
+   * 首页弹窗占屏：冲突时无感让路，不叠层。
+   * wait = 等对方 closed / 隐私收尾接力，不重试、不消耗冷启动名额
+   * retry = 开屏/列表/不在首页等短暂态，稍后静默再试
+   */
+  _getHomePopupBlock() {
+    try {
+      const appInst = getApp()
+      if (appInst && appInst.globalData && appInst.globalData.needPrivacyAuthorization) {
+        return 'wait'
+      }
+    } catch (e) {}
+    if (this.data && (this.data.splashVisible || this.data.splashFading)) return 'retry'
+    if (!this._isIndexPageCurrent()) return 'retry'
+    if (this.data && this.data.announcementDialogVisible) return 'retry'
+    if (this.data && this.data.shareSheetVisible) return 'retry'
+    try {
+      const briefing = this.selectComponent('#morningBriefing')
+      if (briefing && briefing.data && briefing.data.showPopup) return 'wait'
+    } catch (e) {}
+    try {
+      const renewal = this.selectComponent('#renewalReminder')
+      if (renewal && (renewal._inflight || (renewal.data && renewal.data.visible))) return 'wait'
+    } catch (e) {}
+    try {
+      const netChange = this.selectComponent('#netChangeModal')
+      if (netChange && ((netChange.data && netChange.data.visible) || netChange._opening)) return 'wait'
+    } catch (e) {}
+    return ''
+  },
+
   _tryShowRenewalReminder() {
     try {
-      // 错峰隐私授权：首次进入需授权时本次跳过（隐私弹窗关闭后下次 onShow 再走原逻辑）
-      const appInst = getApp()
-      if (appInst && appInst.globalData && appInst.globalData.needPrivacyAuthorization) return
+      const block = this._getHomePopupBlock()
+      if (block === 'wait') return
+      if (block === 'retry') {
+        this._scheduleHomePopupQueueRetry()
+        return
+      }
       const comp = this.selectComponent('#renewalReminder')
       if (!comp || typeof comp.maybeShow !== 'function') {
         this._tryShowNetChangeModal()
         return
       }
+      if (comp._inflight || (comp.data && comp.data.visible)) return
       const self = this
       const p = comp.maybeShow(function () {
-        // 异步取会员状态期间简报弹窗若已占屏，本次放弃（closed 事件会再触发）
-        try {
-          const briefing = self.selectComponent('#morningBriefing')
-          return !!(briefing && briefing.data && briefing.data.showPopup)
-        } catch (e) {
-          return false
-        }
+        return self._getHomePopupBlock() === 'wait'
       })
-      // 未弹出续费时接力改期提醒；已弹出则等 bind:closed
       Promise.resolve(p)
         .then(function (shown) {
-          if (!shown) self._tryShowNetChangeModal()
+          if (shown) return
+          if (self._getHomePopupBlock() === 'wait') return
+          self._tryShowNetChangeModal()
         })
         .catch(function () {
+          if (self._getHomePopupBlock() === 'wait') return
           self._tryShowNetChangeModal()
         })
     } catch (e) {
@@ -220,26 +262,60 @@ const methods = {
     }
   },
 
+  _scheduleHomePopupQueueRetry() {
+    if (this._homePopupRetryTimer) return
+    if (this._homePopupRetryLeft == null) this._homePopupRetryLeft = 10
+    if (this._homePopupRetryLeft <= 0) return
+    this._homePopupRetryLeft -= 1
+    const self = this
+    this._homePopupRetryTimer = setTimeout(function () {
+      self._homePopupRetryTimer = null
+      self._tryShowRenewalReminder()
+    }, 1200)
+  },
+
+  _scheduleNetChangeColdStartRetry() {
+    if (this._netChangeRetryTimer) return
+    if (this._netChangeRetryLeft == null) this._netChangeRetryLeft = 10
+    if (this._netChangeRetryLeft <= 0) return
+    this._netChangeRetryLeft -= 1
+    const self = this
+    this._netChangeRetryTimer = setTimeout(function () {
+      self._netChangeRetryTimer = null
+      self._tryShowNetChangeModal()
+    }, 1200)
+  },
+
   _tryShowNetChangeModal() {
     try {
       const appInst = getApp()
-      if (appInst && appInst.globalData && appInst.globalData.needPrivacyAuthorization) return
+      if (!appInst || !appInst._netChangeColdStartPending) return
+      const block = this._getHomePopupBlock()
+      if (block === 'wait') return
+      if (block === 'retry') {
+        this._scheduleNetChangeColdStartRetry()
+        return
+      }
+      const missions = this.data && this.data.upcomingMissions
+      if (!Array.isArray(missions) || !missions.length) {
+        this._scheduleNetChangeColdStartRetry()
+        return
+      }
       const comp = this.selectComponent('#netChangeModal')
       if (!comp || typeof comp.maybeShow !== 'function') return
-      // DEV 模式组件自驱预览，避免与队列重复弹
       if (typeof comp.isDevMode === 'function' && comp.isDevMode()) return
-      const self = this
-      comp.maybeShow(function () {
-        try {
-          const briefing = self.selectComponent('#morningBriefing')
-          if (briefing && briefing.data && briefing.data.showPopup) return true
-          const renewal = self.selectComponent('#renewalReminder')
-          if (renewal && renewal.data && renewal.data.visible) return true
-          return false
-        } catch (e) {
-          return false
-        }
-      })
+      if (appInst._netChangeModalLock) return
+      appInst._netChangeModalLock = true
+      Promise.resolve(comp.maybeShow())
+        .then(function () {
+          appInst._netChangeColdStartPending = false
+        })
+        .catch(function () {
+          appInst._netChangeColdStartPending = false
+        })
+        .then(function () {
+          appInst._netChangeModalLock = false
+        })
     } catch (e) {}
   },
 

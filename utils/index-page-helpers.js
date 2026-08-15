@@ -468,7 +468,7 @@ function getMissionDetailCacheEntry(cache, id, detailType) {
 
 // 缓存 schema 版本：每次 mission 数据结构有破坏性变化时 bump 一下，
 // shouldReuseMissionDetailCache 会校验，旧版本缓存自动失效。
-const MISSION_DETAIL_CACHE_SCHEMA = 'v2-multicore'
+const MISSION_DETAIL_CACHE_SCHEMA = 'v3-langpack-en'
 
 function setMissionDetailCacheEntry(cache, id, detailType, mission, options = {}) {
   if (!mission || typeof mission !== 'object') return cache && typeof cache === 'object' && !Array.isArray(cache) ? { ...cache } : {}

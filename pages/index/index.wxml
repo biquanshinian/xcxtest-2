@@ -10,6 +10,13 @@
     <view class="mission-rocket-slot">
       <image class="mission-rocket-image" wx:if="{{item.rocketImage}}" src="{{item.rocketImage}}" mode="aspectFill" lazy-load="{{index > 1}}" binderror="onImageError" data-index="{{index}}"></image>
       <view wx:else class="mission-rocket-image mission-rocket-image--placeholder"></view>
+      <view class="mission-card-pano" wx:if="{{item && item.hasOrbitPano}}" aria-label="环绕全景">
+        <view class="mission-card-pano-orbit"></view>
+        <view class="mission-card-pano-orbit mission-card-pano-orbit--tilt"></view>
+        <view class="mission-card-pano-core">
+          <text class="mission-card-pano-360">360</text>
+        </view>
+      </view>
       <view class="mission-rocket-countdown" wx:if="{{item.showRocketCountdown && item.cardCountdown && !item.cardCountdown.isExpired}}">
         <view class="countdown-display countdown-display--tech countdown-display--mission-card">
           <view class="countdown-item countdown-item--tech">
@@ -291,7 +298,13 @@
           <view class="mission-info">
             <view class="info-item">
               <text class="info-label">运载火箭</text>
-              <text class="info-value" user-select="{{true}}">{{launchData.rocketName || ''}}</text>
+              <view class="info-value info-value--with-jump">
+                <text user-select="{{true}}">{{launchData.rocketName || ''}}</text>
+                <view class="info-jump-btn" wx:if="{{launchData.rocketConfigId}}" catchtap="onGoRocketModelDetail">
+                  <text>详情</text>
+                  <text class="info-jump-arrow">›</text>
+                </view>
+              </view>
             </view>
 
             <!-- 可回收任务（含回收信息待确认） -->
@@ -306,9 +319,9 @@
                   </view>
                 </view>
               </view>
-              <view class="info-item">
+              <view class="info-item info-item--recovery">
                 <text class="info-label">回收地点</text>
-                <view class="info-value">
+                <view class="info-value info-value--recovery">
                   <view class="recovery-icon-name recovery-place-inline">
                     <image class="recovery-icon recovery-icon--mono recovery-icon--bolz" src="{{launchData.boosterInfo.landingTypeIcon}}" mode="aspectFit" wx:if="{{launchData.boosterInfo && launchData.boosterInfo.landingTypeIcon && launchData.boosterInfo.landingType === 'ASDS'}}"></image>
                     <image class="recovery-icon {{launchData.boosterInfo.landingTypeIconStatus === 'failure' ? '' : 'recovery-icon--mono'}}" src="{{launchData.boosterInfo.landingTypeIcon}}" mode="aspectFit" wx:elif="{{launchData.boosterInfo && launchData.boosterInfo.landingTypeIcon}}"></image>
@@ -666,7 +679,7 @@
   <!-- 会员到期续费提醒：串行在太空简报弹窗之后，避免叠层 -->
   <renewal-reminder id="renewalReminder" bind:closed="onRenewalClosed" />
 
-  <!-- 发射时间变更：分包 shared；DEV 自动预览；正式仅当天、多任务取最近 NET -->
+  <!-- 发射时间变更：分包 shared；正式仅冷启动弹一次，未发射的改期每次冷启动都提醒 -->
   <net-change-modal id="netChangeModal" />
 
   <!-- 开屏动画：index-extra 组件（wxml/wxss 不占主包） -->
@@ -690,6 +703,7 @@
     bind:skip="onSplashSkipTap"
     bind:missiontap="onSplashMissionTap"
     bind:agencylogoload="onSplashAgencyLogoLoad"
+    bind:agencylogoerror="onSplashAgencyLogoError"
   />
 
   <!-- 分享面板：index-extra 组件 -->

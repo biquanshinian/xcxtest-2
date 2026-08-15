@@ -151,18 +151,19 @@ function buildPageHeaderProfiles(url, accept) {
     { ...base },
     { ...base, Referer: 'https://www.google.com/' }
   ]
-  // RSS/XML 请求追加「诚实的阅读器 UA」：机房 IP+浏览器 UA 组合易被 Cloudflare 判伪装，
-  // 已知 RSS 抓取器 UA 反而常被 WAF 规则放行
-  if (/rss|xml/i.test(String(accept || ''))) {
-    profiles.push(
+  // RSS：阅读器 UA 放最前。机房 IP + 浏览器 UA 易被 Cloudflare 判伪装，
+  // Feedly/Inoreader 反而常被 WAF 放行；失败再回退浏览器头
+  if (/rss|xml|atom/i.test(String(accept || ''))) {
+    return [
       { ...base, 'User-Agent': 'Feedly/1.0 (+http://www.feedly.com/fetcher.html; like FeedFetcher-Google)' },
-      { ...base, 'User-Agent': 'Mozilla/5.0 (compatible; inoreader.com; 1 subscribers)' }
-    )
+      { ...base, 'User-Agent': 'Mozilla/5.0 (compatible; inoreader.com; 1 subscribers)' },
+      ...profiles
+    ]
   }
   return profiles
 }
 
-function fetchTextOnce(urlStr, { accept, headers } = {}, redirectDepth = 0) {
+function fetchTextOnce(urlStr, { accept, headers, timeoutMs } = {}, redirectDepth = 0) {
   return new Promise((resolve, reject) => {
     if (redirectDepth > MAX_REDIRECTS) {
       reject(new Error('抓取重定向过多'))
@@ -177,14 +178,14 @@ function fetchTextOnce(urlStr, { accept, headers } = {}, redirectDepth = 0) {
         const req = lib.get(
           url,
           {
-            timeout: 25000,
+            timeout: timeoutMs || 25000,
             headers: headers || buildPageHeaderProfiles(url, accept)[0]
           },
           (res) => {
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
               res.resume()
               const next = new URL(res.headers.location, url).toString()
-              fetchTextOnce(next, { accept, headers }, redirectDepth + 1).then(resolve, reject)
+              fetchTextOnce(next, { accept, headers, timeoutMs }, redirectDepth + 1).then(resolve, reject)
               return
             }
             if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -252,25 +253,31 @@ function fetchTextOnce(urlStr, { accept, headers } = {}, redirectDepth = 0) {
   })
 }
 
-async function fetchText(urlStr, { accept } = {}) {
+async function fetchText(urlStr, { accept, timeoutMs, maxProfiles } = {}) {
   await wechatApi.assertSafeFetchUrl(urlStr, 0)
   const url = new URL(urlStr)
   const profiles = buildPageHeaderProfiles(url, accept)
+  const list = maxProfiles > 0 ? profiles.slice(0, maxProfiles) : profiles
   let lastErr = null
-  for (const headers of profiles) {
+  for (const headers of list) {
     try {
-      return await fetchTextOnce(urlStr, { accept, headers }, 0)
+      return await fetchTextOnce(urlStr, { accept, headers, timeoutMs }, 0)
     } catch (e) {
       lastErr = e
-      // 403/429 换 header 重试；其他错误直接抛
       const sc = Number(e && e.statusCode)
+      // 无状态码 = TLS/超时/断连：换头也救不了，交给上层走 rss2json
+      if (!sc) throw e
       if (sc !== 403 && sc !== 429) throw e
     }
   }
   throw lastErr || new Error('抓取失败')
 }
 
-function parseRssItems(xml) {
+function cleanFeedLink(link) {
+  return String(link || '').replace(/\?ref=proximareport\.com.*/i, '')
+}
+
+function parseRss2Items(xml) {
   const items = []
   const re = /<item>([\s\S]*?)<\/item>/gi
   let m
@@ -291,7 +298,7 @@ function parseRssItems(xml) {
     if (!link && !title) continue
     items.push({
       title,
-      link: link.replace(/\?ref=proximareport\.com.*/i, ''),
+      link: cleanFeedLink(link),
       creator,
       pubDate,
       contentHtml: content,
@@ -299,6 +306,77 @@ function parseRssItems(xml) {
     })
   }
   return items
+}
+
+function parseAtomEntries(xml) {
+  const items = []
+  const re = /<entry>([\s\S]*?)<\/entry>/gi
+  let m
+  while ((m = re.exec(String(xml || '')))) {
+    const block = m[1]
+    const title = extractTag(block, 'title')
+    const link = extractTag(block, 'link') || extractAttr(block, 'link', 'href')
+    const creator = extractTag(block, 'name') || extractTag(block, 'author')
+    const pubDate = extractTag(block, 'updated') || extractTag(block, 'published')
+    const content =
+      extractTag(block, 'content') || extractTag(block, 'summary')
+    const media = extractAttr(block, 'media:content', 'url')
+    if (!link && !title) continue
+    items.push({
+      title,
+      link: cleanFeedLink(link),
+      creator,
+      pubDate,
+      contentHtml: content,
+      mediaUrl: media
+    })
+  }
+  return items
+}
+
+function parseRssItems(xml) {
+  const rss = parseRss2Items(xml)
+  if (rss.length) return rss
+  return parseAtomEntries(xml)
+}
+
+function looksLikeFeedUrl(s) {
+  try {
+    const u = new URL(String(s || '').trim())
+    const path = u.pathname || ''
+    return /\/(feed|rss|atom)(\/|$|\.)/i.test(path) || /\.(xml|rss|atom)(\?|$)/i.test(path)
+  } catch (e) {
+    return /\/(feed|rss|atom)(\/|$|\.)/i.test(String(s || ''))
+  }
+}
+
+/**
+ * 把官网首页 / 栏目页收成可拉的 feed。
+ * NSF 填 https://www.nasaspaceflight.com 会 500；应落到 /feed/ 或栏目 /feed/。
+ */
+function resolveRssUrl(rssUrl) {
+  const raw = String(rssUrl || '').trim()
+  if (!raw) return raw
+  if (looksLikeFeedUrl(raw)) return raw
+  try {
+    const u = new URL(raw)
+    const host = u.hostname.replace(/^www\./, '').toLowerCase()
+    const path = String(u.pathname || '').replace(/\/+$/, '')
+    const known = SITE_FEEDS[host] || []
+    if (path && path !== '/') {
+      return `${u.origin}${path}/feed/`
+    }
+    if (known[0]) return known[0]
+    return `${u.origin}/feed/`
+  } catch (e) {
+    return raw
+  }
+}
+
+function looksLikeHtmlPage(body) {
+  const s = String(body || '').slice(0, 2000)
+  if (/<rss[\s>]|<feed[\s>]|<item>|<entry>/i.test(s)) return false
+  return /<html[\s>]|<!doctype html/i.test(s)
 }
 
 function looksLikeChallengePage(body) {
@@ -348,27 +426,54 @@ async function loadRssItemsViaRss2Json(rssUrl) {
   }))
 }
 
-/**
- * 拉 RSS 条目：直连 →（403/429/挑战页）rss2json 中转
- */
-async function loadRssItems(rssUrl) {
+async function loadRssItemsFrom(rssUrl) {
+  let lastErr = null
   try {
     const xml = await fetchText(rssUrl, {
-      accept: 'application/rss+xml,application/xml,text/xml,*/*'
+      accept: 'application/rss+xml,application/xml,text/xml,application/atom+xml,*/*',
+      timeoutMs: 8000,
+      maxProfiles: 1
     })
     const items = parseRssItems(xml)
-    if (items.length) return { items, via: 'direct' }
-    if (looksLikeChallengePage(xml)) {
-      const items2 = await loadRssItemsViaRss2Json(rssUrl)
-      return { items: items2, via: 'rss2json' }
+    if (items.length) return { items, via: 'direct', rssUrl }
+    if (looksLikeChallengePage(xml) || looksLikeHtmlPage(xml)) {
+      lastErr = new Error('feed 返回了挑战页/HTML')
+    } else {
+      return { items, via: 'direct', rssUrl }
     }
-    return { items, via: 'direct' }
   } catch (e) {
-    const sc = Number(e && e.statusCode)
-    if (sc === 403 || sc === 429) {
-      console.warn('[oaFetchArticle] feed blocked HTTP', sc, '→ rss2json', rssUrl)
-      const items = await loadRssItemsViaRss2Json(rssUrl)
-      return { items, via: 'rss2json' }
+    lastErr = e
+  }
+  try {
+    const sc = Number(lastErr && lastErr.statusCode)
+    console.warn(
+      '[oaFetchArticle] feed fallback rss2json',
+      sc || (lastErr && lastErr.message) || 'unknown',
+      rssUrl
+    )
+    const items = await loadRssItemsViaRss2Json(rssUrl)
+    return { items, via: 'rss2json', rssUrl }
+  } catch (e2) {
+    const msg = (lastErr && lastErr.message) || e2.message || 'RSS 拉取失败'
+    const err = new Error(msg)
+    if (lastErr && lastErr.statusCode) err.statusCode = lastErr.statusCode
+    throw err
+  }
+}
+
+/**
+ * 拉 RSS 条目：规范化 URL → 直连（短超时）→ 任意失败走 rss2json
+ */
+async function loadRssItems(rssUrl) {
+  const raw = String(rssUrl || '').trim()
+  const resolved = resolveRssUrl(raw)
+  try {
+    return await loadRssItemsFrom(resolved)
+  } catch (e) {
+    if (resolved && raw && resolved !== raw) {
+      try {
+        return await loadRssItemsFrom(raw)
+      } catch (e2) {}
     }
     throw e
   }
@@ -538,12 +643,12 @@ async function fetchArticle(url) {
  * 拉 RSS 并按作者过滤（直连 403/429 时自动走 rss2json 中转）
  */
 async function fetchRssByAuthor({ rssUrl, authorMatch, limit = 10 }) {
-  const { items } = await loadRssItems(rssUrl)
+  const { items, via, rssUrl: usedRssUrl } = await loadRssItems(rssUrl)
   const needle = String(authorMatch || '').trim().toLowerCase()
   const filtered = needle
     ? items.filter((it) => String(it.creator || '').toLowerCase().includes(needle))
     : items
-  return filtered.slice(0, Math.min(30, Math.max(1, Number(limit) || 10))).map((it) =>
+  const articles = filtered.slice(0, Math.min(30, Math.max(1, Number(limit) || 10))).map((it) =>
     articleFromParts({
       title: it.title,
       html: it.contentHtml,
@@ -551,11 +656,16 @@ async function fetchRssByAuthor({ rssUrl, authorMatch, limit = 10 }) {
       coverHint: it.mediaUrl
     })
   )
+  articles.via = via || ''
+  articles.usedRssUrl = usedRssUrl || rssUrl
+  return articles
 }
 
 module.exports = {
   isHttpUrl,
   looksLikeLoneUrl,
+  looksLikeFeedUrl,
+  resolveRssUrl,
   normalizeArticleUrl,
   fetchArticle,
   fetchRssByAuthor,

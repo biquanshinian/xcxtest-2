@@ -28,6 +28,7 @@ Component({
     onSplashAgencyLogoLoad(e) {
       const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
       this.triggerEvent('agencylogoload', { ...ds, detail: e && e.detail })
-    }
+    },
+    onSplashAgencyLogoError(e) { this.triggerEvent('agencylogoerror', e && e.detail) }
   }
 })

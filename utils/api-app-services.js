@@ -6,7 +6,7 @@ const STARSHIP_STATUS_CACHE_KEY = '_starship_status_local_cache'
 // starshipStatus/current 由管理员编辑 + 小时级同步更新，30 分钟探测足够
 const STARSHIP_STATUS_CACHE_TTL = 30 * 60 * 1000
 
-const NSF_STARSHIP_CACHE_KEY = '_nsf_starship_checklist_local_cache_v2'
+const NSF_STARSHIP_CACHE_KEY = '_nsf_starship_checklist_local_cache_v3'
 // NSF 清单由 syncNextSpaceflightStarshipHourly 每小时同步，本地 TTL 与之对齐
 const NSF_STARSHIP_CACHE_TTL = 60 * 60 * 1000
 
@@ -535,7 +535,7 @@ async function getBoosterGenealogy(options) {
   }
 }
 
-const ROCKET_CONFIG_META_CACHE_KEY = '_rocket_config_meta'
+const ROCKET_CONFIG_META_CACHE_KEY = '_rocket_config_meta_v2'
 const ROCKET_CONFIG_META_CACHE_TTL = 30 * 60 * 1000
 
 async function getRocketConfigMeta() {

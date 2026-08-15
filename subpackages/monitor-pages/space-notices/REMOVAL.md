@@ -9,7 +9,7 @@
 
 - [ ] `utils/space-notices-feature.js`
 - [ ] `cloudfunctions/spaceNotices/` 整目录
-- [ ] `subpackages/monitor-pages/space-notices/` 整目录（含 utils/api-space-notices.js）
+- [ ] `subpackages/monitor-pages/space-notices/` 整目录（含 utils/api-space-notices.js、utils/notam-meta.js）
 - [ ] `utils/routes.js` 中 `SPACE_NOTICE_LIST` / `SPACE_NOTICE_MAP`
 - [ ] `app.json` monitor-pages 里 `space-notices/entry-list`、`space-notices/notice-map`
 - [ ] `pages/monitor/monitor.js` / `monitor.wxml` 入口相关

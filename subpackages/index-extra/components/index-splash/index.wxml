@@ -86,8 +86,9 @@
               class="splash-mission-agency-logo {{mission.agencyLogoBgTone === 'dark' ? 'agency-logo-bg--dark' : ''}} {{mission.agencyLogoBgTone === 'light' ? 'agency-logo-bg--light' : ''}}"
               src="{{mission.agencyLogo}}"
               mode="aspectFill"
-              data-logo-remote="{{mission.agencyLogo}}"
+              data-logo-remote="{{mission.agencyLogoRemote || mission.agencyLogo}}"
               bindload="onSplashAgencyLogoLoad"
+              binderror="onSplashAgencyLogoError"
             ></image>
             <text class="splash-mission-agency-name">{{mission.agencyName}}</text>
           </view>

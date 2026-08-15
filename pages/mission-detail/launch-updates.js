@@ -2,6 +2,7 @@ const pageBase = require('../../utils/page-base.js')
 const { fetchLl2LaunchUpdates } = require('../../utils/api-app-services.js')
 const { mapRawUpdatesToLaunchUpdates } = require('./utils/api-launch-detail.js')
 const { togglePageTranslation } = require('./utils/text-translate.js')
+const { hasUsableZh } = require('./utils/ll2-updates-i18n.js')
 const { ROUTES } = require('../../utils/routes.js')
 const {
   checkShareEntryGate,
@@ -155,12 +156,13 @@ Page({
         const list = res && Array.isArray(res.list) ? res.list : []
         const mapped = mapRawUpdatesToLaunchUpdates(list)
         const resolvedName = (res && res.resolvedLaunchName) || this.data.missionName
+        const zhComments = mapped.map((u) => (u && hasUsableZh(u.commentZh) ? u.commentZh : ''))
         const next = {
           loading: false,
           errorMessage: '',
           updates: mapped,
-          descTranslated: false,
-          translatedComments: []
+          descTranslated: zhComments.some(Boolean),
+          translatedComments: zhComments
         }
         if (resolvedName) {
           next.missionName = resolvedName
@@ -195,7 +197,8 @@ Page({
     const updates = Array.isArray(this.data.updates) ? this.data.updates : []
     const fields = updates.map((u, i) => ({
       path: 'translatedComments[' + i + ']',
-      text: u && u.comment
+      text: u && u.comment,
+      zh: (u && u.commentZh) || ''
     }))
     togglePageTranslation(this, {
       switchKey: 'descTranslated',

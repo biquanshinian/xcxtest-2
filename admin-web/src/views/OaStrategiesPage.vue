@@ -35,10 +35,15 @@
         <el-form-item label="名称"><el-input v-model="form.name" /></el-form-item>
         <el-form-item label="提示词 Key"><el-input v-model="form.promptKey" placeholder="rewrite_deep / create_from_data" /></el-form-item>
         <el-form-item label="排版主题">
-          <el-select v-model="form.themeId">
-            <el-option label="clean" value="clean" />
-            <el-option label="diary" value="diary" />
-            <el-option label="brief" value="brief" />
+          <el-select v-model="form.themeId" filterable style="width:100%">
+            <el-option-group v-for="cat in themeCategories" :key="cat" :label="cat">
+              <el-option
+                v-for="t in themesByCategory(cat)"
+                :key="t.id"
+                :label="t.name"
+                :value="t.id"
+              />
+            </el-option-group>
           </el-select>
         </el-form-item>
         <el-form-item label="结构逻辑"><el-input v-model="form.structureHint" type="textarea" :rows="3" /></el-form-item>
@@ -55,11 +60,12 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api/client'
 
 const list = ref([])
+const themes = ref([])
 const loading = ref(false)
 const seeding = ref(false)
 const saving = ref(false)
@@ -69,6 +75,25 @@ const form = reactive({
   key: '', name: '', promptKey: 'create_from_data', themeId: 'clean',
   structureHint: '', titleHint: '', priority: 50, enabled: true
 })
+
+const themeCategories = computed(() => {
+  const order = ['内置', '深度长文', '科技产品', '文艺随笔', '活力动态', '模板布局']
+  const present = new Set((themes.value || []).map((t) => t.category || '其他'))
+  return order.filter((c) => present.has(c)).concat(
+    [...present].filter((c) => !order.includes(c))
+  )
+})
+const themesByCategory = (cat) =>
+  (themes.value || []).filter((t) => (t.category || '其他') === cat)
+
+const loadThemes = async () => {
+  try {
+    const res = await api.listOaThemes()
+    themes.value = res?.list || []
+  } catch (e) {
+    themes.value = []
+  }
+}
 
 const load = async () => {
   loading.value = true
@@ -173,7 +198,10 @@ const onSeed = async () => {
   }
 }
 
-onMounted(load)
+onMounted(async () => {
+  await loadThemes()
+  await load()
+})
 </script>
 
 <style scoped>

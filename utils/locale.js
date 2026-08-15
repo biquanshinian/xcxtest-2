@@ -39,13 +39,45 @@ function isContentLangEn() {
 }
 
 /**
+ * 整句可用中文才展示。中英混排、朱雀误译「雀雀/麻雀」视为不可用，回退英文等云端重写。
+ * 允许残留 SpaceX / NASA / ISS / 工位代号。
+ */
+function isUsableZhText(text) {
+  const raw = String(text || '').replace(/https?:\/\/\S+/g, ' ').trim()
+  if (!raw) return false
+  if (/雀雀|麻雀|孔雀/.test(raw)) return false
+  if (!/[\u4e00-\u9fff]/.test(raw)) return false
+  const rest = raw
+    .replace(/\b(SpaceX|NASA|ESA|JAXA|Roscosmos|ULA|ISS|NROL|NRO|LEO|GTO|GEO|MEO|SSO|HEO|ASDS|RTLS|SLS|CRS|Artemis|Orion|Starlink|Transporter|Bandwagon|iQPS|QZS|NET|TBD|TBC|OCISLY|JRTI|ASOG)\b/gi, ' ')
+    .replace(/\b(?:[A-Z]{1,4}-?\d+[A-Za-z]?|B\d{3,5})\b/g, ' ')
+    .replace(/\b[A-Za-z]{1,2}\b/g, ' ')
+  const leftoverWords = rest.match(/[A-Za-z]{3,}/g) || []
+  if (leftoverWords.length >= 2) return false
+  if (leftoverWords.length === 1 && leftoverWords[0].length >= 4) return false
+  const latinLeft = (rest.match(/[A-Za-z]/g) || []).length
+  return latinLeft < 8
+}
+
+function repairZhForDisplay(text) {
+  const raw = String(text || '').trim()
+  if (!raw) return ''
+  try {
+    const { repairAerospaceZhMistranslations } = require('./mission-title-i18n.js')
+    return repairAerospaceZhMistranslations(raw) || raw
+  } catch (_) {
+    return raw.replace(/雀雀|孔雀/g, '朱雀')
+  }
+}
+
+/**
  * 按当前内容语言取值：zh 优先中文（空则回退英文）；en 优先英文（空则回退中文）。
  */
 function pickLocalized(zhVal, enVal) {
   const zh = zhVal != null ? String(zhVal).trim() : ''
   const en = enVal != null ? String(enVal).trim() : ''
   if (isContentLangEn()) return en || zh
-  return zh || en
+  const repaired = repairZhForDisplay(zh)
+  return (isUsableZhText(repaired) ? repaired : '') || en
 }
 
 /**
@@ -57,7 +89,45 @@ function zhField(item, enKey, zhKey) {
   if (!item || typeof item !== 'object') return ''
   const zhK = zhKey || (enKey + 'Zh')
   const v = item[zhK]
-  return v != null ? String(v).trim() : ''
+  const repaired = repairZhForDisplay(v != null ? String(v).trim() : '')
+  return isUsableZhText(repaired) ? repaired : ''
+}
+
+/**
+ * 首屏可用的中文展示值：只接受整句可用 *Zh，不回退英文。
+ * 缺译文时返回空串，由 WXML 继续显示原文——避免进页后再异步换成中文。
+ */
+function seedUsableZhDisplay(zh) {
+  if (isContentLangEn()) return ''
+  return pickLocalized(zh, '')
+}
+
+/**
+ * 把已有可用 *Zh 填进 descI18n，供详情页第一帧直接显示中文。
+ * fields 值为字符串或字符串数组；英文模式返回空 override。
+ */
+function seedDescI18nFields(fields) {
+  const descI18n = {}
+  let descTranslated = false
+  if (!isContentLangEn() && fields && typeof fields === 'object') {
+    Object.keys(fields).forEach((key) => {
+      const val = fields[key]
+      if (Array.isArray(val)) {
+        descI18n[key] = val.map((v) => seedUsableZhDisplay(v))
+        if (descI18n[key].some(Boolean)) descTranslated = true
+      } else {
+        descI18n[key] = seedUsableZhDisplay(val)
+        if (descI18n[key]) descTranslated = true
+      }
+    })
+  }
+  return { descI18n, descTranslated }
+}
+
+/** 用户已切回原文时，刷新不得再把 descI18n 填回中文 */
+function takeDescI18nSeed(page, fields) {
+  if (page && page._textTranslateReverted) return {}
+  return seedDescI18nFields(fields)
 }
 
 /** 发射列表卡片壳文案（角标旁「第 N 次」、未知占位等） */
@@ -103,5 +173,10 @@ module.exports = {
   isContentLangEn,
   pickLocalized,
   zhField,
+  isUsableZhText,
+  repairZhForDisplay,
+  seedUsableZhDisplay,
+  seedDescI18nFields,
+  takeDescI18nSeed,
   launchCardUiText
 }

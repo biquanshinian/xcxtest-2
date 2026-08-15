@@ -64,7 +64,7 @@ for (const page of PAGES) {
   }
   // createMapBaseState / buildMapLayoutData 注入
   if (/createMapBaseState/.test(js)) {
-    ;['loading', 'errorText', 'emptyText', 'analyticsScene', 'shareTitle', 'dataSourceText', 'dataUpdatedText', 'refreshing'].forEach((k) => dataFields.add(k))
+    ;['loading', 'errorText', 'emptyText', 'analyticsScene', 'shareTitle', 'dataSourceText', 'dataUpdatedText', 'refreshing', 'enableSatellite', 'mapSetting'].forEach((k) => dataFields.add(k))
   }
   if (/buildMapLayoutData/.test(js)) {
     ;['statusBarHeight', 'capsuleTop', 'capsuleHeight', 'menuButtonWidth', 'mapActionTop'].forEach((k) => dataFields.add(k))

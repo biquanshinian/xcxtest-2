@@ -1,5 +1,5 @@
 /**
- * 示范单测：utils/nsf-checklist-merge.js（依赖同目录 nsf-checklist-i18n.js，均无云依赖）
+ * 示范单测：utils/nsf-checklist-merge.js（只读云端 titleZh，均无云依赖）
  * 运行：node --test test/   或   npm test
  *
  * 覆盖：抓取快照(statuses) 与后台覆盖(itemOverrides) 的合并优先级、
@@ -21,7 +21,7 @@ test('后台 titleZh 覆盖优先于机翻/英文', () => {
   assert.equal(out[0].titleZhAuto, '机翻静态点火')
 })
 
-test('无 titleZh 时回退到 i18n 短语翻译', () => {
+test('无 titleZh 时用语块规则自动译成中文', () => {
   const out = mergeNsfChecklistDisplay(
     [{ id: 99, titleEn: 'Static Fire', done: false }],
     {}

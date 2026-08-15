@@ -11,8 +11,9 @@ var { getRocketImage } = require('../../../utils/util.js')
 var { getCachedMediaImage } = require('../../../utils/icon-cache.js')
 var { optimizeImageUrl } = require('../../../utils/cos-url.js')
 var { proxiedImageUrl } = require('../../../utils/ll2-image.js')
+var { pickLocalized } = require('../../../utils/locale.js')
 var { translateRocketName } = require('../../../utils/rocket-name-i18n.js')
-var { translateAgencyName } = require('../../../utils/space-terms-i18n.js')
+var { resolveAgencyDisplayZh } = require('../../../utils/launch-card-i18n.js')
 var { SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL } = require('../../../utils/agency-logo-overrides.js')
 var { resolveAgencyLogoForDisplay } = require('../../../utils/agency-logo-cache.js')
 var gallerySearch = require('./gallery-search.js')
@@ -68,49 +69,6 @@ function configOf(configId, configsMap) {
   return configsMap[String(configId)] || configsMap[configId] || null
 }
 
-/** 厂商英文名 → 中文显示名（SpaceX 品牌保留原文；不在表内的原样显示，保持数据驱动兜底） */
-var MFR_ZH_MAP = {
-  'Blue Origin': '蓝色起源',
-  'Rocket Lab': '火箭实验室',
-  'Rocket Lab Ltd': '火箭实验室',
-  'LandSpace': '蓝箭航天',
-  'CASC': '中国航天科技集团',
-  'China Aerospace Science and Technology Corporation': '中国航天科技集团',
-  'China Aerospace Science and Industry Corporation': '中国航天科工集团',
-  'CASIC': '中国航天科工集团',
-  'ExPace': '航天科工火箭（快舟）',
-  'ArianeGroup': '阿丽亚娜集团',
-  'Arianespace': '阿丽亚娜航天',
-  'Virgin Galactic': '维珍银河',
-  'Virgin Orbit': '维珍轨道',
-  'Payload Aerospace S.L.': 'PLD 航天',
-  'Mitsubishi Heavy Industries': '三菱重工',
-  'Astra Space': '阿斯特拉',
-  'Stoke Space Technologies': '斯托克航天',
-  'National Center of Space Research': '法国国家空间研究中心',
-  'EXOS Aerospace': 'EXOS 航天',
-  'iSpace': '星际荣耀',
-  'Space Pioneer': '天兵科技',
-  'Deep Blue Aerospace': '深蓝航天',
-  'Galactic Energy': '星河动力',
-  'OrienSpace': '东方空间',
-  'CAS Space': '中科宇航',
-  'United Launch Alliance': '联合发射联盟',
-  'Northrop Grumman': '诺斯罗普·格鲁曼',
-  'Firefly Aerospace': '萤火虫航天',
-  'Relativity Space': '相对论空间',
-  'Stoke Space': '斯托克航天',
-  'McDonnell Douglas': '麦克唐纳·道格拉斯',
-  'Convair': '康维尔',
-  'Orbital Sciences Corporation': '轨道科学公司',
-  'Orbital ATK': '轨道 ATK',
-  'NASA': '美国国家航空航天局',
-  'Roscosmos': '俄罗斯国家航天集团',
-  'ISRO': '印度空间研究组织',
-  'JAXA': '日本宇宙航空研究开发机构',
-  'ESA': '欧洲航天局'
-}
-
 function isSpaceXMfr(name, abbrev) {
   var n = String(name || '').toLowerCase()
   var a = String(abbrev || '').toLowerCase()
@@ -118,11 +76,11 @@ function isSpaceXMfr(name, abbrev) {
     a === 'spx' || a.indexOf('spacex') >= 0
 }
 
-/** 厂商显示名（筛选 chip / 卡片；筛选 id 仍用英文原名。SpaceX 一律显示品牌原文） */
-function mfrDisplayName(name, abbrev) {
-  if (!name && !abbrev) return ''
+/** 厂商显示名：云端 nameZh → 与任务卡同一套机构词典 → 英文。SpaceX 保持品牌原文 */
+function mfrDisplayName(name, abbrev, nameZh) {
+  if (!name && !abbrev && !nameZh) return ''
   if (isSpaceXMfr(name, abbrev)) return 'SpaceX'
-  return MFR_ZH_MAP[name] || translateAgencyName(name, abbrev || '') || name || abbrev || ''
+  return resolveAgencyDisplayZh(name, abbrev, nameZh) || pickLocalized(nameZh || '', name || '') || abbrev || ''
 }
 
 /** 卡片用发射商 logo：SpaceX 统一图；其它可由 attachManufacturerLogos 从发射商列表补全 */
@@ -247,10 +205,16 @@ function processBoosterItem(item, configsMap, options) {
   var countryCode = item.countryCode || ''
   var familyEn = item.rocketFamily || 'Unknown'
   var mfrEn = item.manufacturer || ''
-  var mfrZh = mfrDisplayName(mfrEn)
-  var familyZh = translateRocketName(familyEn) || familyEn
-  var status = normalizeBoosterStatus(item.status)
   var cfg = configOf(item.configId, configsMap)
+  var familyCloud = item.rocketFamilyZh || (cfg && (cfg.full_nameZh || cfg.nameZh)) || ''
+  var familyDict = translateRocketName(familyEn) || ''
+  var familyZh = pickLocalized(familyCloud, '') || familyDict || familyEn
+  var mfrZh = mfrDisplayName(
+    mfrEn,
+    (cfg && cfg.manufacturerAbbrev) || '',
+    item.manufacturerZh || (cfg && cfg.manufacturerNameZh) || ''
+  )
+  var status = normalizeBoosterStatus(item.status)
   var reusable = cfg ? cfg.reusable === true : item.reusable !== false
   var cfgImage = configImageOf(item.configId, familyEn, configsMap)
   var cosImage = cosRocketImageOf(familyEn)
@@ -366,12 +330,16 @@ function buildBoosterFilterChips(processed, options) {
   var hasReusable = false
   var hasExpendable = false
   var mfrCount = {}
+  var mfrLabel = {}
   for (var i = 0; i < (processed || []).length; i++) {
     var b = processed[i]
     if (b.countryCode === 'CN') hasCN = true
     if (b.reusable === true) hasReusable = true
     else hasExpendable = true
-    if (b.manufacturer) mfrCount[b.manufacturer] = (mfrCount[b.manufacturer] || 0) + 1
+    if (b.manufacturer) {
+      mfrCount[b.manufacturer] = (mfrCount[b.manufacturer] || 0) + 1
+      if (b.manufacturerDisplay) mfrLabel[b.manufacturer] = b.manufacturerDisplay
+    }
   }
 
   // 中国筛选置顶（核心特性）：即使当前无中国箭也保留入口，空态由页面提示
@@ -383,7 +351,7 @@ function buildBoosterFilterChips(processed, options) {
   for (var j = 0; j < mfrNames.length && j < maxMfrChips; j++) {
     chips.push({
       id: 'mfr:' + mfrNames[j],
-      label: mfrDisplayName(mfrNames[j]),
+      label: mfrLabel[mfrNames[j]] || mfrNames[j],
       nameEn: mfrNames[j],
       count: mfrCount[mfrNames[j]]
     })
@@ -422,12 +390,21 @@ function extraChipForFilter(filterId) {
     return { id: filterId, label: (cc.length === 2 ? countryCodeToFlag(cc) + ' ' : '') + zh }
   }
   if (filterId.indexOf('mfr:') === 0) {
-    return { id: filterId, label: mfrDisplayName(filterId.slice(4)), nameEn: filterId.slice(4) }
+    var nameEn = filterId.slice(4)
+    var label = nameEn
+    var cards = arguments[1]
+    for (var i = 0; i < (cards || []).length; i++) {
+      if (cards[i].manufacturer === nameEn && cards[i].manufacturerDisplay) {
+        label = cards[i].manufacturerDisplay
+        break
+      }
+    }
+    return { id: filterId, label: label, nameEn: nameEn }
   }
   return { id: filterId, label: filterId }
 }
 
-/** _config_meta 的 configs 映射 → 型号卡片数组（按累计着陆降序，未首飞的排后） */
+/** _config_meta 的 configs 映射 → 型号卡片数组（可复用优先，再按累计着陆/发射次数） */
 function buildModelCards(configsMap) {
   var cards = []
   var map = configsMap || {}
@@ -444,9 +421,11 @@ function buildModelCards(configsMap) {
     var nameEn = c.name || ''
     var fullEn = c.full_name || c.name || ''
     var mfrEn = c.manufacturerName || ''
-    var mfrZh = mfrDisplayName(mfrEn, c.manufacturerAbbrev || '') || mfrEn
-    var nameZh = translateRocketName(nameEn) || nameEn
-    var fullZh = translateRocketName(fullEn) || fullEn
+    var mfrZh = mfrDisplayName(mfrEn, c.manufacturerAbbrev || '', c.manufacturerNameZh || '') || mfrEn
+    var nameDict = translateRocketName(nameEn) || ''
+    var fullDict = translateRocketName(fullEn) || ''
+    var nameZh = pickLocalized(c.nameZh || '', '') || nameDict || nameEn
+    var fullZh = pickLocalized(c.full_nameZh || '', '') || fullDict || fullEn
     var reusable = c.reusable === true
     var hasFlown = !!(c.maiden_flight || (c.total_launch_count && c.total_launch_count > 0))
     var totalLaunchCount = c.total_launch_count || 0
@@ -498,6 +477,7 @@ function buildModelCards(configsMap) {
     })
   }
   cards.sort(function (a, b) {
+    if (a.reusable !== b.reusable) return a.reusable ? -1 : 1
     if (b.successfulLandings !== a.successfulLandings) return b.successfulLandings - a.successfulLandings
     return b.totalLaunchCount - a.totalLaunchCount
   })

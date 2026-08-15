@@ -271,4 +271,24 @@ const onLogin = async () => {
   font-size: 12px;
   letter-spacing: 1px;
 }
+
+@media (max-width: 768px) {
+  .login-wrap {
+    align-items: flex-end;
+    padding: 0 0 env(safe-area-inset-bottom);
+  }
+  .login-card {
+    width: 100%;
+    max-width: 100vw;
+    border-radius: 20px 20px 0 0;
+    padding: 32px 20px max(28px, env(safe-area-inset-bottom));
+  }
+  .login-form :deep(.el-input__inner) {
+    font-size: 16px;
+  }
+  .login-btn {
+    min-height: 44px;
+    width: 100%;
+  }
+}
 </style>

@@ -38,6 +38,9 @@
           </el-form-item>
         </el-form>
         <el-divider content-position="left">Next Spaceflight 清单</el-divider>
+        <p style="font-size:12px;opacity:0.65;margin:0 0 12px;">
+          抓取到的英文标题会自动译成中文。中文列仅作应急覆盖，不必每条人工改。
+        </p>
         <p v-if="nsfMeta.fetchError" style="color:var(--el-color-danger);font-size:13px;margin:0 0 12px;">
           抓取异常：{{ nsfMeta.fetchError }}
         </p>

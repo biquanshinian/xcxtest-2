@@ -126,6 +126,17 @@ function softFamilyGroups(tokenGroups) {
   return out
 }
 
+/** LL2 占位名：不能当任务 token，否则精细/模糊都会卡死（SciNews 不会写 Unknown Payload） */
+const PLACEHOLDER_TOKENS = new Set(['unknown', 'payload', 'payloads'])
+
+/** 丢掉占位 token，让线索退化为「火箭 + 日期 + 近时」 */
+function usableMatchTokens(list) {
+  return (list || []).filter((t) => {
+    const s = String(t || '').toLowerCase().trim()
+    return s && !PLACEHOLDER_TOKENS.has(s) && !/未知有效载荷/.test(s)
+  })
+}
+
 /**
  * 判断候选标题(+简介)是否匹配 clipSearch 线索，并给出分数。
  * @returns {{
@@ -135,7 +146,7 @@ function softFamilyGroups(tokenGroups) {
  */
 function scoreClipText(title, description, clipSearch) {
   const dateText = String((clipSearch && clipSearch.dateText) || '').toLowerCase()
-  const tokens = tokenVariantGroups(((clipSearch && clipSearch.tokens) || []).map((t) => String(t).toLowerCase()))
+  const tokens = tokenVariantGroups(usableMatchTokens((clipSearch && clipSearch.tokens) || []).map((t) => String(t).toLowerCase()))
   const rocketTokens = tokenVariantGroups(((clipSearch && clipSearch.rocketTokens) || []).map((t) => String(t).toLowerCase()))
   const titleLower = String(title || '').toLowerCase()
   const descLower = String(description || '').toLowerCase()
@@ -280,6 +291,7 @@ export {
   hits,
   extractFamilyStem,
   softFamilyGroups,
+  usableMatchTokens,
   scoreClipText,
   looksLikeConflictingGroupId,
   dateTextCandidates,

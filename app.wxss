@@ -717,7 +717,10 @@ button.mission-card-share-btn::before {
   display: block;
   width: 100%;
   text-align: center;
-  line-height: 1.2;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .map-page .map-action-btn.map-action-btn--active {

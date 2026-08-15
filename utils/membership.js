@@ -448,7 +448,7 @@ async function _showPurchaseDialog(productId, productName, opts) {
     itemList.push('永久购买' + (productName || meta && meta.name || '') + '（¥' + priceText + '）')
   }
   if (allowAd) {
-    itemList.push('看广告免费体验')
+    itemList.push(adUnlock.getAdUnlockActionLabel(adUnlockId) || '看广告免费体验')
   }
 
   return new Promise(function (resolve) {
@@ -483,7 +483,7 @@ function _showIOSPurchaseDialog(productName, productId, opts) {
   var allowAd = !opts || opts.allowAd !== false
   var adUnlockId = (opts && opts.adUnlockId) || productId
   var itemList = allowAd
-    ? ['看广告免费体验', '了解如何开通（其他端）']
+    ? [adUnlock.getAdUnlockActionLabel(adUnlockId), '了解如何开通（其他端）']
     : ['了解如何开通（其他端）']
   var guideIdx = allowAd ? 1 : 0
   return new Promise(function (resolve) {

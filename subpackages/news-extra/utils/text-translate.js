@@ -12,13 +12,21 @@
  * 失败项保留原文展示。
  */
 
-/** 已含足量中文的文本无需送翻。URL 不计入英文占比：中文短句带长链接不应被误判为英文 */
+/** 整句可用中文才跳过送翻。中英混排、雀雀/麻雀误译必须走混元。URL 不计入英文占比。 */
 function isMostlyChinese(text) {
-  const s = String(text || '').replace(/https?:\/\/\S+/g, ' ')
-  if (!s.trim()) return true
-  const cjk = (s.match(/[\u4e00-\u9fff]/g) || []).length
-  const latin = (s.match(/[A-Za-z]/g) || []).length
-  return cjk > 0 && cjk / (cjk + latin) >= 0.25
+  const raw = String(text || '').replace(/https?:\/\/\S+/g, ' ').trim()
+  if (!raw) return true
+  if (/雀雀|麻雀|孔雀/.test(raw)) return false
+  if (!/[\u4e00-\u9fff]/.test(raw)) return false
+  const rest = raw
+    .replace(/\b(SpaceX|NASA|ESA|JAXA|Roscosmos|ULA|ISS|NROL|NRO|LEO|GTO|GEO|MEO|SSO|HEO|ASDS|RTLS|SLS|CRS|Artemis|Orion|Starlink|Transporter|Bandwagon|iQPS|QZS|NET|TBD|TBC)\b/gi, ' ')
+    .replace(/\b(?:[A-Z]{1,4}-?\d+[A-Za-z]?|B\d{3,5})\b/g, ' ')
+    .replace(/\b[A-Za-z]{1,2}\b/g, ' ')
+  const leftoverWords = rest.match(/[A-Za-z]{3,}/g) || []
+  if (leftoverWords.length >= 2) return false
+  if (leftoverWords.length === 1 && leftoverWords[0].length >= 4) return false
+  const latinLeft = (rest.match(/[A-Za-z]/g) || []).length
+  return latinLeft < 8
 }
 
 /** 与云函数 ll2Query translateTexts 的单次上限对齐（TRANSLATE_MAX_ITEMS / TRANSLATE_MAX_TOTAL_CHARS） */
@@ -184,11 +192,12 @@ const AI_TRANSLATE_CHUNK_CHARS = 1200
 /** 多条/多段混元并发上限，避免打满配额 */
 const AI_TRANSLATE_CONCURRENCY = 3
 
-const AI_TRANSLATE_SYSTEM_PROMPT = `你是航天领域的专业中英翻译。把用户消息中的英文原文翻译成简体中文，要求：
+const AI_TRANSLATE_SYSTEM_PROMPT = `你是航天航空领域的专业中英翻译，译文必须使用中国航天报道的通行专业词汇。
 1. 只输出译文本身，不要任何解释、注释、前缀或引号
-2. 保留 SpaceX、Falcon 9、Starship、Starlink、NASA、ISS 等专有名词、机构缩写与火箭/飞船型号原文
-3. 术语准确：booster=助推器，static fire=静态点火，splashdown=溅落，payload=载荷，flyback=返场
-4. 语气自然流畅，符合中文航天报道习惯`
+2. 固定译名：OCISLY→当然我依然爱你号；JRTI→只需阅读说明号；ASOG→缺乏庄严号
+3. 型号用通行中文：Falcon 9→猎鹰9号，Zhuque-3/ZQ-3→朱雀三号（禁止「麻雀」「雀雀」「孔雀」），Starship→星舰。SpaceX、NASA、ISS、NROL 可保留原文；USSF→美国太空军
+4. 术语：booster=助推器，first/second stage=一/二级，static fire=静态点火，splashdown=溅落，payload=有效载荷，landing zone=着陆区，drone ship=无人船
+5. 整句译成中文，不要只替换个别词而留下英文句子`
 
 /**
  * 判定模型输出是否是「像样的译文」，用于挡掉英文复述 / 解释。
@@ -488,6 +497,7 @@ function togglePageTranslation(page, opts) {
     const patch = {}
     patch[switchKey] = false
     for (const f of fields) patch[f.path] = f.revert != null ? f.revert : ''
+    page._textTranslateReverted = true
     page.setData(patch)
     return Promise.resolve()
   }
@@ -500,6 +510,7 @@ function togglePageTranslation(page, opts) {
 }
 
 function _applyTranslation(page, opts) {
+  page._textTranslateReverted = false
   const switchKey = opts.switchKey
   const loadingKey = opts.loadingKey
   const fields = (opts.fields || []).filter((f) => f && f.path && String(f.text || '').trim())
@@ -509,7 +520,7 @@ function _applyTranslation(page, opts) {
   const needCloud = []
   for (const f of fields) {
     const zh = f.zh != null ? String(f.zh).trim() : ''
-    if (zh) {
+    if (zh && isMostlyChinese(zh)) {
       localPatch[f.path] = zh
     } else if (!isMostlyChinese(f.text)) {
       needCloud.push(f)

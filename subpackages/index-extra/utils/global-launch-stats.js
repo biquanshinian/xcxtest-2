@@ -14,7 +14,7 @@ const { SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL } = require('../../../utils/agen
 const { resolveAgencyLogoForDisplay } = require('../../../utils/agency-logo-cache.js')
 const { resolveAgencyLogoBgTone } = require('../../../utils/agency-logo-bg.js')
 const { getRocketImage } = require('../../../utils/util.js')
-const { translateAgencyName } = require('../../../utils/space-terms-i18n.js')
+const { pickLocalized, zhField } = require('../../../utils/locale.js')
 
 /** ISO 3166-1 alpha-3 → alpha-2（用于国旗 emoji） */
 const ISO3_TO_ALPHA2 = {
@@ -420,7 +420,7 @@ function decorateAgencyRows(rows, logoMap) {
     return {
       ...row,
       // 展示名走发射商词典（命中则中文）；row.name 保留英文供 logo 匹配
-      displayName: translateAgencyName(row.name, row.abbrev) || row.name,
+      displayName: pickLocalized(zhField(row, 'name'), row.name) || row.name,
       logo: remote ? resolveAgencyLogoForDisplay(remote) : '',
       logoRemote: remote,
       logoBgTone: remote ? resolveAgencyLogoBgTone(remote) : '',

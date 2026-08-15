@@ -94,7 +94,7 @@ assert('mars: domain not retryable', /domain[\s\S]{0,80}return false/.test(nasa)
 
 // ---- booster ----
 assert('booster: nav complete', /gateCheck/.test(bn) && /getBoosterGenealogy/.test(bn) && /BOOSTER_DETAIL/.test(bn))
-assert('booster: mission wired', /openBoosterEntityDetail\(serial\)/.test(md))
+assert('booster: mission wired', /openBoosterEntityDetail\(serial/.test(md))
 assert('booster: no PAID double gate', /PAID_ROUTE_MAP\s*=\s*\{\}/.test(routes))
 assert('booster: detail fallbacks', /serialNumber:\s*serial/.test(bd) && /getBoosterGenealogy/.test(bd))
 assert('booster: share non-sst pass', /if\s*\(!sst\)\s*return true/.test(shareGate))

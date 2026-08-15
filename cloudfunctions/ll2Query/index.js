@@ -7,9 +7,10 @@ const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const db = cloud.database()
-const { enrichSingleLaunch } = require('./ll2-translate-enrich.js')
+const { enrichSingleLaunch, repairExistingLaunchZhTitles, hasMissingLandingDescriptionZh, applyLaunchDictionariesOnly } = require('./ll2-translate-enrich.js')
 const { enrichLaunchNetRecovery } = require('./ll2-net-recovery-enrich.js')
 const { translateTextsBatch, isTmtConfigured, runTranslateDiag } = require('./translate.js')
+const { enrichLaunchUpdatesI18n, updatesNeedZh, translateUpdateComment } = require('./ll2-updates-i18n.js')
 const { createLaunchStatusStore, normalize: normalizeLaunchStatus } = require('./launch-status-store.js')
 const launchStatusStore = createLaunchStatusStore(db)
 const { createUpcomingCachePatcher } = require('./upcoming-cache-patch.js')
@@ -306,6 +307,23 @@ async function resolveLaunchIdForLl2Progress(event) {
   }
 }
 
+async function ensureLaunchUpdatesZh(list) {
+  const rows = Array.isArray(list) ? list : []
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    if (!row || !row.comment) continue
+    if (!row.commentZh) row.commentZh = translateUpdateComment(row.comment)
+  }
+  if (!updatesNeedZh(rows)) return rows
+  try {
+    await Promise.race([
+      enrichLaunchUpdatesI18n(rows, rows),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('updates_i18n_timeout')), 4000))
+    ])
+  } catch (e) {}
+  return rows
+}
+
 // ══════════════════════════════════════════════════════════════
 // Action: fetchLaunchUpdates
 // ══════════════════════════════════════════════════════════════
@@ -359,14 +377,21 @@ async function fetchLaunchUpdatesAction(event) {
               ])
             } catch (e) {}
           }
+          const missingZh = updatesNeedZh(list)
+          const zhList = await ensureLaunchUpdatesZh(list)
+          if (missingZh && zhList.some((u) => u && u.commentZh)) {
+            try {
+              await db.collection(TIMELINE_CACHE_COL).doc(updatesCacheId).update({ data: { data: zhList } })
+            } catch (e2) {}
+          }
           return {
             success: true,
             launchId,
             autoResolved: resolved.autoResolved,
             resolvedSource: resolved.resolvedSource,
             resolvedLaunchName: resolved.resolvedLaunchName,
-            totalCount: cached.totalCount || list.length,
-            list,
+            totalCount: cached.totalCount || zhList.length,
+            list: zhList,
             outcome: cachedOutcome || null,
             fromCache: true,
             cacheTier: age < UPDATES_CACHE_TTL_HOT ? 'hot' : 'cold',
@@ -389,13 +414,15 @@ async function fetchLaunchUpdatesAction(event) {
       new Promise((_, reject) => setTimeout(() => reject(new Error('LL2 updates 请求超时')), 15000))
     ])
     const results = Array.isArray(apiData && apiData.results) ? apiData.results : []
-    const list = results.map((u) => ({
-      id: u.id,
-      comment: String(u.comment || ''),
-      infoUrl: typeof u.info_url === 'string' ? u.info_url.trim() : '',
-      createdOn: u.created_on || '',
-      createdBy: String(u.created_by || '')
-    }))
+    const list = await ensureLaunchUpdatesZh(
+      results.map((u) => ({
+        id: u.id,
+        comment: String(u.comment || ''),
+        infoUrl: typeof u.info_url === 'string' ? u.info_url.trim() : '',
+        createdOn: u.created_on || '',
+        createdBy: String(u.created_by || '')
+      }))
+    )
 
     // 写入缓存
     try {
@@ -558,10 +585,16 @@ async function fetchLaunchTimelineAction(event) {
 // 终态 settle 每个热实例每任务只需一次：终态不会再变，
 // 此前每次缓存命中都 await 一轮 launch_status 读写，白白拖慢命中路径
 const _detailSettleDone = new Set()
+const _landingZhTried = new Set()
 
 function markDetailSettled(launchId) {
   if (_detailSettleDone.size > 500) _detailSettleDone.clear()
   _detailSettleDone.add(String(launchId))
+}
+
+function markLandingZhTried(launchId) {
+  if (_landingZhTried.size > 500) _landingZhTried.clear()
+  _landingZhTried.add(String(launchId))
 }
 
 function isTerminalLaunchDetail(detail) {
@@ -668,13 +701,31 @@ async function fetchLaunchDetailAction(event) {
         const doc = await db.collection('space_devs_cache').doc(detailCacheKey).get()
         const cached = doc && doc.data && doc.data.data
         if (cached && cached.data && cached.expireAt && cached.expireAt > now) {
-          // 旧缓存可能仍是 Ocean/ASDS：读出时就地 enrich，必要时回写，避免等 TTL
+          // 旧缓存可能仍是 Ocean/ASDS 或机翻错名：读出时就地 enrich，必要时只回写本条详情。
+          // 不要在这里改 upcoming 列表 nameZh（那是 syncSpaceDevsData 单写者）。
           const detail = cached.data
-          let netPatched = false
+          let cacheDirty = false
           try {
-            netPatched = !!enrichLaunchNetRecovery(detail)
+            cacheDirty = !!enrichLaunchNetRecovery(detail)
           } catch (e) {}
-          if (netPatched) {
+          try {
+            if (repairExistingLaunchZhTitles(detail)) cacheDirty = true
+          } catch (e) {}
+          try {
+            if (applyLaunchDictionariesOnly(detail)) cacheDirty = true
+          } catch (e) {}
+          try {
+            const launchKey = String(launchId)
+            if (hasMissingLandingDescriptionZh(detail) && !_landingZhTried.has(launchKey)) {
+              markLandingZhTried(launchKey)
+              await Promise.race([
+                enrichSingleLaunch(detail),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('landing_zh_timeout')), 3500))
+              ])
+              if (!hasMissingLandingDescriptionZh(detail)) cacheDirty = true
+            }
+          } catch (e) {}
+          if (cacheDirty) {
             try {
               await db
                 .collection('space_devs_cache')
@@ -803,13 +854,17 @@ async function fetchLaunchDetailAction(event) {
     if (Array.isArray(apiData.updates) && apiData.updates.length) {
       try {
         const mapped = apiData.updates
-          .map((u) => ({
-            id: u.id,
-            comment: String(u.comment || ''),
-            infoUrl: typeof u.info_url === 'string' ? u.info_url.trim() : '',
-            createdOn: u.created_on || '',
-            createdBy: String(u.created_by || '')
-          }))
+          .map((u) => {
+            const comment = String(u.comment || '')
+            return {
+              id: u.id,
+              comment,
+              commentZh: String(u.commentZh || '').trim() || translateUpdateComment(comment),
+              infoUrl: typeof u.info_url === 'string' ? u.info_url.trim() : '',
+              createdOn: u.created_on || '',
+              createdBy: String(u.created_by || '')
+            }
+          })
           .filter((u) => u.comment)
         if (mapped.length) {
           let existing = []
@@ -1053,7 +1108,19 @@ function buildPreviousStubFromLaunch(launch) {
           }
         }
       : undefined,
-    launch_service_provider: lsp ? { id: lsp.id, name: lsp.name || '', abbrev: lsp.abbrev || '' } : undefined,
+    launch_service_provider: lsp
+      ? {
+          id: lsp.id,
+          name: lsp.name || '',
+          abbrev: lsp.abbrev || '',
+          logo: lsp.logo && typeof lsp.logo === 'object'
+            ? {
+                image_url: lsp.logo.image_url || '',
+                thumbnail_url: lsp.logo.thumbnail_url || ''
+              }
+            : undefined
+        }
+      : undefined,
     pad: pad
       ? {
           name: pad.name || '',

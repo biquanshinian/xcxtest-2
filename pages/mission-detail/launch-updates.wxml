@@ -53,7 +53,7 @@
             <view class="detail-update-line detail-update-line--down {{index === updates.length - 1 ? 'detail-update-line--hidden' : ''}}"></view>
           </view>
           <view class="detail-update-main">
-            <text class="detail-update-comment" user-select="{{true}}">{{translatedComments[index] || item.comment}}</text>
+            <text class="detail-update-comment" user-select="{{true}}">{{descTranslated ? (translatedComments[index] || item.commentZh || item.comment) : item.comment}}</text>
             <view class="detail-update-meta">
               <text class="detail-update-time" wx:if="{{item.createdOnText}}">{{item.createdOnText}}</text>
               <text class="detail-update-author" wx:if="{{item.createdBy}}">{{item.createdBy}}</text>

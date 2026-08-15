@@ -67,7 +67,7 @@ Page({
     starPoints: [],
     activeWishId: '',
     activeWish: null,
-    musicPlaying: false,
+    musicPlaying: true,
     wallPage: 0,
     hasMore: true,
     loadingMore: false,
@@ -138,8 +138,15 @@ Page({
     this._bgAudio.src = 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E9%9F%B3%E9%A2%91/1776023812613_6q1kna.MP3'
     this._bgAudio.loop = true
     this._bgAudio.volume = 1
-    this._bgAudio.onError((e) => console.error('[Music] error:', e))
-    this._bgAudio.onCanplay(() => { this._audioReady = true })
+    this._bgAudio.onError((e) => {
+      console.error('[Music] error:', e)
+      if (this.data.musicPlaying) this.setData({ musicPlaying: false })
+    })
+    this._bgAudio.onCanplay(() => {
+      this._audioReady = true
+      if (this.data.musicPlaying) this._bgAudio.play()
+    })
+    this._bgAudio.play()
 
     this._restoreOrCheckWish()
     this._loadStats()

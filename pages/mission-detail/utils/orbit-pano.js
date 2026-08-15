@@ -1,9 +1,10 @@
 /**
  * orbit-pano.js（mission-detail 分包内副本）— 任务头图 Earth Studio 环绕全景
- * 点击后才挂 src，不预加载。会员 / 广告门控与设施图「环绕全景」共用。
+ * 点击后才挂 src，不预加载。会员 / 广告门控与设施图「环绕全景」共用
+ * （starbase_orbit_pano：看满 15 秒广告即可解锁，其它门控仍须看完）。
  *
- * 视频按后台「环绕全景」的火箭型号匹配（global_config.main.orbitPanoItems），无内置片源。
- * 同型号后续任务都显示，不绑单次发射、不过期。
+ * 视频按后台 orbitPanoItems 匹配：默认同型号常驻；猎鹰 9 / 重型再对齐发射场。
+ * 这两款若本次不回收，不展示 360（片源是发射→回收轨迹）。
  * 过审总闸 enableOrbitPano（failClosed）：读不到配置 / 显式 false 则不展示、不播放、不进播放页。
  *
  * 注意：progress-extra 另有一份播放器副本（设施图同样只读后台配置）。
@@ -14,31 +15,12 @@ const { toCdnUrl, videoSnapshotUrl } = require('../../../utils/cos-url.js')
 const { isPlaybackAllowed, isOrbitPanoEnabled, getCachedMainConfig } = require('../../../utils/feature-flags.js')
 const { gateCheck } = require('../../../utils/membership.js')
 const { ROUTES } = require('../../../utils/routes.js')
-const { matchOrbitPanoRocket } = require('../../../utils/rocket-name-i18n.js')
+const { pickOrbitPanoItem } = require('../../../utils/rocket-name-i18n.js')
 
 const ORBIT_PANO_GATE_ID = 'starbase_orbit_pano'
 const ORBIT_PANO_GATE_NAME = '环绕全景'
 
 let _busy = false
-
-function matchOrbitPanoItem(item, mission) {
-  if (!item || item.enabled === false) return false
-  const videoUrl = String(item.videoUrl || item.mediaUrl || '').trim()
-  if (!videoUrl) return false
-  // 只按火箭型号匹配（中英同源，如 Long March 10B ↔ 长征十号乙）
-  if (matchOrbitPanoRocket(item.rocketName, mission)) return true
-  if (item.rocketName) return false
-  const mid = String(mission.id || mission.launchId || '').trim()
-  return !!(item.launchId && mid && String(item.launchId).trim() === mid)
-}
-
-function pickOrbitPanoItem(items, mission) {
-  if (!mission || !Array.isArray(items)) return null
-  for (let i = 0; i < items.length; i++) {
-    if (matchOrbitPanoItem(items[i], mission)) return items[i]
-  }
-  return null
-}
 
 /**
  * @param {object} mission

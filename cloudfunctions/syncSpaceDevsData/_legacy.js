@@ -6,6 +6,32 @@ const COS = require('cos-nodejs-sdk-v5')
 const voteRoundsFromUpdates = require('./vote-rounds-from-updates.js')
 const outcomeVoteSettle = require('./outcome-vote-settle.js')
 const { enrichApiDataForTranslation, enrichSingleLaunch, enrichEventsList } = require('./ll2-translate-enrich.js')
+const { translateAgencyName, isAgencyNameResolved } = require('./agency-name-i18n.js')
+const { translateRocketName } = require('./rocket-name-i18n.js')
+const { translateSpacecraftName, translateSpacecraftType, translateAgencyType, translateCountryName } = require('./space-terms-i18n.js')
+
+function resolveAgencyNameZh(name, abbrev, existing) {
+  if (existing && /[\u4e00-\u9fff]/.test(String(existing))) return String(existing).trim()
+  if (!isAgencyNameResolved(name, abbrev)) return ''
+  return translateAgencyName(name, abbrev) || ''
+}
+
+function slimAgencyType(type) {
+  if (!type || typeof type !== 'object') return type || null
+  return Object.assign({}, type, {
+    nameZh: type.nameZh || translateAgencyType(type.name) || ''
+  })
+}
+
+function slimAgencyCountries(list) {
+  if (!Array.isArray(list)) return []
+  return list.map((c) => {
+    if (!c || typeof c !== 'object') return c
+    return Object.assign({}, c, {
+      nameZh: c.nameZh || translateCountryName(c.name) || ''
+    })
+  })
+}
 const { slimLaunchUpdates, splitLaunchUpdatesIntoTimelineCache } = require('./split-launch-updates-cache.js')
 
 cloud.init({
@@ -423,7 +449,18 @@ function slimLaunch(launch) {
     weather_concerns: launch.weather_concerns,
     mission: missionSlim,
     payload_flights: payload_flights_slim || undefined,
-    launch_service_provider: provider ? { id: provider.id, name: provider.name, abbrev: provider.abbrev, country_code: provider.country_code || slimCountryCode(provider.country) || null } : null,
+    launch_service_provider: provider ? {
+      id: provider.id,
+      name: provider.name,
+      abbrev: provider.abbrev,
+      country_code: provider.country_code || slimCountryCode(provider.country) || null,
+      logo: provider.logo && typeof provider.logo === 'object'
+        ? {
+            image_url: provider.logo.image_url || '',
+            thumbnail_url: provider.logo.thumbnail_url || ''
+          }
+        : undefined
+    } : null,
     rocket: rocketCfg ? {
       // reusable：LL2 构型级可复用标记（长十乙网系回收等中国火箭无 stage 级着陆数据，靠它判定「可回收」）——_v5 起保留
       configuration: {
@@ -1414,10 +1451,11 @@ function slimAgencyListItem(a) {
     id: a.id,
     url: a.url || '',
     name: a.name || '',
+    nameZh: resolveAgencyNameZh(a.name, a.abbrev, a.nameZh),
     abbrev: a.abbrev || '',
-    type: a.type || null,
+    type: slimAgencyType(a.type),
     featured: !!a.featured,
-    country: a.country || [],
+    country: slimAgencyCountries(a.country),
     description: a.description || '',
     administrator: a.administrator || null,
     founding_year: a.founding_year || null,
@@ -1592,7 +1630,7 @@ async function syncAgencies() {
  * 注意 LL2 2.3.0 的 launcher_list 是「火箭构型」列表（带 name/full_name/variant），
  * 不是箭实体（无 serial_number/launcher_config 嵌套）。
  */
-const AGENCY_SLIM_SCHEMA = 2
+const AGENCY_SLIM_SCHEMA = 3
 function slimAgencyDetail(a) {
   if (!a || a.id == null) return null
   function slimImage(img) {
@@ -1609,7 +1647,9 @@ function slimAgencyDetail(a) {
     return {
       id: l.id,
       name: l.name || '',
+      nameZh: l.nameZh || translateRocketName(l.name || '') || '',
       full_name: l.full_name || '',
+      full_nameZh: l.full_nameZh || translateRocketName(l.full_name || '') || '',
       variant: l.variant || '',
       active: l.active != null ? l.active : null,
       reusable: l.reusable != null ? l.reusable : null,
@@ -1627,10 +1667,23 @@ function slimAgencyDetail(a) {
     return {
       id: s.id,
       name: s.name || '',
+      nameZh: s.nameZh || translateSpacecraftName(s.name || '') || '',
       type: s.type || null,
-      agency: s.agency ? { id: s.agency.id, name: s.agency.name || '', abbrev: s.agency.abbrev || '' } : null,
+      typeNameZh: (s.type && s.type.nameZh) || translateSpacecraftType((s.type && s.type.name) || '') || '',
+      agency: s.agency ? {
+        id: s.agency.id,
+        name: s.agency.name || '',
+        nameZh: resolveAgencyNameZh(s.agency.name, s.agency.abbrev, s.agency.nameZh),
+        abbrev: s.agency.abbrev || ''
+      } : null,
       family: Array.isArray(s.family)
-        ? s.family.slice(0, 1).map(function (f) { return { id: f && f.id, name: (f && f.name) || '' } })
+        ? s.family.slice(0, 1).map(function (f) {
+          return {
+            id: f && f.id,
+            name: (f && f.name) || '',
+            nameZh: (f && f.nameZh) || translateSpacecraftName((f && f.name) || '') || ''
+          }
+        })
         : [],
       in_use: !!s.in_use,
       image: slimImage(s.image),
@@ -1667,16 +1720,21 @@ function slimAgencyDetail(a) {
     id: a.id,
     url: a.url || '',
     name: a.name || '',
+    nameZh: resolveAgencyNameZh(a.name, a.abbrev, a.nameZh),
     abbrev: a.abbrev || '',
-    type: a.type || null,
+    type: slimAgencyType(a.type),
     featured: !!a.featured,
-    country: a.country || [],
+    country: slimAgencyCountries(a.country),
     description: a.description || '',
     administrator: a.administrator || null,
     founding_year: a.founding_year || null,
     launchers: a.launchers || '',
     spacecraft: a.spacecraft || '',
-    parent: a.parent || null,
+    parent: a.parent && typeof a.parent === 'object'
+      ? Object.assign({}, a.parent, {
+        nameZh: resolveAgencyNameZh(a.parent.name, a.parent.abbrev, a.parent.nameZh)
+      })
+      : a.parent,
     image: slimImage(a.image),
     logo: slimImage(a.logo),
     social_logo: slimImage(a.social_logo),
@@ -2211,12 +2269,15 @@ function slimLauncherConfigMeta(cfg) {
   return {
     id: cfg.id,
     name: cfg.name || '',
+    nameZh: cfg.nameZh || translateRocketName(cfg.name || '') || '',
     full_name: cfg.full_name || cfg.name || '',
+    full_nameZh: cfg.full_nameZh || translateRocketName(cfg.full_name || cfg.name || '') || '',
     alias: cfg.alias || '',
     variant: cfg.variant || '',
     reusable: cfg.reusable === true,
     active: cfg.active !== false,
     manufacturerName: m.name || '',
+    manufacturerNameZh: resolveAgencyNameZh(m.name, m.abbrev, m.nameZh),
     manufacturerAbbrev: m.abbrev || '',
     countryCode: slimCountryCode(m.country) || '',
     image_url: (cfg.image && cfg.image.image_url) || '',
@@ -2957,7 +3018,9 @@ async function syncBoosterGenealogy(forceRefresh = false) {
             firstFlight: firstLaunchDate,
             lastFlight: lastLaunchDate,
             rocketFamily: rocketFamily,
+            rocketFamilyZh: translateRocketName(rocketFamily) || '',
             manufacturer: manufacturer,
+            manufacturerZh: resolveAgencyNameZh(manufacturer, '', ''),
             flightHistory: [],
             imageUrl: imageUrl,
             thumbnailUrl: thumbnailUrl,
@@ -3026,6 +3089,12 @@ async function syncBoosterGenealogy(forceRefresh = false) {
         if (cfgMeta) {
           if (cfgMeta.countryCode) b.countryCode = cfgMeta.countryCode
           if (cfgMeta.manufacturerName && !b.manufacturer) b.manufacturer = cfgMeta.manufacturerName
+          if (!b.rocketFamilyZh) {
+            b.rocketFamilyZh = cfgMeta.full_nameZh || cfgMeta.nameZh || translateRocketName(b.rocketFamily || '') || ''
+          }
+          if (!b.manufacturerZh) {
+            b.manufacturerZh = cfgMeta.manufacturerNameZh || resolveAgencyNameZh(b.manufacturer, '', '')
+          }
         }
         if (!b.countryCode) b.countryCode = FALLBACK_COUNTRY[b.manufacturer] || ''
       }

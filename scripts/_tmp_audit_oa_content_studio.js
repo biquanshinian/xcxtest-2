@@ -109,6 +109,11 @@ async function main() {
     const iAuth = gw.indexOf("if (!user) return fail(4010, '未授权或登录已过期')")
     return i > 0 && iAuth > 0 && i < iAuth
   })())
+  check('internal wash-collected before !user', (() => {
+    const i = gw.indexOf('/oa-content/internal/wash-collected')
+    const iAuth = gw.indexOf("if (!user) return fail(4010, '未授权或登录已过期')")
+    return i > 0 && iAuth > 0 && i < iAuth
+  })())
 
   const routesNeeded = [
     '/oa-content/config',
@@ -116,6 +121,7 @@ async function main() {
     '/oa-content/generate',
     '/oa-content/run-daily',
     '/oa-content/track-sources',
+    '/oa-content/track-wash',
     '/oa-content/prompts',
     '/oa-content/strategies',
     '/oa-content/drafts',
@@ -172,6 +178,7 @@ async function main() {
     'rewriteHtmlImagesForWechat',
     'enrichTopicFromUrl',
     'trackSourcesRun',
+    'washQueuedTrackJobs',
     'normalizeTrackSources',
     'oaFetch'
   ].forEach((k) => check(`studio.${k}`, studio.includes(k)))
@@ -494,7 +501,9 @@ async function main() {
   check('track internal path', /\/oa-content\/internal\/track-sources/.test(trackFn))
   check('track token header', /x-oa-internal-token/.test(trackFn))
   check('track only OA_CONTENT_INTERNAL_TOKEN', /OA_CONTENT_INTERNAL_TOKEN/.test(trackFn) && !/TOKEN_SECRET/.test(trackFn))
-  check('track timer every 6h', Array.isArray(trackCfg.triggers) && /\*\/6/.test(String(trackCfg.triggers[0]?.config || '')))
+  check('track timer every 6h', Array.isArray(trackCfg.triggers) && trackCfg.triggers.some((t) => /\*\/6/.test(String(t.config || ''))))
+  check('track washOnly path', /washOnly/.test(trackFn) && /\/oa-content\/internal\/wash-collected/.test(trackFn))
+  check('track wash timer 15m', trackCfg.triggers.some((t) => t.name === 'oaAuthorWashTimer' && /\*\/15/.test(String(t.config || ''))))
 
   console.log('\n[7b] oaFetchArticle')
   const fetchArt = read('cloudfunctions/adminGateway/oaFetchArticle.js')
@@ -566,7 +575,8 @@ async function main() {
     'listOaCollected',
     'listOaAccountArticles',
     'runOaDaily',
-    'runOaTrackSources'
+    'runOaTrackSources',
+    'runOaTrackWash'
   ].forEach((fn) => check(`api.${fn}`, client.includes(fn)))
 
   const draftsPage = read('admin-web/src/views/OaDraftsPage.vue')
@@ -598,6 +608,9 @@ async function main() {
 
   // ── 9) collector extension ──
   console.log('\n[9] collector extension')
+  if (!exists('tools/oa-collector-extension/manifest.json')) {
+    check('collector extension files', false, 'tools/oa-collector-extension missing (pre-existing)')
+  } else {
   const manifest = JSON.parse(read('tools/oa-collector-extension/manifest.json'))
   const popupJs = read('tools/oa-collector-extension/popup.js')
   const popupHtml = read('tools/oa-collector-extension/popup.html')
@@ -611,6 +624,7 @@ async function main() {
   check('popup collect latest 5', /scrapeLatestFiveFn|采集最新 5 篇/.test(popupJs) && /collect5/.test(popupHtml))
   check('popup history page hint', /历史消息/.test(popupHtml))
   check('studio verifyCollectorToken', /verifyCollectorToken|OA_COLLECTOR_TOKEN/.test(studio))
+  }
 
   // ── 10) 合规默认 ──
   console.log('\n[10] safety defaults')
@@ -920,7 +934,16 @@ async function main() {
   check('rss reader UA fallback profiles', /Feedly\/1\.0/.test(fetchSrc) && /rss\|xml/.test(fetchSrc))
   check('loadRssItems fn', /async function loadRssItems/.test(fetchSrc))
   check('rss2json proxy fallback', /api\.rss2json\.com/.test(fetchSrc) && /loadRssItemsViaRss2Json/.test(fetchSrc))
-  check('403/429 feed → rss2json', /feed blocked HTTP/.test(fetchSrc) && /rss2json/.test(fetchSrc))
+  check('any feed fail → rss2json', /feed fallback rss2json/.test(fetchSrc) && /loadRssItemsViaRss2Json/.test(fetchSrc))
+  check('resolveRssUrl + looksLikeFeedUrl', /function resolveRssUrl/.test(fetchSrc) && /function looksLikeFeedUrl/.test(fetchSrc))
+  check('atom entry parse', /function parseAtomEntries/.test(fetchSrc))
+  check('track wash queued not inline LLM', /enqueueTrackWash/.test(studioMain) && /kickTrackWash/.test(studioMain))
+  check('track wash all enabled brands', /enabledBrandKeys\(cfg\)/.test(studioMain) && /for \(const brandKey of brands\)/.test(studioMain))
+  check('track wash draft keyed by brand', /hasDraftForSource\(\{[\s\S]*?brandKey: job\.brandKey/.test(studioMain))
+  check('UI track wash all brands', /全部启用号/.test(configPage2) && /enabledBrandLabel/.test(configPage2))
+  check('track wash stale recover', /recoverStaleTrackWash/.test(studioMain) && /listTrackWashJobs/.test(studioMain))
+  check('canonicalize known track rss', /canonicalizeTrackRssUrl/.test(studioMain))
+  check('UI runOaTrackWash after ingest', /runOaTrackWash/.test(configPage2))
   check('fetchRssByAuthor uses loadRssItems', /fetchRssByAuthor[\s\S]{0,200}loadRssItems\(rssUrl\)/.test(fetchSrc))
   check('fetchFromSiteFeeds uses loadRssItems', /fetchFromSiteFeeds[\s\S]{0,200}loadRssItems\(feedUrl\)/.test(fetchSrc))
   check('UI tip mentions rss2json', /rss2json/.test(configPage2))
@@ -931,6 +954,17 @@ async function main() {
     const feeds = of2.candidateFeedsFor('https://www.nasaspaceflight.com/2026/08/launch-preview-080326/#more-114437')
     check('runtime candidate feeds nsf', feeds.length >= 3 && feeds.some((f) => /news\/spacex\/feed/.test(f)))
     check('runtime candidate feeds generic', of2.candidateFeedsFor('https://example.com/2026/08/post/').some((f) => f === 'https://example.com/feed/'))
+    check('runtime looksLikeFeedUrl rss', of2.looksLikeFeedUrl('https://proximareport.com/rss/') === true)
+    check('runtime looksLikeFeedUrl home', of2.looksLikeFeedUrl('https://www.nasaspaceflight.com') === false)
+    check(
+      'runtime resolveRssUrl nsf home',
+      /\/feed\//.test(of2.resolveRssUrl('https://www.nasaspaceflight.com'))
+    )
+    check(
+      'runtime resolveRssUrl nsf section',
+      of2.resolveRssUrl('https://www.nasaspaceflight.com/news/spacex/') ===
+        'https://www.nasaspaceflight.com/news/spacex/feed/'
+    )
     // 运行时：rss2json 中转能拿到 NSF 条目（云函数 403 时的兜底路径）
     const proxied = await of2.loadRssItemsViaRss2Json(
       'https://www.nasaspaceflight.com/news/spacex/feed/'

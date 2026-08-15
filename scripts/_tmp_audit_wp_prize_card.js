@@ -112,18 +112,19 @@ check(!/ab-view-card|ab-view-image|ab-view-meta/.test(aw), 'album.wxml 旧单卡
 check(/@import "styles\/prize-card\.wxss";/.test(ass), 'album.wxss 引入共用卡面')
 check(/\.ab-view-wrap \.pcard-shine/.test(ass), 'album.wxss 静态查看扫光')
 
-// ── 双主题反色：主题化表面全覆盖；恒深色卡面不出遮罩 ──
+// ── 双主题反色：主题化表面 + 票券卡面浅色覆盖 ──
 console.log('── 双主题反色 ──')
 const pssRaw = read(path.join(SUB, 'styles', 'prize-card.wxss'))
 const pillLight = ['SSR', 'SR', 'R', 'N'].every((t) => ass.includes('.theme-light .ab-rarity-pill--' + t))
 check(pillLight, 'album 分档胶囊四档浅色覆盖齐全')
 const cellLight = ['R', 'SR', 'SSR'].every((t) => ass.includes('.theme-light .ab-cell--' + t))
 check(cellLight && ass.includes('.theme-light .ab-cell'), 'album 网格分档描边浅色覆盖齐全')
-check(gw.indexOf('pcard') > gw.indexOf('gc-overlay') && gw.indexOf('gc-overlay') >= 0,
-  'gacha pcard 仅在深色结果遮罩内（浅色主题不糊）')
-check(aw.indexOf('pcard') > aw.indexOf('ab-overlay') && aw.indexOf('ab-overlay') >= 0,
-  'album pcard 仅在深色查看遮罩内（浅色主题不糊）')
-check(!/var\(--/.test(pssRaw), '共用卡面全字面色（双主题渲染一致，不吃 tokens 翻转）')
+check(ass.includes('.theme-light .ab-overlay'), 'album 查看遮罩有浅色覆盖')
+check(gss.includes('.theme-light .gc-overlay'), 'gacha 结果遮罩有浅色覆盖')
+check(pssRaw.includes('.theme-light .pcard') && pssRaw.includes('.theme-light .pcard-name'),
+  '共用卡面含 theme-light 反色')
+check(pssRaw.includes('.theme-light .pcard-tear-notch'), '撕裂孔对齐浅色遮罩')
+check(!/var\(--/.test(pssRaw), '共用卡面全字面色（不吃 tokens 变量）')
 
 // ── 4. 共用样式完整性 ──
 console.log('── styles/prize-card.wxss ──')

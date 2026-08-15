@@ -2,10 +2,11 @@
  * 发射列表卡中英字段包：映射时写入 _langPack，切换语言时就地套用，无需整表重拉。
  */
 
-const { isContentLangEn, launchCardUiText, zhField } = require('./locale.js')
+const { isContentLangEn, launchCardUiText, zhField, pickLocalized, isUsableZhText, seedDescI18nFields, repairZhForDisplay } = require('./locale.js')
+const { resolveLaunchMissionOverride, localizeMissionTitle } = require('./mission-title-i18n.js')
 const { translateRocketName } = require('./rocket-name-i18n.js')
-const { localizeMissionTitle, resolveLaunchMissionOverride } = require('./mission-title-i18n.js')
-const { translateLocation, translateAgencyName } = require('./space-terms-i18n.js')
+const { translateAgencyName } = require('./agency-name-i18n.js')
+const { translateLocation } = require('./space-terms-display.js')
 
 function buildLaunchSitePair(launch) {
   const pad = launch && launch.pad
@@ -14,16 +15,17 @@ function buildLaunchSitePair(launch) {
   }
   const padEn = (pad.name || '').trim()
   const locEn = (pad.location && pad.location.name) ? String(pad.location.name).trim() : ''
-  const padZh = zhField(pad, 'name') || translateLocation(padEn) || padEn
+  const padZh = zhField(pad, 'name') || translateLocation(padEn)
   const locZh = pad.location
-    ? (zhField(pad.location, 'name') || translateLocation(locEn) || locEn)
+    ? (zhField(pad.location, 'name') || translateLocation(locEn))
     : ''
   // 中文卡优先展示发射场地名（参考图：肯尼迪航天中心 / 酒泉…）
-  const padLocationZh = locZh || padZh || '未知地点'
+  // *Zh 槽禁止回填英文，展示回退交给 applyContentLang
+  const padLocationZh = locZh || padZh || ''
   const padLocationEn = locEn || padEn || 'Unknown location'
   const launchSiteZh = (padZh && locZh && padZh !== locZh)
     ? `${padZh}, ${locZh}`.trim()
-    : (padZh || locZh || '未知地点')
+    : (padZh || locZh || '')
   const launchSiteEn = (padEn && locEn && padEn !== locEn)
     ? `${padEn}, ${locEn}`.trim()
     : (padEn || locEn || 'Unknown location')
@@ -98,11 +100,85 @@ function formatHomeLaunchTimeParts(launchTime, _formatDate) {
   return { date, weekTime, full: `${date} ${weekTime}` }
 }
 
+function hasDisplayZh(text) {
+  return /[\u4e00-\u9fff]/.test(String(text || ''))
+}
+
+function hasCjkText(s) {
+  return /[\u4e00-\u9fff]/.test(String(s || ''))
+}
+
+/** 英文槽只收无汉字文本，避免把已套中文的展示字段写回 *En */
+function pickEnglishSlot(packVal, fallbacks) {
+  const list = [packVal].concat(Array.isArray(fallbacks) ? fallbacks : [])
+  for (let i = 0; i < list.length; i++) {
+    const s = String(list[i] || '').trim()
+    if (s && !hasCjkText(s)) return s
+  }
+  return ''
+}
+
+function fillZhFromDict(current, en, mapper) {
+  const repaired = repairZhForDisplay(current)
+  if (isUsableZhText(repaired)) return repaired
+  const mapped = mapper ? mapper(en) : ''
+  if (mapped && hasDisplayZh(mapped) && isUsableZhText(mapped)) return String(mapped).trim()
+  if (mapped && hasDisplayZh(mapped)) return String(mapped).trim()
+  return ''
+}
+
+/**
+ * 缺 *Zh 或假英文 *Zh 时，用与列表卡同一套词典补齐，避免详情首屏先英后中。
+ */
+function hydrateMissionLangPack(mission) {
+  if (!mission || typeof mission !== 'object') return mission
+  const pack = mission._langPack && typeof mission._langPack === 'object'
+    ? mission._langPack
+    : {}
+  const pad = mission.padDetail && typeof mission.padDetail === 'object' ? mission.padDetail : null
+  const nameEn = pickEnglishSlot(pack.nameEn, [mission.nameEn, mission.name])
+  const missionEn = pickEnglishSlot(pack.missionNameEn, [mission.missionNameEn, mission.missionName])
+  const rocketEn = pickEnglishSlot(pack.rocketNameEn, [mission.rocketNameEn, mission.rocketName])
+  const padEn = pickEnglishSlot(pack.padLocationEn, [mission.padLocationEn, mission.padLocation])
+  const siteEn = pickEnglishSlot(pack.launchSiteEn, [mission.launchSiteEn, mission.launchSite])
+  const padNameEn = pickEnglishSlot(pack.padNameEn, [pad && pad.padNameEn, pad && pad.padName])
+  const locNameEn = pickEnglishSlot(pack.locationNameEn, [pad && pad.locationNameEn, pad && pad.locationName])
+  const agencyEn = pickEnglishSlot(pack.launchAgencyEn, [mission.launchAgencyEn, mission.launchAgency])
+  const agencyAbbrev = String(mission.launchAgencyAbbrev || '').trim()
+
+  pack.nameEn = nameEn
+  pack.missionNameEn = missionEn
+  pack.rocketNameEn = rocketEn
+  pack.padLocationEn = padEn
+  pack.launchSiteEn = siteEn
+  pack.padNameEn = padNameEn
+  pack.locationNameEn = locNameEn
+  pack.launchAgencyEn = agencyEn
+
+  const rocketZh = fillZhFromDict(pack.rocketNameZh, rocketEn, translateRocketName)
+  pack.rocketNameZh = rocketZh
+  pack.nameZh = fillZhFromDict(pack.nameZh, nameEn, function (en) {
+    return localizeMissionTitle(en, rocketEn, rocketZh)
+  })
+  pack.missionNameZh = fillZhFromDict(pack.missionNameZh, missionEn, function (en) {
+    return localizeMissionTitle(en, rocketEn, rocketZh)
+  })
+  pack.padLocationZh = fillZhFromDict(pack.padLocationZh, padEn, translateLocation)
+  pack.launchSiteZh = fillZhFromDict(pack.launchSiteZh, siteEn, translateLocation)
+  pack.padNameZh = fillZhFromDict(pack.padNameZh, padNameEn, translateLocation)
+  pack.locationNameZh = fillZhFromDict(pack.locationNameZh, locNameEn, translateLocation)
+  pack.launchAgencyZh = resolveAgencyDisplayZh(agencyEn, agencyAbbrev, pack.launchAgencyZh)
+
+  mission._langPack = pack
+  return mission
+}
+
 /**
  * 将当前内容语言套到列表项展示字段（就地修改并返回同一对象）。
  */
 function applyContentLangToMission(mission) {
   if (!mission || typeof mission !== 'object') return mission
+  hydrateMissionLangPack(mission)
   const pack = mission._langPack
   const en = isContentLangEn()
   // 列表/日历缓存里可能仍粘着「未知有效载荷」；按 launch.id 覆盖到已公布载荷名
@@ -126,12 +202,16 @@ function applyContentLangToMission(mission) {
     }
   }
   if (pack) {
-    mission.rocketName = en ? pack.rocketNameEn : pack.rocketNameZh
-    mission.padLocation = en ? pack.padLocationEn : pack.padLocationZh
+    mission.rocketName = en
+      ? (pack.rocketNameEn || pack.rocketNameZh)
+      : (pack.rocketNameZh || pack.rocketNameEn)
+    mission.padLocation = en
+      ? (pack.padLocationEn || pack.padLocationZh)
+      : (pack.padLocationZh || pack.padLocationEn)
     mission.launchSite = en
-      ? (pack.launchSiteEn || pack.padLocationEn)
-      : (pack.launchSiteZh || pack.padLocationZh)
-    mission.name = en ? pack.nameEn : pack.nameZh
+      ? (pack.launchSiteEn || pack.padLocationEn || pack.launchSiteZh)
+      : (pack.launchSiteZh || pack.padLocationZh || pack.launchSiteEn)
+    mission.name = en ? (pack.nameEn || pack.nameZh) : (pack.nameZh || pack.nameEn)
     // 列表主标题只用任务段；火箭型号单独一行展示，避免「猎鹰9号 | …」下再重复火箭名
     if (en) {
       mission.missionName = pack.missionNameEn || pack.nameEn
@@ -153,88 +233,67 @@ function applyContentLangToMission(mission) {
       }
       mission.missionName = seg || fullZh || pack.nameEn
     }
-    if (en) {
-      mission.launchAgency = pack.launchAgencyEn || pack.launchAgencyZh || ''
-    } else {
-      // 词典优先：避免历史缓存把英文原名写进 launchAgencyZh（如 China Rocket Co. Ltd.）
-      const agencyDict = translateAgencyName(
-        pack.launchAgencyEn || pack.launchAgencyZh || mission.launchAgency,
-        mission.launchAgencyAbbrev
-      )
-      mission.launchAgency = agencyDict || pack.launchAgencyZh || pack.launchAgencyEn || ''
-    }
+    mission.launchAgency = en
+      ? (pack.launchAgencyEn || pack.launchAgencyZh || '')
+      : (pack.launchAgencyZh || pack.launchAgencyEn || '')
     mission.countryDisplay = en ? pack.countryDisplayEn : pack.countryDisplayZh
     const badge = en ? pack.statusBadgeTextEn : pack.statusBadgeTextZh
     mission.statusBadgeText = badge
     mission.status = badge
     mission.recoveryTagText = en ? pack.recoveryTagTextEn : pack.recoveryTagTextZh
-    // 中文：缓存可能滞后于短语/地点词典，展示前再对齐一次
-    // （USSF、文昌全称、以及纯中文误译如「麻雀」←Zhuque）
-    if (!en) {
-      if (mission.missionName) {
-        mission.missionName = localizeMissionTitle(
-          mission.missionName,
-          pack.rocketNameEn,
-          pack.rocketNameZh
-        ) || mission.missionName
-      }
-      if (mission.name) {
-        mission.name = localizeMissionTitle(
-          mission.name,
-          pack.rocketNameEn,
-          pack.rocketNameZh
-        ) || mission.name
-      }
-      if (mission.padLocation && /[A-Za-z]{3,}/.test(mission.padLocation)) {
-        mission.padLocation =
-          translateLocation(mission.padLocation) ||
-          translateLocation(pack.padLocationEn) ||
-          mission.padLocation
-      }
-      if (mission.launchSite && /[A-Za-z]{3,}/.test(mission.launchSite)) {
-        mission.launchSite =
-          translateLocation(mission.launchSite) ||
-          translateLocation(pack.launchSiteEn || pack.padLocationEn) ||
-          mission.launchSite
-      }
-      if (mission.rocketName) {
-        mission.rocketName =
-          translateRocketName(mission.rocketName) ||
-          pack.rocketNameZh ||
-          mission.rocketName
-      }
-    }
-    // 详情页发射场地块 / missionFull.name 与列表标题同源
+    // 详情页发射场地块 / missionFull.name 与列表标题同源；只读云端 *Zh
     if (mission.padDetail && typeof mission.padDetail === 'object') {
-      let padName = en
-        ? (pack.padNameEn || mission.padDetail.padName)
-        : (pack.padNameZh || mission.padDetail.padName)
-      let locationName = en
-        ? (pack.locationNameEn || mission.padDetail.locationName)
-        : (pack.locationNameZh || mission.padDetail.locationName)
-      if (!en) {
-        if (padName && /[A-Za-z]{3,}/.test(padName)) {
-          padName = translateLocation(padName) || padName
-        }
-        if (locationName && /[A-Za-z]{3,}/.test(locationName)) {
-          locationName = translateLocation(locationName) || locationName
-        }
-      }
+      const padName = en
+        ? (pack.padNameEn || pack.padNameZh || mission.padDetail.padName)
+        : (pack.padNameZh || pack.padNameEn || mission.padDetail.padName)
+      const locationName = en
+        ? (pack.locationNameEn || pack.locationNameZh || mission.padDetail.locationName)
+        : (pack.locationNameZh || pack.locationNameEn || mission.padDetail.locationName)
       mission.padDetail = Object.assign({}, mission.padDetail, {
         padName: padName || mission.padDetail.padName,
         locationName: locationName || mission.padDetail.locationName
       })
     }
     if (mission.missionFull && typeof mission.missionFull === 'object') {
-      let mfName = en
+      const mfName = en
         ? (pack.missionNameEn || pack.nameEn)
         : (pack.missionNameZh || pack.nameZh)
-      if (!en && mfName && /[A-Za-z]{3,}/.test(mfName)) {
-        mfName = localizeMissionTitle(mfName, pack.rocketNameEn, pack.rocketNameZh) || mfName
-      }
       if (mfName) {
         mission.missionFull = Object.assign({}, mission.missionFull, { name: mfName })
       }
+    }
+  }
+  if (Array.isArray(mission.boosterStages) && mission.boosterStages.length) {
+    mission.boosterStages = mission.boosterStages.map((stage) => {
+      if (!stage || typeof stage !== 'object') return stage
+      const next = {}
+      const zh = stage.landingDescriptionZh || ''
+      const enText = stage.landingDescriptionEn || ''
+      if (zh || enText) {
+        next.landingDescription = pickLocalized(zh, enText) || stage.landingDescription
+      }
+      const locZh = stage.landingLocationZh || ''
+      const locEn = stage.landingLocationEn || stage.landingLocation || ''
+      if (locZh || locEn) {
+        next.landingLocation = pickLocalized(locZh, '') || translateLocation(locEn) || locEn || stage.landingLocation
+      }
+      return Object.keys(next).length ? Object.assign({}, stage, next) : stage
+    })
+  }
+  if (mission.boosterInfo && typeof mission.boosterInfo === 'object') {
+    const infoPatch = {}
+    const infoZh = mission.boosterInfo.landingDescriptionZh || ''
+    const infoEn = mission.boosterInfo.landingDescriptionEn || ''
+    if (infoZh || infoEn) {
+      infoPatch.landingDescription = pickLocalized(infoZh, infoEn) || mission.boosterInfo.landingDescription
+    }
+    const locZh = mission.boosterInfo.landingLocationZh || ''
+    const locEn = mission.boosterInfo.landingLocationEn || mission.boosterInfo.landingLocation || ''
+    if (locZh || locEn) {
+      infoPatch.landingLocation = pickLocalized(locZh, '') || translateLocation(locEn) || locEn || mission.boosterInfo.landingLocation
+    }
+    if (Object.keys(infoPatch).length) {
+      mission.boosterInfo = Object.assign({}, mission.boosterInfo, infoPatch)
     }
   }
   if (mission.boosterInfo && mission.boosterInfo.flights >= 1) {
@@ -256,6 +315,53 @@ function applyContentLangToMission(mission) {
   return mission
 }
 
+/**
+ * 详情页长文：云端已有可用 *Zh 时第一帧写入 descI18n，按钮直接显示「原文」。
+ * 没有 *Zh 的段落保持英文原文，不进页自动机翻。
+ */
+function seedMissionDescI18n(mission) {
+  if (!mission || typeof mission !== 'object' || isContentLangEn()) {
+    return {
+      descI18n: {
+        missionDesc: '',
+        rocketDesc: '',
+        payloads: [],
+        programs: [],
+        updates: [],
+        failReason: '',
+        statusNote: '',
+        padDesc: '',
+        locDesc: '',
+        weather: ''
+      },
+      descTranslated: false
+    }
+  }
+  const mf = mission.missionFull || {}
+  const rf = mission.rocketFull || {}
+  const pad = mission.padDetail || {}
+  const payloads = Array.isArray(mission.payloadDetails) ? mission.payloadDetails : []
+  const programs = Array.isArray(mission.programInfo) ? mission.programInfo : []
+  return seedDescI18nFields({
+    missionDesc: mf.descriptionZh,
+    rocketDesc: rf.descriptionZh,
+    payloads: payloads.map((p) => (p && (p.descriptionZh || zhField(p, 'description'))) || ''),
+    programs: programs.map((p) => (p && (p.descriptionZh || zhField(p, 'description'))) || ''),
+    updates: [],
+    failReason: mission.failReasonZh,
+    statusNote: mission.statusDescriptionZh,
+    padDesc: pad.padDescriptionZh,
+    locDesc: pad.locationDescriptionZh,
+    weather: mission.weatherConcernsZh
+  })
+}
+
+/** 用户已点「原文」时，后台刷新不得再把 descI18n 填回中文 */
+function takeDescSeed(page, mission) {
+  if (page && page._textTranslateReverted) return {}
+  return seedMissionDescI18n(mission)
+}
+
 function applyContentLangToMissionList(list) {
   if (!Array.isArray(list)) return list
   for (let i = 0; i < list.length; i++) {
@@ -274,7 +380,8 @@ function buildRocketNamePair(rocketNameEn, rocketConfiguration) {
   const fromCloud = cfg
     ? (zhField(cfg, 'full_name') || zhField(cfg, 'name') || '')
     : ''
-  const zh = fromCloud || translateRocketName(en) || en
+  const fromDict = translateRocketName(en) || ''
+  const zh = fromCloud || (hasDisplayZh(fromDict) ? fromDict : '')
   return { rocketNameEn: en, rocketNameZh: zh }
 }
 
@@ -298,9 +405,17 @@ function buildTitlePair(launch, rocketNameEn, rocketNameZh) {
   const ov = resolveLaunchMissionOverride(launch && launch.id)
   let nameEn = String((launch && launch.name) || '').trim()
   let missionEn = String((launch && launch.mission && launch.mission.name) || '').trim()
-  // 云端预翻译优先；再套客户端词典/短语（顺带把机翻残留的 Falcon Heavy 等换成中文火箭名）
+  // 与详情页同一条路：云端 *Zh → localizeMissionTitle（USSF/朱雀等）→ 英文
   let nameZhFromData = zhField(launch, 'name')
   let missionZhFromData = launch && launch.mission ? zhField(launch.mission, 'name') : ''
+  if (!nameZhFromData && nameEn) {
+    const loc = localizeMissionTitle(nameEn, rocketNameEn, rocketNameZh)
+    if (isUsableZhText(loc)) nameZhFromData = loc
+  }
+  if (!missionZhFromData && missionEn) {
+    const loc = localizeMissionTitle(missionEn, rocketNameEn, rocketNameZh)
+    if (isUsableZhText(loc)) missionZhFromData = loc
+  }
 
   // 占位任务名覆盖（LL2 仍写 Unknown Payload / 旧缓存 nameZh 粘住「未知有效载荷」）
   if (ov) {
@@ -323,12 +438,8 @@ function buildTitlePair(launch, rocketNameEn, rocketNameZh) {
     missionZhFromData = ''
   }
 
-  let nameZh = localizeMissionTitle(nameZhFromData || nameEn, rocketNameEn, rocketNameZh)
-    || nameZhFromData
-    || nameEn
-  let missionZh = localizeMissionTitle(missionZhFromData || missionEn, rocketNameEn, rocketNameZh)
-    || missionZhFromData
-    || missionEn
+  let nameZh = nameZhFromData || ''
+  let missionZh = missionZhFromData || ''
 
   if (ov) {
     if (isGenericMissionTitle(missionZh)) missionZh = ov.missionNameZh
@@ -345,7 +456,7 @@ function buildTitlePair(launch, rocketNameEn, rocketNameZh) {
   // 中文标题优先完整 launch.name（含火箭|任务），与参考卡「猎鹰重型 | …」一致
   return {
     nameEn: nameEn || missionEn,
-    nameZh: nameZh || missionZh || nameEn,
+    nameZh: nameZh || missionZh,
     missionNameEn: missionEn,
     missionNameZh: missionZh
   }
@@ -364,14 +475,10 @@ function isGenericMissionTitle(s) {
   return false
 }
 
-function hasCjkText(s) {
-  return /[\u4e00-\u9fff]/.test(String(s || ''))
-}
-
 /**
  * @param {string} preferred 列表侧
- * @param {string} fallback 详情侧
- * @param {{ preferZh?: boolean }} [opts] preferZh：中文槽优先含汉字的一侧，避免未译英文盖掉列表中文
+ * @param {string} fallback 详情侧（云端 nameZh）
+ * @param {{ preferZh?: boolean }} [opts] preferZh：中文槽避免未译英文盖掉已有中文
  */
 function pickBetterMissionTitle(preferred, fallback, opts) {
   const a = String(preferred || '').trim()
@@ -380,6 +487,7 @@ function pickBetterMissionTitle(preferred, fallback, opts) {
   if (!b) return a
   const aGen = isGenericMissionTitle(a)
   const bGen = isGenericMissionTitle(b)
+  // 占位名（未知有效载荷等）不得覆盖已公布的真实译名
   if (!aGen && bGen) return a
   if (aGen && !bGen) return b
   if (opts && opts.preferZh) {
@@ -388,15 +496,16 @@ function pickBetterMissionTitle(preferred, fallback, opts) {
     // 列表已是中文、详情 *Zh 仍是英文原文 → 保留列表
     if (aZh && !bZh) return a
     if (!aZh && bZh) return b
-    // 两边都有汉字：保留列表（首屏/卡片同源，避免详情机翻回退）
-    if (aZh && bZh) return a
+    // 两边都是真实中文：以云端详情为准，译名纠偏只改云函数即可生效
+    if (aZh && bZh) return b
   }
   // 英文槽或均无汉字：详情往往更新
   return b || a
 }
 
 /**
- * 合并列表/详情 _langPack：详情覆盖机构等地名字段，但占位任务名不覆盖列表中文标题。
+ * 合并列表/详情 _langPack：详情覆盖机构、译名等云端字段；
+ * 仅当详情仍是占位/未译英文时，才用列表中文标题托底。
  */
 function mergeMissionLangPack(listPack, detailPack) {
   const base = listPack && typeof listPack === 'object' ? listPack : null
@@ -434,6 +543,14 @@ function mergeMissionLangPack(listPack, detailPack) {
   return out
 }
 
+/** 机构展示名：云端 nameZh → 与详情同一词典 → 英文 */
+function resolveAgencyDisplayZh(name, abbrev, cloudZh) {
+  const fromCloud = pickLocalized(cloudZh, '')
+  if (fromCloud) return fromCloud
+  const mapped = translateAgencyName(name, abbrev)
+  return isUsableZhText(mapped) ? mapped : ''
+}
+
 module.exports = {
   getBeijingDateParts,
   formatMissionListTime,
@@ -442,10 +559,14 @@ module.exports = {
   formatHomeLaunchTimeParts,
   applyContentLangToMission,
   applyContentLangToMissionList,
+  hydrateMissionLangPack,
+  seedMissionDescI18n,
+  takeDescSeed,
   buildRocketNamePair,
   buildTitlePair,
   buildLaunchSitePair,
   rocketNameForImage,
   isGenericMissionTitle,
-  mergeMissionLangPack
+  mergeMissionLangPack,
+  resolveAgencyDisplayZh
 }

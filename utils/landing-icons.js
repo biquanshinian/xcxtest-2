@@ -189,22 +189,39 @@ function getLandingLocationObj(ld) {
   return ld.landing_location || ld.location || null
 }
 
+function wrapLandingPlace(abbrev, displayName) {
+  const a = abbrev ? String(abbrev).trim() : ''
+  const d = displayName ? String(displayName).trim() : ''
+  if (a && d && d.toUpperCase() !== a.toUpperCase()) return `(${a}) ${d}`
+  return d || a || ''
+}
+
 /**
- * 落点展示：(LNA) 罗布泊空军实验基地
+ * 落点展示：云端 *Zh → 与任务卡同一套 translateLocation（含三艘固定船名）→ 英文。
  */
-function formatLandingPlaceLabel(abbrev, name) {
+function formatLandingPlaceParts(abbrev, name, locObj) {
   const a = abbrev ? String(abbrev).trim() : ''
   const n = name ? String(name).trim() : ''
-  let zh = ''
+  let zhName = ''
   try {
-    const { translateLocation } = require('./space-terms-i18n.js')
-    zh = translateLocation(n) || translateLocation(a) || ''
+    const { zhField } = require('./locale.js')
+    const { translateLocation } = require('./space-terms-display.js')
+    zhName = (locObj && zhField(locObj, 'name')) || translateLocation(n) || translateLocation(a) || ''
   } catch (_) {}
-  const displayName = zh || n || a
-  if (a && displayName && displayName.toUpperCase() !== a.toUpperCase()) {
-    return `(${a}) ${displayName}`
+  return {
+    en: wrapLandingPlace(a, n) || null,
+    zh: zhName ? wrapLandingPlace(a, zhName) : null
   }
-  return displayName || a || ''
+}
+
+function formatLandingPlaceLabel(abbrev, name, locObj) {
+  const parts = formatLandingPlaceParts(abbrev, name, locObj)
+  try {
+    const { pickLocalized } = require('./locale.js')
+    return pickLocalized(parts.zh, parts.en) || ''
+  } catch (_) {
+    return parts.zh || parts.en || ''
+  }
 }
 
 
@@ -445,6 +462,7 @@ module.exports = {
   refineLandingTypeWithContext,
   getLandingLocationObj,
   formatLandingPlaceLabel,
+  formatLandingPlaceParts,
   extractRecoveryIcons,
   inferNetRecoveryFromLaunch,
   isZhuque3Rocket,

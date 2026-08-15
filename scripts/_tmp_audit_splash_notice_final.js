@@ -61,7 +61,7 @@ must(
   'splash: no poison cache'
 )
 must(splash.includes('agencyLogo') && splash.includes('rocketName'), 'splash: agency/rocket')
-must(splash.includes('enrichMissionsLaunchAgencyImages'), 'splash: logo enrich')
+must(splash.includes('enrichOneMissionAgencyLogo'), 'splash: logo enrich')
 
 // ── WXML / WXSS ──
 const wxml = read('pages/index/index.wxml')

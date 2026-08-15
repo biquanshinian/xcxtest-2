@@ -51,6 +51,8 @@ function main() {
   assert(missionReplay.includes('state === \'requeued\'') || missionReplay.includes('state === "requeued"'), '失败任务可复活')
   assert(missionReplay.includes('clipSearch'), '复活/入队写 clipSearch')
   assert(missionReplay.includes('刷新') || missionReplay.includes('clipSearch,'), '复活时刷新线索')
+  assert(missionReplay.includes('hints_refreshed') || missionReplay.includes('refreshExistingClipHints'), '已有队列也会刷新线索')
+  assert(missionReplay.includes('unknown') && missionReplay.includes('payload'), '入队丢掉 Unknown Payload 占位 token')
 
   const rule = read('.cursor/rules/mission-replay-fuzzy-near-time.mdc')
   assert(rule.includes('模糊') && rule.includes('近时'), '项目规则要求模糊+近时')
@@ -106,6 +108,13 @@ function main() {
         desc: 'on 23 July 2026',
         search: { dateText: '23 July 2026', tokens: ['tianlian-2-06'], rocketTokens: ['long', 'march'] },
         expect: { ok: true, fuzzy: true }
+      },
+      {
+        name: 'Unknown Payload falls back to rocket+date',
+        title: 'Long March-7A ChinaSat 4B launch, 10 August 2026',
+        desc: '',
+        search: { dateText: '10 August 2026', tokens: ['unknown', 'payload'], rocketTokens: ['long', 'march', '7a'] },
+        expect: { ok: true }
       },
       {
         name: 'reject missing date',

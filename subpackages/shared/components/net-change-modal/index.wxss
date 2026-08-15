@@ -73,6 +73,100 @@
   to { transform: translateY(0) scale(1); opacity: 1; }
 }
 
+.ncm-backdrop {
+  position: absolute;
+  inset: 0;
+}
+
+.ncm-stack {
+  position: relative;
+  width: 100%;
+  max-width: 680rpx;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: ncmSlideUp 0.32s cubic-bezier(0.22, 0.9, 0.32, 1.1);
+}
+
+.ncm-stack .ncm-popup {
+  animation: none;
+  max-width: none;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.ncm-popup--back {
+  transform: scale(0.94);
+  opacity: 0.58;
+}
+
+.ncm-popup--active {
+  transform: scale(1);
+  opacity: 1;
+}
+
+.ncm-swiper-wrap {
+  width: 100%;
+}
+
+.ncm-swiper-wrap--hint {
+  animation: ncmSwipeHint 1.15s cubic-bezier(0.22, 1, 0.36, 1) 0.42s 1 both;
+}
+
+@keyframes ncmSwipeHint {
+  0% { transform: translateX(0); }
+  38% { transform: translateX(-56rpx); }
+  62% { transform: translateX(10rpx); }
+  80% { transform: translateX(-8rpx); }
+  100% { transform: translateX(0); }
+}
+
+.ncm-swiper {
+  width: 100%;
+  height: 820rpx;
+}
+
+.ncm-swiper--multi {
+  height: 920rpx;
+}
+
+.ncm-pager {
+  margin-top: 22rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.ncm-pager-count {
+  font-size: 22rpx;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  letter-spacing: 2rpx;
+}
+
+.ncm-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+}
+
+.ncm-dot {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  background: rgba(142, 142, 147, 0.38);
+}
+
+.ncm-dot--on {
+  width: 24rpx;
+  border-radius: 8rpx;
+  background: var(--ncm-new);
+}
+
 .ncm-glow {
   position: absolute;
   top: -200rpx;
@@ -114,32 +208,9 @@
   50% { opacity: 1; }
 }
 
-.ncm-close {
-  position: absolute;
-  top: 22rpx;
-  right: 22rpx;
-  width: 68rpx;
-  height: 68rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 34rpx;
-  background: var(--color-divider);
-  z-index: 2;
-}
-
-.ncm-close--hover { background: var(--color-divider-strong); }
-
-.ncm-close-icon {
-  font-size: 26rpx;
-  color: var(--color-text-secondary);
-  line-height: 1;
-  pointer-events: none;
-}
-
 .ncm-body {
   position: relative;
-  padding: 52rpx 44rpx 40rpx;
+  padding: 48rpx 36rpx 28rpx;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -158,7 +229,47 @@
   font-weight: 700;
   color: var(--color-text-primary);
   letter-spacing: 2rpx;
-  margin-bottom: 36rpx;
+  margin-bottom: 16rpx;
+}
+
+.ncm-dir-pill {
+  margin-bottom: 28rpx;
+  padding: 6rpx 20rpx;
+  border-radius: 999rpx;
+  font-size: 22rpx;
+  font-weight: 600;
+  letter-spacing: 2rpx;
+  line-height: 1.4;
+}
+
+.ncm-dir-pill--advance {
+  color: #07C160;
+  background: rgba(7, 193, 96, 0.12);
+}
+
+.ncm-dir-pill--delay {
+  color: #FF9500;
+  background: rgba(255, 149, 0, 0.14);
+}
+
+.theme-light .ncm-dir-pill--advance {
+  background: rgba(7, 193, 96, 0.1);
+}
+
+.theme-light .ncm-dir-pill--delay {
+  background: rgba(255, 149, 0, 0.1);
+}
+
+.ncm-popup--delay {
+  --ncm-new: #FF9500;
+  --ncm-accent: #FF9F0A;
+  --ncm-accent-soft: rgba(255, 149, 0, 0.22);
+}
+
+.ncm-popup--advance {
+  --ncm-new: #07C160;
+  --ncm-accent: #34C759;
+  --ncm-accent-soft: rgba(7, 193, 96, 0.18);
 }
 
 /* ── 英雄区：大圆火箭配置图 ── */
@@ -249,7 +360,7 @@
   border-radius: 24rpx;
   padding: 28rpx 28rpx 24rpx;
   box-sizing: border-box;
-  margin-bottom: 36rpx;
+  margin-bottom: 0;
 }
 
 .ncm-time-row {
@@ -281,7 +392,7 @@
 
 .ncm-time-node--new {
   background: var(--ncm-new);
-  box-shadow: 0 0 0 6rpx rgba(7, 193, 96, 0.22);
+  box-shadow: 0 0 0 6rpx var(--ncm-accent-soft);
 }
 
 .ncm-time-line {
@@ -289,7 +400,7 @@
   flex: 1;
   min-height: 36rpx;
   margin: 8rpx 0;
-  background: linear-gradient(180deg, rgba(142, 142, 147, 0.55), rgba(7, 193, 96, 0.75));
+  background: linear-gradient(180deg, rgba(142, 142, 147, 0.55), var(--ncm-new));
 }
 
 .ncm-time-content {
@@ -308,9 +419,9 @@
 }
 
 @keyframes ncm-new-hl {
-  0% { background: rgba(7, 193, 96, 0); }
-  40% { background: rgba(7, 193, 96, 0.12); }
-  100% { background: rgba(7, 193, 96, 0); }
+  0% { background: transparent; }
+  40% { background: var(--ncm-accent-soft); }
+  100% { background: transparent; }
 }
 
 .ncm-time-label {
@@ -372,6 +483,7 @@
 
 .ncm-btn {
   width: 100%;
+  margin-top: 20rpx;
   height: 92rpx;
   line-height: 92rpx;
   border-radius: 46rpx;

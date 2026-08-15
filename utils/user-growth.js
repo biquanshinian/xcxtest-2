@@ -63,7 +63,8 @@ const MILESTONE_TYPES = {
 // ══════════════════════════════════════════
 
 function loadPreferences() {
-  return storageCache.readSync(PREFS_STORAGE_KEY, getDefaultPreferences()) || getDefaultPreferences()
+  const prefs = storageCache.readSync(PREFS_STORAGE_KEY, getDefaultPreferences()) || getDefaultPreferences()
+  return migrateBriefingDefaultOff(prefs)
 }
 
 function warmUserPreferencesSync() {
@@ -74,7 +75,9 @@ function warmUserPreferencesAsync() {
   if (storageCache.isLoaded(PREFS_STORAGE_KEY)) {
     return Promise.resolve(loadPreferences())
   }
-  return storageCache.warmAsync(PREFS_STORAGE_KEY, getDefaultPreferences())
+  return storageCache.warmAsync(PREFS_STORAGE_KEY, getDefaultPreferences()).then(function (prefs) {
+    return migrateBriefingDefaultOff(prefs || getDefaultPreferences())
+  })
 }
 
 function getDefaultPreferences() {
@@ -84,7 +87,10 @@ function getDefaultPreferences() {
     astroEventTypes: [],
     /** 与设置页截图默认一致：未选型号/场站=全部，提前提醒 30 分钟 */
     notifyMinutes: 30,
-    briefingEnabled: true,
+    /** 每日简报弹窗：全员默认关闭，设置里手动打开后才弹 */
+    briefingEnabled: false,
+    /** 新用户默认带此标记；本地旧偏好缺此字段才走一次默认关闭迁移 */
+    briefingDefaultOffV1: true,
     /** 星舰基地封路服务号通知；false=明确退订，默认接收 */
     roadClosureAlert: true,
     /** 发射卡片等内容语言：zh（默认）| en */
@@ -94,6 +100,20 @@ function getDefaultPreferences() {
     mpReminderGrantedAt: 0,
     updatedAt: 0
   }
+}
+
+/** 旧版默认开启会写进本地/云端；升级后只迁移一次，避免全员继续自动弹窗 */
+function migrateBriefingDefaultOff(prefs) {
+  if (!prefs || typeof prefs !== 'object') return getDefaultPreferences()
+  if (prefs.briefingDefaultOffV1) return prefs
+  prefs.briefingEnabled = false
+  prefs.briefingDefaultOffV1 = true
+  // 只落本地，不改 updatedAt、不同步云端，避免覆盖另一台设备上已手动打开的新值
+  storageCache.writeMem(PREFS_STORAGE_KEY, prefs)
+  try {
+    wx.setStorage({ key: PREFS_STORAGE_KEY, data: prefs, fail: function () {} })
+  } catch (e) {}
+  return prefs
 }
 
 function savePreferences(prefs) {
@@ -128,6 +148,11 @@ function mergePreferencesFromCloud(cloudPrefs, localPrefs) {
   const local = localPrefs && typeof localPrefs === 'object' ? localPrefs : {}
   const cloud = cloudPrefs && typeof cloudPrefs === 'object' ? cloudPrefs : {}
   const merged = Object.assign({}, defaults, local, cloud)
+  // 旧云端仍可能带着历史默认 true；未带迁移标记的不回灌，避免弹窗被重新打开
+  if (cloud.briefingDefaultOffV1 == null) {
+    merged.briefingEnabled = local.briefingEnabled === true && !!local.briefingDefaultOffV1
+    merged.briefingDefaultOffV1 = true
+  }
   try {
     const locale = require('./locale.js')
     if (cloud.contentLang == null || cloud.contentLang === '') {

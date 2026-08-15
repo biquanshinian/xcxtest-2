@@ -99,29 +99,11 @@ function escapeRegExp(str) {
 }
 
 function applyStarbaseI18n(text) {
-  const raw = decodeHtmlEntities(String(text || '').trim())
-  if (!raw) return ''
-
-  const exactKey = raw.toLowerCase()
-  if (EXACT_ZH[exactKey]) return EXACT_ZH[exactKey]
-
-  let s = raw
-  for (const rule of PHRASE_RULES) {
-    const [re, rep] = rule
-    s = s.replace(re, rep)
-  }
-  return s.trim()
+  return decodeHtmlEntities(String(text || '').trim())
 }
 
 function translateMayorOrderBody(text) {
-  const raw = decodeHtmlEntities(String(text || '').trim())
-  if (!raw) return ''
-
-  let s = raw
-  for (const [en, zh] of MAYOR_ORDER_PHRASES) {
-    s = s.replace(new RegExp(escapeRegExp(en), 'gi'), zh)
-  }
-  return applyStarbaseI18n(s).trim()
+  return decodeHtmlEntities(String(text || '').trim())
 }
 
 function translateStringList(list) {

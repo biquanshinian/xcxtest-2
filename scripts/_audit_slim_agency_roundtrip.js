@@ -26,8 +26,14 @@ function loadSlimFn() {
   const end = src.indexOf(marker, start)
   if (start < 0 || end < 0) throw new Error('无法定位 slimAgencyDetail 源码')
   const snippet = src.slice(start, end)
+  const prelude = [
+    'function resolveAgencyNameZh(name, abbrev, existing) { return existing || "" }',
+    'function translateRocketName() { return "" }',
+    'function translateSpacecraftName() { return "" }',
+    'function translateSpacecraftType() { return "" }'
+  ].join('\n')
   // eslint-disable-next-line no-new-func
-  return new Function(snippet + '\nreturn slimAgencyDetail')()
+  return new Function(prelude + '\n' + snippet + '\nreturn slimAgencyDetail')()
 }
 
 const failures = []
@@ -48,7 +54,7 @@ async function main() {
     console.log('  raw KB=' + Math.round(JSON.stringify(raw).length / 1024) + ' slim KB=' + sizeKB)
 
     check('体积 <800KB', sizeKB < 800, sizeKB + 'KB')
-    check('_slimSchema=2', slim._slimSchema === 2)
+    check('_slimSchema=3', slim._slimSchema === 3)
     check('id/name 保留', slim.id === raw.id && slim.name === raw.name)
 
     // agency-detail.js formatAgencyDetail 消费的顶层字段

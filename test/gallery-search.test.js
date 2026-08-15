@@ -101,3 +101,16 @@ test('sortByFlightsOrRecent：飞行次数与最近飞行都真正换序', () =>
   assert.deepEqual(byRecent.map((r) => r.id), ['c', 'a', 'b'])
   assert.deepEqual(rows.map((r) => r.id), ['a', 'b', 'c'])
 })
+
+test('sortByFlightsOrRecent：可复用权重最高，次数只在同组内排序', () => {
+  const rows = [
+    { id: 'cz2d', reusable: false, flights: 100, lastFlight: '2024-01-01' },
+    { id: 'cz8', reusable: true, flights: 5, lastFlight: '2023-01-01' },
+    { id: 'cz10b', reusable: true, flights: 0, lastFlight: '' },
+    { id: 'cz3b', reusable: false, flights: 78, lastFlight: '2025-01-01' }
+  ]
+  const byFlights = sortByFlightsOrRecent(rows, 'flights', 'flights', 'lastFlight')
+  assert.deepEqual(byFlights.map((r) => r.id), ['cz8', 'cz10b', 'cz2d', 'cz3b'])
+  const byRecent = sortByFlightsOrRecent(rows, 'recent', 'flights', 'lastFlight')
+  assert.deepEqual(byRecent.map((r) => r.id), ['cz8', 'cz10b', 'cz3b', 'cz2d'])
+})

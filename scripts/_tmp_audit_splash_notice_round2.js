@@ -29,7 +29,7 @@ must(
   ),
   'no poison cache fallback'
 )
-must(splash.includes('enrichMissionsLaunchAgencyImages'), 'logo enrich')
+must(splash.includes('enrichOneMissionAgencyLogo'), 'logo enrich')
 must(splash.includes('agencyName: payload.agencyName'), 'hit cache agency')
 must(splash.includes('sanitizeSplashNoticeHtmlClient'), 'client sanitize')
 

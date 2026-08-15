@@ -336,6 +336,13 @@ async function main() {
 
   console.log('── 观礼通行证 ──')
   const HOUR = 3600e3
+  // 双开关：wc01 已挂靠商家且场次开关已开，但商家未获后台授权（passGrantEnabled 默认关）→ 不发证
+  const scanNoGrant = await api.scanCheckIn({ code: 'wc01', channel: 'site' }, 'user-pass-0')
+  assert('商家未获平台授权不发证（抽卡资格照常）',
+    scanNoGrant.code === 0 && scanNoGrant.data.pass === null && scanNoGrant.data.total === 1,
+    scanNoGrant.data)
+  const grantOn = await api.updateMerchantPassGrant(mid, { enabled: true }, admin)
+  assert('后台按商家开通扫码赠通行证', grantOn.code === 0, grantOn)
   const scanPass = await api.scanCheckIn({ code: 'wc01', channel: 'site' }, 'user-pass-1')
   assert('扫码发通行证（默认12h）',
     scanPass.code === 0 && scanPass.data.pass &&
@@ -382,6 +389,14 @@ async function main() {
   assert('新建场次默认关闭通行证', defaultOff.code === 0)
   const scanDefaultOff = await api.scanCheckIn({ code: 'wc05' }, 'user-pass-5')
   assert('默认关闭则扫码不发证', scanDefaultOff.code === 0 && scanDefaultOff.data.pass === null, scanDefaultOff.data)
+
+  // 平台关闭授权立即止发（invalidateGateCache 清容器缓存）；随后恢复，供后续商家自助段断言
+  const grantOff = await api.updateMerchantPassGrant(mid, { enabled: false }, admin)
+  const scanGrantOff = await api.scanCheckIn({ code: 'wc01' }, 'user-pass-6')
+  assert('平台关闭授权后立即止发',
+    grantOff.code === 0 && scanGrantOff.code === 0 && scanGrantOff.data.pass === null,
+    scanGrantOff.data)
+  await api.updateMerchantPassGrant(mid, { enabled: true }, admin)
 
   const statsPass = await api.getStats(admin, { sessionId: sid })
   assert('统计：通行证发放数', statsPass.code === 0 && statsPass.data.passGranted >= 1, statsPass.data && statsPass.data.passGranted)
@@ -475,6 +490,7 @@ async function main() {
 
   const meBeforeCreate = await api.merchantMe('boss-1')
   assert('商家中心返回名下场次', meBeforeCreate.code === 0 && meBeforeCreate.data.sessions.length === 1, meBeforeCreate.data && meBeforeCreate.data.sessions.length)
+  assert('商家中心透出平台通行证授权状态', meBeforeCreate.data.merchant.passGrantEnabled === true, meBeforeCreate.data.merchant)
 
   const meUnbound = await api.merchantMe('stranger-1')
   assert('未绑定用户查商家中心返回 4011', meUnbound.code === 4011, meUnbound)

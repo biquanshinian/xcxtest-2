@@ -180,7 +180,13 @@ function slimLaunch(launch) {
       id: provider.id,
       name: provider.name || '',
       abbrev: provider.abbrev || '',
-      type: provider.type || ''
+      type: provider.type || '',
+      logo: provider.logo && typeof provider.logo === 'object'
+        ? {
+            image_url: provider.logo.image_url || '',
+            thumbnail_url: provider.logo.thumbnail_url || ''
+          }
+        : undefined
     },
     image: launch.image && typeof launch.image === 'object'
       ? {

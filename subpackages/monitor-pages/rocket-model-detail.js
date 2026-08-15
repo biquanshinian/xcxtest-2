@@ -13,6 +13,7 @@ const { openBoosterEntityDetail } = require('./utils/booster-nav.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
 const { togglePageTranslation } = require('./utils/text-translate.js')
 const { getRocketImage } = require('../../utils/util.js')
+const { pickLocalized, isUsableZhText, takeDescI18nSeed } = require('../../utils/locale.js')
 const { translateRocketName } = require('../../utils/rocket-name-i18n.js')
 const { isFavorite, toggleFavorite, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
 
@@ -191,8 +192,10 @@ Page({
     })
     fleet.sort(function (a, b) { return b.flights - a.flights })
 
-    var nameZh = translateRocketName(cfg.name || '') || cfg.name || ''
-    var fullNameZh = translateRocketName(fullName) || fullName
+    var nameDict = translateRocketName(cfg.name || '') || ''
+    var fullDict = translateRocketName(fullName) || ''
+    var nameZh = pickLocalized(cfg.nameZh || '', '') || nameDict || (cfg.name || '')
+    var fullNameZh = pickLocalized(cfg.full_nameZh || '', '') || fullDict || fullName
     var model = {
       configId: cfg.id,
       nameEn: cfg.name || '',
@@ -206,7 +209,8 @@ Page({
       // 展示用中文名（与发射商详情页同源词典）；manufacturer 保留原文供跳转解析
       manufacturerDisplay: boosterDisplay.mfrDisplayName(
         cfg.manufacturerName || '',
-        cfg.manufacturerAbbrev || ''
+        cfg.manufacturerAbbrev || '',
+        cfg.manufacturerNameZh || ''
       ),
       countryCode: countryCode,
       countryFlag: boosterDisplay.countryCodeToFlag(countryCode),
@@ -214,8 +218,8 @@ Page({
       // 构型无图时兜底 COS 火箭配置图库（与族谱列表卡兜底链一致；查图用英文原名）
       imageUrl: cfg.cosImageUrl || cfg.image_url || cfg.thumbnail_url || getRocketImage(cfg.name || fullName) || '',
       imageCredit: cfg.imageCredit || '',
-      // 默认英文原文；预翻译中文单独携带，翻译按钮命中时本地秒切
-      description: cfg.description || cfg.descriptionZh || '',
+      // 默认英文原文；预翻译中文单独携带，首屏有 *Zh 则直接上中文
+      description: cfg.description || '',
       descriptionZh: cfg.descriptionZh || '',
       wikiUrl: cfg.wiki_url || '',
       maidenFlight: fmtDate(cfg.maiden_flight),
@@ -232,7 +236,7 @@ Page({
       : (model.reusable ? (isCN ? ' · 中国可回收火箭档案' : ' · 可回收火箭档案') : ' · 火箭型号档案')
     var displayName = model.alias || model.fullName
 
-    this.setData({
+    this.setData(Object.assign({
       loading: false,
       model: model,
       boosterCards: fleet,
@@ -240,7 +244,7 @@ Page({
       shareTitle: displayName + shareSuffix,
       isFavorited: !!(model.configId != null && isFavorite('rocket_model', model.configId)),
       favAnimate: false
-    })
+    }, takeDescI18nSeed(this, { modelDesc: model.descriptionZh })))
   },
 
   onToggleFavorite() {

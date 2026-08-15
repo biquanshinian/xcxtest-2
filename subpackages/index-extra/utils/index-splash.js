@@ -1,27 +1,44 @@
 /**
  * subpackages/index-extra/utils/index-splash.js
  * 首页开屏动画逻辑（从 pages/index/index.js 拆出）：
- * - 开屏配置拉取（本地缓存池 + 云端 starship_splash_config，短等/长等策略不变）
+ * - 开屏配置：onLaunch 预拉（utils/splash-prefetch.js）+ 本地缓存池，首页短等即可
+ * - 弱网（none/2g/3g/weakNet）且无本地片：即刻跳过，不挡首页
  * - 展示 / 倒计时 / 跳过 / 关闭、媒体预下载
  * - 开屏视频对非会员开放（压缩预览片）；仅省流/紧急流量档时非 Pro 降级封面
  *
  * 主包 index.js 通过 require.async + attachTo 委托加载；
- * 首页在 preloadRule 中预下载 index-extra 分包。首次安装时分包未就绪的
- * 几百毫秒等待与原逻辑等云端配置的 600~2500ms 短等同量级，感知一致。
+ * app.onLaunch 预下载 index-extra，首页 preloadRule 再兜底。
  */
 const { isPlaybackAllowed } = require('../../../utils/feature-flags.js')
-const { toCdnUrl, optimizeImageUrl, carouselVideoPosterUrl } = require('../../../utils/cos-url.js')
+const {
+  SPLASH_CACHE_KEY,
+  startSplashPrefetch,
+  shouldSkipSplashForWeakNet,
+  fileExists,
+  normalizeItems,
+  resolvePlay,
+  pickSplashItem,
+  reuseSplashDownload,
+  abortSplashPrefetchDownload
+} = require('../../../utils/splash-prefetch.js')
 const { isMembershipEnabled, isProSync, getMembershipState, isPro } = require('../../../utils/membership.js')
 const { getMemberPolicy } = require('../../../utils/member-policy.js')
-const { getUpcomingMissions } = require('../../../utils/api-launch-list.js')
+const {
+  getUpcomingMissionsAny,
+  findMissionInListSnapshots,
+  peekUpcomingMissionsList
+} = require('../../../utils/api-launch-list.js')
 const { buildMissionDetailUrl } = require('../../../utils/index-mission-nav.js')
 const { fetchLaunchStatusSnapshot } = require('../../../utils/api-app-services.js')
-const { enrichMissionsLaunchAgencyImages } = require('../../../utils/upcoming-agency-logo-enrich.js')
+const { enrichOneMissionAgencyLogo, peekAgencyLogoById } = require('../../../utils/upcoming-agency-logo-enrich.js')
 const { applyLaunchAgencyLogoOverridesToMission } = require('../../../utils/agency-logo-overrides.js')
 const { resolveAgencyLogoBgTone, ensureAgencyLogoBgTone } = require('../../../utils/agency-logo-bg.js')
 const {
   persistAgencyLogoAfterRemoteLoad,
-  isRemoteAgencyLogoUrl
+  isRemoteAgencyLogoUrl,
+  getCachedAgencyLogoPath,
+  normalizeAgencyLogoCacheKey,
+  invalidateAgencyLogoCache
 } = require('../../../utils/agency-logo-cache.js')
 
 const SPLASH_NOTICE_FONTS = { default: true, yahei: true, 'yahei-bold': true }
@@ -360,19 +377,46 @@ function normalizeSplashNotice(cfg) {
   }
 }
 
+/** 开屏 logo：本地缓存优先，否则用原链（不强制 thumb，避免 CI 404 整张空白） */
+function splashLogoForDisplay(rawLogo) {
+  const raw = String(rawLogo || '').trim()
+  if (!raw) return { display: '', remote: '' }
+  if (!isRemoteAgencyLogoUrl(raw)) return { display: raw, remote: '' }
+  const key = normalizeAgencyLogoCacheKey(raw) || raw
+  const local = getCachedAgencyLogoPath(key) || getCachedAgencyLogoPath(raw)
+  return { display: local || raw, remote: raw }
+}
+
 function buildSplashMissionPayload(hit) {
   if (!hit || !hit.id) return null
   const patched = applyLaunchAgencyLogoOverridesToMission(hit) || hit
-  const agencyLogo = String(patched.launchAgencyImage || '').trim()
+  let rawLogo = String(patched.launchAgencyImage || '').trim()
+  if (!rawLogo && patched.launchAgencyId != null) {
+    rawLogo = peekAgencyLogoById(patched.launchAgencyId) || ''
+  }
+  const logo = splashLogoForDisplay(rawLogo)
   return {
     id: patched.id,
     name: patched.missionName || patched.name || '',
     launchTime: patched.launchTime,
     agencyName: String(patched.launchAgency || '').trim(),
-    agencyLogo,
-    agencyLogoBgTone: agencyLogo ? resolveAgencyLogoBgTone(agencyLogo) : '',
+    agencyLogo: logo.display,
+    agencyLogoRemote: logo.remote || rawLogo,
+    agencyLogoBgTone: rawLogo ? resolveAgencyLogoBgTone(rawLogo) : '',
     rocketName: String(patched.rocketName || patched.rocketConfiguration || '').trim()
   }
+}
+
+function warmSplashAgencyLogo(rawUrl) {
+  const raw = String(rawUrl || '').trim()
+  if (!raw || !isRemoteAgencyLogoUrl(raw)) return
+  const logo = splashLogoForDisplay(raw)
+  if (/^https?:\/\//i.test(logo.display)) {
+    try {
+      wx.getImageInfo({ src: logo.display, fail() {} })
+    } catch (e) {}
+  }
+  persistAgencyLogoAfterRemoteLoad(raw)
 }
 
 // LL2 状态：6 = In Flight（飞行中）；3/4/7/9 = 终态（成功/失败/部分失败/中止）
@@ -385,38 +429,25 @@ const SPLASH_VIDEO_MAX_SEC = 12
 const SPLASH_VIDEO_MAX_MS = SPLASH_VIDEO_MAX_SEC * 1000
 // 图片开屏：跳过倒计时固定秒数（视频则随片长自动判定，不再读后台 countdownSeconds）
 const SPLASH_IMAGE_COUNTDOWN_SEC = 5
-// 起播保障：超时强制 play；再超时则降级封面图，避免一直卡在封面上「假死」
+// 起播保障：超时强制 play；远程流再超时则直接关开屏（弱/慢网不挂封面空等）
 const SPLASH_VIDEO_FORCE_PLAY_MS = 1200
-const SPLASH_VIDEO_FALLBACK_MS = 2800
+const SPLASH_VIDEO_FALLBACK_MS = 1600
 // 元数据已就绪（流量在动、即将起播）时，把降级窗口一次性延长，慢网不误降级
 const SPLASH_VIDEO_META_EXTEND_MS = 2000
-const SPLASH_VIDEO_PREFETCH_MS = 700
+// 仅当 onLaunch 预拉已在下载同一 URL 时再短等；不再为了下载挡住开屏展示
+const SPLASH_VIDEO_PREFETCH_MS = 400
+const SPLASH_NET_PROBE_MS = 180
+const SPLASH_CFG_WAIT_CACHED_MS = 400
+const SPLASH_CFG_WAIT_COLD_MS = 800
 // isProSync 缓存过期时，短等云端会员状态确认的上限
 const SPLASH_PRO_CONFIRM_MS = 1500
 const SPLASH_VIDEO_ID = 'splash-video'
 
-// 开屏动画：本地缓存的配置 + 已下载媒体文件路径（冷启动零网络等待）
-const SPLASH_CACHE_KEY = '_splash_screen_cache'
 // 任务倒计时卡片：上次匹配命中的任务（秒显快路径，云端返回后校正）
 const SPLASH_MISSION_HIT_KEY = '_splash_mission_hit'
 
-/**
- * 旧 COS 截帧同时写死宽高会被拉伸；客户端即时改写为等比截帧（height=0），
- * 不等云端 ensure 回写也能立刻看到正确封面。
- */
-function fixSplashPosterUrl(url) {
-  if (!url || typeof url !== 'string') return ''
-  let u = url.trim()
-  if (!/ci-process=snapshot/i.test(u)) return u
-  u = u.replace(/([?&])scaletype=[^&]*/gi, '$1')
-  if (/[?&]width=\d+/i.test(u) && /[?&]height=[1-9]\d*/i.test(u)) {
-    u = u.replace(/([?&])height=[1-9]\d*/i, '$1height=0')
-  } else if (!/[?&]height=/i.test(u) && /[?&]width=\d+/i.test(u)) {
-    // 已有单边宽则可
-  }
-  // 清理可能产生的 ?& / && / 末尾多余分隔
-  u = u.replace(/\?&/g, '?').replace(/&&/g, '&').replace(/[?&]$/g, '')
-  return u
+function delayMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 const methods = {
@@ -427,93 +458,21 @@ const methods = {
       if (app._splashShownThisSession) return
       app._splashShownThisSession = true
 
-      const normalizeItems = (cfg) => {
-        if (!cfg) return []
-        // 视频预览：仅 ready 可播；processing/pending/failed 不用（防 _fast12 未生成 404）
-        // 本地缓存项往往不带 previewStatus，但若已有 previewUrl 则信任（上次 ready 时写入）
-        const pickPreviewUrl = (it, isVideoItem) => {
-          if (!isVideoItem || !it || !it.previewUrl) return ''
-          const st = String(it.previewStatus || '').trim().toLowerCase()
-          if (st && st !== 'ready') return ''
-          return toCdnUrl(String(it.previewUrl).trim())
-        }
-        if (Array.isArray(cfg.mediaItems) && cfg.mediaItems.length) {
-          return cfg.mediaItems
-            .filter((it) => it && it.mediaUrl)
-            .map((it) => {
-              // 与原逻辑一致：显式 mediaType 优先，缺省时按扩展名推断
-              const itemType = it.mediaType || (/\.(mp4|mov|m4v|webm)(\?|#|$)/i.test(it.mediaUrl) ? 'video' : 'image')
-              const isVideoItem = itemType === 'video'
-              return {
-                id: String(it.id || it.mediaUrl || ''),
-                mediaType: itemType,
-                // 图片开屏全屏展示：medium 压缩（960w WebP），原图动辄数 MB
-                mediaUrl: isVideoItem ? toCdnUrl(it.mediaUrl) : optimizeImageUrl(it.mediaUrl, 'medium'),
-                previewUrl: pickPreviewUrl(it, isVideoItem),
-                posterUrl: it.posterUrl
-                  ? optimizeImageUrl(fixSplashPosterUrl(String(it.posterUrl).trim()), 'medium')
-                  : isVideoItem
-                    ? carouselVideoPosterUrl(it.mediaUrl, '')
-                    : '',
-                missionName: String(it.missionName || '').trim(),
-                launchId: String(it.launchId || '').trim()
-              }
-            })
-        }
-        // 旧单字段：仅作兜底，不算完整媒体池
-        if (cfg.mediaUrl) {
-          const isVideoCfg = cfg.mediaType === 'video'
-          return [
-            {
-              id: String(cfg.mediaUrl),
-              mediaType: cfg.mediaType || 'image',
-              mediaUrl: isVideoCfg ? toCdnUrl(cfg.mediaUrl) : optimizeImageUrl(cfg.mediaUrl, 'medium'),
-              previewUrl: pickPreviewUrl(cfg, isVideoCfg),
-              posterUrl: cfg.posterUrl
-                ? optimizeImageUrl(fixSplashPosterUrl(String(cfg.posterUrl).trim()), 'medium')
-                : isVideoCfg
-                  ? carouselVideoPosterUrl(cfg.mediaUrl, '')
-                  : '',
-              missionName: String(cfg.missionName || '').trim(),
-              launchId: String(cfg.launchId || '').trim()
-            }
-          ]
-        }
-        return []
+      const prefetch = startSplashPrefetch(app)
+      if (prefetch && prefetch.netPromise) {
+        await Promise.race([prefetch.netPromise, delayMs(SPLASH_NET_PROBE_MS)])
       }
 
-      const resolvePlay = (item) => {
-        if (!item) return null
-        const playUrl = item.previewUrl || item.mediaUrl
-        return {
-          id: item.id || '',
-          mediaType: item.mediaType || 'image',
-          mediaUrl: playUrl,
-          posterUrl: item.posterUrl || '',
-          originalUrl: item.mediaUrl,
-          playUrl,
-          missionName: item.missionName || '',
-          launchId: item.launchId || ''
-        }
+      let cached = (prefetch && prefetch.cached) || null
+      if (!cached) {
+        try {
+          cached = wx.getStorageSync(SPLASH_CACHE_KEY) || null
+        } catch (e) {}
       }
 
-      // 池子 ≥2 时：尽量不连续重复上一次，保证多轮测试能看到不同视频
-      const pickSplashItem = (list, lastId) => {
-        const arr = Array.isArray(list) ? list.filter((it) => it && it.mediaUrl) : []
-        if (!arr.length) return null
-        if (arr.length === 1) return arr[0]
-        let pool = arr
-        if (lastId) {
-          const others = arr.filter((it) => String(it.id) !== String(lastId))
-          if (others.length) pool = others
-        }
-        return pool[Math.floor(Math.random() * pool.length)]
-      }
+      // 弱网且没有可离线播放的本地片：即刻跳过，不挡首页
+      if (shouldSkipSplashForWeakNet(prefetch, cached)) return
 
-      let cached = null
-      try {
-        cached = wx.getStorageSync(SPLASH_CACHE_KEY) || null
-      } catch (e) {}
       const cachedItems = normalizeItems(cached)
       // 只有显式 mediaItems 数组才视为「完整池」；旧单条缓存不能挡住云端多视频
       const cacheHasPool = !!(
@@ -524,32 +483,30 @@ const methods = {
       )
       const lastSplashId = cached && cached.lastSplashId ? String(cached.lastSplashId) : ''
 
-      // ── 并行拉云端；有完整本地池则短等，否则多等一会再展示 ──
-      let cfg = null
-      if (wx.cloud && wx.cloud.database) {
-        const waitMs = cacheHasPool ? 600 : 2500
+      // ── 配置：优先用 onLaunch 预拉结果；有本地池则不再空等云端 ──
+      let cfg = prefetch && prefetch.cfg ? prefetch.cfg : null
+      if (!cfg && prefetch && prefetch.cfgPromise) {
+        const waitMs = cacheHasPool ? SPLASH_CFG_WAIT_CACHED_MS : SPLASH_CFG_WAIT_COLD_MS
+        try {
+          cfg = await Promise.race([prefetch.cfgPromise, delayMs(waitMs).then(() => null)])
+        } catch (e) {
+          cfg = null
+        }
+      } else if (!cfg && wx.cloud && wx.cloud.database) {
+        const waitMs = cacheHasPool ? SPLASH_CFG_WAIT_CACHED_MS : SPLASH_CFG_WAIT_COLD_MS
         try {
           const db = wx.cloud.database()
           const res = await Promise.race([
             db.collection('starship_splash_config').doc('current').get(),
-            new Promise((resolve) => setTimeout(() => resolve(null), waitMs))
+            delayMs(waitMs).then(() => null)
           ])
           cfg = res && res.data ? res.data : null
         } catch (e) {
           cfg = null
         }
-        // 短等未返回时，若本地没有完整池，再补一次较长等待
-        if (!cfg && !cacheHasPool) {
-          try {
-            const db = wx.cloud.database()
-            const res = await Promise.race([
-              db.collection('starship_splash_config').doc('current').get(),
-              new Promise((resolve) => setTimeout(() => resolve(null), 2000))
-            ])
-            cfg = res && res.data ? res.data : null
-          } catch (e) {}
-        }
       }
+
+      if (prefetch && prefetch.skip && shouldSkipSplashForWeakNet(prefetch, cached)) return
 
       const cloudItems = normalizeItems(cfg)
       // 优先云端完整池，其次本地池，最后旧单条
@@ -584,16 +541,21 @@ const methods = {
         if (imagesOnly.length) pickPool = imagesOnly
       }
 
-      const picked = pickSplashItem(pickPool, lastSplashId)
+      const prefetchPick =
+        prefetch && prefetch.picked && prefetch.picked.id
+          ? pickPool.find((it) => it && String(it.id) === String(prefetch.picked.id))
+          : null
+      const picked = prefetchPick || pickSplashItem(pickPool, lastSplashId)
       const resolved = resolvePlay(picked)
       if (!resolved) return
+      if (prefetch) prefetch.consumed = true
 
       // 配了任务：立刻预热即将发射列表（fire-and-forget），
       // 让 _showSplash 后的倒计时卡片匹配少等一整段网络往返
       // （下方会员门控 / 视频预取的 await 期间请求已在路上，withListSnapshot 会去重复用）
       if (resolved.missionName || resolved.launchId) {
         try {
-          getUpcomingMissions(20, 0).catch(() => {})
+          getUpcomingMissionsAny(20).catch(() => {})
         } catch (e) {}
       }
 
@@ -630,13 +592,13 @@ const methods = {
       }
 
       const localMap = cached && cached.localPaths && typeof cached.localPaths === 'object' ? cached.localPaths : {}
-      let src = localMap[resolved.playUrl] || ''
-      if (src) {
-        try {
-          wx.getFileSystemManager().accessSync(src)
-        } catch (e) {
-          src = ''
-        }
+      let src = ''
+      if (prefetch && prefetch.localPath && prefetch.playUrl === resolved.playUrl && fileExists(prefetch.localPath)) {
+        src = prefetch.localPath
+      }
+      if (!src) {
+        src = localMap[resolved.playUrl] || ''
+        if (src && !fileExists(src)) src = ''
       }
 
       // 视频且预览未就绪：不要硬播原片（易长时间缓冲、封面假死），本轮用封面图秒开
@@ -652,7 +614,8 @@ const methods = {
         resolved.mediaUrl = resolved.posterUrl
       }
 
-      // 有可播 https 预览时短等预取本地，降低首帧黑屏/卡住概率
+      // 预拉已在下载同一预览片：再短等一会；未开始则直接用 https 起播，不挡开屏
+      let streamingRemote = false
       if (
         splashVideoAllowed &&
         resolved.mediaType === 'video' &&
@@ -661,11 +624,25 @@ const methods = {
         /^https?:\/\//i.test(resolved.playUrl) &&
         !(resolved.originalUrl && resolved.playUrl === resolved.originalUrl)
       ) {
-        try {
-          src = (await this._prefetchSplashPlayUrl(resolved.playUrl, SPLASH_VIDEO_PREFETCH_MS)) || ''
-        } catch (e) {
-          src = ''
+        const inflight = prefetch && prefetch.playUrl === resolved.playUrl && prefetch.downloadPromise
+        if (inflight) {
+          try {
+            src = (await this._prefetchSplashPlayUrl(resolved.playUrl, SPLASH_VIDEO_PREFETCH_MS)) || ''
+          } catch (e) {
+            src = ''
+          }
         }
+        if (!src) {
+          streamingRemote = true
+          abortSplashPrefetchDownload(app)
+        }
+      }
+
+      // 会员确认 / 预拉等待期间网络变差：无本地片则仍即刻跳过
+      if (prefetch && prefetch.weakNet && !src) return
+
+      if (prefetch && prefetch.downloadPromise && prefetch.playUrl === resolved.playUrl) {
+        this._splashPrefetching = { url: resolved.playUrl, promise: prefetch.downloadPromise }
       }
 
       // 跳过倒计时：视频先按上限占位，元数据/播放进度到位后按实际片长校正；图片固定秒数
@@ -745,15 +722,22 @@ const methods = {
           posterUrl: resolved.posterUrl
         },
         cached,
-        { skipMediaDownload: !splashVideoAllowed }
+        {
+          skipMediaDownload: !splashVideoAllowed,
+          deferMediaDownload: !!(splashVideoAllowed && streamingRemote)
+        }
       )
 
-      // 若刚才短等没拿到云端，后台再拉一次补全缓存池
-      if (!cloudItems.length && wx.cloud && wx.cloud.database) {
+      // 短等没拿到云端：复用 onLaunch 预拉，避免再打一次库
+      if (!cloudItems.length) {
         try {
-          const db = wx.cloud.database()
-          const late = await db.collection('starship_splash_config').doc('current').get()
-          const lateCfg = late && late.data ? late.data : null
+          let lateCfg = prefetch && prefetch.cfg ? prefetch.cfg : null
+          if (!lateCfg && prefetch && prefetch.cfgPromise) {
+            lateCfg = await prefetch.cfgPromise.catch(() => null)
+          } else if (!lateCfg && wx.cloud && wx.cloud.database) {
+            const late = await wx.cloud.database().collection('starship_splash_config').doc('current').get()
+            lateCfg = late && late.data ? late.data : null
+          }
           const lateItems = normalizeItems(lateCfg)
           if (lateCfg && lateCfg.enabled !== false && lateItems.length) {
             const lateNotice = normalizeSplashNotice(lateCfg)
@@ -780,7 +764,10 @@ const methods = {
                 posterUrl: resolved.posterUrl
               },
               wx.getStorageSync(SPLASH_CACHE_KEY) || cached,
-              { skipMediaDownload: !splashVideoAllowed }
+              {
+                skipMediaDownload: !splashVideoAllowed,
+                deferMediaDownload: !!(splashVideoAllowed && streamingRemote)
+              }
             )
           }
         } catch (e) {}
@@ -856,6 +843,7 @@ const methods = {
     }
     this._armSplashVideoMaxGuard(mediaType)
     this._armSplashVideoPlayGuards(mediaType)
+    this._armSplashWeakNetSkip()
 
     // 运营配置了关联任务：按 launchId / 名称匹配即将发射，叠加可点击倒计时（改期自动跟踪）
     if (opts.launchId || opts.missionName) {
@@ -903,24 +891,51 @@ const methods = {
    */
   _prefetchSplashPlayUrl(playUrl, maxWaitMs) {
     const wait = Math.max(200, Number(maxWaitMs) || SPLASH_VIDEO_PREFETCH_MS)
-    const downloadPromise = new Promise((resolve) => {
-      try {
-        wx.downloadFile({
-          url: playUrl,
-          success: (res) => {
-            resolve(res && res.statusCode === 200 && res.tempFilePath ? res.tempFilePath : '')
-          },
-          fail: () => resolve('')
+    const reused = reuseSplashDownload(playUrl)
+    const downloadPromise = reused
+      ? reused
+      : new Promise((resolve) => {
+          try {
+            wx.downloadFile({
+              url: playUrl,
+              success: (res) => {
+                resolve(res && res.statusCode === 200 && res.tempFilePath ? res.tempFilePath : '')
+              },
+              fail: () => resolve('')
+            })
+          } catch (e) {
+            resolve('')
+          }
         })
-      } catch (e) {
-        resolve('')
-      }
-    })
     this._splashPrefetching = { url: playUrl, promise: downloadPromise }
-    return Promise.race([
-      downloadPromise,
-      new Promise((resolve) => setTimeout(() => resolve(''), wait))
-    ])
+    return Promise.race([downloadPromise, delayMs(wait).then(() => '')])
+  },
+
+  /** 展示中途变弱网且视频未起播：即刻关开屏，不空等封面 */
+  _armSplashWeakNetSkip() {
+    if (this._splashWeakNetHandler) return
+    const onWeak = (res) => {
+      if (!res || !res.weakNet) return
+      if (!this.data.splashVisible || this.data.splashFading) return
+      if (this.data.splashVideoReady) return
+      this.closeSplash()
+    }
+    this._splashWeakNetHandler = onWeak
+    if (typeof wx.onNetworkWeakChange === 'function') {
+      try {
+        wx.onNetworkWeakChange(onWeak)
+      } catch (e) {}
+    }
+  },
+
+  _clearSplashWeakNetSkip() {
+    const handler = this._splashWeakNetHandler
+    this._splashWeakNetHandler = null
+    if (handler && typeof wx.offNetworkWeakChange === 'function') {
+      try {
+        wx.offNetworkWeakChange(handler)
+      } catch (e) {}
+    }
   },
 
   _markSplashVideoReady() {
@@ -938,12 +953,18 @@ const methods = {
     } catch (e) {}
   },
 
-  /** 起播失败/缓冲过久：降级为封面图，按图片倒计时关闭，避免一直假死 */
+  /** 起播失败/缓冲过久：远程流直接关开屏；本地片失败才降级封面 */
   _fallbackSplashVideoToPoster() {
     if (!this.data.splashVisible || this.data.splashFading) return
     if (this.data.splashVideoReady) return
     const cfg = this.data.splashConfig || {}
     if (cfg.mediaType !== 'video') return
+    const src = String(cfg.mediaUrl || '')
+    const isLocal = src && !/^https?:\/\//i.test(src)
+    if (!isLocal) {
+      this.closeSplash()
+      return
+    }
     const poster = cfg.posterUrl || ''
     if (!poster) {
       this.closeSplash()
@@ -1111,6 +1132,100 @@ const methods = {
    * 按后台关联的 launchId / 任务名，在即将发射列表中匹配并跟踪 NET（改期自动更新倒计时）。
    * 探针确认飞行中 → 关开屏；终态 → 不挂任务卡（云端随后下架该媒体）。
    */
+  _collectSplashUpcomingLocals() {
+    const seen = {}
+    const out = []
+    const push = (list) => {
+      if (!Array.isArray(list)) return
+      for (let i = 0; i < list.length; i++) {
+        const m = list[i]
+        if (!m || m.id == null) continue
+        const id = String(m.id)
+        if (seen[id]) continue
+        seen[id] = true
+        out.push(m)
+      }
+    }
+    push(this.data && this.data.upcomingMissions)
+    try {
+      push(peekUpcomingMissionsList())
+    } catch (e) {}
+    return out
+  },
+
+  _applySplashMission(payload) {
+    if (!payload) return
+    this.setData({ splashMission: payload })
+    this._startSplashMissionTick()
+    warmSplashAgencyLogo(payload.agencyLogoRemote || payload.agencyLogo)
+  },
+
+  _persistSplashMissionHit(boundName, payload) {
+    if (!payload || !payload.id) return
+    const logo = payload.agencyLogoRemote || payload.agencyLogo || ''
+    try {
+      const prev = wx.getStorageSync(SPLASH_MISSION_HIT_KEY) || null
+      const keepLogo = logo || (prev && String(prev.id) === String(payload.id) ? prev.agencyLogo : '')
+      wx.setStorageSync(SPLASH_MISSION_HIT_KEY, {
+        configName: boundName || String(payload.name || ''),
+        id: payload.id,
+        name: payload.name,
+        launchTime: payload.launchTime,
+        agencyName: payload.agencyName,
+        agencyLogo: keepLogo,
+        rocketName: payload.rocketName,
+        savedAt: Date.now()
+      })
+    } catch (e) {}
+  },
+
+  _mergeSplashMissionLogo(payload) {
+    if (!payload) return payload
+    if (payload.agencyLogo) return payload
+    const cur = this.data.splashMission
+    if (cur && String(cur.id) === String(payload.id) && cur.agencyLogo) {
+      return {
+        ...payload,
+        agencyLogo: cur.agencyLogo,
+        agencyLogoRemote: cur.agencyLogoRemote || payload.agencyLogoRemote,
+        agencyLogoBgTone: cur.agencyLogoBgTone || payload.agencyLogoBgTone
+      }
+    }
+    try {
+      const cached = wx.getStorageSync(SPLASH_MISSION_HIT_KEY) || null
+      if (cached && String(cached.id) === String(payload.id) && cached.agencyLogo) {
+        const logo = splashLogoForDisplay(cached.agencyLogo)
+        return {
+          ...payload,
+          agencyLogo: logo.display || cached.agencyLogo,
+          agencyLogoRemote: logo.remote || cached.agencyLogo,
+          agencyLogoBgTone: payload.agencyLogoBgTone || resolveAgencyLogoBgTone(cached.agencyLogo)
+        }
+      }
+    } catch (e) {}
+    return payload
+  },
+
+  _refineSplashMissionLogo(hit) {
+    if (!hit) return
+    enrichOneMissionAgencyLogo(hit, { timeoutMs: 8000 })
+      .then((enriched) => {
+        const payload = buildSplashMissionPayload(enriched)
+        if (!payload || !this.data.splashVisible || this.data.splashFading) return
+        const cur = this.data.splashMission
+        if (!cur || String(cur.id) !== String(payload.id)) return
+        if (cur.agencyLogo === payload.agencyLogo && cur.agencyLogoBgTone === payload.agencyLogoBgTone) return
+        this.setData({
+          'splashMission.agencyLogo': payload.agencyLogo,
+          'splashMission.agencyLogoRemote': payload.agencyLogoRemote,
+          'splashMission.agencyLogoBgTone': payload.agencyLogoBgTone
+        })
+        this._persistSplashMissionHit(cur.name, { ...cur, ...payload })
+        warmSplashAgencyLogo(payload.agencyLogoRemote)
+      })
+      .catch(() => {})
+  },
+
   async _loadSplashMission(missionName, launchId) {
     const boundId = String(launchId || '').trim()
     const boundName = String(missionName || '').trim()
@@ -1131,25 +1246,55 @@ const methods = {
         const ts = new Date(cachedHit.launchTime).getTime()
         if (Number.isFinite(ts) && ts - Date.now() > SPLASH_LIVE_CHECK_WINDOW_MS) {
           const cachedLogo = cachedHit.agencyLogo || ''
-          this.setData({
-            splashMission: {
-              id: cachedHit.id,
-              name: cachedHit.name || '',
-              launchTime: cachedHit.launchTime,
-              agencyName: cachedHit.agencyName || '',
-              agencyLogo: cachedLogo,
-              agencyLogoBgTone: cachedLogo ? resolveAgencyLogoBgTone(cachedLogo) : '',
-              rocketName: cachedHit.rocketName || ''
-            }
+          const logo = splashLogoForDisplay(cachedLogo)
+          this._applySplashMission({
+            id: cachedHit.id,
+            name: cachedHit.name || '',
+            launchTime: cachedHit.launchTime,
+            agencyName: cachedHit.agencyName || '',
+            agencyLogo: logo.display || cachedLogo,
+            agencyLogoRemote: logo.remote || cachedLogo,
+            agencyLogoBgTone: cachedLogo ? resolveAgencyLogoBgTone(cachedLogo) : '',
+            rocketName: cachedHit.rocketName || ''
           })
-          this._startSplashMissionTick()
           fastShown = true
         }
       }
     } catch (e) {}
 
+    const showFromHit = (hit) => {
+      const payload = this._mergeSplashMissionLogo(buildSplashMissionPayload(hit))
+      if (!payload) return false
+      this._persistSplashMissionHit(boundName, payload)
+      if (!this.data.splashVisible || this.data.splashFading) return true
+      this._applySplashMission(payload)
+      this._refineSplashMissionLogo(hit)
+      return true
+    }
+
+    // 首页列表 / 内存快照已有任务：立刻出卡，不等再打 upcoming
+    if (!fastShown) {
+      let locals = this._collectSplashUpcomingLocals()
+      if (boundId) {
+        try {
+          const snap = findMissionInListSnapshots(boundId, 'upcoming')
+          if (snap) locals = [snap].concat(locals)
+        } catch (e) {}
+      }
+      const localHit = boundId
+        ? locals.find((m) => m && String(m.id) === boundId)
+        : null
+      if (localHit && localHit.launchTime) {
+        if (Number(localHit.statusId) === SPLASH_STATUS_INFLIGHT) {
+          if (this.data.splashVisible && !this.data.splashFading) this.closeSplash()
+          return
+        }
+        if (showFromHit(localHit)) fastShown = true
+      }
+    }
+
     try {
-      const result = await getUpcomingMissions(20, 0)
+      const result = await getUpcomingMissionsAny(20)
       const list = result && Array.isArray(result.list) ? result.list : []
       // 归一化：小写、去空格与标点，互相包含即视为命中
       const norm = (s) =>
@@ -1245,8 +1390,10 @@ const methods = {
       const hit =
         (boundId && matches.find((m) => String(m.id) === boundId)) || matches[0]
 
-      // 临近发射（±2h）：用状态探针库（launch_status，零 LL2 成本）实时确认；
-      // 探明飞行中 → 自动关闭开屏；终态 → 不显示卡片
+      // 先出卡（覆盖 / 列表自带 logo / 本地缓存），不再等 400 家目录
+      showFromHit(hit)
+
+      // 临近发射（±2h）：出卡后再探状态；飞行中关开屏，终态撤卡
       const launchTs = new Date(hit.launchTime).getTime()
       if (Math.abs(nowTs - launchTs) <= SPLASH_LIVE_CHECK_WINDOW_MS) {
         try {
@@ -1260,42 +1407,11 @@ const methods = {
             return
           }
           if (SPLASH_STATUS_TERMINAL[sid]) {
-            if (fastShown) this._clearSplashMissionCard(true)
+            this._clearSplashMissionCard(true)
             return
           }
         } catch (e) {}
       }
-
-      // Logo 与首页列表同源补齐（含 SpaceX 覆盖）
-      let enrichedHit = hit
-      try {
-        const enriched = await enrichMissionsLaunchAgencyImages([hit])
-        if (Array.isArray(enriched) && enriched[0]) enrichedHit = enriched[0]
-      } catch (e) {
-        enrichedHit = applyLaunchAgencyLogoOverridesToMission(hit) || hit
-      }
-      const payload = buildSplashMissionPayload(enrichedHit)
-      if (!payload) return
-
-      // 命中即写缓存（无论开屏是否还在）：下次同绑定的开屏可秒显卡片；NET 改期写入新时间
-      try {
-        wx.setStorageSync(SPLASH_MISSION_HIT_KEY, {
-          configName: boundName || String(payload.name || ''),
-          id: payload.id,
-          name: payload.name,
-          launchTime: payload.launchTime,
-          agencyName: payload.agencyName,
-          agencyLogo: payload.agencyLogo,
-          rocketName: payload.rocketName,
-          savedAt: Date.now()
-        })
-      } catch (e) {}
-
-      // 异步返回时开屏可能已关闭/正在淡出，避免闪现
-      if (!this.data.splashVisible || this.data.splashFading) return
-
-      this.setData({ splashMission: payload })
-      this._startSplashMissionTick()
     } catch (e) {
       // 弱网匹配失败：若快显卡片发射时间已不合理地遥远，清掉避免开屏显示「一千多天」
       if (fastShown) {
@@ -1372,6 +1488,21 @@ const methods = {
   },
 
   /** 开屏任务卡发射商 logo：落盘并分析透明底色 */
+  onSplashAgencyLogoError() {
+    const cur = this.data.splashMission
+    if (!cur) return
+    const shown = String(cur.agencyLogo || '').trim()
+    const remote = String(cur.agencyLogoRemote || '').trim()
+    if (shown && shown !== remote) {
+      try {
+        invalidateAgencyLogoCache(remote || shown)
+      } catch (e) {}
+    }
+    if (remote && shown !== remote) {
+      this.setData({ 'splashMission.agencyLogo': remote })
+    }
+  },
+
   onSplashAgencyLogoLoad(e) {
     const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
     const fromComp = (e && e.detail) || {}
@@ -1500,6 +1631,11 @@ const methods = {
 
     // 视频被降级为静态图（过审关视频 / 省流·紧急档非 Pro）：只缓存配置，跳过视频预下载
     if (opts && opts.skipMediaDownload) return
+    // 正在用 https 拉流：延后下载，避免和 <video> 抢带宽拖垮首播
+    if (opts && opts.deferMediaDownload) {
+      this._splashDeferredCache = { cfg, prevCached }
+      return
+    }
 
     // 只预下载本次选中的压缩预览，避免冷启动额外拉未播视频；原片不落盘
     const playUrls = []
@@ -1614,7 +1750,18 @@ const methods = {
     }
     this._clearSplashVideoMaxGuard()
     this._clearSplashVideoPlayGuards()
+    this._clearSplashWeakNetSkip()
     this._splashVideoShownAt = 0
+    const deferred = this._splashDeferredCache
+    this._splashDeferredCache = null
+    if (deferred && deferred.cfg) {
+      try {
+        this._cacheSplashMedia(
+          deferred.cfg,
+          (wx.getStorageSync(SPLASH_CACHE_KEY) || deferred.prevCached) || null
+        )
+      } catch (e) {}
+    }
     this.setData({ splashFading: true })
     setTimeout(() => {
       this.setData({

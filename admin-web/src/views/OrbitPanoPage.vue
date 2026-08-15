@@ -38,8 +38,8 @@
         <div class="orbit-pool-layout">
           <div class="orbit-upload-area">
             <div class="orbit-pool-hint">
-              上传 Earth Studio 环绕视频后，在右侧点选任意一发该型号任务即可。只锁定火箭型号，不绑定单次发射：同型号以后每次任务详情都会显示 360，不会随该发过期。
-              小程序默认只显示封面，点击后才拉流（非会员走会员门控）。过审请用上方开关，勿只删视频。
+              上传 Earth Studio 环绕视频后：猎鹰 9 / 重型选「发射场 × 陆地/海上」；星舰选「发射场 / 工位」（基地现有 A/B，并预留 LC-39A）。同轨迹后续任务自动对齐。朱雀、长征等在下方点选任务按型号锁定。
+              不回收猎鹰任务详情自动不显示 360。不绑定单次发射、不过期。过审请用上方开关，勿只删视频。
               <span style="margin-left:8px;">已上传 {{ form.items.length }} / {{ MEDIA_MAX }}</span>
             </div>
 
@@ -63,13 +63,14 @@
                   <el-button size="small" type="danger" @click.stop="removeAt(idx)">移除</el-button>
                 </div>
                 <div class="orbit-mission-bound">
-                  <span v-if="item.rocketName" class="orbit-mission-bound-name">
-                    {{ item.rocketName }} · 同型号常驻
+                  <span v-if="boundLabel(item)" class="orbit-mission-bound-name">{{ boundLabel(item) }}</span>
+                  <span v-else-if="item.rocketName && rocketNeedsPad(item.rocketName)" class="orbit-mission-bound-empty">
+                    请重新点选以锁定发射场和回收方式
                   </span>
                   <span v-else-if="item.launchId || item.missionName" class="orbit-mission-bound-empty">
                     请重新点选以锁定型号
                   </span>
-                  <span v-else class="orbit-mission-bound-empty">未锁定型号</span>
+                  <span v-else class="orbit-mission-bound-empty">未锁定</span>
                 </div>
               </div>
             </div>
@@ -131,16 +132,88 @@
           <aside class="orbit-mission-panel">
             <div class="orbit-mission-panel-head">
               <div>
-                <div class="orbit-mission-panel-title">任务选项列表</div>
+                <div class="orbit-mission-panel-title">锁定对齐</div>
                 <div class="orbit-mission-panel-sub">
                   {{ selectedItem
-                    ? `为「视频 ${selectedIndex + 1}」锁定火箭型号`
+                    ? `为「视频 ${selectedIndex + 1}」选择轨迹或型号`
                     : '请先在左侧选中一条视频' }}
                 </div>
               </div>
               <el-button size="small" :loading="missionsLoading" @click="refreshMissions">刷新</el-button>
             </div>
 
+            <div v-if="selectedItem" class="orbit-item-fields">
+              <el-input
+                v-model="selectedItem.title"
+                size="small"
+                maxlength="40"
+                placeholder="展示标题，如 猎鹰9号 SLC-40 海上回收"
+              />
+              <div v-if="selectedBoundHint" class="orbit-rocket-hint">{{ selectedBoundHint }}</div>
+              <div v-else class="orbit-rocket-hint">猎鹰 / 星舰请点下方轨迹；其它型号点选任务</div>
+            </div>
+
+            <div class="orbit-falcon-block">
+              <div class="orbit-falcon-title">星舰 · 发射场 / 工位</div>
+              <div class="orbit-falcon-note">不锁回收。精确工位优先于整场，整场优先于整型号。以后加场只需补一格。</div>
+              <div class="orbit-falcon-grid orbit-starship-grid">
+                <button
+                  v-for="track in SS_TRACKS"
+                  :key="track.id"
+                  type="button"
+                  class="orbit-falcon-option"
+                  :disabled="!selectedItem"
+                  :class="{ active: isTrackActive(track) }"
+                  @click="assignTrack(track)"
+                >
+                  <span class="orbit-falcon-option-pad">{{ track.padName }}</span>
+                  <span class="orbit-falcon-option-rec">{{ track.note }}</span>
+                </button>
+              </div>
+              <div class="orbit-falcon-title">猎鹰 9 号 · 发射场 × 回收</div>
+              <div class="orbit-falcon-grid">
+                <button
+                  v-for="track in F9_TRACKS"
+                  :key="track.id"
+                  type="button"
+                  class="orbit-falcon-option"
+                  :disabled="!selectedItem"
+                  :class="{ active: isTrackActive(track) }"
+                  @click="assignTrack(track)"
+                >
+                  <span class="orbit-falcon-option-pad">{{ track.padName }}</span>
+                  <span class="orbit-falcon-option-rec">{{ track.recoveryName }}</span>
+                </button>
+              </div>
+              <div class="orbit-falcon-title">猎鹰重型 · LC-39A</div>
+              <div class="orbit-falcon-grid">
+                <button
+                  v-for="track in FH_TRACKS"
+                  :key="track.id"
+                  type="button"
+                  class="orbit-falcon-option"
+                  :disabled="!selectedItem"
+                  :class="{ active: isTrackActive(track) }"
+                  @click="assignTrack(track)"
+                >
+                  <span class="orbit-falcon-option-pad">{{ track.padName }}</span>
+                  <span class="orbit-falcon-option-rec">{{ track.recoveryName }}</span>
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              class="orbit-mission-option orbit-mission-option-clear"
+              :disabled="!selectedItem"
+              :class="{ active: selectedItem && !selectedItem.rocketName && !selectedItem.padKey && !selectedItem.recoveryKey }"
+              @click="clearSelectedMission"
+            >
+              清除绑定
+            </button>
+
+            <div class="orbit-other-title">其它型号 · 点选任务锁定</div>
+            <div class="orbit-falcon-note">朱雀、长征等按型号常驻。星舰点选任务会自动带出工位，也可用上方格子。</div>
             <el-radio-group
               v-model="missionTab"
               size="small"
@@ -150,29 +223,6 @@
               <el-radio-button value="upcoming">即将发射</el-radio-button>
               <el-radio-button value="previous">历史发射</el-radio-button>
             </el-radio-group>
-
-            <div v-if="selectedItem" class="orbit-item-fields">
-              <el-input
-                v-model="selectedItem.title"
-                size="small"
-                maxlength="40"
-                placeholder="展示标题，如 朱雀三号环绕全景"
-              />
-              <div v-if="selectedItem.rocketName" class="orbit-rocket-hint">
-                已锁定：{{ selectedItem.rocketName }}（同型号均显示，不过期）
-              </div>
-              <div v-else class="orbit-rocket-hint">尚未锁定型号，请在下方点选一发任务</div>
-            </div>
-
-            <button
-              type="button"
-              class="orbit-mission-option orbit-mission-option-clear"
-              :disabled="!selectedItem"
-              :class="{ active: selectedItem && !selectedItem.rocketName }"
-              @click="clearSelectedMission"
-            >
-              清除型号绑定
-            </button>
 
             <div v-loading="missionsLoading" class="orbit-mission-list">
               <button
@@ -187,6 +237,8 @@
                 <span class="orbit-mission-option-name">{{ m.name }}</span>
                 <span class="orbit-mission-option-meta">
                   <span v-if="m.rocketName">{{ m.rocketName }}</span>
+                  <span v-if="missionPadLabel(m)">{{ missionPadLabel(m) }}</span>
+                  <span v-if="missionRecoveryLabel(m)">{{ missionRecoveryLabel(m) }}</span>
                   <span>{{ formatMissionNet(m.launchTime) }}</span>
                   <span v-if="m.status">{{ m.status }}</span>
                 </span>
@@ -302,6 +354,23 @@ const selectedItem = computed(() => {
   const idx = selectedIndex.value
   return idx >= 0 ? form.items[idx] : null
 })
+const selectedBoundHint = computed(() => {
+  const item = selectedItem.value
+  if (!item || !item.rocketName) return ''
+  if (item.padKey || item.padName) {
+    const rec = recoveryLabel(item.recoveryKey, item.recoveryName)
+    return rec
+      ? `已锁定：${item.rocketName} · ${padLabel(item.padKey, item.padName)} · ${rec}（同轨迹常驻，不过期）`
+      : `已锁定：${item.rocketName} · ${padLabel(item.padKey, item.padName)}（同场/同工位常驻，不过期）`
+  }
+  if (rocketNeedsPad(item.rocketName)) {
+    return '请在上方点选发射场和陆地/海上，不必翻任务列表'
+  }
+  if (isStarshipRocket(item.rocketName)) {
+    return `已锁定：${item.rocketName}（整型号兜底，未识别工位时也显示）`
+  }
+  return `已锁定：${item.rocketName}（同型号均显示，不过期）`
+})
 
 const displayedMissions = computed(() =>
   missionTab.value === 'previous' ? previousMissions.value : upcomingMissions.value
@@ -361,6 +430,147 @@ function formatMissionNet(net) {
 
 const STARSHIP_RE = /starship|super\s*heavy|星舰|超重/i
 const ZHUQUE3_RE = /zhuque\s*-?\s*3|zq\s*-?\s*3|朱雀\s*[三3]\s*号/i
+const PAD_LABELS = {
+  'slc-40': 'SLC-40',
+  'lc-39a': 'LC-39A',
+  'slc-4e': 'SLC-4E',
+  starbase: '星舰基地',
+  'starbase-a': '星舰基地 A 工位',
+  'starbase-b': '星舰基地 B 工位',
+  vandenberg: '范登堡'
+}
+const RECOVERY_LABELS = {
+  rtls: '陆地回收',
+  asds: '海上回收',
+  expended: '不回收'
+}
+const F9_TRACKS = [
+  { id: 'f9-40-rtls', rocketName: 'Falcon 9', padKey: 'slc-40', padName: 'SLC-40', recoveryKey: 'rtls', recoveryName: '陆地回收' },
+  { id: 'f9-40-asds', rocketName: 'Falcon 9', padKey: 'slc-40', padName: 'SLC-40', recoveryKey: 'asds', recoveryName: '海上回收' },
+  { id: 'f9-39a-rtls', rocketName: 'Falcon 9', padKey: 'lc-39a', padName: 'LC-39A', recoveryKey: 'rtls', recoveryName: '陆地回收' },
+  { id: 'f9-39a-asds', rocketName: 'Falcon 9', padKey: 'lc-39a', padName: 'LC-39A', recoveryKey: 'asds', recoveryName: '海上回收' },
+  { id: 'f9-4e-rtls', rocketName: 'Falcon 9', padKey: 'slc-4e', padName: 'SLC-4E', recoveryKey: 'rtls', recoveryName: '陆地回收' },
+  { id: 'f9-4e-asds', rocketName: 'Falcon 9', padKey: 'slc-4e', padName: 'SLC-4E', recoveryKey: 'asds', recoveryName: '海上回收' }
+]
+const FH_TRACKS = [
+  { id: 'fh-39a-asds', rocketName: 'Falcon Heavy', padKey: 'lc-39a', padName: 'LC-39A', recoveryKey: 'asds', recoveryName: '海上回收' },
+  { id: 'fh-39a-rtls', rocketName: 'Falcon Heavy', padKey: 'lc-39a', padName: 'LC-39A', recoveryKey: 'rtls', recoveryName: '陆地回收' }
+]
+/** 星舰：工位优先；整场 / 整型号作兜底。以后加场只需补一条 + inferPadKey */
+const SS_TRACKS = [
+  { id: 'ss-sb-a', rocketName: 'Starship', padKey: 'starbase-a', padName: '星舰基地 A', note: 'OLM-A / Pad 1', recoveryKey: '', recoveryName: '' },
+  { id: 'ss-sb-b', rocketName: 'Starship', padKey: 'starbase-b', padName: '星舰基地 B', note: 'OLM-B / Pad 2', recoveryKey: '', recoveryName: '' },
+  { id: 'ss-sb', rocketName: 'Starship', padKey: 'starbase', padName: '星舰基地', note: '不分工位', recoveryKey: '', recoveryName: '' },
+  { id: 'ss-39a', rocketName: 'Starship', padKey: 'lc-39a', padName: 'LC-39A', note: '肯尼迪预留', recoveryKey: '', recoveryName: '' },
+  { id: 'ss-vafb', rocketName: 'Starship', padKey: 'vandenberg', padName: '范登堡', note: '西海岸预留', recoveryKey: '', recoveryName: '' },
+  { id: 'ss-all', rocketName: 'Starship', padKey: '', padName: '整型号兜底', note: '未识别工位也显示', recoveryKey: '', recoveryName: '' }
+]
+
+function rocketNeedsPad(name) {
+  const raw = String(name || '')
+  if (/falcon\s*heavy|猎鹰重型/i.test(raw)) return true
+  if (/falcon\s*9|猎鹰\s*9/i.test(raw)) return true
+  const key = rocketModelKey(raw)
+  return key === 'falconheavy' || key === 'falcon9' || key.startsWith('falcon9')
+}
+
+function inferStarbasePadKey(s) {
+  if (!/starbase|boca\s*chica|博卡奇卡|星舰基地/.test(s)) return ''
+  if (/orbital launch (?:pad|mount)\s*(?:2|b)\b|olm[-\s]?b|\bpad\s*[b2]\b|launch pad [b2]|olp[-\s]?2|工位\s*[b2]|[b2]\s*工位/.test(s)) {
+    return 'starbase-b'
+  }
+  if (/orbital launch (?:pad|mount)\s*(?:1|a)\b|olm[-\s]?a|\bpad\s*[a1]\b|launch pad [a1]|olp[-\s]?1|工位\s*[a1]|[a1]\s*工位|\bolm\b/.test(s)) {
+    return 'starbase-a'
+  }
+  return 'starbase'
+}
+
+function inferPadKey(source) {
+  const s = [
+    source && source.padKey,
+    source && source.padName,
+    source && source.pad,
+    source && source.padLocation,
+    source && source.launchSite,
+    source && source.missionName,
+    source && source.name
+  ].filter(Boolean).join(' ').toLowerCase()
+  if (!s) return ''
+  const rocket = [
+    source && source.rocketName,
+    source && source.missionName,
+    source && source.name
+  ].filter(Boolean).join(' ')
+  const starship = isStarshipRocket(rocket)
+  if (/slc[-\s]?40|space launch complex\s*40/.test(s)) return 'slc-40'
+  if (/lc[-\s]?39a|launch complex\s*39a|\b39a\b/.test(s)) return 'lc-39a'
+  if (starship) {
+    if (/slc[-\s]?6|space launch complex\s*6|vandenberg|范登堡/.test(s)) return 'vandenberg'
+    if (/kennedy|肯尼迪/.test(s)) return 'lc-39a'
+    return inferStarbasePadKey(s)
+  }
+  if (/slc[-\s]?4e|space launch complex\s*4e/.test(s)) return 'slc-4e'
+  if (/vandenberg|范登堡/.test(s)) return 'slc-4e'
+  if (/kennedy|肯尼迪/.test(s)) return 'lc-39a'
+  if (/cape\s*canaveral|卡纳维拉尔/.test(s)) return 'slc-40'
+  return inferStarbasePadKey(s)
+}
+
+function isStarshipRocket(name) {
+  return STARSHIP_RE.test(String(name || ''))
+}
+
+function padsAlign(itemPad, missionPad) {
+  if (!itemPad) return true
+  if (itemPad === missionPad) return true
+  if (itemPad === 'starbase' && String(missionPad || '').indexOf('starbase') === 0) return true
+  return false
+}
+
+function padLabel(padKey, fallback) {
+  return PAD_LABELS[padKey] || String(fallback || '').trim() || padKey
+}
+
+function recoveryLabel(key, fallback) {
+  return RECOVERY_LABELS[key] || String(fallback || '').trim() || ''
+}
+
+function inferRecoveryKey(mission) {
+  const preset = String(mission && mission.recoveryKey || '').trim().toLowerCase()
+  if (preset === 'asds' || preset === 'rtls' || preset === 'expended') return preset
+  const type = String(mission && mission.landingType || '').toUpperCase()
+  const loc = String(mission && mission.landingLocation || '')
+  const blob = `${type} ${loc}`
+  if (type === 'ASDS' || /ASOG|OCISLY|JRTI|\bASDS\b|A SHORTFALL|OF COURSE I STILL|JUST READ THE INSTRUCTIONS|DRONESHIP|无人船|海上回收/i.test(blob)) {
+    return 'asds'
+  }
+  if (type === 'RTLS' || type === 'VL' || /LZ-?\d|LANDING ZONE|陆地回收/i.test(blob)) {
+    return 'rtls'
+  }
+  if (type === 'EXPENDED' || /expended|一次性/i.test(blob)) return 'expended'
+  return ''
+}
+
+function missionPadLabel(mission) {
+  const key = inferPadKey(mission)
+  return padLabel(key, mission && (mission.pad || mission.launchSite))
+}
+
+function missionRecoveryLabel(mission) {
+  return recoveryLabel(inferRecoveryKey(mission), mission && mission.landingLocation)
+}
+
+function boundLabel(item) {
+  if (!item || !item.rocketName) return ''
+  if (item.padKey || item.padName) {
+    const rec = recoveryLabel(item.recoveryKey, item.recoveryName)
+    return rec
+      ? `${item.rocketName} · ${padLabel(item.padKey, item.padName)} · ${rec}`
+      : `${item.rocketName} · ${padLabel(item.padKey, item.padName)}`
+  }
+  if (rocketNeedsPad(item.rocketName)) return ''
+  return `${item.rocketName} · 同型号常驻`
+}
 
 function rocketModelKey(name) {
   const s = String(name || '').trim()
@@ -393,14 +603,27 @@ function isSameRocketModel(a, b) {
 function isMissionActive(mission) {
   const item = selectedItem.value
   if (!item || !mission) return false
-  return isSameRocketModel(item.rocketName, mission.rocketName)
+  if (!isSameRocketModel(item.rocketName, mission.rocketName)) return false
+  if (item.padKey || rocketNeedsPad(item.rocketName)) {
+    if (!padsAlign(item.padKey, inferPadKey(mission))) return false
+    if (!item.recoveryKey) return true
+    return item.recoveryKey === inferRecoveryKey(mission)
+  }
+  return true
 }
 
-function defaultTitle(rocketName, missionName) {
+function defaultTitle(rocketName, missionName, padName, recoveryName) {
   const blob = `${rocketName || ''} ${missionName || ''}`
   if (/zhuque\s*-?\s*3|zq\s*-?\s*3|朱雀\s*[三3]\s*号/i.test(blob)) return '朱雀三号环绕全景'
-  if (/starship|super\s*heavy|星舰|超重/i.test(blob)) return 'Starbase 环绕全景'
+  if (/starship|super\s*heavy|星舰|超重/i.test(blob)) {
+    const pad = String(padName || '').trim()
+    return pad && pad !== '整型号兜底' ? `星舰 ${pad} 环绕全景` : '星舰环绕全景'
+  }
   const r = String(rocketName || missionName || '').trim()
+  const pad = String(padName || '').trim()
+  const rec = String(recoveryName || '').trim()
+  if (r && pad && rec) return `${r} ${pad} ${rec} 环绕全景`
+  if (r && pad) return `${r} ${pad} 环绕全景`
   return r ? `${r}环绕全景` : '环绕全景'
 }
 
@@ -412,21 +635,94 @@ function assignMissionToSelected(mission) {
     ElMessage.warning('该任务缺少火箭型号，无法锁定')
     return
   }
+  if (isStarshipRocket(rocketName)) {
+    const padKey = inferPadKey(mission)
+    const padName = padKey ? padLabel(padKey, mission.pad || mission.launchSite) : ''
+    const rawName = String(mission.name || mission.missionName || '').trim()
+    item.rocketName = rocketName
+    item.padKey = padKey
+    item.padName = padName
+    item.recoveryKey = ''
+    item.recoveryName = ''
+    item.matchRocket = true
+    item.launchId = ''
+    item.missionName = ''
+    if (!String(item.title || '').trim()) {
+      item.title = defaultTitle(rocketName, rawName, padName, '')
+    }
+    ElMessage.success(padName
+      ? `已锁定：${rocketName} · ${padName}（同场/同工位均显示）`
+      : `已锁定型号：${rocketName}（整型号兜底）`)
+    return
+  }
+  const needsPad = rocketNeedsPad(rocketName)
+  const padKey = inferPadKey(mission)
+  const recKey = inferRecoveryKey(mission)
+  if (needsPad && !padKey) {
+    ElMessage.warning('猎鹰9号 / 猎鹰重型需锁定发射场（SLC-40 / LC-39A / SLC-4E），该任务工位无法识别')
+    return
+  }
+  if (needsPad && recKey === 'expended') {
+    ElMessage.warning('该任务不回收，详情页不会显示 360，无需绑片')
+    return
+  }
+  if (needsPad && !recKey) {
+    ElMessage.warning('该任务回收方式无法识别。请点选详情页已标明陆地回收或回收船（ASOG / OCISLY / JRTI）的任务')
+    return
+  }
+  const padName = needsPad ? padLabel(padKey, mission.pad || mission.launchSite) : ''
+  const recName = needsPad ? recoveryLabel(recKey, mission.landingLocation) : ''
   const rawName = String(mission.name || mission.missionName || '').trim()
   item.rocketName = rocketName
+  item.padKey = needsPad ? padKey : ''
+  item.padName = padName
+  item.recoveryKey = needsPad ? recKey : ''
+  item.recoveryName = recName
   item.matchRocket = true
   item.launchId = ''
   item.missionName = ''
   if (!String(item.title || '').trim()) {
-    item.title = defaultTitle(rocketName, rawName)
+    item.title = defaultTitle(rocketName, rawName, padName, recName)
   }
-  ElMessage.success(`已锁定型号：${rocketName}（同型号任务均显示）`)
+  ElMessage.success(needsPad
+    ? `已锁定：${rocketName} · ${padName} · ${recName}（同轨迹任务均显示）`
+    : `已锁定型号：${rocketName}（同型号任务均显示）`)
+}
+
+function isTrackActive(track) {
+  const item = selectedItem.value
+  if (!item || !track) return false
+  return isSameRocketModel(item.rocketName, track.rocketName)
+    && (item.padKey || '') === (track.padKey || '')
+    && (item.recoveryKey || '') === (track.recoveryKey || '')
+}
+
+function assignTrack(track) {
+  const item = selectedItem.value
+  if (!item || !track) return
+  item.rocketName = track.rocketName
+  item.padKey = track.padKey || ''
+  item.padName = track.padKey ? (track.padName || '') : ''
+  item.recoveryKey = track.recoveryKey || ''
+  item.recoveryName = track.recoveryName || ''
+  item.matchRocket = true
+  item.launchId = ''
+  item.missionName = ''
+  if (!String(item.title || '').trim()) {
+    item.title = defaultTitle(track.rocketName, '', track.padName, track.recoveryName)
+  }
+  const rec = track.recoveryName ? ` · ${track.recoveryName}` : ''
+  ElMessage.success(`已锁定：${track.rocketName} · ${track.padName}${rec}（同轨迹任务均显示）`)
 }
 
 function clearSelectedMission() {
   const item = selectedItem.value
   if (!item) return
   item.rocketName = ''
+  item.padKey = ''
+  item.padName = ''
+  item.recoveryKey = ''
+  item.recoveryName = ''
   item.missionName = ''
   item.launchId = ''
 }
@@ -493,6 +789,10 @@ function applyData(data) {
     launchId: it.rocketName ? '' : (it.launchId || ''),
     missionName: it.rocketName ? '' : (it.missionName || ''),
     rocketName: it.rocketName || '',
+    padKey: it.padKey || '',
+    padName: it.padName || '',
+    recoveryKey: it.recoveryKey || '',
+    recoveryName: it.recoveryName || '',
     matchRocket: true,
     enabled: it.enabled !== false
   }))
@@ -568,6 +868,10 @@ function pushItem(cosUrl) {
     launchId: '',
     missionName: '',
     rocketName: '',
+    padKey: '',
+    padName: '',
+    recoveryKey: '',
+    recoveryName: '',
     matchRocket: true,
     enabled: true
   })
@@ -648,12 +952,16 @@ async function onSave() {
         launchId: (it.rocketName || '').trim() ? '' : (it.launchId || '').trim(),
         missionName: (it.rocketName || '').trim() ? '' : (it.missionName || '').trim(),
         rocketName: (it.rocketName || '').trim(),
+        padKey: (it.padKey || '').trim(),
+        padName: (it.padName || '').trim(),
+        recoveryKey: (it.recoveryKey || '').trim(),
+        recoveryName: (it.recoveryName || '').trim(),
         matchRocket: true,
         enabled: it.enabled !== false
       }))
     })
     if (data && typeof data === 'object') applyData(data)
-    ElMessage.success('保存成功，将按火箭型号在同型号任务头图显示 360')
+    ElMessage.success('保存成功：猎鹰按发射场+回收对齐，星舰按发射场/工位对齐，其它型号按火箭型号显示 360')
   } catch (e) {
     ElMessage.error('保存失败: ' + (e.message || ''))
   } finally {
@@ -941,7 +1249,7 @@ function onCosConfirm() {
 }
 
 .orbit-mission-panel {
-  width: 300px;
+  width: 340px;
   flex-shrink: 0;
   border: 1px solid var(--t-border-card, rgba(0,0,0,0.1));
   border-radius: 10px;
@@ -968,6 +1276,81 @@ function onCosConfirm() {
   font-size: 12px;
   line-height: 1.4;
   color: var(--t-text-muted, #888);
+}
+
+.orbit-falcon-block {
+  margin-bottom: 10px;
+}
+
+.orbit-falcon-title {
+  margin: 8px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--t-text-secondary, #666);
+}
+
+.orbit-falcon-note {
+  margin: -2px 0 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--t-text-muted, #888);
+}
+
+.orbit-starship-grid {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.orbit-falcon-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.orbit-falcon-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--t-border-card, rgba(0,0,0,0.1));
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+
+.orbit-falcon-option:hover:not(:disabled) {
+  border-color: var(--el-color-primary);
+  background: rgba(64, 158, 255, 0.04);
+}
+
+.orbit-falcon-option.active {
+  border-color: var(--el-color-primary);
+  background: rgba(64, 158, 255, 0.1);
+}
+
+.orbit-falcon-option:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.orbit-falcon-option-pad {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.orbit-falcon-option-rec {
+  font-size: 11px;
+  color: var(--t-text-muted, #888);
+}
+
+.orbit-other-title {
+  margin: 4px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--t-text-secondary, #666);
 }
 
 .orbit-mission-tabs {
@@ -997,7 +1380,7 @@ function onCosConfirm() {
 }
 
 .orbit-mission-list {
-  max-height: 420px;
+  max-height: 280px;
   overflow: auto;
   min-height: 120px;
 }

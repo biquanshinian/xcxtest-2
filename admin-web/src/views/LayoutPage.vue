@@ -27,7 +27,7 @@
               src="https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%9B%BE%E6%A0%87/1784339901998_3dsgrb.svg"
               alt=""
             />
-            <span>公众号内容</span>
+            <span>内容中台</span>
           </template>
           <el-menu-item index="/oa-content/pipeline">日更流水线</el-menu-item>
           <el-menu-item index="/oa-content/drafts">草稿箱</el-menu-item>
@@ -166,7 +166,6 @@
           />
         </el-menu-item>
         <el-menu-item v-if="hasPerm('global_config')" index="/global-config">全局配置</el-menu-item>
-        <el-menu-item v-if="hasPerm('global_config')" index="/bilibili-topics">B站话题词库</el-menu-item>
         <el-menu-item v-if="hasPerm('global_config')" index="/year-review-config">年度报告</el-menu-item>
         <el-menu-item v-if="hasPerm('global_config')" index="/membership">会员管理</el-menu-item>
         <el-menu-item v-if="hasPerm('global_config')" index="/invite-stats">邀请统计</el-menu-item>
@@ -229,12 +228,20 @@ const active = computed(() => route.path)
 
 const mobileMenuOpen = ref(false)
 
+const setBodyScrollLock = (lock) => {
+  if (typeof document === 'undefined') return
+  document.body.style.overflow = lock ? 'hidden' : ''
+  document.documentElement.classList.toggle('mobile-nav-open', !!lock)
+}
+
 const toggleMobileMenu = () => {
   mobileMenuOpen.value = !mobileMenuOpen.value
+  setBodyScrollLock(mobileMenuOpen.value)
 }
 
 const closeMobileMenu = () => {
   mobileMenuOpen.value = false
+  setBodyScrollLock(false)
 }
 
 const navigate = (path) => {
@@ -244,6 +251,10 @@ const navigate = (path) => {
 
 watch(() => route.path, () => {
   closeMobileMenu()
+})
+
+watch(mobileMenuOpen, (open) => {
+  setBodyScrollLock(open)
 })
 
 document.documentElement.classList.add('dark')
@@ -259,6 +270,7 @@ onMounted(() => {
   markUnreadRead(route.path)
 })
 onBeforeUnmount(() => {
+  setBodyScrollLock(false)
   if (typeof disposeUnread === 'function') disposeUnread()
   if (typeof removeAfterEach === 'function') removeAfterEach()
 })
@@ -303,13 +315,12 @@ const pageTitle = computed(() => {
     '/live-management': '直播管理',
     '/cloud-functions': '云函数管理',
     '/global-config': '全局配置中心',
-    '/bilibili-topics': 'B站话题词库',
-    '/oa-content/pipeline': '公众号日更流水线',
-    '/oa-content/drafts': '公众号草稿箱',
-    '/oa-content/prompts': '公众号提示词库',
-    '/oa-content/strategies': '公众号策略引擎',
-    '/oa-content/assets': '公众号对标资产库',
-    '/oa-content/config': '公众号发稿设置',
+    '/oa-content/pipeline': '日更流水线',
+    '/oa-content/drafts': '内容中台 · 草稿箱',
+    '/oa-content/prompts': '提示词库',
+    '/oa-content/strategies': '策略引擎',
+    '/oa-content/assets': '对标资产库',
+    '/oa-content/config': '发稿设置',
     '/year-review-config': '年度报告',
     '/membership': '会员管理',
     '/invite-stats': '邀请统计',
@@ -1225,15 +1236,13 @@ html.dark .el-dropdown-menu__item:hover {
     padding: 12px !important;
   }
 
-  /* 对话框窄屏全宽 */
+  /* 对话框交给 theme.css 底部大面板；此处只保证不溢出 */
   :deep(.el-dialog) {
-    width: 92vw !important;
-    max-width: 92vw !important;
-    margin: 5vh auto !important;
+    max-width: 100vw !important;
   }
 
   :deep(.el-dialog__body) {
-    padding: 16px !important;
+    padding: 12px 16px 20px !important;
   }
 
   /* 表单 label 在窄屏改为顶部 */
@@ -1242,6 +1251,10 @@ html.dark .el-dropdown-menu__item:hover {
     text-align: left !important;
     width: auto !important;
     padding-right: 0 !important;
+    justify-content: flex-start !important;
+    height: auto !important;
+    line-height: 1.4 !important;
+    margin-bottom: 6px;
   }
 
   :deep(.el-form-item) {
@@ -1260,6 +1273,15 @@ html.dark .el-dropdown-menu__item:hover {
     flex-wrap: wrap;
     gap: 4px;
     justify-content: center;
+  }
+
+  .aside-menu :deep(.el-menu-item),
+  .aside-menu :deep(.el-sub-menu__title) {
+    min-height: 44px !important;
+    height: auto !important;
+    line-height: 1.3 !important;
+    padding-top: 10px !important;
+    padding-bottom: 10px !important;
   }
 }
 

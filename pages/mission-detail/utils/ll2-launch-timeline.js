@@ -67,6 +67,8 @@ function timelineIconVariant(abbrev, description) {
   return 'dot'
 }
 
+const { translateTimelineText } = require('./ll2-timeline-i18n.js')
+
 /**
  * @param {{ abbrev?: string, description?: string, relativeTime?: string, id?: string }} row
  */
@@ -77,12 +79,12 @@ function enrichLl2TimelineRow(row, idx) {
   const desc = String((row && row.description) || '').trim()
   const baseId = String((row && row.id) != null ? row.id : 'tl')
   const id = baseId + '_' + idx
-  const title = abbrev || desc || '里程碑'
+  const title = translateTimelineText(abbrev) || translateTimelineText(desc) || abbrev || desc || '里程碑'
   const isHighlight = /liftoff/i.test(abbrev)
   return {
     id,
     title,
-    description: desc && desc !== abbrev ? desc : '',
+    description: desc && desc !== abbrev ? (translateTimelineText(desc) || desc) : '',
     relativeTimeRaw: relativeTime,
     timeLabel: formatTimelineClock(sec),
     sortKey: sec,

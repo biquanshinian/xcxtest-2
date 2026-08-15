@@ -8,14 +8,6 @@
             <el-option label="已发布" value="published" />
             <el-option label="草稿" value="draft" />
           </el-select>
-          <el-select v-model="query.bilibiliSyncStatus" placeholder="B站同步" style="width:140px" clearable @change="load">
-            <el-option label="未同步" value="idle" />
-            <el-option label="已入队" value="queued" />
-            <el-option label="已合并" value="merged" />
-            <el-option label="成功" value="success" />
-            <el-option label="失败" value="failed" />
-            <el-option label="跳过" value="skipped" />
-          </el-select>
           <el-button @click="load">查询</el-button>
           <el-button type="primary" @click="openCreate">新建事件</el-button>
         </div>
@@ -43,23 +35,6 @@
       <el-table-column label="状态" width="100" align="center">
         <template #default="scope">
           <el-tag :type="scope.row.status === 'published' ? 'success' : 'info'">{{ scope.row.status === 'published' ? '已发布' : '草稿' }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="B站同步" width="120" align="center">
-        <template #default="scope">
-          <el-tag :type="biliTagType(scope.row.bilibiliSyncStatus)" size="small">{{ biliStatusLabel(scope.row.bilibiliSyncStatus) }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="B站动态" min-width="140" show-overflow-tooltip>
-        <template #default="scope">
-          <a
-            v-if="scope.row.bilibiliDynamicId"
-            :href="`https://t.bilibili.com/${scope.row.bilibiliDynamicId}`"
-            target="_blank"
-            rel="noopener"
-          >{{ scope.row.bilibiliDynamicId }}</a>
-          <span v-else-if="scope.row.bilibiliLastError" style="color:var(--el-color-danger);font-size:12px;">{{ scope.row.bilibiliLastError }}</span>
-          <span v-else style="color:var(--t-text-placeholder, #aeaeb2)">-</span>
         </template>
       </el-table-column>
       <el-table-column label="发布时间" width="180">
@@ -210,32 +185,10 @@ const fileInputRef = ref(null)
 const uploadTasks = ref([])
 const pasteUrl = ref('')
 
-const query = reactive({ page: 1, pageSize: 20, status: '', bilibiliSyncStatus: '' })
+const query = reactive({ page: 1, pageSize: 20, status: '' })
 const form = reactive({ title: '', content: '', mediaList: [], status: 'draft', liveRoomId: '', livePlatform: 'bilibili', liveCover: '' })
 const livePreview = reactive({ loading: false, status: 0, title: '' })
 
-const biliStatusLabel = (s) => {
-  const map = {
-    idle: '未同步',
-    queued: '已入队',
-    merged: '已合并',
-    success: '成功',
-    failed: '失败',
-    skipped: '跳过'
-  }
-  return map[s || 'idle'] || (s || '未同步')
-}
-const biliTagType = (s) => {
-  const map = {
-    idle: 'info',
-    queued: 'warning',
-    merged: 'warning',
-    success: 'success',
-    failed: 'danger',
-    skipped: 'info'
-  }
-  return map[s || 'idle'] || 'info'
-}
 
 const resetForm = () => {
   Object.assign(form, { title: '', content: '', mediaList: [], status: 'draft', liveRoomId: '', livePlatform: 'bilibili', liveCover: '' })

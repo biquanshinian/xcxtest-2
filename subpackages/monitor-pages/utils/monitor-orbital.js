@@ -15,7 +15,9 @@ const { getMemberPolicySync } = require('../../../utils/member-policy.js')
 const { optimizeImageUrl, toCdnUrl, isVideoUrl, videoSnapshotUrl } = require('../../../utils/cos-url.js')
 const { getCachedVideo } = require('./video-cache.js')
 const { buildLl2ImageChain, advanceImageFallback } = require('../../../utils/ll2-image.js')
-const { translateEventType, translateLocation } = require('../../../utils/space-terms-i18n.js')
+const { pickLocalized, isUsableZhText } = require('../../../utils/locale.js')
+const { localizeMissionTitle } = require('../../../utils/mission-title-i18n.js')
+const { translateLocation } = require('../../../utils/space-terms-display.js')
 
 /** 监控页入口卡背景视频（远程 card.bgImage 为空时的本地兜底） */
 const ORBITAL_CARD_BG_VIDEO_DEFAULT =
@@ -48,17 +50,10 @@ const methods = {
       const dateText = isFinite(dateMs) ? this._formatLocalDate(dateMs) : ''
       // 与飞船/发射商一致：Worker 代理优先，原链作 binderror 兜底
       const imageChain = buildLl2ImageChain(ev.imageUrl)
-      const typeLabel =
-        ev.typeNameZh ||
-        translateEventType(ev.typeName) ||
-        ev.typeName ||
-        ''
-      const locationLabel =
-        ev.locationZh ||
-        translateLocation(ev.location) ||
-        ev.location ||
-        ''
-      const nameLabel = ev.nameZh || ev.name || ''
+      const typeLabel = pickLocalized(ev.typeNameZh || '', '') || ev.typeName || ''
+      const locationLabel = pickLocalized(ev.locationZh || '', '') || translateLocation(ev.location) || ev.location || ''
+      const locTitle = localizeMissionTitle(ev.name || '', '', '')
+      const nameLabel = pickLocalized(ev.nameZh || '', '') || (isUsableZhText(locTitle) ? locTitle : '') || ev.name || ''
       return {
         ...ev,
         name: nameLabel,

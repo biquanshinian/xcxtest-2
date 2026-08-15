@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>长征十二号甲 · 酒泉商火工位 · 民勤航区回收</name>
+    <description>后台锁定：长征十二号甲 · 酒泉商火 · 民勤回收。搜索请用「纬度, 经度」。发射：东风试验区中国商火工位（LL2 Long March 12 series Pad 40.891596, 100.217289）。回收：民勤圆形场，东南约 250km（39.044, 101.923）。海南商发 2 号为后续场，甲烷设施就绪后再补片。</description>
+    <Style id="line">
+      <LineStyle>
+        <color>ff5ac8fa</color>
+        <width>4</width>
+      </LineStyle>
+    </Style>
+    <Style id="pin-start">
+      <IconStyle>
+        <color>ff34c759</color>
+        <scale>1.1</scale>
+        <Icon><href>http://maps.google.com/mapfiles/kml/paddle/grn-circle.png</href></Icon>
+      </IconStyle>
+      <LabelStyle><scale>1</scale></LabelStyle>
+    </Style>
+    <Style id="pin-end">
+      <IconStyle>
+        <color>ff5ac8fa</color>
+        <scale>1.1</scale>
+        <Icon><href>http://maps.google.com/mapfiles/kml/paddle/wht-circle.png</href></Icon>
+      </IconStyle>
+      <LabelStyle><scale>1</scale></LabelStyle>
+    </Style>
+      <LookAt>
+        <longitude>101.070144</longitude>
+        <latitude>39.967798</latitude>
+        <altitude>0</altitude>
+        <heading>0</heading>
+        <tilt>45</tilt>
+        <range>553642</range>
+        <altitudeMode>relativeToGround</altitudeMode>
+      </LookAt>
+    <Placemark id="start">
+      <name>发射 · 酒泉商火工位</name>
+      <styleUrl>#pin-start</styleUrl>
+      <Point>
+        <coordinates>100.217289,40.891596,0</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark id="end">
+      <name>回收 · 民勤回收场</name>
+      <styleUrl>#pin-end</styleUrl>
+      <Point>
+        <coordinates>101.923000,39.044000,0</coordinates>
+      </Point>
+    </Placemark>
+
+    <Placemark id="route">
+      <name>长征十二号甲 · 酒泉商火工位 · 民勤航区回收 · 航迹</name>
+      <styleUrl>#line</styleUrl>
+      <LineString>
+        <tessellate>1</tessellate>
+        <altitudeMode>clampToGround</altitudeMode>
+        <coordinates>
+          100.217289,40.891596,0
+          100.272012,40.834244,0
+          100.326640,40.776866,0
+          100.381174,40.719463,0
+          100.435613,40.662034,0
+          100.489960,40.604580,0
+          100.544212,40.547100,0
+          100.598372,40.489594,0
+          100.652439,40.432064,0
+          100.706413,40.374508,0
+          100.760296,40.316928,0
+          100.814086,40.259322,0
+          100.867785,40.201691,0
+          100.921393,40.144036,0
+          100.974910,40.086356,0
+          101.028336,40.028652,0
+          101.081672,39.970922,0
+          101.134917,39.913169,0
+          101.188073,39.855391,0
+          101.241140,39.797589,0
+          101.294117,39.739763,0
+          101.347006,39.681913,0
+          101.399806,39.624039,0
+          101.452518,39.566141,0
+          101.505142,39.508219,0
+          101.557678,39.450274,0
+          101.610126,39.392305,0
+          101.662488,39.334312,0
+          101.714763,39.276296,0
+          101.766951,39.218257,0
+          101.819053,39.160194,0
+          101.871070,39.102109,0
+          101.923000,39.044000,0
+        </coordinates>
+      </LineString>
+    </Placemark>
+  </Document>
+</kml>

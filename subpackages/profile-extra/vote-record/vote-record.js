@@ -5,9 +5,7 @@ const { ROUTES } = require('../../../utils/routes.js')
 const storageCache = require('../../../utils/storage-sync-cache.js')
 const { resolveVoteChoiceMeta } = require('../../../utils/index-page-helpers.js')
 const { resolveMissionRocketImageFresh, isDefaultRocketSrc } = require('../../../utils/util.js')
-const { translateRocketName } = require('../../../utils/rocket-name-i18n.js')
-const { localizeMissionTitle } = require('../../../utils/mission-title-i18n.js')
-const { isContentLangEn } = require('../../../utils/locale.js')
+const { pickLocalized } = require('../../../utils/locale.js')
 const rocketArtUtil = require('../../../utils/rocket-config-art.js')
 
 function getMissionFromLocalCache(missionId) {
@@ -42,7 +40,7 @@ function localizeVoteRow(missionName, rocketName, cachedMission, stored) {
       (cachedMission && cachedMission.rocketName) ||
       ''
   }
-  const rocketZh = (pack && pack.rocketNameZh) || translateRocketName(rocketEn) || rocketEn
+  const rocketZh = (pack && pack.rocketNameZh) || ''
   let nameEn =
     stored.nameEn ||
     (pack && (pack.nameEn || pack.missionNameEn)) ||
@@ -60,15 +58,11 @@ function localizeVoteRow(missionName, rocketName, cachedMission, stored) {
       if (nameEn && /[\u4e00-\u9fff]/.test(nameEn) && !(pack && pack.nameEn)) nameEn = ''
     }
   }
-  const nameZh =
-    (pack && (pack.nameZh || pack.missionNameZh)) ||
-    localizeMissionTitle(nameEn || nameRaw, rocketEn) ||
-    nameRaw
-  const useEn = isContentLangEn()
+  const nameZh = (pack && (pack.nameZh || pack.missionNameZh)) || ''
   return {
-    name: useEn ? (nameEn || nameZh || nameRaw) : (nameZh || nameEn || nameRaw),
+    name: pickLocalized(nameZh, nameEn || nameRaw),
     nameEn: nameEn || '',
-    rocket: useEn ? (rocketEn || rocketZh) : (rocketZh || rocketEn),
+    rocket: pickLocalized(rocketZh, rocketEn),
     rocketNameEn: rocketEn || '',
     rocketNameZh: rocketZh || ''
   }

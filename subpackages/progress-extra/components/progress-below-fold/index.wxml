@@ -181,7 +181,7 @@
         <view class="nsf-checklist-preview-rows" wx:elif="{{ll2LaunchUpdates.length > 0}}">
           <view class="ll2-update-row ll2-update-row--compact" wx:for="{{ll2LaunchUpdates}}" wx:key="id" wx:if="{{index < 3}}">
             <view class="ll2-update-main">
-              <text class="ll2-update-comment">{{item.comment}}</text>
+              <text class="ll2-update-comment">{{item.commentZh || item.comment}}</text>
               <text class="ll2-update-meta">{{item.createdBy}}{{item.timeLabel ? ' · ' + item.timeLabel : ''}}</text>
             </view>
             <text

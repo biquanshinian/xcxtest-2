@@ -589,46 +589,6 @@ export const api = {
   listInviteRecords(query) {
     return request('/invites/records', { method: 'GET', query })
   },
-  getBilibiliAutoPublish() {
-    return request('/bilibili-auto-publish', { method: 'GET' })
-  },
-  updateBilibiliAutoPublish(body) {
-    return request('/bilibili-auto-publish', { method: 'PUT', body })
-  },
-  enqueueBilibiliPublish() {
-    return request('/bilibili-auto-publish/enqueue', { method: 'POST' })
-  },
-  listBilibiliTopics(query) {
-    return request('/bilibili-topics', { method: 'GET', query })
-  },
-  createBilibiliTopic(body) {
-    return request('/bilibili-topics', { method: 'POST', body })
-  },
-  updateBilibiliTopic(id, body) {
-    return request(`/bilibili-topics/${id}`, { method: 'PUT', body })
-  },
-  deleteBilibiliTopic(id) {
-    return request(`/bilibili-topics/${id}`, { method: 'DELETE' })
-  },
-  seedBilibiliTopics() {
-    return request('/bilibili-topics/seed', { method: 'POST' })
-  },
-  promoteBilibiliTopic(id) {
-    return request(`/bilibili-topics/${id}/promote`, { method: 'POST' })
-  },
-  rejectBilibiliTopic(id) {
-    return request(`/bilibili-topics/${id}/reject`, { method: 'POST' })
-  },
-  listBilibiliTopicBlacklist() {
-    return request('/bilibili-topic-blacklist', { method: 'GET' })
-  },
-  addBilibiliTopicBlacklist(body) {
-    return request('/bilibili-topic-blacklist', { method: 'POST', body })
-  },
-  removeBilibiliTopicBlacklist(id) {
-    return request(`/bilibili-topic-blacklist/${id}`, { method: 'DELETE' })
-  },
-
   // ===== 公众号内容中台 =====
   getOaContentConfig() {
     return request('/oa-content/config', { method: 'GET' })
@@ -642,11 +602,36 @@ export const api = {
   generateOaContent(body) {
     return request('/oa-content/generate', { method: 'POST', body })
   },
+  listOaThemes() {
+    return request('/oa-content/themes', { method: 'GET' })
+  },
+  previewOaContent(body) {
+    return request('/oa-content/preview', { method: 'POST', body })
+  },
+  /** 一次返回全主题 HTML，前端无缝切换（对标 gallery.html） */
+  previewOaAllThemes(body) {
+    return request('/oa-content/preview-all', { method: 'POST', body })
+  },
+  previewOaXhs(body) {
+    return request('/oa-content/preview-xhs', { method: 'POST', body })
+  },
+  importOaDraft(body) {
+    return request('/oa-content/drafts/import', { method: 'POST', body })
+  },
+  deriveOaXhs(id, body) {
+    return request(`/oa-content/drafts/${id}/derive-xhs`, { method: 'POST', body: body || {} })
+  },
+  exportOaXhs(id, body) {
+    return request(`/oa-content/drafts/${id}/export-xhs`, { method: 'POST', body: body || {} })
+  },
   runOaDaily() {
     return request('/oa-content/run-daily', { method: 'POST' })
   },
   runOaTrackSources(body) {
     return request('/oa-content/track-sources', { method: 'POST', body: body || {} })
+  },
+  runOaTrackWash(body) {
+    return request('/oa-content/track-wash', { method: 'POST', body: body || {} })
   },
   listOaJobs(query) {
     return request('/oa-content/jobs', { method: 'GET', query })

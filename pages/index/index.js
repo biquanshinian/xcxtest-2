@@ -135,11 +135,12 @@ const {
 } = require('../../utils/membership.js')
 const { getMemberPolicy, getMemberPolicySync } = require('../../utils/member-policy.js')
 const { fetchMainConfig, isFeatureEnabled } = require('../../utils/feature-flags.js')
+const { applyOrbitPanoFlags, buildOrbitPanoFlagPatch } = require('../../utils/orbit-pano-list-flag.js')
 const { isAIAvailable } = require('../../utils/aiService.js')
 const { warmUserPreferencesSync, warmBriefingPopupShownSync } = require('../../utils/user-growth.js')
 const { persistAgencyLogoAfterRemoteLoad, isRemoteAgencyLogoUrl } = require('../../utils/agency-logo-cache.js')
 const { ensureAgencyLogoBgTone } = require('../../utils/agency-logo-bg.js')
-const { enrichMissionsLaunchAgencyImages } = require('../../utils/upcoming-agency-logo-enrich.js')
+const { enrichMissionsLaunchAgencyImages, hydrateMissionsAgencyLogos } = require('../../utils/upcoming-agency-logo-enrich.js')
 const { buildUpcomingAgencyFilterState, getAgencyKeyFromMission } = require('../../utils/upcoming-agency-filter.js')
 
 // 倒计时到点实时状态确认：具体节奏（NET+10m 首查 / 窗口内 3m 复查 / 窗口+宽限后
@@ -383,6 +384,7 @@ const SPLASH_METHODS = [
   'onSplashSkipTap',
   'onSplashMissionTap',
   'onSplashAgencyLogoLoad',
+  'onSplashAgencyLogoError',
   'closeSplash'
 ]
 function delegateSplash(name) {
@@ -590,6 +592,7 @@ const INTERACTION_METHODS = [
   "normalizeBoosterInfo",
   "onGoBoosterDetail",
   "onGoAgencyDetail",
+  "onGoRocketModelDetail",
   "onImageError",
   "onCountdownRocketImageError",
   "refreshLaunchPanelRocketImageUrl",
@@ -731,7 +734,13 @@ Page({
         warmMembershipStateSync()
         warmUserPreferencesSync()
         warmBriefingPopupShownSync()
-        fetchMainConfig() // 预热会员策略 / 流量档
+        fetchMainConfig() // 预热会员策略 / 流量档 / 环绕全景开关
+          .then(() => {
+            if (this && typeof this._restampOrbitPanoFlags === 'function') {
+              this._restampOrbitPanoFlags()
+            }
+          })
+          .catch(() => {})
       } catch (e) {}
       try {
         this._refreshMembershipAndAgencyFilter()
@@ -853,6 +862,19 @@ Page({
       langExpand: launchCardUiText('expand'),
       langCollapse: launchCardUiText('collapse')
     }
+  },
+
+  _restampOrbitPanoFlags() {
+    try {
+      if (!this || typeof this.setData !== 'function' || !this.data) return
+      const patch = Object.assign(
+        {},
+        buildOrbitPanoFlagPatch(this.data.upcomingMissions, 'upcomingMissions'),
+        buildOrbitPanoFlagPatch(this.data.completedMissions, 'completedMissions'),
+        buildOrbitPanoFlagPatch(this.data.displayedUpcomingMissions, 'displayedUpcomingMissions')
+      )
+      if (Object.keys(patch).length) this.setData(patch)
+    } catch (e) {}
   },
 
   /** 偏好切换内容语言后：就地套用列表字段 + 壳文案 */
@@ -1593,6 +1615,11 @@ Page({
       upcoming = cleaned
       safePatch.upcomingMissions = cleaned
     }
+    const hydrated = hydrateMissionsAgencyLogos(upcoming)
+    if (hydrated !== upcoming) {
+      upcoming = hydrated
+      safePatch.upcomingMissions = hydrated
+    }
 
     let sel =
       safePatch.selectedUpcomingAgencyKey !== undefined
@@ -2153,14 +2180,15 @@ Page({
       })
       this._upcomingAgencyEnrichGen = (this._upcomingAgencyEnrichGen || 0) + 1
       const enrichGen = this._upcomingAgencyEnrichGen
-      enrichMissionsLaunchAgencyImages(list)
-        .then((enriched) => {
-          if (enrichGen !== this._upcomingAgencyEnrichGen) return
-          const nextList = enriched || list
-          if (!this._upcomingAgencyLogoFieldsChanged(list, nextList)) return
-          const fm = this._resolveCountdownPanelMission(nextList, getServerNow()).panelMission || panelMission
-          this._patchUpcomingListAfterAgencyEnrich(fm, nextList, upcomingRes)
-        })
+      const applyEnriched = (enriched) => {
+        if (enrichGen !== this._upcomingAgencyEnrichGen) return
+        const nextList = enriched || list
+        if (!this._upcomingAgencyLogoFieldsChanged(list, nextList)) return
+        const fm = this._resolveCountdownPanelMission(nextList, getServerNow()).panelMission || panelMission
+        this._patchUpcomingListAfterAgencyEnrich(fm, nextList, upcomingRes)
+      }
+      enrichMissionsLaunchAgencyImages(list, { onMore: applyEnriched })
+        .then(applyEnriched)
         .catch(() => {})
       return
     }
@@ -2173,29 +2201,30 @@ Page({
       completedMissions: completedMerge
     })
 
-    enrichMissionsLaunchAgencyImages(baselineList)
-      .then((enriched) => {
-        if (enrichGen !== this._upcomingAgencyEnrichGen) return
-        const nextList = this._filterUpcomingAgainstSettled(enriched || baselineList)
-        const fm = this._resolveCountdownPanelMission(nextList, getServerNow()).panelMission
-        if (!fm) {
-          const emptyState = buildUpcomingLaunchEmptyState({
-            message: '暂无即将发射的任务',
-            upcomingListState: buildMissionListSetData(
-              'upcoming',
-              [],
-              { nextOffset: 0, hasMore: false },
-              filterExpiredMissions
-            )
-          })
-          this.applyUpcomingAgencyFilterToPatch(emptyState, [])
-          this.setData(emptyState, () => this.scheduleUpcomingAgencyChipsOverflowHint())
-          this.resetVoteData()
-          return
-        }
-        if (!this._upcomingAgencyLogoFieldsChanged(baselineList, nextList)) return
-        this._patchUpcomingListAfterAgencyEnrich(fm, nextList, upcomingRes)
-      })
+    const applyEnriched = (enriched) => {
+      if (enrichGen !== this._upcomingAgencyEnrichGen) return
+      const nextList = this._filterUpcomingAgainstSettled(enriched || baselineList)
+      const fm = this._resolveCountdownPanelMission(nextList, getServerNow()).panelMission
+      if (!fm) {
+        const emptyState = buildUpcomingLaunchEmptyState({
+          message: '暂无即将发射的任务',
+          upcomingListState: buildMissionListSetData(
+            'upcoming',
+            [],
+            { nextOffset: 0, hasMore: false },
+            filterExpiredMissions
+          )
+        })
+        this.applyUpcomingAgencyFilterToPatch(emptyState, [])
+        this.setData(emptyState, () => this.scheduleUpcomingAgencyChipsOverflowHint())
+        this.resetVoteData()
+        return
+      }
+      if (!this._upcomingAgencyLogoFieldsChanged(baselineList, nextList)) return
+      this._patchUpcomingListAfterAgencyEnrich(fm, nextList, upcomingRes)
+    }
+    enrichMissionsLaunchAgencyImages(baselineList, { onMore: applyEnriched })
+      .then(applyEnriched)
       .catch(() => {})
   },
 
@@ -2464,7 +2493,11 @@ Page({
 
     const commit = () => {
       if (payload && Object.prototype.hasOwnProperty.call(payload, 'upcomingMissions')) {
+        try { applyOrbitPanoFlags(payload.upcomingMissions) } catch (e) {}
         this.applyUpcomingAgencyFilterToPatch(payload)
+      }
+      if (payload && Array.isArray(payload.completedMissions)) {
+        try { applyOrbitPanoFlags(payload.completedMissions) } catch (e) {}
       }
       this.setData(payload, () => {
         this.syncCalendarFromMissionListsIfNeeded()
@@ -2498,11 +2531,12 @@ Page({
     }
 
     if (payload && Array.isArray(payload.upcomingMissions) && payload.upcomingMissions.length > 0) {
-      enrichMissionsLaunchAgencyImages(payload.upcomingMissions)
-        .then((enriched) => {
-          payload.upcomingMissions = enriched || payload.upcomingMissions
-          commit()
-        })
+      const applyEnriched = (enriched) => {
+        payload.upcomingMissions = enriched || payload.upcomingMissions
+        commit()
+      }
+      enrichMissionsLaunchAgencyImages(payload.upcomingMissions, { onMore: applyEnriched })
+        .then(applyEnriched)
         .catch(commit)
       return
     }
@@ -2598,11 +2632,12 @@ Page({
     }
 
     if (type === 'upcoming' && Array.isArray(nextState.upcomingMissions)) {
-      enrichMissionsLaunchAgencyImages(nextState.upcomingMissions)
-        .then((enriched) => {
-          nextState.upcomingMissions = enriched || nextState.upcomingMissions
-          done()
-        })
+      const applyEnriched = (enriched) => {
+        nextState.upcomingMissions = enriched || nextState.upcomingMissions
+        done()
+      }
+      enrichMissionsLaunchAgencyImages(nextState.upcomingMissions, { onMore: applyEnriched })
+        .then(applyEnriched)
         .catch(done)
       return
     }
@@ -4075,6 +4110,12 @@ Page({
     if (this._splashVideoFallbackTimer) {
       clearTimeout(this._splashVideoFallbackTimer)
       this._splashVideoFallbackTimer = null
+    }
+    if (this._splashWeakNetHandler && typeof wx.offNetworkWeakChange === 'function') {
+      try {
+        wx.offNetworkWeakChange(this._splashWeakNetHandler)
+      } catch (e) {}
+      this._splashWeakNetHandler = null
     }
     // 清除滚动节流定时器
     if (this.scrollTimer) {

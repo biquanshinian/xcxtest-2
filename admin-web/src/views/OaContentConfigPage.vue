@@ -124,9 +124,12 @@
           <el-input v-model="row.authorMatch" size="small" />
         </template>
       </el-table-column>
-      <el-table-column label="RSS" min-width="200">
+      <el-table-column label="RSS" min-width="280">
         <template #default="{ row }">
-          <el-input v-model="row.rssUrl" size="small" />
+          <el-input v-model="row.rssUrl" size="small" :title="row.rssUrl" />
+          <el-text v-if="row.rssUrl && !looksLikeFeedUrl(row.rssUrl)" type="warning" size="small">
+            不像 feed，保存时会自动纠正
+          </el-text>
         </template>
       </el-table-column>
       <el-table-column label="自动洗稿" width="90">
@@ -134,16 +137,10 @@
           <el-switch v-model="row.autoWash" />
         </template>
       </el-table-column>
-      <el-table-column label="发稿号" width="130">
-        <template #default="{ row }">
-          <el-select v-model="row.brandKey" size="small" style="width:110px">
-            <el-option
-              v-for="b in form.brands"
-              :key="b.key"
-              :label="b.name"
-              :value="b.key"
-            />
-          </el-select>
+      <el-table-column label="发稿号" min-width="160">
+        <template #default>
+          <el-text size="small">全部启用号</el-text>
+          <div class="track-brand-list">{{ enabledBrandLabel }}</div>
         </template>
       </el-table-column>
       <el-table-column label="策略" width="120">
@@ -164,8 +161,10 @@
     </el-table>
     <el-text type="info" size="small" style="display:block;margin-bottom:16px;max-width:960px">
       「作者匹配」留空 = 该 feed 全部文章。默认只入库到「对标资产 → 采集」（同名对标账号自动建档）；
-      开启自动洗稿才会进草稿箱。策略填 auto（或留空）= 按正文自动匹配。定时由云函数 oaAuthorTrack 每 6 小时触发。
-      NSF 等站若直连被 Cloudflare 403，会自动经 RSS 中转（rss2json）拉取。修改后记得点顶部「保存配置」。
+      开启自动洗稿才会进草稿箱：同一篇文章会按全部启用发稿号各洗一稿（人设/凭证槽不同），运营在草稿箱按发稿号筛选后决定推哪一篇。
+      策略填 auto（或留空）= 按正文自动匹配。定时由云函数 oaAuthorTrack 每 6 小时拉源、每 15 分钟消化洗稿队列。
+      NSF 必须填栏目 feed（如 /news/spacex/feed/），填官网首页会失败；已知源保存时会自动纠正。
+      直连被拦或 TLS 失败会走 rss2json 中转。修改后记得点顶部「保存配置」。
     </el-text>
 
     <el-divider content-position="left">发稿号（人设 / 策略 / 凭证槽）</el-divider>
@@ -276,6 +275,13 @@ const form = reactive({
 const slotReady = (slot) => !!form.wechatReadyBySlot?.[String(slot || '1')]?.ready
 const slotAppid = (slot) => form.wechatReadyBySlot?.[String(slot || '1')]?.appid || ''
 
+const enabledBrandLabel = computed(() => {
+  const names = (form.brands || [])
+    .filter((b) => b && b.enabled !== false)
+    .map((b) => b.name || b.key)
+  return names.length ? names.join('、') : '（请先启用发稿号）'
+})
+
 /** 槽位配置化：后端返回已配置的槽（1/2 恒在，3–9 配了才显示） */
 const slotOptions = computed(() => {
   const keys = Object.keys(form.wechatReadyBySlot || {}).filter((k) => /^[1-9]$/.test(k))
@@ -346,6 +352,8 @@ const load = async () => {
     }
     for (const s of form.trackSources || []) {
       if (!String(s.strategyKey || '').trim()) s.strategyKey = 'auto'
+      const preset = defaultTrackSources.find((p) => p.key === s.key)
+      if (preset && s.rssUrl && !looksLikeFeedUrl(s.rssUrl)) s.rssUrl = preset.rssUrl
     }
     form.miniprogramCtaMode = form.miniprogramCtaMode || 'none'
     if (form.miniprogramCtaMode === 'image' && !(form.brands || []).some((b) => String(b.miniprogramCta || '').trim())) {
@@ -359,6 +367,9 @@ const load = async () => {
     ElMessage.error(e.message || '加载配置失败')
   }
 }
+
+const looksLikeFeedUrl = (s) =>
+  /\/(feed|rss|atom)(\/|$|\.)/i.test(String(s || '')) || /\.(xml|rss|atom)(\?|$)/i.test(String(s || ''))
 
 /** 预设追踪源：NSF 栏目 feed（HTML 页被 Cloudflare 拦，RSS 通道开放且含全文+配图） */
 const trackPresets = [
@@ -388,6 +399,11 @@ const trackPresets = [
     strategyKey: 'auto',
     maxPerRun: 2
   }
+]
+
+const defaultTrackSources = [
+  { key: 'proxima_jack', rssUrl: 'https://proximareport.com/rss/' },
+  ...trackPresets
 ]
 
 const hasTrackSource = (key) =>
@@ -489,20 +505,36 @@ const onTrackNow = async () => {
     await api.updateOaContentConfig({ trackSources: form.trackSources })
     const res = await api.runOaTrackSources({})
     const rows = res?.results || []
-    // 必须暴露 error 和 fetched：拉到 0 篇通常是源拉取失败而非「没有新文章」
-    const msg = rows
-      .map((r) => {
-        const base = `${r.name || r.key}: 拉到${r.fetched || 0} 新${r.created || 0}/跳过${r.skipped || 0}${
-          r.washed ? `/洗稿${r.washed}` : ''
-        }`
-        return r.error ? `${base} ❌ ${r.error}` : base
-      })
-      .join('；')
+    let washNote = ''
+    const queued = Number(res?.washQueued || 0) || rows.reduce((n, r) => n + Number(r.washQueued || 0), 0)
+    if (queued > 0) {
+      try {
+        const wash = await api.runOaTrackWash({ limit: 1 })
+        const n = (wash?.results || []).filter((x) => x.draftId).length
+        const left = Number(wash?.remaining || 0)
+        washNote = n
+          ? `；已洗 ${n} 篇进草稿箱${left ? `，余 ${left} 篇后台继续` : ''}`
+          : left
+            ? `；洗稿排队 ${left} 篇，后台继续`
+            : '；洗稿队列已处理'
+      } catch (we) {
+        washNote = `；入库完成，洗稿将在后台继续（${we.message || '请求超时'}）`
+      }
+    }
+    const msg =
+      rows
+        .map((r) => {
+          const base = `${r.name || r.key}: 拉到${r.fetched || 0} 新${r.created || 0}/跳过${r.skipped || 0}${
+            r.washQueued ? `/待洗${r.washQueued}` : ''
+          }${r.via ? ` ${r.via}` : ''}`
+          return r.error ? `${base} ❌ ${r.error}` : base
+        })
+        .join('；') + washNote
     const hasErr = rows.some((r) => r.error)
     ElMessage({
       type: hasErr ? 'warning' : 'success',
       message: msg || '拉取完成',
-      duration: hasErr ? 12000 : 5000,
+      duration: hasErr ? 12000 : 8000,
       showClose: true
     })
     load()
@@ -522,4 +554,5 @@ onMounted(load)
 .brand-add { margin-top: 8px; }
 .slot-status { margin-top: 8px; }
 .track-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:4px; }
+.track-brand-list { color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.3; }
 </style>

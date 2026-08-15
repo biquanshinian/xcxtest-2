@@ -16,8 +16,8 @@ const { translateAgencyName } = require('./agency-name-i18n.js')
 
 /** 与 sync meta 一起存；升版可强制跑一轮回填（v3：补 rocketConfigName/launchAgencyId/netPrecision） */
 const LAUNCH_DATA_SCHEMA = 3
-/** NET 推迟超过此时长 → 标记 netChangePending，供改期推送扫描 */
-const NET_CHANGE_DELAY_MS = 30 * 60 * 1000
+/** NET 变动满此时长（提前或延期）→ 标记 netChangePending，与首页改期弹窗同口径 */
+const NET_CHANGE_DELAY_MS = 60 * 1000
 
 const LAUNCH_DATA_COLLECTION = 'launch_data'
 const SPACE_DEVS_CACHE = 'space_devs_cache'
@@ -277,7 +277,7 @@ function mapLaunchToLaunchDataDoc(launch, nowMs) {
 }
 
 /**
- * 相对库内旧 NET：显著推迟则打改期待推标记；否则尽量保留未消费的 pending。
+ * 相对库内旧 NET：满 1 分钟的提前或延期打改期待推标记；否则尽量保留未消费的 pending。
  */
 function attachNetChangeMeta(existing, payload) {
   const oldIso = existing && existing.launchTime ? String(existing.launchTime) : ''
@@ -286,7 +286,7 @@ function attachNetChangeMeta(existing, payload) {
   const newMs = newIso ? new Date(newIso).getTime() : 0
   const lastPushed = (existing && existing.lastNetChangePushedKey) || ''
 
-  if (oldMs > 0 && newMs > 0 && newMs - oldMs >= NET_CHANGE_DELAY_MS) {
+  if (oldMs > 0 && newMs > 0 && Math.abs(newMs - oldMs) >= NET_CHANGE_DELAY_MS) {
     // 已有未消费 pending 时保留最早 previousNet（推送展示「原时间 → 最新时间」）
     payload.previousNet =
       existing && existing.netChangePending && existing.previousNet

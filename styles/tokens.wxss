@@ -20,6 +20,7 @@ page {
   --color-text-tertiary: #6E6E73;
   --color-text-quaternary: #5A5A5E;
   --color-text-on-glass: rgba(245, 245, 247, 0.92);
+  --color-text-on-inverse: #F5F5F7;
 
   /* —— 品牌：单一低明度浅蓝点缀 —— */
   --color-brand: #3B82F6;
@@ -109,6 +110,7 @@ page {
   --color-text-tertiary: #8E8E93;
   --color-text-quaternary: #AEAEB2;
   --color-text-on-glass: rgba(28, 28, 30, 0.92);
+  --color-text-on-inverse: #F5F5F7;
 
   --color-brand: #3B82F6;
   --color-brand-soft: rgba(59, 130, 246, 0.12);

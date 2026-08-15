@@ -165,9 +165,9 @@
             </view>
           </view>
 
-          <!-- 火箭型号 + 任务名同一行 -->
+          <!-- 火箭型号 + 任务名同一行；有型号档案时火箭名可点进本场档案 -->
           <view class="hero-title-row">
-            <text class="detail-title detail-title--inline" wx:if="{{showHeroRocket && heroRocketName}}">{{heroRocketName}}</text>
+            <text class="detail-title detail-title--inline" wx:if="{{showHeroRocket && heroRocketName}}" catchtap="openRocketModelDetail">{{heroRocketName}}</text>
             <text class="hero-title-sep" wx:if="{{showHeroRocket && heroRocketName && (heroTitle || mission.missionName)}}">｜</text>
             <text class="detail-title detail-title--inline">{{heroTitle || mission.missionName || mission.name || '未知任务'}}</text>
           </view>
@@ -530,7 +530,16 @@
             </view>
             <view class="detail-row" wx:if="{{mission.name}}"><text class="detail-label">发射任务</text><text class="detail-value">{{mission.name}}</text></view>
             <view class="detail-row" wx:if="{{mission.missionName && mission.missionName !== mission.name}}"><text class="detail-label">任务名称</text><text class="detail-value">{{mission.missionName}}</text></view>
-            <view class="detail-row" wx:if="{{mission.rocketName}}"><text class="detail-label">火箭型号</text><text class="detail-value">{{mission.rocketName}}</text></view>
+            <view class="detail-row" wx:if="{{mission.rocketName}}">
+              <text class="detail-label">火箭型号</text>
+              <view class="detail-value detail-value--row" wx:if="{{mission.rocketConfigId}}">
+                <view class="detail-link-chip" bindtap="openRocketModelDetail">
+                  <text class="detail-link-chip-text">{{mission.rocketName}}</text>
+                  <text class="detail-link-chip-arrow">›</text>
+                </view>
+              </view>
+              <text class="detail-value" wx:else>{{mission.rocketName}}</text>
+            </view>
             <view class="detail-row"><text class="detail-label">标称发射时间</text><text class="detail-value">{{mission.launchTimeCST}}</text></view>
             <view class="detail-row" wx:if="{{mission.netPrecisionLabel}}"><text class="detail-label">时间精度</text><text class="detail-value">{{mission.netPrecisionLabel}}</text></view>
             <view class="detail-row" wx:if="{{mission.windowStartCST && mission.windowEndCST}}"><text class="detail-label">窗口期</text><text class="detail-value">{{mission.windowStartCST}} — {{mission.windowEndCST}}</text></view>
@@ -549,23 +558,6 @@
             <view class="detail-row" wx:if="{{mission.payloadAmount > 0}}"><text class="detail-label">载荷数量</text><text class="detail-value">{{mission.payloadAmount}}</text></view>
             <view class="detail-row" wx:if="{{mission.weatherConcerns}}"><text class="detail-label">天气顾虑</text><text class="detail-value">{{descI18n.weather || mission.weatherConcerns}}</text></view>
             <view class="detail-row" wx:if="{{mission.hashtag}}"><text class="detail-label">话题标签</text><text class="detail-value">{{mission.hashtag}}</text></view>
-          </view>
-        </view>
-
-        <view class="detail-section rocket-spec-section" wx:if="{{mission.rocketSpecsVisible && mission.rocketSpecs && mission.rocketSpecs.length > 0}}">
-          <view class="detail-section-title-row rocket-spec-title-row">
-            <text class="detail-section-title">规格</text>
-            <!-- 族谱火箭型号详情页入口（与族谱型号卡同门控） -->
-            <view class="detail-link-chip detail-link-chip--booster" wx:if="{{mission.rocketConfigId}}" bindtap="openRocketModelDetail">
-              <text class="detail-link-chip-text">型号档案</text>
-              <text class="detail-link-chip-arrow">›</text>
-            </view>
-          </view>
-          <view class="rocket-spec-grid">
-            <view class="rocket-spec-cell" wx:for="{{mission.rocketSpecs}}" wx:key="_wxkey">
-              <text class="rocket-spec-label">{{item.label}}</text>
-              <text class="rocket-spec-value">{{item.line}}</text>
-            </view>
           </view>
         </view>
 
@@ -617,13 +609,13 @@
                     </view>
                   </view>
                 </view>
-                <view class="detail-row" wx:if="{{stage.landingDescription}}">
-                  <text class="detail-label">说明</text>
-                  <text class="detail-value detail-value--wrap">{{stage.landingDescription}}</text>
-                </view>
                 <view class="detail-row" wx:if="{{stage.turnaroundText || stage.turnaroundDays != null}}">
                   <text class="detail-label">周转时间</text>
                   <text class="detail-value">{{stage.turnaroundText ? stage.turnaroundText : (stage.turnaroundDays + ' 天周转')}}</text>
+                </view>
+                <view class="detail-row" wx:if="{{stage.landingDescription}}">
+                  <text class="detail-label">说明</text>
+                  <text class="detail-value detail-value--wrap">{{stage.landingDescription}}</text>
                 </view>
               </view>
             </block>
@@ -660,6 +652,10 @@
                 <text class="detail-label">周转时间</text>
                 <text class="detail-value">{{mission.boosterInfo.turnaroundText ? mission.boosterInfo.turnaroundText : (mission.boosterInfo.turnaroundDays + ' 天周转')}}</text>
               </view>
+              <view class="detail-row" wx:if="{{mission.boosterInfo && mission.boosterInfo.landingDescription}}">
+                <text class="detail-label">说明</text>
+                <text class="detail-value detail-value--wrap">{{mission.boosterInfo.landingDescription}}</text>
+              </view>
             </block>
 
             <!-- 未在上方分卡出现的级段（如 Falcon 9 的二级/上面级），去重后并入本块 -->
@@ -687,6 +683,23 @@
               currentLaunchId="{{mission.id}}"
               maxCollapsed="{{2}}"
             />
+          </view>
+        </view>
+
+        <view class="detail-section rocket-spec-section" wx:if="{{mission.rocketSpecsVisible && mission.rocketSpecs && mission.rocketSpecs.length > 0}}">
+          <view class="detail-section-title-row rocket-spec-title-row">
+            <text class="detail-section-title">规格</text>
+            <!-- 本场任务型号档案（单场免门控；族谱大类仍门控） -->
+            <view class="detail-link-chip detail-link-chip--booster" wx:if="{{mission.rocketConfigId}}" bindtap="openRocketModelDetail">
+              <text class="detail-link-chip-text">型号档案</text>
+              <text class="detail-link-chip-arrow">›</text>
+            </view>
+          </view>
+          <view class="rocket-spec-grid">
+            <view class="rocket-spec-cell" wx:for="{{mission.rocketSpecs}}" wx:key="_wxkey">
+              <text class="rocket-spec-label">{{item.label}}</text>
+              <text class="rocket-spec-value">{{item.line}}</text>
+            </view>
           </view>
         </view>
 

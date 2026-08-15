@@ -3,8 +3,8 @@
     <template #header>
       <div class="hdr">
         <div class="hdr-left">
-          <span class="hdr-title">公众号草稿箱</span>
-          <el-text type="info" size="small">审核 → 推微信草稿 → 确认发稿</el-text>
+          <span class="hdr-title">内容中台 · 草稿箱</span>
+          <el-text type="info" size="small">一文多端：微信长文 / 小红书竖版 · 预览后选择性发布</el-text>
         </div>
         <div class="acts">
           <el-select v-model="brandKey" clearable placeholder="全部发稿号" style="width:160px" @change="onFilter">
@@ -27,12 +27,15 @@
             :loading="batchDeleting"
             @click="onBatchDelete"
           >批量删除{{ selectedIds.length ? ` (${selectedIds.length})` : '' }}</el-button>
+          <el-button type="primary" plain @click="openImport">导入成品（不洗稿）</el-button>
           <el-button @click="load" :loading="loading">刷新</el-button>
         </div>
       </div>
     </template>
 
+    <!-- 桌面：表格 -->
     <el-table
+      v-if="!isMobile"
       :data="list"
       stripe
       v-loading="loading"
@@ -41,12 +44,12 @@
       @selection-change="onSelectionChange"
     >
       <el-table-column type="selection" width="46" />
-      <el-table-column label="发稿号" width="120">
+      <el-table-column label="发稿号" width="120" class-name="col-desktop">
         <template #default="{ row }">
           <el-tag size="small" effect="plain">{{ row.brandName || row.brandKey || '—' }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="稿件" min-width="360">
+      <el-table-column label="稿件" min-width="220">
         <template #default="{ row }">
           <div class="draft-main">
             <div v-if="imagesOf(row).length" class="draft-thumbs">
@@ -97,13 +100,22 @@
         </template>
       </el-table-column>
 
-      <el-table-column label="时间" width="158">
+      <el-table-column label="平台" width="168" align="center" class-name="col-desktop">
+        <template #default="{ row }">
+          <div class="plat-badges">
+            <el-tag size="small" effect="plain" type="primary">微信·{{ wechatBadge(row) }}</el-tag>
+            <el-tag size="small" effect="plain" :type="xhsBadgeType(row)">小红书·{{ xhsBadge(row) }}</el-tag>
+          </div>
+        </template>
+      </el-table-column>
+
+      <el-table-column label="时间" width="158" class-name="col-desktop">
         <template #default="{ row }">
           <div class="time-cell">{{ fmt(row.createdAt) }}</div>
         </template>
       </el-table-column>
 
-      <el-table-column label="操作" width="500" fixed="right" align="right">
+      <el-table-column label="操作" min-width="160" fixed="right" align="right" class-name="col-ops">
         <template #default="{ row }">
           <div class="ops">
             <el-button class="ops-btn ops-btn--muted" size="small" @click="openEdit(row)">编辑</el-button>
@@ -140,6 +152,70 @@
       </el-table-column>
     </el-table>
 
+    <!-- 手机：卡片列表，操作按钮完整可见（避免 fixed 列被裁切） -->
+    <div v-if="isMobile" class="draft-cards" v-loading="loading">
+      <div v-if="!loading && !list.length" class="draft-cards-empty">暂无草稿</div>
+      <div v-for="row in list" :key="row._id" class="draft-card">
+        <div class="draft-card-top">
+          <el-checkbox
+            :model-value="selectedIds.includes(row._id)"
+            @change="(v) => toggleSelect(row._id, v)"
+          />
+          <div class="draft-card-cover">
+            <el-image
+              v-if="imagesOf(row).length"
+              :src="thumbSrc(imagesOf(row)[0])"
+              :preview-src-list="imagesOf(row).map(thumbSrc)"
+              fit="cover"
+              class="draft-cover draft-cover--card"
+              preview-teleported
+              hide-on-click-modal
+            />
+            <div v-else class="draft-cover draft-cover--empty">无封面</div>
+          </div>
+          <div class="draft-card-meta">
+            <div class="draft-title" :title="row.title">{{ row.title || '未命名' }}</div>
+            <div class="draft-card-tags">
+              <el-tag :type="statusType(row.status)" size="small" effect="plain">{{ statusLabel(row.status) }}</el-tag>
+              <el-tag size="small" effect="plain" :type="prepTagType(row)">{{ prepLabel(row) }}</el-tag>
+            </div>
+            <div v-if="row.error" class="draft-err" :title="row.error">{{ errorLabel(row.error) }}</div>
+          </div>
+        </div>
+        <div class="ops ops--card">
+          <el-button class="ops-btn ops-btn--muted" size="small" @click="openEdit(row)">编辑</el-button>
+          <el-button
+            class="ops-btn ops-btn--muted"
+            size="small"
+            :disabled="['published', 'rejected', 'generate_failed', 'generating'].includes(row.status)"
+            :loading="busyId === row._id + ':prep'"
+            @click="onPrepare(row)"
+          >转存配图</el-button>
+          <el-button
+            class="ops-btn ops-btn--primary"
+            size="small"
+            :disabled="!canPush(row)"
+            :loading="busyId === row._id + ':push'"
+            @click="onPush(row)"
+          >推微信</el-button>
+          <el-button
+            class="ops-btn ops-btn--success"
+            size="small"
+            :disabled="!canPublish(row)"
+            :loading="busyId === row._id + ':publish'"
+            @click="onPublish(row)"
+          >发稿</el-button>
+          <el-button
+            class="ops-btn ops-btn--warn"
+            size="small"
+            :disabled="row.status === 'rejected' || row.status === 'published'"
+            @click="onReject(row)"
+          >拒绝</el-button>
+          <el-button class="ops-btn ops-btn--danger" size="small" @click="onDelete(row)">删除</el-button>
+        </div>
+      </div>
+    </div>
+
     <div class="pager">
       <el-pagination
         background
@@ -153,11 +229,11 @@
 
     <el-dialog
       v-model="visible"
-      title="编辑草稿"
-      width="80%"
-      top="4vh"
+      title="编辑草稿 · 多平台"
+      width="92%"
       destroy-on-close
       class="draft-dialog"
+      align-center
     >
       <el-form :model="form" label-width="96px">
         <el-form-item label="发稿号">
@@ -217,10 +293,174 @@
           </el-text>
         </el-form-item>
         <el-form-item label="小程序 path"><el-input v-model="form.miniprogramPath" placeholder="pages/index/index" /></el-form-item>
-        <el-form-item label="Markdown">
-          <el-input v-model="form.markdown" type="textarea" :rows="16" />
-        </el-form-item>
-        <el-form-item v-if="form.error" label="错误">
+
+        <el-tabs v-model="editTab" class="plat-tabs">
+          <el-tab-pane label="源稿" name="source">
+            <el-input v-model="form.markdown" type="textarea" :rows="20" placeholder="共用 Markdown 源稿" />
+          </el-tab-pane>
+          <el-tab-pane label="微信" name="wechat">
+            <el-form-item label="排版主题">
+              <div class="theme-board">
+                <div v-for="cat in themeCategories" :key="`edit-${cat}`" class="theme-row">
+                  <span class="theme-cat">{{ cat }}</span>
+                  <div class="theme-chips">
+                    <button
+                      v-for="t in themesByCategory(cat)"
+                      :key="t.id"
+                      type="button"
+                      class="theme-chip"
+                      :class="{ 'is-active': form.themeId === t.id }"
+                      @click="onPickTheme(t.id, 'edit')"
+                    >
+                      <i class="theme-dot" :style="{ background: t.accent || '#999' }" />
+                      <span>{{ t.name }}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </el-form-item>
+            <div class="split-pane">
+              <el-input v-model="form.markdown" type="textarea" :rows="22" class="split-md" />
+              <div class="split-preview">
+                <div class="preview-bar">
+                  <span>
+                    微信预览 ·
+                    <b class="preview-theme-name">{{ themeLabel(form.themeId) }}</b>
+                    <i class="preview-theme-dot" :style="{ background: themeAccent(form.themeId) }" />
+                  </span>
+                  <el-text v-if="previewLoading" size="small" type="info">全主题渲染中…</el-text>
+                  <el-text v-else-if="previewThemeCount" size="small" type="success">
+                    已缓存 {{ previewThemeCount }} 套 · 切换瞬时
+                  </el-text>
+                </div>
+                <div ref="editPreviewScrollEl" class="preview-scroll">
+                  <div
+                    v-for="tid in previewThemeIds"
+                    :key="`edit-${tid}`"
+                    class="theme-preview"
+                    :data-theme="tid"
+                    v-show="form.themeId === tid"
+                    v-html="editThemeHtmlMap[tid] || ''"
+                  ></div>
+                  <div
+                    v-if="!previewLoading && !editThemeHtmlMap[form.themeId]"
+                    class="preview-empty"
+                  >粘贴 Markdown 后自动预渲染全部主题，切换无等待</div>
+                </div>
+              </div>
+            </div>
+          </el-tab-pane>
+          <el-tab-pane label="小红书" name="xhs">
+            <div class="xhs-toolbar">
+              <el-button size="small" :loading="xhsDeriving" @click="onDeriveXhs">从源稿生成变体</el-button>
+              <el-button size="small" type="success" plain :loading="xhsExporting" @click="onExportXhs">导出发布包</el-button>
+              <el-link
+                v-if="xhsForm.exportPackageUrl"
+                :href="xhsForm.exportPackageUrl"
+                target="_blank"
+                type="primary"
+              >下载上次导出</el-link>
+              <el-tag size="small" effect="plain">{{ xhsForm.status || 'draft' }}</el-tag>
+            </div>
+            <div class="xhs-pane">
+              <div class="xhs-edit">
+                <el-form-item label="笔记标题">
+                  <el-input v-model="xhsForm.title" maxlength="20" show-word-limit placeholder="≤20 字" />
+                </el-form-item>
+                <el-form-item label="种草正文">
+                  <el-input v-model="xhsForm.body" type="textarea" :rows="10" placeholder="口语短段，勿写站外导流" />
+                </el-form-item>
+                <el-form-item label="话题">
+                  <el-input
+                    v-model="xhsTopicsText"
+                    type="textarea"
+                    :rows="2"
+                    placeholder="空格或逗号分隔，如：火箭发射 航天科普"
+                  />
+                </el-form-item>
+                <el-form-item label="置顶评论">
+                  <el-input v-model="xhsForm.pinnedComment" maxlength="200" show-word-limit />
+                </el-form-item>
+                <el-form-item label="竖图 URL">
+                  <el-input
+                    v-model="xhsImagesText"
+                    type="textarea"
+                    :rows="4"
+                    placeholder="每行一个 https 图片（建议 3:4）"
+                  />
+                </el-form-item>
+              </div>
+              <div class="xhs-preview-wrap">
+                <div class="preview-bar">
+                  <span>小红书预览（亮色手机框）</span>
+                  <el-text size="small" type="info">
+                    3:4 · {{ xhsImageList.length || 0 }} 张
+                    <template v-if="xhsImageList.length > 1"> · 左右切换</template>
+                  </el-text>
+                </div>
+                <div class="xhs-phone">
+                  <div class="xhs-phone-screen">
+                    <div class="xhs-cover">
+                      <template v-if="xhsImageList.length">
+                        <img :src="thumbSrc(xhsImageList[xhsSlideIndex] || xhsImageList[0])" alt="" />
+                        <button
+                          v-if="xhsImageList.length > 1"
+                          type="button"
+                          class="xhs-nav xhs-nav-prev"
+                          @click="xhsSlideIndex = (xhsSlideIndex - 1 + xhsImageList.length) % xhsImageList.length"
+                        >‹</button>
+                        <button
+                          v-if="xhsImageList.length > 1"
+                          type="button"
+                          class="xhs-nav xhs-nav-next"
+                          @click="xhsSlideIndex = (xhsSlideIndex + 1) % xhsImageList.length"
+                        >›</button>
+                        <div v-if="xhsImageList.length > 1" class="xhs-pager">
+                          {{ xhsSlideIndex + 1 }}/{{ xhsImageList.length }}
+                        </div>
+                        <div v-if="xhsImageList.length > 1" class="xhs-dots">
+                          <button
+                            v-for="(u, i) in xhsImageList"
+                            :key="`${i}-${u}`"
+                            type="button"
+                            class="xhs-dot"
+                            :class="{ 'is-on': i === xhsSlideIndex, 'is-cover': i === xhsCoverIndex }"
+                            :title="i === xhsCoverIndex ? '封面' : `第 ${i + 1} 张`"
+                            @click="xhsSlideIndex = i"
+                          />
+                        </div>
+                      </template>
+                      <div v-else class="xhs-cover-empty">无封面</div>
+                    </div>
+                    <div v-if="xhsImageList.length > 1" class="xhs-strip">
+                      <button
+                        v-for="(u, i) in xhsImageList"
+                        :key="`strip-${i}`"
+                        type="button"
+                        class="xhs-strip-item"
+                        :class="{ 'is-on': i === xhsSlideIndex }"
+                        @click="xhsSlideIndex = i; xhsForm.coverIndex = i"
+                      >
+                        <img :src="thumbSrc(u)" alt="" />
+                        <span v-if="i === xhsCoverIndex" class="xhs-strip-cover">封面</span>
+                      </button>
+                    </div>
+                    <div class="xhs-note">
+                      <div class="xhs-note-title">{{ xhsForm.title || '未命名笔记' }}</div>
+                      <div class="xhs-note-body">{{ xhsForm.body || '正文预览…' }}</div>
+                      <div class="xhs-note-topics">
+                        <span v-for="t in xhsTopicList" :key="t">#{{ t }}</span>
+                      </div>
+                      <div v-if="xhsForm.pinnedComment" class="xhs-pin">置顶：{{ xhsForm.pinnedComment }}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </el-tab-pane>
+        </el-tabs>
+
+        <el-form-item v-if="form.error" label="错误" style="margin-top:12px">
           <el-text type="danger">{{ form.error }}</el-text>
         </el-form-item>
         <el-form-item v-if="form.timeline.length" label="时间线">
@@ -244,11 +484,103 @@
         </div>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="importVisible"
+      title="导入成品稿（不洗稿）"
+      width="92%"
+      top="3vh"
+      destroy-on-close
+      class="draft-dialog"
+    >
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom:12px"
+        title="直接入库草稿箱，不走 AI 洗稿。配图请填可公网访问的 https 链接；保存后可转存再推微信。"
+      />
+      <el-form :model="importForm" label-width="96px">
+        <el-form-item label="发稿号">
+          <el-select v-model="importForm.brandKey" style="width:240px">
+            <el-option v-for="b in brands" :key="b.key" :label="b.name" :value="b.key" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="标题"><el-input v-model="importForm.title" placeholder="可空，默认取 Markdown 首行 # 标题" /></el-form-item>
+        <el-form-item label="封面 URL"><el-input v-model="importForm.coverUrl" placeholder="https://..." /></el-form-item>
+        <el-form-item label="配图 URL">
+          <el-input
+            v-model="importForm.imageUrlsText"
+            type="textarea"
+            :rows="2"
+            placeholder="每行一个 https 图片地址（可选）"
+          />
+        </el-form-item>
+        <el-form-item label="排版主题">
+          <div class="theme-board">
+            <div v-for="cat in themeCategories" :key="`imp-${cat}`" class="theme-row">
+              <span class="theme-cat">{{ cat }}</span>
+              <div class="theme-chips">
+                <button
+                  v-for="t in themesByCategory(cat)"
+                  :key="t.id"
+                  type="button"
+                  class="theme-chip"
+                  :class="{ 'is-active': importForm.themeId === t.id }"
+                  @click="onPickTheme(t.id, 'import')"
+                >
+                  <i class="theme-dot" :style="{ background: t.accent || '#999' }" />
+                  <span>{{ t.name }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </el-form-item>
+        <el-form-item label="正文 / 预览">
+          <div class="split-pane">
+            <el-input v-model="importForm.markdown" type="textarea" :rows="22" class="split-md" placeholder="粘贴成品 Markdown…" />
+            <div class="split-preview">
+              <div class="preview-bar">
+                <span>
+                  实时预览 ·
+                  <b class="preview-theme-name">{{ themeLabel(importForm.themeId) }}</b>
+                  <i class="preview-theme-dot" :style="{ background: themeAccent(importForm.themeId) }" />
+                </span>
+                <el-text v-if="importPreviewLoading" size="small" type="info">全主题渲染中…</el-text>
+                <el-text v-else-if="importThemeCount" size="small" type="success">
+                  已缓存 {{ importThemeCount }} 套 · 切换瞬时
+                </el-text>
+              </div>
+              <div ref="importPreviewScrollEl" class="preview-scroll">
+                <div
+                  v-for="tid in previewThemeIds"
+                  :key="`imp-${tid}`"
+                  class="theme-preview"
+                  :data-theme="tid"
+                  v-show="importForm.themeId === tid"
+                  v-html="importThemeHtmlMap[tid] || ''"
+                ></div>
+                <div
+                  v-if="!importPreviewLoading && !importThemeHtmlMap[importForm.themeId]"
+                  class="preview-empty"
+                >粘贴 Markdown 后自动预渲染全部主题，切换无等待</div>
+              </div>
+            </div>
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="importVisible = false">取消</el-button>
+          <el-button type="primary" :loading="importing" @click="onImport">入库草稿箱</el-button>
+        </div>
+      </template>
+    </el-dialog>
   </el-card>
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api/client'
@@ -259,13 +591,36 @@ const total = ref(0)
 const loading = ref(false)
 const saving = ref(false)
 const visible = ref(false)
+const importVisible = ref(false)
+const importing = ref(false)
 const status = ref('')
 const brandKey = ref('')
 const brands = ref([])
+const themes = ref([])
 const editingId = ref('')
 const busyId = ref('')
 const selectedIds = ref([])
 const batchDeleting = ref(false)
+const isMobile = ref(
+  typeof window !== 'undefined' && window.matchMedia
+    ? window.matchMedia('(max-width: 768px)').matches
+    : false
+)
+let mobileMq = null
+const onMobileMq = () => {
+  isMobile.value = !!(mobileMq && mobileMq.matches)
+}
+const toggleSelect = (id, checked) => {
+  const sid = String(id || '')
+  if (!sid) return
+  const set = new Set(selectedIds.value)
+  if (checked) set.add(sid)
+  else set.delete(sid)
+  selectedIds.value = [...set]
+}
+const editTab = ref('wechat')
+const xhsDeriving = ref(false)
+const xhsExporting = ref(false)
 const query = reactive({ page: 1, pageSize: 20 })
 const form = reactive({
   title: '',
@@ -276,14 +631,107 @@ const form = reactive({
   videos: [],
   miniprogramPath: '',
   markdown: '',
+  themeId: 'bytedance',
   error: '',
   brandKey: '',
-  timeline: []
+  timeline: [],
+  platforms: ['wechat']
 })
+const xhsForm = reactive({
+  title: '',
+  body: '',
+  topics: [],
+  pinnedComment: '',
+  images: [],
+  coverIndex: 0,
+  status: 'draft',
+  exportPackageUrl: ''
+})
+const xhsTopicsText = ref('')
+const xhsImagesText = ref('')
+const xhsSlideIndex = ref(0)
+const xhsTopicList = computed(() =>
+  String(xhsTopicsText.value || '')
+    .split(/[\s,，#]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+)
+const xhsImageList = computed(() =>
+  String(xhsImagesText.value || '')
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter((s) => /^https?:\/\//i.test(s))
+    .slice(0, 9)
+)
+const xhsCoverIndex = computed(() => {
+  const n = xhsImageList.value.length
+  if (!n) return 0
+  return Math.min(Math.max(0, Number(xhsForm.coverIndex) || 0), n - 1)
+})
+const xhsCoverUrl = computed(() => xhsImageList.value[xhsCoverIndex.value] || '')
+const importForm = reactive({
+  brandKey: '',
+  title: '',
+  coverUrl: '',
+  imageUrlsText: '',
+  themeId: 'bytedance',
+  markdown: ''
+})
+const previewLoading = ref(false)
+const importPreviewLoading = ref(false)
+/** themeId → HTML（画廊式预渲染；切主题只改 display） */
+const editThemeHtmlMap = reactive({})
+const importThemeHtmlMap = reactive({})
+const previewThemeIds = computed(() => {
+  const ids = (themes.value || []).map((t) => t.id).filter(Boolean)
+  return ids.length ? ids : ['bytedance', 'clean']
+})
+const previewThemeCount = computed(() => Object.keys(editThemeHtmlMap).filter((k) => editThemeHtmlMap[k]).length)
+const importThemeCount = computed(() =>
+  Object.keys(importThemeHtmlMap).filter((k) => importThemeHtmlMap[k]).length
+)
+const editPreviewScrollEl = ref(null)
+const importPreviewScrollEl = ref(null)
+const themeLabel = (id) => {
+  const hit = (themes.value || []).find((t) => t.id === id)
+  return (hit && hit.name) || id || '—'
+}
+const themeAccent = (id) => {
+  const hit = (themes.value || []).find((t) => t.id === id)
+  return (hit && hit.accent) || '#2f6bff'
+}
 /** url → 代理后 dataURL，打破微信防盗链占位图 */
 const proxyMap = reactive({})
 const thumbSrc = (url) => displayOaImage(url, proxyMap)
 let pushPollTimer = null
+let previewTimer = null
+let importPreviewTimer = null
+/** Markdown 变更批量预渲染的序号；换主题不发请求 */
+let editPreviewSeq = 0
+let importPreviewSeq = 0
+
+const clearThemeMap = (map) => {
+  Object.keys(map).forEach((k) => {
+    delete map[k]
+  })
+}
+const fillThemeMap = (map, themesObj) => {
+  clearThemeMap(map)
+  const src = themesObj && typeof themesObj === 'object' ? themesObj : {}
+  Object.keys(src).forEach((k) => {
+    map[k] = src[k] || ''
+  })
+}
+
+const themeCategories = computed(() => {
+  const order = ['内置', '深度长文', '科技产品', '文艺随笔', '活力动态', '模板布局']
+  const present = new Set((themes.value || []).map((t) => t.category || '其他'))
+  return order.filter((c) => present.has(c)).concat(
+    [...present].filter((c) => !order.includes(c))
+  )
+})
+const themesByCategory = (cat) =>
+  (themes.value || []).filter((t) => (t.category || '其他') === cat)
 
 const fmt = (t) => (t ? new Date(t).toLocaleString() : '-')
 
@@ -292,6 +740,7 @@ const timelineLabel = (e) =>
     generated: '已生成',
     generated_fallback: '生成（兜底整理稿）',
     generate_failed: '生成失败',
+    imported: '成品导入',
     prep_ready: '配图就绪',
     prep_partial: '配图部分就绪',
     push_queued: '推送入队',
@@ -338,8 +787,62 @@ const sourceLabel = (t) =>
     news_article: '手写稿',
     collected: '采集',
     viral: '爆文',
-    manual: '手动'
+    manual: '手动',
+    imported: '成品导入'
   }[t] || t || '—')
+
+const wechatBadge = (row) => {
+  const s = row?.status
+  if (s === 'published') return '已发'
+  if (s === 'pushed_to_wechat') return '已推'
+  if (s === 'ready' || s === 'needs_review') return '草稿'
+  return statusLabel(s).slice(0, 4)
+}
+const xhsBadge = (row) => {
+  const st = row?.variants?.xhs?.status
+  if (st === 'exported') return '可导出'
+  if (st === 'ready' || st === 'draft') return '已生成'
+  if (row?.variants?.xhs?.title || row?.variants?.xhs?.body) return '已生成'
+  return '未生成'
+}
+const xhsBadgeType = (row) => {
+  const st = row?.variants?.xhs?.status
+  if (st === 'exported') return 'success'
+  if (st === 'ready' || st === 'draft' || row?.variants?.xhs?.title) return 'warning'
+  return 'info'
+}
+
+const syncXhsTextFields = () => {
+  xhsTopicsText.value = (xhsForm.topics || []).join(' ')
+  xhsImagesText.value = (xhsForm.images || []).join('\n')
+}
+const collectXhsFromUi = () => ({
+  title: xhsForm.title,
+  body: xhsForm.body,
+  pinnedComment: xhsForm.pinnedComment,
+  coverIndex: xhsCoverIndex.value,
+  status: xhsForm.status || 'draft',
+  exportPackageUrl: xhsForm.exportPackageUrl || '',
+  topics: xhsTopicList.value,
+  images: xhsImageList.value
+})
+const applyXhsVariant = (xhs) => {
+  Object.assign(xhsForm, {
+    title: xhs?.title || '',
+    body: xhs?.body || '',
+    topics: Array.isArray(xhs?.topics) ? xhs.topics : [],
+    pinnedComment: xhs?.pinnedComment || '',
+    images: Array.isArray(xhs?.images) ? xhs.images : [],
+    coverIndex: Number(xhs?.coverIndex) || 0,
+    status: xhs?.status || 'draft',
+    exportPackageUrl: xhs?.exportPackageUrl || ''
+  })
+  xhsSlideIndex.value = Math.min(
+    Math.max(0, Number(xhs?.coverIndex) || 0),
+    Math.max(0, (Array.isArray(xhs?.images) ? xhs.images : []).length - 1)
+  )
+  syncXhsTextFields()
+}
 
 /** 把技术向失败文案改成可操作提示（不能当成功忽略） */
 const errorLabel = (err) => {
@@ -508,6 +1011,172 @@ const loadBrands = async () => {
   }
 }
 
+const loadThemes = async () => {
+  try {
+    const res = await api.listOaThemes()
+    themes.value = res?.list || []
+  } catch (e) {
+    themes.value = []
+  }
+}
+
+const parseImageUrlsText = (text) =>
+  String(text || '')
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter((s) => /^https?:\/\//i.test(s))
+
+/** Markdown 变更时批量预渲染全主题；切主题不走网络（对标 gallery.html） */
+const runPreview = async (mode) => {
+  const isImport = mode === 'import'
+  const md = isImport ? importForm.markdown : form.markdown
+  const themeId = isImport ? importForm.themeId : form.themeId
+  const brand = isImport ? importForm.brandKey : form.brandKey
+  const coverUrl = isImport ? importForm.coverUrl : form.coverUrl
+  const imageUrls = isImport ? parseImageUrlsText(importForm.imageUrlsText) : form.imageUrls
+  const seq = isImport ? ++importPreviewSeq : ++editPreviewSeq
+  const map = isImport ? importThemeHtmlMap : editThemeHtmlMap
+  if (!String(md || '').trim()) {
+    if (isImport ? seq === importPreviewSeq : seq === editPreviewSeq) clearThemeMap(map)
+    return
+  }
+  if (isImport) importPreviewLoading.value = true
+  else previewLoading.value = true
+  try {
+    const res = await api.previewOaAllThemes({
+      markdown: md,
+      themeId,
+      title: isImport ? importForm.title : form.title,
+      brandKey: brand || undefined,
+      coverUrl: coverUrl || undefined,
+      imageUrls,
+      // 与推送组装一致：lead + 主题正文 + 小程序 CTA
+      includeChrome: true
+    })
+    if (isImport ? seq !== importPreviewSeq : seq !== editPreviewSeq) return
+    const packed = res?.themes || {}
+    if (!Object.keys(packed).length) {
+      throw new Error('预览返回空主题包，请刷新后重试')
+    }
+    fillThemeMap(map, packed)
+  } catch (e) {
+    if (isImport ? seq !== importPreviewSeq : seq !== editPreviewSeq) return
+    clearThemeMap(map)
+    // 回退：至少当前主题可预览，避免整片空白
+    try {
+      const one = await api.previewOaContent({
+        markdown: md,
+        themeId,
+        title: isImport ? importForm.title : form.title,
+        brandKey: brand || undefined,
+        coverUrl: coverUrl || undefined,
+        imageUrls,
+        includeChrome: true
+      })
+      map[themeId || 'bytedance'] = one?.html || `<p style="color:#c00">${e.message || '预览失败'}</p>`
+    } catch (e2) {
+      map[themeId || 'bytedance'] =
+        `<p style="color:#c00">${(e2 && e2.message) || e.message || '预览失败'}</p>`
+    }
+  } finally {
+    if (isImport) {
+      if (seq === importPreviewSeq) importPreviewLoading.value = false
+    } else if (seq === editPreviewSeq) {
+      previewLoading.value = false
+    }
+  }
+}
+
+const schedulePreview = (mode) => {
+  if (mode === 'import') {
+    clearTimeout(importPreviewTimer)
+    importPreviewTimer = setTimeout(() => runPreview('import'), 420)
+  } else {
+    clearTimeout(previewTimer)
+    previewTimer = setTimeout(() => runPreview('edit'), 420)
+  }
+}
+
+/** 无缝切主题：只改当前显示，不重请求（对标 gallery switchTheme） */
+const onPickTheme = (id, mode) => {
+  if (mode === 'import') importForm.themeId = id
+  else form.themeId = id
+  const el = mode === 'import' ? importPreviewScrollEl.value : editPreviewScrollEl.value
+  if (el) el.scrollTop = 0
+  // 若该主题尚未缓存（全量渲染失败过），点选时补渲一套
+  const map = mode === 'import' ? importThemeHtmlMap : editThemeHtmlMap
+  if (!map[id]) schedulePreview(mode)
+}
+
+const openImport = () => {
+  importForm.brandKey = brands.value[0]?.key || ''
+  importForm.title = ''
+  importForm.coverUrl = ''
+  importForm.imageUrlsText = ''
+  importForm.themeId = 'bytedance'
+  importForm.markdown = ''
+  clearThemeMap(importThemeHtmlMap)
+  importVisible.value = true
+}
+
+const onImport = async () => {
+  const md = String(importForm.markdown || '').trim()
+  if (!md) {
+    ElMessage.warning('请粘贴 Markdown 正文')
+    return
+  }
+  importing.value = true
+  try {
+    const res = await api.importOaDraft({
+      brandKey: importForm.brandKey || undefined,
+      title: importForm.title || undefined,
+      coverUrl: importForm.coverUrl || undefined,
+      imageUrls: parseImageUrlsText(importForm.imageUrlsText),
+      themeId: importForm.themeId,
+      markdown: md
+    })
+    ElMessage.success(`已入库：${res?.title || '草稿'}（主题 ${res?.themeId || ''}）`)
+    importVisible.value = false
+    query.page = 1
+    load()
+  } catch (e) {
+    ElMessage.error(e.message || '导入失败')
+  } finally {
+    importing.value = false
+  }
+}
+
+watch(
+  xhsImageList,
+  (list) => {
+    if (xhsSlideIndex.value >= list.length) {
+      xhsSlideIndex.value = Math.max(0, list.length - 1)
+    }
+    if (list.length) warmOaImageList(list, proxyMap).catch(() => null)
+  },
+  { immediate: true }
+)
+
+// 主题不进 watch：切主题瞬时；仅正文/品牌/封面变化才批量预渲染
+watch(
+  () => [form.markdown, form.brandKey, form.coverUrl, visible.value],
+  () => {
+    if (visible.value) schedulePreview('edit')
+  }
+)
+watch(
+  () => [
+    importForm.markdown,
+    importForm.brandKey,
+    importForm.coverUrl,
+    importForm.imageUrlsText,
+    importVisible.value
+  ],
+  () => {
+    if (importVisible.value) schedulePreview('import')
+  }
+)
+
 const onSelectionChange = (rows) => {
   selectedIds.value = (rows || []).map((r) => r._id).filter(Boolean)
 }
@@ -526,6 +1195,7 @@ const openEdit = async (row) => {
   try {
     const d = await api.getOaDraft(row._id)
     editingId.value = row._id
+    editTab.value = 'wechat'
     Object.assign(form, {
       title: d.title || '',
       digest: d.digest || '',
@@ -535,14 +1205,57 @@ const openEdit = async (row) => {
       videos: videosOf(d),
       miniprogramPath: d.miniprogramPath || '',
       markdown: ensureHeroImage(stripPromoFooter(d.markdown || ''), d.coverUrl || ''),
+      themeId: d.themeId || 'clean',
       error: d.error || '',
       brandKey: d.brandKey || '',
-      timeline: Array.isArray(d.pushTimeline) ? d.pushTimeline.slice().reverse() : []
+      timeline: Array.isArray(d.pushTimeline) ? d.pushTimeline.slice().reverse() : [],
+      platforms: Array.isArray(d.platforms) && d.platforms.length ? d.platforms : ['wechat']
     })
+    applyXhsVariant(d.variants?.xhs || {})
     visible.value = true
+    schedulePreview('edit')
     warmOaImageList(form.imageUrls, proxyMap).catch(() => null)
   } catch (e) {
     ElMessage.error(e.message || '读取失败')
+  }
+}
+
+const onDeriveXhs = async () => {
+  if (!editingId.value) return
+  xhsDeriving.value = true
+  try {
+    const res = await api.deriveOaXhs(editingId.value, {
+      title: form.title,
+      markdown: form.markdown,
+      images: form.imageUrls,
+      imageUrls: form.imageUrls
+    })
+    applyXhsVariant(res?.xhs || res?.variants?.xhs || {})
+    if (!form.platforms.includes('xhs')) form.platforms = [...form.platforms, 'xhs']
+    ElMessage.success('已生成小红书变体，可继续编辑')
+    editTab.value = 'xhs'
+  } catch (e) {
+    ElMessage.error(e.message || '生成失败')
+  } finally {
+    xhsDeriving.value = false
+  }
+}
+
+const onExportXhs = async () => {
+  if (!editingId.value) return
+  xhsExporting.value = true
+  try {
+    const payload = collectXhsFromUi()
+    const res = await api.exportOaXhs(editingId.value, payload)
+    applyXhsVariant(res?.xhs || { ...payload, status: 'exported', exportPackageUrl: res?.exportPackageUrl })
+    if (res?.exportPackageUrl) {
+      window.open(res.exportPackageUrl, '_blank')
+    }
+    ElMessage.success('已导出发布包到 COS')
+  } catch (e) {
+    ElMessage.error(e.message || '导出失败')
+  } finally {
+    xhsExporting.value = false
   }
 }
 
@@ -607,6 +1320,9 @@ const onSave = async () => {
       form.coverUrl || ''
     )
     form.markdown = cleaned
+    const xhs = collectXhsFromUi()
+    const platforms = Array.isArray(form.platforms) ? [...form.platforms] : ['wechat']
+    if ((xhs.title || xhs.body) && !platforms.includes('xhs')) platforms.push('xhs')
     await api.updateOaDraft(editingId.value, {
       title: form.title,
       digest: form.digest,
@@ -614,12 +1330,15 @@ const onSave = async () => {
       coverUrl: form.coverUrl,
       miniprogramPath: form.miniprogramPath,
       markdown: cleaned,
+      themeId: form.themeId,
       brandKey: form.brandKey,
+      platforms,
+      variants: { xhs },
       // 是否真的改写由后端与原素材比对判定；照搬会被后端打回并提示
       status: 'ready',
       error: ''
     })
-    ElMessage.success('已保存，可推送微信草稿')
+    ElMessage.success('已保存（含平台变体）')
     visible.value = false
     load()
   } catch (e) {
@@ -839,7 +1558,13 @@ const route = useRoute()
 const router = useRouter()
 
 onMounted(async () => {
-  await loadBrands()
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    mobileMq = window.matchMedia('(max-width: 768px)')
+    onMobileMq()
+    if (mobileMq.addEventListener) mobileMq.addEventListener('change', onMobileMq)
+    else if (mobileMq.addListener) mobileMq.addListener(onMobileMq)
+  }
+  await Promise.all([loadBrands(), loadThemes()])
   await load()
   // 深链：/oa-content/drafts?id=xxx 直接打开该稿编辑
   const deepId = String(route.query.id || '').trim()
@@ -851,6 +1576,13 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopPushPoll()
+  clearTimeout(previewTimer)
+  clearTimeout(importPreviewTimer)
+  if (mobileMq) {
+    if (mobileMq.removeEventListener) mobileMq.removeEventListener('change', onMobileMq)
+    else if (mobileMq.removeListener) mobileMq.removeListener(onMobileMq)
+    mobileMq = null
+  }
 })
 </script>
 
@@ -1085,5 +1817,438 @@ onUnmounted(() => {
   color: var(--el-text-color-secondary);
   font-size: 12px;
   word-break: break-all;
+}
+
+.theme-board {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+.theme-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.theme-cat {
+  flex: 0 0 72px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  padding-top: 8px;
+}
+.theme-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.theme-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--el-text-color-regular);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.theme-chip.is-active {
+  border-color: #07c160;
+  color: #07c160;
+  background: rgba(7, 193, 96, 0.12);
+  box-shadow: 0 0 0 1px rgba(7, 193, 96, 0.35);
+  font-weight: 600;
+}
+.theme-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.split-pane {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  width: 100%;
+  min-height: 420px;
+}
+.split-md {
+  width: 100%;
+}
+.split-preview {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+  min-height: 420px;
+  display: flex;
+  flex-direction: column;
+}
+.preview-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #f5f6f8;
+  color: #333;
+  font-size: 12px;
+  border-bottom: 1px solid #e8e8e8;
+}
+.preview-scroll {
+  flex: 1;
+  overflow: auto;
+  background: #f5f5f7;
+  color-scheme: light;
+  color: #222;
+  min-height: 420px;
+  padding: 12px;
+}
+.preview-theme-name {
+  color: #07c160;
+  font-weight: 700;
+}
+.preview-theme-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.theme-preview {
+  padding: 0;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  font-size: 15px;
+  line-height: 1.75;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+.theme-preview :deep(img) {
+  max-width: 100%;
+  height: auto;
+}
+.preview-empty {
+  padding: 48px 20px;
+  text-align: center;
+  color: #999;
+  font-size: 13px;
+  background: #fff;
+  border-radius: 12px;
+}
+@media (max-width: 1100px) {
+  .split-pane {
+    grid-template-columns: 1fr;
+  }
+  .xhs-pane {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .hdr {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .acts {
+    width: 100%;
+  }
+  .acts :deep(.el-select),
+  .acts :deep(.el-button) {
+    width: 100%;
+  }
+  .acts :deep(.el-button) {
+    margin-left: 0 !important;
+  }
+
+  .theme-board {
+    max-height: 160px;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .theme-chips {
+    flex-wrap: wrap;
+  }
+  .theme-chip {
+    min-height: 36px;
+    padding: 6px 10px;
+  }
+
+  .preview-scroll {
+    max-height: 50vh;
+  }
+  .xhs-phone-screen {
+    width: min(270px, 78vw);
+  }
+  .pager {
+    justify-content: center;
+  }
+  .dialog-footer {
+    width: 100%;
+  }
+  .dialog-footer :deep(.el-button) {
+    flex: 1;
+  }
+}
+
+.draft-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 120px;
+}
+.draft-cards-empty {
+  text-align: center;
+  color: var(--el-text-color-secondary);
+  padding: 36px 12px;
+  font-size: 13px;
+}
+.draft-card {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.draft-card-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+.draft-card-cover {
+  flex-shrink: 0;
+}
+.draft-cover--card {
+  width: 64px;
+  height: 48px;
+  border-radius: 6px;
+}
+.draft-card-meta .draft-title {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.draft-card-meta .draft-err {
+  max-width: none;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.draft-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.ops--card {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+  max-width: none;
+  justify-items: stretch;
+}
+.ops--card :deep(.el-button) {
+  width: 100% !important;
+  margin: 0 !important;
+  min-height: 40px;
+}
+
+.plat-badges {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+.plat-tabs {
+  margin-top: 4px;
+}
+.xhs-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.xhs-pane {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 16px;
+  width: 100%;
+}
+.xhs-edit :deep(.el-form-item) {
+  margin-bottom: 12px;
+}
+.xhs-preview-wrap {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #f0f1f3;
+  color-scheme: light;
+  min-height: 480px;
+  display: flex;
+  flex-direction: column;
+}
+.xhs-phone {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 16px 12px 20px;
+}
+.xhs-phone-screen {
+  width: 270px;
+  background: #fff;
+  color: #222;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+  border: 1px solid #e6e6e6;
+}
+.xhs-cover {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  background: #ececec;
+  overflow: hidden;
+}
+.xhs-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.xhs-cover-empty {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  font-size: 13px;
+}
+.xhs-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 2;
+}
+.xhs-nav-prev { left: 6px; }
+.xhs-nav-next { right: 6px; }
+.xhs-pager {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 11px;
+  z-index: 2;
+}
+.xhs-dots {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 8px;
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+  z-index: 2;
+}
+.xhs-dot {
+  width: 6px;
+  height: 6px;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+}
+.xhs-dot.is-on { background: #fff; transform: scale(1.15); }
+.xhs-dot.is-cover { box-shadow: 0 0 0 1.5px #ff2442; }
+.xhs-strip {
+  display: flex;
+  gap: 6px;
+  padding: 8px 8px 0;
+  overflow-x: auto;
+}
+.xhs-strip-item {
+  position: relative;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 58px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #eee;
+  cursor: pointer;
+}
+.xhs-strip-item.is-on { border-color: #ff2442; }
+.xhs-strip-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.xhs-strip-cover {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  font-size: 9px;
+  line-height: 1.4;
+  text-align: center;
+  color: #fff;
+  background: rgba(255, 36, 66, 0.85);
+}
+.xhs-note {
+  padding: 12px 12px 16px;
+}
+.xhs-note-title {
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1.35;
+  margin-bottom: 8px;
+}
+.xhs-note-body {
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  color: #333;
+}
+.xhs-note-topics {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: #3d7eff;
+}
+.xhs-pin {
+  margin-top: 10px;
+  padding: 8px;
+  border-radius: 8px;
+  background: #f7f7f8;
+  font-size: 12px;
+  color: #666;
 }
 </style>

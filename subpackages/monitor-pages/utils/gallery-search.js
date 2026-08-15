@@ -153,8 +153,13 @@ function flightTime(value) {
   return isNaN(t) ? 0 : t
 }
 
+function reusableRank(item) {
+  return item && item.reusable === true ? 1 : 0
+}
+
 /**
  * 飞行次数 / 最近飞行排序。返回新数组，避免小程序 setData 对原地 sort 无感知。
+ * 族谱页始终可复用优先：同组内再按次数或最近飞行。
  * @param {string} flightsKey 次数字段
  * @param {string} recentKey 日期字段
  */
@@ -162,21 +167,20 @@ function sortByFlightsOrRecent(list, sortBy, flightsKey, recentKey) {
   var rows = (list || []).slice()
   var fKey = flightsKey || 'flights'
   var rKey = recentKey || 'lastFlight'
-  if (sortBy === 'recent') {
-    rows.sort(function (a, b) {
+  rows.sort(function (a, b) {
+    var reuseDiff = reusableRank(b) - reusableRank(a)
+    if (reuseDiff) return reuseDiff
+    if (sortBy === 'recent') {
       var tb = flightTime(b && b[rKey])
       var ta = flightTime(a && a[rKey])
       if (tb !== ta) return tb - ta
       return ((b && b[fKey]) || 0) - ((a && a[fKey]) || 0)
-    })
-  } else {
-    rows.sort(function (a, b) {
-      var fb = (b && b[fKey]) || 0
-      var fa = (a && a[fKey]) || 0
-      if (fb !== fa) return fb - fa
-      return flightTime(b && b[rKey]) - flightTime(a && a[rKey])
-    })
-  }
+    }
+    var fb = (b && b[fKey]) || 0
+    var fa = (a && a[fKey]) || 0
+    if (fb !== fa) return fb - fa
+    return flightTime(b && b[rKey]) - flightTime(a && a[rKey])
+  })
   return rows
 }
 

@@ -46,6 +46,7 @@ const FILES = [
   'subpackages/monitor-pages/space-notices/notice-map.wxml',
   'subpackages/monitor-pages/space-notices/utils/map-build.js',
   'subpackages/monitor-pages/space-notices/utils/api-space-notices.js',
+  'subpackages/monitor-pages/space-notices/utils/notam-meta.js',
   'utils/space-notices-feature.js'
 ]
 check('required files', FILES.every(exists), FILES.filter((f) => !exists(f)).join(',') || 'ok')
@@ -119,10 +120,31 @@ const polys = buildPolygonsFromNotices(DEMO_NOTICES, {
   ADP_LINK_FILE: true
 })
 // 假走廊已下线：ADP 图层不再产生折线，黄线由 trajectory 包单独成层
-const lines = buildPolylinesFromNotices(DEMO_NOTICES, { ADP_LINK_FILE: true })
-check('demo map layers', polys.length >= 3 && lines.length === 0, `poly=${polys.length} line=${lines.length}`)
+const lines = buildPolylinesFromNotices(DEMO_NOTICES, { NOTAM: true, NAVWARNING: true, ADP_LINK_FILE: true })
+check('demo map layers', polys.length >= 3 && lines.length >= 2, `poly=${polys.length} line=${lines.length}`)
+check(
+  'stale corridor polyline skipped',
+  buildPolylinesFromNotices(
+    [{
+      noticeKey: 'adp-aha-starship-flight-13-demo',
+      type: 'ADP_LINK_FILE',
+      areas: [[[-97, 26], [95, -31], [95, -28], [-97, 28]]]
+    }],
+    { ADP_LINK_FILE: true }
+  ).length === 0
+)
 const fit = fitCenter({ latitude: 25.99, longitude: -97.15 }, polys, lines)
-check('fitCenter legal scale', fit.scale >= 3 && fit.scale <= 20 && fit.includePoints.length >= 2, `scale=${fit.scale}`)
+check(
+  'fitCenter pad legal scale',
+  fit.scale >= 3 && fit.scale <= 20 && fit.includePoints.length >= 1,
+  `scale=${fit.scale} n=${fit.includePoints.length}`
+)
+const fitGlobal = fitCenter({ latitude: 25.99, longitude: -97.15 }, polys, lines, { region: 'global' })
+check(
+  'fitCenter global includePoints',
+  fitGlobal.scale >= 3 && fitGlobal.scale <= 20 && fitGlobal.includePoints.length >= 2,
+  `scale=${fitGlobal.scale} n=${fitGlobal.includePoints.length}`
+)
 
 check('noticeKeyFromPath', noticeKeyFromPath('/notice/notam-YMMM-E2700%2F26') === 'notam-YMMM-E2700/26')
 

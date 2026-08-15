@@ -21,7 +21,8 @@ import {
   scoreClipText,
   parseUploadDateMs,
   pickBestClipCandidate,
-  dateTextCandidates
+  dateTextCandidates,
+  usableMatchTokens
 } from './clip-match.js'
 import { buildProxyCandidates } from './proxy-discover.js'
 
@@ -460,7 +461,7 @@ async function findClipVideo(cfg, clipSearch) {
   const channel = clipSearch.channel
   const dateText = String(clipSearch.dateText || '').toLowerCase()
   const dateOpts = dateTextCandidates(dateText)
-  const tokens = tokenVariantGroups((clipSearch.tokens || []).map((t) => String(t).toLowerCase()))
+  const tokens = tokenVariantGroups(usableMatchTokens(clipSearch.tokens || []).map((t) => String(t).toLowerCase()))
   const rocketTokens = tokenVariantGroups((clipSearch.rocketTokens || []).map((t) => String(t).toLowerCase()))
   if (!channel || !dateText) return null
   const netMs = Number(clipSearch.netMs) || 0
@@ -710,11 +711,27 @@ function writeAgentPid() {
   } catch (e) {}
 }
 
+/** 给 watchdog 看的心跳：事件循环还在转就持续刷新，卡死/进程没了会被拉起 */
+function writeHeartbeat() {
+  try {
+    const dir = path.join(agentRoot(), 'logs')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'agent.heartbeat'), `${Date.now()}\n${process.pid}\n`)
+  } catch (e) {}
+}
+
+function startHeartbeat() {
+  writeHeartbeat()
+  const timer = setInterval(writeHeartbeat, 15 * 1000)
+  if (timer && typeof timer.unref === 'function') timer.unref()
+}
+
 async function loop() {
   writeAgentPid()
+  startHeartbeat()
   const cfg = getConfig()
   log(`replay-fetcher 启动 poll=${cfg.pollMs}ms maxHeight=${cfg.maxHeight}p compat=${cfg.compatTranscode ? 'on' : 'off'}`)
-  log('自愈策略: 自动扫代理口 → VPN 未开则等待不领任务 → 空队列 nudge → 下载 403 自动重试')
+  log('自愈策略: 心跳+watchdog 保活 → 自动扫代理口 → VPN 未开则等待不领任务 → 空队列 nudge → 下载 403 自动重试')
   await assertFfmpegReady(cfg)
   cleanupTmpDir()
   let lastNudgeAt = 0
@@ -779,6 +796,25 @@ const isMain = (() => {
     return false
   }
 })()
-if (isMain) loop()
+
+async function main() {
+  process.on('uncaughtException', (e) => {
+    log('uncaughtException:', (e && e.stack) || e)
+  })
+  process.on('unhandledRejection', (e) => {
+    log('unhandledRejection:', (e && e.stack) || e)
+  })
+  for (;;) {
+    try {
+      await loop()
+      log('主循环意外返回，15s 后重启')
+    } catch (e) {
+      log('主循环崩溃，15s 后重启:', (e && e.stack) || e)
+    }
+    await new Promise((r) => setTimeout(r, 15000))
+  }
+}
+
+if (isMain) main()
 
 export { findClipVideo, pickProxy, scoreClipText, isCompatMp4, ytdlpFormatSelector, waitForProxyReady }

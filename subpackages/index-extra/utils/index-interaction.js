@@ -17,7 +17,6 @@ const {
 } = require('../../../utils/index-page-helpers.js')
 const { loadCloudMediaMap } = require('../../../utils/image-config.js')
 const { markDownloadFailed } = require('../../../utils/download-fail-cache.js')
-const { gateCheck } = require('../../../utils/membership.js')
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
 const storageCache = require('../../../utils/storage-sync-cache.js')
 const { shareMission } = require('../../../utils/api-app-services.js')
@@ -296,7 +295,7 @@ const interactionMethods = {
     const launch = this.data.launchData || {}
     const serial = String((launch.boosterInfo && launch.boosterInfo.serialNumber) || '').trim()
     const { openBoosterEntityDetail } = require('./booster-nav.js')
-    await openBoosterEntityDetail(serial)
+    await openBoosterEntityDetail(serial, { skipGate: true })
   },
 
   async onGoAgencyDetail() {
@@ -307,12 +306,22 @@ const interactionMethods = {
     const id = launch.launchAgencyId
     const abbrev = launch.launchAgencyAbbrev || ''
     if (id == null && !abbrev) return
-    const allowed = await gateCheck('agency_encyclopedia', '全球发射商图鉴')
-    if (!allowed) return
+    // 单场任务发射商详情对免费用户开放；图鉴大类（监控页/列表）仍走门控
     const params = {}
     if (id != null) params.id = id
     else params.abbrev = abbrev
     navigateTo(ROUTES.AGENCY_DETAIL, params)
+  },
+
+  async onGoRocketModelDetail() {
+    try {
+      wx.vibrateShort({ type: 'medium' })
+    } catch (e) {}
+    const launch = this.data.launchData || {}
+    const configId = launch.rocketConfigId
+    if (configId == null || configId === '') return
+    const { openRocketModelDetail } = require('./booster-nav.js')
+    await openRocketModelDetail(configId, { skipGate: true })
   },
 
   async onImageError(e) {

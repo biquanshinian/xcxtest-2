@@ -1,6 +1,7 @@
 // utils/api-launch-detail.js — launch detail parsing (heavy)
 const { getRocketImage, resolveMissionRocketImage } = require('../../../utils/util.js')
-const { inferLandingStatus, resolveLandingIconSrc, isLandRecoveryType, isZhuque3Rocket, refineLandingTypeWithContext, buildLandingIcon, isNewGlennRocket, isNewShepardRocket, isLpv1Landing, getLandingLocationObj, formatLandingPlaceLabel } = require('../../../utils/landing-icons.js')
+const { pickDisplayComment } = require('./ll2-updates-i18n.js')
+const { inferLandingStatus, resolveLandingIconSrc, isLandRecoveryType, isZhuque3Rocket, refineLandingTypeWithContext, buildLandingIcon, isNewGlennRocket, isNewShepardRocket, isLpv1Landing, getLandingLocationObj, formatLandingPlaceLabel, formatLandingPlaceParts } = require('../../../utils/landing-icons.js')
 const {
   extractBoosterInfoForList,
   extractBoosterInfoSimple,
@@ -28,18 +29,13 @@ const {
 } = require('../../../utils/api-request.js')
 const { pickLocalized, zhField } = require('../../../utils/locale.js')
 const {
-  translateOrbit,
-  translateOrbitLabel,
-  translateMissionType,
-  translateLocation,
-  translateAgencyName
-} = require('../../../utils/space-terms-i18n.js')
-const {
   applyContentLangToMission,
   buildRocketNamePair,
   buildTitlePair,
-  buildLaunchSitePair
+  buildLaunchSitePair,
+  resolveAgencyDisplayZh
 } = require('../../../utils/launch-card-i18n.js')
+const { translateMissionType, translateLocation } = require('../../../utils/space-terms-display.js')
 const { optimizeImageUrl, isCosOriginUrl } = require('../../../utils/cos-url.js')
 const { proxiedImageUrl, isOwnCdnUrl } = require('../../../utils/ll2-image.js')
 const { applyLaunchAgencyLogoOverridesToMission } = require('../../../utils/agency-logo-overrides.js')
@@ -170,6 +166,53 @@ function formatIsoDurationToText(raw) {
   if (hours > 0) return minutes > 0 ? `${hours} 小时 ${minutes} 分` : `${hours} 小时`
   if (minutes > 0) return `${minutes} 分钟`
   return ''
+}
+
+/**
+ * LL2 launcher_stage 周转：优先 ISO 时长，其次天数，再按上次飞行日与本次 NET 推算。
+ * 首飞 / 无上次飞行记录时返回空，由 WXML 隐藏该行。
+ */
+function resolveLauncherTurnaround(item, launchNet) {
+  if (!item || typeof item !== 'object') {
+    return { turnaroundText: '', turnaroundDays: null }
+  }
+  const fromIso = formatIsoDurationToText(item.turn_around_time || item.turnaround_time || '')
+  if (fromIso) {
+    const dayPart = fromIso.match(/^(\d+) 天/)
+    return {
+      turnaroundText: fromIso,
+      turnaroundDays: dayPart ? parseInt(dayPart[1], 10) : null
+    }
+  }
+  const rawDays = item.turn_around_time_days
+  if (rawDays != null && rawDays !== '') {
+    const n = Number(rawDays)
+    if (Number.isFinite(n) && n >= 0) {
+      const days = Math.round(n)
+      return { turnaroundText: `${days} 天`, turnaroundDays: days }
+    }
+  }
+  const prev = item.previous_flight_date
+  if (prev && launchNet) {
+    const a = new Date(prev).getTime()
+    const b = new Date(launchNet).getTime()
+    if (Number.isFinite(a) && Number.isFinite(b) && b > a) {
+      const days = Math.round((b - a) / 86400000)
+      if (days > 0) return { turnaroundText: `${days} 天`, turnaroundDays: days }
+    }
+  }
+  return { turnaroundText: '', turnaroundDays: null }
+}
+
+/** 着陆说明：云端 descriptionZh 优先，禁止在前端写死英中对照 */
+function localizeLandingDescription(landing, fallbackEn) {
+  const en = String((landing && landing.description) || fallbackEn || '').trim()
+  const zh = landing ? zhField(landing, 'description') : ''
+  return {
+    landingDescriptionEn: en || null,
+    landingDescriptionZh: zh || null,
+    landingDescription: pickLocalized(zh, en) || null
+  }
 }
 
 /** 徽章 / logo：已镜像 COS 则走压缩 thumb；外链走 Worker 代理（国内直连 DO 极差） */
@@ -316,8 +359,11 @@ function mapRawUpdatesToLaunchUpdates(raw) {
       const infoUrlRaw = u.info_url || u.infoUrl || ''
       const createdOn = u.created_on || u.createdOn || ''
       const createdBy = u.created_by != null ? u.created_by : (u.createdBy != null ? u.createdBy : '')
+      const comment = String(u.comment).trim()
+      const commentZh = pickDisplayComment(comment, u.commentZh || u.comment_zh)
       return {
-        comment: String(u.comment).trim(),
+        comment,
+        commentZh,
         infoUrl: (typeof infoUrlRaw === 'string' && /^https?:\/\//i.test(infoUrlRaw)) ? infoUrlRaw : '',
         createdBy: String(createdBy || '').trim(),
         createdOnText: formatUpdateTimeCST(createdOn),
@@ -514,11 +560,7 @@ function buildMissionOrbitDisplayString(orbit) {
   const abbrevStr = normalizeOrbitAbbrevField(orbit.abbrev)
   const nameEn = ((orbit.name != null ? String(orbit.name) : '').trim() ||
     (orbit.full_name != null ? String(orbit.full_name).trim() : ''))
-  const nameZh =
-    zhField(orbit, 'name') ||
-    translateOrbit(orbit) ||
-    translateOrbitLabel(nameEn) ||
-    translateOrbitLabel(abbrevStr)
+  const nameZh = zhField(orbit, 'name')
   const name = pickLocalized(nameZh, nameEn)
   // N/A / Unknown 缩写不拼接，避免「未知 (N/A)」双语夹杂
   const showAbbrev = abbrevStr && !/^(n\/a|na|unknown)$/i.test(abbrevStr)
@@ -737,8 +779,8 @@ async function processLaunchDetail(launch) {
     if (launch.pad && launch.pad.location) {
       const padEn = launch.pad.name || ''
       const locationEn = launch.pad.location.name || ''
-      const padDisplay = pickLocalized(zhField(launch.pad, 'name') || translateLocation(padEn), padEn)
-      const locationDisplay = pickLocalized(zhField(launch.pad.location, 'name') || translateLocation(locationEn), locationEn)
+      const padDisplay = pickLocalized(zhField(launch.pad, 'name'), padEn)
+      const locationDisplay = pickLocalized(zhField(launch.pad.location, 'name'), locationEn)
       if (padDisplay && locationDisplay) {
         launchSite = `${padDisplay}, ${locationDisplay}`
       } else if (locationDisplay) {
@@ -747,7 +789,7 @@ async function processLaunchDetail(launch) {
         launchSite = padDisplay
       }
     } else if (launch.pad && launch.pad.name) {
-      launchSite = pickLocalized(zhField(launch.pad, 'name') || translateLocation(launch.pad.name), launch.pad.name)
+      launchSite = pickLocalized(zhField(launch.pad, 'name'), launch.pad.name)
     }
     
     // 获取助推器信息（可回收火箭）
@@ -885,6 +927,12 @@ async function processLaunchDetail(launch) {
           if (lzMatch) resolvedLandingLocation = lzMatch[0].toUpperCase().replace('LZ', 'LZ-')
         }
       }
+      const placeParts = formatLandingPlaceParts(
+        landingLocationAbbrev || (/^[A-Z0-9-]{2,10}$/.test(String(resolvedLandingLocation || '')) ? resolvedLandingLocation : null),
+        landingLocationName || (!/^[A-Z0-9-]{2,10}$/.test(String(resolvedLandingLocation || '')) ? resolvedLandingLocation : null),
+        landingLocation
+      )
+      resolvedLandingLocation = pickLocalized(placeParts.zh, placeParts.en) || resolvedLandingLocation
 
       // 与 boosterStages / 首页卡片同源：优先 landing.type，再按落点反推，OLM 纠正为塔架捕获
       let landingType = resolveStageLandingType(landing, landingLocationAbbrev, landingLocationName)
@@ -912,6 +960,8 @@ async function processLaunchDetail(launch) {
           const landingTypeIcon = (landingType && landingType !== 'ASDS' && landingType !== 'RTLS' && landingType !== 'VL')
             ? buildLandingIcon(landingType, (landingType === 'EXPENDED' || landingType === 'LOST') ? 'failure' : 'neutral')
             : null
+          const landingI18n = localizeLandingDescription(landing, landingDescription)
+          const turnaround = resolveLauncherTurnaround(launcher, launch.net)
           boosterInfo = {
             serialNumber: serialNumber || null,
             flights: flights,
@@ -920,10 +970,17 @@ async function processLaunchDetail(launch) {
             flightProven: launcher.flight_proven || (launcher.launcher && launcher.launcher.flight_proven) || false,
             // 优先显示缩写（如ASOG），如果没有缩写则显示全名；若 API 未给则从描述提取
             landingLocation: resolvedLandingLocation,
+            landingLocationEn: placeParts.en,
+            landingLocationZh: placeParts.zh,
             landingLocationAbbrev: landingLocationAbbrev || (resolvedLandingLocation && /^[A-Z0-9-]{2,10}$/.test(resolvedLandingLocation) ? resolvedLandingLocation : null),
             landingType: landingType,
             landingTypeIcon: landingTypeIcon || undefined,
-            landingDescription: landingDescription,
+            landingDescription: landingI18n.landingDescription,
+            landingDescriptionEn: landingI18n.landingDescriptionEn,
+            landingDescriptionZh: landingI18n.landingDescriptionZh,
+            turnaroundText: turnaround.turnaroundText || '',
+            turnaroundDays: turnaround.turnaroundDays,
+            thisMissionLandingAttempt: landing && landing.attempt === true ? true : (landing && landing.attempt === false ? false : null),
             reused: launcher.reused || false
           }
         } else {
@@ -1038,12 +1095,14 @@ async function processLaunchDetail(launch) {
         ? ('recovery-icon--landspace' + monoClass)
         : (useBoLz ? ('recovery-icon--bolz' + monoClass) : (icon ? monoClass.trim() : ''))
 
-      // 落点展示优先用 (abbrev) 中文名；无 abbrev 时退回原 location 字符串
+      // 落点展示：中文只读云端 nameZh
       const llocObj = getLandingLocationObj(ld)
-      const placeLabel = formatLandingPlaceLabel(
+      const placeParts = formatLandingPlaceParts(
         (llocObj && llocObj.abbrev) || (/^[A-Z0-9-]{2,10}$/.test(loc) ? loc : null),
-        (llocObj && llocObj.name) || (!/^[A-Z0-9-]{2,10}$/.test(loc) ? loc : null)
-      ) || loc || null
+        (llocObj && llocObj.name) || (!/^[A-Z0-9-]{2,10}$/.test(loc) ? loc : null),
+        llocObj
+      )
+      const placeLabel = pickLocalized(placeParts.zh, placeParts.en) || loc || null
 
       // 优先级：实际回收类型（销毁/陆地/海上/塔架捕获…）> "未复用/首次"
       // 因为 EXPENDED/LOST 已经精确说明了本次任务的处置方式，比"未复用/首次"更有信息量
@@ -1062,6 +1121,8 @@ async function processLaunchDetail(launch) {
         landingIcon: icon,
         landingIconClass,
         landingLocation: placeLabel,
+        landingLocationEn: placeParts.en,
+        landingLocationZh: placeParts.zh,
         landingTypeLabel: primary || null,
         landingDisplayText: [primary, placeLabel].filter(Boolean).join(' ') || '—'
       }
@@ -1133,6 +1194,8 @@ async function processLaunchDetail(launch) {
         const reusedFlag = item.reused || innerLauncher.reused || false
         const lstatus = inferLandingStatus(ld, ltype)
         const display = buildLandingDisplay(ltype, labbrev || lname, reusedFlag, lstatus, ld)
+        const landingI18n = localizeLandingDescription(ld, ldesc)
+        const turnaround = resolveLauncherTurnaround(item, launch.net)
         // 星舰任务的 Super Heavy 助推器（如 Booster 19）不是 Falcon B10xx 那种回收族谱对象，
         // 而是一枚独立组合体硬件——它的详情收在「星舰硬件设施」库里，不走 booster-detail。
         // 给它打上 stageKind，由 mission-detail.openShipDetail 分发
@@ -1154,6 +1217,8 @@ async function processLaunchDetail(launch) {
             : (item.attempted_landings != null ? item.attempted_landings : null),
           flightProven: item.flight_proven || innerLauncher.flight_proven || false,
           landingLocation: display.landingLocation,
+          landingLocationEn: display.landingLocationEn,
+          landingLocationZh: display.landingLocationZh,
           landingLocationAbbrev: labbrev || (lname && /^[A-Z0-9-]{2,10}$/.test(lname) ? lname : null),
           landingType: display.landingType,
           landingTypeLabel: display.landingTypeLabel,
@@ -1161,7 +1226,12 @@ async function processLaunchDetail(launch) {
           landingIconClass: display.landingIconClass || '',
           landingStatus: display.landingStatus,
           landingDisplayText: display.landingDisplayText,
-          landingDescription: ldesc || null,
+          landingDescription: landingI18n.landingDescription,
+          landingDescriptionEn: landingI18n.landingDescriptionEn,
+          landingDescriptionZh: landingI18n.landingDescriptionZh,
+          turnaroundText: turnaround.turnaroundText || '',
+          turnaroundDays: turnaround.turnaroundDays,
+          thisMissionLandingAttempt: ld && ld.attempt === true ? true : (ld && ld.attempt === false ? false : null),
           reused: reusedFlag
         }
       }).filter(Boolean)
@@ -1182,7 +1252,15 @@ async function processLaunchDetail(launch) {
           landingTypeLabel: stage0.landingTypeLabel || boosterInfo.landingTypeLabel,
           landingStatus: stage0.landingStatus || boosterInfo.landingStatus,
           landingDisplayText: stage0.landingDisplayText || boosterInfo.landingDisplayText,
-          landingTypeIcon: stage0.landingTypeIcon || boosterInfo.landingTypeIcon
+          landingTypeIcon: stage0.landingTypeIcon || boosterInfo.landingTypeIcon,
+          landingDescription: stage0.landingDescription || boosterInfo.landingDescription,
+          landingDescriptionEn: stage0.landingDescriptionEn || boosterInfo.landingDescriptionEn,
+          landingDescriptionZh: stage0.landingDescriptionZh || boosterInfo.landingDescriptionZh,
+          landingLocation: stage0.landingLocation || boosterInfo.landingLocation,
+          landingLocationEn: stage0.landingLocationEn || boosterInfo.landingLocationEn,
+          landingLocationZh: stage0.landingLocationZh || boosterInfo.landingLocationZh,
+          turnaroundText: stage0.turnaroundText || boosterInfo.turnaroundText || '',
+          turnaroundDays: stage0.turnaroundDays != null ? stage0.turnaroundDays : boosterInfo.turnaroundDays
         }
       }
     }
@@ -1254,6 +1332,7 @@ async function processLaunchDetail(launch) {
         const displayShip = buildLandingDisplay(ltypeShip, labbrev || lname, reusedShip, lstatusShip, ld, {
           forSpacecraft: true
         })
+        const shipLandingI18n = localizeLandingDescription(ld, ld && ld.description)
         const inSpace = sc.in_space === true
         const missionEnded = !!(it.mission_end || sc.mission_end)
         let returnStatusLabel = ''
@@ -1274,6 +1353,8 @@ async function processLaunchDetail(launch) {
           attemptedLandings: null,
           flightProven: false,
           landingLocation: displayShip.landingLocation,
+          landingLocationEn: displayShip.landingLocationEn,
+          landingLocationZh: displayShip.landingLocationZh,
           landingLocationAbbrev: labbrev || null,
           landingType: displayShip.landingType,
           landingTypeLabel: displayShip.landingTypeLabel,
@@ -1281,7 +1362,9 @@ async function processLaunchDetail(launch) {
           landingIconClass: displayShip.landingIconClass || '',
           landingStatus: displayShip.landingStatus,
           landingDisplayText: displayShip.landingDisplayText,
-          landingDescription: (ld && ld.description) || null,
+          landingDescription: shipLandingI18n.landingDescription,
+          landingDescriptionEn: shipLandingI18n.landingDescriptionEn,
+          landingDescriptionZh: shipLandingI18n.landingDescriptionZh,
           returnStatusLabel: returnStatusLabel || null,
           destination: it.destination || null,
           reused: reusedShip
@@ -1319,9 +1402,7 @@ async function processLaunchDetail(launch) {
     const typeZh =
       (mission && mission.type && typeof mission.type === 'object'
         ? zhField(mission.type, 'name')
-        : '') ||
-      translateMissionType(mission && mission.type) ||
-      translateMissionType(typeEn)
+        : '') || translateMissionType(typeEn)
     const missionFull = {
       name: (mission && mission.name) || '',
       description: (mission && mission.description) || '',
@@ -1335,7 +1416,9 @@ async function processLaunchDetail(launch) {
       configuration: getRocketDisplayNameFromConfig(rocketConfig),
       description: (rocketConfig && rocketConfig.description) || '',
       descriptionZh: rocketConfig ? zhField(rocketConfig, 'description') : '',
-      manufacturer: (rocketConfig && rocketConfig.manufacturer && rocketConfig.manufacturer.name) || ''
+      manufacturer: (rocketConfig && rocketConfig.manufacturer)
+        ? pickLocalized(zhField(rocketConfig.manufacturer, 'name'), rocketConfig.manufacturer.name)
+        : ''
     }
 
     const { rocketSpecsVisible, rocketSpecs } = buildRocketSpecsForDetail(rocketConfig)
@@ -1351,13 +1434,13 @@ async function processLaunchDetail(launch) {
     const nameLower = (padName + ' ' + locName).toLowerCase()
     const padType = /ship|marine|sea|海上|mobile|maritime|drone|asds|floating|海上/.test(nameLower) ? '海上' : '陆上'
     const sitePairForPad = buildLaunchSitePair(launch)
-    const padNameZh = zhField(pad, 'name') || translateLocation(padName) || padName
-    const locNameZh = loc
-      ? (zhField(loc, 'name') || translateLocation(locName) || locName)
-      : ''
+    const padNameZh = zhField(pad, 'name') || translateLocation(padName)
+    const locNameZh = loc ? (zhField(loc, 'name') || translateLocation(locName)) : ''
     const padDetail = {
-      padName,
-      locationName: locName,
+      padName: padNameZh || padName,
+      padNameEn: padName,
+      locationName: locNameZh || locName,
+      locationNameEn: locName,
       locationId: (loc && loc.id != null) ? loc.id : null,
       country: padCountry,
       state: null,
@@ -1370,7 +1453,9 @@ async function processLaunchDetail(launch) {
       turnaroundText: formatIsoDurationToText(launch.pad_turnaround),
       // 发射台/发射场简介与外链（wiki / 地图）
       padDescription: (pad && typeof pad.description === 'string') ? pad.description.trim() : '',
+      padDescriptionZh: pad ? zhField(pad, 'description') : '',
       locationDescription: (loc && typeof loc.description === 'string') ? loc.description.trim() : '',
+      locationDescriptionZh: loc ? zhField(loc, 'description') : '',
       wikiUrl: (pad && typeof pad.wiki_url === 'string' && /^https?:\/\//i.test(pad.wiki_url)) ? pad.wiki_url : '',
       mapUrl: (pad && typeof pad.map_url === 'string' && /^https?:\/\//i.test(pad.map_url)) ? pad.map_url : '',
       timezoneName: (loc && typeof loc.timezone_name === 'string') ? loc.timezone_name : ''
@@ -1618,18 +1703,16 @@ async function processLaunchDetail(launch) {
     const agencyProvider = launch.launch_service_provider
     const agencyEn = (agencyProvider && agencyProvider.name) || launchAgency || ''
     // Zh 只收词典命中，禁止把英文原名写进 launchAgencyZh（否则右下角芯片中文模式仍显示 English）
-    const agencyZh =
-      translateAgencyName(
-        (agencyProvider && agencyProvider.name) || '',
-        (agencyProvider && agencyProvider.abbrev) || launchAgencyAbbrev || ''
-      ) ||
-      translateAgencyName(launchAgency, launchAgencyAbbrev) ||
-      ''
+    const agencyZh = resolveAgencyDisplayZh(
+      agencyEn,
+      agencyProvider && agencyProvider.abbrev,
+      agencyProvider && zhField(agencyProvider, 'name')
+    )
 
     const detailItem = {
       id: launch.id,
-      name: titlePair.nameEn,
-      missionName: titlePair.missionNameEn,
+      name: titlePair.nameZh || titlePair.nameEn,
+      missionName: titlePair.missionNameZh || titlePair.missionNameEn,
       launchTime: launch.net || launch.window_start || launch.window_end,
       windowStart: launch.window_start,
       windowEnd: launch.window_end,
@@ -1648,9 +1731,9 @@ async function processLaunchDetail(launch) {
           launchAgencyImage: launchAgencyImage || ''
         }).launchAgencyImage) || launchAgencyImage || ''
       ),
-      launchSite: sitePair.launchSiteEn || launchSite,
-      padLocation: sitePair.padLocationEn || formatPadLocation(launch.pad),
-      rocketName: rocketPair.rocketNameEn,
+      launchSite: sitePair.launchSiteZh || sitePair.launchSiteEn || launchSite,
+      padLocation: sitePair.padLocationZh || sitePair.padLocationEn || formatPadLocation(launch.pad),
+      rocketName: rocketPair.rocketNameZh || rocketPair.rocketNameEn,
       countryDisplay: countryPair.countryDisplayZh || countryDisplay,
       status: badgePair.statusBadgeTextZh || status.name || '未知状态',
       statusId: status.id != null ? Number(status.id) : null,
@@ -1687,9 +1770,12 @@ async function processLaunchDetail(launch) {
       missionPatches: buildMissionPatches(launch),
       launchUpdates: buildLaunchUpdates(launch),
       failReason: (typeof launch.failreason === 'string' ? launch.failreason.trim() : ''),
+      failReasonZh: zhField(launch, 'failreason'),
       weatherConcerns: (typeof launch.weather_concerns === 'string' ? launch.weather_concerns.trim() : ''),
+      weatherConcernsZh: zhField(launch, 'weather_concerns'),
       netPrecisionLabel: buildNetPrecisionLabel(launch.net_precision),
       statusDescription: (launch.status && typeof launch.status.description === 'string') ? launch.status.description.trim() : '',
+      statusDescriptionZh: launch.status ? zhField(launch.status, 'description') : '',
       hashtag: (typeof launch.hashtag === 'string') ? launch.hashtag.trim() : '',
       infographicUrl: pickInfographicUrl(launch),
       programInfo: buildProgramInfo(launch),
@@ -1708,15 +1794,15 @@ async function processLaunchDetail(launch) {
         launchSiteEn: sitePair.launchSiteEn,
         launchSiteZh: sitePair.launchSiteZh,
         padNameEn: padName || sitePairForPad.padLocationEn,
-        padNameZh: padNameZh || sitePairForPad.padLocationZh,
+        padNameZh: padNameZh || '',
         locationNameEn: locName,
-        locationNameZh: locNameZh || locName,
+        locationNameZh: locNameZh || '',
         nameEn: titlePair.nameEn,
         nameZh: titlePair.nameZh,
         missionNameEn: titlePair.missionNameEn,
         missionNameZh: titlePair.missionNameZh,
         launchAgencyEn: agencyEn,
-        launchAgencyZh: agencyZh || agencyEn,
+        launchAgencyZh: agencyZh,
         countryDisplayEn: countryPair.countryDisplayEn,
         countryDisplayZh: countryPair.countryDisplayZh,
         statusBadgeTextEn: badgePair.statusBadgeTextEn,

@@ -62,6 +62,11 @@ function buildLaunchDataFromMission(mission, getStatusTextZh) {
     launchAgency: source.launchAgency || '-',
     launchAgencyId: source.launchAgencyId != null ? source.launchAgencyId : null,
     launchAgencyAbbrev: source.launchAgencyAbbrev || '',
+    rocketConfigId: source.rocketConfigId != null
+      ? source.rocketConfigId
+      : (source.rocketConfiguration && source.rocketConfiguration.id != null
+        ? source.rocketConfiguration.id
+        : null),
     boosterInfo,
     isRecoverableThisMission: !!source.isRecoverableThisMission,
     showRecoveryBlock: !!(source.isRecoverableThisMission || (boosterInfo && (boosterInfo.inferredRecovery || boosterInfo.reused === false))),

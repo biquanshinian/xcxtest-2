@@ -16,9 +16,8 @@ const {
   rocketNameForImage,
   isGenericMissionTitle
 } = require('../../../../utils/launch-card-i18n.js')
-const { localizeMissionTitle, resolveLaunchMissionOverride } = require('../../../../utils/mission-title-i18n.js')
+const { resolveLaunchMissionOverride } = require('../../../../utils/mission-title-i18n.js')
 const { getContentLang } = require('../../../../utils/locale.js')
-const { translateRocketName } = require('../../../../utils/rocket-name-i18n.js')
 
 /** progress 为 tabBar 页，switchTab 不能带 query，用本地存储传筛选账号 */
 var BRIEFING_PROGRESS_FILTER_KEY = '_briefing_progress_filter_source'
@@ -260,8 +259,10 @@ Component({
       if (self.data._briefingDisabled) return false
       try {
         var prefs = loadPreferences()
-        if (prefs.briefingEnabled === false) return false
-      } catch (ePrefs) {}
+        if (prefs.briefingEnabled !== true) return false
+      } catch (ePrefs) {
+        return false
+      }
       if (isBriefingPopupShownToday()) return false
       if (self._userClosedThisSession) return false
       if (self.data.showPopup) return false
@@ -287,14 +288,19 @@ Component({
     _loadBriefing() {
       var self = this
       var prefs = loadPreferences()
-      if (prefs.briefingEnabled === false) {
+      var userEnabled = prefs.briefingEnabled === true
+      // 用户开关只拦首页自动弹窗；详情页/分享落地仍要能看
+      if (!userEnabled && self.data.mode !== 'page') {
         self.setData({ loading: false, hasData: false, _briefingDisabled: true })
         return
+      }
+      if (userEnabled && self.data._briefingDisabled) {
+        self.setData({ _briefingDisabled: false })
       }
 
       // 优先弹窗：必须放在 hasData 早退之前，
       // 否则数据加载完成后的重入调用（如隐私授权后接力）永远弹不出来
-      self._maybeAutoShowPopup(false)
+      if (userEnabled) self._maybeAutoShowPopup(false)
 
       // 如果已经加载过数据，直接重新构建渲染（不重设 loading）
       if (self._briefingWaitStarted && self.data.hasData) {
@@ -520,7 +526,7 @@ Component({
       function mapMission(m) {
         // 与任务卡同源：先套内容语言包 / 本地任务名词典，避免简报仍显示 Michibiki 等英文
         var src = m && typeof m === 'object' ? Object.assign({}, m) : {}
-        if (m && m._langPack) src._langPack = m._langPack
+        if (m && m._langPack) src._langPack = Object.assign({}, m._langPack)
         if (m && m.rocketConfiguration) src.rocketConfiguration = m.rocketConfiguration
         if (m && m.boosterInfo) src.boosterInfo = m.boosterInfo
         try {
@@ -554,10 +560,13 @@ Component({
             ''
           var rocketZh =
             (src._langPack && src._langPack.rocketNameZh) ||
-            translateRocketName(rocketEn) ||
+            (m._langPack && m._langPack.rocketNameZh) ||
             rocketName
-          var localized = localizeMissionTitle(rawTitle, rocketEn, rocketZh)
-          if (localized) rawTitle = localized
+          var titleZh =
+            (src._langPack && (src._langPack.missionNameZh || src._langPack.nameZh)) ||
+            (m._langPack && (m._langPack.missionNameZh || m._langPack.nameZh)) ||
+            ''
+          if (titleZh) rawTitle = titleZh
           if (rocketZh) rocketName = rocketZh
           if (!rocketNameEn && rocketEn) rocketNameEn = rocketEn
         } else if (!rocketNameEn) {

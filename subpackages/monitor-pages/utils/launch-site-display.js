@@ -6,13 +6,14 @@
  *   - 筛选 chip 生成（全部 / 活跃 / 各国家，数据驱动）与过滤、汇总统计
  */
 
-var { COUNTRY_ZH } = require('./agency-data.js')
 var { getCachedMediaImage } = require('../../../utils/icon-cache.js')
 var { optimizeImageUrl } = require('../../../utils/cos-url.js')
 var { proxiedImageUrl } = require('../../../utils/ll2-image.js')
+var { pickLocalized, zhField } = require('../../../utils/locale.js')
+var { translateLocation } = require('../../../utils/space-terms-display.js')
 var gallerySearch = require('./gallery-search.js')
 
-var CACHE_KEY = '_launch_site_list_v2' // v2：新增 description/timezoneName 字段
+var CACHE_KEY = '_launch_site_list_v4' // v4：国家名只读云端 countryNameZh
 var CACHE_TTL = 24 * 60 * 60 * 1000
 var TAB_PREVIEW_COUNT = 2
 var PAD_CACHE_KEY_PREFIX = '_launch_site_pads_'
@@ -30,33 +31,7 @@ function remoteThumbImage(url) {
   return optimizeImageUrl(url, 'thumb')
 }
 
-/** 知名发射场英文主体名 → 中文（未收录回退英文原文，数据驱动兜底） */
-var SITE_ZH_MAP = {
-  'Cape Canaveral SFS': '卡纳维拉尔角太空军基地',
-  'Kennedy Space Center': '肯尼迪航天中心',
-  'Vandenberg SFB': '范登堡太空军基地',
-  'SpaceX Starbase': '星舰基地（博卡奇卡）',
-  'Baikonur Cosmodrome': '拜科努尔发射场',
-  'Plesetsk Cosmodrome': '普列谢茨克发射场',
-  'Vostochny Cosmodrome': '东方发射场',
-  'Jiuquan Satellite Launch Center': '酒泉卫星发射中心',
-  'Taiyuan Satellite Launch Center': '太原卫星发射中心',
-  'Xichang Satellite Launch Center': '西昌卫星发射中心',
-  'Wenchang Space Launch Site': '文昌航天发射场',
-  'Guiana Space Centre': '圭亚那航天中心',
-  'Tanegashima Space Center': '种子岛宇宙中心',
-  'Uchinoura Space Center': '内之浦宇宙空间观测所',
-  'Satish Dhawan Space Centre': '萨迪什·达万航天中心',
-  'Rocket Lab Launch Complex 1': '火箭实验室 1 号发射场',
-  'Wallops Flight Facility': '瓦勒普斯飞行基地',
-  'Kodiak Launch Complex': '科迪亚克发射场',
-  'Naro Space Center': '罗老宇航中心',
-  'Semnan Space Center': '塞姆南航天中心',
-  'Palmachim Airbase': '帕勒马希姆空军基地',
-  'Alcântara Space Center': '阿尔坎塔拉航天中心'
-}
-
-/** 中文/英文简称，补 SITE_ZH_MAP 主体名覆盖不到的口语检索 */
+/** 中文/英文简称，补云端 nameZh 覆盖不到的口语检索 */
 var SITE_SEARCH_ALIASES = {
   'Cape Canaveral SFS': '卡角|卡纳维拉尔|CCAFS|CCSFS',
   'Kennedy Space Center': '肯尼迪|KSC',
@@ -83,8 +58,7 @@ function mainSiteName(name) {
 }
 
 function countryDisplayName(name) {
-  if (!name) return ''
-  return COUNTRY_ZH[name] || name
+  return String(name || '').trim()
 }
 
 // ── 本地缓存（内存 + storage，TTL 24h） ──
@@ -197,25 +171,26 @@ function buildLaunchSiteCards(list, options) {
     return {
       id: loc.id,
       name: main,
-      nameZh: SITE_ZH_MAP[main] || '',
+      nameZh: pickLocalized(loc.nameZh || '', '') || translateLocation(loc.name) || loc.nameZh || '',
       fullName: loc.name || '',
       countryName: loc.countryName || '',
-      countryLabel: countryDisplayName(loc.countryName),
+      countryLabel: loc.countryNameZh || loc.countryName || '',
       countryCode: loc.countryCode || '',
       active: !!loc.active,
       statusText: loc.active ? '活跃' : '停用',
       latitude: loc.latitude,
       longitude: loc.longitude,
       description: loc.description || '',
+      descriptionZh: zhField(loc, 'description') || '',
       timezoneName: loc.timezoneName || '',
       totalLaunchCount: Number(loc.totalLaunchCount) || 0,
       totalLandingCount: Number(loc.totalLandingCount) || 0,
       searchText: gallerySearch.joinSearchText([
         main,
-        SITE_ZH_MAP[main] || '',
+        loc.nameZh || '',
         loc.name || '',
         loc.countryName || '',
-        countryDisplayName(loc.countryName),
+        loc.countryNameZh || '',
         loc.countryCode || '',
         loc.active ? '活跃|active' : '停用|retired|inactive',
         SITE_SEARCH_ALIASES[main] || ''
@@ -241,13 +216,17 @@ function buildLaunchSiteFilterChips(cards, options) {
   var maxCountryChips = (options && options.maxCountryChips) || 8
   var chips = [{ id: 'all', label: '全部' }, { id: 'active', label: '活跃' }]
   var count = {}
+  var labels = {}
   for (var i = 0; i < (cards || []).length; i++) {
     var c = cards[i].countryName
-    if (c) count[c] = (count[c] || 0) + 1
+    if (c) {
+      count[c] = (count[c] || 0) + 1
+      if (cards[i].countryLabel) labels[c] = cards[i].countryLabel
+    }
   }
   var names = Object.keys(count).sort(function (a, b) { return count[b] - count[a] })
   for (var j = 0; j < names.length && j < maxCountryChips; j++) {
-    chips.push({ id: 'country:' + names[j], label: countryDisplayName(names[j]) })
+    chips.push({ id: 'country:' + names[j], label: labels[names[j]] || names[j] })
   }
   return chips
 }

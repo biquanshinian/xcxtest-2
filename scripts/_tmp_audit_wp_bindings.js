@@ -6,7 +6,7 @@ const fs = require('fs')
 const path = require('path')
 
 const ROOT = path.join(__dirname, '..', 'subpackages', 'watch-party')
-const PAGES = ['watch-party', 'merchant', 'merchant-edit', 'merchant-list', 'gacha', 'screen', 'album', 'merchant-reservations']
+const PAGES = ['watch-party', 'merchant', 'merchant-edit', 'merchant-list', 'gacha', 'screen', 'album', 'merchant-reservations', 'merchant-apply']
 
 const behaviorSrc = fs.readFileSync(path.join(ROOT, 'utils', 'composer-input-behavior.js'), 'utf8')
 

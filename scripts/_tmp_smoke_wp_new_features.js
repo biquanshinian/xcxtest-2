@@ -365,6 +365,33 @@ async function main() {
     othersTbd.length > 0 && othersTbd.every((s) => s.reserveCloseAt === 0),
     othersTbd.length)
 
+  console.log('── 商家奖品库（多场次一键导入模板）──')
+  const presetBad = await api.merchantSavePrizePresets({ prizes: [{ name: '无图奖品', image: 'ftp://bad' }] }, 'boss-1')
+  assert('全部非法项被拒（提示补名称照片）', presetBad.code === 4001, presetBad)
+  const presetSave = await api.merchantSavePrizePresets({
+    prizes: [
+      { name: '火箭模型', image: 'cloud://env.bucket/watch_party/prizes/a.png', stock: 3, valueYuan: 99 },
+      { name: '  ', image: 'cloud://env.bucket/watch_party/prizes/skip.png' },
+      { name: '贴纸', image: 'https://cdn.example.com/sticker.png', stock: 0, valueYuan: '' }
+    ]
+  }, 'boss-1')
+  assert('保存奖品库（无名项过滤、stock 兜底 1）', presetSave.code === 0 && presetSave.data.count === 2, presetSave)
+  const mePreset = (await api.merchantMe('boss-1')).data.merchant
+  assert('商家中心带出奖品库（不含库存运行时字段）',
+    mePreset.prizePresets.length === 2 &&
+      mePreset.prizePresets[0].name === '火箭模型' && mePreset.prizePresets[0].stock === 3 &&
+      mePreset.prizePresets[0].valueYuan === 99 && mePreset.prizePresets[0].remaining === undefined &&
+      mePreset.prizePresets[0].id === undefined &&
+      mePreset.prizePresets[1].stock === 1 && mePreset.prizePresets[1].valueYuan === null,
+    mePreset.prizePresets)
+  const many = Array.from({ length: 25 }, (_, i) => ({ name: `奖品${i}`, image: 'cloud://env.bucket/p.png' }))
+  const presetMany = await api.merchantSavePrizePresets({ prizes: many }, 'boss-1')
+  assert('超量截断到 20 件', presetMany.code === 0 && presetMany.data.count === 20, presetMany.data && presetMany.data.count)
+  const presetClear = await api.merchantSavePrizePresets({ prizes: [] }, 'boss-1')
+  assert('传空数组 = 清空奖品库', presetClear.code === 0 && presetClear.data.count === 0, presetClear)
+  const meCleared = (await api.merchantMe('boss-1')).data.merchant
+  assert('清空后回读为空数组', Array.isArray(meCleared.prizePresets) && meCleared.prizePresets.length === 0, meCleared.prizePresets)
+
   console.log(`\n结果：${passed} 通过 / ${failed} 失败`)
   process.exit(failed > 0 ? 1 : 0)
 }

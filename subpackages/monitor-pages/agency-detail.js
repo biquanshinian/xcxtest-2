@@ -1,8 +1,8 @@
 const { getAgencyDetail, resolveAgencyReference } = require('../../utils/api-monitor-data.js')
 const { fetchAgencyLaunchCards } = require('./utils/agency-launch-cards.js')
 const pageBase = require('../../utils/page-base.js')
-const { translateAgencyName, translateSpacecraftName } = require('../../utils/space-terms-i18n.js')
-const { translateRocketName } = require('../../utils/rocket-name-i18n.js')
+const { pickLocalized, zhField, takeDescI18nSeed } = require('../../utils/locale.js')
+const { resolveAgencyDisplayZh } = require('../../utils/launch-card-i18n.js')
 const { togglePageTranslation } = require('./utils/text-translate.js')
 const { getRocketConfigMeta, getSpaceXLaunchStats } = require('../../utils/api-app-services.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
@@ -20,12 +20,7 @@ const {
   isRemoteAgencyLogoUrl
 } = require('../../utils/agency-logo-cache.js')
 const { resolveAgencyLogoBgTone, ensureAgencyLogoBgTone } = require('../../utils/agency-logo-bg.js')
-const {
-  translateAgencyType,
-  translateCountryName,
-  translateAdministrator,
-  resolveSocialLinkMeta
-} = require('./utils/agency-data.js')
+const { resolveSocialLinkMeta } = require('./utils/agency-data.js')
 // 必须走主包薄壳（内部 require.async 拉 shared 分包）：直接同步 require ../shared/**
 // 在分享卡片 / 朋友圈单页直达本页时 shared 分包尚未下载，模块加载即报错导致整页黑屏
 const { resolveEventAuthorAvatarUrl, warmEventShareImage } = require('../../utils/event-share-image.js')
@@ -55,8 +50,7 @@ function formatAgencyDetail(agency) {
   const launchers = agency.launchers || ''
   const spacecraft = agency.spacecraft || ''
   const countryList = Array.isArray(agency.country) ? agency.country : []
-  const countryNamesEn = countryList.map(item => item && item.name).filter(Boolean)
-  const countryNames = countryNamesEn.map((n) => translateCountryName(n) || n)
+  const countryNames = countryList.map((item) => pickLocalized(zhField(item, 'name'), item && item.name)).filter(Boolean)
   const countryCodes = countryList.map(item => item && item.alpha_2_code).filter(Boolean)
   // 保留 LL2 构型 id：火箭标签匹配族谱档案跳 rocket-model-detail，飞船标签跳 spacecraft-detail
   // LL2 按构型 id 返回，同名型号（如 Falcon 9 的多个 Block）会出现多条 → 按名称去重、合并 id
@@ -71,7 +65,7 @@ function formatAgencyDetail(agency) {
         return
       }
       const rec = {
-        name: translateRocketName(nameEn) || nameEn,
+        name: pickLocalized(zhField(entry, 'name') || entry.nameZh, nameEn),
         nameEn,
         ids: entry.id != null ? [entry.id] : [],
         hasDetail: false,
@@ -91,7 +85,7 @@ function formatAgencyDetail(agency) {
       const nameEn = String(entry.name || '').trim()
       spacecraftList.push({
         id: entry.id != null ? entry.id : null,
-        name: translateSpacecraftName(nameEn) || nameEn,
+        name: pickLocalized(zhField(entry, 'name') || entry.nameZh, nameEn),
         nameEn
       })
       // 内嵌对象已含全量详情字段，点击跳转时直传飞船详情页秒开
@@ -141,12 +135,12 @@ function formatAgencyDetail(agency) {
   const vehicleTags = []
   if (launchers) {
     launchers.split('|').map(s => s.trim()).filter(Boolean).forEach((t) => {
-      vehicleTags.push(translateRocketName(t) || t)
+      vehicleTags.push(t)
     })
   }
   if (spacecraft) {
     spacecraft.split('|').map(s => s.trim()).filter(Boolean).forEach((t) => {
-      vehicleTags.push(translateSpacecraftName(t) || t)
+      vehicleTags.push(t)
     })
   }
   launcherList.forEach((entry) => {
@@ -179,14 +173,13 @@ function formatAgencyDetail(agency) {
     agency.successful_landings_payload
   )
 
-  const nameZh = translateAgencyName(agency.name, agency.abbrev)
-  const displayName = nameZh || agency.name || '未知机构'
+  const nameZh = resolveAgencyDisplayZh(agency.name, agency.abbrev, zhField(agency, 'name'))
+  const displayName = pickLocalized(nameZh, agency.name) || '未知机构'
   const typeNameEn = (agency.type && agency.type.name) || ''
   const parentRaw = (agency.parent && agency.parent.name) ||
     (typeof agency.parent === 'string' ? agency.parent : '')
-  const parentAbbrev = (agency.parent && agency.parent.abbrev) || ''
   const parentZh = parentRaw
-    ? (translateAgencyName(parentRaw, parentAbbrev) || parentRaw)
+    ? pickLocalized(zhField(agency.parent, 'name'), parentRaw)
     : ''
   const logoUrlRaw = overrideAgencyLogoUrl(agency, agency.logo ? (agency.logo.thumbnail_url || agency.logo.image_url) : '')
   const imageThumbRaw = agency.image ? (agency.image.thumbnail_url || agency.image.image_url) : ''
@@ -200,7 +193,7 @@ function formatAgencyDetail(agency) {
     name: displayName,
     nameEn: agency.name || '未知机构',
     abbrev: agency.abbrev || '',
-    typeName: translateAgencyType(typeNameEn),
+    typeName: pickLocalized(agency.type && zhField(agency.type, 'name'), typeNameEn),
     typeClass: (typeNameEn || '').toLowerCase().replace(/\s+/g, '-'),
     featured: !!agency.featured,
     countryName: countryNames[0] || '',
@@ -216,7 +209,8 @@ function formatAgencyDetail(agency) {
     imageFallbacks: heroChain.slice(1),
     socialLogoUrl: agency.social_logo ? (agency.social_logo.thumbnail_url || agency.social_logo.image_url) : '',
     description: agency.description || '暂无简介',
-    administrator: translateAdministrator(agency.administrator || ''),
+    descriptionZh: zhField(agency, 'description'),
+    administrator: agency.administrator || '',
     parent: parentZh,
     infoUrl: agency.info_url || '',
     wikiUrl: agency.wiki_url || '',
@@ -307,7 +301,7 @@ Page({
     togglePageTranslation(this, {
       switchKey: 'descTranslated',
       loadingKey: 'descTranslating',
-      fields: [{ path: 'descI18n.agencyDesc', text: item.description || '' }]
+      fields: [{ path: 'descI18n.agencyDesc', text: item.description || '', zh: item.descriptionZh || '' }]
     })
   },
 
@@ -398,6 +392,7 @@ Page({
       })
       this._clearArtemisPoll()
       this._textTranslateCache = null
+      this._textTranslateReverted = false
     }
     try {
       const resolved = await this.resolveAgencyId(requestParams)
@@ -431,7 +426,7 @@ Page({
       const partialMessage = partialData && data.__partialMessage
         ? data.__partialMessage
         : '当前先展示机构基础信息，统计与扩展资料将在云端详情同步完成后补齐。'
-      this.setData({
+      this.setData(Object.assign({
         loading: false,
         item,
         partialData,
@@ -439,7 +434,7 @@ Page({
         isFavorited: !!(item && item.id != null && isFavorite('agency', item.id)),
         navTitle: (item && item.name) || '发射商详情',
         shareTitle: `${(item && item.name) || '发射商详情'} | 火星探索日志`
-      })
+      }, takeDescI18nSeed(this, { agencyDesc: item && item.descriptionZh })))
       this._syncShareImage(item)
       this._ensureAgencyLogoBg(item)
       this._markLauncherArchives()
@@ -467,7 +462,7 @@ Page({
           attempted_landings: null,
           successful_landings: null
         })
-        this.setData({
+        this.setData(Object.assign({
           loading: false,
           item: minimalItem,
           partialData: true,
@@ -475,7 +470,7 @@ Page({
           isFavorited: !!(minimalItem && minimalItem.id != null && isFavorite('agency', minimalItem.id)),
           navTitle: requestParams.name || '发射商详情',
           shareTitle: `${requestParams.name || '发射商详情'} | 火星探索日志`
-        })
+        }, takeDescI18nSeed(this, { agencyDesc: minimalItem && minimalItem.descriptionZh })))
         this._syncShareImage(minimalItem)
         return
       }

@@ -2466,7 +2466,13 @@ function getOaNetChangeTemplateId() {
   ).trim()
 }
 
-function getOaNetChangeReasonText() {
+function getOaNetChangeReasonText(kind) {
+  if (kind === 'advance') {
+    return (
+      String(process.env.WECHAT_OA_NET_CHANGE_REASON_ADVANCE || '发射时间提前').trim() ||
+      '发射时间提前'
+    )
+  }
   return String(process.env.WECHAT_OA_NET_CHANGE_REASON || '发射时间推迟').trim() || '发射时间推迟'
 }
 

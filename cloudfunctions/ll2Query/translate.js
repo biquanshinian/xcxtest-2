@@ -12,10 +12,13 @@ const cloud = require('wx-server-sdk')
 
 const {
   applyPhraseRules,
+  repairMachineTranslationZh,
   protectTerms,
   restoreTerms,
-  shouldMachineTranslate
+  shouldMachineTranslate,
+  isUsableZhText
 } = require('./space-terms-i18n.js')
+const { repairAerospaceZhMistranslations } = require('./mission-title-i18n.js')
 
 const TMT_HOST = 'tmt.tencentcloudapi.com'
 const TMT_SERVICE = 'tmt'
@@ -271,13 +274,17 @@ const AI_RUN_BUDGET_MS = 300000
 /** 剩余预算低于这个值就不再开新条目，避免最后一条卡在半路白等 */
 const AI_MIN_SLICE_MS = 15000
 
-const AI_TRANSLATE_SYSTEM_PROMPT = `你是航天领域的专业中英翻译。把用户消息中的英文原文翻译成简体中文，要求：
+const AI_TRANSLATE_SYSTEM_PROMPT = `你是航天航空领域的专业中英翻译，译文必须使用中国航天科技/载人航天/商业航天报道的通行专业词汇，禁止民航义、影视义和日常意译。
 1. 只输出译文本身，不要任何解释、注释、前缀或引号
-2. 火箭/飞船型号必须译成通行中文（Falcon 9→猎鹰9号，Falcon Heavy→猎鹰重型，Long March 7A→长征七号改，Zhuque-3/ZQ-3→朱雀三号，Starship→星舰，Electron→电子号，New Glenn→新格伦）；机构缩写（SpaceX、NASA、ISS、NROL、USSF）可保留原文
-3. 任务与载荷名称应译成通行中文，例如 Nancy Grace Roman Space Telescope→南希-格蕾丝-罗曼太空望远镜，Unknown Payload→未知有效载荷，Starlink Group→星链组，Flight N→第N次飞行（绝不能译成民航「航班」或「飞行N」）
-4. 强制术语（禁止影视/日常义）：Crew-N / Crew N → 载人-N（绝不能译成「人物」「船员」「剧组」）；Crew Dragon → 载人龙飞船；Cargo Dragon → 货运龙飞船；crewed → 载人；crew（乘组语境）→ 乘组；Flight N → 第N次飞行（绝不能译成「航班」/「飞行N」）；Flight Test N → 第N次试飞；单独 Flight → 飞行；Zhuque / ZQ → 朱雀（绝不能译成「麻雀」）
-5. 术语准确：booster=助推器，static fire=静态点火，splashdown=溅落，payload=载荷，flyback=返场；同一英文术语全文必须使用同一中文译名
-6. 语气自然流畅，符合中文航天报道习惯`
+2. 固定译名不可改写：Of Course I Still Love You / OCISLY→当然我依然爱你号；Just Read The Instructions / JRTI→只需阅读说明号；A Shortfall Of Gravitas / ASOG→缺乏庄严号
+3. 火箭/飞船型号用通行中文：Falcon 9→猎鹰9号，Falcon Heavy→猎鹰重型，Long March 7A→长征七号改，Zhuque-3/ZQ-3→朱雀三号，Starship→星舰，Electron→电子号，New Glenn→新格伦。机构缩写（SpaceX、NASA、ISS、NROL）可保留原文；USSF→美国太空军（禁止保留 USSF）
+4. 任务与载荷：Nancy Grace Roman Space Telescope→南希-格蕾丝-罗曼太空望远镜，Unknown Payload→未知有效载荷，Starlink Group 10-19→星链组 10-19（组号连字符两侧不加空格，禁止「星链组 10 - 19」），Flight N→第N次飞行（禁止「航班」「飞行N」）
+5. 强制术语：Crew-N→载人-N（禁止「人物」「船员」「剧组」）；Crew Dragon→载人龙飞船；Cargo Dragon→货运龙飞船；crewed→载人；乘组语境 crew→乘组；Flight Test N→第N次试飞；Zhuque/ZQ→朱雀（禁止「麻雀」「雀雀」「孔雀」）
+6. 专业词汇（禁止另译）：booster=助推器，first/second stage=一/二级，upper stage=上面级，core stage=芯级，fairing=整流罩，payload=有效载荷，splashdown=溅落，reentry=再入，landing zone=着陆区（禁止「降落区」），drone ship=无人船（禁止「无人机船」），launch pad/complex=发射台/发射工位，launch vehicle=运载火箭，launch window=发射窗口，static fire=静态点火，wet dress rehearsal=湿彩排，hot staging=热分离，grid fins=栅格舵，landing legs=着陆支架，flyback=返场，orbit insertion=入轨，apogee/perigee=远/近地点
+7. 除第2条固定船名外，地点与任务名一律用专业通行译名，不要文艺化、不要意译成日常口语
+8. 同一英文术语全文必须使用同一中文译名
+9. Launch Library 动态：NET / No Earlier Than=最早不早于（禁止译成「网络」）；TBC=待确认；TBD=待定；Added launch=已添加发射；GO for launch=发射就绪；scrub=取消当日发射
+10. 星舰清单：Proof Campaign=加压测试流程；Raptor / Raptor V3=猛禽3；Rollout=转运；Stacked=吊装至助推器顶部；Booster N=助推器N；Ship N=星舰N`
 
 /** 机翻后纠偏：通译模型常把 Crew 译成「人物」、Flight 译成「航班」 */
 function sanitizeAerospaceTranslation(zh, srcEn) {
@@ -310,16 +317,32 @@ function sanitizeAerospaceTranslation(zh, srcEn) {
       .replace(/\bFlight[-\s]?(\d+)\b/gi, '第$1次飞行')
       .replace(/\bFlight\b/gi, '飞行')
   }
-  // Zhuque → 绝不能落成「麻雀」
-  if (/zhuque|\bzq\b/i.test(en) || /麻雀/.test(s)) {
+  // Roman → 绝不能落成「罗斯」(Ross) / 「罗丝」(Rose)
+  if (/roman/i.test(en) || /南希.?格蕾丝.?(罗斯|罗丝)|(罗斯|罗丝)太空望远镜/.test(s)) {
+    s = s
+      .replace(/南希.{0,3}格蕾丝.{0,3}(罗斯|罗丝)/g, '南希-格蕾丝-罗曼')
+      .replace(/(罗斯|罗丝)太空望远镜/g, '罗曼太空望远镜')
+  }
+  // Zhuque → 绝不能落成「麻雀」「雀雀」
+  if (/zhuque|\bzq\b/i.test(en) || /麻雀|雀雀|孔雀/.test(s)) {
     const numZh = { 1: '一', 2: '二', 3: '三', 4: '四', 5: '五', 6: '六', 7: '七', 8: '八', 9: '九', 10: '十' }
     s = s
+      .replace(/雀雀|孔雀/g, '朱雀')
+      .replace(/第一一级/g, '一级')
+      .replace(/短程着陆台/g, '航区着陆场')
       .replace(/麻雀\s*二\s*号?\s*[改eE]/g, '朱雀二号改')
       .replace(/麻雀\s*[-–]?\s*(\d+)\s*([eE])\b/g, (_, n, e) => '朱雀' + (numZh[Number(n)] || n) + '号' + (String(e).toLowerCase() === 'e' ? '改' : ''))
       .replace(/麻雀\s*[-–]?\s*(\d+)号?(?=\s|[|｜]|$|[^\d号])/g, (_, n) => '朱雀' + (numZh[Number(n)] || n) + '号')
       .replace(/麻雀\s*([一二三四五六七八九十]+)\s*号/g, '朱雀$1号')
+      .replace(/Zhuque[-\s]?(\d+)/gi, (_, n) => '朱雀' + (numZh[Number(n)] || n) + '号')
+      .replace(/\bZQ[-\s]?(\d+)\b/gi, (_, n) => '朱雀' + (numZh[Number(n)] || n) + '号')
   }
-  return s
+  if (/\bUSSF\b/i.test(en) || /USSF/.test(s)) {
+    s = s
+      .replace(/\bUSSF[-\s]?(\d+)\b/gi, '美国太空军-$1')
+      .replace(/\bUSSF\b/g, '美国太空军')
+  }
+  return repairAerospaceZhMistranslations(repairMachineTranslationZh(s, srcEn))
 }
 
 let _aiDeadline = 0
@@ -545,14 +568,19 @@ async function translateTextsBatch(texts, opts) {
     const raw = inputs[i]
     if (!raw) continue
     const forced = !!(forceAt && forceAt[i])
-    if (!forced && !shouldMachineTranslate(raw)) {
-      results[i] = applyPhraseRules(raw) || raw
+    // 先套专业术语/固定译名：整句已是可用中文才跳过机翻；半译混排改送原文给混元
+    const prepared = applyPhraseRules(raw) || raw
+    if (!forced && isUsableZhText(prepared)) {
+      results[i] = prepared
       continue
     }
-    // 强制机翻的短型号：先套短语规则，再进 AI（避免只剩英文原串）
-    const prepared = forced ? (applyPhraseRules(raw) || raw) : raw
-    const hash = hashText(prepared)
-    pending.push({ index: i, raw: prepared, hash })
+    if (!forced && !shouldMachineTranslate(raw) && !/[\u4e00-\u9fff]/.test(prepared)) {
+      results[i] = prepared
+      continue
+    }
+    const sendRaw = (/[\u4e00-\u9fff]/.test(prepared) && !isUsableZhText(prepared)) ? raw : prepared
+    const hash = hashText(sendRaw)
+    pending.push({ index: i, raw: sendRaw, hash })
   }
 
   if (!pending.length) return results

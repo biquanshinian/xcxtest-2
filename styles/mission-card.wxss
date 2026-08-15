@@ -63,6 +63,73 @@
   background: var(--color-divider-faint);
 }
 
+/* 复用详情头图 360 环绕图标，缩小放在任务卡左侧图槽左上角 */
+.mission-card-pano {
+  position: absolute;
+  left: 10rpx;
+  top: 10rpx;
+  z-index: 3;
+  width: 52rpx;
+  height: 52rpx;
+  pointer-events: none;
+}
+
+.mission-card-pano-orbit {
+  position: absolute;
+  left: 2rpx;
+  top: 2rpx;
+  right: 2rpx;
+  bottom: 2rpx;
+  border-radius: 50%;
+  border: 2rpx solid rgba(255, 255, 255, 0.22);
+  border-top-color: #ffffff;
+  border-right-color: rgba(255, 255, 255, 0.55);
+  box-sizing: border-box;
+  animation: mission-card-pano-spin 1.8s linear infinite;
+}
+
+.mission-card-pano-orbit--tilt {
+  left: -2rpx;
+  right: -2rpx;
+  top: 14rpx;
+  bottom: 14rpx;
+  border-top-color: rgba(255, 255, 255, 0.95);
+  border-bottom-color: rgba(255, 255, 255, 0.28);
+  border-left-color: rgba(255, 255, 255, 0.12);
+  border-right-color: rgba(255, 255, 255, 0.12);
+  animation-duration: 2.8s;
+  animation-direction: reverse;
+}
+
+.mission-card-pano-core {
+  position: absolute;
+  left: 12rpx;
+  top: 12rpx;
+  right: 12rpx;
+  bottom: 12rpx;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.58);
+  border: 2rpx solid rgba(255, 255, 255, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.mission-card-pano-360 {
+  font-size: 14rpx;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1;
+  letter-spacing: -1rpx;
+  transform: scale(0.8);
+}
+
+@keyframes mission-card-pano-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .mission-info-content {
   flex: 1;
   padding: var(--space-md) var(--space-lg);

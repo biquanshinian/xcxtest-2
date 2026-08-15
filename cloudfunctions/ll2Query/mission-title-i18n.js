@@ -8,6 +8,8 @@ const { translateRocketName, localizeRocketInTitle } = require('./rocket-name-i1
 /** 整段标题精确匹配（小写 key） */
 const EXACT_MISSION_ZH = {
   'nancy grace roman space telescope': '南希-格蕾丝-罗曼太空望远镜',
+  'nancy-grace-roman space telescope': '南希-格蕾丝-罗曼太空望远镜',
+  'nancy-grace-roman': '南希-格蕾丝-罗曼',
   'roman space telescope': '罗曼太空望远镜',
   'james webb space telescope': '詹姆斯·韦伯太空望远镜',
   'hubble space telescope': '哈勃太空望远镜',
@@ -27,8 +29,8 @@ const EXACT_MISSION_ZH = {
   'axiom mission 3': '公理任务 3',
   'axiom mission 4': '公理任务 4',
   'worldview legion 1': 'WorldView Legion 1',
-  'ussf-51': 'USSF-51',
-  'nrol-69': 'NROL-69',
+  'ussf-51': '美国太空军-51',
+  'nrol-69': '国家侦察局-69',
   'transporter-15': 'Transporter-15',
   'transporter 15': 'Transporter-15',
   'michibiki 7 (qzs-7)': '导览7号（准天顶卫星7号）',
@@ -62,8 +64,9 @@ function resolveLaunchMissionOverride(launchId) {
  * 星链组号、飞行序号等结构化名称本地可直译，不必等云端机翻。
  */
 const MISSION_PHRASE_RULES = [
-  [/Nancy\s+Grace\s+Roman\s+Space\s+Telescope/gi, '南希-格蕾丝-罗曼太空望远镜'],
-  [/Roman\s+Space\s+Telescope/gi, '罗曼太空望远镜'],
+  [/Nancy[-–\s]+Grace[-–\s]+Roman[-–\s]+(?:Space\s+)?Telescope/gi, '南希-格蕾丝-罗曼太空望远镜'],
+  [/Nancy[-–\s]+Grace[-–\s]+Roman/gi, '南希-格蕾丝-罗曼'],
+  [/Roman[-–\s]+Space\s+Telescope/gi, '罗曼太空望远镜'],
   [/James\s+Webb\s+Space\s+Telescope/gi, '詹姆斯·韦伯太空望远镜'],
   [/Hubble\s+Space\s+Telescope/gi, '哈勃太空望远镜'],
   [/Europa\s+Clipper/gi, '欧罗巴快船'],
@@ -92,6 +95,10 @@ const MISSION_PHRASE_RULES = [
   [/\bRideshare\b/gi, '拼车发射'],
   [/\bTransporter[-\s]?(\d+)\b/gi, 'Transporter-$1'],
   [/\bBandwagon[-\s]?(\d+)\b/gi, 'Bandwagon-$1'],
+  [/\bUSSF[-\s]?(\d+)\b/gi, '美国太空军-$1'],
+  [/\bUSSF\b/g, '美国太空军'],
+  [/Globalstar\s*2\s*[-–]?\s*R/gi, '全球星2-R'],
+  [/\bNROL[-\s]?(\d+)\b/gi, '国家侦察局-$1'],
   [/\bCRS[-\s]?(\d+)\b/gi, '商业补给$1'],
   // Crew-N = SpaceX 载人任务编号，绝不能落成「人物」（通机翻影视义）
   [/\bCrew[-\s]?(\d+)\b/gi, '载人-$1'],
@@ -114,6 +121,9 @@ const ZHUQUE_NUM_ZH = {
 }
 
 const AEROSPACE_ZH_REPAIR_RULES = [
+  // 机翻常把 Roman 译成「罗斯」(Ross) 或「罗丝」(Rose)；通行译名是「罗曼」
+  [/南希.{0,3}格蕾丝.{0,3}(罗斯|罗丝)/g, '南希-格蕾丝-罗曼'],
+  [/(罗斯|罗丝)太空望远镜/g, '罗曼太空望远镜'],
   [/人物龙飞船/g, '载人龙飞船'],
   [/人物\s*Dragon/gi, '载人龙飞船'],
   [/人物[-\s]?(\d+)/g, '载人-$1'],
@@ -134,13 +144,27 @@ const AEROSPACE_ZH_REPAIR_RULES = [
   [/\bFlight\b/gi, '飞行'],
   // 朱雀误译「麻雀」：先处理带「改/E」与中文数字号
   [/麻雀\s*二\s*号?\s*[改eE]/g, '朱雀二号改'],
-  [/麻雀\s*([一二三四五六七八九十]+)\s*号/g, '朱雀$1号']
+  [/麻雀\s*([一二三四五六七八九十]+)\s*号/g, '朱雀$1号'],
+  [/雀雀/g, '朱雀'],
+  [/孔雀/g, '朱雀'],
+  [/第一一级/g, '一级'],
+  [/第一赛段/g, '一级'],
+  [/第二赛段/g, '二级'],
+  [/短程着陆台/g, '航区着陆场'],
+  [/\bASDS\b/g, '无人船'],
+  [/猎鹰9号\s*Block\s*(\d+)/gi, '猎鹰9号第$1型'],
+  [/\bUSSF[-\s]?(\d+)\b/gi, '美国太空军-$1'],
+  [/\bUSSF\b/g, '美国太空军']
 ]
 
 /** 麻雀-3 / 麻雀3号 → 朱雀三号（机翻 Zhuque→麻雀） */
 function repairZhuqueSparrowMistranslation(text) {
   let s = String(text || '')
-  if (!s || s.indexOf('麻雀') < 0) return s
+  if (!s) return s
+  if (s.indexOf('麻雀') < 0 && s.indexOf('雀雀') < 0 && s.indexOf('孔雀') < 0 && !/朱雀[-\s]?\d/.test(s)) return s
+  s = s.replace(/雀雀|孔雀/g, '朱雀')
+  s = s.replace(/朱雀[-\s]*(\d+)\s*号?/g, (_, n) => '朱雀' + (ZHUQUE_NUM_ZH[Number(n)] || n) + '号')
+  if (s.indexOf('麻雀') < 0) return s
   s = s.replace(/麻雀\s*[-–]?\s*(\d+)\s*([eE])\b/g, (_, n, e) => {
     const num = ZHUQUE_NUM_ZH[Number(n)] || n
     return '朱雀' + num + '号' + (String(e).toLowerCase() === 'e' ? '改' : '')
@@ -152,6 +176,24 @@ function repairZhuqueSparrowMistranslation(text) {
   return s
 }
 
+/**
+ * 星链组号统一为「星链组 10-19」：组与号一个空格，连字符两侧无空格。
+ * 对齐 LL2「Starlink Group 10-19」；机翻常写成「星链组 10 - 19」。
+ */
+function normalizeStarlinkGroupFormat(text) {
+  let s = String(text || '')
+  if (!s) return s
+  s = s.replace(/Starlink\s+Group\s+(\d+)\s*[-–—－~～]\s*(\d+)/gi, 'Starlink Group $1-$2')
+  s = s
+    .replace(/Starlink\s+Group/gi, '星链组')
+    .replace(/星链\s*集团/g, '星链组')
+    .replace(/星链\s+组/g, '星链组')
+  s = s.replace(/星链组\s*(\d+)\s*[-–—－~～]\s*(\d+)/g, '星链组 $1-$2')
+  s = s.replace(/星链组(\d)/g, '星链组 $1')
+  s = s.replace(/(美国太空军|国家侦察局|载人)\s*[-–—－]\s*(\d+)/g, '$1-$2')
+  return s
+}
+
 function repairAerospaceZhMistranslations(text) {
   let s = String(text || '')
   if (!s) return ''
@@ -160,7 +202,7 @@ function repairAerospaceZhMistranslations(text) {
     const pair = AEROSPACE_ZH_REPAIR_RULES[i]
     s = s.replace(pair[0], pair[1])
   }
-  return s
+  return normalizeStarlinkGroupFormat(s)
 }
 
 function normKey(s) {

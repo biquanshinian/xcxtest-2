@@ -1,7 +1,7 @@
 /**
  * node cloudfunctions/syncSpaceDevsData/launch-data-net-patch.test.js
  * 小时探针 → launch_data 补丁构造：
- * 1) 显著推迟（≥30min）必须打 netChangePending（否则服务号改期推送永不触发）
+ * 1) 满 1 分钟的提前或延期必须打 netChangePending（否则服务号改期推送永不触发）
  * 2) statusId 一并写入；3) 已有未消费 pending 保留最早 previousNet
  */
 const test = require('node:test')
@@ -39,11 +39,23 @@ test('推迟 2 小时（≥30min）→ 打 netChangePending + previousNet', () =
   assert.equal(r.patch.source, 'launch_net_hourly')
 })
 
-test('推迟不足 30min → 只改时间不打标', () => {
+test('推迟 1 分钟 → 打标', () => {
   const existing = { launchTime: OLD_ISO }
   const r = buildLaunchDataNetPatch(
     existing,
-    change({ net: '2026-08-13T10:20:00Z', window_start: '2026-08-13T10:20:00Z' }),
+    change({ net: '2026-08-13T10:01:00Z', window_start: '2026-08-13T10:01:00Z' }),
+    NOW
+  )
+  assert.ok(r.patch)
+  assert.equal(r.flagged, true)
+  assert.equal(r.patch.netChangePending, true)
+})
+
+test('推迟不足 1 分钟 → 只改时间不打标', () => {
+  const existing = { launchTime: OLD_ISO }
+  const r = buildLaunchDataNetPatch(
+    existing,
+    change({ net: '2026-08-13T10:00:30Z', window_start: '2026-08-13T10:00:30Z' }),
     NOW
   )
   assert.ok(r.patch)
@@ -51,7 +63,7 @@ test('推迟不足 30min → 只改时间不打标', () => {
   assert.equal(r.patch.netChangePending, undefined, '不足阈值不动 pending 字段（update merge 保留库内现值）')
 })
 
-test('时间提前 → 不打改期标（改期推送只播报推迟）', () => {
+test('时间提前满 1 分钟 → 打改期标（与弹窗同口径）', () => {
   const existing = { launchTime: OLD_ISO }
   const r = buildLaunchDataNetPatch(
     existing,
@@ -59,7 +71,9 @@ test('时间提前 → 不打改期标（改期推送只播报推迟）', () => 
     NOW
   )
   assert.ok(r.patch)
-  assert.equal(r.flagged, false)
+  assert.equal(r.flagged, true)
+  assert.equal(r.patch.netChangePending, true)
+  assert.equal(r.patch.previousNet, OLD_ISO)
 })
 
 test('已有未消费 pending → 保留最早 previousNet（展示「原时间 → 最新时间」）', () => {
@@ -76,10 +90,10 @@ test('无现有文档 / 无有效时间 → 跳过', () => {
   assert.equal(buildLaunchDataNetPatch({ launchTime: OLD_ISO }, change({ id: '' }), NOW).patch, null)
 })
 
-test('阈值与 launch-data-sync 副本口径一致（30 分钟）', () => {
+test('阈值与 launch-data-sync 副本口径一致（1 分钟）', () => {
   const sync = require('./launch-data-sync.js')
   assert.equal(NET_CHANGE_DELAY_MS, sync.NET_CHANGE_DELAY_MS)
-  assert.equal(NET_CHANGE_DELAY_MS, 30 * 60 * 1000)
+  assert.equal(NET_CHANGE_DELAY_MS, 60 * 1000)
 })
 
 test('attachNetChangeMeta：探针已打标后 5 分钟 tick 重写不丢标记', () => {

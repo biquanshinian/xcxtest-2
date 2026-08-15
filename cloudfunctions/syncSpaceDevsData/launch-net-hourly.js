@@ -1022,15 +1022,15 @@ async function syncPreviousAfterProbe(terminalEntries, nowMs) {
   return { ...primary, backfill }
 }
 
-/** NET 推迟超过该值 → 打 netChangePending 改期待推标记（与 launch-data-sync 口径一致） */
-const NET_CHANGE_DELAY_MS = 30 * 60 * 1000
+/** NET 变动满该值（提前或延期）→ 打 netChangePending（与 launch-data-sync / 首页弹窗同口径） */
+const NET_CHANGE_DELAY_MS = 60 * 1000
 
 /**
  * 由「launch_data 现状 + 本轮探针变更行」构造更新补丁（纯函数，供单测直跑）。
  *
- * 关键：显著推迟（≥30min）时必须同步打 netChangePending——本探针会把 launch_data
+ * 关键：满 1 分钟的提前或延期必须同步打 netChangePending——本探针会把 launch_data
  * 直接拨到新时间，若不在此打标，5 分钟 tick 的 attachNetChangeMeta 看到新旧一致，
- * 服务号「发射时间推迟」推送（sendLaunchReminder/net-change-push）将永远不触发。
+ * 服务号改期推送（sendLaunchReminder/net-change-push）将永远不触发。
  *
  * @param {object|null} existing launch_data 现有文档（null = 无文档，跳过）
  * @param {object} change 探针变更行（net/window_start/statusName/statusId）
@@ -1060,7 +1060,7 @@ function buildLaunchDataNetPatch(existing, change, nowMs) {
 
   let flagged = false
   const oldMs = existing.launchTime ? new Date(existing.launchTime).getTime() : 0
-  if (oldMs > 0 && t - oldMs >= NET_CHANGE_DELAY_MS) {
+  if (oldMs > 0 && Math.abs(t - oldMs) >= NET_CHANGE_DELAY_MS) {
     // 已有未消费 pending 时保留最早 previousNet（推送展示「原时间 → 最新时间」）
     patch.previousNet =
       existing.netChangePending && existing.previousNet

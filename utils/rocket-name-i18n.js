@@ -27,8 +27,8 @@ const EXACT_ZH = {
   // SpaceX
   falcon1: '猎鹰1号',
   falcon9: '猎鹰9号',
-  falcon9block5: '猎鹰9号 Block 5',
-  falcon9block4: '猎鹰9号 Block 4',
+  falcon9block5: '猎鹰9号第5型',
+  falcon9block4: '猎鹰9号第4型',
   falcon9v10: '猎鹰9号 v1.0',
   falcon9v11: '猎鹰9号 v1.1',
   falcon9fullthrust: '猎鹰9号全推力版',
@@ -140,10 +140,10 @@ function translateRocketName(name) {
 
   if (EXACT_ZH[key]) return EXACT_ZH[key]
 
-  // Falcon 9 Block 5 / Full Thrust 等：保留构型后缀便于族谱区分
+  // Falcon 9 Block 5 / Full Thrust 等：构型后缀一律汉化，禁止残留 Block
   if (/^falcon9/.test(key)) {
     const block = raw.match(/block\s*(\d+)/i)
-    if (block) return '猎鹰9号 Block ' + block[1]
+    if (block) return '猎鹰9号第' + block[1] + '型'
     if (/full\s*thrust/i.test(raw)) return '猎鹰9号全推力版'
     const ver = raw.match(/\bv\s*(1\.\d)\b/i)
     if (ver) return '猎鹰9号 v' + ver[1]
@@ -202,6 +202,18 @@ function translateRocketName(name) {
   if (/^h3-?/.test(key) || key === 'h3') {
     const m = raw.match(/h3[-\s]*(\d+[a-z]?)/i)
     return m ? 'H3-' + m[1].toUpperCase() : 'H3'
+  }
+  if (/^kosmos|^cosmos/.test(key)) {
+    const kCode = raw.match(/11k\s*(\d+)/i)
+    const num = raw.match(/(?:kosmos|cosmos)[-\s]*(\d+[a-z]*)/i)
+    if (kCode && !num) return '宇宙号 11K' + kCode[1]
+    if (num && kCode) return '宇宙-' + num[1].toUpperCase() + '（11K' + kCode[1] + '）'
+    if (num) return '宇宙-' + num[1].toUpperCase()
+    return '宇宙号'
+  }
+  if (/^molniya/.test(key)) {
+    const rest = raw.replace(/^molniya[-\s]*/i, '').trim()
+    return rest ? '闪电-' + rest.toUpperCase() : '闪电号'
   }
 
   const cz = parseCzKey(key)
@@ -299,6 +311,17 @@ function missionRocketTexts(mission) {
   ].map((s) => String(s || '').trim()).filter(Boolean)
 }
 
+/** 环绕全景用家族键：Falcon 9 Block 5 / 猎鹰9号 → falcon9，不和重型混 */
+function orbitPanoRocketFamilyKey(name) {
+  const raw = String(name || '')
+  if (/falcon\s*heavy|猎鹰重型/i.test(raw)) return 'falconheavy'
+  if (/falcon\s*9|猎鹰\s*9/i.test(raw)) return 'falcon9'
+  const key = rocketIdentityKey(raw)
+  if (key === 'falconheavy') return 'falconheavy'
+  if (key === 'falcon9' || /^falcon9/.test(key)) return 'falcon9'
+  return key
+}
+
 /** 后台锁定的型号 vs 任务详情（含中英切换后的显示名） */
 function matchOrbitPanoRocket(itemRocket, mission) {
   const stored = String(itemRocket || '').trim()
@@ -306,9 +329,11 @@ function matchOrbitPanoRocket(itemRocket, mission) {
   const texts = missionRocketTexts(mission)
   if (!texts.length) return false
   const storedKey = rocketIdentityKey(stored)
+  const storedFamily = orbitPanoRocketFamilyKey(stored)
   if (storedKey) {
     for (let i = 0; i < texts.length; i++) {
       if (rocketIdentityKey(texts[i]) === storedKey) return true
+      if (storedFamily && orbitPanoRocketFamilyKey(texts[i]) === storedFamily) return true
     }
   }
   const blob = texts.join(' ')
@@ -321,9 +346,335 @@ function matchOrbitPanoRocket(itemRocket, mission) {
   return false
 }
 
+/** 环绕全景工位匹配（仅小程序 / 后台客户端，云函数副本不必同步） */
+const ORBIT_PANO_PAD_LABELS = {
+  'slc-40': 'SLC-40',
+  'lc-39a': 'LC-39A',
+  'slc-4e': 'SLC-4E',
+  starbase: '星舰基地',
+  'starbase-a': '星舰基地 A 工位',
+  'starbase-b': '星舰基地 B 工位',
+  vandenberg: '范登堡'
+}
+
+function isOrbitPanoStarship(name) {
+  return /starship|super\s*heavy|星舰|超重/i.test(String(name || ''))
+}
+
+function isStarbaseOrbitPanoPad(padKey) {
+  const k = String(padKey || '')
+  return k === 'starbase' || k === 'starbase-a' || k === 'starbase-b'
+}
+
+function rocketNeedsOrbitPanoPad(name) {
+  const raw = String(name || '')
+  if (/falcon\s*heavy|猎鹰重型/i.test(raw)) return true
+  if (/falcon\s*9|猎鹰\s*9/i.test(raw)) return true
+  const key = rocketIdentityKey(raw)
+  return key === 'falconheavy' || key === 'falcon9' || /^falcon9/.test(key)
+}
+
+function rocketNeedsOrbitPanoRecovery(source) {
+  if (!source) return false
+  if (typeof source === 'string') return rocketNeedsOrbitPanoPad(source)
+  return rocketNeedsOrbitPanoPad(missionRocketTexts(source).join(' '))
+}
+
+const ORBIT_PANO_RECOVERY_TYPES = {
+  RTLS: 1,
+  ASDS: 1,
+  VL: 1,
+  TOWER_CATCH: 1,
+  NET_CATCH: 1,
+  HELICOPTER_CATCH: 1,
+  LANDSPACE: 1,
+  BO_LZ: 1
+}
+
+function orbitPanoLandingType(info) {
+  return String((info && info.landingType) || '').toUpperCase()
+}
+
+function looksLikeOrbitPanoAsdsLocation(loc) {
+  return /ASOG|OCISLY|JRTI|\bASDS\b|A SHORTFALL|OF COURSE I STILL|JUST READ THE INSTRUCTIONS|DRONESHIP|无人船/i.test(String(loc || ''))
+}
+
+function looksLikeOrbitPanoRtlsLocation(loc) {
+  return /LZ-?\d|LANDING ZONE|陆地回收/i.test(String(loc || ''))
+}
+
+function looksLikeOrbitPanoRecoveryLocation(loc) {
+  return looksLikeOrbitPanoAsdsLocation(loc) || looksLikeOrbitPanoRtlsLocation(loc)
+}
+
+const ORBIT_PANO_RECOVERY_LABELS = {
+  rtls: '陆地回收',
+  asds: '海上回收',
+  expended: '不回收'
+}
+
+function looksLikeOrbitPanoExpendedText(info) {
+  const t = [
+    info && info.landingTypeLabel,
+    info && info.landingDescription,
+    info && info.landingDisplayText
+  ].filter(Boolean).join(' ')
+  return /expended|will not (be )?(recovered|land)|no landing attempt|一次性使用/i.test(t)
+}
+
+function collectOrbitPanoLandingSources(mission) {
+  if (!mission || typeof mission !== 'object') return []
+  const out = []
+  if (mission.landingType || mission.landingLocation || mission.recoveryKey) {
+    out.push({
+      landingType: mission.landingType,
+      landingLocation: mission.landingLocation,
+      thisMissionLandingAttempt: mission.thisMissionLandingAttempt
+    })
+  }
+  if (mission.boosterInfo) out.push(mission.boosterInfo)
+  const stages = Array.isArray(mission.boosterStages) ? mission.boosterStages : []
+  for (let i = 0; i < stages.length; i++) {
+    const stage = stages[i]
+    if (stage && !stage.isPayloadReturn) out.push(stage)
+  }
+  const first = mission.stageInfo && mission.stageInfo.firstStage
+  if (first) out.push(first)
+  const extra = mission.stageInfoExtra && mission.stageInfoExtra.firstStage
+  if (extra) out.push(extra)
+  return out
+}
+
+function collectOrbitPanoRecoveryModes(mission) {
+  const modes = { rtls: false, asds: false, expended: false }
+  if (!mission) return modes
+  const preset = String(mission.recoveryKey || '').trim().toLowerCase()
+  if (preset === 'asds' || preset === 'rtls' || preset === 'expended') modes[preset] = true
+  const sources = collectOrbitPanoLandingSources(mission)
+  for (let i = 0; i < sources.length; i++) {
+    const src = sources[i]
+    const type = orbitPanoLandingType(src)
+    const loc = src && src.landingLocation
+    const label = [
+      src && src.landingTypeLabel,
+      src && src.landingDisplayText,
+      src && src.landingDescription
+    ].filter(Boolean).join(' ')
+    if (type === 'ASDS' || looksLikeOrbitPanoAsdsLocation(loc) || /海上回收|无人船/.test(label)) {
+      modes.asds = true
+    }
+    if (type === 'RTLS' || type === 'VL' || type === 'LANDSPACE' || looksLikeOrbitPanoRtlsLocation(loc) || /陆地回收/.test(label)) {
+      modes.rtls = true
+    }
+    if (type === 'EXPENDED' || (src && src.thisMissionLandingAttempt === false) || looksLikeOrbitPanoExpendedText(src)) {
+      modes.expended = true
+    }
+  }
+  return modes
+}
+
+function inferOrbitPanoRecoveryKey(mission) {
+  const modes = collectOrbitPanoRecoveryModes(mission)
+  if (modes.asds) return 'asds'
+  if (modes.rtls) return 'rtls'
+  if (modes.expended) return 'expended'
+  return ''
+}
+
+function orbitPanoRecoveryLabel(key, fallback) {
+  return ORBIT_PANO_RECOVERY_LABELS[key] || String(fallback || '').trim() || key
+}
+
+function matchOrbitPanoRecovery(itemRecoveryKey, mission) {
+  const want = String(itemRecoveryKey || '').trim().toLowerCase()
+  if (!want) return false
+  const modes = collectOrbitPanoRecoveryModes(mission)
+  if (want === 'asds') return !!modes.asds
+  if (want === 'rtls') return !!modes.rtls
+  return false
+}
+
+/**
+ * 猎鹰 9 / 重型：明确不回收则不展示环绕全景（Earth Studio 是发射→回收轨迹）。
+ * 任一芯/助推有回收计划即显示；重型仅中央芯一次性、侧助推仍回收时保持显示。
+ * 尚无回收数据时先显示，避免即将发射缺字段被误藏。
+ */
+function orbitPanoMissionAttemptsRecovery(mission) {
+  if (!rocketNeedsOrbitPanoRecovery(mission)) return true
+  const sources = collectOrbitPanoLandingSources(mission)
+  let recovery = 0
+  let expended = 0
+  for (let i = 0; i < sources.length; i++) {
+    const src = sources[i]
+    const type = orbitPanoLandingType(src)
+    if (ORBIT_PANO_RECOVERY_TYPES[type] || looksLikeOrbitPanoRecoveryLocation(src && src.landingLocation)) {
+      recovery++
+      continue
+    }
+    const thisAttempt = src && src.thisMissionLandingAttempt
+    if (type === 'EXPENDED' || thisAttempt === false || looksLikeOrbitPanoExpendedText(src)) expended++
+  }
+  if (recovery > 0) return true
+  if (expended > 0) {
+    const blob = missionRocketTexts(mission).join(' ')
+    if (/falcon\s*heavy|猎鹰重型/i.test(blob) && sources.length < 2) return true
+    return false
+  }
+  return true
+}
+
+function missionPadBlob(source) {
+  if (!source) return ''
+  if (typeof source === 'string') return source
+  const pad = source.padDetail && typeof source.padDetail === 'object' ? source.padDetail : {}
+  const pack = source._langPack && typeof source._langPack === 'object' ? source._langPack : {}
+  return [
+    source.padKey,
+    source.padName,
+    source.pad,
+    source.padLocation,
+    source.launchSite,
+    pad.padName,
+    pad.locationName,
+    pack.padLocationEn,
+    pack.padLocationZh,
+    pack.launchSiteEn,
+    pack.launchSiteZh,
+    pack.padNameEn,
+    pack.padNameZh,
+    source.missionName,
+    source.name
+  ].filter(Boolean).join(' ')
+}
+
+function inferStarbaseOrbitPanoPadKey(s) {
+  if (!/starbase|boca\s*chica|博卡奇卡|星舰基地/.test(s)) return ''
+  if (/orbital launch (?:pad|mount)\s*(?:2|b)\b|olm[-\s]?b|\bpad\s*[b2]\b|launch pad [b2]|olp[-\s]?2|工位\s*[b2]|[b2]\s*工位/.test(s)) {
+    return 'starbase-b'
+  }
+  if (/orbital launch (?:pad|mount)\s*(?:1|a)\b|olm[-\s]?a|\bpad\s*[a1]\b|launch pad [a1]|olp[-\s]?1|工位\s*[a1]|[a1]\s*工位|\bolm\b/.test(s)) {
+    return 'starbase-a'
+  }
+  return 'starbase'
+}
+
+function inferOrbitPanoPadKey(source) {
+  const s = missionPadBlob(source).toLowerCase()
+  if (!s) return ''
+  const rocketBlob = typeof source === 'string' ? '' : missionRocketTexts(source).join(' ')
+  const starship = isOrbitPanoStarship(rocketBlob)
+  if (/slc[-\s]?40|space launch complex\s*40/.test(s)) return 'slc-40'
+  if (/lc[-\s]?39a|launch complex\s*39a|\b39a\b/.test(s)) return 'lc-39a'
+  if (starship) {
+    if (/slc[-\s]?6|space launch complex\s*6|vandenberg|范登堡/.test(s)) return 'vandenberg'
+    if (/kennedy|肯尼迪/.test(s)) return 'lc-39a'
+    return inferStarbaseOrbitPanoPadKey(s)
+  }
+  if (/slc[-\s]?4e|space launch complex\s*4e/.test(s)) return 'slc-4e'
+  if (/vandenberg|范登堡/.test(s)) return 'slc-4e'
+  if (/kennedy|肯尼迪/.test(s)) return 'lc-39a'
+  if (/cape\s*canaveral|卡纳维拉尔/.test(s)) return 'slc-40'
+  return inferStarbaseOrbitPanoPadKey(s)
+}
+
+function matchOrbitPanoPad(itemPadKey, mission) {
+  const want = String(itemPadKey || '').trim()
+  const got = inferOrbitPanoPadKey(mission)
+  if (!want || !got) return false
+  if (want === got) return true
+  if (want === 'starbase' && isStarbaseOrbitPanoPad(got)) return true
+  return false
+}
+
+function orbitPanoItemHasVideo(item) {
+  return !!(item && item.enabled !== false && String(item.videoUrl || item.mediaUrl || '').trim())
+}
+
+function matchOrbitPanoLaunchId(item, mission) {
+  if (!item || item.rocketName) return false
+  const mid = String((mission && (mission.id || mission.launchId)) || '').trim()
+  return !!(item.launchId && mid && String(item.launchId).trim() === mid)
+}
+
+function matchOrbitPanoItem(item, mission) {
+  if (!orbitPanoItemHasVideo(item) || !mission) return false
+  if (!orbitPanoMissionAttemptsRecovery(mission)) return false
+  if (!matchOrbitPanoRocket(item.rocketName, mission)) {
+    return matchOrbitPanoLaunchId(item, mission)
+  }
+  if (rocketNeedsOrbitPanoPad(item.rocketName)) {
+    const padKey = String(item.padKey || '').trim()
+    const recKey = String(item.recoveryKey || '').trim()
+    if (!padKey || !recKey) return false
+    return matchOrbitPanoPad(padKey, mission) && matchOrbitPanoRecovery(recKey, mission)
+  }
+  if (isOrbitPanoStarship(item.rocketName)) {
+    const padKey = String(item.padKey || '').trim()
+    if (padKey) return matchOrbitPanoPad(padKey, mission)
+    return true
+  }
+  const padKey = String(item.padKey || '').trim()
+  if (padKey) return matchOrbitPanoPad(padKey, mission)
+  return true
+}
+
+function pickOrbitPanoItem(items, mission) {
+  if (!mission || !Array.isArray(items)) return null
+  if (!orbitPanoMissionAttemptsRecovery(mission)) return null
+  const primaryRecovery = inferOrbitPanoRecoveryKey(mission)
+  const recoveryKnown = primaryRecovery === 'asds' || primaryRecovery === 'rtls'
+  const missionPad = inferOrbitPanoPadKey(mission)
+  let padRecoveryAlt = null
+  let starshipSite = null
+  let rocketOnly = null
+  let launchIdHit = null
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    if (!orbitPanoItemHasVideo(item)) continue
+    if (matchOrbitPanoRocket(item.rocketName, mission)) {
+      if (rocketNeedsOrbitPanoPad(item.rocketName)) {
+        const padKey = String(item.padKey || '').trim()
+        const recKey = String(item.recoveryKey || '').trim()
+        if (!padKey || !recKey) continue
+        if (!matchOrbitPanoPad(padKey, mission)) continue
+        if (recoveryKnown && !matchOrbitPanoRecovery(recKey, mission)) continue
+        if (recoveryKnown && recKey === primaryRecovery) return item
+        if (!padRecoveryAlt) padRecoveryAlt = item
+        continue
+      }
+      if (isOrbitPanoStarship(item.rocketName)) {
+        const padKey = String(item.padKey || '').trim()
+        if (padKey) {
+          if (!matchOrbitPanoPad(padKey, mission)) continue
+          if (padKey === missionPad) return item
+          if (!starshipSite) starshipSite = item
+          continue
+        }
+        if (!rocketOnly) rocketOnly = item
+        continue
+      }
+      if (!rocketOnly) rocketOnly = item
+      continue
+    }
+    if (!launchIdHit && matchOrbitPanoLaunchId(item, mission)) launchIdHit = item
+  }
+  return padRecoveryAlt || starshipSite || rocketOnly || launchIdHit
+}
+
 module.exports = {
   translateRocketName,
   localizeRocketInTitle,
   rocketIdentityKey,
-  matchOrbitPanoRocket
+  matchOrbitPanoRocket,
+  ORBIT_PANO_PAD_LABELS,
+  ORBIT_PANO_RECOVERY_LABELS,
+  isOrbitPanoStarship,
+  rocketNeedsOrbitPanoPad,
+  rocketNeedsOrbitPanoRecovery,
+  inferOrbitPanoPadKey,
+  inferOrbitPanoRecoveryKey,
+  orbitPanoRecoveryLabel,
+  orbitPanoMissionAttemptsRecovery,
+  matchOrbitPanoItem,
+  pickOrbitPanoItem
 }

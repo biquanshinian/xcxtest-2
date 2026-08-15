@@ -23,6 +23,36 @@ function _unlockTtlMs() {
 }
 const AD_UNIT_ID = rewardedVideoAdUnitId || ''
 
+/** 指定功能看满 N 秒即可解锁（不必等到激励视频 isEnded）；未列出的仍须看完 */
+const AD_MIN_WATCH_SEC_BY_PRODUCT = {
+  starbase_orbit_pano: 15
+}
+
+function getAdMinWatchSec(productId) {
+  const n = Number(AD_MIN_WATCH_SEC_BY_PRODUCT[productId])
+  return n > 0 ? Math.floor(n) : 0
+}
+
+function getAdUnlockActionLabel(productId) {
+  const sec = getAdMinWatchSec(productId)
+  return sec > 0 ? ('看' + sec + '秒广告免费体验') : '看广告免费体验'
+}
+
+/**
+ * 激励广告关闭是否算看够。
+ * minWatchSec=0：与旧逻辑一致（无 res 视为看完，兼容旧基础库）。
+ * minWatchSec>0：必须 isEnded 或前台累计看满 N 秒；无 res 不自动放行。
+ */
+function qualifyRewardedAdClose(res, opts) {
+  const options = opts && typeof opts === 'object' ? opts : {}
+  const minWatchSec = Number(options.minWatchSec) > 0 ? Math.floor(Number(options.minWatchSec)) : 0
+  const watchedMs = Math.max(0, Number(options.watchedMs) || 0)
+  const hasRes = !!(res && typeof res === 'object')
+  const ended = hasRes ? res.isEnded === true : minWatchSec <= 0
+  const watchedEnough = minWatchSec > 0 && watchedMs >= minWatchSec * 1000
+  return !!(ended || watchedEnough)
+}
+
 /** 广告全屏层收起后，给客户端恢复胶囊的时间 */
 const POST_CLOSE_SETTLE_MS = 480
 /** settle 后再稍等一帧再 Toast，避免与 navigateTo 抢同一帧 */
@@ -167,14 +197,17 @@ function _delay(ms) {
 
 /**
  * 仅播放激励视频，不自动写入时间解锁；由调用方发奖
- * @param {{ successToast?: string, failToast?: string, incompleteToast?: string, holdMs?: number }} [opts]
- * @returns {Promise<boolean>} true=看完
+ * @param {{ successToast?: string, failToast?: string, incompleteToast?: string, holdMs?: number, minWatchSec?: number }} [opts]
+ * @returns {Promise<boolean>} true=看完或已看满 minWatchSec
  */
 function showRewardedVideoAd(opts) {
   const options = opts && typeof opts === 'object' ? opts : {}
   const successToast = options.successToast || ''
   const failToast = options.failToast != null ? options.failToast : '暂无广告，请稍后再试'
-  const incompleteToast = options.incompleteToast != null ? options.incompleteToast : '需看完广告才能解锁'
+  const minWatchSec = Number(options.minWatchSec) > 0 ? Math.floor(Number(options.minWatchSec)) : 0
+  const incompleteToast = options.incompleteToast != null
+    ? options.incompleteToast
+    : (minWatchSec > 0 ? ('需观看满' + minWatchSec + '秒才能解锁') : '需看完广告才能解锁')
   const holdMs = options.holdMs != null ? Number(options.holdMs) : UNLOCK_TOAST_HOLD_MS
 
   return new Promise(function (resolve) {
@@ -193,10 +226,63 @@ function showRewardedVideoAd(opts) {
 
     _busy = true
     var settled = false
+    var shownAt = 0
+    var visibleMs = 0
+    var segmentStart = 0
+    var hideHandler = null
+    var showHandler = null
+
+    function currentWatchedMs() {
+      var extra = segmentStart ? Math.max(0, Date.now() - segmentStart) : 0
+      return Math.max(0, visibleMs + extra)
+    }
+
+    function markShown() {
+      if (!shownAt) shownAt = Date.now()
+      if (!segmentStart) segmentStart = Date.now()
+    }
+
+    function pauseVisible() {
+      if (!segmentStart) return
+      visibleMs += Math.max(0, Date.now() - segmentStart)
+      segmentStart = 0
+    }
+
+    function resumeVisible() {
+      if (shownAt && !segmentStart) segmentStart = Date.now()
+    }
+
+    function bindAppVisibility() {
+      if (minWatchSec <= 0 || hideHandler) return
+      hideHandler = function () { pauseVisible() }
+      showHandler = function () { resumeVisible() }
+      try {
+        if (typeof wx.onAppHide === 'function') wx.onAppHide(hideHandler)
+      } catch (e) {}
+      try {
+        if (typeof wx.onAppShow === 'function') wx.onAppShow(showHandler)
+      } catch (e) {}
+    }
+
+    function unbindAppVisibility() {
+      if (hideHandler) {
+        try {
+          if (typeof wx.offAppHide === 'function') wx.offAppHide(hideHandler)
+        } catch (e) {}
+        hideHandler = null
+      }
+      if (showHandler) {
+        try {
+          if (typeof wx.offAppShow === 'function') wx.offAppShow(showHandler)
+        } catch (e) {}
+        showHandler = null
+      }
+    }
 
     function finish(ok, toastTitle, toastIcon, hold) {
       if (settled) return
       settled = true
+      unbindAppVisibility()
       _busy = false
       _pendingClose = null
       _nudgeCapsuleRestore()
@@ -227,8 +313,7 @@ function showRewardedVideoAd(opts) {
     }
 
     _pendingClose = function (res) {
-      var ended = !res || res.isEnded === true
-      if (ended) {
+      if (qualifyRewardedAdClose(res, { minWatchSec: minWatchSec, watchedMs: currentWatchedMs() })) {
         finishAfterSettle(true, successToast, successToast ? 'success' : 'none', holdMs)
       } else {
         finishAfterSettle(false, incompleteToast, 'none', 0)
@@ -244,12 +329,18 @@ function showRewardedVideoAd(opts) {
     _delay(PRE_SHOW_DELAY_MS)
       .then(function () {
         if (settled) return null
-        return ad.show()
+        return Promise.resolve(ad.show()).then(function () {
+          markShown()
+          bindAppVisibility()
+        })
       })
       .catch(function () {
         if (settled) return null
         return ad.load().then(function () {
-          return ad.show()
+          return Promise.resolve(ad.show()).then(function () {
+            markShown()
+            bindAppVisibility()
+          })
         })
       })
       .catch(failShow)
@@ -257,7 +348,7 @@ function showRewardedVideoAd(opts) {
 }
 
 /**
- * 拉起激励视频；看完则写入该 productId 的 10 分钟解锁
+ * 拉起激励视频；看完（或看满该功能要求的秒数）则写入该 productId 的解锁窗口
  * @returns {Promise<boolean>} true=已解锁，false=未看完/失败/取消
  */
 function showRewardedAdForUnlock(productId) {
@@ -266,10 +357,12 @@ function showRewardedAdForUnlock(productId) {
   var mins = Math.max(1, Math.round(_unlockTtlMs() / 60000))
   var isSingleVideo = String(productId).indexOf('evtvid:') === 0
   var title = isSingleVideo ? '本条视频已解锁 ' + mins + ' 分钟' : '已解锁 ' + mins + ' 分钟'
+  var minWatchSec = getAdMinWatchSec(productId)
 
   return showRewardedVideoAd({
     successToast: title,
-    incompleteToast: '需看完广告才能解锁',
+    incompleteToast: minWatchSec > 0 ? ('需观看满' + minWatchSec + '秒才能解锁') : '需看完广告才能解锁',
+    minWatchSec: minWatchSec,
     holdMs: UNLOCK_TOAST_HOLD_MS
   }).then(function (ok) {
     if (ok) grantUnlock(productId)
@@ -280,6 +373,9 @@ function showRewardedAdForUnlock(productId) {
 module.exports = {
   UNLOCK_TTL_MS: DEFAULT_UNLOCK_TTL_MS,
   getUnlockTtlMs: _unlockTtlMs,
+  getAdMinWatchSec: getAdMinWatchSec,
+  getAdUnlockActionLabel: getAdUnlockActionLabel,
+  qualifyRewardedAdClose: qualifyRewardedAdClose,
   isUnlocked: isUnlocked,
   getUnlockExpireAt: getUnlockExpireAt,
   grantUnlock: grantUnlock,

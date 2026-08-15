@@ -133,7 +133,9 @@ function slimFromCacheRow(row, opts) {
     ll2Id: String(row.id),
     slug: String(row.slug || ''),
     title: String(row.name || ''),
+    titleZh: String(row.nameZh || (row.mission && row.mission.nameZh) || ''),
     subtitle: String((cfg && (cfg.name || cfg.full_name)) || (starship ? 'Starship' : '')),
+    subtitleZh: String((cfg && (cfg.full_nameZh || cfg.nameZh)) || ''),
     description: String(mission.description || '').slice(0, 500),
     net: row.net || '',
     windowStart: row.window_start || '',
@@ -143,6 +145,7 @@ function slimFromCacheRow(row, opts) {
     statusName: String(status.name || ''),
     statusAbbrev: String(status.abbrev || ''),
     agency: String(provider.name || ''),
+    agencyZh: String(provider.nameZh || ''),
     orbitName: String((mission.orbit && mission.orbit.name) || ''),
     missionType: String(mission.type || '')
   }

@@ -3,6 +3,7 @@ const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
 const pageBase = require('../../utils/page-base.js')
 const { togglePageTranslation } = require('./utils/text-translate.js')
+const { takeDescI18nSeed } = require('../../utils/locale.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { advanceImageFallback } = require('../../utils/ll2-image.js')
 const {
@@ -154,13 +155,13 @@ Page({
         })
         merged = Object.assign({}, item, { image: showing, imageFallbacks: fb })
       }
-      this.setData({
+      this.setData(Object.assign({
         loading: false,
         item: merged,
         isTiangong: Number(merged.id) === 18,
         navTitle: merged.name || '空间站详情',
         shareTitle: `${merged.name || '空间站详情'} | 火星探索日志`
-      })
+      }, takeDescI18nSeed(this, { stationDesc: merged.descriptionZh })))
 
       // 轨道数据在后台继续处理
       this._applyOrbitData(numId, noradId, tlePromise)
@@ -608,7 +609,7 @@ Page({
     togglePageTranslation(this, {
       switchKey: 'descTranslated',
       loadingKey: 'descTranslating',
-      fields: [{ path: 'descI18n.stationDesc', text: item.description || '' }]
+      fields: [{ path: 'descI18n.stationDesc', text: item.description || '', zh: item.descriptionZh || '' }]
     })
   },
 

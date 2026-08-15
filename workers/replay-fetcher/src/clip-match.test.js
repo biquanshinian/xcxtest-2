@@ -235,6 +235,20 @@ describe('scoreClipText — real SciNews cases', () => {
     assert.equal(scored.fuzzy, true)
   })
 
+  it('drops Unknown Payload tokens and falls back to rocket+date', () => {
+    const scored = scoreClipText(
+      'Long March-7A ChinaSat 4B launch, 10 August 2026',
+      '',
+      {
+        dateText: '10 August 2026',
+        tokens: ['unknown', 'payload'],
+        rocketTokens: ['long', 'march', '7a']
+      }
+    )
+    assert.equal(scored.ok, true)
+    assert.ok(scored.rocketHits >= 1)
+  })
+
   it('fuzzy date+rocket when no family stem can be derived', () => {
     const scored = scoreClipText(
       'Falcon 9 launch and landing, 1 January 2026',

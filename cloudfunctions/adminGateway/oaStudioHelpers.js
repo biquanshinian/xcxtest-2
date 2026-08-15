@@ -351,6 +351,60 @@ function stripMarkdownImages(md, urls) {
 }
 
 /**
+ * 判断摘要是否被「封面图」污染（常见：`![封面](url)` 去标点后变成「封面https://…」）
+ * 这类文案会出现在微信分享卡片描述里，必须拦截。
+ */
+function looksLikeCoverLinkDigest(s) {
+  const t = String(s || '').trim()
+  if (!t) return true
+  if (/^封面\s*https?:\/\//i.test(t)) return true
+  if (/^https?:\/\//i.test(t)) return true
+  if (/^(封面|配图|头图|封面图)/i.test(t) && /https?:\/\//i.test(t.slice(0, 80))) return true
+  const withoutUrls = t.replace(/https?:\/\/\S+/gi, ' ').replace(/\s+/g, ' ').trim()
+  if (/https?:\/\/[^\s]{16,}/i.test(t.slice(0, 100)) && withoutUrls.length < 10) return true
+  return false
+}
+
+/**
+ * 从 Markdown 正文生成微信 digest（分享卡片描述）。
+ * 必须整段去掉图片语法，不能只删 `![]()` 标点（否则留下「封面+URL」）。
+ */
+function markdownToDigest(md, maxLen = 120) {
+  let s = String(md || '')
+  // 文首一级标题通常与推送 title 重复，不进分享摘要
+  s = s.replace(/^#[^\n]*\n+/, '')
+  // 图片整段删除（含 alt）
+  s = s.replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+  // 链接保留可读文字
+  s = s.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+  // 裸 URL / 引用行前缀 / 标题井号
+  s = s.replace(/https?:\/\/\S+/gi, ' ')
+  s = s.replace(/^#{1,6}\s+/gm, '')
+  s = s.replace(/^>\s?/gm, '')
+  s = s.replace(/```[\s\S]*?```/g, ' ')
+  s = s.replace(/`[^`]*`/g, ' ')
+  s = s.replace(/[*_~|>\\]/g, ' ')
+  s = s.replace(/\s+/g, ' ').trim()
+  s = s.replace(/^(封面|配图|头图|封面图|hero)\s*/i, '')
+  // 分隔线残留
+  s = s.replace(/^-{2,}\s*/g, '').trim()
+  return s.slice(0, Math.max(1, Number(maxLen) || 120))
+}
+
+/** 优先用显式 digest；若空或被封面链污染，则从 markdown 重算 */
+function resolveArticleDigest(source, markdownFallback, maxLen = 120) {
+  const md =
+    markdownFallback != null
+      ? String(markdownFallback || '')
+      : String((source && source.markdown) || '')
+  const explicit = String((source && source.digest) || '').trim()
+  if (explicit && !looksLikeCoverLinkDigest(explicit)) {
+    return explicit.slice(0, maxLen)
+  }
+  return markdownToDigest(md, maxLen)
+}
+
+/**
  * 云库文档字段名不能含 `.`，URL 作 key 会丢数据。
  * 用数组 [{u,w}] / [{u,n}] 存，兼容读取旧 object。
  */
@@ -488,6 +542,9 @@ module.exports = {
   resolveBodyImageUrls,
   applyImageMapToMarkdown,
   stripMarkdownImages,
+  looksLikeCoverLinkDigest,
+  markdownToDigest,
+  resolveArticleDigest,
   decodeImageMap,
   decodeFailMap,
   encodeImageEntries,

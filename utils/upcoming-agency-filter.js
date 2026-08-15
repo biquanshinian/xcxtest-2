@@ -7,7 +7,7 @@ const {
   resolveAgencyLogoForDisplay
 } = require('./agency-logo-cache.js')
 const { resolveAgencyLogoBgTone } = require('./agency-logo-bg.js')
-const { applyLaunchAgencyLogoOverridesToMission } = require('./agency-logo-overrides.js')
+const { hydrateMissionAgencyLogo } = require('./upcoming-agency-logo-enrich.js')
 
 const ALL_TASKS_CHIP_LOGO = '/images/icons/ic-orbit-globe.svg'
 const AGENCY_FALLBACK_LOGO = '/images/icons/ic-rocket-outline.svg'
@@ -75,7 +75,7 @@ function collectAgencyAggregation(missions) {
     const m = list[i]
     const key = getAgencyKeyFromMission(m)
     const prev = bucket.get(key)
-    const img = normalizeLogo(applyLaunchAgencyLogoOverridesToMission(m).launchAgencyImage)
+    const img = normalizeLogo(hydrateMissionAgencyLogo(m).launchAgencyImage)
     if (!prev) {
       bucket.set(key, {
         key,

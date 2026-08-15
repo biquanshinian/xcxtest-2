@@ -8,6 +8,11 @@
       "name": "oaAuthorTrackTimer",
       "type": "timer",
       "config": "0 0 */6 * * * *"
+    },
+    {
+      "name": "oaAuthorWashTimer",
+      "type": "timer",
+      "config": "0 */15 * * * * *"
     }
   ]
 }

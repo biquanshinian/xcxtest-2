@@ -6,7 +6,8 @@
  *
  * 模式：
  *   DEV  — NET_CHANGE_MODAL_DEV_MODE=true：等首页列表就绪后用真实配图 + mock 时间预览
- *   正式 — maybeShow() 扫描当天改期，多个则取新 NET 最近的一条；一天只弹一次
+ *   正式 — maybeShow() 扫描未发射任务的 NET 变更（提前/延期，满 1 分钟即记）；
+ *           由首页冷启动队列调用，同一进程只弹一次
  *
  * ★ 调试满意后把 NET_CHANGE_MODAL_DEV_MODE 改回 false 再上线
  */
@@ -21,8 +22,8 @@ const themeUtil = require('../../../../utils/theme.js')
 const {
   scanAndPickTodayReminder,
   pickDevPreviewPayload,
-  markPopupShownToday,
-  isPopupShownToday
+  pickDevPreviewPayloads,
+  resolveChangeMeta
 } = require('../../utils/net-change-reminder.js')
 
 /** ★ 开发预览时改 true；生产保持 false */
@@ -133,6 +134,10 @@ function buildViewModel(payload) {
   const agencyAbbrev = String(p.agencyAbbrev || p.launchAgencyAbbrev || '').trim()
   const rawLogo = p.agencyLogoUrl || p.launchAgencyImage || ''
   const logoFields = resolveAgencyLogoFields(rawLogo)
+  const oldNet = p.oldNet || p.previousNet || p.prevNet
+  const newNet = p.newNet || p.net || p.currentNet
+  const meta = resolveChangeMeta(oldNet, newNet)
+  const changeKind = p.changeKind === 'advance' || p.changeKind === 'delay' ? p.changeKind : meta.kind
 
   return {
     visible: true,
@@ -146,8 +151,14 @@ function buildViewModel(payload) {
     agencyLogoUrl: logoFields.agencyLogoUrl,
     agencyLogoRemote: logoFields.agencyLogoRemote,
     logoBgTone: logoFields.logoBgTone || p.logoBgTone || '',
-    oldTimeText: p.oldTimeText || formatNetChangeTime(p.oldNet || p.previousNet || p.prevNet),
-    newTimeText: p.newTimeText || formatNetChangeTime(p.newNet || p.net || p.currentNet)
+    oldNet: oldNet || '',
+    newNet: newNet || '',
+    oldTimeText: p.oldTimeText || formatNetChangeTime(oldNet),
+    newTimeText: p.newTimeText || formatNetChangeTime(newNet),
+    changeKind: changeKind,
+    titleText: p.titleText || meta.titleText,
+    deltaText: p.deltaText || meta.deltaText,
+    _key: String(p.missionId || p.id || '') + '|' + String(oldNet || '') + '|' + String(newNet || '')
   }
 }
 
@@ -165,8 +176,17 @@ Component({
     agencyLogoUrl: AGENCY_FALLBACK_LOGO,
     agencyLogoRemote: '',
     logoBgTone: '',
+    oldNet: '',
+    newNet: '',
     oldTimeText: '',
     newTimeText: '',
+    changeKind: 'delay',
+    titleText: '发射时间变更',
+    deltaText: '',
+    cards: [],
+    cardIndex: 0,
+    cardCount: 0,
+    swipeHintOn: false,
     devMode: !!NET_CHANGE_MODAL_DEV_MODE
   },
 
@@ -183,6 +203,14 @@ Component({
       if (this._devTimer) {
         clearTimeout(this._devTimer)
         this._devTimer = null
+      }
+      if (this._hintStartTimer) {
+        clearTimeout(this._hintStartTimer)
+        this._hintStartTimer = null
+      }
+      if (this._hintEndTimer) {
+        clearTimeout(this._hintEndTimer)
+        this._hintEndTimer = null
       }
     }
   },
@@ -217,19 +245,29 @@ Component({
           self._devTimer = setTimeout(tick, 300)
           return
         }
-        let payload = pickDevPreviewPayload(missions, DEV_MOCK_TIMES, launchData)
-        if (!payload) {
+        let payload = pickDevPreviewPayloads(missions, DEV_MOCK_TIMES, launchData)
+        if (!payload || !payload.length) {
           // 列表仍空：先出文案；列表就绪后再补一次配图
-          payload = {
-            rocketName: '朱雀三号',
-            rocketNameEn: 'ZhuQue-3',
-            rocketImageName: 'zhuque-3',
-            missionName: '第 2 次试飞',
-            agencyName: '蓝箭航天',
-            agencyAbbrev: 'LandSpace',
-            oldNet: DEV_MOCK_TIMES.oldNet,
-            newNet: DEV_MOCK_TIMES.newNet
-          }
+          payload = [
+            {
+              rocketName: '朱雀三号',
+              rocketNameEn: 'ZhuQue-3',
+              rocketImageName: 'zhuque-3',
+              missionName: '第 2 次试飞',
+              agencyName: '蓝箭航天',
+              agencyAbbrev: 'LandSpace',
+              oldNet: '2026-08-11T07:45:00+08:00',
+              newNet: '2026-08-31T08:00:00+08:00'
+            },
+            {
+              rocketName: '猎鹰9号',
+              rocketNameEn: 'Falcon 9',
+              missionName: 'Starlink',
+              agencyName: 'SpaceX',
+              oldNet: '2026-08-20T14:00:00+08:00',
+              newNet: '2026-08-20T09:30:00+08:00'
+            }
+          ]
           if (tries < 80) {
             self.show(payload)
             self._devTimer = setTimeout(tick, 400)
@@ -242,45 +280,125 @@ Component({
     },
 
     /**
-     * 正式入口：展示一次改期弹窗
-     * @param {Object} payload
+     * 正式入口：展示改期弹窗（单条或滑卡列表）
+     * @param {Object|Object[]} payload
      * @returns {boolean}
      */
     show(payload) {
-      if (!payload || typeof payload !== 'object') return false
+      const list = Array.isArray(payload) ? payload : payload ? [payload] : []
+      if (!list.length) return false
       let themeClass = this.data.themeClass || ''
       try {
         themeClass = themeUtil.getThemeClassSync() || themeClass
       } catch (e) {}
-      const vm = buildViewModel(payload)
-      vm.themeClass = themeClass
-      vm.devMode = !!NET_CHANGE_MODAL_DEV_MODE
-      this._lastRocketNameEn = String(payload.rocketNameEn || payload.rocketImageName || payload.rocketName || '').trim()
-      this.setData(vm)
-      this._enrichAgencyLogo(payload)
+      const cards = []
+      for (let i = 0; i < list.length; i++) {
+        cards.push(buildViewModel(list[i]))
+      }
+      const first = cards[0]
+      this._lastRocketNameEn = String(list[0].rocketNameEn || list[0].rocketImageName || list[0].rocketName || '').trim()
+      this.setData({
+        visible: true,
+        themeClass: themeClass,
+        devMode: !!NET_CHANGE_MODAL_DEV_MODE,
+        cards: cards,
+        cardIndex: 0,
+        cardCount: cards.length,
+        swipeHintOn: false,
+        missionId: first.missionId,
+        changeKind: first.changeKind,
+        titleText: first.titleText,
+        deltaText: first.deltaText
+      })
+      this._enrichCards(list)
+      this._startSwipeHint(cards.length > 1)
       this.triggerEvent('shown', {
-        missionId: vm.missionId,
-        oldTimeText: vm.oldTimeText,
-        newTimeText: vm.newTimeText
+        missionId: first.missionId,
+        changeKind: first.changeKind,
+        count: cards.length
       })
       return true
     },
 
-    _enrichAgencyLogo(payload) {
-      const self = this
-      if (self.data.agencyLogoRemote) return
+    _clearSwipeHint() {
+      if (this._hintStartTimer) {
+        clearTimeout(this._hintStartTimer)
+        this._hintStartTimer = null
+      }
+      if (this._hintEndTimer) {
+        clearTimeout(this._hintEndTimer)
+        this._hintEndTimer = null
+      }
+    },
 
+    _startSwipeHint(enable) {
+      const self = this
+      self._clearSwipeHint()
+      if (!enable) {
+        if (self.data.swipeHintOn) self.setData({ swipeHintOn: false })
+        return
+      }
+      self._hintStartTimer = setTimeout(function () {
+        self._hintStartTimer = null
+        if (!self.data.visible) return
+        self.setData({ swipeHintOn: true })
+        self._hintEndTimer = setTimeout(function () {
+          self._hintEndTimer = null
+          if (self.data.swipeHintOn) self.setData({ swipeHintOn: false })
+        }, 1700)
+      }, 80)
+    },
+
+    onSwiperTouch() {
+      if (!this.data.swipeHintOn) return
+      this._clearSwipeHint()
+      this.setData({ swipeHintOn: false })
+    },
+
+    onCardChange(e) {
+      const idx = e && e.detail && typeof e.detail.current === 'number' ? e.detail.current : 0
+      const card = this.data.cards && this.data.cards[idx]
+      if (!card) return
+      this._lastRocketNameEn = String(card.rocketNameEn || card.rocketName || '').trim()
+      this._clearSwipeHint()
+      this.setData({
+        cardIndex: idx,
+        swipeHintOn: false,
+        missionId: card.missionId,
+        changeKind: card.changeKind,
+        titleText: card.titleText,
+        deltaText: card.deltaText
+      })
+    },
+
+    _applyCardLogo(index, fields) {
+      if (!fields) return
+      this.setData({
+        ['cards[' + index + '].agencyLogoUrl']: fields.agencyLogoUrl,
+        ['cards[' + index + '].agencyLogoRemote']: fields.agencyLogoRemote,
+        ['cards[' + index + '].logoBgTone']: fields.logoBgTone
+      })
+    },
+
+    _enrichCards(payloads) {
+      const self = this
+      const missions = getUpcomingMissionsFromPage()
+      const list = Array.isArray(payloads) ? payloads : []
+      for (let i = 0; i < list.length; i++) {
+        self._enrichOneCard(list[i], i, missions)
+      }
+    },
+
+    _enrichOneCard(payload, index, missions) {
+      const self = this
       const stub = {
         id: payload && (payload.missionId || payload.id),
         launchAgencyId: payload && payload.launchAgencyId,
         launchAgency: payload && (payload.agencyName || payload.launchAgency),
         launchAgencyAbbrev: payload && (payload.agencyAbbrev || payload.launchAgencyAbbrev),
-        launchAgencyImage: payload && (payload.launchAgencyImage || payload.agencyLogoUrl) || ''
+        launchAgencyImage: (payload && (payload.launchAgencyImage || payload.agencyLogoUrl)) || ''
       }
-
-      // 先从首页列表同 id / 同发射商捞已富化的 logo
       try {
-        const missions = getUpcomingMissionsFromPage()
         for (let i = 0; i < missions.length; i++) {
           const m = missions[i]
           if (!m) continue
@@ -291,43 +409,33 @@ Component({
             String(m.launchAgencyId) === String(stub.launchAgencyId)
           if ((sameId || sameAgency) && m.launchAgencyImage) {
             const fields = resolveAgencyLogoFields(m.launchAgencyImage)
-            self.setData({
-              agencyLogoUrl: fields.agencyLogoUrl,
-              agencyLogoRemote: fields.agencyLogoRemote,
-              logoBgTone: fields.logoBgTone
-            })
+            self._applyCardLogo(index, fields)
             if (fields.agencyLogoRemote) return
           }
         }
       } catch (e) {}
-
       if (!stub.launchAgencyId) return
-
       enrichMissionsLaunchAgencyImages([stub])
-        .then(function (list) {
+        .then(function (res) {
           if (!self.data.visible) return
-          const enriched = list && list[0]
+          const enriched = res && res[0]
           const raw = enriched && enriched.launchAgencyImage
           if (!raw) return
-          const fields = resolveAgencyLogoFields(raw)
-          self.setData({
-            agencyLogoUrl: fields.agencyLogoUrl,
-            agencyLogoRemote: fields.agencyLogoRemote,
-            logoBgTone: fields.logoBgTone
-          })
+          self._applyCardLogo(index, resolveAgencyLogoFields(raw))
         })
         .catch(function () {})
     },
 
     /**
-     * 队列入口：扫描当天改期并弹最近一条。
-     * DEV 模式下走预览（若已 visible 则跳过）。
+     * 队列入口：扫描未发射任务的提前/延期，弹新 NET 最近的一条。
+     * 是否冷启动由首页队列把关；DEV 模式下走预览（若已 visible 则跳过）。
      * @param {Function} [isBlocked]
      * @returns {Promise<boolean>}
      */
     maybeShow(isBlocked) {
       const self = this
-      if (self.data.visible) return Promise.resolve(false)
+      if (self.data.visible || self._opening) return Promise.resolve(false)
+      self._opening = true
 
       if (NET_CHANGE_MODAL_DEV_MODE) {
         // DEV 由 attached 自驱；队列再调一次时若尚未弹出可补一次
@@ -336,32 +444,35 @@ Component({
           if (self.data.visible) return false
           self._scheduleDevPreview()
           return true
+        }).then(function (shown) {
+          self._opening = false
+          return shown
+        }, function () {
+          self._opening = false
+          return false
         })
       }
 
       return Promise.resolve()
         .then(function () {
           if (typeof isBlocked === 'function' && isBlocked()) return false
-          if (isPopupShownToday()) return false
           const missions = getUpcomingMissionsFromPage()
-          const payload = scanAndPickTodayReminder(missions)
-          if (!payload) return false
-          const shown = self.show(payload)
-          if (shown) markPopupShownToday()
-          return shown
+          const payloads = scanAndPickTodayReminder(missions)
+          if (!payloads || !payloads.length) return false
+          return self.show(payloads)
         })
         .catch(function () {
           return false
         })
+        .then(function (shown) {
+          self._opening = false
+          return shown
+        })
     },
 
     _dismiss() {
-      if (!NET_CHANGE_MODAL_DEV_MODE) {
-        try {
-          markPopupShownToday()
-        } catch (e) {}
-      }
-      this.setData({ visible: false })
+      this._clearSwipeHint()
+      this.setData({ visible: false, swipeHintOn: false })
     },
 
     onConfirm() {
@@ -383,23 +494,26 @@ Component({
       this.triggerEvent('closed', { reason: 'close', missionId: missionId })
     },
 
-    onRocketImageError() {
-      // 与首页卡片一致：破图时按英文名再算一次
-      const en = this._lastRocketNameEn || this.data.rocketName
+    onRocketImageError(e) {
+      const idx = e && e.currentTarget && e.currentTarget.dataset ? Number(e.currentTarget.dataset.index) : this.data.cardIndex
+      const card = this.data.cards && this.data.cards[idx]
+      const en = (card && (card.rocketNameEn || card.rocketName)) || this._lastRocketNameEn
       const next = en ? resolveMissionRocketImage('', en, null, true) || getRocketImage(en) || '' : ''
-      if (next && next !== this.data.rocketImage) {
-        this.setData({ rocketImage: next })
+      if (next && card && next !== card.rocketImage) {
+        this.setData({ ['cards[' + idx + '].rocketImage']: next })
         return
       }
-      if (this.data.rocketImage) this.setData({ rocketImage: '' })
+      if (card && card.rocketImage) this.setData({ ['cards[' + idx + '].rocketImage']: '' })
     },
 
-    onAgencyLogoError() {
-      if (this.data.agencyLogoUrl === AGENCY_FALLBACK_LOGO) return
+    onAgencyLogoError(e) {
+      const idx = e && e.currentTarget && e.currentTarget.dataset ? Number(e.currentTarget.dataset.index) : this.data.cardIndex
+      const card = this.data.cards && this.data.cards[idx]
+      if (!card || card.agencyLogoUrl === AGENCY_FALLBACK_LOGO) return
       this.setData({
-        agencyLogoUrl: AGENCY_FALLBACK_LOGO,
-        agencyLogoRemote: '',
-        logoBgTone: ''
+        ['cards[' + idx + '].agencyLogoUrl']: AGENCY_FALLBACK_LOGO,
+        ['cards[' + idx + '].agencyLogoRemote']: '',
+        ['cards[' + idx + '].logoBgTone']: ''
       })
     },
 

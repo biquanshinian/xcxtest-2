@@ -239,22 +239,22 @@
         "type": "file"
       },
       {
-        "type": "folder",
-        "value": "/minitest"
+        "value": "/minitest",
+        "type": "folder"
       },
       {
-        "type": "file",
-        "value": "app.miniapp.json"
+        "value": "app.miniapp.json",
+        "type": "file"
       }
     ],
     "include": [
       {
-        "type": "file",
-        "value": "subpackages/news-extra/utils/news-lazy.js"
+        "value": "subpackages/news-extra/utils/news-lazy.js",
+        "type": "file"
       },
       {
-        "type": "file",
-        "value": "subpackages/monitor-pages/utils/monitor-weather.js"
+        "value": "subpackages/monitor-pages/utils/monitor-weather.js",
+        "type": "file"
       }
     ]
   },

@@ -54,7 +54,7 @@
           </view>
           <view class="agency-hw-card-image-mask"></view>
           <view class="agency-hw-card-overlay">
-            <view class="agency-hw-card-badge">
+            <view class="agency-hw-card-badge" wx:if="{{item.typeZh}}">
               <text class="agency-type-tag agency-type--{{item.typeClass}}">{{item.typeZh}}</text>
             </view>
             <text class="agency-hw-card-name">{{item.displayName}}</text>

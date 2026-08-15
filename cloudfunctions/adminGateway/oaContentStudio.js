@@ -9,7 +9,9 @@ const {
   ensureImageSlotsInBody,
   placeImagesInMarkdown,
   placeImagesAlignedToSource,
-  ensureHeroImagePlacement
+  ensureHeroImagePlacement,
+  listThemeMeta,
+  resolveThemeId
 } = require('./oaContentFormat')
 const wechatApi = require('./oaWechatApi')
 const oaFetch = require('./oaFetchArticle')
@@ -32,6 +34,7 @@ const {
   matchStrategyFromContent
 } = require('./oaContentSeeds')
 const helpers = require('./oaStudioHelpers')
+const xhsVariant = require('./oaXhsVariant')
 const {
   coerceBool,
   pickImageUrls,
@@ -49,6 +52,9 @@ const {
   resolveBodyImageUrls,
   applyImageMapToMarkdown,
   stripMarkdownImages,
+  looksLikeCoverLinkDigest,
+  markdownToDigest,
+  resolveArticleDigest,
   decodeImageMap,
   decodeFailMap,
   encodeImageEntries,
@@ -72,7 +78,17 @@ const VIRAL_COL = COLS.VIRAL_COL
 const TITLES_COL = COLS.TITLES_COL
 const COLLECT_COL = COLS.COLLECT_COL
 
-function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPerm }) {
+function createOaContentStudioApi({
+  db,
+  _,
+  ok,
+  fail,
+  now,
+  writeOpLog,
+  cloud,
+  checkPerm,
+  uploadBufferToCos
+}) {
   function normalizeBrands(rawBrands) {
     const incoming = Array.isArray(rawBrands) ? rawBrands : []
     const byKey = new Map()
@@ -120,6 +136,14 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
     return [...byKey.values()]
   }
 
+  function canonicalizeTrackRssUrl(row, defaults) {
+    const raw = String((row && row.rssUrl) || '').trim()
+    const d = defaults.find((x) => x.key === (row && row.key))
+    if (d && d.rssUrl && raw && !oaFetch.looksLikeFeedUrl(raw)) return d.rssUrl
+    if (oaFetch.looksLikeFeedUrl(raw)) return raw
+    return oaFetch.resolveRssUrl(raw) || raw
+  }
+
   function normalizeTrackSources(list) {
     const defaults = DEFAULT_CONFIG.trackSources || []
     const raw = Array.isArray(list) && list.length ? list : defaults
@@ -132,7 +156,7 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
           name: String(row.name || row.key || '追踪源').slice(0, 80),
           site: String(row.site || '').slice(0, 40),
           authorPage: String(row.authorPage || '').slice(0, 300),
-          rssUrl: String(row.rssUrl || '').slice(0, 300),
+          rssUrl: canonicalizeTrackRssUrl(row, defaults).slice(0, 300),
           authorMatch: String(row.authorMatch || '').slice(0, 80),
           enabled: coerceBool(row.enabled, true),
           autoWash: coerceBool(row.autoWash, false),
@@ -1356,14 +1380,14 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
       })
       if (markdown) {
         patch.markdown = markdown
-        let preparedHtml = markdownToWechatHtml(markdown, 'clean')
         const mpPath = draft.miniprogramPath || cfg.miniprogramPath || 'pages/index/index'
-        if (cfg.linkAllImagesToMiniprogram !== false) {
-          preparedHtml = wechatApi.wrapAllImagesWithMiniprogram(preparedHtml, { path: mpPath })
-        }
-        patch.html =
-          buildLeadHtml(cfg, mpPath) +
-          preparedHtml
+        // 与预览/推送同源：补标题 + gallery section + 配图小程序锚点
+        const bodyHtml = renderThemeBodyHtml(
+          prepareMarkdownForTheme(markdown, draft.title),
+          draft.themeId,
+          { cfg, mpPath }
+        )
+        patch.html = buildLeadHtml(cfg, mpPath) + bodyHtml
         patch.html = await appendMiniprogramCtaHtml(patch.html, cfg, brand, {
           path: mpPath,
           mode: 'link',
@@ -1517,6 +1541,7 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
       strategyName: strategy.name || '',
       strategyAuto: !!strategyAuto,
       promptKey: prompt.key || '',
+      themeId: resolveThemeId(strategy.themeId || 'clean'),
       sourceType: source.sourceType || 'manual',
       sourceId: source.sourceId || '',
       sourceTitle: source.title || '',
@@ -1576,17 +1601,17 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
       const foot = safeBrandFooter(brand, cfg)
       const markdown =
         bodyMd + (foot ? `\n\n---\n\n${foot}` : '')
-      let html = buildLeadHtml(cfg) + markdownToWechatHtml(markdown, strategy.themeId || 'clean')
+      const themeId = resolveThemeId(strategy.themeId || 'clean')
+      const mpPath = cfg.miniprogramPath || 'pages/index/index'
+      let html =
+        buildLeadHtml(cfg, mpPath) +
+        renderThemeBodyHtml(prepareMarkdownForTheme(markdown, title), themeId, { cfg, mpPath })
       html = await appendMiniprogramCtaHtml(html, cfg, brand, {
-        path: cfg.miniprogramPath,
+        path: mpPath,
         mode: 'link',
         credentialSlot: brand.credentialSlot
       })
-      const digest = String(parsed.body || '')
-        .replace(/[#>*`\[\]]/g, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, 120)
+      const digest = markdownToDigest(parsed.body || bodyMd || '')
 
       const status = usedFallback ? 'needs_review' : 'ready'
       await db.collection(DRAFTS_COL).doc(draftId).update({
@@ -1597,6 +1622,7 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
           markdown,
           html,
           digest,
+          themeId,
           coverUrl: draftDoc.coverUrl,
           imageUrls,
           sourceSlottedBody: slottedBody,
@@ -1696,6 +1722,395 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
       results: results.map((r) => r.data || r),
       count: results.length
     })
+  }
+
+  /**
+   * 把 Markdown 里相对路径 / 文件名图片替换为 https（imageMap 优先，否则按出现顺序用 imageUrls）
+   */
+  function rewriteLocalMarkdownImages(md, imageMap, imageUrls) {
+    let text = String(md || '')
+    const map = imageMap && typeof imageMap === 'object' ? imageMap : {}
+    const urls = pickImageUrls(imageUrls)
+    let seq = 0
+    text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (full, alt, rawSrc) => {
+      const src = String(rawSrc || '').trim().replace(/^<|>$/g, '')
+      if (/^https?:\/\//i.test(src)) return full
+      const base = src.split(/[\\/]/).pop() || src
+      const hit =
+        map[src] ||
+        map[base] ||
+        map[decodeURIComponent(base)] ||
+        (urls[seq] ? urls[seq++] : '')
+      if (!hit || !/^https?:\/\//i.test(hit)) return full
+      return `![${alt}](${hit})`
+    })
+    return text
+  }
+
+  /**
+   * 预览与推送共用的 Markdown 预处理：
+   * - 无 `#` 一级标题时用草稿 title 补上（对标 gallery，主题差异才可见）
+   */
+  function prepareMarkdownForTheme(md, title) {
+    let out = String(md || '').trim()
+    const t = String(title || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .slice(0, 64)
+    if (t && !/^#\s+/m.test(out)) out = `# ${t}\n\n${out}`
+    return out
+  }
+
+  /** gallery 同款正文外壳（预览/推送同一结构，禁止预览专用装饰） */
+  function wrapThemeArticle(bodyHtml) {
+    return `<section style="background-color:#ffffff;padding:16px">${String(bodyHtml || '')}</section>`
+  }
+
+  /**
+   * 主题正文 HTML（不含 lead/CTA）：预览 all / 单预览 / 推送 必须同源
+   */
+  function renderThemeBodyHtml(markdown, themeId, { cfg, mpPath } = {}) {
+    const tid = resolveThemeId(themeId)
+    let bodyHtml = markdownToWechatHtml(markdown || '', tid)
+    if (!cfg || cfg.linkAllImagesToMiniprogram !== false) {
+      bodyHtml = wechatApi.wrapAllImagesWithMiniprogram(bodyHtml, {
+        path: mpPath || 'pages/index/index'
+      })
+    }
+    return wrapThemeArticle(bodyHtml)
+  }
+
+  async function renderDraftHtml({
+    markdown,
+    themeId,
+    brandKey,
+    miniprogramPath,
+    includeChrome,
+    title
+  }) {
+    const cfg = await readConfig()
+    const brand = resolveBrand(cfg, brandKey || cfg.defaultBrandKey)
+    const tid = resolveThemeId(themeId)
+    const mpPath = wechatApi.sanitizeMiniprogramPath(
+      miniprogramPath || cfg.miniprogramPath || 'pages/index/index'
+    )
+    const prepared = prepareMarkdownForTheme(markdown || '', title)
+    let bodyHtml = renderThemeBodyHtml(prepared, tid, { cfg, mpPath })
+    if (includeChrome === false) {
+      return { html: bodyHtml, themeId: tid, brandKey: brand.key, miniprogramPath: mpPath }
+    }
+    let html = buildLeadHtml(cfg, mpPath) + bodyHtml
+    html = await appendMiniprogramCtaHtml(html, cfg, brand, {
+      path: mpPath,
+      mode: 'link',
+      credentialSlot: brand.credentialSlot
+    })
+    return { html, themeId: tid, brandKey: brand.key, miniprogramPath: mpPath }
+  }
+
+  /** 运营预览：不落库，与推送同一 renderDraftHtml */
+  async function previewContent(body) {
+    const md = String((body && body.markdown) || '').trim()
+    if (!md) return fail(4000, 'markdown 为空')
+    const rewritten = rewriteLocalMarkdownImages(md, body.imageMap, body.imageUrls || body.images)
+    const rendered = await renderDraftHtml({
+      markdown: rewritten,
+      themeId: body.themeId,
+      brandKey: body.brandKey,
+      miniprogramPath: body.miniprogramPath,
+      title: body && body.title,
+      includeChrome: body.includeChrome !== false
+    })
+    return ok(rendered)
+  }
+
+  /**
+   * 一次渲全主题：前端做画廊式无缝切换（对标 gallery.html switchTheme）
+   * 各主题 HTML 与单主题预览 / 推送正文同源（仅 themeId 不同）。
+   */
+  async function previewAllThemes(body) {
+    const md = String((body && body.markdown) || '').trim()
+    if (!md) return fail(4000, 'markdown 为空')
+    const rewritten = rewriteLocalMarkdownImages(md, body.imageMap, body.imageUrls || body.images)
+    const prepared = prepareMarkdownForTheme(rewritten, body && body.title)
+    const cfg = await readConfig()
+    const brand = resolveBrand(cfg, (body && body.brandKey) || cfg.defaultBrandKey)
+    const mpPath = wechatApi.sanitizeMiniprogramPath(
+      (body && body.miniprogramPath) || cfg.miniprogramPath || 'pages/index/index'
+    )
+    const includeChrome = body && body.includeChrome === false ? false : true
+    const lead = includeChrome ? buildLeadHtml(cfg, mpPath) : ''
+    let ctaTail = ''
+    if (includeChrome) {
+      ctaTail = await appendMiniprogramCtaHtml('', cfg, brand, {
+        path: mpPath,
+        mode: 'link',
+        credentialSlot: brand.credentialSlot
+      })
+    }
+    const themes = {}
+    const meta = listThemeMeta()
+    const fingerprints = {}
+    for (const t of meta) {
+      const tid = resolveThemeId(t.id)
+      const bodyHtml = renderThemeBodyHtml(prepared, tid, { cfg, mpPath })
+      themes[tid] = includeChrome ? lead + bodyHtml + ctaTail : bodyHtml
+      // 用 h1 style 指纹证明主题确实不同
+      const h1 = (bodyHtml.match(/<h1 style="([^"]*)"/) || [])[1] || ''
+      fingerprints[tid] = h1.slice(0, 80)
+    }
+    const active = resolveThemeId((body && body.themeId) || 'bytedance')
+    const uniq = new Set(Object.values(fingerprints).filter(Boolean))
+    return ok({
+      themes,
+      themeId: active,
+      brandKey: brand.key,
+      miniprogramPath: mpPath,
+      list: meta,
+      counts: Object.fromEntries(
+        Object.keys(themes).map((k) => [k, String(themes[k] || '').length])
+      ),
+      fingerprints,
+      themeDistinct: uniq.size >= 2
+    })
+  }
+
+  /**
+   * 成品导入草稿（跳过 AI 洗稿）。运营选主题 / 预览后自行推微信。
+   * sourceType=imported；不触发「照搬素材须改写」门禁。
+   */
+  async function importDraft(body, user) {
+    const cfg = await readConfig()
+    const brand = resolveBrand(cfg, (body && body.brandKey) || cfg.defaultBrandKey)
+    let markdown = String((body && (body.markdown || body.content)) || '').trim()
+    if (!markdown) return fail(4000, 'markdown 为空')
+
+    const imageUrls = pickImageUrls(body.imageUrls, body.images, body.coverUrl)
+    markdown = rewriteLocalMarkdownImages(markdown, body.imageMap, imageUrls)
+
+    const parsed = stripTitleFromMarkdown(markdown)
+    const title = String((body && body.title) || parsed.title || '未命名')
+      .trim()
+      .slice(0, 64)
+    let bodyMd = parsed.body || markdown
+    if (body && body.title && parsed.title) {
+      // 显式传了 title：正文用去掉首行 # 后的部分
+      bodyMd = parsed.body || ''
+    } else if (!parsed.title) {
+      bodyMd = markdown
+    }
+
+    const coverUrl =
+      String((body && body.coverUrl) || '').trim() ||
+      imageUrls[0] ||
+      brand.defaultCoverUrl ||
+      cfg.defaultCoverUrl ||
+      ''
+
+    bodyMd = stripPromoBrandFooterMarkdown(bodyMd)
+    bodyMd = ensureHeroImagePlacement(bodyMd, { coverUrl })
+    const foot = safeBrandFooter(brand, cfg)
+    const finalMd = bodyMd + (foot ? `\n\n---\n\n${foot}` : '')
+
+    const themeId = resolveThemeId((body && body.themeId) || 'bytedance')
+    const mpPath = wechatApi.sanitizeMiniprogramPath(
+      (body && body.miniprogramPath) || cfg.miniprogramPath || 'pages/index/index'
+    )
+    const digest = resolveArticleDigest(body, bodyMd)
+
+    const rendered = await renderDraftHtml({
+      markdown: finalMd,
+      themeId,
+      brandKey: brand.key,
+      miniprogramPath: mpPath,
+      title: (body && body.title) || '',
+      includeChrome: true
+    })
+
+    const mdImgs = collectMarkdownImageUrls(finalMd)
+    const allImgs = pickImageUrls(imageUrls, mdImgs, coverUrl)
+    const needPrep = allImgs.some((u) => /^https?:\/\//i.test(u) && !isWechatCdnUrl(u))
+
+    const draftDoc = {
+      status: 'ready',
+      brandKey: brand.key,
+      brandName: brand.name,
+      credentialSlot: brand.credentialSlot,
+      strategyKey: 'imported',
+      strategyName: '成品导入',
+      strategyAuto: false,
+      promptKey: '',
+      themeId,
+      sourceType: 'imported',
+      sourceId: '',
+      sourceTitle: title,
+      sourceUrl: String((body && body.sourceUrl) || '').trim(),
+      videos: [],
+      sourceSlottedBody: '',
+      sourceImageUrls: allImgs.slice(0, 8),
+      coverUrl,
+      imageUrls: allImgs,
+      title,
+      markdown: finalMd,
+      html: rendered.html,
+      digest,
+      author: String((body && body.author) || brand.author || cfg.author || '火星探索日志').slice(0, 16),
+      miniprogramPath: mpPath,
+      error: needPrep ? '配图转存中，完成后即可推送' : '',
+      wxMediaId: '',
+      wxPublishId: '',
+      generatedByAi: true,
+      importSkipRewrite: true,
+      imagePrepStatus: needPrep ? 'preparing' : 'ready',
+      imagesReady: !needPrep,
+      wxImageEntries: [],
+      wxImageMap: {},
+      wxImageFail: {},
+      wxImageUploadSlot: '',
+      pushTimeline: appendTimeline(null, 'imported', themeId),
+      platforms: ['wechat'],
+      variants: {
+        wechat: {
+          title,
+          digest,
+          markdown: finalMd,
+          html: rendered.html,
+          themeId,
+          status: 'ready'
+        }
+      },
+      createdAt: now(),
+      updatedAt: now(),
+      createdBy: (user && user.username) || 'system'
+    }
+
+    const add = await db.collection(DRAFTS_COL).add({ data: draftDoc })
+    const draftId = add._id
+    if (needPrep) {
+      kickPrepareOrPush(draftId, 'prepare').catch((e) =>
+        console.warn('[oaContent] import kick prepare', e.message || e)
+      )
+    }
+    await writeOpLog({
+      user,
+      module: 'oa_content',
+      action: 'import_draft',
+      after: { _id: draftId, title, themeId, imageCount: allImgs.length }
+    }).catch(() => null)
+
+    return ok({
+      _id: draftId,
+      status: 'ready',
+      title,
+      themeId,
+      digest,
+      brandKey: brand.key,
+      imagesReady: !needPrep,
+      imageCount: allImgs.length,
+      generatedByAi: true,
+      sourceType: 'imported'
+    })
+  }
+
+  /** 小红书预览（不落库） */
+  async function previewXhsContent(body) {
+    const variant = xhsVariant.normalizeXhsVariant(body || {})
+    if (!variant.title && !variant.body) {
+      // 允许从 markdown 现场派生
+      const derived = xhsVariant.deriveXhsFromSource(
+        { title: body && body.title, markdown: body && body.markdown, imageUrls: body && body.imageUrls },
+        body || {}
+      )
+      return ok(xhsVariant.previewXhsPayload(derived))
+    }
+    return ok(xhsVariant.previewXhsPayload(variant))
+  }
+
+  /** 从源稿生成/刷新小红书变体并落库 */
+  async function deriveXhsDraft(id, body, user) {
+    const res = await db.collection(DRAFTS_COL).doc(id).get().catch(() => null)
+    if (!res || !res.data) return fail(4040, '草稿不存在')
+    const cur = res.data
+    const derived = xhsVariant.deriveXhsFromSource(cur, body || {})
+    const next = xhsVariant.normalizeXhsVariant(
+      { ...(cur.variants && cur.variants.xhs), ...derived, ...(body && body.xhs) },
+      derived
+    )
+    next.status = next.status === 'exported' ? 'ready' : next.status || 'draft'
+    const platforms = Array.isArray(cur.platforms) ? [...cur.platforms] : ['wechat']
+    if (!platforms.includes('xhs')) platforms.push('xhs')
+    const variants = { ...(cur.variants || {}), xhs: next }
+    await db.collection(DRAFTS_COL).doc(id).update({
+      data: { platforms, variants, updatedAt: now() }
+    })
+    await writeOpLog({
+      user,
+      module: 'oa_content',
+      action: 'derive_xhs',
+      targetId: id,
+      after: { title: next.title, imageCount: next.images.length }
+    }).catch(() => null)
+    return ok({ _id: id, platforms, variants: { xhs: next }, xhs: next })
+  }
+
+  /** 导出小红书发布包到 COS */
+  async function exportXhsDraft(id, body, user) {
+    if (typeof uploadBufferToCos !== 'function') {
+      return fail(5000, '导出能力未配置（缺少 COS 上传）')
+    }
+    const res = await db.collection(DRAFTS_COL).doc(id).get().catch(() => null)
+    if (!res || !res.data) return fail(4040, '草稿不存在')
+    const cur = res.data
+    let xhs = cur.variants && cur.variants.xhs
+    if (!xhs || !(xhs.title || xhs.body)) {
+      xhs = xhsVariant.deriveXhsFromSource(cur, body || {})
+    } else {
+      xhs = xhsVariant.normalizeXhsVariant(xhs)
+    }
+    if (body && (body.title || body.body || body.images || body.topics)) {
+      xhs = xhsVariant.normalizeXhsVariant({ ...xhs, ...body }, xhs)
+    }
+    const packed = await xhsVariant.buildExportZip(xhs)
+    const key = xhsVariant.exportObjectKey(id)
+    const uploaded = await uploadBufferToCos({
+      key,
+      buffer: packed.zip,
+      contentType: 'application/zip'
+    })
+    const url = uploaded && uploaded.cosUrl
+    if (!url) return fail(5001, '导出上传失败')
+    xhs = {
+      ...xhs,
+      status: 'exported',
+      exportPackageUrl: url
+    }
+    const platforms = Array.isArray(cur.platforms) ? [...cur.platforms] : ['wechat']
+    if (!platforms.includes('xhs')) platforms.push('xhs')
+    await db.collection(DRAFTS_COL).doc(id).update({
+      data: {
+        platforms,
+        variants: { ...(cur.variants || {}), xhs },
+        updatedAt: now()
+      }
+    })
+    await writeOpLog({
+      user,
+      module: 'oa_content',
+      action: 'export_xhs',
+      targetId: id,
+      after: { url, fileCount: packed.fileCount }
+    }).catch(() => null)
+    return ok({
+      _id: id,
+      exportPackageUrl: url,
+      fileCount: packed.fileCount,
+      xhs,
+      notePreview: packed.note.slice(0, 500)
+    })
+  }
+
+  function listThemes() {
+    return ok({ list: listThemeMeta() })
   }
 
   /**
@@ -1959,7 +2374,15 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
         if (mdForPush && mdForPush !== String(draft.markdown || '').trim()) {
           draft.markdown = mdForPush
         }
-        html = markdownToWechatHtml(mdForPush, 'clean')
+        // 与后台预览同一管线：补标题 + gallery section（禁止预览专用装饰）
+        html = wrapThemeArticle(
+          markdownToWechatHtml(
+            prepareMarkdownForTheme(mdForPush, draft.title),
+            resolveThemeId(draft.themeId)
+          )
+        )
+        // 同步落库 html，保证列表/编辑预览与即将推送的正文主题一致
+        draft.html = html
       } else {
         // 旧 html 里可能已带文首提示语，先剥掉，最终组装时统一加，避免重复
         html = wechatApi.stripLeadDisclaimer(wechatApi.stripMiniprogramCta(draft.html || ''))
@@ -2032,10 +2455,20 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
       html = await appendMiniprogramCtaHtml(html, cfg, brand, { ...ctaOpts, mode: ctaMode })
 
       const sourceUrl = sanitizeContentSourceUrl(draft.sourceUrl)
+      // 推送前校正摘要：避免「封面https://…」进微信分享卡片
+      const digest = resolveArticleDigest(draft)
+      if (digest && digest !== String(draft.digest || '').trim()) {
+        await db
+          .collection(DRAFTS_COL)
+          .doc(id)
+          .update({ data: { digest, updatedAt: now() } })
+          .catch(() => null)
+        draft.digest = digest
+      }
       const article = {
         title: sanitizeWxTitle(draft.title),
         author: String(draft.author || brand.author || cfg.author || '火星探索日志').slice(0, 16),
-        digest: String(draft.digest || '').slice(0, 120),
+        digest,
         content: html,
         content_source_url: sourceUrl,
         thumb_media_id: thumbMediaId,
@@ -2726,8 +3159,218 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
     return ok({ created, updated, failed, total: slice.length, results })
   }
 
+  function enabledBrandKeys(cfg) {
+    const list = Array.isArray(cfg && cfg.brands) ? cfg.brands : DEFAULT_BRANDS
+    const keys = list
+      .filter((b) => b && b.enabled !== false && b.key)
+      .map((b) => String(b.key).slice(0, 40))
+    if (keys.length) return keys
+    const fallback = String((cfg && cfg.defaultBrandKey) || (DEFAULT_BRANDS[0] && DEFAULT_BRANDS[0].key) || 'mars_log')
+    return [fallback]
+  }
+
+  function draftBlocksWash(d) {
+    if (!d) return false
+    const st = String(d.status || 'ready')
+    if (st === 'generate_failed' || st === 'rejected') return false
+    if (st === 'generating') {
+      return now() - Number(d.updatedAt || d.createdAt || 0) < 10 * 60 * 1000
+    }
+    return true
+  }
+
+  async function hasDraftForSource({ sourceUrl, sourceId, brandKey }) {
+    const rows = []
+    if (sourceId) {
+      const r = await db
+        .collection(DRAFTS_COL)
+        .where({ sourceId: String(sourceId) })
+        .limit(10)
+        .get()
+        .catch(() => ({ data: [] }))
+      rows.push(...(r.data || []))
+    }
+    if (sourceUrl) {
+      const r = await db
+        .collection(DRAFTS_COL)
+        .where({ sourceUrl: String(sourceUrl) })
+        .limit(10)
+        .get()
+        .catch(() => ({ data: [] }))
+      rows.push(...(r.data || []))
+    }
+    const want = String(brandKey || '').trim()
+    return rows.some((d) => {
+      if (want && String(d.brandKey || '') !== want) return false
+      return draftBlocksWash(d)
+    })
+  }
+
+  async function listTrackWashJobs(status) {
+    const res = await db
+      .collection(JOBS_COL)
+      .where({ status: String(status) })
+      .limit(100)
+      .get()
+      .catch(() => ({ data: [] }))
+    return (res.data || []).filter((r) => r.type === 'track_wash')
+  }
+
+  async function recoverStaleTrackWash() {
+    const running = await listTrackWashJobs('running')
+    const t = now()
+    const STALE_MS = 8 * 60 * 1000
+    let n = 0
+    for (const job of running) {
+      if (t - Number(job.updatedAt || job.createdAt || 0) < STALE_MS) continue
+      await db
+        .collection(JOBS_COL)
+        .doc(job._id)
+        .update({
+          data: {
+            status: 'queued',
+            error: '洗稿超时未完成，已重新入队',
+            updatedAt: t
+          }
+        })
+        .catch(() => null)
+      n += 1
+    }
+    return n
+  }
+
+  async function enqueueTrackWash(item) {
+    const collectId = String((item && item.collectId) || '').trim()
+    const sourceUrl = String((item && item.sourceUrl) || '').trim()
+    if (!collectId && !sourceUrl) return false
+    if (await hasDraftForSource({ sourceUrl, sourceId: collectId, brandKey: item.brandKey })) return false
+    const existing = [...(await listTrackWashJobs('queued')), ...(await listTrackWashJobs('running'))]
+    const wantBrand = String((item && item.brandKey) || '')
+    const busy = existing.some(
+      (r) =>
+        collectId &&
+        r.collectId === collectId &&
+        String(r.brandKey || '') === wantBrand
+    )
+    if (busy) return false
+    await db.collection(JOBS_COL).add({
+      data: {
+        type: 'track_wash',
+        status: 'queued',
+        collectId,
+        sourceUrl,
+        title: String((item && item.title) || '').slice(0, 200),
+        brandKey: String((item && item.brandKey) || '').slice(0, 40),
+        strategyKey: String((item && item.strategyKey) || 'auto').slice(0, 40),
+        trackKey: String((item && item.trackKey) || '').slice(0, 64),
+        createdAt: now(),
+        updatedAt: now()
+      }
+    })
+    return true
+  }
+
+  function kickTrackWash() {
+    if (!cloud || typeof cloud.callFunction !== 'function') return Promise.resolve()
+    const token = String(process.env.OA_CONTENT_INTERNAL_TOKEN || '').trim()
+    if (!token) return Promise.resolve()
+    return cloud.callFunction({
+      name: 'oaAuthorTrack',
+      data: { washOnly: true, from: 'trackSources' },
+      config: { timeout: 90000 }
+    })
+  }
+
   /**
-   * RSS 作者追踪：入库采集库；autoWash 时再洗成草稿
+   * 处理外链追踪洗稿队列。HTTP 易超 60s，每轮默认只洗 1 篇。
+   */
+  async function washQueuedTrackJobs(body = {}, user) {
+    await ensureCols()
+    const limit = Math.min(3, Math.max(1, Number((body && body.limit) || 1) || 1))
+    await recoverStaleTrackWash()
+    const queued = (await listTrackWashJobs('queued'))
+      .sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0))
+      .slice(0, limit)
+    const results = []
+    for (const job of queued) {
+      await db
+        .collection(JOBS_COL)
+        .doc(job._id)
+        .update({ data: { status: 'running', updatedAt: now() } })
+        .catch(() => null)
+      try {
+        if (await hasDraftForSource({
+          sourceUrl: job.sourceUrl,
+          sourceId: job.collectId,
+          brandKey: job.brandKey
+        })) {
+          await db
+            .collection(JOBS_COL)
+            .doc(job._id)
+            .update({ data: { status: 'done', result: { skipped: 'already_drafted' }, updatedAt: now() } })
+          results.push({ id: job._id, skipped: 'already_drafted' })
+          continue
+        }
+        let title = job.title || ''
+        let bodyText = ''
+        let coverUrl = ''
+        let imageUrls = []
+        let sourceUrl = job.sourceUrl || ''
+        if (job.collectId) {
+          const col = await db.collection(COLLECT_COL).doc(job.collectId).get().catch(() => null)
+          const a = col && col.data
+          if (a) {
+            title = a.title || title
+            bodyText = a.content || ''
+            coverUrl = a.coverUrl || ''
+            imageUrls = Array.isArray(a.images) ? a.images : []
+            sourceUrl = a.sourceUrl || sourceUrl
+          }
+        }
+        const gen = await runGenerate({
+          topic: {
+            sourceType: 'collected',
+            sourceId: job.collectId || '',
+            title,
+            body: bodyText,
+            sourceUrl,
+            coverUrl,
+            imageUrls
+          },
+          strategyKey: !job.strategyKey || job.strategyKey === 'auto' ? 'auto' : job.strategyKey,
+          brandKey: job.brandKey,
+          user: user || { username: 'track' }
+        })
+        const draftId = gen && gen.data && gen.data._id
+        await db.collection(JOBS_COL).doc(job._id).update({
+          data: {
+            status: draftId ? 'done' : 'failed',
+            result: { draftId: draftId || '', title: (gen && gen.data && gen.data.title) || title },
+            error: draftId ? '' : String((gen && gen.message) || '洗稿未生成草稿').slice(0, 400),
+            updatedAt: now()
+          }
+        })
+        results.push({ id: job._id, draftId, title: (gen && gen.data && gen.data.title) || title })
+      } catch (e) {
+        const msg = e.message || String(e)
+        await db
+          .collection(JOBS_COL)
+          .doc(job._id)
+          .update({ data: { status: 'failed', error: msg.slice(0, 400), updatedAt: now() } })
+          .catch(() => null)
+        results.push({ id: job._id, error: msg })
+      }
+    }
+    const remaining = (await listTrackWashJobs('queued')).length
+    return ok({
+      processed: results.length,
+      remaining,
+      results
+    })
+  }
+
+  /**
+   * RSS 作者追踪：只入库采集库；autoWash 入队异步洗稿（避免 HTTP 60s 超时）
    */
   async function trackSourcesRun(body = {}, user) {
     await ensureCols()
@@ -2740,44 +3383,67 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
     if (!list.length) {
       return ok({ results: [], message: onlyKey ? '未找到该追踪源' : '无启用的追踪源' })
     }
-    // 追踪运行同样落 job，供任务时间线观测
     const jobAdd = await db
       .collection(JOBS_COL)
       .add({ data: { type: 'track', status: 'running', createdAt: now(), updatedAt: now() } })
       .catch(() => null)
+
+    const packs = await Promise.all(
+      list.map(async (src) => {
+        try {
+          const articles = await oaFetch.fetchRssByAuthor({
+            rssUrl: src.rssUrl,
+            authorMatch: src.authorMatch,
+            limit: Math.max(src.maxPerRun || 3, 8)
+          })
+          return {
+            src,
+            articles,
+            via: articles.via || '',
+            usedRssUrl: articles.usedRssUrl || src.rssUrl,
+            error: ''
+          }
+        } catch (e) {
+          return { src, articles: [], via: '', usedRssUrl: src.rssUrl, error: e.message || String(e) }
+        }
+      })
+    )
+
     const results = []
-    for (const src of list) {
+    let washQueuedTotal = 0
+    for (const pack of packs) {
+      const src = pack.src
       const row = {
         key: src.key,
         name: src.name,
-        fetched: 0,
+        fetched: pack.articles.length,
         created: 0,
         skipped: 0,
         washed: 0,
-        error: ''
+        washQueued: 0,
+        via: pack.via,
+        rssUrl: pack.usedRssUrl || src.rssUrl,
+        error: pack.error || ''
       }
-      try {
-        const articles = await oaFetch.fetchRssByAuthor({
-          rssUrl: src.rssUrl,
-          authorMatch: src.authorMatch,
-          limit: Math.max(src.maxPerRun || 3, 8)
-        })
-        row.fetched = articles.length
-        for (const art of articles.slice(0, src.maxPerRun || 3)) {
-          if (!art.sourceUrl) {
-            row.skipped += 1
-            continue
-          }
-          const found = await db
-            .collection(COLLECT_COL)
-            .where({ sourceUrl: art.sourceUrl })
-            .limit(1)
-            .get()
-            .catch(() => ({ data: [] }))
-          if (found.data && found.data[0]) {
-            row.skipped += 1
-            continue
-          }
+      if (pack.error) {
+        results.push(row)
+        continue
+      }
+      for (const art of pack.articles.slice(0, src.maxPerRun || 3)) {
+        if (!art.sourceUrl) {
+          row.skipped += 1
+          continue
+        }
+        const found = await db
+          .collection(COLLECT_COL)
+          .where({ sourceUrl: art.sourceUrl })
+          .limit(1)
+          .get()
+          .catch(() => ({ data: [] }))
+        let collectId = found.data && found.data[0] && found.data[0]._id
+        if (collectId) {
+          row.skipped += 1
+        } else {
           const ing = await collectorIngestOne({
             title: art.title,
             content: art.text,
@@ -2795,42 +3461,38 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
           }
           if (ing.action !== 'created') {
             row.skipped += 1
-            continue
+            collectId = ing._id
+          } else {
+            row.created += 1
+            collectId = ing._id
           }
-          row.created += 1
-          if (src.autoWash) {
-            try {
-              const gen = await runGenerate({
-                topic: {
-                  sourceType: 'collected',
-                  sourceId: ing._id,
-                  title: art.title,
-                  body: art.text,
-                  sourceUrl: art.sourceUrl,
-                  coverUrl: art.coverUrl,
-                  imageUrls: art.imageUrls
-                },
-                strategyKey: !src.strategyKey || src.strategyKey === 'auto' ? 'auto' : src.strategyKey,
-                brandKey: src.brandKey || cfg.defaultBrandKey,
-                user: user || { username: 'track' }
-              })
-              if (gen && (gen.code === 0 || (gen.data && gen.data._id))) row.washed += 1
-            } catch (e) {
-              console.warn('[trackSources] autoWash', e.message || e)
+        }
+        if (src.autoWash && collectId) {
+          const brands = enabledBrandKeys(cfg)
+          for (const brandKey of brands) {
+            const queued = await enqueueTrackWash({
+              collectId,
+              sourceUrl: art.sourceUrl,
+              title: art.title,
+              brandKey,
+              strategyKey: !src.strategyKey || src.strategyKey === 'auto' ? 'auto' : src.strategyKey,
+              trackKey: src.key
+            })
+            if (queued) {
+              row.washQueued += 1
+              washQueuedTotal += 1
             }
           }
         }
-      } catch (e) {
-        row.error = e.message || String(e)
       }
       results.push(row)
     }
     const summary = results
       .map(
         (r) =>
-          `${r.key}: +${r.created}/skip${r.skipped}${r.washed ? `/wash${r.washed}` : ''}${
-            r.error ? ` err=${r.error}` : ''
-          }`
+          `${r.key}: +${r.created}/skip${r.skipped}${r.washQueued ? `/washQ${r.washQueued}` : ''}${
+            r.via ? ` ${r.via}` : ''
+          }${r.error ? ` err=${r.error}` : ''}`
       )
       .join('; ')
       .slice(0, 1800)
@@ -2851,13 +3513,21 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
         .update({
           data: {
             status: anyErr ? 'failed' : 'done',
-            result: { summary, results },
+            result: { summary, results, washQueued: washQueuedTotal },
             updatedAt: now()
           }
         })
         .catch(() => null)
     }
-    return ok({ results, lastTrackAt: now(), lastTrackResult: summary })
+    if (washQueuedTotal) {
+      kickTrackWash().catch((e) => console.warn('[trackSources] kick wash', e.message || e))
+    }
+    return ok({
+      results,
+      washQueued: washQueuedTotal,
+      lastTrackAt: now(),
+      lastTrackResult: summary
+    })
   }
 
   async function listAccountArticles(id, query = {}) {
@@ -3026,6 +3696,7 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
         const md = String(patch.markdown != null ? patch.markdown : cur.markdown || '')
         if (
           next === 'ready' &&
+          !cur.importSkipRewrite &&
           (from === 'needs_review' || from === 'generate_failed' || cur.generatedByAi === false)
         ) {
           // 引导语行自动剥离（用户改写后常忘删，不能因此打回）
@@ -3038,12 +3709,39 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
         }
       }
 
+      if (Object.prototype.hasOwnProperty.call(patch, 'themeId')) {
+        patch.themeId = resolveThemeId(patch.themeId)
+      }
+      // 客户端不可伪造导入豁免位
+      delete patch.importSkipRewrite
+      delete patch.generatedByAi
+      delete patch.sourceType
+
+      if (Object.prototype.hasOwnProperty.call(patch, 'platforms')) {
+        const raw = Array.isArray(patch.platforms) ? patch.platforms : []
+        patch.platforms = [...new Set(raw.map((p) => String(p || '').trim()).filter((p) => p === 'wechat' || p === 'xhs'))]
+        if (!patch.platforms.length) patch.platforms = ['wechat']
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'variants')) {
+        const incoming = patch.variants && typeof patch.variants === 'object' ? patch.variants : {}
+        const prev = (cur.variants && typeof cur.variants === 'object' && cur.variants) || {}
+        const next = { ...prev }
+        if (incoming.xhs) {
+          next.xhs = xhsVariant.normalizeXhsVariant(incoming.xhs, prev.xhs || {})
+        }
+        if (incoming.wechat && typeof incoming.wechat === 'object') {
+          next.wechat = { ...(prev.wechat || {}), ...incoming.wechat }
+        }
+        patch.variants = next
+      }
+
       const contentChanged =
         (patch.markdown != null && patch.markdown !== cur.markdown) ||
         (patch.title != null && patch.title !== cur.title) ||
         (patch.coverUrl != null && patch.coverUrl !== cur.coverUrl) ||
         (patch.brandKey != null && patch.brandKey !== cur.brandKey) ||
         (patch.html != null && patch.html !== cur.html) ||
+        (patch.themeId != null && patch.themeId !== cur.themeId) ||
         (patch.miniprogramPath != null && patch.miniprogramPath !== cur.miniprogramPath)
 
       if (contentChanged) {
@@ -3060,11 +3758,19 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
         if (!Object.prototype.hasOwnProperty.call(patch, 'error')) patch.error = ''
       }
 
-      if (patch.markdown && !patch.html) {
+      const themeForRender = resolveThemeId(
+        patch.themeId != null ? patch.themeId : cur.themeId || 'clean'
+      )
+      const shouldRerender =
+        (patch.markdown != null && !patch.html) ||
+        (patch.themeId != null && patch.themeId !== cur.themeId && patch.html == null)
+
+      if (shouldRerender) {
         const cfg = await readConfig()
         const brand = resolveBrand(cfg, patch.brandKey || cur.brandKey || cfg.defaultBrandKey)
-        patch.markdown = stripPromoBrandFooterMarkdown(patch.markdown)
-        patch.markdown = ensureHeroImagePlacement(patch.markdown, {
+        let md = String(patch.markdown != null ? patch.markdown : cur.markdown || '')
+        md = stripPromoBrandFooterMarkdown(md)
+        md = ensureHeroImagePlacement(md, {
           coverUrl:
             patch.coverUrl ||
             cur.coverUrl ||
@@ -3072,15 +3778,17 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
             cfg.defaultCoverUrl ||
             ''
         })
-        let nextHtml =
-          buildLeadHtml(cfg, patch.miniprogramPath || cur.miniprogramPath || cfg.miniprogramPath) +
-          markdownToWechatHtml(patch.markdown, 'clean')
-        nextHtml = await appendMiniprogramCtaHtml(nextHtml, cfg, brand, {
-          path: patch.miniprogramPath || cur.miniprogramPath || cfg.miniprogramPath,
-          mode: 'link',
-          credentialSlot: brand.credentialSlot
+        if (patch.markdown != null) patch.markdown = md
+        const rendered = await renderDraftHtml({
+          markdown: md,
+          themeId: themeForRender,
+          brandKey: brand.key,
+          miniprogramPath: patch.miniprogramPath || cur.miniprogramPath || cfg.miniprogramPath,
+          title: patch.title != null ? patch.title : cur.title,
+          includeChrome: true
         })
-        patch.html = nextHtml
+        patch.html = rendered.html
+        patch.themeId = themeForRender
       } else if (patch.markdown != null) {
         let cleaned = stripPromoBrandFooterMarkdown(patch.markdown)
         const cfg = await readConfig()
@@ -3095,6 +3803,17 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
         })
         if (cleaned !== patch.markdown) patch.markdown = cleaned
       }
+
+      // 摘要被封面链污染时自动从正文重算（编辑保存 / 改 markdown 都兜底）
+      {
+        const mdForDigest = String(patch.markdown != null ? patch.markdown : cur.markdown || '')
+        const digIn =
+          patch.digest != null ? String(patch.digest) : String(cur.digest || '')
+        if (looksLikeCoverLinkDigest(digIn) || (patch.markdown != null && looksLikeCoverLinkDigest(digIn))) {
+          patch.digest = markdownToDigest(mdForDigest)
+        }
+      }
+
       if (patch.brandKey) {
         const cfg = await readConfig()
         const brand = resolveBrand(cfg, patch.brandKey)
@@ -3128,6 +3847,7 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
         'coverUrl',
         'imageUrls',
         'miniprogramPath',
+        'themeId',
         'status',
         'sourceUrl',
         'brandKey',
@@ -3141,13 +3861,22 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
         'wxImageMap',
         'wxImageUploadSlot',
         'imagesReady',
-        'imagePrepStatus'
+        'imagePrepStatus',
+        'platforms',
+        'variants'
       ])
     },
     deleteDraft: (id, u) => deleteDoc(DRAFTS_COL, id, u),
     batchDeleteDrafts,
     gatherTopics,
     generateFromBody,
+    importDraft,
+    previewContent,
+    previewAllThemes,
+    previewXhsContent,
+    deriveXhsDraft,
+    exportXhsDraft,
+    listThemes,
     pushDraftToWechat,
     executePushDraft,
     prepareDraftImages,
@@ -3183,6 +3912,7 @@ function createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, che
     collectorIngest,
     collectorIngestBatch,
     trackSourcesRun,
+    washQueuedTrackJobs,
     verifyCollectorToken
   }
 }

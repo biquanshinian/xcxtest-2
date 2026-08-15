@@ -90,9 +90,6 @@ const ADMIN_GATEWAY_EXTRA_COLLECTIONS = [
   'security_captchas',
   'oa_auto_alert_users',
   'oa_push_ledger',
-  'bilibili_topic_keywords',
-  'bilibili_topic_blacklist',
-  'bilibili_publish_queue',
   'oa_prompts',
   'oa_strategies',
   'oa_drafts',
@@ -779,13 +776,9 @@ async function listStarshipEvents(query = {}) {
   const page = Math.max(1, Number(query.page || 1))
   const pageSize = Math.min(50, Math.max(1, Number(query.pageSize || 20)))
   const status = (query.status || '').trim()
-  const biliStatus = (query.bilibiliSyncStatus || '').trim()
 
   let where = {}
   if (status) where.status = status
-  if (biliStatus && biliStatus !== 'idle') {
-    where.bilibiliSyncStatus = biliStatus
-  }
 
   const dbQuery = db.collection(col).where(where)
   const [countRes, listRes] = await Promise.all([
@@ -794,33 +787,12 @@ async function listStarshipEvents(query = {}) {
       .skip((page - 1) * pageSize).limit(pageSize).get()
   ])
 
-  let list = listRes.data || []
-  let total = countRes.total
-  if (biliStatus === 'idle') {
-    list = list.filter((row) => {
-      const st = row.bilibiliSyncStatus
-      return !st || st === 'idle'
-    })
-    // 粗略：idle 筛选在当前页过滤；精确分页成本高，后台够用
-    total = list.length
-  }
-
-  return ok({ list, total, page, pageSize })
-}
-
-async function triggerBilibiliEnqueue(from) {
-  try {
-    const res = await cloud.callFunction({
-      name: 'publishBilibiliFromEvents',
-      data: { from, action: 'auto_enqueue' }
-    })
-    const payload = (res && res.result) || res || {}
-    console.log('[triggerBilibiliEnqueue]', from, JSON.stringify(payload))
-    return payload
-  } catch (e) {
-    console.warn('[triggerBilibiliEnqueue] failed', from, e.message || e)
-    return { ok: false, error: e.message || String(e) }
-  }
+  return ok({
+    list: listRes.data || [],
+    total: countRes.total,
+    page,
+    pageSize
+  })
 }
 
 async function createStarshipEvent(body, user) {
@@ -843,17 +815,12 @@ async function createStarshipEvent(body, user) {
     author: user.username,
     publishedAt: isPublished ? now() : 0,
     createdAt: now(),
-    updatedAt: now(),
-    bilibiliSyncStatus: 'idle'
+    updatedAt: now()
   }
 
   const res = await db.collection(col).add({ data: payload })
   await writeOpLog({ user, module: col, action: 'create', targetId: res._id, after: payload })
-  let bilibiliEnqueue = null
-  if (isPublished) {
-    bilibiliEnqueue = await triggerBilibiliEnqueue('event_create')
-  }
-  return ok({ id: res._id, bilibiliEnqueue })
+  return ok({ id: res._id })
 }
 
 async function updateStarshipEvent(id, body, user) {
@@ -882,13 +849,7 @@ async function updateStarshipEvent(id, body, user) {
 
   await ref.update({ data: patch })
   await writeOpLog({ user, module: col, action: 'update', targetId: id, before, after: { ...before, ...patch } })
-  const becamePublished = patch.status === 'published' && before.status !== 'published'
-  let bilibiliEnqueue = null
-  // 仅「首次发布」触发入队，避免每次编辑已发布事件都扫库
-  if (becamePublished) {
-    bilibiliEnqueue = await triggerBilibiliEnqueue('event_update')
-  }
-  return ok({ bilibiliEnqueue })
+  return ok(true)
 }
 
 function eventMediaCosKeyFromUrl(url) {
@@ -1754,6 +1715,14 @@ async function deleteSpaceXStatsItem(id, user) {
 }
 
 /** NSF 抓取清单：合并快照与后台覆盖（管理端表格） */
+function pickNsfDisplayTitle(titleEn, titleZh) {
+  try {
+    return require('./nsf-checklist-i18n.js').pickDisplayTitle(titleEn, titleZh)
+  } catch (e) {
+    return String(titleZh || titleEn || '').trim()
+  }
+}
+
 function mergeNsfAdminRows(statuses, itemOverrides) {
   const ovRoot = itemOverrides && typeof itemOverrides === 'object' ? itemOverrides : {}
   const list = Array.isArray(statuses) ? statuses : []
@@ -1762,7 +1731,7 @@ function mergeNsfAdminRows(statuses, itemOverrides) {
       if (!raw || typeof raw !== 'object') return null
       const id = String(raw.id != null ? raw.id : `nsf_${i}`)
       const titleEn = String(raw.titleEn || raw.title || '').trim()
-      const titleZhMachine = String(raw.titleZh || '').trim()
+      const titleZhMachine = pickNsfDisplayTitle(titleEn, raw.titleZh)
       const titleZhAuto = titleZhMachine || titleEn
       const ov = ovRoot[id] || {}
       const ovZh = typeof ov.titleZh === 'string' ? ov.titleZh.trim() : ''
@@ -2542,7 +2511,7 @@ async function updateStarshipSplashConfig(body, user) {
   return ok(after)
 }
 
-// ========== 任务头图环绕全景（Earth Studio 视频，后台按火箭型号绑定） ==========
+// ========== 任务头图环绕全景（Earth Studio：默认按型号；猎鹰9 再锁发射场） ==========
 const ORBIT_PANO_ITEMS_MAX = 20
 
 function newOrbitPanoId() {
@@ -2559,6 +2528,10 @@ function normalizeOrbitPanoItem(raw) {
     if (key) posterUrl = splashPosterUrl(key)
   }
   const rocketName = String(raw.rocketName || '').trim()
+  const padKey = String(raw.padKey || '').trim().slice(0, 32)
+  const padName = String(raw.padName || '').trim().slice(0, 40)
+  const recoveryKey = String(raw.recoveryKey || '').trim().toLowerCase().slice(0, 16)
+  const recoveryName = String(raw.recoveryName || '').trim().slice(0, 40)
   return {
     id: String(raw.id || newOrbitPanoId()),
     videoUrl,
@@ -2567,6 +2540,10 @@ function normalizeOrbitPanoItem(raw) {
     launchId: rocketName ? '' : String(raw.launchId || '').trim(),
     missionName: rocketName ? '' : String(raw.missionName || '').trim(),
     rocketName,
+    padKey,
+    padName,
+    recoveryKey: recoveryKey === 'asds' || recoveryKey === 'rtls' || recoveryKey === 'expended' ? recoveryKey : '',
+    recoveryName,
     matchRocket: true,
     enabled: raw.enabled !== false
   }
@@ -4963,13 +4940,12 @@ async function listCloudFunctions() {
     { name: 'syncSpaceDevsData', desc: '发射数据同步', type: 'timer' },
     { name: 'syncSpaceXTweets', desc: 'SpaceX推文同步', type: 'timer' },
     { name: 'sendLaunchReminder', desc: '发射提醒推送', type: 'timer' },
-    { name: 'publishBilibiliFromEvents', desc: 'B站事件入队（定时+推文同步触发）', type: 'timer' }
   ]
   return ok(functions)
 }
 
 async function triggerCloudFunction(name, user, body) {
-  const allowed = ['syncSpaceDevsData', 'syncSpaceXTweets', 'sendLaunchReminder', 'publishBilibiliFromEvents']
+  const allowed = ['syncSpaceDevsData', 'syncSpaceXTweets', 'sendLaunchReminder']
   if (!allowed.includes(name)) return fail(4001, '不允许手动触发该云函数')
 
   // 云函数互调 = 服务端身份，可绕开 syncSpaceDevsData 对 wx_client 控制台测试的拦截
@@ -9226,20 +9202,42 @@ async function batchImportKnowledgeCards(body, user) {
   return ok({ imported })
 }
 
-const { createBilibiliPublishApi } = require('./bilibiliPublish')
-let _biliPublishApi = null
-function biliPublishApi() {
-  if (!_biliPublishApi) {
-    _biliPublishApi = createBilibiliPublishApi({ db, _, ok, fail, now, writeOpLog, cloud })
-  }
-  return _biliPublishApi
-}
-
 const { createOaContentStudioApi } = require('./oaContentStudio')
+const {
+  decommissionBilibiliPublish,
+  scheduleAutoDecommission
+} = require('./bilibiliDecommission')
 let _oaContentApi = null
+async function uploadBufferToCos({ key, buffer, contentType }) {
+  const cos = createCOSClient()
+  const k = String(key || '').replace(/^\/+/, '')
+  await new Promise((resolve, reject) => {
+    cos.putObject(
+      {
+        Bucket: COS_BUCKET,
+        Region: COS_REGION,
+        Key: k,
+        Body: buffer,
+        ContentType: contentType || 'application/octet-stream'
+      },
+      (err, data) => (err ? reject(err) : resolve(data))
+    )
+  })
+  return { key: k, cosUrl: `${COS_BASE_URL}${encodeURI(k)}` }
+}
 function oaContentApi() {
   if (!_oaContentApi) {
-    _oaContentApi = createOaContentStudioApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPerm })
+    _oaContentApi = createOaContentStudioApi({
+      db,
+      _,
+      ok,
+      fail,
+      now,
+      writeOpLog,
+      cloud,
+      checkPerm,
+      uploadBufferToCos
+    })
   }
   return _oaContentApi
 }
@@ -9277,15 +9275,6 @@ async function route(event, user) {
     return issueCaptcha()
   }
 
-  // ===== B 站发文 Agent（BILI_AGENT_TOKEN，无需管理员 JWT） =====
-  if (path.startsWith('/bilibili-agent/')) {
-    if (!biliPublishApi().verifyAgentToken(headers)) return fail(4010, 'Agent 未授权')
-    if (path === '/bilibili-agent/claim' && method === 'POST') return biliPublishApi().agentClaimJob(body)
-    if (path === '/bilibili-agent/complete' && method === 'POST') return biliPublishApi().agentCompleteJob(body)
-    if (path === '/bilibili-agent/fail' && method === 'POST') return biliPublishApi().agentFailJob(body)
-    return fail(4040, `未知 Agent 路由: ${method} ${path}`)
-  }
-
   // ===== 发射回放抓取 Agent（REPLAY_AGENT_TOKEN，无需管理员 JWT） =====
   if (path.startsWith('/replay-agent/')) {
     if (!replayFetchApi().verifyAgentToken(headers)) return fail(4010, 'Agent 未授权')
@@ -9309,7 +9298,20 @@ async function route(event, user) {
         return fail(5001, '触发回放扫描失败: ' + (e.message || String(e)))
       }
     }
+    // 运维：用 Agent token 触发 B 站发文下线收尾（部署后立刻停资源）
+    if (path === '/replay-agent/decommission-bilibili' && method === 'POST') {
+      const r = await decommissionBilibiliPublish(db, { force: !!(body && body.force), cloud })
+      return ok(r)
+    }
     return fail(4040, `未知 Agent 路由: ${method} ${path}`)
+  }
+
+  // ===== 运维收尾（需管理员） =====
+  if (path === '/ops/decommission-bilibili-publish' && method === 'POST') {
+    const deny = checkPerm(user, 'global_config')
+    if (deny) return deny
+    const r = await decommissionBilibiliPublish(db, { force: !!(body && body.force), cloud })
+    return ok(r)
   }
 
   // ===== 发射竞猜投票（小程序端，无需管理员权限） =====
@@ -9460,6 +9462,25 @@ async function route(event, user) {
       crypto.timingSafeEqual(Buffer.from(tok, 'utf8'), Buffer.from(expected, 'utf8'))
     if (!okTok) return fail(4010, '内部追踪调用未授权（需配置 OA_CONTENT_INTERNAL_TOKEN）')
     return oaContentApi().trackSourcesRun(body || {}, {
+      id: 'system',
+      username: 'cron',
+      role: 'super_admin'
+    })
+  }
+  if (path === '/oa-content/internal/wash-collected' && method === 'POST') {
+    const tok = String(
+      headers['x-oa-internal-token'] || headers['X-Oa-Internal-Token'] || ''
+    ).trim()
+    const expected = String(process.env.OA_CONTENT_INTERNAL_TOKEN || '').trim()
+    if (!expected || tok.length !== expected.length) {
+      return fail(4010, '内部洗稿调用未授权（需配置 OA_CONTENT_INTERNAL_TOKEN）')
+    }
+    const crypto = require('crypto')
+    const okTok =
+      tok.length > 0 &&
+      crypto.timingSafeEqual(Buffer.from(tok, 'utf8'), Buffer.from(expected, 'utf8'))
+    if (!okTok) return fail(4010, '内部洗稿调用未授权（需配置 OA_CONTENT_INTERNAL_TOKEN）')
+    return oaContentApi().washQueuedTrackJobs(body || {}, {
       id: 'system',
       username: 'cron',
       role: 'super_admin'
@@ -10175,62 +10196,6 @@ async function route(event, user) {
     return replayFetchApi().deleteReplay(path.split('/').pop())
   }
 
-  // ===== B 站自动发文 =====
-  if (path === '/bilibili-auto-publish' && method === 'GET') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().getBilibiliAutoPublish()
-  }
-  if (path === '/bilibili-auto-publish' && method === 'PUT') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().updateBilibiliAutoPublish(body, user)
-  }
-  if (path === '/bilibili-auto-publish/enqueue' && method === 'POST') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().enqueueBilibiliNow(user)
-  }
-  if (path === '/bilibili-topics' && method === 'GET') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().listTopics(query)
-  }
-  if (path === '/bilibili-topics' && method === 'POST') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().createTopic(body, user)
-  }
-  if (path === '/bilibili-topics/seed' && method === 'POST') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().seedTopics(user)
-  }
-  if (path.startsWith('/bilibili-topics/') && path.endsWith('/promote') && method === 'POST') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    const id = path.split('/')[2]
-    return biliPublishApi().promoteTopic(id, user)
-  }
-  if (path.startsWith('/bilibili-topics/') && path.endsWith('/reject') && method === 'POST') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    const id = path.split('/')[2]
-    return biliPublishApi().rejectTopic(id, user)
-  }
-  if (path.startsWith('/bilibili-topics/') && method === 'PUT') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().updateTopic(path.split('/').pop(), body, user)
-  }
-  if (path.startsWith('/bilibili-topics/') && method === 'DELETE') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().deleteTopic(path.split('/').pop(), user)
-  }
-  if (path === '/bilibili-topic-blacklist' && method === 'GET') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().listBlacklist()
-  }
-  if (path === '/bilibili-topic-blacklist' && method === 'POST') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().addBlacklist(body, user)
-  }
-  if (path.startsWith('/bilibili-topic-blacklist/') && method === 'DELETE') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().removeBlacklist(path.split('/').pop())
-  }
-
   // ===== 公众号内容中台 =====
   {
     const oa = oaContentApi()
@@ -10252,6 +10217,26 @@ async function route(event, user) {
       const deny = denyOa(); if (deny) return deny
       return oa.generateFromBody(body, user)
     }
+    if (path === '/oa-content/themes' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.listThemes()
+    }
+    if (path === '/oa-content/preview' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.previewContent(body || {})
+    }
+    if (path === '/oa-content/preview-all' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.previewAllThemes(body || {})
+    }
+    if (path === '/oa-content/preview-xhs' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.previewXhsContent(body || {})
+    }
+    if (path === '/oa-content/drafts/import' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.importDraft(body || {}, user)
+    }
     if (path === '/oa-content/run-daily' && method === 'POST') {
       const deny = denyOa(); if (deny) return deny
       return oa.runDailyPipeline(user)
@@ -10259,6 +10244,10 @@ async function route(event, user) {
     if (path === '/oa-content/track-sources' && method === 'POST') {
       const deny = denyOa(); if (deny) return deny
       return oa.trackSourcesRun(body || {}, user)
+    }
+    if (path === '/oa-content/track-wash' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.washQueuedTrackJobs(body || {}, user)
     }
     if (path === '/oa-content/jobs' && method === 'GET') {
       const deny = denyOa(); if (deny) return deny
@@ -10322,6 +10311,14 @@ async function route(event, user) {
     if (path.startsWith('/oa-content/drafts/') && path.endsWith('/prepare-images') && method === 'POST') {
       const deny = denyOa(); if (deny) return deny
       return oa.prepareDraftImages(path.split('/')[3], body || {})
+    }
+    if (path.startsWith('/oa-content/drafts/') && path.endsWith('/derive-xhs') && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.deriveXhsDraft(path.split('/')[3], body || {}, user)
+    }
+    if (path.startsWith('/oa-content/drafts/') && path.endsWith('/export-xhs') && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.exportXhsDraft(path.split('/')[3], body || {}, user)
     }
     if (path === '/oa-content/image-proxy' && method === 'POST') {
       const deny = denyOa(); if (deny) return deny
@@ -10466,6 +10463,8 @@ function isAdminGatewayServerInvocation() {
 exports.main = async (event = {}, context) => {
   try {
     ensureAdminGatewayCollectionsOnce()
+    // B 站自动发文下线：冷启动后异步清理配置/队列，并尝试删云函数（幂等）
+    scheduleAutoDecommission(db, cloud)
 
     // 预热快速路径：app 冷启动时静默调用，仅用于提前完成云函数实例冷启动，不查库
     if (event && event.path === '/ping') {

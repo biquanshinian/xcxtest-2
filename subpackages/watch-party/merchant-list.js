@@ -9,7 +9,7 @@ const watchParty = require('./utils/api.js')
 const { getRocketImage } = require('../../utils/util.js')
 const rocketArtUtil = require('../../utils/rocket-config-art.js')
 const { guardWatchPartyPage } = require('../../utils/watch-party-feature.js')
-const { rocketNameZh } = require('./utils/rocket-name-zh.js')
+const { pickLocalized } = require('../../utils/locale.js')
 
 function resolveRocketImage(session) {
   // 优先用商家自动获取任务时锁定的 rocketImageName：手动改火箭名不换配置图
@@ -72,7 +72,7 @@ function missionKeyOf(row) {
  */
 function missionTitleOf(row) {
   const rocket = row && row.rocketName ? String(row.rocketName).trim() : ''
-  if (rocket) return rocketNameZh(rocket)
+  if (rocket) return pickLocalized(row.rocketNameZh, rocket)
   const zhMission = row && row.missionDisplayName ? String(row.missionDisplayName).trim() : ''
   return zhMission || '未关联发射任务'
 }

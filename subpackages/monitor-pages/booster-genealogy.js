@@ -78,13 +78,22 @@ Page({
 
       // chip 由箭实体 + 型号两侧数据合并；控制数量，单排横滑
       var chipSource = this._allBoosters.concat(this._allModels.map(function (m) {
-        return { countryCode: m.countryCode, manufacturer: m.manufacturer, reusable: m.reusable }
+        return {
+          countryCode: m.countryCode,
+          manufacturer: m.manufacturer,
+          manufacturerDisplay: m.manufacturerDisplay,
+          reusable: m.reusable
+        }
       }))
       var chips = boosterDisplay.buildBoosterFilterChips(chipSource, { maxManufacturerChips: 5 })
 
       var filter = this._pendingFilter || 'all'
       if (!gallerySearch.isKnownGenealogyFilter(filter)) filter = 'all'
-      chips = gallerySearch.ensureActiveChip(chips, filter, boosterDisplay.extraChipForFilter(filter))
+      chips = gallerySearch.ensureActiveChip(
+        chips,
+        filter,
+        boosterDisplay.extraChipForFilter(filter, (this._allBoosters || []).concat(this._allModels || []))
+      )
       this._filterChips = chips
 
       this.applyFilters({ filter: filter })
@@ -94,7 +103,7 @@ Page({
     }
   },
 
-  /** 统一应用 国家厂商/可复用筛选 + 关键词 + 状态筛选 + 排序 */
+  /** 统一应用 国家厂商/可复用筛选 + 关键词 + 状态筛选 + 排序（可复用始终置顶） */
   applyFilters(patch) {
     var filter = gallerySearch.pickPatchValue(patch, 'filter', this.data.filter) || 'all'
     var statusFilter = gallerySearch.pickPatchValue(patch, 'statusFilter', this.data.statusFilter) || 'all'
@@ -119,7 +128,7 @@ Page({
     var chips = gallerySearch.ensureActiveChip(
       this._filterChips || this.data.filterChips || [],
       filter,
-      boosterDisplay.extraChipForFilter(filter)
+      boosterDisplay.extraChipForFilter(filter, (this._allBoosters || []).concat(this._allModels || []))
     )
 
     this.setData({

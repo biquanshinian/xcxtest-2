@@ -6,11 +6,6 @@ const {
 } = require('../../../utils/api-request.js')
 const { emptyListResult } = require('../../../utils/api-list-helpers.js')
 const { pickLocalized, zhField } = require('../../../utils/locale.js')
-const {
-  translateEventType,
-  translateDatePrecision,
-  translateLocation
-} = require('../../../utils/space-terms-i18n.js')
 
 // 与云端 NEWS_FEED_CACHE_DURATION 对齐：过期但仍在窗口内的缓存可读，避免 6h 同步间隙整页空白
 const NEWS_CACHE_STALE_MAX_MS = 48 * 60 * 60 * 1000
@@ -473,11 +468,11 @@ function formatEventItem(event) {
     : (event.feature_image || '')
 
   const typeEn = (event.type && event.type.name) || '未知类型'
-  const typeZh = (event.type && zhField(event.type, 'name')) || translateEventType(typeEn)
+  const typeZh = (event.type && zhField(event.type, 'name')) || ''
   const datePrecisionEn = (event.date_precision && event.date_precision.name) || ''
-  const datePrecisionZh = (event.date_precision && zhField(event.date_precision, 'name')) || translateDatePrecision(datePrecisionEn)
+  const datePrecisionZh = (event.date_precision && zhField(event.date_precision, 'name')) || ''
   const locationEn = event.location || ''
-  const locationZh = zhField(event, 'location') || translateLocation(locationEn)
+  const locationZh = zhField(event, 'location') || ''
 
   return {
     id: event.id,

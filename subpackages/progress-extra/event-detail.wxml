@@ -189,7 +189,7 @@
           <view class="detail-ll2-updates-body" wx:if="{{ll2DetailLaunchUpdates.length > 0}}">
             <view class="detail-ll2-update-row" wx:for="{{ll2DetailLaunchUpdates}}" wx:key="id">
               <view class="detail-ll2-update-main">
-                <text class="detail-ll2-update-comment">{{descI18n.launchUpdates[index] || item.comment}}</text>
+                <text class="detail-ll2-update-comment">{{luTranslated ? (descI18n.launchUpdates[index] || item.commentZh || item.comment) : item.comment}}</text>
                 <text class="detail-ll2-update-meta">{{item.createdBy}}{{item.timeLabel ? ' · ' + item.timeLabel : ''}}</text>
               </view>
               <text

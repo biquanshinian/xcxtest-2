@@ -3,6 +3,7 @@
  * node scripts/_tmp_smoke_sn_client.js
  */
 const fs = require('fs')
+const { setContentLangMem } = require('../utils/locale.js')
 const mapBuild = require('../subpackages/monitor-pages/space-notices/utils/map-build.js')
 
 let pass = 0
@@ -109,7 +110,7 @@ const color = marker[0] && marker[0].callout && marker[0].callout.color
 ok(typeof bg === 'string' && /^#[0-9A-Fa-f]{6}$/.test(bg), '浅色 callout bgColor 为 6 位实色', bg)
 ok(typeof color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(color), '浅色 callout color 为 6 位实色', color)
 ok(!(bg || '').includes('rgba') && !(color || '').includes('rgba'), 'callout 不使用 rgba')
-ok(/pad-marker-red\.png/.test(marker[0].iconPath || ''), 'marker 用红色钉', marker[0].iconPath)
+ok(!marker[0].iconPath, 'marker 不传 iconPath，走微信原生红钉', marker[0].iconPath)
 ok(!/station-marker/.test(marker[0].iconPath || ''), '不再用绿色 ISS marker')
 
 console.log('\n[4] API getEntry 参数')
@@ -118,7 +119,26 @@ ok(/entryKey/.test(apiSrc) && /ll2Id/.test(apiSrc), 'API 同时支持 entryKey /
 
 const mapJs = fs.readFileSync('subpackages/monitor-pages/space-notices/notice-map.js', 'utf8')
 const mapWxml = fs.readFileSync('subpackages/monitor-pages/space-notices/notice-map.wxml', 'utf8')
-ok(/hasTrajectory/.test(mapJs) && /wx:if="\{\{hasTrajectory\}\}"/.test(mapWxml), '详情页按 hasTrajectory 显隐轨迹层')
+ok(/hasTrajectory/.test(mapJs) && /mapScope === 'mission' && hasTrajectory/.test(mapWxml), '详情页按 hasTrajectory 显隐轨迹层')
+ok(/mapRegion:\s*'global'/.test(mapJs), '默认视野全程')
+ok(/spaceNoticeDisplayTitle/.test(mapJs) && !/buildPadMarker\(pad,\s*this\._entry/.test(mapJs), '定位角标走统一汉化标题')
+
+console.log('\n[5] 任意任务角标汉化（与列表卡同一套规则）')
+setContentLangMem('zh')
+const pad = { latitude: 25.99, longitude: -97.15, name: 'Pad' }
+const MARKER_CASES = [
+  ['Flight 2', '第2次飞行'],
+  ['Flight 13', '第13次飞行'],
+  ['Starlink Group 17-51', '星链组 17-51'],
+  ['NROL-95', '国家侦察局-95'],
+  ['Crew-10', '载人-10'],
+  ['第2次飞行', '第2次飞行']
+]
+MARKER_CASES.forEach(([raw, want]) => {
+  const m = mapBuild.buildPadMarker(pad, raw, { light: true })
+  const got = m[0] && m[0].callout && m[0].callout.content
+  ok(got === want, `${raw} → ${want}`, got)
+})
 
 console.log('\n=== CLIENT SMOKE: ' + pass + ' passed, ' + fail + ' failed ===')
 process.exit(fail ? 1 : 0)

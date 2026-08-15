@@ -3,9 +3,7 @@
  */
 
 const { fetchMissionLaunchStatsFromCloud } = require('../../../utils/launch-stats-cloud.js')
-const { translateRocketName } = require('../../../utils/rocket-name-i18n.js')
 const { getContentLang } = require('../../../utils/locale.js')
-const { translateAgencyName } = require('../../../utils/space-terms-i18n.js')
 
 /** 统计卡型号/发射商标签跟任务卡语言对齐 */
 function localizeMissionStatsLabels(stats, mission) {
@@ -31,7 +29,6 @@ function localizeMissionStatsLabels(stats, mission) {
     (mission && mission.rocketName && /[\u4e00-\u9fff]/.test(mission.rocketName)
       ? mission.rocketName
       : '') ||
-    translateRocketName(out.rocketLabel || (pack && pack.rocketNameEn) || '') ||
     out.rocketLabel ||
     ''
   out.rocketLabel = rocketZh
@@ -40,10 +37,7 @@ function localizeMissionStatsLabels(stats, mission) {
   if (!rawProvider || rawProvider === '发射商' || /^provider$/i.test(rawProvider)) {
     out.providerLabel = '发射商'
   } else if (!/[\u4e00-\u9fff]/.test(rawProvider)) {
-    out.providerLabel =
-      translateAgencyName(rawProvider, mission && mission.launchAgencyAbbrev) ||
-      (pack && pack.launchAgencyZh) ||
-      rawProvider
+    out.providerLabel = (pack && pack.launchAgencyZh) || rawProvider
   }
   return out
 }

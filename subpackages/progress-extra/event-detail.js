@@ -71,7 +71,8 @@ function pickShareImageFromStarshipMissions(missions, launchId) {
 }
 const { getSystemInfo } = require('../../utils/system.js')
 const { togglePageTranslation } = require('./utils/text-translate.js')
-const { translateAgencyName } = require('../../utils/space-terms-i18n.js')
+const { pickDisplayComment, hasUsableZh } = require('./utils/ll2-updates-i18n.js')
+const { pickLocalized, zhField } = require('../../utils/locale.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { parseShareStamp, SHARE_GATE_TTL_MS } = require('./utils/share-gate.js')
 const {
@@ -306,7 +307,13 @@ Page({
     const rows = this.data.ll2DetailLaunchUpdates || []
     const fields = []
     rows.forEach((u, i) => {
-      if (u && u.comment) fields.push({ path: 'descI18n.launchUpdates[' + i + ']', text: u.comment })
+      if (u && u.comment) {
+        fields.push({
+          path: 'descI18n.launchUpdates[' + i + ']',
+          text: u.comment,
+          zh: u.commentZh || ''
+        })
+      }
     })
     if (!fields.length) return
     togglePageTranslation(this, {
@@ -496,10 +503,14 @@ Page({
         fetchLl2LaunchUpdates(manualId, 48, { autoStarship }),
         getUpcomingStarshipMissions(10, 0).catch(() => ({ list: [] }))
       ])
-      const list = (res.list || []).map((item) => ({
-        ...item,
-        timeLabel: formatEventTime(item.createdOn)
-      }))
+      const list = (res.list || []).map((item) => {
+        const commentZh = pickDisplayComment(item.comment, item.commentZh)
+        return {
+          ...item,
+          commentZh,
+          timeLabel: formatEventTime(item.createdOn)
+        }
+      })
       const missions = normalizeNsfStarshipMissionCards(starshipRes && starshipRes.list)
       this._starshipShareMissions = missions
       this._starshipShareLaunchId = res.launchId || ''
@@ -508,9 +519,8 @@ Page({
         loading: false,
         detailLl2Refreshing: false,
         ll2DetailLaunchUpdates: list,
-        // 列表刷新后清掉旧译文（条目/顺序可能已变化）
-        luTranslated: false,
-        'descI18n.launchUpdates': []
+        luTranslated: list.some((u) => u && hasUsableZh(u.commentZh)),
+        'descI18n.launchUpdates': list.map((u) => (u && hasUsableZh(u.commentZh) ? u.commentZh : ''))
       })
       this._syncStarshipPageShareImage({
         missions,
@@ -655,12 +665,11 @@ Page({
       const result = res && res.result
       if (result && result.success && result.data) {
         const data = result.data
-        // 参与机构名称走词典恒中文（词典未命中保留英文原名）
         if (Array.isArray(data.agencies)) {
           data.agencies = data.agencies.map((a) => {
             if (!a) return a
-            const zh = translateAgencyName(a.name, a.abbrev)
-            return zh ? { ...a, name: zh } : a
+            const zh = a.nameZh || zhField(a, 'name')
+            return zh ? { ...a, name: pickLocalized(zh, a.name) } : a
           })
         }
         this.setData({ ll2DetailedData: data, ll2DetailedLoading: false, updTranslated: false, 'descI18n.updates': [] })

@@ -90,7 +90,7 @@ hasAll(
   [
     'normalizeSplashNotice',
     'buildSplashMissionPayload',
-    'enrichMissionsLaunchAgencyImages',
+    'enrichOneMissionAgencyLogo',
     'applyLaunchAgencyLogoOverridesToMission',
     'SPLASH_NOTICE_FONTS',
     'SPLASH_NOTICE_MAX_LEN',
