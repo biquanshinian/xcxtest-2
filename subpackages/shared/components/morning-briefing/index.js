@@ -8,6 +8,12 @@ const storageCache = require('../../../../utils/storage-sync-cache.js')
 const themeUtil = require('../../../../utils/theme.js')
 const { resolveTweetAccountAvatarUrl } = require('../../utils/event-share-image.js')
 const {
+  getEventIntelContext,
+  decorateEventItem,
+  pickTodayHighlights,
+  slimHighlightItem
+} = require('../../../../utils/event-feed-intel.js')
+const {
   isChineseRocketContext,
   softenChineseRocketFailureText
 } = require('../../../../utils/api-request.js')
@@ -174,6 +180,7 @@ Component({
     tweetStats: [],
     tweetTotal: 0,
     tweetEventLoading: false,
+    tweetHighlights: [],
     popupScrollHeightPx: 420,
     /* root-portal 弹窗脱离页面 DOM，继承不到页面根的 theme-light 变量，组件自行挂主题类 */
     themeClass: ''
@@ -714,7 +721,7 @@ Component({
     _loadTweetStats() {
       var self = this
       if (!wx.cloud) {
-        self.setData({ tweetEventLoading: false, tweetStats: [], tweetTotal: 0 })
+          self.setData({ tweetEventLoading: false, tweetStats: [], tweetTotal: 0, tweetHighlights: [] })
         return
       }
       // 当日缓存先上屏（秒开），云端结果回来后静默刷新
@@ -730,6 +737,7 @@ Component({
           })
         }
       } catch (e0) {}
+      self._loadTweetHighlights()
       try {
         wx.cloud.callFunction({
           name: 'userDataGateway',
@@ -761,6 +769,49 @@ Component({
       } catch (e) {
         self.setData({ tweetEventLoading: false })
       }
+    },
+
+    _loadTweetHighlights() {
+      var self = this
+      if (!wx.cloud || !wx.cloud.database) return
+      var cacheKey = '_briefing_tweet_highlights_cache'
+      var todayYmd = utcToBeijingYmd(new Date().toISOString())
+      try {
+        var cached = storageCache.readMemOrSync(cacheKey, null)
+        if (cached && cached.date === todayYmd && Array.isArray(cached.list) && cached.list.length) {
+          self.setData({ tweetHighlights: cached.list })
+        }
+      } catch (e0) {}
+      try {
+        var ctx = getEventIntelContext()
+        wx.cloud.database().collection('starship_event_updates')
+          .where({ status: 'published' })
+          .orderBy('publishedAt', 'desc')
+          .limit(12)
+          .get()
+          .then(function (res) {
+            var rows = (res && res.data) || []
+            var allow = ctx.watchSources || []
+            if (allow.length) {
+              var map = {}
+              allow.forEach(function (s) { map[s] = 1 })
+              rows = rows.filter(function (r) { return r && map[r.source] })
+            }
+            var decorated = rows.map(function (r) { return decorateEventItem(r, ctx) })
+            var picked = pickTodayHighlights(decorated, Date.now(), 3)
+              .map(function (it) { return slimHighlightItem(it) })
+              .filter(Boolean)
+            self.setData({ tweetHighlights: picked })
+            try { storageCache.persistAsync(cacheKey, { date: todayYmd, list: picked }) } catch (e1) {}
+          })
+          .catch(function () {})
+      } catch (e2) {}
+    },
+
+    onTweetHighlightTap(e) {
+      var id = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.id
+      if (!id) return
+      navigateTo(ROUTES.EVENT_DETAIL, { id: String(id) })
     },
 
     async onTweetAccountTap(e) {

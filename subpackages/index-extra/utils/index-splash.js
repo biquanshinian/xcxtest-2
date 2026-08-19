@@ -550,15 +550,6 @@ const methods = {
       if (!resolved) return
       if (prefetch) prefetch.consumed = true
 
-      // 配了任务：立刻预热即将发射列表（fire-and-forget），
-      // 让 _showSplash 后的倒计时卡片匹配少等一整段网络往返
-      // （下方会员门控 / 视频预取的 await 期间请求已在路上，withListSnapshot 会去重复用）
-      if (resolved.missionName || resolved.launchId) {
-        try {
-          getUpcomingMissionsAny(20).catch(() => {})
-        } catch (e) {}
-      }
-
       // 可播门控：过审关视频 → 降级封面，不挂 <video>。
       // 开屏视频对非会员开放（播的是压缩预览片，体积小），不走非会员强制封面策略；
       // 仅省流/紧急流量档收紧为「非 Pro 降级封面」，作为 COS 成本熔断
@@ -660,6 +651,9 @@ const methods = {
         launchId: resolved.launchId,
         notice: splashNotice
       })
+      if (typeof this._releaseSplashCountdownGate === 'function') {
+        this._releaseSplashCountdownGate(streamingRemote ? 500 : 0)
+      }
 
       // 后台刷新完整配置与本地预下载（不改变本次已展示内容）
       // mediaItems 优先存云端原数组（含 previewStatus），避免二次 normalize 丢状态后误退原片
@@ -774,11 +768,16 @@ const methods = {
       }
     } catch (e) {
       // 静默失败，不影响主页加载
+    } finally {
+      if (!this._splashUiActive && !this.data.splashVisible && typeof this._releaseSplashCountdownGate === 'function') {
+        this._releaseSplashCountdownGate()
+      }
     }
   },
 
   _showSplash(opts) {
-    if (this.data.splashVisible) return
+    if (this.data.splashVisible || this._splashUiActive) return
+    this._splashUiActive = true
     const mediaType = opts.mediaType || 'image'
     const mediaUrl = opts.mediaUrl || ''
     const posterUrl = opts.posterUrl || ''
@@ -1294,6 +1293,9 @@ const methods = {
     }
 
     try {
+      if (typeof this._waitSplashGateForCountdown === 'function') {
+        await this._waitSplashGateForCountdown()
+      }
       const result = await getUpcomingMissionsAny(20)
       const list = result && Array.isArray(result.list) ? result.list : []
       // 归一化：小写、去空格与标点，互相包含即视为命中
@@ -1740,6 +1742,10 @@ const methods = {
 
   closeSplash() {
     if (this.data.splashFading) return
+    if (typeof this._releaseSplashCountdownGate === 'function') {
+      this._releaseSplashCountdownGate(0)
+    }
+    this._splashUiActive = false
     if (this._splashTimer) {
       clearInterval(this._splashTimer)
       this._splashTimer = null
@@ -1763,6 +1769,11 @@ const methods = {
       } catch (e) {}
     }
     this.setData({ splashFading: true })
+    try {
+      if (typeof this._flushSplashDeferredListOnly === 'function') {
+        this._flushSplashDeferredListOnly()
+      }
+    } catch (eList) {}
     setTimeout(() => {
       this.setData({
         splashVisible: false,
@@ -1771,12 +1782,18 @@ const methods = {
         splashNotice: null,
         splashMission: null,
         splashMissionCd: null
+      }, () => {
+        try {
+          if (typeof this._flushSplashDeferredNetwork === 'function') {
+            this._flushSplashDeferredNetwork()
+          } else if (typeof this._flushSplashDeferredHomeWork === 'function') {
+            this._flushSplashDeferredHomeWork()
+          }
+        } catch (eFlush) {}
+        const app = getApp()
+        if (app && typeof app.setSplashActive === 'function') app.setSplashActive(false)
+        setTimeout(() => this._maybePromptPrivacy(), 200)
       })
-      // 开屏结束：恢复隐私禁触遮罩（若门控仍激活），并接力弹隐私授权窗
-      const app = getApp()
-      if (app && typeof app.setSplashActive === 'function') app.setSplashActive(false)
-      // 开屏结束后再检查隐私授权，避免弹窗被品牌开屏盖住
-      setTimeout(() => this._maybePromptPrivacy(), 200)
     }, 500)
   },
 }

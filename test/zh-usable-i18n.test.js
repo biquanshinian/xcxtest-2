@@ -338,3 +338,23 @@ test('短语规则半译落点说明仍须送原文机翻', () => {
   assert.equal(isUsableZhText(prepared), false)
   assert.equal(shouldMachineTranslate(prepared), true)
 })
+
+test('历史瘦卡 Unknown rocket 从 name 拆出猎鹰9号，不再粘英文占位', () => {
+  const { applyContentLangToMission } = require('../utils/launch-card-i18n.js')
+  const { setContentLangMem } = require('../utils/locale.js')
+  setContentLangMem('zh')
+  const mission = applyContentLangToMission({
+    name: 'Falcon 9 | Starlink Group 17-50',
+    rocketName: 'Unknown rocket',
+    padLocation: '未知地点',
+    _langPack: {
+      rocketNameEn: 'Unknown rocket',
+      rocketNameZh: '',
+      padLocationEn: 'Unknown location',
+      padLocationZh: '未知地点',
+      nameEn: 'Falcon 9 | Starlink Group 17-50'
+    }
+  })
+  assert.equal(mission.rocketName, '猎鹰9号')
+  assert.notEqual(mission.rocketName, 'Unknown rocket')
+})

@@ -31,7 +31,9 @@ Component({
     isProUser: { type: Boolean, value: false },
     pressedEventId: { type: String, value: '' },
     enableEventVideo: { type: Boolean, value: false },
-    enableLiveEntry: { type: Boolean, value: false }
+    enableLiveEntry: { type: Boolean, value: false },
+    eventUpdatesView: { type: Array, value: [] },
+    eventNewCount: { type: Number, value: 0 }
   },
 
   methods: {
@@ -63,6 +65,42 @@ Component({
     emitOnEventScrollRefresh(e) { this._emit('onEventScrollRefresh', e) },
     emitOnEventScrollToLower(e) { this._emit('onEventScrollToLower', e) },
     emitToggleEventUpdatesExpanded(e) { this._emit('toggleEventUpdatesExpanded', e) },
-    emitOnAvatarError(e) { this._emit('onAvatarError', e) }
+    emitOnAvatarError(e) { this._emit('onAvatarError', e) },
+    _pickRelatedLaunchNav(e) {
+      const d = (e && e.detail) || {}
+      const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
+      const id = d.id || d.launchId || ds.launchId || ds.launchid
+      if (id == null || String(id).trim() === '') return null
+      const typeRaw = d.type || d.launchType || ds.launchType || ds.launchtype
+      return {
+        launchId: String(id).trim(),
+        launchType: typeRaw === 'completed' ? 'completed' : 'upcoming',
+        favorited: d.favorited
+      }
+    },
+    onRelatedLaunchTap(e) {
+      const nav = this._pickRelatedLaunchNav(e)
+      if (!nav) return
+      this.triggerEvent('sectionevent', {
+        name: 'onRelatedLaunchTap',
+        dataset: { launchId: nav.launchId, launchType: nav.launchType },
+        edetail: { id: nav.launchId, type: nav.launchType, launchId: nav.launchId, launchType: nav.launchType }
+      })
+    },
+    onToggleRelatedLaunchFavorite(e) {
+      const nav = this._pickRelatedLaunchNav(e)
+      if (!nav) return
+      this.triggerEvent('sectionevent', {
+        name: 'onToggleRelatedLaunchFavorite',
+        dataset: { launchId: nav.launchId, launchType: nav.launchType },
+        edetail: {
+          id: nav.launchId,
+          type: nav.launchType,
+          favorited: nav.favorited,
+          launchId: nav.launchId,
+          launchType: nav.launchType
+        }
+      })
+    }
   }
 })

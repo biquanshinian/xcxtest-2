@@ -1,19 +1,31 @@
-<!-- 封路通知横幅（点击跳转详情页，日历视图隐藏） -->
-<view class="road-closure-banner" wx:if="{{notice && notice.isActive && missionType !== 'calendar'}}" bindtap="emitOpen">
-  <view class="road-closure-icon-wrap">
-    <text class="road-closure-icon">⚠</text>
-  </view>
-  <view class="road-closure-content">
-    <view class="road-closure-title-row">
-      <text class="road-closure-title">星舰基地封路通知</text>
-      <text class="road-closure-source" wx:if="{{notice.sourceLabel}}">{{notice.sourceLabel}}</text>
-    </view>
-    <view class="road-closure-msg-scroll">
-      <view class="road-closure-msg-track">
-        <text class="road-closure-msg" user-select="{{true}}">{{notice.message || 'Boca Chica 道路封闭中'}}</text>
-        <text class="road-closure-msg" aria-hidden="true">{{notice.message || 'Boca Chica 道路封闭中'}}</text>
+<!-- 封路通知：路牌灯箱跑马灯（点击进详情，日历视图隐藏） -->
+<view
+  class="road-closure-host {{themeClass}}"
+  wx:if="{{visible}}"
+  bindtap="emitOpen"
+  hover-class="road-closure-host--pressed"
+  hover-stay-time="80"
+>
+  <view class="road-closure-banner">
+    <view class="road-closure-rail"></view>
+    <view class="road-closure-side">
+      <view class="road-closure-chip">
+        <view class="road-closure-dot"></view>
+        <text class="road-closure-chip-text">封路</text>
       </view>
+      <text class="road-closure-source" wx:if="{{previewNotice.sourceLabel}}">{{previewNotice.sourceLabel}}</text>
     </view>
+    <view class="road-closure-ticker">
+      <text class="road-closure-ticker-probe">{{displayText}}</text>
+      <view class="road-closure-ticker-fade road-closure-ticker-fade--left" wx:if="{{scrolling}}"></view>
+      <view class="road-closure-ticker-track {{scrolling ? 'is-scrolling' : ''}}" style="{{trackStyle}}">
+        <text class="road-closure-ticker-item">{{displayText}}</text>
+        <view class="road-closure-sep" wx:if="{{scrolling}}"></view>
+        <text class="road-closure-ticker-item" wx:if="{{scrolling}}" aria-hidden="true">{{displayText}}</text>
+        <view class="road-closure-sep" wx:if="{{scrolling}}"></view>
+      </view>
+      <view class="road-closure-ticker-fade road-closure-ticker-fade--right" wx:if="{{scrolling}}"></view>
+    </view>
+    <text class="road-closure-arrow">›</text>
   </view>
-  <text class="road-closure-arrow">›</text>
 </view>

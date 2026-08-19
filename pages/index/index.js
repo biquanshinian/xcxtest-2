@@ -14,6 +14,7 @@ const {
   invalidateContentLangCache
 } = require('../../utils/locale.js')
 const {
+  applyContentLangToMission,
   applyContentLangToMissionList,
   rocketNameForImage
 } = require('../../utils/launch-card-i18n.js')
@@ -101,8 +102,7 @@ const {
 } = require('../../utils/index-mission-nav.js')
 const { loadMoreInteraction, missionCardCountdown } = require('../../utils/config.js')
 const config = require('../../utils/config.js')
-const { loadCloudMediaMap } = require('../../utils/image-config.js')
-const { preloadRocketConfigMedia } = require('../../utils/icon-cache.js')
+const { loadCloudMediaMap, isCloudMediaMapReady } = require('../../utils/image-config.js')
 
 
 function getLiveFinderUserNameFromConfig() {
@@ -149,11 +149,10 @@ const LIVE_STATUS_MIN_ROUND_GAP_MS = 30 * 1000
 // 结算→历史列表合并域：必须主包同步加载（_filterUpcomingAgainstSettled 等大量同步返回值调用点）
 const {
   methods: settledMergeMethods,
-  isSettleableLiveStatusId,
-  RECENT_SETTLED_MEM_TTL_MS
+  isSettleableLiveStatusId
 } = require('./utils/index-settled-merge.js')
-
-const RECENT_SETTLED_FIRST_PAINT_BUDGET_MS = 2000
+const { methods: countdownBootMethods } = require('./utils/index-countdown-boot.js')
+const splashHomeDefer = require('./utils/index-splash-home-defer.js')
 
 
 // 非会员任务列表免费可见条数（即将发射 / 历史发射各自计）；
@@ -332,6 +331,7 @@ const CAROUSEL_METHODS = [
   '_stopCarouselVideo',
   '_updateCarouselAutoplayGate',
   '_activateCarouselVideos',
+  '_deactivateCarouselVideos',
   '_playCurrentVideoIfNeeded',
   'onCarouselChange',
   'onCarouselVideoTimeUpdate',
@@ -502,6 +502,7 @@ const UX_METHODS = [
   "onRenewalClosed",
   "_tryShowRenewalReminder",
   "_tryShowNetChangeModal",
+  "_prewarmNetChangeScan",
   "ensureShareImageHttpUrl"
 ]
 function delegateUx(name) {
@@ -645,7 +646,7 @@ Page({
   onLoad(options) {
     this._pageLoadAt = Date.now()
     this._launchRecordsById = new Map()
-    this._launchStateGeneration = 0
+    this._launchStateGeneration = 1
     this._appliedContentLang = getContentLang()
     this.setData(this._buildContentLangUiPatch())
     // 尽早校时：设备时钟偏移会让倒计时整体错位并误触发 T-0 探针。
@@ -654,6 +655,23 @@ Page({
     // 冷启动立即异步回灌上次会话的 recent_settled 快照：
     // 首屏列表过滤可直接用本地快照，不再被 ll2Query 冷启动（数秒）卡住
     this._hydrateRecentSettledFromStorage()
+    try {
+      const bootApp = getApp()
+      if (bootApp && Array.isArray(bootApp._countdownBootList) && bootApp._countdownBootList.length) {
+        this._countdownBootList = bootApp._countdownBootList
+        this._paintCountdownFromBootCache(this._launchStateGeneration)
+      }
+    } catch (eBootSync) {}
+    this._hydrateCountdownBootFromStorage().then(() => {
+      try {
+        // 已过首帧，可以放心吃同步的本地列表缓存（比引导快照存活更久）
+        this._paintCountdownFromBootCache(this._launchStateGeneration, { allowLocalApi: true })
+      } catch (eBoot) {}
+    })
+    this._splashCountdownGateReleased = false
+    this._splashCountdownGate = new Promise((resolve) => {
+      this._splashCountdownGateResolve = resolve
+    })
     // 后台探云发现 previous/upcoming 变新鲜时刷新 UI（此前只有 monitor 订了 onStaleUpdate）
     this._offLaunchListStale = onLaunchListStale((info) => {
       try {
@@ -771,20 +789,6 @@ Page({
       try {
         warmMembershipStateAsync()
       } catch (e) {}
-      void loadCloudMediaMap().catch(() => {})
-
-      // 竞猜预取：用上次会话缓存的首个可竞猜任务 id 提前发起云端查询，
-      // 与任务列表加载并行（结果在 loadVoteData 中复用），显著缩短竞猜框首次出现时间
-      wx.getStorage({
-        key: '_vote_eligible_ids',
-        success: (res) => {
-          const ids = Array.isArray(res.data) ? res.data : []
-          const firstId = ids[0] ? String(ids[0]) : ''
-          if (!firstId) return
-          this._votePrefetchId = firstId
-          this._votePrefetchPromise = getVoteStats(firstId, false, null).catch(() => null)
-        }
-      })
 
       // Tab 切换加载门控：首屏列表加载期间可显示全屏星闪（热切无重载不闪）
       try {
@@ -1087,7 +1091,11 @@ Page({
   },
 
   _isLaunchStateGenerationCurrent(generation) {
-    return !generation || generation === this._launchStateGeneration
+    return splashHomeDefer.isLaunchStateGenerationCurrent(this._launchStateGeneration, generation)
+  },
+
+  _isSplashBlockingHomeWork() {
+    return splashHomeDefer.isSplashBlockingHomeWork(this)
   },
 
   _projectAuthoritativeLaunchState(upcoming, completed, now) {
@@ -1188,7 +1196,22 @@ Page({
       ],
       'detail'
     )
-    const projected = this._projectAuthoritativeLaunchState(this.data.upcomingMissions, this.data.completedMissions)
+    const displayPatch =
+      typeof this._pickDetailDisplayFields === 'function' ? this._pickDetailDisplayFields(observation) : {}
+    const overlayDisplay = (list) => {
+      if (!observation || observation.id == null || !Object.keys(displayPatch).length) return list
+      const idStr = String(observation.id)
+      return (Array.isArray(list) ? list : []).map((item) => {
+        if (!item || String(item.id) !== idStr) return item
+        const next = { ...item, ...displayPatch }
+        delete next._langPack
+        return applyContentLangToMission(next)
+      })
+    }
+    const projected = this._projectAuthoritativeLaunchState(
+      overlayDisplay(this.data.upcomingMissions),
+      overlayDisplay(this.data.completedMissions)
+    )
     const completed = this._mergeRecentSettledIntoCompletedList(
       projected.completed,
       Array.from(this._launchRecordsById.values())
@@ -1893,19 +1916,18 @@ Page({
 
   async fetchMissionList(type, limit = 50, offset = 0, options = {}) {
     const normalized = type === 'completed' ? 'completed' : 'upcoming'
-    // 即将发射首屏/刷新：强制拉 recent_settled，与倒计时同拍；加载更多用内存缓存即可
+    // 即将发射：settled hydrate 与列表请求并行，避免本地存储挡住 upcoming 入队（开屏卡复用 in-flight）
+    let settledReady = Promise.resolve()
     if (normalized === 'upcoming') {
       try {
         if (options && options.settledManagedByCaller) {
-          // 首屏路径：云端快照由 loadInitialData 并行在拉，这里只等本地持久化快照
-          // hydrate 完成（毫秒级），避免串行等 ll2Query 冷启动
-          await this._hydrateRecentSettledFromStorage()
+          settledReady = Promise.resolve(this._hydrateRecentSettledFromStorage()).catch(() => {})
         } else {
-          await this._ensureRecentSettledCache(offset === 0)
+          settledReady = Promise.resolve(this._ensureRecentSettledCache(offset === 0)).catch(() => {})
         }
       } catch (e) {}
     }
-    const pack = await fetchMissionListData({
+    const packPromise = fetchMissionListData({
       type,
       limit,
       offset,
@@ -1914,6 +1936,8 @@ Page({
       formatDate,
       filterExpiredMissions
     })
+    await settledReady
+    const pack = await packPromise
     if (normalized === 'upcoming' && Array.isArray(pack.list)) {
       pack.list = this._filterUpcomingAgainstSettled(pack.list)
     }
@@ -2021,8 +2045,9 @@ Page({
     // 同一任务重复应用（如快速包→完整包两阶段首屏）时不清空已渲染的竞猜 UI，避免闪烁
     const voteTargetId = String(launchEffects.launchId || '')
     const voteAlreadyRendered = voteTargetId && String(this._voteRenderedLaunchId || '') === voteTargetId
-    if (launchEffects.shouldResetVote && !voteAlreadyRendered) this.resetVoteData()
     if (launchEffects.shouldUpdateCountdown) this.updateCountdown()
+    if (options.deferSecondary) return launchEffects
+    if (launchEffects.shouldResetVote && !voteAlreadyRendered) this.resetVoteData()
     if (launchEffects.shouldLoadVote) this.loadVoteData(launchEffects.launchId, launchEffects.voteSkipCache)
 
     // 推迟徽标：任务确定 / 切换时异步拉取 LL2 updates 计算累计推迟数据
@@ -2114,7 +2139,15 @@ Page({
         : null
 
     try {
-      this._kickQuietSettlePastNetUpcoming(list, now)
+      if (this.data.splashVisible) {
+        this._runAfterSplashOrNow(() => {
+          try {
+            this._kickQuietSettlePastNetUpcoming(list, getServerNow())
+          } catch (eKick) {}
+        }, 'quietSettle')
+      } else {
+        this._kickQuietSettlePastNetUpcoming(list, now)
+      }
     } catch (e) {}
 
     const { panelMission } = this._resolveCountdownPanelMission(list, now)
@@ -2130,6 +2163,21 @@ Page({
       })
       if (completedMerge) emptyState.completedMissions = completedMerge
       this.applyUpcomingAgencyFilterToPatch(emptyState, [])
+      if (splashHomeDefer.shouldKeepCountdownOnEmptyApply(this, panelMission)) {
+        this._pendingUpcomingListCommit = {
+          extraState: emptyState,
+          afterList: () => {
+            this.resetVoteData()
+            this.scheduleUpcomingAgencyChipsOverflowHint()
+            if (completedMerge) {
+              try {
+                this.updateMissionListView('completed', completedMerge)
+              } catch (e2) {}
+            }
+          }
+        }
+        return
+      }
       this.setData(emptyState, () => {
         this.scheduleUpcomingAgencyChipsOverflowHint()
         if (completedMerge) {
@@ -2150,6 +2198,16 @@ Page({
       })
       if (completedMerge) emptyState.completedMissions = completedMerge
       this.applyUpcomingAgencyFilterToPatch(emptyState, list)
+      if (splashHomeDefer.shouldKeepCountdownOnEmptyApply(this, null)) {
+        this._pendingUpcomingListCommit = {
+          extraState: emptyState,
+          afterList: () => {
+            this.resetVoteData()
+            this.scheduleUpcomingAgencyChipsOverflowHint()
+          }
+        }
+        return
+      }
       this.setData(emptyState, () => this.scheduleUpcomingAgencyChipsOverflowHint())
       this.resetVoteData()
       return
@@ -2166,7 +2224,7 @@ Page({
       }
       if (completedMerge) listPatch.completedMissions = completedMerge
       this.applyUpcomingAgencyFilterToPatch(listPatch, listPatch.upcomingMissions)
-      this.setData(listPatch, () => {
+      const afterSamePanelList = () => {
         this.syncCalendarFromMissionListsIfNeeded()
         this._syncCountdownOverlapSideCard()
         if (this.data.missionType === 'upcoming') {
@@ -2177,7 +2235,24 @@ Page({
             this.updateMissionListView('completed', completedMerge)
           } catch (e3) {}
         }
-      })
+        if (!this._isSplashBlockingHomeWork() && typeof this._prewarmNetChangeScan === 'function') {
+          this._prewarmNetChangeScan()
+        }
+      }
+      if (this._isSplashBlockingHomeWork()) {
+        try {
+          this._persistCountdownBootList(listPatch.upcomingMissions || list)
+        } catch (eBoot) {}
+        this._pendingUpcomingListCommit = { extraState: listPatch, afterList: afterSamePanelList }
+      } else {
+        this.setData(listPatch, afterSamePanelList)
+        try {
+          this._persistCountdownBootList(listPatch.upcomingMissions || list)
+        } catch (eBoot) {}
+        try {
+          this.applyLaunchSwitchEffects(panelMission)
+        } catch (eFx) {}
+      }
       this._upcomingAgencyEnrichGen = (this._upcomingAgencyEnrichGen || 0) + 1
       const enrichGen = this._upcomingAgencyEnrichGen
       const applyEnriched = (enriched) => {
@@ -2187,9 +2262,12 @@ Page({
         const fm = this._resolveCountdownPanelMission(nextList, getServerNow()).panelMission || panelMission
         this._patchUpcomingListAfterAgencyEnrich(fm, nextList, upcomingRes)
       }
-      enrichMissionsLaunchAgencyImages(list, { onMore: applyEnriched })
-        .then(applyEnriched)
-        .catch(() => {})
+      const startEnrich = () => {
+        enrichMissionsLaunchAgencyImages(list, { onMore: applyEnriched })
+          .then(applyEnriched)
+          .catch(() => {})
+      }
+      this._runAfterSplashOrNow(startEnrich, 'agencyEnrich')
       return
     }
 
@@ -2223,9 +2301,11 @@ Page({
       if (!this._upcomingAgencyLogoFieldsChanged(baselineList, nextList)) return
       this._patchUpcomingListAfterAgencyEnrich(fm, nextList, upcomingRes)
     }
-    enrichMissionsLaunchAgencyImages(baselineList, { onMore: applyEnriched })
-      .then(applyEnriched)
-      .catch(() => {})
+    this._runAfterSplashOrNow(() => {
+      enrichMissionsLaunchAgencyImages(baselineList, { onMore: applyEnriched })
+        .then(applyEnriched)
+        .catch(() => {})
+    }, 'agencyEnrich')
   },
 
   
@@ -2350,37 +2430,41 @@ Page({
     }
     this.applyUpcomingAgencyFilterToPatch(extraState, extraState.upcomingMissions)
 
-    this.setData(
-      {
-        ...buildCurrentLaunchPanelState({
-          mission: firstMission,
-          formatDate,
-          getStatusTextZh,
-          subscribedIdSet: this._getPageSubscribedIdSet(),
-          extraState
-        })
-      },
-      () => {
-        this.syncCalendarFromMissionListsIfNeeded()
-        this._syncCountdownOverlapSideCard()
-        if (this.data.missionType === 'upcoming') {
-          this._resetMissionCardHaptics()
-          this._scheduleMissionCardMeasurement(true)
-          this.scheduleUpcomingAgencyChipsOverflowHint()
-        }
-        if (Array.isArray(safeOptions.completedMissions)) {
-          try {
-            this.updateMissionListView('completed', safeOptions.completedMissions)
-          } catch (e) {}
-        }
+    const panelState = buildCurrentLaunchPanelState({
+      mission: firstMission,
+      formatDate,
+      getStatusTextZh,
+      subscribedIdSet: this._getPageSubscribedIdSet(),
+      extraState: { loadError: false, errorMessage: '' }
+    })
+    const afterList = () => {
+      this.syncCalendarFromMissionListsIfNeeded()
+      this._syncCountdownOverlapSideCard()
+      if (this.data.missionType === 'upcoming') {
+        this._resetMissionCardHaptics()
+        this._scheduleMissionCardMeasurement(true)
+        this.scheduleUpcomingAgencyChipsOverflowHint()
+      }
+      if (Array.isArray(safeOptions.completedMissions)) {
         try {
-          var ids = []
-          for (var vi = 0; vi < Math.min(7, upcomingList.length); vi++) {
-            if (upcomingList[vi] && upcomingList[vi].id) ids.push(String(upcomingList[vi].id))
-          }
-          wx.setStorage({ key: '_vote_eligible_ids', data: ids, fail: () => {} })
+          this.updateMissionListView('completed', safeOptions.completedMissions)
         } catch (e) {}
+      }
+      try {
+        var ids = []
+        for (var vi = 0; vi < Math.min(7, upcomingList.length); vi++) {
+          if (upcomingList[vi] && upcomingList[vi].id) ids.push(String(upcomingList[vi].id))
+        }
+        wx.setStorage({ key: '_vote_eligible_ids', data: ids, fail: () => {} })
+      } catch (e) {}
+      try {
+        this._persistCountdownBootList(upcomingList)
+      } catch (eBoot) {}
+      if (!this._isSplashBlockingHomeWork() && typeof this._prewarmNetChangeScan === 'function') {
+        this._prewarmNetChangeScan()
+      }
 
+      if (this._splashCountdownGateReleased && !this._isSplashBlockingHomeWork()) {
         Promise.resolve(loadCloudMediaMap())
           .catch(() => {})
           .finally(() => {
@@ -2389,13 +2473,188 @@ Page({
             this._syncCountdownOverlapSideCard()
           })
       }
-    )
+    }
+    const blocking = this._isSplashBlockingHomeWork()
+    const effectsOpts = {
+      ...safeOptions,
+      deferSecondary: !!(safeOptions.deferSecondary || blocking)
+    }
+    const commitList = () => {
+      if (this._isSplashBlockingHomeWork()) {
+        this._pendingUpcomingListCommit = { extraState, afterList }
+        return
+      }
+      this.setData(extraState, afterList)
+    }
+    // 开屏还在播 / 即将播：只上倒计时面板，任务卡延后，避免卡预览片
+    if (blocking) {
+      try {
+        this._persistCountdownBootList(upcomingList)
+      } catch (eBoot) {}
+      this._pendingUpcomingListCommit = { extraState, afterList }
+      this.setData(panelState)
+      this.applyLaunchSwitchEffects(firstMission, effectsOpts)
+      return
+    }
+    this.setData(panelState)
+    this.applyLaunchSwitchEffects(firstMission, effectsOpts)
+    if (safeOptions.countdownFirst) {
+      if (this._countdownListDeferTimer) {
+        clearTimeout(this._countdownListDeferTimer)
+        this._countdownListDeferTimer = null
+      }
+      this._countdownListDeferTimer = setTimeout(() => {
+        this._countdownListDeferTimer = null
+        commitList()
+      }, 0)
+      return
+    }
+    commitList()
+  },
 
-    this.applyLaunchSwitchEffects(firstMission)
+  _releaseSplashCountdownGate(delayMs) {
+    const run = () => {
+      this._splashGateDelayTimer = null
+      if (this._splashCountdownGateReleased) return
+      this._splashCountdownGateReleased = true
+      if (typeof this._splashCountdownGateResolve === 'function') {
+        try {
+          this._splashCountdownGateResolve()
+        } catch (e) {}
+      }
+    }
+    if (this._splashGateDelayTimer) {
+      clearTimeout(this._splashGateDelayTimer)
+      this._splashGateDelayTimer = null
+    }
+    const ms = Math.max(0, Number(delayMs) || 0)
+    if (ms > 0) {
+      this._splashGateDelayTimer = setTimeout(run, ms)
+      return
+    }
+    run()
+  },
+
+  _waitSplashGateForCountdown(maxMs) {
+    if (this._splashCountdownGateReleased) return Promise.resolve()
+    if (!this._splashCountdownGate) return Promise.resolve()
+    const budget = Number(maxMs) > 0 ? Number(maxMs) : splashHomeDefer.SPLASH_COUNTDOWN_GATE_MAX_MS
+    return new Promise((resolve) => {
+      let done = false
+      const finish = () => {
+        if (done) return
+        done = true
+        if (this._splashGateWaitTimer) {
+          clearTimeout(this._splashGateWaitTimer)
+          this._splashGateWaitTimer = null
+        }
+        resolve()
+      }
+      Promise.resolve(this._splashCountdownGate).then(finish, finish)
+      this._splashGateWaitTimer = setTimeout(finish, budget)
+    })
+  },
+
+  _runAfterSplashOrNow(fn, slot) {
+    if (typeof fn !== 'function') return
+    if (!this._isSplashBlockingHomeWork()) {
+      try {
+        fn()
+      } catch (e) {}
+      return
+    }
+    if (slot) {
+      this._afterSplashJobs = this._afterSplashJobs || {}
+      this._afterSplashJobs[slot] = fn
+      return
+    }
+    this._afterSplashQueue = splashHomeDefer.pushAfterSplashQueue(
+      this._afterSplashQueue,
+      fn,
+      splashHomeDefer.AFTER_SPLASH_QUEUE_MAX
+    )
+  },
+
+  _drainAfterSplashJobs(jobs) {
+    if (this._afterSplashStaggerTimer) {
+      clearTimeout(this._afterSplashStaggerTimer)
+      this._afterSplashStaggerTimer = null
+    }
+    const list = Array.isArray(jobs) ? jobs : []
+    let i = 0
+    const step = () => {
+      this._afterSplashStaggerTimer = null
+      if (i >= list.length) return
+      try {
+        list[i]()
+      } catch (e) {}
+      i += 1
+      if (i < list.length) {
+        this._afterSplashStaggerTimer = setTimeout(step, splashHomeDefer.AFTER_SPLASH_STAGGER_MS)
+      }
+    }
+    step()
+  },
+
+  _flushSplashDeferredListOnly() {
+    const pending = this._pendingUpcomingListCommit
+    this._pendingUpcomingListCommit = null
+    if (!pending || !pending.extraState) return
+    this.setData(pending.extraState, () => {
+      if (typeof pending.afterList === 'function') {
+        try {
+          pending.afterList()
+        } catch (eAfter) {}
+      }
+    })
+  },
+
+  _flushSplashDeferredNetwork() {
+    if (this.data.launchData && this.data.launchData.id) {
+      try {
+        this.applyLaunchSwitchEffects(this.data.launchData)
+      } catch (eFx) {}
+    }
+    const jobs = splashHomeDefer.collectAfterSplashJobs(this._afterSplashJobs, this._afterSplashQueue)
+    this._afterSplashJobs = null
+    this._afterSplashQueue = []
+    this._drainAfterSplashJobs(jobs)
+  },
+
+  _flushSplashDeferredHomeWork() {
+    this._flushSplashDeferredListOnly()
+    this._flushSplashDeferredNetwork()
+  },
+
+  _clearSplashDeferredHomeWork(runFlush) {
+    if (this._splashGateDelayTimer) {
+      clearTimeout(this._splashGateDelayTimer)
+      this._splashGateDelayTimer = null
+    }
+    if (this._splashGateWaitTimer) {
+      clearTimeout(this._splashGateWaitTimer)
+      this._splashGateWaitTimer = null
+    }
+    if (this._countdownListDeferTimer) {
+      clearTimeout(this._countdownListDeferTimer)
+      this._countdownListDeferTimer = null
+    }
+    if (this._afterSplashStaggerTimer) {
+      clearTimeout(this._afterSplashStaggerTimer)
+      this._afterSplashStaggerTimer = null
+    }
+    if (runFlush) {
+      this._flushSplashDeferredHomeWork()
+      return
+    }
+    this._pendingUpcomingListCommit = null
+    this._afterSplashJobs = null
+    this._afterSplashQueue = []
   },
 
   // ========== 结算→历史列表合并域（recent_settled 缓存/角标覆盖/补插/详情回写）：见 ./utils/index-settled-merge.js ==========
   ...settledMergeMethods,
+  ...countdownBootMethods,
 
   handleCompletedMissionLoadError(error) {
     const errorMessage = this.resolveMissionLoadErrorMessage(error, {
@@ -2725,106 +2984,89 @@ Page({
       async () => {
         const stateGeneration = this._beginLaunchStateGeneration()
         try {
-          if (getApp()._splashShownThisSession && !suppressLoading) {
+          const hasCountdown = !!(this.data.launchData && this.data.launchData.id)
+          if (!suppressLoading && !hasCountdown && !this.data.splashVisible && getApp()._splashShownThisSession) {
             wx.showLoading({ title: '加载中...' })
           }
 
-          // 媒体映射与列表接口并行；首屏仍有 2.5s 预算，超时后继续渲染，map 就绪后再统一刷新三处图
-          // 非会员只拉免费额度（与展示门控 / 后台 freeMissionListLimit 一致）
+          // 倒计时：本地快显 → 等开屏起播后再打云（避免和预览片抢带宽）。
           const fullCloud = canUsePaidCloudSync()
           const freeMissionLimit = getMemberPolicySync().freeMissionListLimit || FREE_MISSION_LIST_LIMIT
           const FULL_LIMIT = fullCloud ? 50 : freeMissionLimit
 
-          // recent_settled 云端快照与列表并行发起（旧实现串行 await，ll2Query 冷启动
-          // 直接把首屏拖到数秒）；列表过滤先用本地持久化快照兜底。
-          // 预算计时与列表/媒体等待同时开跑：首屏最坏 ≈ max(列表, 2.5s 媒体, 2s 快照)
-          const settledPromise = this._ensureRecentSettledCache(true).catch(() => null)
-          const settledFirstPaintWait = Promise.race([
-            settledPromise,
-            new Promise((resolve) => setTimeout(resolve, RECENT_SETTLED_FIRST_PAINT_BUDGET_MS))
-          ])
+          if (!forceRefresh) {
+            let painted = false
+            try {
+              painted = await this._paintCountdownFromBootCache(stateGeneration, {
+                allowLocalApi: true
+              })
+              if (painted) {
+                wx.hideLoading()
+                try {
+                  tabLoadPage.endPageLoad(tabLoadPage.TAB_ROUTES.index)
+                } catch (eTab) {}
+              }
+            } catch (eBootPaint) {}
+            // 空面板时只给小预算：让用户先看到数据，优先级高于给开屏预览片让带宽
+            const hasCountdown0 = painted || !!(this.data.launchData && this.data.launchData.id)
+            try {
+              await this._waitSplashGateForCountdown(
+                splashHomeDefer.resolveSplashGateWaitMs(hasCountdown0)
+              )
+            } catch (eGate) {}
+            // 开屏还在播时不拉竞猜/推迟/分享图，避免和预览片抢带宽
+            if (!this.data.splashVisible && this.data.launchData && this.data.launchData.id) {
+              try {
+                this.applyLaunchSwitchEffects(this.data.launchData)
+              } catch (eFx) {}
+            }
+          }
 
-          const [, pack] = await Promise.all([
-            Promise.race([
-              loadCloudMediaMap().catch(() => {}),
-              new Promise((r) => setTimeout(r, LOAD_CLOUD_MEDIA_MAP_FIRST_PAINT_BUDGET_MS))
-            ]),
-            Promise.race([
-              this.fetchMissionList('upcoming', FULL_LIMIT, 0, { settledManagedByCaller: true }),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('加载超时，请稍后再试')), 15000))
-            ])
+          const pack = await Promise.race([
+            this.fetchMissionList('upcoming', FULL_LIMIT, 0, { settledManagedByCaller: true }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('加载超时，请稍后再试')), 15000))
           ])
           let { res: upcomingRes, list: upcomingList } = pack
 
-          // 本地快照新鲜（10 分钟内）→ 不等云端直接上屏；过期/缺失才等，且最多 2s。
-          // 云端快照迟到时由下方后台补偿逻辑二次修正（scrub + 重过滤）。
-          const settledFresh =
-            Array.isArray(this._recentSettledCache) &&
-            this._recentSettledCacheAt &&
-            Date.now() - this._recentSettledCacheAt < RECENT_SETTLED_MEM_TTL_MS
-          if (!settledFresh) {
-            await settledFirstPaintWait
-          }
           if (!this._isLaunchStateGenerationCurrent(stateGeneration)) return
           upcomingList = this._filterUpcomingAgainstSettled(upcomingList || [])
 
-          // map 已就绪时，首屏盖章前按火箭名强制重算，避免把 default 写进倒计时/卡片
-          try {
-            upcomingList = (upcomingList || []).map((m) => {
-              if (!m) return m
-              const cfg = m.rocketConfiguration
-              const hasName = !!(m.rocketName && String(m.rocketName).trim())
-              const hasCfg = !!(
-                cfg &&
-                typeof cfg === 'object' &&
-                ((typeof cfg.name === 'string' && cfg.name.trim()) ||
-                  (typeof cfg.full_name === 'string' && cfg.full_name.trim()))
-              )
-              if (!hasName && !hasCfg) return m
-              const rebuilt = resolveMissionRocketImage(
-                m.rocketImage || m.image || '',
-                rocketNameForImage(m),
-                m.rocketConfiguration,
-                true
-              )
-              if (!shouldReplaceRocketImage(m.rocketImage || m.image, rebuilt)) return m
-              return { ...m, rocketImage: rebuilt, image: rebuilt }
-            })
-          } catch (eStamp) {}
+          // map 已就绪时当场盖章；未就绪则后台 _refreshRocketImagesFromMediaMap
+          if (typeof isCloudMediaMapReady === 'function' && isCloudMediaMapReady()) {
+            try {
+              upcomingList = (upcomingList || []).map((m) => {
+                if (!m) return m
+                const cfg = m.rocketConfiguration
+                const hasName = !!(m.rocketName && String(m.rocketName).trim())
+                const hasCfg = !!(
+                  cfg &&
+                  typeof cfg === 'object' &&
+                  ((typeof cfg.name === 'string' && cfg.name.trim()) ||
+                    (typeof cfg.full_name === 'string' && cfg.full_name.trim()))
+                )
+                if (!hasName && !hasCfg) return m
+                const rebuilt = resolveMissionRocketImage(
+                  m.rocketImage || m.image || '',
+                  rocketNameForImage(m),
+                  m.rocketConfiguration,
+                  true
+                )
+                if (!shouldReplaceRocketImage(m.rocketImage || m.image, rebuilt)) return m
+                return { ...m, rocketImage: rebuilt, image: rebuilt }
+              })
+            } catch (eStamp) {}
+          }
 
-          // 首屏前：用 launch_status 收回「列表仍 8/31 待定、权威已是近窗 Go」
-          // （详情治愈过 launch_status 后，不必再点进详情才能上倒计时）
           const snapshotIds = (upcomingList || [])
             .map((mission) => mission && mission.id)
             .filter(Boolean)
-          const STATUS_SNAPSHOT_FIRST_PAINT_BUDGET_MS = 1500
-          if (snapshotIds.length) {
-            let snapRows = null
-            try {
-              snapRows = await Promise.race([
-                fetchLaunchStatusSnapshot(snapshotIds),
-                new Promise((resolve) =>
-                  setTimeout(() => resolve(null), STATUS_SNAPSHOT_FIRST_PAINT_BUDGET_MS)
-                )
-              ])
-            } catch (eSnap) {
-              snapRows = null
-            }
-            if (
-              this._isLaunchStateGenerationCurrent(stateGeneration) &&
-              Array.isArray(snapRows) &&
-              snapRows.length
-            ) {
-              try {
-                upcomingList = this._hydrateUpcomingFromStatusSnapshot(upcomingList, snapRows)
-              } catch (eHydra) {}
-            }
-          }
 
           const firstPaintList = upcomingList.slice(0, 5)
 
           try {
-            this._preloadVisibleRocketImages(firstPaintList, 5)
+            if (!this.data.splashVisible) {
+              this._preloadVisibleRocketImages(firstPaintList, 5)
+            }
           } catch (ePre) {}
 
           const firstMission = upcomingList[0]
@@ -2832,63 +3074,70 @@ Page({
 
           wx.hideLoading()
 
-          // ── 首屏后台补偿（旧实现在上屏前串行等待，最多 +3s）──
-          // 1) 云端 recent_settled 迟到：scrub 倒计时 + 重过滤即将发射 + 补插历史占位
-          //    （hide_recent 后列表里已没有该 id，仅 peel/refilter 补不进 completed）
-          settledPromise
-            .then(async (settled) => {
-              if (!this._isLaunchStateGenerationCurrent(stateGeneration)) return
-              if (!Array.isArray(settled) || !settled.length) return
-              try {
-                this._scrubKnownSettleableCountdown()
-              } catch (e) {}
-              try {
-                this._refilterUpcomingAgainstSettled()
-              } catch (e2) {}
-              try {
-                await this._applyRecentSettledToCompletedList(false)
-              } catch (e3) {}
-            })
-            .catch(() => {})
-          // 2) 首屏预算内未拿到的状态快照：后台补齐并重选型倒计时（不再只改列表不换面板）
-          if (snapshotIds.length) {
-            new Promise((resolve) => setTimeout(resolve, 500))
-              .then(() => {
-                if (!this._isLaunchStateGenerationCurrent(stateGeneration)) return null
-                return fetchLaunchStatusSnapshot(snapshotIds)
-              })
-              .then((rows) => {
+          const runHomeBackgroundAfterSplash = () => {
+            if (!this._isLaunchStateGenerationCurrent(stateGeneration)) return
+            const settledPromise = this._ensureRecentSettledCache(true).catch(() => null)
+            const mediaPromise = loadCloudMediaMap().catch(() => {})
+            settledPromise
+              .then(async (settled) => {
                 if (!this._isLaunchStateGenerationCurrent(stateGeneration)) return
-                if (!Array.isArray(rows) || !rows.length) return
-                this._patchUpcomingListLiveStatuses(rows)
+                if (!Array.isArray(settled) || !settled.length) return
+                try {
+                  this._scrubKnownSettleableCountdown()
+                } catch (e) {}
+                try {
+                  this._refilterUpcomingAgainstSettled()
+                } catch (e2) {}
+                try {
+                  await this._applyRecentSettledToCompletedList(false)
+                } catch (e3) {}
               })
               .catch(() => {})
+            Promise.resolve(mediaPromise)
+              .then(() => Promise.resolve(this._refreshRocketImagesFromMediaMap()))
+              .catch(() => {})
+            const later = (ms, fn) => {
+              setTimeout(() => {
+                if (!this._isLaunchStateGenerationCurrent(stateGeneration)) return
+                try {
+                  fn()
+                } catch (eLater) {}
+              }, ms)
+            }
+            later(80, () => {
+              if (!snapshotIds.length) return
+              fetchLaunchStatusSnapshot(snapshotIds)
+                .then((rows) => {
+                  if (!this._isLaunchStateGenerationCurrent(stateGeneration)) return
+                  if (!Array.isArray(rows) || !rows.length) return
+                  this._patchUpcomingListLiveStatuses(rows)
+                })
+                .catch(() => {})
+            })
+            later(160, () => {
+              this._preloadVisibleRocketImages(upcomingList, fullCloud ? 8 : freeMissionLimit)
+            })
+            later(320, () => {
+              if (fullCloud) {
+                this.fetchMissionList('completed', FULL_LIMIT, 0)
+                  .then(({ res, list }) => {
+                    this.handleCompletedMissionLoadSuccess(list, res)
+                  })
+                  .catch((error) => {
+                    this.handleCompletedMissionLoadError(error)
+                  })
+              }
+            })
           }
 
-          // DB media_assets 真正加载完成后（即便 race 已超时）再刷新一次列表+倒计时火箭图
-          // 委托可能异步加载 index-extra，必须接住 Promise，避免刷新静默丢失
-          loadCloudMediaMap()
-            .then(() => Promise.resolve(this._refreshRocketImagesFromMediaMap()))
-            .catch(() => {})
-
-          try {
-            this._preloadVisibleRocketImages(upcomingList, fullCloud ? 8 : freeMissionLimit)
-          } catch (e) {}
-
-          // A：免费用户不预拉 previous（分批读是库请求大头）。
-          // Pro / 会员功能关闭：仍后台预拉，保证历史 Tab / 日历 hydrate 立即可用。
-          // settled 剥离瘦卡仍可写入 completedMissions；云母列表等切到历史或历史下拉再拉。
-          if (fullCloud) {
-            this.fetchMissionList('completed', FULL_LIMIT, 0)
-              .then(({ res, list }) => {
-                this.handleCompletedMissionLoadSuccess(list, res)
-              })
-              .catch((error) => {
-                this.handleCompletedMissionLoadError(error)
-              })
-          }
+          this._runAfterSplashOrNow(runHomeBackgroundAfterSplash, 'homeBackground')
         } catch (error) {
           wx.hideLoading()
+          if (this.data.launchData && this.data.launchData.id) return
+          if (this._isSplashBlockingHomeWork()) {
+            this._runAfterSplashOrNow(() => this.handleInitialUpcomingLoadError(error), 'loadError')
+            return
+          }
           this.handleInitialUpcomingLoadError(error)
         }
       },
@@ -4036,38 +4285,50 @@ Page({
     const gen = (this._launchListStaleGenByKind[kind] =
       (this._launchListStaleGenByKind[kind] || 0) + 1)
     const fetchLimit = this._getMissionListFetchLimit()
-    Promise.resolve()
-      .then(() => this.fetchMissionList(type, fetchLimit, 0))
-      .then(async (pack) => {
-        if (gen !== this._launchListStaleGenByKind[kind]) return
-        if (!pack || !Array.isArray(pack.list)) return
-        // previous 走完整历史成功管线，与预拉 / 历史下拉一致
-        if (type === 'completed') {
-          this.handleCompletedMissionLoadSuccess(pack.list, pack.res || {})
-          return
-        }
-        const list = this._filterUpcomingAgainstSettled(pack.list)
-        // upcoming 后台纠偏后必须同步倒计时面板，否则列表已更新、主面板仍停在残缺缓存的「一千多天后」
-        try {
-          const first = list[0] || null
-          this.applyInitialUpcomingLaunchState(first, list, pack.res || {})
-        } catch (ePanel) {
-          const patch = buildMissionListSetData(type, list, pack.res, filterExpiredMissions)
-          this.applyUpcomingAgencyFilterToPatch(patch, list)
-          this.setData(patch, () => {
-            try {
-              this.updateMissionListView(type, list)
-            } catch (e2) {}
-            try {
-              this.syncCalendarFromMissionListsIfNeeded()
-            } catch (e3) {}
-          })
-        }
-      })
-      .catch(() => {})
+    const runStale = () => {
+      Promise.resolve()
+        .then(() => this.fetchMissionList(type, fetchLimit, 0))
+        .then(async (pack) => {
+          if (gen !== this._launchListStaleGenByKind[kind]) return
+          if (!pack || !Array.isArray(pack.list)) return
+          if (type === 'completed') {
+            this.handleCompletedMissionLoadSuccess(pack.list, pack.res || {})
+            return
+          }
+          const list = this._filterUpcomingAgainstSettled(pack.list)
+          try {
+            const first = list[0] || null
+            this.applyInitialUpcomingLaunchState(first, list, pack.res || {})
+          } catch (ePanel) {
+            const patch = buildMissionListSetData(type, list, pack.res, filterExpiredMissions)
+            this.applyUpcomingAgencyFilterToPatch(patch, list)
+            this.setData(patch, () => {
+              try {
+                this.updateMissionListView(type, list)
+              } catch (e2) {}
+              try {
+                this.syncCalendarFromMissionListsIfNeeded()
+              } catch (e3) {}
+            })
+          }
+        })
+        .catch(() => {})
+    }
+    if (type === 'upcoming' && this._isSplashBlockingHomeWork()) {
+      this._runAfterSplashOrNow(runStale, 'staleUpcoming')
+      return
+    }
+    runStale()
   },
 
   onUnload() {
+    this._clearSplashDeferredHomeWork(false)
+    this._splashUiActive = false
+    if (!this._splashCountdownGateReleased) {
+      try {
+        this._releaseSplashCountdownGate(0)
+      } catch (eGate) {}
+    }
     this._stopFestivalHatDevCycle()
     if (typeof this._offLaunchListStale === 'function') {
       try {

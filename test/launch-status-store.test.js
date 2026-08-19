@@ -134,6 +134,34 @@ test('同一历史 UUID 后出现的完整 previous 卡覆盖旧状态瘦卡', (
   assert.equal(projected.completed[0].recoveryIcons.length, 1)
 })
 
+test('后到的 previous 瘦卡不能盖掉已有完整历史卡', () => {
+  const full = {
+    id: 'done',
+    launchTime: '2026-08-19T04:01:00Z',
+    statusId: 3,
+    rocketName: '猎鹰9号',
+    padLocation: '范登堡太空军基地',
+    countryDisplay: '美国',
+    rocketImage: 'https://img/f9.png'
+  }
+  const thin = {
+    id: 'done',
+    launchTime: '2026-08-19T04:01:00Z',
+    statusId: 3,
+    rocketName: 'Unknown rocket',
+    padLocation: '未知地点',
+    _fromRecentSettled: true
+  }
+  const projected = projectLaunchRecords({
+    completed: [full, thin],
+    now: Date.parse('2026-08-19T06:00:00Z')
+  })
+  assert.equal(projected.completed.length, 1)
+  assert.equal(projected.completed[0].rocketName, '猎鹰9号')
+  assert.equal(projected.completed[0].padLocation, '范登堡太空军基地')
+  assert.equal(projected.completed[0].rocketImage, 'https://img/f9.png')
+})
+
 test('旧来源名称映射到标准优先级，重复 observation 不增加 revision', () => {
   const first = mergeLaunchObservation(null, observation(9, 300, { source: 'fetchLaunchStatuses' }))
   const repeated = mergeLaunchObservation(first, observation(9, 300, { source: 'fetchLaunchStatuses' }))

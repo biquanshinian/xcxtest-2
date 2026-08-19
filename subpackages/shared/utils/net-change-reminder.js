@@ -2,11 +2,13 @@
  * 发射时间变更提醒：基线对比 + 未发射任务挑选（纯逻辑，无 UI）
  *
  * 规则：
- * 1) 首次见到某任务只记 NET，不弹
- * 2) 再次见到且 NET 变动满 1 分钟（提前或延期）→ 记为变更事件，直到发射才清掉
+ * 1) 服务号同源：launch_data.previousNet → 当前 NET（满 1 分钟）即记为变更，
+ *    不必等本地即将发射列表刷新，也不走「首次只记不弹」
+ * 2) 无服务端改期行时：首次见到某任务只记 NET，不弹；再次见到且满 1 分钟才记
  * 3) 任务已发射 / 已离开即将列表 → 不再作为候选
- * 4) 多条未发射变更 → 取新 NET 最近（最早）的一条
- * 5) 是否弹出由首页冷启动队列决定（同一进程只弹一次）
+ * 4) 近窗与服务号一致：原时间或新时间落在未来 48h 内才弹（远期例行改期是噪音）
+ * 5) TBD / 粗精度占位新时间不弹（与服务号 isNetChangeAnnouncable 对齐）
+ * 6) 多条未发射变更 → 新 NET 早的在前；是否弹出由首页冷启动队列决定
  */
 
 const { isSettledStatusId } = require('../../../utils/launch-status-store.js')
@@ -18,6 +20,11 @@ const POPUP_SHOWN_EVENTS_KEY = '_net_change_popup_shown_events'
 /** 任意方向，满 1 分钟即记为变更（秒级抖动忽略） */
 const CHANGE_TOLERANCE_MS = 60 * 1000
 const DELAY_TOLERANCE_MS = CHANGE_TOLERANCE_MS
+/** 与 sendLaunchReminder/net-change-push.NET_CHANGE_NEAR_WINDOW_MS 对齐 */
+const NET_CHANGE_NEAR_WINDOW_MS = 48 * 60 * 60 * 1000
+const SHOWN_EVENT_TTL_MS = 14 * 24 * 60 * 60 * 1000
+
+const _mapMem = Object.create(null)
 
 function getTodayStr() {
   const d = new Date()
@@ -37,18 +44,44 @@ function parseNetMs(raw) {
 }
 
 function readMap(key) {
+  if (_mapMem[key] && typeof _mapMem[key] === 'object') return _mapMem[key]
   try {
     const v = wx.getStorageSync(key)
-    return v && typeof v === 'object' ? v : {}
+    _mapMem[key] = v && typeof v === 'object' ? v : {}
+    return _mapMem[key]
   } catch (e) {
-    return {}
+    _mapMem[key] = {}
+    return _mapMem[key]
   }
 }
 
 function writeMap(key, map) {
+  _mapMem[key] = map || {}
   try {
-    wx.setStorage({ key: key, data: map || {}, fail: function () {} })
+    wx.setStorage({ key: key, data: _mapMem[key], fail: function () {} })
   } catch (e) {}
+}
+
+function isCoarseNetPrecision(name) {
+  const s = String(name || '').trim().toLowerCase()
+  if (!s) return false
+  return /^(day|week|month|quarter|half|year|decade)/.test(s)
+}
+
+function isNetChangeAnnouncable(launch) {
+  const sid = launch && launch.statusId != null ? Number(launch.statusId) : 0
+  if (sid === 2) return false
+  if (isCoarseNetPrecision(launch && launch.netPrecision)) return false
+  return true
+}
+
+function isWithinOaNearWindow(oldIso, newIso, nowMs) {
+  const now = Number(nowMs) || Date.now()
+  const oldMs = parseNetMs(oldIso)
+  const newMs = parseNetMs(newIso)
+  const nearOld = oldMs > 0 && oldMs - now <= NET_CHANGE_NEAR_WINDOW_MS
+  const nearNew = newMs > 0 && newMs - now <= NET_CHANGE_NEAR_WINDOW_MS
+  return nearOld || nearNew
 }
 
 function formatChangeDelta(absMs) {
@@ -86,12 +119,9 @@ function eventFingerprint(ev) {
 }
 
 function readShownState() {
-  const today = getTodayStr()
   const raw = readMap(POPUP_SHOWN_EVENTS_KEY)
-  if (raw.date !== today || !raw.keys || typeof raw.keys !== 'object') {
-    return { date: today, keys: {} }
-  }
-  return { date: today, keys: raw.keys }
+  const keys = raw && raw.keys && typeof raw.keys === 'object' ? raw.keys : {}
+  return { keys: keys }
 }
 
 function isEventShown(ev) {
@@ -101,12 +131,22 @@ function isEventShown(ev) {
   return !!state.keys[fp]
 }
 
-function markEventShown(ev) {
+function markEventShown(ev, nowMs) {
   const fp = eventFingerprint(ev)
   if (!fp) return
   const state = readShownState()
-  state.keys[fp] = 1
-  writeMap(POPUP_SHOWN_EVENTS_KEY, state)
+  const now = Number(nowMs) || Date.now()
+  const nextKeys = {}
+  const ids = Object.keys(state.keys || {})
+  // 只清体积，不清「同一指纹已看过」——过期再弹会和服务号去重冲突
+  for (let i = 0; i < ids.length; i++) {
+    const key = ids[i]
+    const ts = Number(state.keys[key])
+    if (Number.isFinite(ts) && ts > 1 && now - ts >= SHOWN_EVENT_TTL_MS && ids.length > 80) continue
+    nextKeys[key] = state.keys[key]
+  }
+  nextKeys[fp] = now
+  writeMap(POPUP_SHOWN_EVENTS_KEY, { keys: nextKeys })
 }
 
 function isPopupShownToday() {
@@ -203,12 +243,96 @@ function buildReminderPayload(m, ev) {
   }
 }
 
+function missionStubFromServerRow(row) {
+  const id = String((row && (row.id || row._id)) || '').trim()
+  const rocketZh = String((row && (row.rocketNameZh || row.rocketName)) || '').trim()
+  const agencyZh = String((row && (row.launchAgencyZh || row.launchAgency)) || '').trim()
+  return {
+    id: id,
+    launchTime: (row && row.launchTime) || '',
+    previousNet: (row && row.previousNet) || '',
+    netChangedAt: (row && row.netChangedAt) || 0,
+    missionName: (row && row.missionName) || '',
+    rocketName: rocketZh,
+    launchAgency: agencyZh,
+    launchAgencyAbbrev: (row && row.launchAgencyAbbrev) || '',
+    launchAgencyId: row && row.launchAgencyId,
+    statusId: row && row.statusId,
+    netPrecision: (row && row.netPrecision) || '',
+    _langPack: {
+      missionNameZh: (row && row.missionName) || '',
+      rocketNameZh: rocketZh,
+      rocketNameEn: (row && row.rocketName) || '',
+      launchAgencyZh: agencyZh,
+      launchAgencyEn: (row && row.launchAgency) || ''
+    }
+  }
+}
+
 /**
- * 用首页列表扫描 NET 变更；更新基线；返回未发射变更 payload 列表（新 NET 早的在前）
- * @param {Object[]} missions upcoming 列表项（含 id / launchTime / rocketImage …）
+ * 用 launch_data 改期行覆盖列表 NET（权威新时间 + previousNet）。
+ * 列表仍是 boot/本地缓存旧时间时，也能按服务号同一口径弹窗。
  */
-function scanAndPickTodayReminder(missions) {
+function overlayServerNetChanges(missions, serverRows) {
+  const list = Array.isArray(missions) ? missions.map(function (m) {
+    return m && typeof m === 'object' ? Object.assign({}, m) : m
+  }) : []
+  const byId = {}
+  for (let i = 0; i < list.length; i++) {
+    const m = list[i]
+    if (m && m.id != null) byId[String(m.id)] = m
+  }
+  const rows = Array.isArray(serverRows) ? serverRows : []
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    if (!row) continue
+    const id = String(row.id || row._id || '').trim()
+    if (!id) continue
+    const hit = byId[id]
+    if (hit) {
+      if (row.previousNet) hit.previousNet = row.previousNet
+      if (row.netChangedAt) hit.netChangedAt = row.netChangedAt
+      // 不覆盖 status / 精度：列表实况可能比 launch_data 新，盖掉会误伤终态或 TBD 门控
+      const listMs = parseNetMs(hit.launchTime || hit.net)
+      const serverNew = parseNetMs(row.launchTime)
+      const serverOld = parseNetMs(row.previousNet)
+      const listStillOld =
+        serverOld && listMs && Math.abs(listMs - serverOld) < CHANGE_TOLERANCE_MS
+      if (serverNew && (!listMs || listStillOld)) {
+        hit.launchTime = row.launchTime
+      }
+    } else {
+      const stub = missionStubFromServerRow(row)
+      list.push(stub)
+      byId[id] = stub
+    }
+  }
+  return list
+}
+
+function recordChangeEvent(events, id, oldNet, newNet, today) {
+  const prevEvent = events[id]
+  if (prevEvent && prevEvent.oldNet && Math.abs(parseNetMs(newNet) - parseNetMs(prevEvent.oldNet)) < CHANGE_TOLERANCE_MS) {
+    delete events[id]
+    return false
+  }
+  if (prevEvent && prevEvent.oldNet) {
+    events[id] = buildEvent(id, prevEvent.oldNet, newNet, today)
+  } else {
+    events[id] = buildEvent(id, oldNet, newNet, today)
+  }
+  return true
+}
+
+/**
+ * 用首页列表（可已 overlay 服务端改期）扫描 NET 变更；更新基线；
+ * 返回未发射变更 payload 列表（新 NET 早的在前）
+ * @param {Object[]} missions upcoming 列表项（含 id / launchTime / previousNet …）
+ * @param {{ nowMs?: number }} [options]
+ */
+function scanAndPickTodayReminder(missions, options) {
   const list = Array.isArray(missions) ? missions : []
+  const nowMs = options && options.nowMs != null ? Number(options.nowMs) : Date.now()
   const today = getTodayStr()
   const watch = readMap(NET_WATCH_KEY)
   const events = readMap(NET_EVENTS_KEY)
@@ -236,8 +360,21 @@ function scanAndPickTodayReminder(missions) {
       continue
     }
 
+    const serverOld = m.previousNet || ''
+    const serverOldMs = parseNetMs(serverOld)
     const prev = watch[id]
     const prevMs = parseNetMs(prev)
+
+    // 服务号已打标：用 previousNet → 最新 NET，首次见到也弹（不必再等本地基线）
+    if (serverOldMs && Math.abs(netMs - serverOldMs) >= CHANGE_TOLERANCE_MS) {
+      recordChangeEvent(events, id, serverOld, net, today)
+      eventsDirty = true
+      if (watch[id] !== net) {
+        watch[id] = net
+        watchDirty = true
+      }
+      continue
+    }
 
     if (!prevMs) {
       watch[id] = net
@@ -254,22 +391,7 @@ function scanAndPickTodayReminder(missions) {
       continue
     }
 
-    const prevEvent = events[id]
-    // 改回当天首次原时间：视为变更已撤销
-    if (prevEvent && prevEvent.oldNet && Math.abs(netMs - parseNetMs(prevEvent.oldNet)) < CHANGE_TOLERANCE_MS) {
-      delete events[id]
-      eventsDirty = true
-      watch[id] = net
-      watchDirty = true
-      continue
-    }
-
-    // 连续改期：保留首次 oldNet，刷新 newNet，方向按「首次原时间 → 最新」重算
-    if (prevEvent && prevEvent.oldNet) {
-      events[id] = buildEvent(id, prevEvent.oldNet, net, today)
-    } else {
-      events[id] = buildEvent(id, prev, net, today)
-    }
+    recordChangeEvent(events, id, prev, net, today)
     eventsDirty = true
     watch[id] = net
     watchDirty = true
@@ -295,6 +417,9 @@ function scanAndPickTodayReminder(missions) {
     }
     const newMs = parseNetMs(ev.newNet || m.launchTime)
     if (!newMs) continue
+    if (!isWithinOaNearWindow(ev.oldNet, ev.newNet || m.launchTime, nowMs)) continue
+    if (!isNetChangeAnnouncable(m)) continue
+    if (isEventShown(ev)) continue
     candidates.push({ mission: m, event: ev, newMs: newMs })
   }
 
@@ -311,6 +436,58 @@ function scanAndPickTodayReminder(missions) {
     payloads.push(buildReminderPayload(candidates[i].mission, candidates[i].event))
   }
   return payloads
+}
+
+const RECENT_NET_CHANGES_TTL_MS = 60 * 1000
+
+function fetchRecentNetChanges() {
+  let appInst = null
+  try {
+    appInst = typeof getApp === 'function' ? getApp() : null
+  } catch (e) {
+    appInst = null
+  }
+  const cachedAt = appInst && Number(appInst._recentNetChangesAt)
+  if (
+    appInst &&
+    appInst._recentNetChangesPromise &&
+    Number.isFinite(cachedAt) &&
+    Date.now() - cachedAt < RECENT_NET_CHANGES_TTL_MS
+  ) {
+    return appInst._recentNetChangesPromise
+  }
+  if (!wx.cloud || typeof wx.cloud.callFunction !== 'function') {
+    return Promise.resolve({ rows: [], fromServer: false })
+  }
+  const p = new Promise(function (resolve) {
+    wx.cloud.callFunction({
+      name: 'll2Query',
+      data: { action: 'listRecentNetChanges' },
+      timeout: 15000,
+      success: function (res) {
+        const r = res && res.result
+        if (r && r.success && Array.isArray(r.rows)) resolve({ rows: r.rows, fromServer: true })
+        else resolve(null)
+      },
+      fail: function () {
+        resolve(null)
+      }
+    })
+  }).then(function (pack) {
+    if (!pack) {
+      if (appInst) {
+        appInst._recentNetChangesPromise = null
+        appInst._recentNetChangesAt = 0
+      }
+      return { rows: [], fromServer: false }
+    }
+    return pack
+  })
+  if (appInst) {
+    appInst._recentNetChangesPromise = p
+    appInst._recentNetChangesAt = Date.now()
+  }
+  return p
 }
 
 /** 开发预览：从首页列表/倒计时挑一条有图的任务（优先朱雀），叠 mock 时间 */
@@ -417,20 +594,32 @@ function pickDevPreviewPayloads(missions, mockTimes, extraMission) {
   return out
 }
 
+function resetNetChangeReminderStorageForTest() {
+  Object.keys(_mapMem).forEach(function (key) {
+    delete _mapMem[key]
+  })
+}
+
 module.exports = {
   CHANGE_TOLERANCE_MS,
   DELAY_TOLERANCE_MS,
+  NET_CHANGE_NEAR_WINDOW_MS,
   getTodayStr,
   isPopupShownToday,
   markPopupShownToday,
   isEventShown,
   markEventShown,
+  isNetChangeAnnouncable,
+  isWithinOaNearWindow,
   resolveChangeMeta,
   formatChangeDelta,
+  overlayServerNetChanges,
   scanAndPickTodayReminder,
+  fetchRecentNetChanges,
   pickDevPreviewPayload,
   pickDevPreviewPayloads,
   missionRocketName,
   missionDisplayName,
-  missionAgencyName
+  missionAgencyName,
+  resetNetChangeReminderStorageForTest
 }

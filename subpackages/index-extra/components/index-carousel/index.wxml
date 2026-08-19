@@ -15,11 +15,13 @@
           </block>
           <!-- 视频 -->
           <block wx:else>
-            <view class="carousel-video-wrap" bindtap="emitVideoTap" data-index="{{index}}">
+            <view class="carousel-video-wrap">
+              <!-- 仅自动播激活时挂载 video，避免空 native 组件吞掉封面点击 -->
               <video
+                wx:if="{{item.videoActive && item.playSrc}}"
                 id="carousel-video-{{index}}"
                 class="carousel-video"
-                src="{{item.videoActive && item.playSrc ? item.playSrc : ''}}"
+                src="{{item.playSrc}}"
                 poster="{{item.poster}}"
                 muted="{{true}}"
                 autoplay="{{false}}"
@@ -31,11 +33,15 @@
                 show-mute-btn="{{false}}"
                 object-fit="cover"
                 enable-progress-gesture="{{false}}"
+                enable-play-gesture="{{false}}"
                 http-cache="{{true}}"
-                bindtimeupdate="{{item.videoStarted ? '' : 'onCarouselVideoTimeUpdate'}}"
+                bindtimeupdate="{{item.videoStarted ? '' : 'emitTimeUpdate'}}"
                 binderror="emitVideoError"
                 data-index="{{index}}"
-              ></video>
+              >
+                <!-- 非同层渲染时普通 view 盖不住原生 video -->
+                <cover-view class="carousel-video-native-hit" catchtap="emitVideoTap" data-index="{{index}}"></cover-view>
+              </video>
               <!-- 首帧就绪前用 poster 封面遮住原生黑底 -->
               <view class="carousel-video-cover" wx:if="{{!item.videoStarted}}">
                 <image
@@ -51,6 +57,8 @@
                   <text class="carousel-video-cover-text">{{item.videoActive ? '视频加载中' : '预览'}}</text>
                 </view>
               </view>
+              <!-- 同层渲染时盖住 video；未挂载 video 时接封面点击。封面 pointer-events:none 不挡滑动 -->
+              <view class="carousel-video-hit" catchtap="emitVideoTap" data-index="{{index}}"></view>
               <view wx:if="{{item.caption}}" class="carousel-video-caption" catchtap="emitCaption" data-eventid="{{item.eventId}}">
                 <text class="carousel-video-caption-text" user-select="{{true}}">{{item.caption}}</text>
               </view>

@@ -93,6 +93,11 @@ function getDefaultPreferences() {
     briefingDefaultOffV1: true,
     /** 星舰基地封路服务号通知；false=明确退订，默认接收 */
     roadClosureAlert: true,
+    /** 事件更新关键词提醒（未写 V1 时读默认列表，避免全员快照锁死） */
+    eventAlertKeywords: [],
+    eventAlertKeywordsV1: false,
+    /** 事件更新关注账号；空=全部。仅会员在时间线生效 */
+    eventWatchSources: [],
     /** 发射卡片等内容语言：zh（默认）| en */
     contentLang: 'zh',
     /** 偏好匹配用：结果模板剩余额度（云端权威，本地仅展示参考） */

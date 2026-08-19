@@ -87,6 +87,10 @@
         "type": "glob"
       },
       {
+        "value": "assets/**",
+        "type": "glob"
+      },
+      {
         "value": "utils/.api-full.backup.js",
         "type": "glob"
       },

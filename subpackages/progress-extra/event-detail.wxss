@@ -1,3 +1,5 @@
+@import "./event-related-launch.wxss";
+
 page {
   background: var(--color-bg-page);
   overflow: hidden;
@@ -62,6 +64,33 @@ page {
   line-height: 1.5;
   word-break: break-word;
   overflow-wrap: break-word;
+}
+
+.event-intel-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10rpx;
+  margin-top: 12rpx;
+}
+
+.event-intel-new {
+  font-size: 20rpx;
+  font-weight: 600;
+  color: #fff;
+  background: #0A84FF;
+  border-radius: 8rpx;
+  padding: 2rpx 10rpx;
+  line-height: 1.4;
+}
+
+.event-intel-kw {
+  font-size: 20rpx;
+  color: #93C5FD;
+  background: rgba(59, 130, 246, 0.16);
+  border-radius: 8rpx;
+  padding: 2rpx 10rpx;
+  line-height: 1.4;
 }
 
 .list-card-item {
@@ -1616,6 +1645,12 @@ page {
 .theme-light .list-day-hint-text {
   color: var(--color-text-tertiary);
 }
+
+.theme-light .event-intel-kw {
+  color: #0071A9;
+  background: rgba(10, 132, 255, 0.1);
+}
+
 
 .theme-light .list-load-footer-text {
   color: var(--color-text-tertiary);

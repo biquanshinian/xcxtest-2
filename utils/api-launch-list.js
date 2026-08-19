@@ -25,16 +25,24 @@ const {
 } = require('./launch-card-i18n.js')
 const { missionHasOrbitPano } = require('./orbit-pano-list-flag.js')
 const { hydrateMissionAgencyLogo } = require('./upcoming-agency-logo-enrich.js')
+const {
+  isPlaceholderMissionField,
+  parseRocketMissionFromLaunchName
+} = require('./mission-list-card.js')
 
 function getRocketDisplayNameFromConfig(configuration) {
-  if (!configuration || typeof configuration !== 'object') return 'Unknown rocket'
-  return configuration.name || configuration.full_name || 'Unknown rocket'
+  if (!configuration || typeof configuration !== 'object') return ''
+  return configuration.name || configuration.full_name || ''
 }
 
 function getRocketDisplayNameFromLaunch(launch) {
   const configuration = (launch && launch.rocket && launch.rocket.configuration)
     || (launch && launch.rocket && launch.rocket.rocket && launch.rocket.rocket.configuration)
-  return getRocketDisplayNameFromConfig(configuration)
+  const fromCfg = getRocketDisplayNameFromConfig(configuration)
+  if (fromCfg && !isPlaceholderMissionField(fromCfg)) return fromCfg
+  const parsed = parseRocketMissionFromLaunchName(launch && launch.name)
+  if (parsed.rocketName && !isPlaceholderMissionField(parsed.rocketName)) return parsed.rocketName
+  return ''
 }
 
 /** 列表与详情对齐头图：保留 LL2 configuration 快照供 getRocketImage 使用（与详情 rocketConfig 同源） */
@@ -43,11 +51,13 @@ function pickRocketConfigurationSnapshot(launch) {
     (launch && launch.rocket && launch.rocket.configuration) ||
     (launch && launch.rocket && launch.rocket.rocket && launch.rocket.rocket.configuration)
   if (!cfg || typeof cfg !== 'object') return null
+  const totalLaunchCount = Number(cfg.total_launch_count)
   return {
     name: typeof cfg.name === 'string' ? cfg.name : '',
     nameZh: typeof cfg.nameZh === 'string' ? cfg.nameZh : '',
     full_name: typeof cfg.full_name === 'string' ? cfg.full_name : '',
-    full_nameZh: typeof cfg.full_nameZh === 'string' ? cfg.full_nameZh : ''
+    full_nameZh: typeof cfg.full_nameZh === 'string' ? cfg.full_nameZh : '',
+    total_launch_count: Number.isFinite(totalLaunchCount) && totalLaunchCount > 0 ? totalLaunchCount : null
   }
 }
 
@@ -183,6 +193,7 @@ function mapLaunchToListItem(launch, index, offset, type) {
     launchSite: sitePair.launchSiteEn,
     padLocation: sitePair.padLocationEn,
     launchTime: launch.net || launch.window_start,
+    previousNet: launch.previousNet || launch.previous_net || '',
     windowStart: launch.window_start,
     windowEnd: launch.window_end,
     // NET 精度：Day/Month 等粗档位的 net 只是占位时刻，倒计时不能按秒展示（详情页同源字段）
@@ -549,11 +560,64 @@ module.exports = {
   filterLaunchesWithinUpcomingDays,
   isStarshipListItem,
   mapLaunchToListItem,
+  fetchLaunchAsListItem,
+  patchCompletedListSnapshots,
   invalidateListSnapshots,
   findMissionInListSnapshots,
   peekUpcomingMissionsList,
+  peekUpcomingMissionsFromLocalCache,
   getUpcomingMissionsAny,
   patchUpcomingLocalCacheById
+}
+
+/** 用详情同源 fetchLaunchDetail 补一张完整列表卡（云端缓存，顺带回写 previous stub） */
+function fetchLaunchAsListItem(launchId, type) {
+  const id = String(launchId || '').trim()
+  if (!id) return Promise.resolve(null)
+  const detailType = type === 'upcoming' ? 'upcoming' : 'completed'
+  const viaCloud = () => {
+    if (!wx.cloud || typeof wx.cloud.callFunction !== 'function') {
+      return Promise.reject(new Error('no_cloud'))
+    }
+    return wx.cloud
+      .callFunction({
+        name: 'll2Query',
+        data: { action: 'fetchLaunchDetail', launchId: id },
+        timeout: 15000
+      })
+      .then((res) => {
+        const data = res && res.result && res.result.data
+        if (!data || !data.id) throw new Error('empty_detail')
+        return mapLaunchToListItem(data, 0, 0, detailType)
+      })
+  }
+  return viaCloud().catch(() =>
+    request(`/launches/${id}/`, { mode: 'detailed', format: 'json' }, 10000, true).then((data) => {
+      if (!data || !data.id) return null
+      return mapLaunchToListItem(data, 0, 0, detailType)
+    })
+  ).catch(() => null)
+}
+
+function patchCompletedListSnapshots(id, card) {
+  if (id == null || !card) return
+  const idStr = String(id)
+  const keys = Object.keys(_listSnapshots)
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i]
+    if (key.indexOf('completed:') !== 0) continue
+    const entry = _listSnapshots[key]
+    const list = entry && entry.result && Array.isArray(entry.result.list) ? entry.result.list : null
+    if (!list || !list.length) continue
+    for (let j = 0; j < list.length; j++) {
+      if (list[j] && String(list[j].id) === idStr) {
+        list[j] = { ...card }
+        if (card._langPack && typeof card._langPack === 'object') {
+          list[j]._langPack = Object.assign({}, card._langPack)
+        }
+      }
+    }
+  }
 }
 
 function invalidateListSnapshots() {
@@ -567,6 +631,32 @@ function invalidateListSnapshots() {
  * 供详情页深链/无 opener 时作日程权威短路。
  */
 /** 任意一份未过期的 upcoming 内存快照（不发网络），优先更长的那份 */
+function peekUpcomingMissionsFromLocalCache(limit) {
+  try {
+    const { peekCachedLaunchList } = require('./api-request.js')
+    if (typeof peekCachedLaunchList !== 'function') return null
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 8, 20))
+    const data = peekCachedLaunchList(
+      '/launches/upcoming/',
+      {
+        limit: safeLimit,
+        offset: 0,
+        ordering: 'net',
+        mode: 'detailed',
+        format: 'json',
+        hide_recent_previous: true
+      },
+      true
+    )
+    if (!data || !Array.isArray(data.results) || !data.results.length) return null
+    return data.results.slice(0, safeLimit).map((launch, index) =>
+      mapLaunchToListItem(launch, index, 0, 'upcoming')
+    )
+  } catch (e) {
+    return null
+  }
+}
+
 function peekUpcomingMissionsList() {
   const now = Date.now()
   let best = null

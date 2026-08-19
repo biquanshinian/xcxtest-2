@@ -16,6 +16,7 @@ const {
   setMissionDetailCacheEntry
 } = require('../../../utils/index-page-helpers.js')
 const { loadCloudMediaMap } = require('../../../utils/image-config.js')
+const { preloadRocketConfigMedia } = require('../../../utils/icon-cache.js')
 const { markDownloadFailed } = require('../../../utils/download-fail-cache.js')
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
 const storageCache = require('../../../utils/storage-sync-cache.js')
@@ -523,7 +524,10 @@ const interactionMethods = {
         urls.push(ru.trim())
       }
     }
-    if (urls.length) preloadRocketConfigMedia(urls)
+    if (!urls.length) return
+    try {
+      preloadRocketConfigMedia(urls)
+    } catch (e) {}
   },
 
   _withResolvedRocketImage(mission) {

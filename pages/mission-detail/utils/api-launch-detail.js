@@ -57,11 +57,14 @@ function pickRocketConfigurationSnapshot(launch) {
     (launch && launch.rocket && launch.rocket.configuration) ||
     (launch && launch.rocket && launch.rocket.rocket && launch.rocket.rocket.configuration)
   if (!cfg || typeof cfg !== 'object') return null
+  const totalLaunchCount = Number(cfg.total_launch_count)
   return {
     name: typeof cfg.name === 'string' ? cfg.name : '',
     nameZh: typeof cfg.nameZh === 'string' ? cfg.nameZh : '',
     full_name: typeof cfg.full_name === 'string' ? cfg.full_name : '',
-    full_nameZh: typeof cfg.full_nameZh === 'string' ? cfg.full_nameZh : ''
+    full_nameZh: typeof cfg.full_nameZh === 'string' ? cfg.full_nameZh : '',
+    // 任务详情「型号累计」与发射商徽章同源：构型上已有 LL2 累计次数，不能在快照里丢掉
+    total_launch_count: Number.isFinite(totalLaunchCount) && totalLaunchCount > 0 ? totalLaunchCount : null
   }
 }
 
@@ -1786,6 +1789,10 @@ async function processLaunchDetail(launch) {
         ? Number(launch.agency_launch_attempt_count) : null,
       agencyLaunchAttemptCountYear: (launch.agency_launch_attempt_count_year != null && Number.isFinite(Number(launch.agency_launch_attempt_count_year)))
         ? Number(launch.agency_launch_attempt_count_year) : null,
+      rocketLaunchAttemptCount: (rocketConfig && rocketConfig.total_launch_count != null
+        && Number.isFinite(Number(rocketConfig.total_launch_count))
+        && Number(rocketConfig.total_launch_count) > 0)
+        ? Number(rocketConfig.total_launch_count) : null,
       _langPack: {
         rocketNameEn: rocketPair.rocketNameEn,
         rocketNameZh: rocketPair.rocketNameZh,

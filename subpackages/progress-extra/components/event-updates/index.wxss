@@ -1,3 +1,5 @@
+@import "../../event-related-launch.wxss";
+
 /* 事件更新区样式（自 pages/progress/progress.wxss 迁入；styleIsolation: apply-shared） */
 .event-updates-title-row {
   margin-bottom: 14rpx;
@@ -467,6 +469,39 @@
 .theme-light .event-updates-empty-text {
   color: var(--color-text-secondary);
 }
+
+.event-intel-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10rpx;
+  margin-top: 12rpx;
+}
+
+.event-intel-new {
+  font-size: 20rpx;
+  font-weight: 600;
+  color: #fff;
+  background: #0A84FF;
+  border-radius: 8rpx;
+  padding: 2rpx 10rpx;
+  line-height: 1.4;
+}
+
+.event-intel-kw {
+  font-size: 20rpx;
+  color: #93C5FD;
+  background: rgba(59, 130, 246, 0.16);
+  border-radius: 8rpx;
+  padding: 2rpx 10rpx;
+  line-height: 1.4;
+}
+
+.theme-light .event-intel-kw {
+  color: #0071A9;
+  background: rgba(10, 132, 255, 0.1);
+}
+
 /* ── 动画 ── */
 
 @keyframes livePulse {

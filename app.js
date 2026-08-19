@@ -5,6 +5,7 @@ const { getSystemInfo } = require('./utils/system.js')
 const { getUiShellLayout } = require('./utils/layout.js')
 const { cloudEnv } = require('./utils/config.js')
 const storageCache = require('./utils/storage-sync-cache.js')
+const privacyTapGuard = require('./utils/privacy-tap-guard.js')
 // 注意：api-cache-clean / demo-engine / membership / user-growth / popup-ad 等
 // 仅在延迟回调中使用的模块改为回调内 require，缩短 onLaunch 同步执行段
 
@@ -207,6 +208,62 @@ App({
     this._notifyPrivacyGateListeners()
   },
 
+  isPrivacyTapGuarded() {
+    return privacyTapGuard.isPrivacyTapGuarded(this)
+  },
+
+  armPrivacyTapGuard(ms) {
+    const span = ms > 0 ? ms : privacyTapGuard.PRIVACY_TAP_GUARD_MS
+    this._privacyTapGuardUntil = privacyTapGuard.nextPrivacyTapGuardUntil(Date.now(), span)
+    if (this._privacyTapGuardTimer) {
+      clearTimeout(this._privacyTapGuardTimer)
+      this._privacyTapGuardTimer = null
+    }
+    this._privacyTapGuardTimer = setTimeout(() => {
+      this._privacyTapGuardTimer = null
+      this._privacyTapGuardUntil = 0
+      this._deferSyncCarouselForPrivacyOverlay()
+    }, span)
+    this._deferSyncCarouselForPrivacyOverlay()
+  },
+
+  setPrivacyModalVisible(visible) {
+    this.globalData.privacyModalVisible = !!visible
+    this._deferSyncCarouselForPrivacyOverlay()
+  },
+
+  _deferSyncCarouselForPrivacyOverlay() {
+    if (this._carouselPrivacySyncScheduled) return
+    this._carouselPrivacySyncScheduled = true
+    const run = () => {
+      this._carouselPrivacySyncScheduled = false
+      this._syncCarouselForPrivacyOverlay()
+    }
+    if (typeof wx.nextTick === 'function') wx.nextTick(run)
+    else setTimeout(run, 0)
+  },
+
+  _syncCarouselForPrivacyOverlay() {
+    try {
+      const pages = typeof getCurrentPages === 'function' ? getCurrentPages() : []
+      const page = pages.length ? pages[pages.length - 1] : null
+      if (!page) return
+      const hold = this.isPrivacyTapGuarded()
+      if (hold) {
+        if (typeof page._deactivateCarouselVideos === 'function') {
+          page._deactivateCarouselVideos()
+        }
+        return
+      }
+      if (typeof page._activateCarouselVideos === 'function') {
+        page._activateCarouselVideos(page.data && page.data.carouselCurrent)
+      }
+      if (typeof page._startCarouselTimer === 'function') {
+        page._startCarouselTimer()
+      }
+    } catch (e) {}
+  },
+
   /** 通知监听者「当前是否需要渲染禁触遮罩」= 门控激活 且 开屏未在展示 */
   _notifyPrivacyGateListeners() {
     const blocking = !!this.globalData.privacyGateActive && !this.globalData.splashActive
@@ -379,6 +436,7 @@ App({
       } catch (error) {}
     })
     this.globalData.needPrivacyAuthorization = false
+    this.armPrivacyTapGuard(privacyTapGuard.PRIVACY_TAP_GUARD_MS)
     this.hidePrivacyAuthorizationModal()
     // 兜底：主动结束 ensurePrivacyAuthorized 的 in-flight promise，
     // 避免某些场景下 wx.requirePrivacyAuthorize 的 success 回调没触发导致 await hang
@@ -395,6 +453,7 @@ App({
         resolve({ event: 'disagree' })
       } catch (error) {}
     })
+    this.armPrivacyTapGuard(privacyTapGuard.PRIVACY_TAP_GUARD_MS)
     this.hidePrivacyAuthorizationModal()
     // 兜底：主动结束 ensurePrivacyAuthorized 的 in-flight promise（拒绝时 wx.requirePrivacyAuthorize 不会回 fail）
     if (typeof this._privacyAuthorizeFinish === 'function') {
@@ -889,6 +948,7 @@ App({
     privacyContractName: '',
     needPrivacyAuthorization: false,
     privacyGateActive: false,
+    privacyModalVisible: false,
     /** 开屏动画展示中（开屏层自身全屏遮挡，禁触遮罩让位，否则吞掉「跳过」点击） */
     splashActive: false,
     demoMode: false,

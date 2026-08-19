@@ -398,10 +398,10 @@
         <view class="list-day-hint" wx:if="{{listDayHint}}">
           <text class="list-day-hint-text">{{listDayHint}}</text>
         </view>
-        <view class="empty-list-hint glass-card" wx:if="{{items.length === 0}}">
+        <view class="empty-list-hint glass-card" wx:if="{{!itemsView.length}}">
           <text class="empty-list-text">该账号暂无已发布动态，可下拉刷新重试</text>
         </view>
-        <block wx:for="{{items}}" wx:for-item="ev" wx:key="_id" wx:for-index="evIdx">
+        <block wx:for="{{itemsView}}" wx:for-item="ev" wx:key="_id" wx:for-index="evIdx">
           <view class="detail-card glass-card list-card-item" bindtap="onListCardTap" bindlongpress="openListEventShareSheet" data-id="{{ev._id}}" data-idx="{{evIdx}}">
             <view class="meta-top">
               <text class="date-text">{{ev.publishedAtText}}</text>
@@ -413,6 +413,10 @@
 
             <text class="detail-title" wx:if="{{ev.title}}" user-select="{{true}}">{{ev.title}}</text>
             <text class="detail-content" wx:if="{{ev.content}}" user-select="{{true}}">{{ev.content}}</text>
+            <view class="event-intel-row" wx:if="{{ev.isNew || ev.keywordHitText}}">
+              <text class="event-intel-new" wx:if="{{ev.isNew}}">新</text>
+              <text class="event-intel-kw" wx:if="{{ev.keywordHitText}}">{{ev.keywordHitText}}</text>
+            </view>
 
             <view class="event-live-card" wx:if="{{enableLiveEntry && ev.liveRoomId}}" catchtap="onLiveCardTapFromList" data-id="{{ev._id}}">
               <view class="event-live-cover-wrap">
@@ -448,6 +452,25 @@
                 </view>
               </block>
             </view>
+            <view
+              class="event-related-mission-wrap"
+              wx:if="{{ev.relatedLaunchCard}}"
+              catchtap="onRelatedLaunchTap"
+              catchlongpress="stopPropagation"
+              data-launch-id="{{ev.relatedLaunchId}}"
+              data-launch-type="{{ev.relatedLaunchType}}"
+            >
+              <mission-list-card
+                item="{{ev.relatedLaunchCard}}"
+                index="{{evIdx}}"
+                themeLight="{{themeLight}}"
+                enableFavorite="{{true}}"
+                favorited="{{ev.relatedLaunchFavorited}}"
+                favAnimate="{{ev.relatedLaunchFavAnimate}}"
+                bind:cardtap="onRelatedLaunchTap"
+                bind:favoritetap="onToggleRelatedLaunchFavorite"
+              />
+            </view>
           </view>
         </block>
         <view class="list-load-footer" wx:if="{{listAllMode && items.length > 0}}">
@@ -472,6 +495,7 @@
 
         <text class="detail-title" wx:if="{{item.title}}" user-select="{{true}}">{{item.title}}</text>
         <text class="detail-content" wx:if="{{item.content}}" user-select="{{true}}">{{item.content}}</text>
+        <include src="./event-intel-row.wxml" />
 
         <view class="event-live-card" wx:if="{{enableLiveEntry && item.liveRoomId}}" bindtap="onLiveCardTap">
           <view class="event-live-cover-wrap">
@@ -524,6 +548,25 @@
               <view wx:elif="{{!media.isPlayable}}" class="event-media-link-badge">外部链接</view>
             </view>
           </block>
+        </view>
+
+        <view
+          class="event-related-mission-wrap"
+          wx:if="{{item.relatedLaunchCard}}"
+          catchtap="onRelatedLaunchTap"
+          catchlongpress="stopPropagation"
+          data-launch-id="{{item.relatedLaunchId}}"
+          data-launch-type="{{item.relatedLaunchType}}"
+        >
+          <mission-list-card
+            item="{{item.relatedLaunchCard}}"
+            themeLight="{{themeLight}}"
+            enableFavorite="{{true}}"
+            favorited="{{item.relatedLaunchFavorited}}"
+            favAnimate="{{item.relatedLaunchFavAnimate}}"
+            bind:cardtap="onRelatedLaunchTap"
+            bind:favoritetap="onToggleRelatedLaunchFavorite"
+          />
         </view>
 
       </view>

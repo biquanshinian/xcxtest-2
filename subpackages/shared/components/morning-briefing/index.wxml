@@ -83,6 +83,23 @@
         <text class="tweet-briefing-summary tweet-briefing-summary--loading" wx:else>正在拉取动态条数…</text>
       </view>
     </view>
+    <view class="tweet-highlight-list" wx:if="{{tweetHighlights.length > 0}}">
+      <view
+        class="tweet-highlight-item"
+        hover-class="briefing-row-hover"
+        wx:for="{{tweetHighlights}}"
+        wx:key="_id"
+        catchtap="onTweetHighlightTap"
+        data-id="{{item._id}}"
+      >
+        <image class="tweet-highlight-thumb" wx:if="{{item.thumbUrl}}" src="{{item.thumbUrl}}" mode="aspectFill" />
+        <view class="tweet-highlight-body">
+          <text class="tweet-highlight-title">{{item.title || item.contentPreview}}</text>
+          <text class="tweet-highlight-meta">{{item.author}} · {{item.publishedAtText}}</text>
+          <text class="tweet-highlight-kw" wx:if="{{item.keywordHitText}}">{{item.keywordHitText}}</text>
+        </view>
+      </view>
+    </view>
     <!-- 与 pages/progress 事件更新「今日各账号更新统计」同款结构 -->
     <view class="tweet-stats-bar" wx:if="{{tweetStats.length > 0}}">
       <view
@@ -135,7 +152,7 @@
     </view>
 
     <scroll-view class="popup-body" scroll-y style="height: {{popupScrollHeightPx}}px;">
-      <template is="briefingBody" data="{{loading, briefing, tweetStats, tweetTotal, tweetEventLoading}}" />
+      <template is="briefingBody" data="{{loading, briefing, tweetStats, tweetTotal, tweetEventLoading, tweetHighlights}}" />
     </scroll-view>
 
     <button class="popup-share-btn" open-type="share" data-share-type="briefing">
@@ -147,7 +164,7 @@
 
 <!-- 详情页模式（/subpackages/shared/briefing 页内嵌） -->
 <view class="briefing-page-body" wx:if="{{mode === 'page'}}">
-  <template is="briefingBody" data="{{loading, briefing, tweetStats, tweetTotal, tweetEventLoading}}" />
+  <template is="briefingBody" data="{{loading, briefing, tweetStats, tweetTotal, tweetEventLoading, tweetHighlights}}" />
 </view>
 
 <!-- 内联卡片（profile 页）：点击跳转简报详情页 -->

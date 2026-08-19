@@ -1,4 +1,5 @@
 const { getUiShellLayout } = require('../../utils/layout.js')
+const { getSystemInfo } = require('../../utils/system.js')
 const { cloudEnv } = require('../../utils/config.js')
 const { getThemeClassSync, isLightSync, getPageBgSync } = require('../../utils/theme.js')
 const { isFeatureEnabled } = require('../../utils/feature-flags.js')
@@ -81,9 +82,7 @@ Page({
   },
 
   onLoad(options) {
-    const deviceInfo = wx.getDeviceInfo()
-    const windowInfo = wx.getWindowInfo()
-    const systemInfo = Object.assign({}, deviceInfo, windowInfo, wx.getAppBaseInfo())
+    const systemInfo = getSystemInfo()
     const uiShellLayout = getUiShellLayout(systemInfo)
     const pages = typeof getCurrentPages === 'function' ? getCurrentPages() : []
     let menuButtonWidth = 88

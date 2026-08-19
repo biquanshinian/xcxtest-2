@@ -7,6 +7,10 @@ const { resolveLaunchMissionOverride, localizeMissionTitle } = require('./missio
 const { translateRocketName } = require('./rocket-name-i18n.js')
 const { translateAgencyName } = require('./agency-name-i18n.js')
 const { translateLocation } = require('./space-terms-display.js')
+const {
+  isPlaceholderMissionField,
+  parseRocketMissionFromLaunchName
+} = require('./mission-list-card.js')
 
 function buildLaunchSitePair(launch) {
   const pad = launch && launch.pad
@@ -113,7 +117,7 @@ function pickEnglishSlot(packVal, fallbacks) {
   const list = [packVal].concat(Array.isArray(fallbacks) ? fallbacks : [])
   for (let i = 0; i < list.length; i++) {
     const s = String(list[i] || '').trim()
-    if (s && !hasCjkText(s)) return s
+    if (s && !hasCjkText(s) && !isPlaceholderMissionField(s)) return s
   }
   return ''
 }
@@ -138,7 +142,13 @@ function hydrateMissionLangPack(mission) {
   const pad = mission.padDetail && typeof mission.padDetail === 'object' ? mission.padDetail : null
   const nameEn = pickEnglishSlot(pack.nameEn, [mission.nameEn, mission.name])
   const missionEn = pickEnglishSlot(pack.missionNameEn, [mission.missionNameEn, mission.missionName])
-  const rocketEn = pickEnglishSlot(pack.rocketNameEn, [mission.rocketNameEn, mission.rocketName])
+  let rocketEn = pickEnglishSlot(pack.rocketNameEn, [mission.rocketNameEn, mission.rocketName])
+  if (!rocketEn) {
+    const parsedRocket = parseRocketMissionFromLaunchName(nameEn || mission.name).rocketName
+    if (parsedRocket && !isPlaceholderMissionField(parsedRocket) && !hasCjkText(parsedRocket)) {
+      rocketEn = parsedRocket
+    }
+  }
   const padEn = pickEnglishSlot(pack.padLocationEn, [mission.padLocationEn, mission.padLocation])
   const siteEn = pickEnglishSlot(pack.launchSiteEn, [mission.launchSiteEn, mission.launchSite])
   const padNameEn = pickEnglishSlot(pack.padNameEn, [pad && pad.padNameEn, pad && pad.padName])
@@ -155,7 +165,11 @@ function hydrateMissionLangPack(mission) {
   pack.locationNameEn = locNameEn
   pack.launchAgencyEn = agencyEn
 
-  const rocketZh = fillZhFromDict(pack.rocketNameZh, rocketEn, translateRocketName)
+  const rocketZh = fillZhFromDict(
+    isPlaceholderMissionField(pack.rocketNameZh) ? '' : pack.rocketNameZh,
+    rocketEn,
+    translateRocketName
+  )
   pack.rocketNameZh = rocketZh
   pack.nameZh = fillZhFromDict(pack.nameZh, nameEn, function (en) {
     return localizeMissionTitle(en, rocketEn, rocketZh)
@@ -163,8 +177,16 @@ function hydrateMissionLangPack(mission) {
   pack.missionNameZh = fillZhFromDict(pack.missionNameZh, missionEn, function (en) {
     return localizeMissionTitle(en, rocketEn, rocketZh)
   })
-  pack.padLocationZh = fillZhFromDict(pack.padLocationZh, padEn, translateLocation)
-  pack.launchSiteZh = fillZhFromDict(pack.launchSiteZh, siteEn, translateLocation)
+  pack.padLocationZh = fillZhFromDict(
+    isPlaceholderMissionField(pack.padLocationZh) ? '' : pack.padLocationZh,
+    padEn,
+    translateLocation
+  )
+  pack.launchSiteZh = fillZhFromDict(
+    isPlaceholderMissionField(pack.launchSiteZh) ? '' : pack.launchSiteZh,
+    siteEn,
+    translateLocation
+  )
   pack.padNameZh = fillZhFromDict(pack.padNameZh, padNameEn, translateLocation)
   pack.locationNameZh = fillZhFromDict(pack.locationNameZh, locNameEn, translateLocation)
   pack.launchAgencyZh = resolveAgencyDisplayZh(agencyEn, agencyAbbrev, pack.launchAgencyZh)
@@ -205,12 +227,21 @@ function applyContentLangToMission(mission) {
     mission.rocketName = en
       ? (pack.rocketNameEn || pack.rocketNameZh)
       : (pack.rocketNameZh || pack.rocketNameEn)
+    if (isPlaceholderMissionField(mission.rocketName)) {
+      mission.rocketName = launchCardUiText('unknownRocket')
+    }
     mission.padLocation = en
       ? (pack.padLocationEn || pack.padLocationZh)
       : (pack.padLocationZh || pack.padLocationEn)
+    if (isPlaceholderMissionField(mission.padLocation)) {
+      mission.padLocation = launchCardUiText('unknownPlace')
+    }
     mission.launchSite = en
       ? (pack.launchSiteEn || pack.padLocationEn || pack.launchSiteZh)
       : (pack.launchSiteZh || pack.padLocationZh || pack.launchSiteEn)
+    if (isPlaceholderMissionField(mission.launchSite)) {
+      mission.launchSite = launchCardUiText('unknownPlace')
+    }
     mission.name = en ? (pack.nameEn || pack.nameZh) : (pack.nameZh || pack.nameEn)
     // 列表主标题只用任务段；火箭型号单独一行展示，避免「猎鹰9号 | …」下再重复火箭名
     if (en) {
@@ -238,8 +269,10 @@ function applyContentLangToMission(mission) {
       : (pack.launchAgencyZh || pack.launchAgencyEn || '')
     mission.countryDisplay = en ? pack.countryDisplayEn : pack.countryDisplayZh
     const badge = en ? pack.statusBadgeTextEn : pack.statusBadgeTextZh
-    mission.statusBadgeText = badge
-    mission.status = badge
+    if (badge) {
+      mission.statusBadgeText = badge
+      mission.status = badge
+    }
     mission.recoveryTagText = en ? pack.recoveryTagTextEn : pack.recoveryTagTextZh
     // 详情页发射场地块 / missionFull.name 与列表标题同源；只读云端 *Zh
     if (mission.padDetail && typeof mission.padDetail === 'object') {
@@ -375,13 +408,15 @@ function applyContentLangToMissionList(list) {
  * @param {object} [rocketConfiguration] 可带云端 nameZh / full_nameZh（AI 自动翻译）
  */
 function buildRocketNamePair(rocketNameEn, rocketConfiguration) {
-  const en = String(rocketNameEn || '').trim() || launchCardUiText('unknownRocket')
+  const raw = String(rocketNameEn || '').trim()
+  const unknown = !raw || isPlaceholderMissionField(raw)
+  const en = unknown ? 'Unknown rocket' : raw
   const cfg = rocketConfiguration && typeof rocketConfiguration === 'object' ? rocketConfiguration : null
   const fromCloud = cfg
     ? (zhField(cfg, 'full_name') || zhField(cfg, 'name') || '')
     : ''
-  const fromDict = translateRocketName(en) || ''
-  const zh = fromCloud || (hasDisplayZh(fromDict) ? fromDict : '')
+  const fromDict = unknown ? '' : (translateRocketName(en) || '')
+  const zh = fromCloud || (hasDisplayZh(fromDict) ? fromDict : '') || (unknown ? '未知火箭' : '')
   return { rocketNameEn: en, rocketNameZh: zh }
 }
 
@@ -389,8 +424,10 @@ function buildRocketNamePair(rocketNameEn, rocketConfiguration) {
 function rocketNameForImage(mission) {
   if (!mission || typeof mission !== 'object') return ''
   const fromPack = mission._langPack && mission._langPack.rocketNameEn
-  if (fromPack) return String(fromPack).trim()
-  if (mission.rocketNameEn) return String(mission.rocketNameEn).trim()
+  if (fromPack && !isPlaceholderMissionField(fromPack)) return String(fromPack).trim()
+  if (mission.rocketNameEn && !isPlaceholderMissionField(mission.rocketNameEn)) {
+    return String(mission.rocketNameEn).trim()
+  }
   const cfg = mission.rocketConfiguration
   if (cfg && typeof cfg === 'object') {
     const full = typeof cfg.full_name === 'string' ? cfg.full_name.trim() : ''

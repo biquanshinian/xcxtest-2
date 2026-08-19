@@ -186,6 +186,23 @@ function toggleFavorite(item) {
   return favorited
 }
 
+/** 任务详情 / 事件流对应发射卡共用：type=mission + extra.missionType */
+function toggleMissionFavorite(mission, detailType) {
+  if (!mission || mission.id == null || String(mission.id).trim() === '') return false
+  return toggleFavorite({
+    type: 'mission',
+    id: mission.id,
+    title: mission.missionName || mission.name || '发射任务',
+    subtitle: mission.rocketName || '',
+    imageUrl: mission.rocketImage || '',
+    category: 'mission',
+    extra: {
+      missionType: detailType === 'completed' ? 'completed' : 'upcoming',
+      rocketName: mission.rocketName || ''
+    }
+  })
+}
+
 function removeFavorite(type, id) {
   if (!type || id == null) return
   const list = _readRawList()
@@ -309,6 +326,7 @@ module.exports = {
   getFavoriteCount,
   isFavorite,
   toggleFavorite,
+  toggleMissionFavorite,
   removeFavorite,
   toggleCollection,
   isCollectionFavorite,

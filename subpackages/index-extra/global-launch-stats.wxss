@@ -247,6 +247,11 @@ page {
   color: #ff6b6b;
 }
 
+.summary-chip--pending {
+  background: rgba(142, 142, 147, 0.14);
+  color: #8e8e93;
+}
+
 .summary-chip-dot {
   width: 12rpx;
   height: 12rpx;
@@ -259,6 +264,10 @@ page {
 
 .summary-chip-dot--failure {
   background: #ff6b6b;
+}
+
+.summary-chip-dot--pending {
+  background: #8e8e93;
 }
 
 .summary-sub--loading {
@@ -281,6 +290,18 @@ page {
   height: 36rpx;
   border-width: 3rpx;
   flex-shrink: 0;
+}
+
+.stale-hint {
+  padding: 16rpx 28rpx;
+  margin-bottom: 16rpx;
+  border-radius: 16rpx;
+}
+
+.stale-hint-text {
+  font-size: 24rpx;
+  color: #8e8e93;
+  line-height: 1.4;
 }
 
 .inline-error {
@@ -724,6 +745,10 @@ page {
 /* 明细区内联错误：浅红文字在浅底不可读 → 状态红 */
 .theme-light .inline-error-text {
   color: var(--color-danger);
+}
+
+.theme-light .stale-hint-text {
+  color: var(--color-text-secondary);
 }
 
 /* 排行卡 */

@@ -398,31 +398,13 @@ function warmSplashMissionSideData(state) {
     }
   } catch (e) {}
   const bind = pickMissionBind(state)
-  setTimeout(() => {
-    try {
-      const listApi = require('./api-launch-list.js')
-      const enrich = require('./upcoming-agency-logo-enrich.js')
-      if (bind && bind.launchId && typeof listApi.findMissionInListSnapshots === 'function') {
-        const snap = listApi.findMissionInListSnapshots(bind.launchId, 'upcoming')
-        if (snap && snap.launchAgencyImage) preloadImage(String(snap.launchAgencyImage))
-      }
-      if (typeof listApi.getUpcomingMissionsAny !== 'function') return
-      listApi.getUpcomingMissionsAny(20).then((res) => {
-        const list = res && Array.isArray(res.list) ? res.list : []
-        if (!list.length) return
-        const prefetch = enrich.prefetchUpcomingAgencyLogos(list, {
-          priorityLaunchId: bind && bind.launchId
-        })
-        prefetch.then((enriched) => {
-          if (!bind || !Array.isArray(enriched)) return
-          const hit = bind.launchId
-            ? enriched.find((m) => m && String(m.id) === String(bind.launchId))
-            : null
-          if (hit) persistWarmedSplashMissionLogo(bind, hit)
-        }).catch(() => {})
-      }).catch(() => {})
-    } catch (e) {}
-  }, 0)
+  try {
+    const listApi = require('./api-launch-list.js')
+    if (bind && bind.launchId && typeof listApi.findMissionInListSnapshots === 'function') {
+      const snap = listApi.findMissionInListSnapshots(bind.launchId, 'upcoming')
+      if (snap && snap.launchAgencyImage) preloadImage(String(snap.launchAgencyImage))
+    }
+  } catch (e) {}
 }
 
 function bootFromCache(state) {
@@ -528,6 +510,9 @@ function startSplashPrefetch(app) {
   }
 
   bootFromCache(state)
+  try {
+    require('../pages/index/utils/index-countdown-boot.js').hydrateCountdownBootToApp(app)
+  } catch (eBoot) {}
   // 无开屏片时也预热即将发射 logo，避免首页胶囊只剩 SpaceX
   if (!state.picked) warmSplashMissionSideData(state)
 

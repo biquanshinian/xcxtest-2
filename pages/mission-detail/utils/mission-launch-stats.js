@@ -102,6 +102,43 @@ function applyClientAgencyFallback(stats, mission) {
   return out
 }
 
+function isUpcomingMission(mission) {
+  const t = mission && mission.launchTime ? new Date(mission.launchTime).getTime() : NaN
+  return Number.isFinite(t) && t > Date.now()
+}
+
+function pickPositiveCount(raw) {
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+/**
+ * 型号累计：LL2 launcher_configuration.total_launch_count 是已完成次数。
+ * 待发任务与发射商徽章一样按「含本次」展示，因此未发射时 +1。
+ */
+function resolveRocketAttemptHints(mission) {
+  if (!mission || typeof mission !== 'object') return { total: null, year: null }
+  const cfg = mission.rocketConfiguration || null
+  let total = pickPositiveCount(mission.rocketLaunchAttemptCount)
+  if (total == null) total = pickPositiveCount(cfg && cfg.total_launch_count)
+  if (total != null && isUpcomingMission(mission)) total += 1
+  const year = pickPositiveCount(mission.rocketLaunchAttemptCountYear)
+  return { total, year }
+}
+
+function applyClientRocketFallback(stats, mission) {
+  if (!stats) return stats
+  const hints = resolveRocketAttemptHints(mission)
+  const out = { ...stats }
+  if ((out.rocketTotal == null || out.rocketTotal === '') && hints.total != null) {
+    out.rocketTotal = hints.total
+  }
+  if ((out.rocketYear == null || out.rocketYear === '') && hints.year != null) {
+    out.rocketYear = hints.year
+  }
+  return out
+}
+
 /**
  * 清洗云端/本地缓存里的矛盾计数：累计 < 年内（如型号名未归一化时精确过滤拿到的脏 0）。
  * 累计置 null（前端显示「—」），待云端预热重算后自动补正；年内计数来自年度明细聚合，可信保留。
@@ -120,8 +157,8 @@ function sanitizeMissionStats(stats) {
 }
 
 async function loadMissionLaunchStats(mission, options = {}) {
-  const data = await fetchMissionLaunchStatsFromCloud(mission, options)
-  const raw = applyClientAgencyFallback(sanitizeMissionStats({
+  const data = (await fetchMissionLaunchStatsFromCloud(mission, options)) || {}
+  const raw = applyClientRocketFallback(applyClientAgencyFallback(sanitizeMissionStats({
     year: data.year,
     rocketLabel: data.rocketLabel || '',
     providerLabel: data.providerLabel || '',
@@ -132,7 +169,7 @@ async function loadMissionLaunchStats(mission, options = {}) {
     yearOrdinal: data.yearOrdinal,
     staleCache: !!data.staleCache,
     clientStaleFallback: !!data.clientStaleFallback
-  }), mission)
+  }), mission), mission)
   return localizeMissionStatsLabels(raw, mission)
 }
 
@@ -140,5 +177,7 @@ module.exports = {
   loadMissionLaunchStats,
   resolveAgencyAttemptHints,
   applyClientAgencyFallback,
+  resolveRocketAttemptHints,
+  applyClientRocketFallback,
   sanitizeMissionStats
 }

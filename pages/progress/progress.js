@@ -93,7 +93,10 @@ const PROGRESS_LAZY_METHODS = [
   'onEventScrollRefresh',
   'toggleEventUpdatesExpanded',
   'openEventUpdatesList',
-  'onAvatarError'
+  'onAvatarError',
+  'onRelatedLaunchTap',
+  'onToggleRelatedLaunchFavorite',
+  'syncEventRelatedLaunchFavorites'
 ]
 
 // event-updates 分包组件（事件更新区）回传事件白名单：
@@ -116,7 +119,9 @@ const PROGRESS_SECTION_EVENT_METHODS = [
   'onEventScrollRefresh',
   'onEventScrollToLower',
   'toggleEventUpdatesExpanded',
-  'onAvatarError'
+  'onAvatarError',
+  'onRelatedLaunchTap',
+  'onToggleRelatedLaunchFavorite'
 ]
 function delegateProgressLazy(name) {
   return function (...args) {
@@ -276,6 +281,9 @@ Page({
       try { warmProgressPageStorageSync() } catch (e) {}
       try { warmEventShareImage() } catch (e) {}
       self.setData({ isProUser: isProSync() })
+      if (typeof self.syncEventRelatedLaunchFavorites === 'function') {
+        try { self.syncEventRelatedLaunchFavorites() } catch (eFav) {}
+      }
       storageCache.persistAsync(PROGRESS_LAST_VIEWED_KEY, Date.now())
       require.async('../../subpackages/shared/utils/popup-ad.js')
         .then(({ tryShowPopupAd }) => tryShowPopupAd(2, self))
@@ -410,11 +418,13 @@ Page({
     ll2TimelineError: '',
     belowFoldSectionsReady: false,
     eventUpdates: [],
+    eventUpdatesView: [],
     eventUpdatesExpanded: false,
     eventUpdatesLoading: false,
     eventUpdatesError: '',
     eventUpdatesNoMore: false,
     eventScrollRefreshing: false,
+    eventNewCount: 0,
     scrollRefreshing: false,
     enableEventVideo: false,
     // 过审直播入口开关（isLiveEntryAllowed，failClosed）：关闭时不渲染 B 站直播卡、不查直播状态

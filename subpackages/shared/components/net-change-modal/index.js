@@ -6,7 +6,7 @@
  *
  * 模式：
  *   DEV  — NET_CHANGE_MODAL_DEV_MODE=true：等首页列表就绪后用真实配图 + mock 时间预览
- *   正式 — maybeShow() 扫描未发射任务的 NET 变更（提前/延期，满 1 分钟即记）；
+ *   正式 — maybeShow() 拉 launch_data 改期行（与服务号同一信源）再扫未发射变更；
  *           由首页冷启动队列调用，同一进程只弹一次
  *
  * ★ 调试满意后把 NET_CHANGE_MODAL_DEV_MODE 改回 false 再上线
@@ -21,7 +21,9 @@ const { enrichMissionsLaunchAgencyImages } = require('../../../../utils/upcoming
 const themeUtil = require('../../../../utils/theme.js')
 const {
   scanAndPickTodayReminder,
-  pickDevPreviewPayload,
+  overlayServerNetChanges,
+  fetchRecentNetChanges,
+  markEventShown,
   pickDevPreviewPayloads,
   resolveChangeMeta
 } = require('../../utils/net-change-reminder.js')
@@ -427,8 +429,8 @@ Component({
     },
 
     /**
-     * 队列入口：扫描未发射任务的提前/延期，弹新 NET 最近的一条。
-     * 是否冷启动由首页队列把关；DEV 模式下走预览（若已 visible 则跳过）。
+     * 队列入口：扫描未发射任务的提前/延期。
+     * 是否冷启动由首页队列把关（简报 → 续费 → 本弹窗）；DEV 走预览。
      * @param {Function} [isBlocked]
      * @returns {Promise<boolean>}
      */
@@ -436,6 +438,7 @@ Component({
       const self = this
       if (self.data.visible || self._opening) return Promise.resolve(false)
       self._opening = true
+      self._lastScanBlocked = false
 
       if (NET_CHANGE_MODAL_DEV_MODE) {
         // DEV 由 attached 自驱；队列再调一次时若尚未弹出可补一次
@@ -453,21 +456,47 @@ Component({
         })
       }
 
-      return Promise.resolve()
-        .then(function () {
-          if (typeof isBlocked === 'function' && isBlocked()) return false
-          const missions = getUpcomingMissionsFromPage()
+      return fetchRecentNetChanges()
+        .then(function (pack) {
+          const serverRows = pack && Array.isArray(pack.rows) ? pack.rows : []
+          if (typeof isBlocked === 'function' && isBlocked()) {
+            self._lastScanBlocked = true
+            self._lastScanFromServer = false
+            self._lastScanServerCount = 0
+            return false
+          }
+          self._lastScanFromServer = !!(pack && pack.fromServer)
+          self._lastScanServerCount = serverRows.length
+          const missions = overlayServerNetChanges(getUpcomingMissionsFromPage(), serverRows)
           const payloads = scanAndPickTodayReminder(missions)
           if (!payloads || !payloads.length) return false
-          return self.show(payloads)
+          if (typeof isBlocked === 'function' && isBlocked()) {
+            self._lastScanBlocked = true
+            self._lastScanFromServer = false
+            self._lastScanServerCount = 0
+            return false
+          }
+          const shown = self.show(payloads)
+          if (shown) {
+            for (let i = 0; i < payloads.length; i++) markEventShown(payloads[i])
+          }
+          return shown
         })
         .catch(function () {
+          self._lastScanFromServer = false
+          self._lastScanServerCount = 0
+          self._lastScanBlocked = false
           return false
         })
         .then(function (shown) {
           self._opening = false
           return shown
         })
+    },
+
+    /** 列表就绪时只预热 launch_data，不抢简报/续费队列 */
+    prewarm() {
+      fetchRecentNetChanges().catch(function () {})
     },
 
     _dismiss() {

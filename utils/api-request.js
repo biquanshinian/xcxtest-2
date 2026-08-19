@@ -185,6 +185,37 @@ const RETRY_DELAY = 1000 // 重试延迟1秒
 // 云缓存查询去重与节流：避免同一时刻大量重复查询触发数据库超时
 const pendingCloudCacheRequests = Object.create(null)
 const cloudCacheBgCheckAt = Object.create(null)
+// upcoming 分片列表：首片到达即可让倒计时上屏；完整合并仍走原 Promise（残缺不落本地）
+const _cloudListPrefixByKey = Object.create(null)
+const _cloudListPrefixListeners = []
+
+function isUpcomingLaunchCacheKey(cacheKey) {
+  return typeof cacheKey === 'string' && cacheKey.indexOf('/launches/upcoming/') !== -1
+}
+
+function onCloudListPrefix(callback) {
+  if (typeof callback !== 'function') return function () {}
+  _cloudListPrefixListeners.push(callback)
+  return function off() {
+    const idx = _cloudListPrefixListeners.indexOf(callback)
+    if (idx >= 0) _cloudListPrefixListeners.splice(idx, 1)
+  }
+}
+
+function _emitCloudListPrefix(cacheKey, apiData) {
+  if (!isUpcomingLaunchCacheKey(cacheKey)) return
+  if (!apiData || !Array.isArray(apiData.results) || !apiData.results.length) return
+  _cloudListPrefixByKey[cacheKey] = apiData
+  for (let i = 0; i < _cloudListPrefixListeners.length; i++) {
+    try {
+      _cloudListPrefixListeners[i](cacheKey, apiData)
+    } catch (e) {}
+  }
+}
+
+function _clearCloudListPrefix(cacheKey) {
+  delete _cloudListPrefixByKey[cacheKey]
+}
 // 本地命中后的后台探云间隔：云端缓存由云函数约 3 小时同步一次，
 // 2 分钟探一次纯属浪费计费调用，30 分钟足以及时拿到新数据
 const CLOUD_CACHE_BG_CHECK_INTERVAL = 30 * 60 * 1000 // 30分钟
@@ -428,6 +459,22 @@ async function getCacheFromCloud(cacheKey, timeout = 5000) {
           }
         })
 
+        // 倒计时只需最近发射：首片（NET 升序头部）一到就通知请求层，不必等最慢那片
+        if (isUpcomingLaunchCacheKey(cacheKey) && apiData.batchKeys.length > 1 && batchPromises[0]) {
+          batchPromises[0]
+            .then((first) => {
+              if (!first || !first.ok || !Array.isArray(first.results) || !first.results.length) return
+              _emitCloudListPrefix(cacheKey, {
+                ...apiData,
+                results: first.results.slice(),
+                count: Number(apiData.count) || first.results.length,
+                isBatched: false,
+                isBatch: false
+              })
+            })
+            .catch(() => {})
+        }
+
         const batchResults = await Promise.all(batchPromises)
         const anyFailed = batchResults.some((b) => !b || !b.ok)
         const mergedResults = batchResults.reduce(
@@ -452,9 +499,11 @@ async function getCacheFromCloud(cacheKey, timeout = 5000) {
           isBatched: false,
           isBatch: false
         }
+        _clearCloudListPrefix(cacheKey)
       } else if (hollowBatched) {
         // 无 batchKeys 时按小时探针同约定扫 _batch_N，避免把空 results 当成「真的没有历史」
         const mergedResults = []
+        let prefixEmitted = false
         for (let batchIdx = 0; batchIdx < 40; batchIdx++) {
           const batchKey = `${cacheKey}_batch_${batchIdx}`
           try {
@@ -466,6 +515,20 @@ async function getCacheFromCloud(cacheKey, timeout = 5000) {
               (batchResult.data && batchResult.data.data && batchResult.data.data.results) || null
             if (!Array.isArray(chunk)) break
             for (let i = 0; i < chunk.length; i++) mergedResults.push(chunk[i])
+            if (
+              !prefixEmitted &&
+              isUpcomingLaunchCacheKey(cacheKey) &&
+              mergedResults.length
+            ) {
+              prefixEmitted = true
+              _emitCloudListPrefix(cacheKey, {
+                ...apiData,
+                results: mergedResults.slice(),
+                count: Number(apiData.count) || mergedResults.length,
+                isBatched: false,
+                isBatch: false
+              })
+            }
           } catch (e) {
             const msg = String((e && e.message) || e || '')
             // 超时 ≠ 文档不存在：后者是探针正常结束；前者在已有部分结果时必须整次失败
@@ -487,6 +550,7 @@ async function getCacheFromCloud(cacheKey, timeout = 5000) {
           isBatched: false,
           isBatch: false
         }
+        _clearCloudListPrefix(cacheKey)
       }
 
       if (!apiData.results || !Array.isArray(apiData.results)) {
@@ -534,6 +598,7 @@ async function getCacheFromCloud(cacheKey, timeout = 5000) {
     return await requestPromise
   } finally {
     delete pendingCloudCacheRequests[cacheKey]
+    _clearCloudListPrefix(cacheKey)
   }
 }
 
@@ -887,32 +952,51 @@ function request(url, params = {}, timeout = null, useCache = true, retryCount =
         const cloudCandidates = candidates
           .filter(c => !_isLegacySlimKey(c.key))
           .slice(0, MAX_CLOUD_CANDIDATE_KEYS)
-        for (const c of cloudCandidates) {
-          let cloud = null
-          try {
-            cloud = await getCacheFromCloud(c.key)
-          } catch (e) {
-            cloud = null
-          }
-          if (!cloud) continue
-          const isList = cloud.results && Array.isArray(cloud.results)
-          const isSingleObject = !isList && cloud.id
-          if (isList) {
-            const result = c.slice ? _sliceCacheResult(cloud, params) : cloud
-            if (result !== null) {
-              if (!staleResolved) resolve(result)
-              else _fireStaleUpdate(cacheKey, result)
-              // 命中候选母文档时把完整数据存到母 key（供所有切片请求共享同一代际），
-              // 精确 key 不再持久化切片副本，避免多份不同时间戳的旧数据来回闪
-              setCache(c.slice ? c.key : cacheKey, c.slice ? cloud : result)
+        const candidateKeySet = {}
+        for (let i = 0; i < cloudCandidates.length; i++) {
+          candidateKeySet[cloudCandidates[i].key] = true
+        }
+        const tryResolvePrefix = (motherKey, prefixData) => {
+          if (staleResolved) return
+          if (!candidateKeySet[motherKey]) return
+          const sliced = _sliceCacheResult(prefixData, params)
+          if (!sliced || !Array.isArray(sliced.results) || !sliced.results.length) return
+          staleResolved = true
+          resolve(sliced)
+        }
+        const offPrefix = onCloudListPrefix(tryResolvePrefix)
+        try {
+          for (const c of cloudCandidates) {
+            const heldPrefix = _cloudListPrefixByKey[c.key]
+            if (heldPrefix) tryResolvePrefix(c.key, heldPrefix)
+            let cloud = null
+            try {
+              cloud = await getCacheFromCloud(c.key)
+            } catch (e) {
+              cloud = null
+            }
+            if (!cloud) continue
+            const isList = cloud.results && Array.isArray(cloud.results)
+            const isSingleObject = !isList && cloud.id
+            if (isList) {
+              const result = c.slice ? _sliceCacheResult(cloud, params) : cloud
+              if (result !== null) {
+                if (!staleResolved) resolve(result)
+                else _fireStaleUpdate(cacheKey, result)
+                // 命中候选母文档时把完整数据存到母 key（供所有切片请求共享同一代际），
+                // 精确 key 不再持久化切片副本，避免多份不同时间戳的旧数据来回闪
+                setCache(c.slice ? c.key : cacheKey, c.slice ? cloud : result)
+                return
+              }
+            } else if (isSingleObject) {
+              if (!staleResolved) resolve(cloud)
+              else _fireStaleUpdate(cacheKey, cloud)
+              setCache(cacheKey, cloud)
               return
             }
-          } else if (isSingleObject) {
-            if (!staleResolved) resolve(cloud)
-            else _fireStaleUpdate(cacheKey, cloud)
-            setCache(cacheKey, cloud)
-            return
           }
+        } finally {
+          offPrefix()
         }
       } catch (error) {}
 
@@ -1239,6 +1323,32 @@ function getStatusBadgeText(status, category, options) {
 
 
 
+/**
+ * 只读本地 upcoming/previous 缓存（含过期但未超 stale 上限），不打云、不探后台。
+ * 供首页倒计时在开屏期间零网络快显。
+ */
+function peekCachedLaunchList(url, params, allowStale) {
+  if (!url || !params || typeof params !== 'object') return null
+  const cacheKey = getCacheKey(url, params)
+  const readOne = (key) => {
+    let hit = getCacheFromLocal(key, false)
+    if (!hit && allowStale) hit = getCacheFromLocal(key, true)
+    return hit
+  }
+  const exact = readOne(cacheKey)
+  if (exact && Array.isArray(exact.results) && exact.results.length) {
+    return _sliceCacheResult(exact, params) || exact
+  }
+  const candidates = _buildCandidateKeys(url, params, cacheKey)
+  for (let i = 1; i < candidates.length; i++) {
+    const local = readOne(candidates[i].key)
+    if (!local) continue
+    const result = candidates[i].slice ? _sliceCacheResult(local, params) : local
+    if (result && Array.isArray(result.results) && result.results.length) return result
+  }
+  return null
+}
+
 function patchUpcomingLocalCacheById(launchId, liveFields) {
   if (launchId == null || !liveFields || typeof liveFields !== 'object') return false
   const idStr = String(launchId)
@@ -1305,6 +1415,7 @@ module.exports = {
   onStaleUpdate,
   onLaunchListStale,
   forceLaunchListCloudBgCheck,
+  peekCachedLaunchList,
   patchUpcomingLocalCacheById,
   formatPadLocation,
   getCountryDisplay,

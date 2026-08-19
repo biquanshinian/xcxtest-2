@@ -479,6 +479,62 @@
   color: var(--color-text-tertiary);
 }
 
+.tweet-highlight-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+  margin: 0 0 18rpx;
+}
+
+.tweet-highlight-item {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 12rpx 8rpx;
+  border-radius: 12rpx;
+}
+
+.tweet-highlight-thumb {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 12rpx;
+  flex-shrink: 0;
+  background: var(--color-divider);
+}
+
+.tweet-highlight-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.tweet-highlight-title {
+  display: block;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tweet-highlight-meta {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 20rpx;
+  color: var(--color-text-tertiary);
+}
+
+.tweet-highlight-kw {
+  display: inline-block;
+  margin-top: 6rpx;
+  font-size: 20rpx;
+  color: #0071A9;
+  background: rgba(10, 132, 255, 0.1);
+  border-radius: 8rpx;
+  padding: 2rpx 10rpx;
+}
+
 /* ══ 内联卡片（与 profile 页 growth-entry 卡片保持同款外观） ══ */
 .briefing-inline {
   margin: 0 var(--space-md) var(--space-md);

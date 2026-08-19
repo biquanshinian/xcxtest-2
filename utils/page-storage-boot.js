@@ -44,6 +44,8 @@ function warmProgressPageStorageSync() {
   storageCache.warmSync(BRIEFING_PROGRESS_FILTER_CLEAR_KEY, '')
   storageCache.warmSync(BRIEFING_PROGRESS_FILTER_SOURCE_KEY, '')
   storageCache.warmSync('_progress_last_viewed', 0)
+  storageCache.warmSync('_event_updates_feed_seen_at', 0)
+  storageCache.warmSync('_event_feed_media_filter', 'all')
   storageCache.warmSync('_event_updates_local_cache', null)
 }
 

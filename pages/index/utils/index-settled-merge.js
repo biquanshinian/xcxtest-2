@@ -21,6 +21,16 @@ const { formatMissionListTimeOrUnknown } = require('../../../utils/launch-card-i
 const { buildMissionListSetData } = require('../../../utils/index-mission-services.js')
 const { filterExpiredMissions } = require('../../../utils/index-page-helpers.js')
 const { attachMissionDetailMeta } = require('../../../utils/index-mission-nav.js')
+const {
+  isPlaceholderMissionField,
+  parseRocketMissionFromLaunchName,
+  isIncompleteCompletedListCard
+} = require('../../../utils/mission-list-card.js')
+const { applyContentLangToMission } = require('../../../utils/launch-card-i18n.js')
+const {
+  fetchLaunchAsListItem,
+  patchCompletedListSnapshots
+} = require('../../../utils/api-launch-list.js')
 
 const RECENT_SETTLED_MEM_TTL_MS = 10 * 60 * 1000
 /** 无完整列表卡时，仅补插「刚结束」终态，避免 getRecent(40) 把旧记录刷成历史瘦卡 */
@@ -42,7 +52,8 @@ const methods = {
       return Array.isArray(this._recentSettledCache) ? this._recentSettledCache : null
     }
     this._absorbLaunchStateObservations(incoming, 'live')
-    const merged = Array.from(this._launchRecordsById.values())
+    const records = this._launchRecordsById
+    const merged = Array.from((records && typeof records.values === 'function' ? records : new Map()).values())
       .filter((entry) => entry && isSettledStatusId(entry.status && entry.status.id))
       .sort((a, b) => (Number(b.observedAtMs) || 0) - (Number(a.observedAtMs) || 0))
       .slice(0, 40)
@@ -178,6 +189,7 @@ const methods = {
             } catch (e3) {}
           }
         }
+        this._scheduleHydrateIncompleteCompletedCards(merged, generation)
       })
       this._preloadVisibleRocketImages(merged, 5)
     }
@@ -206,25 +218,22 @@ const methods = {
       .catch(() => apply(null))
   },
 
-  /** 列表字段是否为占位（即将发射瘦卡 / 终态占位常见） */
+  /** 列表字段是否为占位（即将发射瘦卡 / 终态占位常见，含 Unknown rocket） */
   _isPlaceholderMissionField(v) {
-    const s = String(v == null ? '' : v).trim()
-    if (!s) return true
-    return /^(未知|未知火箭|未知地点|未知任务|未知载荷|待定|TBD|N\/A|-|—)$/i.test(s)
+    return isPlaceholderMissionField(v)
   },
 
   /** 终态占位卡或缺图/占位文案：需要用 settled.name 再拼一版 */
   _needsSettledCardRepair(item) {
     if (!item) return false
+    if (isIncompleteCompletedListCard(item)) return true
     if (item._fromRecentSettled || item._optimisticSettled) {
-      if (this._isPlaceholderMissionField(item.rocketName)) return true
-      if (this._isPlaceholderMissionField(item.padLocation)) return true
       if (this._isPlaceholderMissionField(item.countryDisplay)) return true
       if (!item.rocketImage && !item.image) return true
       if (item.missionName && String(item.missionName).indexOf('|') >= 0) return true
       if (!item.missionName && item.name && String(item.name).indexOf('|') >= 0) return true
     }
-    return this._isPlaceholderMissionField(item.rocketName)
+    return false
   },
 
   
@@ -299,6 +308,8 @@ const methods = {
       (baseMission && baseMission.rocketConfiguration) || (stashed && stashed.rocketConfiguration),
       true
     )
+    const padLocation = pick(baseMission && baseMission.padLocation, stashed && stashed.padLocation)
+    const launchSite = pick(baseMission && baseMission.launchSite, stashed && stashed.launchSite)
     const enrichment = {
       ...(stashed || {}),
       ...(baseMission || {}),
@@ -306,12 +317,12 @@ const methods = {
       name,
       missionName: missionName || name,
       rocketName: rocketName || '未知火箭',
-      padLocation: pick(baseMission && baseMission.padLocation, stashed && stashed.padLocation),
+      padLocation,
       // 结算行没有 pad/服务商，最后用「火箭 | 任务」文本推断国家（如 Gravity-1 → 中国）
       countryDisplay:
         pick(baseMission && baseMission.countryDisplay, stashed && stashed.countryDisplay) ||
         getCountryDisplay(null, null, { name }),
-      launchSite: pick(baseMission && baseMission.launchSite, stashed && stashed.launchSite),
+      launchSite,
       rocketImage,
       image: rocketImage,
       launchTime,
@@ -328,6 +339,8 @@ const methods = {
       _optimisticSettled: true,
       _fromRecentSettled: true
     }
+    // 瘦卡 _langPack 常粘着 Unknown rocket / Unknown location，不清掉会被 applyContentLang 盖回
+    delete enrichment._langPack
     // 角标只从 settled 观测投影，不信任 base/stash 上可能过期的 status*
     const projected = projectBadgeOntoMission(enrichment, {
       id: entry.id,
@@ -444,8 +457,136 @@ const methods = {
       presentIds.add(idStr)
       changed = true
     }
-    if (!changed) return baseList
-    return inserts.length ? inserts.concat(next) : next
+    if (!changed) return this._repairIncompleteCompletedCards(baseList)
+    return this._repairIncompleteCompletedCards(inserts.length ? inserts.concat(next) : next)
+  },
+
+  /** 无 settled 命中时也能用 stash / name 把 Unknown rocket 修掉 */
+  _repairIncompleteCompletedCards(list) {
+    const base = Array.isArray(list) ? list : []
+    if (!base.length) return base
+    let changed = false
+    const next = base.map((item) => {
+      if (!item || !this._needsSettledCardRepair(item)) return item
+      const stashed = this._getStashedFullMissionCard(item.id)
+      const name = (item && item.name) || (stashed && stashed.name) || ''
+      const parsed = parseRocketMissionFromLaunchName(name)
+      const pick = (preferred, fallback) => {
+        if (!this._isPlaceholderMissionField(preferred)) return preferred
+        if (!this._isPlaceholderMissionField(fallback)) return fallback
+        return ''
+      }
+      const rocketName =
+        pick(item.rocketName, stashed && stashed.rocketName) || parsed.rocketName || ''
+      const padLocation = pick(item.padLocation, stashed && stashed.padLocation)
+      const launchSite = pick(item.launchSite, stashed && stashed.launchSite)
+      const countryDisplay = pick(item.countryDisplay, stashed && stashed.countryDisplay)
+      const rocketImage = resolveMissionRocketImage(
+        (item.rocketImage || item.image) || (stashed && (stashed.rocketImage || stashed.image)) || '',
+        rocketName,
+        (item.rocketConfiguration) || (stashed && stashed.rocketConfiguration),
+        true
+      )
+      const improved =
+        (rocketName && rocketName !== item.rocketName) ||
+        (padLocation && padLocation !== item.padLocation) ||
+        (launchSite && launchSite !== item.launchSite) ||
+        (countryDisplay && countryDisplay !== item.countryDisplay) ||
+        (rocketImage && rocketImage !== item.rocketImage)
+      if (!improved) return item
+      changed = true
+      const repaired = {
+        ...item,
+        ...(stashed || {}),
+        ...item,
+        rocketName: rocketName || item.rocketName,
+        padLocation: padLocation || item.padLocation,
+        launchSite: launchSite || item.launchSite,
+        countryDisplay: countryDisplay || item.countryDisplay,
+        rocketImage: rocketImage || item.rocketImage,
+        image: rocketImage || item.image
+      }
+      delete repaired._langPack
+      return applyContentLangToMission(repaired)
+    })
+    return changed ? next : base
+  },
+
+  _scheduleHydrateIncompleteCompletedCards(list, generation) {
+    const targets = (Array.isArray(list) ? list : [])
+      .filter((m) => m && m.id != null && isIncompleteCompletedListCard(m))
+      .slice(0, 3)
+    if (!targets.length) return
+    if (this._completedHydrateInflight) {
+      this._completedHydrateQueued = { generation }
+      return
+    }
+    this._completedHydrateInflight = true
+    Promise.all(targets.map((m) => fetchLaunchAsListItem(m.id, 'completed')))
+      .then((rows) => {
+        if ((this._completedStateGeneration || 0) !== generation) return
+        const current = this.data.completedMissions || []
+        let changed = false
+        const next = current.slice()
+        for (let i = 0; i < targets.length; i++) {
+          const full = rows[i]
+          if (!full || isIncompleteCompletedListCard(full)) continue
+          const idx = next.findIndex((m) => m && String(m.id) === String(targets[i].id))
+          if (idx < 0) continue
+          const keep = next[idx]
+          const merged = attachMissionDetailMeta(
+            applyContentLangToMission({
+              ...full,
+              status: keep.status,
+              statusId: keep.statusId,
+              statusAbbrev: keep.statusAbbrev,
+              statusCategory: keep.statusCategory,
+              statusBadgeText: keep.statusBadgeText,
+              success: keep.success,
+              isPartialFailure: keep.isPartialFailure,
+              isFailure: keep.isFailure,
+              formattedTime: keep.formattedTime || full.formattedTime,
+              _fromRecentSettled: false,
+              _optimisticSettled: false
+            }),
+            { id: keep.id, detailType: 'completed' }
+          )
+          next[idx] = merged
+          this._stashFullMissionCards([merged])
+          try {
+            patchCompletedListSnapshots(merged.id, merged)
+          } catch (e) {}
+          changed = true
+        }
+        if (!changed) return
+        this.setData(
+          {
+            ...buildMissionListSetData(
+              'completed',
+              next,
+              {
+                nextOffset: this.data.completedMissionsOffset,
+                hasMore: this.data.completedMissionsHasMore
+              },
+              filterExpiredMissions
+            )
+          },
+          () => {
+            try {
+              this.updateMissionListView('completed', next)
+            } catch (e) {}
+          }
+        )
+      })
+      .catch(() => {})
+      .finally(() => {
+        this._completedHydrateInflight = false
+        const queued = this._completedHydrateQueued
+        this._completedHydrateQueued = null
+        if (queued && queued.generation === (this._completedStateGeneration || 0)) {
+          this._scheduleHydrateIncompleteCompletedCards(this.data.completedMissions || [], queued.generation)
+        }
+      })
   },
 
   
@@ -619,11 +760,37 @@ const methods = {
         try {
           this.hydrateCalendarFromLoadedMissionLists()
         } catch (e2) {}
+        this._scheduleHydrateIncompleteCompletedCards(merged, generation)
       }
     )
   },
 
   
+  _pickDetailDisplayFields(patch) {
+    if (!patch || typeof patch !== 'object') return {}
+    const out = {}
+    const assign = (key) => {
+      if (!this._isPlaceholderMissionField(patch[key])) out[key] = patch[key]
+    }
+    assign('rocketName')
+    assign('padLocation')
+    assign('launchSite')
+    assign('countryDisplay')
+    assign('launchAgency')
+    if (patch.rocketImage || patch.image) {
+      out.rocketImage = patch.rocketImage || patch.image
+      out.image = patch.rocketImage || patch.image
+    }
+    if (patch.rocketConfiguration && typeof patch.rocketConfiguration === 'object') {
+      out.rocketConfiguration = patch.rocketConfiguration
+    }
+    if (patch.name && !this._isPlaceholderMissionField(patch.name)) out.name = patch.name
+    if (patch.missionName && !this._isPlaceholderMissionField(patch.missionName)) {
+      out.missionName = patch.missionName
+    }
+    return out
+  },
+
   applyCompletedMissionStatusFromDetail(patch) {
     if (!patch || patch.id == null) return
     const sid = patch.statusId != null ? Number(patch.statusId) : 0
@@ -659,13 +826,18 @@ const methods = {
     let nextCompleted
     if (idx >= 0) {
       const item = list[idx]
-      if (item.statusCategory === category && item.statusBadgeText === badge && Number(item.statusId) === sid) {
+      const displayPatch = this._pickDetailDisplayFields(patch)
+      const statusSame =
+        item.statusCategory === category && item.statusBadgeText === badge && Number(item.statusId) === sid
+      const needDisplay = Object.keys(displayPatch).length > 0 && this._needsSettledCardRepair(item)
+      if (statusSame && !needDisplay) {
         nextCompleted = list
         this._rememberSessionCompleted(item)
       } else {
         nextCompleted = list.slice()
-        nextCompleted[idx] = {
+        const nextItem = {
           ...item,
+          ...displayPatch,
           status: badge,
           statusId: sid,
           statusAbbrev: patch.statusAbbrev || item.statusAbbrev || '',
@@ -676,7 +848,10 @@ const methods = {
           isFailure: category === 'failure' || category === 'partial',
           _optimisticSettled: true
         }
+        if (needDisplay) delete nextItem._langPack
+        nextCompleted[idx] = applyContentLangToMission(nextItem)
         this._rememberSessionCompleted(nextCompleted[idx])
+        this._stashFullMissionCards([nextCompleted[idx]])
       }
     } else {
       const base = (this.data.upcomingMissions || []).find((m) => m && String(m.id) === idStr) || null

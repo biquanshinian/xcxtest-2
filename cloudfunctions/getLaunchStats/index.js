@@ -19,11 +19,18 @@
  * - 仅尊重 LL2 真实 HTTP 429；不在云数据库维护额外「小时配额账本」
  * - 30 分钟结果缓存（CACHE_TTL_MS）减少重复请求
  * - 触达 LL2 429 时优先返回最长 24 小时内的陈旧缓存（STALE_CACHE_MAX_AGE_MS）
+ * - 用户只读路径另有 allowExpired 兜底：库里只要还有文档就不空屏
  * - 单次云函数调用内 MAX_API_CALLS_PER_RUN 防止翻页失控（非 LL2 官方限额）
  */
 const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
+const {
+  breakdownAggDocId,
+  isBreakdownAggUsable,
+  packBreakdownAggPayload,
+  reconcileSummaryCounts
+} = require('./breakdown-agg.js')
 
 const LAUNCH_LIBRARY_API = 'https://ll.thespacedevs.com/2.3.0'
 const SPACEX_LSP_ID = 121
@@ -182,6 +189,46 @@ function isBreakdownComplete(payload) {
   const apiCount = payload.apiCount
   if (!Number.isFinite(apiCount)) return false
   return payload._launches.length >= apiCount
+}
+
+async function writeBreakdownAggregates(year, launches, apiCount, meta = {}) {
+  if (!Array.isArray(launches) || !launches.length) return { written: 0 }
+  const complete = isBreakdownComplete({ _launches: launches, apiCount })
+  // 往年聚合缓存 TTL 30 天：截断明细一旦写入会被当新鲜，禁止用未拉全数据覆盖
+  if (isPastYear(year) && (!complete || meta.partial)) {
+    return { written: 0, skipped: 'incomplete_past_year' }
+  }
+  const keys = ['_all']
+  const seen = new Set(['_all'])
+  launches.forEach((launch) => {
+    const key = getCountryDisplayFromLaunch(launch)
+    if (key && !seen.has(key)) {
+      seen.add(key)
+      keys.push(key)
+    }
+  })
+  const markFinal = isPastYear(year) && complete && !meta.partial
+  const writeMeta = {
+    source: meta.source || 'll2_previous_net',
+    fromCache: true,
+    staleCache: false,
+    partial: !!meta.partial || !complete
+  }
+  let written = 0
+  for (const key of keys) {
+    const resp = buildScopedGlobalResponse(year, key, launches, apiCount, writeMeta)
+    await writeCache(breakdownAggDocId(year, key), packBreakdownAggPayload(resp), { final: markFinal })
+    if (key !== '_all') {
+      await writeCache(`global_summary_${year}_${key}`, {
+        summary: resp.summary,
+        summaryPartial: false,
+        source: resp.source,
+        partial: !!resp.partial
+      }, { final: markFinal })
+    }
+    written += 1
+  }
+  return { written }
 }
 
 /** 仅 LL2 真实 429；单次调用预算耗尽（LL2_RUN_BUDGET）不算限流 */
@@ -651,6 +698,7 @@ function buildCountryOptions(launches) {
 
 async function readCache(docId, options = {}) {
   const allowStale = !!options.allowStale
+  const allowExpired = !!options.allowExpired
   const freshTtlMs = Number.isFinite(options.maxAgeMs) ? options.maxAgeMs : CACHE_TTL_MS
   const maxAgeMs = allowStale ? Math.max(STALE_CACHE_MAX_AGE_MS, freshTtlMs) : freshTtlMs
   try {
@@ -659,13 +707,23 @@ async function readCache(docId, options = {}) {
     if (!doc || !doc.payload) return null
     const schemaOk = doc.schemaVersion === CACHE_SCHEMA_VERSION
     // 正常（非兜底）读取：schema 不匹配的旧脏文档一律失效，强制用新逻辑实时重算。
-    // 兜底读取（allowStale）：即使 schema 不匹配也返回旧数据，避免重算失败时空屏。
-    if (!schemaOk && !allowStale) return null
+    // 兜底读取（allowStale / allowExpired）：即使 schema 不匹配也返回旧数据，避免重算失败时空屏。
+    if (!schemaOk && !allowStale && !allowExpired) return null
     // final 仅在 schema 匹配时享受“忽略 TTL 永久新鲜”；旧 schema 的 final 不再永久命中
     const isFinal = !!(doc.final || (doc.payload && doc.payload.final))
     const age = doc.updatedAtMs ? (Date.now() - doc.updatedAtMs) : Infinity
     if (isFinal && schemaOk) {
       return { payload: doc.payload, stale: false, updatedAtMs: doc.updatedAtMs, final: true, schemaMismatch: false }
+    }
+    if (allowExpired && doc.payload) {
+      const withinTtl = !!doc.updatedAtMs && age < maxAgeMs
+      return {
+        payload: doc.payload,
+        stale: !withinTtl || !schemaOk || age >= freshTtlMs,
+        schemaMismatch: !schemaOk,
+        updatedAtMs: doc.updatedAtMs,
+        expired: !withinTtl
+      }
     }
     if (doc.updatedAtMs && age < maxAgeMs) {
       return {
@@ -825,6 +883,12 @@ async function resolveGlobalYearLaunches(year, forceRefresh) {
       source: 'll2_previous_net',
       partial: !!fetched.partial
     }, { final: markFinal })
+    try {
+      await writeBreakdownAggregates(year, slimLaunches, fetched.apiCount, {
+        source: 'll2_previous_net',
+        partial: !!fetched.partial
+      })
+    } catch (eAgg) {}
     return {
       launches: fetched.launches,
       apiCount: fetched.apiCount,
@@ -924,7 +988,8 @@ async function fetchSummaryCountsFast(yearParams) {
   return out
 }
 
-async function readGlobalYearLaunchesCachedOnly(year, forceRefresh) {
+async function readGlobalYearLaunchesCachedOnly(year, forceRefresh, options = {}) {
+  const lastResort = !!(options && options.lastResort)
   const cacheKey = `global_${year}`
   if (forceRefresh) return null
   const cacheMaxAgeMs = isCurrentYear(year) ? CACHE_TTL_MS : PAST_YEAR_CACHE_TTL_MS
@@ -947,8 +1012,8 @@ async function readGlobalYearLaunchesCachedOnly(year, forceRefresh) {
 
   const stale = await readCache(cacheKey, { allowStale: true })
   // schema 不匹配的旧脏明细不在这里复用（否则会用截断数据短路掉精确 count 路径）；
-  // 它仅作为后续“实时算也失败”时的最终空屏兜底，由上层 summary 的 staleSummary 处理。
-  if (stale && stale.payload && Array.isArray(stale.payload._launches) && !stale.schemaMismatch) {
+  // lastResort（用户只读空屏兜底）才接受过期 / schema 不匹配文档。
+  if (stale && stale.payload && Array.isArray(stale.payload._launches) && stale.payload._launches.length && !stale.schemaMismatch) {
     return {
       launches: stale.payload._launches,
       apiCount: stale.payload.apiCount,
@@ -956,6 +1021,20 @@ async function readGlobalYearLaunchesCachedOnly(year, forceRefresh) {
       staleCache: true,
       partial: !isBreakdownComplete(stale.payload),
       source: stale.payload.source || 'launch_stats_cache'
+    }
+  }
+
+  if (!lastResort) return null
+
+  const expired = await readCache(cacheKey, { allowExpired: true, allowStale: true })
+  if (expired && expired.payload && Array.isArray(expired.payload._launches) && expired.payload._launches.length) {
+    return {
+      launches: expired.payload._launches,
+      apiCount: expired.payload.apiCount,
+      fromCache: true,
+      staleCache: true,
+      partial: !isBreakdownComplete(expired.payload),
+      source: expired.payload.source || 'launch_stats_cache'
     }
   }
 
@@ -971,18 +1050,25 @@ async function getGlobalSummaryAction(event) {
   const readOnly = !!event.readOnly
   const cacheKey = `global_summary_${year}_${countryKey}`
 
+  // _all 的头部统计统一与首页 count 口径对齐后再出参，避免「卡片 203 / 详情 200」
+  const respond = async (payload, meta) => {
+    const aligned = countryKey === '_all'
+      ? await alignAllSummaryWithHomeCount(year, payload)
+      : payload
+    return {
+      success: true,
+      year,
+      countryKey,
+      ...(meta || {}),
+      ...aligned,
+      elapsed: Date.now() - startTime
+    }
+  }
+
   if (!forceRefresh) {
     const cached = await readCache(cacheKey)
     if (cached && cached.payload && cached.payload.summary) {
-      return {
-        success: true,
-        fromCache: true,
-        staleCache: false,
-        year,
-        countryKey,
-        ...cached.payload,
-        elapsed: Date.now() - startTime
-      }
+      return respond(cached.payload, { fromCache: true, staleCache: false })
     }
   }
 
@@ -999,20 +1085,23 @@ async function getGlobalSummaryAction(event) {
         partial: resolved.partial
       }
     )
-    const payload = {
+    let payload = {
       summary: scoped.summary,
       summaryPartial: false,
       source: scoped.source,
       partial: scoped.partial
     }
-    if (countryKey === '_all' && !resolved.staleCache) {
-      // 标 final 前必须确认完整：往年 + 非 partial + summary 自洽(success+failure<=total)。
-      // 杜绝把基于截断数据的错误 summary 永久固化。
-      const s = scoped.summary || {}
-      const selfConsistent = s.total != null
-        && (s.success || 0) + (s.failure || 0) <= s.total
-      const canFinal = isPastYear(year) && !scoped.partial && selfConsistent
-      await writeCache(cacheKey, payload, { final: canFinal })
+    if (countryKey === '_all') {
+      payload = await alignAllSummaryWithHomeCount(year, payload)
+      if (!resolved.staleCache) {
+        // 标 final 前必须确认完整：往年 + 非 partial + summary 自洽(success+failure<=total)。
+        // 杜绝把基于截断数据的错误 summary 永久固化。
+        const s = payload.summary || {}
+        const selfConsistent = s.total != null
+          && (s.success || 0) + (s.failure || 0) <= s.total
+        const canFinal = isPastYear(year) && !payload.partial && selfConsistent
+        await writeCache(cacheKey, payload, { final: canFinal })
+      }
     }
     return {
       success: true,
@@ -1047,15 +1136,7 @@ async function getGlobalSummaryAction(event) {
         }
         // 往年且 count 三项齐全：精确且不可变，标记 final 永久缓存
         await writeCache(cacheKey, payload, { final: isPastYear(year) && summaryComplete })
-        return {
-          success: true,
-          fromCache: false,
-          staleCache: false,
-          year,
-          countryKey,
-          ...payload,
-          elapsed: Date.now() - startTime
-        }
+        return respond(payload, { fromCache: false, staleCache: false })
       }
     }
   } catch (e) {
@@ -1064,20 +1145,43 @@ async function getGlobalSummaryAction(event) {
 
   const staleSummary = await readCache(cacheKey, { allowStale: true })
   if (staleSummary && staleSummary.payload && staleSummary.payload.summary) {
-    return {
-      success: true,
-      fromCache: true,
-      staleCache: true,
-      year,
-      countryKey,
-      ...staleSummary.payload,
-      elapsed: Date.now() - startTime
-    }
+    return respond(staleSummary.payload, { fromCache: true, staleCache: true })
   }
 
   const staleYear = await readGlobalYearLaunchesCachedOnly(year, false)
   if (staleYear && staleYear.launches.length) {
     return finishFromLaunches(staleYear)
+  }
+
+  const lastYear = await readGlobalYearLaunchesCachedOnly(year, false, { lastResort: true })
+  if (lastYear && lastYear.launches.length) {
+    return finishFromLaunches(lastYear)
+  }
+
+  const expiredSummary = await readCache(cacheKey, { allowExpired: true, allowStale: true })
+  if (expiredSummary && expiredSummary.payload && expiredSummary.payload.summary) {
+    return respond(expiredSummary.payload, { fromCache: true, staleCache: true })
+  }
+
+  if (countryKey === '_all') {
+    const home = await readCache(`summary_${year}`, { allowExpired: true, allowStale: true })
+    if (home && isHomeSummaryPayloadValid(home.payload, year)) {
+      return {
+        success: true,
+        fromCache: true,
+        staleCache: true,
+        year,
+        countryKey,
+        summary: {
+          total: Number(home.payload.globalThisYear),
+          success: 0,
+          failure: 0
+        },
+        summaryPartial: true,
+        source: home.payload.source || 'home_summary',
+        elapsed: Date.now() - startTime
+      }
+    }
   }
 
   return {
@@ -1099,11 +1203,89 @@ async function getGlobalBreakdownAction(event) {
   // DB 没有该年度明细时返回 notReady，由定时任务/运维脚本预生成，绝不在用户请求里打 LL2。
   const readOnly = !!event.readOnly
 
+  // 明细的头部数字同样与首页 count 口径对齐；排行本身仍是明细口径（差额即尚未并入的最新几场）
+  const respond = async (payload, meta) => {
+    const aligned = countryKey === '_all'
+      ? await alignAllSummaryWithHomeCount(year, payload, { markPartial: false })
+      : payload
+    return {
+      success: true,
+      year,
+      countryKey,
+      ...(meta || {}),
+      ...aligned,
+      elapsed: Date.now() - startTime
+    }
+  }
+
   try {
+    if (!forceRefresh) {
+      const cacheMaxAgeMs = isCurrentYear(year) ? CACHE_TTL_MS : PAST_YEAR_CACHE_TTL_MS
+      const agg = await readCache(breakdownAggDocId(year, countryKey), { maxAgeMs: cacheMaxAgeMs })
+      if (agg && isBreakdownAggUsable(agg.payload)) {
+        return respond(agg.payload, { fromCache: true, staleCache: false })
+      }
+      // 只读：过期聚合仍优于再读整年 _launches，也避免用截断明细覆盖好聚合
+      if (readOnly) {
+        const staleAgg = await readCache(breakdownAggDocId(year, countryKey), {
+          allowExpired: true,
+          allowStale: true
+        })
+        if (staleAgg && isBreakdownAggUsable(staleAgg.payload)) {
+          return respond(staleAgg.payload, { fromCache: true, staleCache: true })
+        }
+      }
+    }
+
     const resolved = readOnly
       ? await readGlobalYearLaunchesCachedOnly(year, forceRefresh)
       : await resolveGlobalYearLaunches(year, forceRefresh)
     if (readOnly && (!resolved || !Array.isArray(resolved.launches) || !resolved.launches.length)) {
+      const lastYear = await readGlobalYearLaunchesCachedOnly(year, false, { lastResort: true })
+      if (lastYear && Array.isArray(lastYear.launches) && lastYear.launches.length) {
+        const lastResponse = buildScopedGlobalResponse(
+          year,
+          countryKey,
+          lastYear.launches,
+          lastYear.apiCount,
+          {
+            source: lastYear.source,
+            fromCache: true,
+            staleCache: true,
+            partial: lastYear.partial
+          }
+        )
+        return respond(lastResponse, { fromCache: true, staleCache: true })
+      }
+
+      const expiredAgg = await readCache(breakdownAggDocId(year, countryKey), { allowExpired: true, allowStale: true })
+      if (expiredAgg && isBreakdownAggUsable(expiredAgg.payload)) {
+        return respond(expiredAgg.payload, { fromCache: true, staleCache: true })
+      }
+
+      if (countryKey !== '_all') {
+        const allAgg = await readCache(breakdownAggDocId(year, '_all'), { allowExpired: true, allowStale: true })
+        if (allAgg && isBreakdownAggUsable(allAgg.payload)) {
+          const row = (allAgg.payload.byCountry || []).find((c) => c && c.key === countryKey)
+          return {
+            success: true,
+            fromCache: true,
+            staleCache: true,
+            year,
+            countryKey,
+            summary: row
+              ? { total: row.total, success: row.success, failure: row.failure }
+              : { total: 0, success: 0, failure: 0 },
+            byCountry: row ? [row] : [],
+            byAgency: [],
+            byRocket: [],
+            countryOptions: allAgg.payload.countryOptions || [],
+            partial: true,
+            elapsed: Date.now() - startTime
+          }
+        }
+      }
+
       return {
         success: false,
         error: '统计数据生成中，请稍后再试',
@@ -1137,12 +1319,16 @@ async function getGlobalBreakdownAction(event) {
         exactCounts
       }
     )
-    return {
-      ...response,
-      elapsed: Date.now() - startTime
+    if (resolved && Array.isArray(resolved.launches) && resolved.launches.length
+      && !resolved.partial && !resolved.staleCache) {
+      writeBreakdownAggregates(year, resolved.launches, resolved.apiCount, {
+        source: resolved.source,
+        partial: resolved.partial
+      }).catch(() => {})
     }
+    return respond(response)
   } catch (e) {
-    const stale = await readCache(`global_${year}`, { allowStale: true })
+    const stale = await readCache(`global_${year}`, { allowStale: true, allowExpired: true })
     if (stale && stale.payload && Array.isArray(stale.payload._launches)) {
       const response = buildScopedGlobalResponse(
         year,
@@ -1156,7 +1342,7 @@ async function getGlobalBreakdownAction(event) {
           partial: !isBreakdownComplete(stale.payload)
         }
       )
-      return { ...response, elapsed: Date.now() - startTime }
+      return respond(response, { fromCache: true, staleCache: true })
     }
     if (e && e.code === 'LL2_RATE_LIMIT') {
       return {
@@ -1190,13 +1376,61 @@ function buildRocketFilterParams(rocketName) {
  */
 function resolveMissionRocketName(mission) {
   if (!mission) return ''
-  let name = String(mission.rocketName || '').trim()
-  if ((!name || name === '未知火箭') && mission.rocketConfiguration) {
-    const cfg = mission.rocketConfiguration
-    name = String((cfg && (cfg.name || cfg.full_name)) || '').trim()
+  const cfg = mission.rocketConfiguration || null
+  const candidates = [
+    mission.rocketName,
+    cfg && cfg.name,
+    cfg && cfg.full_name
+  ]
+  for (let i = 0; i < candidates.length; i += 1) {
+    const name = String(candidates[i] || '').trim()
+    if (!name || name === '未知火箭') continue
+    // 详情页会把型号名本地化成中文再回传；中文名对 LL2 精确过滤/维度缓存都是必然落空的脏值
+    if (/[\u4e00-\u9fff]/.test(name)) continue
+    return normalizeRocketFilterName(name)
   }
-  if (name === '未知火箭') return ''
-  return normalizeRocketFilterName(name)
+  return ''
+}
+
+/**
+ * 按 mission.id 从缓存回查 LL2 的 configuration.name（语言无关的权威型号名）。
+ * 待发任务查 upcoming 缓存，已发射任务查年度明细，两处都是本函数其它路径已在读的文档。
+ */
+async function resolveRocketNameFromCaches(mission, year) {
+  const id = String((mission && mission.id) || '').trim()
+  if (!id) return ''
+  const launched = isMissionAlreadyLaunched(mission)
+  const fromYear = async () => {
+    const resolved = await readYearLaunchesFromDb(year)
+    const list = resolved && Array.isArray(resolved.launches) ? resolved.launches : []
+    const hit = list.find((l) => String((l && l.id) || '') === id)
+    return hit ? rocketFilterNameFromSlimLaunch(hit) : ''
+  }
+  const fromUpcoming = async () => {
+    const list = await readUpcomingLaunchesFromSpaceDevsCache()
+    const hit = (Array.isArray(list) ? list : []).find((l) => String((l && l.id) || '') === id)
+    const cfg = hit && hit.rocket && hit.rocket.configuration
+    if (!cfg) return ''
+    return String(cfg.name || '').trim() || normalizeRocketFilterName(cfg.full_name)
+  }
+  const sources = launched ? [fromYear, fromUpcoming] : [fromUpcoming, fromYear]
+  for (const load of sources) {
+    try {
+      const name = await load()
+      if (name) return name
+    } catch (e) {}
+  }
+  return ''
+}
+
+/** 前端传来的型号名不可用（缺失/中文/未知火箭）时，就地补成权威英文名 */
+async function ensureMissionRocketName(mission, year) {
+  if (!mission || typeof mission !== 'object') return ''
+  const current = resolveMissionRocketName(mission)
+  if (current) return current
+  const resolved = await resolveRocketNameFromCaches(mission, year)
+  if (resolved) mission.rocketName = resolved
+  return resolved
 }
 
 function buildAgencyFilterParams(mission) {
@@ -1298,6 +1532,10 @@ async function getSummaryAction(event) {
     if (Number.isFinite(prevVal) && prevVal > 0) spacexThisYear = prevVal
   }
 
+  // 反向对齐：明细聚合偶尔比 count 口径更新，取较大值写入，保证首页卡片与统计详情页同一个数
+  const aggTotal = await readGlobalAllSummaryTotal(year)
+  if (aggTotal != null && aggTotal > globalThisYear) globalThisYear = aggTotal
+
   const payload = {
     year,
     globalThisYear,
@@ -1326,17 +1564,23 @@ async function getMissionStatsAction(event) {
   const readOnly = !!event.readOnly
   const cacheKey = `mission_${missionId || String(mission.rocketName || 'unknown')}_${launchTime || year}`
 
+  await ensureMissionRocketName(mission, year)
+
   if (!forceRefresh) {
     const cached = await readCache(cacheKey)
     if (cached && isMissionPayloadValid(cached.payload)
       && !isMissionStatsStaleAfterLaunch(cached.payload, mission)
       && !hasInconsistentTotals(cached.payload)) {
-      const filled = applyAgencyAttemptHints({ ...cached.payload }, mission)
-      if (filled.providerTotal !== cached.payload.providerTotal
-        || filled.providerYear !== cached.payload.providerYear) {
-        await writeCache(cacheKey, filled)
+      const filled = applyMissionCountHints({ ...cached.payload }, mission)
+      // 用户路径要求「完整」才直接返回：只有 yearOrdinal、型号计数为空的文档
+      // （型号名曾是中文脏值时预热写下的）要落到下面的零 LL2 组装去补，否则永远显示 —
+      if (!readOnly || isMissionPayloadComplete(filled, mission)) {
+        if (filled.providerTotal !== cached.payload.providerTotal
+          || filled.providerYear !== cached.payload.providerYear) {
+          await writeCache(cacheKey, filled)
+        }
+        return { success: true, fromCache: true, staleCache: false, ...filled, elapsed: Date.now() - startTime }
       }
-      return { success: true, fromCache: true, staleCache: false, ...filled, elapsed: Date.now() - startTime }
     }
   }
 
@@ -1351,14 +1595,15 @@ async function getMissionStatsAction(event) {
     if (cachedStale && cachedStale.payload) sanitizeMissionPayload(cachedStale.payload)
     if (cachedStale && isMissionPayloadValid(cachedStale.payload)
       && !isMissionStatsStaleAfterLaunch(cachedStale.payload, mission)) {
-      // 完整则直接返回；不完整（累计/序号缺失）时用零 LL2 组装补缺并回写
-      if (isMissionPayloadComplete(cachedStale.payload, mission)) {
-        const filled = applyAgencyAttemptHints({ ...cachedStale.payload }, mission)
-        return { success: true, fromCache: true, staleCache: !!cachedStale.stale, ...filled, elapsed: Date.now() - startTime }
+      // 完整则直接返回；不完整（累计/序号缺失）时用零 LL2 组装补缺并回写。
+      // 完整性按「补过徽章 attempt 之后」判断，避免发射商计数只在徽章里时反复重算
+      const hinted = applyMissionCountHints({ ...cachedStale.payload }, mission)
+      if (isMissionPayloadComplete(hinted, mission)) {
+        return { success: true, fromCache: true, staleCache: !!cachedStale.stale, ...hinted, elapsed: Date.now() - startTime }
       }
       const assembled = await assembleMissionStatsZeroLlm(mission, year, startTime)
       if (assembled) {
-        const merged = applyAgencyAttemptHints(
+        const merged = applyMissionCountHints(
           mergeMissionPayloads(cachedStale.payload, assembled.payload),
           mission
         )
@@ -1367,7 +1612,7 @@ async function getMissionStatsAction(event) {
           return { success: true, fromCache: true, staleCache: !!cachedStale.stale, ...merged, elapsed: Date.now() - startTime }
         }
       }
-      const fallback = applyAgencyAttemptHints({ ...cachedStale.payload }, mission)
+      const fallback = applyMissionCountHints({ ...cachedStale.payload }, mission)
       if (fallback.providerTotal !== cachedStale.payload.providerTotal
         || fallback.providerYear !== cachedStale.payload.providerYear) {
         await writeCache(cacheKey, fallback)
@@ -1376,13 +1621,13 @@ async function getMissionStatsAction(event) {
     }
     const assembled = await assembleMissionStatsZeroLlm(mission, year, startTime)
     if (assembled && !isMissionStatsStaleAfterLaunch(assembled.payload, mission)) {
-      applyAgencyAttemptHints(assembled.payload, mission)
+      applyMissionCountHints(assembled.payload, mission)
       await writeCache(cacheKey, assembled.payload)
       return { ...assembled.response, ...assembled.payload }
     }
     // 已发射但仍组装出 0：仍返回组装结果（至少有发射商等字段），并标 stale 促预热重算
     if (assembled) {
-      applyAgencyAttemptHints(assembled.payload, mission)
+      applyMissionCountHints(assembled.payload, mission)
       await writeCache(cacheKey, assembled.payload)
       return { ...assembled.response, ...assembled.payload, staleCache: true }
     }
@@ -1400,6 +1645,39 @@ function isHomeSummaryPayloadValid(payload, year) {
   // 近年 previous 发射数不可能长期为 0（旧版 count 失败时误写 0）
   if (n === 0 && Number(year) >= new Date().getUTCFullYear() - 1) return false
   return true
+}
+
+/** 详情页口径的年内总数（global_summary_<year>__all），用于与首页卡片对齐 */
+async function readGlobalAllSummaryTotal(year) {
+  const gs = await readCache(`global_summary_${year}__all`, { allowStale: true })
+  const total = gs && gs.payload && gs.payload.summary ? Number(gs.payload.summary.total) : NaN
+  return Number.isFinite(total) && total > 0 ? total : null
+}
+
+/** 首页 count 口径的年内总数（summary_<year>），用于与明细聚合对齐 */
+async function readHomeSummaryTotal(year) {
+  const home = await readCache(`summary_${year}`, { allowStale: true, allowExpired: true })
+  if (!home || !isHomeSummaryPayloadValid(home.payload, year)) return null
+  const n = Number(home.payload.globalThisYear)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+/**
+ * 全部国家的头部统计与首页 count 口径对齐。
+ * 明细缓存需整年翻页、刷新慢，落后时总数会小于首页卡片（用户看到「卡片 203 / 详情 200」）。
+ * 年内发射数只增不减，故取较大值；被抬高说明明细尚未追平，标 partial 以免固化为最终结果。
+ */
+async function alignAllSummaryWithHomeCount(year, payload, options = {}) {
+  if (!payload || !payload.summary) return payload
+  const homeTotal = await readHomeSummaryTotal(year)
+  if (homeTotal == null) return payload
+  const { summary, raised } = reconcileSummaryCounts(payload.summary, { total: homeTotal })
+  if (!summary || !raised) return payload
+  const out = { ...payload, summary, countsAligned: true }
+  // 汇总口径标 partial，避免这份被抬高的数字被当成完整结果固化进永久缓存；
+  // 明细口径不标，否则前端会把整份排行当成半成品。
+  if (options.markPartial !== false) out.partial = true
+  return out
 }
 
 /** mission 缓存 payload 是否为「有效统计」（区别于空壳/标记文档）：至少含一项计数或序号 */
@@ -1442,7 +1720,7 @@ function isMissionPayloadComplete(payload, mission) {
   if (!isMissionPayloadValid(payload)) return false
   const needRocket = !!resolveMissionRocketName(mission)
   const needAgency = !!(mission && ((mission.launchAgencyId != null && mission.launchAgencyId !== '') || String(mission.launchAgency || '').trim()))
-  if (needRocket && payload.rocketTotal == null) return false
+  if (needRocket && (payload.rocketTotal == null || payload.rocketYear == null)) return false
   if (needAgency && payload.providerTotal == null) return false
   if (payload.yearOrdinal == null) return false
   return true
@@ -1453,8 +1731,11 @@ function mergeMissionPayloads(a, b) {
   const out = { ...(b || {}), ...(a || {}) }
   const numFields = ['rocketTotal', 'rocketYear', 'providerTotal', 'providerYear', 'yearOrdinal']
   numFields.forEach((k) => {
-    if (out[k] == null && b && b[k] != null) out[k] = b[k]
-    if (out[k] == null && a && a[k] != null) out[k] = a[k]
+    const av = a && a[k] != null ? Number(a[k]) : NaN
+    const bv = b && b[k] != null ? Number(b[k]) : NaN
+    if (Number.isFinite(av) && Number.isFinite(bv)) out[k] = Math.max(av, bv)
+    else if (Number.isFinite(bv) && !Number.isFinite(av)) out[k] = bv
+    else if (Number.isFinite(av) && !Number.isFinite(bv)) out[k] = av
   })
   return out
 }
@@ -1474,6 +1755,31 @@ function applyAgencyAttemptHints(target, mission) {
     target.providerYear = yearHint
   }
   return target
+}
+
+/**
+ * 用详情页带回的 launcher_configuration.total_launch_count 回填型号累计空缺。
+ * 待发任务按「含本次」+1，与发射商徽章口径一致。
+ */
+function applyRocketConfigHints(target, mission) {
+  if (!target || !mission) return target
+  const cfg = mission.rocketConfiguration || null
+  let totalHint = Number(mission.rocketLaunchAttemptCount)
+  if (!Number.isFinite(totalHint) || totalHint <= 0) {
+    totalHint = cfg ? Number(cfg.total_launch_count) : NaN
+  }
+  if (target.rocketTotal == null && Number.isFinite(totalHint) && totalHint > 0) {
+    target.rocketTotal = isMissionAlreadyLaunched(mission) ? totalHint : totalHint + 1
+  }
+  const yearHint = Number(mission.rocketLaunchAttemptCountYear)
+  if (target.rocketYear == null && Number.isFinite(yearHint) && yearHint > 0) {
+    target.rocketYear = yearHint
+  }
+  return target
+}
+
+function applyMissionCountHints(target, mission) {
+  return applyRocketConfigHints(applyAgencyAttemptHints(target, mission), mission)
 }
 
 /** 年内已发射总数（零 LL2）：summary_<year> 优先，global_summary_<year>__all 兜底 */
@@ -1588,6 +1894,20 @@ async function computeMissionCountsFromBreakdown(mission, year) {
   }
 }
 
+async function readRocketYearFromBreakdownAgg(year, rocketName) {
+  const target = String(rocketName || '').trim().toLowerCase()
+  if (!target) return null
+  const doc = await readCache(breakdownAggDocId(year, '_all'), { allowStale: true, allowExpired: true })
+  const rows = doc && doc.payload && Array.isArray(doc.payload.byRocket) ? doc.payload.byRocket : []
+  const row = rows.find((r) => {
+    const name = String((r && (r.name || r.key)) || '').trim().toLowerCase()
+    if (!name) return false
+    return name === target || name.indexOf(target) === 0 || target.indexOf(name) === 0
+  })
+  const n = row ? Number(row.total) : NaN
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
 /**
  * 用户路径零 LL2 组装：维度 count 缓存 + global_<year> 明细兜底合并。
  * 累计次数字段（rocketTotal/providerTotal）由预热阶段 LL2 落库的 count_*_all 提供；
@@ -1626,6 +1946,12 @@ async function assembleMissionStatsZeroLlm(mission, year, startTime, options = {
       }
     }
   }
+  if (counts.rocketYear == null || counts.rocketYear === 0) {
+    const fromAgg = await readRocketYearFromBreakdownAgg(year, rocketName)
+    if (fromAgg != null && (counts.rocketYear == null || counts.rocketYear < fromAgg)) {
+      counts.rocketYear = fromAgg
+    }
+  }
   if (fromBreakdown.providerYear != null) {
     if (counts.providerYear == null || counts.providerYear < fromBreakdown.providerYear) {
       const delta = fromBreakdown.providerYear - (counts.providerYear || 0)
@@ -1647,7 +1973,7 @@ async function assembleMissionStatsZeroLlm(mission, year, startTime, options = {
   }
 
   // 徽章同源 attempt count：回填发射商累计/本年（年度种子不写 *_all 时的主路径）
-  applyAgencyAttemptHints(counts, mission)
+  applyMissionCountHints(counts, mission)
 
   // 「年内第几次」三级取数：
   // 1) 历史任务：年度明细（net 升序）中的下标 + 1（最准确）

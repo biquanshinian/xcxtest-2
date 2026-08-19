@@ -5,6 +5,26 @@ function isTerminalStatus(status) {
   return TERMINAL_STATUS_IDS.has(id)
 }
 
+function parseRocketNameFromLaunchName(name) {
+  const parts = String(name || '')
+    .split('|')
+    .map((s) => String(s || '').trim())
+    .filter(Boolean)
+  return parts.length >= 2 ? parts[0] : ''
+}
+
+function isThinLaunchStub(stub) {
+  if (!stub || stub.id == null) return true
+  const cfg =
+    (stub.rocket && stub.rocket.configuration) ||
+    (stub.rocket && stub.rocket.rocket && stub.rocket.rocket.configuration) ||
+    null
+  const hasRocket = !!(cfg && (cfg.name || cfg.full_name))
+  const pad = stub.pad
+  const hasPad = !!(pad && (pad.name || (pad.location && pad.location.name)))
+  return !hasRocket || !hasPad
+}
+
 function pruneStaleUpcomingResults(results, liveById, extraTerminalIds) {
   const kept = []
   const pruned = []
@@ -66,10 +86,14 @@ function buildPreviousListStub(src, statusOverride, fallbacks) {
   if (!src || src.id == null) return null
   const fb = fallbacks || {}
   const status = statusOverride || src.status || null
-  const cfg =
+  let cfg =
     (src.rocket && src.rocket.configuration) ||
     (src.rocket && src.rocket.rocket && src.rocket.rocket.configuration) ||
     null
+  if (!cfg || !(cfg.name || cfg.full_name)) {
+    const parsed = parseRocketNameFromLaunchName(src.name || fb.name)
+    if (parsed) cfg = { ...(cfg || {}), name: parsed, full_name: (cfg && cfg.full_name) || parsed }
+  }
   const rocketInner = src.rocket && src.rocket.rocket ? src.rocket.rocket : null
   const launcherStage =
     (src.rocket && src.rocket.launcher_stage) ||
@@ -177,12 +201,13 @@ function attachLaunchStubsToTerminalEntries(terminalEntries, upcomingRows, liveB
   let attached = 0
   for (let i = 0; i < terminalEntries.length; i++) {
     const entry = terminalEntries[i]
-    if (!entry || !entry.id || entry.launchStub) continue
+    if (!entry || !entry.id) continue
     const id = String(entry.id)
     const cached = upcomingById.get(id)
     const live = liveById && liveById.get ? liveById.get(id) : null
     const src = cached || live
     if (!src) continue
+    if (entry.launchStub && !isThinLaunchStub(entry.launchStub) && !cached) continue
     entry.launchStub = buildPreviousListStub(src, entry.status, {
       name: entry.name || '',
       net: entry.net || '',
@@ -200,5 +225,6 @@ module.exports = {
   collectTerminalFromCachedUpcoming,
   buildPreviousListStub,
   stubFromTerminalEntry,
-  attachLaunchStubsToTerminalEntries
+  attachLaunchStubsToTerminalEntries,
+  isThinLaunchStub
 }

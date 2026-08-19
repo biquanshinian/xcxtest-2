@@ -203,7 +203,7 @@ const methods = {
    * wait = 等对方 closed / 隐私收尾接力，不重试、不消耗冷启动名额
    * retry = 开屏/列表/不在首页等短暂态，稍后静默再试
    */
-  _getHomePopupBlock() {
+  _getHomePopupBlock(opts) {
     try {
       const appInst = getApp()
       if (appInst && appInst.globalData && appInst.globalData.needPrivacyAuthorization) {
@@ -222,10 +222,12 @@ const methods = {
       const renewal = this.selectComponent('#renewalReminder')
       if (renewal && (renewal._inflight || (renewal.data && renewal.data.visible))) return 'wait'
     } catch (e) {}
-    try {
-      const netChange = this.selectComponent('#netChangeModal')
-      if (netChange && ((netChange.data && netChange.data.visible) || netChange._opening)) return 'wait'
-    } catch (e) {}
+    if (!(opts && opts.ignoreNetChange)) {
+      try {
+        const netChange = this.selectComponent('#netChangeModal')
+        if (netChange && ((netChange.data && netChange.data.visible) || netChange._opening)) return 'wait'
+      } catch (e) {}
+    }
     return ''
   },
 
@@ -286,6 +288,13 @@ const methods = {
     }, 1200)
   },
 
+  _prewarmNetChangeScan() {
+    try {
+      const comp = this.selectComponent('#netChangeModal')
+      if (comp && typeof comp.prewarm === 'function') comp.prewarm()
+    } catch (e) {}
+  },
+
   _tryShowNetChangeModal() {
     try {
       const appInst = getApp()
@@ -296,22 +305,32 @@ const methods = {
         this._scheduleNetChangeColdStartRetry()
         return
       }
-      const missions = this.data && this.data.upcomingMissions
-      if (!Array.isArray(missions) || !missions.length) {
+      const comp = this.selectComponent('#netChangeModal')
+      if (!comp || typeof comp.maybeShow !== 'function') {
         this._scheduleNetChangeColdStartRetry()
         return
       }
-      const comp = this.selectComponent('#netChangeModal')
-      if (!comp || typeof comp.maybeShow !== 'function') return
       if (typeof comp.isDevMode === 'function' && comp.isDevMode()) return
       if (appInst._netChangeModalLock) return
       appInst._netChangeModalLock = true
-      Promise.resolve(comp.maybeShow())
-        .then(function () {
-          appInst._netChangeColdStartPending = false
+      const self = this
+      Promise.resolve(
+        comp.maybeShow(function () {
+          return self._getHomePopupBlock({ ignoreNetChange: true }) === 'wait'
+        })
+      )
+        .then(function (shown) {
+          if (comp && comp._lastScanBlocked) return
+          // 已弹出，或服务号同源行已到达且确认无待弹 → 结束本进程
+          if (shown || (comp && comp._lastScanFromServer && comp._lastScanServerCount > 0)) {
+            appInst._netChangeColdStartPending = false
+            return
+          }
+          // launch_data 尚未打标 / 拉取失败：保留名额，等队列下一轮再扫
+          self._scheduleNetChangeColdStartRetry()
         })
         .catch(function () {
-          appInst._netChangeColdStartPending = false
+          self._scheduleNetChangeColdStartRetry()
         })
         .then(function () {
           appInst._netChangeModalLock = false

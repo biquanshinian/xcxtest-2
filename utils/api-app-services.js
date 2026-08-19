@@ -279,6 +279,27 @@ async function getLaunchStatsFromDB(options = {}) {
   }
 }
 
+/**
+ * 首页卡片此刻展示的年度总数（内存/本地缓存，零请求，忽略 TTL）。
+ * 卡片可能来自 getSummary，也可能来自 launch_stats 集合兜底；
+ * 统计详情页拿这个「实际展示值」对齐，才不会出现两页数字打架。
+ */
+function readCardGlobalTotalSync(year) {
+  const y = Number(year) || getLaunchStatsYear()
+  const key = `${LAUNCH_STATS_CACHE_KEY}_${y}`
+  const mem = _memCacheStore[key]
+  let data = mem && mem.data ? mem.data : null
+  if (!data) {
+    try {
+      const raw = wx.getStorageSync(key)
+      data = raw && raw.data ? raw.data : null
+    } catch (e) {}
+  }
+  if (!data || Number(data.year) !== y) return null
+  const n = Number(data.globalThisYear)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
 function normalizeStarshipImages(item, fallback) {
   const list = []
   if (Array.isArray(item.images)) list.push(...item.images)
@@ -830,6 +851,7 @@ async function fetchLl2LaunchTimeline(launchId, options = {}) {
 
 module.exports = {
   getLaunchStatsFromDB,
+  readCardGlobalTotalSync,
   getStarshipStatusFromDB,
   getNsfStarshipChecklistFromDB,
   getStarshipHardwareFromDB,

@@ -127,6 +127,42 @@
               </view>
 
               <view class="drawer-divider"></view>
+              <view class="pref-row" catchtap="emitOnTogglePrefKeywordsExpand">
+                <text class="pref-row-label">事件关键词</text>
+                <view class="pref-row-trail">
+                  <text class="pref-row-value">{{selectedKeywordCount > 0 ? selectedKeywordCount + ' 项' : '未选'}}</text>
+                  <text class="pref-row-chevron">{{prefKeywordsExpanded ? '▴' : '▾'}}</text>
+                </view>
+              </view>
+              <view class="pref-tag-grid" wx:if="{{prefKeywordsExpanded}}">
+                <view
+                  wx:for="{{keywordOptions}}"
+                  wx:key="*this"
+                  class="pref-tag {{keywordMap[item] ? 'pref-tag--active' : ''}}"
+                  data-name="{{item}}"
+                  catchtap="emitOnTogglePrefKeyword"
+                >{{item}}</view>
+              </view>
+
+              <view class="drawer-divider"></view>
+              <view class="pref-row" catchtap="emitOnTogglePrefWatchExpand">
+                <text class="pref-row-label">关注账号</text>
+                <view class="pref-row-trail">
+                  <text class="pref-row-value">{{selectedWatchCount > 0 ? selectedWatchCount + ' 项' : '全部'}}</text>
+                  <text class="pref-row-chevron">{{prefWatchExpanded ? '▴' : '▾'}}</text>
+                </view>
+              </view>
+              <view class="pref-tag-grid" wx:if="{{prefWatchExpanded}}">
+                <view
+                  wx:for="{{watchAccountOptions}}"
+                  wx:key="screenName"
+                  class="pref-tag {{watchMap[item.screenName] ? 'pref-tag--active' : ''}}"
+                  data-name="{{item.screenName}}"
+                  catchtap="emitOnTogglePrefEventAccount"
+                >{{item.label}}</view>
+              </view>
+
+              <view class="drawer-divider"></view>
               <view class="drawer-block pref-seg-block">
                 <text class="pref-row-label">提前提醒</text>
                 <view class="theme-mode-group drawer-seg">

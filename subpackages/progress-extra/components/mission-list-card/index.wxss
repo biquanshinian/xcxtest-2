@@ -1,6 +1,38 @@
 @import "../../../../styles/mission-card.wxss";
+@import "../../../../styles/fav-btn.wxss";
 
 /* 宿主带 theme-light 时（页面 class 挂在组件标签上），保证中性回收图标可反色 */
 .mission-list-card-root {
   width: 100%;
+}
+
+/* 首页任务卡右下分享槽：事件流对应发射换成收藏爱心。
+   不用 transform:scale — 任务卡 overflow:hidden 会把放大裁掉，看起来完全没变。 */
+.mission-card-fav-wrap {
+  position: relative;
+  flex: 0 0 58rpx;
+  flex-shrink: 0;
+  min-width: 58rpx;
+  margin-left: auto;
+  width: 58rpx;
+  height: 58rpx;
+  overflow: visible;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border-radius: 0;
+}
+
+.mission-card-fav-wrap .fav-heart {
+  width: 42rpx;
+  height: 42rpx;
+}
+
+.mission-card-fav-wrap.fav-btn--on {
+  background: transparent;
+}
+
+.mission-card-fav-wrap.fav-btn--pressed {
+  opacity: 0.72;
 }

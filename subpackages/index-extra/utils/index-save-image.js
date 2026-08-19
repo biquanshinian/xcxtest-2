@@ -4,13 +4,15 @@
  */
 const { pooledDownloadFile } = require('../../../utils/download-pool.js')
 const { toCdnUrl } = require('../../../utils/cos-url.js')
+const { resolveCarouselEventDs } = require('./carousel-event-ds.js')
 
 const saveImageMethods = {
   /**
    * 长按保存轮播图
    */
   saveCarouselImage(e) {
-    const imageUrl = e.currentTarget.dataset.url
+    const imageUrl = resolveCarouselEventDs(e).url
+    if (!imageUrl) return
 
     // 显示保存确认菜单
     wx.showActionSheet({

@@ -31,6 +31,18 @@ const { normalizeLl2TimelineList } = require('./ll2-launch-timeline.js')
 const { formatCloudError } = require('../../../utils/launch-stats-cloud.js')
 const { getCachedMediaImage } = require('../../../utils/icon-cache.js')
 const { enrichVideoMediaItem, eventVideoAdUnlockId, playEventVideo, saveEventOriginalVideo } = require('./event-video.js')
+const {
+  decorateEventItem,
+  relatedLaunchNavFromEvent,
+  toggleRelatedMissionFavorite,
+  applyRelatedLaunchFavoriteToList,
+  clearRelatedLaunchFavAnimate,
+  syncRelatedLaunchFavoriteFlags,
+  countNewItems,
+  getEventIntelContext,
+  ensureFeedSeenSeed,
+  markEventFeedSeen
+} = require('../../../utils/event-feed-intel.js')
 // 必须走主包薄壳（内部 require.async 拉 shared 分包）：直接同步 require ../../shared/**
 // 在分享卡片 / 朋友圈单页直达本分包页面时 shared 尚未下载，模块加载即报错导致整页黑屏
 const {
@@ -422,6 +434,104 @@ const methods = {
     }
   },
 
+  _syncEventIntelView(list) {
+    const rows = Array.isArray(list) ? list : (this.data.eventUpdates || [])
+    const latest = rows[0] && rows[0].publishedAt
+    const ctx = this._eventIntelCtx || getEventIntelContext()
+    ctx.lastSeenAt = ensureFeedSeenSeed(latest)
+    this._eventIntelCtx = ctx
+    const decorated = rows.map((item) => decorateEventItem(item, ctx))
+    return {
+      eventUpdates: decorated,
+      eventUpdatesView: decorated,
+      eventNewCount: countNewItems(decorated, ctx.lastSeenAt)
+    }
+  },
+
+  _markEventFeedSeenUi() {
+    const at = markEventFeedSeen(Date.now())
+    if (this._eventIntelCtx) this._eventIntelCtx.lastSeenAt = at
+    const patch = this._syncEventIntelView(this.data.eventUpdates)
+    patch.eventNewCount = 0
+    this.setData(patch)
+  },
+
+  onRelatedLaunchTap(e) {
+    try {
+      const nav = relatedLaunchNavFromEvent(e)
+      if (!nav) {
+        try { wx.showToast({ title: '暂时无法打开任务', icon: 'none' }) } catch (e2) {}
+        return
+      }
+      try { this._markEventFeedSeenUi() } catch (eMark) {}
+      wx.navigateTo({
+        url: ROUTES.MISSION_DETAIL + '?id=' + encodeURIComponent(nav.id) + '&type=' + nav.type,
+        fail() {
+          try { wx.showToast({ title: '暂时无法打开任务', icon: 'none' }) } catch (e2) {}
+        }
+      })
+    } catch (err) {}
+  },
+
+  _applyRelatedLaunchFavUi(launchId, favorited) {
+    const keys = ['eventUpdates', 'eventUpdatesView']
+    const patch = {}
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i]
+      const next = applyRelatedLaunchFavoriteToList(this.data[k], launchId, favorited, !!favorited)
+      if (next !== this.data[k]) patch[k] = next
+    }
+    if (Object.keys(patch).length) this.setData(patch)
+    if (!favorited) return
+    const self = this
+    setTimeout(() => {
+      try {
+        if (!self || typeof self.setData !== 'function' || !self.data) return
+        const clear = {}
+        for (let i = 0; i < keys.length; i++) {
+          const k = keys[i]
+          const next = clearRelatedLaunchFavAnimate(self.data[k], launchId)
+          if (next !== self.data[k]) clear[k] = next
+        }
+        if (Object.keys(clear).length) self.setData(clear)
+      } catch (e) {}
+    }, 450)
+  },
+
+  onToggleRelatedLaunchFavorite(e) {
+    try {
+      const d = (e && e.detail) || {}
+      if (typeof d.favorited === 'boolean' && d.id != null && String(d.id).trim() !== '') {
+        this._applyRelatedLaunchFavUi(String(d.id).trim(), d.favorited)
+        return
+      }
+      const nav = relatedLaunchNavFromEvent(e)
+      if (!nav) return
+      try { wx.vibrateShort({ type: 'medium' }) } catch (eV) {}
+      const result = toggleRelatedMissionFavorite({
+        launchId: nav.id,
+        launchType: nav.type
+      }, [this.data.eventUpdatesView, this.data.eventUpdates])
+      if (!result) {
+        wx.showToast({ title: '收藏失败，请重试', icon: 'none' })
+        return
+      }
+      this._applyRelatedLaunchFavUi(result.id, result.favorited)
+      wx.showToast({ title: result.favorited ? '已收藏' : '已取消收藏', icon: 'none' })
+    } catch (err) {}
+  },
+
+  syncEventRelatedLaunchFavorites() {
+    try {
+      const updates = syncRelatedLaunchFavoriteFlags(this.data.eventUpdates)
+      const view = syncRelatedLaunchFavoriteFlags(this.data.eventUpdatesView)
+      const patch = {}
+      if (updates !== this.data.eventUpdates) patch.eventUpdates = updates
+      if (view !== this.data.eventUpdatesView) patch.eventUpdatesView = view
+      if (Object.keys(patch).length) this.setData(patch)
+    } catch (e) {}
+  },
+
   /** 缓存里若仍有英文正文（未翻译），应跳过本地缓存走云库 */
   _eventCacheHasUntranslated(list) {
     const rows = Array.isArray(list) ? list : []
@@ -452,20 +562,21 @@ const methods = {
     }
 
     const skip = refresh ? 0 : this.data.eventUpdates.length
+    this._eventIntelCtx = getEventIntelContext()
+    const watchSources = (this._eventIntelCtx && this._eventIntelCtx.watchSources) || []
 
-    if (skip === 0 && !this._filterSource) {
+    if (skip === 0 && !this._filterSource && !watchSources.length) {
       try {
         const cached = storageCache.readMemOrSync(this._eventCacheKey, null)
         if (cached && cached.timestamp && (Date.now() - cached.timestamp < this._eventCacheTTL)) {
           if (!this._eventCacheHasUntranslated(cached.data)) {
             this._stashRawEventDocs(cached.data)
             const items = (cached.data || []).map(item => this._enrichEventItem(item))
-            this.setData({
-              eventUpdates: items,
+            this.setData(Object.assign({
               eventUpdatesNoMore: items.length < 10,
               eventUpdatesLoading: false,
               eventUpdatesError: ''
-            })
+            }, this._syncEventIntelView(items)))
             this._scheduleLiveStatusCheck(items)
             return
           }
@@ -479,6 +590,8 @@ const methods = {
       const where = { status: 'published' }
       if (this._filterSource) {
         where.source = this._filterSource
+      } else if (watchSources.length) {
+        where.source = db.command.in(watchSources)
       }
       const res = await db.collection('starship_event_updates')
         .where(where)
@@ -491,14 +604,13 @@ const methods = {
       const newItems = (res.data || []).map(item => this._enrichEventItem(item))
 
       const merged = refresh ? newItems : this.data.eventUpdates.concat(newItems)
-      this.setData({
-        eventUpdates: merged,
+      this.setData(Object.assign({
         eventUpdatesNoMore: newItems.length < limit,
         eventUpdatesLoading: false,
         eventUpdatesError: ''
-      })
+      }, this._syncEventIntelView(merged)))
 
-      if (skip === 0 && res.data && res.data.length > 0) {
+      if (skip === 0 && !watchSources.length && !this._filterSource && res.data && res.data.length > 0) {
         try {
           storageCache.persistAsync(this._eventCacheKey, { data: res.data, timestamp: Date.now() })
         } catch (e) {}
@@ -577,12 +689,13 @@ const methods = {
         return it
       })
     }
-    this.setData({ eventUpdates: updates })
+    this.setData(Object.assign({}, this._syncEventIntelView(updates)))
   },
 
   openEventDetail(e) {
     const eventId = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.id : ''
     if (!eventId) return
+    this._markEventFeedSeenUi()
     wx.navigateTo({
       url: `${ROUTES.EVENT_DETAIL}?id=${encodeURIComponent(eventId)}`,
       success: (res) => this._emitEventSnapshot(res, eventId)
@@ -653,8 +766,8 @@ const methods = {
 
   onLiveCardTap(e) {
     if (!this.data.enableLiveEntry) return
-    const idx = Number(e.currentTarget.dataset.idx)
-    const item = this.data.eventUpdates[idx]
+    const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
+    const item = this.findEventUpdateItem(ds.id, ds.idx)
     if (!item) return
 
     const rid = this._extractRoomId(item.liveRoomId)
@@ -826,11 +939,14 @@ const methods = {
   },
 
   toggleEventUpdatesExpanded() {
-    this.setData({ eventUpdatesExpanded: !this.data.eventUpdatesExpanded })
+    const next = !this.data.eventUpdatesExpanded
+    this.setData({ eventUpdatesExpanded: next })
+    if (next) this._markEventFeedSeenUi()
   },
 
   /** 查看更多事件更新 → 进入详情页列表模式；入口不设门控，页内免费前 5 条，翻页/播视频再拦 */
   openEventUpdatesList() {
+    this._markEventFeedSeenUi()
     const params = { mode: 'list_all' }
     if (this._filterSource) params.source = this._filterSource
     navigateTo(ROUTES.EVENT_DETAIL, params)

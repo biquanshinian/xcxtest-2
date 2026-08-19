@@ -115,6 +115,7 @@ function mergeMissionPages(type, currentList, incomingList, filterExpiredMission
 }
 
 module.exports = {
+  normalizeMissionItem,
   fetchMissionListData,
   buildMissionListSetData,
   getMissionNextOffset,

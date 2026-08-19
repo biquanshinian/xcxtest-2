@@ -453,7 +453,42 @@ function createUpcomingCachePatcher(db) {
     }
   }
 
-  return { patchUpcomingCacheWithLiveRows }
+  async function findRowsByIds(ids) {
+    const want = new Set((Array.isArray(ids) ? ids : []).map((id) => String(id || '').trim()).filter(Boolean))
+    const out = new Map()
+    if (!want.size) return out
+    const cached = await loadUpcomingCacheDoc()
+    if (!cached) return out
+    const payload = cached.payload
+    const isBatched =
+      !!(payload.isBatched || payload.isBatch) ||
+      (Array.isArray(payload.results) && payload.results.length === 0 && Number(payload.count) > 0)
+    const scan = (results) => {
+      const rows = Array.isArray(results) ? results : []
+      for (let i = 0; i < rows.length && out.size < want.size; i++) {
+        const row = rows[i]
+        if (!row || row.id == null) continue
+        const id = String(row.id)
+        if (want.has(id) && !out.has(id)) out.set(id, row)
+      }
+    }
+    if (!isBatched) {
+      scan(payload.results)
+      return out
+    }
+    for (let batchIdx = 0; batchIdx < 8 && out.size < want.size; batchIdx++) {
+      const batchDoc = await col()
+        .doc(`${cached.cacheKey}_batch_${batchIdx}`)
+        .get()
+        .catch(() => null)
+      const results = batchDoc && batchDoc.data && batchDoc.data.data && batchDoc.data.data.results
+      if (!Array.isArray(results)) break
+      scan(results)
+    }
+    return out
+  }
+
+  return { patchUpcomingCacheWithLiveRows, findRowsByIds }
 }
 
 module.exports = {

@@ -25,6 +25,8 @@ const {
   gateCheck
 } = require('../../../utils/membership.js')
 const { getMemberPolicy } = require('../../../utils/member-policy.js')
+const { resolveCarouselEventDs } = require('./carousel-event-ds.js')
+const { isPrivacyTapGuarded } = require('../../../utils/privacy-tap-guard.js')
 
 const CAROUSEL_CONFIG_CACHE_KEY = '_carousel_global_config_cache'
 const CAROUSEL_CONFIG_CACHE_TTL = 10 * 60 * 1000
@@ -37,6 +39,14 @@ const CAROUSEL_DOCS_STALE_MAX_MS = 24 * 60 * 60 * 1000
 // 推文文案一经发布不再变化：caption 映射缓存 24h，省掉每次进首页的 starship_event_updates 查询
 const CAROUSEL_CAPTION_CACHE_KEY = '_carousel_caption_cache_v1'
 const CAROUSEL_CAPTION_CACHE_TTL = 24 * 60 * 60 * 1000
+
+function shouldIgnoreCarouselUserTap() {
+  try {
+    return isPrivacyTapGuarded(getApp())
+  } catch (e) {
+    return false
+  }
+}
 
 const methods = {
   getDefaultCarouselImages() {
@@ -322,7 +332,7 @@ const methods = {
 
   /** 账号胶囊头像加载失败 → 只显示账号名 */
   onCarouselAvatarError(e) {
-    const index = Number(e.currentTarget.dataset.index)
+    const index = Number(resolveCarouselEventDs(e).index)
     if (!isNaN(index) && this.data.carouselItems[index]) {
       this.setData({ [`carouselItems[${index}].accountAvatar`]: '' })
     }
@@ -448,6 +458,26 @@ const methods = {
   },
 
   /**
+   * 隐私弹窗期间卸掉原生 video，避免同意按钮坐标点穿打开轮播视频
+   */
+  _deactivateCarouselVideos() {
+    const items = this.data.carouselItems || []
+    if (!items.length) return
+    try {
+      this._stopCarouselTimer()
+    } catch (e) {}
+    try {
+      this._stopCarouselVideo(this.data.carouselCurrent || 0)
+    } catch (e2) {}
+    const updates = {}
+    for (let i = 0; i < items.length; i++) {
+      if (!items[i] || items[i].type !== 'video') continue
+      if (items[i].videoActive) updates[`carouselItems[${i}].videoActive`] = false
+    }
+    if (Object.keys(updates).length) this.setData(updates)
+  },
+
+  /**
    * 仅激活当前视频的 src，避免多路大视频同时缓冲导致黑屏与预取流量浪费。
    * 非激活项清空 src，封面继续展示 poster。
    * 非会员（门控开启时）不激活任何视频，点击封面走全屏按需播放。
@@ -455,6 +485,10 @@ const methods = {
   _activateCarouselVideos(current) {
     // 历史发射/日历不展示轮播，也不预热视频 src
     if (this.data.missionType !== 'upcoming') return
+    if (shouldIgnoreCarouselUserTap()) {
+      this._deactivateCarouselVideos()
+      return
+    }
     const items = this.data.carouselItems || []
     if (!items.length) return
     const n = items.length
@@ -488,6 +522,7 @@ const methods = {
   /** 如果当前项是视频，静音自动播放 */
   _playCurrentVideoIfNeeded() {
     if (this.data.missionType !== 'upcoming') return
+    if (shouldIgnoreCarouselUserTap()) return
     if (!this._isCarouselAutoplayAllowed()) return
     const items = this.data.carouselItems
     const current = this.data.carouselCurrent || 0
@@ -517,10 +552,11 @@ const methods = {
 
   /** 真正出帧后再撤封面（play 事件过早，会露出原生黑底） */
   onCarouselVideoTimeUpdate(e) {
-    const index = Number(e.currentTarget.dataset.index)
+    const ds = resolveCarouselEventDs(e)
+    const index = Number(ds.index)
     const items = this.data.carouselItems
     if (isNaN(index) || !items || !items[index] || items[index].videoStarted) return
-    const t = Number(e.detail && e.detail.currentTime) || 0
+    const t = Number((ds.detail && ds.detail.currentTime) || ds.currentTime) || 0
     if (t < 0.08) return
     this.setData({ [`carouselItems[${index}].videoStarted`]: true })
   },
@@ -534,7 +570,9 @@ const methods = {
 
   /** 点击视频描述文字 → 跳转事件详情 */
   onCarouselCaptionTap(e) {
-    const eventId = (e.currentTarget.dataset || {}).eventid
+    if (shouldIgnoreCarouselUserTap()) return
+    const ds = resolveCarouselEventDs(e)
+    const eventId = ds.eventid || ds.eventId
     if (!eventId) return
     this._stopCarouselTimer()
     navigateTo(ROUTES.EVENT_DETAIL, { id: eventId })
@@ -542,10 +580,15 @@ const methods = {
 
   /** 点击视频 → 非会员先门控；通过后全屏播放（不预加载，按需缓存） */
   async onCarouselVideoTap(e) {
-    const dataset = e.currentTarget.dataset || {}
-    const index = dataset.index
+    if (shouldIgnoreCarouselUserTap()) return
+    const dataset = resolveCarouselEventDs(e)
+    const index = Number(dataset.index)
     const item = (this.data.carouselItems || [])[index]
-    if (!item || item.type !== 'video') return
+    if (isNaN(index) || !item || item.type !== 'video') return
+    // 同层 view + video 内 cover-view 可能对一次点击各发一次
+    const now = Date.now()
+    if (this._carouselVideoTapAt && now - this._carouselVideoTapAt < 500) return
+    this._carouselVideoTapAt = now
 
     this._stopCarouselTimer()
     this._stopCarouselVideo(index)
@@ -601,8 +644,8 @@ const methods = {
   onCarouselImageError(e) {
     if (this.data.carouselLoadFailed) return
 
-    const ds = (e && e.detail) || {}
-    const index = Number(ds.index != null ? ds.index : e.currentTarget.dataset.index)
+    const ds = resolveCarouselEventDs(e)
+    const index = Number(ds.index)
     const items = [...this.data.carouselItems]
 
     // 移除加载失败的项
@@ -638,8 +681,9 @@ const methods = {
    * 预览轮播图（点击直接预览）/ 视频由 onCarouselVideoTap 处理
    */
   previewCarouselImage(e) {
-    const ds = (e && e.detail) || {}
-    const current = ds.url != null ? ds.url : e.currentTarget.dataset.url
+    if (shouldIgnoreCarouselUserTap()) return
+    const ds = resolveCarouselEventDs(e)
+    const current = ds.url
     // 只预览图片项
     const imageUrls = (this.data.carouselItems || []).filter((i) => i.type === 'image').map((i) => i.src)
     if (!imageUrls.length) return

@@ -6,7 +6,7 @@ const storageCache = require('../../utils/storage-sync-cache.js')
 const userIdentity = require('../../utils/user-identity.js')
 const { getSubscribedMissions, unsubscribeLaunch, syncSubscribedMissions } = require('../../utils/subscribe.js')
 const { resolveMissionRocketImageFresh, isDefaultRocketSrc } = require('../../utils/util.js')
-const { getMembershipState, isPro, isProSync, isMembershipEnabled, MEMBER_ICONS, MEMBER_BENEFIT_ICONS, MEMBER_PASS_BENEFITS } = require('../../utils/membership.js')
+const { getMembershipState, isPro, isProSync, isMembershipEnabled, canUsePaidCloudSync, gateCheck, MEMBER_ICONS, MEMBER_BENEFIT_ICONS, MEMBER_PASS_BENEFITS } = require('../../utils/membership.js')
 const { getFavoriteCount } = require('../../utils/favorites.js')
 const themeUtil = require('../../utils/theme.js')
 const tabLoadPage = require('../../utils/tab-load-page.js')
@@ -18,6 +18,11 @@ const {
   ROCKET_TYPE_OPTIONS,
   LAUNCH_SITE_OPTIONS
 } = require('../../utils/user-growth.js')
+const {
+  DEFAULT_EVENT_ALERT_KEYWORDS,
+  EVENT_WATCH_ACCOUNT_OPTIONS,
+  getEventAlertKeywords
+} = require('../../utils/event-feed-intel.js')
 const { normalizeContentLang } = require('../../utils/locale.js')
 const { invalidateListSnapshots } = require('../../utils/api-launch-list.js')
 
@@ -37,6 +42,7 @@ const GROWTH_ICONS = {
 }
 
 const { getUiShellLayout } = require('../../utils/layout.js')
+const { getSystemInfo } = require('../../utils/system.js')
 // ========== 低频非首屏逻辑：在 profile-extra 分包（profile-lazy.js） ==========
 // 竞猜战绩、里程碑彩蛋、服务号提醒、奖品、年鉴、客服区块均为 onShow 后异步触发或用户点击触发，
 // require.async + attachTo 委托加载；profile 页在 preloadRule 中预下载 profile-extra 分包，实际几乎无加载等待
@@ -89,6 +95,10 @@ const SECTION_EVENT_METHODS = [
   'onTogglePrefSitesExpand',
   'onTogglePrefRocket',
   'onTogglePrefSite',
+  'onTogglePrefKeywordsExpand',
+  'onTogglePrefWatchExpand',
+  'onTogglePrefKeyword',
+  'onTogglePrefEventAccount',
   'onNotifyPrefChange',
   'onRoadClosurePrefChange',
   'onSaveReminderPrefs',
@@ -161,9 +171,19 @@ Page({
     selectedSiteCount: 0,
     prefRocketsExpanded: false,
     prefSitesExpanded: false,
+    prefKeywordsExpanded: false,
+    prefWatchExpanded: false,
     reminderPrefsDirty: false,
     notifyMinutes: 30,
     roadClosureAlert: true,
+    keywordOptions: DEFAULT_EVENT_ALERT_KEYWORDS,
+    watchAccountOptions: EVENT_WATCH_ACCOUNT_OPTIONS,
+    selectedKeywords: [],
+    selectedWatchAccounts: [],
+    keywordMap: {},
+    watchMap: {},
+    selectedKeywordCount: 0,
+    selectedWatchCount: 0,
     prefSaving: false,
     pageBgColor: '#000000',
     popupAdItem: null,
@@ -247,10 +267,8 @@ Page({
       })
     }
 
-    const deviceInfo = wx.getDeviceInfo()
-    const windowInfo = wx.getWindowInfo()
-    const systemInfo = Object.assign({}, deviceInfo, windowInfo, wx.getAppBaseInfo())
-    const platform = String(deviceInfo.platform || '').toLowerCase()
+    const systemInfo = getSystemInfo()
+    const platform = String(systemInfo.platform || '').toLowerCase()
     const app = getApp()
     const uiShellLayout = (app && app.getUiShellLayout && app.getUiShellLayout()) || getUiShellLayout(systemInfo)
 
@@ -354,19 +372,29 @@ Page({
       const prefs = loadPreferences() || {}
       const rockets = prefs.rocketTypes || []
       const sites = prefs.launchSites || []
+      const keywords = getEventAlertKeywords(prefs)
+      const watch = Array.isArray(prefs.eventWatchSources) ? prefs.eventWatchSources.slice() : []
       this.setData({
         selectedRockets: rockets,
         selectedSites: sites,
+        selectedKeywords: keywords,
+        selectedWatchAccounts: watch,
         rocketMap: prefsArrayToMap(rockets),
         siteMap: prefsArrayToMap(sites),
+        keywordMap: prefsArrayToMap(keywords),
+        watchMap: prefsArrayToMap(watch),
         selectedRocketCount: rockets.length,
         selectedSiteCount: sites.length,
+        selectedKeywordCount: keywords.length,
+        selectedWatchCount: watch.length,
         notifyMinutes: [30, 60, 120].indexOf(Number(prefs.notifyMinutes)) >= 0
           ? Number(prefs.notifyMinutes)
           : 30,
         roadClosureAlert: prefs.roadClosureAlert !== false,
         prefRocketsExpanded: false,
         prefSitesExpanded: false,
+        prefKeywordsExpanded: false,
+        prefWatchExpanded: false,
         reminderPrefsDirty: false
       })
     } catch (e) {}
@@ -377,7 +405,10 @@ Page({
       rocketTypes: this.data.selectedRockets,
       launchSites: this.data.selectedSites,
       notifyMinutes: this.data.notifyMinutes,
-      roadClosureAlert: !!this.data.roadClosureAlert
+      roadClosureAlert: !!this.data.roadClosureAlert,
+      eventAlertKeywords: this.data.selectedKeywords || [],
+      eventAlertKeywordsV1: true,
+      eventWatchSources: this.data.selectedWatchAccounts || []
     }
   },
 
@@ -386,6 +417,7 @@ Page({
     try {
       savePreferences(Object.assign(loadPreferences() || {}, this._buildReminderPrefsPatch()))
       this.setData({ reminderPrefsDirty: false })
+      try { storageCache.invalidate('_event_updates_local_cache') } catch (eInv) {}
       return true
     } catch (e) {
       return false
@@ -410,7 +442,9 @@ Page({
     this.setData({
       settingsPanelOpen: false,
       prefRocketsExpanded: false,
-      prefSitesExpanded: false
+      prefSitesExpanded: false,
+      prefKeywordsExpanded: false,
+      prefWatchExpanded: false
     })
     if (dirty && saved) {
       try { wx.showToast({ title: '已自动保存', icon: 'success' }) } catch (e) {}
@@ -423,6 +457,14 @@ Page({
 
   onTogglePrefSitesExpand() {
     this.setData({ prefSitesExpanded: !this.data.prefSitesExpanded })
+  },
+
+  onTogglePrefKeywordsExpand() {
+    this.setData({ prefKeywordsExpanded: !this.data.prefKeywordsExpanded })
+  },
+
+  onTogglePrefWatchExpand() {
+    this.setData({ prefWatchExpanded: !this.data.prefWatchExpanded })
   },
 
   onTogglePrefRocket(e) {
@@ -463,6 +505,52 @@ Page({
       selectedSites: list,
       siteMap: map,
       selectedSiteCount: list.length,
+      reminderPrefsDirty: true
+    })
+  },
+
+  onTogglePrefKeyword(e) {
+    const name = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.name
+    if (!name) return
+    const list = this.data.selectedKeywords.slice()
+    const map = Object.assign({}, this.data.keywordMap)
+    const idx = list.indexOf(name)
+    if (idx >= 0) {
+      list.splice(idx, 1)
+      delete map[name]
+    } else {
+      list.push(name)
+      map[name] = true
+    }
+    this.setData({
+      selectedKeywords: list,
+      keywordMap: map,
+      selectedKeywordCount: list.length,
+      reminderPrefsDirty: true
+    })
+  },
+
+  async onTogglePrefEventAccount(e) {
+    const screenName = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.name
+    if (!screenName) return
+    if (!canUsePaidCloudSync()) {
+      const allowed = await gateCheck('starship_progress_event_source', '星舰事件更新 · 自选账号', { allowAd: false })
+      if (!allowed || !canUsePaidCloudSync()) return
+    }
+    const list = this.data.selectedWatchAccounts.slice()
+    const map = Object.assign({}, this.data.watchMap)
+    const idx = list.indexOf(screenName)
+    if (idx >= 0) {
+      list.splice(idx, 1)
+      delete map[screenName]
+    } else {
+      list.push(screenName)
+      map[screenName] = true
+    }
+    this.setData({
+      selectedWatchAccounts: list,
+      watchMap: map,
+      selectedWatchCount: list.length,
       reminderPrefsDirty: true
     })
   },

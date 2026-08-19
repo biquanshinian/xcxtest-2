@@ -12,7 +12,7 @@ const rocketArtUtil = require('../../utils/rocket-config-art.js')
 const { isMechaRocketSrc } = rocketArtUtil
 const { isPermissionDenied, getPermissionDeniedMessage } = require('./utils/single-page.js')
 const { subscribeLaunch, unsubscribeLaunch, isSubscribed } = require('../../utils/subscribe.js')
-const { isFavorite, toggleFavorite, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
+const { isFavorite, toggleMissionFavorite, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
 const { isOaAlertReady, peekOaAlertReady } = require('../../utils/oa-alert.js')
 const { buildMissionShareOptions, buildMissionDetailUrl } = require('../../utils/index-mission-nav.js')
 const { ROUTES, buildUrl, navigateTo } = require('../../utils/routes.js')
@@ -33,8 +33,8 @@ const {
 const { wgs84ToGcj02 } = require('./coord.js')
 const { normalizeLl2TimelineList } = require('./utils/ll2-launch-timeline.js')
 const { computeLaunchTimelineProgress } = require('./utils/launch-timeline-progress.js')
-const { loadMissionLaunchStats, applyClientAgencyFallback } = require('./utils/mission-launch-stats.js')
-const { formatCloudError } = require('../../utils/launch-stats-cloud.js')
+const { loadMissionLaunchStats, applyClientAgencyFallback, applyClientRocketFallback } = require('./utils/mission-launch-stats.js')
+const { formatCloudError, resolveMissionRocketQueryName, resolveRocketYearFromBreakdown } = require('../../utils/launch-stats-cloud.js')
 const config = require('../../utils/config.js')
 const { isLiveEntryAllowed, isFeatureEnabled, isPlaybackAllowed } = require('../../utils/feature-flags.js')
 const { resolveOrbitPanoForMission, playOrbitPanoVideo } = require('./utils/orbit-pano.js')
@@ -781,6 +781,15 @@ Page({
             statusCategory: mission.statusCategory || '',
             statusAbbrev: mission.statusAbbrev || '',
             name: mission.name || '',
+            missionName: mission.missionName || '',
+            rocketName: mission.rocketName || '',
+            padLocation: mission.padLocation || '',
+            launchSite: mission.launchSite || '',
+            countryDisplay: mission.countryDisplay || '',
+            launchAgency: mission.launchAgency || '',
+            rocketImage: mission.rocketImage || mission.image || '',
+            image: mission.rocketImage || mission.image || '',
+            rocketConfiguration: mission.rocketConfiguration || null,
             net: mission.launchTime || mission.net || '',
             windowStart: mission.windowStart || '',
             windowEnd: mission.windowEnd || '',
@@ -1118,6 +1127,7 @@ Page({
       launchAgencyAbbrev: mission.launchAgencyAbbrev || '',
       agencyLaunchAttemptCount: mission.agencyLaunchAttemptCount != null ? mission.agencyLaunchAttemptCount : null,
       agencyLaunchAttemptCountYear: mission.agencyLaunchAttemptCountYear != null ? mission.agencyLaunchAttemptCountYear : null,
+      rocketLaunchAttemptCount: mission.rocketLaunchAttemptCount != null ? mission.rocketLaunchAttemptCount : null,
       launchSite: mission.launchSite || '',
       padLocation: mission.padLocation || '',
       rocketName: mission.rocketName || '未知火箭',
@@ -1299,6 +1309,9 @@ Page({
     merged.agencyLaunchAttemptCountYear = detail.agencyLaunchAttemptCountYear != null
       ? detail.agencyLaunchAttemptCountYear
       : (base.agencyLaunchAttemptCountYear != null ? base.agencyLaunchAttemptCountYear : null)
+    merged.rocketLaunchAttemptCount = detail.rocketLaunchAttemptCount != null
+      ? detail.rocketLaunchAttemptCount
+      : (base.rocketLaunchAttemptCount != null ? base.rocketLaunchAttemptCount : null)
     merged.probability = detail.probability != null ? detail.probability : base.probability
     merged.isRecoverableThisMission = detail.isRecoverableThisMission != null ? detail.isRecoverableThisMission : !!base.isRecoverableThisMission
 
@@ -1899,17 +1912,47 @@ Page({
     })
   },
 
-  /** 详情/徽章已就绪但统计卡仍缺 providerTotal 时，用 attempt 就地补齐（不重打云） */
+  /** 详情/徽章已就绪但统计卡仍缺累计/本年时，用构型次数与徽章就地补齐（不重打云） */
   patchMissionLaunchStatsFromAgency(mission) {
     const m = mission || this.data.mission
     const stats = this.data.missionLaunchStats
     if (!stats || !m) return false
-    const filled = applyClientAgencyFallback(stats, m)
-    if (filled.providerTotal === stats.providerTotal && filled.providerYear === stats.providerYear) {
+    const filled = applyClientRocketFallback(applyClientAgencyFallback(stats, m), m)
+    if (filled.providerTotal === stats.providerTotal
+      && filled.providerYear === stats.providerYear
+      && filled.rocketTotal === stats.rocketTotal
+      && filled.rocketYear === stats.rocketYear) {
       return false
     }
     this.setData({ missionLaunchStats: filled })
     return true
+  },
+
+  async fillRocketYearFromBreakdown(launchId, mission) {
+    const m = mission || this.data.mission
+    const stats = this.data.missionLaunchStats
+    if (!stats || stats.rocketYear != null || !m) return
+    let yearCount = null
+    try {
+      yearCount = await resolveRocketYearFromBreakdown(m)
+    } catch (_e) {
+      yearCount = null
+    }
+    if (yearCount == null) return
+    if (String(this.data.mission && this.data.mission.id) !== String(launchId || '')) return
+    const latest = this.data.missionLaunchStats
+    if (!latest || latest.rocketYear != null) return
+    this.setData({ missionLaunchStats: { ...latest, rocketYear: yearCount } })
+  },
+
+  /** 已加载的统计缺型号计数、且当前 mission 能给出更好的英文型号名时，才值得重新请求 */
+  shouldReloadStatsForRocket(rocketKey) {
+    const stats = this.data.missionLaunchStats
+    if (!stats) return true
+    if (stats.rocketTotal != null || stats.rocketYear != null) return false
+    const next = String(rocketKey || '').trim()
+    if (!next || /[\u4e00-\u9fff]/.test(next)) return false
+    return next !== String(this._statsLoadedRocketKey || '').trim()
   },
 
   async loadMissionLaunchStatsForMission(mission, options = {}) {
@@ -1923,7 +1966,12 @@ Page({
 
     // page 级去重：同一 launchId 已成功加载或正在加载中则跳过（onRetry 走 forceRefresh 绕过）。
     // 若已加载但累计仍空，用当前 mission（可能刚补上序号徽章）就地回填，避免一直显示 —
-    const force = !!(options && options.forceRefresh)
+    const rocketKey = resolveMissionRocketQueryName(m)
+    // 首屏可能用列表快照（缺英文型号名/配置快照）先请求过一次，型号计数会是空的；
+    // 详情回来后型号名变好了要重新请求（并绕过本地缓存），否则会一直停在「—」
+    const rocketReload = this._statsLoadedLaunchId === launchId && this.shouldReloadStatsForRocket(rocketKey)
+    const force = !!(options && options.forceRefresh) || rocketReload
+
     if (!force && this._statsLoadedLaunchId === launchId) {
       this.patchMissionLaunchStatsFromAgency(m)
       return
@@ -1942,20 +1990,30 @@ Page({
       missionLaunchStats: null
     })
 
+    let reloadForRocket = false
     try {
       const stats = await loadMissionLaunchStats(m, { forceRefresh: force })
       if (String(this.data.mission && this.data.mission.id) !== launchId) return
       // 异步返回时优先用页面上最新 mission（详情可能已补上 attempt / 序号行）
-      const filled = applyClientAgencyFallback(stats, this.data.mission || m)
+      const filled = applyClientRocketFallback(
+        applyClientAgencyFallback(stats, this.data.mission || m),
+        this.data.mission || m
+      )
       this.setData({
         missionLaunchStatsLoading: false,
         missionLaunchStatsError: '',
         missionLaunchStats: filled
       })
       this._statsLoadedLaunchId = launchId
+      this._statsLoadedRocketKey = rocketKey
       if (this._statsPatchAfterInflight) {
         this._statsPatchAfterInflight = false
         this.patchMissionLaunchStatsFromAgency(this.data.mission)
+        // 请求期间详情才补上英文型号名：请求用的是旧快照，型号计数仍为空时补一轮
+        reloadForRocket = this.shouldReloadStatsForRocket(resolveMissionRocketQueryName(this.data.mission))
+      }
+      if (!reloadForRocket && filled.rocketYear == null) {
+        this.fillRocketYearFromBreakdown(launchId, this.data.mission || m)
       }
     } catch (e) {
       const msg = formatCloudError(e)
@@ -1967,6 +2025,7 @@ Page({
       })
     } finally {
       if (this._statsInflightLaunchId === launchId) this._statsInflightLaunchId = null
+      if (reloadForRocket) this.loadMissionLaunchStatsForMission(this.data.mission)
     }
   },
 
@@ -2813,18 +2872,7 @@ Page({
       return
     }
     try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
-    const favorited = toggleFavorite({
-      type: 'mission',
-      id: mission.id,
-      title: mission.missionName || mission.name || '发射任务',
-      subtitle: mission.rocketName || '',
-      imageUrl: mission.rocketImage || '',
-      category: 'mission',
-      extra: {
-        missionType: this.data.detailType || 'upcoming',
-        rocketName: mission.rocketName || ''
-      }
-    })
+    const favorited = toggleMissionFavorite(mission, this.data.detailType)
     pulseFavAnimate(this, favorited)
     wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
   },

@@ -36,6 +36,16 @@ const {
   isDefaultRocketSrc
 } = require('../../utils/util.js')
 const { SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL } = require('../../utils/agency-logo-overrides.js')
+const {
+  decorateEventItem,
+  relatedLaunchNavFromEvent,
+  toggleRelatedMissionFavorite,
+  applyRelatedLaunchFavoriteToList,
+  clearRelatedLaunchFavAnimate,
+  syncRelatedLaunchFavoriteFlags,
+  getEventIntelContext,
+  markEventFeedSeen
+} = require('../../utils/event-feed-intel.js')
 const { normalizeLl2TimelineList } = require('./utils/ll2-launch-timeline.js')
 const { isFeatureEnabled } = require('../../utils/feature-flags.js')
 
@@ -231,6 +241,7 @@ Page({
     listLoadingMore: false,
     scrollRefreshing: false,
     items: [],
+    itemsView: [],
     listDayHint: '',
     showEventShareSheet: false,
     selectedEventShareId: '',
@@ -1149,6 +1160,7 @@ Page({
     if (this._ll2CountdownActive) {
       this.startLl2EventCountdown()
     }
+    try { this.syncEventRelatedLaunchFavorites() } catch (e) {}
   },
 
   startLl2EventCountdown() {
@@ -1302,6 +1314,8 @@ Page({
         this._eventListUnlocked = true
         this._refreshSourceGatePassedSilently()
       }
+      markEventFeedSeen(Date.now())
+      this._refreshEventIntelCtx()
       await this.loadListAll(true)
       return
     }
@@ -1316,8 +1330,10 @@ Page({
     this._singleItemId = id
 
     if (id) {
+      this._refreshEventIntelCtx()
       await this.loadDetail(id)
     } else if (source) {
+      this._refreshEventIntelCtx()
       await this.loadListBySource(source, listDate, listLabel)
     } else {
       this.setData({ loading: false, errorMessage: '缺少事件参数，请返回列表重新进入' })
@@ -1360,7 +1376,7 @@ Page({
     })
     const imageCount = imageUrls.length
 
-    return {
+    return decorateEventItem({
       ...safeItem,
       mediaList: enrichedMediaList,
       imageUrls,
@@ -1373,7 +1389,111 @@ Page({
       _liveStatus: 0,
       _liveCover: safeItem.liveCover || '',
       _liveTitle: ''
+    }, this._eventIntelCtx || getEventIntelContext())
+  },
+
+  _refreshEventIntelCtx() {
+    this._eventIntelCtx = getEventIntelContext()
+    return this._eventIntelCtx
+  },
+
+  _applyListIntel(items) {
+    const ctx = this._eventIntelCtx || this._refreshEventIntelCtx()
+    const decorated = (items || []).map((it) => decorateEventItem(it, ctx))
+    return {
+      items: decorated,
+      itemsView: decorated
     }
+  },
+
+  onRelatedLaunchTap(e) {
+    try {
+      const nav = relatedLaunchNavFromEvent(e)
+      if (!nav) {
+        try { wx.showToast({ title: '暂时无法打开任务', icon: 'none' }) } catch (e2) {}
+        return
+      }
+      wx.navigateTo({
+        url: buildMissionDetailUrl({ id: nav.id, detailType: nav.type }),
+        fail() {
+          try { wx.showToast({ title: '暂时无法打开任务', icon: 'none' }) } catch (e2) {}
+        }
+      })
+    } catch (err) {}
+  },
+
+  _applyRelatedLaunchFavUi(launchId, favorited) {
+    const patch = {}
+    const items = applyRelatedLaunchFavoriteToList(this.data.items, launchId, favorited, !!favorited)
+    const itemsView = applyRelatedLaunchFavoriteToList(this.data.itemsView, launchId, favorited, !!favorited)
+    if (items !== this.data.items) patch.items = items
+    if (itemsView !== this.data.itemsView) patch.itemsView = itemsView
+    if (this.data.item && String(this.data.item.relatedLaunchId) === String(launchId)) {
+      patch.item = Object.assign({}, this.data.item, {
+        relatedLaunchFavorited: !!favorited,
+        relatedLaunchFavAnimate: !!favorited
+      })
+    }
+    if (Object.keys(patch).length) this.setData(patch)
+    if (!favorited) return
+    const self = this
+    setTimeout(() => {
+      try {
+        if (!self || typeof self.setData !== 'function' || !self.data) return
+        const clear = {}
+        const nextItems = clearRelatedLaunchFavAnimate(self.data.items, launchId)
+        const nextView = clearRelatedLaunchFavAnimate(self.data.itemsView, launchId)
+        if (nextItems !== self.data.items) clear.items = nextItems
+        if (nextView !== self.data.itemsView) clear.itemsView = nextView
+        if (self.data.item && String(self.data.item.relatedLaunchId) === String(launchId) && self.data.item.relatedLaunchFavAnimate) {
+          clear.item = Object.assign({}, self.data.item, { relatedLaunchFavAnimate: false })
+        }
+        if (Object.keys(clear).length) self.setData(clear)
+      } catch (e) {}
+    }, 450)
+  },
+
+  onToggleRelatedLaunchFavorite(e) {
+    try {
+      const d = (e && e.detail) || {}
+      if (typeof d.favorited === 'boolean' && d.id != null && String(d.id).trim() !== '') {
+        this._applyRelatedLaunchFavUi(String(d.id).trim(), d.favorited)
+        return
+      }
+      const nav = relatedLaunchNavFromEvent(e)
+      if (!nav) return
+      try { wx.vibrateShort({ type: 'medium' }) } catch (eV) {}
+      const lists = [this.data.itemsView, this.data.items]
+      if (this.data.item) lists.push([this.data.item])
+      const result = toggleRelatedMissionFavorite({
+        launchId: nav.id,
+        launchType: nav.type
+      }, lists)
+      if (!result) {
+        wx.showToast({ title: '收藏失败，请重试', icon: 'none' })
+        return
+      }
+      this._applyRelatedLaunchFavUi(result.id, result.favorited)
+      wx.showToast({ title: result.favorited ? '已收藏' : '已取消收藏', icon: 'none' })
+    } catch (err) {}
+  },
+
+  syncEventRelatedLaunchFavorites() {
+    try {
+      const patch = {}
+      const items = syncRelatedLaunchFavoriteFlags(this.data.items)
+      const itemsView = syncRelatedLaunchFavoriteFlags(this.data.itemsView)
+      if (items !== this.data.items) patch.items = items
+      if (itemsView !== this.data.itemsView) patch.itemsView = itemsView
+      if (this.data.item && this.data.item.relatedLaunchId) {
+        const next = syncRelatedLaunchFavoriteFlags([this.data.item])[0]
+        if (next && next !== this.data.item &&
+          (next.relatedLaunchFavorited !== this.data.item.relatedLaunchFavorited || next.relatedLaunchFavAnimate)) {
+          patch.item = next
+        }
+      }
+      if (Object.keys(patch).length) this.setData(patch)
+    } catch (e) {}
   },
 
   async loadDetail(id, opts = {}) {
@@ -1518,10 +1638,14 @@ Page({
     try {
       const db = wx.cloud.database()
       const where = { status: 'published' }
+      this._refreshEventIntelCtx()
+      const watchSources = (this._eventIntelCtx && this._eventIntelCtx.watchSources) || []
       if (this._listAllSources && this._listAllSources.length) {
         where.source = db.command.in(this._listAllSources)
       } else if (this._listAllSource) {
         where.source = this._listAllSource
+      } else if (watchSources.length) {
+        where.source = db.command.in(watchSources)
       }
       const res = await db.collection('starship_event_updates')
         .where(where)
@@ -1564,11 +1688,10 @@ Page({
         })
       }
 
-      this.setData({
+      this.setData(Object.assign({
         loading: false,
         listMode: true,
         listAllMode: true,
-        items: merged,
         item: null,
         errorMessage: '',
         navTitle: listNavTitle,
@@ -1578,7 +1701,7 @@ Page({
         listNoMore,
         listLoadingMore: false,
         avatarError: false
-      })
+      }, this._applyListIntel(merged)))
       if (refresh) this._scrollDetailToTop()
     } catch (error) {
       const msg = isPermissionDenied(error)
@@ -1655,10 +1778,9 @@ Page({
       const hint = namePart + ' · 共 ' + items.length + ' 条'
       const navTitle = namePart + ' · 今日动态'
       const shareTitle = navTitle + ' | 火星探索日志'
-      this.setData({
+      this.setData(Object.assign({
         loading: false,
         listMode: true,
-        items,
         item: null,
         errorMessage: '',
         navTitle,
@@ -1666,7 +1788,7 @@ Page({
         shareTitle,
         shareImage,
         avatarError: false
-      })
+      }, this._applyListIntel(items)))
       this._scrollDetailToTop()
     } catch (error) {
       const msg = isPermissionDenied(error)

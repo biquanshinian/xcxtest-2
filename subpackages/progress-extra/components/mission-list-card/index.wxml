@@ -1,7 +1,7 @@
 <!-- 与 pages/index missionCardInner 同结构，含 recoveryIcons 溅落/回收图标 -->
 <view
   class="mission-list-card-root mission-card glass-card card-hover mission-card-link mission-card--{{item.statusCategory || 'pending'}} {{themeLight ? 'theme-light' : ''}}"
-  bindtap="onTap"
+  catchtap="onTap"
 >
   <view class="mission-card-inner-row">
     <view class="mission-rocket-slot">
@@ -29,7 +29,7 @@
           <view class="recovery-icon-name" wx:if="{{item.flightCountLabel}}">
             <text class="recovery-type-name">{{item.flightCountLabel}}</text>
           </view>
-          <text class="mission-country">{{item.countryDisplay || item.langUnknownCountry || '未知'}}</text>
+          <text class="mission-country" wx:if="{{item.countryDisplay || item.langUnknownCountry}}">{{item.countryDisplay || item.langUnknownCountry}}</text>
         </view>
       </view>
       <text class="mission-main-title">{{item.missionName || item.name || item.langUnknownMission || '未知任务'}}</text>
@@ -37,7 +37,7 @@
       <text class="mission-time">{{item.formattedTime}}</text>
       <text class="mission-meta mission-pad" wx:if="{{item.padLocation}}">{{item.padLocation}}</text>
       <view class="mission-recovery-block">
-        <text class="recovery-tag {{item.recoveryTagClass}}">{{item.recoveryTagText}}</text>
+        <text class="recovery-tag {{item.recoveryTagClass}}" wx:if="{{item.recoveryTagText}}">{{item.recoveryTagText}}</text>
         <view class="mission-recovery-icons" wx:if="{{item.recoveryIcons && item.recoveryIcons.length}}">
           <image
             wx:for="{{item.recoveryIcons}}"
@@ -48,6 +48,17 @@
             src="{{rIcon.icon}}"
             mode="aspectFit"
           ></image>
+        </view>
+        <view
+          class="mission-card-fav-wrap {{favorited ? 'fav-btn--on' : ''}} {{favAnimate ? 'fav-btn--animate' : ''}}"
+          wx:if="{{enableFavorite}}"
+          hover-class="fav-btn--pressed"
+          hover-stay-time="120"
+          catchtap="onFavoriteTap"
+          aria-role="button"
+          aria-label="收藏"
+        >
+          <view class="fav-heart"></view>
         </view>
       </view>
     </view>

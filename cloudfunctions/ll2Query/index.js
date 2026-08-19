@@ -15,6 +15,7 @@ const { createLaunchStatusStore, normalize: normalizeLaunchStatus } = require('.
 const launchStatusStore = createLaunchStatusStore(db)
 const { createUpcomingCachePatcher } = require('./upcoming-cache-patch.js')
 const upcomingCachePatcher = createUpcomingCachePatcher(db)
+const { listRecentNetChangesAction } = require('./recent-net-changes.js')
 
 const httpsRequire = require('https')
 const httpRequire = require('http')
@@ -1076,12 +1077,59 @@ function slimStatusRow(r) {
 }
 
 /** 详情终态写入 previous 时的轻量 stub（足够列表 map，避免整包 detailed 过大） */
+function parseRocketNameFromLaunchName(name) {
+  const parts = String(name || '')
+    .split('|')
+    .map((s) => String(s || '').trim())
+    .filter(Boolean)
+  return parts.length >= 2 ? parts[0] : ''
+}
+
+function isThinPreviousLaunchRow(row) {
+  if (!row || row.id == null) return true
+  const cfg =
+    (row.rocket && row.rocket.configuration) ||
+    (row.rocket && row.rocket.rocket && row.rocket.rocket.configuration) ||
+    null
+  const hasRocket = !!(cfg && (cfg.name || cfg.full_name))
+  const pad = row.pad
+  const hasPad = !!(pad && (pad.name || (pad.location && pad.location.name)))
+  return !hasRocket || !hasPad
+}
+
+function fillThinPreviousRow(row, stub) {
+  if (!row || !stub) return false
+  let changed = false
+  const rowThinRocket = isThinPreviousLaunchRow(row)
+  if (rowThinRocket && stub.rocket && stub.rocket.configuration && (stub.rocket.configuration.name || stub.rocket.configuration.full_name)) {
+    row.rocket = { ...(row.rocket || {}), ...stub.rocket }
+    changed = true
+  }
+  if ((!row.pad || !(row.pad.name || (row.pad.location && row.pad.location.name))) && stub.pad) {
+    row.pad = stub.pad
+    changed = true
+  }
+  if (!row.launch_service_provider && stub.launch_service_provider) {
+    row.launch_service_provider = stub.launch_service_provider
+    changed = true
+  }
+  if (!row.mission && stub.mission) {
+    row.mission = stub.mission
+    changed = true
+  }
+  return changed
+}
+
 function buildPreviousStubFromLaunch(launch) {
   if (!launch || !launch.id) return null
-  const cfg =
+  let cfg =
     (launch.rocket && launch.rocket.configuration) ||
     (launch.rocket && launch.rocket.rocket && launch.rocket.rocket.configuration) ||
     null
+  if (!cfg || !(cfg.name || cfg.full_name)) {
+    const parsed = parseRocketNameFromLaunchName(launch.name)
+    if (parsed) cfg = { ...(cfg || {}), name: parsed, full_name: (cfg && cfg.full_name) || parsed }
+  }
   const lsp = launch.launch_service_provider || launch.lsp || null
   const pad = launch.pad || null
   return {
@@ -1232,14 +1280,38 @@ function stubFromTerminalEntry(term) {
       infographic: stub.infographic || undefined
     }
   }
+  const parsedRocket = parseRocketNameFromLaunchName(term.name)
   return {
     id: term.id,
     name: term.name || '',
     net: term.net || '',
     window_start: term.windowStart || term.net || '',
     window_end: term.windowEnd || '',
-    status: term.status ? { id: term.status.id, name: term.status.name || '', abbrev: term.status.abbrev || '' } : null
+    status: term.status ? { id: term.status.id, name: term.status.name || '', abbrev: term.status.abbrev || '' } : null,
+    rocket: parsedRocket
+      ? { configuration: { name: parsedRocket, full_name: parsedRocket } }
+      : undefined
   }
+}
+
+async function enrichTerminalEntriesFromUpcomingCache(entries) {
+  if (!Array.isArray(entries) || !entries.length) return 0
+  if (!upcomingCachePatcher || typeof upcomingCachePatcher.findRowsByIds !== 'function') return 0
+  const need = entries.filter((e) => e && e.id && isThinPreviousLaunchRow(e.launchStub || null))
+  if (!need.length) return 0
+  const found = await upcomingCachePatcher.findRowsByIds(need.map((e) => e.id))
+  if (!found || !found.size) return 0
+  let n = 0
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i]
+    if (!entry || !entry.id) continue
+    const cached = found.get(String(entry.id))
+    if (!cached) continue
+    if (entry.launchStub && !isThinPreviousLaunchRow(entry.launchStub)) continue
+    entry.launchStub = buildPreviousStubFromLaunch(cached)
+    if (entry.launchStub) n++
+  }
+  return n
 }
 
 /** 用终态/飞行中改 previous 云缓存；同 id 不存在则插入首批头部（避免详情已 settled、列表刷新消失） */
@@ -1286,18 +1358,26 @@ async function patchPreviousCacheStatusFromTerminal(entries) {
     const term = byId.get(id)
     if (!term || !term.status) return false
     foundIds.add(id)
+    let changed = false
     const curId = row.status && row.status.id != null ? Number(row.status.id) : 0
     const nextId = Number(term.status.id)
-    if (curId === nextId) return false
-    // 终态不可被飞行中/非终态降级；终态之间允许 Deployed 等升级
-    if (TERMINAL_STATUS_IDS[curId] && !TERMINAL_STATUS_IDS[nextId]) return false
-    row.status = {
-      id: term.status.id,
-      name: term.status.name || '',
-      abbrev: term.status.abbrev || ''
+    const canUpgradeStatus =
+      curId !== nextId &&
+      !(TERMINAL_STATUS_IDS[curId] && !TERMINAL_STATUS_IDS[nextId])
+    if (canUpgradeStatus) {
+      row.status = {
+        id: term.status.id,
+        name: term.status.name || '',
+        abbrev: term.status.abbrev || ''
+      }
+      if (term.net) row.net = term.net
+      changed = true
     }
-    if (term.net) row.net = term.net
-    return true
+    if (isThinPreviousLaunchRow(row)) {
+      const stub = stubFromTerminalEntry(term)
+      if (fillThinPreviousRow(row, stub)) changed = true
+    }
+    return changed
   }
 
   if (isBatched) {
@@ -1618,7 +1698,12 @@ async function fetchLaunchStatusesAction() {
           launchStub: buildPreviousStubFromLaunch(r)
         })
       }
-      if (terminalEntries.length) await patchPreviousCacheStatusFromTerminal(terminalEntries)
+      if (terminalEntries.length) {
+        try {
+          await enrichTerminalEntriesFromUpcomingCache(terminalEntries)
+        } catch (e0) {}
+        await patchPreviousCacheStatusFromTerminal(terminalEntries)
+      }
     } catch (e) {}
 
     // 返回合并后的 rows：当前任务查找 + 列表实况 patch 都能受益
@@ -1932,6 +2017,9 @@ async function resolveLaunchStatusesAction(event) {
   let previousPatch = null
   if (terminalForPrevious.length) {
     try {
+      await enrichTerminalEntriesFromUpcomingCache(terminalForPrevious)
+    } catch (e0) {}
+    try {
       previousPatch = await patchPreviousCacheStatusFromTerminal(terminalForPrevious)
     } catch (e) {
       previousPatch = { patched: 0, error: e.message || String(e) }
@@ -1998,6 +2086,8 @@ exports.main = async (event = {}) => {
       return resolveLaunchStatusesAction(event)
     case 'getLaunchStatusSnapshot':
       return getLaunchStatusSnapshotAction(event)
+    case 'listRecentNetChanges':
+      return listRecentNetChangesAction(db)
     case 'backfillLaunchStatusPriorities':
       return backfillLaunchStatusPrioritiesAction()
     case 'translateTexts':

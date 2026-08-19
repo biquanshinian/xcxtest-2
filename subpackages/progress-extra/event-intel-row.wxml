@@ -1,0 +1,4 @@
+<view class="event-intel-row" wx:if="{{item.isNew || item.keywordHitText}}">
+  <text class="event-intel-new" wx:if="{{item.isNew}}">新</text>
+  <text class="event-intel-kw" wx:if="{{item.keywordHitText}}">{{item.keywordHitText}}</text>
+</view>

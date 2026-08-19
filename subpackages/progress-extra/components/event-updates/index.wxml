@@ -5,6 +5,7 @@
   <view class="section-title event-updates-title-row">
     <text>事件更新</text>
     <view class="section-badge" wx:if="{{tweetEventTotal}}">{{tweetEventTotal}}</view>
+    <view class="section-badge section-badge--new" wx:if="{{eventNewCount > 0}}">新增 {{eventNewCount}}</view>
     <view class="section-title-right">
       <view class="booster-view-all" hover-class="booster-view-all--pressed" hover-stay-time="120"
             bindtap="emitOpenEventUpdatesList" wx:if="{{eventUpdates.length > 0}}">
@@ -33,7 +34,7 @@
       <view class="event-updates-collapsed">
         <view
           class="event-update-item {{pressedEventId === item._id ? 'event-update-item--pressed' : ''}}"
-          wx:for="{{eventUpdates}}"
+          wx:for="{{eventUpdatesView}}"
           wx:if="{{index < 1}}"
           wx:key="_id"
           bindtap="emitOpenEventDetail"
@@ -54,6 +55,7 @@
             </view>
             <text class="event-update-title" wx:if="{{item.title}}">{{item.title}}</text>
             <text class="event-update-content" wx:if="{{item.content}}">{{item.content}}</text>
+            <include src="../../event-intel-row.wxml" />
           </view>
 
           <!-- 折叠状态也显示媒体 -->
@@ -84,6 +86,25 @@
               </view>
             </block>
           </view>
+          <view
+            class="event-related-mission-wrap"
+            wx:if="{{item.relatedLaunchCard}}"
+            catchtap="onRelatedLaunchTap"
+            catchlongpress="stopPropagation"
+            data-launch-id="{{item.relatedLaunchId}}"
+            data-launch-type="{{item.relatedLaunchType}}"
+          >
+            <mission-list-card
+              item="{{item.relatedLaunchCard}}"
+              index="{{index}}"
+              themeLight="{{themeClass === 'theme-light'}}"
+              enableFavorite="{{true}}"
+              favorited="{{item.relatedLaunchFavorited}}"
+              favAnimate="{{item.relatedLaunchFavAnimate}}"
+              bind:cardtap="onRelatedLaunchTap"
+              bind:favoritetap="onToggleRelatedLaunchFavorite"
+            />
+          </view>
         </view>
       </view>
     </view>
@@ -105,7 +126,7 @@
       >
       <view
         class="event-update-item {{pressedEventId === item._id ? 'event-update-item--pressed' : ''}}"
-        wx:for="{{eventUpdates}}"
+        wx:for="{{eventUpdatesView}}"
         wx:key="_id"
         bindtap="emitOpenEventDetail"
         bindtouchstart="emitOnEventItemTouchStart"
@@ -126,10 +147,11 @@
 
           <text class="event-update-title" wx:if="{{item.title}}">{{item.title}}</text>
           <text class="event-update-content" wx:if="{{item.content}}">{{item.content}}</text>
+          <include src="../../event-intel-row.wxml" />
         </view>
 
         <!-- 直播卡片（enableLiveEntry：过审关闭直播入口时整卡隐藏） -->
-        <view class="event-live-card" wx:if="{{enableLiveEntry && item.liveRoomId}}" bindtap="emitOnLiveCardTap" data-idx="{{index}}">
+        <view class="event-live-card" wx:if="{{enableLiveEntry && item.liveRoomId}}" bindtap="emitOnLiveCardTap" data-id="{{item._id}}" data-idx="{{index}}">
           <view class="event-live-cover-wrap">
             <image
               class="event-live-cover"
@@ -182,7 +204,27 @@
           </block>
         </view>
 
-        <view class="event-update-actions">
+        <view
+          class="event-related-mission-wrap"
+          wx:if="{{item.relatedLaunchCard}}"
+          catchtap="onRelatedLaunchTap"
+          catchlongpress="stopPropagation"
+          data-launch-id="{{item.relatedLaunchId}}"
+          data-launch-type="{{item.relatedLaunchType}}"
+        >
+          <mission-list-card
+            item="{{item.relatedLaunchCard}}"
+            index="{{index}}"
+            themeLight="{{themeClass === 'theme-light'}}"
+            enableFavorite="{{true}}"
+            favorited="{{item.relatedLaunchFavorited}}"
+            favAnimate="{{item.relatedLaunchFavAnimate}}"
+            bind:cardtap="onRelatedLaunchTap"
+            bind:favoritetap="onToggleRelatedLaunchFavorite"
+          />
+        </view>
+
+        <view class="event-update-actions" wx:if="{{!item.relatedLaunchId}}">
           <view class="event-update-share-wrap" catchtap="stopPropagation">
             <image class="icon-share icon-share--event-update" src="/images/share-arrow.svg" mode="aspectFit"></image>
             <button
@@ -198,7 +240,7 @@
           </view>
         </view>
 
-        <view class="event-update-divider" wx:if="{{index < eventUpdates.length - 1}}"></view>
+        <view class="event-update-divider" wx:if="{{index < eventUpdatesView.length - 1}}"></view>
       </view>
 
       <view class="event-updates-footer">

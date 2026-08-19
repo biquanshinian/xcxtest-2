@@ -1752,14 +1752,6 @@
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
-@keyframes roadClosurePulse {
-  0%, 100% { border-color: rgba(255, 152, 0, 0.3); }
-  50% { border-color: rgba(255, 152, 0, 0.6); }
-}
-@keyframes marqueeScroll {
-  from { transform: translate3d(0, 0, 0); }
-  to { transform: translate3d(-50%, 0, 0); }
-}
 
 
 

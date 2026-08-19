@@ -10,6 +10,7 @@
 const { getStatusCategory, getStatusBadgeTextPair, isChineseRocketContext } = require('./api-request.js')
 const { formatMissionListTime, applyContentLangToMission } = require('./launch-card-i18n.js')
 const { pickLocalized } = require('./locale.js')
+const { pickRicherMissionCard } = require('./mission-list-card.js')
 
 const TERMINAL_STATUS_IDS = new Set([3, 4, 7, 9])
 const INFLIGHT_STATUS_ID = 6
@@ -263,12 +264,10 @@ function projectBadgeOntoMission(mission, record) {
     _launchStateSource: record.source || mission._launchStateSource || '',
     _launchStateObservedAtMs: record.observedAtMs || mission._launchStateObservedAtMs || 0
   }
-  if (mission._langPack) {
-    next._langPack = Object.assign({}, mission._langPack, {
-      statusBadgeTextZh: badgePair.statusBadgeTextZh,
-      statusBadgeTextEn: badgePair.statusBadgeTextEn
-    })
-  }
+  next._langPack = Object.assign({}, mission._langPack || {}, {
+    statusBadgeTextZh: badgePair.statusBadgeTextZh,
+    statusBadgeTextEn: badgePair.statusBadgeTextEn
+  })
   return applyContentLangToMission(next)
 }
 
@@ -305,10 +304,14 @@ function projectLaunchRecords(options = {}) {
   const completedInput = Array.isArray(options.completed) ? options.completed : []
   const byId = new Map()
   completedInput.forEach((item) => {
-    if (item && item.id != null) byId.set(String(item.id), item)
+    if (!item || item.id == null) return
+    const id = String(item.id)
+    byId.set(id, pickRicherMissionCard(byId.get(id), item))
   })
   upcomingInput.forEach((item) => {
-    if (item && item.id != null) byId.set(String(item.id), item)
+    if (!item || item.id == null) return
+    const id = String(item.id)
+    byId.set(id, pickRicherMissionCard(byId.get(id), item))
   })
 
   const upcoming = []

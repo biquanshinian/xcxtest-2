@@ -28,6 +28,11 @@ function resolveCardRocketImage(item, forceRecompute) {
 }
 
 Component({
+  options: {
+    virtualHost: true,
+    styleIsolation: 'apply-shared'
+  },
+
   properties: {
     item: {
       type: Object,
@@ -38,6 +43,18 @@ Component({
       value: 0
     },
     themeLight: {
+      type: Boolean,
+      value: false
+    },
+    enableFavorite: {
+      type: Boolean,
+      value: false
+    },
+    favorited: {
+      type: Boolean,
+      value: false
+    },
+    favAnimate: {
       type: Boolean,
       value: false
     }
@@ -59,10 +76,28 @@ Component({
   methods: {
     onTap() {
       const item = this.data.item || {}
-      this.triggerEvent('cardtap', {
-        id: item.id,
-        type: item._detailType || 'upcoming'
-      })
+      const id = item.id == null ? '' : String(item.id).trim()
+      if (!id) return
+      const type = item._detailType === 'completed' ? 'completed' : 'upcoming'
+      this.triggerEvent('cardtap', { id, type, launchId: id, launchType: type })
+    },
+
+    onFavoriteTap() {
+      const item = this.data.item || {}
+      const id = item.id == null ? '' : String(item.id).trim()
+      if (!id) return
+      try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+      const type = item._detailType === 'completed' ? 'completed' : 'upcoming'
+      let favorited = false
+      try {
+        const { toggleMissionFavorite } = require('../../../../utils/favorites.js')
+        favorited = !!toggleMissionFavorite(item, type)
+      } catch (err) {
+        try { wx.showToast({ title: '收藏失败，请重试', icon: 'none' }) } catch (e2) {}
+        return
+      }
+      this.triggerEvent('favoritetap', { id, type, favorited })
+      try { wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' }) } catch (e3) {}
     },
 
     /**

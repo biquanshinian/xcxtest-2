@@ -6,9 +6,17 @@
 const {
   fetchGlobalSummaryFromCloud,
   fetchGlobalBreakdownFromCloud,
-  readPersistSnapshot
+  fetchLaunchSummaryFromCloud,
+  readPersistSnapshot,
+  readLaunchSummarySnapshotTotal
 } = require('../../../utils/launch-stats-cloud.js')
+const {
+  mergeGlobalLaunchStatsParts,
+  homeSummaryToGlobalPayload,
+  pickAlignedSummary
+} = require('./global-launch-stats-merge.js')
 const { getAgencies } = require('../../../utils/api-monitor-data.js')
+const { getLaunchStatsFromDB, readCardGlobalTotalSync } = require('../../../utils/api-app-services.js')
 const { logoUrlFromAgencyRecord } = require('../../../utils/upcoming-agency-logo-enrich.js')
 const { SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL } = require('../../../utils/agency-logo-overrides.js')
 const { resolveAgencyLogoForDisplay } = require('../../../utils/agency-logo-cache.js')
@@ -233,22 +241,55 @@ function buildCountryOptions(missions, year) {
   ]
 }
 
-function readPersistedGlobalStats(year, countryKey) {
+/**
+ * 首页卡片那个年度总数（本地缓存，零请求）。
+ * 卡片有两条来路（getSummary 云函数 / launch_stats 集合兜底），这里把两份本地痕迹都取上，
+ * 详情页头部据此对齐，卡片显示什么详情页就不会比它小。
+ */
+function readHomeCardTotalSync(year) {
+  const candidates = [readCardGlobalTotalSync(year), readLaunchSummarySnapshotTotal(year)]
+    .filter((n) => Number.isFinite(n) && n > 0)
+  return candidates.length ? Math.max.apply(null, candidates) : null
+}
+
+/** 与卡片同一支函数取数（自带缓存，通常不产生额外请求）；仅当年、全部国家适用 */
+async function resolveHomeCardTotal(year) {
+  const local = readHomeCardTotalSync(year)
+  if (Number(year) !== new Date().getUTCFullYear()) return local
+  try {
+    const stats = await getLaunchStatsFromDB()
+    const n = Number(stats && stats.globalThisYear)
+    if (Number.isFinite(n) && n > 0) return Math.max(n, local || 0)
+  } catch (e) {}
+  return local
+}
+
+function readPersistedGlobalStats(year, countryKey, options = {}) {
+  const allowExpired = !!(options && options.allowExpired)
+  const persistOpts = allowExpired ? { allowExpired: true } : {}
   const summaryKey = `_launch_global_summary_cloud_${year}_${countryKey}`
   const breakdownKey = `_launch_global_breakdown_cloud_${year}_${countryKey}`
   const legacyKey = `_launch_global_stats_cloud_${year}_${countryKey}`
-  const breakdown = readPersistSnapshot(breakdownKey) || readPersistSnapshot(legacyKey)
-  const summary = readPersistSnapshot(summaryKey)
+  const breakdown = readPersistSnapshot(breakdownKey, persistOpts) || readPersistSnapshot(legacyKey, persistOpts)
+  const summary = readPersistSnapshot(summaryKey, persistOpts)
   if (!summary && !breakdown) return null
   const data = breakdown && breakdown.data ? breakdown.data : {}
   const sumData = summary && summary.data ? summary.data : {}
+  // 三份本地快照（汇总/明细/首页卡片）刷新时间不同，按同一套对齐规则取较全的一份，首屏就与卡片一致
+  const homeTotal = countryKey === ALL_COUNTRY_KEY ? readHomeCardTotalSync(year) : null
+  const localSummary = pickAlignedSummary([
+    sumData.summary,
+    data.summary,
+    homeTotal != null ? { total: homeTotal } : null
+  ]) || { total: 0, success: 0, failure: 0 }
   return {
-    summary: (sumData.summary || data.summary || { total: 0, success: 0, failure: 0 }),
+    summary: localSummary,
+    summaryPartial: localSummary.total > 0 && !localSummary.success && !localSummary.failure,
     byCountry: data.byCountry || [],
     byAgency: data.byAgency || [],
     byRocket: data.byRocket || [],
     countryOptions: data.countryOptions || [],
-    staleCache: !!(summary && summary.stale) || !!(breakdown && breakdown.stale),
+    staleCache: !!(summary && summary.stale) || !!(breakdown && breakdown.stale) || !!(summary && summary.expired) || !!(breakdown && breakdown.expired),
     clientStaleFallback: true
   }
 }
@@ -281,9 +322,22 @@ async function fetchGlobalLaunchStats(options = {}) {
     ...extra
   })
 
+  // 汇总先到时也要按卡片口径出数，避免先闪一个偏小的总数再跳
+  const localHomeTotal = countryKey === ALL_COUNTRY_KEY ? readHomeCardTotalSync(year) : null
+  const alignWithHome = (mapped) => {
+    if (localHomeTotal == null) return mapped
+    const summary = pickAlignedSummary([mapped.summary, { total: localHomeTotal }])
+    if (!summary) return mapped
+    return {
+      ...mapped,
+      summary,
+      summaryPartial: summary.total > 0 && !summary.success && !summary.failure
+    }
+  }
+
   const summaryPromise = fetchGlobalSummaryFromCloud({ year, countryKey, forceRefresh, skipLocalCache })
     .then((data) => {
-      const mapped = mapCloudPayload(data, { breakdownReady: false })
+      const mapped = alignWithHome(mapCloudPayload(data, { breakdownReady: false }))
       if (onSummary) onSummary(mapped)
       return mapped
     })
@@ -291,86 +345,54 @@ async function fetchGlobalLaunchStats(options = {}) {
   const breakdownPromise = fetchGlobalBreakdownFromCloud({ year, countryKey, forceRefresh, skipLocalCache })
     .then((data) => mapCloudPayload(data, { breakdownReady: true }))
 
+  // 与首页卡片同源的年度总数，用于头部对齐；失败不影响主流程
+  const homeTotalPromise = countryKey === ALL_COUNTRY_KEY
+    ? resolveHomeCardTotal(year).catch(() => null)
+    : Promise.resolve(null)
+
   const [summarySettled, breakdownSettled] = await Promise.allSettled([
     summaryPromise,
     breakdownPromise
   ])
+  const homeTotal = await homeTotalPromise
 
-  let summaryResult = {
-    year,
-    summary: { total: 0, success: 0, failure: 0 },
-    staleCache: false,
-    clientStaleFallback: false,
-    summaryPartial: true,
-    breakdownReady: false
-  }
-  let breakdownResult = {
-    byCountry: [],
-    byAgency: [],
-    byRocket: [],
-    countryOptions: [],
-    breakdownReady: false
-  }
-
-  if (summarySettled.status === 'fulfilled') {
-    summaryResult = summarySettled.value
-  } else {
-    const persist = readPersistedGlobalStats(year, countryKey)
-    if (persist) {
-      summaryResult = mapCloudPayload({
-        ...persist,
-        clientStaleFallback: true,
-        staleCache: true
-      }, { breakdownReady: false })
-      if (onSummary) onSummary(summaryResult)
-    } else {
-      throw summarySettled.reason
-    }
-  }
-
-  if (breakdownSettled.status === 'fulfilled') {
-    breakdownResult = breakdownSettled.value
-  } else {
-    const persist = readPersistedGlobalStats(year, countryKey)
-    if (persist && ((persist.byCountry || []).length || (persist.byAgency || []).length)) {
-      breakdownResult = mapCloudPayload({
-        ...persist,
-        clientStaleFallback: true,
-        staleCache: true,
-        breakdownReady: true
-      })
-    } else if (summaryResult.summary && summaryResult.summary.total > 0) {
-      breakdownResult = {
-        ...breakdownResult,
-        summary: summaryResult.summary,
-        staleCache: summaryResult.staleCache,
-        clientStaleFallback: summaryResult.clientStaleFallback,
-        loadError: (breakdownSettled.reason && breakdownSettled.reason.message) || '明细加载失败'
-      }
-    } else {
-      throw breakdownSettled.reason
-    }
-  }
-
-  // 头部数字优先级：明细未截断时用明细 summary（含国家维度一致）；
-  // 明细 partial（往年易发）时改用 getGlobalSummary 的 count-only 精确结果，
-  // 避免 success+failure<total 的错误数字被显示。
-  const breakdownPartial = !!breakdownResult.partial
-  const breakdownSummaryUsable = breakdownResult.summary && breakdownResult.summary.total && !breakdownPartial
-  const summaryFromCount = summaryResult.summary && summaryResult.summary.total
-    ? summaryResult.summary
+  const persist = readPersistedGlobalStats(year, countryKey)
+    || readPersistedGlobalStats(year, countryKey, { allowExpired: true })
+  const allPersist = countryKey !== ALL_COUNTRY_KEY
+    ? (readPersistedGlobalStats(year, ALL_COUNTRY_KEY)
+      || readPersistedGlobalStats(year, ALL_COUNTRY_KEY, { allowExpired: true }))
     : null
 
-  return {
-    ...summaryResult,
-    ...breakdownResult,
-    summary: breakdownSummaryUsable
-      ? breakdownResult.summary
-      : (summaryFromCount || breakdownResult.summary || summaryResult.summary),
-    breakdownReady: !!breakdownResult.breakdownReady
-      || (breakdownResult.byCountry || []).length > 0
-      || (breakdownResult.byAgency || []).length > 0
+  let merged
+  try {
+    merged = mergeGlobalLaunchStatsParts({
+      year,
+      countryKey,
+      summarySettled,
+      breakdownSettled,
+      persist,
+      allPersist,
+      homeTotal
+    })
+  } catch (err) {
+    if (countryKey === ALL_COUNTRY_KEY) {
+      try {
+        const home = await fetchLaunchSummaryFromCloud({ year, forceRefresh, skipLocalCache })
+        const fallback = homeSummaryToGlobalPayload(home, year)
+        if (fallback) return mapCloudPayload(fallback, { breakdownReady: false })
+      } catch (e2) {}
+    }
+    throw err
   }
+
+  if (onSummary && summarySettled.status !== 'fulfilled' && merged.summary) {
+    onSummary(mapCloudPayload(merged, { breakdownReady: false }))
+  }
+
+  return mapCloudPayload(merged, {
+    breakdownReady: !!merged.breakdownReady,
+    loadError: merged.loadError || ''
+  })
 }
 
 // ── 机构 logo / 火箭配置图装饰 ──────────────────────────────────────────

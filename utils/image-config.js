@@ -784,8 +784,13 @@ function getFolderImages(folder) {
     .filter(Boolean)
 }
 
+function isCloudMediaMapReady() {
+  return !!cloudMapLoaded
+}
+
 module.exports = {
   loadCloudMediaMap,
+  isCloudMediaMapReady,
   resolveMediaUrl,
   findFuzzyRocketConfigUrl
 }

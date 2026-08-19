@@ -470,6 +470,7 @@
 
 
     <index-road-closure
+      theme-class="{{themeClass}}"
       notice="{{roadClosureNotice}}"
       mission-type="{{missionType}}"
       bind:open="openRoadClosureDetail"

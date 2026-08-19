@@ -33,7 +33,7 @@ const ensureFn = sliceFn(indexPage, /async ensureMissionListsReady\s*\(/, 2000)
 const switchFn = sliceFn(indexPage, /switchMissionType\s*\(\s*e\s*\)\s*\{/, 3500)
 const applyFn = sliceFn(settledMerge, /async _applyRecentSettledToCompletedList\s*\(/, 1800)
 const staleFn = sliceFn(indexPage, /_onLaunchListCacheStale\s*\(\s*info\s*\)\s*\{/, 1600)
-const loadInitFn = sliceFn(indexPage, /async loadInitialData\s*\(/, 8000)
+const loadInitFn = sliceFn(indexPage, /async loadInitialData\s*\(/, 14000)
 
 // ── D: 探云门控 ──
 assert('_shouldRunCloudBgCheck defined', /function _shouldRunCloudBgCheck\s*\(/.test(apiRequest))

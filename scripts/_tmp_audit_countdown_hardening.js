@@ -266,7 +266,7 @@ const p8b = makePage({
   launchData: {
     id: 'sameSec',
     missionName: '秒位相同的新任务',
-    launchTime: new Date(Date.now() + 5 * 3600 * 1000).toISOString()
+    launchTime: new Date(Date.now() + 5 * 3600 * 1000 + 90 * 1000).toISOString()
   },
   countdown: { days: 0, hours: 1, minutes: 11, seconds: 0, isExpired: false },
   countdownSecondsCurrent: '00'

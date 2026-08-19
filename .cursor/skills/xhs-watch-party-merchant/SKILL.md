@@ -70,8 +70,8 @@ Key 前缀：`火箭配置图/`（映射见仓库 `utils/util.js` → `ROCKET_IM
 **出图前强制流程：**
 
 1. 按当日火箭查 `ROCKET_IMAGE_MAP`（或中文别名 → 英文 stem，如捷龙三号→`Jielong-3.jpg`）
-2. 下载到本地：  
-   `assets/rocket-refs/<Filename>`  
+2. 下载到本地（skill 目录，勿放仓库根 `assets/`，会打进主包）：  
+   `.cursor/skills/xhs-watch-party-merchant/assets/rocket-refs/<Filename>`  
    URL：`{baseUrl}{encodeURI('火箭配置图/<Filename>')}`
 3. `GenerateImage` **必须**把该文件放入 `reference_image_paths`
 4. 提示词写明：火箭外形/比例/涂装/有无助推 **严格复刻该 COS 参考图**，禁止发明捆绑助推或换成长征粗箭

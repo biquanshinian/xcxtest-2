@@ -248,6 +248,14 @@ async function importOneDir(dir, { dry, token, base }) {
     ''
 
   const themeId = process.env.OA_THEME_ID || 'bytedance'
+  // 发稿号：OA_BRAND_KEY=mars_space → 火星空间探索；默认 mars_log → 火星探索日志
+  const brandKey = String(process.env.OA_BRAND_KEY || 'mars_log').trim() || 'mars_log'
+  const authorByBrand = {
+    mars_log: '火星探索日志',
+    mars_space: '火星空间探索'
+  }
+  const author =
+    process.env.OA_AUTHOR || authorByBrand[brandKey] || '火星探索日志'
   // 显式传 digest，避免云端旧逻辑把 ![封面](url) 变成「封面https://…」
   const digest = markdownToDigest(markdown)
   const res = await callAdmin(base, token, '/oa-content/drafts/import', {
@@ -258,7 +266,8 @@ async function importOneDir(dir, { dry, token, base }) {
     imageUrls,
     imageMap,
     digest: digest || undefined,
-    author: '火星探索日志',
+    brandKey,
+    author,
     miniprogramPath: 'pages/index/index'
   })
   const j = res.json || {}

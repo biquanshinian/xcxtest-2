@@ -33,6 +33,9 @@ workers/replay-fetcher/tmp/
 .cursor/hooks/.oa-update-log-last.json
 .cursor/oa-admin.local.env
 
+# 出图参考图（COS 原图，禁止打进小程序主包）
+assets/rocket-refs/
+
 # 微信开发者工具
 project.private.config.json
 
