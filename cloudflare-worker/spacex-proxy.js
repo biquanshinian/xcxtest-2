@@ -425,6 +425,102 @@ export default {
       }
 
       /**
+       * Starbase 实况天气（公众站 / 小程序均可读）
+       * 边缘缓存 5 分钟；上游 open-meteo，失败回退 wttr.in
+       */
+      if (url.pathname === '/starbase/weather' || url.pathname === '/starbase/weather/') {
+        const omCodeText = (code) => {
+          const c = Number(code)
+          if (c === 0) return '晴朗'
+          if (c === 1) return '大部晴朗'
+          if (c === 2) return '多云'
+          if (c === 3) return '阴'
+          if (c === 45 || c === 48) return '雾'
+          if (c >= 51 && c <= 67) return '雨'
+          if (c >= 71 && c <= 77) return '雪'
+          if (c >= 80 && c <= 82) return '阵雨'
+          if (c >= 95) return '雷暴'
+          return '未知'
+        }
+        const cache = caches.default
+        const cacheKey = new Request(url.origin + '/starbase/weather', { method: 'GET' })
+        const cached = await cache.match(cacheKey)
+        if (cached) return cached
+
+        let payload = null
+        try {
+          const omUrl =
+            'https://api.open-meteo.com/v1/forecast?latitude=25.9971&longitude=-97.1564' +
+            '&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m&timezone=Asia/Shanghai'
+          const r = await fetch(omUrl, {
+            headers: { 'User-Agent': 'MarsXWeather/1.0', Accept: 'application/json' },
+            signal: AbortSignal.timeout(8000)
+          })
+          if (r.ok) {
+            const data = await r.json()
+            const cur = data && data.current
+            if (cur && cur.temperature_2m != null) {
+              payload = {
+                code: 0,
+                data: {
+                  tempC: Math.round(Number(cur.temperature_2m)),
+                  apparentC: Math.round(Number(cur.apparent_temperature != null ? cur.apparent_temperature : cur.temperature_2m)),
+                  windKmh: Math.round(Number(cur.wind_speed_10m) || 0),
+                  weatherCode: Number(cur.weather_code),
+                  text: omCodeText(cur.weather_code),
+                  timeLine: `${String(cur.time || '').replace('T', ' ')} CST`,
+                  source: 'open-meteo'
+                }
+              }
+            }
+          }
+        } catch (e) {}
+
+        if (!payload) {
+          try {
+            const r = await fetch('https://wttr.in/Boca+Chica?format=j1&lang=zh', {
+              headers: { 'User-Agent': 'MarsXWeather/1.0', Accept: 'application/json' },
+              signal: AbortSignal.timeout(8000)
+            })
+            if (r.ok) {
+              const data = await r.json()
+              const cur = data && data.current_condition && data.current_condition[0]
+              if (cur && cur.temp_C != null) {
+                const desc =
+                  (cur.lang_zh && cur.lang_zh[0] && cur.lang_zh[0].value) ||
+                  (cur.weatherDesc && cur.weatherDesc[0] && cur.weatherDesc[0].value) ||
+                  '未知'
+                payload = {
+                  code: 0,
+                  data: {
+                    tempC: Math.round(Number(cur.temp_C)),
+                    apparentC: Math.round(Number(cur.FeelsLikeC != null ? cur.FeelsLikeC : cur.temp_C)),
+                    windKmh: Math.round(Number(cur.windspeedKmph) || 0),
+                    text: String(desc),
+                    timeLine: `${cur.localObsDateTime || ''} CT`,
+                    source: 'wttr'
+                  }
+                }
+              }
+            }
+          } catch (e) {}
+        }
+
+        if (!payload) {
+          return new Response(JSON.stringify({ code: 502, message: 'weather upstream failed' }), {
+            status: 502,
+            headers: { ...corsHeaders, 'Cache-Control': 'no-store' }
+          })
+        }
+
+        const result = new Response(JSON.stringify(payload), {
+          headers: { ...corsHeaders, 'Cache-Control': 'public, max-age=300' }
+        })
+        try { await cache.put(cacheKey, result.clone()) } catch (e) {}
+        return result
+      }
+
+      /**
        * Starbase Texas海滩/道路页面中转（腾讯云函数侧 DNS 解析失败时使用）
        * 云函数环境变量：STARBASE_FETCH_PROXY_URL = https://api.marsx.com.cn/starbase/beach-road-access（或 workers.dev 同源路径）
        * Cloudflare Worker机密变量：STARBASE_PROXY_SECRET（与云函数 STARBASE_FETCH_PROXY_SECRET 相同）
