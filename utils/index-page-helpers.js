@@ -149,6 +149,16 @@ function normalizeVoteType(t) {
   return String(t || '').trim() === 'outcome' ? 'outcome' : 'ontime'
 }
 
+function isVoteChoiceForType(choice, voteType) {
+  const raw = String(choice || '').trim()
+  if (normalizeVoteType(voteType) === 'outcome') return raw === 'success' || raw === 'failure'
+  return raw === 'ge' || raw === 'buge'
+}
+
+function typedMyVote(choice, voteType) {
+  return isVoteChoiceForType(choice, voteType) ? String(choice).trim() : ''
+}
+
 /**
  * 统一竞猜选项：两套系统互不混用。
  * - 成败：success/failure（历史误存的 buge/ge 会纠正）
@@ -235,6 +245,7 @@ function getInitialVoteState() {
   return {
     voteData: { ...DEFAULT_VOTE_DATA },
     myVote: '',
+    typeVoted: false,
     voteTotal: 0,
     voteGePct: 50,
     voteBugePct: 50,
@@ -248,10 +259,12 @@ function getInitialVoteState() {
 
 function buildVoteState(stats, myVote, voteType, options) {
   const safeStats = normalizeVoteStatsForUi(stats, voteType, options)
+  const typed = typedMyVote(myVote, safeStats.voteType)
   const total = Number(safeStats.geCount || 0) + Number(safeStats.buGeCount || 0)
   return {
     voteData: safeStats,
-    myVote: myVote || '',
+    myVote: typed,
+    typeVoted: !!typed,
     voteTotal: total,
     voteGePct: total > 0 ? Math.round((safeStats.geCount || 0) / total * 100) : 50,
     voteBugePct: total > 0 ? Math.round((safeStats.buGeCount || 0) / total * 100) : 50,
@@ -269,7 +282,7 @@ function buildDualVoteUiPatch(bundle, activeVoteType, launchId, options) {
   if (vt === 'ontime' && !ontimeEnabled && outcomeEnabled) vt = 'outcome'
   if (vt === 'outcome' && !outcomeEnabled && ontimeEnabled) vt = 'ontime'
   const stats = vt === 'outcome' ? outcome : ontime
-  const myVote = (stats && stats.myVote) || (launchId ? getLocalVote(launchId, vt) : '')
+  const myVote = typedMyVote((stats && stats.myVote) || (launchId ? getLocalVote(launchId, vt) : ''), vt)
   const base = buildVoteState(stats, myVote, vt, options)
   return {
     ...base,
@@ -290,8 +303,9 @@ function mergeVoteTypeStats(prev, next, launchId, voteType) {
   if (!next) return null
   const merged = { ...next }
   const prevSafe = prev || null
+  merged.myVote = typedMyVote(merged.myVote, vt)
   if (!merged.myVote) {
-    merged.myVote = (prevSafe && prevSafe.myVote) || (launchId ? getLocalVote(launchId, vt) : '') || ''
+    merged.myVote = typedMyVote((prevSafe && prevSafe.myVote) || (launchId ? getLocalVote(launchId, vt) : ''), vt)
   }
 
   if (vt === 'outcome') {
@@ -352,9 +366,10 @@ function getLocalVote(launchId, voteType) {
     const votes = _loadVotesStore()
     const vt = voteType === 'outcome' ? 'outcome' : 'ontime'
     const key = `${launchId}::${vt}`
-    if (votes[key]) return votes[key]
-    // 兼容旧 key（仅准时竞猜）
-    if (vt === 'ontime' && votes[launchId]) return votes[launchId]
+    const namespaced = typedMyVote(votes[key], vt)
+    if (namespaced) return namespaced
+    // 兼容旧 key，且只认本题型选项，避免把成败票当成准时
+    if (vt === 'ontime') return typedMyVote(votes[launchId], vt)
     return ''
   } catch (e) {
     return ''
@@ -365,7 +380,9 @@ function saveLocalVote(launchId, choice, voteType) {
   try {
     const votes = { ..._loadVotesStore() }
     const vt = voteType === 'outcome' ? 'outcome' : 'ontime'
-    votes[`${launchId}::${vt}`] = choice
+    const typed = typedMyVote(choice, vt)
+    if (!typed) return
+    votes[`${launchId}::${vt}`] = typed
     _votesMem = votes
     _votesMemLoaded = true
     storageCache.persistAsync(VOTED_LAUNCHES_KEY, votes)
@@ -558,6 +575,8 @@ module.exports = {
   mergeVoteBundle,
   resolveVoteChoiceMeta,
   normalizeVoteType,
+  isVoteChoiceForType,
+  typedMyVote,
   getLocalVote,
   saveLocalVote,
   removeLocalVote,

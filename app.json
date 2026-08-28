@@ -12,7 +12,8 @@
   },
   "usingComponents": {
     "page-progress": "/components/page-progress/index",
-    "nav-scroll-pad": "/components/nav-scroll-pad/index"
+    "nav-scroll-pad": "/components/nav-scroll-pad/index",
+    "nav-ai-search": "/components/nav-ai-search/index"
   },
   "darkmode": true,
   "window": {
@@ -219,6 +220,13 @@
         "merchant-edit",
         "merchant-reservations",
         "merchant-apply"
+      ]
+    },
+    {
+      "root": "subpackages/rocket-3d",
+      "name": "rocket-3d",
+      "pages": [
+        "viewer"
       ]
     },
     {

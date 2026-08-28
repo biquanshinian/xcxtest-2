@@ -2,8 +2,8 @@
  * SPACE_NOTICES_FEATURE — 发射通告条目列表（即将 / 历史分段）
  */
 const pageBase = require('../../../utils/page-base.js')
-const { listSpaceNoticeEntries, syncSpaceNotices, lookupChinaBulletin } = require('./utils/api-space-notices.js')
-const { decorateSpaceNoticeEntry, formatChinaBulletinSync } = require('./utils/notice-format.js')
+const { listSpaceNoticeEntries, syncSpaceNotices } = require('./utils/api-space-notices.js')
+const { decorateSpaceNoticeEntry } = require('./utils/notice-format.js')
 const { CHINESE_COLLECTION_KEY } = require('./utils/china-filter.js')
 const { isSpaceNoticesEnabled, SPACE_NOTICES_PRODUCT_NAME } = require('../../../utils/space-notices-feature.js')
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
@@ -33,6 +33,20 @@ function formatNet(net, windowStartMs) {
   }
 }
 
+function formatNetShort(net, windowStartMs) {
+  const raw = net || (windowStartMs ? new Date(windowStartMs).toISOString() : '')
+  if (!raw) return '时间待定'
+  try {
+    const d = new Date(raw)
+    if (Number.isNaN(d.getTime())) return '时间待定'
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return m + '-' + day
+  } catch (e) {
+    return '时间待定'
+  }
+}
+
 function decorateEntry(e) {
   const base = decorateSpaceNoticeEntry(e)
   const metaBits = []
@@ -42,25 +56,9 @@ function decorateEntry(e) {
   if (base.agencyDisplay) metaBits.push(base.agencyDisplay)
   return Object.assign({}, base, {
     netText: formatNet(base.net, base.windowStartMs),
+    dateShort: formatNetShort(base.net, base.windowStartMs),
     metaText: metaBits.join(' · ')
   })
-}
-
-function decorateChinaCard(res) {
-  const row = res && res.success ? res : {}
-  const sync = formatChinaBulletinSync(row)
-  const n = Number(row.noticeCount) || 0
-  const found = !!row.found
-  let sub
-  if (!found) sub = '覆盖全国情报区，含尚未上官网合集的未来窗口'
-  else if (!n) sub = '这一轮没有中国区航警'
-  else sub = n + ' 条临时危险区 · ' + sync.changeText
-  return {
-    title: '中国航警公告',
-    sub,
-    meta: found ? sync.checkText : '点开后会拉取最新航警',
-    syncLine: sync.cadenceText
-  }
 }
 
 Page({
@@ -73,12 +71,6 @@ Page({
     upcoming: [],
     past: [],
     totalCount: 0,
-    chinaBulletin: {
-      title: '中国航警公告',
-      sub: '覆盖全国情报区，含尚未上官网合集的未来窗口',
-      meta: '点开后会拉取最新航警',
-      syncLine: '约 15 分钟核对一次全国情报区，有新航警才刷新'
-    },
     shareGateExpireAt: 0
   },
 
@@ -115,30 +107,30 @@ Page({
   },
 
   async loadList() {
-    this.setData({ loading: true, errorText: '' })
+    const keepList = !!(this.data.upcoming.length || this.data.past.length)
+    this.setData({ loading: !keepList, errorText: '' })
     try {
-      const [res, chinaRes] = await Promise.all([
-        listSpaceNoticeEntries(40),
-        lookupChinaBulletin().catch(() => null)
-      ])
-      const chinaBulletin = decorateChinaCard(chinaRes)
+      const res = await listSpaceNoticeEntries(40)
+      this._refreshPreview()
       if (!res || !res.success) {
         this.setData({
           loading: false,
-          chinaBulletin,
           errorText: (res && res.error) || '加载失败，请先部署云函数 spaceNotices'
         })
         return
       }
       const rows = (res.results || []).map(decorateEntry)
-      const upcoming = rows.filter((e) => !e.isPast && !e.isCollection && e.entryKey !== CHINESE_COLLECTION_KEY)
-      const past = rows.filter((e) => e.isPast && !e.isCollection && e.entryKey !== CHINESE_COLLECTION_KEY)
+      const upcoming = rows
+        .filter((e) => !e.isPast && !e.isCollection && e.entryKey !== CHINESE_COLLECTION_KEY)
+        .map((e, i) => Object.assign({}, e, { badgeNo: i + 1 }))
+      const past = rows
+        .filter((e) => e.isPast && !e.isCollection && e.entryKey !== CHINESE_COLLECTION_KEY)
+        .map((e, i) => Object.assign({}, e, { badgeNo: i + 1 }))
       this.setData({
         loading: false,
         upcoming,
         past,
-        totalCount: rows.length,
-        chinaBulletin
+        totalCount: rows.length
       })
     } catch (e) {
       this.setData({
@@ -186,6 +178,13 @@ Page({
 
   openChinaMap() {
     navigateTo(ROUTES.SPACE_NOTICE_MAP, { entryKey: CHINESE_COLLECTION_KEY })
+  },
+
+  _refreshPreview() {
+    try {
+      const card = this.selectComponent('#chinaNoticePreview')
+      if (card && typeof card.refresh === 'function') card.refresh()
+    } catch (e) {}
   },
 
   _shareTitle() {

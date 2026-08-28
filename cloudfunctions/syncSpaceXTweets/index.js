@@ -14,8 +14,13 @@ const COS_REGION = 'ap-guangzhou'
 const COS_BASE_URL = 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/'
 const COLLECTION = 'starship_event_updates'
 const MAX_NEW_TWEETS = 2
-const MAX_TWEET_AGE_DAYS = 7
+/** 入库与展示窗口：超过此时长的推文不再抓取 */
+const MAX_TWEET_AGE_DAYS = 3
+/** 推文事件生命周期：超过此时长自动删除（手动录入无 tweetId 的保留） */
+const EVENT_TTL_DAYS = 3
 const MAX_EVENTS = 100
+/** SpaceX 发射集锦留给 mission-replay 匹配，可多留几天 */
+const REPLAY_KEEP_DAYS = 7
 // 回填模式只补 48 小时内的漏抓推文
 const BACKFILL_MAX_AGE_HOURS = 48
 // Twitter snowflake 纪元（毫秒），用于从推文 ID 反推发布时间，免拉详情预过滤旧推文
@@ -1222,43 +1227,74 @@ async function deleteCOSFiles(keys) {
   return removed
 }
 
-/** SpaceX 官方发射短片要留给 mission-replay 匹配，7 天内有 COS 预览的不进清理 */
-function shouldKeepForReplayClips(item) {
+/** SpaceX 官方发射短片要留给 mission-replay 匹配，窗口内有 COS 预览的不进清理 */
+function shouldKeepForReplayClips(item, nowMs = Date.now()) {
   if (String(item && item.source || '').toLowerCase() !== 'spacex') return false
-  const age = Date.now() - Number(item.publishedAt || 0)
-  if (age <= 0 || age > 7 * 24 * 60 * 60 * 1000) return false
+  const age = nowMs - Number(item.publishedAt || 0)
+  if (age <= 0 || age > REPLAY_KEEP_DAYS * 24 * 60 * 60 * 1000) return false
   return (item.mediaList || []).some((m) =>
     m && m.type === 'video' && !m.isLongVideo &&
     typeof m.previewUrl === 'string' && m.previewUrl.startsWith(COS_BASE_URL)
   )
 }
 
+function isExpiredTweetEvent(item, nowMs = Date.now()) {
+  if (!item || !item.tweetId) return false
+  if (shouldKeepForReplayClips(item, nowMs)) return false
+  const ts = Number(item.publishedAt || item.createdAt || 0)
+  if (!ts) return true
+  return nowMs - ts > EVENT_TTL_DAYS * 24 * 60 * 60 * 1000
+}
+
+async function removeEventAndMedia(item) {
+  const keys = extractCOSKeys(item.mediaList)
+  const cosRemoved = await deleteCOSFiles(keys)
+  await db.collection(COLLECTION).doc(item._id).remove()
+  return cosRemoved
+}
+
 async function cleanOldEvents() {
-  const countRes = await db.collection(COLLECTION).count()
-  const total = countRes.total
-  if (total <= MAX_EVENTS) return 0
-
-  const toDelete = total - MAX_EVENTS
-  const oldEvents = await db.collection(COLLECTION)
-    .orderBy('publishedAt', 'asc')
-    .limit(toDelete + 30)
-    .get()
-
+  const nowMs = Date.now()
   let deleted = 0
   let skipped = 0
   let cosRemoved = 0
-  for (const item of oldEvents.data) {
-    if (deleted >= toDelete) break
-    if (shouldKeepForReplayClips(item)) {
-      skipped++
+
+  const oldest = await db.collection(COLLECTION)
+    .orderBy('publishedAt', 'asc')
+    .limit(80)
+    .get()
+
+  for (const item of oldest.data || []) {
+    if (!isExpiredTweetEvent(item, nowMs)) {
+      if (item.tweetId && shouldKeepForReplayClips(item, nowMs)) skipped++
       continue
     }
-    const keys = extractCOSKeys(item.mediaList)
-    cosRemoved += await deleteCOSFiles(keys)
-    await db.collection(COLLECTION).doc(item._id).remove()
+    cosRemoved += await removeEventAndMedia(item)
     deleted++
   }
-  console.log(`[Sync] 清理旧事件: 删除 ${deleted} 条记录 + ${cosRemoved} 个COS文件，保留 SpaceX 集锦 ${skipped} 条`)
+
+  const countRes = await db.collection(COLLECTION).count()
+  const total = countRes.total || 0
+  if (total > MAX_EVENTS) {
+    let stillNeed = total - MAX_EVENTS
+    const capBatch = await db.collection(COLLECTION)
+      .orderBy('publishedAt', 'asc')
+      .limit(stillNeed + 40)
+      .get()
+    for (const item of capBatch.data || []) {
+      if (stillNeed <= 0) break
+      if (!item.tweetId) continue
+      if (shouldKeepForReplayClips(item, nowMs)) {
+        skipped++
+        continue
+      }
+      cosRemoved += await removeEventAndMedia(item)
+      deleted++
+      stillNeed--
+    }
+  }
+
+  console.log(`[Sync] 清理旧事件: 删除 ${deleted} 条记录 + ${cosRemoved} 个COS文件，保留 SpaceX 集锦 ${skipped} 条（TTL ${EVENT_TTL_DAYS}天）`)
   return deleted
 }
 

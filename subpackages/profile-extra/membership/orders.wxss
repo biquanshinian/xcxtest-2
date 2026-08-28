@@ -209,6 +209,19 @@
   border: 1rpx solid rgba(59, 130, 246, 0.28);
 }
 
+.od-type-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.od-type-tag--apple {
+  color: #a78bfa;
+  background: rgba(167, 139, 250, 0.12);
+  border: 1rpx solid rgba(167, 139, 250, 0.28);
+}
+
 .od-amount-col {
   display: flex;
   flex-direction: column;

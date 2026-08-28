@@ -10,6 +10,25 @@ function coerceBool(v, defaultValue) {
   return defaultValue
 }
 
+function mediaObjectUrl(item) {
+  if (!item || typeof item !== 'object') return ''
+  const nested = item.image
+  const nestedUrl =
+    nested && typeof nested === 'object'
+      ? nested.image_url || nested.url || nested.thumbnail_url || nested.src || ''
+      : nested
+  return (
+    item.url ||
+    item.src ||
+    item.thumb ||
+    item.cover ||
+    item.image_url ||
+    item.thumbnail_url ||
+    nestedUrl ||
+    ''
+  )
+}
+
 /** 从多来源候选里收敛出图片 URL 列表（去重、剔除视频，最多 8 张） */
 function pickImageUrls(...candidates) {
   const out = []
@@ -20,18 +39,22 @@ function pickImageUrls(...candidates) {
     if (/\.(mp4|mov|webm|m3u8)(\?|$)/i.test(s) && !/ci-process=snapshot/i.test(s)) return
     if (!out.includes(s)) out.push(s)
   }
+  const pushMedia = (item) => {
+    if (!item || typeof item !== 'object') return
+    const t = String(item.type || item.mediaType || '').toLowerCase()
+    if (t === 'video') return
+    push(mediaObjectUrl(item))
+  }
   for (const c of candidates) {
     if (!c) continue
     if (typeof c === 'string') push(c)
     else if (Array.isArray(c)) {
       for (const item of c) {
         if (typeof item === 'string') push(item)
-        else if (item && typeof item === 'object') {
-          const t = String(item.type || item.mediaType || '').toLowerCase()
-          if (t === 'video') continue
-          push(item.url || item.src || item.thumb || item.cover || item.image)
-        }
+        else pushMedia(item)
       }
+    } else if (typeof c === 'object') {
+      pushMedia(c)
     }
   }
   return out.slice(0, 8)
@@ -454,7 +477,7 @@ function encodeFailEntries(failMap) {
 }
 
 function looksLikeLlmFallbackMarkdown(md) {
-  return /自动生成暂不可用|以下为素材整理稿|需人工改写后/.test(String(md || ''))
+  return /自动生成暂不可用|自动生成未完成汉化|以下为素材整理稿|需人工改写后/.test(String(md || ''))
 }
 
 /**
@@ -464,7 +487,7 @@ function looksLikeLlmFallbackMarkdown(md) {
 function stripLlmFallbackNotice(md) {
   return String(md || '')
     .split('\n')
-    .filter((line) => !/自动生成暂不可用|以下为素材整理稿|请人工改写后|需人工改写后/.test(line))
+    .filter((line) => !/自动生成暂不可用|自动生成未完成汉化|以下为素材整理稿|请人工改写后|需人工改写后/.test(line))
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
@@ -496,6 +519,61 @@ function looksLikeUnrewrittenSource(md, sourceBody) {
   if (!probes.length) return a.includes(b.slice(0, 40))
   const hits = probes.filter((p) => a.includes(p)).length
   return hits >= 2
+}
+
+function textScriptStats(s) {
+  const t = String(s || '')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/\[\[IMG:\s*\d+\s*\]\]/gi, ' ')
+  const cjk = (t.match(/[\u4e00-\u9fff]/g) || []).length
+  const latin = (t.match(/[A-Za-z]/g) || []).length
+  return { cjk, latin, total: cjk + latin }
+}
+
+function isMostlyEnglishText(s, minLatin = 40) {
+  const { cjk, latin, total } = textScriptStats(s)
+  if (latin < minLatin || total < 20) return false
+  return latin / total >= 0.55
+}
+
+function isMostlyChineseText(s, minCjk = 12) {
+  const { cjk, total } = textScriptStats(s)
+  if (cjk < minCjk) return false
+  if (total < 8) return cjk >= 4
+  return cjk / total >= 0.45
+}
+
+/** 成稿里残留的整段英文（配图对齐回填 / 模型照抄）剥掉，避免「未完全汉化」 */
+function stripResidualEnglishParagraphs(md) {
+  const parts = String(md || '').split(/\n{2,}/)
+  const kept = []
+  for (const p of parts) {
+    const t = String(p || '').trim()
+    if (!t) continue
+    if (/!\[[^\]]*\]\(https?:\/\//.test(t) && !isMostlyEnglishText(t.replace(/!\[[^\]]*\]\([^)]*\)/g, ''), 24)) {
+      kept.push(t)
+      continue
+    }
+    if (/^[-*+]?\s*▶/.test(t)) {
+      kept.push(t)
+      continue
+    }
+    if (isMostlyEnglishText(t, 24) && !isMostlyChineseText(t, 8)) continue
+    kept.push(t)
+  }
+  return kept.join('\n\n').trim()
+}
+
+function pickChineseTitle(md) {
+  const lines = String(md || '').split('\n')
+  for (const line of lines) {
+    const t = line.replace(/^#+\s*/, '').replace(/[*_`]/g, '').trim()
+    if (!t || t.length < 6 || t.length > 40) continue
+    if (/^!\[/.test(t) || /^https?:\/\//i.test(t)) continue
+    if (isMostlyChineseText(t, 6)) return t
+  }
+  return ''
 }
 
 function sanitizeWxTitle(title) {
@@ -552,6 +630,10 @@ module.exports = {
   looksLikeLlmFallbackMarkdown,
   stripLlmFallbackNotice,
   looksLikeUnrewrittenSource,
+  isMostlyEnglishText,
+  isMostlyChineseText,
+  stripResidualEnglishParagraphs,
+  pickChineseTitle,
   sanitizeWxTitle,
   credentialMissingMsg,
   appendTimeline

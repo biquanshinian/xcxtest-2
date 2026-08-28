@@ -18,7 +18,8 @@
     "monitor-galleries": "/subpackages/monitor-pages/components/monitor-galleries/index",
     "monitor-orbital-card": "/subpackages/monitor-pages/components/monitor-orbital-card/index",
     "monitor-orbit-events": "/subpackages/monitor-pages/components/monitor-orbit-events/index",
-    "monitor-core-panel": "/subpackages/monitor-pages/components/monitor-core-panel/index"
+    "monitor-core-panel": "/subpackages/monitor-pages/components/monitor-core-panel/index",
+    "china-notice-preview": "/components/china-notice-preview/index"
   },
   "componentPlaceholder": {
     "demo-overlay": "view",

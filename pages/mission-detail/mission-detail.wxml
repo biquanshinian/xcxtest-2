@@ -73,20 +73,45 @@
           <view class="hero-float hero-float--flush">
             <view class="hero-image-wrap hero-float-card">
               <image class="hero-image" src="{{mission.rocketImage}}" mode="widthFix" binderror="onHeroImageError"></image>
-              <!-- 头图左上角 360 环绕全景（后台绑定视频；行业通用动态图标） -->
-              <view
-                class="hero-pano-btn"
-                wx:if="{{orbitPanoEnabled}}"
-                hover-class="hero-pano-btn--pressed"
-                hover-stay-time="120"
-                catchtap="onTapOrbitPano"
-                aria-role="button"
-                aria-label="环绕全景"
-              >
-                <view class="hero-pano-orbit"></view>
-                <view class="hero-pano-orbit hero-pano-orbit--tilt"></view>
-                <view class="hero-pano-core">
-                  <text class="hero-pano-360">360</text>
+              <!-- 头图左上：360 环绕全景 + 3D 模型（点击进独立页，避开内嵌 WebGL 同层点击） -->
+              <view class="hero-media-btns" wx:if="{{!isMomentsPreview && (orbitPanoEnabled || rocket3dEnabled)}}">
+                <view
+                  class="hero-pano-btn"
+                  wx:if="{{orbitPanoEnabled}}"
+                  hover-class="hero-pano-btn--pressed"
+                  hover-stay-time="120"
+                  catchtap="onTapOrbitPano"
+                  aria-role="button"
+                  aria-label="环绕全景"
+                >
+                  <view class="hero-pano-orbit"></view>
+                  <view class="hero-pano-orbit hero-pano-orbit--tilt"></view>
+                  <view class="hero-pano-core">
+                    <text class="hero-pano-360">360</text>
+                  </view>
+                </view>
+                <view
+                  class="hero-3d-btn"
+                  wx:if="{{rocket3dEnabled}}"
+                  hover-class="hero-3d-btn--pressed"
+                  hover-stay-time="120"
+                  catchtap="onTapRocket3d"
+                  aria-role="button"
+                  aria-label="3D 模型"
+                >
+                  <view class="hero-3d-scene">
+                    <view class="hero-3d-pulse">
+                      <view class="hero-3d-cube">
+                        <view class="hero-3d-face hero-3d-face--front"></view>
+                        <view class="hero-3d-face hero-3d-face--back"></view>
+                        <view class="hero-3d-face hero-3d-face--right"></view>
+                        <view class="hero-3d-face hero-3d-face--left"></view>
+                        <view class="hero-3d-face hero-3d-face--top"></view>
+                        <view class="hero-3d-face hero-3d-face--bottom"></view>
+                      </view>
+                    </view>
+                  </view>
+                  <text class="hero-3d-cap">三维</text>
                 </view>
               </view>
               <!-- 头图右上：收藏 + 提醒铃铛 -->
@@ -368,29 +393,29 @@
             <text class="vote-type-tab {{activeVoteType === 'outcome' ? 'vote-type-tab--active' : ''}}" bindtap="onVoteTypeSwitch" data-type="outcome">成败竞猜</text>
           </view>
           <view class="vote-box vote-box--detail">
-            <block wx:if="{{voteData.result && myVote}}">
+            <block wx:if="{{voteData.result && typeVoted}}">
               <view class="vote-result-banner {{myVote === voteData.result ? 'vote-result--correct' : 'vote-result--wrong'}}">
                 <text>{{myVote === voteData.result ? '🎉 恭喜猜对了！' : '😅 很遗憾猜错了'}}</text>
               </view>
             </block>
-            <block wx:elif="{{voteData.votingClosed && !myVote}}">
+            <block wx:elif="{{voteData.votingClosed && !typeVoted}}">
               <view class="vote-closed-banner">
                 <text>🔒 竞猜已封盘（距发射不足30分钟）</text>
               </view>
             </block>
-            <block wx:elif="{{voteData.votingClosed && myVote}}">
+            <block wx:elif="{{voteData.votingClosed && typeVoted}}">
               <view class="vote-closed-banner">
                 <text>🔒 竞猜已封盘（已投票）</text>
               </view>
             </block>
             <block wx:else>
               <text class="vote-box-label">{{voteData.votingClosed ? '竞猜已封盘' : (voteData.customQuestion || (activeVoteType === 'outcome' ? '会成功吗？' : '会准时吗？'))}}</text>
-              <view class="vote-pill {{myVote === 'ge' || myVote === 'failure' ? 'vote-pill--active-ge' : ''}} {{myVote ? 'vote-pill--voted' : ''}} {{voteData.votingClosed ? 'vote-pill--disabled' : ''}}" bindtap="onVote" data-pill="left">
+              <view class="vote-pill {{myVote === 'ge' || myVote === 'failure' ? 'vote-pill--active-ge' : ''}} {{typeVoted ? 'vote-pill--voted' : ''}} {{voteData.votingClosed ? 'vote-pill--disabled' : ''}}" bindtap="onVote" data-pill="left">
                 <view class="vote-pill-dot vote-pill-dot--ge"></view>
                 <text class="vote-pill-text">{{activeVoteType === 'outcome' ? (voteData.failureLabel || (mission.countryDisplay === '中国' ? '失利' : '失败')) : (voteData.geLabel || '鸽')}}</text>
                 <text class="vote-pill-count" wx:if="{{voteData.geCount > 0}}">{{voteData.geCount}}</text>
               </view>
-              <view class="vote-pill {{myVote === 'buge' || myVote === 'success' ? 'vote-pill--active-buge' : ''}} {{myVote ? 'vote-pill--voted' : ''}} {{voteData.votingClosed ? 'vote-pill--disabled' : ''}}" bindtap="onVote" data-pill="right">
+              <view class="vote-pill {{myVote === 'buge' || myVote === 'success' ? 'vote-pill--active-buge' : ''}} {{typeVoted ? 'vote-pill--voted' : ''}} {{voteData.votingClosed ? 'vote-pill--disabled' : ''}}" bindtap="onVote" data-pill="right">
                 <view class="vote-pill-dot vote-pill-dot--buge"></view>
                 <text class="vote-pill-text">{{activeVoteType === 'outcome' ? (voteData.successLabel || '成功') : (voteData.bugeLabel || '不鸽')}}</text>
                 <text class="vote-pill-count" wx:if="{{voteData.buGeCount > 0}}">{{voteData.buGeCount}}</text>
@@ -398,7 +423,7 @@
             </block>
           </view>
           <view class="vote-bar-row" wx:if="{{voteTotal > 0}}">
-            <view class="vote-bar" wx:if="{{myVote}}">
+            <view class="vote-bar" wx:if="{{typeVoted}}">
               <view class="vote-bar-ge" style="width: {{voteGePct}}%;"></view>
               <view class="vote-bar-buge" style="width: {{voteBugePct}}%;"></view>
             </view>

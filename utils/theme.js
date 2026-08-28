@@ -19,15 +19,22 @@ const THEME_SYSTEM = 'system'
 let _mode = ''
 let _systemTheme = ''
 
+function _readStoredThemeMode() {
+  try {
+    const storageCache = require('./storage-sync-cache.js')
+    if (storageCache.isLoaded(THEME_STORAGE_KEY)) {
+      return storageCache.getMem(THEME_STORAGE_KEY)
+    }
+  } catch (e) {}
+  return undefined
+}
+
 /** 当前主题模式：'dark' | 'light' | 'system'（未显式选择过时默认跟随系统） */
 function getThemeModeSync() {
   if (_mode) return _mode
-  try {
-    const saved = wx.getStorageSync(THEME_STORAGE_KEY)
-    _mode = (saved === THEME_LIGHT || saved === THEME_DARK) ? saved : THEME_SYSTEM
-  } catch (e) {
-    _mode = THEME_SYSTEM
-  }
+  const saved = _readStoredThemeMode()
+  if (saved === undefined) return THEME_SYSTEM
+  _mode = (saved === THEME_LIGHT || saved === THEME_DARK) ? saved : THEME_SYSTEM
   return _mode
 }
 
@@ -200,8 +207,10 @@ function setThemeMode(mode) {
   if (m === _mode) return
   _mode = m
   try {
-    wx.setStorageSync(THEME_STORAGE_KEY, m)
-  } catch (e) {}
+    require('./storage-sync-cache.js').persistAsync(THEME_STORAGE_KEY, m)
+  } catch (e) {
+    try { wx.setStorage({ key: THEME_STORAGE_KEY, data: m, fail() {} }) } catch (e2) {}
+  }
   if (m === THEME_SYSTEM) {
     _systemTheme = ''
     getSystemThemeSync()

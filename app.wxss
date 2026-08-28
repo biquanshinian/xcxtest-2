@@ -490,6 +490,7 @@ button.mission-card-share-btn::before {
 }
 
 .top-nav--page-center {
+  position: relative;
   display: flex;
   justify-content: center;
   align-items: center;

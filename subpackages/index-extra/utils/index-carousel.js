@@ -478,11 +478,12 @@ const methods = {
   },
 
   /**
-   * 仅激活当前视频的 src，避免多路大视频同时缓冲导致黑屏与预取流量浪费。
-   * 非激活项清空 src，封面继续展示 poster。
-   * 非会员（门控开启时）不激活任何视频，点击封面走全屏按需播放。
+   * 轮播内不挂载原生 video：swiper 里的 native/cover-view 会吞掉横滑，
+   * 并且原生层会点穿上方倒计时操作按钮与浮在轮播上的 NASA 按钮。
+   * 视频封面点击仍走 onCarouselVideoTap 全屏按需播放。
    */
   _activateCarouselVideos(current) {
+    void current
     // 历史发射/日历不展示轮播，也不预热视频 src
     if (this.data.missionType !== 'upcoming') return
     if (shouldIgnoreCarouselUserTap()) {
@@ -492,9 +493,7 @@ const methods = {
     const items = this.data.carouselItems || []
     if (!items.length) return
     const n = items.length
-    const cur = Math.max(0, Math.min(Number(current) || 0, n - 1))
-    const autoplayAllowed = this._isCarouselAutoplayAllowed()
-    const want = new Set(autoplayAllowed ? [cur] : [])
+    const want = new Set()
 
     const updates = {}
     for (let i = 0; i < n; i++) {
@@ -508,15 +507,7 @@ const methods = {
       }
     }
 
-    const play = () => {
-      // 等 video 绑定新 src 后再 play，减少空 src 调用
-      setTimeout(() => this._playCurrentVideoIfNeeded(), 80)
-    }
-    if (Object.keys(updates).length) {
-      this.setData(updates, play)
-    } else {
-      play()
-    }
+    if (Object.keys(updates).length) this.setData(updates)
   },
 
   /** 如果当前项是视频，静音自动播放 */
@@ -585,7 +576,7 @@ const methods = {
     const index = Number(dataset.index)
     const item = (this.data.carouselItems || [])[index]
     if (isNaN(index) || !item || item.type !== 'video') return
-    // 同层 view + video 内 cover-view 可能对一次点击各发一次
+    // 防连点：滑动结束后偶发 tap 与快速连点只处理一次
     const now = Date.now()
     if (this._carouselVideoTapAt && now - this._carouselVideoTapAt < 500) return
     this._carouselVideoTapAt = now

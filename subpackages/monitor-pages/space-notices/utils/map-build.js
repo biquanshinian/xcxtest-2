@@ -120,15 +120,18 @@ function buildPolygonsFromNotices(notices, enabledTypes, opts) {
     const state = selectedKey ? (isSelected ? 'selected' : 'dimmed') : 'normal'
     const soon = !n.cancelled && n.statusTone === 'soon'
     const style = styleForType(t, { light: o.light, state, cancelled: !!n.cancelled, soon })
+    if (n.cancelled || n.statusTone === 'off') return
     drawableRings(n).forEach((ring) => {
       const points = ring.map(toLonLatPair).filter(Boolean)
       if (points.length < 3) return
       polygons.push({
         id: id++,
+        noticeKey: String(n.noticeKey || ''),
         points,
-        strokeWidth: isSelected ? 4 : t === 'ADP_LINK_FILE' ? 2 : 1,
+        strokeWidth: o.preview ? (isSelected ? 5 : 3) : isSelected ? 4 : t === 'ADP_LINK_FILE' ? 2 : 1,
         strokeColor: style.strokeColor,
-        fillColor: style.fillColor
+        fillColor: style.fillColor,
+        dottedLine: soon
       })
     })
   })
@@ -145,6 +148,7 @@ function buildPolylinesFromNotices(notices, enabledTypes, opts) {
   let id = 1
   ;(notices || []).forEach((n) => {
     if (shouldSkipNotice(n)) return
+    if (n.cancelled || n.statusTone === 'off') return
     const t = normalizeType(n.type)
     if (allow && allow[t] === false) return
     let points = []
@@ -162,9 +166,10 @@ function buildPolylinesFromNotices(notices, enabledTypes, opts) {
     polylines.push({
       id: id++,
       points,
-      color: n.cancelled ? CANCELLED_COLOR : n.statusTone === 'soon' ? SOON_COLOR : baseColorForType(t),
+      noticeKey: String(n.noticeKey || ''),
+      color: n.statusTone === 'soon' ? SOON_COLOR : baseColorForType(t),
       width: t === 'ADP_LINK_FILE' ? 3 : 2,
-      dottedLine: !!n.cancelled || n.statusTone === 'soon',
+      dottedLine: n.statusTone === 'soon',
       arrowLine: false
     })
   })
@@ -472,6 +477,94 @@ function fitNotice(notice) {
   }
 }
 
+function pointInRing(lat, lng, points) {
+  let inside = false
+  const pts = points || []
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const yi = Number(pts[i].latitude)
+    const xi = Number(pts[i].longitude)
+    const yj = Number(pts[j].latitude)
+    const xj = Number(pts[j].longitude)
+    if (!Number.isFinite(xi) || !Number.isFinite(yi) || !Number.isFinite(xj) || !Number.isFinite(yj)) continue
+    const intersect = (yi > lat) !== (yj > lat) && lng < ((xj - xi) * (lat - yi)) / ((yj - yi) || 1e-12) + xi
+    if (intersect) inside = !inside
+  }
+  return inside
+}
+
+function ringAbsArea(points) {
+  let a = 0
+  const pts = points || []
+  for (let i = 0; i < pts.length; i += 1) {
+    const j = (i + 1) % pts.length
+    a += Number(pts[i].longitude) * Number(pts[j].latitude) - Number(pts[j].longitude) * Number(pts[i].latitude)
+  }
+  return Math.abs(a)
+}
+
+/** 点到哪个危险区（重叠时取更小的面） */
+function hitTestPolygonNotice(lat, lng, polygons) {
+  const hits = []
+  ;(polygons || []).forEach((poly) => {
+    const key = String((poly && poly.noticeKey) || '')
+    const pts = poly && poly.points
+    if (!key || !Array.isArray(pts) || pts.length < 3) return
+    if (pointInRing(lat, lng, pts)) hits.push(poly)
+  })
+  if (!hits.length) return ''
+  hits.sort((a, b) => ringAbsArea(a.points) - ringAbsArea(b.points))
+  return String(hits[0].noticeKey || '')
+}
+
+const PREVIEW_TYPES = {
+  NOTAM: true,
+  TFR: true,
+  NAVWARNING: true,
+  BNM: true,
+  LNM: true,
+  ADP_LINK_FILE: true
+}
+
+function pointInChinaPreview(p) {
+  const lat = Number(p && p.latitude)
+  const lon = Number(p && p.longitude)
+  return lat >= 0 && lat <= 54 && lon >= 73 && lon <= 140
+}
+
+function noticeHasChinaGeometry(n) {
+  if (n && n.inChina) return true
+  return drawableRings(n).some((ring) =>
+    ring.some((pt) => {
+      const q = toLonLatPair(pt)
+      return q && pointInChinaPreview(q)
+    })
+  )
+}
+
+function buildPreviewLayers(notices, opts) {
+  const o = Object.assign({ preview: true }, opts || {})
+  const active = (notices || []).filter(
+    (n) => n && !n.cancelled && n.statusTone !== 'off' && noticeHasChinaGeometry(n)
+  )
+  const polygons = buildPolygonsFromNotices(active, PREVIEW_TYPES, o).slice(0, 40)
+  const outlines = []
+  polygons.forEach((p, i) => {
+    if (!p || !Array.isArray(p.points) || p.points.length < 2) return
+    outlines.push({
+      id: 8000 + i,
+      points: p.points.concat([p.points[0]]),
+      color: p.strokeColor,
+      width: 3,
+      dottedLine: !!p.dottedLine,
+      noticeKey: p.noticeKey || ''
+    })
+  })
+  return {
+    polygons,
+    polylines: buildPolylinesFromNotices(active, PREVIEW_TYPES, o).concat(outlines)
+  }
+}
+
 module.exports = {
   buildPolygonsFromNotices,
   buildPolylinesFromNotices,
@@ -487,6 +580,8 @@ module.exports = {
   styleForType,
   baseColorForType,
   hasGeometry,
+  hitTestPolygonNotice,
+  buildPreviewLayers,
   SKIP_NOTICE_KEYS,
   SITE_TRAJ_VERSION,
   SITE_TRAJ_COLOR,

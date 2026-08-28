@@ -1,0 +1,56 @@
+<view class="r3d r3d--{{mode}} {{started ? 'r3d--live' : ''}} {{themeLight ? 'r3d--light' : ''}}">
+  <view
+    class="r3d-stage"
+    bindtap="onStageTap"
+    hover-class="{{started ? '' : 'r3d-stage--pressed'}}"
+    hover-stay-time="120"
+    aria-role="{{started ? '' : 'button'}}"
+    aria-label="查看 3D 模型"
+  >
+    <image
+      wx:if="{{!started && poster}}"
+      class="r3d-poster"
+      src="{{poster}}"
+      mode="aspectFit"
+    />
+
+    <canvas
+      type="webgl"
+      id="rocket3d"
+      class="r3d-canvas {{live ? 'r3d-canvas--on' : ''}}"
+      bindtouchstart="onTouchStart"
+      catchtouchmove="onTouchMove"
+      bindtouchend="onTouchEnd"
+      bindtouchcancel="onTouchCancel"
+    ></canvas>
+
+    <view class="r3d-veil" wx:if="{{!started && mode !== 'page'}}">
+      <view class="r3d-play">
+        <text class="r3d-play-mark">3D</text>
+        <text class="r3d-play-text">查看模型</text>
+      </view>
+    </view>
+
+    <view class="r3d-veil r3d-veil--dim" wx:if="{{started && loading && mode !== 'page'}}">
+      <text class="r3d-status">正在加载模型…</text>
+    </view>
+
+    <view class="r3d-badge" wx:if="{{started && usingPlaceholder && !loading && mode !== 'page'}}">示意模型</view>
+
+    <view class="r3d-dim-layer" wx:if="{{live && dimLabels.length}}">
+      <view
+        wx:for="{{dimLabels}}"
+        wx:key="key"
+        class="r3d-dim-chip"
+        style="left: {{item.x}}px; top: {{item.y}}px;"
+      >
+        <text>{{item.text}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 操作条在画布外，避免与同层 canvas 叠层 -->
+  <view class="r3d-toolbar" wx:if="{{started && !loading && mode !== 'page' && allowExpand}}">
+    <view class="r3d-chip" hover-class="r3d-chip--pressed" hover-stay-time="80" catchtap="onExpand">全屏查看</view>
+  </view>
+</view>

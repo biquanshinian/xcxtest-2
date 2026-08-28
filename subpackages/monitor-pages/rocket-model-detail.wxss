@@ -1,5 +1,6 @@
 /* rocket-model-detail.wxss — 火箭型号详情页（暗色毛玻璃，与监控中心一致） */
 @import "/styles/fav-btn.wxss";
+@import "./hero-3d-btn.wxss";
 
 page {
   background: #0B0C0E;

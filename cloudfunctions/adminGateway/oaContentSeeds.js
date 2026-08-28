@@ -135,7 +135,8 @@ const GROUNDING_RULES = [
   '禁止编造现场细节、场景、天气、情绪反应；素材没有的画面不要虚构。',
   '禁止虚构任何人说过的话；素材没有引语就不用引语。',
   '不确定的表述写「待确认」或直接略过，不要猜。',
-  '如果素材信息太少写不满目标字数，就写短，严禁注水或脑补凑字。'
+  '如果素材信息太少写不满目标字数，就写短，严禁注水或脑补凑字。',
+  '【语言红线】成稿必须是简体中文。标题、小标题、正文全部用中文写；禁止整段保留英文原文，禁止中英混排大段英文。专有名词（任务名/火箭/机构/人名）可保留英文或中英并列一次。数字与单位照素材。素材是英文时先理解再写成中文，不要把英文段落贴进成稿。'
 ].join('\n')
 
 const DEFAULT_CONFIG = {
@@ -149,10 +150,15 @@ const DEFAULT_CONFIG = {
   /**
    * 文末引流样式（易触营销推广/导流限流，默认关闭）：
    * none=不附加文末；image=文末图跳；link=文字链；card=官方卡片（易 45166）
-   * 小程序跳转默认只走「配图全跳」
+   * 小程序跳转默认只走正文配图（可配第一张/最后一张/全部）
    */
   miniprogramCtaMode: 'none',
-  /** 推送时正文所有配图点击跳转小程序（唯一推荐跳转方式） */
+  /**
+   * 正文配图点击跳转小程序：
+   * none=不跳；first=仅第一张；last=仅最后一张；first_last=首尾两张；all=全部
+   */
+  imageMiniprogramLinkMode: 'all',
+  /** @deprecated 兼容旧开关：true 仅当 imageMiniprogramLinkMode==='all' */
   linkAllImagesToMiniprogram: true,
   /** 文首提示语：发射/新闻/洗稿稿件统一注入；纯文展示，不挂文字小程序链 */
   leadDisclaimerEnabled: true,
@@ -232,20 +238,20 @@ const SEED_PROMPTS = [
     name: '深度洗稿',
     kind: 'rewrite',
     system:
-      '人设：{{persona}}\n\n任务：把素材改成原创公众号中文稿。保留事实与数字，禁止整句照抄。输出 Markdown，第一行 # 标题，正文可用 ##。不要免责声明、不要自我介绍。\n\n' +
+      '人设：{{persona}}\n\n任务：把素材改成原创公众号简体中文稿。保留事实与数字，禁止整句照抄。输出 Markdown，第一行 # 中文标题，正文可用 ##。不要免责声明、不要自我介绍。\n\n' +
       GROUNDING_RULES +
       '\n\n配图：素材里的 [[IMG:1]] [[IMG:2]] … 是原图位置占位。成稿必须原样保留全部占位符（单独成行），且相对顺序、所在叙述位置与素材一致：占位符前后讲什么，成稿对应段落就放哪。不要删光、不要改编号、不要改成假链接、不要把占位符集中堆到文首或文末。\n\n文风硬约束：' +
       ANTI_AI_VOICE +
       '\n严格按人设与用户给出的结构要求写，避免账号间同质化。',
     user:
-      '策略：{{strategyName}}\n怎么写：{{structureHint}}\n标题怎么起：{{titleHint}}\n\n素材标题：{{sourceTitle}}\n来源：{{sourceLabel}}\n素材（含配图占位 [[IMG:n]]）：\n{{sourceBody}}\n\n直接输出成稿 Markdown（第一行 # 标题）。[[IMG:n]] 全部保留且贴着对应内容。只写素材里有的事实；写短一点也可以，宁可干货密度高，也不要注水或脑补。'
+      '策略：{{strategyName}}\n怎么写：{{structureHint}}\n标题怎么起：{{titleHint}}\n\n素材标题：{{sourceTitle}}\n来源：{{sourceLabel}}\n素材（含配图占位 [[IMG:n]]）：\n{{sourceBody}}\n\n直接输出成稿 Markdown（第一行 # 中文标题）。[[IMG:n]] 全部保留且贴着对应内容。只写素材里有的事实；写短一点也可以，宁可干货密度高，也不要注水或脑补。'
   },
   {
     key: 'create_from_data',
     name: '数据创作',
     kind: 'create',
     system:
-      '人设：{{persona}}\n\n任务：根据结构化数据写公众号中文稿。只写数据里有的事，缺信息就少写，别脑补。输出 Markdown，第一行 # 标题。\n\n' +
+      '人设：{{persona}}\n\n任务：根据结构化数据写公众号简体中文稿。只写数据里有的事，缺信息就少写，别脑补。输出 Markdown，第一行 # 中文标题。\n\n' +
       GROUNDING_RULES +
       '\n\n文风硬约束：' +
       ANTI_AI_VOICE,

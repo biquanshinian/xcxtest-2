@@ -414,13 +414,12 @@ async function getCacheFromCloud(cacheKey, timeout = 5000) {
         new Promise((_, reject) => setTimeout(() => reject(new Error('云数据库查询超时')), ms))
       ])
 
-      // 偶发超时 / 网络抖动自动重试一次（第二次放宽超时），避免误报「数据暂不可用」
       let result
       try {
         result = await fetchDoc(timeout)
       } catch (firstError) {
         if (isDocMissError(firstError)) return null
-        result = await fetchDoc(Math.max(timeout, 8000))
+        return null
       }
 
       if (!result.data) return null

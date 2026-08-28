@@ -16,6 +16,13 @@ const { getRocketImage } = require('../../utils/util.js')
 const { pickLocalized, isUsableZhText, takeDescI18nSeed } = require('../../utils/locale.js')
 const { translateRocketName } = require('../../utils/rocket-name-i18n.js')
 const { isFavorite, toggleFavorite, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
+const { loadCloudMediaMap } = require('../../utils/image-config.js')
+const {
+  alignDedicatedRocket3d,
+  pickExhibitConfig,
+  stashRocket3dSpecs,
+  buildRocket3dNavUrl
+} = require('./utils/rocket-3d-bind.js')
 
 function fmtNum(v, unit, digits) {
   if (v == null || v === '') return ''
@@ -46,6 +53,7 @@ Page({
     descTranslating: false,
     descI18n: { modelDesc: '' },
     heroImageLoaded: false,
+    rocket3dEnabled: false,
     imageLoadedMap: {},
     isFavorited: false,
     favAnimate: false,
@@ -93,7 +101,11 @@ Page({
   async loadDetail(configId) {
     this.setData({ loading: true, errorMessage: '' })
     try {
-      var results = await Promise.all([getRocketConfigMeta(), getBoosterGenealogy()])
+      var results = await Promise.all([
+        getRocketConfigMeta(),
+        getBoosterGenealogy(),
+        loadCloudMediaMap().catch(function () {})
+      ])
       var configs = (results[0] && results[0].configs) || {}
       var cfg = configs[String(configId)]
       if (!cfg) {
@@ -101,13 +113,17 @@ Page({
         cfg = await this.fetchConfigFromLl2(configId)
       }
       if (!cfg) {
-        this.setData({ loading: false, errorMessage: '未找到该型号的档案数据（可能尚未同步）' })
+        this._rocket3dBind = null
+        this._exhibitCfg = null
+        this.setData({ loading: false, errorMessage: '未找到该型号的档案数据（可能尚未同步）', rocket3dEnabled: false })
         return
       }
       this.processAndSetData(cfg, results[1] || [], configs)
     } catch (err) {
       console.error('[RocketModel] load error:', err)
-      this.setData({ loading: false, errorMessage: '型号数据加载失败，请稍后重试' })
+      this._rocket3dBind = null
+      this._exhibitCfg = null
+      this.setData({ loading: false, errorMessage: '型号数据加载失败，请稍后重试', rocket3dEnabled: false })
     }
   },
 
@@ -235,6 +251,15 @@ Page({
       ? (isCN ? ' · 中国网系回收火箭档案' : ' · 网系回收火箭档案')
       : (model.reusable ? (isCN ? ' · 中国可回收火箭档案' : ' · 可回收火箭档案') : ' · 火箭型号档案')
     var displayName = model.alias || model.fullName
+    var rocket3d = alignDedicatedRocket3d({
+      fullNameEn: cfg.full_name || '',
+      nameEn: cfg.name || '',
+      fullName: fullNameZh,
+      name: nameZh,
+      alias: cfg.alias || ''
+    })
+    this._rocket3dBind = rocket3d
+    this._exhibitCfg = pickExhibitConfig(cfg)
 
     this.setData(Object.assign({
       loading: false,
@@ -242,6 +267,7 @@ Page({
       boosterCards: fleet,
       navTitle: displayName,
       shareTitle: displayName + shareSuffix,
+      rocket3dEnabled: !!rocket3d.aligned,
       isFavorited: !!(model.configId != null && isFavorite('rocket_model', model.configId)),
       favAnimate: false
     }, takeDescI18nSeed(this, { modelDesc: model.descriptionZh })))
@@ -298,6 +324,43 @@ Page({
     var model = this.data.model
     if (model && model.imageUrl) {
       wx.previewImage({ current: model.imageUrl, urls: [model.imageUrl] })
+    }
+  },
+
+  /** 头图 3D：只打开本型号对齐过的专用 GLB，不内嵌 WebGL */
+  async onTapRocket3d() {
+    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+    if (this._rocket3dBusy) return
+    var bind = this._rocket3dBind
+    if (!bind || !bind.aligned || !bind.url) {
+      wx.showToast({ title: '该型号暂无对应 3D 模型', icon: 'none' })
+      return
+    }
+    var model = this.data.model || {}
+    this._rocket3dBusy = true
+    try {
+      var allowed = await gateCheck('rocket_3d', '火箭 3D 模型', { allowAd: false })
+      if (!allowed) return
+      stashRocket3dSpecs({
+        configId: model.configId || this._configId || '',
+        detailConfig: this._exhibitCfg || null,
+        specs: []
+      })
+      wx.navigateTo({
+        url: buildRocket3dNavUrl(bind, {
+          rocketName: model.fullName || model.name || '',
+          rocketNameEn: model.fullNameEn || model.nameEn || '',
+          poster: model.imageUrl || '',
+          configId: model.configId || this._configId || ''
+        }),
+        fail() {
+          wx.showToast({ title: '打开 3D 页失败', icon: 'none' })
+        }
+      })
+    } catch (e) {
+      wx.showToast({ title: '打开 3D 页失败', icon: 'none' })
+    } finally {
+      this._rocket3dBusy = false
     }
   },
 

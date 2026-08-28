@@ -7,7 +7,8 @@
  * 2) 无服务端改期行时：首次见到某任务只记 NET，不弹；再次见到且满 1 分钟才记
  * 3) 任务已发射 / 已离开即将列表 → 不再作为候选
  * 4) 近窗与服务号一致：原时间或新时间落在未来 48h 内才弹（远期例行改期是噪音）
- * 5) TBD / 粗精度占位新时间不弹（与服务号 isNetChangeAnnouncable 对齐）
+ * 5) 远期 TBD / 粗精度占位新时间不弹；原 NET 已在 48h 近窗时仍弹
+ *    （临近任务 Go→TBD + 月末占位，如嫦娥七号 8/25→9/30）
  * 6) 多条未发射变更 → 新 NET 早的在前；是否弹出由首页冷启动队列决定
  */
 
@@ -68,7 +69,24 @@ function isCoarseNetPrecision(name) {
   return /^(day|week|month|quarter|half|year|decade)/.test(s)
 }
 
-function isNetChangeAnnouncable(launch) {
+/** TBD / Day·Month 占位：可播报推迟，但不能把占位时刻当新发射时间展示 */
+function isUntrustedNetPlaceholder(launch) {
+  const sid = launch && launch.statusId != null ? Number(launch.statusId) : 0
+  if (sid === 2) return true
+  return isCoarseNetPrecision(launch && launch.netPrecision)
+}
+
+function isNetChangeOldNetNear(oldIso, nowMs) {
+  const oldMs = parseNetMs(oldIso)
+  if (!oldMs) return false
+  const now = Number(nowMs) || Date.now()
+  return oldMs - now <= NET_CHANGE_NEAR_WINDOW_MS
+}
+
+function isNetChangeAnnouncable(launch, ctx) {
+  const oldIso = (ctx && ctx.oldIso) || (launch && launch.previousNet) || ''
+  const nowMs = ctx && ctx.nowMs
+  if (isNetChangeOldNetNear(oldIso, nowMs)) return true
   const sid = launch && launch.statusId != null ? Number(launch.statusId) : 0
   if (sid === 2) return false
   if (isCoarseNetPrecision(launch && launch.netPrecision)) return false
@@ -110,6 +128,33 @@ function resolveChangeMeta(oldNet, newNet) {
     deltaMs: deltaMs,
     deltaText: label + ' ' + formatChangeDelta(deltaMs),
     titleText: '发射时间' + label
+  }
+}
+
+/**
+ * 弹窗/服务号文案：占位新 NET 只说「已推迟、时间待定」，不展示月末假日期、不写「延期 36 天」。
+ */
+function resolveNetChangeDisplay(oldNet, newNet, launch) {
+  const meta = resolveChangeMeta(oldNet, newNet)
+  if (!isUntrustedNetPlaceholder(launch)) {
+    return {
+      kind: meta.kind,
+      deltaMs: meta.deltaMs,
+      deltaText: meta.deltaText,
+      titleText: meta.titleText,
+      newTimeUntrusted: false,
+      newTimeText: '',
+      newTimeLabel: '新时间'
+    }
+  }
+  return {
+    kind: 'delay',
+    deltaMs: meta.deltaMs,
+    deltaText: '新时间待定',
+    titleText: '发射已推迟',
+    newTimeUntrusted: true,
+    newTimeText: '时间待定',
+    newTimeLabel: '当前安排'
   }
 }
 
@@ -222,7 +267,7 @@ function buildEvent(id, oldNet, newNet, today) {
 function buildReminderPayload(m, ev) {
   const oldNet = ev.oldNet
   const newNet = ev.newNet || (m && m.launchTime) || ''
-  const meta = resolveChangeMeta(oldNet, newNet)
+  const display = resolveNetChangeDisplay(oldNet, newNet, m)
   return {
     missionId: String(m.id),
     rocketName: missionRocketName(m),
@@ -236,10 +281,15 @@ function buildReminderPayload(m, ev) {
     launchAgencyImage: m.launchAgencyImage || '',
     oldNet: oldNet,
     newNet: newNet,
-    changeKind: meta.kind,
-    deltaMs: meta.deltaMs,
-    deltaText: meta.deltaText,
-    titleText: meta.titleText
+    statusId: m && m.statusId != null ? Number(m.statusId) : null,
+    netPrecision: (m && m.netPrecision) || '',
+    changeKind: display.kind,
+    deltaMs: display.deltaMs,
+    deltaText: display.deltaText,
+    titleText: display.titleText,
+    newTimeUntrusted: !!display.newTimeUntrusted,
+    newTimeText: display.newTimeText || '',
+    newTimeLabel: display.newTimeLabel || '新时间'
   }
 }
 
@@ -292,14 +342,22 @@ function overlayServerNetChanges(missions, serverRows) {
     if (hit) {
       if (row.previousNet) hit.previousNet = row.previousNet
       if (row.netChangedAt) hit.netChangedAt = row.netChangedAt
-      // 不覆盖 status / 精度：列表实况可能比 launch_data 新，盖掉会误伤终态或 TBD 门控
+      // 不覆盖终态/精度：列表实况可能比 launch_data 新。
+      // 例外：列表仍停在旧 NET（或已跟上占位新 NET）且服务端是 TBD/粗精度
+      // ——要把占位标带上，否则会把 9/30 当确切新时间画出来。
       const listMs = parseNetMs(hit.launchTime || hit.net)
       const serverNew = parseNetMs(row.launchTime)
       const serverOld = parseNetMs(row.previousNet)
       const listStillOld =
         serverOld && listMs && Math.abs(listMs - serverOld) < CHANGE_TOLERANCE_MS
+      const listAtServerNew =
+        serverNew && listMs && Math.abs(listMs - serverNew) < CHANGE_TOLERANCE_MS
       if (serverNew && (!listMs || listStillOld)) {
         hit.launchTime = row.launchTime
+      }
+      if (isUntrustedNetPlaceholder(row) && (listStillOld || listAtServerNew || !listMs)) {
+        if (row.statusId != null) hit.statusId = Number(row.statusId)
+        if (row.netPrecision) hit.netPrecision = row.netPrecision
       }
     } else {
       const stub = missionStubFromServerRow(row)
@@ -418,7 +476,7 @@ function scanAndPickTodayReminder(missions, options) {
     const newMs = parseNetMs(ev.newNet || m.launchTime)
     if (!newMs) continue
     if (!isWithinOaNearWindow(ev.oldNet, ev.newNet || m.launchTime, nowMs)) continue
-    if (!isNetChangeAnnouncable(m)) continue
+    if (!isNetChangeAnnouncable(m, { oldIso: ev.oldNet, nowMs: nowMs })) continue
     if (isEventShown(ev)) continue
     candidates.push({ mission: m, event: ev, newMs: newMs })
   }
@@ -609,9 +667,12 @@ module.exports = {
   markPopupShownToday,
   isEventShown,
   markEventShown,
+  isNetChangeOldNetNear,
+  isUntrustedNetPlaceholder,
   isNetChangeAnnouncable,
   isWithinOaNearWindow,
   resolveChangeMeta,
+  resolveNetChangeDisplay,
   formatChangeDelta,
   overlayServerNetChanges,
   scanAndPickTodayReminder,

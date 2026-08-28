@@ -59,6 +59,99 @@ function resolveRoadClosureStatus(data, options) {
   return 'clear'
 }
 
+function flattenTickerPart(text) {
+  return String(text || '')
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function tickerContains(hay, needle) {
+  const a = flattenTickerPart(hay).replace(/\s+/g, '')
+  const b = flattenTickerPart(needle).replace(/\s+/g, '')
+  return !!a && !!b && a.indexOf(b) >= 0
+}
+
+function pushTickerUnique(parts, value) {
+  const s = flattenTickerPart(value)
+  if (!s) return
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i]
+    if (p === s || tickerContains(p, s)) return
+    if (tickerContains(s, p)) {
+      parts[i] = s
+      return
+    }
+  }
+  parts.push(s)
+}
+
+function formatRoadUpdateLine(item) {
+  if (!item) return ''
+  if (typeof item === 'object') {
+    const desc = flattenTickerPart(item.description)
+    const date = flattenTickerPart(item.date)
+    if (desc && date) return desc + '（' + date + '）'
+    return desc || date
+  }
+  return flattenTickerPart(item)
+}
+
+/**
+ * 首页灯箱跑马灯文案：压成单行，并带上海滩/道路状态 + 全部时段/延迟/更新。
+ * 避免只用 schedule[0] 或带换行的 message，导致灯箱只露出第一行。
+ */
+function buildRoadClosureTickerText(data) {
+  const src = data || {}
+  const headlines = []
+  pushTickerUnique(headlines, src.beachStatus)
+  if (src.roadStatusLabel && !/无道路延迟|无封路|正常通行/.test(src.roadStatusLabel)) {
+    pushTickerUnique(headlines, src.roadStatusLabel)
+  }
+
+  const details = []
+  const schedule = Array.isArray(src.beachClosureSchedule) ? src.beachClosureSchedule : []
+  schedule.forEach((item) => pushTickerUnique(details, item))
+
+  const updates = Array.isArray(src.roadUpdates) ? src.roadUpdates : []
+  updates.forEach((item) => pushTickerUnique(details, formatRoadUpdateLine(item)))
+
+  const delays = Array.isArray(src.roadDelays) ? src.roadDelays : []
+  delays.forEach((item) => pushTickerUnique(details, item))
+
+  const banners = Array.isArray(src.bannerAlerts) ? src.bannerAlerts : []
+  banners.forEach((item) => pushTickerUnique(details, item))
+
+  pushTickerUnique(details, src.timeRange)
+
+  const msg = flattenTickerPart(src.message)
+  if (msg) {
+    const blob = headlines.concat(details).join(' ')
+    if (!headlines.length && !details.length) {
+      pushTickerUnique(details, msg)
+    } else if (!tickerContains(blob, msg) && !tickerContains(msg, blob)) {
+      msg.split(/[·;；|｜]/).forEach((chunk) => {
+        const c = flattenTickerPart(chunk)
+        if (c && !tickerContains(blob, c)) pushTickerUnique(details, c)
+      })
+    }
+  }
+
+  const MAX_DETAILS = 8
+  const clipped = details.slice(0, MAX_DETAILS)
+  const statusText = headlines.join(' · ')
+  const detailText = clipped.join('  ·  ')
+  const displayText = [statusText, detailText].filter(Boolean).join('  ·  ')
+    || '星舰基地道路封路通知'
+
+  return {
+    statusText,
+    detailText,
+    displayText,
+    timeRange: flattenTickerPart(src.timeRange)
+  }
+}
+
 function buildRoadClosureState(data, formatDate) {
   if (!hasValidRoadClosure(data)) {
     return { ...EMPTY_ROAD_CLOSURE }
@@ -137,6 +230,8 @@ module.exports = {
   hasValidRoadClosure,
   isRoadClosureFetchFailed,
   resolveRoadClosureStatus,
+  flattenTickerPart,
+  buildRoadClosureTickerText,
   buildRoadClosureState,
   syncRoadClosureFromCloud,
   verifyRoadClosurePassword,

@@ -565,8 +565,8 @@ export const api = {
   exportMembershipOrders(query) {
     return request('/membership/orders/export', { method: 'GET', query })
   },
-  recheckPendingMembershipOrders() {
-    return request('/membership/orders/recheck-pending', { method: 'POST' })
+  recheckPendingMembershipOrders(body) {
+    return request('/membership/orders/recheck-pending', { method: 'POST', body: body || {} })
   },
   grantMembershipPro(body) {
     return request('/membership/grant-pro', { method: 'POST', body })

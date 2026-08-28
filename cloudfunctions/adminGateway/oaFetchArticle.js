@@ -26,6 +26,59 @@ function looksLikeLoneUrl(s) {
   return true
 }
 
+function isImageUrl(s) {
+  const u = String(s || '').trim()
+  if (!u) return false
+  if (/\.(?:png|jpe?g|gif|webp|bmp|svg|avif)(?:[?#].*)?$/i.test(u)) return true
+  if (/(?:mmbiz\.qpic\.cn|qpic\.cn|qlogo\.cn|wx_fmt=)/i.test(u)) return true
+  return false
+}
+
+function cleanExtractedUrl(raw) {
+  const u = String(raw || '')
+    .trim()
+    .replace(/[.,;:，。；、]+$/u, '')
+    .replace(/[)）\]】>]+$/u, '')
+  return isHttpUrl(u) ? u : ''
+}
+
+/**
+ * 从摘要/正文里抠出可洗稿的文章 URL。
+ * 优先「详情 -> / 原文：」后的链接；跳过配图 CDN。
+ */
+function extractArticleUrl(text) {
+  const s = String(text || '')
+  if (!s) return ''
+  const labeled = s.match(
+    /(?:详情|原文|全文|来源|链接|阅读原文|read\s*more)\s*[-–—>→:：]*\s*(https?:\/\/[^\s<>"'）)】\]]+)/i
+  )
+  if (labeled) {
+    const u = cleanExtractedUrl(labeled[1])
+    if (u && !isImageUrl(u)) return u
+  }
+  const re = /https?:\/\/[^\s<>"'）)】\]]+/gi
+  let m
+  while ((m = re.exec(s))) {
+    const u = cleanExtractedUrl(m[0])
+    if (u && !isImageUrl(u)) return u
+  }
+  return ''
+}
+
+/** 短讯/导语 + 外链：应以抓取正文为准，不要只洗摘要 */
+function looksLikeTeaserWithLink(text) {
+  const s = String(text || '').trim()
+  if (!s) return false
+  const url = extractArticleUrl(s)
+  if (!url) return false
+  if (looksLikeLoneUrl(s)) return true
+  if (/(?:详情|原文|全文|来源|链接|阅读原文|read\s*more)\s*[-–—>→:：]*\s*https?:\/\//i.test(s)) {
+    return true
+  }
+  const without = s.replace(/https?:\/\/[^\s<>"']+/gi, '').replace(/\s+/g, '')
+  return without.length < 400
+}
+
 function stripTags(html) {
   return String(html || '')
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
@@ -663,7 +716,10 @@ async function fetchRssByAuthor({ rssUrl, authorMatch, limit = 10 }) {
 
 module.exports = {
   isHttpUrl,
+  isImageUrl,
   looksLikeLoneUrl,
+  extractArticleUrl,
+  looksLikeTeaserWithLink,
   looksLikeFeedUrl,
   resolveRssUrl,
   normalizeArticleUrl,

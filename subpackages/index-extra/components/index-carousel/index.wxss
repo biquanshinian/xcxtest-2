@@ -3,12 +3,29 @@
   max-width: 100%;
   height: 400rpx;
   margin-top: var(--space-md);
-  margin-bottom: var(--space-xl);
+  margin-bottom: var(--space-md);
   border-radius: var(--radius-card);
   overflow: hidden;
   box-sizing: border-box;
   background-color: var(--color-bg-elevated);
   position: relative;
+  z-index: 0;
+}
+
+.image-carousel--locked {
+  pointer-events: none;
+}
+
+.image-carousel-frozen {
+  pointer-events: none;
+  /* 无封面可冻结时保留深色渐变底，避免锁定期出现纯黑空块 */
+  background: linear-gradient(150deg, #1c2430 0%, #10151d 55%, #0a0d12 100%);
+}
+
+.image-carousel-frozen .carousel-image {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .swiper {
@@ -51,47 +68,15 @@
   background-color: #000;
 }
 
-.carousel-video {
-  width: 100%;
-  height: 100%;
-}
-
-.carousel-video-native-hit {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-}
-
-.carousel-video-hit {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 2;
-}
-
-.carousel-video-cover {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 1;
-  background: linear-gradient(150deg, #1c2430 0%, #10151d 55%, #0a0d12 100%);
-  pointer-events: none;
-  overflow: hidden;
-}
-
-.carousel-video-cover-img {
-  position: absolute;
-  top: 0;
-  left: 0;
+.carousel-video-poster {
   width: 100%;
   height: 100%;
   display: block;
+  background-color: #000;
+}
+
+.carousel-video-poster--empty {
+  background: linear-gradient(150deg, #1c2430 0%, #10151d 55%, #0a0d12 100%);
 }
 
 .carousel-video-cover-mask {
@@ -100,12 +85,14 @@
   left: 0;
   right: 0;
   bottom: 0;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 16rpx;
   background: rgba(0, 0, 0, 0.28);
+  pointer-events: none;
 }
 
 .carousel-video-cover-icon {

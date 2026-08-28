@@ -625,18 +625,63 @@ function buildMiniprogramLinkHtml({ path, text }) {
   )
 }
 
+/** 正文配图小程序跳转：none / first / last / first_last / all */
+const IMAGE_MINIPROGRAM_LINK_MODES = ['none', 'first', 'last', 'first_last', 'all']
+
+function normalizeImageMiniprogramLinkMode(mode, fallback = 'all') {
+  const m = String(mode || '').trim()
+  if (IMAGE_MINIPROGRAM_LINK_MODES.includes(m)) return m
+  return IMAGE_MINIPROGRAM_LINK_MODES.includes(fallback) ? fallback : 'all'
+}
+
+/** 读配置：优先 imageMiniprogramLinkMode；兼容旧开关 linkAllImagesToMiniprogram */
+function resolveImageMiniprogramLinkMode(cfg) {
+  const raw = cfg || {}
+  const mode = String(raw.imageMiniprogramLinkMode || '').trim()
+  if (IMAGE_MINIPROGRAM_LINK_MODES.includes(mode)) return mode
+  if (
+    raw.linkAllImagesToMiniprogram === false ||
+    raw.linkAllImagesToMiniprogram === 0 ||
+    raw.linkAllImagesToMiniprogram === 'false'
+  ) {
+    return 'none'
+  }
+  return 'all'
+}
+
 /**
- * 正文所有配图点击跳转小程序：
- * 先拆掉包住 img 的普通/脏 <a>（含 <br>），再统一包小程序锚点，避免嵌套与孤儿标签。
+ * 按模式给正文配图包小程序锚点：
+ * 先拆掉包住 img 的普通/脏 <a>（含 <br>），再按 first/last/all 等包锚点，避免嵌套与孤儿标签。
  */
-function wrapAllImagesWithMiniprogram(html, { path } = {}) {
+function wrapImagesWithMiniprogram(html, { path, mode = 'all' } = {}) {
+  const m = normalizeImageMiniprogramLinkMode(mode)
+  if (m === 'none') return String(html || '')
   const open = miniprogramAnchorOpen(path)
   let s = String(html || '')
   s = s.replace(
     /<a\b[^>]*>\s*(<img\b[^>]*>)\s*(?:<br\s*\/?\s*>\s*)?<\/a>/gi,
     '$1'
   )
-  return s.replace(/<img\b[^>]*>/gi, (img) => `${open}${img}</a>`)
+  const tags = s.match(/<img\b[^>]*>/gi) || []
+  if (!tags.length) return s
+  if (m === 'all') {
+    return s.replace(/<img\b[^>]*>/gi, (img) => `${open}${img}</a>`)
+  }
+  const n = tags.length
+  let i = 0
+  return s.replace(/<img\b[^>]*>/gi, (img) => {
+    const idx = i++
+    const hit =
+      (m === 'first' && idx === 0) ||
+      (m === 'last' && idx === n - 1) ||
+      (m === 'first_last' && (idx === 0 || idx === n - 1))
+    return hit ? `${open}${img}</a>` : img
+  })
+}
+
+/** 兼容旧调用：正文所有配图点击跳转小程序 */
+function wrapAllImagesWithMiniprogram(html, opts) {
+  return wrapImagesWithMiniprogram(html, { ...(opts || {}), mode: 'all' })
 }
 
 /** 45166 最终回退：去掉配图上的小程序锚点，仅保留裸图 */
@@ -770,6 +815,10 @@ module.exports = {
   buildMiniprogramLinkHtml,
   buildLeadDisclaimerHtml,
   stripLeadDisclaimer,
+  IMAGE_MINIPROGRAM_LINK_MODES,
+  normalizeImageMiniprogramLinkMode,
+  resolveImageMiniprogramLinkMode,
+  wrapImagesWithMiniprogram,
   wrapAllImagesWithMiniprogram,
   unwrapMiniprogramImageLinks,
   stripMiniprogramCta,

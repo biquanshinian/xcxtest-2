@@ -1,0 +1,116 @@
+<page-meta background-color="#050608" background-color-top="#050608" background-color-bottom="#050608" />
+<view class="detail-page r3d-exhibit">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;" wx:if="{{!isMomentsPreview}}">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">{{rocketName || '3D 展陈'}}</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+  </view>
+
+  <view class="r3d-exhibit-body">
+    <view class="r3d-exhibit-stage">
+      <image
+        wx:if="{{memberLocked && poster}}"
+        class="r3d-exhibit-locked-poster"
+        src="{{poster}}"
+        mode="aspectFit"
+      />
+      <rocket-3d-viewer
+        wx:if="{{modelUrl && !memberLocked}}"
+        id="rocket3dViewer"
+        style="display:block;height:100%;"
+        rocket-name="{{rocketName}}"
+        rocket-name-en="{{rocketNameEn}}"
+        poster="{{poster}}"
+        model-url="{{modelUrl}}"
+        config-id="{{configId}}"
+        dim-length="{{exhibit.length}}"
+        dim-diameter="{{exhibit.diameter}}"
+        auto-load="{{true}}"
+        allow-expand="{{false}}"
+        active="{{pageVisible}}"
+        mode="page"
+        bind:statuschange="onViewerStatus"
+      />
+      <view class="r3d-exhibit-wash"></view>
+    </view>
+
+    <view class="r3d-exhibit-hud" style="top: {{navPlaceholderHeight}}px;" wx:if="{{!memberLocked && !viewerError}}">
+      <text class="r3d-exhibit-credit" wx:if="{{exhibit.credit}}">{{exhibit.credit}}</text>
+      <view wx:else class="r3d-exhibit-credit r3d-exhibit-credit--empty"></view>
+      <view class="r3d-exhibit-intro-btn" wx:if="{{exhibit.hasIntro}}" hover-class="r3d-exhibit-intro-btn--pressed" hover-stay-time="80" catchtap="toggleIntro">
+        <view class="r3d-ico-intro">
+          <view class="r3d-ico-intro-scroll">
+            <view class="r3d-ico-intro-line"></view>
+            <view class="r3d-ico-intro-line"></view>
+            <view class="r3d-ico-intro-line r3d-ico-intro-line--short"></view>
+          </view>
+        </view>
+        <text class="r3d-exhibit-intro-lab">简介</text>
+      </view>
+    </view>
+
+    <view class="r3d-exhibit-dock" wx:if="{{!memberLocked && !viewerError}}">
+      <view class="r3d-exhibit-copy">
+        <text class="r3d-exhibit-title">{{exhibit.title}}</text>
+        <text class="r3d-exhibit-sub" wx:if="{{exhibitTab === 'show' && !introOpen}}">{{exhibit.subtitle}}</text>
+        <text class="r3d-exhibit-sub" wx:if="{{exhibitTab === 'size' && exhibit.sizeSummary}}">{{exhibit.sizeSummary}}</text>
+        <text class="r3d-exhibit-sub" wx:if="{{exhibitTab === 'feat' && exhibit.featureSummary}}">{{exhibit.featureSummary}}</text>
+      </view>
+      <scroll-view scroll-y class="r3d-exhibit-intro" wx:if="{{introOpen}}">
+        <text class="r3d-exhibit-intro-body">{{exhibit.intro}}</text>
+      </scroll-view>
+      <view class="r3d-exhibit-tabs">
+        <view class="r3d-exhibit-tab {{exhibitTab === 'show' ? 'r3d-exhibit-tab--on' : ''}}" data-tab="show" catchtap="onExhibitTab">
+          <view class="r3d-tab-ico">
+            <view class="r3d-tab-glyph r3d-tab-glyph--show"></view>
+          </view>
+          <text>展陈</text>
+        </view>
+        <view class="r3d-exhibit-tab {{exhibitTab === 'size' ? 'r3d-exhibit-tab--on' : ''}} {{exhibit.hasSize ? '' : 'r3d-exhibit-tab--off'}}" data-tab="size" catchtap="onExhibitTab">
+          <view class="r3d-tab-ico">
+            <view class="r3d-tab-glyph r3d-tab-glyph--size"></view>
+          </view>
+          <text>尺寸</text>
+        </view>
+        <view class="r3d-exhibit-tab {{exhibitTab === 'feat' ? 'r3d-exhibit-tab--on' : ''}} {{exhibit.hasFeat ? '' : 'r3d-exhibit-tab--off'}}" data-tab="feat" catchtap="onExhibitTab">
+          <view class="r3d-tab-ico">
+            <view class="r3d-tab-glyph r3d-tab-glyph--feat"></view>
+          </view>
+          <text>特征</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="r3d-exhibit-load" wx:if="{{memberLocked}}">
+      <view class="r3d-exhibit-orb">
+        <text class="r3d-exhibit-orb-3d">3D</text>
+      </view>
+      <view class="r3d-exhibit-vert">
+        <text wx:for="{{lockChars}}" wx:key="*this" class="r3d-exhibit-vert-ch">{{item}}</text>
+      </view>
+      <text class="r3d-exhibit-load-sub">开通星际通行证后即可查看</text>
+      <view class="r3d-exhibit-retry" catchtap="onRetryViewer">开通会员查看</view>
+    </view>
+
+    <view class="r3d-exhibit-load" wx:if="{{!memberLocked && (viewerLoading || viewerError)}}">
+      <view class="r3d-exhibit-orb {{viewerError ? 'r3d-exhibit-orb--err' : ''}}">
+        <view class="r3d-exhibit-orb-spin" wx:if="{{!viewerError}}"></view>
+        <text class="r3d-exhibit-orb-3d">3D</text>
+      </view>
+      <view class="r3d-exhibit-vert" wx:if="{{!viewerError}}">
+        <text wx:for="{{loadChars}}" wx:key="*this" class="r3d-exhibit-vert-ch">{{item}}</text>
+      </view>
+      <text class="r3d-exhibit-pct" wx:if="{{!viewerError}}">{{loadPercent}}%</text>
+      <text class="r3d-exhibit-err" wx:if="{{viewerError}}">{{viewerError}}</text>
+      <text class="r3d-exhibit-load-sub" wx:if="{{viewerError && viewerErrorDetail}}">{{viewerErrorDetail}}</text>
+      <view class="r3d-exhibit-retry" wx:if="{{viewerError}}" catchtap="onRetryViewer">点此重试</view>
+    </view>
+  </view>
+</view>
+<share-gate-countdown expire-at="{{shareGateExpireAt}}" />

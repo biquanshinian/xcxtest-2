@@ -15,20 +15,36 @@ page {
   pointer-events: auto;
 }
 
-/* 头图左上：360 环绕全景（房产/VR 通用动态图标：双环绕转 + 360） */
-.hero-pano-btn {
+/* 头图左上：360 + 3D 并排（3D 在全景右边；无全景时 3D 单独占左上） */
+.hero-media-btns {
   position: absolute;
   left: 22rpx;
   top: 22rpx;
   z-index: 3;
+  display: flex;
+  align-items: flex-start;
+  gap: 12rpx;
+  pointer-events: auto;
+  transform: scale(0.9);
+  transform-origin: left top;
+}
+
+.hero-pano-btn,
+.hero-3d-btn {
+  position: relative;
   width: 80rpx;
   height: 80rpx;
-  pointer-events: auto;
+  flex-shrink: 0;
   font-size: 20rpx;
   line-height: 1;
 }
 
-.hero-pano-btn--pressed {
+.hero-3d-btn {
+  height: 102rpx;
+}
+
+.hero-pano-btn--pressed,
+.hero-3d-btn--pressed {
   opacity: 0.72;
   transform: scale(0.94);
 }
@@ -86,6 +102,126 @@ page {
 @keyframes hero-pano-spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* 3D 入口：线框正方体只绕 Y 翻面，缩放另层做，避免翻面拉形 */
+.hero-3d-scene {
+  position: relative;
+  width: 80rpx;
+  height: 64rpx;
+  perspective: 240rpx;
+  -webkit-perspective: 240rpx;
+  perspective-origin: 50% 50%;
+}
+
+.hero-3d-pulse {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 32rpx;
+  height: 32rpx;
+  margin: -16rpx 0 0 -16rpx;
+  transform-origin: center center;
+  animation: hero-3d-pulse 5.6s ease-in-out infinite;
+}
+
+.hero-3d-cube {
+  width: 32rpx;
+  height: 32rpx;
+  transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
+  transform-origin: center center;
+  transform: rotateX(-20deg) rotateY(24deg);
+  animation: hero-3d-flip 5.6s ease-in-out infinite;
+}
+
+.hero-3d-face {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 32rpx;
+  height: 32rpx;
+  box-sizing: border-box;
+  border: 3rpx solid rgba(255, 255, 255, 0.94);
+  background: rgba(15, 23, 42, 0.14);
+  backface-visibility: visible;
+  -webkit-backface-visibility: visible;
+}
+
+.hero-3d-face--front {
+  transform: translateZ(16rpx);
+  border-color: #ffffff;
+}
+
+.hero-3d-face--back {
+  transform: rotateY(180deg) translateZ(16rpx);
+  border-color: rgba(226, 232, 240, 0.72);
+}
+
+.hero-3d-face--right {
+  transform: rotateY(90deg) translateZ(16rpx);
+  border-color: rgba(241, 245, 249, 0.88);
+}
+
+.hero-3d-face--left {
+  transform: rotateY(-90deg) translateZ(16rpx);
+  border-color: rgba(226, 232, 240, 0.78);
+}
+
+.hero-3d-face--top {
+  transform: rotateX(90deg) translateZ(16rpx);
+  border-color: #ffffff;
+}
+
+.hero-3d-face--bottom {
+  transform: rotateX(-90deg) translateZ(16rpx);
+  border-color: rgba(203, 213, 225, 0.7);
+}
+
+.hero-3d-cap {
+  display: block;
+  width: 100%;
+  text-align: center;
+  font-size: 18rpx;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1;
+  letter-spacing: 2rpx;
+}
+
+@keyframes hero-3d-flip {
+  0% {
+    transform: rotateX(-20deg) rotateY(24deg);
+  }
+  22% {
+    transform: rotateX(-20deg) rotateY(204deg);
+  }
+  44% {
+    transform: rotateX(-20deg) rotateY(204deg);
+  }
+  66% {
+    transform: rotateX(-20deg) rotateY(384deg);
+  }
+  100% {
+    transform: rotateX(-20deg) rotateY(384deg);
+  }
+}
+
+@keyframes hero-3d-pulse {
+  0%,
+  22% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(0.72);
+  }
+  40%,
+  66% {
+    transform: scale(1);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 /* 头图收藏：与铃铛同款——无圆底、无阴影，爱心与铃铛同大 */
@@ -423,25 +559,10 @@ page {
   transform-origin: center center;
 }
 
-/* 原 38rpx × 1.5 → 57rpx；无绿底，直接叠在头图上 */
+/* 与首页倒计时铃铛同款 SVG（app.wxss .icon-bell）；57rpx 与头图爱心同大 */
 .icon-bell--hero {
   width: 57rpx;
   height: 57rpx;
-  filter: none;
-  background-size: contain;
-  background-repeat: no-repeat;
-  background-position: center;
-}
-
-/* 已提醒：与描边同形的实心白铃 */
-.icon-bell--hero.bell-on {
-  background-image: url("data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PScwIDAgMjQgMjQnIHhtbG5zPSdodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2Zyc+PHBhdGggZmlsbD0nI2ZmZmZmZicgZD0nTTEyIDNhMSAxIDAgMCAxIDEgMXYuMUE2LjUgNi41IDAgMCAxIDE4LjUgMTAuNVYxNWwxLjggMS44YS43NS43NSAwIDAgMS0uNTMgMS4yOEg0LjIzYS43NS43NSAwIDAgMS0uNTMtMS4yOEw1LjUgMTV2LTQuNUE2LjUgNi41IDAgMCAxIDExIDQuMVY0YTEgMSAwIDAgMSAxLTF6Jy8+PHBhdGggZD0nTTkuNSAxOC4yNWEyLjUgMi41IDAgMCAwIDUgMCcgc3Ryb2tlPScjZmZmZmZmJyBzdHJva2Utd2lkdGg9JzIuMicgc3Ryb2tlLWxpbmVjYXA9J3JvdW5kJy8+PC9zdmc+");
-  filter: none;
-}
-
-/* 未开：白线铃铛 + 红色斜杠 */
-.icon-bell--hero.bell-off {
-  background-image: url("data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PScwIDAgMjQgMjQnIHhtbG5zPSdodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZycgZmlsbD0nbm9uZSc+PHBhdGggZD0nTTEyIDNhMSAxIDAgMCAxIDEgMXYuMUE2LjUgNi41IDAgMCAxIDE4LjUgMTAuNVYxNWwxLjggMS44YS43NS43NSAwIDAgMS0uNTMgMS4yOEg0LjIzYS43NS43NSAwIDAgMS0uNTMtMS4yOEw1LjUgMTV2LTQuNUE2LjUgNi41IDAgMCAxIDExIDQuMVY0YTEgMSAwIDAgMSAxLTF6JyBzdHJva2U9JyNmZmZmZmYnIHN0cm9rZS13aWR0aD0nMS43JyBzdHJva2UtbGluZWpvaW49J3JvdW5kJy8+PHBhdGggZD0nTTkuNSAxOC4yNWEyLjUgMi41IDAgMCAwIDUgMCcgc3Ryb2tlPScjZmZmZmZmJyBzdHJva2Utd2lkdGg9JzEuNycgc3Ryb2tlLWxpbmVjYXA9J3JvdW5kJy8+PGxpbmUgeDE9JzQnIHkxPSc0JyB4Mj0nMjAnIHkyPScyMCcgc3Ryb2tlPScjRkYzQjMwJyBzdHJva2Utd2lkdGg9JzInIHN0cm9rZS1saW5lY2FwPSdyb3VuZCcvPjwvc3ZnPg==");
   filter: none;
 }
 
@@ -525,9 +646,8 @@ page {
   color: #8e8e93;
 }
 
-.theme-light .icon-bell--hero,
-.theme-light .icon-bell--hero.bell-on,
-.theme-light .icon-bell--hero.bell-off {
+/* 头图叠在照片上始终用白铃，不跟首页浅色主题反色 */
+.theme-light .icon-bell--hero {
   filter: none;
 }
 

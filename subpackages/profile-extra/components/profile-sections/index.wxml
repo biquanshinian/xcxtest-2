@@ -423,8 +423,8 @@
             <view class="prize-card-size" wx:if="{{item.selectionsText}}">{{item.selectionsText}}</view>
             <view class="prize-card-size" wx:elif="{{item.size}}">尺码：{{item.size}}</view>
           </view>
-          <view class="prize-status prize-status--{{item.status}}">
-            {{item.status === 'pending' ? '待发货' : item.status === 'shipped' ? '已发货' : '已完成'}}
+          <view class="prize-status prize-status--{{item.prizeType === 'pro_1month' || item.grantKind === 'pro_1month' ? 'completed' : item.status}}">
+            {{item.prizeType === 'pro_1month' || item.grantKind === 'pro_1month' ? (item.status === 'completed' ? '已到账' : '发放中') : (item.status === 'pending' ? '待发货' : item.status === 'shipped' ? '已发货' : '已完成')}}
           </view>
         </view>
         <view class="prize-tracking" wx:if="{{item.trackingNumber}}">
@@ -432,7 +432,10 @@
           <text class="prize-tracking-number">{{item.trackingNumber}}</text>
           <button class="prize-copy-btn" size="mini" catchtap="emitOnCopyTracking" data-num="{{item.trackingNumber}}" hover-class="prize-copy-btn--hover">复制</button>
         </view>
-        <view class="prize-tracking prize-tracking--waiting" wx:elif="{{item.status === 'pending'}}">
+        <view class="prize-tracking prize-tracking--waiting" wx:elif="{{(item.prizeType === 'pro_1month' || item.grantKind === 'pro_1month') && item.status === 'completed'}}">
+          <text>1个月PRO会员已到账</text>
+        </view>
+        <view class="prize-tracking prize-tracking--waiting" wx:elif="{{item.status === 'pending' && item.prizeType !== 'pro_1month' && item.grantKind !== 'pro_1month'}}">
           <text>正在为您准备奖品，请耐心等待～</text>
         </view>
         <view class="prize-tracking prize-tracking--waiting" wx:elif="{{item.status === 'shipped' && !item.trackingNumber}}">

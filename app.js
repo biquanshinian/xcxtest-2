@@ -6,6 +6,7 @@ const { getUiShellLayout } = require('./utils/layout.js')
 const { cloudEnv } = require('./utils/config.js')
 const storageCache = require('./utils/storage-sync-cache.js')
 const privacyTapGuard = require('./utils/privacy-tap-guard.js')
+const { markAppHidden, markAppShown } = require('./utils/foreground-resume.js')
 // 注意：api-cache-clean / demo-engine / membership / user-growth / popup-ad 等
 // 仅在延迟回调中使用的模块改为回调内 require，缩短 onLaunch 同步执行段
 
@@ -47,18 +48,32 @@ App({
   onLaunch(options) {
     // 改期弹窗：仅本进程冷启动给一次机会（切后台 / 切 Tab 不弹）
     this._netChangeColdStartPending = true
+    // 尽早异步预热热点 key，给首页 onLoad 抢出窗口，避免首屏 getStorageSync
+    try {
+      storageCache.warmManyAsync().then(() => {
+        try { require('./utils/locale.js').invalidateContentLangCache() } catch (e) {}
+        try {
+          const themeUtil = require('./utils/theme.js')
+          if (themeUtil.isLightSync()) {
+            themeUtil.refreshAllPages()
+            themeUtil.syncWindowBackground()
+          }
+        } catch (e) {}
+        try {
+          this.patchTabBarUiCache({ showAddDesktopStrip: this.readAddDesktopStripVisibleSync() })
+          this.syncAllTabBarsDesktopStrip()
+        } catch (e) {}
+      })
+    } catch (e) {}
     this.refreshUiShellLayout()
     // 邀请得月卡：截获分享链接里的 inviter，延迟上报核销（不阻塞启动）
-    try { require('./utils/invite.js').captureInviteFromOptions(options) } catch (e) {}
-    // 主题预热：注册系统主题监听（跟随系统模式用），浅色时同步下拉刷新背景区
+    if (options && options.query && options.query.inviter) {
+      try { require('./utils/invite.js').captureInviteFromOptions(options) } catch (e) {}
+    }
+    // 主题预热：只注册监听；浅色窗口背景等 storage 预热完成后再补，避免启动路径 getStorageSync
     try {
-      const themeUtil = require('./utils/theme.js')
-      themeUtil.initSystemThemeListener()
-      if (themeUtil.isLightSync()) themeUtil.syncWindowBackground()
+      require('./utils/theme.js').initSystemThemeListener()
     } catch (e) {}
-    // 异步批量预热热点 key：10 次 getStorageSync 串行同步读会阻塞首帧，
-    // 改为 wx.getStorage 并行预热；预热完成前个别消费方自行做单 key 同步读兜底
-    try { storageCache.warmManyAsync() } catch (e) {}
     this.initTabBarUiCache()
     this.initPrivacyAuthorization()
     this.initAgentHandoff()
@@ -113,8 +128,10 @@ App({
         setTimeout(() => {
           try { require('./utils/api-cache-clean.js').cleanExpiredApiCache() } catch (e) {}
           try { require('./utils/icon-cache.js').preloadStaticMediaUrls() } catch (e) {}
-          // 仅预热 membership 模块缓存；模块缓存是全站唯一权威，无需再落 globalData
-          require('./utils/membership.js').getMembershipState().catch(() => {})
+          const membership = require('./utils/membership.js')
+          if (!membership.hasFreshMembershipState()) {
+            membership.getMembershipState().catch(() => {})
+          }
           try { require('./utils/feature-flags.js').fetchMainConfig() } catch (e) {}
           const demoEngine = require('./utils/demo-engine.js')
           demoEngine.initDemoEngine().then(() => {
@@ -224,11 +241,25 @@ App({
       this._privacyTapGuardUntil = 0
       this._deferSyncCarouselForPrivacyOverlay()
     }, span)
-    this._deferSyncCarouselForPrivacyOverlay()
+    this._scheduleCarouselPrivacySync(true)
   },
 
   setPrivacyModalVisible(visible) {
     this.globalData.privacyModalVisible = !!visible
+    this._scheduleCarouselPrivacySync(!!visible)
+  },
+
+  setNetChangeModalVisible(visible) {
+    this.globalData.netChangeModalVisible = !!visible
+    this._scheduleCarouselPrivacySync(!!visible)
+  },
+
+  _scheduleCarouselPrivacySync(lockNow) {
+    if (lockNow) {
+      this._carouselPrivacySyncScheduled = false
+      this._syncCarouselForPrivacyOverlay()
+      return
+    }
     this._deferSyncCarouselForPrivacyOverlay()
   },
 
@@ -249,6 +280,9 @@ App({
       const page = pages.length ? pages[pages.length - 1] : null
       if (!page) return
       const hold = this.isPrivacyTapGuarded()
+      if (typeof page.setData === 'function' && (!page.data || page.data.carouselGestureLocked !== hold)) {
+        page.setData({ carouselGestureLocked: hold })
+      }
       if (hold) {
         if (typeof page._deactivateCarouselVideos === 'function') {
           page._deactivateCarouselVideos()
@@ -520,7 +554,9 @@ App({
       showProgressDot: false,
       showProfileDot: false,
       showNewsDot: false,
-      showAddDesktopStrip: this.readAddDesktopStripVisibleSync(),
+      showAddDesktopStrip: storageCache.isLoaded(TABBAR_DESKTOP_STRIP_SNOOZE_KEY)
+        ? this.readAddDesktopStripVisibleSync()
+        : true,
       navPlaceholderHeight: (layout && layout.navPlaceholderHeight) || 0
     }
   },
@@ -537,13 +573,16 @@ App({
   },
 
   onShow(options) {
+    markAppShown(this, Date.now())
     this.refreshUiShellLayout()
     // 激励视频等全屏层关闭后，自定义导航下偶发胶囊不恢复；回前台时读一次胶囊矩形做轻量唤醒
     try {
       wx.getMenuButtonBoundingClientRect()
     } catch (e) {}
     // 热启动从分享卡片进入时 onLaunch 不触发，这里兜底截获 inviter
-    try { require('./utils/invite.js').captureInviteFromOptions(options) } catch (e) {}
+    if (options && options.query && options.query.inviter) {
+      try { require('./utils/invite.js').captureInviteFromOptions(options) } catch (e) {}
+    }
     setTimeout(() => {
       try {
         const { trackDailyOpen } = require('./utils/behavior-stats.js')
@@ -553,6 +592,13 @@ App({
         wx.getMenuButtonBoundingClientRect()
       } catch (e) {}
     }, 0)
+  },
+
+  onHide() {
+    // 真切到后台（不是切 Tab）：下次回前台由首页对比开屏 updatedAt，
+    // 各页用 _appHiddenAt / _foregroundSeq 做静默数据对齐（切 Tab 不走这里）
+    this._splashNeedResumeCheck = true
+    markAppHidden(this, Date.now())
   },
 
   checkProgressDot(tabBar) {
@@ -659,7 +705,13 @@ App({
 
   
   _fetchNewsManualLatestUpdatedAtFromCloud(done) {
-    const finish = (ts) => done && done(Number(ts) || 0)
+    const finish = (ts) => {
+      if (ts === undefined) {
+        done && done(undefined)
+        return
+      }
+      done && done(Number(ts) || 0)
+    }
 
     const tryDbSimpleLimit = () => {
       if (!wx.cloud || !wx.cloud.database) {
@@ -718,7 +770,7 @@ App({
       .then((res) => {
         const r = (res && res.result) || {}
         if (r.success !== true) {
-          tryDbOrderByUpdated()
+          finish(undefined)
           return
         }
         if (!r.enabled) {
@@ -727,17 +779,9 @@ App({
         }
         const items = Array.isArray(r.items) ? r.items : []
         const maxTs = this._maxManualUpdatedTsFromDocs(items)
-        if (maxTs > 0) {
-          finish(maxTs)
-          return
-        }
-        if (items.length === 0) {
-          finish(0)
-          return
-        }
-        tryDbOrderByUpdated()
+        finish(maxTs || 0)
       })
-      .catch(() => tryDbOrderByUpdated())
+      .catch(() => finish(undefined))
   },
 
   /** 拉取「后台手动文章」最新更新时间（带缓存 + 并发去重，供 Tab 红点与新闻页导航红点共用） */
@@ -757,6 +801,10 @@ App({
     _dedupAsync('newsManualLatest', (resolve) => {
       const fromCloud = () => {
         this._fetchNewsManualLatestUpdatedAtFromCloud((ts) => {
+          if (ts === undefined) {
+            resolve(_memNewsManualDotCache ? _memNewsManualDotCache.updatedAtMax : 0)
+            return
+          }
           const cacheObj = { updatedAtMax: ts || 0, ts: Date.now() }
           _memNewsManualDotCache = cacheObj
           try { wx.setStorage({ key: NEWS_MANUAL_DOT_CACHE_KEY, data: cacheObj, fail: () => {} }) } catch (e) {}
@@ -949,6 +997,7 @@ App({
     needPrivacyAuthorization: false,
     privacyGateActive: false,
     privacyModalVisible: false,
+    netChangeModalVisible: false,
     /** 开屏动画展示中（开屏层自身全屏遮挡，禁触遮罩让位，否则吞掉「跳过」点击） */
     splashActive: false,
     demoMode: false,

@@ -29,7 +29,9 @@ for (const f of files) {
 
 console.log('== 跳转绑定 ==')
 const row = read('subpackages/progress-extra/event-intel-row.wxml')
-const related = read('subpackages/progress-extra/event-related-launch.wxml')
+const relatedPath = 'subpackages/progress-extra/event-related-launch.wxml'
+const relatedGone = !fs.existsSync(path.join(ROOT, relatedPath))
+const related = relatedGone ? '' : read(relatedPath)
 const list = read('subpackages/progress-extra/event-detail.wxml')
 const updatesWxml = read('subpackages/progress-extra/components/event-updates/index.wxml')
 const updatesJs = read('subpackages/progress-extra/components/event-updates/index.js')
@@ -46,8 +48,8 @@ if (row.includes('event-related-card') || row.includes('relatedLaunchId')) {
   bad('关键词行仍夹着对应发射卡')
 } else ok('关键词行不再夹对应发射卡')
 
-if (related.includes('mission-list-card') || related.includes('onRelatedLaunchTap')) {
-  bad('event-related-launch.wxml 仍含任务卡，容易被再次当片段引入')
+if (!relatedGone) {
+  bad('event-related-launch.wxml 仍在，依赖分析会记成无依赖文件')
 } else ok('对应发射不再走独立片段')
 
 if (related.includes('catchtouchstart="stopPropagation"') ||

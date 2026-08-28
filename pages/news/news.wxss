@@ -14,6 +14,7 @@
 
 /* 顶部导航栏：上内边距加大，避免与右上角胶囊碰撞；整体下移 */
 .top-nav {
+  position: relative;
   display: flex;
   justify-content: center;
   align-items: center;

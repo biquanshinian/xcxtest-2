@@ -7,6 +7,7 @@
   <!-- 顶部导航栏 -->
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
     <view class="top-nav top-nav--page-center">
+      <nav-ai-search />
       <text class="nav-title nav-title--page-center">星舰进度</text>
     </view>
   </view>

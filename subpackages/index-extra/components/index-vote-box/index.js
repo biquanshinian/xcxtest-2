@@ -11,6 +11,7 @@ Component({
     activeType: { type: String, value: 'ontime' },
     total: { type: Number, value: 0 },
     myVote: { type: String, value: '' },
+    typeVoted: { type: Boolean, value: false },
     vote: { type: Object, value: {} },
     countryDisplay: { type: String, value: '' },
     gePct: { type: Number, value: 0 },

@@ -44,6 +44,7 @@
     show-location="{{false}}"
     enable-satellite="{{enableSatellite}}"
     setting="{{mapSetting}}"
+    bindtap="onMapTap"
   />
 
   <view class="sn-state glass-card" wx:if="{{loading || errorText}}">
@@ -54,7 +55,7 @@
     </view>
   </view>
 
-  <view class="panel sn-panel glass-card {{panelCollapsed ? 'panel--collapsed' : ''}}" wx:if="{{!loading && !errorText}}">
+  <view class="panel sn-panel glass-card {{panelCollapsed ? 'panel--collapsed' : ''}}" wx:if="{{!loading && !errorText && !selectedNotice}}">
     <view class="panel-header">
       <view class="sn-head-main">
         <text class="panel-title">{{chinaView ? '中国航警公告' : '通告图层'}}</text>
@@ -143,15 +144,9 @@
           <view class="sn-chip-dot sn-chip-dot--soon"></view>
           <text>预警{{stats.soon ? ' ' + stats.soon : ''}}</text>
         </view>
-        <view class="sn-chip {{showEnded ? 'sn-chip--on' : ''}}" data-key="showEnded" bindtap="toggleLayer">
-          <text>结束{{stats.ended ? ' ' + stats.ended : ''}}</text>
-        </view>
-        <view class="sn-chip {{showCancelled ? 'sn-chip--on' : ''}}" data-key="showCancelled" bindtap="toggleLayer">
-          <text>取消{{stats.cancelled ? ' ' + stats.cancelled : ''}}</text>
-        </view>
       </view>
 
-      <text class="sn-note">{{chinaView ? '每条先看情报区和编号。橙虚线是尚未开始的窗口。时间按你手机时区（国内即北京时间）。' : (hasTrajectory ? '黄线与 space-notices.com Trajectory 同源（Ship 40）。橙虚线 = 尚未生效的提前预警。点通告可高亮并定位，切「发射区」聚焦场区细节。' : '橙虚线 = 尚未生效的提前预警。本任务无飞行轨迹数据；地图展示 NOTAM / 航海危险区多边形。点通告可高亮并定位。')}}</text>
+      <text class="sn-note">{{chinaView ? '点地图上的红色/橙色危险区，会弹出该航警信息。橙虚线是尚未开始的窗口。时间按你手机时区（国内即北京时间）。' : (hasTrajectory ? '点危险区可查看该航警。黄线与 space-notices.com Trajectory 同源（Ship 40）。橙虚线 = 尚未生效的提前预警。切「发射区」聚焦场区细节。' : '点危险区可查看该航警。橙虚线 = 尚未生效的提前预警。本任务无飞行轨迹数据；地图展示 NOTAM / 航海危险区多边形。')}}</text>
 
       <scroll-view scroll-y class="sn-list" enhanced="{{true}}" show-scrollbar="{{false}}">
         <view
@@ -183,50 +178,83 @@
     </block>
   </view>
 
-  <view class="sn-mask" wx:if="{{selectedNotice}}" bindtap="minimizeDetail" catchtouchmove="noop"></view>
-  <view class="sn-sheet glass-card" wx:if="{{selectedNotice}}">
-    <view class="sn-sheet-grip"></view>
-    <view class="sn-sheet-head">
-      <view class="sn-sheet-title-wrap">
-        <text class="sn-sheet-title">{{selectedNotice.name}}</text>
-        <text class="sn-sheet-sub">{{selectedNotice.typeLabel}}{{selectedNotice.sourceName ? ' · ' + selectedNotice.sourceName : ''}}</text>
-      </view>
-      <view class="sn-sheet-close" bindtap="closeDetail"><text>关闭</text></view>
+  <view class="sn-card-float glass-card" wx:if="{{selectedNotice}}">
+    <view class="sn-card-head">
+      <text class="sn-card-head-title">{{chinaView ? (selectedNotice.displayName || 'NOTAM 信息') : 'NOTAM 信息'}}</text>
+      <view class="sn-card-head-close" bindtap="closeDetail"><text>关闭</text></view>
     </view>
-
-    <view class="sn-sheet-tags">
-      <view class="sn-tag sn-tag--{{selectedNotice.statusTone}}" wx:if="{{selectedNotice.statusText}}">
-        <text>{{selectedNotice.statusText}}</text>
-      </view>
-      <view class="sn-tag sn-tag--plain" wx:if="{{selectedNotice.firLabel}}"><text>{{selectedNotice.firLabel}}</text></view>
-      <view class="sn-tag sn-tag--plain" wx:if="{{selectedNotice.hasGeo}}"><text>已在地图高亮</text></view>
-      <view class="sn-tag sn-tag--off" wx:else><text>无坐标图形</text></view>
-    </view>
-
-    <scroll-view scroll-y class="sn-sheet-scroll" enhanced="{{true}}" show-scrollbar="{{false}}">
-      <view class="sn-sheet-block" wx:if="{{selectedNotice.leadText}}">
-        <text class="sn-sheet-label">提前预警</text>
-        <text class="sn-sheet-text">{{selectedNotice.leadText}}，窗口开始后自动改为生效中。</text>
-      </view>
-      <view class="sn-sheet-block" wx:if="{{selectedNotice.reason}}">
-        <text class="sn-sheet-label">说明</text>
-        <text class="sn-sheet-text">{{selectedNotice.reason}}</text>
-      </view>
-      <view class="sn-sheet-block" wx:if="{{selectedNotice.windows.length}}">
-        <text class="sn-sheet-label">{{chinaView ? '生效窗口（北京时间）' : '生效窗口（本地时间）'}}</text>
-        <view class="sn-win" wx:for="{{selectedNotice.windows}}" wx:key="i">
-          <text>{{item.text}}</text>
+    <scroll-view scroll-y class="sn-kv" enhanced="{{true}}" show-scrollbar="{{false}}">
+      <view class="sn-kv-row" wx:if="{{selectedNotice.durationText}}">
+        <text class="sn-kv-k">持续时间</text>
+        <view class="sn-kv-vwrap">
+          <text class="sn-kv-v">{{selectedNotice.durationText}}</text>
+          <text class="sn-kv-sub" wx:if="{{selectedNotice.durationSub}}">{{selectedNotice.durationSub}}</text>
         </view>
       </view>
-      <view class="sn-sheet-block" wx:if="{{selectedNotice.rawLines.length}}">
-        <text class="sn-sheet-label">通告原文</text>
-        <text class="sn-sheet-raw" wx:for="{{selectedNotice.rawLines}}" wx:key="i">{{item.text}}</text>
+      <view class="sn-kv-grid">
+        <view class="sn-kv-cell">
+          <text class="sn-kv-k">来源</text>
+          <text class="sn-kv-v">{{selectedNotice.sourceLabel || selectedNotice.typeShort}}</text>
+        </view>
+        <view class="sn-kv-cell" wx:if="{{selectedNotice.firLabel || selectedNotice.fir}}">
+          <text class="sn-kv-k">飞行情报区</text>
+          <text class="sn-kv-v">{{selectedNotice.firLabel || selectedNotice.fir}}</text>
+        </view>
+        <view class="sn-kv-cell" wx:if="{{selectedNotice.notamId}}">
+          <text class="sn-kv-k">航警编号</text>
+          <text class="sn-kv-v">{{selectedNotice.notamId}}</text>
+        </view>
+        <view class="sn-kv-cell" wx:if="{{selectedNotice.altText}}">
+          <text class="sn-kv-k">航警高度</text>
+          <text class="sn-kv-v">{{selectedNotice.altText}}</text>
+        </view>
+      </view>
+      <view class="sn-kv-row" wx:if="{{selectedNotice.notamKind}}">
+        <text class="sn-kv-k">情报种类</text>
+        <text class="sn-kv-v">{{selectedNotice.notamKind}}</text>
+      </view>
+      <view class="sn-kv-row" wx:if="{{selectedNotice.qCode}}">
+        <text class="sn-kv-k">Q码</text>
+        <text class="sn-kv-v">{{selectedNotice.qCode}}{{selectedNotice.qSummary ? ' · ' + selectedNotice.qSummary : ''}}</text>
+      </view>
+      <view class="sn-kv-row" wx:if="{{selectedNotice.centerText}}">
+        <text class="sn-kv-k">中心点</text>
+        <text class="sn-kv-v">{{selectedNotice.centerText}}</text>
+      </view>
+      <view class="sn-kv-row" wx:if="{{selectedNotice.radiusText}}">
+        <text class="sn-kv-k">影响半径</text>
+        <text class="sn-kv-v">{{selectedNotice.radiusText}}</text>
+      </view>
+      <view class="sn-kv-row" wx:if="{{selectedNotice.scheduleText}}">
+        <text class="sn-kv-k">时间计划</text>
+        <text class="sn-kv-v">{{selectedNotice.scheduleText}}</text>
+      </view>
+      <view class="sn-kv-row" wx:if="{{selectedNotice.activityText}}">
+        <text class="sn-kv-k">活动说明</text>
+        <text class="sn-kv-v">{{selectedNotice.activityText}}</text>
+      </view>
+      <view class="sn-kv-row" wx:if="{{selectedNotice.coordCount}}">
+        <text class="sn-kv-k">划线坐标</text>
+        <text class="sn-kv-v">{{selectedNotice.coordCount}} 个顶点</text>
+      </view>
+      <view class="sn-kv-row" wx:if="{{selectedNotice.leadText}}">
+        <text class="sn-kv-k">提前预警</text>
+        <text class="sn-kv-v">{{selectedNotice.leadText}}，窗口开始后自动改为生效中。</text>
+      </view>
+      <view class="sn-kv-row" wx:if="{{selectedNotice.statusText}}">
+        <text class="sn-kv-k">状态</text>
+        <text class="sn-kv-v">{{selectedNotice.statusText}}{{selectedNotice.hasGeo ? ' · 已划线' : ' · 无坐标'}}</text>
       </view>
     </scroll-view>
-
-    <view class="sn-sheet-actions">
-      <view class="sn-btn sn-btn--ghost" bindtap="copySourceLink"><text>复制来源</text></view>
-      <view class="sn-btn sn-btn--primary" bindtap="copyRawText"><text>复制原文</text></view>
+    <view class="sn-card-raw-toggle" wx:if="{{selectedNotice.rawLines.length}}" bindtap="toggleRaw">
+      <text>{{showRaw ? '收起原文' : '查看原文'}}</text>
+    </view>
+    <scroll-view scroll-y class="sn-card-raw" wx:if="{{showRaw && selectedNotice.rawLines.length}}" enhanced="{{true}}" show-scrollbar="{{false}}">
+      <text class="sn-sheet-raw" wx:for="{{selectedNotice.rawLines}}" wx:key="i">{{item.text}}</text>
+    </scroll-view>
+    <view class="sn-card-actions">
+      <view class="sn-btn sn-btn--ghost" bindtap="copyCoords"><text>复制坐标</text></view>
+      <view class="sn-btn sn-btn--primary" bindtap="copyRawText"><text>复制原始航警</text></view>
     </view>
   </view>
 

@@ -44,6 +44,7 @@
   <!-- 顶部导航栏（包含状态栏） -->
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
     <view class="top-nav">
+    <nav-ai-search />
     <view
       wx:if="{{showPhotosNav}}"
       class="nav-button {{contentType === 'photos' ? 'active' : ''}} nav-button--photos"

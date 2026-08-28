@@ -2589,11 +2589,28 @@ function formatOaNetChangeDateField(fieldKey, timeOaFull) {
   return m ? m[1] : full
 }
 
+function isOaDateTimeFieldKey(fieldKey) {
+  return /^(time|date)/i.test(String(fieldKey || ''))
+}
+
+/** 项目名称加上「·待定」，服务号首行不出现假日期 */
+function withOaPendingMark(name) {
+  var s = String(name || '').trim()
+  if (!s) s = '未知任务'
+  if (/待定/.test(s)) return toOaThingValue(s, '时间待定')
+  return toOaThingValue(s + '·待定', '时间待定')
+}
+
 function buildOaNetChangeTemplateData(opts) {
   var keys = (opts && opts.fieldKeys) || {}
+  var untrusted = !!(opts && opts.newTimeUntrusted)
   var data = {}
   if (keys.mission) {
-    data[keys.mission] = { value: toOaThingValue(opts.missionName, '未知任务') }
+    data[keys.mission] = {
+      value: untrusted
+        ? withOaPendingMark(opts.missionName)
+        : toOaThingValue(opts.missionName, '未知任务')
+    }
   }
   if (keys.oldDate) {
     data[keys.oldDate] = {
@@ -2601,8 +2618,16 @@ function buildOaNetChangeTemplateData(opts) {
     }
   }
   if (keys.newDate) {
-    data[keys.newDate] = {
-      value: formatOaNetChangeDateField(keys.newDate, opts.newTimeOa)
+    if (untrusted) {
+      // 日期/时间槽只能填合法日期，填 9/30 占位会诱导；thing 槽可写「时间待定」。
+      // time/date 槽不填占位 NET，缺省该字段（若微信强制必填会 47003，弹窗仍是诚实通道）。
+      if (!isOaDateTimeFieldKey(keys.newDate)) {
+        data[keys.newDate] = { value: toOaThingValue('时间待定', '时间待定') }
+      }
+    } else {
+      data[keys.newDate] = {
+        value: formatOaNetChangeDateField(keys.newDate, opts.newTimeOa)
+      }
     }
   }
   if (keys.reason) {

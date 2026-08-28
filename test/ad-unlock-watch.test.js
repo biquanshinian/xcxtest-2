@@ -43,3 +43,62 @@ test('minWatchSec=15：看完或前台满 15 秒才算过', () => {
   assert.equal(qualifyRewardedAdClose({ isEnded: false }, { minWatchSec: 15, watchedMs: 15000 }), true)
   assert.equal(qualifyRewardedAdClose({ isEnded: false }, { minWatchSec: 15, watchedMs: -5 }), false)
 })
+
+function delay(ms) {
+  return new Promise(function (resolve) {
+    setTimeout(resolve, ms)
+  })
+}
+
+function loadAdUnlockWithMockAd(adFactory) {
+  const id = require.resolve('../utils/ad-unlock.js')
+  delete require.cache[id]
+  global.getCurrentPages = function () {
+    return [{ route: 'pages/index/index' }]
+  }
+  global.wx = Object.assign({}, global.wx || {}, {
+    showToast() {},
+    getMenuButtonBoundingClientRect() {},
+    getWindowInfo() {},
+    createRewardedVideoAd: adFactory
+  })
+  return require('../utils/ad-unlock.js')
+}
+
+test('广告关闭后复用实例，不立刻 destroy', async () => {
+  let destroyCount = 0
+  let loadCount = 0
+  let closeHandler = null
+  const ad = {
+    show() { return Promise.resolve() },
+    load() {
+      loadCount += 1
+      return Promise.resolve()
+    },
+    destroy() { destroyCount += 1 },
+    onError() {},
+    onClose(cb) { closeHandler = cb },
+    offClose() {},
+    offError() {},
+    offLoad() {}
+  }
+  const mod = loadAdUnlockWithMockAd(function () { return ad })
+  const p = mod.showRewardedVideoAd({ successToast: '', failToast: '', holdMs: 0 })
+  await delay(400)
+  assert.equal(typeof closeHandler, 'function')
+  closeHandler({ isEnded: true })
+  const ok = await p
+  assert.equal(ok, true)
+  assert.equal(destroyCount, 0)
+  assert.ok(loadCount >= 1)
+  delete require.cache[require.resolve('../utils/ad-unlock.js')]
+})
+
+test('createRewardedVideoAd 抛错时不向外冒泡', async () => {
+  const mod = loadAdUnlockWithMockAd(function () {
+    throw new TypeError("Cannot read properties of undefined (reading 'adProxy')")
+  })
+  const ok = await mod.showRewardedVideoAd({ successToast: '', failToast: '', holdMs: 0 })
+  assert.equal(ok, false)
+  delete require.cache[require.resolve('../utils/ad-unlock.js')]
+})

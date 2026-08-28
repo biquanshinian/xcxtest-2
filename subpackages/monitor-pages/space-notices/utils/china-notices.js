@@ -40,17 +40,16 @@ const FIR_LABEL = {
 }
 
 const CHINA_BBOX = { minLon: 73, maxLon: 140, minLat: 0, maxLat: 54 }
-/** 初始中心；完整国土靠 mapContext.includePoints，不靠 scale 4（会只剩中部几省） */
+/** 初始中心；完整国土靠 include-points 四至，不靠 scale 4（会只剩中部几省） */
 const CHINA_VIEW = { latitude: 36, longitude: 104, scale: 3 }
-/** 属性上不套大框，避免首屏 include-points 把矮窗口拽到赤道 */
-const CHINA_INCLUDE_POINTS = []
-/** 大陆四至：南海南、北漠河、西喀什、东抚远 */
+/** 大陆四至：南海南、北漠河、西喀什、东抚远（不含赤道溅落区） */
 const CHINA_FIT_POINTS = [
   { latitude: 18.2, longitude: 73.6 },
   { latitude: 53.5, longitude: 73.6 },
   { latitude: 53.5, longitude: 135 },
   { latitude: 18.2, longitude: 135 }
 ]
+const CHINA_INCLUDE_POINTS = CHINA_FIT_POINTS
 
 function fitChinaPreviewMap(ctx, padding) {
   if (!ctx || typeof ctx.includePoints !== 'function') return

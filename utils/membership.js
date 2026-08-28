@@ -91,6 +91,7 @@ const CACHE_KEY = '_membership_state'
 const CACHE_TTL = 10 * 60 * 1000 // 10 分钟
 
 const storageCache = require('./storage-sync-cache.js')
+const vpayIos = require('./vpay-ios.js')
 
 // 内存缓存
 let _memState = null
@@ -128,7 +129,8 @@ function getMembershipState(forceRefresh) {
   var reqId = ++_memStateReqSeq
   var promise = wx.cloud.callFunction({
     name: 'membership',
-    data: { action: 'getState' }
+    data: { action: 'getState' },
+    timeout: 4000
   }).then(function (res) {
     var state = (res && res.result && res.result.data) || _getDefaultState()
     // 仅最新一次请求可写入缓存（防止支付后 forceRefresh 结果被更早的旧请求覆盖回 Free）
@@ -238,7 +240,6 @@ async function recordAiChatUse() {
 function isProSync() {
   const cached = _readStateFromCache()
   if (cached) return isPro(cached)
-  getMembershipState().catch(function () {})
   return false
 }
 
@@ -251,7 +252,6 @@ function _wxLogin() {
   })
 }
 
-// iOS 端暂未接入 IAP，前端拦截避免下单报错；同时 gateCheck 走免费放行
 // 优先 wx.getDeviceInfo（基础库 2.20.1+，非废弃 API），回退 getSystemInfoSync
 function isIOS() {
   try {
@@ -268,26 +268,36 @@ function isIOS() {
   }
 }
 
+function mapVPayFail(e) {
+  const mapped = vpayIos.friendlyVPayError(e)
+  if (mapped && mapped.cancelled) {
+    return { success: false, cancelled: true }
+  }
+  return {
+    success: false,
+    title: (mapped && mapped.title) || '暂无法支付',
+    error: (mapped && mapped.error) || '支付未完成，请稍后重试'
+  }
+}
+
 async function _purchaseByVPayProductId(vpayProductId) {
   if (!vpayProductId) {
     return { success: false, error: '配置缺失' }
   }
-  if (isIOS()) {
+
+  const clientInfo = vpayIos.collectPayClientInfo()
+  // 设备就是 iOS 时必须上报 ios，避免 platform 异常导致服务端按安卓签沙箱 env（Apple 会报 -15011）
+  if (isIOS()) clientInfo.platform = 'ios'
+  const iosReady = vpayIos.checkIOSPayReady(clientInfo)
+  if (!iosReady.ok) {
     wx.showModal({
-      title: 'iOS暂不支持付费',
-      content:
-        '由于苹果对虚拟商品收取30%平台税，本小程序未在iOS端开通付费。\n\n' +
-        '你可以这样省30%：\n' +
-        '① 用Windows/Mac电脑微信扫码登录\n' +
-        '② 在电脑微信里打开「火星探索日志」\n' +
-        '③ 选择套餐完成支付\n\n' +
-        '同账号PRO权益自动同步到iOS端。',
-      confirmText: '我知道了',
+      title: '暂无法支付',
+      content: iosReady.message,
       showCancel: false
     })
-    return { success: false, error: 'ios_not_supported' }
+    return { success: false, error: iosReady.error }
   }
-  if (typeof wx.requestVirtualPayment !== 'function') {
+  if (!vpayIos.canCallRequestVirtualPayment(clientInfo)) {
     return { success: false, error: '当前版本不支持虚拟支付，请升级微信' }
   }
 
@@ -298,7 +308,12 @@ async function _purchaseByVPayProductId(vpayProductId) {
   try {
     res = await wx.cloud.callFunction({
       name: 'membership',
-      data: { action: 'createVPayOrder', vpayProductId: vpayProductId, code: code }
+      data: {
+        action: 'createVPayOrder',
+        vpayProductId: vpayProductId,
+        code: code,
+        platform: clientInfo.platform
+      }
     })
   } catch (e) {
     return { success: false, error: '下单失败，请稍后再试' }
@@ -310,7 +325,7 @@ async function _purchaseByVPayProductId(vpayProductId) {
 
   const outTradeNo = result.outTradeNo
 
-  // 调起虚拟支付
+  // 调起虚拟支付：平台按设备路由，Android/鸿蒙/Windows → 微信支付，iOS → Apple 支付
   return new Promise(function (resolve) {
     wx.requestVirtualPayment({
       mode: 'short_series_goods',
@@ -329,11 +344,7 @@ async function _purchaseByVPayProductId(vpayProductId) {
         resolve({ success: true, outTradeNo: outTradeNo })
       },
       fail: function (e) {
-        const msg = (e && e.errMsg) || ''
-        if (msg.indexOf('cancel') !== -1) {
-          return resolve({ success: false, cancelled: true })
-        }
-        resolve({ success: false, error: msg || '支付失败' })
+        resolve(mapVPayFail(e))
       }
     })
   })
@@ -407,6 +418,14 @@ function _readStateFromCache() {
   return null
 }
 
+/** 内存/本地 TTL 内有会员态：启动预热不必再 callFunction */
+function hasFreshMembershipState() {
+  if (_memState && (Date.now() - _memStateTs < CACHE_TTL)) return true
+  if (!storageCache.isLoaded(CACHE_KEY)) return false
+  var cachedEntry = storageCache.getMem(CACHE_KEY)
+  return !!(cachedEntry && cachedEntry.ts && cachedEntry.data && (Date.now() - cachedEntry.ts < CACHE_TTL))
+}
+
 function warmMembershipStateSync() {
   return _readStateFromCache()
 }
@@ -478,49 +497,6 @@ async function _showPurchaseDialog(productId, productName, opts) {
   })
 }
 
-function _showIOSPurchaseDialog(productName, productId, opts) {
-  var adUnlock = require('./ad-unlock.js')
-  var allowAd = !opts || opts.allowAd !== false
-  var adUnlockId = (opts && opts.adUnlockId) || productId
-  var itemList = allowAd
-    ? [adUnlock.getAdUnlockActionLabel(adUnlockId), '了解如何开通（其他端）']
-    : ['了解如何开通（其他端）']
-  var guideIdx = allowAd ? 1 : 0
-  return new Promise(function (resolve) {
-    wx.showActionSheet({
-      alertText:
-        (productName || '高级功能') +
-        (allowAd
-          ? ' · iOS暂不支持订阅\n可看广告试用，或在其他端开通后同账号同步'
-          : ' · iOS暂不支持订阅\n可在其他端开通后同账号同步'),
-      itemList: itemList,
-      success: function (res) {
-        if (allowAd && res.tapIndex === 0) {
-          adUnlock.showRewardedAdForUnlock(adUnlockId || '_ios_gate').then(resolve)
-          return
-        }
-        if (res.tapIndex === guideIdx) {
-          wx.showModal({
-            title: '如何开通星际通行证',
-            content:
-              '由于苹果对虚拟商品收取30%平台税，本小程序未在iOS端开通付费。\n\n' +
-              '① 在安卓/鸿蒙/Windows/PC端微信打开「火星探索日志」\n' +
-              '② 进入「我的 → 星际通行证」选择套餐\n' +
-              '③ 支付后同账号 PRO 权益自动同步回 iOS',
-            confirmText: '我知道了',
-            showCancel: false,
-            success: function () { resolve(false) },
-            fail: function () { resolve(false) }
-          })
-          return
-        }
-        resolve(false)
-      },
-      fail: function () { resolve(false) }
-    })
-  })
-}
-
 async function gateCheck(productId, productName, opts) {
   // 观礼通行证（现场扫码签发，限时）：有效期内免除全部功能门控
   try {
@@ -536,48 +512,6 @@ async function gateCheck(productId, productName, opts) {
   var allowAd = !opts || opts.allowAd !== false
   // 广告临时解锁（10 分钟）优先于购买引导
   if (allowAd && adUnlock.isUnlocked(adUnlockId)) return true
-
-  // iOS 端：仍走门控，但拦截时弹专属引导（让用户去电脑微信购买，不是直接放行）
-  // 注意：PRO 用户（从其他设备买的同账号）应该正常放行，所以这里要先看缓存/查云端
-  if (isIOS()) {
-    var cachedStateForIOS = _readStateFromCache()
-    if (cachedStateForIOS !== null) {
-      if (isPro(cachedStateForIOS)) return true
-      if (hasPurchased(cachedStateForIOS, productId)) return true
-      return _showIOSPurchaseDialog(productName, productId, { adUnlockId: adUnlockId, allowAd: allowAd })
-    }
-    // 缓存 miss：查一次云端，超时 fail-open
-    try {
-      var raceResultIOS = await new Promise(function (resolve) {
-        var settled = false
-        var timer = setTimeout(function () {
-          if (settled) return
-          settled = true
-          resolve({ timeout: true })
-        }, 700)
-        getMembershipState()
-          .then(function (s) {
-            if (settled) return
-            settled = true
-            clearTimeout(timer)
-            resolve({ state: s })
-          })
-          .catch(function () {
-            if (settled) return
-            settled = true
-            clearTimeout(timer)
-            resolve({ error: true })
-          })
-      })
-      if (raceResultIOS.timeout || raceResultIOS.error) return true // fail-open，避免冷启动卡 UI
-      var s = raceResultIOS.state
-      if (isPro(s)) return true
-      if (hasPurchased(s, productId)) return true
-      return _showIOSPurchaseDialog(productName, productId, { adUnlockId: adUnlockId, allowAd: allowAd })
-    } catch (e) {
-      return true
-    }
-  }
 
   // Fast-path：内存/本地缓存命中时立即决策，避免 loading 闪烁
   var cachedEnabled = _readEnabledFromCache()
@@ -857,6 +791,7 @@ module.exports = {
   canSaveOriginalVideoSync: canSaveOriginalVideoSync,
   warmMembershipStateSync: warmMembershipStateSync,
   warmMembershipStateAsync: warmMembershipStateAsync,
+  hasFreshMembershipState: hasFreshMembershipState,
   hasPurchased: hasPurchased,
   getAiChatRemaining: getAiChatRemaining,
   recordAiChatUse: recordAiChatUse,

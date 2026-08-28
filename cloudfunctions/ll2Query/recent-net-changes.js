@@ -19,8 +19,19 @@ function isCoarseNetPrecision(name) {
   return /^(day|week|month|quarter|half|year|decade)/.test(s)
 }
 
+/** 原 NET 已进入近窗（含已过）→ 临近任务真实推迟，TBD/粗精度也播报 */
+function isNetChangeOldNetNear(oldIso, nowMs) {
+  const oldMs = parseMs(oldIso)
+  if (!oldMs) return false
+  const now = Number(nowMs) || Date.now()
+  return oldMs - now <= NET_CHANGE_NEAR_WINDOW_MS
+}
+
 /** 与 sendLaunchReminder/pre-alert-gate.isNetChangeAnnouncable 对齐 */
-function isNetChangeAnnouncable(launch) {
+function isNetChangeAnnouncable(launch, ctx) {
+  const oldIso = (ctx && ctx.oldIso) || (launch && launch.previousNet) || ''
+  const nowMs = ctx && ctx.nowMs
+  if (isNetChangeOldNetNear(oldIso, nowMs)) return true
   const sid = launch && launch.statusId != null ? Number(launch.statusId) : 0
   if (sid === 2) return false
   if (isCoarseNetPrecision(launch && launch.netPrecision)) return false
@@ -56,7 +67,7 @@ function pickAnnouncableNetChanges(rows, nowMs) {
     if (!id || !newMs || !oldMs) continue
     if (Math.abs(newMs - oldMs) < CHANGE_TOLERANCE_MS) continue
     if (!isWithinOaNearWindow(oldIso, newIso, now)) continue
-    if (!isNetChangeAnnouncable(row)) continue
+    if (!isNetChangeAnnouncable(row, { oldIso: oldIso, nowMs: now })) continue
     out.push({
       id: id,
       launchTime: newIso,
@@ -110,6 +121,7 @@ async function listRecentNetChangesAction(db) {
 module.exports = {
   NET_CHANGE_NEAR_WINDOW_MS,
   CHANGE_TOLERANCE_MS,
+  isNetChangeOldNetNear,
   isNetChangeAnnouncable,
   isWithinOaNearWindow,
   pickAnnouncableNetChanges,

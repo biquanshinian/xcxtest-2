@@ -32,6 +32,15 @@ const SPACE_NOTICES_PRODUCT_NAME = '发射航警地图'
 /** 官网 https://space-notices.com/entry/collection-chinese-unknown */
 const CHINESE_COLLECTION_KEY = 'collection-chinese-unknown'
 
+/** 预览/中国合集默认视野：整块中国大陆 */
+const CHINA_VIEW = { latitude: 36, longitude: 104, scale: 3 }
+const CHINA_FIT_POINTS = [
+  { latitude: 18.2, longitude: 73.6 },
+  { latitude: 53.5, longitude: 73.6 },
+  { latitude: 53.5, longitude: 135 },
+  { latitude: 18.2, longitude: 135 }
+]
+
 /**
  * @returns {Promise<boolean>}
  */
@@ -116,6 +125,8 @@ module.exports = {
   FEATURE_FIELD,
   SPACE_NOTICES_PRODUCT_NAME,
   CHINESE_COLLECTION_KEY,
+  CHINA_VIEW,
+  CHINA_FIT_POINTS,
   STARSHIP_NOTICE_FALLBACK_KEY,
   isSpaceNoticesEnabled,
   isSpaceNoticesCodeEnabled,

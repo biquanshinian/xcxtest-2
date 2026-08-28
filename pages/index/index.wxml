@@ -75,7 +75,7 @@
 
 <!-- 日历 / 历史发射：普通卡片 -->
 <template name="missionCard">
-  <view class="mission-card glass-card card-hover mission-card-link mission-card--{{item.statusCategory || 'pending'}}" id="mission-card-{{item._wxkey || index}}" bindtap="viewMissionDetail" bindlongpress="onMissionLongPress" data-id="{{item.id}}" data-type="{{item._detailType}}" data-name="{{item.missionName || item.name || ''}}" data-rocket="{{item.rocketName || ''}}">
+  <view class="mission-card glass-card card-hover mission-card-link mission-card--{{item.statusCategory || 'pending'}}" id="mission-card-{{item._wxkey || index}}" bindtap="viewMissionDetail" bindlongpress="onMissionLongPress" data-id="{{item.id}}" data-type="{{item._detailType}}" data-name="{{item.missionName || item.name || ''}}" data-rocket="{{item.rocketName || ''}}" data-haptic-index="{{index}}">
     <template is="missionCardInner" data="{{item: item, index: index}}" />
   </view>
 </template>
@@ -113,7 +113,7 @@
       bindtouchcancel="onMissionSwipeTouchEnd"
       data-wxkey="{{item._wxkey}}"
     >
-      <view class="mission-card glass-card card-hover mission-card-link" bindtap="viewMissionDetail" bindlongpress="onMissionLongPress" data-id="{{item.id}}" data-type="{{item._detailType}}" data-name="{{item.missionName || item.name || ''}}" data-rocket="{{item.rocketName || ''}}">
+      <view class="mission-card glass-card card-hover mission-card-link" bindtap="viewMissionDetail" bindlongpress="onMissionLongPress" data-id="{{item.id}}" data-type="{{item._detailType}}" data-name="{{item.missionName || item.name || ''}}" data-rocket="{{item.rocketName || ''}}" data-haptic-index="{{index}}">
         <template is="missionCardInner" data="{{item: item, index: index}}" />
       </view>
     </view>
@@ -138,13 +138,10 @@
       <text class="compact-cd-time" wx:else></text>
     </view>
     <view class="top-nav">
-      <view
-        wx:if="{{showNavAiSearch}}"
-        class="nav-search-btn {{showCompactCountdown && missionType === 'upcoming' && !loadError ? 'nav-search-btn--hidden' : ''}}"
-        bindtap="openAISearch"
-      >
-        <text class="icon-search icon-search--nav">⌕</text>
-      </view>
+      <nav-ai-search
+        hidden="{{showCompactCountdown && missionType === 'upcoming' && !loadError}}"
+        bindsearch="closeMissionSwipeCells"
+      />
       <view class="nav-button nav-button--upcoming {{missionType === 'upcoming' ? 'active' : ''}}" bindtap="switchMissionType" data-type="upcoming">
         <text>{{langUpcoming}}</text>
       </view>
@@ -393,6 +390,7 @@
               active-type="{{activeVoteType}}"
               total="{{voteTotal}}"
               my-vote="{{myVote}}"
+              type-voted="{{typeVoted}}"
               vote="{{voteData}}"
               country-display="{{launchData.countryDisplay}}"
               ge-pct="{{voteGePct}}"
@@ -456,6 +454,7 @@
       carousel-items="{{carouselItems}}"
       mission-type="{{missionType}}"
       carousel-current="{{carouselCurrent}}"
+      gesture-locked="{{carouselGestureLocked}}"
       bind:imageerror="onCarouselImageError"
       bind:imageload="onCarouselImageLoad"
       bind:preview="previewCarouselImage"

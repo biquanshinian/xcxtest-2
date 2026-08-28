@@ -183,11 +183,29 @@ async function handleCheckin(openid, factId) {
 
 // ── 同步问答 ──
 async function handleSyncQuiz(openid, quizData) {
-  await getOrCreateProfile(openid)
+  const profile = await getOrCreateProfile(openid)
+  const incoming = quizData && typeof quizData === 'object' ? quizData : {}
+  const cloudQuiz = profile.quiz || {}
+  let maxDailyDelta = Infinity
+  if (cloudQuiz.lastQuizDate) {
+    const today = todayStr()
+    const from = Date.parse(String(cloudQuiz.lastQuizDate) + 'T00:00:00+08:00')
+    const to = Date.parse(today + 'T00:00:00+08:00')
+    const elapsedDays = (!isNaN(from) && !isNaN(to))
+      ? Math.max(0, Math.round((to - from) / 86400000))
+      : 1
+    maxDailyDelta = Math.max(1, elapsedDays)
+  } else if (profile.lastSyncAt) {
+    const elapsedDays = Math.ceil(Math.max(0, Date.now() - profile.lastSyncAt) / 86400000)
+    maxDailyDelta = elapsedDays + 1
+  } else {
+    maxDailyDelta = 1
+  }
+  const mergedQuiz = mergeQuiz(cloudQuiz, incoming, maxDailyDelta)
   await db.collection(COLLECTION).doc(openid).update({
-    data: { quiz: quizData }
+    data: { quiz: mergedQuiz }
   })
-  return { success: true }
+  return { success: true, quiz: mergedQuiz }
 }
 
 // ── 全量同步（本地 → 云端） ──
@@ -200,6 +218,10 @@ async function handleSyncAll(openid, localData) {
   if (profile.lastSyncAt) {
     const elapsedDays = Math.ceil(Math.max(0, Date.now() - profile.lastSyncAt) / 86400000)
     maxDailyDelta = elapsedDays + 1
+  } else if (profile.createdAt) {
+    // 首次同步也按档案创建距今的天数封顶，避免新号一次性上报虚高签到/答题去领 PRO
+    const elapsedDays = Math.ceil(Math.max(0, Date.now() - Number(profile.createdAt)) / 86400000)
+    maxDailyDelta = Math.max(1, elapsedDays + 1)
   }
 
   const mergedCheckin = mergeCheckin(profile.checkin, localData.checkin, maxDailyDelta)
@@ -1038,11 +1060,29 @@ function sortManualNewsRowsOnServer(rows, max) {
   return sorted.slice(0, max)
 }
 
+function parseRocket3dGlbKey(key) {
+  const m = /^models\/rockets\/([a-z0-9]+(?:-[a-z0-9]+)*)\.glb$/i.exec(String(key || '').split('?')[0])
+  return m ? m[1].toLowerCase() : ''
+}
+
+function ingestMediaAssetRow(item, map, credits, opts) {
+  const key = item && item.key != null ? String(item.key).trim() : ''
+  const url = item && typeof item.url === 'string' ? item.url.trim() : (item && item.url)
+  if (!key || !url) return false
+  const isNew = !Object.prototype.hasOwnProperty.call(map, key)
+  if (isNew || (opts && opts.overwrite)) map[key] = url
+  const slug = parseRocket3dGlbKey(key)
+  const credit = String((item && item.credit) || '').trim()
+  if (slug && credit) credits[slug] = credit
+  return isNew
+}
+
 /** 小程序媒体映射：一次下发 enabled 的 key→url（避免客户端 N 次分页读 media_assets） */
 async function handleGetMediaAssetsMap() {
   const MAX_ROWS = 1500
   const PAGE = 100
   const map = {}
+  const rocket3dCredits = {}
   let mapSize = 0
 
   // 主扫描：与旧版一致的单趟分页；集合未超容量时这是唯一的读开销
@@ -1052,7 +1092,7 @@ async function handleGetMediaAssetsMap() {
     const limit = Math.min(PAGE, MAX_ROWS - mapSize)
     const res = await db.collection('media_assets')
       .where({ enabled: true })
-      .field({ key: true, url: true })
+      .field({ key: true, url: true, credit: true })
       .orderBy('_id', 'asc')
       .skip(skip)
       .limit(limit)
@@ -1060,12 +1100,7 @@ async function handleGetMediaAssetsMap() {
 
     const rows = res.data || []
     rows.forEach((item) => {
-      const key = item && item.key != null ? String(item.key).trim() : ''
-      const url = item && typeof item.url === 'string' ? item.url.trim() : (item && item.url)
-      if (key && url && !map[key]) {
-        map[key] = url
-        mapSize += 1
-      }
+      if (ingestMediaAssetRow(item, map, rocket3dCredits)) mapSize += 1
     })
 
     skip += rows.length
@@ -1086,29 +1121,46 @@ async function handleGetMediaAssetsMap() {
           enabled: true,
           key: db.RegExp({ regexp: '^火箭配置图(/|-机娘/)', options: '' })
         })
-        .field({ key: true, url: true })
+        .field({ key: true, url: true, credit: true })
         .orderBy('_id', 'asc')
         .skip(rSkip)
         .limit(PAGE)
         .get()
       const rows = res.data || []
       rows.forEach((item) => {
-        const key = item && item.key != null ? String(item.key).trim() : ''
-        const url = item && typeof item.url === 'string' ? item.url.trim() : (item && item.url)
-        if (key && url && !map[key]) {
-          map[key] = url
-          added += 1
-        }
+        if (ingestMediaAssetRow(item, map, rocket3dCredits)) added += 1
       })
       rSkip += rows.length
       if (rows.length < PAGE) break
       if (rSkip > 2000) break
+    }
+
+    // 3D 模型很少且 _id 靠后，截断时单独补进 map
+    let mSkip = 0
+    while (mSkip < 400) {
+      const res = await db.collection('media_assets')
+        .where({
+          enabled: true,
+          key: db.RegExp({ regexp: '^models/rockets/', options: 'i' })
+        })
+        .field({ key: true, url: true, credit: true })
+        .orderBy('_id', 'asc')
+        .skip(mSkip)
+        .limit(PAGE)
+        .get()
+      const rows = res.data || []
+      rows.forEach((item) => {
+        ingestMediaAssetRow(item, map, rocket3dCredits, { overwrite: true })
+      })
+      mSkip += rows.length
+      if (rows.length < PAGE) break
     }
   }
 
   return {
     success: true,
     map,
+    rocket3dCredits,
     count: Object.keys(map).length,
     version: Date.now()
   }

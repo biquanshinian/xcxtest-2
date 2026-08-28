@@ -30,6 +30,54 @@ function testNewCount() {
   assert.strictEqual(intel.countNewItems(items, 0), 0)
 }
 
+function testRelatedLaunchRejectsWeakScore() {
+  const launches = [
+    {
+      id: 's11',
+      rocketName: 'Starship',
+      missionName: 'Flight 11',
+      launchTime: Date.now() + 10 * 3600 * 1000
+    },
+    {
+      id: 'f9a',
+      rocketName: 'Falcon 9',
+      missionName: 'Starlink Group 12-18',
+      launchTime: Date.now() + 8 * 3600 * 1000
+    },
+    {
+      id: 'f9b',
+      rocketName: 'Falcon 9',
+      missionName: 'Starlink Group 10-30',
+      launchTime: Date.now() + 20 * 3600 * 1000
+    }
+  ]
+  assert.strictEqual(intel.matchRelatedLaunch({
+    title: 'Starship looking good',
+    content: '星舰外观检查',
+    originalText: 'Starship looking good this morning'
+  }, launches), null, '只提火箭族名不合格')
+
+  assert.strictEqual(intel.matchRelatedLaunch({
+    title: 'Falcon 9 static fire',
+    content: '猎鹰9号静态点火',
+    originalText: 'Falcon 9 static fire complete'
+  }, launches), null, '只提 Falcon 9 不合格')
+
+  assert.strictEqual(intel.matchRelatedLaunch({
+    title: 'Starlink deployment',
+    content: '星链部署顺利',
+    originalText: 'Successful Starlink deployment',
+    source: 'Starlink',
+    author: 'Starlink自动追踪'
+  }, launches), null, '账号名或星座名不能当任务标识')
+
+  const groupHit = intel.matchRelatedLaunch({
+    content: 'Starlink Group 12-18 stacking',
+    originalText: 'Starlink Group 12-18 stacking at the cape'
+  }, launches)
+  assert.ok(groupHit && groupHit.id === 'f9a', '带 Group 编号才挂对应星链任务')
+}
+
 function testRelatedLaunchRequiresTextHit() {
   const launches = [
     {
@@ -298,8 +346,224 @@ function testDecorateFlattened() {
   assert.strictEqual(decorated.mediaKind, 'image')
 }
 
+function testRelatedLaunchChineseFlightNo() {
+  const launches = [
+    {
+      id: 's11',
+      rocketName: 'Starship',
+      rocketNameZh: '星舰',
+      missionName: 'Flight 11',
+      launchTime: Date.now() + 10 * 3600 * 1000
+    },
+    {
+      id: 's10',
+      rocketName: 'Starship',
+      rocketNameZh: '星舰',
+      missionName: 'Flight 10',
+      launchTime: Date.now() + 36 * 3600 * 1000
+    }
+  ]
+  const related = intel.matchRelatedLaunch({
+    content: '星舰第十次飞行窗口临近，静态点火完成',
+    originalText: ''
+  }, launches)
+  assert.ok(related && related.id === 's10', '中文「第十次」应对应 Flight 10')
+
+  assert.strictEqual(intel.matchRelatedLaunch({
+    content: '星舰静态点火画面',
+    originalText: ''
+  }, launches), null, '只有星舰二字不合格')
+}
+
+function testRelatedLaunchRejectsAmbiguousPair() {
+  const launches = [
+    {
+      id: 'k5',
+      rocketName: 'Falcon 9',
+      missionName: 'Kuiper 5',
+      launchTime: Date.now() + 12 * 3600 * 1000
+    },
+    {
+      id: 'k6',
+      rocketName: 'Falcon 9',
+      missionName: 'Kuiper 6',
+      launchTime: Date.now() + 40 * 3600 * 1000
+    }
+  ]
+  assert.strictEqual(intel.matchRelatedLaunch({
+    content: 'Falcon 9 Kuiper stacking',
+    originalText: 'Falcon 9 Kuiper stacking today'
+  }, launches), null, '两场 Kuiper 都沾边则不匹配')
+
+  const hit = intel.matchRelatedLaunch({
+    content: 'Kuiper 5 is GO for launch',
+    originalText: 'Kuiper 5 is GO for launch'
+  }, launches)
+  assert.ok(hit && hit.id === 'k5', '写明 Kuiper 5 才挂卡')
+}
+
+function testRelatedLaunchDigitBoundary() {
+  assert.strictEqual(intel.matchRelatedLaunch({
+    content: 'Starship Flight 10 stacking',
+    originalText: 'Starship Flight 10 stacking'
+  }, [{
+    id: 's1',
+    rocketName: 'Starship',
+    missionName: 'Flight 1',
+    launchTime: Date.now() + 86400000
+  }]), null, 'Flight 1 不能当前缀命中 Flight 10')
+
+  assert.strictEqual(intel.matchRelatedLaunch({
+    content: 'Transporter-15 is vertical',
+    originalText: 'Transporter-15 is vertical'
+  }, [{
+    id: 't1',
+    rocketName: 'Falcon 9',
+    missionName: 'Transporter-1',
+    launchTime: Date.now() + 86400000
+  }]), null, 'Transporter-1 不能当前缀命中 Transporter-15')
+
+  const t15 = intel.matchRelatedLaunch({
+    content: 'Transporter-15 is vertical',
+    originalText: 'Transporter-15 is vertical'
+  }, [
+    {
+      id: 't1',
+      rocketName: 'Falcon 9',
+      missionName: 'Transporter-1',
+      launchTime: Date.now() + 86400000
+    },
+    {
+      id: 't15',
+      rocketName: 'Falcon 9',
+      missionName: 'Transporter-15',
+      launchTime: Date.now() + 2 * 86400000
+    }
+  ])
+  assert.ok(t15 && t15.id === 't15', '完整 Transporter-15 应命中')
+
+  assert.strictEqual(intel.matchRelatedLaunch({
+    content: 'Starlink Group 10-30 stacking',
+    originalText: 'Starlink Group 10-30 stacking'
+  }, [{
+    id: 'g3',
+    rocketName: 'Falcon 9',
+    missionName: 'Starlink Group 10-3',
+    launchTime: Date.now() + 86400000
+  }]), null, 'Group 10-3 不能当前缀命中 10-30')
+}
+
+function testRelatedLaunchDateIsNotGroupId() {
+  assert.strictEqual(intel.matchRelatedLaunch({
+    content: 'Falcon 9 static fire 12-18 at the cape',
+    originalText: 'Falcon 9 static fire 12-18 at the cape'
+  }, [{
+    id: 'sl',
+    rocketName: 'Falcon 9',
+    missionName: 'Starlink Group 12-18',
+    launchTime: Date.now() + 86400000
+  }]), null, '日期 12-18 加 Falcon 9 不能当星链组号')
+
+  const zhGroup = intel.matchRelatedLaunch({
+    content: '星链组 12-18 正在叠箭',
+    originalText: ''
+  }, [{
+    id: 'sl',
+    rocketName: 'Falcon 9',
+    missionName: 'Starlink Group 12-18',
+    launchTime: Date.now() + 86400000
+  }])
+  assert.ok(zhGroup && zhGroup.id === 'sl', '中文星链组号应命中')
+}
+
+function testRelatedLaunchFlightNoNotLoosePhrase() {
+  const flight2 = [{
+    id: 's2',
+    rocketName: 'Starship',
+    missionName: 'Flight 2',
+    launchTime: Date.now() + 86400000
+  }]
+  assert.strictEqual(intel.matchRelatedLaunch({
+    content: '星舰第二次静态点火完成',
+    originalText: ''
+  }, flight2), null, '「第二次静态点火」不是 Flight 2')
+
+  assert.strictEqual(intel.matchRelatedLaunch({
+    content: 'Starship in flight 2 hours from landing',
+    originalText: 'Starship in flight 2 hours from landing'
+  }, flight2), null, 'flight 2 hours 不是 Flight 2')
+}
+
+function testRelatedLaunchUniquePayload() {
+  const hit = intel.matchRelatedLaunch({
+    content: 'CRS-33 is GO for tonight',
+    originalText: 'CRS-33 is GO for tonight'
+  }, [{
+    id: 'crs',
+    rocketName: 'Falcon 9',
+    missionName: 'CRS-33',
+    launchTime: Date.now() + 86400000
+  }])
+  assert.ok(hit && hit.id === 'crs', '唯一载荷代号应合格挂卡')
+
+  assert.strictEqual(intel.matchRelatedLaunch({
+    content: 'Amazon and Falcon 9 photos',
+    originalText: 'Amazon and Falcon 9 photos'
+  }, [{
+    id: 'k5',
+    rocketName: 'Falcon 9',
+    missionName: 'Kuiper 5',
+    launchTime: Date.now() + 86400000
+  }]), null, 'Amazon+Falcon 不能当 Kuiper 5')
+}
+
+function testRelatedLaunchIftAndChineseSerial() {
+  const ift = intel.matchRelatedLaunch({
+    content: 'IFT-10 static fire complete',
+    originalText: 'IFT-10 static fire complete'
+  }, [{
+    id: 's10',
+    rocketName: 'Starship',
+    missionName: 'Flight 10',
+    launchTime: Date.now() + 86400000
+  }])
+  assert.ok(ift && ift.id === 's10', 'IFT-10 应对应 Flight 10')
+
+  assert.strictEqual(intel.matchRelatedLaunch({
+    content: 'Flight 10 scrubbed, Flight 11 stacking',
+    originalText: 'Flight 10 scrubbed, Flight 11 stacking'
+  }, [
+    { id: 's10', rocketName: 'Starship', missionName: 'Flight 10', launchTime: Date.now() + 86400000 },
+    { id: 's11', rocketName: 'Starship', missionName: 'Flight 11', launchTime: Date.now() + 2 * 86400000 }
+  ]), null, '一文写两场则不分胜负、不挂卡')
+
+  const y1 = intel.matchRelatedLaunch({
+    content: 'Zhuque-3 Y1 launch window confirmed',
+    originalText: 'Zhuque-3 Y1 launch window confirmed'
+  }, [{
+    id: 'z',
+    rocketName: 'Zhuque-3',
+    missionName: 'Y1',
+    launchTime: Date.now() + 86400000
+  }])
+  assert.ok(y1 && y1.id === 'z', 'Y1 这类短编号应能挂卡')
+
+  const yao = intel.matchRelatedLaunch({
+    content: '长征八号甲遥二发射窗口确认',
+    originalText: ''
+  }, [{
+    id: 'cz',
+    rocketName: 'Long March 8A',
+    rocketNameZh: '长征八号甲',
+    missionName: '遥二',
+    launchTime: Date.now() + 86400000
+  }])
+  assert.ok(yao && yao.id === 'cz', '中文遥二应能挂卡')
+}
+
 testKeywordMatch()
 testNewCount()
+testRelatedLaunchRejectsWeakScore()
 testRelatedLaunchRequiresTextHit()
 testRelatedLaunchPicksNamedFlight()
 testRelatedLaunchKeepsUpcomingType()
@@ -311,5 +575,12 @@ testFavAnimateDoesNotRestoreFavorite()
 testHighlightPrefersTodaySignal()
 testKeywordPrefsMigration()
 testWatchSourcesNeedPaid()
+testRelatedLaunchChineseFlightNo()
+testRelatedLaunchRejectsAmbiguousPair()
+testRelatedLaunchDigitBoundary()
+testRelatedLaunchDateIsNotGroupId()
+testRelatedLaunchFlightNoNotLoosePhrase()
+testRelatedLaunchUniquePayload()
+testRelatedLaunchIftAndChineseSerial()
 testDecorateFlattened()
 console.log('event-feed-intel.test.js ok')

@@ -2,6 +2,7 @@
  * subpackages/index-extra/utils/index-splash.js
  * 首页开屏动画逻辑（从 pages/index/index.js 拆出）：
  * - 开屏配置：onLaunch 预拉（utils/splash-prefetch.js）+ 本地缓存池，首页短等即可
+ * - 热启动：从后台回首页时对比云端 updatedAt，有更新则重播（切 Tab 不播）
  * - 弱网（none/2g/3g/weakNet）且无本地片：即刻跳过，不挡首页
  * - 展示 / 倒计时 / 跳过 / 关闭、媒体预下载
  * - 开屏视频对非会员开放（压缩预览片）；仅省流/紧急流量档时非 Pro 降级封面
@@ -19,8 +20,17 @@ const {
   resolvePlay,
   pickSplashItem,
   reuseSplashDownload,
-  abortSplashPrefetchDownload
+  abortSplashPrefetchDownload,
+  fetchSplashConfig,
+  prepareSplashPrefetchForReplay,
+  getLastShownSplashUpdatedAt,
+  markSplashShownUpdatedAt
 } = require('../../../utils/splash-prefetch.js')
+const {
+  splashConfigUpdatedAt,
+  shouldReplaySplashOnResume,
+  selectSplashMediaPool
+} = require('../../../utils/splash-replay.js')
 const { isMembershipEnabled, isProSync, getMembershipState, isPro } = require('../../../utils/membership.js')
 const { getMemberPolicy } = require('../../../utils/member-policy.js')
 const {
@@ -451,19 +461,64 @@ function delayMs(ms) {
 }
 
 const methods = {
-  async loadSplashScreen() {
+  /** 从后台回前台：云端 updatedAt 比上次展示新则重播开屏（切 Tab 不触发） */
+  async maybeReplaySplashOnResume() {
+    const app = getApp()
+    if (!app || !app._splashNeedResumeCheck) return
+    if (this.data.splashVisible || this.data.splashFading || this._splashUiActive) {
+      app._splashNeedResumeCheck = false
+      return
+    }
+    if (!app._splashShownThisSession) return
+    if (this._splashReplayInflight) return
+    this._splashReplayInflight = true
     try {
-      // 用内存变量控制：冷启动时显示，切后台回来不重复显示
+      const cfg = await fetchSplashConfig()
+      if (!cfg) return
+      const cloudAt = splashConfigUpdatedAt(cfg)
+      const lastShown = getLastShownSplashUpdatedAt()
+      const replay = shouldReplaySplashOnResume({
+        splashVisible: this.data.splashVisible,
+        splashUiActive: this._splashUiActive,
+        splashFading: this.data.splashFading,
+        shownThisSession: true,
+        needResumeCheck: true,
+        cloudUpdatedAt: cloudAt,
+        lastShownUpdatedAt: lastShown
+      })
+      app._splashNeedResumeCheck = false
+      // 冷启动没记下版本时先打基线，避免以后永远比不出来；不在这一次叠播
+      if (!lastShown && cloudAt) markSplashShownUpdatedAt(cloudAt)
+      if (!replay) return
+      await this.loadSplashScreen({ replayCfg: cfg })
+    } catch (e) {
+      // 拉取失败保留标记，下次回首页再试
+    } finally {
+      this._splashReplayInflight = false
+    }
+  },
+
+  async loadSplashScreen(opts) {
+    try {
+      // 冷启动播一次；热启动仅 maybeReplaySplashOnResume 带 replayCfg 重入
       const app = getApp()
-      if (app._splashShownThisSession) return
+      const replayCfg = opts && opts.replayCfg ? opts.replayCfg : null
+      if (app._splashShownThisSession && !replayCfg) return
       app._splashShownThisSession = true
 
+      if (replayCfg) prepareSplashPrefetchForReplay(app, replayCfg)
       const prefetch = startSplashPrefetch(app)
       if (prefetch && prefetch.netPromise) {
         await Promise.race([prefetch.netPromise, delayMs(SPLASH_NET_PROBE_MS)])
       }
 
       let cached = (prefetch && prefetch.cached) || null
+      if (prefetch && prefetch.cachePromise && !cached) {
+        try {
+          await Promise.race([prefetch.cachePromise, delayMs(80)])
+        } catch (e) {}
+        cached = (prefetch && prefetch.cached) || null
+      }
       if (!cached) {
         try {
           cached = wx.getStorageSync(SPLASH_CACHE_KEY) || null
@@ -483,16 +538,16 @@ const methods = {
       )
       const lastSplashId = cached && cached.lastSplashId ? String(cached.lastSplashId) : ''
 
-      // ── 配置：优先用 onLaunch 预拉结果；有本地池则不再空等云端 ──
-      let cfg = prefetch && prefetch.cfg ? prefetch.cfg : null
-      if (!cfg && prefetch && prefetch.cfgPromise) {
+      // ── 配置：热启动重播已有最新云端；冷启动优先 onLaunch 预拉，有本地池则不再空等 ──
+      let cfg = replayCfg || (prefetch && prefetch.cfg ? prefetch.cfg : null)
+      if (!replayCfg && !cfg && prefetch && prefetch.cfgPromise) {
         const waitMs = cacheHasPool ? SPLASH_CFG_WAIT_CACHED_MS : SPLASH_CFG_WAIT_COLD_MS
         try {
           cfg = await Promise.race([prefetch.cfgPromise, delayMs(waitMs).then(() => null)])
         } catch (e) {
           cfg = null
         }
-      } else if (!cfg && wx.cloud && wx.cloud.database) {
+      } else if (!replayCfg && !cfg && wx.cloud && wx.cloud.database) {
         const waitMs = cacheHasPool ? SPLASH_CFG_WAIT_CACHED_MS : SPLASH_CFG_WAIT_COLD_MS
         try {
           const db = wx.cloud.database()
@@ -509,15 +564,13 @@ const methods = {
       if (prefetch && prefetch.skip && shouldSkipSplashForWeakNet(prefetch, cached)) return
 
       const cloudItems = normalizeItems(cfg)
-      // 优先云端完整池，其次本地池，最后旧单条
-      let pool = []
-      if (cloudItems.length > 1 || (cfg && Array.isArray(cfg.mediaItems) && cfg.mediaItems.length)) {
-        pool = cloudItems
-      } else if (cacheHasPool) {
-        pool = cachedItems
-      } else {
-        pool = cloudItems.length ? cloudItems : cachedItems
-      }
+      const pool = selectSplashMediaPool({
+        replay: !!replayCfg,
+        cfg,
+        cloudItems,
+        cacheHasPool,
+        cachedItems
+      })
 
       // 开关：云端优先；无云端时看本地缓存
       if (cfg) {
@@ -525,13 +578,17 @@ const methods = {
           try {
             wx.setStorageSync(SPLASH_CACHE_KEY, { enabled: false })
           } catch (e) {}
+          markSplashShownUpdatedAt(splashConfigUpdatedAt(cfg))
           return
         }
       } else if (cached && cached.enabled === false) {
         return
       }
 
-      if (!pool.length) return
+      if (!pool.length) {
+        if (cfg) markSplashShownUpdatedAt(splashConfigUpdatedAt(cfg))
+        return
+      }
 
       // 过审关闭 enableEventVideo：开屏不挑视频项，避免挂载 <video>
       const playbackOk = await isPlaybackAllowed().catch(() => false)
@@ -649,7 +706,8 @@ const methods = {
         countdown,
         missionName: resolved.missionName,
         launchId: resolved.launchId,
-        notice: splashNotice
+        notice: splashNotice,
+        updatedAt: splashConfigUpdatedAt(cfg) || splashConfigUpdatedAt(cached)
       })
       if (typeof this._releaseSplashCountdownGate === 'function') {
         this._releaseSplashCountdownGate(streamingRemote ? 500 : 0)
@@ -713,7 +771,8 @@ const methods = {
           originalUrl: resolved.originalUrl,
           playUrl: resolved.playUrl,
           previewUrl: picked && picked.previewUrl ? picked.previewUrl : '',
-          posterUrl: resolved.posterUrl
+          posterUrl: resolved.posterUrl,
+          updatedAt: splashConfigUpdatedAt(cfg) || splashConfigUpdatedAt(cached)
         },
         cached,
         {
@@ -734,6 +793,7 @@ const methods = {
           }
           const lateItems = normalizeItems(lateCfg)
           if (lateCfg && lateCfg.enabled !== false && lateItems.length) {
+            markSplashShownUpdatedAt(splashConfigUpdatedAt(lateCfg))
             const lateNotice = normalizeSplashNotice(lateCfg)
             this._cacheSplashMedia(
               {
@@ -755,7 +815,8 @@ const methods = {
                 originalUrl: resolved.originalUrl,
                 playUrl: resolved.playUrl,
                 previewUrl: picked && picked.previewUrl ? picked.previewUrl : '',
-                posterUrl: resolved.posterUrl
+                posterUrl: resolved.posterUrl,
+                updatedAt: splashConfigUpdatedAt(lateCfg)
               },
               wx.getStorageSync(SPLASH_CACHE_KEY) || cached,
               {
@@ -778,6 +839,7 @@ const methods = {
   _showSplash(opts) {
     if (this.data.splashVisible || this._splashUiActive) return
     this._splashUiActive = true
+    markSplashShownUpdatedAt(opts && opts.updatedAt)
     const mediaType = opts.mediaType || 'image'
     const mediaUrl = opts.mediaUrl || ''
     const posterUrl = opts.posterUrl || ''
@@ -1625,6 +1687,7 @@ const methods = {
       noticeLineGap: Number.isFinite(lgNum) ? Math.min(24, Math.max(0, Math.round(lgNum))) : 4,
       localPath: prev.localPath || '',
       localPaths: prevLocalPaths,
+      updatedAt: splashConfigUpdatedAt(cfg) || Number(prev.updatedAt) || 0,
       cachedAt: Date.now()
     }
     try {

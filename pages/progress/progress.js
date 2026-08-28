@@ -31,6 +31,7 @@ const {
   BRIEFING_PROGRESS_FILTER_SOURCE_KEY
 } = require('../../utils/page-storage-boot.js')
 const storageCache = require('../../utils/storage-sync-cache.js')
+const { LIST_REVALIDATE_MS, takeForegroundResume, shouldRevalidate } = require('../../utils/foreground-resume.js')
 
 const PROGRESS_LAST_VIEWED_KEY = '_progress_last_viewed'
 
@@ -249,6 +250,8 @@ Page({
   },
 
   onShow() {
+    const resume = takeForegroundResume(this)
+    this._foregroundResumeMs = resume.resumeMs
     // 主题兜底同步：在其他 Tab 切了主题后回到本 Tab
     themeUtil.applyThemeToPage(this)
     try {
@@ -290,10 +293,19 @@ Page({
         .catch(() => {})
       self._applyBriefingProgressFilter()
       self._consumeAutoOpenStarshipIntent({})
+      // 早报带筛选时 _applyBriefingProgressFilter 已经在打列表，不要再无筛选盖一层
+      if (
+        shouldRevalidate(self._foregroundResumeMs, LIST_REVALIDATE_MS) &&
+        !self._briefingFilterAppliedThisShow
+      ) {
+        try { storageCache.persistAsync(self._eventCacheKey, { data: [], timestamp: 0 }) } catch (eInv) {}
+        try { self.loadEventUpdates(true, undefined, { silent: true }) } catch (eEv) {}
+      }
     }, 0)
   },
 
   _applyBriefingProgressFilter() {
+    this._briefingFilterAppliedThisShow = false
     if (this._briefingFilterApplied) return
     this._briefingFilterApplied = true
     var briefingFilter = ''
@@ -301,6 +313,7 @@ Page({
     if (briefingClear) {
       storageCache.invalidate(BRIEFING_PROGRESS_FILTER_CLEAR_KEY)
       try { wx.removeStorage({ key: BRIEFING_PROGRESS_FILTER_CLEAR_KEY, fail: function () {} }) } catch (e) {}
+      this._briefingFilterAppliedThisShow = true
       this.loadEventUpdates(true, '')
       return
     }
@@ -308,6 +321,7 @@ Page({
     if (briefingFilter) {
       storageCache.invalidate(BRIEFING_PROGRESS_FILTER_SOURCE_KEY)
       try { wx.removeStorage({ key: BRIEFING_PROGRESS_FILTER_SOURCE_KEY, fail: function () {} }) } catch (e2) {}
+      this._briefingFilterAppliedThisShow = true
       this.loadEventUpdates(true, briefingFilter)
     }
   },

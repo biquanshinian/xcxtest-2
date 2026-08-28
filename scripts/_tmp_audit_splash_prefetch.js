@@ -26,6 +26,8 @@ check('prefetch 弱网类型含 2g/3g/none', /none:\s*true/.test(prefetch) && /'
 check('prefetch 监听 onNetworkWeakChange', /onNetworkWeakChange/.test(prefetch))
 check('prefetch 启动即拉配置', /starship_splash_config/.test(prefetch))
 check('prefetch 预拉预览片', /wx\.downloadFile/.test(prefetch))
+check('prefetch 启动不预热 media map', !/loadCloudMediaMap/.test(prefetch))
+check('prefetch 预解码首屏火箭配置图', /warmRocketImagesFromMissions/.test(prefetch))
 
 check('app.onLaunch 启动预拉', /splash-prefetch\.js/.test(appJs) && /startSplashPrefetch/.test(appJs))
 check('app.onLaunch 预下载 index-extra', /preloadSubpackage/.test(appJs) && /index-extra/.test(appJs))

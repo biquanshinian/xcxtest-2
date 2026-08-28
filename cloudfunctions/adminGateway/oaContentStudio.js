@@ -62,6 +62,10 @@ const {
   looksLikeLlmFallbackMarkdown,
   stripLlmFallbackNotice,
   looksLikeUnrewrittenSource,
+  isMostlyEnglishText,
+  isMostlyChineseText,
+  stripResidualEnglishParagraphs,
+  pickChineseTitle,
   sanitizeWxTitle,
   credentialMissingMsg,
   appendTimeline
@@ -174,7 +178,8 @@ function createOaContentStudioApi({
     if (!cfg.defaultBrandKey || !cfg.brands.some((b) => b.key === cfg.defaultBrandKey)) {
       cfg.defaultBrandKey = (cfg.brands.find((b) => b.enabled) || cfg.brands[0] || DEFAULT_BRANDS[0]).key
     }
-    cfg.linkAllImagesToMiniprogram = coerceBool(cfg.linkAllImagesToMiniprogram, true)
+    cfg.imageMiniprogramLinkMode = wechatApi.resolveImageMiniprogramLinkMode(cfg)
+    cfg.linkAllImagesToMiniprogram = cfg.imageMiniprogramLinkMode === 'all'
     cfg.leadDisclaimerEnabled = coerceBool(cfg.leadDisclaimerEnabled, true)
     {
       const leadRaw =
@@ -372,8 +377,14 @@ function createOaContentStudioApi({
     if (Object.prototype.hasOwnProperty.call(patch, 'autoFreepublish')) {
       patch.autoFreepublish = false
     }
-    if (Object.prototype.hasOwnProperty.call(patch, 'linkAllImagesToMiniprogram')) {
-      patch.linkAllImagesToMiniprogram = coerceBool(patch.linkAllImagesToMiniprogram, true)
+    if (Object.prototype.hasOwnProperty.call(patch, 'imageMiniprogramLinkMode')) {
+      const mode = wechatApi.normalizeImageMiniprogramLinkMode(patch.imageMiniprogramLinkMode)
+      patch.imageMiniprogramLinkMode = mode
+      patch.linkAllImagesToMiniprogram = mode === 'all'
+    } else if (Object.prototype.hasOwnProperty.call(patch, 'linkAllImagesToMiniprogram')) {
+      const on = coerceBool(patch.linkAllImagesToMiniprogram, true)
+      patch.linkAllImagesToMiniprogram = on
+      patch.imageMiniprogramLinkMode = on ? 'all' : 'none'
     }
     // 若只改 brands，同步顶层兼容字段
     if (patch.brands) {
@@ -646,6 +657,33 @@ function createOaContentStudioApi({
     return null
   }
 
+  /** 日更选题：星舰/推文事件只取近 3 天（与同步清理 TTL 对齐） */
+  const EVENT_TOPIC_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000
+
+  function parseTimeMs(v) {
+    if (v == null || v === '') return 0
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+      return v < 1e12 ? Math.round(v * 1000) : v
+    }
+    const t = Date.parse(String(v))
+    return Number.isFinite(t) ? t : 0
+  }
+
+  function eventAccountHandle(ev) {
+    return String((ev && ev.source) || '')
+      .replace(/^@/, '')
+      .trim()
+  }
+
+  function eventAccountLabel(ev) {
+    const handle = eventAccountHandle(ev)
+    const author = String((ev && ev.author) || '')
+      .replace(/自动追踪$/u, '')
+      .trim()
+    if (author && !/^(auto_sync|manual)$/i.test(author)) return author
+    return handle
+  }
+
   function pickLaunchTopics(cacheDoc, limit = 5) {
     const raw = (cacheDoc && (cacheDoc.data || cacheDoc.list || cacheDoc.results)) || []
     const list = Array.isArray(raw) ? raw : []
@@ -657,30 +695,46 @@ function createOaContentStudioApi({
         item.title ||
         `发射任务 ${idx + 1}`
       const rocket =
-        (item.rocket && (item.rocket.name || item.rocket.configuration?.name)) ||
+        (item.rocket &&
+          (item.rocket.name ||
+            (item.rocket.configuration && item.rocket.configuration.name))) ||
         item.rocketName ||
         ''
       const pad =
-        (item.pad && (item.pad.name || item.pad.location?.name)) ||
+        (item.pad && (item.pad.name || (item.pad.location && item.pad.location.name))) ||
         item.padName ||
         item.location ||
         ''
       const net = item.net || item.window_start || item.launchTime || ''
+      const netMs = parseTimeMs(net)
+      const statusName = (item.status && item.status.name) || item.statusName || ''
+      const provider =
+        (item.launch_service_provider && item.launch_service_provider.name) ||
+        (item.lsp && item.lsp.name) ||
+        ''
       const body = [
         `任务：${name}`,
         rocket ? `火箭：${rocket}` : '',
+        provider ? `发射商：${provider}` : '',
         pad ? `发射场：${pad}` : '',
         net ? `时间：${net}` : '',
-        item.status && item.status.name ? `状态：${item.status.name}` : '',
+        statusName ? `状态：${statusName}` : '',
         item.mission && item.mission.description ? `简介：${item.mission.description}` : ''
       ]
         .filter(Boolean)
         .join('\n')
       const imageUrls = pickImageUrls(
         item.image,
+        item.image_url,
+        item.rocket && item.rocket.image,
         item.rocket && item.rocket.image_url,
-        item.pad && item.pad.map_image
+        item.rocket && item.rocket.configuration && item.rocket.configuration.image,
+        item.pad && item.pad.map_image,
+        item.launch_service_provider && item.launch_service_provider.logo,
+        item.lsp && item.lsp.logo
       )
+      const sourceUrl =
+        item.url || item.news_url || item.info_url || item.vid_url || item.ll2_url || ''
       return {
         sourceType: 'launch',
         sourceId: String(item.id || item._id || name),
@@ -688,9 +742,58 @@ function createOaContentStudioApi({
         summary: body.slice(0, 200),
         body,
         coverUrl: imageUrls[0] || '',
-        imageUrls
+        imageUrls,
+        sourceUrl: /^https?:\/\//i.test(String(sourceUrl)) ? String(sourceUrl) : '',
+        rocket,
+        pad,
+        net,
+        netMs,
+        statusName,
+        provider,
+        publishedAt: netMs
       }
     })
+  }
+
+  function buildStarshipEventTopic(ev, cutoff) {
+    const publishedAt = parseTimeMs(ev.publishedAt || ev.createdAt)
+    if (publishedAt && publishedAt < cutoff) return null
+    const videos = pickVideoEntries(ev.mediaList, ev.videos)
+    const imageUrls = pickImageUrls(ev.cover, ev.mediaList, ev.images, videoPosterUrls(videos))
+    // 无配图（含视频封面截图）的推文事件不进日更选题
+    if (!imageUrls.length) return null
+    const content = String(ev.content || ev.title || '')
+    const tweetUrl = ev.tweetUrl || ''
+    const eventUrl =
+      tweetUrl ||
+      oaFetch.extractArticleUrl(content) ||
+      ev.sourceUrl ||
+      ev.url ||
+      ev.link ||
+      ev.sourceLink ||
+      ''
+    const accountSource = eventAccountHandle(ev)
+    const originalText = String(ev.originalText || '')
+    return {
+      sourceType: 'starship_event',
+      sourceId: String(ev._id),
+      title: String(ev.title || '星舰事件').slice(0, 80),
+      summary: topicSummaryWithUrl(content, eventUrl),
+      body: content,
+      coverUrl: imageUrls[0] || '',
+      imageUrls,
+      videos,
+      sourceUrl: eventUrl,
+      tweetUrl,
+      tweetId: ev.tweetId ? String(ev.tweetId) : '',
+      accountSource,
+      accountLabel: eventAccountLabel(ev),
+      authorAvatar: ev.authorAvatar || '',
+      publishedAt,
+      translated: !!ev.translated,
+      originalText,
+      liveRoomId: ev.liveRoomId || ''
+    }
   }
 
   async function gatherTopics(query = {}) {
@@ -702,26 +805,16 @@ function createOaContentStudioApi({
     topics.push(...pickLaunchTopics(upcoming, Math.ceil(limit / 2)))
 
     try {
+      const cutoff = now() - EVENT_TOPIC_MAX_AGE_MS
       const events = await db
         .collection('starship_event_updates')
         .where({ status: 'published' })
         .orderBy('publishedAt', 'desc')
-        .limit(Math.ceil(limit / 2))
+        .limit(Math.min(40, Math.max(12, limit * 3)))
         .get()
       for (const ev of events.data || []) {
-        // 视频事件不再「无图」：封面截图（缩略图/万象截帧）并入配图池，长视频也有封面
-        const videos = pickVideoEntries(ev.mediaList, ev.videos)
-        const imageUrls = pickImageUrls(ev.cover, ev.mediaList, ev.images, videoPosterUrls(videos))
-        topics.push({
-          sourceType: 'starship_event',
-          sourceId: String(ev._id),
-          title: String(ev.title || '星舰事件').slice(0, 80),
-          summary: String(ev.content || '').slice(0, 200),
-          body: String(ev.content || ev.title || ''),
-          coverUrl: imageUrls[0] || '',
-          imageUrls,
-          videos
-        })
+        const topic = buildStarshipEventTopic(ev, cutoff)
+        if (topic) topics.push(topic)
       }
     } catch (e) {}
 
@@ -734,14 +827,23 @@ function createOaContentStudioApi({
         .get()
       for (const a of articles.data || []) {
         const imageUrls = pickImageUrls(a.image, a.images, a.cover)
+        const body = String(a.content || a.summary || '')
+        const sourceUrl =
+          oaFetch.extractArticleUrl(String(a.summary || '') + '\n' + body) ||
+          a.sourceUrl ||
+          a.url ||
+          a.link ||
+          ''
         topics.push({
           sourceType: 'news_article',
           sourceId: String(a._id),
           title: String(a.title || '手写稿').slice(0, 80),
-          summary: String(a.summary || a.content || '').slice(0, 200),
-          body: String(a.content || a.summary || ''),
+          summary: topicSummaryWithUrl(String(a.summary || a.content || ''), sourceUrl),
+          body,
           coverUrl: imageUrls[0] || '',
-          imageUrls
+          imageUrls,
+          sourceUrl,
+          publishedAt: parseTimeMs(a.publishedAt || a.createdAt)
         })
       }
     } catch (e) {}
@@ -761,7 +863,8 @@ function createOaContentStudioApi({
           body: String(c.content || ''),
           coverUrl: (c.coverUrl || '') + '',
           imageUrls: pickImageUrls(c.coverUrl, c.images),
-          sourceUrl: c.sourceUrl || ''
+          sourceUrl: c.sourceUrl || '',
+          publishedAt: parseTimeMs(c.createdAt || c.publishedAt)
         })
       }
     } catch (e) {}
@@ -910,33 +1013,64 @@ function createOaContentStudioApi({
     return videos
   }
 
+  function topicSummaryWithUrl(content, url) {
+    const raw = String(content || '')
+    let summary = raw.slice(0, 280)
+    const u = String(url || oaFetch.extractArticleUrl(raw) || '').trim()
+    if (u && !summary.includes(u)) {
+      summary = `${summary.replace(/\s+$/, '')}\n详情 -> ${u}`
+    }
+    return summary
+  }
+
   /**
    * 抓外链补正文/多图：
    * - 单行 URL
-   * - 或有 sourceUrl 且（正文过短 / 配图不足 3 张）
+   * - 摘要/正文里的「详情 -> URL」
+   * - 或有 sourceUrl 且（导语过短 / 配图不足 3 张）
    */
   async function enrichTopicFromUrl(topic) {
     const src = topic || {}
     const body = String(src.body || src.content || src.manualText || '').trim()
+    const summary = String(src.summary || '').trim()
     const sourceUrl = String(src.sourceUrl || '').trim()
     let existingImgs = pickImageUrls(src.imageUrls, src.images, src.coverUrl)
     if (/<img\b/i.test(body)) {
       existingImgs = pickImageUrls(existingImgs, oaFetch.collectImgUrls(body, sourceUrl))
     }
 
-    let url = ''
-    if (oaFetch.looksLikeLoneUrl(body)) url = body
-    else if (oaFetch.isHttpUrl(sourceUrl) && (body.length < 120 || existingImgs.length < 3)) {
-      url = sourceUrl
-    }
+    const summaryUrl = oaFetch.extractArticleUrl(summary)
+    const bodyUrl = oaFetch.extractArticleUrl(body)
+    const titleUrl = oaFetch.extractArticleUrl(src.title || '')
+    const explicitSource = oaFetch.isHttpUrl(sourceUrl) && !oaFetch.isImageUrl(sourceUrl) ? sourceUrl : ''
+    const teaser =
+      oaFetch.looksLikeLoneUrl(body) ||
+      oaFetch.looksLikeTeaserWithLink(body) ||
+      oaFetch.looksLikeTeaserWithLink(summary)
+    const washUrl =
+      explicitSource ||
+      summaryUrl ||
+      (oaFetch.looksLikeLoneUrl(body) ? body : '') ||
+      (teaser ? bodyUrl : '') ||
+      titleUrl
 
-    if (!url) {
+    const shouldFetch =
+      !!washUrl &&
+      (oaFetch.looksLikeLoneUrl(body) ||
+        !!summaryUrl ||
+        teaser ||
+        body.length < 400 ||
+        existingImgs.length < 3)
+
+    if (!shouldFetch) {
       if (existingImgs.length > pickImageUrls(src.imageUrls, src.images, src.coverUrl).length) {
         return { ...src, imageUrls: existingImgs, coverUrl: src.coverUrl || existingImgs[0] || '' }
       }
       return src
     }
 
+    const url = washUrl
+    const usedFetchedFromTeaser = !!summaryUrl || teaser || oaFetch.looksLikeLoneUrl(body)
     try {
       const art = await oaFetch.fetchArticle(url)
       const keepTitle =
@@ -944,7 +1078,8 @@ function createOaContentStudioApi({
         src.title !== '手动选题' &&
         String(src.title).trim() &&
         !oaFetch.looksLikeLoneUrl(src.title)
-      const keepBody = body.length >= 120 && !oaFetch.looksLikeLoneUrl(body)
+      const keepBody =
+        !usedFetchedFromTeaser && body.length >= 400 && !oaFetch.looksLikeLoneUrl(body)
       const mergedImgs = pickImageUrls(art.imageUrls, existingImgs, art.coverUrl)
       // 优先用带 [[IMG:n]] 的抓取正文；若保留旧正文则事后补占位
       let nextBody = keepBody ? body : art.text || body
@@ -953,7 +1088,10 @@ function createOaContentStudioApi({
       }
       return {
         ...src,
-        sourceType: src.sourceType === 'manual' || !src.sourceType ? 'external_url' : src.sourceType,
+        sourceType:
+          usedFetchedFromTeaser || src.sourceType === 'manual' || !src.sourceType
+            ? 'external_url'
+            : src.sourceType,
         title: keepTitle ? src.title : art.title || src.title,
         body: nextBody,
         content: nextBody,
@@ -965,7 +1103,7 @@ function createOaContentStudioApi({
       }
     } catch (e) {
       console.warn('[oaContent] enrichTopicFromUrl', e.message || e)
-      if (oaFetch.looksLikeLoneUrl(body)) {
+      if (oaFetch.looksLikeLoneUrl(body) || usedFetchedFromTeaser) {
         throw new Error('外链抓取失败: ' + (e.message || e))
       }
       if (existingImgs.length) {
@@ -1531,6 +1669,39 @@ function createOaContentStudioApi({
         `文中只放视频封面截图${posterIdxs.length ? `，对应占位 ${posterIdxs.map((n) => `[[IMG:${n}]]`).join('、')}` : ''}。` +
         '提及这些画面时用「视频画面/视频截图」表述，不要写成读者可在文内直接播放的视频。'
     }
+    userMsg +=
+      '\n\n【语言】成稿用简体中文写标题和正文；专有名词可保留英文，禁止整段照抄英文。'
+    if (isMostlyEnglishText(slottedBody)) {
+      userMsg += '素材是英文，必须先理解再写成中文，不要中英混排、不要把英文段落贴进成稿。'
+    }
+    if (source.accountSource) {
+      userMsg +=
+        `\n\n【推文账号】来源 @${source.accountSource}` +
+        `${source.accountLabel && source.accountLabel !== source.accountSource ? `（${source.accountLabel}）` : ''}。` +
+        '成稿可点明账号来源，禁止编造该账号没写过的内容。'
+    }
+    if (source.publishedAt) {
+      userMsg += `\n\n【发布时间】${new Date(source.publishedAt).toISOString()}`
+    }
+    if (
+      source.originalText &&
+      String(source.originalText).trim() &&
+      String(source.originalText).trim() !== rawBody.trim()
+    ) {
+      userMsg += `\n\n【推文英文原文】\n${String(source.originalText).slice(0, 2000)}`
+    }
+    if (source.rocket || source.pad || source.net) {
+      userMsg +=
+        '\n\n【发射要素】' +
+        [
+          source.rocket && `火箭 ${source.rocket}`,
+          source.pad && `工位 ${source.pad}`,
+          source.net && `NET ${source.net}`,
+          source.statusName && `状态 ${source.statusName}`
+        ]
+          .filter(Boolean)
+          .join('；')
+    }
 
     const draftDoc = {
       status: 'generating',
@@ -1587,11 +1758,41 @@ function createOaContentStudioApi({
           `# ${vars.sourceTitle || '航天速递'}\n\n` +
           `> 自动生成暂不可用（${llmHint}）。以下为素材整理稿，请人工改写后保存再推送。\n\n` +
           `${vars.sourceBody || '（无素材）'}`
+      } else if (isMostlyEnglishText(raw) && !isMostlyChineseText(raw)) {
+        const retry = await generateText({
+          system,
+          user: userMsg + '\n\n【重写】上一稿仍是英文。只输出简体中文标题和正文，禁止整段英文。',
+          temperature: 0.4,
+          maxTokens: 2500
+        })
+        if (retry && retry.text && (isMostlyChineseText(retry.text) || !isMostlyEnglishText(retry.text))) {
+          raw = retry.text
+        } else {
+          usedFallback = true
+          const llmHint = String((retry && retry.error) || gen.error || '成稿未完成汉化').slice(0, 240)
+          raw =
+            `# ${vars.sourceTitle || '航天速递'}\n\n` +
+            `> 自动生成未完成汉化（${llmHint}）。以下为素材整理稿，请人工改写后保存再推送。\n\n` +
+            `${vars.sourceBody || '（无素材）'}`
+        }
       }
       const parsed = stripTitleFromMarkdown(raw)
-      const title = (parsed.title || vars.sourceTitle || '未命名').slice(0, 64)
+      let title = (parsed.title || vars.sourceTitle || '未命名').slice(0, 64)
       // 严格按原稿占位落图，避免成稿后重排错位
       let bodyMd = placeImagesAlignedToSource(parsed.body || '', slottedBody, imageUrls, 8)
+      if (!usedFallback) {
+        const stripped = stripResidualEnglishParagraphs(bodyMd)
+        if (
+          stripped &&
+          (isMostlyChineseText(stripped) || stripped.length >= Math.min(80, Math.floor(bodyMd.length * 0.4)))
+        ) {
+          bodyMd = stripped
+        }
+        if (isMostlyEnglishText(title, 12) && isMostlyChineseText(bodyMd)) {
+          const zhTitle = pickChineseTitle(`# ${title}\n\n${bodyMd}`)
+          if (zhTitle) title = zhTitle.slice(0, 64)
+        }
+      }
       bodyMd = ensureHeroImagePlacement(bodyMd, {
         coverUrl: draftDoc.coverUrl || imageUrls[0] || brand.defaultCoverUrl || cfg.defaultCoverUrl || ''
       })
@@ -1705,7 +1906,10 @@ function createOaContentStudioApi({
         body: manual,
         coverUrl: body.coverUrl || '',
         imageUrls: pickImageUrls(body.imageUrls, body.images, body.coverUrl),
-        sourceUrl: srcUrl || (oaFetch.looksLikeLoneUrl(manual) ? manual : '')
+        sourceUrl:
+          srcUrl ||
+          oaFetch.extractArticleUrl(manual) ||
+          (oaFetch.looksLikeLoneUrl(manual) ? manual : '')
       })
     } else {
       const gathered = await gatherTopics({ limit: Number(body.count) || 3 })
@@ -1766,17 +1970,20 @@ function createOaContentStudioApi({
     return `<section style="background-color:#ffffff;padding:16px">${String(bodyHtml || '')}</section>`
   }
 
+  function applyImageMiniprogramLinks(html, cfg, path) {
+    return wechatApi.wrapImagesWithMiniprogram(html, {
+      path: path || 'pages/index/index',
+      mode: wechatApi.resolveImageMiniprogramLinkMode(cfg)
+    })
+  }
+
   /**
    * 主题正文 HTML（不含 lead/CTA）：预览 all / 单预览 / 推送 必须同源
    */
   function renderThemeBodyHtml(markdown, themeId, { cfg, mpPath } = {}) {
     const tid = resolveThemeId(themeId)
     let bodyHtml = markdownToWechatHtml(markdown || '', tid)
-    if (!cfg || cfg.linkAllImagesToMiniprogram !== false) {
-      bodyHtml = wechatApi.wrapAllImagesWithMiniprogram(bodyHtml, {
-        path: mpPath || 'pages/index/index'
-      })
-    }
+    bodyHtml = applyImageMiniprogramLinks(bodyHtml, cfg, mpPath || 'pages/index/index')
     return wrapThemeArticle(bodyHtml)
   }
 
@@ -2429,10 +2636,7 @@ function createOaContentStudioApi({
           : ''
       html = wechatApi.stripMiniprogramCta(html)
       const mpPath = draft.miniprogramPath || cfg.miniprogramPath || 'pages/index/index'
-      // 正文配图必须包小程序锚点（默认开；显式 false 才关）
-      if (cfg.linkAllImagesToMiniprogram !== false) {
-        html = wechatApi.wrapAllImagesWithMiniprogram(html, { path: mpPath })
-      }
+      html = applyImageMiniprogramLinks(html, cfg, mpPath)
       const cardImage =
         (html.match(/<img\b[^>]*\bsrc=["'](https?:\/\/[^"']+)["']/i) || [])[1] ||
         cover ||
@@ -2485,9 +2689,7 @@ function createOaContentStudioApi({
           console.warn('[oaContent] draft 45166, retry with safer CTA', e1.message || e1)
           // 保留正文配图小程序锚点，只降级文末 CTA
           html = wechatApi.stripMiniprogramCta(html)
-          if (cfg.linkAllImagesToMiniprogram !== false) {
-            html = wechatApi.wrapAllImagesWithMiniprogram(html, { path: mpPath })
-          }
+          html = applyImageMiniprogramLinks(html, cfg, mpPath)
           if (shouldAppendMiniprogramCta(cfg)) {
             html = await appendMiniprogramCtaHtml(html, cfg, brand, {
               ...ctaOpts,
@@ -2506,9 +2708,7 @@ function createOaContentStudioApi({
               // 再试：仅配图锚点 + 无文末 CTA（优先保配图可点）
               console.warn('[oaContent] draft 45166, retry images-only MP links', e2.message || e2)
               html = wechatApi.stripMiniprogramCta(html)
-              if (cfg.linkAllImagesToMiniprogram !== false) {
-                html = wechatApi.wrapAllImagesWithMiniprogram(html, { path: mpPath })
-              }
+              html = applyImageMiniprogramLinks(html, cfg, mpPath)
               article.content = html
               ctaFallback = 'images_only'
               try {

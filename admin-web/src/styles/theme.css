@@ -42,6 +42,33 @@ html.dark {
   --cx-radius-sm: 10px;
   --cx-radius-md: 14px;
   --cx-radius-lg: 20px;
+
+  /* Element Plus：覆盖浅色默认，避免 var(--el-*) 掉回 #409EFF / 白底 */
+  --el-color-primary: #8B5CF6;
+  --el-color-primary-light-3: #A78BFA;
+  --el-color-primary-light-5: #C4B5FD;
+  --el-color-primary-light-7: #DDD6FE;
+  --el-color-primary-light-8: rgba(139, 92, 246, 0.22);
+  --el-color-primary-light-9: rgba(139, 92, 246, 0.12);
+  --el-color-primary-dark-2: #7C3AED;
+  --el-bg-color: transparent;
+  --el-bg-color-page: transparent;
+  --el-bg-color-overlay: rgba(14, 17, 32, 0.92);
+  --el-fill-color: rgba(255, 255, 255, 0.06);
+  --el-fill-color-light: rgba(255, 255, 255, 0.04);
+  --el-fill-color-lighter: rgba(255, 255, 255, 0.03);
+  --el-fill-color-extra-light: rgba(255, 255, 255, 0.02);
+  --el-fill-color-blank: rgba(255, 255, 255, 0.03);
+  --el-text-color-primary: rgba(255, 255, 255, 0.92);
+  --el-text-color-regular: rgba(255, 255, 255, 0.78);
+  --el-text-color-secondary: rgba(255, 255, 255, 0.55);
+  --el-text-color-placeholder: rgba(255, 255, 255, 0.38);
+  --el-border-color: rgba(255, 255, 255, 0.12);
+  --el-border-color-light: rgba(255, 255, 255, 0.10);
+  --el-border-color-lighter: rgba(255, 255, 255, 0.08);
+  --el-border-color-extra-light: rgba(255, 255, 255, 0.06);
+  --el-mask-color: rgba(0, 0, 0, 0.62);
+  color-scheme: dark;
 }
 
 /* ----- 全局基础：让 body 透出底层视频 ----- */
@@ -94,8 +121,7 @@ body {
   box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35);
 }
 
-/* 菜单激活态：蓝紫渐变胶囊 */
-.aside-menu :deep(.el-menu-item.is-active),
+/* 菜单激活态：蓝紫渐变胶囊（注意：本文件是纯 CSS，写 :deep() 会被浏览器当非法选择器整条丢弃） */
 .aside-menu .el-menu-item.is-active {
   background: var(--cx-grad-primary) !important;
   color: #fff !important;
@@ -103,13 +129,11 @@ body {
   margin: 2px 8px;
   box-shadow: var(--cx-shadow-glow);
 }
-.aside-menu :deep(.el-menu-item),
 .aside-menu .el-menu-item {
   border-radius: 10px;
   margin: 2px 8px;
   transition: background 0.2s, color 0.2s;
 }
-.aside-menu :deep(.el-menu-item:hover),
 .aside-menu .el-menu-item:hover {
   background: rgba(139, 92, 246, 0.14) !important;
 }
@@ -122,25 +146,28 @@ body {
   -webkit-backdrop-filter: blur(20px) saturate(150%);
 }
 
-/* ----- 卡片：高透玻璃态（背景视频可透） ----- */
-.layout-main :deep(.el-card),
+/* ----- 卡片：高透玻璃态（背景视频可透） -----
+ * 背景/边框/圆角不加 !important：默认值与 LayoutPage scoped 相同，
+ * 把优先级让给页面级自定义卡片（如 MembershipPage 的 pro-card 金边、
+ * OrbitalConfigPage 的 section-card 自定义底）。 */
+.layout-main .el-card,
 .cx-glass {
-  background: rgba(0, 0, 0, 0.28) !important;
-  border: 1px solid var(--cx-glass-stroke) !important;
-  border-radius: var(--cx-radius-md) !important;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--cx-glass-stroke);
+  border-radius: var(--cx-radius-md);
   backdrop-filter: blur(22px) saturate(140%);
   -webkit-backdrop-filter: blur(22px) saturate(140%);
   box-shadow: var(--cx-shadow-card);
   color: var(--cx-text-1);
   animation: cx-card-in 0.42s cubic-bezier(0.25, 0.85, 0.35, 1) both;
 }
-.layout-main :deep(.el-card__header) {
+.layout-main .el-card__header {
   border-bottom: 1px solid var(--cx-glass-stroke) !important;
   background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0));
 }
 
 /* ----- 主按钮：蓝紫渐变 ----- */
-.layout-main :deep(.el-button--primary),
+.layout-main .el-button--primary,
 .cx-btn-primary {
   background: var(--cx-grad-primary) !important;
   border: 0 !important;
@@ -151,12 +178,12 @@ body {
   transition: transform 0.18s ease, box-shadow 0.18s ease;
   box-shadow: 0 6px 16px rgba(99, 102, 241, 0.32);
 }
-.layout-main :deep(.el-button--primary:hover),
+.layout-main .el-button--primary:hover,
 .cx-btn-primary:hover {
   transform: translateY(-1px);
   box-shadow: var(--cx-shadow-glow);
 }
-.layout-main :deep(.el-button--primary::after),
+.layout-main .el-button--primary::after,
 .cx-btn-primary::after {
   content: '';
   position: absolute;
@@ -166,26 +193,26 @@ body {
   transition: transform 0.6s ease;
   pointer-events: none;
 }
-.layout-main :deep(.el-button--primary:hover::after),
+.layout-main .el-button--primary:hover::after,
 .cx-btn-primary:hover::after {
   transform: translateX(100%);
 }
 
 /* ----- 默认按钮：玻璃描边 ----- */
-.layout-main :deep(.el-button--default) {
+.layout-main .el-button--default {
   background: rgba(255,255,255,0.04) !important;
   border: 1px solid var(--cx-glass-stroke) !important;
   color: var(--cx-text-1) !important;
   border-radius: 10px !important;
   backdrop-filter: blur(8px);
 }
-.layout-main :deep(.el-button--default:hover) {
+.layout-main .el-button--default:hover {
   background: rgba(139, 92, 246, 0.12) !important;
   border-color: rgba(139, 92, 246, 0.45) !important;
 }
 
 /* ----- 表格：行 hover 渐变 ----- */
-.layout-main :deep(.el-table) {
+.layout-main .el-table {
   --el-table-bg-color: transparent;
   --el-table-tr-bg-color: transparent;
   --el-table-header-bg-color: rgba(255, 255, 255, 0.03);
@@ -194,31 +221,31 @@ body {
   --el-table-border-color: var(--cx-glass-stroke);
   --el-table-text-color: var(--cx-text-1);
 }
-.layout-main :deep(.el-table th.el-table__cell) {
+.layout-main .el-table th.el-table__cell {
   font-weight: 500;
   letter-spacing: 0.04em;
 }
 
 /* ----- 输入：玻璃凹槽 ----- */
-.layout-main :deep(.el-input__wrapper),
-.layout-main :deep(.el-textarea__inner) {
+.layout-main .el-input__wrapper,
+.layout-main .el-textarea__inner {
   background: rgba(255, 255, 255, 0.04) !important;
   border: 1px solid var(--cx-glass-stroke) !important;
   box-shadow: none !important;
   border-radius: 10px !important;
   transition: border-color 0.2s, background 0.2s;
 }
-.layout-main :deep(.el-input__wrapper.is-focus),
-.layout-main :deep(.el-textarea__inner:focus) {
+.layout-main .el-input__wrapper.is-focus,
+.layout-main .el-textarea__inner:focus {
   border-color: var(--cx-accent) !important;
   background: rgba(139, 92, 246, 0.06) !important;
 }
-.layout-main :deep(.el-input__inner) {
+.layout-main .el-input__inner {
   color: var(--cx-text-1);
 }
 
 /* ----- Tabs：激活下划线渐变 ----- */
-.layout-main :deep(.el-tabs__item.is-active) {
+.layout-main .el-tabs__item.is-active {
   background: var(--cx-grad-primary);
   -webkit-background-clip: text;
   background-clip: text;
@@ -226,14 +253,14 @@ body {
   color: transparent !important;
   font-weight: 600;
 }
-.layout-main :deep(.el-tabs__active-bar) {
+.layout-main .el-tabs__active-bar {
   background: var(--cx-grad-primary) !important;
   height: 3px !important;
   border-radius: 2px;
 }
 
 /* ----- Tag 渐变化（仅 primary） ----- */
-.layout-main :deep(.el-tag--primary) {
+.layout-main .el-tag--primary {
   background: var(--cx-grad-primary-soft) !important;
   border: 1px solid rgba(139, 92, 246, 0.35) !important;
   color: #fff !important;
@@ -298,12 +325,12 @@ body {
 }
 
 /* ----- 进度条：流光 ----- */
-.layout-main :deep(.el-progress-bar__inner) {
+.layout-main .el-progress-bar__inner {
   background: var(--cx-grad-primary);
   position: relative;
   overflow: hidden;
 }
-.layout-main :deep(.el-progress-bar__inner)::after {
+.layout-main .el-progress-bar__inner::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -320,6 +347,23 @@ html.dark .el-dialog,
   backdrop-filter: blur(22px) saturate(160%);
   -webkit-backdrop-filter: blur(22px) saturate(160%);
   box-shadow: var(--cx-shadow-card);
+}
+
+/* Dialog / MessageBox / Drawer  teleport 到 body，不在 .layout-main 内；
+   其中的主按钮同样套用蓝紫渐变，保持全局一致 */
+.el-dialog .el-button--primary,
+.el-message-box .el-button--primary,
+.el-drawer .el-button--primary {
+  background: var(--cx-grad-primary) !important;
+  border: 0 !important;
+  color: #fff !important;
+  border-radius: 10px !important;
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.32);
+}
+.el-dialog .el-button--primary:hover,
+.el-message-box .el-button--primary:hover,
+.el-drawer .el-button--primary:hover {
+  box-shadow: var(--cx-shadow-glow);
 }
 
 /* ----- Alert：深色玻璃化（Element Plus 默认浅色底在深色主题下是刺眼白条） ----- */
@@ -522,9 +566,9 @@ html.dark .el-dialog,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .layout-main :deep(.el-card),
+  .layout-main .el-card,
   .cx-glass { animation: none !important; }
-  .layout-main :deep(.el-progress-bar__inner)::after { animation: none !important; }
+  .layout-main .el-progress-bar__inner::after { animation: none !important; }
 }
 
 /* ============== 全局移动端窄屏适配 ============== */
@@ -746,4 +790,54 @@ html.dark .el-dialog,
     gap: 8px;
     align-items: flex-start;
   }
+}
+
+/* ----- 其余 EP 浮层 / 控件：跟 Cosmos 主色对齐 ----- */
+.el-pagination {
+  --el-pagination-bg-color: transparent;
+  --el-pagination-button-bg-color: rgba(255, 255, 255, 0.04);
+  --el-pagination-hover-color: #A78BFA;
+}
+.el-pagination .el-pager li.is-active {
+  background: var(--cx-grad-primary) !important;
+  color: #fff !important;
+}
+.el-empty__description p {
+  color: var(--cx-text-3) !important;
+}
+.el-dropdown-menu,
+.el-picker-panel,
+.el-date-picker,
+.el-time-panel {
+  background: var(--cx-glass-bg-strong) !important;
+  border: 1px solid var(--cx-glass-stroke) !important;
+  color: var(--cx-text-1) !important;
+}
+.el-switch.is-checked .el-switch__core {
+  background: var(--el-color-primary) !important;
+  border-color: var(--el-color-primary) !important;
+}
+.el-checkbox__input.is-checked .el-checkbox__inner,
+.el-radio__input.is-checked .el-radio__inner {
+  background: var(--el-color-primary) !important;
+  border-color: var(--el-color-primary) !important;
+}
+.el-link.el-link--primary {
+  color: #A78BFA !important;
+}
+.el-link.el-link--primary:hover {
+  color: #C4B5FD !important;
+}
+.el-radio-button__inner,
+.el-checkbox-button__inner {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: var(--cx-glass-stroke) !important;
+  color: var(--cx-text-1) !important;
+  box-shadow: none !important;
+}
+.el-radio-button__original-radio:checked + .el-radio-button__inner,
+.el-checkbox-button.is-checked .el-checkbox-button__inner {
+  background: var(--cx-grad-primary) !important;
+  border-color: transparent !important;
+  color: #fff !important;
 }

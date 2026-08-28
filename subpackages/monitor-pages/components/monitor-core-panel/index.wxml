@@ -1,5 +1,6 @@
 <view class="monitor-core-panel {{themeClass}}">
-<!-- 进度显示框 -->
+    <!-- 航警预览已直接嵌在监控页，不进本组件，避免分包占位把原生 map 拆掉 -->
+
     <!-- 空间站实时状态 -->
     <view class="station-section monitor-block">
       <view class="section-title">
@@ -104,9 +105,6 @@
         </block>
       </view>
     </view>
-
-    <!-- 发射航警地图写在监控页 WXML 里，避免分包组件旧缓存继续画出「点击加载发射通告地图」 -->
-    <slot name="space-notices"></slot>
 
     <!-- Starlink 过境预报 -->
     <view class="pass-section monitor-block">

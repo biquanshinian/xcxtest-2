@@ -17,6 +17,8 @@
     <view style="height: {{navPlaceholderHeight}}px;"></view>
 
     <view class="list-body">
+      <china-notice-preview id="chinaNoticePreview" title="中国航警" bind:open="openChinaMap" />
+
       <view class="detail-skeleton" wx:if="{{loading}}" aria-hidden="{{true}}">
         <view class="skeleton-card" wx:for="{{[1, 2, 3, 4]}}" wx:key="*this">
           <view class="skeleton-line skeleton-line--title skeleton-shimmer"></view>
@@ -26,19 +28,6 @@
       </view>
 
       <block wx:else>
-        <view class="sn-card glass-card card-hover sn-card--china" bindtap="openChinaMap">
-          <view class="sn-card-main">
-            <view class="sn-card-top">
-              <text class="sn-card-title">{{chinaBulletin.title}}</text>
-              <view class="sn-chip sn-chip--china"><text>航警</text></view>
-            </view>
-            <text class="sn-card-sub">{{chinaBulletin.sub}}</text>
-            <text class="sn-card-meta">{{chinaBulletin.meta}}</text>
-            <text class="sn-card-sync">{{chinaBulletin.syncLine}}</text>
-          </view>
-          <text class="sn-card-arrow">›</text>
-        </view>
-
         <view class="sn-state glass-card" wx:if="{{errorText}}">
           <text class="sn-state-title">加载失败</text>
           <text class="sn-state-desc">{{errorText}}</text>
@@ -58,25 +47,23 @@
               <text class="sn-section-title">即将 / 进行中</text>
               <text class="sn-section-count">{{upcoming.length}}</text>
             </view>
-            <view
-              class="sn-card glass-card card-hover"
-              wx:for="{{upcoming}}"
-              wx:key="entryKey"
-              data-key="{{item.entryKey}}"
-              bindtap="openMap"
-            >
-              <view class="sn-card-rocket" wx:if="{{item.rocketImage}}">
-                <image class="sn-card-rocket-img" src="{{item.rocketImage}}" mode="aspectFill" />
-              </view>
-              <view class="sn-card-main">
-                <view class="sn-card-top">
-                  <text class="sn-card-title">{{item.title}}</text>
-                  <view class="sn-chip sn-chip--traj" wx:if="{{item.hasTrajectory}}"><text>轨迹</text></view>
+            <view class="sn-grid">
+              <view
+                class="sn-grid-card"
+                wx:for="{{upcoming}}"
+                wx:key="entryKey"
+                data-key="{{item.entryKey}}"
+                bindtap="openMap"
+              >
+                <view class="sn-grid-photo">
+                  <image wx:if="{{item.rocketImage}}" class="sn-grid-img" src="{{item.rocketImage}}" mode="aspectFill" />
+                  <view wx:else class="sn-grid-img sn-grid-img--ph"></view>
+                  <text class="sn-grid-badge">{{item.badgeNo}}</text>
                 </view>
-                <text class="sn-card-sub">{{item.subtitle}}</text>
-                <text class="sn-card-meta">{{item.metaText}}</text>
+                <text class="sn-grid-title">{{item.title}}</text>
+                <text class="sn-grid-sub">{{item.subtitle}}</text>
+                <text class="sn-grid-meta">{{item.dateShort}}</text>
               </view>
-              <text class="sn-card-arrow">›</text>
             </view>
           </view>
 
@@ -85,25 +72,23 @@
               <text class="sn-section-title">历史发射</text>
               <text class="sn-section-count">{{past.length}}</text>
             </view>
-            <view
-              class="sn-card glass-card card-hover sn-card--past"
-              wx:for="{{past}}"
-              wx:key="entryKey"
-              data-key="{{item.entryKey}}"
-              bindtap="openMap"
-            >
-              <view class="sn-card-rocket" wx:if="{{item.rocketImage}}">
-                <image class="sn-card-rocket-img" src="{{item.rocketImage}}" mode="aspectFill" />
-              </view>
-              <view class="sn-card-main">
-                <view class="sn-card-top">
-                  <text class="sn-card-title">{{item.title}}</text>
-                  <view class="sn-chip sn-chip--traj" wx:if="{{item.hasTrajectory}}"><text>轨迹</text></view>
+            <view class="sn-grid">
+              <view
+                class="sn-grid-card sn-grid-card--past"
+                wx:for="{{past}}"
+                wx:key="entryKey"
+                data-key="{{item.entryKey}}"
+                bindtap="openMap"
+              >
+                <view class="sn-grid-photo">
+                  <image wx:if="{{item.rocketImage}}" class="sn-grid-img" src="{{item.rocketImage}}" mode="aspectFill" />
+                  <view wx:else class="sn-grid-img sn-grid-img--ph"></view>
+                  <text class="sn-grid-badge">{{item.badgeNo}}</text>
                 </view>
-                <text class="sn-card-sub">{{item.subtitle}}</text>
-                <text class="sn-card-meta">{{item.metaText}}</text>
+                <text class="sn-grid-title">{{item.title}}</text>
+                <text class="sn-grid-sub">{{item.subtitle}}</text>
+                <text class="sn-grid-meta">{{item.dateShort}}</text>
               </view>
-              <text class="sn-card-arrow">›</text>
             </view>
           </view>
         </block>

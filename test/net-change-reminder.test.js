@@ -21,7 +21,8 @@ const {
   markEventShown,
   isEventShown,
   resetNetChangeReminderStorageForTest,
-  NET_CHANGE_NEAR_WINDOW_MS
+  NET_CHANGE_NEAR_WINDOW_MS,
+  resolveNetChangeDisplay
 } = require('../subpackages/shared/utils/net-change-reminder.js')
 const {
   pickAnnouncableNetChanges,
@@ -127,24 +128,56 @@ test('远期改期（原/新都在 48h 外）不弹，与服务号近窗一致',
   assert.ok(FAR_NEW && Date.parse(FAR_NEW) - NOW > NET_CHANGE_NEAR_WINDOW_MS)
 })
 
-test('TBD / 粗精度新时间不弹', () => {
+test('远期 TBD / 粗精度占位不弹', () => {
   resetAll()
   const tbd = scanAndPickTodayReminder(
     overlayServerNetChanges(
-      [mission({ statusId: 2 })],
-      [{ id: 'launch-1', launchTime: NEW_NET, previousNet: OLD_NET, statusId: 2, netPrecision: 'Minute' }]
+      [mission({ id: 'tbd', launchTime: FAR_NEW, statusId: 2 })],
+      [{ id: 'tbd', launchTime: FAR_NEW, previousNet: FAR_OLD, statusId: 2, netPrecision: 'Minute' }]
     ),
     { nowMs: NOW }
   )
   assert.equal(tbd.length, 0)
   const coarse = scanAndPickTodayReminder(
     overlayServerNetChanges(
-      [mission({ id: 'c', netPrecision: 'Month' })],
-      [{ id: 'c', launchTime: NEW_NET, previousNet: OLD_NET, statusId: 1, netPrecision: 'Month' }]
+      [mission({ id: 'c', launchTime: FAR_NEW, netPrecision: 'Month' })],
+      [{ id: 'c', launchTime: FAR_NEW, previousNet: FAR_OLD, statusId: 1, netPrecision: 'Month' }]
     ),
     { nowMs: NOW }
   )
   assert.equal(coarse.length, 0)
+})
+
+test('近窗 Go→TBD（嫦娥七号 8/25→9/30 Month）仍弹窗', () => {
+  resetAll()
+  const now = Date.parse('2026-08-24T03:00:00+08:00')
+  const oldNet = '2026-08-25T00:30:00Z'
+  const newNet = '2026-09-30T00:00:00Z'
+  const row = {
+    id: 'ce7',
+    launchTime: newNet,
+    previousNet: oldNet,
+    statusId: 2,
+    netPrecision: 'Month',
+    missionName: '嫦娥七号',
+    rocketNameZh: '长征五号'
+  }
+  assert.equal(pickAnnouncableNetChanges([row], now).length, 1, 'listRecentNetChanges 应挑出')
+  // 首页列表已刷新成 TBD + Month 占位，和 LL2 实况一致
+  const list = overlayServerNetChanges(
+    [mission({ id: 'ce7', launchTime: newNet, statusId: 2, netPrecision: 'Month' })],
+    [row]
+  )
+  const payloads = scanAndPickTodayReminder(list, { nowMs: now })
+  assert.equal(payloads.length, 1)
+  assert.equal(payloads[0].oldNet, oldNet)
+  assert.equal(payloads[0].newNet, newNet)
+  assert.equal(payloads[0].changeKind, 'delay')
+  assert.equal(payloads[0].newTimeUntrusted, true)
+  assert.equal(payloads[0].titleText, '发射已推迟')
+  assert.equal(payloads[0].deltaText, '新时间待定')
+  assert.equal(payloads[0].newTimeText, '时间待定')
+  assert.doesNotMatch(payloads[0].deltaText, /36|天/)
 })
 
 test('列表 NET 已比 launch_data 新：不回写成库内旧时间，仍用 previousNet 出弹窗', () => {
@@ -187,4 +220,24 @@ test('pickAnnouncableNetChanges：已清 pending 仍保留 previousNet 的行可
   assert.equal(rows.length, 1)
   assert.equal(rows[0].id, 'launch-1')
   assert.equal(rows[0].previousNet, OLD_NET)
+})
+
+test('占位新 NET 文案：不展示月末假日期、不写延期天数', () => {
+  const d = resolveNetChangeDisplay(
+    '2026-08-25T00:30:00Z',
+    '2026-09-30T00:00:00Z',
+    { statusId: 2, netPrecision: 'Month' }
+  )
+  assert.equal(d.newTimeUntrusted, true)
+  assert.equal(d.titleText, '发射已推迟')
+  assert.equal(d.newTimeText, '时间待定')
+  assert.equal(d.deltaText, '新时间待定')
+  assert.equal(d.newTimeLabel, '当前安排')
+})
+
+test('确切改期仍展示延期时长', () => {
+  const d = resolveNetChangeDisplay(OLD_NET, NEW_NET, { statusId: 1, netPrecision: 'Minute' })
+  assert.equal(d.newTimeUntrusted, false)
+  assert.match(d.deltaText, /延期/)
+  assert.equal(d.titleText, '发射时间延期')
 })

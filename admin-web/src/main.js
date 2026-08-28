@@ -5,4 +5,6 @@ import './styles/theme.css'
 import App from './App.vue'
 import router from './router'
 
+document.documentElement.classList.add('dark')
+
 createApp(App).use(ElementPlus).use(router).mount('#app')

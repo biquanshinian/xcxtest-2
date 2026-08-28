@@ -1,8 +1,12 @@
 <view class="image-carousel image-carousel--skeleton" wx:if="{{carouselPending && carouselItems.length === 0 && missionType === 'upcoming'}}"></view>
 
     <!-- 滚动图片/视频区域（广告位，仅「即将发射」显示；历史发射/日历不显示） -->
-    <view class="image-carousel" wx:if="{{carouselItems.length > 0 && missionType === 'upcoming'}}">
-      <swiper class="swiper" indicator-dots="{{true}}" autoplay="{{false}}" current="{{carouselCurrent}}" duration="{{500}}" circular="{{true}}" bindchange="emitChange">
+    <view class="image-carousel {{gestureLocked ? 'image-carousel--locked' : ''}}" wx:if="{{carouselItems.length > 0 && missionType === 'upcoming'}}">
+      <!-- 弹窗锁定时卸掉原生 swiper，避免点穿加载视频/预览 -->
+      <view wx:if="{{gestureLocked}}" class="swiper image-carousel-frozen" catchtap="emitNoop">
+        <image wx:if="{{frozenSrc}}" class="carousel-image" src="{{frozenSrc}}" mode="aspectFill" />
+      </view>
+      <swiper wx:else class="swiper" indicator-dots="{{true}}" autoplay="{{false}}" current="{{carouselCurrent}}" duration="{{500}}" circular="{{true}}" disable-touch="{{gestureLocked}}" bindchange="emitChange">
         <swiper-item wx:for="{{carouselItems}}" wx:key="index">
           <!-- 图片 -->
           <block wx:if="{{item.type === 'image'}}">
@@ -13,52 +17,26 @@
               </view>
             </view>
           </block>
-          <!-- 视频 -->
+          <!-- 视频：轮播内只放封面，不挂原生 video。swiper 内 native/cover-view 会吞横滑，并点穿上方倒计时按钮与 NASA 浮钮。点击封面走全屏按需播放。 -->
           <block wx:else>
-            <view class="carousel-video-wrap">
-              <!-- 仅自动播激活时挂载 video，避免空 native 组件吞掉封面点击 -->
-              <video
-                wx:if="{{item.videoActive && item.playSrc}}"
-                id="carousel-video-{{index}}"
-                class="carousel-video"
-                src="{{item.playSrc}}"
-                poster="{{item.poster}}"
-                muted="{{true}}"
-                autoplay="{{false}}"
-                loop="{{true}}"
-                controls="{{false}}"
-                show-center-play-btn="{{false}}"
-                show-play-btn="{{false}}"
-                show-fullscreen-btn="{{false}}"
-                show-mute-btn="{{false}}"
-                object-fit="cover"
-                enable-progress-gesture="{{false}}"
-                enable-play-gesture="{{false}}"
-                http-cache="{{true}}"
-                bindtimeupdate="{{item.videoStarted ? '' : 'emitTimeUpdate'}}"
-                binderror="emitVideoError"
-                data-index="{{index}}"
-              >
-                <!-- 非同层渲染时普通 view 盖不住原生 video -->
-                <cover-view class="carousel-video-native-hit" catchtap="emitVideoTap" data-index="{{index}}"></cover-view>
-              </video>
-              <!-- 首帧就绪前用 poster 封面遮住原生黑底 -->
-              <view class="carousel-video-cover" wx:if="{{!item.videoStarted}}">
-                <image
-                  wx:if="{{item.poster}}"
-                  class="carousel-video-cover-img"
-                  src="{{item.poster}}"
-                  mode="aspectFill"
-                ></image>
-                <view class="carousel-video-cover-mask">
-                  <view class="carousel-video-cover-icon">
-                    <text class="carousel-video-cover-play">▶</text>
-                  </view>
-                  <text class="carousel-video-cover-text">{{item.videoActive ? '视频加载中' : '预览'}}</text>
+            <view class="carousel-video-wrap" bindtap="emitVideoTap" data-index="{{index}}">
+              <image
+                wx:if="{{item.poster}}"
+                class="carousel-video-poster"
+                src="{{item.poster}}"
+                mode="aspectFill"
+                lazy-load="{{true}}"
+              ></image>
+              <view
+                wx:else
+                class="carousel-video-poster carousel-video-poster--empty"
+              ></view>
+              <view class="carousel-video-cover-mask">
+                <view class="carousel-video-cover-icon">
+                  <text class="carousel-video-cover-play">▶</text>
                 </view>
+                <text class="carousel-video-cover-text">预览</text>
               </view>
-              <!-- 同层渲染时盖住 video；未挂载 video 时接封面点击。封面 pointer-events:none 不挡滑动 -->
-              <view class="carousel-video-hit" catchtap="emitVideoTap" data-index="{{index}}"></view>
               <view wx:if="{{item.caption}}" class="carousel-video-caption" catchtap="emitCaption" data-eventid="{{item.eventId}}">
                 <text class="carousel-video-caption-text" user-select="{{true}}">{{item.caption}}</text>
               </view>

@@ -183,6 +183,7 @@ function mapMilestoneForEgg(m) {
     description: m.description || '',
     prizeImage: m.prizeImage || '',
     eggImage: m.eggImage || '',
+    prizeType: m.prizeType === 'pro_1month' ? 'pro_1month' : 'physical',
     customOptions: Array.isArray(m.customOptions) ? m.customOptions : [],
     customNote: m.customNote || ''
   }
@@ -513,6 +514,9 @@ const methods = {
         if (!item.prizeImage && milestoneCache[item.milestoneId]) {
           item.prizeImage = milestoneCache[item.milestoneId].prizeImage || ''
         }
+        if (!item.prizeType && milestoneCache[item.milestoneId]) {
+          item.prizeType = milestoneCache[item.milestoneId].prizeType || ''
+        }
         // 将 selections 对象转为显示文本
         if (item.selections && typeof item.selections === 'object') {
           var parts = []
@@ -748,9 +752,13 @@ const methods = {
         if (!localMeta.choice) return
         var mk = localLaunchId + '::' + localMeta.voteType
         var ontimeKey = localLaunchId + '::ontime'
-        var hasLocalOntime = !!(localVotes[localLaunchId + '::ontime'] || localVotes[localLaunchId])
+        var localOntimeRaw = localVotes[localLaunchId + '::ontime'] || ''
+        var untypedRaw = localVotes[localLaunchId] || ''
+        var hasLocalOntime = localOntimeRaw === 'ge' || localOntimeRaw === 'buge' ||
+          untypedRaw === 'ge' || untypedRaw === 'buge'
 
-        // 本地有成败票，服务端却只有准时 ge/buge → 升格为成败，去掉误投准时脏数据
+        // 仅当服务端还没有成败记录时，才把「本地成败 + 服务端准时」当成历史脏数据升格。
+        // 两种都猜了之后绝不能删准时行。
         if (localMeta.voteType === 'outcome') {
           var ontimeRow = resultMap[ontimeKey]
           if (ontimeRow && (ontimeRow.choice === 'ge' || ontimeRow.choice === 'buge') && !resultMap[mk] && !hasLocalOntime) {
@@ -783,10 +791,6 @@ const methods = {
           resultMap[mk].voteTypeLabel = '成败'
           resultMap[mk].choice = localMeta.choice
           resultMap[mk].choiceLabel = localMeta.choiceLabel
-          if (!hasLocalOntime && resultMap[ontimeKey] &&
-            (resultMap[ontimeKey].choice === 'ge' || resultMap[ontimeKey].choice === 'buge')) {
-            delete resultMap[ontimeKey]
-          }
         }
       })
       serverResults = Object.keys(resultMap).map(function (k) { return resultMap[k] })
@@ -1305,12 +1309,19 @@ const methods = {
     if (milestoneId) {
       try {
         var claims = storageCache.readSync('_milestone_claims_cache', []) || []
-        claims.push({ milestoneId: milestoneId })
+        claims.push({ milestoneId: milestoneId, prizeType: (e.detail && e.detail.prizeType) || '' })
         storageCache.persistAsync('_milestone_claims_cache', claims)
       } catch (err) {}
       // 刚领完奖：立刻强刷奖品列表，绕过 10 分钟节流
       this._myPrizesAt = 0
       this.loadMyPrizes(true)
+      if ((e.detail && e.detail.prizeType) === 'pro_1month') {
+        try {
+          var mem = require('../../../utils/membership.js')
+          mem.clearCache()
+          mem.getMembershipState(true).catch(function () {})
+        } catch (err) {}
+      }
     }
   },
 }

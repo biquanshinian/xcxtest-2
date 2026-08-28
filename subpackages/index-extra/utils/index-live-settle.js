@@ -40,7 +40,7 @@ function chineseStatusOpts(missionOrLaunchData) {
   return undefined
 }
 const { isLiveEntryAllowed } = require('../../../utils/feature-flags.js')
-const { resolveRoadClosureStatus } = require('../../../utils/progress-road-closure.js')
+const { resolveRoadClosureStatus, buildRoadClosureTickerText } = require('../../../utils/progress-road-closure.js')
 const {
   filterExpiredMissions,
   getStatusTextZh
@@ -67,7 +67,7 @@ const {
   shouldRejectNetAdvance,
   mergeLiveRowNetHysteresis
 } = require('../../../utils/net-patch-policy.js')
-const { formatMissionListTimeOrUnknown } = require('../../../utils/launch-card-i18n.js')
+const { formatMissionListTimeOrUnknown, rocketNameForImage } = require('../../../utils/launch-card-i18n.js')
 
 /** 用列表卡 + 权威观测 + 面板拼出迟滞用的 cached 行（优先近窗 Go，防被旧 TBD 占位污染） */
 function buildCachedNetRowForHysteresis(mission, record, panel) {
@@ -1112,7 +1112,8 @@ const methods = {
    * 不受 upcoming 缓存残留旧 Go 影响。live 列表探针降为辅助（顺带修其它任务
    * NET/状态），LL2 updates 社媒记录作终态旁路。
    */
-  async _checkLiveLaunchStatus(currentId) {
+  async _checkLiveLaunchStatus(currentId, options) {
+    const lite = !!(options && options.lite)
     // 页面在后台：只续节拍，不打 LL2。首页为 Tab 页通常不 onUnload，
     // 复查定时器可长期存活，后台静默发请求纯属浪费额度；
     // 回前台 onShow 的 tick 会立刻重入过期流程（onHide 已放开锁与轮次节流）
@@ -1166,6 +1167,12 @@ const methods = {
         this._applyPostponedNet({ ...primary, id: currentId })
         return
       }
+    }
+
+    // 回前台远窗：只对齐当前任务 NET/状态，不打 live 列表 / updates / 复查定时器
+    if (lite) {
+      this._launchStatusPolling = false
+      return
     }
 
     // 2) 辅助探针：live 列表（顺带把前几条任务的 NET/状态 patch 进列表）
@@ -1629,15 +1636,13 @@ const methods = {
               timeRange = `${s} - ${e}`
             }
             const sourceMap = { manual: '管理员', spacedevs: 'SpaceDevs', starbase_gov: 'Starbase.gov', legacy: '' }
-            const schedule = data.beachClosureSchedule || []
-            const msgText =
-              schedule.length > 0
-                ? (data.beachStatus || data.message || '封路通知') + ' | ' + schedule[0]
-                : data.message || '星舰基地道路封路通知'
+            const ticker = buildRoadClosureTickerText({ ...data, timeRange })
             const nextNotice = {
               isActive: true,
-              message: msgText,
-              timeRange,
+              message: ticker.displayText,
+              statusText: ticker.statusText,
+              detailText: ticker.detailText,
+              timeRange: ticker.timeRange || timeRange,
               sourceLabel: sourceMap[data.source] || data.source || ''
             }
             this._roadClosureNoticeLoadedAt = Date.now()
@@ -1646,6 +1651,8 @@ const methods = {
             if (
               !prev ||
               prev.message !== nextNotice.message ||
+              prev.statusText !== nextNotice.statusText ||
+              prev.detailText !== nextNotice.detailText ||
               prev.timeRange !== nextNotice.timeRange ||
               prev.sourceLabel !== nextNotice.sourceLabel
             ) {
@@ -1955,10 +1962,15 @@ const methods = {
     const resolveOne = (m) => {
       if (!hasRocketMatchInput(m)) return null
       if (artSwitch) {
-        return resolveMissionRocketImageFresh(m.rocketName, m.rocketConfiguration)
+        return resolveMissionRocketImageFresh(rocketNameForImage(m) || m.rocketName, m.rocketConfiguration)
       }
-      // 与详情头图同源：force 重算；stamped 仅防 default 降级
-      return resolveMissionRocketImage(m.rocketImage || m.image || '', m.rocketName, m.rocketConfiguration, true)
+      // 与首页任务卡同源：英文配图名 + force 重算；stamped 仅防 default 降级
+      return resolveMissionRocketImage(
+        m.rocketImage || m.image || '',
+        rocketNameForImage(m) || m.rocketName,
+        m.rocketConfiguration,
+        true
+      )
     }
     const canReplace = (cur, next) =>
       artSwitch ? shouldReplaceRocketImageForArt(cur, next) : shouldReplaceRocketImage(cur, next)
@@ -2025,6 +2037,12 @@ const methods = {
             briefingComp._loadBriefing()
           }
         } catch (e2) {}
+        try {
+          const netChangeComp = this.selectComponent('#netChangeModal')
+          if (netChangeComp && typeof netChangeComp.resyncRocketImagesFromHomepage === 'function') {
+            netChangeComp.resyncRocketImagesFromHomepage()
+          }
+        } catch (e3) {}
       })
       try {
         const top = patch.upcomingMissions || patch.completedMissions || patch.calendarAllMissions

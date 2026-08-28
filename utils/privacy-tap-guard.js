@@ -1,12 +1,13 @@
 /**
- * 隐私弹窗同意后的点穿守卫：原生 video 会吃到同意按钮同一坐标的残余点击。
+ * 首页遮罩点穿守卫：隐私弹窗 / 改期弹窗关闭后，原生 swiper 会吃到同一坐标的残余点击。
  */
 const PRIVACY_TAP_GUARD_MS = 800
 const PRIVACY_MODAL_HIDE_DELAY_MS = 360
 
 function isPrivacyTapGuarded(app, now) {
   if (!app) return false
-  if (app.globalData && app.globalData.privacyModalVisible) return true
+  const gd = app.globalData || {}
+  if (gd.privacyModalVisible || gd.netChangeModalVisible) return true
   const until = Number(app._privacyTapGuardUntil) || 0
   return until > (now != null ? now : Date.now())
 }

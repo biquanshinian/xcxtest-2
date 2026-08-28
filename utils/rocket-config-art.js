@@ -21,12 +21,14 @@ let _version = 1
 function getRocketConfigArtStyle() {
   if (_style === ART_ORIGINAL || _style === ART_MECHA) return _style
   try {
-    const saved = wx.getStorageSync(ART_STORAGE_KEY)
-    _style = saved === ART_MECHA ? ART_MECHA : ART_ORIGINAL
-  } catch (e) {
-    _style = ART_ORIGINAL
-  }
-  return _style
+    const storageCache = require('./storage-sync-cache.js')
+    if (storageCache.isLoaded(ART_STORAGE_KEY)) {
+      const saved = storageCache.getMem(ART_STORAGE_KEY)
+      _style = saved === ART_MECHA ? ART_MECHA : ART_ORIGINAL
+      return _style
+    }
+  } catch (e) {}
+  return ART_ORIGINAL
 }
 
 function getRocketConfigArtVersion() {
@@ -100,8 +102,10 @@ function setRocketConfigArtStyle(style) {
   _style = next
   _version += 1
   try {
-    wx.setStorageSync(ART_STORAGE_KEY, next)
-  } catch (e) {}
+    require('./storage-sync-cache.js').persistAsync(ART_STORAGE_KEY, next)
+  } catch (e) {
+    try { wx.setStorage({ key: ART_STORAGE_KEY, data: next, fail() {} }) } catch (e2) {}
+  }
   refreshRocketArtOnPages()
   return next
 }

@@ -4,7 +4,6 @@
  */
 const { startDemo } = require('../../../utils/demo-engine.js')
 const { resolveMissionRocketImage } = require('../../../utils/util.js')
-const { ROUTES } = require('../../../utils/routes.js')
 const {
   resolveMissionSharePayload
 } = require('../../../utils/index-mission-nav.js')
@@ -22,26 +21,8 @@ const methods = {
   /** 首页放大镜：直达星问详情（智能搜索能力已并入星问） */
   openAISearch() {
     this.closeMissionSwipeCells()
-    const { isAIAvailable } = require('../../../utils/aiService.js')
-    const { isFeatureEnabled } = require('../../../utils/feature-flags.js')
-    if (!isAIAvailable()) {
-      wx.showToast({ title: '星问AI暂未开放', icon: 'none' })
-      return
-    }
-    isFeatureEnabled('enableAIChat', { failClosed: true }).then((on) => {
-      if (!on) {
-        wx.showToast({ title: '星问AI暂未开放', icon: 'none' })
-        return
-      }
-      wx.navigateTo({
-        url: ROUTES.AI_CHAT,
-        fail: () => {
-          wx.showToast({ title: '打开星问失败', icon: 'none' })
-        }
-      })
-    }).catch(() => {
-      wx.showToast({ title: '星问AI暂未开放', icon: 'none' })
-    })
+    const { openNavAiSearch } = require('../../../utils/nav-ai-search.js')
+    openNavAiSearch()
   },
 
   openShop() {
@@ -67,13 +48,12 @@ const methods = {
       const live = isLive()
 
       if (live) {
-        this.setData({ _isDemoLiveAccount: true })
-        const overlay = this.selectComponent('#demoOverlay')
-        if (overlay) {
-          overlay.startRemoteControl()
-        } else {
-          console.warn('[Index] DemoMode overlay component not found')
-        }
+        this.setData({ _isDemoLiveAccount: true }, () => {
+          const overlay = this.selectComponent('#demoOverlay')
+          if (overlay && typeof overlay.startRemoteControl === 'function') {
+            overlay.startRemoteControl()
+          }
+        })
       }
     }
 
@@ -244,6 +224,7 @@ const methods = {
         this._tryShowNetChangeModal()
         return
       }
+      if (typeof comp.isDevMode === 'function' && comp.isDevMode()) return
       if (comp._inflight || (comp.data && comp.data.visible)) return
       const self = this
       const p = comp.maybeShow(function () {

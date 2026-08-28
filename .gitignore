@@ -36,6 +36,11 @@ workers/replay-fetcher/tmp/
 # 出图参考图（COS 原图，禁止打进小程序主包）
 assets/rocket-refs/
 
+# 本地 3D 对照临时目录（未 ignore 会被微信打进主包）
+.tmp-r3d-glb/
+.tmp-r3d-ref/
+.tmp*/
+
 # 微信开发者工具
 project.private.config.json
 

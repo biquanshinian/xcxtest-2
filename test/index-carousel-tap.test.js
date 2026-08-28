@@ -41,16 +41,43 @@ test('resolveCarouselEventDs：空事件不抛', () => {
   assert.deepEqual(resolveCarouselEventDs({}), {})
 })
 
-test('轮播组件：视频点击层存在，timeupdate 走组件 emit', () => {
+test('轮播组件：视频只展示封面，不挂原生 video / cover-view，点击用 bindtap', () => {
   const wxml = fs.readFileSync(
     path.join(ROOT, 'subpackages/index-extra/components/index-carousel/index.wxml'),
     'utf8'
   )
-  assert.match(wxml, /class="carousel-video-hit"/)
-  assert.match(wxml, /catchtap="emitVideoTap"/)
-  assert.match(wxml, /bindtimeupdate="\{\{item\.videoStarted \? '' : 'emitTimeUpdate'\}\}"/)
+  assert.match(wxml, /class="carousel-video-poster"/)
+  assert.match(wxml, /bindtap="emitVideoTap"/)
+  assert.doesNotMatch(wxml, /catchtap="emitVideoTap"/)
+  assert.doesNotMatch(wxml, /<video[\s>]/)
+  assert.doesNotMatch(wxml, /<cover-view[\s>]/)
   assert.doesNotMatch(wxml, /onCarouselVideoTimeUpdate/)
-  assert.match(wxml, /wx:if="\{\{item\.videoActive && item\.playSrc\}\}"/)
+  assert.match(wxml, /disable-touch="\{\{gestureLocked\}\}"/)
+  assert.match(wxml, /image-carousel--locked/)
+  assert.match(wxml, /wx:else/)
+  assert.match(wxml, /image-carousel-frozen/)
+})
+
+
+test('轮播组件：virtualHost 避免自定义组件包裹节点拦截 swiper 手势', () => {
+  const js = fs.readFileSync(
+    path.join(ROOT, 'subpackages/index-extra/components/index-carousel/index.js'),
+    'utf8'
+  )
+  assert.match(js, /virtualHost:\s*true/)
+  assert.match(js, /gestureLocked/)
+  assert.match(js, /frozenSrc/)
+})
+
+
+test('轮播逻辑：不在 swiper 内激活原生 video', () => {
+  const js = fs.readFileSync(
+    path.join(ROOT, 'subpackages/index-extra/utils/index-carousel.js'),
+    'utf8'
+  )
+  const activate = js.slice(js.indexOf('_activateCarouselVideos'), js.indexOf('_playCurrentVideoIfNeeded'))
+  assert.match(activate, /const want = new Set\(\)/)
+  assert.doesNotMatch(activate, /autoplayAllowed \? \[cur\]/)
 })
 
 test('页面处理函数从 resolveCarouselEventDs 取 index，不再只读 currentTarget.dataset', () => {

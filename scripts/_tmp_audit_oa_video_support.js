@@ -28,6 +28,15 @@ check('pickImageUrls 放行万象截帧、仍剔除裸视频', () => {
   assert.deepStrictEqual(urls, [snap, `${COS}/t/a.jpg`])
 })
 
+check('pickImageUrls 识别 LL2 image_url 对象（发射配图）', () => {
+  const urls = helpers.pickImageUrls(
+    { image_url: `${COS}/launch.jpg`, thumbnail_url: `${COS}/launch-thumb.jpg` },
+    { image: { image_url: `${COS}/rocket.png` } }
+  )
+  assert.ok(urls.includes(`${COS}/launch.jpg`))
+  assert.ok(urls.includes(`${COS}/rocket.png`))
+})
+
 check('pickVideoEntries：长视频（未存 COS）→ 缩略图作封面截图 + 推文页观看链', () => {
   const list = helpers.pickVideoEntries([
     {
@@ -226,8 +235,7 @@ check('looksLikeMp4Head：ftyp 认 MP4，HTML 错误页拒收', () => {
 
 console.log('[3] gatherTopics（假 db）')
 
-const makeFakeDb = (events) => {
-  const emptyRes = { data: [] }
+const makeFakeDb = (events, upcoming = []) => {
   const chain = (rows) => ({
     where() { return this },
     orderBy() { return this },
@@ -245,6 +253,12 @@ const makeFakeDb = (events) => {
           })
         }
       }
+      if (name === 'space_devs_cache') {
+        return {
+          ...chain(upcoming.length ? [{ cacheKey: 'upcoming', data: upcoming }] : []),
+          doc: () => ({ async get() { return { data: null } } })
+        }
+      }
       return {
         ...chain([]),
         doc: () => ({ async get() { return { data: null } }, async update() { return {} } }),
@@ -254,12 +268,21 @@ const makeFakeDb = (events) => {
   }
 }
 
+const nowMs = Date.now()
 const events = [
   {
     _id: 'ev_long',
     status: 'published',
     title: '星舰 S40 完整飞行录像',
     content: 'S40 完成第 14 次飞行测试，全程约 66 分钟。',
+    source: 'SpaceX',
+    author: 'SpaceX自动追踪',
+    authorAvatar: `${COS}/avatars/SpaceX.jpg`,
+    tweetId: '123',
+    tweetUrl: 'https://x.com/SpaceX/status/123',
+    translated: true,
+    originalText: 'S40 completed flight test 14.',
+    publishedAt: nowMs - 2 * 60 * 60 * 1000,
     mediaList: [
       {
         type: 'video',
@@ -277,18 +300,59 @@ const events = [
     status: 'published',
     title: '发射集锦短片',
     content: '30 秒集锦。',
+    source: 'NASASpaceflight',
+    author: 'NSF自动追踪',
+    authorAvatar: `${COS}/avatars/NASASpaceflight.jpg`,
+    tweetId: '456',
+    tweetUrl: 'https://x.com/NASASpaceflight/status/456',
+    publishedAt: nowMs - 6 * 60 * 60 * 1000,
     mediaList: [
       { type: 'video', url: `${COS}/tweets/456_video0.mp4`, previewUrl: `${COS}/tweets/preview/456_fast.mp4`, sourceUrl: 'https://x.com/s/456' }
     ]
+  },
+  {
+    _id: 'ev_text_only',
+    status: 'published',
+    title: '纯文字推文',
+    content: '没有配图的动态。',
+    source: 'elonmusk',
+    author: 'Elon Musk自动追踪',
+    tweetId: '789',
+    tweetUrl: 'https://x.com/elonmusk/status/789',
+    publishedAt: nowMs - 30 * 60 * 1000,
+    mediaList: []
+  },
+  {
+    _id: 'ev_old',
+    status: 'published',
+    title: '五天前的旧推文',
+    content: '过期事件。',
+    source: 'Starlink',
+    tweetId: '999',
+    publishedAt: nowMs - 5 * 24 * 60 * 60 * 1000,
+    mediaList: [{ type: 'image', url: `${COS}/tweets/999_0.jpg` }]
+  }
+]
+
+const upcoming = [
+  {
+    id: 'lnch1',
+    name: 'Starlink Group 10-18',
+    net: new Date(nowMs + 36 * 60 * 60 * 1000).toISOString(),
+    rocket: { name: 'Falcon 9', image: { image_url: `${COS}/f9.jpg` } },
+    pad: { name: 'SLC-40', location: { name: 'Cape Canaveral' } },
+    launch_service_provider: { name: 'SpaceX', logo: { image_url: `${COS}/spacex-logo.png` } },
+    status: { name: 'Go' },
+    url: 'https://ll.thespacedevs.com/2.2.0/launch/lnch1/'
   }
 ]
 
 const api = createOaContentStudioApi({
-  db: makeFakeDb(events),
+  db: makeFakeDb(events, upcoming),
   _: {},
   ok: (data) => ({ code: 0, data }),
   fail: (code, message) => ({ code, message }),
-  now: () => Date.now(),
+  now: () => nowMs,
   writeOpLog: async () => {},
   cloud: null,
   checkPerm: () => null
@@ -297,10 +361,13 @@ const api = createOaContentStudioApi({
 ;(async () => {
   const res = await api.gatherTopics({ limit: 10 })
   assert.strictEqual(res.code, 0)
-  const topics = res.data.list.filter((t) => t.sourceType === 'starship_event')
-  assert.strictEqual(topics.length, 2, '应有 2 条星舰事件选题')
+  const topics = res.data.list
+  const eventTopics = topics.filter((t) => t.sourceType === 'starship_event')
+  assert.strictEqual(eventTopics.length, 2, '近3天且有配图的星舰事件应为 2 条，纯文字/过期应过滤')
+  assert.ok(!eventTopics.some((t) => t.sourceId === 'ev_text_only'), '无配图推文不应出现')
+  assert.ok(!eventTopics.some((t) => t.sourceId === 'ev_old'), '超过 3 天的推文不应出现')
 
-  const long = topics.find((t) => t.sourceId === 'ev_long')
+  const long = eventTopics.find((t) => t.sourceId === 'ev_long')
   check('长视频事件：videos 带 isLong + 封面截图并入配图', () => {
     assert.strictEqual(long.videos.length, 1)
     assert.strictEqual(long.videos[0].isLong, true)
@@ -308,12 +375,34 @@ const api = createOaContentStudioApi({
     assert.ok(long.imageUrls.includes(`${COS}/tweets/123_0.jpg`))
     assert.strictEqual(long.coverUrl, `${COS}/tweets/123_0.jpg`, '真图在前作封面')
   })
+  check('推文事件带账号来源/头像/推文链接/原文', () => {
+    assert.strictEqual(long.accountSource, 'SpaceX')
+    assert.strictEqual(long.accountLabel, 'SpaceX')
+    assert.ok(long.authorAvatar)
+    assert.strictEqual(long.tweetUrl, 'https://x.com/SpaceX/status/123')
+    assert.strictEqual(long.originalText, 'S40 completed flight test 14.')
+    assert.strictEqual(long.translated, true)
+  })
 
-  const short = topics.find((t) => t.sourceId === 'ev_short')
+  const short = eventTopics.find((t) => t.sourceId === 'ev_short')
   check('纯视频事件不再无图：封面=万象截帧', () => {
     assert.strictEqual(short.videos.length, 1)
     assert.ok(/ci-process=snapshot/.test(short.coverUrl), '封面应为截帧: ' + short.coverUrl)
     assert.strictEqual(short.imageUrls.length, 1)
+    assert.strictEqual(short.accountSource, 'NASASpaceflight')
+    assert.strictEqual(short.accountLabel, 'NSF')
+  })
+
+  const launch = topics.find((t) => t.sourceType === 'launch')
+  check('发射选题带火箭/工位/NET/发射商 Logo 配图', () => {
+    assert.ok(launch, '应有发射选题')
+    assert.strictEqual(launch.rocket, 'Falcon 9')
+    assert.strictEqual(launch.pad, 'SLC-40')
+    assert.strictEqual(launch.provider, 'SpaceX')
+    assert.ok(launch.netMs > nowMs)
+    assert.ok(launch.imageUrls.includes(`${COS}/f9.jpg`))
+    assert.ok(launch.imageUrls.includes(`${COS}/spacex-logo.png`))
+    assert.ok(launch.sourceUrl)
   })
 
   console.log(`\n${passed} checks passed${process.exitCode ? '（有失败）' : ''}`)

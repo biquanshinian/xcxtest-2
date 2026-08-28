@@ -178,6 +178,9 @@
 .subscribe-note {
   margin-top: 18rpx;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
 }
 
 .subscribe-note text {
@@ -554,7 +557,7 @@
   padding: 12rpx;
 }
 
-/* ═══════════ iOS 暂未开放 ═══════════ */
+/* ═══════════ iOS Apple 支付说明 ═══════════ */
 .ios-notice {
   background: rgba(200, 130, 20, 0.1);
   color: #8A5500;
@@ -563,15 +566,6 @@
   font-size: 24rpx;
   margin-bottom: 22rpx;
   line-height: 1.5;
-  display: flex;
-  flex-direction: column;
-  gap: 8rpx;
-}
-
-.ios-notice-tip {
-  color: #A5711C;
-  font-size: 22rpx;
-  opacity: 0.85;
 }
 
 /* 金卡外（深色页面背景上）的 iOS 提示：改用亮金文字保证可读性 */
@@ -579,29 +573,8 @@
   color: #E8B04A;
 }
 
-.section .ios-notice .ios-notice-tip {
-  color: rgba(232, 176, 74, 0.75);
-}
-
 .theme-light .section .ios-notice {
   color: #8A5500;
-}
-
-.theme-light .section .ios-notice .ios-notice-tip {
-  color: #A5711C;
-}
-
-.plan-list--disabled,
-.product-list--disabled {
-  opacity: 0.55;
-  pointer-events: none;
-}
-
-.subscribe-btn--disabled {
-  background: #E5DCC8 !important;
-  color: #A39A85 !important;
-  box-shadow: none !important;
-  pointer-events: none;
 }
 
 /* ══════════════════════════════════════

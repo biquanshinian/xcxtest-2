@@ -531,6 +531,7 @@ function isDefaultRocketSrc(u) {
 /**
  * 是否应用 next 覆盖 current。
  * 禁止「非 default → default」降级（media map 二次刷新偶发 miss 时会把已正确的图盖掉）。
+ * 同一对象的未压缩原链应被 imageMogr2 压缩链替换；不同压缩档（thumb↔medium）允许换成新结果。
  */
 function shouldReplaceRocketImage(current, next) {
   if (!next || typeof next !== 'string' || !String(next).trim()) return false
@@ -538,11 +539,18 @@ function shouldReplaceRocketImage(current, next) {
   const nxt = String(next).trim()
   if (!cur) return true
   if (cur === nxt) return false
-  const strip = (u) => {
+  const stripPath = (u) => {
     const i = u.indexOf('?')
     return i >= 0 ? u.slice(0, i) : u
   }
-  if (strip(cur) === strip(nxt)) return false
+  if (stripPath(cur) === stripPath(nxt)) {
+    const curHasCi = /imageMogr2|ci-process=/i.test(cur)
+    const nxtHasCi = /imageMogr2|ci-process=/i.test(nxt)
+    if (!curHasCi && nxtHasCi) return true
+    if (curHasCi && !nxtHasCi) return false
+    if (curHasCi && nxtHasCi) return true
+    return false
+  }
   // 已有正确图时，不允许被 default 覆盖
   if (!isDefaultRocketSrc(cur) && isDefaultRocketSrc(nxt)) return false
   return true
@@ -562,6 +570,16 @@ function shouldReplaceRocketImageForArt(current, next) {
   return strip(cur) !== strip(nxt)
 }
 
+function isUsableWxfileRocketSrc(u) {
+  if (!u || typeof u !== 'string' || !/^wxfile:\/\//i.test(u.trim())) return false
+  try {
+    wx.getFileSystemManager().accessSync(u.trim())
+    return true
+  } catch (e) {
+    return false
+  }
+}
+
 /** 将 API / 缓存中的火箭图字符串规范为可交给 <image> 的最终地址 */
 function finalizeRocketDisplaySrc(candidate) {
   if (candidate == null || typeof candidate !== 'string') return ''
@@ -576,6 +594,7 @@ function finalizeRocketDisplaySrc(candidate) {
       // 避免已盖章的远程原图绕过压缩直接交给 <image>
       return getCachedRocketConfig(raw.trim())
     }
+    if (/^wxfile:\/\//i.test(raw) && !isUsableWxfileRocketSrc(raw)) return ''
     return raw
   }
   return resolveRocketImagePath(raw.replace(/^\/+/, ''))

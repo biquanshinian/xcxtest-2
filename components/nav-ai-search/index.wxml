@@ -1,0 +1,9 @@
+<view
+  wx:if="{{visible}}"
+  class="nav-search-btn {{themeLight ? 'nav-search-btn--light' : ''}} {{hidden ? 'nav-search-btn--hidden' : ''}}"
+  bindtap="onTap"
+  aria-role="button"
+  aria-label="星问"
+>
+  <text class="icon-search icon-search--nav">⌕</text>
+</view>

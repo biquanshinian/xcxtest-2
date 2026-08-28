@@ -23,32 +23,6 @@
   min-height: 90rpx;
   position: relative;
 }
-.nav-search-btn {
-  position: absolute;
-  left: 30rpx;
-  top: 12rpx;
-  width: 74rpx;
-  height: 54rpx;
-  background: rgba(18, 20, 24, 0.16);
-  backdrop-filter: blur(34rpx) saturate(170%);
-  -webkit-backdrop-filter: blur(34rpx) saturate(170%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 999rpx;
-  box-shadow:
-    0 4rpx 16rpx rgba(0, 0, 0, 0.3),
-    inset 0 1rpx 0 rgba(255, 255, 255, 0.12);
-  padding: 0;
-  z-index: 2;
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-.icon-search--nav {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  font-size: 51rpx;
-  transform: translate(-50%, -55%) scaleX(-1);
-}
-
 .countdown-card-actions {
   position: relative;
   width: 100%;
@@ -119,6 +93,7 @@
   box-sizing: border-box;
   overflow: visible;
   position: relative;
+  z-index: 2;
 }
 
 .countdown-card.glass-card::after,
@@ -1745,12 +1720,6 @@
   white-space: nowrap;
   flex-shrink: 0;
 }
-.nav-search-btn--hidden {
-  opacity: 0;
-  pointer-events: none;
-  transform: scale(0.8);
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
 
 
 
@@ -2009,12 +1978,6 @@
 .theme-light .top-nav-wrapper {
   background: var(--bg-glass-nav);
 }
-.theme-light .nav-search-btn {
-  background: rgba(255, 255, 255, 0.62);
-  border: 1px solid var(--color-divider);
-  box-shadow: var(--shadow-card);
-}
-
 .theme-light .nav-button,
 .theme-light .nav-button.active,
 .theme-light .nav-button--completed.active {

@@ -108,6 +108,8 @@
 }
 
 .ncm-swiper-wrap {
+  position: relative;
+  z-index: 1;
   width: 100%;
 }
 
@@ -130,6 +132,11 @@
 
 .ncm-swiper--multi {
   height: 920rpx;
+}
+
+/* 单卡直渲容器：与 swiper 同高，卡片沿用 .ncm-stack .ncm-popup 的 height:100% 拉满 */
+.ncm-single {
+  height: 820rpx;
 }
 
 .ncm-pager {
@@ -256,7 +263,12 @@
   background: rgba(7, 193, 96, 0.1);
 }
 
-.theme-light .ncm-dir-pill--delay {
+.ncm-dir-pill--pending {
+  color: #FF9500;
+  background: rgba(255, 149, 0, 0.14);
+}
+
+.theme-light .ncm-dir-pill--pending {
   background: rgba(255, 149, 0, 0.1);
 }
 
@@ -434,6 +446,11 @@
   color: var(--ncm-new);
 }
 
+.ncm-time-label--pending {
+  color: #FF9500;
+  letter-spacing: 2rpx;
+}
+
 .ncm-time-value {
   position: relative;
   display: inline-block;
@@ -476,16 +493,25 @@
   animation: ncm-new-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) 0.38s both;
 }
 
+.ncm-time-value--pending {
+  color: #FF9500;
+  font-size: 30rpx;
+  font-weight: 700;
+  animation: ncm-new-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) 0.38s both;
+}
+
 @keyframes ncm-new-in {
   from { opacity: 0; transform: translateY(14rpx); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 .ncm-btn {
+  /* 置于 stack 顶层，防 swiper/动画层的透明区域吃掉点击 */
+  position: relative;
+  z-index: 2;
   width: 100%;
   margin-top: 20rpx;
   height: 92rpx;
-  line-height: 92rpx;
   border-radius: 46rpx;
   background: linear-gradient(135deg, #6AA8FF 0%, #3B82F6 100%);
   color: #FFFFFF;
@@ -495,6 +521,10 @@
   border: none;
   padding: 0;
   box-shadow: 0 12rpx 32rpx rgba(59, 130, 246, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
 }
 
 .ncm-btn::after { border: none; }

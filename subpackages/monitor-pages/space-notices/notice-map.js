@@ -24,10 +24,12 @@ const {
   resolveEffectivePad,
   fitCenter,
   fitNotice,
-  hasGeometry
+  hasGeometry,
+  hitTestPolygonNotice
 } = require('./utils/map-build.js')
 const { buildMapLayoutData, setMapSatelliteFromTap } = require('../utils/map-page-common.js')
-const { isChinaPad, CHINA_OVERVIEW, isChineseCollectionKey, CHINESE_COLLECTION_KEY, normalizeEntryKey } = require('./utils/china-filter.js')
+const { isChinaPad, isChineseCollectionKey, CHINESE_COLLECTION_KEY, normalizeEntryKey } = require('./utils/china-filter.js')
+const { CHINA_VIEW, CHINA_FIT_POINTS } = require('./utils/china-notices.js')
 
 const GATE_PRODUCT_ID = 'space_notices'
 const GATE_PRODUCT_NAME = SPACE_NOTICES_PRODUCT_NAME
@@ -58,13 +60,13 @@ Page({
     subtitle: '',
     padName: '',
     netText: '',
-    latitude: 25.99677,
-    longitude: -97.15799,
-    scale: 6,
+    latitude: CHINA_VIEW.latitude,
+    longitude: CHINA_VIEW.longitude,
+    scale: CHINA_VIEW.scale,
     markers: [],
     polygons: [],
     polylines: [],
-    includePoints: [],
+    includePoints: CHINA_FIT_POINTS.slice(),
     notices: [],
     stats: { notam: 0, nav: 0, adp: 0, live: 0, soon: 0, ended: 0, cancelled: 0, china: 0 },
     loading: true,
@@ -75,8 +77,8 @@ Page({
     /** 状态图层：生效 / 提前预警 / 已结束 / 已取消，默认全开 */
     showLive: true,
     showSoon: true,
-    showEnded: true,
-    showCancelled: true,
+    showEnded: false,
+    showCancelled: false,
     /** 官网中国合集视图（collection-chinese-unknown），与底部图层 chip 无关 */
     chinaView: false,
     /** 仅显示中国相关通告；进入官网合集时为 true */
@@ -96,6 +98,7 @@ Page({
     panelCollapsed: false,
     selectedKey: '',
     selectedNotice: null,
+    showRaw: false,
     shareGateExpireAt: 0,
     mapActionTop: 0,
     actionMenuCollapsed: true,
@@ -122,6 +125,14 @@ Page({
       chinaView: chinaCollection,
       chinaOnly: chinaCollection,
       title: chinaCollection ? '中国航警公告' : '',
+      ...(chinaCollection
+        ? {
+            latitude: CHINA_VIEW.latitude,
+            longitude: CHINA_VIEW.longitude,
+            scale: CHINA_VIEW.scale,
+            includePoints: CHINA_FIT_POINTS.slice()
+          }
+        : {}),
       ...buildMapLayoutData(getApp())
     })
 
@@ -321,17 +332,15 @@ Page({
       next.padName = pad.name
     }
     if (refit) {
-      const hasShape =
-        polygons.length > 0 ||
-        polylines.some((l) => l && Array.isArray(l.points) && l.points.length >= 2)
-      if (chinaOnly && !hasShape) {
-        next.latitude = CHINA_OVERVIEW.latitude
-        next.longitude = CHINA_OVERVIEW.longitude
-        next.scale = CHINA_OVERVIEW.scale
-        next.includePoints = []
+      if (chinaOnly) {
+        // 全国航警含赤道附近溅落区时，include-points 会把视野拽到印尼/澳洲；中国合集钉住大陆
+        next.latitude = CHINA_VIEW.latitude
+        next.longitude = CHINA_VIEW.longitude
+        next.scale = CHINA_VIEW.scale
+        next.includePoints = CHINA_FIT_POINTS.slice()
       } else {
-        const center = fitCenter(chinaOnly ? (padOk ? pad : null) : pad, polygons, polylines, {
-          region: chinaOnly ? 'global' : (this.data.mapRegion || 'global')
+        const center = fitCenter(pad, polygons, polylines, {
+          region: this.data.mapRegion || 'global'
         })
         next.includePoints = center.includePoints || []
         next.latitude = center.latitude
@@ -429,11 +438,27 @@ Page({
   },
 
   selectNotice(e) {
-    const key = e.currentTarget.dataset.key
+    this.openNoticeByKey(e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.key)
+  },
+
+  onMapTap(e) {
+    const lat = Number(e.detail && e.detail.latitude)
+    const lng = Number(e.detail && e.detail.longitude)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+    const key = hitTestPolygonNotice(lat, lng, this.data.polygons)
+    if (!key) {
+      if (this.data.selectedNotice) this.closeDetail()
+      return
+    }
+    if (key === this.data.selectedKey) return
+    this.openNoticeByKey(key)
+  },
+
+  openNoticeByKey(key) {
     if (!key) return
     const notice = (this._decorated || []).find((n) => n.noticeKey === key)
     if (!notice) return
-    this.setData({ selectedKey: key, selectedNotice: notice }, () => {
+    this.setData({ selectedKey: key, selectedNotice: notice, showRaw: false, panelCollapsed: true }, () => {
       this.applyLayers({ refit: false })
       const fit = fitNotice(notice)
       if (fit) {
@@ -450,11 +475,25 @@ Page({
   },
 
   closeDetail() {
-    this.setData({ selectedNotice: null, selectedKey: '' }, () => this.applyLayers({ refit: false }))
+    this.setData({ selectedNotice: null, selectedKey: '', showRaw: false, panelCollapsed: false }, () => this.applyLayers({ refit: false }))
   },
 
   minimizeDetail() {
-    this.setData({ selectedNotice: null })
+    this.setData({ selectedNotice: null, showRaw: false })
+  },
+
+  toggleRaw() {
+    this.setData({ showRaw: !this.data.showRaw })
+  },
+
+  copyCoords() {
+    const n = this.data.selectedNotice
+    const text = (n && n.coordText) || ''
+    if (!text) {
+      wx.showToast({ title: '该通告无坐标', icon: 'none' })
+      return
+    }
+    wx.setClipboardData({ data: text })
   },
 
   copyRawText() {

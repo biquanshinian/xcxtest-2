@@ -5,9 +5,17 @@ const {
   findMissionInListSnapshots
 } = require('../../utils/api-launch-list.js')
 const { getRoadClosureNotice } = require('../../utils/api-road-closure.js')
-const { getVoteStats, castVote, fetchLl2LaunchTimeline, fetchLl2LaunchUpdates } = require('../../utils/api-app-services.js')
-const { formatDate, getCountdown, resolveMissionRocketImage, resolveMissionRocketImageFresh, isDefaultRocketSrc, shouldReplaceRocketImage, shouldReplaceRocketImageForArt } = require('../../utils/util.js')
-const { loadCloudMediaMap, resolveMediaUrl } = require('../../utils/image-config.js')
+const { getVoteStats, castVote, fetchLl2LaunchTimeline, fetchLl2LaunchUpdates, resolveLaunchStatuses } = require('../../utils/api-app-services.js')
+const {
+  formatDate,
+  getCountdown,
+  resolveMissionRocketImage: resolveMissionRocketImageRaw,
+  resolveMissionRocketImageFresh: resolveMissionRocketImageFreshRaw,
+  isDefaultRocketSrc,
+  shouldReplaceRocketImage,
+  shouldReplaceRocketImageForArt
+} = require('../../utils/util.js')
+const { loadCloudMediaMap, revalidateCloudMediaMap, resolveMediaUrl } = require('../../utils/image-config.js')
 const rocketArtUtil = require('../../utils/rocket-config-art.js')
 const { isMechaRocketSrc } = rocketArtUtil
 const { isPermissionDenied, getPermissionDeniedMessage } = require('./utils/single-page.js')
@@ -40,7 +48,14 @@ const { isLiveEntryAllowed, isFeatureEnabled, isPlaybackAllowed } = require('../
 const { resolveOrbitPanoForMission, playOrbitPanoVideo } = require('./utils/orbit-pano.js')
 const { videoSnapshotUrl, optimizeImageUrl } = require('../../utils/cos-url.js')
 const { openBoosterEntityDetail, openRocketModelDetail } = require('./utils/booster-nav.js')
+const { hasReadyRocketModel, resolveReadyModelUrl } = require('./utils/rocket-3d-gate.js')
 const { applyAuthoritativeStatus, projectBadgeOntoMission } = require('../../utils/launch-status-store.js')
+const {
+  STATUS_REVALIDATE_MS,
+  STATUS_PROBE_MIN_GAP_MS,
+  takeForegroundResume,
+  shouldRevalidate
+} = require('../../utils/foreground-resume.js')
 const {
   applyContentLangToMission,
   mergeMissionLangPack,
@@ -66,6 +81,27 @@ const {
 } = require('../../utils/icon-cache.js')
 
 const HERO_AGENCY_FALLBACK_LOGO = '/images/icons/ic-rocket-outline.svg'
+
+/** 详情头图全宽：在首页 thumb 链上再升到 medium，避免 480w 发糊 */
+function toDetailRocketSrc(url) {
+  const u = url == null ? '' : String(url).trim()
+  if (!u || !/^https?:\/\//i.test(u)) return u
+  try {
+    return getCachedRocketConfig(u, 'medium') || u
+  } catch (e) {
+    return u
+  }
+}
+
+function resolveMissionRocketImage(imagePath, rocketName, rocketConfiguration, forceRecompute) {
+  return toDetailRocketSrc(
+    resolveMissionRocketImageRaw(imagePath, rocketName, rocketConfiguration, forceRecompute)
+  )
+}
+
+function resolveMissionRocketImageFresh(rocketName, rocketConfiguration) {
+  return toDetailRocketSrc(resolveMissionRocketImageFreshRaw(rocketName, rocketConfiguration))
+}
 
 /** 任务徽章：命中本地 media_cache 则走 wxfile，否则返回压缩/代理 URL 并后台落盘 */
 function resolveMissionPatchesCached(patches) {
@@ -97,7 +133,7 @@ function decorateHeroAgencyFields(mission) {
   }
   if (mission.rocketImage && /^https?:\/\//i.test(String(mission.rocketImage))) {
     try {
-      const localRocket = getCachedRocketConfig(mission.rocketImage)
+      const localRocket = toDetailRocketSrc(mission.rocketImage)
       if (localRocket) mission.rocketImage = localRocket
     } catch (e) {}
   }
@@ -213,7 +249,8 @@ const {
   shouldReuseMissionDetailCache,
   shouldReuseMissionListSnapshot,
   getMissionDetailCacheKey,
-  shouldSkipVoteRefresh
+  shouldSkipVoteRefresh,
+  isVoteChoiceForType
 } = require('../../utils/index-page-helpers.js')
 
 const MISSION_DETAIL_CACHE_TTL = 10 * 60 * 1000
@@ -319,7 +356,12 @@ function buildMissionSeoMeta(mission, detailType) {
     shareTitle,
     heroTitle: hero.heroTitle,
     heroRocketName: hero.heroRocketName,
-    showHeroRocket: hero.showHeroRocket
+    showHeroRocket: hero.showHeroRocket,
+    rocket3dEnabled: hasReadyRocketModel({
+      rocketName: hero.heroRocketName || safeMission.rocketName,
+      rocketNameEn: safeMission._langPack && safeMission._langPack.rocketNameEn,
+      configuration: safeMission.rocketConfiguration
+    })
   }
 }
 
@@ -458,6 +500,7 @@ Page({
     heroTitle: '',
     heroRocketName: '',
     showHeroRocket: false,
+    rocket3dEnabled: false,
     detailScrollTop: 0,
     /** 页签栏吸顶位置 = 实测导航栏底边（navPlaceholderHeight 含 8rpx 内容间距，直接用会留缝） */
     detailTabStickyTop: 0,
@@ -551,6 +594,7 @@ Page({
 
   onShow() {
     this.setData({ pageVisible: true })
+    const resume = takeForegroundResume(this)
     rocketArtUtil.applyRocketConfigArtIfNeeded(this)
     // 偏好切换中/英文后返回详情：就地重套展示字段（不依赖重新拉详情）
     this._applyContentLangIfNeeded()
@@ -577,6 +621,74 @@ Page({
     this._refreshOaAlertReady(true)
     // 一键过审后回前台：强制刷新环绕全景显隐，避免审核分享仍看到 360
     if (this.data.mission) this._syncOrbitPanoEntry(this.data.mission, true)
+    // 运营停用/删除 3D 模型后，回前台尽快对齐入口显隐
+    void revalidateCloudMediaMap()
+      .then(() => {
+        try { this._refreshRocket3dEnabledFromMediaMap() } catch (e) {}
+      })
+      .catch(() => {})
+    this._silentRevalidateScheduleOnForeground(resume.resumeMs)
+  },
+
+  /**
+   * 详情页挂后台再回来：不整页重载（会闪骨架/重置页签），只对齐 NET/状态与倒计时。
+   */
+  _silentRevalidateScheduleOnForeground(resumeMs) {
+    if (!shouldRevalidate(resumeMs, STATUS_REVALIDATE_MS)) return
+    if (this._lastScheduleProbeAt && Date.now() - this._lastScheduleProbeAt < STATUS_PROBE_MIN_GAP_MS) {
+      return
+    }
+    const mission = this.data.mission
+    if (!mission || !mission.id) return
+    if (this.data.detailType === 'completed') return
+    this._lastScheduleProbeAt = Date.now()
+    const currentId = String(mission.id)
+    resolveLaunchStatuses([currentId])
+      .then((rows) => {
+        const row = Array.isArray(rows)
+          ? rows.find((r) => r && String(r.id) === currentId)
+          : null
+        if (!row) return
+        const current = this.data.mission
+        if (!current || String(current.id) !== currentId) return
+        const liveMission = {
+          id: currentId,
+          launchTime: row.net || current.launchTime || '',
+          net: row.net || current.net || '',
+          windowStart: row.windowStart || row.window_start || current.windowStart || '',
+          windowEnd: row.windowEnd || row.window_end || current.windowEnd || '',
+          statusId: row.status && row.status.id != null ? Number(row.status.id) : current.statusId,
+          statusAbbrev: (row.status && row.status.abbrev) || current.statusAbbrev || '',
+          status: row.status || current.status
+        }
+        const aligned = alignMissionScheduleAndStatus(current, liveMission, Date.now())
+        if (!aligned || !scheduleFieldsDiffer(current, aligned)) return
+        const record = {
+          net: aligned.launchTime || row.net || current.launchTime,
+          windowStart: aligned.windowStart || liveMission.windowStart,
+          windowEnd: aligned.windowEnd || liveMission.windowEnd,
+          status: aligned.status || row.status,
+          statusId: aligned.status && aligned.status.id != null
+            ? Number(aligned.status.id)
+            : liveMission.statusId
+        }
+        const next = projectBadgeOntoMission(Object.assign({}, current), record)
+        if (next.launchTime) {
+          next.launchTimeCST = this.formatToCST(next.launchTime)
+        }
+        if (next.windowStart) next.windowStartCST = this.formatToCST(next.windowStart)
+        if (next.windowEnd) next.windowEndCST = this.formatToCST(next.windowEnd)
+        Object.assign(next, this.buildLaunchTimelinePatch(next, {
+          isCompleted: this.data.detailType === 'completed'
+        }))
+        this.setData({ mission: next }, () => {
+          const stillUpcoming = this.data.detailType !== 'completed' &&
+            !!(next.launchTime && !getCountdown(next.launchTime).isExpired)
+          if (stillUpcoming) this.startMissionCountdown(next.launchTime)
+          else this.clearMissionCountdownTimer()
+        })
+      })
+      .catch(() => {})
   },
 
   _applyContentLangIfNeeded() {
@@ -604,7 +716,8 @@ Page({
       shareTitle: seoMeta.shareTitle,
       heroTitle: seoMeta.heroTitle,
       heroRocketName: seoMeta.heroRocketName,
-      showHeroRocket: seoMeta.showHeroRocket
+      showHeroRocket: seoMeta.showHeroRocket,
+      rocket3dEnabled: seoMeta.rocket3dEnabled
     })
     return true
   },
@@ -688,6 +801,7 @@ Page({
     loadCloudMediaMap()
       .then(() => {
         try { this._refreshMissionRocketImageFromMediaMap() } catch (e) {}
+        try { this._refreshRocket3dEnabledFromMediaMap() } catch (e) {}
       })
       .catch(() => {})
 
@@ -1504,6 +1618,7 @@ Page({
         heroTitle: seoMeta.heroTitle,
         heroRocketName: seoMeta.heroRocketName,
         showHeroRocket: seoMeta.showHeroRocket,
+        rocket3dEnabled: seoMeta.rocket3dEnabled,
         shareImage: normalizedMission.rocketImage || resolveMissionRocketImage(DEFAULT_SHARE_IMAGE),
         missionSubscribed: isSubscribed(normalizedMission.id),
         isFavorited: isFavorite('mission', normalizedMission.id),
@@ -1772,6 +1887,55 @@ Page({
         }
       : null
     await playOrbitPanoVideo(share, item)
+  },
+
+  /** 头图 3D 图标：进独立页加载，不在详情内嵌 WebGL（iOS 同层点击会被吞） */
+  async onTapRocket3d() {
+    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+    if (this.data.isMomentsPreview) return
+    if (this._rocket3dBusy) return
+    const mission = this.data.mission || {}
+    const name = this.data.heroRocketName || mission.rocketName || ''
+    const nameEn = (mission._langPack && mission._langPack.rocketNameEn) || ''
+    const poster = mission.rocketImage || ''
+    const modelUrl = resolveReadyModelUrl({
+      rocketName: name,
+      rocketNameEn: nameEn,
+      configuration: mission.rocketConfiguration
+    })
+    if (!modelUrl) {
+      wx.showToast({ title: '该型号暂无 3D 模型', icon: 'none' })
+      return
+    }
+    this._rocket3dBusy = true
+    try {
+      const { gateCheck } = require('../../utils/membership.js')
+      const allowed = await gateCheck('rocket_3d', '火箭 3D 模型', { allowAd: false })
+      if (!allowed) return
+      const q = []
+      if (name) q.push('name=' + encodeURIComponent(name))
+      if (nameEn) q.push('nameEn=' + encodeURIComponent(nameEn))
+      if (poster) q.push('poster=' + encodeURIComponent(poster))
+      if (mission.rocketConfigId) q.push('configId=' + encodeURIComponent(String(mission.rocketConfigId)))
+      q.push('modelUrl=' + encodeURIComponent(modelUrl))
+      try {
+        var app = getApp()
+        if (app && app.globalData) {
+          app.globalData.pendingRocket3dSpecs = {
+            configId: mission.rocketConfigId || '',
+            specs: Array.isArray(mission.rocketSpecs) ? mission.rocketSpecs : []
+          }
+        }
+      } catch (e) {}
+      wx.navigateTo({
+        url: '/subpackages/rocket-3d/viewer' + (q.length ? '?' + q.join('&') : ''),
+        fail() {
+          wx.showToast({ title: '打开 3D 页失败', icon: 'none' })
+        }
+      })
+    } finally {
+      this._rocket3dBusy = false
+    }
   },
 
   /** 门控通过后进全站播放页播视频（回放/集锦共用） */
@@ -2319,6 +2483,7 @@ Page({
         heroTitle: seoMeta.heroTitle,
         heroRocketName: seoMeta.heroRocketName,
         showHeroRocket: seoMeta.showHeroRocket,
+        rocket3dEnabled: seoMeta.rocket3dEnabled,
         shareImage: cacheShareImage,
         missionSubscribed: isSubscribed(fallback.id),
         isFavorited: isFavorite('mission', fallback.id),
@@ -2567,6 +2732,7 @@ Page({
         heroTitle: normalizedState.seoMeta.heroTitle,
         heroRocketName: normalizedState.seoMeta.heroRocketName,
         showHeroRocket: normalizedState.seoMeta.showHeroRocket,
+        rocket3dEnabled: normalizedState.seoMeta.rocket3dEnabled,
         shareImage: normalizedState.pageState.shareImage,
         missionSubscribed: normalizedState.pageState.missionSubscribed,
         ...this.buildMapPreviewData(refreshed)
@@ -3091,7 +3257,7 @@ Page({
       wx.showToast({ title: '竞猜已封盘', icon: 'none' })
       return
     }
-    if (this.data.myVote) {
+    if (isVoteChoiceForType(this.data.myVote, voteType)) {
       wx.showToast({ title: '你已经投过啦', icon: 'none' })
       return
     }
@@ -3684,6 +3850,14 @@ Page({
       })
       this.ensureShareImageHttpUrl(nextImage)
     }
+  },
+
+  /** media_assets 就绪后对齐 3D 入口（后台新上传的型号不必等下次进页） */
+  _refreshRocket3dEnabledFromMediaMap() {
+    const mission = this.data.mission || {}
+    const seoMeta = buildMissionSeoMeta(mission, this.data.detailType)
+    if (seoMeta.rocket3dEnabled === this.data.rocket3dEnabled) return
+    this.setData({ rocket3dEnabled: seoMeta.rocket3dEnabled })
   },
 
   /** media_assets 就绪后强制对齐详情头图（与首页列表/倒计时同源） */

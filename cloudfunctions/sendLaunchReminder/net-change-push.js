@@ -9,7 +9,8 @@
  * 范围控制（防刷屏；首页改期弹窗 listRecentNetChanges 同口径）：
  * - 仅原时间或新时间落在未来 48h 近窗的任务才推（远期任务例行改期是噪音）
  * - 按用户提醒偏好（型号/场站）过滤接收人，与 T-30 发射前提醒同一套口径
- * - TBD / 粗精度占位新时间不推（新日期不可信，推了误导）
+ * - 远期 TBD / 粗精度占位新时间不推；原 NET 已在 48h 近窗时仍推
+ *   （临近任务 Go→TBD + 月末占位，如嫦娥七号 8/25→9/30）
  *
  * A 通道（小程序订阅）不在此发送：一次性订阅额度必须留给新时间的正式 T-30 提醒，
  * 改期对齐由 reconcilePendingSubscriptionsNotifyTimes + 发送前 resolveFreshLaunchMeta 完成。
@@ -19,7 +20,7 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 const _ = db.command
 
-const { isNetChangeAnnouncable } = require('./pre-alert-gate.js')
+const { isNetChangeAnnouncable, isRecoverableFalseSkip, isUntrustedNetPlaceholder } = require('./pre-alert-gate.js')
 
 const LAUNCH_DATA_COLLECTION = 'launch_data'
 const OA_PUSH_LEDGER = 'oa_push_ledger'
@@ -135,6 +136,32 @@ async function sendNetChangeAlerts(ctx) {
     return { success: false, error: e.message || String(e), ...stats }
   }
   var launches = (pendingRes && pendingRes.data) || []
+  var seenLaunchIds = {}
+  for (var si = 0; si < launches.length; si++) {
+    var sid0 = String((launches[si] && (launches[si]._id || launches[si].id)) || '')
+    if (sid0) seenLaunchIds[sid0] = true
+  }
+  // 回收：近窗改期曾因 TBD/粗精度被清 pending 且从未真正投递（嫦娥七号 Go→TBD）
+  try {
+    var recRes = await db
+      .collection(LAUNCH_DATA_COLLECTION)
+      .where({ windowStart: _.gt(new Date(nowMs)) })
+      .limit(100)
+      .get()
+    var recRows = (recRes && recRes.data) || []
+    var recovered = 0
+    for (var ri = 0; ri < recRows.length && recovered < 10; ri++) {
+      var recRow = recRows[ri]
+      if (!recRow) continue
+      var recId = String(recRow._id || recRow.id || '')
+      if (!recId || seenLaunchIds[recId]) continue
+      if (!isRecoverableFalseSkip(recRow, nowMs)) continue
+      launches.push(recRow)
+      seenLaunchIds[recId] = true
+      recovered++
+    }
+    if (recovered) stats.recovered = recovered
+  } catch (eRec) {}
   var forced = false
   var forceSimOk =
     ctx &&
@@ -242,27 +269,29 @@ async function sendNetChangeAlerts(ctx) {
     var oldIso = launch.previousNet || ''
     var newTimeOa = ctx.toOaTimeValue(newIso)
     var oldTimeOa = ctx.toOaTimeValue(oldIso) || newTimeOa
+    var newTimeUntrusted = isUntrustedNetPlaceholder(launch)
     var oldMsReason = oldIso ? new Date(oldIso).getTime() : 0
     var newMsReason = newIso ? new Date(newIso).getTime() : 0
-    var changeKind = oldMsReason > 0 && newMsReason > 0 && newMsReason < oldMsReason ? 'advance' : 'delay'
+    var changeKind =
+      newTimeUntrusted
+        ? 'delay'
+        : oldMsReason > 0 && newMsReason > 0 && newMsReason < oldMsReason
+          ? 'advance'
+          : 'delay'
     var reasonText =
       (ctx.getOaNetChangeReasonText && ctx.getOaNetChangeReasonText(changeKind)) ||
       (changeKind === 'advance' ? '发射时间提前' : '发射时间推迟')
-    if (!newTimeOa) {
+    if (!newTimeOa && !newTimeUntrusted) {
       await clearNetChangePending(missionId, '')
       stats.oaSkipped++
       continue
     }
     var netKey = ctx.netKeyFromIso(newIso) || 'netchg'
     if (forced) netKey = 'test_' + netKey + '_' + Date.now()
-    if (
+    var keyLooksPushed =
       !forced &&
       launch.lastNetChangePushedKey &&
       String(launch.lastNetChangePushedKey) === String(netKey)
-    ) {
-      await clearNetChangePending(missionId, netKey)
-      continue
-    }
 
     // 近窗范围：原时间或新时间在未来 48h 内（原时间已过也算「曾经临近」）；
     // 远期任务的例行改期不播报，只消费掉 pending 标记
@@ -276,14 +305,33 @@ async function sendNetChangeAlerts(ctx) {
         stats.scopeSkipped = (stats.scopeSkipped || 0) + 1
         continue
       }
-      // 新时间不可信（TBD/占位精度）：不播报假日期，直接消费 pending——
-      // 留着会长期占用每轮 10 个扫描位；之后时间转可信必然伴随新一次 NET 变更，
-      // 届时会重新打标并按新 netKey 播报
-      if (!isNetChangeAnnouncable(launch)) {
+      // 远期 TBD/占位精度不播报假日期，直接消费 pending。
+      // 近窗原时间（嫦娥七号 Go→TBD）由 isNetChangeAnnouncable 放行。
+      if (!isNetChangeAnnouncable(launch, { oldIso: oldIso, nowMs: nowScopeMs })) {
         await clearNetChangePending(missionId, netKey)
         stats.unannouncableSkipped = (stats.unannouncableSkipped || 0) + 1
         continue
       }
+    }
+
+    var ledgerDone = new Set()
+    if (oaOk && templateId && fieldKeys && users.length) {
+      ledgerDone = await loadChannelLedgerDoneSet(
+        missionId,
+        netKey,
+        users.map(function (u) {
+          return u.oaOpenid
+        })
+      )
+      // 已真正投递过：跳过。TBD 误清（key 已写、ledger 空）则继续补推。
+      if (keyLooksPushed && ledgerDone.size > 0) {
+        await clearNetChangePending(missionId, netKey)
+        continue
+      }
+      if (keyLooksPushed) stats.falseSkipRecovered = (stats.falseSkipRecovered || 0) + 1
+    } else if (keyLooksPushed) {
+      await clearNetChangePending(missionId, netKey)
+      continue
     }
 
     stats.missions++
@@ -299,17 +347,14 @@ async function sendNetChangeAlerts(ctx) {
         newTimeOa: newTimeOa,
         reasonText: reasonText,
         agencyName: disp.agencyName || '待确认',
-        fieldKeys: fieldKeys
+        fieldKeys: fieldKeys,
+        newTimeUntrusted: newTimeUntrusted
       })
       if (!stats.sampleData) {
         stats.sampleData = templateData
         stats.reasonText = reasonText
       }
 
-      var openidList = users.map(function (u) {
-        return u.oaOpenid
-      })
-      var ledgerDone = await loadChannelLedgerDoneSet(missionId, netKey, openidList)
       var seen = {}
 
       for (var ui = 0; ui < users.length; ui++) {

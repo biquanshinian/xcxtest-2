@@ -17,6 +17,8 @@ function normalizeContentLang(raw) {
 function getContentLang() {
   if (_memLang) return _memLang
   try {
+    const storageCache = require('./storage-sync-cache.js')
+    if (!storageCache.isLoaded('_user_preferences')) return CONTENT_LANG_ZH
     const { loadPreferences } = require('./user-growth.js')
     _memLang = normalizeContentLang((loadPreferences() || {}).contentLang)
   } catch (e) {

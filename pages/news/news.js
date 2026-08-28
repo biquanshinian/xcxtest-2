@@ -9,6 +9,7 @@ const storageCache = require('../../utils/storage-sync-cache.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const themeUtil = require('../../utils/theme.js')
 const tabLoadPage = require('../../utils/tab-load-page.js')
+const { LIST_REVALIDATE_MS, takeForegroundResume, shouldRevalidate } = require('../../utils/foreground-resume.js')
 
 // 新闻接口已移入 news-extra 分包（仅 news tab 与详情页使用），按需异步加载以削减主包体积
 const NEWS_API_PKG = '../../subpackages/news-extra/utils/api-news.js'
@@ -351,6 +352,8 @@ Page({
   },
 
   onShow() {
+    const resume = takeForegroundResume(this)
+    this._foregroundResumeMs = resume.resumeMs
     // 主题兜底同步：在其他 Tab 切了主题后回到本 Tab
     themeUtil.applyThemeToPage(this)
     try {
@@ -419,6 +422,8 @@ Page({
         if (!self.data.loading) {
           self.loadNews()
         }
+      } else if (shouldRevalidate(self._foregroundResumeMs, LIST_REVALIDATE_MS)) {
+        try { self._silentRefreshFirstPage(self.data.contentType) } catch (eSilent) {}
       }
       require.async('../../subpackages/shared/utils/popup-ad.js')
         .then(({ tryShowPopupAd }) => tryShowPopupAd(3, self))

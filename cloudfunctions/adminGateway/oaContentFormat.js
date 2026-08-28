@@ -3,6 +3,7 @@
  * 主题表见 oaContentThemes.js（与 xiaohu-wechat-format 画廊对齐）
  */
 const { THEMES, listThemeMeta, resolveThemeId } = require('./oaContentThemes')
+const { isMostlyEnglishText, isMostlyChineseText } = require('./oaStudioHelpers')
 
 function escapeHtml(s) {
   return String(s || '')
@@ -316,8 +317,14 @@ function placeImagesAlignedToSource(llmBody, sourceSlotted, urls, max = 8, opts 
       if (u) out.push(`![配图${part.n}](${u})`)
       continue
     }
-    const chunk =
-      buckets[ti] && buckets[ti].length ? buckets[ti].join('\n\n') : String(part.text || '').trim()
+    const srcText = String(part.text || '').trim()
+    const llmChunk = buckets[ti] && buckets[ti].length ? buckets[ti].join('\n\n') : ''
+    let chunk = llmChunk
+    if (!chunk && srcText) {
+      // 成稿已是中文时，禁止把英文原稿段回填进去（链接洗稿未完全汉化的根因）
+      const leakEn = isMostlyChineseText(llmClean, 8) && isMostlyEnglishText(srcText, 24)
+      if (!leakEn) chunk = srcText
+    }
     if (chunk) out.push(chunk)
     ti += 1
   }

@@ -1,6 +1,7 @@
 const cloud = require('wx-server-sdk')
 const crypto = require('crypto')
 const outcomeVoteSettle = require('./outcome-vote-settle.js')
+const voteRecordHelpers = require('./vote-record-helpers.js')
 
 // COS SDK / bcryptjs 体积大，顶层同步 require 会拖慢冷启动数秒；
 // 竞猜等高频用户请求用不到它们，改为使用处懒加载 + 模块级缓存
@@ -2061,8 +2062,8 @@ function splashPosterNeedsRefresh(url) {
 
 function splashPreviewKey(sourceKey) {
   const base = String(sourceKey || '').split('/').pop() || `splash_${Date.now()}.mp4`
-  // _fast12：开屏预览固定截取前 12 秒；换后缀强制重转，避免沿用旧的全时长 _fast.mp4
-  const name = base.replace(/\.(mp4|mov|webm)$/i, '') + '_fast12.mp4'
+  // _fast12q：12 秒 + 提画质；换后缀强制重转，避免沿用旧的 600kbps _fast12.mp4
+  const name = base.replace(/\.(mp4|mov|webm)$/i, '') + '_fast12q.mp4'
   return `开屏动画/preview/${name}`
 }
 
@@ -2085,8 +2086,12 @@ function splashHeadExists(cos, key) {
 
 /** 开屏视频最长展示秒数（转码截取 + 客户端硬上限一致） */
 const SPLASH_VIDEO_MAX_SEC = 12
+/** 竖版 720 宽（9:16 ≈ 720×1280）。2.2Mbps @ 24fps 接近 0.1 bpp，手机全屏可看清，12 秒约 3.4MB */
+const SPLASH_PREVIEW_WIDTH = 720
+const SPLASH_PREVIEW_VIDEO_BITRATE = 2200
+const SPLASH_PREVIEW_AUDIO_BITRATE = 64
 
-/** 开屏专用：720p / 低码率预览，最长截取前 12 秒，避免过长开屏 */
+/** 开屏专用：720p / 受控码率预览，最长截取前 12 秒 */
 function submitSplashPreviewJob(cos, inputKey, outputKey) {
   const body = `<?xml version="1.0" encoding="UTF-8"?>
 <Request>
@@ -2099,15 +2104,15 @@ function submitSplashPreviewJob(cos, inputKey, outputKey) {
       <Container><Format>mp4</Format></Container>
       <Video>
         <Codec>H.264</Codec>
-        <Profile>main</Profile>
-        <Bitrate>600</Bitrate>
-        <Width>720</Width>
+        <Profile>high</Profile>
+        <Bitrate>${SPLASH_PREVIEW_VIDEO_BITRATE}</Bitrate>
+        <Width>${SPLASH_PREVIEW_WIDTH}</Width>
         <Fps>24</Fps>
         <Preset>medium</Preset>
       </Video>
       <Audio>
         <Codec>aac</Codec>
-        <Bitrate>48</Bitrate>
+        <Bitrate>${SPLASH_PREVIEW_AUDIO_BITRATE}</Bitrate>
         <Channels>2</Channels>
         <Samplerate>44100</Samplerate>
       </Audio>
@@ -2340,7 +2345,7 @@ async function ensureOneSplashMediaItem(cos, item) {
     next.previewUrl = previewUrl
     next.previewStatus = 'processing'
     const lastJob = Number(next.previewJobAt || 0)
-    // 预览文件不存在时：URL 变更（如 _fast → _fast12）必须立刻重提任务，
+    // 预览文件不存在时：URL 变更（如 _fast12 → _fast12q）必须立刻重提任务，
     // 不能被「10 分钟节流」挡住，否则会把播放地址改成 404
     if (urlChanged || !lastJob || nowTs - lastJob > 10 * 60 * 1000) {
       try {
@@ -3368,7 +3373,7 @@ async function runSpacexSplashAutoSync() {
     await ref.set({ data: writePatch })
   }
 
-  // 8) 截帧封面 / 最长 12 秒 720p 预览转码（官网新拉的视频必须走这条）
+  // 8) 截帧封面 / 最长 12 秒 720p 受控码率预览转码（官网新拉的视频必须走这条）
   let after = { _id: 'current', ...(doc || {}), ...patch }
   try {
     after = await ensureSplashMediaItems(after)
@@ -4014,6 +4019,10 @@ async function listMediaAssets(query = {}) {
   return ok({ list, total: countRes.total, page, pageSize, nextCursor })
 }
 
+function normalizeMediaCredit(raw) {
+  return String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim().slice(0, 80)
+}
+
 async function updateMediaAsset(id, body, user) {
   if (!id) return fail(4001, 'id不能为空')
   const ref = db.collection(COLLECTIONS.MEDIA_ASSETS).doc(id)
@@ -4021,7 +4030,10 @@ async function updateMediaAsset(id, body, user) {
   const before = beforeRes?.data || null
   if (!before) return fail(4040, '数据不存在')
 
-  const patch = pick(body, ['enabled', 'key', 'url', 'sourceTag'])
+  const patch = pick(body, ['enabled', 'key', 'url', 'sourceTag', 'credit'])
+  if (Object.prototype.hasOwnProperty.call(patch, 'credit')) {
+    patch.credit = normalizeMediaCredit(patch.credit)
+  }
   patch.updatedAt = now()
 
   await ref.update({ data: patch })
@@ -4313,6 +4325,7 @@ async function createMediaAsset(body, user) {
   if (!key) return fail(4001, 'key不能为空')
 
   const ts = now()
+  const credit = normalizeMediaCredit(body.credit)
   const payload = {
     key,
     url: body.url || `${COS_BASE_URL}${encodeURI(key)}`,
@@ -4322,6 +4335,7 @@ async function createMediaAsset(body, user) {
     updatedAt: ts,
     createdBy: user.username
   }
+  if (credit) payload.credit = credit
 
   // 重新上传/入库同一 key 时清除删除墓碑，允许出现在 COS 同步结果中
   if (key.startsWith('火箭配置图/')) {
@@ -6494,6 +6508,60 @@ function voteUserRecordId(launchId, openid, voteType) {
   return String(raw).replace(/[^a-zA-Z0-9_-]/g, '_')
 }
 
+/**
+ * 写入个人竞猜：准时/成败互相独立。
+ * 若集合仍有 (launchId, openid) 唯一索引，第二种题型挂到已有文档上，而不是当成重复票丢掉。
+ */
+async function writeUserLaunchVote(launchId, openid, voteType, choice, extra) {
+  const vt = normalizeVoteType(voteType)
+  const col = db.collection('launch_vote_records')
+  const round = (extra && extra.round) || 1
+  const launchTimeAtVote = (extra && extra.launchTimeAtVote) || ''
+  const typePatch = voteRecordHelpers.buildUserVoteTypePatch(vt, choice, round, launchTimeAtVote)
+
+  const listed = await col.where({ launchId, openid }).limit(5).get().catch((e) => {
+    console.error('[writeUserLaunchVote] list error:', e.message || String(e))
+    return { data: [] }
+  })
+  const rows = listed.data || []
+  const picked = voteRecordHelpers.pickUserVoteFromRecords(rows, vt)
+  if (picked.choice) {
+    return { duplicate: true, choice: picked.choice, record: picked.record }
+  }
+
+  const payload = {
+    _id: voteUserRecordId(launchId, openid, vt),
+    launchId,
+    openid,
+    voteType: vt,
+    choice,
+    round,
+    launchTimeAtVote,
+    createdAt: now(),
+    ...typePatch
+  }
+
+  try {
+    await col.add({ data: payload })
+    return { duplicate: false, choice, record: payload }
+  } catch (addErr) {
+    const retry = await col.where({ launchId, openid }).limit(5).get().catch(() => ({ data: [] }))
+    const retryRows = (retry.data && retry.data.length) ? retry.data : rows
+    const picked2 = voteRecordHelpers.pickUserVoteFromRecords(retryRows, vt)
+    if (picked2.choice) {
+      return { duplicate: true, choice: picked2.choice, record: picked2.record }
+    }
+    const host = retryRows.find((r) => r && r._id) || null
+    if (host && host._id) {
+      try {
+        await col.doc(host._id).update({ data: { ...typePatch, updatedAt: now() } })
+        return { duplicate: false, choice, record: { ...host, ...typePatch }, merged: true }
+      } catch (updErr) {}
+    }
+    return { duplicate: true, choice, record: payload }
+  }
+}
+
 /** 成败竞猜结算：仅真实终态；Hold/scrub/推迟不结算 */
 function computeOutcomeResult(statusCategory, statusAbbrev, statusName, statusId) {
   return outcomeVoteSettle.computeOutcomeResult(statusCategory, statusAbbrev, statusName, statusId)
@@ -6673,18 +6741,17 @@ async function castOutcomeVote(body, openid) {
     }
   }
 
-  const voteRecordCol = 'launch_vote_records'
+  let outcomeWrite = null
   if (openid) {
-    const dupCheck = await db.collection(voteRecordCol).where({
-      launchId,
-      openid,
-      voteType: 'outcome'
-    }).limit(1).get().catch(() => ({ data: [] }))
-    if (dupCheck.data && dupCheck.data.length > 0) {
+    outcomeWrite = await writeUserLaunchVote(launchId, openid, voteType, choice, {
+      round: 1,
+      launchTimeAtVote: body.launchTime || knownLaunchTime || ''
+    })
+    if (outcomeWrite.duplicate) {
       const vr = voteRecord || {}
       return ok({
         ...vr,
-        myVote: dupCheck.data[0].choice,
+        myVote: outcomeWrite.choice,
         voteType,
         geCount: Number(vr.failureCount || 0),
         buGeCount: Number(vr.successCount || 0),
@@ -6710,37 +6777,7 @@ async function castOutcomeVote(body, openid) {
     }
   } catch (e) {}
 
-  if (openid) {
-    const rid = voteUserRecordId(launchId, openid, voteType)
-    try {
-      await db.collection(voteRecordCol).add({
-        data: {
-          _id: rid,
-          launchId,
-          openid,
-          voteType,
-          choice,
-          round: 1,
-          launchTimeAtVote: body.launchTime || knownLaunchTime || '',
-          createdAt: now()
-        }
-      })
-    } catch (addErr) {
-      const existing = await findLaunchVoteDoc(launchId, voteType)
-      const ex = existing || {}
-      return ok({
-        ...ex,
-        myVote: choice,
-        voteType,
-        geCount: Number(ex.failureCount || 0),
-        buGeCount: Number(ex.successCount || 0),
-        geLabel: ex.failureLabel || labels.failureLabel,
-        bugeLabel: ex.successLabel || labels.successLabel,
-        failureLabel: ex.failureLabel || labels.failureLabel,
-        successLabel: ex.successLabel || labels.successLabel
-      })
-    }
-  }
+  // 个人记录已在 writeUserLaunchVote 写入；这里只更新主统计
 
   const field = choice === 'success' ? 'successCount' : 'failureCount'
   const mainId = voteMainDocId(launchId, voteType)
@@ -6822,13 +6859,12 @@ async function getOutcomeVoteStats(launchId, openid, query) {
 
   const [myRecord, voteRecord] = await Promise.all([
     openid
-      ? db.collection('launch_vote_records').where({ launchId, openid, voteType: 'outcome' }).limit(1).get().catch(() => ({ data: [] }))
+      ? db.collection('launch_vote_records').where({ launchId, openid }).limit(5).get().catch(() => ({ data: [] }))
       : Promise.resolve({ data: [] }),
     findLaunchVoteDoc(launchId, 'outcome')
   ])
 
-  let myVote = ''
-  if (myRecord.data && myRecord.data[0]) myVote = myRecord.data[0].choice || ''
+  let myVote = voteRecordHelpers.pickUserVoteFromRecords(myRecord.data || [], 'outcome').choice
 
   let labels = {
     customQuestion: '会成功吗？',
@@ -7012,21 +7048,6 @@ async function castVote(body, openid) {
     }
   }
 
-  // 去重检查：一个用户对同一任务只能投一次（不论轮次）
-  const voteRecordCol = 'launch_vote_records'
-  if (openid) {
-    const dupCheck = await db.collection(voteRecordCol).where({ launchId, openid: openid }).limit(5).get().catch((e) => {
-      console.error('[castVote] dupCheck query error:', e.message || String(e))
-      return { data: [] }
-    })
-    const ontimeDup = (dupCheck.data || []).find((r) => r.voteType !== 'outcome')
-    if (ontimeDup) {
-      const existing = await findLaunchVoteDoc(launchId, 'ontime')
-      const record = existing || { geCount: 0, buGeCount: 0 }
-      return ok({ ...record, myVote: ontimeDup.choice, voteType: 'ontime' })
-    }
-  }
-
   // 读取全局配置标签
   let globalLabels = { geLabel: '鸽', bugeLabel: '不鸽', customQuestion: '' }
   try {
@@ -7045,27 +7066,16 @@ async function castVote(body, openid) {
     if (freshDoc) latestRound = freshDoc.currentRound || 1
   }
 
-  // 原子去重写入：用确定性 _id 作为并发护栏，写入成功才计数（保证每用户每任务只计一次）
+  // 准时/成败互相独立：只按本题型去重；唯一索引冲突时挂到已有文档
   if (openid) {
-    const voteRecordId = voteUserRecordId(launchId, openid, 'ontime')
-    try {
-      await db.collection(voteRecordCol).add({
-        data: {
-          _id: voteRecordId,
-          launchId,
-          openid: openid,
-          voteType: 'ontime',
-          choice,
-          round: latestRound,
-          launchTimeAtVote: body.launchTime || knownLaunchTime || '',
-          createdAt: now()
-        }
-      })
-    } catch (addErr) {
-      // 并发或重复投票：已存在投票记录，直接返回当前统计
+    const ontimeWrite = await writeUserLaunchVote(launchId, openid, 'ontime', choice, {
+      round: latestRound,
+      launchTimeAtVote: body.launchTime || knownLaunchTime || ''
+    })
+    if (ontimeWrite.duplicate) {
       const existing = await findLaunchVoteDoc(launchId, 'ontime')
       const record = existing || { geCount: 0, buGeCount: 0 }
-      return ok({ ...record, myVote: choice, voteType: 'ontime' })
+      return ok({ ...record, myVote: ontimeWrite.choice, voteType: 'ontime' })
     }
   }
 
@@ -7096,7 +7106,7 @@ async function castVote(body, openid) {
     }
     try {
       await db.collection(col).add({ data: doc })
-      return ok({ ...doc, geCount: doc.geCount, buGeCount: doc.buGeCount, voteType: 'ontime' })
+      return ok({ ...doc, geCount: doc.geCount, buGeCount: doc.buGeCount, myVote: choice, voteType: 'ontime' })
     } catch (createErr) {
       // 并发下已被另一个请求创建：转为原子自增
     }
@@ -7109,13 +7119,21 @@ async function castVote(body, openid) {
     if (!mainRec.rocketName && body.rocketName) backfill.rocketName = body.rocketName
     if (!mainRec.launchTime && body.launchTime) backfill.launchTime = body.launchTime
   }
+  const mainId = voteMainDocId(launchId, 'ontime')
   if (mainRec && mainRec._id) {
     await db.collection(col).doc(mainRec._id).update({
       data: { [field]: db.command.inc(1), updatedAt: now(), voteType: 'ontime', ...backfill }
     })
   } else {
-    await db.collection(col).where({ launchId }).update({
-      data: { [field]: db.command.inc(1), updatedAt: now(), ...backfill }
+    await db.collection(col).doc(mainId).update({
+      data: { [field]: db.command.inc(1), updatedAt: now(), voteType: 'ontime', ...backfill }
+    }).catch(async () => {
+      await db.collection(col).where({
+        launchId,
+        voteType: db.command.neq('outcome')
+      }).update({
+        data: { [field]: db.command.inc(1), updatedAt: now(), ...backfill }
+      })
     })
   }
   const updated = await findLaunchVoteDoc(launchId, 'ontime')
@@ -7123,7 +7141,7 @@ async function castVote(body, openid) {
   if (!record.geLabel) record.geLabel = globalLabels.geLabel
   if (!record.bugeLabel) record.bugeLabel = globalLabels.bugeLabel
   if (!record.customQuestion) record.customQuestion = globalLabels.customQuestion
-  return ok({ ...record, voteType: 'ontime' })
+  return ok({ ...record, myVote: choice, voteType: 'ontime' })
 }
 
 // ========== 竞猜全局配置 ==========
@@ -7149,9 +7167,9 @@ async function getVoteStats(launchId, openid, query) {
 
   let myVote = ''
   let myRound = 0
-  const myOntime = (myRecordRaw.data || []).find((r) => r.voteType !== 'outcome')
-  if (myOntime) {
-    myVote = myOntime.choice || ''
+  const myOntime = voteRecordHelpers.pickUserVoteFromRecords(myRecordRaw.data || [], 'ontime')
+  if (myOntime.choice) {
+    myVote = myOntime.choice
     myRound = myOntime.round || 1
   }
   const res = { data: voteRecord ? [voteRecord] : [] }
@@ -7298,11 +7316,13 @@ async function getMyVoteResults(openid) {
     const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0
     return tb - ta
   })
+  const voteRows = voteRecordHelpers.expandUserVoteRecords(records.data)
+  if (!voteRows.length) return ok([])
 
   const choiceMap = {}
   const roundMap = {}
   const typeMap = {}
-  records.data.forEach(r => {
+  voteRows.forEach(r => {
     const vt = r.voteType === 'outcome' ? 'outcome' : 'ontime'
     const key = `${r.launchId}::${vt}`
     choiceMap[key] = r.choice
@@ -7312,7 +7332,7 @@ async function getMyVoteResults(openid) {
 
   // 批量查 launch_votes 获取结算结果
   const results = []
-  const uniqueLaunchIds = [...new Set(records.data.map(r => r.launchId))]
+  const uniqueLaunchIds = [...new Set(voteRows.map(r => r.launchId))]
   for (let i = 0; i < uniqueLaunchIds.length; i += 20) {
     const batch = uniqueLaunchIds.slice(i, i + 20)
     const res = await db.collection(COLLECTIONS.LAUNCH_VOTES).where({ launchId: db.command.in(batch) }).limit(40).get()
@@ -7324,7 +7344,7 @@ async function getMyVoteResults(openid) {
     voteMap[`${v.launchId}::${vt}`] = v
   })
 
-  const list = records.data.map(r => {
+  const list = voteRows.map(r => {
     let vt = r.voteType === 'outcome' ? 'outcome' : 'ontime'
     let choice = r.choice || ''
     // 用选项值推断题型，避免旧数据缺 voteType 时成败被当成准时
@@ -7452,11 +7472,19 @@ async function createLaunchVote(body, user) {
     createdBy: user.username
   }
   if (body.launchId) {
+    const existed = await findLaunchVoteDoc(body.launchId, voteType)
+    if (existed) return fail(4003, '该任务已有相同题型的竞猜，请直接编辑')
     payload._id = voteMainDocId(body.launchId, voteType)
   }
-  const res = await db.collection(col).add({ data: payload })
-  await writeOpLog({ user, module: col, action: 'create', targetId: res._id || payload._id, after: payload })
-  return ok({ _id: res._id || payload._id, ...payload })
+  try {
+    const res = await db.collection(col).add({ data: payload })
+    await writeOpLog({ user, module: col, action: 'create', targetId: res._id || payload._id, after: payload })
+    return ok({ _id: res._id || payload._id, ...payload })
+  } catch (addErr) {
+    const existedSame = body.launchId ? await findLaunchVoteDoc(body.launchId, voteType) : null
+    if (existedSame) return fail(4003, '该任务已有相同题型的竞猜，请直接编辑')
+    return fail(4003, '创建失败，请稍后重试')
+  }
 }
 
 async function updateLaunchVote(id, body, user) {
@@ -7927,16 +7955,128 @@ async function listMilestoneRewards(query = {}) {
   }
 }
 
+function normalizeMilestonePrizeType(v) {
+  return String(v || '') === 'pro_1month' ? 'pro_1month' : 'physical'
+}
+
+const PRO_MILESTONE_DAYS = 30
+
+async function countUserMilestoneProgress(openid, type) {
+  if (!openid) return 0
+  if (type === 'checkin' || type === 'quiz') {
+    try {
+      const r = await db.collection('user_profile').doc(openid).get()
+      const profile = r && r.data
+      if (!profile) return 0
+      if (type === 'checkin') return Number(profile.checkin && profile.checkin.totalDays) || 0
+      return Number(profile.quiz && profile.quiz.correctCount) || 0
+    } catch (e) {
+      return 0
+    }
+  }
+  if (type === 'vote') {
+    const res = await getMyVoteResults(openid)
+    const list = (res && res.code === 0 && Array.isArray(res.data)) ? res.data : []
+    let correct = 0
+    for (let i = 0; i < list.length; i++) {
+      const item = list[i] || {}
+      if (item.result && item.choice && item.choice === item.result) correct++
+    }
+    return correct
+  }
+  return 0
+}
+
+async function grantProForMilestone(openid, milestone) {
+  const days = PRO_MILESTONE_DAYS
+  const outTradeNo = 'MS' + sha256(String(openid) + '|pro1m|' + String(milestone._id || '')).slice(0, 24)
+  let existing = null
+  try {
+    const r = await db.collection('membership_orders').doc(outTradeNo).get()
+    existing = r.data || null
+  } catch (e) {
+    existing = null
+  }
+
+  const orderRecord = {
+    _id: outTradeNo,
+    openid,
+    amount: 0,
+    description: '里程碑彩蛋自动赠送 - 1个月PRO',
+    status: 'paid',
+    orderType: 'subscription',
+    grantBy: 'system',
+    grantSource: 'milestone',
+    grantReason: 'milestone:' + String(milestone.type || '') + ':' + String(milestone.threshold || ''),
+    milestoneId: milestone._id,
+    planId: 'monthly',
+    days,
+    milestoneGrantApplied: false,
+    paidAt: db.serverDate(),
+    deliveredAt: db.serverDate(),
+    createdAt: db.serverDate()
+  }
+
+  if (!existing) {
+    try {
+      await db.collection('membership_orders').add({ data: orderRecord })
+    } catch (e) {
+      try {
+        const r2 = await db.collection('membership_orders').doc(outTradeNo).get()
+        existing = r2.data || null
+      } catch (e2) {
+        return { ok: false, message: '写入赠送订单失败: ' + (e.message || String(e)) }
+      }
+      if (existing && existing.status !== 'paid') {
+        return { ok: false, message: '赠送订单状态异常' }
+      }
+    }
+  } else if (existing.status !== 'paid') {
+    return { ok: false, message: '赠送订单状态异常' }
+  }
+
+  // 原子认领发货：并行领取时只有一个请求能加上 30 天
+  let wonApply = false
+  try {
+    const cas = await db.collection('membership_orders')
+      .where({ _id: outTradeNo, milestoneGrantApplied: _.neq(true) })
+      .update({ data: { milestoneGrantApplied: true, grantSource: 'milestone' } })
+    wonApply = !!(cas && cas.stats && cas.stats.updated > 0)
+  } catch (e) {
+    return { ok: false, message: '领取冲突，请稍后重试' }
+  }
+
+  if (wonApply) {
+    try {
+      await applyPaidOrderLocal({ ...(existing || orderRecord), grantSource: 'milestone', grantBy: 'system', days, orderType: 'subscription' })
+    } catch (e) {
+      await db.collection('membership_orders').doc(outTradeNo).update({
+        data: { milestoneGrantApplied: false }
+      }).catch(() => {})
+      return { ok: false, message: '会员到账失败: ' + (e.message || String(e)) }
+    }
+  }
+
+  let expireAt = null
+  try {
+    const m = await db.collection('user_membership').doc(openid).get()
+    expireAt = m && m.data && m.data.expireAt ? m.data.expireAt : null
+  } catch (e) {}
+  return { ok: true, outTradeNo, expireAt }
+}
+
 async function createMilestoneReward(body, user) {
+  const prizeType = normalizeMilestonePrizeType(body.prizeType)
   const payload = {
     type: body.type || 'checkin',
     threshold: Number(body.threshold || 0),
+    prizeType,
     title: body.title || '',
-    description: body.description || '',
+    description: body.description || (prizeType === 'pro_1month' ? '1个月PRO会员，达标后系统自动到账' : ''),
     prizeImage: body.prizeImage || '',
     eggImage: body.eggImage || '',
-    customOptions: Array.isArray(body.customOptions) ? body.customOptions : [],
-    customNote: body.customNote || '',
+    customOptions: prizeType === 'pro_1month' ? [] : (Array.isArray(body.customOptions) ? body.customOptions : []),
+    customNote: prizeType === 'pro_1month' ? '' : (body.customNote || ''),
     enabled: body.enabled !== false,
     sortOrder: Number(body.sortOrder || 0),
     createdAt: now(),
@@ -7957,14 +8097,19 @@ async function updateMilestoneReward(id, body, user) {
   if (!before) return fail(4040, '数据不存在')
 
   const patch = {}
-  const fields = ['type', 'threshold', 'title', 'description', 'prizeImage', 'eggImage', 'customOptions', 'customNote', 'enabled', 'sortOrder']
+  const fields = ['type', 'threshold', 'prizeType', 'title', 'description', 'prizeImage', 'eggImage', 'customOptions', 'customNote', 'enabled', 'sortOrder']
   fields.forEach(f => { if (body[f] !== undefined) patch[f] = body[f] })
   if (patch.threshold !== undefined) patch.threshold = Number(patch.threshold)
   if (patch.sortOrder !== undefined) patch.sortOrder = Number(patch.sortOrder)
-  if (patch.customOptions !== undefined) {
-    patch.customOptions = Array.isArray(patch.customOptions) ? patch.customOptions : []
+  if (patch.prizeType !== undefined) patch.prizeType = normalizeMilestonePrizeType(patch.prizeType)
+  if (patch.prizeType === 'pro_1month') {
+    patch.customOptions = []
+    patch.customNote = ''
   }
-  if (patch.customNote !== undefined) patch.customNote = String(patch.customNote || '')
+  if (patch.customOptions !== undefined) {
+    patch.customOptions = patch.prizeType === 'pro_1month' ? [] : (Array.isArray(patch.customOptions) ? patch.customOptions : [])
+  }
+  if (patch.customNote !== undefined) patch.customNote = patch.prizeType === 'pro_1month' ? '' : String(patch.customNote || '')
   patch.updatedAt = now()
   patch.updatedBy = user.username
 
@@ -8004,6 +8149,20 @@ async function listMilestoneClaims(query = {}) {
     const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0
     return tb - ta
   })
+
+  const milestoneIds = [...new Set(list.map(c => c.milestoneId).filter(Boolean))]
+  const configMap = {}
+  for (let i = 0; i < milestoneIds.length; i += 20) {
+    const batch = milestoneIds.slice(i, i + 20)
+    const cfgRes = await db.collection(COLLECTIONS.MILESTONE_REWARDS).where({ _id: db.command.in(batch) }).limit(20).get()
+    if (cfgRes.data) cfgRes.data.forEach(m => { configMap[m._id] = m })
+  }
+  list.forEach(item => {
+    const cfg = configMap[item.milestoneId]
+    if (!item.prizeType && cfg) item.prizeType = normalizeMilestonePrizeType(cfg.prizeType)
+    if (!item.prizeImage && cfg) item.prizeImage = cfg.prizeImage || ''
+    if (!item.prizeTitle && cfg) item.prizeTitle = cfg.title || ''
+  })
   return ok({ list, total: countRes.total, page, pageSize })
 }
 
@@ -8037,28 +8196,93 @@ async function getPublicMilestones() {
     .limit(100)
     .get()
   const list = (res.data || []).map(item => ({
-    ...item,
+    _id: item._id,
+    type: item.type,
+    threshold: item.threshold,
+    prizeType: normalizeMilestonePrizeType(item.prizeType),
+    title: item.title || '',
+    description: item.description || '',
+    prizeImage: item.prizeImage || '',
+    eggImage: item.eggImage || '',
     customOptions: Array.isArray(item.customOptions) ? item.customOptions : [],
-    customNote: item.customNote || ''
+    customNote: item.customNote || '',
+    sortOrder: Number(item.sortOrder) || 0,
+    enabled: item.enabled !== false
   }))
   return ok(list)
 }
 
 async function submitMilestoneClaim(body, openid) {
   if (!openid) return fail(4010, '未获取到用户身份')
-  const { milestoneId, name, phone, address, size, selections } = body
-  if (!milestoneId) return fail(4001, '缺少里程碑ID')
-  if (!name || !phone || !address) return fail(4001, '请填写完整的收件信息')
+  const milestoneId = String((body && body.milestoneId) || '').trim()
+  const { name, phone, address, size, selections } = body || {}
+  if (!milestoneId || milestoneId.length > 80) return fail(4001, '缺少里程碑ID')
 
   const milestoneRes = await db.collection(COLLECTIONS.MILESTONE_REWARDS).doc(milestoneId).get().catch(() => null)
   if (!milestoneRes?.data) return fail(4040, '里程碑配置不存在')
   const milestone = milestoneRes.data
+  if (milestone.enabled === false) return fail(4003, '该里程碑已停用')
+
+  const prizeType = normalizeMilestonePrizeType(milestone.prizeType)
+  const threshold = Number(milestone.threshold) || 0
+  const milestoneType = String(milestone.type || '')
+  if (prizeType === 'pro_1month') {
+    if (threshold < 1 || (milestoneType !== 'checkin' && milestoneType !== 'quiz' && milestoneType !== 'vote')) {
+      return fail(4003, '里程碑配置无效')
+    }
+    const progress = await countUserMilestoneProgress(openid, milestoneType)
+    if (progress < threshold) {
+      return fail(4003, '尚未达标，请稍后再试')
+    }
+  }
 
   const existRes = await db.collection(COLLECTIONS.MILESTONE_CLAIMS)
     .where({ openid, milestoneId })
     .limit(1)
     .get()
-  if (existRes.data && existRes.data.length > 0) return fail(4002, '您已领取过该奖品')
+  if (existRes.data && existRes.data.length > 0) {
+    const existing = existRes.data[0]
+    if (prizeType === 'pro_1month' && existing.status === 'completed') {
+      return ok({ alreadyClaimed: true, prizeType })
+    }
+    return fail(4002, '您已领取过该奖品')
+  }
+
+  if (prizeType === 'pro_1month') {
+    const granted = await grantProForMilestone(openid, milestone)
+    if (!granted.ok) return fail(5001, granted.message || 'PRO会员发放失败')
+    const claimId = 'msc_' + sha256(String(openid) + '|' + String(milestoneId)).slice(0, 24)
+    try {
+      await db.collection(COLLECTIONS.MILESTONE_CLAIMS).add({
+        data: {
+          _id: claimId,
+          openid,
+          milestoneId,
+          type: milestone.type,
+          prizeType,
+          threshold: milestone.threshold,
+          prizeTitle: milestone.title,
+          prizeDesc: milestone.description,
+          name: '',
+          phone: '',
+          address: '',
+          selections: {},
+          size: '',
+          status: 'completed',
+          grantKind: 'pro_1month',
+          membershipOrderId: granted.outTradeNo || '',
+          proExpireAt: granted.expireAt || null,
+          createdAt: now(),
+          updatedAt: now()
+        }
+      })
+    } catch (e) {
+      return ok({ alreadyClaimed: true, prizeType, expireAt: granted.expireAt || null })
+    }
+    return ok({ prizeType, expireAt: granted.expireAt || null })
+  }
+
+  if (!name || !phone || !address) return fail(4001, '请填写完整的收件信息')
 
   // 兼容旧版 size 字段，转为 selections
   let finalSelections = selections || {}
@@ -8078,6 +8302,7 @@ async function submitMilestoneClaim(body, openid) {
       openid,
       milestoneId,
       type: milestone.type,
+      prizeType,
       threshold: milestone.threshold,
       prizeTitle: milestone.title,
       prizeDesc: milestone.description,
@@ -8112,12 +8337,10 @@ async function getMyMilestoneClaims(openid) {
     if (cfgRes.data) cfgRes.data.forEach(m => { configMap[m._id] = m })
   }
   list.forEach(item => {
-    if (!item.prizeImage && configMap[item.milestoneId]) {
-      item.prizeImage = configMap[item.milestoneId].prizeImage || ''
-    }
-    if (!item.prizeTitle && configMap[item.milestoneId]) {
-      item.prizeTitle = configMap[item.milestoneId].title || ''
-    }
+    const cfg = configMap[item.milestoneId]
+    if (!item.prizeImage && cfg) item.prizeImage = cfg.prizeImage || ''
+    if (!item.prizeTitle && cfg) item.prizeTitle = cfg.title || ''
+    if (!item.prizeType && cfg) item.prizeType = normalizeMilestonePrizeType(cfg.prizeType)
   })
   return ok(list)
 }
@@ -8125,6 +8348,18 @@ async function getMyMilestoneClaims(openid) {
 // ========== 会员管理 ==========
 
 // 公共：把已支付订单应用到会员状态（与 cloudfunctions/membership/index.js 中的 applyPaidOrder 保持同源逻辑）
+function resolveMembershipGrantSource(order) {
+  if (!order) return ''
+  if (Number(order.amount) > 0) return 'paid'
+  const explicit = String(order.grantSource || '').trim()
+  if (explicit) return explicit
+  if (order.milestoneId || String(order.grantReason || '').indexOf('milestone') === 0) return 'milestone'
+  if (order.grantReason === 'invite_reward') return 'invite'
+  if (order.grantBy && order.grantBy !== 'system') return 'admin'
+  if (order.grantBy === 'system') return 'milestone'
+  return 'paid'
+}
+
 async function applyPaidOrderLocal(order) {
   if (!order || !order.openid) return
   const openid = order.openid
@@ -8163,6 +8398,7 @@ async function applyPaidOrderLocal(order) {
         data: {
           type: 'pro',
           planId: order.planId || '',
+          grantSource: resolveMembershipGrantSource(order),
           expireAt: newExpire,
           updatedAt: db.serverDate()
         }
@@ -8363,7 +8599,13 @@ async function listMembershipData() {
     // 获取订单列表（最多 1000 条，按 createdAt 降序）
     let orders = []
     try {
-      const oRes = await db.collection('membership_orders').limit(1000).get()
+      let oRes
+      try {
+        oRes = await db.collection('membership_orders').orderBy('createdAt', 'desc').limit(1000).get()
+      } catch (e) {
+        console.error('[listMembershipData] orderBy createdAt error, fallback:', e.message || e)
+        oRes = await db.collection('membership_orders').limit(1000).get()
+      }
       orders = oRes.data || []
       orders.sort((a, b) => {
         const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0
@@ -8567,6 +8809,7 @@ async function grantMembershipPro(body, user) {
     status: 'paid',
     orderType: 'subscription',
     grantBy: user.username,
+    grantSource: 'admin',
     grantReason: String((body && body.reason) || ''),
     planId,
     days: grantDays,
@@ -8598,7 +8841,7 @@ async function grantMembershipPro(body, user) {
 
 // ── 重查待发货订单（批量回查 pending / refund_pending：已支付兜底发货、已退款兜底落库、24h 未支付取消） ──
 async function recheckPendingOrders(body, user) {
-  const limit = Math.min(200, Math.max(1, Number((body && body.limit) || 100)))
+  const limit = Math.min(200, Math.max(1, Number((body && body.limit) || 200)))
   const cancelOlderThanH = Number((body && body.cancelOlderThanH) || 24)
 
   // 同时拉 pending（待支付）与 refund_pending（退款中），两者都需要重新查微信侧
@@ -8708,6 +8951,9 @@ async function refundMembershipOrder(body, user) {
     return fail(4040, '订单不存在')
   }
   if (!order) return fail(4040, '订单不存在')
+  if (order.payChannel === 'apple' || String(order.platform || '').trim().toLowerCase() === 'ios') {
+    return fail(4003, 'Apple 支付不支持开发者主动退款，请引导用户在 App Store 申请退款')
+  }
   if (order.status !== 'paid') return fail(4002, '仅已支付订单可退款（当前状态：' + order.status + '）')
 
   // 调用 membership 云函数发起退款
@@ -8750,6 +8996,7 @@ async function exportMembershipOrders(query = {}) {
   const where = {}
   if (query.openid) where.openid = String(query.openid).trim()
   if (query.status) where.status = String(query.status).trim()
+  if (query.orderType) where.orderType = String(query.orderType).trim()
   const fromMs = query.from ? Number(query.from) : 0
   const toMs = query.to ? Number(query.to) : 0
   try {
@@ -8766,6 +9013,7 @@ async function exportMembershipOrders(query = {}) {
     list = list.filter(o => {
       if (where.openid && o.openid !== where.openid) return false
       if (where.status && o.status !== where.status) return false
+      if (where.orderType && o.orderType !== where.orderType) return false
       const t = o.createdAt ? new Date(o.createdAt).getTime() : 0
       if (fromMs && t < fromMs) return false
       if (toMs && t > toMs) return false

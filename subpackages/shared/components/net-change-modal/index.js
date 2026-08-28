@@ -11,7 +11,11 @@
  *
  * ★ 调试满意后把 NET_CHANGE_MODAL_DEV_MODE 改回 false 再上线
  */
-const { getRocketImage, resolveMissionRocketImage } = require('../../../../utils/util.js')
+const {
+  resolveIndexCardRocketImage,
+  hydrateNetChangePayloadFromCard,
+  findHomepageCardForNetChange
+} = require('../../utils/index-card-rocket-image.js')
 const {
   isRemoteAgencyLogoUrl,
   resolveAgencyLogoForDisplay
@@ -25,7 +29,7 @@ const {
   fetchRecentNetChanges,
   markEventShown,
   pickDevPreviewPayloads,
-  resolveChangeMeta
+  resolveNetChangeDisplay
 } = require('../../utils/net-change-reminder.js')
 
 /** ★ 开发预览时改 true；生产保持 false */
@@ -87,20 +91,14 @@ function getUpcomingMissionsFromPage() {
   return Array.isArray(list) ? list : []
 }
 
-/** 与首页任务卡同源：优先已盖章 rocketImage；否则按英文名 forceRecompute */
-function resolveRocketSrc(payload) {
-  const stamped = (payload && (payload.rocketImage || payload.image)) || ''
-  if (stamped && String(stamped).trim()) return String(stamped).trim()
+function findHomepageCardForPayload(payload) {
+  const page = getIndexPage()
+  return findHomepageCardForNetChange(payload, page && page.data)
+}
 
-  const en =
-    (payload && (payload.rocketNameEn || payload.rocketImageName)) ||
-    (payload && payload.rocketName) ||
-    ''
-  const cfg = (payload && payload.rocketConfiguration) || null
-  if (en || cfg) {
-    return resolveMissionRocketImage('', en, cfg, true) || getRocketImage(en) || ''
-  }
-  return ''
+/** 与首页任务卡同一条链路：force 重算，允许 default 盖章升级为配置图 */
+function resolveRocketSrc(payload) {
+  return resolveIndexCardRocketImage(payload)
 }
 
 function resolveAgencyLogoFields(rawLogoUrl) {
@@ -138,8 +136,18 @@ function buildViewModel(payload) {
   const logoFields = resolveAgencyLogoFields(rawLogo)
   const oldNet = p.oldNet || p.previousNet || p.prevNet
   const newNet = p.newNet || p.net || p.currentNet
-  const meta = resolveChangeMeta(oldNet, newNet)
-  const changeKind = p.changeKind === 'advance' || p.changeKind === 'delay' ? p.changeKind : meta.kind
+  const display = resolveNetChangeDisplay(oldNet, newNet, {
+    statusId: p.statusId,
+    netPrecision: p.netPrecision,
+    previousNet: oldNet,
+    launchTime: newNet
+  })
+  const untrusted = p.newTimeUntrusted != null ? !!p.newTimeUntrusted : display.newTimeUntrusted
+  const changeKind = untrusted
+    ? 'delay'
+    : p.changeKind === 'advance' || p.changeKind === 'delay'
+      ? p.changeKind
+      : display.kind
 
   return {
     visible: true,
@@ -156,10 +164,14 @@ function buildViewModel(payload) {
     oldNet: oldNet || '',
     newNet: newNet || '',
     oldTimeText: p.oldTimeText || formatNetChangeTime(oldNet),
-    newTimeText: p.newTimeText || formatNetChangeTime(newNet),
+    newTimeText: untrusted
+      ? display.newTimeText || p.newTimeText || '时间待定'
+      : p.newTimeText || formatNetChangeTime(newNet),
+    newTimeLabel: untrusted ? display.newTimeLabel || '当前安排' : '新时间',
+    newTimeUntrusted: untrusted,
     changeKind: changeKind,
-    titleText: p.titleText || meta.titleText,
-    deltaText: p.deltaText || meta.deltaText,
+    titleText: untrusted ? display.titleText || '发射已推迟' : p.titleText || display.titleText,
+    deltaText: untrusted ? display.deltaText || '新时间待定' : p.deltaText || display.deltaText,
     _key: String(p.missionId || p.id || '') + '|' + String(oldNet || '') + '|' + String(newNet || '')
   }
 }
@@ -182,6 +194,8 @@ Component({
     newNet: '',
     oldTimeText: '',
     newTimeText: '',
+    newTimeLabel: '新时间',
+    newTimeUntrusted: false,
     changeKind: 'delay',
     titleText: '发射时间变更',
     deltaText: '',
@@ -214,6 +228,7 @@ Component({
         clearTimeout(this._hintEndTimer)
         this._hintEndTimer = null
       }
+      this._setOverlayBlocking(false)
     }
   },
 
@@ -293,33 +308,67 @@ Component({
       try {
         themeClass = themeUtil.getThemeClassSync() || themeClass
       } catch (e) {}
-      const cards = []
-      for (let i = 0; i < list.length; i++) {
-        cards.push(buildViewModel(list[i]))
+      // 先锁遮罩再渲染；任何异常必须解锁，否则轮播被永久锁死且弹窗不出现
+      this._setOverlayBlocking(true)
+      try {
+        const hydrated = []
+        for (let i = 0; i < list.length; i++) {
+          hydrated.push(hydrateNetChangePayloadFromCard(list[i], findHomepageCardForPayload(list[i])))
+        }
+        this._hydratedPayloads = hydrated
+        const cards = []
+        for (let i = 0; i < hydrated.length; i++) {
+          cards.push(buildViewModel(hydrated[i]))
+        }
+        const first = cards[0]
+        this._lastRocketNameEn = String(list[0].rocketNameEn || list[0].rocketImageName || list[0].rocketName || '').trim()
+        this.setData({
+          visible: true,
+          themeClass: themeClass,
+          devMode: !!NET_CHANGE_MODAL_DEV_MODE,
+          cards: cards,
+          cardIndex: 0,
+          cardCount: cards.length,
+          swipeHintOn: false,
+          missionId: first.missionId,
+          changeKind: first.changeKind,
+          titleText: first.titleText,
+          deltaText: first.deltaText
+        })
+        this._enrichCards(hydrated)
+        this._startSwipeHint(cards.length > 1)
+        this.triggerEvent('shown', {
+          missionId: first.missionId,
+          changeKind: first.changeKind,
+          count: cards.length
+        })
+        return true
+      } catch (e) {
+        this._setOverlayBlocking(false)
+        return false
       }
-      const first = cards[0]
-      this._lastRocketNameEn = String(list[0].rocketNameEn || list[0].rocketImageName || list[0].rocketName || '').trim()
-      this.setData({
-        visible: true,
-        themeClass: themeClass,
-        devMode: !!NET_CHANGE_MODAL_DEV_MODE,
-        cards: cards,
-        cardIndex: 0,
-        cardCount: cards.length,
-        swipeHintOn: false,
-        missionId: first.missionId,
-        changeKind: first.changeKind,
-        titleText: first.titleText,
-        deltaText: first.deltaText
-      })
-      this._enrichCards(list)
-      this._startSwipeHint(cards.length > 1)
-      this.triggerEvent('shown', {
-        missionId: first.missionId,
-        changeKind: first.changeKind,
-        count: cards.length
-      })
-      return true
+    },
+
+    /** 首页任务卡火箭图盖章后，弹窗同步成同一张配置图 */
+    resyncRocketImagesFromHomepage() {
+      if (!this.data.visible) return
+      const prev = this._hydratedPayloads
+      if (!Array.isArray(prev) || !prev.length) return
+      const hydrated = []
+      for (let i = 0; i < prev.length; i++) {
+        hydrated.push(hydrateNetChangePayloadFromCard(prev[i], findHomepageCardForPayload(prev[i])))
+      }
+      this._hydratedPayloads = hydrated
+      const cards = this.data.cards || []
+      const patch = {}
+      for (let i = 0; i < hydrated.length; i++) {
+        const nextSrc = resolveRocketSrc(hydrated[i])
+        const cur = cards[i] && cards[i].rocketImage
+        if (nextSrc && nextSrc !== cur) {
+          patch['cards[' + i + '].rocketImage'] = nextSrc
+        }
+      }
+      if (Object.keys(patch).length) this.setData(patch)
     },
 
     _clearSwipeHint() {
@@ -499,15 +548,39 @@ Component({
       fetchRecentNetChanges().catch(function () {})
     },
 
+    _setOverlayBlocking(on) {
+      try {
+        const app = typeof getApp === 'function' ? getApp() : null
+        if (app && typeof app.setNetChangeModalVisible === 'function') {
+          app.setNetChangeModalVisible(!!on)
+        }
+      } catch (e) {}
+    },
+
+    _armTapGuard() {
+      try {
+        const app = typeof getApp === 'function' ? getApp() : null
+        if (app && typeof app.armPrivacyTapGuard === 'function') {
+          app.armPrivacyTapGuard()
+        }
+      } catch (e) {}
+    },
+
     _dismiss() {
       this._clearSwipeHint()
+      this._setOverlayBlocking(false)
       this.setData({ visible: false, swipeHintOn: false })
     },
 
+    /**
+     * 点击必须在同步栈内关闭弹窗（放进 setTimeout 会被连点重置/异常打断，出现「点了不关」）。
+     * 点穿防护不靠延迟关闭：先 arm 800ms 守卫，轮播侧还有 frozen 静态层 + disable-touch 兜底。
+     */
     onConfirm() {
       try {
         if (typeof wx.vibrateShort === 'function') wx.vibrateShort({ type: 'light' })
       } catch (e) {}
+      this._armTapGuard()
       const missionId = this.data.missionId
       this._dismiss()
       this.triggerEvent('confirm', { missionId: missionId })
@@ -518,6 +591,7 @@ Component({
       try {
         if (typeof wx.vibrateShort === 'function') wx.vibrateShort({ type: 'light' })
       } catch (e) {}
+      this._armTapGuard()
       const missionId = this.data.missionId
       this._dismiss()
       this.triggerEvent('closed', { reason: 'close', missionId: missionId })
@@ -526,8 +600,10 @@ Component({
     onRocketImageError(e) {
       const idx = e && e.currentTarget && e.currentTarget.dataset ? Number(e.currentTarget.dataset.index) : this.data.cardIndex
       const card = this.data.cards && this.data.cards[idx]
-      const en = (card && (card.rocketNameEn || card.rocketName)) || this._lastRocketNameEn
-      const next = en ? resolveMissionRocketImage('', en, null, true) || getRocketImage(en) || '' : ''
+      const raw = (this._hydratedPayloads && this._hydratedPayloads[idx]) || {}
+      const next = resolveIndexCardRocketImage(
+        Object.assign({}, raw, { rocketImage: '', image: '' })
+      )
       if (next && card && next !== card.rocketImage) {
         this.setData({ ['cards[' + idx + '].rocketImage']: next })
         return

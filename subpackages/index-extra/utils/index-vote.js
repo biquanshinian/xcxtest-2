@@ -11,7 +11,8 @@ const {
   getLocalVote,
   saveLocalVote,
   removeLocalVote,
-  shouldSkipVoteRefresh
+  shouldSkipVoteRefresh,
+  isVoteChoiceForType
 } = require('../../../utils/index-page-helpers.js')
 const { getServerNow } = require('../../../utils/server-clock.js')
 
@@ -297,7 +298,7 @@ const voteMethods = {
       wx.showToast({ title: '竞猜已封盘', icon: 'none' })
       return
     }
-    if (this.data.myVote) {
+    if (isVoteChoiceForType(this.data.myVote, voteType)) {
       wx.showToast({ title: '你已经投过啦', icon: 'none' })
       return
     }
@@ -312,6 +313,7 @@ const voteMethods = {
     var total = newGe + newBuge
     var votePatch = {
       myVote: choice,
+      typeVoted: true,
       'voteData.geCount': newGe,
       'voteData.buGeCount': newBuge,
       'voteData.failureCount': voteType === 'outcome' ? newGe : oldData.failureCount || 0,
@@ -361,6 +363,7 @@ const voteMethods = {
       this.setData({
         voteData: normalized.voteData,
         myVote: choice,
+        typeVoted: true,
         voteTotal: normalized.voteTotal,
         voteGePct: normalized.voteGePct,
         voteBugePct: normalized.voteBugePct,
@@ -394,6 +397,7 @@ const voteMethods = {
       var rbTotal = (oldData.geCount || 0) + (oldData.buGeCount || 0)
       this.setData({
         myVote: '',
+        typeVoted: false,
         'voteData.geCount': oldData.geCount || 0,
         'voteData.buGeCount': oldData.buGeCount || 0,
         voteTotal: rbTotal,

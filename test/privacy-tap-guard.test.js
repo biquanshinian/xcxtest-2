@@ -23,6 +23,13 @@ test('弹窗仍可见时一律挡住轮播点击', () => {
   )
 })
 
+test('改期弹窗可见时同样挡住轮播点击', () => {
+  assert.equal(
+    isPrivacyTapGuarded({ globalData: { netChangeModalVisible: true }, _privacyTapGuardUntil: 0 }, 1000),
+    true
+  )
+})
+
 test('守卫窗口内挡住，过期后放行', () => {
   const app = { globalData: {}, _privacyTapGuardUntil: 1500 }
   assert.equal(isPrivacyTapGuarded(app, 1499), true)

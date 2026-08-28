@@ -8,8 +8,9 @@ const { formatDate, getRocketImage, resolveMissionRocketImage } = require('../..
 const { pickLocalized, isContentLangEn } = require('../../../../utils/locale.js')
 const { translateRocketName } = require('../../../../utils/rocket-name-i18n.js')
 const { localizeMissionTitle } = require('../../../../utils/mission-title-i18n.js')
-const { translateAgencyName } = require('../../../../utils/space-terms-i18n.js')
+const { translateAgencyName } = require('../../../../utils/agency-name-i18n.js')
 const { isChinaNotice, noticeChinaVisible, isChineseCollectionKey, firCodeFromNotice, firLabel } = require('./china-filter.js')
+const { parseNotamMeta } = require('./notam-meta.js')
 
 const TONE_LABEL = { notam: '航空 NOTAM', nav: '航海警告', adp: '空域走廊' }
 
@@ -285,7 +286,8 @@ function decorateNotice(notice, hasGeometry, now) {
   const firCode = firCodeFromNotice(n)
   const series = extractNotamSeries(n)
   const label = firLabel(firCode)
-  return Object.assign({}, n, {
+  const meta = parseNotamMeta(Object.assign({}, n, { dates }), now)
+  return Object.assign({}, n, meta, {
     typeTone: tone,
     typeLabel: TONE_LABEL[tone] || 'NOTAM',
     typeShort: shortType(n.type),
@@ -294,6 +296,7 @@ function decorateNotice(notice, hasGeometry, now) {
     timeText: d.timeText,
     leadText: d.leadText || '',
     windows: d.windows,
+    fir: meta.fir || firCode,
     firCode,
     firLabel: label,
     series,

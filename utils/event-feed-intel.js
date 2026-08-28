@@ -39,8 +39,37 @@ const TOKEN_STOP = {
   任务: 1, 发射: 1, 卫星: 1, 组: 1, the: 1, and: 1, for: 1
 }
 
+/** 火箭族 / 星座名：单独命中不够关联到某一场发射 */
+const WEAK_FAMILY = {}
+;[
+  'starship', 'super heavy', 'superheavy', 'falcon', 'falcon 9', 'falcon heavy',
+  'starlink', 'kuiper', 'oneweb', 'spacex', 'nasa',
+  'long march', 'chang zheng', 'electron', 'neutron', 'new glenn',
+  'atlas', 'vulcan', 'ariane', 'soyuz', 'antares', 'vega',
+  '星舰', '超重', '猎鹰', '星链', '长征', '朱雀', '谷神', '快舟', '引力', '力箭',
+  '双曲线', '蓝箭', '联盟', '火箭', '发射', '卫星', '任务',
+  'rocket', 'launch', 'mission', 'satellite', 'group', 'flight', 'block',
+  'heavy', 'booster', 'ship', 'payload'
+].forEach((s) => {
+  WEAK_FAMILY[_norm(s)] = 1
+  WEAK_FAMILY[compactKey(s)] = 1
+})
+
+/** 须有具体任务标识，且总分过线才挂任务卡 */
+const RELATED_LAUNCH_MIN_SCORE = 8
+const RELATED_LAUNCH_AMBIGUITY_GAP = 4
+
+const ZH_FLIGHT_NUM = {
+  一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5,
+  六: 6, 七: 7, 八: 8, 九: 9, 十: 10
+}
+
 function _norm(s) {
   return String(s || '').trim().toLowerCase()
+}
+
+function compactKey(s) {
+  return _norm(s).replace(/[\s\-–—_]/g, '')
 }
 
 function eventHaystack(item) {
@@ -52,6 +81,16 @@ function eventHaystack(item) {
     item.author,
     item.source
   ].join('\n'))
+}
+
+/** 关联发射只看正文，不用作者/账号名（否则 @Starlink 会误挂所有星链任务） */
+function eventLaunchHaystack(item) {
+  if (!item) return ''
+  return _norm([
+    item.title,
+    item.content,
+    item.originalText
+  ].join('\n')).replace(/[–—]/g, '-')
 }
 
 function getEventAlertKeywords(prefs) {
@@ -124,9 +163,10 @@ function stripMissionPipe(s) {
 
 function pushSearchToken(tokens, seen, raw, applyStop) {
   const t = String(raw || '').trim()
-  if (t.length < 3) return
   const key = _norm(t)
   if (!key || seen[key]) return
+  const shortId = /^(?:[a-z]\d|\d[a-z])$/i.test(key) || /^遥[一二三四五六七八九十]$/.test(t)
+  if (t.length < 3 && !WEAK_FAMILY[key] && !shortId) return
   if (applyStop && TOKEN_STOP[key]) return
   seen[key] = 1
   tokens.push(t)
@@ -163,34 +203,242 @@ function launchSearchTokens(launch) {
   return tokens
 }
 
+/** 编号不得当更长数字的前缀：flight 1 ⊄ flight 10，crs-3 ⊄ crs-33 */
+function indexDigitSafe(hay, key) {
+  if (!hay || !key) return -1
+  let from = 0
+  while (from <= hay.length) {
+    const i = hay.indexOf(key, from)
+    if (i < 0) return -1
+    const prev = i > 0 ? hay.charAt(i - 1) : ''
+    const next = hay.charAt(i + key.length) || ''
+    if (/\d/.test(key.charAt(0)) && /\d/.test(prev)) {
+      from = i + 1
+      continue
+    }
+    if (/\d/.test(key.charAt(key.length - 1)) && /\d/.test(next)) {
+      from = i + 1
+      continue
+    }
+    if (isFlightTimeUnitTail(hay, i + key.length, key)) {
+      from = i + 1
+      continue
+    }
+    return i
+  }
+  return -1
+}
+
+function isFlightTimeUnitTail(hay, end, key) {
+  if (!/(?:flight|ift)\s*-?\s*\d{1,2}$/.test(key)) return false
+  return /^(?:\s*)(?:hours?|hrs?|minutes?|mins?|seconds?|secs?|days?)/.test(String(hay || '').slice(end))
+}
+
+function hayHasToken(hay, compactHay, tok) {
+  const key = _norm(tok)
+  if (!key) return false
+  if (indexDigitSafe(hay, key) >= 0) return true
+  const ck = compactKey(key)
+  return ck.length >= 3 && indexDigitSafe(compactHay, ck) >= 0
+}
+
+function isDateLikeToken(key) {
+  return /^\d{1,2}[-/]\d{1,2}$/.test(key)
+}
+
+function collectRocketFamilyKeys(launch) {
+  const pack = (launch && launch._langPack) || {}
+  const keys = Object.assign({}, WEAK_FAMILY)
+  const raw = [
+    launch.rocketName,
+    launch.rocketNameEn,
+    launch.rocketNameZh,
+    pack.rocketNameEn,
+    pack.rocketNameZh
+  ]
+  for (let i = 0; i < raw.length; i++) {
+    const n = _norm(raw[i])
+    if (n.length >= 2) keys[n] = 1
+    const ck = compactKey(raw[i])
+    if (ck.length >= 2) keys[ck] = 1
+    String(raw[i] || '')
+      .split(/[\s|/·,，、()（）]+/)
+      .forEach((part) => {
+        const p = _norm(part)
+        if (p.length >= 2) keys[p] = 1
+      })
+  }
+  return keys
+}
+
+function isStrongMissionToken(key, familyKeys) {
+  if (!key || familyKeys[key] || familyKeys[compactKey(key)]) return false
+  if (isDateLikeToken(key)) return false
+  if (/\d/.test(key) && /[a-z\u4e00-\u9fff]/i.test(key) && key.length >= 2) return true
+  if (/^遥[一二三四五六七八九十]$/.test(key)) return true
+  if (key.length >= 8) return true
+  return false
+}
+
+function parseZhFlightNo(raw) {
+  const s = String(raw || '').trim()
+  if (/^\d+$/.test(s)) return String(parseInt(s, 10))
+  if (ZH_FLIGHT_NUM[s] != null) return String(ZH_FLIGHT_NUM[s])
+  if (s.charAt(0) === '十' && s.length === 2 && ZH_FLIGHT_NUM[s.charAt(1)]) {
+    return String(10 + ZH_FLIGHT_NUM[s.charAt(1)])
+  }
+  return ''
+}
+
+function extractFlightNosFromText(text) {
+  const s = String(text || '')
+  const nos = {}
+  const en = /(?:flight|ift)\s*-?\s*(\d{1,2})\b(?!\s*(?:hours?|hrs?|minutes?|mins?|seconds?|secs?|days?))/gi
+  let m
+  while ((m = en.exec(s))) nos[String(parseInt(m[1], 10))] = 1
+  const zh = /第\s*([0-9]+|[一二三四五六七八九十两]+)\s*次\s*(?:飞行|试飞)/g
+  while ((m = zh.exec(s))) {
+    const n = parseZhFlightNo(m[1])
+    if (n) nos[n] = 1
+  }
+  return nos
+}
+
+function extractGroupIdsFromText(text) {
+  const s = _norm(String(text || '')).replace(/[–—]/g, '-')
+  const ids = {}
+  const re = /(?:group|组)\s*(\d{1,2}\s*-\s*\d{1,2})/g
+  let m
+  while ((m = re.exec(s))) ids[m[1].replace(/\s+/g, '')] = 1
+  return ids
+}
+
+function launchMissionTexts(launch) {
+  const pack = (launch && launch._langPack) || {}
+  return [
+    stripMissionPipe(launch.missionName),
+    stripMissionPipe(launch.name),
+    stripMissionPipe(pack.missionNameEn),
+    stripMissionPipe(pack.missionNameZh)
+  ]
+}
+
+function launchGroupIds(launch) {
+  const ids = extractGroupIdsFromText(launchMissionTexts(launch).join(' '))
+  const texts = launchMissionTexts(launch)
+  for (let i = 0; i < texts.length; i++) {
+    const m = _norm(texts[i]).replace(/[–—]/g, '-').match(/(\d{1,2}\s*-\s*\d{1,2})/)
+    if (m) ids[m[1].replace(/\s+/g, '')] = 1
+  }
+  return ids
+}
+
+function groupIdInHay(hay, compactHay, gid) {
+  if (!gid) return false
+  if (indexDigitSafe(hay, gid) >= 0) return true
+  const compactGid = gid.replace(/-/g, '')
+  return compactGid.length >= 3 && indexDigitSafe(compactHay, compactGid) >= 0
+}
+
+function hayHasStarlinkGroupCtx(hay) {
+  return /starlink|group|星链/.test(hay) || /组\s*\d{1,2}\s*-/.test(hay)
+}
+
+/**
+ * 逻辑打分：火箭族名只算弱信号；须有 Flight / Group / 载荷代号等具体标识才合格。
+ * 不合格（无强信号或总分不足）不关联任务卡。
+ */
+function scoreRelatedLaunch(launch, hay) {
+  const compactHay = compactKey(hay)
+  const familyKeys = collectRocketFamilyKeys(launch)
+  const missions = launchMissionTexts(launch)
+  let score = 0
+  let strong = false
+  let familyHit = false
+
+  for (let i = 0; i < missions.length; i++) {
+    const key = _norm(missions[i])
+    if (key.length < 5 || familyKeys[key] || WEAK_FAMILY[key]) continue
+    if (!hayHasToken(hay, compactHay, missions[i])) continue
+    score += 12
+    strong = true
+    break
+  }
+
+  const tokens = launchSearchTokens(launch)
+  const seenTok = {}
+  for (let t = 0; t < tokens.length; t++) {
+    const tok = tokens[t]
+    const key = _norm(tok)
+    if (!key || seenTok[key] || !hayHasToken(hay, compactHay, tok)) continue
+    seenTok[key] = 1
+    if (familyKeys[key] || familyKeys[compactKey(key)]) {
+      familyHit = true
+      continue
+    }
+    if (isDateLikeToken(key)) {
+      score += 3
+      continue
+    }
+    if (isStrongMissionToken(key, familyKeys)) {
+      score += 8
+      strong = true
+    } else if (key.length >= 4) {
+      score += 2
+    }
+  }
+
+  if (familyHit) score += 1
+
+  const launchFlights = extractFlightNosFromText(missions.join(' '))
+  const hayFlights = extractFlightNosFromText(hay)
+  for (const no in hayFlights) {
+    if (launchFlights[no]) {
+      score += 10
+      strong = true
+      break
+    }
+  }
+
+  const groups = launchGroupIds(launch)
+  const groupCtx = hayHasStarlinkGroupCtx(hay)
+  for (const gid in groups) {
+    if (!groupIdInHay(hay, compactHay, gid)) continue
+    if (groupCtx) {
+      score += 8
+      strong = true
+    } else {
+      score += 3
+    }
+    break
+  }
+
+  if (!strong || score < RELATED_LAUNCH_MIN_SCORE) return { score, strong: false }
+  return { score, strong: true }
+}
+
 function matchRelatedLaunch(item, launches) {
   const list = Array.isArray(launches) ? launches : []
   if (!list.length || !item) return null
-  const hay = eventHaystack(item)
+  const hay = eventLaunchHaystack(item)
   if (!hay) return null
-  const now = Date.now()
   let best = null
+  let second = null
   for (let i = 0; i < list.length; i++) {
     const launch = list[i]
     if (!launch || launch.id == null || String(launch.id) === '') continue
-    const tokens = launchSearchTokens(launch)
-    let score = 0
-    let textHit = false
-    for (let t = 0; t < tokens.length; t++) {
-      const tok = tokens[t]
-      const key = _norm(tok)
-      if (!key || hay.indexOf(key) < 0) continue
-      textHit = true
-      score += key.length >= 7 ? 4 : 3
-    }
-    if (!textHit) continue
-    const ts = launch.launchTime ? new Date(launch.launchTime).getTime() : NaN
-    const dist = Number.isFinite(ts) ? Math.abs(ts - now) : Number.POSITIVE_INFINITY
-    if (!best || score > best.score || (score === best.score && dist < best.dist)) {
-      best = { launch, score, dist }
+    const scored = scoreRelatedLaunch(launch, hay)
+    if (!scored.strong) continue
+    const row = { launch, score: scored.score }
+    if (!best || row.score > best.score) {
+      second = best
+      best = row
+    } else if (!second || row.score > second.score) {
+      second = row
     }
   }
-  if (!best || best.score < 3) return null
+  if (!best) return null
+  if (second && (best.score - second.score) < RELATED_LAUNCH_AMBIGUITY_GAP) return null
   return slimRelatedLaunch(best.launch)
 }
 

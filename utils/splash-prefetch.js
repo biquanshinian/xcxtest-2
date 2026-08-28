@@ -1,13 +1,15 @@
 /**
  * 开屏冷启动预拉（主包，onLaunch 即跑）：
  * - 探测弱网（none/2g/3g/weakNet）→ 无本地片则标记 skip，首页即刻不展示
- * - 读本地缓存池 + 拉 starship_splash_config
- * - 预拉本次预览片 / 封面，首页展示时尽量零等待
+ * - 异步读本地缓存池 + 拉 starship_splash_config（不挡首帧）
+ * - 不在 onLaunch 里 downloadFile / 云函数 / 同步 storage，预览片改由首页展示时再拉
  */
 const { toCdnUrl, optimizeImageUrl, carouselVideoPosterUrl } = require('./cos-url.js')
-const { getCachedMainConfig, fetchMainConfig } = require('./feature-flags.js')
+const { getCachedMainConfig } = require('./feature-flags.js')
+const { splashConfigUpdatedAt } = require('./splash-replay.js')
 
 const SPLASH_CACHE_KEY = '_splash_screen_cache'
+const SPLASH_SHOWN_UPDATED_AT_KEY = '_splash_shown_updated_at'
 const WEAK_NET_TYPES = { none: true, '2g': true, '3g': true }
 
 function getAppSafe(app) {
@@ -77,10 +79,15 @@ function fileExists(src) {
   }
 }
 
-function localPathForPlayUrl(cached, playUrl) {
+function mappedLocalPath(cached, playUrl) {
   if (!cached || !playUrl) return ''
   const map = cached.localPaths && typeof cached.localPaths === 'object' ? cached.localPaths : {}
   const src = map[playUrl] || ''
+  return typeof src === 'string' && src ? src : ''
+}
+
+function localPathForPlayUrl(cached, playUrl) {
+  const src = mappedLocalPath(cached, playUrl)
   return fileExists(src) ? src : ''
 }
 
@@ -93,13 +100,10 @@ function currentPlayUrl(state) {
 /** 只认「当前选中条目」的本地片，池里其它文件不能挡住弱网跳过 */
 function hasUsableLocalMedia(state, cached) {
   const playUrl = currentPlayUrl(state)
-  if (state && state.localPath && fileExists(state.localPath)) {
+  if (state && state.localPath) {
     if (!playUrl || state.playUrl === playUrl) return true
   }
-  if (playUrl) {
-    const mapped = localPathForPlayUrl(cached || (state && state.cached), playUrl)
-    if (mapped) return true
-  }
+  if (playUrl && mappedLocalPath(cached || (state && state.cached), playUrl)) return true
   return false
 }
 
@@ -311,24 +315,31 @@ function maybeStartDownload(state, resolved) {
   startDownload(state, resolved.playUrl)
 }
 
-function applyPicked(state, picked) {
+function applyPicked(state, picked, opts) {
   if (!state || !picked) return
   const resolved = resolvePlay(picked)
   if (!resolved) return
+  const light = !!(opts && opts.light)
   const prevPlayUrl = state.playUrl
   state.picked = picked
   state.resolved = resolved
   state.playUrl = resolved.playUrl
-  const local = localPathForPlayUrl(state.cached, resolved.playUrl)
-  state.localPath = local || (prevPlayUrl === resolved.playUrl && fileExists(state.localPath) ? state.localPath : '')
+  const mapped = mappedLocalPath(state.cached, resolved.playUrl)
+  if (light) {
+    state.localPath = mapped || (prevPlayUrl === resolved.playUrl ? (state.localPath || '') : '')
+  } else {
+    const local = localPathForPlayUrl(state.cached, resolved.playUrl)
+    state.localPath = local || (prevPlayUrl === resolved.playUrl && fileExists(state.localPath) ? state.localPath : '')
+  }
   if (prevPlayUrl && prevPlayUrl !== resolved.playUrl) abortDownload(state)
-  if (resolved.posterUrl) preloadImage(resolved.posterUrl)
-  else if (resolved.mediaType === 'image' && resolved.playUrl) preloadImage(resolved.playUrl)
   if (state.weakNet && !state.localPath) {
     state.skip = true
     abortDownload(state)
     return
   }
+  if (light) return
+  if (resolved.posterUrl) preloadImage(resolved.posterUrl)
+  else if (resolved.mediaType === 'image' && resolved.playUrl) preloadImage(resolved.playUrl)
   maybeStartDownload(state, resolved)
 }
 
@@ -360,6 +371,30 @@ function pickMissionBind(state) {
     }
   }
   return null
+}
+
+function warmRocketImagesFromMissions(list) {
+  if (!Array.isArray(list) || !list.length) return
+  try {
+    const { getCachedRocketConfig } = require('./icon-cache.js')
+    const max = Math.min(2, list.length)
+    for (let i = 0; i < max; i++) {
+      const m = list[i]
+      const raw = m && (m.rocketImage || m.image)
+      if (typeof raw !== 'string') continue
+      const src = raw.trim()
+      if (!src) continue
+      if (/^wxfile:\/\//i.test(src)) {
+        try {
+          wx.getFileSystemManager().accessSync(src)
+          continue
+        } catch (e) {}
+      }
+      if (!/^https?:\/\//i.test(src)) continue
+      const display = getCachedRocketConfig(src)
+      if (display && /^https?:\/\//i.test(display)) preloadImage(display)
+    }
+  } catch (e) {}
 }
 
 function persistWarmedSplashMissionLogo(bind, mission) {
@@ -413,18 +448,13 @@ function bootFromCache(state) {
   const items = normalizeItems(cached)
   if (!items.length) return
   const picked = pickSplashItem(items, cached.lastSplashId)
-  applyPicked(state, picked)
-  warmSplashMissionSideData(state)
+  applyPicked(state, picked, { light: true })
 }
 
 function persistSplashCfg(cfg, state) {
   if (!cfg) return
   try {
-    let stored = null
-    try {
-      stored = wx.getStorageSync(SPLASH_CACHE_KEY) || null
-    } catch (e) {}
-    const prev = stored || (state && state.cached) || {}
+    const prev = (state && state.cached) || {}
     const next = {
       ...prev,
       enabled: cfg.enabled !== false,
@@ -437,10 +467,11 @@ function persistSplashCfg(cfg, state) {
       noticeLineGap: cfg.noticeLineGap != null ? cfg.noticeLineGap : prev.noticeLineGap,
       localPaths: prev.localPaths && typeof prev.localPaths === 'object' ? prev.localPaths : {},
       localPath: prev.localPath || '',
+      updatedAt: splashConfigUpdatedAt(cfg) || Number(prev.updatedAt) || 0,
       cachedAt: Date.now()
     }
-    wx.setStorageSync(SPLASH_CACHE_KEY, next)
     if (state) state.cached = next
+    wx.setStorage({ key: SPLASH_CACHE_KEY, data: next, fail() {} })
   } catch (e) {}
 }
 
@@ -451,7 +482,7 @@ function applyCloudCfg(state, cfg) {
   persistSplashCfg(cfg, state)
   if (cfg.enabled === false) {
     try {
-      wx.setStorageSync(SPLASH_CACHE_KEY, { enabled: false })
+      wx.setStorage({ key: SPLASH_CACHE_KEY, data: { enabled: false }, fail() {} })
     } catch (e) {}
     if (!state.consumed) {
       state.skip = true
@@ -464,8 +495,7 @@ function applyCloudCfg(state, cfg) {
   if (!items.length) return
   const lastId = state.cached && state.cached.lastSplashId ? String(state.cached.lastSplashId) : ''
   const picked = pickSplashItem(items, lastId)
-  applyPicked(state, picked)
-  warmSplashMissionSideData(state)
+  applyPicked(state, picked, { light: true })
 }
 
 function markWeakNet(state, cached) {
@@ -477,17 +507,40 @@ function markWeakNet(state, cached) {
   if (!state.consumed) abortDownload(state)
 }
 
-function startSplashPrefetch(app) {
-  const state = getPrefetchState(app)
-  if (!state || state.started) return state
-  state.started = true
-
+function getLastShownSplashUpdatedAt() {
   try {
-    state.cached = wx.getStorageSync(SPLASH_CACHE_KEY) || null
+    const n = Number(wx.getStorageSync(SPLASH_SHOWN_UPDATED_AT_KEY) || 0)
+    return Number.isFinite(n) && n > 0 ? n : 0
   } catch (e) {
-    state.cached = null
+    return 0
   }
+}
 
+function markSplashShownUpdatedAt(updatedAt) {
+  const n = Number(updatedAt) || 0
+  if (!n) return
+  try {
+    wx.setStorageSync(SPLASH_SHOWN_UPDATED_AT_KEY, n)
+  } catch (e) {}
+}
+
+/** 热启动重播：丢掉 onLaunch 预拉的旧选片，按最新云端配置重新挑片/预下载 */
+function prepareSplashPrefetchForReplay(app, cfg) {
+  const state = getPrefetchState(app)
+  if (!state) return null
+  abortDownload(state)
+  state.started = true
+  state.consumed = false
+  state.skip = false
+  state.weakNet = false
+  state.netResolved = false
+  state.cfg = cfg || null
+  state.cfgPromise = Promise.resolve(cfg || null)
+  state.picked = null
+  state.resolved = null
+  state.playUrl = ''
+  state.localPath = ''
+  state.pendingPlayUrl = ''
   state.netPromise = probeNetwork().then((res) => {
     state.netResolved = true
     if (isWeakNetworkInfo(res)) {
@@ -495,6 +548,47 @@ function startSplashPrefetch(app) {
     } else if (state.pendingPlayUrl && !state.localPath && !state.consumed && !state.weakNet) {
       startDownload(state, state.pendingPlayUrl)
       state.pendingPlayUrl = ''
+    }
+    return state.weakNet
+  })
+  if (cfg) applyCloudCfg(state, cfg)
+  if (state.resolved && !state.consumed && !state.weakNet) maybeStartDownload(state, state.resolved)
+  return state
+}
+
+function startSplashPrefetch(app) {
+  const state = getPrefetchState(app)
+  if (!state || state.started) return state
+  state.started = true
+
+  const applyCached = (cached) => {
+    state.cached = cached || null
+    bootFromCache(state)
+  }
+
+  state.cachePromise = new Promise((resolve) => {
+    try {
+      wx.getStorage({
+        key: SPLASH_CACHE_KEY,
+        success: (res) => {
+          applyCached(res && res.data ? res.data : null)
+          resolve(state.cached)
+        },
+        fail: () => {
+          applyCached(null)
+          resolve(null)
+        }
+      })
+    } catch (e) {
+      applyCached(null)
+      resolve(null)
+    }
+  })
+
+  state.netPromise = probeNetwork().then((res) => {
+    state.netResolved = true
+    if (isWeakNetworkInfo(res)) {
+      markWeakNet(state, state.cached)
     }
     return state.weakNet
   })
@@ -509,21 +603,17 @@ function startSplashPrefetch(app) {
     } catch (e) {}
   }
 
-  bootFromCache(state)
   try {
-    require('../pages/index/utils/index-countdown-boot.js').hydrateCountdownBootToApp(app)
+    const bootMod = require('../pages/index/utils/index-countdown-boot.js')
+    bootMod.hydrateCountdownBootToApp(app)
   } catch (eBoot) {}
-  // 无开屏片时也预热即将发射 logo，避免首页胶囊只剩 SpaceX
-  if (!state.picked) warmSplashMissionSideData(state)
 
-  try {
-    fetchMainConfig()
-  } catch (e) {}
-
-  state.cfgPromise = fetchSplashConfig().then((cfg) => {
-    applyCloudCfg(state, cfg)
-    return cfg
-  })
+  state.cfgPromise = (state.cachePromise || Promise.resolve(null)).then(() =>
+    fetchSplashConfig().then((cfg) => {
+      applyCloudCfg(state, cfg)
+      return cfg
+    })
+  )
 
   return state
 }
@@ -545,6 +635,7 @@ function abortSplashPrefetchDownload(app) {
 
 module.exports = {
   SPLASH_CACHE_KEY,
+  SPLASH_SHOWN_UPDATED_AT_KEY,
   startSplashPrefetch,
   getPrefetchState,
   isWeakNetworkInfo,
@@ -556,5 +647,9 @@ module.exports = {
   resolvePlay,
   pickSplashItem,
   reuseSplashDownload,
-  abortSplashPrefetchDownload
+  abortSplashPrefetchDownload,
+  fetchSplashConfig,
+  prepareSplashPrefetchForReplay,
+  getLastShownSplashUpdatedAt,
+  markSplashShownUpdatedAt
 }

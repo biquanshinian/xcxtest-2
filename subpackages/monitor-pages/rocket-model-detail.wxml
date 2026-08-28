@@ -52,6 +52,30 @@
           <text class="hero-placeholder-icon"></text>
         </view>
         <view class="hero-gradient"></view>
+        <view class="hero-media-btns" wx:if="{{rocket3dEnabled}}">
+          <view
+            class="hero-3d-btn"
+            hover-class="hero-3d-btn--pressed"
+            hover-stay-time="120"
+            catchtap="onTapRocket3d"
+            aria-role="button"
+            aria-label="3D 模型"
+          >
+            <view class="hero-3d-scene">
+              <view class="hero-3d-pulse">
+                <view class="hero-3d-cube">
+                  <view class="hero-3d-face hero-3d-face--front"></view>
+                  <view class="hero-3d-face hero-3d-face--back"></view>
+                  <view class="hero-3d-face hero-3d-face--right"></view>
+                  <view class="hero-3d-face hero-3d-face--left"></view>
+                  <view class="hero-3d-face hero-3d-face--top"></view>
+                  <view class="hero-3d-face hero-3d-face--bottom"></view>
+                </view>
+              </view>
+            </view>
+            <text class="hero-3d-cap">三维</text>
+          </view>
+        </view>
         <view class="hero-credit-btn" wx:if="{{model.imageCredit}}">
           <text class="hero-credit-text">{{model.imageCredit}}</text>
         </view>

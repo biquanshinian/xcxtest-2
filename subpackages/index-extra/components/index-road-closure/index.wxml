@@ -1,4 +1,4 @@
-<!-- 封路通知：路牌灯箱跑马灯（点击进详情，日历视图隐藏） -->
+<!-- 封路通知：状态常显 + 灯箱跑完整明细（点击进详情，日历视图隐藏） -->
 <view
   class="road-closure-host {{themeClass}}"
   wx:if="{{visible}}"
@@ -15,16 +15,19 @@
       </view>
       <text class="road-closure-source" wx:if="{{previewNotice.sourceLabel}}">{{previewNotice.sourceLabel}}</text>
     </view>
-    <view class="road-closure-ticker">
-      <text class="road-closure-ticker-probe">{{displayText}}</text>
-      <view class="road-closure-ticker-fade road-closure-ticker-fade--left" wx:if="{{scrolling}}"></view>
-      <view class="road-closure-ticker-track {{scrolling ? 'is-scrolling' : ''}}" style="{{trackStyle}}">
-        <text class="road-closure-ticker-item">{{displayText}}</text>
-        <view class="road-closure-sep" wx:if="{{scrolling}}"></view>
-        <text class="road-closure-ticker-item" wx:if="{{scrolling}}" aria-hidden="true">{{displayText}}</text>
-        <view class="road-closure-sep" wx:if="{{scrolling}}"></view>
+    <view class="road-closure-main">
+      <text class="road-closure-headline" wx:if="{{headline}}">{{headline}}</text>
+      <view class="road-closure-ticker">
+        <text class="road-closure-ticker-probe">{{displayText}}</text>
+        <view class="road-closure-ticker-fade road-closure-ticker-fade--left" wx:if="{{scrolling}}"></view>
+        <view class="road-closure-ticker-track {{scrolling ? 'is-scrolling' : ''}}" style="{{trackStyle}}">
+          <text class="road-closure-ticker-item">{{displayText}}</text>
+          <view class="road-closure-sep" wx:if="{{scrolling}}"></view>
+          <text class="road-closure-ticker-item" wx:if="{{scrolling}}" aria-hidden="true">{{displayText}}</text>
+          <view class="road-closure-sep" wx:if="{{scrolling}}"></view>
+        </view>
+        <view class="road-closure-ticker-fade road-closure-ticker-fade--right" wx:if="{{scrolling}}"></view>
       </view>
-      <view class="road-closure-ticker-fade road-closure-ticker-fade--right" wx:if="{{scrolling}}"></view>
     </view>
     <text class="road-closure-arrow">›</text>
   </view>

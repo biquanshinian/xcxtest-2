@@ -75,6 +75,14 @@
         "type": "glob"
       },
       {
+        "value": "subpackages/rocket-3d/node_modules/**",
+        "type": "glob"
+      },
+      {
+        "value": "subpackages/rocket-3d/scripts/**",
+        "type": "glob"
+      },
+      {
         "value": "test/**",
         "type": "glob"
       },
@@ -225,6 +233,18 @@
       {
         "value": ".cursor/**",
         "type": "glob"
+      },
+      {
+        "value": ".tmp*/**",
+        "type": "glob"
+      },
+      {
+        "value": ".tmp-r3d-glb",
+        "type": "folder"
+      },
+      {
+        "value": ".tmp-r3d-ref",
+        "type": "folder"
       },
       {
         "value": "agent-config/**",

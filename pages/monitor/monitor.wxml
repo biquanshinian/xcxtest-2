@@ -8,6 +8,7 @@
   <!-- 顶部导航栏（包含状态栏） -->
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
     <view class="top-nav top-nav--page-center">
+      <nav-ai-search />
       <text class="nav-title nav-title--page-center">监控中心</text>
     </view>
   </view>
@@ -101,7 +102,20 @@
       bind:bgerror="onOrbitalBgError"
     />
 
-    <!-- 空间站/星链/过境在分包；发射航警地图必须写在本页（主包），否则分包组件缓存会继续画出旧的「点击加载发射通告地图」 -->
+    <!-- 航警预览：画布组件（不进原生 map，避免 Tab 遮罩被戳穿、滑动黑块抖动） -->
+    <view class="space-notices-section" wx:if="{{enableSpaceNotices}}">
+      <view class="section-title">
+        <text>发射航警地图</text>
+        <view class="section-title-right">
+          <view class="monitor-share-wrap">
+            <image class="icon-share icon-share--monitor" src="/images/share-arrow.svg" mode="aspectFit"></image>
+            <button class="monitor-share-btn" open-type="share" hover-class="none" data-share-type="spaceNotices" bindtap="markPendingShareType" plain="true"></button>
+          </view>
+        </view>
+      </view>
+      <china-notice-preview id="chinaNoticePreview" bind:open="openSpaceNotices" />
+    </view>
+
     <monitor-core-panel
       id="monitorCorePanel"
       theme-class="{{themeClass}}"
@@ -124,37 +138,6 @@
       pass-list="{{passList}}"
       bind:coreevent="onCoreSectionEvent"
     >
-      <view slot="space-notices" class="space-notices-section monitor-block" wx:if="{{enableSpaceNotices}}">
-        <view class="section-title">
-          <text>发射航警地图</text>
-          <view class="section-title-right">
-            <view class="monitor-share-wrap">
-              <image class="icon-share icon-share--monitor" src="/images/share-arrow.svg" mode="aspectFit"></image>
-              <button class="monitor-share-btn" open-type="share" hover-class="none" data-share-type="spaceNotices" bindtap="markPendingShareType" plain="true"></button>
-            </view>
-          </view>
-        </view>
-        <view class="sn-preview-card glass-card card-hover" hover-class="sn-preview-card--pressed" hover-stay-time="80" bindtap="openSpaceNotices">
-          <view class="sn-preview-stage" aria-hidden="true">
-            <view class="sn-preview-sat">
-              <view class="sn-preview-grid"></view>
-              <view class="sn-preview-land sn-preview-land--main"></view>
-              <view class="sn-preview-land sn-preview-land--west"></view>
-              <view class="sn-preview-land sn-preview-land--south"></view>
-              <view class="sn-preview-hainan"></view>
-              <view class="sn-preview-taiwan"></view>
-              <view class="sn-preview-zone"></view>
-            </view>
-            <view class="sn-preview-hud">
-              <text class="sn-preview-kicker">发射航警地图</text>
-              <text class="sn-preview-title">中国航警公告</text>
-              <text class="sn-preview-hint">{{chinaBulletinHint}}</text>
-            </view>
-            <text class="sn-preview-arrow">›</text>
-          </view>
-          <view class="sn-preview-hit" catchtap="openSpaceNotices"></view>
-        </view>
-      </view>
     </monitor-core-panel>
 
     <!-- 图鉴四板块（发射商/火箭族谱/飞船/发射场）：组件在 monitor-pages 分包，

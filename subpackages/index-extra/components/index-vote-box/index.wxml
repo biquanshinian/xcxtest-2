@@ -1,6 +1,6 @@
             <!-- 发射时间待定时不问「会准时吗」：没有基准时刻，题目本身无意义 -->
             <view class="vote-box-host {{themeClass}}" wx:if="{{slotVisible && !cdExpired && !cdUnknown}}">
-            <view class="vote-box vote-box--antimiss {{ontimeEnabled && outcomeEnabled ? 'vote-box--dual' : ''}} {{total > 0 && myVote ? 'vote-box--has-bar' : ''}}">
+            <view class="vote-box vote-box--antimiss {{ontimeEnabled && outcomeEnabled ? 'vote-box--dual' : ''}} {{total > 0 && typeVoted ? 'vote-box--has-bar' : ''}}">
               <view class="vote-type-row" wx:if="{{ontimeEnabled && outcomeEnabled}}" catchtap="">
                 <view class="vote-type-tabs">
                   <text class="vote-type-tab {{activeType === 'ontime' ? 'vote-type-tab--active' : ''}}" catchtap="onTypeSwitch" data-type="ontime">准时</text>
@@ -9,27 +9,27 @@
                 <text class="vote-type-meta" wx:if="{{total > 0}}">{{total}} 人参与</text>
               </view>
               <view class="vote-box-body">
-              <block wx:if="{{vote.votingClosed && !myVote}}">
+              <block wx:if="{{vote.votingClosed && !typeVoted}}">
                 <text class="vote-box-label vote-box-label--closed vote-box-flex-fill">🔒 距发射不足30分钟</text>
                 <text class="vote-total-inline" wx:if="{{total > 0 && !(ontimeEnabled && outcomeEnabled)}}">{{total}} 人参与</text>
               </block>
-              <block wx:elif="{{vote.votingClosed && myVote && !vote.result}}">
+              <block wx:elif="{{vote.votingClosed && typeVoted && !vote.result}}">
                 <text class="vote-box-label vote-box-label--closed vote-box-flex-fill">🔒 已投票，等待揭晓</text>
                 <text class="vote-total-inline" wx:if="{{total > 0 && !(ontimeEnabled && outcomeEnabled)}}">{{total}} 人参与</text>
               </block>
-              <block wx:elif="{{vote.result && myVote}}">
+              <block wx:elif="{{vote.result && typeVoted}}">
                 <text class="vote-box-label vote-box-label--result vote-box-flex-fill {{myVote === vote.result ? 'vote-box-label--ok' : 'vote-box-label--bad'}} {{resultFlash ? 'vote-result--flash' : ''}}">{{myVote === vote.result ? '🎉 猜对了' : '😅 猜错了'}}</text>
                 <text class="vote-total-inline" wx:if="{{total > 0 && !(ontimeEnabled && outcomeEnabled)}}">{{total}} 人参与</text>
               </block>
               <block wx:else>
                 <text class="vote-box-label vote-box-label--polling {{vote.customQuestion ? '' : 'vote-box-label--default-q'}}">{{vote.customQuestion || (activeType === 'outcome' ? '会成功吗？' : '会准时吗？')}}</text>
                 <view class="vote-pills-with-meta">
-                  <view class="vote-pill {{myVote === 'ge' || myVote === 'failure' ? 'vote-pill--active-ge' : ''}} {{myVote ? 'vote-pill--voted' : ''}} {{vote.votingClosed ? 'vote-pill--disabled' : ''}} {{votePop && (myVote === 'ge' || myVote === 'failure') ? 'vote-pill--pop' : ''}}" catchtap="onVote" data-pill="left">
+                  <view class="vote-pill {{myVote === 'ge' || myVote === 'failure' ? 'vote-pill--active-ge' : ''}} {{typeVoted ? 'vote-pill--voted' : ''}} {{vote.votingClosed ? 'vote-pill--disabled' : ''}} {{votePop && (myVote === 'ge' || myVote === 'failure') ? 'vote-pill--pop' : ''}}" catchtap="onVote" data-pill="left">
                     <view class="vote-pill-dot vote-pill-dot--ge"></view>
                     <text class="vote-pill-text">{{activeType === 'outcome' ? (vote.failureLabel || (countryDisplay === '中国' ? '失利' : '失败')) : (vote.geLabel || '鸽')}}</text>
                     <text class="vote-pill-count" wx:if="{{vote.geCount > 0}}">{{vote.geCount}}</text>
                   </view>
-                  <view class="vote-pill {{myVote === 'buge' || myVote === 'success' ? 'vote-pill--active-buge' : ''}} {{myVote ? 'vote-pill--voted' : ''}} {{vote.votingClosed ? 'vote-pill--disabled' : ''}} {{votePop && (myVote === 'buge' || myVote === 'success') ? 'vote-pill--pop' : ''}}" catchtap="onVote" data-pill="right">
+                  <view class="vote-pill {{myVote === 'buge' || myVote === 'success' ? 'vote-pill--active-buge' : ''}} {{typeVoted ? 'vote-pill--voted' : ''}} {{vote.votingClosed ? 'vote-pill--disabled' : ''}} {{votePop && (myVote === 'buge' || myVote === 'success') ? 'vote-pill--pop' : ''}}" catchtap="onVote" data-pill="right">
                     <view class="vote-pill-dot vote-pill-dot--buge"></view>
                     <text class="vote-pill-text">{{activeType === 'outcome' ? (vote.successLabel || '成功') : (vote.bugeLabel || '不鸽')}}</text>
                     <text class="vote-pill-count" wx:if="{{vote.buGeCount > 0}}">{{vote.buGeCount}}</text>
@@ -38,7 +38,7 @@
                 </view>
               </block>
               </view>
-              <view class="vote-bar-row" wx:if="{{total > 0 && myVote}}">
+              <view class="vote-bar-row" wx:if="{{total > 0 && typeVoted}}">
                 <view class="vote-bar {{voteBarEnter ? 'vote-bar--enter' : ''}}">
                   <view class="vote-bar-ge" style="width: {{gePct}}%;"></view>
                   <view class="vote-bar-buge" style="width: {{bugePct}}%;"></view>

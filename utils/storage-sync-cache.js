@@ -47,7 +47,10 @@ const HOT_SYNC_KEYS = [
   '_float_lunar_count',
   // popup-ad 频控（各 Tab 页 onShow 触发）
   '_popup_ad_shown_by_day',
-  '_popup_ad_protect_anchor_ts'
+  '_popup_ad_protect_anchor_ts',
+  // 主题 / 火箭配置图艺术风格：onLaunch 异步预热后，首屏不再 getStorageSync
+  '_app_theme',
+  '_rocket_config_art'
 ]
 
 const HOT_SYNC_FALLBACKS = {
@@ -80,7 +83,9 @@ const HOT_SYNC_FALLBACKS = {
   '_float_lunar_cache': null,
   '_float_lunar_count': 0,
   '_popup_ad_shown_by_day': null,
-  '_popup_ad_protect_anchor_ts': 0
+  '_popup_ad_protect_anchor_ts': 0,
+  '_app_theme': 'system',
+  '_rocket_config_art': 'original'
 }
 
 function _isDevEnv() {

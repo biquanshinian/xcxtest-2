@@ -15,7 +15,14 @@ const COUNTDOWN_BOOT_HYDRATE_WAIT_MS = 80
 
 function slimMissionForCountdownBoot(mission) {
   if (!mission || mission.id == null) return null
-  const image = mission.rocketImage || mission.image || ''
+  let image = mission.rocketImage || mission.image || ''
+  if (typeof image === 'string' && /^wxfile:\/\//i.test(image.trim())) {
+    try {
+      const iconCache = require('../../../utils/icon-cache.js')
+      const remote = iconCache.getRocketHttpsUrlForLocal(image.trim())
+      if (remote) image = remote
+    } catch (e) {}
+  }
   return {
     id: mission.id,
     name: mission.name || '',

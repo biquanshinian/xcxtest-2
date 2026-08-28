@@ -2,8 +2,9 @@
  * 激励视频广告临时解锁门控
  * 看完广告 → 按 productId 解锁 10 分钟；过期后再次走会员门控
  *
- * 稳定性要点（胶囊消失 / 自定义导航栏）：
- * 1. 激励视频实例按「当前页 route」绑定，换页则 destroy 再建（官方：仅对当前页有效）
+ * 稳定性要点（胶囊消失 / 自定义导航栏 / 基础库广告单例）：
+ * 1. 激励视频按官方单例复用；仅换页且空闲时 destroy 再建。关闭后立刻 destroy
+ *    会撞上基础库 isUseRecreate，报 adProxy undefined
  * 2. onClose 内禁止同步 Toast / 同步 resolve 跳转，延后让系统层恢复胶囊
  * 3. 关闭后轻量 nudge（读胶囊矩形），再放行业务 navigateTo
  */
@@ -66,6 +67,10 @@ let _videoAd = null
 let _adRoute = ''
 let _pendingClose = null
 let _busy = false
+let _adBroken = false
+
+/** 广告层尚未出现时的等待上限，避免 show 挂起导致后续无法再拉起 */
+const SHOW_WATCHDOG_MS = 15000
 
 function _readMap() {
   const raw = storageCache.readMemOrSync(STORAGE_KEY, null)
@@ -140,11 +145,23 @@ function _nudgeCapsuleRestore() {
   } catch (e) {}
 }
 
+function _safeAdCall(ad, method) {
+  if (!ad || typeof ad[method] !== 'function') {
+    return Promise.reject(new Error('ad missing ' + method))
+  }
+  try {
+    return Promise.resolve(ad[method]())
+  } catch (e) {
+    return Promise.reject(e)
+  }
+}
+
 function destroyRewardedAd() {
   const ad = _videoAd
   _videoAd = null
   _adRoute = ''
   _pendingClose = null
+  _adBroken = false
   if (!ad) return
   try {
     if (typeof ad.offClose === 'function') ad.offClose()
@@ -165,26 +182,38 @@ function ensureRewardedAd() {
   if (typeof wx === 'undefined' || !wx.createRewardedVideoAd) return null
 
   const route = getCurrentRoute()
-  if (_videoAd && _adRoute && route && _adRoute !== route) {
+  if (_videoAd && _adBroken && !_busy) {
+    destroyRewardedAd()
+  }
+  if (_videoAd && _adRoute && route && _adRoute !== route && !_busy) {
     destroyRewardedAd()
   }
   if (_videoAd) return _videoAd
+  if (!route) return null
 
   try {
-    _videoAd = wx.createRewardedVideoAd({ adUnitId: AD_UNIT_ID })
+    const ad = wx.createRewardedVideoAd({ adUnitId: AD_UNIT_ID })
+    if (!ad) return null
+    _videoAd = ad
     _adRoute = route
-    _videoAd.onError(function (err) {
+    _adBroken = false
+    ad.onError(function (err) {
       console.error('[ad-unlock] load/show error', err)
+      _adBroken = true
     })
-    _videoAd.onClose(function (res) {
+    ad.onClose(function (res) {
       const cb = _pendingClose
       _pendingClose = null
+      try {
+        if (typeof ad.load === 'function') ad.load()
+      } catch (e) {}
       if (typeof cb === 'function') cb(res)
     })
   } catch (e) {
     console.error('[ad-unlock] createRewardedVideoAd failed', e)
     _videoAd = null
     _adRoute = ''
+    _adBroken = false
   }
   return _videoAd
 }
@@ -231,15 +260,23 @@ function showRewardedVideoAd(opts) {
     var segmentStart = 0
     var hideHandler = null
     var showHandler = null
+    var showWatchdog = null
 
     function currentWatchedMs() {
       var extra = segmentStart ? Math.max(0, Date.now() - segmentStart) : 0
       return Math.max(0, visibleMs + extra)
     }
 
+    function clearShowWatchdog() {
+      if (!showWatchdog) return
+      clearTimeout(showWatchdog)
+      showWatchdog = null
+    }
+
     function markShown() {
       if (!shownAt) shownAt = Date.now()
       if (!segmentStart) segmentStart = Date.now()
+      clearShowWatchdog()
     }
 
     function pauseVisible() {
@@ -282,6 +319,7 @@ function showRewardedVideoAd(opts) {
     function finish(ok, toastTitle, toastIcon, hold) {
       if (settled) return
       settled = true
+      clearShowWatchdog()
       unbindAppVisibility()
       _busy = false
       _pendingClose = null
@@ -306,9 +344,6 @@ function showRewardedVideoAd(opts) {
       setTimeout(function () {
         _nudgeCapsuleRestore()
         finish(ok, toastTitle, toastIcon, hold)
-        try {
-          destroyRewardedAd()
-        } catch (e) {}
       }, POST_CLOSE_SETTLE_MS)
     }
 
@@ -323,21 +358,30 @@ function showRewardedVideoAd(opts) {
     function failShow(err) {
       console.error('[ad-unlock] show failed', err)
       _pendingClose = null
+      _adBroken = true
       finish(false, failToast, 'none', 0)
     }
+
+    showWatchdog = setTimeout(function () {
+      showWatchdog = null
+      if (!shownAt && !settled) failShow(new Error('ad show timeout'))
+    }, SHOW_WATCHDOG_MS)
 
     _delay(PRE_SHOW_DELAY_MS)
       .then(function () {
         if (settled) return null
-        return Promise.resolve(ad.show()).then(function () {
+        return _safeAdCall(ad, 'show').then(function () {
+          if (settled) return
           markShown()
           bindAppVisibility()
         })
       })
       .catch(function () {
         if (settled) return null
-        return ad.load().then(function () {
-          return Promise.resolve(ad.show()).then(function () {
+        return _safeAdCall(ad, 'load').then(function () {
+          if (settled) return
+          return _safeAdCall(ad, 'show').then(function () {
+            if (settled) return
             markShown()
             bindAppVisibility()
           })

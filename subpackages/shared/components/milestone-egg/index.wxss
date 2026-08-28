@@ -186,6 +186,9 @@
   color: var(--color-warning);
   margin-bottom: 40rpx;
 }
+.prize-ship-note--pro {
+  color: #4ecdc4;
+}
 .prize-claim-btn {
   width: 80%;
   height: 88rpx;

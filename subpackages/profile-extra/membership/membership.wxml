@@ -31,25 +31,24 @@
       </view>
 
       <view class="ios-notice" wx:if="{{isIOS}}">
-        <text>iOS 端因苹果 30% 平台税未开通付费。</text>
-        <text class="ios-notice-tip">在 Windows / Mac 电脑微信扫码登录小程序付费，PRO 权益自动同步到 iOS 端，可省 30% 苹果税。</text>
+        <text>本机将通过 Apple 支付开通，权益即时到账。</text>
       </view>
 
       <!-- 订阅计划 -->
-      <view class="plan-list {{isIOS ? 'plan-list--disabled' : ''}}">
-        <view class="plan-item {{selectedPlan === 'monthly' ? 'plan-item--active' : ''}}" bindtap="{{isIOS ? '' : 'selectPlan'}}" data-plan="monthly">
+      <view class="plan-list">
+        <view class="plan-item {{selectedPlan === 'monthly' ? 'plan-item--active' : ''}}" bindtap="selectPlan" data-plan="monthly">
           <view class="plan-name">月卡</view>
           <view class="plan-price"><text class="plan-price-sym">¥</text><text class="plan-price-num">{{monthlyPrice}}</text></view>
           <view class="plan-save">每月</view>
         </view>
-        <view class="plan-item {{selectedPlan === 'yearly' ? 'plan-item--active' : ''}}" bindtap="{{isIOS ? '' : 'selectPlan'}}" data-plan="yearly">
+        <view class="plan-item {{selectedPlan === 'yearly' ? 'plan-item--active' : ''}}" bindtap="selectPlan" data-plan="yearly">
           <view class="plan-tag">限时推荐</view>
           <view class="plan-name">年卡</view>
           <view class="plan-price"><text class="plan-price-sym">¥</text><text class="plan-price-num">{{yearlyPrice}}</text></view>
           <view class="plan-save" wx:if="{{yearlySaveText}}">{{yearlySaveText}}</view>
           <view class="plan-save" wx:else>更划算</view>
         </view>
-        <view class="plan-item {{selectedPlan === 'permanent' ? 'plan-item--active' : ''}}" bindtap="{{isIOS ? '' : 'selectPlan'}}" data-plan="permanent">
+        <view class="plan-item {{selectedPlan === 'permanent' ? 'plan-item--active' : ''}}" bindtap="selectPlan" data-plan="permanent">
           <view class="plan-tag">最划算</view>
           <view class="plan-name">永久</view>
           <view class="plan-price"><text class="plan-price-sym">¥</text><text class="plan-price-num">{{permanentPrice}}</text></view>
@@ -58,8 +57,8 @@
       </view>
 
       <!-- 金色开通按钮 -->
-      <view class="subscribe-btn {{isIOS ? 'subscribe-btn--disabled' : ''}}" bindtap="{{isIOS ? '' : 'handleSubscribe'}}">
-        <text>{{isIOS ? 'iOS 暂未开放' : subscribeBtnText}}</text>
+      <view class="subscribe-btn" bindtap="handleSubscribe">
+        <text>{{subscribeBtnText}}</text>
       </view>
       <view class="subscribe-note">
         <text>订阅到期自动降级为免费用户，不自动扣费</text>
@@ -118,6 +117,11 @@
           <text class="benefit-cell-desc">星链未来24小时精确预报</text>
         </view>
         <view class="benefit-cell">
+          <image class="benefit-cell-icon" src="{{benefitIcons[3]}}" mode="aspectFit" />
+          <text class="benefit-cell-name">火箭 3D 模型</text>
+          <text class="benefit-cell-desc">任务详情查看高还原三维火箭</text>
+        </view>
+        <view class="benefit-cell">
           <image class="benefit-cell-icon" src="{{benefitIcons[4]}}" mode="aspectFit" />
           <text class="benefit-cell-name">专属徽章</text>
           <text class="benefit-cell-desc">会员成就与金色边框</text>
@@ -129,19 +133,17 @@
     <view class="section">
       <view class="section-title">独立功能解锁</view>
       <view class="ios-notice" wx:if="{{isIOS}}">
-        <text>iOS 端因苹果 30% 平台税未开通付费。</text>
-        <text class="ios-notice-tip">在电脑微信扫码登录可付费，权益自动同步。</text>
+        <text>独立功能同样走 Apple 支付，购买后永久解锁。</text>
       </view>
-      <view class="product-list {{isIOS ? 'product-list--disabled' : ''}}">
-        <view class="product-item" wx:for="{{products}}" wx:key="id" bindtap="{{isIOS ? '' : 'handleBuyProduct'}}" data-id="{{item.id}}">
+      <view class="product-list">
+        <view class="product-item" wx:for="{{products}}" wx:key="id" bindtap="handleBuyProduct" data-id="{{item.id}}">
           <view class="product-info">
             <text class="product-name">{{item.name}}</text>
             <text class="product-desc">{{item.desc}}</text>
           </view>
           <view class="product-action">
-            <text class="product-price" wx:if="{{!item.purchased && !isIOS}}">¥{{item.priceText}}</text>
+            <text class="product-price" wx:if="{{!item.purchased}}">¥{{item.priceText}}</text>
             <text class="product-owned product-owned--yes" wx:elif="{{item.purchased}}">已拥有</text>
-            <text class="product-owned" wx:else>暂未开放</text>
           </view>
         </view>
       </view>
@@ -151,6 +153,7 @@
     <view class="footer-note">
       <text>· 订阅到期后自动降级为免费用户</text>
       <text>· 一次性购买的功能永久有效</text>
+      <text wx:if="{{isIOS}}">· iOS 需系统 15+、微信 8.0.68+、中国大陆 App Store 账户；最低 1 元，退款请在 App Store 申请</text>
       <text>· 如有问题请联系客服，提供用户ID</text>
     </view>
 

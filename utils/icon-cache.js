@@ -270,18 +270,23 @@ function _ensureRocketDir() {
   }
 }
 
-function _rocketDownloadKey(url) {
+/**
+ * 火箭配置图展示/落盘 URL。
+ * 默认 thumb（480w）：首页倒计时 132rpx、任务卡约 200rpx、改期弹窗 196rpx，
+ * 960w medium 对小圆图过重，且万象首次处理大 PNG 会明显拖慢首屏。
+ * 任务详情头图全宽再显式传 medium。
+ */
+function _rocketDownloadKey(url, preset) {
   if (!url || typeof url !== 'string') return ''
   const trimmed = url.trim()
   if (!/^https?:\/\//i.test(trimmed)) return trimmed
-  // GIF：万象 cgif 抽帧（原逻辑）；静态图：medium 压缩。
-  // 原来静态 jpg/png 直接拉 COS 原图（可达数 MB），是首页最高频的下行大头；
-  // 用 medium 而非 thumb 是因为任务详情页头图全宽复用同一份缓存
-  if (/\.gif(\?|[&#]|$)/i.test(trimmed)) {
-    return toCdnUrl(appendRocketGifCgifCi(trimmed))
+  const cdn = toCdnUrl(trimmed)
+  if (/\.gif(\?|[&#]|$)/i.test(cdn)) {
+    return toCdnUrl(appendRocketGifCgifCi(_stripImageProcessParams(cdn)))
   }
-  if (/imageMogr2|ci-process=/i.test(trimmed)) return toCdnUrl(trimmed)
-  return optimizeImageUrl(trimmed, 'medium')
+  const p = preset || 'thumb'
+  if (p === 'none') return cdn
+  return optimizeImageUrl(_stripImageProcessParams(cdn), p)
 }
 
 function _getRocketIndex() {
@@ -305,13 +310,14 @@ function _saveRocketIndex() {
 /**
  * 火箭配置图（COS/CDN HTTPS）：与图标相同策略，命中后走本地 wxfile 路径
  * @param {string} url
+ * @param {'thumb'|'medium'|'none'} [preset='thumb']
  * @returns {string}
  */
-function getCachedRocketConfig(url) {
+function getCachedRocketConfig(url, preset) {
   if (!url || typeof url !== 'string') return url
   if (!/^https?:\/\//i.test(url)) return url
 
-  url = _rocketDownloadKey(url)
+  url = _rocketDownloadKey(url, preset)
   if (!url) return url
 
   const memo = _rocketUrlMemo[url]
@@ -401,6 +407,18 @@ function preloadRocketConfigMedia(urls) {
     if (!key || shouldSkipDownload(key) || !isOwnCdnUrl(key)) return
     getCachedRocketConfig(u)
   })
+}
+
+/** 本地 wxfile 反查压缩 HTTPS（引导快照不要持久化可能被清理的 wxfile） */
+function getRocketHttpsUrlForLocal(localPath) {
+  const p = typeof localPath === 'string' ? localPath.trim() : ''
+  if (!p) return ''
+  const idx = _getRocketIndex()
+  const keys = Object.keys(idx)
+  for (let i = 0; i < keys.length; i++) {
+    if (idx[keys[i]] === p) return keys[i]
+  }
+  return ''
 }
 
 /**
@@ -724,6 +742,7 @@ module.exports = {
   getCachedRocketConfig,
   appendRocketGifCgifCi,
   preloadRocketConfigMedia,
+  getRocketHttpsUrlForLocal,
   clearRocketConfigCache,
   isRemoteCacheableImageUrl,
   getCachedMediaImage,

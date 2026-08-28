@@ -3,16 +3,17 @@ const { getSpaceXLaunchStats } = require('../../utils/api-app-services.js')
 const { getStationStatus } = require('../../utils/api-monitor-data.js')
 const { onStaleUpdate, getCacheKey } = require('../../utils/api-request.js')
 const { loadCloudMediaMap } = require('../../utils/image-config.js')
-const { ROUTES, navigateTo, buildUrl } = require('../../utils/routes.js')
+const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { getUiShellLayout } = require('../../utils/layout.js')
 const { getSystemInfo } = require('../../utils/system.js')
 const { gateCheck, isMembershipEnabled, getMembershipState, isProSync, warmMembershipStateSync } = require('../../utils/membership.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { isLiveEntryAllowed, isPlaybackAllowed } = require('../../utils/feature-flags.js')
 // SPACE_NOTICES_FEATURE
-const { isSpaceNoticesEnabled, SPACE_NOTICES_PRODUCT_NAME, CHINESE_COLLECTION_KEY, lookupChinaBulletinPreview } = require('../../utils/space-notices-feature.js')
+const { isSpaceNoticesEnabled, SPACE_NOTICES_PRODUCT_NAME } = require('../../utils/space-notices-feature.js')
 const themeUtil = require('../../utils/theme.js')
 const tabLoadPage = require('../../utils/tab-load-page.js')
+const { LIST_REVALIDATE_MS, takeForegroundResume, shouldRevalidate } = require('../../utils/foreground-resume.js')
 const { optimizeImageUrl, videoSnapshotUrl } = require('../../utils/cos-url.js')
 const { advanceImageFallback } = require('../../utils/ll2-image.js')
 
@@ -267,11 +268,14 @@ Page({
 
     // SPACE_NOTICES_FEATURE：发射航警地图入口（缺配置时仍显示，后台显式 false 才藏）
     isSpaceNoticesEnabled().then((on) => {
-      this.setData({ enableSpaceNotices: !!on })
-      if (on) this.loadChinaBulletinPreview()
+      const enabled = !!on
+      if (this.data.enableSpaceNotices !== enabled) {
+        this.setData({ enableSpaceNotices: enabled })
+      }
+      if (enabled) this.refreshChinaNoticePreview()
     }).catch(() => {
-      this.setData({ enableSpaceNotices: true })
-      this.loadChinaBulletinPreview()
+      if (!this.data.enableSpaceNotices) this.setData({ enableSpaceNotices: true })
+      this.refreshChinaNoticePreview()
     })
 
     // 过审关闭可播视频时，轨道卡片不用 mp4 背景（默认先关，读到允许再开）
@@ -346,6 +350,8 @@ Page({
   },
 
   onShow() {
+    const resume = takeForegroundResume(this)
+    this._foregroundResumeMs = resume.resumeMs
     // 主题兜底同步：在其他 Tab 切了主题后回到本 Tab
     themeUtil.applyThemeToPage(this)
     try {
@@ -396,6 +402,19 @@ Page({
         Promise.all([isMembershipEnabled(), getMembershipState()]).catch(function () {})
       }, 0)
     }
+
+    this._silentRevalidateOnForeground(this._foregroundResumeMs)
+  },
+
+  _silentRevalidateOnForeground(resumeMs) {
+    if (!shouldRevalidate(resumeMs, LIST_REVALIDATE_MS)) return
+    if (this.data.enableSpaceNotices) {
+      try { this.refreshChinaNoticePreview() } catch (eNotice) {}
+    }
+    if (this.data.stationReady) {
+      try { this.loadStationStatus({ silent: true }) } catch (eStation) {}
+    }
+    try { this.loadStarbaseWeather(false) } catch (eWeather) {}
   },
 
   onPopupAdClose() {
@@ -448,7 +467,6 @@ Page({
     enableLiveWatch: false,
     // SPACE_NOTICES_FEATURE：与代码开关 fail-open 对齐，避免首屏先藏卡
     enableSpaceNotices: true,
-    chinaBulletinHint: '覆盖全国情报区 · 点开查看',
     // B站直播
     biliLive: {
       roomId: '390508',
@@ -726,7 +744,7 @@ Page({
     }
     // SPACE_NOTICES_FEATURE
     if (type === 'spaceNotices') {
-      let path = buildUrl(ROUTES.SPACE_NOTICE_MAP, { entryKey: CHINESE_COLLECTION_KEY })
+      let path = ROUTES.SPACE_NOTICE_LIST
       try {
         // 有权益用户分享带 sst，接收者 24h 免门控；无权益则不带，接收者冷启动走 gateCheck
         const { canUsePaidCloudSync } = require('../../utils/membership.js')
@@ -766,21 +784,17 @@ Page({
     try {
       const allowed = await gateCheck('space_notices', SPACE_NOTICES_PRODUCT_NAME)
       if (!allowed) return
-      navigateTo(ROUTES.SPACE_NOTICE_MAP, { entryKey: CHINESE_COLLECTION_KEY })
+      navigateTo(ROUTES.SPACE_NOTICE_LIST)
     } finally {
       this._gateChecking = false
     }
   },
 
-  loadChinaBulletinPreview() {
-    return lookupChinaBulletinPreview()
-      .then((row) => {
-        if (!row) return
-        const n = Number(row.noticeCount) || 0
-        const hint = n ? (n + ' 条航警 · 点开查看') : '覆盖全国情报区 · 点开查看'
-        this.setData({ chinaBulletinHint: hint })
-      })
-      .catch(() => {})
+  refreshChinaNoticePreview() {
+    try {
+      const card = this.selectComponent('#chinaNoticePreview')
+      if (card && typeof card.refresh === 'function') card.refresh()
+    } catch (e) {}
   },
 
   onMonitorScroll() {
@@ -822,7 +836,7 @@ Page({
       tasks.push(this.loadAgencies({ silent: true }))
 
       if (this.data.enableSpaceNotices) {
-        tasks.push(Promise.resolve(this.loadChinaBulletinPreview()))
+        tasks.push(Promise.resolve(this.refreshChinaNoticePreview()))
       }
 
       return Promise.all(tasks).catch(() => {})

@@ -39,6 +39,7 @@ const { translateMissionType, translateLocation } = require('../../../utils/spac
 const { optimizeImageUrl, isCosOriginUrl } = require('../../../utils/cos-url.js')
 const { proxiedImageUrl, isOwnCdnUrl } = require('../../../utils/ll2-image.js')
 const { applyLaunchAgencyLogoOverridesToMission } = require('../../../utils/agency-logo-overrides.js')
+const { resolveFalconHeavyRoleLabel, sortFalconHeavyStagesForDisplay } = require('./falcon-heavy-roles.js')
 
 function getRocketDisplayNameFromConfig(configuration) {
   if (!configuration || typeof configuration !== 'object') return '未知火箭'
@@ -1139,6 +1140,7 @@ async function processLaunchDetail(launch) {
       if (arr.length > 0) launcherStagesArray = arr
     }
 
+    const isFalconHeavyRocket = /falcon\s*heavy|猎鹰重型/i.test(rocketName || '')
     if (launcherStagesArray && launcherStagesArray.length > 0) {
       boosterStages = launcherStagesArray.map((item, idx) => {
         if (!item || typeof item !== 'object') return null
@@ -1171,13 +1173,12 @@ async function processLaunchDetail(launch) {
         const roleRaw = String(item.type || item.position || item.role || '').toLowerCase()
         let roleLabel = ''
         const isStarshipRocket = /starship|超重|super\s*heavy/i.test(rocketName || '')
-        const isFalconHeavyRocket = /falcon\s*heavy|猎鹰重型/i.test(rocketName || '')
         if (isStarshipRocket) {
           // 星舰只有两级：一级 = Super Heavy；飞船在 spacecraft_stage 里独立处理
           roleLabel = '超重助推器'
         } else if (isFalconHeavyRocket && launcherStagesArray.length >= 2) {
-          // Falcon Heavy 有 1 中央芯 + 2 侧助推
-          roleLabel = idx === 0 ? '中央芯' : `侧助推器 ${idx}`
+          // Falcon Heavy：#1/#2 侧助推器，#3 中央芯级（按 LL2 type，缺省时最后一根为中央芯）
+          roleLabel = resolveFalconHeavyRoleLabel(launcherStagesArray, idx)
         } else if (launcherStagesArray.length === 1) {
           // 单芯火箭（Falcon 9 / Electron / 长征 2/3/7 等）：无论 LL2 给什么 type，
           // 都只有一枚芯级 → 统一称"一级助推器"，避免把 LL2 的 "core" 解读为"中央芯"
@@ -1265,6 +1266,9 @@ async function processLaunchDetail(launch) {
           turnaroundText: stage0.turnaroundText || boosterInfo.turnaroundText || '',
           turnaroundDays: stage0.turnaroundDays != null ? stage0.turnaroundDays : boosterInfo.turnaroundDays
         }
+      }
+      if (isFalconHeavyRocket) {
+        boosterStages = sortFalconHeavyStagesForDisplay(boosterStages)
       }
     }
 

@@ -6,7 +6,7 @@
  * - media_asset_tombstones 中的 key 不会被重新 add（后台删记录写入）
  * - 同步更新时保留管理员设置的 enabled，不会强制重新启用
  *
- * 触发：定时器（在云开发控制台配置）或小程序 loadCloudMediaMap 节流调用
+ * 触发：云开发定时器，或后台 adminGateway 手动同步。小程序端不再调用。
  */
 const cloud = require('wx-server-sdk')
 const COS = require('cos-nodejs-sdk-v5')

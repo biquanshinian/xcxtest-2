@@ -170,18 +170,18 @@ Component({
     _readDesktopStripVisibleSync() {
       const app = this._getAppSafe()
       const cache = app && app.globalData && app.globalData.tabBarUiCache
-      if (cache && typeof cache.showAddDesktopStrip === 'boolean' && storageCache.isLoaded(STORAGE_SNOOZE_UNTIL)) {
+      if (cache && typeof cache.showAddDesktopStrip === 'boolean') {
         return cache.showAddDesktopStrip
       }
-      if (app && typeof app.readAddDesktopStripVisibleSync === 'function') {
-        return app.readAddDesktopStripVisibleSync()
+      if (storageCache.isLoaded(STORAGE_SNOOZE_UNTIL)) {
+        try {
+          const snoozeUntil = Number(storageCache.readMemOrSync(STORAGE_SNOOZE_UNTIL, 0)) || 0
+          return Date.now() >= snoozeUntil
+        } catch (_) {
+          return true
+        }
       }
-      try {
-        const snoozeUntil = Number(storageCache.readMemOrSync(STORAGE_SNOOZE_UNTIL, 0)) || 0
-        return Date.now() >= snoozeUntil
-      } catch (_) {
-        return true
-      }
+      return true
     },
 
     _collectBootPatch() {
@@ -195,7 +195,7 @@ Component({
         navPlaceholderHeight = (layout && layout.navPlaceholderHeight) || 0
       } catch (_) {}
 
-      const showAddDesktopStrip = cache && typeof cache.showAddDesktopStrip === 'boolean' && storageCache.isLoaded(STORAGE_SNOOZE_UNTIL)
+      const showAddDesktopStrip = cache && typeof cache.showAddDesktopStrip === 'boolean'
         ? cache.showAddDesktopStrip
         : this._readDesktopStripVisibleSync()
 
