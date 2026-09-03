@@ -119,6 +119,23 @@
       </view>
     </view>
 
+    <!-- ══ 微信小店店铺卡（store-home；enableProfileShop） ══ -->
+    <view class="pf-section" wx:if="{{showProfileShop}}">
+      <view class="section-title-row">
+        <view class="pf-shop-title">
+          <wechat-shop-icon class="pf-shop-title-icon" />
+          <text class="section-title-text">微信小店</text>
+        </view>
+      </view>
+      <view class="pf-shop">
+        <view class="pf-shop-blend" aria-hidden="true">
+          <view class="pf-shop-blend-top"></view>
+          <view class="pf-shop-blend-bot"></view>
+        </view>
+        <store-home class="pf-shop-home" appid="{{profileShopAppid}}" />
+      </view>
+    </view>
+
     <!-- ══ 我的数据 ══ -->
     <view class="pf-section">
       <view class="section-title-row">

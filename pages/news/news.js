@@ -4,7 +4,6 @@ const { loadMoreInteraction } = require('../../utils/config.js')
 const { loadCloudMediaMap, resolveMediaUrl } = require('../../utils/image-config.js')
 const { getUiShellLayout } = require('../../utils/layout.js')
 const { getSystemInfo } = require('../../utils/system.js')
-const { getNewsListThumbTargetWidthPx, optimizeNewsThumbUrl } = require('../../utils/news-thumb-url.js')
 const storageCache = require('../../utils/storage-sync-cache.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const themeUtil = require('../../utils/theme.js')
@@ -12,18 +11,36 @@ const tabLoadPage = require('../../utils/tab-load-page.js')
 const { LIST_REVALIDATE_MS, takeForegroundResume, shouldRevalidate } = require('../../utils/foreground-resume.js')
 
 // 新闻接口已移入 news-extra 分包（仅 news tab 与详情页使用），按需异步加载以削减主包体积
-const NEWS_API_PKG = '../../subpackages/news-extra/utils/api-news.js'
 let _newsApiMod = null
 let _newsApiLoadPromise = null
+let _newsThumbMod = null
+let _newsThumbLoadPromise = null
 function loadNewsApi() {
   if (_newsApiMod) return Promise.resolve(_newsApiMod)
   if (!_newsApiLoadPromise) {
-    _newsApiLoadPromise = require.async(NEWS_API_PKG).then((mod) => {
+    // 字面量路径：开发者工具静态分析识别不了 require.async(变量)，会把分包模块误报为无依赖文件
+    _newsApiLoadPromise = require.async('../../subpackages/news-extra/utils/api-news.js').then((mod) => {
       _newsApiMod = mod
       return mod
+    }).catch((err) => {
+      _newsApiLoadPromise = null
+      throw err
     })
   }
   return _newsApiLoadPromise
+}
+function loadNewsThumb() {
+  if (_newsThumbMod) return Promise.resolve(_newsThumbMod)
+  if (!_newsThumbLoadPromise) {
+    _newsThumbLoadPromise = require.async('../../subpackages/news-extra/utils/news-thumb-url.js').then((mod) => {
+      _newsThumbMod = mod
+      return mod
+    }).catch((err) => {
+      _newsThumbLoadPromise = null
+      throw err
+    })
+  }
+  return _newsThumbLoadPromise
 }
 
 const LEGACY_ARTICLE_CACHE_KEYS = [
@@ -184,6 +201,7 @@ Page({
     }
 
     try { tabLoadPage.beginPageLoad(tabLoadPage.TAB_ROUTES.news) } catch (e) {}
+    try { loadNewsThumb().catch(function () {}) } catch (e) {}
 
     // 新闻 Tab 默认落在「航天摄影」；开关关闭时由 _refreshPhotosNavFlag 回退到航天事件
     const contentType = 'photos'
@@ -646,32 +664,34 @@ Page({
 
   /** 文章列表格式化（时间/卡片缩略图） */
   _formatArticlesList(list) {
-    const thumbWidthPx = getNewsListThumbTargetWidthPx(
-      this.data.windowWidth || getSystemInfo().windowWidth
-    )
+    const thumb = _newsThumbMod
+    const thumbWidthPx = thumb
+      ? thumb.getNewsListThumbTargetWidthPx(this.data.windowWidth || getSystemInfo().windowWidth)
+      : 640
     return (list || []).map(item => {
       const rawImage = resolveArticleCardImage(item)
       return {
         ...item,
         formattedTime: formatDate(item.publishedAt, 'MM月DD日 HH:mm'),
         formattedDate: formatDate(item.publishedAt, 'YYYY年MM月DD日 HH:mm'),
-        cardImage: rawImage ? optimizeNewsThumbUrl(rawImage, thumbWidthPx) : ''
+        cardImage: rawImage && thumb ? thumb.optimizeNewsThumbUrl(rawImage, thumbWidthPx) : (rawImage || '')
       }
     })
   },
 
   /** 事件列表格式化（列表优先 LL2 ~350px 缩略图，原图仅供详情页） */
   _formatEventsList(list) {
-    const eventThumbWidthPx = getNewsListThumbTargetWidthPx(
-      this.data.windowWidth || getSystemInfo().windowWidth
-    )
+    const thumb = _newsThumbMod
+    const eventThumbWidthPx = thumb
+      ? thumb.getNewsListThumbTargetWidthPx(this.data.windowWidth || getSystemInfo().windowWidth)
+      : 640
     return (list || []).map(item => {
       const rawCardImage = item.listImage || item.image
       return {
         ...item,
         formattedTime: formatDate(item.date, 'MM月DD日 HH:mm'),
         formattedDate: formatDate(item.date, 'YYYY年MM月DD日 HH:mm'),
-        cardImage: rawCardImage ? optimizeNewsThumbUrl(rawCardImage, eventThumbWidthPx) : ''
+        cardImage: rawCardImage && thumb ? thumb.optimizeNewsThumbUrl(rawCardImage, eventThumbWidthPx) : (rawCardImage || '')
       }
     })
   },
@@ -735,6 +755,7 @@ Page({
           photosLatestAt = Number(res && res.latestAt) || 0
         } else {
           const newsApi = await loadNewsApi()
+          await loadNewsThumb()
           if (type === 'articles') {
             const res = await newsApi.getArticlesList(1, this.data.limit)
             try { await loadCloudMediaMap() } catch (e) {}
@@ -867,6 +888,7 @@ Page({
         this.acknowledgePhotosNavDot(res && res.latestAt)
       } else if (type === 'articles') {
         const newsApi = await loadNewsApi()
+        await loadNewsThumb()
         if (this._isStaleNewsLoad(type, loadToken)) return
         const res = await newsApi.getArticlesList(this.data.page, this.data.limit)
         if (this._isStaleNewsLoad(type, loadToken)) return
@@ -891,6 +913,7 @@ Page({
         }
       } else {
         const newsApi = await loadNewsApi()
+        await loadNewsThumb()
         if (this._isStaleNewsLoad(type, loadToken)) return
         const res = await newsApi.getEventsList(this.data.page, this.data.limit)
         if (this._isStaleNewsLoad(type, loadToken)) return

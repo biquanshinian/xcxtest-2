@@ -1,10 +1,11 @@
 const pageBase = require('../../utils/page-base.js')
 const { loadData, StarlinkRenderer } = require('./utils/starlink-renderer.js')
-// 打包锚点：monitor-pass.js / monitor-galleries.js / monitor-orbital.js 仅被主包
-// monitor.js require.async 引用，无同分包同步引用时会被"过滤无依赖文件"剔出分包导致异步加载失败
+// 打包锚点：monitor-pass.js / monitor-galleries.js / monitor-orbital.js / monitor-weather.js
+// 仅被主包 monitor.js require.async 引用，无同分包同步引用时会被"过滤无依赖文件"剔出分包导致异步加载失败
 require('./utils/monitor-pass.js')
 require('./utils/monitor-galleries.js')
 require('./utils/monitor-orbital.js')
+require('./utils/monitor-weather.js')
 
 function fmtLat(lat) {
   if (lat == null || !isFinite(lat)) return '—'

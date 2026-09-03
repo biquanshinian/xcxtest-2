@@ -7,7 +7,7 @@ const { togglePageTranslation } = require('./utils/text-translate.js')
 const { getRocketConfigMeta, getSpaceXLaunchStats } = require('../../utils/api-app-services.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { overrideAgencyLogoUrl } = require('../../utils/agency-logo-overrides.js')
-const { gateCheck, isProSync } = require('../../utils/membership.js')
+const { gateCheck } = require('../../utils/membership.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
 const { isFavorite, toggleFavorite, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
@@ -39,7 +39,11 @@ const AGENCY_TWEET_SOURCES = {
 const AGENCY_TWEETS_PREVIEW_COUNT = 2
 // Artemis 遥测模块与本页同分包，可直接同步 require（监控中心是跨分包才用 require.async）
 const artemisArow = require('./utils/artemis-arow.js')
-const { artemisArow: ARTEMIS_AROW_CONFIG } = require('../../utils/config.js')
+const romanTracker = require('./utils/roman-tracker.js')
+
+function isNasaAgency(item) {
+  return !!(item && (Number(item.id) === 44 || String(item.abbrev || '').toUpperCase() === 'NASA'))
+}
 
 function formatAgencyDetail(agency) {
   if (!agency) return null
@@ -277,17 +281,9 @@ Page({
     // SpaceX 专属：手机直连星链 D2C 统计（自监控中心迁入）
     spacexD2C: null,
     d2cRecentExpanded: false,
-    // NASA 专属：Artemis II 实时遥测（自监控中心迁入）
+    // NASA 专属：Artemis II / 罗曼（卡片组件自管拉取）
     artemisSectionVisible: false,
-    artemisMissionPhase: 'active',
-    artemisMissionSummary: null,
-    artemisEndedExpanded: false,
-    artemisLoading: false,
-    artemisError: '',
-    artemisMet: '',
-    artemisVelocityKmh: '—',
-    artemisDistEarthKm: '—',
-    isProUser: false,
+    romanSectionVisible: false,
     // 事件更新（推文）：仅 AGENCY_TWEET_SOURCES 命中的机构展示，页内只预览 2 条
     agencyTweetsVisible: false,
     agencyTweets: [],
@@ -388,9 +384,9 @@ Page({
         spacexRecovery: null,
         spacexD2C: null,
         d2cRecentExpanded: false,
-        artemisSectionVisible: false
+        artemisSectionVisible: false,
+        romanSectionVisible: false
       })
-      this._clearArtemisPoll()
       this._textTranslateCache = null
       this._textTranslateReverted = false
     }
@@ -439,6 +435,7 @@ Page({
       this._ensureAgencyLogoBg(item)
       this._markLauncherArchives()
       this._loadSpacexRecoveryStats(item)
+      this._initRomanSection(item, { silent: silentRefresh })
       this._initArtemisSection(item)
       this._loadAgencyLaunches(item)
       this._loadAgencyTweets(item)
@@ -711,194 +708,27 @@ Page({
     this.setData({ d2cRecentExpanded: !this.data.d2cRecentExpanded })
   },
 
-  // ========== NASA 专属：Artemis II 实时遥测（自监控中心迁入） ==========
+  // ========== NASA 专属：罗曼太空望远镜（卡片组件与监控页共用） ==========
 
-  /** 仅 NASA 详情页展示；active 阶段自动拉取遥测并轮询 */
+  _initRomanSection(item) {
+    const visible = isNasaAgency(item) && romanTracker.shouldShowRomanSection()
+    if (this.data.romanSectionVisible !== visible) {
+      this.setData({ romanSectionVisible: visible })
+    }
+  },
+
+  // ========== NASA 专属：Artemis II 实时遥测（卡片组件自管拉取） ==========
+
   _initArtemisSection(item) {
-    const isNasa = item && (item.id === 44 || item.abbrev === 'NASA')
-    if (!isNasa || !artemisArow.shouldShowArtemisArowSection()) {
-      this._clearArtemisPoll()
-      if (this.data.artemisSectionVisible) this.setData({ artemisSectionVisible: false })
-      return
+    const visible = isNasaAgency(item) && artemisArow.shouldShowArtemisArowSection()
+    if (this.data.artemisSectionVisible !== visible) {
+      this.setData({ artemisSectionVisible: visible })
     }
-    const phase = artemisArow.getArtemisMissionPhase()
-    const patch = {
-      artemisSectionVisible: true,
-      artemisMissionPhase: phase,
-      isProUser: isProSync()
-    }
-    if (phase !== 'active') patch.artemisMissionSummary = artemisArow.getArtemisMissionSummary()
-    this.setData(patch)
-    if (phase === 'active') {
-      this.refreshArtemisBriefing(true)
-      this._scheduleArtemisPoll()
-    } else {
-      this._clearArtemisPoll()
-    }
-  },
-
-  async retryArtemisBriefing() {
-    try {
-      await this.refreshArtemisBriefing(true)
-      if (!this.data.artemisError) {
-        this._scheduleArtemisPoll()
-      }
-    } catch (_e) {
-      this.setData({
-        artemisLoading: false,
-        artemisError: '模块加载失败，请稍后重试'
-      })
-    }
-  },
-
-  _scheduleArtemisPoll() {
-    if (!artemisArow.shouldShowArtemisArowSection()) return
-    this._clearArtemisPoll()
-    const cfg = ARTEMIS_AROW_CONFIG || {}
-    const ms = Math.max(12000, Number(cfg.pollIntervalMs) || 15000)
-    this._artemisPollTimer = setInterval(() => {
-      this.refreshArtemisBriefing(false)
-    }, ms)
-  },
-
-  _clearArtemisPoll() {
-    if (this._artemisPollTimer) {
-      clearInterval(this._artemisPollTimer)
-      this._artemisPollTimer = null
-    }
-    this._stopArtemisInterp()
-  },
-
-  async refreshArtemisBriefing(showLoading) {
-    if (!artemisArow.shouldShowArtemisArowSection() || artemisArow.getArtemisMissionPhase() !== 'active') {
-      this._clearArtemisPoll()
-      return
-    }
-    // 竞态保护：轮询/手动刷新/onShow 可能并发触发，旧响应不得覆盖新响应
-    const seq = (this._artemisFetchSeq = (this._artemisFetchSeq || 0) + 1)
-    if (showLoading) {
-      this.setData({ artemisLoading: true, artemisError: '' })
-    }
-    try {
-      const data = await artemisArow.fetchArtemisIiBriefing()
-      if (seq !== this._artemisFetchSeq) return
-      if (!data || !data.ok) {
-        this.setData({
-          artemisLoading: false,
-          artemisError: (data && data.error) ? String(data.error) : '数据不可用'
-        })
-        return
-      }
-      const fmtInt = (n) => {
-        if (!Number.isFinite(n)) return '—'
-        return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-      }
-
-      this.setData({
-        artemisLoading: false,
-        artemisError: '',
-        artemisMet: data.missionElapsedText || '—',
-        artemisVelocityKmh: fmtInt(data.velocityKmh),
-        artemisDistEarthKm: fmtInt(data.distanceFromEarthKm)
-      })
-
-      // 保存原始数值用于插值
-      this._artemisRaw = {
-        velocityKmh: data.velocityKmh || 0,
-        distEarthKm: data.distanceFromEarthKm || 0,
-        snapshotMs: Date.now()
-      }
-      // 启动每秒插值（卡片上 MET + 速率 + 距地）
-      this._startArtemisInterp()
-    } catch (_e) {
-      if (seq !== this._artemisFetchSeq) return
-      this.setData({
-        artemisLoading: false,
-        artemisError: '网络异常，请稍后重试'
-      })
-    }
-  },
-
-  /** 每秒插值：基于速率推算距离变化，MET 精确到秒 */
-  _startArtemisInterp() {
-    this._stopArtemisInterp()
-    const launchMs = artemisArow.getArtemisLaunchMs()
-    const pad2 = (n) => String(n).padStart(2, '0')
-    const fmtInt = (n) => {
-      if (!Number.isFinite(n)) return '—'
-      return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-    }
-
-    // 立即执行一次
-    this._artemisInterpTick(launchMs, pad2, fmtInt)
-
-    this._artemisInterpTimer = setInterval(() => {
-      this._artemisInterpTick(launchMs, pad2, fmtInt)
-    }, 1000)
-  },
-
-  _artemisInterpTick(launchMs, pad2, fmtInt) {
-    const raw = this._artemisRaw
-    if (!raw) return
-    const now = Date.now()
-    const dtS = (now - raw.snapshotMs) / 1000
-
-    // MET 精确到秒
-    let met = '—'
-    if (isFinite(launchMs) && now >= launchMs) {
-      let s = Math.floor((now - launchMs) / 1000)
-      const d = Math.floor(s / 86400); s -= d * 86400
-      const h = Math.floor(s / 3600); s -= h * 3600
-      const m = Math.floor(s / 60); s -= m * 60
-      met = pad2(d) + ':' + pad2(h) + ':' + pad2(m) + ':' + pad2(s)
-    }
-
-    const vKmS = raw.velocityKmh / 3600
-    const distEarth = raw.distEarthKm + vKmS * dtS
-
-    // 只下发有变化的字段（速率两次快照之间不变，距地公里数取整后也常不变）
-    const velocityText = fmtInt(raw.velocityKmh)
-    const distText = fmtInt(distEarth)
-    const patch = {}
-    if (this.data.artemisMet !== met) patch.artemisMet = met
-    if (this.data.artemisVelocityKmh !== velocityText) patch.artemisVelocityKmh = velocityText
-    if (this.data.artemisDistEarthKm !== distText) patch.artemisDistEarthKm = distText
-    if (Object.keys(patch).length) this.setData(patch)
-  },
-
-  _stopArtemisInterp() {
-    if (this._artemisInterpTimer) {
-      clearInterval(this._artemisInterpTimer)
-      this._artemisInterpTimer = null
-    }
-  },
-
-  async goArtemisDetail() {
-    const allowed = await gateCheck('artemis_telemetry', 'Artemis 遥测面板')
-    if (!allowed) return
-    navigateTo(ROUTES.ARTEMIS_DETAIL)
-  },
-
-  toggleArtemisEnded() {
-    this.setData({ artemisEndedExpanded: !this.data.artemisEndedExpanded })
   },
 
   onShow() {
     const favId = (this.data.item && this.data.item.id) || this._agencyId
     if (favId != null && String(favId) !== '') syncFavoriteState(this, 'agency', favId)
-    // 返回本页时恢复遥测轮询（active 阶段）
-    if (this.data.artemisSectionVisible && this.data.artemisMissionPhase === 'active') {
-      this._scheduleArtemisPoll()
-      this.refreshArtemisBriefing(false)
-    }
-  },
-
-  onHide() {
-    this._clearArtemisPoll()
-  },
-
-  onUnload() {
-    this._clearArtemisPoll()
   },
 
   /** 火箭型号标签：同名标签的多个构型 id 逐个匹配族谱 _config_meta，命中的标记为可跳转 */

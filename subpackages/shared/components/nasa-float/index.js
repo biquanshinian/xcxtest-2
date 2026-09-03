@@ -47,6 +47,7 @@ Component({
 
   observers: {
     show(val) {
+      if (this._detached) return
       const visible = !!val
       // show 关掉时清掉滑动隐藏态，避免再显示时卡在 translateX 隐藏
       if (!visible) {
@@ -230,11 +231,12 @@ Component({
         isFeatureEnabled('enableAIChat', { failClosed: true }).catch(() => false),
         isFeatureEnabled('enableLunarWishes', { failClosed: true }).catch(() => false)
       ]).then(([aiEnabled, lunarEnabled]) => {
+        if (this._detached) return
         this._lunarEnabled = !!lunarEnabled
         // 同步 aiService 缓存，供 _openAiChat 的 sync 判断
         fetchAIChatEnabled().catch(() => {})
         apply(!!aiEnabled, this._lunarEnabled)
-      })
+      }).catch(() => {})
     },
 
     _vibrateMedium() {
@@ -258,8 +260,9 @@ Component({
     },
 
     onTouchStart(e) {
+      const t = e && e.touches && e.touches[0]
+      if (!t) return
       this._touchTs = Date.now()
-      const t = e.touches[0]
       this._startX = t.clientX
       this._startY = t.clientY
       this._startBtnX = this.data.btnX
@@ -269,7 +272,8 @@ Component({
 
     onTouchMove(e) {
       if (this.data.expanded) return
-      const t = e.touches[0]
+      const t = e && e.touches && e.touches[0]
+      if (!t || this._startX == null) return
       const dx = t.clientX - this._startX
       const dy = t.clientY - this._startY
       if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
@@ -317,6 +321,7 @@ Component({
     },
 
     _spawnParticle(cx, cy) {
+      if (this._detached) return
       if (!this._particleList) this._particleList = []
       if (!this._particleId) this._particleId = 0
       const now = Date.now()
@@ -360,8 +365,9 @@ Component({
 
     onMenuTap(e) {
       this._vibrateMedium()
-      const key = e.currentTarget.dataset.key
+      const key = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.key
       this.setData({ expanded: false })
+      if (!key) return
       if (key !== 'aichat') {
         this._markVisited(key)
       }
@@ -369,12 +375,14 @@ Component({
         navigateTo(ROUTES.NASA_DATA)
       } else if (key === 'lunar') {
         isFeatureEnabled('enableLunarWishes', { failClosed: true }).then((on) => {
+          if (this._detached) return
           if (!on) {
             wx.showToast({ title: '功能暂未开放', icon: 'none' })
             return
           }
           navigateTo(ROUTES.LUNAR_WISHES)
         }).catch(() => {
+          if (this._detached) return
           wx.showToast({ title: '功能暂未开放', icon: 'none' })
         })
       } else if (key === 'astro') {
@@ -395,12 +403,14 @@ Component({
       } catch (e) {}
       // 再异步确认（防缓存过期仍放行）；关闭时不进详情页
       isFeatureEnabled('enableAIChat', { failClosed: true }).then((on) => {
+        if (this._detached) return
         if (!on) {
           wx.showToast({ title: '星问AI暂未开放', icon: 'none' })
           return
         }
         navigateTo(ROUTES.AI_CHAT)
       }).catch(() => {
+        if (this._detached) return
         wx.showToast({ title: '星问AI暂未开放', icon: 'none' })
       })
     },
@@ -420,6 +430,7 @@ Component({
     },
 
     _checkAllDots() {
+      if (this._detached) return
       const today = todayStr()
       const map = {}
 
@@ -457,6 +468,7 @@ Component({
         config: { env: cloudEnv },
         data: { action: 'stats' }
       }).then(res => {
+        if (this._detached) return
         const result = res.result || {}
         if (result.code === 0 && result.data) {
           const current = result.data.totalWishes || 0
@@ -472,6 +484,7 @@ Component({
     },
 
     _setDot(key, hasDot) {
+      if (this._detached || !key) return
       const dotMap = Object.assign({}, this.data.dotMap)
       dotMap[key] = hasDot
       this.setData({

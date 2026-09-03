@@ -8,7 +8,7 @@
   "backgroundColorBottom": "#000000",
   "usingComponents": {
     "privacy-modal": "/components/privacy-modal/privacy-modal",
-    "popup-ad": "/components/popup-ad/popup-ad",
+    "popup-ad": "/subpackages/shared/components/popup-ad/popup-ad",
     "nasa-float": "/subpackages/shared/components/nasa-float/index",
     "demo-overlay": "/subpackages/shared/components/demo-overlay/index",
     "share-guide": "/subpackages/shared/components/share-guide/index",
@@ -20,6 +20,7 @@
     "share-guide": "view",
     "nasa-float": "view",
     "event-updates": "view",
-    "progress-below-fold": "view"
+    "progress-below-fold": "view",
+    "popup-ad": "view"
   }
 }

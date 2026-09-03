@@ -1,8 +1,8 @@
 <template>
-  <el-container class="layout-root theme-dark" :class="{ 'has-mobile-drawer-open': mobileMenuOpen }">
-    <div v-if="mobileMenuOpen" class="mobile-drawer-mask" @click="closeMobileMenu" />
-    <el-aside width="240px" class="layout-aside" :class="{ 'is-mobile-open': mobileMenuOpen }">
-      <div class="aside-logo" @click="navigate('/dashboard')">
+  <el-container class="layout-root theme-dark" :class="{ 'has-mobile-drawer-open': mobileMenuOpen, 'is-preaudit': isPreaudit, 'is-preaudit-guest': isPreauditGuest, 'pa-is-light': isPreaudit && paTheme === 'light', 'pa-is-dark': isPreaudit && paTheme === 'dark' }">
+    <div v-if="mobileMenuOpen && !isPreauditGuest" class="mobile-drawer-mask" @click="closeMobileMenu" />
+    <el-aside v-if="!isPreauditGuest" width="240px" class="layout-aside" :class="{ 'is-mobile-open': mobileMenuOpen }">
+      <div class="aside-logo" @click="navigate(auth.homePath())">
         <svg class="logo-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 85 57" fill="none"><path d="M18.215445,2.220227L3.0127578,2.220227C1.695654,2.220227,0.57675987,3.0237782,0.16733406,4.263732C-0.24215524,5.503624,0.18097524,6.8068008,1.2434014,7.5777974L19.784561,21.032907C20.615595,21.635979,21.609751,21.776314,22.57777,21.427326C26.915979,19.863525,29.844072,17.982981,32.047157,15.111856C32.554928,14.450213,32.748951,13.697948,32.624146,12.876106C32.499222,12.054203,32.090172,11.391869,31.408312,10.907513L19.960058,2.7757246C19.429382,2.398773,18.868446,2.2201018,18.215385,2.2201018L18.215445,2.220227ZM53.590393,46.050011L64.861053,54.208569C65.395912,54.595695,65.965034,54.779781,66.627495,54.779781L82.000534,54.779781C83.317139,54.779781,84.435646,53.976864,84.84552,52.737587C85.255447,51.498268,84.833275,50.195461,83.771919,49.423779L65.244278,35.954086C64.412865,35.349693,63.417316,35.208729,62.448338,35.558338C58.111668,37.122643,55.181137,38.997978,52.977551,41.855968C52.470413,42.513714,52.274242,43.26152,52.393955,44.080593C52.513687,44.89967,52.915817,45.561691,53.590454,46.05006L53.590393,46.050011ZM31.407412,46.051582L20.138912,54.208569C19.604046,54.595695,19.034927,54.779781,18.372473,54.779781L2.9994934,54.779781C1.6828973,54.779781,0.5643841,53.976864,0.15445058,52.737587C-0.25541937,51.498268,0.16669591,50.195461,1.2280434,49.423779L19.753914,35.955463C20.585384,35.351013,21.581005,35.210056,22.550098,35.559723C26.884375,37.123653,29.814503,38.998161,32.019745,41.856785C32.527195,42.51453,32.723499,43.262463,32.603966,44.081665C32.484364,44.900925,32.082172,45.563202,31.407412,46.051582L31.407412,46.051582ZM66.784462,2.220227L81.987152,2.220227C83.304184,2.220227,84.423073,3.0237782,84.832565,4.2637339C85.24205,5.503624,84.818855,6.8068023,83.756424,7.5777974L65.214317,21.033596C64.383408,21.636606,63.389324,21.777008,62.421364,21.428146C58.083157,19.864594,55.154041,17.983862,52.951527,15.111417C52.444138,14.44971,52.250313,13.69763,52.375294,12.87598C52.500229,12.054329,52.909275,11.392183,53.591019,10.907953L65.039841,2.7757876C65.57058,2.3988359,66.131447,2.2202277,66.784523,2.2202277L66.784462,2.220227ZM13.7273,28.492243C33.490833,24.037018,37.983288,19.560297,42.507843,0C47.002769,19.563375,51.520348,24.039593,71.272667,28.492243C51.528286,32.971348,47.003792,37.432358,42.507851,56.999996C37.982464,37.436131,33.483662,32.974121,13.7273,28.492243L13.7273,28.492243Z" fill="#FFFFFF"/></svg>
         <span class="logo-text">火星探索日志</span>
       </div>
@@ -19,6 +19,7 @@
         <el-menu-item v-if="hasPerm('dashboard')" index="/dashboard">
           <span>仪表盘</span>
         </el-menu-item>
+        <el-menu-item v-if="hasPerm('preaudit')" index="/preaudit">一键预审</el-menu-item>
         <el-menu-item v-if="hasPerm('statistics')" index="/statistics">数据统计</el-menu-item>
         <el-sub-menu v-if="hasPerm('oa_content')" index="oa-content">
           <template #title>
@@ -220,19 +221,48 @@
 
     <el-container class="layout-body">
       <el-header class="layout-header">
-        <button class="hamburger-btn" type="button" @click="toggleMobileMenu" :title="mobileMenuOpen ? '关闭菜单' : '打开菜单'">
+        <button v-if="!isPreauditGuest" class="hamburger-btn" type="button" @click="toggleMobileMenu" :title="mobileMenuOpen ? '关闭菜单' : '打开菜单'">
           <span class="hamburger-line" :class="{ 'is-open': mobileMenuOpen }" />
           <span class="hamburger-line" :class="{ 'is-open': mobileMenuOpen }" />
           <span class="hamburger-line" :class="{ 'is-open': mobileMenuOpen }" />
         </button>
+        <button
+          v-if="preauditShowBack"
+          class="header-back"
+          type="button"
+          aria-label="返回"
+          title="返回"
+          @click="preauditBack"
+        >
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+        </button>
         <div class="header-title cx-gradient-text">{{ pageTitle }}</div>
         <div class="header-actions">
-          <el-button class="action-btn action-btn--icon-only" size="small" @click="syncNow" title="同步数据">
+          <span v-if="isPreauditGuest && preauditShowBack" class="header-back-spacer" aria-hidden="true" />
+          <el-button v-if="!isPreaudit" class="action-btn action-btn--icon-only" size="small" @click="syncNow" title="同步数据">
             <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 12.5A5.5 5.5 0 1 1 8 2.5a5.5 5.5 0 0 1 0 11zM8 4a.75.75 0 0 1 .75.75v2.69l1.78 1.03a.75.75 0 1 1-.75 1.3l-2.16-1.25A.75.75 0 0 1 7.25 8V4.75A.75.75 0 0 1 8 4z"/></svg>
             <span class="action-btn__label">同步数据</span>
           </el-button>
-          <el-button class="action-btn action-btn--hide-on-mobile" size="small" @click="cleanNow">清理缓存</el-button>
-          <el-button class="action-btn logout-btn" size="small" @click="logout">退出</el-button>
+          <el-button v-if="!isPreaudit" class="action-btn action-btn--hide-on-mobile" size="small" @click="cleanNow">清理缓存</el-button>
+          <button
+            v-if="isPreaudit"
+            class="header-theme"
+            type="button"
+            :aria-label="paTheme === 'dark' ? '切换浅色主题' : '切换深色主题'"
+            :title="paTheme === 'dark' ? '浅色' : '深色'"
+            @click="togglePaTheme"
+          >
+            <svg v-if="paTheme === 'dark'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+            </svg>
+            <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 14.3A8.4 8.4 0 1 1 9.7 3 7 7 0 0 0 21 14.3z" />
+            </svg>
+          </button>
+          <el-button v-if="!isPreauditGuest" class="action-btn logout-btn" size="small" @click="logout">退出</el-button>
         </div>
       </el-header>
       <el-main class="layout-main">
@@ -249,6 +279,9 @@ import { ElMessage } from 'element-plus'
 import { api, auth } from '../../api/client'
 import { useMenuUnread } from '../../utils/menu-unread'
 import MenuBadgeItem from '../../components/layout/MenuBadgeItem.vue'
+import { clearPreauditThemeClass, readPreauditTheme, syncPreauditThemeClass, togglePreauditTheme } from '../../preaudit/lib/theme.js'
+import { flushPreauditCloud, syncAccountStore } from '../../preaudit/lib/store.js'
+import '../../preaudit/preaudit.css'
 
 const route = useRoute()
 const router = useRouter()
@@ -294,11 +327,14 @@ const removeAfterEach = router.afterEach((to) => {
 })
 
 onMounted(() => {
-  refreshUnread()
-  markUnreadRead(route.path)
+  if (!isPreauditGuest.value) {
+    refreshUnread()
+    markUnreadRead(route.path)
+  }
 })
 onBeforeUnmount(() => {
   setBodyScrollLock(false)
+  clearPreauditThemeClass()
   if (typeof disposeUnread === 'function') disposeUnread()
   if (typeof removeAfterEach === 'function') removeAfterEach()
 })
@@ -308,6 +344,34 @@ const canEditor = computed(() => auth.hasRole('editor'))
 const canSuperAdmin = computed(() => auth.hasRole('super_admin'))
 
 const hasPerm = (mod) => auth.hasPermission(mod)
+const isPreaudit = computed(() => String(route.path || '').startsWith('/preaudit'))
+const isPreauditGuest = computed(() => isPreaudit.value && !localStorage.getItem('admin_token'))
+const preauditShowBack = computed(() => isPreaudit.value && route.path !== '/preaudit')
+const paTheme = ref(readPreauditTheme())
+
+watch(isPreaudit, (on) => {
+  if (on) {
+    paTheme.value = readPreauditTheme()
+    syncPreauditThemeClass(paTheme.value)
+  } else {
+    clearPreauditThemeClass()
+  }
+}, { immediate: true })
+
+const togglePaTheme = () => {
+  paTheme.value = togglePreauditTheme(paTheme.value)
+}
+
+const preauditBack = () => {
+  const back = typeof window !== 'undefined' && window.history.state && window.history.state.back
+  const raw = String(back || '')
+  const path = raw.includes('#/') ? raw.slice(raw.indexOf('#') + 1) : raw.split('?')[0]
+  if (path === '/preaudit' || path.startsWith('/preaudit/')) {
+    router.back()
+    return
+  }
+  router.push('/preaudit')
+}
 
 const user = computed(() => auth.getUser() || {})
 const currentUserName = computed(() => user.value.username || 'unknown')
@@ -364,13 +428,27 @@ const pageTitle = computed(() => {
     '/souvenir-cards': '纪念卡卡池（已下线）',
     '/logs': '操作日志',
     '/figma-design': 'SpaceX星舰追踪 · 星舰基地',
-    '/orbital-config': '太空轨道数据中心'
+    '/orbital-config': '太空轨道数据中心',
+    '/preaudit': '一键预审',
+    '/preaudit/guide': '预审指南',
+    '/preaudit/new': '新建预审',
+    '/preaudit/pack': '整包 PDF 审核'
   }
-  return map[route.path] || '管理后台'
+  if (map[route.path]) return map[route.path]
+  if (route.path.endsWith('/edit')) return '编辑项目'
+  if (route.path.includes('/item/')) return '上传资料'
+  if (route.path.endsWith('/photos')) return '施工照片'
+  if (route.path.endsWith('/contract')) return '合同水印'
+  if (route.path.endsWith('/audit')) return '核验'
+  if (route.path.endsWith('/pack')) return '整包 PDF 审核'
+  if (route.path.startsWith('/preaudit/')) return '预审项目'
+  return '管理后台'
 })
 
-const logout = () => {
+const logout = async () => {
+  try { await flushPreauditCloud() } catch (e) { /* 退出仍清登录态 */ }
   auth.clearAuth()
+  syncAccountStore()
   router.replace('/login')
 }
 
@@ -589,6 +667,11 @@ const cleanNow = async () => {
   display: flex;
   flex-direction: column;
   transition: background 0.3s;
+}
+
+.layout-root.is-preaudit-guest .layout-body {
+  width: 100%;
+  margin-left: 0;
 }
 
 .layout-header {
@@ -1173,6 +1256,50 @@ html.dark .el-dropdown-menu__item:hover {
   to   { opacity: 1; }
 }
 
+.header-back,
+.header-back-spacer {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+
+.header-back {
+  align-items: center;
+  justify-content: center;
+  margin-right: 4px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+}
+
+.header-back:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.header-theme {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-right: 4px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.header-theme:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .action-btn--icon-only .action-btn__label {
   display: inline;
   margin-left: 4px;
@@ -1252,6 +1379,11 @@ html.dark .el-dropdown-menu__item:hover {
     padding: 12px !important;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+  }
+
+  .layout-root.is-preaudit .layout-main {
+    overflow-x: hidden;
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px)) !important;
   }
 
   /* 表格在窄屏强制可横滚（本 style 块非 scoped，:deep() 不会被编译、浏览器会整条丢弃，必须写普通选择器） */

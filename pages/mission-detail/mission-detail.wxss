@@ -1,4 +1,4 @@
-@import "/styles/fav-btn.wxss";
+@import "./fav-btn.wxss";
 
 page {
   background: var(--color-bg-page);

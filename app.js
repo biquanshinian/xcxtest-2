@@ -108,9 +108,11 @@ App({
           traceUser: true
         })
 
-        // 开屏：启动即预拉配置/预览片，并预下载首页分包，缩短首次展示等待
+        // 开屏：启动即预拉配置/预览片（逻辑在 index-extra），并预下载该分包
         try {
-          require('./utils/splash-prefetch.js').startSplashPrefetch(this)
+          require.async('./subpackages/index-extra/utils/splash-prefetch.js').then((m) => {
+            try { m.startSplashPrefetch(this) } catch (e) {}
+          }).catch(() => {})
         } catch (e) {}
         try {
           if (typeof wx.preloadSubpackage === 'function') {

@@ -64,7 +64,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16rpx;
   margin-bottom: 12rpx;
+}
+
+.event-update-author-wrap + .event-update-time {
+  margin-left: auto;
+  text-align: right;
+  flex-shrink: 0;
 }
 
 .event-update-time {
@@ -77,6 +84,8 @@
   display: inline-flex;
   align-items: center;
   gap: 8rpx;
+  min-width: 0;
+  max-width: 72%;
   padding: 6rpx 16rpx 6rpx 8rpx;
   border-radius: 999rpx;
   background: rgba(255, 255, 255, 0.05);
@@ -93,6 +102,10 @@
 .event-update-author {
   font-size: 22rpx;
   color: #d0d0d4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .event-update-title {

@@ -71,6 +71,7 @@ export function useMenuUnread() {
 
   function startTimer() {
     if (pollTimer || disposed) return
+    if (!localStorage.getItem('admin_token')) return
     pollTimer = setInterval(refresh, POLL_INTERVAL)
   }
 
@@ -83,6 +84,7 @@ export function useMenuUnread() {
 
   async function refresh() {
     if (disposed) return
+    if (!localStorage.getItem('admin_token')) return
     try {
       const lastReadMap = readLastReadMap()
       const data = await api.getMenuUnread(lastReadMap, ALL_MODULES)

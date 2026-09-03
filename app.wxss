@@ -278,8 +278,8 @@ switch {
 }
 
 
-/* orbit-card：浅色要白底细灰边，勿套半透明磨砂底 */
-.container.tab-bg-video-host .glass-card:not(.orbit-card),
+/* orbit-card / orbital-card：深色内卡勿套半透明磨砂底，否则会发灰 */
+.container.tab-bg-video-host .glass-card:not(.orbit-card):not(.orbital-card),
 .container.tab-bg-video-host .growth-entry,
 .container.tab-bg-video-host .growth-duo-card,
 .container.tab-bg-video-host .briefing-inline,

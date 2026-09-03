@@ -64,6 +64,7 @@ const ROUTES = {
   BOOSTER_GENEALOGY: '/subpackages/monitor-pages/booster-genealogy',
   ROCKET_MODEL_DETAIL: '/subpackages/monitor-pages/rocket-model-detail',
   ARTEMIS_DETAIL: '/subpackages/monitor-pages/artemis-detail',
+  ROMAN_DETAIL: '/subpackages/monitor-pages/roman-detail',
   ORBITAL_DATA_CENTER: '/subpackages/monitor-pages/orbital-data-center/orbital-data-center',
   VEHICLE_TRACKER: '/subpackages/monitor-pages/vehicle-tracker/vehicle-tracker',
   // SPACE_NOTICES_FEATURE — 可整块移除

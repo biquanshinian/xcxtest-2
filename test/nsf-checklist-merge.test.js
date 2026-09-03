@@ -8,7 +8,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { mergeNsfChecklistDisplay } = require('../utils/nsf-checklist-merge.js')
+const { mergeNsfChecklistDisplay } = require('../subpackages/progress-extra/utils/nsf-checklist-merge.js')
 
 test('后台 titleZh 覆盖优先于机翻/英文', () => {
   const out = mergeNsfChecklistDisplay(

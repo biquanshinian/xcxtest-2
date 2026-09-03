@@ -23,7 +23,7 @@
     "index-share-sheet": "/subpackages/index-extra/components/index-share-sheet/index",
     "index-announcement": "/subpackages/index-extra/components/index-announcement/index",
     "index-vote-box": "/subpackages/index-extra/components/index-vote-box/index",
-    "festival-hat": "/components/festival-hat/index",
+    "festival-hat": "/subpackages/shared/components/festival-hat/index",
     "index-carousel": "/subpackages/index-extra/components/index-carousel/index",
     "index-road-closure": "/subpackages/index-extra/components/index-road-closure/index"
   },
@@ -42,6 +42,7 @@
     "index-vote-box": "view",
     "nasa-float": "view",
     "index-carousel": "view",
-    "index-road-closure": "view"
+    "index-road-closure": "view",
+    "festival-hat": "view"
   }
 }

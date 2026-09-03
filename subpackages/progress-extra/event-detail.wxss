@@ -143,6 +143,12 @@ page {
   overflow-wrap: break-word;
 }
 
+/* 博主胶囊在左、时间在右：时间占剩余宽度并右对齐（仅有日期的 NSF 顶栏不受影响） */
+.author-tag-wrap + .date-text {
+  flex: 1 1 auto;
+  text-align: right;
+}
+
 .author-tag-wrap {
   display: inline-flex;
   align-items: center;

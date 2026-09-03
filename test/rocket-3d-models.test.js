@@ -28,10 +28,13 @@ const {
   exhibitStandRotation,
   pickStandRotationFromSize,
   scoreStandSize,
+  rotateSizeByEuler,
   isUprightExhibitSize,
   finalizeStandRotation,
   autoStandRotation,
   isNoseDown,
+  measureEndWidths,
+  rotateBoxByEuler,
   adaptViewerTextures,
   dropBrokenColorMaps,
   autoFixExhibitShading,
@@ -40,7 +43,11 @@ const {
   downgradeUint32Index,
   meshRocketScore,
   getRenderableBox,
-  getExhibitFrameBox
+  getExhibitFrameBox,
+  applyManualStandFlip,
+  toggleManualStandFlip,
+  isStandFlipped,
+  findStandGroup
 } = require('../subpackages/rocket-3d/runtime.js')
 
 test('normalizeRocketKey：中文长征/猎鹰译成英文键', () => {
@@ -353,6 +360,171 @@ test('isNoseDown：顶部更粗判定为倒立', () => {
     updateWorldMatrix: function () {}
   }
   assert.equal(isNoseDown(root, THREE), true)
+})
+
+test('isNoseDown：星舰式头顶船身/襟翼宽、底部一簇小发动机，保持正立', () => {
+  const THREE = createBoxThree()
+  const ship = makeMesh('Ship', [-1.12, 14.5, -1.12], [1.12, 25.1, 1.12])
+  const flapL = makeMesh('ForwardFlap', [-2.35, 21.0, -0.18], [-0.95, 23.1, 0.18])
+  const flapR = makeMesh('ForwardFlapR', [0.95, 21.0, -0.18], [2.35, 23.1, 0.18])
+  const booster = makeMesh('SuperHeavy', [-1.0, 0.4, -1.0], [1.0, 14.4, 1.0])
+  const raptors = []
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2
+    const x = Math.cos(a) * 0.72
+    const z = Math.sin(a) * 0.72
+    raptors.push(makeMesh('Raptor', [x - 0.11, -2.1, z - 0.11], [x + 0.11, -0.15, z + 0.11]))
+  }
+  const meshes = [ship, flapL, flapR, booster].concat(raptors)
+  const root = {
+    traverse: function (fn) {
+      meshes.forEach(fn)
+    },
+    updateWorldMatrix: function () {}
+  }
+  assert.equal(isNoseDown(root, THREE), false)
+  const stand = {
+    rotation: {
+      x: 0,
+      y: 0,
+      z: 0,
+      set: function (x, y, z) {
+        this.x = x
+        this.y = y
+        this.z = z
+      }
+    },
+    updateMatrixWorld: function () {},
+    traverse: root.traverse
+  }
+  const rot = autoStandRotation(stand, THREE)
+  assert.equal(rot.x, 0, '星舰已 Y-up 时不能再转 180°')
+  assert.equal(rot.z, 0)
+})
+
+function makeStand(meshes) {
+  return {
+    rotation: {
+      x: 0,
+      y: 0,
+      z: 0,
+      set: function (x, y, z) {
+        this.x = x
+        this.y = y
+        this.z = z
+      }
+    },
+    updateMatrixWorld: function () {},
+    updateWorldMatrix: function () {},
+    traverse: function (fn) {
+      meshes.forEach(fn)
+    }
+  }
+}
+
+test('autoStandRotation：猎鹰9式宽整流罩+底部 Merlin，不因头顶更宽而倒立', () => {
+  const THREE = createBoxThree()
+  const fairing = makeMesh('Fairing', [-2.4, 62, -2.4], [2.4, 76, 2.4])
+  const second = makeMesh('Second Stage', [-1.85, 42, -1.85], [1.85, 62, 1.85])
+  const first = makeMesh('First Stage', [-1.85, 0, -1.85], [1.85, 42, 1.85])
+  const legs = makeMesh('Landing Leg', [-3.1, 0, -3.1], [3.1, 8, 3.1])
+  const merlins = []
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2
+    const x = Math.cos(a) * 1.1
+    const z = Math.sin(a) * 1.1
+    merlins.push(makeMesh('Merlin 1D', [x - 0.25, -3.2, z - 0.25], [x + 0.25, 0.2, z + 0.25]))
+  }
+  const meshes = [fairing, second, first, legs].concat(merlins)
+  const stand = makeStand(meshes)
+  assert.equal(isNoseDown(stand, THREE), false)
+  const ends = measureEndWidths(stand, THREE, getRenderableBox(stand, THREE))
+  assert.equal(ends.topNoseName, true)
+  assert.equal(ends.botEngineName, true)
+  const rot = autoStandRotation(stand, THREE)
+  assert.equal(rot.x, 0)
+  assert.equal(rot.z, 0)
+})
+
+test('autoStandRotation：已倒立的 Y-up 箭，不依赖 matrixWorld 也能转 180°', () => {
+  const THREE = createBoxThree()
+  const fairing = makeMesh('Fairing', [-1.2, 0, -1.2], [1.2, 10, 1.2])
+  const body = makeMesh('Stage', [-1.8, 10, -1.8], [1.8, 60, 1.8])
+  const engines = makeMesh('Engine', [-3.2, 60, -3.2], [3.2, 70, 3.2])
+  const rot = autoStandRotation(makeStand([fairing, body, engines]), THREE)
+  assert.ok(Math.abs(Math.abs(rot.x) - Math.PI) < 1e-6 || Math.abs(Math.abs(rot.z) - Math.PI) < 1e-6)
+})
+
+test('autoStandRotation：新谢泼德式头顶更宽的返回舱，单发动机在底，保持正立', () => {
+  const THREE = createBoxThree()
+  const capsule = makeMesh('Capsule', [-2.2, 18, -2.2], [2.2, 26, 2.2])
+  const body = makeMesh('Booster', [-1.3, 1, -1.3], [1.3, 18, 1.3])
+  const engine = makeMesh('BE-3', [-0.6, -1.4, -0.6], [0.6, 1.1, 0.6])
+  const rot = autoStandRotation(makeStand([capsule, body, engine]), THREE)
+  assert.equal(isNoseDown(makeStand([capsule, body, engine]), THREE), false)
+  assert.equal(rot.x, 0)
+  assert.equal(rot.z, 0)
+})
+
+test('autoStandRotation：Z-up 头在 +Z / 发动机在 −Z 时选 -90°X，反向则选 +90°X', () => {
+  const THREE = createBoxThree()
+  const noseUp = makeStand([
+    makeMesh('Fairing', [-1.1, -1.1, 70], [1.1, 1.1, 80]),
+    makeMesh('Stage', [-1.8, -1.8, 4], [1.8, 1.8, 70]),
+    makeMesh('Merlin', [-2.4, -2.4, -5], [2.4, 2.4, 4])
+  ])
+  const noseUpRot = autoStandRotation(noseUp, THREE)
+  assert.ok(Math.abs(noseUpRot.x + Math.PI / 2) < 1e-6, '头在 +Z 应 -90°X')
+  assert.equal(noseUpRot.z, 0)
+
+  const noseDown = makeStand([
+    makeMesh('Fairing', [-1.1, -1.1, -10], [1.1, 1.1, 0]),
+    makeMesh('Stage', [-1.8, -1.8, 0], [1.8, 1.8, 66]),
+    makeMesh('Merlin', [-2.4, -2.4, 66], [2.4, 2.4, 75])
+  ])
+  const noseDownRot = autoStandRotation(noseDown, THREE)
+  assert.ok(Math.abs(noseDownRot.x - Math.PI / 2) < 1e-6, '头在 −Z 应 +90°X')
+  assert.equal(noseDownRot.z, 0)
+})
+
+test('autoStandRotation：三芯已 Y-up 的猎鹰重型不改轴，机库不把箭转倒', () => {
+  const THREE = createBoxThree()
+  const left = makeMesh('CoreL', [-11, 0, -2], [-7, 70, 2])
+  const mid = makeMesh('CoreC', [-2, 0, -2], [2, 70, 2])
+  const right = makeMesh('CoreR', [7, 0, -2], [11, 70, 2])
+  const hangar = makeMesh('Hangar', [-200, -20, -200], [200, 200, 200])
+  const rot = autoStandRotation(makeStand([left, mid, right, hangar]), THREE)
+  assert.equal(rot.x, 0)
+  assert.equal(rot.z, 0)
+})
+
+test('autoStandRotation：三台发动机在底也足够判定正立，不要求满 8 个', () => {
+  const THREE = createBoxThree()
+  const body = makeMesh('Stage', [-1.6, 2, -1.6], [1.6, 40, 1.6])
+  const fairing = makeMesh('Fairing', [-1.2, 40, -1.2], [1.2, 52, 1.2])
+  const e1 = makeMesh('Merlin', [-0.9, -1.2, -0.3], [-0.3, 2.1, 0.3])
+  const e2 = makeMesh('Merlin', [0.3, -1.2, -0.3], [0.9, 2.1, 0.3])
+  const e3 = makeMesh('Merlin', [-0.3, -1.2, -0.9], [0.3, 2.1, -0.3])
+  assert.equal(isNoseDown(makeStand([body, fairing, e1, e2, e3]), THREE), false)
+  const rot = autoStandRotation(makeStand([body, fairing, e1, e2, e3]), THREE)
+  assert.equal(rot.x, 0)
+  assert.equal(rot.z, 0)
+})
+
+test('rotateBoxByEuler：-90°X 把 Z-up 盒立到 Y-up', () => {
+  const THREE = createBoxThree()
+  const box = new THREE.Box3()
+  box.min.x = -2
+  box.min.y = -2
+  box.min.z = 0
+  box.max.x = 2
+  box.max.y = 2
+  box.max.z = 80
+  const stood = rotateBoxByEuler(box, { x: -Math.PI / 2, y: 0, z: 0 }, THREE)
+  const size = stood.getSize({ x: 0, y: 0, z: 0 })
+  assert.ok(size.y > size.x && size.y > size.z)
+  const predicted = rotateSizeByEuler({ x: 4, y: 4, z: 80 }, { x: -Math.PI / 2, y: 0, z: 0 })
+  assert.ok(Math.abs(size.y - predicted.y) < 1e-6)
 })
 
 test('exhibitStandRotation：全系列展板绕薄轴立起，不按单箭倾倒', () => {
@@ -787,6 +959,85 @@ test('3D 页分享 path 只带型号名，不带 modelUrl', () => {
   const timeline = buildRocket3dShareOptions(input, 'timeline')
   assert.equal(timeline.query, query)
   assert.equal(timeline.imageUrl, input.poster)
+})
+
+function makeFlipSession(base, axis) {
+  const stand = {
+    name: 'r3d-stand',
+    _r3dStand: {
+      base: base || { x: 0, y: 0, z: 0 },
+      axis: axis || 'x',
+      flipped: false
+    },
+    rotation: {
+      x: (base && base.x) || 0,
+      y: (base && base.y) || 0,
+      z: (base && base.z) || 0,
+      set: function (x, y, z) {
+        this.x = x
+        this.y = y
+        this.z = z
+      }
+    },
+    updateMatrixWorld: function () {},
+    children: []
+  }
+  return {
+    modelRoot: {
+      name: 'r3d-exhibit-root',
+      children: [stand],
+      traverse: function (fn) {
+        fn(this)
+        fn(stand)
+      }
+    },
+    _stand: stand
+  }
+}
+
+test('applyManualStandFlip：绕立起轴转 180°，再按一次恢复', () => {
+  const session = makeFlipSession({ x: 0, y: 0, z: 0 }, 'x')
+  assert.equal(findStandGroup(session.modelRoot).name, 'r3d-stand')
+  assert.equal(isStandFlipped(session), false)
+  assert.equal(applyManualStandFlip(session, true), true)
+  assert.equal(isStandFlipped(session), true)
+  assert.ok(Math.abs(session._stand.rotation.x - Math.PI) < 1e-6)
+  assert.equal(session._stand.rotation.z, 0)
+  assert.equal(toggleManualStandFlip(session), false)
+  assert.equal(isStandFlipped(session), false)
+  assert.equal(session._stand.rotation.x, 0)
+})
+
+test('applyManualStandFlip：展板类 Z 轴翻转，空输入不炸', () => {
+  const session = makeFlipSession({ x: 0, y: 0, z: -Math.PI / 2 }, 'z')
+  assert.equal(applyManualStandFlip(session, true), true)
+  assert.ok(Math.abs(session._stand.rotation.z - Math.PI / 2) < 1e-6)
+  assert.equal(session._stand.rotation.x, 0)
+  assert.equal(applyManualStandFlip(null, true), false)
+  assert.equal(toggleManualStandFlip(null), false)
+  assert.equal(isStandFlipped(null), false)
+})
+
+test('stand-flip-pref：按 slug 记住手动翻转', () => {
+  const prevWx = global.wx
+  const store = {}
+  global.wx = {
+    getStorageSync: function (key) { return store[key] },
+    setStorageSync: function (key, value) { store[key] = value }
+  }
+  try {
+    const pref = require('../subpackages/rocket-3d/stand-flip-pref.js')
+    assert.equal(pref.getStandFlipPref(''), false)
+    assert.equal(pref.getStandFlipPref('starship'), false)
+    assert.equal(pref.setStandFlipPref('Starship', true), true)
+    assert.equal(pref.getStandFlipPref('starship'), true)
+    assert.equal(store[pref.STORE_KEY].starship, 1)
+    assert.equal(pref.setStandFlipPref('starship', false), false)
+    assert.equal(pref.getStandFlipPref('STARSHIP'), false)
+    assert.equal(store[pref.STORE_KEY].starship, undefined)
+  } finally {
+    global.wx = prevWx
+  }
 })
 
 test('friendlyGlbError：wx.request 失败不把英文原文甩给用户', () => {

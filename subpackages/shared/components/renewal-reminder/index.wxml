@@ -1,7 +1,7 @@
 <!-- 会员弹窗：root-portal 真机脱离页面 DOM，须在遮罩自挂 themeClass
      事件结构对齐 morning-briefing：mask 只 catchtouchmove，不挂 catchtouchstart -->
 <root-portal wx:if="{{visible}}">
-<view class="renewal-mask {{themeClass}}" catchtouchmove="noop">
+<view class="renewal-mask {{themeClass}} {{tabletClass}}" catchtouchmove="noop">
   <view class="renewal-popup">
     <!-- 顶部星空光晕装饰 -->
     <view class="renewal-glow"></view>
@@ -55,9 +55,9 @@
         </view>
       </view>
 
-      <button class="renewal-btn" hover-class="renewal-btn--hover" bindtap="onRenew">
-        {{expired ? '立即恢复 PRO' : '立即续费'}}
-      </button>
+      <view class="renewal-btn" hover-class="renewal-btn--hover" bindtap="onRenew">
+        <text class="renewal-btn-text">{{expired ? '立即恢复 PRO' : '立即续费'}}</text>
+      </view>
       <view class="renewal-later" hover-class="renewal-later--hover" bindtap="onClose">暂不需要</view>
     </view>
 
@@ -95,9 +95,9 @@
         <text class="promo-price-hint promo-price-hint--em">年卡 ¥{{priceYearly}} 更划算</text>
       </view>
 
-      <button class="renewal-btn" hover-class="renewal-btn--hover" bindtap="onRenew">
-        查看会员权益
-      </button>
+      <view class="renewal-btn" hover-class="renewal-btn--hover" bindtap="onRenew">
+        <text class="renewal-btn-text">查看会员权益</text>
+      </view>
       <view class="renewal-later" hover-class="renewal-later--hover" bindtap="onClose">以后再说</view>
     </view>
   </view>

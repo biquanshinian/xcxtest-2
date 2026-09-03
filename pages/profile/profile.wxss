@@ -1,5 +1,4 @@
 
-@import "../../styles/tweet-stats-bar.wxss";
 .container {
   background: var(--color-bg-page);
 }
@@ -304,6 +303,51 @@
   color: #6B4A0E;
   text-align: center;
   line-height: 1.2;
+}
+
+.pf-shop-title {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
+.pf-shop-title-icon {
+  width: 32rpx;
+  height: 32rpx;
+  flex-shrink: 0;
+}
+
+.pf-shop {
+  position: relative;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+/* 店铺卡上黑下白，左右铺同色带，不改 store-home 内部 */
+.pf-shop-blend {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  border-radius: 20rpx;
+  overflow: hidden;
+}
+.pf-shop-blend-top {
+  flex: 53 0 0;
+  background: #000000;
+}
+.pf-shop-blend-bot {
+  flex: 47 0 0;
+  background: #ffffff;
+}
+.pf-shop-home {
+  position: relative;
+  z-index: 1;
+  display: block;
 }
 
 .pf-section {

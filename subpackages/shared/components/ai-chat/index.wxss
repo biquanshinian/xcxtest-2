@@ -1,5 +1,5 @@
 /* AI 太空助手聊天面板 */
-@import "../../../../styles/mission-card.wxss";
+@import "../../styles/mission-card.wxss";
 
 /* ═══ 聊天面板 ═══ */
 .ai-panel {

@@ -91,21 +91,137 @@ function isHttpPageUrl(u) {
 }
 
 /**
- * 草稿「阅读原文」候选：真实来源页 / 推文页优先；绝不回落 COS/外链裸 mp4。
+ * 微信内置浏览器打不开的站点：挂「阅读原文」等于点了打不开。
+ */
+function isBlockedInWechatBrowser(u) {
+  try {
+    const host = new URL(String(u || '').trim()).hostname.replace(/^www\./, '').toLowerCase()
+    if (!host) return true
+    return (
+      host === 'x.com' ||
+      host === 'twitter.com' ||
+      host === 't.co' ||
+      host === 'mobile.twitter.com' ||
+      host.endsWith('.x.com') ||
+      host.endsWith('.twitter.com') ||
+      host === 'youtube.com' ||
+      host === 'youtu.be' ||
+      host.endsWith('.youtube.com') ||
+      host === 'instagram.com' ||
+      host.endsWith('.instagram.com')
+    )
+  } catch (e) {
+    return true
+  }
+}
+
+const OA_WATCH_BASE = 'https://api.marsx.com.cn/oa-watch'
+
+function buildOaWatchUrl({ eventId, videoIndex } = {}) {
+  const id = String(eventId || '').replace(/[^a-zA-Z0-9_-]/g, '')
+  if (!id) return ''
+  const i = Math.max(0, Number(videoIndex) || 0)
+  return `${OA_WATCH_BASE}?e=${encodeURIComponent(id)}&i=${i}`
+}
+
+function buildVideoPlayerMiniprogramPath({ eventId, videoIndex } = {}) {
+  const id = String(eventId || '').replace(/[^a-zA-Z0-9_-]/g, '')
+  if (!id) return ''
+  const i = Math.max(0, Number(videoIndex) || 0)
+  // 公众号 HTML 里 `&` 会写成 `&amp;`，微信可能把 query 截断。只用一个参数。
+  return i > 0
+    ? `pages/video-player/video-player?e=${id}__${i}`
+    : `pages/video-player/video-player?e=${id}`
+}
+
+/** 事件更新稿落地页：绑定该事件 ID。videoIndex 用 id=xxx__n，避免 path 里出现 & */
+function buildEventDetailMiniprogramPath({ eventId, videoIndex } = {}) {
+  const id = String(eventId || '').replace(/[^a-zA-Z0-9_-]/g, '')
+  if (!id) return ''
+  if (videoIndex == null || videoIndex === '') {
+    return `subpackages/progress-extra/event-detail?id=${id}`
+  }
+  const i = Math.max(0, Number(videoIndex) || 0)
+  return `subpackages/progress-extra/event-detail?id=${id}__${i}`
+}
+
+function parseEventDetailMiniprogramId(raw) {
+  const s = String(raw || '').trim()
+  const m = s.match(/^(.*)__(\d+)$/)
+  if (!m) return { eventId: s, videoIndex: -1 }
+  return { eventId: m[1], videoIndex: parseInt(m[2], 10) }
+}
+
+function oaPathBase(path) {
+  return String(path || '')
+    .replace(/^\//, '')
+    .trim()
+    .split('?')[0]
+}
+
+function isGenericOaMiniprogramPath(path, cfgPath) {
+  const base = oaPathBase(path)
+  if (!base || base === 'pages/index/index') return true
+  const cfgBase = oaPathBase(cfgPath)
+  return !!(cfgBase && base === cfgBase && !/[?&]/.test(String(path || '')))
+}
+
+/** 按选题类型推导正文默认跳转页（事件稿绑定该事件 ID；视频封面由 srcPathMap 落到同一详情页） */
+function deriveOaMiniprogramPath(draft) {
+  const type = String((draft && draft.sourceType) || '').trim()
+  const id = String((draft && draft.sourceId) || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+  if (!id) return ''
+  if (type === 'starship_event') return `subpackages/progress-extra/event-detail?id=${id}`
+  if (type === 'launch') return `pages/mission-detail/mission-detail?id=${id}`
+  if (type === 'news_article') return `subpackages/news-extra/detail?id=manual_${id}`
+  return ''
+}
+
+/**
+ * 公众号配图/文末 CTA 的小程序 path：
+ * 运营手填了非首页深链则保留；否则按事件/发射/新闻落到对应详情页。
+ */
+function resolveOaMiniprogramPath(draft, cfg) {
+  const stored = String((draft && draft.miniprogramPath) || '')
+    .replace(/^\//, '')
+    .trim()
+  const cfgPath = String((cfg && cfg.miniprogramPath) || 'pages/index/index')
+    .replace(/^\//, '')
+    .trim()
+  if (stored && !isGenericOaMiniprogramPath(stored, cfgPath)) return stored
+  return deriveOaMiniprogramPath(draft) || stored || cfgPath || 'pages/index/index'
+}
+
+/**
+ * 草稿「阅读原文」：
+ * - 有事件视频 → 微信打得开的中转页（播 COS / 引导进小程序）
+ * - 普通网页（NSF 等）可直挂
+ * - 绝不挂 X/Twitter/YouTube，也不挂裸 mp4
  */
 function resolveDraftSourceUrl(source, videos) {
+  const eventId = String((source && source.sourceId) || '').trim()
   const src = String((source && source.sourceUrl) || '').trim()
-  if (isHttpPageUrl(src)) return src
-  for (const v of Array.isArray(videos) ? videos : []) {
+  const list = Array.isArray(videos) ? videos : []
+  const hasVideo = list.some((v) => v && (v.url || v.pageUrl || v.posterUrl || v.watchUrl))
+  if (hasVideo && eventId) {
+    const watch = buildOaWatchUrl({ eventId, videoIndex: 0 })
+    if (watch) return watch
+  }
+  if (isHttpPageUrl(src) && !isBlockedInWechatBrowser(src)) return src
+  for (const v of list) {
     const page = String((v && v.pageUrl) || '').trim()
-    if (isHttpPageUrl(page)) return page
+    if (isHttpPageUrl(page) && !isBlockedInWechatBrowser(page)) return page
   }
   return ''
 }
 
-/** 推送前再挡一层：旧草稿若已写入视频直链，不落 content_source_url */
+/** 推送前再挡一层：旧草稿若已写入视频直链或推特链，不落 content_source_url */
 function sanitizeContentSourceUrl(u) {
-  return isHttpPageUrl(u) ? String(u).trim() : ''
+  if (!isHttpPageUrl(u)) return ''
+  if (isBlockedInWechatBrowser(u)) return ''
+  return String(u).trim()
 }
 
 /**
@@ -150,6 +266,7 @@ function pickVideoEntries(...candidates) {
       pageUrl,
       posterUrl,
       watchUrl,
+      previewUrl: String(entry.previewUrl || '').trim(),
       isLong: !!entry.isLong
     })
   }
@@ -220,12 +337,13 @@ function videoPosterUrls(videos) {
 
 /**
  * 在成稿 markdown 里给视频封面截图补说明行（blockquote，运营可编辑/删除）。
- * readMoreUrl 与该视频 pageUrl/watchUrl 一致且为网页时，才提示「阅读原文」。
+ * 有事件 id 时引导点封面进小程序播放；否则仅在阅读原文指向该视频网页时提示文末链接。
  */
 function annotateVideoPostersInMarkdown(md, videos, opts = {}) {
   let s = String(md || '')
   if (!s) return s
   const readMoreUrl = sanitizeContentSourceUrl((opts && opts.readMoreUrl) || '')
+  const eventId = String((opts && opts.eventId) || '').trim()
   const done = new Set()
   for (const v of Array.isArray(videos) ? videos : []) {
     const poster = normalizeImgSrc(v && v.posterUrl)
@@ -234,14 +352,72 @@ function annotateVideoPostersInMarkdown(md, videos, opts = {}) {
     const esc = poster.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const re = new RegExp(`(!\\[[^\\]]*\\]\\(${esc}(?:\\s+"[^"]*")?\\))(?!\\s*\\n+>\\s*▶)`)
     if (!re.test(s)) continue
-    const label = v.isLong ? '长视频封面截图' : '视频封面截图'
-    const matchesVideo =
-      readMoreUrl &&
-      (v.watchUrl === readMoreUrl || v.pageUrl === readMoreUrl)
-    const tail = matchesVideo ? '，完整视频点文末「阅读原文」' : ''
+    const label = '视频封面'
+    let tail = ''
+    if (eventId) tail = '，点击封面可在小程序查看该条动态'
+    else {
+      const matchesVideo =
+        readMoreUrl && (v.watchUrl === readMoreUrl || v.pageUrl === readMoreUrl)
+      if (matchesVideo) tail = '，完整视频点文末「阅读原文」'
+    }
     s = s.replace(re, `$1\n\n> ▶ ${label}${tail}`)
   }
   return s
+}
+
+function mergeDraftImageMap(draft) {
+  const map = decodeImageMap(draft)
+  const extra = draft && draft.imageMap
+  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return map
+  for (const [k, v] of Object.entries(extra)) {
+    const key = normalizeImgSrc(k)
+    const val = String(v || '').trim()
+    if (key && val) map[key] = val
+  }
+  return map
+}
+
+function videoHasPlayableCos(v) {
+  if (!v) return false
+  return [v.url, v.previewUrl, v.watchUrl].some((u) => isOwnCosUrl(u) && isVideoFileUrl(u))
+}
+
+/** 视频封面图 → 该事件详情页（含转存后的微信图床）。有成片时带 __n 以便详情页对上对应视频 */
+function videoPosterSrcPathMap(draft) {
+  const out = {}
+  if (!draft) return out
+  const eventId = String(draft.sourceId || '').trim()
+  const videos = Array.isArray(draft.videos) ? draft.videos : []
+  if (!eventId || !videos.length) return out
+  const imageMap = mergeDraftImageMap(draft)
+  const eventPath =
+    deriveOaMiniprogramPath({ sourceType: 'starship_event', sourceId: eventId }) ||
+    buildEventDetailMiniprogramPath({ eventId })
+  const put = (u, path) => {
+    const s = normalizeImgSrc(u)
+    if (!s || !path) return
+    out[s] = path
+    const bare = s.split('?')[0]
+    if (bare && bare !== s) out[bare] = path
+  }
+  videos.forEach((v, i) => {
+    const mp = videoHasPlayableCos(v)
+      ? buildEventDetailMiniprogramPath({ eventId, videoIndex: i })
+      : eventPath
+    if (!mp) return
+    const poster = v && v.posterUrl
+    put(poster, mp)
+    const orig = normalizeImgSrc(poster)
+    if (orig && imageMap[orig]) put(imageMap[orig], mp)
+    Object.keys(imageMap).forEach((from) => {
+      const to = imageMap[from]
+      if (normalizeImgSrc(from) === orig || normalizeImgSrc(to) === orig) {
+        put(from, mp)
+        put(to, mp)
+      }
+    })
+  })
+  return out
 }
 
 function normalizeImgSrc(u) {
@@ -477,7 +653,7 @@ function encodeFailEntries(failMap) {
 }
 
 function looksLikeLlmFallbackMarkdown(md) {
-  return /自动生成暂不可用|自动生成未完成汉化|以下为素材整理稿|需人工改写后/.test(String(md || ''))
+  return /自动生成暂不可用|自动生成未完成汉化|以下为素材整理稿|需人工改写后|待人工改写/.test(String(md || ''))
 }
 
 /**
@@ -584,6 +760,43 @@ function sanitizeWxTitle(title) {
     .slice(0, 32)
 }
 
+function looksLikeRepostTitle(title) {
+  const t = String(title || '')
+  if (!t) return false
+  if (/由\s*[^，。]{1,40}\s*\(@/u.test(t)) return true
+  if (/@[\w.]{2,}/.test(t) && /本周|动态|带来/.test(t)) return true
+  return false
+}
+
+function stripSocialAttributionMarkdown(md) {
+  return String(md || '')
+    .split('\n')
+    .filter((line) => {
+      const t = line.replace(/^[#>*\-\s]+/, '').trim()
+      if (!t) return true
+      if (/图片来源|浏览量|观看次数/.test(t) && t.length < 90) return false
+      if (/发布于\s*\d{4}/.test(t) && t.length < 90) return false
+      if (/本周航天动态[，,].*由/.test(t)) return false
+      if (/由\s*[\w\s.]+?\s*\(@/.test(t) && t.length < 80) return false
+      return true
+    })
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+function sanitizeArticleTitle(title, bodyMd) {
+  let t = sanitizeWxTitle(title)
+  if (looksLikeRepostTitle(t) || isMostlyEnglishText(t, 8)) {
+    const zh = pickChineseTitle(bodyMd || '')
+    if (zh) t = zh
+    else t = t.replace(/[，,].*由.*/, '').replace(/@\S+/g, '').trim()
+  }
+  t = t.replace(/\s*@[\w.]+\s*/g, ' ').replace(/[（(]\s*@[^）)]+[）)]/g, '').replace(/\s+/g, ' ').trim()
+  if (t.length < 4) t = pickChineseTitle(bodyMd || '') || '航天速递'
+  return sanitizeWxTitle(t)
+}
+
 /** 凭证槽未配置的统一报错文案（槽 1 兼容无后缀环境变量） */
 function credentialMissingMsg(slot) {
   const s = String(slot || '1').trim() || '1'
@@ -605,12 +818,22 @@ module.exports = {
   isOwnCosUrl,
   isVideoFileUrl,
   isHttpPageUrl,
+  isBlockedInWechatBrowser,
+  buildOaWatchUrl,
+  buildVideoPlayerMiniprogramPath,
+  buildEventDetailMiniprogramPath,
+  parseEventDetailMiniprogramId,
+  isGenericOaMiniprogramPath,
+  deriveOaMiniprogramPath,
+  resolveOaMiniprogramPath,
   resolveDraftSourceUrl,
   sanitizeContentSourceUrl,
   cosVideoSnapshotUrl,
   pickVideoEntries,
   videoPosterUrls,
   annotateVideoPostersInMarkdown,
+  videoPosterSrcPathMap,
+  videoHasPlayableCos,
   normalizeImgSrc,
   collectHtmlImgSrcs,
   isWechatCdnUrl,
@@ -635,6 +858,9 @@ module.exports = {
   stripResidualEnglishParagraphs,
   pickChineseTitle,
   sanitizeWxTitle,
+  looksLikeRepostTitle,
+  stripSocialAttributionMarkdown,
+  sanitizeArticleTitle,
   credentialMissingMsg,
   appendTimeline
 }

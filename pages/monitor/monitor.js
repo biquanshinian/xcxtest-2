@@ -377,8 +377,9 @@ Page({
       starlinkRenderer.togglePause()
     }
     // 恢复在轨任务倒计时
-    if (this.data.orbitalReady && this.data.upcomingOrbitalEvents.length) {
-      this.startOrbitalCountdown()
+    if (this.data.orbitalReady && this.data.upcomingOrbitalEvents && this.data.upcomingOrbitalEvents.length) {
+      const p = this.startOrbitalCountdown()
+      if (p && typeof p.catch === 'function') p.catch(() => {})
     }
     // 恢复空间站缓存更新监听（onHide 已注销）
     if (this._stationStaleWasActive) {
@@ -488,8 +489,8 @@ Page({
       conditionText: '',
       tempLine: '',
       windLine: '',
-      weatherIcon: '/images/starbase-weather/w-unknown.svg',
-      windIcon: '/images/starbase-weather/wind-lines.svg'
+      weatherIcon: '/subpackages/monitor-pages/images/starbase-weather/w-unknown.svg',
+      windIcon: '/subpackages/monitor-pages/images/starbase-weather/wind-lines.svg'
     },
     // SpaceX tiles 预计算数据
     ongoingMissions: [],

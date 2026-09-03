@@ -11,7 +11,7 @@ const {
   needsMachineTitle
 } = require('../cloudfunctions/syncSpaceDevsData/nsf-checklist-i18n.js')
 const { isUsableZhText } = require('../cloudfunctions/syncSpaceDevsData/space-terms-i18n.js')
-const client = require('../utils/nsf-checklist-i18n.js')
+const client = require('../subpackages/progress-extra/utils/nsf-checklist-i18n.js')
 
 test('载具编号跟英文走，不因旧 id 映射错成上一轮编号', () => {
   assert.equal(translateNsfChecklistTitle('Booster 21 Proof Campaign'), '助推器21加压测试流程')

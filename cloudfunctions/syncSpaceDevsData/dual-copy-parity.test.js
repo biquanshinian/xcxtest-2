@@ -62,9 +62,9 @@ test('agency-name-i18n.js 双副本完全一致', () => {
 
 test('nsf-checklist-i18n 管理端与小程序短语副本一致', () => {
   assert.equal(
-    readNormalized('../utils/nsf-checklist-i18n.js'),
+    readNormalized('../subpackages/progress-extra/utils/nsf-checklist-i18n.js'),
     readNormalized('adminGateway/nsf-checklist-i18n.js'),
-    'adminGateway/nsf-checklist-i18n.js 与 utils 副本不一致'
+    'adminGateway/nsf-checklist-i18n.js 与小程序 progress-extra 副本不一致'
   )
 })
 

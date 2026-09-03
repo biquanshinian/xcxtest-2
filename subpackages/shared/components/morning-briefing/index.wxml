@@ -7,7 +7,7 @@
   </view>
 
   <!-- 今日发射（排版同「我的太空」近期竞猜 vote-history） -->
-  <view class="briefing-section briefing-section--launch" wx:if="{{briefing.todayLaunches.length > 0}}">
+  <view class="briefing-section briefing-section--launch" wx:if="{{briefing && briefing.todayLaunches.length > 0}}">
     <view class="section-content">
       <text class="section-label">今日发射</text>
       <view class="vote-history-list">
@@ -38,7 +38,7 @@
   </view>
 
   <!-- 昨日回顾：与今日发射同一行结构（icon + 文案），角标绝对定位贴右，保证任务名左缘对齐 -->
-  <view class="briefing-section briefing-section--launch" wx:if="{{briefing.yesterdayResults.length > 0}}">
+  <view class="briefing-section briefing-section--launch" wx:if="{{briefing && briefing.yesterdayResults.length > 0}}">
     <view class="section-content">
       <text class="section-label">昨日回顾</text>
       <view class="vote-history-list">
@@ -122,7 +122,7 @@
   </view>
 
   <!-- 兜底：只有今日发射和昨日回顾都没数据时才显示 -->
-  <view class="briefing-section" wx:if="{{briefing.todayLaunches.length === 0 && briefing.yesterdayResults.length === 0 && briefing.spaceFact}}">
+  <view class="briefing-section" wx:if="{{briefing && briefing.todayLaunches.length === 0 && briefing.yesterdayResults.length === 0 && briefing.spaceFact}}">
     <text class="section-icon">💡</text>
     <view class="section-content">
       <text class="section-label">太空冷知识</text>
@@ -130,7 +130,7 @@
     </view>
   </view>
 
-  <view class="briefing-section" wx:if="{{briefing.todayLaunches.length === 0 && briefing.yesterdayResults.length === 0 && briefing.astroEvent}}">
+  <view class="briefing-section" wx:if="{{briefing && briefing.todayLaunches.length === 0 && briefing.yesterdayResults.length === 0 && briefing.astroEvent}}">
     <text class="section-icon">🌟</text>
     <view class="section-content">
       <text class="section-label">天文事件</text>

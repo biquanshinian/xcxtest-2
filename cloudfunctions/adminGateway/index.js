@@ -106,7 +106,8 @@ const ADMIN_GATEWAY_EXTRA_COLLECTIONS = [
   'watch_party_merchant_leads',
   'souvenir_cards',
   'souvenir_draws',
-  'souvenir_draw_quota'
+  'souvenir_draw_quota',
+  'preaudit_projects'
 ]
 
 function ensureAdminGatewayCollectionsOnce() {
@@ -341,6 +342,13 @@ function parseToken(token) {
   }
 }
 
+function asDoc(res) {
+  const raw = res && res.data
+  if (!raw) return null
+  if (Array.isArray(raw)) return raw[0] || null
+  return raw
+}
+
 async function requireAuth(headers = {}) {
   const authHeader = headers.Authorization || headers.authorization || ''
   const token = authHeader.replace(/^Bearer\s+/i, '').trim()
@@ -350,7 +358,7 @@ async function requireAuth(headers = {}) {
   if (!parsed || !parsed.id) return null
 
   const userRes = await db.collection(COLLECTIONS.USERS).doc(parsed.id).get().catch(() => null)
-  const user = userRes?.data || null
+  const user = asDoc(userRes)
   if (!user || user.status !== 'active') return null
 
   const tokenVersion = Number(user.tokenVersion || 0)
@@ -360,7 +368,7 @@ async function requireAuth(headers = {}) {
   if (Number(parsed.pwdUpdatedAt || 0) !== pwdUpdatedAt) return null
 
   return {
-    id: user._id,
+    id: user._id || parsed.id,
     username: user.username,
     role: user.role || 'viewer',
     permissions: user.permissions || [],
@@ -380,35 +388,36 @@ function mustRole(user, minRole) {
 
 const PERMISSION_MODULES = {
   dashboard: '仪表盘',
-  news_events: 'Events管理',
-  news_articles: 'Articles管理',
-  road_closure: '封路通知',
-  spacex_stats: 'SpaceX发射统计',
+  preaudit: '一键预审',
+  statistics: '数据统计',
+  oa_content: '公众号内容中台',
+  news_events: '事件管理',
+  news_articles: '文章管理',
+  launch_data: '发射数据',
   starship_status: '星舰状态',
   starship_progress: '星舰建设进度',
   starship_events: '事件更新追踪',
-  shop_feed: '小店数据',
-  carousel: '轮播图管理',
-  splash_screen: '开屏动画',
-  cos_storage: 'COS云存储',
-  users: '用户权限',
-  logs: '操作日志',
-  push_notify: '推送通知管理',
-  launch_data: '发射数据管理',
   tweet_monitor: '推文同步监控',
-  statistics: '数据统计分析',
+  road_closure: '封路通知',
+  spacex_stats: 'SpaceX 统计',
   live_mgmt: '直播管理',
-  cloud_functions: '云函数管理',
-  global_config: '全局配置中心',
+  push_notify: '推送通知',
+  launch_votes: '发射竞猜',
+  lunar_wishes: '月愿计划',
+  astro_photos: '航天摄影',
+  milestone_rewards: '里程碑彩蛋',
+  knowledge_cards: '知识卡',
+  watch_party: '观礼服务',
+  shop_feed: '小店与弹窗广告',
+  carousel: '轮播图',
+  splash_screen: '开屏动画与环绕全景',
   announcements: '系统公告',
+  cos_storage: '云存储与火箭模型',
+  global_config: '全局配置与会员',
+  cloud_functions: '云函数',
   data_export: '数据导出',
-  lunar_wishes: '月愿计划管理',
-  astro_photos: '航天摄影管理',
-  milestone_rewards: '里程碑彩蛋管理',
-  knowledge_cards: '知识卡管理',
-  launch_votes: '发射竞猜管理',
-  oa_content: '公众号内容中台',
-  watch_party: '观礼服务管理'
+  users: '用户权限',
+  logs: '操作日志'
 }
 
 function hasPermission(user, mod) {
@@ -510,7 +519,7 @@ function pick(obj = {}, keys = []) {
 }
 
 async function verifyPassword(user, plain) {
-  const password = String(plain || '')
+  const password = String(plain || '').trim()
   if (!user || !password) return false
 
   if (user.passwordHash && /^\$2[aby]\$/.test(user.passwordHash)) {
@@ -5063,6 +5072,34 @@ async function updatePopupAdConfig(body, user) {
   return ok(true)
 }
 
+async function getProfileShopConfig() {
+  try {
+    const res = await db.collection(COLLECTIONS.GLOBAL_CONFIG).doc('main').get()
+    const main = res.data || {}
+    return ok({
+      enabled: main.enableProfileShop === true,
+      shopItemId: String(main.profileShopItemId || '').trim()
+    })
+  } catch (e) {
+    return ok({ enabled: false, shopItemId: '' })
+  }
+}
+
+async function updateProfileShopConfig(body, user) {
+  const ref = db.collection(COLLECTIONS.GLOBAL_CONFIG).doc('main')
+  const beforeRes = await ref.get().catch(() => null)
+  const before = beforeRes?.data || null
+  if (!before) return fail(4040, '全局配置不存在')
+  const patch = {
+    profileShopItemId: String((body && (body.shopItemId || body.profileShopItemId)) || '').trim(),
+    updatedAt: now(),
+    updatedBy: user.username
+  }
+  await ref.update({ data: patch })
+  await writeOpLog({ user, module: 'profile_shop', action: 'update_config', before, after: patch })
+  return ok(true)
+}
+
 // ========== 全局配置中心 ==========
 /**
  * 小程序首页轮播总开关读取的是 media_assets.__carousel_global_config__.enabled，
@@ -5209,6 +5246,12 @@ async function updateGlobalConfig(body, user) {
     const on = body.enableOrbitPano !== false
     patch.enableOrbitPano = on
     patch.orbitPanoEnabled = on
+  }
+  if (Object.prototype.hasOwnProperty.call(body || {}, 'enableProfileShop')) {
+    patch.enableProfileShop = body.enableProfileShop === true
+  }
+  if (Object.prototype.hasOwnProperty.call(body || {}, 'profileShopAppid')) {
+    patch.profileShopAppid = String(body.profileShopAppid || '').trim()
   }
 
   // 必须用 update（字段合并）而不是 set（整文档替换）：
@@ -9511,6 +9554,53 @@ function watchPartyApi() {
   return _watchPartyApi
 }
 
+const { createPreauditOcrApi } = require('./preauditOcr')
+let _preauditOcrApi = null
+function preauditOcrApi() {
+  if (!_preauditOcrApi) {
+    _preauditOcrApi = createPreauditOcrApi({
+      db,
+      ok,
+      fail,
+      now,
+      crypto,
+      createCOSClient,
+      COS_BUCKET,
+      COS_REGION,
+      COS_BASE_URL
+    })
+  }
+  return _preauditOcrApi
+}
+
+const { createPreauditAiApi } = require('./preauditAi')
+let _preauditAiApi = null
+function preauditAiApi() {
+  if (!_preauditAiApi) {
+    _preauditAiApi = createPreauditAiApi({ db, ok, fail, now, crypto })
+  }
+  return _preauditAiApi
+}
+
+const { createPreauditPhotosApi } = require('./preauditPhotos')
+let _preauditPhotosApi = null
+function preauditPhotosApi() {
+  if (!_preauditPhotosApi) {
+    _preauditPhotosApi = createPreauditPhotosApi({
+      db,
+      ok,
+      fail,
+      now,
+      crypto,
+      createCOSClient,
+      COS_BUCKET,
+      COS_REGION,
+      COS_BASE_URL
+    })
+  }
+  return _preauditPhotosApi
+}
+
 async function route(event, user) {
   const { path = '', method = 'GET', query = {}, body = {} } = event
   const headers = event.headers || {}
@@ -9757,7 +9847,69 @@ async function route(event, user) {
     return oaContentApi().executePushDraft(draftId, sysUser)
   }
 
+  // ===== 一键预审 OCR（公开；按 IP 限流；图不落库） =====
+  if (path === '/preaudit/ocr' && method === 'POST') {
+    return preauditOcrApi().recognize(body, {
+      clientIp: event._clientIp || pickClientIp(headers),
+      user
+    })
+  }
+  if (path === '/preaudit/ocr-sign' && method === 'POST') {
+    return preauditOcrApi().sign({
+      clientIp: event._clientIp || pickClientIp(headers),
+      user
+    })
+  }
+  if (path === '/preaudit/ai-audit' && method === 'POST') {
+    return preauditAiApi().advise(body, {
+      clientIp: event._clientIp || pickClientIp(headers)
+    })
+  }
+  if (path === '/preaudit/photos/sign' && method === 'POST') {
+    return preauditPhotosApi().sign(body, {
+      clientIp: event._clientIp || pickClientIp(headers),
+      user
+    })
+  }
+  if (path === '/preaudit/photos/file' && method === 'POST') {
+    return preauditPhotosApi().fetchFile(body, {
+      clientIp: event._clientIp || pickClientIp(headers),
+      user
+    })
+  }
+  if (path === '/preaudit/photos' && method === 'POST') {
+    return preauditPhotosApi().upload(body, {
+      clientIp: event._clientIp || pickClientIp(headers),
+      user
+    })
+  }
+  if (path === '/preaudit/photos' && method === 'PUT') {
+    return preauditPhotosApi().patchCaption(body, { user })
+  }
+  if (path === '/preaudit/photos' && method === 'DELETE') {
+    return preauditPhotosApi().remove(body, { user })
+  }
+  if (path === '/preaudit/project' && method === 'POST') {
+    return preauditPhotosApi().upsert(body, { user })
+  }
+  if (path.startsWith('/preaudit/projects/') && method === 'GET') {
+    return preauditPhotosApi().getOne(path.split('/').pop(), { user })
+  }
+
   if (!user) return fail(4010, '未授权或登录已过期')
+
+  if (path === '/preaudit/projects' && method === 'GET') {
+    return preauditPhotosApi().list({ user })
+  }
+  if ((path === '/preaudit/project' && method === 'DELETE') || (path === '/preaudit/project/destroy' && method === 'POST')) {
+    const password = String((body && body.password) || '').trim()
+    if (!password) return fail(4000, '请输入密码')
+    const snap = await db.collection(COLLECTIONS.USERS).doc(user.id || user._id).get().catch(() => null)
+    const row = asDoc(snap)
+    const pass = await verifyPassword(row, password)
+    if (!pass) return fail(4002, '密码不对')
+    return preauditPhotosApi().destroy(body, { user })
+  }
 
   if (path === '/dashboard/overview' && method === 'GET') return getDashboardOverview()
 
@@ -10108,6 +10260,14 @@ async function route(event, user) {
   if (path === '/popup-ad-config' && method === 'PUT') {
     const deny = checkPerm(user, 'shop_feed'); if (deny) return deny
     return updatePopupAdConfig(body, user)
+  }
+  if (path === '/profile-shop-config' && method === 'GET') {
+    const deny = checkPerm(user, 'shop_feed'); if (deny) return deny
+    return getProfileShopConfig()
+  }
+  if (path === '/profile-shop-config' && method === 'PUT') {
+    const deny = checkPerm(user, 'shop_feed'); if (deny) return deny
+    return updateProfileShopConfig(body, user)
   }
 
   // ===== 全局配置中心 =====
@@ -10791,7 +10951,7 @@ exports.main = async (event = {}, context) => {
       ...(event.headers || {}),
       ...(normalized.headers || {})
     }
-    const user = await requireAuth(event.headers || normalized.headers || {})
+    const user = await requireAuth(normalized.headers || {})
     const result = await route(normalized, user)
     return result || fail(5000, '路由未返回结果')
   } catch (error) {

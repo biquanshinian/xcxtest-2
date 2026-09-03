@@ -42,27 +42,77 @@ function cleanExtractedUrl(raw) {
   return isHttpUrl(u) ? u : ''
 }
 
-/**
- * 从摘要/正文里抠出可洗稿的文章 URL。
- * 优先「详情 -> / 原文：」后的链接；跳过配图 CDN。
- */
-function extractArticleUrl(text) {
-  const s = String(text || '')
-  if (!s) return ''
-  const labeled = s.match(
-    /(?:详情|原文|全文|来源|链接|阅读原文|read\s*more)\s*[-–—>→:：]*\s*(https?:\/\/[^\s<>"'）)】\]]+)/i
-  )
-  if (labeled) {
-    const u = cleanExtractedUrl(labeled[1])
-    if (u && !isImageUrl(u)) return u
+/** X / YouTube / Instagram 等不是文章页，抓下来会把英文贴进成稿 */
+function isNonArticleWashUrl(u) {
+  try {
+    const host = new URL(String(u || '').trim()).hostname.replace(/^www\./, '').toLowerCase()
+    if (!host) return true
+    return (
+      host === 'x.com' ||
+      host === 'twitter.com' ||
+      host === 't.co' ||
+      host === 'mobile.twitter.com' ||
+      host.endsWith('.x.com') ||
+      host.endsWith('.twitter.com') ||
+      host === 'youtube.com' ||
+      host === 'youtu.be' ||
+      host.endsWith('.youtube.com') ||
+      host === 'instagram.com' ||
+      host.endsWith('.instagram.com') ||
+      host === 'tiktok.com' ||
+      host.endsWith('.tiktok.com')
+    )
+  } catch (e) {
+    return true
   }
+}
+
+function isPreferredArticleUrl(u) {
+  return /nasaspaceflight|spaceflightnow|spacenews|teslarati|nasa\.gov|cnsa|ourspace|arxiv|nature\.com|science\.org/i.test(
+    String(u || '')
+  )
+}
+
+function collectHttpUrls(text) {
+  const s = String(text || '')
+  const out = []
+  const push = (raw) => {
+    const u = cleanExtractedUrl(raw)
+    if (u && !isImageUrl(u) && !out.includes(u)) out.push(u)
+  }
+  const labeled = s.matchAll(
+    /(?:详情|原文|全文|来源|链接|阅读原文|read\s*more)\s*[-–—>→:：]*\s*(https?:\/\/[^\s<>"'）)】\]]+)/gi
+  )
+  for (const m of labeled) push(m[1])
   const re = /https?:\/\/[^\s<>"'）)】\]]+/gi
   let m
-  while ((m = re.exec(s))) {
-    const u = cleanExtractedUrl(m[0])
-    if (u && !isImageUrl(u)) return u
+  while ((m = re.exec(s))) push(m[0])
+  return out
+}
+
+/**
+ * 从摘要/正文里抠出可洗稿的文章 URL。
+ * 跳过 X/YouTube；多链时优先 NSF 等文章站。
+ */
+function extractArticleUrl(text) {
+  const urls = collectHttpUrls(text).filter((u) => !isNonArticleWashUrl(u))
+  if (!urls.length) return ''
+  return urls.find(isPreferredArticleUrl) || urls[0]
+}
+
+/** 从多段文本里挑一条可抓的文章链（社交链忽略） */
+function pickWashableArticleUrl(...parts) {
+  const urls = []
+  for (const p of parts) {
+    const s = String(p || '').trim()
+    if (!s) continue
+    if (isHttpUrl(s) && !isImageUrl(s) && !isNonArticleWashUrl(s) && !urls.includes(s)) urls.push(s)
+    for (const u of collectHttpUrls(s)) {
+      if (!isNonArticleWashUrl(u) && !urls.includes(u)) urls.push(u)
+    }
   }
-  return ''
+  if (!urls.length) return ''
+  return urls.find(isPreferredArticleUrl) || urls[0]
 }
 
 /** 短讯/导语 + 外链：应以抓取正文为准，不要只洗摘要 */
@@ -718,7 +768,9 @@ module.exports = {
   isHttpUrl,
   isImageUrl,
   looksLikeLoneUrl,
+  isNonArticleWashUrl,
   extractArticleUrl,
+  pickWashableArticleUrl,
   looksLikeTeaserWithLink,
   looksLikeFeedUrl,
   resolveRssUrl,

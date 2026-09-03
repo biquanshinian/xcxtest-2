@@ -626,9 +626,9 @@ page {
   color: var(--color-text-secondary);
 }
 
-/* 发射航警地图：预览卡在主包组件里，跟列表一起滚。 */
-.space-notices-section {
-  padding: 0 var(--space-lg);
-  margin-bottom: var(--space-xl);
+/* 发射航警地图：与空间站等版块同一套 monitor-block 白底卡片。
+   须压过 .monitor-block.monitor-block { overflow: hidden }（0-2-0），
+   否则 type=2d 的 canvas 会被祖先裁切、预览空白。 */
+.space-notices-section.monitor-block {
   overflow: visible;
 }

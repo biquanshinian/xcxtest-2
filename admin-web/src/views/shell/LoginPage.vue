@@ -36,7 +36,8 @@
 import { reactive, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { api } from '../../api/client'
+import { api, auth } from '../../api/client'
+import { flushPreauditCloud, syncAccountStore } from '../../preaudit/lib/store.js'
 
 const router = useRouter()
 const loading = ref(false)
@@ -62,6 +63,7 @@ const refreshCaptcha = async () => {
 onMounted(refreshCaptcha)
 
 const onLogin = async () => {
+  if (loading.value) return
   if (!form.username || !form.password) {
     ElMessage.warning('请输入用户名和密码')
     return
@@ -84,8 +86,10 @@ const onLogin = async () => {
     })
     localStorage.setItem('admin_token', data.token)
     localStorage.setItem('admin_user', JSON.stringify(data.user))
+    await flushPreauditCloud()
+    syncAccountStore()
     ElMessage.success('登录成功')
-    router.replace('/dashboard')
+    await router.replace(auth.homePath())
   } catch (e) {
     ElMessage.error(e.message || '登录失败')
     refreshCaptcha()

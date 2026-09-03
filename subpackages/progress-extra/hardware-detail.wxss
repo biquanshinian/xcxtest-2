@@ -1,5 +1,5 @@
 /* hardware-detail.wxss —— 星舰硬件设施详情页（全局深色玻璃风格） */
-@import "/styles/fav-btn.wxss";
+@import "./styles/fav-btn.wxss";
 
 page {
   background: #0B0C0E;

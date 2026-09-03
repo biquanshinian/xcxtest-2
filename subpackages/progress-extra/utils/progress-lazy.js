@@ -42,11 +42,10 @@ const {
   getEventIntelContext,
   ensureFeedSeenSeed,
   markEventFeedSeen
-} = require('../../../utils/event-feed-intel.js')
+} = require('./event-feed-intel.js')
 // 必须走主包薄壳（内部 require.async 拉 shared 分包）：直接同步 require ../../shared/**
 // 在分享卡片 / 朋友圈单页直达本分包页面时 shared 尚未下载，模块加载即报错导致整页黑屏
 const {
-  resolveTweetAccountAvatarUrl,
   resolveEventAuthorAvatarUrl,
   warmEventShareImage
 } = require('../../../utils/event-share-image.js')
@@ -60,6 +59,10 @@ const { isVideoUrl } = require('../../../utils/cos-url.js')
 const { runPullRefresh } = require('../../../utils/pull-refresh.js')
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
 const storageCache = require('../../../utils/storage-sync-cache.js')
+const {
+  fetchTodayTweetAccountStats,
+  resolveTweetAccountChip
+} = require('./tweet-account-stats.js')
 
 /** 事件列表直播状态批量查询延后，避免与首屏 DB 查询抢带宽 */
 const PROGRESS_LIVE_STATUS_DEFER_MS = 600
@@ -285,104 +288,33 @@ const methods = {
 
   _loadTweetAccountStats() {
     var self = this
-    if (!wx.cloud) return
     var canShowChips = canUsePaidCloudSync()
     // 非会员不展示账号胶囊，但仍拉今日总数供标题红角标
     if (!canShowChips && (this.data.tweetAccountStats || []).length) {
       this.setData({ tweetAccountStats: [] })
     }
-    // 推文统计为当日聚合数据，10 分钟内进页复用缓存，不重复打云函数
-    var TTL = 10 * 60 * 1000
-    var now = Date.now()
-    var cached = this._tweetStatsCache
-    if (cached && now - cached.at < TTL) {
-      var cachedPatch = { tweetEventTotal: cached.total || 0 }
-      if (canShowChips && cached.stats && cached.stats.length > 0) {
-        cachedPatch.tweetAccountStats = cached.stats
-      }
-      this.setData(cachedPatch)
-      if (canShowChips) this._updateTweetStatsChipsOverflowHint()
-      return
-    }
-    wx.cloud.callFunction({
-      name: 'userDataGateway',
-      data: { action: 'getTodayTweetStats' }
-    }).then(function (res) {
-      var result = res.result || {}
-      if (!result.success) return
-      var total = typeof result.total === 'number' ? result.total : 0
-      var stats = (result.tweetStats && result.tweetStats.length > 0)
-        ? result.tweetStats.map(function (item) {
-          return {
-            screenName: item.screenName,
-            label: item.label,
-            avatarUrl: item.avatarUrl || resolveTweetAccountAvatarUrl(item.screenName) || '',
-            todayCount: item.todayCount
-          }
-        })
-        : []
-      self._tweetStatsCache = { at: Date.now(), stats: stats, total: total }
-      var patch = { tweetEventTotal: total }
-      if (canShowChips && stats.length > 0) {
-        patch.tweetAccountStats = stats
+    fetchTodayTweetAccountStats().then(function (cached) {
+      if (!cached) return
+      var patch = { tweetEventTotal: cached.total || 0 }
+      if (canShowChips) {
+        patch.tweetAccountStats = cached.stats || []
       }
       self.setData(patch)
-      if (canShowChips) self._updateTweetStatsChipsOverflowHint()
     }).catch(function () {})
   },
 
-  /** 胶囊条是否溢出可滑动：控制右侧渐隐提示（与首页发射商胶囊一致）
-      胶囊条 wxml 已迁入 event-updates 分包组件，selectorQuery 需以组件实例为查询上下文 */
-  _updateTweetStatsChipsOverflowHint() {
-    // nextTick：等待 tweetAccountStats 属性下发并完成组件渲染后再量宽度
-    wx.nextTick(() => {
-      const comp = typeof this.selectComponent === 'function' ? this.selectComponent('#eventUpdatesSection') : null
-      if (!comp) return
-      const query = wx.createSelectorQuery().in(comp)
-      query.select('.tweet-stats-scroll').boundingClientRect()
-      query.select('.tweet-stats-chips-row').boundingClientRect()
-      query.exec((res) => {
-        const scrollRect = res && res[0]
-        const rowRect = res && res[1]
-        const hasOverflow = !!(scrollRect && rowRect && rowRect.width > scrollRect.width + 2)
-        if (hasOverflow !== this.data.tweetStatsChipsHasOverflow) {
-          this.setData({ tweetStatsChipsHasOverflow: hasOverflow })
-        }
-      })
-    })
-  },
-
-  /** 横向滑动：按 scrollLeft 阶梯触发中度震动（复用首页发射商胶囊手感） */
-  onTweetStatsChipsScroll(e) {
-    const left = Math.max(0, Number((e.detail && e.detail.scrollLeft) || 0))
-    const stepPx = 52
-    const bucket = Math.floor(left / stepPx)
-    if (this._tweetStatsScrollHapticBucket == null) {
-      this._tweetStatsScrollHapticBucket = bucket
-      return
-    }
-    if (bucket === this._tweetStatsScrollHapticBucket) return
-    this._tweetStatsScrollHapticBucket = bucket
-    // 横向滑动仅轻震一次，避免无指向连震
-    try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
-  },
+  /** 横向滑动轻震已迁入 tweet-account-chips；白名单仍可达，避免旧回调空引用 */
+  onTweetStatsChipsScroll() {},
 
   /** 事件更新胶囊 → 按账号进入列表详情（PRO 门控；与简报胶囊逻辑一致但进度 Tab 单独拦截） */
   async onTweetAccountTap(e) {
     var allowed = await gateCheck('starship_progress_event_source', '星舰事件更新 · 按账号查看')
     if (!allowed) return
-    var ds = e.currentTarget.dataset || {}
-    var list = this.data.tweetAccountStats || []
-    var item = list[ds.index]
-    if (!item && ds.index !== undefined && ds.index !== '') {
-      var n = parseInt(ds.index, 10)
-      if (!isNaN(n)) item = list[n]
-    }
-    var screenName = (item && item.screenName) || ds.source || ''
-    if (!screenName) return
-    var params = { source: String(screenName) }
-    var label = (item && item.label) || ds.label
-    if (label) params.label = String(label)
+    var ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
+    var resolved = resolveTweetAccountChip(this.data.tweetAccountStats, ds)
+    if (!resolved.screenName) return
+    var params = { source: resolved.screenName }
+    if (resolved.label) params.label = resolved.label
     navigateTo(ROUTES.EVENT_DETAIL, params)
   },
 

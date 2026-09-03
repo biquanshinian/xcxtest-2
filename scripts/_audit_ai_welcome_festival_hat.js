@@ -6,13 +6,13 @@ const fs = require('fs')
 const path = require('path')
 
 const root = path.resolve(__dirname, '..')
-const hatUtil = require(path.join(root, 'utils/festival-hat.js'))
+const hatUtil = require(path.join(root, 'subpackages/shared/utils/festival-hat.js'))
 const wxml = fs.readFileSync(path.join(root, 'subpackages/shared/components/ai-chat/index.wxml'), 'utf8')
 const wxss = fs.readFileSync(path.join(root, 'subpackages/shared/components/ai-chat/index.wxss'), 'utf8')
 const js = fs.readFileSync(path.join(root, 'subpackages/shared/components/ai-chat/index.js'), 'utf8')
-const hatCompWxml = fs.readFileSync(path.join(root, 'components/festival-hat/index.wxml'), 'utf8')
-const hatCompWxss = fs.readFileSync(path.join(root, 'components/festival-hat/index.wxss'), 'utf8')
-const hatCompJs = fs.readFileSync(path.join(root, 'components/festival-hat/index.js'), 'utf8')
+const hatCompWxml = fs.readFileSync(path.join(root, 'subpackages/shared/components/festival-hat/index.wxml'), 'utf8')
+const hatCompWxss = fs.readFileSync(path.join(root, 'subpackages/shared/components/festival-hat/index.wxss'), 'utf8')
+const hatCompJs = fs.readFileSync(path.join(root, 'subpackages/shared/components/festival-hat/index.js'), 'utf8')
 const indexWxml = fs.readFileSync(path.join(root, 'pages/index/index.wxml'), 'utf8')
 const indexJs = fs.readFileSync(path.join(root, 'pages/index/index.js'), 'utf8')
 const indexJson = fs.readFileSync(path.join(root, 'pages/index/index.json'), 'utf8')
@@ -30,7 +30,7 @@ const expectIds = ['yuandan', 'spring', 'duanwu', 'zhongqiu', 'guoqing', 'laodon
 if (ids.join(',') === expectIds.join(',')) ok('FESTIVAL_HATS = ' + ids.join(','))
 else bad('FESTIVAL_HATS 不符: ' + ids.join(','))
 
-const utilSrc = fs.readFileSync(path.join(root, 'utils/festival-hat.js'), 'utf8')
+const utilSrc = fs.readFileSync(path.join(root, 'subpackages/shared/utils/festival-hat.js'), 'utf8')
 // 清明是故意不收的（祭扫日不戴喜庆帽），这里只拦「实现」——id/类名/带引号的名字，
 // 注释里说明为什么不收不算残留
 const QINGMING_IMPL = /qingming|hat-qing|['"]清明['"]/i
@@ -102,7 +102,7 @@ ids.forEach((id) => {
 
 console.log('\n======== 4. 组件接线 ========')
 ;[
-  ["require('../../../../utils/festival-hat.js')", 'ai-chat require 主包 festival-hat 工具'],
+  ["require('../../utils/festival-hat.js')", 'ai-chat require 同分包 festival-hat 工具'],
   ['_initFestivalHat()', 'attached 初始化'],
   ['_stopFestivalHatDevCycle()', 'detached 清定时器'],
   ['onFestivalHatDevPick', '开发点选'],
@@ -116,7 +116,7 @@ if (wxml.includes('ai-welcome-hat-dev') && wxml.includes('festivalHatDev')) ok('
 else bad('开发预览条缺失')
 
 ;[
-  ["require('../../utils/festival-hat.js')", 'index require festival-hat 工具'],
+  ["festival-hat.js", 'index 异步加载 shared festival-hat 工具'],
   ['_syncFestivalHat()', 'index 同步节日帽'],
   ['_stopFestivalHatDevCycle()', 'index 清开发轮播']
 ].forEach(([needle, label]) => {

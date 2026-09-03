@@ -98,8 +98,9 @@ function resolvePageRouteOptions(rawOptions) {
 
 function resolveNewsDetailRoute(rawOptions) {
   const opts = resolvePageRouteOptions(rawOptions)
-  const detailType = opts.type === 'article' ? 'article' : 'event'
   const id = opts.id ? String(opts.id).trim() : ''
+  const detailType =
+    opts.type === 'article' || id.startsWith('manual_') ? 'article' : 'event'
   return { detailType, id, options: opts }
 }
 

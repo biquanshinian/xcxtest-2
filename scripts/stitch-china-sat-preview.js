@@ -45,7 +45,7 @@ function get(url) {
 }
 
 async function main() {
-  const outDir = path.join(__dirname, '..', 'images', 'space-notices')
+  const outDir = path.join(__dirname, '..', 'subpackages', 'monitor-pages', 'images', 'space-notices')
   fs.mkdirSync(outDir, { recursive: true })
   const composites = []
   for (let y = y0; y <= y1; y++) {
@@ -78,8 +78,20 @@ async function main() {
     .jpeg({ quality: 82 })
     .toBuffer()
 
+  // 微信代码质量：图片解码体积宽×高×4 不得超过 200KB
+  const MAX_DECODED = 199000
+  const metaIn = await sharp(raw).metadata()
+  const srcW = metaIn.width || cols * tile
+  const srcH = metaIn.height || rows * tile
+  const scale = Math.min(1, Math.sqrt(MAX_DECODED / 4 / (srcW * srcH)))
+  let outW = Math.max(1, Math.floor(srcW * scale))
+  let outH = Math.max(1, Math.round((outW * srcH) / srcW))
+  while (outW * outH * 4 >= MAX_DECODED) {
+    outW -= 1
+    outH = Math.max(1, Math.round((outW * srcH) / srcW))
+  }
   const preview = await sharp(raw)
-    .resize({ width: 1200, withoutEnlargement: true })
+    .resize({ width: outW, height: outH })
     .jpeg({ quality: 80 })
     .toFile(path.join(outDir, 'china-sat-preview.jpg'))
 
@@ -97,7 +109,7 @@ async function main() {
     height: preview.height
   }
   fs.writeFileSync(
-    path.join(__dirname, '..', 'components', 'china-notice-preview', 'sat-proj.js'),
+    path.join(__dirname, '..', 'subpackages', 'monitor-pages', 'components', 'china-notice-preview', 'sat-proj.js'),
     'module.exports = ' + JSON.stringify(meta, null, 2) + '\n'
   )
   console.log('wrote', meta)

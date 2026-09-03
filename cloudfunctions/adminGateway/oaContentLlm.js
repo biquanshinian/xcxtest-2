@@ -36,12 +36,13 @@ function extractLLMText(res) {
   if (!res) return ''
   if (typeof res === 'string') return res.trim()
 
-  // CloudBase / OpenAI 兼容
+  // CloudBase / OpenAI / 腾讯混元
   const choice =
     (res.choices && res.choices[0]) ||
     (res.result && res.result.choices && res.result.choices[0]) ||
     (res.data && res.data.choices && res.data.choices[0]) ||
-    (res.Response && res.Response.Choices && res.Response.Choices[0])
+    (res.Response && res.Response.Choices && res.Response.Choices[0]) ||
+    (res.data && res.data.Response && res.data.Response.Choices && res.data.Response.Choices[0])
   if (choice) {
     const msg = choice.message || choice.delta || choice.Message || choice
     const fromMsg = normalizeContent(msg && (msg.content || msg.Content))
@@ -50,8 +51,13 @@ function extractLLMText(res) {
     if (fromChoice) return fromChoice
   }
 
+  if (res.message) {
+    const fromTop = normalizeContent(res.message.content || res.message.Content)
+    if (fromTop) return fromTop
+  }
   if (res.content) return normalizeContent(res.content)
   if (res.text) return normalizeContent(res.text)
+  if (res.output_text) return normalizeContent(res.output_text)
   if (res.result && typeof res.result === 'string') return res.result.trim()
   if (res.data && typeof res.data === 'string') return res.data.trim()
   if (res.Response && res.Response.Content) return normalizeContent(res.Response.Content)
@@ -92,15 +98,34 @@ function pushErr(bag, msg) {
   if (!bag.includes(s)) bag.push(s)
 }
 
-/**
- * 快速熔断：鉴权/欠费/未开通/模型不存在类错误换 provider 也大概率失败，
- * 不再对同 provider 重试 stream / 变体，省掉整轮 50s×N 的无效等待。
- * 注意：缺 model 参数属于传参形状问题，不熔断（会换 flat / data 再试）。
- */
-function isFatalLlmError(msg) {
-  return /未开通|not\s*activated|无权限|permission|unauthorized|欠费|arrear|配额|quota|模型不存在|model\s*not\s*(found|exist)|invalid\s*model|InvalidParameter\.Model/i.test(
+/** 账号级失败：换 Hunyuan provider 也没用，应立刻改走外部兜底。 */
+function isAccountFatalLlmError(msg) {
+  return /未开通|not\s*activated|无权限|permission|unauthorized|欠费|arrear|配额|quota/i.test(
     String(msg || '')
   )
+}
+
+/** 模型名不对：换 hunyuan-v3 / hunyuan-open 仍可能成功，不要整链熔断。 */
+function isModelMissingError(msg) {
+  return /模型不存在|model\s*not\s*(found|exist)|invalid\s*model|InvalidParameter\.Model/i.test(
+    String(msg || '')
+  )
+}
+
+/**
+ * 快速熔断（兼容旧调用）：账号级 + 模型不存在。
+ * 调用方应按 isAccountFatalLlmError / isModelMissingError 区分是否换 provider。
+ */
+function isFatalLlmError(msg) {
+  return isAccountFatalLlmError(msg) || isModelMissingError(msg)
+}
+
+function hasExternalConfig() {
+  const base = String(
+    process.env.OA_CONTENT_AI_BASE || process.env.BILI_TOPIC_AI_BASE || ''
+  ).replace(/\/$/, '')
+  const key = String(process.env.OA_CONTENT_AI_KEY || process.env.BILI_TOPIC_AI_KEY || '').trim()
+  return !!(base && key)
 }
 
 function isMissingModelParamError(msg) {
@@ -118,6 +143,16 @@ function buildCallShapes(modelName, messages, { temperature, maxTokens }) {
   return [flat, { data: flat }]
 }
 
+async function resolveModelText(res) {
+  let text = extractLLMText(res)
+  if (text) return text
+  if (res && res.data && typeof res.data === 'object') {
+    text = extractLLMText(res.data)
+    if (text) return text
+  }
+  return collectTextStream(res && res.textStream)
+}
+
 async function tryGenerateOnce(AI, provider, modelName, messages, { temperature, maxTokens, timeoutMs }) {
   const model = AI.createModel(provider)
   if (typeof model.generateText !== 'function') return ''
@@ -125,11 +160,14 @@ async function tryGenerateOnce(AI, provider, modelName, messages, { temperature,
   let lastErr = null
   for (let i = 0; i < shapes.length; i++) {
     try {
-      const res = await Promise.race([
-        model.generateText(shapes[i]),
+      const work = (async () => {
+        const res = await model.generateText(shapes[i])
+        return resolveModelText(res)
+      })()
+      return await Promise.race([
+        work,
         new Promise((_, reject) => setTimeout(() => reject(new Error('AI timeout')), timeoutMs))
       ])
-      return extractLLMText(res)
     } catch (e) {
       lastErr = e
       // 缺 model：换另一种传参形状再试；其它错误直接抛给上层
@@ -148,11 +186,14 @@ async function tryStreamOnce(AI, provider, modelName, messages, { temperature, m
   let lastErr = null
   for (let i = 0; i < shapes.length; i++) {
     try {
-      const streamRes = await Promise.race([
-        model.streamText(shapes[i]),
+      const work = (async () => {
+        const streamRes = await model.streamText(shapes[i])
+        return resolveModelText(streamRes)
+      })()
+      return await Promise.race([
+        work,
         new Promise((_, reject) => setTimeout(() => reject(new Error('AI stream timeout')), timeoutMs))
       ])
-      return collectTextStream(streamRes && streamRes.textStream)
     } catch (e) {
       lastErr = e
       if (i === 0 && isMissingModelParamError(e && e.message)) continue
@@ -163,78 +204,72 @@ async function tryStreamOnce(AI, provider, modelName, messages, { temperature, m
   return ''
 }
 
-async function callHunyuan(messages, { temperature = 0.7, maxTokens = 2500 } = {}, errors = []) {
+function hunyuanProviderChain(liteFirst) {
+  const main = [
+    { provider: 'cloudbase', model: 'hy3-preview', timeoutMs: 24000 },
+    { provider: 'hunyuan-v3', model: 'hy3-preview', timeoutMs: 24000 },
+    { provider: 'hunyuan-open', model: 'hunyuan-lite', timeoutMs: 16000 }
+  ]
+  if (liteFirst) return [main[2], main[1]]
+  return main
+}
+
+async function callHunyuan(messages, { temperature = 0.7, maxTokens = 2500, liteFirst, budgetMs } = {}, errors = []) {
   const AI = getAIEntry()
   if (!AI) {
     pushErr(errors, '云开发 AI 不可用（需 wx-server-sdk 支持 cloud.ai / extend.AI）')
     return ''
   }
-  // cloudbase 为当前官方主通道；hy3 / hy3-preview 均试（控制台启用名可能不同）
-  const providers = [
-    { provider: 'cloudbase', model: 'hy3-preview' },
-    { provider: 'cloudbase', model: 'hy3' },
-    { provider: 'hunyuan-v3', model: 'hy3-preview' },
-    { provider: 'hunyuan-open', model: 'hunyuan-lite' }
-  ]
-  const cappedTokens = Math.min(2500, Math.max(400, Number(maxTokens) || 2500))
-  const timeoutMs = 50000
-  // 部分模型对 system 角色不稳定：先完整 messages，再合并为单条 user
-  const userOnly = [
-    {
-      role: 'user',
-      content: messages
-        .map((m) => `${m.role === 'system' ? '【系统要求】' : ''}${m.content || ''}`)
-        .join('\n\n')
-    }
-  ]
-  const variants = [messages, userOnly]
-  // 总预算：超过后不再尝试剩余 provider×变体，尽快落到外部兜底/失败返回
-  const roundDeadline = Date.now() + 100000
+  // 与推文翻译 / 星问一致：cloudbase → hunyuan-v3 → hunyuan-open。
+  // 空响应再试 stream（部分环境 generateText 只回 textStream）。
+  const providers = hunyuanProviderChain(liteFirst)
+  const cappedTokens = Math.min(2200, Math.max(400, Number(maxTokens) || 2200))
+  const roundDeadline = Date.now() + (Number(budgetMs) || (liteFirst ? 28000 : 65000))
 
   for (const p of providers) {
-    for (const msgs of variants) {
-      if (Date.now() > roundDeadline) {
-        pushErr(errors, '混元轮询超总预算(100s)，已熔断')
-        return ''
+    const remain = roundDeadline - Date.now()
+    if (remain < 4000) {
+      pushErr(errors, '混元轮询超总预算，已熔断')
+      return ''
+    }
+    const timeoutMs = Math.max(4000, Math.min(p.timeoutMs, remain - 1500))
+    let skipStream = false
+    try {
+      const text = await tryGenerateOnce(AI, p.provider, p.model, messages, {
+        temperature,
+        maxTokens: cappedTokens,
+        timeoutMs
+      })
+      if (text) {
+        console.log(`[oaLLM] ok generateText ${p.provider}/${p.model} len=${text.length}`)
+        return text
       }
-      let genFatal = false
-      try {
-        const text = await tryGenerateOnce(AI, p.provider, p.model, msgs, {
-          temperature,
-          maxTokens: cappedTokens,
-          timeoutMs
-        })
-        if (text) {
-          console.log(`[oaLLM] ok generateText ${p.provider}/${p.model} len=${text.length}`)
-          return text
-        }
-        pushErr(errors, `${p.provider}/${p.model} generateText 空响应`)
-      } catch (e) {
-        const msg = e.message || String(e)
-        pushErr(errors, `${p.provider}/${p.model} generateText: ${msg}`)
-        console.warn(`[oaLLM] generateText fail ${p.provider}:`, msg)
-        genFatal = isFatalLlmError(msg)
+      pushErr(errors, `${p.provider}/${p.model} generateText 空响应`)
+    } catch (e) {
+      const msg = e.message || String(e)
+      pushErr(errors, `${p.provider}/${p.model} generateText: ${msg}`)
+      console.warn(`[oaLLM] generateText fail ${p.provider}:`, msg)
+      if (isAccountFatalLlmError(msg)) return ''
+      if (isModelMissingError(msg)) skipStream = true
+    }
+
+    if (skipStream || Date.now() + 4000 > roundDeadline) continue
+    try {
+      const text = await tryStreamOnce(AI, p.provider, p.model, messages, {
+        temperature,
+        maxTokens: cappedTokens,
+        timeoutMs: Math.max(4000, Math.min(timeoutMs, roundDeadline - Date.now() - 500))
+      })
+      if (text) {
+        console.log(`[oaLLM] ok streamText ${p.provider}/${p.model} len=${text.length}`)
+        return text
       }
-      if (genFatal) {
-        // 鉴权/欠费类错误：跳过本 provider 的 stream 与变体
-        break
-      }
-      try {
-        const text = await tryStreamOnce(AI, p.provider, p.model, msgs, {
-          temperature,
-          maxTokens: cappedTokens,
-          timeoutMs
-        })
-        if (text) {
-          console.log(`[oaLLM] ok streamText ${p.provider}/${p.model} len=${text.length}`)
-          return text
-        }
-      } catch (e) {
-        const msg = e.message || String(e)
-        pushErr(errors, `${p.provider}/${p.model} streamText: ${msg}`)
-        console.warn(`[oaLLM] streamText fail ${p.provider}:`, msg)
-        if (isFatalLlmError(msg)) break
-      }
+      pushErr(errors, `${p.provider}/${p.model} streamText 空响应`)
+    } catch (e) {
+      const msg = e.message || String(e)
+      pushErr(errors, `${p.provider}/${p.model} streamText: ${msg}`)
+      console.warn(`[oaLLM] streamText fail ${p.provider}:`, msg)
+      if (isAccountFatalLlmError(msg)) return ''
     }
   }
   return ''
@@ -274,7 +309,7 @@ async function callExternal(messages, { temperature = 0.7, maxTokens = 2500 } = 
             Authorization: `Bearer ${key}`,
             'Content-Length': Buffer.byteLength(body)
           },
-          timeout: 60000
+          timeout: 45000
         },
         (res) => {
           const chunks = []
@@ -315,12 +350,17 @@ function renderTemplate(tpl, vars = {}) {
  * @returns {Promise<{ text: string, error: string }>}
  * 返回对象避免模块级 lastError 在并发下串台
  */
-async function generateText({ system, user, temperature, maxTokens }) {
+async function generateText({ system, user, temperature, maxTokens, preferExternal, liteFirst }) {
   const messages = []
   if (system) messages.push({ role: 'system', content: system })
   messages.push({ role: 'user', content: user || '' })
   const errors = []
-  let text = await callHunyuan(messages, { temperature, maxTokens }, errors)
+  let text = ''
+  // 未配外部 Key 时 preferExternal 不能跳过混元，否则必然空正文
+  const skipHunyuan = !!(preferExternal && hasExternalConfig())
+  if (!skipHunyuan) {
+    text = await callHunyuan(messages, { temperature, maxTokens, liteFirst }, errors)
+  }
   if (!text) text = await callExternal(messages, { temperature, maxTokens }, errors)
   if (!text) {
     const detail = errors.slice(-4).join('；') || '未知原因'
@@ -337,6 +377,10 @@ module.exports = {
   extractLLMText,
   getAIEntry,
   isFatalLlmError,
+  isAccountFatalLlmError,
+  isModelMissingError,
   isMissingModelParamError,
+  hasExternalConfig,
+  hunyuanProviderChain,
   buildCallShapes
 }

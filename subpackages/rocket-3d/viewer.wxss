@@ -75,6 +75,12 @@
   height: 1rpx;
 }
 
+.r3d-exhibit-hud-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 12rpx;
+}
+
 .r3d-exhibit-intro-btn {
   display: flex;
   flex-direction: column;
@@ -85,6 +91,14 @@
 
 .r3d-exhibit-intro-btn--pressed {
   opacity: 0.7;
+}
+
+.r3d-exhibit-intro-btn--on .r3d-ico-intro {
+  border-color: rgba(253, 230, 138, 0.62);
+}
+
+.r3d-exhibit-intro-btn--on .r3d-exhibit-intro-lab {
+  color: #fde68a;
 }
 
 .r3d-ico-intro {
@@ -118,6 +132,36 @@
 
 .r3d-ico-intro-line--short {
   width: 8rpx;
+}
+
+.r3d-ico-flip {
+  width: 20rpx;
+  height: 24rpx;
+  position: relative;
+}
+
+.r3d-ico-flip-arrow {
+  position: absolute;
+  left: 4rpx;
+  width: 10rpx;
+  height: 10rpx;
+  box-sizing: border-box;
+  border-left: 2rpx solid rgba(248, 250, 252, 0.9);
+  border-top: 2rpx solid rgba(248, 250, 252, 0.9);
+}
+
+.r3d-ico-flip-arrow--up {
+  top: 1rpx;
+  transform: rotate(45deg);
+}
+
+.r3d-ico-flip-arrow--down {
+  bottom: 1rpx;
+  transform: rotate(-135deg);
+}
+
+.r3d-exhibit-intro-btn--on .r3d-ico-flip-arrow {
+  border-color: #fde68a;
 }
 
 .r3d-exhibit-intro-lab {

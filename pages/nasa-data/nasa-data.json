@@ -6,10 +6,14 @@
   "navigationStyle": "custom",
   "usingComponents": {
     "share-guide": "/subpackages/shared/components/share-guide/index",
-    "official-account-publish-panel": "/subpackages/shared/components/official-account-publish-panel/index"
+    "official-account-publish-panel": "/subpackages/shared/components/official-account-publish-panel/index",
+    "monitor-artemis-card": "/subpackages/monitor-pages/components/monitor-artemis-card/index",
+    "monitor-roman-card": "/subpackages/monitor-pages/components/monitor-roman-card/index"
   },
   "componentPlaceholder": {
     "share-guide": "view",
-    "official-account-publish-panel": "view"
+    "official-account-publish-panel": "view",
+    "monitor-artemis-card": "view",
+    "monitor-roman-card": "view"
   }
 }

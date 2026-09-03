@@ -8,6 +8,10 @@
             <el-button @click="openJobs">任务记录</el-button>
             <el-button @click="loadTopics" :loading="loadingTopics">刷新选题</el-button>
             <el-button type="warning" @click="onRunDaily" :loading="runningDaily">执行日更</el-button>
+            <span v-if="generating" class="gen-hint">
+              <el-icon class="is-loading"><Loading /></el-icon>
+              正在生成，请稍候…
+            </span>
             <el-button type="primary" @click="onBatchGenerate" :loading="generating">批量生成选中</el-button>
           </div>
         </div>
@@ -44,7 +48,7 @@
           <el-input v-model="manualText" type="textarea" :rows="1" placeholder="粘贴文章 URL 或原文，走洗稿" style="width:320px" />
         </el-form-item>
         <el-form-item>
-          <el-button @click="onManualGenerate" :loading="generating">生成一篇</el-button>
+          <el-button :loading="generating" @click="onManualGenerate">生成一篇</el-button>
         </el-form-item>
       </el-form>
 
@@ -133,9 +137,18 @@
             >播放</el-button>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="100">
+        <el-table-column label="操作" width="128">
           <template #default="{ row }">
-            <el-button size="small" type="primary" @click="onGenerateOne(row)">生成</el-button>
+            <div class="gen-cell">
+              <el-icon v-show="generatingKey === topicKey(row)" class="is-loading gen-row-spin"><Loading /></el-icon>
+              <el-button
+                size="small"
+                type="primary"
+                :loading="generatingKey === topicKey(row)"
+                :disabled="!!generatingKey && generatingKey !== topicKey(row)"
+                @click="onGenerateOne(row)"
+              >生成</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -190,6 +203,7 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElNotification } from 'element-plus'
+import { Loading } from '@element-plus/icons-vue'
 import { api } from '../../api/client'
 import { previewMedia } from '../../utils/mediaPreview'
 
@@ -200,6 +214,8 @@ const strategies = ref([])
 const selected = ref([])
 const loadingTopics = ref(false)
 const generating = ref(false)
+const generatingKey = ref('')
+const topicKey = (row) => String(row?.sourceId || row?._id || row?.title || '')
 const runningDaily = ref(false)
 const strategyKey = ref('auto')
 const brandKey = ref('')
@@ -443,6 +459,7 @@ const topicWithWashUrl = (row) => {
 
 const onGenerateOne = async (row) => {
   if (!requireBrand()) return
+  generatingKey.value = topicKey(row) || 'one'
   generating.value = true
   try {
     const topic = topicWithWashUrl(row)
@@ -457,6 +474,7 @@ const onGenerateOne = async (row) => {
     ElMessage.error(e.message || '生成失败')
   } finally {
     generating.value = false
+    generatingKey.value = ''
   }
 }
 
@@ -492,29 +510,52 @@ const cleanExtractedUrl = (raw) =>
 
 const extractArticleUrl = (s) => {
   const text = String(s || '')
+  const skipHost = (u) => {
+    try {
+      const host = new URL(u).hostname.replace(/^www\./, '').toLowerCase()
+      return (
+        /^(x|twitter|t|youtube|youtu|instagram|tiktok)\./.test(host + '.') ||
+        host === 'x.com' ||
+        host === 'twitter.com' ||
+        host === 't.co' ||
+        host === 'youtu.be' ||
+        host === 'youtube.com' ||
+        host.endsWith('.youtube.com') ||
+        host.endsWith('.twitter.com') ||
+        host.endsWith('.x.com')
+      )
+    } catch (e) {
+      return true
+    }
+  }
   const labeled = text.match(
     /(?:详情|原文|全文|来源|链接|阅读原文)\s*[-–—>→:：]*\s*(https?:\/\/[^\s<>"']+)/i
   )
   if (labeled) {
     const u = cleanExtractedUrl(labeled[1])
-    if (u && !/\.(?:jpe?g|png|gif|webp|bmp|svg)(?:[?#].*)?$/i.test(u) && !/mmbiz\.qpic\.cn|qpic\.cn/i.test(u)) {
+    if (u && !/\.(?:jpe?g|png|gif|webp|bmp|svg)(?:[?#].*)?$/i.test(u) && !/mmbiz\.qpic\.cn|qpic\.cn/i.test(u) && !skipHost(u)) {
       return u
     }
   }
   const re = /https?:\/\/[^\s<>"'）)】\]]+/gi
   let m
+  const found = []
   while ((m = re.exec(text))) {
     const u = cleanExtractedUrl(m[0])
-    if (!u || /\.(?:jpe?g|png|gif|webp|bmp|svg)(?:[?#].*)?$/i.test(u) || /mmbiz\.qpic\.cn|qpic\.cn/i.test(u)) {
+    if (!u || /\.(?:jpe?g|png|gif|webp|bmp|svg)(?:[?#].*)?$/i.test(u) || /mmbiz\.qpic\.cn|qpic\.cn/i.test(u) || skipHost(u)) {
       continue
     }
-    return u
+    found.push(u)
   }
-  return ''
+  return found.find((u) => /nasaspaceflight|spacenews|spaceflightnow/i.test(u)) || found[0] || ''
 }
 
-const topicWashUrl = (row) =>
-  extractArticleUrl([row?.sourceUrl, row?.summary, row?.body, row?.content].filter(Boolean).join('\n'))
+const topicWashUrl = (row) => {
+  if (row?.sourceType === 'starship_event' || row?.sourceType === 'launch' || row?.sourceType === 'news_article') {
+    return ''
+  }
+  return extractArticleUrl([row?.sourceUrl, row?.summary, row?.body, row?.content].filter(Boolean).join('\n'))
+}
 
 const onManualGenerate = async () => {
   if (!requireBrand()) return
@@ -619,4 +660,20 @@ onMounted(() => {
 }
 .jobs-toolbar { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
 .job-result { font-size:12px; color:var(--el-text-color-secondary); word-break:break-all; }
+.gen-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--el-color-warning);
+  font-size: 13px;
+}
+.gen-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.gen-row-spin {
+  font-size: 16px;
+  color: var(--el-color-primary);
+}
 </style>

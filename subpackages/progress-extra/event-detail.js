@@ -1,6 +1,8 @@
 // 打包锚点：progress-lazy.js 仅被主包 progress.js require.async 引用，
 // 无同分包同步引用时会被"过滤无依赖文件"剔出分包导致异步加载失败
 require('./utils/progress-lazy.js')
+// nsf-checklist-merge.js 仅被主包 api-app-services require.async 引用
+require('./utils/nsf-checklist-merge.js')
 const { loadCloudMediaMap } = require('../../utils/image-config.js')
 const { isVideoUrl, optimizeImageUrl } = require('../../utils/cos-url.js')
 const { enrichVideoMediaItem, eventVideoAdUnlockId, playEventVideo, saveEventOriginalVideo } = require('./utils/event-video.js')
@@ -45,9 +47,14 @@ const {
   syncRelatedLaunchFavoriteFlags,
   getEventIntelContext,
   markEventFeedSeen
-} = require('../../utils/event-feed-intel.js')
+} = require('./utils/event-feed-intel.js')
 const { normalizeLl2TimelineList } = require('./utils/ll2-launch-timeline.js')
 const { isFeatureEnabled } = require('../../utils/feature-flags.js')
+const { ROUTES, navigateTo } = require('../../utils/routes.js')
+const {
+  fetchTodayTweetAccountStats,
+  resolveTweetAccountChip
+} = require('./utils/tweet-account-stats.js')
 
 /** 清单/时间线/动态追踪分享兜底：SpaceX logo（禁止落到 default 火箭占位图） */
 const STARSHIP_PAGE_SHARE_FALLBACK =
@@ -216,6 +223,75 @@ function safeDecodeOption(value) {
   }
 }
 
+/** 分包页从公众号打开时 onLoad options 常空，query 在启动参数里 */
+function mergeEnterQuery(rawOptions) {
+  const merged = {}
+  const put = (src) => {
+    if (!src || typeof src !== 'object' || Array.isArray(src)) return
+    Object.keys(src).forEach((k) => {
+      const v = src[k]
+      if (v == null || v === '') return
+      merged[k] = String(v)
+    })
+  }
+  try {
+    const launch = typeof wx.getLaunchOptionsSync === 'function' && wx.getLaunchOptionsSync()
+    if (launch && launch.query) put(launch.query)
+  } catch (e) {}
+  try {
+    if (typeof wx.getEnterOptionsSync === 'function') {
+      const enter = wx.getEnterOptionsSync()
+      if (enter && enter.query) put(enter.query)
+    }
+  } catch (e) {}
+  try {
+    const pages = typeof getCurrentPages === 'function' ? getCurrentPages() : []
+    const cur = pages && pages[pages.length - 1]
+    if (cur && cur.options) put(cur.options)
+  } catch (e) {}
+  put(rawOptions)
+  if (!merged.id && merged.eventId) merged.id = merged.eventId
+  if (!merged.id && merged.e) merged.id = merged.e
+  return merged
+}
+
+/** 公众号 path 用 id=事件id__视频下标，避免 HTML 里 & 被写成 &amp; 后截断 */
+function parseEventDetailIdParam(raw) {
+  const s = String(raw || '').trim()
+  const m = s.match(/^(.*)__(\d+)$/)
+  if (!m) return { eventId: s, videoIndex: -1 }
+  return { eventId: m[1], videoIndex: parseInt(m[2], 10) }
+}
+
+function indexOfNthEventVideo(mediaList, videoIndex) {
+  if (!Array.isArray(mediaList) || videoIndex < 0) return -1
+  let n = 0
+  for (let i = 0; i < mediaList.length; i++) {
+    const m = mediaList[i]
+    if (!m || String(m.type || '').toLowerCase() !== 'video') continue
+    if (n === videoIndex) return i
+    n += 1
+  }
+  return -1
+}
+
+function isMissingEventDocError(err) {
+  const msg = String((err && (err.errMsg || err.message)) || '')
+  return /document doesn['’]?t exist|文档不存在|not exist|not found/i.test(msg)
+}
+
+function isNetworkishEventError(err) {
+  if (!err || isMissingEventDocError(err)) return false
+  const msg = String((err && (err.errMsg || err.message)) || '')
+  return /timeout|timed out|network|request:fail|连接|超时|网络/i.test(msg)
+}
+
+const EVENT_EXPIRED_TITLE = '这条动态已过期'
+const EVENT_EXPIRED_TEXT =
+  '事件更新大约保留 3 天，过期后会自动下架。去进展页看看最新动态吧。'
+const EVENT_MISSING_PARAM_TEXT =
+  '这条动态可能已过期，或打开时没有带上事件信息。去进展页看看最新动态吧。'
+
 Page({
   behaviors: [pageBase],
   _fallbackTab: '/pages/progress/progress',
@@ -224,6 +300,8 @@ Page({
     loading: true,
     avatarError: false,
     errorMessage: '',
+    errorTitle: '',
+    errorAction: '',
     item: null,
     shareImage: '',
     shareTitle: '事件更新 | 火星探索日志',
@@ -282,7 +360,12 @@ Page({
     updTranslating: false,
     luTranslated: false,
     luTranslating: false,
-    descI18n: { eventDesc: '', updates: [], launchUpdates: [] }
+    descI18n: { eventDesc: '', updates: [], launchUpdates: [] },
+
+    showTweetAccountChips: false,
+    tweetAccountStats: [],
+    selectedTweetSource: '',
+    isProUser: false
   },
 
   /** 任务概述「翻译/原文」 */
@@ -1161,6 +1244,11 @@ Page({
       this.startLl2EventCountdown()
     }
     try { this.syncEventRelatedLaunchFavorites() } catch (e) {}
+    if (this.data.showTweetAccountChips) {
+      const pro = isProSync()
+      if (pro !== this.data.isProUser) this.setData({ isProUser: pro })
+      this._loadDetailTweetAccountChips()
+    }
   },
 
   startLl2EventCountdown() {
@@ -1206,9 +1294,22 @@ Page({
     }
   },
 
-  async onLoad(options = {}) {
-    const id = options.id ? String(options.id).trim() : ''
-    this._autoPlayVideoIndex = options.autoPlayVideo != null ? Number(options.autoPlayVideo) : -1
+  async onLoad(rawOptions = {}) {
+    const options = mergeEnterQuery(rawOptions)
+    let id = options.id ? safeDecodeOption(String(options.id).trim()) : ''
+    this._oaVideoIndex = -1
+    if (!options.mode) {
+      const parsed = parseEventDetailIdParam(id)
+      id = parsed.eventId
+      if (options.autoPlayVideo != null && String(options.autoPlayVideo) !== '') {
+        this._autoPlayVideoIndex = Number(options.autoPlayVideo)
+      } else {
+        this._autoPlayVideoIndex = -1
+        this._oaVideoIndex = parsed.videoIndex
+      }
+    } else {
+      this._autoPlayVideoIndex = options.autoPlayVideo != null ? Number(options.autoPlayVideo) : -1
+    }
 
     // 进度页经 eventChannel 传入的原始事件文档：仅作首屏加速，网络刷新逻辑保留兜底
     this._openerEventSnapshot = null
@@ -1268,6 +1369,8 @@ Page({
       await this.loadLl2EventDetailPage(id)
       return
     }
+
+    this._enableGenericTweetAccountChips()
 
     await loadCloudMediaMap()
 
@@ -1336,8 +1439,111 @@ Page({
       this._refreshEventIntelCtx()
       await this.loadListBySource(source, listDate, listLabel)
     } else {
-      this.setData({ loading: false, errorMessage: '缺少事件参数，请返回列表重新进入' })
+      this.setData({
+        loading: false,
+        errorTitle: '无法打开这条动态',
+        errorMessage: EVENT_MISSING_PARAM_TEXT,
+        errorAction: 'latest'
+      })
     }
+  },
+
+  _bootEventId() {
+    if (this._singleItemId) return this._singleItemId
+    try {
+      const pages = getCurrentPages()
+      const currentPage = pages[pages.length - 1]
+      const options = mergeEnterQuery((currentPage && currentPage.options) || {})
+      return parseEventDetailIdParam(options.id).eventId
+    } catch (e) {
+      return ''
+    }
+  },
+
+  goLatestEvents() {
+    this._listAllMode = true
+    this._singleItemId = ''
+    this._autoPlayVideoIndex = -1
+    this._oaVideoIndex = -1
+    try { markEventFeedSeen(Date.now()) } catch (e) {}
+    this._refreshEventIntelCtx()
+    this.setData({
+      errorMessage: '',
+      errorTitle: '',
+      errorAction: '',
+      navTitle: '星舰事件更新',
+      shareTitle: '事件更新 | 火星探索日志',
+      item: null,
+      items: [],
+      listMode: true,
+      listAllMode: true,
+      selectedTweetSource: ''
+    })
+    this.loadListAll(true)
+  },
+
+  _enableGenericTweetAccountChips() {
+    this.setData({
+      showTweetAccountChips: true,
+      isProUser: isProSync()
+    })
+    this._loadDetailTweetAccountChips()
+  },
+
+  _loadDetailTweetAccountChips() {
+    const self = this
+    const canShowChips = canUsePaidCloudSync()
+    if (!canShowChips) {
+      if ((this.data.tweetAccountStats || []).length) this.setData({ tweetAccountStats: [] })
+      return
+    }
+    fetchTodayTweetAccountStats().then((cached) => {
+      if (!cached || !self || typeof self.setData !== 'function') return
+      self.setData({ tweetAccountStats: cached.stats || [] })
+    }).catch(() => {})
+  },
+
+  /** 详情页胶囊筛选：与进展页同一套账号条；已在该账号今日列表则不跳，账号列表内切换则原地换源 */
+  async onTweetAccountTap(e) {
+    const allowed = await gateCheck('starship_progress_event_source', '星舰事件更新 · 按账号查看')
+    if (!allowed) return
+    const ds = Object.assign(
+      {},
+      (e && e.currentTarget && e.currentTarget.dataset) || {},
+      (e && e.detail) || {}
+    )
+    const resolved = resolveTweetAccountChip(this.data.tweetAccountStats, ds)
+    const screenName = resolved.screenName
+    if (!screenName) return
+    const alreadySourceList = !!(this.data.listMode && !this._listAllMode && this._listSource === screenName)
+    if (alreadySourceList) return
+    if (this.data.listMode && !this._listAllMode) {
+      await this._switchTweetAccountFilter(screenName, resolved.label)
+      return
+    }
+    const params = { source: screenName }
+    if (resolved.label) params.label = resolved.label
+    navigateTo(ROUTES.EVENT_DETAIL, params)
+  },
+
+  async _switchTweetAccountFilter(screenName, label) {
+    this._listAllMode = false
+    this._listAllSource = ''
+    this._listAllSources = []
+    this._singleItemId = ''
+    this._listSource = screenName
+    this._listLabel = label || ''
+    this._listDate = todayBeijingYmd()
+    this._eventListUnlocked = true
+    this.setData({
+      listAllMode: false,
+      item: null,
+      errorMessage: '',
+      errorTitle: '',
+      errorAction: '',
+      selectedTweetSource: screenName
+    })
+    await this.loadListBySource(screenName, this._listDate, this._listLabel)
   },
 
   enrichEventItem(item) {
@@ -1497,6 +1703,11 @@ Page({
   },
 
   async loadDetail(id, opts = {}) {
+    const parsedId = parseEventDetailIdParam(id)
+    id = parsedId.eventId
+    if (!(this._oaVideoIndex >= 0) && parsedId.videoIndex >= 0) {
+      this._oaVideoIndex = parsedId.videoIndex
+    }
     // eventChannel 快照先上屏（首屏加速）：网络刷新照常执行，最终展示与原逻辑一致
     const snapshot = this._openerEventSnapshot
     if (
@@ -1514,34 +1725,46 @@ Page({
         listDayHint: '',
         navTitle: '事件详情',
         shareTitle: `${snapTitle} | 火星探索日志`,
-        shareImage: pickEventShareImageUrl(snapItem)
+        shareImage: pickEventShareImageUrl(snapItem),
+        selectedTweetSource: snapItem.source || ''
       })
       opts = { ...opts, silent: true }
     }
 
     // silent（下拉刷新）：已有内容时不回退到加载骨架，只显示微信原生刷新指示器
     if (!(opts.silent && this.data.item)) {
-      this.setData({ loading: true, errorMessage: '' })
+      this.setData({ loading: true, errorMessage: '', errorTitle: '', errorAction: '' })
     }
     try {
       const db = wx.cloud.database()
       let rawItem = null
+      let lookupErr = null
 
       try {
         const detailRes = await db.collection('starship_event_updates').doc(id).get()
         rawItem = detailRes && detailRes.data ? detailRes.data : null
-      } catch (e) {}
+      } catch (e) {
+        lookupErr = e
+      }
 
       if (!rawItem) {
-        const fallbackRes = await db.collection('starship_event_updates')
-          .where({ _id: id, status: 'published' })
-          .limit(1)
-          .get()
-        rawItem = (fallbackRes && fallbackRes.data && fallbackRes.data[0]) || null
+        try {
+          const fallbackRes = await db.collection('starship_event_updates')
+            .where({ _id: id, status: 'published' })
+            .limit(1)
+            .get()
+          rawItem = (fallbackRes && fallbackRes.data && fallbackRes.data[0]) || null
+        } catch (e) {
+          lookupErr = lookupErr || e
+        }
       }
 
       if (!rawItem || rawItem.status !== 'published') {
-        throw new Error('该事件不存在或暂不可查看')
+        if (lookupErr && isPermissionDenied(lookupErr)) throw lookupErr
+        if (lookupErr && isNetworkishEventError(lookupErr)) {
+          throw Object.assign(new Error('网络异常，请稍后重试'), { code: 'EVENT_NETWORK' })
+        }
+        throw Object.assign(new Error('EVENT_EXPIRED'), { code: 'EVENT_EXPIRED' })
       }
 
       const item = this.enrichEventItem(rawItem)
@@ -1551,24 +1774,33 @@ Page({
 
       this.setData({
         loading: false,
+        errorMessage: '',
+        errorTitle: '',
+        errorAction: '',
         item,
         listMode: false,
         items: [],
         listDayHint: '',
         navTitle: '事件详情',
         shareTitle: `${titleText} | 火星探索日志`,
-        shareImage
+        shareImage,
+        selectedTweetSource: item.source || ''
       })
 
       this._scrollDetailToTop()
       this.checkLiveStatus(item)
 
+      let mediaIndex = this._autoPlayVideoIndex
+      if (!(mediaIndex >= 0) && this._oaVideoIndex >= 0) {
+        mediaIndex = indexOfNthEventVideo(item.mediaList, this._oaVideoIndex)
+      }
+      this._autoPlayVideoIndex = -1
+      this._oaVideoIndex = -1
+
       // 从列表页点击视频跳转过来：先过视频门控，通过后再播（非会员只看封面）
       // 过审关闭 enableEventVideo 时绝不自动进播放页
-      if (this.data.enableEventVideo && this._autoPlayVideoIndex >= 0 && item.mediaList) {
-        const mediaIndex = this._autoPlayVideoIndex
+      if (this.data.enableEventVideo && mediaIndex >= 0 && item.mediaList) {
         const media = item.mediaList[mediaIndex]
-        this._autoPlayVideoIndex = -1
         if (media && media.type === 'video' && media.isPlayable) {
           setTimeout(async () => {
             // 与轮播/列表用同一单条解锁键：来源页刚看完广告则直接放行
@@ -1593,16 +1825,26 @@ Page({
             })
           }, 300)
         }
-      } else if (this._autoPlayVideoIndex >= 0) {
-        this._autoPlayVideoIndex = -1
       }
     } catch (error) {
+      if (error && error.code === 'EVENT_EXPIRED') {
+        this.setData({
+          loading: false,
+          errorTitle: EVENT_EXPIRED_TITLE,
+          errorMessage: EVENT_EXPIRED_TEXT,
+          errorAction: 'latest',
+          item: null
+        })
+        return
+      }
       const msg = isPermissionDenied(error)
         ? getPermissionDeniedMessage()
         : (error && (error.errMsg || error.message)) || '事件加载失败，请稍后重试'
       this.setData({
         loading: false,
-        errorMessage: msg
+        errorTitle: '加载失败',
+        errorMessage: msg,
+        errorAction: 'retry'
       })
     }
   },
@@ -1700,7 +1942,8 @@ Page({
         shareImage: listShareImage,
         listNoMore,
         listLoadingMore: false,
-        avatarError: false
+        avatarError: false,
+        selectedTweetSource: this._listAllSource || ''
       }, this._applyListIntel(merged)))
       if (refresh) this._scrollDetailToTop()
     } catch (error) {
@@ -1744,6 +1987,8 @@ Page({
 
   /** 简报胶囊等：某 source 在北京日历日当天的全部已发布动态 */
   async loadListBySource(source, dateYmd, labelHint, opts = {}) {
+    // 按账号今日列表不是 list_all：必须清掉翻页标志，否则触底仍会走 loadListAll
+    this._listAllMode = false
     // silent（下拉刷新）：已有列表时不回退到加载骨架
     if (!(opts.silent && (this.data.items || []).length > 0)) {
       this.setData({ loading: true, errorMessage: '' })
@@ -1781,13 +2026,15 @@ Page({
       this.setData(Object.assign({
         loading: false,
         listMode: true,
+        listAllMode: false,
         item: null,
         errorMessage: '',
         navTitle,
         listDayHint: hint,
         shareTitle,
         shareImage,
-        avatarError: false
+        avatarError: false,
+        selectedTweetSource: source
       }, this._applyListIntel(items)))
       this._scrollDetailToTop()
     } catch (error) {
@@ -1848,11 +2095,8 @@ Page({
       }
       return
     }
-    const pages = getCurrentPages()
-    const currentPage = pages[pages.length - 1]
-    const options = (currentPage && currentPage.options) || {}
-    const id = options.id ? String(options.id).trim() : ''
-    const source = options.source ? String(options.source).trim() : ''
+    const id = this._bootEventId()
+    const source = this._listSource || ''
     await runPullRefresh(this, async () => {
       if (this._nsfChecklistMode) {
         await this.onRefreshNsfChecklistDetail()
@@ -1868,11 +2112,15 @@ Page({
   },
 
   retryLoad() {
+    if (this.data.errorAction === 'latest') {
+      this.goLatestEvents()
+      return
+    }
     const pages = getCurrentPages()
     const currentPage = pages[pages.length - 1]
-    const options = (currentPage && currentPage.options) || {}
-    const id = options.id ? String(options.id).trim() : ''
-    const source = options.source ? String(options.source).trim() : ''
+    const options = mergeEnterQuery((currentPage && currentPage.options) || {})
+    const ll2Id = options.id ? String(options.id).trim() : ''
+    const source = this._listSource || (options.source ? String(options.source).trim() : '')
     if (this._nsfChecklistMode) {
       this.loadNsfChecklistPage()
       return
@@ -1885,16 +2133,18 @@ Page({
       this.loadLl2LaunchUpdatesDetailPage()
       return
     }
-    if (this._ll2EventMode && id) {
-      this.loadLl2EventDetailPage(id)
+    if (this._ll2EventMode && ll2Id) {
+      this.loadLl2EventDetailPage(ll2Id)
       return
     }
     if (this._listAllMode) {
       this.loadListAll(true)
       return
     }
+    const id = this._bootEventId()
     if (id) this.loadDetail(id)
     else if (source) this.loadListBySource(source, this._listDate || todayBeijingYmd(), this._listLabel || '')
+    else this.goLatestEvents()
   },
 
   onListCardTap(e) {

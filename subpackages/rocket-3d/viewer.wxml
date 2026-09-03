@@ -36,6 +36,7 @@
         active="{{pageVisible}}"
         mode="page"
         bind:statuschange="onViewerStatus"
+        bind:flipchange="onFlipChange"
       />
       <view class="r3d-exhibit-wash"></view>
     </view>
@@ -43,15 +44,26 @@
     <view class="r3d-exhibit-hud" style="top: {{navPlaceholderHeight}}px;" wx:if="{{!memberLocked && !viewerError}}">
       <text class="r3d-exhibit-credit" wx:if="{{exhibit.credit}}">{{exhibit.credit}}</text>
       <view wx:else class="r3d-exhibit-credit r3d-exhibit-credit--empty"></view>
-      <view class="r3d-exhibit-intro-btn" wx:if="{{exhibit.hasIntro}}" hover-class="r3d-exhibit-intro-btn--pressed" hover-stay-time="80" catchtap="toggleIntro">
-        <view class="r3d-ico-intro">
-          <view class="r3d-ico-intro-scroll">
-            <view class="r3d-ico-intro-line"></view>
-            <view class="r3d-ico-intro-line"></view>
-            <view class="r3d-ico-intro-line r3d-ico-intro-line--short"></view>
+      <view class="r3d-exhibit-hud-actions">
+        <view class="r3d-exhibit-intro-btn {{standFlipped ? 'r3d-exhibit-intro-btn--on' : ''}}" wx:if="{{viewerReady}}" hover-class="r3d-exhibit-intro-btn--pressed" hover-stay-time="80" catchtap="onFlipStand">
+          <view class="r3d-ico-intro">
+            <view class="r3d-ico-flip">
+              <view class="r3d-ico-flip-arrow r3d-ico-flip-arrow--up"></view>
+              <view class="r3d-ico-flip-arrow r3d-ico-flip-arrow--down"></view>
+            </view>
           </view>
+          <text class="r3d-exhibit-intro-lab">{{standFlipped ? '已翻转' : '翻转'}}</text>
         </view>
-        <text class="r3d-exhibit-intro-lab">简介</text>
+        <view class="r3d-exhibit-intro-btn" wx:if="{{exhibit.hasIntro}}" hover-class="r3d-exhibit-intro-btn--pressed" hover-stay-time="80" catchtap="toggleIntro">
+          <view class="r3d-ico-intro">
+            <view class="r3d-ico-intro-scroll">
+              <view class="r3d-ico-intro-line"></view>
+              <view class="r3d-ico-intro-line"></view>
+              <view class="r3d-ico-intro-line r3d-ico-intro-line--short"></view>
+            </view>
+          </view>
+          <text class="r3d-exhibit-intro-lab">简介</text>
+        </view>
       </view>
     </view>
 

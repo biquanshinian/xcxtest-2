@@ -1,5 +1,5 @@
 /* 发射场详情页 — map-page 布局（导航/工具/面板骨架样式来自 app.wxss .map-page） */
-@import "/styles/fav-btn.wxss";
+@import "./styles/fav-btn.wxss";
 
 page {
   background: #0B0C0E;

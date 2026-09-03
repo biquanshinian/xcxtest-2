@@ -26,7 +26,6 @@ Component({
     eventUpdatesNoMore: { type: Boolean, value: false },
     eventScrollRefreshing: { type: Boolean, value: false },
     tweetAccountStats: { type: Array, value: [] },
-    tweetStatsChipsHasOverflow: { type: Boolean, value: false },
     tweetEventTotal: { type: Number, value: 0 },
     isProUser: { type: Boolean, value: false },
     pressedEventId: { type: String, value: '' },
@@ -50,8 +49,13 @@ Component({
     stopPropagation() {},
 
     emitOpenEventUpdatesList(e) { this._emit('openEventUpdatesList', e) },
-    emitOnTweetStatsChipsScroll(e) { this._emit('onTweetStatsChipsScroll', e) },
-    emitOnTweetAccountTap(e) { this._emit('onTweetAccountTap', e) },
+    onChipsAccountTap(e) {
+      const d = (e && e.detail) || {}
+      this._emit('onTweetAccountTap', {
+        currentTarget: { dataset: { index: d.index, source: d.source, label: d.label } },
+        detail: d
+      })
+    },
     emitOpenEventDetail(e) { this._emit('openEventDetail', e) },
     emitOnEventItemTouchStart(e) { this._emit('onEventItemTouchStart', e) },
     emitOnEventItemTouchEnd(e) { this._emit('onEventItemTouchEnd', e) },

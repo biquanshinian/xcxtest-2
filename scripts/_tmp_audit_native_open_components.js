@@ -133,12 +133,42 @@ const wxmlFiles = walk(ROOT, [], ['.wxml'])
 const jsFiles = walk(ROOT, [], ['.js'])
 
 let storeProductCount = 0
+let storeHomeCount = 0
+let storeCouponCount = 0
+let storeGiftCount = 0
 let channelLiveCount = 0
 let oaPublishCount = 0
 
 wxmlFiles.forEach((file) => {
   const src = stripComments(fs.readFileSync(file, 'utf8'), 'wxml')
   const r = rel(file)
+
+  // store-home（小店首页 / 精选展示位所在页；只需 appid，不要改内部样式）
+  extractTags(src, 'store-home').forEach((tag, i) => {
+    storeHomeCount += 1
+    const id = `${r} <store-home>#${i + 1}`
+    check(`${id} 有 appid`, hasAttr(tag.attrs, 'appid'), '缺少 appid')
+  })
+
+  // store-coupon
+  extractTags(src, 'store-coupon').forEach((tag, i) => {
+    storeCouponCount += 1
+    const id = `${r} <store-coupon>#${i + 1}`
+    check(`${id} 有 appid`, hasAttr(tag.attrs, 'appid'), '缺少 appid')
+    check(`${id} 有 coupon-id`, hasAttr(tag.attrs, 'coupon-id'), '缺少 coupon-id')
+    if (hasAttr(tag.attrs, 'custom-style')) {
+      const v = attrValue(tag.attrs, 'custom-style')
+      check(`${id} custom-style 使用绑定`, !!(v && /\{\{/.test(v)), v ? `字面量非法: ${v}` : '缺少绑定')
+    }
+  })
+
+  // store-gift
+  extractTags(src, 'store-gift').forEach((tag, i) => {
+    storeGiftCount += 1
+    const id = `${r} <store-gift>#${i + 1}`
+    check(`${id} 有 present-order-id`, hasAttr(tag.attrs, 'present-order-id'), '缺少 present-order-id')
+    check(`${id} 有 open-id`, hasAttr(tag.attrs, 'open-id'), '缺少 open-id')
+  })
 
   // store-product
   extractTags(src, 'store-product').forEach((tag, i) => {
@@ -223,6 +253,25 @@ jsFiles.forEach((file) => {
   check('popup-ad 无 CSS 字符串 storeCustomStyle', !/storeCustomStyle:\s*['"][^'"]*width/.test(js))
 })()
 
+// 我的页微信小店首页（store-home，含精选展示位；不必选商品）
+;(() => {
+  const wxml = fs.readFileSync(path.join(ROOT, 'pages/profile/profile.wxml'), 'utf8')
+  const js = fs.readFileSync(path.join(ROOT, 'pages/profile/profile.js'), 'utf8')
+  const json = fs.readFileSync(path.join(ROOT, 'pages/profile/profile.json'), 'utf8')
+  check('我的页有 store-home', /<store-home[\s>]/.test(wxml))
+  check('我的页微信小店作标题', /section-title-text">微信小店/.test(wxml))
+  check('我的页微信小店标题带官方图标', /ic-wechat-shop\.svg/.test(wxml))
+  check('我的页店铺卡左右铺黑白底', /class="pf-shop-blend"/.test(wxml))
+  check('我的页无商城侧卡', !/class="pf-shop-side"/.test(wxml) && !/正版周边/.test(wxml))
+  check('我的页仅店铺卡', !/<store-product[\s>]/.test(wxml) && !/<store-coupon[\s>]/.test(wxml) && !/<store-gift[\s>]/.test(wxml))
+  check('我的页 store-home 绑定 appid', /appid="\{\{profileShopAppid\}\}"/.test(wxml))
+  check('我的页 store-home 受开关控制', /wx:if="\{\{showProfileShop\}\}"/.test(wxml))
+  check('我的页不引用旧 profile-shop 组件', !/"profile-shop"/.test(json))
+  check('我的页加载 store-home 配置', /loadProfileShopHome\(true/.test(js))
+  const leftover = path.join(ROOT, 'components/profile-shop/index.wxml')
+  check('已移除旧 profile-shop 商品卡组件', !fs.existsSync(leftover))
+})()
+
 // official-account-publish-panel 专项
 ;(() => {
   const wxml = fs.readFileSync(
@@ -243,7 +292,7 @@ jsFiles.forEach((file) => {
 })()
 
 console.log(`扫描 wxml ${wxmlFiles.length} / js ${jsFiles.length}`)
-console.log(`组件计数：store-product=${storeProductCount}, channel-live=${channelLiveCount}, official-account-publish=${oaPublishCount}`)
+console.log(`组件计数：store-product=${storeProductCount}, store-home=${storeHomeCount}, store-coupon=${storeCouponCount}, store-gift=${storeGiftCount}, channel-live=${channelLiveCount}, official-account-publish=${oaPublishCount}`)
 console.log(`通过 ${passes.length} 项`)
 if (!problems.length) {
   console.log('PASS：原生开放能力组件官方格式审计全绿')

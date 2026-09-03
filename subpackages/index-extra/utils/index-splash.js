@@ -1,7 +1,7 @@
 /**
  * subpackages/index-extra/utils/index-splash.js
  * 首页开屏动画逻辑（从 pages/index/index.js 拆出）：
- * - 开屏配置：onLaunch 预拉（utils/splash-prefetch.js）+ 本地缓存池，首页短等即可
+ * - 开屏配置：onLaunch 预拉（同分包 splash-prefetch.js）+ 本地缓存池，首页短等即可
  * - 热启动：从后台回首页时对比云端 updatedAt，有更新则重播（切 Tab 不播）
  * - 弱网（none/2g/3g/weakNet）且无本地片：即刻跳过，不挡首页
  * - 展示 / 倒计时 / 跳过 / 关闭、媒体预下载
@@ -22,15 +22,17 @@ const {
   reuseSplashDownload,
   abortSplashPrefetchDownload,
   fetchSplashConfig,
+  applyCloudCfg,
   prepareSplashPrefetchForReplay,
   getLastShownSplashUpdatedAt,
   markSplashShownUpdatedAt
-} = require('../../../utils/splash-prefetch.js')
+} = require('./splash-prefetch.js')
 const {
   splashConfigUpdatedAt,
   shouldReplaySplashOnResume,
+  isSplashCloudPoolUnusable,
   selectSplashMediaPool
-} = require('../../../utils/splash-replay.js')
+} = require('./splash-replay.js')
 const { isMembershipEnabled, isProSync, getMembershipState, isPro } = require('../../../utils/membership.js')
 const { getMemberPolicy } = require('../../../utils/member-policy.js')
 const {
@@ -575,10 +577,7 @@ const methods = {
       // 开关：云端优先；无云端时看本地缓存
       if (cfg) {
         if (cfg.enabled === false) {
-          try {
-            wx.setStorageSync(SPLASH_CACHE_KEY, { enabled: false })
-          } catch (e) {}
-          markSplashShownUpdatedAt(splashConfigUpdatedAt(cfg))
+          this._dismissSplashAfterCloudCleared(cfg, prefetch)
           return
         }
       } else if (cached && cached.enabled === false) {
@@ -586,7 +585,11 @@ const methods = {
       }
 
       if (!pool.length) {
-        if (cfg) markSplashShownUpdatedAt(splashConfigUpdatedAt(cfg))
+        if (cfg && isSplashCloudPoolUnusable(cfg, cloudItems)) {
+          this._dismissSplashAfterCloudCleared(cfg, prefetch)
+        } else if (cfg) {
+          markSplashShownUpdatedAt(splashConfigUpdatedAt(cfg))
+        }
         return
       }
 
@@ -689,6 +692,13 @@ const methods = {
       // 会员确认 / 预拉等待期间网络变差：无本地片则仍即刻跳过
       if (prefetch && prefetch.weakNet && !src) return
 
+      // 等待期间云端空池可能已到达：禁止再用本地旧片起播
+      const latestCfg = (prefetch && prefetch.cfg) || cfg
+      if (latestCfg && isSplashCloudPoolUnusable(latestCfg, normalizeItems(latestCfg))) {
+        this._dismissSplashAfterCloudCleared(latestCfg, prefetch)
+        return
+      }
+
       if (prefetch && prefetch.downloadPromise && prefetch.playUrl === resolved.playUrl) {
         this._splashPrefetching = { url: resolved.playUrl, promise: prefetch.downloadPromise }
       }
@@ -714,72 +724,46 @@ const methods = {
       }
 
       // 后台刷新完整配置与本地预下载（不改变本次已展示内容）
-      // mediaItems 优先存云端原数组（含 previewStatus），避免二次 normalize 丢状态后误退原片
-      const cacheMediaItems =
-        cfg && Array.isArray(cfg.mediaItems) && cfg.mediaItems.length
-          ? cfg.mediaItems
-          : cloudItems.length
-            ? cloudItems
-            : pool
-      // 有云端时强制写云端 notice（空串也写入，禁止回落旧缓存文案）
-      let noticeTextForCache = ''
-      let noticeFontForCache = 'default'
-      let noticeLineHeightForCache = 1.4
-      let noticeLetterSpacingForCache = 0
-      let noticeLineGapForCache = 4
-      if (cfg) {
-        noticeTextForCache = String(cfg.noticeText || '').trim()
-        const fr = String(cfg.noticeFont || 'default').trim()
-        noticeFontForCache = SPLASH_NOTICE_FONTS[fr] ? fr : 'default'
-        const lh = Number(cfg.noticeLineHeight)
-        noticeLineHeightForCache = Number.isFinite(lh) ? Math.min(2.5, Math.max(1, Math.round(lh * 10) / 10)) : 1.4
-        const ls = Number(cfg.noticeLetterSpacing)
-        noticeLetterSpacingForCache = Number.isFinite(ls) ? Math.min(8, Math.max(0, Math.round(ls))) : 0
-        const lg = Number(cfg.noticeLineGap)
-        noticeLineGapForCache = Number.isFinite(lg) ? Math.min(24, Math.max(0, Math.round(lg))) : 4
-      } else if (splashNotice) {
-        noticeTextForCache = splashNotice.html || splashNotice.text || ''
-        noticeFontForCache = splashNotice.font
-        noticeLineHeightForCache = Number(splashNotice.lineHeight) || 1.4
-        // splashNotice 里 letterSpacing/lineGap 已是 rpx，缓存回写用管理端 px
-        noticeLetterSpacingForCache = Math.round((Number(splashNotice.letterSpacing) || 0) / 2)
-        noticeLineGapForCache = Math.round((Number(splashNotice.lineGap) || 8) / 2)
-      } else if (cached) {
-        noticeTextForCache = String(cached.noticeText || '').trim()
-        const fr = String(cached.noticeFont || 'default').trim()
-        noticeFontForCache = SPLASH_NOTICE_FONTS[fr] ? fr : 'default'
-        const lh = Number(cached.noticeLineHeight)
-        noticeLineHeightForCache = Number.isFinite(lh) ? Math.min(2.5, Math.max(1, Math.round(lh * 10) / 10)) : 1.4
-        const ls = Number(cached.noticeLetterSpacing)
-        noticeLetterSpacingForCache = Number.isFinite(ls) ? Math.min(8, Math.max(0, Math.round(ls))) : 0
-        const lg = Number(cached.noticeLineGap)
-        noticeLineGapForCache = Number.isFinite(lg) ? Math.min(24, Math.max(0, Math.round(lg))) : 4
-      }
-      this._cacheSplashMedia(
-        {
-          enabled: true,
-          countdownSeconds: resolved.mediaType === 'video' ? SPLASH_VIDEO_MAX_SEC : SPLASH_IMAGE_COUNTDOWN_SEC,
-          noticeText: noticeTextForCache,
-          noticeFont: noticeFontForCache,
-          noticeLineHeight: noticeLineHeightForCache,
-          noticeLetterSpacing: noticeLetterSpacingForCache,
-          noticeLineGap: noticeLineGapForCache,
-          mediaItems: cacheMediaItems,
-          lastSplashId: resolved.id || resolved.originalUrl || resolved.playUrl,
-          mediaType: resolved.mediaType,
-          mediaUrl: resolved.originalUrl,
-          originalUrl: resolved.originalUrl,
-          playUrl: resolved.playUrl,
-          previewUrl: picked && picked.previewUrl ? picked.previewUrl : '',
-          posterUrl: resolved.posterUrl,
-          updatedAt: splashConfigUpdatedAt(cfg) || splashConfigUpdatedAt(cached)
-        },
-        cached,
-        {
-          skipMediaDownload: !splashVideoAllowed,
-          deferMediaDownload: !!(splashVideoAllowed && streamingRemote)
-        }
+      // 云端未到时不要把本地旧池再写回 storage，以免覆盖随后到达的空池
+      const canPersistShownPool = !!(
+        cfg &&
+        (Array.isArray(cfg.mediaItems) ? cfg.mediaItems.length : cloudItems.length)
       )
+      if (canPersistShownPool) {
+        const cacheMediaItems =
+          Array.isArray(cfg.mediaItems) && cfg.mediaItems.length ? cfg.mediaItems : cloudItems
+        const noticeFr = String(cfg.noticeFont || 'default').trim()
+        const noticeLh = Number(cfg.noticeLineHeight)
+        const noticeLs = Number(cfg.noticeLetterSpacing)
+        const noticeLg = Number(cfg.noticeLineGap)
+        this._cacheSplashMedia(
+          {
+            enabled: true,
+            countdownSeconds: resolved.mediaType === 'video' ? SPLASH_VIDEO_MAX_SEC : SPLASH_IMAGE_COUNTDOWN_SEC,
+            noticeText: String(cfg.noticeText || '').trim(),
+            noticeFont: SPLASH_NOTICE_FONTS[noticeFr] ? noticeFr : 'default',
+            noticeLineHeight: Number.isFinite(noticeLh)
+              ? Math.min(2.5, Math.max(1, Math.round(noticeLh * 10) / 10))
+              : 1.4,
+            noticeLetterSpacing: Number.isFinite(noticeLs) ? Math.min(8, Math.max(0, Math.round(noticeLs))) : 0,
+            noticeLineGap: Number.isFinite(noticeLg) ? Math.min(24, Math.max(0, Math.round(noticeLg))) : 4,
+            mediaItems: cacheMediaItems,
+            lastSplashId: resolved.id || resolved.originalUrl || resolved.playUrl,
+            mediaType: resolved.mediaType,
+            mediaUrl: resolved.originalUrl,
+            originalUrl: resolved.originalUrl,
+            playUrl: resolved.playUrl,
+            previewUrl: picked && picked.previewUrl ? picked.previewUrl : '',
+            posterUrl: resolved.posterUrl,
+            updatedAt: splashConfigUpdatedAt(cfg) || splashConfigUpdatedAt(cached)
+          },
+          cached,
+          {
+            skipMediaDownload: !splashVideoAllowed,
+            deferMediaDownload: !!(splashVideoAllowed && streamingRemote)
+          }
+        )
+      }
 
       // 短等没拿到云端：复用 onLaunch 预拉，避免再打一次库
       if (!cloudItems.length) {
@@ -792,6 +776,10 @@ const methods = {
             lateCfg = late && late.data ? late.data : null
           }
           const lateItems = normalizeItems(lateCfg)
+          if (lateCfg && isSplashCloudPoolUnusable(lateCfg, lateItems)) {
+            this._dismissSplashAfterCloudCleared(lateCfg, prefetch)
+            return
+          }
           if (lateCfg && lateCfg.enabled !== false && lateItems.length) {
             markSplashShownUpdatedAt(splashConfigUpdatedAt(lateCfg))
             const lateNotice = normalizeSplashNotice(lateCfg)
@@ -833,6 +821,29 @@ const methods = {
       if (!this._splashUiActive && !this.data.splashVisible && typeof this._releaseSplashCountdownGate === 'function') {
         this._releaseSplashCountdownGate()
       }
+    }
+  },
+
+  /** 云端已关开屏或清空媒体池：立刻覆盖本地缓存，正在播则关屏 */
+  _dismissSplashAfterCloudCleared(cfg, prefetch) {
+    if (prefetch) applyCloudCfg(prefetch, cfg)
+    try {
+      const payload =
+        cfg && cfg.enabled === false
+          ? { enabled: false, updatedAt: splashConfigUpdatedAt(cfg) }
+          : {
+              enabled: true,
+              mediaItems: [],
+              updatedAt: splashConfigUpdatedAt(cfg),
+              cachedAt: Date.now()
+            }
+      wx.setStorageSync(SPLASH_CACHE_KEY, payload)
+    } catch (e) {}
+    markSplashShownUpdatedAt(splashConfigUpdatedAt(cfg))
+    this._splashDeferredCache = null
+    // _showSplash 同步置 _splashUiActive，this.data.splashVisible 可能尚未刷上
+    if ((this._splashUiActive || this.data.splashVisible) && !this.data.splashFading) {
+      this.closeSplash()
     }
   },
 
@@ -1717,6 +1728,8 @@ const methods = {
         success: (saveRes) => {
           try {
             const cur = wx.getStorageSync(SPLASH_CACHE_KEY) || baseEntry
+            if (!cur || cur.enabled === false) return
+            if (Array.isArray(cur.mediaItems) && !cur.mediaItems.length) return
             const map = cur.localPaths && typeof cur.localPaths === 'object' ? { ...cur.localPaths } : {}
             if (map[playUrl] && map[playUrl] !== saveRes.savedFilePath) {
               try {

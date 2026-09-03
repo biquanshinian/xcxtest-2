@@ -46,6 +46,15 @@
     
     <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
 <view class="detail-container">
+      <!-- 通用事件更新详情/列表：复用进展页账号胶囊筛选 -->
+      <tweet-account-chips
+        wx:if="{{showTweetAccountChips}}"
+        theme-class="{{themeClass}}"
+        tweet-account-stats="{{tweetAccountStats}}"
+        is-pro-user="{{isProUser}}"
+        selected-source="{{selectedTweetSource}}"
+        bind:accounttap="onTweetAccountTap"
+      />
       <!-- 加载中：骨架屏撑满一屏，分享/直达冷启动时页面立即可滑动；进度由导航栏下方的 page-progress 绿色进度条呈现 -->
       <view class="detail-skeleton" wx:if="{{loading}}" aria-hidden="{{true}}">
         <view class="skeleton-card skeleton-card--hero">
@@ -63,9 +72,10 @@
       </view>
 
       <view class="error-state glass-card" wx:elif="{{errorMessage}}">
-        <text class="error-title">加载失败</text>
+        <text class="error-title">{{errorTitle || '加载失败'}}</text>
         <text class="error-text">{{errorMessage}}</text>
-        <button class="retry-btn" bindtap="retryLoad">重新加载</button>
+        <button class="retry-btn" wx:if="{{errorAction === 'latest'}}" bindtap="goLatestEvents">查看最新动态</button>
+        <button class="retry-btn" wx:else bindtap="retryLoad">重新加载</button>
       </view>
 
       <block wx:elif="{{pageMode === 'nsf_checklist' && !errorMessage}}">
@@ -404,11 +414,11 @@
         <block wx:for="{{itemsView}}" wx:for-item="ev" wx:key="_id" wx:for-index="evIdx">
           <view class="detail-card glass-card list-card-item" bindtap="onListCardTap" bindlongpress="openListEventShareSheet" data-id="{{ev._id}}" data-idx="{{evIdx}}">
             <view class="meta-top">
-              <text class="date-text">{{ev.publishedAtText}}</text>
               <view class="author-tag-wrap" wx:if="{{ev.author}}">
                 <image class="author-avatar" src="{{ev.authorAvatar}}" wx:if="{{ev.authorAvatar && !ev._avatarFailed}}" mode="aspectFill" binderror="onListAvatarError" data-idx="{{evIdx}}" />
                 <text class="author-tag">{{ev.author}}</text>
               </view>
+              <text class="date-text">{{ev.publishedAtText}}</text>
             </view>
 
             <text class="detail-title" wx:if="{{ev.title}}" user-select="{{true}}">{{ev.title}}</text>
@@ -486,11 +496,11 @@
       <block wx:elif="{{item}}">
       <view class="detail-card glass-card">
         <view class="meta-top">
-          <text class="date-text">{{item.publishedAtText}}</text>
           <view class="author-tag-wrap" wx:if="{{item.author}}">
             <image class="author-avatar" src="{{item.authorAvatar}}" wx:if="{{item.authorAvatar && !avatarError}}" mode="aspectFill" binderror="onAvatarError" />
             <text class="author-tag">{{item.author}}</text>
           </view>
+          <text class="date-text">{{item.publishedAtText}}</text>
         </view>
 
         <text class="detail-title" wx:if="{{item.title}}" user-select="{{true}}">{{item.title}}</text>

@@ -1,6 +1,54 @@
 const { isPlaybackAllowed } = require('../../utils/feature-flags.js')
 const { canUsePaidCloudSync, gateCheck } = require('../../utils/membership.js')
 const { saveEventVideoToAlbum } = require('./utils/event-video.js')
+const { workerProxyUrl } = require('../../utils/config.js')
+
+function isPlayableVideoUrl(u) {
+  const s = String(u || '').trim()
+  if (!/^https?:\/\//i.test(s)) return false
+  return /\.(mp4|mov|m4v|webm)(?:[?#]|$)/i.test(s)
+}
+
+/** 公众号跳转：e=事件id 或 e=事件id__下标（避免 path 里出现 &） */
+function parseOaEventParam(raw, indexFallback) {
+  const s = String(raw || '').trim()
+  const m = s.match(/^(.*)__(\d+)$/)
+  const eventId = m ? m[1] : s
+  const fromE = m ? parseInt(m[2], 10) : 0
+  const fromI = parseInt(indexFallback, 10)
+  const index = Number.isFinite(fromI) && String(indexFallback ?? '') !== '' ? fromI : fromE
+  return { eventId, index: Math.max(0, index || 0) }
+}
+
+/** 分包页从公众号打开时 onLoad options 常空，query 在启动参数里 */
+function mergeLaunchQuery(rawOptions) {
+  const merged = {}
+  const put = (src) => {
+    if (!src || typeof src !== 'object' || Array.isArray(src)) return
+    Object.keys(src).forEach((k) => {
+      const v = src[k]
+      if (v == null || v === '') return
+      merged[k] = String(v)
+    })
+  }
+  try {
+    const launch = typeof wx.getLaunchOptionsSync === 'function' && wx.getLaunchOptionsSync()
+    if (launch && launch.query) put(launch.query)
+  } catch (e) {}
+  try {
+    if (typeof wx.getEnterOptionsSync === 'function') {
+      const enter = wx.getEnterOptionsSync()
+      if (enter && enter.query) put(enter.query)
+    }
+  } catch (e) {}
+  try {
+    const pages = typeof getCurrentPages === 'function' ? getCurrentPages() : []
+    const cur = pages && pages[pages.length - 1]
+    if (cur && cur.options) put(cur.options)
+  } catch (e) {}
+  put(rawOptions)
+  return merged
+}
 
 Page({
   data: {
@@ -17,9 +65,10 @@ Page({
     // 页面定义了 onShareAppMessage 后转发菜单默认开启；先关掉，待 _bootPlayer 按会员身份放开
     try { wx.hideShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] }) } catch (e) {}
 
+    const opts = mergeLaunchQuery(options)
     // 朋友圈分享落地：onShareTimeline 无法换页，落地页固定是本页，只能靠 goto 参数二跳。
     // 单页模式（scene 1154）无法跳转，展示提示引导打开完整小程序；完整模式直接重定向到来源详情页
-    const goto = this._resolveShareLandingPath(options)
+    const goto = this._resolveShareLandingPath(opts)
     if (goto) {
       if (this._isMomentsSinglePage()) {
         this.setData({ momentsHint: true })
@@ -42,7 +91,13 @@ Page({
           wx.navigateBack({ fail() {} })
           return
         }
-        this._bootPlayer(options)
+        const parsed = parseOaEventParam(opts.e || opts.eventId, opts.i)
+        if (parsed.eventId) {
+          this._oaEventId = parsed.eventId
+          this._bootFromOaEvent(parsed.eventId, parsed.index)
+          return
+        }
+        this._bootPlayer(opts)
       })
   },
 
@@ -61,6 +116,73 @@ Page({
     } catch (e) {
       return false
     }
+  },
+
+  _goEventDetail(eventId) {
+    const id = String(eventId || '').trim()
+    wx.redirectTo({
+      url: '/subpackages/progress-extra/event-detail?id=' + encodeURIComponent(id),
+      fail() {
+        wx.showToast({ title: '这条动态已过期或无法打开', icon: 'none' })
+        wx.navigateBack({ fail() {} })
+      }
+    })
+  },
+
+  _bootFromOaEvent(eventId, indexRaw) {
+    const idx = Math.max(0, parseInt(indexRaw, 10) || 0)
+    const base = String(workerProxyUrl || 'https://api.marsx.com.cn').replace(/\/$/, '')
+    wx.request({
+      url: base + '/public/v1/starship/events',
+      method: 'GET',
+      data: { id: eventId },
+      success: (res) => {
+        const payload = (res && res.data) || {}
+        if (payload.code && payload.code !== 0) {
+          this._goEventDetail(eventId)
+          return
+        }
+        const event = payload.data || payload
+        const list = Array.isArray(event && event.mediaList) ? event.mediaList : []
+        const videos = list.filter((m) => {
+          if (!m) return false
+          if (String(m.type || '').toLowerCase() === 'video') return true
+          return isPlayableVideoUrl(m.previewUrl || m.url)
+        })
+        const media = videos[idx] || videos[0]
+        const play =
+          (isPlayableVideoUrl(media && media.previewUrl) && media.previewUrl) ||
+          (isPlayableVideoUrl(media && media.url) && media.url) ||
+          ''
+        if (!play) {
+          this._goEventDetail(eventId)
+          return
+        }
+        const thumb = String((media && media.thumbnailUrl) || '')
+        this._oaShare = {
+          title: (event && event.title) || '事件视频 | 火星探索日志',
+          path: '/subpackages/progress-extra/event-detail?id=' + encodeURIComponent(eventId),
+          imageUrl: thumb
+        }
+        Promise.resolve(gateCheck('starship_event_list_full', '事件视频', { allowAd: true }))
+          .then((ok) => {
+            if (!ok) {
+              this._goEventDetail(eventId)
+              return
+            }
+            this._bootPlayer({
+              url: encodeURIComponent(play),
+              poster: encodeURIComponent(thumb)
+            })
+          })
+          .catch(() => {
+            this._goEventDetail(eventId)
+          })
+      },
+      fail: () => {
+        this._goEventDetail(eventId)
+      }
+    })
   },
 
   _bootPlayer(options) {
@@ -84,6 +206,10 @@ Page({
         app.globalData.pendingEventVideo = null
       }
     } catch (e) {}
+
+    if (!shareInfo && this._oaShare && this._oaShare.path) {
+      shareInfo = this._oaShare
+    }
 
     // 分享上下文由来源页显式传入（如任务详情回放/集锦、事件更新视频），落地页回到来源详情页，
     // 观看仍走那边的门控。转发/朋友圈入口仅会员开放：免费用户（含看广告解锁）只支持观看；

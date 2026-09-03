@@ -8,7 +8,6 @@
   "backgroundColorBottom": "#000000",
   "usingComponents": {
     "privacy-modal": "/components/privacy-modal/privacy-modal",
-    "popup-ad": "/components/popup-ad/popup-ad",
     "nasa-float": "/subpackages/shared/components/nasa-float/index",
     "demo-overlay": "/subpackages/shared/components/demo-overlay/index",
     "share-guide": "/subpackages/shared/components/share-guide/index",
@@ -17,9 +16,12 @@
     "channels-live-panel": "/subpackages/shared/components/channels-live-panel/index",
     "monitor-galleries": "/subpackages/monitor-pages/components/monitor-galleries/index",
     "monitor-orbital-card": "/subpackages/monitor-pages/components/monitor-orbital-card/index",
+    "monitor-roman-card": "/subpackages/monitor-pages/components/monitor-roman-card/index",
     "monitor-orbit-events": "/subpackages/monitor-pages/components/monitor-orbit-events/index",
     "monitor-core-panel": "/subpackages/monitor-pages/components/monitor-core-panel/index",
-    "china-notice-preview": "/components/china-notice-preview/index"
+    "china-notice-preview": "/subpackages/monitor-pages/components/china-notice-preview/index",
+    "monitor-starbase-weather": "/subpackages/monitor-pages/components/monitor-starbase-weather/index",
+    "popup-ad": "/subpackages/shared/components/popup-ad/popup-ad"
   },
   "componentPlaceholder": {
     "demo-overlay": "view",
@@ -28,7 +30,11 @@
     "nasa-float": "view",
     "monitor-galleries": "view",
     "monitor-orbital-card": "view",
+    "monitor-roman-card": "view",
     "monitor-orbit-events": "view",
-    "monitor-core-panel": "view"
+    "monitor-core-panel": "view",
+    "china-notice-preview": "view",
+    "monitor-starbase-weather": "view",
+    "popup-ad": "view"
   }
 }

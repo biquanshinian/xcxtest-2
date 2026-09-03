@@ -1,4 +1,5 @@
 <template>
+  <div>
   <el-card>
     <template #header>
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
@@ -74,6 +75,7 @@
     </div>
     <el-empty v-if="!shopLoading && !shopList.length" description="暂无小店数据" />
   </el-card>
+  </div>
 </template>
 
 <script setup>

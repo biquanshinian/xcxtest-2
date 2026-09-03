@@ -82,6 +82,7 @@ Page({
     configId: '',
     exhibitTab: 'show',
     introOpen: false,
+    standFlipped: false,
     exhibit: {
       title: '',
       subtitle: '三维展陈',
@@ -178,7 +179,8 @@ Page({
       viewerLoading: true,
       viewerError: '',
       viewerErrorDetail: '',
-      modelUrl: ''
+      modelUrl: '',
+      standFlipped: false
     })
     this._checkEntryAllowed()
       .then(function (allowed) {
@@ -238,6 +240,7 @@ Page({
           memberLocked: false,
           viewerLoading: true,
           viewerError: '',
+          standFlipped: false,
           modelUrl: resolved.url,
           credit: credit,
           exhibit: buildExhibit(null, {
@@ -384,6 +387,18 @@ Page({
     this._playExhibitView('show')
   },
 
+  onFlipChange: function (e) {
+    var flipped = !!(e && e.detail && e.detail.flipped)
+    if (this.data.standFlipped !== flipped) this.setData({ standFlipped: flipped })
+  },
+
+  onFlipStand: function () {
+    var c = this.selectComponent('#rocket3dViewer')
+    if (!c || typeof c.flipStand !== 'function') return
+    var flipped = !!c.flipStand()
+    this.setData({ standFlipped: flipped })
+  },
+
   onRetryViewer: function () {
     if (this.data.memberLocked) {
       this._ensureMemberAndLoad()
@@ -394,7 +409,7 @@ Page({
       this._ensureMemberAndLoad()
       return
     }
-    this.setData({ viewerLoading: true, viewerError: '', viewerErrorDetail: '' })
+    this.setData({ viewerLoading: true, viewerError: '', viewerErrorDetail: '', standFlipped: false })
     var c = this.selectComponent('#rocket3dViewer')
     if (c && typeof c.startViewer === 'function') c.startViewer()
   }

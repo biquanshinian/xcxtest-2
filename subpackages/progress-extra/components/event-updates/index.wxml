@@ -14,19 +14,13 @@
       </view>
     </view>
   </view>
-  <!-- 今日各账号更新统计（标题下方横向滑动，复用首页发射商胶囊交互） -->
-  <view class="tweet-stats-scroll-wrap" wx:if="{{tweetAccountStats.length > 0}}">
-    <scroll-view class="tweet-stats-scroll" scroll-x="true" enhanced="true" show-scrollbar="false" bindscroll="emitOnTweetStatsChipsScroll">
-      <view class="tweet-stats-bar tweet-stats-chips-row">
-        <view class="tweet-stat-item tweet-stat-chip {{isProUser ? 'pro-gold-frame-flat' : ''}}" wx:for="{{tweetAccountStats}}" wx:key="screenName" bindtap="emitOnTweetAccountTap" data-index="{{index}}" data-source="{{item.screenName}}" data-label="{{item.label}}">
-          <image class="tweet-stat-avatar" src="{{item.avatarUrl}}" mode="aspectFill" />
-          <text class="tweet-stat-name">{{item.label}}</text>
-          <text class="tweet-stat-count">{{item.todayCount}}</text>
-        </view>
-      </view>
-    </scroll-view>
-    <view class="tweet-stats-scroll-fade" wx:if="{{tweetStatsChipsHasOverflow}}"></view>
-  </view>
+  <!-- 今日各账号更新统计（标题下方横向滑动；与事件详情页共用 tweet-account-chips） -->
+  <tweet-account-chips
+    theme-class="{{themeClass}}"
+    tweet-account-stats="{{tweetAccountStats}}"
+    is-pro-user="{{isProUser}}"
+    bind:accounttap="onChipsAccountTap"
+  />
 
   <view class="event-updates-card glass-card" wx:if="{{eventUpdates.length > 0}}">
     <!-- 折叠状态：只显示最新1条（含媒体） -->
@@ -47,11 +41,11 @@
         >
           <view class="event-update-link">
             <view class="event-update-header">
-              <text class="event-update-time">{{item.publishedAtText}}</text>
               <view class="event-update-author-wrap" wx:if="{{item.author}}">
                 <image class="event-author-avatar" src="{{item.authorAvatar}}" wx:if="{{item.authorAvatar && !item._avatarError}}" mode="aspectFill" binderror="emitOnAvatarError" data-id="{{item._id}}" />
                 <text class="event-update-author">{{item.author}}</text>
               </view>
+              <text class="event-update-time">{{item.publishedAtText}}</text>
             </view>
             <text class="event-update-title" wx:if="{{item.title}}">{{item.title}}</text>
             <text class="event-update-content" wx:if="{{item.content}}">{{item.content}}</text>
@@ -138,11 +132,11 @@
       >
         <view class="event-update-link">
           <view class="event-update-header">
-            <text class="event-update-time">{{item.publishedAtText}}</text>
             <view class="event-update-author-wrap" wx:if="{{item.author}}">
               <image class="event-author-avatar" src="{{item.authorAvatar}}" wx:if="{{item.authorAvatar && !item._avatarError}}" mode="aspectFill" binderror="emitOnAvatarError" data-id="{{item._id}}" />
               <text class="event-update-author">{{item.author}}</text>
             </view>
+            <text class="event-update-time">{{item.publishedAtText}}</text>
           </view>
 
           <text class="event-update-title" wx:if="{{item.title}}">{{item.title}}</text>

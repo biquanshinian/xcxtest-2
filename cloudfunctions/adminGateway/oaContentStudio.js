@@ -41,8 +41,10 @@ const {
   pickVideoEntries,
   videoPosterUrls,
   annotateVideoPostersInMarkdown,
+  videoPosterSrcPathMap,
   resolveDraftSourceUrl,
   sanitizeContentSourceUrl,
+  resolveOaMiniprogramPath,
   normalizeImgSrc,
   collectHtmlImgSrcs,
   isWechatCdnUrl,
@@ -67,6 +69,9 @@ const {
   stripResidualEnglishParagraphs,
   pickChineseTitle,
   sanitizeWxTitle,
+  looksLikeRepostTitle,
+  stripSocialAttributionMarkdown,
+  sanitizeArticleTitle,
   credentialMissingMsg,
   appendTimeline
 } = helpers
@@ -764,26 +769,25 @@ function createOaContentStudioApi({
     if (!imageUrls.length) return null
     const content = String(ev.content || ev.title || '')
     const tweetUrl = ev.tweetUrl || ''
-    const eventUrl =
-      tweetUrl ||
-      oaFetch.extractArticleUrl(content) ||
-      ev.sourceUrl ||
-      ev.url ||
-      ev.link ||
-      ev.sourceLink ||
-      ''
+    const articleUrl = oaFetch.pickWashableArticleUrl(
+      content,
+      ev.sourceUrl,
+      ev.url,
+      ev.link,
+      ev.sourceLink
+    )
     const accountSource = eventAccountHandle(ev)
     const originalText = String(ev.originalText || '')
     return {
       sourceType: 'starship_event',
       sourceId: String(ev._id),
       title: String(ev.title || '星舰事件').slice(0, 80),
-      summary: topicSummaryWithUrl(content, eventUrl),
+      summary: String(content).slice(0, 280),
       body: content,
       coverUrl: imageUrls[0] || '',
       imageUrls,
       videos,
-      sourceUrl: eventUrl,
+      sourceUrl: articleUrl,
       tweetUrl,
       tweetId: ev.tweetId ? String(ev.tweetId) : '',
       accountSource,
@@ -1042,20 +1046,24 @@ function createOaContentStudioApi({
     const summaryUrl = oaFetch.extractArticleUrl(summary)
     const bodyUrl = oaFetch.extractArticleUrl(body)
     const titleUrl = oaFetch.extractArticleUrl(src.title || '')
-    const explicitSource = oaFetch.isHttpUrl(sourceUrl) && !oaFetch.isImageUrl(sourceUrl) ? sourceUrl : ''
+    const explicitSource =
+      oaFetch.isHttpUrl(sourceUrl) && !oaFetch.isImageUrl(sourceUrl) && !oaFetch.isNonArticleWashUrl(sourceUrl)
+        ? sourceUrl
+        : ''
+    const washUrl = oaFetch.pickWashableArticleUrl(explicitSource, summaryUrl, bodyUrl, titleUrl, body, summary)
     const teaser =
       oaFetch.looksLikeLoneUrl(body) ||
       oaFetch.looksLikeTeaserWithLink(body) ||
       oaFetch.looksLikeTeaserWithLink(summary)
-    const washUrl =
-      explicitSource ||
-      summaryUrl ||
-      (oaFetch.looksLikeLoneUrl(body) ? body : '') ||
-      (teaser ? bodyUrl : '') ||
-      titleUrl
+
+    const typed = String(src.sourceType || '')
+    const keepExistingChinese =
+      (typed === 'starship_event' || typed === 'launch' || typed === 'news_article') &&
+      isMostlyChineseText(body, 24)
 
     const shouldFetch =
       !!washUrl &&
+      !keepExistingChinese &&
       (oaFetch.looksLikeLoneUrl(body) ||
         !!summaryUrl ||
         teaser ||
@@ -1078,18 +1086,21 @@ function createOaContentStudioApi({
         src.title !== '手动选题' &&
         String(src.title).trim() &&
         !oaFetch.looksLikeLoneUrl(src.title)
+      const fetchedEn = isMostlyEnglishText(art.text || '', 40)
       const keepBody =
-        !usedFetchedFromTeaser && body.length >= 400 && !oaFetch.looksLikeLoneUrl(body)
+        keepExistingChinese ||
+        (fetchedEn && isMostlyChineseText(body, 24)) ||
+        (!usedFetchedFromTeaser && body.length >= 400 && !oaFetch.looksLikeLoneUrl(body))
       const mergedImgs = pickImageUrls(art.imageUrls, existingImgs, art.coverUrl)
-      // 优先用带 [[IMG:n]] 的抓取正文；若保留旧正文则事后补占位
       let nextBody = keepBody ? body : art.text || body
       if (mergedImgs.length) {
         nextBody = ensureImageSlotsInBody(nextBody, mergedImgs, 8)
       }
       return {
         ...src,
-        sourceType:
-          usedFetchedFromTeaser || src.sourceType === 'manual' || !src.sourceType
+        sourceType: keepBody
+          ? typed || src.sourceType
+          : usedFetchedFromTeaser || src.sourceType === 'manual' || !src.sourceType
             ? 'external_url'
             : src.sourceType,
         title: keepTitle ? src.title : art.title || src.title,
@@ -1097,7 +1108,7 @@ function createOaContentStudioApi({
         content: nextBody,
         coverUrl: art.coverUrl || src.coverUrl || mergedImgs[0] || '',
         imageUrls: mergedImgs,
-        sourceUrl: art.sourceUrl || url,
+        sourceUrl: keepBody ? src.sourceUrl || art.sourceUrl || url : art.sourceUrl || url,
         sourceSite: art.sourceSite || src.sourceSite || '',
         sourceLabel: art.sourceSite || src.sourceLabel || 'external'
       }
@@ -1518,12 +1529,12 @@ function createOaContentStudioApi({
       })
       if (markdown) {
         patch.markdown = markdown
-        const mpPath = draft.miniprogramPath || cfg.miniprogramPath || 'pages/index/index'
+        const mpPath = wechatApi.sanitizeMiniprogramPath(resolveOaMiniprogramPath(draft, cfg))
         // 与预览/推送同源：补标题 + gallery section + 配图小程序锚点
         const bodyHtml = renderThemeBodyHtml(
           prepareMarkdownForTheme(markdown, draft.title),
           draft.themeId,
-          { cfg, mpPath }
+          { cfg, mpPath, draft: Object.assign({}, draft, { imageMap: map }) }
         )
         patch.html = buildLeadHtml(cfg, mpPath) + bodyHtml
         patch.html = await appendMiniprogramCtaHtml(patch.html, cfg, brand, {
@@ -1647,7 +1658,8 @@ function createOaContentStudioApi({
       titleHint: strategy.titleHint || '',
       sourceTitle: source.title || '',
       sourceLabel: source.sourceType || source.sourceLabel || 'manual',
-      sourceBody: slottedBody
+      // 8000 字喂给混元易超时空响应；成稿占位仍用完整 slottedBody
+      sourceBody: slottedBody.slice(0, 4500)
     }
     const system = renderTemplate(prompt.system, vars)
     let userMsg = renderTemplate(prompt.user, vars)
@@ -1666,8 +1678,8 @@ function createOaContentStudioApi({
       const longCount = videos.filter((v) => v.isLong).length
       userMsg +=
         `\n\n【视频素材】素材含 ${videos.length} 段视频${longCount ? `（其中 ${longCount} 段为长视频）` : ''}，` +
-        `文中只放视频封面截图${posterIdxs.length ? `，对应占位 ${posterIdxs.map((n) => `[[IMG:${n}]]`).join('、')}` : ''}。` +
-        '提及这些画面时用「视频画面/视频截图」表述，不要写成读者可在文内直接播放的视频。'
+        `文中放视频封面截图${posterIdxs.length ? `，对应占位 ${posterIdxs.map((n) => `[[IMG:${n}]]`).join('、')}` : ''}。` +
+        '读者点击封面会进入小程序该条事件动态（绑定事件 ID），成稿里写成「点击封面即可观看」即可，不要说没法播。'
     }
     userMsg +=
       '\n\n【语言】成稿用简体中文写标题和正文；专有名词可保留英文，禁止整段照抄英文。'
@@ -1676,19 +1688,9 @@ function createOaContentStudioApi({
     }
     if (source.accountSource) {
       userMsg +=
-        `\n\n【推文账号】来源 @${source.accountSource}` +
-        `${source.accountLabel && source.accountLabel !== source.accountSource ? `（${source.accountLabel}）` : ''}。` +
-        '成稿可点明账号来源，禁止编造该账号没写过的内容。'
-    }
-    if (source.publishedAt) {
-      userMsg += `\n\n【发布时间】${new Date(source.publishedAt).toISOString()}`
-    }
-    if (
-      source.originalText &&
-      String(source.originalText).trim() &&
-      String(source.originalText).trim() !== rawBody.trim()
-    ) {
-      userMsg += `\n\n【推文英文原文】\n${String(source.originalText).slice(0, 2000)}`
+        `\n\n【推文账号】@${source.accountSource}` +
+        `${source.accountLabel && source.accountLabel !== source.accountSource ? `（${source.accountLabel}）` : ''}` +
+        ' 仅供核对来源，不要写进标题或成稿署名。'
     }
     if (source.rocket || source.pad || source.net) {
       userMsg +=
@@ -1716,7 +1718,7 @@ function createOaContentStudioApi({
       sourceType: source.sourceType || 'manual',
       sourceId: source.sourceId || '',
       sourceTitle: source.title || '',
-      // 「阅读原文」只挂网页（来源页/推文页）；禁止 COS/外链裸 mp4（微信内打不开）
+      // 「阅读原文」：有事件视频则挂 oa-watch 中转页；禁止 X/Twitter 与裸 mp4
       sourceUrl: resolveDraftSourceUrl(source, videos),
       videos,
       sourceSlottedBody: slottedBody,
@@ -1730,7 +1732,17 @@ function createOaContentStudioApi({
       html: '',
       digest: '',
       author: brand.author || cfg.author || '火星探索日志',
-      miniprogramPath: cfg.miniprogramPath || 'pages/index/index',
+      miniprogramPath: wechatApi.sanitizeMiniprogramPath(
+        resolveOaMiniprogramPath(
+          {
+            sourceType: source.sourceType || 'manual',
+            sourceId: source.sourceId || '',
+            videos,
+            miniprogramPath: cfg.miniprogramPath || 'pages/index/index'
+          },
+          cfg
+        )
+      ),
       error: '',
       wxMediaId: '',
       wxPublishId: '',
@@ -1743,44 +1755,64 @@ function createOaContentStudioApi({
 
     try {
       let usedFallback = false
+      let lastLlmError = ''
       const gen = await generateText({
         system,
         user: userMsg,
-        // 0.85 实测会脑补事实；0.55 兼顾文风随机性与事实稳定
         temperature: 0.55,
-        maxTokens: 2500
+        maxTokens: 1800
       })
       let raw = (gen && gen.text) || ''
+      lastLlmError = String((gen && gen.error) || '')
       if (!raw) {
         usedFallback = true
-        const llmHint = String((gen && gen.error) || '混元/外部 AI 均未返回正文').slice(0, 240)
-        raw =
-          `# ${vars.sourceTitle || '航天速递'}\n\n` +
-          `> 自动生成暂不可用（${llmHint}）。以下为素材整理稿，请人工改写后保存再推送。\n\n` +
-          `${vars.sourceBody || '（无素材）'}`
       } else if (isMostlyEnglishText(raw) && !isMostlyChineseText(raw)) {
+        const imgHint = imageUrls.length
+          ? `保留占位 ${imageUrls.map((_, i) => `[[IMG:${i + 1}]]`).join(' ')}，不要输出 http 图片链接。`
+          : ''
+        const retryUser = [
+          '把下面素材写成一篇简体中文公众号短讯（400字内）。',
+          '第一行用 Markdown 一级标题，空一行后写正文。',
+          '不要整段英文，不要署名 @，不要写「由某某带来」。',
+          imgHint,
+          '',
+          `标题：${vars.sourceTitle}`,
+          '',
+          slottedBody.slice(0, 2800)
+        ]
+          .filter(Boolean)
+          .join('\n')
         const retry = await generateText({
-          system,
-          user: userMsg + '\n\n【重写】上一稿仍是英文。只输出简体中文标题和正文，禁止整段英文。',
-          temperature: 0.4,
-          maxTokens: 2500
+          system: '你是航天资讯编辑。只输出简体中文 Markdown。',
+          user: retryUser,
+          temperature: 0.3,
+          maxTokens: 1200,
+          liteFirst: true
         })
         if (retry && retry.text && (isMostlyChineseText(retry.text) || !isMostlyEnglishText(retry.text))) {
           raw = retry.text
+          lastLlmError = ''
         } else {
           usedFallback = true
-          const llmHint = String((retry && retry.error) || gen.error || '成稿未完成汉化').slice(0, 240)
+          lastLlmError = [lastLlmError, retry && retry.error, '成稿仍为英文'].filter(Boolean).join('；')
+        }
+      }
+      if (usedFallback) {
+        const llmHint = String(lastLlmError || (gen && gen.error) || '成稿未完成汉化').slice(0, 240)
+        if (isMostlyChineseText(slottedBody, 24)) {
+          const zhTitle = sanitizeArticleTitle(vars.sourceTitle || '航天速递', slottedBody)
+          raw = `# ${zhTitle}\n\n${slottedBody}`
+        } else {
           raw =
-            `# ${vars.sourceTitle || '航天速递'}\n\n` +
-            `> 自动生成未完成汉化（${llmHint}）。以下为素材整理稿，请人工改写后保存再推送。\n\n` +
-            `${vars.sourceBody || '（无素材）'}`
+            `# 待人工改写\n\n` +
+            `> 自动生成未完成汉化（${llmHint}）。请用中文改写后保存再推送。\n`
         }
       }
       const parsed = stripTitleFromMarkdown(raw)
-      let title = (parsed.title || vars.sourceTitle || '未命名').slice(0, 64)
-      // 严格按原稿占位落图，避免成稿后重排错位
+      let title = sanitizeArticleTitle(parsed.title || vars.sourceTitle || '未命名', parsed.body || '')
       let bodyMd = placeImagesAlignedToSource(parsed.body || '', slottedBody, imageUrls, 8)
-      if (!usedFallback) {
+      bodyMd = stripSocialAttributionMarkdown(bodyMd)
+      if (!usedFallback || isMostlyChineseText(bodyMd, 24)) {
         const stripped = stripResidualEnglishParagraphs(bodyMd)
         if (
           stripped &&
@@ -1790,23 +1822,32 @@ function createOaContentStudioApi({
         }
         if (isMostlyEnglishText(title, 12) && isMostlyChineseText(bodyMd)) {
           const zhTitle = pickChineseTitle(`# ${title}\n\n${bodyMd}`)
-          if (zhTitle) title = zhTitle.slice(0, 64)
+          if (zhTitle) title = zhTitle.slice(0, 32)
         }
+        title = sanitizeArticleTitle(title, bodyMd)
       }
       bodyMd = ensureHeroImagePlacement(bodyMd, {
         coverUrl: draftDoc.coverUrl || imageUrls[0] || brand.defaultCoverUrl || cfg.defaultCoverUrl || ''
       })
-      // 视频封面截图下补「▶ …」说明行（阅读原文指向该视频时一并提示）
-      bodyMd = annotateVideoPostersInMarkdown(bodyMd, videos, { readMoreUrl: draftDoc.sourceUrl })
+      // 视频封面截图下补「▶ …」说明行（有事件 id 时引导点封面进小程序）
+      bodyMd = annotateVideoPostersInMarkdown(bodyMd, videos, {
+        readMoreUrl: draftDoc.sourceUrl,
+        eventId: draftDoc.sourceId
+      })
       bodyMd = stripPromoBrandFooterMarkdown(bodyMd)
       const foot = safeBrandFooter(brand, cfg)
       const markdown =
         bodyMd + (foot ? `\n\n---\n\n${foot}` : '')
       const themeId = resolveThemeId(strategy.themeId || 'clean')
-      const mpPath = cfg.miniprogramPath || 'pages/index/index'
+      const mpPath = wechatApi.sanitizeMiniprogramPath(resolveOaMiniprogramPath(draftDoc, cfg))
+      draftDoc.miniprogramPath = mpPath
       let html =
         buildLeadHtml(cfg, mpPath) +
-        renderThemeBodyHtml(prepareMarkdownForTheme(markdown, title), themeId, { cfg, mpPath })
+        renderThemeBodyHtml(prepareMarkdownForTheme(markdown, title), themeId, {
+          cfg,
+          mpPath,
+          draft: draftDoc
+        })
       html = await appendMiniprogramCtaHtml(html, cfg, brand, {
         path: mpPath,
         mode: 'link',
@@ -1824,13 +1865,17 @@ function createOaContentStudioApi({
           html,
           digest,
           themeId,
+          miniprogramPath: mpPath,
           coverUrl: draftDoc.coverUrl,
           imageUrls,
           sourceSlottedBody: slottedBody,
           generatedByAi: !usedFallback,
+          llmError: usedFallback ? String(lastLlmError || '').slice(0, 240) : '',
           updatedAt: now(),
           error: usedFallback
-            ? `LLM 不可用，已写入素材整理稿，需人工改写。${String((gen && gen.error) || '').slice(0, 200)}`
+            ? isMostlyChineseText(bodyMd, 24)
+              ? `LLM 未改写完成，已保留中文素材，请审阅。${String(lastLlmError || '').slice(0, 160)}`
+              : `LLM 不可用，请人工用中文改写。${String(lastLlmError || '').slice(0, 200)}`
             : ''
         }
       })
@@ -1848,7 +1893,7 @@ function createOaContentStudioApi({
             wxImageFail: {},
             wxImageUploadSlot: '',
             error: usedFallback
-              ? `LLM 不可用，已写入素材整理稿，需人工改写。${String((gen && gen.error) || '').slice(0, 200)}`
+              ? `LLM 不可用，已写入素材整理稿，需人工改写。${String(lastLlmError || '').slice(0, 200)}`
               : imagesReadyOut
                 ? ''
                 : '配图转存中，完成后即可推送',
@@ -1875,7 +1920,7 @@ function createOaContentStudioApi({
         generatedByAi: !usedFallback,
         imagesReady: imagesReadyOut,
         // 兜底时带回 LLM 失败原因，前端可提示（否则用户只看到「需改写」不知为何）
-        llmError: usedFallback ? String((gen && gen.error) || 'LLM 未返回正文').slice(0, 240) : ''
+        llmError: usedFallback ? String(lastLlmError || 'LLM 未返回正文').slice(0, 240) : ''
       })
     } catch (e) {
       // 系统性生成失败进 generate_failed，不再占用人工「已拒绝」语义
@@ -1907,9 +1952,8 @@ function createOaContentStudioApi({
         coverUrl: body.coverUrl || '',
         imageUrls: pickImageUrls(body.imageUrls, body.images, body.coverUrl),
         sourceUrl:
-          srcUrl ||
-          oaFetch.extractArticleUrl(manual) ||
-          (oaFetch.looksLikeLoneUrl(manual) ? manual : '')
+          oaFetch.pickWashableArticleUrl(srcUrl, manual) ||
+          (oaFetch.looksLikeLoneUrl(manual) && !oaFetch.isNonArticleWashUrl(manual) ? manual : '')
       })
     } else {
       const gathered = await gatherTopics({ limit: Number(body.count) || 3 })
@@ -1970,21 +2014,33 @@ function createOaContentStudioApi({
     return `<section style="background-color:#ffffff;padding:16px">${String(bodyHtml || '')}</section>`
   }
 
-  function applyImageMiniprogramLinks(html, cfg, path) {
+  function applyImageMiniprogramLinks(html, cfg, path, draftLike) {
     return wechatApi.wrapImagesWithMiniprogram(html, {
       path: path || 'pages/index/index',
-      mode: wechatApi.resolveImageMiniprogramLinkMode(cfg)
+      mode: wechatApi.resolveImageMiniprogramLinkMode(cfg),
+      srcPathMap: videoPosterSrcPathMap(draftLike)
     })
   }
 
   /**
    * 主题正文 HTML（不含 lead/CTA）：预览 all / 单预览 / 推送 必须同源
    */
-  function renderThemeBodyHtml(markdown, themeId, { cfg, mpPath } = {}) {
+  function renderThemeBodyHtml(markdown, themeId, { cfg, mpPath, draft } = {}) {
     const tid = resolveThemeId(themeId)
     let bodyHtml = markdownToWechatHtml(markdown || '', tid)
-    bodyHtml = applyImageMiniprogramLinks(bodyHtml, cfg, mpPath || 'pages/index/index')
+    bodyHtml = applyImageMiniprogramLinks(bodyHtml, cfg, mpPath || 'pages/index/index', draft)
     return wrapThemeArticle(bodyHtml)
+  }
+
+  function draftLikeFromPreviewBody(body) {
+    if (!body || typeof body !== 'object') return null
+    return {
+      sourceId: body.sourceId || '',
+      sourceType: body.sourceType || '',
+      miniprogramPath: body.miniprogramPath || '',
+      videos: Array.isArray(body.videos) ? body.videos : [],
+      imageMap: body.imageMap || decodeImageMap(body)
+    }
   }
 
   async function renderDraftHtml({
@@ -1993,16 +2049,23 @@ function createOaContentStudioApi({
     brandKey,
     miniprogramPath,
     includeChrome,
-    title
+    title,
+    draft
   }) {
     const cfg = await readConfig()
     const brand = resolveBrand(cfg, brandKey || cfg.defaultBrandKey)
     const tid = resolveThemeId(themeId)
     const mpPath = wechatApi.sanitizeMiniprogramPath(
-      miniprogramPath || cfg.miniprogramPath || 'pages/index/index'
+      resolveOaMiniprogramPath(
+        {
+          ...(draft || {}),
+          miniprogramPath: miniprogramPath || (draft && draft.miniprogramPath) || ''
+        },
+        cfg
+      )
     )
     const prepared = prepareMarkdownForTheme(markdown || '', title)
-    let bodyHtml = renderThemeBodyHtml(prepared, tid, { cfg, mpPath })
+    let bodyHtml = renderThemeBodyHtml(prepared, tid, { cfg, mpPath, draft })
     if (includeChrome === false) {
       return { html: bodyHtml, themeId: tid, brandKey: brand.key, miniprogramPath: mpPath }
     }
@@ -2026,7 +2089,8 @@ function createOaContentStudioApi({
       brandKey: body.brandKey,
       miniprogramPath: body.miniprogramPath,
       title: body && body.title,
-      includeChrome: body.includeChrome !== false
+      includeChrome: body.includeChrome !== false,
+      draft: draftLikeFromPreviewBody(body)
     })
     return ok(rendered)
   }
@@ -2043,7 +2107,7 @@ function createOaContentStudioApi({
     const cfg = await readConfig()
     const brand = resolveBrand(cfg, (body && body.brandKey) || cfg.defaultBrandKey)
     const mpPath = wechatApi.sanitizeMiniprogramPath(
-      (body && body.miniprogramPath) || cfg.miniprogramPath || 'pages/index/index'
+      resolveOaMiniprogramPath(draftLikeFromPreviewBody(body) || body, cfg)
     )
     const includeChrome = body && body.includeChrome === false ? false : true
     const lead = includeChrome ? buildLeadHtml(cfg, mpPath) : ''
@@ -2058,9 +2122,10 @@ function createOaContentStudioApi({
     const themes = {}
     const meta = listThemeMeta()
     const fingerprints = {}
+    const draftLike = draftLikeFromPreviewBody(body)
     for (const t of meta) {
       const tid = resolveThemeId(t.id)
-      const bodyHtml = renderThemeBodyHtml(prepared, tid, { cfg, mpPath })
+      const bodyHtml = renderThemeBodyHtml(prepared, tid, { cfg, mpPath, draft: draftLike })
       themes[tid] = includeChrome ? lead + bodyHtml + ctaTail : bodyHtml
       // 用 h1 style 指纹证明主题确实不同
       const h1 = (bodyHtml.match(/<h1 style="([^"]*)"/) || [])[1] || ''
@@ -2121,7 +2186,14 @@ function createOaContentStudioApi({
 
     const themeId = resolveThemeId((body && body.themeId) || 'bytedance')
     const mpPath = wechatApi.sanitizeMiniprogramPath(
-      (body && body.miniprogramPath) || cfg.miniprogramPath || 'pages/index/index'
+      resolveOaMiniprogramPath(
+        {
+          sourceType: (body && body.sourceType) || 'imported',
+          sourceId: (body && body.sourceId) || '',
+          miniprogramPath: (body && body.miniprogramPath) || cfg.miniprogramPath
+        },
+        cfg
+      )
     )
     const digest = resolveArticleDigest(body, bodyMd)
 
@@ -2131,7 +2203,12 @@ function createOaContentStudioApi({
       brandKey: brand.key,
       miniprogramPath: mpPath,
       title: (body && body.title) || '',
-      includeChrome: true
+      includeChrome: true,
+      draft: {
+        sourceType: (body && body.sourceType) || 'imported',
+        sourceId: (body && body.sourceId) || '',
+        miniprogramPath: mpPath
+      }
     })
 
     const mdImgs = collectMarkdownImageUrls(finalMd)
@@ -2635,8 +2712,11 @@ function createOaContentStudioApi({
           ? `（已跳过 ${rewritten.dropped.length} 张无法转存的图）`
           : ''
       html = wechatApi.stripMiniprogramCta(html)
-      const mpPath = draft.miniprogramPath || cfg.miniprogramPath || 'pages/index/index'
-      html = applyImageMiniprogramLinks(html, cfg, mpPath)
+      const mpPath = wechatApi.sanitizeMiniprogramPath(resolveOaMiniprogramPath(draft, cfg))
+      const draftForMp = Object.assign({}, draft, {
+        imageMap: rewritten.imageMap || decodeImageMap(draft)
+      })
+      html = applyImageMiniprogramLinks(html, cfg, mpPath, draftForMp)
       const cardImage =
         (html.match(/<img\b[^>]*\bsrc=["'](https?:\/\/[^"']+)["']/i) || [])[1] ||
         cover ||
@@ -2658,7 +2738,12 @@ function createOaContentStudioApi({
       html = buildLeadHtml(cfg, mpPath) + html
       html = await appendMiniprogramCtaHtml(html, cfg, brand, { ...ctaOpts, mode: ctaMode })
 
-      const sourceUrl = sanitizeContentSourceUrl(draft.sourceUrl)
+      const sourceUrl =
+        sanitizeContentSourceUrl(draft.sourceUrl) ||
+        resolveDraftSourceUrl(
+          { sourceUrl: draft.sourceUrl, sourceId: draft.sourceId },
+          draft.videos
+        )
       // 推送前校正摘要：避免「封面https://…」进微信分享卡片
       const digest = resolveArticleDigest(draft)
       if (digest && digest !== String(draft.digest || '').trim()) {
@@ -2689,7 +2774,7 @@ function createOaContentStudioApi({
           console.warn('[oaContent] draft 45166, retry with safer CTA', e1.message || e1)
           // 保留正文配图小程序锚点，只降级文末 CTA
           html = wechatApi.stripMiniprogramCta(html)
-          html = applyImageMiniprogramLinks(html, cfg, mpPath)
+          html = applyImageMiniprogramLinks(html, cfg, mpPath, draftForMp)
           if (shouldAppendMiniprogramCta(cfg)) {
             html = await appendMiniprogramCtaHtml(html, cfg, brand, {
               ...ctaOpts,
@@ -2708,7 +2793,7 @@ function createOaContentStudioApi({
               // 再试：仅配图锚点 + 无文末 CTA（优先保配图可点）
               console.warn('[oaContent] draft 45166, retry images-only MP links', e2.message || e2)
               html = wechatApi.stripMiniprogramCta(html)
-              html = applyImageMiniprogramLinks(html, cfg, mpPath)
+              html = applyImageMiniprogramLinks(html, cfg, mpPath, draftForMp)
               article.content = html
               ctaFallback = 'images_only'
               try {
@@ -2756,6 +2841,7 @@ function createOaContentStudioApi({
         wxMediaId: wx.media_id,
         wxThumbMediaId: thumbMediaId,
         html,
+        miniprogramPath: mpPath,
         ...(mdForPush ? { markdown: mdForPush } : {}),
         pushLeaseAt: 0,
         pushPrevStatus: '',
@@ -3985,7 +4071,8 @@ function createOaContentStudioApi({
           brandKey: brand.key,
           miniprogramPath: patch.miniprogramPath || cur.miniprogramPath || cfg.miniprogramPath,
           title: patch.title != null ? patch.title : cur.title,
-          includeChrome: true
+          includeChrome: true,
+          draft: { ...cur, ...patch }
         })
         patch.html = rendered.html
         patch.themeId = themeForRender

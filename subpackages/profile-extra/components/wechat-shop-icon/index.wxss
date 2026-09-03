@@ -1,0 +1,6 @@
+.pf-shop-title-icon {
+  width: 32rpx;
+  height: 32rpx;
+  display: block;
+  flex-shrink: 0;
+}

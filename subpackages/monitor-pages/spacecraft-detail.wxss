@@ -1,5 +1,5 @@
 /* spacecraft-detail.wxss — 飞船构型详情页（暗色毛玻璃，与监控中心一致） */
-@import "/styles/fav-btn.wxss";
+@import "./styles/fav-btn.wxss";
 
 page {
   background: var(--color-bg-page);

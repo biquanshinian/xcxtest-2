@@ -1,5 +1,6 @@
 var { resolveRocketModel } = require('../../models.js')
 var runtime = require('../../runtime.js')
+var { getStandFlipPref, setStandFlipPref } = require('../../stand-flip-pref.js')
 var theme = require('../../../../utils/theme.js')
 
 function loadThreeLib() {
@@ -51,6 +52,7 @@ Component({
     usingPlaceholder: false,
     themeLight: false,
     live: false,
+    standFlipped: false,
     dimLabels: []
   },
 
@@ -158,7 +160,7 @@ Component({
       this._loadProgress = 4
       var bootGen = this._bootGen || 0
       this._bootGen = bootGen
-      this.setData({ started: true, loading: true, live: false })
+      this.setData({ started: true, loading: true, live: false, standFlipped: false })
       this._emitStatus('', '', 4)
       var that = this
       this._boot()
@@ -265,7 +267,11 @@ Component({
         .then(function (scene) {
           if (bootGen !== that._bootGen || that._session !== session) return
           runtime.setModel(session, scene)
-          that.setData({ usingPlaceholder: false })
+          var slug = resolved.slug
+          if (getStandFlipPref(slug)) runtime.applyManualStandFlip(session, true)
+          var flipped = runtime.isStandFlipped(session)
+          that.setData({ usingPlaceholder: false, standFlipped: flipped })
+          that.triggerEvent('flipchange', { flipped: flipped })
           that._emitStatus('', '', 100)
         })
     },
@@ -357,6 +363,22 @@ Component({
       this._exhibitMode = mode
       runtime.playExhibitView(this._session, mode)
       this._applyDimGuides()
+    },
+
+    flipStand: function () {
+      if (!this._session) return false
+      var flipped = runtime.toggleManualStandFlip(this._session)
+      var slug = this._resolved && this._resolved.slug
+      setStandFlipPref(slug, flipped)
+      this.setData({ standFlipped: flipped })
+      this.triggerEvent('flipchange', { flipped: flipped })
+      this._applyDimGuides()
+      if (this._exhibitMode) runtime.playExhibitView(this._session, this._exhibitMode)
+      return flipped
+    },
+
+    onFlipStand: function () {
+      this.flipStand()
     },
 
     onExpand: function () {

@@ -39,10 +39,15 @@ function sanitizeMiniprogramPath(path) {
   let p = String(path || 'pages/index/index')
     .replace(/^\//, '')
     .trim()
-  if (!p || p.includes('..') || !/^[a-zA-Z0-9_./-]+$/.test(p)) {
-    p = 'pages/index/index'
+  const qAt = p.indexOf('?')
+  const base = qAt >= 0 ? p.slice(0, qAt) : p
+  const qs = qAt >= 0 ? p.slice(qAt + 1) : ''
+  if (!base || base.includes('..') || !/^[a-zA-Z0-9_./-]+$/.test(base)) {
+    return 'pages/index/index'
   }
-  return p.slice(0, 128)
+  if (!qs) return base.slice(0, 128)
+  if (!/^[a-zA-Z0-9_.=&%-]+$/.test(qs)) return base.slice(0, 128)
+  return `${base}?${qs}`.slice(0, 256)
 }
 
 function isBlockedIp(ip) {
@@ -652,12 +657,45 @@ function resolveImageMiniprogramLinkMode(cfg) {
 /**
  * 按模式给正文配图包小程序锚点：
  * 先拆掉包住 img 的普通/脏 <a>（含 <br>），再按 first/last/all 等包锚点，避免嵌套与孤儿标签。
+ * srcPathMap：视频封面单独绑定该事件详情（可带 id=xxx__n），并附加「▶ 点击播放视频」。
  */
-function wrapImagesWithMiniprogram(html, { path, mode = 'all' } = {}) {
+function wrapImagesWithMiniprogram(html, { path, mode = 'all', srcPathMap } = {}) {
   const m = normalizeImageMiniprogramLinkMode(mode)
-  if (m === 'none') return String(html || '')
-  const open = miniprogramAnchorOpen(path)
+  const posterMap = srcPathMap && typeof srcPathMap === 'object' ? srcPathMap : {}
+  const hasPosterMap = Object.keys(posterMap).length > 0
+  if (m === 'none' && !hasPosterMap) return String(html || '')
+  const defaultOpen = miniprogramAnchorOpen(path)
+  const wrap = (img, mpPath) => {
+    const open = mpPath ? miniprogramAnchorOpen(mpPath) : defaultOpen
+    const core = `${open}${img}</a>`
+    // 视频封面额外给一条文字链：配图锚点被 45166 剥掉后，读者仍能点进该事件页
+    if (!mpPath) return core
+    return (
+      `${core}<br/>` +
+      `${open}<span style="color:#576b95;">▶ 点击播放视频</span></a>`
+    )
+  }
+  const posterPathOf = (img) => {
+    const src = String((img.match(/\bsrc=["']([^"']+)["']/i) || [])[1] || '')
+      .trim()
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+    return (
+      posterMap[src] ||
+      posterMap[src.replace(/&amp;/g, '&')] ||
+      posterMap[src.split('?')[0]] ||
+      ''
+    )
+  }
   let s = String(html || '')
+  s = s.replace(
+    /<p\b[^>]*>\s*<a\b[^>]*data-miniprogram-appid=["'][^"']+["'][^>]*>\s*<span\b[^>]*>\s*▶\s*点击播放视频\s*<\/span>\s*<\/a>\s*<\/p>/gi,
+    ''
+  )
+  s = s.replace(
+    /<br\s*\/?>\s*<a\b[^>]*data-miniprogram-appid=["'][^"']+["'][^>]*>\s*<span\b[^>]*>\s*▶\s*点击播放视频\s*<\/span>\s*<\/a>/gi,
+    ''
+  )
   s = s.replace(
     /<a\b[^>]*>\s*(<img\b[^>]*>)\s*(?:<br\s*\/?\s*>\s*)?<\/a>/gi,
     '$1'
@@ -665,17 +703,25 @@ function wrapImagesWithMiniprogram(html, { path, mode = 'all' } = {}) {
   const tags = s.match(/<img\b[^>]*>/gi) || []
   if (!tags.length) return s
   if (m === 'all') {
-    return s.replace(/<img\b[^>]*>/gi, (img) => `${open}${img}</a>`)
+    return s.replace(/<img\b[^>]*>/gi, (img) => wrap(img, posterPathOf(img)))
+  }
+  if (m === 'none') {
+    return s.replace(/<img\b[^>]*>/gi, (img) => {
+      const vp = posterPathOf(img)
+      return vp ? wrap(img, vp) : img
+    })
   }
   const n = tags.length
   let i = 0
   return s.replace(/<img\b[^>]*>/gi, (img) => {
     const idx = i++
+    const vp = posterPathOf(img)
+    if (vp) return wrap(img, vp)
     const hit =
       (m === 'first' && idx === 0) ||
       (m === 'last' && idx === n - 1) ||
       (m === 'first_last' && (idx === 0 || idx === n - 1))
-    return hit ? `${open}${img}</a>` : img
+    return hit ? wrap(img, '') : img
   })
 }
 
@@ -685,6 +731,7 @@ function wrapAllImagesWithMiniprogram(html, opts) {
 }
 
 /** 45166 最终回退：去掉配图上的小程序锚点，仅保留裸图 */
+/** 45166 最终回退：去掉配图上的小程序锚点，仅保留裸图（封面下的「点击播放」文字链仍保留） */
 function unwrapMiniprogramImageLinks(html) {
   return String(html || '').replace(
     /<a\b[^>]*data-miniprogram-appid=["'][^"']+["'][^>]*>\s*(<img\b[^>]*>)\s*<\/a>/gi,

@@ -12,7 +12,7 @@ const {
   decorateEventItem,
   pickTodayHighlights,
   slimHighlightItem
-} = require('../../../../utils/event-feed-intel.js')
+} = require('../../utils/event-feed-intel.js')
 const {
   isChineseRocketContext,
   softenChineseRocketFailureText

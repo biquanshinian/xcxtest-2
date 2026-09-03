@@ -64,8 +64,9 @@
         </view>
       </view>
 
-      <!-- 其余任务：保持原有小卡片 -->
-      <view class="orbit-card glass-card orbit-card--clickable" wx:for="{{upcomingOrbitalEvents}}" wx:if="{{index > 0}}" wx:key="id" data-id="{{item.id}}" bindtap="emitEventTap">
+      <!-- 其余任务：保持原有小卡片（wx:for / wx:if 不可写在同一节点） -->
+      <block wx:for="{{upcomingOrbitalEvents}}" wx:key="id">
+      <view class="orbit-card glass-card orbit-card--clickable" wx:if="{{index > 0}}" data-id="{{item.id}}" bindtap="emitEventTap">
         <view class="orbit-card-media" wx:if="{{item.imageUrl}}">
           <image class="orbit-card-img" src="{{item.imageUrl}}" mode="aspectFill" lazy-load data-index="{{index}}" data-id="{{item.id}}" binderror="emitImageError" />
         </view>
@@ -89,6 +90,7 @@
           </view>
         </view>
       </view>
+      </block>
     </view>
     <empty-state wx:else icon="" text="暂无即将进行的在轨任务" hint="对接、出舱等事件将自动汇聚" />
   </block>

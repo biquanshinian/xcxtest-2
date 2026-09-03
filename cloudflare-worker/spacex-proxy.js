@@ -1,3 +1,6 @@
+import { handleOaWatchRequest } from './oa-watch.js'
+import { handleRomanTrackerRequest } from './roman-tracker.js'
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -20,6 +23,10 @@ export default {
     }
 
     try {
+      if (url.pathname === '/oa-watch') {
+        return handleOaWatchRequest(request, env, corsHeaders)
+      }
+
       if (url.pathname === '/timeline') {
         const user = url.searchParams.get('user') || 'SpaceX'
         // 未登录时 syndication 对大部分账号只返回"历史热门 Top100"而非最新时间线，
@@ -784,6 +791,13 @@ export default {
             status: 502, headers: corsHeaders
           })
         }
+      }
+
+      /**
+       * 罗曼太空望远镜追踪 — Horizons -211 + DSN Now RST，服务端解析为精简 JSON
+       */
+      if (url.pathname === '/roman-tracker' || url.pathname === '/roman-tracker/') {
+        return handleRomanTrackerRequest(request, env, corsHeaders)
       }
 
       /**

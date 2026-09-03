@@ -30,10 +30,12 @@ page {
 
 .nasa-tab-item {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 20rpx 0 16rpx;
+  justify-content: center;
+  padding: 16rpx 4rpx 14rpx;
   position: relative;
   overflow: visible;
   background: transparent;
@@ -58,8 +60,8 @@ page {
 }
 .nasa-tab-item--active { background: transparent; }
 .nasa-tab-item--active::after { transform: translateX(-50%) scaleX(1); opacity: 1; }
-.nasa-tab-icon { font-size: 36rpx; margin-bottom: 4rpx; }
-.nasa-tab-label { font-size: 24rpx; color: var(--color-text-secondary, #8E8E93); transition: color 0.25s ease; }
+.nasa-tab-icon { font-size: 32rpx; margin-bottom: 4rpx; }
+.nasa-tab-label { font-size: 22rpx; color: var(--color-text-secondary, #8E8E93); transition: color 0.25s ease; white-space: nowrap; }
 .nasa-tab-item--active .nasa-tab-label { color: var(--color-text-primary); font-weight: 600; }
 
 /* ========== 通用 ========== */
@@ -299,3 +301,14 @@ page {
 /* 照片占位底：深灰骨架 → 浅灰 */
 .theme-light .mars-photo-item { background: rgba(0, 0, 0, 0.05); }
 /* .mars-photo-label 为压图文字浮层，保持深色渐变不覆盖 */
+
+/* 月球 / 宇宙探索：嵌入监控分包卡片，左右与 glass-card 对齐 */
+.nasa-embed {
+  margin: 8rpx 28rpx 0;
+}
+.nasa-embed .artemis-card-root {
+  margin-bottom: 0;
+}
+.nasa-embed--roman .roman-card-root.monitor-block {
+  margin: 0;
+}

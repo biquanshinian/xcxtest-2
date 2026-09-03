@@ -7,6 +7,8 @@
  *
  * 主包 monitor.js 通过 require.async + attachTo 委托加载（与 monitor-galleries 一致）。
  */
+// 打包锚点：upcoming-orbital-events.js 仅被主包 api-app-services require.async 引用
+const orbitalEventsMod = require('./upcoming-orbital-events.js')
 const { getUpcomingOrbitalEvents } = require('../../../utils/api-app-services.js')
 const { getOrbitalConfig: getOrbitalConfigCached } = require('./orbital-config-cache.js')
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
@@ -97,7 +99,7 @@ const methods = {
     this.setData({ orbitalReady: true, orbitalLoading: true })
     try {
       // 官方文档字段为空时回退 events/upcoming 缓存（见 getUpcomingOrbitalEvents）
-      const list = await getUpcomingOrbitalEvents({ limit: 8 })
+      const list = await getUpcomingOrbitalEvents({ limit: 8, helpers: orbitalEventsMod })
       this.setData({
         orbitalLoading: false,
         upcomingOrbitalEvents: this._formatUpcomingOrbitalEvents(list)
@@ -233,10 +235,11 @@ const methods = {
         }
       }
       if (card.metrics) {
+        const prevStats = this.data.orbitalLiveStats || {}
         updates.orbitalLiveStats = {
-          activeNodes: card.metrics.activeNodes || this.data.orbitalLiveStats.activeNodes,
-          bandwidth: card.metrics.bandwidth || this.data.orbitalLiveStats.bandwidth,
-          uptime: card.metrics.uptime || this.data.orbitalLiveStats.uptime
+          activeNodes: card.metrics.activeNodes || prevStats.activeNodes,
+          bandwidth: card.metrics.bandwidth || prevStats.bandwidth,
+          uptime: card.metrics.uptime || prevStats.uptime
         }
       }
       if (typeof card.enabled === 'boolean') updates.orbitalCardEnabled = card.enabled

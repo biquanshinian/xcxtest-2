@@ -1,5 +1,4 @@
 
-@import "../../styles/tweet-stats-bar.wxss";
 .container {
   padding-bottom: 0;
   padding-top: 0;

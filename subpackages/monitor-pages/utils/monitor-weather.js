@@ -103,7 +103,7 @@ const methods = {
           tempLine,
           windLine,
           weatherIcon: wxMap.icon,
-          windIcon: '/images/starbase-weather/wind-lines.svg'
+          windIcon: '/subpackages/monitor-pages/images/starbase-weather/wind-lines.svg'
         }
         this._starbaseWeatherCacheAt = Date.now()
         this.setData({ starbaseWeather: payload })
@@ -137,7 +137,7 @@ const methods = {
 
   _mapWeatherCode(code) {
     const c = Number(code)
-    const base = '/images/starbase-weather/'
+    const base = '/subpackages/monitor-pages/images/starbase-weather/'
     if (!Number.isFinite(c)) return { text: '未知', icon: base + 'w-unknown.svg' }
     if (c === 0) return { text: '晴朗', icon: base + 'w-clear.svg' }
     if (c === 1) return { text: '大部晴朗', icon: base + 'w-mainly-clear.svg' }

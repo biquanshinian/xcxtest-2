@@ -1,0 +1,91 @@
+<view class="roman-card-root monitor-block {{themeClass}}" wx:if="{{visible}}">
+  <view class="section-title roman-card-title">
+    <text>罗曼太空望远镜</text>
+  </view>
+
+  <view class="roman-hero" bindtap="openDetail">
+    <image
+      wx:if="{{cardBgCos}}"
+      class="roman-hero__probe"
+      src="{{cardBgCos}}"
+      mode="aspectFill"
+      bindload="onCosBgReady"
+      binderror="onCosBgError"
+    />
+    <image wx:if="{{cardBg}}" class="roman-hero__bg" src="{{cardBg}}" mode="aspectFill" binderror="onCardBgError" />
+    <view class="roman-hero__mask"></view>
+
+    <!-- 地球 → 日地 L2 晕轨道：转移圈 + 拉长 halo，区别于轨道卡同心圆 -->
+    <view class="roman-hero__viz roman-hero__viz--{{phase}}" aria-hidden="true">
+      <view class="roman-viz__cruise">
+        <view class="roman-viz__dot roman-viz__dot--cruise"></view>
+      </view>
+      <view class="roman-viz__l2-wrap">
+        <view class="roman-viz__halo-tilt">
+          <view class="roman-viz__halo roman-viz__halo--outer"></view>
+          <view class="roman-viz__halo">
+            <view class="roman-viz__dot roman-viz__dot--halo"></view>
+          </view>
+        </view>
+        <view class="roman-viz__l2"></view>
+      </view>
+      <view class="roman-viz__earth"></view>
+    </view>
+
+    <view class="roman-hero__content">
+      <view class="roman-hero__head">
+        <view class="roman-hero__badge">
+          <view class="roman-hero__badge-dot {{dsnLine ? 'roman-hero__badge-dot--live' : ''}}"></view>
+          <text class="roman-hero__badge-text">{{badgeText}}</text>
+        </view>
+      </view>
+      <text class="roman-hero__title">Nancy Grace Roman</text>
+      <text class="roman-hero__title-cn">罗曼太空望远镜</text>
+      <text class="roman-hero__desc">{{heroDesc}}</text>
+
+      <view class="roman-hero__metrics" wx:if="{{isLive && !error}}">
+        <view class="roman-hero__metric">
+          <text class="roman-hero__metric-value">{{loading ? '—' : met}}</text>
+          <text class="roman-hero__metric-label">MET 历时</text>
+        </view>
+        <view class="roman-hero__metric-divider"></view>
+        <view class="roman-hero__metric">
+          <text class="roman-hero__metric-value">{{loading ? '—' : distEarthKm}}</text>
+          <text class="roman-hero__metric-label">距地球 km</text>
+        </view>
+        <view class="roman-hero__metric-divider"></view>
+        <view class="roman-hero__metric">
+          <text class="roman-hero__metric-value">{{loading ? '—' : velocityKmh}}</text>
+          <text class="roman-hero__metric-label">速率 km/h</text>
+        </view>
+      </view>
+
+      <view class="roman-hero__progress" wx:if="{{isLive && showProgress && !loading && !error}}">
+        <view class="roman-hero__progress-head">
+          <text>地球 → 日地 L2</text>
+          <text class="roman-hero__progress-pct">{{progressPct}}%</text>
+        </view>
+        <view class="roman-hero__progress-rail">
+          <view class="roman-hero__progress-track">
+            <view class="roman-hero__progress-fill" style="width: {{progressPct}}%;"></view>
+          </view>
+          <view class="roman-hero__progress-craft" style="left: {{progressPct}}%;">
+            <image class="roman-hero__progress-craft-img" src="/subpackages/monitor-pages/images/roman/roman-craft.png" mode="aspectFit" />
+          </view>
+        </view>
+      </view>
+
+      <view class="roman-hero__dsn" wx:if="{{isLive && dsnLine && !loading}}">
+        <view class="roman-hero__dsn-dot"></view>
+        <text class="roman-hero__dsn-text">{{dsnLine}}</text>
+      </view>
+
+      <view class="roman-hero__retry" wx:if="{{error}}" catchtap="retry">重试</view>
+    </view>
+
+    <view class="roman-hero__cta {{isProUser ? 'pro-gold-frame' : ''}}">
+      <text class="roman-hero__cta-text">{{ctaText}}</text>
+      <view class="roman-hero__cta-arrow">→</view>
+    </view>
+  </view>
+</view>

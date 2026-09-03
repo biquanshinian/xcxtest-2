@@ -2,6 +2,7 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import LoginPage from '../views/shell/LoginPage.vue'
 import LayoutPage from '../views/shell/LayoutPage.vue'
 import { auth } from '../api/client'
+import { bindRouter as bindPreauditScroll } from '../preaudit/lib/scroll-memory.js'
 
 const routes = [
   { path: '/login', component: LoginPage },
@@ -10,7 +11,7 @@ const routes = [
     path: '/',
     component: LayoutPage,
     children: [
-      { path: '', redirect: '/dashboard' },
+      { path: '', redirect: () => auth.homePath() },
       { path: 'dashboard', component: () => import('../views/dashboard/DashboardPage.vue'), meta: { perm: 'dashboard' } },
       { path: 'statistics', component: () => import('../views/dashboard/StatisticsPage.vue'), meta: { perm: 'statistics' } },
       { path: 'figma-design', component: () => import('../views/dashboard/FigmaDesignPage.vue'), meta: { perm: 'dashboard' } },
@@ -56,7 +57,18 @@ const routes = [
       { path: 'year-review-config', component: () => import('../views/system/YearReviewConfigPage.vue'), meta: { perm: 'global_config' } },
       { path: 'membership', component: () => import('../views/system/MembershipPage.vue'), meta: { perm: 'global_config' } },
       { path: 'invite-stats', component: () => import('../views/system/InviteStatsPage.vue'), meta: { perm: 'global_config' } },
-      { path: 'data-export', component: () => import('../views/system/DataExportPage.vue'), meta: { perm: 'data_export' } }
+      { path: 'data-export', component: () => import('../views/system/DataExportPage.vue'), meta: { perm: 'data_export' } },
+      { path: 'preaudit', component: () => import('../preaudit/views/PreauditHome.vue'), meta: { public: true } },
+      { path: 'preaudit/guide', component: () => import('../preaudit/views/PreauditGuide.vue'), meta: { public: true } },
+      { path: 'preaudit/new', component: () => import('../preaudit/views/PreauditForm.vue'), meta: { public: true } },
+      { path: 'preaudit/pack', component: () => import('../preaudit/views/PreauditPack.vue'), meta: { public: true } },
+      { path: 'preaudit/:id/pack', component: () => import('../preaudit/views/PreauditPack.vue'), meta: { public: true } },
+      { path: 'preaudit/:id/edit', component: () => import('../preaudit/views/PreauditForm.vue'), meta: { public: true } },
+      { path: 'preaudit/:id/item/:key', component: () => import('../preaudit/views/PreauditMaterial.vue'), meta: { public: true } },
+      { path: 'preaudit/:id/photos', component: () => import('../preaudit/views/PreauditPhotos.vue'), meta: { public: true } },
+      { path: 'preaudit/:id/contract', component: () => import('../preaudit/views/PreauditContract.vue'), meta: { public: true } },
+      { path: 'preaudit/:id/audit', component: () => import('../preaudit/views/PreauditAudit.vue'), meta: { public: true } },
+      { path: 'preaudit/:id', component: () => import('../preaudit/views/PreauditProject.vue'), meta: { public: true } }
     ]
   }
 ]
@@ -66,15 +78,33 @@ const router = createRouter({
   routes
 })
 
+bindPreauditScroll(router)
+
+router.afterEach((to) => {
+  const path = String(to.path || '')
+  const pre = path.startsWith('/preaudit')
+  import('../preaudit/lib/store.js').then((store) => {
+    if (pre) store.startLiveSync()
+    else store.stopLiveSync()
+    const id = to.params && to.params.id
+    if (!id || !pre) return
+    store.hydrateProject(id).then(() => store.persistPendingPhotos(id))
+  })
+})
+
 router.beforeEach((to) => {
   if (to.path === '/login') return true
-  if (to.meta?.public) return true
+  if (to.meta?.public || String(to.path || '').startsWith('/preaudit')) return true
 
   const token = localStorage.getItem('admin_token')
   if (!token) return '/login'
 
   const perm = to.meta?.perm
-  if (perm && !auth.hasPermission(perm)) return '/dashboard'
+  if (perm && !auth.hasPermission(perm)) {
+    const dest = auth.homePath()
+    if (dest === to.path) return true
+    return dest
+  }
 
   return true
 })

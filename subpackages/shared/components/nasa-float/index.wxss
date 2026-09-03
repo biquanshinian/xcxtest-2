@@ -61,8 +61,10 @@
   width: 240rpx;
   height: 68rpx;
   padding: 0 20rpx;
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-divider);
+  /* 不用卡片玻璃变量：Tab 视频底会把它改成半透明。
+     --color-bg 未被改写，深浅都是实色。不用渐变套 var 的 rgba 回退，真机会按逗号拆参。 */
+  background: var(--color-bg, #0B0C0E);
+  border: 1px solid var(--color-border-glass, rgba(255, 255, 255, 0.1));
   border-radius: var(--radius-pill);
   box-shadow: var(--shadow-card);
   transition: background 0.15s, transform 0.15s;
@@ -90,18 +92,11 @@
 }
 
 .float-menu-item:active {
-  background: var(--color-brand-soft);
   transform: scale(0.98);
 }
 
 .float-menu-item--ai {
-  background: var(--color-bg-card);
-  border-color: var(--color-brand-soft);
-  box-shadow: var(--shadow-card);
-}
-
-.float-menu-item--ai:active {
-  background: var(--color-brand-soft);
+  border-color: var(--color-brand-soft, rgba(59, 130, 246, 0.22));
 }
 
 .float-menu-item-icon {
@@ -185,7 +180,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: var(--shadow-card), inset 0 0 0 1rpx var(--color-border-glass);
+  box-shadow: var(--shadow-card), inset 0 0 0 1rpx var(--color-border-glass, rgba(255, 255, 255, 0.1));
   backdrop-filter: blur(32rpx) saturate(160%);
   -webkit-backdrop-filter: blur(32rpx) saturate(160%);
   transition: transform 0.22s ease, opacity 0.22s ease, background 0.2s;

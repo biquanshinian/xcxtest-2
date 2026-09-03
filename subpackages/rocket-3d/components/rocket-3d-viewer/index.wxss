@@ -122,6 +122,11 @@
   opacity: 0.75;
 }
 
+.r3d-chip--on {
+  color: #fde68a;
+  border-color: rgba(253, 230, 138, 0.42);
+}
+
 .r3d-dim-layer {
   position: absolute;
   left: 0;
@@ -189,6 +194,11 @@
   color: #334155;
   background: rgba(255, 255, 255, 0.85);
   border-color: rgba(100, 116, 139, 0.26);
+}
+
+.r3d--light .r3d-chip--on {
+  color: #92600a;
+  border-color: rgba(180, 130, 30, 0.4);
 }
 
 .r3d--light .r3d-badge {

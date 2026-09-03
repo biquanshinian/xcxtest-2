@@ -1,5 +1,5 @@
 /* hardware-list.wxss —— 星舰硬件设施完整列表页（与进度页板块同款卡片样式） */
-@import "/styles/fav-btn.wxss";
+@import "./styles/fav-btn.wxss";
 
 page {
   background: #0B0C0E;

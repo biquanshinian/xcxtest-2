@@ -5,6 +5,7 @@
  */
 const assert = require('assert')
 const helpers = require('../cloudfunctions/adminGateway/oaStudioHelpers')
+const wechatApi = require('../cloudfunctions/adminGateway/oaWechatApi')
 const { createOaContentStudioApi } = require('../cloudfunctions/adminGateway/oaContentStudio')
 
 const COS = 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com'
@@ -105,58 +106,207 @@ check('pickVideoEntries：duration>120 判长视频；裸 mp4 字符串可收；
   assert.ok(/ci-process=snapshot/.test(list[1].posterUrl))
 })
 
-check('annotateVideoPostersInMarkdown：补「▶」说明行，阅读原文按观看链匹配，幂等', () => {
+check('annotateVideoPostersInMarkdown：有事件 id 引导点封面播放；无 id 才按阅读原文', () => {
   const poster = `${COS}/tweets/123_v0.jpg`
   const videos = [{ posterUrl: poster, watchUrl: 'https://x.com/s/123', pageUrl: 'https://x.com/s/123', isLong: true }]
   const md = `开头\n\n![配图1](${poster})\n\n结尾`
-  const once = helpers.annotateVideoPostersInMarkdown(md, videos, { readMoreUrl: 'https://x.com/s/123' })
-  assert.ok(once.includes(`![配图1](${poster})\n\n> ▶ 长视频封面截图，完整视频点文末「阅读原文」`), once)
-  const twice = helpers.annotateVideoPostersInMarkdown(once, videos, { readMoreUrl: 'https://x.com/s/123' })
-  assert.strictEqual(twice, once, '重复标注应幂等')
-  const noLink = helpers.annotateVideoPostersInMarkdown(md, videos, { readMoreUrl: 'https://other' })
-  assert.ok(noLink.includes('> ▶ 长视频封面截图\n'), '观看链不一致时不提阅读原文')
-  const cosMp4 = helpers.annotateVideoPostersInMarkdown(md, videos, {
-    readMoreUrl: `${COS}/tweets/123.mp4`
-  })
-  assert.ok(cosMp4.includes('> ▶ 长视频封面截图\n'), '裸 mp4 不得提示阅读原文')
-  assert.ok(!cosMp4.includes('阅读原文'), '裸 mp4 不得提示阅读原文')
-  // watchUrl 是 COS、pageUrl 是推文页：按 pageUrl 仍可提示阅读原文
-  const cosWatch = [
-    { posterUrl: poster, watchUrl: `${COS}/tweets/123.mp4`, pageUrl: 'https://x.com/s/123', isLong: true }
-  ]
-  const byPage = helpers.annotateVideoPostersInMarkdown(md, cosWatch, {
+  const withEvent = helpers.annotateVideoPostersInMarkdown(md, videos, { eventId: 'ev_long' })
+  assert.ok(withEvent.includes(`![配图1](${poster})\n\n> ▶ 视频封面，点击封面可在小程序查看该条动态`), withEvent)
+  const twice = helpers.annotateVideoPostersInMarkdown(withEvent, videos, { eventId: 'ev_long' })
+  assert.strictEqual(twice, withEvent, '重复标注应幂等')
+  const noEventTwitter = helpers.annotateVideoPostersInMarkdown(md, videos, {
     readMoreUrl: 'https://x.com/s/123'
+  })
+  assert.ok(noEventTwitter.includes('> ▶ 视频封面\n'), noEventTwitter)
+  assert.ok(!noEventTwitter.includes('阅读原文'), '推特不得提示阅读原文')
+  const nsf = 'https://www.nasaspaceflight.com/2026/08/foo/'
+  const byPage = helpers.annotateVideoPostersInMarkdown(md, [{ ...videos[0], pageUrl: nsf, watchUrl: nsf }], {
+    readMoreUrl: nsf
   })
   assert.ok(byPage.includes('完整视频点文末「阅读原文」'), byPage)
 })
 
-check('resolveDraftSourceUrl / sanitizeContentSourceUrl：禁裸视频直链', () => {
+check('resolveDraftSourceUrl / sanitizeContentSourceUrl：禁裸视频与推特，视频事件走 oa-watch', () => {
   const cosMp4 = `${COS}/tweets/a.mp4`
   const page = 'https://x.com/SpaceX/status/1'
+  const nsf = 'https://www.nasaspaceflight.com/2026/08/foo/'
   assert.strictEqual(helpers.sanitizeContentSourceUrl(cosMp4), '')
-  assert.strictEqual(helpers.sanitizeContentSourceUrl(page), page)
+  assert.strictEqual(helpers.sanitizeContentSourceUrl(page), '')
+  assert.strictEqual(helpers.sanitizeContentSourceUrl(nsf), nsf)
   assert.strictEqual(helpers.isHttpPageUrl(cosMp4), false)
   assert.strictEqual(
+    helpers.resolveDraftSourceUrl({ sourceUrl: page, sourceId: 'ev_short' }, [{ watchUrl: cosMp4 }]),
+    'https://api.marsx.com.cn/oa-watch?e=ev_short&i=0'
+  )
+  assert.strictEqual(
     helpers.resolveDraftSourceUrl({ sourceUrl: cosMp4 }, [{ watchUrl: cosMp4, pageUrl: page }]),
-    page,
-    'sourceUrl 是 mp4 时回落 pageUrl'
-  )
-  assert.strictEqual(
-    helpers.resolveDraftSourceUrl({}, [{ watchUrl: cosMp4 }]),
     '',
-    '仅有 COS mp4 时不挂阅读原文'
+    '无事件 id 时推特/mp4 都不挂阅读原文'
+  )
+  assert.strictEqual(helpers.resolveDraftSourceUrl({}, [{ watchUrl: cosMp4 }]), '')
+  assert.strictEqual(helpers.resolveDraftSourceUrl({ sourceUrl: nsf }, []), nsf)
+  assert.strictEqual(
+    helpers.buildVideoPlayerMiniprogramPath({ eventId: 'ev_short', videoIndex: 0 }),
+    'pages/video-player/video-player?e=ev_short'
   )
   assert.strictEqual(
-    helpers.resolveDraftSourceUrl({ sourceUrl: page }, [{ watchUrl: cosMp4 }]),
-    page
+    helpers.buildVideoPlayerMiniprogramPath({ eventId: 'ev_short', videoIndex: 1 }),
+    'pages/video-player/video-player?e=ev_short__1'
   )
+  assert.strictEqual(
+    helpers.buildEventDetailMiniprogramPath({ eventId: 'ev_short' }),
+    'subpackages/progress-extra/event-detail?id=ev_short'
+  )
+  assert.strictEqual(
+    helpers.buildEventDetailMiniprogramPath({ eventId: 'ev_short', videoIndex: 0 }),
+    'subpackages/progress-extra/event-detail?id=ev_short__0'
+  )
+  assert.deepStrictEqual(helpers.parseEventDetailMiniprogramId('ev_short__1'), {
+    eventId: 'ev_short',
+    videoIndex: 1
+  })
 })
 
 check('stripMarkdownImages：丢弃视频封面时连带清掉说明行', () => {
   const poster = `${COS}/tweets/123_v0.jpg`
-  const md = `开头\n\n![配图1](${poster})\n\n> ▶ 长视频封面截图，完整视频点文末「阅读原文」\n\n结尾`
+  const md = `开头\n\n![配图1](${poster})\n\n> ▶ 视频封面，点击封面可在小程序查看该条动态\n\n结尾`
   const out = helpers.stripMarkdownImages(md, [poster])
   assert.strictEqual(out, '开头\n\n结尾')
+})
+
+check('videoPosterSrcPathMap：封面绑定该事件详情；有 COS 时带视频下标', () => {
+  const poster = `${COS}/tweets/123_v0.jpg`
+  const map = helpers.videoPosterSrcPathMap({
+    sourceId: 'ev_long',
+    videos: [{ posterUrl: poster, url: `${COS}/tweets/123_video0.mp4` }]
+  })
+  assert.strictEqual(map[poster], 'subpackages/progress-extra/event-detail?id=ev_long__0')
+  const mmbiz = 'https://mmbiz.qpic.cn/mmbiz_jpg/abc/0'
+  const mapped = helpers.videoPosterSrcPathMap({
+    sourceId: 'ev_long',
+    videos: [{ posterUrl: poster, url: `${COS}/tweets/123_video0.mp4` }],
+    imageMap: { [poster]: mmbiz }
+  })
+  assert.strictEqual(mapped[mmbiz], 'subpackages/progress-extra/event-detail?id=ev_long__0', '转存后的微信图床也要指向该事件页')
+  const longNoCos = helpers.videoPosterSrcPathMap({
+    sourceId: 'ev_long',
+    videos: [{ posterUrl: poster, pageUrl: 'https://x.com/s/123' }]
+  })
+  assert.strictEqual(
+    longNoCos[poster],
+    'subpackages/progress-extra/event-detail?id=ev_long',
+    '无 COS 成片也应进事件详情'
+  )
+})
+
+check('sanitizeMiniprogramPath 允许事件详情 query（含 __ 下标）', () => {
+  assert.strictEqual(
+    wechatApi.sanitizeMiniprogramPath('pages/video-player/video-player?e=ev1'),
+    'pages/video-player/video-player?e=ev1'
+  )
+  assert.strictEqual(
+    wechatApi.sanitizeMiniprogramPath(
+      'subpackages/progress-extra/event-detail?id=3dcd4ae66a92757a00e7f8951e1458e3'
+    ),
+    'subpackages/progress-extra/event-detail?id=3dcd4ae66a92757a00e7f8951e1458e3'
+  )
+  assert.strictEqual(
+    wechatApi.sanitizeMiniprogramPath(
+      'subpackages/progress-extra/event-detail?id=ev_long__0'
+    ),
+    'subpackages/progress-extra/event-detail?id=ev_long__0'
+  )
+  const launchId = 'd5a5e3a4-1111-2222-3333-abcdef123456'
+  assert.strictEqual(
+    wechatApi.sanitizeMiniprogramPath(`pages/mission-detail/mission-detail?id=${launchId}`),
+    `pages/mission-detail/mission-detail?id=${launchId}`
+  )
+})
+
+check('resolveOaMiniprogramPath：按选题落到对应详情页，首页占位可被覆盖', () => {
+  assert.strictEqual(
+    helpers.resolveOaMiniprogramPath(
+      { sourceType: 'starship_event', sourceId: 'ev_long', miniprogramPath: 'pages/index/index' },
+      { miniprogramPath: 'pages/index/index' }
+    ),
+    'subpackages/progress-extra/event-detail?id=ev_long'
+  )
+  assert.strictEqual(
+    helpers.resolveOaMiniprogramPath(
+      { sourceType: 'launch', sourceId: 'd5a5e3a4-1111-2222-3333-abcdef123456' },
+      {}
+    ),
+    'pages/mission-detail/mission-detail?id=d5a5e3a4-1111-2222-3333-abcdef123456'
+  )
+  assert.strictEqual(
+    helpers.resolveOaMiniprogramPath({ sourceType: 'news_article', sourceId: 'n1' }, {}),
+    'subpackages/news-extra/detail?id=manual_n1'
+  )
+  assert.strictEqual(
+    helpers.resolveOaMiniprogramPath(
+      { sourceType: 'starship_event', sourceId: 'ev_long', miniprogramPath: 'pages/about/about' },
+      { miniprogramPath: 'pages/index/index' }
+    ),
+    'pages/about/about',
+    '运营手填深链应保留'
+  )
+})
+
+check('wrapImagesWithMiniprogram：视频封面独立 path + 播放文字链；普通图不加点播', () => {
+  const poster = `${COS}/p.jpg`
+  const other = `${COS}/a.jpg`
+  const html = `<p><img src="${poster}" /></p><p><img src="${other}" /></p>`
+  const posterPath = 'subpackages/progress-extra/event-detail?id=ev1__0'
+  const out = wechatApi.wrapImagesWithMiniprogram(html, {
+    path: 'pages/index/index',
+    mode: 'none',
+    srcPathMap: { [poster]: posterPath }
+  })
+  assert.ok(out.includes(`data-miniprogram-path="${posterPath}"`), out)
+  assert.ok(out.includes('▶ 点击播放视频'), out)
+  assert.ok(!/pages\/index\/index/.test(out), 'mode=none 时不应出现默认首页 path')
+  const twice = wechatApi.wrapImagesWithMiniprogram(out, {
+    path: 'pages/index/index',
+    mode: 'none',
+    srcPathMap: { [poster]: posterPath }
+  })
+  assert.strictEqual((twice.match(/▶ 点击播放视频/g) || []).length, 1, '重复 wrap 不应叠加播放链')
+})
+
+check('wrapImagesWithMiniprogram：转存后的 mmbiz 封面仍走事件详情而不是首页', () => {
+  const mmbiz = 'https://mmbiz.qpic.cn/mmbiz_jpg/abc/0'
+  const posterPath = 'subpackages/progress-extra/event-detail?id=ev1__0'
+  const out = wechatApi.wrapImagesWithMiniprogram(`<p><img src="${mmbiz}" /></p>`, {
+    path: 'pages/index/index',
+    mode: 'all',
+    srcPathMap: { [mmbiz]: posterPath }
+  })
+  assert.ok(out.includes(`data-miniprogram-path="${posterPath}"`), out)
+  assert.ok(!out.includes('pages/index/index'), out)
+})
+
+check('wrapImagesWithMiniprogram：普通配图与视频封面都进事件详情', () => {
+  const poster = `${COS}/p.jpg`
+  const other = `${COS}/a.jpg`
+  const eventPath = 'subpackages/progress-extra/event-detail?id=ev1'
+  const posterPath = 'subpackages/progress-extra/event-detail?id=ev1__0'
+  const out = wechatApi.wrapImagesWithMiniprogram(
+    `<p><img src="${poster}" /></p><p><img src="${other}" /></p>`,
+    {
+      path: eventPath,
+      mode: 'all',
+      srcPathMap: { [poster]: posterPath }
+    }
+  )
+  assert.ok(out.includes(`data-miniprogram-path="${posterPath}"`), out)
+  assert.ok(out.includes(`data-miniprogram-path="${eventPath}"`), out)
+})
+
+const newsRoute = require('../subpackages/news-extra/utils/page-route-options')
+check('新闻详情：manual_ id 不带 type 也按文章打开', () => {
+  const r = newsRoute.resolveNewsDetailRoute({ id: 'manual_abc' })
+  assert.strictEqual(r.detailType, 'article')
+  assert.strictEqual(r.id, 'manual_abc')
 })
 
 console.log('[2] backfillEventVideos 状态机（vm 沙箱，stub wx-server-sdk/COS）')

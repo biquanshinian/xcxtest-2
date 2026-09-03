@@ -17,9 +17,10 @@ const membership = require('../../../../utils/membership.js')
 const { isFeatureEnabled } = require('../../../../utils/feature-flags.js')
 const { getCachedIcon, preloadIcons } = require('../../../../utils/icon-cache.js')
 const themeUtil = require('../../../../utils/theme.js')
+const { getSystemInfo } = require('../../../../utils/system.js')
 
 /** ★ 开发预览时改 true；生产保持 false */
-const MEMBERSHIP_POPUP_DEV_MODE = true
+const MEMBERSHIP_POPUP_DEV_MODE = false
 
 // 付费会员：到期前 N 天开始提醒 / 过期后 N 天内仍提醒（挽回窗口）
 const REMIND_DAYS_BEFORE = 5
@@ -96,6 +97,26 @@ function preloadPopupArt() {
   preloadIcons(urls.filter(Boolean))
 }
 
+/** iPad / 宽屏：rpx 随 windowWidth 放大，弹窗会顶出安全区；缩放兼容态则用机型判断 */
+function isTabletLayout() {
+  try {
+    const info = getSystemInfo() || {}
+    const w = Number(info.windowWidth) || 0
+    const h = Number(info.windowHeight) || 0
+    const model = String(info.model || '')
+    const system = String(info.system || '')
+    if (/iPad/i.test(model) || /iPad/i.test(system)) return true
+    if (Math.min(w, h) >= 500) return true
+    return false
+  } catch (e) {
+    return false
+  }
+}
+
+function tabletClassName() {
+  return isTabletLayout() ? 'renewal-mask--tablet' : ''
+}
+
 function themePayload() {
   let themeClass = ''
   try {
@@ -103,6 +124,7 @@ function themePayload() {
   } catch (e) {}
   return {
     themeClass: themeClass,
+    tabletClass: tabletClassName(),
     memberIcon: resolveMemberIcon(),
     benefits: resolveBenefitRows(),
     devMode: !!MEMBERSHIP_POPUP_DEV_MODE
@@ -113,6 +135,7 @@ Component({
   data: {
     visible: false,
     themeClass: '',
+    tabletClass: '',
     mode: 'renewal', // renewal | promo
     expired: false,
     daysLeft: 0,
@@ -130,6 +153,14 @@ Component({
       try {
         this.setData(themePayload())
       } catch (e) {}
+      const self = this
+      this._onWindowResize = function () {
+        const next = tabletClassName()
+        if (next !== self.data.tabletClass) self.setData({ tabletClass: next })
+      }
+      if (typeof wx.onWindowResize === 'function') {
+        wx.onWindowResize(this._onWindowResize)
+      }
       if (MEMBERSHIP_POPUP_DEV_MODE) {
         this._scheduleDevPreview()
       }
@@ -139,13 +170,20 @@ Component({
         clearTimeout(this._devTimer)
         this._devTimer = null
       }
+      if (this._onWindowResize && typeof wx.offWindowResize === 'function') {
+        wx.offWindowResize(this._onWindowResize)
+      }
+      this._onWindowResize = null
     }
   },
 
   pageLifetimes: {
     show() {
       try {
-        this.setData({ themeClass: themeUtil.getThemeClassSync() || '' })
+        this.setData({
+          themeClass: themeUtil.getThemeClassSync() || '',
+          tabletClass: tabletClassName()
+        })
       } catch (e) {}
     }
   },

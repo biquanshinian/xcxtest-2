@@ -1077,42 +1077,246 @@ function sizeClose(a, b) {
   )
 }
 
-function measureEndWidths(object, THREE, box) {
-  var empty = { top: 0, bot: 0 }
-  if (!object || !object.traverse || !THREE || !box || box.isEmpty()) return empty
-  var size = box.getSize(new THREE.Vector3())
-  var h = size.y
-  if (h <= 0.0001) return empty
-  var band = Math.max(h * 0.2, 0.01)
-  var topW = 0
-  var botW = 0
+var ENGINE_NAME_RE =
+  /raptor|merlin|nozzle|engine|thruster|bell|rutherford|ssme|rs-?25|rd-?\d|yf-?\d|be-?[34]|nk-?\d/i
+var NOSE_NAME_RE = /fairing|nose.?cone|\bnose\b|payload.?fairing|cowling|头罩|整流罩/i
+
+function collectStandMeshes(object, THREE) {
+  var items = []
+  if (!object || !object.traverse || !THREE) return items
   object.traverse(function (child) {
     if (!child.isMesh || !child.geometry) return
+    if (child.visible === false) return
     var b = meshWorldBox(child, THREE)
     if (!b || b.isEmpty()) return
-    var xz = Math.max(b.max.x - b.min.x, b.max.z - b.min.z)
-    if (b.max.y >= box.max.y - band) topW = Math.max(topW, xz)
-    if (b.min.y <= box.min.y + band) botW = Math.max(botW, xz)
+    items.push({
+      box: b,
+      name: meshNameHay(child)
+    })
   })
-  return { top: topW, bot: botW }
+  return items
 }
 
-/** 头罩细、发动机粗。顶部明显更粗说明头朝下。 */
+/** 与 three.js 默认 XYZ 欧拉一致，只用于 90°/180° 候选的软件立起。 */
+function rotatePointByEuler(x, y, z, rot) {
+  var rx = Number(rot && rot.x) || 0
+  var ry = Number(rot && rot.y) || 0
+  var rz = Number(rot && rot.z) || 0
+  var c = Math.cos(rx)
+  var s = Math.sin(rx)
+  var y1 = y * c - z * s
+  var z1 = y * s + z * c
+  y = y1
+  z = z1
+  c = Math.cos(ry)
+  s = Math.sin(ry)
+  var x1 = x * c + z * s
+  var z2 = -x * s + z * c
+  x = x1
+  z = z2
+  c = Math.cos(rz)
+  s = Math.sin(rz)
+  return { x: x * c - y * s, y: x * s + y * c, z: z }
+}
+
+function rotateBoxByEuler(box, rot, THREE) {
+  if (!box || box.isEmpty() || !THREE) return box
+  var rx = Number(rot && rot.x) || 0
+  var ry = Number(rot && rot.y) || 0
+  var rz = Number(rot && rot.z) || 0
+  var out = new THREE.Box3()
+  if (Math.abs(rx) < 1e-12 && Math.abs(ry) < 1e-12 && Math.abs(rz) < 1e-12) {
+    out.copy(box)
+    return out
+  }
+  var xs = [box.min.x, box.max.x]
+  var ys = [box.min.y, box.max.y]
+  var zs = [box.min.z, box.max.z]
+  var started = false
+  for (var i = 0; i < 2; i++) {
+    for (var j = 0; j < 2; j++) {
+      for (var k = 0; k < 2; k++) {
+        var p = rotatePointByEuler(xs[i], ys[j], zs[k], rot)
+        if (!started) {
+          out.min.x = out.max.x = p.x
+          out.min.y = out.max.y = p.y
+          out.min.z = out.max.z = p.z
+          started = true
+        } else {
+          out.min.x = Math.min(out.min.x, p.x)
+          out.min.y = Math.min(out.min.y, p.y)
+          out.min.z = Math.min(out.min.z, p.z)
+          out.max.x = Math.max(out.max.x, p.x)
+          out.max.y = Math.max(out.max.y, p.y)
+          out.max.z = Math.max(out.max.z, p.z)
+        }
+      }
+    }
+  }
+  return out
+}
+
+function sizedMesh(box) {
+  var sx = box.max.x - box.min.x
+  var sy = box.max.y - box.min.y
+  var sz = box.max.z - box.min.z
+  return {
+    box: box,
+    xz: Math.max(sx, sz),
+    h: sy
+  }
+}
+
+function emptyEndWidths() {
+  return {
+    top: 0,
+    bot: 0,
+    topParts: 0,
+    botParts: 0,
+    topEngineName: false,
+    botEngineName: false,
+    topNoseName: false,
+    botNoseName: false
+  }
+}
+
+/**
+ * 在指定欧拉下量两端。不依赖 matrixWorld 是否跟上包装旋转，
+ * 避免小程序晚一帧、或整流罩比箭体粗时误翻 180°。
+ */
+function measureEndWidthsFromItems(items, rawBox, rot, THREE) {
+  var empty = emptyEndWidths()
+  if (!items || !items.length || !rawBox || rawBox.isEmpty() || !THREE) return empty
+  var box = rotateBoxByEuler(rawBox, rot, THREE)
+  if (!box || box.isEmpty()) return empty
+  var size = box.getSize(new THREE.Vector3())
+  var h = Number(size.y) || 0
+  if (h <= 0.0001) return empty
+  var maxSpan = Math.max(size.x, size.z, 0.0001)
+  var tipBand = Math.max(h * 0.18, 0.01)
+  var bodyReach = Math.max(h * 0.48, tipBand)
+  var topBody = 0
+  var botBody = 0
+  var topW = 0
+  var botW = 0
+  var topParts = 0
+  var botParts = 0
+  var topEngineName = false
+  var botEngineName = false
+  var topNoseName = false
+  var botNoseName = false
+  var nearestTopBody = null
+  var nearestBotBody = null
+  for (var i = 0; i < items.length; i++) {
+    var src = items[i]
+    var rb = rotateBoxByEuler(src.box, rot, THREE)
+    if (!rb || rb.isEmpty()) continue
+    var it = sizedMesh(rb)
+    it.name = src.name
+    var inTopTip = it.box.max.y >= box.max.y - tipBand
+    var inBotTip = it.box.min.y <= box.min.y + tipBand
+    var inTopHalf = it.box.max.y >= box.max.y - bodyReach
+    var inBotHalf = it.box.min.y <= box.min.y + bodyReach
+    var namedEngine = ENGINE_NAME_RE.test(it.name)
+    var namedNose = NOSE_NAME_RE.test(it.name)
+    var enginePart = namedEngine || (it.h < h * 0.1 && it.xz < maxSpan * 0.35)
+    var lateral = it.h < h * 0.14 && it.xz > maxSpan * 0.42
+    var body = it.h >= Math.max(it.xz * 0.85, h * 0.12)
+    if (namedEngine) {
+      if (inTopTip) topEngineName = true
+      if (inBotTip) botEngineName = true
+    }
+    if (namedNose) {
+      if (inTopTip) topNoseName = true
+      if (inBotTip) botNoseName = true
+    }
+    if (enginePart) {
+      if (inTopTip) topParts += 1
+      if (inBotTip) botParts += 1
+    }
+    if (lateral) continue
+    if (body) {
+      if (inTopHalf) topBody = Math.max(topBody, it.xz)
+      if (inBotHalf) botBody = Math.max(botBody, it.xz)
+      if (!nearestTopBody || it.box.max.y > nearestTopBody.box.max.y) nearestTopBody = it
+      if (!nearestBotBody || it.box.min.y < nearestBotBody.box.min.y) nearestBotBody = it
+    }
+    if (inTopTip && !enginePart) topW = Math.max(topW, it.xz)
+    if (inBotTip && !enginePart) botW = Math.max(botW, it.xz)
+  }
+  if (!topBody && nearestTopBody) topBody = nearestTopBody.xz
+  if (!botBody && nearestBotBody) botBody = nearestBotBody.xz
+  return {
+    top: topBody || topW,
+    bot: botBody || botW,
+    topParts: topParts,
+    botParts: botParts,
+    topEngineName: topEngineName,
+    botEngineName: botEngineName,
+    topNoseName: topNoseName,
+    botNoseName: botNoseName
+  }
+}
+
+function measureEndWidths(object, THREE, box, rot) {
+  if (!object || !THREE || !box || box.isEmpty()) return emptyEndWidths()
+  return measureEndWidthsFromItems(collectStandMeshes(object, THREE), box, rot, THREE)
+}
+
+function engineEndBias(ends) {
+  var topP = ends && ends.topParts ? ends.topParts : 0
+  var botP = ends && ends.botParts ? ends.botParts : 0
+  if (botP >= 4 && botP > topP * 1.6) return 1
+  if (topP >= 4 && topP > botP * 1.6) return -1
+  if (botP >= 3 && topP === 0) return 1
+  if (topP >= 3 && botP === 0) return -1
+  return 0
+}
+
+function nameEndBias(ends) {
+  if (!ends) return 0
+  var score = 0
+  if (ends.botEngineName && !ends.topEngineName) score += 1
+  if (ends.topEngineName && !ends.botEngineName) score -= 1
+  if (ends.topNoseName && !ends.botNoseName) score += 1
+  if (ends.botNoseName && !ends.topNoseName) score -= 1
+  if (score > 0) return 1
+  if (score < 0) return -1
+  return 0
+}
+
+function noseTaperFromEnds(ends, size) {
+  var cluster = engineEndBias(ends)
+  var names = nameEndBias(ends)
+  var confirm = cluster || names
+  var width = 0
+  if (ends && ends.top > 0 && ends.bot > 0) {
+    var span = Math.max(ends.top, ends.bot)
+    var raw = (ends.bot - ends.top) / span
+    if (confirm > 0 && raw < 0) raw = 0
+    if (confirm < 0 && raw > 0) raw = 0
+    width = confirm ? raw * (isBoardSize(size) ? 0.8 : 2.4) : 0
+  }
+  return width + cluster * 3.2 + names * 2.8
+}
+
+/** 只在发动机簇/名称对得上时判倒立。整流罩比箭体粗（猎鹰 9）不算倒立。 */
 function isNoseDown(object, THREE) {
   if (!object || !THREE) return false
   var box = getRenderableBox(object, THREE)
   if (!box || box.isEmpty()) return false
   var ends = measureEndWidths(object, THREE, box)
-  if (ends.top <= 0 || ends.bot <= 0) return false
-  return ends.top > ends.bot * 1.22
+  var cluster = engineEndBias(ends)
+  if (cluster > 0) return false
+  if (cluster < 0) return true
+  var names = nameEndBias(ends)
+  if (names > 0) return false
+  if (names < 0) return true
+  return false
 }
 
-function noseTaperScore(object, THREE, box, size) {
-  var ends = measureEndWidths(object, THREE, box)
-  if (ends.top <= 0 || ends.bot <= 0) return 0
-  var span = Math.max(ends.top, ends.bot)
-  var weight = isBoardSize(size) ? 1.2 : 6
-  return ((ends.bot - ends.top) / span) * weight
+function noseTaperScore(object, THREE, box, size, rot) {
+  return noseTaperFromEnds(measureEndWidths(object, THREE, box, rot), size)
 }
 
 function standMeasureBox(object, THREE) {
@@ -1126,17 +1330,16 @@ function standMeasureBox(object, THREE) {
   return rocket
 }
 
-function scoreStandWorld(object, THREE) {
+function scoreStandWorld(object, THREE, rot) {
   var box = standMeasureBox(object, THREE)
   if (!box || box.isEmpty()) return -1e9
-  var size = box.getSize(new THREE.Vector3())
-  return scoreStandSize(size) + noseTaperScore(object, THREE, box, size)
+  var size = rotateSizeByEuler(box.getSize(new THREE.Vector3()), rot)
+  return scoreStandSize(size) + noseTaperScore(object, THREE, box, size, rot)
 }
 
 /**
  * 尺寸先选定立起轴（猎鹰重型 Z-up → -90°X，展板 → 绕薄轴）。
- * 世界盒只有在「量到的尺寸和旋转预测一致」时才能改写，避免小程序
- * matrixWorld 未跟上包装旋转时误选不转，细长 Z-up 箭会躺成看不见。
+ * 朝向用软件旋转量两端，不依赖 matrixWorld 是否跟上包装节点。
  */
 function autoStandRotation(object, THREE) {
   var fallback = withStandFlip({ x: 0, y: 0, z: 0 })
@@ -1144,33 +1347,20 @@ function autoStandRotation(object, THREE) {
   var sizeBox = standMeasureBox(object, THREE)
   var rawSize = sizeBox && !sizeBox.isEmpty() ? sizeBox.getSize(new THREE.Vector3()) : null
   fallback = pickStandRotationFromSize(rawSize)
-  if (!rawSize) return fallback
-  if (typeof object.rotation === 'undefined' || !object.rotation || !object.rotation.set) {
-    return fallback
-  }
-  if (typeof object.updateMatrixWorld !== 'function') return fallback
-  var saved = {
-    x: object.rotation.x || 0,
-    y: object.rotation.y || 0,
-    z: object.rotation.z || 0
-  }
+  if (!rawSize || !sizeBox) return fallback
+  var items = collectStandMeshes(object, THREE)
   var best = fallback
-  var bestScore = scoreStandSize(rotateSizeByEuler(rawSize, fallback)) + standCandidateBias(fallback)
+  var bestScore = -1e12
   for (var i = 0; i < STAND_CANDIDATES.length; i++) {
     var cand = STAND_CANDIDATES[i]
-    object.rotation.set(cand.x, cand.y, cand.z)
-    object.updateMatrixWorld(true)
-    var measuredBox = standMeasureBox(object, THREE)
-    var measured = measuredBox && !measuredBox.isEmpty() ? measuredBox.getSize(new THREE.Vector3()) : null
-    if (!sizeClose(measured, rotateSizeByEuler(rawSize, cand))) continue
-    var score = scoreStandWorld(object, THREE) + standCandidateBias(cand)
-    if (score > bestScore + 0.05) {
+    var size = rotateSizeByEuler(rawSize, cand)
+    var ends = measureEndWidthsFromItems(items, sizeBox, cand, THREE)
+    var score = scoreStandSize(size) + noseTaperFromEnds(ends, size) + standCandidateBias(cand)
+    if (score > bestScore) {
       bestScore = score
       best = withStandFlip(cand)
     }
   }
-  object.rotation.set(saved.x, saved.y, saved.z)
-  if (object.updateMatrixWorld) object.updateMatrixWorld(true)
   return finalizeStandRotation(rawSize, best)
 }
 
@@ -1183,11 +1373,73 @@ function wrapStandingModel(object, THREE) {
   var rot = autoStandRotation(stand, THREE)
   stand.rotation.set(rot.x, rot.y, rot.z)
   stand.updateMatrixWorld(true)
+  stand._r3dStand = {
+    base: { x: rot.x, y: rot.y, z: rot.z },
+    axis: rot.flip || 'x',
+    flipped: false
+  }
   var spin = new THREE.Group()
   spin.name = 'r3d-exhibit-root'
   spin.add(stand)
   spin.updateMatrixWorld(true)
   return spin
+}
+
+function findStandGroup(root) {
+  if (!root) return null
+  if (root.name === 'r3d-stand' || root._r3dStand) return root
+  if (typeof root.traverse === 'function') {
+    var found = null
+    root.traverse(function (child) {
+      if (!found && child && (child.name === 'r3d-stand' || child._r3dStand)) found = child
+    })
+    if (found) return found
+  }
+  var kids = root.children || []
+  for (var i = 0; i < kids.length; i++) {
+    var hit = findStandGroup(kids[i])
+    if (hit) return hit
+  }
+  return null
+}
+
+function isStandFlipped(session) {
+  var stand = findStandGroup(session && session.modelRoot)
+  return !!(stand && stand._r3dStand && stand._r3dStand.flipped)
+}
+
+function relayoutAfterStandChange(session) {
+  if (!session || !session.modelRoot || !session.THREE) return
+  var box = getExhibitFrameBox(session.modelRoot, session.THREE)
+  layoutLights(session, box)
+  layoutExhibitStage(session, session.modelRoot)
+  if (session.camera && session.controls) {
+    applyBoxToCamera(session.camera, session.controls, box, session.THREE, 2.15)
+    applyBoxClip(session.camera, box, session.THREE)
+  }
+}
+
+function applyManualStandFlip(session, flipped) {
+  if (!session || !session.modelRoot) return false
+  var stand = findStandGroup(session.modelRoot)
+  if (!stand || !stand._r3dStand || !stand.rotation || !stand.rotation.set) {
+    return isStandFlipped(session)
+  }
+  var meta = stand._r3dStand
+  var next = { x: meta.base.x, y: meta.base.y, z: meta.base.z }
+  if (flipped) {
+    if (meta.axis === 'z') next.z += Math.PI
+    else next.x += Math.PI
+  }
+  stand.rotation.set(next.x, next.y, next.z)
+  if (stand.updateMatrixWorld) stand.updateMatrixWorld(true)
+  meta.flipped = !!flipped
+  relayoutAfterStandChange(session)
+  return !!flipped
+}
+
+function toggleManualStandFlip(session) {
+  return applyManualStandFlip(session, !isStandFlipped(session))
 }
 
 function eachMaterial(object, fn) {
@@ -1784,12 +2036,18 @@ module.exports = {
   pickStandRotationFromSize,
   scoreStandSize,
   rotateSizeByEuler,
+  rotateBoxByEuler,
   isUprightExhibitSize,
   finalizeStandRotation,
   autoStandRotation,
   isBoardSize,
   isNoseDown,
+  measureEndWidths,
   wrapStandingModel,
+  findStandGroup,
+  isStandFlipped,
+  applyManualStandFlip,
+  toggleManualStandFlip,
   adaptViewerTextures,
   dropBrokenColorMaps,
   dropBrokenMaps,

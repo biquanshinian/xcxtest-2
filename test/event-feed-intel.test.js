@@ -3,7 +3,7 @@
  * node test/event-feed-intel.test.js
  */
 const assert = require('assert')
-const intel = require('../utils/event-feed-intel.js')
+const intel = require('../subpackages/progress-extra/utils/event-feed-intel.js')
 
 function testKeywordMatch() {
   const item = {
@@ -583,4 +583,11 @@ testRelatedLaunchFlightNoNotLoosePhrase()
 testRelatedLaunchUniquePayload()
 testRelatedLaunchIftAndChineseSerial()
 testDecorateFlattened()
+{
+  const fs = require('fs')
+  const path = require('path')
+  const a = fs.readFileSync(path.join(__dirname, '../subpackages/progress-extra/utils/event-feed-intel.js'), 'utf8')
+  const b = fs.readFileSync(path.join(__dirname, '../subpackages/shared/utils/event-feed-intel.js'), 'utf8')
+  assert.equal(a, b, 'progress-extra 与 shared 的 event-feed-intel 副本必须同步')
+}
 console.log('event-feed-intel.test.js ok')

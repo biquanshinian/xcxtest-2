@@ -2,6 +2,7 @@
   "component": true,
   "styleIsolation": "apply-shared",
   "usingComponents": {
-    "mission-list-card": "../mission-list-card/index"
+    "mission-list-card": "../mission-list-card/index",
+    "tweet-account-chips": "../tweet-account-chips/index"
   }
 }

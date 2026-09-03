@@ -1,8 +1,6 @@
-/* 外壳样式取自主包：跨分包 @import（原 ../../news-extra/detail.wxss）在分享直达本页时
-   news-extra 未下载，样式表加载失败会让根容器丢掉 100vh 而整页黑屏 */
-@import '../../../styles/detail-shell.wxss';
+/* 年鉴页：深空底与视频融合。外壳样式用本目录副本（分包不能跨包 @import）。 */
+@import './detail-shell.wxss';
 
-/* 年鉴页：深空底与视频融合 */
 page,
 .detail-page.yr-scifi {
   background: #0B0C0E !important;

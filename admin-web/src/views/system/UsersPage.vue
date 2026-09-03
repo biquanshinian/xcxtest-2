@@ -103,7 +103,9 @@
     <el-table :data="list" stripe @selection-change="onSelectionChange">
       <el-table-column type="selection" width="55" />
       <el-table-column prop="username" label="用户名" width="180" />
-      <el-table-column prop="role" label="角色" width="140" />
+      <el-table-column prop="role" label="角色" width="140">
+        <template #default="scope">{{ roleText(scope.row.role) }}</template>
+      </el-table-column>
       <el-table-column label="权限模块" min-width="200">
         <template #default="scope">
           <span v-if="scope.row.role === 'super_admin'" style="color:#67c23a;font-size:12px;">全部权限</span>
@@ -113,7 +115,7 @@
       </el-table-column>
       <el-table-column label="状态" width="120">
         <template #default="scope">
-          <el-tag :type="statusTagType(scope.row.status)">{{ scope.row.status || 'unknown' }}</el-tag>
+          <el-tag :type="statusTagType(scope.row.status)">{{ statusText(scope.row.status) }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="最近登录" width="180">
@@ -147,27 +149,22 @@
     </div>
   </el-card>
 
-  <el-dialog v-model="dialogVisible" :title="editing ? '编辑用户' : '新建用户'" width="720px">
+  <el-dialog v-model="dialogVisible" :title="editing ? '编辑用户' : '新建用户'" width="760px">
     <el-form :model="form" label-width="90px">
       <el-form-item label="用户名">
-        <el-input v-model="form.username" :disabled="!!editing" />
+        <el-input v-model="form.username" :disabled="!!editing" placeholder="登录用的账号名" />
       </el-form-item>
       <el-form-item label="密码">
-        <el-input v-model="form.password" type="password" show-password placeholder="编辑时留空表示不修改" />
+        <el-input v-model="form.password" type="password" show-password :placeholder="editing ? '留空表示不修改密码' : '请输入登录密码'" />
       </el-form-item>
       <el-form-item label="角色">
         <el-select v-model="form.role" style="width:100%">
-          <el-option label="viewer" value="viewer" />
-          <el-option label="reviewer" value="reviewer" />
-          <el-option label="editor" value="editor" />
-          <el-option label="super_admin" value="super_admin" />
+          <el-option v-for="(label, value) in ROLE_LABELS" :key="value" :label="label" :value="value" />
         </el-select>
       </el-form-item>
       <el-form-item label="状态">
         <el-select v-model="form.status" style="width:100%">
-          <el-option label="active" value="active" />
-          <el-option label="disabled" value="disabled" />
-          <el-option label="deleted" value="deleted" />
+          <el-option v-for="(label, value) in STATUS_LABELS" :key="value" :label="label" :value="value" />
         </el-select>
       </el-form-item>
       <el-form-item label="功能权限" v-if="form.role !== 'super_admin'">
@@ -176,14 +173,14 @@
           <el-button size="small" @click="deselectAllPerms">全不选</el-button>
         </div>
         <el-checkbox-group v-model="form.permissions">
-          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:4px 16px;">
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:6px 16px;">
             <el-checkbox v-for="(label, key) in permModules" :key="key" :label="key" :value="key">{{ label }}</el-checkbox>
           </div>
         </el-checkbox-group>
-        <div style="color:#909399;font-size:12px;margin-top:8px;">super_admin 角色自动拥有全部权限</div>
+        <div style="color:#909399;font-size:12px;margin-top:8px;">超级管理员自动拥有全部权限，不必勾选。</div>
       </el-form-item>
       <el-form-item v-else label="功能权限">
-        <span style="color:#67c23a;font-size:13px;">super_admin 自动拥有全部权限</span>
+        <span style="color:#67c23a;font-size:13px;">超级管理员自动拥有全部权限</span>
       </el-form-item>
     </el-form>
     <template #footer>
@@ -197,6 +194,13 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, auth } from '../../api/client'
+import {
+  ROLE_LABELS,
+  STATUS_LABELS,
+  mergePermissionModules,
+  roleLabel as roleText,
+  statusLabel as statusText
+} from '../../utils/permission-modules.js'
 
 const RETRY_BATCH_LOG_KEY = 'users_retry_batch_logs_v1'
 const RETRY_BATCH_LOG_MAX = 20
@@ -211,12 +215,13 @@ const saving = ref(false)
 const softDelete = ref(true)
 const form = reactive({ username: '', password: '', role: 'viewer', status: 'active', permissions: [] })
 
-const permModules = ref({})
+const permModulesRaw = ref({})
+const permModules = computed(() => mergePermissionModules(permModulesRaw.value))
 const loadPermModules = async () => {
   try {
-    permModules.value = await api.getPermissionModules()
+    permModulesRaw.value = await api.getPermissionModules()
   } catch (e) {
-    permModules.value = {}
+    permModulesRaw.value = {}
   }
 }
 
@@ -480,7 +485,7 @@ const isDeleteDisabled = (row) => {
 const onRestore = async (row) => {
   try {
     await ElMessageBox.confirm(
-      `确认恢复用户 ${row.username}？恢复后状态将变为 active。`,
+      `确认恢复用户 ${row.username}？恢复后状态将变为「启用」。`,
       '恢复确认',
       { type: 'warning', confirmButtonText: '确认恢复', cancelButtonText: '取消' }
     )

@@ -68,6 +68,7 @@ const JS_FILES = [
   'subpackages/rocket-3d/runtime.js',
   'subpackages/rocket-3d/share.js',
   'subpackages/rocket-3d/share-gate.js',
+  'subpackages/rocket-3d/stand-flip-pref.js',
   'subpackages/rocket-3d/viewer.js',
   'subpackages/rocket-3d/components/rocket-3d-viewer/index.js',
   'utils/rocket-3d-ready.js',
@@ -103,7 +104,7 @@ test('3D 页与组件 JSON / 绑定方法齐全', () => {
   const viewerJs = fs.readFileSync(path.join(ROOT, 'subpackages/rocket-3d/viewer.js'), 'utf8')
   const pageBaseJs = fs.readFileSync(path.join(ROOT, 'utils/page-base.js'), 'utf8')
   const viewerWxml = fs.readFileSync(path.join(ROOT, 'subpackages/rocket-3d/viewer.wxml'), 'utf8')
-  const binds = ['goBack', 'toggleIntro', 'onExhibitTab', 'onRetryViewer', 'onViewerStatus']
+  const binds = ['goBack', 'toggleIntro', 'onExhibitTab', 'onRetryViewer', 'onViewerStatus', 'onFlipStand', 'onFlipChange']
   for (const name of binds) {
     assert.match(viewerWxml, new RegExp(name))
     const inPage = new RegExp(name + '\\s*:').test(viewerJs)
@@ -113,7 +114,7 @@ test('3D 页与组件 JSON / 绑定方法齐全', () => {
 
   const compJs = fs.readFileSync(path.join(ROOT, 'subpackages/rocket-3d/components/rocket-3d-viewer/index.js'), 'utf8')
   const compWxml = fs.readFileSync(path.join(ROOT, 'subpackages/rocket-3d/components/rocket-3d-viewer/index.wxml'), 'utf8')
-  const compBinds = ['onStageTap', 'onTouchStart', 'onTouchMove', 'onTouchEnd', 'onTouchCancel', 'onExpand']
+  const compBinds = ['onStageTap', 'onTouchStart', 'onTouchMove', 'onTouchEnd', 'onTouchCancel', 'onExpand', 'onFlipStand']
   for (const name of compBinds) {
     assert.match(compWxml, new RegExp(name))
     assert.match(compJs, new RegExp(name + '\\s*:'))
@@ -126,6 +127,9 @@ test('3D 页与组件 JSON / 绑定方法齐全', () => {
   assert.match(modelJs, /onTapRocket3d\s*\(/)
   assert.match(modelJs, /alignDedicatedRocket3d/)
   assert.match(modelJs, /rocket3dEnabled:\s*!!rocket3d\.aligned/)
+  assert.match(viewerWxml, /bind:flipchange="onFlipChange"/)
+  assert.match(viewerWxml, /翻转/)
+  assert.match(compWxml, /翻转方向/)
 })
 
 test('页面与组件模块可加载，不抛 JS 错', () => {
@@ -140,6 +144,18 @@ test('页面与组件模块可加载，不抛 JS 错', () => {
   assert.equal(typeof page.onExhibitTab, 'function')
   assert.equal(typeof page.onViewerStatus, 'function')
   assert.equal(typeof page._playExhibitView, 'function')
+  assert.equal(typeof page.onFlipStand, 'function')
+  assert.equal(typeof page.onFlipChange, 'function')
+  assert.equal(typeof comp.methods.flipStand, 'function')
+  assert.doesNotThrow(() => page.onFlipStand.call({
+    selectComponent: function () { return null },
+    setData: function () {},
+    data: { standFlipped: false }
+  }))
+  assert.doesNotThrow(() => page.onFlipChange.call({
+    data: { standFlipped: false },
+    setData: function () {}
+  }, { detail: { flipped: true } }))
   assert.equal(typeof modelPage.onTapRocket3d, 'function')
   assert.equal(typeof modelPage.processAndSetData, 'function')
   assert.equal(typeof comp.methods.startViewer, 'function')
@@ -163,9 +179,13 @@ test('组件空会话方法全部早退，不抛错', () => {
     _setDimLabels: methods._setDimLabels,
     _applyDimGuides: methods._applyDimGuides,
     _syncLoop: methods._syncLoop,
-    _shouldRun: methods._shouldRun
+    _shouldRun: methods._shouldRun,
+    flipStand: methods.flipStand
   }
   assert.doesNotThrow(() => methods.playExhibitView.call(fake, 'size'))
+  assert.doesNotThrow(() => methods.flipStand.call(fake))
+  assert.equal(methods.flipStand.call(fake), false)
+  assert.doesNotThrow(() => methods.onFlipStand.call(fake))
   assert.doesNotThrow(() => methods._applyDimGuides.call(fake))
   assert.doesNotThrow(() => methods._syncLoop.call(fake))
   assert.doesNotThrow(() => methods._teardown.call(fake))
@@ -247,6 +267,10 @@ test('runtime 空输入 API 全部绿灯', () => {
   assert.doesNotThrow(() => runtime.cancelExhibitTween(null))
   assert.doesNotThrow(() => runtime.wrapStandingModel(null, { Group: function () {} }))
   assert.equal(runtime.wrapStandingModel(null, { Group: function () {} }), null)
+  assert.doesNotThrow(() => runtime.applyManualStandFlip(null, true))
+  assert.doesNotThrow(() => runtime.toggleManualStandFlip(null))
+  assert.equal(runtime.isStandFlipped(null), false)
+  assert.equal(runtime.findStandGroup(null), null)
   assert.equal(runtime.prepareModel(null), null)
   assert.equal(runtime.exhibitStandRotation(null).x, 0)
   assert.equal(runtime.exhibitStandRotation(null).y, 0)

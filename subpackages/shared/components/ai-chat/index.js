@@ -4,7 +4,7 @@ const { getUpcomingMissions, getCompletedMissions, getUpcomingStarshipMissions }
 const { getStarshipStatusFromDB } = require('../../../../utils/api-app-services.js')
 const { buildMissionDetailUrl } = require('../../../../utils/index-mission-nav.js')
 const { getMembershipState, getAiChatRemaining, recordAiChatUse, isMembershipEnabled, gateCheck, isPro } = require('../../../../utils/membership.js')
-const { getAiChatAdBonus, offerAiChatQuotaRecover } = require('../../../../utils/ai-chat-ad-quota.js')
+const { getAiChatAdBonus, offerAiChatQuotaRecover } = require('../../utils/ai-chat-ad-quota.js')
 const { getSystemInfo } = require('../../../../utils/system.js')
 const { getUiShellLayout } = require('../../../../utils/layout.js')
 const {

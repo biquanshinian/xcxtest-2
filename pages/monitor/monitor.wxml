@@ -57,22 +57,7 @@
               <text class="livestream-live-tag-text">直播中</text>
             </view>
           </view>
-          <view class="section-title-right starbase-weather-cluster">
-            <view wx:if="{{starbaseWeather.loading}}" class="starbase-weather-loading"><text>天气载入中…</text></view>
-            <block wx:elif="{{starbaseWeather.loaded}}">
-              <view class="starbase-weather-row">
-                <image class="starbase-wx-icon" src="{{starbaseWeather.weatherIcon}}" mode="aspectFit"></image>
-                <text class="starbase-wx-condition">{{starbaseWeather.conditionText}}</text>
-                <text class="starbase-wx-temp">{{starbaseWeather.tempLine}}</text>
-                <text class="starbase-weather-dot">·</text>
-                <image class="starbase-wind-icon" src="{{starbaseWeather.windIcon}}" mode="aspectFit"></image>
-                <text class="starbase-wx-wind-text">{{starbaseWeather.windLine}}</text>
-              </view>
-              <text class="starbase-weather-caption">博卡奇卡{{starbaseWeather.timeShort ? ' · ' + starbaseWeather.timeShort + ' CST' : ''}}</text>
-            </block>
-            <text wx:elif="{{starbaseWeather.error}}" class="starbase-weather-err">{{starbaseWeather.error}}</text>
-            <text wx:else class="starbase-weather-caption">博卡奇卡</text>
-          </view>
+          <monitor-starbase-weather class="section-title-right" weather="{{starbaseWeather}}" />
         </view>
         <view class="monitor-livestream-stack">
           <channels-live-panel
@@ -90,6 +75,9 @@
         </view>
       </view>
 
+    <!-- 罗曼太空望远镜：组件自管生命周期，任务结束后自动隐藏；发射商详情页仍保留 -->
+    <monitor-roman-card scene="monitor" />
+
     <!-- 太空轨道数据中心入口卡：组件在 monitor-pages 分包（wxml/wxss 不占主包），
          逻辑在 monitor-orbital.js（页面经 require.async 委托） -->
     <monitor-orbital-card
@@ -103,7 +91,7 @@
     />
 
     <!-- 航警预览：画布组件（不进原生 map，避免 Tab 遮罩被戳穿、滑动黑块抖动） -->
-    <view class="space-notices-section" wx:if="{{enableSpaceNotices}}">
+    <view class="space-notices-section monitor-block" wx:if="{{enableSpaceNotices}}">
       <view class="section-title">
         <text>发射航警地图</text>
         <view class="section-title-right">

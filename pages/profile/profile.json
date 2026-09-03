@@ -8,19 +8,22 @@
   "backgroundColorTop": "#000000",
   "backgroundColorBottom": "#000000",
   "usingComponents": {
-    "popup-ad": "/components/popup-ad/popup-ad",
+    "popup-ad": "/subpackages/shared/components/popup-ad/popup-ad",
     "nasa-float": "/subpackages/shared/components/nasa-float/index",
     "milestone-egg": "/subpackages/shared/components/milestone-egg/index",
     "privacy-modal": "/components/privacy-modal/privacy-modal",
     "demo-overlay": "/subpackages/shared/components/demo-overlay/index",
     "profile-sections": "/subpackages/profile-extra/components/profile-sections/index",
-    "badge-modal": "/subpackages/profile-extra/components/badge-modal/index"
+    "badge-modal": "/subpackages/profile-extra/components/badge-modal/index",
+    "wechat-shop-icon": "/subpackages/profile-extra/components/wechat-shop-icon/index"
   },
   "componentPlaceholder": {
     "demo-overlay": "view",
     "milestone-egg": "view",
     "nasa-float": "view",
     "profile-sections": "view",
-    "badge-modal": "view"
+    "badge-modal": "view",
+    "wechat-shop-icon": "view",
+    "popup-ad": "view"
   }
 }

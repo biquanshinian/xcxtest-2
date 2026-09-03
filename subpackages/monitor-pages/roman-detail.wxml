@@ -1,0 +1,153 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="detail-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      <view class="nav-right-space top-nav-slot--spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view class="detail-scroll" scroll-y="true">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+    <view class="roman-shell">
+      <view class="roman-hero glass-card" wx:if="{{summary}}">
+        <text class="roman-kicker">NANCY GRACE ROMAN · RST</text>
+        <text class="roman-hero-name">{{summary.missionName}}</text>
+        <view class="roman-chip roman-chip--{{missionPhase}}">{{phaseSub}}</view>
+        <text class="roman-hero-desc" wx:if="{{missionPhase === 'before'}}">发射后自动接入 Horizons / DSN 公开星历</text>
+        <text class="roman-hero-desc" wx:elif="{{missionPhase === 'ended'}}">任务已结束，公开星历追踪已停止</text>
+      </view>
+
+      <view class="loading-state" wx:if="{{loading}}">
+        <view class="roman-scan"></view>
+        <text class="loading-text">正在同步 NASA 星历...</text>
+      </view>
+
+      <view class="error-state glass-card" wx:elif="{{errorMsg}}">
+        <text class="error-text">{{errorMsg}}</text>
+        <view class="retry-btn" bindtap="retryLoad">重试</view>
+      </view>
+
+      <block wx:if="{{hasLive}}">
+        <view class="roman-met glass-card">
+          <text class="roman-met-label">任务历时 MET</text>
+          <text class="roman-met-value">{{met}}</text>
+          <text class="roman-met-hint">天 : 时 : 分 : 秒</text>
+        </view>
+
+        <view class="roman-track glass-card" wx:if="{{showProgress}}">
+          <view class="roman-track-head">
+            <view class="roman-track-end">
+              <view class="roman-track-dot roman-track-dot--earth"></view>
+              <text>地球</text>
+            </view>
+            <text class="roman-track-pct">{{progressPct}}%</text>
+            <view class="roman-track-end">
+              <text>日地 L2</text>
+              <view class="roman-track-dot roman-track-dot--l2"></view>
+            </view>
+          </view>
+          <view class="roman-track-rail">
+            <view class="roman-track-bar">
+              <view class="roman-track-fill" style="width: {{progressPct}}%;"></view>
+            </view>
+            <view class="roman-track-craft" style="left: {{progressPct}}%;">
+              <image class="roman-track-img" src="/subpackages/monitor-pages/images/roman/roman-craft.png" mode="aspectFit" />
+            </view>
+          </view>
+          <view class="roman-track-ends">
+            <text>地球</text>
+            <text>日地第二拉格朗日点</text>
+          </view>
+        </view>
+
+        <view class="roman-grid">
+          <view class="roman-stat glass-card">
+            <text class="roman-stat-k">距地球</text>
+            <text class="roman-stat-v">{{distEarthKm}}</text>
+            <text class="roman-stat-u">km</text>
+          </view>
+          <view class="roman-stat glass-card">
+            <text class="roman-stat-k">距 L2</text>
+            <text class="roman-stat-v">{{distL2Km}}</text>
+            <text class="roman-stat-u">km</text>
+          </view>
+          <view class="roman-stat glass-card">
+            <text class="roman-stat-k">速率</text>
+            <text class="roman-stat-v">{{velocityKmh}}</text>
+            <text class="roman-stat-u">km/h</text>
+          </view>
+          <view class="roman-stat glass-card">
+            <text class="roman-stat-k">单程光延时</text>
+            <text class="roman-stat-v">{{lightDelay || '—'}}</text>
+            <text class="roman-stat-u" wx:if="{{lightDelayRt}}">往返 {{lightDelayRt}}</text>
+          </view>
+        </view>
+
+        <view class="roman-dsn glass-card">
+          <view class="roman-dsn-head">
+            <view class="roman-pulse {{dsnTracking ? 'roman-pulse--on' : ''}}"></view>
+            <text>深空网 DSN</text>
+          </view>
+          <text class="roman-dsn-line" wx:if="{{dsnTracking}}">{{dsnLine}}</text>
+          <text class="roman-dsn-idle" wx:else>当前未跟踪 RST，星历仍由 Horizons 推算</text>
+          <view class="roman-kv" wx:if="{{dsnTracking}}">
+            <view class="roman-kv-row" wx:if="{{dsnStation}}"><text>台站</text><text>{{dsnStation}}</text></view>
+            <view class="roman-kv-row" wx:if="{{dsnDish}}"><text>天线</text><text>{{dsnDish}}</text></view>
+            <view class="roman-kv-row" wx:if="{{dsnBand}}"><text>波段</text><text>{{dsnBand}}</text></view>
+            <view class="roman-kv-row" wx:if="{{dsnRate}}"><text>下行</text><text>{{dsnRate}}</text></view>
+            <view class="roman-kv-row" wx:if="{{dsnActivity}}"><text>活动</text><text>{{dsnActivity}}</text></view>
+          </view>
+        </view>
+
+        <view class="glass-card roman-block">
+          <text class="roman-section-title">星历矢量</text>
+          <view class="roman-kv">
+            <view class="roman-kv-row"><text>径向</text><text>{{rangeRateDir}} · {{rangeRateText}} km/h</text></view>
+            <view class="roman-kv-row"><text>速度</text><text>{{speedKmSText}} km/s</text></view>
+            <view class="roman-kv-row"><text>X / Y / Z</text><text>{{posX}} · {{posY}} · {{posZ}} km</text></view>
+            <view class="roman-kv-row"><text>源</text><text>{{sourceLabel}}</text></view>
+            <view class="roman-kv-row" wx:if="{{updatedAt}}"><text>更新</text><text>{{updatedAt}}</text></view>
+          </view>
+        </view>
+      </block>
+
+      <view class="glass-card roman-block" wx:if="{{summary}}">
+        <text class="roman-section-title">任务档案</text>
+        <view class="roman-kv">
+          <view class="roman-kv-row" wx:if="{{summary.launchTime}}"><text>发射</text><text>{{summary.launchTime}}</text></view>
+          <view class="roman-kv-row" wx:if="{{summary.vehicle}}"><text>运载</text><text>{{summary.vehicle}}</text></view>
+          <view class="roman-kv-row" wx:if="{{summary.destination}}"><text>目标</text><text>{{summary.destination}}</text></view>
+          <view class="roman-kv-row" wx:if="{{summary.mirror}}"><text>光学</text><text>{{summary.mirror}}</text></view>
+          <view class="roman-kv-row" wx:if="{{summary.mass}}"><text>质量</text><text>{{summary.mass}}</text></view>
+          <view class="roman-kv-row" wx:if="{{summary.size}}"><text>展开</text><text>{{summary.size}}</text></view>
+          <view class="roman-kv-row" wx:if="{{summary.command}}"><text>Horizons</text><text>{{summary.command}}</text></view>
+          <view class="roman-kv-row" wx:if="{{summary.dsnName}}"><text>DSN 代号</text><text>{{summary.dsnName}}</text></view>
+          <view class="roman-kv-row" wx:if="{{summary.cruiseEndLabel}}"><text>L2 窗口</text><text>{{summary.cruiseEndLabel}}</text></view>
+          <view class="roman-kv-row" wx:if="{{summary.remainLabel}}"><text>进度口径</text><text>{{summary.remainLabel}}</text></view>
+        </view>
+      </view>
+
+      <view class="roman-actions">
+        <view class="roman-action glass-card" bindtap="copyOfficial">
+          <text>复制 NASA 任务页</text>
+          <text class="roman-action-arrow">›</text>
+        </view>
+        <view class="roman-action glass-card" bindtap="copyEyes">
+          <text>复制 NASA Eyes</text>
+          <text class="roman-action-arrow">›</text>
+        </view>
+      </view>
+
+      <view class="roman-credit" wx:if="{{creditLines.length}}">
+        <text wx:for="{{creditLines}}" wx:key="*this">{{item}}</text>
+      </view>
+    </view>
+    <view style="height: 80rpx;"></view>
+  </scroll-view>
+  <share-gate-countdown expire-at="{{shareGateExpireAt}}" />
+  <share-guide />
+</view>

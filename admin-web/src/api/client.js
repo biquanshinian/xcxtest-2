@@ -69,11 +69,53 @@ function hasPermission(mod) {
   return perms.includes(mod)
 }
 
+const HOME_PATHS = [
+  ['dashboard', '/dashboard'],
+  ['preaudit', '/preaudit'],
+  ['statistics', '/statistics'],
+  ['oa_content', '/oa-content/pipeline'],
+  ['news_events', '/news/events'],
+  ['news_articles', '/news/articles'],
+  ['launch_data', '/launch-data'],
+  ['starship_status', '/starship-status'],
+  ['starship_progress', '/starship-progress'],
+  ['starship_events', '/starship-event-updates'],
+  ['tweet_monitor', '/tweet-monitor'],
+  ['road_closure', '/road-closure'],
+  ['spacex_stats', '/spacex-stats'],
+  ['launch_votes', '/launch-votes'],
+  ['push_notify', '/push-notify'],
+  ['live_mgmt', '/live-management'],
+  ['lunar_wishes', '/lunar-wishes'],
+  ['astro_photos', '/astro-photos'],
+  ['milestone_rewards', '/milestone-rewards'],
+  ['knowledge_cards', '/knowledge-cards'],
+  ['announcements', '/announcements'],
+  ['carousel', '/carousel'],
+  ['splash_screen', '/splash-screen'],
+  ['shop_feed', '/shop-feed'],
+  ['cos_storage', '/cos-storage'],
+  ['watch_party', '/watch-party'],
+  ['users', '/users'],
+  ['logs', '/logs'],
+  ['cloud_functions', '/cloud-functions'],
+  ['global_config', '/global-config'],
+  ['data_export', '/data-export']
+]
+
+function homePath() {
+  for (let i = 0; i < HOME_PATHS.length; i++) {
+    if (hasPermission(HOME_PATHS[i][0])) return HOME_PATHS[i][1]
+  }
+  return '/preaudit'
+}
+
 export const auth = {
   getUser,
   clearAuth,
   hasRole,
-  hasPermission
+  hasPermission,
+  homePath
 }
 
 export const api = {
@@ -289,6 +331,12 @@ export const api = {
   },
   updatePopupAdConfig(body) {
     return request('/popup-ad-config', { method: 'PUT', body })
+  },
+  getProfileShopConfig() {
+    return request('/profile-shop-config', { method: 'GET' })
+  },
+  updateProfileShopConfig(body) {
+    return request('/profile-shop-config', { method: 'PUT', body })
   },
   listStarshipEvents(query) {
     return request('/starship-events', { method: 'GET', query })

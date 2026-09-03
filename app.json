@@ -253,6 +253,7 @@
         "booster-genealogy",
         "rocket-model-detail",
         "artemis-detail",
+        "roman-detail",
         "orbital-data-center/orbital-data-center",
         "vehicle-tracker/vehicle-tracker",
         "space-notices/entry-list",
@@ -280,6 +281,10 @@
     "pages/profile/profile": {
       "network": "all",
       "packages": ["shared", "profile-extra"]
+    },
+    "pages/nasa-data/nasa-data": {
+      "network": "all",
+      "packages": ["shared", "monitor-pages"]
     }
   }
 }

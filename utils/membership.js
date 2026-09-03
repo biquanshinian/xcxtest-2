@@ -198,7 +198,10 @@ function getAiChatRemaining(state) {
   var used = (state && state.aiChatUsed && state.aiChatUsed[today]) || 0
   var limit = _freeAiLimits().AI_CHAT
   try {
-    limit += require('./ai-chat-ad-quota.js').getAiChatAdBonus()
+    var raw = storageCache.readMemOrSync('_ai_chat_ad_bonus', null)
+    if (raw && typeof raw === 'object' && String(raw.date || '') === today) {
+      limit += Math.max(0, Number(raw.bonus) || 0)
+    }
   } catch (e) {}
   return Math.max(0, limit - used)
 }

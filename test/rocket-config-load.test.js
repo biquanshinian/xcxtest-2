@@ -85,7 +85,7 @@ test('media map 冷启动不再调 COS 列举云函数', () => {
 })
 
 test('开屏预拉不在 onLaunch 打 media map 云函数', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'utils/splash-prefetch.js'), 'utf8')
+  const src = fs.readFileSync(path.join(ROOT, 'subpackages/index-extra/utils/splash-prefetch.js'), 'utf8')
   assert.doesNotMatch(src, /loadCloudMediaMap/)
 })
 

@@ -22,7 +22,7 @@ const {
   DEFAULT_EVENT_ALERT_KEYWORDS,
   EVENT_WATCH_ACCOUNT_OPTIONS,
   getEventAlertKeywords
-} = require('../../utils/event-feed-intel.js')
+} = require('../../utils/event-feed-keywords.js')
 const { normalizeContentLang } = require('../../utils/locale.js')
 const { invalidateListSnapshots } = require('../../utils/api-launch-list.js')
 
@@ -256,7 +256,10 @@ Page({
     /** 火箭观礼入口（enableWatchParty，failClosed；未确认前隐藏） */
     enableWatchParty: false,
     /** 观礼入口红角标：对外场次总数（0 = 不显示） */
-    watchPartyCount: 0
+    watchPartyCount: 0,
+    /** 我的页微信小店店铺卡 store-home（enableProfileShop，failClosed / defaultOff） */
+    showProfileShop: false,
+    profileShopAppid: '',
   },
 
   onLoad() {
@@ -645,6 +648,7 @@ Page({
     this._loadMembershipEntry()
     this.loadYearReviewEntry()
     this._refreshWatchPartyEntryFlag()
+    this._loadProfileShop()
     if (!isBoot) {
       require.async('../../subpackages/shared/utils/popup-ad.js')
         .then(({ tryShowPopupAd }) => tryShowPopupAd(4, this))
@@ -1035,6 +1039,20 @@ Page({
 
   goDailyQuiz() {
     wx.navigateTo({ url: ROUTES.DAILY_QUIZ })
+  },
+
+  /** 我的页微信小店店铺卡：强制刷新，避免一键过审后仍展示 */
+  _loadProfileShop() {
+    try {
+      const { loadProfileShopHome, buildProfileShopView } = require('../../utils/profile-shop.js')
+      loadProfileShopHome(true).then((home) => {
+        this.setData(buildProfileShopView(home && home.appid))
+      }).catch(() => {
+        this.setData(buildProfileShopView(''))
+      })
+    } catch (e) {
+      this.setData({ showProfileShop: false, profileShopAppid: '' })
+    }
   },
 
   /** 过审开关：强制刷新，避免一键过审后仍显示入口；开启时顺带拉场次数刷红角标 */

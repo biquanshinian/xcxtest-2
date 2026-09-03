@@ -4,7 +4,7 @@
   <view class="section-title section-title--orbital">
     <text>太空轨道数据中心</text>
   </view>
-  <view class="orbital-card glass-card card-hover" bindtap="emitCardTap">
+  <view class="orbital-card card-hover" bindtap="emitCardTap">
     <video
       wx:if="{{orbitalCardBgIsVideo && orbitalCardBg}}"
       class="orbital-card__bg-img"

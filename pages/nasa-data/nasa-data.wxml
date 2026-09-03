@@ -111,8 +111,18 @@
       </view>
     </view>
 
-    <!-- ========== Tab 1: 地球事件 ========== -->
-    <view wx:if="{{activeTab === 1}}">
+    <!-- ========== Tab: 月球探索（复用 Artemis 遥测卡） ========== -->
+    <view class="nasa-embed" hidden="{{activeTab !== 1}}">
+      <monitor-artemis-card id="nasaArtemisCard" scene="nasa" />
+    </view>
+
+    <!-- ========== Tab: 宇宙探索（复用罗曼太空望远镜追踪卡） ========== -->
+    <view class="nasa-embed nasa-embed--roman" hidden="{{activeTab !== 2}}">
+      <monitor-roman-card id="nasaRomanCard" scene="nasa" />
+    </view>
+
+    <!-- ========== Tab: 地球事件 ========== -->
+    <view wx:if="{{activeTab === 3}}">
       <scroll-view class="category-bar" scroll-x show-scrollbar="{{false}}">
         <view class="category-chips">
           <view class="filter-chip {{eonetCategory === '' ? 'filter-chip--active' : ''}}" bindtap="onEonetCategoryFilter" data-value=""><text>全部</text></view>
@@ -158,8 +168,8 @@
       </view>
     </view>
 
-    <!-- ========== Tab 2: 近地天体 ========== -->
-    <view wx:if="{{activeTab === 2}}">
+    <!-- ========== Tab: 近地天体 ========== -->
+    <view wx:if="{{activeTab === 4}}">
       <view class="filter-bar">
         <view class="filter-group">
           <text class="filter-label">时间</text>

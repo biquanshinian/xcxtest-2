@@ -454,7 +454,6 @@ Page({
     eventImageSaveSelected: [],
     tweetAccountStats: [],
     tweetEventTotal: 0,
-    tweetStatsChipsHasOverflow: false,
     selectedEventShareId: '',
     pressedEventId: ''
   },

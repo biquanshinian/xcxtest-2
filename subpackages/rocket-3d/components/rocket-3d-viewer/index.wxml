@@ -50,7 +50,8 @@
   </view>
 
   <!-- 操作条在画布外，避免与同层 canvas 叠层 -->
-  <view class="r3d-toolbar" wx:if="{{started && !loading && mode !== 'page' && allowExpand}}">
-    <view class="r3d-chip" hover-class="r3d-chip--pressed" hover-stay-time="80" catchtap="onExpand">全屏查看</view>
+  <view class="r3d-toolbar" wx:if="{{started && !loading && mode !== 'page'}}">
+    <view class="r3d-chip {{standFlipped ? 'r3d-chip--on' : ''}}" hover-class="r3d-chip--pressed" hover-stay-time="80" catchtap="onFlipStand">{{standFlipped ? '已翻转' : '翻转方向'}}</view>
+    <view class="r3d-chip" wx:if="{{allowExpand}}" hover-class="r3d-chip--pressed" hover-stay-time="80" catchtap="onExpand">全屏查看</view>
   </view>
 </view>

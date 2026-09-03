@@ -72,6 +72,10 @@ missAnim.length ? bad('组件缺 keyframes: ' + missAnim.join(',')) : ok('组件
 // 8. json 注册 + placeholder
 pjson.usingComponents['event-updates'] && pjson.componentPlaceholder['event-updates'] ? ok('json 注册与 placeholder 就绪') : bad('json 配置缺失')
 
+const cjJson = JSON.parse(fs.readFileSync('subpackages/progress-extra/components/event-updates/index.json', 'utf8'))
+cjJson.usingComponents && cjJson.usingComponents['tweet-account-chips'] ? ok('event-updates 复用 tweet-account-chips') : bad('event-updates 未引用 tweet-account-chips')
+cw.includes('<tweet-account-chips') ? ok('event-updates wxml 使用胶囊组件') : bad('event-updates wxml 缺少胶囊组件')
+
 // 9. wxml 标签平衡（组件与页面）
 function balance(src, name) {
   const open = (src.match(/<view\b/g) || []).length

@@ -122,7 +122,6 @@
       event-scroll-refreshing="{{eventScrollRefreshing}}"
       event-new-count="{{eventNewCount}}"
       tweet-account-stats="{{tweetAccountStats}}"
-      tweet-stats-chips-has-overflow="{{tweetStatsChipsHasOverflow}}"
       tweet-event-total="{{tweetEventTotal}}"
       is-pro-user="{{isProUser}}"
       pressed-event-id="{{pressedEventId}}"

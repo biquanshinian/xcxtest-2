@@ -131,7 +131,7 @@ module.exports = {
    * 600002 = 域名未列入白名单。新增外链前请同步更新后台与本文档。
    *
    * request 合法域名：
-   * - api.marsx.com.cn（workerProxyUrl，LL2/直播/B站/NASA 代理等）
+   * - api.marsx.com.cn（workerProxyUrl，LL2/直播/B站/NASA 代理等；含 /roman-tracker）
    * - ll.thespacedevs.com、lldev.thespacedevs.com（Launch Library，开发/生产）
    * - mars-1397421562.cos.ap-guangzhou.myqcloud.com（COS 媒体）
    * - 636c-cloud1-9gdqgdt5bfaa20fb-1397421562.tcb.qcloud.la（云存储 CDN）
@@ -175,6 +175,38 @@ module.exports = {
     /** 任务总时长文字（任务结束后展示用，留空则自动计算） */
     missionDurationText: '约10天1小时32分钟',
     /** 时段外隐藏整个区块 */
+    visibleAfterIso: '',
+    visibleUntilIso: ''
+  },
+
+  /**
+   * 罗曼太空望远镜追踪 — 参见 subpackages/monitor-pages/utils/roman-tracker.js
+   *
+   * 请求链路：小程序 → Worker(/roman-tracker) → NASA/JPL Horizons + DSN Now
+   * 精简接口未部署时回退 Worker(/artemis-horizons) 仅拉星历
+   */
+  romanTracker: {
+    enabled: true,
+    trackerProxyUrl: '',
+    command: '-211',
+    l2Command: 'SEMB-L2',
+    dsnName: 'RST',
+    pollIntervalMs: 60000,
+    missionName: '罗曼太空望远镜',
+    launchUtcIso: '2026-08-30T11:26:04.000Z',
+    /** 公开口径约 3 个月抵达日地 L2 */
+    cruiseEndUtcIso: '2026-11-28T00:00:00.000Z',
+    /** 任务结束 UTC；留空表示仍在轨。到点后监控页卡片自动隐藏，发射商详情仍保留档案 */
+    missionEndUtcIso: '',
+    vehicleText: '猎鹰重型 · 肯尼迪 LC-39A',
+    destinationText: '日地第二拉格朗日点（L2）晕轨道',
+    mirrorText: '主镜 2.4 米',
+    massText: '发射质量约 10.5 吨',
+    sizeText: '展开约 12.7 米 × 4.4 米',
+    officialUrl: 'https://science.nasa.gov/mission/roman-space-telescope/',
+    eyesUrl: 'https://eyes.nasa.gov/apps/solar-system/',
+    /** NASA/JPL-Caltech PIA20060。分包内仅留压缩预览；传到 COS 同路径后监控卡走云端 */
+    cardBgUrl: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E7%BD%97%E6%9B%BC%E6%9C%9B%E8%BF%9C%E9%95%9C/roman-card-bg.jpg',
     visibleAfterIso: '',
     visibleUntilIso: ''
   }

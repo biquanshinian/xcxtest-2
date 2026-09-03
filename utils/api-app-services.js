@@ -15,7 +15,12 @@ const NSF_HARDWARE_TESTS_CACHE_KEY = '_nsf_hardware_tests_local_cache'
 // 硬件设施同步服务端内置 6 小时节流，本地 TTL 与之对齐
 const NSF_HARDWARE_CACHE_TTL = 6 * 60 * 60 * 1000
 
-const { mergeNsfChecklistDisplay } = require('./nsf-checklist-merge.js')
+function loadNsfChecklistMerge() {
+  if (typeof require.async === 'function') {
+    return require.async('../subpackages/progress-extra/utils/nsf-checklist-merge.js')
+  }
+  return Promise.resolve(require('../subpackages/progress-extra/utils/nsf-checklist-merge.js'))
+}
 
 // ── 内存缓存层：避免首屏频繁同步读 storage（wx 启动性能告警） ──
 const _memCacheStore = Object.create(null)
@@ -123,6 +128,7 @@ async function getNsfStarshipChecklistFromDB(options) {
       }
     } catch (e2) {}
 
+    const { mergeNsfChecklistDisplay } = await loadNsfChecklistMerge()
     const merged = mergeNsfChecklistDisplay(doc ? doc.statuses : [], overrides)
 
     const payload = {
@@ -433,10 +439,28 @@ async function getSpaceXLaunchStats() {
 }
 
 async function getUpcomingOrbitalEvents(options) {
-  const {
-    pickUpcomingOrbitalEvents,
-    filterFreshOrbitalEvents
-  } = require('./upcoming-orbital-events.js')
+  const loadOrbital = () => {
+    const helpers = options && options.helpers
+    if (helpers && typeof helpers.filterFreshOrbitalEvents === 'function' && typeof helpers.pickUpcomingOrbitalEvents === 'function') {
+      return Promise.resolve(helpers)
+    }
+    const rel = '../subpackages/monitor-pages/utils/upcoming-orbital-events.js'
+    if (typeof require.async === 'function') {
+      return require.async('../subpackages/monitor-pages/utils/upcoming-orbital-events.js')
+    }
+    return Promise.resolve(require(rel))
+  }
+  let mod = null
+  try {
+    mod = await loadOrbital()
+  } catch (e) {
+    return []
+  }
+  const pickUpcomingOrbitalEvents = mod && mod.pickUpcomingOrbitalEvents
+  const filterFreshOrbitalEvents = mod && mod.filterFreshOrbitalEvents
+  if (typeof pickUpcomingOrbitalEvents !== 'function' || typeof filterFreshOrbitalEvents !== 'function') {
+    return []
+  }
   const limit = (options && options.limit) || 8
 
   const take = (raw) => filterFreshOrbitalEvents(raw || []).slice(0, limit)

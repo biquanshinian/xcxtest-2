@@ -233,9 +233,10 @@
       v-model="visible"
       title="编辑草稿 · 多平台"
       width="92%"
+      top="3vh"
+      append-to-body
       destroy-on-close
       class="draft-dialog"
-      align-center
     >
       <el-form :model="form" label-width="96px">
         <el-form-item label="发稿号">
@@ -268,8 +269,17 @@
         <el-form-item v-if="form.videos.length" label="视频素材">
           <div class="video-list">
             <div v-for="(v, i) in form.videos" :key="`vid-${i}`" class="video-item">
+              <video
+                v-if="playableVideoSrc(v)"
+                :src="playableVideoSrc(v)"
+                :poster="thumbSrc(v.posterUrl)"
+                controls
+                playsinline
+                preload="metadata"
+                class="draft-video"
+              />
               <el-image
-                v-if="v.posterUrl"
+                v-else-if="v.posterUrl"
                 :src="thumbSrc(v.posterUrl)"
                 :preview-src-list="[thumbSrc(v.posterUrl)]"
                 fit="cover"
@@ -286,15 +296,23 @@
                   :href="videoLink(v)"
                   target="_blank"
                   type="primary"
-                >打开视频</el-link>
+                >打开原链</el-link>
               </div>
             </div>
           </div>
           <el-text size="small" type="info">
-            公众号正文不支持外链视频，成稿用视频封面截图占位；「阅读原文」仅挂来源/推文网页，不挂 COS 视频直链。
+            公众号正文不能直接塞外链 mp4。成稿里封面可点进小程序该事件详情；「阅读原文」走微信打得开的中转页（不挂 X/Twitter）。过期约 3 天后读者会看到下架提示。
           </el-text>
         </el-form-item>
-        <el-form-item label="小程序 path"><el-input v-model="form.miniprogramPath" placeholder="pages/index/index" /></el-form-item>
+        <el-form-item v-if="readMoreUrl" label="阅读原文">
+          <el-link :href="readMoreUrl" target="_blank" type="primary">{{ readMoreUrl }}</el-link>
+        </el-form-item>
+        <el-form-item label="小程序 path">
+          <el-input v-model="form.miniprogramPath" placeholder="按选题自动落到事件/任务/文章详情" />
+          <el-text size="small" type="info">
+            事件稿进事件详情（绑定该事件 ID），发射稿进任务详情，新闻稿进文章详情。视频封面也进同一事件页。留空或填首页时推送会按选题自动改写。
+          </el-text>
+        </el-form-item>
 
         <el-tabs v-model="editTab" class="plat-tabs">
           <el-tab-pane label="源稿" name="source">
@@ -492,6 +510,7 @@
       title="导入成品稿（不洗稿）"
       width="92%"
       top="3vh"
+      append-to-body
       destroy-on-close
       class="draft-dialog"
     >
@@ -632,6 +651,9 @@ const form = reactive({
   coverUrl: '',
   imageUrls: [],
   videos: [],
+  sourceUrl: '',
+  sourceId: '',
+  sourceType: '',
   miniprogramPath: '',
   markdown: '',
   themeId: 'bytedance',
@@ -926,6 +948,39 @@ const hasLongVideos = (row) => videosOf(row).some((v) => v.isLong)
 
 const videoLink = (v) => v?.watchUrl || v?.url || v?.pageUrl || ''
 
+const playableVideoSrc = (v) => {
+  const cands = [v?.previewUrl, v?.watchUrl, v?.url]
+  for (const u of cands) {
+    const s = String(u || '').trim()
+    if (/\.(mp4|mov|webm|m4v)(\?|$)/i.test(s)) return s
+  }
+  return ''
+}
+
+const OA_WATCH_BASE = 'https://api.marsx.com.cn/oa-watch'
+const readMoreUrl = computed(() => {
+  const id = String(form.sourceId || '').replace(/[^a-zA-Z0-9_-]/g, '')
+  if (id && form.videos.length) return `${OA_WATCH_BASE}?e=${encodeURIComponent(id)}&i=0`
+  const u = String(form.sourceUrl || '').trim()
+  if (!u || !/^https?:\/\//i.test(u)) return ''
+  if (/\.(mp4|mov|m4v|webm)(\?|$)/i.test(u)) return ''
+  try {
+    const host = new URL(u).hostname.replace(/^www\./, '').toLowerCase()
+    if (
+      host === 'x.com' ||
+      host === 'twitter.com' ||
+      host === 't.co' ||
+      host.endsWith('.x.com') ||
+      host.endsWith('.twitter.com')
+    ) {
+      return ''
+    }
+  } catch (e) {
+    return ''
+  }
+  return u
+})
+
 const playDraftVideo = (row) => {
   const v = videosOf(row)[0]
   if (!v) return
@@ -1065,6 +1120,10 @@ const runPreview = async (mode) => {
       brandKey: brand || undefined,
       coverUrl: coverUrl || undefined,
       imageUrls,
+      sourceId: isImport ? undefined : form.sourceId || undefined,
+      sourceType: isImport ? undefined : form.sourceType || undefined,
+      miniprogramPath: isImport ? undefined : form.miniprogramPath || undefined,
+      videos: isImport ? undefined : form.videos,
       // 与推送组装一致：lead + 主题正文 + 小程序 CTA
       includeChrome: true
     })
@@ -1086,6 +1145,10 @@ const runPreview = async (mode) => {
         brandKey: brand || undefined,
         coverUrl: coverUrl || undefined,
         imageUrls,
+        sourceId: isImport ? undefined : form.sourceId || undefined,
+        sourceType: isImport ? undefined : form.sourceType || undefined,
+        miniprogramPath: isImport ? undefined : form.miniprogramPath || undefined,
+        videos: isImport ? undefined : form.videos,
         includeChrome: true
       })
       map[themeId || 'bytedance'] = one?.html || `<p style="color:#c00">${e.message || '预览失败'}</p>`
@@ -1218,6 +1281,9 @@ const openEdit = async (row) => {
       coverUrl: d.coverUrl || '',
       imageUrls: imagesOf(d),
       videos: videosOf(d),
+      sourceUrl: d.sourceUrl || '',
+      sourceId: d.sourceId || '',
+      sourceType: d.sourceType || '',
       miniprogramPath: d.miniprogramPath || '',
       markdown: ensureHeroImage(stripPromoFooter(d.markdown || ''), d.coverUrl || ''),
       themeId: d.themeId || 'clean',
@@ -1279,7 +1345,7 @@ const onExportXhs = async () => {
 const stripFallbackNotice = (md) =>
   String(md || '')
     .split('\n')
-    .filter((line) => !/自动生成暂不可用|以下为素材整理稿|请人工改写后|需人工改写后/.test(line))
+    .filter((line) => !/自动生成暂不可用|自动生成未完成汉化|以下为素材整理稿|请人工改写后|需人工改写后/.test(line))
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
@@ -1687,6 +1753,13 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.draft-video {
+  width: 220px;
+  max-width: 100%;
+  height: 124px;
+  background: #111;
+  border-radius: 6px;
 }
 .video-meta {
   display: flex;
@@ -2265,5 +2338,35 @@ onUnmounted(() => {
   background: #f7f7f8;
   font-size: 12px;
   color: #666;
+}
+</style>
+
+<style>
+/* 弹窗 teleport 到 body，必须非 scoped，否则底部保存栏被视口裁切 */
+.draft-dialog.el-dialog {
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  margin: 3vh auto 2vh !important;
+}
+.draft-dialog .el-dialog__header {
+  flex-shrink: 0;
+}
+.draft-dialog .el-dialog__body {
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: calc(92vh - 128px);
+}
+.draft-dialog .el-dialog__footer {
+  flex-shrink: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: inherit;
+}
+.draft-dialog .split-pane {
+  min-height: 240px;
+}
+.draft-dialog .preview-scroll {
+  max-height: min(42vh, 460px);
 }
 </style>
