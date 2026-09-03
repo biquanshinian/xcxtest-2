@@ -3,6 +3,44 @@
  */
 
 const { fetchMissionLaunchStatsFromCloud } = require('../../../utils/launch-stats-cloud.js')
+const { getContentLang } = require('../../../utils/locale.js')
+
+/** 统计卡型号/发射商标签跟任务卡语言对齐 */
+function localizeMissionStatsLabels(stats, mission) {
+  if (!stats) return stats
+  const pack = (mission && mission._langPack) || null
+  const en = getContentLang() === 'en'
+  const out = { ...stats }
+
+  if (en) {
+    out.rocketLabel =
+      (pack && pack.rocketNameEn) ||
+      out.rocketLabel ||
+      (mission && mission.rocketName) ||
+      ''
+    // 右侧栏标题多为「Provider / 发射商」分类名，不是具体机构
+    const p = String(out.providerLabel || '').trim()
+    if (!p || p === '发射商' || /^provider$/i.test(p)) out.providerLabel = 'Provider'
+    return out
+  }
+
+  const rocketZh =
+    (pack && pack.rocketNameZh) ||
+    (mission && mission.rocketName && /[\u4e00-\u9fff]/.test(mission.rocketName)
+      ? mission.rocketName
+      : '') ||
+    out.rocketLabel ||
+    ''
+  out.rocketLabel = rocketZh
+
+  const rawProvider = String(out.providerLabel || '').trim()
+  if (!rawProvider || rawProvider === '发射商' || /^provider$/i.test(rawProvider)) {
+    out.providerLabel = '发射商'
+  } else if (!/[\u4e00-\u9fff]/.test(rawProvider)) {
+    out.providerLabel = (pack && pack.launchAgencyZh) || rawProvider
+  }
+  return out
+}
 
 /** 从序号行解析「第 N 次」（排除「年内第」）与「年内第 N 次」 */
 function parseAttemptLine(line) {
@@ -64,6 +102,43 @@ function applyClientAgencyFallback(stats, mission) {
   return out
 }
 
+function isUpcomingMission(mission) {
+  const t = mission && mission.launchTime ? new Date(mission.launchTime).getTime() : NaN
+  return Number.isFinite(t) && t > Date.now()
+}
+
+function pickPositiveCount(raw) {
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+/**
+ * 型号累计：LL2 launcher_configuration.total_launch_count 是已完成次数。
+ * 待发任务与发射商徽章一样按「含本次」展示，因此未发射时 +1。
+ */
+function resolveRocketAttemptHints(mission) {
+  if (!mission || typeof mission !== 'object') return { total: null, year: null }
+  const cfg = mission.rocketConfiguration || null
+  let total = pickPositiveCount(mission.rocketLaunchAttemptCount)
+  if (total == null) total = pickPositiveCount(cfg && cfg.total_launch_count)
+  if (total != null && isUpcomingMission(mission)) total += 1
+  const year = pickPositiveCount(mission.rocketLaunchAttemptCountYear)
+  return { total, year }
+}
+
+function applyClientRocketFallback(stats, mission) {
+  if (!stats) return stats
+  const hints = resolveRocketAttemptHints(mission)
+  const out = { ...stats }
+  if ((out.rocketTotal == null || out.rocketTotal === '') && hints.total != null) {
+    out.rocketTotal = hints.total
+  }
+  if ((out.rocketYear == null || out.rocketYear === '') && hints.year != null) {
+    out.rocketYear = hints.year
+  }
+  return out
+}
+
 /**
  * 清洗云端/本地缓存里的矛盾计数：累计 < 年内（如型号名未归一化时精确过滤拿到的脏 0）。
  * 累计置 null（前端显示「—」），待云端预热重算后自动补正；年内计数来自年度明细聚合，可信保留。
@@ -82,8 +157,8 @@ function sanitizeMissionStats(stats) {
 }
 
 async function loadMissionLaunchStats(mission, options = {}) {
-  const data = await fetchMissionLaunchStatsFromCloud(mission, options)
-  return applyClientAgencyFallback(sanitizeMissionStats({
+  const data = (await fetchMissionLaunchStatsFromCloud(mission, options)) || {}
+  const raw = applyClientRocketFallback(applyClientAgencyFallback(sanitizeMissionStats({
     year: data.year,
     rocketLabel: data.rocketLabel || '',
     providerLabel: data.providerLabel || '',
@@ -94,12 +169,15 @@ async function loadMissionLaunchStats(mission, options = {}) {
     yearOrdinal: data.yearOrdinal,
     staleCache: !!data.staleCache,
     clientStaleFallback: !!data.clientStaleFallback
-  }), mission)
+  }), mission), mission)
+  return localizeMissionStatsLabels(raw, mission)
 }
 
 module.exports = {
   loadMissionLaunchStats,
   resolveAgencyAttemptHints,
   applyClientAgencyFallback,
+  resolveRocketAttemptHints,
+  applyClientRocketFallback,
   sanitizeMissionStats
 }

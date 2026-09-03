@@ -6,9 +6,9 @@ call npm run build
 if errorlevel 1 (
   echo.
   echo 构建失败。
-  pause
+  if /i not "%~1"=="--nopause" pause
   exit /b 1
 )
 echo.
 echo 构建完成：admin-web\dist\
-pause
+if /i not "%~1"=="--nopause" pause

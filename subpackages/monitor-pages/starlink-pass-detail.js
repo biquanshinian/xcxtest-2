@@ -18,6 +18,16 @@ function enrichPassList(list) {
   }))
 }
 
+function isMomentsSinglePage() {
+  try {
+    const enter = (typeof wx.getEnterOptionsSync === 'function' && wx.getEnterOptionsSync())
+      || wx.getLaunchOptionsSync()
+    return !!(enter && enter.scene === 1154)
+  } catch (e) {
+    return false
+  }
+}
+
 Page({
   behaviors: [pageBase],
   _fallbackTab: '/pages/monitor/monitor',
@@ -33,13 +43,47 @@ Page({
     navTitle: '星链过境预报',
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
-    menuButtonWidth: 88
+    menuButtonWidth: 88,
+    momentsHint: false,
+    shareLandingEmpty: false,
+    sharePreviewCount: 0
   },
 
   onLoad(options) {
     this.initUiShell()
     this._syncProState()
+
+    if (isMomentsSinglePage()) {
+      const shareCount = parseInt((options && options.count) || '0', 10) || 0
+      this.setData({
+        momentsHint: true,
+        shareLandingEmpty: true,
+        sharePreviewCount: shareCount,
+        passCount: 0,
+        passList: [],
+        nextPass: null
+      })
+      return
+    }
+
+    try {
+      wx.showShareMenu({
+        withShareTicket: true,
+        menus: ['shareAppMessage', 'shareTimeline']
+      })
+    } catch (e) {}
+
     this._loadFromStorage()
+
+    // 分享冷启动：过境数据只在分享方本地 storage，接收方无数据。
+    // 留在本页展示空态 +「打开监控中心」，由用户按自己的位置重新加载（不再自动 switchTab）。
+    if (!this.data.passCount && this.data.isDirectEntry) {
+      const shareCount = parseInt((options && options.count) || '0', 10) || 0
+      this.setData({
+        shareLandingEmpty: true,
+        sharePreviewCount: shareCount
+      })
+    }
   },
 
   onShow() {
@@ -59,7 +103,8 @@ Page({
         passCount: passList.length,
         nextPass: passList[0] || null,
         passLocation: payload.passLocation || '',
-        observer: payload.observer || null
+        observer: payload.observer || null,
+        shareLandingEmpty: false
       })
     } catch (e) {
       this.setData({ passList: [], passCount: 0, nextPass: null })
@@ -113,13 +158,40 @@ Page({
     }
   },
 
-  onShareAppMessage() {
+  goMonitorForPasses() {
+    wx.switchTab({
+      url: '/pages/monitor/monitor',
+      fail: () => {
+        wx.showToast({ title: '请从监控中心打开', icon: 'none' })
+      }
+    })
+  },
+
+  _shareTitle() {
     const count = this.data.passCount
+    return count
+      ? `星链过境预报 - 未来24小时共${count}次可见 | 火星探索日志`
+      : '星链过境预报 | 火星探索日志'
+  },
+
+  onShareAppMessage() {
+    const count = this.data.passCount || 0
+    const path = count
+      ? `${ROUTES.STARLINK_PASS_DETAIL}?count=${count}`
+      : ROUTES.STARLINK_PASS_DETAIL
     return {
-      title: count
-        ? `星链过境预报 - 未来24小时共${count}次可见 | 火星探索日志`
-        : '星链过境预报 | 火星探索日志',
-      path: '/pages/monitor/monitor'
+      title: this._shareTitle(),
+      // 直达本页；接收方无本地过境数据时展示空态，引导去监控中心按位置加载
+      path
+    }
+  },
+
+  onShareTimeline() {
+    const count = this.data.passCount || 0
+    return {
+      title: this._shareTitle(),
+      // 朋友圈只能落本页；带 count 供单页预览展示
+      query: count ? ('count=' + count) : ''
     }
   }
 })

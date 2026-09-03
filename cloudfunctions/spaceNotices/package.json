@@ -1,0 +1,9 @@
+{
+  "name": "spaceNotices",
+  "version": "1.0.0",
+  "description": "SPACE_NOTICES_FEATURE — 复用 space_devs_cache 的 Starship 条目 + 通告多边形同步/查询（可整块删除本目录）",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

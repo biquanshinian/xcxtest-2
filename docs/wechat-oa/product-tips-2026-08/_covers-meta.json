@@ -1,0 +1,182 @@
+[
+  {
+    "slug": "01-首页倒计时",
+    "title": "打开小程序，先看下一场火箭还要多久",
+    "coverHint": "countdown clock and rocket night launch pad",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\01-首页倒计时"
+  },
+  {
+    "slug": "02-即将和历史",
+    "title": "一会儿看要飞的，一会儿看飞过的",
+    "coverHint": "two panels upcoming vs history rocket missions",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\02-即将和历史"
+  },
+  {
+    "slug": "03-发射日历",
+    "title": "用日历一眼扫完这个月的发射",
+    "coverHint": "calendar with rocket icons on days",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\03-发射日历"
+  },
+  {
+    "slug": "04-搜索任务",
+    "title": "记得名字就搜，搜不到就换关键词",
+    "coverHint": "search bar over starry sky rockets",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\04-搜索任务"
+  },
+  {
+    "slug": "05-任务详情",
+    "title": "点进一场发射，该看的都在这一页",
+    "coverHint": "phone screen mission detail rocket card",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\05-任务详情"
+  },
+  {
+    "slug": "06-发射提醒",
+    "title": "怕错过发射？给任务打开提醒",
+    "coverHint": "notification bell with rocket silhouette",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\06-发射提醒"
+  },
+  {
+    "slug": "07-发射竞猜",
+    "title": "猜一猜：这场会不会准时、会不会成功",
+    "coverHint": "friendly vote cards success on-time",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\07-发射竞猜"
+  },
+  {
+    "slug": "08-每日简报",
+    "title": "一分钟看完今天的太空动静",
+    "coverHint": "morning briefing card space news",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\08-每日简报"
+  },
+  {
+    "slug": "09-系统公告",
+    "title": "首页公告别划走，有时有重要通知",
+    "coverHint": "announcement banner soft glow",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\09-系统公告"
+  },
+  {
+    "slug": "10-空间站",
+    "title": "想看看空间站现在忙不忙",
+    "coverHint": "space station above earth night",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\10-空间站"
+  },
+  {
+    "slug": "11-星链地图",
+    "title": "地图上看看星链卫星大概在哪",
+    "coverHint": "earth map with satellite constellation dots",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\11-星链地图"
+  },
+  {
+    "slug": "12-星链过境",
+    "title": "今晚星链什么时候从你头顶过",
+    "coverHint": "night sky train of satellites over city",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\12-星链过境"
+  },
+  {
+    "slug": "13-手机找星链",
+    "title": "举起手机，对着天找星链",
+    "coverHint": "hand holding phone AR sky night",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\13-手机找星链"
+  },
+  {
+    "slug": "14-发射区域地图",
+    "title": "发射前后，地图上哪些区域要注意",
+    "coverHint": "coastal map with highlighted zones",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\14-发射区域地图"
+  },
+  {
+    "slug": "15-图鉴随便翻",
+    "title": "像翻相册一样看火箭、飞船、发射场",
+    "coverHint": "illustrated rocket encyclopedia cards",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\15-图鉴随便翻"
+  },
+  {
+    "slug": "16-星舰进展",
+    "title": "星舰最近在干什么，进展页一刷就有",
+    "coverHint": "starship prototype desert launch site",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\16-星舰进展"
+  },
+  {
+    "slug": "17-基地与封路",
+    "title": "去基地附近？先看地图和封路通知",
+    "coverHint": "road closed sign near coastal base",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\17-基地与封路"
+  },
+  {
+    "slug": "18-地球仪追踪",
+    "title": "在地球仪上找正在飞的飞船",
+    "coverHint": "3d earth globe with glowing spacecraft path",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\18-地球仪追踪"
+  },
+  {
+    "slug": "19-星舰互动关",
+    "title": "玩一把：你来决定继续飞还是停下",
+    "coverHint": "game like control panel continue or stop",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\19-星舰互动关"
+  },
+  {
+    "slug": "20-事件和文章",
+    "title": "刷事件流，顺便读几篇航天文章",
+    "coverHint": "news feed cards space photography",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\20-事件和文章"
+  },
+  {
+    "slug": "21-航天摄影",
+    "title": "看别人拍的火箭，也可以投稿你的照片",
+    "coverHint": "camera lens rocket night long exposure",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\21-航天摄影"
+  },
+  {
+    "slug": "22-通行证",
+    "title": "星际通行证是干什么的（白话版）",
+    "coverHint": "membership pass card star badge",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\22-通行证"
+  },
+  {
+    "slug": "23-签到知识卡",
+    "title": "每天签到，顺手收一张太空知识卡",
+    "coverHint": "daily check-in card space fact",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\23-签到知识卡"
+  },
+  {
+    "slug": "24-成就徽章",
+    "title": "点亮徽章，给自己的追发射之路留个纪念",
+    "coverHint": "achievement badges wall space theme",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\24-成就徽章"
+  },
+  {
+    "slug": "25-收藏和旅程",
+    "title": "收藏夹 + 太空旅程：把足迹收在一起",
+    "coverHint": "timeline journey path stars",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\25-收藏和旅程"
+  },
+  {
+    "slug": "26-每日挑战",
+    "title": "每天答几道太空小问题",
+    "coverHint": "quiz cards playful space",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\26-每日挑战"
+  },
+  {
+    "slug": "27-邀请好友",
+    "title": "请朋友打开小程序，有机会拿月卡",
+    "coverHint": "friends invite share card",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\27-邀请好友"
+  },
+  {
+    "slug": "28-消息提醒号",
+    "title": "关注提醒号，发射前后手机自己响",
+    "coverHint": "wechat message notification rocket",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\28-消息提醒号"
+  },
+  {
+    "slug": "29-现场观礼",
+    "title": "想去现场看火箭？先在小程序预约",
+    "coverHint": "people rooftop watching rocket launch distant",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\29-现场观礼"
+  },
+  {
+    "slug": "30-星问助手",
+    "title": "不会找功能？直接问「星问」",
+    "coverHint": "chat bubbles AI assistant space",
+    "dir": "C:\\Users\\huyuz\\Desktop\\xcxtest-2\\docs\\wechat-oa\\product-tips-2026-08\\30-星问助手"
+  }
+]

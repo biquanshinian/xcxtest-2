@@ -7,11 +7,12 @@
  *   - recordUsage            记录 AI 使用次数（aiChat / aiImage）
  *   - createVPayOrder        创建虚拟支付订单（道具模式 short_series_goods），返回 signData/paySig/signature
  *   - queryVPayOrder         主动查单兜底（前端 success 后调用）
- *   - vpayRefund             人工退款（仅 admin 可调）
+ *   - vpayRefund             人工退款（仅 admin 可调；Apple 支付订单禁止主动退款）
  *   - claimInvite            邀请核销：被邀人上报 inviter，满 15 人自动发 30 天月卡
  *   - getInviteState         邀请页状态：有效邀请数 / 已发月卡数 / 最近记录
  *
- * 同时作为虚拟支付消息推送回调入口（事件类型：xpay_goods_deliver_notify / xpay_refund_notify）
+ * 同时作为虚拟支付消息推送回调入口（事件类型：
+ *   xpay_goods_deliver_notify / xpay_refund_notify / xpay_subscribe_ios_refund_query_notify）
  *
  * 已废弃（保留接口返回错误，过渡期）：
  *   - createOrder            旧普通微信支付下单
@@ -20,6 +21,15 @@
 
 const cloud = require('wx-server-sdk')
 const crypto = require('crypto')
+const {
+  IOS_MIN_PAY_CENTS,
+  normalizePayPlatform,
+  pickIosRefundQueryFields,
+  decideIosRefundQuery,
+  buildIosRefundQueryResponse,
+  resolveVPayEnvForPlatform,
+  rejectDeveloperRefundForApplePay
+} = require('./ios-refund-query')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const ENV_ID = 'cloud1-9gdqgdt5bfaa20fb'
@@ -220,23 +230,42 @@ async function getUserDoc(openid) {
   }
 }
 
+function resolveGrantSource(order) {
+  if (!order) return ''
+  if (Number(order.amount) > 0) return 'paid'
+  const explicit = String(order.grantSource || '').trim()
+  if (explicit) return explicit
+  if (order.milestoneId || String(order.grantReason || '').indexOf('milestone') === 0) return 'milestone'
+  if (order.grantReason === 'invite_reward') return 'invite'
+  if (order.grantBy && order.grantBy !== 'system') return 'admin'
+  if (order.grantBy === 'system') return 'milestone'
+  return 'paid'
+}
+
 async function getState(openid) {
   const doc = await getUserDoc(openid)
   let type = doc.type || 'free'
   let expireAt = doc.expireAt || null
   const purchases = doc.purchases || []
+  let grantSource = String(doc.grantSource || '')
   try {
     const wl = await getProWhitelistSet()
     if (openid && wl.has(openid)) {
       type = 'pro'
+      grantSource = 'whitelist'
       const farMs = new Date(PRO_WHITELIST_FAR_EXPIRE).getTime()
       const curMs = expireAt ? new Date(expireAt).getTime() : 0
       expireAt = new Date(Math.max(farMs, curMs)).toISOString()
     }
   } catch (e) {}
+  const expireMs = expireAt ? new Date(expireAt).getTime() : 0
+  const active = type === 'pro' && expireMs > Date.now()
   return {
     type,
     expireAt,
+    grantSource,
+    planId: doc.planId || '',
+    active,
     purchases,
     aiChatUsed: doc.aiChatUsed || {},
     aiImageUsed: doc.aiImageUsed || {},
@@ -274,6 +303,7 @@ async function applyPaidOrder(order) {
       data: {
         type: 'pro',
         planId: order.planId || '',
+        grantSource: resolveGrantSource(order),
         expireAt: newExpire,
         updatedAt: db.serverDate()
       }
@@ -538,10 +568,16 @@ async function httpsRefundOrder(openid, outTradeNo, refundOutTradeNo, refundFee,
 }
 
 // ── 创建虚拟支付订单 ──
-async function createVPayOrder(openid, vpayProductId, code) {
+async function createVPayOrder(openid, vpayProductId, code, clientInfo) {
   const vpayCfg = await getEffectiveVPayConfig()
   const offerId = vpayCfg.offerId
-  const vpayEnv = vpayCfg.env
+  const platform = normalizePayPlatform(clientInfo && clientInfo.platform)
+  const applePay = platform === 'ios'
+  // Apple 支付不支持沙箱，仅现网。Android/鸿蒙/Windows 仍用后台配置的 env。
+  const vpayEnv = resolveVPayEnvForPlatform(platform, vpayCfg.env)
+  if (applePay && vpayCfg.env === 1) {
+    console.log('[createVPayOrder] iOS 强制现网 env=0（Apple 支付不支持沙箱）')
+  }
   if (!offerId) {
     return { error: '虚拟支付未配置（offerId）' }
   }
@@ -549,7 +585,9 @@ async function createVPayOrder(openid, vpayProductId, code) {
     return {
       error: vpayEnv === 1
         ? '虚拟支付未配置（VPAY_APPKEY_SANDBOX）'
-        : '虚拟支付未配置（VPAY_APPKEY_PROD）'
+        : (applePay
+          ? 'iOS 虚拟支付需配置现网 AppKey（VPAY_APPKEY_PROD）'
+          : '虚拟支付未配置（VPAY_APPKEY_PROD）')
     }
   }
   const sku = VPAY_PRODUCTS[vpayProductId]
@@ -570,6 +608,9 @@ async function createVPayOrder(openid, vpayProductId, code) {
   if (!effectivePrice || effectivePrice <= 0) {
     return { error: '商品价格未配置' }
   }
+  if (applePay && effectivePrice < IOS_MIN_PAY_CENTS) {
+    return { error: 'iOS 虚拟支付最低金额为 1 元' }
+  }
 
   const outTradeNo = 'M' + Date.now() + Math.random().toString(36).slice(2, 8)
 
@@ -584,6 +625,8 @@ async function createVPayOrder(openid, vpayProductId, code) {
     vpayProductId,
     offerId,
     vpayEnv,
+    platform,
+    payChannel: applePay ? 'apple' : 'wechat',
     createdAt: db.serverDate()
   }
   if (sku.kind === 'subscription') {
@@ -820,6 +863,8 @@ async function vpayRefund(callerOpenid, outTradeNo, refundFee, reason, fromAdmin
     return { error: '订单不存在' }
   }
   if (!order) return { error: '订单不存在' }
+  const appleRefundBlock = rejectDeveloperRefundForApplePay(order)
+  if (appleRefundBlock) return appleRefundBlock
   if (order.status !== 'paid') return { error: '仅已支付订单可退款' }
 
   const fee = Number(refundFee != null ? refundFee : order.amount)
@@ -893,10 +938,75 @@ async function vpayRefund(callerOpenid, outTradeNo, refundFee, reason, fromAdmin
   return { success: true, refundOutTradeNo, apiRes: apiRes || null }
 }
 
+async function findOrderForIosRefundQuery(event) {
+  const fields = pickIosRefundQueryFields(event)
+  // 云开发通用字段 OutTradeNo 才是我方业务单号（订单 _id）；pay_order_id 可能是微信侧单号
+  const ids = []
+  if (event && event.OutTradeNo) ids.push(String(event.OutTradeNo))
+  if (event && event.out_trade_no) ids.push(String(event.out_trade_no))
+  if (fields.payOrderId) ids.push(fields.payOrderId)
+  const unique = []
+  const seen = {}
+  for (let i = 0; i < ids.length; i++) {
+    const id = String(ids[i] || '').trim()
+    if (!id || seen[id]) continue
+    seen[id] = true
+    unique.push(id)
+  }
+  for (let i = 0; i < unique.length; i++) {
+    try {
+      const res = await db.collection(ORDER_COLLECTION).doc(unique[i]).get()
+      if (res && res.data) return { order: res.data, fields }
+    } catch (e) {}
+  }
+  for (let i = 0; i < unique.length; i++) {
+    try {
+      const res = await db.collection(ORDER_COLLECTION).where({ wxOrderId: unique[i] }).limit(1).get()
+      if (res && res.data && res.data[0]) return { order: res.data[0], fields }
+    } catch (e) {}
+  }
+  return { order: null, fields }
+}
+
+async function handleIosRefundQueryNotify(event) {
+  // Apple 连问 3 次、每次须 3 秒内应答；只查本地订单，禁止再调微信 HTTP。
+  let found
+  try {
+    found = await findOrderForIosRefundQuery(event)
+  } catch (e) {
+    console.error('[iosRefundQuery] lookup error:', e && (e.message || e))
+    found = { order: null, fields: pickIosRefundQueryFields(event) }
+  }
+  const decision = decideIosRefundQuery(found.order)
+  const order = found.order
+  if (order && order._id) {
+    try {
+      await db.collection(ORDER_COLLECTION).doc(order._id).update({
+        data: {
+          iosRefundQueryAt: db.serverDate(),
+          iosRefundQueryResult: decision.result_code,
+          iosRefundQueryEvidence: String(decision.evidence || '').slice(0, 200),
+          iosChannelBill: (found.fields && found.fields.channelBill) || '',
+          updatedAt: db.serverDate()
+        }
+      })
+    } catch (e) {
+      console.warn('[iosRefundQuery] persist error:', e && (e.message || e))
+    }
+  } else {
+    console.warn('[iosRefundQuery] order not found, suggest refund. payOrderId=', found.fields && found.fields.payOrderId)
+  }
+  return buildIosRefundQueryResponse(decision)
+}
+
 // ── 虚拟支付消息推送回调 ──
 // 事件类型：xpay_goods_deliver_notify / xpay_coin_pay_notify / xpay_refund_notify
+//          / xpay_subscribe_ios_refund_query_notify
 async function vpayMessageCallback(event) {
   const eventType = event.Event || event.event || ''
+  if (eventType === 'xpay_subscribe_ios_refund_query_notify') {
+    return await handleIosRefundQueryNotify(event)
+  }
   // 道具发货（现金购买道具支付成功）
   if (eventType === 'xpay_goods_deliver_notify') {
     const outTradeNo = event.OutTradeNo || (event.GoodsInfo && event.GoodsInfo.OutTradeNo) || ''
@@ -1055,7 +1165,9 @@ async function listOrders(openid) {
         createdAt: true,
         paidAt: true,
         refundedAt: true,
-        refundFee: true
+        refundFee: true,
+        payChannel: true,
+        platform: true
       })
       .get()
     return { orders: res.data || [] }
@@ -1162,6 +1274,7 @@ async function settleInviteRewards(inviter) {
       status: 'paid',
       orderType: 'subscription',
       grantReason: 'invite_reward',
+      grantSource: 'invite',
       planId: 'monthly',
       days: INVITE_CARD_DAYS,
       paidAt: db.serverDate(),
@@ -1291,7 +1404,9 @@ exports.main = async (event, context) => {
     case 'getInviteState':
       return await getInviteState(OPENID)
     case 'createVPayOrder':
-      return await createVPayOrder(OPENID, event.vpayProductId, event.code)
+      return await createVPayOrder(OPENID, event.vpayProductId, event.code, {
+        platform: event.platform
+      })
     case 'listOrders':
       return await listOrders(OPENID)
     case 'deleteOrder':

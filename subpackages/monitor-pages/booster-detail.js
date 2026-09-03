@@ -1,11 +1,14 @@
 const pageBase = require('../../utils/page-base.js')
-const { togglePageTranslation } = require('../../utils/text-translate.js')
+const { togglePageTranslation } = require('./utils/text-translate.js')
 const { getRocketConfigMeta } = require('../../utils/api-app-services.js')
-const boosterDisplay = require('../../utils/booster-display.js')
+const boosterDisplay = require('./utils/booster-display.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
+const { openRocketModelDetail } = require('./utils/booster-nav.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
-const { translateAgencyName } = require('../../utils/space-terms-i18n.js')
+const { pickLocalized } = require('../../utils/locale.js')
+const { advanceImageFallback } = require('../../utils/ll2-image.js')
+const { isFavorite, toggleFavorite, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
 
 Page({
   behaviors: [pageBase],
@@ -24,12 +27,23 @@ Page({
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
     tabBarReservedHeight: 0,
-    menuButtonWidth: 88
+    menuButtonWidth: 88,
+    isFavorited: false,
+    favAnimate: false
   },
 
   async onLoad(options) {
-    var serial = options.serial ? decodeURIComponent(options.serial) : ''
+    var serial = ''
+    if (options && options.serial) {
+      try { serial = decodeURIComponent(String(options.serial)) } catch (e) { serial = String(options.serial) }
+    }
+    if (!serial && options && options.id) {
+      try { serial = decodeURIComponent(String(options.id)) } catch (e) { serial = String(options.id) }
+    }
+    serial = String(serial || '').trim()
     this.initUiShell()
+    this._serial = serial
+    if (serial) syncFavoriteState(this, 'booster', serial)
 
     // 分享卡片 24h 免门控窗口：过期后走 gateCheck（会员放行，非会员弹开通引导）
     var shareAllowed = await checkShareEntryGate(this, options, 'booster_genealogy', '全球可回收火箭族谱')
@@ -44,33 +58,69 @@ Page({
       return
     }
 
-    this._serial = serial
     this.setData({ loading: true, errorMessage: '', item: null, heroImageLoaded: false })
     this.loadDetail(serial, getApp())
   },
 
+  onShow() {
+    const serial = (this.data.item && this.data.item.serial) || this._serial
+    if (serial) syncFavoriteState(this, 'booster', serial)
+  },
+
   loadDetail(serial, app) {
-    // 从全局临时变量读取原始数据
+    // 从全局临时变量读取原始数据（族谱/任务统一预塞）
     var raw = (app && app._boosterDetailData) || null
-    if (raw && (raw.serialNumber === serial || raw.serial === serial)) {
+    if (raw && (raw.serialNumber === serial || raw.serial === serial ||
+        String(raw.serialNumber || '').toUpperCase() === String(serial).toUpperCase())) {
       this.processAndSetData(raw)
-      // 清理临时数据
       if (app) app._boosterDetailData = null
       return
     }
 
-    // 兜底：从云数据库直接查询
     var self = this
     var db = wx.cloud.database()
     var docId = serial.replace(/[^a-zA-Z0-9_-]/g, '_')
+
+    function failNotFound() {
+      self.setData({ loading: false, errorMessage: '未找到助推器 ' + serial + ' 的数据' })
+    }
+
+    function failLoad() {
+      self.setData({ loading: false, errorMessage: '助推器数据加载失败，请稍后重试' })
+    }
+
+    function tryWhereQuery() {
+      return db.collection('booster_genealogy')
+        .where({ serialNumber: serial })
+        .limit(1)
+        .get()
+        .then(function (res) {
+          var row = res && res.data && res.data[0]
+          if (row) {
+            self.processAndSetData(row)
+            return
+          }
+          // 大小写兜底：拉 preview 列表命中
+          return require('../../utils/api-app-services.js').getBoosterGenealogy().then(function (list) {
+            var hit = (list || []).find(function (b) {
+              var s = String((b && (b.serialNumber || b.serial)) || '')
+              return s === serial || s.toUpperCase() === String(serial).toUpperCase()
+            })
+            if (hit) self.processAndSetData(hit)
+            else failNotFound()
+          }).catch(failLoad)
+        })
+        .catch(failLoad)
+    }
+
     db.collection('booster_genealogy').doc(docId).get().then(function (res) {
-      if (res && res.data) {
+      if (res && res.data && (res.data.serialNumber || res.data.serial || res.data.flights != null)) {
         self.processAndSetData(res.data)
       } else {
-        self.setData({ loading: false, errorMessage: '未找到助推器 ' + serial + ' 的数据' })
+        tryWhereQuery()
       }
     }).catch(function () {
-      self.setData({ loading: false, errorMessage: '助推器数据加载失败，请稍后重试' })
+      tryWhereQuery()
     })
   },
 
@@ -131,6 +181,8 @@ Page({
       }
     }
 
+    // 中国箭飞行史：展示「失利」而非「失败」
+    var failWord = (String(raw.countryCode || '').toUpperCase() === 'CN') ? '失利' : '失败'
     // 格式化飞行历史
     var formattedHistory = history.map(function (h, idx) {
       var isSuccess = h.success === true
@@ -144,25 +196,51 @@ Page({
         success: isSuccess,
         failed: isFailed,
         pending: isPending,
-        successText: isSuccess ? '成功' : (isFailed ? '失败' : '待定')
+        successText: isSuccess ? '成功' : (isFailed ? failWord : '待定')
       }
     })
 
     var status = raw.status || 'unknown'
+    // 与族谱/监控卡同一套 processBoosterItem 图链，避免详情跳过 thumbnail 导致「卡有图详无图」
+    var cardImg = boosterDisplay.processBoosterItem(raw, null, { skipImageCache: true })
+    var heroPassed = null
+    try {
+      var appRef = typeof getApp === 'function' ? getApp() : null
+      if (appRef && appRef._boosterHeroImage &&
+          String(appRef._boosterHeroImage.serial || '').toUpperCase() === String(cardImg.serial || '').toUpperCase()) {
+        heroPassed = appRef._boosterHeroImage.src || ''
+      }
+      if (appRef) appRef._boosterHeroImage = null
+    } catch (e) {}
+    var primaryImage = heroPassed || cardImg.imageUrl || raw.cosImageUrl || raw.thumbnailUrl || raw.imageUrl || ''
+    var imageFallbacks = (cardImg.imageFallbacks || []).slice()
+    // 卡面图已作 primary 时，把其余链接到 fallback，避免重复
+    if (heroPassed && cardImg.imageUrl && heroPassed !== cardImg.imageUrl) {
+      imageFallbacks = [cardImg.imageUrl].concat(imageFallbacks).filter(function (u, i, arr) {
+        return u && arr.indexOf(u) === i && u !== heroPassed
+      })
+    }
     var item = {
       serial: raw.serialNumber || raw.serial || '?',
       flights: flights,
       status: status,
       statusText: statusTextMap[status] || '未知',
       statusColor: statusColorMap[status] || '#8E8E93',
-      rocketFamily: raw.rocketFamily || 'Unknown',
+      rocketFamilyEn: raw.rocketFamily || 'Unknown',
+      rocketFamily: pickLocalized(raw.rocketFamilyZh || '', raw.rocketFamily || 'Unknown'),
+      // LL2 构型 id：型号标签跳 rocket-model-detail 用；无则标签退化为纯文本
+      configId: raw.configId != null ? raw.configId : null,
       manufacturer: raw.manufacturer || '',
       // 展示用中文名（与发射商详情页同源词典）；manufacturer 保留原文供跳转解析
-      manufacturerDisplay: translateAgencyName(raw.manufacturer, '') ||
-        boosterDisplay.mfrDisplayName(raw.manufacturer || ''),
+      manufacturerDisplay: boosterDisplay.mfrDisplayName(
+        raw.manufacturer || '',
+        '',
+        raw.manufacturerZh || ''
+      ),
       block: raw.block || null,
-      imageUrl: raw.cosImageUrl || raw.imageUrl || '',
-      thumbnailUrl: raw.cosImageUrl || raw.thumbnailUrl || '',
+      imageUrl: primaryImage,
+      thumbnailUrl: primaryImage,
+      imageFallbacks: imageFallbacks,
       imageCredit: raw.imageCredit || '',
       details: raw.details || raw.lastUpdate || '',
       successfulLandings: raw.successfulLandings || 0,
@@ -188,9 +266,13 @@ Page({
     this.setData({
       loading: false,
       item: item,
+      isFavorited: isFavorite('booster', item.serial),
       navTitle: item.serial + ' 详情',
       shareTitle: item.serial + ' ' + item.rocketFamily + ' | 火星探索日志'
     })
+
+    // 保留 raw 供头图 binderror 链耗尽后异步兜底
+    this._rawForHeroFallback = raw
 
     // 箭实体无自带图时兜底：LL2 构型图 → COS 火箭配置图库（与族谱列表卡兜底链一致）
     if (!item.imageUrl) this._applyHeroImageFallback(raw, item)
@@ -198,12 +280,14 @@ Page({
 
   _applyHeroImageFallback(raw, item) {
     var self = this
+    // 查图必须用英文族名（COS/构型索引按 LL2 原文）；界面展示用已汉化的 rocketFamily
+    var familyEn = (item && item.rocketFamilyEn) || (raw && raw.rocketFamily) || ''
     var applyCos = function () {
-      var url = boosterDisplay.cosRocketImageOf(item.rocketFamily)
+      var url = boosterDisplay.cosRocketImageOf(familyEn)
       if (url) self.setData({ 'item.imageUrl': url })
     }
     getRocketConfigMeta().then(function (meta) {
-      var url = boosterDisplay.configImageOf(raw.configId, item.rocketFamily, (meta && meta.configs) || {})
+      var url = boosterDisplay.configImageOf(raw.configId, familyEn, (meta && meta.configs) || {})
       if (url) {
         self.setData({ 'item.imageUrl': url })
       } else {
@@ -232,6 +316,14 @@ Page({
     })
   },
 
+  /** 点击型号标签 → 会员门控 → 族谱火箭型号详情页（与族谱型号卡同链路） */
+  async onTapRocketFamily() {
+    var item = this.data.item || {}
+    if (item.configId == null) return
+    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+    await openRocketModelDetail(item.configId)
+  },
+
   /** 点击发射商标签 → 会员门控 → 发射商详情页（按名称解析，agency-detail 支持 name 入参） */
   async onTapManufacturer() {
     var item = this.data.item || {}
@@ -248,7 +340,24 @@ Page({
   },
 
   onHeroImageError() {
-    this.setData({ heroImageLoaded: false, heroImageFailed: true })
+    var item = this.data.item || {}
+    var advanced = advanceImageFallback(item.imageUrl, item.imageFallbacks)
+    if (advanced.next) {
+      this.setData({
+        heroImageLoaded: false,
+        heroImageFailed: false,
+        'item.imageUrl': advanced.next,
+        'item.imageFallbacks': advanced.remaining
+      })
+      return
+    }
+    // 链耗尽：再尝试构型/COS 异步兜底（与列表卡一致）
+    this.setData({ heroImageLoaded: false, 'item.imageUrl': '' })
+    if (this._rawForHeroFallback) {
+      this._applyHeroImageFallback(this._rawForHeroFallback, item)
+    } else {
+      this.setData({ heroImageFailed: true })
+    }
   },
 
   onHeroImageTap() {
@@ -258,12 +367,32 @@ Page({
     }
   },
 
+  onToggleFavorite() {
+    var item = this.data.item
+    if (!item || !item.serial) {
+      wx.showToast({ title: '数据加载中，请稍后', icon: 'none' })
+      return
+    }
+    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+    var favorited = toggleFavorite({
+      type: 'booster',
+      id: item.serial,
+      title: item.serial,
+      subtitle: item.rocketFamily || '',
+      imageUrl: item.imageUrl || '',
+      category: 'booster'
+    })
+    pulseFavAnimate(this, favorited)
+    wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
+  },
+
   onShareAppMessage() {
     var item = this.data.item
+    var serial = (item && item.serial) ? item.serial : this._serial
     return {
       title: this.data.shareTitle,
-      path: item
-        ? withShareStampPath('/subpackages/monitor-pages/booster-detail?serial=' + encodeURIComponent(item.serial), this)
+      path: serial
+        ? withShareStampPath('/subpackages/monitor-pages/booster-detail?serial=' + encodeURIComponent(serial), this)
         : '/pages/monitor/monitor',
       imageUrl: item && item.imageUrl ? item.imageUrl : ''
     }
@@ -271,9 +400,10 @@ Page({
 
   onShareTimeline() {
     var item = this.data.item
+    var serial = (item && item.serial) ? item.serial : this._serial
     return {
       title: this.data.shareTitle,
-      query: item ? withShareStampQuery('serial=' + encodeURIComponent(item.serial), this) : '',
+      query: serial ? withShareStampQuery('serial=' + encodeURIComponent(serial), this) : '',
       imageUrl: item && item.imageUrl ? item.imageUrl : ''
     }
   }

@@ -1,0 +1,27 @@
+<view class="share-dialog-mask {{themeClass}} {{visible ? 'share-dialog-mask--visible' : ''}}"
+      wx:if="{{visible}}"
+      bindtap="onClose"
+      catchtouchmove="noop">
+  <view class="share-dialog" catchtap="noop">
+    <view class="share-dialog-header">
+      <text class="share-dialog-title">分享任务</text>
+      <text class="share-dialog-subtitle" wx:if="{{mission.missionName}}">{{mission.missionName}}</text>
+    </view>
+    <view class="share-dialog-actions share-dialog-actions--single">
+      <button class="share-dialog-btn"
+              open-type="share"
+              data-share-type="mission"
+              data-id="{{mission.id}}"
+              data-type="{{mission.detailType}}"
+              hover-class="share-dialog-btn--hover"
+              plain="true"
+              bindtap="onItemTap">
+        <view class="share-dialog-icon">
+          <image class="share-dialog-icon-img" src="/images/icons/ic-share-chat.svg" mode="aspectFit"></image>
+        </view>
+        <text class="share-dialog-label">微信好友</text>
+      </button>
+    </view>
+    <view class="share-dialog-cancel" hover-class="share-dialog-cancel--hover" bindtap="onClose">取消</view>
+  </view>
+</view>

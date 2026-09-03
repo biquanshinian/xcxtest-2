@@ -1,0 +1,1338 @@
+/**
+ * subpackages/profile-extra/utils/profile-lazy.js
+ * 我的页逻辑（从 pages/profile/profile.js 拆出）：
+ * - 签到 / 每日问答 / 云同步（checkin.js + space-quiz.js，已从主包下沉）
+ * - 竞猜战绩、里程碑彩蛋、服务号提醒、奖品、年鉴、客服区块
+ *
+ * 主包 profile.js 通过 require.async + attachTo 委托加载；
+ * profile 页在 preloadRule 中预下载 profile-extra，实际几乎无加载等待。
+ */
+const { ROUTES } = require('../../../utils/routes.js')
+const storageCache = require('../../../utils/storage-sync-cache.js')
+const {
+  clearLocalVotes,
+  resolveVoteChoiceMeta,
+  DEFAULT_ROCKET_IMAGE
+} = require('../../../utils/index-page-helpers.js')
+const { resolveMissionRocketImage, resolveMissionRocketImageFresh, isDefaultRocketSrc } = require('../../../utils/util.js')
+const { loadCloudMediaMap } = require('../../../utils/image-config.js')
+const { markDownloadFailed } = require('../../../utils/download-fail-cache.js')
+const { getUpcomingMissions, getCompletedMissions } = require('../../../utils/api-launch-list.js')
+const { getMyVoteResults, getVoteStats, clearMyVoteResults } = require('../../../utils/api-app-services.js')
+const { getSubscribedMissions, saveLocalSubscription } = require('../../../utils/subscribe.js')
+const { isContentLangEn, zhField, isUsableZhText } = require('../../../utils/locale.js')
+const { localizeMissionTitle } = require('../../../utils/mission-title-i18n.js')
+const { getOaAlertStatus, enableOaAlert, disableOaAlert } = require('./oa-alert.js')
+const {
+  doCheckIn,
+  getCheckinSummary,
+  getWeekCheckinDots,
+  checkAchievements,
+  syncCheckinToCloud,
+  syncQuizToCloud,
+  pullProfileFromCloud,
+  pushAllToCloud,
+  loadKnowledgeCards
+} = require('./checkin.js')
+const { getDailyQuestion, answerQuestion, getQuizStats, verifyQuizSave } = require('./space-quiz.js')
+
+/** 与首页任务卡 / mapLaunchToListItem 同源；忽略外来盖章，按当前艺术风格重算 */
+function resolveHomeRocketImage(stamped, rocketName, rocketConfiguration) {
+  return resolveMissionRocketImageFresh(rocketName || '', rocketConfiguration || null)
+}
+
+/**
+ * 竞猜战绩标题/火箭名：与发射卡片同一套 contentLang + 词典。
+ * 配图始终用英文火箭名（rocketNameEn），避免中文 miss 媒体字典。
+ * @param {string} missionName
+ * @param {string} rocketName
+ * @param {object|null} cachedMission
+ * @param {{ nameEn?: string, rocketNameEn?: string }} [stored] 历史项已缓存的英文字段
+ */
+function localizeVoteHistoryDisplay(missionName, rocketName, cachedMission, stored) {
+  stored = stored || {}
+  var pack = cachedMission && cachedMission._langPack
+  var cfg = cachedMission && cachedMission.rocketConfiguration
+  var rocketEn =
+    stored.rocketNameEn ||
+    (pack && pack.rocketNameEn) ||
+    (cfg && (cfg.full_name || cfg.name)) ||
+    (cachedMission && cachedMission.rocketName) ||
+    rocketName ||
+    ''
+  rocketEn = String(rocketEn || '').trim()
+  // 若传入的是中文展示名，尽量别当英文原名用
+  if (rocketEn && /[\u4e00-\u9fff]/.test(rocketEn) && !stored.rocketNameEn) {
+    rocketEn =
+      (pack && pack.rocketNameEn) ||
+      (cfg && (cfg.full_name || cfg.name)) ||
+      (cachedMission && cachedMission.rocketName) ||
+      ''
+  }
+  var rocketZh = (pack && pack.rocketNameZh) || rocketEn
+
+  var nameEn =
+    stored.nameEn ||
+    (pack && (pack.nameEn || pack.missionNameEn)) ||
+    ''
+  var nameRaw = String(missionName || '').trim()
+  if (!nameEn) {
+    if (nameRaw && !/[\u4e00-\u9fff]/.test(nameRaw)) nameEn = nameRaw
+    else if (cachedMission) {
+      nameEn = String(
+        (pack && (pack.nameEn || pack.missionNameEn)) ||
+          cachedMission.missionName ||
+          cachedMission.name ||
+          ''
+      ).trim()
+      // 缓存里若已是中文展示名，勿当 English
+      if (nameEn && /[\u4e00-\u9fff]/.test(nameEn) && !(pack && pack.nameEn)) nameEn = ''
+    }
+  }
+  if (!nameEn && nameRaw && !/[\u4e00-\u9fff]/.test(nameRaw)) nameEn = nameRaw
+
+  var nameZhFromData = ''
+  if (cachedMission) {
+    nameZhFromData =
+      (pack && (pack.nameZh || pack.missionNameZh)) ||
+      zhField(cachedMission, 'name') ||
+      (cachedMission.mission ? zhField(cachedMission.mission, 'name') : '') ||
+      ''
+  }
+  var nameZh = nameZhFromData
+  if (!isUsableZhText(nameZh) && nameEn) {
+    nameZh = localizeMissionTitle(nameEn) || ''
+  }
+  if (!isUsableZhText(nameZh)) nameZh = ''
+
+  if (isContentLangEn()) {
+    return {
+      name: String(nameEn || nameRaw || nameZh || '').trim(),
+      nameEn: String(nameEn || nameRaw || '').trim(),
+      rocket: String((pack && pack.rocketNameEn) || rocketEn || '').trim(),
+      rocketNameEn: rocketEn,
+      rocketNameZh: String(rocketZh || '').trim()
+    }
+  }
+
+  return {
+    name: String(nameZh || nameEn || nameRaw || '').trim(),
+    nameEn: String(nameEn || '').trim(),
+    rocket: String(rocketZh || rocketEn || '').trim(),
+    rocketNameEn: rocketEn,
+    rocketNameZh: String(rocketZh || '').trim()
+  }
+}
+
+const VOTE_STATS_TTL_MS = 5 * 60 * 1000
+const MILESTONE_CHECK_TTL_MS = 10 * 60 * 1000
+
+// onShow 高频云调用节流：OA 状态 / 奖品数据变化频率极低，
+// 期内直接复用已渲染数据；主动操作（切开关、领奖、下拉刷新）时强刷
+const OA_ALERT_STATUS_TTL_MS = 10 * 60 * 1000
+const MY_PRIZES_TTL_MS = 10 * 60 * 1000
+
+function defaultMilestoneTitle(type, threshold) {
+  var n = Number(threshold) || 0
+  if (!n) return ''
+  if (type === 'checkin') return '恭喜达成' + n + '天签到！'
+  if (type === 'quiz') return '恭喜累计答对' + n + '题！'
+  if (type === 'vote') return '恭喜累计猜对' + n + '次发射！'
+  return ''
+}
+
+function normalizeMilestoneTitle(m) {
+  var title = (m && m.title) || ''
+  var threshold = Number(m && m.threshold) || 0
+  var type = m && m.type
+  if (!threshold) return title
+
+  // 误用签到标题的问答/竞猜里程碑：按类型生成正确标题
+  if ((type === 'quiz' || type === 'vote') && /恭喜达成\d+天签到/.test(title)) {
+    return defaultMilestoneTitle(type, threshold)
+  }
+
+  if (!title) return defaultMilestoneTitle(type, threshold) || title
+
+  if (type === 'checkin') {
+    var checkinMatch = title.match(/恭喜达成(\d+)天签到/)
+    if (checkinMatch && Number(checkinMatch[1]) !== threshold) {
+      return title.replace(/恭喜达成\d+天签到/, '恭喜达成' + threshold + '天签到')
+    }
+  } else if (type === 'quiz') {
+    var quizMatch = title.match(/恭喜(?:累计)?答对(\d+)题/)
+    if (quizMatch && Number(quizMatch[1]) !== threshold) {
+      return title.replace(/恭喜(?:累计)?答对\d+题/, '恭喜累计答对' + threshold + '题')
+    }
+  } else if (type === 'vote') {
+    var voteMatch = title.match(/恭喜(?:累计)?猜对(\d+)(?:次)?/)
+    if (voteMatch && Number(voteMatch[1]) !== threshold) {
+      return title.replace(/恭喜(?:累计)?猜对\d+(?:次)?(?:发射)?/, '恭喜累计猜对' + threshold + '次发射')
+    }
+  }
+  return title
+}
+
+function mapMilestoneForEgg(m) {
+  if (!m) return {}
+  return {
+    milestoneId: m._id,
+    type: m.type,
+    threshold: Number(m.threshold) || 0,
+    title: normalizeMilestoneTitle(m),
+    description: m.description || '',
+    prizeImage: m.prizeImage || '',
+    eggImage: m.eggImage || '',
+    prizeType: m.prizeType === 'pro_1month' ? 'pro_1month' : 'physical',
+    customOptions: Array.isArray(m.customOptions) ? m.customOptions : [],
+    customNote: m.customNote || ''
+  }
+}
+
+const methods = {
+  // ── 签到 / 每日问答（从主包 profile.js 下沉） ──
+
+  refreshCheckinUI() {
+    const summary = getCheckinSummary()
+    const dots = getWeekCheckinDots()
+    const achInfo = checkAchievements()
+    this.setData({
+      checkinSummary: summary,
+      weekDots: dots,
+      achievementInfo: achInfo
+    })
+    if (achInfo.newlyUnlocked && achInfo.newlyUnlocked.length > 0 && !this.data.showFactCard) {
+      const badge = achInfo.newlyUnlocked[0]
+      setTimeout(() => {
+        this.setData({
+          showBadgeModal: true,
+          badgeModalData: { ...badge, unlocked: true, isNewUnlock: true }
+        })
+        wx.vibrateShort({ type: 'heavy' })
+      }, 500)
+    }
+  },
+
+  onCheckIn() {
+    if (this.data.checkinSummary.isCheckedInToday) {
+      wx.showToast({ title: '今天已签到啦', icon: 'none' })
+      return
+    }
+
+    const result = doCheckIn()
+    if (!result.success) {
+      wx.showToast({ title: '签到失败', icon: 'none' })
+      return
+    }
+
+    wx.vibrateShort({ type: 'medium' })
+    if (result.fact) syncCheckinToCloud(result.fact.id)
+
+    const summary = getCheckinSummary()
+    const dots = getWeekCheckinDots()
+    const achInfo = checkAchievements()
+
+    this.setData({
+      checkinSummary: summary,
+      weekDots: dots,
+      achievementInfo: achInfo,
+      todayFact: result.fact,
+      showFactCard: false,
+      checkinPop: true,
+      streakPop: true
+    })
+
+    setTimeout(() => {
+      this.setData({ showFactCard: true })
+    }, 280)
+    if (this._checkinPopTimer) clearTimeout(this._checkinPopTimer)
+    this._checkinPopTimer = setTimeout(() => {
+      this.setData({ checkinPop: false, streakPop: false })
+      this._checkinPopTimer = null
+    }, 700)
+
+    if (achInfo.newlyUnlocked && achInfo.newlyUnlocked.length > 0) {
+      const badge = achInfo.newlyUnlocked[0]
+      setTimeout(() => {
+        this.setData({
+          showBadgeModal: true,
+          badgeModalData: { ...badge, unlocked: true, isNewUnlock: true }
+        })
+        wx.vibrateShort({ type: 'heavy' })
+      }, 1800)
+    }
+
+    if (typeof this._refreshProfileDot === 'function') this._refreshProfileDot()
+  },
+
+  loadDailyQuiz() {
+    const result = getDailyQuestion()
+    const stats = getQuizStats()
+    this.setData({
+      quizQuestion: result.question,
+      quizAnswered: result.alreadyAnswered,
+      quizResult: result.alreadyAnswered ? { correct: result.wasCorrect, explanation: result.question.explanation } : null,
+      quizSelectedIndex: result.alreadyAnswered && result.selectedIndex !== undefined ? result.selectedIndex : -1,
+      quizStats: stats
+    })
+  },
+
+  onQuizSelect(e) {
+    if (this.data.quizAnswered) return
+    const idx = e.currentTarget.dataset.index
+    if (idx === undefined || idx === null) return
+
+    this.setData({ quizSelectedIndex: idx })
+    wx.vibrateShort({ type: 'light' })
+
+    const qId = this.data.quizQuestion && this.data.quizQuestion.id
+    const result = answerQuestion(qId, idx)
+    verifyQuizSave()
+    syncQuizToCloud()
+
+    const self = this
+    setTimeout(() => {
+      self.setData({
+        quizAnswered: true,
+        quizResult: result,
+        quizStats: result.stats || getQuizStats()
+      })
+      if (result.correct) wx.vibrateShort({ type: 'heavy' })
+      if (typeof self._refreshProfileDot === 'function') self._refreshProfileDot()
+      setTimeout(function () { self.checkMilestones(true) }, 600)
+    }, 500)
+  },
+
+  async syncCloudProfile() {
+    try {
+      const cloudResult = await pullProfileFromCloud()
+      if (cloudResult) {
+        this.refreshCheckinUI()
+        this.loadDailyQuiz()
+      }
+      pushAllToCloud()
+      if (typeof this.refreshIdentity === 'function') this.refreshIdentity(false)
+    } catch (e) {}
+  },
+
+  bootCheckinAndQuiz() {
+    loadKnowledgeCards()
+    this.refreshCheckinUI()
+    this.loadDailyQuiz()
+  },
+
+  // ── 服务号 B 通道自动提醒 ──
+
+  async loadOaAlertStatus(force) {
+    // onShow 高频入口节流：状态只会因用户自己切开关/关注服务号而变，10 分钟内不重复查
+    const now = Date.now()
+    if (!force && this._oaAlertStatusAt && now - this._oaAlertStatusAt < OA_ALERT_STATUS_TTL_MS) return
+    this._oaAlertStatusAt = now
+    try {
+      const status = await getOaAlertStatus(!!force)
+      const ready = !!status.ready
+      this.setData({
+        // 开关只反映 ready，杜绝「未关注却显示开启」
+        oaAlertEnabled: ready,
+        oaAlertFollowed: !!status.followed,
+        oaAlertReady: ready,
+        oaAlertMessage: status.message || ''
+      })
+    } catch (e) {}
+  },
+
+  async onOaAlertSwitch(e) {
+    const wantOn = !!(e && e.detail && e.detail.value)
+    if (this.data.oaAlertLoading) return
+    // 开关受控于 ready：未关注时立刻拨回关，并弹二维码
+    if (wantOn && !this.data.oaAlertFollowed) {
+      this.setData({ oaAlertEnabled: false, oaAlertReady: false, oaQrGuideOpen: true })
+      return
+    }
+    this.setData({ oaAlertLoading: true })
+
+    try {
+      if (wantOn) {
+        const res = await enableOaAlert()
+        if (res && res.needFollow) {
+          this.setData({
+            oaAlertEnabled: false,
+            oaAlertReady: false,
+            oaQrGuideOpen: true
+          })
+        } else if (!res || !res.ok) {
+          this.setData({ oaAlertEnabled: false, oaAlertReady: false })
+        }
+      } else {
+        await disableOaAlert()
+      }
+    } finally {
+      this.setData({ oaAlertLoading: false })
+      // 强制刷新：关注服务号后 followed/ready 会变，避免 10 分钟缓存挡住状态
+      this._oaAlertStatusAt = 0
+      this.loadOaAlertStatus(true)
+      try {
+        const { invalidateOaAlertCache } = require('./oa-alert.js')
+        if (invalidateOaAlertCache) invalidateOaAlertCache()
+      } catch (e) {}
+      // 主包 utils/oa-alert 有独立缓存；详情/首页读主包，关掉服务号后必须一并清掉
+      try {
+        const mainOa = require('../../../utils/oa-alert.js')
+        if (mainOa && typeof mainOa.invalidateOaAlertCache === 'function') {
+          mainOa.invalidateOaAlertCache()
+        }
+      } catch (e2) {}
+    }
+  },
+
+  showOaQrGuide() {
+    this.setData({ oaQrGuideOpen: true })
+  },
+
+  closeOaQrGuide() {
+    this.setData({ oaQrGuideOpen: false })
+    this._oaAlertStatusAt = 0
+    this.loadOaAlertStatus(true)
+  },
+
+  onCopyOaName() {
+    this.showOaQrGuide()
+  },
+
+  /** 对缺少名称/构型/英文火箭名的老订阅，从本地详情或列表 API 补全（配图与首页同源） */
+  async _enrichIncompleteReminders() {
+    const missions = this._cachedSubscribedMissions || getSubscribedMissions()
+    const uiList = this.data.myReminders || []
+    const needByUi = {}
+    for (let i = 0; i < uiList.length; i++) {
+      if (uiList[i] && uiList[i]._needsEnrich && uiList[i].missionId) {
+        needByUi[String(uiList[i].missionId)] = true
+      }
+    }
+    const incomplete = missions.filter(m =>
+      !m.name ||
+      m.name === '发射任务 #' + m.id ||
+      m.name === '未知任务' ||
+      !m.launchTime ||
+      !m.rocketConfiguration ||
+      !m.rocketNameEn ||
+      isDefaultRocketSrc(m.rocketImage) ||
+      needByUi[String(m.id)]
+    )
+    if (!incomplete.length) return
+
+    // 列表只拉一次（此前每条不完整订阅都串行各拉 2 次列表，N 条 = 2N 次请求），
+    // 拉到内存后所有订阅统一匹配
+    let upcomingList = null
+    let completedList = null
+    const fetchListsOnce = async () => {
+      if (upcomingList !== null) return
+      try {
+        const upcoming = await getUpcomingMissions(50, 0)
+        upcomingList = upcoming.list || []
+      } catch (e) {
+        upcomingList = []
+      }
+      try {
+        const completed = await getCompletedMissions(50, 0)
+        completedList = completed.list || []
+      } catch (e) {
+        completedList = []
+      }
+    }
+
+    let changed = false
+    for (const m of incomplete) {
+      // 先查本地详情缓存
+      let detail = this._getMissionFromLocalCache(m.id)
+      if (!detail || !detail.rocketConfiguration) {
+        await fetchListsOnce()
+        detail = upcomingList.find(item => String(item.id) === String(m.id)) ||
+          (completedList || []).find(item => String(item.id) === String(m.id)) ||
+          detail
+      }
+      if (!detail) continue
+
+      const rocketNameEn =
+        (detail.rocketName && !/[\u4e00-\u9fff]/.test(String(detail.rocketName))
+          ? detail.rocketName
+          : '') ||
+        m.rocketNameEn ||
+        ''
+      const cfg = detail.rocketConfiguration || m.rocketConfiguration || null
+      const rocketImage = resolveMissionRocketImageFresh(
+        rocketNameEn || detail.rocketName || m.rocket || '',
+        cfg
+      )
+
+      const enriched = {
+        id: m.id,
+        missionName: detail.missionName || detail.name || m.name,
+        name: detail.missionName || detail.name || m.name,
+        rocketName: detail.rocketName || m.rocket,
+        rocketNameEn: rocketNameEn,
+        rocketImage: rocketImage,
+        rocketConfiguration: cfg,
+        launchTime: detail.launchTime || detail.windowStart || m.launchTime,
+        padName: (detail.padDetail && detail.padDetail.padName) || m.pad
+      }
+
+      const nameChanged = enriched.missionName && enriched.missionName !== m.name
+      const timeChanged = enriched.launchTime && enriched.launchTime !== m.launchTime
+      const imgChanged = enriched.rocketImage && enriched.rocketImage !== m.rocketImage
+      const cfgChanged = !!cfg && !m.rocketConfiguration
+      const enChanged = !!rocketNameEn && rocketNameEn !== m.rocketNameEn
+      if (nameChanged || timeChanged || imgChanged || cfgChanged || enChanged) {
+        saveLocalSubscription(m.id, enriched)
+        changed = true
+      }
+    }
+    if (changed) this.loadMyReminders(true)
+  },
+
+  // ── 我的奖品 ──
+
+  loadMyPrizes(force) {
+    if (!wx.cloud || !wx.cloud.callFunction) return
+    // onShow 高频入口节流：奖品列表只在领奖后变化，10 分钟内复用已渲染数据
+    var now = Date.now()
+    if (!force && this._myPrizesAt && now - this._myPrizesAt < MY_PRIZES_TTL_MS) return
+    this._myPrizesAt = now
+    var self = this
+    wx.cloud.callFunction({
+      name: 'adminGateway',
+      data: { path: '/milestone-claim/my', method: 'GET' }
+    }).then(function (res) {
+      var list = (res.result && res.result.data) || []
+      // 补充 prizeImage（从缓存的里程碑配置中取）
+      var milestoneCache = {}
+      try {
+        var cached = storageCache.readMemOrSync('_milestone_config_cache_v2', []) || []
+        cached.forEach(function (m) { milestoneCache[m._id] = m })
+      } catch (e) {}
+      list.forEach(function (item) {
+        if (!item.prizeImage && milestoneCache[item.milestoneId]) {
+          item.prizeImage = milestoneCache[item.milestoneId].prizeImage || ''
+        }
+        if (!item.prizeType && milestoneCache[item.milestoneId]) {
+          item.prizeType = milestoneCache[item.milestoneId].prizeType || ''
+        }
+        // 将 selections 对象转为显示文本
+        if (item.selections && typeof item.selections === 'object') {
+          var parts = []
+          var keys = Object.keys(item.selections)
+          for (var k = 0; k < keys.length; k++) {
+            if (item.selections[keys[k]]) parts.push(keys[k] + '：' + item.selections[keys[k]])
+          }
+          item.selectionsText = parts.join(' / ')
+        }
+      })
+      self.setData({ myPrizes: list })
+    }).catch(function () {})
+  },
+
+  onCopyTracking(e) {
+    var num = e.currentTarget.dataset.num
+    if (!num) return
+    var data = String(num)
+    var doCopy = function () {
+      wx.setClipboardData({
+        data: data,
+        success: function () { wx.showToast({ title: '已复制', icon: 'success' }) },
+        fail: function () {
+          wx.showModal({ content: data, confirmText: '好的', showCancel: false })
+        }
+      })
+    }
+    if (wx.requirePrivacyAuthorize) {
+      wx.requirePrivacyAuthorize({
+        success: doCopy,
+        fail: function () {
+          // 隐私授权失败，直接尝试复制（部分版本不需要授权）
+          doCopy()
+        }
+      })
+    } else {
+      doCopy()
+    }
+  },
+
+  // ── 在线客服区块 ──
+
+  onCopyWechat() {
+    var data = String(this.data.aboutWechat || '')
+    if (!data) return
+    var doCopy = function () {
+      wx.setClipboardData({
+        data: data,
+        success: function () { wx.showToast({ title: '已复制', icon: 'success' }) },
+        fail: function () {
+          wx.showModal({ title: '微信号', content: data, confirmText: '好的', showCancel: false })
+        }
+      })
+    }
+    if (wx.requirePrivacyAuthorize) {
+      wx.requirePrivacyAuthorize({
+        success: doCopy,
+        fail: function () { doCopy() }
+      })
+    } else {
+      doCopy()
+    }
+  },
+
+  /** 客服会话回调：用户在会话中点击小程序卡片返回时，按卡片指定路径跳转 */
+  onContactCallback(e) {
+    var detail = (e && e.detail) || {}
+    var path = String(detail.path || '')
+    if (!path) return
+    var query = detail.query || {}
+    var qs = Object.keys(query)
+      .map(function (k) { return k + '=' + encodeURIComponent(query[k]) })
+      .join('&')
+    var url = (path.charAt(0) === '/' ? path : '/' + path) + (qs ? '?' + qs : '')
+    wx.navigateTo({
+      url: url,
+      fail: function () {
+        // tabBar 页面无法 navigateTo，退回 switchTab
+        wx.switchTab({ url: url.split('?')[0], fail: function () {} })
+      }
+    })
+  },
+
+  onShareFigma() {
+    var url = 'https://admin.marsx.com.cn/#/share/figma'
+    var encoded = encodeURIComponent(url)
+    var copyAndModal = function () {
+      wx.setClipboardData({
+        data: url,
+        success: function () {
+          wx.showModal({
+            title: '已复制设计稿链接',
+            content: '链接已复制到剪贴板，可粘贴到聊天或浏览器打开：\n\n' + url,
+            showCancel: false,
+            confirmText: '我知道了'
+          })
+        },
+        fail: function () {
+          wx.showModal({
+            title: '设计稿链接',
+            content: url,
+            showCancel: false,
+            confirmText: '好的'
+          })
+        }
+      })
+    }
+    wx.navigateTo({
+      url: '/pages/webview/webview?url=' + encoded,
+      fail: function () {
+        copyAndModal()
+      }
+    })
+  },
+
+  // ── 年度报告入口 ──
+
+  /** 年度报告入口：仅后台开启且在展示时间窗内 */
+  loadYearReviewEntry() {
+    if (!wx.cloud) return
+    wx.cloud
+      .callFunction({
+        name: 'userDataGateway',
+        data: { action: 'getYearInReviewConfig' }
+      })
+      .then((res) => {
+        const r = res.result
+        if (!r || !r.success || !r.config) return
+        const c = r.config
+        this.setData({
+          yearReviewVisible: !!c.showEntry,
+          yearReviewTitle: c.title || '我的太空年鉴',
+          yearReviewSubtitle: c.subtitle || '',
+          yearReviewYear: c.year || new Date().getFullYear()
+        })
+      })
+      .catch(() => {})
+  },
+
+  goYearReview() {
+    const y = this.data.yearReviewYear || new Date().getFullYear()
+    wx.navigateTo({ url: `${ROUTES.YEAR_REVIEW}?year=${y}` })
+  },
+
+  loadAboutConfig() {
+    var self = this
+    wx.cloud.callFunction({
+      name: 'adminGateway',
+      data: { path: '/about-config', method: 'GET' }
+    }).then(function (res) {
+      var data = res.result && res.result.data
+      if (data) {
+        var update = {}
+        if (data.aboutText) update.aboutText = data.aboutText
+        if (data.aboutWechat) update.aboutWechat = data.aboutWechat
+        if (Object.keys(update).length) self.setData(update)
+      }
+    }).catch(function () {})
+  },
+
+  async loadVoteStats(force) {
+    var self = this
+    // onShow 高频入口节流：战绩只在竞猜结算后变化，5 分钟内复用已渲染数据
+    var throttleNow = Date.now()
+    if (!force && this._voteStatsAt && throttleNow - this._voteStatsAt < VOTE_STATS_TTL_MS) return
+    this._voteStatsAt = throttleNow
+    try {
+      var serverResults = await getMyVoteResults()
+
+      // 对「发射时间已过 2 小时仍未结算」的投票触发读路径结算（与 adminGateway 自动结算一致），避免仅靠定时任务
+      // 结算触发 10 分钟内只做一次（每次 onShow 都补结算太浪费），且并行发起而非串行 await
+      var nudgeThrottled = this._voteNudgeDoneAt && (Date.now() - this._voteNudgeDoneAt < 10 * 60 * 1000)
+      if (serverResults && serverResults.length && !nudgeThrottled) {
+        var TWO_H = 2 * 60 * 60 * 1000
+        var nudgeTasks = []
+        for (var nj = 0; nj < serverResults.length && nudgeTasks.length < 8; nj++) {
+          var sr0 = serverResults[nj]
+          if (sr0.result) continue
+          var lt0 = sr0.launchTime || sr0.lockedLaunchTime || ''
+          if (!lt0) continue
+          var ms0 = new Date(lt0).getTime()
+          if (!ms0 || Date.now() - ms0 < TWO_H) continue
+          nudgeTasks.push(
+            getVoteStats(sr0.launchId, true, {
+              launchTime: lt0,
+              status: 'completed',
+              voteType: sr0.voteType === 'outcome' ? 'outcome' : 'ontime'
+            }).catch(function () {})
+          )
+        }
+        if (nudgeTasks.length > 0) {
+          this._voteNudgeDoneAt = Date.now()
+          await Promise.all(nudgeTasks)
+          serverResults = await getMyVoteResults()
+        }
+      }
+
+      if (!serverResults || !serverResults.length) {
+        // 兜底：本地也查一下，确保不漏
+        var localVotesEmpty = storageCache.readMemOrSync('_voted_launches', {}) || {}
+        if (!Object.keys(localVotesEmpty).length) {
+          self.setData({
+            voteStats: { total: 0, settled: 0, correct: 0, accuracy: 0, streak: 0, bestStreak: 0 },
+            voteHistory: []
+          })
+          return
+        }
+        serverResults = []
+      }
+
+      // 用本地成败记录纠正「点了成功却落成准时/不鸽」的历史脏数据
+      var localVotes = storageCache.readMemOrSync('_voted_launches', {}) || {}
+      var resultMap = {}
+      for (var ri = 0; ri < serverResults.length; ri++) {
+        var rawItem = serverResults[ri] || {}
+        var meta0 = resolveVoteChoiceMeta(rawItem.choice, rawItem.voteType)
+        var mapKey0 = String(rawItem.launchId) + '::' + meta0.voteType
+        resultMap[mapKey0] = Object.assign({}, rawItem, {
+          voteType: meta0.voteType,
+          choice: meta0.choice,
+          choiceLabel: meta0.choiceLabel,
+          voteTypeLabel: meta0.voteTypeLabel
+        })
+      }
+      Object.keys(localVotes).forEach(function (lk) {
+        var parts = String(lk).split('::')
+        if (parts.length < 2) return
+        var localVt = parts[parts.length - 1]
+        if (localVt !== 'outcome' && localVt !== 'ontime') return
+        var localLaunchId = parts.slice(0, -1).join('::')
+        var localChoice = localVotes[lk]
+        var localMeta = resolveVoteChoiceMeta(localChoice, localVt)
+        if (!localMeta.choice) return
+        var mk = localLaunchId + '::' + localMeta.voteType
+        var ontimeKey = localLaunchId + '::ontime'
+        var localOntimeRaw = localVotes[localLaunchId + '::ontime'] || ''
+        var untypedRaw = localVotes[localLaunchId] || ''
+        var hasLocalOntime = localOntimeRaw === 'ge' || localOntimeRaw === 'buge' ||
+          untypedRaw === 'ge' || untypedRaw === 'buge'
+
+        // 仅当服务端还没有成败记录时，才把「本地成败 + 服务端准时」当成历史脏数据升格。
+        // 两种都猜了之后绝不能删准时行。
+        if (localMeta.voteType === 'outcome') {
+          var ontimeRow = resultMap[ontimeKey]
+          if (ontimeRow && (ontimeRow.choice === 'ge' || ontimeRow.choice === 'buge') && !resultMap[mk] && !hasLocalOntime) {
+            resultMap[mk] = Object.assign({}, ontimeRow, {
+              voteType: 'outcome',
+              voteTypeLabel: '成败',
+              choice: localMeta.choice,
+              choiceLabel: localMeta.choiceLabel
+            })
+            delete resultMap[ontimeKey]
+            return
+          }
+        }
+
+        if (!resultMap[mk]) {
+          resultMap[mk] = {
+            launchId: localLaunchId,
+            voteType: localMeta.voteType,
+            voteTypeLabel: localMeta.voteTypeLabel,
+            choice: localMeta.choice,
+            choiceLabel: localMeta.choiceLabel,
+            result: '',
+            missionName: '',
+            rocketName: '',
+            launchTime: '',
+            lockedLaunchTime: ''
+          }
+        } else if (localMeta.voteType === 'outcome') {
+          resultMap[mk].voteType = 'outcome'
+          resultMap[mk].voteTypeLabel = '成败'
+          resultMap[mk].choice = localMeta.choice
+          resultMap[mk].choiceLabel = localMeta.choiceLabel
+        }
+      })
+      serverResults = Object.keys(resultMap).map(function (k) { return resultMap[k] })
+
+      // 先等 media map：否则字典会拼出 COS 上不存在的「假 URL」，小圆图加载失败成白块
+      try {
+        await loadCloudMediaMap()
+      } catch (e) {}
+
+      var history = []
+      var settled = 0
+      var correct = 0
+
+      for (var i = 0; i < serverResults.length; i++) {
+        var item = serverResults[i]
+        var meta = resolveVoteChoiceMeta(item.choice, item.voteType)
+        var choice = meta.choice
+        var choiceLabel = item.choiceLabel || meta.choiceLabel
+        var voteType = meta.voteType
+        var voteTypeLabel = item.voteTypeLabel || meta.voteTypeLabel
+        var result = item.result || ''
+        if (voteType === 'outcome') {
+          if (result === 'buge') result = 'success'
+          else if (result === 'ge') result = 'failure'
+        }
+        var isCorrect = !!(result && choice && choice === result)
+
+        if (result) {
+          settled++
+          if (isCorrect) correct++
+        }
+
+        // 服务器老投票记录可能没存任务名/火箭名（主记录首建时缺失就不再回填），
+        // 先从本地任务详情缓存补全，再按 contentLang 套与发射卡同源的中英显示
+        var missionName = item.missionName || ''
+        var rocketName = item.rocketName || ''
+        var cachedMission = self._getMissionFromLocalCache(item.launchId)
+        if (cachedMission) {
+          if (!missionName) missionName = cachedMission.missionName || cachedMission.name || ''
+          if (!rocketName) rocketName = cachedMission.rocketName || ''
+        }
+        var disp = localizeVoteHistoryDisplay(missionName, rocketName, cachedMission, {
+          rocketNameEn: item.rocketName || rocketName
+        })
+
+        // 与首页卡片同源：配图用英文火箭名
+        var rocketImage = resolveHomeRocketImage(
+          cachedMission && (cachedMission.rocketImage || cachedMission.image),
+          disp.rocketNameEn || rocketName,
+          cachedMission && cachedMission.rocketConfiguration
+        )
+
+        // 计算距发射天数
+        var launchTimeStr = item.lockedLaunchTime || item.launchTime || ''
+        var daysLabel = ''
+        if (result) {
+          daysLabel = isCorrect ? '✓ 猜对' : '✕ 猜错'
+        } else if (launchTimeStr) {
+          var ltMs = new Date(launchTimeStr).getTime()
+          var nowMs = Date.now()
+          if (ltMs > 0) {
+            var diffDays = Math.ceil((ltMs - nowMs) / (24 * 60 * 60 * 1000))
+            if (diffDays <= 0) daysLabel = '待揭晓'
+            else if (diffDays === 1) daysLabel = '明天'
+            else daysLabel = diffDays + '天后'
+          } else {
+            daysLabel = '待揭晓'
+          }
+        } else {
+          daysLabel = '待揭晓'
+        }
+
+        history.push({
+          id: item.launchId + '::' + voteType,
+          launchId: item.launchId,
+          voteType: voteType,
+          voteTypeLabel: voteTypeLabel,
+          name: disp.name || ('任务 #' + item.launchId),
+          nameEn: disp.nameEn,
+          rocket: disp.rocket,
+          rocketNameEn: disp.rocketNameEn,
+          rocketNameZh: disp.rocketNameZh,
+          rocketImage: rocketImage,
+          choice: choice,
+          choiceLabel: choiceLabel,
+          result: result,
+          isCorrect: isCorrect,
+          daysLabel: daysLabel,
+          launchTime: launchTimeStr,
+          sortTime: launchTimeStr ? new Date(launchTimeStr).getTime() || 0 : 0,
+          settledAt: item.settledAt || ''
+        })
+      }
+
+      history.sort(function (a, b) { return b.sortTime - a.sortTime })
+
+      var streak = 0
+      var bestStreak = 0
+      var tempStreak = 0
+      for (var si = 0; si < history.length; si++) {
+        if (!history[si].result) continue
+        if (history[si].isCorrect) {
+          tempStreak++
+          if (tempStreak > bestStreak) bestStreak = tempStreak
+        } else {
+          tempStreak = 0
+        }
+      }
+      for (var sj = 0; sj < history.length; sj++) {
+        if (!history[sj].result) continue
+        if (history[sj].isCorrect) streak++
+        else break
+      }
+
+      self.setData({
+        voteStats: {
+          total: serverResults.length,
+          settled: settled,
+          correct: correct,
+          accuracy: settled > 0 ? Math.round(correct / settled * 100) : 0,
+          streak: streak,
+          bestStreak: bestStreak
+        },
+        voteHistory: history
+      })
+
+      self._enrichVoteHistory()
+    } catch (e) {
+      console.error('[Profile] loadVoteStats error:', e)
+    }
+  },
+
+  /** 对仍缺任务名/火箭图的竞猜记录，从首页同源任务列表补全，并统一套 contentLang */
+  async _enrichVoteHistory() {
+    var history = this.data.voteHistory || []
+    var needFix = history.some(function (h) {
+      return !h.rocketImage || isDefaultRocketSrc(h.rocketImage) || h.name.indexOf('任务 #') === 0 ||
+        (!isContentLangEn() && /[A-Za-z]{3,}/.test(String(h.name || '') + ' ' + String(h.rocket || '')))
+    })
+    if (!needFix) return
+    if (this._voteEnrichPending) return
+    this._voteEnrichPending = true
+
+    try {
+      try {
+        await loadCloudMediaMap()
+      } catch (e) {}
+
+      var lists = await Promise.all([
+        getUpcomingMissions(50, 0).catch(function () { return { list: [] } }),
+        getCompletedMissions(50, 0).catch(function () { return { list: [] } })
+      ])
+      var all = (lists[0].list || []).concat(lists[1].list || [])
+      if (!all.length) {
+        // 列表拉不到时仍就地汉化已有英文名
+        this._applyVoteHistoryContentLang()
+        return
+      }
+
+      var byId = {}
+      all.forEach(function (m) { byId[String(m.id)] = m })
+
+      var patch = {}
+      var latest = this.data.voteHistory || []
+      for (var i = 0; i < latest.length; i++) {
+        var h = latest[i]
+        var launchId = h.launchId || String(h.id || '').split('::')[0]
+        var m = byId[String(launchId)]
+        var cached = this._getMissionFromLocalCache
+          ? this._getMissionFromLocalCache(launchId)
+          : null
+        var source = m || cached
+        var needName = !h.name || h.name.indexOf('任务 #') === 0
+        var needImg = !h.rocketImage || isDefaultRocketSrc(h.rocketImage)
+        var needLang = !isContentLangEn() &&
+          /[A-Za-z]{3,}/.test(String(h.name || '') + ' ' + String(h.rocket || ''))
+
+        if (!needName && !needImg && !needLang) continue
+
+        var rawName = h.nameEn || (source && (source.missionName || source.name)) || h.name || ''
+        var rawRocket = h.rocketNameEn || (source && source.rocketName) || h.rocket || ''
+        var disp = localizeVoteHistoryDisplay(rawName, rawRocket, source || cached, {
+          nameEn: h.nameEn,
+          rocketNameEn: h.rocketNameEn
+        })
+
+        if (disp.name && (needName || needLang) && disp.name !== h.name) {
+          patch['voteHistory[' + i + '].name'] = disp.name
+        }
+        if (disp.nameEn && disp.nameEn !== h.nameEn) {
+          patch['voteHistory[' + i + '].nameEn'] = disp.nameEn
+        }
+        if (disp.rocket && (needLang || !h.rocket) && disp.rocket !== h.rocket) {
+          patch['voteHistory[' + i + '].rocket'] = disp.rocket
+        }
+        if (disp.rocketNameEn && disp.rocketNameEn !== h.rocketNameEn) {
+          patch['voteHistory[' + i + '].rocketNameEn'] = disp.rocketNameEn
+        }
+        if (disp.rocketNameZh && disp.rocketNameZh !== h.rocketNameZh) {
+          patch['voteHistory[' + i + '].rocketNameZh'] = disp.rocketNameZh
+        }
+        if (needImg || (disp.rocketNameEn && disp.rocketNameEn !== h.rocketNameEn)) {
+          var img = resolveHomeRocketImage(
+            '',
+            disp.rocketNameEn || rawRocket,
+            (source && source.rocketConfiguration) || (cached && cached.rocketConfiguration)
+          )
+          if (img && img !== h.rocketImage) {
+            patch['voteHistory[' + i + '].rocketImage'] = img
+          }
+        }
+      }
+      if (Object.keys(patch).length > 0) this.setData(patch)
+    } catch (e) {
+      console.error('[Profile] _enrichVoteHistory error:', e)
+    } finally {
+      this._voteEnrichPending = false
+    }
+  },
+
+  /** 语言切换后就地重套竞猜战绩展示字段（无需等服务端重拉） */
+  _applyVoteHistoryContentLang() {
+    var history = this.data.voteHistory || []
+    if (!history.length) return
+    var patch = {}
+    for (var i = 0; i < history.length; i++) {
+      var h = history[i]
+      if (!h) continue
+      var cached = this._getMissionFromLocalCache
+        ? this._getMissionFromLocalCache(h.launchId)
+        : null
+      var disp = localizeVoteHistoryDisplay(
+        h.nameEn || h.name,
+        h.rocketNameEn || h.rocket,
+        cached,
+        { nameEn: h.nameEn, rocketNameEn: h.rocketNameEn }
+      )
+      if (disp.name && disp.name !== h.name) patch['voteHistory[' + i + '].name'] = disp.name
+      if (disp.nameEn && disp.nameEn !== h.nameEn) patch['voteHistory[' + i + '].nameEn'] = disp.nameEn
+      if (disp.rocket && disp.rocket !== h.rocket) patch['voteHistory[' + i + '].rocket'] = disp.rocket
+      if (disp.rocketNameEn && disp.rocketNameEn !== h.rocketNameEn) {
+        patch['voteHistory[' + i + '].rocketNameEn'] = disp.rocketNameEn
+      }
+      if (disp.rocketNameZh && disp.rocketNameZh !== h.rocketNameZh) {
+        patch['voteHistory[' + i + '].rocketNameZh'] = disp.rocketNameZh
+      }
+    }
+    if (Object.keys(patch).length) this.setData(patch)
+  },
+
+  /** 艺术风格切换：重算竞猜历史缩略图 */
+  _refreshVoteHistoryRocketArt() {
+    var history = this.data.voteHistory || []
+    if (!history.length) return
+    var patch = {}
+    for (var i = 0; i < history.length; i++) {
+      var h = history[i]
+      if (!h) continue
+      var mission = this._getMissionFromLocalCache
+        ? this._getMissionFromLocalCache(h.launchId)
+        : null
+      var rocket = h.rocketNameEn || h.rocket || (mission && mission.rocketName) || ''
+      var cfg = (mission && mission.rocketConfiguration) || null
+      var img = resolveMissionRocketImageFresh(rocket, cfg)
+      if (img && img !== h.rocketImage) {
+        patch['voteHistory[' + i + '].rocketImage'] = img
+      }
+    }
+    if (Object.keys(patch).length) this.setData(patch)
+  },
+
+  /** 与首页 onImageError / 任务卡同源 */
+  async onVoteHistoryRocketImageError(e) {
+    var ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
+    var index = ds.index
+    if (index == null || index === '') return
+    var idx = Number(index)
+    if (!isFinite(idx) || idx < 0) return
+
+    var history = this.data.voteHistory || []
+    var h = history[idx]
+    if (!h) return
+
+    var failed = h.rocketImage || ''
+    if (failed && isDefaultRocketSrc(failed)) return
+
+    if (failed && /^https?:\/\//i.test(String(failed).trim())) {
+      markDownloadFailed(String(failed).trim(), 404)
+    }
+
+    try {
+      await loadCloudMediaMap()
+    } catch (err) {}
+
+    var mission = this._getMissionFromLocalCache
+      ? this._getMissionFromLocalCache(h.launchId)
+      : null
+    var rocket = h.rocketNameEn || h.rocket || (mission && mission.rocketName) || ''
+    var cfg = (mission && mission.rocketConfiguration) || null
+    var next = resolveHomeRocketImage(failed, rocket, cfg)
+    if (!next || next === failed) {
+      next = resolveMissionRocketImage(DEFAULT_ROCKET_IMAGE)
+    }
+    if (next && next !== failed) {
+      this.setData({ ['voteHistory[' + idx + '].rocketImage']: next })
+    }
+  },
+
+  onVoteHistoryTap(e) {
+    var id = e.currentTarget.dataset.id
+    if (!id) return
+    // 兼容复合 id：launchId::voteType
+    var launchId = String(id).split('::')[0]
+    wx.navigateTo({ url: ROUTES.MISSION_DETAIL + '?id=' + launchId + '&type=upcoming' })
+  },
+
+  onToggleVoteHistory() {
+    this.setData({ voteHistoryExpanded: !this.data.voteHistoryExpanded })
+  },
+
+  /** 清除全部竞猜记录：中度震动 → 二次确认 → 云端删除 + 本地清空 */
+  onClearVoteHistory() {
+    var self = this
+    try { wx.vibrateShort({ type: 'medium' }) } catch (err) {}
+    wx.showModal({
+      title: '清除竞猜记录',
+      content: '确定清除全部竞猜记录吗？统计与连胜数据将一并清零，此操作不可恢复。',
+      confirmText: '清除',
+      confirmColor: '#FF453A',
+      success: function (res) {
+        if (!res.confirm) return
+        self._doClearVoteHistory()
+      }
+    })
+  },
+
+  async _doClearVoteHistory() {
+    if (this._voteClearPending) return
+    this._voteClearPending = true
+    wx.showLoading({ title: '清除中...', mask: true })
+    try {
+      await clearMyVoteResults()
+      clearLocalVotes()
+      this._voteStatsAt = 0
+      this.setData({
+        voteStats: { total: 0, settled: 0, correct: 0, accuracy: 0, streak: 0, bestStreak: 0 },
+        voteHistory: [],
+        voteHistoryExpanded: false
+      })
+      wx.hideLoading()
+      wx.showToast({ title: '已清除', icon: 'success' })
+    } catch (e) {
+      wx.hideLoading()
+      wx.showToast({ title: (e && e.message) || '清除失败，请稍后重试', icon: 'none' })
+    } finally {
+      this._voteClearPending = false
+    }
+  },
+
+  checkMilestones(force) {
+    if (this.data.showMilestoneEgg) return
+
+    // onShow 高频入口节流：里程碑配置/领奖记录变化极低频，10 分钟内不重复拉取
+    // （签到/答题后的主动检查传 force=true 绕过）
+    var throttleNow = Date.now()
+    if (!force && this._milestoneCheckAt && throttleNow - this._milestoneCheckAt < MILESTONE_CHECK_TTL_MS) return
+    this._milestoneCheckAt = throttleNow
+
+    var self = this
+
+    // ★ 测试模式：设为 true 跳过阈值检测直接弹金蛋（使用后台真实数据），测试完改回 false
+    var TEST_MODE = false
+    if (TEST_MODE) {
+      var fetchTestMilestones = wx.cloud.callFunction({
+        name: 'adminGateway',
+        data: { path: '/milestones', method: 'GET' }
+      }).then(function (res) { return (res.result && res.result.data) || [] })
+        .catch(function () { return [] })
+
+      var fetchTestClaims = wx.cloud.callFunction({
+        name: 'adminGateway',
+        data: { path: '/milestone-claim/my', method: 'GET' }
+      }).then(function (res) { return (res.result && res.result.data) || [] })
+        .catch(function () { return [] })
+
+      Promise.all([fetchTestMilestones, fetchTestClaims]).then(function (results) {
+        var list = results[0] || []
+        var claimedList = results[1] || []
+        var claimedIds = {}
+        claimedList.forEach(function (c) { claimedIds[c.milestoneId] = true })
+
+        var queue = []
+        list.forEach(function (m) {
+          if (!m.enabled) return
+          if (claimedIds[m._id]) return
+          queue.push(mapMilestoneForEgg(m))
+        })
+        if (queue.length > 0) {
+          self.data._milestoneQueue = queue
+          setTimeout(function () { self._showNextMilestone() }, 800)
+        }
+      })
+      return
+    }
+
+    if (!wx.cloud || !wx.cloud.callFunction) return
+
+    var checkinData = storageCache.getMem('_checkin_data')
+    if (checkinData === undefined) {
+      try { checkinData = require('./checkin.js').warmCheckinStoreSync() } catch (e) { checkinData = null }
+    }
+    var checkinDays = checkinData ? (checkinData.totalDays || 0) : 0
+
+    var quizData = storageCache.getMem('_space_quiz_data')
+    if (quizData === undefined) {
+      try { quizData = require('./space-quiz.js').warmQuizStoreSync() } catch (e2) { quizData = null }
+    }
+    var quizCorrect = quizData ? (quizData.correctCount || 0) : 0
+
+    var voteCorrect = self.data.voteStats ? self.data.voteStats.correct || 0 : 0
+
+    if (checkinDays === 0 && quizCorrect === 0 && voteCorrect === 0) return
+
+    var cacheKey = '_milestone_config_cache_v2'
+    var claimCacheKey = '_milestone_claims_cache'
+    var milestones = null
+    var myClaims = null
+
+    milestones = storageCache.readMemOrSync(cacheKey, null)
+    myClaims = storageCache.readMemOrSync(claimCacheKey, null)
+
+    var fetchMilestones = new Promise(function (resolve) {
+      wx.cloud.callFunction({
+        name: 'adminGateway',
+        data: { path: '/milestones', method: 'GET' }
+      }).then(function (res) {
+        var list = (res.result && res.result.data) || []
+        storageCache.persistAsync(cacheKey, list)
+        resolve(list)
+      }).catch(function () {
+        resolve(milestones || [])
+      })
+    })
+
+    var fetchClaims = new Promise(function (resolve) {
+      wx.cloud.callFunction({
+        name: 'adminGateway',
+        data: { path: '/milestone-claim/my', method: 'GET' }
+      }).then(function (res) {
+        var cloudList = (res.result && res.result.data) || []
+        // 合并本地缓存，防止刚提交的领奖记录被覆盖
+        var localClaims = []
+        localClaims = storageCache.readMemOrSync(claimCacheKey, []) || []
+        var idSet = {}
+        cloudList.forEach(function (c) { idSet[c.milestoneId] = true })
+        localClaims.forEach(function (c) {
+          if (c.milestoneId && !idSet[c.milestoneId]) cloudList.push(c)
+        })
+        storageCache.persistAsync(claimCacheKey, cloudList)
+        resolve(cloudList)
+      }).catch(function () {
+        resolve(myClaims || [])
+      })
+    })
+
+    Promise.all([fetchMilestones, fetchClaims]).then(function (results) {
+      var allMilestones = results[0] || []
+      var claimedList = results[1] || []
+
+      var claimedIds = {}
+      claimedList.forEach(function (c) { claimedIds[c.milestoneId] = true })
+
+      var queue = []
+      allMilestones.forEach(function (m) {
+        if (!m.enabled) return
+        if (claimedIds[m._id]) return
+
+        var threshold = Number(m.threshold) || 0
+        var reached = false
+        if (m.type === 'checkin' && checkinDays >= threshold) reached = true
+        if (m.type === 'quiz' && quizCorrect >= threshold) reached = true
+        if (m.type === 'vote' && voteCorrect >= threshold) reached = true
+
+        if (reached) {
+          queue.push(mapMilestoneForEgg(m))
+        }
+      })
+
+      if (queue.length > 0) {
+        self.data._milestoneQueue = queue
+        self._showNextMilestone()
+      }
+    })
+  },
+
+  _showNextMilestone() {
+    var queue = this.data._milestoneQueue
+    if (!queue || queue.length === 0) {
+      this.setData({ showMilestoneEgg: false, currentMilestone: {} })
+      return
+    }
+    var next = queue.shift()
+    this.setData({ currentMilestone: next, showMilestoneEgg: true })
+  },
+
+  onMilestoneClose() {
+    this.setData({ showMilestoneEgg: false })
+    var self = this
+    setTimeout(function () {
+      self._showNextMilestone()
+    }, 300)
+  },
+
+  onMilestoneClaimed(e) {
+    var milestoneId = e.detail && e.detail.milestoneId
+    if (milestoneId) {
+      try {
+        var claims = storageCache.readSync('_milestone_claims_cache', []) || []
+        claims.push({ milestoneId: milestoneId, prizeType: (e.detail && e.detail.prizeType) || '' })
+        storageCache.persistAsync('_milestone_claims_cache', claims)
+      } catch (err) {}
+      // 刚领完奖：立刻强刷奖品列表，绕过 10 分钟节流
+      this._myPrizesAt = 0
+      this.loadMyPrizes(true)
+      if ((e.detail && e.detail.prizeType) === 'pro_1month') {
+        try {
+          var mem = require('../../../utils/membership.js')
+          mem.clearCache()
+          mem.getMembershipState(true).catch(function () {})
+        } catch (err) {}
+      }
+    }
+  },
+}
+
+module.exports = {
+  methods,
+  /** 把全部方法挂到页面实例上（委托加载后调用） */
+  attachTo(page) {
+    Object.keys(methods).forEach((k) => {
+      page[k] = methods[k].bind(page)
+    })
+    page.__profileLazyAttached = true
+  }
+}

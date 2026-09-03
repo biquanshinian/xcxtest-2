@@ -3,19 +3,22 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 48rpx 32rpx;
+  /* 与监控页「发射通告地图」入口卡 .preview-card-content 同高 */
+  padding: 35rpx 40rpx;
+  gap: 10rpx;
   text-align: center;
+  box-sizing: border-box;
 }
 .lazy-load-icon {
   font-size: 56rpx;
-  margin-bottom: 16rpx;
+  margin-bottom: 6rpx;
 }
 .lazy-load-text {
   font-size: 28rpx;
   color: var(--color-text-primary);
-  margin-bottom: 8rpx;
+  font-weight: 500;
 }
 .lazy-load-hint {
-  font-size: 24rpx;
+  font-size: 22rpx;
   color: var(--color-text-tertiary);
 }

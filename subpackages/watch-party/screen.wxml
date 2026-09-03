@@ -1,0 +1,198 @@
+<!-- 现场大屏模式：横屏常亮；跟随全局主题，右上角可一键切换明暗 -->
+<!-- 内容区从微信胶囊下沿起算，避免顶栏与系统胶囊重叠 -->
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="scr scr--{{phase}} {{themeClass}}" style="padding-top: {{contentPadTop}}px;">
+  <!-- 左上角返回：与全站通用返回图标一致，不干扰投屏画面 -->
+  <view class="scr-exit" style="top: {{exitTop}}px;" bindtap="onExit">
+    <view class="top-nav-slot--back">
+      <text class="icon-back icon-back--nav">‹</text>
+    </view>
+  </view>
+
+  <!-- 明暗 + 横/竖屏：贴在系统胶囊左侧，统一 0.8 缩放 -->
+  <view class="scr-tools" style="top: {{orientTop}}px; right: {{orientRight}}px;">
+    <view
+      class="scr-tool"
+      bindtap="onToggleTheme"
+      hover-class="scr-tool--hover"
+    >
+      <text class="scr-tool-text">{{themeLight ? '深色' : '浅色'}}</text>
+    </view>
+    <view
+      class="scr-tool"
+      bindtap="onToggleOrientation"
+      hover-class="scr-tool--hover"
+    >
+      <text class="scr-tool-text">{{landscapeMode ? '竖屏' : '横屏'}}</text>
+    </view>
+  </view>
+
+  <view class="scr-loading" wx:if="{{loading}}">
+    <text>正在加载大屏数据…</text>
+  </view>
+
+  <view class="scr-error" wx:elif="{{error}}">
+    <text class="scr-error-text">{{error}}</text>
+    <view class="scr-retry" bindtap="onRetry"><text>重试</text></view>
+  </view>
+
+  <block wx:else>
+    <!-- 现场抽奖提示：须商家已确认发射成功 -->
+    <view class="scr-ssr" wx:if="{{prizeDrawEnabled && successUnlocked}}">
+      <text>发射成功 · 现场奖品抽奖已开放，扫物料码参与！</text>
+    </view>
+
+    <view class="scr-main">
+      <!-- 左栏：火箭配置图 + 场次 / 竞猜（倒计时单独全宽，避免横屏半栏溢出） -->
+      <view class="scr-left">
+        <view class="scr-left-top">
+          <view class="scr-rocket" wx:if="{{rocketImage}}">
+            <image class="scr-rocket-img" src="{{rocketImage}}" mode="aspectFill" />
+          </view>
+          <view class="scr-left-meta">
+            <text class="scr-phase">{{phaseLabel}}</text>
+            <text class="scr-title">{{title}}</text>
+            <text class="scr-subtitle" wx:if="{{subtitle}}">{{subtitle}}</text>
+
+            <!-- 现场讲解：磨砂胶囊一排，仅入口名 -->
+            <view class="scr-explain" wx:if="{{explainButtons.length}}">
+              <view
+                class="scr-explain-btn"
+                wx:for="{{explainButtons}}"
+                wx:key="key"
+                data-key="{{item.key}}"
+                bindtap="onExplainTap"
+              >
+                <text class="scr-explain-label">{{item.label}}</text>
+              </view>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 倒计时 + 现场竞猜（竞猜紧贴倒计时下方） -->
+      <view class="scr-cd-band">
+        <view class="scr-cd-wrap" wx:if="{{cd}}">
+          <text class="scr-cd-caption">距发射还有</text>
+          <view class="scr-cd">
+            <view class="scr-cd-cell">
+              <text class="scr-cd-num">{{cd.d}}</text>
+              <text class="scr-cd-label">天</text>
+            </view>
+            <view class="scr-cd-cell">
+              <text class="scr-cd-num">{{cd.h}}</text>
+              <text class="scr-cd-label">时</text>
+            </view>
+            <view class="scr-cd-cell">
+              <text class="scr-cd-num">{{cd.m}}</text>
+              <text class="scr-cd-label">分</text>
+            </view>
+            <view class="scr-cd-cell">
+              <text class="scr-cd-num">{{cd.s}}</text>
+              <text class="scr-cd-label">秒</text>
+            </view>
+          </view>
+        </view>
+        <view class="scr-cd-done-wrap" wx:elif="{{cdDone}}">
+          <text class="scr-cd-done">点火升空</text>
+          <text class="scr-cd-done-sub">已进入发射窗口 · 请注视天空方向</text>
+          <text class="scr-cd-done-hint">轰鸣约 30 秒后到达楼顶，属正常现象</text>
+        </view>
+
+        <view class="scr-vote" wx:if="{{vote}}">
+          <text class="scr-vote-title">{{vote.question}}</text>
+          <view class="scr-vote-bar">
+            <view class="scr-vote-ge" style="width: {{vote.gePct}}%;"></view>
+            <view class="scr-vote-buge" style="width: {{100 - vote.gePct}}%;"></view>
+          </view>
+          <view class="scr-vote-labels">
+            <text class="scr-vote-label scr-vote-label--ge">{{vote.geLabel}}</text>
+            <text class="scr-vote-label scr-vote-label--buge">{{vote.bugeLabel}}</text>
+          </view>
+        </view>
+
+        <!-- 归零后自动拉本型号最近一次发射集锦（过审开关开启时） -->
+        <view class="scr-replay" wx:if="{{replayVideoUrl || replayStatus === 'gated'}}">
+          <video
+            wx:if="{{replayVideoUrl}}"
+            class="scr-replay-video"
+            src="{{replayVideoUrl}}"
+            poster="{{replayPoster}}"
+            autoplay
+            loop
+            muted="{{replayMuted}}"
+            controls
+            show-center-play-btn
+            object-fit="contain"
+            bindtap="onReplayUnmute"
+          />
+          <view class="scr-replay-poster-only" wx:elif="{{replayStatus === 'gated'}}" bindtap="onReplayUnmute">
+            <image wx:if="{{replayPoster}}" class="scr-replay-poster-img" src="{{replayPoster}}" mode="aspectFit" />
+            <view class="scr-replay-play-hint"><text>▶ 点击播放集锦</text></view>
+          </view>
+          <view class="scr-replay-meta">
+            <text class="scr-replay-tag">本型号近期发射集锦</text>
+            <text class="scr-replay-title" wx:if="{{replayTitle}}">{{replayTitle}}</text>
+            <text class="scr-replay-unmute" wx:if="{{replayMuted && replayVideoUrl}}" bindtap="onReplayUnmute">轻触开启声音</text>
+            <text class="scr-replay-unmute" wx:elif="{{replayStatus === 'gated'}}" bindtap="onReplayUnmute">会员可播放 · 轻触开通/播放</text>
+          </view>
+        </view>
+        <view class="scr-replay-empty" wx:elif="{{cdDone && (replayStatus === 'empty' || replayStatus === 'off')}}">
+          <text wx:if="{{replayStatus === 'off'}}">回放功能暂未开放</text>
+          <text wx:else>暂无本型号近期集锦，请继续观察天空</text>
+        </view>
+      </view>
+
+      <!-- 右栏：科普卡（上滑循环 / 暂停 / 轻触翻页）+ 扫码 -->
+      <view class="scr-right">
+        <view class="scr-sci" bindtap="onSciTap">
+          <view class="scr-sci-head">
+            <text class="scr-sci-tag">观礼科普</text>
+            <view class="scr-sci-head-right">
+              <text class="scr-sci-progress" wx:if="{{sciProgress}}">{{sciProgress}}</text>
+              <view
+                class="scr-sci-pause {{sciPaused ? 'scr-sci-pause--on' : ''}}"
+                catchtap="onToggleSciPause"
+                hover-class="scr-sci-pause--hover"
+              >
+                <text>{{sciPaused ? '继续' : '暂停'}}</text>
+              </view>
+            </view>
+          </view>
+
+          <view class="scr-sci-viewport">
+            <view class="scr-sci-slide scr-sci-slide--{{sciSlide}}">
+              <image class="scr-sci-image" wx:if="{{sciImage}}" src="{{sciImage}}" mode="aspectFit" />
+              <block wx:else>
+                <text class="scr-sci-title" wx:if="{{sciTitle}}">{{sciTitle}}</text>
+                <view class="scr-sci-body-wrap {{sciTextScroll && !sciPaused ? 'scr-sci-body-wrap--run' : ''}} {{sciPaused ? 'scr-sci-body-wrap--paused' : ''}}">
+                  <view class="scr-sci-body-track">
+                    <view class="scr-sci-body-block">
+                      <text class="scr-sci-body">{{sciBody}}</text>
+                    </view>
+                    <view class="scr-sci-body-block" wx:if="{{sciTextScroll}}">
+                      <text class="scr-sci-body">{{sciBody}}</text>
+                    </view>
+                  </view>
+                </view>
+              </block>
+            </view>
+          </view>
+
+          <text class="scr-sci-hint">{{sciPaused ? '已暂停 · 轻触翻页' : '自动上滑循环 · 轻触翻页'}}</text>
+        </view>
+        <view class="scr-qr" wx:if="{{qrUrl}}">
+          <image class="scr-qr-img" src="{{qrUrl}}" mode="aspectFit" />
+          <text class="scr-qr-text">扫码预约 · 抽现场奖品</text>
+        </view>
+      </view>
+
+      <view class="scr-bottom">
+        <view class="scr-foot">
+          <text class="scr-stat" wx:if="{{statLine}}">{{statLine}}</text>
+          <text class="scr-clock">{{clock}}</text>
+        </view>
+      </view>
+    </view>
+  </block>
+</view>

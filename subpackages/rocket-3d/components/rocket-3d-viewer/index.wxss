@@ -1,0 +1,208 @@
+/* 只负责视口：标题走页面 .detail-section-title，避免再套一张卡 */
+.r3d {
+  width: 100%;
+}
+
+.r3d-stage {
+  position: relative;
+  height: 480rpx;
+  border-radius: 16rpx;
+  overflow: hidden;
+  background: #07080c;
+}
+
+.r3d--page {
+  height: 100%;
+}
+
+.r3d--page .r3d-stage {
+  height: 100%;
+  min-height: 0;
+  border-radius: 0;
+  background: #050608;
+}
+
+.r3d-stage--pressed {
+  opacity: 0.92;
+}
+
+.r3d-poster,
+.r3d-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* 氛围底图，不当第二张头图 */
+.r3d-poster {
+  opacity: 0.22;
+}
+
+.r3d-canvas {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.r3d-canvas--on {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.r3d-veil {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, rgba(7, 8, 12, 0.2), rgba(7, 8, 12, 0.62));
+}
+
+.r3d-veil--dim {
+  background: rgba(7, 8, 12, 0.48);
+}
+
+.r3d-play {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  padding: 12rpx 26rpx 12rpx 12rpx;
+  border-radius: 999rpx;
+  background: rgba(59, 130, 246, 0.92);
+  border: 1rpx solid rgba(147, 197, 253, 0.28);
+}
+
+.r3d-play-mark {
+  width: 48rpx;
+  height: 48rpx;
+  line-height: 48rpx;
+  text-align: center;
+  border-radius: 50%;
+  font-size: 20rpx;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #eff6ff;
+  background: rgba(15, 23, 42, 0.28);
+}
+
+.r3d-play-text {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.r3d-status {
+  font-size: 26rpx;
+  color: #f8fafc;
+}
+
+/* 操作条在画布外（iOS 同层渲染点击兼容），右对齐 */
+.r3d-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12rpx;
+  margin-top: 14rpx;
+}
+
+.r3d-chip {
+  padding: 10rpx 22rpx;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  color: #e2e8f0;
+  background: rgba(30, 41, 59, 0.72);
+  border: 1rpx solid rgba(148, 163, 184, 0.28);
+}
+
+.r3d-chip--pressed {
+  opacity: 0.75;
+}
+
+.r3d-chip--on {
+  color: #fde68a;
+  border-color: rgba(253, 230, 138, 0.42);
+}
+
+.r3d-dim-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.r3d-dim-chip {
+  position: absolute;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.2;
+  color: #f3e6c4;
+  background-color: rgba(12, 14, 18, 0.82);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.r3d-dim-chip--off {
+  opacity: 0;
+}
+
+.r3d-dim-chip--on {
+  opacity: 1;
+}
+
+.r3d-badge {
+  position: absolute;
+  right: 16rpx;
+  bottom: 16rpx;
+  padding: 6rpx 14rpx;
+  border-radius: 999rpx;
+  font-size: 20rpx;
+  color: #fde68a;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1rpx solid rgba(253, 230, 138, 0.28);
+}
+
+/* ── 浅色主题（跟随全局 theme-light；全屏页恒深不加此类） ── */
+/* 底色与 runtime.js 的 CLEAR_COLOR_LIGHT (#dde3ec) 保持一致 */
+.r3d--light .r3d-stage {
+  background: #dde3ec;
+}
+
+.r3d--light .r3d-poster {
+  opacity: 0.3;
+}
+
+.r3d--light .r3d-veil {
+  background: linear-gradient(180deg, rgba(221, 227, 236, 0.15), rgba(148, 163, 184, 0.4));
+}
+
+.r3d--light .r3d-veil--dim {
+  background: rgba(226, 232, 240, 0.55);
+}
+
+.r3d--light .r3d-status {
+  color: #1e293b;
+}
+
+.r3d--light .r3d-chip {
+  color: #334155;
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(100, 116, 139, 0.26);
+}
+
+.r3d--light .r3d-chip--on {
+  color: #92600a;
+  border-color: rgba(180, 130, 30, 0.4);
+}
+
+.r3d--light .r3d-badge {
+  color: #92600a;
+  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(180, 130, 30, 0.32);
+}

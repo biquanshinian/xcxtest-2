@@ -1,57 +1,72 @@
 {
-
-  "timeout": 60,
-
+  "timeout": 120,
   "triggers": [
-
     {
-
       "name": "launchReminderTrigger",
-
       "type": "timer",
-
-      "config": "0 */10 * * * * *"
-
+      "config": "0 */5 * * * * *"
     }
-
   ],
-
   "environment": [
-
     {
-
       "key": "WECHAT_OA_TEMPLATE_ID",
-
-      "value": "FBII5P7WK3Eqf7-nmcOxBHWz-pHzfyVEdxY2nB79KdU"
-
+      "value": "FBII5P7WK3Eqf7-nmcOxBG4A7PbuuGFyr-Q1QSs53P8"
     },
-
     {
-
       "key": "WECHAT_OA_TMPL_FIELD_MISSION",
-
-      "value": "thing9"
-
+      "value": ""
     },
-
     {
-
       "key": "WECHAT_OA_TMPL_FIELD_TIME",
-
-      "value": "time14"
-
+      "value": ""
     },
-
     {
-
+      "key": "WECHAT_OA_TMPL_FIELD_ROCKET",
+      "value": ""
+    },
+    {
+      "key": "WECHAT_OA_TMPL_FIELD_REMARK",
+      "value": ""
+    },
+    {
       "key": "WECHAT_OA_TMPL_FIELD_CODE",
-
-      "value": "character_string1"
-
+      "value": ""
+    },
+    {
+      "key": "WECHAT_OA_RESULT_TEMPLATE_ID",
+      "value": "g8f6Aa4G2BW0QDiYX74nLlJ6PfVfOIIEOJGGj0ngiuQ"
+    },
+    {
+      "key": "WECHAT_OA_NET_CHANGE_TEMPLATE_ID",
+      "value": "AUknDNSmaLhK2lN2Kzq0lHbBkaeYSmcAINelxcxc6yA"
+    },
+    {
+      "key": "WECHAT_OA_NET_CHANGE_REASON",
+      "value": "发射时间推迟"
+    },
+    {
+      "key": "NET_CHANGE_PUSH_ENABLED",
+      "value": "1"
+    },
+    {
+      "key": "NET_CHANGE_FORCE_SIM",
+      "value": "0"
+    },
+    {
+      "key": "WECHAT_OA_RESULT_TMPL_FIELD_MISSION",
+      "value": "thing33"
+    },
+    {
+      "key": "WECHAT_OA_RESULT_TMPL_FIELD_TIME",
+      "value": "time20"
+    },
+    {
+      "key": "WECHAT_OA_RESULT_TMPL_FIELD_RESULT",
+      "value": "thing4"
+    },
+    {
+      "key": "WECHAT_OA_RESULT_TMPL_FIELD_CODE",
+      "value": "thing2"
     }
-
   ]
-
 }
-
-

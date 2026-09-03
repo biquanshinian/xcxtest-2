@@ -116,22 +116,36 @@ function slimLaunch(launch) {
   const mission = launch.mission || {}
   const status = launch.status || {}
   const provider = launch.launch_service_provider || {}
+  const netPrecisionRaw = launch.net_precision
+  const net_precision = netPrecisionRaw && typeof netPrecisionRaw === 'object'
+    ? {
+        id: netPrecisionRaw.id,
+        name: netPrecisionRaw.name || '',
+        abbrev: netPrecisionRaw.abbrev || ''
+      }
+    : (netPrecisionRaw || null)
+
   return {
     id: launch.id,
     name: launch.name || '',
+    nameZh: launch.nameZh || undefined,
     net: launch.net || '',
+    net_precision,
     window_start: launch.window_start || '',
     window_end: launch.window_end || '',
     status: {
       id: status.id,
       name: status.name || '',
-      abbrev: status.abbrev || ''
+      abbrev: status.abbrev || '',
+      nameZh: status.nameZh || undefined
     },
     rocket: {
       configuration: {
         id: configuration.id,
         name: configuration.name || '',
+        nameZh: configuration.nameZh || undefined,
         full_name: configuration.full_name || '',
+        full_nameZh: configuration.full_nameZh || undefined,
         family: configuration.family || '',
         variant: configuration.variant || '',
         length: configuration.length,
@@ -145,16 +159,20 @@ function slimLaunch(launch) {
     },
     mission: {
       name: mission.name || '',
+      nameZh: mission.nameZh || undefined,
       type: mission.type || '',
-      description: mission.description || ''
+      description: mission.description || '',
+      descriptionZh: mission.descriptionZh || undefined
     },
     pad: {
       name: pad.name || '',
+      nameZh: pad.nameZh || undefined,
       latitude: pad.latitude,
       longitude: pad.longitude,
       location: {
         id: location.id,
         name: location.name || '',
+        nameZh: location.nameZh || undefined,
         country_code: location.country_code || ''
       }
     },
@@ -162,7 +180,13 @@ function slimLaunch(launch) {
       id: provider.id,
       name: provider.name || '',
       abbrev: provider.abbrev || '',
-      type: provider.type || ''
+      type: provider.type || '',
+      logo: provider.logo && typeof provider.logo === 'object'
+        ? {
+            image_url: provider.logo.image_url || '',
+            thumbnail_url: provider.logo.thumbnail_url || ''
+          }
+        : undefined
     },
     image: launch.image && typeof launch.image === 'object'
       ? {
@@ -694,8 +718,8 @@ async function handleMediaMap() {
     rows.forEach((item) => {
       const key = item && item.key != null ? String(item.key).trim() : ''
       const url = item && typeof item.url === 'string' ? item.url.trim() : ''
-      // 仅下发火箭配置图相关 key，避免其它 COS 素材被公众站滥用
-      if (key && url && (key.indexOf('火箭配置图/') === 0 || key.indexOf('火箭配置图') === 0)) {
+      // 仅下发火箭配置图相关 key（原图 / 机娘），避免其它 COS 素材被公众站滥用
+      if (key && url && (key.indexOf('火箭配置图/') === 0 || key.indexOf('火箭配置图-机娘/') === 0 || key.indexOf('火箭配置图') === 0)) {
         map[key] = url
       }
     })

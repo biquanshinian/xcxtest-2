@@ -40,8 +40,21 @@
   >
     
     <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
-<!-- 加载中：内容区留白，进度由导航栏下方的 page-progress 绿色进度条呈现 -->
-    <block wx:if="{{loading}}"></block>
+<!-- 加载中：骨架屏撑满一屏，分享/直达冷启动时页面立即可滑动；进度由导航栏下方的 page-progress 绿色进度条呈现 -->
+    <view class="detail-skeleton detail-skeleton--pad" wx:if="{{loading}}" aria-hidden="{{true}}">
+      <view class="skeleton-card skeleton-card--hero">
+        <view class="skeleton-hero skeleton-shimmer"></view>
+        <view class="skeleton-card-body">
+          <view class="skeleton-line skeleton-line--title skeleton-shimmer"></view>
+          <view class="skeleton-line skeleton-line--sub skeleton-shimmer"></view>
+        </view>
+      </view>
+      <view class="skeleton-card" wx:for="{{[1, 2, 3]}}" wx:key="*this">
+        <view class="skeleton-line skeleton-line--label skeleton-shimmer"></view>
+        <view class="skeleton-line skeleton-shimmer"></view>
+        <view class="skeleton-line skeleton-line--short skeleton-shimmer"></view>
+      </view>
+    </view>
 
     <view class="error-state" wx:elif="{{errorMessage}}">
       <text class="error-title">加载失败</text>
@@ -50,37 +63,39 @@
     </view>
 
     <block wx:elif="{{item}}">
-      <!-- Hero 全幅大图：原图干净展示 + 底部渐变收边（与火箭型号详情页一致），点击预览 -->
-      <view class="hero-section" bindtap="onHeroImageTap">
-        <image wx:if="{{item.imageUrl}}" class="hero-img {{heroImageLoaded ? 'hero-img--loaded' : ''}}" src="{{item.imageUrl}}" mode="aspectFill" bindload="onHeroImageLoad" binderror="onHeroImageError"></image>
-        <view class="hero-img hero-placeholder" wx:else>
-          <text class="hero-placeholder-icon"></text>
+      <!-- Hero 悬浮卡：多层毛玻璃叠层统一骨架（hero-float），点击预览 -->
+      <view class="hero-float">
+        <view class="hero-section hero-float-card" bindtap="onHeroImageTap">
+          <image wx:if="{{item.imageUrl}}" class="hero-img {{heroImageLoaded ? 'hero-img--loaded' : ''}}" src="{{item.imageUrl}}" mode="aspectFill" bindload="onHeroImageLoad" binderror="onHeroImageError"></image>
+          <view class="hero-img hero-placeholder" wx:else>
+            <text class="hero-placeholder-icon"></text>
+          </view>
+          <view class="hero-gradient"></view>
         </view>
-        <view class="hero-gradient"></view>
       </view>
 
       <!-- 信息头：logo/名称/徽标下移出头图，不再遮挡照片 -->
       <view class="info-header">
         <view class="info-main-row">
-          <view class="agency-logo-chip" wx:if="{{item.logoUrl}}">
-            <image class="agency-logo" src="{{item.logoUrl}}" mode="aspectFit"></image>
+          <view class="agency-logo-chip {{item.logoBgTone === 'dark' ? 'agency-logo-bg--dark' : ''}} {{item.logoBgTone === 'light' ? 'agency-logo-bg--light' : ''}}" wx:if="{{item.logoUrl}}">
+            <image class="agency-logo" src="{{item.logoUrl}}" mode="aspectFit" bindload="onAgencyLogoLoad"></image>
           </view>
           <view class="info-title-col">
             <text class="info-name">{{item.name}}</text>
             <text class="info-abbrev" wx:if="{{item.abbrev}}">{{item.abbrev}}</text>
           </view>
-          <view class="fav-btn {{isFavorited ? 'fav-btn--on' : ''}}" hover-class="fav-btn--pressed" hover-stay-time="120" catchtap="onToggleFavorite">
-            <text class="fav-star">{{isFavorited ? '★' : '☆'}}</text>
+          <view class="fav-btn {{isFavorited ? 'fav-btn--on' : ''}} {{favAnimate ? 'fav-btn--animate' : ''}}" hover-class="fav-btn--pressed" hover-stay-time="120" catchtap="onToggleFavorite">
+            <view class="fav-heart" aria-role="img" aria-label="收藏"></view>
           </view>
         </view>
         <view class="info-tags">
           <text class="type-badge agency-type--{{item.typeClass}}">{{item.typeName}}</text>
           <text class="featured-badge" wx:if="{{item.featured}}">重点机构</text>
-        </view>
-        <view class="info-meta">
-          <text class="meta-item">{{item.countryText || '未知地区'}}</text>
-          <text class="meta-divider" wx:if="{{item.foundingYear}}">·</text>
-          <text class="meta-item" wx:if="{{item.foundingYear}}">{{item.foundingYear}}年成立</text>
+          <view class="info-meta">
+            <text class="meta-item">{{item.countryText || '未知地区'}}</text>
+            <text class="meta-divider" wx:if="{{item.foundingYear}}">·</text>
+            <text class="meta-item" wx:if="{{item.foundingYear}}">{{item.foundingYear}}年成立</text>
+          </view>
         </view>
       </view>
 
@@ -89,9 +104,6 @@
         <text class="partial-banner__title">部分数据待补全</text>
         <text class="partial-banner__desc">{{partialMessage}}</text>
       </view>
-
-      <!-- 贴图讨论区：发射商详情；topic 取自机构名称，组件内已截断至 20 字 -->
-      <official-account-publish-panel topic="{{item.name || '发射商讨论'}}" />
 
       <!-- 事件更新（推文，仅 SpaceX / 蓝箭等映射机构展示；页内预览 2 条，更多进列表页） -->
       <view class="stats-section" wx:if="{{agencyTweetsVisible}}">
@@ -253,82 +265,11 @@
         </view>
       </view>
 
-      <!-- NASA 专属：Artemis II 实时遥测（自监控中心迁入） -->
-      <view class="stats-section" wx:if="{{artemisSectionVisible}}">
-        <view class="artemis-title-row">
-          <text class="section-title">Artemis II</text>
-          <text class="artemis-title-sub" wx:if="{{artemisMissionPhase === 'active'}}">猎户座 · 实时遥测</text>
-          <text class="artemis-title-sub" wx:elif="{{artemisMissionPhase === 'ended'}}">任务已完成</text>
-          <text class="artemis-title-sub" wx:else>即将发射</text>
-        </view>
+      <!-- NASA 专属：罗曼太空望远镜（组件与监控页共用；详情页任务结束后仍显示档案） -->
+      <monitor-roman-card wx:if="{{romanSectionVisible}}" scene="agency" />
 
-        <!-- 任务未开始 -->
-        <view class="artemis-phase-card glass-card" wx:if="{{artemisMissionPhase === 'before'}}">
-          <view class="artemis-phase-icon artemis-icon-moon-btn"></view>
-          <text class="artemis-phase-title">{{artemisMissionSummary.missionName}} 即将发射</text>
-          <text class="artemis-phase-desc">发射时间：{{artemisMissionSummary.launchTime}}</text>
-          <text class="artemis-phase-hint">发射后将自动开始实时遥测数据更新</text>
-        </view>
-
-        <!-- 任务已结束（折叠式） -->
-        <view class="artemis-ended-bar glass-card" wx:elif="{{artemisMissionPhase === 'ended'}}" bindtap="toggleArtemisEnded">
-          <view class="artemis-ended-bar-main">
-            <text class="artemis-ended-badge">任务圆满完成 ✓</text>
-            <text class="artemis-ended-name">{{artemisMissionSummary.missionName}}</text>
-          </view>
-          <text class="artemis-ended-arrow {{artemisEndedExpanded ? 'artemis-ended-arrow--up' : ''}}">›</text>
-        </view>
-        <view class="artemis-phase-card glass-card artemis-phase-card--ended" wx:if="{{artemisMissionPhase === 'ended' && artemisEndedExpanded}}">
-          <view class="artemis-phase-summary">
-            <view class="artemis-phase-row">
-              <text class="artemis-phase-row-label">发射时间</text>
-              <text class="artemis-phase-row-val">{{artemisMissionSummary.launchTime}}</text>
-            </view>
-            <view class="artemis-phase-row">
-              <text class="artemis-phase-row-label">返回时间</text>
-              <text class="artemis-phase-row-val">{{artemisMissionSummary.endTime}}</text>
-            </view>
-            <view class="artemis-phase-row" wx:if="{{artemisMissionSummary.duration}}">
-              <text class="artemis-phase-row-label">任务总时长</text>
-              <text class="artemis-phase-row-val">{{artemisMissionSummary.duration}}</text>
-            </view>
-          </view>
-          <text class="artemis-phase-hint">下次任务开始后将自动恢复实时数据</text>
-        </view>
-
-        <!-- 任务进行中：自动加载遥测 -->
-        <block wx:elif="{{artemisMissionPhase === 'active'}}">
-          <view class="artemis-loading glass-card" wx:if="{{artemisLoading}}">
-            <text class="artemis-loading-text">正在获取遥测数据...</text>
-          </view>
-          <view class="artemis-error glass-card" wx:elif="{{artemisError}}">
-            <text class="artemis-error-text">{{artemisError}}</text>
-            <view class="artemis-retry-btn" bindtap="retryArtemisBriefing">重试</view>
-          </view>
-
-          <!-- 简要卡片：点击跳转详情页 -->
-          <view class="artemis-brief-card glass-card {{isProUser ? 'pro-gold-frame' : ''}}" wx:else bindtap="goArtemisDetail">
-            <view class="artemis-brief-top">
-              <text class="artemis-brief-met">{{artemisMet}}</text>
-              <text class="artemis-brief-met-hint">MET 天:时:分:秒</text>
-            </view>
-            <view class="artemis-brief-stats">
-              <view class="artemis-brief-stat">
-                <text class="artemis-brief-stat-val">{{artemisVelocityKmh}}</text>
-                <text class="artemis-brief-stat-unit">km/h 速率</text>
-              </view>
-              <view class="artemis-brief-stat">
-                <text class="artemis-brief-stat-val">{{artemisDistEarthKm}}</text>
-                <text class="artemis-brief-stat-unit">km 距地球</text>
-              </view>
-            </view>
-            <view class="artemis-brief-footer">
-              <text class="artemis-brief-hint">点击查看完整遥测仪表盘</text>
-              <text class="artemis-brief-arrow">›</text>
-            </view>
-          </view>
-        </block>
-      </view>
+      <!-- NASA 专属：Artemis II 实时遥测（组件与 NASA 数据中心月球探索 Tab 共用） -->
+      <monitor-artemis-card wx:if="{{artemisSectionVisible}}" scene="agency" />
 
       <!-- SpaceX 专属：回收方式统计（自监控中心迁入） -->
       <view class="stats-section" wx:if="{{spacexRecovery}}">
@@ -444,7 +385,8 @@
       <view class="info-section glass-card">
         <text class="section-title">机构信息</text>
         <view class="info-grid">
-          <view class="info-row"><text class="info-label">全称</text><text class="info-value">{{item.nameEn}}</text></view>
+          <view class="info-row"><text class="info-label">全称</text><text class="info-value">{{item.name}}</text></view>
+          <view class="info-row" wx:if="{{item.nameEn && item.nameEn !== item.name}}"><text class="info-label">英文名</text><text class="info-value">{{item.nameEn}}</text></view>
           <view class="info-row" wx:if="{{item.abbrev}}"><text class="info-label">缩写</text><text class="info-value">{{item.abbrev}}</text></view>
           <view class="info-row"><text class="info-label">类型</text><text class="info-value">{{item.typeName}}</text></view>
           <view class="info-row"><text class="info-label">国家/地区</text><text class="info-value">{{item.countryText || '未知'}}</text></view>
@@ -487,24 +429,20 @@
         </view>
       </view>
 
-      <!-- 社交媒体 -->
+      <!-- 社交媒体：一排最多 6 个 logo，点击复制链接；不足/换行均居中 -->
       <view class="social-section glass-card" wx:if="{{item.socialLinks && item.socialLinks.length}}">
         <text class="section-title">社交媒体与链接</text>
         <view class="social-grid">
-          <view class="social-item" wx:for="{{item.socialLinks}}" wx:key="id" bindtap="copyLink" data-url="{{item.url}}">
-            <text class="social-name">{{item.name}}</text>
-            <text class="social-url" user-select="{{true}}">{{item.url}}</text>
-          </view>
-          <view class="social-item" wx:if="{{item.infoUrl}}" bindtap="copyLink" data-url="{{item.infoUrl}}">
-            <text class="social-name">官方网站</text>
-            <text class="social-url" user-select="{{true}}">{{item.infoUrl}}</text>
-          </view>
-          <view class="social-item" wx:if="{{item.wikiUrl}}" bindtap="copyLink" data-url="{{item.wikiUrl}}">
-            <text class="social-name">维基百科</text>
-            <text class="social-url" user-select="{{true}}">{{item.wikiUrl}}</text>
+          <view class="social-item" wx:for="{{item.socialLinks}}" wx:key="id"
+                hover-class="social-item--pressed" hover-stay-time="80"
+                bindtap="copyLink" data-url="{{item.url}}" data-name="{{item.name}}">
+            <image class="social-logo" src="{{item.icon}}" mode="aspectFit" />
           </view>
         </view>
       </view>
+
+      <!-- 贴图讨论区：发射商详情最底部；topic 取自机构名称，组件内已截断至 20 字 -->
+      <official-account-publish-panel topic="{{item.name || '发射商讨论'}}" />
 
       <view style="height: {{tabBarReservedHeight}}px;"></view>
       </view>

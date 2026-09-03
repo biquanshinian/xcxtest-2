@@ -1,12 +1,14 @@
 /* booster-detail.wxss */
+@import "./styles/fav-btn.wxss";
+
 page {
-  background: #000;
+  background: #0B0C0E;
   color: #fff;
 }
 
 .container {
   min-height: 100vh;
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: var(--color-bg-page);
 }
 
 
@@ -33,9 +35,9 @@ page {
 }
 .error-btn {
   font-size: 28rpx;
-  color: #007AFF;
+  color: var(--color-brand);
   padding: 12rpx 40rpx;
-  border: 1px solid rgba(0, 122, 255, 0.3);
+  border: 1px solid rgba(59, 130, 246, 0.3);
   border-radius: 999rpx;
 }
 
@@ -69,7 +71,7 @@ page {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.08), rgba(255, 255, 255, 0.02) 72%);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.08), rgba(255, 255, 255, 0.02) 72%);
 }
 .hero-placeholder-icon {
   font-size: 96rpx;
@@ -80,7 +82,7 @@ page {
   left: 0;
   right: 0;
   height: 160rpx;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
+  background: linear-gradient(transparent, rgba(11, 12, 14, 0.88));
 }
 .hero-credit-btn {
   position: absolute;
@@ -88,8 +90,8 @@ page {
   right: 16rpx;
   padding: 6rpx 18rpx;
   border-radius: 999rpx;
-  background: linear-gradient(135deg, rgba(0, 122, 255, 0.2), rgba(88, 86, 214, 0.2));
-  border: 1px solid rgba(0, 122, 255, 0.3);
+  background: var(--color-brand-soft);
+  border: 1px solid rgba(59, 130, 246, 0.3);
   backdrop-filter: blur(10rpx);
   -webkit-backdrop-filter: blur(10rpx);
   display: flex;
@@ -98,7 +100,7 @@ page {
 }
 .hero-credit-text {
   font-size: 20rpx;
-  color: #007AFF;
+  color: var(--color-brand);
   font-weight: 500;
 }
 .hero-status {
@@ -121,13 +123,21 @@ page {
 
 /* 基本信息头 */
 .info-header {
-  padding: 24rpx 30rpx 0;
+  padding: var(--space-lg) var(--space-lg) 0;
+}
+.info-serial-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-bottom: 4rpx;
 }
 .info-serial {
+  flex: 1;
+  min-width: 0;
   font-size: 48rpx;
   font-weight: 800;
   color: #fff;
-  display: block;
+  line-height: 1.2;
 }
 .info-tags {
   display: flex;
@@ -147,14 +157,14 @@ page {
   border: 1px solid rgba(255, 149, 0, 0.3);
 }
 .info-tag--mfr {
-  color: #5AC8FA;
-  background: rgba(90, 200, 250, 0.15);
-  border: 1px solid rgba(90, 200, 250, 0.3);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
 }
 /* 发射商跳转按钮：胶囊蓝色渐变，全局统一（同首页倒计时 info-jump-btn） */
 .info-tag--link {
   color: #ffffff;
-  background: linear-gradient(135deg, #007AFF, #5856D6);
+  background: var(--color-brand);
   border: none;
   border-radius: 999rpx;
   padding: 5rpx 17rpx 5rpx 19rpx;
@@ -169,10 +179,14 @@ page {
   margin-left: 2rpx;
   line-height: 1;
 }
+/* 型号标签可点态：链接观感与发射商标签一致，但保留橙色系型号身份 */
+.info-tag--family.info-tag--link {
+  background: linear-gradient(135deg, #FF9500, #FF6B00);
+}
 .info-tag--block {
-  color: #AF52DE;
-  background: rgba(175, 82, 222, 0.15);
-  border: 1px solid rgba(175, 82, 222, 0.3);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
 /* 描述 */
@@ -211,7 +225,6 @@ page {
   padding: 24rpx 16rpx;
   border-radius: 16rpx;
   background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 .stats-card-value {
   font-size: 44rpx;
@@ -231,7 +244,6 @@ page {
   padding: 24rpx;
   border-radius: 16rpx;
   background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 .section-label {
   font-size: 28rpx;
@@ -265,39 +277,90 @@ page {
   margin-top: 4rpx;
 }
 
-/* 时间线 */
+/* 服役时间线：首尾航迹 + 两列指标（对齐型号档案规格网格） */
 .timeline-section {
   margin: 0 30rpx 16rpx;
   padding: 24rpx;
   border-radius: 16rpx;
   background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-sizing: border-box;
 }
-.timeline-grid {
+.timeline-span {
   display: flex;
-  flex-wrap: wrap;
-  gap: 16rpx;
+  align-items: center;
+  gap: 12rpx;
+  padding: 18rpx 20rpx;
+  margin-bottom: 14rpx;
+  border-radius: 12rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-sizing: border-box;
 }
-.timeline-item {
-  flex: 0 0 calc(50% - 8rpx);
+.timeline-span-end {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  padding: 12rpx 16rpx;
+  gap: 4rpx;
+}
+.timeline-span-end--right {
+  align-items: flex-end;
+  text-align: right;
+}
+.timeline-span-track {
+  flex: 0 0 72rpx;
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  padding: 0 4rpx;
+}
+.timeline-span-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: var(--color-brand);
+  flex-shrink: 0;
+}
+.timeline-span-line {
+  flex: 1;
+  height: 3rpx;
+  border-radius: 2rpx;
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.85), rgba(59, 130, 246, 0.25));
+}
+.timeline-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14rpx;
+}
+.timeline-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4rpx;
+  min-width: 0;
+  padding: 14rpx 18rpx;
   background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10rpx;
+  box-sizing: border-box;
+}
+.timeline-item--full {
+  grid-column: 1 / -1;
 }
 .timeline-label {
   font-size: 20rpx;
   color: rgba(255, 255, 255, 0.4);
 }
 .timeline-value {
-  font-size: 26rpx;
+  font-size: 28rpx;
   font-weight: 600;
   color: #fff;
-  margin-top: 4rpx;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
 }
 .turnaround-value {
-  color: #5AC8FA;
+  color: var(--color-brand);
 }
 
 /* 飞行记录条 */
@@ -474,7 +537,7 @@ page {
 }
 /* Hero 无图占位：深色径向渐变 → 浅灰 */
 .theme-light .hero-placeholder {
-  background: radial-gradient(circle at center, rgba(0, 122, 255, 0.08), rgba(0, 0, 0, 0.03) 72%);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.08), rgba(0, 0, 0, 0.03) 72%);
 }
 /* hero-gradient / hero-status / hero-credit-btn 压在照片上，保持深色浮层 */
 .theme-light .info-serial {
@@ -488,8 +551,6 @@ page {
 }
 .theme-light .stats-card {
   background: var(--color-bg-card);
-  border: 1px solid var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 .theme-light .stats-card-value {
   color: var(--color-text-primary);
@@ -502,8 +563,6 @@ page {
 .theme-light .flight-bar-section,
 .theme-light .history-section {
   background: var(--color-bg-card);
-  border: 1px solid var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 .theme-light .section-label {
   color: var(--color-text-primary);
@@ -517,8 +576,10 @@ page {
 .theme-light .landing-label {
   color: var(--color-text-tertiary);
 }
+.theme-light .timeline-span,
 .theme-light .timeline-item {
   background: rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--color-divider);
 }
 .theme-light .timeline-label {
   color: var(--color-text-tertiary);
@@ -526,8 +587,14 @@ page {
 .theme-light .timeline-value {
   color: var(--color-text-primary);
 }
+.theme-light .timeline-span-dot {
+  background: var(--color-brand);
+}
+.theme-light .timeline-span-line {
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.7), rgba(59, 130, 246, 0.2));
+}
 .theme-light .turnaround-value {
-  color: #0A84FF;
+  color: var(--color-brand);
 }
 /* 飞行方块：半透明状态底降透明度，数字用深色文字 */
 .theme-light .flight-success {

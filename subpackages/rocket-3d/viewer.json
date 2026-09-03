@@ -1,0 +1,15 @@
+{
+  "navigationBarTitleText": "火箭 3D 模型",
+  "navigationStyle": "custom",
+  "backgroundTextStyle": "dark",
+  "backgroundColor": "#000000",
+  "backgroundColorTop": "#000000",
+  "backgroundColorBottom": "#000000",
+  "usingComponents": {
+    "rocket-3d-viewer": "./components/rocket-3d-viewer/index",
+    "share-gate-countdown": "/subpackages/shared/components/share-gate-countdown/index"
+  },
+  "componentPlaceholder": {
+    "share-gate-countdown": "view"
+  }
+}

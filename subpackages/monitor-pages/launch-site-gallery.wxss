@@ -1,21 +1,21 @@
 /* launch-site-gallery.wxss — 独立全屏全球发射场分布页（暗色毛玻璃，骨架镜像飞船图鉴页） */
-page {
-  background: #000;
+@import "./styles/gallery-toolbar.wxss";page {
+  background: #0B0C0E;
   color: #fff;
 }
 .container {
   min-height: 100vh;
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: var(--color-bg-page);
 }
 .page-scroll {
   width: 100%;
   height: 100vh;
 }
 .glass-card {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(20rpx);
-  -webkit-backdrop-filter: blur(20rpx);
+  background: var(--bg-glass);
+  border-radius: var(--radius-card);
+  backdrop-filter: var(--blur-card);
+  -webkit-backdrop-filter: var(--blur-card);
 }
 
 /* 加载 / 错误 / 空态 */
@@ -49,9 +49,9 @@ page {
 }
 .error-btn {
   font-size: 28rpx;
-  color: #007AFF;
+  color: var(--color-brand);
   padding: 12rpx 40rpx;
-  border: 1px solid rgba(0, 122, 255, 0.3);
+  border: 1px solid rgba(59, 130, 246, 0.3);
   border-radius: 999rpx;
   margin-top: 18rpx;
 }
@@ -65,11 +65,11 @@ page {
   display: flex;
   flex-wrap: wrap;
   gap: 12rpx;
-  padding: 0 30rpx;
+  padding: 0 var(--space-lg);
 }
 .filter-chip {
   flex-shrink: 0;
-  padding: 12rpx 30rpx;
+  padding: var(--space-xs) var(--space-lg);
   border-radius: 999rpx;
   font-size: 26rpx;
   color: rgba(255, 255, 255, 0.65);
@@ -80,8 +80,8 @@ page {
 .filter-chip--active {
   color: #fff;
   font-weight: 600;
-  background: linear-gradient(135deg, rgba(0, 122, 255, 0.35), rgba(88, 86, 214, 0.35));
-  border-color: rgba(0, 122, 255, 0.55);
+  background: var(--color-brand-soft);
+  border-color: rgba(59, 130, 246, 0.55);
 }
 
 /* 搜索框 */
@@ -131,7 +131,7 @@ page {
 .summary-bar {
   display: flex;
   justify-content: space-around;
-  margin: 16rpx 30rpx 12rpx;
+  margin: 16rpx var(--space-lg, 36rpx) 12rpx;
   padding: 24rpx;
   border-radius: 20rpx;
 }
@@ -160,7 +160,7 @@ page {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 20rpx;
-  padding: 0 30rpx;
+  padding: 0 var(--space-lg);
 }
 .lsg-card {
   border-radius: 20rpx;
@@ -175,11 +175,7 @@ page {
 .lsg-img {
   width: 100%;
   height: 100%;
-  opacity: 0;
-  transition: opacity 0.35s ease;
-}
-.lsg-img--loaded {
-  opacity: 1;
+  display: block;
 }
 .lsg-img--placeholder {
   opacity: 1;
@@ -217,7 +213,7 @@ page {
   display: flex;
   flex-direction: column;
   gap: 4rpx;
-  padding: 16rpx 20rpx 20rpx;
+  padding: var(--space-sm) var(--space-md) var(--space-md);
 }
 .lsg-name {
   font-size: 28rpx;
@@ -241,9 +237,9 @@ page {
   padding: 4rpx 14rpx;
   border-radius: 999rpx;
   font-size: 20rpx;
-  color: #5AC8FA;
-  background: rgba(90, 200, 250, 0.12);
-  border: 1px solid rgba(90, 200, 250, 0.25);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.25);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -259,8 +255,6 @@ page {
 }
 .theme-light .glass-card {
   background: var(--color-bg-card);
-  border: 1px solid var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 .theme-light .loading-text {
   color: var(--color-text-tertiary);
@@ -280,8 +274,8 @@ page {
 /* 激活 chip 保持蓝色渐变白字（实色按钮语义） */
 .theme-light .filter-chip--active {
   color: #fff;
-  background: linear-gradient(135deg, #007AFF, #5856D6);
-  border-color: rgba(0, 122, 255, 0.55);
+  background: linear-gradient(135deg, var(--color-brand), #60A5FA);
+  border-color: rgba(59, 130, 246, 0.55);
 }
 /* 搜索框：外壳走 .theme-light .glass-card（细灰边 + var(--shadow-card)），此处只调文字与按钮衬底 */
 .theme-light .lsg-search {
@@ -324,6 +318,6 @@ page {
 }
 .theme-light .lsg-country {
   color: #0071A4;
-  background: rgba(0, 122, 255, 0.08);
-  border: 1px solid rgba(0, 122, 255, 0.2);
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.2);
 }

@@ -4,7 +4,34 @@
 const cloud = require('wx-server-sdk')
 const COS = require('cos-nodejs-sdk-v5')
 const voteRoundsFromUpdates = require('./vote-rounds-from-updates.js')
+const outcomeVoteSettle = require('./outcome-vote-settle.js')
 const { enrichApiDataForTranslation, enrichSingleLaunch, enrichEventsList } = require('./ll2-translate-enrich.js')
+const { translateAgencyName, isAgencyNameResolved } = require('./agency-name-i18n.js')
+const { translateRocketName } = require('./rocket-name-i18n.js')
+const { translateSpacecraftName, translateSpacecraftType, translateAgencyType, translateCountryName } = require('./space-terms-i18n.js')
+
+function resolveAgencyNameZh(name, abbrev, existing) {
+  if (existing && /[\u4e00-\u9fff]/.test(String(existing))) return String(existing).trim()
+  if (!isAgencyNameResolved(name, abbrev)) return ''
+  return translateAgencyName(name, abbrev) || ''
+}
+
+function slimAgencyType(type) {
+  if (!type || typeof type !== 'object') return type || null
+  return Object.assign({}, type, {
+    nameZh: type.nameZh || translateAgencyType(type.name) || ''
+  })
+}
+
+function slimAgencyCountries(list) {
+  if (!Array.isArray(list)) return []
+  return list.map((c) => {
+    if (!c || typeof c !== 'object') return c
+    return Object.assign({}, c, {
+      nameZh: c.nameZh || translateCountryName(c.name) || ''
+    })
+  })
+}
 const { slimLaunchUpdates, splitLaunchUpdatesIntoTimelineCache } = require('./split-launch-updates-cache.js')
 
 cloud.init({
@@ -22,9 +49,8 @@ const PAYLOAD_API_BASE = 'https://ll.thespacedevs.com/2.3.0'
 // 之前写成了 /v4/articles，再叠加 url='/articles/' 会变成 /v4/articles/articles/，导致同步失败
 const SPACEFLIGHT_NEWS_API = 'https://api.spaceflightnewsapi.net/v4'
 
-// 缓存有效期：3.5小时（云数据库存储时间）
-// 云函数每3小时执行1次，缓存有效期设置为3.5小时，确保在同步间隔期间数据仍然可用
-// 同时避免数据过期时间过长导致数据不够新鲜
+// 缓存有效期：3.5小时（云数据库存储时间，非核心端点默认值）
+// 全量同步定时器为每 6 小时；核心列表/资讯源另有 48h 保底 TTL，避免间隙空白
 const CACHE_DURATION = 3.5 * 60 * 60 * 1000 // 3.5小时（210分钟）
 
 // 核心发射列表（/launches/upcoming/、/launches/previous/ 的主文档 + 批次文档）保底 TTL：
@@ -33,6 +59,25 @@ const CACHE_DURATION = 3.5 * 60 * 60 * 1000 // 3.5小时（210分钟）
 // 客户端 cache_miss → 整页「数据暂不可用」）。48 小时内同步只要成功一次即被覆盖刷新。
 const CORE_LAUNCH_LIST_CACHE_DURATION = 48 * 60 * 60 * 1000 // 48 小时
 
+// 空间站 / 对接 / 远征：同步周期 6h，给 48h 保底 TTL，避免一两轮 LL2 限流后被清理导致详情页空白
+const STATION_RELATED_CACHE_DURATION = 48 * 60 * 60 * 1000
+
+// 资讯页数据源（events/upcoming、updates、articles）：同步周期 6h，默认 3.5h TTL
+// 会在两次同步之间过期，客户端严格拒过期 →「即将发生」整页空白。
+// 与发射列表同级给 48h 保底；同步成功即覆盖刷新。
+const NEWS_FEED_CACHE_DURATION = 48 * 60 * 60 * 1000 // 48 小时
+
+// 机构列表/详情（/agencies/ 及 /agencies/{id}/）：列表每日重写；详情由自愈同步分层刷新
+// （featured 26h / 非 featured 10d），重写间隔远超默认 3.5h TTL。给 30 天保底 TTL 并在
+// cleanExpiredCache 里豁免，确保两次自愈之间文档绝不被物理删除——
+// 删除会让详情页退回「部分数据待补全」横幅，且自愈重拉白耗 LL2 配额
+const AGENCY_CACHE_DURATION = 30 * 24 * 60 * 60 * 1000
+
+/** 是否机构缓存 key（列表 api_cache_/agencies/_… 与详情 api_cache_/agencies/{id}/_… 均命中） */
+function isAgencyCacheKey(cacheKey) {
+  return typeof cacheKey === 'string' && cacheKey.indexOf('api_cache_/agencies/') === 0
+}
+
 /** 是否核心发射列表缓存 key（含其 _batch_N 批次文档） */
 function isCoreLaunchListKey(cacheKey) {
   return typeof cacheKey === 'string' &&
@@ -40,14 +85,28 @@ function isCoreLaunchListKey(cacheKey) {
      cacheKey.indexOf('api_cache_/launches/previous/') === 0)
 }
 
+function isStationRelatedKey(cacheKey) {
+  return typeof cacheKey === 'string' && (
+    cacheKey.indexOf('api_cache_/space_stations/') === 0 ||
+    cacheKey.indexOf('api_cache_/docking_events/') === 0 ||
+    cacheKey.indexOf('api_cache_/expeditions/') === 0
+  )
+}
+
+/** 是否资讯页列表缓存（即将发生 / 航天事件文章 / updates） */
+function isNewsFeedCacheKey(cacheKey) {
+  return typeof cacheKey === 'string' && (
+    cacheKey.indexOf('api_cache_/events/upcoming/') === 0 ||
+    cacheKey.indexOf('api_cache_/updates/') === 0 ||
+    cacheKey.indexOf('api_cache_/articles/') === 0
+  )
+}
+
 const CLOUD_FILE_PREFIX = 'cloud://cloud1-9gdqgdt5bfaa20fb.636c-cloud1-9gdqgdt5bfaa20fb-1397421562/'
 const CLOUD_CDN_BASE = 'https://636c-cloud1-9gdqgdt5bfaa20fb-1397421562.tcb.qcloud.la/'
+// 历史目录名修正（灵感流功能已下线，仅 normalizeInspirationPath 修复旧路径时还用到）
 const INSPIRATION_OLD_DIR = '灵感流照片片集'
 const INSPIRATION_DIR = '灵感流照片集'
-const INSPIRATION_MIN_RENDER_COUNT = 12
-const INSPIRATION_SOURCE_TAG = 'inspiration'
-const INSPIRATION_ALLOWED_IMAGE_EXT = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'])
-const INSPIRATION_ALLOWED_VIDEO_EXT = new Set(['mp4', 'mov', 'm4v', 'webm'])
 const DEFAULT_COS_REGION = process.env.COS_REGION || 'ap-shanghai'
 
 const INSPIRATION_COS_BUCKET = 'mars-1397421562'
@@ -119,12 +178,21 @@ async function fetchAPI(url) {
       })
       
       res.on('end', () => {
+        // LL2 请求记入跨函数小时配额账本（软预算；429 同样消耗一次尝试）
+        try {
+          if (/thespacedevs\.com$/i.test(urlObj.hostname)) {
+            require('./ll2-budget.js').recordLl2Request(db, 'syncSpaceDevsData_legacy').catch(() => {})
+          }
+        } catch (eBudget) {}
         try {
           if (res.statusCode === 200) {
             const jsonData = JSON.parse(data)
             resolve(jsonData)
           } else {
-            reject(new Error(`HTTP ${res.statusCode}: ${data}`))
+            const httpErr = new Error(`HTTP ${res.statusCode}: ${data}`)
+            httpErr.statusCode = res.statusCode
+            if (res.statusCode === 429) httpErr.code = 'LL2_RATE_LIMIT'
+            reject(httpErr)
           }
         } catch (error) {
           reject(new Error(`解析响应失败: ${error.message}`))
@@ -163,6 +231,7 @@ function slimOrbit(orbit) {
   return {
     id: orbit.id != null ? orbit.id : null,
     name: orbit.name != null ? orbit.name : null,
+    nameZh: orbit.nameZh || undefined,
     abbrev: abbrevFlat != null ? abbrevFlat : null,
     perigee: orbit.perigee != null ? orbit.perigee : null,
     apogee: orbit.apogee != null ? orbit.apogee : null
@@ -335,28 +404,75 @@ function slimLaunch(launch) {
     if (rows.length > 0) payloads_slim = rows
   }
 
+  // net_precision：首页倒计时精度门控依赖；缺失时前端会误把 Day/Month 占位 NET 当成秒级倒数
+  const netPrecisionRaw = launch.net_precision
+  const net_precision = netPrecisionRaw && typeof netPrecisionRaw === 'object'
+    ? {
+        id: netPrecisionRaw.id,
+        name: netPrecisionRaw.name || null,
+        abbrev: netPrecisionRaw.abbrev || null
+      }
+    : (netPrecisionRaw || null)
+
+  // 中英展示字段：enrich 写在 slim 之后；旁路再 slim / 迟滞合并时也要带上，避免丢 nameZh
+  const statusSlim = status
+    ? {
+        id: status.id,
+        name: status.name,
+        abbrev: status.abbrev,
+        nameZh: status.nameZh || undefined
+      }
+    : null
+  const missionSlim = mission
+    ? {
+        name: mission.name,
+        nameZh: mission.nameZh || undefined,
+        description: mission.description,
+        descriptionZh: mission.descriptionZh || undefined,
+        type: slimMissionType(mission.type),
+        orbit: mission.orbit ? slimOrbit(mission.orbit) : null,
+        payloads: payloads_slim || undefined
+      }
+    : null
+
   return {
     id: launch.id,
     url: launch.url,
     name: launch.name,
+    nameZh: launch.nameZh || undefined,
     net: launch.net,
+    net_precision,
     window_start: launch.window_start,
     window_end: launch.window_end,
-    status: status ? { id: status.id, name: status.name, abbrev: status.abbrev } : null,
+    status: statusSlim,
     probability: launch.probability,
     weather_concerns: launch.weather_concerns,
-    mission: mission ? {
-      name: mission.name,
-      description: mission.description,
-      type: slimMissionType(mission.type),
-      orbit: mission.orbit ? slimOrbit(mission.orbit) : null,
-      payloads: payloads_slim || undefined
-    } : null,
+    mission: missionSlim,
     payload_flights: payload_flights_slim || undefined,
-    launch_service_provider: provider ? { id: provider.id, name: provider.name, abbrev: provider.abbrev, country_code: provider.country_code || slimCountryCode(provider.country) || null } : null,
+    launch_service_provider: provider ? {
+      id: provider.id,
+      name: provider.name,
+      abbrev: provider.abbrev,
+      country_code: provider.country_code || slimCountryCode(provider.country) || null,
+      logo: provider.logo && typeof provider.logo === 'object'
+        ? {
+            image_url: provider.logo.image_url || '',
+            thumbnail_url: provider.logo.thumbnail_url || ''
+          }
+        : undefined
+    } : null,
     rocket: rocketCfg ? {
       // reusable：LL2 构型级可复用标记（长十乙网系回收等中国火箭无 stage 级着陆数据，靠它判定「可回收」）——_v5 起保留
-      configuration: { id: rocketCfg.id, name: rocketCfg.name, full_name: rocketCfg.full_name, family: rocketCfg.family, variant: rocketCfg.variant, reusable: rocketCfg.reusable === true || undefined },
+      configuration: {
+        id: rocketCfg.id,
+        name: rocketCfg.name,
+        nameZh: rocketCfg.nameZh || undefined,
+        full_name: rocketCfg.full_name,
+        full_nameZh: rocketCfg.full_nameZh || undefined,
+        family: rocketCfg.family,
+        variant: rocketCfg.variant,
+        reusable: rocketCfg.reusable === true || undefined
+      },
       launcher_stage,
       spacecraft_stage
     } : (launch.rocket && launch.rocket.configuration
@@ -365,8 +481,19 @@ function slimLaunch(launch) {
     pad: launch.pad ? {
       id: launch.pad.id,
       name: launch.pad.name,
+      nameZh: launch.pad.nameZh || undefined,
+      // 保留坐标：发射通告地图等依赖 pad.lat/lon；缺失时只能靠名称表回填
+      latitude: launch.pad.latitude != null ? Number(launch.pad.latitude) : null,
+      longitude: launch.pad.longitude != null ? Number(launch.pad.longitude) : null,
       country_code: padCountryCode,
-      location: padLoc ? { id: padLoc.id, name: padLoc.name, country_code: slimCountryCode(padLoc.country) || slimCountryCode(padLoc.country_code) || padCountryCode || null } : null
+      location: padLoc
+        ? {
+            id: padLoc.id,
+            name: padLoc.name,
+            nameZh: padLoc.nameZh || undefined,
+            country_code: slimCountryCode(padLoc.country) || slimCountryCode(padLoc.country_code) || padCountryCode || null
+          }
+        : null
     } : null,
     webcast_live: launch.webcast_live,
     infographic: launch.infographic,
@@ -378,68 +505,71 @@ function slimLaunch(launch) {
 // === END slimLaunch ====================================================================
 
 /**
- * 清理指定 key 上一代残留的批次文档（_batch_N，N >= fromIndex）。
- * 只在新数据成功写入后调用；逐个删除直到遇到第一个不存在的文档。
- * 删除失败静默忽略，不影响主流程。
+ * 清理指定 key 上一代残留的批次文档。
+ * keepKeys 为本轮应保留的分片；未传时按 fromIndex 扫描经典 _batch_N（兼容旧调用）。
  */
-async function removeOrphanBatchDocs(cacheKey, fromIndex) {
-  const MAX_SCAN = 30 // 防御性上限
-  for (let i = fromIndex; i < fromIndex + MAX_SCAN; i++) {
-    try {
-      const res = await db.collection('space_devs_cache').doc(`${cacheKey}_batch_${i}`).remove()
-      const removed = res && res.stats ? res.stats.removed : 0
-      if (!removed) break
-    } catch (e) {
-      break // 文档不存在或删除失败：停止扫描
-    }
+async function removeOrphanBatchDocs(cacheKey, fromIndexOrKeepKeys, extraCandidates) {
+  const { removeOrphanBatchDocs: removeOrphans } = require('./cache-write-guard.js')
+  if (Array.isArray(fromIndexOrKeepKeys)) {
+    await removeOrphans(db, cacheKey, fromIndexOrKeepKeys, extraCandidates)
+    return
   }
+  const fromIndex = typeof fromIndexOrKeepKeys === 'number' ? fromIndexOrKeepKeys : 0
+  const keep = []
+  for (let i = 0; i < fromIndex; i++) keep.push(`${cacheKey}_batch_${i}`)
+  await removeOrphans(db, cacheKey, keep, extraCandidates)
 }
 
 /**
  * 保存数据到云数据库（带重试）
+ * 加固：slim 发射列表先剥 updates 优先单文档；分片须全部写齐并回读校验后才切换主文档。
  */
 async function saveToCloudDB(cacheKey, apiData, retryCount = 0) {
   const MAX_RETRIES = 3
   const SAVE_TIMEOUT = 10000 // 增加到10秒，确保大数据也能保存
+  const {
+    verifyBatchedCache,
+    makeGenerationBatchKey,
+    readExistingBatchKeys
+  } = require('./cache-write-guard.js')
   
   try {
     // 验证数据完整性
     if (!apiData) {
       throw new Error('API数据为空')
     }
+
+    // updates 剥离在 syncAPIEndpoint（split 成功后）完成；此处不再无条件 strip，避免 split 失败丢冷路径
+    const payload = apiData
     
     const now = Date.now()
-    // 核心发射列表用 48h 保底 TTL，其余端点维持 3.5h
-    const cacheTtl = isCoreLaunchListKey(cacheKey) ? CORE_LAUNCH_LIST_CACHE_DURATION : CACHE_DURATION
+    // 核心发射 / 空间站 / 资讯列表 48h 保底；机构 30d；其余端点维持 3.5h
+    const cacheTtl = isCoreLaunchListKey(cacheKey)
+      ? CORE_LAUNCH_LIST_CACHE_DURATION
+      : (isStationRelatedKey(cacheKey)
+        ? STATION_RELATED_CACHE_DURATION
+        : (isNewsFeedCacheKey(cacheKey)
+          ? NEWS_FEED_CACHE_DURATION
+          : (isAgencyCacheKey(cacheKey) ? AGENCY_CACHE_DURATION : CACHE_DURATION)))
     
     // 检查数据大小（按字节），如果超过1MB，需要分批保存
-    const dataSize = Buffer.byteLength(JSON.stringify(apiData), 'utf8')
-    
-    // 如果数据包含results数组，验证数组长度
-    if (apiData.results && Array.isArray(apiData.results)) {
-      const resultsCount = apiData.results.length
-      
-      // 如果预期应该有更多数据，记录警告
-      if (resultsCount === 0) {
-      }
-      
-      // 如果数据大小接近1MB限制，记录警告
-      if (dataSize > 1024 * 1024 * 0.8) {
-      }
-    }
+    const dataSize = Buffer.byteLength(JSON.stringify(payload), 'utf8')
     const MAX_DOC_SIZE = 1024 * 1024 * 0.8 // 约 800KB，留足余量避免 BSON/索引等开销导致超过 1MB
     
-    if (dataSize > MAX_DOC_SIZE && apiData.results && Array.isArray(apiData.results)) {
+    if (dataSize > MAX_DOC_SIZE && payload.results && Array.isArray(payload.results)) {
 
-      const results = apiData.results
+      const results = payload.results
+      const prevBatchKeys = await readExistingBatchKeys(db, cacheKey)
 
       const batchKeys = []
       let currentBatch = []
       let batchIndex = 0
+      // 一代一写：新 key 写齐并校验后再切主文档，避免原地覆盖造成新旧拼接窗口
+      const writeId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 
       // 估算“除 results 外的固定部分”大小，避免每次都 stringify 全量
       const baseWithoutResults = {
-        ...apiData,
+        ...payload,
         results: [],
         count: results.length,
         isBatch: true
@@ -449,9 +579,9 @@ async function saveToCloudDB(cacheKey, apiData, retryCount = 0) {
       const flushBatch = async () => {
         if (currentBatch.length === 0) return
 
-        const batchCacheKey = `${cacheKey}_batch_${batchIndex}`
+        const batchCacheKey = makeGenerationBatchKey(cacheKey, batchIndex, writeId)
         const batchApiData = {
-          ...apiData,
+          ...payload,
           results: currentBatch,
           count: results.length,
           batchIndex: batchIndex,
@@ -502,6 +632,16 @@ async function saveToCloudDB(cacheKey, apiData, retryCount = 0) {
 
       await flushBatch()
 
+      // 分片全部写完后回读校验：失败则不切换主文档，保留上一代可读缓存
+      const verified = await verifyBatchedCache(db, cacheKey, results.length, batchKeys)
+      if (!verified.ok) {
+        throw new Error(
+          `batched cache verify failed: ${verified.reason}` +
+            (verified.missingKey ? ` missing=${verified.missingKey}` : '') +
+            ` merged=${verified.mergedCount}/${verified.expectedCount}`
+        )
+      }
+
       // 保存主文档（包含元数据，指向批次数据）
       const mainCacheData = {
         data: {
@@ -527,9 +667,18 @@ async function saveToCloudDB(cacheKey, apiData, retryCount = 0) {
         )
       ])
 
-      // 新数据已成功落库：此时才清理上一代多余的批次文档（批次数变少时的孤儿文档）。
-      // 若本轮拉取/写入在前面任何一步失败，绝不会走到这里，旧缓存原样保留。
-      await removeOrphanBatchDocs(cacheKey, batchKeys.length)
+      // 主文档切换成功后再删旧分片（含上一代 generation key）
+      const keep = new Set(batchKeys)
+      const toRemove = (prevBatchKeys || []).filter((k) => k && !keep.has(k))
+      for (let i = 0; i < 40; i++) {
+        const classic = `${cacheKey}_batch_${i}`
+        if (!keep.has(classic)) toRemove.push(classic)
+      }
+      for (const oldKey of toRemove) {
+        try {
+          await db.collection('space_devs_cache').doc(oldKey).remove()
+        } catch (e) {}
+      }
 
       return true
     }
@@ -537,11 +686,14 @@ async function saveToCloudDB(cacheKey, apiData, retryCount = 0) {
     // 数据大小在限制内，正常保存
     // 云数据库文档结构：{ _id: cacheKey, data: { data: apiData, timestamp, expireAt }, ... }
     const cacheData = {
-      data: apiData,  // 实际的API数据
+      data: payload,  // 实际的API数据
       timestamp: now,
       expireAt: now + cacheTtl,
       updatedAt: now
     }
+
+    // 单文档路径：先记下旧分片 key（主文档改写后就读不到 generation keys 了）
+    const prevInlineBatchKeys = await readExistingBatchKeys(db, cacheKey)
 
     // 使用 set 操作，如果存在则更新，不存在则创建
     // 注意：云数据库的 set 方法会自动处理文档的创建和更新
@@ -556,7 +708,7 @@ async function saveToCloudDB(cacheKey, apiData, retryCount = 0) {
     ])
 
     // 上一代若是分批存储（数据缩小后不再分批），新主文档落库成功后清掉旧批次孤儿文档
-    await removeOrphanBatchDocs(cacheKey, 0)
+    await removeOrphanBatchDocs(cacheKey, 0, prevInlineBatchKeys)
 
     // set 操作成功即可信赖，无需额外验证读取（节省数据库读操作）
     return true
@@ -590,8 +742,9 @@ async function syncAPIEndpointWithPagination(url, baseParams = {}, apiBase = nul
   let pageCount = 0
   let apiCallCount = 0 // 记录API调用次数，防止超过速率限制
   
-  // API速率限制：每小时最多15次请求（整个账户，包括小程序端和云函数）
-  // 云函数每3小时执行1次，每次最多使用maxApiCalls次API调用，确保不超过限制
+  // API速率限制：匿名档每小时约 15 次（按出口 IP；可用 LL2_HOURLY_BUDGET 覆盖）
+  // 全量同步定时器为每 6 小时 1 次（见 config.json），每次最多 maxApiCalls 次调用；
+  // 全部出网请求另计入 ll2-budget.js 小时账本，附加任务按剩余额度让路
   while (hasMore && pageCount < maxPages && apiCallCount < maxApiCalls) {
     // 检查是否超时
     if (Date.now() - startTime > maxExecutionTime) {
@@ -753,6 +906,23 @@ async function syncAPIEndpoint(url, params = {}, apiBase = null, fetchAll = fals
       throw new Error('API返回数据为空')
     }
 
+    // 对接事件空结果不写库：避免偶发空页覆盖「当前停靠」可用缓存
+    if (
+      typeof url === 'string' &&
+      url.indexOf('/docking_events/') === 0 &&
+      apiData.results &&
+      Array.isArray(apiData.results) &&
+      apiData.results.length === 0
+    ) {
+      console.warn('[syncAPIEndpoint] docking_events empty, keep old cache')
+      return {
+        success: true,
+        skippedWrite: true,
+        reason: 'empty_docking_keep_old_cache',
+        resultsCount: 0
+      }
+    }
+
     // 对 launches 列表做轻量化（只对 upcoming/previous 且 mode=detailed 的列表同步生效）
     if (shouldSlimLaunchList(url, params) && apiData.results && Array.isArray(apiData.results)) {
       apiData = {
@@ -765,6 +935,34 @@ async function syncAPIEndpoint(url, params = {}, apiBase = null, fetchAll = fals
         enrichLaunchListNetRecovery(apiData)
       } catch (e) {
         console.warn('[net-recovery-enrich]', e.message || e)
+      }
+      // upcoming 整表覆写前按旧 slim 做 NET 迟滞（与小时探针 / resolve 同源），防 6h detailed 把 8/31 占位盖回
+      if (
+        typeof url === 'string' &&
+        url.indexOf('/launches/upcoming/') >= 0 &&
+        apiData.results.length
+      ) {
+        try {
+          const { applyUpcomingNetHysteresisFromCache } = require('./upcoming-net-merge.js')
+          const hyst = await applyUpcomingNetHysteresisFromCache(db, apiData.results)
+          if (hyst && Array.isArray(hyst.results)) {
+            apiData = { ...apiData, results: hyst.results }
+            if (hyst.preserved > 0 || hyst.hadPrevious) {
+              console.log(
+                '[net-hysteresis] syncLaunches upcoming',
+                JSON.stringify({
+                  preserved: hyst.preserved,
+                  applied: hyst.applied,
+                  previousCount: hyst.previousCount,
+                  reasons: hyst.reasons,
+                  cacheKey: hyst.cacheKey
+                })
+              )
+            }
+          }
+        } catch (e) {
+          console.warn('[net-hysteresis]', e.message || e)
+        }
       }
     }
     
@@ -820,6 +1018,13 @@ async function syncAPIEndpoint(url, params = {}, apiBase = null, fetchAll = fals
         updatesSplit = await splitLaunchUpdatesIntoTimelineCache(db, apiData.results, {
           source: 'sync_launches_slim_v6'
         })
+        // 仅当 updates 文档全部写成功（或本页本来就没有 updates）才剥列表，避免 timeline 半写 + 列表已剥的冷路径双丢
+        const withUpdates = Number(updatesSplit && updatesSplit.launches) || 0
+        const written = Number(updatesSplit && updatesSplit.docsWritten) || 0
+        if (updatesSplit && !updatesSplit.error && (withUpdates === 0 || written >= withUpdates)) {
+          const { stripUpdatesFromListPayload } = require('./cache-write-guard.js')
+          apiData = stripUpdatesFromListPayload(apiData)
+        }
       } catch (splitErr) {
         console.warn('[updates-split]', splitErr.message || splitErr)
         updatesSplit = { error: splitErr.message || String(splitErr) }
@@ -929,6 +1134,12 @@ async function runModularSyncEvents() {
   results.push(await syncAPIEndpoint('/events/upcoming/', { limit: 100, offset: 0 }, null, true, 2, 2))
   results.push(await syncAPIEndpoint('/updates/', { limit: 100, offset: 0 }, null, true, 1, 1))
   results.push(await syncAPIEndpoint('/articles/', { format: 'json', limit: 100, offset: 0, ordering: '-published_at' }, SPACEFLIGHT_NEWS_API, true, 1, 1))
+  // events 落库后同步回填监控页「即将进行的在轨任务」
+  try {
+    results.push({ orbitalEventsPatch: await patchUpcomingOrbitalEventsFromEventsCache(8) })
+  } catch (e) {
+    results.push({ orbitalEventsPatch: { success: false, error: e && e.message } })
+  }
   return results
 }
 
@@ -988,7 +1199,7 @@ async function syncCommonEndpoints() {
   // 空间站清单动态解析（1 次 API 调用），新站自动进详情同步
   const stationIds = await resolveActiveStationIds()
   // 设计策略：
-  // - 云函数每3小时执行1次，每次最多使用15次API调用（充分利用限制）：
+  // - 全量同步定时器每 6 小时执行 1 次（见 config.json），单轮预算约 15 次 API 调用：
   //   * /launches/upcoming/ 分页最多5次（最多500条）
   //   * /launches/previous/ 分页最多4次（最多400条）
   //   * /events/upcoming/ 分页最多2次（最多200条）
@@ -1145,7 +1356,8 @@ async function syncExpeditionDetails() {
   
   try {
     // 从云数据库读取已缓存的空间站数据（动态清单，与 syncCommonEndpoints 同源）
-    const stationIds = await readSyncedStationIds()
+    let stationIds = await readSyncedStationIds()
+    if (!stationIds || !stationIds.length) stationIds = DEFAULT_STATION_SYNC_IDS
 
     for (const stationId of stationIds) {
       const cacheKey = `api_cache_/space_stations/${stationId}/_${JSON.stringify({ format: 'json' })}`
@@ -1162,6 +1374,18 @@ async function syncExpeditionDetails() {
         }
       }
     }
+
+    // 去重，避免重复打 LL2
+    const uniqueIds = []
+    const seen = {}
+    for (let i = 0; i < expeditionIds.length; i++) {
+      const id = Number(expeditionIds[i])
+      if (!id || seen[id]) continue
+      seen[id] = true
+      uniqueIds.push(id)
+    }
+    expeditionIds.length = 0
+    for (let i = 0; i < uniqueIds.length; i++) expeditionIds.push(uniqueIds[i])
     
     if (expeditionIds.length === 0) {
       return {
@@ -1227,10 +1451,11 @@ function slimAgencyListItem(a) {
     id: a.id,
     url: a.url || '',
     name: a.name || '',
+    nameZh: resolveAgencyNameZh(a.name, a.abbrev, a.nameZh),
     abbrev: a.abbrev || '',
-    type: a.type || null,
+    type: slimAgencyType(a.type),
     featured: !!a.featured,
-    country: a.country || [],
+    country: slimAgencyCountries(a.country),
     description: a.description || '',
     administrator: a.administrator || null,
     founding_year: a.founding_year || null,
@@ -1393,6 +1618,159 @@ async function syncAgencies() {
 }
 
 /**
+ * LL2 detailed 单机构详情瘦身：保留统计/简介/logo/社交与列表摘要，
+ * 裁剪巨型 launcher_list / spacecraft_list 嵌套，保证单文档可直写入库（<800KB）。
+ *
+ * 字段白名单以前端消费方为准（改动时需同步核对）：
+ * - agency-detail.js formatAgencyDetail：launcher_list[].name 去重展示型号标签、
+ *   social_logo、social_media_links[].{id,social_media.name,url,priority}、
+ *   consecutive_successful_landings / failed_landings / *_spacecraft / *_payload 全套着陆统计
+ * - spacecraft-detail.js normalizeLl2Spacecraft：spacecraft_list 条目直传秒开，
+ *   消费 type/agency/family/capability/history/details/尺寸/载荷/统计等全部字段
+ * 注意 LL2 2.3.0 的 launcher_list 是「火箭构型」列表（带 name/full_name/variant），
+ * 不是箭实体（无 serial_number/launcher_config 嵌套）。
+ */
+const AGENCY_SLIM_SCHEMA = 3
+function slimAgencyDetail(a) {
+  if (!a || a.id == null) return null
+  function slimImage(img) {
+    if (!img) return null
+    return {
+      image_url: img.image_url || '',
+      thumbnail_url: img.thumbnail_url || '',
+      name: img.name || '',
+      credit: img.credit || ''
+    }
+  }
+  function slimLauncherConfig(l) {
+    if (!l || l.id == null) return null
+    return {
+      id: l.id,
+      name: l.name || '',
+      nameZh: l.nameZh || translateRocketName(l.name || '') || '',
+      full_name: l.full_name || '',
+      full_nameZh: l.full_nameZh || translateRocketName(l.full_name || '') || '',
+      variant: l.variant || '',
+      active: l.active != null ? l.active : null,
+      reusable: l.reusable != null ? l.reusable : null,
+      maiden_flight: l.maiden_flight || null,
+      image: slimImage(l.image),
+      total_launch_count: l.total_launch_count != null ? l.total_launch_count : null,
+      successful_launches: l.successful_launches != null ? l.successful_launches : null,
+      failed_launches: l.failed_launches != null ? l.failed_launches : null,
+      attempted_landings: l.attempted_landings != null ? l.attempted_landings : null,
+      successful_landings: l.successful_landings != null ? l.successful_landings : null
+    }
+  }
+  function slimSpacecraftConfig(s) {
+    if (!s || s.id == null) return null
+    return {
+      id: s.id,
+      name: s.name || '',
+      nameZh: s.nameZh || translateSpacecraftName(s.name || '') || '',
+      type: s.type || null,
+      typeNameZh: (s.type && s.type.nameZh) || translateSpacecraftType((s.type && s.type.name) || '') || '',
+      agency: s.agency ? {
+        id: s.agency.id,
+        name: s.agency.name || '',
+        nameZh: resolveAgencyNameZh(s.agency.name, s.agency.abbrev, s.agency.nameZh),
+        abbrev: s.agency.abbrev || ''
+      } : null,
+      family: Array.isArray(s.family)
+        ? s.family.slice(0, 1).map(function (f) {
+          return {
+            id: f && f.id,
+            name: (f && f.name) || '',
+            nameZh: (f && f.nameZh) || translateSpacecraftName((f && f.name) || '') || ''
+          }
+        })
+        : [],
+      in_use: !!s.in_use,
+      image: slimImage(s.image),
+      capability: s.capability || '',
+      history: s.history || '',
+      details: s.details || '',
+      maiden_flight: s.maiden_flight || null,
+      height: s.height != null ? s.height : null,
+      diameter: s.diameter != null ? s.diameter : null,
+      human_rated: !!s.human_rated,
+      crew_capacity: s.crew_capacity != null ? s.crew_capacity : null,
+      payload_capacity: s.payload_capacity != null ? s.payload_capacity : null,
+      payload_return_capacity: s.payload_return_capacity != null ? s.payload_return_capacity : null,
+      flight_life: s.flight_life || '',
+      wiki_link: s.wiki_link || '',
+      info_link: s.info_link || '',
+      spacecraft_flown: s.spacecraft_flown != null ? s.spacecraft_flown : null,
+      total_launch_count: s.total_launch_count != null ? s.total_launch_count : null,
+      successful_launches: s.successful_launches != null ? s.successful_launches : null,
+      failed_launches: s.failed_launches != null ? s.failed_launches : null,
+      attempted_landings: s.attempted_landings != null ? s.attempted_landings : null,
+      successful_landings: s.successful_landings != null ? s.successful_landings : null,
+      failed_landings: s.failed_landings != null ? s.failed_landings : null
+    }
+  }
+  const launcherList = Array.isArray(a.launcher_list)
+    ? a.launcher_list.map(slimLauncherConfig).filter(Boolean).slice(0, 60)
+    : []
+  const spacecraftList = Array.isArray(a.spacecraft_list)
+    ? a.spacecraft_list.map(slimSpacecraftConfig).filter(Boolean).slice(0, 40)
+    : []
+  return {
+    _slimSchema: AGENCY_SLIM_SCHEMA,
+    id: a.id,
+    url: a.url || '',
+    name: a.name || '',
+    nameZh: resolveAgencyNameZh(a.name, a.abbrev, a.nameZh),
+    abbrev: a.abbrev || '',
+    type: slimAgencyType(a.type),
+    featured: !!a.featured,
+    country: slimAgencyCountries(a.country),
+    description: a.description || '',
+    administrator: a.administrator || null,
+    founding_year: a.founding_year || null,
+    launchers: a.launchers || '',
+    spacecraft: a.spacecraft || '',
+    parent: a.parent && typeof a.parent === 'object'
+      ? Object.assign({}, a.parent, {
+        nameZh: resolveAgencyNameZh(a.parent.name, a.parent.abbrev, a.parent.nameZh)
+      })
+      : a.parent,
+    image: slimImage(a.image),
+    logo: slimImage(a.logo),
+    social_logo: slimImage(a.social_logo),
+    social_media_links: Array.isArray(a.social_media_links)
+      ? a.social_media_links.slice(0, 20).map(function (s) {
+          return {
+            id: s.id != null ? s.id : null,
+            social_media: s.social_media || null,
+            url: s.url || '',
+            priority: s.priority != null ? s.priority : null
+          }
+        })
+      : [],
+    total_launch_count: a.total_launch_count != null ? a.total_launch_count : null,
+    successful_launches: a.successful_launches != null ? a.successful_launches : null,
+    failed_launches: a.failed_launches != null ? a.failed_launches : null,
+    pending_launches: a.pending_launches != null ? a.pending_launches : null,
+    consecutive_successful_launches: a.consecutive_successful_launches != null ? a.consecutive_successful_launches : null,
+    attempted_landings: a.attempted_landings != null ? a.attempted_landings : null,
+    successful_landings: a.successful_landings != null ? a.successful_landings : null,
+    failed_landings: a.failed_landings != null ? a.failed_landings : null,
+    consecutive_successful_landings: a.consecutive_successful_landings != null ? a.consecutive_successful_landings : null,
+    successful_landings_spacecraft: a.successful_landings_spacecraft != null ? a.successful_landings_spacecraft : null,
+    failed_landings_spacecraft: a.failed_landings_spacecraft != null ? a.failed_landings_spacecraft : null,
+    attempted_landings_spacecraft: a.attempted_landings_spacecraft != null ? a.attempted_landings_spacecraft : null,
+    successful_landings_payload: a.successful_landings_payload != null ? a.successful_landings_payload : null,
+    failed_landings_payload: a.failed_landings_payload != null ? a.failed_landings_payload : null,
+    attempted_landings_payload: a.attempted_landings_payload != null ? a.attempted_landings_payload : null,
+    launcher_list: launcherList,
+    spacecraft_list: spacecraftList,
+    info_url: a.info_url || '',
+    wiki_url: a.wiki_url || ''
+  }
+}
+
+/**
  * 单个发射商详情同步：用 mode=detailed 拉取（含发射统计 + launcher_list/spacecraft_list/
  * social_media_links 等详情页必需字段），缓存 key 不含 mode（与前端 getCacheKey 规则一致）。
  * 注意不能走 syncAPIEndpoint：它用 params 同时构建 URL 和缓存 key，无法「detailed 拉取 + normal key 落库」。
@@ -1407,7 +1785,17 @@ async function syncOneAgencyDetail(agencyId) {
     if (!data || data.id == null) {
       throw new Error('LL2 返回数据无效（缺少 id）')
     }
-    await saveToCloudDB(cacheKey, data)
+    const slim = slimAgencyDetail(data)
+    if (!slim || slim.id == null) {
+      throw new Error('瘦身后数据无效')
+    }
+    // 写入前校验：瘦身白名单与 LL2 结构脱节时（如构型列表丢 name）宁可报错也不落坏数据
+    const rawLaunchers = Array.isArray(data.launcher_list) ? data.launcher_list.length : 0
+    const slimNamed = slim.launcher_list.filter(function (l) { return l && l.name }).length
+    if (rawLaunchers > 0 && slimNamed === 0) {
+      throw new Error('瘦身后 launcher_list 全部丢失 name（原始 ' + rawLaunchers + ' 条），疑似 LL2 结构变更')
+    }
+    await saveToCloudDB(cacheKey, slim)
     return { success: true, agencyId: id }
   } catch (error) {
     return { success: false, agencyId: id, error: error.message || String(error) }
@@ -1415,17 +1803,51 @@ async function syncOneAgencyDetail(agencyId) {
 }
 
 /**
- * featured 机构详情自愈同步（每 6h 定时轮附带执行）：
- * 逐个检查 featured 机构的详情缓存文档，缺失或超过 maxAgeMs 才真正拉 LL2；
- * 单轮受 maxSync / budgetMs 双重限额保护，首次冷启动分多轮逐步补全。
+ * 机构详情自愈同步（每 6h 定时轮附带执行）：
+ * 覆盖聚合缓存里的**全部**机构（不只 featured），逐个检查详情缓存文档，
+ * 缺失或超龄才真正拉 LL2；单轮受 maxSync / budgetMs 双重限额保护，冷启动分多轮补全。
+ * 分层 TTL：featured 机构 26h 保统计新鲜；非 featured 机构默认 10 天——
+ * 「部分数据待补全」横幅只看详情文档是否存在，非知名机构统计允许低频刷新。
  * 背景：前端已不再触发 syncAgencyDetail 外网同步，若服务端不补位，
  * 详情缓存永远为空 → 详情页永远显示「部分数据待补全」。
+ * （函数名保留 Featured 前缀是历史原因：旧版只同步 featured 机构，
+ *  导致约 300 家非知名机构详情页横幅永远无法消除。）
+ *
+ * LL2 走免费档（匿名 15 次/小时限流），补齐吞吐靠两条通道分摊：
+ *   - 6h 全量轮附带执行（maxSync 12，与全量同步的其余 LL2 请求同窗，维持既有节奏）
+ *   - 小时级 NET 探针附带执行（maxSync 5 + respectAllFreshMarker 短路，见下）
+ * 全部补齐后写入「全绿标记」（allFreshUntil = now + 5h），小时级通道读 1 个标记文档
+ * 即可短路返回，避免每小时白扫 350 次详情文档新鲜度。
  */
+const AGENCY_HEAL_STATE_DOC_ID = 'agency_detail_heal_state'
+const AGENCY_HEAL_ALL_FRESH_MARK_MS = 5 * 60 * 60 * 1000
+
+async function writeAgencyHealMarker(allFreshUntil) {
+  try {
+    await db.collection('space_devs_cache').doc(AGENCY_HEAL_STATE_DOC_ID).set({
+      data: { allFreshUntil, updatedAt: Date.now() }
+    })
+  } catch (e) { /* 标记写失败不影响主流程，下轮照常扫描 */ }
+}
+
 async function syncFeaturedAgencyDetails(options = {}) {
   const startedAt = Date.now()
   const maxAgeMs = options.maxAgeMs || 26 * 60 * 60 * 1000
+  const nonFeaturedMaxAgeMs = options.nonFeaturedMaxAgeMs || 10 * 24 * 60 * 60 * 1000
   const maxSync = options.maxSync || 12
   const budgetMs = options.budgetMs || 120 * 1000
+
+  // 小时级涓流通道专用短路：上一轮已确认全绿时，标记有效期内直接返回，
+  // 省掉 350 次逐文档新鲜度读库。6h 全量轮不传此选项，始终完整扫描兜底。
+  if (options.respectAllFreshMarker) {
+    try {
+      const marker = await db.collection('space_devs_cache').doc(AGENCY_HEAL_STATE_DOC_ID).get()
+      const until = marker && marker.data && marker.data.allFreshUntil
+      if (until && Date.now() < until) {
+        return { success: true, skipped: true, reason: 'all_fresh_marker', allFreshUntil: until, elapsedMs: Date.now() - startedAt }
+      }
+    } catch (e) { /* 标记不存在：正常继续扫描 */ }
+  }
 
   // 读列表缓存文档（支持 saveToCloudDB 的分批存储：主文档 isBatched 时合并批次文档）
   const readListResults = async (cacheKey) => {
@@ -1453,75 +1875,113 @@ async function syncFeaturedAgencyDetails(options = {}) {
     }
   }
 
-  // 1) 从 featured 列表缓存取机构 id（不额外打 LL2）；缺失时回退聚合缓存过滤 featured
+  // 1) 聚合缓存（全库 350+ 机构）+ featured 列表双读合并去重（不额外打 LL2）；
+  // featured 标记以两份缓存的并集为准，供分层 TTL 与优先级排序
   const featuredKey = `api_cache_/agencies/_${JSON.stringify({ featured: true, format: 'json', limit: 50, offset: 0 })}`
   const aggregateKey = `api_cache_/agencies/_${JSON.stringify({ format: 'json', limit: 400, offset: 0 })}`
   const featuredRead = await readListResults(featuredKey)
-  let featuredItems = featuredRead.results
-  let aggregateRead = null
-  if (featuredItems.length === 0) {
-    aggregateRead = await readListResults(aggregateKey)
-    featuredItems = aggregateRead.results.filter(item => item && item.featured)
+  const aggregateRead = await readListResults(aggregateKey)
+  const agencyById = new Map()
+  for (const item of aggregateRead.results) {
+    if (!item || item.id == null) continue
+    agencyById.set(String(item.id), {
+      id: item.id,
+      featured: !!item.featured,
+      totalLaunchCount: item.total_launch_count != null ? item.total_launch_count : 0
+    })
   }
-  const agencyIds = featuredItems.map(item => item && item.id).filter(id => id != null)
-  if (agencyIds.length === 0) {
+  for (const item of featuredRead.results) {
+    if (!item || item.id == null) continue
+    const existing = agencyById.get(String(item.id))
+    if (existing) existing.featured = true
+    else {
+      agencyById.set(String(item.id), {
+        id: item.id,
+        featured: true,
+        totalLaunchCount: item.total_launch_count != null ? item.total_launch_count : 0
+      })
+    }
+  }
+  const agencyRefs = Array.from(agencyById.values())
+  if (agencyRefs.length === 0) {
     // 诊断字段：区分「文档不存在（多半是环境不对/从未同步）」和「文档存在但为空」
     return {
       success: false,
-      reason: 'no_featured_agency_list',
+      reason: 'no_agency_list',
       featuredDoc: featuredRead.status,
-      aggregateDoc: aggregateRead ? aggregateRead.status : 'not_checked',
+      aggregateDoc: aggregateRead.status,
       envId: (() => { try { return cloud.getWXContext().ENV || process.env.TCB_ENV || '' } catch (e) { return process.env.TCB_ENV || '' } })(),
       elapsedMs: Date.now() - startedAt
     }
   }
 
-  // 2) 检查各详情文档新鲜度，挑出缺失/过期的
-  const staleIds = []
+  // 2) 检查各详情文档新鲜度，挑出缺失/过期的（TTL 按 featured 分层）
+  const staleRefs = []
   let freshCount = 0
-  for (const id of agencyIds) {
-    const detailKey = `api_cache_/agencies/${id}/_${JSON.stringify({ format: 'json' })}`
+  for (const ref of agencyRefs) {
+    const detailKey = `api_cache_/agencies/${ref.id}/_${JSON.stringify({ format: 'json' })}`
+    const ttlMs = ref.featured ? maxAgeMs : nonFeaturedMaxAgeMs
     let fresh = false
     try {
       const doc = await db.collection('space_devs_cache').doc(detailKey).get()
       const cacheData = doc && doc.data
       const payload = cacheData && cacheData.data
-      const ts = cacheData && cacheData.timestamp
+      const ts = cacheData && (cacheData.updatedAtMs || cacheData.timestamp)
+      // 空洞 batched 元文档（无 id）视为失效
+      const hollowBatched = !!(cacheData && cacheData.isBatched && !(payload && payload.id != null))
       // total_launch_count 仅 detailed 模式返回：旧版 normal 模式同步的文档
       // （缺统计 / launcher_list / spacecraft_list）即使时间戳新也视为过期，强制重拉
       const hasDetailedFields = !!(payload && payload.total_launch_count !== undefined)
-      fresh = !!(payload && payload.id != null && hasDetailedFields && ts && Date.now() - ts < maxAgeMs)
+      // 瘦身 schema 版本不匹配（如 v1 把构型列表按箭实体裁剪、丢了 name）也视为过期
+      const schemaOk = !!(payload && payload._slimSchema === AGENCY_SLIM_SCHEMA)
+      fresh = !hollowBatched && schemaOk && !!(payload && payload.id != null && hasDetailedFields && ts && Date.now() - ts < ttlMs)
     } catch (e) { /* 文档不存在：需要同步 */ }
     if (fresh) freshCount++
-    else staleIds.push(id)
+    else staleRefs.push(ref)
   }
-  if (staleIds.length === 0) {
-    return { success: true, checkVersion: 'detailed_fields_v2', checked: agencyIds.length, fresh: freshCount, synced: 0, elapsedMs: Date.now() - startedAt }
+  if (staleRefs.length === 0) {
+    await writeAgencyHealMarker(Date.now() + AGENCY_HEAL_ALL_FRESH_MARK_MS)
+    return { success: true, checkVersion: 'slim_schema_v2_all', checked: agencyRefs.length, fresh: freshCount, synced: 0, elapsedMs: Date.now() - startedAt }
   }
 
   // 3) 限额同步（每轮最多 maxSync 个、总预算 budgetMs，请求间隔 300ms 保护 LL2 配额）
+  // 优先级：SpaceX(121，体积最大、历史最易写空) > featured > 非 featured 按总发射次数降序
+  // （发射商图鉴默认按发射次数排列，先补用户最先看到的那批）
+  staleRefs.sort(function (a, b) {
+    const aSpacex = String(a.id) === '121' ? 0 : 1
+    const bSpacex = String(b.id) === '121' ? 0 : 1
+    if (aSpacex !== bSpacex) return aSpacex - bSpacex
+    if (a.featured !== b.featured) return a.featured ? -1 : 1
+    return (b.totalLaunchCount || 0) - (a.totalLaunchCount || 0)
+  })
   const synced = []
   const failed = []
-  for (const id of staleIds.slice(0, maxSync)) {
+  for (const ref of staleRefs.slice(0, maxSync)) {
     if (Date.now() - startedAt > budgetMs) break
-    const r = await syncOneAgencyDetail(id)
-    if (r.success) synced.push(id)
-    else failed.push({ id, error: r.error })
+    const r = await syncOneAgencyDetail(ref.id)
+    if (r.success) synced.push(ref.id)
+    else failed.push({ id: ref.id, error: r.error })
     await new Promise(resolve => setTimeout(resolve, 300))
   }
 
   const result = {
     success: failed.length === 0,
-    // 新鲜度判断规则版本：v2 = 时间戳 + detailed 字段内容校验（total_launch_count）
-    checkVersion: 'detailed_fields_v2',
-    checked: agencyIds.length,
+    // 新鲜度判断规则版本：slim_schema_v2_all = 时间戳 + detailed 字段 + schema 校验 + 全量机构覆盖
+    checkVersion: 'slim_schema_v2_all',
+    checked: agencyRefs.length,
     fresh: freshCount,
-    stale: staleIds.length,
+    stale: staleRefs.length,
     synced: synced.length,
-    remaining: staleIds.length - synced.length - failed.length,
+    remaining: staleRefs.length - synced.length - failed.length,
     elapsedMs: Date.now() - startedAt
   }
   if (failed.length) result.failed = failed
+  // 本轮清空积压且零失败 → 全绿，写 5h 短路标记；仍有积压 → 清零标记，保证小时级通道持续跟进
+  if (result.remaining === 0 && failed.length === 0) {
+    await writeAgencyHealMarker(Date.now() + AGENCY_HEAL_ALL_FRESH_MARK_MS)
+  } else {
+    await writeAgencyHealMarker(0)
+  }
   console.log('[syncFeaturedAgencyDetails]', JSON.stringify(result))
   return result
 }
@@ -1809,12 +2269,15 @@ function slimLauncherConfigMeta(cfg) {
   return {
     id: cfg.id,
     name: cfg.name || '',
+    nameZh: cfg.nameZh || translateRocketName(cfg.name || '') || '',
     full_name: cfg.full_name || cfg.name || '',
+    full_nameZh: cfg.full_nameZh || translateRocketName(cfg.full_name || cfg.name || '') || '',
     alias: cfg.alias || '',
     variant: cfg.variant || '',
     reusable: cfg.reusable === true,
     active: cfg.active !== false,
     manufacturerName: m.name || '',
+    manufacturerNameZh: resolveAgencyNameZh(m.name, m.abbrev, m.nameZh),
     manufacturerAbbrev: m.abbrev || '',
     countryCode: slimCountryCode(m.country) || '',
     image_url: (cfg.image && cfg.image.image_url) || '',
@@ -2555,7 +3018,9 @@ async function syncBoosterGenealogy(forceRefresh = false) {
             firstFlight: firstLaunchDate,
             lastFlight: lastLaunchDate,
             rocketFamily: rocketFamily,
+            rocketFamilyZh: translateRocketName(rocketFamily) || '',
             manufacturer: manufacturer,
+            manufacturerZh: resolveAgencyNameZh(manufacturer, '', ''),
             flightHistory: [],
             imageUrl: imageUrl,
             thumbnailUrl: thumbnailUrl,
@@ -2624,6 +3089,12 @@ async function syncBoosterGenealogy(forceRefresh = false) {
         if (cfgMeta) {
           if (cfgMeta.countryCode) b.countryCode = cfgMeta.countryCode
           if (cfgMeta.manufacturerName && !b.manufacturer) b.manufacturer = cfgMeta.manufacturerName
+          if (!b.rocketFamilyZh) {
+            b.rocketFamilyZh = cfgMeta.full_nameZh || cfgMeta.nameZh || translateRocketName(b.rocketFamily || '') || ''
+          }
+          if (!b.manufacturerZh) {
+            b.manufacturerZh = cfgMeta.manufacturerNameZh || resolveAgencyNameZh(b.manufacturer, '', '')
+          }
         }
         if (!b.countryCode) b.countryCode = FALLBACK_COUNTRY[b.manufacturer] || ''
       }
@@ -2811,9 +3282,48 @@ async function syncBoosterGenealogy(forceRefresh = false) {
       }
     } catch (_) {}
 
-    // 并发 15 路写入（原来 180 条串行 get+update ≈ 360 次 DB 往返，是超时另一主因）
+    // 先分页读出现有箭实体（排除 flightHistory 大字段），按业务字段 diff：
+    // 绝大多数箭实体在两轮同步之间没有任何变化，盲写 180 条纯属浪费计费写。
     logStep('步骤6 开始写入, valid=' + validBoosters.length)
+    const existingBoosterById = {}
+    try {
+      const PAGE = 100
+      for (let skip = 0; skip < 1000; skip += PAGE) {
+        const res = await withSoftTimeout(
+          collection
+            .where({ serialNumber: db.command.exists(true) })
+            .field({ flightHistory: false })
+            .skip(skip)
+            .limit(PAGE)
+            .get(),
+          20000, '现有箭实体分页读', null
+        )
+        const rows = (res && res.data) || []
+        for (const row of rows) {
+          existingBoosterById[String(row._id)] = row
+        }
+        if (rows.length < PAGE) break
+      }
+    } catch (_) { /* 读现状失败则退化为全量写 */ }
+
+    // 稳定序列化（key 排序），忽略每轮必变的时间戳字段后比对
+    const stableStringify = (obj) => {
+      if (obj === null || typeof obj !== 'object') return JSON.stringify(obj)
+      if (Array.isArray(obj)) return '[' + obj.map(stableStringify).join(',') + ']'
+      return '{' + Object.keys(obj).sort().map(k => JSON.stringify(k) + ':' + stableStringify(obj[k])).join(',') + '}'
+    }
+    const boosterComparable = (obj) => {
+      const clean = Object.assign({}, obj)
+      delete clean._id
+      delete clean._openid
+      delete clean.flightHistory
+      delete clean.updatedAt
+      delete clean.syncedAt
+      return stableStringify(clean)
+    }
+
     let written = 0
+    let skippedUnchanged = 0
     const WRITE_CONCURRENCY = 15
     for (let wi = 0; wi < validBoosters.length; wi += WRITE_CONCURRENCY) {
       const chunk = validBoosters.slice(wi, wi + WRITE_CONCURRENCY)
@@ -2826,9 +3336,14 @@ async function syncBoosterGenealogy(forceRefresh = false) {
         const dataToWrite = Object.assign({}, b)
         delete dataToWrite.flightHistory
 
+        const existing = existingBoosterById[docId]
+        if (existing && boosterComparable(existing) === boosterComparable(dataToWrite)) {
+          skippedUnchanged++
+          return
+        }
+
         try {
-          // 先尝试 update（绝大多数文档已存在，updatedAt 每轮必变所以 updated>0）
-          // 文档不存在时 update 返回 updated:0（或抛错），再 set 新建
+          // 先尝试 update（文档已存在时 updated>0）；不存在时 update 返回 updated:0，再 set 新建
           const upRes = await collection.doc(docId).update({ data: dataToWrite }).catch(() => null)
           if (upRes && upRes.stats && upRes.stats.updated > 0) {
             written++
@@ -2841,13 +3356,23 @@ async function syncBoosterGenealogy(forceRefresh = false) {
       }))
     }
 
-    logStep('步骤6 写入完成, written=' + written)
+    logStep('步骤6 写入完成, written=' + written + ', unchanged=' + skippedUnchanged)
     const activeCount = validBoosters.filter(b => b.status === 'active').length
     const manufacturers = [...new Set(validBoosters.map(b => b.manufacturer).filter(Boolean))]
     const countries = [...new Set(validBoosters.map(b => b.countryCode).filter(Boolean))]
+    // dataVersionAt 只在真有数据变化时推进：客户端拿它做缓存代次比对，
+    // 数据没变的同步轮次不会把全网客户端的族谱缓存打失效
+    let dataVersionAt = now
+    if (written === 0) {
+      try {
+        const prevMeta = await collection.doc('_sync_meta').get()
+        const prev = prevMeta && prevMeta.data
+        dataVersionAt = Number(prev && (prev.dataVersionAt || prev.syncedAt)) || now
+      } catch (_) {}
+    }
     await collection.doc('_sync_meta').set({
       data: {
-        syncedAt: now, totalBoosters: validBoosters.length, written,
+        syncedAt: now, dataVersionAt, totalBoosters: validBoosters.length, written,
         source: 'LL2 Launchers API + SpaceX v4 + LL2 cache',
         activeBoosters: activeCount,
         maxFlights: validBoosters.length > 0 ? validBoosters[0].flights : 0,
@@ -2860,7 +3385,7 @@ async function syncBoosterGenealogy(forceRefresh = false) {
       success: true, message: '助推器族谱同步完成（含全厂商）',
       source: 'LL2 Launchers API + SpaceX API v4',
       totalCores: cores.length, falconBoosters: falcon.length,
-      totalAfterLL2: validBoosters.length, written,
+      totalAfterLL2: validBoosters.length, written, skippedUnchanged,
       activeBoosters: activeCount,
       manufacturers: manufacturers,
       countries: countries,
@@ -3270,61 +3795,123 @@ async function fetchOngoingSpaceXMissionsFromLL2() {
 }
 
 // 即将进行的在轨任务/事件（不限 SpaceX）：Docking / Undocking / Berthing / EVA / Crew Handover 等
-// 数据源：LL2 /events/upcoming/?mode=list（list 模式已含 description/image/location/type/date/vid_urls）
-async function fetchUpcomingOrbitalEvents(limit = 8) {
-  const ORBITAL_TYPE_NAMES = new Set([
-    'docking', 'undocking', 'berthing', 'unberthing',
-    'eva', 'spacewalk', 'crew handover', 'hatch closure', 'hatch opening',
-    'orbital insertion', 'reboost'
-  ])
+// 优先读 space_devs_cache 已同步的 events/upcoming（零额外 LL2）；失败再直拉 LL2 list
+// 返回 null 表示拉取失败（调用方应保留库中已有数据，不要覆盖为空）
+const ORBITAL_EVENT_TYPE_RE =
+  /dock|berth|\beva\b|spacewalk|hatch|orbital insertion|reboost|crew handover|change of command|spacecraft landing|spacecraft release|spacecraft event|splashdown|crew departure/
+
+function mapUpcomingOrbitalFromResults(results, limit = 8) {
+  if (!Array.isArray(results)) return []
+  const now = Date.now()
+  const matched = []
+  for (const ev of results) {
+    if (!ev) continue
+    const typeNameRaw = ev.type && ev.type.name ? String(ev.type.name) : (ev.typeName || '')
+    if (!ORBITAL_EVENT_TYPE_RE.test(String(typeNameRaw).toLowerCase())) continue
+    const dateMs = ev.date ? Date.parse(ev.date) : (isFinite(ev.dateMs) ? Number(ev.dateMs) : NaN)
+    if (!isFinite(dateMs)) continue
+    // 仅保留未来事件，向前再保留 6 小时容差（避免临近 T-0 抖动）
+    if (dateMs < now - 6 * 60 * 60 * 1000) continue
+    // 太远期事件（>18 个月）剔除
+    if (dateMs > now + 18 * 30 * 86400 * 1000) continue
+    const imageObj = ev.image
+    const image = typeof imageObj === 'string'
+      ? imageObj
+      : (imageObj && (imageObj.image_url || imageObj.thumbnail_url || '')) || ev.imageUrl || ''
+    const vid = Array.isArray(ev.vid_urls) && ev.vid_urls.length ? ev.vid_urls[0] : null
+    matched.push({
+      id: ev.id,
+      slug: ev.slug || '',
+      name: ev.name || '',
+      nameZh: ev.nameZh || '',
+      typeName: typeNameRaw,
+      typeNameZh: (ev.type && ev.type.nameZh) || ev.typeNameZh || '',
+      date: ev.date || '',
+      dateMs,
+      location: ev.location || '',
+      locationZh: ev.locationZh || '',
+      description: ev.description || '',
+      descriptionZh: ev.descriptionZh || '',
+      imageUrl: image || '',
+      webcastUrl: (vid && vid.url) || ev.webcastUrl || '',
+      webcastTitle: (vid && vid.title) || ev.webcastTitle || '',
+      webcastPublisher: (vid && vid.publisher) || ev.webcastPublisher || '',
+      precision: (ev.date_precision && ev.date_precision.name) || ev.precision || ''
+    })
+  }
+  matched.sort((a, b) => a.dateMs - b.dateMs)
+  return matched.slice(0, limit)
+}
+
+async function readEventsUpcomingFromCache() {
+  const key = `api_cache_/events/upcoming/_${JSON.stringify({ limit: 100, offset: 0 })}`
   try {
+    const doc = await db.collection('space_devs_cache').doc(key).get()
+    const payload = doc && doc.data && doc.data.data
+    if (!payload) return null
+    if (Array.isArray(payload.results) && payload.results.length) return payload.results
+    // 分批落库：主文档 results 为空，需合并 batchKeys
+    if (payload.isBatched && Array.isArray(payload.batchKeys) && payload.batchKeys.length) {
+      const merged = []
+      for (const batchKey of payload.batchKeys) {
+        try {
+          const bDoc = await db.collection('space_devs_cache').doc(batchKey).get()
+          const bPayload = bDoc && bDoc.data && bDoc.data.data
+          if (bPayload && Array.isArray(bPayload.results)) merged.push(...bPayload.results)
+        } catch (e) { /* 单批缺失跳过 */ }
+      }
+      return merged.length ? merged : null
+    }
+    return Array.isArray(payload.results) ? payload.results : null
+  } catch (e) {}
+  return null
+}
+
+async function fetchUpcomingOrbitalEvents(limit = 8) {
+  try {
+    // 1) 已同步的 events 缓存（全量同步后更稳，且不占 LL2 配额）
+    const cachedResults = await readEventsUpcomingFromCache()
+    if (Array.isArray(cachedResults) && cachedResults.length) {
+      const fromCache = mapUpcomingOrbitalFromResults(cachedResults, limit)
+      if (fromCache.length) return fromCache
+    }
+
+    // 2) 直拉 LL2 list（冷启动 / 缓存尚未写入）
     const url = `${LAUNCH_LIBRARY_API}/events/upcoming/?limit=50&mode=list&format=json`
     const resp = await fetchAPI(url).catch(() => null)
-    const list = resp && Array.isArray(resp.results) ? resp.results : []
-    // 该路径绕过 syncAPIEndpoint，同样补充中文字段
+    if (!resp || !Array.isArray(resp.results)) {
+      // 缓存有数据但类型未命中 → 返回空数组；缓存与 LL2 都不可用 → null 保旧
+      return Array.isArray(cachedResults) ? [] : null
+    }
+    const list = resp.results
     try {
       await enrichEventsList({ results: list })
     } catch (translateErr) {
       console.warn('[translate-enrich orbital-events]', translateErr.message || translateErr)
     }
-    const now = Date.now()
-    const matched = []
-    for (const ev of list) {
-      const typeName = ev.type && ev.type.name ? String(ev.type.name).toLowerCase() : ''
-      if (!ORBITAL_TYPE_NAMES.has(typeName)) continue
-      const dateMs = ev.date ? Date.parse(ev.date) : NaN
-      if (!isFinite(dateMs)) continue
-      // 仅保留未来事件，向前再保留 6 小时容差（避免临近 T-0 抖动）
-      if (dateMs < now - 6 * 60 * 60 * 1000) continue
-      // 太远期事件（>18 个月）剔除：Juice/BepiColombo 等深空插入暂不展示在「即将进行」
-      if (dateMs > now + 18 * 30 * 86400 * 1000) continue
-      const image = ev.image && (ev.image.image_url || (ev.image.thumbnail_url || ''))
-      const vid = Array.isArray(ev.vid_urls) && ev.vid_urls.length ? ev.vid_urls[0] : null
-      matched.push({
-        id: ev.id,
-        slug: ev.slug || '',
-        name: ev.name || '',
-        nameZh: ev.nameZh || '',
-        typeName: ev.type && ev.type.name ? ev.type.name : '',
-        typeNameZh: (ev.type && ev.type.nameZh) || '',
-        date: ev.date || '',
-        dateMs,
-        location: ev.location || '',
-        locationZh: ev.locationZh || '',
-        description: ev.description || '',
-        descriptionZh: ev.descriptionZh || '',
-        imageUrl: image || '',
-        webcastUrl: vid && vid.url ? vid.url : '',
-        webcastTitle: vid && vid.title ? vid.title : '',
-        webcastPublisher: vid && vid.publisher ? vid.publisher : '',
-        precision: (ev.date_precision && ev.date_precision.name) || ''
-      })
-    }
-    matched.sort((a, b) => a.dateMs - b.dateMs)
-    return matched.slice(0, limit)
+    return mapUpcomingOrbitalFromResults(list, limit)
   } catch (e) {
     console.warn('[UpcomingOrbitalEvents] fetch failed:', e && e.message)
-    return []
+    return null
+  }
+}
+
+/** 全量同步写完 events 后回填 upcomingOrbitalEvents（避免 SpaceX 步骤抢跑时缓存仍空） */
+async function patchUpcomingOrbitalEventsFromEventsCache(limit = 8) {
+  try {
+    const list = await fetchUpcomingOrbitalEvents(limit)
+    if (!Array.isArray(list)) return { success: false, skipped: true }
+    const now = Date.now()
+    await db.collection('spacex_launch_stats').doc('spacex_official_live').update({
+      data: {
+        upcomingOrbitalEvents: list,
+        upcomingOrbitalPatchedAt: now,
+        updatedAt: now
+      }
+    })
+    return { success: true, count: list.length }
+  } catch (e) {
+    return { success: false, error: e && e.message }
   }
 }
 
@@ -3337,6 +3924,17 @@ async function syncSpaceXLaunchStats(forceRefresh = false) {
     try {
       const lastSync = await collection.doc(docId).get().catch(() => null)
       if (lastSync && lastSync.data && lastSync.data.syncedAt && (now - lastSync.data.syncedAt < SPACEX_STATS_CACHE_DURATION)) {
+        const existingOrbital = lastSync.data.upcomingOrbitalEvents
+        // 缓存期内但在轨列表为空：仍尝试从 events 缓存补写，避免长期空列表
+        if (!(Array.isArray(existingOrbital) && existingOrbital.length)) {
+          const patched = await patchUpcomingOrbitalEventsFromEventsCache(8)
+          return {
+            success: true,
+            message: '缓存有效，已尝试补写在轨任务',
+            cacheAge: Math.round((now - lastSync.data.syncedAt) / 60000) + '分钟',
+            orbitalPatch: patched
+          }
+        }
         return { success: true, message: '缓存有效，跳过同步', cacheAge: Math.round((now - lastSync.data.syncedAt) / 60000) + '分钟' }
       }
     } catch (_) {}
@@ -3357,7 +3955,8 @@ async function syncSpaceXLaunchStats(forceRefresh = false) {
     }
 
     // 即将进行的在轨任务（Docking/EVA/Berthing 等，跨厂商）
-    let upcomingOrbitalEvents = []
+    // null 表示 LL2 拉取失败：不写该字段，保留库中已有列表，避免覆盖为空
+    let upcomingOrbitalEvents = null
     try {
       upcomingOrbitalEvents = await fetchUpcomingOrbitalEvents(8)
     } catch (e) {
@@ -3376,9 +3975,11 @@ async function syncSpaceXLaunchStats(forceRefresh = false) {
       d2cStats: data.d2cStats,
       recoveryStats: data.recoveryStats,
       ongoingMissions,
-      upcomingOrbitalEvents,
       updatedAt: now,
       syncedAt: now
+    }
+    if (Array.isArray(upcomingOrbitalEvents)) {
+      doc.upcomingOrbitalEvents = upcomingOrbitalEvents
     }
 
     let existing = null
@@ -3386,10 +3987,10 @@ async function syncSpaceXLaunchStats(forceRefresh = false) {
     if (existing && existing.data) {
       await collection.doc(docId).update({ data: doc })
     } else {
-      await collection.add({ data: { _id: docId, ...doc, createdAt: now } })
+      await collection.add({ data: { _id: docId, upcomingOrbitalEvents: [], ...doc, createdAt: now } })
     }
 
-    return { success: true, message: 'SpaceX数据同步完成', totalLaunches: data.totalLaunches, totalLandings: data.totalLandings, totalReflights: data.totalReflights, upcomingCount: data.upcoming.length, completedCount: data.recentCompleted.length, ongoingCount: ongoingMissions.length, upcomingOrbitalCount: upcomingOrbitalEvents.length }
+    return { success: true, message: 'SpaceX数据同步完成', totalLaunches: data.totalLaunches, totalLandings: data.totalLandings, totalReflights: data.totalReflights, upcomingCount: data.upcoming.length, completedCount: data.recentCompleted.length, ongoingCount: ongoingMissions.length, upcomingOrbitalCount: Array.isArray(upcomingOrbitalEvents) ? upcomingOrbitalEvents.length : -1 }
   } catch (e) {
     return { success: false, error: e.message }
   }
@@ -3711,12 +4312,17 @@ async function cleanExpiredCache() {
     // 清理过期缓存（仅顶层 expireAt 的旧结构文档；当前写入的文档 expireAt 嵌套在 data 内，
     // 本就不会被此查询命中——它们只在同步成功拉到新数据时被覆盖写入，绝不按过期删除，
     // 避免 LL2 限流/同步失败期间把唯一数据源删掉导致客户端整页「数据暂不可用」）。
-    // 核心发射列表（/launches/upcoming/、/launches/previous/ 及其批次文档）显式排除：
-    // 先查出命中的 _id，在内存里过滤掉核心 key，再按 _id 批量删除。
+    // 核心发射列表、机构、资讯列表（events/updates/articles）显式排除：
+    // 存量文档可能仍带旧的 3.5h expireAt，删掉会让「即将发生」等整页空白。
+    // 先查出命中的 _id，在内存里过滤掉受保护 key，再按 _id 批量删除。
     const _ = db.command
     const isCore = (id) => typeof id === 'string' &&
       (id.indexOf('api_cache_/launches/upcoming/') === 0 ||
-       id.indexOf('api_cache_/launches/previous/') === 0)
+       id.indexOf('api_cache_/launches/previous/') === 0 ||
+       id.indexOf('api_cache_/agencies/') === 0 ||
+       id.indexOf('api_cache_/events/upcoming/') === 0 ||
+       id.indexOf('api_cache_/updates/') === 0 ||
+       id.indexOf('api_cache_/articles/') === 0)
 
     const expiredDocs = await db.collection('space_devs_cache')
       .where({ expireAt: _.lt(now) })
@@ -4408,12 +5014,6 @@ function toCOSUrl(relativePath) {
   return `${INSPIRATION_COS_BASE_URL}${encodeURI(key)}`
 }
 
-function toCOSVideoSnapshotUrl(relativePath, second = 1) {
-  const baseUrl = toCOSUrl(relativePath)
-  const t = Number(second) > 0 ? Number(second) : 1
-  return `${baseUrl}?ci-process=snapshot&time=${t}&format=jpg&width=720&height=1280&scaletype=cover`
-}
-
 function normalizeInspirationPath(pathLike) {
   if (typeof pathLike !== 'string' || !pathLike) return pathLike
   return pathLike.replace(new RegExp(INSPIRATION_OLD_DIR, 'g'), INSPIRATION_DIR)
@@ -4432,389 +5032,12 @@ function normalizeInspirationMediaItem(item = {}) {
   return normalized
 }
 
-function extractRelativePathFromCloudFileID(fileID = '') {
-  if (typeof fileID !== 'string' || !fileID.startsWith('cloud://')) return ''
-  const withoutProtocol = fileID.replace(/^cloud:\/\//, '')
-  const slashIndex = withoutProtocol.indexOf('/')
-  if (slashIndex < 0) return ''
-  return withoutProtocol.slice(slashIndex + 1)
-}
-
-function normalizeStorageRelativePath(pathLike = '') {
-  if (typeof pathLike !== 'string') return ''
-  const normalized = normalizeInspirationPath(pathLike).replace(/^\/+/, '')
-  if (normalized.startsWith('cloud://')) {
-    return extractRelativePathFromCloudFileID(normalized)
-  }
-  if (normalized.startsWith(INSPIRATION_COS_BASE_URL)) {
-    const raw = normalized.slice(INSPIRATION_COS_BASE_URL.length)
-    try { return decodeURI(raw) } catch (e) { return raw }
-  }
-  return normalized
-}
-
-function isInspirationStoragePath(pathLike = '') {
-  const rel = normalizeStorageRelativePath(pathLike)
-  return rel.startsWith(`${INSPIRATION_DIR}/`)
-}
-
-function getFileExt(pathLike = '') {
-  const rel = normalizeStorageRelativePath(pathLike)
-  const dotIndex = rel.lastIndexOf('.')
-  if (dotIndex < 0) return ''
-  return rel.slice(dotIndex + 1).toLowerCase()
-}
-
-function parseInspirationFilesFromEvent(event = {}) {
-  const bucketLikeList = []
-
-  if (Array.isArray(event.files)) bucketLikeList.push(...event.files)
-  if (Array.isArray(event.fileList)) bucketLikeList.push(...event.fileList)
-  if (Array.isArray(event.storageFiles)) bucketLikeList.push(...event.storageFiles)
-
-  const records = []
-  if (Array.isArray(event.records)) records.push(...event.records)
-  if (Array.isArray(event.Records)) records.push(...event.Records)
-
-  records.forEach((record) => {
-    bucketLikeList.push(record)
-    if (record && record.cos) bucketLikeList.push(record.cos)
-    if (record && record.file) bucketLikeList.push(record.file)
-  })
-
-  return bucketLikeList
-    .map((item) => {
-      if (typeof item === 'string') {
-        return {
-          fileID: item,
-          path: item,
-          createdAt: Date.now()
-        }
-      }
-
-      const fileID = item.fileID || item.fileid || item.cloudPath || item.path || item.key || ''
-      const path = item.path || item.cloudPath || item.key || fileID || ''
-      const createdAt = Number(item.createdAt || item.createTime || item.uploadedAt || item.timestamp || Date.now())
-      return { fileID, path, createdAt }
-    })
-    .map((item) => ({
-      ...item,
-      fileID: normalizeInspirationPath(item.fileID),
-      path: normalizeStorageRelativePath(item.path || item.fileID)
-    }))
-    .filter((item) => !!item.path && isInspirationStoragePath(item.path))
-}
-
-function buildInspirationFeedDocFromFile(file, index) {
-  const relativePath = normalizeStorageRelativePath(file.path || file.fileID)
-  const ext = getFileExt(relativePath)
-  const filename = relativePath.split('/').pop() || `media_${index + 1}`
-  const baseName = filename.replace(/\.[^.]+$/, '')
-  const isImage = INSPIRATION_ALLOWED_IMAGE_EXT.has(ext)
-
-  if (!isImage) return null
-
-  const fileID = toCOSUrl(relativePath)
-  const createdAt = Number(file.createdAt) || Date.now()
-  const coverFileID = fileID
-
-  return {
-    type: 'image',
-    fileID,
-    coverFileID,
-    previewImages: [coverFileID],
-    title: baseName,
-    desc: '来自云存储灵感流照片集',
-    aspectRatio: 1,
-    weight: Math.max(1, 1000000 - index),
-    order: index + 1,
-    enabled: true,
-    auditStatus: 'approved',
-    sourceTag: INSPIRATION_SOURCE_TAG,
-    createdAt,
-    updatedAt: Date.now()
-  }
-}
-
-function buildInspirationPlaceholderDoc(index) {
-  const rel = '首页轮播图/轮播图1.jpg'
-  const fileID = toCOSUrl(rel)
-  return {
-    type: 'shop-placeholder',
-    fileID,
-    coverFileID: fileID,
-    previewImages: [fileID],
-    title: `占位 ${index + 1}`,
-    desc: '内容较少，自动补位',
-    aspectRatio: 0.94,
-    weight: 0,
-    order: index + 1,
-    enabled: true,
-    auditStatus: 'approved',
-    sourceTag: INSPIRATION_SOURCE_TAG,
-    createdAt: 0,
-    updatedAt: Date.now()
-  }
-}
-
-function buildInspirationMediaDocId(relativePath = '') {
-  const safe = String(relativePath || '')
-    .replace(/[^a-zA-Z0-9_\-./]/g, '_')
-    .replace(/[./]/g, '_')
-    .slice(0, 80)
-  return `media_feed_media_${safe}`
-}
-
-function parseDeletedInspirationFiles(event = {}) {
-  const deleted = []
-  if (Array.isArray(event.deletedFiles)) deleted.push(...event.deletedFiles)
-  if (Array.isArray(event.removeFiles)) deleted.push(...event.removeFiles)
-  if (Array.isArray(event.deletedFileList)) deleted.push(...event.deletedFileList)
-
-  return deleted
-    .map((item) => {
-      if (typeof item === 'string') return item
-      return item.fileID || item.fileid || item.path || item.cloudPath || item.key || ''
-    })
-    .map((item) => normalizeStorageRelativePath(item))
-    .filter((item) => !!item && isInspirationStoragePath(item))
-}
-
-function parseBucketFromCloudPrefix(cloudPrefix = '') {
-  const normalized = String(cloudPrefix || '').replace(/^cloud:\/\//, '')
-  const slashIndex = normalized.indexOf('/')
-  const host = slashIndex >= 0 ? normalized.slice(0, slashIndex) : normalized
-  // host 格式: envId.bucket-appid
-  const parts = host.split('.')
-  if (parts.length < 2) return ''
-  return parts.slice(1).join('.')
-}
-
 function createCOSClient() {
   return new COS({
     SecretId: process.env.TENCENTCLOUD_SECRETID,
     SecretKey: process.env.TENCENTCLOUD_SECRETKEY,
     SecurityToken: process.env.TENCENTCLOUD_SESSIONTOKEN
   })
-}
-
-async function listAllInspirationFilesFromCOS() {
-  const bucket = INSPIRATION_COS_BUCKET
-  const region = INSPIRATION_COS_REGION
-
-  const cos = createCOSClient()
-  const prefix = `${INSPIRATION_DIR}/`
-  const files = []
-  let marker = ''
-  let listedObjects = 0
-
-  while (true) {
-    const resp = await new Promise((resolve, reject) => {
-      cos.getBucket({
-        Bucket: bucket,
-        Region: region,
-        Prefix: prefix,
-        Marker: marker,
-        MaxKeys: 1000
-      }, (err, data) => {
-        if (err) return reject(err)
-        resolve(data || {})
-      })
-    })
-
-    const contents = Array.isArray(resp.Contents) ? resp.Contents : []
-    listedObjects += contents.length
-
-    contents.forEach((obj) => {
-      const key = normalizeStorageRelativePath(obj.Key || '')
-      if (!isInspirationStoragePath(key)) return
-      files.push({
-        fileID: toCOSUrl(key),
-        path: key,
-        createdAt: Number(new Date(obj.LastModified || Date.now()).getTime())
-      })
-    })
-
-    const isTruncated = String(resp.IsTruncated || 'false') === 'true'
-    if (!isTruncated) break
-    marker = resp.NextMarker || (contents.length ? contents[contents.length - 1].Key : '')
-    if (!marker) break
-  }
-
-  return {
-    files,
-    stats: {
-      source: 'cos',
-      bucket,
-      listedObjects,
-      inspirationObjects: files.length,
-      error: null
-    }
-  }
-}
-
-async function rebuildInspirationMediaFeedFromStorage(event = {}) {
-  const collection = db.collection('media_feed')
-
-  let files = parseInspirationFilesFromEvent(event)
-  const deletedPaths = parseDeletedInspirationFiles(event)
-  let sourceStats = {
-    source: 'event.files',
-    totalAssets: null,
-    enabledAssets: null,
-    inspirationAssets: null
-  }
-
-  // 手动触发未传 files 时，仅从 COS 目录全量扫描（不依赖 media_assets）
-  let autoLoadedFullSnapshot = false
-  if (!files.length) {
-    const fromCOS = await listAllInspirationFilesFromCOS()
-    files = fromCOS.files || []
-    sourceStats = {
-      source: 'cos',
-      totalAssets: null,
-      enabledAssets: null,
-      inspirationAssets: fromCOS.stats ? fromCOS.stats.inspirationObjects : files.length,
-      listedObjects: fromCOS.stats ? fromCOS.stats.listedObjects : files.length,
-      bucket: fromCOS.stats ? fromCOS.stats.bucket : null,
-      cosError: fromCOS.stats ? fromCOS.stats.error : null
-    }
-    autoLoadedFullSnapshot = true
-  }
-
-  // 默认策略：自动拿到全量快照时按全量对齐（清理缺失项）
-  const removeMissing = Object.prototype.hasOwnProperty.call(event, 'removeMissing')
-    ? !!event.removeMissing
-    : autoLoadedFullSnapshot
-
-  const invalidFiles = []
-  const parsedDocs = files
-    .sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0))
-    .map((file, index) => {
-      const relativePath = normalizeStorageRelativePath(file.path || file.fileID)
-      const ext = getFileExt(relativePath)
-      const doc = buildInspirationFeedDocFromFile(file, index)
-      if (!doc) {
-        invalidFiles.push({
-          path: relativePath,
-          ext,
-          reason: ext ? 'unsupported_extension' : 'missing_extension'
-        })
-        return null
-      }
-      return { relativePath, doc }
-    })
-    .filter(Boolean)
-
-  let upserted = 0
-  for (const item of parsedDocs) {
-    const docId = buildInspirationMediaDocId(item.relativePath)
-    const payload = {
-      ...item.doc,
-      sourceTag: INSPIRATION_SOURCE_TAG,
-      updatedAt: Date.now()
-    }
-    await collection.doc(docId).set({ data: payload })
-    upserted++
-  }
-
-  let removed = 0
-  for (const relativePath of deletedPaths) {
-    const docId = buildInspirationMediaDocId(relativePath)
-    try {
-      await collection.doc(docId).remove()
-      removed++
-    } catch (e) {}
-  }
-
-  if (removeMissing && parsedDocs.length) {
-    const incomingSet = new Set(parsedDocs.map((item) => item.relativePath))
-    const existing = await fetchCollectionDocs('media_feed', { sourceTag: INSPIRATION_SOURCE_TAG })
-    const existingMedia = existing.filter((row) => row.type === 'image' || row.type === 'video')
-
-    for (const row of existingMedia) {
-      const relativePath = normalizeStorageRelativePath(row.fileID || row.coverFileID || (row.previewImages && row.previewImages[0]) || '')
-      const shouldRemove = !relativePath || !incomingSet.has(relativePath)
-      if (shouldRemove) {
-        try {
-          await collection.doc(row._id).remove()
-          removed++
-        } catch (e) {}
-      }
-    }
-  }
-
-  const latestAll = await fetchCollectionDocs('media_feed', { sourceTag: INSPIRATION_SOURCE_TAG })
-  const allMediaRows = latestAll
-    .filter((row) => row.type === 'image' || row.type === 'video')
-    .sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0))
-
-  // 去重：同一 relativePath 只保留最新一条，删除历史重复记录
-  const seenPathSet = new Set()
-  const mediaRows = []
-  for (const row of allMediaRows) {
-    const relativePath = normalizeStorageRelativePath(row.fileID || row.coverFileID || (row.previewImages && row.previewImages[0]) || '')
-    const dedupeKey = relativePath || row._id
-    if (!seenPathSet.has(dedupeKey)) {
-      seenPathSet.add(dedupeKey)
-      mediaRows.push(row)
-      continue
-    }
-
-    try {
-      await collection.doc(row._id).remove()
-      removed++
-    } catch (e) {}
-  }
-
-  for (let i = 0; i < mediaRows.length; i++) {
-    const row = mediaRows[i]
-    await collection.doc(row._id).update({
-      data: {
-        order: i + 1,
-        weight: Math.max(1, 1000000 - i),
-        updatedAt: Date.now()
-      }
-    })
-  }
-
-  const latestAfterOrder = await fetchCollectionDocs('media_feed', { sourceTag: INSPIRATION_SOURCE_TAG })
-  const placeholders = latestAfterOrder.filter((row) => row.type === 'shop-placeholder')
-  const expectedPlaceholderCount = Math.max(0, INSPIRATION_MIN_RENDER_COUNT - mediaRows.length)
-
-  if (placeholders.length > expectedPlaceholderCount) {
-    const extra = placeholders.slice(expectedPlaceholderCount)
-    for (const row of extra) {
-      try {
-        await collection.doc(row._id).remove()
-        removed++
-      } catch (e) {}
-    }
-  }
-
-  for (let i = 0; i < expectedPlaceholderCount; i++) {
-    const docId = `media_feed_placeholder_${i + 1}`
-    const placeholderDoc = buildInspirationPlaceholderDoc(i)
-    placeholderDoc.order = mediaRows.length + i + 1
-    placeholderDoc.updatedAt = Date.now()
-    await collection.doc(docId).set({ data: placeholderDoc })
-  }
-
-  return {
-    success: true,
-    sourceTag: INSPIRATION_SOURCE_TAG,
-    sourceStats,
-    totalInput: files.length,
-    upserted,
-    invalidCount: invalidFiles.length,
-    invalidFiles: invalidFiles.slice(0, 200),
-    deletedInput: deletedPaths.length,
-    validMedia: mediaRows.length,
-    placeholderCount: expectedPlaceholderCount,
-    removed,
-    minRenderCount: INSPIRATION_MIN_RENDER_COUNT,
-    removeMissing
-  }
 }
 
 function buildDefaultMediaAssets() {
@@ -4845,7 +5068,7 @@ function buildDefaultMediaAssets() {
     '火箭配置图/Starship V3 Flight 12.jpg',
     '火箭配置图/Long March 8A CZ-8A_SatNet_LEO-14.jpg',
     '火箭配置图/Long-March-6A-CZ-6A_SatNet_LEO_Group_05.jpg',
-    '火箭配置图/Long March 7A.jpg',
+    '火箭配置图/Long March 7A.png',
     '火箭配置图/LongMarch2C.jpg',
     '火箭配置图/Long_March_3BE.jpg',
     '火箭配置图/Long_March_4B_rocket.jpg',
@@ -5055,103 +5278,6 @@ async function fetchCollectionDocs(collectionName, whereCondition = null) {
   }
 
   return docs
-}
-
-async function repairInspirationPathInCollection(collectionName, sourceTag = 'inspiration') {
-  const collection = db.collection(collectionName)
-  const docs = await fetchCollectionDocs(collectionName, { sourceTag })
-  let updated = 0
-
-  for (const doc of docs) {
-    const payload = normalizeInspirationMediaItem(doc)
-
-    const changed = JSON.stringify({
-      fileID: doc.fileID,
-      coverFileID: doc.coverFileID,
-      previewImages: doc.previewImages,
-      images: doc.images
-    }) !== JSON.stringify({
-      fileID: payload.fileID,
-      coverFileID: payload.coverFileID,
-      previewImages: payload.previewImages,
-      images: payload.images
-    })
-
-    if (!changed) continue
-
-    const updateData = {
-      updatedAt: Date.now()
-    }
-    if (typeof payload.fileID !== 'undefined') updateData.fileID = payload.fileID
-    if (typeof payload.coverFileID !== 'undefined') updateData.coverFileID = payload.coverFileID
-    if (typeof payload.previewImages !== 'undefined') updateData.previewImages = payload.previewImages
-    if (typeof payload.images !== 'undefined') updateData.images = payload.images
-
-    await collection.doc(doc._id).update({
-      data: updateData
-    })
-    updated++
-  }
-
-  return { collectionName, total: docs.length, updated, sourceTag }
-}
-
-async function repairInspirationDataPaths(payload = {}) {
-  const sourceTag = payload && payload.sourceTag ? String(payload.sourceTag) : 'inspiration'
-  const mediaFeed = await repairInspirationPathInCollection('media_feed', sourceTag)
-
-  return {
-    success: true,
-    sourceTag,
-    oldDir: INSPIRATION_OLD_DIR,
-    newDir: INSPIRATION_DIR,
-    mediaFeed,
-    shopFeed: {
-      skipped: true,
-      reason: 'shop_feed_manual_only'
-    }
-  }
-}
-
-async function exportInspirationTemplates(payload = {}) {
-  const sourceTag = payload && payload.sourceTag ? String(payload.sourceTag) : 'inspiration'
-  const includeCurrent = payload && payload.includeCurrent !== false
-
-  const templates = {
-    assets: buildDefaultMediaAssets(),
-    mediaFeed: buildDefaultMediaFeed(),
-    shopFeed: buildDefaultShopFeed()
-  }
-
-  if (!includeCurrent) {
-    return {
-      success: true,
-      sourceTag,
-      templates
-    }
-  }
-
-  const [currentAssets, currentMediaFeed, currentShopFeed] = await Promise.all([
-    fetchCollectionDocs('media_assets', { sourceTag }),
-    fetchCollectionDocs('media_feed', { sourceTag }),
-    fetchCollectionDocs('shop_feed', { sourceTag })
-  ])
-
-  return {
-    success: true,
-    sourceTag,
-    templates,
-    current: {
-      assets: currentAssets,
-      mediaFeed: currentMediaFeed,
-      shopFeed: currentShopFeed
-    },
-    usage: {
-      action: 'syncCloudInspirationData',
-      requiredFields: ['action'],
-      optionalFields: ['assets', 'mediaFeed', 'shopFeed', 'sourceTag', 'pruneMissingAssets', 'pruneMissingFeeds']
-    }
-  }
 }
 
 /**
@@ -5510,66 +5636,17 @@ function _voteLatestLaunchTime(found, vote) {
   return (found && found.net) || (found && found.window_start) || (vote && vote.launchTime) || ''
 }
 
-/** 成败竞猜：按发射终态结算（成功/部署→success；失败/部分失败/取消等→failure） */
+/** 成败竞猜：仅真实终态结算（Hold/scrub/推迟不结算） */
 function _voteComputeOutcomeResult(found) {
-  if (!found || !found.status) return ''
-  const id = Number(found.status.id) || 0
-  const abbrev = String(found.status.abbrev || '').toLowerCase()
-  const name = String(found.status.name || '').toLowerCase()
-  // LL2: 3 success, 4 failure, 7 partial failure, 9 payload deployed
-  if (id === 3 || id === 9) return 'success'
-  if (id === 4 || id === 7) return 'failure'
-  if (/payload\s*deployed|success/.test(abbrev + ' ' + name) && !/partial|failure|fail/.test(abbrev + ' ' + name)) {
-    return 'success'
-  }
-  if (/partial\s*failure|failure|fail|cancel|scrub|abort/.test(abbrev + ' ' + name)) {
-    return 'failure'
-  }
-  return ''
+  return outcomeVoteSettle.computeOutcomeResultFromFound(found)
 }
 
 /**
- * 成败竞猜结算：关盘 + 按终态揭晓（不走改期轮次）
- * @returns {{ kind: 'none'|'lock'|'settle', patch?: object }}
+ * 成败竞猜结算：关盘 / 改期解封 / 按终态揭晓（不走改期轮次）
+ * @returns {{ kind: 'none'|'reopen'|'lock'|'settle', patch?: object }}
  */
 function _applySettleOutcomeVotePass(vote, found, opts) {
-  const nowMs = (opts && opts.nowMs) || Date.now()
-  const THIRTY_MIN = (opts && opts.THIRTY_MIN) || _VOTE_THIRTY_MIN
-
-  if (!vote || !vote.launchId) return { kind: 'none' }
-  if (vote.result === 'success' || vote.result === 'failure') return { kind: 'none' }
-
-  const latestTime = _voteLatestLaunchTime(found, vote)
-
-  if (!vote.votingClosed && !vote.result && (latestTime || vote.launchTime)) {
-    const lt = _voteParseTimeMs(latestTime || vote.launchTime)
-    if (lt > 0 && lt - nowMs < THIRTY_MIN) {
-      return {
-        kind: 'lock',
-        patch: {
-          votingClosed: true,
-          lockedLaunchTime: latestTime || vote.launchTime,
-          updatedAt: new Date().toISOString()
-        }
-      }
-    }
-  }
-
-  const outcome = _voteComputeOutcomeResult(found)
-  if (outcome) {
-    return {
-      kind: 'settle',
-      patch: {
-        result: outcome,
-        resultNote: '系统按发射状态自动结算',
-        votingClosed: true,
-        settledAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      }
-    }
-  }
-
-  return { kind: 'none' }
+  return outcomeVoteSettle.applySettleOutcomeVotePass(vote, found, opts)
 }
 
 /**
@@ -6019,13 +6096,34 @@ async function settleVotes() {
       allVotes = { data: rows.slice(0, 50) }
     }
     const pendingCount = (allVotes.data && allVotes.data.length) || 0
-    if (!pendingCount) return { locked: 0, settled: 0, reopened: 0, cacheLaunchCount: 0, pendingQueried: 0 }
-
     const cachedLaunches = await _loadCachedLaunchesForVoteOps()
     const findLaunch = (launchId) => cachedLaunches.find(l => l && String(l.id) === String(launchId))
     const settleOpts = { nowMs: nowMs, THIRTY_MIN: THIRTY_MIN, SETTLE_AFTER_LOCK_MS: SETTLE_AFTER_LOCK_MS, NET_DONE_GRACE_MS: NET_DONE_GRACE_MS }
 
-    for (const vote of allVotes.data) {
+    const workList = (allVotes.data || []).slice()
+    // 补扫已误结算的成败票：即使当前没有 pending，也要跑（否则 early-return 永远清不掉脏 result）
+    try {
+      const outcomeSettled = await db.collection(col).where({
+        voteType: 'outcome',
+        result: _.in(['success', 'failure'])
+      }).limit(30).get()
+      const seen = {}
+      workList.forEach(function (v) { if (v && v._id) seen[v._id] = true })
+      ;(outcomeSettled.data || []).forEach(function (v) {
+        if (!v || !v._id || seen[v._id]) return
+        const found = findLaunch(v.launchId)
+        if (!found || !found.status) return
+        if (_voteComputeOutcomeResult(found)) return
+        workList.push(v)
+        seen[v._id] = true
+      })
+    } catch (healErr) {}
+
+    if (!workList.length) {
+      return { locked: 0, settled: 0, reopened: 0, cacheLaunchCount: cachedLaunches.length, pendingQueried: pendingCount }
+    }
+
+    for (const vote of workList) {
       if (!vote.launchId) continue
 
       const found = findLaunch(vote.launchId)
@@ -6033,7 +6131,7 @@ async function settleVotes() {
       if (pass.kind === 'none' || !pass.patch) continue
 
       await db.collection(col).doc(vote._id).update({ data: pass.patch })
-      if (pass.kind === 'postpone') reopened++
+      if (pass.kind === 'postpone' || pass.kind === 'reopen') reopened++
       else if (pass.kind === 'lock') locked++
       else if (pass.kind === 'settle' || pass.kind === 'legacy_settle') settled++
     }
@@ -6368,72 +6466,6 @@ exports.main = async (event, context) => {
         init: initResult,
         timestamp: Date.now()
       }
-    } else if (action === 'syncCloudInspirationData') {
-      // 一步执行：先 syncMediaAssets，再导入 media_feed（shop_feed 手动维护，不自动写入）
-      const initResult = await initAppCollectionsAndSeed({
-        assets: event.assets,
-        mediaFeed: event.mediaFeed,
-        shopFeed: event.shopFeed,
-        sourceTag: event.sourceTag,
-        pruneMissingAssets: !!event.pruneMissingAssets,
-        pruneMissingFeeds: !!event.pruneMissingFeeds,
-        preserveExistingAssets: event && Object.prototype.hasOwnProperty.call(event, 'preserveExistingAssets')
-          ? !!event.preserveExistingAssets
-          : true
-      })
-      return {
-        success: !!(initResult && initResult.success),
-        buildTag: BUILD_TAG,
-        sequence: ['syncMediaAssets', 'import:media_feed'],
-        init: initResult,
-        timestamp: Date.now()
-      }
-    } else if (action === 'repairInspirationPaths') {
-      const repairResult = await repairInspirationDataPaths({
-        sourceTag: event.sourceTag
-      })
-      return {
-        success: !!(repairResult && repairResult.success),
-        buildTag: BUILD_TAG,
-        repair: repairResult,
-        timestamp: Date.now()
-      }
-    } else if (action === 'rebuildInspirationFeed') {
-      const rebuildResult = await rebuildInspirationMediaFeedFromStorage(event)
-      return {
-        success: !!(rebuildResult && rebuildResult.success),
-        buildTag: BUILD_TAG,
-        rebuild: rebuildResult,
-        timestamp: Date.now()
-      }
-    } else if (action === 'syncInspirationOnly') {
-      // 一键执行灵感流同步：仅从 COS 目录全量扫描并重建 media_feed
-      const rebuildResult = await rebuildInspirationMediaFeedFromStorage(event)
-      return {
-        success: !!(rebuildResult && rebuildResult.success),
-        buildTag: BUILD_TAG,
-        rebuild: rebuildResult,
-        timestamp: Date.now()
-      }
-    } else if (action === 'storageEventSyncInspiration') {
-      const rebuildResult = await rebuildInspirationMediaFeedFromStorage(event)
-      return {
-        success: !!(rebuildResult && rebuildResult.success),
-        buildTag: BUILD_TAG,
-        rebuild: rebuildResult,
-        timestamp: Date.now()
-      }
-    } else if (action === 'exportInspirationTemplates') {
-      const exportResult = await exportInspirationTemplates({
-        sourceTag: event.sourceTag,
-        includeCurrent: event.includeCurrent
-      })
-      return {
-        success: !!(exportResult && exportResult.success),
-        buildTag: BUILD_TAG,
-        export: exportResult,
-        timestamp: Date.now()
-      }
     } else {
       // 默认同步常用端点 + expedition详情 + 统计 + 封路通知 + SpaceX统计 + 助推器族谱 + 灵感流
       // SpaceX 官网统计放在最前：仅两次轻量 JSON 请求，若排在 LL2 全量链路之后，
@@ -6466,6 +6498,14 @@ exports.main = async (event, context) => {
         } catch (e) { /* 保留首次结果 */ }
       }
 
+      // events 已落库后回填「即将进行的在轨任务」（SpaceX 步骤在前时缓存可能仍空）
+      let orbitalEventsPatch = null
+      try {
+        orbitalEventsPatch = await patchUpcomingOrbitalEventsFromEventsCache(8)
+      } catch (e) {
+        orbitalEventsPatch = { success: false, error: e.message }
+      }
+
       // 各步骤独立兜底：任一失败不阻断后续同步
       let statsResult = null
       try {
@@ -6496,13 +6536,6 @@ exports.main = async (event, context) => {
         crossValidateResult = { success: false, error: e.message }
       }
 
-      let inspirationResult = null
-      try {
-        inspirationResult = await rebuildInspirationMediaFeedFromStorage({})
-      } catch (e) {
-        inspirationResult = { success: false, error: e.message }
-      }
-      
       // 所有数据同步完成后再清理过期缓存，避免新数据写入失败时旧缓存也被删
       await cleanExpiredCache().catch(() => {})
 
@@ -6514,9 +6547,9 @@ exports.main = async (event, context) => {
         stats: statsResult,
         roadClosure: roadClosureResult,
         spacexStats: spacexStatsResult,
+        orbitalEventsPatch,
         crossValidate: crossValidateResult,
         boosters: boosterResult,
-        inspiration: inspirationResult,
         timestamp: Date.now()
       }
     }

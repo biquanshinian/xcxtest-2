@@ -12,7 +12,15 @@ if exist "%LINK_VBS%" (
   echo Startup launcher not found - skip.
 )
 
+echo Removing watchdog scheduled task if present...
+schtasks /Delete /TN "ReplayFetcherWatchdog" /F >nul 2>&1
+if errorlevel 1 (
+  echo Watchdog task not found - skip.
+) else (
+  echo Removed scheduled task: ReplayFetcherWatchdog
+)
+
 echo.
 echo Autostart removed.
 echo To stop a running agent, end the related node.exe in Task Manager.
-pause
+if /I not "%~1"=="-NoPause" pause

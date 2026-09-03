@@ -1,9 +1,9 @@
 .container {
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: linear-gradient(180deg, #0B0C0E 0%, #121418 100%);
 }
 
 .content-scroll {
-  padding: 0 30rpx;
+  padding: 0 32rpx;
 }
 
 /* 空状态 */
@@ -27,7 +27,7 @@
 
 .empty-hint {
   font-size: 26rpx;
-  color: #8B92B8;
+  color: #8E8E93;
 }
 
 /* 用户昵称编辑 */
@@ -83,23 +83,23 @@
   width: 24rpx;
   height: 24rpx;
   border-radius: 50%;
-  background: #4FC3F7;
+  background: #3B82F6;
   flex-shrink: 0;
   margin-top: 8rpx;
 }
 
 .timeline-dot--check { background: #81C784; }
-.timeline-dot--brain { background: #CE93D8; }
+.timeline-dot--brain { background: #3B82F6; }
 .timeline-dot--bell { background: #FFD54F; }
-.timeline-dot--share { background: #4FC3F7; }
+.timeline-dot--share { background: #3B82F6; }
 .timeline-dot--live { background: #FF7043; }
 .timeline-dot--moon { background: #B0BEC5; }
 .timeline-dot--fullmoon { background: #ECEFF1; }
-.timeline-dot--trophy { background: #FFD700; }
-.timeline-dot--owl { background: #7E57C2; }
+.timeline-dot--trophy { background: #FF9500; }
+.timeline-dot--owl { background: #3B82F6; }
 .timeline-dot--satellite { background: #26C6DA; }
 .timeline-dot--book { background: #66BB6A; }
-.timeline-dot--diamond { background: #AB47BC; }
+.timeline-dot--diamond { background: #3B82F6; }
 .timeline-dot--news { background: #42A5F5; }
 .timeline-dot--rocket { background: #EF5350; }
 
@@ -115,8 +115,7 @@
   padding: 24rpx 28rpx;
   background: rgba(255, 255, 255, 0.05);
   border-radius: 16rpx;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  margin-bottom: 20rpx;
+  margin-bottom: 24rpx;
 }
 
 .timeline-card-header {
@@ -134,18 +133,18 @@
 
 .timeline-time {
   font-size: 22rpx;
-  color: #8B92B8;
+  color: #8E8E93;
 }
 
 .timeline-desc {
   font-size: 24rpx;
-  color: #A0A8D0;
+  color: #8E8E93;
   display: block;
 }
 
 .timeline-meta {
   font-size: 22rpx;
-  color: #4FC3F7;
+  color: #3B82F6;
   margin-top: 8rpx;
   display: block;
 }
@@ -158,7 +157,7 @@
   right: 0;
   padding: 24rpx 30rpx;
   padding-bottom: calc(24rpx + env(safe-area-inset-bottom));
-  background: linear-gradient(transparent, rgba(10, 6, 20, 0.95) 30%);
+  background: linear-gradient(transparent, rgba(11, 12, 14, 0.95) 30%);
 }
 
 .poster-btn {
@@ -166,7 +165,7 @@
   height: 96rpx;
   line-height: 96rpx;
   text-align: center;
-  background: linear-gradient(135deg, #007AFF, #5856D6);
+  background: linear-gradient(135deg, #2563EB, #3B82F6);
   color: #FFFFFF;
   font-size: 30rpx;
   font-weight: 600;
@@ -226,8 +225,6 @@
 }
 .theme-light .timeline-card {
   background: var(--color-bg-card);
-  border-color: var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 .theme-light .timeline-name {
   color: var(--color-text-primary);

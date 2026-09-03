@@ -109,17 +109,23 @@ function formatLaunchTime(isoTime) {
 
   try {
 
+    // 固定北京时间（UTC+8），与云端 sendLaunchReminder.formatLaunchTimeStr 同口径；
+    // 设备本地时区渲染会导致订阅入库文案与云端 reconcile 覆盖后短暂不一致
     var d = new Date(isoTime)
 
-    var y = d.getFullYear()
+    if (!(d.getTime() > 0)) return '时间未知'
 
-    var m = String(d.getMonth() + 1).padStart(2, '0')
+    var bj = new Date(d.getTime() + 8 * 60 * 60 * 1000)
 
-    var day = String(d.getDate()).padStart(2, '0')
+    var y = bj.getUTCFullYear()
 
-    var h = String(d.getHours()).padStart(2, '0')
+    var m = String(bj.getUTCMonth() + 1).padStart(2, '0')
 
-    var min = String(d.getMinutes()).padStart(2, '0')
+    var day = String(bj.getUTCDate()).padStart(2, '0')
+
+    var h = String(bj.getUTCHours()).padStart(2, '0')
+
+    var min = String(bj.getUTCMinutes()).padStart(2, '0')
 
     return y + '年' + m + '月' + day + '日 ' + h + ':' + min
 
@@ -208,169 +214,192 @@ function requestSubscribePermission() {
 
 }
 
+/**
+ * 仅订阅「任务完成提醒」：服务号已覆盖发射前提醒时使用。
+ * @returns {Promise<boolean>}
+ */
+function requestResultSubscribePermission() {
+  return new Promise(function (resolve) {
+    wx.requestSubscribeMessage({
+      tmplIds: [RESULT_TEMPLATE_ID],
+      success: function (res) {
+        var status = res && res[RESULT_TEMPLATE_ID]
+        if (status === 'ban') {
+          wx.showToast({ title: '结果通知模板暂不可用', icon: 'none' })
+          resolve(false)
+          return
+        }
+        if (status === 'filter') {
+          wx.showToast({ title: '模板配置冲突', icon: 'none' })
+          resolve(false)
+          return
+        }
+        resolve(isTemplateSubscribed(res, RESULT_TEMPLATE_ID))
+      },
+      fail: function () {
+        resolve(false)
+      }
+    })
+  })
+}
 
-
-async function subscribeLaunch(mission) {
-
-  if (!mission || !mission.id) {
-
-    wx.showToast({ title: '任务数据无效', icon: 'none' })
-
-    return false
-
+function buildRecoveryText(mission) {
+  var recoveryText = '一次性'
+  if (mission && mission.isRecoverableThisMission) {
+    var bi = mission.boosterInfo
+    if (bi && bi.landingType === 'RTLS') recoveryText = '陆地回收 (RTLS)'
+    else if (bi && bi.landingType === 'ASDS') recoveryText = '海上回收 (ASDS)'
+    else recoveryText = '可回收'
   }
+  return recoveryText.substring(0, 20)
+}
 
-
-
-  var perm = await requestSubscribePermission()
-
-  if (!perm || !perm.reminder) {
-
-    wx.showToast({ title: '需要授权才能接收发射与结果通知', icon: 'none' })
-
-    return false
-
+async function postLaunchSubscription(mission, options) {
+  var opts = options || {}
+  var launchTime = mission.launchTime || mission.windowStart || ''
+  var notifyMinutesBefore = 30
+  var notifyAt = 0
+  if (launchTime) {
+    notifyAt = new Date(launchTime).getTime() - notifyMinutesBefore * 60 * 1000
   }
+  return wx.cloud.callFunction({
+    name: 'adminGateway',
+    data: {
+      path: '/subscribe',
+      method: 'POST',
+      body: {
+        missionId: String(mission.id),
+        missionName: (mission.missionName || mission.name || '未知任务').substring(0, 20),
+        rocketName: (mission.rocketName || '未知火箭').substring(0, 20),
+        launchTime: launchTime,
+        launchTimeFormatted: formatLaunchTime(launchTime),
+        recoveryMethod: buildRecoveryText(mission),
+        notifyAt: notifyAt,
+        notifyLeadMinutes: notifyMinutesBefore,
+        templateId: TEMPLATE_ID,
+        resultTemplateId: RESULT_TEMPLATE_ID,
+        resultQuota: !!opts.resultQuota,
+        reminderViaOa: !!opts.reminderViaOa
+      }
+    }
+  })
+}
 
+/**
+ * 服务号已覆盖发射前与结果通知：不再弹小程序结果模板。
+ */
+async function subscribeResultOnlyViaOa(mission) {
+  wx.showToast({ title: '服务号已覆盖发射前与结果通知', icon: 'none' })
+  return true
+}
 
-
-  if (!wx.cloud || !wx.cloud.callFunction) {
-
-    wx.showToast({ title: '云能力不可用', icon: 'none' })
-
-    return false
-
-  }
-
-
+/**
+ * 偏好保存：合并 prefsPatch + 弹双模板，accept 后与偏好字段一次写入云端（避免先 save 再 grant 竞态丢额度）。
+ * OA 就绪则只存偏好、不弹窗（由服务号 B 通道覆盖）。
+ * @param {object} [prefsPatch] 如 { rocketTypes, launchSites, notifyMinutes }
+ * @returns {Promise<{ oaReady: boolean, reminder: boolean, result: boolean }>}
+ */
+async function requestPreferenceSubscribeGrant(prefsPatch) {
+  var ug = require('./user-growth.js')
+  var prefs = Object.assign({}, ug.loadPreferences() || {}, prefsPatch || {})
 
   try {
-
-    var launchTime = mission.launchTime || mission.windowStart || ''
-
-    var notifyMinutesBefore = 30
-
-    var notifyAt = 0
-
-    if (launchTime) {
-
-      notifyAt = new Date(launchTime).getTime() - notifyMinutesBefore * 60 * 1000
-
-    }
-
-
-
-    var recoveryText = '一次性'
-
-    if (mission.isRecoverableThisMission) {
-
-      var bi = mission.boosterInfo
-
-      if (bi && bi.landingType === 'RTLS') recoveryText = '陆地回收 (RTLS)'
-
-      else if (bi && bi.landingType === 'ASDS') recoveryText = '海上回收 (ASDS)'
-
-      else recoveryText = '可回收'
-
-    }
-
-
-
-    var res = await wx.cloud.callFunction({
-
-      name: 'adminGateway',
-
-      data: {
-
-        path: '/subscribe',
-
-        method: 'POST',
-
-        body: {
-
-          missionId: String(mission.id),
-
-          missionName: (mission.missionName || mission.name || '未知任务').substring(0, 20),
-
-          rocketName: (mission.rocketName || '未知火箭').substring(0, 20),
-
-          launchTime: launchTime,
-
-          launchTimeFormatted: formatLaunchTime(launchTime),
-
-          recoveryMethod: recoveryText.substring(0, 20),
-
-          notifyAt: notifyAt,
-
-          notifyLeadMinutes: notifyMinutesBefore,
-
-          templateId: TEMPLATE_ID,
-
-          resultTemplateId: RESULT_TEMPLATE_ID,
-
-          resultQuota: !!(perm && perm.result)
-
-        }
-
+    var oaAlert = require('./oa-alert.js')
+    if (oaAlert && typeof oaAlert.isOaAlertReady === 'function') {
+      var ready = await oaAlert.isOaAlertReady()
+      if (ready) {
+        ug.savePreferences(prefs)
+        return { oaReady: true, reminder: false, result: false }
       }
-
-    })
-
-
-
-    if (res.result && res.result.code === 0) {
-
-      saveLocalSubscription(mission.id, mission)
-
-      getRecordMilestone()('FIRST_SUBSCRIBE', { missionName: mission.missionName || mission.name })
-
-      // 结果模板未勾选时如实提示，避免误以为已订阅「任务完成提醒」
-      var resultGranted = !!(perm && perm.result)
-
-      if (res.result.data && res.result.data.duplicate) {
-
-        wx.showToast({
-
-          title: res.result.data.updated
-            ? '提醒信息已同步'
-            : (resultGranted ? '已设置过提醒（含结果通知）' : '已设置过提醒（结果通知未授权）'),
-
-          icon: 'none'
-
-        })
-
-      } else {
-
-        if (resultGranted) {
-
-          wx.showToast({ title: '提醒已开启（含结果通知）', icon: 'success' })
-
-        } else {
-
-          wx.showToast({ title: '提醒已开启（结果通知未授权）', icon: 'none' })
-
-        }
-
-      }
-
-      return true
-
     }
+  } catch (oaErr) { /* 回退弹窗 */ }
+
+  var perm = await requestSubscribePermission()
+  var reminder = !!(perm && perm.reminder)
+  var result = !!(perm && perm.result)
+  if (reminder) prefs.mpReminderGrantedAt = Date.now()
+  if (result) prefs.mpResultCreditsDelta = 1
+  // 无论是否 accept，都落盘偏好字段；有 accept 时同一次写入带上额度 delta
+  ug.savePreferences(prefs)
+  return { oaReady: false, reminder: reminder, result: result }
+}
 
 
 
-    wx.showToast({ title: '设置提醒失败', icon: 'none' })
+/**
+ * 星问等场景自动开提醒：结构化结果；quiet 时不弹 toast（由成功卡承接反馈）
+ * @returns {Promise<{ ok: boolean, status: 'success'|'already'|'oa_ready'|'denied'|'failed' }>}
+ */
+async function subscribeLaunchForChat(mission, options) {
+  var quiet = !!(options && options.quiet)
+  var toast = function (title, icon) {
+    if (quiet) return
+    try { wx.showToast({ title: title, icon: icon || 'none' }) } catch (e) {}
+  }
+  if (!mission || !mission.id) {
+    toast('任务数据无效')
+    return { ok: false, status: 'failed' }
+  }
+  try {
+    var oaAlert = require('./oa-alert.js')
+    if (oaAlert && typeof oaAlert.isOaAlertReady === 'function') {
+      var oaReady = await oaAlert.isOaAlertReady()
+      if (oaReady) {
+        if (!quiet) {
+          try { await subscribeResultOnlyViaOa(mission) } catch (e) {}
+        }
+        return { ok: true, status: 'oa_ready' }
+      }
+    }
+  } catch (oaErr) { /* 回退 A 通道 */ }
 
-    return false
-
-  } catch (error) {
-
-    wx.showToast({ title: '设置提醒失败', icon: 'none' })
-
-    return false
-
+  if (isSubscribed(mission.id)) {
+    return { ok: true, status: 'already' }
   }
 
+  var perm = await requestSubscribePermission()
+  if (!perm || !perm.reminder) {
+    toast('需要授权才能接收发射与结果通知')
+    return { ok: false, status: 'denied' }
+  }
+  if (!wx.cloud || !wx.cloud.callFunction) {
+    toast('云能力不可用')
+    return { ok: false, status: 'failed' }
+  }
+  try {
+    var res = await postLaunchSubscription(mission, {
+      resultQuota: !!(perm && perm.result),
+      reminderViaOa: false
+    })
+    if (res.result && res.result.code === 0) {
+      saveLocalSubscription(mission.id, mission)
+      getRecordMilestone()('FIRST_SUBSCRIBE', { missionName: mission.missionName || mission.name })
+      var resultGranted = !!(perm && perm.result)
+      var duplicate = !!(res.result.data && res.result.data.duplicate)
+      if (!quiet) {
+        if (duplicate) {
+          toast(res.result.data.updated
+            ? '提醒信息已同步'
+            : (resultGranted ? '已设置过提醒（含结果通知）' : '已设置过提醒（结果通知未授权）'))
+        } else if (resultGranted) {
+          toast('提醒已开启（含结果通知）', 'success')
+        } else {
+          toast('提醒已开启（结果通知未授权）')
+        }
+      }
+      return { ok: true, status: duplicate ? 'already' : 'success' }
+    }
+    toast('设置提醒失败')
+    return { ok: false, status: 'failed' }
+  } catch (error) {
+    toast('设置提醒失败')
+    return { ok: false, status: 'failed' }
+  }
+}
+
+async function subscribeLaunch(mission) {
+  var result = await subscribeLaunchForChat(mission, { quiet: false })
+  return !!(result && result.ok)
 }
 
 
@@ -381,6 +410,13 @@ function saveLocalSubscription(missionId, missionInfo) {
 
     var stored = { ..._loadSubscribedStore() }
 
+    var rocketNameEn = ''
+    if (missionInfo) {
+      if (missionInfo.rocketNameEn) rocketNameEn = String(missionInfo.rocketNameEn)
+      else if (missionInfo.rocketName && !/[\u4e00-\u9fff]/.test(String(missionInfo.rocketName))) {
+        rocketNameEn = String(missionInfo.rocketName)
+      }
+    }
     stored[String(missionId)] = {
 
       ts: Date.now(),
@@ -389,7 +425,11 @@ function saveLocalSubscription(missionId, missionInfo) {
 
       rocket: (missionInfo && missionInfo.rocketName) || '',
 
+      rocketNameEn: rocketNameEn || (missionInfo && missionInfo.rocketNameEn) || '',
+
       rocketImage: (missionInfo && missionInfo.rocketImage) || '',
+
+      rocketConfiguration: (missionInfo && missionInfo.rocketConfiguration) || null,
 
       launchTime: (missionInfo && (missionInfo.launchTime || missionInfo.windowStart)) || '',
 
@@ -455,11 +495,31 @@ function getSubscribedMissions() {
 
       if (typeof entry === 'number') {
 
-        list.push({ id: id, ts: entry, name: '发射任务 #' + id, rocket: '', rocketImage: '', launchTime: '', pad: '' })
+        list.push({
+          id: id,
+          ts: entry,
+          name: '发射任务 #' + id,
+          rocket: '',
+          rocketNameEn: '',
+          rocketImage: '',
+          rocketConfiguration: null,
+          launchTime: '',
+          pad: ''
+        })
 
       } else if (entry && typeof entry === 'object') {
 
-        list.push({ id: id, ts: entry.ts || 0, name: entry.name || '', rocket: entry.rocket || '', rocketImage: entry.rocketImage || '', launchTime: entry.launchTime || '', pad: entry.pad || '' })
+        list.push({
+          id: id,
+          ts: entry.ts || 0,
+          name: entry.name || '',
+          rocket: entry.rocket || '',
+          rocketNameEn: entry.rocketNameEn || '',
+          rocketImage: entry.rocketImage || '',
+          rocketConfiguration: entry.rocketConfiguration || null,
+          launchTime: entry.launchTime || '',
+          pad: entry.pad || ''
+        })
 
       }
 
@@ -517,15 +577,20 @@ async function syncSubscribedMissions() {
 
       if (needUpdate) {
 
+        var cloudRocket = item.rocketName || (local && local.rocket) || ''
         stored[id] = {
 
           ts: (local && typeof local === 'object' && local.ts) || (typeof local === 'number' ? local : Date.now()),
 
           name: item.missionName || (local && local.name) || '',
 
-          rocket: item.rocketName || (local && local.rocket) || '',
+          rocket: cloudRocket,
+
+          rocketNameEn: (local && local.rocketNameEn) || (!/[\u4e00-\u9fff]/.test(String(cloudRocket || '')) ? cloudRocket : '') || '',
 
           rocketImage: (local && local.rocketImage) || '',
+
+          rocketConfiguration: (local && local.rocketConfiguration) || null,
 
           launchTime: item.launchTime || (local && local.launchTime) || '',
 
@@ -678,6 +743,8 @@ module.exports = {
 
   subscribeLaunch: subscribeLaunch,
 
+  subscribeLaunchForChat: subscribeLaunchForChat,
+
   unsubscribeLaunch: unsubscribeLaunch,
 
   isSubscribed: isSubscribed,
@@ -695,6 +762,10 @@ module.exports = {
   syncSubscriptionState: syncSubscriptionState,
 
   requestSubscribePermission: requestSubscribePermission,
+
+  requestResultSubscribePermission: requestResultSubscribePermission,
+
+  requestPreferenceSubscribeGrant: requestPreferenceSubscribeGrant,
 
   warmSubscribedStoreSync: warmSubscribedStoreSync,
 

@@ -19,8 +19,11 @@ const {
   CATEGORY_ZH,
   translateVehicleNotes,
   translateTestName,
-  translateLocation
+  translateLocation,
+  needsMachineNotes,
+  hasEnoughChinese
 } = require('./nsf-hardware-i18n.js')
+const { translateTextsBatch } = require('./translate.js')
 
 const COLLECTION = 'nextspaceflight_hardware_cache'
 const IMAGE_MIRROR_BUDGET_MS = 120 * 1000
@@ -170,12 +173,15 @@ function normalizeTests(rawList) {
     .map((row) => {
       if (!row || typeof row !== 'object' || row.id == null) return null
       const name = String(row.name || '').trim()
+      const notesEn = String(row.notes || '').replace(/\r\n/g, '\n').trim()
       return {
         id: Number(row.id),
         vehicleId: Number(row.starship_vehicle),
         name,
         nameZh: translateTestName(name),
-        notesEn: String(row.notes || '').replace(/\r\n/g, '\n').trim(),
+        notesEn,
+        // 先占位；enrichHardwareI18n 会机翻补齐 / 复用旧缓存
+        notesZh: notesEn && hasEnoughChinese(notesEn) ? notesEn : '',
         date: String(row.date || ''),
         location: String(row.location || '').trim(),
         locationZh: translateLocation(row.location),
@@ -185,6 +191,86 @@ function normalizeTests(rawList) {
     })
     .filter(Boolean)
     .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+}
+
+/**
+ * 对词典未覆盖的载具简介 / 测试备注走混元+TMT 自动汉化。
+ * 英文未变时复用上一轮已落库的 notesZh，避免重复机翻。
+ */
+async function enrichHardwareI18n(vehicles, tests, prevVehicles, prevTests) {
+  const prevVById = {}
+  ;(prevVehicles || []).forEach((v) => {
+    if (v && v.id != null) prevVById[String(v.id)] = v
+  })
+  const prevTById = {}
+  ;(prevTests || []).forEach((t) => {
+    if (t && t.id != null) prevTById[String(t.id)] = t
+  })
+
+  const slots = []
+  const texts = []
+
+  for (let i = 0; i < (vehicles || []).length; i++) {
+    const v = vehicles[i]
+    if (!v) continue
+    const prev = prevVById[String(v.id)]
+    if (
+      prev &&
+      String(prev.notesEn || '') === String(v.notesEn || '') &&
+      hasEnoughChinese(prev.notesZh)
+    ) {
+      v.notesZh = prev.notesZh
+      continue
+    }
+    if (!needsMachineNotes(v.notesZh, v.notesEn)) continue
+    slots.push({ kind: 'vehicle', index: i })
+    texts.push(v.notesEn)
+  }
+
+  for (let i = 0; i < (tests || []).length; i++) {
+    const t = tests[i]
+    if (!t) continue
+    const prev = prevTById[String(t.id)]
+    if (
+      prev &&
+      String(prev.notesEn || '') === String(t.notesEn || '') &&
+      hasEnoughChinese(prev.notesZh)
+    ) {
+      t.notesZh = prev.notesZh
+      continue
+    }
+    if (!needsMachineNotes(t.notesZh, t.notesEn)) continue
+    slots.push({ kind: 'test', index: i })
+    texts.push(t.notesEn)
+  }
+
+  if (!texts.length) {
+    return { vehicleTranslated: 0, testTranslated: 0, queued: 0 }
+  }
+
+  let zhList = []
+  try {
+    zhList = await translateTextsBatch(texts)
+  } catch (e) {
+    console.warn('[nsf-hardware] enrich i18n failed:', e.message || e)
+    return { vehicleTranslated: 0, testTranslated: 0, queued: texts.length, error: e.message || String(e) }
+  }
+
+  let vehicleTranslated = 0
+  let testTranslated = 0
+  for (let j = 0; j < slots.length; j++) {
+    const zh = String((zhList && zhList[j]) || '').trim()
+    if (!zh || !hasEnoughChinese(zh)) continue
+    const slot = slots[j]
+    if (slot.kind === 'vehicle') {
+      vehicles[slot.index].notesZh = zh
+      vehicleTranslated++
+    } else {
+      tests[slot.index].notesZh = zh
+      testTranslated++
+    }
+  }
+  return { vehicleTranslated, testTranslated, queued: texts.length }
 }
 
 // ── 图片镜像 ──
@@ -445,7 +531,7 @@ async function runSyncStarshipHardware(db, cloud, options) {
 
   const prevVehiclesDoc = await readDocSafe(coll, 'vehicles')
 
-  // ── 节流：上次成功同步距今不足最小间隔时直接跳过（不发任何外部请求） ──
+  // ── 节流：上次成功同步距今不足最小间隔时跳过抓取；仍补齐缺失汉化 ──
   if (!opts.force) {
     const minInterval = typeof opts.minIntervalMs === 'number' ? opts.minIntervalMs : MIN_SYNC_INTERVAL_MS
     const lastOkAt = prevVehiclesDoc && !prevVehiclesDoc.error && Array.isArray(prevVehiclesDoc.list) && prevVehiclesDoc.list.length > 0
@@ -453,10 +539,38 @@ async function runSyncStarshipHardware(db, cloud, options) {
       : 0
     const sinceLast = Date.now() - lastOkAt
     if (lastOkAt > 0 && sinceLast < minInterval) {
+      const prevTestsDoc = await readDocSafe(coll, 'tests')
+      const vehicles = ((prevVehiclesDoc && prevVehiclesDoc.list) || []).map((v) => Object.assign({}, v))
+      const tests = ((prevTestsDoc && prevTestsDoc.list) || []).map((t) => Object.assign({}, t))
+      let i18nStats = { vehicleTranslated: 0, testTranslated: 0, queued: 0 }
+      try {
+        i18nStats = await enrichHardwareI18n(vehicles, tests, vehicles, tests)
+        if (i18nStats.vehicleTranslated > 0) {
+          await coll.doc('vehicles').set({
+            data: {
+              list: vehicles,
+              updatedAtMs: (prevVehiclesDoc && prevVehiclesDoc.updatedAtMs) || Date.now(),
+              error: (prevVehiclesDoc && prevVehiclesDoc.error) || '',
+              parserMeta: (prevVehiclesDoc && prevVehiclesDoc.parserMeta) || null
+            }
+          })
+        }
+        if (i18nStats.testTranslated > 0) {
+          await coll.doc('tests').set({
+            data: {
+              list: tests,
+              updatedAtMs: (prevTestsDoc && prevTestsDoc.updatedAtMs) || Date.now()
+            }
+          })
+        }
+      } catch (e) {
+        i18nStats.error = e.message || String(e)
+      }
       return {
         success: true,
         skipped: true,
         reason: 'throttled',
+        i18n: i18nStats,
         lastSyncAgoMs: sinceLast,
         nextEligibleInMs: minInterval - sinceLast
       }
@@ -499,6 +613,20 @@ async function runSyncStarshipHardware(db, cloud, options) {
 
   const vehicles = normalizeVehicles(parsed.vehicles)
   const tests = normalizeTests(parsed.tests)
+
+  // 简介/测试备注自动汉化（词典未覆盖的新增载具走混元/TMT；失败不阻塞落库）
+  const prevTestsDoc = await readDocSafe(coll, 'tests')
+  let i18nStats = { vehicleTranslated: 0, testTranslated: 0, queued: 0 }
+  try {
+    i18nStats = await enrichHardwareI18n(
+      vehicles,
+      tests,
+      (prevVehiclesDoc && prevVehiclesDoc.list) || [],
+      (prevTestsDoc && prevTestsDoc.list) || []
+    )
+  } catch (e) {
+    i18nStats.error = e.message || String(e)
+  }
 
   // 图片镜像（失败不阻塞数据落库）
   let imageStats = { map: prevMap, mirrored: 0, reused: 0, failed: [] }
@@ -546,6 +674,7 @@ async function runSyncStarshipHardware(db, cloud, options) {
     testCount: tests.length,
     statusCard,
     parserStrategy: parsed.strategy,
+    i18n: i18nStats,
     imagesMirrored: imageStats.mirrored,
     imagesReused: imageStats.reused,
     imageFailures: imageStats.failed.length > 0 ? imageStats.failed : undefined,
@@ -559,5 +688,6 @@ module.exports = {
   updateStarshipStatusCard,
   parseHardwareFromHtml,
   normalizeVehicles,
-  normalizeTests
+  normalizeTests,
+  enrichHardwareI18n
 }

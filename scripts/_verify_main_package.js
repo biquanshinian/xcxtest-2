@@ -19,8 +19,8 @@ const jsFiles = [
   'pages/monitor/monitor.js',
   'pages/mission-detail/mission-detail.js',
   'pages/index/index.js',
-  'utils/checkin.js',
-  'utils/space-quiz.js',
+  'subpackages/profile-extra/utils/checkin.js',
+  'subpackages/profile-extra/utils/space-quiz.js',
   'utils/demo-engine.js',
   'subpackages/shared/utils/demo-scripts.js',
   'subpackages/index-extra/utils/index-calendar-page.js',
@@ -30,7 +30,7 @@ const jsFiles = [
   'subpackages/shared/components/channels-live-panel/index.js',
   'subpackages/shared/components/official-account-bar/index.js',
   'subpackages/monitor-pages/utils/artemis-arow.js',
-  'subpackages/monitor-pages/utils/starbase-weather.js',
+  'subpackages/monitor-pages/utils/monitor-weather.js',
 ]
 
 let bomIssues = []

@@ -1,0 +1,71 @@
+<view class="artemis-card-root {{themeClass}}" wx:if="{{visible}}">
+  <view class="artemis-title-row">
+    <text class="artemis-card-title">Artemis II</text>
+    <text class="artemis-title-sub" wx:if="{{missionPhase === 'active'}}">猎户座 · 实时遥测</text>
+    <text class="artemis-title-sub" wx:elif="{{missionPhase === 'ended'}}">任务已完成</text>
+    <text class="artemis-title-sub" wx:else>即将发射</text>
+  </view>
+
+  <view class="artemis-phase-card artemis-panel" wx:if="{{missionPhase === 'before' && missionSummary}}">
+    <view class="artemis-phase-icon artemis-icon-moon-btn"></view>
+    <text class="artemis-phase-title">{{missionSummary.missionName}} 即将发射</text>
+    <text class="artemis-phase-desc">发射时间：{{missionSummary.launchTime}}</text>
+    <text class="artemis-phase-hint">发射后将自动开始实时遥测数据更新</text>
+  </view>
+
+  <view class="artemis-ended-bar artemis-panel" wx:elif="{{missionPhase === 'ended' && missionSummary}}" bindtap="toggleEnded">
+    <view class="artemis-ended-bar-main">
+      <text class="artemis-ended-badge">任务圆满完成 ✓</text>
+      <text class="artemis-ended-name">{{missionSummary.missionName}}</text>
+    </view>
+    <text class="artemis-ended-arrow {{endedExpanded ? 'artemis-ended-arrow--up' : ''}}">›</text>
+  </view>
+  <view class="artemis-phase-card artemis-panel artemis-phase-card--ended" wx:if="{{missionPhase === 'ended' && endedExpanded && missionSummary}}">
+    <view class="artemis-phase-summary">
+      <view class="artemis-phase-row">
+        <text class="artemis-phase-row-label">发射时间</text>
+        <text class="artemis-phase-row-val">{{missionSummary.launchTime}}</text>
+      </view>
+      <view class="artemis-phase-row">
+        <text class="artemis-phase-row-label">返回时间</text>
+        <text class="artemis-phase-row-val">{{missionSummary.endTime}}</text>
+      </view>
+      <view class="artemis-phase-row" wx:if="{{missionSummary.duration}}">
+        <text class="artemis-phase-row-label">任务总时长</text>
+        <text class="artemis-phase-row-val">{{missionSummary.duration}}</text>
+      </view>
+    </view>
+    <text class="artemis-phase-hint">下次任务开始后将自动恢复实时数据</text>
+  </view>
+
+  <block wx:if="{{missionPhase === 'active'}}">
+    <view class="artemis-loading artemis-panel" wx:if="{{loading}}">
+      <text class="artemis-loading-text">正在获取遥测数据...</text>
+    </view>
+    <view class="artemis-error artemis-panel" wx:elif="{{error}}">
+      <text class="artemis-error-text">{{error}}</text>
+      <view class="artemis-retry-btn" catchtap="retry">重试</view>
+    </view>
+
+    <view class="artemis-brief-card artemis-panel {{isProUser ? 'pro-gold-frame' : ''}}" wx:else bindtap="openDetail">
+      <view class="artemis-brief-top">
+        <text class="artemis-brief-met">{{met}}</text>
+        <text class="artemis-brief-met-hint">MET 天:时:分:秒</text>
+      </view>
+      <view class="artemis-brief-stats">
+        <view class="artemis-brief-stat">
+          <text class="artemis-brief-stat-val">{{velocityKmh}}</text>
+          <text class="artemis-brief-stat-unit">km/h 速率</text>
+        </view>
+        <view class="artemis-brief-stat">
+          <text class="artemis-brief-stat-val">{{distEarthKm}}</text>
+          <text class="artemis-brief-stat-unit">km 距地球</text>
+        </view>
+      </view>
+      <view class="artemis-brief-footer">
+        <text class="artemis-brief-hint">点击查看完整遥测仪表盘</text>
+        <text class="artemis-brief-arrow">›</text>
+      </view>
+    </view>
+  </block>
+</view>

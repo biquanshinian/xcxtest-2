@@ -1,5 +1,5 @@
 page {
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: var(--color-bg-page);
   overflow: hidden;
   height: 100vh;
   width: 100%;
@@ -8,7 +8,7 @@ page {
 .detail-page {
   min-height: 100vh;
   height: 100vh;
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: var(--color-bg-page);
   overflow: hidden;
 }
 
@@ -17,7 +17,7 @@ page {
 }
 
 .detail-container {
-  padding: 24rpx 32rpx 32rpx;
+  padding: var(--space-md) var(--space-lg) var(--space-lg);
   box-sizing: border-box;
 }
 
@@ -25,9 +25,7 @@ page {
   background: rgba(18, 20, 24, 0.62);
   backdrop-filter: blur(28rpx) saturate(170%);
   -webkit-backdrop-filter: blur(28rpx) saturate(170%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 28rpx;
-  box-shadow: 0 16rpx 40rpx rgba(0, 0, 0, 0.35), inset 0 1rpx 0 rgba(255, 255, 255, 0.08);
 }
 
 .meta-top {
@@ -273,8 +271,8 @@ page {
 .road-item {
   padding: 22rpx 24rpx;
   border-radius: 18rpx;
-  background: rgba(0, 122, 255, 0.06);
-  border: 1px solid rgba(0, 122, 255, 0.16);
+  background: rgba(59, 130, 246, 0.06);
+  border: 1px solid rgba(59, 130, 246, 0.16);
 }
 
 .road-desc {
@@ -355,10 +353,14 @@ page {
   color: #d7d7db;
 }
 
-.map-section {
+.map-section.glass-card,
+.theme-light .map-section.glass-card {
   overflow: hidden;
   padding: 0;
   margin-bottom: 20rpx;
+  background: var(--color-bg-card);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .map-section-head {
@@ -391,7 +393,7 @@ page {
   justify-content: space-between;
   padding: 18rpx 28rpx 24rpx;
   font-size: 26rpx;
-  color: #007aff;
+  color: var(--color-brand);
 }
 
 .map-hint-arrow {
@@ -440,7 +442,7 @@ page {
   width: 48rpx;
   height: 48rpx;
   border-radius: 50%;
-  border: 4rpx solid rgba(0, 122, 255, 0.2);
+  border: 4rpx solid rgba(59, 130, 246, 0.2);
   border-top-color: #4ea1ff;
   animation: spin 0.8s linear infinite;
 }
@@ -455,7 +457,7 @@ page {
   height: 76rpx;
   line-height: 76rpx;
   border-radius: 999rpx;
-  background: linear-gradient(135deg, #1677ff 0%, #55a3ff 100%);
+  background: var(--color-brand, #3B82F6);
   color: #ffffff;
   font-size: 28rpx;
   border: none;
@@ -471,8 +473,6 @@ page {
 }
 .theme-light .glass-card {
   background: rgba(255, 255, 255, 0.62);
-  border: 1px solid var(--color-divider);
-  box-shadow: var(--shadow-card), inset 0 1rpx 0 rgba(255, 255, 255, 0.6);
 }
 .theme-light .date-text {
   color: var(--color-text-secondary);
@@ -575,7 +575,7 @@ page {
   color: var(--color-text-secondary);
 }
 .theme-light .order-body-toggle {
-  color: #007aff;
+  color: var(--color-brand);
 }
 .theme-light .order-label {
   color: var(--color-text-tertiary);

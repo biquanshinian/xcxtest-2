@@ -1,0 +1,259 @@
+/**
+ * utils/spacecraft-display.js — 全球飞船图鉴共享展示层
+ * 监控中心精简区块 / 独立图鉴页共用：
+ *   - 加载 LL2 飞船构型全量列表（apiProxy ll2SpacecraftList，本地缓存 24h）
+ *   - 构型数据 → 展示卡片（类型中文、机构显示名、图片兜底链）
+ *   - 筛选 chip 生成（全部 / 现役 / 各类型，数据驱动）与过滤、汇总统计
+ */
+
+var { mfrDisplayName, mfrLogoUrl } = require('./booster-display.js')
+var { pickLocalized, zhField } = require('../../../utils/locale.js')
+var { resolveSpacecraftDisplayZh } = require('../../../utils/spacecraft-name-i18n.js')
+var { resolveAgencyDisplayZh } = require('../../../utils/launch-card-i18n.js')
+var { getCachedMediaImage } = require('../../../utils/icon-cache.js')
+var { optimizeImageUrl } = require('../../../utils/cos-url.js')
+var { proxiedImageUrl } = require('../../../utils/ll2-image.js')
+var gallerySearch = require('./gallery-search.js')
+
+var CACHE_KEY = '_spacecraft_list_v2'
+var CACHE_TTL = 24 * 60 * 60 * 1000
+var TAB_PREVIEW_COUNT = 2
+
+/**
+ * 图片本地缓存：命中返回 wxfile:// 本地路径，未命中先展示远程 URL 并后台落盘，
+ * 下次进入直接读本地，避免频繁走网络。
+ * thumb：COS 静图走 imageMogr2 压缩（卡片仅 ~280rpx，原图浪费下行）；
+ * 代理 URL（/image?url=...）无图片扩展名，optimizeImageUrl 自动跳过不受影响
+ */
+function cachedImage(url) {
+  if (!url) return ''
+  return getCachedMediaImage(url, 'thumb')
+}
+
+function remoteThumbImage(url) {
+  if (!url) return ''
+  if (/imageMogr2|ci-process=/i.test(url)) return url
+  return optimizeImageUrl(url, 'thumb')
+}
+
+function typeDisplayName(name, nameZh) {
+  return pickLocalized(nameZh || '', name || '')
+}
+
+// ── 本地缓存（内存 + storage，TTL 24h） ──
+var _mem = null
+
+function _readCachedAsync() {
+  if (_mem && _mem.ts && Date.now() - _mem.ts < CACHE_TTL) {
+    return Promise.resolve(_mem.data)
+  }
+  return new Promise(function (resolve) {
+    wx.getStorage({
+      key: CACHE_KEY,
+      success: function (res) {
+        var raw = res.data
+        if (raw && raw.ts && Date.now() - raw.ts < CACHE_TTL && Array.isArray(raw.data) && raw.data.length) {
+          _mem = raw
+          resolve(raw.data)
+        } else {
+          resolve(null)
+        }
+      },
+      fail: function () { resolve(null) }
+    })
+  })
+}
+
+function _writeCached(list) {
+  var payload = { data: list, ts: Date.now() }
+  _mem = payload
+  try {
+    wx.setStorage({ key: CACHE_KEY, data: payload, fail: function () {} })
+  } catch (e) {}
+}
+
+var _pending = null
+
+/** 加载飞船构型全量列表（缓存命中即返回；miss 时走云函数并回填缓存） */
+async function loadSpacecraftList() {
+  var cached = await _readCachedAsync()
+  if (cached) return cached
+
+  if (_pending) return _pending
+  _pending = (async function () {
+    var res = await wx.cloud.callFunction({
+      name: 'apiProxy',
+      data: { action: 'll2SpacecraftList' }
+    })
+    var result = res && res.result
+    if (!result || !result.success || !Array.isArray(result.data) || !result.data.length) {
+      throw new Error((result && result.error) || 'spacecraft list empty')
+    }
+    _writeCached(result.data)
+    return result.data
+  })()
+  try {
+    return await _pending
+  } finally {
+    _pending = null
+  }
+}
+
+/** 构型列表 → 展示卡片（现役优先，同状态按名称字母序）
+ * @param {{ imageCacheLimit?: number }} [options] 仅前 N 条（排序后）触发图缓存预热
+ */
+function buildSpacecraftCards(list, options) {
+  var imageCacheLimit = (options && options.imageCacheLimit != null)
+    ? options.imageCacheLimit
+    : Number.MAX_SAFE_INTEGER
+  var cards = (list || []).map(function (s) {
+    var chain = []
+    ;[proxiedImageUrl(s.imageUrl), s.imageUrl, proxiedImageUrl(s.fullImageUrl), s.fullImageUrl].forEach(function (u) {
+      if (u && chain.indexOf(u) < 0) chain.push(u)
+    })
+    var nameEn = s.name || ''
+    var nameZh = resolveSpacecraftDisplayZh(nameEn, zhField(s, 'name'))
+    var typeZh = s.typeNameZh || ''
+    var agencyZh = s.agencyNameZh || ''
+    var name = nameZh || pickLocalized(nameZh, nameEn) || nameEn
+    var typeLabel = typeDisplayName(s.typeName, typeZh)
+    var agencyLabel = mfrDisplayName(s.agencyName || '', s.agencyAbbrev || '', agencyZh)
+      || resolveAgencyDisplayZh(s.agencyName || '', s.agencyAbbrev || '', agencyZh)
+      || s.agencyName || ''
+    return {
+      id: s.id,
+      nameEn: nameEn,
+      name: name,
+      typeName: s.typeName || '',
+      typeLabel: typeLabel,
+      agencyName: s.agencyName || '',
+      agencyLabel: agencyLabel,
+      agencyAbbrev: s.agencyAbbrev || '',
+      agencyLogoUrl: mfrLogoUrl(s.agencyName || '', s.agencyAbbrev || ''),
+      inUse: !!s.inUse,
+      statusText: s.inUse ? '现役' : '退役',
+      searchText: gallerySearch.joinSearchText([
+        nameEn,
+        nameZh,
+        s.typeName || '',
+        typeLabel,
+        s.agencyName || '',
+        agencyLabel,
+        s.agencyAbbrev || '',
+        s.inUse ? '现役|inuse' : '退役|retired'
+      ]),
+      _imageChain: chain
+    }
+  })
+  cards.sort(function (a, b) {
+    if (a.inUse !== b.inUse) return a.inUse ? -1 : 1
+    return String(a.name).localeCompare(String(b.name), 'zh')
+  })
+  for (var i = 0; i < cards.length; i++) {
+    var chain = cards[i]._imageChain || []
+    cards[i].imageUrl = i < imageCacheLimit ? cachedImage(chain[0]) : remoteThumbImage(chain[0])
+    cards[i].imageFallbacks = chain.slice(1)
+    delete cards[i]._imageChain
+  }
+  return cards
+}
+
+/**
+ * 生成筛选 chip：全部 / 现役 / 各类型（按数量降序，数据驱动）
+ * chip.id 约定：'all' | 'inuse' | 'type:Capsule'
+ */
+function buildSpacecraftFilterChips(cards, options) {
+  var maxTypeChips = (options && options.maxTypeChips) || 6
+  var chips = [{ id: 'all', label: '全部' }, { id: 'inuse', label: '现役' }]
+  var typeCount = {}
+  var typeLabel = {}
+  for (var i = 0; i < (cards || []).length; i++) {
+    var t = cards[i].typeName
+    if (t) {
+      typeCount[t] = (typeCount[t] || 0) + 1
+      if (cards[i].typeLabel) typeLabel[t] = cards[i].typeLabel
+    }
+  }
+  var names = Object.keys(typeCount).sort(function (a, b) { return typeCount[b] - typeCount[a] })
+  for (var j = 0; j < names.length && j < maxTypeChips; j++) {
+    chips.push({ id: 'type:' + names[j], label: typeLabel[names[j]] || names[j] })
+  }
+  return chips
+}
+
+/**
+ * 生成机构筛选 chip（按飞船数量降序，数据驱动：LL2 新增机构自动出现）
+ * chip.id 约定：'agency:<agencyName 原文>'，label 用中文显示名
+ */
+function buildSpacecraftAgencyChips(cards, options) {
+  var maxChips = (options && options.maxChips) || 20
+  var count = {}
+  var labels = {}
+  for (var i = 0; i < (cards || []).length; i++) {
+    var a = cards[i].agencyName
+    if (!a) continue
+    count[a] = (count[a] || 0) + 1
+    if (!labels[a]) labels[a] = cards[i].agencyLabel || a
+  }
+  var names = Object.keys(count).sort(function (x, y) {
+    return count[y] - count[x] || String(labels[x]).localeCompare(String(labels[y]))
+  })
+  return names.slice(0, maxChips).map(function (n) {
+    return { id: 'agency:' + n, label: labels[n], count: count[n] }
+  })
+}
+
+/** 按 chip id 过滤卡片 */
+function applySpacecraftFilter(cards, filterId) {
+  if (!filterId || filterId === 'all') return (cards || []).slice()
+  return (cards || []).filter(function (c) {
+    if (filterId === 'inuse') return c.inUse
+    if (filterId.indexOf('type:') === 0) return c.typeName === filterId.slice(5)
+    if (filterId.indexOf('agency:') === 0) return c.agencyName === filterId.slice(7)
+    return true
+  })
+}
+
+function extraChipForFilter(filterId) {
+  if (!filterId || filterId === 'all') return null
+  if (filterId === 'inuse') return { id: 'inuse', label: '现役' }
+  if (filterId.indexOf('type:') === 0) {
+    return { id: filterId, label: typeDisplayName(filterId.slice(5)) }
+  }
+  if (filterId.indexOf('agency:') === 0) {
+    return { id: filterId, label: mfrDisplayName(filterId.slice(7)) }
+  }
+  return { id: filterId, label: filterId }
+}
+
+/** 汇总统计（现役 / 类型数 / 机构数） */
+function computeSpacecraftStats(cards) {
+  var inUseCount = 0
+  var typeSet = {}
+  var agencySet = {}
+  for (var i = 0; i < (cards || []).length; i++) {
+    var c = cards[i]
+    if (c.inUse) inUseCount++
+    if (c.typeName) typeSet[c.typeName] = true
+    if (c.agencyName) agencySet[c.agencyName] = true
+  }
+  return {
+    inUseCount: inUseCount,
+    typeCount: Object.keys(typeSet).length,
+    agencyCount: Object.keys(agencySet).length
+  }
+}
+
+module.exports = {
+  typeDisplayName: typeDisplayName,
+  cachedImage: cachedImage,
+  proxiedImageUrl: proxiedImageUrl,
+  loadSpacecraftList: loadSpacecraftList,
+  buildSpacecraftCards: buildSpacecraftCards,
+  buildSpacecraftFilterChips: buildSpacecraftFilterChips,
+  buildSpacecraftAgencyChips: buildSpacecraftAgencyChips,
+  applySpacecraftFilter: applySpacecraftFilter,
+  extraChipForFilter: extraChipForFilter,
+  computeSpacecraftStats: computeSpacecraftStats,
+  TAB_PREVIEW_COUNT: TAB_PREVIEW_COUNT
+}

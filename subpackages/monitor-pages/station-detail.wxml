@@ -1,4 +1,5 @@
 <wxs module="navPad" src="/utils/nav-scroll-pad.wxs"></wxs>
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
 <view class="detail-page {{themeClass}}">
   <!-- WXS 观测角插值动画 -->
   <wxs src="./look-angle-anim.wxs" module="lookAnim" />
@@ -42,8 +43,21 @@
     
     <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
 <view class="detail-container">
-      <!-- 加载中：内容区留白，进度由导航栏下方的 page-progress 绿色进度条呈现 -->
-      <block wx:if="{{loading}}"></block>
+      <!-- 加载中：骨架屏撑满一屏，分享/直达冷启动时页面立即可滑动；进度由导航栏下方的 page-progress 绿色进度条呈现 -->
+      <view class="detail-skeleton" wx:if="{{loading}}" aria-hidden="{{true}}">
+        <view class="skeleton-card skeleton-card--hero">
+          <view class="skeleton-hero skeleton-shimmer"></view>
+          <view class="skeleton-card-body">
+            <view class="skeleton-line skeleton-line--title skeleton-shimmer"></view>
+            <view class="skeleton-line skeleton-line--sub skeleton-shimmer"></view>
+          </view>
+        </view>
+        <view class="skeleton-card" wx:for="{{[1, 2, 3]}}" wx:key="*this">
+          <view class="skeleton-line skeleton-line--label skeleton-shimmer"></view>
+          <view class="skeleton-line skeleton-shimmer"></view>
+          <view class="skeleton-line skeleton-line--short skeleton-shimmer"></view>
+        </view>
+      </view>
 
       <view class="error-state glass-card" wx:elif="{{errorMessage}}">
         <text class="error-title">加载失败</text>
@@ -52,31 +66,31 @@
       </view>
 
       <view wx:elif="{{item}}" class="detail-card glass-card">
-        <!-- 顶部 Hero 区 -->
-        <view class="hero-wrap">
-          <image wx:if="{{item.image && !heroImageFailed}}" class="hero-image {{heroImageLoaded ? 'hero-image--loaded' : ''}}" src="{{item.image}}" mode="aspectFill" bindload="onHeroImageLoad" binderror="onHeroImageError"></image>
-          <view wx:else class="hero-image hero-image--visual">
-            <view class="hero-visual hero-visual--{{item.id === 18 ? 'tiangong' : 'iss'}}">
-              <view class="hero-orbit hero-orbit--outer"></view>
-              <view class="hero-orbit hero-orbit--inner"></view>
-              <view class="hero-core hero-core--{{item.id === 18 ? 'tiangong' : 'iss'}}"></view>
-              <view class="hero-glow"></view>
-              <text class="hero-fallback-tag">{{item.id === 18 ? 'TIANGONG' : 'ISS'}}</text>
-            </view>
-          </view>
-          <view class="hero-overlay">
-            <view class="hero-name-row">
-              <view class="hero-name-col">
-                <text class="hero-name">{{item.name}}</text>
-                <text class="hero-name-en" wx:if="{{item.nameEn}}">{{item.nameEn}}</text>
+        <!-- 顶部 Hero 悬浮卡：多层毛玻璃叠层统一骨架（hero-float，卡片内用 flush 去左右外边距） -->
+        <view class="hero-float hero-float--flush">
+          <view class="hero-wrap hero-float-card">
+            <image wx:if="{{item.image && !heroImageFailed}}" class="hero-image {{heroImageLoaded ? 'hero-image--loaded' : ''}}" src="{{item.image}}" mode="aspectFill" bindload="onHeroImageLoad" binderror="onHeroImageError"></image>
+            <view wx:else class="hero-image hero-image--visual">
+              <view class="hero-visual hero-visual--{{isTiangong ? 'tiangong' : 'iss'}}">
+                <view class="hero-orbit hero-orbit--outer"></view>
+                <view class="hero-orbit hero-orbit--inner"></view>
+                <view class="hero-core hero-core--{{isTiangong ? 'tiangong' : 'iss'}}"></view>
+                <view class="hero-glow"></view>
+                <text class="hero-fallback-tag">{{isTiangong ? 'TIANGONG' : 'ISS'}}</text>
               </view>
-              <text class="hero-status hero-status--{{item.statusTone}}">{{item.statusBadgeText || item.statusText || item.status || '未知'}}</text>
             </view>
-            <text class="hero-dock-count">{{item.dockedCount || 0}} 艘停靠</text>
+            <view class="hero-overlay">
+              <view class="hero-name-row">
+                <view class="hero-name-col">
+                  <text class="hero-name">{{item.name}}</text>
+                  <text class="hero-name-en" wx:if="{{item.nameEn}}">{{item.nameEn}}</text>
+                </view>
+                <text class="hero-status hero-status--{{item.statusTone}}">{{item.statusBadgeText || item.statusText || item.status || '未知'}}</text>
+              </view>
+              <text class="hero-dock-count">{{item.dockedCount || 0}} 艘停靠</text>
+            </view>
           </view>
         </view>
-
-        <official-account-publish-panel topic="{{item.name || '空间站讨论'}}" />
 
         <!-- 核心数据指标 -->
         <view class="stats-grid">
@@ -164,8 +178,24 @@
                 enable-rotate="false"
                 enable-overlooking="false"
                 show-compass="false"
-                layer-style="1"
-              ></map>
+                enable-satellite="true"
+                setting="{{mapSetting}}"
+              >
+                <cover-view slot="callout">
+                  <cover-view marker-id="1" class="station-hud station-hud--preview">
+                    <cover-view class="station-hud-live">LIVE</cover-view>
+                    <cover-view class="station-hud-title">{{item.name}}</cover-view>
+                    <cover-view class="station-hud-row">
+                      <cover-view class="station-hud-k">ALT</cover-view>
+                      <cover-view class="station-hud-v">{{stationAlt}}</cover-view>
+                    </cover-view>
+                    <cover-view class="station-hud-row">
+                      <cover-view class="station-hud-k">VEL</cover-view>
+                      <cover-view class="station-hud-v">{{stationSpeed}}</cover-view>
+                    </cover-view>
+                  </cover-view>
+                </cover-view>
+              </map>
               <view class="orbit-map-tap-hint">
                 <text>点击查看全屏地图</text>
               </view>
@@ -319,7 +349,7 @@
                 </view>
               </view>
               <view class="crew-empty" wx:elif="{{!exp.crew || !exp.crew.length}}">
-                <text>暂无公开的成员信息</text>
+                <text>成员详情暂未同步到，请稍后下拉刷新</text>
               </view>
             </view>
           </view>
@@ -330,7 +360,7 @@
           <text class="section-title">当前停靠飞船</text>
           <view class="link-list" wx:if="{{item.dockedSpacecraft && item.dockedSpacecraft.length}}">
             <view class="ship-item {{ship.configId ? 'ship-item--tappable' : ''}}" hover-class="{{ship.configId ? 'card-pressed' : ''}}" wx:for="{{item.dockedSpacecraft}}" wx:for-item="ship" wx:key="id"
-                  data-cid="{{ship.configId}}" data-name="{{ship.configName || ship.name}}" bindtap="onShipTap">
+                  data-cid="{{ship.configId}}" data-name="{{ship.configName || ship.name}}" data-name-en="{{ship.configNameEn || ship.nameEn || ''}}" bindtap="onShipTap">
               <image class="ship-image" wx:if="{{ship.image}}" src="{{ship.image}}" mode="aspectFill" catchtap="onShipImageTap" data-url="{{ship.image}}"></image>
               <view class="ship-image ship-image--placeholder" wx:else></view>
               <view class="ship-main">
@@ -380,11 +410,15 @@
           </view>
         </view>
 
-        <!-- 对接口状态 -->
+        <!-- 对接口状态（两列整齐网格，对齐型号档案规格排版） -->
         <view class="section" wx:if="{{item.dockingPorts && item.dockingPorts.length}}">
           <text class="section-title">对接口状态</text>
-          <view class="tag-list">
-            <text class="tag-item {{port.occupied ? 'tag-item--active' : ''}}" wx:for="{{item.dockingPorts}}" wx:for-item="port" wx:key="id">{{port.name}} · {{port.occupiedText}}</text>
+          <view class="dock-port-grid">
+            <view class="dock-port-item {{port.occupied ? 'dock-port-item--active' : ''}}"
+                  wx:for="{{item.dockingPorts}}" wx:for-item="port" wx:key="id">
+              <text class="dock-port-label">{{port.name}}</text>
+              <text class="dock-port-value">{{port.occupiedText}}</text>
+            </view>
           </view>
         </view>
 
@@ -407,6 +441,9 @@
             </view>
           </view>
         </view>
+
+        <!-- 贴图讨论区：空间站详情最底部 -->
+        <official-account-publish-panel topic="{{item.name || '空间站讨论'}}" />
       </view>
       <view style="height: {{tabBarReservedHeight}}px;"></view>
     </view>

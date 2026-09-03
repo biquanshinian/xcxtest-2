@@ -1,0 +1,628 @@
+/* SPACE_NOTICES_FEATURE
+ * 配色一律走 tokens.wxss 变量，浅色主题由根 view 的 theme-light 自动反色。
+ *
+ * 注意：面板/弹层压在地图上。微信 map 是原生组件，半透明和 backdrop-filter
+ * 采不到地图像素，只会透出复杂底图显得杂乱。叠层卡片一律实底。
+ */
+page {
+  background: var(--color-bg);
+}
+
+.map-page.sn-map-page {
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+}
+
+.map-page .panel-badge--soon {
+  background: rgba(255, 149, 0, 0.18);
+}
+.map-page .panel-badge--soon text {
+  color: var(--color-warning);
+}
+.map-page.theme-light .panel-badge--soon {
+  background: rgba(255, 149, 0, 0.14);
+}
+.map-page.theme-light .panel-badge--soon text {
+  color: var(--color-warning);
+}
+
+.sn-map {
+  width: 100%;
+  height: 100%;
+}
+
+/* 中国按钮始终露在「地图工具」里，折叠卫星/平面时也能点 */
+.sn-map-page .map-action-china-wrap {
+  margin-top: 12rpx;
+}
+.sn-map-page .map-action-btn--china.map-action-btn--active {
+  background: #FF3B30;
+  border-color: #FF3B30;
+}
+.sn-map-page.theme-light .map-action-btn--china.map-action-btn--active {
+  background: #FF3B30;
+  border-color: #FF3B30;
+}
+
+.glass-card {
+  background: var(--color-bg-card);
+  border-radius: var(--radius-card);
+  border: 1rpx solid var(--color-border-glass);
+  box-shadow: var(--shadow-card);
+}
+.theme-light .glass-card {
+  background: var(--color-bg-card);
+}
+
+/* ---------- 通用按钮：一律 flex 居中，text 撑满并居中 ---------- */
+.sn-btn {
+  min-height: 72rpx;
+  padding: 0 28rpx;
+  border-radius: var(--radius-pill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+.sn-btn text {
+  display: block;
+  width: 100%;
+  text-align: center;
+  line-height: 1;
+  font-size: var(--font-size-base);
+}
+.sn-btn--primary {
+  background: var(--color-brand);
+}
+.sn-btn--primary text {
+  color: #ffffff;
+  font-weight: var(--font-weight-semibold);
+}
+.sn-btn--ghost {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1rpx solid var(--color-divider-strong);
+}
+.sn-btn--ghost text {
+  color: var(--color-text-primary);
+}
+.theme-light .sn-btn--ghost {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+/* ---------- 加载 / 错误卡 ---------- */
+.sn-state {
+  position: absolute;
+  left: var(--space-md);
+  right: var(--space-md);
+  top: 220rpx;
+  z-index: 12;
+  padding: var(--space-lg);
+  box-sizing: border-box;
+}
+.sn-state-title {
+  display: block;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+.sn-state-desc {
+  display: block;
+  margin-top: 10rpx;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-on-glass);
+  word-break: break-word;
+}
+.sn-state-btn {
+  margin-top: 24rpx;
+  width: 200rpx;
+}
+
+/* ---------- 底部面板（复用 app.wxss 的 .map-page .panel 定位/浅色覆盖） ----------
+ * bottom 需带 .map-page 前缀，否则输给 app.wxss 的 .map-page .panel（0,2,0）而丢掉安全区 */
+.map-page .sn-panel {
+  bottom: calc(24rpx + env(safe-area-inset-bottom));
+  max-height: 62vh;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.sn-head-main {
+  flex: 1;
+  min-width: 0;
+}
+.sn-panel .panel-subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 视野分段控件 ---------- */
+.sn-seg {
+  display: flex;
+  margin-top: 20rpx;
+  padding: 4rpx;
+  background: transparent;
+}
+.theme-light .sn-seg {
+  background: transparent;
+}
+.sn-seg-item {
+  position: relative;
+  overflow: visible;
+  flex: 1;
+  min-width: 0;
+  min-height: 64rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding-bottom: 10rpx;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  transition: color 0.25s ease;
+}
+.sn-seg-item::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 44rpx;
+  height: 6rpx;
+  border-radius: 999rpx;
+  background: var(--color-brand, #3B82F6);
+  transform: translateX(-50%) scaleX(0);
+  opacity: 0;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+  pointer-events: none;
+}
+.sn-seg-item text {
+  display: block;
+  width: 100%;
+  text-align: center;
+  line-height: 1;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-on-glass);
+  transition: color 0.25s ease;
+}
+.sn-seg-item--on {
+  background: transparent;
+}
+.sn-seg-item--on::after {
+  transform: translateX(-50%) scaleX(1);
+  opacity: 1;
+}
+.sn-seg-item--on text {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* ---------- 图层 chips（自带图例色点） ---------- */
+.sn-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 16rpx;
+}
+.sn-chip {
+  min-height: 56rpx;
+  padding: 0 20rpx;
+  border-radius: var(--radius-pill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1rpx solid var(--color-divider);
+  background: rgba(255, 255, 255, 0.05);
+  box-sizing: border-box;
+}
+.theme-light .sn-chip {
+  background: rgba(0, 0, 0, 0.035);
+}
+.sn-chip text {
+  display: block;
+  line-height: 1;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-on-glass);
+}
+.sn-chip-dot {
+  width: 14rpx;
+  height: 14rpx;
+  margin-right: 10rpx;
+  border-radius: var(--radius-circle);
+  opacity: 0.32;
+  flex-shrink: 0;
+}
+.sn-chip-dot--notam { background: #FF3B30; }
+.sn-chip-dot--nav { background: var(--color-brand); }
+.sn-chip-dot--adp { background: #ffcc00; }
+.sn-chip-dot--pad { background: #FF3B30; }
+.sn-chip-dot--live { background: #34C759; }
+.sn-chip-dot--soon { background: #FF9500; }
+.sn-chip-dot--china { background: #FF3B30; }
+.sn-chip--on {
+  background: var(--color-brand-soft);
+  border-color: var(--color-brand-glow);
+}
+.sn-chip--on text {
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+.sn-chip--on .sn-chip-dot {
+  opacity: 1;
+}
+.sn-chip--ghost text {
+  color: var(--color-text-on-glass);
+}
+
+.sn-note {
+  display: block;
+  margin-top: 16rpx;
+  font-size: var(--font-size-2xs);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-on-glass);
+}
+
+.sn-sync {
+  margin: 12rpx 0 4rpx;
+  padding: 12rpx 16rpx;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.04);
+}
+.sn-sync-line {
+  display: block;
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-primary);
+}
+.sn-sync-line--quiet {
+  color: var(--color-text-on-glass);
+}
+.sn-sync-line--new {
+  color: var(--color-warning);
+}
+.sn-sync-cadence {
+  display: block;
+  margin-top: 4rpx;
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-on-glass);
+}
+.theme-light .sn-sync {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+/* ---------- 通告列表 ---------- */
+.sn-list {
+  max-height: 30vh;
+  margin-top: 6rpx;
+}
+.sn-item {
+  display: flex;
+  align-items: stretch;
+  padding: 16rpx 14rpx;
+  border-radius: var(--radius-md);
+  border-top: 1rpx solid var(--color-divider-faint);
+}
+.sn-item--on {
+  background: var(--color-brand-soft);
+  border-top-color: transparent;
+}
+.sn-item--muted {
+  opacity: 0.45;
+}
+.sn-item-bar {
+  width: 6rpx;
+  margin: 2rpx 14rpx 2rpx 0;
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+}
+.sn-item-bar--notam { background: #FF3B30; }
+.sn-item-bar--nav { background: var(--color-brand); }
+.sn-item-bar--adp { background: #ffcc00; }
+.sn-item-body {
+  flex: 1;
+  min-width: 0;
+}
+.sn-item-top {
+  display: flex;
+  align-items: center;
+}
+.sn-item-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sn-item-meta {
+  display: block;
+  margin-top: 6rpx;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-on-glass);
+}
+.sn-item-reason {
+  display: block;
+  margin-top: 4rpx;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-on-glass);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sn-item-arrow {
+  width: 14rpx;
+  height: 14rpx;
+  margin-left: 12rpx;
+  align-self: center;
+  flex-shrink: 0;
+  border-top: 3rpx solid var(--color-text-on-glass);
+  border-right: 3rpx solid var(--color-text-on-glass);
+  transform: rotate(45deg);
+  box-sizing: border-box;
+}
+.sn-empty {
+  padding: 28rpx 0;
+}
+.sn-empty .sn-btn {
+  margin: 24rpx auto 0;
+}
+.sn-empty text {
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-on-glass);
+}
+
+/* ---------- 状态标签 ---------- */
+.sn-tag {
+  flex-shrink: 0;
+  min-height: 34rpx;
+  margin-left: 12rpx;
+  padding: 0 14rpx;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+.sn-tag text {
+  display: block;
+  line-height: 1;
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-on-glass);
+}
+.theme-light .sn-tag {
+  background: rgba(0, 0, 0, 0.05);
+}
+.sn-tag--live {
+  background: rgba(52, 199, 89, 0.18);
+}
+.sn-tag--live text {
+  color: #34C759;
+}
+.theme-light .sn-tag--live text {
+  color: #248A3D;
+}
+.sn-tag--soon {
+  background: rgba(255, 149, 0, 0.2);
+}
+.sn-tag--soon text {
+  color: var(--color-warning);
+}
+.theme-light .sn-tag--soon {
+  background: rgba(255, 149, 0, 0.16);
+}
+.theme-light .sn-tag--soon text {
+  color: var(--color-warning);
+}
+.sn-tag--off text {
+  color: var(--color-text-on-glass);
+}
+.sn-tag--plain text {
+  color: var(--color-text-on-glass);
+}
+
+/* ---------- 通告详情卡 ---------- */
+.sn-sheet-raw {
+  display: block;
+  font-family: 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 20rpx;
+  line-height: 1.55;
+  color: var(--color-text-on-glass);
+  word-break: break-all;
+}
+
+/* ---------- 帮助卡 ---------- */
+.sn-help {
+  position: absolute;
+  left: var(--space-md);
+  right: 260rpx;
+  top: 220rpx;
+  z-index: 22;
+  padding: 20rpx 22rpx 24rpx;
+  box-sizing: border-box;
+}
+.sn-help-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12rpx;
+}
+.sn-help-title {
+  flex: 1;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+.sn-help-close {
+  flex-shrink: 0;
+  min-height: 48rpx;
+  padding: 0 16rpx;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.theme-light .sn-help-close {
+  background: rgba(0, 0, 0, 0.05);
+}
+.sn-help-close text {
+  display: block;
+  width: 100%;
+  text-align: center;
+  line-height: 1;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-on-glass);
+}
+.sn-help-line {
+  display: block;
+  margin-top: 10rpx;
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-on-glass);
+}
+
+/* ---------- NOTAM 信息卡（浮在地图上，不遮死多边形） ---------- */
+.sn-card-float {
+  position: absolute;
+  left: 20rpx;
+  right: 20rpx;
+  bottom: calc(20rpx + env(safe-area-inset-bottom));
+  z-index: 31;
+  max-height: 68vh;
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+.sn-card-head {
+  display: flex;
+  align-items: center;
+  padding: 22rpx 24rpx 18rpx;
+  background: rgba(11, 18, 32, 0.92);
+}
+.theme-light .sn-card-head {
+  background: #1C3A5E;
+}
+.sn-card-head-title {
+  flex: 1;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-on-inverse);
+}
+.sn-card-head-close {
+  flex-shrink: 0;
+  min-width: 88rpx;
+  min-height: 52rpx;
+  padding: 0 16rpx;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.14);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sn-card-head-close text {
+  display: block;
+  width: 100%;
+  text-align: center;
+  line-height: 1;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-on-inverse);
+}
+.sn-kv {
+  height: 38vh;
+  max-height: 42vh;
+  padding: 8rpx 24rpx 4rpx;
+  box-sizing: border-box;
+}
+.sn-kv-row {
+  display: flex;
+  align-items: flex-start;
+  padding: 14rpx 0;
+  border-top: 1rpx solid var(--color-divider-faint);
+}
+.sn-kv-grid {
+  display: flex;
+  flex-wrap: wrap;
+  border-top: 1rpx solid var(--color-divider-faint);
+}
+.sn-kv-cell {
+  width: 50%;
+  box-sizing: border-box;
+  padding: 14rpx 12rpx 14rpx 0;
+}
+.sn-kv-cell .sn-kv-k {
+  display: block;
+  width: auto;
+  margin-bottom: 6rpx;
+}
+.sn-kv-cell .sn-kv-v {
+  display: block;
+}
+.sn-kv-row {
+  display: flex;
+  align-items: flex-start;
+  padding: 14rpx 0;
+  border-top: 1rpx solid var(--color-divider-faint);
+}
+.sn-kv-k {
+  width: 160rpx;
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-on-glass);
+  line-height: 1.4;
+}
+.sn-kv-vwrap {
+  flex: 1;
+  min-width: 0;
+}
+.sn-kv-v {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  line-height: 1.45;
+  word-break: break-word;
+}
+.sn-kv-sub {
+  display: block;
+  margin-top: 6rpx;
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-on-glass);
+}
+.sn-card-raw-toggle {
+  margin: 4rpx 24rpx 0;
+  min-height: 56rpx;
+  display: flex;
+  align-items: center;
+}
+.sn-card-raw-toggle text {
+  font-size: var(--font-size-xs);
+  color: var(--color-brand);
+}
+.sn-card-raw {
+  max-height: 22vh;
+  margin: 0 24rpx;
+}
+.sn-card-actions {
+  display: flex;
+  padding: 16rpx 24rpx 20rpx;
+}
+.sn-card-actions .sn-btn {
+  flex: 1;
+}
+.sn-card-actions .sn-btn--ghost {
+  margin-right: 16rpx;
+}
+.sn-card-extra {
+  padding: 0 24rpx 20rpx;
+}
+.sn-btn--block {
+  width: 100%;
+}

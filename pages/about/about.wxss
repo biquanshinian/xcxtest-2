@@ -1,7 +1,7 @@
 /* pages/about/about.wxss */
 .container {
   min-height: 100vh;
-  background: linear-gradient(180deg, #000 0%, #0a0a0a 100%);
+  background: var(--color-bg-page);
   padding: 40rpx;
   box-sizing: border-box;
 }
@@ -9,26 +9,26 @@
 .content {
   display: flex;
   flex-direction: column;
-  gap: 24rpx;
+  gap: var(--space-md);
 }
 
 .title {
-  font-size: 36rpx;
-  font-weight: 600;
-  color: #fff;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
 }
 
 .desc {
-  font-size: 28rpx;
-  color: #e5e5e7;
-  line-height: 1.7;
+  font-size: var(--font-size-base);
+  color: var(--color-text-secondary);
+  line-height: var(--line-height-relaxed);
 }
 
 .sub {
-  font-size: 24rpx;
-  color: #8e8e93;
-  line-height: 1.6;
-  margin-top: 10rpx;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  line-height: var(--line-height-normal);
+  margin-top: var(--space-2xs);
 }
 
 /* ========== 明亮主题（theme-light）覆盖 ========== */

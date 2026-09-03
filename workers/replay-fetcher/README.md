@@ -12,12 +12,14 @@
 
 云端扫描与小程序「已完成任务」列表同源（LL2 previous 全发射商），按 launchId 一一对应。
 
-集锦匹配规则（服务端下发 `clipSearch` 线索）：
-- 日期必须命中：SciNews 标题或简介固定含 UTC 日期（如 "…, 14 July 2026" / "on 16 July 2026"）。
-- 任务段关键词（starlink / spacesail / ms-29…）必须至少命中一个（标题或简介）；
-  带数字的特征编号（10-45 / t1tl-e / ms-29 / 火箭型号 10b）存在时必须命中，是同日多发的硬区分。
-- 火箭段关键词（falcon / long march…）只加分不作准入；尾缀罗马数字自动扩展变体（Vikram-I ↔ Vikram-1）。
-- 对不上宁可不下，避免张冠李戴；没找到视频（可能还没发布）按 2h/4h/6h… 退避重试，最多 6 次。
+集锦匹配规则（服务端下发 `clipSearch` 线索；Agent 侧 `clip-match.js`；**全部历史发射**统一）：
+1. **精细**：UTC 日期 + 任务 token（带数字特征号必须命中）+ 分隔符/变体归一化  
+   （`Tianlian-2-06` ↔ `TianLian-2 06`、`Starlink 10-45` ↔ `Starlink 10 45`）。
+2. **兜底（默认）**：精细失败 → **模糊**（家族词/编号词干 + 火箭 + 日期）  
+   **+ 近时**（`upload_date`≈`net`/`netMs`）；例：`Starlink Group 17-38` ↔ SciNews `Starlink 412`。
+- 火箭段关键词（falcon / long march…）精细时只加分；模糊时有则必须命中；`3B/E`→`3b`/`3be`；罗马尾缀互认。
+- 标题已写另一组星链两段组号且对不上本任务 → 拒绝模糊（防同日串台）。
+- 没找到视频按 2h/4h/6h… 退避重试，最多 6 次；复活失败任务时刷新 `clipSearch`。
 
 COS 存储生命周期：`发射回放/` 前缀 30 天自动删除（`POST /replay-agent/ensure-lifecycle` 幂等设置）；
 apiProxy 侧发射超 29 天即停发 COS 链接，两边配合不会出现 404。
@@ -27,7 +29,7 @@ apiProxy 侧发射超 29 天即停发 COS 链接，两边配合不会出现 404�
 ```
 syncSpaceDevsData(小时级) → replay_fetch_queue（kind=clip 自动 / kind=full 手动开启）
         ↓ claim
-replay-fetcher (本机, yt-dlp ≤480p) → COS 发射回放/集锦/{launchId}.mp4 或 发射回放/{launchId}.mp4
+replay-fetcher (本机, yt-dlp ≤480p → H.264+AAC compat) → COS 发射回放/集锦/{launchId}.mp4 或 发射回放/{launchId}.mp4
         ↓ complete
 mission_replays（合并写 agentClips / videoUrl）→ apiProxy missionReplay → 任务详情页回放卡片
 ```
@@ -36,7 +38,7 @@ mission_replays（合并写 agentClips / videoUrl）→ apiProxy missionReplay �
 
 1. Node ≥ 18.13（内置 fetch + duplex stream）
 2. [yt-dlp](https://github.com/yt-dlp/yt-dlp)（`winget install yt-dlp` 或 `pip install -U yt-dlp`）
-3. 可选 ffprobe（ffmpeg 套件）：读取时长/分辨率回写，未安装不影响主流程
+3. ffmpeg（含 libx264）：合并音视频 + 上传前兼容封装（H.264+AAC+faststart）；ffprobe 可选用于读元数据
 4. 能访问 YouTube / X 的网络（或配置 `REPLAY_PROXY`）
 
 ## 配置
@@ -54,11 +56,20 @@ cp .env.example .env   # 填 REPLAY_ADMIN_API_BASE / REPLAY_AGENT_TOKEN
 node src/index.js
 ```
 
+本机保活（必须一直在线）：
+
+1. `install-autostart.bat`：登录自启 + 每 2 分钟 `watchdog-silent.vbs` 探活（`wscript //B`，不弹窗）。
+2. Agent 每 15 秒写 `logs/agent.heartbeat`；进程没了或心跳超过 8 分钟，watchdog 自动拉起。
+3. `start-agent.bat` 自己也会在 node 退出后 5 秒重启。
+
+不要只靠手动开一次窗口；关掉窗口或异常退出后，应在 2 分钟内自我复活。
+
 - 无任务时每 `REPLAY_POLL_MS`（默认 10 分钟）轮询一次；有任务时连续处理。
 - 下载失败自动换下一视频源（官方 X 直播 → Spaceflight Now → The Space Devs 转播）；
   全部失败上报 fail，服务端计数 3 次后终态 failed。
-- 「压缩」策略 = 只下 ≤480p 源（`REPLAY_MAX_HEIGHT`），不做本地转码，最省 CPU 与 COS 存储。
-  2 小时级直播回放 480p 约 400~600MB；星链常规任务回放（~20 分钟）约 80~150MB。
+- 「压缩」策略 = 优先下 ≤480p 且 AVC(H.264) 源（`REPLAY_MAX_HEIGHT`），上传前再做兼容封装：
+  已是 H.264+AAC → `ffmpeg -c copy -movflags +faststart`；否则转成 H.264+AAC（避免手机相册/剪映报格式不支持）。
+  可用 `REPLAY_COMPAT_TRANSCODE=0` 关闭。2 小时级直播回放 480p 约 400~600MB；星链常规任务回放（~20 分钟）约 80~150MB。
 
 ## 管理
 

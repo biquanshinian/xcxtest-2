@@ -1,12 +1,12 @@
 const { getArticleDetail, getEventDetail } = require('./utils/api-news.js')
 const { formatDate } = require('../../utils/util.js')
 const { loadCloudMediaMap, resolveMediaUrl } = require('../../utils/image-config.js')
-const { isPermissionDenied, getPermissionDeniedMessage } = require('../../utils/single-page.js')
+const { isPermissionDenied, getPermissionDeniedMessage } = require('./utils/single-page.js')
 const pageBase = require('../../utils/page-base.js')
 const { resolveNewsDetailRoute } = require('./utils/page-route-options.js')
 const { applyPageSearchInfo, buildNewsDetailSearchMeta } = require('./utils/page-search-info.js')
-const { optimizeNewsHeroUrl } = require('../../utils/news-thumb-url.js')
-const { togglePageTranslation } = require('../../utils/text-translate.js')
+const { optimizeNewsHeroUrl } = require('./utils/news-thumb-url.js')
+const { togglePageTranslation } = require('./utils/text-translate.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { workerProxyUrl } = require('../../utils/config.js')
 
@@ -215,7 +215,21 @@ Page({
     return null
   },
 
+  /** 与任务详情页一致：重新载入内容时清掉上一条的译文与页面级翻译缓存 */
+  _resetDescTranslation() {
+    const i18n = this.data.descI18n || {}
+    if (this.data.descTranslated || i18n.title || i18n.summary || i18n.content || i18n.eventDesc) {
+      this.setData({
+        descTranslated: false,
+        descTranslating: false,
+        descI18n: { title: '', summary: '', content: '', eventDesc: '' }
+      })
+    }
+    this._textTranslateCache = null
+  },
+
   async loadDetail(detailType, id, opts = {}) {
+    this._resetDescTranslation()
     // 列表项快照先上屏（首屏加速）：列表与详情走同一格式化函数，展示一致；网络详情照常拉取兜底
     if (!this.data.item && !opts.silent) {
       const snap = this._takeNewsSnapshot(detailType, id)
@@ -227,7 +241,7 @@ Page({
             item: snapItem,
             shareTitle: `${snapItem.title || (detailType === 'article' ? '航天事件' : '即将发生')} | 火星探索日志`,
             shareImage: this.resolveShareImage(detailType === 'article' ? (snapItem.heroImageUrl || snapItem.image) : snapItem.image),
-            navTitle: detailType === 'article' ? '文章详情' : '事件详情'
+            navTitle: snapItem.title || (detailType === 'article' ? '文章详情' : '事件详情')
           })
           opts = { ...opts, silent: true }
         }
@@ -252,7 +266,7 @@ Page({
         item,
         shareTitle,
         shareImage,
-        navTitle: detailType === 'article' ? '文章详情' : '事件详情'
+        navTitle: item.title || (detailType === 'article' ? '文章详情' : '事件详情')
       })
 
       const searchMeta = buildNewsDetailSearchMeta(item, detailType, shareImage)
@@ -397,7 +411,13 @@ Page({
 
     const item = this.data.item
     const detailType = this.data.detailType
-    if (!item) {
+    const route = this._entryRoute || {}
+    const entryId = (item && item.id != null)
+      ? item.id
+      : (route.id != null ? route.id : '')
+    const entryType = detailType || route.detailType || 'event'
+
+    if (!entryId) {
       return {
         title: '航天事件详情 | 火星探索日志',
         path: '/pages/news/news',
@@ -406,17 +426,22 @@ Page({
     }
 
     return {
-      title: this.data.shareTitle,
-      path: `/subpackages/news-extra/detail?id=${item.id}&type=${detailType}`,
+      title: this.data.shareTitle || '航天事件详情 | 火星探索日志',
+      path: `/subpackages/news-extra/detail?id=${encodeURIComponent(entryId)}&type=${encodeURIComponent(entryType)}`,
       imageUrl: this.data.shareImage
     }
   },
 
   onShareTimeline() {
     const item = this.data.item
+    const route = this._entryRoute || {}
+    const entryId = (item && item.id != null)
+      ? item.id
+      : (route.id != null ? route.id : '')
+    const entryType = this.data.detailType || route.detailType || 'event'
     return {
       title: this.data.shareTitle,
-      query: item ? `id=${item.id}&type=${this.data.detailType}` : '',
+      query: entryId ? `id=${encodeURIComponent(entryId)}&type=${encodeURIComponent(entryType)}` : '',
       imageUrl: this.data.shareImage
     }
   }

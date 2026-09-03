@@ -5,15 +5,18 @@
   <!-- 自定义导航栏 -->
   <view class="top-nav-wrapper" style="padding-top:{{statusBarHeight}}px;">
     <view class="top-nav top-nav--page-grid">
-      <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
         <text class="icon-back icon-back--nav">‹</text>
       </view>
-      <text class="nav-title nav-title--page-grid">月愿计划</text>
-      <view class="top-nav-slot--spacer"></view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">月愿计划</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
     </view>
   </view>
 
   <scroll-view class="page-scroll" scroll-y enhanced show-scrollbar="{{false}}"
+               bindscroll="onCollectScroll"
                bindscrolltolower="loadMore">
   <view style="height: {{navPlaceholderHeight}}px;"></view>
 
@@ -148,16 +151,16 @@
   <view class="starfield-section">
     <view class="section-header">
       <text class="section-title">月球心愿星空</text>
-      <text class="starfield-count">{{wishList.length}} 颗心愿星</text>
+      <text class="starfield-count">{{stats.totalWishes || 0}} 颗心愿星</text>
     </view>
 
     <view class="starfield-container" bind:tap="onFieldTap">
       <!-- 月球背景图 -->
-      <image class="lunar-bg" src="https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E7%81%B5%E6%84%9F%E6%B5%81%E7%85%A7%E7%89%87%E9%9B%86/1776011555299_5cjd52.jpg" mode="aspectFill" />
+      <image class="lunar-bg" src="https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E8%83%8C%E6%99%AF%E8%A7%86%E9%A2%91/1784629331478_r7lvza.jpg" mode="widthFix" />
 
       <!-- 音乐按钮 -->
       <view class="music-btn {{musicPlaying ? 'playing' : ''}}" catch:tap="onToggleMusic">
-        <image class="music-icon" src="/images/icons/ic-music.svg" />
+        <image class="music-icon" src="/pages/collect/images/ic-music.svg" />
       </view>
       <view class="lunar-bg-overlay"></view>
 
@@ -199,7 +202,7 @@
             </button>
             <view class="popup-action-split"></view>
             <view class="popup-action-btn" catch:tap="onShareToMoments">
-              <image class="popup-action-icon" src="/images/icons/ic-share-moments.svg" />
+              <image class="popup-action-icon" src="/pages/collect/images/ic-share-moments.svg" />
             </view>
           </view>
         </view>
@@ -236,6 +239,6 @@
   </view>
 
   </scroll-view>
-  <nasa-float show-ai-chat="{{false}}" />
+  <nasa-float id="nasaFloat" />
   <share-guide />
 </view>

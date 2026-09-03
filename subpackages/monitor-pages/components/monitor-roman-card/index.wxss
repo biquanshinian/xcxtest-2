@@ -1,0 +1,418 @@
+@import "../../../../styles/monitor-block.wxss";
+
+.roman-card-root {
+  overflow: hidden;
+}
+
+.roman-card-title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12rpx 16rpx;
+  margin-bottom: var(--space-sm);
+  min-height: 56rpx;
+  box-sizing: border-box;
+}
+
+.roman-hero {
+  position: relative;
+  margin-top: 0;
+  padding: var(--space-lg) var(--space-md) var(--space-md);
+  border-radius: var(--radius-lg);
+  background: #0B0C0E;
+  overflow: hidden;
+  box-shadow: none;
+}
+
+.roman-hero__probe {
+  position: absolute;
+  left: -16rpx;
+  top: -16rpx;
+  width: 8rpx;
+  height: 8rpx;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.roman-hero__bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+.roman-hero__mask {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(135deg,
+      rgba(0, 0, 0, 0.78) 0%,
+      rgba(0, 0, 0, 0.5) 50%,
+      rgba(0, 0, 0, 0.85) 100%);
+}
+
+/* 右上角：地球（蓝）奔赴 L2（金）晕轨道，配色对齐进度条 */
+.roman-hero__viz {
+  position: absolute;
+  top: -40rpx;
+  right: -40rpx;
+  width: 280rpx;
+  height: 280rpx;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.roman-viz__earth {
+  position: absolute;
+  left: 36rpx;
+  top: 170rpx;
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  background: #60A5FA;
+  box-shadow: 0 0 10rpx rgba(59, 130, 246, 0.75);
+  animation: roman-viz-pulse 2.4s ease-in-out infinite;
+}
+
+.roman-viz__cruise {
+  position: absolute;
+  left: 18rpx;
+  top: 46rpx;
+  width: 192rpx;
+  height: 192rpx;
+  border-radius: 50%;
+  border: 1rpx solid rgba(125, 211, 252, 0.22);
+  animation: roman-viz-spin 13s linear infinite;
+}
+
+.roman-viz__l2-wrap {
+  position: absolute;
+  left: 116rpx;
+  top: 84rpx;
+  width: 96rpx;
+  height: 96rpx;
+}
+
+.roman-viz__l2 {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8rpx;
+  height: 8rpx;
+  margin: -4rpx 0 0 -4rpx;
+  border-radius: 50%;
+  background: #FFD60A;
+  box-shadow: 0 0 10rpx rgba(255, 214, 10, 0.7);
+  animation: roman-viz-pulse 2.4s ease-in-out infinite 0.6s;
+}
+
+.roman-viz__halo-tilt {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-30deg) scaleX(1.58);
+}
+
+.roman-viz__halo {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 1rpx solid rgba(255, 214, 10, 0.4);
+  animation: roman-viz-spin 17s linear infinite reverse;
+}
+
+.roman-viz__halo--outer {
+  position: absolute;
+  left: -16%;
+  top: -16%;
+  width: 132%;
+  height: 132%;
+  border-color: rgba(255, 214, 10, 0.16);
+  animation-duration: 26s;
+  animation-direction: normal;
+}
+
+.roman-viz__dot {
+  position: absolute;
+  top: -4rpx;
+  left: 50%;
+  width: 8rpx;
+  height: 8rpx;
+  margin-left: -4rpx;
+  border-radius: 50%;
+}
+
+.roman-viz__dot--cruise {
+  background: #7DD3FC;
+  box-shadow: 0 0 8rpx #7DD3FC;
+}
+
+.roman-viz__dot--halo {
+  background: #FFD60A;
+  box-shadow: 0 0 8rpx #FFD60A;
+}
+
+.roman-hero__viz--ended {
+  opacity: 0.55;
+}
+
+@keyframes roman-viz-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes roman-viz-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%      { transform: scale(1.45); opacity: 0.55; }
+}
+
+.roman-hero__content {
+  position: relative;
+  z-index: 1;
+}
+
+.roman-hero__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20rpx;
+}
+
+.roman-hero__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+  padding: 6rpx 12rpx;
+  border-radius: 100rpx;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1rpx solid rgba(255, 255, 255, 0.18);
+}
+
+.roman-hero__badge-dot {
+  width: 8rpx;
+  height: 8rpx;
+  border-radius: 50%;
+  background: #FFFFFF;
+  box-shadow: 0 0 8rpx rgba(255, 255, 255, 0.6);
+  animation: roman-hero-blink 1.4s ease-in-out infinite;
+}
+
+.roman-hero__badge-dot--live {
+  background: #34D399;
+  box-shadow: 0 0 8rpx #34D399;
+}
+
+@keyframes roman-hero-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+.roman-hero__badge-text {
+  font-size: 18rpx;
+  letter-spacing: 1.4rpx;
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 600;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+
+.roman-hero__title {
+  display: block;
+  font-size: 32rpx;
+  font-weight: 700;
+  letter-spacing: 0.6rpx;
+  color: #FFFFFF;
+}
+
+.roman-hero__title-cn {
+  display: block;
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.65);
+  letter-spacing: 1rpx;
+  margin-top: 4rpx;
+}
+
+.roman-hero__desc {
+  display: block;
+  font-size: 22rpx;
+  color: rgba(255, 255, 255, 0.45);
+  line-height: 1.6;
+  margin-top: 16rpx;
+  letter-spacing: 0.4rpx;
+}
+
+.roman-hero__metrics {
+  display: flex;
+  align-items: center;
+  margin-top: 24rpx;
+  padding: 18rpx 0;
+  border-top: 1rpx solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1rpx solid rgba(255, 255, 255, 0.08);
+}
+
+.roman-hero__metric {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4rpx;
+}
+
+.roman-hero__metric-value {
+  font-size: 22rpx;
+  font-weight: 700;
+  color: #FFFFFF;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  letter-spacing: 0.2rpx;
+  font-variant-numeric: tabular-nums;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roman-hero__metric-label {
+  font-size: 18rpx;
+  color: rgba(255, 255, 255, 0.4);
+  letter-spacing: 0.6rpx;
+}
+
+.roman-hero__metric-divider {
+  width: 1rpx;
+  height: 32rpx;
+  flex-shrink: 0;
+  background: linear-gradient(180deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.16) 50%,
+    transparent 100%);
+}
+
+.roman-hero__progress {
+  margin-top: 18rpx;
+}
+
+.roman-hero__progress-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.55);
+  margin-bottom: 4rpx;
+}
+
+.roman-hero__progress-pct {
+  color: #FFFFFF;
+  font-variant-numeric: tabular-nums;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+
+.roman-hero__progress-rail {
+  position: relative;
+  height: 72rpx;
+  margin: 0 48rpx;
+}
+
+.roman-hero__progress-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 8rpx;
+  margin-top: -4rpx;
+  overflow: hidden;
+  border-radius: 8rpx;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.roman-hero__progress-fill {
+  height: 100%;
+  border-radius: 8rpx;
+  background: linear-gradient(90deg, #3B82F6 0%, #7DD3FC 48%, #FFD60A 100%);
+}
+
+.roman-hero__progress-craft {
+  position: absolute;
+  top: 50%;
+  width: 96rpx;
+  height: 62rpx;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.roman-hero__progress-craft-img {
+  width: 96rpx;
+  height: 62rpx;
+  display: block;
+}
+
+.roman-hero__dsn {
+  display: flex;
+  align-items: flex-start;
+  gap: 12rpx;
+  margin-top: 14rpx;
+}
+
+.roman-hero__dsn-dot {
+  width: 12rpx;
+  height: 12rpx;
+  margin-top: 8rpx;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #34D399;
+  box-shadow: 0 0 8rpx rgba(52, 211, 153, 0.45);
+}
+
+.roman-hero__dsn-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.55);
+  line-height: 1.5;
+}
+
+.roman-hero__retry {
+  margin-top: 16rpx;
+  display: inline-flex;
+  padding: 10rpx 28rpx;
+  border-radius: 12rpx;
+  background: rgba(59, 130, 246, 0.45);
+  font-size: 24rpx;
+  color: #ffffff;
+}
+
+.roman-hero__cta {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 18rpx;
+  padding: 16rpx 18rpx;
+  border-radius: 12rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1rpx solid rgba(255, 255, 255, 0.12);
+}
+
+.roman-hero__cta-text {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #FFFFFF;
+  letter-spacing: 0.8rpx;
+}
+
+.roman-hero__cta-arrow {
+  font-size: 28rpx;
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 700;
+  animation: roman-hero-arrow 1.8s ease-in-out infinite;
+}
+
+@keyframes roman-hero-arrow {
+  0%, 100% { transform: translateX(0); }
+  50%      { transform: translateX(6rpx); }
+}

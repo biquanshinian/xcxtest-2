@@ -1,7 +1,7 @@
 {
   "setting": {
     "es6": true,
-    "postcss": false,
+    "postcss": true,
     "compileWorklet": false,
     "minified": true,
     "uglifyFileName": false,
@@ -63,11 +63,39 @@
         "type": "glob"
       },
       {
+        "value": "workers/**/.*",
+        "type": "glob"
+      },
+      {
+        "value": "workers/**/.*/**",
+        "type": "glob"
+      },
+      {
+        "value": "subpackages/agent-skills/**",
+        "type": "glob"
+      },
+      {
+        "value": "subpackages/rocket-3d/node_modules/**",
+        "type": "glob"
+      },
+      {
+        "value": "subpackages/rocket-3d/scripts/**",
+        "type": "glob"
+      },
+      {
         "value": "test/**",
         "type": "glob"
       },
       {
+        "value": "**/*.test.js",
+        "type": "glob"
+      },
+      {
         "value": "docs/**",
+        "type": "glob"
+      },
+      {
+        "value": "assets/**",
         "type": "glob"
       },
       {
@@ -96,6 +124,10 @@
       },
       {
         "value": "scf-cos-trigger/**",
+        "type": "glob"
+      },
+      {
+        "value": "tools/**",
         "type": "glob"
       },
       {
@@ -203,6 +235,18 @@
         "type": "glob"
       },
       {
+        "value": ".tmp*/**",
+        "type": "glob"
+      },
+      {
+        "value": ".tmp-r3d-glb",
+        "type": "folder"
+      },
+      {
+        "value": ".tmp-r3d-ref",
+        "type": "folder"
+      },
+      {
         "value": "agent-config/**",
         "type": "glob"
       },
@@ -217,9 +261,26 @@
       {
         "value": "ll2_prev_sample.json",
         "type": "file"
+      },
+      {
+        "value": "/minitest",
+        "type": "folder"
+      },
+      {
+        "value": "app.miniapp.json",
+        "type": "file"
       }
     ],
-    "include": []
+    "include": [
+      {
+        "value": "subpackages/news-extra/utils/news-lazy.js",
+        "type": "file"
+      },
+      {
+        "value": "subpackages/monitor-pages/utils/monitor-weather.js",
+        "type": "file"
+      }
+    ]
   },
   "appid": "wxf98b58309019771b",
   "editorSetting": {},

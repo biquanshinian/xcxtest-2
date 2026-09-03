@@ -7,8 +7,9 @@
  *   agentLaunchDetail     — 单次发射详情（缓存优先，LL2 直连兜底）
  *   agentLaunchStats      — 年度全球发射统计（转调 getLaunchStats readOnly）
  *   agentAgencyInfo       — 发射商查询（读 agencies 聚合缓存）
+ *   cachedLaunchList      — 首页列表 cache_miss 服务端兜底（返回原始 results，非 LLM slim）
  *
- * 约定：所有返回控制在几 KB 内（LLM 上下文限制 200KB，实际越小推理越快）
+ * 约定：agent* 返回控制在几 KB 内；cachedLaunchList 可更大（首页列表用）。
  */
 
 const SPACE_DEVS_COL = 'space_devs_cache'
@@ -31,7 +32,8 @@ const PREVIOUS_CACHE_PARAMS = {
   offset: 0,
   ordering: '-net'
 }
-const SLIM_SUFFIXES = ['_slim_v5', '_slim_v4', '_slim_v3', '_slim_v2', '_slim', '']
+// 与 syncSpaceDevsData / 客户端 api-request 当前落库后缀对齐；缺 _slim_v6 会读不到现网母文档
+const SLIM_SUFFIXES = ['_slim_v6', '_slim_v5', '_slim_v4', '_slim_v3', '_slim_v2', '_slim', '']
 
 // 发射状态中文（LL2 status.abbrev/name → 中文），slim 缓存里通常已带 status.nameZh，这里兜底
 const STATUS_ZH = {
@@ -185,6 +187,34 @@ module.exports = function createAgentActions({ db, cloud, fetchJSON, getCache, s
       }
     }
     return false
+  }
+
+  /**
+   * 首页/列表 cache_miss 服务端兜底：返回 space_devs_cache 原始 results（非整页 slim）。
+   * 客户端直连库超时/权限失败时经 callFunction 走此路径，绕过小程序 database SDK。
+   */
+  async function cachedLaunchList(event) {
+    const kind = event && event.kind === 'previous' ? 'previous' : 'upcoming'
+    const path = kind === 'previous' ? PREVIOUS_CACHE_PATH : UPCOMING_CACHE_PATH
+    const params = kind === 'previous' ? PREVIOUS_CACHE_PARAMS : UPCOMING_CACHE_PARAMS
+    const limit = Math.min(100, Math.max(1, Number(event && event.limit) || 50))
+    const offset = Math.max(0, Number(event && event.offset) || 0)
+
+    const { results, updatedAt } = await readListCache(path, params, SLIM_SUFFIXES)
+    if (!results.length) {
+      return { success: false, error: 'no_data', message: '发射数据暂未就绪，请稍后重试' }
+    }
+    return {
+      success: true,
+      data: {
+        results: results.slice(offset, offset + limit),
+        count: results.length,
+        offset,
+        limit,
+        updatedAt: updatedAt || 0,
+        source: 'space_devs_cache'
+      }
+    }
   }
 
   // ── 1. 即将发射 ──────────────────────────────────────────
@@ -835,6 +865,7 @@ module.exports = function createAgentActions({ db, cloud, fetchJSON, getCache, s
   }
 
   return {
+    cachedLaunchList,
     agentUpcomingLaunches,
     agentRecentLaunches,
     agentLaunchDetail,

@@ -46,13 +46,36 @@
     
     <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
 <view class="detail-container">
-      <!-- 加载中：内容区留白，进度由导航栏下方的 page-progress 绿色进度条呈现 -->
-      <block wx:if="{{loading}}"></block>
+      <!-- 通用事件更新详情/列表：复用进展页账号胶囊筛选 -->
+      <tweet-account-chips
+        wx:if="{{showTweetAccountChips}}"
+        theme-class="{{themeClass}}"
+        tweet-account-stats="{{tweetAccountStats}}"
+        is-pro-user="{{isProUser}}"
+        selected-source="{{selectedTweetSource}}"
+        bind:accounttap="onTweetAccountTap"
+      />
+      <!-- 加载中：骨架屏撑满一屏，分享/直达冷启动时页面立即可滑动；进度由导航栏下方的 page-progress 绿色进度条呈现 -->
+      <view class="detail-skeleton" wx:if="{{loading}}" aria-hidden="{{true}}">
+        <view class="skeleton-card skeleton-card--hero">
+          <view class="skeleton-hero skeleton-shimmer"></view>
+          <view class="skeleton-card-body">
+            <view class="skeleton-line skeleton-line--title skeleton-shimmer"></view>
+            <view class="skeleton-line skeleton-line--sub skeleton-shimmer"></view>
+          </view>
+        </view>
+        <view class="skeleton-card" wx:for="{{[1, 2, 3]}}" wx:key="*this">
+          <view class="skeleton-line skeleton-line--label skeleton-shimmer"></view>
+          <view class="skeleton-line skeleton-shimmer"></view>
+          <view class="skeleton-line skeleton-line--short skeleton-shimmer"></view>
+        </view>
+      </view>
 
       <view class="error-state glass-card" wx:elif="{{errorMessage}}">
-        <text class="error-title">加载失败</text>
+        <text class="error-title">{{errorTitle || '加载失败'}}</text>
         <text class="error-text">{{errorMessage}}</text>
-        <button class="retry-btn" bindtap="retryLoad">重新加载</button>
+        <button class="retry-btn" wx:if="{{errorAction === 'latest'}}" bindtap="goLatestEvents">查看最新动态</button>
+        <button class="retry-btn" wx:else bindtap="retryLoad">重新加载</button>
       </view>
 
       <block wx:elif="{{pageMode === 'nsf_checklist' && !errorMessage}}">
@@ -69,6 +92,7 @@
             index="{{index}}"
             themeLight="{{themeLight}}"
             bind:cardtap="onNsfStarshipMissionCardTap"
+            bind:rocketimagefix="onNsfStarshipRocketImageFix"
           />
         </view>
 
@@ -125,6 +149,16 @@
       </block>
 
       <block wx:elif="{{pageMode === 'll2_timeline' && !errorMessage}}">
+        <!-- 飞行剖面迷你演示：置于时间线详情上方；完整页走门控 -->
+        <view class="detail-flight-demo" wx:if="{{enableMissionSim && flightDemoTimeline.length}}">
+          <flight-profile-demo
+            mode="mini"
+            active="{{!loading && pageVisible}}"
+            missionName="{{flightDemoMissionName}}"
+            timeline="{{flightDemoTimeline}}"
+            bind:opentap="openFlightDemo"
+          />
+        </view>
         <view class="detail-card glass-card detail-ll2-page-card">
           <text class="detail-title">星舰飞行时间线</text>
           <view class="detail-ll2-toolbar">
@@ -165,7 +199,7 @@
           <view class="detail-ll2-updates-body" wx:if="{{ll2DetailLaunchUpdates.length > 0}}">
             <view class="detail-ll2-update-row" wx:for="{{ll2DetailLaunchUpdates}}" wx:key="id">
               <view class="detail-ll2-update-main">
-                <text class="detail-ll2-update-comment">{{descI18n.launchUpdates[index] || item.comment}}</text>
+                <text class="detail-ll2-update-comment">{{luTranslated ? (descI18n.launchUpdates[index] || item.commentZh || item.comment) : item.comment}}</text>
                 <text class="detail-ll2-update-meta">{{item.createdBy}}{{item.timeLabel ? ' · ' + item.timeLabel : ''}}</text>
               </view>
               <text
@@ -186,53 +220,53 @@
       <!-- LL2 即将进行的在轨事件（专用样式） -->
       <block wx:elif="{{pageMode === 'll2_event' && !errorMessage && item}}">
         <view class="ll2-event-page">
-          <!-- Hero 头图 + 类型胶囊 + 倒计时 -->
-          <view class="ll2-event-hero glass-card">
-            <view class="ll2-event-hero-bg-wrap" wx:if="{{item.heroImageUrl}}" bindtap="onLl2HeroPreview">
-              <view class="ll2-event-hero-img-stage">
-                <image class="ll2-event-hero-img-crop" src="{{item.heroImageUrl}}" mode="aspectFill" lazy-load />
+          <!-- Hero 头图 + 类型胶囊 + 倒计时：多层毛玻璃悬浮卡骨架（hero-float）；
+               hero 卡自身保留 overflow:hidden 裁切绝对定位的背景图/遮罩圆角，叠层挂在外层 hero-float 上不受裁剪 -->
+          <view class="hero-float hero-float--flush">
+            <view class="ll2-event-hero glass-card hero-float-card">
+              <view class="ll2-event-hero-bg-wrap" wx:if="{{item.heroImageUrl}}" bindtap="onLl2HeroPreview">
+                <view class="ll2-event-hero-img-stage">
+                  <image class="ll2-event-hero-img-crop" src="{{item.heroImageUrl}}" mode="aspectFill" lazy-load binderror="onLl2HeroImageError" />
+                </view>
               </view>
+              <view class="ll2-event-hero-mask"></view>
+              <view class="ll2-event-hero-tags">
+                <view class="ll2-event-type-chip ll2-event-type-chip--{{item.typeKey}}">
+                  <text>{{item.typeName}}</text>
+                </view>
+                <view class="ll2-event-countdown ll2-event-countdown--realtime" wx:if="{{!ll2EventCountdown.isExpired}}">
+                  <view class="ll2-event-cd-item">
+                    <text class="ll2-event-cd-value">{{ll2EventCountdown.days}}</text>
+                    <text class="ll2-event-cd-unit">天</text>
+                  </view>
+                  <text class="ll2-event-cd-sep">:</text>
+                  <view class="ll2-event-cd-item">
+                    <text class="ll2-event-cd-value">{{ll2EventCountdown.hours}}</text>
+                    <text class="ll2-event-cd-unit">时</text>
+                  </view>
+                  <text class="ll2-event-cd-sep">:</text>
+                  <view class="ll2-event-cd-item">
+                    <text class="ll2-event-cd-value">{{ll2EventCountdown.minutes}}</text>
+                    <text class="ll2-event-cd-unit">分</text>
+                  </view>
+                  <text class="ll2-event-cd-sep">:</text>
+                  <view class="ll2-event-cd-item">
+                    <text class="ll2-event-cd-value">{{ll2EventCountdown.seconds}}</text>
+                    <text class="ll2-event-cd-unit">秒</text>
+                  </view>
+                </view>
+                <view class="ll2-event-countdown ll2-event-countdown--live" wx:else>
+                  <text class="ll2-event-cd-live">进行中 / 已开始</text>
+                </view>
+              </view>
+              <text class="ll2-event-hero-title" user-select="{{true}}">{{item.title}}</text>
             </view>
-            <view class="ll2-event-hero-mask"></view>
-            <view class="ll2-event-hero-tags">
-              <view class="ll2-event-type-chip ll2-event-type-chip--{{item.typeKey}}">
-                <text>{{item.typeName}}</text>
-              </view>
-              <view class="ll2-event-countdown ll2-event-countdown--realtime" wx:if="{{!ll2EventCountdown.isExpired}}">
-                <view class="ll2-event-cd-item">
-                  <text class="ll2-event-cd-value">{{ll2EventCountdown.days}}</text>
-                  <text class="ll2-event-cd-unit">天</text>
-                </view>
-                <text class="ll2-event-cd-sep">:</text>
-                <view class="ll2-event-cd-item">
-                  <text class="ll2-event-cd-value">{{ll2EventCountdown.hours}}</text>
-                  <text class="ll2-event-cd-unit">时</text>
-                </view>
-                <text class="ll2-event-cd-sep">:</text>
-                <view class="ll2-event-cd-item">
-                  <text class="ll2-event-cd-value">{{ll2EventCountdown.minutes}}</text>
-                  <text class="ll2-event-cd-unit">分</text>
-                </view>
-                <text class="ll2-event-cd-sep">:</text>
-                <view class="ll2-event-cd-item">
-                  <text class="ll2-event-cd-value">{{ll2EventCountdown.seconds}}</text>
-                  <text class="ll2-event-cd-unit">秒</text>
-                </view>
-              </view>
-              <view class="ll2-event-countdown ll2-event-countdown--live" wx:else>
-                <text class="ll2-event-cd-live">进行中 / 已开始</text>
-              </view>
-            </view>
-            <text class="ll2-event-hero-title" user-select="{{true}}">{{item.title}}</text>
           </view>
-
-          <!-- 贴图讨论区：LL2 事件头图下方；topic 取自标题，组件内已截断至 20 字 -->
-          <official-account-publish-panel topic="{{item.title || '即将发生'}}" />
 
           <!-- 信息行：日期 / 地点（图标线条统一风格） -->
           <view class="ll2-event-info glass-card">
             <view class="ll2-event-info-row">
-              <image class="ll2-event-info-icon" src="/images/icon-calendar.svg" mode="aspectFit"></image>
+              <image class="ll2-event-info-icon" src="/subpackages/progress-extra/images/icon-calendar.svg" mode="aspectFit"></image>
               <view class="ll2-event-info-body">
                 <text class="ll2-event-info-label">预计时间</text>
                 <text class="ll2-event-info-value" user-select="{{true}}">{{item.dateText}}</text>
@@ -251,7 +285,7 @@
           <!-- 描述 -->
           <view class="ll2-event-section glass-card" wx:if="{{item.description}}">
             <view class="ll2-event-section-title">
-              <image class="ll2-event-section-icon" src="/images/icon-orbit.svg" mode="aspectFit"></image>
+              <image class="ll2-event-section-icon" src="/subpackages/progress-extra/images/icon-orbit.svg" mode="aspectFit"></image>
               <text>任务概述</text>
               <text class="translate-toggle translate-toggle--inline {{evtDescTranslating ? 'translate-toggle--busy' : ''}}" catchtap="onToggleEventDescTranslate">{{evtDescTranslating ? '翻译中…' : (evtDescTranslated ? '原文' : '翻译')}}</text>
             </view>
@@ -364,6 +398,9 @@
           </block>
 
           <text class="ll2-event-source-tip">数据来源：LL2</text>
+
+          <!-- 贴图讨论区：LL2 事件详情最底部；topic 取自标题，组件内已截断至 20 字 -->
+          <official-account-publish-panel topic="{{item.title || '即将发生'}}" />
         </view>
       </block>
 
@@ -371,21 +408,25 @@
         <view class="list-day-hint" wx:if="{{listDayHint}}">
           <text class="list-day-hint-text">{{listDayHint}}</text>
         </view>
-        <view class="empty-list-hint glass-card" wx:if="{{items.length === 0}}">
+        <view class="empty-list-hint glass-card" wx:if="{{!itemsView.length}}">
           <text class="empty-list-text">该账号暂无已发布动态，可下拉刷新重试</text>
         </view>
-        <block wx:for="{{items}}" wx:for-item="ev" wx:key="_id" wx:for-index="evIdx">
+        <block wx:for="{{itemsView}}" wx:for-item="ev" wx:key="_id" wx:for-index="evIdx">
           <view class="detail-card glass-card list-card-item" bindtap="onListCardTap" bindlongpress="openListEventShareSheet" data-id="{{ev._id}}" data-idx="{{evIdx}}">
             <view class="meta-top">
-              <text class="date-text">{{ev.publishedAtText}}</text>
               <view class="author-tag-wrap" wx:if="{{ev.author}}">
                 <image class="author-avatar" src="{{ev.authorAvatar}}" wx:if="{{ev.authorAvatar && !ev._avatarFailed}}" mode="aspectFill" binderror="onListAvatarError" data-idx="{{evIdx}}" />
                 <text class="author-tag">{{ev.author}}</text>
               </view>
+              <text class="date-text">{{ev.publishedAtText}}</text>
             </view>
 
             <text class="detail-title" wx:if="{{ev.title}}" user-select="{{true}}">{{ev.title}}</text>
             <text class="detail-content" wx:if="{{ev.content}}" user-select="{{true}}">{{ev.content}}</text>
+            <view class="event-intel-row" wx:if="{{ev.isNew || ev.keywordHitText}}">
+              <text class="event-intel-new" wx:if="{{ev.isNew}}">新</text>
+              <text class="event-intel-kw" wx:if="{{ev.keywordHitText}}">{{ev.keywordHitText}}</text>
+            </view>
 
             <view class="event-live-card" wx:if="{{enableLiveEntry && ev.liveRoomId}}" catchtap="onLiveCardTapFromList" data-id="{{ev._id}}">
               <view class="event-live-cover-wrap">
@@ -407,9 +448,11 @@
               </view>
             </view>
 
-            <view class="event-media-list" wx:if="{{enableEventVideo && ev.mediaList && ev.mediaList.length > 0}}">
+            <view class="event-media-list event-media-list--n{{ev.imageGridCols || 1}}" wx:if="{{enableEventVideo && ev.mediaList && ev.mediaList.length > 0}}">
               <block wx:for="{{ev.mediaList}}" wx:for-item="media" wx:for-index="mIdx" wx:key="mIdx">
-                <image wx:if="{{media.type === 'image'}}" class="event-media-image" src="{{media.url}}" mode="aspectFill" lazy-load="{{true}}" show-menu-by-longpress="{{true}}" catchtap="onEventImagePreview" data-urls="{{ev.imageUrls}}" data-current="{{media.url}}" />
+                <view wx:if="{{media.type === 'image'}}" class="event-media-image-wrap">
+                  <image class="event-media-image" src="{{media.url}}" mode="aspectFill" lazy-load="{{true}}" show-menu-by-longpress="{{false}}" catchtap="onEventImagePreview" catchlongpress="onEventImageLongPress" data-urls="{{ev.imageUrls}}" data-thumbs="{{ev.imageUrls}}" data-originals="{{ev.imageOriginalUrls}}" data-current="{{media.url}}" data-original="{{media.remoteUrl || media.url}}" />
+                </view>
                 <view wx:if="{{media.type === 'video'}}" class="event-media-video-wrap" catchtap="onVideoThumbnailTap" catchlongpress="onVideoSaveOriginal" data-url="{{media.url}}" data-playurl="{{media.playUrl}}" data-original="{{media.originalUrl || media.url}}" data-sourceurl="{{media.sourceUrl}}" data-videourl="{{media.videoUrl}}" data-islong="{{media.isLongVideo}}" data-thumb="{{media.thumbnailUrl}}" data-eventid="{{ev._id}}" data-midx="{{mIdx}}">
                   <image wx:if="{{media.thumbnailUrl}}" class="event-media-video-thumb" src="{{media.thumbnailUrl}}" mode="aspectFill" lazy-load="{{true}}" />
                   <image wx:else class="event-media-video-thumb" src="{{media.url}}" mode="aspectFill" lazy-load="{{true}}" />
@@ -418,6 +461,25 @@
                   <view wx:elif="{{!media.isPlayable}}" class="event-media-link-badge">外部链接</view>
                 </view>
               </block>
+            </view>
+            <view
+              class="event-related-mission-wrap"
+              wx:if="{{ev.relatedLaunchCard}}"
+              catchtap="onRelatedLaunchTap"
+              catchlongpress="stopPropagation"
+              data-launch-id="{{ev.relatedLaunchId}}"
+              data-launch-type="{{ev.relatedLaunchType}}"
+            >
+              <mission-list-card
+                item="{{ev.relatedLaunchCard}}"
+                index="{{evIdx}}"
+                themeLight="{{themeLight}}"
+                enableFavorite="{{true}}"
+                favorited="{{ev.relatedLaunchFavorited}}"
+                favAnimate="{{ev.relatedLaunchFavAnimate}}"
+                bind:cardtap="onRelatedLaunchTap"
+                bind:favoritetap="onToggleRelatedLaunchFavorite"
+              />
             </view>
           </view>
         </block>
@@ -434,15 +496,16 @@
       <block wx:elif="{{item}}">
       <view class="detail-card glass-card">
         <view class="meta-top">
-          <text class="date-text">{{item.publishedAtText}}</text>
           <view class="author-tag-wrap" wx:if="{{item.author}}">
             <image class="author-avatar" src="{{item.authorAvatar}}" wx:if="{{item.authorAvatar && !avatarError}}" mode="aspectFill" binderror="onAvatarError" />
             <text class="author-tag">{{item.author}}</text>
           </view>
+          <text class="date-text">{{item.publishedAtText}}</text>
         </view>
 
         <text class="detail-title" wx:if="{{item.title}}" user-select="{{true}}">{{item.title}}</text>
         <text class="detail-content" wx:if="{{item.content}}" user-select="{{true}}">{{item.content}}</text>
+        <include src="./event-intel-row.wxml" />
 
         <view class="event-live-card" wx:if="{{enableLiveEntry && item.liveRoomId}}" bindtap="onLiveCardTap">
           <view class="event-live-cover-wrap">
@@ -469,19 +532,24 @@
           </view>
         </view>
 
-        <view class="event-media-list" wx:if="{{enableEventVideo && item.mediaList && item.mediaList.length > 0}}">
+        <view class="event-media-list event-media-list--n{{item.imageGridCols || 1}}" wx:if="{{enableEventVideo && item.mediaList && item.mediaList.length > 0}}">
           <block wx:for="{{item.mediaList}}" wx:for-item="media" wx:for-index="mIdx" wx:key="mIdx">
-            <image
-              wx:if="{{media.type === 'image'}}"
-              class="event-media-image"
-              src="{{media.url}}"
-              mode="aspectFill"
-              lazy-load="{{true}}"
-              show-menu-by-longpress="{{true}}"
-              bindtap="onEventImagePreview"
-              data-urls="{{item.imageUrls}}"
-              data-current="{{media.url}}"
-            ></image>
+            <view wx:if="{{media.type === 'image'}}" class="event-media-image-wrap">
+              <image
+                class="event-media-image"
+                src="{{media.url}}"
+                mode="aspectFill"
+                lazy-load="{{true}}"
+                show-menu-by-longpress="{{false}}"
+                catchtap="onEventImagePreview"
+                catchlongpress="onEventImageLongPress"
+                data-urls="{{item.imageUrls}}"
+                data-thumbs="{{item.imageUrls}}"
+                data-originals="{{item.imageOriginalUrls}}"
+                data-current="{{media.url}}"
+                data-original="{{media.remoteUrl || media.url}}"
+              ></image>
+            </view>
             <view wx:if="{{media.type === 'video'}}" class="event-media-video-wrap" bindtap="onVideoThumbnailTap" bindlongpress="onVideoSaveOriginal" data-url="{{media.url}}" data-playurl="{{media.playUrl}}" data-original="{{media.originalUrl || media.url}}" data-sourceurl="{{media.sourceUrl}}" data-videourl="{{media.videoUrl}}" data-islong="{{media.isLongVideo}}" data-thumb="{{media.thumbnailUrl}}" data-eventid="{{item._id}}" data-midx="{{mIdx}}">
               <image wx:if="{{media.thumbnailUrl}}" class="event-media-video-thumb" src="{{media.thumbnailUrl}}" mode="aspectFill" lazy-load="{{true}}"></image>
               <image wx:else class="event-media-video-thumb" src="{{media.url}}" mode="aspectFill" lazy-load="{{true}}"></image>
@@ -490,6 +558,25 @@
               <view wx:elif="{{!media.isPlayable}}" class="event-media-link-badge">外部链接</view>
             </view>
           </block>
+        </view>
+
+        <view
+          class="event-related-mission-wrap"
+          wx:if="{{item.relatedLaunchCard}}"
+          catchtap="onRelatedLaunchTap"
+          catchlongpress="stopPropagation"
+          data-launch-id="{{item.relatedLaunchId}}"
+          data-launch-type="{{item.relatedLaunchType}}"
+        >
+          <mission-list-card
+            item="{{item.relatedLaunchCard}}"
+            themeLight="{{themeLight}}"
+            enableFavorite="{{true}}"
+            favorited="{{item.relatedLaunchFavorited}}"
+            favAnimate="{{item.relatedLaunchFavAnimate}}"
+            bind:cardtap="onRelatedLaunchTap"
+            bind:favoritetap="onToggleRelatedLaunchFavorite"
+          />
         </view>
 
       </view>
@@ -515,6 +602,33 @@
       >分享给好友</button>
       <view class="event-share-sheet-btn" bindtap="openListSelectedDetailForShare">打开单条详情（朋友圈/收藏）</view>
       <view class="event-share-sheet-btn event-share-sheet-btn--cancel" bindtap="closeListEventShareSheet">取消</view>
+    </view>
+  </view>
+
+  <view class="event-image-save-mask" wx:if="{{showEventImageSavePicker}}" catchtouchmove="stopPropagation" bindtap="closeEventImageSavePicker">
+    <view class="event-image-save-sheet" catchtap="stopPropagation">
+      <view class="event-image-save-header">
+        <text class="event-image-save-title">选择要保存的原图</text>
+        <text class="event-image-save-select-all" bindtap="selectAllEventImageSave">全选</text>
+      </view>
+      <scroll-view class="event-image-save-scroll" scroll-y="{{true}}">
+        <view class="event-image-save-grid">
+          <view
+            class="event-image-save-item {{eventImageSaveSelected[index] ? 'is-selected' : ''}}"
+            wx:for="{{eventImageSaveThumbs}}"
+            wx:key="index"
+            bindtap="toggleEventImageSaveSelect"
+            data-index="{{index}}"
+          >
+            <image class="event-image-save-thumb" src="{{item}}" mode="aspectFill" lazy-load="{{true}}"></image>
+            <view class="event-image-save-check" wx:if="{{eventImageSaveSelected[index]}}">✓</view>
+          </view>
+        </view>
+      </scroll-view>
+      <view class="event-image-save-actions">
+        <view class="event-share-sheet-btn event-share-sheet-btn--cancel" bindtap="closeEventImageSavePicker">取消</view>
+        <view class="event-share-sheet-btn event-share-sheet-btn--primary" bindtap="confirmEventImageSavePicker">保存原图</view>
+      </view>
     </view>
   </view>
 

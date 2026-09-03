@@ -1,0 +1,9 @@
+{
+  "name": "oaPushDraft",
+  "version": "1.0.0",
+  "description": "公众号草稿异步推送微信草稿箱",
+  "main": "index.js",
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

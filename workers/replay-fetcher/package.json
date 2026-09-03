@@ -5,7 +5,8 @@
   "type": "module",
   "description": "发射回放下载 Agent：yt-dlp 拉取 ≤480p 回放并直传 COS",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "test": "node --test src/clip-match.test.js"
   },
   "engines": {
     "node": ">=18.13"

@@ -5,7 +5,12 @@
 
 const { runDownload } = require('./download-pool.js')
 const { optimizeImageUrl, toCdnUrl } = require('./cos-url.js')
-const { isDownloadBlacklisted, markDownloadFailed } = require('./download-fail-cache.js')
+const {
+  isDownloadBlacklisted,
+  shouldSkipDownload,
+  markDownloadFailed
+} = require('./download-fail-cache.js')
+const { isOwnCdnUrl, proxiedImageUrl } = require('./ll2-image.js')
 
 const CACHE_DIR = `${wx.env.USER_DATA_PATH}/icon_cache`
 const INDEX_KEY = '_icon_cache_index'
@@ -188,7 +193,7 @@ function getCachedIcon(url) {
 }
 
 function _downloadInBackground(url) {
-  if (_downloading[url] || isDownloadBlacklisted(url)) return
+  if (_downloading[url] || shouldSkipDownload(url)) return
   _downloading[url] = true
 
   _ensureDir()
@@ -211,7 +216,7 @@ function _downloadInBackground(url) {
     .then(commitIconEntry)
     .catch(function (err) {
       const code = err && err.statusCode
-      if (code === 404 && downloadUrl !== url && !isDownloadBlacklisted(url)) {
+      if (code === 404 && downloadUrl !== url && !shouldSkipDownload(url)) {
         return _downloadFileOnce(url, localPath).then(commitIconEntry).catch(function (err2) {
           markDownloadFailed(url, err2 && err2.statusCode)
           if (downloadUrl !== url) markDownloadFailed(downloadUrl, code)
@@ -265,18 +270,23 @@ function _ensureRocketDir() {
   }
 }
 
-function _rocketDownloadKey(url) {
+/**
+ * 火箭配置图展示/落盘 URL。
+ * 默认 thumb（480w）：首页倒计时 132rpx、任务卡约 200rpx、改期弹窗 196rpx，
+ * 960w medium 对小圆图过重，且万象首次处理大 PNG 会明显拖慢首屏。
+ * 任务详情头图全宽再显式传 medium。
+ */
+function _rocketDownloadKey(url, preset) {
   if (!url || typeof url !== 'string') return ''
   const trimmed = url.trim()
   if (!/^https?:\/\//i.test(trimmed)) return trimmed
-  // GIF：万象 cgif 抽帧（原逻辑）；静态图：medium 压缩。
-  // 原来静态 jpg/png 直接拉 COS 原图（可达数 MB），是首页最高频的下行大头；
-  // 用 medium 而非 thumb 是因为任务详情页头图全宽复用同一份缓存
-  if (/\.gif(\?|[&#]|$)/i.test(trimmed)) {
-    return toCdnUrl(appendRocketGifCgifCi(trimmed))
+  const cdn = toCdnUrl(trimmed)
+  if (/\.gif(\?|[&#]|$)/i.test(cdn)) {
+    return toCdnUrl(appendRocketGifCgifCi(_stripImageProcessParams(cdn)))
   }
-  if (/imageMogr2|ci-process=/i.test(trimmed)) return toCdnUrl(trimmed)
-  return optimizeImageUrl(trimmed, 'medium')
+  const p = preset || 'thumb'
+  if (p === 'none') return cdn
+  return optimizeImageUrl(_stripImageProcessParams(cdn), p)
 }
 
 function _getRocketIndex() {
@@ -300,13 +310,14 @@ function _saveRocketIndex() {
 /**
  * 火箭配置图（COS/CDN HTTPS）：与图标相同策略，命中后走本地 wxfile 路径
  * @param {string} url
+ * @param {'thumb'|'medium'|'none'} [preset='thumb']
  * @returns {string}
  */
-function getCachedRocketConfig(url) {
+function getCachedRocketConfig(url, preset) {
   if (!url || typeof url !== 'string') return url
   if (!/^https?:\/\//i.test(url)) return url
 
-  url = _rocketDownloadKey(url)
+  url = _rocketDownloadKey(url, preset)
   if (!url) return url
 
   const memo = _rocketUrlMemo[url]
@@ -335,7 +346,12 @@ function getCachedRocketConfig(url) {
 const ROCKET_BG_DOWNLOAD_DELAY_MS = 2500
 
 function _downloadRocketInBackground(url) {
-  if (_rocketDownloading[url] || isDownloadBlacklisted(url)) return
+  if (_rocketDownloading[url] || shouldSkipDownload(url)) return
+  // 外链（DigitalOcean 等）禁止 downloadFile：错误率主因；展示走 <image> + Worker 代理
+  if (!isOwnCdnUrl(url)) {
+    delete _rocketDownloading[url]
+    return
+  }
   _rocketDownloading[url] = true
 
   const finish = function () {
@@ -371,7 +387,7 @@ function _startRocketDownload(url, finish) {
     .then(commitRocketEntry)
     .catch(function (err) {
       const code = err && err.statusCode
-      if (code === 404 && fallbackUrl && fallbackUrl !== url && !isDownloadBlacklisted(fallbackUrl)) {
+      if (code === 404 && fallbackUrl && fallbackUrl !== url && !shouldSkipDownload(fallbackUrl)) {
         return _downloadFileOnce(fallbackUrl, localPath).then(commitRocketEntry).catch(function (err2) {
           markDownloadFailed(url, code)
           markDownloadFailed(fallbackUrl, err2 && err2.statusCode)
@@ -388,9 +404,21 @@ function preloadRocketConfigMedia(urls) {
   urls.forEach(function (u) {
     if (!u || typeof u !== 'string') return
     const key = _rocketDownloadKey(u)
-    if (!key || isDownloadBlacklisted(key)) return
+    if (!key || shouldSkipDownload(key) || !isOwnCdnUrl(key)) return
     getCachedRocketConfig(u)
   })
+}
+
+/** 本地 wxfile 反查压缩 HTTPS（引导快照不要持久化可能被清理的 wxfile） */
+function getRocketHttpsUrlForLocal(localPath) {
+  const p = typeof localPath === 'string' ? localPath.trim() : ''
+  if (!p) return ''
+  const idx = _getRocketIndex()
+  const keys = Object.keys(idx)
+  for (let i = 0; i < keys.length; i++) {
+    if (idx[keys[i]] === p) return keys[i]
+  }
+  return ''
 }
 
 /**
@@ -433,6 +461,8 @@ const MEDIA_BG_DOWNLOAD_DELAY_MS = 2500
 
 let _mediaIndex = null
 let _mediaDownloading = {}
+/** @type {Record<string, Array<(p: string|null) => void>>} */
+let _mediaPersistWaiters = Object.create(null)
 let _mediaUrlMemo = Object.create(null)
 
 function _isWifiNetwork() {
@@ -456,7 +486,8 @@ function isRemoteCacheableImageUrl(url) {
   if (!/^https?:\/\//i.test(u)) return false
   if (/^wxfile:\/\//i.test(u)) return false
   if (/\.(mp4|m3u8|mov|webm)(\?|[&#]|$)/i.test(u)) return false
-  return true
+  // 仅自有 COS/CDN/Worker 域名允许 downloadFile 落盘；DigitalOcean 等外链不落盘（降错误率）
+  return isOwnCdnUrl(u)
 }
 
 function _ensureMediaDir() {
@@ -511,8 +542,17 @@ function _urlToMediaFileName(url) {
  * @param {'thumb'|'medium'|'full'|'none'} [preset='thumb'] preset=none 表示 url 已带万象参数不再二次处理
  */
 function getCachedMediaImage(url, preset) {
-  if (!isRemoteCacheableImageUrl(url)) return url
-  url = toCdnUrl(String(url).trim())
+  const raw = typeof url === 'string' ? url.trim() : ''
+  if (!raw || !/^https?:\/\//i.test(raw)) return url
+  if (/\.(mp4|m3u8|mov|webm)(\?|[&#]|$)/i.test(raw)) return url
+
+  // 外链：展示走 Worker 代理，不 downloadFile（监控里 DigitalOcean 失败主来源）
+  if (!isOwnCdnUrl(raw)) {
+    return proxiedImageUrl(raw) || raw
+  }
+
+  if (!isRemoteCacheableImageUrl(raw)) return raw
+  url = toCdnUrl(raw)
   if (!url) return url
 
   const memo = _mediaUrlMemo[url]
@@ -540,7 +580,7 @@ function getCachedMediaImage(url, preset) {
 }
 
 function _downloadMediaInBackground(url, preset) {
-  if (_mediaDownloading[url] || isDownloadBlacklisted(url)) return
+  if (_mediaDownloading[url] || shouldSkipDownload(url) || !isOwnCdnUrl(url)) return
   _mediaDownloading[url] = true
 
   const finish = function () {
@@ -548,15 +588,24 @@ function _downloadMediaInBackground(url, preset) {
   }
 
   setTimeout(function () {
-    // 蜂窝下只走 <image> 一次远程拉取，不后台 downloadFile 双计费
+    // 蜂窝下不主动后台双下；若已有 persist 等待者（展示成功后强制落盘）则仍下载
     _isWifiNetwork().then(function (wifi) {
-      if (!wifi) {
+      const hasWaiters = !!( _mediaPersistWaiters[url] && _mediaPersistWaiters[url].length )
+      if (!wifi && !hasWaiters) {
         finish()
         return
       }
       _startMediaDownload(url, preset, finish)
     })
   }, MEDIA_BG_DOWNLOAD_DELAY_MS)
+}
+
+function _flushMediaPersistWaiters(url, localPath) {
+  const waiters = _mediaPersistWaiters[url] || []
+  delete _mediaPersistWaiters[url]
+  for (let i = 0; i < waiters.length; i++) {
+    try { waiters[i](localPath || null) } catch (e) {}
+  }
 }
 
 function _startMediaDownload(url, preset, finish) {
@@ -575,17 +624,25 @@ function _startMediaDownload(url, preset, finish) {
   }
 
   _downloadFileOnce(downloadUrl, localPath)
-    .then(commitMediaEntry)
+    .then(function () {
+      commitMediaEntry()
+      _flushMediaPersistWaiters(url, localPath)
+    })
     .catch(function (err) {
       const code = err && err.statusCode
-      if (code === 404 && fallbackUrl && fallbackUrl !== downloadUrl && !isDownloadBlacklisted(fallbackUrl)) {
-        return _downloadFileOnce(fallbackUrl, localPath).then(commitMediaEntry).catch(function (err2) {
+      if (code === 404 && fallbackUrl && fallbackUrl !== downloadUrl && !shouldSkipDownload(fallbackUrl)) {
+        return _downloadFileOnce(fallbackUrl, localPath).then(function () {
+          commitMediaEntry()
+          _flushMediaPersistWaiters(url, localPath)
+        }).catch(function (err2) {
           markDownloadFailed(url, code)
           markDownloadFailed(fallbackUrl, err2 && err2.statusCode)
+          _flushMediaPersistWaiters(url, null)
         })
       }
       markDownloadFailed(downloadUrl, code)
       if (downloadUrl !== url) markDownloadFailed(url, code)
+      _flushMediaPersistWaiters(url, null)
     })
     .catch(function () {})
     .then(function () { finish() }, function () { finish() })
@@ -594,25 +651,88 @@ function _startMediaDownload(url, preset, finish) {
 function preloadMediaImages(urls, preset) {
   if (!Array.isArray(urls)) return
   urls.forEach(function (u) {
-    if (u && isRemoteCacheableImageUrl(u) && !isDownloadBlacklisted(u)) {
+    if (u && isRemoteCacheableImageUrl(u) && !shouldSkipDownload(u)) {
       getCachedMediaImage(u, preset)
     }
+  })
+}
+
+/**
+ * <image> 已成功展示后强制落盘（不限 Wi‑Fi：流量已在展示时产生，落盘避免下次再拉）。
+ * @param {string} remoteUrl
+ * @param {(localPath: string|null) => void} [onDone]
+ * @param {'thumb'|'medium'|'none'} [preset='thumb']
+ */
+function persistMediaImageAfterRemoteLoad(remoteUrl, onDone, preset) {
+  const cb = typeof onDone === 'function' ? onDone : function () {}
+  const raw = typeof remoteUrl === 'string' ? remoteUrl.trim() : ''
+  if (!raw || !/^https?:\/\//i.test(raw) || !isOwnCdnUrl(raw)) {
+    cb(null)
+    return
+  }
+  const url = toCdnUrl(raw)
+  if (!url) {
+    cb(null)
+    return
+  }
+
+  const memo = _mediaUrlMemo[url]
+  if (memo) {
+    cb(memo)
+    return
+  }
+  const index = _getMediaIndex()
+  const cached = index[url]
+  if (cached) {
+    try {
+      wx.getFileSystemManager().accessSync(cached)
+      _touchLruKey(index, url)
+      _mediaUrlMemo[url] = cached
+      cb(cached)
+      return
+    } catch (e) {
+      delete index[url]
+      _saveMediaIndex()
+    }
+  }
+
+  if (shouldSkipDownload(url)) {
+    cb(null)
+    return
+  }
+
+  // 与后台下载共用队列键，避免双下
+  if (_mediaDownloading[url]) {
+    const prev = _mediaPersistWaiters[url] || (_mediaPersistWaiters[url] = [])
+    prev.push(cb)
+    return
+  }
+  _mediaDownloading[url] = true
+  _mediaPersistWaiters[url] = [cb]
+
+  _startMediaDownload(url, preset || 'thumb', function () {
+    delete _mediaDownloading[url]
+    // waiters 已在 _startMediaDownload 成功/失败路径 flush；兜底空队列
+    if (_mediaPersistWaiters[url]) _flushMediaPersistWaiters(url, _mediaUrlMemo[url] || null)
   })
 }
 
 /** 冷启动预载高频静态 COS 图（徽章/头像等），减少首屏重复拉取 */
 function preloadStaticMediaUrls() {
   const base = 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com'
-  const urls = [
+  // 签到图标走 icon_cache；头像走 media_cache——禁止同一 URL 双通道各下一遍
+  const badgeUrls = [
     base + '/%E7%AD%BE%E5%88%B0%E5%9B%BE%E6%A0%87/1_1.png',
     base + '/%E7%AD%BE%E5%88%B0%E5%9B%BE%E6%A0%87/2_1.png',
-    base + '/%E7%AD%BE%E5%88%B0%E5%9B%BE%E6%A0%87/3_1.png',
+    base + '/%E7%AD%BE%E5%88%B0%E5%9B%BE%E6%A0%87/3_1.png'
+  ]
+  const avatarUrls = [
     base + '/avatars/SpaceX.jpg',
-    base + '/avatars/ElonMusk.jpg',
+    base + '/avatars/elonmusk.jpg',
     base + '/avatars/NASA.jpg'
   ]
-  preloadMediaImages(urls, 'thumb')
-  preloadIcons(urls)
+  preloadIcons(badgeUrls)
+  preloadMediaImages(avatarUrls, 'thumb')
 }
 
 module.exports = {
@@ -622,9 +742,11 @@ module.exports = {
   getCachedRocketConfig,
   appendRocketGifCgifCi,
   preloadRocketConfigMedia,
+  getRocketHttpsUrlForLocal,
   clearRocketConfigCache,
   isRemoteCacheableImageUrl,
   getCachedMediaImage,
   preloadMediaImages,
+  persistMediaImageAfterRemoteLoad,
   preloadStaticMediaUrls
 }

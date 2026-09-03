@@ -72,11 +72,12 @@
             <view class="agency-hw-card-image-wrap">
               <image
                 wx:if="{{item.displayImage}}"
-                class="agency-hw-card-image {{item.imageMode === 'aspectFit' ? 'agency-hw-card-image--logo' : ''}}"
+                class="agency-hw-card-image {{item.imageMode === 'aspectFit' ? 'agency-hw-card-image--logo' : ''}} {{item.imageMode === 'aspectFit' && item.logoBgTone === 'dark' ? 'agency-logo-bg--dark' : ''}} {{item.imageMode === 'aspectFit' && item.logoBgTone === 'light' ? 'agency-logo-bg--light' : ''}}"
                 src="{{item.displayImage}}"
                 mode="{{item.imageMode}}"
                 lazy-load="{{true}}"
                 data-index="{{index}}"
+                bindload="onCardImageLoad"
                 binderror="onCardImageError"
               ></image>
               <view class="agency-hw-card-image-placeholder" wx:else>
@@ -84,7 +85,7 @@
               </view>
               <view class="agency-hw-card-image-mask"></view>
               <view class="agency-hw-card-overlay">
-                <view class="agency-hw-card-badge">
+                <view class="agency-hw-card-badge" wx:if="{{item.typeZh}}">
                   <text class="agency-type-tag agency-type--{{item.typeClass}}">{{item.typeZh}}</text>
                 </view>
                 <text class="agency-hw-card-name">{{item.displayName}}</text>

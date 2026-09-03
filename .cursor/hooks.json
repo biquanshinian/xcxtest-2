@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": [
+      {
+        "command": "node .cursor/hooks/admin-web-autobuild.js mark",
+        "timeout": 15
+      },
+      {
+        "command": "node .cursor/hooks/oa-update-log-import.js mark",
+        "timeout": 15
+      }
+    ],
+    "afterTabFileEdit": [
+      {
+        "command": "node .cursor/hooks/admin-web-autobuild.js mark",
+        "timeout": 15
+      },
+      {
+        "command": "node .cursor/hooks/oa-update-log-import.js mark",
+        "timeout": 15
+      }
+    ],
+    "stop": [
+      {
+        "command": "node .cursor/hooks/admin-web-autobuild.js stop",
+        "timeout": 180
+      },
+      {
+        "command": "node .cursor/hooks/oa-update-log-import.js stop",
+        "timeout": 150,
+        "loop_limit": 2
+      }
+    ]
+  }
+}

@@ -4,7 +4,10 @@
  * 支持 现役/类型 筛选，分享可带 filter 参数直达（如 filter=type:Capsule）
  */
 const pageBase = require('../../utils/page-base.js')
-const spacecraftDisplay = require('../../utils/spacecraft-display.js')
+const spacecraftDisplay = require('./utils/spacecraft-display.js')
+const boosterDisplay = require('./utils/booster-display.js')
+const gallerySearch = require('./utils/gallery-search.js')
+const { getFeaturedAgencies } = require('./utils/agency-data.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
@@ -23,13 +26,12 @@ Page({
     menuButtonWidth: 88,
 
     filterChips: [],
-    agencyChips: [],
     filter: 'all',
+    keyword: '',
 
     cards: [],
     stats: { inUseCount: 0, typeCount: 0, agencyCount: 0 },
-    filterEmpty: false,
-    imageLoadedMap: {}
+    filterEmpty: false
   },
 
   onLoad(options) {
@@ -46,16 +48,18 @@ Page({
     this.setData(silent ? { loadError: false } : { loading: true, loadError: false })
     try {
       var list = await spacecraftDisplay.loadSpacecraftList()
-      this._allCards = spacecraftDisplay.buildSpacecraftCards(list)
-      var chips = spacecraftDisplay.buildSpacecraftFilterChips(this._allCards, { maxTypeChips: 10 })
-      // 机构筛选 chip（数据驱动：LL2 新增机构自动出现）
-      var agencyChips = spacecraftDisplay.buildSpacecraftAgencyChips(this._allCards)
+      var cards = spacecraftDisplay.buildSpacecraftCards(list)
+      var agencies = await getFeaturedAgencies().catch(function () { return { list: [] } })
+      this._allCards = boosterDisplay.attachManufacturerLogos(cards, agencies, 'agency')
+      // 分类控制在一排：全部 + 现役 + 少量类型；机构走搜索 / 卡片标签
+      var chips = spacecraftDisplay.buildSpacecraftFilterChips(this._allCards, { maxTypeChips: 5 })
 
       var filter = this._pendingFilter || 'all'
-      var chipIds = chips.concat(agencyChips).map(function (c) { return c.id })
-      if (chipIds.indexOf(filter) === -1) filter = 'all'
+      if (!gallerySearch.isKnownSpacecraftFilter(filter)) filter = 'all'
+      chips = gallerySearch.ensureActiveChip(chips, filter, spacecraftDisplay.extraChipForFilter(filter))
+      this._filterChips = chips
 
-      this.setData({ loading: false, filterChips: chips, agencyChips: agencyChips })
+      this.setData({ loading: false, filterChips: chips })
       this.applyFilter(filter)
     } catch (err) {
       console.error('[SpacecraftGallery] load error:', err)
@@ -66,12 +70,20 @@ Page({
   applyFilter(filterId) {
     var all = this._allCards || []
     var filtered = spacecraftDisplay.applySpacecraftFilter(all, filterId)
+    filtered = gallerySearch.filterCardsByKeyword(filtered, this.data.keyword)
+
+    var chips = gallerySearch.ensureActiveChip(
+      this._filterChips || this.data.filterChips || [],
+      filterId,
+      spacecraftDisplay.extraChipForFilter(filterId)
+    )
+
     this.setData({
       filter: filterId,
       cards: filtered,
       stats: spacecraftDisplay.computeSpacecraftStats(filtered),
       filterEmpty: all.length > 0 && filtered.length === 0,
-      imageLoadedMap: {}
+      filterChips: chips
     })
   },
 
@@ -81,12 +93,39 @@ Page({
     this.applyFilter(id)
   },
 
-  /** 点击卡片上的机构标签 → 按该机构筛选（再点一次已选中机构则回到全部） */
+  onSearchInput(e) {
+    var value = (e.detail && e.detail.value) || ''
+    this.setData({ keyword: value })
+    if (this._searchTimer) clearTimeout(this._searchTimer)
+    var self = this
+    this._searchTimer = setTimeout(function () {
+      self._searchTimer = null
+      self.applyFilter(self.data.filter)
+    }, 200)
+  },
+
+  onSearchClear() {
+    if (!this.data.keyword) return
+    if (this._searchTimer) {
+      clearTimeout(this._searchTimer)
+      this._searchTimer = null
+    }
+    var self = this
+    this.setData({ keyword: '' }, function () {
+      self.applyFilter(self.data.filter)
+    })
+  },
+
+  /** 点击卡片上的机构标签 → 写入搜索框筛选（再点同一机构则清空） */
   onAgencyTagTap(e) {
     var agency = e.currentTarget.dataset.agency
     if (!agency) return
-    var id = 'agency:' + agency
-    this.applyFilter(id === this.data.filter ? 'all' : id)
+    var label = String(agency || '').trim()
+    var next = this.data.keyword === label ? '' : label
+    var self = this
+    this.setData({ keyword: next, filter: 'all' }, function () {
+      self.applyFilter('all')
+    })
   },
 
   /** 点击卡片 → 会员门控 → 飞船详情页（复用现有 spacecraft-detail） */
@@ -107,24 +146,15 @@ Page({
     navigateTo(ROUTES.SPACECRAFT_DETAIL, params)
   },
 
-  onImageLoad(e) {
-    var index = e.currentTarget.dataset.index
-    if (index == null) return
-    var kv = {}
-    kv['imageLoadedMap.' + index] = true
-    this.setData(kv)
-  },
-
-  /** 图片加载失败：沿兜底链切换（缩略图 404 时回退原图），链耗尽显示占位 */
   onImageError(e) {
-    var idx = Number(e.currentTarget.dataset.index)
-    if (!Number.isInteger(idx) || idx < 0) return
-    var card = (this.data.cards || [])[idx]
-    if (!card) return
-    var fallbacks = card.imageFallbacks || []
+    var id = e.currentTarget.dataset.id
+    var idx = gallerySearch.findCardIndexByKey(this.data.cards, 'id', id)
+    if (idx < 0) return
+    var card = this.data.cards[idx]
+    if (!gallerySearch.advanceCardImage(card, spacecraftDisplay.cachedImage)) return
     var kv = {}
-    kv['cards[' + idx + '].imageUrl'] = spacecraftDisplay.cachedImage(fallbacks[0])
-    kv['cards[' + idx + '].imageFallbacks'] = fallbacks.slice(1)
+    kv['cards[' + idx + '].imageUrl'] = card.imageUrl
+    kv['cards[' + idx + '].imageFallbacks'] = card.imageFallbacks
     this.setData(kv)
   },
 
@@ -139,6 +169,13 @@ Page({
 
   onPullDownRefresh() {
     runPullRefresh(this, () => this.loadData({ silent: true }))
+  },
+
+  onUnload() {
+    if (this._searchTimer) {
+      clearTimeout(this._searchTimer)
+      this._searchTimer = null
+    }
   },
 
   _sharePath() {

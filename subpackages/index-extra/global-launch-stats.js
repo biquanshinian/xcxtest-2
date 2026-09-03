@@ -8,20 +8,66 @@ const {
   decorateAgencyRows,
   decorateRocketRows
 } = require('./utils/global-launch-stats.js')
+const { shouldKeepExistingBreakdown } = require('./utils/global-launch-stats-merge.js')
 const { persistAgencyLogoAfterRemoteLoad } = require('../../utils/agency-logo-cache.js')
+const { ensureAgencyLogoBgTone } = require('../../utils/agency-logo-bg.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
-// 确保首页 require.async 能加载该分包模块（未被引用时不会打进分包）
+// 确保首页 require.async 能加载这些分包模块（未被引用时不会打进分包）
 require('./utils/index-calendar-page.js')
+require('./utils/index-carousel.js')
+require('./utils/index-splash.js')
+require('./utils/index-vote.js')
+require('./utils/index-save-image.js')
+require('./utils/index-live-settle.js')
+require('./utils/index-ux.js')
+require('./utils/index-interaction.js')
+require('./utils/index-agency-sub.js')
 
-const CURRENT_YEAR = new Date().getUTCFullYear()
+function getCurrentStatsYear() {
+  return new Date().getUTCFullYear()
+}
 
-/** 成功率文案：总数为 0 时返回空串（不显示徽章） */
-function successRateText(summary) {
+/** 成功率文案：总数为 0 或仅有总数（缺成败）时不显示徽章 */
+function successRateText(summary, options = {}) {
+  if (options && options.summaryPartial) return ''
   const total = Number(summary && summary.total) || 0
   const success = Number(summary && summary.success) || 0
+  const failure = Number(summary && summary.failure) || 0
   if (total <= 0) return ''
+  if (success === 0 && failure === 0) return ''
   return `${((success / total) * 100).toFixed(1)}%`
+}
+
+/**
+ * 结果待定的发射数：总数减去已判定的成败。
+ * 明细缓存比 count 口径慢半拍时，这里就是「还没并进明细的最新几场」，
+ * 展示出来才能让成功/失败/待定三项与头部总数对得上。
+ */
+function pendingCount(summary) {
+  const total = Number(summary && summary.total) || 0
+  const success = Number(summary && summary.success) || 0
+  const failure = Number(summary && summary.failure) || 0
+  const pending = total - success - failure
+  return pending > 0 ? pending : 0
+}
+
+/**
+ * 顶部提示文案。头部总数已按最新计数对齐，所以只在两种情况下提示：
+ * 云端没连上、只能用本地快照；或最新几场发射还没并进下面的排行。
+ */
+function staleHintText(stats, pending) {
+  if (stats && stats.clientStaleFallback) return '当前展示本地缓存数据，正在核对最新统计'
+  if (pending > 0) return `最新 ${pending} 次发射尚未并入下方排行`
+  return ''
+}
+
+function hasUsableSummary(summary) {
+  return !!(summary && Number.isFinite(Number(summary.total)))
+}
+
+function isAutoRetryableMessage(msg) {
+  return /生成中|超时|网络异常/i.test(String(msg || ''))
 }
 
 Page({
@@ -36,7 +82,7 @@ Page({
     errorMessage: '',
     scrollRefreshing: false,
     navTitle: '全球发射统计',
-    selectedYear: CURRENT_YEAR,
+    selectedYear: getCurrentStatsYear(),
     selectedCountryKey: ALL_COUNTRY_KEY,
     selectedCountryLabel: '全部国家',
     yearLabel: '本年度',
@@ -45,6 +91,10 @@ Page({
     showYearPicker: false,
     showCountryPicker: false,
     summary: { total: 0, success: 0, failure: 0 },
+    summaryPartial: false,
+    summaryPending: 0,
+    staleHint: '',
+    statsHydrated: false,
     summaryRateText: '',
     byCountry: [],
     byAgency: [],
@@ -76,14 +126,30 @@ Page({
         this._agentHandoff = app.takeAgentHandoff(this.getPageId())
       }
     } catch (e) {}
-    let initialYear = CURRENT_YEAR
+    const currentYear = getCurrentStatsYear()
+    let initialYear = currentYear
     const queryYear = Number(options && options.year)
-    if (queryYear >= 1957 && queryYear <= CURRENT_YEAR + 1) initialYear = queryYear
+    if (queryYear >= 1957 && queryYear <= currentYear + 1) initialYear = queryYear
+
+    let initialCountryKey = ALL_COUNTRY_KEY
+    let initialCountryLabel = '全部国家'
+    const rawCountry = options && (options.country || options.countryKey)
+    if (rawCountry) {
+      try {
+        const decoded = decodeURIComponent(String(rawCountry)).trim()
+        if (decoded && decoded !== ALL_COUNTRY_KEY) {
+          initialCountryKey = decoded
+          initialCountryLabel = decoded
+        }
+      } catch (e) {}
+    }
 
     this.setData({
       selectedYear: initialYear,
-      yearOptions: buildYearOptions(CURRENT_YEAR),
-      yearLabel: initialYear === CURRENT_YEAR ? '本年度' : `${initialYear} 年`
+      selectedCountryKey: initialCountryKey,
+      selectedCountryLabel: initialCountryLabel,
+      yearOptions: buildYearOptions(currentYear),
+      yearLabel: initialYear === currentYear ? '本年度' : `${initialYear} 年`
     })
     // 机构 logo 映射：getAgencies 自带本地 Storage 缓存，首次拉取后离线可用
     this._agencyLogoMap = null
@@ -99,6 +165,7 @@ Page({
 
   applyPersistedSnapshot() {
     const snap = readPersistedGlobalStats(this.data.selectedYear, this.data.selectedCountryKey)
+      || readPersistedGlobalStats(this.data.selectedYear, this.data.selectedCountryKey, { allowExpired: true })
     if (!snap) return
 
     let selectedCountryLabel = '全部国家'
@@ -110,16 +177,21 @@ Page({
     const hasBreakdown = (snap.byCountry || []).length > 0
       || (snap.byAgency || []).length > 0
       || (snap.byRocket || []).length > 0
-    // 只要有 summary 总数即先渲染（秒显头部），明细缺失时仅明细区显示加载
-    const hasSummary = !!(snap.summary && snap.summary.total > 0)
+    // 只要有 summary（含 total=0 的真实快照）即先渲染，明细缺失时仅明细区显示加载
+    const hasSummary = hasUsableSummary(snap.summary)
+    const snapPending = snap.summaryPartial ? 0 : pendingCount(snap.summary)
 
     this.setData({
       loading: !hasSummary && !hasBreakdown,
       loadingSummary: !hasSummary,
       loadingBreakdown: !hasBreakdown,
       breakdownReady: hasBreakdown,
+      statsHydrated: hasSummary || hasBreakdown,
       summary: snap.summary || { total: 0, success: 0, failure: 0 },
-      summaryRateText: successRateText(snap.summary),
+      summaryPartial: !!snap.summaryPartial,
+      summaryPending: snapPending,
+      staleHint: staleHintText(snap, snapPending),
+      summaryRateText: successRateText(snap.summary, snap),
       byCountry: snap.byCountry || [],
       byAgency: decorateAgencyRows(snap.byAgency || [], this._agencyLogoMap),
       byRocket: decorateRocketRows(snap.byRocket || []),
@@ -140,32 +212,59 @@ Page({
       || (stats.byCountry || []).length > 0
       || (stats.byAgency || []).length > 0
       || (stats.byRocket || []).length > 0
+    const keepBreakdown = shouldKeepExistingBreakdown(partial, stats, this.data)
+    const pending = stats.summaryPartial ? 0 : pendingCount(stats.summary)
 
     this.setData({
       loading: partial ? this.data.loading : false,
       loadingSummary: false,
-      loadingBreakdown: partial ? true : !breakdownReady,
-      breakdownReady,
+      loadingBreakdown: keepBreakdown ? this.data.loadingBreakdown : (partial ? true : !breakdownReady),
+      breakdownReady: keepBreakdown ? this.data.breakdownReady : breakdownReady,
+      statsHydrated: true,
       summary: stats.summary || { total: 0, success: 0, failure: 0 },
-      summaryRateText: successRateText(stats.summary),
-      byCountry: stats.byCountry || [],
-      byAgency: decorateAgencyRows(stats.byAgency || [], this._agencyLogoMap),
-      byRocket: decorateRocketRows(stats.byRocket || []),
+      summaryPartial: !!stats.summaryPartial,
+      summaryPending: pending,
+      staleHint: staleHintText(stats, pending),
+      summaryRateText: successRateText(stats.summary, stats),
+      byCountry: keepBreakdown ? this.data.byCountry : (stats.byCountry || []),
+      byAgency: keepBreakdown ? this.data.byAgency : decorateAgencyRows(stats.byAgency || [], this._agencyLogoMap),
+      byRocket: keepBreakdown ? this.data.byRocket : decorateRocketRows(stats.byRocket || []),
       countryOptions: (stats.countryOptions || []).length ? stats.countryOptions : this.data.countryOptions,
       selectedCountryLabel,
-      yearLabel: this.data.selectedYear === CURRENT_YEAR ? '本年度' : `${this.data.selectedYear}年`
+      yearLabel: this.data.selectedYear === getCurrentStatsYear() ? '本年度' : `${this.data.selectedYear}年`
     })
+  },
+
+  _clearAutoRetry() {
+    if (this._autoRetryTimer) {
+      clearTimeout(this._autoRetryTimer)
+      this._autoRetryTimer = null
+    }
+  },
+
+  _scheduleAutoRetry(options, message) {
+    const count = Number(options && options._autoRetryCount) || 0
+    if (count >= 2 || !isAutoRetryableMessage(message)) return
+    this._clearAutoRetry()
+    const next = count + 1
+    this._autoRetryTimer = setTimeout(() => {
+      this._autoRetryTimer = null
+      this.loadStats({ skipLocalCache: true, _autoRetryCount: next })
+    }, 1800 * next)
   },
 
   async loadStats(options = {}) {
     const forceRefresh = !!(options && options.forceRefresh)
     const skipLocalCache = !!(options && options.skipLocalCache)
     const loadSeq = (this._loadSeq = (this._loadSeq || 0) + 1)
+    const hadView = !!this.data.statsHydrated
+    const hadBreakdown = !!this.data.breakdownReady
 
+    this._clearAutoRetry()
     this.setData({
-      loading: !this.data.breakdownReady,
-      loadingSummary: true,
-      loadingBreakdown: true,
+      loading: !hadView,
+      loadingSummary: !hadView,
+      loadingBreakdown: !hadBreakdown,
       errorMessage: ''
     })
 
@@ -182,24 +281,17 @@ Page({
       })
       if (loadSeq !== this._loadSeq) return
       this.applyStats(stats)
+      const loadError = stats.loadError || ''
       this.setData({
         loading: false,
         loadingSummary: false,
         loadingBreakdown: false,
-        breakdownReady: true,
-        errorMessage: stats.loadError || ''
+        errorMessage: loadError
       })
+      if (loadError) this._scheduleAutoRetry(options, loadError)
     } catch (err) {
       if (loadSeq !== this._loadSeq) return
-      const hasPartial = this.data.summary.total > 0 || this.data.breakdownReady
-      if (hasPartial) {
-        this.setData({
-          loading: false,
-          loadingSummary: false,
-          loadingBreakdown: false
-        })
-        return
-      }
+      const hasPartial = !!this.data.statsHydrated || this.data.breakdownReady
       const msg = (err && err.message) || '数据加载失败，请稍后重试'
       this.setData({
         loading: false,
@@ -207,7 +299,12 @@ Page({
         loadingBreakdown: false,
         errorMessage: msg
       })
+      if (!hasPartial) this._scheduleAutoRetry(options, msg)
     }
+  },
+
+  onUnload() {
+    this._clearAutoRetry()
   },
 
   onOpenYearPicker() {
@@ -226,7 +323,17 @@ Page({
       showYearPicker: false,
       selectedCountryKey: ALL_COUNTRY_KEY,
       selectedCountryLabel: '全部国家',
+      summary: { total: 0, success: 0, failure: 0 },
+      summaryRateText: '',
+      summaryPartial: false,
+      summaryPending: 0,
+      staleHint: '',
+      byCountry: [],
+      byAgency: [],
+      byRocket: [],
+      statsHydrated: false,
       breakdownReady: false,
+      errorMessage: '',
       listExpanded: false
     })
     this.applyPersistedSnapshot()
@@ -249,7 +356,17 @@ Page({
       selectedCountryKey: key,
       selectedCountryLabel: hit ? hit.label : (key === ALL_COUNTRY_KEY ? '全部国家' : key),
       showCountryPicker: false,
+      summary: { total: 0, success: 0, failure: 0 },
+      summaryRateText: '',
+      summaryPartial: false,
+      summaryPending: 0,
+      staleHint: '',
+      byCountry: [],
+      byAgency: [],
+      byRocket: [],
+      statsHydrated: false,
       breakdownReady: false,
+      errorMessage: '',
       listExpanded: false
     })
     this.applyPersistedSnapshot()
@@ -259,6 +376,7 @@ Page({
   onSwitchTab(e) {
     const tab = e.currentTarget.dataset.tab
     if (!tab || tab === this.data.activeTab) return
+    try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
     this.setData({ activeTab: tab, listExpanded: false })
   },
 
@@ -279,12 +397,20 @@ Page({
     this.loadStats({ forceRefresh: true })
   },
 
-  /** 机构 logo 远程首次展示成功 → 落盘本地磁盘缓存，下次打开零流量 */
+  /** 机构 logo 远程首次展示成功 → 落盘本地磁盘缓存，并分析透明 logo 底色 */
   onAgencyLogoLoad(e) {
     const url = e.currentTarget.dataset.url
-    if (url && /^https?:\/\//i.test(url)) {
-      persistAgencyLogoAfterRemoteLoad(url)
-    }
+    const idx = Number(e.currentTarget.dataset.index)
+    if (!url || !/^https?:\/\//i.test(url)) return
+    const self = this
+    persistAgencyLogoAfterRemoteLoad(url, function (localPath) {
+      if (!localPath) return
+      ensureAgencyLogoBgTone(url, localPath, function (tone) {
+        if (!tone || !Number.isFinite(idx) || !self.data.byAgency[idx]) return
+        if (self.data.byAgency[idx].logoBgTone === tone) return
+        self.setData({ [`byAgency[${idx}].logoBgTone`]: tone })
+      })
+    })
   },
 
   /** logo 加载失败 → 回退首字母占位 */

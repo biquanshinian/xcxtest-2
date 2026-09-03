@@ -1,16 +1,9 @@
 const { getUiShellLayout } = require('../../../utils/layout.js')
 const { getThemeClassSync, isLightSync, getPageBgSync } = require('../../../utils/theme.js')
-const { getMembershipState, isPro, hasPurchased, purchaseSubscription, purchaseProduct, PRODUCTS, PLANS, MEMBER_ICONS, getEffectivePrices, resolvePriceFromMap, formatPriceYuan, warmMembershipStateSync } = require('../../../utils/membership.js')
+const { getMembershipState, isPro, hasPurchased, purchaseSubscription, purchaseProduct, PRODUCTS, PLANS, MEMBER_ICONS, MEMBER_BENEFIT_ICONS, getEffectivePrices, resolvePriceFromMap, formatPriceYuan, warmMembershipStateSync } = require('../../../utils/membership.js')
 const { getCachedIcon, preloadIcons } = require('../../../utils/icon-cache.js')
 
-// 权益图标 URL
-const BENEFIT_ICONS = [
-  'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/徽章/1778741192678_gsejhy.png',
-  'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/徽章/1778741195115_g7z847.png',
-  'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/徽章/1778741195886_bbbiph.png',
-  'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/徽章/1778741196495_ltn8qz.png',
-  'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/徽章/1778741197093_xhd41j.png'
-]
+const BENEFIT_ICONS = MEMBER_BENEFIT_ICONS
 
 const PRODUCT_META = [
   { id: 'starlink_ar', vpayProductId: 'vp_starlink_ar', name: PRODUCTS.STARLINK_AR.name, desc: '实景增强现实观测星链卫星', defaultPrice: PRODUCTS.STARLINK_AR.price },
@@ -41,7 +34,7 @@ function formatDiscountLabel(originalCents, discountCents) {
   return zheText + '折限时优惠'
 }
 
-// 模块加载时立刻检测 iOS（避免 onLoad → setData 期间出现一帧的「按钮可点 → 拦截」闪烁）
+// 模块加载时立刻检测 iOS，供页面展示 Apple 支付说明（避免 onLoad 后再 setData 闪一帧）
 // 优先 wx.getDeviceInfo（基础库 2.20.1+，新 API），回退 wx.getSystemInfoSync（向后兼容旧基础库）
 const _IS_IOS_AT_LOAD = (function () {
   try {
@@ -311,8 +304,15 @@ Page({
     wx.navigateTo({ url: '/subpackages/profile-extra/membership/orders' })
   },
 
+  /** 邀请得月卡 */
+  goInvite() {
+    try { wx.vibrateShort({ type: 'light' }) } catch (e) {}
+    wx.navigateTo({ url: '/subpackages/profile-extra/invite/invite' })
+  },
+
   selectPlan(e) {
     const plan = e.currentTarget.dataset.plan
+    try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
     this.setData({ selectedPlan: plan })
     this._updateBtnText()
   },
@@ -335,10 +335,6 @@ Page({
   },
 
   async handleSubscribe() {
-    if (this.data.isIOS) {
-      wx.showModal({ title: '暂不支持', content: 'iOS 端暂未开放付费功能。', showCancel: false })
-      return
-    }
     const { selectedPlan, currentPlan } = this.data
 
     // 永久会员不允许重复购买
@@ -360,8 +356,8 @@ Page({
       this._showDiscountOffer(planId)
     } else {
       wx.showModal({
-        title: '支付失败',
-        content: result.error || '未知错误',
+        title: result.title || '暂无法支付',
+        content: result.error || '支付未完成，请稍后重试',
         showCancel: false
       })
     }
@@ -405,10 +401,6 @@ Page({
   },
 
   async handleBuyProduct(e) {
-    if (this.data.isIOS) {
-      wx.showModal({ title: '暂不支持', content: 'iOS 端暂未开放付费功能。', showCancel: false })
-      return
-    }
     const productId = e.currentTarget.dataset.id
     const product = this.data.products.find(p => p.id === productId)
     if (!product) return

@@ -4,11 +4,22 @@
  * 设计参考 launch-site-map（全球发射基地）的 map-page 布局：
  *   全屏地图 + 顶部地图工具 + 底部可折叠玻璃信息面板
  */
-const { formatMapUpdateTime, createMapBaseState, buildMapLayoutData, buildMapShareOptions, copyMapText } = require('./utils/map-page-common.js')
-const launchSiteDisplay = require('../../utils/launch-site-display.js')
-const { togglePageTranslation } = require('../../utils/text-translate.js')
+const {
+  formatMapUpdateTime,
+  createMapBaseState,
+  buildMapLayoutData,
+  buildMapPanelScrollLayout,
+  buildMapShareOptions,
+  copyMapText,
+  setMapSatelliteFromTap
+} = require('./utils/map-page-common.js')
+const launchSiteDisplay = require('./utils/launch-site-display.js')
+const { pickLocalized, takeDescI18nSeed } = require('../../utils/locale.js')
+const { translateLocation } = require('../../utils/space-terms-display.js')
+const { togglePageTranslation } = require('./utils/text-translate.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
 const pageBase = require('../../utils/page-base.js')
+const { isFavorite, toggleFavorite, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
 
 /** 地图 marker id 约定：0 = 发射场主标记；>0 = 工位（pad.id） */
 const SITE_MARKER_ID = 0
@@ -35,6 +46,11 @@ function siteMarker(site) {
   }
 }
 
+function padDisplayName(pad) {
+  if (!pad) return ''
+  return pickLocalized(pad.nameZh || '', '') || translateLocation(pad.name) || pad.name || ''
+}
+
 function padMarker(pad) {
   return {
     id: pad.id,
@@ -44,7 +60,7 @@ function padMarker(pad) {
     height: 22,
     alpha: pad.active ? 1 : 0.6,
     callout: {
-      content: pad.name,
+      content: padDisplayName(pad),
       color: '#FFFFFF',
       fontSize: 11,
       borderRadius: 10,
@@ -61,6 +77,8 @@ Page({
 
   data: {
     statusBarHeight: 44,
+    menuButtonWidth: 88,
+    isDirectEntry: false,
     capsuleTop: 0,
     capsuleHeight: 32,
     mapActionTop: 0,
@@ -76,11 +94,19 @@ Page({
     selectedPadId: 0,
     panelCollapsed: false,
     actionMenuCollapsed: true,
+    panelExpandedStyle: '',
+    panelScrollHeight: 160,
     descI18n: { siteDesc: '' },
     descTranslated: false,
     descTranslating: false,
     /* 分享免门控 24h 剩余时间倒计时胶囊（share-gate.js 写入） */
     shareGateExpireAt: 0,
+    /** 分享缩略图：对应发射场卫星/配图（本地预下载），避免朋友圈落到默认图/截图 */
+    shareImage: '',
+    isMomentsPreview: false,
+    previewName: '',
+    isFavorited: false,
+    favAnimate: false,
     ...createMapBaseState({
       dataSourceText: 'Launch Library 2 · Locations / Pads',
       dataUpdatedText: '待更新',
@@ -93,7 +119,29 @@ Page({
     this.initUiShell()
     const app = getApp()
     this._siteId = Number(options.id || 0)
-    this.setData(buildMapLayoutData(app))
+    if (this._siteId) syncFavoriteState(this, 'launch_site', this._siteId)
+    let previewName = ''
+    if (options && options.name) {
+      try { previewName = decodeURIComponent(String(options.name)) } catch (e) { previewName = String(options.name) }
+      previewName = String(previewName || '').trim().slice(0, 40)
+    }
+
+    let isMomentsPreview = false
+    try {
+      const enter = (typeof wx.getEnterOptionsSync === 'function' && wx.getEnterOptionsSync())
+        || wx.getLaunchOptionsSync()
+      isMomentsPreview = !!(enter && enter.scene === 1154)
+    } catch (e) {}
+
+    this.setData({
+      ...buildMapLayoutData(app),
+      isMomentsPreview,
+      previewName
+    })
+    if (previewName) {
+      try { wx.setNavigationBarTitle({ title: previewName, fail() {} }) } catch (_) {}
+    }
+    this._syncPanelScrollLayout()
 
     // 门控复用「全球飞船图鉴」：App 内入口已在卡片点击处 gateCheck，
     // 这里只处理分享卡片 —— 24h 免门控窗口，过期后 gateCheck（会员放行，非会员弹开通引导）
@@ -104,7 +152,25 @@ Page({
     }
     warmShareEntitlement(this, 'launch_site_encyclopedia')
 
+    if (isMomentsPreview) {
+      // 朋友圈单页：原生 map 易黑屏；仍加载文案数据供预览
+      this.loadDetail(this._siteId)
+      return
+    }
+
+    try {
+      wx.showShareMenu({
+        withShareTicket: true,
+        menus: ['shareAppMessage', 'shareTimeline']
+      })
+    } catch (e) {}
+
     this.loadDetail(this._siteId)
+  },
+
+  onShow() {
+    const siteId = (this.data.site && this.data.site.id) || this._siteId
+    if (siteId) syncFavoriteState(this, 'launch_site', siteId)
   },
 
   /** 主数据：列表 24h 缓存按 id 命中（缓存命中即秒开），miss 时走云函数回源 */
@@ -123,14 +189,15 @@ Page({
         return
       }
       const hasCoords = site.latitude != null && site.longitude != null
-      const patch = {
+      const patch = Object.assign({
         loading: false,
         site,
+        isFavorited: isFavorite('launch_site', site.id),
         hasCoords,
         coordsText: hasCoords ? `${Number(site.latitude).toFixed(4)}, ${Number(site.longitude).toFixed(4)}` : '',
         dataUpdatedText: formatMapUpdateTime(new Date()),
         shareTitle: (site.nameZh || site.name) + ' · 发射场详情'
-      }
+      }, takeDescI18nSeed(this, { siteDesc: site.descriptionZh }))
       if (hasCoords) {
         patch.latitude = site.latitude
         patch.longitude = site.longitude
@@ -138,11 +205,16 @@ Page({
         patch.markers = [siteMarker(site)]
       }
       this.setData(patch)
+      this._syncShareImage(site)
       wx.setNavigationBarTitle && wx.setNavigationBarTitle({ title: site.nameZh || site.name, fail: () => {} })
       if (hasCoords) this._loadPads(site)
     } catch (e) {
       console.warn('[launch-site-detail] 加载失败:', e)
-      this.setData({ loading: false, errorText: '发射场数据加载失败，请稍后重试' })
+      const fallbackName = this.data.previewName
+      if (fallbackName) {
+        try { wx.setNavigationBarTitle({ title: fallbackName, fail() {} }) } catch (_) {}
+      }
+      this.setData({ loading: false, errorText: fallbackName ? '' : '发射场数据加载失败，请稍后重试' })
     }
   },
 
@@ -153,7 +225,10 @@ Page({
       const rows = await launchSiteDisplay.loadPadList(site.id)
       // 页面已切换（理论上不会，防御）或站点变化时丢弃
       if (!this.data.site || Number(this.data.site.id) !== Number(site.id)) return
-      const pads = (rows || []).filter((p) => p.latitude != null && p.longitude != null)
+      const pads = (rows || []).filter((p) => p.latitude != null && p.longitude != null).map((p) => {
+        const name = padDisplayName(p) || p.name
+        return Object.assign({}, p, { name: name })
+      })
       const markers = [siteMarker(site)].concat(pads.map(padMarker))
       this.setData({ pads, padsLoading: false, markers })
     } catch (e) {
@@ -173,7 +248,7 @@ Page({
     togglePageTranslation(this, {
       switchKey: 'descTranslated',
       loadingKey: 'descTranslating',
-      fields: [{ path: 'descI18n.siteDesc', text: site.description || '' }]
+      fields: [{ path: 'descI18n.siteDesc', text: site.description || '', zh: site.descriptionZh || '' }]
     })
   },
 
@@ -223,12 +298,38 @@ Page({
 
   // ── 面板 / 工具开合 ──
 
+  /** 展开面板上沿压在地图工具下口之下；正文进 scroll-view */
+  _syncPanelScrollLayout() {
+    try {
+      const layout = buildMapPanelScrollLayout(getApp(), {
+        mapActionTop: this.data.mapActionTop,
+        actionMenuCollapsed: this.data.actionMenuCollapsed
+      })
+      this.setData({
+        panelExpandedStyle: layout.panelExpandedStyle,
+        panelScrollHeight: layout.panelScrollHeight
+      })
+    } catch (e) {}
+  },
+
+  onResize() {
+    const app = getApp()
+    this.setData({ ...buildMapLayoutData(app) })
+    this._syncPanelScrollLayout()
+  },
+
   togglePanelCollapsed() {
     this.setData({ panelCollapsed: !this.data.panelCollapsed })
   },
 
   toggleActionMenuCollapsed() {
-    this.setData({ actionMenuCollapsed: !this.data.actionMenuCollapsed })
+    this.setData({ actionMenuCollapsed: !this.data.actionMenuCollapsed }, () => {
+      this._syncPanelScrollLayout()
+    })
+  },
+
+  setMapSatellite(e) {
+    setMapSatelliteFromTap(this, e)
   },
 
   /** 卫星定位图预览（保留原卡片的预览能力） */
@@ -240,20 +341,125 @@ Page({
     wx.previewImage({ urls: [url], fail: () => {} })
   },
 
-  onShareAppMessage() {
-    const site = this.data.site
-    // 分享路径带 sst 时间戳：有权益重开 24h 免门控窗口，无权益继承原窗口
-    return buildMapShareOptions({
-      shareTitle: this.data.shareTitle,
-      detailText: site ? `${site.countryLabel || ''} · 累计发射 ${site.totalLaunchCount} 次` : '全球发射场分布',
-      path: withShareStampPath(`/subpackages/monitor-pages/launch-site-detail?id=${this._siteId || ''}`, this)
+  _isLocalSharePath(path) {
+    const s = String(path || '')
+    if (!s) return false
+    if (s.indexOf('wxfile://') === 0) return true
+    if (/^http:\/\/(tmp|usr)\b/i.test(s)) return true
+    if (typeof wx !== 'undefined' && wx.env && wx.env.USER_DATA_PATH && s.indexOf(wx.env.USER_DATA_PATH) === 0) {
+      return true
+    }
+    return !/^https?:\/\//i.test(s)
+  },
+
+  /**
+   * 分享缩略图：用当前发射场对应配图（卫星图/场地图）。
+   * 本地缓存命中优先；外链走 Worker 代理。
+   */
+  _pickLaunchSiteShareImage(site) {
+    if (!site || typeof site !== 'object') return ''
+    const current = String(site.imageUrl || '').trim()
+    const fallbacks = Array.isArray(site.imageFallbacks) ? site.imageFallbacks : []
+    const candidates = [current].concat(
+      fallbacks.map((u) => String(u || '').trim()).filter(Boolean)
+    ).filter(Boolean)
+    for (let i = 0; i < candidates.length; i++) {
+      const pick = candidates[i]
+      if (this._isLocalSharePath(pick)) return pick
+      const proxied = launchSiteDisplay.proxiedImageUrl(pick)
+      return proxied || pick
+    }
+    return ''
+  },
+
+  _syncShareImage(site) {
+    const url = this._pickLaunchSiteShareImage(site)
+    if (!url) {
+      if (this.data.shareImage) this.setData({ shareImage: '' })
+      this._shareImageSourceUrl = ''
+      return
+    }
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    this.ensureShareImageHttpUrl(url)
+  },
+
+  /** 网络图落到本地临时路径，规避 iOS 朋友圈远程缩略图加载失败 */
+  ensureShareImageHttpUrl(imageUrl) {
+    if (!imageUrl || typeof imageUrl !== 'string') return
+    const trimmed = imageUrl.trim()
+    if (!trimmed) return
+    if (this._isLocalSharePath(trimmed)) {
+      if (this.data.shareImage !== trimmed) this.setData({ shareImage: trimmed })
+      return
+    }
+    if (this._shareImageSourceUrl === trimmed && this.data.shareImage) return
+    this._shareImageSourceUrl = trimmed
+    const self = this
+    wx.getImageInfo({
+      src: trimmed,
+      success(res) {
+        if (res && res.path && self._shareImageSourceUrl === trimmed) {
+          self.setData({ shareImage: res.path })
+        }
+      },
+      fail() {
+        if (self._shareImageSourceUrl === trimmed) self._shareImageSourceUrl = ''
+      }
     })
   },
 
-  onShareTimeline() {
-    return {
-      title: this.data.shareTitle,
-      query: withShareStampQuery(`id=${this._siteId || ''}`, this)
+  onToggleFavorite() {
+    const site = this.data.site
+    if (!site || site.id == null) {
+      wx.showToast({ title: '数据加载中，请稍后', icon: 'none' })
+      return
     }
+    try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
+    const favorited = toggleFavorite({
+      type: 'launch_site',
+      id: site.id,
+      title: site.nameZh || site.name || '发射场',
+      subtitle: site.countryLabel || site.countryCode || '',
+      imageUrl: site.mapImage || site.imageUrl || '',
+      category: 'launch_site'
+    })
+    pulseFavAnimate(this, favorited)
+    wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
+  },
+
+  _shareSiteQuery() {
+    const id = this._siteId
+    const site = this.data.site
+    const name = (site && (site.nameZh || site.name)) || this.data.previewName || ''
+    let q = `id=${encodeURIComponent(id == null ? '' : String(id))}`
+    if (name) q += `&name=${encodeURIComponent(String(name).slice(0, 40))}`
+    return q
+  },
+
+  onShareAppMessage() {
+    const site = this.data.site
+    const imageUrl = this.data.shareImage || this._pickLaunchSiteShareImage(site)
+    const hasId = this._siteId != null && Number(this._siteId) > 0
+    const path = hasId
+      ? withShareStampPath(`/subpackages/monitor-pages/launch-site-detail?${this._shareSiteQuery()}`, this)
+      : '/subpackages/monitor-pages/launch-site-gallery'
+    const result = buildMapShareOptions({
+      shareTitle: this.data.shareTitle,
+      detailText: site ? `${site.countryLabel || ''} · 累计发射 ${site.totalLaunchCount} 次` : '全球发射场分布',
+      path
+    })
+    if (imageUrl) result.imageUrl = imageUrl
+    return result
+  },
+
+  onShareTimeline() {
+    const site = this.data.site
+    const imageUrl = this.data.shareImage || this._pickLaunchSiteShareImage(site)
+    const result = {
+      title: this.data.shareTitle,
+      query: Number(this._siteId) > 0 ? withShareStampQuery(this._shareSiteQuery(), this) : ''
+    }
+    if (imageUrl) result.imageUrl = imageUrl
+    return result
   }
 })

@@ -14,6 +14,7 @@
 
 /* 顶部导航栏：上内边距加大，避免与右上角胶囊碰撞；整体下移 */
 .top-nav {
+  position: relative;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -22,54 +23,65 @@
   min-height: 90rpx;
 }
 
+/* 顶部分段导航：文字 + 底部蓝色滑入横条（与首页同款；类切换触发 CSS 过渡） */
 .nav-button {
   flex: 1;
-  height: 60rpx;
+  height: 64rpx;
   display: flex;
   align-items: center;
   justify-content: center;
   /* 视觉微调：两按钮（航天事件/即将发生）整体下移 3px，与首页导航按钮对齐 */
   transform: translateY(3px);
-  background: rgba(18, 20, 24, 0.16);
-  backdrop-filter: blur(34rpx) saturate(170%);
-  -webkit-backdrop-filter: blur(34rpx) saturate(170%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16rpx;
-  color: #8E8E93;
-  font-size: 28rpx;
-  transition: all 0.3s ease;
-  box-shadow: 
-    0 4rpx 16rpx rgba(0, 0, 0, 0.3),
-    inset 0 1rpx 0 rgba(255, 255, 255, 0.12);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--color-text-secondary);
+  /* 「航天摄影」四字稍长，略缩字号保持三钮等宽可读 */
+  font-size: 26rpx;
+  line-height: 1;
+  text-align: center;
+  transition: color 0.25s ease;
+  box-shadow: none;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
 }
 
-.nav-button::before {
+.nav-button text {
+  line-height: 1;
+  text-align: center;
+}
+
+.nav-button::after {
   content: '';
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 1rpx;
-  background: linear-gradient(90deg, 
-    transparent 0%, 
-    rgba(255, 255, 255, 0.3) 50%, 
-    transparent 100%);
+  left: 50%;
+  bottom: 0;
+  width: 44rpx;
+  height: 6rpx;
+  border-radius: 999rpx;
+  background: var(--color-brand, #3B82F6);
+  transform: translateX(-50%) scaleX(0);
+  opacity: 0;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
   pointer-events: none;
 }
 
 .nav-button.active {
-  background: rgba(0, 122, 255, 0.15);
-  border-color: rgba(0, 122, 255, 0.3);
-  color: #007AFF;
-  box-shadow: 
-    0 4rpx 16rpx rgba(0, 122, 255, 0.2),
-    inset 0 1rpx 0 rgba(255, 255, 255, 0.15);
+  background: transparent;
+  border: none;
+  color: var(--color-text-primary);
+  font-weight: 600;
+  box-shadow: none;
 }
 
-/* 与自定义 TabBar「星舰进度 / 我的太空」红点同款（事件 Tab + 航天事件导航） */
-.nav-button--articles {
+.nav-button.active::after {
+  transform: translateX(-50%) scaleX(1);
+  opacity: 1;
+}
+
+/* 与自定义 TabBar「星舰进度 / 我的太空」红点同款（航天摄影 / 航天事件导航） */
+.nav-button--articles,
+.nav-button--photos {
   position: relative;
 }
 
@@ -85,21 +97,21 @@
 }
 
 .content-scroll {
-  padding: 30rpx;
+  padding: var(--space-lg);
 }
 
 .news-list {
   display: flex;
   flex-direction: column;
-  gap: 20rpx;
+  gap: var(--space-md);
   margin-top: 0;
 }
 
 .news-card {
-  padding: 30rpx;
+  padding: var(--space-lg);
   display: flex;
   flex-direction: column;
-  gap: 20rpx;
+  gap: var(--space-md);
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
@@ -117,21 +129,21 @@
   align-items: center;
   justify-content: center;
   padding: 6rpx 16rpx;
-  background: rgba(0, 122, 255, 0.15);
-  border: 1px solid rgba(0, 122, 255, 0.3);
-  border-radius: 12rpx;
+  background: var(--color-brand-soft);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: var(--radius-sm);
 }
 
 .event-type-text {
-  font-size: 22rpx;
-  color: #007AFF;
-  font-weight: 500;
+  font-size: var(--font-size-sm);
+  color: var(--color-brand);
+  font-weight: var(--font-weight-medium);
   line-height: 1;
 }
 
 .news-time {
   font-size: 24rpx;
-  color: #636366;
+  color: var(--color-text-tertiary);
 }
 
 .news-content {
@@ -141,15 +153,15 @@
 }
 
 .news-title {
-  font-size: 32rpx;
-  font-weight: 600;
-  color: #FFFFFF;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
   line-height: 1.5;
 }
 
 .news-summary {
   font-size: 26rpx;
-  color: #8E8E93;
+  color: var(--color-text-secondary);
   line-height: 1.6;
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -170,10 +182,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12rpx;
-  margin-top: 15rpx;
-  padding-top: 15rpx;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-divider-faint);
 }
 
 .news-meta-inline {
@@ -202,9 +214,14 @@
   opacity: 0.9;
 }
 
+/* icon-location.svg 为白描边：浅色主题反色为深灰，与 .icon-share 一致 */
+.theme-light .meta-location-icon {
+  filter: invert(0.72);
+}
+
 .meta-text {
   font-size: 24rpx;
-  color: #8E8E93;
+  color: var(--color-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -217,19 +234,13 @@
 
 /* 文章卡片样式 */
 .article-card {
-  padding: 30rpx;
+  padding: var(--space-lg);
   display: flex;
   flex-direction: column;
-  gap: 20rpx;
+  gap: var(--space-md);
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
-}
-
-.article-content {
-  display: flex;
-  flex-direction: column;
-  gap: 15rpx;
 }
 
 .card-link {
@@ -238,38 +249,34 @@
   color: inherit;
 }
 
-.article-clickable {
-  display: block;
-}
-
 /* 文章卡片头部沿用 news-header 横向布局，站点标签样式见 .article-site */
 
 .article-site {
   font-size: 24rpx;
-  color: #007AFF;
-  font-weight: 500;
+  color: var(--color-brand);
+  font-weight: var(--font-weight-medium);
   padding: 4rpx 12rpx;
-  background: rgba(0, 122, 255, 0.15);
-  border: 1px solid rgba(0, 122, 255, 0.3);
-  border-radius: 8rpx;
+  background: var(--color-brand-soft);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: var(--radius-sm);
 }
 
 .article-time {
   font-size: 24rpx;
-  color: #636366;
+  color: var(--color-text-tertiary);
 }
 
 .article-title {
-  font-size: 32rpx;
-  font-weight: 600;
-  color: #FFFFFF;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
   line-height: 1.5;
   word-break: break-word;
 }
 
 .article-summary {
   font-size: 26rpx;
-  color: #8E8E93;
+  color: var(--color-text-secondary);
   line-height: 1.6;
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -282,9 +289,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16rpx;
-  padding-top: 15rpx;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  gap: var(--space-xs);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-divider-faint);
 }
 
 .article-author {
@@ -384,17 +391,6 @@
   }
 }
 
-/* 加载更多 */
-.load-more {
-  padding: 28rpx 0 40rpx;
-  text-align: center;
-}
-
-.load-more-text {
-  font-size: 24rpx;
-  color: #8E8E93;
-}
-
 /* 没有更多 */
 .no-more {
   padding: 40rpx 0;
@@ -435,92 +431,16 @@
   color: rgba(255,255,255,0.7);
 }
 
-.detail-description {
-  font-size: 26rpx;
-  color: #E5E5EA;
-  line-height: 1.8;
-  word-break: break-word;
-  white-space: pre-wrap;
-}
-
-.detail-links {
-  display: flex;
-  flex-direction: column;
-  gap: 15rpx;
-}
-
-.detail-link-item {
-  display: flex;
-  align-items: center;
-  padding: 20rpx;
-  background: rgba(0, 122, 255, 0.1);
-  border: 1px solid rgba(0, 122, 255, 0.2);
-  border-radius: 12rpx;
-  gap: 15rpx;
-  box-sizing: border-box;
-}
-
-.link-icon {
-  font-size: 32rpx;
-  flex-shrink: 0;
-}
-
-.link-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 5rpx;
-  min-width: 0;
-}
-
 .link-title {
   font-size: 26rpx;
   color: #FFFFFF;
   word-break: break-word;
 }
 
-.link-source {
-  font-size: 22rpx;
-  color: #8E8E93;
-}
-
 .link-arrow {
   font-size: 36rpx;
   color: #8E8E93;
   flex-shrink: 0;
-}
-
-/* 关注入口：位置由 left/top(px) 控制，支持长按拖动 */
-.qrcode-entry-wrap {
-  position: fixed;
-  width: 100rpx;
-  height: 100rpx;
-  border-radius: 50rpx;
-  background: rgba(7, 193, 96, 0.35);
-  border: 1px solid rgba(7, 193, 96, 0.5);
-  z-index: 99999;
-  font-size: 48rpx;
-  line-height: 100rpx;
-  text-align: center;
-}
-
-/* 顶部导航「关注」入口：不受 scroll-view 遮挡，点击稳定 */
-.nav-qrcode-entry {
-  flex-shrink: 0;
-  height: 60rpx;
-  padding: 0 20rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(7, 193, 96, 0.2);
-  border: 1px solid rgba(7, 193, 96, 0.35);
-  border-radius: 16rpx;
-  color: #07c160;
-  font-size: 26rpx;
-}
-
-.nav-qrcode-entry:active {
-  background: rgba(7, 193, 96, 0.3);
 }
 
 /* 二维码弹窗：z-index 高于关注入口(10001)，打开时盖住入口 */
@@ -552,10 +472,9 @@
 .qrcode-modal-content {
   width: 600rpx;
   max-width: 90%;
-  background: rgba(28, 28, 30, 0.95);
-  backdrop-filter: blur(40rpx) saturate(150%);
-  -webkit-backdrop-filter: blur(40rpx) saturate(150%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-glass-popup, rgba(22, 24, 28, 0.85));
+  backdrop-filter: blur(32rpx) saturate(150%);
+  -webkit-backdrop-filter: blur(32rpx) saturate(150%);
   border-radius: 24rpx;
   overflow: hidden;
   box-shadow: 
@@ -632,20 +551,6 @@
   text-align: center;
 }
 
-/* ===== 页面级翻译按钮（悬浮右上角，不占内容行） ===== */
-.news-translate-float {
-  position: fixed;
-  right: 24rpx;
-  z-index: 1000;
-}
-
-.news-translate-float .translate-toggle {
-  padding: 7rpx 29rpx;
-  background: rgba(20, 20, 22, 0.82);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.35);
-}
-
 /* ========== 明亮主题（theme-light）覆盖 ========== */
 
 /* 顶部导航玻璃底：深玻璃 → 浅玻璃 */
@@ -654,25 +559,12 @@
 }
 
 /* 导航切换按钮：深底胶囊 → 浅胶囊 */
-.theme-light .nav-button {
-  background: rgba(0, 0, 0, 0.05);
-  border: 1px solid var(--color-divider);
-  color: var(--color-text-secondary);
-  box-shadow: var(--shadow-card);
-}
-
-.theme-light .nav-button::before {
-  background: linear-gradient(90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.9) 50%,
-    transparent 100%);
-}
-
+/* 浅色主题：文字色由 token 变量自动反色，横条恒蓝 */
+.theme-light .nav-button,
 .theme-light .nav-button.active {
-  background: rgba(0, 122, 255, 0.12);
-  border-color: rgba(0, 122, 255, 0.3);
-  color: #007AFF;
-  box-shadow: var(--shadow-card);
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
 
 /* 卡片内文字层级 */
@@ -724,11 +616,11 @@
 
 /* 站点/事件类型徽标：品牌蓝保持，半透明衬底微降 */
 .theme-light .event-type-badge {
-  background: rgba(0, 122, 255, 0.12);
+  background: var(--color-brand-soft);
 }
 
 .theme-light .article-site {
-  background: rgba(0, 122, 255, 0.12);
+  background: var(--color-brand-soft);
 }
 
 /* 分享按钮：白描边/白图标 → 深描边/深图标 */
@@ -746,11 +638,6 @@
   box-shadow: inset 0 0 0 1rpx rgba(0, 0, 0, 0.12);
 }
 
-/* 加载/空状态文案 */
-.theme-light .load-more-text {
-  color: var(--color-text-secondary);
-}
-
 .theme-light .no-more text {
   color: var(--color-text-tertiary);
 }
@@ -765,17 +652,8 @@
   color: var(--color-text-secondary);
 }
 
-/* 详情复用样式（本页 wxss 内定义） */
-.theme-light .detail-description {
-  color: var(--color-text-primary);
-}
-
 .theme-light .link-title {
   color: var(--color-text-primary);
-}
-
-.theme-light .link-source {
-  color: var(--color-text-secondary);
 }
 
 .theme-light .link-arrow {
@@ -784,11 +662,8 @@
 
 /* 二维码弹窗：遮罩保持深色，弹窗卡片转浅色 */
 .theme-light .qrcode-modal-content {
-  background: rgba(255, 255, 255, 0.95);
-  border: 1px solid var(--color-divider);
-  box-shadow:
-    0 20rpx 60rpx rgba(0, 0, 0, 0.1),
-    inset 0 1rpx 0 rgba(255, 255, 255, 0.9);
+  background: var(--bg-glass-popup, rgba(255, 255, 255, 0.88));
+  box-shadow: 0 20rpx 60rpx rgba(0, 0, 0, 0.1);
 }
 
 .theme-light .qrcode-header {
@@ -811,14 +686,179 @@
   color: var(--color-text-secondary);
 }
 
-/* 悬浮翻译按钮：深玻璃底 → 浅玻璃底 */
-.theme-light .news-translate-float .translate-toggle {
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: var(--shadow-card);
+/* 影像：双列瀑布流 */
+.photo-masonry {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  width: 100%;
+  box-sizing: border-box;
 }
 
-/* 激活态为白字，需保留蓝色实底（本页 .news-translate-float 覆盖了公共类的背景） */
-.theme-light .news-translate-float .translate-toggle--active {
-  background: rgba(74, 158, 255, 0.85);
+.photo-masonry-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.photo-card {
+  margin-bottom: 0;
+  overflow: hidden;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.photo-cover-wrap {
+  position: relative;
+  width: 100%;
+  max-height: none;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.25);
+  font-size: 0;
+  line-height: 0;
+}
+
+.photo-cover {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.photo-count-badge {
+  position: absolute;
+  top: 12rpx;
+  right: 12rpx;
+  min-width: 40rpx;
+  height: 40rpx;
+  padding: 0 10rpx;
+  border-radius: 999rpx;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 20rpx;
+  font-weight: 600;
+  line-height: 40rpx;
+  text-align: center;
+  box-sizing: border-box;
+  z-index: 2;
+}
+
+.photo-meta {
+  padding: 12rpx 16rpx 4rpx;
+}
+
+.photo-card-footer {
+  padding: 10rpx 14rpx 14rpx;
+  border-top: none;
+}
+
+.photo-author-row {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  min-width: 0;
+  flex: 1;
+}
+
+.photo-avatar {
+  flex-shrink: 0;
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 50%;
+  /* 统一浅微信绿纯色，不做渐变、不按用户变色 */
+  background: #e8f8ef;
+  color: #07c160;
+  font-size: 22rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.photo-author-name {
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #f2f2f7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.photo-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10rpx;
+}
+
+.photo-meta-row .meta-item {
+  min-width: 0;
+  flex: 1;
+}
+
+.photo-meta-row .meta-text {
+  font-size: 20rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.photo-shot-at {
+  font-size: 20rpx;
+  color: #8e8e93;
+  flex-shrink: 0;
+}
+
+.photo-upload-fab {
+  position: fixed;
+  right: 32rpx;
+  z-index: 50;
+  min-width: 112rpx;
+  height: 72rpx;
+  padding: 0 28rpx;
+  border-radius: 999rpx;
+  background: #07c160;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  box-shadow: 0 10rpx 28rpx rgba(7, 193, 96, 0.4);
+  transition: transform 0.22s ease, opacity 0.22s ease;
+  will-change: transform, opacity;
+}
+
+.photo-upload-fab--hidden {
+  /* 不用 calc，兼容基础库对 transform 的支持 */
+  transform: translateX(200rpx);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.photo-upload-fab__text {
+  color: #fff;
+  font-size: 28rpx;
+  font-weight: 600;
+  line-height: 1;
+  text-align: center;
+}
+
+.theme-light .photo-author-name {
+  color: var(--color-text-primary);
+}
+
+.theme-light .photo-shot-at {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .photo-count-badge {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.theme-light .photo-avatar {
+  background: #e8f8ef;
+  color: #07c160;
 }
 

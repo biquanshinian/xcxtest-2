@@ -1,0 +1,103 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="badges-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top:{{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">我的徽章</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view
+    class="badges-scroll"
+    scroll-y
+    enhanced
+    show-scrollbar="{{false}}"
+    style="padding-top:{{navPlaceholderHeight}}px;"
+  >
+    <!-- 顶部身份 -->
+    <view class="badges-hero">
+      <view class="badges-avatar {{identityHasAvatar ? '' : 'badges-avatar--empty'}}">
+        <image wx:if="{{identityHasAvatar}}" class="badges-avatar-img" src="{{identityAvatarUrl}}" mode="aspectFill" />
+        <text wx:else class="badges-avatar-plus">+</text>
+      </view>
+      <text class="badges-user">{{identityDisplayName}}</text>
+      <text class="badges-count">已点亮 <text class="badges-count-num">{{unlockedCount}}</text> 枚徽章</text>
+    </view>
+
+    <!-- 系列标题 -->
+    <view class="badges-series">
+      <text class="badges-series-active">成就系列 ▾</text>
+    </view>
+
+    <!-- 徽章网格 -->
+    <view class="badges-grid-wrap">
+      <view class="badges-grid">
+        <view
+          class="badge-cell {{item.unlocked ? 'badge-cell--on' : 'badge-cell--off'}}"
+          wx:for="{{achievements}}"
+          wx:key="id"
+          bindtap="onBadgeTap"
+          data-index="{{index}}"
+        >
+          <view class="badge-cell-icon-wrap">
+            <image class="badge-cell-icon" src="{{item.iconUrl}}" mode="aspectFit" />
+          </view>
+          <text class="badge-cell-name">{{item.name}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view style="height: 80rpx;"></view>
+  </scroll-view>
+
+  <!-- 单枚详情（参考图二：舞台 + 轮播 + 文案 + CTA） -->
+  <view class="badge-detail" wx:if="{{detailOpen}}" catchtouchmove="noop">
+    <view class="badge-detail-mask" catchtap="closeDetail"></view>
+    <view class="badge-detail-panel">
+      <view class="badge-detail-stage">
+        <swiper
+          class="badge-detail-swiper"
+          current="{{detailIndex}}"
+          bindchange="onDetailSwiperChange"
+          previous-margin="120rpx"
+          next-margin="120rpx"
+        >
+          <swiper-item wx:for="{{achievements}}" wx:key="id">
+            <view class="badge-detail-slide {{detailIndex === index ? 'badge-detail-slide--active' : ''}}">
+              <view class="badge-detail-frame {{item.unlocked ? 'badge-detail-frame--on' : 'badge-detail-frame--off'}}">
+                <image class="badge-detail-icon" src="{{item.iconUrl}}" mode="aspectFit" />
+              </view>
+            </view>
+          </swiper-item>
+        </swiper>
+      </view>
+
+      <view class="badge-detail-info" wx:if="{{currentBadge}}">
+        <view class="badge-detail-title-row">
+          <text class="badge-detail-orn">◆</text>
+          <text class="badge-detail-title">{{currentBadge.name}}</text>
+          <text class="badge-detail-orn">◆</text>
+        </view>
+        <text class="badge-detail-desc">{{currentBadge.desc}}</text>
+        <text class="badge-detail-hint" wx:if="{{!currentBadge.unlocked}}">
+          {{currentBadge.hint || ('完成条件：' + currentBadge.desc)}}
+        </text>
+        <text class="badge-detail-hint badge-detail-hint--ok" wx:else>已点亮此徽章</text>
+      </view>
+
+      <view
+        class="badge-detail-cta {{currentBadge.unlocked ? 'badge-detail-cta--done' : ''}}"
+        bindtap="onDetailCta"
+      >
+        <text>{{currentBadge.unlocked ? '已点亮 ✓' : '去点亮 ☆'}}</text>
+      </view>
+
+      <view class="badge-detail-close" bindtap="closeDetail" aria-role="button" aria-label="关闭">
+        <text>✕</text>
+      </view>
+    </view>
+  </view>
+</view>

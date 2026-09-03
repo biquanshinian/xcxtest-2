@@ -6,19 +6,31 @@ const {
   isRemoteAgencyLogoUrl,
   resolveAgencyLogoForDisplay
 } = require('./agency-logo-cache.js')
-const { applyLaunchAgencyLogoOverridesToMission } = require('./agency-logo-overrides.js')
+const { resolveAgencyLogoBgTone } = require('./agency-logo-bg.js')
+const { hydrateMissionAgencyLogo } = require('./upcoming-agency-logo-enrich.js')
 
 const ALL_TASKS_CHIP_LOGO = '/images/icons/ic-orbit-globe.svg'
 const AGENCY_FALLBACK_LOGO = '/images/icons/ic-rocket-outline.svg'
 
-/** 为胶囊补齐 logoUrl（优先本地缓存）与 logoRemoteSrc（用于 bindload 后持久化） */
+/**
+ * 为胶囊补齐 logoUrl（优先本地缓存）与 logoRemoteSrc（用于 bindload 后持久化）。
+ * 与图鉴 formatAgency 同一口径：resolveAgencyLogoForDisplay + 透明 logo 自动取色填底
+ * （resolveAgencyLogoBgTone 命中缓存立即生效；未采样为 '' 走默认衬底，bindload 后回写）。
+ */
 function finalizeChipLogoFields(rawLogoUrl) {
   const raw = typeof rawLogoUrl === 'string' && rawLogoUrl.trim()
     ? rawLogoUrl.trim()
     : AGENCY_FALLBACK_LOGO
-  const logoRemoteSrc = isRemoteAgencyLogoUrl(raw) ? raw : ''
-  const logoUrl = logoRemoteSrc ? resolveAgencyLogoForDisplay(raw) : raw
-  return { logoUrl, logoRemoteSrc }
+
+  if (!isRemoteAgencyLogoUrl(raw)) {
+    // 本地占位火箭为白色描边，固定黑底衬托；自动取色只作用于远程真 logo
+    const logoBgTone = raw.indexOf('ic-rocket-outline') !== -1 ? 'dark' : ''
+    return { logoUrl: raw, logoRemoteSrc: '', logoBgTone }
+  }
+
+  const logoUrl = resolveAgencyLogoForDisplay(raw) || raw
+  const logoBgTone = resolveAgencyLogoBgTone(raw)
+  return { logoUrl, logoRemoteSrc: raw, logoBgTone }
 }
 
 function normalizeAgencyName(name) {
@@ -47,12 +59,13 @@ function getAgencyKeyFromMission(mission) {
   return `name:${name || '_'}`
 }
 
-/** 胶囊优先展示完整英文名，过长由样式省略 */
+/** 胶囊优先展示机构名（已随 contentLang 本地化），过长由样式省略 */
 function pickChipLabel(mission) {
-  if (!mission || typeof mission !== 'object') return '未知'
+  const { launchCardUiText } = require('./locale.js')
+  if (!mission || typeof mission !== 'object') return launchCardUiText('unknownCountry')
   const full = String(mission.launchAgency || '').trim()
   const abbr = String(mission.launchAgencyAbbrev || '').trim()
-  return full || abbr || '未知'
+  return full || abbr || launchCardUiText('unknownCountry')
 }
 
 function collectAgencyAggregation(missions) {
@@ -62,7 +75,7 @@ function collectAgencyAggregation(missions) {
     const m = list[i]
     const key = getAgencyKeyFromMission(m)
     const prev = bucket.get(key)
-    const img = normalizeLogo(applyLaunchAgencyLogoOverridesToMission(m).launchAgencyImage)
+    const img = normalizeLogo(hydrateMissionAgencyLogo(m).launchAgencyImage)
     if (!prev) {
       bucket.set(key, {
         key,
@@ -83,7 +96,8 @@ function collectAgencyAggregation(missions) {
     return {
       ...row,
       logoUrl: fin.logoUrl,
-      logoRemoteSrc: fin.logoRemoteSrc
+      logoRemoteSrc: fin.logoRemoteSrc,
+      logoBgTone: fin.logoBgTone
     }
   })
   return { list, total: list.length, agencies }
@@ -96,12 +110,14 @@ function collectAgencyAggregation(missions) {
 function buildUpcomingAgencyFilterState(missions, selectedKey) {
   const { list, total, agencies } = collectAgencyAggregation(missions)
 
+  const { launchCardUiText } = require('./locale.js')
   const allChip = {
     key: '_all',
-    label: '所有任务',
+    label: launchCardUiText('allTasks'),
     count: total,
     logoUrl: ALL_TASKS_CHIP_LOGO,
     logoRemoteSrc: '',
+    logoBgTone: '',
     active: selectedKey === '_all' || !selectedKey
   }
 

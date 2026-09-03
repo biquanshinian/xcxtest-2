@@ -1,7 +1,9 @@
-const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, buildMapLayoutData, buildSelectionPatch, buildMapShareOptions, copyMapText, runMapRefresh } = require('./utils/map-page-common.js')
+const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, buildMapLayoutData, buildSelectionPatch, copyMapText, runMapRefresh, setMapSatelliteFromTap } = require('./utils/map-page-common.js')
 const { getStarshipStatusFromDB } = require('../../utils/api-app-services.js')
 const { STARBASE_CENTER, STARBASE_FACILITIES, toMarker } = require('./utils/map-scenes.js')
 const { getThemeClassSync, isLightSync, getPageBgSync } = require('../../utils/theme.js')
+const { isPlaybackAllowed } = require('../../utils/feature-flags.js')
+const { playOrbitPanoVideo, resolveOrbitPanoForStarbase } = require('./utils/orbit-pano.js')
 
 const STARSHIP_SHARED_TTL = 10 * 60 * 1000
 
@@ -25,6 +27,8 @@ Page({
     statusBarHeight: 44,
     capsuleTop: 0,
     capsuleHeight: 32,
+    menuButtonWidth: 88,
+    isDirectEntry: false,
     mapActionTop: 0,
     latitude: STARBASE_CENTER.latitude,
     longitude: STARBASE_CENTER.longitude,
@@ -36,6 +40,8 @@ Page({
     currentFocusText: '载具状态同步中',
     panelCollapsed: true,
     actionMenuCollapsed: true,
+    isMomentsPreview: false,
+    orbitPanoEnabled: false,
     ...createMapBaseState({
       dataSourceText: 'starshipStatus 云数据库',
       dataUpdatedText: '待更新',
@@ -49,16 +55,71 @@ Page({
     const markers = STARBASE_FACILITIES.map((item) => toMarker(item, { color: '#34C759', display: 'BYCLICK' }))
     this._focusFacilityId = Number(options.focusId || 0)
     const pages = typeof getCurrentPages === 'function' ? getCurrentPages() : []
+
+    let isMomentsPreview = false
+    try {
+      const enter = (typeof wx.getEnterOptionsSync === 'function' && wx.getEnterOptionsSync())
+        || wx.getLaunchOptionsSync()
+      isMomentsPreview = !!(enter && enter.scene === 1154)
+    } catch (e) {}
+
     this.setData({
       ...buildMapLayoutData(app),
       themeClass: getThemeClassSync(),
       themeLight: isLightSync(),
       pageBgColor: getPageBgSync(),
       markers,
-      selectedFacility: STARBASE_FACILITIES[0] || null,
-      isDirectEntry: pages.length <= 1
+      selectedFacility: STARBASE_FACILITIES.find((item) => item.id === this._focusFacilityId) || STARBASE_FACILITIES[0] || null,
+      isDirectEntry: pages.length <= 1,
+      isMomentsPreview
     })
+
+    if (isMomentsPreview) {
+      // 朋友圈单页：原生 map 易黑屏，只展示设施列表预览
+      this.setData({
+        loading: false,
+        panelCollapsed: false,
+        liveStatusText: '打开小程序查看实时状态',
+        currentFocusText: '点击「前往小程序」加载完整设施图'
+      })
+      return
+    }
+
+    try {
+      wx.showShareMenu({
+        withShareTicket: true,
+        menus: ['shareAppMessage', 'shareTimeline']
+      })
+    } catch (e) {}
+
     this.loadLiveFacilityData()
+    this._syncOrbitPanoEntry()
+  },
+
+  onShow() {
+    this._syncOrbitPanoEntry(true)
+  },
+
+  _syncOrbitPanoEntry(forceRefresh) {
+    if (this.data.isMomentsPreview) {
+      this._orbitPanoItem = null
+      if (this.data.orbitPanoEnabled) this.setData({ orbitPanoEnabled: false })
+      return
+    }
+    Promise.all([
+      isPlaybackAllowed().catch(() => false),
+      resolveOrbitPanoForStarbase(!!forceRefresh)
+    ])
+      .then(([play, item]) => {
+        const ok = !!(play && item)
+        this._orbitPanoItem = ok ? item : null
+        if (!!this.data.orbitPanoEnabled === ok) return
+        this.setData({ orbitPanoEnabled: ok })
+      })
+      .catch(() => {
+        this._orbitPanoItem = null
+        if (this.data.orbitPanoEnabled) this.setData({ orbitPanoEnabled: false })
+      })
   },
 
 
@@ -189,14 +250,47 @@ Page({
     this.setData({ actionMenuCollapsed: !this.data.actionMenuCollapsed })
   },
 
-  onShareAppMessage() {
+  setMapSatellite(e) {
+    setMapSatelliteFromTap(this, e)
+  },
+
+  /** 环绕全景：过审开关 + 会员/广告门控通过后才进播放页，不预热 mp4 */
+  async playOrbitPano() {
+    if (!this.data.orbitPanoEnabled || !this._orbitPanoItem) {
+      wx.showToast({ title: '功能暂未开放', icon: 'none' })
+      return
+    }
+    const query = this._shareQuery()
+    await playOrbitPanoVideo({
+      path: '/subpackages/progress-extra/starbase-map' + (query ? '?' + query : '')
+    }, this._orbitPanoItem)
+  },
+
+  _shareTitle() {
     const facility = this.data.selectedFacility || {}
-    return buildMapShareOptions({
-      shareTitle: this.data.shareTitle,
-      detailText: facility.shortName,
-      fallbackDetailText: '设施详情',
-      path: '/subpackages/progress-extra/starbase-map'
-    })
+    const detail = facility.shortName || '设施详情'
+    return `${this.data.shareTitle || 'Starbase 设施图'} · ${detail}`
+  },
+
+  _shareQuery() {
+    const facility = this.data.selectedFacility || {}
+    const id = Number(facility.id || this._focusFacilityId || 0)
+    return id ? ('focusId=' + id) : ''
+  },
+
+  onShareAppMessage() {
+    const query = this._shareQuery()
+    return {
+      title: this._shareTitle(),
+      path: '/subpackages/progress-extra/starbase-map' + (query ? '?' + query : '')
+    }
+  },
+
+  onShareTimeline() {
+    return {
+      title: this._shareTitle(),
+      query: this._shareQuery()
+    }
   },
 
   /**

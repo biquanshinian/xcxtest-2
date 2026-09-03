@@ -4,9 +4,14 @@
  * 显示与交互逻辑与星舰硬件设施列表页一致
  */
 const pageBase = require('../../utils/page-base.js')
-const { AGENCY_FILTERS, getAllAgencies, filterAgencies, toDisplayRow } = require('../../utils/agency-data.js')
+const { AGENCY_FILTERS, getAllAgencies, filterAgencies, toDisplayRow } = require('./utils/agency-data.js')
 const { gateCheck, isProSync } = require('../../utils/membership.js')
 const { ROUTES } = require('../../utils/routes.js')
+const {
+  persistAgencyLogoAfterRemoteLoad,
+  isRemoteAgencyLogoUrl
+} = require('../../utils/agency-logo-cache.js')
+const { ensureAgencyLogoBgTone } = require('../../utils/agency-logo-bg.js')
 
 Page({
   behaviors: [pageBase],
@@ -86,8 +91,37 @@ Page({
     // 专属 id 不在 PRODUCTS 单品表内 → 门控弹窗只提供开通星际通行证，无永久购买
     const allowed = await gateCheck('agency_encyclopedia', '全球发射商图鉴')
     if (!allowed) return
+    const item = (this.data.list || []).find(a => String(a.id) === String(id))
+    try {
+      const app = getApp()
+      if (app && item && item.displayImage) {
+        app._agencyHeroImage = {
+          id: String(id),
+          src: item.displayImage,
+          fallbacks: (item.imageFallbacks || []).slice()
+        }
+      }
+    } catch (err) {}
     wx.navigateTo({
       url: `${ROUTES.AGENCY_DETAIL}?id=${encodeURIComponent(id)}`
+    })
+  },
+
+  /** 仅-logo 卡片：落盘后分析透明底色 */
+  onCardImageLoad(e) {
+    const idx = Number(e.currentTarget.dataset.index)
+    const item = this.data.list[idx]
+    if (!item || item.imageMode !== 'aspectFit') return
+    const remote = String(item.logoUrlRaw || item.logoUrl || '').trim()
+    if (!remote || !isRemoteAgencyLogoUrl(remote)) return
+    const self = this
+    persistAgencyLogoAfterRemoteLoad(remote, function (localPath) {
+      if (!localPath) return
+      ensureAgencyLogoBgTone(remote, localPath, function (tone) {
+        if (!tone || !self.data.list[idx]) return
+        if (self.data.list[idx].logoBgTone === tone) return
+        self.setData({ [`list[${idx}].logoBgTone`]: tone })
+      })
     })
   },
 
@@ -96,6 +130,16 @@ Page({
     const item = this.data.list[idx]
     if (!item) return
     const cur = String(item.displayImage || '')
+    const fallbacks = item.imageFallbacks || []
+    if (fallbacks.length) {
+      const next = fallbacks[0]
+      const remaining = fallbacks.slice(1)
+      this.setData({
+        [`list[${idx}].displayImage`]: (next && next !== cur) ? next : (remaining[0] || ''),
+        [`list[${idx}].imageFallbacks`]: (next && next !== cur) ? remaining : remaining.slice(1)
+      })
+      return
+    }
     const stripCi = (u) => {
       const s = String(u || '').trim()
       if (!s) return ''

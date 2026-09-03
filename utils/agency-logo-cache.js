@@ -4,17 +4,23 @@
 
 const { runDownload } = require('./download-pool.js')
 const { toCdnUrl, optimizeImageUrl, isCosOriginUrl } = require('./cos-url.js')
-const { isDownloadBlacklisted, markDownloadFailed } = require('./download-fail-cache.js')
+const {
+  shouldSkipDownload,
+  markDownloadFailed,
+  markDownloadSoftFailed
+} = require('./download-fail-cache.js')
+const { isOwnCdnUrl, proxiedImageUrl } = require('./ll2-image.js')
 
 /**
  * COS 静图 logo 统一用 thumb 压缩版展示/下载：logo 展示尺寸极小（几十 rpx），
- * 原图动辄数百 KB～数 MB，是重复出现的下行浪费；非 COS 域名（LL2 等）原样返回
+ * 原图动辄数百 KB～数 MB，是重复出现的下行浪费；外链走 Worker 代理，禁止直连 DigitalOcean
  */
 function _optimizedLogoUrl(raw) {
   const u = typeof raw === 'string' ? raw.trim() : ''
   if (!u) return u
   if (/imageMogr2|ci-process=/i.test(u)) return toCdnUrl(u)
   if (isCosOriginUrl(u) && !/\.gif(\?|[&#]|$)/i.test(u)) return optimizeImageUrl(u, 'thumb')
+  if (!isOwnCdnUrl(u)) return proxiedImageUrl(u) || u
   return toCdnUrl(u)
 }
 
@@ -141,6 +147,15 @@ function _flushQueue(remoteUrl, localPath) {
   }
 }
 
+/** 落盘成功后后台分析透明 logo 底色（懒加载，避免与 agency-logo-bg 循环依赖） */
+function _warmLogoBgTone(remoteUrl, localPath) {
+  if (!remoteUrl || !localPath) return
+  try {
+    const { ensureAgencyLogoBgTone } = require('./agency-logo-bg.js')
+    ensureAgencyLogoBgTone(remoteUrl, localPath)
+  } catch (e) {}
+}
+
 /**
  * 远程图在界面加载成功后调用：写入 USER_DATA_PATH，并索引 URL → 本地路径
  * @param {string} remoteUrl
@@ -155,13 +170,20 @@ function persistAgencyLogoAfterRemoteLoad(remoteUrl, onDone) {
     return
   }
 
+  // 外链经代理后仍非自有域名，或代理失败：只展示不落盘，避免 downloadFile 打 DigitalOcean
+  if (!isOwnCdnUrl(u)) {
+    cb(null)
+    return
+  }
+
   const existing = getCachedAgencyLogoPath(u)
   if (existing) {
+    _warmLogoBgTone(u, existing)
     cb(existing)
     return
   }
 
-  if (isDownloadBlacklisted(u)) {
+  if (shouldSkipDownload(u)) {
     cb(null)
     return
   }
@@ -184,6 +206,7 @@ function persistAgencyLogoAfterRemoteLoad(remoteUrl, onDone) {
             index[u] = localPath
             _evictOverflow()
             _saveIndex()
+            _warmLogoBgTone(u, localPath)
             _flushQueue(u, localPath)
             resolve(res)
           } else {
@@ -193,6 +216,7 @@ function persistAgencyLogoAfterRemoteLoad(remoteUrl, onDone) {
           }
         },
         fail(err) {
+          markDownloadSoftFailed(u)
           _flushQueue(u, null)
           reject(err)
         }
@@ -203,9 +227,32 @@ function persistAgencyLogoAfterRemoteLoad(remoteUrl, onDone) {
   })
 }
 
+/** 与落盘/底色缓存共用的 URL key（COS thumb / Worker 代理后） */
+function normalizeAgencyLogoCacheKey(url) {
+  return typeof url === 'string' ? _optimizedLogoUrl(url) : ''
+}
+
+/** 本地缓存文件损坏/无法解码时清除索引，下次回退远程 URL */
+function invalidateAgencyLogoCache(url) {
+  const key = normalizeAgencyLogoCacheKey(url)
+  if (!key) return
+  const index = _getIndex()
+  const p = index[key]
+  if (p === undefined) return
+  delete index[key]
+  _saveIndex()
+  if (p && typeof p === 'string') {
+    try {
+      wx.getFileSystemManager().unlink({ filePath: p, fail: function () {} })
+    } catch (e) {}
+  }
+}
+
 module.exports = {
   isRemoteAgencyLogoUrl,
   getCachedAgencyLogoPath,
   resolveAgencyLogoForDisplay,
-  persistAgencyLogoAfterRemoteLoad
+  persistAgencyLogoAfterRemoteLoad,
+  normalizeAgencyLogoCacheKey,
+  invalidateAgencyLogoCache
 }

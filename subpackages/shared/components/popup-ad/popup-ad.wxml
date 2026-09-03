@@ -1,0 +1,50 @@
+<view class="popup-ad-root" wx:if="{{visible}}">
+  <view class="popup-ad-mask" catchtap="onMaskTap"></view>
+  <view class="popup-ad-card-wrap">
+    <view class="popup-ad-card {{leaving ? 'popup-ad-card--leave' : 'popup-ad-card--enter'}}">
+      <view class="popup-ad-close" catchtap="onClose">
+        <text class="popup-ad-close-x">×</text>
+      </view>
+      <view class="popup-ad-header" wx:if="{{shopItem}}">
+        <text class="popup-ad-title">{{shopItem.title}}</text>
+        <text class="popup-ad-desc" wx:if="{{shopItem.desc}}">{{shopItem.desc}}</text>
+      </view>
+      <view class="popup-ad-product-area" wx:if="{{shopItem}}">
+        <!--
+          store-product 官方文档：
+          - appid / product-id 必填
+          - custom-style 为对象（card/title/price/buy-button...），≥3.7.1
+          - product-promotion-link、media-id 仅首次加载传入
+        -->
+        <view wx:if="{{showStoreProduct}}" class="popup-ad-store-wrap">
+          <store-product
+            wx:if="{{useCustomStyle}}"
+            class="popup-ad-store-product"
+            appid="{{storeAppid}}"
+            product-id="{{storeProductId}}"
+            product-promotion-link="{{storePromotionLink}}"
+            media-id="{{storeMediaId}}"
+            custom-style="{{storeCustomStyle}}"
+            bindentersuccess="onStoreEnterSuccess"
+            bindentererror="onStoreEnterError"
+          />
+          <store-product
+            wx:else
+            class="popup-ad-store-product"
+            appid="{{storeAppid}}"
+            product-id="{{storeProductId}}"
+            product-promotion-link="{{storePromotionLink}}"
+            media-id="{{storeMediaId}}"
+            bindentersuccess="onStoreEnterSuccess"
+            bindentererror="onStoreEnterError"
+          />
+        </view>
+        <view wx:elif="{{leaving}}" class="popup-ad-store-wrap"></view>
+        <view wx:else class="popup-ad-fallback" bindtap="onFallbackTap">
+          <image class="popup-ad-cover" src="{{shopItem.coverFileID}}" mode="aspectFill" wx:if="{{shopItem.coverFileID}}" />
+          <view class="popup-ad-fallback-tip">{{fallbackTip}}</view>
+        </view>
+      </view>
+    </view>
+  </view>
+</view>

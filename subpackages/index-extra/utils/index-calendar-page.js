@@ -2,15 +2,12 @@
  * 首页「发射日历」Tab 逻辑 — 分包异步加载，减轻主包体积
  */
 const { formatDate, resolveMissionRocketImage } = require('../../../utils/util.js')
+const { rocketNameForImage, formatMissionListTimeOrUnknown } = require('../../../utils/launch-card-i18n.js')
 const { attachMissionDetailMeta } = require('../../../utils/index-mission-nav.js')
 const { getMissionNextOffset } = require('../../../utils/index-mission-services.js')
 const { CALENDAR_SITE_META } = require('../../../utils/index-page-helpers.js')
 const { getLaunchStatsFromDB } = require('../../../utils/api-app-services.js')
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
-const {
-  computeLaunchCalendarSignature,
-  LAUNCH_CALENDAR_ACK_SIG_KEY
-} = require('../../../utils/launch-calendar-signature.js')
 const storageCache = require('../../../utils/storage-sync-cache.js')
 
 const CALENDAR_CACHE_MAX_AGE_MS = 5 * 60 * 1000
@@ -126,13 +123,27 @@ function buildCalendarMissionBatch(options) {
   }
 }
 
+/** 日历包内同步解析配图，禁止走主包 interaction 委托壳（会返回 Promise，展开后丢 launchTime） */
+function withResolvedRocketImage(mission) {
+  if (!mission || typeof mission !== 'object') return mission
+  const stamped = mission.rocketImage || mission.image || ''
+  const resolved = resolveMissionRocketImage(
+    stamped,
+    rocketNameForImage(mission),
+    mission.rocketConfiguration,
+    true
+  )
+  if (resolved === mission.rocketImage && resolved === mission.image) return mission
+  return { ...mission, rocketImage: resolved, image: resolved }
+}
+
 const calendarMethods = {
   _processCalendarMission(m, idx, isUpcoming) {
     const mission = attachMissionDetailMeta({
-      ...this._withResolvedRocketImage(m),
+      ...withResolvedRocketImage(m),
       _wxkey: `cal-${isUpcoming ? 'up' : 'comp'}-${idx}-${m.id || ''}`,
       _isUpcoming: isUpcoming,
-      formattedTime: m.launchTime ? formatDate(m.launchTime, 'MM月DD日 HH:mm') : '时间未知'
+      formattedTime: m.launchTime ? formatMissionListTimeOrUnknown(m.launchTime) : '时间未知'
     }, {
       id: m.id,
       detailType: isUpcoming ? 'upcoming' : 'completed'
@@ -421,7 +432,6 @@ const calendarMethods = {
       expandedDateMissions: []
     }, () => {
       this.buildCalendarDays()
-      this._refreshLaunchCalendarDot([])
     })
   },
 
@@ -432,7 +442,7 @@ const calendarMethods = {
   },
 
   applyCalendarMissionSnapshot(allMissions, options = {}) {
-    const missions = (Array.isArray(allMissions) ? allMissions : []).map((m) => this._withResolvedRocketImage(m))
+    const missions = (Array.isArray(allMissions) ? allMissions : []).map((m) => withResolvedRocketImage(m))
     const keepExpanded = options.keepExpanded !== false
     const saveCache = options.saveCache !== false
     this.setData({
@@ -451,44 +461,8 @@ const calendarMethods = {
             briefingComp._loadBriefing()
           }
         } catch (e) {}
-        this._refreshLaunchCalendarDot(missions)
       })
     })
-  },
-
-  /** 日历合并列表变更后刷新「发射日历」红点（与本地已读摘要比对） */
-  _refreshLaunchCalendarDot(missions) {
-    const list = Array.isArray(missions) ? missions : (this.data.calendarAllMissions || [])
-    const sig = computeLaunchCalendarSignature(list)
-
-    const applyDotState = (ack) => {
-      if (this._calendarDotSuppressNextRefresh) {
-        this._calendarDotSuppressNextRefresh = false
-        if (sig) {
-          storageCache.persistAsync(LAUNCH_CALENDAR_ACK_SIG_KEY, sig)
-        }
-        if (this.data.showLaunchCalendarDot) this.setData({ showLaunchCalendarDot: false })
-        return
-      }
-
-      const ackStr = String(ack || '')
-      if (!sig) {
-        if (this.data.showLaunchCalendarDot) this.setData({ showLaunchCalendarDot: false })
-        return
-      }
-      if (!ackStr) {
-        storageCache.persistAsync(LAUNCH_CALENDAR_ACK_SIG_KEY, sig)
-        if (this.data.showLaunchCalendarDot) this.setData({ showLaunchCalendarDot: false })
-        return
-      }
-      const show = sig !== ackStr
-      if (show !== this.data.showLaunchCalendarDot) {
-        this.setData({ showLaunchCalendarDot: show })
-      }
-    }
-
-    // 已加载则命中内存，否则异步预热一次（storage-sync-cache 内共享，避免重复读）
-    storageCache.warmAsync(LAUNCH_CALENDAR_ACK_SIG_KEY, '').then(applyDotState)
   },
 
   hydrateCalendarFromLoadedMissionLists() {
@@ -908,7 +882,8 @@ const calendarMethods = {
   },
 
   onCalendarDateTap(e) {
-    const key = e.currentTarget.dataset.key
+    // launch-calendar 组件事件走 e.detail；保留 dataset 兼容旧绑定
+    const key = (e.detail && e.detail.key) || (e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.key)
     if (!key || key.startsWith('empty') || key.startsWith('tail')) return
     this._vibrateLight()
     const missions = (this._calendarMissionsByDate || {})[key] || []
@@ -946,19 +921,19 @@ const calendarMethods = {
   },
 
   onCalendarQuickFilterTap(e) {
-    const value = e.currentTarget.dataset.value || 'all'
+    const value = (e.detail && e.detail.value) || (e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.value) || 'all'
     if (value === this.data.calendarQuickFilter) return
     this.applyCalendarFilterState({ calendarQuickFilter: value })
   },
 
   onCalendarSiteFilterTap(e) {
-    const value = e.currentTarget.dataset.value || 'all'
+    const value = (e.detail && e.detail.value) || (e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.value) || 'all'
     if (value === this.data.calendarSiteFilter) return
     this.applyCalendarFilterState({ calendarSiteFilter: value })
   },
 
   onCalendarStatusFilterTap(e) {
-    const value = e.currentTarget.dataset.value || 'all'
+    const value = (e.detail && e.detail.value) || (e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.value) || 'all'
     if (value === this.data.calendarStatusFilter) return
     this.applyCalendarFilterState({ calendarStatusFilter: value })
   },
@@ -999,43 +974,9 @@ const calendarMethods = {
     wx.navigateTo({ url })
   },
 
-  onCalendarSwipeStart(e) {
-    if (this._calendarMonthAnimating) return
-    const target = e.target || {}
-    const dataset = (target && target.dataset) || {}
-    const hasLaunch = dataset && (dataset.hasLaunch === true || dataset.hasLaunch === 'true')
-    if (hasLaunch) {
-      this._calendarSwipeLocked = true
-      this._calendarSwipeStartX = 0
-      this._calendarSwipeStartY = 0
-      return
-    }
-    if (e.touches && e.touches[0]) {
-      this._calendarSwipeLocked = false
-      this._calendarSwipeStartX = e.touches[0].clientX
-      this._calendarSwipeStartY = e.touches[0].clientY
-    }
-  },
+  // 左右滑动翻月的手势检测已移入 launch-calendar 组件内部，
+  // 组件仅回传 prevmonth / nextmonth 事件（switchCalendarMonth 自带动画期间防抖）
 
-  onCalendarSwipeEnd(e) {
-    if (this._calendarSwipeLocked) {
-      this._calendarSwipeLocked = false
-      this._calendarSwipeStartX = 0
-      this._calendarSwipeStartY = 0
-      return
-    }
-    if (!this._calendarSwipeStartX || !e.changedTouches || !e.changedTouches[0] || this._calendarMonthAnimating) return
-    const dx = e.changedTouches[0].clientX - this._calendarSwipeStartX
-    const dy = e.changedTouches[0].clientY - this._calendarSwipeStartY
-    this._calendarSwipeStartX = 0
-    this._calendarSwipeStartY = 0
-    if (Math.abs(dx) < 80 || Math.abs(dx) < Math.abs(dy) * 1.8) return
-    if (dx < 0) {
-      this.calendarNextMonth()
-    } else {
-      this.calendarPrevMonth()
-    }
-  },
   _patchCalendarMissionRocketImage(missionId, nextImage) {
     const allMissions = this.data.calendarAllMissions || []
     const idx = allMissions.findIndex((m) => m && String(m.id) === String(missionId))
@@ -1056,6 +997,7 @@ const calendarMethods = {
 
 function attachTo(page) {
   if (page.__calendarAttached) return calendarMethods
+  page.__calendarMethods = calendarMethods
   Object.keys(calendarMethods).forEach((key) => {
     page[key] = calendarMethods[key]
   })
@@ -1065,6 +1007,5 @@ function attachTo(page) {
 
 module.exports = {
   attachTo,
-  computeLaunchCalendarSignature,
-  LAUNCH_CALENDAR_ACK_SIG_KEY
+  methods: calendarMethods
 }

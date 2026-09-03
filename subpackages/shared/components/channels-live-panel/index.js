@@ -79,7 +79,21 @@ Component({
      * 未开播时优先走父页面「推荐视频号」引导（方案二），
      * 而不是打开自己的视频号主页
      */
-    preferFallbackGuide: { type: Boolean, value: false }
+    preferFallbackGuide: { type: Boolean, value: false },
+    /** 操作区额外展示「推荐直播」入口（监控页） */
+    showExtraGuide: { type: Boolean, value: false },
+    extraGuideLabel: { type: String, value: '推荐直播' },
+    extraGuideIcon: {
+      type: String,
+      value: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%9B%BE%E6%A0%87/1778430366049_f5kzse.svg'
+    },
+    /** 操作区额外展示 B 站直播入口（监控页） */
+    showBiliLive: { type: Boolean, value: false },
+    biliLiveLabel: { type: String, value: 'B站直播' },
+    biliLiveIcon: {
+      type: String,
+      value: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%9B%BE%E6%A0%87/1778430483411_43m2pg.svg'
+    }
   },
 
   data: {
@@ -332,6 +346,14 @@ Component({
           } catch (e) {}
         })
         .catch(() => {})
+    },
+
+    onExtraGuideTap() {
+      this.triggerEvent('extraguide')
+    },
+
+    onBiliLiveTap() {
+      this.triggerEvent('bililive')
     }
   }
 })

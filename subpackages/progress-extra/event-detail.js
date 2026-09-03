@@ -1,11 +1,25 @@
+// 打包锚点：progress-lazy.js 仅被主包 progress.js require.async 引用，
+// 无同分包同步引用时会被"过滤无依赖文件"剔出分包导致异步加载失败
+require('./utils/progress-lazy.js')
+// nsf-checklist-merge.js 仅被主包 api-app-services require.async 引用
+require('./utils/nsf-checklist-merge.js')
 const { loadCloudMediaMap } = require('../../utils/image-config.js')
-const { isVideoUrl } = require('../../utils/cos-url.js')
-const { enrichVideoMediaItem, eventVideoAdUnlockId, playEventVideo, saveEventOriginalVideo } = require('../../utils/event-video.js')
+const { isVideoUrl, optimizeImageUrl } = require('../../utils/cos-url.js')
+const { enrichVideoMediaItem, eventVideoAdUnlockId, playEventVideo, saveEventOriginalVideo } = require('./utils/event-video.js')
 const { getCachedMediaImage } = require('../../utils/icon-cache.js')
-const { fetchLiveStatusBatch, parseLiveStatus } = require('../../utils/live-status.js')
-const { isPermissionDenied, getPermissionDeniedMessage } = require('../../utils/single-page.js')
+const { buildLl2ImageChain, advanceImageFallback, proxiedImageUrl } = require('../../utils/ll2-image.js')
+const { fetchLiveStatusBatch, parseLiveStatus } = require('./utils/live-status.js')
+const { isPermissionDenied, getPermissionDeniedMessage } = require('./utils/single-page.js')
 const pageBase = require('../../utils/page-base.js')
-const { pickEventShareImageUrl, resolveTweetAccountAvatarUrl } = require('../../utils/event-share-image.js')
+// 必须走主包薄壳（内部 require.async 拉 shared 分包）：直接同步 require ../shared/**
+// 在分享卡片 / 朋友圈单页直达本页时 shared 分包尚未下载，模块加载即报错导致整页黑屏
+const {
+  pickEventShareImageUrl,
+  resolveTweetAccountAvatarUrl,
+  resolveEventAuthorAvatarUrl,
+  warmEventShareImage
+} = require('../../utils/event-share-image.js')
+try { warmEventShareImage() } catch (e) {}
 const { gateCheck, isMembershipEnabled, getMembershipState, isPro, hasPurchased, canUsePaidCloudSync, canPrefetchVideoSync, canSaveOriginalVideoSync, isProSync } = require('../../utils/membership.js')
 const { getMemberPolicy, getMemberPolicySync } = require('../../utils/member-policy.js')
 const {
@@ -17,13 +31,77 @@ const {
 const { getUpcomingStarshipMissions } = require('../../utils/api-launch-list.js')
 const { attachMissionDetailMeta, buildMissionDetailUrl } = require('../../utils/index-mission-nav.js')
 const { filterExpiredMissions } = require('../../utils/index-page-helpers.js')
-const { formatDate } = require('../../utils/util.js')
-const { normalizeLl2TimelineList } = require('../../utils/ll2-launch-timeline.js')
+const {
+  formatDate,
+  resolveMissionRocketImage,
+  shouldReplaceRocketImage,
+  isDefaultRocketSrc
+} = require('../../utils/util.js')
+const { SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL } = require('../../utils/agency-logo-overrides.js')
+const {
+  decorateEventItem,
+  relatedLaunchNavFromEvent,
+  toggleRelatedMissionFavorite,
+  applyRelatedLaunchFavoriteToList,
+  clearRelatedLaunchFavAnimate,
+  syncRelatedLaunchFavoriteFlags,
+  getEventIntelContext,
+  markEventFeedSeen
+} = require('./utils/event-feed-intel.js')
+const { normalizeLl2TimelineList } = require('./utils/ll2-launch-timeline.js')
+const { isFeatureEnabled } = require('../../utils/feature-flags.js')
+const { ROUTES, navigateTo } = require('../../utils/routes.js')
+const {
+  fetchTodayTweetAccountStats,
+  resolveTweetAccountChip
+} = require('./utils/tweet-account-stats.js')
+
+/** 清单/时间线/动态追踪分享兜底：SpaceX logo（禁止落到 default 火箭占位图） */
+const STARSHIP_PAGE_SHARE_FALLBACK =
+  optimizeImageUrl(SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL, 'thumb') || SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL
+
+/** 可用的任务卡片火箭配置图（排除 default.jpg 占位） */
+function pickUsableMissionRocketShareImage(url) {
+  const u = String(url || '').trim()
+  if (!u || isDefaultRocketSrc(u)) return ''
+  return u
+}
+
+/** 从星舰任务卡列表取分享图：优先匹配 launchId，否则取首张可用配置图 */
+function pickShareImageFromStarshipMissions(missions, launchId) {
+  const list = Array.isArray(missions) ? missions : []
+  const wantId = launchId != null ? String(launchId).trim() : ''
+  if (wantId) {
+    for (let i = 0; i < list.length; i++) {
+      const m = list[i]
+      if (!m || String(m.id) !== wantId) continue
+      const hit = pickUsableMissionRocketShareImage(m.rocketImage || m.image)
+      if (hit) return hit
+    }
+  }
+  for (let i = 0; i < list.length; i++) {
+    const m = list[i]
+    const hit = pickUsableMissionRocketShareImage(m && (m.rocketImage || m.image))
+    if (hit) return hit
+  }
+  return ''
+}
 const { getSystemInfo } = require('../../utils/system.js')
-const { togglePageTranslation } = require('../../utils/text-translate.js')
-const { translateAgencyName } = require('../../utils/space-terms-i18n.js')
+const { togglePageTranslation } = require('./utils/text-translate.js')
+const { pickDisplayComment, hasUsableZh } = require('./utils/ll2-updates-i18n.js')
+const { pickLocalized, zhField } = require('../../utils/locale.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { parseShareStamp, SHARE_GATE_TTL_MS } = require('./utils/share-gate.js')
+const {
+  saveImageToAlbum: saveImageToAlbumUtil,
+  handleEventImageLongPress,
+  closeEventImageSavePicker,
+  toggleEventImageSaveSelect,
+  selectAllEventImageSave,
+  confirmEventImageSavePicker,
+  parseLongPressDataset,
+  previewEventImages
+} = require('./utils/event-image-save.js')
 
 function isNsfStarshipMissionCard(mission) {
   if (!mission || typeof mission !== 'object') return false
@@ -33,22 +111,41 @@ function isNsfStarshipMissionCard(mission) {
   return /starship|super\s*heavy|星舰|超重/i.test(hay)
 }
 
+/**
+ * 与首页首屏盖章 / 任务详情头图同一套：media map 就绪后按火箭名强制重算配置图。
+ * 列表内存快照可能在 map 未加载时盖过 default/空图，不重算则卡片左侧一直空白，
+ * 而点进详情会重新 resolve 所以头图正常。
+ */
+function stampNsfStarshipMissionRocketImage(mission) {
+  if (!mission || typeof mission !== 'object') return mission
+  const stamped = mission.rocketImage || mission.image || ''
+  const rebuilt = resolveMissionRocketImage(
+    stamped,
+    mission.rocketName,
+    mission.rocketConfiguration,
+    true
+  )
+  if (!rebuilt || !shouldReplaceRocketImage(stamped, rebuilt)) return mission
+  return { ...mission, rocketImage: rebuilt, image: rebuilt }
+}
+
 function normalizeNsfStarshipMissionCards(list) {
   return filterExpiredMissions(Array.isArray(list) ? list : [])
     .filter(isNsfStarshipMissionCard)
     .map((mission, index) => {
+      const stampedMission = stampNsfStarshipMissionRocketImage(mission)
       // 保留首页 mapLaunchToListItem 的 recoveryIcons / recoveryTag* 等字段原样透传
       const card = attachMissionDetailMeta({
-        ...mission,
-        _wxkey: `nsf-ss-${index}-${mission && mission.id != null ? mission.id : ''}`,
-        formattedTime: mission && mission.launchTime
-          ? formatDate(mission.launchTime, 'MM月DD日 HH:mm')
+        ...stampedMission,
+        _wxkey: `nsf-ss-${index}-${stampedMission && stampedMission.id != null ? stampedMission.id : ''}`,
+        formattedTime: stampedMission && stampedMission.launchTime
+          ? formatDate(stampedMission.launchTime, 'MM月DD日 HH:mm')
           : '时间未知',
-        recoveryIcons: Array.isArray(mission.recoveryIcons) ? mission.recoveryIcons : [],
-        recoveryTagText: mission.recoveryTagText || '',
-        recoveryTagClass: mission.recoveryTagClass || ''
+        recoveryIcons: Array.isArray(stampedMission.recoveryIcons) ? stampedMission.recoveryIcons : [],
+        recoveryTagText: stampedMission.recoveryTagText || '',
+        recoveryTagClass: stampedMission.recoveryTagClass || ''
       }, {
-        id: mission && mission.id,
+        id: stampedMission && stampedMission.id,
         detailType: 'upcoming'
       })
       return card
@@ -126,6 +223,75 @@ function safeDecodeOption(value) {
   }
 }
 
+/** 分包页从公众号打开时 onLoad options 常空，query 在启动参数里 */
+function mergeEnterQuery(rawOptions) {
+  const merged = {}
+  const put = (src) => {
+    if (!src || typeof src !== 'object' || Array.isArray(src)) return
+    Object.keys(src).forEach((k) => {
+      const v = src[k]
+      if (v == null || v === '') return
+      merged[k] = String(v)
+    })
+  }
+  try {
+    const launch = typeof wx.getLaunchOptionsSync === 'function' && wx.getLaunchOptionsSync()
+    if (launch && launch.query) put(launch.query)
+  } catch (e) {}
+  try {
+    if (typeof wx.getEnterOptionsSync === 'function') {
+      const enter = wx.getEnterOptionsSync()
+      if (enter && enter.query) put(enter.query)
+    }
+  } catch (e) {}
+  try {
+    const pages = typeof getCurrentPages === 'function' ? getCurrentPages() : []
+    const cur = pages && pages[pages.length - 1]
+    if (cur && cur.options) put(cur.options)
+  } catch (e) {}
+  put(rawOptions)
+  if (!merged.id && merged.eventId) merged.id = merged.eventId
+  if (!merged.id && merged.e) merged.id = merged.e
+  return merged
+}
+
+/** 公众号 path 用 id=事件id__视频下标，避免 HTML 里 & 被写成 &amp; 后截断 */
+function parseEventDetailIdParam(raw) {
+  const s = String(raw || '').trim()
+  const m = s.match(/^(.*)__(\d+)$/)
+  if (!m) return { eventId: s, videoIndex: -1 }
+  return { eventId: m[1], videoIndex: parseInt(m[2], 10) }
+}
+
+function indexOfNthEventVideo(mediaList, videoIndex) {
+  if (!Array.isArray(mediaList) || videoIndex < 0) return -1
+  let n = 0
+  for (let i = 0; i < mediaList.length; i++) {
+    const m = mediaList[i]
+    if (!m || String(m.type || '').toLowerCase() !== 'video') continue
+    if (n === videoIndex) return i
+    n += 1
+  }
+  return -1
+}
+
+function isMissingEventDocError(err) {
+  const msg = String((err && (err.errMsg || err.message)) || '')
+  return /document doesn['’]?t exist|文档不存在|not exist|not found/i.test(msg)
+}
+
+function isNetworkishEventError(err) {
+  if (!err || isMissingEventDocError(err)) return false
+  const msg = String((err && (err.errMsg || err.message)) || '')
+  return /timeout|timed out|network|request:fail|连接|超时|网络/i.test(msg)
+}
+
+const EVENT_EXPIRED_TITLE = '这条动态已过期'
+const EVENT_EXPIRED_TEXT =
+  '事件更新大约保留 3 天，过期后会自动下架。去进展页看看最新动态吧。'
+const EVENT_MISSING_PARAM_TEXT =
+  '这条动态可能已过期，或打开时没有带上事件信息。去进展页看看最新动态吧。'
+
 Page({
   behaviors: [pageBase],
   _fallbackTab: '/pages/progress/progress',
@@ -134,6 +300,8 @@ Page({
     loading: true,
     avatarError: false,
     errorMessage: '',
+    errorTitle: '',
+    errorAction: '',
     item: null,
     shareImage: '',
     shareTitle: '事件更新 | 火星探索日志',
@@ -151,9 +319,14 @@ Page({
     listLoadingMore: false,
     scrollRefreshing: false,
     items: [],
+    itemsView: [],
     listDayHint: '',
     showEventShareSheet: false,
     selectedEventShareId: '',
+    showEventImageSavePicker: false,
+    eventImageSaveThumbs: [],
+    eventImageSaveOriginals: [],
+    eventImageSaveSelected: [],
     loadingHint: '事件详情加载中…',
     pageMode: '',
     nsfChecklistItems: [],
@@ -170,6 +343,12 @@ Page({
     ll2DetailLaunchUpdates: [],
     detailLl2Refreshing: false,
 
+    // 飞行剖面迷你演示（仅 ll2_timeline 详情页）
+    enableMissionSim: false,
+    flightDemoTimeline: [],
+    flightDemoMissionName: '',
+    pageVisible: true,
+
     ll2EventCountdown: { days: '00', hours: '00', minutes: '00', seconds: '00', isExpired: false },
     ll2DetailedData: null,
     ll2DetailedLoading: false,
@@ -181,7 +360,12 @@ Page({
     updTranslating: false,
     luTranslated: false,
     luTranslating: false,
-    descI18n: { eventDesc: '', updates: [], launchUpdates: [] }
+    descI18n: { eventDesc: '', updates: [], launchUpdates: [] },
+
+    showTweetAccountChips: false,
+    tweetAccountStats: [],
+    selectedTweetSource: '',
+    isProUser: false
   },
 
   /** 任务概述「翻译/原文」 */
@@ -217,7 +401,13 @@ Page({
     const rows = this.data.ll2DetailLaunchUpdates || []
     const fields = []
     rows.forEach((u, i) => {
-      if (u && u.comment) fields.push({ path: 'descI18n.launchUpdates[' + i + ']', text: u.comment })
+      if (u && u.comment) {
+        fields.push({
+          path: 'descI18n.launchUpdates[' + i + ']',
+          text: u.comment,
+          zh: u.commentZh || ''
+        })
+      }
     })
     if (!fields.length) return
     togglePageTranslation(this, {
@@ -271,21 +461,101 @@ Page({
       this.setData({ detailLl2Refreshing: true })
     }
     try {
-      const res = await fetchLl2LaunchTimeline(manualId, { autoStarship })
+      const [res, starshipRes] = await Promise.all([
+        fetchLl2LaunchTimeline(manualId, { autoStarship }),
+        getUpcomingStarshipMissions(10, 0).catch(() => ({ list: [] }))
+      ])
       const rows = normalizeLl2TimelineList(res.timeline || [])
+      const missions = normalizeNsfStarshipMissionCards(starshipRes && starshipRes.list)
+      this._starshipShareMissions = missions
+      this._starshipShareLaunchId = res.launchId || ''
+      this._starshipShareLaunchName = res.launchName || res.resolvedLaunchName || ''
+      const demoTl = this._buildFlightDemoTimeline(rows)
       this.setData({
         loading: false,
         detailLl2Refreshing: false,
-        ll2DetailTimelineRows: rows
+        ll2DetailTimelineRows: rows,
+        flightDemoTimeline: demoTl,
+        flightDemoMissionName: this._starshipShareLaunchName || '星舰任务'
+      })
+      if (rows.length > 0 && !this._missionSimFlagChecked) {
+        this._missionSimFlagChecked = true
+        isFeatureEnabled('enableMissionSim', { failClosed: true, defaultOff: true }).then((on) => {
+          if (on) this.setData({ enableMissionSim: true })
+        }).catch(() => {})
+      }
+      this._syncStarshipPageShareImage({
+        missions,
+        launchId: this._starshipShareLaunchId,
+        launchName: this._starshipShareLaunchName
       })
     } catch (e) {
       const msg = isPermissionDenied(e)
         ? getPermissionDeniedMessage()
         : ((e && e.message) ? String(e.message) : '加载失败')
-      this.setData({ loading: false, detailLl2Refreshing: false })
+      this.setData({
+        loading: false,
+        detailLl2Refreshing: false,
+        flightDemoTimeline: [],
+        flightDemoMissionName: ''
+      })
       if (silent) wx.showToast({ title: msg, icon: 'none' })
       else this.setData({ errorMessage: msg })
+      // 失败时仍用 SpaceX logo 兜底，避免落到 default 火箭图
+      this._syncStarshipPageShareImage({})
     }
+  },
+
+  /** LL2 行 → 飞行剖面演示 payload */
+  _buildFlightDemoTimeline(rows) {
+    const list = Array.isArray(rows) ? rows : (this.data.ll2DetailTimelineRows || [])
+    return list.map((r) => ({
+      t: r.sortKey,
+      label: r.title,
+      desc: r.description,
+      tLabel: r.timeLabel
+    }))
+  },
+
+  /** 飞行剖面完整演示页：与指挥室同一 productId（会员 / 看广告解锁） */
+  async openFlightDemo() {
+    if (!this.data.enableMissionSim) return
+    const payload = this.data.flightDemoTimeline || []
+    if (!payload.length) return
+    if (this._flightDemoGatePending) return
+    this._flightDemoGatePending = true
+    let allowed = false
+    try {
+      allowed = await gateCheck('mission_sim', '飞行剖面演示')
+    } finally {
+      this._flightDemoGatePending = false
+    }
+    if (!allowed) return
+    const name = String(this.data.flightDemoMissionName || this._starshipShareLaunchName || '星舰任务').trim()
+    const missionId = this._starshipShareLaunchId != null ? String(this._starshipShareLaunchId).trim() : ''
+    if (wx.vibrateShort) {
+      try { wx.vibrateShort({ type: 'light' }) } catch (e) {}
+    }
+    const queryParts = []
+    if (missionId) {
+      queryParts.push(`id=${encodeURIComponent(missionId)}`)
+      queryParts.push('type=upcoming')
+    }
+    if (name) queryParts.push(`name=${encodeURIComponent(name.slice(0, 80))}`)
+    const query = queryParts.length ? `?${queryParts.join('&')}` : ''
+    wx.navigateTo({
+      url: '/subpackages/mission-sim/flight-demo' + query,
+      success(res) {
+        try {
+          res.eventChannel.emit('flightDemoContext', {
+            name,
+            rows: payload,
+            id: missionId,
+            detailType: 'upcoming'
+          })
+        } catch (e) {}
+      }
+    })
   },
 
   async loadLl2LaunchUpdatesDetailPage(opts = {}) {
@@ -323,24 +593,40 @@ Page({
       this.setData({ detailLl2Refreshing: true })
     }
     try {
-      const res = await fetchLl2LaunchUpdates(manualId, 48, { autoStarship })
-      const list = (res.list || []).map((item) => ({
-        ...item,
-        timeLabel: formatEventTime(item.createdOn)
-      }))
+      const [res, starshipRes] = await Promise.all([
+        fetchLl2LaunchUpdates(manualId, 48, { autoStarship }),
+        getUpcomingStarshipMissions(10, 0).catch(() => ({ list: [] }))
+      ])
+      const list = (res.list || []).map((item) => {
+        const commentZh = pickDisplayComment(item.comment, item.commentZh)
+        return {
+          ...item,
+          commentZh,
+          timeLabel: formatEventTime(item.createdOn)
+        }
+      })
+      const missions = normalizeNsfStarshipMissionCards(starshipRes && starshipRes.list)
+      this._starshipShareMissions = missions
+      this._starshipShareLaunchId = res.launchId || ''
+      this._starshipShareLaunchName = res.resolvedLaunchName || res.launchName || ''
       this.setData({
         loading: false,
         detailLl2Refreshing: false,
         ll2DetailLaunchUpdates: list,
-        // 列表刷新后清掉旧译文（条目/顺序可能已变化）
-        luTranslated: false,
-        'descI18n.launchUpdates': []
+        luTranslated: list.some((u) => u && hasUsableZh(u.commentZh)),
+        'descI18n.launchUpdates': list.map((u) => (u && hasUsableZh(u.commentZh) ? u.commentZh : ''))
+      })
+      this._syncStarshipPageShareImage({
+        missions,
+        launchId: this._starshipShareLaunchId,
+        launchName: this._starshipShareLaunchName
       })
     } catch (e) {
       const raw = (e && e.message) ? String(e.message) : '加载失败'
       this.setData({ loading: false, detailLl2Refreshing: false })
       if (silent) wx.showToast({ title: raw, icon: 'none' })
       else this.setData({ errorMessage: raw })
+      this._syncStarshipPageShareImage({})
     }
   },
 
@@ -374,6 +660,7 @@ Page({
       descI18n: { eventDesc: '', updates: [], launchUpdates: [] }
     })
     this._textTranslateCache = null
+    this._ll2EventId = eventId ? String(eventId) : ''
     if (!eventId) {
       this.setData({ loading: false, errorMessage: '缺少事件 ID' })
       return
@@ -381,12 +668,29 @@ Page({
     try {
       const db = wx.cloud.database()
       let raw = null
+      let heroPassed = null
 
+      // 监控页卡面图直传：秒开头图，并优先用已格式化的 raw
       try {
-        const sxRes = await db.collection('spacex_launch_stats').doc('spacex_official_live').get()
-        const evList = sxRes && sxRes.data && Array.isArray(sxRes.data.upcomingOrbitalEvents) ? sxRes.data.upcomingOrbitalEvents : []
-        raw = evList.find(ev => String(ev.id) === String(eventId)) || null
+        const app = getApp()
+        const passed = app && app._ll2EventHeroImage
+        if (passed && String(passed.id) === String(eventId)) {
+          heroPassed = {
+            src: passed.src || '',
+            fallbacks: Array.isArray(passed.fallbacks) ? passed.fallbacks.slice() : []
+          }
+          if (passed.raw && passed.raw.id != null) raw = passed.raw
+          app._ll2EventHeroImage = null
+        }
       } catch (e) {}
+
+      if (!raw) {
+        try {
+          const sxRes = await db.collection('spacex_launch_stats').doc('spacex_official_live').get()
+          const evList = sxRes && sxRes.data && Array.isArray(sxRes.data.upcomingOrbitalEvents) ? sxRes.data.upcomingOrbitalEvents : []
+          raw = evList.find(ev => String(ev.id) === String(eventId)) || null
+        } catch (e) {}
+      }
 
       if (!raw) {
         try {
@@ -413,6 +717,21 @@ Page({
       }
 
       const item = this._buildLl2EventItem(raw)
+      if (heroPassed && heroPassed.src) {
+        if (heroPassed.src !== item.heroImageUrl) {
+          const fb = [item.heroImageUrl].concat(item.imageFallbacks || []).filter((u, i, arr) => {
+            return u && u !== heroPassed.src && arr.indexOf(u) === i
+          })
+          item.heroImageUrl = heroPassed.src
+          item.imageFallbacks = fb.concat(heroPassed.fallbacks || []).filter((u, i, arr) => {
+            return u && u !== item.heroImageUrl && arr.indexOf(u) === i
+          })
+        } else if (heroPassed.fallbacks && heroPassed.fallbacks.length) {
+          item.imageFallbacks = (item.imageFallbacks || []).concat(heroPassed.fallbacks).filter((u, i, arr) => {
+            return u && u !== item.heroImageUrl && arr.indexOf(u) === i
+          })
+        }
+      }
       const titleText = item.title || '在轨事件'
       this.setData({
         loading: false,
@@ -420,6 +739,7 @@ Page({
         navTitle: '事件详情',
         shareTitle: `${titleText} | 火星探索日志`
       })
+      this._syncLl2EventShareImage(item)
       this._scrollDetailToTop()
       this.startLl2EventCountdown()
       this.fetchLl2EventDetailedData(eventId)
@@ -439,12 +759,11 @@ Page({
       const result = res && res.result
       if (result && result.success && result.data) {
         const data = result.data
-        // 参与机构名称走词典恒中文（词典未命中保留英文原名）
         if (Array.isArray(data.agencies)) {
           data.agencies = data.agencies.map((a) => {
             if (!a) return a
-            const zh = translateAgencyName(a.name, a.abbrev)
-            return zh ? { ...a, name: zh } : a
+            const zh = a.nameZh || zhField(a, 'name')
+            return zh ? { ...a, name: pickLocalized(zh, a.name) } : a
           })
         }
         this.setData({ ll2DetailedData: data, ll2DetailedLoading: false, updTranslated: false, 'descI18n.updates': [] })
@@ -468,10 +787,99 @@ Page({
 
   /** 在轨事件 hero 图预览 */
   onLl2HeroPreview() {
-    const list = (this.data.item && this.data.item.imageUrls) || []
-    const url = list[0]
+    const item = this.data.item || {}
+    const list = item.imageUrls || []
+    const url = item.heroImageUrl || list[0]
     if (!url) return
-    wx.previewImage({ urls: list, current: url })
+    const urls = list.length ? list : [url]
+    wx.previewImage({ urls, current: url })
+  },
+
+  /** 在轨事件头图失败：沿代理/原链推进（与监控卡同源） */
+  onLl2HeroImageError() {
+    const item = this.data.item || {}
+    const advanced = advanceImageFallback(item.heroImageUrl, item.imageFallbacks)
+    this.setData({
+      'item.heroImageUrl': advanced.next,
+      'item.imageFallbacks': advanced.remaining
+    })
+    this._syncLl2EventShareImage(Object.assign({}, item, {
+      heroImageUrl: advanced.next,
+      imageFallbacks: advanced.remaining
+    }))
+  },
+
+  _isLocalSharePath(path) {
+    const s = String(path || '')
+    if (!s) return false
+    if (s.indexOf('wxfile://') === 0) return true
+    if (/^http:\/\/(tmp|usr)\b/i.test(s)) return true
+    if (typeof wx !== 'undefined' && wx.env && wx.env.USER_DATA_PATH && s.indexOf(wx.env.USER_DATA_PATH) === 0) {
+      return true
+    }
+    return !/^https?:\/\//i.test(s)
+  },
+
+  /**
+   * 在轨事件分享缩略图：用该事件对应配图（非默认火箭图）。
+   * 本地缓存命中优先；外链走 Worker 代理。
+   */
+  _pickLl2EventShareImage(item) {
+    if (!item || typeof item !== 'object') return ''
+    const hero = String(item.heroImageUrl || '').trim()
+    const urls = Array.isArray(item.imageUrls) ? item.imageUrls : []
+    const fallbacks = Array.isArray(item.imageFallbacks) ? item.imageFallbacks : []
+    const seen = {}
+    const candidates = []
+    ;[hero].concat(urls).concat(fallbacks).forEach((u) => {
+      const s = String(u || '').trim()
+      if (!s || seen[s]) return
+      seen[s] = true
+      candidates.push(s)
+    })
+    for (let i = 0; i < candidates.length; i++) {
+      const pick = candidates[i]
+      if (this._isLocalSharePath(pick)) return pick
+      const proxied = proxiedImageUrl(pick)
+      return proxied || pick
+    }
+    return ''
+  },
+
+  _syncLl2EventShareImage(item) {
+    const url = this._pickLl2EventShareImage(item)
+    if (!url) {
+      if (this.data.shareImage) this.setData({ shareImage: '' })
+      this._shareImageSourceUrl = ''
+      return
+    }
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    this.ensureShareImageHttpUrl(url)
+  },
+
+  /** 网络图落到本地临时路径，规避 iOS 朋友圈远程缩略图加载失败 */
+  ensureShareImageHttpUrl(imageUrl) {
+    if (!imageUrl || typeof imageUrl !== 'string') return
+    const trimmed = imageUrl.trim()
+    if (!trimmed) return
+    if (this._isLocalSharePath(trimmed)) {
+      if (this.data.shareImage !== trimmed) this.setData({ shareImage: trimmed })
+      return
+    }
+    if (this._shareImageSourceUrl === trimmed && this.data.shareImage) return
+    this._shareImageSourceUrl = trimmed
+    const self = this
+    wx.getImageInfo({
+      src: trimmed,
+      success(res) {
+        if (res && res.path && self._shareImageSourceUrl === trimmed) {
+          self.setData({ shareImage: res.path })
+        }
+      },
+      fail() {
+        if (self._shareImageSourceUrl === trimmed) self._shareImageSourceUrl = ''
+      }
+    })
   },
 
   /** 把 LL2 events list 模式的原始字段，转成 upcomingOrbitalEvents 同款字段 */
@@ -523,7 +931,8 @@ Page({
       }
     }
 
-    const imageUrls = ev.imageUrl ? [ev.imageUrl] : []
+    const imageChain = buildLl2ImageChain(ev.imageUrl)
+    const imageUrls = imageChain.length ? imageChain.slice() : (ev.imageUrl ? [ev.imageUrl] : [])
 
     return {
       _id: `ll2_event_${ev.id}`,
@@ -534,7 +943,8 @@ Page({
       isoDate,
       location: ev.location || '',
       description: ev.description || '',
-      heroImageUrl: ev.imageUrl || '',
+      heroImageUrl: imageChain[0] || ev.imageUrl || '',
+      imageFallbacks: imageChain.slice(1),
       imageUrls,
       webcastUrl: ev.webcastUrl || '',
       webcastTitle: ev.webcastTitle || '',
@@ -654,6 +1064,8 @@ Page({
         getUpcomingStarshipMissions(10, 0).catch(() => ({ list: [] }))
       ])
       const nsfItems = nsf.items || []
+      const missions = normalizeNsfStarshipMissionCards(starshipRes && starshipRes.list)
+      this._starshipShareMissions = missions
       this.setData({
         loading: false,
         nsfChecklistItems: nsfItems,
@@ -662,8 +1074,9 @@ Page({
         nsfChecklistSourceLastFetch: nsf.sourceLastFetch || '',
         nsfChecklistUpdatedAtMs: nsf.updatedAtMs || 0,
         nsfChecklistSyncing: false,
-        nsfStarshipMissions: normalizeNsfStarshipMissionCards(starshipRes && starshipRes.list)
+        nsfStarshipMissions: missions
       })
+      this._syncStarshipPageShareImage({ missions })
     } catch (error) {
       const msg = isPermissionDenied(error)
         ? getPermissionDeniedMessage()
@@ -673,6 +1086,7 @@ Page({
         errorMessage: msg,
         nsfChecklistSyncing: false
       })
+      this._syncStarshipPageShareImage({})
     }
   },
 
@@ -687,6 +1101,8 @@ Page({
         getUpcomingStarshipMissions(10, 0).catch(() => ({ list: [] }))
       ])
       const nsfItems = nsf.items || []
+      const missions = normalizeNsfStarshipMissionCards(starshipRes && starshipRes.list)
+      this._starshipShareMissions = missions
       this.setData({
         nsfChecklistItems: nsfItems,
         ...this.computeNsfChecklistProgress(nsfItems),
@@ -694,8 +1110,9 @@ Page({
         nsfChecklistSourceLastFetch: nsf.sourceLastFetch || '',
         nsfChecklistUpdatedAtMs: nsf.updatedAtMs || 0,
         nsfChecklistSyncing: false,
-        nsfStarshipMissions: normalizeNsfStarshipMissionCards(starshipRes && starshipRes.list)
+        nsfStarshipMissions: missions
       })
+      this._syncStarshipPageShareImage({ missions })
     } catch (e2) {
       this.setData({ nsfChecklistSyncing: false })
     }
@@ -709,6 +1126,60 @@ Page({
     wx.navigateTo({
       url: buildMissionDetailUrl({ id, detailType })
     })
+  },
+
+  /** 卡片左侧配置图 binderror 修好后回写列表，避免再次进入仍用坏 URL */
+  onNsfStarshipRocketImageFix(e) {
+    const detail = (e && e.detail) || {}
+    const id = detail.id == null ? '' : String(detail.id).trim()
+    const nextImage = detail.rocketImage
+    if (!id || !nextImage || typeof nextImage !== 'string') return
+    const list = this.data.nsfStarshipMissions || []
+    const idx = list.findIndex((m) => m && String(m.id) === id)
+    if (idx < 0) return
+    const cur = list[idx].rocketImage || list[idx].image || ''
+    if (!shouldReplaceRocketImage(cur, nextImage)) return
+    this.setData({
+      [`nsfStarshipMissions[${idx}].rocketImage`]: nextImage,
+      [`nsfStarshipMissions[${idx}].image`]: nextImage
+    })
+    // 首卡配置图修好后同步分享缩略图
+    if (idx === 0) {
+      const nextList = list.slice()
+      nextList[idx] = { ...nextList[idx], rocketImage: nextImage, image: nextImage }
+      this._starshipShareMissions = nextList
+      this._syncStarshipPageShareImage({ missions: nextList })
+    }
+  },
+
+  /**
+   * 清单 / 时间线 / 动态追踪分享图：
+   * 优先任务卡片火箭配置图（排除 default 占位），再按任务名解析，最后 SpaceX logo。
+   */
+  _resolveStarshipPageShareImage(opts = {}) {
+    const missions = opts.missions != null
+      ? opts.missions
+      : (this._starshipShareMissions || this.data.nsfStarshipMissions || [])
+    const launchId = opts.launchId != null ? opts.launchId : this._starshipShareLaunchId
+    const launchName = opts.launchName != null ? opts.launchName : this._starshipShareLaunchName
+    let url = pickShareImageFromStarshipMissions(missions, launchId)
+    if (!url && launchName) {
+      url = pickUsableMissionRocketShareImage(
+        resolveMissionRocketImage('', launchName, null, true)
+      )
+    }
+    if (!url) {
+      url = pickUsableMissionRocketShareImage(
+        resolveMissionRocketImage('', 'Starship', null, true)
+      )
+    }
+    return url || STARSHIP_PAGE_SHARE_FALLBACK
+  },
+
+  _syncStarshipPageShareImage(opts) {
+    const url = this._resolveStarshipPageShareImage(opts || {})
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    this.ensureShareImageHttpUrl(url)
   },
 
   onFlightChecklistDetailTap(e) {
@@ -763,12 +1234,20 @@ Page({
   onHide() {
     // 页面被覆盖/切后台时暂停每秒倒计时，避免后台空跑发热
     this.clearLl2EventCountdown()
+    this.setData({ pageVisible: false })
   },
 
   onShow() {
+    this.setData({ pageVisible: true })
     // onHide 暂停后回到本页恢复（仅在倒计时曾启动且未到期时）
     if (this._ll2CountdownActive) {
       this.startLl2EventCountdown()
+    }
+    try { this.syncEventRelatedLaunchFavorites() } catch (e) {}
+    if (this.data.showTweetAccountChips) {
+      const pro = isProSync()
+      if (pro !== this.data.isProUser) this.setData({ isProUser: pro })
+      this._loadDetailTweetAccountChips()
     }
   },
 
@@ -815,9 +1294,22 @@ Page({
     }
   },
 
-  async onLoad(options = {}) {
-    const id = options.id ? String(options.id).trim() : ''
-    this._autoPlayVideoIndex = options.autoPlayVideo != null ? Number(options.autoPlayVideo) : -1
+  async onLoad(rawOptions = {}) {
+    const options = mergeEnterQuery(rawOptions)
+    let id = options.id ? safeDecodeOption(String(options.id).trim()) : ''
+    this._oaVideoIndex = -1
+    if (!options.mode) {
+      const parsed = parseEventDetailIdParam(id)
+      id = parsed.eventId
+      if (options.autoPlayVideo != null && String(options.autoPlayVideo) !== '') {
+        this._autoPlayVideoIndex = Number(options.autoPlayVideo)
+      } else {
+        this._autoPlayVideoIndex = -1
+        this._oaVideoIndex = parsed.videoIndex
+      }
+    } else {
+      this._autoPlayVideoIndex = options.autoPlayVideo != null ? Number(options.autoPlayVideo) : -1
+    }
 
     // 进度页经 eventChannel 传入的原始事件文档：仅作首屏加速，网络刷新逻辑保留兜底
     this._openerEventSnapshot = null
@@ -831,6 +1323,10 @@ Page({
     } catch (e) {}
 
     this.initUiShell()
+
+    // 薄壳在 shared 分包到位前只返回降级值（头像空 / 分享图用默认图）。
+    // 分享冷启动时本页是首个页面，模块预热来不及，先等一次再 enrich。
+    await warmEventShareImage().catch(() => {})
 
     wx.showShareMenu({
       withShareTicket: true,
@@ -873,6 +1369,8 @@ Page({
       await this.loadLl2EventDetailPage(id)
       return
     }
+
+    this._enableGenericTweetAccountChips()
 
     await loadCloudMediaMap()
 
@@ -919,6 +1417,8 @@ Page({
         this._eventListUnlocked = true
         this._refreshSourceGatePassedSilently()
       }
+      markEventFeedSeen(Date.now())
+      this._refreshEventIntelCtx()
       await this.loadListAll(true)
       return
     }
@@ -933,12 +1433,117 @@ Page({
     this._singleItemId = id
 
     if (id) {
+      this._refreshEventIntelCtx()
       await this.loadDetail(id)
     } else if (source) {
+      this._refreshEventIntelCtx()
       await this.loadListBySource(source, listDate, listLabel)
     } else {
-      this.setData({ loading: false, errorMessage: '缺少事件参数，请返回列表重新进入' })
+      this.setData({
+        loading: false,
+        errorTitle: '无法打开这条动态',
+        errorMessage: EVENT_MISSING_PARAM_TEXT,
+        errorAction: 'latest'
+      })
     }
+  },
+
+  _bootEventId() {
+    if (this._singleItemId) return this._singleItemId
+    try {
+      const pages = getCurrentPages()
+      const currentPage = pages[pages.length - 1]
+      const options = mergeEnterQuery((currentPage && currentPage.options) || {})
+      return parseEventDetailIdParam(options.id).eventId
+    } catch (e) {
+      return ''
+    }
+  },
+
+  goLatestEvents() {
+    this._listAllMode = true
+    this._singleItemId = ''
+    this._autoPlayVideoIndex = -1
+    this._oaVideoIndex = -1
+    try { markEventFeedSeen(Date.now()) } catch (e) {}
+    this._refreshEventIntelCtx()
+    this.setData({
+      errorMessage: '',
+      errorTitle: '',
+      errorAction: '',
+      navTitle: '星舰事件更新',
+      shareTitle: '事件更新 | 火星探索日志',
+      item: null,
+      items: [],
+      listMode: true,
+      listAllMode: true,
+      selectedTweetSource: ''
+    })
+    this.loadListAll(true)
+  },
+
+  _enableGenericTweetAccountChips() {
+    this.setData({
+      showTweetAccountChips: true,
+      isProUser: isProSync()
+    })
+    this._loadDetailTweetAccountChips()
+  },
+
+  _loadDetailTweetAccountChips() {
+    const self = this
+    const canShowChips = canUsePaidCloudSync()
+    if (!canShowChips) {
+      if ((this.data.tweetAccountStats || []).length) this.setData({ tweetAccountStats: [] })
+      return
+    }
+    fetchTodayTweetAccountStats().then((cached) => {
+      if (!cached || !self || typeof self.setData !== 'function') return
+      self.setData({ tweetAccountStats: cached.stats || [] })
+    }).catch(() => {})
+  },
+
+  /** 详情页胶囊筛选：与进展页同一套账号条；已在该账号今日列表则不跳，账号列表内切换则原地换源 */
+  async onTweetAccountTap(e) {
+    const allowed = await gateCheck('starship_progress_event_source', '星舰事件更新 · 按账号查看')
+    if (!allowed) return
+    const ds = Object.assign(
+      {},
+      (e && e.currentTarget && e.currentTarget.dataset) || {},
+      (e && e.detail) || {}
+    )
+    const resolved = resolveTweetAccountChip(this.data.tweetAccountStats, ds)
+    const screenName = resolved.screenName
+    if (!screenName) return
+    const alreadySourceList = !!(this.data.listMode && !this._listAllMode && this._listSource === screenName)
+    if (alreadySourceList) return
+    if (this.data.listMode && !this._listAllMode) {
+      await this._switchTweetAccountFilter(screenName, resolved.label)
+      return
+    }
+    const params = { source: screenName }
+    if (resolved.label) params.label = resolved.label
+    navigateTo(ROUTES.EVENT_DETAIL, params)
+  },
+
+  async _switchTweetAccountFilter(screenName, label) {
+    this._listAllMode = false
+    this._listAllSource = ''
+    this._listAllSources = []
+    this._singleItemId = ''
+    this._listSource = screenName
+    this._listLabel = label || ''
+    this._listDate = todayBeijingYmd()
+    this._eventListUnlocked = true
+    this.setData({
+      listAllMode: false,
+      item: null,
+      errorMessage: '',
+      errorTitle: '',
+      errorAction: '',
+      selectedTweetSource: screenName
+    })
+    await this.loadListBySource(screenName, this._listDate, this._listLabel)
   },
 
   enrichEventItem(item) {
@@ -960,26 +1565,149 @@ Page({
     })
 
     // 头像：优先 COS 地址，代理地址视为无效；按 source 约定路径兜底（含蓝箭等）
-    let avatar = safeItem.authorAvatar || ''
-    if (avatar && !avatar.includes('.cos.')) avatar = ''
-    if (!avatar && safeItem.source) avatar = resolveTweetAccountAvatarUrl(safeItem.source)
+    let avatar = resolveEventAuthorAvatarUrl(safeItem)
     const authorAvatarRemote = avatar || ''
     if (avatar) avatar = getCachedMediaImage(avatar, 'thumb')
 
-    return {
+    // 缩略图与原图一一对应（同下标），避免预览/保存映射错位
+    const imageUrls = []
+    const imageOriginalUrls = []
+    enrichedMediaList.forEach((media) => {
+      if (!media || media.type !== 'image') return
+      const original = media.remoteUrl || media.url
+      const thumb = media.url || original
+      if (!thumb && !original) return
+      imageUrls.push(thumb || original)
+      imageOriginalUrls.push(original || thumb)
+    })
+    const imageCount = imageUrls.length
+
+    return decorateEventItem({
       ...safeItem,
       mediaList: enrichedMediaList,
-      imageUrls: enrichedMediaList.filter(media => media && media.type === 'image' && media.url).map(media => media.url),
+      imageUrls,
+      imageOriginalUrls,
+      imageCount,
+      imageGridCols: Math.min(4, Math.max(1, imageCount || 1)),
       publishedAtText: formatEventTime(safeItem.publishedAt),
       authorAvatar: avatar,
       authorAvatarRemote,
       _liveStatus: 0,
       _liveCover: safeItem.liveCover || '',
       _liveTitle: ''
+    }, this._eventIntelCtx || getEventIntelContext())
+  },
+
+  _refreshEventIntelCtx() {
+    this._eventIntelCtx = getEventIntelContext()
+    return this._eventIntelCtx
+  },
+
+  _applyListIntel(items) {
+    const ctx = this._eventIntelCtx || this._refreshEventIntelCtx()
+    const decorated = (items || []).map((it) => decorateEventItem(it, ctx))
+    return {
+      items: decorated,
+      itemsView: decorated
     }
   },
 
+  onRelatedLaunchTap(e) {
+    try {
+      const nav = relatedLaunchNavFromEvent(e)
+      if (!nav) {
+        try { wx.showToast({ title: '暂时无法打开任务', icon: 'none' }) } catch (e2) {}
+        return
+      }
+      wx.navigateTo({
+        url: buildMissionDetailUrl({ id: nav.id, detailType: nav.type }),
+        fail() {
+          try { wx.showToast({ title: '暂时无法打开任务', icon: 'none' }) } catch (e2) {}
+        }
+      })
+    } catch (err) {}
+  },
+
+  _applyRelatedLaunchFavUi(launchId, favorited) {
+    const patch = {}
+    const items = applyRelatedLaunchFavoriteToList(this.data.items, launchId, favorited, !!favorited)
+    const itemsView = applyRelatedLaunchFavoriteToList(this.data.itemsView, launchId, favorited, !!favorited)
+    if (items !== this.data.items) patch.items = items
+    if (itemsView !== this.data.itemsView) patch.itemsView = itemsView
+    if (this.data.item && String(this.data.item.relatedLaunchId) === String(launchId)) {
+      patch.item = Object.assign({}, this.data.item, {
+        relatedLaunchFavorited: !!favorited,
+        relatedLaunchFavAnimate: !!favorited
+      })
+    }
+    if (Object.keys(patch).length) this.setData(patch)
+    if (!favorited) return
+    const self = this
+    setTimeout(() => {
+      try {
+        if (!self || typeof self.setData !== 'function' || !self.data) return
+        const clear = {}
+        const nextItems = clearRelatedLaunchFavAnimate(self.data.items, launchId)
+        const nextView = clearRelatedLaunchFavAnimate(self.data.itemsView, launchId)
+        if (nextItems !== self.data.items) clear.items = nextItems
+        if (nextView !== self.data.itemsView) clear.itemsView = nextView
+        if (self.data.item && String(self.data.item.relatedLaunchId) === String(launchId) && self.data.item.relatedLaunchFavAnimate) {
+          clear.item = Object.assign({}, self.data.item, { relatedLaunchFavAnimate: false })
+        }
+        if (Object.keys(clear).length) self.setData(clear)
+      } catch (e) {}
+    }, 450)
+  },
+
+  onToggleRelatedLaunchFavorite(e) {
+    try {
+      const d = (e && e.detail) || {}
+      if (typeof d.favorited === 'boolean' && d.id != null && String(d.id).trim() !== '') {
+        this._applyRelatedLaunchFavUi(String(d.id).trim(), d.favorited)
+        return
+      }
+      const nav = relatedLaunchNavFromEvent(e)
+      if (!nav) return
+      try { wx.vibrateShort({ type: 'medium' }) } catch (eV) {}
+      const lists = [this.data.itemsView, this.data.items]
+      if (this.data.item) lists.push([this.data.item])
+      const result = toggleRelatedMissionFavorite({
+        launchId: nav.id,
+        launchType: nav.type
+      }, lists)
+      if (!result) {
+        wx.showToast({ title: '收藏失败，请重试', icon: 'none' })
+        return
+      }
+      this._applyRelatedLaunchFavUi(result.id, result.favorited)
+      wx.showToast({ title: result.favorited ? '已收藏' : '已取消收藏', icon: 'none' })
+    } catch (err) {}
+  },
+
+  syncEventRelatedLaunchFavorites() {
+    try {
+      const patch = {}
+      const items = syncRelatedLaunchFavoriteFlags(this.data.items)
+      const itemsView = syncRelatedLaunchFavoriteFlags(this.data.itemsView)
+      if (items !== this.data.items) patch.items = items
+      if (itemsView !== this.data.itemsView) patch.itemsView = itemsView
+      if (this.data.item && this.data.item.relatedLaunchId) {
+        const next = syncRelatedLaunchFavoriteFlags([this.data.item])[0]
+        if (next && next !== this.data.item &&
+          (next.relatedLaunchFavorited !== this.data.item.relatedLaunchFavorited || next.relatedLaunchFavAnimate)) {
+          patch.item = next
+        }
+      }
+      if (Object.keys(patch).length) this.setData(patch)
+    } catch (e) {}
+  },
+
   async loadDetail(id, opts = {}) {
+    const parsedId = parseEventDetailIdParam(id)
+    id = parsedId.eventId
+    if (!(this._oaVideoIndex >= 0) && parsedId.videoIndex >= 0) {
+      this._oaVideoIndex = parsedId.videoIndex
+    }
     // eventChannel 快照先上屏（首屏加速）：网络刷新照常执行，最终展示与原逻辑一致
     const snapshot = this._openerEventSnapshot
     if (
@@ -997,34 +1725,46 @@ Page({
         listDayHint: '',
         navTitle: '事件详情',
         shareTitle: `${snapTitle} | 火星探索日志`,
-        shareImage: pickEventShareImageUrl(snapItem)
+        shareImage: pickEventShareImageUrl(snapItem),
+        selectedTweetSource: snapItem.source || ''
       })
       opts = { ...opts, silent: true }
     }
 
     // silent（下拉刷新）：已有内容时不回退到加载骨架，只显示微信原生刷新指示器
     if (!(opts.silent && this.data.item)) {
-      this.setData({ loading: true, errorMessage: '' })
+      this.setData({ loading: true, errorMessage: '', errorTitle: '', errorAction: '' })
     }
     try {
       const db = wx.cloud.database()
       let rawItem = null
+      let lookupErr = null
 
       try {
         const detailRes = await db.collection('starship_event_updates').doc(id).get()
         rawItem = detailRes && detailRes.data ? detailRes.data : null
-      } catch (e) {}
+      } catch (e) {
+        lookupErr = e
+      }
 
       if (!rawItem) {
-        const fallbackRes = await db.collection('starship_event_updates')
-          .where({ _id: id, status: 'published' })
-          .limit(1)
-          .get()
-        rawItem = (fallbackRes && fallbackRes.data && fallbackRes.data[0]) || null
+        try {
+          const fallbackRes = await db.collection('starship_event_updates')
+            .where({ _id: id, status: 'published' })
+            .limit(1)
+            .get()
+          rawItem = (fallbackRes && fallbackRes.data && fallbackRes.data[0]) || null
+        } catch (e) {
+          lookupErr = lookupErr || e
+        }
       }
 
       if (!rawItem || rawItem.status !== 'published') {
-        throw new Error('该事件不存在或暂不可查看')
+        if (lookupErr && isPermissionDenied(lookupErr)) throw lookupErr
+        if (lookupErr && isNetworkishEventError(lookupErr)) {
+          throw Object.assign(new Error('网络异常，请稍后重试'), { code: 'EVENT_NETWORK' })
+        }
+        throw Object.assign(new Error('EVENT_EXPIRED'), { code: 'EVENT_EXPIRED' })
       }
 
       const item = this.enrichEventItem(rawItem)
@@ -1034,24 +1774,33 @@ Page({
 
       this.setData({
         loading: false,
+        errorMessage: '',
+        errorTitle: '',
+        errorAction: '',
         item,
         listMode: false,
         items: [],
         listDayHint: '',
         navTitle: '事件详情',
         shareTitle: `${titleText} | 火星探索日志`,
-        shareImage
+        shareImage,
+        selectedTweetSource: item.source || ''
       })
 
       this._scrollDetailToTop()
       this.checkLiveStatus(item)
 
+      let mediaIndex = this._autoPlayVideoIndex
+      if (!(mediaIndex >= 0) && this._oaVideoIndex >= 0) {
+        mediaIndex = indexOfNthEventVideo(item.mediaList, this._oaVideoIndex)
+      }
+      this._autoPlayVideoIndex = -1
+      this._oaVideoIndex = -1
+
       // 从列表页点击视频跳转过来：先过视频门控，通过后再播（非会员只看封面）
       // 过审关闭 enableEventVideo 时绝不自动进播放页
-      if (this.data.enableEventVideo && this._autoPlayVideoIndex >= 0 && item.mediaList) {
-        const mediaIndex = this._autoPlayVideoIndex
+      if (this.data.enableEventVideo && mediaIndex >= 0 && item.mediaList) {
         const media = item.mediaList[mediaIndex]
-        this._autoPlayVideoIndex = -1
         if (media && media.type === 'video' && media.isPlayable) {
           setTimeout(async () => {
             // 与轮播/列表用同一单条解锁键：来源页刚看完广告则直接放行
@@ -1071,20 +1820,31 @@ Page({
               isLong: !!media.isLongVideo,
               // 原片保存仅 Pro/已购；广告解锁只放行预览播放
               canSave: canSaveOriginalVideoSync('starship_event_list_full'),
-              onSaveHint: () => {}
+              onSaveHint: () => {},
+              share: this._buildEventVideoShareInfo(item._id)
             })
           }, 300)
         }
-      } else if (this._autoPlayVideoIndex >= 0) {
-        this._autoPlayVideoIndex = -1
       }
     } catch (error) {
+      if (error && error.code === 'EVENT_EXPIRED') {
+        this.setData({
+          loading: false,
+          errorTitle: EVENT_EXPIRED_TITLE,
+          errorMessage: EVENT_EXPIRED_TEXT,
+          errorAction: 'latest',
+          item: null
+        })
+        return
+      }
       const msg = isPermissionDenied(error)
         ? getPermissionDeniedMessage()
         : (error && (error.errMsg || error.message)) || '事件加载失败，请稍后重试'
       this.setData({
         loading: false,
-        errorMessage: msg
+        errorTitle: '加载失败',
+        errorMessage: msg,
+        errorAction: 'retry'
       })
     }
   },
@@ -1120,10 +1880,14 @@ Page({
     try {
       const db = wx.cloud.database()
       const where = { status: 'published' }
+      this._refreshEventIntelCtx()
+      const watchSources = (this._eventIntelCtx && this._eventIntelCtx.watchSources) || []
       if (this._listAllSources && this._listAllSources.length) {
         where.source = db.command.in(this._listAllSources)
       } else if (this._listAllSource) {
         where.source = this._listAllSource
+      } else if (watchSources.length) {
+        where.source = db.command.in(watchSources)
       }
       const res = await db.collection('starship_event_updates')
         .where(where)
@@ -1166,11 +1930,10 @@ Page({
         })
       }
 
-      this.setData({
+      this.setData(Object.assign({
         loading: false,
         listMode: true,
         listAllMode: true,
-        items: merged,
         item: null,
         errorMessage: '',
         navTitle: listNavTitle,
@@ -1179,8 +1942,9 @@ Page({
         shareImage: listShareImage,
         listNoMore,
         listLoadingMore: false,
-        avatarError: false
-      })
+        avatarError: false,
+        selectedTweetSource: this._listAllSource || ''
+      }, this._applyListIntel(merged)))
       if (refresh) this._scrollDetailToTop()
     } catch (error) {
       const msg = isPermissionDenied(error)
@@ -1223,6 +1987,8 @@ Page({
 
   /** 简报胶囊等：某 source 在北京日历日当天的全部已发布动态 */
   async loadListBySource(source, dateYmd, labelHint, opts = {}) {
+    // 按账号今日列表不是 list_all：必须清掉翻页标志，否则触底仍会走 loadListAll
+    this._listAllMode = false
     // silent（下拉刷新）：已有列表时不回退到加载骨架
     if (!(opts.silent && (this.data.items || []).length > 0)) {
       this.setData({ loading: true, errorMessage: '' })
@@ -1257,18 +2023,19 @@ Page({
       const hint = namePart + ' · 共 ' + items.length + ' 条'
       const navTitle = namePart + ' · 今日动态'
       const shareTitle = navTitle + ' | 火星探索日志'
-      this.setData({
+      this.setData(Object.assign({
         loading: false,
         listMode: true,
-        items,
+        listAllMode: false,
         item: null,
         errorMessage: '',
         navTitle,
         listDayHint: hint,
         shareTitle,
         shareImage,
-        avatarError: false
-      })
+        avatarError: false,
+        selectedTweetSource: source
+      }, this._applyListIntel(items)))
       this._scrollDetailToTop()
     } catch (error) {
       const msg = isPermissionDenied(error)
@@ -1328,11 +2095,8 @@ Page({
       }
       return
     }
-    const pages = getCurrentPages()
-    const currentPage = pages[pages.length - 1]
-    const options = (currentPage && currentPage.options) || {}
-    const id = options.id ? String(options.id).trim() : ''
-    const source = options.source ? String(options.source).trim() : ''
+    const id = this._bootEventId()
+    const source = this._listSource || ''
     await runPullRefresh(this, async () => {
       if (this._nsfChecklistMode) {
         await this.onRefreshNsfChecklistDetail()
@@ -1348,11 +2112,15 @@ Page({
   },
 
   retryLoad() {
+    if (this.data.errorAction === 'latest') {
+      this.goLatestEvents()
+      return
+    }
     const pages = getCurrentPages()
     const currentPage = pages[pages.length - 1]
-    const options = (currentPage && currentPage.options) || {}
-    const id = options.id ? String(options.id).trim() : ''
-    const source = options.source ? String(options.source).trim() : ''
+    const options = mergeEnterQuery((currentPage && currentPage.options) || {})
+    const ll2Id = options.id ? String(options.id).trim() : ''
+    const source = this._listSource || (options.source ? String(options.source).trim() : '')
     if (this._nsfChecklistMode) {
       this.loadNsfChecklistPage()
       return
@@ -1365,16 +2133,18 @@ Page({
       this.loadLl2LaunchUpdatesDetailPage()
       return
     }
-    if (this._ll2EventMode && id) {
-      this.loadLl2EventDetailPage(id)
+    if (this._ll2EventMode && ll2Id) {
+      this.loadLl2EventDetailPage(ll2Id)
       return
     }
     if (this._listAllMode) {
       this.loadListAll(true)
       return
     }
+    const id = this._bootEventId()
     if (id) this.loadDetail(id)
     else if (source) this.loadListBySource(source, this._listDate || todayBeijingYmd(), this._listLabel || '')
+    else this.goLatestEvents()
   },
 
   onListCardTap(e) {
@@ -1407,6 +2177,29 @@ Page({
       return list[numericIdx]
     }
     return null
+  },
+
+  /**
+   * 事件视频在全站播放页的分享上下文：落地页为该事件的详情页（不暴露视频直链），
+   * 接收方观看仍走事件视频门控；播放页仅对会员开启转发入口
+   */
+  _buildEventVideoShareInfo(eventId) {
+    const pageItem = this.data.item
+    let item = null
+    if (eventId) {
+      item = (pageItem && String(pageItem._id) === String(eventId))
+        ? pageItem
+        : this.findListEventItem(eventId)
+    } else {
+      item = pageItem
+    }
+    if (!item || !item._id) return null
+    const base = this.buildListEventShareOptions(item)
+    return {
+      title: base.title,
+      path: base.path,
+      imageUrl: base.imageUrl
+    }
   },
 
   buildListEventShareOptions(item) {
@@ -1478,12 +2271,34 @@ Page({
     this.setData({ avatarError: true })
   },
 
+  /** 点击：微信原生预览缩略图；原图保存走列表长按 */
   onEventImagePreview(e) {
-    const dataset = e.currentTarget.dataset || {}
-    const urls = dataset.urls || []
-    const current = dataset.current || urls[0]
-    if (!urls.length) return
-    wx.previewImage({ urls, current })
+    previewEventImages(e.currentTarget.dataset)
+  },
+
+  saveImageToAlbum(imageUrl, opts) {
+    return saveImageToAlbumUtil(imageUrl, opts)
+  },
+
+  onEventImageLongPress(e) {
+    handleEventImageLongPress(this, parseLongPressDataset(e.currentTarget.dataset))
+  },
+
+  closeEventImageSavePicker() {
+    closeEventImageSavePicker(this)
+  },
+
+  toggleEventImageSaveSelect(e) {
+    const idx = (e.currentTarget.dataset || {}).index
+    toggleEventImageSaveSelect(this, idx)
+  },
+
+  selectAllEventImageSave() {
+    selectAllEventImageSave(this)
+  },
+
+  confirmEventImageSavePicker() {
+    return confirmEventImageSavePicker(this)
   },
 
   /** 推文视频播放为会员权益；非会员点封面弹开通引导（一次广告只解锁当前这条视频） */
@@ -1525,7 +2340,8 @@ Page({
       isLong: !!dataset.islong,
       // 原片保存仅 Pro/已购；广告解锁只放行预览播放
       canSave: canSaveOriginalVideoSync('starship_event_list_full'),
-      onSaveHint: () => {}
+      onSaveHint: () => {},
+      share: this._buildEventVideoShareInfo(dataset.eventid || (this.data.item && this.data.item._id) || '')
     })
   },
 
@@ -1581,30 +2397,54 @@ Page({
 
   onShareAppMessage(e) {
     if (this._ll2TimelineMode) {
-      return {
+      const imageUrl = this.data.shareImage || this._resolveStarshipPageShareImage()
+      const result = {
         title: '星舰飞行时间线 | 火星探索日志',
-        path: '/subpackages/progress-extra/event-detail?mode=ll2_timeline',
-        imageUrl: pickEventShareImageUrl(null)
+        path: '/subpackages/progress-extra/event-detail?mode=ll2_timeline'
       }
+      if (imageUrl) result.imageUrl = imageUrl
+      return result
     }
     if (this._ll2LaunchUpdatesMode) {
-      return {
+      const imageUrl = this.data.shareImage || this._resolveStarshipPageShareImage()
+      const result = {
         title: '星舰动态追踪 | 火星探索日志',
-        path: '/subpackages/progress-extra/event-detail?mode=ll2_launch_updates',
-        imageUrl: pickEventShareImageUrl(null)
+        path: '/subpackages/progress-extra/event-detail?mode=ll2_launch_updates'
       }
+      if (imageUrl) result.imageUrl = imageUrl
+      return result
+    }
+    if (this._ll2EventMode) {
+      const eventId = this._ll2EventId || ''
+      const imageUrl = this.data.shareImage || this._pickLl2EventShareImage(this.data.item)
+      const result = {
+        title: this.data.shareTitle || '在轨事件详情 | 火星探索日志',
+        path: `/subpackages/progress-extra/event-detail?mode=ll2_event&id=${encodeURIComponent(eventId)}`
+      }
+      if (imageUrl) result.imageUrl = imageUrl
+      return result
     }
     if (this._nsfChecklistMode) {
-      return {
+      const imageUrl = this.data.shareImage || this._resolveStarshipPageShareImage()
+      const result = {
         title: '星舰飞行检查清单 | 火星探索日志',
         // 有权益用户分享带新 sst 时间戳（接收者 24h 内免门控）；无权益接收者转发继承原时间戳
-        path: '/subpackages/progress-extra/event-detail?mode=nsf_checklist' + this._nsfShareStampQuery(),
-        imageUrl: pickEventShareImageUrl(null)
+        path: '/subpackages/progress-extra/event-detail?mode=nsf_checklist' + this._nsfShareStampQuery()
       }
+      if (imageUrl) result.imageUrl = imageUrl
+      return result
     }
     if (e && e.from === 'button' && e.target && e.target.dataset && e.target.dataset.shareType === 'eventUpdateItem') {
-      const item = this.findListEventItem(e.target.dataset.id)
+      const buttonId = e.target.dataset.id
+      const item = this.findListEventItem(buttonId)
       if (item) return this.buildListEventShareOptions(item)
+      if (buttonId) {
+        return {
+          title: '事件更新 | 火星探索日志',
+          path: `/subpackages/progress-extra/event-detail?id=${encodeURIComponent(buttonId)}`,
+          imageUrl: pickEventShareImageUrl(null)
+        }
+      }
       return {
         title: '事件更新 | 火星探索日志',
         path: '/pages/progress/progress',
@@ -1635,7 +2475,8 @@ Page({
       }
     }
     const item = this.data.item
-    if (!item) {
+    const entryId = (item && item._id) ? item._id : this._singleItemId
+    if (!entryId) {
       return {
         title: this.data.shareTitle || '事件更新 | 火星探索日志',
         path: '/pages/progress/progress',
@@ -1644,33 +2485,49 @@ Page({
     }
 
     return {
-      title: this.data.shareTitle,
-      path: `/subpackages/progress-extra/event-detail?id=${encodeURIComponent(item._id)}`,
-      imageUrl: this.data.shareImage
+      title: this.data.shareTitle || '事件更新 | 火星探索日志',
+      path: `/subpackages/progress-extra/event-detail?id=${encodeURIComponent(entryId)}`,
+      imageUrl: this.data.shareImage || pickEventShareImageUrl(item)
     }
   },
 
   onShareTimeline() {
     if (this._ll2TimelineMode) {
-      return {
+      const imageUrl = this.data.shareImage || this._resolveStarshipPageShareImage()
+      const result = {
         title: '星舰飞行时间线 | 火星探索日志',
-        query: 'mode=ll2_timeline',
-        imageUrl: pickEventShareImageUrl(null)
+        query: 'mode=ll2_timeline'
       }
+      if (imageUrl) result.imageUrl = imageUrl
+      return result
     }
     if (this._ll2LaunchUpdatesMode) {
-      return {
+      const imageUrl = this.data.shareImage || this._resolveStarshipPageShareImage()
+      const result = {
         title: '星舰动态追踪 | 火星探索日志',
-        query: 'mode=ll2_launch_updates',
-        imageUrl: pickEventShareImageUrl(null)
+        query: 'mode=ll2_launch_updates'
       }
+      if (imageUrl) result.imageUrl = imageUrl
+      return result
+    }
+    if (this._ll2EventMode) {
+      const eventId = this._ll2EventId || ''
+      const imageUrl = this.data.shareImage || this._pickLl2EventShareImage(this.data.item)
+      const result = {
+        title: this.data.shareTitle || '在轨事件详情 | 火星探索日志',
+        query: `mode=ll2_event&id=${encodeURIComponent(eventId)}`
+      }
+      if (imageUrl) result.imageUrl = imageUrl
+      return result
     }
     if (this._nsfChecklistMode) {
-      return {
+      const imageUrl = this.data.shareImage || this._resolveStarshipPageShareImage()
+      const result = {
         title: '星舰飞行检查清单 | 火星探索日志',
-        query: 'mode=nsf_checklist' + this._nsfShareStampQuery(),
-        imageUrl: pickEventShareImageUrl(null)
+        query: 'mode=nsf_checklist' + this._nsfShareStampQuery()
       }
+      if (imageUrl) result.imageUrl = imageUrl
+      return result
     }
     if (this.data.listAllMode) {
       let q = 'mode=list_all'
@@ -1696,9 +2553,10 @@ Page({
       }
     }
     const item = this.data.item
+    const entryId = (item && item._id) ? item._id : this._singleItemId
     return {
       title: this.data.shareTitle,
-      query: item ? `id=${encodeURIComponent(item._id)}` : '',
+      query: entryId ? `id=${encodeURIComponent(entryId)}` : '',
       imageUrl: this.data.shareImage
     }
   }

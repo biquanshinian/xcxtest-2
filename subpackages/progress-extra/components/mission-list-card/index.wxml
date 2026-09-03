@@ -1,0 +1,66 @@
+<!-- 与 pages/index missionCardInner 同结构，含 recoveryIcons 溅落/回收图标 -->
+<view
+  class="mission-list-card-root mission-card glass-card card-hover mission-card-link mission-card--{{item.statusCategory || 'pending'}} {{themeLight ? 'theme-light' : ''}}"
+  catchtap="onTap"
+>
+  <view class="mission-card-inner-row">
+    <view class="mission-rocket-slot">
+      <image
+        class="mission-rocket-image"
+        wx:if="{{displayRocketImage}}"
+        src="{{displayRocketImage}}"
+        mode="aspectFill"
+        lazy-load="{{index > 1}}"
+        binderror="onRocketImageError"
+      ></image>
+      <view wx:else class="mission-rocket-image mission-rocket-image--placeholder"></view>
+      <view class="mission-card-pano" wx:if="{{item && item.hasOrbitPano}}" aria-label="环绕全景">
+        <view class="mission-card-pano-orbit"></view>
+        <view class="mission-card-pano-orbit mission-card-pano-orbit--tilt"></view>
+        <view class="mission-card-pano-core">
+          <text class="mission-card-pano-360">360</text>
+        </view>
+      </view>
+    </view>
+    <view class="mission-info-content">
+      <view class="mission-card-header">
+        <text class="mission-status-badge status-{{item.statusCategory || 'pending'}}">{{item.statusBadgeText || item.status || '计划中'}}</text>
+        <view class="mission-card-header-right">
+          <view class="recovery-icon-name" wx:if="{{item.flightCountLabel}}">
+            <text class="recovery-type-name">{{item.flightCountLabel}}</text>
+          </view>
+          <text class="mission-country" wx:if="{{item.countryDisplay || item.langUnknownCountry}}">{{item.countryDisplay || item.langUnknownCountry}}</text>
+        </view>
+      </view>
+      <text class="mission-main-title">{{item.missionName || item.name || item.langUnknownMission || '未知任务'}}</text>
+      <text class="mission-meta mission-rocket" wx:if="{{item.rocketName}}">{{item.rocketName}}</text>
+      <text class="mission-time">{{item.formattedTime}}</text>
+      <text class="mission-meta mission-pad" wx:if="{{item.padLocation}}">{{item.padLocation}}</text>
+      <view class="mission-recovery-block">
+        <text class="recovery-tag {{item.recoveryTagClass}}" wx:if="{{item.recoveryTagText}}">{{item.recoveryTagText}}</text>
+        <view class="mission-recovery-icons" wx:if="{{item.recoveryIcons && item.recoveryIcons.length}}">
+          <image
+            wx:for="{{item.recoveryIcons}}"
+            wx:for-item="rIcon"
+            wx:for-index="rIdx"
+            wx:key="rIdx"
+            class="mission-recovery-icon mission-recovery-icon--{{rIcon.status}} {{rIcon.type === 'NET_CATCH' ? 'mission-recovery-icon--net' : ''}} {{rIcon.variant === 'landspace' ? 'mission-recovery-icon--landspace' : ''}} {{rIcon.variant === 'bolz' ? 'mission-recovery-icon--bolz' : ''}}"
+            src="{{rIcon.icon}}"
+            mode="aspectFit"
+          ></image>
+        </view>
+        <view
+          class="mission-card-fav-wrap {{favorited ? 'fav-btn--on' : ''}} {{favAnimate ? 'fav-btn--animate' : ''}}"
+          wx:if="{{enableFavorite}}"
+          hover-class="fav-btn--pressed"
+          hover-stay-time="120"
+          catchtap="onFavoriteTap"
+          aria-role="button"
+          aria-label="收藏"
+        >
+          <view class="fav-heart"></view>
+        </view>
+      </view>
+    </view>
+  </view>
+</view>

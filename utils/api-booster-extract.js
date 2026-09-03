@@ -5,8 +5,9 @@
  */
 
 const { inferNetRecoveryFromLaunch, buildLandingIcon, isZhuque3Rocket, isLandRecoveryType, normalizeLandingTypeShort, inferLandingTypeFromLocationShort, refineLandingTypeWithContext, isNewGlennRocket, isLpv1Landing } = require('./landing-icons.js')
-const { pickLocalized } = require('./locale.js')
-const { translateAgencyName } = require('./space-terms-i18n.js')
+const { pickLocalized, zhField } = require('./locale.js')
+const { translateLocation } = require('./space-terms-display.js')
+const { resolveAgencyDisplayZh } = require('./launch-card-i18n.js')
 
 const ASDS_REGEX = /ASOG|OCISLY|JRTI|A SHORTFALL|OF COURSE I STILL|JUST READ THE INSTRUCTIONS|LPV[\s-]?1|JACKLYN|LANDING PLATFORM VESSEL/i
 const RTLS_REGEX = /LZ-|LANDING ZONE|LZ1|LZ2|LZ4/
@@ -14,6 +15,23 @@ const REUSABLE_ROCKET_REGEX = /new shepard|starship|super heavy|星舰|long\s*ma
 const SHIP_BOOSTER_REGEX = /(?:Ship|Booster)\s*\d+/i
 const SERIAL_FROM_TEXT_REGEX = /\bB\d{3,5}\b/i
 const FLIGHTS_FROM_TEXT_REGEX = /\b(\d{1,3})(?:st|nd|rd|th)?\s+flight\b/i
+
+/**
+ * LL2 占位序列号：如 Unknown / Unknown12A / TBD —— 不是可跳转的实体档案。
+ */
+function isPlaceholderBoosterSerial(serial) {
+  const s = String(serial == null ? '' : serial).trim()
+  if (!s) return true
+  // Unknown / Unknown12A（unknown 后直接接字母数字，不能用 \b）
+  if (/^unknown/i.test(s)) return true
+  if (/^(tbd|n\/?a|null|none|未披露|未知|\?+|-+)$/i.test(s)) return true
+  return false
+}
+
+function normalizeBoosterSerial(serial) {
+  if (isPlaceholderBoosterSerial(serial)) return null
+  return String(serial).trim()
+}
 
 /**
  * LL2 构型级可复用标记（launcher_configurations.reusable）
@@ -103,11 +121,15 @@ function resolveLandingType(launcher) {
   }
 
   const landingDescription = (ll && ll.description) || ''
+  const landingDescriptionZh = ll ? zhField(ll, 'description') : ''
+  const landingLocationZh = (ll && ll.landing_location)
+    ? (zhField(ll.landing_location, 'name') || translateLocation(ll.landing_location.name) || translateLocation(ll.landing_location.abbrev))
+    : ''
   landingType = refineLandingTypeWithContext(landingType, ll, locAbbrev || landingLocation, locName)
-  return { landingType, landingLocation, landingDescription }
+  return { landingType, landingLocation, landingDescription, landingDescriptionZh, landingLocationZh }
 }
 
-/** 倒计时/列表：为塔架捕获、海面溅落、新格伦 LPV1 等挂上与卡片同源图标 */
+/** 倒计时/列表：为所有可识别的着陆类型挂上与详情页同源图标（中性色） */
 function attachLandingTypeIcon(boosterInfo, launch) {
   if (!boosterInfo || !boosterInfo.landingType) return boosterInfo
   const t = boosterInfo.landingType
@@ -116,8 +138,25 @@ function attachLandingTypeIcon(boosterInfo, launch) {
     boosterInfo.landingTypeIcon = buildLandingIcon('BO_LZ', 'neutral')
     return boosterInfo
   }
-  if (t === 'TOWER_CATCH' || t === 'SPLASHDOWN' || t === 'RECOVERY' || t === 'HELICOPTER_CATCH') {
-    boosterInfo.landingTypeIcon = buildLandingIcon(t, 'neutral')
+  // LL2 结构化 Net 着陆类型 → 走 netRecoveryIcon 渲染分支（保留 --net 放大样式）
+  if (t === 'NET_CATCH') {
+    if (!boosterInfo.netRecoveryIcon) {
+      boosterInfo.netRecovery = true
+      boosterInfo.netRecoveryIcon = buildLandingIcon('NET_CATCH', 'neutral')
+    }
+    return boosterInfo
+  }
+  // ASDS/RTLS/VL 由 WXML 静态 SVG 分支兜底（朱雀陆地回收另有 rtlsIcon）；
+  // 其余类型（EXPENDED/LOST/HL/SPLASHDOWN/TOWER_CATCH...）统一挂 dataURI，
+  // 与详情页 buildLandingDisplay 同源，避免倒计时区域漏图标。
+  // EXPENDED/LOST 与详情页同色（橙色 failure），其余中性白
+  if (t !== 'ASDS' && t !== 'RTLS' && t !== 'VL') {
+    const status = (t === 'EXPENDED' || t === 'LOST') ? 'failure' : 'neutral'
+    const icon = buildLandingIcon(t, status)
+    if (icon) {
+      boosterInfo.landingTypeIcon = icon
+      boosterInfo.landingTypeIconStatus = status
+    }
   }
   return boosterInfo
 }
@@ -141,24 +180,29 @@ function extractBoosterInfoForList(launch, rocketName, finalImage) {
     const hasReused = launcher.reused === true || launcher.reused === false
 
     if (hasStage || hasLanding || hasDirect || hasReused) {
-      const { landingType, landingLocation, landingDescription } = resolveLandingType(launcher)
+      const { landingType, landingLocation, landingDescription, landingDescriptionZh, landingLocationZh } = resolveLandingType(launcher)
       const textPool = [landingDescription, (launch.mission && launch.mission.description) || '', launch.name || ''].join(' ')
       const serialFromText = textPool.match(SERIAL_FROM_TEXT_REGEX)
       const flightsFromTextMatch = textPool.match(FLIGHTS_FROM_TEXT_REGEX)
       const flightsFromText = flightsFromTextMatch ? Number(flightsFromTextMatch[1]) : null
 
       boosterInfo = {
-        serialNumber: launcher.serial_number || (serialFromText ? serialFromText[0].toUpperCase() : null),
+        serialNumber: normalizeBoosterSerial(
+          launcher.serial_number || (serialFromText ? serialFromText[0].toUpperCase() : null)
+        ),
         status: launcher.status || 'active',
         flightProven: launcher.flight_proven || false,
         flights: launcher.flights !== undefined && launcher.flights !== null
           ? launcher.flights
           : (launcher.launcher_flight_number != null ? launcher.launcher_flight_number : (isNaN(flightsFromText) ? null : flightsFromText)),
         landingAttempt: launcher.attempted_landings !== undefined && launcher.attempted_landings !== null ? launcher.attempted_landings > 0 : null,
+        thisMissionLandingAttempt: ll && ll.attempt === true ? true : (ll && ll.attempt === false ? false : null),
         landingSuccess: launcher.successful_landings !== undefined && launcher.successful_landings !== null ? launcher.successful_landings : null,
         landingType,
         landingLocation,
+        landingLocationZh: landingLocationZh || '',
         landingDescription,
+        landingDescriptionZh: landingDescriptionZh || '',
         reused: launcher.reused === true ? true : (launcher.reused === false ? false : null),
         image: finalImage
       }
@@ -196,13 +240,14 @@ function extractBoosterInfoSimple(launch, rocketName, finalImage) {
     if (hasStage || hasLanding || hasDirect || hasReused) {
       const { landingType, landingLocation, landingDescription } = resolveLandingType(launcher)
       boosterInfo = {
-        serialNumber: launcher.serial_number || null,
+        serialNumber: normalizeBoosterSerial(launcher.serial_number),
         flights: launcher.flights !== undefined && launcher.flights !== null
           ? launcher.flights
           : (launcher.launcher_flight_number != null ? launcher.launcher_flight_number : null),
         landingType,
         landingLocation,
         landingDescription,
+        thisMissionLandingAttempt: ll && ll.attempt === true ? true : (ll && ll.attempt === false ? false : null),
         reused: launcher.reused === true ? true : (launcher.reused === false ? false : null),
         image: finalImage
       }
@@ -337,8 +382,7 @@ function extractLaunchAgency(launch) {
   let launchAgencyImage = ''
   if (launch.launch_service_provider && launch.launch_service_provider.name) {
     const lsp = launch.launch_service_provider
-    // 中文模式下用词典译名（CASC→中国航天科技集团等）；未收录保留原名
-    launchAgency = pickLocalized(translateAgencyName(lsp.name, lsp.abbrev), lsp.name)
+    launchAgency = resolveAgencyDisplayZh(lsp.name, lsp.abbrev, zhField(lsp, 'name')) || lsp.name
     launchAgencyId = lsp.id != null ? lsp.id : null
     launchAgencyAbbrev = lsp.abbrev || ''
     launchAgencyImage = pickAgencyImageUrl(lsp)
@@ -346,7 +390,7 @@ function extractLaunchAgency(launch) {
     const program = launch.program[0]
     if (program.agencies && program.agencies.length > 0) {
       const ag = program.agencies[0]
-      launchAgency = pickLocalized(translateAgencyName(ag.name, ag.abbrev), ag.name)
+      launchAgency = resolveAgencyDisplayZh(ag.name, ag.abbrev, zhField(ag, 'name')) || ag.name
       launchAgencyId = ag.id != null ? ag.id : null
       launchAgencyAbbrev = ag.abbrev || ''
       launchAgencyImage = pickAgencyImageUrl(ag)
@@ -358,36 +402,12 @@ function extractLaunchAgency(launch) {
 /**
  * 空列表结果
  */
-function emptyListResult() {
-  return { list: [], hasMore: false, nextOffset: 0 }
-}
-
-/**
- * Promise 超时包装
- */
-function withTimeout(promise, ms, msg) {
-  if (ms === undefined) ms = 5000
-  if (msg === undefined) msg = '请求超时'
-  return Promise.race([
-    promise,
-    new Promise(function (_, reject) {
-      setTimeout(function () { reject(new Error(msg)) }, ms)
-    })
-  ])
-}
-
-/**
- * 解包云数据库缓存数据（消除 6 处重复的层层判断）
- */
-function unwrapCacheData(docData) {
-  let apiData = docData.data || docData
-  if (apiData && typeof apiData === 'object' && !Array.isArray(apiData)) {
-    if (apiData.data && apiData.data.results && Array.isArray(apiData.data.results)) {
-      apiData = apiData.data
-    }
-  }
-  return apiData
-}
+// 轻量 helper 已抽到 api-list-helpers，避免 api-request 误绑本文件整链
+const {
+  emptyListResult,
+  withTimeout,
+  unwrapCacheData
+} = require('./api-list-helpers.js')
 
 module.exports = {
   extractBoosterInfoForList,
@@ -401,6 +421,8 @@ module.exports = {
   unwrapCacheData,
   resolveLauncher,
   resolveLandingType,
+  isPlaceholderBoosterSerial,
+  normalizeBoosterSerial,
   ASDS_REGEX,
   RTLS_REGEX,
   REUSABLE_ROCKET_REGEX,

@@ -1,7 +1,8 @@
 const pageBase = require('../../utils/page-base.js')
-const { buildMapLayoutData } = require('./utils/map-page-common.js')
+const { buildMapLayoutData, setMapSatelliteFromTap } = require('./utils/map-page-common.js')
 const {
-  NORAD_MAP, createSatrec, getCurrentPosition, getPositionAt,
+  STATION_MARKER_ICON, resolveNoradId, pickStationTle,
+  createSatrec, getCurrentPosition, getPositionAt,
   getOrbitalParams, getLookAngles,
   formatSpeed, formatAltitude, formatCoord
 } = require('./station-orbit.js')
@@ -11,6 +12,8 @@ Page({
   _fallbackTab: '/pages/monitor/monitor',
   data: {
     statusBarHeight: 44,
+    menuButtonWidth: 88,
+    isDirectEntry: false,
     capsuleTop: 0,
     capsuleHeight: 32,
     mapActionTop: 0,
@@ -33,30 +36,52 @@ Page({
     tleUpdateTime: '--',
     panelCollapsed: true,
     actionMenuCollapsed: true,
-    refreshing: false
+    refreshing: false,
+    enableSatellite: true,
+    mapSetting: { enableSatellite: true }
   },
 
   _satrec: null,
   _posTimer: null,
+  _centerTimer: null,
   _mapCtx: null,
   _markerCreated: false,
+  _seedCentered: false,
   _stationId: null,
+  _pageAlive: true,
   _fullOrbitPoints: null,  // 预计算的完整轨道点（含时间戳）
   _orbitBuiltAt: 0,        // 轨道点构建时间，用于判断是否需要重建
 
   onLoad(options) {
+    this._pageAlive = true
     this.initUiShell()
     const app = getApp()
     this.setData(buildMapLayoutData(app))
 
     this._stationId = options.stationId || ''
-    const name = decodeURIComponent(options.stationName || '空间站')
-    this.setData({ stationName: name })
+    let name = '空间站'
+    try {
+      name = decodeURIComponent(options.stationName || '空间站')
+    } catch (e) {
+      name = options.stationName || '空间站'
+    }
+    const seedLat = options.lat != null ? Number(options.lat) : NaN
+    const seedLng = options.lng != null ? Number(options.lng) : NaN
+    const patch = { stationName: name }
+    // 详情页传入坐标时立刻居中，不等 TLE；否则保持世界总览，等首次定位
+    if (Number.isFinite(seedLat) && Number.isFinite(seedLng)) {
+      patch.latitude = seedLat
+      patch.longitude = seedLng
+      patch.scale = 5
+      this._seedCentered = true
+    }
+    this.setData(patch)
 
     this.loadOrbitData()
   },
 
   onUnload() {
+    this._pageAlive = false
     this.stopTracking()
   },
 
@@ -71,20 +96,26 @@ Page({
   },
 
   async loadOrbitData() {
-    const noradId = NORAD_MAP[Number(this._stationId)]
+    const noradId = resolveNoradId(this._stationId)
     if (!noradId) return
 
     try {
-      const tleData = await this.fetchTLE()
-      if (!tleData || !tleData.tle || !tleData.tle[noradId]) return
+      let tleData = await this.fetchTLE()
+      let tle = pickStationTle(tleData, noradId)
+      // 云库/缓存可能只有 ISS：天宫缺失时再拉 Worker，保证两站默认可用
+      if (!tle) {
+        const { fetchStationTleFromWorker } = require('./utils/tle-fetch.js')
+        tleData = await fetchStationTleFromWorker({ force: true }).catch(() => null)
+        tle = pickStationTle(tleData, noradId)
+      }
+      if (!tle) return
 
-      const tle = tleData.tle[noradId]
       const satrec = createSatrec(tle.line1, tle.line2)
       if (!satrec) return
       this._satrec = satrec
 
       const params = getOrbitalParams(satrec)
-      const tleUpdateTime = tleData.ts ? this.fmtTime(tleData.ts) : '--'
+      const tleUpdateTime = tleData && tleData.ts ? this.fmtTime(tleData.ts) : '--'
 
       this.setData({
         orbitReady: true,
@@ -102,8 +133,10 @@ Page({
       this._buildFullOrbitPoints()
       this._splitOrbitByTime()
       this.startPositionUpdater()
+      // 进入全屏即对准空间站（有种子坐标也再校正一次到最新 TLE 位置）
+      this.centerOnStation()
     } catch (e) {
-      console.warn('[orbit-map] loadOrbitData failed:', e.message)
+      console.warn('[orbit-map] loadOrbitData failed:', e && e.message)
     }
   },
 
@@ -129,7 +162,7 @@ Page({
   },
 
   updatePosition() {
-    if (!this._satrec) return
+    if (!this._pageAlive || !this._satrec) return
     const pos = getCurrentPosition(this._satrec)
     if (!pos) return
 
@@ -150,7 +183,13 @@ Page({
     }
 
     if (!this._markerCreated) {
+      // 首次出点：未带种子坐标时在此对准；已带种子则只挂 marker，保持已居中视角
       patch.markers = [this._buildMarker(pos, name, altText, speedText)]
+      if (!this._seedCentered) {
+        patch.latitude = pos.lat
+        patch.longitude = pos.lng
+        patch.scale = 5
+      }
       this._markerCreated = true
       this.setData(patch)
     } else {
@@ -158,8 +197,8 @@ Page({
       this._smoothMove(pos, name, altText, speedText)
     }
 
-    // 实时切分轨道线：图标走到哪，虚线就跟到哪
-    this._splitOrbitByTime()
+    // 实时切分轨道线：虚实分界点锚定在当前位置，图标走到哪线就切到哪
+    this._splitOrbitByTime(pos)
 
     // 每 5 分钟重建完整轨道点（补充新的未来轨迹）
     if (this._orbitBuiltAt && Date.now() - this._orbitBuiltAt > 5 * 60 * 1000) {
@@ -167,25 +206,19 @@ Page({
     }
   },
 
-  _buildMarker(pos, name, altText, speedText) {
+  _buildMarker(pos) {
     return {
       id: 1,
       latitude: pos.lat,
       longitude: pos.lng,
-      iconPath: '/subpackages/monitor-pages/station-marker.svg',
+      iconPath: STATION_MARKER_ICON,
       width: 20,
       height: 20,
-      callout: {
-        content: name + '\n' + altText + ' · ' + speedText,
+      // 文案走 cover-view customCallout，随 page data 实时刷新
+      customCallout: {
         display: 'ALWAYS',
-        fontSize: 11,
-        borderRadius: 10,
-        padding: 8,
-        bgColor: 'rgba(0,0,0,0.82)',
-        color: '#00ff88',
-        borderWidth: 1,
-        borderColor: 'rgba(0,255,136,0.4)',
-        textAlign: 'center'
+        anchorX: 0.5,
+        anchorY: 0
       }
     }
   },
@@ -198,12 +231,6 @@ Page({
       destination: { latitude: pos.lat, longitude: pos.lng },
       duration: 1800,
       autoRotate: false,
-      callout: {
-        content: name + '\n' + altText + ' · ' + speedText,
-        display: 'ALWAYS', fontSize: 11, borderRadius: 10, padding: 8,
-        bgColor: 'rgba(0,0,0,0.82)', color: '#00ff88',
-        borderWidth: 1, borderColor: 'rgba(0,255,136,0.4)', textAlign: 'center'
-      },
       fail: () => {
         this.setData({ markers: [this._buildMarker(pos, name, altText, speedText)] })
       }
@@ -230,16 +257,15 @@ Page({
     this._orbitBuiltAt = now
   },
 
-  _splitOrbitByTime() {
+  /**
+   * 已飞过 = 蓝色彗尾实线（三段渐隐，越近当前越亮）；
+   * 未来 = 亮绿虚线（预测轨迹）。
+   * 分界点用实时推算位置锚定，跟随图标每次刷新移动，不再卡在 30s 网格上。
+   */
+  _splitOrbitByTime(livePos) {
     if (!this._fullOrbitPoints || !this._fullOrbitPoints.length) return
     const now = Date.now()
-
-    // 轨道点步长 30s：分界点索引没变时 polyline 内容不变，跳过整条线的 setData
-    let splitIdx = 0
-    while (splitIdx < this._fullOrbitPoints.length && this._fullOrbitPoints[splitIdx].time <= now) splitIdx++
-    if (this._lastOrbitSplitIdx === splitIdx && this._orbitBuiltAt === this._lastOrbitBuiltAtUsed) return
-    this._lastOrbitSplitIdx = splitIdx
-    this._lastOrbitBuiltAtUsed = this._orbitBuiltAt
+    const pos = livePos || (this._satrec ? getCurrentPosition(this._satrec) : null)
 
     const pastPoints = []
     const futurePoints = []
@@ -250,14 +276,31 @@ Page({
         futurePoints.push({ latitude: p.latitude, longitude: p.longitude })
       }
     })
-    const pastSegs = this._splitByDateline(pastPoints)
-    const futureSegs = this._splitByDateline(futurePoints)
+    if (pos && Number.isFinite(pos.lat) && Number.isFinite(pos.lng)) {
+      const anchor = { latitude: pos.lat, longitude: pos.lng }
+      pastPoints.push(anchor)
+      futurePoints.unshift(anchor)
+    }
+
     const polylines = []
-    pastSegs.forEach(function (seg) {
-      polylines.push({ points: seg, color: '#4ea1ff66', width: 3, dottedLine: true })
-    })
-    futureSegs.forEach(function (seg) {
-      polylines.push({ points: seg, color: '#00ff88', width: 3, dottedLine: false })
+    const self = this
+
+    // 彗尾：按时间三等分，透明度由远及近递增；相邻段共享端点保证连续
+    const TAIL_COLORS = ['#4EA1FF24', '#4EA1FF4D', '#4EA1FF8F']
+    if (pastPoints.length > 1) {
+      const chunkSize = Math.ceil(pastPoints.length / TAIL_COLORS.length)
+      TAIL_COLORS.forEach(function (color, i) {
+        const start = i * chunkSize
+        const chunk = pastPoints.slice(start, Math.min(pastPoints.length, start + chunkSize + 1))
+        if (chunk.length < 2) return
+        self._splitByDateline(chunk).forEach(function (seg) {
+          polylines.push({ points: seg, color: color, width: 3, dottedLine: false })
+        })
+      })
+    }
+
+    this._splitByDateline(futurePoints).forEach(function (seg) {
+      polylines.push({ points: seg, color: '#12E896', width: 4, dottedLine: true })
     })
     this.setData({ polylines: polylines })
   },
@@ -287,6 +330,10 @@ Page({
   },
   stopTracking() {
     this.stopPositionUpdater()
+    if (this._centerTimer) {
+      clearTimeout(this._centerTimer)
+      this._centerTimer = null
+    }
     this._mapCtx = null
     this._markerCreated = false
   },
@@ -295,19 +342,41 @@ Page({
     wx.getFuzzyLocation({
       type: 'wgs84',
       success: (res) => {
+        if (!this._pageAlive) return
         this._userLat = res.latitude
         this._userLng = res.longitude
         this.setData({ hasUserLocation: true })
       },
-      fail: () => { this.setData({ hasUserLocation: false }) }
+      fail: () => {
+        if (!this._pageAlive) return
+        this.setData({ hasUserLocation: false })
+      }
     })
   },
 
   // 地图操作
   centerOnStation() {
-    const pos = getCurrentPosition(this._satrec)
-    if (!pos) return
-    this.setData({ latitude: pos.lat, longitude: pos.lng, scale: 4 })
+    if (!this._pageAlive) return
+    const pos = this._satrec ? getCurrentPosition(this._satrec) : null
+    const lat = pos ? pos.lat : this.data.latitude
+    const lng = pos ? pos.lng : this.data.longitude
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+    // 同值时部分机型不刷新镜头：先微偏再回正
+    const scale = 5
+    if (this._centerTimer) {
+      clearTimeout(this._centerTimer)
+      this._centerTimer = null
+    }
+    if (this.data.latitude === lat && this.data.longitude === lng && this.data.scale === scale) {
+      this.setData({ latitude: lat + 0.00001, longitude: lng, scale })
+      this._centerTimer = setTimeout(() => {
+        this._centerTimer = null
+        if (!this._pageAlive) return
+        this.setData({ latitude: lat, longitude: lng, scale })
+      }, 32)
+      return
+    }
+    this.setData({ latitude: lat, longitude: lng, scale })
   },
 
   resetMapView() {
@@ -317,7 +386,10 @@ Page({
   refreshOrbitData() {
     if (this.data.refreshing) return
     this.setData({ refreshing: true })
-    this.loadOrbitData().finally(() => { this.setData({ refreshing: false }) })
+    this.stopTracking()
+    this.loadOrbitData().finally(() => {
+      if (this._pageAlive) this.setData({ refreshing: false })
+    })
   },
 
   togglePanel() {
@@ -326,6 +398,10 @@ Page({
 
   toggleActionMenu() {
     this.setData({ actionMenuCollapsed: !this.data.actionMenuCollapsed })
+  },
+
+  setMapSatellite(e) {
+    setMapSatelliteFromTap(this, e)
   },
 
   // goBack inherited from pageBase

@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>朱雀三号 · 酒泉 LC-96B · 民勤航区回收</name>
+    <description>后台锁定：Zhuque-3 · 酒泉 LC-96B · 民勤回收。搜索请用「纬度, 经度」。发射：东风商业航天创新试验区 LC-96B（LL2 40.92017, 100.25129）。回收：民勤方形场坪，东南约 390km（38.445, 103.481）。不是返回发射台。</description>
+    <Style id="line">
+      <LineStyle>
+        <color>ff7a4dff</color>
+        <width>4</width>
+      </LineStyle>
+    </Style>
+    <Style id="pin-start">
+      <IconStyle>
+        <color>ff34c759</color>
+        <scale>1.1</scale>
+        <Icon><href>http://maps.google.com/mapfiles/kml/paddle/grn-circle.png</href></Icon>
+      </IconStyle>
+      <LabelStyle><scale>1</scale></LabelStyle>
+    </Style>
+    <Style id="pin-end">
+      <IconStyle>
+        <color>ff7a4dff</color>
+        <scale>1.1</scale>
+        <Icon><href>http://maps.google.com/mapfiles/kml/paddle/wht-circle.png</href></Icon>
+      </IconStyle>
+      <LabelStyle><scale>1</scale></LabelStyle>
+    </Style>
+      <LookAt>
+        <longitude>101.866145</longitude>
+        <latitude>39.682585</latitude>
+        <altitude>0</altitude>
+        <heading>0</heading>
+        <tilt>45</tilt>
+        <range>857977</range>
+        <altitudeMode>relativeToGround</altitudeMode>
+      </LookAt>
+    <Placemark id="start">
+      <name>发射 · 酒泉 LC-96B</name>
+      <styleUrl>#pin-start</styleUrl>
+      <Point>
+        <coordinates>100.251290,40.920170,0</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark id="end">
+      <name>回收 · 民勤回收场</name>
+      <styleUrl>#pin-end</styleUrl>
+      <Point>
+        <coordinates>103.481000,38.445000,0</coordinates>
+      </Point>
+    </Placemark>
+
+    <Placemark id="route">
+      <name>朱雀三号 · 酒泉 LC-96B · 民勤航区回收 · 航迹</name>
+      <styleUrl>#line</styleUrl>
+      <LineString>
+        <tessellate>1</tessellate>
+        <altitudeMode>clampToGround</altitudeMode>
+        <coordinates>
+          100.251290,40.920170,0
+          100.355793,40.844209,0
+          100.460056,40.768155,0
+          100.564080,40.692006,0
+          100.667867,40.615765,0
+          100.771417,40.539430,0
+          100.874732,40.463004,0
+          100.977811,40.386486,0
+          101.080656,40.309876,0
+          101.183268,40.233176,0
+          101.285648,40.156385,0
+          101.387797,40.079504,0
+          101.489714,40.002534,0
+          101.591403,39.925474,0
+          101.692862,39.848326,0
+          101.794093,39.771090,0
+          101.895098,39.693766,0
+          101.995876,39.616355,0
+          102.096429,39.538857,0
+          102.196758,39.461272,0
+          102.296863,39.383602,0
+          102.396745,39.305846,0
+          102.496405,39.228004,0
+          102.595845,39.150078,0
+          102.695065,39.072068,0
+          102.794065,38.993974,0
+          102.892847,38.915796,0
+          102.991411,38.837535,0
+          103.089759,38.759192,0
+          103.187891,38.680766,0
+          103.285808,38.602259,0
+          103.383510,38.523670,0
+          103.481000,38.445000,0
+        </coordinates>
+      </LineString>
+    </Placemark>
+  </Document>
+</kml>

@@ -11,7 +11,12 @@
     ></video>
   </div>
   <router-view />
+  <MediaPreview />
 </template>
+
+<script setup>
+import MediaPreview from './components/media/MediaPreview.vue'
+</script>
 
 <style>
 .app-cosmos-bg {

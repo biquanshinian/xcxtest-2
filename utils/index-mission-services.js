@@ -1,4 +1,5 @@
 const { attachMissionDetailMeta } = require('./index-mission-nav.js')
+const { formatMissionListTimeOrUnknown, applyContentLangToMission } = require('./launch-card-i18n.js')
 
 function normalizeMissionType(type) {
   return type === 'completed' ? 'completed' : 'upcoming'
@@ -8,21 +9,21 @@ function normalizeMissionItem(mission, options) {
   const {
     type,
     index = 0,
-    baseIndex = 0,
-    formatDate
+    baseIndex = 0
   } = options || {}
 
   const normalizedType = normalizeMissionType(type)
   const isCompleted = normalizedType === 'completed'
 
-  return attachMissionDetailMeta({
+  const next = attachMissionDetailMeta({
     ...mission,
     _wxkey: `${isCompleted ? 'm-1' : 'm-0'}-${baseIndex + index}-${(mission.id != null ? mission.id : '')}`,
-    formattedTime: mission.launchTime ? formatDate(mission.launchTime, 'MM月DD日 HH:mm') : '时间未知'
+    formattedTime: formatMissionListTimeOrUnknown(mission.launchTime)
   }, {
     id: mission.id,
     detailType: normalizedType
   })
+  return applyContentLangToMission(next)
 }
 
 async function fetchMissionListData(options) {
@@ -101,14 +102,20 @@ function mergeMissionPages(type, currentList, incomingList, filterExpiredMission
     })
   }
 
+  // 缺失/非法 launchTime 沉底：与 sortUpcomingMissionsByNetAsc、云端探针排序
+  // （net-patch-policy.sortResultsByNetAsc）同口径。若按 0 排会顶到列表最前，
+  // 首屏与 live patch 重排后同一任务位置对调
   return filterExpiredMissions(merged.sort((a, b) => {
-    const timeA = a && a.launchTime ? new Date(a.launchTime).getTime() : 0
-    const timeB = b && b.launchTime ? new Date(b.launchTime).getTime() : 0
-    return timeA - timeB
+    const ta = a && a.launchTime ? new Date(a.launchTime).getTime() : NaN
+    const tb = b && b.launchTime ? new Date(b.launchTime).getTime() : NaN
+    const va = Number.isFinite(ta) ? ta : Number.MAX_SAFE_INTEGER
+    const vb = Number.isFinite(tb) ? tb : Number.MAX_SAFE_INTEGER
+    return va - vb
   }))
 }
 
 module.exports = {
+  normalizeMissionItem,
   fetchMissionListData,
   buildMissionListSetData,
   getMissionNextOffset,

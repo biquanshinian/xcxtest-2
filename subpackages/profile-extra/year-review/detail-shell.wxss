@@ -1,0 +1,95 @@
+/*
+   详情页通用外壳（页面根容器 / 滚动区 / 玻璃卡 / 加载与错误态）。
+   year-review 分包内副本：分享直达本页时不能依赖主包或其他分包的 @import。
+   news-extra/detail.wxss 内有同名规则的历史副本，改动请两边同步。
+*/
+
+page {
+  background: var(--color-bg-page);
+  overflow: hidden;
+  height: 100vh;
+  width: 100%;
+}
+
+.detail-page {
+  min-height: 100vh;
+  height: 100vh;
+  background: var(--color-bg-page);
+  overflow: hidden;
+}
+
+.detail-scroll {
+  height: 100vh;
+}
+
+.detail-container {
+  padding: var(--space-xl) var(--space-lg);
+  box-sizing: border-box;
+}
+
+.glass-card {
+  background: var(--bg-glass);
+  border-radius: var(--radius-card);
+}
+
+.loading-state,
+.error-state {
+  min-height: 50vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  text-align: center;
+  padding: var(--space-xl) var(--space-lg);
+  box-sizing: border-box;
+}
+
+.loading-text,
+.error-text {
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-relaxed);
+  color: var(--color-text-secondary);
+}
+
+.error-title {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+}
+
+.retry-btn {
+  margin-top: var(--space-2xs);
+  padding: 0 var(--space-lg);
+  height: 72rpx;
+  line-height: 72rpx;
+  border-radius: var(--radius-pill);
+  background: var(--color-brand);
+  color: #ffffff;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  border: none;
+}
+
+.retry-btn::after {
+  border: none;
+}
+
+/* ========== 明亮主题（theme-light）覆盖 ========== */
+
+.detail-page.theme-light {
+  background: var(--color-bg-page);
+}
+
+.theme-light .glass-card {
+  background: var(--bg-glass);
+}
+
+.theme-light .loading-text,
+.theme-light .error-text {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .error-title {
+  color: var(--color-text-primary);
+}

@@ -1,17 +1,30 @@
 const { getAgencyDetail, resolveAgencyReference } = require('../../utils/api-monitor-data.js')
 const { fetchAgencyLaunchCards } = require('./utils/agency-launch-cards.js')
 const pageBase = require('../../utils/page-base.js')
-const { translateAgencyName } = require('../../utils/space-terms-i18n.js')
-const { togglePageTranslation } = require('../../utils/text-translate.js')
+const { pickLocalized, zhField, takeDescI18nSeed } = require('../../utils/locale.js')
+const { resolveAgencyDisplayZh } = require('../../utils/launch-card-i18n.js')
+const { togglePageTranslation } = require('./utils/text-translate.js')
 const { getRocketConfigMeta, getSpaceXLaunchStats } = require('../../utils/api-app-services.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { overrideAgencyLogoUrl } = require('../../utils/agency-logo-overrides.js')
-const { gateCheck, isProSync } = require('../../utils/membership.js')
+const { gateCheck } = require('../../utils/membership.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
-const { isFavoriteAgency, toggleFavoriteAgency } = require('../../utils/agency-favorites.js')
+const { isFavorite, toggleFavorite, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { isVideoUrl, videoSnapshotUrl } = require('../../utils/cos-url.js')
 const { getCachedMediaImage } = require('../../utils/icon-cache.js')
+const { buildLl2ImageChain, advanceImageFallback, proxiedImageUrl } = require('../../utils/ll2-image.js')
+const {
+  resolveAgencyLogoForDisplay,
+  persistAgencyLogoAfterRemoteLoad,
+  isRemoteAgencyLogoUrl
+} = require('../../utils/agency-logo-cache.js')
+const { resolveAgencyLogoBgTone, ensureAgencyLogoBgTone } = require('../../utils/agency-logo-bg.js')
+const { resolveSocialLinkMeta } = require('./utils/agency-data.js')
+// 必须走主包薄壳（内部 require.async 拉 shared 分包）：直接同步 require ../shared/**
+// 在分享卡片 / 朋友圈单页直达本页时 shared 分包尚未下载，模块加载即报错导致整页黑屏
+const { resolveEventAuthorAvatarUrl, warmEventShareImage } = require('../../utils/event-share-image.js')
+try { warmEventShareImage() } catch (e) {}
 
 /**
  * 机构 LL2 id → 事件更新推文账号（starship_event_updates.source）映射；
@@ -26,7 +39,11 @@ const AGENCY_TWEET_SOURCES = {
 const AGENCY_TWEETS_PREVIEW_COUNT = 2
 // Artemis 遥测模块与本页同分包，可直接同步 require（监控中心是跨分包才用 require.async）
 const artemisArow = require('./utils/artemis-arow.js')
-const { artemisArow: ARTEMIS_AROW_CONFIG } = require('../../utils/config.js')
+const romanTracker = require('./utils/roman-tracker.js')
+
+function isNasaAgency(item) {
+  return !!(item && (Number(item.id) === 44 || String(item.abbrev || '').toUpperCase() === 'NASA'))
+}
 
 function formatAgencyDetail(agency) {
   if (!agency) return null
@@ -37,7 +54,7 @@ function formatAgencyDetail(agency) {
   const launchers = agency.launchers || ''
   const spacecraft = agency.spacecraft || ''
   const countryList = Array.isArray(agency.country) ? agency.country : []
-  const countryNames = countryList.map(item => item && item.name).filter(Boolean)
+  const countryNames = countryList.map((item) => pickLocalized(zhField(item, 'name'), item && item.name)).filter(Boolean)
   const countryCodes = countryList.map(item => item && item.alpha_2_code).filter(Boolean)
   // 保留 LL2 构型 id：火箭标签匹配族谱档案跳 rocket-model-detail，飞船标签跳 spacecraft-detail
   // LL2 按构型 id 返回，同名型号（如 Falcon 9 的多个 Block）会出现多条 → 按名称去重、合并 id
@@ -46,12 +63,19 @@ function formatAgencyDetail(agency) {
     const byName = {}
     agency.launcher_list.forEach((entry) => {
       if (!entry || !entry.name) return
-      if (byName[entry.name]) {
-        if (entry.id != null) byName[entry.name].ids.push(entry.id)
+      const nameEn = String(entry.name || '').trim()
+      if (byName[nameEn]) {
+        if (entry.id != null) byName[nameEn].ids.push(entry.id)
         return
       }
-      const rec = { name: entry.name, ids: entry.id != null ? [entry.id] : [], hasDetail: false, archiveId: null }
-      byName[entry.name] = rec
+      const rec = {
+        name: pickLocalized(zhField(entry, 'name') || entry.nameZh, nameEn),
+        nameEn,
+        ids: entry.id != null ? [entry.id] : [],
+        hasDetail: false,
+        archiveId: null
+      }
+      byName[nameEn] = rec
       launcherList.push(rec)
     })
   }
@@ -62,26 +86,67 @@ function formatAgencyDetail(agency) {
     agency.spacecraft_list.forEach((entry) => {
       if (!entry || !entry.name || seen[entry.name]) return
       seen[entry.name] = true
-      spacecraftList.push({ id: entry.id != null ? entry.id : null, name: entry.name })
+      const nameEn = String(entry.name || '').trim()
+      spacecraftList.push({
+        id: entry.id != null ? entry.id : null,
+        name: pickLocalized(zhField(entry, 'name') || entry.nameZh, nameEn),
+        nameEn
+      })
       // 内嵌对象已含全量详情字段，点击跳转时直传飞船详情页秒开
       if (entry.id != null) spacecraftRawById[String(entry.id)] = entry
     })
   }
-  const socialLinks = Array.isArray(agency.social_media_links)
-    ? agency.social_media_links.map((item) => {
+  const socialLinks = []
+  if (Array.isArray(agency.social_media_links)) {
+    agency.social_media_links.forEach((item) => {
+      const url = item && item.url ? String(item.url).trim() : ''
+      if (!url) return
       const social = item && item.social_media
-      return {
-        id: item && item.id,
-        name: (social && social.name) || '社交媒体',
-        url: item && item.url ? item.url : '',
+      const socialNameEn = (social && social.name) || ''
+      const meta = resolveSocialLinkMeta(socialNameEn, url)
+      socialLinks.push({
+        id: item && item.id != null ? item.id : ('sm-' + socialLinks.length),
+        name: meta.name,
+        url,
+        icon: meta.icon,
+        key: meta.key,
         priority: item && item.priority != null ? item.priority : 999
-      }
-    }).filter(item => item.url).sort((a, b) => a.priority - b.priority)
-    : []
+      })
+    })
+    socialLinks.sort((a, b) => a.priority - b.priority)
+  }
+  // 官网 / 维基并入同一 logo 行（去重：已有同 URL 则跳过）
+  const seenSocialUrls = {}
+  socialLinks.forEach((s) => { if (s.url) seenSocialUrls[s.url] = true })
+  ;[
+    { id: 'info-url', name: '官方网站', url: agency.info_url || '', forceKey: 'website' },
+    { id: 'wiki-url', name: '维基百科', url: agency.wiki_url || '', forceKey: 'wikipedia' }
+  ].forEach((extra) => {
+    const url = String(extra.url || '').trim()
+    if (!url || seenSocialUrls[url]) return
+    seenSocialUrls[url] = true
+    const meta = resolveSocialLinkMeta(extra.name, url)
+    socialLinks.push({
+      id: extra.id,
+      name: meta.name || extra.name,
+      url,
+      icon: meta.icon,
+      key: extra.forceKey || meta.key,
+      priority: 1000
+    })
+  })
 
   const vehicleTags = []
-  if (launchers) launchers.split('|').map(s => s.trim()).filter(Boolean).forEach(t => vehicleTags.push(t))
-  if (spacecraft) spacecraft.split('|').map(s => s.trim()).filter(Boolean).forEach(t => vehicleTags.push(t))
+  if (launchers) {
+    launchers.split('|').map(s => s.trim()).filter(Boolean).forEach((t) => {
+      vehicleTags.push(t)
+    })
+  }
+  if (spacecraft) {
+    spacecraft.split('|').map(s => s.trim()).filter(Boolean).forEach((t) => {
+      vehicleTags.push(t)
+    })
+  }
   launcherList.forEach((entry) => {
     if (!vehicleTags.includes(entry.name)) vehicleTags.push(entry.name)
   })
@@ -112,16 +177,28 @@ function formatAgencyDetail(agency) {
     agency.successful_landings_payload
   )
 
-  const nameZh = translateAgencyName(agency.name, agency.abbrev)
+  const nameZh = resolveAgencyDisplayZh(agency.name, agency.abbrev, zhField(agency, 'name'))
+  const displayName = pickLocalized(nameZh, agency.name) || '未知机构'
+  const typeNameEn = (agency.type && agency.type.name) || ''
+  const parentRaw = (agency.parent && agency.parent.name) ||
+    (typeof agency.parent === 'string' ? agency.parent : '')
+  const parentZh = parentRaw
+    ? pickLocalized(zhField(agency.parent, 'name'), parentRaw)
+    : ''
+  const logoUrlRaw = overrideAgencyLogoUrl(agency, agency.logo ? (agency.logo.thumbnail_url || agency.logo.image_url) : '')
+  const imageThumbRaw = agency.image ? (agency.image.thumbnail_url || agency.image.image_url) : ''
+  const imageFullRaw = agency.image ? (agency.image.image_url || agency.image.thumbnail_url) : ''
+  // 与列表卡同源：代理大图 → 大图 → logo，失败可沿链回退
+  const heroChain = buildLl2ImageChain(imageThumbRaw, imageFullRaw, logoUrlRaw)
 
   return {
     id: agency.id,
-    // Hero/讨论区用中文名（词典命中时），"全称"行保留英文原名
-    name: nameZh || agency.name || '未知机构',
+    // Hero / 机构信息「全称」统一中文展示名（词典未命中时回落英文；SpaceX 等品牌保留原文）
+    name: displayName,
     nameEn: agency.name || '未知机构',
     abbrev: agency.abbrev || '',
-    typeName: agency.type ? agency.type.name : '未知',
-    typeClass: ((agency.type && agency.type.name) || '').toLowerCase().replace(/\s+/g, '-'),
+    typeName: pickLocalized(agency.type && zhField(agency.type, 'name'), typeNameEn),
+    typeClass: (typeNameEn || '').toLowerCase().replace(/\s+/g, '-'),
     featured: !!agency.featured,
     countryName: countryNames[0] || '',
     countryCode: countryCodes[0] || '',
@@ -130,13 +207,15 @@ function formatAgencyDetail(agency) {
     foundingYear,
     age,
     // SpaceX logo 全局统一（与全球发射统计页同源）
-    logoUrl: overrideAgencyLogoUrl(agency, agency.logo ? (agency.logo.thumbnail_url || agency.logo.image_url) : ''),
-    imageUrl: agency.image ? (agency.image.thumbnail_url || agency.image.image_url) : '',
+    logoUrl: logoUrlRaw,
+    logoBgTone: logoUrlRaw ? resolveAgencyLogoBgTone(logoUrlRaw) : '',
+    imageUrl: heroChain[0] || imageThumbRaw || '',
+    imageFallbacks: heroChain.slice(1),
     socialLogoUrl: agency.social_logo ? (agency.social_logo.thumbnail_url || agency.social_logo.image_url) : '',
     description: agency.description || '暂无简介',
+    descriptionZh: zhField(agency, 'description'),
     administrator: agency.administrator || '',
-    // LL2 parent 可能是字符串或对象（含 name），统一取字符串
-    parent: (agency.parent && agency.parent.name) || (typeof agency.parent === 'string' ? agency.parent : ''),
+    parent: parentZh,
     infoUrl: agency.info_url || '',
     wikiUrl: agency.wiki_url || '',
     totalLaunchCount,
@@ -187,6 +266,8 @@ Page({
     partialMessage: '',
     navTitle: '发射商详情',
     shareTitle: '发射商详情 | 火星探索日志',
+    /** 分享缩略图：优先发射商 logo（本地预下载路径），避免朋友圈落到头图大图 */
+    shareImage: '',
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
     scrollRefreshing: false,
@@ -200,17 +281,9 @@ Page({
     // SpaceX 专属：手机直连星链 D2C 统计（自监控中心迁入）
     spacexD2C: null,
     d2cRecentExpanded: false,
-    // NASA 专属：Artemis II 实时遥测（自监控中心迁入）
+    // NASA 专属：Artemis II / 罗曼（卡片组件自管拉取）
     artemisSectionVisible: false,
-    artemisMissionPhase: 'active',
-    artemisMissionSummary: null,
-    artemisEndedExpanded: false,
-    artemisLoading: false,
-    artemisError: '',
-    artemisMet: '',
-    artemisVelocityKmh: '—',
-    artemisDistEarthKm: '—',
-    isProUser: false,
+    romanSectionVisible: false,
     // 事件更新（推文）：仅 AGENCY_TWEET_SOURCES 命中的机构展示，页内只预览 2 条
     agencyTweetsVisible: false,
     agencyTweets: [],
@@ -224,7 +297,7 @@ Page({
     togglePageTranslation(this, {
       switchKey: 'descTranslated',
       loadingKey: 'descTranslating',
-      fields: [{ path: 'descI18n.agencyDesc', text: item.description || '' }]
+      fields: [{ path: 'descI18n.agencyDesc', text: item.description || '', zh: item.descriptionZh || '' }]
     })
   },
 
@@ -240,7 +313,31 @@ Page({
     const id = options.id ? String(options.id).trim() : ''
     const name = options.name ? decodeURIComponent(String(options.name)).trim() : ''
     const abbrev = options.abbrev ? decodeURIComponent(String(options.abbrev)).trim() : ''
+    this._agencyId = id
     this.initUiShell()
+    if (id) syncFavoriteState(this, 'agency', id)
+    if (name) this.setData({ navTitle: name, shareTitle: `${name} | 火星探索日志` })
+
+    // 卡片已显示的图直传头图（与飞船/助推器一致）
+    try {
+      const app = getApp()
+      const passed = app && app._agencyHeroImage
+      if (passed && (!id || String(passed.id) === String(id))) {
+        this._agencyHeroPassed = {
+          src: passed.src || '',
+          fallbacks: Array.isArray(passed.fallbacks) ? passed.fallbacks.slice() : []
+        }
+        if (this._agencyHeroPassed.src) {
+          this.setData({
+            item: {
+              imageUrl: this._agencyHeroPassed.src,
+              imageFallbacks: this._agencyHeroPassed.fallbacks
+            }
+          })
+        }
+        app._agencyHeroImage = null
+      }
+    } catch (e) {}
 
     // 分享卡片 24h 免门控窗口：过期后走 gateCheck（会员放行，非会员弹开通引导）
     const shareAllowed = await checkShareEntryGate(this, options, 'agency_encyclopedia', '全球发射商图鉴')
@@ -287,16 +384,18 @@ Page({
         spacexRecovery: null,
         spacexD2C: null,
         d2cRecentExpanded: false,
-        artemisSectionVisible: false
+        artemisSectionVisible: false,
+        romanSectionVisible: false
       })
-      this._clearArtemisPoll()
       this._textTranslateCache = null
+      this._textTranslateReverted = false
     }
     try {
       const resolved = await this.resolveAgencyId(requestParams)
       if (!resolved || !resolved.id) {
         throw new Error('未找到对应的发射商信息')
       }
+      this._agencyId = resolved.id
       const data = await getAgencyDetail(resolved.id, { skipLocalCache: !!requestParams.skipLocalCache })
       if (!data) {
         throw new Error('未获取到发射商数据')
@@ -305,21 +404,38 @@ Page({
       // 原始飞船构型对象仅存内存（体积大，不进 setData），跳转时直传详情页秒开
       this._spacecraftRawById = (item && item._spacecraftRawById) || {}
       if (item) delete item._spacecraftRawById
+      // 卡面已成功图优先，避免 API 链首失败把已显示头图冲掉
+      const passed = this._agencyHeroPassed
+      if (passed && passed.src && item) {
+        if (passed.src !== item.imageUrl) {
+          const fb = [item.imageUrl].concat(item.imageFallbacks || []).filter((u, i, arr) => {
+            return u && u !== passed.src && arr.indexOf(u) === i
+          })
+          item.imageUrl = passed.src
+          item.imageFallbacks = fb.concat(passed.fallbacks || []).filter((u, i, arr) => {
+            return u && u !== item.imageUrl && arr.indexOf(u) === i
+          })
+        }
+        this._agencyHeroPassed = null
+      }
       const partialData = !!(data && data.__partial)
       const partialMessage = partialData && data.__partialMessage
         ? data.__partialMessage
         : '当前先展示机构基础信息，统计与扩展资料将在云端详情同步完成后补齐。'
-      this.setData({
+      this.setData(Object.assign({
         loading: false,
         item,
         partialData,
         partialMessage: partialData ? partialMessage : '',
-        isFavorited: isFavoriteAgency(item && item.id),
-        navTitle: '发射商详情',
+        isFavorited: !!(item && item.id != null && isFavorite('agency', item.id)),
+        navTitle: (item && item.name) || '发射商详情',
         shareTitle: `${(item && item.name) || '发射商详情'} | 火星探索日志`
-      })
+      }, takeDescI18nSeed(this, { agencyDesc: item && item.descriptionZh })))
+      this._syncShareImage(item)
+      this._ensureAgencyLogoBg(item)
       this._markLauncherArchives()
       this._loadSpacexRecoveryStats(item)
+      this._initRomanSection(item, { silent: silentRefresh })
       this._initArtemisSection(item)
       this._loadAgencyLaunches(item)
       this._loadAgencyTweets(item)
@@ -343,14 +459,16 @@ Page({
           attempted_landings: null,
           successful_landings: null
         })
-        this.setData({
+        this.setData(Object.assign({
           loading: false,
           item: minimalItem,
           partialData: true,
           partialMessage: '完整数据正在云端同步，当前仅展示基础信息。稍后重新打开即可查看完整统计与扩展资料。',
-          navTitle: '发射商详情',
+          isFavorited: !!(minimalItem && minimalItem.id != null && isFavorite('agency', minimalItem.id)),
+          navTitle: requestParams.name || '发射商详情',
           shareTitle: `${requestParams.name || '发射商详情'} | 火星探索日志`
-        })
+        }, takeDescI18nSeed(this, { agencyDesc: minimalItem && minimalItem.descriptionZh })))
+        this._syncShareImage(minimalItem)
         return
       }
 
@@ -420,9 +538,8 @@ Page({
         if (thumb) images.push(getCachedMediaImage(thumb, 'none'))
       }
     })
-    // 头像：代理地址视为无效（与 progress 页同口径）
-    let avatar = item.authorAvatar || ''
-    if (avatar && !avatar.includes('.cos.')) avatar = ''
+    // 头像：按 source 约定路径校验防串（与 progress 页同口径）
+    let avatar = resolveEventAuthorAvatarUrl(item) || ''
     if (avatar) avatar = getCachedMediaImage(avatar, 'thumb')
     return {
       _id: item._id,
@@ -443,6 +560,8 @@ Page({
     }
     this._tweetSources = sources
     this.setData({ agencyTweetsVisible: true, agencyTweetsLoading: true, agencyTweets: [] })
+    // 薄壳在 shared 分包到位前头像解析返回空；分享冷启动时先等一次预热
+    await warmEventShareImage().catch(() => {})
     try {
       const db = wx.cloud.database()
       const _ = db.command
@@ -528,14 +647,21 @@ Page({
       return
     }
     try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
-    const favorited = toggleFavoriteAgency({
+    const favorited = toggleFavorite({
+      type: 'agency',
       id: item.id,
-      name: item.name || '',
-      abbrev: item.abbrev || '',
-      logoUrl: item.logoUrl || '',
-      typeName: item.typeName || ''
+      title: item.name || '',
+      subtitle: item.typeName || item.abbrev || '',
+      imageUrl: item.logoUrl || '',
+      category: 'agency',
+      extra: {
+        abbrev: item.abbrev || '',
+        typeName: item.typeName || '',
+        logoUrl: item.logoUrl || ''
+      }
     })
-    this.setData({ isFavorited: favorited })
+    // favAnimate：仅收藏动作触发弹跳动画；取消收藏或初始渲染不播
+    pulseFavAnimate(this, favorited)
     wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
   },
 
@@ -582,192 +708,27 @@ Page({
     this.setData({ d2cRecentExpanded: !this.data.d2cRecentExpanded })
   },
 
-  // ========== NASA 专属：Artemis II 实时遥测（自监控中心迁入） ==========
+  // ========== NASA 专属：罗曼太空望远镜（卡片组件与监控页共用） ==========
 
-  /** 仅 NASA 详情页展示；active 阶段自动拉取遥测并轮询 */
+  _initRomanSection(item) {
+    const visible = isNasaAgency(item) && romanTracker.shouldShowRomanSection()
+    if (this.data.romanSectionVisible !== visible) {
+      this.setData({ romanSectionVisible: visible })
+    }
+  },
+
+  // ========== NASA 专属：Artemis II 实时遥测（卡片组件自管拉取） ==========
+
   _initArtemisSection(item) {
-    const isNasa = item && (item.id === 44 || item.abbrev === 'NASA')
-    if (!isNasa || !artemisArow.shouldShowArtemisArowSection()) {
-      this._clearArtemisPoll()
-      if (this.data.artemisSectionVisible) this.setData({ artemisSectionVisible: false })
-      return
+    const visible = isNasaAgency(item) && artemisArow.shouldShowArtemisArowSection()
+    if (this.data.artemisSectionVisible !== visible) {
+      this.setData({ artemisSectionVisible: visible })
     }
-    const phase = artemisArow.getArtemisMissionPhase()
-    const patch = {
-      artemisSectionVisible: true,
-      artemisMissionPhase: phase,
-      isProUser: isProSync()
-    }
-    if (phase !== 'active') patch.artemisMissionSummary = artemisArow.getArtemisMissionSummary()
-    this.setData(patch)
-    if (phase === 'active') {
-      this.refreshArtemisBriefing(true)
-      this._scheduleArtemisPoll()
-    } else {
-      this._clearArtemisPoll()
-    }
-  },
-
-  async retryArtemisBriefing() {
-    try {
-      await this.refreshArtemisBriefing(true)
-      if (!this.data.artemisError) {
-        this._scheduleArtemisPoll()
-      }
-    } catch (_e) {
-      this.setData({
-        artemisLoading: false,
-        artemisError: '模块加载失败，请稍后重试'
-      })
-    }
-  },
-
-  _scheduleArtemisPoll() {
-    if (!artemisArow.shouldShowArtemisArowSection()) return
-    this._clearArtemisPoll()
-    const cfg = ARTEMIS_AROW_CONFIG || {}
-    const ms = Math.max(12000, Number(cfg.pollIntervalMs) || 15000)
-    this._artemisPollTimer = setInterval(() => {
-      this.refreshArtemisBriefing(false)
-    }, ms)
-  },
-
-  _clearArtemisPoll() {
-    if (this._artemisPollTimer) {
-      clearInterval(this._artemisPollTimer)
-      this._artemisPollTimer = null
-    }
-    this._stopArtemisInterp()
-  },
-
-  async refreshArtemisBriefing(showLoading) {
-    if (!artemisArow.shouldShowArtemisArowSection() || artemisArow.getArtemisMissionPhase() !== 'active') {
-      this._clearArtemisPoll()
-      return
-    }
-    // 竞态保护：轮询/手动刷新/onShow 可能并发触发，旧响应不得覆盖新响应
-    const seq = (this._artemisFetchSeq = (this._artemisFetchSeq || 0) + 1)
-    if (showLoading) {
-      this.setData({ artemisLoading: true, artemisError: '' })
-    }
-    try {
-      const data = await artemisArow.fetchArtemisIiBriefing()
-      if (seq !== this._artemisFetchSeq) return
-      if (!data || !data.ok) {
-        this.setData({
-          artemisLoading: false,
-          artemisError: (data && data.error) ? String(data.error) : '数据不可用'
-        })
-        return
-      }
-      const fmtInt = (n) => {
-        if (!Number.isFinite(n)) return '—'
-        return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-      }
-
-      this.setData({
-        artemisLoading: false,
-        artemisError: '',
-        artemisMet: data.missionElapsedText || '—',
-        artemisVelocityKmh: fmtInt(data.velocityKmh),
-        artemisDistEarthKm: fmtInt(data.distanceFromEarthKm)
-      })
-
-      // 保存原始数值用于插值
-      this._artemisRaw = {
-        velocityKmh: data.velocityKmh || 0,
-        distEarthKm: data.distanceFromEarthKm || 0,
-        snapshotMs: Date.now()
-      }
-      // 启动每秒插值（卡片上 MET + 速率 + 距地）
-      this._startArtemisInterp()
-    } catch (_e) {
-      if (seq !== this._artemisFetchSeq) return
-      this.setData({
-        artemisLoading: false,
-        artemisError: '网络异常，请稍后重试'
-      })
-    }
-  },
-
-  /** 每秒插值：基于速率推算距离变化，MET 精确到秒 */
-  _startArtemisInterp() {
-    this._stopArtemisInterp()
-    const launchMs = artemisArow.getArtemisLaunchMs()
-    const pad2 = (n) => String(n).padStart(2, '0')
-    const fmtInt = (n) => {
-      if (!Number.isFinite(n)) return '—'
-      return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-    }
-
-    // 立即执行一次
-    this._artemisInterpTick(launchMs, pad2, fmtInt)
-
-    this._artemisInterpTimer = setInterval(() => {
-      this._artemisInterpTick(launchMs, pad2, fmtInt)
-    }, 1000)
-  },
-
-  _artemisInterpTick(launchMs, pad2, fmtInt) {
-    const raw = this._artemisRaw
-    if (!raw) return
-    const now = Date.now()
-    const dtS = (now - raw.snapshotMs) / 1000
-
-    // MET 精确到秒
-    let met = '—'
-    if (isFinite(launchMs) && now >= launchMs) {
-      let s = Math.floor((now - launchMs) / 1000)
-      const d = Math.floor(s / 86400); s -= d * 86400
-      const h = Math.floor(s / 3600); s -= h * 3600
-      const m = Math.floor(s / 60); s -= m * 60
-      met = pad2(d) + ':' + pad2(h) + ':' + pad2(m) + ':' + pad2(s)
-    }
-
-    const vKmS = raw.velocityKmh / 3600
-    const distEarth = raw.distEarthKm + vKmS * dtS
-
-    // 只下发有变化的字段（速率两次快照之间不变，距地公里数取整后也常不变）
-    const velocityText = fmtInt(raw.velocityKmh)
-    const distText = fmtInt(distEarth)
-    const patch = {}
-    if (this.data.artemisMet !== met) patch.artemisMet = met
-    if (this.data.artemisVelocityKmh !== velocityText) patch.artemisVelocityKmh = velocityText
-    if (this.data.artemisDistEarthKm !== distText) patch.artemisDistEarthKm = distText
-    if (Object.keys(patch).length) this.setData(patch)
-  },
-
-  _stopArtemisInterp() {
-    if (this._artemisInterpTimer) {
-      clearInterval(this._artemisInterpTimer)
-      this._artemisInterpTimer = null
-    }
-  },
-
-  async goArtemisDetail() {
-    const allowed = await gateCheck('artemis_telemetry', 'Artemis 遥测面板')
-    if (!allowed) return
-    navigateTo(ROUTES.ARTEMIS_DETAIL)
-  },
-
-  toggleArtemisEnded() {
-    this.setData({ artemisEndedExpanded: !this.data.artemisEndedExpanded })
   },
 
   onShow() {
-    // 返回本页时恢复遥测轮询（active 阶段）
-    if (this.data.artemisSectionVisible && this.data.artemisMissionPhase === 'active') {
-      this._scheduleArtemisPoll()
-      this.refreshArtemisBriefing(false)
-    }
-  },
-
-  onHide() {
-    this._clearArtemisPoll()
-  },
-
-  onUnload() {
-    this._clearArtemisPoll()
+    const favId = (this.data.item && this.data.item.id) || this._agencyId
+    if (favId != null && String(favId) !== '') syncFavoriteState(this, 'agency', favId)
   },
 
   /** 火箭型号标签：同名标签的多个构型 id 逐个匹配族谱 _config_meta，命中的标记为可跳转 */
@@ -856,6 +817,16 @@ Page({
   },
 
   onHeroImageError() {
+    const item = this.data.item || {}
+    const advanced = advanceImageFallback(item.imageUrl, item.imageFallbacks)
+    if (advanced.next) {
+      this.setData({
+        heroImageLoaded: false,
+        'item.imageUrl': advanced.next,
+        'item.imageFallbacks': advanced.remaining
+      })
+      return
+    }
     this.setData({
       heroImageLoaded: false,
       'item.imageUrl': ''
@@ -865,29 +836,140 @@ Page({
   copyLink(e) {
     const url = e.currentTarget.dataset.url
     if (!url) return
+    const name = e.currentTarget.dataset.name || ''
     wx.setClipboardData({
       data: url,
       success: () => {
-        wx.showToast({ title: '链接已复制', icon: 'none' })
+        wx.showToast({
+          title: name ? (name + '链接已复制') : '链接已复制',
+          icon: 'none'
+        })
+      }
+    })
+  },
+
+  /** 详情 logo：落盘后分析透明底色并写回 logoBgTone */
+  _ensureAgencyLogoBg(item) {
+    const remote = item && item.logoUrl ? String(item.logoUrl).trim() : ''
+    if (!remote || !isRemoteAgencyLogoUrl(remote)) return
+    const self = this
+    persistAgencyLogoAfterRemoteLoad(remote, function (localPath) {
+      if (!localPath) return
+      ensureAgencyLogoBgTone(remote, localPath, function (tone) {
+        if (!tone) return
+        const cur = self.data.item
+        if (!cur || cur.logoBgTone === tone) return
+        self.setData({ 'item.logoBgTone': tone })
+      })
+    })
+  },
+
+  onAgencyLogoLoad() {
+    this._ensureAgencyLogoBg(this.data.item)
+  },
+
+  /**
+   * 分享缩略图：用发射商 logo（非头图大图）。
+   * 本地缓存命中优先；外链走 Worker 代理，便于朋友圈 download 域名合规。
+   */
+  _pickAgencyShareImage(item) {
+    if (!item || typeof item !== 'object') return ''
+    const logo = String(item.logoUrl || '').trim()
+    const social = String(item.socialLogoUrl || '').trim()
+    const pick = logo || social
+    if (!pick) return ''
+    const resolved = resolveAgencyLogoForDisplay(pick) || pick
+    // USER_DATA_PATH / wxfile / tmp 等本地路径可直接作分享图
+    if (
+      resolved.indexOf('wxfile://') === 0 ||
+      /^http:\/\/(tmp|usr)\b/i.test(resolved) ||
+      (typeof wx !== 'undefined' && wx.env && wx.env.USER_DATA_PATH && resolved.indexOf(wx.env.USER_DATA_PATH) === 0) ||
+      !/^https?:\/\//i.test(resolved)
+    ) {
+      return resolved
+    }
+    return proxiedImageUrl(resolved) || resolved
+  },
+
+  _syncShareImage(item) {
+    const url = this._pickAgencyShareImage(item)
+    if (!url) {
+      if (this.data.shareImage) this.setData({ shareImage: '' })
+      this._shareImageSourceUrl = ''
+      return
+    }
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    this.ensureShareImageHttpUrl(url)
+  },
+
+  /**
+   * 将网络 logo 落到本地临时路径，规避 iOS 朋友圈对部分远程缩略图加载失败
+   */
+  ensureShareImageHttpUrl(imageUrl) {
+    if (!imageUrl || typeof imageUrl !== 'string') return
+    const trimmed = imageUrl.trim()
+    if (!trimmed) return
+    if (
+      trimmed.indexOf('wxfile://') === 0 ||
+      /^http:\/\/(tmp|usr)\b/i.test(trimmed) ||
+      (typeof wx !== 'undefined' && wx.env && wx.env.USER_DATA_PATH && trimmed.indexOf(wx.env.USER_DATA_PATH) === 0)
+    ) {
+      if (this.data.shareImage !== trimmed) this.setData({ shareImage: trimmed })
+      return
+    }
+    if (this._shareImageSourceUrl === trimmed && this.data.shareImage) return
+    this._shareImageSourceUrl = trimmed
+    const self = this
+    wx.getImageInfo({
+      src: trimmed,
+      success(res) {
+        if (res && res.path && self._shareImageSourceUrl === trimmed) {
+          self.setData({ shareImage: res.path })
+        }
+      },
+      fail() {
+        if (self._shareImageSourceUrl === trimmed) self._shareImageSourceUrl = ''
       }
     })
   },
 
   onShareAppMessage() {
     const item = this.data.item
-    return {
-      title: this.data.shareTitle,
-      path: item
-        ? withShareStampPath(`/subpackages/monitor-pages/agency-detail?id=${item.id}`, this)
-        : '/pages/monitor/monitor'
+    const imageUrl = this.data.shareImage || this._pickAgencyShareImage(item)
+    const agencyId = (item && item.id != null) ? item.id : this._agencyId
+    const id = agencyId != null && agencyId !== '' ? encodeURIComponent(String(agencyId)) : ''
+    const name = String((item && item.name) || this.data.navTitle || '').trim().slice(0, 40)
+    let path = '/pages/monitor/monitor'
+    if (id) {
+      path = `/subpackages/monitor-pages/agency-detail?id=${id}`
+      if (name && name !== '发射商详情') path += `&name=${encodeURIComponent(name)}`
+      path = withShareStampPath(path, this)
     }
+    const result = {
+      title: this.data.shareTitle,
+      path
+    }
+    if (imageUrl) result.imageUrl = imageUrl
+    return result
   },
 
   onShareTimeline() {
     const item = this.data.item
-    return {
-      title: this.data.shareTitle,
-      query: item ? withShareStampQuery(`id=${item.id}`, this) : ''
+    const imageUrl = this.data.shareImage || this._pickAgencyShareImage(item)
+    const agencyId = (item && item.id != null) ? item.id : this._agencyId
+    const id = agencyId != null && agencyId !== '' ? encodeURIComponent(String(agencyId)) : ''
+    const name = String((item && item.name) || this.data.navTitle || '').trim().slice(0, 40)
+    let query = ''
+    if (id) {
+      query = `id=${id}`
+      if (name && name !== '发射商详情') query += `&name=${encodeURIComponent(name)}`
+      query = withShareStampQuery(query, this)
     }
+    const result = {
+      title: this.data.shareTitle,
+      query
+    }
+    if (imageUrl) result.imageUrl = imageUrl
+    return result
   }
 })

@@ -1,0 +1,715 @@
+/* 观礼商家中心（中性色走 tokens 变量，浅色主题自动翻转） */
+
+.page {
+  min-height: 100vh;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  transition: padding-bottom 0.22s ease;
+  box-sizing: border-box;
+}
+.page-scroll { height: 100vh; width: 100%; box-sizing: border-box; padding-bottom: env(safe-area-inset-bottom); }
+/* 已绑定：给底部固定同行推荐条留空，避免遮挡解绑/页脚 */
+.page-scroll--peer-dock {
+  padding-bottom: calc(168rpx + env(safe-area-inset-bottom));
+}
+.section-header { display: flex; align-items: center; padding: 40rpx 32rpx 20rpx; gap: 12rpx; }
+.section-title { font-size: 32rpx; font-weight: 600; color: var(--color-text-primary); flex: 1; }
+.loading-spinner-lg { width: 56rpx; height: 56rpx; border: 4rpx solid var(--color-divider); border-top-color: #3B82F6; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.page-footer { text-align: center; padding: 40rpx 0 80rpx; }
+.footer-text { font-size: 22rpx; color: var(--color-text-quaternary); }
+
+.wpm-loading { display: flex; flex-direction: column; align-items: center; padding: 160rpx 0; gap: 24rpx; }
+.wpm-loading-text { font-size: 26rpx; color: var(--color-text-tertiary); }
+.wpm-error { display: flex; flex-direction: column; align-items: center; padding: 140rpx 48rpx; gap: 20rpx; }
+.wpm-error-text { font-size: 28rpx; color: var(--color-text-secondary); text-align: center; }
+.wpm-retry-btn { margin-top: 12rpx; padding: 16rpx 64rpx; border-radius: 40rpx; background: #3B82F6; color: #fff; font-size: 28rpx; }
+
+/* ── 商家会员缴费提示 ── */
+.wpm-pay-banner {
+  margin: 24rpx 32rpx 0;
+  padding: 28rpx 32rpx;
+  border-radius: 20rpx;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1rpx solid rgba(245, 158, 11, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+.wpm-pay-banner--ok {
+  background: rgba(52, 211, 153, 0.10);
+  border-color: rgba(52, 211, 153, 0.32);
+}
+.wpm-pay-banner-title { font-size: 28rpx; font-weight: 700; color: var(--color-text-primary); }
+.wpm-pay-banner-desc { font-size: 24rpx; line-height: 1.6; color: var(--color-text-secondary); }
+.wpm-pay-banner-meta { font-size: 22rpx; color: var(--color-text-tertiary); }
+
+/* ── 绑定卡 ── */
+.wpm-bind-card {
+  margin: 32rpx;
+  padding: 48rpx 40rpx;
+  border-radius: 24rpx;
+  background: var(--color-bg-card);
+  border: 1rpx solid var(--color-divider);
+  display: flex;
+  flex-direction: column;
+  gap: 24rpx;
+}
+.wpm-bind-title { font-size: 36rpx; font-weight: 700; }
+.wpm-bind-desc { font-size: 26rpx; line-height: 1.7; color: var(--color-text-secondary); }
+.wpm-bind-input {
+  display: block;
+  width: 100%;
+  height: 96rpx;
+  min-height: 96rpx;
+  /* 单行 textarea：行高 + 上下 padding 垂直居中 */
+  line-height: 48rpx;
+  padding: 24rpx 28rpx;
+  border-radius: 16rpx;
+  background: var(--color-bg);
+  border: 1rpx solid var(--color-divider);
+  font-size: 34rpx;
+  letter-spacing: 4rpx;
+  /* 原生输入组件：深色字面色，避免聚焦时 var 失效看不见 */
+  color: #F5F5F7;
+  caret-color: #F5F5F7;
+  box-sizing: border-box;
+}
+.wpm-ph {
+  color: #5A5A5E;
+  font-size: 28rpx;
+  letter-spacing: 0;
+}
+.wpm-primary-btn {
+  height: 88rpx;
+  border-radius: 44rpx;
+  background: #3B82F6;
+  color: #fff;
+  font-size: 30rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wpm-btn--disabled { opacity: 0.5; }
+.wpm-bind-hint { font-size: 22rpx; color: var(--color-text-quaternary); line-height: 1.6; }
+
+/* ── 合作申请卡（未绑定视图）：提交即自动入驻 ── */
+.wpm-coop-card {
+  margin: 0 32rpx 32rpx;
+  padding: 40rpx;
+  border-radius: 24rpx;
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(59, 130, 246, 0.14), transparent 60%),
+    var(--color-bg-card);
+  border: 1rpx solid rgba(96, 165, 250, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+.wpm-coop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+}
+.wpm-coop-head-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+.wpm-coop-tag { font-size: 20rpx; letter-spacing: 2rpx; color: var(--color-text-quaternary); }
+.wpm-coop-title { font-size: 34rpx; font-weight: 700; }
+.wpm-coop-desc { font-size: 25rpx; line-height: 1.7; color: var(--color-text-secondary); }
+.wpm-coop-arrow {
+  flex-shrink: 0;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #60A5FA;
+}
+.wpm-coop-form {
+  margin-top: 16rpx;
+  display: flex;
+  flex-direction: column;
+}
+.wpm-coop-row { display: flex; align-items: center; gap: 20rpx; min-height: 96rpx; }
+.wpm-coop-row + .wpm-coop-row { border-top: 1rpx solid var(--color-divider-faint); }
+.wpm-coop-row--multi { align-items: flex-start; padding: 22rpx 0; }
+.wpm-coop-row--multi .wpm-coop-label { padding-top: 6rpx; }
+.wpm-coop-label { width: 140rpx; flex-shrink: 0; font-size: 26rpx; color: var(--color-text-secondary); }
+.wpm-coop-input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  height: 88rpx;
+  min-height: 88rpx;
+  /* 单行 textarea：行高 + 上下 padding 垂直居中 */
+  line-height: 40rpx;
+  padding: 24rpx 0;
+  font-size: 28rpx;
+  background: transparent;
+  color: #F2F2F7;
+  caret-color: #F2F2F7;
+  box-sizing: border-box;
+}
+.wpm-coop-input--multi {
+  height: auto;
+  min-height: 120rpx;
+  padding: 6rpx 0;
+}
+.wpm-coop-form .wpm-primary-btn { margin-top: 28rpx; }
+.wpm-coop-form .wpm-bind-hint { margin-top: 16rpx; }
+
+/* ── 商家信息卡 ── */
+.wpm-merchant-card {
+  margin: 24rpx 32rpx 0;
+  padding: 32rpx;
+  border-radius: 24rpx;
+  background: linear-gradient(160deg, #14213d 0%, #0b0c0e 70%);
+  border: 1rpx solid rgba(96, 165, 250, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+.wpm-merchant-head { display: flex; align-items: center; gap: 16rpx; }
+
+/* ── 商家头像（点按上传/更换，≤2M；无头像时显示 + 占位） ── */
+.wpm-avatar {
+  width: 76rpx;
+  height: 76rpx;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1rpx solid var(--color-divider);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.wpm-avatar--hover { opacity: 0.72; }
+.wpm-avatar-img { width: 100%; height: 100%; border-radius: 50%; display: block; }
+.wpm-avatar-plus { font-size: 44rpx; font-weight: 300; line-height: 1; color: var(--color-text-quaternary); }
+
+.wpm-merchant-name { font-size: 34rpx; font-weight: 700; color: #fff; flex: 1; min-width: 0; }
+.wpm-edit-link { flex-shrink: 0; padding: 4rpx 8rpx; }
+.wpm-edit-link text { font-size: 24rpx; color: #60A5FA; }
+
+/* ── 入驻资料编辑（展开于商家信息卡内） ── */
+.wpm-profile { margin-top: 24rpx; border-top: 1rpx solid var(--color-divider); }
+.wpm-profile-row { display: flex; align-items: center; gap: 20rpx; min-height: 92rpx; }
+.wpm-profile-row + .wpm-profile-row { border-top: 1rpx solid var(--color-divider-faint); }
+.wpm-profile-row--qr { align-items: flex-start; padding: 20rpx 0; }
+.wpm-coop-row--qr { align-items: flex-start; }
+.wpm-qr-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16rpx;
+  padding: 8rpx 0;
+}
+.wpm-qr-thumb {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 12rpx;
+  background: #fff;
+}
+.wpm-qr-link {
+  font-size: 26rpx;
+  color: #60A5FA;
+}
+.theme-light .wpm-qr-link { color: #2563EB; }
+.wpm-profile-label { width: 130rpx; flex-shrink: 0; font-size: 26rpx; color: var(--color-text-secondary); }
+.wpm-profile-input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  height: 84rpx;
+  min-height: 84rpx;
+  /* 单行 textarea：行高 + 上下 padding 垂直居中 */
+  line-height: 40rpx;
+  padding: 22rpx 0;
+  font-size: 28rpx;
+  /* 原生输入组件：深色字面色，避免聚焦时 var 失效看不见 */
+  color: #F5F5F7;
+  caret-color: #F5F5F7;
+  box-sizing: border-box;
+}
+.wpm-profile-save {
+  margin-top: 20rpx;
+  height: 84rpx;
+  border-radius: 42rpx;
+  background: #3B82F6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wpm-profile-save text { font-size: 28rpx; font-weight: 600; color: #fff; }
+.wpm-profile-hint {
+  display: block;
+  margin-top: 14rpx;
+  font-size: 22rpx;
+  color: var(--color-text-quaternary);
+  line-height: 1.6;
+}
+.wpm-merchant-status {
+  font-size: 22rpx;
+  height: 44rpx;
+  padding: 0 18rpx;
+  border-radius: 22rpx;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  text-align: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+.wpm-status--ok { color: #FFFFFF; background: #07C160; border: 1rpx solid #07C160; }
+.wpm-status--warn { color: #07C160; background: rgba(7, 193, 96, 0.15); border: 1rpx solid rgba(7, 193, 96, 0.4); }
+.wpm-merchant-code-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-top: 4rpx;
+}
+.wpm-merchant-code { font-size: 24rpx; color: rgba(255, 255, 255, 0.55); }
+.wpm-code-eye {
+  width: 48rpx;
+  height: 48rpx;
+  margin: -8rpx 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 24rpx;
+}
+.wpm-code-eye--hover { background: rgba(255, 255, 255, 0.08); }
+.wpm-code-eye-icon { width: 32rpx; height: 32rpx; opacity: 0.85; }
+
+/* ── 场次列表 ── */
+.wpm-add-btn {
+  padding: 10rpx 28rpx;
+  border-radius: 32rpx;
+  background: #3B82F6;
+  color: #fff;
+  font-size: 26rpx;
+}
+.wpm-empty { margin: 24rpx 32rpx; padding: 64rpx 32rpx; border-radius: 24rpx; background: var(--color-bg-card); border: 1rpx dashed var(--color-divider); }
+.wpm-empty-text { display: block; font-size: 26rpx; color: var(--color-text-tertiary); text-align: center; line-height: 1.8; white-space: pre-line; }
+
+.wpm-session-card {
+  margin: 20rpx 32rpx 0;
+  border-radius: 24rpx;
+  background: var(--color-bg-card);
+  border: 1rpx solid var(--color-divider);
+  overflow: hidden;
+}
+.wpm-session-main { padding: 28rpx 28rpx 20rpx; }
+.wpm-session-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 20rpx;
+}
+.wpm-session-rocket {
+  width: 88rpx;
+  height: 120rpx;
+  flex-shrink: 0;
+  border-radius: 12rpx;
+  background: var(--color-divider-faint);
+  border: 1rpx solid var(--color-divider);
+  overflow: hidden;
+}
+.wpm-session-rocket--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36rpx;
+}
+.wpm-session-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+.wpm-session-head { display: flex; align-items: center; gap: 14rpx; }
+.wpm-session-title { flex: 1; font-size: 30rpx; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wpm-session-tag {
+  font-size: 20rpx;
+  height: 40rpx;
+  padding: 0 16rpx;
+  border-radius: 20rpx;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  text-align: center;
+  box-sizing: border-box;
+}
+.wpm-tag--open { color: #FFFFFF; background: #07C160; }
+.wpm-tag--closed { color: #07C160; background: rgba(7, 193, 96, 0.12); }
+.wpm-tag--off { color: var(--color-text-quaternary); background: var(--color-divider); }
+.wpm-session-sub { font-size: 24rpx; color: var(--color-text-secondary); }
+.wpm-session-stats { font-size: 22rpx; color: var(--color-text-tertiary); }
+.wpm-session-ssr { font-size: 22rpx; color: #07C160; }
+.wpm-session-qr { font-size: 22rpx; color: #07C160; }
+.wpm-cycle-toggle {
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: var(--color-text-tertiary);
+}
+.wpm-cycle-list {
+  margin-top: 10rpx;
+  padding: 12rpx 16rpx;
+  border-radius: 12rpx;
+  background: rgba(0, 0, 0, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+.wpm-cycle-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2rpx;
+}
+.wpm-cycle-title {
+  font-size: 24rpx;
+  color: var(--color-text-secondary);
+}
+.wpm-cycle-stats {
+  font-size: 20rpx;
+  color: var(--color-text-quaternary);
+}
+.theme-light .wpm-cycle-list {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.wpm-session-actions { display: flex; flex-wrap: wrap; border-top: 1rpx solid var(--color-divider); }
+.wpm-action-btn {
+  flex: 1 1 25%;
+  min-width: 22%;
+  height: 76rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24rpx;
+  color: #60A5FA;
+  box-sizing: border-box;
+}
+.wpm-action-btn + .wpm-action-btn { border-left: 1rpx solid var(--color-divider); }
+/* 原生分享 button 重置为动作条样式（open-type=share 只能用 button 触发） */
+.wpm-share-btn {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  line-height: inherit;
+  font-weight: 400;
+}
+.wpm-share-btn::after { border: none; }
+/* 删除：收藏图标同款红（#FF3B30）底 + 白字，避免过艳 */
+.wpm-action-btn--danger {
+  color: #FFFFFF;
+  background: #FF3B30;
+  font-weight: 600;
+}
+/* 确认发射成功：微信绿底白字 */
+.wpm-action-btn--launch {
+  color: #FFFFFF;
+  background: #07C160;
+  font-weight: 600;
+}
+/* 开启下一场：蓝底白字 */
+.wpm-action-btn--next {
+  color: #FFFFFF;
+  background: #3B82F6;
+  font-weight: 600;
+}
+/* 已确认发射成功：保持微信绿，与「确认发射成功」同色系可点态 */
+.wpm-action-btn--done {
+  color: #FFFFFF;
+  background: #07C160;
+  font-weight: 600;
+}
+
+/* ── 同行推荐：固定底栏 + 紧凑横排（窄转发钮，文案完整换行） ── */
+.wpm-peer-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  padding: 10rpx 24rpx calc(10rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  background: linear-gradient(180deg, rgba(11, 12, 14, 0), var(--color-bg) 36%);
+  pointer-events: none;
+}
+.wpm-peer-card {
+  margin: 0;
+  padding: 16rpx 18rpx;
+  border-radius: 18rpx;
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(59, 130, 246, 0.12), transparent 60%),
+    var(--color-bg-card);
+  border: 1rpx solid rgba(96, 165, 250, 0.28);
+  pointer-events: auto;
+  box-shadow: 0 -4rpx 24rpx rgba(0, 0, 0, 0.12);
+}
+.wpm-peer-main {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+.wpm-peer-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2rpx;
+}
+.wpm-peer-tag {
+  font-size: 18rpx;
+  letter-spacing: 2rpx;
+  color: var(--color-text-quaternary);
+  line-height: 1.3;
+}
+.wpm-peer-title {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  line-height: 1.3;
+}
+.wpm-peer-desc {
+  font-size: 22rpx;
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+  word-break: break-all;
+}
+/* 原生分享 button：压掉默认通栏宽度，按文案收窄 */
+.wpm-peer-btn {
+  margin: 0 !important;
+  padding: 0 20rpx !important;
+  flex: 0 0 auto;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none;
+  height: 56rpx;
+  border-radius: 28rpx;
+  background: #3B82F6;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  box-sizing: border-box;
+}
+.wpm-peer-btn::after { border: none; }
+.wpm-peer-btn:active { opacity: 0.85; }
+.wpm-peer-btn text { font-size: 24rpx; font-weight: 600; color: #fff; white-space: nowrap; }
+
+.wpm-unbind { text-align: center; padding: 48rpx 0 0; }
+.wpm-unbind text { font-size: 24rpx; color: var(--color-text-quaternary); text-decoration: underline; }
+
+/* ── 线下物料码弹层：量级对齐简报弹窗（约 70vh / 宽 92%），预览由图标区 JS 等比缩放 ── */
+.wpm-material-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 20rpx calc(16px + env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+}
+.wpm-material-sheet {
+  width: 92%;
+  max-width: 720rpx;
+  max-height: 70vh;
+  padding: 28rpx 28rpx 0;
+  border-radius: 28rpx;
+  background: var(--color-bg-card);
+  border: 1rpx solid var(--color-divider);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.wpm-material-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.wpm-material-title {
+  display: block;
+  flex-shrink: 0;
+  font-size: 32rpx;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+.wpm-material-desc {
+  display: block;
+  flex-shrink: 0;
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  line-height: 1.45;
+  color: var(--color-text-tertiary);
+}
+.wpm-material-preview-host {
+  flex: 1;
+  min-height: 0;
+  margin-top: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wpm-material-preview-wrap {
+  flex-shrink: 0;
+  border-radius: 12rpx;
+  overflow: hidden;
+  background: #0B0C0E;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.wpm-material-preview {
+  display: block;
+  border-radius: 12rpx;
+  background: #0B0C0E;
+}
+.wpm-material-loading {
+  flex-shrink: 0;
+  border-radius: 12rpx;
+  background: rgba(0, 0, 0, 0.04);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12rpx;
+  font-size: 22rpx;
+  color: var(--color-text-tertiary);
+  box-sizing: border-box;
+}
+.wpm-material-spinner {
+  border-style: solid;
+  border-color: var(--color-divider);
+  border-top-color: #3B82F6;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  box-sizing: border-box;
+}
+.wpm-material-actions {
+  flex-shrink: 0;
+  margin-top: 16rpx;
+  padding: 4rpx 0 22rpx;
+  display: flex;
+  gap: 16rpx;
+  background: var(--color-bg-card);
+}
+.wpm-material-btn {
+  flex: 1;
+  height: 76rpx;
+  border-radius: 38rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #3B82F6;
+  color: #fff;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+.wpm-material-btn--ghost {
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1rpx solid var(--color-divider);
+  font-weight: 500;
+}
+.wpm-material-canvas {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+  width: 750px;
+  height: 1180px;
+}
+
+/* ============================================================
+ * 明亮主题覆盖：彩色强调与深色专属背景（与观礼落地页同款处理）
+ * ============================================================ */
+
+.theme-light .wpm-merchant-card {
+  background: linear-gradient(160deg, #EAF1FE 0%, #FFFFFF 70%);
+  border-color: rgba(59, 130, 246, 0.22);
+}
+.theme-light .wpm-avatar { background: rgba(0, 0, 0, 0.05); }
+.theme-light .wpm-merchant-name { color: #1C1C1E; }
+.theme-light .wpm-edit-link text { color: #2563EB; }
+.theme-light .wpm-profile-input { color: #1C1C1E; caret-color: #1C1C1E; }
+.theme-light .wpm-merchant-code { color: rgba(28, 28, 30, 0.5); }
+.theme-light .wpm-code-eye--hover { background: rgba(0, 0, 0, 0.06); }
+
+/* 「合作中 / 预约中」：双主题统一微信绿实底 + 白字；警告态浅色压深 */
+.theme-light .wpm-status--ok { color: #FFFFFF; background: #07C160; border-color: #07C160; }
+.theme-light .wpm-status--warn { color: #07C160; background: rgba(7, 193, 96, 0.12); border-color: rgba(7, 193, 96, 0.35); }
+
+.theme-light .wpm-tag--open { color: #FFFFFF; background: #07C160; }
+.theme-light .wpm-tag--closed { color: #07C160; background: rgba(7, 193, 96, 0.12); }
+.theme-light .wpm-session-qr { color: #07C160; }
+
+.theme-light .wpm-action-btn { color: #2563EB; }
+.theme-light .wpm-action-btn--danger { color: #FFFFFF; background: #FF3B30; font-weight: 600; }
+/* 须写在通用 .wpm-action-btn 之后，避免浅色把实心底刷成蓝字 */
+.theme-light .wpm-action-btn--launch { color: #FFFFFF; background: #07C160; font-weight: 600; }
+.theme-light .wpm-action-btn--next { color: #FFFFFF; background: #3B82F6; font-weight: 600; }
+.theme-light .wpm-action-btn--done { color: #FFFFFF; background: #07C160; font-weight: 600; }
+.theme-light .wpm-session-ssr { color: #07C160; }
+.theme-light .wpm-session-rocket {
+  background: rgba(0, 0, 0, 0.03);
+}
+.theme-light .wpm-ph { color: #8E8E93; }
+.theme-light .wpm-peer-dock {
+  background: linear-gradient(180deg, rgba(244, 245, 247, 0), var(--color-bg) 36%);
+}
+.theme-light .wpm-peer-card {
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(37, 99, 235, 0.08), transparent 60%),
+    var(--color-bg-card);
+  border-color: rgba(37, 99, 235, 0.28);
+  box-shadow: 0 -4rpx 24rpx rgba(15, 23, 42, 0.06);
+}
+.theme-light .wpm-peer-btn { background: #2563EB; }
+.theme-light .wpm-peer-btn text { color: #fff; }
+.theme-light .wpm-pay-banner {
+  background: rgba(245, 158, 11, 0.10);
+  border-color: rgba(217, 119, 6, 0.28);
+}
+.theme-light .wpm-pay-banner--ok {
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(5, 150, 105, 0.28);
+}
+
+.theme-light .wpm-bind-input {
+  color: #1C1C1E;
+  caret-color: #1C1C1E;
+}
+.theme-light .wpm-coop-input {
+  color: #1C1C1E;
+  caret-color: #1C1C1E;
+}
+.theme-light .wpm-coop-card {
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(37, 99, 235, 0.08), transparent 60%),
+    var(--color-bg-card);
+  border-color: rgba(37, 99, 235, 0.28);
+}
+.theme-light .wpm-coop-arrow { color: #2563EB; }
+.theme-light .wpm-material-loading {
+  background: rgba(0, 0, 0, 0.03);
+}

@@ -1,0 +1,48 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="container {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top:{{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">每日挑战</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view class="content-scroll" scroll-y enhanced show-scrollbar="{{false}}" style="padding-top:{{navPlaceholderHeight}}px;">
+    <view class="stats-row glass-card">
+      <text class="stats-text">正确率 {{quizStats.accuracy}}% · 已答 {{quizStats.totalAnswered}} 题</text>
+    </view>
+
+    <view class="quiz-card glass-card" wx:if="{{quizQuestion}}">
+      <text class="quiz-badge">太空问答 #{{quizQuestion.id}}</text>
+      <text class="quiz-question">{{quizQuestion.question}}</text>
+      <view class="quiz-options">
+        <view
+          class="quiz-option {{quizSelectedIndex === index ? 'quiz-option--selected' : ''}} {{quizAnswered && index === quizQuestion.answer ? 'quiz-option--correct' : ''}} {{quizAnswered && quizSelectedIndex === index && index !== quizQuestion.answer ? 'quiz-option--wrong' : ''}} {{quizShake && quizSelectedIndex === index && index !== quizQuestion.answer ? 'quiz-option--shake' : ''}}"
+          wx:for="{{quizQuestion.options}}"
+          wx:key="*this"
+          bindtap="onSelect"
+          data-index="{{index}}"
+        >
+          <text class="quiz-letter">{{['A','B','C','D'][index]}}</text>
+          <text class="quiz-text">{{item}}</text>
+          <text class="quiz-check {{quizCheckPop ? 'quiz-check--pop' : ''}}" wx:if="{{quizAnswered && index === quizQuestion.answer}}">✓</text>
+        </view>
+      </view>
+      <view class="quiz-result" wx:if="{{quizResult}}">
+        <text class="quiz-result-tag {{quizResult.correct ? 'quiz-result-tag--ok' : 'quiz-result-tag--bad'}}">
+          {{quizResult.correct ? '回答正确！' : '回答错误'}}
+        </text>
+        <text class="quiz-explain">{{quizResult.explanation}}</text>
+      </view>
+    </view>
+
+    <view class="empty" wx:else>
+      <text class="empty-title">今日题目加载中或暂无题目</text>
+    </view>
+
+    <view style="height: 80rpx;"></view>
+  </scroll-view>
+</view>

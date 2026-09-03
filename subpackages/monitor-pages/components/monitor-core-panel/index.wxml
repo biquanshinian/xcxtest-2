@@ -1,0 +1,182 @@
+<view class="monitor-core-panel {{themeClass}}">
+    <!-- 航警预览已直接嵌在监控页，不进本组件，避免分包占位把原生 map 拆掉 -->
+
+    <!-- 空间站实时状态 -->
+    <view class="station-section monitor-block">
+      <view class="section-title">
+        <view class="section-title-main">
+          <text>空间站实时状态</text>
+          <text class="section-subtitle">ISS / 天宫</text>
+        </view>
+        <view class="section-badge" wx:if="{{stationList.length}}">{{stationList.length}}</view>
+        <view class="section-title-right">
+          <view class="monitor-share-wrap">
+            <image class="icon-share icon-share--monitor" src="/images/share-arrow.svg" mode="aspectFit"></image>
+            <button class="monitor-share-btn" open-type="share" hover-class="none" data-share-type="station" bindtap="emitMarkPendingShareType" plain="true"></button>
+          </view>
+        </view>
+      </view>
+
+      <!-- 未加载态 -->
+      <lazy-load-card wx:if="{{!stationReady}}" icon="" text="点击加载空间站状态" hint="ISS / 天宫空间站实时数据" bind:tap="emitOnLoadStationStatus" />
+
+      <block wx:else>
+      <!-- 加载中 -->
+      <view class="station-loading" wx:if="{{stationLoading}}">
+        <text class="station-loading-text">加载空间站数据...</text>
+      </view>
+
+      <!-- 两个空间站卡片并排 -->
+      <view class="station-row" wx:if="{{stationList.length}}">
+        <view class="station-mini-card glass-card"
+              wx:for="{{stationList}}" wx:key="id"
+              data-station-id="{{item.id}}" bindtap="emitOnStationCardTap">
+          <image class="station-mini-img {{stationImageLoadedMap[index] ? 'station-mini-img--loaded' : ''}}" wx:if="{{item.image}}" src="{{item.image}}" mode="aspectFill" lazy-load bindload="emitOnStationImageLoad" binderror="emitOnStationImageError" data-index="{{index}}" />
+          <view class="station-mini-img station-mini-img--placeholder" wx:else></view>
+          <view class="station-mini-body">
+            <text class="station-mini-name">{{item.name}}</text>
+            <view class="station-mini-tags">
+              <text class="station-tag station-tag--active" wx:if="{{item.statusTone === 'active'}}">运行中</text>
+              <text class="station-mini-dock">{{item.dockedCount}} 艘停靠</text>
+            </view>
+          </view>
+          <view class="station-mini-arrow">
+            <text>›</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 无数据 -->
+      <view class="station-empty" wx:if="{{!stationLoading && !stationList.length}}">
+        <view class="station-empty-visual"></view>
+        <text class="empty-state-text">空间站数据加载失败</text>
+        <text class="empty-state-hint">请稍后重试</text>
+      </view>
+      </block>
+    </view>
+
+    <!-- 星链实时分布 -->
+    <view class="starlink-section monitor-block">
+      <view class="section-title">
+        <text>星链实时分布</text>
+        <view class="section-badge" wx:if="{{starlinkCount}}">{{starlinkCount}}</view>
+        <view class="section-title-right">
+          <view class="monitor-share-wrap">
+            <image class="icon-share icon-share--monitor" src="/images/share-arrow.svg" mode="aspectFit"></image>
+            <button class="monitor-share-btn" open-type="share" hover-class="none" data-share-type="starlink" bindtap="emitMarkPendingShareType" plain="true"></button>
+          </view>
+        </view>
+      </view>
+
+      <!-- 未加载态：显示加载按钮 -->
+      <lazy-load-card wx:if="{{!starlinkReady}}" icon="" text="点击加载卫星实时分布" hint="需加载轨道数据，可能需要几秒" bind:tap="emitOnLoadStarlink" />
+
+      <view class="starlink-card glass-card" wx:else>
+        <!-- 加载态 -->
+        <view class="starlink-loading" wx:if="{{starlinkLoading}}">
+          <view class="starlink-loading-orbit"></view>
+          <text class="starlink-loading-text">加载卫星轨道数据...</text>
+        </view>
+        <!-- 错误态 -->
+        <view class="starlink-error" wx:elif="{{starlinkError}}">
+          <text class="starlink-error-text">{{starlinkError}}</text>
+          <view class="starlink-retry-btn" bindtap="emitRetryLoadStarlink">重试</view>
+        </view>
+        <!-- 正常态：Canvas 地图 -->
+        <block wx:else>
+          <view class="starlink-canvas-wrap">
+            <canvas type="2d" id="starlinkCanvas" class="starlink-canvas" bindtouchstart="emitOnStarlinkTouchStart" bindtouchmove="emitOnStarlinkTouchMove" bindtouchend="emitOnStarlinkTouchEnd"></canvas>
+            <!-- HUD 四角角框装饰 -->
+            <view class="starlink-hud-corners starlink-hud-corners--top"></view>
+            <view class="starlink-hud-corners starlink-hud-corners--bottom"></view>
+            <!-- 全屏按钮 -->
+            <view class="starlink-expand-hint {{isProUser ? 'pro-gold-frame' : ''}}" bindtap="emitOpenStarlinkFullscreen">
+              <text class="starlink-expand-text">全屏</text>
+            </view>
+            <!-- 暂停/播放按钮 -->
+            <view class="starlink-ctrl-bar">
+              <view class="starlink-ctrl-btn" bindtap="emitToggleStarlinkPause">
+                <view class="ctrl-icon-play" wx:if="{{starlinkPaused}}"></view>
+                <view class="ctrl-icon-pause" wx:else></view>
+              </view>
+              <text class="starlink-ctrl-info">在轨 {{starlinkCount}} 颗 · {{starlinkUpdateTime}}</text>
+            </view>
+          </view>
+        </block>
+      </view>
+    </view>
+
+    <!-- Starlink 过境预报 -->
+    <view class="pass-section monitor-block">
+      <view class="section-title">
+        <text>星链过境预报</text>
+        <view class="section-title-right pass-actions">
+          <view class="pass-refresh-chip" bindtap="emitRefreshPasses" wx:if="{{passReady && !passLoading}}">
+            <text>刷新</text>
+          </view>
+          <view class="monitor-share-wrap">
+            <image class="icon-share icon-share--monitor" src="/images/share-arrow.svg" mode="aspectFit"></image>
+            <button class="monitor-share-btn" open-type="share" hover-class="none" data-share-type="pass" bindtap="emitMarkPendingShareType" plain="true"></button>
+          </view>
+        </view>
+      </view>
+
+      <!-- 未加载态 -->
+      <lazy-load-card wx:if="{{!passReady}}" icon="" text="点击加载过境预报" hint="需要位置权限和轨道数据" bind:tap="emitOnLoadStarlinkPasses" />
+
+      <block wx:else>
+      <!-- 融合入口卡片：位置 + 预报摘要 + 光效背景 -->
+      <view class="pass-hero-card glass-card" wx:if="{{passReady && !passLoading && !passNoLocation && !passError}}" bindtap="emitOpenPassDetail">
+        <!-- 星链列车拖尾光效 -->
+        <view class="pass-hero-trail pass-hero-trail--1"></view>
+        <view class="pass-hero-trail pass-hero-trail--2"></view>
+        <view class="pass-hero-trail pass-hero-trail--3"></view>
+
+        <view class="pass-hero-card-body">
+          <view class="pass-hero-card-top">
+            <view class="pass-hero-card-info">
+              <text class="pass-hero-card-title" wx:if="{{passList.length > 0}}">{{passList.length}} 次可见过境</text>
+              <text class="pass-hero-card-title" wx:else>暂无可见过境</text>
+              <text class="pass-hero-card-loc" wx:if="{{passLocation}}">{{passLocation}}</text>
+            </view>
+            <view class="pass-hero-card-btns">
+              <view class="pass-hero-chip {{isProUser ? 'pass-hero-chip--pro' : ''}}" catchtap="emitOpenPassMap" wx:if="{{passList.length > 0}}">
+                <text>地图</text>
+              </view>
+              <view class="pass-hero-chip {{isProUser ? 'pass-hero-chip--pro' : ''}}" catchtap="emitOpenStarlinkAR">
+                <text>AR</text>
+              </view>
+            </view>
+          </view>
+          <view class="pass-hero-card-bottom" wx:if="{{passList.length > 0 && passList[0]}}">
+            <text class="pass-hero-card-next">最近 {{passList[0].startTimeStr}}</text>
+            <text class="pass-hero-card-meta">仰角 {{passList[0].maxElev}}° · {{passList[0].startDirection}}→{{passList[0].endDirection}} · {{passList[0].durationMin}}分钟</text>
+          </view>
+          <view class="pass-hero-card-bottom" wx:elif="{{passList.length === 0}}">
+            <text class="pass-hero-card-meta">查看观测指南与讨论区</text>
+          </view>
+        </view>
+        <text class="pass-hero-card-arrow">›</text>
+      </view>
+
+      <view class="pass-loading glass-card" wx:elif="{{passLoading}}">
+        <text class="empty-state-text">计算过境数据...</text>
+      </view>
+      <view class="pass-empty glass-card" wx:elif="{{passNoLocation}}">
+        <image class="pass-location-icon" src="/images/icons/icon-location.svg" mode="aspectFit"></image>
+        <text class="empty-state-text">需要位置权限</text>
+        <text class="empty-state-hint" wx:if="{{passError}}">{{passError}}</text>
+        <view class="pass-locate-btn" bindtap="emitRequestPassLocation">
+          <text>授权定位</text>
+        </view>
+      </view>
+      <view class="pass-empty glass-card" wx:elif="{{passError}}">
+        <text class="empty-state-text">加载失败</text>
+        <text class="empty-state-hint">{{passError}}</text>
+        <view class="pass-locate-btn" bindtap="emitRefreshPasses">
+          <text>重试</text>
+        </view>
+      </view>
+      </block>
+    </view>
+</view>

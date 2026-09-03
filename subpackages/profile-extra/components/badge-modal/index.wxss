@@ -1,0 +1,155 @@
+.badge-modal-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(8, 10, 16, 0.72);
+  backdrop-filter: blur(20rpx) saturate(140%);
+  -webkit-backdrop-filter: blur(20rpx) saturate(140%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.badge-modal-icon-wrap {
+  position: relative;
+  width: 360rpx;
+  height: 360rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.badge-modal-icon-img {
+  width: 300rpx;
+  height: 300rpx;
+  position: relative;
+  z-index: 2;
+  filter: drop-shadow(0 16rpx 40rpx rgba(0, 0, 0, 0.45));
+}
+
+.badge-modal-icon--locked {
+  opacity: 0.35;
+  filter: grayscale(1);
+}
+
+.badge-modal-icon--locked .badge-modal-icon-img {
+  filter: grayscale(1);
+}
+
+.badge-modal-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 420rpx;
+  height: 420rpx;
+  margin-top: -210rpx;
+  margin-left: -210rpx;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 210, 110, 0.4) 0%, rgba(255, 180, 60, 0.16) 42%, transparent 68%);
+  animation: glowPulse 2.4s ease-in-out infinite;
+  z-index: 1;
+}
+
+.badge-modal-icon--entrance {
+  animation: badgeEntrance 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.badge-sparks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.badge-spark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10rpx;
+  height: 10rpx;
+  margin: -5rpx 0 0 -5rpx;
+  border-radius: 50%;
+  background: #FFD56A;
+  box-shadow: 0 0 8rpx rgba(255, 213, 106, 0.85);
+}
+
+.badge-spark.s1 { animation: badge-spark-1 0.7s ease-out 0.12s both; }
+.badge-spark.s2 { width: 8rpx; height: 8rpx; animation: badge-spark-2 0.7s ease-out 0.18s both; }
+.badge-spark.s3 { animation: badge-spark-3 0.7s ease-out 0.22s both; }
+.badge-spark.s4 { width: 7rpx; height: 7rpx; animation: badge-spark-4 0.7s ease-out 0.16s both; }
+.badge-spark.s5 { animation: badge-spark-5 0.7s ease-out 0.28s both; }
+.badge-spark.s6 { width: 8rpx; height: 8rpx; animation: badge-spark-6 0.7s ease-out 0.24s both; }
+
+@keyframes badge-spark-1 {
+  0% { transform: translate(0, 0) scale(0.4); opacity: 0; }
+  35% { opacity: 1; }
+  100% { transform: translate(-86rpx, -72rpx) scale(0.2); opacity: 0; }
+}
+@keyframes badge-spark-2 {
+  0% { transform: translate(0, 0) scale(0.4); opacity: 0; }
+  35% { opacity: 1; }
+  100% { transform: translate(92rpx, -64rpx) scale(0.2); opacity: 0; }
+}
+@keyframes badge-spark-3 {
+  0% { transform: translate(0, 0) scale(0.4); opacity: 0; }
+  35% { opacity: 1; }
+  100% { transform: translate(-70rpx, 78rpx) scale(0.2); opacity: 0; }
+}
+@keyframes badge-spark-4 {
+  0% { transform: translate(0, 0) scale(0.4); opacity: 0; }
+  35% { opacity: 1; }
+  100% { transform: translate(78rpx, 86rpx) scale(0.2); opacity: 0; }
+}
+@keyframes badge-spark-5 {
+  0% { transform: translate(0, 0) scale(0.4); opacity: 0; }
+  35% { opacity: 1; }
+  100% { transform: translate(0, -98rpx) scale(0.2); opacity: 0; }
+}
+@keyframes badge-spark-6 {
+  0% { transform: translate(0, 0) scale(0.4); opacity: 0; }
+  35% { opacity: 1; }
+  100% { transform: translate(-18rpx, 96rpx) scale(0.2); opacity: 0; }
+}
+
+@keyframes glowPulse {
+  0%, 100% { opacity: 0.7; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.06); }
+}
+
+@keyframes badgeEntrance {
+  0% {
+    transform: perspective(800rpx) rotateY(180deg) scale(0.3);
+    opacity: 0;
+  }
+  40% {
+    transform: perspective(800rpx) rotateY(-20deg) scale(1.1);
+    opacity: 1;
+  }
+  60% {
+    transform: perspective(800rpx) rotateY(10deg) scale(0.95);
+  }
+  80% {
+    transform: perspective(800rpx) rotateY(-5deg) scale(1.02);
+  }
+  100% {
+    transform: perspective(800rpx) rotateY(0deg) scale(1);
+    opacity: 1;
+  }
+}
+
+.theme-light .badge-modal-mask {
+  background: rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(40rpx) saturate(140%);
+  -webkit-backdrop-filter: blur(40rpx) saturate(140%);
+}
+
+.theme-light .badge-modal-icon-img {
+  filter: drop-shadow(0 16rpx 40rpx rgba(0, 0, 0, 0.16));
+}
+
+.theme-light .badge-modal-icon--locked .badge-modal-icon-img {
+  filter: grayscale(1);
+}

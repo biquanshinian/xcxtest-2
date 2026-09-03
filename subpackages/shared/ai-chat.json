@@ -1,0 +1,13 @@
+{
+  "navigationBarTitleText": "星问",
+  "navigationStyle": "custom",
+  "backgroundTextStyle": "dark",
+  "backgroundColor": "#000000",
+  "backgroundColorContent": "#000000",
+  "backgroundColorTop": "#000000",
+  "backgroundColorBottom": "#000000",
+  "usingComponents": {
+    "ai-chat": "./components/ai-chat/index",
+    "share-guide": "./components/share-guide/index"
+  }
+}

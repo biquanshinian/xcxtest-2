@@ -1,5 +1,7 @@
 const cloud = require('wx-server-sdk')
 const crypto = require('crypto')
+const outcomeVoteSettle = require('./outcome-vote-settle.js')
+const voteRecordHelpers = require('./vote-record-helpers.js')
 
 // COS SDK / bcryptjs 体积大，顶层同步 require 会拖慢冷启动数秒；
 // 竞猜等高频用户请求用不到它们，改为使用处懒加载 + 模块级缓存
@@ -42,15 +44,19 @@ const COLLECTIONS = {
   SPACEX_STATS: 'spacex_launch_stats',
   CAROUSEL: 'carousel_config',
   MEDIA_ASSETS: 'media_assets',
-  MEDIA_FEED: 'media_feed',
+  /** 火箭配置图等媒体删除墓碑：阻止 COS 同步把已删记录重新 add */
+  MEDIA_ASSET_TOMBSTONES: 'media_asset_tombstones',
   SHOP_FEED: 'shop_feed',
   LIVE_CONFIG: 'live_config',
   CHANNELS_LIVE_CONFIG: 'channels_live_config',
   STARSHIP_SPLASH: 'starship_splash_config',
+  ORBIT_PANO: 'orbit_pano_config',
   CHECKLIST_HISTORY: 'starship_checklist_history',
   STARSHIP_EVENT_UPDATES: 'starship_event_updates',
   GLOBAL_CONFIG: 'global_config',
   ANNOUNCEMENTS: 'system_announcements',
+  /** 公告投票用户记录：_id = ann_${公告id}_${openid}，保证一人一票 */
+  ANNOUNCEMENT_VOTE_RECORDS: 'announcement_vote_records',
   PUSH_HISTORY: 'push_history',
   LAUNCH_SUBSCRIPTIONS: 'launch_subscriptions',
   LAUNCH_VOTES: 'launch_votes',
@@ -85,9 +91,23 @@ const ADMIN_GATEWAY_EXTRA_COLLECTIONS = [
   'security_captchas',
   'oa_auto_alert_users',
   'oa_push_ledger',
-  'bilibili_topic_keywords',
-  'bilibili_topic_blacklist',
-  'bilibili_publish_queue'
+  'oa_prompts',
+  'oa_strategies',
+  'oa_drafts',
+  'oa_content_jobs',
+  'oa_benchmark_accounts',
+  'oa_viral_articles',
+  'oa_viral_titles',
+  'oa_collected_articles',
+  'watch_party_sessions',
+  'watch_party_reservations',
+  'watch_party_merchants',
+  'watch_party_config',
+  'watch_party_merchant_leads',
+  'souvenir_cards',
+  'souvenir_draws',
+  'souvenir_draw_quota',
+  'preaudit_projects'
 ]
 
 function ensureAdminGatewayCollectionsOnce() {
@@ -108,8 +128,6 @@ function ensureAdminGatewayCollectionsOnce() {
 }
 
 const GATEWAY_CACHE_COLLECTION = 'security_gateway_cache'
-const PROFILE_FEED_CACHE_VERSION_KEY = 'profile_feed_version'
-
 function ok(data = null, message = 'ok') {
   return { code: 0, message, data }
 }
@@ -120,29 +138,6 @@ function fail(code, message, data = null) {
 
 function now() {
   return Date.now()
-}
-
-/** 与 profileFeedGateway / sync 一致，避免后台改库后小程序仍命中旧列表缓存 */
-async function bumpProfileFeedCacheVersion() {
-  const ts = now()
-  try {
-    await db.collection(GATEWAY_CACHE_COLLECTION).doc(PROFILE_FEED_CACHE_VERSION_KEY).update({
-      data: {
-        value: _.inc(1),
-        updatedAt: ts
-      }
-    })
-  } catch (e) {
-    try {
-      await db.collection(GATEWAY_CACHE_COLLECTION).doc(PROFILE_FEED_CACHE_VERSION_KEY).set({
-        data: {
-          value: 1,
-          updatedAt: ts,
-          expireAt: ts + 3650 * 24 * 60 * 60 * 1000
-        }
-      })
-    } catch (e2) {}
-  }
 }
 
 function sha256(input) {
@@ -347,6 +342,13 @@ function parseToken(token) {
   }
 }
 
+function asDoc(res) {
+  const raw = res && res.data
+  if (!raw) return null
+  if (Array.isArray(raw)) return raw[0] || null
+  return raw
+}
+
 async function requireAuth(headers = {}) {
   const authHeader = headers.Authorization || headers.authorization || ''
   const token = authHeader.replace(/^Bearer\s+/i, '').trim()
@@ -356,7 +358,7 @@ async function requireAuth(headers = {}) {
   if (!parsed || !parsed.id) return null
 
   const userRes = await db.collection(COLLECTIONS.USERS).doc(parsed.id).get().catch(() => null)
-  const user = userRes?.data || null
+  const user = asDoc(userRes)
   if (!user || user.status !== 'active') return null
 
   const tokenVersion = Number(user.tokenVersion || 0)
@@ -366,7 +368,7 @@ async function requireAuth(headers = {}) {
   if (Number(parsed.pwdUpdatedAt || 0) !== pwdUpdatedAt) return null
 
   return {
-    id: user._id,
+    id: user._id || parsed.id,
     username: user.username,
     role: user.role || 'viewer',
     permissions: user.permissions || [],
@@ -386,32 +388,36 @@ function mustRole(user, minRole) {
 
 const PERMISSION_MODULES = {
   dashboard: '仪表盘',
-  news_events: 'Events管理',
-  news_articles: 'Articles管理',
-  road_closure: '封路通知',
-  spacex_stats: 'SpaceX发射统计',
+  preaudit: '一键预审',
+  statistics: '数据统计',
+  oa_content: '公众号内容中台',
+  news_events: '事件管理',
+  news_articles: '文章管理',
+  launch_data: '发射数据',
   starship_status: '星舰状态',
   starship_progress: '星舰建设进度',
   starship_events: '事件更新追踪',
-  inspiration_feed: '灵感流照片集',
-  shop_feed: '小店数据',
-  carousel: '轮播图管理',
-  splash_screen: '开屏动画',
-  cos_storage: 'COS云存储',
-  users: '用户权限',
-  logs: '操作日志',
-  push_notify: '推送通知管理',
-  launch_data: '发射数据管理',
   tweet_monitor: '推文同步监控',
-  statistics: '数据统计分析',
+  road_closure: '封路通知',
+  spacex_stats: 'SpaceX 统计',
   live_mgmt: '直播管理',
-  cloud_functions: '云函数管理',
-  global_config: '全局配置中心',
+  push_notify: '推送通知',
+  launch_votes: '发射竞猜',
+  lunar_wishes: '月愿计划',
+  astro_photos: '航天摄影',
+  milestone_rewards: '里程碑彩蛋',
+  knowledge_cards: '知识卡',
+  watch_party: '观礼服务',
+  shop_feed: '小店与弹窗广告',
+  carousel: '轮播图',
+  splash_screen: '开屏动画与环绕全景',
   announcements: '系统公告',
+  cos_storage: '云存储与火箭模型',
+  global_config: '全局配置与会员',
+  cloud_functions: '云函数',
   data_export: '数据导出',
-  lunar_wishes: '月愿计划管理',
-  milestone_rewards: '里程碑彩蛋管理',
-  knowledge_cards: '知识卡管理'
+  users: '用户权限',
+  logs: '操作日志'
 }
 
 function hasPermission(user, mod) {
@@ -513,7 +519,7 @@ function pick(obj = {}, keys = []) {
 }
 
 async function verifyPassword(user, plain) {
-  const password = String(plain || '')
+  const password = String(plain || '').trim()
   if (!user || !password) return false
 
   if (user.passwordHash && /^\$2[aby]\$/.test(user.passwordHash)) {
@@ -615,11 +621,10 @@ async function safeCount(collection) {
 }
 
 async function getDashboardOverview() {
-  const [events, articles, carousel, mediaFeed, shopFeed, mediaAssets, spaceDevsCache, roadClosure, starshipEventUpdates, recentEvents, logs, cosFileCount, splashConfig] = await Promise.all([
+  const [events, articles, carousel, shopFeed, mediaAssets, spaceDevsCache, roadClosure, starshipEventUpdates, recentEvents, logs, cosFileCount, splashConfig] = await Promise.all([
     safeCount(COLLECTIONS.EVENTS),
     safeCount(COLLECTIONS.ARTICLES),
     (async () => { try { const r = await db.collection(COLLECTIONS.MEDIA_ASSETS).where({ key: db.RegExp({ regexp: '^首页轮播图/', options: 'i' }) }).count(); return r.total || 0 } catch (e) { return 0 } })(),
-    safeCount(COLLECTIONS.MEDIA_FEED),
     safeCount(COLLECTIONS.SHOP_FEED),
     safeCount(COLLECTIONS.MEDIA_ASSETS),
     safeCount('space_devs_cache'),
@@ -651,7 +656,6 @@ async function getDashboardOverview() {
       events,
       articles,
       carousel,
-      mediaFeed,
       shopFeed,
       mediaAssets,
       spaceDevsCache,
@@ -782,13 +786,9 @@ async function listStarshipEvents(query = {}) {
   const page = Math.max(1, Number(query.page || 1))
   const pageSize = Math.min(50, Math.max(1, Number(query.pageSize || 20)))
   const status = (query.status || '').trim()
-  const biliStatus = (query.bilibiliSyncStatus || '').trim()
 
   let where = {}
   if (status) where.status = status
-  if (biliStatus && biliStatus !== 'idle') {
-    where.bilibiliSyncStatus = biliStatus
-  }
 
   const dbQuery = db.collection(col).where(where)
   const [countRes, listRes] = await Promise.all([
@@ -797,33 +797,12 @@ async function listStarshipEvents(query = {}) {
       .skip((page - 1) * pageSize).limit(pageSize).get()
   ])
 
-  let list = listRes.data || []
-  let total = countRes.total
-  if (biliStatus === 'idle') {
-    list = list.filter((row) => {
-      const st = row.bilibiliSyncStatus
-      return !st || st === 'idle'
-    })
-    // 粗略：idle 筛选在当前页过滤；精确分页成本高，后台够用
-    total = list.length
-  }
-
-  return ok({ list, total, page, pageSize })
-}
-
-async function triggerBilibiliEnqueue(from) {
-  try {
-    const res = await cloud.callFunction({
-      name: 'publishBilibiliFromEvents',
-      data: { from, action: 'auto_enqueue' }
-    })
-    const payload = (res && res.result) || res || {}
-    console.log('[triggerBilibiliEnqueue]', from, JSON.stringify(payload))
-    return payload
-  } catch (e) {
-    console.warn('[triggerBilibiliEnqueue] failed', from, e.message || e)
-    return { ok: false, error: e.message || String(e) }
-  }
+  return ok({
+    list: listRes.data || [],
+    total: countRes.total,
+    page,
+    pageSize
+  })
 }
 
 async function createStarshipEvent(body, user) {
@@ -846,17 +825,12 @@ async function createStarshipEvent(body, user) {
     author: user.username,
     publishedAt: isPublished ? now() : 0,
     createdAt: now(),
-    updatedAt: now(),
-    bilibiliSyncStatus: 'idle'
+    updatedAt: now()
   }
 
   const res = await db.collection(col).add({ data: payload })
   await writeOpLog({ user, module: col, action: 'create', targetId: res._id, after: payload })
-  let bilibiliEnqueue = null
-  if (isPublished) {
-    bilibiliEnqueue = await triggerBilibiliEnqueue('event_create')
-  }
-  return ok({ id: res._id, bilibiliEnqueue })
+  return ok({ id: res._id })
 }
 
 async function updateStarshipEvent(id, body, user) {
@@ -885,13 +859,7 @@ async function updateStarshipEvent(id, body, user) {
 
   await ref.update({ data: patch })
   await writeOpLog({ user, module: col, action: 'update', targetId: id, before, after: { ...before, ...patch } })
-  const becamePublished = patch.status === 'published' && before.status !== 'published'
-  let bilibiliEnqueue = null
-  // 仅「首次发布」触发入队，避免每次编辑已发布事件都扫库
-  if (becamePublished) {
-    bilibiliEnqueue = await triggerBilibiliEnqueue('event_update')
-  }
-  return ok({ bilibiliEnqueue })
+  return ok(true)
 }
 
 function eventMediaCosKeyFromUrl(url) {
@@ -1152,7 +1120,9 @@ async function ensureChannelsLiveCoverPreview(doc) {
   const cos = createCOSClient()
   const next = { ...normalized }
   const nowTs = now()
-  if (!next.posterUrl) next.posterUrl = splashPosterUrl(sourceKey)
+  if (!next.posterUrl || splashPosterNeedsRefresh(next.posterUrl)) {
+    next.posterUrl = splashPosterUrl(sourceKey)
+  }
 
   const previewKey = liveCoverPreviewKey(sourceKey)
   const previewUrl = splashPublicUrl(previewKey)
@@ -1384,6 +1354,8 @@ async function updateChannelsLiveFallbackGuide(body, user) {
 
 // ── 太空轨道数据中心系统配置 ──
 const ORBITAL_CONFIG_ID = 'orbital_data_center_config'
+/** 媒体资源版本：升高后下次 GET 会把云库 bgImage/bgVideo 迁移到当前 ORBITAL_DEFAULT */
+const ORBITAL_MEDIA_VERSION = 3
 
 const ORBITAL_DEFAULT = {
   // 监控页卡片配置
@@ -1394,7 +1366,7 @@ const ORBITAL_DEFAULT = {
     titleEn: 'Orbital Data Center System',
     titleCn: '太空轨道数据中心系统',
     desc: '超前部署 · 应对 SpaceX 下一代轨道战略',
-    bgImage: '',
+    bgImage: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E8%83%8C%E6%99%AF%E8%A7%86%E9%A2%91/1784884993160_b2tlgu.mp4',
     ctaText: '进入指挥控制台',
     metrics: {
       activeNodes: '128',
@@ -1404,8 +1376,8 @@ const ORBITAL_DEFAULT = {
   },
   // 详情页配置
   detail: {
-    /** 详情页全屏背景视频（mp4 HTTPS 地址，空则用小程序内置默认素材） */
-    bgVideo: '',
+    /** 详情页全屏背景视频（HTTPS 地址，空则用小程序内置默认素材） */
+    bgVideo: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E8%83%8C%E6%99%AF%E8%A7%86%E9%A2%91/1784888337241_ma680s.mp4',
     hudTitle: 'SYS-ODC // CONSOLE',
     hudSub: 'v0.1.0 · UNCLASSIFIED',
     statusText: 'ONLINE',
@@ -1453,19 +1425,35 @@ async function getOrbitalConfig() {
     const res = await db.collection(COLLECTIONS.GLOBAL_CONFIG).doc(ORBITAL_CONFIG_ID).get().catch(() => null)
     if (res && res.data) {
       const row = res.data
+      const card = {
+        ...ORBITAL_DEFAULT.card,
+        ...(row.card || {}),
+        metrics: { ...ORBITAL_DEFAULT.card.metrics, ...((row.card && row.card.metrics) || {}) }
+      }
+      const detail = { ...ORBITAL_DEFAULT.detail, ...(row.detail || {}) }
+      // 云库若仍是旧视频地址，会盖住代码默认值；按 mediaVersion 一次性迁移
+      if ((row.mediaVersion || 0) < ORBITAL_MEDIA_VERSION) {
+        card.bgImage = ORBITAL_DEFAULT.card.bgImage
+        detail.bgVideo = ORBITAL_DEFAULT.detail.bgVideo
+        db.collection(COLLECTIONS.GLOBAL_CONFIG).doc(ORBITAL_CONFIG_ID).update({
+          data: {
+            'card.bgImage': ORBITAL_DEFAULT.card.bgImage,
+            'detail.bgVideo': ORBITAL_DEFAULT.detail.bgVideo,
+            mediaVersion: ORBITAL_MEDIA_VERSION,
+            updatedAt: now()
+          }
+        }).catch(() => {})
+      }
       return ok({
         ...ORBITAL_DEFAULT,
         ...row,
-        card: {
-          ...ORBITAL_DEFAULT.card,
-          ...(row.card || {}),
-          metrics: { ...ORBITAL_DEFAULT.card.metrics, ...((row.card && row.card.metrics) || {}) }
-        },
-        detail: { ...ORBITAL_DEFAULT.detail, ...(row.detail || {}) }
+        card,
+        detail,
+        mediaVersion: Math.max(row.mediaVersion || 0, ORBITAL_MEDIA_VERSION)
       })
     }
   } catch (e) {}
-  return ok(ORBITAL_DEFAULT)
+  return ok({ ...ORBITAL_DEFAULT, mediaVersion: ORBITAL_MEDIA_VERSION })
 }
 
 async function updateOrbitalConfig(body, user) {
@@ -1481,6 +1469,7 @@ async function updateOrbitalConfig(body, user) {
       missionList:  Array.isArray(incoming.detail && incoming.detail.missionList)  ? incoming.detail.missionList  : ORBITAL_DEFAULT.detail.missionList,
       briefLines:   Array.isArray(incoming.detail && incoming.detail.briefLines)   ? incoming.detail.briefLines   : ORBITAL_DEFAULT.detail.briefLines
     },
+    mediaVersion: ORBITAL_MEDIA_VERSION,
     updatedAt: now(),
     updatedBy: (user && (user.username || user.account)) || ''
   }
@@ -1736,6 +1725,14 @@ async function deleteSpaceXStatsItem(id, user) {
 }
 
 /** NSF 抓取清单：合并快照与后台覆盖（管理端表格） */
+function pickNsfDisplayTitle(titleEn, titleZh) {
+  try {
+    return require('./nsf-checklist-i18n.js').pickDisplayTitle(titleEn, titleZh)
+  } catch (e) {
+    return String(titleZh || titleEn || '').trim()
+  }
+}
+
 function mergeNsfAdminRows(statuses, itemOverrides) {
   const ovRoot = itemOverrides && typeof itemOverrides === 'object' ? itemOverrides : {}
   const list = Array.isArray(statuses) ? statuses : []
@@ -1744,7 +1741,7 @@ function mergeNsfAdminRows(statuses, itemOverrides) {
       if (!raw || typeof raw !== 'object') return null
       const id = String(raw.id != null ? raw.id : `nsf_${i}`)
       const titleEn = String(raw.titleEn || raw.title || '').trim()
-      const titleZhMachine = String(raw.titleZh || '').trim()
+      const titleZhMachine = pickNsfDisplayTitle(titleEn, raw.titleZh)
       const titleZhAuto = titleZhMachine || titleEn
       const ov = ovRoot[id] || {}
       const ovZh = typeof ov.titleZh === 'string' ? ov.titleZh.trim() : ''
@@ -2018,6 +2015,22 @@ async function getStarshipSplashConfig() {
   return ok(doc)
 }
 
+/**
+ * 开屏媒体池右侧「任务选项列表」：
+ * 与小程序即将发射同源（LL2 upcoming 缓存，ordering=net），保持前端列表顺序
+ */
+async function listSplashUpcomingMissions() {
+  const data = await watchPartyApi().listUpcomingLaunchesCore(50)
+  const list = Array.isArray(data && data.list) ? data.list : []
+  return ok({ list, total: list.length, updatedAt: (data && data.updatedAt) || 0 })
+}
+
+async function listOrbitPanoPreviousMissions() {
+  const data = await watchPartyApi().listPreviousLaunchesCore(50)
+  const list = Array.isArray(data && data.list) ? data.list : []
+  return ok({ list, total: list.length, updatedAt: (data && data.updatedAt) || 0 })
+}
+
 function splashCosKeyFromUrl(url) {
   if (!url || typeof url !== 'string') return ''
   try {
@@ -2040,12 +2053,26 @@ function splashPublicUrl(key) {
 function splashPosterUrl(cosKeyOrUrl) {
   const key = cosKeyOrUrl.includes('://') ? splashCosKeyFromUrl(cosKeyOrUrl) : cosKeyOrUrl
   if (!key) return ''
-  return `${splashPublicUrl(key)}?ci-process=snapshot&time=0.5&format=jpg&width=720&height=1280&scaletype=cover`
+  // 只定宽、height=0：按片源比例缩放，绝不拉伸；竖屏满屏裁剪交给客户端 object-fit/aspectFill
+  // （同时指定非 0 宽高时 COS 会强制输出该尺寸，造成变形；scaletype 不是 snapshot 合法参数）
+  return `${splashPublicUrl(key)}?ci-process=snapshot&time=0.5&format=jpg&width=1080&height=0`
+}
+
+/** 旧封面 URL（双尺寸/scaletype）需刷新，否则会一直用已拉伸的截帧 */
+function splashPosterNeedsRefresh(url) {
+  const u = String(url || '')
+  if (!u) return true
+  if (!/ci-process=snapshot/i.test(u)) return true
+  if (/[?&]scaletype=/i.test(u)) return true
+  const hm = u.match(/[?&]height=(\d+)/i)
+  if (hm && Number(hm[1]) > 0) return true
+  return false
 }
 
 function splashPreviewKey(sourceKey) {
   const base = String(sourceKey || '').split('/').pop() || `splash_${Date.now()}.mp4`
-  const name = base.replace(/\.(mp4|mov|webm)$/i, '') + '_fast.mp4'
+  // _fast12q：12 秒 + 提画质；换后缀强制重转，避免沿用旧的 600kbps _fast12.mp4
+  const name = base.replace(/\.(mp4|mov|webm)$/i, '') + '_fast12q.mp4'
   return `开屏动画/preview/${name}`
 }
 
@@ -2066,7 +2093,14 @@ function splashHeadExists(cos, key) {
   })
 }
 
-/** 开屏专用：720p / 低码率全时长预览，保证冷启动秒开 */
+/** 开屏视频最长展示秒数（转码截取 + 客户端硬上限一致） */
+const SPLASH_VIDEO_MAX_SEC = 12
+/** 竖版 720 宽（9:16 ≈ 720×1280）。2.2Mbps @ 24fps 接近 0.1 bpp，手机全屏可看清，12 秒约 3.4MB */
+const SPLASH_PREVIEW_WIDTH = 720
+const SPLASH_PREVIEW_VIDEO_BITRATE = 2200
+const SPLASH_PREVIEW_AUDIO_BITRATE = 64
+
+/** 开屏专用：720p / 受控码率预览，最长截取前 12 秒 */
 function submitSplashPreviewJob(cos, inputKey, outputKey) {
   const body = `<?xml version="1.0" encoding="UTF-8"?>
 <Request>
@@ -2079,15 +2113,15 @@ function submitSplashPreviewJob(cos, inputKey, outputKey) {
       <Container><Format>mp4</Format></Container>
       <Video>
         <Codec>H.264</Codec>
-        <Profile>main</Profile>
-        <Bitrate>600</Bitrate>
-        <Width>720</Width>
+        <Profile>high</Profile>
+        <Bitrate>${SPLASH_PREVIEW_VIDEO_BITRATE}</Bitrate>
+        <Width>${SPLASH_PREVIEW_WIDTH}</Width>
         <Fps>24</Fps>
         <Preset>medium</Preset>
       </Video>
       <Audio>
         <Codec>aac</Codec>
-        <Bitrate>48</Bitrate>
+        <Bitrate>${SPLASH_PREVIEW_AUDIO_BITRATE}</Bitrate>
         <Channels>2</Channels>
         <Samplerate>44100</Samplerate>
       </Audio>
@@ -2096,6 +2130,10 @@ function submitSplashPreviewJob(cos, inputKey, outputKey) {
         <IsCheckReso>false</IsCheckReso>
         <ResoAdjMethod>1</ResoAdjMethod>
       </TransConfig>
+      <TimeInterval>
+        <Start>0</Start>
+        <Duration>${SPLASH_VIDEO_MAX_SEC}</Duration>
+      </TimeInterval>
     </Transcode>
     <Output>
       <Region>${COS_REGION}</Region>
@@ -2114,6 +2152,119 @@ function submitSplashPreviewJob(cos, inputKey, outputKey) {
       Body: body
     }, (err, data) => (err ? reject(err) : resolve(data)))
   })
+}
+
+const SPLASH_NOTICE_MAX_PLAIN = 80
+const SPLASH_NOTICE_SIZE_MIN = 12
+const SPLASH_NOTICE_SIZE_MAX = 36
+const SPLASH_NOTICE_ALLOWED_ALIGN = { left: true, center: true, right: true }
+
+function isAllowedSplashNoticeSize(px) {
+  const n = Number(px)
+  return Number.isFinite(n) && n >= SPLASH_NOTICE_SIZE_MIN && n <= SPLASH_NOTICE_SIZE_MAX
+}
+
+function splashNoticePlainLen(html) {
+  return String(html || '')
+    .replace(/<br\s*\/?>/gi, '')
+    .replace(/<\/(div|p)>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&')
+    .replace(/\s+/g, ' ')
+    .trim().length
+}
+
+function escapeSplashNoticeText(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+/**
+ * 开屏通知富文本消毒：仅保留 div/span/br + text-align/font-size/font-weight/line-height；
+ * 纯文本旧数据包一层居中；纯文字上限 80。
+ */
+function sanitizeSplashNoticeHtml(raw) {
+  let src = String(raw || '').trim()
+  if (!src) return ''
+  if (!/<[a-z][\s\S]*>/i.test(src)) {
+    src = `<div style="text-align:center">${escapeSplashNoticeText(src.slice(0, SPLASH_NOTICE_MAX_PLAIN))}</div>`
+    return src
+  }
+  // 去掉危险标签与事件
+  src = src
+    .replace(/<\s*(script|style|iframe|object|embed|link|meta)[\s\S]*?>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+    .replace(/<\s*(script|style|iframe|object|embed|link|meta)[^>]*>/gi, '')
+    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/\s(href|src|xlink:href)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+
+  // 规范化允许标签：strong/b/p/font → span/div（开标签必须带完整 >，避免残缺 HTML）
+  src = src
+    .replace(/<\s*\/?\s*p\b/gi, (m) => m.replace(/p/i, 'div'))
+    .replace(/<\s*strong\b[^>]*>/gi, '<span style="font-weight:700">')
+    .replace(/<\s*\/\s*strong\s*>/gi, '</span>')
+    .replace(/<\s*b\b(?![a-z])[^>]*>/gi, '<span style="font-weight:700">')
+    .replace(/<\s*\/\s*b\s*>/gi, '</span>')
+    .replace(/<\s*font\b[^>]*>/gi, '<span>')
+    .replace(/<\s*\/\s*font\s*>/gi, '</span>')
+    // 修复历史坏数据：style="..." 后缺 >
+    .replace(/<span(\s+[^>]*?=\s*"[^"]*")([^\s>])/gi, '<span$1>$2')
+    .replace(/<span(\s+[^>]*?=\s*'[^']*')([^\s>])/gi, '<span$1>$2')
+
+  // 只保留 div/span/br
+  src = src.replace(/<\/?(?!div\b|span\b|br\b)[a-z0-9]+\b[^>]*>/gi, '')
+
+  // 清洗 style：只留 text-align / font-size(白名单) / font-weight(700|bold) / line-height(1–2.5)
+  src = src.replace(/\sstyle\s*=\s*("([^"]*)"|'([^']*)')/gi, (full, _q, d1, d2) => {
+    const rawStyle = d1 != null ? d1 : d2 || ''
+    const parts = []
+    const alignM = rawStyle.match(/text-align\s*:\s*(left|center|right)/i)
+    if (alignM && SPLASH_NOTICE_ALLOWED_ALIGN[alignM[1].toLowerCase()]) {
+      parts.push(`text-align:${alignM[1].toLowerCase()}`)
+    }
+    const sizeM = rawStyle.match(/font-size\s*:\s*(\d+)\s*px/i)
+    if (sizeM && isAllowedSplashNoticeSize(Number(sizeM[1]))) {
+      parts.push(`font-size:${Number(sizeM[1])}px`)
+    }
+    if (/font-weight\s*:\s*(bold|700)/i.test(rawStyle)) {
+      parts.push('font-weight:700')
+    }
+    const lhM = rawStyle.match(/line-height\s*:\s*([\d.]+)/i)
+    if (lhM) {
+      const lh = Number(lhM[1])
+      if (Number.isFinite(lh) && lh >= 1 && lh <= 2.5) {
+        parts.push(`line-height:${Math.round(lh * 10) / 10}`)
+      }
+    }
+    return parts.length ? ` style="${parts.join(';')}"` : ''
+  })
+
+  // br 自闭合；真实换行也转 br，保证小程序能拆行
+  src = src.replace(/<\s*br\s*\/?\s*>/gi, '<br/>')
+  src = src.replace(/\r\n|\r|\n/g, '<br/>')
+  src = src.replace(/(?:<br\/>){3,}/gi, '<br/><br/>')
+
+  src = src.replace(/^(<br\s*\/?>)+/i, '').replace(/(<br\s*\/?>)+$/i, '').trim()
+  if (!src) return ''
+
+  if (splashNoticePlainLen(src) > SPLASH_NOTICE_MAX_PLAIN) {
+    // 超长：退化为纯文本截断
+    const plain = String(raw || '')
+      .replace(/<br\s*\/?>/gi, '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .trim()
+      .slice(0, SPLASH_NOTICE_MAX_PLAIN)
+    return `<div style="text-align:center">${escapeSplashNoticeText(plain)}</div>`
+  }
+  if (!/text-align\s*:/i.test(src)) {
+    src = `<div style="text-align:center">${src}</div>`
+  }
+  return src
 }
 
 function newSplashMediaId() {
@@ -2136,7 +2287,14 @@ function normalizeSplashMediaItem(raw) {
     posterUrl: String(raw.posterUrl || '').trim(),
     previewStatus: String(raw.previewStatus || '').trim(),
     previewJobAt: Number(raw.previewJobAt || 0) || 0,
-    previewError: String(raw.previewError || '').trim()
+    previewError: String(raw.previewError || '').trim(),
+    // 开屏倒计时：launchId 优先；改期后仍按同一任务跟踪；无 id 时回退 missionName
+    missionName: String(raw.missionName || '').trim(),
+    launchId: String(raw.launchId || '').trim(),
+    // 官网自动同步项标识（autoSource='spacex'）；sourceUrl 用于去重，flightNumber 用于生命周期匹配
+    autoSource: String(raw.autoSource || '').trim(),
+    sourceUrl: String(raw.sourceUrl || '').trim(),
+    flightNumber: Number(raw.flightNumber || 0) || 0
   }
 }
 
@@ -2179,7 +2337,9 @@ async function ensureOneSplashMediaItem(cos, item) {
 
   const next = { ...item }
   const nowTs = now()
-  if (!next.posterUrl) next.posterUrl = splashPosterUrl(sourceKey)
+  if (!next.posterUrl || splashPosterNeedsRefresh(next.posterUrl)) {
+    next.posterUrl = splashPosterUrl(sourceKey)
+  }
 
   const previewKey = splashPreviewKey(sourceKey)
   const previewUrl = splashPublicUrl(previewKey)
@@ -2189,22 +2349,25 @@ async function ensureOneSplashMediaItem(cos, item) {
     next.previewStatus = 'ready'
     next.previewError = ''
   } else {
+    const prevUrl = String(item.previewUrl || '').trim()
+    const urlChanged = !!(prevUrl && prevUrl !== previewUrl)
     next.previewUrl = previewUrl
+    next.previewStatus = 'processing'
     const lastJob = Number(next.previewJobAt || 0)
-    if (!lastJob || nowTs - lastJob > 10 * 60 * 1000) {
+    // 预览文件不存在时：URL 变更（如 _fast12 → _fast12q）必须立刻重提任务，
+    // 不能被「10 分钟节流」挡住，否则会把播放地址改成 404
+    if (urlChanged || !lastJob || nowTs - lastJob > 10 * 60 * 1000) {
       try {
         await submitSplashPreviewJob(cos, sourceKey, previewKey)
         next.previewJobAt = nowTs
         next.previewStatus = 'processing'
-        console.log('[splash] preview job submitted:', sourceKey, '->', previewKey)
+        console.log('[splash] preview job submitted:', sourceKey, '->', previewKey, urlChanged ? '(url-changed)' : '')
       } catch (e) {
         next.previewStatus = 'failed'
         next.previewError = String(e.message || e).slice(0, 200)
         next.previewUrl = ''
         console.warn('[splash] preview job failed:', e.message || e)
       }
-    } else if (!next.previewStatus) {
-      next.previewStatus = 'processing'
     }
   }
   return next
@@ -2265,31 +2428,86 @@ async function updateStarshipSplashConfig(body, user) {
     })].filter(Boolean)
   }
 
-  // 视频项先补封面
+  // 手动优先：有非官网项 → 强制关自动同步，并剔除 auto 项；纯自动/空池 → 开自动同步
+  const hasManual = mediaItems.some((it) => it && it.autoSource !== 'spacex')
+  if (hasManual) {
+    mediaItems = mediaItems.filter((it) => it && it.autoSource !== 'spacex')
+  }
+  const autoSyncSpacex = !hasManual
+
+  // 视频项先补封面（旧拉伸封面一并刷新为等比截帧）
   mediaItems = mediaItems.map((item) => {
-    if (item.mediaType === 'video' && item.mediaUrl && !item.posterUrl) {
+    if (item.mediaType === 'video' && item.mediaUrl) {
       const key = splashCosKeyFromUrl(item.mediaUrl)
-      if (key) return { ...item, posterUrl: splashPosterUrl(key), previewStatus: item.previewStatus || 'pending' }
+      if (key && (!item.posterUrl || splashPosterNeedsRefresh(item.posterUrl))) {
+        return {
+          ...item,
+          posterUrl: splashPosterUrl(key),
+          previewStatus: item.previewStatus || 'pending'
+        }
+      }
     }
     return item
   })
 
   const first = mediaItems[0] || null
+  const NOTICE_FONTS = { default: true, yahei: true, 'yahei-bold': true }
+  // 显式传入才覆盖；旧客户端漏字段时保留库内已有 notice，避免被 set 整文档抹掉
+  const noticeText = Object.prototype.hasOwnProperty.call(body, 'noticeText')
+    ? sanitizeSplashNoticeHtml(body.noticeText)
+    : sanitizeSplashNoticeHtml((before && before.noticeText) || '')
+  const noticeFontRaw = Object.prototype.hasOwnProperty.call(body, 'noticeFont')
+    ? String(body.noticeFont || 'default').trim()
+    : String((before && before.noticeFont) || 'default').trim()
+  const noticeFont = NOTICE_FONTS[noticeFontRaw] ? noticeFontRaw : 'default'
+  const clampLh = (v, fallback = 1.4) => {
+    const n = Number(v)
+    if (!Number.isFinite(n)) return fallback
+    return Math.min(2.5, Math.max(1, Math.round(n * 10) / 10))
+  }
+  const clampLs = (v, fallback = 0) => {
+    const n = Math.round(Number(v))
+    if (!Number.isFinite(n)) return fallback
+    return Math.min(8, Math.max(0, n))
+  }
+  const clampLg = (v, fallback = 4) => {
+    const n = Math.round(Number(v))
+    if (!Number.isFinite(n)) return fallback
+    return Math.min(24, Math.max(0, n))
+  }
+  const noticeLineHeight = Object.prototype.hasOwnProperty.call(body, 'noticeLineHeight')
+    ? clampLh(body.noticeLineHeight)
+    : clampLh(before && before.noticeLineHeight, 1.4)
+  const noticeLetterSpacing = Object.prototype.hasOwnProperty.call(body, 'noticeLetterSpacing')
+    ? clampLs(body.noticeLetterSpacing)
+    : clampLs(before && before.noticeLetterSpacing, 0)
+  const noticeLineGap = Object.prototype.hasOwnProperty.call(body, 'noticeLineGap')
+    ? clampLg(body.noticeLineGap)
+    : clampLg(before && before.noticeLineGap, 4)
   const patch = {
     enabled: body.enabled !== false,
+    autoSyncSpacex,
     title: body.title || '',
     subtitle: body.subtitle || '',
     animationUrl: body.animationUrl || '',
     coverUrl: body.coverUrl || '',
     showSkip: body.showSkip !== false,
     skipText: body.skipText || '跳过',
+    noticeText,
+    noticeFont,
+    noticeLineHeight,
+    noticeLetterSpacing,
+    noticeLineGap,
     mediaItems,
     mediaType: first ? first.mediaType : '',
     mediaUrl: first ? first.mediaUrl : '',
     previewUrl: first ? first.previewUrl : '',
     posterUrl: first ? first.posterUrl : '',
     previewStatus: first ? first.previewStatus : '',
-    countdownSeconds: Math.max(1, Math.min(30, Number(body.countdownSeconds) || 5)),
+    // 跳过倒计时改由小程序按视频实际时长判定；未显式传入时保留旧值（兼容），默认 12（上限）
+    countdownSeconds: Object.prototype.hasOwnProperty.call(body, 'countdownSeconds')
+      ? Math.max(1, Math.min(12, Number(body.countdownSeconds) || 12))
+      : Math.max(1, Math.min(12, Number(before && before.countdownSeconds) || 12)),
     updatedAt: now(),
     updatedBy: user.username
   }
@@ -2305,6 +2523,901 @@ async function updateStarshipSplashConfig(body, user) {
 
   await writeOpLog({ user, module: COLLECTIONS.STARSHIP_SPLASH, action: 'upsert', targetId: id, before, after })
   return ok(after)
+}
+
+// ========== 任务头图环绕全景（Earth Studio：默认按型号；猎鹰9 再锁发射场） ==========
+const ORBIT_PANO_ITEMS_MAX = 20
+
+function newOrbitPanoId() {
+  return `op_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+}
+
+function normalizeOrbitPanoItem(raw) {
+  if (!raw || typeof raw !== 'object') return null
+  const videoUrl = String(raw.videoUrl || raw.mediaUrl || raw.url || '').trim()
+  if (!videoUrl) return null
+  let posterUrl = String(raw.posterUrl || '').trim()
+  if (!posterUrl || splashPosterNeedsRefresh(posterUrl)) {
+    const key = splashCosKeyFromUrl(videoUrl)
+    if (key) posterUrl = splashPosterUrl(key)
+  }
+  const rocketName = String(raw.rocketName || '').trim()
+  const padKey = String(raw.padKey || '').trim().slice(0, 32)
+  const padName = String(raw.padName || '').trim().slice(0, 40)
+  const recoveryKey = String(raw.recoveryKey || '').trim().toLowerCase().slice(0, 16)
+  const recoveryName = String(raw.recoveryName || '').trim().slice(0, 40)
+  return {
+    id: String(raw.id || newOrbitPanoId()),
+    videoUrl,
+    posterUrl,
+    title: String(raw.title || '').trim().slice(0, 40),
+    launchId: rocketName ? '' : String(raw.launchId || '').trim(),
+    missionName: rocketName ? '' : String(raw.missionName || '').trim(),
+    rocketName,
+    padKey,
+    padName,
+    recoveryKey: recoveryKey === 'asds' || recoveryKey === 'rtls' || recoveryKey === 'expended' ? recoveryKey : '',
+    recoveryName,
+    matchRocket: true,
+    enabled: raw.enabled !== false
+  }
+}
+
+function normalizeOrbitPanoDoc(doc) {
+  const items = Array.isArray(doc && doc.items)
+    ? doc.items.map(normalizeOrbitPanoItem).filter(Boolean).slice(0, ORBIT_PANO_ITEMS_MAX)
+    : []
+  return {
+    enabled: !doc || doc.enabled !== false,
+    items,
+    updatedAt: Number((doc && doc.updatedAt) || 0) || 0,
+    updatedBy: String((doc && doc.updatedBy) || '')
+  }
+}
+
+function defaultOrbitPanoDoc(userName) {
+  return {
+    enabled: true,
+    items: [],
+    updatedAt: now(),
+    updatedBy: userName || 'system'
+  }
+}
+
+function orbitPanoEnabledFromMain(main) {
+  if (!main || typeof main !== 'object') return true
+  if (main.enableOrbitPano === false) return false
+  if (main.orbitPanoEnabled === false) return false
+  return true
+}
+
+async function mirrorOrbitPanoToMain(doc) {
+  const on = !doc || doc.enabled !== false
+  const payload = {
+    enableOrbitPano: on,
+    orbitPanoEnabled: on,
+    orbitPanoItems: Array.isArray(doc && doc.items) ? doc.items : [],
+    orbitPanoUpdatedAt: Number((doc && doc.updatedAt) || now()) || now()
+  }
+  try {
+    await db.collection(COLLECTIONS.GLOBAL_CONFIG).doc('main').update({ data: payload })
+  } catch (e) {
+    console.warn('[orbit-pano] 同步到 global_config.main 失败:', e.message || e)
+  }
+}
+
+async function getOrbitPanoConfig() {
+  const ref = db.collection(COLLECTIONS.ORBIT_PANO).doc('current')
+  const existing = await ref.get().catch(() => null)
+  const raw = existing && existing.data
+  const mainRes = await db.collection(COLLECTIONS.GLOBAL_CONFIG).doc('main').get().catch(() => null)
+  const main = (mainRes && mainRes.data) || {}
+  if (!raw) {
+    const empty = defaultOrbitPanoDoc('system')
+    empty.enabled = orbitPanoEnabledFromMain(main)
+    try {
+      await ref.set({ data: empty })
+    } catch (e) {
+      console.warn('[orbit-pano] empty doc write failed:', e.message || e)
+    }
+    if (!Object.prototype.hasOwnProperty.call(main, 'orbitPanoItems')) {
+      await mirrorOrbitPanoToMain(empty)
+    }
+    return ok(empty)
+  }
+  const doc = normalizeOrbitPanoDoc(raw)
+  doc.enabled = orbitPanoEnabledFromMain(main)
+  try {
+    if (!Object.prototype.hasOwnProperty.call(main, 'orbitPanoItems') ||
+        !Object.prototype.hasOwnProperty.call(main, 'enableOrbitPano')) {
+      await mirrorOrbitPanoToMain(doc)
+    }
+  } catch (e) {}
+  return ok(doc)
+}
+
+async function updateOrbitPanoConfig(body, user) {
+  const id = 'current'
+  const ref = db.collection(COLLECTIONS.ORBIT_PANO).doc(id)
+  const beforeRes = await ref.get().catch(() => null)
+  const before = beforeRes?.data || null
+  const items = Array.isArray(body && body.items)
+    ? body.items.map(normalizeOrbitPanoItem).filter(Boolean).slice(0, ORBIT_PANO_ITEMS_MAX)
+    : []
+  const patch = {
+    enabled: !body || body.enabled !== false,
+    items,
+    updatedAt: now(),
+    updatedBy: (user && user.username) || ''
+  }
+  await ref.set({ data: patch })
+  await mirrorOrbitPanoToMain(patch)
+  await writeOpLog({ user, module: COLLECTIONS.ORBIT_PANO, action: 'upsert', targetId: id, before, after: patch })
+  return ok(patch)
+}
+
+// ========== SpaceX 官网星舰视频自动同步（开屏动画全自动化） ==========
+// 每 2 小时（timer: syncSpacexSplashTimer）执行：
+//   开启：排期库（launch_data / launch_status）显示星舰任务 NET 距今 ≤ 5 天才扫官网 featured-launch-tiles，
+//        有视频 → 下载上传 COS → 写入开屏媒体池（auto 项，带 missionName 对接倒计时组件）
+//   推迟：NET 后移出 T-5 窗（小时级探针自动跟随改期）→ auto 项自动下架；回窗后自动恢复
+//         （手动关联任务项不因推迟下架，客户端按 launchId 跟踪新 NET 继续展示）
+//   关闭：任务飞行中(6)/终态(3/4/7/9) 或 官网撤下 tile → 自动移除；
+//         关联任务的手动项亦由 pruneSettledMissionBoundSplash 按探针/结果通知下架，
+//         清空手动池后无缝重新开启 autoSyncSpacex
+const SPACEX_CMS_API_BASE = 'https://api.marsx.com.cn/spacex-api'
+const SPACEX_MEDIA_PROXY = 'https://api.marsx.com.cn/spacex-media'
+const SPLASH_AUTO_VIDEO_MAX_BYTES = 30 * 1024 * 1024
+const SPLASH_AUTO_COS_PREFIX = '开屏动画/auto/'
+const LAUNCH_STATUS_INFLIGHT_ID = 6
+const LAUNCH_STATUS_TERMINAL_IDS = { 3: true, 4: true, 7: true, 9: true }
+// 开启窗口：探测到星舰任务发射前 5 天才开始扫描官网上架；
+// NET 推迟出窗自动下架，回窗后下一轮自动恢复（COS 文件按 sourceUrl 哈希命名，重传幂等）
+const SPLASH_AUTO_WINDOW_MS = 5 * 24 * 60 * 60 * 1000
+// NET 已过但未结算（推迟/holds 数据滞后）的宽限期：超过则视为数据陈旧，不再算在窗内
+const SPLASH_AUTO_PAST_NET_GRACE_MS = 24 * 60 * 60 * 1000
+
+function splashAutoHttpsGet(url, { timeoutMs = 25000, maxBytes = 0 } = {}) {
+  const https = require('https')
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, {
+      headers: {
+        Accept: '*/*',
+        'User-Agent': 'Mozilla/5.0 (compatible; CloudFunction/1.0)'
+      }
+    }, (res) => {
+      if (res.statusCode !== 200) {
+        res.resume()
+        return reject(new Error(`HTTP ${res.statusCode} for ${url}`))
+      }
+      const chunks = []
+      let total = 0
+      res.on('data', (chunk) => {
+        total += chunk.length
+        if (maxBytes && total > maxBytes) {
+          req.destroy(new Error(`response exceeds ${maxBytes} bytes`))
+          return
+        }
+        chunks.push(chunk)
+      })
+      res.on('end', () => resolve(Buffer.concat(chunks)))
+      res.on('error', reject)
+    })
+    req.on('error', reject)
+    req.setTimeout(timeoutMs, () => req.destroy(new Error(`timeout ${timeoutMs}ms for ${url}`)))
+  })
+}
+
+async function splashAutoFetchJson(url) {
+  const buf = await splashAutoHttpsGet(url, { timeoutMs: 20000, maxBytes: 2 * 1024 * 1024 })
+  // SpaceX/CDN 偶发带 UTF-8 BOM，直接 JSON.parse 会整轮失败
+  const text = buf.toString('utf8').replace(/^\uFEFF/, '').trim()
+  return JSON.parse(text)
+}
+
+/** 英文序数词 → 数字（兜底解析 "Starship's Thirteenth Flight Test" 这类标题） */
+const SPLASH_ORDINAL_WORDS = {
+  first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10,
+  eleventh: 11, twelfth: 12, thirteenth: 13, fourteenth: 14, fifteenth: 15, sixteenth: 16,
+  seventeenth: 17, eighteenth: 18, nineteenth: 19, twentieth: 20, thirtieth: 30, fortieth: 40
+}
+const SPLASH_ORDINAL_TENS = { twenty: 20, thirty: 30 }
+
+function parseOrdinalWord(text) {
+  const s = String(text || '').toLowerCase()
+  // 复合序数词：twenty-first / thirty-second …
+  const compound = s.match(/\b(twenty|thirty)[-\s](first|second|third|fourth|fifth|sixth|seventh|eighth|ninth)\b/)
+  if (compound) {
+    return SPLASH_ORDINAL_TENS[compound[1]] + SPLASH_ORDINAL_WORDS[compound[2]]
+  }
+  const single = s.match(/\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|thirtieth|fortieth)\b/)
+  if (single) return SPLASH_ORDINAL_WORDS[single[1]]
+  return 0
+}
+
+/** 从 featured tile 提取星舰 Flight 编号；非星舰条目返回 0 */
+function extractStarshipFlightNumber(tile) {
+  if (!tile || typeof tile !== 'object') return 0
+  const link = String(tile.link || '')
+  const m = link.match(/starship-flight-(\d+)/i)
+  if (m) return Number(m[1]) || 0
+  const title = String(tile.title || '')
+  if (!/starship/i.test(title) && !/starship/i.test(link)) return 0
+  const direct = title.match(/flight\s*(?:test\s*)?(\d+)/i)
+  if (direct) return Number(direct[1]) || 0
+  return parseOrdinalWord(title)
+}
+
+/**
+ * 拉窗口/结算判断所需的两份数据（任一查询失败直接抛错：调用方整轮跳过，防止误删 auto 项）：
+ *   - statusRows: launch_status（探针/详情页维护），只保证含飞行中/终态行 → 用于结算判断
+ *   - upcomingRows: launch_data（sendLaunchReminder 每 10 分钟从 upcoming 缓存重建，
+ *     NET 推迟由小时级探针 patch 后自动跟随）→ 用于 T-5 窗口判断
+ */
+async function fetchStarshipSyncRows() {
+  const starshipRe = db.RegExp({ regexp: 'starship', options: 'i' })
+  // 两个查询任一失败都抛错跳过本轮：launch_status 是结算判断唯一依据，
+  // launch_data 是窗口判断主依据（探针只保证写入飞行中/终态行），缺了会把在窗任务误判为出窗下架
+  const [statusRes, upcomingRes] = await Promise.all([
+    db.collection('launch_status').where({ name: starshipRe }).limit(100).get(),
+    db.collection('launch_data').where({ name: starshipRe }).limit(50).get()
+  ])
+  return {
+    statusRows: (statusRes && statusRes.data) || [],
+    upcomingRows: (upcomingRes && upcomingRes.data) || []
+  }
+}
+
+function findStarshipFlightRow(rows, flightNumber) {
+  if (!flightNumber || !Array.isArray(rows)) return null
+  const nameRe = new RegExp(`flight[^0-9]*0*${flightNumber}(?![0-9])`, 'i')
+  for (const row of rows) {
+    if (!row) continue
+    if (nameRe.test(String(row.name || '')) || nameRe.test(String(row.missionName || ''))) return row
+  }
+  return null
+}
+
+/** 读取状态 id：兼容 launch_status.status.id 与 launch_data.statusId */
+function splashStatusIdOf(row) {
+  if (!row) return 0
+  const raw =
+    row.status && row.status.id != null
+      ? row.status.id
+      : row.statusId != null
+        ? row.statusId
+        : 0
+  const sid = Number(raw)
+  return Number.isFinite(sid) ? sid : 0
+}
+
+/** 该行是否已飞行中(6)或终态(3/4/7/9) */
+function isRowSettledOrInFlight(row) {
+  const sid = splashStatusIdOf(row)
+  return sid === LAUNCH_STATUS_INFLIGHT_ID || !!LAUNCH_STATUS_TERMINAL_IDS[sid]
+}
+
+/**
+ * T-5 天开启窗口判断（NET 以 launch_data / 探针为准，改期后自动跟随）：
+ *   - 返回 true / false / null（null = 排期未知，禁止当成「出窗」误删存量 auto 项）
+ *   - NET 距今 > 5 天（含推迟出窗）→ false，auto 项自动下架，回窗后下一轮自动恢复
+ *   - NET 已过 24h 仍未结算 → 数据陈旧，false（正常结算由 settled 分支处理）
+ *   - 无该 Flight 的行 → null（探测不到发射时间：不新上架，但不误删已有项）
+ */
+function isFlightInLaunchWindow(row, nowTs) {
+  if (!row) return null
+  const netTs = new Date(row.net || row.launchTime || row.windowStart || '').getTime()
+  if (!Number.isFinite(netTs)) return null
+  if (netTs - nowTs > SPLASH_AUTO_WINDOW_MS) return false
+  if (nowTs - netTs > SPLASH_AUTO_PAST_NET_GRACE_MS) return false
+  return true
+}
+
+async function splashAutoUploadToCOS(buffer, key) {
+  const cos = createCOSClient()
+  await new Promise((resolve, reject) => {
+    cos.putObject({
+      Bucket: COS_BUCKET,
+      Region: COS_REGION,
+      Key: key,
+      Body: buffer,
+      ContentType: 'video/mp4'
+    }, (err, data) => (err ? reject(err) : resolve(data)))
+  })
+  return splashPublicUrl(key)
+}
+
+function splashEscapeRegExp(s) {
+  return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function splashRowLaunchId(row) {
+  if (!row) return ''
+  return String(row.id || row._id || '').trim()
+}
+
+/**
+ * 关联任务的开屏项：探针/结果通知确认飞行中或终态后自动下架。
+ * 推迟只跟踪展示（不删）；下架后若已无手动项 → 重新开启官网自动同步。
+ * 可由 syncSpacexSplashTimer、小时探针、服务号/小程序结果通知触发。
+ */
+async function pruneSettledMissionBoundSplash(opts = {}) {
+  const startedAt = Date.now()
+  const updatedBy = String(opts.updatedBy || 'splash-mission-prune').slice(0, 40)
+  const ref = db.collection(COLLECTIONS.STARSHIP_SPLASH).doc('current')
+
+  let doc = null
+  try {
+    const res = await ref.get()
+    doc = res && res.data ? res.data : null
+  } catch (e) {}
+  if (!doc) {
+    return { skipped: true, reason: 'no_doc', elapsedMs: Date.now() - startedAt }
+  }
+
+  const normalized = normalizeSplashDoc(doc)
+  const items = Array.isArray(normalized.mediaItems) ? normalized.mediaItems : []
+  if (!items.length) {
+    if (doc.autoSyncSpacex === false) {
+      try {
+        await ref.update({
+          data: { autoSyncSpacex: true, updatedAt: now(), updatedBy }
+        })
+      } catch (e) {
+        console.warn('[splash-prune] heal empty autoSync failed:', e.message || e)
+      }
+      return {
+        skipped: false,
+        removed: [],
+        autoSyncSpacex: true,
+        healedEmpty: true,
+        elapsedMs: Date.now() - startedAt
+      }
+    }
+    return { skipped: true, reason: 'empty_pool', elapsedMs: Date.now() - startedAt }
+  }
+
+  const boundItems = items.filter((it) => it && (it.launchId || it.missionName))
+  if (!boundItems.length) {
+    const hasManual = items.some((it) => it && it.autoSource !== 'spacex')
+    if (!hasManual && doc.autoSyncSpacex === false) {
+      try {
+        await ref.update({
+          data: { autoSyncSpacex: true, updatedAt: now(), updatedBy }
+        })
+      } catch (e) {}
+      return {
+        skipped: false,
+        removed: [],
+        autoSyncSpacex: true,
+        // 与主下架路径字段名一致，供 runSplashMissionLifecycle 立刻回填官网
+        switchHealed: true,
+        elapsedMs: Date.now() - startedAt
+      }
+    }
+    return { skipped: true, reason: 'no_bound_items', elapsedMs: Date.now() - startedAt }
+  }
+
+  const launchIds = Array.from(
+    new Set(boundItems.map((it) => String(it.launchId || '').trim()).filter(Boolean))
+  )
+  const statusById = new Map()
+  const CHUNK = 20
+  for (let i = 0; i < launchIds.length; i += CHUNK) {
+    const chunk = launchIds.slice(i, i + CHUNK)
+    try {
+      const res = await db.collection('launch_status').where({ _id: _.in(chunk) }).limit(chunk.length).get()
+      for (const row of (res && res.data) || []) {
+        if (row && row._id) statusById.set(String(row._id), row)
+      }
+    } catch (e) {
+      console.warn('[splash-prune] launch_status batch fail:', e.message || e)
+      return {
+        skipped: true,
+        reason: 'status_unavailable',
+        error: String(e.message || e),
+        elapsedMs: Date.now() - startedAt
+      }
+    }
+  }
+
+  let statusRows = []
+  let upcomingRows = []
+  const needNameFallback = boundItems.some((it) => it && !it.launchId && (it.missionName || it.flightNumber))
+  if (needNameFallback) {
+    try {
+      const rows = await fetchStarshipSyncRows()
+      statusRows = rows.statusRows || []
+      upcomingRows = rows.upcomingRows || []
+    } catch (e) {
+      console.warn('[splash-prune] starship rows fail:', e.message || e)
+    }
+  }
+
+  async function resolveStatusRow(it) {
+    const lid = String((it && it.launchId) || '').trim()
+    if (lid) {
+      if (statusById.has(lid)) return statusById.get(lid)
+      try {
+        const one = await db.collection('launch_status').doc(lid).get()
+        if (one && one.data) {
+          statusById.set(lid, one.data)
+          return one.data
+        }
+      } catch (e) {}
+      try {
+        const ld = await db.collection('launch_data').doc(lid).get()
+        const row = ld && ld.data
+        if (row && row.statusId != null) {
+          return {
+            _id: lid,
+            id: lid,
+            name: row.name || row.missionName || '',
+            status: { id: Number(row.statusId) }
+          }
+        }
+      } catch (e) {}
+    }
+    const flightNumber = Number((it && it.flightNumber) || 0) || 0
+    if (flightNumber) {
+      const hit =
+        findStarshipFlightRow(statusRows, flightNumber) ||
+        findStarshipFlightRow(upcomingRows, flightNumber)
+      if (hit) return hit
+    }
+    const missionName = String((it && it.missionName) || '').trim()
+    if (missionName) {
+      const target = missionName.toLowerCase()
+      for (const row of statusRows.concat(upcomingRows)) {
+        if (!row) continue
+        const n = String(row.name || row.missionName || '').toLowerCase()
+        if (n && (n.indexOf(target) !== -1 || target.indexOf(n) !== -1)) return row
+      }
+      try {
+        const nameRe = db.RegExp({ regexp: splashEscapeRegExp(missionName), options: 'i' })
+        const ldRes = await db.collection('launch_data').where({ name: nameRe }).limit(5).get()
+        const hit = ((ldRes && ldRes.data) || []).find((row) => row && splashStatusIdOf(row) > 0)
+        if (hit) {
+          const sid = splashStatusIdOf(hit)
+          return {
+            _id: String(hit._id || hit.id || ''),
+            id: String(hit.id || hit._id || ''),
+            name: hit.name || hit.missionName || '',
+            statusId: sid,
+            status: { id: sid }
+          }
+        }
+      } catch (e) {}
+    }
+    return null
+  }
+
+  const removed = []
+  const kept = []
+  for (const it of items) {
+    if (!it) continue
+    const isBound = !!(it.launchId || it.missionName)
+    if (!isBound) {
+      kept.push(it)
+      continue
+    }
+    let row = null
+    try {
+      row = await resolveStatusRow(it)
+    } catch (e) {
+      kept.push(it)
+      continue
+    }
+    if (row && isRowSettledOrInFlight(row)) {
+      removed.push({
+        id: it.id,
+        launchId: it.launchId || splashRowLaunchId(row),
+        missionName: it.missionName || '',
+        flightNumber: it.flightNumber || 0,
+        reason: 'inflight_or_settled'
+      })
+    } else {
+      kept.push(it)
+    }
+  }
+
+  const hasManual = kept.some((it) => it && it.autoSource !== 'spacex')
+  const nextAutoSync = !hasManual
+  let nextItems = kept
+  if (hasManual) {
+    nextItems = kept.filter((it) => it && it.autoSource !== 'spacex')
+  }
+
+  const switchHealed = nextAutoSync && doc.autoSyncSpacex === false
+  if (!removed.length && !switchHealed && nextItems.length === items.length) {
+    return {
+      skipped: true,
+      reason: 'no_settled',
+      boundItems: boundItems.length,
+      elapsedMs: Date.now() - startedAt
+    }
+  }
+
+  const first = nextItems[0] || null
+  const patch = {
+    autoSyncSpacex: nextAutoSync,
+    mediaItems: nextItems,
+    mediaType: first ? first.mediaType : '',
+    mediaUrl: first ? first.mediaUrl : '',
+    previewUrl: first ? first.previewUrl : '',
+    posterUrl: first ? first.posterUrl : '',
+    previewStatus: first ? first.previewStatus : '',
+    updatedAt: now(),
+    updatedBy
+  }
+  try {
+    await ref.update({ data: patch })
+  } catch (e) {
+    console.warn('[splash-prune] update failed:', e.message || e)
+    return {
+      skipped: true,
+      reason: 'update_failed',
+      error: String(e.message || e),
+      elapsedMs: Date.now() - startedAt
+    }
+  }
+
+  try {
+    await writeOpLog({
+      user: { id: 'system', username: updatedBy },
+      module: COLLECTIONS.STARSHIP_SPLASH,
+      action: 'mission_prune',
+      targetId: 'current',
+      detail: {
+        removed,
+        autoSyncSpacex: nextAutoSync,
+        reason: opts.reason || '',
+        elapsedMs: Date.now() - startedAt
+      }
+    })
+  } catch (e) {}
+
+  return {
+    skipped: false,
+    removed,
+    autoSyncSpacex: nextAutoSync,
+    totalItems: nextItems.length,
+    switchHealed,
+    elapsedMs: Date.now() - startedAt
+  }
+}
+
+/** 探针/结果通知入口：先下架已结算关联项，必要时立刻跑官网自动同步回填 */
+async function runSplashMissionLifecycle(opts = {}) {
+  const prune = await pruneSettledMissionBoundSplash(opts)
+  const shouldSync =
+    !!(prune && prune.autoSyncSpacex) &&
+    !!(
+      (prune.removed && prune.removed.length) ||
+      prune.switchHealed ||
+      prune.healedSwitch ||
+      prune.healedEmpty
+    )
+  if (shouldSync) {
+    try {
+      const sync = await runSpacexSplashAutoSync()
+      return { prune, sync }
+    } catch (e) {
+      console.warn('[splash-lifecycle] auto sync after prune failed:', e.message || e)
+      return { prune, syncError: String(e.message || e) }
+    }
+  }
+  return { prune }
+}
+
+async function runSpacexSplashAutoSync() {
+  const startedAt = Date.now()
+  const ref = db.collection(COLLECTIONS.STARSHIP_SPLASH).doc('current')
+
+  // 0) 关联任务已飞行中/终态 → 先下架（手动项亦清），清空后才能衔接官网同步
+  try {
+    await pruneSettledMissionBoundSplash({
+      updatedBy: 'spacex-auto-sync',
+      reason: 'pre_auto_sync'
+    })
+  } catch (e) {
+    console.warn('[splash-auto] mission prune failed:', e.message || e)
+  }
+
+  // 1) 读现有配置；不存在则首启引导创建（enabled 默认开，已有文档绝不改 enabled）
+  let doc = null
+  try {
+    const res = await ref.get()
+    doc = res && res.data ? res.data : null
+  } catch (e) {}
+  const docExists = !!doc
+  const normalized = normalizeSplashDoc(doc || { enabled: true, countdownSeconds: 5, mediaItems: [] })
+  const items = Array.isArray(normalized.mediaItems) ? normalized.mediaItems : []
+  const manualItems = items.filter((it) => it.autoSource !== 'spacex')
+  const autoItems = items.filter((it) => it.autoSource === 'spacex')
+
+  // 1.5) 手动优先硬门控：只要池里有手动项，定时任务绝不能再扫官网/回填 auto。
+  //      须在 autoSyncSpacex===false 早退之前执行，否则「已关开关但残留 auto」永远自愈不到。
+  if (manualItems.length) {
+    const needHeal = autoItems.length > 0 || (doc && doc.autoSyncSpacex !== false)
+    if (needHeal && docExists) {
+      const first = manualItems[0] || null
+      const healPatch = {
+        autoSyncSpacex: false,
+        mediaItems: manualItems,
+        mediaType: first ? first.mediaType : '',
+        mediaUrl: first ? first.mediaUrl : '',
+        previewUrl: first ? first.previewUrl : '',
+        posterUrl: first ? first.posterUrl : '',
+        previewStatus: first ? first.previewStatus : '',
+        updatedAt: now(),
+        updatedBy: 'spacex-auto-sync'
+      }
+      try {
+        await ref.update({ data: healPatch })
+      } catch (e) {
+        console.warn('[splash-auto] manual_priority heal failed:', e.message || e)
+      }
+    }
+    return ok({
+      skipped: true,
+      reason: 'manual_priority',
+      healed: !!needHeal,
+      manualItems: manualItems.length,
+      removedAuto: autoItems.length,
+      elapsedMs: Date.now() - startedAt
+    })
+  }
+
+  if (doc && doc.autoSyncSpacex === false) {
+    return ok({ skipped: true, reason: 'autoSyncSpacex disabled' })
+  }
+
+  // 2) 状态/排期数据（launch_status 判结算，launch_data 判 T-5 窗口；
+  //    NET 由小时级探针跟随改期刷新）；查询失败整轮跳过，防止数据故障时误删 auto 项
+  const nowTs = Date.now()
+  let statusRows = null
+  let upcomingRows = null
+  try {
+    const rows = await fetchStarshipSyncRows()
+    statusRows = rows.statusRows
+    upcomingRows = rows.upcomingRows
+  } catch (e) {
+    console.warn('[splash-auto] status/upcoming query failed:', e.message || e)
+    return ok({ skipped: true, reason: 'status_store_unavailable', error: String(e.message || e) })
+  }
+  const findWindowRow = (flightNumber) =>
+    findStarshipFlightRow(upcomingRows, flightNumber) || findStarshipFlightRow(statusRows, flightNumber)
+
+  // 3) T-5 开启窗口：任一未结算星舰任务 NET 距今 ≤ 5 天才扫官网；
+  //    窗外（未到 T-5 / 推迟出窗）不打官网接口，仅清理「已知出窗」的存量 auto 项
+  //    注意：isFlightInLaunchWindow 三态，排期查空(null) 绝不当作出窗
+  const anyFlightInWindow =
+    upcomingRows.some((row) => isFlightInLaunchWindow(row, nowTs) === true) ||
+    statusRows.some((row) => !isRowSettledOrInFlight(row) && isFlightInLaunchWindow(row, nowTs) === true)
+  if (!anyFlightInWindow && !autoItems.length) {
+    return ok({ skipped: true, reason: 'outside_launch_window', elapsedMs: Date.now() - startedAt })
+  }
+
+  // 4) 窗内才拉官网 featured tiles；接口失败本轮整体跳过（绝不写空覆盖）
+  //    收集全部星舰视频 tile：featured 判定按 flight 集合，不能只认「数组第一项」
+  //    （否则旧 Flight 排在前面时，会把窗内正确 Flight 误判 tile_gone 删掉）
+  let target = null
+  let scannedCms = false
+  let featuredFlightSet = null
+  if (anyFlightInWindow) {
+    let tiles = null
+    try {
+      tiles = await splashAutoFetchJson(`${SPACEX_CMS_API_BASE}/featured-launch-tiles`)
+    } catch (e) {
+      console.warn('[splash-auto] featured-launch-tiles fetch failed:', e.message || e)
+      return ok({ skipped: true, reason: 'cms_fetch_failed', error: String(e.message || e) })
+    }
+    if (!Array.isArray(tiles)) {
+      return ok({ skipped: true, reason: 'cms_bad_payload' })
+    }
+    scannedCms = true
+
+    // featured = CMS 上仍出现该 Flight（有无视频、是否超体积都算「仍在架」）；
+    // 下载候选另筛：有视频且 ≤30MB。两者拆开，避免超体积/无视频导致误删存量 auto。
+    const candidates = []
+    featuredFlightSet = new Set()
+    for (const tile of tiles) {
+      const flightNumber = extractStarshipFlightNumber(tile)
+      if (!flightNumber) continue
+      featuredFlightSet.add(flightNumber)
+      const video = (tile.videoMobile && tile.videoMobile.url) ? tile.videoMobile
+        : (tile.videoDesktop && tile.videoDesktop.url) ? tile.videoDesktop : null
+      if (!video) continue
+      const sizeBytes = Math.round(Number(video.size || 0) * 1024) // CMS size 单位 KB
+      if (sizeBytes > SPLASH_AUTO_VIDEO_MAX_BYTES) {
+        console.warn(`[splash-auto] flight ${flightNumber} video too large: ${sizeBytes} bytes`)
+        continue
+      }
+      candidates.push({ flightNumber, sourceUrl: String(video.url), tile })
+    }
+
+    // 上架目标：未结算且在 T-5 窗内的可下载候选；多 Flight 同时在窗时取编号最大（最新）
+    for (const c of candidates) {
+      const settled = isRowSettledOrInFlight(findStarshipFlightRow(statusRows, c.flightNumber))
+      const inWindow = isFlightInLaunchWindow(findWindowRow(c.flightNumber), nowTs) === true
+      if (!settled && inWindow) {
+        if (!target || c.flightNumber > target.flightNumber) target = c
+      }
+    }
+  }
+
+  // 5) 生命周期：已飞行中/终态、已知推迟出窗（NET > T-5）、官网撤下/换任务 → 移除对应 auto 项；
+  //    排期未知(null) 不因窗口误删；未扫描官网时不因 tile_gone 误删
+  //    推迟出窗只是暂时下架，NET 回到窗内后下一轮自动恢复
+  const removed = []
+  let keptAuto = []
+  for (const it of autoItems) {
+    const settled = isRowSettledOrInFlight(findStarshipFlightRow(statusRows, it.flightNumber))
+    const inWindow = isFlightInLaunchWindow(findWindowRow(it.flightNumber), nowTs)
+    const knownOutside = inWindow === false
+    const stillFeatured = scannedCms
+      ? !!(featuredFlightSet && featuredFlightSet.has(it.flightNumber))
+      : true
+    if (settled || knownOutside || !stillFeatured) {
+      removed.push({
+        id: it.id,
+        flightNumber: it.flightNumber,
+        reason: settled ? 'inflight_or_settled' : (knownOutside ? 'outside_launch_window' : 'tile_gone')
+      })
+    } else {
+      keptAuto.push(it)
+    }
+  }
+
+  // 6) 新增门控：目标 Flight 需有排期行、未结算、且明确在 T-5 窗内（官网提前上视频也等到窗口再上架）
+  let added = null
+  if (target) {
+    const targetSettled = isRowSettledOrInFlight(findStarshipFlightRow(statusRows, target.flightNumber))
+    const targetInWindow = isFlightInLaunchWindow(findWindowRow(target.flightNumber), nowTs) === true
+    const already = keptAuto.some((it) => it.sourceUrl === target.sourceUrl)
+    if (!targetSettled && targetInWindow && !already) {
+      // 换源时先暂存同 Flight 旧项：下载/池满失败必须还原，否则会把正在播的 auto 弄丢
+      const previousSameFlight = keptAuto.filter((it) => it.flightNumber === target.flightNumber)
+      keptAuto = keptAuto.filter((it) => it.flightNumber !== target.flightNumber)
+      if (manualItems.length + keptAuto.length >= SPLASH_MEDIA_MAX) {
+        keptAuto = keptAuto.concat(previousSameFlight)
+        console.warn('[splash-auto] media pool full, skip adding auto item')
+      } else {
+        try {
+          const buffer = await splashAutoHttpsGet(
+            `${SPACEX_MEDIA_PROXY}?url=${encodeURIComponent(target.sourceUrl)}`,
+            { timeoutMs: 45000, maxBytes: SPLASH_AUTO_VIDEO_MAX_BYTES }
+          )
+          const hash = crypto.createHash('md5').update(target.sourceUrl).digest('hex').slice(0, 8)
+          const key = `${SPLASH_AUTO_COS_PREFIX}starship_flight_${target.flightNumber}_${hash}.mp4`
+          const cosUrl = await splashAutoUploadToCOS(buffer, key)
+          const windowRow = findWindowRow(target.flightNumber)
+          added = normalizeSplashMediaItem({
+            mediaType: 'video',
+            mediaUrl: cosUrl,
+            posterUrl: splashPosterUrl(key),
+            previewStatus: 'pending',
+            missionName: `Starship Flight ${target.flightNumber}`,
+            launchId: splashRowLaunchId(windowRow),
+            autoSource: 'spacex',
+            sourceUrl: target.sourceUrl,
+            flightNumber: target.flightNumber
+          })
+          keptAuto.push(added)
+        } catch (e) {
+          keptAuto = keptAuto.concat(previousSameFlight)
+          console.warn('[splash-auto] video download/upload failed:', e.message || e)
+        }
+      }
+    }
+  }
+
+  // 6.5) 存量 auto 项补 launchId，便于探针/结果通知按任务 ID 精确下架
+  keptAuto = keptAuto.map((it) => {
+    if (!it || it.launchId || !it.flightNumber) return it
+    const lid = splashRowLaunchId(findWindowRow(it.flightNumber))
+    return lid ? { ...it, launchId: lid } : it
+  })
+
+  // 7) 无增删时也要推进转码/封面：存量 auto 项可能一直卡在 pending（早退会永久不转码）
+  const nextItems = [...manualItems, ...keptAuto].slice(0, SPLASH_MEDIA_MAX)
+  const launchIdBackfilled = keptAuto.some((it, idx) => {
+    const prev = autoItems.find((a) => a && it && a.id === it.id)
+    return !!(it && it.launchId && prev && !prev.launchId)
+  })
+  const changed = !!added || removed.length > 0 || !docExists || launchIdBackfilled
+  if (!changed) {
+    let ensureResult = null
+    try {
+      ensureResult = await ensureSplashMediaItems({
+        _id: 'current',
+        ...(doc || {}),
+        mediaItems: items,
+        enabled: normalized.enabled !== false,
+        countdownSeconds: normalized.countdownSeconds || 5
+      })
+    } catch (e) {
+      console.warn('[splash-auto] ensure on no_change failed:', e.message || e)
+    }
+    const pending = (ensureResult && ensureResult.mediaItems ? ensureResult.mediaItems : items).filter(
+      (it) => it && it.mediaType === 'video' && it.previewStatus && it.previewStatus !== 'ready'
+    ).length
+    return ok({
+      skipped: true,
+      reason: 'no_change',
+      autoItems: autoItems.length,
+      ensureRan: true,
+      previewPending: pending,
+      elapsedMs: Date.now() - startedAt
+    })
+  }
+
+  const first = nextItems[0] || null
+  const patch = {
+    enabled: docExists ? normalized.enabled !== false : true,
+    // 自动同步写库时保留手动优先开关（有手动项时应为 false，勿被漏字段覆盖）
+    autoSyncSpacex: docExists ? normalized.autoSyncSpacex !== false && !manualItems.length : !manualItems.length,
+    countdownSeconds: normalized.countdownSeconds || 5,
+    // 首建文档时带上空通知字段；已有文档走 update，不覆盖运营配置的 notice*
+    noticeText: docExists ? undefined : '',
+    noticeFont: docExists ? undefined : 'default',
+    noticeLineHeight: docExists ? undefined : 1.4,
+    noticeLetterSpacing: docExists ? undefined : 0,
+    noticeLineGap: docExists ? undefined : 4,
+    mediaItems: nextItems,
+    mediaType: first ? first.mediaType : '',
+    mediaUrl: first ? first.mediaUrl : '',
+    previewUrl: first ? first.previewUrl : '',
+    posterUrl: first ? first.posterUrl : '',
+    previewStatus: first ? first.previewStatus : '',
+    updatedAt: now(),
+    updatedBy: 'spacex-auto-sync'
+  }
+  // update 路径去掉 undefined，避免误写；set 路径保留默认 notice
+  const writePatch = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined))
+  if (docExists) {
+    await ref.update({ data: writePatch })
+  } else {
+    await ref.set({ data: writePatch })
+  }
+
+  // 8) 截帧封面 / 最长 12 秒 720p 受控码率预览转码（官网新拉的视频必须走这条）
+  let after = { _id: 'current', ...(doc || {}), ...patch }
+  try {
+    after = await ensureSplashMediaItems(after)
+  } catch (e) {
+    console.warn('[splash-auto] ensure media failed:', e.message || e)
+  }
+
+  await writeOpLog({
+    user: { id: 'system', username: 'spacex-auto-sync' },
+    module: COLLECTIONS.STARSHIP_SPLASH,
+    action: 'auto_sync',
+    targetId: 'current',
+    detail: {
+      added: added ? { flightNumber: added.flightNumber, sourceUrl: added.sourceUrl } : null,
+      removed,
+      previewStatus: after && after.mediaItems
+        ? after.mediaItems
+            .filter((it) => it && it.autoSource === 'spacex')
+            .map((it) => ({ id: it.id, previewStatus: it.previewStatus, previewUrl: it.previewUrl || '' }))
+        : [],
+      elapsedMs: Date.now() - startedAt
+    }
+  })
+
+  return ok({
+    added: added ? { flightNumber: added.flightNumber, mediaUrl: added.mediaUrl } : null,
+    removed,
+    totalItems: nextItems.length,
+    autoPreview: after && after.mediaItems
+      ? after.mediaItems
+          .filter((it) => it && it.autoSource === 'spacex')
+          .map((it) => ({ flightNumber: it.flightNumber, previewStatus: it.previewStatus }))
+      : [],
+    elapsedMs: Date.now() - startedAt
+  })
 }
 
 const CAROUSEL_KEY_PREFIX = '首页轮播图/'
@@ -2688,6 +3801,7 @@ const MENU_BADGE_MODULES = [
   'launch_subscriptions',
   'launch_votes',
   'lunar_wishes',
+  'astro_photos',
   'road_closure_notice',
   'milestone_rewards',
   'announcements'
@@ -2711,6 +3825,9 @@ async function getMenuBadgeCount(mod, since) {
 
     case 'lunar_wishes':
       return safeCountWhere('lunar_wishes', { status: 'pending' })
+
+    case 'astro_photos':
+      return safeCountWhere('astro_photos', { status: 'pending' })
 
     case 'launch_subscriptions':
       return safeCountWhere(COLLECTIONS.LAUNCH_SUBSCRIPTIONS, { sent: false })
@@ -2830,6 +3947,59 @@ function decodeCursor(cursor = '') {
   }
 }
 
+/** 与 syncRocketCosIndex.normalizeKey 保持一致，确保墓碑能命中 */
+function normalizeRocketMediaKey(key) {
+  if (!key || typeof key !== 'string') return ''
+  return key
+    .replace(/[\u00A0\u2000-\u200D\u202F\u205F\u2060\u3000\uFEFF]/g, ' ')
+    .replace(/／/g, '/')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^\/+/, '')
+    .replace(/\\/g, '/')
+}
+
+async function upsertMediaAssetTombstone(key, user) {
+  const nk = normalizeRocketMediaKey(key)
+  if (!nk) return
+  const col = db.collection(COLLECTIONS.MEDIA_ASSET_TOMBSTONES)
+  const existing = await col.where({ key: nk }).limit(1).get().catch(() => ({ data: [] }))
+  const row = (existing.data || [])[0]
+  const ts = now()
+  if (row && row._id) {
+    await col.doc(row._id).update({
+      data: { updatedAt: ts, createdBy: (user && user.username) || row.createdBy || '' }
+    }).catch(() => {})
+    return
+  }
+  await col.add({
+    data: {
+      key: nk,
+      reason: 'admin_delete',
+      createdAt: ts,
+      updatedAt: ts,
+      createdBy: (user && user.username) || ''
+    }
+  }).catch((e) => {
+    console.warn('[upsertMediaAssetTombstone]', e.message || e)
+  })
+}
+
+async function clearMediaAssetTombstone(key) {
+  const nk = normalizeRocketMediaKey(key)
+  if (!nk) return
+  try {
+    const res = await db.collection(COLLECTIONS.MEDIA_ASSET_TOMBSTONES).where({ key: nk }).limit(20).get()
+    for (const row of res.data || []) {
+      if (row && row._id) {
+        await db.collection(COLLECTIONS.MEDIA_ASSET_TOMBSTONES).doc(row._id).remove().catch(() => {})
+      }
+    }
+  } catch (e) {
+    console.warn('[clearMediaAssetTombstone]', e.message || e)
+  }
+}
+
 async function listMediaAssets(query = {}) {
   const page = Math.max(1, Number(query.page || 1))
   const pageSize = Math.min(100, Math.max(1, Number(query.pageSize || 20)))
@@ -2858,6 +4028,10 @@ async function listMediaAssets(query = {}) {
   return ok({ list, total: countRes.total, page, pageSize, nextCursor })
 }
 
+function normalizeMediaCredit(raw) {
+  return String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim().slice(0, 80)
+}
+
 async function updateMediaAsset(id, body, user) {
   if (!id) return fail(4001, 'id不能为空')
   const ref = db.collection(COLLECTIONS.MEDIA_ASSETS).doc(id)
@@ -2865,10 +4039,21 @@ async function updateMediaAsset(id, body, user) {
   const before = beforeRes?.data || null
   if (!before) return fail(4040, '数据不存在')
 
-  const patch = pick(body, ['enabled', 'key', 'url', 'sourceTag'])
+  const patch = pick(body, ['enabled', 'key', 'url', 'sourceTag', 'credit'])
+  if (Object.prototype.hasOwnProperty.call(patch, 'credit')) {
+    patch.credit = normalizeMediaCredit(patch.credit)
+  }
   patch.updatedAt = now()
 
   await ref.update({ data: patch })
+  // 记录仍存在并被后台改写时，清掉同 key 墓碑，避免后续同步跳过
+  const effectiveKey = String(patch.key || before.key || '')
+  if (effectiveKey.startsWith('火箭配置图/')) {
+    await clearMediaAssetTombstone(effectiveKey)
+    if (before.key && before.key !== effectiveKey && String(before.key).startsWith('火箭配置图/')) {
+      await clearMediaAssetTombstone(before.key)
+    }
+  }
   await writeOpLog({ user, module: COLLECTIONS.MEDIA_ASSETS, action: 'update', targetId: id, before, after: { ...before, ...patch } })
   return ok(true)
 }
@@ -2897,82 +4082,6 @@ async function batchUpdateMediaAssets(body = {}, user) {
   }
 
   await writeOpLog({ user, module: COLLECTIONS.MEDIA_ASSETS, action: 'batch_update', targetId: ids.join(','), before: null, after: { ...patch, updated, failed } })
-  return ok({ total: ids.length, updated, failed, errors: errors.slice(0, 20) })
-}
-
-async function listMediaFeed(query = {}) {
-  const page = Math.max(1, Number(query.page || 1))
-  const pageSize = Math.min(100, Math.max(1, Number(query.pageSize || 20)))
-  const keyword = (query.keyword || '').trim()
-  const sourceTag = (query.sourceTag || '').trim()
-  const type = (query.type || '').trim()
-  const enabled = normalizeBoolValue(query.enabled)
-  const auditStatus = (query.auditStatus || '').trim()
-  const cursor = decodeCursor(query.cursor || '')
-
-  let where = {}
-  if (sourceTag) where.sourceTag = sourceTag
-  if (type) where.type = type
-  if (enabled !== undefined) where.enabled = enabled
-  if (auditStatus) where.auditStatus = auditStatus
-  if (cursor?.updatedAt) where.updatedAt = _.lte(Number(cursor.updatedAt))
-
-  const whereExpr = buildWhereWithKeyword(where, keyword, ['_id', 'title', 'desc'])
-  const queryRef = db.collection(COLLECTIONS.MEDIA_FEED).where(whereExpr)
-
-  const [countRes, listRes] = await Promise.all([
-    queryRef.count(),
-    queryRef.orderBy('order', 'asc').orderBy('updatedAt', 'desc').skip(cursor ? 0 : (page - 1) * pageSize).limit(pageSize).get()
-  ])
-
-  const list = listRes.data || []
-  const last = list[list.length - 1]
-  const nextCursor = list.length === pageSize && last ? encodeCursor({ updatedAt: Number(last.updatedAt || 0), id: last._id || '' }) : ''
-
-  return ok({ list, total: countRes.total, page, pageSize, nextCursor })
-}
-
-async function updateMediaFeed(id, body, user) {
-  if (!id) return fail(4001, 'id不能为空')
-  const ref = db.collection(COLLECTIONS.MEDIA_FEED).doc(id)
-  const beforeRes = await ref.get().catch(() => null)
-  const before = beforeRes?.data || null
-  if (!before) return fail(4040, '数据不存在')
-
-  const patch = pick(body, ['title', 'desc', 'enabled', 'order', 'type', 'coverFileID', 'fileID', 'aspectRatio', 'weight', 'previewImages', 'sourceTag', 'auditStatus', 'appid', 'storeAppid', 'productId', 'productID', 'product_id', 'productPromotionLink', 'product_promotion_link', 'mediaId', 'media_id'])
-  patch.updatedAt = now()
-
-  await ref.update({ data: patch })
-  await writeOpLog({ user, module: COLLECTIONS.MEDIA_FEED, action: 'update', targetId: id, before, after: { ...before, ...patch } })
-  await bumpProfileFeedCacheVersion()
-  return ok(true)
-}
-
-async function batchUpdateMediaFeed(body = {}, user) {
-  const ids = Array.isArray(body.ids) ? [...new Set(body.ids.filter(Boolean))] : []
-  if (!ids.length) return fail(4001, 'ids不能为空')
-  if (ids.length > 200) return fail(4001, '单次批量最多200条')
-
-  const patch = pick(body.patch || {}, ['enabled', 'type', 'sourceTag', 'auditStatus'])
-  if (Object.keys(patch).length === 0) return fail(4001, 'patch不能为空')
-
-  patch.updatedAt = now()
-
-  let updated = 0
-  let failed = 0
-  const errors = []
-  for (const id of ids) {
-    try {
-      await db.collection(COLLECTIONS.MEDIA_FEED).doc(id).update({ data: patch })
-      updated += 1
-    } catch (e) {
-      failed += 1
-      errors.push({ id, message: e.message || String(e) })
-    }
-  }
-
-  await writeOpLog({ user, module: COLLECTIONS.MEDIA_FEED, action: 'batch_update', targetId: ids.join(','), before: null, after: { ...patch, updated, failed } })
-  if (updated > 0) await bumpProfileFeedCacheVersion()
   return ok({ total: ids.length, updated, failed, errors: errors.slice(0, 20) })
 }
 
@@ -3183,54 +4292,6 @@ async function cosDeleteFile(body = {}, user) {
   return ok({ key })
 }
 
-async function createMediaFeed(body, user) {
-  const title = (body.title || '').trim()
-  if (!title) return fail(4001, '标题不能为空')
-
-  const ts = now()
-  const payload = {
-    title,
-    desc: body.desc || '',
-    type: body.type || 'image',
-    fileID: body.fileID || '',
-    coverFileID: body.coverFileID || '',
-    previewImages: Array.isArray(body.previewImages) ? body.previewImages : [],
-    aspectRatio: Number(body.aspectRatio || 1),
-    enabled: body.enabled !== false,
-    auditStatus: body.auditStatus || 'approved',
-    sourceTag: (typeof body.sourceTag === 'string' && body.sourceTag.trim()) ? body.sourceTag.trim() : 'inspiration',
-    weight: Number(body.weight || 0),
-    order: Number(body.order || 0),
-    appid: body.appid || '',
-    storeAppid: body.storeAppid || '',
-    productId: body.productId || '',
-    productPromotionLink: body.productPromotionLink || '',
-    mediaId: body.mediaId || '',
-    createdAt: ts,
-    updatedAt: ts,
-    createdBy: user.username,
-    updatedBy: user.username
-  }
-
-  const res = await db.collection(COLLECTIONS.MEDIA_FEED).add({ data: payload })
-  await writeOpLog({ user, module: COLLECTIONS.MEDIA_FEED, action: 'create', targetId: res._id, after: payload })
-  await bumpProfileFeedCacheVersion()
-  return ok({ id: res._id })
-}
-
-async function deleteMediaFeed(id, user) {
-  if (!id) return fail(4001, 'id不能为空')
-  const ref = db.collection(COLLECTIONS.MEDIA_FEED).doc(id)
-  const beforeRes = await ref.get().catch(() => null)
-  const before = beforeRes?.data || null
-  if (!before) return fail(4040, '数据不存在')
-
-  await ref.remove()
-  await writeOpLog({ user, module: COLLECTIONS.MEDIA_FEED, action: 'delete', targetId: id, before, after: null })
-  await bumpProfileFeedCacheVersion()
-  return ok(true)
-}
-
 async function createShopFeed(body, user) {
   const ts = now()
   const payload = {
@@ -3273,6 +4334,7 @@ async function createMediaAsset(body, user) {
   if (!key) return fail(4001, 'key不能为空')
 
   const ts = now()
+  const credit = normalizeMediaCredit(body.credit)
   const payload = {
     key,
     url: body.url || `${COS_BASE_URL}${encodeURI(key)}`,
@@ -3281,6 +4343,12 @@ async function createMediaAsset(body, user) {
     createdAt: ts,
     updatedAt: ts,
     createdBy: user.username
+  }
+  if (credit) payload.credit = credit
+
+  // 重新上传/入库同一 key 时清除删除墓碑，允许出现在 COS 同步结果中
+  if (key.startsWith('火箭配置图/')) {
+    await clearMediaAssetTombstone(key)
   }
 
   const res = await db.collection(COLLECTIONS.MEDIA_ASSETS).add({ data: payload })
@@ -3296,11 +4364,16 @@ async function deleteMediaAsset(id, user) {
   if (!before) return fail(4040, '数据不存在')
 
   await ref.remove()
+  // 火箭配置图：写入墓碑，阻止 syncRocketCosIndex 因 COS 文件仍在而重新 add
+  const key = String(before.key || '')
+  if (key.startsWith('火箭配置图/')) {
+    await upsertMediaAssetTombstone(key, user)
+  }
   await writeOpLog({ user, module: COLLECTIONS.MEDIA_ASSETS, action: 'delete', targetId: id, before, after: null })
   return ok(true)
 }
 
-/** 触发 syncRocketCosIndex：COS「火箭配置图/」目录 → media_assets（manual 记录不会被覆盖删除） */
+/** 触发 syncRocketCosIndex：COS「火箭配置图/」目录 → media_assets（manual / 墓碑 key 不会被覆盖或复活） */
 async function syncRocketMediaCosIndex(user) {
   try {
     const res = await cloud.callFunction({
@@ -3625,7 +4698,6 @@ async function getStatisticsOverview() {
     { key: COLLECTIONS.EVENTS, label: '事件' },
     { key: COLLECTIONS.ARTICLES, label: '文章' },
     { key: COLLECTIONS.MEDIA_ASSETS, label: '媒体素材' },
-    { key: COLLECTIONS.MEDIA_FEED, label: '灵感流' },
     { key: COLLECTIONS.SHOP_FEED, label: '小店数据' },
     { key: COLLECTIONS.STARSHIP_EVENT_UPDATES, label: '事件更新' },
     { key: COLLECTIONS.ROAD_CLOSURE, label: '封路通知' },
@@ -3891,20 +4963,62 @@ async function listCloudFunctions() {
     { name: 'syncSpaceDevsData', desc: '发射数据同步', type: 'timer' },
     { name: 'syncSpaceXTweets', desc: 'SpaceX推文同步', type: 'timer' },
     { name: 'sendLaunchReminder', desc: '发射提醒推送', type: 'timer' },
-    { name: 'publishBilibiliFromEvents', desc: 'B站事件入队（定时+推文同步触发）', type: 'timer' }
   ]
   return ok(functions)
 }
 
-async function triggerCloudFunction(name, user) {
-  const allowed = ['syncSpaceDevsData', 'syncSpaceXTweets', 'sendLaunchReminder', 'publishBilibiliFromEvents']
+async function triggerCloudFunction(name, user, body) {
+  const allowed = ['syncSpaceDevsData', 'syncSpaceXTweets', 'sendLaunchReminder']
   if (!allowed.includes(name)) return fail(4001, '不允许手动触发该云函数')
 
+  // 云函数互调 = 服务端身份，可绕开 syncSpaceDevsData 对 wx_client 控制台测试的拦截
+  const action =
+    body && typeof body.action === 'string' && body.action.trim()
+      ? body.action.trim()
+      : 'manual_trigger'
+  const data = { action }
+  if (body && body.force) data.force = true
+
+  // 长任务（LL2 多页拉取，动辄 1 分钟+）：等待结果必然撞 callFunction 超时，
+  // 一律 fire-and-forget；被调函数不受调用方超时影响，会继续跑完（自身超时 800s）
+  const LONG_RUNNING_ACTIONS = new Set([
+    'syncAgencies',
+    'syncBoosters',
+    'syncStarshipHardware',
+    'syncImageMirror',
+    'syncFeaturedAgencyDetails',
+    'fillFlightHistory',
+    'rebuildVoteSettle'
+  ])
+
   try {
-    cloud.callFunction({ name, data: { action: 'manual_trigger' } }).then(res => {
+    // syncLaunchNetHourly 等运维探针：等待结果，便于确认是否写回/重排成功
+    if (
+      name === 'syncSpaceDevsData' &&
+      action !== 'manual_trigger' &&
+      action !== 'sync' &&
+      !LONG_RUNNING_ACTIONS.has(action)
+    ) {
+      const res = await cloud.callFunction({
+        name,
+        data,
+        config: { timeout: 90000 }
+      })
+      const result = (res && res.result) || null
+      writeOpLog({
+        user,
+        module: 'cloud_functions',
+        action: 'trigger',
+        targetId: name,
+        after: result
+      }).catch(() => {})
+      return ok({ message: `云函数 ${name} 已执行`, action, result })
+    }
+
+    cloud.callFunction({ name, data }).then(res => {
       writeOpLog({ user, module: 'cloud_functions', action: 'trigger', targetId: name, after: res.result || null }).catch(() => {})
     }).catch(() => {})
-    return ok({ message: `云函数 ${name} 已触发` })
+    return ok({ message: `云函数 ${name} 已触发`, action })
   } catch (e) {
     return fail(5001, `触发失败: ${e.message || String(e)}`)
   }
@@ -3955,6 +5069,34 @@ async function updatePopupAdConfig(body, user) {
     await ref.set({ data: { createdAt: now(), ...patch } })
   }
   await writeOpLog({ user, module: 'popup_ad', action: 'update_config', before, after: patch })
+  return ok(true)
+}
+
+async function getProfileShopConfig() {
+  try {
+    const res = await db.collection(COLLECTIONS.GLOBAL_CONFIG).doc('main').get()
+    const main = res.data || {}
+    return ok({
+      enabled: main.enableProfileShop === true,
+      shopItemId: String(main.profileShopItemId || '').trim()
+    })
+  } catch (e) {
+    return ok({ enabled: false, shopItemId: '' })
+  }
+}
+
+async function updateProfileShopConfig(body, user) {
+  const ref = db.collection(COLLECTIONS.GLOBAL_CONFIG).doc('main')
+  const beforeRes = await ref.get().catch(() => null)
+  const before = beforeRes?.data || null
+  if (!before) return fail(4040, '全局配置不存在')
+  const patch = {
+    profileShopItemId: String((body && (body.shopItemId || body.profileShopItemId)) || '').trim(),
+    updatedAt: now(),
+    updatedBy: user.username
+  }
+  await ref.update({ data: patch })
+  await writeOpLog({ user, module: 'profile_shop', action: 'update_config', before, after: patch })
   return ok(true)
 }
 
@@ -4076,9 +5218,6 @@ function sanitizeMemberPolicyFields(body) {
   if (Object.prototype.hasOwnProperty.call(body, 'freeAiChatDaily')) {
     out.freeAiChatDaily = _clampPolicyInt(body.freeAiChatDaily, 0, 200, 3)
   }
-  if (Object.prototype.hasOwnProperty.call(body, 'freeAiImageDaily')) {
-    out.freeAiImageDaily = _clampPolicyInt(body.freeAiImageDaily, 0, 50, 1)
-  }
   if (Object.prototype.hasOwnProperty.call(body, 'adUnlockMinutes')) {
     out.adUnlockMinutes = _clampPolicyInt(body.adUnlockMinutes, 1, 1440, 10)
   }
@@ -4103,6 +5242,17 @@ async function updateGlobalConfig(body, user) {
     updatedBy: user.username
   }
   delete patch._id
+  if (Object.prototype.hasOwnProperty.call(body || {}, 'enableOrbitPano')) {
+    const on = body.enableOrbitPano !== false
+    patch.enableOrbitPano = on
+    patch.orbitPanoEnabled = on
+  }
+  if (Object.prototype.hasOwnProperty.call(body || {}, 'enableProfileShop')) {
+    patch.enableProfileShop = body.enableProfileShop === true
+  }
+  if (Object.prototype.hasOwnProperty.call(body || {}, 'profileShopAppid')) {
+    patch.profileShopAppid = String(body.profileShopAppid || '').trim()
+  }
 
   // 必须用 update（字段合并）而不是 set（整文档替换）：
   // main 文档还挂着 proWhitelistOpenids / vpayConfig / newsManualArticlesEnabled 等
@@ -4690,6 +5840,165 @@ async function rebuildYearReviewSnapshotAdmin(body, user) {
 }
 
 // ========== 系统公告 ==========
+/**
+ * 规范化公告投票配置。返回 null 表示未启用投票。
+ * 更新时传入 prevVote，可按选项 id 保留已有票数（管理员改文案/图片不清零；删掉的选项票数随之丢弃）。
+ */
+function sanitizeAnnouncementVote(vote, prevVote) {
+  if (!vote || typeof vote !== 'object' || !vote.enabled) return null
+  const prevCountMap = {}
+  if (prevVote && Array.isArray(prevVote.options)) {
+    prevVote.options.forEach((o) => {
+      if (o && o.id) prevCountMap[o.id] = Math.max(0, Number(o.count || 0))
+    })
+  }
+  const options = (Array.isArray(vote.options) ? vote.options : [])
+    .map((o, idx) => {
+      const label = String((o && o.label) || '').trim()
+      if (!label) return null
+      const id = String((o && o.id) || '').trim() || `opt_${Date.now()}_${idx}`
+      return {
+        id,
+        label,
+        image: String((o && o.image) || '').trim(),
+        count: prevCountMap[id] || 0
+      }
+    })
+    .filter(Boolean)
+  if (options.length < 2) return null
+  return {
+    enabled: true,
+    question: String(vote.question || '').trim(),
+    intro: String(vote.intro || '').trim(),
+    image: String(vote.image || '').trim(),
+    options,
+    startTime: Math.max(0, Number(vote.startTime || 0)) || 0,
+    endTime: Math.max(0, Number(vote.endTime || 0)) || 0,
+    resultNote: String(vote.resultNote || '').trim(),
+    totalVotes: options.reduce((sum, o) => sum + (o.count || 0), 0)
+  }
+}
+
+/** 投票阶段：notStarted（未到开始时间）/ open（进行中）/ ended（已到期，结果公示） */
+function announcementVoteStatus(vote, nowTs) {
+  if (!vote || !vote.enabled) return 'disabled'
+  if (vote.startTime && nowTs < vote.startTime) return 'notStarted'
+  if (vote.endTime && nowTs >= vote.endTime) return 'ended'
+  return 'open'
+}
+
+function announcementVoteRecordId(announcementId, openid) {
+  return `ann_${announcementId}_${openid}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120)
+}
+
+/** 由内存中的投票配置组装下发状态，不再回查数据库（省读次数） */
+function buildAnnouncementVoteState(id, vote, myChoice) {
+  const status = announcementVoteStatus(vote, Date.now())
+  const options = Array.isArray(vote.options) ? vote.options : []
+  const totalVotes = options.reduce((sum, o) => sum + Math.max(0, Number((o && o.count) || 0)), 0)
+  const revealed = status === 'ended' || !!myChoice
+  return {
+    announcementId: id,
+    status,
+    myChoice: myChoice || '',
+    revealed,
+    question: vote.question || '',
+    intro: vote.intro || '',
+    image: vote.image || '',
+    startTime: vote.startTime || 0,
+    endTime: vote.endTime || 0,
+    resultNote: status === 'ended' ? (vote.resultNote || '') : '',
+    totalVotes: revealed ? totalVotes : 0,
+    options: options.map((o) => ({
+      id: o.id,
+      label: o.label || '',
+      image: o.image || '',
+      count: revealed ? Math.max(0, Number(o.count || 0)) : 0
+    }))
+  }
+}
+
+/**
+ * 小程序端查询公告投票状态（兜底接口，正常流程客户端不调用：
+ * 配置/票数走 system_announcements 直读缓存，我的选择走本地存储 + 投票响应）。
+ */
+async function getAnnouncementVote(id, openid) {
+  if (!id) return fail(4001, 'id不能为空')
+  const res = await db.collection(COLLECTIONS.ANNOUNCEMENTS).doc(id).get().catch(() => null)
+  const vote = res && res.data && res.data.vote
+  if (!vote || !vote.enabled) return fail(4040, '该公告没有投票')
+
+  let myChoice = ''
+  if (openid) {
+    const recRes = await db.collection(COLLECTIONS.ANNOUNCEMENT_VOTE_RECORDS)
+      .doc(announcementVoteRecordId(id, openid)).get().catch(() => null)
+    if (recRes && recRes.data) myChoice = recRes.data.optionId || ''
+  }
+  return ok(buildAnnouncementVoteState(id, vote, myChoice))
+}
+
+/**
+ * 小程序端投票：确定性 _id 原子去重（对齐发射竞猜模式），保证一人一票。
+ * 成功路径共 3 次 DB 操作（1 读 + 2 写），响应由内存数据组装、不回查。
+ */
+async function castAnnouncementVote(body = {}, openid) {
+  if (!openid) return fail(4010, '缺少用户身份，请稍后重试')
+  const announcementId = String(body.announcementId || '').trim()
+  const optionId = String(body.optionId || '').trim()
+  if (!announcementId || !optionId) return fail(4001, '参数不完整')
+
+  const ref = db.collection(COLLECTIONS.ANNOUNCEMENTS).doc(announcementId)
+  const res = await ref.get().catch(() => null)
+  const doc = res && res.data
+  const vote = doc && doc.vote
+  if (!doc || !vote || !vote.enabled) return fail(4040, '该公告没有投票')
+
+  const status = announcementVoteStatus(vote, Date.now())
+  if (status === 'notStarted') return fail(4003, '投票还未开始')
+  if (status === 'ended') return fail(4003, '投票已截止')
+
+  const optIndex = (Array.isArray(vote.options) ? vote.options : []).findIndex((o) => o && o.id === optionId)
+  if (optIndex < 0) return fail(4001, '投票选项不存在')
+
+  const recordId = announcementVoteRecordId(announcementId, openid)
+  try {
+    await db.collection(COLLECTIONS.ANNOUNCEMENT_VOTE_RECORDS).add({
+      data: {
+        _id: recordId,
+        announcementId,
+        openid,
+        optionId,
+        createdAt: now()
+      }
+    })
+  } catch (addErr) {
+    // 确定性 _id 冲突 = 已投过（含并发/跨设备/删除小程序后重投），只补 1 次读拿到当时的选择
+    const recRes = await db.collection(COLLECTIONS.ANNOUNCEMENT_VOTE_RECORDS)
+      .doc(recordId).get().catch(() => null)
+    const prevChoice = (recRes && recRes.data && recRes.data.optionId) || optionId
+    const state = buildAnnouncementVoteState(announcementId, vote, prevChoice)
+    state.duplicate = true
+    return ok(state)
+  }
+
+  await ref.update({
+    data: {
+      [`vote.options.${optIndex}.count`]: _.inc(1),
+      'vote.totalVotes': _.inc(1),
+      updatedAt: now()
+    }
+  }).catch((e) => {
+    console.error('[castAnnouncementVote] inc error:', e.message || String(e))
+  })
+
+  // 内存中补上这一票再下发，避免回查 2 次读
+  const bumped = {
+    ...vote,
+    options: vote.options.map((o, i) => (i === optIndex ? { ...o, count: Math.max(0, Number(o.count || 0)) + 1 } : o))
+  }
+  return ok(buildAnnouncementVoteState(announcementId, bumped, optionId))
+}
+
 async function listAnnouncements(query = {}) {
   const page = Math.max(1, Number(query.page || 1))
   const pageSize = Math.min(50, Math.max(1, Number(query.pageSize || 20)))
@@ -4716,6 +6025,7 @@ async function createAnnouncement(body, user) {
     version: body.version || '',
     forceUpdate: !!body.forceUpdate,
     maintenance: !!body.maintenance,
+    vote: sanitizeAnnouncementVote(body.vote, null),
     createdAt: ts,
     updatedAt: ts,
     createdBy: user.username
@@ -4732,6 +6042,9 @@ async function updateAnnouncement(id, body, user) {
   if (!beforeRes?.data) return fail(4040, '公告不存在')
 
   const patch = pick(body, ['title', 'content', 'type', 'active', 'version', 'forceUpdate', 'maintenance'])
+  if (body.vote !== undefined) {
+    patch.vote = sanitizeAnnouncementVote(body.vote, beforeRes.data.vote)
+  }
   patch.updatedAt = now()
   patch.updatedBy = user.username
 
@@ -4758,7 +6071,7 @@ async function exportCollectionData(body, user) {
 
   const validCollections = [
     'space_devs_cache', COLLECTIONS.EVENTS, COLLECTIONS.ARTICLES, COLLECTIONS.MEDIA_ASSETS,
-    COLLECTIONS.MEDIA_FEED, COLLECTIONS.SHOP_FEED, COLLECTIONS.STARSHIP_EVENT_UPDATES,
+    COLLECTIONS.SHOP_FEED, COLLECTIONS.STARSHIP_EVENT_UPDATES,
     COLLECTIONS.ROAD_CLOSURE, COLLECTIONS.LOGS,
     COLLECTIONS.PUSH_HISTORY, COLLECTIONS.ANNOUNCEMENTS
   ]
@@ -4799,6 +6112,78 @@ async function exportCollectionData(body, user) {
 // ========== 服务号 B 通道：自动发射提醒 opt-in ==========
 const OA_AUTO_ALERT_USERS = 'oa_auto_alert_users'
 
+function httpsGetJson(url) {
+  return new Promise(function (resolve, reject) {
+    try {
+      require('https')
+        .get(url, function (res) {
+          var buf = ''
+          res.on('data', function (c) {
+            buf += c
+          })
+          res.on('end', function () {
+            try {
+              resolve(JSON.parse(buf || '{}'))
+            } catch (e) {
+              reject(e)
+            }
+          })
+        })
+        .on('error', reject)
+    } catch (e) {
+      reject(e)
+    }
+  })
+}
+
+var _adminOaTokenCache = { token: '', expireAt: 0 }
+async function getAdminOaAccessToken() {
+  var appid = String(process.env.WECHAT_OA_APPID || '').trim()
+  var secret = String(process.env.WECHAT_OA_SECRET || '').trim()
+  if (!appid || !secret) return ''
+  var nowMs = Date.now()
+  if (_adminOaTokenCache.token && _adminOaTokenCache.expireAt > nowMs + 60 * 1000) {
+    return _adminOaTokenCache.token
+  }
+  var url =
+    'https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=' +
+    encodeURIComponent(appid) +
+    '&secret=' +
+    encodeURIComponent(secret)
+  var data = await httpsGetJson(url)
+  if (!data || !data.access_token) return ''
+  _adminOaTokenCache = {
+    token: data.access_token,
+    expireAt: nowMs + (Number(data.expires_in) || 7200) * 1000
+  }
+  return _adminOaTokenCache.token
+}
+
+/**
+ * 用微信 user/info 核对真实关注状态，纠正「取关事件丢失」导致的 followed 残留。
+ * subscribe===1 已关注；0 未关注。失败时返回 null（不改库）。
+ */
+async function fetchOaSubscribeFlag(oaOpenid) {
+  var oid = String(oaOpenid || '').trim()
+  if (!oid) return null
+  try {
+    var token = await getAdminOaAccessToken()
+    if (!token) return null
+    var url =
+      'https://api.weixin.qq.com/cgi-bin/user/info?access_token=' +
+      encodeURIComponent(token) +
+      '&openid=' +
+      encodeURIComponent(oid) +
+      '&lang=zh_CN'
+    var data = await httpsGetJson(url)
+    if (!data || data.errcode) return null
+    if (data.subscribe === 0 || data.subscribe === 1) return data.subscribe === 1
+    return null
+  } catch (e) {
+    return null
+  }
+}
+
 async function findOaAlertUser(openid, unionid) {
   if (unionid) {
     const byUnion = await db.collection(OA_AUTO_ALERT_USERS).where({ unionid }).limit(1).get().catch(() => ({ data: [] }))
@@ -4819,6 +6204,17 @@ async function enableOaAlert(openid, unionid) {
 
   const nowTs = now()
   const existing = await findOaAlertUser(openid, unionid)
+  // 未关注不得写 enabled：避免「开关开着但收不到」的假状态
+  if (!existing || !existing.followed || !existing.oaOpenid) {
+    return fail(4003, '请先关注服务号「火星探索日志」', {
+      needFollow: true,
+      enabled: false,
+      followed: !!(existing && existing.followed),
+      ready: false,
+      oaOpenidBound: !!(existing && existing.oaOpenid)
+    })
+  }
+
   const patch = {
     mpOpenid: openid,
     unionid,
@@ -4827,26 +6223,13 @@ async function enableOaAlert(openid, unionid) {
     updatedAt: nowTs
   }
 
-  if (existing) {
-    await db.collection(OA_AUTO_ALERT_USERS).doc(existing._id).update({ data: patch })
-    const merged = { ...existing, ...patch }
-    return ok({
-      enabled: true,
-      followed: !!merged.followed,
-      ready: !!(merged.followed && merged.oaOpenid),
-      oaOpenidBound: !!merged.oaOpenid
-    })
-  }
-
-  await db.collection(OA_AUTO_ALERT_USERS).add({
-    data: {
-      oaOpenid: '',
-      followed: false,
-      createdAt: nowTs,
-      ...patch
-    }
+  await db.collection(OA_AUTO_ALERT_USERS).doc(existing._id).update({ data: patch })
+  return ok({
+    enabled: true,
+    followed: true,
+    ready: true,
+    oaOpenidBound: true
   })
-  return ok({ enabled: true, followed: false, ready: false, oaOpenidBound: false })
 }
 
 async function disableOaAlert(openid, unionid) {
@@ -4857,7 +6240,49 @@ async function disableOaAlert(openid, unionid) {
   await db.collection(OA_AUTO_ALERT_USERS).doc(existing._id).update({
     data: { enabled: false, disabledAt: now(), updatedAt: now() }
   })
-  return ok({ enabled: false, followed: !!existing.followed, ready: false })
+
+  // 关闭服务号后：曾走 OA 结果通道、发射尚未发生的订阅，回退为 A 通道待发提醒（保留结果额度）
+  let restored = 0
+  try {
+    const nowMs = Date.now()
+    const res = await db
+      .collection('launch_subscriptions')
+      .where({ _openid: openid })
+      .limit(100)
+      .get()
+      .catch(() => ({ data: [] }))
+    for (const row of res.data || []) {
+      if (!row || !row.reminderViaOa || row.resultSent) continue
+      const launchMs = row.launchTime ? new Date(row.launchTime).getTime() : 0
+      // 已过发射窗口的只保留等结果，不再回退提醒
+      if (launchMs && launchMs <= nowMs) continue
+      const lead = Number(row.notifyLeadMinutes) > 0 ? Number(row.notifyLeadMinutes) : 30
+      const notifyAt =
+        launchMs > 0
+          ? launchMs - lead * 60 * 1000
+          : Number(row.notifyAt) || 0
+      try {
+        await db.collection('launch_subscriptions').doc(row._id).update({
+          data: {
+            sent: false,
+            reminderSent: false,
+            reminderViaOa: false,
+            source: 'oa_disabled_restore',
+            notifyAt: notifyAt,
+            updatedAt: nowMs
+          }
+        })
+        restored++
+      } catch (e) {}
+    }
+  } catch (e) {}
+
+  return ok({
+    enabled: false,
+    followed: !!existing.followed,
+    ready: false,
+    restoredAChannel: restored
+  })
 }
 
 async function getOaAlertStatus(openid, unionid) {
@@ -4869,39 +6294,109 @@ async function getOaAlertStatus(openid, unionid) {
       followed: false,
       ready: false,
       hasUnionid: !!unionid,
-      message: unionid ? '请先关注服务号并开启提醒' : '需绑定微信开放平台'
+      oaOpenidBound: false,
+      needFollow: true,
+      message: unionid ? '请先扫码关注服务号，再开启提醒' : '需绑定微信开放平台'
     })
   }
+
+  // 有 oaOpenid 时向微信核对真实关注，避免取关事件丢失导致「已关注」假阳性
+  if (existing.oaOpenid) {
+    const liveFollowed = await fetchOaSubscribeFlag(existing.oaOpenid)
+    if (liveFollowed === false && existing.followed) {
+      try {
+        await db.collection(OA_AUTO_ALERT_USERS).doc(existing._id).update({
+          data: {
+            followed: false,
+            enabled: false,
+            unsubscribedAt: now(),
+            updatedAt: now(),
+            disabledReason: 'wechat_subscribe_0'
+          }
+        })
+      } catch (e) {}
+      existing.followed = false
+      existing.enabled = false
+    } else if (liveFollowed === true && !existing.followed) {
+      try {
+        await db.collection(OA_AUTO_ALERT_USERS).doc(existing._id).update({
+          data: { followed: true, subscribedAt: now(), updatedAt: now() }
+        })
+      } catch (e2) {}
+      existing.followed = true
+    }
+  }
+
+  // 纠正历史假状态：未关注却 enabled=true → 关掉
+  if (existing.enabled && (!existing.followed || !existing.oaOpenid)) {
+    try {
+      await db.collection(OA_AUTO_ALERT_USERS).doc(existing._id).update({
+        data: { enabled: false, updatedAt: now(), disabledReason: 'not_followed' }
+      })
+    } catch (e) {}
+    existing.enabled = false
+  }
+
   const ready = !!(existing.enabled && existing.followed && existing.oaOpenid)
+  const followed = !!existing.followed
+  const oaBound = !!existing.oaOpenid
   return ok({
-    enabled: !!existing.enabled,
-    followed: !!existing.followed,
+    enabled: ready, // 对外只暴露真实可推送状态，避免假「已开启」
+    followed,
     ready,
     hasUnionid: !!unionid,
-    oaOpenidBound: !!existing.oaOpenid,
+    oaOpenidBound: oaBound,
+    needFollow: !followed || !oaBound,
     message: ready
-      ? '已就绪，发射前30分钟微信将自动推送'
-      : existing.enabled && !existing.followed
-        ? '已开启开关，请先关注服务号「火星探索日志」'
-        : existing.enabled && !existing.oaOpenid
-          ? '已开启开关，等待服务号身份同步（关注后约1分钟生效）'
-          : '未开启'
+      ? '已就绪，发射前约30分钟及完成后结果将由微信自动推送'
+      : !followed || !oaBound
+        ? '请先长按识别二维码关注服务号「火星探索日志」'
+        : '已关注，打开开关即可接收自动提醒'
   })
 }
 
 // ========== 发射提醒订阅（防重复） ==========
+/** 查找该用户对该任务仍有效的订阅（待发提醒，或已发提醒仍等结果） */
+async function findActiveLaunchSubscription(openid, missionId) {
+  const col = 'launch_subscriptions'
+  const mid = String(missionId)
+  // 只用 _openid + missionId 两字段查询，避免复合索引缺失导致「等结果」文档查不到、重复建订
+  const res = await db
+    .collection(col)
+    .where({ _openid: openid, missionId: mid })
+    .limit(20)
+    .get()
+    .catch(() => ({ data: [] }))
+  const rows = res.data || []
+  if (!rows.length) return null
+  // 优先：未发提醒
+  for (let i = 0; i < rows.length; i++) {
+    if (!rows[i].sent) return rows[i]
+  }
+  // 其次：已发提醒 / OA 直达，仍有结果额度且未发结果
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i]
+    if (!r.resultSent && Number(r.resultQuota) > 0) return r
+  }
+  return null
+}
+
 async function subscribeLaunchReminder(body, openid) {
   const { missionId } = body || {}
   if (!missionId) return fail(4001, 'missionId 不能为空')
   if (!openid) return fail(4001, '无法获取用户身份')
 
   const col = 'launch_subscriptions'
-  // 检查是否已有该用户对此任务的未发送订阅
-  const existing = await db.collection(col).where({
-    _openid: openid,
-    missionId: String(missionId),
-    sent: false
-  }).limit(1).get().catch(() => ({ data: [] }))
+  const reminderViaOa = body.reminderViaOa === true || body.reminderViaOa === 1
+  const resultQuotaIn =
+    body.resultQuota === true || body.resultQuota === 1 ? 1 : 0
+
+  // 服务号已覆盖发射前：必须带结果额度，否则无意义
+  if (reminderViaOa && resultQuotaIn <= 0) {
+    return fail(4001, '需要授权结果通知')
+  }
+
+  const existing = await findActiveLaunchSubscription(openid, missionId)
 
   const notifyLeadMinutes =
     typeof body.notifyLeadMinutes === 'number' &&
@@ -4921,14 +6416,23 @@ async function subscribeLaunchReminder(body, openid) {
     templateId: body.templateId || '',
     // 结果通知：用户同时授权「任务完成提醒」时记 1 次额度
     resultTemplateId: body.resultTemplateId || '',
-    resultQuota: body.resultQuota === true || body.resultQuota === 1 ? 1 : 0,
+    resultQuota: resultQuotaIn,
     resultSent: false,
     updatedAt: Date.now()
   }
 
-  if (existing.data && existing.data.length > 0) {
-    const docId = existing.data[0]._id
-    const prev = existing.data[0] || {}
+  if (reminderViaOa) {
+    // 发射前提醒由服务号负责，A 通道直接进入「等结果」状态
+    subPayload.sent = true
+    subPayload.reminderSent = true
+    subPayload.reminderSentAt = Date.now()
+    subPayload.reminderViaOa = true
+    subPayload.source = 'oa_result'
+  }
+
+  if (existing) {
+    const docId = existing._id
+    const prev = existing || {}
     // 再次授权结果模板时累加额度（一次性订阅可多次授权）
     if (subPayload.resultQuota > 0) {
       subPayload.resultQuota = Math.min(5, (Number(prev.resultQuota) || 0) + 1)
@@ -4937,8 +6441,13 @@ async function subscribeLaunchReminder(body, openid) {
       subPayload.resultTemplateId = prev.resultTemplateId || subPayload.resultTemplateId
     }
     if (prev.resultSent) subPayload.resultSent = true
+    // 已是等结果文档时，OA 路径不要把 sent 打回 false
+    if (!reminderViaOa && prev.sent) {
+      delete subPayload.sent
+      if (prev.reminderSent) delete subPayload.reminderSent
+    }
     await db.collection(col).doc(docId).update({ data: subPayload })
-    return ok({ subscribed: true, duplicate: true, updated: true })
+    return ok({ subscribed: true, duplicate: true, updated: true, reminderViaOa: !!reminderViaOa })
   }
 
   await db.collection(col).add({
@@ -4946,42 +6455,55 @@ async function subscribeLaunchReminder(body, openid) {
       _openid: openid,
       missionId: String(missionId),
       ...subPayload,
-      sent: false,
-      reminderSent: false,
+      sent: reminderViaOa ? true : false,
+      reminderSent: reminderViaOa ? true : false,
       resultSent: false,
       createdAt: Date.now()
     }
   })
-  return ok({ subscribed: true, duplicate: false })
+  return ok({ subscribed: true, duplicate: false, reminderViaOa: !!reminderViaOa })
 }
 
 async function checkSubscription(missionId, openid) {
   if (!missionId || !openid) return ok({ subscribed: false })
-  const col = 'launch_subscriptions'
-  const res = await db.collection(col).where({
-    _openid: openid,
-    missionId: String(missionId),
-    sent: false
-  }).limit(1).get().catch(() => ({ data: [] }))
-  return ok({ subscribed: !!(res.data && res.data.length > 0) })
+  const row = await findActiveLaunchSubscription(openid, missionId)
+  return ok({
+    subscribed: !!row,
+    resultQuota: row ? Number(row.resultQuota) || 0 : 0,
+    reminderViaOa: !!(row && row.reminderViaOa),
+    waitingResult: !!(row && row.sent && !row.resultSent && Number(row.resultQuota) > 0)
+  })
 }
 
 async function listMySubscriptions(openid) {
   if (!openid) return fail(4001, '无法获取用户身份')
   const col = 'launch_subscriptions'
   try {
-    const res = await db.collection(col).where({
-      _openid: openid,
-      sent: false
-    }).orderBy('createdAt', 'desc').limit(50).get()
-
-    const list = (res.data || []).map(d => ({
+    // 单字段查询 + 内存过滤，避免 sent/resultQuota 复合索引缺失
+    const res = await db
+      .collection(col)
+      .where({ _openid: openid })
+      .orderBy('createdAt', 'desc')
+      .limit(100)
+      .get()
+    const merged = new Map()
+    for (const d of res.data || []) {
+      if (!d || d.resultSent) continue
+      const active = !d.sent || Number(d.resultQuota) > 0
+      if (!active) continue
+      const key = String(d.missionId || d._id)
+      if (!merged.has(key)) merged.set(key, d)
+    }
+    const list = Array.from(merged.values()).map((d) => ({
       missionId: d.missionId,
       missionName: d.missionName || '',
       rocketName: d.rocketName || '',
       launchTime: d.launchTime || '',
       recoveryMethod: d.recoveryMethod || '',
-      createdAt: d.createdAt || 0
+      createdAt: d.createdAt || 0,
+      resultQuota: Number(d.resultQuota) || 0,
+      reminderViaOa: !!d.reminderViaOa,
+      waitingResult: !!(d.sent && !d.resultSent && Number(d.resultQuota) > 0)
     }))
     return ok({ list })
   } catch (e) {
@@ -5029,15 +6551,63 @@ function voteUserRecordId(launchId, openid, voteType) {
   return String(raw).replace(/[^a-zA-Z0-9_-]/g, '_')
 }
 
-/** 成败竞猜结算：成功/载荷部署 → success；失败/部分失败/取消等 → failure */
-function computeOutcomeResult(statusCategory, statusAbbrev, statusName) {
-  const cat = String(statusCategory || '').toLowerCase().trim()
-  const text = `${statusAbbrev || ''} ${statusName || ''}`.toLowerCase()
-  if (cat === 'success' || cat === 'deployed') return 'success'
-  if (cat === 'failure' || cat === 'partial') return 'failure'
-  if (/payload\s*deployed|success/.test(text) && !/partial|failure|fail/.test(text)) return 'success'
-  if (/partial\s*failure|failure|fail|cancel|scrub|abort/.test(text)) return 'failure'
-  return ''
+/**
+ * 写入个人竞猜：准时/成败互相独立。
+ * 若集合仍有 (launchId, openid) 唯一索引，第二种题型挂到已有文档上，而不是当成重复票丢掉。
+ */
+async function writeUserLaunchVote(launchId, openid, voteType, choice, extra) {
+  const vt = normalizeVoteType(voteType)
+  const col = db.collection('launch_vote_records')
+  const round = (extra && extra.round) || 1
+  const launchTimeAtVote = (extra && extra.launchTimeAtVote) || ''
+  const typePatch = voteRecordHelpers.buildUserVoteTypePatch(vt, choice, round, launchTimeAtVote)
+
+  const listed = await col.where({ launchId, openid }).limit(5).get().catch((e) => {
+    console.error('[writeUserLaunchVote] list error:', e.message || String(e))
+    return { data: [] }
+  })
+  const rows = listed.data || []
+  const picked = voteRecordHelpers.pickUserVoteFromRecords(rows, vt)
+  if (picked.choice) {
+    return { duplicate: true, choice: picked.choice, record: picked.record }
+  }
+
+  const payload = {
+    _id: voteUserRecordId(launchId, openid, vt),
+    launchId,
+    openid,
+    voteType: vt,
+    choice,
+    round,
+    launchTimeAtVote,
+    createdAt: now(),
+    ...typePatch
+  }
+
+  try {
+    await col.add({ data: payload })
+    return { duplicate: false, choice, record: payload }
+  } catch (addErr) {
+    const retry = await col.where({ launchId, openid }).limit(5).get().catch(() => ({ data: [] }))
+    const retryRows = (retry.data && retry.data.length) ? retry.data : rows
+    const picked2 = voteRecordHelpers.pickUserVoteFromRecords(retryRows, vt)
+    if (picked2.choice) {
+      return { duplicate: true, choice: picked2.choice, record: picked2.record }
+    }
+    const host = retryRows.find((r) => r && r._id) || null
+    if (host && host._id) {
+      try {
+        await col.doc(host._id).update({ data: { ...typePatch, updatedAt: now() } })
+        return { duplicate: false, choice, record: { ...host, ...typePatch }, merged: true }
+      } catch (updErr) {}
+    }
+    return { duplicate: true, choice, record: payload }
+  }
+}
+
+/** 成败竞猜结算：仅真实终态；Hold/scrub/推迟不结算 */
+function computeOutcomeResult(statusCategory, statusAbbrev, statusName, statusId) {
+  return outcomeVoteSettle.computeOutcomeResult(statusCategory, statusAbbrev, statusName, statusId)
 }
 
 /** 成败问题文案：跟全局配置；历史写死的长默认视为未配置 */
@@ -5164,8 +6734,9 @@ async function castOutcomeVote(body, openid) {
   }
   const col = COLLECTIONS.LAUNCH_VOTES
   const voteType = 'outcome'
-  const voteRecord = await findLaunchVoteDoc(launchId, voteType)
-  const knownLaunchTime = (voteRecord && voteRecord.launchTime) || body.launchTime || ''
+  let voteRecord = await findLaunchVoteDoc(launchId, voteType)
+  // 优先用客户端最新 NET，避免 DB 旧 launchTime 导致误封盘
+  const knownLaunchTime = body.launchTime || (voteRecord && voteRecord.launchTime) || ''
 
   if (voteRecord && voteRecord.enabled === false) {
     return fail(4003, '该场成败竞猜已关闭')
@@ -5183,29 +6754,47 @@ async function castOutcomeVote(body, openid) {
     return fail(4003, '该场成败竞猜已结算，无法再投票')
   }
 
-  if (knownLaunchTime) {
-    const lt = new Date(knownLaunchTime).getTime()
-    const timeToLaunch = lt - Date.now()
-    if (lt > 0 && timeToLaunch >= 0 && timeToLaunch < 30 * 60 * 1000) {
+  // 封盘后因改期解封（成败无轮次，只清 votingClosed）
+  if (voteRecord && voteRecord.votingClosed && !voteRecord.result) {
+    const lt = knownLaunchTime ? parseVoteTimeMs(knownLaunchTime) : 0
+    const timeToLaunch = lt > 0 ? lt - Date.now() : 0
+    if (lt > 0 && (timeToLaunch < 0 || timeToLaunch >= VOTE_TIME_TOLERANCE_MS)) {
+      const reopenPatch = {
+        votingClosed: false,
+        lockedLaunchTime: '',
+        launchTime: knownLaunchTime,
+        updatedAt: now()
+      }
+      try {
+        await db.collection(col).doc(voteRecord._id).update({ data: reopenPatch })
+      } catch (e) {}
+      voteRecord = { ...voteRecord, ...reopenPatch }
+    } else if (lt > 0 && timeToLaunch >= 0 && timeToLaunch < VOTE_TIME_TOLERANCE_MS) {
+      return fail(4003, '距发射不足30分钟，竞猜已关闭')
+    } else {
       return fail(4003, '距发射不足30分钟，竞猜已关闭')
     }
   }
-  if (voteRecord && voteRecord.votingClosed && !voteRecord.result) {
-    return fail(4003, '距发射不足30分钟，竞猜已关闭')
+
+  if (knownLaunchTime) {
+    const lt = parseVoteTimeMs(knownLaunchTime)
+    const timeToLaunch = lt - Date.now()
+    if (lt > 0 && timeToLaunch >= 0 && timeToLaunch < VOTE_TIME_TOLERANCE_MS) {
+      return fail(4003, '距发射不足30分钟，竞猜已关闭')
+    }
   }
 
-  const voteRecordCol = 'launch_vote_records'
+  let outcomeWrite = null
   if (openid) {
-    const dupCheck = await db.collection(voteRecordCol).where({
-      launchId,
-      openid,
-      voteType: 'outcome'
-    }).limit(1).get().catch(() => ({ data: [] }))
-    if (dupCheck.data && dupCheck.data.length > 0) {
+    outcomeWrite = await writeUserLaunchVote(launchId, openid, voteType, choice, {
+      round: 1,
+      launchTimeAtVote: body.launchTime || knownLaunchTime || ''
+    })
+    if (outcomeWrite.duplicate) {
       const vr = voteRecord || {}
       return ok({
         ...vr,
-        myVote: dupCheck.data[0].choice,
+        myVote: outcomeWrite.choice,
         voteType,
         geCount: Number(vr.failureCount || 0),
         buGeCount: Number(vr.successCount || 0),
@@ -5231,37 +6820,7 @@ async function castOutcomeVote(body, openid) {
     }
   } catch (e) {}
 
-  if (openid) {
-    const rid = voteUserRecordId(launchId, openid, voteType)
-    try {
-      await db.collection(voteRecordCol).add({
-        data: {
-          _id: rid,
-          launchId,
-          openid,
-          voteType,
-          choice,
-          round: 1,
-          launchTimeAtVote: body.launchTime || knownLaunchTime || '',
-          createdAt: now()
-        }
-      })
-    } catch (addErr) {
-      const existing = await findLaunchVoteDoc(launchId, voteType)
-      const ex = existing || {}
-      return ok({
-        ...ex,
-        myVote: choice,
-        voteType,
-        geCount: Number(ex.failureCount || 0),
-        buGeCount: Number(ex.successCount || 0),
-        geLabel: ex.failureLabel || labels.failureLabel,
-        bugeLabel: ex.successLabel || labels.successLabel,
-        failureLabel: ex.failureLabel || labels.failureLabel,
-        successLabel: ex.successLabel || labels.successLabel
-      })
-    }
-  }
+  // 个人记录已在 writeUserLaunchVote 写入；这里只更新主统计
 
   const field = choice === 'success' ? 'successCount' : 'failureCount'
   const mainId = voteMainDocId(launchId, voteType)
@@ -5336,20 +6895,19 @@ async function castOutcomeVote(body, openid) {
 async function getOutcomeVoteStats(launchId, openid, query) {
   const q = query || {}
   const currentLaunchTime = q.currentLaunchTime || ''
-  const missionStatus = q.missionStatus || ''
   const statusCategory = q.statusCategory || ''
   const statusAbbrev = q.statusAbbrev || ''
   const statusName = q.statusName || ''
+  const statusId = q.statusId != null && q.statusId !== '' ? q.statusId : ''
 
   const [myRecord, voteRecord] = await Promise.all([
     openid
-      ? db.collection('launch_vote_records').where({ launchId, openid, voteType: 'outcome' }).limit(1).get().catch(() => ({ data: [] }))
+      ? db.collection('launch_vote_records').where({ launchId, openid }).limit(5).get().catch(() => ({ data: [] }))
       : Promise.resolve({ data: [] }),
     findLaunchVoteDoc(launchId, 'outcome')
   ])
 
-  let myVote = ''
-  if (myRecord.data && myRecord.data[0]) myVote = myRecord.data[0].choice || ''
+  let myVote = voteRecordHelpers.pickUserVoteFromRecords(myRecord.data || [], 'outcome').choice
 
   let labels = {
     customQuestion: '会成功吗？',
@@ -5402,22 +6960,41 @@ async function getOutcomeVoteStats(launchId, openid, query) {
   record.bugeLabel = record.successLabel
 
   const effectiveLaunchTime = currentLaunchTime || record.launchTime || ''
+  const nowMs = Date.now()
+  const launchTimePatch = {}
   if (currentLaunchTime && currentLaunchTime !== record.launchTime) {
+    launchTimePatch.launchTime = currentLaunchTime
+    record.launchTime = currentLaunchTime
+  }
+
+  // 误结算修复：仍为推迟/待定（含 NET 未后移的 Hold/scrub）时清空错误 result
+  if (outcomeVoteSettle.shouldClearErroneousOutcomeSettle(
+    record, statusCategory, statusAbbrev, statusName, statusId, effectiveLaunchTime, nowMs, VOTE_TIME_TOLERANCE_MS
+  )) {
+    const clearPatch = {
+      result: '',
+      resultNote: '',
+      settledAt: '',
+      votingClosed: false,
+      lockedLaunchTime: '',
+      updatedAt: now(),
+      ...launchTimePatch
+    }
+    try {
+      await db.collection(COLLECTIONS.LAUNCH_VOTES).doc(record._id).update({ data: clearPatch })
+    } catch (e) {}
+    Object.assign(record, clearPatch)
+  } else if (Object.keys(launchTimePatch).length) {
     try {
       await db.collection(COLLECTIONS.LAUNCH_VOTES).doc(record._id).update({
-        data: { launchTime: currentLaunchTime, updatedAt: now() }
+        data: { ...launchTimePatch, updatedAt: now() }
       })
-      record.launchTime = currentLaunchTime
     } catch (e) {}
   }
 
-  // 自动结算：任务完成或状态已终态
-  let autoResult = ''
+  // 自动结算：仅真实终态；禁止用 detailType===completed 兜底判失败（推迟会误伤）
   if (!record.result) {
-    autoResult = computeOutcomeResult(statusCategory, statusAbbrev, statusName)
-    if (!autoResult && missionStatus === 'completed') {
-      autoResult = computeOutcomeResult(statusCategory || 'failure', statusAbbrev, statusName) || 'failure'
-    }
+    const autoResult = computeOutcomeResult(statusCategory, statusAbbrev, statusName, statusId)
     if (autoResult) {
       try {
         await db.collection(COLLECTIONS.LAUNCH_VOTES).doc(record._id).update({
@@ -5436,24 +7013,24 @@ async function getOutcomeVoteStats(launchId, openid, query) {
     }
   }
 
-  let votingClosed = !!record.votingClosed || !!record.result
-  let votingClosedReason = record.result ? 'settled' : ''
-  if (!votingClosed && effectiveLaunchTime) {
-    const lt = parseVoteTimeMs(effectiveLaunchTime)
-    if (lt > 0) {
-      const timeToLaunch = lt - Date.now()
-      if (timeToLaunch >= 0 && timeToLaunch < VOTE_TIME_TOLERANCE_MS) {
-        votingClosed = true
-        votingClosedReason = 'time'
-      }
-    }
+  // 动态封盘：对齐准时竞猜；改期后 NET 变远则解封，避免假「距发射不足30分钟」
+  const closedState = outcomeVoteSettle.resolveOutcomeVotingClosed(
+    record, effectiveLaunchTime, nowMs, VOTE_TIME_TOLERANCE_MS
+  )
+  if (closedState.dbPatch) {
+    try {
+      await db.collection(COLLECTIONS.LAUNCH_VOTES).doc(record._id).update({
+        data: { ...closedState.dbPatch, updatedAt: now() }
+      })
+    } catch (e) {}
+    Object.assign(record, closedState.dbPatch)
   }
 
   return ok({
     ...record,
     enabled: record.enabled !== false,
-    votingClosed,
-    votingClosedReason,
+    votingClosed: closedState.votingClosed,
+    votingClosedReason: closedState.votingClosedReason,
     myVote,
     voteType: 'outcome',
     geCount: Number(record.failureCount || 0),
@@ -5475,6 +7052,18 @@ async function castVote(body, openid) {
   let voteRecord = await findLaunchVoteDoc(launchId, 'ontime')
   const currentRound = (voteRecord && voteRecord.currentRound) || 1
   const knownLaunchTime = (voteRecord && voteRecord.launchTime) || body.launchTime || ''
+
+  if (voteRecord && voteRecord.enabled === false) {
+    return fail(4003, '该场准时竞猜已关闭')
+  }
+  if (!voteRecord) {
+    try {
+      const gcRes = await db.collection(COLLECTIONS.GLOBAL_CONFIG).doc(VOTE_CONFIG_ID).get()
+      if (gcRes.data && gcRes.data.enabled === false) {
+        return fail(4003, '准时竞猜未开放')
+      }
+    } catch (e) {}
+  }
 
   // 已结算场次禁止投票（含清除过竞猜记录后的重投：结果已出，投票无意义且可刷战绩）
   // 改期重开新轮次时 result 会被清空并 currentRound+1，不受此拦截影响
@@ -5502,21 +7091,6 @@ async function castVote(body, openid) {
     }
   }
 
-  // 去重检查：一个用户对同一任务只能投一次（不论轮次）
-  const voteRecordCol = 'launch_vote_records'
-  if (openid) {
-    const dupCheck = await db.collection(voteRecordCol).where({ launchId, openid: openid }).limit(5).get().catch((e) => {
-      console.error('[castVote] dupCheck query error:', e.message || String(e))
-      return { data: [] }
-    })
-    const ontimeDup = (dupCheck.data || []).find((r) => r.voteType !== 'outcome')
-    if (ontimeDup) {
-      const existing = await findLaunchVoteDoc(launchId, 'ontime')
-      const record = existing || { geCount: 0, buGeCount: 0 }
-      return ok({ ...record, myVote: ontimeDup.choice, voteType: 'ontime' })
-    }
-  }
-
   // 读取全局配置标签
   let globalLabels = { geLabel: '鸽', bugeLabel: '不鸽', customQuestion: '' }
   try {
@@ -5535,27 +7109,16 @@ async function castVote(body, openid) {
     if (freshDoc) latestRound = freshDoc.currentRound || 1
   }
 
-  // 原子去重写入：用确定性 _id 作为并发护栏，写入成功才计数（保证每用户每任务只计一次）
+  // 准时/成败互相独立：只按本题型去重；唯一索引冲突时挂到已有文档
   if (openid) {
-    const voteRecordId = voteUserRecordId(launchId, openid, 'ontime')
-    try {
-      await db.collection(voteRecordCol).add({
-        data: {
-          _id: voteRecordId,
-          launchId,
-          openid: openid,
-          voteType: 'ontime',
-          choice,
-          round: latestRound,
-          launchTimeAtVote: body.launchTime || knownLaunchTime || '',
-          createdAt: now()
-        }
-      })
-    } catch (addErr) {
-      // 并发或重复投票：已存在投票记录，直接返回当前统计
+    const ontimeWrite = await writeUserLaunchVote(launchId, openid, 'ontime', choice, {
+      round: latestRound,
+      launchTimeAtVote: body.launchTime || knownLaunchTime || ''
+    })
+    if (ontimeWrite.duplicate) {
       const existing = await findLaunchVoteDoc(launchId, 'ontime')
       const record = existing || { geCount: 0, buGeCount: 0 }
-      return ok({ ...record, myVote: choice, voteType: 'ontime' })
+      return ok({ ...record, myVote: ontimeWrite.choice, voteType: 'ontime' })
     }
   }
 
@@ -5586,7 +7149,7 @@ async function castVote(body, openid) {
     }
     try {
       await db.collection(col).add({ data: doc })
-      return ok({ ...doc, geCount: doc.geCount, buGeCount: doc.buGeCount, voteType: 'ontime' })
+      return ok({ ...doc, geCount: doc.geCount, buGeCount: doc.buGeCount, myVote: choice, voteType: 'ontime' })
     } catch (createErr) {
       // 并发下已被另一个请求创建：转为原子自增
     }
@@ -5599,13 +7162,21 @@ async function castVote(body, openid) {
     if (!mainRec.rocketName && body.rocketName) backfill.rocketName = body.rocketName
     if (!mainRec.launchTime && body.launchTime) backfill.launchTime = body.launchTime
   }
+  const mainId = voteMainDocId(launchId, 'ontime')
   if (mainRec && mainRec._id) {
     await db.collection(col).doc(mainRec._id).update({
       data: { [field]: db.command.inc(1), updatedAt: now(), voteType: 'ontime', ...backfill }
     })
   } else {
-    await db.collection(col).where({ launchId }).update({
-      data: { [field]: db.command.inc(1), updatedAt: now(), ...backfill }
+    await db.collection(col).doc(mainId).update({
+      data: { [field]: db.command.inc(1), updatedAt: now(), voteType: 'ontime', ...backfill }
+    }).catch(async () => {
+      await db.collection(col).where({
+        launchId,
+        voteType: db.command.neq('outcome')
+      }).update({
+        data: { [field]: db.command.inc(1), updatedAt: now(), ...backfill }
+      })
     })
   }
   const updated = await findLaunchVoteDoc(launchId, 'ontime')
@@ -5613,7 +7184,7 @@ async function castVote(body, openid) {
   if (!record.geLabel) record.geLabel = globalLabels.geLabel
   if (!record.bugeLabel) record.bugeLabel = globalLabels.bugeLabel
   if (!record.customQuestion) record.customQuestion = globalLabels.customQuestion
-  return ok({ ...record, voteType: 'ontime' })
+  return ok({ ...record, myVote: choice, voteType: 'ontime' })
 }
 
 // ========== 竞猜全局配置 ==========
@@ -5639,9 +7210,9 @@ async function getVoteStats(launchId, openid, query) {
 
   let myVote = ''
   let myRound = 0
-  const myOntime = (myRecordRaw.data || []).find((r) => r.voteType !== 'outcome')
-  if (myOntime) {
-    myVote = myOntime.choice || ''
+  const myOntime = voteRecordHelpers.pickUserVoteFromRecords(myRecordRaw.data || [], 'ontime')
+  if (myOntime.choice) {
+    myVote = myOntime.choice
     myRound = myOntime.round || 1
   }
   const res = { data: voteRecord ? [voteRecord] : [] }
@@ -5721,7 +7292,7 @@ async function getVoteStats(launchId, openid, query) {
       } catch (e) {}
       return ok({
         ...record,
-        enabled: true,
+        enabled: record.enabled !== false,
         votingClosed: true,
         votingClosedReason: 'settled',
         myVote,
@@ -5752,7 +7323,16 @@ async function getVoteStats(launchId, openid, query) {
         }
       }
     }
-    return ok({ ...record, enabled: true, votingClosed, votingClosedReason, myVote, myRound, currentRound, voteType: 'ontime' })
+    return ok({
+      ...record,
+      enabled: record.enabled !== false,
+      votingClosed,
+      votingClosedReason,
+      myVote,
+      myRound,
+      currentRound,
+      voteType: 'ontime'
+    })
   }
   // 无单任务记录，回退全局配置
   try {
@@ -5779,11 +7359,13 @@ async function getMyVoteResults(openid) {
     const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0
     return tb - ta
   })
+  const voteRows = voteRecordHelpers.expandUserVoteRecords(records.data)
+  if (!voteRows.length) return ok([])
 
   const choiceMap = {}
   const roundMap = {}
   const typeMap = {}
-  records.data.forEach(r => {
+  voteRows.forEach(r => {
     const vt = r.voteType === 'outcome' ? 'outcome' : 'ontime'
     const key = `${r.launchId}::${vt}`
     choiceMap[key] = r.choice
@@ -5793,7 +7375,7 @@ async function getMyVoteResults(openid) {
 
   // 批量查 launch_votes 获取结算结果
   const results = []
-  const uniqueLaunchIds = [...new Set(records.data.map(r => r.launchId))]
+  const uniqueLaunchIds = [...new Set(voteRows.map(r => r.launchId))]
   for (let i = 0; i < uniqueLaunchIds.length; i += 20) {
     const batch = uniqueLaunchIds.slice(i, i + 20)
     const res = await db.collection(COLLECTIONS.LAUNCH_VOTES).where({ launchId: db.command.in(batch) }).limit(40).get()
@@ -5805,7 +7387,7 @@ async function getMyVoteResults(openid) {
     voteMap[`${v.launchId}::${vt}`] = v
   })
 
-  const list = records.data.map(r => {
+  const list = voteRows.map(r => {
     let vt = r.voteType === 'outcome' ? 'outcome' : 'ontime'
     let choice = r.choice || ''
     // 用选项值推断题型，避免旧数据缺 voteType 时成败被当成准时
@@ -5842,6 +7424,17 @@ async function getMyVoteResults(openid) {
     if (vt === 'outcome') {
       if (userResult === 'buge') userResult = 'success'
       else if (userResult === 'ge') userResult = 'failure'
+      // NET 仍远时不可能已真实揭晓：屏蔽误结算脏 result，避免战绩显示「猜错了」
+      const netForGuard = vote.currentLaunchTime || vote.launchTime || userLaunchTime || ''
+      const netMs = parseVoteTimeMs(netForGuard)
+      if (
+        (userResult === 'success' || userResult === 'failure') &&
+        netMs > 0 &&
+        netMs - Date.now() > VOTE_TIME_TOLERANCE_MS
+      ) {
+        userResult = ''
+        userSettledAt = ''
+      }
     }
 
     const choiceLabel = vt === 'outcome'
@@ -5922,11 +7515,19 @@ async function createLaunchVote(body, user) {
     createdBy: user.username
   }
   if (body.launchId) {
+    const existed = await findLaunchVoteDoc(body.launchId, voteType)
+    if (existed) return fail(4003, '该任务已有相同题型的竞猜，请直接编辑')
     payload._id = voteMainDocId(body.launchId, voteType)
   }
-  const res = await db.collection(col).add({ data: payload })
-  await writeOpLog({ user, module: col, action: 'create', targetId: res._id || payload._id, after: payload })
-  return ok({ _id: res._id || payload._id, ...payload })
+  try {
+    const res = await db.collection(col).add({ data: payload })
+    await writeOpLog({ user, module: col, action: 'create', targetId: res._id || payload._id, after: payload })
+    return ok({ _id: res._id || payload._id, ...payload })
+  } catch (addErr) {
+    const existedSame = body.launchId ? await findLaunchVoteDoc(body.launchId, voteType) : null
+    if (existedSame) return fail(4003, '该任务已有相同题型的竞猜，请直接编辑')
+    return fail(4003, '创建失败，请稍后重试')
+  }
 }
 
 async function updateLaunchVote(id, body, user) {
@@ -6192,6 +7793,182 @@ async function batchReviewLunarWishes(body, user) {
   return ok({ updated })
 }
 
+// ===== 航天摄影（影像）管理 =====
+const ASTRO_PHOTOS_COL = 'astro_photos'
+
+/** 与 astroPhotos 云函数 listPublic 短缓存对齐；touchLatest 驱动小程序导航红点 */
+async function bumpAstroPhotosListEpoch(opts) {
+  const ts = Date.now()
+  const data = { astroPhotosListEpoch: ts }
+  if (opts && opts.touchLatest) {
+    data.astroPhotosLatestAt = Number(opts.latestAt) || ts
+  }
+  try {
+    await db.collection(COLLECTIONS.GLOBAL_CONFIG).doc('main').update({ data })
+  } catch (e) {
+    console.warn('[adminGateway] bumpAstroPhotosListEpoch failed:', e && (e.message || e))
+  }
+}
+
+async function listAstroPhotos(query) {
+  const page = Math.max(0, Number(query.page) || 0)
+  const pageSize = Math.min(100, Math.max(1, Number(query.pageSize) || 20))
+  const baseWhere = {}
+  if (query.status) baseWhere.status = query.status
+  const where = buildWhereWithKeyword(baseWhere, String(query.search || '').trim(), [
+    'authorName',
+    'location',
+    'deviceModel',
+    'intro',
+    '_openid'
+  ])
+
+  const countRes = await db.collection(ASTRO_PHOTOS_COL).where(where).count()
+  const res = await db.collection(ASTRO_PHOTOS_COL)
+    .where(where)
+    .orderBy('createdAt', 'desc')
+    .skip(page * pageSize)
+    .limit(pageSize)
+    .get()
+
+  return ok({ list: res.data || [], total: countRes.total, hasMore: (page + 1) * pageSize < countRes.total })
+}
+
+async function reviewAstroPhoto(body, user) {
+  const { photoId, status } = body
+  if (!photoId) return fail(4001, 'photoId 不能为空')
+  if (!['approved', 'rejected', 'pending'].includes(status)) return fail(4001, '无效的状态值')
+
+  const ref = db.collection(ASTRO_PHOTOS_COL).doc(photoId)
+  const beforeRes = await ref.get().catch(() => null)
+  if (!beforeRes || !beforeRes.data) return fail(4040, '投稿不存在')
+
+  await ref.update({
+    data: {
+      status,
+      updatedAt: now(),
+      reviewedAt: now(),
+      reviewedBy: (user && (user.username || user.id)) || ''
+    }
+  })
+  await writeOpLog({
+    user,
+    module: 'astro_photos',
+    action: 'review',
+    targetId: photoId,
+    before: { status: beforeRes.data.status },
+    after: { status }
+  })
+  await bumpAstroPhotosListEpoch(
+    status === 'approved' && beforeRes.data.status !== 'approved'
+      ? { touchLatest: true }
+      : undefined
+  )
+  return ok(true)
+}
+
+async function deleteAstroPhoto(photoId, user) {
+  if (!photoId) return fail(4001, 'photoId 不能为空')
+
+  const ref = db.collection(ASTRO_PHOTOS_COL).doc(photoId)
+  const beforeRes = await ref.get().catch(() => null)
+  if (!beforeRes || !beforeRes.data) return fail(4040, '投稿不存在')
+
+  const keys = []
+  const seen = {}
+  const pushKey = (rawKey) => {
+    const k = String(rawKey || '').replace(/^\/+/, '')
+    if (!k.startsWith('航天摄影/') || seen[k]) return
+    seen[k] = true
+    keys.push(k)
+  }
+  const keyFromUrl = (url) => {
+    const u = String(url || '').trim()
+    if (!u.startsWith(COS_BASE_URL)) return ''
+    try {
+      return decodeURIComponent(u.slice(COS_BASE_URL.length)).replace(/^\/+/, '')
+    } catch (e) {
+      return ''
+    }
+  }
+  const photos = Array.isArray(beforeRes.data.photos) ? beforeRes.data.photos : []
+  for (const p of photos) {
+    if (!p) continue
+    pushKey(p.cosKey)
+    if (!p.cosKey) pushKey(keyFromUrl(p.url))
+  }
+  pushKey(keyFromUrl(beforeRes.data.coverUrl))
+
+  await ref.remove()
+
+  if (keys.length) {
+    try {
+      const cos = createCOSClient()
+      for (const key of keys.slice(0, 8)) {
+        await new Promise((resolve) => {
+          cos.deleteObject({ Bucket: COS_BUCKET, Region: COS_REGION, Key: key }, () => resolve())
+        })
+      }
+    } catch (e) {}
+  }
+
+  await writeOpLog({
+    user,
+    module: 'astro_photos',
+    action: 'delete',
+    targetId: photoId,
+    before: { authorName: beforeRes.data.authorName, coverUrl: beforeRes.data.coverUrl }
+  })
+  await bumpAstroPhotosListEpoch()
+  return ok(true)
+}
+
+async function getAstroPhotosStats() {
+  const totalRes = await db.collection(ASTRO_PHOTOS_COL).count()
+  const approvedRes = await db.collection(ASTRO_PHOTOS_COL).where({ status: 'approved' }).count()
+  const pendingRes = await db.collection(ASTRO_PHOTOS_COL).where({ status: 'pending' }).count()
+  const rejectedRes = await db.collection(ASTRO_PHOTOS_COL).where({ status: 'rejected' }).count()
+  return ok({
+    total: totalRes.total,
+    approved: approvedRes.total,
+    pending: pendingRes.total,
+    rejected: rejectedRes.total
+  })
+}
+
+async function batchReviewAstroPhotos(body, user) {
+  const { photoIds, status } = body
+  if (!Array.isArray(photoIds) || !photoIds.length) return fail(4001, '缺少 photoIds')
+  if (!['approved', 'rejected'].includes(status)) return fail(4001, '无效的状态值')
+
+  let updated = 0
+  for (const id of photoIds.slice(0, 50)) {
+    try {
+      await db.collection(ASTRO_PHOTOS_COL).doc(id).update({
+        data: {
+          status,
+          updatedAt: now(),
+          reviewedAt: now(),
+          reviewedBy: (user && (user.username || user.id)) || ''
+        }
+      })
+      updated++
+    } catch (e) {}
+  }
+
+  await writeOpLog({
+    user,
+    module: 'astro_photos',
+    action: 'batch_review',
+    targetId: photoIds.join(',').slice(0, 200),
+    after: { status, count: updated }
+  })
+  if (updated > 0) {
+    await bumpAstroPhotosListEpoch(status === 'approved' ? { touchLatest: true } : undefined)
+  }
+  return ok({ updated })
+}
+
 // ========== 里程碑彩蛋管理 ==========
 async function listMilestoneRewards(query = {}) {
   const page = Math.max(1, Number(query.page || 1))
@@ -6221,16 +7998,128 @@ async function listMilestoneRewards(query = {}) {
   }
 }
 
+function normalizeMilestonePrizeType(v) {
+  return String(v || '') === 'pro_1month' ? 'pro_1month' : 'physical'
+}
+
+const PRO_MILESTONE_DAYS = 30
+
+async function countUserMilestoneProgress(openid, type) {
+  if (!openid) return 0
+  if (type === 'checkin' || type === 'quiz') {
+    try {
+      const r = await db.collection('user_profile').doc(openid).get()
+      const profile = r && r.data
+      if (!profile) return 0
+      if (type === 'checkin') return Number(profile.checkin && profile.checkin.totalDays) || 0
+      return Number(profile.quiz && profile.quiz.correctCount) || 0
+    } catch (e) {
+      return 0
+    }
+  }
+  if (type === 'vote') {
+    const res = await getMyVoteResults(openid)
+    const list = (res && res.code === 0 && Array.isArray(res.data)) ? res.data : []
+    let correct = 0
+    for (let i = 0; i < list.length; i++) {
+      const item = list[i] || {}
+      if (item.result && item.choice && item.choice === item.result) correct++
+    }
+    return correct
+  }
+  return 0
+}
+
+async function grantProForMilestone(openid, milestone) {
+  const days = PRO_MILESTONE_DAYS
+  const outTradeNo = 'MS' + sha256(String(openid) + '|pro1m|' + String(milestone._id || '')).slice(0, 24)
+  let existing = null
+  try {
+    const r = await db.collection('membership_orders').doc(outTradeNo).get()
+    existing = r.data || null
+  } catch (e) {
+    existing = null
+  }
+
+  const orderRecord = {
+    _id: outTradeNo,
+    openid,
+    amount: 0,
+    description: '里程碑彩蛋自动赠送 - 1个月PRO',
+    status: 'paid',
+    orderType: 'subscription',
+    grantBy: 'system',
+    grantSource: 'milestone',
+    grantReason: 'milestone:' + String(milestone.type || '') + ':' + String(milestone.threshold || ''),
+    milestoneId: milestone._id,
+    planId: 'monthly',
+    days,
+    milestoneGrantApplied: false,
+    paidAt: db.serverDate(),
+    deliveredAt: db.serverDate(),
+    createdAt: db.serverDate()
+  }
+
+  if (!existing) {
+    try {
+      await db.collection('membership_orders').add({ data: orderRecord })
+    } catch (e) {
+      try {
+        const r2 = await db.collection('membership_orders').doc(outTradeNo).get()
+        existing = r2.data || null
+      } catch (e2) {
+        return { ok: false, message: '写入赠送订单失败: ' + (e.message || String(e)) }
+      }
+      if (existing && existing.status !== 'paid') {
+        return { ok: false, message: '赠送订单状态异常' }
+      }
+    }
+  } else if (existing.status !== 'paid') {
+    return { ok: false, message: '赠送订单状态异常' }
+  }
+
+  // 原子认领发货：并行领取时只有一个请求能加上 30 天
+  let wonApply = false
+  try {
+    const cas = await db.collection('membership_orders')
+      .where({ _id: outTradeNo, milestoneGrantApplied: _.neq(true) })
+      .update({ data: { milestoneGrantApplied: true, grantSource: 'milestone' } })
+    wonApply = !!(cas && cas.stats && cas.stats.updated > 0)
+  } catch (e) {
+    return { ok: false, message: '领取冲突，请稍后重试' }
+  }
+
+  if (wonApply) {
+    try {
+      await applyPaidOrderLocal({ ...(existing || orderRecord), grantSource: 'milestone', grantBy: 'system', days, orderType: 'subscription' })
+    } catch (e) {
+      await db.collection('membership_orders').doc(outTradeNo).update({
+        data: { milestoneGrantApplied: false }
+      }).catch(() => {})
+      return { ok: false, message: '会员到账失败: ' + (e.message || String(e)) }
+    }
+  }
+
+  let expireAt = null
+  try {
+    const m = await db.collection('user_membership').doc(openid).get()
+    expireAt = m && m.data && m.data.expireAt ? m.data.expireAt : null
+  } catch (e) {}
+  return { ok: true, outTradeNo, expireAt }
+}
+
 async function createMilestoneReward(body, user) {
+  const prizeType = normalizeMilestonePrizeType(body.prizeType)
   const payload = {
     type: body.type || 'checkin',
     threshold: Number(body.threshold || 0),
+    prizeType,
     title: body.title || '',
-    description: body.description || '',
+    description: body.description || (prizeType === 'pro_1month' ? '1个月PRO会员，达标后系统自动到账' : ''),
     prizeImage: body.prizeImage || '',
     eggImage: body.eggImage || '',
-    customOptions: Array.isArray(body.customOptions) ? body.customOptions : [],
-    customNote: body.customNote || '',
+    customOptions: prizeType === 'pro_1month' ? [] : (Array.isArray(body.customOptions) ? body.customOptions : []),
+    customNote: prizeType === 'pro_1month' ? '' : (body.customNote || ''),
     enabled: body.enabled !== false,
     sortOrder: Number(body.sortOrder || 0),
     createdAt: now(),
@@ -6251,14 +8140,19 @@ async function updateMilestoneReward(id, body, user) {
   if (!before) return fail(4040, '数据不存在')
 
   const patch = {}
-  const fields = ['type', 'threshold', 'title', 'description', 'prizeImage', 'eggImage', 'customOptions', 'customNote', 'enabled', 'sortOrder']
+  const fields = ['type', 'threshold', 'prizeType', 'title', 'description', 'prizeImage', 'eggImage', 'customOptions', 'customNote', 'enabled', 'sortOrder']
   fields.forEach(f => { if (body[f] !== undefined) patch[f] = body[f] })
   if (patch.threshold !== undefined) patch.threshold = Number(patch.threshold)
   if (patch.sortOrder !== undefined) patch.sortOrder = Number(patch.sortOrder)
-  if (patch.customOptions !== undefined) {
-    patch.customOptions = Array.isArray(patch.customOptions) ? patch.customOptions : []
+  if (patch.prizeType !== undefined) patch.prizeType = normalizeMilestonePrizeType(patch.prizeType)
+  if (patch.prizeType === 'pro_1month') {
+    patch.customOptions = []
+    patch.customNote = ''
   }
-  if (patch.customNote !== undefined) patch.customNote = String(patch.customNote || '')
+  if (patch.customOptions !== undefined) {
+    patch.customOptions = patch.prizeType === 'pro_1month' ? [] : (Array.isArray(patch.customOptions) ? patch.customOptions : [])
+  }
+  if (patch.customNote !== undefined) patch.customNote = patch.prizeType === 'pro_1month' ? '' : String(patch.customNote || '')
   patch.updatedAt = now()
   patch.updatedBy = user.username
 
@@ -6298,6 +8192,20 @@ async function listMilestoneClaims(query = {}) {
     const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0
     return tb - ta
   })
+
+  const milestoneIds = [...new Set(list.map(c => c.milestoneId).filter(Boolean))]
+  const configMap = {}
+  for (let i = 0; i < milestoneIds.length; i += 20) {
+    const batch = milestoneIds.slice(i, i + 20)
+    const cfgRes = await db.collection(COLLECTIONS.MILESTONE_REWARDS).where({ _id: db.command.in(batch) }).limit(20).get()
+    if (cfgRes.data) cfgRes.data.forEach(m => { configMap[m._id] = m })
+  }
+  list.forEach(item => {
+    const cfg = configMap[item.milestoneId]
+    if (!item.prizeType && cfg) item.prizeType = normalizeMilestonePrizeType(cfg.prizeType)
+    if (!item.prizeImage && cfg) item.prizeImage = cfg.prizeImage || ''
+    if (!item.prizeTitle && cfg) item.prizeTitle = cfg.title || ''
+  })
   return ok({ list, total: countRes.total, page, pageSize })
 }
 
@@ -6331,28 +8239,93 @@ async function getPublicMilestones() {
     .limit(100)
     .get()
   const list = (res.data || []).map(item => ({
-    ...item,
+    _id: item._id,
+    type: item.type,
+    threshold: item.threshold,
+    prizeType: normalizeMilestonePrizeType(item.prizeType),
+    title: item.title || '',
+    description: item.description || '',
+    prizeImage: item.prizeImage || '',
+    eggImage: item.eggImage || '',
     customOptions: Array.isArray(item.customOptions) ? item.customOptions : [],
-    customNote: item.customNote || ''
+    customNote: item.customNote || '',
+    sortOrder: Number(item.sortOrder) || 0,
+    enabled: item.enabled !== false
   }))
   return ok(list)
 }
 
 async function submitMilestoneClaim(body, openid) {
   if (!openid) return fail(4010, '未获取到用户身份')
-  const { milestoneId, name, phone, address, size, selections } = body
-  if (!milestoneId) return fail(4001, '缺少里程碑ID')
-  if (!name || !phone || !address) return fail(4001, '请填写完整的收件信息')
+  const milestoneId = String((body && body.milestoneId) || '').trim()
+  const { name, phone, address, size, selections } = body || {}
+  if (!milestoneId || milestoneId.length > 80) return fail(4001, '缺少里程碑ID')
 
   const milestoneRes = await db.collection(COLLECTIONS.MILESTONE_REWARDS).doc(milestoneId).get().catch(() => null)
   if (!milestoneRes?.data) return fail(4040, '里程碑配置不存在')
   const milestone = milestoneRes.data
+  if (milestone.enabled === false) return fail(4003, '该里程碑已停用')
+
+  const prizeType = normalizeMilestonePrizeType(milestone.prizeType)
+  const threshold = Number(milestone.threshold) || 0
+  const milestoneType = String(milestone.type || '')
+  if (prizeType === 'pro_1month') {
+    if (threshold < 1 || (milestoneType !== 'checkin' && milestoneType !== 'quiz' && milestoneType !== 'vote')) {
+      return fail(4003, '里程碑配置无效')
+    }
+    const progress = await countUserMilestoneProgress(openid, milestoneType)
+    if (progress < threshold) {
+      return fail(4003, '尚未达标，请稍后再试')
+    }
+  }
 
   const existRes = await db.collection(COLLECTIONS.MILESTONE_CLAIMS)
     .where({ openid, milestoneId })
     .limit(1)
     .get()
-  if (existRes.data && existRes.data.length > 0) return fail(4002, '您已领取过该奖品')
+  if (existRes.data && existRes.data.length > 0) {
+    const existing = existRes.data[0]
+    if (prizeType === 'pro_1month' && existing.status === 'completed') {
+      return ok({ alreadyClaimed: true, prizeType })
+    }
+    return fail(4002, '您已领取过该奖品')
+  }
+
+  if (prizeType === 'pro_1month') {
+    const granted = await grantProForMilestone(openid, milestone)
+    if (!granted.ok) return fail(5001, granted.message || 'PRO会员发放失败')
+    const claimId = 'msc_' + sha256(String(openid) + '|' + String(milestoneId)).slice(0, 24)
+    try {
+      await db.collection(COLLECTIONS.MILESTONE_CLAIMS).add({
+        data: {
+          _id: claimId,
+          openid,
+          milestoneId,
+          type: milestone.type,
+          prizeType,
+          threshold: milestone.threshold,
+          prizeTitle: milestone.title,
+          prizeDesc: milestone.description,
+          name: '',
+          phone: '',
+          address: '',
+          selections: {},
+          size: '',
+          status: 'completed',
+          grantKind: 'pro_1month',
+          membershipOrderId: granted.outTradeNo || '',
+          proExpireAt: granted.expireAt || null,
+          createdAt: now(),
+          updatedAt: now()
+        }
+      })
+    } catch (e) {
+      return ok({ alreadyClaimed: true, prizeType, expireAt: granted.expireAt || null })
+    }
+    return ok({ prizeType, expireAt: granted.expireAt || null })
+  }
+
+  if (!name || !phone || !address) return fail(4001, '请填写完整的收件信息')
 
   // 兼容旧版 size 字段，转为 selections
   let finalSelections = selections || {}
@@ -6372,6 +8345,7 @@ async function submitMilestoneClaim(body, openid) {
       openid,
       milestoneId,
       type: milestone.type,
+      prizeType,
       threshold: milestone.threshold,
       prizeTitle: milestone.title,
       prizeDesc: milestone.description,
@@ -6406,12 +8380,10 @@ async function getMyMilestoneClaims(openid) {
     if (cfgRes.data) cfgRes.data.forEach(m => { configMap[m._id] = m })
   }
   list.forEach(item => {
-    if (!item.prizeImage && configMap[item.milestoneId]) {
-      item.prizeImage = configMap[item.milestoneId].prizeImage || ''
-    }
-    if (!item.prizeTitle && configMap[item.milestoneId]) {
-      item.prizeTitle = configMap[item.milestoneId].title || ''
-    }
+    const cfg = configMap[item.milestoneId]
+    if (!item.prizeImage && cfg) item.prizeImage = cfg.prizeImage || ''
+    if (!item.prizeTitle && cfg) item.prizeTitle = cfg.title || ''
+    if (!item.prizeType && cfg) item.prizeType = normalizeMilestonePrizeType(cfg.prizeType)
   })
   return ok(list)
 }
@@ -6419,6 +8391,18 @@ async function getMyMilestoneClaims(openid) {
 // ========== 会员管理 ==========
 
 // 公共：把已支付订单应用到会员状态（与 cloudfunctions/membership/index.js 中的 applyPaidOrder 保持同源逻辑）
+function resolveMembershipGrantSource(order) {
+  if (!order) return ''
+  if (Number(order.amount) > 0) return 'paid'
+  const explicit = String(order.grantSource || '').trim()
+  if (explicit) return explicit
+  if (order.milestoneId || String(order.grantReason || '').indexOf('milestone') === 0) return 'milestone'
+  if (order.grantReason === 'invite_reward') return 'invite'
+  if (order.grantBy && order.grantBy !== 'system') return 'admin'
+  if (order.grantBy === 'system') return 'milestone'
+  return 'paid'
+}
+
 async function applyPaidOrderLocal(order) {
   if (!order || !order.openid) return
   const openid = order.openid
@@ -6457,6 +8441,7 @@ async function applyPaidOrderLocal(order) {
         data: {
           type: 'pro',
           planId: order.planId || '',
+          grantSource: resolveMembershipGrantSource(order),
           expireAt: newExpire,
           updatedAt: db.serverDate()
         }
@@ -6657,7 +8642,13 @@ async function listMembershipData() {
     // 获取订单列表（最多 1000 条，按 createdAt 降序）
     let orders = []
     try {
-      const oRes = await db.collection('membership_orders').limit(1000).get()
+      let oRes
+      try {
+        oRes = await db.collection('membership_orders').orderBy('createdAt', 'desc').limit(1000).get()
+      } catch (e) {
+        console.error('[listMembershipData] orderBy createdAt error, fallback:', e.message || e)
+        oRes = await db.collection('membership_orders').limit(1000).get()
+      }
       orders = oRes.data || []
       orders.sort((a, b) => {
         const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0
@@ -6861,6 +8852,7 @@ async function grantMembershipPro(body, user) {
     status: 'paid',
     orderType: 'subscription',
     grantBy: user.username,
+    grantSource: 'admin',
     grantReason: String((body && body.reason) || ''),
     planId,
     days: grantDays,
@@ -6892,7 +8884,7 @@ async function grantMembershipPro(body, user) {
 
 // ── 重查待发货订单（批量回查 pending / refund_pending：已支付兜底发货、已退款兜底落库、24h 未支付取消） ──
 async function recheckPendingOrders(body, user) {
-  const limit = Math.min(200, Math.max(1, Number((body && body.limit) || 100)))
+  const limit = Math.min(200, Math.max(1, Number((body && body.limit) || 200)))
   const cancelOlderThanH = Number((body && body.cancelOlderThanH) || 24)
 
   // 同时拉 pending（待支付）与 refund_pending（退款中），两者都需要重新查微信侧
@@ -7002,6 +8994,9 @@ async function refundMembershipOrder(body, user) {
     return fail(4040, '订单不存在')
   }
   if (!order) return fail(4040, '订单不存在')
+  if (order.payChannel === 'apple' || String(order.platform || '').trim().toLowerCase() === 'ios') {
+    return fail(4003, 'Apple 支付不支持开发者主动退款，请引导用户在 App Store 申请退款')
+  }
   if (order.status !== 'paid') return fail(4002, '仅已支付订单可退款（当前状态：' + order.status + '）')
 
   // 调用 membership 云函数发起退款
@@ -7044,6 +9039,7 @@ async function exportMembershipOrders(query = {}) {
   const where = {}
   if (query.openid) where.openid = String(query.openid).trim()
   if (query.status) where.status = String(query.status).trim()
+  if (query.orderType) where.orderType = String(query.orderType).trim()
   const fromMs = query.from ? Number(query.from) : 0
   const toMs = query.to ? Number(query.to) : 0
   try {
@@ -7060,6 +9056,7 @@ async function exportMembershipOrders(query = {}) {
     list = list.filter(o => {
       if (where.openid && o.openid !== where.openid) return false
       if (where.status && o.status !== where.status) return false
+      if (where.orderType && o.orderType !== where.orderType) return false
       const t = o.createdAt ? new Date(o.createdAt).getTime() : 0
       if (fromMs && t < fromMs) return false
       if (toMs && t > toMs) return false
@@ -7496,13 +9493,44 @@ async function batchImportKnowledgeCards(body, user) {
   return ok({ imported })
 }
 
-const { createBilibiliPublishApi } = require('./bilibiliPublish')
-let _biliPublishApi = null
-function biliPublishApi() {
-  if (!_biliPublishApi) {
-    _biliPublishApi = createBilibiliPublishApi({ db, _, ok, fail, now, writeOpLog, cloud })
+const { createOaContentStudioApi } = require('./oaContentStudio')
+const {
+  decommissionBilibiliPublish,
+  scheduleAutoDecommission
+} = require('./bilibiliDecommission')
+let _oaContentApi = null
+async function uploadBufferToCos({ key, buffer, contentType }) {
+  const cos = createCOSClient()
+  const k = String(key || '').replace(/^\/+/, '')
+  await new Promise((resolve, reject) => {
+    cos.putObject(
+      {
+        Bucket: COS_BUCKET,
+        Region: COS_REGION,
+        Key: k,
+        Body: buffer,
+        ContentType: contentType || 'application/octet-stream'
+      },
+      (err, data) => (err ? reject(err) : resolve(data))
+    )
+  })
+  return { key: k, cosUrl: `${COS_BASE_URL}${encodeURI(k)}` }
+}
+function oaContentApi() {
+  if (!_oaContentApi) {
+    _oaContentApi = createOaContentStudioApi({
+      db,
+      _,
+      ok,
+      fail,
+      now,
+      writeOpLog,
+      cloud,
+      checkPerm,
+      uploadBufferToCos
+    })
   }
-  return _biliPublishApi
+  return _oaContentApi
 }
 
 const { createReplayFetchApi } = require('./replayFetch')
@@ -7517,6 +9545,62 @@ function replayFetchApi() {
   return _replayFetchApi
 }
 
+const { createWatchPartyApi } = require('./watchParty')
+let _watchPartyApi = null
+function watchPartyApi() {
+  if (!_watchPartyApi) {
+    _watchPartyApi = createWatchPartyApi({ db, _, ok, fail, now, writeOpLog, cloud, checkPerm })
+  }
+  return _watchPartyApi
+}
+
+const { createPreauditOcrApi } = require('./preauditOcr')
+let _preauditOcrApi = null
+function preauditOcrApi() {
+  if (!_preauditOcrApi) {
+    _preauditOcrApi = createPreauditOcrApi({
+      db,
+      ok,
+      fail,
+      now,
+      crypto,
+      createCOSClient,
+      COS_BUCKET,
+      COS_REGION,
+      COS_BASE_URL
+    })
+  }
+  return _preauditOcrApi
+}
+
+const { createPreauditAiApi } = require('./preauditAi')
+let _preauditAiApi = null
+function preauditAiApi() {
+  if (!_preauditAiApi) {
+    _preauditAiApi = createPreauditAiApi({ db, ok, fail, now, crypto })
+  }
+  return _preauditAiApi
+}
+
+const { createPreauditPhotosApi } = require('./preauditPhotos')
+let _preauditPhotosApi = null
+function preauditPhotosApi() {
+  if (!_preauditPhotosApi) {
+    _preauditPhotosApi = createPreauditPhotosApi({
+      db,
+      ok,
+      fail,
+      now,
+      crypto,
+      createCOSClient,
+      COS_BUCKET,
+      COS_REGION,
+      COS_BASE_URL
+    })
+  }
+  return _preauditPhotosApi
+}
+
 async function route(event, user) {
   const { path = '', method = 'GET', query = {}, body = {} } = event
   const headers = event.headers || {}
@@ -7529,21 +9613,14 @@ async function route(event, user) {
     return issueCaptcha()
   }
 
-  // ===== B 站发文 Agent（BILI_AGENT_TOKEN，无需管理员 JWT） =====
-  if (path.startsWith('/bilibili-agent/')) {
-    if (!biliPublishApi().verifyAgentToken(headers)) return fail(4010, 'Agent 未授权')
-    if (path === '/bilibili-agent/claim' && method === 'POST') return biliPublishApi().agentClaimJob(body)
-    if (path === '/bilibili-agent/complete' && method === 'POST') return biliPublishApi().agentCompleteJob(body)
-    if (path === '/bilibili-agent/fail' && method === 'POST') return biliPublishApi().agentFailJob(body)
-    return fail(4040, `未知 Agent 路由: ${method} ${path}`)
-  }
-
   // ===== 发射回放抓取 Agent（REPLAY_AGENT_TOKEN，无需管理员 JWT） =====
   if (path.startsWith('/replay-agent/')) {
     if (!replayFetchApi().verifyAgentToken(headers)) return fail(4010, 'Agent 未授权')
     if (path === '/replay-agent/claim' && method === 'POST') return replayFetchApi().claimJob(body)
     if (path === '/replay-agent/complete' && method === 'POST') return replayFetchApi().completeJob(body)
     if (path === '/replay-agent/fail' && method === 'POST') return replayFetchApi().failJob(body)
+    // 清退避 / 复活 failed，避免代理修好后仍空转数小时
+    if (path === '/replay-agent/nudge-queue' && method === 'POST') return replayFetchApi().nudgeQueue(body)
     // 幂等设置 COS「发射回放/」前缀 30 天生命周期（保留桶上其他已有规则）
     if (path === '/replay-agent/ensure-lifecycle' && method === 'POST') return replayFetchApi().ensureLifecycleRule()
     // 手动触发一次回放扫描（跨云函数调用 = 服务端身份，绕开 syncSpaceDevsData 的客户端拦截）
@@ -7559,7 +9636,20 @@ async function route(event, user) {
         return fail(5001, '触发回放扫描失败: ' + (e.message || String(e)))
       }
     }
+    // 运维：用 Agent token 触发 B 站发文下线收尾（部署后立刻停资源）
+    if (path === '/replay-agent/decommission-bilibili' && method === 'POST') {
+      const r = await decommissionBilibiliPublish(db, { force: !!(body && body.force), cloud })
+      return ok(r)
+    }
     return fail(4040, `未知 Agent 路由: ${method} ${path}`)
+  }
+
+  // ===== 运维收尾（需管理员） =====
+  if (path === '/ops/decommission-bilibili-publish' && method === 'POST') {
+    const deny = checkPerm(user, 'global_config')
+    if (deny) return deny
+    const r = await decommissionBilibiliPublish(db, { force: !!(body && body.force), cloud })
+    return ok(r)
   }
 
   // ===== 发射竞猜投票（小程序端，无需管理员权限） =====
@@ -7568,6 +9658,12 @@ async function route(event, user) {
   if (path === '/vote/my-results' && method === 'DELETE') return clearMyVoteRecords(event._openid)
   if (path.startsWith('/vote/') && method === 'GET') return getVoteStats(path.split('/').pop(), event._openid, query)
   if (path === '/vote-config' && method === 'GET') return getVoteConfig()
+
+  // ===== 公告投票（小程序端，无需管理员权限） =====
+  if (path === '/announcement-vote' && method === 'POST') return castAnnouncementVote(body, event._openid)
+  if (path.startsWith('/announcement-vote/') && method === 'GET') {
+    return getAnnouncementVote(decodeURIComponent(path.split('/').pop()), event._openid)
+  }
 
   // ===== 关于我们（小程序端，无需管理员权限） =====
   if (path === '/about-config' && method === 'GET') return getAboutConfig()
@@ -7603,7 +9699,217 @@ async function route(event, user) {
   // ===== 知识卡公开接口（小程序端） =====
   if (path === '/knowledge-cards/public' && method === 'GET') return getPublicKnowledgeCards()
 
+  // ===== 火箭观礼服务（小程序端/大屏，无需管理员权限） =====
+  if (path === '/watch-party/config' && method === 'GET') return watchPartyApi().getPublicConfig()
+  if (path === '/watch-party/match' && method === 'GET') return watchPartyApi().matchPublicSession(query)
+  if (path === '/watch-party/session' && method === 'GET') return watchPartyApi().getPublicSession(query)
+  if (path === '/watch-party/sessions/public' && method === 'GET') return watchPartyApi().listPublicSessions(query)
+  if (path === '/watch-party/reserve' && method === 'POST') {
+    return watchPartyApi().reserve(body, event._openid, {
+      clientIp: event._clientIp || '',
+      deviceKey: String((body && (body.deviceKey || body.deviceId)) || '').trim()
+    })
+  }
+  if (path === '/watch-party/my-reservation' && method === 'GET') return watchPartyApi().getMyReservation(event._openid, query)
+  if (path === '/watch-party/reserve/cancel' && method === 'POST') return watchPartyApi().cancelReservation(body, event._openid)
+  if (path === '/watch-party/scan' && method === 'POST') return watchPartyApi().scanCheckIn(body, event._openid)
+  if (path === '/watch-party/draw' && method === 'POST') return watchPartyApi().draw(body, event._openid)
+  if (path === '/watch-party/my-cards' && method === 'GET') return watchPartyApi().getMyCards(event._openid)
+  if (path === '/watch-party/share-bonus' && method === 'POST') return watchPartyApi().shareBonus(body, event._openid)
+  if (path === '/watch-party/screen' && method === 'GET') return watchPartyApi().getScreenData(query)
+  if (path === '/watch-party/merchant-apply' && method === 'POST') return watchPartyApi().applyMerchantLead(body, event._openid)
+
+  // ===== 火箭观礼商家自助（小程序端，凭商家编号绑定 openid，无需管理员权限） =====
+  if (path === '/watch-party/merchant/bind' && method === 'POST') return watchPartyApi().merchantBind(body, event._openid)
+  if (path === '/watch-party/merchant/unbind' && method === 'POST') return watchPartyApi().merchantUnbind(event._openid)
+  if (path === '/watch-party/merchant/me' && method === 'GET') return watchPartyApi().merchantMe(event._openid)
+  if (path === '/watch-party/merchant/profile' && method === 'PUT') return watchPartyApi().merchantUpdateProfile(body, event._openid)
+  if (path === '/watch-party/merchant/avatar' && method === 'POST') return watchPartyApi().merchantUpdateAvatar(body, event._openid)
+  if (path === '/watch-party/merchant/prize-presets' && method === 'PUT') return watchPartyApi().merchantSavePrizePresets(body, event._openid)
+  if (path === '/watch-party/merchant/mission-name' && method === 'GET') return watchPartyApi().merchantGetMissionName(query, event._openid)
+  if (path === '/watch-party/merchant/mission-name' && method === 'POST') return watchPartyApi().merchantSetMissionDisplayName(body, event._openid)
+  if (path === '/watch-party/merchant/cards' && method === 'GET') return watchPartyApi().merchantListCards(event._openid, query)
+  if (path === '/watch-party/merchant/sessions' && method === 'POST') return watchPartyApi().merchantCreateSession(body, event._openid)
+  // 物料码：优先用 query 路由（兼容旧云函数部署顺序）；路径式保留兼容
+  if (path === '/watch-party/merchant/material' && method === 'GET') {
+    return watchPartyApi().merchantGetSessionMaterial(query.sessionId || query.id, event._openid)
+  }
+  if (/^\/watch-party\/merchant\/sessions\/[^/]+\/material$/.test(path) && method === 'GET') {
+    return watchPartyApi().merchantGetSessionMaterial(path.split('/')[4], event._openid)
+  }
+  // 商家点亮发射成功（须放在通用 PUT/DELETE 之前）
+  if (/^\/watch-party\/merchant\/sessions\/[^/]+\/unlock-success$/.test(path) && method === 'POST') {
+    return watchPartyApi().merchantUnlockSessionSuccess(path.split('/')[4], event._openid)
+  }
+  // 开启下一场发射（归档周期账本；须放在通用 PUT/DELETE 之前）
+  if (/^\/watch-party\/merchant\/sessions\/[^/]+\/next-cycle$/.test(path) && method === 'POST') {
+    return watchPartyApi().merchantStartNextCycle(path.split('/')[4], event._openid)
+  }
+  // 商家预约名单（须放在通用 PUT/DELETE 之前）
+  if (/^\/watch-party\/merchant\/sessions\/[^/]+\/reservations$/.test(path) && method === 'GET') {
+    return watchPartyApi().merchantListReservations(event._openid, {
+      ...query,
+      sessionId: path.split('/')[4]
+    })
+  }
+  if (/^\/watch-party\/merchant\/reservations\/[^/]+\/check-in$/.test(path) && method === 'POST') {
+    return watchPartyApi().merchantCheckInReservation(path.split('/')[4], event._openid)
+  }
+  if (path.startsWith('/watch-party/merchant/sessions/') && method === 'PUT') {
+    return watchPartyApi().merchantUpdateSession(path.split('/').pop(), body, event._openid)
+  }
+  if (path.startsWith('/watch-party/merchant/sessions/') && method === 'DELETE') {
+    return watchPartyApi().merchantDeleteSession(path.split('/').pop(), event._openid)
+  }
+
+  // ===== 公众号采集插件入库（OA_COLLECTOR_TOKEN，可无管理员 JWT） =====
+  if (path === '/oa-content/collector/ingest' && method === 'POST') {
+    return oaContentApi().collectorIngest(body, headers, user)
+  }
+  if (path === '/oa-content/collector/ingest-batch' && method === 'POST') {
+    return oaContentApi().collectorIngestBatch(body, headers, user)
+  }
+
+  // ===== 公众号日更 / 作者追踪内部触发（oaContentDaily / oaAuthorTrack → callFunction） =====
+  if (path === '/oa-content/internal/run-daily' && method === 'POST') {
+    const tok = String(
+      headers['x-oa-internal-token'] || headers['X-Oa-Internal-Token'] || ''
+    ).trim()
+    const expected = String(process.env.OA_CONTENT_INTERNAL_TOKEN || '').trim()
+    if (!expected || tok.length !== expected.length) {
+      return fail(4010, '内部日更调用未授权（需配置 OA_CONTENT_INTERNAL_TOKEN）')
+    }
+    const crypto = require('crypto')
+    const okTok =
+      tok.length > 0 &&
+      crypto.timingSafeEqual(Buffer.from(tok, 'utf8'), Buffer.from(expected, 'utf8'))
+    if (!okTok) return fail(4010, '内部日更调用未授权（需配置 OA_CONTENT_INTERNAL_TOKEN）')
+    return oaContentApi().runDailyPipeline({ id: 'system', username: 'cron', role: 'super_admin' })
+  }
+  if (path === '/oa-content/internal/track-sources' && method === 'POST') {
+    const tok = String(
+      headers['x-oa-internal-token'] || headers['X-Oa-Internal-Token'] || ''
+    ).trim()
+    const expected = String(process.env.OA_CONTENT_INTERNAL_TOKEN || '').trim()
+    if (!expected || tok.length !== expected.length) {
+      return fail(4010, '内部追踪调用未授权（需配置 OA_CONTENT_INTERNAL_TOKEN）')
+    }
+    const crypto = require('crypto')
+    const okTok =
+      tok.length > 0 &&
+      crypto.timingSafeEqual(Buffer.from(tok, 'utf8'), Buffer.from(expected, 'utf8'))
+    if (!okTok) return fail(4010, '内部追踪调用未授权（需配置 OA_CONTENT_INTERNAL_TOKEN）')
+    return oaContentApi().trackSourcesRun(body || {}, {
+      id: 'system',
+      username: 'cron',
+      role: 'super_admin'
+    })
+  }
+  if (path === '/oa-content/internal/wash-collected' && method === 'POST') {
+    const tok = String(
+      headers['x-oa-internal-token'] || headers['X-Oa-Internal-Token'] || ''
+    ).trim()
+    const expected = String(process.env.OA_CONTENT_INTERNAL_TOKEN || '').trim()
+    if (!expected || tok.length !== expected.length) {
+      return fail(4010, '内部洗稿调用未授权（需配置 OA_CONTENT_INTERNAL_TOKEN）')
+    }
+    const crypto = require('crypto')
+    const okTok =
+      tok.length > 0 &&
+      crypto.timingSafeEqual(Buffer.from(tok, 'utf8'), Buffer.from(expected, 'utf8'))
+    if (!okTok) return fail(4010, '内部洗稿调用未授权（需配置 OA_CONTENT_INTERNAL_TOKEN）')
+    return oaContentApi().washQueuedTrackJobs(body || {}, {
+      id: 'system',
+      username: 'cron',
+      role: 'super_admin'
+    })
+  }
+  if (path === '/oa-content/internal/push-draft' && method === 'POST') {
+    const tok = String(
+      headers['x-oa-internal-token'] || headers['X-Oa-Internal-Token'] || ''
+    ).trim()
+    const expected = String(process.env.OA_CONTENT_INTERNAL_TOKEN || '').trim()
+    if (!expected || tok.length !== expected.length) {
+      return fail(4010, '内部推送调用未授权（需配置 OA_CONTENT_INTERNAL_TOKEN）')
+    }
+    const crypto = require('crypto')
+    const okTok =
+      tok.length > 0 &&
+      crypto.timingSafeEqual(Buffer.from(tok, 'utf8'), Buffer.from(expected, 'utf8'))
+    if (!okTok) return fail(4010, '内部推送调用未授权（需配置 OA_CONTENT_INTERNAL_TOKEN）')
+    const draftId = String((body && body.id) || '').trim()
+    if (!draftId) return fail(4000, '缺少草稿 id')
+    const action = String((body && body.action) || 'push').trim()
+    const sysUser = { id: 'system', username: 'async-push', role: 'super_admin' }
+    if (action === 'prepare') {
+      return oaContentApi().prepareDraftImages(draftId, {})
+    }
+    return oaContentApi().executePushDraft(draftId, sysUser)
+  }
+
+  // ===== 一键预审 OCR（公开；按 IP 限流；图不落库） =====
+  if (path === '/preaudit/ocr' && method === 'POST') {
+    return preauditOcrApi().recognize(body, {
+      clientIp: event._clientIp || pickClientIp(headers),
+      user
+    })
+  }
+  if (path === '/preaudit/ocr-sign' && method === 'POST') {
+    return preauditOcrApi().sign({
+      clientIp: event._clientIp || pickClientIp(headers),
+      user
+    })
+  }
+  if (path === '/preaudit/ai-audit' && method === 'POST') {
+    return preauditAiApi().advise(body, {
+      clientIp: event._clientIp || pickClientIp(headers)
+    })
+  }
+  if (path === '/preaudit/photos/sign' && method === 'POST') {
+    return preauditPhotosApi().sign(body, {
+      clientIp: event._clientIp || pickClientIp(headers),
+      user
+    })
+  }
+  if (path === '/preaudit/photos/file' && method === 'POST') {
+    return preauditPhotosApi().fetchFile(body, {
+      clientIp: event._clientIp || pickClientIp(headers),
+      user
+    })
+  }
+  if (path === '/preaudit/photos' && method === 'POST') {
+    return preauditPhotosApi().upload(body, {
+      clientIp: event._clientIp || pickClientIp(headers),
+      user
+    })
+  }
+  if (path === '/preaudit/photos' && method === 'PUT') {
+    return preauditPhotosApi().patchCaption(body, { user })
+  }
+  if (path === '/preaudit/photos' && method === 'DELETE') {
+    return preauditPhotosApi().remove(body, { user })
+  }
+  if (path === '/preaudit/project' && method === 'POST') {
+    return preauditPhotosApi().upsert(body, { user })
+  }
+  if (path.startsWith('/preaudit/projects/') && method === 'GET') {
+    return preauditPhotosApi().getOne(path.split('/').pop(), { user })
+  }
+
   if (!user) return fail(4010, '未授权或登录已过期')
+
+  if (path === '/preaudit/projects' && method === 'GET') {
+    return preauditPhotosApi().list({ user })
+  }
+  if ((path === '/preaudit/project' && method === 'DELETE') || (path === '/preaudit/project/destroy' && method === 'POST')) {
+    const password = String((body && body.password) || '').trim()
+    if (!password) return fail(4000, '请输入密码')
+    const snap = await db.collection(COLLECTIONS.USERS).doc(user.id || user._id).get().catch(() => null)
+    const row = asDoc(snap)
+    const pass = await verifyPassword(row, password)
+    if (!pass) return fail(4002, '密码不对')
+    return preauditPhotosApi().destroy(body, { user })
+  }
 
   if (path === '/dashboard/overview' && method === 'GET') return getDashboardOverview()
 
@@ -7666,6 +9972,10 @@ async function route(event, user) {
   if (path === '/starship/status' && method === 'PUT') return updateStarshipStatus(body, user)
   if (path === '/starship/splash' && method === 'GET') return getStarshipSplashConfig()
   if (path === '/starship/splash' && method === 'PUT') return updateStarshipSplashConfig(body, user)
+  if (path === '/starship/splash/upcoming-missions' && method === 'GET') return listSplashUpcomingMissions()
+  if (path === '/orbit-pano' && method === 'GET') return getOrbitPanoConfig()
+  if (path === '/orbit-pano' && method === 'PUT') return updateOrbitPanoConfig(body, user)
+  if (path === '/orbit-pano/previous-missions' && method === 'GET') return listOrbitPanoPreviousMissions()
 
   if (path === '/starship/checklist-history' && method === 'GET') return listChecklistHistory(query)
   if (path.startsWith('/starship/checklist-history/') && method === 'GET') return getChecklistHistoryById(path.split('/').pop())
@@ -7780,27 +10090,6 @@ async function route(event, user) {
   if (path === '/media-assets/batch' && method === 'POST') {
     if (!mustRole(user, 'editor')) return fail(4030, '无权限')
     return batchUpdateMediaAssets(body, user)
-  }
-
-  if (path === '/media-feed' && method === 'GET') {
-    if (!mustRole(user, 'editor')) return fail(4030, '无权限')
-    return listMediaFeed(query)
-  }
-  if (path === '/media-feed' && method === 'POST') {
-    if (!mustRole(user, 'editor')) return fail(4030, '无权限')
-    return createMediaFeed(body, user)
-  }
-  if (path.startsWith('/media-feed/') && method === 'PUT') {
-    if (!mustRole(user, 'editor')) return fail(4030, '无权限')
-    return updateMediaFeed(path.split('/').pop(), body, user)
-  }
-  if (path.startsWith('/media-feed/') && method === 'DELETE') {
-    if (!mustRole(user, 'editor')) return fail(4030, '无权限')
-    return deleteMediaFeed(path.split('/').pop(), user)
-  }
-  if (path === '/media-feed/batch' && method === 'POST') {
-    if (!mustRole(user, 'editor')) return fail(4030, '无权限')
-    return batchUpdateMediaFeed(body, user)
   }
 
   if (path === '/shop-feed' && method === 'GET') {
@@ -7950,7 +10239,17 @@ async function route(event, user) {
   if (path.startsWith('/cloud-functions/') && path.endsWith('/trigger') && method === 'POST') {
     const deny = checkPerm(user, 'cloud_functions'); if (deny) return deny
     const fnName = path.split('/')[2]
-    return triggerCloudFunction(fnName, user)
+    return triggerCloudFunction(fnName, user, body)
+  }
+
+  // 小时 NET 探针（含待定排序降权自愈）；经云函数互调，不走网页控制台 wx_client
+  if (path === '/system/sync-launch-net-hourly' && method === 'POST') {
+    const deny = checkPerm(user, 'cloud_functions')
+    if (deny) return deny
+    return triggerCloudFunction('syncSpaceDevsData', user, {
+      action: 'syncLaunchNetHourly',
+      force: true
+    })
   }
 
   // ===== 弹窗广告配置 =====
@@ -7961,6 +10260,14 @@ async function route(event, user) {
   if (path === '/popup-ad-config' && method === 'PUT') {
     const deny = checkPerm(user, 'shop_feed'); if (deny) return deny
     return updatePopupAdConfig(body, user)
+  }
+  if (path === '/profile-shop-config' && method === 'GET') {
+    const deny = checkPerm(user, 'shop_feed'); if (deny) return deny
+    return getProfileShopConfig()
+  }
+  if (path === '/profile-shop-config' && method === 'PUT') {
+    const deny = checkPerm(user, 'shop_feed'); if (deny) return deny
+    return updateProfileShopConfig(body, user)
   }
 
   // ===== 全局配置中心 =====
@@ -8070,6 +10377,28 @@ async function route(event, user) {
   if (path === '/lunar-wishes/stats' && method === 'GET') {
     const deny = checkPerm(user, 'lunar_wishes'); if (deny) return deny
     return getLunarWishesStats()
+  }
+
+  // ===== 航天摄影（影像）管理 =====
+  if (path === '/astro-photos/list' && method === 'GET') {
+    const deny = checkPerm(user, 'astro_photos'); if (deny) return deny
+    return listAstroPhotos(query)
+  }
+  if (path === '/astro-photos/review' && method === 'POST') {
+    const deny = checkPerm(user, 'astro_photos'); if (deny) return deny
+    return reviewAstroPhoto(body, user)
+  }
+  if (path === '/astro-photos/batch-review' && method === 'POST') {
+    const deny = checkPerm(user, 'astro_photos'); if (deny) return deny
+    return batchReviewAstroPhotos(body, user)
+  }
+  if (path === '/astro-photos/delete' && method === 'POST') {
+    const deny = checkPerm(user, 'astro_photos'); if (deny) return deny
+    return deleteAstroPhoto(body.photoId || '', user)
+  }
+  if (path === '/astro-photos/stats' && method === 'GET') {
+    const deny = checkPerm(user, 'astro_photos'); if (deny) return deny
+    return getAstroPhotosStats()
   }
 
   // ===== 竞猜全局配置（后台） =====
@@ -8204,6 +10533,67 @@ async function route(event, user) {
     return batchImportKnowledgeCards(body, user)
   }
 
+  // ===== 火箭观礼服务管理（后台） =====
+  if (path === '/watch-party/global-config' && method === 'GET') return watchPartyApi().getGlobalConfig(user)
+  if (path === '/watch-party/global-config' && method === 'PUT') return watchPartyApi().updateGlobalConfig(body, user)
+  if (path === '/watch-party/merchants' && method === 'GET') return watchPartyApi().listMerchants(user, query)
+  if (path === '/watch-party/merchants' && method === 'POST') return watchPartyApi().createMerchant(body, user)
+  if (path === '/watch-party/upcoming-launches' && method === 'GET') return watchPartyApi().listUpcomingLaunchesAdmin(user)
+  if (path.startsWith('/watch-party/merchants/') && path.endsWith('/code') && method === 'POST') {
+    return watchPartyApi().ensureMerchantCode(path.split('/')[3], body, user)
+  }
+  if (path.startsWith('/watch-party/merchants/') && path.endsWith('/stats') && method === 'GET') {
+    return watchPartyApi().getMerchantStats(path.split('/')[3], user)
+  }
+  // 按商家授权「扫码赠通行证」（须放在通用 PUT 之前）
+  if (path.startsWith('/watch-party/merchants/') && path.endsWith('/pass-grant') && method === 'PUT') {
+    return watchPartyApi().updateMerchantPassGrant(path.split('/')[3], body, user)
+  }
+  // 运营确认收款后续费：1 月 / 1 季 / 1 年（系统自动算截止日期）
+  if (path.startsWith('/watch-party/merchants/') && path.endsWith('/membership-renew') && method === 'POST') {
+    return watchPartyApi().renewMerchantMembership(path.split('/')[3], body, user)
+  }
+  // 手动触发未缴费商家清扫（定时任务也会跑）
+  if (path === '/watch-party/merchants/membership-sweep' && method === 'POST') {
+    return watchPartyApi().sweepMerchantMemberships(user)
+  }
+  if (path.startsWith('/watch-party/merchants/') && method === 'PUT') {
+    return watchPartyApi().updateMerchant(path.split('/').pop(), body, user)
+  }
+  if (path.startsWith('/watch-party/merchants/') && method === 'DELETE') {
+    return watchPartyApi().deleteMerchant(path.split('/').pop(), user)
+  }
+  if (path === '/watch-party/merchant-leads' && method === 'GET') return watchPartyApi().listMerchantLeads(user, query)
+  if (path.startsWith('/watch-party/merchant-leads/') && path.endsWith('/approve') && method === 'POST') {
+    return watchPartyApi().approveMerchantLead(path.split('/')[3], user)
+  }
+  if (path.startsWith('/watch-party/merchant-leads/') && method === 'PUT') {
+    return watchPartyApi().updateMerchantLead(path.split('/').pop(), body, user)
+  }
+  if (path === '/watch-party/sessions' && method === 'GET') return watchPartyApi().listSessions(user, query)
+  if (path === '/watch-party/sessions' && method === 'POST') return watchPartyApi().createSession(body, user)
+  if (path.startsWith('/watch-party/sessions/') && method === 'PUT') {
+    return watchPartyApi().updateSession(path.split('/').pop(), body, user)
+  }
+  if (path.startsWith('/watch-party/sessions/') && method === 'DELETE') {
+    return watchPartyApi().deleteSession(path.split('/').pop(), user)
+  }
+  if (path === '/watch-party/reservations' && method === 'GET') return watchPartyApi().listReservations(user, query)
+  if (path.startsWith('/watch-party/reservations/') && path.endsWith('/check-in') && method === 'POST') {
+    return watchPartyApi().checkInReservation(path.split('/')[3], user)
+  }
+  if (path === '/watch-party/cards' && method === 'GET') return watchPartyApi().listCards(user, query)
+  if (path === '/watch-party/cards' && method === 'POST') return watchPartyApi().createCard(body, user)
+  if (path.startsWith('/watch-party/cards/') && method === 'PUT') {
+    return watchPartyApi().updateCard(path.split('/').pop(), body, user)
+  }
+  if (path.startsWith('/watch-party/cards/') && method === 'DELETE') {
+    return watchPartyApi().deleteCard(path.split('/').pop(), user)
+  }
+  if (path === '/watch-party/draws' && method === 'GET') return watchPartyApi().listDraws(user, query)
+  if (path === '/watch-party/stats' && method === 'GET') return watchPartyApi().getStats(user, query)
+  if (path === '/watch-party/wxacode' && method === 'POST') return watchPartyApi().generateWxacode(body, user)
+
   // ===== 发射回放（管理端查看/删除；抓取由 replay-agent 完成） =====
   if (path === '/mission-replays' && method === 'GET') {
     const deny = checkPerm(user, 'global_config'); if (deny) return deny
@@ -8214,60 +10604,227 @@ async function route(event, user) {
     return replayFetchApi().deleteReplay(path.split('/').pop())
   }
 
-  // ===== B 站自动发文 =====
-  if (path === '/bilibili-auto-publish' && method === 'GET') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().getBilibiliAutoPublish()
-  }
-  if (path === '/bilibili-auto-publish' && method === 'PUT') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().updateBilibiliAutoPublish(body, user)
-  }
-  if (path === '/bilibili-auto-publish/enqueue' && method === 'POST') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().enqueueBilibiliNow(user)
-  }
-  if (path === '/bilibili-topics' && method === 'GET') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().listTopics(query)
-  }
-  if (path === '/bilibili-topics' && method === 'POST') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().createTopic(body, user)
-  }
-  if (path === '/bilibili-topics/seed' && method === 'POST') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().seedTopics(user)
-  }
-  if (path.startsWith('/bilibili-topics/') && path.endsWith('/promote') && method === 'POST') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    const id = path.split('/')[2]
-    return biliPublishApi().promoteTopic(id, user)
-  }
-  if (path.startsWith('/bilibili-topics/') && path.endsWith('/reject') && method === 'POST') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    const id = path.split('/')[2]
-    return biliPublishApi().rejectTopic(id, user)
-  }
-  if (path.startsWith('/bilibili-topics/') && method === 'PUT') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().updateTopic(path.split('/').pop(), body, user)
-  }
-  if (path.startsWith('/bilibili-topics/') && method === 'DELETE') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().deleteTopic(path.split('/').pop(), user)
-  }
-  if (path === '/bilibili-topic-blacklist' && method === 'GET') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().listBlacklist()
-  }
-  if (path === '/bilibili-topic-blacklist' && method === 'POST') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().addBlacklist(body, user)
-  }
-  if (path.startsWith('/bilibili-topic-blacklist/') && method === 'DELETE') {
-    const deny = checkPerm(user, 'global_config'); if (deny) return deny
-    return biliPublishApi().removeBlacklist(path.split('/').pop())
+  // ===== 公众号内容中台 =====
+  {
+    const oa = oaContentApi()
+    const denyOa = () => checkPerm(user, 'oa_content')
+
+    if (path === '/oa-content/config' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.getConfig()
+    }
+    if (path === '/oa-content/config' && method === 'PUT') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.updateConfig(body, user)
+    }
+    if (path === '/oa-content/topics' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.gatherTopics(query)
+    }
+    if (path === '/oa-content/generate' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.generateFromBody(body, user)
+    }
+    if (path === '/oa-content/themes' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.listThemes()
+    }
+    if (path === '/oa-content/preview' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.previewContent(body || {})
+    }
+    if (path === '/oa-content/preview-all' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.previewAllThemes(body || {})
+    }
+    if (path === '/oa-content/preview-xhs' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.previewXhsContent(body || {})
+    }
+    if (path === '/oa-content/drafts/import' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.importDraft(body || {}, user)
+    }
+    if (path === '/oa-content/run-daily' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.runDailyPipeline(user)
+    }
+    if (path === '/oa-content/track-sources' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.trackSourcesRun(body || {}, user)
+    }
+    if (path === '/oa-content/track-wash' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.washQueuedTrackJobs(body || {}, user)
+    }
+    if (path === '/oa-content/jobs' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.listJobs(query)
+    }
+
+    if (path === '/oa-content/prompts' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.listPrompts(query)
+    }
+    if (path === '/oa-content/prompts' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.createPrompt(body, user)
+    }
+    if (path === '/oa-content/prompts/seed' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.seedPrompts(user, body || {})
+    }
+    if (path.startsWith('/oa-content/prompts/') && method === 'PUT') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.updatePrompt(path.split('/').pop(), body, user)
+    }
+    if (path.startsWith('/oa-content/prompts/') && method === 'DELETE') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.deletePrompt(path.split('/').pop(), user)
+    }
+
+    if (path === '/oa-content/strategies' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.listStrategies(query)
+    }
+    if (path === '/oa-content/strategies' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.createStrategy(body, user)
+    }
+    if (path === '/oa-content/strategies/seed' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.seedStrategies(user, body || {})
+    }
+    if (path.startsWith('/oa-content/strategies/') && method === 'PUT') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.updateStrategy(path.split('/').pop(), body, user)
+    }
+    if (path.startsWith('/oa-content/strategies/') && method === 'DELETE') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.deleteStrategy(path.split('/').pop(), user)
+    }
+
+    if (path === '/oa-content/drafts' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.listDrafts(query)
+    }
+    if (path === '/oa-content/drafts/batch-delete' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.batchDeleteDrafts(body, user)
+    }
+    if (path.startsWith('/oa-content/drafts/') && path.endsWith('/push') && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.pushDraftToWechat(path.split('/')[3], user, body || {})
+    }
+    if (path.startsWith('/oa-content/drafts/') && path.endsWith('/prepare-images') && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.prepareDraftImages(path.split('/')[3], body || {})
+    }
+    if (path.startsWith('/oa-content/drafts/') && path.endsWith('/derive-xhs') && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.deriveXhsDraft(path.split('/')[3], body || {}, user)
+    }
+    if (path.startsWith('/oa-content/drafts/') && path.endsWith('/export-xhs') && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.exportXhsDraft(path.split('/')[3], body || {}, user)
+    }
+    if (path === '/oa-content/image-proxy' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.proxyImage(body || {})
+    }
+    if (path.startsWith('/oa-content/drafts/') && path.endsWith('/publish') && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.publishDraft(path.split('/')[3], user)
+    }
+    if (path.startsWith('/oa-content/drafts/') && path.endsWith('/reject') && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.rejectDraft(path.split('/')[3], user, body)
+    }
+    if (path.startsWith('/oa-content/drafts/') && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.getDraft(path.split('/').pop())
+    }
+    if (path.startsWith('/oa-content/drafts/') && method === 'PUT') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.updateDraft(path.split('/').pop(), body, user)
+    }
+    if (path.startsWith('/oa-content/drafts/') && method === 'DELETE') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.deleteDraft(path.split('/').pop(), user)
+    }
+
+    if (path === '/oa-content/accounts' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.listAccounts(query)
+    }
+    if (path === '/oa-content/accounts' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.createAccount(body, user)
+    }
+    // 账号下已采文章（兼容 /accounts/:id/articles 与扁平别名）
+    if (
+      method === 'GET' &&
+      (path === '/oa-content/account-articles' ||
+        /^\/oa-content\/accounts\/[^/]+\/articles\/?$/.test(path))
+    ) {
+      const deny = denyOa(); if (deny) return deny
+      const id =
+        String(query.accountId || query.id || '').trim() ||
+        (path.match(/^\/oa-content\/accounts\/([^/]+)\/articles\/?$/) || [])[1] ||
+        ''
+      return oa.listAccountArticles(id, query)
+    }
+    if (path.startsWith('/oa-content/accounts/') && method === 'PUT') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.updateAccount(path.split('/').pop(), body, user)
+    }
+    if (path.startsWith('/oa-content/accounts/') && method === 'DELETE') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.deleteAccount(path.split('/').pop(), user)
+    }
+
+    if (path === '/oa-content/viral' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.listViral(query)
+    }
+    if (path === '/oa-content/viral' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.upsertViral(body, user)
+    }
+    if (path.startsWith('/oa-content/viral/') && method === 'DELETE') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.deleteViral(path.split('/').pop(), user)
+    }
+
+    if (path === '/oa-content/titles' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.listTitles(query)
+    }
+    if (path === '/oa-content/titles' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.createTitle(body, user)
+    }
+    if (path === '/oa-content/titles/analyze' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.analyzeTitle(body, user)
+    }
+    if (path === '/oa-content/titles/generate' && method === 'POST') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.generateTitles(body, user)
+    }
+    if (path.startsWith('/oa-content/titles/') && method === 'DELETE') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.deleteTitle(path.split('/').pop(), user)
+    }
+
+    if (path === '/oa-content/collected' && method === 'GET') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.listCollected(query)
+    }
+    if (path.startsWith('/oa-content/collected/') && method === 'DELETE') {
+      const deny = denyOa(); if (deny) return deny
+      return oa.deleteCollected(path.split('/').pop(), user)
+    }
   }
 
   return fail(4040, `未知路由: ${method} ${path}`)
@@ -8292,23 +10849,88 @@ function normalizeEvent(event = {}) {
   return merged
 }
 
+/** 定时器 / 云函数互调才允许跑 cron 动作；禁止小程序伪造 scheduleAction 绕过鉴权 */
+function isAdminGatewayServerInvocation() {
+  try {
+    const ctx = cloud.getWXContext() || {}
+    const chain = String(ctx.SOURCE || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    // 无 SOURCE：控制台测试 / 部分 SCF 触发器
+    if (!chain.length) return true
+    const last = chain[chain.length - 1]
+    // 网页控制台「运行测试」偶发标成 wx_client 但不带 OPENID
+    if (last === 'wx_client' && !String(ctx.OPENID || '').trim()) return true
+    return last !== 'wx_client' && last !== 'wx_devtools'
+  } catch (e) {
+    return false
+  }
+}
+
 exports.main = async (event = {}, context) => {
   try {
     ensureAdminGatewayCollectionsOnce()
+    // B 站自动发文下线：冷启动后异步清理配置/队列，并尝试删云函数（幂等）
+    scheduleAutoDecommission(db, cloud)
 
     // 预热快速路径：app 冷启动时静默调用，仅用于提前完成云函数实例冷启动，不查库
     if (event && event.path === '/ping') {
       return ok({ pong: true, ts: Date.now() })
     }
 
-    // 定时触发器（微信云开发 cron）：event.Type === 'Timer' 或 event.scheduleAction
+    // 定时触发器（微信云开发 cron）：event.Type === 'Timer'
+    // 云函数互调：event.scheduleAction（须服务端调用；禁止客户端伪造）
+    // 定时器无法在配置里传 event 字段，按 TriggerName 分流到对应任务
     if (event && (event.Type === 'Timer' || event.scheduleAction)) {
-      const action = event.scheduleAction || 'recheck_pending_orders'
-      console.log('[cron] triggered:', action)
+      if (!isAdminGatewayServerInvocation()) {
+        console.warn(
+          '[cron] rejected client-forged scheduleAction:',
+          String(event.scheduleAction || event.TriggerName || '').slice(0, 80)
+        )
+        return fail(4010, '定时/内部任务仅允许服务端调用')
+      }
+      const triggerName = String(event.TriggerName || event.triggerName || '').trim()
+      const action = event.scheduleAction || (
+        triggerName === 'syncSpacexSplashTimer'
+          ? 'sync_spacex_splash'
+          : (triggerName === 'merchantMembershipSweepTimer'
+            ? 'sweep_merchant_memberships'
+            : (triggerName === 'pruneMissionSplashTimer'
+              ? 'prune_mission_splash'
+              : 'recheck_pending_orders'))
+      )
+      console.log('[cron] triggered:', action, 'trigger:', triggerName)
       try {
         if (action === 'recheck_pending_orders') {
           const r = await recheckPendingOrders({}, { id: 'system', username: 'cron' })
           console.log('[cron] recheckPendingOrders result:', JSON.stringify(r))
+          return r
+        }
+        if (action === 'sync_spacex_splash') {
+          const r = await runSpacexSplashAutoSync()
+          console.log('[cron] runSpacexSplashAutoSync result:', JSON.stringify(r))
+          // 顺带清扫商家会员：收费开启后，宽限已过且无有效会员期的商家自动终止合作
+          try {
+            const sweep = await watchPartyApi().sweepMerchantMemberships({ id: 'system', username: 'cron' })
+            console.log('[cron] sweepMerchantMemberships result:', JSON.stringify(sweep))
+          } catch (sweepErr) {
+            console.error('[cron] sweepMerchantMemberships error:', sweepErr && (sweepErr.message || sweepErr))
+          }
+          return r
+        }
+        // 探针 / 服务号结果通知：只跑关联任务下架 + 必要时回填官网同步（比整轮 CMS 扫描轻）
+        if (action === 'prune_mission_splash') {
+          const r = await runSplashMissionLifecycle({
+            updatedBy: String(event.pruneSource || event.updatedBy || 'splash-mission-prune').slice(0, 40),
+            reason: String(event.pruneReason || event.reason || '').slice(0, 80)
+          })
+          console.log('[cron] runSplashMissionLifecycle result:', JSON.stringify(r))
+          return ok(r)
+        }
+        if (action === 'sweep_merchant_memberships') {
+          const r = await watchPartyApi().sweepMerchantMemberships({ id: 'system', username: 'cron' })
+          console.log('[cron] sweepMerchantMemberships result:', JSON.stringify(r))
           return r
         }
         return ok({ skipped: true, reason: 'unknown_action' })
@@ -8322,12 +10944,14 @@ exports.main = async (event = {}, context) => {
     const wxContext = cloud.getWXContext()
     normalized._openid = wxContext.OPENID || ''
     normalized._unionid = wxContext.UNIONID || ''
-    normalized._clientIp = pickClientIp(event.headers || normalized.headers || {})
+    // 小程序云调用优先 CLIENTIP；HTTP 访问服务走 X-Forwarded-For
+    normalized._clientIp = String(wxContext.CLIENTIP || '').trim()
+      || pickClientIp(event.headers || normalized.headers || {})
     normalized.headers = {
       ...(event.headers || {}),
       ...(normalized.headers || {})
     }
-    const user = await requireAuth(event.headers || normalized.headers || {})
+    const user = await requireAuth(normalized.headers || {})
     const result = await route(normalized, user)
     return result || fail(5000, '路由未返回结果')
   } catch (error) {

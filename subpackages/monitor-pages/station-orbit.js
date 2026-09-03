@@ -29,6 +29,23 @@ const NORAD_MAP = {
   18: '48274'   // 天宫
 }
 
+/** 地图 marker：真机 map 组件不稳支持 SVG，统一用 PNG */
+const STATION_MARKER_ICON = '/subpackages/monitor-pages/station-marker.png'
+
+function resolveNoradId(stationId) {
+  const n = Number(stationId)
+  if (Number.isFinite(n) && NORAD_MAP[n]) return NORAD_MAP[n]
+  return null
+}
+
+/** 从 TLE 包中取有效两行；null / 缺 line 视为不可用（避免 ISS-only 缓存挡住天宫） */
+function pickStationTle(tleBundle, noradId) {
+  if (!tleBundle || !tleBundle.tle || !noradId) return null
+  const t = tleBundle.tle[noradId]
+  if (!t || !t.line1 || !t.line2) return null
+  return t
+}
+
 /**
  * 从 TLE 两行数据创建 satrec 对象
  */
@@ -271,11 +288,15 @@ function formatCoord(lat, lng) {
   if (lat === undefined || lng === undefined) return '--'
   const latDir = lat >= 0 ? 'N' : 'S'
   const lngDir = lng >= 0 ? 'E' : 'W'
-  return `${Math.abs(lat).toFixed(4)}°${latDir}, ${Math.abs(lng).toFixed(4)}°${lngDir}`
+  // 2 位小数（约 1km 精度）对轨道目标足够，展示更干净
+  return `${Math.abs(lat).toFixed(2)}°${latDir} · ${Math.abs(lng).toFixed(2)}°${lngDir}`
 }
 
 module.exports = {
   NORAD_MAP,
+  STATION_MARKER_ICON,
+  resolveNoradId,
+  pickStationTle,
   createSatrec,
   getPositionAt,
   getCurrentPosition,

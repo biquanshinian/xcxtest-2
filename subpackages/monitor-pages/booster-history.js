@@ -39,12 +39,14 @@ Page({
     var docId = serial.replace(/[^a-zA-Z0-9_-]/g, '_')
 
     db.collection('booster_genealogy').doc(docId).get().then(function (res) {
-      var history = (res && res.data && Array.isArray(res.data.flightHistory)) ? res.data.flightHistory : []
+      var doc = (res && res.data) || {}
+      var history = Array.isArray(doc.flightHistory) ? doc.flightHistory : []
       if (history.length === 0) {
         self.setData({ loading: false, errorMessage: '暂无 ' + serial + ' 的历史任务数据' })
         return
       }
 
+      var failWord = (String(doc.countryCode || '').toUpperCase() === 'CN') ? '失利' : '失败'
       var missions = []
       for (var i = 0; i < history.length; i++) {
         var h = history[i]
@@ -58,7 +60,7 @@ Page({
           name: h.mission || h.name || '未知任务',
           net: h.date || '',
           date: self._fmtDate(h.date),
-          statusText: isFailed ? '失败' : '成功',
+          statusText: isFailed ? failWord : '成功',
           statusClass: isFailed ? 'fail' : 'success',
           statusIcon: isFailed ? '✗' : '✓',
           hasDetailLink: !!missionId,

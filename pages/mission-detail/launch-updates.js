@@ -1,7 +1,8 @@
 const pageBase = require('../../utils/page-base.js')
 const { fetchLl2LaunchUpdates } = require('../../utils/api-app-services.js')
 const { mapRawUpdatesToLaunchUpdates } = require('./utils/api-launch-detail.js')
-const { togglePageTranslation } = require('../../utils/text-translate.js')
+const { togglePageTranslation } = require('./utils/text-translate.js')
+const { hasUsableZh } = require('./utils/ll2-updates-i18n.js')
 const { ROUTES } = require('../../utils/routes.js')
 const {
   checkShareEntryGate,
@@ -129,15 +130,11 @@ Page({
 
   applyMomentsPreviewLayout() {
     try {
-      const launchInfo = wx.getLaunchOptionsSync()
-      if (!launchInfo || launchInfo.scene !== 1154) return
+      const { buildMomentsSinglePagePatch } = require('../../utils/moments-single.js')
       const app = getApp()
       const layout = (app && app.getUiShellLayout && app.getUiShellLayout()) || {}
-      const safeBottom = Number(layout.safeBottomInset) || 0
-      this.setData({
-        isMomentsPreview: true,
-        tabBarReservedHeight: 52 + safeBottom
-      })
+      const patch = buildMomentsSinglePagePatch(layout, this.data.themeClass)
+      if (patch) this.setData(patch)
     } catch (_) {}
   },
 
@@ -159,12 +156,13 @@ Page({
         const list = res && Array.isArray(res.list) ? res.list : []
         const mapped = mapRawUpdatesToLaunchUpdates(list)
         const resolvedName = (res && res.resolvedLaunchName) || this.data.missionName
+        const zhComments = mapped.map((u) => (u && hasUsableZh(u.commentZh) ? u.commentZh : ''))
         const next = {
           loading: false,
           errorMessage: '',
           updates: mapped,
-          descTranslated: false,
-          translatedComments: []
+          descTranslated: zhComments.some(Boolean),
+          translatedComments: zhComments
         }
         if (resolvedName) {
           next.missionName = resolvedName
@@ -194,10 +192,13 @@ Page({
   },
 
   onToggleTranslate() {
+    // 与其它详情页一致的重入保护：翻译中再点会并发跑第二条管线，白白多耗一次额度
+    if (this.data.descTranslating) return
     const updates = Array.isArray(this.data.updates) ? this.data.updates : []
     const fields = updates.map((u, i) => ({
       path: 'translatedComments[' + i + ']',
-      text: u && u.comment
+      text: u && u.comment,
+      zh: (u && u.commentZh) || ''
     }))
     togglePageTranslation(this, {
       switchKey: 'descTranslated',

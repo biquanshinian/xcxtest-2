@@ -65,11 +65,47 @@ function sampleCurve(curve, t) {
 
 /* 双级燃料余量 %（点火消耗 → 滑行持平 → 着陆点火再消耗） */
 var BOOSTER_FUEL = [[0, 100], [150, 18], [190, 18], [230, 10], [420, 10], [444, 4]]
-var SHIP_FUEL = [[0, 100], [150, 100], [520, 14], [3881, 14], [3921, 5]]
 
-/* 姿态角（度）：0=竖直机头朝上，90=水平，170=反推倒飞 */
+/* 姿态角（度）：0=竖直机头朝上，90=水平腹部朝下，170=反推倒飞 */
 var BOOSTER_ORI = [[0, 0], [150, 45], [175, 170], [230, 170], [330, 0], [444, 0]]
-var SHIP_ORI = [[0, 0], [150, 45], [520, 85], [2845, 88], [3600, 92], [3881, 95], [3901, 0]]
+
+/** 飞船燃料/姿态/遥测高度曲线随任务剖面自动拉伸，适配后续星舰任务 */
+function buildShipFuelCurve(profile) {
+  var se = profile.shipEndT || 3921
+  return [[0, 100], [150, 100], [520, 14], [se - 40, 14], [se, 5]]
+}
+
+function buildShipOriCurve(profile) {
+  var se = profile.shipEndT || 3921
+  var entryT = profile.entryT != null ? profile.entryT : Math.max(2000, se - 1076)
+  var payloadT = profile.payloadT != null ? profile.payloadT : entryT - 400
+  if (payloadT < 560) payloadT = 560
+  if (payloadT > entryT - 60) payloadT = Math.max(560, entryT - 60)
+  // 入轨后趋水平 → 载荷后锁 90° 腹部朝下 → 再入保持 → 翻转窗口回 0°（尾朝海）
+  return [
+    [0, 0], [150, 45], [520, 85],
+    [payloadT, 90], [entryT, 90],
+    [se - 80, 92], [se - 50, 95],
+    [se - 25, 20], [se - 10, 0], [se, 0]
+  ]
+}
+
+function buildShipTeleProfile(profile) {
+  var se = profile.shipEndT || 3921
+  var entryT = profile.entryT != null ? profile.entryT : Math.max(2000, se - 1076)
+  var blackout = entryT + 395
+  if (blackout > se - 100) blackout = se - 100
+  return [
+    [150, 65, 5600],
+    [320, 130, 15000],
+    [520, 150, 26400],
+    [entryT, 145, 26800],
+    [blackout, 75, 18000],
+    [se - 91, 12, 1100],
+    [se - 40, 1.2, 90],
+    [se, 0.1, 10]
+  ]
+}
 
 function sampleProfile(profile, t) {
   if (t <= profile[0][0]) return { alt: profile[0][1], speed: profile[0][2] }
@@ -137,29 +173,44 @@ var TIMELINE_DEF = [
  * - 一级结局：时间线含 booster/助推 + catch/捕获 → 塔臂捕获，否则受控溅落
  * - 二级结局：时间线含 ship/飞船 + catch/捕获 → 塔臂捕获，否则受控溅落
  * - 载荷部署：含 payload/deploy/载荷/部署 节点 → 取其时间
+ * - 再入界面：含 entry/reentry/再入/黑障 → 取其时间（驱动腹部再入与等离子）
  */
 function inferMissionProfile(customTl) {
-  // 默认剖面 = 最近星舰任务：双溅落 + 载荷部署，二级收尾 T+1:05:21
-  if (!customTl) return { boosterEnd: 'splash', shipEnd: 'splash', payloadT: 1120, shipEndT: 3921 }
+  // 默认剖面 = 典型星舰：双溅落 + 载荷部署 + 再入，二级收尾 T+1:05:21
+  if (!customTl) {
+    return {
+      boosterEnd: 'splash',
+      shipEnd: 'splash',
+      payloadT: 1120,
+      entryT: 2845,
+      shipEndT: 3921
+    }
+  }
   var bCatch = false
   var sCatch = false
   var payloadT = null
+  var entryT = null
   for (var i = 0; i < customTl.length; i++) {
     var s = (customTl[i].label + ' ' + customTl[i].desc).toLowerCase()
-    var isCatch = /catch|mechazilla|捕获/.test(s)
+    var isCatch = /catch|mechazilla|chopsticks?|tower\s*catch|塔臂|筷子|捕获/.test(s)
     var isBooster = /booster|super ?heavy|b\d{2}\b|助推|超重|一级/.test(s)
     var isShip = /ship|starship|s\d{2}\b|飞船|二级/.test(s)
     if (isCatch && isBooster) bCatch = true
     else if (isCatch && isShip) sCatch = true
     if (payloadT == null && /payload|deploy|starlink|载荷|部署/.test(s)) payloadT = customTl[i].t
+    if (entryT == null && /re-?entry|entry interface|再入|黑障|plasma|等离子/.test(s)) entryT = customTl[i].t
   }
   // 二级收尾对齐时间线末节点（任务钟走到最后一个节点才结算，不遗漏）
   var lastT = customTl[customTl.length - 1].t
   var shipEndT = (isFinite(lastT) && lastT >= 3500 && lastT < 7200) ? lastT : 3921
+  if (entryT == null || !isFinite(entryT)) entryT = Math.max(2000, shipEndT - 1076)
+  // 载荷节点若晚于再入，夹到再入前，避免姿态阶段重叠
+  if (payloadT != null && payloadT > entryT - 60) payloadT = Math.max(560, entryT - 120)
   return {
     boosterEnd: bCatch ? 'catch' : 'splash',
     shipEnd: sCatch ? 'catch' : 'splash',
     payloadT: payloadT,
+    entryT: entryT,
     shipEndT: shipEndT
   }
 }
@@ -205,6 +256,11 @@ function createMission(options) {
   var rng = mulberry32(seed)
   var customTl = normalizeCustomTimeline(options && options.timeline)
   var profile = inferMissionProfile(customTl)
+  var shipFuelCurve = buildShipFuelCurve(profile)
+  var shipOriCurve = buildShipOriCurve(profile)
+  var shipTeleProfile = buildShipTeleProfile(profile)
+  // 自动演示：决策门自动 GO、跳过随机异常/中止，供剖面循环预览
+  var autoDemo = !!(options && options.autoDemo)
 
   // 异常表（seed 决定本局注入哪些，一次性生成保证确定性）
   var anomalies = {
@@ -220,6 +276,17 @@ function createMission(options) {
   // 结果判定用的独立骰（与决策组合后仍确定）
   var catchLuck = rng()
   var shipLuck = rng()
+  if (autoDemo) {
+    anomalies.loxTemp = false
+    anomalies.windGust = false
+    anomalies.windSevere = false
+    anomalies.engineOut = 0
+    anomalies.gridFin = false
+    // catchLuck 取 0：GO 时 catchLuck < risk 为假 → 回收成功
+    // shipLuck 须 > shipRisk（默认 0.08）：取 1 保证演示闭环成功，避免 0 > 0.08 恒败
+    catchLuck = 0
+    shipLuck = 1
+  }
 
   var state = {
     seed: seed,
@@ -405,26 +472,32 @@ function createMission(options) {
 
   function step(realDtMs) {
     if (state.phase === 'done') return snapshot()
-    var dt = (realDtMs / 1000) * state.warp * state.rate
     if (state.gate) {
-      // 决策门开着：时钟暂停；T-40 保持期有温漂压力
-      if (state.gate.id === 'g2_commit') {
-        state.holdRealMs += realDtMs
-        if (state.holdRealMs > 25000) {
-          once('holdDrift', function () {
-            setStation('prop', 'amber', '推进剂温漂，密度下降')
-            pushLog('保持时间过长：推进剂温度开始漂移')
-          })
+      if (autoDemo) {
+        // 演示模式：决策门瞬间自动 GO，本 tick 继续推进时钟
+        decide(state.gate.id, 'go')
+        if (state.phase === 'done') return snapshot()
+      } else {
+        // 决策门开着：时钟暂停；T-40 保持期有温漂压力
+        if (state.gate.id === 'g2_commit') {
+          state.holdRealMs += realDtMs
+          if (state.holdRealMs > 25000) {
+            once('holdDrift', function () {
+              setStation('prop', 'amber', '推进剂温漂，密度下降')
+              pushLog('保持时间过长：推进剂温度开始漂移')
+            })
+          }
+          if (state.holdRealMs > 55000) {
+            once('holdAbort', function () {
+              closeGate()
+              finishScrub('自动中止', '保持超时，推进剂温度超出提交限制，序列自动中止。')
+            })
+          }
         }
-        if (state.holdRealMs > 55000) {
-          once('holdAbort', function () {
-            closeGate()
-            finishScrub('自动中止', '保持超时，推进剂温度超出提交限制，序列自动中止。')
-          })
-        }
+        return snapshot()
       }
-      return snapshot()
     }
+    var dt = (realDtMs / 1000) * state.warp * state.rate
 
     state.t += dt
 
@@ -559,7 +632,7 @@ function createMission(options) {
       if (profile.payloadT != null && state.t >= profile.payloadT) {
         once('payloadDeploy', function () { pushLog('载荷部署：舱门开启，模拟载荷依次弹出') })
       }
-      if (state.t >= 2845) {
+      if (state.t >= (profile.entryT || 2845)) {
         once('entry', function () {
           state.phase = 'shipEntry'
           state.warp = 24
@@ -568,7 +641,10 @@ function createMission(options) {
       }
     }
     if (state.phase === 'shipEntry') {
-      if (state.t >= 3240) once('blackoutExit', function () { pushLog('穿出黑障，遥测恢复，腹部姿态下降') })
+      // 黑障出口相对再入时刻；缺省约再入后 +395s（对齐典型剖面 2845→3240）
+      var blackoutExitT = (profile.entryT || 2845) + 395
+      if (blackoutExitT > profile.shipEndT - 80) blackoutExitT = profile.shipEndT - 80
+      if (state.t >= blackoutExitT) once('blackoutExit', function () { pushLog('穿出黑障，遥测恢复，腹部姿态下降') })
       if (state.t >= profile.shipEndT - 40) once('flip', function () { pushLog(profile.shipEnd === 'catch' ? '翻转机动，着陆点火，向塔臂进场' : '翻转机动，着陆点火，进入溅落走廊') })
       if (state.t >= profile.shipEndT) {
         once('finish', function () { finishMission() })
@@ -590,7 +666,7 @@ function createMission(options) {
     if (p === 'boosterReturn') return t < 190 ? 5 : 6
     if (p === 'catchGate') return 7
     if (p === 'boosterCatch') return 8
-    if (p === 'shipCoast') return t < 1120 ? 9 : 10
+    if (p === 'shipCoast') return t < (profile.payloadT != null ? profile.payloadT : 1120) ? 9 : 10
     if (p === 'shipEntry') return t < profile.shipEndT - 40 ? 11 : 12
     return 0
   }
@@ -689,7 +765,7 @@ function createMission(options) {
     if (state.t < 0) {
       tele = { alt: 0, speed: 0 }
     } else if (state.phase === 'shipCoast' || state.phase === 'shipEntry' || (state.phase === 'done' && state.t > 500)) {
-      tele = sampleProfile(SHIP_PROFILE, state.t)
+      tele = sampleProfile(shipTeleProfile, state.t)
     } else {
       tele = sampleProfile(BOOSTER_PROFILE, state.t)
     }
@@ -722,7 +798,7 @@ function createMission(options) {
     /* 双级遥测（遥测面板用）：速度/高度/燃料余量/姿态角（0=竖直 90=水平 170=倒飞） */
     var st = state.t
     var bTele = st < 0 ? { alt: 0, speed: 0 } : sampleProfile(BOOSTER_PROFILE, Math.min(st, 444))
-    var sTele = st < 0 ? { alt: 0, speed: 0 } : (st < 150 ? bTele : sampleProfile(SHIP_PROFILE, st))
+    var sTele = st < 0 ? { alt: 0, speed: 0 } : (st < 150 ? bTele : sampleProfile(shipTeleProfile, st))
     if (st > 460) bTele = { alt: 0, speed: 0 }
     if (st > profile.shipEndT + 10) sTele = { alt: 0, speed: 0 }
     var fuelingFill = Math.round(state.propLoad)
@@ -737,8 +813,8 @@ function createMission(options) {
       s: {
         alt: Math.round(sTele.alt * 10) / 10,
         speed: Math.round(sTele.speed),
-        fuel: st < 0 ? fuelingFill : Math.round(sampleCurve(SHIP_FUEL, st)),
-        ori: st < 0 ? 0 : Math.round(sampleCurve(SHIP_ORI, Math.min(st, 3921))),
+        fuel: st < 0 ? fuelingFill : Math.round(sampleCurve(shipFuelCurve, st)),
+        ori: st < 0 ? 0 : Math.round(sampleCurve(shipOriCurve, Math.min(st, profile.shipEndT))),
         active: st <= profile.shipEndT + 10
       }
     }
@@ -773,6 +849,7 @@ function createMission(options) {
   /* ---- 开局第一道门 ---- */
   openGate('g1_fuel', '加注提交', '各席位已完成上电自检。提交后开始快速加注，中止成本将逐步升高。',
     [{ key: 'go', label: 'GO — 开始加注', tone: 'go' }, { key: 'nogo', label: 'NO-GO — 推迟', tone: 'nogo' }])
+  if (autoDemo) decide('g1_fuel', 'go')
 
   /** 用户倍率（1/2/4）：叠乘在阶段压缩上，不影响事件顺序与结局判定 */
   function setRate(r) {

@@ -8,21 +8,22 @@
 const UI_SHELL_LAYOUT_RPX = {
   NAVBAR_HEIGHT: 156,
   NAVBAR_CONTENT_GAP: 8,
-  TABBAR_TOTAL_HEIGHT: 182,
-  /** iOS 26/27 悬浮 Tab 连续圆角（约 22pt ≈ 44rpx，非全胶囊 999rpx） */
-  TABBAR_CORNER_RADIUS: 44,
-  /** Tab 左右悬浮内边距（约 16pt ≈ 32rpx） */
-  TABBAR_SIDE_INSET: 32,
+  /** 轻量 Dock：内容区 144rpx + 边框余量（与 custom-tab-bar wxss 的 152 同步） */
+  TABBAR_TOTAL_HEIGHT: 152,
+  /** 悬浮 Tab 柔和圆角 */
+  TABBAR_CORNER_RADIUS: 36,
+  /** Tab 左右悬浮内边距 */
+  TABBAR_SIDE_INSET: 28,
   /** TabBar 主胶囊上方的「添加到桌面」横条内容区高度（与 custom-tab-bar 样式一致） */
-  TABBAR_TOP_STRIP_HEIGHT: 96,
+  TABBAR_TOP_STRIP_HEIGHT: 80,
   /** 横条与下方 Tab 胶囊的间距 */
-  TABBAR_TOP_STRIP_GAP: 14,
+  TABBAR_TOP_STRIP_GAP: 12,
   /** 横条纵向再收紧的物理像素（与 custom-tab-bar padding 微调同步） */
   TABBAR_TOP_STRIP_TRIM_PX: 2,
   TABBAR_CONTENT_GAP: 16,
   /** Tab 胶囊距 home 指示条上方的额外间距（与 custom-tab-bar padding-bottom 超出 safe-area 部分同步） */
   TABBAR_FLOAT_BOTTOM: 10,
-  PAGE_SIDE_SAFE: 20
+  PAGE_SIDE_SAFE: 24
 }
 
 function getUiShellLayout(systemInfo = {}) {
@@ -73,7 +74,7 @@ function getUiShellLayout(systemInfo = {}) {
 function getFloatingActionDragBounds(systemInfo = {}, opts = {}) {
   const layout = getUiShellLayout(systemInfo)
   const rpxToPx = layout.windowWidth / 750
-  const btnSize = opts.btnSize != null ? opts.btnSize : Math.round(96 * rpxToPx)
+  const btnSize = opts.btnSize != null ? opts.btnSize : Math.round(80 * rpxToPx)
   const edgeMargin = opts.edgeMargin != null ? opts.edgeMargin : 12
   const bottomMargin = opts.bottomMargin != null ? opts.bottomMargin : 8
   const tabBarHeightPx = Math.round(UI_SHELL_LAYOUT_RPX.TABBAR_TOTAL_HEIGHT * rpxToPx)

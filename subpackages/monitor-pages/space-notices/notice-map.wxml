@@ -1,0 +1,262 @@
+<!-- SPACE_NOTICES_FEATURE -->
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="map-page sn-map-page {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">{{title || '发射航警地图'}}</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
+    </view>
+  </view>
+  <view class="map-action-container glass-card {{actionMenuCollapsed ? 'map-action-container--collapsed' : ''}}" wx:if="{{mapActionTop > 0}}" style="top: {{mapActionTop}}px;">
+    <view class="map-action-header">
+      <text class="map-action-title">地图工具</text>
+      <view class="map-action-toggle-btn" bindtap="toggleActionMenuCollapsed"><text>{{actionMenuCollapsed ? '展开' : '折叠'}}</text></view>
+    </view>
+    <view class="map-action-china-wrap">
+      <view class="map-action-btn map-action-btn--china {{chinaView ? 'map-action-btn--active' : ''}}" data-key="chinaOnly" bindtap="toggleChinaView">
+        <text>中国</text>
+      </view>
+    </view>
+    <view class="map-action-stack" wx:if="{{!actionMenuCollapsed}}">
+      <view class="map-action-type-row">
+        <view class="map-action-btn {{enableSatellite ? 'map-action-btn--active' : ''}}" bindtap="setMapSatellite" data-map-mode="satellite"><text>卫星</text></view>
+        <view class="map-action-btn {{!enableSatellite ? 'map-action-btn--active' : ''}}" bindtap="setMapSatellite" data-map-mode="standard"><text>平面</text></view>
+      </view>
+    </view>
+  </view>
+
+  <map
+    class="sn-map"
+    latitude="{{latitude}}"
+    longitude="{{longitude}}"
+    scale="{{scale}}"
+    markers="{{markers}}"
+    polygons="{{polygons}}"
+    polyline="{{polylines}}"
+    include-points="{{includePoints}}"
+    enable-scroll="{{true}}"
+    enable-zoom="{{true}}"
+    show-location="{{false}}"
+    enable-satellite="{{enableSatellite}}"
+    setting="{{mapSetting}}"
+    bindtap="onMapTap"
+  />
+
+  <view class="sn-state glass-card" wx:if="{{loading || errorText}}">
+    <text class="sn-state-title">{{loading ? (chinaView ? '正在读取中国航警公告…' : '加载中…') : (chinaView ? '中国航警公告' : '加载失败')}}</text>
+    <text class="sn-state-desc">{{loading ? (chinaView ? '正在拉取全国情报区危险区' : '正在读取通告与发射台点位') : errorText}}</text>
+    <view class="sn-btn sn-btn--primary sn-state-btn" wx:if="{{errorText && !loading}}" bindtap="retryLoad">
+      <text>重试</text>
+    </view>
+  </view>
+
+  <view class="panel sn-panel glass-card {{panelCollapsed ? 'panel--collapsed' : ''}}" wx:if="{{!loading && !errorText && !selectedNotice}}">
+    <view class="panel-header">
+      <view class="sn-head-main">
+        <text class="panel-title">{{chinaView ? '中国航警公告' : '通告图层'}}</text>
+        <text class="panel-subtitle">{{chinaView ? (syncLine || '临时危险区') : (subtitle || padName || '发射危险区')}}{{!chinaView && netText ? ' · NET ' + netText : ''}}</text>
+      </view>
+      <view class="panel-header-actions">
+        <view class="panel-badge {{stats.live ? 'panel-badge--green' : (stats.soon ? 'panel-badge--soon' : '')}}">
+          <text wx:if="{{stats.live || stats.soon}}">{{stats.live ? '生效 ' + stats.live : ''}}{{stats.live && stats.soon ? ' · ' : ''}}{{stats.soon ? '预警 ' + stats.soon : ''}}</text>
+          <text wx:else>{{notices.length}} 条</text>
+        </view>
+        <view class="panel-toggle-btn" bindtap="togglePanel">
+          <text>{{panelCollapsed ? '展开' : '收起'}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="mini-summary-row" wx:if="{{panelCollapsed}}">
+      <text class="mini-summary-text">{{chinaView ? (syncLine || '中国航警') : '全部'}} · NOTAM {{stats.notam}} · 航海 {{stats.nav}}{{stats.soon ? ' · 预警 ' + stats.soon : ''}}{{stats.ended ? ' · 已结束 ' + stats.ended : ''}}</text>
+    </view>
+
+    <block wx:if="{{!panelCollapsed}}">
+      <view class="sn-sync" wx:if="{{chinaView}}">
+        <text class="sn-sync-line">{{checkText}}</text>
+        <text class="sn-sync-line {{syncUnchanged ? 'sn-sync-line--quiet' : 'sn-sync-line--new'}}">{{changeText}}</text>
+        <text class="sn-sync-cadence">{{cadenceText}}</text>
+      </view>
+
+      <view class="sn-seg" wx:if="{{!chinaView}}">
+        <view class="sn-seg-item {{mapRegion === 'pad' ? 'sn-seg-item--on' : ''}}" data-region="pad" bindtap="setMapRegion">
+          <text>发射区</text>
+        </view>
+        <view class="sn-seg-item {{mapRegion === 'splash' ? 'sn-seg-item--on' : ''}}" data-region="splash" bindtap="setMapRegion">
+          <text>溅落区</text>
+        </view>
+        <view class="sn-seg-item {{mapRegion === 'global' ? 'sn-seg-item--on' : ''}}" data-region="global" bindtap="setMapRegion">
+          <text>全程</text>
+        </view>
+      </view>
+
+      <view class="sn-chips" wx:if="{{chinaView}}">
+        <view class="sn-chip {{!firFilter ? 'sn-chip--on' : ''}}" data-code="" bindtap="toggleFirFilter">
+          <text>全部情报区</text>
+        </view>
+        <view
+          class="sn-chip {{firFilter === item.code ? 'sn-chip--on' : ''}}"
+          wx:for="{{firChips}}"
+          wx:key="code"
+          data-code="{{item.code}}"
+          bindtap="toggleFirFilter"
+        >
+          <text>{{item.label}}</text>
+        </view>
+      </view>
+
+      <view class="sn-chips">
+        <view class="sn-chip {{showCorridor ? 'sn-chip--on' : ''}}" data-key="showCorridor" bindtap="toggleLayer" wx:if="{{hasTrajectory}}">
+          <view class="sn-chip-dot sn-chip-dot--adp"></view>
+          <text>轨迹</text>
+        </view>
+        <view class="sn-chip {{showNotam ? 'sn-chip--on' : ''}}" data-key="showNotam" bindtap="toggleLayer">
+          <view class="sn-chip-dot sn-chip-dot--notam"></view>
+          <text>NOTAM</text>
+        </view>
+        <view class="sn-chip {{showNav ? 'sn-chip--on' : ''}}" data-key="showNav" bindtap="toggleLayer">
+          <view class="sn-chip-dot sn-chip-dot--nav"></view>
+          <text>航海</text>
+        </view>
+        <view class="sn-chip {{showPad ? 'sn-chip--on' : ''}}" data-key="showPad" bindtap="toggleLayer" wx:if="{{!chinaView}}">
+          <view class="sn-chip-dot sn-chip-dot--pad"></view>
+          <text>发射台</text>
+        </view>
+        <view class="sn-chip sn-chip--ghost" bindtap="openAllMissions" wx:if="{{chinaView}}">
+          <text>全部任务</text>
+        </view>
+        <view class="sn-chip sn-chip--ghost" bindtap="resetView">
+          <text>重置视野</text>
+        </view>
+      </view>
+
+      <view class="sn-chips">
+        <view class="sn-chip {{showLive ? 'sn-chip--on' : ''}}" data-key="showLive" bindtap="toggleLayer">
+          <view class="sn-chip-dot sn-chip-dot--live"></view>
+          <text>生效{{stats.live ? ' ' + stats.live : ''}}</text>
+        </view>
+        <view class="sn-chip {{showSoon ? 'sn-chip--on' : ''}}" data-key="showSoon" bindtap="toggleLayer">
+          <view class="sn-chip-dot sn-chip-dot--soon"></view>
+          <text>预警{{stats.soon ? ' ' + stats.soon : ''}}</text>
+        </view>
+      </view>
+
+      <text class="sn-note">{{chinaView ? '点地图上的红色/橙色危险区，会弹出该航警信息。橙虚线是尚未开始的窗口。时间按你手机时区（国内即北京时间）。' : (hasTrajectory ? '点危险区可查看该航警。黄线与 space-notices.com Trajectory 同源（Ship 40）。橙虚线 = 尚未生效的提前预警。切「发射区」聚焦场区细节。' : '点危险区可查看该航警。橙虚线 = 尚未生效的提前预警。本任务无飞行轨迹数据；地图展示 NOTAM / 航海危险区多边形。')}}</text>
+
+      <scroll-view scroll-y class="sn-list" enhanced="{{true}}" show-scrollbar="{{false}}">
+        <view
+          class="sn-item {{item.noticeKey === selectedKey ? 'sn-item--on' : ''}} {{item.cancelled ? 'sn-item--muted' : ''}}"
+          wx:for="{{notices}}"
+          wx:key="noticeKey"
+          data-key="{{item.noticeKey}}"
+          bindtap="selectNotice"
+        >
+          <view class="sn-item-bar sn-item-bar--{{item.typeTone}}"></view>
+          <view class="sn-item-body">
+            <view class="sn-item-top">
+              <text class="sn-item-name">{{chinaView ? (item.displayName || item.name) : item.name}}</text>
+              <view class="sn-tag sn-tag--{{item.statusTone}}" wx:if="{{item.statusText}}">
+                <text>{{item.statusText}}</text>
+              </view>
+            </view>
+            <text class="sn-item-meta" wx:if="{{chinaView}}">{{item.timeText}}{{item.hasGeo ? '' : ' · 无坐标'}}</text>
+            <text class="sn-item-meta" wx:else>{{item.firLabel}}{{item.firLabel && item.timeText ? ' · ' : ''}}{{item.timeText}}{{item.hasGeo ? '' : ' · 无坐标'}}</text>
+            <text class="sn-item-reason" wx:if="{{item.reason}}">{{item.reason}}</text>
+          </view>
+          <view class="sn-item-arrow"></view>
+        </view>
+        <view class="sn-empty" wx:if="{{!notices.length}}">
+          <text wx:if="{{chinaView}}">当前没有中国相关通告。定时核对后若仍为空，说明这一轮没有中国区航警。</text>
+          <text wx:else>该任务暂无通告多边形。可在云函数 ingestRaw 粘贴 NOTAM 原文。</text>
+        </view>
+      </scroll-view>
+    </block>
+  </view>
+
+  <view class="sn-card-float glass-card" wx:if="{{selectedNotice}}">
+    <view class="sn-card-head">
+      <text class="sn-card-head-title">{{chinaView ? (selectedNotice.displayName || 'NOTAM 信息') : 'NOTAM 信息'}}</text>
+      <view class="sn-card-head-close" bindtap="closeDetail"><text>关闭</text></view>
+    </view>
+    <scroll-view scroll-y class="sn-kv" enhanced="{{true}}" show-scrollbar="{{false}}">
+      <view class="sn-kv-row" wx:if="{{selectedNotice.durationText}}">
+        <text class="sn-kv-k">持续时间</text>
+        <view class="sn-kv-vwrap">
+          <text class="sn-kv-v">{{selectedNotice.durationText}}</text>
+          <text class="sn-kv-sub" wx:if="{{selectedNotice.durationSub}}">{{selectedNotice.durationSub}}</text>
+        </view>
+      </view>
+      <view class="sn-kv-grid">
+        <view class="sn-kv-cell">
+          <text class="sn-kv-k">来源</text>
+          <text class="sn-kv-v">{{selectedNotice.sourceLabel || selectedNotice.typeShort}}</text>
+        </view>
+        <view class="sn-kv-cell" wx:if="{{selectedNotice.firLabel || selectedNotice.fir}}">
+          <text class="sn-kv-k">飞行情报区</text>
+          <text class="sn-kv-v">{{selectedNotice.firLabel || selectedNotice.fir}}</text>
+        </view>
+        <view class="sn-kv-cell" wx:if="{{selectedNotice.notamId}}">
+          <text class="sn-kv-k">航警编号</text>
+          <text class="sn-kv-v">{{selectedNotice.notamId}}</text>
+        </view>
+        <view class="sn-kv-cell" wx:if="{{selectedNotice.altText}}">
+          <text class="sn-kv-k">航警高度</text>
+          <text class="sn-kv-v">{{selectedNotice.altText}}</text>
+        </view>
+      </view>
+      <view class="sn-kv-row" wx:if="{{selectedNotice.notamKind}}">
+        <text class="sn-kv-k">情报种类</text>
+        <text class="sn-kv-v">{{selectedNotice.notamKind}}</text>
+      </view>
+      <view class="sn-kv-row" wx:if="{{selectedNotice.qCode}}">
+        <text class="sn-kv-k">Q码</text>
+        <text class="sn-kv-v">{{selectedNotice.qCode}}{{selectedNotice.qSummary ? ' · ' + selectedNotice.qSummary : ''}}</text>
+      </view>
+      <view class="sn-kv-row" wx:if="{{selectedNotice.centerText}}">
+        <text class="sn-kv-k">中心点</text>
+        <text class="sn-kv-v">{{selectedNotice.centerText}}</text>
+      </view>
+      <view class="sn-kv-row" wx:if="{{selectedNotice.radiusText}}">
+        <text class="sn-kv-k">影响半径</text>
+        <text class="sn-kv-v">{{selectedNotice.radiusText}}</text>
+      </view>
+      <view class="sn-kv-row" wx:if="{{selectedNotice.scheduleText}}">
+        <text class="sn-kv-k">时间计划</text>
+        <text class="sn-kv-v">{{selectedNotice.scheduleText}}</text>
+      </view>
+      <view class="sn-kv-row" wx:if="{{selectedNotice.activityText}}">
+        <text class="sn-kv-k">活动说明</text>
+        <text class="sn-kv-v">{{selectedNotice.activityText}}</text>
+      </view>
+      <view class="sn-kv-row" wx:if="{{selectedNotice.coordCount}}">
+        <text class="sn-kv-k">划线坐标</text>
+        <text class="sn-kv-v">{{selectedNotice.coordCount}} 个顶点</text>
+      </view>
+      <view class="sn-kv-row" wx:if="{{selectedNotice.leadText}}">
+        <text class="sn-kv-k">提前预警</text>
+        <text class="sn-kv-v">{{selectedNotice.leadText}}，窗口开始后自动改为生效中。</text>
+      </view>
+      <view class="sn-kv-row" wx:if="{{selectedNotice.statusText}}">
+        <text class="sn-kv-k">状态</text>
+        <text class="sn-kv-v">{{selectedNotice.statusText}}{{selectedNotice.hasGeo ? ' · 已划线' : ' · 无坐标'}}</text>
+      </view>
+    </scroll-view>
+    <view class="sn-card-raw-toggle" wx:if="{{selectedNotice.rawLines.length}}" bindtap="toggleRaw">
+      <text>{{showRaw ? '收起原文' : '查看原文'}}</text>
+    </view>
+    <scroll-view scroll-y class="sn-card-raw" wx:if="{{showRaw && selectedNotice.rawLines.length}}" enhanced="{{true}}" show-scrollbar="{{false}}">
+      <text class="sn-sheet-raw" wx:for="{{selectedNotice.rawLines}}" wx:key="i">{{item.text}}</text>
+    </scroll-view>
+    <view class="sn-card-actions">
+      <view class="sn-btn sn-btn--ghost" bindtap="copyCoords"><text>复制坐标</text></view>
+      <view class="sn-btn sn-btn--primary" bindtap="copyRawText"><text>复制原始航警</text></view>
+    </view>
+  </view>
+
+  <share-gate-countdown expire-at="{{shareGateExpireAt}}" />
+</view>

@@ -1,4 +1,7 @@
 const { getUpcomingMissions, getCompletedMissions } = require('../../utils/api-launch-list.js')
+const { fetchRecentSettledLaunches } = require('../../utils/api-app-services.js')
+const { mergeRecentSettledIntoCompletedList } = require('./recent-settled-list-merge.js')
+const { onLaunchListStale } = require('../../utils/api-request.js')
 const { getAgencies } = require('../../utils/api-monitor-data.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const {
@@ -95,6 +98,14 @@ Page({
     void loadCloudMediaMap().catch(() => {})
     void this.loadSplashShareImageForTimeline()
 
+    this._offLaunchListStale = onLaunchListStale((info) => {
+      if (!info || (info.kind !== 'previous' && info.kind !== 'upcoming')) return
+      const now = Date.now()
+      if (this._launchListStaleAt && now - this._launchListStaleAt < 1500) return
+      this._launchListStaleAt = now
+      this.ensureMissionListsReady(['upcoming', 'completed']).catch(() => {})
+    })
+
     const searchHistory = loadSearchHistory(SEARCH_HISTORY_KEY, SEARCH_HISTORY_LIMIT)
     this._searchResultCache = Object.create(null)
     this._searchResultCacheOrder = []
@@ -125,6 +136,12 @@ Page({
   // goBack inherited from pageBase,
 
   onUnload() {
+    if (typeof this._offLaunchListStale === 'function') {
+      try {
+        this._offLaunchListStale()
+      } catch (e) {}
+      this._offLaunchListStale = null
+    }
     this._clearSearchTimers()
   },
 
@@ -198,7 +215,18 @@ Page({
           nextState.missionsHasMore = !!res.hasMore
         }
       }).catch(() => {})
-    })).then(() => nextState)
+    })).then(async () => {
+      if (Array.isArray(nextState.completedMissions)) {
+        try {
+          const settled = await fetchRecentSettledLaunches()
+          nextState.completedMissions = mergeRecentSettledIntoCompletedList(
+            nextState.completedMissions,
+            settled
+          )
+        } catch (e) {}
+      }
+      return nextState
+    })
   },
 
   async ensureSearchSourceReady(queryInfo) {
@@ -261,6 +289,15 @@ Page({
 
     const results = await Promise.all(missingTypes.map((type) => this.fetchMissionList(type, 50, 0)))
     const updateData = this.buildMissionListReadyState(results, missingTypes)
+    if (Array.isArray(updateData.completedMissions)) {
+      try {
+        const settled = await fetchRecentSettledLaunches()
+        updateData.completedMissions = mergeRecentSettledIntoCompletedList(
+          updateData.completedMissions,
+          settled
+        )
+      } catch (e) {}
+    }
     this.setData(buildMissionReadyState(updateData))
   },
 

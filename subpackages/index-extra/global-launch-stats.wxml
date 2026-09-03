@@ -2,11 +2,13 @@
 <view class="detail-page {{themeClass}}">
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
     <view class="top-nav top-nav--page-grid">
-      <view class="top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
         <text class="icon-back icon-back--nav">‹</text>
       </view>
-      <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
-      <view class="top-nav-slot--spacer"></view>
+      <view class="nav-title-wrap nav-title-wrap--page-grid">
+        <text class="nav-title nav-title--page-grid">{{navTitle}}</text>
+      </view>
+      <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
     </view>
   </view>
 
@@ -59,6 +61,10 @@
       </view>
 
       <block wx:else>
+        <view class="stale-hint glass-card" wx:if="{{staleHint && !errorMessage}}">
+          <text class="stale-hint-text">{{staleHint}}</text>
+        </view>
+
         <!-- 汇总 -->
         <view class="summary-card glass-card">
           <view class="summary-head">
@@ -75,7 +81,7 @@
             <text class="summary-value">{{summary.total}}</text>
             <text class="summary-unit">次</text>
           </view>
-          <block wx:if="{{!loadingSummary}}">
+          <block wx:if="{{!loadingSummary && !summaryPartial}}">
             <view class="summary-ratio-bar">
               <view class="summary-ratio-success" style="width: {{summary.total > 0 ? (summary.success / summary.total * 100) : 0}}%;"></view>
               <view class="summary-ratio-failure" style="width: {{summary.total > 0 ? (summary.failure / summary.total * 100) : 0}}%;"></view>
@@ -89,9 +95,13 @@
                 <view class="summary-chip-dot summary-chip-dot--failure"></view>
                 <text>失败 {{summary.failure}}</text>
               </view>
+              <view class="summary-chip summary-chip--pending" wx:if="{{summaryPending > 0}}">
+                <view class="summary-chip-dot summary-chip-dot--pending"></view>
+                <text>待定 {{summaryPending}}</text>
+              </view>
             </view>
           </block>
-          <view class="summary-sub--loading" wx:else>
+          <view class="summary-sub--loading" wx:elif="{{loadingSummary}}">
             <text>统计明细加载中...</text>
           </view>
         </view>
@@ -101,7 +111,7 @@
           <text class="loading-text">正在加载国家/机构/型号明细...</text>
         </view>
 
-        <view class="inline-error glass-card" wx:if="{{errorMessage && breakdownReady === false && summary.total}}">
+        <view class="inline-error glass-card" wx:if="{{errorMessage && (summary.total || breakdownReady)}}">
           <text class="inline-error-text">{{errorMessage}}</text>
           <button class="retry-btn retry-btn--inline" bindtap="retryLoad">重新加载</button>
         </view>
@@ -161,7 +171,7 @@
             <block wx:elif="{{activeTab === 'agency'}}">
               <view class="stat-row" wx:for="{{byAgency}}" wx:key="key" wx:if="{{listExpanded || index < 8}}">
                 <text class="stat-rank">{{index + 1}}</text>
-                <view class="stat-avatar stat-avatar--logo" wx:if="{{item.logo}}">
+                <view class="stat-avatar stat-avatar--logo {{item.logoBgTone === 'dark' ? 'agency-logo-bg--dark' : ''}} {{item.logoBgTone === 'light' ? 'agency-logo-bg--light' : ''}}" wx:if="{{item.logo}}">
                   <image
                     class="stat-avatar-img"
                     src="{{item.logo}}"

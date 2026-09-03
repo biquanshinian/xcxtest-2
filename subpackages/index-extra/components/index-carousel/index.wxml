@@ -1,0 +1,59 @@
+<view class="image-carousel image-carousel--skeleton" wx:if="{{carouselPending && carouselItems.length === 0 && missionType === 'upcoming'}}"></view>
+
+    <!-- 滚动图片/视频区域（广告位，仅「即将发射」显示；历史发射/日历不显示） -->
+    <view class="image-carousel {{gestureLocked ? 'image-carousel--locked' : ''}}" wx:if="{{carouselItems.length > 0 && missionType === 'upcoming'}}">
+      <!-- 弹窗锁定时卸掉原生 swiper，避免点穿加载视频/预览 -->
+      <view wx:if="{{gestureLocked}}" class="swiper image-carousel-frozen" catchtap="emitNoop">
+        <image wx:if="{{frozenSrc}}" class="carousel-image" src="{{frozenSrc}}" mode="aspectFill" />
+      </view>
+      <swiper wx:else class="swiper" indicator-dots="{{true}}" autoplay="{{false}}" current="{{carouselCurrent}}" duration="{{500}}" circular="{{true}}" disable-touch="{{gestureLocked}}" bindchange="emitChange">
+        <swiper-item wx:for="{{carouselItems}}" wx:key="index">
+          <!-- 图片 -->
+          <block wx:if="{{item.type === 'image'}}">
+            <view class="carousel-image-wrap">
+              <image class="carousel-image" src="{{item.src}}" mode="aspectFill" lazy-load="{{true}}" binderror="emitImageError" bindload="emitImageLoad" data-index="{{index}}" bindtap="emitPreview" bindlongpress="emitSave" data-url="{{item.src}}"></image>
+              <view wx:if="{{item.caption}}" class="carousel-video-caption" catchtap="emitCaption" data-eventid="{{item.eventId}}">
+                <text class="carousel-video-caption-text" user-select="{{true}}">{{item.caption}}</text>
+              </view>
+            </view>
+          </block>
+          <!-- 视频：轮播内只放封面，不挂原生 video。swiper 内 native/cover-view 会吞横滑，并点穿上方倒计时按钮与 NASA 浮钮。点击封面走全屏按需播放。 -->
+          <block wx:else>
+            <view class="carousel-video-wrap" bindtap="emitVideoTap" data-index="{{index}}">
+              <image
+                wx:if="{{item.poster}}"
+                class="carousel-video-poster"
+                src="{{item.poster}}"
+                mode="aspectFill"
+                lazy-load="{{true}}"
+              ></image>
+              <view
+                wx:else
+                class="carousel-video-poster carousel-video-poster--empty"
+              ></view>
+              <view class="carousel-video-cover-mask">
+                <view class="carousel-video-cover-icon">
+                  <text class="carousel-video-cover-play">▶</text>
+                </view>
+                <text class="carousel-video-cover-text">预览</text>
+              </view>
+              <view wx:if="{{item.caption}}" class="carousel-video-caption" catchtap="emitCaption" data-eventid="{{item.eventId}}">
+                <text class="carousel-video-caption-text" user-select="{{true}}">{{item.caption}}</text>
+              </view>
+            </view>
+          </block>
+          <!-- 推文账号胶囊（左上角，标识视频来源账号） -->
+          <view wx:if="{{item.accountLabel}}" class="carousel-account-badge">
+            <image
+              wx:if="{{item.accountAvatar}}"
+              class="carousel-account-avatar"
+              src="{{item.accountAvatar}}"
+              mode="aspectFill"
+              binderror="emitAvatarError"
+              data-index="{{index}}"
+            ></image>
+            <text class="carousel-account-name">{{item.accountLabel}}</text>
+          </view>
+        </swiper-item>
+      </swiper>
+    </view>

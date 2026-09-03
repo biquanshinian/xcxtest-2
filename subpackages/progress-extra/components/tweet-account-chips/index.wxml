@@ -1,0 +1,21 @@
+<!-- 今日账号统计胶囊条：进展页事件更新 + 事件详情筛选共用 -->
+<view class="tweet-stats-scroll-wrap {{themeClass}}" wx:if="{{tweetAccountStats.length > 0}}">
+  <scroll-view class="tweet-stats-scroll" scroll-x="true" enhanced="true" show-scrollbar="false" bindscroll="onChipsScroll">
+    <view class="tweet-stats-bar tweet-stats-chips-row">
+      <view
+        class="tweet-stat-item tweet-stat-chip {{isProUser ? 'pro-gold-frame-flat' : ''}} {{selectedSource && item.screenName === selectedSource ? 'tweet-stat-chip--active' : ''}}"
+        wx:for="{{tweetAccountStats}}"
+        wx:key="screenName"
+        bindtap="onAccountTap"
+        data-index="{{index}}"
+        data-source="{{item.screenName}}"
+        data-label="{{item.label}}"
+      >
+        <image class="tweet-stat-avatar" src="{{item.avatarUrl}}" mode="aspectFill" />
+        <text class="tweet-stat-name">{{item.label}}</text>
+        <text class="tweet-stat-count">{{item.todayCount}}</text>
+      </view>
+    </view>
+  </scroll-view>
+  <view class="tweet-stats-scroll-fade" wx:if="{{hasOverflow}}"></view>
+</view>

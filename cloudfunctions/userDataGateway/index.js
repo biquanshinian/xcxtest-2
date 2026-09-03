@@ -11,6 +11,7 @@
  *   - syncAll           客户端本地数据整体上传（首次云同步 / 恢复场景）
  *   - savePreferences   保存用户偏好（提醒/简报）
  *   - getPreferences    读取用户偏好
+ *   - saveIdentity      保存展示昵称 / 头像 fileID
  *   - recordMilestone   记录时间线里程碑
  *   - getTodayBriefing  获取今日简报
  *   - getNewsManualForApp         公共只读：航天事件手写稿列表（服务端读 news_articles）
@@ -182,11 +183,29 @@ async function handleCheckin(openid, factId) {
 
 // ── 同步问答 ──
 async function handleSyncQuiz(openid, quizData) {
-  await getOrCreateProfile(openid)
+  const profile = await getOrCreateProfile(openid)
+  const incoming = quizData && typeof quizData === 'object' ? quizData : {}
+  const cloudQuiz = profile.quiz || {}
+  let maxDailyDelta = Infinity
+  if (cloudQuiz.lastQuizDate) {
+    const today = todayStr()
+    const from = Date.parse(String(cloudQuiz.lastQuizDate) + 'T00:00:00+08:00')
+    const to = Date.parse(today + 'T00:00:00+08:00')
+    const elapsedDays = (!isNaN(from) && !isNaN(to))
+      ? Math.max(0, Math.round((to - from) / 86400000))
+      : 1
+    maxDailyDelta = Math.max(1, elapsedDays)
+  } else if (profile.lastSyncAt) {
+    const elapsedDays = Math.ceil(Math.max(0, Date.now() - profile.lastSyncAt) / 86400000)
+    maxDailyDelta = elapsedDays + 1
+  } else {
+    maxDailyDelta = 1
+  }
+  const mergedQuiz = mergeQuiz(cloudQuiz, incoming, maxDailyDelta)
   await db.collection(COLLECTION).doc(openid).update({
-    data: { quiz: quizData }
+    data: { quiz: mergedQuiz }
   })
-  return { success: true }
+  return { success: true, quiz: mergedQuiz }
 }
 
 // ── 全量同步（本地 → 云端） ──
@@ -199,6 +218,10 @@ async function handleSyncAll(openid, localData) {
   if (profile.lastSyncAt) {
     const elapsedDays = Math.ceil(Math.max(0, Date.now() - profile.lastSyncAt) / 86400000)
     maxDailyDelta = elapsedDays + 1
+  } else if (profile.createdAt) {
+    // 首次同步也按档案创建距今的天数封顶，避免新号一次性上报虚高签到/答题去领 PRO
+    const elapsedDays = Math.ceil(Math.max(0, Date.now() - Number(profile.createdAt)) / 86400000)
+    maxDailyDelta = Math.max(1, elapsedDays + 1)
   }
 
   const mergedCheckin = mergeCheckin(profile.checkin, localData.checkin, maxDailyDelta)
@@ -229,6 +252,25 @@ async function handleSyncAll(openid, localData) {
     const cloudPrefs = profile.preferences || {}
     if ((localData.preferences.updatedAt || 0) >= (cloudPrefs.updatedAt || 0)) {
       updateData.preferences = localData.preferences
+    }
+  }
+
+  // 合并身份展示（取较新的；空本地不得覆盖已有云端头像/昵称，防止删小程序重装后把云端洗掉）
+  if (localData.identity && localData.identity.updatedAt) {
+    const cloudId = profile.identity || {}
+    const localName = String(localData.identity.displayName || '').trim()
+    const localAvatar = String(localData.identity.avatarFileID || '').trim()
+    const cloudName = String(cloudId.displayName || '').trim()
+    const cloudAvatar = String(cloudId.avatarFileID || '').trim()
+    const localEmpty = !localAvatar && (!localName || localName === '太空探索者')
+    const cloudHasData = !!(cloudAvatar || (cloudName && cloudName !== '太空探索者'))
+    if (!(localEmpty && cloudHasData) &&
+        (localData.identity.updatedAt || 0) >= (cloudId.updatedAt || 0)) {
+      updateData.identity = {
+        displayName: localName.slice(0, 16),
+        avatarFileID: localAvatar.slice(0, 512),
+        updatedAt: Number(localData.identity.updatedAt) || Date.now()
+      }
     }
   }
 
@@ -303,12 +345,47 @@ function mergeBehaviorStats(cloud, local) {
 }
 
 // ── 保存偏好 ──
+// 合并写入：避免语言/简报等局部保存冲掉 mpResultCredits；
+// 结果额度只允许客户端通过 mpResultCreditsDelta 上调，扣减由 sendLaunchReminder 权威回写。
 async function handleSavePreferences(openid, preferences) {
-  await getOrCreateProfile(openid)
+  const profile = await getOrCreateProfile(openid)
+  const prev = (profile && profile.preferences) || {}
+  const incoming = preferences && typeof preferences === 'object' ? { ...preferences } : {}
+  const delta = Math.max(0, Number(incoming.mpResultCreditsDelta) || 0)
+  delete incoming.mpResultCredits
+  delete incoming.mpResultCreditsDelta
+  const next = { ...prev, ...incoming, updatedAt: Date.now() }
+  if (incoming.mpReminderGrantedAt) {
+    next.mpReminderGrantedAt = Number(incoming.mpReminderGrantedAt) || Date.now()
+  } else if (prev.mpReminderGrantedAt) {
+    next.mpReminderGrantedAt = prev.mpReminderGrantedAt
+  }
+  const prevCredits = Math.max(0, Number(prev.mpResultCredits) || 0)
+  next.mpResultCredits = delta > 0
+    ? Math.min(5, prevCredits + delta)
+    : prevCredits
   await db.collection(COLLECTION).doc(openid).update({
-    data: { preferences: { ...preferences, updatedAt: Date.now() } }
+    data: { preferences: next }
   })
-  return { success: true }
+  return { success: true, preferences: next }
+}
+
+// ── 保存身份展示（昵称 / 头像）──
+async function handleSaveIdentity(openid, identity) {
+  await getOrCreateProfile(openid)
+  const src = identity && typeof identity === 'object' ? identity : {}
+  const displayName = String(src.displayName || '').trim().slice(0, 16)
+  const avatarFileID = String(src.avatarFileID || '').trim().slice(0, 512)
+  const updatedAt = Number(src.updatedAt) || Date.now()
+  const next = {
+    displayName,
+    avatarFileID,
+    updatedAt
+  }
+  await db.collection(COLLECTION).doc(openid).update({
+    data: { identity: next }
+  })
+  return { success: true, identity: next, openid }
 }
 
 // ── 读取偏好 ──
@@ -842,12 +919,13 @@ async function handleGetTodayTweetStats() {
       countMap[src]++
     })
 
-    // 组装结果
+    // 组装结果：优先 COS 头像；空则留给前端按约定路径兜底
     var result = accounts.map(function (acc) {
+      var avatar = acc.avatarCosUrl || acc.avatarUrl || ''
       return {
         screenName: acc.screenName || '',
         label: acc.label || acc.screenName || '',
-        avatarUrl: acc.avatarUrl || '',
+        avatarUrl: avatar,
         todayCount: countMap[acc.screenName] || 0
       }
     }).filter(function (item) {
@@ -873,7 +951,7 @@ async function handleGetTweetAccounts() {
       return {
         screenName: acc.screenName || '',
         label: acc.label || acc.screenName || '',
-        avatarUrl: acc.avatarUrl || '',
+        avatarUrl: acc.avatarCosUrl || acc.avatarUrl || '',
         cosFolder: acc.cosFolder || ''
       }
     })
@@ -982,19 +1060,39 @@ function sortManualNewsRowsOnServer(rows, max) {
   return sorted.slice(0, max)
 }
 
+function parseRocket3dGlbKey(key) {
+  const m = /^models\/rockets\/([a-z0-9]+(?:-[a-z0-9]+)*)\.glb$/i.exec(String(key || '').split('?')[0])
+  return m ? m[1].toLowerCase() : ''
+}
+
+function ingestMediaAssetRow(item, map, credits, opts) {
+  const key = item && item.key != null ? String(item.key).trim() : ''
+  const url = item && typeof item.url === 'string' ? item.url.trim() : (item && item.url)
+  if (!key || !url) return false
+  const isNew = !Object.prototype.hasOwnProperty.call(map, key)
+  if (isNew || (opts && opts.overwrite)) map[key] = url
+  const slug = parseRocket3dGlbKey(key)
+  const credit = String((item && item.credit) || '').trim()
+  if (slug && credit) credits[slug] = credit
+  return isNew
+}
+
 /** 小程序媒体映射：一次下发 enabled 的 key→url（避免客户端 N 次分页读 media_assets） */
 async function handleGetMediaAssetsMap() {
-  const MAX_ROWS = 500
+  const MAX_ROWS = 1500
   const PAGE = 100
   const map = {}
-  let skip = 0
-  let fetched = 0
+  const rocket3dCredits = {}
+  let mapSize = 0
 
-  while (fetched < MAX_ROWS) {
-    const limit = Math.min(PAGE, MAX_ROWS - fetched)
+  // 主扫描：与旧版一致的单趟分页；集合未超容量时这是唯一的读开销
+  let skip = 0
+  let truncated = false
+  while (mapSize < MAX_ROWS) {
+    const limit = Math.min(PAGE, MAX_ROWS - mapSize)
     const res = await db.collection('media_assets')
       .where({ enabled: true })
-      .field({ key: true, url: true })
+      .field({ key: true, url: true, credit: true })
       .orderBy('_id', 'asc')
       .skip(skip)
       .limit(limit)
@@ -1002,19 +1100,67 @@ async function handleGetMediaAssetsMap() {
 
     const rows = res.data || []
     rows.forEach((item) => {
-      const key = item && item.key != null ? String(item.key).trim() : ''
-      const url = item && typeof item.url === 'string' ? item.url.trim() : (item && item.url)
-      if (key && url) map[key] = url
+      if (ingestMediaAssetRow(item, map, rocket3dCredits)) mapSize += 1
     })
 
-    fetched += rows.length
     skip += rows.length
     if (rows.length < limit) break
+    if (skip > 8000) { truncated = true; break }
+  }
+  // 读满整页且容量已用尽 → 集合里可能还有剩余文档被截断
+  if (mapSize >= MAX_ROWS) truncated = true
+
+  // 仅在截断时补拉火箭配置图（原图 + 机娘），保证不被其它素材挤掉导致机娘 fuzzy miss；
+  // 未截断时零额外读，避免每次调用都白付一趟 regexp 查询 + 重复文档读
+  if (truncated) {
+    let rSkip = 0
+    let added = 0
+    while (added < 800) {
+      const res = await db.collection('media_assets')
+        .where({
+          enabled: true,
+          key: db.RegExp({ regexp: '^火箭配置图(/|-机娘/)', options: '' })
+        })
+        .field({ key: true, url: true, credit: true })
+        .orderBy('_id', 'asc')
+        .skip(rSkip)
+        .limit(PAGE)
+        .get()
+      const rows = res.data || []
+      rows.forEach((item) => {
+        if (ingestMediaAssetRow(item, map, rocket3dCredits)) added += 1
+      })
+      rSkip += rows.length
+      if (rows.length < PAGE) break
+      if (rSkip > 2000) break
+    }
+
+    // 3D 模型很少且 _id 靠后，截断时单独补进 map
+    let mSkip = 0
+    while (mSkip < 400) {
+      const res = await db.collection('media_assets')
+        .where({
+          enabled: true,
+          key: db.RegExp({ regexp: '^models/rockets/', options: 'i' })
+        })
+        .field({ key: true, url: true, credit: true })
+        .orderBy('_id', 'asc')
+        .skip(mSkip)
+        .limit(PAGE)
+        .get()
+      const rows = res.data || []
+      rows.forEach((item) => {
+        ingestMediaAssetRow(item, map, rocket3dCredits, { overwrite: true })
+      })
+      mSkip += rows.length
+      if (rows.length < PAGE) break
+    }
   }
 
   return {
     success: true,
     map,
+    rocket3dCredits,
     count: Object.keys(map).length,
     version: Date.now()
   }
@@ -1110,6 +1256,10 @@ exports.main = async (event) => {
 
     case 'getPreferences': {
       return handleGetPreferences(OPENID)
+    }
+
+    case 'saveIdentity': {
+      return handleSaveIdentity(OPENID, event.identity || {})
     }
 
     case 'recordMilestone': {

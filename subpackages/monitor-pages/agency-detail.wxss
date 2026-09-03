@@ -1,5 +1,5 @@
 page {
-  background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+  background: var(--color-bg-page);
   height: 100vh;
 }
 
@@ -25,8 +25,8 @@ page {
 }
 
 .detail-container {
-  padding: 24rpx;
-  padding-bottom: 48rpx;
+  padding: var(--space-lg);
+  padding-bottom: var(--space-xl);
 }
 
 /* 加载和错误状态 */
@@ -45,8 +45,8 @@ page {
   width: 56rpx;
   height: 56rpx;
   border-radius: 50%;
-  border: 4rpx solid rgba(90, 200, 250, 0.2);
-  border-top-color: #5ac8fa;
+  border: 4rpx solid rgba(59, 130, 246, 0.2);
+  border-top-color: var(--color-brand);
   animation: spin 0.8s linear infinite;
 }
 
@@ -68,15 +68,15 @@ page {
 }
 
 .retry-btn {
-  margin-top: 16rpx;
-  padding: 0 48rpx;
+  margin-top: var(--space-xs);
+  padding: 0 var(--space-xl);
   height: 80rpx;
   line-height: 80rpx;
-  border-radius: 40rpx;
-  background: linear-gradient(135deg, #5ac8fa 0%, #007aff 100%);
+  border-radius: var(--radius-pill);
+  background: var(--color-brand);
   color: #ffffff;
-  font-size: 30rpx;
-  font-weight: 600;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
   border: none;
 }
 
@@ -86,11 +86,8 @@ page {
 
 /* 玻璃卡片 */
 .glass-card {
-  background: rgba(28, 28, 30, 0.72);
-  backdrop-filter: blur(40rpx) saturate(180%);
-  -webkit-backdrop-filter: blur(40rpx) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 32rpx;
+  background: var(--bg-glass);
+  border-radius: var(--radius-card);
   overflow: hidden;
 }
 
@@ -122,7 +119,7 @@ page {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.08), rgba(255, 255, 255, 0.02) 72%);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.08), rgba(255, 255, 255, 0.02) 72%);
 }
 
 .hero-placeholder-icon {
@@ -136,7 +133,7 @@ page {
   left: 0;
   right: 0;
   height: 160rpx;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
+  background: linear-gradient(transparent, rgba(11, 12, 14, 0.88));
 }
 
 /* ── 信息头：logo/名称/徽标下移出头图 ── */
@@ -162,7 +159,7 @@ page {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 12rpx 36rpx rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-card);
 }
 
 .agency-logo {
@@ -177,8 +174,9 @@ page {
   flex-direction: column;
 }
 
-/* 收藏星标：名称列右侧 */
+/* 收藏爱心：名称列右侧。未收藏灰色，收藏后红色 + 弹跳 */
 .fav-btn {
+  position: relative;
   flex-shrink: 0;
   width: 72rpx;
   height: 72rpx;
@@ -187,47 +185,70 @@ page {
   justify-content: center;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.06);
-  border: 1rpx solid rgba(255, 255, 255, 0.1);
-  transition: transform 0.12s ease;
+  transition: transform 0.12s ease, background 0.2s ease;
 }
 
 .fav-btn--pressed {
   transform: scale(0.9);
 }
 
-.fav-star {
-  font-size: 50rpx;
-  line-height: 72rpx;
-  height: 72rpx;
-  width: 100%;
-  text-align: center;
-  /* ★ 字形无下伸部，文本框预留的 descender 空间会让它在圆内视觉偏上，向下微调做光学居中 */
-  transform: translateY(3rpx);
-  color: rgba(255, 255, 255, 0.45);
+/* 真机对本地 svg 的 CSS mask 基本无效；改用内联 data-URI（同仓库其他图标写法） */
+.fav-heart {
+  width: 44rpx;
+  height: 44rpx;
+  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 1024 1024' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M903.71 350.208c-10.823-65.651-47.47-117.512-108.93-154.145-35.295-21.054-75.018-32.187-114.86-32.187-50.882 0-99.14 18.619-135.887 52.429-11.387 10.475-21.796 21.929-31.83 33.075-31.21-38.05-63.1-61.566-100.056-73.884-64.875-21.61-129.477-13.271-188.864 24.404-70.592 44.777-106.096 108.17-105.54 188.434 0.314 47.263 16.053 92.117 48.104 137.098 34.412 48.333 76.751 97.541 133.233 154.868 38.018 38.589 77.401 76.948 115.481 114.07l37.169 36.26c3.313 3.249 6.687 6.444 10.076 9.629l4.201 3.901c7.898 6.584 24.392 17.641 45.993 17.641 17.884 0 34.842-7.332 50.56-21.906 64.632-60.87 133.501-126.994 199.05-198.044 33.94-36.8 72.802-80.07 104.448-128.092 34.276-52.043 46.956-107.075 37.653-163.551m-70.713 141.778C803 537.52 766.9 577.723 732.518 615.014c-64.732 70.147-132.974 135.693-196.974 195.974-8.053 7.447-15.964 11.235-23.541 11.235-9.142 0-16.86-5.307-19.728-7.628l-3.3-3.119c-3.223-3.04-6.448-6.082-9.592-9.146l-37.194-36.301c-37.947-36.964-77.174-75.198-114.908-113.503-55.737-56.553-95.573-102.825-129.201-150.05-27.167-38.138-40.479-75.558-40.755-114.418-0.45-66.617 28.052-117.23 87.163-154.74 31.424-19.932 64.174-30.046 97.308-30.046 18.923 0 38.38 3.3 57.843 9.779 30.653 10.217 57.61 30.886 85.158 65.405 1.864 2.202 11.89 13.22 27.472 13.22 6.845 0 17-2.191 26.55-12.692l1.559-1.728c10.283-11.405 19.96-22.162 30.458-31.826 29.84-27.459 67.572-41.969 109.085-41.969 32.701 0 65.408 9.2 94.576 26.58 51.694 30.836 81.188 72.249 90.146 126.61 7.73 46.992-2.604 91.254-31.645 135.335' fill='%23C7C7CC'/%3E%3Cpath d='M383.521 288.707c-14.65-6.777-30.349-10.192-46.63-10.192-61.502 0-111.547 50.046-111.547 111.534 0 22.06 6.43 43.372 18.578 61.668 3.814 5.722 10.097 8.827 16.494 8.827 3.763 0 7.575-1.07 10.939-3.313 9.103-6.041 11.584-18.334 5.53-27.433-7.829-11.778-11.958-25.525-11.958-39.749 0-39.685 32.276-71.951 71.964-71.951 10.514 0 20.608 2.189 30.029 6.533 9.897 4.613 21.69 0.284 26.26-9.661 4.593-9.923 0.264-21.689-9.659-26.263' fill='%23C7C7CC'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 .fav-btn--on {
-  background: rgba(255, 170, 0, 0.12);
-  border-color: rgba(255, 170, 0, 0.3);
+  background: rgba(255, 69, 58, 0.12);
 }
 
-.fav-btn--on .fav-star {
-  color: #FFAA00;
+/* 已收藏：实心红心，左上高光改为白色 */
+.fav-btn--on .fav-heart {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 1024 1024' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M903.71 350.208c-10.823-65.651-47.47-117.512-108.93-154.145-35.295-21.054-75.018-32.187-114.86-32.187-50.882 0-99.14 18.619-135.887 52.429-11.387 10.475-21.796 21.929-31.83 33.075-31.21-38.05-63.1-61.566-100.056-73.884-64.875-21.61-129.477-13.271-188.864 24.404-70.592 44.777-106.096 108.17-105.54 188.434 0.314 47.263 16.053 92.117 48.104 137.098 34.412 48.333 76.751 97.541 133.233 154.868 38.018 38.589 77.401 76.948 115.481 114.07l37.169 36.26c3.313 3.249 6.687 6.444 10.076 9.629l4.201 3.901c7.898 6.584 24.392 17.641 45.993 17.641 17.884 0 34.842-7.332 50.56-21.906 64.632-60.87 133.501-126.994 199.05-198.044 33.94-36.8 72.802-80.07 104.448-128.092 34.276-52.043 46.956-107.075 37.653-163.551z' fill='%23FF453A'/%3E%3Cpath d='M383.521 288.707c-14.65-6.777-30.349-10.192-46.63-10.192-61.502 0-111.547 50.046-111.547 111.534 0 22.06 6.43 43.372 18.578 61.668 3.814 5.722 10.097 8.827 16.494 8.827 3.763 0 7.575-1.07 10.939-3.313 9.103-6.041 11.584-18.334 5.53-27.433-7.829-11.778-11.958-25.525-11.958-39.749 0-39.685 32.276-71.951 71.964-71.951 10.514 0 20.608 2.189 30.029 6.533 9.897 4.613 21.69 0.284 26.26-9.661 4.593-9.923 0.264-21.689-9.659-26.263' fill='%23FFFFFF'/%3E%3C/svg%3E");
 }
 
-/* 类型/重点机构徽标行 */
+/* 仅点击收藏时弹跳（favAnimate 由 JS 在切换时置位），进入已收藏页面不播动画 */
+.fav-btn--animate .fav-heart {
+  animation: fav-heart-pop 0.38s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.fav-btn--animate::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2rpx solid rgba(255, 69, 58, 0.55);
+  pointer-events: none;
+  animation: fav-ring 0.42s ease-out forwards;
+}
+
+@keyframes fav-heart-pop {
+  0% { transform: scale(0.6); }
+  60% { transform: scale(1.22); }
+  100% { transform: scale(1); }
+}
+
+@keyframes fav-ring {
+  0% { transform: scale(0.72); opacity: 0.75; }
+  100% { transform: scale(1.48); opacity: 0; }
+}
+
+/* 类型/重点机构徽标 + 地区·成立时间同一行 */
 .info-tags {
   display: flex;
-  gap: 12rpx;
+  align-items: center;
+  gap: 10rpx;
   flex-wrap: wrap;
   margin-bottom: 14rpx;
 }
 
 .type-badge {
-  padding: 10rpx 24rpx;
+  padding: 6rpx 14rpx;
   border-radius: 999rpx;
-  font-size: 24rpx;
+  font-size: 22rpx;
   font-weight: 600;
+  line-height: 1.3;
   backdrop-filter: blur(20rpx);
   -webkit-backdrop-filter: blur(20rpx);
 }
@@ -247,17 +268,18 @@ page {
 }
 
 .agency-type--multinational {
-  color: #5ac8fa;
-  background: rgba(90, 200, 250, 0.18);
-  border: 1px solid rgba(90, 200, 250, 0.35);
-  box-shadow: 0 0 20rpx rgba(90, 200, 250, 0.2);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.18);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  box-shadow: 0 0 20rpx rgba(59, 130, 246, 0.2);
 }
 
 .featured-badge {
-  padding: 10rpx 24rpx;
+  padding: 6rpx 14rpx;
   border-radius: 999rpx;
-  font-size: 24rpx;
+  font-size: 22rpx;
   font-weight: 600;
+  line-height: 1.3;
   color: #ff9f0a;
   background: rgba(255, 159, 10, 0.18);
   border: 1px solid rgba(255, 159, 10, 0.35);
@@ -286,29 +308,30 @@ page {
   letter-spacing: 2rpx;
 }
 
-/* 元信息：纯文字 + 圆点分隔 */
+/* 元信息：贴在胶囊右侧，纯文字 + 圆点分隔 */
 .info-meta {
   display: flex;
   align-items: center;
-  gap: 14rpx;
-  flex-wrap: wrap;
+  gap: 8rpx;
+  flex-shrink: 0;
+  margin-left: 4rpx;
 }
 
 .meta-item {
-  font-size: 25rpx;
+  font-size: 22rpx;
   color: rgba(235, 235, 245, 0.72);
 }
 
 .meta-divider {
-  font-size: 25rpx;
+  font-size: 22rpx;
   color: rgba(235, 235, 245, 0.4);
 }
 
 .partial-banner {
   padding: 28rpx 28rpx 24rpx;
   margin-bottom: 24rpx;
-  border-color: rgba(90, 200, 250, 0.18);
-  background: linear-gradient(135deg, rgba(90, 200, 250, 0.12), rgba(0, 122, 255, 0.08));
+  border-color: rgba(59, 130, 246, 0.18);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(59, 130, 246, 0.08));
 }
 
 .partial-banner__title {
@@ -387,32 +410,27 @@ page {
   margin-left: 12rpx;
 }
 
-/* PRO 金色胶囊按钮（与监控中心 booster-view-all 同款，示意会员内容） */
+/* 查看全部：灰色纯文字入口（金色仅保留在「我的」页会员区） */
 .al-view-all {
   display: flex;
   align-items: center;
   gap: 4rpx;
   font-size: 24rpx;
-  font-weight: 600;
-  color: #5C3A00;
-  padding: 8rpx 20rpx 8rpx 26rpx;
-  border-radius: 999rpx;
-  background: linear-gradient(135deg, #FFE3A0 0%, #F7BE45 55%, #F0AE2C 100%);
-  border: 1px solid rgba(255, 210, 122, 0.65);
-  box-shadow: 0 4rpx 14rpx rgba(230, 165, 40, 0.28);
-  transition: transform 0.12s ease, opacity 0.12s ease;
+  font-weight: 500;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.55));
+  padding: 8rpx 4rpx;
+  transition: opacity 0.12s ease;
   margin-left: auto;
 }
 
 .al-view-all--pressed {
-  transform: scale(0.94);
-  opacity: 0.85;
+  opacity: 0.6;
 }
 
 .al-view-all-arrow {
   font-size: 30rpx;
   line-height: 1;
-  color: #5C3A00;
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.38));
 }
 
 .al-list {
@@ -427,7 +445,6 @@ page {
   gap: 20rpx;
   padding: 20rpx;
   background: rgba(255, 255, 255, 0.05);
-  border: 1rpx solid rgba(255, 255, 255, 0.08);
   border-radius: 20rpx;
   transition: transform 0.12s ease, opacity 0.12s ease;
 }
@@ -529,12 +546,9 @@ page {
 }
 
 .stat-card {
-  background: rgba(28, 28, 30, 0.72);
-  backdrop-filter: blur(40rpx) saturate(180%);
-  -webkit-backdrop-filter: blur(40rpx) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20rpx;
-  padding: 20rpx 8rpx;
+  background: var(--bg-glass);
+  border-radius: var(--radius-card);
+  padding: var(--space-sm) 8rpx;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -555,7 +569,7 @@ page {
 }
 
 .stat-card--primary::before {
-  background: linear-gradient(90deg, #5ac8fa, #007aff);
+  background: linear-gradient(90deg, var(--color-brand), var(--color-brand));
 }
 
 .stat-card--success::before {
@@ -739,12 +753,9 @@ page {
 
 /* 着陆统计（紧凑布局：单行 flex-wrap，最多 4 项并排） */
 .landing-stats {
-  background: rgba(28, 28, 30, 0.72);
-  backdrop-filter: blur(40rpx) saturate(180%);
-  -webkit-backdrop-filter: blur(40rpx) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 24rpx;
-  padding: 20rpx;
+  background: var(--bg-glass);
+  border-radius: var(--radius-card);
+  padding: var(--space-sm);
 }
 
 .landing-row {
@@ -794,38 +805,39 @@ page {
   margin-bottom: 24rpx;
 }
 
+/* 机构信息：两列整齐网格（对齐型号档案「技术规格」） */
 .info-grid {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14rpx;
 }
 
 .info-row {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
   align-items: flex-start;
-  gap: 24rpx;
-  padding: 20rpx 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.info-row:last-child {
-  border-bottom: none;
+  gap: 4rpx;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 14rpx 18rpx;
+  border-radius: 10rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .info-label {
-  font-size: 26rpx;
-  color: #8e8e93;
-  flex-shrink: 0;
-  font-weight: 500;
+  font-size: 20rpx;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 400;
 }
 
 .info-value {
   font-size: 26rpx;
   color: #ffffff;
-  text-align: right;
-  flex: 1;
-  line-height: 1.6;
-  font-weight: 500;
+  text-align: left;
+  line-height: 1.35;
+  font-weight: 600;
+  word-break: break-word;
 }
 
 /* 简介 */
@@ -868,290 +880,54 @@ page {
 }
 
 .vehicle-tag--rocket {
-  color: #5ac8fa;
-  background: rgba(90, 200, 250, 0.15);
-  border: 1px solid rgba(90, 200, 250, 0.3);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
 .vehicle-tag--spacecraft {
-  color: #bf5af2;
-  background: rgba(191, 90, 242, 0.15);
-  border: 1px solid rgba(191, 90, 242, 0.3);
+  color: var(--color-text-secondary);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
 }
 
-/* 社交媒体 */
+/* 社交媒体：一排 6 个 logo，自动换行并整体居中 */
 .social-grid {
   display: flex;
-  flex-direction: column;
-  gap: 16rpx;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  /* 5 个间距 × 20rpx = 100rpx，保证满行正好 6 格 */
+  column-gap: 20rpx;
+  row-gap: 28rpx;
 }
 
 .social-item {
-  padding: 24rpx;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 20rpx;
-  transition: all 0.2s ease;
-}
-
-.social-item:active {
-  background: rgba(255, 255, 255, 0.08);
-  transform: scale(0.98);
-}
-
-.social-name {
-  display: block;
-  font-size: 28rpx;
-  font-weight: 600;
-  color: #ffffff;
-  margin-bottom: 8rpx;
-}
-
-.social-url {
-  display: block;
-  font-size: 24rpx;
-  color: #5ac8fa;
-  word-break: break-all;
-  line-height: 1.6;
-}
-
-/* ========== NASA 专属：Artemis II 实时遥测（自监控中心迁入） ========== */
-.artemis-title-row {
+  flex: 0 0 calc((100% - 100rpx) / 6);
+  width: calc((100% - 100rpx) / 6);
+  max-width: calc((100% - 100rpx) / 6);
+  aspect-ratio: 1;
+  box-sizing: border-box;
   display: flex;
-  align-items: baseline;
-  gap: 16rpx;
-  margin-bottom: 20rpx;
-}
-
-.artemis-title-row .section-title {
-  margin-bottom: 0;
-}
-
-.artemis-title-sub {
-  font-size: 24rpx;
-  color: rgba(255, 255, 255, 0.45);
-}
-
-.artemis-loading {
-  display: flex;
-  justify-content: center;
-  padding: 36rpx 0;
-  border-radius: 20rpx;
-}
-
-.artemis-loading-text {
-  font-size: 24rpx;
-  color: #636366;
-}
-
-.artemis-error {
-  padding: 32rpx 28rpx;
-  border-radius: 20rpx;
-}
-
-.artemis-error-text {
-  font-size: 26rpx;
-  color: #FF9F0A;
-  line-height: 1.45;
-  display: block;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.artemis-retry-btn {
-  margin-top: 20rpx;
-  display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 12rpx 28rpx;
-  border-radius: 12rpx;
-  background: rgba(0, 122, 255, 0.35);
-  font-size: 26rpx;
-  color: #FFFFFF;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  transition: transform 0.15s ease, opacity 0.15s ease;
 }
 
-/* 月牙图标 */
-.artemis-icon-moon-btn {
-  width: 40rpx;
-  height: 40rpx;
-  display: inline-block;
-  background-size: contain;
-  background-repeat: no-repeat;
-  background-position: center;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235AC8FA' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'/%3E%3C/svg%3E");
+.social-item--pressed {
+  transform: scale(0.92);
+  opacity: 0.85;
 }
 
-/* Artemis 简要卡片 */
-.artemis-brief-card {
-  padding: 28rpx 24rpx 20rpx;
-  border-radius: 20rpx;
-}
-
-.artemis-brief-top {
-  display: flex;
-  align-items: baseline;
-  gap: 16rpx;
-  margin-bottom: 20rpx;
-}
-
-.artemis-brief-met {
-  font-size: 36rpx;
-  font-weight: 700;
-  color: #FFFFFF;
-  font-variant-numeric: tabular-nums;
-  font-family: 'SF Mono', 'Menlo', 'Courier New', monospace;
-  letter-spacing: 0.03em;
-}
-
-.artemis-brief-met-hint {
-  font-size: 20rpx;
-  color: #48484A;
-}
-
-.artemis-brief-stats {
-  display: flex;
-  gap: 32rpx;
-  margin-bottom: 20rpx;
-}
-
-.artemis-brief-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 4rpx;
-}
-
-.artemis-brief-stat-val {
-  font-size: 30rpx;
-  font-weight: 700;
-  color: #FFFFFF;
-  font-variant-numeric: tabular-nums;
-  font-family: 'SF Mono', 'Menlo', 'Courier New', monospace;
-}
-
-.artemis-brief-stat-unit {
-  font-size: 20rpx;
-  color: #8E8E93;
-}
-
-.artemis-brief-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-top: 16rpx;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.artemis-brief-hint {
-  font-size: 24rpx;
-  color: #5AC8FA;
-}
-
-.artemis-brief-arrow {
-  font-size: 32rpx;
-  color: #5AC8FA;
-  opacity: 0.8;
-}
-
-/* Artemis 任务阶段卡片（未开始 / 已结束） */
-.artemis-ended-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 20rpx 28rpx;
-  border-radius: 20rpx;
-}
-
-.artemis-ended-bar-main {
-  display: flex;
-  align-items: center;
-  gap: 16rpx;
-}
-
-.artemis-ended-badge {
-  font-size: 26rpx;
-  font-weight: 600;
-  color: #34C759;
-}
-
-.artemis-ended-name {
-  font-size: 24rpx;
-  color: #8e8e93;
-}
-
-.artemis-ended-arrow {
-  font-size: 36rpx;
-  color: rgba(255, 255, 255, 0.4);
-  font-weight: 300;
-  transform: rotate(90deg);
-  transition: transform 0.25s ease;
-}
-
-.artemis-ended-arrow--up {
-  transform: rotate(-90deg);
-}
-
-.artemis-phase-card--ended {
-  margin-top: 12rpx;
-  border-radius: 20rpx;
-}
-
-.artemis-phase-card {
-  padding: 32rpx 28rpx;
-  border-radius: 20rpx;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12rpx;
-}
-
-.artemis-phase-icon {
-  margin-bottom: 8rpx;
-}
-
-.artemis-phase-title {
-  font-size: 32rpx;
-  font-weight: 700;
-  color: #FFFFFF;
-}
-
-.artemis-phase-desc {
-  font-size: 24rpx;
-  color: #8E8E93;
-}
-
-.artemis-phase-summary {
-  width: 100%;
-  margin-top: 12rpx;
-  padding: 16rpx 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  display: flex;
-  flex-direction: column;
-  gap: 14rpx;
-}
-
-.artemis-phase-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
-}
-
-.artemis-phase-row-label {
-  font-size: 24rpx;
-  color: #8E8E93;
-}
-
-.artemis-phase-row-val {
-  font-size: 24rpx;
-  color: #FFFFFF;
-  font-variant-numeric: tabular-nums;
-}
-
-.artemis-phase-hint {
-  font-size: 22rpx;
-  color: #636366;
-  margin-top: 4rpx;
+.social-logo {
+  width: 88%;
+  height: 88%;
+  border-radius: 50%;
+  display: block;
 }
 
 /* ========== SpaceX 专属：手机直连星链 D2C（自监控中心迁入） ========== */
@@ -1180,7 +956,7 @@ page {
 }
 
 .d2c-stat-value.accent {
-  color: #5AC8FA;
+  color: var(--color-brand);
 }
 
 .d2c-stat-label {
@@ -1202,7 +978,7 @@ page {
 
 .d2c-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, #5AC8FA, #007AFF);
+  background: linear-gradient(90deg, var(--color-brand), var(--color-brand));
   border-radius: 8rpx;
   transition: width 0.6s ease;
 }
@@ -1228,7 +1004,7 @@ page {
 }
 
 .d2c-legend-dot.d2c-color {
-  background: #5AC8FA;
+  background: var(--color-brand);
 }
 
 .d2c-legend-dot.normal-color {
@@ -1335,17 +1111,15 @@ page {
 .theme-light .error-title {
   color: var(--color-text-primary);
 }
-/* retry-btn / al-view-all 为实色渐变按钮，白字保持不变 */
+/* retry-btn 为实色渐变按钮，白字保持不变；al-view-all 为灰色纯文字，跟随 token 变量换肤 */
 .theme-light .glass-card {
   background: rgba(255, 255, 255, 0.62);
-  border: 1px solid var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 .theme-light .hero-section {
   background: rgba(0, 0, 0, 0.04);
 }
 .theme-light .hero-placeholder {
-  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.14), rgba(0, 0, 0, 0.03) 72%);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.14), rgba(0, 0, 0, 0.03) 72%);
 }
 /* hero-gradient 压在发射商照片上，保持深色收边 */
 .theme-light .agency-logo-chip {
@@ -1353,17 +1127,15 @@ page {
 }
 .theme-light .fav-btn {
   background: rgba(0, 0, 0, 0.05);
-  border: 1rpx solid var(--color-divider);
 }
-.theme-light .fav-star {
-  color: rgba(0, 0, 0, 0.3);
+.theme-light .fav-heart {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 1024 1024' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M903.71 350.208c-10.823-65.651-47.47-117.512-108.93-154.145-35.295-21.054-75.018-32.187-114.86-32.187-50.882 0-99.14 18.619-135.887 52.429-11.387 10.475-21.796 21.929-31.83 33.075-31.21-38.05-63.1-61.566-100.056-73.884-64.875-21.61-129.477-13.271-188.864 24.404-70.592 44.777-106.096 108.17-105.54 188.434 0.314 47.263 16.053 92.117 48.104 137.098 34.412 48.333 76.751 97.541 133.233 154.868 38.018 38.589 77.401 76.948 115.481 114.07l37.169 36.26c3.313 3.249 6.687 6.444 10.076 9.629l4.201 3.901c7.898 6.584 24.392 17.641 45.993 17.641 17.884 0 34.842-7.332 50.56-21.906 64.632-60.87 133.501-126.994 199.05-198.044 33.94-36.8 72.802-80.07 104.448-128.092 34.276-52.043 46.956-107.075 37.653-163.551m-70.713 141.778C803 537.52 766.9 577.723 732.518 615.014c-64.732 70.147-132.974 135.693-196.974 195.974-8.053 7.447-15.964 11.235-23.541 11.235-9.142 0-16.86-5.307-19.728-7.628l-3.3-3.119c-3.223-3.04-6.448-6.082-9.592-9.146l-37.194-36.301c-37.947-36.964-77.174-75.198-114.908-113.503-55.737-56.553-95.573-102.825-129.201-150.05-27.167-38.138-40.479-75.558-40.755-114.418-0.45-66.617 28.052-117.23 87.163-154.74 31.424-19.932 64.174-30.046 97.308-30.046 18.923 0 38.38 3.3 57.843 9.779 30.653 10.217 57.61 30.886 85.158 65.405 1.864 2.202 11.89 13.22 27.472 13.22 6.845 0 17-2.191 26.55-12.692l1.559-1.728c10.283-11.405 19.96-22.162 30.458-31.826 29.84-27.459 67.572-41.969 109.085-41.969 32.701 0 65.408 9.2 94.576 26.58 51.694 30.836 81.188 72.249 90.146 126.61 7.73 46.992-2.604 91.254-31.645 135.335' fill='%238E8E93'/%3E%3Cpath d='M383.521 288.707c-14.65-6.777-30.349-10.192-46.63-10.192-61.502 0-111.547 50.046-111.547 111.534 0 22.06 6.43 43.372 18.578 61.668 3.814 5.722 10.097 8.827 16.494 8.827 3.763 0 7.575-1.07 10.939-3.313 9.103-6.041 11.584-18.334 5.53-27.433-7.829-11.778-11.958-25.525-11.958-39.749 0-39.685 32.276-71.951 71.964-71.951 10.514 0 20.608 2.189 30.029 6.533 9.897 4.613 21.69 0.284 26.26-9.661 4.593-9.923 0.264-21.689-9.659-26.263' fill='%238E8E93'/%3E%3C/svg%3E");
 }
 .theme-light .fav-btn--on {
-  background: rgba(255, 170, 0, 0.14);
-  border-color: rgba(255, 170, 0, 0.4);
+  background: rgba(255, 69, 58, 0.1);
 }
-.theme-light .fav-btn--on .fav-star {
-  color: #C77700;
+.theme-light .fav-btn--on .fav-heart {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 1024 1024' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M903.71 350.208c-10.823-65.651-47.47-117.512-108.93-154.145-35.295-21.054-75.018-32.187-114.86-32.187-50.882 0-99.14 18.619-135.887 52.429-11.387 10.475-21.796 21.929-31.83 33.075-31.21-38.05-63.1-61.566-100.056-73.884-64.875-21.61-129.477-13.271-188.864 24.404-70.592 44.777-106.096 108.17-105.54 188.434 0.314 47.263 16.053 92.117 48.104 137.098 34.412 48.333 76.751 97.541 133.233 154.868 38.018 38.589 77.401 76.948 115.481 114.07l37.169 36.26c3.313 3.249 6.687 6.444 10.076 9.629l4.201 3.901c7.898 6.584 24.392 17.641 45.993 17.641 17.884 0 34.842-7.332 50.56-21.906 64.632-60.87 133.501-126.994 199.05-198.044 33.94-36.8 72.802-80.07 104.448-128.092 34.276-52.043 46.956-107.075 37.653-163.551z' fill='%23FF3B30'/%3E%3Cpath d='M383.521 288.707c-14.65-6.777-30.349-10.192-46.63-10.192-61.502 0-111.547 50.046-111.547 111.534 0 22.06 6.43 43.372 18.578 61.668 3.814 5.722 10.097 8.827 16.494 8.827 3.763 0 7.575-1.07 10.939-3.313 9.103-6.041 11.584-18.334 5.53-27.433-7.829-11.778-11.958-25.525-11.958-39.749 0-39.685 32.276-71.951 71.964-71.951 10.514 0 20.608 2.189 30.029 6.533 9.897 4.613 21.69 0.284 26.26-9.661 4.593-9.923 0.264-21.689-9.659-26.263' fill='%23FFFFFF'/%3E%3C/svg%3E");
 }
 .theme-light .agency-type--government {
   color: #C77700;
@@ -1378,9 +1150,9 @@ page {
   box-shadow: none;
 }
 .theme-light .agency-type--multinational {
-  color: #0071A4;
-  background: rgba(90, 200, 250, 0.14);
-  border: 1px solid rgba(90, 200, 250, 0.35);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.14);
+  border: 1px solid rgba(59, 130, 246, 0.35);
   box-shadow: none;
 }
 .theme-light .featured-badge {
@@ -1401,8 +1173,8 @@ page {
   color: rgba(0, 0, 0, 0.25);
 }
 .theme-light .partial-banner {
-  border-color: rgba(0, 122, 255, 0.18);
-  background: linear-gradient(135deg, rgba(90, 200, 250, 0.14), rgba(0, 122, 255, 0.08));
+  border-color: rgba(59, 130, 246, 0.18);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.14), rgba(59, 130, 246, 0.08));
 }
 .theme-light .partial-banner__title {
   color: var(--color-brand);
@@ -1419,7 +1191,6 @@ page {
 }
 .theme-light .al-card {
   background: var(--color-bg-card);
-  border: 1rpx solid var(--color-divider);
 }
 .theme-light .al-thumb {
   background: rgba(0, 0, 0, 0.05);
@@ -1443,8 +1214,6 @@ page {
 }
 .theme-light .stat-card {
   background: var(--color-bg-card);
-  border: 1px solid var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 .theme-light .stat-value {
   color: var(--color-text-primary);
@@ -1497,7 +1266,6 @@ page {
 }
 .theme-light .landing-stats {
   background: rgba(255, 255, 255, 0.85);
-  border: 1px solid var(--color-divider);
 }
 .theme-light .landing-item {
   background: rgba(0, 0, 0, 0.03);
@@ -1513,13 +1281,11 @@ page {
   color: #248A3D;
 }
 .theme-light .info-row {
-  border-bottom: 1px solid var(--color-divider);
-}
-.theme-light .info-row:last-child {
-  border-bottom: none;
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--color-divider);
 }
 .theme-light .info-label {
-  color: var(--color-text-secondary);
+  color: var(--color-text-tertiary);
 }
 .theme-light .info-value {
   color: var(--color-text-primary);
@@ -1528,91 +1294,24 @@ page {
   color: var(--color-text-primary);
 }
 .theme-light .vehicle-tag--rocket {
-  color: #0071A4;
-  background: rgba(90, 200, 250, 0.14);
-  border: 1px solid rgba(90, 200, 250, 0.35);
+  color: var(--color-brand);
+  background: rgba(59, 130, 246, 0.14);
+  border: 1px solid rgba(59, 130, 246, 0.35);
 }
 .theme-light .vehicle-tag--spacecraft {
-  color: #8944AB;
-  background: rgba(191, 90, 242, 0.12);
-  border: 1px solid rgba(191, 90, 242, 0.3);
+  color: var(--color-text-secondary);
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.1);
 }
 .theme-light .social-item {
-  background: rgba(0, 0, 0, 0.03);
-  border: 1px solid var(--color-divider);
-}
-.theme-light .social-item:active {
-  background: rgba(0, 0, 0, 0.06);
-}
-.theme-light .social-name {
-  color: var(--color-text-primary);
-}
-.theme-light .social-url {
-  color: #0071A4;
-}
-.theme-light .artemis-title-sub {
-  color: var(--color-text-tertiary);
-}
-.theme-light .artemis-loading-text {
-  color: var(--color-text-tertiary);
-}
-.theme-light .artemis-retry-btn {
-  background: var(--color-brand);
-}
-.theme-light .artemis-brief-met {
-  color: var(--color-text-primary);
-}
-.theme-light .artemis-brief-met-hint {
-  color: var(--color-text-tertiary);
-}
-.theme-light .artemis-brief-stat-val {
-  color: var(--color-text-primary);
-}
-.theme-light .artemis-brief-stat-unit {
-  color: var(--color-text-secondary);
-}
-.theme-light .artemis-brief-footer {
-  border-top: 1px solid var(--color-divider);
-}
-.theme-light .artemis-brief-hint {
-  color: #0071A4;
-}
-.theme-light .artemis-brief-arrow {
-  color: #0071A4;
-}
-.theme-light .artemis-ended-badge {
-  color: #248A3D;
-}
-.theme-light .artemis-ended-name {
-  color: var(--color-text-secondary);
-}
-.theme-light .artemis-ended-arrow {
-  color: rgba(0, 0, 0, 0.25);
-}
-.theme-light .artemis-phase-title {
-  color: var(--color-text-primary);
-}
-.theme-light .artemis-phase-desc {
-  color: var(--color-text-secondary);
-}
-.theme-light .artemis-phase-summary {
-  border-top: 1px solid var(--color-divider);
-  border-bottom: 1px solid var(--color-divider);
-}
-.theme-light .artemis-phase-row-label {
-  color: var(--color-text-secondary);
-}
-.theme-light .artemis-phase-row-val {
-  color: var(--color-text-primary);
-}
-.theme-light .artemis-phase-hint {
-  color: var(--color-text-tertiary);
+  background: transparent;
+  border: none;
 }
 .theme-light .d2c-stat-value {
   color: var(--color-text-primary);
 }
 .theme-light .d2c-stat-value.accent {
-  color: #0071A4;
+  color: var(--color-brand);
 }
 .theme-light .d2c-stat-label {
   color: var(--color-text-tertiary);
@@ -1679,7 +1378,7 @@ page {
   background: rgba(255, 255, 255, 0.08);
 }
 .atw-avatar--placeholder {
-  background: radial-gradient(circle at center, rgba(90, 200, 250, 0.15), rgba(255, 255, 255, 0.04) 72%);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.15), rgba(255, 255, 255, 0.04) 72%);
 }
 .atw-head-info {
   flex: 1;
@@ -1752,7 +1451,7 @@ page {
   background: rgba(0, 0, 0, 0.05);
 }
 .theme-light .atw-avatar--placeholder {
-  background: radial-gradient(circle at center, rgba(0, 122, 255, 0.10), rgba(0, 0, 0, 0.04) 72%);
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.10), rgba(0, 0, 0, 0.04) 72%);
 }
 .theme-light .atw-media-thumb {
   background: rgba(0, 0, 0, 0.05);

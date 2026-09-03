@@ -1,0 +1,83 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="container {{themeClass}}">
+  <view class="top-nav-wrapper" style="padding-top:{{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back" bindtap="goBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <text class="nav-title nav-title--page-grid">竞猜战绩</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+  </view>
+
+  <scroll-view class="content-scroll" scroll-y enhanced show-scrollbar="{{false}}" style="padding-top:{{navPlaceholderHeight}}px;">
+    <view class="stats-card glass-card">
+      <view class="stats-grid">
+        <view class="stats-cell">
+          <text class="stats-num">{{voteStats.settled}}</text>
+          <text class="stats-label">已揭晓</text>
+        </view>
+        <view class="stats-cell">
+          <text class="stats-num stats-num--ok">{{voteStats.correct}}</text>
+          <text class="stats-label">猜对</text>
+        </view>
+        <view class="stats-cell">
+          <text class="stats-num">{{voteStats.accuracy}}%</text>
+          <text class="stats-label">命中率</text>
+        </view>
+        <view class="stats-cell">
+          <text class="stats-num">{{voteStats.bestStreak}}</text>
+          <text class="stats-label">最佳连胜</text>
+        </view>
+      </view>
+      <view class="streak-bar" wx:if="{{voteStats.streak > 0}}">
+        <text>当前连胜 {{voteStats.streak}} 场</text>
+      </view>
+    </view>
+
+    <view class="empty" wx:if="{{!loading && !history.length}}">
+      <text class="empty-title">还没有竞猜记录</text>
+      <text class="empty-hint">在即将发射任务页参与成败/准时竞猜后，这里会显示战绩</text>
+    </view>
+
+    <view class="history-card glass-card" wx:elif="{{history.length}}">
+      <view class="history-title-row">
+        <text class="history-title">近期竞猜</text>
+        <text class="history-count">共 {{history.length}} 场</text>
+      </view>
+      <view class="history-list">
+        <view
+          class="history-item"
+          wx:for="{{history}}"
+          wx:key="id"
+          bindtap="onItemTap"
+          data-id="{{item.launchId}}"
+        >
+          <view class="history-icon">
+            <image
+              class="history-rocket-img"
+              src="{{item.rocketImage}}"
+              mode="aspectFill"
+              lazy-load
+              binderror="onRocketImageError"
+              data-index="{{index}}"
+            />
+          </view>
+          <view class="history-main">
+            <view class="history-name-row">
+              <text class="history-type history-type--{{item.voteType}}">{{item.voteTypeLabel}}</text>
+              <text class="history-name">{{item.name}}</text>
+            </view>
+            <text class="history-rocket" wx:if="{{item.rocket}}">{{item.rocket}}</text>
+          </view>
+          <view class="history-side">
+            <text class="choice-tag choice-tag--{{item.choice}}">我猜{{item.choiceLabel}}</text>
+            <text class="history-days {{item.result ? (item.isCorrect ? 'history-days--win' : 'history-days--lose') : ''}}">{{item.daysLabel}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view style="height: 80rpx;"></view>
+  </scroll-view>
+</view>

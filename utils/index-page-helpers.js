@@ -1,8 +1,20 @@
-const { getStatusCategory, getStatusBadgeText } = require('./api-request.js')
+const {
+  getStatusCategory,
+  getStatusBadgeText,
+  isTerminalStatusId,
+  isChineseRocketContext,
+  softenChineseRocketFailureText
+} = require('./api-request.js')
+const { getServerNow } = require('./server-clock.js')
 
 function filterExpiredMissions(missions) {
-  const now = Date.now()
+  // 与倒计时显示同一时钟：否则设备时钟偏快会提前把还没发射的任务判为过期
+  const now = getServerNow()
   return (missions || []).filter((mission) => {
+    if (!mission) return false
+    const sid = mission.statusId != null ? Number(mission.statusId) : 0
+    // 终态不应再出现在即将发射（云缓存可能仍残留旧行）
+    if (isTerminalStatusId(sid)) return false
     if (!mission.launchTime) return true
     const launchTs = new Date(mission.launchTime).getTime()
     if (launchTs > now) return true
@@ -15,25 +27,41 @@ function filterExpiredMissions(missions) {
 /**
  * 倒计时/列表状态中文：与角标同一套映射。
  * 入参可为 LL2 status 对象 { id, name, abbrev }，或已本地化/英文的字符串。
+ * @param {object|string} status
+ * @param {{ chineseRocket?: boolean, countryDisplay?: string }|boolean} [options]
  */
-function getStatusTextZh(status) {
+function getStatusTextZh(status, options) {
+  const chinese = isChineseRocketContext(options)
   if (status && typeof status === 'object') {
-    return getStatusBadgeText(status, getStatusCategory(status))
+    return getStatusBadgeText(status, getStatusCategory(status), options)
   }
   const text = String(status || '').trim()
   if (!text) return '计划中'
   const lower = text.toLowerCase()
-  if (lower.includes('payload deployed') || text.includes('载荷已部署') || text.includes('已部署')) return '载荷已部署'
-  if (lower.includes('in flight') || lower.includes('inflight') || text.includes('飞行中')) return '飞行中'
-  if (lower.includes('partial') || text.includes('部分失败') || text.includes('部分成功')) return '部分失败'
-  if (lower.includes('success') || lower.includes('succeeded') || text.includes('成功')) return '已成功'
-  if (lower.includes('failure') || lower.includes('failed') || text.includes('失败')) return '失败'
-  if (lower.includes('delayed') || lower.includes('hold') || text.includes('推迟') || text.includes('延迟') || text.includes('暂停') || text.includes('保持')) return '推迟'
-  if (lower.includes('tbd') || lower.includes('to be determined') || text.includes('待定')) return '待定'
-  if (lower.includes('tbc') || lower.includes('to be confirmed') || text.includes('待确认')) return '待确认'
-  if (lower.includes('go') || lower.includes('ready') || lower.includes('green') || text.includes('就绪') || text.includes('准备') || text === '正常') return '就绪'
-  if (lower.includes('scheduled') || lower.includes('schedule') || lower.includes('pending') || text.includes('计划')) return '计划中'
-  return text
+  let out = text
+  if (lower.includes('payload deployed') || text.includes('载荷已部署') || text.includes('已部署')) out = '载荷已部署'
+  else if (lower.includes('in flight') || lower.includes('inflight') || text.includes('飞行中')) out = '飞行中'
+  else if (
+    lower.includes('partial') ||
+    text.includes('部分失败') ||
+    text.includes('部分失利') ||
+    text.includes('部分成功')
+  ) {
+    out = '部分失败'
+  } else if (lower.includes('success') || lower.includes('succeeded') || text.includes('成功')) out = '已成功'
+  else if (
+    lower.includes('failure') ||
+    lower.includes('failed') ||
+    text.includes('失败') ||
+    text.includes('失利')
+  ) {
+    out = '失败'
+  } else if (lower.includes('delayed') || lower.includes('hold') || text.includes('推迟') || text.includes('延迟') || text.includes('暂停') || text.includes('保持')) out = '推迟'
+  else if (lower.includes('tbd') || lower.includes('to be determined') || text.includes('待定')) out = '待定'
+  else if (lower.includes('tbc') || lower.includes('to be confirmed') || text.includes('待确认')) out = '待确认'
+  else if (lower.includes('go') || lower.includes('ready') || lower.includes('green') || text.includes('就绪') || text.includes('准备') || text === '正常') out = '就绪'
+  else if (lower.includes('scheduled') || lower.includes('schedule') || lower.includes('pending') || text.includes('计划')) out = '计划中'
+  return chinese ? softenChineseRocketFailureText(out) : out
 }
 
 function formatSecondsText(value) {
@@ -121,19 +149,30 @@ function normalizeVoteType(t) {
   return String(t || '').trim() === 'outcome' ? 'outcome' : 'ontime'
 }
 
+function isVoteChoiceForType(choice, voteType) {
+  const raw = String(choice || '').trim()
+  if (normalizeVoteType(voteType) === 'outcome') return raw === 'success' || raw === 'failure'
+  return raw === 'ge' || raw === 'buge'
+}
+
+function typedMyVote(choice, voteType) {
+  return isVoteChoiceForType(choice, voteType) ? String(choice).trim() : ''
+}
+
 /**
  * 统一竞猜选项：两套系统互不混用。
  * - 成败：success/failure（历史误存的 buge/ge 会纠正）
  * - 准时：ge/buge
  */
-function resolveVoteChoiceMeta(choice, voteType) {
+function resolveVoteChoiceMeta(choice, voteType, options) {
   let raw = String(choice || '').trim()
   let vt = normalizeVoteType(voteType)
   if (raw === 'success' || raw === 'failure') vt = 'outcome'
   if (vt === 'outcome') {
     if (raw === 'buge') raw = 'success'
     else if (raw === 'ge') raw = 'failure'
-    const choiceLabel = raw === 'success' ? '成功' : raw === 'failure' ? '失败' : (raw || '未知')
+    const failureWord = isChineseRocketContext(options) ? '失利' : '失败'
+    const choiceLabel = raw === 'success' ? '成功' : raw === 'failure' ? failureWord : (raw || '未知')
     return {
       voteType: 'outcome',
       voteTypeLabel: '成败',
@@ -153,9 +192,11 @@ function resolveVoteChoiceMeta(choice, voteType) {
 }
 
 /** 成败票数映射到左侧 ge / 右侧 buge，便于复用现有 pill 样式 */
-function normalizeVoteStatsForUi(stats, voteType) {
+function normalizeVoteStatsForUi(stats, voteType, options) {
   const vt = normalizeVoteType(voteType || (stats && stats.voteType))
   const safeStats = stats ? { ...DEFAULT_VOTE_DATA, ...stats, voteType: vt } : { ...DEFAULT_VOTE_DATA, voteType: vt }
+  const chinese = isChineseRocketContext(options)
+  const failureDefault = chinese ? '失利' : '失败'
   if (vt === 'outcome') {
     // 成败票数始终映射到左右 pill / 比例条字段
     const failureCount = Number(
@@ -169,10 +210,17 @@ function normalizeVoteStatsForUi(stats, voteType) {
     safeStats.geCount = failureCount
     safeStats.buGeCount = successCount
     // 成败文案不得回退到准时默认的「鸽/不鸽」（DEFAULT 里带了这两项）
-    const failureLabel = safeStats.failureLabel || ''
+    let failureLabel = safeStats.failureLabel || ''
     const successLabel = safeStats.successLabel || ''
-    const left = failureLabel || ((safeStats.geLabel === '鸽' || !safeStats.geLabel) ? '失败' : safeStats.geLabel)
-    const right = successLabel || ((safeStats.bugeLabel === '不鸽' || !safeStats.bugeLabel) ? '成功' : safeStats.bugeLabel)
+    if (chinese && (!failureLabel || failureLabel === '失败')) {
+      failureLabel = softenChineseRocketFailureText(failureLabel || '失败')
+    }
+    const left =
+      failureLabel ||
+      ((safeStats.geLabel === '鸽' || !safeStats.geLabel) ? failureDefault : safeStats.geLabel)
+    const right =
+      successLabel ||
+      ((safeStats.bugeLabel === '不鸽' || !safeStats.bugeLabel) ? '成功' : safeStats.bugeLabel)
     safeStats.failureLabel = failureLabel || left
     safeStats.successLabel = successLabel || right
     safeStats.geLabel = left
@@ -184,7 +232,9 @@ function normalizeVoteStatsForUi(stats, voteType) {
       safeStats.customQuestion = '会成功吗？'
     }
   } else {
-    if (!safeStats.geLabel || safeStats.geLabel === '失败') safeStats.geLabel = '鸽'
+    if (!safeStats.geLabel || safeStats.geLabel === '失败' || safeStats.geLabel === '失利') {
+      safeStats.geLabel = '鸽'
+    }
     if (!safeStats.bugeLabel || safeStats.bugeLabel === '成功') safeStats.bugeLabel = '不鸽'
     if (!safeStats.customQuestion) safeStats.customQuestion = '会准时吗？'
   }
@@ -195,22 +245,26 @@ function getInitialVoteState() {
   return {
     voteData: { ...DEFAULT_VOTE_DATA },
     myVote: '',
+    typeVoted: false,
     voteTotal: 0,
     voteGePct: 50,
     voteBugePct: 50,
     activeVoteType: 'ontime',
     voteSlotVisible: false,
     voteOntimeEnabled: false,
-    voteOutcomeEnabled: false
+    voteOutcomeEnabled: false,
+    voteLaunchId: ''
   }
 }
 
-function buildVoteState(stats, myVote, voteType) {
-  const safeStats = normalizeVoteStatsForUi(stats, voteType)
+function buildVoteState(stats, myVote, voteType, options) {
+  const safeStats = normalizeVoteStatsForUi(stats, voteType, options)
+  const typed = typedMyVote(myVote, safeStats.voteType)
   const total = Number(safeStats.geCount || 0) + Number(safeStats.buGeCount || 0)
   return {
     voteData: safeStats,
-    myVote: myVote || '',
+    myVote: typed,
+    typeVoted: !!typed,
     voteTotal: total,
     voteGePct: total > 0 ? Math.round((safeStats.geCount || 0) / total * 100) : 50,
     voteBugePct: total > 0 ? Math.round((safeStats.buGeCount || 0) / total * 100) : 50,
@@ -219,7 +273,7 @@ function buildVoteState(stats, myVote, voteType) {
 }
 
 /** 根据双题型缓存拼出页面 setData 补丁 */
-function buildDualVoteUiPatch(bundle, activeVoteType, launchId) {
+function buildDualVoteUiPatch(bundle, activeVoteType, launchId, options) {
   const ontime = (bundle && bundle.ontime) || null
   const outcome = (bundle && bundle.outcome) || null
   const ontimeEnabled = !!(ontime && ontime.enabled)
@@ -228,14 +282,15 @@ function buildDualVoteUiPatch(bundle, activeVoteType, launchId) {
   if (vt === 'ontime' && !ontimeEnabled && outcomeEnabled) vt = 'outcome'
   if (vt === 'outcome' && !outcomeEnabled && ontimeEnabled) vt = 'ontime'
   const stats = vt === 'outcome' ? outcome : ontime
-  const myVote = (stats && stats.myVote) || (launchId ? getLocalVote(launchId, vt) : '')
-  const base = buildVoteState(stats, myVote, vt)
+  const myVote = typedMyVote((stats && stats.myVote) || (launchId ? getLocalVote(launchId, vt) : ''), vt)
+  const base = buildVoteState(stats, myVote, vt, options)
   return {
     ...base,
     activeVoteType: vt,
     voteSlotVisible: ontimeEnabled || outcomeEnabled,
     voteOntimeEnabled: ontimeEnabled,
-    voteOutcomeEnabled: outcomeEnabled
+    voteOutcomeEnabled: outcomeEnabled,
+    voteLaunchId: launchId != null && launchId !== '' ? String(launchId) : ''
   }
 }
 
@@ -248,8 +303,9 @@ function mergeVoteTypeStats(prev, next, launchId, voteType) {
   if (!next) return null
   const merged = { ...next }
   const prevSafe = prev || null
+  merged.myVote = typedMyVote(merged.myVote, vt)
   if (!merged.myVote) {
-    merged.myVote = (prevSafe && prevSafe.myVote) || (launchId ? getLocalVote(launchId, vt) : '') || ''
+    merged.myVote = typedMyVote((prevSafe && prevSafe.myVote) || (launchId ? getLocalVote(launchId, vt) : ''), vt)
   }
 
   if (vt === 'outcome') {
@@ -310,9 +366,10 @@ function getLocalVote(launchId, voteType) {
     const votes = _loadVotesStore()
     const vt = voteType === 'outcome' ? 'outcome' : 'ontime'
     const key = `${launchId}::${vt}`
-    if (votes[key]) return votes[key]
-    // 兼容旧 key（仅准时竞猜）
-    if (vt === 'ontime' && votes[launchId]) return votes[launchId]
+    const namespaced = typedMyVote(votes[key], vt)
+    if (namespaced) return namespaced
+    // 兼容旧 key，且只认本题型选项，避免把成败票当成准时
+    if (vt === 'ontime') return typedMyVote(votes[launchId], vt)
     return ''
   } catch (e) {
     return ''
@@ -323,7 +380,9 @@ function saveLocalVote(launchId, choice, voteType) {
   try {
     const votes = { ..._loadVotesStore() }
     const vt = voteType === 'outcome' ? 'outcome' : 'ontime'
-    votes[`${launchId}::${vt}`] = choice
+    const typed = typedMyVote(choice, vt)
+    if (!typed) return
+    votes[`${launchId}::${vt}`] = typed
     _votesMem = votes
     _votesMemLoaded = true
     storageCache.persistAsync(VOTED_LAUNCHES_KEY, votes)
@@ -426,7 +485,7 @@ function getMissionDetailCacheEntry(cache, id, detailType) {
 
 // 缓存 schema 版本：每次 mission 数据结构有破坏性变化时 bump 一下，
 // shouldReuseMissionDetailCache 会校验，旧版本缓存自动失效。
-const MISSION_DETAIL_CACHE_SCHEMA = 'v2-multicore'
+const MISSION_DETAIL_CACHE_SCHEMA = 'v3-langpack-en'
 
 function setMissionDetailCacheEntry(cache, id, detailType, mission, options = {}) {
   if (!mission || typeof mission !== 'object') return cache && typeof cache === 'object' && !Array.isArray(cache) ? { ...cache } : {}
@@ -516,6 +575,8 @@ module.exports = {
   mergeVoteBundle,
   resolveVoteChoiceMeta,
   normalizeVoteType,
+  isVoteChoiceForType,
+  typedMyVote,
   getLocalVote,
   saveLocalVote,
   removeLocalVote,

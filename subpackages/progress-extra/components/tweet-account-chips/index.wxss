@@ -1,0 +1,89 @@
+/* 今日账号胶囊条：从进展页事件更新区抽出，详情页同样使用 */
+.tweet-stats-scroll-wrap {
+  position: relative;
+  margin-bottom: 20rpx;
+  padding: 0 10rpx;
+  box-sizing: border-box;
+}
+
+.tweet-stats-scroll {
+  width: 100%;
+  white-space: nowrap;
+}
+
+.tweet-stats-scroll-fade {
+  position: absolute;
+  top: 0;
+  right: 10rpx;
+  width: 44rpx;
+  height: 100%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--color-bg-page, rgba(14, 20, 34, 0.92)));
+  border-top-right-radius: 16rpx;
+  border-bottom-right-radius: 16rpx;
+}
+
+.tweet-stats-bar.tweet-stats-chips-row {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 10rpx;
+  align-items: stretch;
+  min-width: 100%;
+  margin-bottom: 0;
+  padding-right: 20rpx;
+  box-sizing: border-box;
+}
+
+.tweet-stat-chip.tweet-stat-item {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 8rpx 12rpx;
+  background: var(--color-divider-faint, rgba(255, 255, 255, 0.05));
+  border-radius: 999rpx;
+  border: 1px solid var(--color-divider, rgba(255, 255, 255, 0.1));
+}
+
+.tweet-stat-chip .tweet-stat-avatar {
+  width: 32rpx;
+  height: 32rpx;
+  border-radius: 50%;
+  margin-right: 6rpx;
+  flex-shrink: 0;
+}
+
+.tweet-stat-chip .tweet-stat-name {
+  font-size: 20rpx;
+  color: var(--color-text-secondary, #d0d0d4);
+  margin-right: 6rpx;
+  white-space: nowrap;
+}
+
+.tweet-stat-chip .tweet-stat-count {
+  font-size: 18rpx;
+  color: var(--color-brand, #3B82F6);
+  font-weight: 600;
+}
+
+.tweet-stat-chip--active.tweet-stat-item {
+  background: var(--color-brand-soft, rgba(59, 130, 246, 0.18));
+  border-color: rgba(59, 130, 246, 0.45);
+}
+
+.theme-light .tweet-stat-chip.tweet-stat-item {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: var(--color-divider);
+}
+
+.theme-light .tweet-stat-chip .tweet-stat-name {
+  color: var(--color-text-secondary);
+}
+
+.theme-light .tweet-stat-chip .tweet-stat-count {
+  color: #0071A9;
+}
+
+.theme-light .tweet-stat-chip--active.tweet-stat-item {
+  background: var(--color-brand-soft, rgba(0, 113, 169, 0.12));
+  border-color: rgba(0, 113, 169, 0.35);
+}

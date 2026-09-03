@@ -1,10 +1,12 @@
 /**
- * 列举 COS 桶「火箭配置图/」下图片，同步到云数据库 media_assets。
+ * 列举 COS 桶「火箭配置图/」「火箭配置图-机娘/」下图片，同步到云数据库 media_assets。
  * - key 与 COS 对象 Key 一致（经 normalize），url 为公开访问地址
  * - sourceTag = cos-rocket-sync 的记录与 COS 对齐；删除桶中已不存在的同步项
- * - sourceTag = manual 的记录不修改、不删除
+ * - sourceTag = manual / admin-removed 的记录不修改、不删除
+ * - media_asset_tombstones 中的 key 不会被重新 add（后台删记录写入）
+ * - 同步更新时保留管理员设置的 enabled，不会强制重新启用
  *
- * 触发：定时器（在云开发控制台配置）或小程序 loadCloudMediaMap 节流调用
+ * 触发：云开发定时器，或后台 adminGateway 手动同步。小程序端不再调用。
  */
 const cloud = require('wx-server-sdk')
 const COS = require('cos-nodejs-sdk-v5')
@@ -13,11 +15,19 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 
 const COLLECTION = 'media_assets'
-const PREFIX = '火箭配置图/'
+const TOMBSTONE_COLLECTION = 'media_asset_tombstones'
+/** 原图与机娘风格并列目录（stem 对齐；机娘可为子集） */
+const PREFIXES = ['火箭配置图/', '火箭配置图-机娘/']
 const SOURCE_TAG = 'cos-rocket-sync'
+/** 人工维护记录：同步不得覆盖 */
+const PROTECTED_SOURCE_TAGS = new Set(['manual', 'admin-removed'])
 const COS_BUCKET = 'mars-1397421562'
 const COS_REGION = 'ap-guangzhou'
 const COS_BASE_URL = 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/'
+
+function isProtectedSourceTag(tag) {
+  return PROTECTED_SOURCE_TAGS.has(String(tag || ''))
+}
 
 function normalizeKey(key) {
   if (!key || typeof key !== 'string') return ''
@@ -28,6 +38,11 @@ function normalizeKey(key) {
     .trim()
     .replace(/^\/+/, '')
     .replace(/\\/g, '/')
+}
+
+function isRocketConfigMediaKey(key) {
+  const k = normalizeKey(key)
+  return PREFIXES.some((p) => k.startsWith(p))
 }
 
 function createCOSClient() {
@@ -48,10 +63,10 @@ function isImageObjectKey(key) {
   return /\.(jpe?g|png|webp|gif)$/i.test(key)
 }
 
-async function listRocketImageObjectsFromCos() {
-  const cos = createCOSClient()
+async function listObjectsUnderPrefix(cos, prefix) {
   const out = []
   let marker = ''
+  const dirPrefix = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix
 
   while (true) {
     const resp = await new Promise((resolve, reject) => {
@@ -59,7 +74,7 @@ async function listRocketImageObjectsFromCos() {
         {
           Bucket: COS_BUCKET,
           Region: COS_REGION,
-          Prefix: PREFIX,
+          Prefix: prefix,
           Marker: marker,
           MaxKeys: 1000
         },
@@ -68,7 +83,6 @@ async function listRocketImageObjectsFromCos() {
     })
 
     const contents = Array.isArray(resp.Contents) ? resp.Contents : []
-    const dirPrefix = PREFIX.endsWith('/') ? PREFIX.slice(0, -1) : PREFIX
 
     for (const obj of contents) {
       const rawKey = obj.Key || ''
@@ -94,6 +108,21 @@ async function listRocketImageObjectsFromCos() {
   return out
 }
 
+async function listRocketImageObjectsFromCos() {
+  const cos = createCOSClient()
+  const out = []
+  const seen = new Set()
+  for (const prefix of PREFIXES) {
+    const rows = await listObjectsUnderPrefix(cos, prefix)
+    for (const row of rows) {
+      if (seen.has(row.key)) continue
+      seen.add(row.key)
+      out.push(row)
+    }
+  }
+  return out
+}
+
 async function loadAllRocketConfigMediaDocs() {
   const all = []
   const batch = 100
@@ -104,7 +133,8 @@ async function loadAllRocketConfigMediaDocs() {
       .collection(COLLECTION)
       .where({
         key: db.RegExp({
-          regexp: '^火箭配置图/',
+          // 原图 火箭配置图/… 与机娘 火箭配置图-机娘/…
+          regexp: '^火箭配置图(/|-机娘/)',
           options: ''
         })
       })
@@ -120,7 +150,36 @@ async function loadAllRocketConfigMediaDocs() {
     if (skip > 8000) break
   }
 
-  return all
+  return all.filter((d) => isRocketConfigMediaKey(d && d.key))
+}
+
+/** 后台「删记录」写入的墓碑 key，同步时不得重新 add */
+async function loadRocketTombstoneKeySet() {
+  const keys = new Set()
+  const batch = 100
+  let skip = 0
+  try {
+    while (true) {
+      const res = await db
+        .collection(TOMBSTONE_COLLECTION)
+        .field({ key: true })
+        .skip(skip)
+        .limit(batch)
+        .get()
+      const rows = res.data || []
+      for (const row of rows) {
+        const nk = normalizeKey(row.key)
+        if (nk) keys.add(nk)
+      }
+      if (rows.length < batch) break
+      skip += batch
+      if (skip > 8000) break
+    }
+  } catch (e) {
+    // 集合尚未创建时视为无墓碑，不影响同步主流程
+    console.warn('[syncRocketCosIndex] load tombstones failed:', e.message || e)
+  }
+  return keys
 }
 
 async function promisePool(items, concurrency, iterator) {
@@ -144,7 +203,10 @@ async function upsertAndPrune(cosFiles) {
     if (nk) cosByNorm.set(nk, f)
   }
 
-  const docs = await loadAllRocketConfigMediaDocs()
+  const [docs, tombstoneKeys] = await Promise.all([
+    loadAllRocketConfigMediaDocs(),
+    loadRocketTombstoneKeySet()
+  ])
   const byNorm = new Map()
   for (const d of docs) {
     const nk = normalizeKey(d.key)
@@ -154,7 +216,8 @@ async function upsertAndPrune(cosFiles) {
   let added = 0
   let updated = 0
   let removed = 0
-  let skippedManual = 0
+  let skippedProtected = 0
+  let skippedTombstone = 0
 
   const toAdd = []
   const toUpdate = []
@@ -163,18 +226,24 @@ async function upsertAndPrune(cosFiles) {
   for (const [nk, cosRow] of cosByNorm) {
     const existing = byNorm.get(nk)
     if (!existing) {
+      // 后台已删记录：即使 COS 文件还在，也不重新入库
+      if (tombstoneKeys.has(nk)) {
+        skippedTombstone += 1
+        continue
+      }
       toAdd.push({ nk, cosRow })
       continue
     }
 
-    if (existing.sourceTag === 'manual') {
-      skippedManual += 1
+    // manual / admin-removed：保留管理员意图，禁止同步覆盖或复活
+    if (isProtectedSourceTag(existing.sourceTag)) {
+      skippedProtected += 1
       continue
     }
 
+    // 只同步 url / sourceTag；绝不改写 enabled（禁用后不得被同步重新打开）
     const needUpdate =
       existing.url !== cosRow.url ||
-      existing.enabled === false ||
       existing.sourceTag !== SOURCE_TAG
 
     if (needUpdate) {
@@ -207,9 +276,9 @@ async function upsertAndPrune(cosFiles) {
     await db.collection(COLLECTION).doc(_id).update({
       data: {
         url: cosRow.url,
-        enabled: true,
         sourceTag: SOURCE_TAG,
         cosSyncedAt: Date.now()
+        // 不写 enabled：保留管理员关闭/开启状态
       }
     })
     updated += 1
@@ -220,7 +289,16 @@ async function upsertAndPrune(cosFiles) {
     removed += 1
   })
 
-  return { added, updated, removed, skippedManual, totalCos: cosFiles.length }
+  return {
+    added,
+    updated,
+    removed,
+    skippedProtected,
+    skippedTombstone,
+    skippedManual: skippedProtected,
+    totalCos: cosFiles.length,
+    tombstones: tombstoneKeys.size
+  }
 }
 
 exports.main = async (event) => {

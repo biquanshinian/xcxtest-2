@@ -1,4 +1,5 @@
 const { getUiShellLayout } = require('../../utils/layout.js')
+const { getSystemInfo } = require('../../utils/system.js')
 const { cloudEnv } = require('../../utils/config.js')
 const { getThemeClassSync, isLightSync, getPageBgSync } = require('../../utils/theme.js')
 const { isFeatureEnabled } = require('../../utils/feature-flags.js')
@@ -67,32 +68,39 @@ Page({
     starPoints: [],
     activeWishId: '',
     activeWish: null,
-    musicPlaying: false,
+    musicPlaying: true,
     wallPage: 0,
     hasMore: true,
     loadingMore: false,
     themeClass: '',
     themeLight: false,
     pageBgColor: '#000000',
+    menuButtonWidth: 88,
+    isDirectEntry: false,
     /** 功能开关未确认前不渲染详情，避免审核直达先看到完整页 */
     featureAllowed: false
   },
 
   onLoad(options) {
-    const deviceInfo = wx.getDeviceInfo()
-    const windowInfo = wx.getWindowInfo()
-    const systemInfo = Object.assign({}, deviceInfo, windowInfo, wx.getAppBaseInfo())
+    const systemInfo = getSystemInfo()
     const uiShellLayout = getUiShellLayout(systemInfo)
     const pages = typeof getCurrentPages === 'function' ? getCurrentPages() : []
+    let menuButtonWidth = 88
+    try {
+      const rect = wx.getMenuButtonBoundingClientRect()
+      if (rect && rect.width) menuButtonWidth = Math.max(88, Math.ceil(rect.width + 24))
+    } catch (_) {}
     this.setData({
       statusBarHeight: uiShellLayout.statusBarHeight,
       navPlaceholderHeight: uiShellLayout.navPlaceholderHeight,
+      menuButtonWidth,
       isDirectEntry: pages.length <= 1,
       themeClass: getThemeClassSync(),
       themeLight: isLightSync(),
       pageBgColor: getPageBgSync(),
       featureAllowed: false
     })
+    try { wx.setNavigationBarTitle({ title: '月愿计划', fail() {} }) } catch (_) {}
 
     // 先门禁再初始化：读不到配置 / 显式关闭都拦截（failClosed）
     isFeatureEnabled('enableLunarWishes', { failClosed: true })
@@ -129,8 +137,15 @@ Page({
     this._bgAudio.src = 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E9%9F%B3%E9%A2%91/1776023812613_6q1kna.MP3'
     this._bgAudio.loop = true
     this._bgAudio.volume = 1
-    this._bgAudio.onError((e) => console.error('[Music] error:', e))
-    this._bgAudio.onCanplay(() => { this._audioReady = true })
+    this._bgAudio.onError((e) => {
+      console.error('[Music] error:', e)
+      if (this.data.musicPlaying) this.setData({ musicPlaying: false })
+    })
+    this._bgAudio.onCanplay(() => {
+      this._audioReady = true
+      if (this.data.musicPlaying) this._bgAudio.play()
+    })
+    this._bgAudio.play()
 
     this._restoreOrCheckWish()
     this._loadStats()
@@ -388,6 +403,13 @@ Page({
       }
     })
     this.setData({ starPoints: stars })
+  },
+
+  onCollectScroll() {
+    try {
+      const { pulseNasaFloatOnScroll } = require('../../utils/nasa-float-scroll.js')
+      pulseNasaFloatOnScroll(this)
+    } catch (e) {}
   },
 
   loadMore() {

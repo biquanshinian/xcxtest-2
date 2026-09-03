@@ -7,6 +7,8 @@
 const config = require('./config.js')
 const { getCachedRocketConfig, getCachedMediaImage } = require('./icon-cache.js')
 const { toCdnUrl } = require('./cos-url.js')
+const rocket3dReady = require('./rocket-3d-ready.js')
+const { parseRocket3dGlbKey } = require('./rocket-3d-slug.js')
 
 const folderConfig = {
   'images/monitor/news': {
@@ -30,26 +32,24 @@ const folderConfig = {
 const cloudMediaMap = {}
 
 let runtimeCloudMediaMap = {}
+let _pendingRocket3dCredits = {}
 let cloudMapLoaded = false
 /** 本地媒体映射缓存已被标记失效（异步删除尚未完成时挡住旧缓存） */
 let _localMediaMapCacheInvalid = false
 /** 并发 `loadCloudMediaMap` 合并为同一 Promise，避免早退拿到空 map */
 let loadCloudMediaMapInFlight = null
+let _mediaMapNetworkAt = 0
+let _mediaMapRevalidateInFlight = null
 // canonical key → normalized key 索引（O(1) 模糊查找，替代遍历）
 let canonicalKeyIndex = {}
+/** 火箭配置图：去扩展名 stem canonical → key（字典写 .jpg、COS 实为 .png 时仍能命中） */
+let rocketStemKeyIndex = {}
 
 const MEDIA_MAP_CACHE_KEY = '_media_map_local_cache'
 const MEDIA_MAP_CACHE_TTL = 6 * 60 * 60 * 1000
+/** 运营在后台删 3D 模型后，详情页显式 revalidate 的最短间隔 */
+const MEDIA_MAP_REVALIDATE_MS = 30 * 1000
 const USER_DATA_GATEWAY_FN = 'userDataGateway'
-
-/** 与云函数 syncRocketCosIndex 配合：定时拉取 COS 火箭图目录写入 media_assets */
-const ROCKET_COS_SYNC_STORAGE_KEY = '_rocket_cos_sync_last_ok'
-const ROCKET_COS_SYNC_MIN_INTERVAL_MS = 6 * 60 * 1000
-const ROCKET_COS_SYNC_FN = 'syncRocketCosIndex'
-
-// ── 内存缓存：避免 maybeInvokeRocketCosSync 重复读 storage ──
-let _memRocketCosSyncLastOk = undefined  // number | undefined
-let _rocketCosSyncInFlight = null        // Promise | null（并发去重）
 
 function storageGetAsync(key) {
   return new Promise((resolve) => {
@@ -121,14 +121,45 @@ function canonicalizeMediaKey(key) {
     .trim()
 }
 
+/** 火箭配置图 key 去扩展名后的 canonical（「Long March 7A.jpg」≡「Long March 7A.png」）
+ *  原图 / 机娘分前缀入库，避免跨风格 stem 碰撞。
+ */
+function rocketStemCanonicalKey(key) {
+  const k = normalizeKey(key)
+  if (!k) return ''
+  let prefix = ''
+  if (k.startsWith('火箭配置图-机娘/')) prefix = '火箭配置图-机娘/'
+  else if (k.startsWith('火箭配置图/')) prefix = '火箭配置图/'
+  else return ''
+  const stem = k.slice(prefix.length).replace(/\.(jpe?g|png|webp|gif)$/i, '')
+  return canonicalizeMediaKey(prefix + stem)
+}
+
 /** 重建 canonical key 索引（加载/更新 runtimeCloudMediaMap 后调用） */
 function rebuildCanonicalIndex() {
   const idx = {}
+  const stemIdx = {}
   for (const k of Object.keys(runtimeCloudMediaMap || {})) {
     const ck = canonicalizeMediaKey(k)
     if (!idx[ck]) idx[ck] = k
+    const stemCk = rocketStemCanonicalKey(k)
+    if (stemCk && !stemIdx[stemCk]) stemIdx[stemCk] = k
   }
   canonicalKeyIndex = idx
+  rocketStemKeyIndex = stemIdx
+  _resetFuzzyRocketUrlMemo()
+  rocket3dReady.ingestMediaMap(runtimeCloudMediaMap, _pendingRocket3dCredits)
+}
+
+/** findFuzzyRocketConfigUrl 结果 memo：列表里同名火箭（Falcon 9 等）重复解析时避免反复全量扫描打分。
+ *  map 任何变更（rebuildCanonicalIndex）即整体失效；未命中（''）也缓存，防止回退链路重复扫描。 */
+let _fuzzyRocketUrlMemo = Object.create(null)
+let _fuzzyRocketUrlMemoCount = 0
+const FUZZY_ROCKET_MEMO_MAX = 400
+
+function _resetFuzzyRocketUrlMemo() {
+  _fuzzyRocketUrlMemo = Object.create(null)
+  _fuzzyRocketUrlMemoCount = 0
 }
 
 function logMediaKeyHealthCheck() {
@@ -183,15 +214,15 @@ function logStarshipKeyDiagnosis() {
 
   logDebug('[image-config] Starship V3 key诊断(开发环境)', {
     runtimeMapSize: runtimeKeys.length,
-    rocketKeyCount: runtimeKeys.filter((k) => /^火箭配置图\//.test(k)).length,
-    rocketKeySamples: runtimeKeys.filter((k) => /^火箭配置图\//.test(k)).slice(0, 10),
+    rocketKeyCount: runtimeKeys.filter((k) => /^火箭配置图\//.test(k) || /^火箭配置图-机娘\//.test(k)).length,
+    rocketKeySamples: runtimeKeys.filter((k) => /^火箭配置图\//.test(k) || /^火箭配置图-机娘\//.test(k)).slice(0, 10),
     diagnosisRows
   })
 
   try {
     logDebug('[image-config] Starship V3 key诊断JSON', JSON.stringify({
       runtimeMapSize: runtimeKeys.length,
-      rocketKeyCount: runtimeKeys.filter((k) => /^火箭配置图\//.test(k)).length,
+      rocketKeyCount: runtimeKeys.filter((k) => /^火箭配置图\//.test(k) || /^火箭配置图-机娘\//.test(k)).length,
       diagnosisRows
     }))
   } catch (e) {
@@ -207,74 +238,6 @@ function normalizeLocalPath(folder, fileName) {
 function setCloudMediaMap(map = {}) {
   runtimeCloudMediaMap = { ...runtimeCloudMediaMap, ...map }
   rebuildCanonicalIndex()
-}
-
-function invalidateLocalMediaMapCache() {
-  cloudMapLoaded = false
-  // 删除改异步；用内存标记挡住「删除完成前 loadCloudMediaMap 又读到旧缓存」的竞态
-  _localMediaMapCacheInvalid = true
-  try {
-    wx.removeStorage({ key: MEDIA_MAP_CACHE_KEY, fail: () => {} })
-  } catch (e) {}
-}
-
-/**
- * 节流调用云函数：列举 COS「火箭配置图/」并写入 media_assets，便于 canonical 模糊匹配
- * @returns {Promise<number>} media_assets 变更条数（add+update+remove），未调用云函数时为 0
- */
-async function maybeInvokeRocketCosSync() {
-  if (!config.imageCDN || !config.imageCDN.enabled) return 0
-  if (!wx.cloud || typeof wx.cloud.callFunction !== 'function') return 0
-  // in-flight 锁：并发调用共享同一次 storage 读 + 云函数调用，
-  // 避免 _memRocketCosSyncLastOk 未就绪时各自发起一次 getStorage（启动阶段可达 6 次）
-  if (_rocketCosSyncInFlight) return _rocketCosSyncInFlight
-  _rocketCosSyncInFlight = (async () => {
-    try {
-      // 先查内存缓存
-      let last = _memRocketCosSyncLastOk
-      if (last === undefined) {
-        last = await new Promise((resolve) => {
-          wx.getStorage({
-            key: ROCKET_COS_SYNC_STORAGE_KEY,
-            success: (res) => resolve(Number(res.data || 0)),
-            fail: () => resolve(0)
-          })
-        })
-        _memRocketCosSyncLastOk = last
-      }
-      if (last && Date.now() - last < ROCKET_COS_SYNC_MIN_INTERVAL_MS) return 0
-      const res = await wx.cloud.callFunction({
-        name: ROCKET_COS_SYNC_FN,
-        data: { from: 'miniprogram' }
-      })
-      const result = res && res.result
-      if (result && result.ok) {
-        const now = Date.now()
-        _memRocketCosSyncLastOk = now
-        wx.setStorage({ key: ROCKET_COS_SYNC_STORAGE_KEY, data: now })
-        const touched = (result.added || 0) + (result.updated || 0) + (result.removed || 0)
-        if (touched > 0) {
-          invalidateLocalMediaMapCache()
-        }
-        return touched
-      }
-    } catch (e) {
-      console.warn('[image-config] syncRocketCosIndex:', (e && e.errMsg) || e)
-    }
-    return 0
-  })()
-  try {
-    return await _rocketCosSyncInFlight
-  } finally {
-    _rocketCosSyncInFlight = null
-  }
-}
-
-function scheduleRocketCosReloadIfNeeded(touched) {
-  if (!touched) return
-  setTimeout(() => {
-    loadCloudMediaMap(false).catch(() => {})
-  }, 0)
 }
 
 function normalizeMediaMapFromRows(rows) {
@@ -304,11 +267,59 @@ async function fetchMediaMapViaCloudFunction() {
       const url = typeof r.map[rawKey] === 'string' ? r.map[rawKey].trim() : r.map[rawKey]
       if (key && url) fetchedMap[key] = url
     })
+    const credits = {}
+    const rawCredits = r.rocket3dCredits && typeof r.rocket3dCredits === 'object' ? r.rocket3dCredits : {}
+    Object.keys(rawCredits).forEach((slug) => {
+      const key = String(slug || '').toLowerCase()
+      const credit = String(rawCredits[slug] || '').trim()
+      if (key && credit) credits[key] = credit
+    })
+    _pendingRocket3dCredits = credits
     return fetchedMap
   } catch (e) {
     console.warn('[image-config] getMediaAssetsMap:', (e && e.errMsg) || e)
     return null
   }
+}
+
+async function applyNetworkMediaMap(fetchedMap) {
+  runtimeCloudMediaMap = fetchedMap || {}
+  cloudMapLoaded = true
+  _mediaMapNetworkAt = Date.now()
+  rebuildCanonicalIndex()
+  try {
+    await storageSetAsync(MEDIA_MAP_CACHE_KEY, {
+      data: fetchedMap,
+      credits: _pendingRocket3dCredits,
+      ts: Date.now()
+    })
+    _localMediaMapCacheInvalid = false
+  } catch (e) {}
+  return runtimeCloudMediaMap
+}
+
+/** 后台增删 3D 模型后，前台尽快丢掉本地缓存里的旧条目 */
+function revalidateCloudMediaMap() {
+  if (_mediaMapRevalidateInFlight) return _mediaMapRevalidateInFlight
+  if (_mediaMapNetworkAt && Date.now() - _mediaMapNetworkAt < MEDIA_MAP_REVALIDATE_MS) {
+    return Promise.resolve(runtimeCloudMediaMap)
+  }
+  _mediaMapRevalidateInFlight = (async () => {
+    try {
+      let fetchedMap = await fetchMediaMapViaCloudFunction()
+      if (!fetchedMap || !Object.keys(fetchedMap).length) {
+        fetchedMap = await fetchMediaMapViaDbPaginated()
+      }
+      if (!fetchedMap) return runtimeCloudMediaMap
+      return await applyNetworkMediaMap(fetchedMap)
+    } catch (e) {
+      console.warn('[image-config] revalidateCloudMediaMap:', (e && e.errMsg) || e)
+      return runtimeCloudMediaMap
+    } finally {
+      _mediaMapRevalidateInFlight = null
+    }
+  })()
+  return _mediaMapRevalidateInFlight
 }
 
 /** 客户端分页读 media_assets（云函数不可用时的轻量 fallback） */
@@ -320,12 +331,13 @@ async function fetchMediaMapViaDbPaginated() {
   let skip = 0
   const pageSize = 20
   const fetchedMap = {}
+  const credits = {}
   let pageIndex = 0
 
   while (hasMore) {
     const res = await db.collection(collectionName)
       .where({ enabled: true })
-      .field({ key: true, url: true })
+      .field({ key: true, url: true, credit: true })
       .orderBy('_id', 'asc')
       .skip(skip)
       .limit(pageSize)
@@ -333,6 +345,11 @@ async function fetchMediaMapViaDbPaginated() {
 
     const rows = (res && res.data) || []
     Object.assign(fetchedMap, normalizeMediaMapFromRows(rows))
+    rows.forEach((item) => {
+      const slug = parseRocket3dGlbKey(item && item.key)
+      const credit = String((item && item.credit) || '').trim()
+      if (slug && credit) credits[slug] = credit
+    })
 
     hasMore = rows.length === pageSize
     skip += rows.length
@@ -341,6 +358,7 @@ async function fetchMediaMapViaDbPaginated() {
       await new Promise((r) => setTimeout(r, 0))
     }
   }
+  _pendingRocket3dCredits = credits
   return fetchedMap
 }
 
@@ -349,7 +367,6 @@ async function loadCloudMediaMap(force = false) {
     return runtimeCloudMediaMap
   }
   if (cloudMapLoaded && !force) {
-    void maybeInvokeRocketCosSync().then(scheduleRocketCosReloadIfNeeded)
     return runtimeCloudMediaMap
   }
   if (loadCloudMediaMapInFlight && !force) {
@@ -363,15 +380,13 @@ async function loadCloudMediaMap(force = false) {
         const cached = await storageGetAsync(MEDIA_MAP_CACHE_KEY)
         if (cached && cached.ts && (Date.now() - cached.ts < MEDIA_MAP_CACHE_TTL)) {
           runtimeCloudMediaMap = cached.data || {}
+          _pendingRocket3dCredits = cached.credits && typeof cached.credits === 'object' ? cached.credits : {}
           cloudMapLoaded = true
           rebuildCanonicalIndex()
-          void maybeInvokeRocketCosSync().then(scheduleRocketCosReloadIfNeeded)
           return runtimeCloudMediaMap
         }
       } catch (e) {}
     }
-
-    await maybeInvokeRocketCosSync()
 
     try {
       let fetchedMap = await fetchMediaMapViaCloudFunction()
@@ -379,14 +394,7 @@ async function loadCloudMediaMap(force = false) {
         fetchedMap = await fetchMediaMapViaDbPaginated()
       }
 
-      runtimeCloudMediaMap = fetchedMap || {}
-      cloudMapLoaded = true
-      rebuildCanonicalIndex()
-
-      try {
-        await storageSetAsync(MEDIA_MAP_CACHE_KEY, { data: fetchedMap, ts: Date.now() })
-        _localMediaMapCacheInvalid = false
-      } catch (e) {}
+      await applyNetworkMediaMap(fetchedMap || {})
 
       logMediaKeyHealthCheck()
       logStarshipKeyDiagnosis()
@@ -417,6 +425,8 @@ function getCloudUrlByKey(key) {
 
   let fuzzyRuntimeUrl = ''
   let fuzzyStaticUrl = ''
+  let stemRuntimeUrl = ''
+  let stemStaticUrl = ''
 
   if (!runtimeUrl && !staticUrl) {
     const targetCanonical = canonicalizeMediaKey(normalizedKey)
@@ -436,17 +446,37 @@ function getCloudUrlByKey(key) {
         }
       }
     }
+
+    // 火箭配置图：扩展名无关（字典 .jpg ↔ 后台 .png）；原图 / 机娘均走 stem 索引
+    if (!fuzzyRuntimeUrl && !fuzzyStaticUrl && isRocketConfigMediaKey(normalizedKey)) {
+      const stemCk = rocketStemCanonicalKey(normalizedKey)
+      const stemKey = stemCk ? rocketStemKeyIndex[stemCk] : ''
+      if (stemKey) {
+        stemRuntimeUrl = runtimeCloudMediaMap[stemKey] || ''
+      }
+      if (!stemRuntimeUrl && stemCk) {
+        const staticKeys = Object.keys(cloudMediaMap || {})
+        for (const itemKey of staticKeys) {
+          if (rocketStemCanonicalKey(itemKey) === stemCk) {
+            stemStaticUrl = cloudMediaMap[itemKey] || ''
+            break
+          }
+        }
+      }
+    }
   }
 
-  const finalUrl = runtimeUrl || staticUrl || fuzzyRuntimeUrl || fuzzyStaticUrl || ''
+  const finalUrl = runtimeUrl || staticUrl || fuzzyRuntimeUrl || fuzzyStaticUrl || stemRuntimeUrl || stemStaticUrl || ''
 
-  if (shouldLogDebug() && /^火箭配置图\//.test(normalizedKey)) {
+  if (shouldLogDebug() && isRocketConfigMediaKey(normalizedKey)) {
     logDebug('[image-config] 火箭图key解析', {
       key: normalizedKey,
       hitRuntime: !!runtimeUrl,
       hitStatic: !!staticUrl,
       hitFuzzyRuntime: !!fuzzyRuntimeUrl,
       hitFuzzyStatic: !!fuzzyStaticUrl,
+      hitStemRuntime: !!stemRuntimeUrl,
+      hitStemStatic: !!stemStaticUrl,
       hasUrl: !!finalUrl
     })
   }
@@ -484,10 +514,11 @@ function extractRocketModelTokens(norm) {
 }
 
 /** COS 文件名常见后缀：Atlas V 551 rocket launch.webp → stem「火箭名」参与匹配 */
-function stemFromRocketConfigFilename(mediaKey) {
+function stemFromRocketConfigFilename(mediaKey, keyPrefix) {
   const k = normalizeKey(mediaKey)
-  if (!k || !/^火箭配置图\//.test(k)) return ''
-  let stem = k.replace(/^火箭配置图\//i, '').replace(/\.(jpe?g|png|webp|gif)$/i, '').trim()
+  const prefix = keyPrefix || '火箭配置图/'
+  if (!k || !k.startsWith(prefix)) return ''
+  let stem = k.slice(prefix.length).replace(/\.(jpe?g|png|webp|gif)$/i, '').trim()
   stem = stem.replace(/\s*rocket\s*launch\s*$/i, '').trim()
   return stem
 }
@@ -504,17 +535,34 @@ function extractDigitRunsFromRocketNorm(rocketNorm) {
   return set
 }
 
+function isRocketConfigMediaKey(normalizedKey) {
+  const k = normalizeKey(normalizedKey)
+  return k.startsWith('火箭配置图/') || k.startsWith('火箭配置图-机娘/')
+}
+
 /**
- * 在已加载的 media_assets 映射中，按火箭展示名模糊匹配「火箭配置图/」下的文件 stem
+ * 在已加载的 media_assets 映射中，按火箭展示名模糊匹配指定前缀下的文件 stem
  *（同步自 COS 的 key 如「KSLV-2 rocket launch.webp」可与 API 的「KSLV-II」等对齐）
+ * @param {string} rocketName
+ * @param {{ keyPrefix?: string }} [options] keyPrefix 默认「火箭配置图/」；机娘传「火箭配置图-机娘/」
  */
-function findFuzzyRocketConfigUrl(rocketName) {
+function findFuzzyRocketConfigUrl(rocketName, options) {
   if (!config.imageCDN || !config.imageCDN.enabled) return ''
   const rocketRaw = String(rocketName || '').trim()
   const rocketNorm = normalizeRocketNameForFileMatch(rocketRaw)
   if (!rocketNorm || rocketNorm.length < 2) return ''
 
+  const keyPrefix =
+    options && typeof options.keyPrefix === 'string' && options.keyPrefix
+      ? options.keyPrefix
+      : '火箭配置图/'
+
   const rocketCompact = compactRocketMatchStr(rocketRaw)
+
+  const memoKey = keyPrefix + '\u0001' + rocketNorm + '\u0001' + rocketCompact
+  const memoHit = _fuzzyRocketUrlMemo[memoKey]
+  if (memoHit !== undefined) return memoHit
+
   const rocketModels = extractRocketModelTokens(rocketNorm)
   const FUZZY_MIN_SCORE = 340000
 
@@ -525,9 +573,9 @@ function findFuzzyRocketConfigUrl(rocketName) {
   const map = runtimeCloudMediaMap || {}
   for (const rawKey of Object.keys(map)) {
     const k = normalizeKey(rawKey)
-    if (!/^火箭配置图\//.test(k)) continue
+    if (!k.startsWith(keyPrefix)) continue
 
-    const stem = stemFromRocketConfigFilename(k)
+    const stem = stemFromRocketConfigFilename(k, keyPrefix)
     if (!stem) continue
 
     const stemNorm = normalizeRocketNameForFileMatch(stem)
@@ -558,7 +606,14 @@ function findFuzzyRocketConfigUrl(rocketName) {
     } else if (rocketCompact.length >= 3 && stemCompact === rocketCompact) {
       score = 960000
     } else if (rocketNorm.length >= 3 && (stemNorm.startsWith(rocketNorm + ' ') || stemNorm === rocketNorm)) {
+      // 前缀命中：惩罚任务特化后缀（如 CZ-7A →「cz 7a yg 45」），避免盖过通用构型图
       score = 820000
+      if (stemNorm.startsWith(rocketNorm + ' ')) {
+        const extraTokens = stemNorm.slice(rocketNorm.length).trim().split(/\s+/).filter(Boolean)
+        if (extraTokens.length > 0) {
+          score -= Math.min(300000, extraTokens.length * 90000)
+        }
+      }
     } else if (stemNorm.length >= 3 && (rocketNorm.startsWith(stemNorm + ' ') || rocketNorm === stemNorm)) {
       score = 750000
     } else if (rocketNorm.length >= 3 && stemNorm.includes(rocketNorm)) {
@@ -600,6 +655,9 @@ function findFuzzyRocketConfigUrl(rocketName) {
     }
   }
 
+  if (_fuzzyRocketUrlMemoCount >= FUZZY_ROCKET_MEMO_MAX) _resetFuzzyRocketUrlMemo()
+  _fuzzyRocketUrlMemo[memoKey] = bestUrl
+  _fuzzyRocketUrlMemoCount += 1
   return bestUrl
 }
 
@@ -630,9 +688,10 @@ function wrapCosHttpsUrl(url, preset) {
 
 function wrapRocketHttpsUrl(normalizedKey, url) {
   const u = typeof url === 'string' ? url.trim() : ''
-  if (!u || !/^火箭配置图\//.test(normalizedKey || '')) return u
+  if (!u || !isRocketConfigMediaKey(normalizedKey || '')) return u
   if (!/^https?:\/\//i.test(u)) return u
-  return getCachedRocketConfig(wrapCosHttpsUrl(u))
+  // 只走 rocket_config_cache，禁止先 wrapCosHttpsUrl 再套一层（会双通道 downloadFile）
+  return getCachedRocketConfig(toCdnUrl(u))
 }
 
 function resolveMediaUrl(key, localFallback = '') {
@@ -642,7 +701,7 @@ function resolveMediaUrl(key, localFallback = '') {
     const cloudUrl = getCloudUrlByKey(normalizedKey)
     const mediaPreset = /^首页轮播图\//.test(normalizedKey) ? 'medium' : 'thumb'
     if (cloudUrl) {
-      if (/^火箭配置图\//.test(normalizedKey)) {
+      if (isRocketConfigMediaKey(normalizedKey)) {
         return wrapRocketHttpsUrl(normalizedKey, cloudUrl)
       }
       return wrapCosHttpsUrl(cloudUrl, mediaPreset)
@@ -650,7 +709,7 @@ function resolveMediaUrl(key, localFallback = '') {
 
     // media_assets 未命中时按 key 拼公开 URL：火箭图走 COS，其余走云开发存储 baseUrl
     if (config.imageCDN && config.imageCDN.enabled) {
-      if (/^火箭配置图\//.test(normalizedKey)) {
+      if (isRocketConfigMediaKey(normalizedKey)) {
         const base = getRocketImageCdnRoot()
         if (base) return wrapRocketHttpsUrl(normalizedKey, `${base}/${encodeURI(normalizedKey)}`)
       } else if (/^(首页轮播图|开屏动画)\//.test(normalizedKey)) {
@@ -699,8 +758,14 @@ function getFolderImages(folder) {
     .filter(Boolean)
 }
 
+function isCloudMediaMapReady() {
+  return !!cloudMapLoaded
+}
+
 module.exports = {
   loadCloudMediaMap,
+  revalidateCloudMediaMap,
+  isCloudMediaMapReady,
   resolveMediaUrl,
   findFuzzyRocketConfigUrl
 }

@@ -1,10 +1,10 @@
 /* orders.wxss — 订单记录（暗色玻璃风格，与星际通行证页一致） */
 .container {
-  background: #000000;
+  background: #0B0C0E;
 }
 
 .content-scroll {
-  padding: 0 30rpx;
+  padding: 0 32rpx;
 }
 
 /* ── 加载骨架 ── */
@@ -76,7 +76,6 @@
   padding: 28rpx 20rpx;
   border-radius: 20rpx;
   background: rgba(255, 255, 255, 0.04);
-  border: 1rpx solid rgba(255, 255, 255, 0.08);
 }
 
 .od-summary-item {
@@ -121,8 +120,7 @@
   padding: 24rpx;
   border-radius: 20rpx;
   background: rgba(255, 255, 255, 0.04);
-  border: 1rpx solid rgba(255, 255, 255, 0.08);
-  margin-bottom: 20rpx;
+  margin-bottom: 24rpx;
   transition: transform 0.12s ease, opacity 0.12s ease;
 }
 
@@ -206,9 +204,22 @@
 }
 
 .od-type-tag--product {
-  color: #5ac8fa;
-  background: rgba(90, 200, 250, 0.12);
-  border: 1rpx solid rgba(90, 200, 250, 0.28);
+  color: #3B82F6;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1rpx solid rgba(59, 130, 246, 0.28);
+}
+
+.od-type-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.od-type-tag--apple {
+  color: #a78bfa;
+  background: rgba(167, 139, 250, 0.12);
+  border: 1rpx solid rgba(167, 139, 250, 0.28);
 }
 
 .od-amount-col {
@@ -305,8 +316,6 @@
 }
 .theme-light .od-summary {
   background: var(--color-bg-card);
-  border-color: var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 .theme-light .od-summary-item + .od-summary-item {
   border-left-color: var(--color-divider);
@@ -322,8 +331,6 @@
 }
 .theme-light .od-card {
   background: var(--color-bg-card);
-  border-color: var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 .theme-light .od-name {
   color: var(--color-text-primary);

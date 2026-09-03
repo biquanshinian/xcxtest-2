@@ -12,21 +12,26 @@ const ROUTES = {
   PROFILE: '/pages/profile/profile',
 
   // ── 主包详情页 ──
-  INDEX_MISSION_DETAIL: '/subpackages/index-extra/mission-detail',
   GLOBAL_LAUNCH_STATS: '/subpackages/index-extra/global-launch-stats',
-  // 临时活动页：NASA × FIFA 球迷节（2026-06-11 ~ 07-19），活动下线后可整体删除
-  WORLDCUP_EVENT: '/subpackages/index-extra/worldcup-event',
-  PREFERENCES: '/subpackages/profile-extra/preferences/preferences',
   TIMELINE: '/subpackages/profile-extra/timeline/timeline',
+  VOTE_RECORD: '/subpackages/profile-extra/vote-record/vote-record',
+  DAILY_QUIZ: '/subpackages/profile-extra/daily-quiz/daily-quiz',
+  BADGES: '/subpackages/profile-extra/badges/badges',
+  FAVORITES: '/subpackages/profile-extra/favorites/favorites',
   YEAR_REVIEW: '/subpackages/profile-extra/year-review/year-review',
   EVENT_DETAIL: '/subpackages/progress-extra/event-detail',
+  HARDWARE_LIST: '/subpackages/progress-extra/hardware-list',
+  HARDWARE_DETAIL: '/subpackages/progress-extra/hardware-detail',
   STARBASE_MAP: '/subpackages/progress-extra/starbase-map',
   ROAD_CLOSURE_MAP: '/subpackages/progress-extra/road-closure-map',
   ROAD_CLOSURE_DETAIL: '/subpackages/progress-extra/road-closure-detail',
   NEWS_DETAIL: '/subpackages/news-extra/detail',
+  PHOTO_DETAIL: '/subpackages/news-extra/photo-detail',
+  PHOTO_UPLOAD: '/subpackages/news-extra/photo-upload',
 
   // ── 分包页 ──
   BRIEFING: '/subpackages/shared/briefing',
+  AI_CHAT: '/subpackages/shared/ai-chat',
   MISSION_DETAIL: '/pages/mission-detail/mission-detail',
   LAUNCH_UPDATES: '/pages/mission-detail/launch-updates',
   SEARCH: '/pages/search/search',
@@ -59,7 +64,12 @@ const ROUTES = {
   BOOSTER_GENEALOGY: '/subpackages/monitor-pages/booster-genealogy',
   ROCKET_MODEL_DETAIL: '/subpackages/monitor-pages/rocket-model-detail',
   ARTEMIS_DETAIL: '/subpackages/monitor-pages/artemis-detail',
-  ORBITAL_DATA_CENTER: '/subpackages/monitor-pages/orbital-data-center/orbital-data-center'
+  ROMAN_DETAIL: '/subpackages/monitor-pages/roman-detail',
+  ORBITAL_DATA_CENTER: '/subpackages/monitor-pages/orbital-data-center/orbital-data-center',
+  VEHICLE_TRACKER: '/subpackages/monitor-pages/vehicle-tracker/vehicle-tracker',
+  // SPACE_NOTICES_FEATURE — 可整块移除
+  SPACE_NOTICE_LIST: '/subpackages/monitor-pages/space-notices/entry-list',
+  SPACE_NOTICE_MAP: '/subpackages/monitor-pages/space-notices/notice-map'
 }
 
 /**

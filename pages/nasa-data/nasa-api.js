@@ -2,14 +2,40 @@
  * NASA 数据 API 封装
  * 1. 近地天体 (CAD API) - ssd-api.jpl.nasa.gov
  * 2. 地球自然事件 (EONET API) - eonet.gsfc.nasa.gov
- * 3. 火星车照片 (Nebulum API) - rovers.nebulum.one
+ * 3. 火星车照片 (Nebulum API) - 优先经 Worker 代理（api.marsx.com.cn/mars-rovers），失败回退直连 rovers.nebulum.one
  */
 
 const { formatDate } = require('../../utils/util.js')
+const { workerProxyUrl } = require('../../utils/config.js')
+
+function isRetryableNetworkError(err) {
+  const msg = String((err && (err.message || err.errMsg)) || err || '')
+  if (/domain|600002|url not in domain/i.test(msg)) return false
+  // HTTP 5xx 是服务端瞬时故障，与超时/断连同样值得重试；4xx（参数/权限）重试无意义
+  return /timeout|TIMED_OUT|fail|network|ERR_|abort|HTTP 5\d\d/i.test(msg) || !msg
+}
+
+function normalizeRequestError(err) {
+  const msg = String((err && (err.message || err.errMsg)) || err || '')
+  if (/domain|600002|url not in domain/i.test(msg)) {
+    return new Error('request:domain not configured')
+  }
+  if (/timeout|TIMED_OUT/i.test(msg)) {
+    const e = new Error('请求超时，数据源较慢请稍后重试')
+    e.code = 'timeout'
+    return e
+  }
+  if (/HTTP \d+/.test(msg)) return err instanceof Error ? err : new Error(msg)
+  const e = new Error(msg || '网络请求失败')
+  e.code = 'network'
+  return e
+}
 
 function requestJsonData(options) {
   var url = options.url
   var timeout = options.timeout || 15000
+  var retries = options.retries != null ? options.retries : 0
+  var attempt = options._attempt || 0
   return new Promise(function (resolve, reject) {
     wx.request({
       url: url,
@@ -17,7 +43,12 @@ function requestJsonData(options) {
       timeout: timeout,
       success: function (res) {
         if (res.statusCode >= 200 && res.statusCode < 300) {
-          resolve(res.data)
+          var data = res.data
+          // 部分源站（如 Nebulum 直连）返回体带 BOM，wx.request 解析失败会回落成字符串
+          if (typeof data === 'string') {
+            try { data = JSON.parse(data.replace(/^\uFEFF/, '')) } catch (e) {}
+          }
+          resolve(data)
         } else {
           reject(new Error('HTTP ' + res.statusCode))
         }
@@ -26,28 +57,39 @@ function requestJsonData(options) {
         reject(err || new Error('request:fail'))
       }
     })
+  }).catch(function (err) {
+    if (attempt < retries && isRetryableNetworkError(err)) {
+      var delay = 800 * (attempt + 1)
+      return new Promise(function (r) { setTimeout(r, delay) }).then(function () {
+        return requestJsonData({
+          url: url,
+          timeout: timeout,
+          retries: retries,
+          _attempt: attempt + 1
+        })
+      })
+    }
+    return Promise.reject(normalizeRequestError(err))
   })
 }
 
-function simpleGet(url, params) {
+function simpleGet(url, params, timeout, retries) {
   params = params || {}
   const qs = Object.keys(params)
     .filter(function (k) { return params[k] !== '' && params[k] != null })
     .map(function (k) { return k + '=' + encodeURIComponent(params[k]) })
     .join('&')
   const fullUrl = qs ? url + '?' + qs : url
-  return requestJsonData({ url: fullUrl, timeout: 15000 }).catch(function (err) {
-    const msg = String((err && (err.message || err.errMsg)) || err || '')
-    if (/domain|600002|url not in domain/i.test(msg)) {
-      return Promise.reject(new Error('request:domain not configured'))
-    }
-    return Promise.reject(err)
+  return requestJsonData({
+    url: fullUrl,
+    timeout: timeout || 15000,
+    retries: retries != null ? retries : 0
   })
 }
 
 function todayStr() {
   const d = new Date()
-  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 // 1 AU ≈ 1.496 亿公里
@@ -150,13 +192,30 @@ function parseEONETEvents(raw) {
   })
 }
 
-/** 火星车照片 */
+/**
+ * 火星车照片请求：优先走 Worker 边缘代理（境内可达、带 10min 边缘缓存），
+ * 代理失败再直连国外 Nebulum 兜底。空结果由页面层回退日期；网络失败由页面层走本地缓存。
+ */
+const ROVER_PROXY_BASE = (workerProxyUrl || 'https://api.marsx.com.cn') + '/mars-rovers/rovers/'
+const ROVER_DIRECT_BASE = 'https://rovers.nebulum.one/api/v1/rovers/'
+
+function roverGet(pathSuffix, params) {
+  return simpleGet(ROVER_PROXY_BASE + pathSuffix, params, 10000, 1)
+    .catch(function () {
+      return simpleGet(ROVER_DIRECT_BASE + pathSuffix, params, 15000, 0)
+    })
+}
+
 function getRoverPhotos(rover, options = {}) {
-  const base = `https://rovers.nebulum.one/api/v1/rovers/${rover}/photos`
   const params = options.sol != null
     ? { sol: options.sol }
     : { earth_date: options.earthDate || todayStr() }
-  return simpleGet(base, params)
+  return roverGet(`${rover}/photos`, params)
+}
+
+/** 最新照片（减少「今天无图」空请求） */
+function getRoverLatestPhotos(rover) {
+  return roverGet(`${rover}/latest_photos`, {})
 }
 
 /** 相机名称中英对照 */
@@ -178,10 +237,13 @@ const CAMERA_NAMES = {
   LCAM: '着陆相机', PIXL_MCC: 'PIXL 微环境相机'
 }
 
-/** 解析火星车照片 */
+/** 解析火星车照片（兼容 /photos 的 photos 与 /latest_photos 的 latest_photos） */
 function parseRoverPhotos(raw) {
-  if (!raw || !raw.photos) return []
-  return raw.photos.map(p => {
+  if (!raw) return []
+  const list = Array.isArray(raw.photos)
+    ? raw.photos
+    : (Array.isArray(raw.latest_photos) ? raw.latest_photos : [])
+  return list.map(p => {
     const camName = p.camera ? p.camera.name : ''
     return {
       id: p.id,
@@ -200,6 +262,6 @@ function parseRoverPhotos(raw) {
 module.exports = {
   getCloseApproach, parseCADData,
   getEarthEvents, parseEONETEvents, CATEGORY_ICONS,
-  getRoverPhotos, parseRoverPhotos,
+  getRoverPhotos, getRoverLatestPhotos, parseRoverPhotos,
   AU_TO_KM, MOON_DIST_AU
 }

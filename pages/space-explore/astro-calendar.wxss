@@ -1,4 +1,4 @@
-.page { min-height: 100vh; background: #000; color: #fff; }
+.page { min-height: 100vh; background: #0B0C0E; color: #fff; }
 /* 全屏滚动骨架：内容从磨砂导航栏下方穿过（内部导航占位撑开首屏） */
 .page-scroll { height: 100vh; width: 100%; box-sizing: border-box; padding-bottom: env(safe-area-inset-bottom); }
 
@@ -23,14 +23,14 @@
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* 错误 */
-.error-card { display: flex; flex-direction: column; align-items: center; margin: 20rpx 32rpx; padding: 60rpx 32rpx; background: rgba(255,255,255,0.04); border-radius: 20rpx; border: 1px solid rgba(255,255,255,0.06); gap: 20rpx; }
+.error-card { display: flex; flex-direction: column; align-items: center; margin: 20rpx 32rpx; padding: 60rpx 32rpx; background: var(--bg-glass); border-radius: var(--radius-card); gap: 20rpx; }
 .error-icon { font-size: 48rpx; }
 .error-text { font-size: 26rpx; color: #FF453A; text-align: center; }
 .retry-btn { padding: 16rpx 48rpx; border-radius: 24rpx; background: rgba(255,87,51,0.15); border: 1px solid rgba(255,87,51,0.3); }
 .retry-btn text { font-size: 26rpx; color: #FF5733; }
 
 /* APOD 卡片 */
-.apod-card { margin: 0 32rpx 20rpx; background: rgba(255,255,255,0.04); border-radius: 20rpx; border: 1px solid rgba(255,255,255,0.06); overflow: hidden; }
+.apod-card { margin: 0 32rpx 20rpx; background: var(--bg-glass); border-radius: var(--radius-card); overflow: hidden; }
 .apod-image-wrap { position: relative; }
 .apod-image { width: 100%; display: block; }
 .apod-image-overlay { position: absolute; bottom: 0; left: 0; right: 0; padding: 20rpx; background: linear-gradient(transparent, rgba(0,0,0,0.7)); text-align: right; }
@@ -59,7 +59,7 @@
 .sub-header-dot--past { background: rgba(255,255,255,0.2); }
 .sub-header-text { font-size: 24rpx; color: rgba(255,255,255,0.5); }
 
-.event-card { display: flex; align-items: center; gap: 16rpx; margin: 8rpx 32rpx; padding: 24rpx; background: rgba(255,255,255,0.04); border-radius: 16rpx; border: 1px solid rgba(255,255,255,0.06); }
+.event-card { display: flex; align-items: center; gap: 16rpx; margin: 8rpx 32rpx; padding: 24rpx; background: var(--bg-glass); border-radius: var(--radius-card); }
 .event-card--past { opacity: 0.5; }
 .event-left { flex-shrink: 0; }
 .event-icon { font-size: 32rpx; }
@@ -103,8 +103,6 @@
 /* 错误 */
 .theme-light .error-card {
   background: var(--color-bg-card);
-  border-color: var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 .theme-light .retry-btn {
   background: rgba(255, 87, 51, 0.12);
@@ -114,8 +112,6 @@
 /* APOD 卡片（图上浮层 .apod-image-overlay / .apod-image-hint 保持深色压图样式） */
 .theme-light .apod-card {
   background: var(--color-bg-card);
-  border-color: var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 .theme-light .apod-video-placeholder { background: rgba(0, 0, 0, 0.03); }
 .theme-light .video-hint { color: var(--color-text-tertiary); }
@@ -135,8 +131,6 @@
 .theme-light .sub-header-text { color: var(--color-text-tertiary); }
 .theme-light .event-card {
   background: var(--color-bg-card);
-  border-color: var(--color-divider);
-  box-shadow: var(--shadow-card);
 }
 .theme-light .event-title { color: var(--color-text-primary); }
 .theme-light .event-desc { color: var(--color-text-tertiary); }

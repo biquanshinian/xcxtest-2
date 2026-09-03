@@ -3,16 +3,24 @@ const LAUNCH_STATS_CACHE_TTL = 30 * 60 * 1000
 const { fetchLaunchSummaryFromCloud } = require('./launch-stats-cloud.js')
 
 const STARSHIP_STATUS_CACHE_KEY = '_starship_status_local_cache'
-const STARSHIP_STATUS_CACHE_TTL = 10 * 60 * 1000
+// starshipStatus/current 由管理员编辑 + 小时级同步更新，30 分钟探测足够
+const STARSHIP_STATUS_CACHE_TTL = 30 * 60 * 1000
 
-const NSF_STARSHIP_CACHE_KEY = '_nsf_starship_checklist_local_cache_v2'
-const NSF_STARSHIP_CACHE_TTL = 10 * 60 * 1000
+const NSF_STARSHIP_CACHE_KEY = '_nsf_starship_checklist_local_cache_v3'
+// NSF 清单由 syncNextSpaceflightStarshipHourly 每小时同步，本地 TTL 与之对齐
+const NSF_STARSHIP_CACHE_TTL = 60 * 60 * 1000
 
 const NSF_HARDWARE_CACHE_KEY = '_nsf_hardware_local_cache'
 const NSF_HARDWARE_TESTS_CACHE_KEY = '_nsf_hardware_tests_local_cache'
-const NSF_HARDWARE_CACHE_TTL = 10 * 60 * 1000
+// 硬件设施同步服务端内置 6 小时节流，本地 TTL 与之对齐
+const NSF_HARDWARE_CACHE_TTL = 6 * 60 * 60 * 1000
 
-const { mergeNsfChecklistDisplay } = require('./nsf-checklist-merge.js')
+function loadNsfChecklistMerge() {
+  if (typeof require.async === 'function') {
+    return require.async('../subpackages/progress-extra/utils/nsf-checklist-merge.js')
+  }
+  return Promise.resolve(require('../subpackages/progress-extra/utils/nsf-checklist-merge.js'))
+}
 
 // ── 内存缓存层：避免首屏频繁同步读 storage（wx 启动性能告警） ──
 const _memCacheStore = Object.create(null)
@@ -33,12 +41,6 @@ function _writeStorageAsync(key, data) {
   } catch (e) {}
 }
 
-/**
- * 优先从内存命中；内存未命中时改用异步 storage 读，避免阻塞首屏
- * @param {String} key 存储 key
- * @param {Number} ttl 缓存有效期（毫秒）
- * @returns {*|null} 命中则返回 data，否则返回 null
- */
 async function _readCachedAsync(key, ttl) {
   const mem = _memCacheStore[key]
   if (mem && mem.ts && (Date.now() - mem.ts < ttl)) {
@@ -100,10 +102,6 @@ function normalizeNsfChecklistItems(raw) {
   })).filter((row) => row.title)
 }
 
-/**
- * 读取云函数同步的 Next Spaceflight statuses（集合 nextspaceflight_starship_cache / latest）
- * @param {{ skipCache?: boolean }} options
- */
 async function getNsfStarshipChecklistFromDB(options) {
   const skipCache = options && options.skipCache === true
   if (!skipCache) {
@@ -130,6 +128,7 @@ async function getNsfStarshipChecklistFromDB(options) {
       }
     } catch (e2) {}
 
+    const { mergeNsfChecklistDisplay } = await loadNsfChecklistMerge()
     const merged = mergeNsfChecklistDisplay(doc ? doc.statuses : [], overrides)
 
     const payload = {
@@ -164,11 +163,6 @@ function normalizeHardwareVehicles(raw) {
   })).filter((row) => row.name && !Number.isNaN(row.id))
 }
 
-/**
- * 读取云函数同步的 NSF 星舰硬件设施列表（集合 nextspaceflight_hardware_cache / vehicles）
- * @param {{ skipCache?: boolean }} options
- * @returns {Promise<{ vehicles: any[], updatedAtMs: number, fetchError: string }>}
- */
 async function getStarshipHardwareFromDB(options) {
   const skipCache = options && options.skipCache === true
   if (!skipCache) {
@@ -197,11 +191,6 @@ async function getStarshipHardwareFromDB(options) {
   }
 }
 
-/**
- * 读取 NSF 星舰硬件的测试/飞行记录（集合 nextspaceflight_hardware_cache / tests）
- * 数据量较大（约 300 条），仅详情页按需调用
- * @returns {Promise<{ tests: any[], updatedAtMs: number }>}
- */
 async function getStarshipHardwareTestsFromDB(options) {
   const skipCache = options && options.skipCache === true
   if (!skipCache) {
@@ -231,9 +220,14 @@ async function getStarshipHardwareTestsFromDB(options) {
 
 let spacexStatsPending = null
 const SPACEX_STATS_CACHE_KEY = '_spacex_stats_local_cache'
-const SPACEX_STATS_CACHE_TTL = 5 * 60 * 1000
+// 底层 spacex_launch_stats 集合由云端每 6 小时同步一次，5 分钟 TTL 只会放大库读；
+// 30 分钟足够，云读失败时最长回退 24h 旧缓存兜底
+const SPACEX_STATS_CACHE_TTL = 30 * 60 * 1000
+const SPACEX_STATS_STALE_MAX_MS = 24 * 60 * 60 * 1000
 const BOOSTER_GENEALOGY_CACHE_KEY = '_booster_genealogy'
 const BOOSTER_GENEALOGY_CACHE_TTL = 30 * 60 * 1000
+// TTL 过期后若 _sync_meta.syncedAt 未变（云端没跑出新一轮同步），旧缓存最长可续用 24h
+const BOOSTER_GENEALOGY_STALE_MAX_MS = 24 * 60 * 60 * 1000
 // 竞猜统计缓存：此前 30s，切 Tab 回首页就会重新打 adminGateway，是首页最高频的云函数来源之一。
 // 票数展示对实时性要求不高，5 分钟足够；用户自己投票后 castVote 会主动失效缓存，不受影响。
 const VOTE_CACHE_TTL = 5 * 60 * 1000
@@ -289,6 +283,27 @@ async function getLaunchStatsFromDB(options = {}) {
     _writeCached(cacheKey, stats)
     return stats
   }
+}
+
+/**
+ * 首页卡片此刻展示的年度总数（内存/本地缓存，零请求，忽略 TTL）。
+ * 卡片可能来自 getSummary，也可能来自 launch_stats 集合兜底；
+ * 统计详情页拿这个「实际展示值」对齐，才不会出现两页数字打架。
+ */
+function readCardGlobalTotalSync(year) {
+  const y = Number(year) || getLaunchStatsYear()
+  const key = `${LAUNCH_STATS_CACHE_KEY}_${y}`
+  const mem = _memCacheStore[key]
+  let data = mem && mem.data ? mem.data : null
+  if (!data) {
+    try {
+      const raw = wx.getStorageSync(key)
+      data = raw && raw.data ? raw.data : null
+    } catch (e) {}
+  }
+  if (!data || Number(data.year) !== y) return null
+  const n = Number(data.globalThisYear)
+  return Number.isFinite(n) && n > 0 ? n : null
 }
 
 function normalizeStarshipImages(item, fallback) {
@@ -391,6 +406,14 @@ async function fetchSpaceXLaunchStats() {
 
     list.sort((a, b) => (b.priority || 0) - (a.priority || 0))
     const best = list[0] || null
+    // 手工运营文档（如 _id: 'current'）可能不含 upcomingOrbitalEvents，
+    // 从官方同步文档合并该字段，避免高 priority 文档把在轨任务列表顶掉
+    if (best && !(Array.isArray(best.upcomingOrbitalEvents) && best.upcomingOrbitalEvents.length)) {
+      const official = list.find((item) => item._id === 'spacex_official_live')
+      if (official && Array.isArray(official.upcomingOrbitalEvents) && official.upcomingOrbitalEvents.length) {
+        best.upcomingOrbitalEvents = official.upcomingOrbitalEvents
+      }
+    }
     if (best) saveSpaceXStatsCache(best)
     return best
   } catch (e) {
@@ -406,21 +429,109 @@ async function getSpaceXLaunchStats() {
   if (spacexStatsPending) return spacexStatsPending
   spacexStatsPending = fetchSpaceXLaunchStats()
   try {
-    return await spacexStatsPending
+    const fresh = await spacexStatsPending
+    if (fresh) return fresh
+    // 云读失败/超时：回退过期旧缓存（stale-if-error），避免板块整块消失
+    return _readCachedAsync(SPACEX_STATS_CACHE_KEY, SPACEX_STATS_STALE_MAX_MS)
   } finally {
     spacexStatsPending = null
   }
 }
 
+async function getUpcomingOrbitalEvents(options) {
+  const loadOrbital = () => {
+    const helpers = options && options.helpers
+    if (helpers && typeof helpers.filterFreshOrbitalEvents === 'function' && typeof helpers.pickUpcomingOrbitalEvents === 'function') {
+      return Promise.resolve(helpers)
+    }
+    const rel = '../subpackages/monitor-pages/utils/upcoming-orbital-events.js'
+    if (typeof require.async === 'function') {
+      return require.async('../subpackages/monitor-pages/utils/upcoming-orbital-events.js')
+    }
+    return Promise.resolve(require(rel))
+  }
+  let mod = null
+  try {
+    mod = await loadOrbital()
+  } catch (e) {
+    return []
+  }
+  const pickUpcomingOrbitalEvents = mod && mod.pickUpcomingOrbitalEvents
+  const filterFreshOrbitalEvents = mod && mod.filterFreshOrbitalEvents
+  if (typeof pickUpcomingOrbitalEvents !== 'function' || typeof filterFreshOrbitalEvents !== 'function') {
+    return []
+  }
+  const limit = (options && options.limit) || 8
+
+  const take = (raw) => filterFreshOrbitalEvents(raw || []).slice(0, limit)
+
+  let stats = await getSpaceXLaunchStats()
+  let list = take(stats && stats.upcomingOrbitalEvents)
+  if (list.length) return list
+
+  // 本地命中但在轨列表为空：绕过 TTL 再读一次云库
+  try {
+    const freshStats = await fetchSpaceXLaunchStats()
+    list = take(freshStats && freshStats.upcomingOrbitalEvents)
+    if (list.length) return list
+  } catch (e) {}
+
+  try {
+    const { request } = require('./api-request.js')
+    const data = await request('/events/upcoming/', { limit: 100, offset: 0 }, 5000, true)
+    const results = (data && data.results) || []
+    list = pickUpcomingOrbitalEvents(results, { limit })
+    if (list.length) return list
+  } catch (e) {}
+
+  return []
+}
+
 const BOOSTER_META_DOC_IDS = ['_sync_meta', '_img_cos_map', '_ll2_launchers_cache', '_config_meta', '_flight_history_progress']
 
 async function getBoosterGenealogy(options) {
-  const cachedData = await _readCachedAsync(BOOSTER_GENEALOGY_CACHE_KEY, BOOSTER_GENEALOGY_CACHE_TTL)
-  if (cachedData) return cachedData
+  const previewOnly = !!(options && options.previewOnly)
+  const now = Date.now()
+
+  // 读缓存条目（含 syncedAt 代次标记），30 分钟内直接命中
+  let entry = _memCacheStore[BOOSTER_GENEALOGY_CACHE_KEY]
+  if (!entry || !entry.ts) {
+    const raw = await _readStorageAsync(BOOSTER_GENEALOGY_CACHE_KEY)
+    if (raw && raw.ts) {
+      _memCacheStore[BOOSTER_GENEALOGY_CACHE_KEY] = raw
+      entry = raw
+    }
+  }
+  if (entry && entry.ts && entry.data && now - entry.ts < BOOSTER_GENEALOGY_CACHE_TTL) {
+    return entry.data
+  }
 
   try {
     const db = wx.cloud.database()
     const _ = db.command
+
+    // TTL 过期后先花 1 次读比对 _sync_meta.syncedAt：云端没跑出新一轮同步
+    // 就给旧缓存续期直接返回，避免每 30 分钟全量重拉 180+ 箭实体文档
+    let cloudSyncedAt = 0
+    if (!previewOnly) {
+      try {
+        const metaRes = await db.collection('booster_genealogy').doc('_sync_meta').get()
+        const meta = (metaRes && metaRes.data) || {}
+        // dataVersionAt：数据真有变化才推进；旧 meta 无此字段时退回 syncedAt
+        cloudSyncedAt = Number(meta.dataVersionAt || meta.syncedAt) || 0
+      } catch (eMeta) {}
+      if (
+        entry && entry.data && entry.syncedAt && cloudSyncedAt &&
+        entry.syncedAt === cloudSyncedAt &&
+        now - entry.ts < BOOSTER_GENEALOGY_STALE_MAX_MS
+      ) {
+        const refreshed = { data: entry.data, ts: now, syncedAt: entry.syncedAt }
+        _memCacheStore[BOOSTER_GENEALOGY_CACHE_KEY] = refreshed
+        _writeStorageAsync(BOOSTER_GENEALOGY_CACHE_KEY, refreshed)
+        return entry.data
+      }
+    }
+
     // 分页拉全量箭实体（含 configId / countryCode 等新字段，文档原样透传）
     // 小程序端单次查询上限 20 条（云函数端才是 100）：曾按 100/批翻页，
     // 首批只回 20 条即触发 break，永远只拿到 top20 高飞行数箭，
@@ -430,7 +541,6 @@ async function getBoosterGenealogy(options) {
     const boosterQuery = function () {
       return db.collection('booster_genealogy').where({ serialNumber: _.exists(true) })
     }
-    const previewOnly = !!(options && options.previewOnly)
     let all = []
     if (previewOnly) {
       // 预览模式（非会员 Tab）：只拉第 1 批，够 2 张预览卡
@@ -457,9 +567,11 @@ async function getBoosterGenealogy(options) {
     const list = all.filter(function (item) {
       return BOOSTER_META_DOC_IDS.indexOf(item._id) === -1
     })
-    // 仅全量拉取时写缓存，避免预览半份污染全量缓存
+    // 仅全量拉取时写缓存，避免预览半份污染全量缓存；带 syncedAt 供下次代次比对续期
     if (!previewOnly) {
-      _writeCached(BOOSTER_GENEALOGY_CACHE_KEY, list)
+      const payload = { data: list, ts: Date.now(), syncedAt: cloudSyncedAt || 0 }
+      _memCacheStore[BOOSTER_GENEALOGY_CACHE_KEY] = payload
+      _writeStorageAsync(BOOSTER_GENEALOGY_CACHE_KEY, payload)
     }
     return list
   } catch (e) {
@@ -468,13 +580,9 @@ async function getBoosterGenealogy(options) {
   }
 }
 
-const ROCKET_CONFIG_META_CACHE_KEY = '_rocket_config_meta'
+const ROCKET_CONFIG_META_CACHE_KEY = '_rocket_config_meta_v2'
 const ROCKET_CONFIG_META_CACHE_TTL = 30 * 60 * 1000
 
-/**
- * 读取火箭构型元数据（booster_genealogy/_config_meta）
- * 返回 { configs: { [configId]: {...} }, updatedAt }，字段全部来自 LL2 launcher_configurations，数据驱动
- */
 async function getRocketConfigMeta() {
   const cachedData = await _readCachedAsync(ROCKET_CONFIG_META_CACHE_KEY, ROCKET_CONFIG_META_CACHE_TTL)
   if (cachedData) return cachedData
@@ -517,6 +625,9 @@ async function getVoteStats(launchId, skipCache, missionInfo) {
     if (missionInfo && missionInfo.statusCategory) queryParams.statusCategory = missionInfo.statusCategory
     if (missionInfo && missionInfo.statusAbbrev) queryParams.statusAbbrev = missionInfo.statusAbbrev
     if (missionInfo && missionInfo.statusName) queryParams.statusName = missionInfo.statusName
+    if (missionInfo && missionInfo.statusId != null && missionInfo.statusId !== '') {
+      queryParams.statusId = missionInfo.statusId
+    }
 
     const res = await wx.cloud.callFunction({
       name: 'adminGateway',
@@ -660,11 +771,6 @@ async function fetchLiveLaunchStatuses() {
   }
 }
 
-/**
- * 小时探针 / 到点查询写入的近期 settle 行：终态(3/4/7/9) 或飞行中(6)。
- * 历史列表角标仅消费终态；倒计时 settle 可读飞行中。不打 LL2。
- * @returns {Promise<Array<{id,status,net,name}>|null>}
- */
 async function fetchLaunchStatusSnapshot(ids) {
   if (!wx.cloud || typeof wx.cloud.callFunction !== 'function') return null
   try {
@@ -685,12 +791,6 @@ function fetchRecentSettledLaunches() {
   return fetchLaunchStatusSnapshot()
 }
 
-/**
- * 按 id 解析发射状态（云端 mode=list；recent_settled 已终态则 0 LL2）。
- * 用于历史列表「飞行中」升级为 Success/Deployed，不必先进详情。
- * @param {string[]} ids
- * @returns {Promise<Array<{id,name,status,net}>|null>}
- */
 async function resolveLaunchStatuses(ids) {
   if (!wx.cloud || typeof wx.cloud.callFunction !== 'function') return null
   const list = Array.isArray(ids) ? ids.map((id) => String(id || '').trim()).filter(Boolean).slice(0, 5) : []
@@ -775,6 +875,7 @@ async function fetchLl2LaunchTimeline(launchId, options = {}) {
 
 module.exports = {
   getLaunchStatsFromDB,
+  readCardGlobalTotalSync,
   getStarshipStatusFromDB,
   getNsfStarshipChecklistFromDB,
   getStarshipHardwareFromDB,
@@ -787,6 +888,7 @@ module.exports = {
   resolveLaunchStatuses,
   shareMission,
   getSpaceXLaunchStats,
+  getUpcomingOrbitalEvents,
   getBoosterGenealogy,
   getRocketConfigMeta,
   getVoteStats,

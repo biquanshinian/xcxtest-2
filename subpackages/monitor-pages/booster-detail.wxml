@@ -14,8 +14,21 @@
   <scroll-view scroll-y class="detail-scroll">
     <view style="height: {{navPlaceholderHeight}}px;"></view>
 
-    <!-- 加载中：内容区留白，进度由导航栏下方的 page-progress 绿色进度条呈现 -->
-    <block wx:if="{{loading}}"></block>
+    <!-- 加载中：骨架屏撑满一屏，分享/直达冷启动时页面立即可滑动；进度由导航栏下方的 page-progress 绿色进度条呈现 -->
+    <view class="detail-skeleton detail-skeleton--pad" wx:if="{{loading}}" aria-hidden="{{true}}">
+      <view class="skeleton-card skeleton-card--hero">
+        <view class="skeleton-hero skeleton-shimmer"></view>
+        <view class="skeleton-card-body">
+          <view class="skeleton-line skeleton-line--title skeleton-shimmer"></view>
+          <view class="skeleton-line skeleton-line--sub skeleton-shimmer"></view>
+        </view>
+      </view>
+      <view class="skeleton-card" wx:for="{{[1, 2, 3]}}" wx:key="*this">
+        <view class="skeleton-line skeleton-line--label skeleton-shimmer"></view>
+        <view class="skeleton-line skeleton-shimmer"></view>
+        <view class="skeleton-line skeleton-line--short skeleton-shimmer"></view>
+      </view>
+    </view>
 
     <!-- 错误 -->
     <view class="error-wrap" wx:elif="{{errorMessage}}">
@@ -27,37 +40,48 @@
     <!-- 详情内容 -->
     <block wx:elif="{{item}}">
 
-    <!-- Hero 图片 -->
-    <view class="hero-section" bindtap="onHeroImageTap">
-      <image class="hero-img {{heroImageLoaded ? 'hero-img--loaded' : ''}}"
-             wx:if="{{item.imageUrl}}"
-             src="{{item.imageUrl}}"
-             mode="aspectFill"
-             bindload="onHeroImageLoad"
-             binderror="onHeroImageError" />
-      <view class="hero-img hero-placeholder" wx:else>
-        <text class="hero-placeholder-icon"></text>
+    <!-- Hero 悬浮卡：多层毛玻璃叠层统一骨架（hero-float），点击预览 -->
+    <view class="hero-float">
+      <view class="hero-section hero-float-card" bindtap="onHeroImageTap">
+        <image class="hero-img {{heroImageLoaded ? 'hero-img--loaded' : ''}}"
+               wx:if="{{item.imageUrl}}"
+               src="{{item.imageUrl}}"
+               mode="aspectFill"
+               bindload="onHeroImageLoad"
+               binderror="onHeroImageError" />
+        <view class="hero-img hero-placeholder" wx:else>
+          <text class="hero-placeholder-icon"></text>
+        </view>
+        <!-- 渐变遮罩 -->
+        <view class="hero-gradient"></view>
+        <!-- 图片来源 -->
+        <view class="hero-credit-btn" wx:if="{{item.imageCredit}}">
+          <text class="hero-credit-text">{{item.imageCredit}}</text>
+        </view>
+        <!-- 状态标签 -->
+        <view class="hero-status" style="color: {{item.statusColor}};">{{item.statusText}}</view>
       </view>
-      <!-- 渐变遮罩 -->
-      <view class="hero-gradient"></view>
-      <!-- 图片来源 -->
-      <view class="hero-credit-btn" wx:if="{{item.imageCredit}}">
-        <text class="hero-credit-text">{{item.imageCredit}}</text>
-      </view>
-      <!-- 状态标签 -->
-      <view class="hero-status" style="color: {{item.statusColor}};">{{item.statusText}}</view>
     </view>
 
-    <!-- 贴图讨论区：助推器详情头图下方；话题优先火箭名称，组件内已截断至 20 字 -->
-    <view class="booster-discuss-wrap">
-      <official-account-publish-panel topic="{{item.rocketFamily || item.serial || '火箭族谱讨论'}}" />
-    </view>
-
-    <!-- 基本信息头 -->
+    <!-- 基本信息头：型号 + 收藏 -->
     <view class="info-header">
-      <text class="info-serial">{{item.serial}}</text>
+      <view class="info-serial-row">
+        <text class="info-serial">{{item.serial}}</text>
+        <view
+          class="fav-btn {{isFavorited ? 'fav-btn--on' : ''}} {{favAnimate ? 'fav-btn--animate' : ''}}"
+          hover-class="fav-btn--pressed"
+          hover-stay-time="120"
+          catchtap="onToggleFavorite"
+          aria-role="button"
+          aria-label="收藏"
+        >
+          <view class="fav-heart"></view>
+        </view>
+      </view>
       <view class="info-tags">
-        <text class="info-tag info-tag--family">{{item.rocketFamily}}</text>
+        <!-- 有构型 id 时型号标签可点 → 族谱型号详情页；否则保持纯文本 -->
+        <text class="info-tag info-tag--family info-tag--link" wx:if="{{item.configId != null}}" bindtap="onTapRocketFamily">{{item.rocketFamily}}<text class="info-tag-arrow">›</text></text>
+        <text class="info-tag info-tag--family" wx:else>{{item.rocketFamily}}</text>
         <text class="info-tag info-tag--mfr info-tag--link" wx:if="{{item.manufacturer}}" bindtap="onTapManufacturer">{{item.manufacturerDisplay || item.manufacturer}}<text class="info-tag-arrow">›</text></text>
         <text class="info-tag info-tag--block" wx:if="{{item.block}}">Block {{item.block}}</text>
       </view>
@@ -107,27 +131,34 @@
       </view>
     </view>
 
-    <!-- 时间线 -->
+    <!-- 服役时间线：首尾航迹 + 指标两列网格 -->
     <view class="timeline-section glass-card">
       <text class="section-label">服役时间线</text>
-      <view class="timeline-grid">
-        <view class="timeline-item">
+      <view class="timeline-span">
+        <view class="timeline-span-end">
           <text class="timeline-label">首飞</text>
-          <text class="timeline-value">{{item.firstFlight}}</text>
+          <text class="timeline-value">{{item.firstFlight || '—'}}</text>
         </view>
-        <view class="timeline-item">
+        <view class="timeline-span-track" aria-hidden="true">
+          <view class="timeline-span-dot"></view>
+          <view class="timeline-span-line"></view>
+          <view class="timeline-span-dot"></view>
+        </view>
+        <view class="timeline-span-end timeline-span-end--right">
           <text class="timeline-label">最近飞行</text>
-          <text class="timeline-value">{{item.lastFlight}}</text>
+          <text class="timeline-value">{{item.lastFlight || '—'}}</text>
         </view>
+      </view>
+      <view class="timeline-grid">
         <view class="timeline-item">
           <text class="timeline-label">服役时长</text>
           <text class="timeline-value">{{item.serviceDays || '—'}}</text>
         </view>
         <view class="timeline-item">
           <text class="timeline-label">复用次数</text>
-          <text class="timeline-value">{{item.reuseCount}}</text>
+          <text class="timeline-value">{{item.reuseCount != null ? item.reuseCount : '—'}}</text>
         </view>
-        <view class="timeline-item" wx:if="{{item.fastestTurnaroundText}}">
+        <view class="timeline-item timeline-item--full" wx:if="{{item.fastestTurnaroundText}}">
           <text class="timeline-label">最快周转</text>
           <text class="timeline-value turnaround-value">⚡ {{item.fastestTurnaroundText}}</text>
         </view>
@@ -160,6 +191,11 @@
         maxCollapsed="{{2}}"
         showTitle="{{false}}"
       />
+    </view>
+
+    <!-- 贴图讨论区：助推器详情最底部；话题优先火箭名称，组件内已截断至 20 字 -->
+    <view class="booster-discuss-wrap">
+      <official-account-publish-panel topic="{{item.rocketFamily || item.serial || '火箭族谱讨论'}}" />
     </view>
 
     <!-- 底部安全区 -->

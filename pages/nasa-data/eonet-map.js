@@ -1,4 +1,4 @@
-const { buildMapLayoutData } = require('./utils/map-page-common.js')
+const { buildMapLayoutData, setMapSatelliteFromTap } = require('./utils/map-page-common.js')
 const pageBase = require('../../utils/page-base.js')
 
 Page({
@@ -16,14 +16,19 @@ Page({
     status: '',
     isOpen: true,
     statusBarHeight: 44,
-    mapActionTop: 0
+    menuButtonWidth: 88,
+    isDirectEntry: false,
+    mapActionTop: 0,
+    actionMenuCollapsed: true,
+    enableSatellite: true,
+    mapSetting: { enableSatellite: true }
   },
 
   onLoad(options) {
     this.initUiShell()
     const layout = buildMapLayoutData(getApp())
     this.setData({
-      mapActionTop: layout.mapActionTop
+      ...layout
     })
 
     const lat = parseFloat(options.lat) || 0
@@ -73,6 +78,14 @@ Page({
       data: `${latitude}, ${longitude}`,
       success: () => wx.showToast({ title: '坐标已复制', icon: 'success' })
     })
+  },
+
+  toggleActionMenuCollapsed() {
+    this.setData({ actionMenuCollapsed: !this.data.actionMenuCollapsed })
+  },
+
+  setMapSatellite(e) {
+    setMapSatelliteFromTap(this, e)
   },
 
   onShareAppMessage() {

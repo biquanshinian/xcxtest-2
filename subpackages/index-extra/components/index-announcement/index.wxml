@@ -1,0 +1,85 @@
+<view class="{{themeClass}}">
+<view class="announcement-banner" wx:if="{{banner && banner.active}}" bindtap="onOpen">
+      <view class="announcement-banner-icon-wrap">
+        <text class="announcement-banner-icon">⚠</text>
+      </view>
+      <view class="announcement-banner-content">
+        <view class="announcement-banner-scroll">
+          <view class="announcement-banner-track">
+            <text class="announcement-banner-text">{{banner.content || banner.title || ''}}</text>
+            <text class="announcement-banner-text" aria-hidden="true">{{banner.content || banner.title || ''}}</text>
+          </view>
+        </view>
+      </view>
+      <view class="announcement-banner-close" catchtap="onCloseBanner">
+        <text>✕</text>
+      </view>
+    </view>
+
+<view class="announcement-dialog-mask {{dialogVisible ? 'announcement-dialog-mask--visible' : ''}}" wx:if="{{dialogVisible}}" bindtap="onCloseDialog" catchtouchmove="noop">
+    <view class="announcement-dialog" catchtap="noop">
+      <view class="announcement-dialog-header">
+        <text class="announcement-dialog-title">{{banner.title || '系统公告'}}</text>
+      </view>
+      <view class="announcement-dialog-body-clip">
+      <scroll-view class="announcement-dialog-body" scroll-y style="height: {{scrollMaxPx}}px;">
+        <text class="announcement-dialog-content" wx:if="{{banner.content}}" user-select="{{true}}">{{banner.content}}</text>
+
+        <!-- 公告投票：每人一票；未投票前不展示票数，到期后公示结果 -->
+        <view class="announcement-vote {{banner.content ? '' : 'announcement-vote--flush'}}" wx:if="{{vote}}">
+          <view class="announcement-vote-head">
+            <text class="announcement-vote-question">{{vote.question || '投票'}}</text>
+            <view class="announcement-vote-meta">
+              <text class="announcement-vote-time">{{vote.timeText}}</text>
+              <text class="announcement-vote-once">每人限投 1 次</text>
+            </view>
+          </view>
+          <text class="announcement-vote-intro" wx:if="{{vote.intro}}">{{vote.intro}}</text>
+          <view class="announcement-vote-options">
+            <view
+              class="announcement-vote-option {{vote.myChoice === opt.id ? 'announcement-vote-option--mine' : ''}} {{vote.status !== 'open' || vote.myChoice ? 'announcement-vote-option--locked' : ''}}"
+              wx:for="{{vote.options}}"
+              wx:key="id"
+              wx:for-item="opt"
+              data-option-id="{{opt.id}}"
+              hover-class="{{vote.status === 'open' && !vote.myChoice ? 'announcement-vote-option--hover' : ''}}"
+              catchtap="onVoteTap"
+            >
+              <view wx:if="{{vote.revealed}}" class="announcement-vote-option-fill" style="width: {{opt.percent}}%;"></view>
+              <view class="announcement-vote-option-inner">
+                <image wx:if="{{opt.image}}" class="announcement-vote-option-img" src="{{opt.image}}" mode="aspectFill" />
+                <text class="announcement-vote-option-label">{{opt.label}}</text>
+                <view class="announcement-vote-option-side">
+                  <text class="announcement-vote-option-check" wx:if="{{vote.myChoice === opt.id}}">✓ 已选</text>
+                  <block wx:if="{{vote.revealed}}">
+                    <text class="announcement-vote-option-percent">{{opt.percent}}%</text>
+                    <text class="announcement-vote-option-votes">{{opt.count}} 票</text>
+                  </block>
+                </view>
+              </view>
+            </view>
+          </view>
+          <view class="announcement-vote-footer" wx:if="{{vote.status === 'ended'}}">
+            <text class="announcement-vote-footer-title">结果公示</text>
+            <text class="announcement-vote-footer-note">{{vote.resultNote || '感谢参与，共 ' + vote.totalVotes + ' 人投票'}}</text>
+          </view>
+        </view>
+      </scroll-view>
+      </view>
+      <!-- 底部固定：客服与主按钮分栏排布；底栏不透明遮罩滚动边框，避免投票容器顶穿 -->
+      <view class="announcement-dialog-footer">
+        <button
+          class="announcement-body-service"
+          open-type="contact"
+          bindcontact="onContact"
+          session-from="announcement-dialog"
+          hover-class="announcement-body-service--hover"
+        >
+          <image class="announcement-body-service-img" src="/images/icon-customer-service.svg" mode="aspectFit" />
+          <text>在线客服</text>
+        </button>
+        <view class="announcement-footer-ok" hover-class="announcement-footer-ok--hover" bindtap="onCloseDialog">我知道了</view>
+      </view>
+    </view>
+  </view>
+</view>

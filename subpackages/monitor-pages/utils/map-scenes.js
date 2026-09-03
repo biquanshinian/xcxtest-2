@@ -158,7 +158,7 @@ const LAUNCH_SITES = [
     operator: 'ESA / Arianespace',
     vehicle: 'Ariane 6 / Vega-C',
     summary: '欧洲航天局主力发射场，靠近赤道优势显著。',
-    accentColor: '#007AFF'
+    accentColor: '#3B82F6'
   },
   {
     id: 113,

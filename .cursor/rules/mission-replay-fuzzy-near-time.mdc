@@ -1,0 +1,31 @@
+---
+description: 历史发射回放集锦：精细匹配失败后一律「模糊 + 近时」兜底，适用于全部任务
+globs: "{workers/replay-fetcher/**,cloudfunctions/syncSpaceDevsData/mission-replay.js,cloudfunctions/adminGateway/replayFetch.js,cloudfunctions/apiProxy/**}"
+alwaysApply: false
+---
+
+# 历史发射回放：统一「模糊 + 近时」兜底
+
+所有历史发射任务的 SciNews/集锦匹配，**必须**按同一策略执行，不得做成某一发射商或某一任务类型的特例开关。
+
+## 匹配顺序（不可省略第 2 步）
+
+1. **精细名称匹配**：UTC 日期 + 任务 token（含带数字特征号必须命中）+ 分隔符/变体归一化。
+2. **兜底（默认开启）**：精细失败时一律降级为  
+   **模糊**（家族词：无数字词 + 编号词干如 `tianlian-2-06→tianlian`；无词干可抽时退化为火箭词 + 日期）  
+   **+ 近时**（候选 `upload_date` 与发射 `net`/`netMs` 最接近者优先）。
+
+## 硬约束
+
+- 覆盖面：LL2 previous 窗口内的**全部**历史发射（SpaceX / 国发 / 其他商发同等）。
+- 典型需要兜底的差异：`Starlink Group 17-38`（LL2 组号）↔ `Starlink 412`（SciNews 任务序号）；同类编号体系不一致时同理。
+- 入队/复活队列必须带 `clipSearch.netMs`；复活失败任务时刷新 `clipSearch`。
+- 防串台：标题已写成**另一组**两段式组号且对不上本任务时，拒绝模糊命中。
+- 改匹配逻辑只动 Agent / 云函数（`clip-match.js`、`mission-replay.js`、`replayFetch` 等），**不要改小程序前端**来「补匹配」。
+- 审计：`node scripts/_audit_mission_replay_fuzzy.js` + `node --test workers/replay-fetcher/src/clip-match.test.js` 须全绿。
+
+## 禁止
+
+- 去掉或旁路「模糊 + 近时」兜底，或把它收成仅 Starlink 生效。
+- 精细失败就直接 `clip_not_found` 且不再尝试模糊/近时排序。
+- 为单个任务写死名称映射表替代通用兜底（映射表可作增强，不能替代本策略）。

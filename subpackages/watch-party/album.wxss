@@ -1,0 +1,277 @@
+/* 我的观礼卡册
+ * 中性色走 tokens.wxss 变量（根节点 themeClass 挂 theme-light 时自动翻转）。
+ * 单卡卡面与抽卡结果共用：styles/prize-card.wxss（含 theme-light 票券反色）。
+ */
+@import "styles/prize-card.wxss";
+
+/* 页面骨架（与其他分包详情页同款） */
+.page { min-height: 100vh; background: var(--color-bg); color: var(--color-text-primary); }
+.page-scroll { height: 100vh; width: 100%; box-sizing: border-box; padding-bottom: env(safe-area-inset-bottom); }
+.section-header { display: flex; align-items: center; padding: 40rpx 32rpx 20rpx; gap: 12rpx; }
+.section-title { font-size: 32rpx; font-weight: 600; color: var(--color-text-primary); flex: 1; }
+.loading-spinner-lg { width: 56rpx; height: 56rpx; border: 4rpx solid var(--color-divider); border-top-color: #3B82F6; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.page-footer { text-align: center; padding: 40rpx 0 80rpx; }
+.footer-text { font-size: 22rpx; color: var(--color-text-quaternary); }
+
+.ab-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 160rpx 0;
+  gap: 24rpx;
+}
+
+.ab-loading-text {
+  font-size: 26rpx;
+  color: var(--color-text-tertiary);
+}
+
+.ab-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 140rpx 48rpx;
+  gap: 20rpx;
+}
+
+.ab-error-text {
+  font-size: 28rpx;
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
+.ab-retry-btn {
+  margin-top: 12rpx;
+  padding: 16rpx 64rpx;
+  border-radius: 40rpx;
+  background: #3B82F6;
+  color: #fff;
+  font-size: 28rpx;
+}
+
+/* ── 概览 ── */
+.ab-summary {
+  margin: 24rpx 32rpx 0;
+  padding: 32rpx;
+  border-radius: 24rpx;
+  background: var(--color-bg-card);
+  border: 1rpx solid var(--color-divider);
+  display: flex;
+  align-items: center;
+  gap: 32rpx;
+}
+
+.ab-summary-total {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ab-summary-num {
+  font-size: 56rpx;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.ab-summary-label {
+  font-size: 22rpx;
+  color: var(--color-text-tertiary);
+}
+
+.ab-summary-rarities {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.ab-rarity-pill {
+  padding: 8rpx 20rpx;
+  border-radius: 24rpx;
+  font-size: 22rpx;
+}
+
+.ab-rarity-pill--SSR {
+  color: #FDE68A;
+  background: rgba(251, 191, 36, 0.15);
+}
+
+.ab-rarity-pill--SR {
+  color: #E9D5FF;
+  background: rgba(168, 85, 247, 0.15);
+}
+
+.ab-rarity-pill--R {
+  color: #93C5FD;
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.ab-rarity-pill--N {
+  color: #D1D5DB;
+  background: rgba(156, 163, 175, 0.15);
+}
+
+/* ── 空态 ── */
+.ab-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 120rpx 0;
+  gap: 20rpx;
+}
+
+.ab-empty-text {
+  font-size: 28rpx;
+  color: var(--color-text-tertiary);
+}
+
+.ab-empty-btn {
+  margin-top: 8rpx;
+  padding: 16rpx 72rpx;
+  border-radius: 40rpx;
+  background: linear-gradient(90deg, #A855F7, #6366F1);
+  color: #fff;
+  font-size: 28rpx;
+}
+
+/* ── 图鉴网格 ── */
+.ab-grid {
+  margin: 0 32rpx;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20rpx;
+}
+
+.ab-cell {
+  width: calc((100% - 40rpx) / 3);
+  padding: 12rpx;
+  border-radius: 16rpx;
+  background: var(--color-bg-card);
+  border: 1rpx solid var(--color-divider-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  box-sizing: border-box;
+}
+
+.ab-cell--R {
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.ab-cell--SR {
+  border-color: rgba(168, 85, 247, 0.5);
+}
+
+.ab-cell--SSR {
+  border-color: rgba(251, 191, 36, 0.6);
+  box-shadow: 0 0 24rpx rgba(251, 191, 36, 0.2);
+}
+
+.ab-cell-image {
+  width: 100%;
+  height: 200rpx;
+  border-radius: 12rpx;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ab-cell-image--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 48rpx;
+  color: rgba(129, 140, 248, 0.6);
+}
+
+.ab-cell-name {
+  font-size: 24rpx;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ab-cell-serial {
+  font-size: 20rpx;
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 单卡查看 ── */
+.ab-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: rgba(0, 0, 0, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.theme-light .ab-overlay {
+  background: rgba(232, 234, 237, 0.94);
+}
+
+.ab-view-wrap {
+  width: 540rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32rpx;
+}
+
+.ab-view-wrap .pcard {
+  width: 100%;
+}
+
+/* 静态查看：进场扫光掠过一次 */
+.ab-view-wrap .pcard-shine {
+  animation: pcard-shine-sweep 1.5s ease 0.35s both;
+}
+
+.ab-view-share {
+  margin: 0;
+  padding: 14rpx 64rpx;
+  border-radius: 40rpx;
+  background: linear-gradient(90deg, #F59E0B, #EF4444);
+  color: #fff;
+  font-size: 28rpx;
+  line-height: 1.4;
+}
+
+.ab-view-share::after {
+  border: none;
+}
+
+/* ============================================================
+ * 明亮主题覆盖：稀有度徽章（页面内浅底上加深文字，保证可读）
+ * ============================================================ */
+
+.theme-light .ab-rarity-pill--SSR {
+  color: #B45309;
+  background: rgba(245, 158, 11, 0.14);
+}
+.theme-light .ab-rarity-pill--SR {
+  color: #7C3AED;
+  background: rgba(124, 58, 237, 0.1);
+}
+.theme-light .ab-rarity-pill--R {
+  color: #2563EB;
+  background: rgba(37, 99, 235, 0.1);
+}
+.theme-light .ab-rarity-pill--N {
+  color: #4B5563;
+  background: rgba(156, 163, 175, 0.2);
+}
+
+.theme-light .ab-cell-image { background: rgba(0, 0, 0, 0.04); }
+.theme-light .ab-cell {
+  background: #fff;
+  border-color: rgba(28, 28, 30, 0.08);
+}
+.theme-light .ab-cell--R { border-color: rgba(37, 99, 235, 0.35); }
+.theme-light .ab-cell--SR { border-color: rgba(124, 58, 237, 0.4); }
+.theme-light .ab-cell--SSR {
+  border-color: rgba(180, 83, 9, 0.45);
+  box-shadow: 0 0 20rpx rgba(245, 158, 11, 0.12);
+}

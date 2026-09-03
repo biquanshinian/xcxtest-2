@@ -6,7 +6,7 @@ const zlib = require('zlib')
 const { URL } = require('url')
 
 const NSF_STARSHIP_PAGE = 'https://nextspaceflight.com/starship/'
-const { enrichNsfStatusesForStorage } = require('./nsf-checklist-i18n.js')
+const { enrichNsfStatusesForStorage, enrichNsfStatusesI18n } = require('./nsf-checklist-i18n.js')
 const {
   parseStatusesMultiStrategy,
   extractLastFetchFlexible
@@ -170,6 +170,19 @@ async function runSyncNextSpaceflightStarship(db) {
     return { success: false, error: err, count: prev.statuses.length }
   }
 
+  let i18nMeta = { machineTranslated: 0, queued: 0 }
+  try {
+    const i18n = await enrichNsfStatusesI18n(parsed.statuses, prev.statuses)
+    parsed.statuses = i18n.statuses || parsed.statuses
+    i18nMeta = {
+      machineTranslated: i18n.machineTranslated || 0,
+      queued: i18n.queued || 0,
+      error: i18n.error || ''
+    }
+  } catch (e) {
+    i18nMeta = { machineTranslated: 0, queued: 0, error: (e && e.message) || String(e) }
+  }
+
   await coll.doc('latest').set({
     data: {
       statuses: parsed.statuses,
@@ -179,7 +192,8 @@ async function runSyncNextSpaceflightStarship(db) {
       parserMeta: {
         ok: true,
         ...(parsed.parserMeta || {}),
-        parsedAtMs: Date.now()
+        parsedAtMs: Date.now(),
+        i18n: i18nMeta
       }
     }
   })
@@ -187,7 +201,8 @@ async function runSyncNextSpaceflightStarship(db) {
     success: true,
     count: parsed.statuses.length,
     sourceLastFetch: parsed.sourceLastFetch,
-    parserStrategy: parsed.parserMeta && parsed.parserMeta.strategy
+    parserStrategy: parsed.parserMeta && parsed.parserMeta.strategy,
+    i18n: i18nMeta
   }
 }
 

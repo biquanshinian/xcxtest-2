@@ -1,5 +1,5 @@
-const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, findItemById, buildMapLayoutData, buildMapPanelScrollLayout, buildMapShareOptions, copyMapText, runMapRefresh } = require('./utils/map-page-common.js')
-const { getRoadClosureNotice } = require('../../utils/api-road-closure.js')
+const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, findItemById, buildMapLayoutData, buildMapPanelScrollLayout, buildMapShareOptions, copyMapText, runMapRefresh, setMapSatelliteFromTap } = require('./utils/map-page-common.js')
+const { getRoadClosureNotice } = require('./utils/api-road-closure.js')
 const { ROAD_CLOSURE_SCENE } = require('./utils/map-scenes.js')
 const { resolveRoadClosureStatus } = require('../../utils/progress-road-closure.js')
 const { applyStarbaseI18n, translateMayorOrderBody } = require('./utils/starbase-i18n.js')
@@ -13,6 +13,8 @@ Page({
     statusBarHeight: 44,
     capsuleTop: 0,
     capsuleHeight: 32,
+    menuButtonWidth: 88,
+    isDirectEntry: false,
     mapActionTop: 0,
     latitude: ROAD_CLOSURE_SCENE.center.latitude,
     longitude: ROAD_CLOSURE_SCENE.center.longitude,
@@ -168,6 +170,10 @@ Page({
 
   toggleActionMenuCollapsed() {
     this.setData({ actionMenuCollapsed: !this.data.actionMenuCollapsed })
+  },
+
+  setMapSatellite(e) {
+    setMapSatelliteFromTap(this, e)
   },
 
   onShareAppMessage() {

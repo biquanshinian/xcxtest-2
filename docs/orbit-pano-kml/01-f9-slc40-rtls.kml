@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>猎鹰9 · SLC-40 · 陆地回收</name>
+    <description>后台锁定：Falcon 9 · SLC-40 · 陆地回收。搜索请用「纬度, 经度」。海上终点为常规 600km 示意驻位，不是某次任务精确落点。</description>
+    <Style id="line">
+      <LineStyle>
+        <color>ff2d7dff</color>
+        <width>6</width>
+      </LineStyle>
+    </Style>
+    <Style id="pin-start">
+      <IconStyle>
+        <color>ff34c759</color>
+        <scale>1.1</scale>
+        <Icon><href>http://maps.google.com/mapfiles/kml/paddle/grn-circle.png</href></Icon>
+      </IconStyle>
+      <LabelStyle><scale>1</scale></LabelStyle>
+    </Style>
+    <Style id="pin-end">
+      <IconStyle>
+        <color>ff2d7dff</color>
+        <scale>1.1</scale>
+        <Icon><href>http://maps.google.com/mapfiles/kml/paddle/wht-circle.png</href></Icon>
+      </IconStyle>
+      <LabelStyle><scale>1</scale></LabelStyle>
+    </Style>
+      <LookAt>
+        <longitude>-80.577285</longitude>
+        <latitude>28.561880</latitude>
+        <altitude>0</altitude>
+        <heading>0</heading>
+        <tilt>45</tilt>
+        <range>8000</range>
+        <altitudeMode>relativeToGround</altitudeMode>
+      </LookAt>
+    <Placemark id="start">
+      <name>发射 · SLC-40</name>
+      <styleUrl>#pin-start</styleUrl>
+      <Point>
+        <coordinates>-80.577370,28.561860,0</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark id="end">
+      <name>回收 · LZ-40</name>
+      <styleUrl>#pin-end</styleUrl>
+      <Point>
+        <coordinates>-80.577200,28.561900,0</coordinates>
+      </Point>
+    </Placemark>
+
+    <Placemark id="route">
+      <name>猎鹰9 · SLC-40 · 陆地回收 · 航迹</name>
+      <styleUrl>#line</styleUrl>
+      <LineString>
+        <tessellate>1</tessellate>
+        <altitudeMode>clampToGround</altitudeMode>
+        <coordinates>
+          -80.577370,28.561860,0
+          -80.577349,28.561865,0
+          -80.577328,28.561870,0
+          -80.577306,28.561875,0
+          -80.577285,28.561880,0
+          -80.577264,28.561885,0
+          -80.577243,28.561890,0
+          -80.577221,28.561895,0
+          -80.577200,28.561900,0
+        </coordinates>
+      </LineString>
+    </Placemark>
+  </Document>
+</kml>

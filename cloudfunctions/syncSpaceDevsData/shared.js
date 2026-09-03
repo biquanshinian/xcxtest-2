@@ -36,6 +36,10 @@ function isLl2TokenConfigured() {
 
 function noteLl2Request(source) {
   try {
+    // 精确账本：跨函数共享的小时配额计数（软预算，供全量轮附加任务让路决策）
+    require('./ll2-budget.js').recordLl2Request(db, source || 'syncSpaceDevsData').catch(() => {})
+  } catch (eBudget) {}
+  try {
     const now = Date.now()
     const bucket = ll2HourBucket(now)
     if (_ll2UsageBucket !== bucket) {
@@ -89,8 +93,18 @@ async function fetchAPI(url) {
       let data = ''
       res.on('data', chunk => { data += chunk })
       res.on('end', () => {
+        // 只要发出了请求就记账（429 同样消耗一次尝试）
+        if (/thespacedevs\.com$/i.test(urlObj.hostname)) noteLl2Request('syncSpaceDevsData')
+        // 非 200 必须显式失败：429 限流 body 是 { detail: ... }，静默 resolve 会被
+        // 上层当成「成功但无 results」而误判数据为空（分页断点、探针限流识别都依赖 reject）
+        if (res.statusCode !== 200) {
+          const err = new Error(`HTTP ${res.statusCode}: ${String(data).slice(0, 200)}`)
+          err.statusCode = res.statusCode
+          if (res.statusCode === 429 || /throttl/i.test(String(data))) err.code = 'LL2_RATE_LIMIT'
+          reject(err)
+          return
+        }
         try {
-          if (/thespacedevs\.com$/i.test(urlObj.hostname)) noteLl2Request('syncSpaceDevsData')
           resolve(JSON.parse(data))
         }
         catch (e) { reject(new Error('JSON parse error: ' + e.message)) }
@@ -106,54 +120,100 @@ async function saveToCloudDB(cacheKey, apiData, retryCount) {
   if (retryCount === undefined) retryCount = 0
   const MAX_RETRIES = 3
   const collection = db.collection('space_devs_cache')
+  const {
+    verifyBatchedCache,
+    makeGenerationBatchKey,
+    readExistingBatchKeys,
+    removeOrphanBatchDocs
+  } = require('./cache-write-guard.js')
+
+  // updates 剥离由调用方在 split 成功后完成；此处不再无条件 strip
+  const payload = apiData
 
   const record = {
     cacheKey,
-    data: apiData,
+    data: payload,
     updatedAt: db.serverDate(),
     updatedAtMs: Date.now(),
+    timestamp: Date.now(),
     expiresAt: new Date(Date.now() + CACHE_DURATION)
   }
 
-  const dataStr = JSON.stringify(apiData)
+  const dataStr = JSON.stringify(payload)
   const sizeKB = Math.ceil(dataStr.length / 1024)
 
   try {
     if (sizeKB > 800) {
-      const results = apiData.results || []
+      const results = (payload && Array.isArray(payload.results)) ? payload.results : null
+      // 非列表（如单机构 detailed）无 results：禁止写空 isBatched 元文档（会导致前端读到无 data 的空洞）
+      if (!results || results.length === 0) {
+        throw new Error(
+          'payload too large (' + sizeKB + 'KB) without results[] for batching: ' + cacheKey
+        )
+      }
       const batchSize = Math.ceil(results.length / Math.ceil(sizeKB / 600))
       const batches = []
       for (let i = 0; i < results.length; i += batchSize) {
         batches.push(results.slice(i, i + batchSize))
       }
+      const batchKeys = []
+      // 以实际条数为准：API 的 count 可能大于本页 results.length
+      const expectedCount = results.length
+      const writeId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+      const prevBatchKeys = await readExistingBatchKeys(db, cacheKey)
       for (let i = 0; i < batches.length; i++) {
-        const batchKey = cacheKey + '_batch_' + i
+        const batchKey = makeGenerationBatchKey(cacheKey, i, writeId)
+        batchKeys.push(batchKey)
         const batchRecord = {
           cacheKey: batchKey,
           parentKey: cacheKey,
           batchIndex: i,
           totalBatches: batches.length,
-          data: { results: batches[i], count: apiData.count || results.length },
+          data: { results: batches[i], count: expectedCount },
           updatedAt: db.serverDate(),
           updatedAtMs: Date.now(),
           expiresAt: new Date(Date.now() + CACHE_DURATION)
         }
         await upsertDoc(collection, batchKey, batchRecord)
       }
+      const verified = await verifyBatchedCache(db, cacheKey, expectedCount, batchKeys)
+      if (!verified.ok) {
+        throw new Error(
+          `batched cache verify failed: ${verified.reason}` +
+            (verified.missingKey ? ` missing=${verified.missingKey}` : '') +
+            ` merged=${verified.mergedCount}/${verified.expectedCount}`
+        )
+      }
       const metaRecord = {
         cacheKey,
         isBatched: true,
         totalBatches: batches.length,
-        totalCount: apiData.count || results.length,
+        totalCount: expectedCount,
+        // 主文档也挂 data，便于读端识别列表分批（含 batchKeys）
+        data: {
+          isBatched: true,
+          batchKeys: batchKeys,
+          count: expectedCount,
+          results: []
+        },
         updatedAt: db.serverDate(),
         updatedAtMs: Date.now(),
+        timestamp: Date.now(),
         expiresAt: new Date(Date.now() + CACHE_DURATION)
       }
       await upsertDoc(collection, cacheKey, metaRecord)
+      await removeOrphanBatchDocs(db, cacheKey, batchKeys, prevBatchKeys)
     } else {
+      const prevBatchKeys = await readExistingBatchKeys(db, cacheKey)
       await upsertDoc(collection, cacheKey, record)
+      await removeOrphanBatchDocs(db, cacheKey, [], prevBatchKeys)
     }
   } catch (e) {
+    const msg = String((e && e.message) || e || '')
+    // 体积/结构类错误重试无意义，直接失败让上层瘦身或报错
+    if (/without results\[\] for batching|payload too large|batched cache verify failed/i.test(msg)) {
+      throw e
+    }
     if (retryCount < MAX_RETRIES) {
       await new Promise(r => setTimeout(r, 1000 * (retryCount + 1)))
       return saveToCloudDB(cacheKey, apiData, retryCount + 1)
@@ -163,15 +223,16 @@ async function saveToCloudDB(cacheKey, apiData, retryCount) {
 }
 
 async function upsertDoc(collection, docId, record) {
+  // 前端 getCacheFromCloud 用 doc(cacheKey).get()，必须保证 _id === cacheKey
+  const payload = Object.assign({}, record, { cacheKey: docId })
   try {
-    const { data } = await collection.where({ cacheKey: docId }).limit(1).get()
-    if (data.length > 0) {
-      await collection.doc(data[0]._id).update({ data: record })
-    } else {
-      await collection.add({ data: record })
-    }
+    await collection.doc(docId).set({ data: payload })
   } catch (e) {
-    await collection.add({ data: record })
+    try {
+      await collection.doc(docId).update({ data: payload })
+    } catch (e2) {
+      await collection.add({ data: Object.assign({}, payload, { _id: docId }) })
+    }
   }
 }
 

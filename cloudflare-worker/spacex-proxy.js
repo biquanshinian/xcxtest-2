@@ -1,3 +1,6 @@
+import { handleOaWatchRequest } from './oa-watch.js'
+import { handleRomanTrackerRequest } from './roman-tracker.js'
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -20,6 +23,10 @@ export default {
     }
 
     try {
+      if (url.pathname === '/oa-watch') {
+        return handleOaWatchRequest(request, env, corsHeaders)
+      }
+
       if (url.pathname === '/timeline') {
         const user = url.searchParams.get('user') || 'SpaceX'
         // 未登录时 syndication 对大部分账号只返回"历史热门 Top100"而非最新时间线，
@@ -425,6 +432,102 @@ export default {
       }
 
       /**
+       * Starbase 实况天气（公众站 / 小程序均可读）
+       * 边缘缓存 5 分钟；上游 open-meteo，失败回退 wttr.in
+       */
+      if (url.pathname === '/starbase/weather' || url.pathname === '/starbase/weather/') {
+        const omCodeText = (code) => {
+          const c = Number(code)
+          if (c === 0) return '晴朗'
+          if (c === 1) return '大部晴朗'
+          if (c === 2) return '多云'
+          if (c === 3) return '阴'
+          if (c === 45 || c === 48) return '雾'
+          if (c >= 51 && c <= 67) return '雨'
+          if (c >= 71 && c <= 77) return '雪'
+          if (c >= 80 && c <= 82) return '阵雨'
+          if (c >= 95) return '雷暴'
+          return '未知'
+        }
+        const cache = caches.default
+        const cacheKey = new Request(url.origin + '/starbase/weather', { method: 'GET' })
+        const cached = await cache.match(cacheKey)
+        if (cached) return cached
+
+        let payload = null
+        try {
+          const omUrl =
+            'https://api.open-meteo.com/v1/forecast?latitude=25.9971&longitude=-97.1564' +
+            '&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m&timezone=Asia/Shanghai'
+          const r = await fetch(omUrl, {
+            headers: { 'User-Agent': 'MarsXWeather/1.0', Accept: 'application/json' },
+            signal: AbortSignal.timeout(8000)
+          })
+          if (r.ok) {
+            const data = await r.json()
+            const cur = data && data.current
+            if (cur && cur.temperature_2m != null) {
+              payload = {
+                code: 0,
+                data: {
+                  tempC: Math.round(Number(cur.temperature_2m)),
+                  apparentC: Math.round(Number(cur.apparent_temperature != null ? cur.apparent_temperature : cur.temperature_2m)),
+                  windKmh: Math.round(Number(cur.wind_speed_10m) || 0),
+                  weatherCode: Number(cur.weather_code),
+                  text: omCodeText(cur.weather_code),
+                  timeLine: `${String(cur.time || '').replace('T', ' ')} CST`,
+                  source: 'open-meteo'
+                }
+              }
+            }
+          }
+        } catch (e) {}
+
+        if (!payload) {
+          try {
+            const r = await fetch('https://wttr.in/Boca+Chica?format=j1&lang=zh', {
+              headers: { 'User-Agent': 'MarsXWeather/1.0', Accept: 'application/json' },
+              signal: AbortSignal.timeout(8000)
+            })
+            if (r.ok) {
+              const data = await r.json()
+              const cur = data && data.current_condition && data.current_condition[0]
+              if (cur && cur.temp_C != null) {
+                const desc =
+                  (cur.lang_zh && cur.lang_zh[0] && cur.lang_zh[0].value) ||
+                  (cur.weatherDesc && cur.weatherDesc[0] && cur.weatherDesc[0].value) ||
+                  '未知'
+                payload = {
+                  code: 0,
+                  data: {
+                    tempC: Math.round(Number(cur.temp_C)),
+                    apparentC: Math.round(Number(cur.FeelsLikeC != null ? cur.FeelsLikeC : cur.temp_C)),
+                    windKmh: Math.round(Number(cur.windspeedKmph) || 0),
+                    text: String(desc),
+                    timeLine: `${cur.localObsDateTime || ''} CT`,
+                    source: 'wttr'
+                  }
+                }
+              }
+            }
+          } catch (e) {}
+        }
+
+        if (!payload) {
+          return new Response(JSON.stringify({ code: 502, message: 'weather upstream failed' }), {
+            status: 502,
+            headers: { ...corsHeaders, 'Cache-Control': 'no-store' }
+          })
+        }
+
+        const result = new Response(JSON.stringify(payload), {
+          headers: { ...corsHeaders, 'Cache-Control': 'public, max-age=300' }
+        })
+        try { await cache.put(cacheKey, result.clone()) } catch (e) {}
+        return result
+      }
+
+      /**
        * Starbase Texas海滩/道路页面中转（腾讯云函数侧 DNS 解析失败时使用）
        * 云函数环境变量：STARBASE_FETCH_PROXY_URL = https://api.marsx.com.cn/starbase/beach-road-access（或 workers.dev 同源路径）
        * Cloudflare Worker机密变量：STARBASE_PROXY_SECRET（与云函数 STARBASE_FETCH_PROXY_SECRET 相同）
@@ -691,6 +794,13 @@ export default {
       }
 
       /**
+       * 罗曼太空望远镜追踪 — Horizons -211 + DSN Now RST，服务端解析为精简 JSON
+       */
+      if (url.pathname === '/roman-tracker' || url.pathname === '/roman-tracker/') {
+        return handleRomanTrackerRequest(request, env, corsHeaders)
+      }
+
+      /**
        * NASA/JPL Horizons 代理（备用，保留）
        */
       if (url.pathname === '/artemis-horizons' || url.pathname === '/artemis-horizons/') {
@@ -898,6 +1008,96 @@ export default {
         }
       }
 
+      // SpaceX 官网 Vehicle Tracker 公开遥测（星舰 + 龙飞船，30 秒边缘缓存 + KV 兜底）
+      // 数据源即官网 /launches/*/vehicle-tracker 页面轮询的公开 JSON，无需鉴权
+      if (url.pathname === '/vehicle-tracker') {
+        const cache = caches.default
+        const cacheKey = new Request(url.origin + url.pathname, { method: 'GET' })
+        const cached = await cache.match(cacheKey)
+        if (cached) return cached
+
+        const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
+        const base = 'https://sxcontent9668.azureedge.us/cms-assets'
+        const fetchTracker = async (name) => {
+          const r = await fetch(`${base}/${name}?${Date.now()}`, {
+            headers: { 'User-Agent': ua, 'Accept': 'application/json, */*', 'Referer': 'https://www.spacex.com/' },
+            signal: AbortSignal.timeout(15000)
+          })
+          if (!r.ok) throw new Error(`HTTP ${r.status}`)
+          return r.json()
+        }
+
+        try {
+          const [starship, dragon] = await Promise.all([
+            fetchTracker('starship_tracker_public.json').catch(() => null),
+            fetchTracker('dragon_tracker_public.json').catch(() => null)
+          ])
+          if (!starship && !dragon) throw new Error('Both trackers unavailable')
+          const body = JSON.stringify({ code: 0, ts: Date.now(), starship, dragon })
+          // KV 兜底（保留 1 天：遥测时效性强，过旧数据无意义）
+          if (KV) await KV.put('vehicle-tracker', body, { expirationTtl: 86400, metadata: { ts: Date.now() } }).catch(() => {})
+          const resp = new Response(body, {
+            headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=30' }
+          })
+          await cache.put(cacheKey, resp.clone())
+          return resp
+        } catch (e) {
+          if (KV) {
+            const { value, metadata } = await KV.getWithMetadata('vehicle-tracker')
+            if (value) {
+              const age = metadata?.ts ? ((Date.now() - metadata.ts) / 60000).toFixed(1) : '?'
+              return new Response(value, {
+                headers: {
+                  'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*',
+                  'Cache-Control': 'public, max-age=30',
+                  'X-Tracker-Stale': 'true', 'X-Tracker-Age-Minutes': age
+                }
+              })
+            }
+          }
+          return new Response(JSON.stringify({ code: 502, message: 'Vehicle tracker error', detail: e.message }), { status: 502, headers: corsHeaders })
+        }
+      }
+
+      /**
+       * SpaceX 官网 CMS 媒体文件代理（开屏自动同步用，云函数境内直连 azureedge 不稳定）
+       * 仅放行官网 CMS 存储桶域名，防止变成开放代理；透传 Range 支持分段下载
+       */
+      if (url.pathname === '/spacex-media') {
+        const target = url.searchParams.get('url') || ''
+        let parsed
+        try {
+          parsed = new URL(target)
+        } catch {
+          return new Response(JSON.stringify({ code: 400, message: 'Bad url' }), { status: 400, headers: corsHeaders })
+        }
+        const host = parsed.hostname.toLowerCase()
+        if (host !== 'sxcontent9668.azureedge.us' || parsed.protocol !== 'https:') {
+          return new Response(JSON.stringify({ code: 403, message: 'Host not allowed' }), { status: 403, headers: corsHeaders })
+        }
+
+        const upstreamHeaders = {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
+          Referer: 'https://www.spacex.com/',
+          Accept: '*/*'
+        }
+        const range = request.headers.get('Range') || ''
+        if (range) upstreamHeaders.Range = range
+
+        const upstream = await fetch(parsed.toString(), { headers: upstreamHeaders })
+        const outHeaders = new Headers()
+        outHeaders.set('Access-Control-Allow-Origin', '*')
+        outHeaders.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges')
+        outHeaders.set('Cache-Control', 'public, max-age=3600')
+        const pass = ['content-type', 'content-length', 'content-range', 'accept-ranges']
+        for (const k of pass) {
+          const v = upstream.headers.get(k)
+          if (v) outHeaders.set(k, v)
+        }
+        if (!outHeaders.has('content-type')) outHeaders.set('Content-Type', 'application/octet-stream')
+        return new Response(upstream.body, { status: upstream.status, headers: outHeaders })
+      }
+
       // SpaceX 官网 API 代理（content.spacex.com 直连被部分云服务商拦截）
       if (url.pathname.startsWith('/spacex-api/')) {
         // 边缘缓存 5 分钟（SpaceX 数据更新不频繁）
@@ -918,12 +1118,52 @@ export default {
           }
         })
         const body = await resp.text()
-        const result = new Response(body, {
+        // 上游偶发 UTF-8 BOM，去掉以免下游云函数 JSON.parse 失败
+        const cleanBody = body.replace(/^\uFEFF/, '')
+        const result = new Response(cleanBody, {
           status: resp.status,
           headers: {
             'Content-Type': 'application/json; charset=utf-8',
             'Access-Control-Allow-Origin': '*',
             'Cache-Control': 'public, max-age=300'
+          }
+        })
+        if (resp.ok) {
+          await cache.put(cacheKey, result.clone())
+        }
+        return result
+      }
+
+      // 火星车照片代理（rovers.nebulum.one 小程序境内直连易超时）
+      if (url.pathname.startsWith('/mars-rovers/')) {
+        const cache = caches.default
+        const cacheKey = new Request(url.toString(), request)
+        const cached = await cache.match(cacheKey)
+        if (cached) return cached
+
+        const apiPath = url.pathname.replace('/mars-rovers/', '')
+        // 仅放行 rovers/{name}/(photos|latest_photos)，避免变成开放代理
+        if (!/^rovers\/[a-z0-9_-]+\/(photos|latest_photos)$/i.test(apiPath)) {
+          return new Response(JSON.stringify({ code: 400, message: 'Bad rover path' }), { status: 400, headers: corsHeaders })
+        }
+        const targetUrl = `https://rovers.nebulum.one/api/v1/${apiPath}${url.search}`
+        const resp = await fetch(targetUrl, {
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (compatible; SpaceXProxy/1.0)'
+          }
+        })
+        let body = await resp.text()
+        // Nebulum 返回体带 UTF-8 BOM（可能不止一个），标准 JSON.parse 会失败，这里剥掉
+        body = body.replace(/^\uFEFF+/, '')
+        // 照片按天更新，边缘缓存 10 分钟即可显著降低跨境往返
+        const result = new Response(body, {
+          status: resp.status,
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'public, max-age=600',
+            'X-Rover-Proxy': '2'
           }
         })
         if (resp.ok) {

@@ -1,0 +1,57 @@
+<view class="fpd fpd--{{mode}} {{themeLight ? 'fpd--light' : ''}}" bindtap="onRootTap" hover-class="{{mode === 'mini' ? 'fpd--pressed' : ''}}" hover-stay-time="120">
+  <view class="fpd-head">
+    <view class="fpd-head-left">
+      <text class="fpd-tag">FLIGHT PROFILE DEMO</text>
+      <text class="fpd-title">{{mode === 'mini' ? '飞行剖面演示' : '飞行剖面自动演示'}}</text>
+      <text class="fpd-sub" wx:if="{{missionName}}">{{missionName}}</text>
+    </view>
+    <view class="fpd-clock" wx:if="{{sim}}">
+      <text class="fpd-clock-t">{{sim.tText}}</text>
+      <text class="fpd-clock-phase">{{sim.phaseLabel}}</text>
+    </view>
+    <view class="fpd-clock fpd-clock--idle" wx:else>
+      <text class="fpd-clock-phase">准备中…</text>
+    </view>
+  </view>
+
+  <view class="fpd-block">
+    <view class="fpd-block-head">
+      <text class="fpd-block-tag">FLIGHT PROFILE</text>
+      <text class="fpd-block-title">飞行示意图</text>
+      <view class="fpd-legend" wx:if="{{mode === 'full'}}">
+        <view class="fpd-legend-item"><view class="fpd-legend-dot fpd-legend-dot--booster"></view><text>助推器</text></view>
+        <view class="fpd-legend-item"><view class="fpd-legend-dot fpd-legend-dot--ship"></view><text>飞船</text></view>
+      </view>
+    </view>
+    <view class="fpd-block-body">
+      <canvas type="2d" id="fpdDiagram" class="fpd-diagram"></canvas>
+      <view class="fpd-bars" wx:if="{{mode === 'full' && sim}}">
+        <view class="fpd-bar">
+          <text class="fpd-bar-label">推进剂</text>
+          <view class="fpd-bar-track"><view class="fpd-bar-fill" style="width: {{sim.propLoad}}%;"></view></view>
+          <text class="fpd-bar-val">{{sim.propLoad}}%</text>
+        </view>
+        <view class="fpd-bar">
+          <text class="fpd-bar-label">水幕系统</text>
+          <view class="fpd-bar-track"><view class="fpd-bar-fill fpd-bar-fill--water" style="width: {{sim.water}}%;"></view></view>
+          <text class="fpd-bar-val">{{sim.water}}%</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="fpd-block">
+    <view class="fpd-block-head">
+      <text class="fpd-block-tag">STAGE TELEMETRY</text>
+      <text class="fpd-block-title">双级飞行遥测</text>
+    </view>
+    <view class="fpd-block-body">
+      <canvas type="2d" id="fpdEngines" class="fpd-engines"></canvas>
+    </view>
+  </view>
+
+  <view class="fpd-hint" wx:if="{{mode === 'mini'}}">
+    <text>点击进入完整演示 · 自动循环对齐本次飞行时间线</text>
+    <text class="fpd-hint-arrow">›</text>
+  </view>
+</view>

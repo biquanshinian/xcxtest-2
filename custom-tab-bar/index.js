@@ -3,6 +3,7 @@ const { getUiShellLayout } = require('../utils/layout.js')
 const { getSystemInfo } = require('../utils/system.js')
 const storageCache = require('../utils/storage-sync-cache.js')
 const themeUtil = require('../utils/theme.js')
+const tabLoadGate = require('../utils/tab-load-gate.js')
 
 const STORAGE_SNOOZE_UNTIL = 'add_desktop_strip_snooze_until'
 const STORAGE_GUIDE_IMAGE_PATH = 'add_desktop_guide_saved_path'
@@ -28,7 +29,7 @@ Component({
     dragHighlightIndex: -1,
     currentPath: '/pages/index/index',
     color: '#8E8E93',
-    selectedColor: '#FFFFFF',
+    selectedColor: '#3B82F6',
     hidden: false,
     showProgressDot: false,
     showProfileDot: false,
@@ -39,6 +40,8 @@ Component({
     desktopGuideDisplaySrc: '',
     desktopGuidePendingTempSave: false,
     desktopGuideTempPath: '',
+    /** Tab 切换全屏星星加载遮罩 */
+    tabLoadVisible: false,
     list: [
       {
         pagePath: '/pages/index/index',
@@ -48,13 +51,13 @@ Component({
       },
       {
         pagePath: '/pages/monitor/monitor',
-        text: '监控中心',
+        text: '监控',
         iconPath: '/images/tabbar/monitor.svg',
         selectedIconPath: '/images/tabbar/monitor-active.svg'
       },
       {
         pagePath: '/pages/progress/progress',
-        text: '星舰进度',
+        text: '进展',
         iconPath: '/images/tabbar/starship.svg',
         selectedIconPath: '/images/tabbar/starship-active.svg'
       },
@@ -79,6 +82,13 @@ Component({
       const boot = this._collectBootPatch()
       this.setData(Object.assign({ dragHighlightIndex: -1 }, boot))
       this._refreshAddDesktopStripVisibility(true)
+      this._bindTabLoadGate()
+    },
+    detached() {
+      if (typeof this._unsubTabLoad === 'function') {
+        try { this._unsubTabLoad() } catch (e) {}
+        this._unsubTabLoad = null
+      }
     }
   },
 
@@ -87,6 +97,7 @@ Component({
       const patch = this._collectBootPatch()
       this._setTabBarData(patch)
       this._refreshAddDesktopStripVisibility(true)
+      this._bindTabLoadGate()
     }
   },
 
@@ -110,6 +121,27 @@ Component({
       if (!patch || typeof patch !== 'object') return
       this._patchAppCache(patch)
       this.setData(patch)
+    },
+
+    _bindTabLoadGate() {
+      if (this._unsubTabLoad) return
+      const self = this
+      this._unsubTabLoad = tabLoadGate.subscribe(function (snap) {
+        try {
+          if (!self || typeof self.setData !== 'function') return
+          const vis = !!(snap && snap.visible)
+          const cur = self.data && self.data.tabLoadVisible
+          if (cur !== vis) {
+            self.setData({ tabLoadVisible: vis })
+          }
+        } catch (e) {}
+      })
+    },
+
+    _beginTabLoadSwitch(url) {
+      try {
+        tabLoadGate.beginTabSwitch(url)
+      } catch (e) {}
     },
 
     _resolveSelectedFromRoute() {
@@ -138,18 +170,18 @@ Component({
     _readDesktopStripVisibleSync() {
       const app = this._getAppSafe()
       const cache = app && app.globalData && app.globalData.tabBarUiCache
-      if (cache && typeof cache.showAddDesktopStrip === 'boolean' && storageCache.isLoaded(STORAGE_SNOOZE_UNTIL)) {
+      if (cache && typeof cache.showAddDesktopStrip === 'boolean') {
         return cache.showAddDesktopStrip
       }
-      if (app && typeof app.readAddDesktopStripVisibleSync === 'function') {
-        return app.readAddDesktopStripVisibleSync()
+      if (storageCache.isLoaded(STORAGE_SNOOZE_UNTIL)) {
+        try {
+          const snoozeUntil = Number(storageCache.readMemOrSync(STORAGE_SNOOZE_UNTIL, 0)) || 0
+          return Date.now() >= snoozeUntil
+        } catch (_) {
+          return true
+        }
       }
-      try {
-        const snoozeUntil = Number(storageCache.readMemOrSync(STORAGE_SNOOZE_UNTIL, 0)) || 0
-        return Date.now() >= snoozeUntil
-      } catch (_) {
-        return true
-      }
+      return true
     },
 
     _collectBootPatch() {
@@ -163,7 +195,7 @@ Component({
         navPlaceholderHeight = (layout && layout.navPlaceholderHeight) || 0
       } catch (_) {}
 
-      const showAddDesktopStrip = cache && typeof cache.showAddDesktopStrip === 'boolean' && storageCache.isLoaded(STORAGE_SNOOZE_UNTIL)
+      const showAddDesktopStrip = cache && typeof cache.showAddDesktopStrip === 'boolean'
         ? cache.showAddDesktopStrip
         : this._readDesktopStripVisibleSync()
 
@@ -327,6 +359,14 @@ Component({
       } catch (_) {}
     },
 
+    _vibrateLight() {
+      try {
+        if (typeof wx.vibrateShort === 'function') {
+          wx.vibrateShort({ type: 'light' })
+        }
+      } catch (_) {}
+    },
+
     onDesktopGuideCloseButtonTap() {
       this._vibrateMedium()
       this.closeDesktopGuideImage()
@@ -442,6 +482,7 @@ Component({
       ) {
         const item = this.data.list[commitIdx]
         if (item && item.pagePath) {
+          this._beginTabLoadSwitch(item.pagePath)
           wx.switchTab({
             url: item.pagePath,
             success: () => {
@@ -453,6 +494,7 @@ Component({
             },
             fail: () => {
               this._setTabBarData({ dragHighlightIndex: -1 })
+              try { tabLoadGate.cancelTabSwitch(item.pagePath) } catch (e) {}
             }
           })
         } else {
@@ -476,7 +518,8 @@ Component({
       const idx = Number(data.index)
       if (idx === this.data.selected) return
 
-      this._vibrateMedium()
+      this._vibrateLight()
+      this._beginTabLoadSwitch(url)
       wx.switchTab({
         url: url,
         success: () => {
@@ -485,6 +528,9 @@ Component({
             currentPath: url,
             dragHighlightIndex: -1
           })
+        },
+        fail: () => {
+          try { tabLoadGate.cancelTabSwitch(url) } catch (err) {}
         }
       })
     }

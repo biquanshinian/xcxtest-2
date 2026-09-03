@@ -1,0 +1,1256 @@
+/**
+ * SPACE_NOTICES_FEATURE — 发射通告云函数（可整块删除本目录）
+ *
+ * actions:
+ *   (timer/default) sync   — 轮转增量：抓站点 entry 索引 → 每次处理 ENTRIES_PER_RUN 个 entry 的通告
+ *   listEntries            — 条目列表（含即将 / 历史分类）
+ *   getEntry               — 单条 + notices（缺数据时按需补拉该 entry）
+ *   lookupEntry            — 按 entryKey / ll2Id 查是否已有通告（不补拉、不写库）
+ *   lookupStarshipEntry    — 取当前最合适的星舰通告条目（不补拉、不写库）
+ *   lookupChinaBulletin    — 中国航警公告卡片：核对时间 / 条数（不补拉）
+ *   ingestRaw              — 粘贴原文解析入库 { entryKey|ll2Id, rawText, type?, name?, reason? }
+ *   parsePreview           — 仅解析 areas，不写库
+ *
+ * 数据源：space-notices.com 的 launch-* entry（历史 + 即将）以及置顶的
+ * collection-chinese-unknown（中国航警桶）。该桶不只跟官网合集页：
+ * 合集链接 ∪ sitemap 全国情报区 ∪ 按 FIR 往当前编号后扫描（抓尚未编进合集的未来窗口）。
+ * 每个 entry 自带真实 NOTAM / 航海警告多边形。entry 主键用站点 slug（站点不暴露 LL2 id）；
+ * LL2（space_devs_cache）只做尽力匹配，用来补发射台坐标、NET 与任务状态。
+ * 不单独请求 LL2（无 token、不占免费 15 次/小时配额）
+ */
+
+const cloud = require('wx-server-sdk')
+cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
+const db = cloud.database()
+
+const { parseAreasFromRawText } = require('./parse-areas.js')
+const { fillNoticeDates } = require('./parse-dates.js')
+const {
+  FLIGHT13_ENTRY_KEY,
+  FLIGHT13_LL2_ID,
+  DEMO_NOTICES,
+  STALE_DEMO_CORRIDOR_KEY,
+  FLIGHT13_CORRIDOR_CENTERLINE,
+  FLIGHT13_TRAJECTORY_COLOR,
+  FLIGHT13_TRAJECTORY_VERSION
+} = require('./seed-demo.js')
+const { loadLaunchesFromCache } = require('./read-ll2-cache.js')
+const { resolvePadCoords } = require('./pad-coords.js')
+const { extractNoticeLinks, noticeKeyFromPath, fetchNoticesByPaths, mapPool } = require('./fetch-external.js')
+const { discoverEntrySlugs, fetchEntryPage, BASE, isCollectionKey, isChineseCollectionKey, CHINESE_COLLECTION_KEY } = require('./discover-entries.js')
+const chinaFirs = require('./discover-china-firs.js')
+const { matchEntryToLaunch } = require('./match-ll2.js')
+
+const crypto = require('crypto')
+
+const ENTRY_COL = 'space_notice_entry'
+const NOTICE_COL = 'space_notice'
+
+const SYNC_META_DOC = '_space_notices_sync_meta'
+const SYNC_COOLDOWN_MS = 60 * 1000
+/** 单次定时器处理的 entry 数；配合 15 分钟定时器约 1 小时覆盖全部 */
+const ENTRIES_PER_RUN = 4
+/** 抓取预算，留足余量给 DB 写入（云函数 timeout 90s） */
+const DEFAULT_BUDGET_MS = 60000
+/** 打开中国航警页时，超过该间隔则强制补拉（定时器本身每 15 分钟核对一次） */
+const CHINA_BULLETIN_STALE_MS = 60 * 60 * 1000
+
+function nowMs() {
+  return Date.now()
+}
+
+let _collectionsEnsured = false
+async function ensureCollections() {
+  if (_collectionsEnsured) return
+  _collectionsEnsured = true
+  // 云开发不会在首次 get/set 时自动建集合；需 createCollection（已存在则忽略错误）
+  for (const name of [ENTRY_COL, NOTICE_COL]) {
+    try {
+      await db.createCollection(name)
+    } catch (e) { /* already exists */ }
+  }
+}
+
+function docIdOf(key) {
+  return String(key).replace(/[\/\\#\s]/g, '_')
+}
+
+/** get 出的文档再 set 回去时必须去掉 _id/_openid，否则 TCB 报「不能更新」(-501007) */
+function stripDocMeta(doc) {
+  if (!doc || typeof doc !== 'object') return {}
+  const next = Object.assign({}, doc)
+  delete next._id
+  delete next._openid
+  return next
+}
+
+// ───────────────────────── 通告读写 ─────────────────────────
+
+function noticeContentHash(notice, areas) {
+  const raw = String((notice && notice.rawText) || '')
+  const areaSig = JSON.stringify(areas || [])
+  return crypto.createHash('sha1').update(raw + '\n' + areaSig).digest('hex').slice(0, 16)
+}
+
+function windowBoundsOf(notices) {
+  let startMs = 0
+  let endMs = 0
+  ;(notices || []).forEach((n) => {
+    ;((n && n.dates) || []).forEach((d) => {
+      const s = Date.parse(String((d && d.start) || ''))
+      const e = Date.parse(String((d && d.end) || ''))
+      if (Number.isFinite(s) && (!startMs || s < startMs)) startMs = s
+      if (Number.isFinite(e) && e > endMs) endMs = e
+    })
+  })
+  return { startMs, endMs }
+}
+
+/**
+ * @param {object} opts
+ * @param {boolean} [opts.forceWrite] 忽略 hash，强制覆盖
+ * @param {boolean} [opts.chinaBulletin] 纳入中国航警公告（不改变具名任务归属）
+ * @returns {Promise<{ noticeKey: string, written: boolean, skipped: boolean }>}
+ */
+async function upsertNotice(entryKey, notice, opts) {
+  const forceWrite = !!(opts && opts.forceWrite)
+  const ll2Id = (opts && opts.ll2Id) || ''
+  const noticeKey = String(notice.noticeKey)
+  const docId = docIdOf(noticeKey)
+  let prev = null
+  try {
+    const got = await db.collection(NOTICE_COL).doc(docId).get()
+    prev = got && got.data
+  } catch (e) { /* new */ }
+  let areas = Array.isArray(notice.areas) && notice.areas.length
+    ? notice.areas
+    : parseAreasFromRawText(notice.rawText || '')
+  // 外部 cancelled / 偶发空 areas 时不抹掉库内已有精密多边形
+  if (!areas.length && prev && Array.isArray(prev.areas) && prev.areas.length) {
+    areas = prev.areas
+  }
+  const contentHash = noticeContentHash(notice, areas)
+  const nextEntryKey = chinaFirs.resolveNoticeOwner(prev && prev.entryKey, entryKey)
+  const chinaBulletin = !!(
+    (prev && prev.chinaBulletin) ||
+    isChineseCollectionKey(entryKey) ||
+    isChineseCollectionKey(nextEntryKey) ||
+    (opts && opts.chinaBulletin) ||
+    chinaFirs.isChinaFirNoticeKey(noticeKey)
+  )
+  const nextLl2 = String(ll2Id || (prev && prev.ll2Id) || '')
+  // 老库文档只有 ll2Id 没有 entryKey，需强制改写一次完成 schema 升级
+  const needsSchemaUpgrade = !!prev && !prev.entryKey
+  if (!forceWrite && !needsSchemaUpgrade && prev && prev.contentHash === contentHash &&
+      !!prev.cancelled === !!notice.cancelled) {
+    const sameOwner = String(prev.entryKey || '') === String(nextEntryKey || '')
+    const sameFlag = !!prev.chinaBulletin === !!chinaBulletin
+    const sameLl2 = String(prev.ll2Id || '') === nextLl2
+    if (sameOwner && sameFlag && sameLl2) {
+      return { noticeKey, written: false, skipped: true }
+    }
+    const patch = stripDocMeta(Object.assign({}, prev, {
+      entryKey: nextEntryKey,
+      chinaBulletin,
+      ll2Id: nextLl2,
+      updatedAt: nowMs()
+    }))
+    await db.collection(NOTICE_COL).doc(docId).set({ data: patch })
+    return { noticeKey, written: true, skipped: false }
+  }
+  const data = {
+    noticeKey,
+    entryKey: String(nextEntryKey || entryKey),
+    chinaBulletin,
+    ll2Id: nextLl2,
+    type: notice.type || 'NOTAM',
+    name: notice.name || noticeKey,
+    reason: notice.reason || '',
+    sourceName: notice.sourceName || '',
+    sourceLink: notice.sourceLink || '',
+    rawText: notice.rawText || '',
+    areas,
+    centerline: Array.isArray(notice.centerline) && notice.centerline.length
+      ? notice.centerline
+      : (prev && prev.centerline) || [],
+    dates: fillNoticeDates(notice.dates, notice.rawText),
+    contentHash,
+    cancelled: !!notice.cancelled,
+    updatedAt: nowMs(),
+    createdAt: (prev && prev.createdAt) || nowMs()
+  }
+  await db.collection(NOTICE_COL).doc(docId).set({ data })
+  return { noticeKey, written: true, skipped: false }
+}
+
+const NOTICE_READ_PAGE = 100
+const NOTICE_READ_CAP = 400
+
+async function queryNoticesWhere(where, cap) {
+  const all = []
+  let skip = 0
+  const limit = Math.min(NOTICE_READ_PAGE, Number(cap) || NOTICE_READ_CAP)
+  for (;;) {
+    let res
+    try {
+      res = await db
+        .collection(NOTICE_COL)
+        .where(where)
+        .orderBy('noticeKey', 'asc')
+        .skip(skip)
+        .limit(limit)
+        .get()
+    } catch (e) {
+      res = await db.collection(NOTICE_COL).where(where).skip(skip).limit(limit).get()
+    }
+    const batch = (res.data || []).filter((n) => n && n.noticeKey !== STALE_DEMO_CORRIDOR_KEY)
+    all.push(...batch)
+    if (batch.length < limit || all.length >= NOTICE_READ_CAP) break
+    skip += limit
+  }
+  return all.slice(0, NOTICE_READ_CAP)
+}
+
+async function readNoticesOfEntry(entryKey) {
+  return queryNoticesWhere({ entryKey: String(entryKey) })
+}
+
+function mergeNoticesByKey(lists) {
+  const map = {}
+  ;(lists || []).forEach((list) => {
+    ;(list || []).forEach((n) => {
+      if (n && n.noticeKey) map[n.noticeKey] = n
+    })
+  })
+  return Object.keys(map).map((k) => map[k])
+}
+
+/** 中国公告 = 桶内孤儿 ∪ 打了 chinaBulletin 的具名任务通告（不改对方 entryKey） */
+async function readChinaBulletinNotices() {
+  const owned = await readNoticesOfEntry(CHINESE_COLLECTION_KEY)
+  let flagged = []
+  try {
+    flagged = await queryNoticesWhere({ chinaBulletin: true })
+  } catch (e) {
+    flagged = []
+  }
+  return mergeNoticesByKey([owned, flagged])
+}
+
+async function lookupNoticeDoc(noticeKey) {
+  try {
+    const got = await db.collection(NOTICE_COL).doc(docIdOf(noticeKey)).get()
+    return (got && got.data) || null
+  } catch (e) {
+    return null
+  }
+}
+
+function noticeFromStored(d) {
+  if (!d) return null
+  return {
+    noticeKey: d.noticeKey,
+    type: d.type,
+    name: d.name,
+    reason: d.reason,
+    rawText: d.rawText,
+    areas: d.areas,
+    centerline: d.centerline,
+    dates: d.dates,
+    sourceName: d.sourceName,
+    sourceLink: d.sourceLink,
+    cancelled: d.cancelled
+  }
+}
+
+/** 源站已下架的航警从库里删掉，避免公告页残留。抓取不完整时不要调用。 */
+async function pruneNoticesNotIn(entryKey, keepKeys) {
+  const keep = {}
+  ;(keepKeys || []).forEach((k) => {
+    if (k) keep[String(k)] = true
+  })
+  const stored = await readNoticesOfEntry(entryKey)
+  let removed = 0
+  for (let i = 0; i < stored.length; i++) {
+    const key = stored[i] && stored[i].noticeKey
+    if (!key || keep[key]) continue
+    try {
+      await db.collection(NOTICE_COL).doc(docIdOf(key)).remove()
+      removed += 1
+    } catch (e) { /* ignore */ }
+  }
+  return removed
+}
+
+function bulletinFingerprint(notices) {
+  const sig = (notices || [])
+    .map((n) => String((n && n.noticeKey) || '') + ':' + String((n && n.contentHash) || ''))
+    .filter(Boolean)
+    .sort()
+    .join('|')
+  return crypto.createHash('sha1').update(sig).digest('hex').slice(0, 16)
+}
+
+// ───────────────────────── 条目读写 ─────────────────────────
+
+async function upsertEntry(entry) {
+  const id = docIdOf(entry.entryKey)
+  let prev = null
+  try {
+    const got = await db.collection(ENTRY_COL).doc(id).get()
+    prev = got && got.data
+  } catch (e) { /* new */ }
+  const doc = stripDocMeta(Object.assign({}, prev || {}, entry, {
+    updatedAt: nowMs(),
+    createdAt: (prev && prev.createdAt) || nowMs()
+  }))
+  await db.collection(ENTRY_COL).doc(id).set({ data: doc })
+  return id
+}
+
+/** entry 元信息 + LL2 匹配 + 通告统计 → 条目文档 */
+function buildEntryDoc(meta, matched, notices) {
+  const bounds = windowBoundsOf(notices)
+  const launch = (matched && matched.launch) || null
+  const netMs = launch && launch.net ? Date.parse(launch.net) : 0
+  const refMs = bounds.endMs || (Number.isFinite(netMs) ? netMs : 0)
+  return {
+    entryKey: meta.entryKey,
+    missionName: meta.missionName || '',
+    rocketName: meta.rocketName || (launch ? String(launch.subtitle || '') : ''),
+    siteTitle: meta.siteTitle || '',
+    description: meta.description || (launch ? String(launch.description || '') : ''),
+    siteUrl: `${BASE}/entry/${meta.entryKey}`,
+    ll2Id: launch ? launch.ll2Id : '',
+    ll2Score: matched ? matched.score : 0,
+    net: launch ? launch.net || '' : '',
+    pad: launch ? resolvePadCoords(launch.pad || {}) : null,
+    statusName: launch ? launch.statusName || '' : '',
+    agency: launch ? launch.agency || '' : '',
+    orbitName: launch ? launch.orbitName || '' : '',
+    isStarship: launch ? !!launch.isStarship : /starship/i.test(meta.entryKey),
+    isCollection: isCollectionKey(meta.entryKey),
+    noticeKeys: (notices || []).map((n) => n.noticeKey).filter(Boolean),
+    noticeCount: (notices || []).length,
+    windowStartMs: bounds.startMs,
+    windowEndMs: bounds.endMs,
+    // 合集是持续桶，不进历史；其余按危险区窗口是否过期
+    isPast: isCollectionKey(meta.entryKey) ? false : !!(refMs && refMs < nowMs()),
+    syncedAt: nowMs()
+  }
+}
+
+// ───────────────────────── Flight 13 兜底 ─────────────────────────
+
+async function removeStaleDemoCorridor() {
+  if (!STALE_DEMO_CORRIDOR_KEY) return
+  try {
+    await db.collection(NOTICE_COL).doc(docIdOf(STALE_DEMO_CORRIDOR_KEY)).remove()
+  } catch (e) { /* already gone */ }
+}
+
+async function ensureFlight13Trajectory() {
+  // 与 space-notices.com Trajectory 同源（Ship 40）；站点仅对该次飞行提供轨迹
+  const payload = {
+    trajectory: FLIGHT13_CORRIDOR_CENTERLINE,
+    trajectoryColor: FLIGHT13_TRAJECTORY_COLOR,
+    trajectoryVersion: FLIGHT13_TRAJECTORY_VERSION,
+    trajectoryNote: 'space-notices.com Ship 40 / Flight 13 trajectory',
+    trajectorySource: 'space-notices.com',
+    updatedAt: nowMs()
+  }
+  const id = docIdOf(FLIGHT13_ENTRY_KEY)
+  try {
+    await db.collection(ENTRY_COL).doc(id).update({ data: payload })
+  } catch (e) {
+    try {
+      await db.collection(ENTRY_COL).doc(id).set({
+        data: Object.assign(
+          { entryKey: FLIGHT13_ENTRY_KEY, missionName: 'Flight 13', rocketName: 'Starship', createdAt: nowMs() },
+          payload
+        )
+      })
+    } catch (e2) { /* ignore */ }
+  }
+}
+
+/** 冷启动兜底：站点抓取失败时也要有 Flight 13 的溅落区与走廊可画 */
+async function ensureDemoNotices() {
+  await removeStaleDemoCorridor()
+  let linked = 0
+  for (const n of DEMO_NOTICES) {
+    let exists = false
+    try {
+      const got = await db.collection(NOTICE_COL).doc(docIdOf(n.noticeKey)).get()
+      exists = !!(got && got.data && got.data.entryKey && Array.isArray(got.data.areas) && got.data.areas.length)
+    } catch (e) {
+      exists = false
+    }
+    if (!exists) {
+      await upsertNotice(FLIGHT13_ENTRY_KEY, n, { forceWrite: true, ll2Id: FLIGHT13_LL2_ID })
+      linked += 1
+    }
+  }
+  await ensureFlight13Trajectory()
+  // 把演示通告统计回写到 entry，避免列表显示「通告 0」
+  try {
+    const stored = await readNoticesOfEntry(FLIGHT13_ENTRY_KEY)
+    const meta = {
+      entryKey: FLIGHT13_ENTRY_KEY,
+      missionName: 'Flight 13',
+      rocketName: 'Starship',
+      siteTitle: 'Flight 13 - Starship',
+      siteUrl: `${BASE}/entry/${FLIGHT13_ENTRY_KEY}`,
+      ll2Id: FLIGHT13_LL2_ID,
+      isStarship: true
+    }
+    // 尽量带上已有 LL2 匹配信息
+    let prev = null
+    try {
+      const got = await db.collection(ENTRY_COL).doc(docIdOf(FLIGHT13_ENTRY_KEY)).get()
+      prev = got && got.data
+    } catch (e) { /* ignore */ }
+    const matched = prev && prev.ll2Id
+      ? {
+          launch: {
+            ll2Id: prev.ll2Id,
+            net: prev.net,
+            pad: prev.pad,
+            statusName: prev.statusName,
+            agency: prev.agency,
+            orbitName: prev.orbitName,
+            subtitle: prev.rocketName,
+            description: prev.description,
+            isStarship: true
+          },
+          score: prev.ll2Score || 0
+        }
+      : null
+    await upsertEntry(Object.assign(
+      {},
+      buildEntryDoc(meta, matched, stored),
+      {
+        trajectory: (prev && prev.trajectory) || FLIGHT13_CORRIDOR_CENTERLINE,
+        trajectoryColor: (prev && prev.trajectoryColor) || FLIGHT13_TRAJECTORY_COLOR,
+        trajectoryVersion: (prev && prev.trajectoryVersion) || FLIGHT13_TRAJECTORY_VERSION
+      }
+    ))
+  } catch (e) { /* ignore */ }
+  return linked
+}
+
+// ───────────────────────── 同步 ─────────────────────────
+
+async function readSyncMeta() {
+  try {
+    const got = await db.collection(ENTRY_COL).doc(SYNC_META_DOC).get()
+    return (got && got.data) || {}
+  } catch (e) {
+    return {}
+  }
+}
+
+async function writeSyncMeta(patch) {
+  try {
+    await db.collection(ENTRY_COL).doc(SYNC_META_DOC).set({
+      data: Object.assign({ _meta: true, updatedAt: nowMs() }, patch)
+    })
+  } catch (e) { /* ignore */ }
+}
+
+/** 老 schema（以 ll2Id 为主键、无 entryKey）的条目文档清理 */
+async function dropLegacyEntries() {
+  let removed = 0
+  try {
+    const res = await db.collection(ENTRY_COL).limit(100).get()
+    for (const d of res.data || []) {
+      if (!d || d._meta) continue
+      if (d.entryKey) continue
+      try {
+        await db.collection(ENTRY_COL).doc(d._id).remove()
+        removed += 1
+      } catch (e) { /* ignore */ }
+    }
+  } catch (e) { /* ignore */ }
+  return removed
+}
+
+async function loadEntryDoc(slug) {
+  try {
+    const got = await db.collection(ENTRY_COL).doc(docIdOf(slug)).get()
+    return (got && got.data) || null
+  } catch (e) {
+    return null
+  }
+}
+
+async function pruneExpiredChinaNotices(slug, discoveredKeys) {
+  const disc = {}
+  ;(discoveredKeys || []).forEach((k) => {
+    if (k) disc[String(k)] = true
+  })
+  const now = nowMs()
+  let removed = 0
+  const owned = await readNoticesOfEntry(slug)
+  for (let i = 0; i < owned.length; i++) {
+    if (chinaFirs.shouldKeepStoredNotice(owned[i], disc, now, chinaFirs.KEEP_ENDED_MS)) continue
+    const key = owned[i] && owned[i].noticeKey
+    if (!key) continue
+    try {
+      await db.collection(NOTICE_COL).doc(docIdOf(key)).remove()
+      removed += 1
+    } catch (e) { /* ignore */ }
+  }
+  let flagged = []
+  try {
+    flagged = await queryNoticesWhere({ chinaBulletin: true })
+  } catch (e) {
+    flagged = []
+  }
+  for (let j = 0; j < flagged.length; j++) {
+    const n = flagged[j]
+    if (!n || !n.noticeKey) continue
+    if (isChineseCollectionKey(n.entryKey)) continue
+    if (chinaFirs.shouldKeepStoredNotice(n, disc, now, chinaFirs.KEEP_ENDED_MS)) continue
+    try {
+      const patch = stripDocMeta(Object.assign({}, n, { chinaBulletin: false, updatedAt: now }))
+      await db.collection(NOTICE_COL).doc(docIdOf(n.noticeKey)).set({ data: patch })
+    } catch (e) { /* ignore */ }
+  }
+  return removed
+}
+
+async function writeNotices(slug, notices, ll2Id, opts) {
+  let written = 0
+  let skipped = 0
+  const errors = []
+  const forceBulletin = !!(opts && opts.chinaBulletin)
+  for (let i = 0; i < (notices || []).length; i++) {
+    const n = notices[i]
+    if (!n || !n.noticeKey) continue
+    try {
+      const r = await upsertNotice(slug, n, {
+        ll2Id,
+        chinaBulletin: forceBulletin || chinaFirs.isChinaFirNoticeKey(n.noticeKey)
+      })
+      if (r.written) written += 1
+      if (r.skipped) skipped += 1
+    } catch (e) {
+      errors.push(`${n.noticeKey}: ${(e && e.message) || String(e)}`)
+    }
+  }
+  return { written, skipped, errors }
+}
+
+function finishChinaEntryDoc(meta, stored, prev, chinaProbe) {
+  const doc = buildEntryDoc(meta, null, stored)
+  const fp = bulletinFingerprint(stored)
+  const same = !!(prev && prev.bulletinFingerprint === fp)
+  doc.lastCheckedAt = nowMs()
+  doc.bulletinFingerprint = fp
+  doc.lastChangedAt = same && prev && prev.lastChangedAt ? prev.lastChangedAt : nowMs()
+  doc.chinaProbe = chinaProbe || (prev && prev.chinaProbe) || chinaFirs.emptyProbeState()
+  return doc
+}
+
+/**
+ * 中国航警桶：合集页 + sitemap 全国 FIR + 按编号往后扫孤儿页。
+ * 已入库的不重复抓；未来窗口即使还没进官网合集也不裁掉。
+ */
+async function syncChineseCollection(slug, deadline) {
+  const errors = []
+  const prev = await loadEntryDoc(slug)
+  let meta = null
+  let collectionPaths = []
+  try {
+    const page = await fetchEntryPage(slug)
+    meta = page.meta
+    collectionPaths = extractNoticeLinks(page.html, { max: Infinity })
+  } catch (e) {
+    return {
+      entryKey: slug,
+      fetched: 0,
+      parsed: 0,
+      written: 0,
+      skipped: 0,
+      errors: [(e && e.message) || String(e)]
+    }
+  }
+
+  let sitemapRows = []
+  let sitemapOk = false
+  try {
+    sitemapRows = await chinaFirs.fetchSitemapChinaNoticePaths()
+    sitemapOk = true
+  } catch (e) {
+    errors.push('sitemap: ' + ((e && e.message) || String(e)))
+  }
+
+  const yy = chinaFirs.currentNotamYear()
+  const probeState = chinaFirs.normalizeProbeState(prev && prev.chinaProbe, yy)
+  const sitemapMax = chinaFirs.sitemapMaxByFir(sitemapRows, yy)
+  Object.keys(sitemapMax).forEach((fir) => {
+    const row = probeState.cursors[fir] || { scanned: 0, lastHit: 0 }
+    probeState.cursors[fir] = {
+      scanned: Math.max(row.scanned, sitemapMax[fir]),
+      lastHit: Math.max(row.lastHit, sitemapMax[fir])
+    }
+  })
+
+  const probeBudgetMs = Math.min(22000, Math.max(4000, deadline - nowMs() - 28000))
+  const probePlan = chinaFirs.pickProbeTargets({
+    firs: chinaFirs.SCAN_FIR_CODES,
+    yy,
+    sitemapMax,
+    state: probeState,
+    budget: chinaFirs.PROBE_BUDGET
+  })
+  const probeHits = []
+  let nextProbe = probePlan.nextState || probeState
+  if (probePlan.targets.length && nowMs() < deadline) {
+    const probed = await chinaFirs.probeFirNoticePages(probePlan.targets, {
+      deadline: Math.min(deadline, nowMs() + probeBudgetMs),
+      concurrency: 6
+    })
+    nextProbe = chinaFirs.applyProbeResults(nextProbe, probed, yy)
+    probed.forEach((r) => {
+      if (r && r.exists && r.notice) probeHits.push(r)
+      else if (r && r.exists && r.path) probeHits.push(r)
+    })
+  }
+
+  const collectionKeySet = {}
+  collectionPaths.map(noticeKeyFromPath).forEach((k) => {
+    if (k) collectionKeySet[k] = true
+  })
+  const sitemapPaths = sitemapRows.map((r) => r.path)
+  const probePaths = probeHits.map((r) => r.path)
+  const paths = chinaFirs
+    .uniqueNoticePaths(collectionPaths.concat(sitemapPaths, probePaths))
+    .filter((p) => chinaFirs.allowChinaIngestPath(p, collectionKeySet))
+  const discoveredKeys = paths.map(noticeKeyFromPath).filter(Boolean)
+
+  const storedBefore = await readChinaBulletinNotices()
+  const have = {}
+  storedBefore.forEach((n) => {
+    if (n && n.noticeKey) have[n.noticeKey] = true
+  })
+
+  let written = 0
+  let skipped = 0
+  const parsedNotices = []
+
+  const missing = discoveredKeys.filter((k) => !have[k])
+  if (missing.length) {
+    await mapPool(missing, 8, async (key) => {
+      const existing = await lookupNoticeDoc(key)
+      if (!existing || !existing.noticeKey) return
+      try {
+        const r = await upsertNotice(slug, noticeFromStored(existing), { chinaBulletin: true })
+        if (r.written) written += 1
+        if (r.skipped) skipped += 1
+        have[key] = true
+      } catch (e) {
+        errors.push(`${key}: ${(e && e.message) || String(e)}`)
+      }
+    })
+  }
+
+  const probeParsed = probeHits
+    .map((r) => r.notice)
+    .filter((n) => n && n.noticeKey && chinaFirs.allowChinaIngestKey(n.noticeKey, collectionKeySet))
+  if (probeParsed.length) {
+    const w = await writeNotices(slug, probeParsed, '', { chinaBulletin: true })
+    written += w.written
+    skipped += w.skipped
+    errors.push(...w.errors)
+    probeParsed.forEach((n) => {
+      have[n.noticeKey] = true
+      parsedNotices.push(n)
+    })
+  }
+
+  const lastmodByKey = chinaFirs.lastmodByNoticeKey(sitemapRows)
+  const pending = chinaFirs.prioritizeFetchPaths(paths, { have, lastmodByKey })
+  const fetchRes = await fetchNoticesByPaths(pending, { deadline })
+  if (fetchRes.errors && fetchRes.errors.length) errors.push(...fetchRes.errors.slice(0, 5))
+  const fetchKeep = (fetchRes.notices || []).filter(
+    (n) => n && n.noticeKey && chinaFirs.allowChinaIngestKey(n.noticeKey, collectionKeySet)
+  )
+  parsedNotices.push(...fetchKeep)
+  const w2 = await writeNotices(slug, fetchKeep, '', { chinaBulletin: true })
+  written += w2.written
+  skipped += w2.skipped
+  errors.push(...w2.errors)
+
+  if (sitemapOk) {
+    try {
+      await pruneExpiredChinaNotices(slug, discoveredKeys)
+    } catch (e) { /* 下一轮再对齐 */ }
+  }
+
+  const stored = await readChinaBulletinNotices()
+  const doc = finishChinaEntryDoc(meta, stored, prev, nextProbe)
+  await upsertEntry(doc)
+
+  return {
+    entryKey: slug,
+    fetched: paths.length,
+    parsed: parsedNotices.length,
+    written,
+    skipped,
+    discovered: discoveredKeys.length,
+    sitemap: sitemapRows.length,
+    probed: probePlan.targets.length,
+    probeHits: probeHits.length,
+    errors: errors.slice(0, 8)
+  }
+}
+
+/**
+ * 同步单个 entry：抓页面 → 抓通告 → 落库
+ * @returns {Promise<{ entryKey: string, fetched: number, parsed: number, written: number, skipped: number, errors: string[] }>}
+ */
+async function syncOneEntry(slug, launches, deadline) {
+  if (isChineseCollectionKey(slug)) {
+    return syncChineseCollection(slug, deadline)
+  }
+
+  const errors = []
+  let meta = null
+  let paths = []
+  try {
+    const page = await fetchEntryPage(slug)
+    meta = page.meta
+    paths = extractNoticeLinks(page.html)
+  } catch (e) {
+    return {
+      entryKey: slug,
+      fetched: 0,
+      parsed: 0,
+      written: 0,
+      skipped: 0,
+      errors: [(e && e.message) || String(e)]
+    }
+  }
+
+  const matched = isCollectionKey(slug) ? null : matchEntryToLaunch(meta, launches)
+  const ll2Id = matched ? matched.launch.ll2Id : ''
+
+  const fetchRes = await fetchNoticesByPaths(paths, { deadline })
+  if (fetchRes.errors && fetchRes.errors.length) errors.push(...fetchRes.errors.slice(0, 5))
+  const wantKeys = {}
+  paths.forEach((p) => {
+    const k = noticeKeyFromPath(p)
+    if (k) wantKeys[k] = true
+  })
+  const launchNotices = (fetchRes.notices || []).filter((n) => n && n.noticeKey && wantKeys[n.noticeKey])
+
+  const w = await writeNotices(slug, launchNotices, ll2Id)
+  const written = w.written
+  const skipped = w.skipped
+  if (w.errors.length) errors.push(...w.errors)
+
+  // 统计以库内为准：本轮预算用尽时也不会把历史通告数抹低
+  const stored = await readNoticesOfEntry(slug)
+  const doc = buildEntryDoc(meta, matched, stored)
+  if (isCollectionKey(slug)) {
+    const prev = await loadEntryDoc(slug)
+    const fp = bulletinFingerprint(stored)
+    const same = !!(prev && prev.bulletinFingerprint === fp)
+    doc.lastCheckedAt = nowMs()
+    doc.bulletinFingerprint = fp
+    doc.lastChangedAt = same && prev.lastChangedAt ? prev.lastChangedAt : nowMs()
+  }
+  await upsertEntry(doc)
+
+  return {
+    entryKey: slug,
+    fetched: paths.length,
+    parsed: launchNotices.length,
+    written,
+    skipped,
+    errors: errors.slice(0, 5)
+  }
+}
+
+/**
+ * @param {{ budgetMs?: number, entryKeys?: string[], maxEntries?: number }} [opts]
+ * entryKeys 指定时为「按需补拉」；否则按 cursor 轮转推进
+ */
+async function syncSpaceNotices(opts) {
+  const o = opts || {}
+  const budgetMs = Math.max(8000, Number(o.budgetMs) || DEFAULT_BUDGET_MS)
+  const deadline = nowMs() + budgetMs
+  await ensureCollections()
+
+  const prevMeta = await readSyncMeta()
+  let slugs = Array.isArray(prevMeta.entrySlugs) ? prevMeta.entrySlugs : []
+  const discoverErrors = []
+  const onDemand = Array.isArray(o.entryKeys) && o.entryKeys.length
+
+  // 按需补拉时跳过首页抓取，省一次请求
+  if (!onDemand || !slugs.length) {
+    try {
+      const found = await discoverEntrySlugs()
+      if (found.length) slugs = found
+    } catch (e) {
+      discoverErrors.push((e && e.message) || String(e))
+    }
+  }
+  if (!slugs.length) slugs = [FLIGHT13_ENTRY_KEY]
+
+  const { launches, source, upcomingCount, previousCount } = await loadLaunchesFromCache()
+
+  let targets
+  let cursor = Number(prevMeta.cursor) || 0
+  if (onDemand) {
+    targets = o.entryKeys.filter(Boolean).slice(0, 3)
+  } else {
+    const per = Math.max(1, Math.min(Number(o.maxEntries) || ENTRIES_PER_RUN, slugs.length))
+    if (cursor >= slugs.length) cursor = 0
+    targets = []
+    for (let i = 0; i < per; i++) targets.push(slugs[(cursor + i) % slugs.length])
+    cursor = (cursor + per) % slugs.length
+    // 中国航警公告：每轮都核对一次。网页没有推送，只能轮询；内容哈希没变则 skipped、不改 lastChangedAt
+    if (targets.indexOf(CHINESE_COLLECTION_KEY) < 0) targets.unshift(CHINESE_COLLECTION_KEY)
+  }
+
+  const perEntry = []
+  for (const slug of targets) {
+    if (nowMs() > deadline) {
+      perEntry.push({ entryKey: slug, fetched: 0, parsed: 0, written: 0, skipped: 0, errors: ['budget exceeded'] })
+      continue
+    }
+    perEntry.push(await syncOneEntry(slug, launches, deadline))
+  }
+
+  const demoLinked = await ensureDemoNotices()
+  const legacyRemoved = await dropLegacyEntries()
+
+  const covered = [...new Set((Array.isArray(prevMeta.coveredKeys) ? prevMeta.coveredKeys : []).concat(targets))]
+  await writeSyncMeta({
+    entrySlugs: slugs,
+    cursor: onDemand ? cursor : cursor,
+    coveredKeys: covered.filter((k) => slugs.indexOf(k) >= 0),
+    lastSyncAt: nowMs()
+  })
+
+  const totals = perEntry.reduce(
+    (acc, r) => ({
+      fetched: acc.fetched + r.fetched,
+      parsed: acc.parsed + r.parsed,
+      written: acc.written + r.written,
+      skipped: acc.skipped + r.skipped
+    }),
+    { fetched: 0, parsed: 0, written: 0, skipped: 0 }
+  )
+
+  return {
+    success: true,
+    entryTotal: slugs.length,
+    entriesProcessed: targets.length,
+    covered: covered.filter((k) => slugs.indexOf(k) >= 0).length,
+    cursor,
+    demoLinked,
+    legacyRemoved,
+    cache: { source, upcomingCount, previousCount, launchCount: launches.length },
+    external: {
+      fetched: totals.fetched,
+      parsed: totals.parsed,
+      written: totals.written,
+      skipped: totals.skipped,
+      errors: perEntry
+        .reduce((acc, r) => acc.concat(r.errors || []), discoverErrors)
+        .slice(0, 8)
+    },
+    perEntry
+  }
+}
+
+async function syncSpaceNoticesThrottled(opts) {
+  const force = !!(opts && opts.force)
+  if (!force) {
+    const meta = await readSyncMeta()
+    const last = Number(meta.lastSyncAt) || 0
+    if (last && nowMs() - last < SYNC_COOLDOWN_MS) {
+      return { success: true, throttled: true, entriesProcessed: 0 }
+    }
+  }
+  return syncSpaceNotices(opts)
+}
+
+// ───────────────────────── 查询 ─────────────────────────
+
+function slimEntryRow(d) {
+  return {
+    entryKey: d.entryKey,
+    ll2Id: d.ll2Id || '',
+    missionName: d.missionName || d.entryKey,
+    rocketName: d.rocketName || '',
+    net: d.net || '',
+    windowStartMs: d.windowStartMs || 0,
+    windowEndMs: d.windowEndMs || 0,
+    isPast: !!d.isPast,
+    isStarship: !!d.isStarship,
+    isCollection: !!d.isCollection || isCollectionKey(d.entryKey),
+    statusName: d.statusName || '',
+    agency: d.agency || '',
+    noticeCount: Number(d.noticeCount || (Array.isArray(d.noticeKeys) ? d.noticeKeys.length : 0)),
+    hasTrajectory: Array.isArray(d.trajectory) && d.trajectory.length > 1,
+    hasPad: !!(d.pad && d.pad.latitude != null),
+    lastCheckedAt: Number(d.lastCheckedAt) || Number(d.syncedAt) || 0,
+    lastChangedAt: Number(d.lastChangedAt) || 0,
+    syncedAt: d.syncedAt || 0
+  }
+}
+
+async function listEntries(event) {
+  const limit = Math.min(Number(event.limit) || 40, 60)
+  let syncError = ''
+  let res = await db.collection(ENTRY_COL).limit(100).get().catch((e) => {
+    syncError = (e && e.message) || String(e)
+    return { data: [] }
+  })
+  let rows = (res.data || []).filter((d) => d && !d._meta && d.entryKey)
+  // 库空时自动同步一次
+  if (!rows.length) {
+    try {
+      const syncRes = await syncSpaceNoticesThrottled({ force: true })
+      if (syncRes && syncRes.success === false) {
+        syncError = syncRes.error || syncError || 'sync failed'
+      }
+      res = await db.collection(ENTRY_COL).limit(100).get()
+      rows = (res.data || []).filter((d) => d && !d._meta && d.entryKey)
+    } catch (e) {
+      syncError = (e && e.message) || String(e)
+    }
+  }
+
+  const meta = await readSyncMeta()
+  const list = rows
+    .map(slimEntryRow)
+    // 即将发射在前（时间近的靠前），历史发射按时间倒序
+    .sort((a, b) => {
+      if (a.isPast !== b.isPast) return a.isPast ? 1 : -1
+      const ta = a.windowStartMs || Date.parse(a.net) || 0
+      const tb = b.windowStartMs || Date.parse(b.net) || 0
+      return a.isPast ? tb - ta : ta - tb
+    })
+    .slice(0, limit)
+
+  if (!list.length) {
+    return {
+      success: false,
+      error: syncError
+        ? `暂无数据：${syncError}`
+        : '暂无数据：请部署云函数 spaceNotices，定时器每 15 分钟会自动入库'
+    }
+  }
+  return {
+    success: true,
+    results: list,
+    progress: {
+      total: Number(meta.entrySlugs && meta.entrySlugs.length) || list.length,
+      covered: Number(meta.coveredKeys && meta.coveredKeys.length) || list.length,
+      lastSyncAt: Number(meta.lastSyncAt) || 0
+    }
+  }
+}
+
+function noticeCountOf(entry) {
+  if (!entry) return 0
+  const fromField = Number(entry.noticeCount)
+  const fromKeys = Array.isArray(entry.noticeKeys) ? entry.noticeKeys.length : 0
+  return Math.max(Number.isFinite(fromField) ? fromField : 0, fromKeys)
+}
+
+/** 任务详情快捷入口：只读，绝不触发 sync */
+async function lookupEntry(event) {
+  const entryKey = String(event.entryKey || event.key || '').trim()
+  const ll2Id = String(event.ll2Id || '').trim()
+  if (!entryKey && !ll2Id) return { success: false, error: 'missing entryKey' }
+  const entry = await findEntryDoc(entryKey, ll2Id)
+  if (!entry) return { success: true, found: false, hasNotices: false }
+  const noticeCount = noticeCountOf(entry)
+  return {
+    success: true,
+    found: true,
+    hasNotices: noticeCount > 0,
+    entryKey: entry.entryKey || '',
+    ll2Id: entry.ll2Id || ll2Id,
+    noticeCount
+  }
+}
+
+/** 列表页中国航警卡：只读核对时间，不补拉 */
+async function lookupChinaBulletin() {
+  const entry = await findEntryDoc(CHINESE_COLLECTION_KEY, '')
+  if (!entry) {
+    return {
+      success: true,
+      found: false,
+      hasNotices: false,
+      entryKey: CHINESE_COLLECTION_KEY,
+      noticeCount: 0,
+      lastCheckedAt: 0,
+      lastChangedAt: 0
+    }
+  }
+  const noticeCount = noticeCountOf(entry)
+  return {
+    success: true,
+    found: true,
+    hasNotices: noticeCount > 0,
+    entryKey: CHINESE_COLLECTION_KEY,
+    noticeCount,
+    lastCheckedAt: Number(entry.lastCheckedAt) || Number(entry.syncedAt) || 0,
+    lastChangedAt: Number(entry.lastChangedAt) || 0
+  }
+}
+
+function isStarshipEntryDoc(d) {
+  if (!d) return false
+  if (d.isStarship) return true
+  return /starship/i.test(d.entryKey || '') || /starship/i.test(d.rocketName || '')
+}
+
+/** 进度页星舰通告卡：优先即将发射、其次最近历史；只读 */
+async function lookupStarshipEntry() {
+  const res = await db.collection(ENTRY_COL).limit(100).get().catch(() => ({ data: [] }))
+  const rows = (res.data || []).filter((d) => d && !d._meta && d.entryKey && isStarshipEntryDoc(d))
+  const withNotices = rows.filter((d) => noticeCountOf(d) > 0)
+  const pool = withNotices.length ? withNotices : rows
+  if (!pool.length) {
+    return {
+      success: true,
+      found: false,
+      hasNotices: false,
+      entryKey: FLIGHT13_ENTRY_KEY
+    }
+  }
+  pool.sort((a, b) => {
+    if (a.isPast !== b.isPast) return a.isPast ? 1 : -1
+    const ta = a.windowStartMs || Date.parse(a.net) || 0
+    const tb = b.windowStartMs || Date.parse(b.net) || 0
+    return a.isPast ? tb - ta : ta - tb
+  })
+  const entry = pool[0]
+  const noticeCount = noticeCountOf(entry)
+  return {
+    success: true,
+    found: true,
+    hasNotices: noticeCount > 0,
+    entryKey: entry.entryKey || FLIGHT13_ENTRY_KEY,
+    ll2Id: entry.ll2Id || '',
+    missionName: entry.missionName || '',
+    noticeCount
+  }
+}
+
+async function findEntryDoc(entryKey, ll2Id) {
+  if (entryKey) {
+    try {
+      const got = await db.collection(ENTRY_COL).doc(docIdOf(entryKey)).get()
+      if (got && got.data && !got.data._meta) return got.data
+    } catch (e) { /* miss */ }
+  }
+  if (ll2Id) {
+    try {
+      const res = await db.collection(ENTRY_COL).where({ ll2Id: String(ll2Id) }).limit(1).get()
+      const row = (res.data || []).filter((d) => d && !d._meta)[0]
+      if (row) return row
+    } catch (e) { /* miss */ }
+  }
+  return null
+}
+
+async function getEntry(event) {
+  const entryKey = String(event.entryKey || event.key || '').trim()
+  const ll2Id = String(event.ll2Id || '').trim()
+  if (!entryKey && !ll2Id) return { success: false, error: 'missing entryKey' }
+
+  let entry = await findEntryDoc(entryKey, ll2Id)
+  const loadNotices = async (ent) => {
+    if (!ent) return []
+    if (isChineseCollectionKey(ent.entryKey)) return readChinaBulletinNotices()
+    return readNoticesOfEntry(ent.entryKey)
+  }
+  let notices = await loadNotices(entry)
+
+  const noticeHasGeom = (n) =>
+    Array.isArray(n && n.areas) && n.areas.some((r) => Array.isArray(r) && r.length >= 3)
+
+  /** 通告有原文但 areas 空：与星舰同源 parseAreasFromRawText 即时回填 */
+  const hydrateNoticeAreas = (list) =>
+    (list || []).map((n) => {
+      if (noticeHasGeom(n)) return n
+      const raw = n && n.rawText
+      if (!raw) return n
+      try {
+        const areas = parseAreasFromRawText(raw)
+        if (areas && areas.length) return Object.assign({}, n, { areas })
+      } catch (e) { /* keep */ }
+      return n
+    })
+
+  notices = hydrateNoticeAreas(notices)
+
+  // 按需补拉：无条目 / 无通告 / 通告既无几何也无原文（脏数据）时同步。
+  // 中国航警：超过 1 小时没核对也补拉（定时器未部署时的兜底；有更新才改 lastChangedAt）
+  const chinaKey = isChineseCollectionKey(entryKey) || (entry && isChineseCollectionKey(entry.entryKey))
+  const checkedAt = entry ? (Number(entry.lastCheckedAt) || Number(entry.syncedAt) || 0) : 0
+  const chinaStale = !!(chinaKey && (!checkedAt || nowMs() - checkedAt >= CHINA_BULLETIN_STALE_MS))
+  const needSync =
+    !entry ||
+    !notices.length ||
+    chinaStale ||
+    (notices.length > 0 && !notices.some(noticeHasGeom) && !notices.some((n) => n && n.rawText))
+  if (needSync) {
+    const target = (entry && entry.entryKey) || entryKey
+    try {
+      if (target) await syncSpaceNotices({ entryKeys: [target], budgetMs: 40000 })
+      else await syncSpaceNoticesThrottled({ force: true })
+      entry = await findEntryDoc(target || entryKey, ll2Id)
+      notices = hydrateNoticeAreas(await loadNotices(entry))
+    } catch (e) { /* 用已有数据继续 */ }
+  }
+  if (!entry) return { success: false, error: 'not_found' }
+
+  // 发射台坐标：库内可能是 slim 掉 lat/lon 后的裸 name，重新 resolve
+  const pad = resolvePadCoords(entry.pad || {})
+
+  // Flight 13：始终用站点同源轨迹（避免库内残留旧抽稀包画成粗折线）
+  let trajectory = Array.isArray(entry.trajectory) ? entry.trajectory : []
+  let trajectoryColor = entry.trajectoryColor || ''
+  let trajectoryVersion = Number(entry.trajectoryVersion || 0)
+  if (entry.entryKey === FLIGHT13_ENTRY_KEY) {
+    const stale =
+      trajectoryVersion < FLIGHT13_TRAJECTORY_VERSION ||
+      trajectory.length !== FLIGHT13_CORRIDOR_CENTERLINE.length
+    if (stale) {
+      trajectory = FLIGHT13_CORRIDOR_CENTERLINE
+      trajectoryColor = FLIGHT13_TRAJECTORY_COLOR
+      trajectoryVersion = FLIGHT13_TRAJECTORY_VERSION
+      try {
+        await ensureFlight13Trajectory()
+      } catch (e) { /* ignore */ }
+    }
+  }
+
+  return {
+    success: true,
+    entry: {
+      entryKey: entry.entryKey,
+      ll2Id: entry.ll2Id || '',
+      missionName: entry.missionName || entry.entryKey,
+      rocketName: entry.rocketName || '',
+      siteTitle: entry.siteTitle || '',
+      description: entry.description || '',
+      siteUrl: entry.siteUrl || `${BASE}/entry/${entry.entryKey}`,
+      net: entry.net || '',
+      pad: pad.latitude != null ? pad : entry.pad || null,
+      statusName: entry.statusName || '',
+      agency: entry.agency || '',
+      orbitName: entry.orbitName || '',
+      isStarship: !!entry.isStarship,
+      isCollection: !!entry.isCollection || isCollectionKey(entry.entryKey),
+      isPast: !!entry.isPast,
+      windowStartMs: entry.windowStartMs || 0,
+      windowEndMs: entry.windowEndMs || 0,
+      noticeKeys: entry.noticeKeys || [],
+      lastCheckedAt: Number(entry.lastCheckedAt) || Number(entry.syncedAt) || 0,
+      lastChangedAt: Number(entry.lastChangedAt) || 0,
+      bulletinFingerprint: entry.bulletinFingerprint || '',
+      trajectory,
+      trajectoryColor,
+      trajectoryVersion,
+      trajectoryNote: entry.trajectoryNote || '',
+      syncedAt: entry.syncedAt || 0
+    },
+    notices: notices.map((n) => ({
+      noticeKey: n.noticeKey,
+      type: n.type,
+      name: n.name,
+      reason: n.reason,
+      sourceName: n.sourceName,
+      sourceLink: n.sourceLink,
+      areas: n.areas || [],
+      centerline: Array.isArray(n.centerline) ? n.centerline : [],
+      dates: fillNoticeDates(n.dates, n.rawText),
+      rawText: n.rawText || '',
+      cancelled: !!n.cancelled
+    }))
+  }
+}
+
+async function ingestRaw(event) {
+  // 写接口：必须带环境变量 SPACE_NOTICES_INGEST_SECRET，禁止匿名客户端乱写
+  const secret = typeof process.env.SPACE_NOTICES_INGEST_SECRET === 'string'
+    ? process.env.SPACE_NOTICES_INGEST_SECRET.trim()
+    : ''
+  if (!secret || secret === 'FILL_ME' || event.ingestSecret !== secret) {
+    return { success: false, error: 'forbidden' }
+  }
+  const entryKey = String(event.entryKey || event.ll2Id || '').trim()
+  const rawText = String(event.rawText || '')
+  if (!entryKey || !rawText.trim()) return { success: false, error: 'missing entryKey or rawText' }
+  const areas = parseAreasFromRawText(rawText)
+  const type = String(event.type || 'NOTAM').toUpperCase()
+  const noticeKey = String(event.noticeKey || `${type.toLowerCase()}-manual-${nowMs()}`)
+  await upsertNotice(entryKey, {
+    noticeKey,
+    type,
+    name: event.name || noticeKey,
+    reason: event.reason || '',
+    sourceName: event.sourceName || 'manual',
+    sourceLink: event.sourceLink || '',
+    rawText,
+    areas,
+    dates: fillNoticeDates(event.dates, rawText)
+  }, { forceWrite: true })
+  try {
+    const stored = await readNoticesOfEntry(entryKey)
+    await db.collection(ENTRY_COL).doc(docIdOf(entryKey)).update({
+      data: {
+        noticeKeys: stored.map((n) => n.noticeKey),
+        noticeCount: stored.length,
+        updatedAt: nowMs()
+      }
+    })
+  } catch (e) { /* entry 可能尚未创建 */ }
+  return { success: true, noticeKey, areaRings: areas.length, pointCount: areas[0] ? areas[0].length : 0 }
+}
+
+async function parsePreview(event) {
+  const areas = parseAreasFromRawText(event.rawText || '')
+  return { success: true, areas }
+}
+
+exports.main = async (event) => {
+  const ev = event || {}
+  const isTimer = ev.Type === 'Timer' || !!ev.TriggerName
+  const action = ev.action || (isTimer ? 'sync' : 'listEntries')
+  try {
+    if (action !== 'parsePreview') await ensureCollections()
+    if (action === 'listEntries') return await listEntries(ev)
+    if (action === 'getEntry') return await getEntry(ev)
+    if (action === 'lookupEntry') return await lookupEntry(ev)
+    if (action === 'lookupStarshipEntry') return await lookupStarshipEntry(ev)
+    if (action === 'lookupChinaBulletin') return await lookupChinaBulletin()
+    if (action === 'ingestRaw') return await ingestRaw(ev)
+    if (action === 'parsePreview') return await parsePreview(ev)
+    if (action === 'sync') {
+      return await syncSpaceNoticesThrottled({
+        force: isTimer || !!ev.force,
+        budgetMs: Number(ev.budgetMs) || DEFAULT_BUDGET_MS,
+        maxEntries: Number(ev.maxEntries) || 0,
+        entryKeys: Array.isArray(ev.entryKeys) ? ev.entryKeys : null
+      })
+    }
+    return { success: false, error: 'unknown_action' }
+  } catch (err) {
+    console.error('[spaceNotices]', action, err)
+    return { success: false, error: (err && err.message) || String(err) }
+  }
+}

@@ -2,7 +2,12 @@
  * 仅清理 api.js 使用的本地 Storage 缓存键
  * 供 app.js 调用，避免启动时 require 整份 api.js
  */
-const { CACHE_PREFIX, CACHE_DURATION } = require('./cache-constants.js')
+const {
+  CACHE_PREFIX,
+  CACHE_DURATION,
+  SLOW_STALE_CACHE_MAX_AGE,
+  isSlowEndpointKey
+} = require('./cache-constants.js')
 
 // 60s 内不重复扫描（启动清理与配额超限触发的清理共用）
 let _lastCleanAt = 0
@@ -48,7 +53,10 @@ function cleanExpiredApiCache() {
             key: key,
             success: (res) => {
               const cacheData = res.data
-              if (cacheData && scanTs - cacheData.timestamp > CACHE_DURATION) {
+              // 慢档端点（空间站/对接/远征/机构）保留到 stale 上限再删，
+              // 否则启动清理会把 6 小时档缓存按 30 分钟阈值误删
+              const maxAge = isSlowEndpointKey(key) ? SLOW_STALE_CACHE_MAX_AGE : CACHE_DURATION
+              if (cacheData && scanTs - cacheData.timestamp > maxAge) {
                 wx.removeStorage({ key: key, fail: () => {} })
               }
             },

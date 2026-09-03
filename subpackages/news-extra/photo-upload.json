@@ -1,0 +1,10 @@
+{
+  "navigationBarTitleText": "航天摄影投稿",
+  "enablePullDownRefresh": false,
+  "backgroundTextStyle": "light",
+  "backgroundColor": "#000000",
+  "navigationStyle": "custom",
+  "usingComponents": {
+    "privacy-modal": "/components/privacy-modal/privacy-modal"
+  }
+}

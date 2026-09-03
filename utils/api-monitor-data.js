@@ -1,7 +1,11 @@
 // utils/api-monitor-data.js — monitor tab heavy data
 const { getBoosterGenealogy } = require('./api-app-services.js')
-const { translateAgencyName } = require('./space-terms-i18n.js')
+const { pickLocalized, zhField } = require('./locale.js')
+const { translateLocation, translateOrbit } = require('./space-terms-display.js')
+const { resolveAgencyDisplayZh } = require('./launch-card-i18n.js')
+const { resolveSpacecraftDisplayZh } = require('./spacecraft-name-i18n.js')
 const { optimizeImageUrl } = require('./cos-url.js')
+const { buildLl2ImageChain } = require('./ll2-image.js')
 const {
   request,
   getCacheKey,
@@ -12,16 +16,21 @@ const {
 const ANNOUNCEMENT_MEM_TTL_MS = 8 * 60 * 1000
 let _announcementMem = null
 
-/**
- * 获取空间站实时状态（ISS + 天宫）
- * 从缓存获取 space_stations 和 docking_events 数据
- * @returns {Promise<Array>} 空间站列表，含当前停靠飞船
- */
+
 async function getStationStatus() {
   const resolveApiImageUrl = (image) => {
     if (!image) return ''
     if (typeof image === 'string') return image
     return image.thumbnail_url || image.image_url || ''
+  }
+
+  const resolveApiImageParts = (image) => {
+    if (!image) return { thumb: '', full: '' }
+    if (typeof image === 'string') return { thumb: image, full: image }
+    return {
+      thumb: image.thumbnail_url || '',
+      full: image.image_url || ''
+    }
   }
 
   const getStationHeroImage = (stationId, fallbackImage) => {
@@ -32,6 +41,26 @@ async function getStationStatus() {
     // 空间站卡片图展示约 140rpx 高，走 thumb 压缩避免拉原图
     const raw = heroMap[stationId] || fallbackImage || ''
     return raw ? optimizeImageUrl(raw, 'thumb') : ''
+  }
+
+  /** 卡片与详情共用的头图兜底链：COS 压缩 → COS 原图 → LL2 代理/原链 */
+  const buildStationImageChain = (stationId, imageObj) => {
+    const heroMap = {
+      4: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E7%A9%BA%E9%97%B4%E7%AB%99/1774271719959_6lm45w.jpg',
+      18: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E7%A9%BA%E9%97%B4%E7%AB%99/1774271717044_8om5qs.png'
+    }
+    const parts = resolveApiImageParts(imageObj)
+    const cosRaw = heroMap[stationId] || ''
+    const cosThumb = cosRaw ? optimizeImageUrl(cosRaw, 'thumb') : ''
+    const ll2Primary = parts.thumb || parts.full || ''
+    const chain = []
+    ;[cosThumb, cosRaw].forEach((u) => {
+      if (u && chain.indexOf(u) < 0) chain.push(u)
+    })
+    buildLl2ImageChain(parts.thumb, parts.full, ll2Primary).forEach((u) => {
+      if (u && chain.indexOf(u) < 0) chain.push(u)
+    })
+    return chain
   }
 
   const getStationStatusMeta = (status) => {
@@ -75,11 +104,11 @@ async function getStationStatus() {
   }
 
   // 中文展示名词典（未收录的新站回退 LL2 原名，不影响是否显示）
-  const STATION_NAME_ZH = {
-    4: { name: '国际空间站 ISS', nameEn: 'International Space Station' },
-    18: { name: '天宫空间站', nameEn: 'Tiangong Space Station' }
-  }
   const DEFAULT_STATION_IDS = [4, 18]
+  const DEFAULT_STATION_EN = {
+    4: 'International Space Station',
+    18: 'Tiangong Space Station'
+  }
 
   // ── 动态站点清单（数据驱动）：LL2 /space_stations/ 里 active/在建 的站自动纳入监控 ──
   // 列表缓存由云函数 syncCommonEndpoints / syncStations 写入；缓存缺失时回退 ISS+天宫
@@ -91,11 +120,10 @@ async function getStationStatus() {
       const st = String((s.status && s.status.name) || '').toLowerCase()
       return st.includes('active') || st.includes('construction') || st.includes('assembly')
     }).map(s => {
-      const zh = STATION_NAME_ZH[s.id]
       return {
         id: s.id,
-        name: (zh && zh.name) || s.name || '',
-        nameEn: (zh && zh.nameEn) || s.name || '',
+        name: pickLocalized(zhField(s, 'name'), '') || translateLocation(s.name) || s.name || '',
+        nameEn: s.name || '',
         // 列表行自带 status/founded/description/orbit/owners 等字段，
         // 详情缓存缺失或读取失败时兜底，避免状态显示「未知」
         listRow: s
@@ -108,113 +136,166 @@ async function getStationStatus() {
     })
   } catch (e) { /* 列表缓存尚未同步：走兜底 */ }
   if (!stationMetas.length) {
-    stationMetas = DEFAULT_STATION_IDS.map(id => ({ id, name: STATION_NAME_ZH[id].name, nameEn: STATION_NAME_ZH[id].nameEn }))
+    stationMetas = DEFAULT_STATION_IDS.map(id => ({
+      id,
+      name: translateLocation(DEFAULT_STATION_EN[id]) || DEFAULT_STATION_EN[id],
+      nameEn: DEFAULT_STATION_EN[id]
+    }))
   }
 
   // 并行请求各空间站详情和对接事件
   const settled = await Promise.all([
-    request('/docking_events/', { limit: 50, offset: 0, ordering: '-docking', format: 'json' }, 8000, true).catch(() => null),
+    request('/docking_events/', { limit: 50, offset: 0, ordering: '-docking', format: 'json' }, 12000, true).catch(() => null),
     ...stationMetas.map(meta =>
-      request(`/space_stations/${meta.id}/`, { format: 'json' }, 8000, true).catch(() => null)
+      request(`/space_stations/${meta.id}/`, { format: 'json' }, 10000, true).catch(() => null)
     )
   ])
   const dockingData = settled[0]
   const stationsRaw = settled.slice(1)
   const dockingResults = (dockingData && dockingData.results) ? dockingData.results : []
 
-  // 提取所有active expedition ID，始终请求详情以获取完整crew信息（含astronaut头像、国籍等）
+  // 远征 ID：详情优先，详情缺失时回退列表行（避免整站详情超时导致远征板块整段消失）
   const expeditionIds = []
-  stationsRaw.forEach(raw => {
-    if (raw && Array.isArray(raw.active_expeditions)) {
-      raw.active_expeditions.forEach(e => {
-        if (e && e.id) expeditionIds.push(e.id)
-      })
-    }
+  const seenExpIds = {}
+  const pushExpId = (id) => {
+    const n = Number(id)
+    if (!n || seenExpIds[n]) return
+    seenExpIds[n] = true
+    expeditionIds.push(n)
+  }
+  stationsRaw.forEach((raw, idx) => {
+    const row = stationMetas[idx] && stationMetas[idx].listRow
+    ;[raw, row].forEach((src) => {
+      if (!src || !Array.isArray(src.active_expeditions)) return
+      src.active_expeditions.forEach((e) => { if (e && e.id) pushExpId(e.id) })
+    })
   })
 
-  // 创建expedition详情映射表（id -> 详情数据）
   const expeditionDetailsMap = {}
-  
-  // 只有在有需要请求的expedition时才发起请求
   if (expeditionIds.length > 0) {
-    // 并行请求所有expedition详情（优先从云缓存读取）
-    const expeditionDetailsArray = await Promise.all(
-      expeditionIds.map(id =>
-        request(`/expeditions/${id}/`, { format: 'json' }, 8000, true)
-          .catch(() => null)
-      )
-    )
-
-    // 构建映射表
-    expeditionDetailsArray.forEach(detail => {
-      if (detail && detail.id) {
-        expeditionDetailsMap[detail.id] = detail
-      }
+    const fetchOneExp = (id) =>
+      request(`/expeditions/${id}/`, { format: 'json' }, 10000, true)
+        .catch(() =>
+          // 二次短重试：远征详情小文档，偶发云读超时不应直接丢 crew
+          new Promise((r) => setTimeout(r, 400)).then(() =>
+            request(`/expeditions/${id}/`, { format: 'json' }, 12000, true).catch(() => null)
+          )
+        )
+    const expeditionDetailsArray = await Promise.all(expeditionIds.map(fetchOneExp))
+    expeditionDetailsArray.forEach((detail) => {
+      if (detail && detail.id) expeditionDetailsMap[detail.id] = detail
     })
   }
 
-  // 筛选当前停靠飞船：departure === null
-  const filterDocked = (stationId) => {
+  // 停靠飞船：优先站详情 docking_location[].currently_docked（随站详情本地可缓存）；
+  // docking_events 全量列表约 300KB 常超本地上限、易超时，仅作补充
+  const mapDockingEvent = (e, portNameFallback) => {
+    if (!e) return null
+    const sc = e.flight_vehicle_chaser && e.flight_vehicle_chaser.spacecraft
+    const config = sc && sc.spacecraft_config
+    const configType = config && config.type && config.type.name
+    const isCrew = (configType === 'Crew' || (configType === 'Capsule' && config && config.name && !config.name.includes('Cargo')))
+      || !!(config && config.human_rated)
+    const dockingDate = e.docking ? new Date(e.docking) : null
+    const daysInOrbit = dockingDate && isFinite(dockingDate.getTime())
+      ? Math.max(0, Math.floor((Date.now() - dockingDate.getTime()) / 86400000))
+      : 0
+    const agency = config && config.agency
+    const agencyNameEn = agency ? (agency.name || '') : ''
+    const agencyAbbrev = agency ? (agency.abbrev || '') : ''
+    const agencyName = resolveAgencyDisplayZh(agencyNameEn, agencyAbbrev, agency ? zhField(agency, 'name') : '') || agencyNameEn
+    const dockingTimeStr = e.docking ? e.docking.replace('T', ' ').replace('Z', '').slice(0, 19) : ''
+    const portEn = (e.docking_location && e.docking_location.name) || portNameFallback || ''
+    const portName = (e.docking_location && zhField(e.docking_location, 'name')) || translateLocation(portEn) || portEn
+    const nameEn = sc ? String(sc.name || '').trim() : ''
+    const configNameEn = config ? String(config.name || '').trim() : ''
+    const nameZh =
+      resolveSpacecraftDisplayZh(nameEn, sc && zhField(sc, 'name')) ||
+      resolveSpacecraftDisplayZh(configNameEn, config && zhField(config, 'name')) ||
+      nameEn ||
+      '未知飞船'
+    const configNameZh =
+      resolveSpacecraftDisplayZh(configNameEn, config && zhField(config, 'name')) || configNameEn
+    return {
+      id: e.id,
+      configId: config && config.id != null ? config.id : null,
+      name: nameZh,
+      nameEn: nameEn || configNameEn,
+      configName: configNameZh,
+      configNameEn,
+      image: resolveApiImageUrl(sc && sc.image),
+      portName,
+      isCrew: !!isCrew,
+      humanRated: isCrew ? '载人' : '货运',
+      daysInOrbit,
+      dockingDate: e.docking || '',
+      dockingTime: dockingTimeStr,
+      agencyName,
+      agencyAbbrev
+    }
+  }
+
+  const filterDockedFromList = (stationId) => {
     return dockingResults.filter(e =>
       e.departure === null &&
       e.docking_location &&
       e.docking_location.spacestation &&
       e.docking_location.spacestation.id === stationId
-    ).map(e => {
-      const sc = e.flight_vehicle_chaser && e.flight_vehicle_chaser.spacecraft
-      const config = sc && sc.spacecraft_config
-      const configType = config && config.type && config.type.name
-      // 载人判断：type.name 包含 Crew 或 Capsule 类型且名称不含 Cargo
-      const isCrew = (configType === 'Crew' || (configType === 'Capsule' && config && config.name && !config.name.includes('Cargo')))
-      const dockingDate = new Date(e.docking)
-      const daysInOrbit = Math.max(0, Math.floor((Date.now() - dockingDate.getTime()) / 86400000))
-      // 机构信息（词典命中时展示中文名）
-      const agency = config && config.agency
-      const agencyNameEn = agency ? (agency.name || '') : ''
-      const agencyAbbrev = agency ? (agency.abbrev || '') : ''
-      const agencyName = translateAgencyName(agencyNameEn, agencyAbbrev) || agencyNameEn
-      // 格式化对接时间
-      const dockingTimeStr = e.docking ? e.docking.replace('T', ' ').replace('Z', '').slice(0, 19) : ''
-      return {
-        id: e.id,
-        // LL2 飞船构型 id：跳转 spacecraft-detail 用
-        configId: config && config.id != null ? config.id : null,
-        name: sc ? sc.name : '未知飞船',
-        configName: config ? config.name : '',
-        image: resolveApiImageUrl(sc && sc.image),
-        portName: e.docking_location ? e.docking_location.name : '',
-        isCrew: isCrew,
-        humanRated: isCrew ? '载人' : '货运',
-        daysInOrbit: daysInOrbit,
-        dockingDate: e.docking,
-        dockingTime: dockingTimeStr,
-        agencyName: agencyName,
-        agencyAbbrev: agencyAbbrev
-      }
-    }).sort((a, b) => {
-      // 按对接时间倒序（最新的在前）
-      return new Date(b.dockingDate) - new Date(a.dockingDate)
-    })
+    ).map(e => mapDockingEvent(e)).filter(Boolean)
+      .sort((a, b) => new Date(b.dockingDate) - new Date(a.dockingDate))
+  }
+
+  const filterDockedFromStation = (raw) => {
+    const locs = raw && Array.isArray(raw.docking_location) ? raw.docking_location : []
+    const list = []
+    for (let i = 0; i < locs.length; i++) {
+      const loc = locs[i]
+      const ev = loc && loc.currently_docked
+      if (!ev || ev.departure) continue
+      const mapped = mapDockingEvent(ev, loc.name || '')
+      if (mapped) list.push(mapped)
+    }
+    return list.sort((a, b) => new Date(b.dockingDate) - new Date(a.dockingDate))
+  }
+
+  /** 合并：站详情 currently_docked 优先，列表补充未见过的 id */
+  const mergeDocked = (stationId, raw) => {
+    const fromStation = filterDockedFromStation(raw)
+    const fromList = filterDockedFromList(stationId)
+    if (!fromStation.length) return fromList
+    if (!fromList.length) return fromStation
+    const seen = {}
+    fromStation.forEach((s) => { if (s && s.id != null) seen[s.id] = true })
+    const extra = fromList.filter((s) => s && s.id != null && !seen[s.id])
+    return fromStation.concat(extra).sort((a, b) => new Date(b.dockingDate) - new Date(a.dockingDate))
   }
 
   return stationMetas.map((meta, idx) => {
     // 详情缓存缺失/读取超时 → 回退列表行数据（含 status/founded/description 等），保证状态不显示「未知」
     const raw = stationsRaw[idx] || meta.listRow || null
-    const docked = filterDocked(meta.id)
+    const docked = mergeDocked(meta.id, raw)
     const owners = raw && Array.isArray(raw.owners) ? raw.owners : []
     const ownerNames = owners
-      .map(item => item && (translateAgencyName(item.name, item.abbrev) || item.name))
+      .map(item => item && (resolveAgencyDisplayZh(item.name, item.abbrev, zhField(item, 'name')) || pickLocalized(zhField(item, 'name'), item.name)))
       .filter(Boolean)
-    const activeExpeditions = raw && Array.isArray(raw.active_expeditions) ? raw.active_expeditions : []
+    // 详情缺 active_expeditions 时回退列表行，避免远征整块消失
+    const listRowExps = meta.listRow && Array.isArray(meta.listRow.active_expeditions)
+      ? meta.listRow.active_expeditions
+      : []
+    const activeExpeditions = (raw && Array.isArray(raw.active_expeditions) && raw.active_expeditions.length)
+      ? raw.active_expeditions
+      : listRowExps
     const dockingLocations = raw && Array.isArray(raw.docking_location) ? raw.docking_location : []
     const statusMeta = getStationStatusMeta(raw && raw.status ? raw.status.name : '')
+    const imageChain = buildStationImageChain(meta.id, raw && raw.image)
 
     return {
       id: meta.id,
       apiName: raw && raw.name ? raw.name : '',
       name: meta.name,
       nameEn: meta.nameEn,
-      image: getStationHeroImage(meta.id, resolveApiImageUrl(raw && raw.image)),
+      image: imageChain[0] || getStationHeroImage(meta.id, resolveApiImageUrl(raw && raw.image)),
+      imageFallbacks: imageChain.slice(1),
       rawImage: resolveApiImageUrl(raw && raw.image),
       imageTitle: raw && raw.image ? (raw.image.name || '') : '',
       imageCredit: raw && raw.image ? (raw.image.credit || '') : '',
@@ -228,21 +309,27 @@ async function getStationStatus() {
       typeName: raw && raw.type ? raw.type.name : '',
       founded: raw ? raw.founded : '',
       deorbited: raw ? raw.deorbited : '',
-      orbit: raw ? (raw.orbit || 'LEO') : 'LEO',
+      orbit: (() => {
+        const orbitRaw = raw ? (raw.orbit || 'LEO') : 'LEO'
+        return translateOrbit(orbitRaw) || orbitRaw
+      })(),
       description: raw && raw.description ? raw.description : '',
+      descriptionZh: raw ? zhField(raw, 'description') : '',
       owners: ownerNames,
       ownerText: ownerNames.join(' / '),
       ownerCount: ownerNames.length,
       ownerAgencies: owners.map(item => ({
         id: item && item.id,
-        name: item ? (translateAgencyName(item.name, item.abbrev) || item.name || '') : '',
+        name: item ? (resolveAgencyDisplayZh(item.name, item.abbrev, zhField(item, 'name')) || pickLocalized(zhField(item, 'name'), item.name) || '') : '',
         abbrev: item && item.abbrev ? item.abbrev : '',
         typeName: item && item.type && item.type.name ? item.type.name : '',
         countryText: item && Array.isArray(item.country)
           ? item.country.map(country => country && country.name).filter(Boolean).join(' / ')
           : ''
       })).filter(item => item.name),
-      expedition: activeExpeditions.length > 0 ? activeExpeditions[0].name : '',
+      expedition: activeExpeditions.length > 0
+        ? (zhField(activeExpeditions[0], 'name') || translateLocation(activeExpeditions[0].name) || activeExpeditions[0].name)
+        : '',
       expeditionCount: activeExpeditions.length,
       expeditionList: activeExpeditions.map(item => {
         // 优先使用详情API的数据（包含完整crew信息）
@@ -251,7 +338,9 @@ async function getStationStatus() {
         
         return {
           id: item && item.id,
-          name: item && item.name ? item.name : '',
+          name: item
+            ? (zhField(item, 'name') || translateLocation(item.name) || item.name || '')
+            : '',
           start: item && item.start ? item.start : '',
           end: item && item.end ? item.end : '',
           crew: crewArray.map(c => {
@@ -285,7 +374,11 @@ async function getStationStatus() {
               nationality: nationality,
               countryCode: countryCode,
               countryFlag: countryFlag,
-              agency: c.astronaut && c.astronaut.agency && c.astronaut.agency.name ? c.astronaut.agency.name : '',
+              agency: (() => {
+                const ag = c.astronaut && c.astronaut.agency
+                if (!ag) return ''
+                return resolveAgencyDisplayZh(ag.name, ag.abbrev, zhField(ag, 'name')) || ag.name || ''
+              })(),
               agencyAbbrev: c.astronaut && c.astronaut.agency && c.astronaut.agency.abbrev ? c.astronaut.agency.abbrev : '',
               image: imageUrl,
               status: c.astronaut && c.astronaut.status && c.astronaut.status.name ? c.astronaut.status.name : '',
@@ -311,7 +404,9 @@ async function getStationStatus() {
       dockingPortCount: dockingLocations.length,
       dockingPorts: dockingLocations.map(item => ({
         id: item && item.id,
-        name: item && item.name ? item.name : '',
+        name: item
+          ? (zhField(item, 'name') || translateLocation(item.name) || item.name || '')
+          : '',
         occupied: !!(item && item.currently_docked),
         occupiedText: item && item.currently_docked ? '已占用' : '空闲'
       })).filter(item => item.name),
@@ -420,12 +515,7 @@ async function resolveAgencyReference(options = {}) {
   }
 }
 
-/**
- * 获取发射商列表
- * 优先走本地缓存 → 云缓存 → 直接请求 API
- * @param {Object} options - { featured, limit, offset, search, type }
- * @returns {Promise<Object>} { count, results: [...] }
- */
+
 async function getAgencies(options = {}) {
   const featured = options.featured !== undefined ? options.featured : true
   const rawLimit = options.limit || 50
@@ -477,11 +567,7 @@ async function getAgencies(options = {}) {
   return { count: 0, results: [], __cacheMiss: true }
 }
 
-/**
- * 获取单个发射商详情
- * @param {Number} agencyId
- * @returns {Promise<Object>}
- */
+
 async function getAgencyDetail(agencyId, options = {}) {
   if (!agencyId) return null
   const cacheId = `_agency_detail_${agencyId}`
@@ -489,12 +575,18 @@ async function getAgencyDetail(agencyId, options = {}) {
   // 下拉刷新用：跳过本地 1h 缓存直读云缓存（云端 TTL 决定 LL2 拉取节奏）
   const skipLocalCache = !!(options && options.skipLocalCache)
 
-  // 1) 优先本地缓存（1小时有效期）
+  // 1) 优先本地缓存（1小时有效期）；__partial 不锁死长缓存，便于云端自愈后尽快补全
   if (!skipLocalCache) {
     try {
       const cached = wx.getStorageSync(cacheId)
-      if (cached && Date.now() - cached.ts < AGENCY_CACHE_TTL) {
-        return cached.data
+      if (cached && cached.data && Date.now() - cached.ts < AGENCY_CACHE_TTL) {
+        if (!(cached.data && cached.data.__partial)) {
+          return cached.data
+        }
+        // partial 仅保留 5 分钟，避免「部分数据待补全」横幅卡死 1h
+        if (Date.now() - cached.ts < 5 * 60 * 1000) {
+          return cached.data
+        }
       }
     } catch (e) {
     }
@@ -564,15 +656,7 @@ async function getAgencyDetail(agencyId, options = {}) {
 
 // ==================== 遥测数据 ====================
 
-/**
- * 获取发射遥测数据（通过云函数代理 Launch Dashboard API）
- * @param {Object} params 查询参数
- * @param {String} params.launchId SpaceDevs launch UUID（优先使用）
- * @param {String} params.missionId Launch Dashboard 任务名（如 crs-18）
- * @param {Number} params.flightNumber SpaceX 航班号
- * @param {Number} params.interval 数据点间隔秒数（默认2秒，减少数据量）
- * @returns {Promise<Object|null>} 遥测数据或 null
- */
+
 function getTelemetryData(params = {}) {
   const { launchId, missionId, flightNumber, interval = 2 } = params
 
@@ -639,7 +723,9 @@ async function getActiveAnnouncement() {
       title: item.title || '',
       content: item.content || '',
       type: item.type || 'info',
-      active: true
+      active: true,
+      // 公告投票配置（选项/时间等）；票数与我的选择以 adminGateway /announcement-vote 接口为准
+      vote: item.vote && item.vote.enabled ? item.vote : null
     }
     _announcementMem = { at: now, data }
     return data

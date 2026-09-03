@@ -1,26 +1,6 @@
 const pageBase = require('../../utils/page-base.js')
 const spaceApi = require('./space-api')
-
-const ASTRO_EVENTS_2026 = [
-  { date: '2026-01-03', title: '象限仪座流星雨极大', icon: '☄️', desc: 'ZHR~120，月光干扰较小' },
-  { date: '2026-01-21', title: '满月', icon: '🌕', desc: '狼月 Wolf Moon' },
-  { date: '2026-02-01', title: '金星东大距', icon: '✨', desc: '日落后西方低空可见' },
-  { date: '2026-02-17', title: '水星西大距', icon: '🌟', desc: '日出前东方低空可见' },
-  { date: '2026-03-29', title: '日偏食', icon: '🌑', desc: '亚洲部分地区可见' },
-  { date: '2026-04-22', title: '天琴座流星雨极大', icon: '☄️', desc: 'ZHR~18，辐射点在织女星附近' },
-  { date: '2026-05-06', title: '宝瓶座η流星雨极大', icon: '☄️', desc: 'ZHR~50，哈雷彗星碎片' },
-  { date: '2026-05-31', title: '火星冲日', icon: '🔴', desc: '火星距地球最近，整夜可见' },
-  { date: '2026-06-21', title: '夏至', icon: '☀️', desc: '北半球白昼最长' },
-  { date: '2026-07-28', title: '宝瓶座δ南流星雨极大', icon: '☄️', desc: 'ZHR~25' },
-  { date: '2026-08-12', title: '英仙座流星雨极大', icon: '☄️', desc: 'ZHR~100，年度最佳流星雨之一' },
-  { date: '2026-08-12', title: '日全食', icon: '🌑', desc: '西伯利亚、格陵兰和大西洋可见全食' },
-  { date: '2026-09-22', title: '秋分', icon: '🍂', desc: '昼夜等长' },
-  { date: '2026-10-21', title: '猎户座流星雨极大', icon: '☄️', desc: 'ZHR~20，哈雷彗星碎片' },
-  { date: '2026-11-04', title: '金牛座南流星雨极大', icon: '☄️', desc: 'ZHR~5，偶有明亮火流星' },
-  { date: '2026-11-17', title: '狮子座流星雨极大', icon: '☄️', desc: 'ZHR~15' },
-  { date: '2026-12-14', title: '双子座流星雨极大', icon: '☄️', desc: 'ZHR~150，年度最佳' },
-  { date: '2026-12-21', title: '冬至', icon: '❄️', desc: '北半球白昼最短' }
-]
+const { beijingDateStr, beijingYear, buildAstroEvents, buildAstroEventsCovering } = require('./astro-events.js')
 
 const ASTRO_REMIND_KEY = '_astro_event_reminders'
 
@@ -40,6 +20,7 @@ Page({
     error: '',
     apod: null,
     apodDate: '',
+    astroYear: beijingYear(),
     events: [],
     upcomingEvents: [],
     pastEvents: [],
@@ -53,24 +34,37 @@ Page({
     this._classifyEvents()
     this._loadAPOD(today)
     this._checkTodayReminders()
+    this._astroRemindCheckedYear = beijingYear()
+  },
+
+  onShow() {
+    const year = beijingYear()
+    this._classifyEvents()
+    if (year !== this._astroRemindCheckedYear) {
+      this._astroRemindCheckedYear = year
+      this._checkTodayReminders()
+    }
   },
 
   _classifyEvents() {
-    const today = new Date().toISOString().slice(0, 10)
+    const today = beijingDateStr()
+    const year = beijingYear()
+    const events = buildAstroEvents(year)
     const reminded = loadReminders()
-    const upcoming = ASTRO_EVENTS_2026.filter(e => e.date >= today).map(e => ({
+    const upcoming = events.filter(e => e.date >= today).map(e => ({
       ...e,
       reminded: !!reminded[e.date + '_' + e.title]
     }))
-    const past = ASTRO_EVENTS_2026.filter(e => e.date < today).reverse()
-    this.setData({ events: ASTRO_EVENTS_2026, upcomingEvents: upcoming, pastEvents: past })
+    const past = events.filter(e => e.date < today).reverse()
+    this.setData({ astroYear: year, events, upcomingEvents: upcoming, pastEvents: past })
   },
 
   _checkTodayReminders() {
-    const today = new Date().toISOString().slice(0, 10)
-    const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
+    const today = beijingDateStr()
+    const tomorrow = beijingDateStr(Date.now() + 86400000)
     const reminded = loadReminders()
-    const todayEvents = ASTRO_EVENTS_2026.filter(e => {
+    const events = buildAstroEventsCovering([today, tomorrow])
+    const todayEvents = events.filter(e => {
       const key = e.date + '_' + e.title
       return reminded[key] && (e.date === today || e.date === tomorrow)
     })

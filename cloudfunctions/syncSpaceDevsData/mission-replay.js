@@ -10,13 +10,16 @@
  *          仅挂给 SpaceX 的发射，别家任务不挂推文集锦）
  *       b) 指定博主 SciNews 的 2~3 分钟发射集锦（YouTube 频道覆盖全球主要发射，
  *          本机 Agent yt-dlp 下载 → COS；无 a 类集锦时自动入队 kind=clip 任务，
- *          global_config.main.replayClipAgentEnabled=false 可关）
+ *          global_config.main.replayClipAgentEnabled=false 可关；
+ *          Agent 侧对标题做分隔符模糊匹配，Tianlian-2-06 ↔ TianLian-2 06 等）
  *   - links：完整回放外链（官方直播 > 非官方直播 > 转播），前端点击复制
  *   - videoUrl：完整回放 COS 转存（可选，kind=full Agent 任务产出；
  *     global_config.main.replayAgentEnabled=true 才入队，默认关闭 = 长视频只给链接）
  *
  * 省资源约束：每轮只打 1 次 LL2 previous 探针 + 1 次事件库查询，挂在 syncLaunchNetHourly 顺带执行。
  */
+
+const { resolveLaunchMissionOverride } = require('./mission-title-i18n.js')
 
 const REPLAY_QUEUE_COL = 'replay_fetch_queue'
 const REPLAY_RESULT_COL = 'mission_replays'
@@ -26,7 +29,7 @@ const COS_BASE_URL = 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/'
 const MIN_AGE_MS = 30 * 60 * 1000            // 发射后 30 分钟开始建档（集锦通常几分钟内就发）
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000   // 超过 7 天的老任务不再刷新
 const CLIP_WINDOW_BEFORE_MS = 15 * 60 * 1000 // 集锦归属窗口：净时前 15 分钟（点火瞬间的现场机位帖）
-const CLIP_WINDOW_AFTER_MS = 12 * 60 * 60 * 1000 // 到净时后 12 小时（着陆/整流罩/星箭分离集锦）
+const CLIP_WINDOW_AFTER_MS = 72 * 60 * 60 * 1000 // 到净时后 72 小时（官方常隔天发精剪，12h 会漏）
 const CLIP_AGENT_MIN_AGE_MS = 3 * 60 * 60 * 1000 // SciNews 集锦一般发射后几小时内发布，太早入队白跑
 const MAX_CLIPS = 4
 // 与小程序「已完成任务」列表同源：LL2 previous 全发射商、-net 倒序。
@@ -107,7 +110,7 @@ function isLaunchRelatedText(ev) {
  *   1. 任务：只挂给 SpaceX 的发射（推文源是 SpaceX 官方号，别家发射不能张冠李戴）
  *   2. 账号：仅 SpaceX 官方账号的推文
  *   3. 文案：必须含发射动作关键词（liftoff/landing/deploy…），排除官方号的宣传片
- *   4. 时间：发布时间落在某次发射 [net-15min, net+12h] 窗口内；
+ *   4. 时间：发布时间落在某次发射 [net-15min, net+72h] 窗口内；
  *      多个候选发射（双首发）时归 net 距离最近的那次
  * @returns {Map<launchId, clips[]> | null} 事件库查询失败时返回 null（调用方保持已有集锦不动，防误清空）
  */
@@ -181,6 +184,7 @@ async function matchHighlightClips(db, launches) {
 // 终态 failed 任务的复活冷却：发射仍在 7 天窗口内时，每 ≥6 小时给一次重试机会。
 // 否则「代理断了一天」这类临时故障会让该任务的集锦永久缺失（队列有记录就不再入队）。
 const REQUEUE_COOLDOWN_MS = 6 * 60 * 60 * 1000
+const CLAIM_STALE_MS = 3 * 60 * 60 * 1000
 
 /**
  * 检查队列已有记录；终态 failed 且过了冷却期则原地复活为 pending。
@@ -261,7 +265,9 @@ async function maybeEnqueueAgentJob(db, launch, cfg) {
 
 // —— 指定博主集锦（SciNews）Agent 入队 ——
 // SciNews 每次发射后几小时内发 2~3 分钟「launch and landing」集锦，
-// 标题固定含 UTC 日期（如 "…, 14 July 2026"），据此 + 任务关键词精确匹配。
+// 标题固定含 UTC 日期（如 "…, 14 July 2026"）。
+// 全部历史发射统一策略：Agent 先精细关键词匹配，失败一律兜底
+// 「模糊（家族词+火箭+日期）+ 近时（upload≈net）」——不限发射商/任务类型。
 
 // SciNews 频道（handle 是 @SciNewsRo，用 channel_id 形式更稳，不受改名影响）
 const CLIP_CHANNEL_URL = 'https://www.youtube.com/channel/UCjU6ZwoTQtKWfz1urL7XcbA/videos'
@@ -277,12 +283,30 @@ function clipDateText(netMs) {
 
 /** 文本 → 匹配 token（过滤停用词/纯数字/单字符，"Tranche 1" 的 "1" 会误命中任何含 1 的标题） */
 function textToTokens(text) {
-  const stop = new Set(['group', 'mission', 'the', 'of', 'and', 'to', 'a', 'block', 'flight', 'maiden', 'demo'])
+  const stop = new Set([
+    'group', 'mission', 'the', 'of', 'and', 'to', 'a', 'block', 'flight', 'maiden', 'demo',
+    'unknown', 'payload', 'payloads'
+  ])
   return String(text || '')
-    .split(/[\s()|,]+/)
+    // 含 /：Long March 3B/E → 拆出 3b，避免只留下 sciNews 对不上的 3b/e
+    .split(/[\s()|,\/]+/)
     .map((t) => t.trim().toLowerCase().replace(/^#/, ''))
-    .filter((t) => t.length >= 2 && !stop.has(t) && !/^\d+$/.test(t))
+    .filter((t) => t.length >= 2 && !stop.has(t) && !/^\d+$/.test(t) && !/未知有效载荷/.test(t))
     .slice(0, 5)
+}
+
+/** 匹配用英文名：LL2 仍是 Unknown Payload 时用已公布的 override（如 ChinaSat 4B） */
+function clipMissionName(launch) {
+  const raw = String((launch && launch.name) || '').trim()
+  const ov = resolveLaunchMissionOverride(launch && launch.id)
+  if (!ov || !ov.missionNameEn) return raw
+  const sep = raw.indexOf('|')
+  const missionPart = (sep >= 0 ? raw.slice(sep + 1) : raw).trim()
+  if (missionPart && !/^unknown(\s+payloads?)?$/i.test(missionPart) && !/未知有效载荷/.test(missionPart)) {
+    return raw
+  }
+  const rocketPart = sep >= 0 ? raw.slice(0, sep).trim() : ''
+  return rocketPart ? `${rocketPart} | ${ov.missionNameEn}` : ov.missionNameEn
 }
 
 /**
@@ -316,23 +340,31 @@ async function maybeEnqueueClipJob(db, launch, cfg, existingDoc, tweetClipCount,
   if (!netMs || nowMs - netMs < CLIP_AGENT_MIN_AGE_MS) return false
   const launchId = String(launch.id)
   const state = await reviveOrCheckQueueRow(db, launchId, 'clip', nowMs)
-  if (state === 'requeued') return true
-  if (state === 'exists') return false
-  const { tokens, rocketTokens } = clipMatchTokens(launch.name)
+  const missionName = clipMissionName(launch) || launch.name || ''
+  const { tokens, rocketTokens } = clipMatchTokens(missionName)
+  const clipSearch = {
+    channel: CLIP_CHANNEL_URL,
+    publisher: CLIP_PUBLISHER,
+    dateText: clipDateText(netMs),
+    netMs,
+    tokens,
+    rocketTokens,
+    maxDurationSec: 300
+  }
+  // 已有队列（含 pending / 复活 failed）都刷新线索：LL2 从 Unknown Payload 更名后旧 token 必须换掉
+  if (state === 'requeued' || state === 'exists') {
+    try {
+      await refreshExistingClipHints(db, launchId, missionName, launch.net || '', clipSearch, nowMs)
+    } catch (e) {}
+    return state === 'requeued'
+  }
   await db.collection(REPLAY_QUEUE_COL).add({
     data: {
       kind: 'clip',
       launchId,
-      missionName: launch.name || '',
+      missionName,
       net: launch.net || '',
-      clipSearch: {
-        channel: CLIP_CHANNEL_URL,
-        publisher: CLIP_PUBLISHER,
-        dateText: clipDateText(netMs),
-        tokens,
-        rocketTokens,
-        maxDurationSec: 300
-      },
+      clipSearch,
       status: 'pending',
       attempts: 0,
       claimToken: '',
@@ -344,6 +376,88 @@ async function maybeEnqueueClipJob(db, launch, cfg, existingDoc, tweetClipCount,
     }
   })
   return true
+}
+
+async function refreshExistingClipHints(db, launchId, missionName, net, clipSearch, nowMs) {
+  const q = await db.collection(REPLAY_QUEUE_COL).where({ launchId, kind: 'clip' }).limit(1).get()
+  const row = (q.data || [])[0]
+  if (!row || !row._id) return false
+  if (row.status === 'done' || row.status === 'claimed') return false
+  const old = row.clipSearch || {}
+  const sameTokens = JSON.stringify(old.tokens || []) === JSON.stringify(clipSearch.tokens || [])
+  const sameRocket = JSON.stringify(old.rocketTokens || []) === JSON.stringify(clipSearch.rocketTokens || [])
+  const sameName = String(row.missionName || '') === String(missionName || '')
+  if (sameTokens && sameRocket && sameName) return false
+  await db.collection(REPLAY_QUEUE_COL).doc(row._id).update({
+    data: {
+      missionName: missionName || '',
+      net: net || '',
+      clipSearch,
+      nextRetryAt: 0,
+      updatedAt: nowMs,
+      lastError: ('hints_refreshed: ' + String(row.lastError || '')).slice(0, 200)
+    }
+  })
+  return true
+}
+
+/**
+ * 解开卡死的集锦队列：pending 仍在退避 / failed 终态 / claimed 超时僵尸。
+ * 代理端口修好或匹配逻辑更新后，靠小时扫描或 trigger-scan 立即恢复，不必干等数小时。
+ */
+async function unlockStuckClipJobs(db, nowMs) {
+  let unlocked = 0
+  let revived = 0
+  try {
+    const claimed = await db.collection(REPLAY_QUEUE_COL).where({ status: 'claimed', kind: 'clip' }).limit(20).get()
+    for (const row of claimed.data || []) {
+      if (nowMs - Number(row.claimedAt || 0) <= CLAIM_STALE_MS) continue
+      await db.collection(REPLAY_QUEUE_COL).doc(row._id).update({
+        data: {
+          status: 'pending',
+          claimToken: '',
+          claimedAt: 0,
+          nextRetryAt: 0,
+          updatedAt: nowMs,
+          lastError: ('reclaimed_scan: ' + String(row.lastError || '')).slice(0, 200)
+        }
+      })
+      unlocked += 1
+    }
+  } catch (e) {}
+  try {
+    const pending = await db.collection(REPLAY_QUEUE_COL).where({ status: 'pending', kind: 'clip' }).limit(50).get()
+    for (const row of pending.data || []) {
+      if (!row.nextRetryAt || Number(row.nextRetryAt) <= nowMs) continue
+      await db.collection(REPLAY_QUEUE_COL).doc(row._id).update({
+        data: {
+          nextRetryAt: 0,
+          attempts: 0,
+          updatedAt: nowMs,
+          lastError: ('unlocked_scan: ' + String(row.lastError || '')).slice(0, 200)
+        }
+      })
+      unlocked += 1
+    }
+  } catch (e) {}
+  try {
+    const failed = await db.collection(REPLAY_QUEUE_COL).where({ status: 'failed', kind: 'clip' }).limit(50).get()
+    for (const row of failed.data || []) {
+      await db.collection(REPLAY_QUEUE_COL).doc(row._id).update({
+        data: {
+          status: 'pending',
+          nextRetryAt: 0,
+          attempts: 0,
+          claimToken: '',
+          claimedAt: 0,
+          updatedAt: nowMs,
+          lastError: ('revived_scan: ' + String(row.lastError || '')).slice(0, 200)
+        }
+      })
+      revived += 1
+    }
+  } catch (e) {}
+  return { unlocked, revived }
 }
 
 /**
@@ -358,6 +472,12 @@ async function runSyncMissionReplayQueue(db, fetchAPI, apiBase) {
   if (cfg.replayFetchEnabled === false) {
     return { success: true, skipped: 'replayFetchEnabled=false' }
   }
+
+  const unlockNow = Date.now()
+  let unlockStats = { unlocked: 0, revived: 0 }
+  try {
+    unlockStats = await unlockStuckClipJobs(db, unlockNow)
+  } catch (e) {}
 
   const url = `${apiBase}/launches/previous/?mode=detailed&format=json&limit=${SCAN_LIMIT}&ordering=-net`
   let data
@@ -465,7 +585,18 @@ async function runSyncMissionReplayQueue(db, fetchAPI, apiBase) {
     cleaned = await cleanupOldQueueRows(db, nowMs)
   } catch (e) {}
 
-  return { success: true, scanned: launches.length, targets: targets.length, updated, enqueued, clipJobs, cleaned, detail }
+  return {
+    success: true,
+    scanned: launches.length,
+    targets: targets.length,
+    updated,
+    enqueued,
+    clipJobs,
+    cleaned,
+    unlocked: unlockStats.unlocked,
+    revived: unlockStats.revived,
+    detail
+  }
 }
 
 /** 删除 updatedAt 超过 30 天的队列记录，每轮最多 20 条（claimed 状态跳过） */

@@ -1,11 +1,17 @@
 // utils/api-request.js — HTTP/cache layer shared by api modules
 const { cleanExpiredApiCache } = require('./api-cache-clean.js')
-const { CACHE_PREFIX, CACHE_DURATION } = require('./cache-constants.js')
+const {
+  CACHE_PREFIX,
+  CACHE_DURATION,
+  SLOW_CACHE_DURATION,
+  SLOW_STALE_CACHE_MAX_AGE,
+  isSlowEndpointKey
+} = require('./cache-constants.js')
 const {
   emptyListResult,
   withTimeout,
   unwrapCacheData
-} = require('./api-booster-extract.js')
+} = require('./api-list-helpers.js')
 
 // 环境配置：true=开发环境，false=生产环境
 // 开发环境：https://lldev.thespacedevs.com/2.3.0
@@ -27,6 +33,52 @@ const PAYLOAD_API_BASE = USE_DEV_API
 // 云函数每3小时执行1次，云数据库缓存有效期3.5小时，确保在同步间隔期间数据仍然可用
 const STALE_CACHE_MAX_AGE = 4 * 60 * 60 * 1000 // 4 小时 - 过期缓存最大可用时间（stale-while-revalidate）
 const CLOUD_CACHE_DURATION = 3.5 * 60 * 60 * 1000 // 3.5小时（毫秒）- 云数据库缓存有效期
+
+// ── 慢变化端点（空间站/对接/远征/机构）按 key 分档 ──
+// 云端 6 小时才同步一次，本地按 30 分钟节奏回云读库纯属浪费；
+// 慢档 key 的本地 TTL / stale 上限 / 后台探云间隔统一对齐服务端同步周期
+function _localCacheDurationFor(cacheKey) {
+  return isSlowEndpointKey(cacheKey) ? SLOW_CACHE_DURATION : CACHE_DURATION
+}
+
+function _staleMaxAgeFor(cacheKey) {
+  return isSlowEndpointKey(cacheKey) ? SLOW_STALE_CACHE_MAX_AGE : STALE_CACHE_MAX_AGE
+}
+
+function _bgCheckIntervalFor(cacheKey) {
+  if (isSlowEndpointKey(cacheKey)) return SLOW_CACHE_DURATION
+  // CLOUD_CACHE_BG_CHECK_INTERVAL / LAUNCH_LIST_* 在下方声明；运行时 request 才调用本函数
+  if (typeof isLaunchListCacheKey === 'function' && isLaunchListCacheKey(cacheKey)) {
+    return LAUNCH_LIST_BG_CHECK_INTERVAL
+  }
+  return CLOUD_CACHE_BG_CHECK_INTERVAL
+}
+
+/**
+ * 本地命中后是否应发起后台探云。
+ * 发射列表额外规则（降本）：
+ * - lastBg===0：本运行时首探，或 forceLaunchListCloudBgCheck 清节流后 → 允许（覆盖冷启动/下拉）
+ * - 免费用户（!canUsePaidCloudSync）：禁止周期性静默探云
+ * - Pro / 会员关：仍按 LAUNCH_LIST_BG_CHECK_INTERVAL
+ */
+function _shouldRunCloudBgCheck(cacheKey) {
+  const now = Date.now()
+  const lastBg = cloudCacheBgCheckAt[cacheKey] || 0
+  if (typeof isLaunchListCacheKey === 'function' && isLaunchListCacheKey(cacheKey)) {
+    if (lastBg === 0) return true
+    try {
+      const { canUsePaidCloudSync } = require('./membership.js')
+      if (typeof canUsePaidCloudSync === 'function' && !canUsePaidCloudSync()) {
+        return false
+      }
+    } catch (e) {
+      // 会员模块异常时偏保守：不静默探列表，避免免费路径放大读库
+      return false
+    }
+    return now - lastBg >= LAUNCH_LIST_BG_CHECK_INTERVAL
+  }
+  return now - lastBg >= _bgCheckIntervalFor(cacheKey)
+}
 
 // ── 内存缓存层：避免同一 key 反复调用 getStorageSync ──
 const _memCache = Object.create(null)   // { key: { data, expireAt } }
@@ -95,12 +147,7 @@ function _memDel(key) {
   delete _memCache[key]
 }
 
-/**
- * 同步读取 storage，但带去重层。同一个 key 在 STORAGE_READ_DEDUP_TTL 内
- * 只真正同步读 1 次，后续直接复用结果。
- * 这样 stale / non-stale 两条路径就不会重复读同一 key。
- * @returns {*|null} storage 中保存的原始对象（含 timestamp），不存在返回 null
- */
+
 function _readStorageEntryDeduped(cacheKey) {
   const cached = _storageReadCache[cacheKey]
   if (cached && Date.now() < cached.expireAt) {
@@ -138,9 +185,55 @@ const RETRY_DELAY = 1000 // 重试延迟1秒
 // 云缓存查询去重与节流：避免同一时刻大量重复查询触发数据库超时
 const pendingCloudCacheRequests = Object.create(null)
 const cloudCacheBgCheckAt = Object.create(null)
+// upcoming 分片列表：首片到达即可让倒计时上屏；完整合并仍走原 Promise（残缺不落本地）
+const _cloudListPrefixByKey = Object.create(null)
+const _cloudListPrefixListeners = []
+
+function isUpcomingLaunchCacheKey(cacheKey) {
+  return typeof cacheKey === 'string' && cacheKey.indexOf('/launches/upcoming/') !== -1
+}
+
+function onCloudListPrefix(callback) {
+  if (typeof callback !== 'function') return function () {}
+  _cloudListPrefixListeners.push(callback)
+  return function off() {
+    const idx = _cloudListPrefixListeners.indexOf(callback)
+    if (idx >= 0) _cloudListPrefixListeners.splice(idx, 1)
+  }
+}
+
+function _emitCloudListPrefix(cacheKey, apiData) {
+  if (!isUpcomingLaunchCacheKey(cacheKey)) return
+  if (!apiData || !Array.isArray(apiData.results) || !apiData.results.length) return
+  _cloudListPrefixByKey[cacheKey] = apiData
+  for (let i = 0; i < _cloudListPrefixListeners.length; i++) {
+    try {
+      _cloudListPrefixListeners[i](cacheKey, apiData)
+    } catch (e) {}
+  }
+}
+
+function _clearCloudListPrefix(cacheKey) {
+  delete _cloudListPrefixByKey[cacheKey]
+}
 // 本地命中后的后台探云间隔：云端缓存由云函数约 3 小时同步一次，
 // 2 分钟探一次纯属浪费计费调用，30 分钟足以及时拿到新数据
 const CLOUD_CACHE_BG_CHECK_INTERVAL = 30 * 60 * 1000 // 30分钟
+/**
+ * 发射列表后台探云间隔（仅「本地已命中」后的静默探云，且仅 Pro/会员关）。
+ * 原 3 分钟在前台停留时会把 space_devs_cache（含 previous 分批）读放大到库调用主因；
+ * 改为 15 分钟降读量。代价：NET/终态/previous stub 对静默停留用户最长多等约 15 分钟。
+ * 免费用户：禁止周期性静默探云；本运行时首探（lastBg===0）与下拉强制清节流仍探云。
+ */
+const LAUNCH_LIST_BG_CHECK_INTERVAL = 15 * 60 * 1000
+
+function isLaunchListCacheKey(cacheKey) {
+  if (typeof cacheKey !== 'string') return false
+  return (
+    cacheKey.indexOf('/launches/upcoming/') !== -1 ||
+    cacheKey.indexOf('/launches/previous/') !== -1
+  )
+}
 
 // 云端候选 key 查询上限：精确 key + 当前版本主 key + 1 个兜底，
 // 旧版 slim 后缀只在本地扫描时兜底展示，不再打到云数据库
@@ -156,12 +249,9 @@ function _isLegacySlimKey(key) {
 // 当 request 命中本地缓存后，后台发现云数据库有更新时，通知订阅方刷新 UI
 const _staleUpdateListeners = Object.create(null)
 
-/**
- * 注册后台缓存更新监听器
- * @param {String} cacheKey 缓存 key
- * @param {Function} callback 回调函数，参数为新数据
- * @returns {Function} 取消监听的函数
- */
+const _launchListStaleListeners = []
+
+
 function onStaleUpdate(cacheKey, callback) {
   if (!_staleUpdateListeners[cacheKey]) {
     _staleUpdateListeners[cacheKey] = []
@@ -176,7 +266,46 @@ function onStaleUpdate(cacheKey, callback) {
   }
 }
 
+
+function onLaunchListStale(callback) {
+  if (typeof callback !== 'function') return function () {}
+  _launchListStaleListeners.push(callback)
+  return function off() {
+    const idx = _launchListStaleListeners.indexOf(callback)
+    if (idx !== -1) _launchListStaleListeners.splice(idx, 1)
+  }
+}
+
+
+function forceLaunchListCloudBgCheck() {
+  Object.keys(cloudCacheBgCheckAt).forEach((key) => {
+    if (isLaunchListCacheKey(key)) delete cloudCacheBgCheckAt[key]
+  })
+}
+
 function _fireStaleUpdate(cacheKey, newData) {
+  // 列表母缓存刷新后丢掉内存快照，避免 5min 内仍吐旧 previous/upcoming
+  if (isLaunchListCacheKey(cacheKey)) {
+    try {
+      const listApi = require('./api-launch-list.js')
+      if (listApi && typeof listApi.invalidateListSnapshots === 'function') {
+        listApi.invalidateListSnapshots()
+      }
+    } catch (e) {}
+    const kind =
+      cacheKey.indexOf('/launches/previous/') !== -1
+        ? 'previous'
+        : cacheKey.indexOf('/launches/upcoming/') !== -1
+          ? 'upcoming'
+          : 'other'
+    _launchListStaleListeners.slice().forEach((fn) => {
+      try {
+        fn({ cacheKey, kind, data: newData })
+      } catch (e) {
+        console.error('[launchListStale] callback error:', e)
+      }
+    })
+  }
   const arr = _staleUpdateListeners[cacheKey]
   if (!arr || arr.length === 0) return
   arr.slice().forEach(fn => {
@@ -184,12 +313,7 @@ function _fireStaleUpdate(cacheKey, newData) {
   })
 }
 
-/**
- * 生成缓存key
- * @param {String} url API路径
- * @param {Object} params 请求参数
- * @returns {String} 缓存key
- */
+
 function getCacheKey(url, params = {}) {
   // 对参数对象进行排序，确保属性顺序一致，避免 cacheKey 不匹配
   const sortedParams = Object.keys(params)
@@ -217,16 +341,7 @@ function getCacheKey(url, params = {}) {
   return `${CACHE_PREFIX}${url}_${paramsStr}${shouldUseSlimList ? '_slim' + SLIM_LIST_VERSION : ''}`
 }
 
-/**
- * 从本地存储获取缓存数据（同步）
- * 内部走两级缓存：
- *   1. _memCache —— 仅缓存「新鲜数据」(非 stale)
- *   2. _storageReadCache —— 缓存 storage 同步读到的「原始 entry」，
- *      stale / non-stale 路径共享，避免重复 getStorageSync
- * @param {String} cacheKey 缓存key
- * @param {Boolean} allowStale 是否允许返回过期但未超龄的数据（stale-while-revalidate）
- * @returns {Object|null} 缓存数据，如果不存在或已过期则返回null
- */
+
 function getCacheFromLocal(cacheKey, allowStale) {
   try {
     if (!allowStale) {
@@ -243,15 +358,16 @@ function getCacheFromLocal(cacheKey, allowStale) {
 
     const now = Date.now()
     const age = now - cacheData.timestamp
+    const localDuration = _localCacheDurationFor(cacheKey)
 
-    if (age <= CACHE_DURATION) {
-      const remainTTL = CACHE_DURATION - age
+    if (age <= localDuration) {
+      const remainTTL = localDuration - age
       _memSet(cacheKey, cacheData.data, remainTTL)
       return cacheData.data
     }
 
     // 缓存已过期
-    if (allowStale && age <= STALE_CACHE_MAX_AGE) {
+    if (allowStale && age <= _staleMaxAgeFor(cacheKey)) {
       return cacheData.data
     }
 
@@ -268,11 +384,7 @@ function getCacheFromLocal(cacheKey, allowStale) {
   }
 }
 
-/**
- * 从云数据库获取缓存数据（异步）
- * @param {String} cacheKey 缓存key
- * @returns {Promise<Object|null>} 缓存数据，如果不存在或已过期则返回null
- */
+
 async function getCacheFromCloud(cacheKey, timeout = 5000) {
   if (!cacheKey) return null
 
@@ -302,13 +414,12 @@ async function getCacheFromCloud(cacheKey, timeout = 5000) {
         new Promise((_, reject) => setTimeout(() => reject(new Error('云数据库查询超时')), ms))
       ])
 
-      // 偶发超时 / 网络抖动自动重试一次（第二次放宽超时），避免误报「数据暂不可用」
       let result
       try {
         result = await fetchDoc(timeout)
       } catch (firstError) {
         if (isDocMissError(firstError)) return null
-        result = await fetchDoc(Math.max(timeout, 8000))
+        return null
       }
 
       if (!result.data) return null
@@ -321,32 +432,124 @@ async function getCacheFromCloud(cacheKey, timeout = 5000) {
 
       apiData = unwrapCacheData(apiData)
 
+      const hollowBatched =
+        !!(apiData.isBatched || apiData.isBatch) &&
+        Array.isArray(apiData.results) &&
+        apiData.results.length === 0 &&
+        Number(apiData.count) > 0
+
       if (apiData.isBatched && apiData.batchKeys && Array.isArray(apiData.batchKeys)) {
+        // 弱网下任一靠前批次超时若静默变 []，合并结果会从「几年后」开始，
+        // 首页倒计时就会落到一千多天后的任务。任一失败 → 整次云读失败，绝不写残缺缓存。
         const batchPromises = apiData.batchKeys.map(async (batchKey) => {
           try {
             const batchResult = await Promise.race([
               db.collection('space_devs_cache').doc(batchKey).get(),
               new Promise((_, reject) => setTimeout(() => reject(new Error('批次查询超时')), 5000))
             ])
-            return (batchResult.data && batchResult.data.data && batchResult.data.data.results) || []
+            const chunk =
+              (batchResult.data && batchResult.data.data && batchResult.data.data.results) || null
+            if (!Array.isArray(chunk)) {
+              return { ok: false, results: [] }
+            }
+            return { ok: true, results: chunk }
           } catch (batchError) {
-            return []
+            return { ok: false, results: [] }
           }
         })
 
+        // 倒计时只需最近发射：首片（NET 升序头部）一到就通知请求层，不必等最慢那片
+        if (isUpcomingLaunchCacheKey(cacheKey) && apiData.batchKeys.length > 1 && batchPromises[0]) {
+          batchPromises[0]
+            .then((first) => {
+              if (!first || !first.ok || !Array.isArray(first.results) || !first.results.length) return
+              _emitCloudListPrefix(cacheKey, {
+                ...apiData,
+                results: first.results.slice(),
+                count: Number(apiData.count) || first.results.length,
+                isBatched: false,
+                isBatch: false
+              })
+            })
+            .catch(() => {})
+        }
+
         const batchResults = await Promise.all(batchPromises)
-        const mergedResults = batchResults.reduce((all, chunk) => all.concat(chunk || []), [])
-        // 主文档声明有数据但批次全部读取失败（超时/网络抖动）：
-        // 视为本次云查询失败，绝不能把空列表当成功结果缓存到本地
-        if (mergedResults.length === 0 && Number(apiData.count) > 0) {
+        const anyFailed = batchResults.some((b) => !b || !b.ok)
+        const mergedResults = batchResults.reduce(
+          (all, chunk) => all.concat((chunk && chunk.results) || []),
+          []
+        )
+        const expectedCount = Number(apiData.count) || 0
+        if (anyFailed) {
+          return null
+        }
+        if (mergedResults.length === 0 && expectedCount > 0) {
+          return null
+        }
+        // 合并条数显著少于主文档声明：仍视为残缺（防个别批次空数组被标成 ok）
+        if (expectedCount > 0 && mergedResults.length < expectedCount) {
           return null
         }
         apiData = {
           ...apiData,
           results: mergedResults,
           count: mergedResults.length,
-          isBatched: false
+          isBatched: false,
+          isBatch: false
         }
+        _clearCloudListPrefix(cacheKey)
+      } else if (hollowBatched) {
+        // 无 batchKeys 时按小时探针同约定扫 _batch_N，避免把空 results 当成「真的没有历史」
+        const mergedResults = []
+        let prefixEmitted = false
+        for (let batchIdx = 0; batchIdx < 40; batchIdx++) {
+          const batchKey = `${cacheKey}_batch_${batchIdx}`
+          try {
+            const batchResult = await Promise.race([
+              db.collection('space_devs_cache').doc(batchKey).get(),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('批次查询超时')), 5000))
+            ])
+            const chunk =
+              (batchResult.data && batchResult.data.data && batchResult.data.data.results) || null
+            if (!Array.isArray(chunk)) break
+            for (let i = 0; i < chunk.length; i++) mergedResults.push(chunk[i])
+            if (
+              !prefixEmitted &&
+              isUpcomingLaunchCacheKey(cacheKey) &&
+              mergedResults.length
+            ) {
+              prefixEmitted = true
+              _emitCloudListPrefix(cacheKey, {
+                ...apiData,
+                results: mergedResults.slice(),
+                count: Number(apiData.count) || mergedResults.length,
+                isBatched: false,
+                isBatch: false
+              })
+            }
+          } catch (e) {
+            const msg = String((e && e.message) || e || '')
+            // 超时 ≠ 文档不存在：后者是探针正常结束；前者在已有部分结果时必须整次失败
+            if (/超时|timeout/i.test(msg) && mergedResults.length > 0) {
+              return null
+            }
+            break
+          }
+        }
+        if (mergedResults.length === 0) return null
+        const expectedCount = Number(apiData.count) || 0
+        if (expectedCount > 0 && mergedResults.length < expectedCount) {
+          return null
+        }
+        apiData = {
+          ...apiData,
+          results: mergedResults,
+          count: mergedResults.length,
+          isBatched: false,
+          isBatch: false
+        }
+        _clearCloudListPrefix(cacheKey)
       }
 
       if (!apiData.results || !Array.isArray(apiData.results)) {
@@ -357,6 +560,15 @@ async function getCacheFromCloud(cacheKey, timeout = 5000) {
           } catch (error) {}
           return apiData
         }
+        return null
+      }
+
+      // 分批主文档若仍空壳且声称有 count：禁止写入本地，避免永久空历史
+      if (
+        apiData.results.length === 0 &&
+        Number(apiData.count) > 0 &&
+        !!(apiData.isBatched || apiData.isBatch)
+      ) {
         return null
       }
 
@@ -385,27 +597,18 @@ async function getCacheFromCloud(cacheKey, timeout = 5000) {
     return await requestPromise
   } finally {
     delete pendingCloudCacheRequests[cacheKey]
+    _clearCloudListPrefix(cacheKey)
   }
 }
 
-/**
- * 获取缓存数据（优先从云数据库读取，降级到本地存储）
- * @param {String} cacheKey 缓存key
- * @returns {Object|null} 缓存数据，如果不存在或已过期则返回null
- * 
- * 注意：此函数保持同步接口以兼容现有代码
- * 实际会先尝试本地缓存（快速），同时异步检查云数据库（后台更新）
- */
+
 function getCache(cacheKey) {
   // 先尝试本地缓存（同步，快速响应）
   const localCache = getCacheFromLocal(cacheKey)
   if (localCache !== null) {
     // 后台异步检查云数据库是否有更新数据（不阻塞当前返回）
-    // 增加节流，避免频繁重复查询导致云数据库超时
-    const now = Date.now()
-    const lastBgCheckAt = cloudCacheBgCheckAt[cacheKey] || 0
-    if (now - lastBgCheckAt >= CLOUD_CACHE_BG_CHECK_INTERVAL) {
-      cloudCacheBgCheckAt[cacheKey] = now
+    if (_shouldRunCloudBgCheck(cacheKey)) {
+      cloudCacheBgCheckAt[cacheKey] = Date.now()
       getCacheFromCloud(cacheKey, 3000).then(cloudCache => {
         if (cloudCache !== null && cloudCache !== localCache) {
           // 云数据库有更新数据，更新本地缓存
@@ -449,12 +652,7 @@ function cleanDataForJSON(obj) {
   }
 }
 
-/**
- * 保存缓存到云数据库（异步）
- * @param {String} cacheKey 缓存key
- * @param {*} data 要缓存的数据
- * @returns {Promise} 保存结果
- */
+
 async function setCacheToCloud(cacheKey, data) {
   try {
     // 验证参数
@@ -501,13 +699,7 @@ async function setCacheToCloud(cacheKey, data) {
   }
 }
 
-/**
- * 设置缓存数据（同时保存到本地和云数据库）
- * @param {String} cacheKey 缓存key
- * @param {*} data 要缓存的数据
- * 
- * 注意：优先保存到本地（同步），然后异步保存到云数据库（所有用户共享缓存）
- */
+
 function setCache(cacheKey, data) {
   // 本地缓存最大字节数（避免触发 10MB 上限；并给其它业务留空间）
   const MAX_LOCAL_CACHE_BYTES = 512 * 1024 // 512KB
@@ -538,15 +730,17 @@ function setCache(cacheKey, data) {
 
     const bytes = estimateBytes(cacheData)
 
-    // 过大的数据不写入本地 storage（否则很容易超过 10MB 总上限）
+    // 过大的数据不写入本地 storage（否则很容易超过 10MB 总上限），
+    // 但仍写入内存缓存：同会话内避免反复打云库（docking_events 约 300KB 常踩此阈值）
     if (bytes > MAX_LOCAL_CACHE_BYTES) {
+      _memSet(cacheKey, data, _localCacheDurationFor(cacheKey))
       return
     }
 
     // 先保存到本地（同步，快速）
     wx.setStorageSync(cacheKey, cacheData)
     // 同步写入内存缓存
-    _memSet(cacheKey, data, CACHE_DURATION)
+    _memSet(cacheKey, data, _localCacheDurationFor(cacheKey))
     // 同步刷新去重层，避免后续读取拿到旧的"原始 entry"
     _storageReadCache[cacheKey] = {
       entry: cacheData,
@@ -567,7 +761,7 @@ function setCache(cacheKey, data) {
           const bytes = estimateBytes(cacheData)
           if (bytes <= MAX_LOCAL_CACHE_BYTES) {
             wx.setStorageSync(cacheKey, cacheData)
-            _memSet(cacheKey, data, CACHE_DURATION)
+            _memSet(cacheKey, data, _localCacheDurationFor(cacheKey))
             _storageReadCache[cacheKey] = {
               entry: cacheData,
               expireAt: Date.now() + STORAGE_READ_DEDUP_TTL
@@ -589,10 +783,7 @@ function clearExpiredCache() {
   cleanExpiredApiCache()
 }
 
-/**
- * 构建缓存候选 key 列表（按命中概率降序排列，已去重）
- * 供 request() 在精确 key 未命中时依次探查
- */
+
 function _buildCandidateKeys(url, params, exactKey) {
   const candidates = []
   const seen = new Set()
@@ -687,15 +878,7 @@ function _sliceCacheResult(cache, params) {
   }
 }
 
-/**
- * 通用请求方法 - 对接Launch Library API（带缓存和重试）
- * @param {String} url API路径
- * @param {Object} params 请求参数
- * @param {Number} timeout 超时时间（毫秒），开发环境默认20000，生产环境默认10000
- * @param {Boolean} useCache 是否使用缓存，默认true
- * @param {Number} retryCount 当前重试次数（内部使用）
- * @returns {Promise} 返回请求结果
- */
+
 function request(url, params = {}, timeout = null, useCache = true, retryCount = 0) {
   if (timeout === null) {
     timeout = USE_DEV_API ? 20000 : 10000
@@ -708,10 +891,8 @@ function request(url, params = {}, timeout = null, useCache = true, retryCount =
       const localExact = getCacheFromLocal(cacheKey)
       if (localExact !== null) {
         resolve(localExact)
-        const now = Date.now()
-        const lastBg = cloudCacheBgCheckAt[cacheKey] || 0
-        if (now - lastBg >= CLOUD_CACHE_BG_CHECK_INTERVAL) {
-          cloudCacheBgCheckAt[cacheKey] = now
+        if (_shouldRunCloudBgCheck(cacheKey)) {
+          cloudCacheBgCheckAt[cacheKey] = Date.now()
           getCacheFromCloud(cacheKey).then(cloud => {
             if (cloud !== null && JSON.stringify(cloud) !== JSON.stringify(localExact)) {
               setCache(cacheKey, cloud)
@@ -735,6 +916,21 @@ function request(url, params = {}, timeout = null, useCache = true, retryCount =
             // 各自持久化不同时间戳的旧切片，下次冷启动两包先后渲染不同代际的数据，
             // 造成倒计时面板「闪旧数据」。母缓存是唯一数据源，切片始终同代际。
             if (!c.slice) setCache(cacheKey, result)
+            // 与 Phase 1 对齐：母 key 本地命中也走同一套探云门控（含免费用户禁静默探）。
+            const motherKey = c.key
+            if (_shouldRunCloudBgCheck(motherKey)) {
+              cloudCacheBgCheckAt[motherKey] = Date.now()
+              getCacheFromCloud(motherKey).then((cloud) => {
+                if (cloud === null) return
+                if (JSON.stringify(cloud) === JSON.stringify(local)) return
+                setCache(motherKey, cloud)
+                const fresh = c.slice ? _sliceCacheResult(cloud, params) : cloud
+                if (fresh !== null) {
+                  _fireStaleUpdate(cacheKey, fresh)
+                  _fireStaleUpdate(motherKey, cloud)
+                }
+              }).catch(() => {})
+            }
             return
           }
         }
@@ -755,32 +951,51 @@ function request(url, params = {}, timeout = null, useCache = true, retryCount =
         const cloudCandidates = candidates
           .filter(c => !_isLegacySlimKey(c.key))
           .slice(0, MAX_CLOUD_CANDIDATE_KEYS)
-        for (const c of cloudCandidates) {
-          let cloud = null
-          try {
-            cloud = await getCacheFromCloud(c.key)
-          } catch (e) {
-            cloud = null
-          }
-          if (!cloud) continue
-          const isList = cloud.results && Array.isArray(cloud.results)
-          const isSingleObject = !isList && cloud.id
-          if (isList) {
-            const result = c.slice ? _sliceCacheResult(cloud, params) : cloud
-            if (result !== null) {
-              if (!staleResolved) resolve(result)
-              else _fireStaleUpdate(cacheKey, result)
-              // 命中候选母文档时把完整数据存到母 key（供所有切片请求共享同一代际），
-              // 精确 key 不再持久化切片副本，避免多份不同时间戳的旧数据来回闪
-              setCache(c.slice ? c.key : cacheKey, c.slice ? cloud : result)
+        const candidateKeySet = {}
+        for (let i = 0; i < cloudCandidates.length; i++) {
+          candidateKeySet[cloudCandidates[i].key] = true
+        }
+        const tryResolvePrefix = (motherKey, prefixData) => {
+          if (staleResolved) return
+          if (!candidateKeySet[motherKey]) return
+          const sliced = _sliceCacheResult(prefixData, params)
+          if (!sliced || !Array.isArray(sliced.results) || !sliced.results.length) return
+          staleResolved = true
+          resolve(sliced)
+        }
+        const offPrefix = onCloudListPrefix(tryResolvePrefix)
+        try {
+          for (const c of cloudCandidates) {
+            const heldPrefix = _cloudListPrefixByKey[c.key]
+            if (heldPrefix) tryResolvePrefix(c.key, heldPrefix)
+            let cloud = null
+            try {
+              cloud = await getCacheFromCloud(c.key)
+            } catch (e) {
+              cloud = null
+            }
+            if (!cloud) continue
+            const isList = cloud.results && Array.isArray(cloud.results)
+            const isSingleObject = !isList && cloud.id
+            if (isList) {
+              const result = c.slice ? _sliceCacheResult(cloud, params) : cloud
+              if (result !== null) {
+                if (!staleResolved) resolve(result)
+                else _fireStaleUpdate(cacheKey, result)
+                // 命中候选母文档时把完整数据存到母 key（供所有切片请求共享同一代际），
+                // 精确 key 不再持久化切片副本，避免多份不同时间戳的旧数据来回闪
+                setCache(c.slice ? c.key : cacheKey, c.slice ? cloud : result)
+                return
+              }
+            } else if (isSingleObject) {
+              if (!staleResolved) resolve(cloud)
+              else _fireStaleUpdate(cacheKey, cloud)
+              setCache(cacheKey, cloud)
               return
             }
-          } else if (isSingleObject) {
-            if (!staleResolved) resolve(cloud)
-            else _fireStaleUpdate(cacheKey, cloud)
-            setCache(cacheKey, cloud)
-            return
           }
+        } finally {
+          offPrefix()
         }
       } catch (error) {}
 
@@ -797,11 +1012,7 @@ function request(url, params = {}, timeout = null, useCache = true, retryCount =
   })
 }
 
-/**
- * 检查任务是否已过期
- * @param {String} launchTime 发射时间
- * @returns {Boolean} 是否已过期
- */
+
 function isLaunchExpired(launchTime) {
   if (!launchTime) return true
   const now = new Date().getTime()
@@ -809,11 +1020,7 @@ function isLaunchExpired(launchTime) {
   return launchTimeMs <= now
 }
 
-/**
- * 格式化发射台+地点，卡片用：「发射台名称 @ 地区/国家」
- * @param {Object} pad launch.pad
- * @returns {String}
- */
+
 function formatPadLocation(pad) {
   if (!pad) return '未知地点'
   const a = pad.name || ''
@@ -850,6 +1057,28 @@ const COUNTRY_DISPLAY = {
   KAZ: '哈萨克斯坦'
 }
 
+const COUNTRY_DISPLAY_EN = {
+  USA: 'USA', US: 'USA',
+  CHN: 'China', CN: 'China', PRC: 'China',
+  RUS: 'Russia', RU: 'Russia',
+  JPN: 'Japan', JP: 'Japan',
+  IND: 'India', IN: 'India',
+  KOR: 'South Korea', KR: 'South Korea', PRK: 'North Korea', KP: 'North Korea',
+  FRA: 'France', FR: 'France',
+  GBR: 'UK', UK: 'UK', GB: 'UK',
+  DEU: 'Germany', DE: 'Germany',
+  ITA: 'Italy', IT: 'Italy',
+  ESA: 'ESA', EU: 'Europe',
+  NZL: 'New Zealand', NZ: 'New Zealand',
+  AUS: 'Australia', AU: 'Australia',
+  CAN: 'Canada', CA: 'Canada',
+  ISR: 'Israel', IL: 'Israel',
+  IRN: 'Iran', BRA: 'Brazil',
+  UAE: 'UAE', ARE: 'UAE',
+  SAU: 'Saudi Arabia', MEX: 'Mexico',
+  KAZ: 'Kazakhstan'
+}
+
 /** 从任务对象提取可用于国家推断的文本（火箭 full_name、任务名等） */
 function collectLaunchCountryHintText(launch) {
   if (!launch || typeof launch !== 'object') return ''
@@ -867,26 +1096,27 @@ function collectLaunchCountryHintText(launch) {
   return parts.filter(Boolean).join(' ').toLowerCase()
 }
 
-function getCountryDisplay(pad, launchServiceProvider = null, launch = null) {
+function resolveCountryCode(pad, launchServiceProvider = null, launch = null) {
   const loc = pad && pad.location ? pad.location : null
-
-  // 1) 优先使用发射场国家
   let code = loc && loc.country_code ? String(loc.country_code).toUpperCase() : ''
 
-  // 兼容：部分接口会给 GB/UK、UAE/ARE 等
   if (!code && loc && loc.country) {
     const c = loc.country
     if (typeof c === 'string') code = c.toUpperCase().slice(0, 3)
     else if (c && c.abbrev) code = String(c.abbrev || '').toUpperCase()
-    else if (c && c.name) return c.name
+    else if (c && c.name) {
+      const n = String(c.name).toLowerCase()
+      if (/china|中国/.test(n)) return 'CHN'
+      if (/united states|america|美国/.test(n)) return 'USA'
+      if (/russia|俄罗斯/.test(n)) return 'RUS'
+      return ''
+    }
   }
 
-  // 2) 发射场缺失时，回退到发射服务商国家
   if (!code && launchServiceProvider && launchServiceProvider.country_code) {
     code = String(launchServiceProvider.country_code).toUpperCase()
   }
 
-  // 3) 最后兜底：从地点/发射台/服务商/火箭型号/任务名推断（应对部分接口缺少 country_code）
   if (!code) {
     const hintFromLaunch = collectLaunchCountryHintText(launch)
     const text = [
@@ -900,12 +1130,12 @@ function getCountryDisplay(pad, launchServiceProvider = null, launch = null) {
       .join(' ')
       .toLowerCase()
 
-    if (/(\busa\b|united states|vandenberg|cape canaveral|kennedy|florida|california|starbase|boca chica|texas)/.test(text)) code = 'USA'
+    if (/(\busa\b|united states|vandenberg|cape canaveral|kennedy|florida|california|starbase|boca chica|texas|falcon 9|falcon heavy|starship|new glenn|vulcan|atlas v|delta iv|antares|minotaur|firefly alpha)/.test(text)) code = 'USA'
     else if (/(baikonur|kazakhstan)/.test(text)) code = 'KAZ'
-    else if (/(plesetsk|vostochny|russia|russian)/.test(text)) code = 'RUS'
-    else if (/(wenchang|jiuquan|taiyuan|xichang|china|\bprc\b)/.test(text)) code = 'CHN'
-    else if (/(tanegashima|uchinoura|japan)/.test(text)) code = 'JPN'
-    else if (/(sriharikota|india)/.test(text)) code = 'IND'
+    else if (/(plesetsk|vostochny|russia|russian|soyuz|proton-?m|angara)/.test(text)) code = 'RUS'
+    else if (/(wenchang|jiuquan|taiyuan|xichang|china|\bprc\b|haiyang|oriental spaceport|orienspace|东方空间|long march|长征|kuaizhou|快舟|\bgravity-?\s?1\b|引力一号|\bceres-?\s?1\b|谷神星|hyperbola|双曲线|zhuque|朱雀|jielong|smart dragon|捷龙|tianlong|天龙|kinetica|lijian|力箭|landspace|galactic energy|expace|cas space|中科宇航)/.test(text)) code = 'CHN'
+    else if (/(tanegashima|uchinoura|japan|h-?iia\b|\bh3\b|epsilon)/.test(text)) code = 'JPN'
+    else if (/(sriharikota|india|\bpslv\b|\bgslv\b|\blvm-?3\b|\bsslv\b)/.test(text)) code = 'IND'
     else if (/(mahias|kourou|french guiana|guyane)/.test(text)) code = 'FRA'
     else if (/(new zealand|mahia)/.test(text)) code = 'NZL'
     else if (/(uae|united arab emirates|mohammed bin rashid)/.test(text)) code = 'ARE'
@@ -915,14 +1145,28 @@ function getCountryDisplay(pad, launchServiceProvider = null, launch = null) {
     else if (/\bkorea\b/.test(text)) code = 'KOR'
   }
 
-  return COUNTRY_DISPLAY[code] || code || ''
+  return code || ''
 }
 
-/**
- * LL2 官方状态码 → 色标分类（唯一权威映射，getStatusCategory 与 mapLaunchToListItem 共用）
- * 1=Go 2=TBD 3=Success 4=Failure 5=On Hold 6=In Flight 7=Partial Failure 8=TBC 9=Payload Deployed
- * 色标：success|failure|partial|delayed|cancelled|pending|inflight|deployed
- */
+function getCountryDisplayPair(pad, launchServiceProvider = null, launch = null) {
+  const code = resolveCountryCode(pad, launchServiceProvider, launch)
+  return {
+    countryDisplayZh: COUNTRY_DISPLAY[code] || code || '未知',
+    countryDisplayEn: COUNTRY_DISPLAY_EN[code] || code || 'Unknown'
+  }
+}
+
+function getCountryDisplay(pad, launchServiceProvider = null, launch = null) {
+  const pair = getCountryDisplayPair(pad, launchServiceProvider, launch)
+  try {
+    const { pickLocalized } = require('./locale.js')
+    return pickLocalized(pair.countryDisplayZh, pair.countryDisplayEn)
+  } catch (e) {
+    return pair.countryDisplayZh || pair.countryDisplayEn
+  }
+}
+
+
 const STATUS_ID_CATEGORY = {
   1: 'pending',
   2: 'pending',
@@ -948,7 +1192,19 @@ const STATUS_ID_BADGE_TEXT = {
   9: '载荷已部署'
 }
 
-/** 可落历史的终态：Success / Failure / Partial / Payload Deployed */
+const STATUS_ID_BADGE_TEXT_EN = {
+  1: 'Go',
+  2: 'TBD',
+  3: 'Success',
+  4: 'Failure',
+  5: 'Hold',
+  6: 'In Flight',
+  7: 'Partial',
+  8: 'TBC',
+  9: 'Deployed'
+}
+
+
 const TERMINAL_STATUS_IDS = { 3: true, 4: true, 7: true, 9: true }
 
 function isTerminalStatusId(id) {
@@ -960,16 +1216,12 @@ function isTerminalStatus(status) {
   return isTerminalStatusId(status && status.id)
 }
 
-/**
- * 仅按 LL2 状态 id 取分类，命中返回对应 category，未命中返回 null（交由调用方做文本兜底）
- */
+
 function getStatusCategoryById(id) {
   return Object.prototype.hasOwnProperty.call(STATUS_ID_CATEGORY, id) ? STATUS_ID_CATEGORY[id] : null
 }
 
-/**
- * 状态 → 色标分类：success|failure|partial|delayed|cancelled|pending|inflight|deployed
- */
+
 function getStatusCategory(status) {
   if (!status) return 'pending'
   const id = status.id
@@ -984,50 +1236,206 @@ function getStatusCategory(status) {
   return 'pending'
 }
 
-/**
- * 状态 → 卡片角标文案（优先 LL2 id，再按 category / 英文名兜底）
- */
-function getStatusBadgeText(status, category) {
-  const id = status && status.id
-  if (id != null && Object.prototype.hasOwnProperty.call(STATUS_ID_BADGE_TEXT, id)) {
-    return STATUS_ID_BADGE_TEXT[id]
+
+function isChineseRocketContext(context) {
+  if (!context) return false
+  if (context === true) return true
+  if (typeof context === 'string') {
+    return context === '中国' || context.toUpperCase() === 'CHN' || context.toUpperCase() === 'CN'
   }
-  if (category === 'success') return '已成功'
-  if (category === 'deployed') return '载荷已部署'
-  if (category === 'failure') return '失败'
-  if (category === 'partial') return '部分失败'
-  if (category === 'delayed') return '推迟'
-  if (category === 'cancelled') return '取消'
-  if (category === 'inflight') return '飞行中'
-  const n = ((status && status.name) || '').toLowerCase()
-  const a = ((status && status.abbrev) || '').toLowerCase()
-  if (/^go\b|go for launch|就绪/.test(n) || a === 'go') return '就绪'
-  if (/\btbd\b|to be determined|待定/.test(n) || a === 'tbd') return '待定'
-  if (/\btbc\b|to be confirmed|待确认/.test(n) || a === 'tbc') return '待确认'
-  if (/in\s*flight|飞行中/.test(n)) return '飞行中'
-  if (/payload\s*deployed|载荷已部署/.test(n)) return '载荷已部署'
-  return '计划中'
+  if (typeof context !== 'object') return false
+  if (context.chineseRocket === true) return true
+  if (context.countryDisplay === '中国') return true
+  const fromFields = getCountryDisplay(
+    context.pad,
+    context.launch_service_provider || context.launchServiceProvider || null,
+    context.launch || context
+  )
+  if (fromFields === '中国' || fromFields === 'China') return true
+  if ((context.countryDisplay === '中国' || context.countryDisplay === 'China')) return true
+  const hint = [
+    context.rocketName,
+    context.launchAgency,
+    context.launchAgencyAbbrev,
+    context.name,
+    context.missionName,
+    collectLaunchCountryHintText(context.launch || context)
+  ]
+    .filter(Boolean)
+    .join(' ')
+  if (!hint) return false
+  return /(wenchang|jiuquan|taiyuan|xichang|china|\bprc\b|haiyang|oriental spaceport|orienspace|东方空间|long march|长征|kuaizhou|快舟|\bgravity-?\s?1\b|引力一号|\bceres-?\s?1\b|谷神星|hyperbola|双曲线|zhuque|朱雀|jielong|smart dragon|捷龙|tianlong|天龙|kinetica|lijian|力箭|landspace|galactic energy|expace|cas space|中科宇航|casc|calt|中国航天)/i.test(
+    hint
+  )
 }
 
+/** 中国火箭展示用：失败→失利（先替换「部分失败」避免被拆开） */
+function softenChineseRocketFailureText(text) {
+  const s = String(text || '')
+  if (!s) return s
+  return s.replace(/部分失败/g, '部分失利').replace(/失败/g, '失利')
+}
+
+/**
+ * 状态 → 卡片角标中英对照（不读当前语言）
+ */
+function getStatusBadgeTextPair(status, category, options) {
+  const id = status && status.id
+  let zh = ''
+  let en = ''
+  if (id != null && Object.prototype.hasOwnProperty.call(STATUS_ID_BADGE_TEXT, id)) {
+    zh = STATUS_ID_BADGE_TEXT[id]
+    en = STATUS_ID_BADGE_TEXT_EN[id] || zh
+  } else if (category === 'success') { zh = '已成功'; en = 'Success' }
+  else if (category === 'deployed') { zh = '载荷已部署'; en = 'Deployed' }
+  else if (category === 'failure') { zh = '失败'; en = 'Failure' }
+  else if (category === 'partial') { zh = '部分失败'; en = 'Partial' }
+  else if (category === 'delayed') { zh = '推迟'; en = 'Hold' }
+  else if (category === 'cancelled') { zh = '取消'; en = 'Cancelled' }
+  else if (category === 'inflight') { zh = '飞行中'; en = 'In Flight' }
+  else {
+    const n = ((status && status.name) || '').toLowerCase()
+    const a = ((status && status.abbrev) || '').toLowerCase()
+    if (/^go\b|go for launch|就绪/.test(n) || a === 'go') { zh = '就绪'; en = 'Go' }
+    else if (/\btbd\b|to be determined|待定/.test(n) || a === 'tbd') { zh = '待定'; en = 'TBD' }
+    else if (/\btbc\b|to be confirmed|待确认/.test(n) || a === 'tbc') { zh = '待确认'; en = 'TBC' }
+    else if (/in\s*flight|飞行中/.test(n)) { zh = '飞行中'; en = 'In Flight' }
+    else if (/payload\s*deployed|载荷已部署/.test(n)) { zh = '载荷已部署'; en = 'Deployed' }
+    else { zh = '计划中'; en = 'Planned' }
+  }
+  if (isChineseRocketContext(options)) {
+    zh = softenChineseRocketFailureText(zh)
+  }
+  return { statusBadgeTextZh: zh, statusBadgeTextEn: en }
+}
+
+
+function getStatusBadgeText(status, category, options) {
+  const pair = getStatusBadgeTextPair(status, category, options)
+  try {
+    const { pickLocalized } = require('./locale.js')
+    return pickLocalized(pair.statusBadgeTextZh, pair.statusBadgeTextEn)
+  } catch (e) {
+    return pair.statusBadgeTextZh || pair.statusBadgeTextEn
+  }
+}
+
+
+
+/**
+ * 只读本地 upcoming/previous 缓存（含过期但未超 stale 上限），不打云、不探后台。
+ * 供首页倒计时在开屏期间零网络快显。
+ */
+function peekCachedLaunchList(url, params, allowStale) {
+  if (!url || !params || typeof params !== 'object') return null
+  const cacheKey = getCacheKey(url, params)
+  const readOne = (key) => {
+    let hit = getCacheFromLocal(key, false)
+    if (!hit && allowStale) hit = getCacheFromLocal(key, true)
+    return hit
+  }
+  const exact = readOne(cacheKey)
+  if (exact && Array.isArray(exact.results) && exact.results.length) {
+    return _sliceCacheResult(exact, params) || exact
+  }
+  const candidates = _buildCandidateKeys(url, params, cacheKey)
+  for (let i = 1; i < candidates.length; i++) {
+    const local = readOne(candidates[i].key)
+    if (!local) continue
+    const result = candidates[i].slice ? _sliceCacheResult(local, params) : local
+    if (result && Array.isArray(result.results) && result.results.length) return result
+  }
+  return null
+}
+
+function patchUpcomingLocalCacheById(launchId, liveFields) {
+  if (launchId == null || !liveFields || typeof liveFields !== 'object') return false
+  const idStr = String(launchId)
+  const url = '/launches/upcoming/'
+  const limits = [100, 50, 20, 10]
+  const bases = []
+  for (let i = 0; i < limits.length; i++) {
+    const limit = limits[i]
+    bases.push({
+      format: 'json',
+      hide_recent_previous: true,
+      limit,
+      mode: 'detailed',
+      offset: 0,
+      ordering: 'net'
+    })
+    bases.push({
+      format: 'json',
+      limit,
+      mode: 'detailed',
+      offset: 0,
+      ordering: 'net'
+    })
+  }
+  let any = false
+  const seen = Object.create(null)
+  for (let b = 0; b < bases.length; b++) {
+    const cacheKey = getCacheKey(url, bases[b])
+    if (seen[cacheKey]) continue
+    seen[cacheKey] = true
+    const payload = getCacheFromLocal(cacheKey, true)
+    if (!payload || !Array.isArray(payload.results)) continue
+    let hit = false
+    const nextResults = payload.results.map((row) => {
+      if (!row || String(row.id) !== idStr) return row
+      hit = true
+      const next = { ...row }
+      if (liveFields.net != null && liveFields.net !== '') next.net = liveFields.net
+      if (liveFields.window_start != null && liveFields.window_start !== '') {
+        next.window_start = liveFields.window_start
+      } else if (liveFields.windowStart != null && liveFields.windowStart !== '') {
+        next.window_start = liveFields.windowStart
+      }
+      if (liveFields.window_end != null && liveFields.window_end !== '') {
+        next.window_end = liveFields.window_end
+      } else if (liveFields.windowEnd != null && liveFields.windowEnd !== '') {
+        next.window_end = liveFields.windowEnd
+      }
+      if (liveFields.status && typeof liveFields.status === 'object') {
+        next.status = { ...(row.status || {}), ...liveFields.status }
+      }
+      return next
+    })
+    if (!hit) continue
+    setCache(cacheKey, { ...payload, results: nextResults })
+    any = true
+  }
+  return any
+}
 
 module.exports = {
   request,
   getCacheKey,
   onStaleUpdate,
+  onLaunchListStale,
+  forceLaunchListCloudBgCheck,
+  peekCachedLaunchList,
+  patchUpcomingLocalCacheById,
   formatPadLocation,
   getCountryDisplay,
+  getCountryDisplayPair,
+  isChineseRocketContext,
+  softenChineseRocketFailureText,
   getStatusCategory,
   getStatusCategoryById,
   STATUS_ID_CATEGORY,
   STATUS_ID_BADGE_TEXT,
+  STATUS_ID_BADGE_TEXT_EN,
   TERMINAL_STATUS_IDS,
   isTerminalStatusId,
   isTerminalStatus,
   getStatusBadgeText,
+  getStatusBadgeTextPair,
   unwrapCacheData,
   emptyListResult,
   withTimeout,
   isLaunchExpired,
   COUNTRY_DISPLAY,
+  COUNTRY_DISPLAY_EN,
   USE_DEV_API
 }

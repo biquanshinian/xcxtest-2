@@ -4,7 +4,8 @@
  * 支持 活跃/国家 筛选，分享可带 filter 参数直达（如 filter=country:China）
  */
 const pageBase = require('../../utils/page-base.js')
-const launchSiteDisplay = require('../../utils/launch-site-display.js')
+const launchSiteDisplay = require('./utils/launch-site-display.js')
+const gallerySearch = require('./utils/gallery-search.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
@@ -28,8 +29,7 @@ Page({
 
     cards: [],
     stats: { siteCount: 0, activeCount: 0, countryCount: 0, totalLaunches: 0 },
-    filterEmpty: false,
-    imageLoadedMap: {}
+    filterEmpty: false
   },
 
   onLoad(options) {
@@ -47,11 +47,13 @@ Page({
     try {
       var list = await launchSiteDisplay.loadLaunchSiteList()
       this._allCards = launchSiteDisplay.buildLaunchSiteCards(list)
-      var chips = launchSiteDisplay.buildLaunchSiteFilterChips(this._allCards, { maxCountryChips: 12 })
+      // 分类控制在一排可横滑范围内：全部 + 活跃 + 少量国家
+      var chips = launchSiteDisplay.buildLaunchSiteFilterChips(this._allCards, { maxCountryChips: 5 })
 
       var filter = this._pendingFilter || 'all'
-      var chipIds = chips.map(function (c) { return c.id })
-      if (chipIds.indexOf(filter) === -1) filter = 'all'
+      if (!gallerySearch.isKnownLaunchSiteFilter(filter)) filter = 'all'
+      chips = gallerySearch.ensureActiveChip(chips, filter, launchSiteDisplay.extraChipForFilter(filter))
+      this._filterChips = chips
 
       this.setData({ loading: false, filterChips: chips })
       this.applyFilter(filter)
@@ -64,24 +66,20 @@ Page({
   applyFilter(filterId) {
     var all = this._allCards || []
     var filtered = launchSiteDisplay.applyLaunchSiteFilter(all, filterId)
+    filtered = gallerySearch.filterCardsByKeyword(filtered, this.data.siteKeyword)
 
-    // 关键词过滤：在 chip 筛选结果之上再过滤（大小写不敏感、去空格，命中任一可搜索字段即保留）
-    var keyword = String(this.data.siteKeyword || '').trim().toLowerCase().replace(/\s+/g, '')
-    if (keyword) {
-      filtered = filtered.filter(function (card) {
-        var fields = [card.name, card.nameZh, card.fullName, card.countryName, card.countryLabel]
-        return fields.some(function (f) {
-          return String(f || '').toLowerCase().replace(/\s+/g, '').indexOf(keyword) >= 0
-        })
-      })
-    }
+    var chips = gallerySearch.ensureActiveChip(
+      this._filterChips || this.data.filterChips || [],
+      filterId,
+      launchSiteDisplay.extraChipForFilter(filterId)
+    )
 
     this.setData({
       filter: filterId,
       cards: filtered,
       stats: launchSiteDisplay.computeLaunchSiteStats(filtered),
       filterEmpty: all.length > 0 && filtered.length === 0,
-      imageLoadedMap: {}
+      filterChips: chips
     })
   },
 
@@ -140,24 +138,16 @@ Page({
     navigateTo(ROUTES.LAUNCH_SITE_DETAIL, { id: ds.id })
   },
 
-  onImageLoad(e) {
-    var index = e.currentTarget.dataset.index
-    if (index == null) return
-    var kv = {}
-    kv['imageLoadedMap.' + index] = true
-    this.setData(kv)
-  },
-
-  /** 图片加载失败：沿兜底链切换（卫星图 404 时回退实景图），链耗尽显示占位 */
   onImageError(e) {
-    var idx = Number(e.currentTarget.dataset.index)
-    if (!Number.isInteger(idx) || idx < 0) return
-    var card = (this.data.cards || [])[idx]
-    if (!card) return
-    var fallbacks = card.imageFallbacks || []
+    var id = e.currentTarget.dataset.id
+    var idx = gallerySearch.findCardIndexByKey(this.data.cards, 'id', id)
+    if (idx < 0) return
+    var card = this.data.cards[idx]
+    if (!gallerySearch.advanceCardImage(card, launchSiteDisplay.cachedImage)) return
     var kv = {}
-    kv['cards[' + idx + '].imageUrl'] = launchSiteDisplay.cachedImage(fallbacks[0])
-    kv['cards[' + idx + '].imageFallbacks'] = fallbacks.slice(1)
+    kv['cards[' + idx + '].imageUrl'] = card.imageUrl
+    kv['cards[' + idx + '].thumbnailUrl'] = card.thumbnailUrl
+    kv['cards[' + idx + '].imageFallbacks'] = card.imageFallbacks
     this.setData(kv)
   },
 
