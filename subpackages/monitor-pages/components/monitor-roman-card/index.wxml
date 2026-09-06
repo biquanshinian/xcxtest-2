@@ -15,18 +15,22 @@
     <image wx:if="{{cardBg}}" class="roman-hero__bg" src="{{cardBg}}" mode="aspectFill" binderror="onCardBgError" />
     <view class="roman-hero__mask"></view>
 
-    <!-- 地球 → 日地 L2 晕轨道：转移圈 + 拉长 halo，区别于轨道卡同心圆 -->
+    <!-- 地球 → 日地 L2 晕轨道：转移圈 + 拉长 halo；运动体单独反变形，避免被压扁 -->
     <view class="roman-hero__viz roman-hero__viz--{{phase}}" aria-hidden="true">
       <view class="roman-viz__cruise">
-        <view class="roman-viz__dot roman-viz__dot--cruise"></view>
+        <view class="roman-viz__craft-hold">
+          <view class="roman-viz__craft-fix">
+            <view class="roman-viz__craft-glow"></view>
+            <image class="roman-viz__craft" src="/subpackages/monitor-pages/images/roman/roman-craft.png" mode="aspectFit" />
+          </view>
+        </view>
       </view>
       <view class="roman-viz__l2-wrap">
         <view class="roman-viz__halo-tilt">
           <view class="roman-viz__halo roman-viz__halo--outer"></view>
-          <view class="roman-viz__halo">
-            <view class="roman-viz__dot roman-viz__dot--halo"></view>
-          </view>
+          <view class="roman-viz__halo"></view>
         </view>
+        <view class="roman-viz__orb roman-viz__orb--halo"></view>
         <view class="roman-viz__l2"></view>
       </view>
       <view class="roman-viz__earth"></view>
@@ -67,8 +71,11 @@
         </view>
         <view class="roman-hero__progress-rail">
           <view class="roman-hero__progress-track">
-            <view class="roman-hero__progress-fill" style="width: {{progressPct}}%;"></view>
+            <view class="roman-hero__progress-fill" style="width: {{progressPct}}%;">
+              <view class="roman-hero__progress-pulse"></view>
+            </view>
           </view>
+          <view class="roman-hero__progress-beat" style="left: {{progressPct}}%;"></view>
           <view class="roman-hero__progress-craft" style="left: {{progressPct}}%;">
             <image class="roman-hero__progress-craft-img" src="/subpackages/monitor-pages/images/roman/roman-craft.png" mode="aspectFit" />
           </view>
@@ -86,6 +93,24 @@
     <view class="roman-hero__cta {{isProUser ? 'pro-gold-frame' : ''}}">
       <text class="roman-hero__cta-text">{{ctaText}}</text>
       <view class="roman-hero__cta-arrow">→</view>
+    </view>
+  </view>
+
+  <view class="roman-adopt" catchtap="openAdoptPixel">
+    <view class="roman-adopt__strip" aria-hidden="true">
+      <block wx:for="{{[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35]}}" wx:key="*this">
+        <view class="roman-adopt__px {{item === 7 ? 'roman-adopt__px--on' : ''}}"></view>
+      </block>
+    </view>
+    <view class="roman-adopt__copy">
+      <text class="roman-adopt__title">认领首图像素</text>
+      <text class="roman-adopt__sub">ADOPT A PIXEL · 每邮箱 1 个</text>
+    </view>
+    <text class="roman-adopt__go">前往</text>
+    <view class="roman-adopt__corner" aria-hidden="true">
+      <view class="roman-adopt__px"></view>
+      <view class="roman-adopt__px"></view>
+      <view class="roman-adopt__px"></view>
     </view>
   </view>
 </view>

@@ -17,6 +17,7 @@ const { getCachedVideo } = require('./video-cache.js')
 const { eventVideoAdUnlockId, playEventVideo } = require('./event-video.js')
 const { toCdnUrl, carouselVideoPosterUrl } = require('../../../utils/cos-url.js')
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
+const { verifyBadgeSrc } = require('./x-verify-badge.js')
 const {
   isMembershipEnabled,
   isProSync,
@@ -215,6 +216,7 @@ const methods = {
               cosFolder: doc.cosFolder || (folderMatch ? folderMatch[1] : ''),
               accountLabel: '',
               accountAvatar: '',
+              accountVerifyBadgeSrc: '',
               videoActive: false,
               videoStarted: false,
               lazyPlayUrl: isVideo ? previewSrc || toCdnUrl(doc.url || rawSrc) || '' : ''
@@ -243,6 +245,7 @@ const methods = {
             cosFolder: i.cosFolder || '',
             accountLabel: i.accountLabel || '',
             accountAvatar: i.accountAvatar || '',
+            accountVerifyBadgeSrc: i.accountVerifyBadgeSrc || '',
             videoActive: false,
             videoStarted: false,
             lazyPlayUrl: ''
@@ -299,13 +302,14 @@ const methods = {
         (acc.screenName ? `https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/${acc.screenName}.jpg` : '')
       updates[`carouselItems[${i}].accountLabel`] = acc.label || acc.screenName || ''
       updates[`carouselItems[${i}].accountAvatar`] = avatarUrl ? getCachedMediaImage(toCdnUrl(avatarUrl), 'thumb') : ''
+      updates[`carouselItems[${i}].accountVerifyBadgeSrc`] = acc.verifyBadgeSrc || verifyBadgeSrc(acc.verifyBadge)
     }
     if (Object.keys(updates).length) this.setData(updates)
   },
 
   /** 推文账号列表：本地缓存 24 小时，减少网关调用 */
   async _getTweetAccountsCached() {
-    const CACHE_KEY = '_tweet_accounts_cache_v1'
+    const CACHE_KEY = '_tweet_accounts_cache_v2'
     const TTL = 24 * 60 * 60 * 1000
     try {
       const hit = wx.getStorageSync(CACHE_KEY)

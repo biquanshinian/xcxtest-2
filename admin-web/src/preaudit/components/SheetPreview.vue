@@ -5,19 +5,16 @@
         <div class="pa-row">
           <div class="pa-grow">
             <p class="pa-title pa-sheet-heading">{{ title || 'A4 预览' }}</p>
-            <div class="pa-sub">页码印在每页底部居中</div>
           </div>
           <el-button text @click="emit('close')">关闭</el-button>
         </div>
 
         <div v-if="!mode" class="pa-sheet-choice">
           <button type="button" class="pa-sheet-pick" @click="emit('mode', 'jpg')">
-            <strong>JPG 图片</strong>
-            <span>弹窗逐页查看，方便彩打</span>
+            <strong>JPG</strong>
           </button>
           <button type="button" class="pa-sheet-pick" @click="emit('mode', 'pdf')">
             <strong>PDF</strong>
-            <span>弹窗整份预览，便于转发</span>
           </button>
         </div>
 
@@ -32,7 +29,6 @@
             </template>
             <iframe v-else-if="pdfUrl" class="pa-sheet-frame" :src="pdfUrl + '#view=FitH'" title="A4 PDF 预览" />
           </div>
-          <div v-if="mode === 'pdf'" class="pa-sub">若预览空白，请点下载，或改看 JPG。</div>
           <div class="pa-lightbox-bar pa-sheet-bar">
             <el-button type="primary" @click="emit('download')">下载{{ mode === 'pdf' ? ' PDF' : ' JPG' }}</el-button>
             <el-button @click="emit('close')">关闭</el-button>

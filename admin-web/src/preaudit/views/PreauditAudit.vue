@@ -12,7 +12,6 @@
         <div class="pa-card pa-banner" :class="report.summary.tone === 'ok' ? 'pass' : (report.summary.tone === 'risk' ? 'risk' : 'warn')" style="margin-bottom: 0;">
           <div class="pa-title">{{ report.summary.label }}</div>
           <div style="margin-top: 6px;">{{ report.summary.text }}</div>
-          <div class="pa-sub">材料 {{ report.completeness.uploaded }}/{{ report.completeness.total }} · 阶段 {{ report.stages.done }}/{{ report.stages.total }}。点下面每条可打开对应资料，按「更正」改日期或金额。</div>
         </div>
         <div v-if="ocrNote" class="pa-ocr" style="margin-top: 8px;">{{ ocrNote }}</div>
 
@@ -26,7 +25,7 @@
             <span class="pa-tag muted">不存档</span>
           </div>
           <div v-if="aiText" class="pa-ai">{{ aiText }}</div>
-          <div v-else class="pa-ocr">{{ aiHint || '根据上面的规则核验再写一句人话，图和原文不落库' }}</div>
+          <div v-else-if="aiHint" class="pa-ocr">{{ aiHint }}</div>
           <div class="pa-actions">
             <el-button :disabled="aiBusy || scanning" :loading="aiBusy" @click="runAi">{{ aiText ? '再请 AI 看' : '请 AI 看一眼' }}</el-button>
           </div>
@@ -107,13 +106,11 @@
         </div>
         <div v-if="report.reviewIssues.length" class="pa-card" style="margin-top: 12px;">
           <p class="pa-title">需人工核日期</p>
-          <div class="pa-sub">同一张图认出多个日期，且和填写的对不上。对照原图后可手动通过。</div>
           <div v-for="(row, i) in report.reviewIssues" :key="'r' + i" class="pa-issue" :data-pa-anchor="row.key || row.id">
             <div @click="open(row)">{{ row.title }}</div>
-            <div class="pa-sub" @click="open(row)">{{ row.message }}</div>
             <div class="pa-issue-actions pa-actions">
               <el-button @click="open(row)">去看图</el-button>
-              <el-button class="is-main" type="primary" @click="passReview(row)">核对无误，通过</el-button>
+              <el-button type="primary" @click="passReview(row)">通过</el-button>
             </div>
           </div>
         </div>

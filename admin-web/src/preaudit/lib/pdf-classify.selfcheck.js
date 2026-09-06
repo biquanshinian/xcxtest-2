@@ -23,6 +23,8 @@ must('tw-plan', '使用实施方案\n一、项目概况', 'township', 'impl_plan
 must('accept-sheet', '工程验收单\n验收日期：2026年4月2日\n验收金额：10000元', 'village', 'accept_sheet')
 must('accept-not-photo', '现场验收单\n落款 2026年4月2日\n验收金额 10000元', 'village', 'accept_sheet')
 must('accept-photo', '现场验收照片\n验收现场', 'village', 'photo_accept')
+must('approval-small', '审批单\n项目名称：硬化路', 'small', 'approval_form')
+must('accept-sheet-small', '工程验收单\n验收日期：2026年4月2日\n验收金额：10000元', 'small', 'accept_sheet')
 
 const watermark = classifyPage('仅供报账彩打 / 硬化路 / 2026-04-01', 'village')
 assert.strictEqual(watermark.id, 'contract_watermark')

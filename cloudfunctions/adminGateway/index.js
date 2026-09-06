@@ -389,6 +389,7 @@ function mustRole(user, minRole) {
 const PERMISSION_MODULES = {
   dashboard: '仪表盘',
   preaudit: '一键预审',
+  tuwen_yewu: '智能业务系统',
   statistics: '数据统计',
   oa_content: '公众号内容中台',
   news_events: '事件管理',
@@ -4613,12 +4614,14 @@ async function addTweetAccount(body = {}) {
 
   const now = Date.now()
   const displayLabel = label || screenName
+  const verifyBadge = normalizeTweetVerifyBadge(body.verifyBadge)
   const doc = {
     screenName,
     label: displayLabel,
     author: `${displayLabel}自动追踪`,
     cosFolder: `${displayLabel.replace(/\s+/g, '')}推文图片`,
     avatarUrl: '',
+    verifyBadge,
     enabled: true,
     createdAt: now,
     updatedAt: now
@@ -4640,6 +4643,24 @@ async function toggleTweetAccount(id, body = {}) {
     data: { enabled, updatedAt: Date.now() }
   })
   return ok(null, enabled ? '已启用' : '已禁用')
+}
+
+function normalizeTweetVerifyBadge(raw) {
+  const v = String(raw || '').trim().toLowerCase()
+  if (v === 'gray' || v === 'government') return 'grey'
+  if (v === 'business' || v === 'organization' || v === 'org') return 'gold'
+  if (v === 'premium' || v === 'verified') return 'blue'
+  if (v === 'blue' || v === 'gold' || v === 'grey' || v === 'none') return v
+  return 'none'
+}
+
+async function updateTweetAccountBadge(id, body = {}) {
+  if (!id) return fail(400, '缺少账号 ID')
+  const verifyBadge = normalizeTweetVerifyBadge(body.verifyBadge)
+  await db.collection('tweet_accounts').doc(id).update({
+    data: { verifyBadge, updatedAt: Date.now() }
+  })
+  return ok({ verifyBadge }, '已更新认证标')
 }
 
 // ========== 推文同步监控 ==========
@@ -9554,6 +9575,25 @@ function watchPartyApi() {
   return _watchPartyApi
 }
 
+const { createTuwenYewuApi } = require('./tuwenYewu')
+let _tuwenYewuApi = null
+function tuwenYewuApi() {
+  if (!_tuwenYewuApi) {
+    _tuwenYewuApi = createTuwenYewuApi({
+      ok,
+      fail,
+      now,
+      writeOpLog,
+      checkPerm,
+      createCOSClient,
+      COS_BUCKET,
+      COS_REGION,
+      COS_BASE_URL
+    })
+  }
+  return _tuwenYewuApi
+}
+
 const { createPreauditOcrApi } = require('./preauditOcr')
 let _preauditOcrApi = null
 function preauditOcrApi() {
@@ -9898,6 +9938,81 @@ async function route(event, user) {
 
   if (!user) return fail(4010, '未授权或登录已过期')
 
+  if ((path === '/tuwen/status' || path === '/tuwen/config') && method === 'GET') {
+    return tuwenYewuApi().status(user)
+  }
+  if (path === '/tuwen/dashboard' && method === 'GET') return tuwenYewuApi().dashboard(user, query)
+  if (path === '/tuwen/settings' && method === 'GET') return tuwenYewuApi().getSettings(user, query)
+  if (path === '/tuwen/workspace' && method === 'GET') return tuwenYewuApi().getWorkspace(user)
+  if (path === '/tuwen/import' && method === 'POST') return tuwenYewuApi().importWorkspace(user, body)
+  if (path === '/tuwen/settings' && method === 'PUT') return tuwenYewuApi().saveSettings(user, body)
+  if (path === '/tuwen/audit-logs' && method === 'GET') return tuwenYewuApi().listAuditLogs(user, query)
+  if (path === '/tuwen/reports' && method === 'GET') return tuwenYewuApi().getReports(user, query)
+  if (path === '/tuwen/statements' && method === 'GET') return tuwenYewuApi().getStatements(user, query)
+  if (path === '/tuwen/statements/collect' && method === 'POST') return tuwenYewuApi().collectStatement(user, body)
+  if (path === '/tuwen/sample-image' && method === 'POST') return tuwenYewuApi().proxySampleImage(user, body)
+  if (path === '/tuwen/customers' && method === 'GET') return tuwenYewuApi().listCustomers(user, query)
+  if (path === '/tuwen/customers' && method === 'POST') return tuwenYewuApi().upsertCustomer(user, body)
+  if (path === '/tuwen/suppliers' && method === 'GET') return tuwenYewuApi().listSuppliers(user)
+  if (path === '/tuwen/suppliers' && method === 'POST') return tuwenYewuApi().upsertSupplier(user, body)
+  if (path === '/tuwen/expenses' && method === 'GET') return tuwenYewuApi().listExpenses(user, query)
+  if (path === '/tuwen/expenses' && method === 'POST') return tuwenYewuApi().upsertExpense(user, body)
+  if (path === '/tuwen/after-sales' && method === 'GET') return tuwenYewuApi().listAfterSales(user)
+  if (path === '/tuwen/after-sales' && method === 'POST') return tuwenYewuApi().upsertAfterSale(user, body)
+  if (path === '/tuwen/edit' && method === 'GET') return tuwenYewuApi().getEditBootstrap(user, query)
+  if (path === '/tuwen/orders' && method === 'GET') return tuwenYewuApi().listOrders(user, query)
+  if (path === '/tuwen/orders' && method === 'POST') return tuwenYewuApi().upsertOrder(user, body)
+  if (path === '/tuwen/orders/batch-status' && method === 'POST') return tuwenYewuApi().batchStatus(user, body)
+  if (path === '/tuwen/orders/sort' && method === 'POST') return tuwenYewuApi().sortOrders(user, body)
+  if (path.startsWith('/tuwen/customers/')) {
+    const id = decodeURIComponent(path.slice('/tuwen/customers/'.length).split('/')[0] || '')
+    if (!id) return fail(4001, '缺少客户 ID')
+    if (method === 'PUT') {
+      const payload = body && body.customer ? { customer: { ...body.customer, id } } : { ...(body || {}), id }
+      return tuwenYewuApi().upsertCustomer(user, payload)
+    }
+    if (method === 'DELETE') return tuwenYewuApi().removeCustomer(user, id)
+  }
+  if (path.startsWith('/tuwen/suppliers/')) {
+    const id = decodeURIComponent(path.slice('/tuwen/suppliers/'.length).split('/')[0] || '')
+    if (!id) return fail(4001, '缺少供应商 ID')
+    if (method === 'PUT') {
+      const payload = body && body.supplier ? { supplier: { ...body.supplier, id } } : { ...(body || {}), id }
+      return tuwenYewuApi().upsertSupplier(user, payload)
+    }
+    if (method === 'DELETE') return tuwenYewuApi().removeSupplier(user, id)
+  }
+  if (path.startsWith('/tuwen/expenses/')) {
+    const id = decodeURIComponent(path.slice('/tuwen/expenses/'.length).split('/')[0] || '')
+    if (!id) return fail(4001, '缺少支出 ID')
+    if (method === 'PUT') {
+      const payload = body && body.expense ? { expense: { ...body.expense, id } } : { ...(body || {}), id }
+      return tuwenYewuApi().upsertExpense(user, payload)
+    }
+    if (method === 'DELETE') return tuwenYewuApi().removeExpense(user, id)
+  }
+  if (path.startsWith('/tuwen/after-sales/')) {
+    const id = decodeURIComponent(path.slice('/tuwen/after-sales/'.length).split('/')[0] || '')
+    if (!id) return fail(4001, '缺少售后 ID')
+    if (method === 'PUT') {
+      const payload = body && body.afterSale ? { afterSale: { ...body.afterSale, id } } : { ...(body || {}), id }
+      return tuwenYewuApi().upsertAfterSale(user, payload)
+    }
+    if (method === 'DELETE') return tuwenYewuApi().removeAfterSale(user, id)
+  }
+  if (path.startsWith('/tuwen/orders/')) {
+    const rest = path.slice('/tuwen/orders/'.length)
+    const parts = rest.split('/').filter(Boolean)
+    const orderId = decodeURIComponent(parts[0] || '')
+    if (!orderId) return fail(4001, '缺少订单 ID')
+    if (parts[1] === 'status' && method === 'POST') return tuwenYewuApi().setOrderStatus(user, orderId, body)
+    if (parts[1] === 'pay' && method === 'POST') return tuwenYewuApi().payOrder(user, orderId, body)
+    if (parts[1] === 'copy' && method === 'POST') return tuwenYewuApi().copyOrder(user, orderId)
+    if (method === 'GET') return tuwenYewuApi().getOrder(user, orderId)
+    if (method === 'PUT') return tuwenYewuApi().upsertOrder(user, body, orderId)
+    if (method === 'DELETE') return tuwenYewuApi().removeOrder(user, orderId)
+  }
+
   if (path === '/preaudit/projects' && method === 'GET') {
     return preauditPhotosApi().list({ user })
   }
@@ -10183,6 +10298,12 @@ async function route(event, user) {
     const parts = path.split('/')
     const id = parts[parts.length - 2]
     return toggleTweetAccount(id, body)
+  }
+  if (path.startsWith('/tweet-monitor/accounts/') && path.endsWith('/badge') && method === 'PUT') {
+    const deny = checkPerm(user, 'tweet_monitor'); if (deny) return deny
+    const parts = path.split('/')
+    const id = parts[parts.length - 2]
+    return updateTweetAccountBadge(id, body)
   }
 
   // ===== 数据统计分析 =====

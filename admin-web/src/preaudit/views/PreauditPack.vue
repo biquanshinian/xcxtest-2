@@ -13,7 +13,7 @@
         <div class="pa-tile small">小</div>
         <div class="pa-grow">
           <div>村委会小额</div>
-          <div class="pa-sub">报价、比价、施工照、发票</div>
+          <div class="pa-sub">审批、报价、比价、施工照、验收、发票</div>
         </div>
       </div>
       <div class="pa-item" :class="{ on: orgType === 'township' }" @click="orgType = 'township'">
@@ -27,7 +27,6 @@
 
     <div v-if="orgType" class="pa-card" :style="orgLocked ? '' : 'margin-top: 12px;'">
       <p class="pa-title">整包 PDF 一键审核</p>
-      <div class="pa-sub">按每页内容归类，只在本机拆页。超过 80 页只看前 80 页。</div>
       <label
         class="pa-drop"
         :class="{ on: dragging, busy: busy }"
@@ -37,7 +36,7 @@
       >
         <input type="file" accept="application/pdf,.pdf" hidden :disabled="busy" @change="onPick" />
         <div>{{ busy ? progressText : '点击或拖入 PDF' }}</div>
-        <div class="pa-sub">{{ fileName || '可含扫描件' }}</div>
+        <div v-if="fileName" class="pa-sub">{{ fileName }}</div>
       </label>
       <div v-if="busy" class="pa-ocr">{{ progressText }}</div>
       <div v-if="error" class="pa-ocr">{{ error }}</div>

@@ -51,6 +51,26 @@ const routes = [
       { path: 'watch-party-merchants', component: () => import('../views/watch-party/WatchPartyMerchantsPage.vue'), meta: { perm: 'watch_party' } },
       { path: 'souvenir-cards', component: () => import('../views/watch-party/SouvenirCardsPage.vue'), meta: { perm: 'watch_party' } },
       { path: 'users', component: () => import('../views/system/UsersPage.vue'), meta: { perm: 'users' } },
+      {
+        path: 'tuwen',
+        component: () => import('../views/tuwen/TuwenLayout.vue'),
+        meta: { perm: 'tuwen_yewu' },
+        children: [
+          { path: '', redirect: '/tuwen/dashboard' },
+          { path: 'dashboard', component: () => import('../views/tuwen/TuwenDashboardPage.vue'), meta: { perm: 'tuwen_yewu' } },
+          { path: 'orders', component: () => import('../views/tuwen/TuwenYewuPage.vue'), meta: { perm: 'tuwen_yewu' } },
+          { path: 'orders/new', component: () => import('../views/tuwen/TuwenOrderEditPage.vue'), meta: { perm: 'tuwen_yewu' } },
+          { path: 'orders/:id', component: () => import('../views/tuwen/TuwenOrderEditPage.vue'), meta: { perm: 'tuwen_yewu' } },
+          { path: 'customers', component: () => import('../views/tuwen/TuwenCustomersPage.vue'), meta: { perm: 'tuwen_yewu' } },
+          { path: 'suppliers', component: () => import('../views/tuwen/TuwenSuppliersPage.vue'), meta: { perm: 'tuwen_yewu' } },
+          { path: 'statements', component: () => import('../views/tuwen/TuwenStatementsPage.vue'), meta: { perm: 'tuwen_yewu' } },
+          { path: 'expenses', component: () => import('../views/tuwen/TuwenExpensesPage.vue'), meta: { perm: 'tuwen_yewu' } },
+          { path: 'after-sales', component: () => import('../views/tuwen/TuwenAfterSalesPage.vue'), meta: { perm: 'tuwen_yewu' } },
+          { path: 'reports', component: () => import('../views/tuwen/TuwenReportsPage.vue'), meta: { perm: 'tuwen_yewu' } },
+          { path: 'audit', component: () => import('../views/tuwen/TuwenAuditPage.vue'), meta: { perm: 'tuwen_yewu' } },
+          { path: 'settings', component: () => import('../views/tuwen/TuwenSettingsPage.vue'), meta: { perm: 'tuwen_yewu' } }
+        ]
+      },
       { path: 'logs', component: () => import('../views/system/LogsPage.vue'), meta: { perm: 'logs' } },
       { path: 'cloud-functions', component: () => import('../views/system/CloudFunctionsPage.vue'), meta: { perm: 'cloud_functions' } },
       { path: 'global-config', component: () => import('../views/system/GlobalConfigPage.vue'), meta: { perm: 'global_config' } },

@@ -79,6 +79,15 @@ assert.strictEqual(listed.dateLabel, '中标日期')
 assert.strictEqual(listed.bidDateText, '2026-03-10')
 assert.strictEqual(listed.hasBidDate, true)
 assert.strictEqual(listed.done, true, '核验通过应归入已完成')
+assert.strictEqual(listed.notes, '')
+assert.strictEqual(listed.partnerVillage, '')
+const listedNotes = audit.summarizeListItem(Object.assign(completeVillage(), {
+  notes: '应急抢修',
+  partnerVillage: '西风村',
+  jointBid: true
+}))
+assert.strictEqual(listedNotes.notes, '应急抢修')
+assert.strictEqual(listedNotes.partnerVillage, '西风村')
 const listedBlank = audit.summarizeListItem({ id: 'p_blank', name: '空项目', orgType: 'township', materials: {} })
 assert.strictEqual(listedBlank.amountText, '未填')
 assert.strictEqual(listedBlank.dateLabel, '中标日期')
@@ -152,6 +161,8 @@ function completeSmall() {
   materials.compare_mid = Object.assign(checklist.emptyMaterial(), { files: fileSet(1, 'cm') })
   materials.compare_low = Object.assign(checklist.emptyMaterial(), { files: fileSet(1, 'cl') })
   materials.budget_quote.date = '2026-04-01'
+  materials.approval_form.date = '2026-03-20'
+  materials.accept_sheet.date = '2026-04-05'
   materials.compare_sheet.contractor = '东风建筑有限公司'
   materials.invoices.date = '2026-04-08'
   materials.invoices.contractor = '东风建筑有限公司'
@@ -173,6 +184,30 @@ assert.strictEqual(listedSmall.dateLabel, '报价日期')
 assert.strictEqual(listedSmall.bidDateText, '2026-04-01')
 assert.strictEqual(listedSmall.hasBidDate, true)
 assert.strictEqual(listedSmall.done, true, '小额核验通过应归入已完成')
+
+const switchedPhotos = completeVillage()
+assert.ok(audit.isComplete(checklist.getItem('photo_before', 'village'), switchedPhotos.materials.photo_before, switchedPhotos))
+switchedPhotos.orgType = 'small'
+assert.ok(audit.isComplete(checklist.getItem('photo_before', 'small'), switchedPhotos.materials.photo_before, switchedPhotos), '换成小额后施工前照片应仍算齐')
+assert.ok(audit.isComplete(checklist.getItem('photo_during', 'small'), switchedPhotos.materials.photo_during, switchedPhotos), '换成小额后施工中照片应仍算齐')
+assert.ok(audit.isComplete(checklist.getItem('photo_after', 'small'), switchedPhotos.materials.photo_after, switchedPhotos), '换成小额后施工后照片应仍算齐')
+assert.ok(!checklist.getItem('photo_accept', 'small'), '小额清单不应再要验收照')
+assert.ok(switchedPhotos.materials.photo_accept.files.length >= 1, '验收照应还在资料里，只是小额不展示')
+const switchedTown = completeSmall()
+switchedTown.orgType = 'township'
+assert.ok(audit.isComplete(checklist.getItem('photo_before', 'township'), switchedTown.materials.photo_before, switchedTown), '小额改乡政府后施工前照片应仍算齐')
+assert.ok(audit.isComplete(checklist.getItem('photo_during', 'township'), switchedTown.materials.photo_during, switchedTown))
+assert.ok(audit.isComplete(checklist.getItem('photo_after', 'township'), switchedTown.materials.photo_after, switchedTown))
+assert.ok(!checklist.getItem('minutes_party', 'small'), '小额不应再露出村里会议纪要')
+assert.ok(!checklist.getItem('contract', 'small'), '小额不应再要合同')
+assert.ok(checklist.getItem('photo_before', 'small'))
+const jointKeep = completeVillage()
+jointKeep.jointBid = true
+jointKeep.partnerVillage = '西风村'
+jointKeep.orgType = 'small'
+assert.strictEqual(audit.isJointBid(jointKeep), false, '改小额后两村打包规则应关掉')
+assert.strictEqual(audit.summarizeListItem(jointKeep).jointBid, false)
+assert.strictEqual(jointKeep.partnerVillage, '西风村', '另一村名称应还在，切回村里还能用')
 
 const smallEmptyInv = completeSmall()
 smallEmptyInv.materials.invoices.amount = ''
@@ -201,6 +236,33 @@ const smallNameClose = completeSmall()
 smallNameClose.materials.compare_sheet.contractor = '东风建筑'
 smallNameClose.materials.invoices.contractor = '东风建筑有限公司'
 assert.strictEqual(audit.runAudit(smallNameClose).passed, true, '公司名简称与全称应对齐通过')
+
+const smallConfirm = completeSmall()
+smallConfirm.materials.approval_form.files = []
+smallConfirm.materials.approval_form.date = ''
+smallConfirm.materials.approval_form.confirmed = true
+smallConfirm.materials.accept_sheet.files = []
+smallConfirm.materials.accept_sheet.date = ''
+smallConfirm.materials.accept_sheet.amount = ''
+smallConfirm.materials.accept_sheet.confirmed = true
+assert.strictEqual(audit.runAudit(smallConfirm).passed, true, '小额审批单验收单点确认应可过核验')
+assert.ok(checklist.isItemComplete(smallConfirm, checklist.getItem('approval_form', 'small')), '点确认后审批单应算齐')
+assert.ok(checklist.isItemComplete(smallConfirm, checklist.getItem('accept_sheet', 'small')), '点确认后验收单应算齐')
+
+const smallMissApproval = completeSmall()
+smallMissApproval.materials.approval_form.files = []
+smallMissApproval.materials.approval_form.confirmed = false
+assert.ok(
+  audit.runAudit(smallMissApproval).issues.some((i) => i.itemId === 'approval_form' && i.level === 'error'),
+  '小额审批单未传也未确认时应缺项'
+)
+const smallMissAccept = completeSmall()
+smallMissAccept.materials.accept_sheet.files = []
+smallMissAccept.materials.accept_sheet.confirmed = false
+assert.ok(
+  audit.runAudit(smallMissAccept).issues.some((i) => i.itemId === 'accept_sheet' && i.level === 'error'),
+  '小额验收单未传也未确认时应缺项'
+)
 
 function completeJoint() {
   const project = completeVillage()
@@ -304,11 +366,18 @@ assert.ok(!audit.getDateChain('village').some((step) => step.id === 'responses')
 assert.ok(!audit.getDateChain('township').some((step) => step.id === 'zbj_procurement'))
 assert.ok(!audit.getDateChain('township').some((step) => step.id === 'responses'))
 assert.deepStrictEqual(checklist.itemWritableFields(checklist.getItem('accept_sheet', 'village')).sort(), ['amount', 'date'])
+assert.ok(audit.getDateChain('small').some((step) => step.id === 'approval_form' && step.skipOrder), '小额审批单不核前后顺序')
+assert.ok(audit.getDateChain('small').some((step) => step.id === 'accept_sheet'), '小额日期应含验收单')
 assert.ok(!audit.getDateChain('small').some((step) => step.id === 'compare_sheet'), '小额比价不核日期')
 assert.ok(!audit.getDateChain('small').some((step) => step.id === 'lowest_sheet'))
 assert.ok(!audit.getDateChain('small').some((step) => String(step.id).indexOf('photo_') === 0))
 assert.deepStrictEqual(checklist.itemWritableFields(checklist.getItem('compare_sheet', 'small')).sort(), ['amount', 'contractor'])
-assert.ok(!checklist.getItem('accept_sheet', 'small'))
+assert.ok(checklist.getItem('approval_form', 'small'))
+assert.ok(checklist.getItem('approval_form', 'small').allowConfirm, '小额审批单应允许点确认')
+assert.ok(checklist.getItem('accept_sheet', 'small'))
+assert.ok(checklist.getItem('accept_sheet', 'small').allowConfirm, '小额验收单应允许点确认')
+assert.deepStrictEqual(checklist.itemWritableFields(checklist.getItem('approval_form', 'small')), ['date'])
+assert.deepStrictEqual(checklist.itemWritableFields(checklist.getItem('accept_sheet', 'small')).sort(), ['amount', 'date'])
 assert.ok(!checklist.getItem('photo_accept', 'small'))
 
 const villageProcNoDate = completeVillage()

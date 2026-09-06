@@ -19,7 +19,7 @@ const RULES = [
   { id: 'minutes_party', weight: 12, words: ['党支部提议'] },
   { id: 'fund_briefing', weight: 12, words: ['专题会议简报', '经费使用专题会议'] },
   { id: 'fund_record', weight: 10, words: ['上会专题会议记录', '专题会议记录', '签到表'], exclude: ['中标通知', '成交通知', '发票代码', '合同编号'] },
-  { id: 'approval_form', weight: 10, words: ['项目审批表'], exclude: ['合同编号', '发票代码', '中标通知', '成交通知', '营业执照'] },
+  { id: 'approval_form', weight: 10, words: ['项目审批表', '审批单'], exclude: ['合同编号', '发票代码', '中标通知', '成交通知', '营业执照'] },
   { id: 'township_request', weight: 12, words: ['请示批复文件', '乡政府请示批复'] },
   { id: 'zbj_request', weight: 12, words: ['发布招标信息请示', '八戒网发布'] },
   { id: 'township_approval', weight: 12, words: ['同意发布批复', '同意发布招标'] },

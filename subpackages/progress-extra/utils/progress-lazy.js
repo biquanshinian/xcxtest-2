@@ -61,7 +61,10 @@ const { ROUTES, navigateTo } = require('../../../utils/routes.js')
 const storageCache = require('../../../utils/storage-sync-cache.js')
 const {
   fetchTodayTweetAccountStats,
-  resolveTweetAccountChip
+  peekTodayTweetAccountStatsCache,
+  resolveTweetAccountChip,
+  attachVerifyBadgeToItem,
+  attachVerifyBadgeToList
 } = require('./tweet-account-stats.js')
 
 /** 事件列表直播状态批量查询延后，避免与首屏 DB 查询抢带宽 */
@@ -299,6 +302,14 @@ const methods = {
       if (canShowChips) {
         patch.tweetAccountStats = cached.stats || []
       }
+      var badgeMap = cached.badgeBySource || {}
+      var list = self.data.eventUpdates || []
+      if (list.length) {
+        var attached = attachVerifyBadgeToList(list, badgeMap)
+        if (attached !== list) {
+          Object.assign(patch, self._syncEventIntelView(attached))
+        }
+      }
       self.setData(patch)
     }).catch(function () {})
   },
@@ -349,7 +360,10 @@ const methods = {
     })
     const imageCount = imageUrls.length
 
-    return {
+    const cached = peekTodayTweetAccountStatsCache()
+    const badgeMap = (cached && cached.badgeBySource) || {}
+
+    return attachVerifyBadgeToItem({
       ...item,
       mediaList: enrichedMediaList,
       publishedAtText: this.formatEventTime(item.publishedAt),
@@ -363,7 +377,7 @@ const methods = {
       _liveStatus: 0,
       _liveCover: '',
       _liveTitle: ''
-    }
+    }, badgeMap)
   },
 
   _syncEventIntelView(list) {
@@ -480,7 +494,9 @@ const methods = {
     if (this.data.eventUpdatesLoading) return
     this.setData({ eventUpdatesLoading: true })
 
-    // 薄壳在 shared 分包到位前头像解析返回空；分享直达进度页时 preload 可能还没跑完
+    // 与事件列表并行拉认证标；warm 头像期间统计常已返回，上屏前必须 await，
+    // 否则列表 setData 会盖掉 50ms 定时器里已经挂上的标
+    const statsP = fetchTodayTweetAccountStats().catch(() => null)
     await warmEventShareImage().catch(() => {})
 
     // 保存筛选条件
@@ -503,6 +519,7 @@ const methods = {
         if (cached && cached.timestamp && (Date.now() - cached.timestamp < this._eventCacheTTL)) {
           if (!this._eventCacheHasUntranslated(cached.data)) {
             this._stashRawEventDocs(cached.data)
+            await statsP
             const items = (cached.data || []).map(item => this._enrichEventItem(item))
             this.setData(Object.assign({
               eventUpdatesNoMore: items.length < 10,
@@ -533,6 +550,7 @@ const methods = {
         .get()
 
       this._stashRawEventDocs(res.data)
+      await statsP
       const newItems = (res.data || []).map(item => this._enrichEventItem(item))
 
       const merged = refresh ? newItems : this.data.eventUpdates.concat(newItems)

@@ -163,6 +163,7 @@ test('罗曼资源只在 monitor-pages，进详情走会员门控', () => {
   assert.match(card, /\/subpackages\/monitor-pages\/images\/roman\/roman-craft\.png/)
   assert.match(card, /roman-hero/)
   assert.match(card, /roman-hero__viz/)
+  assert.match(card, /openAdoptPixel/)
   assert.match(card, /roman-viz__halo/)
   assert.match(card, /roman-viz__cruise/)
   assert.match(cardJs, /\/subpackages\/monitor-pages\/images\/roman\/roman-card-bg\.jpg/)

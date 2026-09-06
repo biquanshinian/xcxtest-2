@@ -2,7 +2,7 @@
  * 报账资料清单
  * 村委会：决策会议 / 公示 / 乡镇文件 / 采购 / 合同 / 施工验收 / 发票
  * 乡政府：审批表 / 实施方案 / 请示 / 方案说明 / 采购 / 合同证照 / 现场 / 发票
- * 村委会小额：预算报价 / 三家比价（高中低） / 施工前中后 / 发票
+ * 村委会小额：审批单 / 预算报价 / 三家比价（高中低） / 施工前中后 / 验收单 / 发票
  */
 
 import * as orgUtil from './org.js'
@@ -390,6 +390,23 @@ var COMPARE_TIERS = [
 
 var SMALL_GROUPS = [
   {
+    id: 'sm_approval',
+    name: '审批单',
+    allowConfirm: true,
+    hint: '',
+    items: [
+      {
+        id: 'approval_form',
+        name: '审批单',
+        required: true,
+        fields: [],
+        optionalFields: ['date'],
+        allowConfirm: true,
+        hint: ''
+      }
+    ]
+  },
+  {
     id: 'sm_quote',
     name: '预算金额报价',
     hint: '',
@@ -418,7 +435,7 @@ var SMALL_GROUPS = [
         minFiles: 3,
         special: 'compare',
         role: 'award',
-        hint: '高价、中价、低价各至少一张，按框拍照或上传。不核验日期。低价公司名称和金额须能和发票对齐。'
+        hint: ''
       }
     ]
   },
@@ -460,6 +477,23 @@ var SMALL_GROUPS = [
     ]
   },
   {
+    id: 'sm_accept',
+    name: '验收单',
+    allowConfirm: true,
+    hint: '',
+    items: [
+      {
+        id: 'accept_sheet',
+        name: '验收单',
+        required: true,
+        fields: [],
+        optionalFields: ['date', 'amount'],
+        allowConfirm: true,
+        hint: ''
+      }
+    ]
+  },
+  {
     id: 'sm_invoice',
     name: '对应发票',
     hint: '',
@@ -471,7 +505,7 @@ var SMALL_GROUPS = [
         fields: ['date', 'amount'],
         optionalFields: ['contractor'],
         role: 'invoice',
-        hint: '金额须与比价低价一致；销售方名称须与低价公司对齐。'
+        hint: ''
       }
     ]
   }

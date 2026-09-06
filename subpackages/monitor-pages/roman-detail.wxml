@@ -52,8 +52,11 @@
           </view>
           <view class="roman-track-rail">
             <view class="roman-track-bar">
-              <view class="roman-track-fill" style="width: {{progressPct}}%;"></view>
+              <view class="roman-track-fill" style="width: {{progressPct}}%;">
+                <view class="roman-track-pulse"></view>
+              </view>
             </view>
+            <view class="roman-track-beat" style="left: {{progressPct}}%;"></view>
             <view class="roman-track-craft" style="left: {{progressPct}}%;">
               <image class="roman-track-img" src="/subpackages/monitor-pages/images/roman/roman-craft.png" mode="aspectFit" />
             </view>
@@ -128,6 +131,29 @@
           <view class="roman-kv-row" wx:if="{{summary.dsnName}}"><text>DSN 代号</text><text>{{summary.dsnName}}</text></view>
           <view class="roman-kv-row" wx:if="{{summary.cruiseEndLabel}}"><text>L2 窗口</text><text>{{summary.cruiseEndLabel}}</text></view>
           <view class="roman-kv-row" wx:if="{{summary.remainLabel}}"><text>进度口径</text><text>{{summary.remainLabel}}</text></view>
+        </view>
+      </view>
+
+      <view class="roman-adopt-card glass-card" bindtap="openAdoptPixel">
+        <view class="roman-adopt-card__strip" aria-hidden="true">
+          <block wx:for="{{[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35]}}" wx:key="*this">
+            <view class="roman-adopt-card__px {{item === 7 ? 'roman-adopt-card__px--on' : ''}}"></view>
+          </block>
+        </view>
+        <view class="roman-adopt-card__main">
+          <text class="roman-adopt-card__kicker">NASA · ADOPT A PIXEL</text>
+          <text class="roman-adopt-card__title">认领罗曼首图像素</text>
+          <text class="roman-adopt-card__desc">首批图像预计 2027 年初公布。现在用邮箱领取一个像素编号证书，成为这张历史照片的一部分。</text>
+          <text class="roman-adopt-card__hint">每邮箱限领 1 个 · 认领在 NASA 官网完成</text>
+          <view class="roman-adopt-card__cta">
+            <view class="roman-adopt-card__cta-strip" aria-hidden="true">
+              <view class="roman-adopt-card__px"></view>
+              <view class="roman-adopt-card__px roman-adopt-card__px--on"></view>
+              <view class="roman-adopt-card__px"></view>
+            </view>
+            <text>前往认领</text>
+            <text class="roman-action-arrow">›</text>
+          </view>
         </view>
       </view>
 

@@ -20,6 +20,7 @@ console.log('== 语法 ==')
   'subpackages/progress-extra/components/event-updates/index.js',
   'subpackages/progress-extra/utils/progress-lazy.js',
   'subpackages/progress-extra/event-detail.js',
+  'subpackages/progress-extra/utils/event-list-haptic.js',
   'pages/progress/progress.js'
 ].forEach((f) => {
   try { new vm.Script(read(f)); ok(f) } catch (e) { bad(f + ': ' + e.message) }
@@ -110,6 +111,13 @@ chipsComp.includes('attached()') ? ok('胶囊 attached 时量溢出') : bad('胶
 const helperFrom = path.posix.normalize('subpackages/progress-extra/utils/../../../utils/event-share-image.js')
 exists('utils/event-share-image.js') ? ok('helper 主包薄壳 require 可解析') : bad('event-share-image 缺失')
 exists('subpackages/progress-extra/utils/tweet-account-stats.js') ? ok(helperFrom) : bad('helper 缺失')
+detailWxml.includes('bindscroll="onDetailScroll"') ? ok('详情页主列表绑定滑动') : bad('详情页未绑 bindscroll')
+detailWxml.includes('data-haptic-index="{{evIdx}}"') ? ok('列表卡片带 haptic index') : bad('列表卡片未标 haptic index')
+detailJs.includes('resolveTweetCardFocusIndex') && detailJs.includes("wx.vibrateShort({ type: 'light' })")
+  ? ok('详情页按对准的推文卡片轻震')
+  : bad('详情页未按卡片窗口震')
+detailJs.includes('_resetTweetCardHaptics') ? ok('程序化滚顶会重置卡片轻震') : bad('滚顶可能误震')
+exists('subpackages/progress-extra/utils/event-list-haptic.js') ? ok('卡片轻震 helper') : bad('缺 event-list-haptic')
 
 console.log('\n' + (fail ? '共 ' + fail + ' 项失败' : '全部通过'))
 process.exit(fail ? 1 : 0)

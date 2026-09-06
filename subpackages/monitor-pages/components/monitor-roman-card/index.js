@@ -90,20 +90,25 @@ Component({
   lifetimes: {
     attached() {
       this._detached = false
-      try {
-        this._safeSet({ themeClass: theme.getThemeClassSync() })
-      } catch (_e) {}
+      this._onThemeChange = () => this._syncTheme()
+      try { theme.onThemeChange(this._onThemeChange) } catch (_e) {}
+      this._syncTheme()
       this._resolveCardBg()
       this._boot()
     },
     detached() {
       this._detached = true
+      if (this._onThemeChange) {
+        try { theme.offThemeChange(this._onThemeChange) } catch (_e) {}
+        this._onThemeChange = null
+      }
       this._teardown()
     }
   },
   pageLifetimes: {
     show() {
       if (this._detached) return
+      this._syncTheme()
       if (this.data.visible && this.data.isLive) {
         if (this._raw) this._startInterp()
         this._schedulePoll()
@@ -122,6 +127,13 @@ Component({
       try {
         this.setData(patch)
       } catch (_e) {}
+    },
+
+    _syncTheme() {
+      let themeClass = ''
+      try { themeClass = theme.getThemeClassSync() || '' } catch (_e) {}
+      if (themeClass === (this.data.themeClass || '')) return
+      this._safeSet({ themeClass })
     },
 
     _resolveCardBg() {
@@ -316,6 +328,11 @@ Component({
       if (this._detached) return
       this._fetch(true)
       this._schedulePoll()
+    },
+
+    openAdoptPixel() {
+      if (this._detached) return
+      romanTracker.copyAdoptPixelLink()
     },
 
     async openDetail() {

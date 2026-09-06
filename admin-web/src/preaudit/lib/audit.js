@@ -42,7 +42,9 @@ var TOWNSHIP_DATE_CHAIN = [
 ]
 
 var SMALL_DATE_CHAIN = [
+  { id: 'approval_form', label: '审批单', skipOrder: true },
   { id: 'budget_quote', label: '预算金额报价' },
+  { id: 'accept_sheet', label: '验收单' },
   { id: 'invoices', label: '开具发票' }
 ]
 
@@ -1420,6 +1422,8 @@ function summarizeListItem(project) {
     year: project.year,
     jointBid: isJointBid(project),
     contractor: project.contractor,
+    notes: project.notes || '',
+    partnerVillage: (project && project.partnerVillage) || '',
     budgetAmount: project.budgetAmount,
     amountText: amount == null ? '未填' : format.formatMoney(amount) + ' 元',
     hasAmount: amount != null,

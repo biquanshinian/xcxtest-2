@@ -1,5 +1,5 @@
 <template>
-  <el-container class="layout-root theme-dark" :class="{ 'has-mobile-drawer-open': mobileMenuOpen, 'is-preaudit': isPreaudit, 'is-preaudit-guest': isPreauditGuest, 'pa-is-light': isPreaudit && paTheme === 'light', 'pa-is-dark': isPreaudit && paTheme === 'dark' }">
+  <el-container class="layout-root theme-dark" :class="{ 'has-mobile-drawer-open': mobileMenuOpen, 'is-preaudit': isPreaudit, 'is-preaudit-guest': isPreauditGuest, 'is-tuwen': isTuwen, 'pa-is-light': isPreaudit && paTheme === 'light', 'pa-is-dark': isPreaudit && paTheme === 'dark' }">
     <div v-if="mobileMenuOpen && !isPreauditGuest" class="mobile-drawer-mask" @click="closeMobileMenu" />
     <el-aside v-if="!isPreauditGuest" width="240px" class="layout-aside" :class="{ 'is-mobile-open': mobileMenuOpen }">
       <div class="aside-logo" @click="navigate(auth.homePath())">
@@ -20,6 +20,7 @@
           <span>仪表盘</span>
         </el-menu-item>
         <el-menu-item v-if="hasPerm('preaudit')" index="/preaudit">一键预审</el-menu-item>
+        <el-menu-item v-if="hasPerm('tuwen_yewu')" index="/tuwen/dashboard">智能业务系统</el-menu-item>
         <el-menu-item v-if="hasPerm('statistics')" index="/statistics">数据统计</el-menu-item>
         <el-sub-menu v-if="hasPerm('oa_content')" index="oa-content">
           <template #title>
@@ -240,12 +241,11 @@
         </button>
         <div class="header-title cx-gradient-text">{{ pageTitle }}</div>
         <div class="header-actions">
-          <span v-if="isPreauditGuest && preauditShowBack" class="header-back-spacer" aria-hidden="true" />
-          <el-button v-if="!isPreaudit" class="action-btn action-btn--icon-only" size="small" @click="syncNow" title="同步数据">
+          <el-button v-if="!isPreaudit && !isTuwen" class="action-btn action-btn--icon-only" size="small" @click="syncNow" title="同步数据">
             <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 12.5A5.5 5.5 0 1 1 8 2.5a5.5 5.5 0 0 1 0 11zM8 4a.75.75 0 0 1 .75.75v2.69l1.78 1.03a.75.75 0 1 1-.75 1.3l-2.16-1.25A.75.75 0 0 1 7.25 8V4.75A.75.75 0 0 1 8 4z"/></svg>
             <span class="action-btn__label">同步数据</span>
           </el-button>
-          <el-button v-if="!isPreaudit" class="action-btn action-btn--hide-on-mobile" size="small" @click="cleanNow">清理缓存</el-button>
+          <el-button v-if="!isPreaudit && !isTuwen" class="action-btn action-btn--hide-on-mobile" size="small" @click="cleanNow">清理缓存</el-button>
           <button
             v-if="isPreaudit"
             class="header-theme"
@@ -262,6 +262,7 @@
               <path d="M21 14.3A8.4 8.4 0 1 1 9.7 3 7 7 0 0 0 21 14.3z" />
             </svg>
           </button>
+          <el-button v-if="isPreauditGuest" class="action-btn header-login-btn" size="small" @click="goLogin">登录</el-button>
           <el-button v-if="!isPreauditGuest" class="action-btn logout-btn" size="small" @click="logout">退出</el-button>
         </div>
       </el-header>
@@ -285,7 +286,11 @@ import '../../preaudit/preaudit.css'
 
 const route = useRoute()
 const router = useRouter()
-const active = computed(() => route.path)
+const active = computed(() => {
+  const p = String(route.path || '')
+  if (p.startsWith('/tuwen')) return '/tuwen/dashboard'
+  return p
+})
 
 const mobileMenuOpen = ref(false)
 
@@ -345,6 +350,7 @@ const canSuperAdmin = computed(() => auth.hasRole('super_admin'))
 
 const hasPerm = (mod) => auth.hasPermission(mod)
 const isPreaudit = computed(() => String(route.path || '').startsWith('/preaudit'))
+const isTuwen = computed(() => String(route.path || '').startsWith('/tuwen'))
 const isPreauditGuest = computed(() => isPreaudit.value && !localStorage.getItem('admin_token'))
 const preauditShowBack = computed(() => isPreaudit.value && route.path !== '/preaudit')
 const paTheme = ref(readPreauditTheme())
@@ -430,6 +436,10 @@ const pageTitle = computed(() => {
     '/figma-design': 'SpaceX星舰追踪 · 星舰基地',
     '/orbital-config': '太空轨道数据中心',
     '/preaudit': '一键预审',
+    '/tuwen': '智能业务系统',
+    '/tuwen/dashboard': '智能业务系统',
+    '/tuwen/orders': '智能业务系统',
+    '/tuwen/orders/new': '新建订单',
     '/preaudit/guide': '预审指南',
     '/preaudit/new': '新建预审',
     '/preaudit/pack': '整包 PDF 审核'
@@ -442,8 +452,14 @@ const pageTitle = computed(() => {
   if (route.path.endsWith('/audit')) return '核验'
   if (route.path.endsWith('/pack')) return '整包 PDF 审核'
   if (route.path.startsWith('/preaudit/')) return '预审项目'
+  if (route.path.startsWith('/tuwen/orders/')) return '订单详情'
+  if (route.path.startsWith('/tuwen')) return '智能业务系统'
   return '管理后台'
 })
+
+const goLogin = () => {
+  router.push({ path: '/login', query: { redirect: route.fullPath } })
+}
 
 const logout = async () => {
   try { await flushPreauditCloud() } catch (e) { /* 退出仍清登录态 */ }
@@ -727,6 +743,18 @@ const cleanNow = async () => {
   background: rgba(255, 69, 58, 0.12) !important;
 }
 
+.header-login-btn {
+  color: #fff !important;
+  background: #07c160 !important;
+  border-color: #07c160 !important;
+}
+
+.header-login-btn:hover {
+  color: #fff !important;
+  background: #06ad56 !important;
+  border-color: #06ad56 !important;
+}
+
 /* ========== Main Content ========== */
 .layout-main {
   background: var(--t-bg-body);
@@ -734,6 +762,14 @@ const cleanNow = async () => {
   overflow-y: auto;
   flex: 1;
   transition: background 0.3s;
+}
+
+.layout-root.is-tuwen .layout-main {
+  padding: 8px 12px 16px;
+}
+
+.layout-root.is-tuwen .layout-body {
+  min-height: 0;
 }
 
 /* -- Card -- */
@@ -1379,6 +1415,10 @@ html.dark .el-dropdown-menu__item:hover {
     padding: 12px !important;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+  }
+
+  .layout-root.is-tuwen .layout-main {
+    padding: 12px !important;
   }
 
   .layout-root.is-preaudit .layout-main {

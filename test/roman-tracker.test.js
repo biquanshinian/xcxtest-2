@@ -328,12 +328,34 @@ test('罗曼详情页：路由、分享免门控窗口、图片体积', () => {
   assert.match(pageWxss, /\.theme-light \.roman-kv-row/)
   assert.match(pageWxss, /\.theme-light \.roman-action/)
   assert.match(pageWxss, /\.theme-light \.roman-chip--l2/)
+  assert.match(pageWxss, /--roman-accent:\s*#B57AC9/)
+  assert.match(pageWxss, /\.detail-page\.theme-light[\s\S]{0,220}--roman-accent:\s*#6A3D9A/)
   assert.doesNotMatch(pageWxss, /#07060d|#6B21A8|#A855F7|#E879F9|#F5F3FF/)
+  assert.doesNotMatch(pageWxss, /#2563EB|#7DD3FC/)
+  assert.match(pageWxss, /#3B82F6/)
+  assert.match(pageWxss, /#6A3D9A/)
   const cardWxss = fs.readFileSync(
     path.join(__dirname, '../subpackages/monitor-pages/components/monitor-roman-card/index.wxss'),
     'utf8'
   )
   assert.doesNotMatch(cardWxss, /#6B21A8|#A855F7|#E879F9|#7C3AED/)
+  assert.match(cardWxss, /\.roman-viz__earth[\s\S]{0,360}#60A5FA/)
+  assert.match(cardWxss, /\.roman-viz__cruise[\s\S]{0,160}181,\s*122,\s*201/)
+  assert.match(cardWxss, /\.roman-viz__l2[\s\S]{0,360}#FFD60A/)
+  assert.match(cardWxss, /@keyframes roman-halo-ride/)
+  const cardWxml = fs.readFileSync(
+    path.join(__dirname, '../subpackages/monitor-pages/components/monitor-roman-card/index.wxml'),
+    'utf8'
+  )
+  assert.match(cardWxml, /roman-viz__craft/)
+  assert.match(cardWxml, /roman-craft\.png/)
+  assert.match(cardWxml, /roman-hero__progress-pulse/)
+  assert.match(cardWxml, /roman-hero__progress-beat/)
+  assert.match(cardWxss, /@keyframes roman-progress-shimmer/)
+  assert.match(cardWxss, /@keyframes roman-progress-beat/)
+  assert.match(cardWxss, /#3B82F6 0%, #6A3D9A 48%, #FFD60A/)
+  assert.match(cardWxss, /\.roman-card-root \.roman-card-title/)
+  assert.match(cardWxss, /\.theme-light\.roman-card-root \.roman-card-title/)
   const agencyWxss = fs.readFileSync(
     path.join(__dirname, '../subpackages/monitor-pages/agency-detail.wxss'),
     'utf8'
@@ -346,4 +368,61 @@ test('罗曼详情页：路由、分享免门控窗口、图片体积', () => {
   assert.ok(share.length < 80 * 1024, 'share 文件应远小于 200KB')
   assert.ok(cardBg.length < 20 * 1024, '监控卡背景仅留压缩预览，大图走 COS')
   assert.equal(craft.readUInt32BE(16) * craft.readUInt32BE(20) * 4 < 200 * 1024, true)
+})
+
+test('罗曼像素认领：官方入口不走会员门控，链接指向 NASA Adopt a Pixel', () => {
+  const cfg = fs.readFileSync(path.join(__dirname, '../utils/config.js'), 'utf8')
+  const tracker = fs.readFileSync(
+    path.join(__dirname, '../subpackages/monitor-pages/utils/roman-tracker.js'),
+    'utf8'
+  )
+  const cardWxml = fs.readFileSync(
+    path.join(__dirname, '../subpackages/monitor-pages/components/monitor-roman-card/index.wxml'),
+    'utf8'
+  )
+  const cardJs = fs.readFileSync(
+    path.join(__dirname, '../subpackages/monitor-pages/components/monitor-roman-card/index.js'),
+    'utf8'
+  )
+  const pageWxml = fs.readFileSync(
+    path.join(__dirname, '../subpackages/monitor-pages/roman-detail.wxml'),
+    'utf8'
+  )
+  const pageJs = fs.readFileSync(
+    path.join(__dirname, '../subpackages/monitor-pages/roman-detail.js'),
+    'utf8'
+  )
+  const pageWxss = fs.readFileSync(
+    path.join(__dirname, '../subpackages/monitor-pages/roman-detail.wxss'),
+    'utf8'
+  )
+  const cardWxss = fs.readFileSync(
+    path.join(__dirname, '../subpackages/monitor-pages/components/monitor-roman-card/index.wxss'),
+    'utf8'
+  )
+  assert.match(cfg, /adoptPixelUrl:[\s\S]*roman-space-telescope\/adopt-a-pixel/)
+  assert.match(tracker, /function getAdoptPixelUrl/)
+  assert.match(tracker, /function copyAdoptPixelLink/)
+  assert.match(cardWxml, /catchtap="openAdoptPixel"/)
+  assert.match(cardWxml, /认领首图像素/)
+  const adoptFn = cardJs.match(/openAdoptPixel\(\)[\s\S]*?,\s*async openDetail/)
+  assert.ok(adoptFn, '卡片应有独立的 openAdoptPixel')
+  assert.match(adoptFn[0], /copyAdoptPixelLink/)
+  assert.doesNotMatch(adoptFn[0], /gateCheck/)
+  assert.match(pageWxml, /roman-adopt-card/)
+  assert.match(pageWxml, /认领罗曼首图像素/)
+  assert.match(pageJs, /openAdoptPixel\(\)[\s\S]{0,120}copyAdoptPixelLink/)
+  assert.match(pageWxss, /\.theme-light \.roman-adopt-card__title/)
+  assert.match(cardWxml, /roman-adopt__strip/)
+  assert.match(cardWxml, /roman-adopt__px--on/)
+  assert.match(cardWxss, /grid-template-columns:\s*repeat\(6,\s*12rpx\)/)
+  assert.match(cardWxss, /grid-template-rows:\s*repeat\(6,\s*12rpx\)/)
+  assert.match(cardWxss, /rgba\(255,\s*255,\s*255,\s*0\.08\)/)
+  assert.match(cardWxss, /#6A3D9A/)
+  assert.match(pageWxss, /#6A3D9A/)
+  assert.match(pageWxml, /roman-adopt-card__strip/)
+  assert.match(pageWxml, /roman-track-pulse/)
+  assert.match(pageWxml, /roman-track-beat/)
+  assert.match(pageWxss, /@keyframes roman-progress-shimmer/)
+  assert.match(pageWxss, /\.roman-track-pct[\s\S]{0,80}font-size:\s*40rpx/)
 })

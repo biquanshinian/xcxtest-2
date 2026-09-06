@@ -3,6 +3,7 @@
  * 10 分钟内存缓存 + inflight 去重，避免进度 Tab / 详情页各打一次云函数。
  */
 const { resolveTweetAccountAvatarUrl } = require('../../../utils/event-share-image.js')
+const { normalizeVerifyBadge, verifyBadgeSrc } = require('./x-verify-badge.js')
 
 const TTL_MS = 10 * 60 * 1000
 let memCache = null
@@ -16,6 +17,42 @@ function safeResolveTweetAccountAvatarUrl(screenName) {
   }
 }
 
+function rememberVerifyBadge(map, key, badge) {
+  const name = String(key || '')
+  const kind = normalizeVerifyBadge(badge)
+  if (!name || kind === 'none') return
+  map[name] = kind
+  map[name.toLowerCase()] = kind
+}
+
+function lookupVerifyBadge(badgeBySource, source) {
+  const key = String(source || '')
+  if (!key || !badgeBySource || typeof badgeBySource !== 'object') return 'none'
+  if (badgeBySource[key]) return normalizeVerifyBadge(badgeBySource[key])
+  const lower = key.toLowerCase()
+  if (badgeBySource[lower]) return normalizeVerifyBadge(badgeBySource[lower])
+  const names = Object.keys(badgeBySource)
+  for (let i = 0; i < names.length; i++) {
+    if (String(names[i]).toLowerCase() === lower) return normalizeVerifyBadge(badgeBySource[names[i]])
+  }
+  return 'none'
+}
+
+function collectBadgeBySource(payload, stats) {
+  const badgeBySource = {}
+  const rawMap = payload && payload.badgeBySource && typeof payload.badgeBySource === 'object'
+    ? payload.badgeBySource
+    : {}
+  Object.keys(rawMap).forEach((key) => {
+    rememberVerifyBadge(badgeBySource, key, rawMap[key])
+  })
+  ;(Array.isArray(stats) ? stats : []).forEach((item) => {
+    if (!item || !item.screenName) return
+    rememberVerifyBadge(badgeBySource, item.screenName, item.verifyBadge)
+  })
+  return badgeBySource
+}
+
 function mapTodayTweetAccountStats(result) {
   const payload = result && typeof result === 'object' ? result : {}
   if (!payload.success) return null
@@ -23,14 +60,17 @@ function mapTodayTweetAccountStats(result) {
   const raw = Array.isArray(payload.tweetStats) ? payload.tweetStats : []
   const stats = raw.map((item) => {
     const screenName = item && item.screenName ? String(item.screenName) : ''
+    const verifyBadge = normalizeVerifyBadge(item && item.verifyBadge)
     return {
       screenName,
       label: (item && item.label) || screenName,
       avatarUrl: (item && item.avatarUrl) || safeResolveTweetAccountAvatarUrl(screenName),
-      todayCount: item && typeof item.todayCount === 'number' ? item.todayCount : 0
+      todayCount: item && typeof item.todayCount === 'number' ? item.todayCount : 0,
+      verifyBadge,
+      verifyBadgeSrc: (item && item.verifyBadgeSrc) || verifyBadgeSrc(verifyBadge)
     }
   }).filter((item) => !!item.screenName)
-  return { total, stats }
+  return { total, stats, badgeBySource: collectBadgeBySource(payload, stats) }
 }
 
 function peekTodayTweetAccountStatsCache(now) {
@@ -43,9 +83,30 @@ function rememberTodayTweetAccountStats(mapped, now) {
   memCache = {
     at: typeof now === 'number' ? now : Date.now(),
     total: mapped.total || 0,
-    stats: Array.isArray(mapped.stats) ? mapped.stats : []
+    stats: Array.isArray(mapped.stats) ? mapped.stats : [],
+    badgeBySource: (mapped && mapped.badgeBySource) || {}
   }
   return memCache
+}
+
+function attachVerifyBadgeToItem(item, badgeBySource) {
+  if (!item || typeof item !== 'object') return item
+  const fromMap = lookupVerifyBadge(badgeBySource, item.source)
+  const verifyBadge = fromMap !== 'none' ? fromMap : normalizeVerifyBadge(item.verifyBadge)
+  const src = verifyBadgeSrc(verifyBadge)
+  if (item.verifyBadge === verifyBadge && item.verifyBadgeSrc === src) return item
+  return Object.assign({}, item, { verifyBadge, verifyBadgeSrc: src })
+}
+
+function attachVerifyBadgeToList(list, badgeBySource) {
+  if (!Array.isArray(list) || !list.length) return list
+  let changed = false
+  const next = list.map((it) => {
+    const attached = attachVerifyBadgeToItem(it, badgeBySource)
+    if (attached !== it) changed = true
+    return attached
+  })
+  return changed ? next : list
 }
 
 function resetTodayTweetAccountStatsCacheForTest() {
@@ -100,5 +161,7 @@ module.exports = {
   rememberTodayTweetAccountStats,
   resetTodayTweetAccountStatsCacheForTest,
   resolveTweetAccountChip,
-  fetchTodayTweetAccountStats
+  fetchTodayTweetAccountStats,
+  attachVerifyBadgeToItem,
+  attachVerifyBadgeToList
 }

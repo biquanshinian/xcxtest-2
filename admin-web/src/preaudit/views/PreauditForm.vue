@@ -1,7 +1,7 @@
 <template>
   <div class="pa">
     <div v-if="!orgLocked" class="pa-card">
-      <p class="pa-title">哪边报账？</p>
+      <p class="pa-title">{{ isEdit ? '换报账类型' : '哪边报账？' }}</p>
       <div class="pa-item" :class="{ on: form.orgType === 'village' }" @click="pick('village')">
         <div class="pa-tile village">村</div>
         <div class="pa-grow">
@@ -14,7 +14,7 @@
         <div class="pa-tile small">小</div>
         <div class="pa-grow">
           <div>村委会小额</div>
-          <div class="pa-sub">报价、比价、施工照、发票</div>
+          <div class="pa-sub">审批、报价、比价、施工照、验收、发票</div>
         </div>
         <span v-if="form.orgType === 'small'" class="pa-tag small">已选</span>
       </div>
@@ -115,7 +115,7 @@ const form = reactive({
   notes: existing ? existing.notes : ''
 })
 
-const orgLocked = computed(() => !!form.orgType && (!!route.params.id || !!route.query.org))
+const orgLocked = computed(() => !isEdit.value && !!form.orgType && !!route.query.org)
 const org = computed(() => getOrg(form.orgType))
 
 watch(
@@ -149,7 +149,7 @@ onMounted(async () => {
 
 watch(() => {
   const p = route.params.id ? getProject(route.params.id) : null
-  return p ? [p.updatedAt, p.name, p.village, p.contractor, p.budgetAmount, p.notes, p.jointBid, p.partnerVillage].join('|') : ''
+  return p ? [p.updatedAt, p.name, p.village, p.contractor, p.budgetAmount, p.notes, p.jointBid, p.partnerVillage, p.orgType].join('|') : ''
 }, () => {
   if (typingInField()) return
   fillForm(getProject(route.params.id))
@@ -173,7 +173,7 @@ const save = () => {
     ElMessage.warning('请先选类型')
     return
   }
-  if (form.orgType !== 'village') {
+  if (form.orgType !== 'village' && !isEdit.value) {
     form.jointBid = false
     form.partnerVillage = ''
     form.partnerAmount = ''

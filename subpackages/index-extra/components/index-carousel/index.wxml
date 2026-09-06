@@ -53,6 +53,12 @@
               data-index="{{index}}"
             ></image>
             <text class="carousel-account-name">{{item.accountLabel}}</text>
+            <image
+              wx:if="{{item.accountVerifyBadgeSrc}}"
+              class="x-verify-badge carousel-account-verify"
+              src="{{item.accountVerifyBadgeSrc}}"
+              mode="aspectFit"
+            />
           </view>
         </swiper-item>
       </swiper>

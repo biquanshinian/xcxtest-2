@@ -1,26 +1,29 @@
 <template>
   <div class="pa">
-    <div v-if="!item" class="pa-card pa-empty">找不到这项资料</div>
+    <div v-if="!project" class="pa-card pa-empty">找不到这个项目</div>
+    <div v-else-if="!item" class="pa-card pa-empty">
+      <p class="pa-title">这项不属于当前类型</p>
+      <div class="pa-actions">
+        <el-button type="primary" @click="openOrgSwitch">换类型</el-button>
+        <el-button @click="goProject">回项目</el-button>
+      </div>
+    </div>
     <template v-else>
       <div class="pa-card">
-        <span class="pa-tag muted">{{ item.groupName }}</span>
-        <p class="pa-title" style="margin-top: 10px;">{{ item.name }}</p>
-        <div v-if="item.hint" class="pa-sub">{{ item.hint }}</div>
-      </div>
-
-      <div class="pa-card" style="margin-top: 12px;">
-        <p class="pa-title">照片</p>
-        <div v-if="isCompare" class="pa-sub">高价、中价、低价各拍一张或上传。不核验日期。低价公司名称和金额会跟发票对齐。</div>
-        <div v-else-if="canScan" class="pa-sub">拍照或上传后会自动认日期金额。也可扫一扫，扫拍图不保存。</div>
-        <div v-if="needReshoot" class="pa-sub">须同框重拍一张</div>
-        <div v-if="needDateReview" class="pa-banner warn" style="margin-top: 12px;">
-          <div>这张图认出多个日期：{{ dateReview.ocrDates.join('、') }}</div>
-          <div class="pa-sub">
-            {{ dateReview.expected.length ? ('填写的是 ' + dateReview.expected.join('、') + '。') : '核验信息里还没填日期。' }}
-            对不上的是 {{ dateReview.unmatched.join('、') }}。对照原图后可手动通过。
-          </div>
-          <div class="pa-actions" style="margin-top: 8px;">
-            <el-button type="primary" @click="passDateReview">核对无误，通过</el-button>
+        <div class="pa-row pa-detail-head">
+          <p class="pa-title pa-grow">{{ item.name }}</p>
+          <el-button
+            v-if="item.allowConfirm"
+            size="small"
+            :type="confirmed ? 'default' : 'primary'"
+            @click="toggleConfirm"
+          >{{ confirmed ? '取消确认' : '确认' }}</el-button>
+        </div>
+        <div v-if="needReshoot" class="pa-banner warn">须同框重拍一张</div>
+        <div v-if="needDateReview" class="pa-banner warn">
+          <div class="pa-row">
+            <div class="pa-grow">日期对不上：{{ dateReview.unmatched.join('、') }}</div>
+            <el-button size="small" type="primary" @click="passDateReview">通过</el-button>
           </div>
         </div>
         <template v-if="isCompare">
@@ -69,53 +72,32 @@
           @pick="onPick"
           @rotate="onRotate"
         />
-        <div v-if="item.allowConfirm" class="pa-actions" style="margin-top: 12px;">
-          <el-button :type="confirmed ? 'default' : 'primary'" @click="toggleConfirm">
-            {{ confirmed ? '取消确认' : '无需上传，确认已备齐' }}
-          </el-button>
-        </div>
-      </div>
-
-      <div v-if="showDate || showRange || showAmount || showContractor" class="pa-card" style="margin-top: 12px;">
-        <p class="pa-title">核验信息</p>
-        <div v-if="showDate" class="pa-field">
-          <label class="pa-label">{{ optionalDate ? '日期（选填）' : '日期' }}</label>
-          <el-date-picker v-model="date" class="pa-date" popper-class="pa-date-popper" type="date" format="YYYY-MM-DD" value-format="YYYY-MM-DD" placeholder="选择日期" :editable="false" style="width: 100%;" @change="persist" />
-        </div>
-        <div v-if="showRange" class="pa-pair">
-          <div class="pa-field">
+        <div v-if="showDate || showRange || showAmount || showContractor" class="pa-pair">
+          <div v-if="showRange" class="pa-field">
             <label class="pa-label">{{ rangeStartLabel }}</label>
-            <el-date-picker v-model="startDate" class="pa-date" popper-class="pa-date-popper" type="date" format="YYYY-MM-DD" value-format="YYYY-MM-DD" placeholder="纸上的起始日" :editable="false" style="width: 100%;" @change="onStart" />
+            <el-date-picker v-model="startDate" class="pa-date" popper-class="pa-date-popper" type="date" format="YYYY-MM-DD" value-format="YYYY-MM-DD" placeholder="起始日" :editable="false" style="width: 100%;" @change="onStart" />
           </div>
-          <div class="pa-field">
+          <div v-if="showRange" class="pa-field">
             <label class="pa-label">{{ rangeEndLabel }}</label>
-            <el-date-picker v-model="endDate" class="pa-date" popper-class="pa-date-popper" type="date" format="YYYY-MM-DD" value-format="YYYY-MM-DD" placeholder="纸上的截止日" :editable="false" style="width: 100%;" @change="persist" />
+            <el-date-picker v-model="endDate" class="pa-date" popper-class="pa-date-popper" type="date" format="YYYY-MM-DD" value-format="YYYY-MM-DD" placeholder="截止日" :editable="false" style="width: 100%;" @change="persist" />
+          </div>
+          <div v-if="showDate" class="pa-field">
+            <label class="pa-label">日期</label>
+            <el-date-picker v-model="date" class="pa-date" popper-class="pa-date-popper" type="date" format="YYYY-MM-DD" value-format="YYYY-MM-DD" placeholder="选择日期" :editable="false" style="width: 100%;" @change="persist" />
+          </div>
+          <div v-if="showAmount" class="pa-field">
+            <label class="pa-label">金额（元）</label>
+            <el-input v-model="amount" inputmode="decimal" @input="persist" @change="persist" />
+          </div>
+          <div v-if="showContractor" class="pa-field" :class="{ 'pa-span-2': showDate || showRange }">
+            <label class="pa-label">{{ contractorLabel }}</label>
+            <el-input v-model="contractor" maxlength="40" @input="persist" @change="persist" />
           </div>
         </div>
-        <div v-if="showRange" class="pa-sub">须写起止，含首尾满 7 天{{ suggestedEnd ? '，满 7 天应到 ' + suggestedEnd : '' }}{{ resultAfterHint }}</div>
-        <div v-if="showContractor" class="pa-field">
-          <label class="pa-label">{{ contractorLabel }}</label>
-          <el-input v-model="contractor" maxlength="40" :placeholder="contractorHint" @input="persist" @change="persist" />
+        <div v-if="canScan" class="pa-actions">
+          <el-button type="primary" :disabled="ocrBusy" @click="openScan">扫一扫</el-button>
+          <el-button :disabled="!ocrFiles.length || ocrBusy" :loading="ocrBusy" @click="runOcr(false)">识别图片</el-button>
         </div>
-        <div v-if="showAmount" class="pa-field">
-          <label class="pa-label">{{ optionalAmount ? '金额（元，选填）' : '金额（元）' }}</label>
-          <el-input v-model="amount" inputmode="decimal" :placeholder="amountHint" @input="persist" @change="persist" />
-        </div>
-        <div v-if="projectNameHint" class="pa-ocr">{{ projectNameHint }}</div>
-        <div v-if="ocrHint" class="pa-ocr">{{ ocrHint }}</div>
-        <div class="pa-actions">
-          <el-button v-if="canScan" class="is-main" type="primary" :disabled="ocrBusy" @click="openScan">扫一扫填数据</el-button>
-          <el-button :disabled="!ocrFiles.length || ocrBusy" :loading="ocrBusy" @click="runOcr(false)">识别已上传的图</el-button>
-        </div>
-      </div>
-
-      <div class="pa-card" style="margin-top: 12px;">
-        <label class="pa-label">备注</label>
-        <el-input v-model="remark" type="textarea" :rows="2" maxlength="200" placeholder="选填" @change="persist" />
-      </div>
-
-      <div class="pa-dock pa-actions pa-dock--back">
-        <el-button @click="$router.back()">返回</el-button>
       </div>
       <PhotoLightbox :src="preview.src" :caption="preview.caption" :list="preview.files" @close="closePreview" @step="stepPreview" @rotate="onPreviewRotate" />
       <ScanFillOverlay
@@ -127,6 +109,12 @@
         @close="scanOpen = false"
       />
     </template>
+    <OrgSwitchDialog
+      :open="orgSwitchOpen"
+      :current-org="project ? getOrgType(project) : ''"
+      @close="closeOrgSwitch"
+      @pick="pickOrg"
+    />
   </div>
 </template>
 
@@ -143,10 +131,11 @@ import { usePhotoPreview } from '../lib/use-photo-preview.js'
 import PhotoLightbox from '../components/PhotoLightbox.vue'
 import PhotoStrip from '../components/PhotoStrip.vue'
 import ScanFillOverlay from '../components/ScanFillOverlay.vue'
+import OrgSwitchDialog from '../components/OrgSwitchDialog.vue'
 import { COMPARE_TIERS, getItem, getOrgType, isCompareSlot, itemCanScanFill, itemWritableFields } from '../lib/checklist.js'
-import { noticeEnd } from '../lib/date.js'
+import { useOrgSwitch } from '../lib/use-org-switch.js'
 import { inspectOcrDates } from '../lib/audit.js'
-import { applyParsed, applyProjectMeta, isPlaceholderName, ocrEngineHint, ocrKindForItem, recognizeBestUpload } from '../lib/ocr.js'
+import { applyParsed, applyProjectMeta, ocrEngineHint, ocrKindForItem, recognizeBestUpload } from '../lib/ocr.js'
 import { shouldFinishScan, unlockScanFeedback } from '../lib/scan-fill.js'
 import { typingInField } from '../lib/util.js'
 import '../preaudit.css'
@@ -155,11 +144,17 @@ const route = useRoute()
 const router = useRouter()
 const itemKey = computed(() => String(route.params.key || ''))
 const project = computed(() => getProject(route.params.id))
+const { orgSwitchOpen, openOrgSwitch, closeOrgSwitch, pickOrg } = useOrgSwitch(() => project.value)
 const item = computed(() => {
   const p = project.value
   if (!p) return null
   return getItem(route.params.key, getOrgType(p))
 })
+
+const goProject = () => {
+  if (!project.value) return
+  router.replace('/preaudit/' + project.value.id)
+}
 
 const mat = () => getMaterial(project.value, route.params.key)
 const files = computed(() => {
@@ -216,13 +211,6 @@ const rangeEndLabel = computed(() => {
   return '公示截止日'
 })
 const needOcr = computed(() => showDate.value || showRange.value || showAmount.value || showContractor.value)
-const suggestedEnd = computed(() => (startDate.value ? noticeEnd(startDate.value, (item.value && item.value.minDays) || 7) : ''))
-const resultAfterHint = computed(() => {
-  if (!item.value || item.value.id !== 'result_public' || !project.value) return ''
-  const accept = getMaterial(project.value, 'accept_sheet')
-  if (!accept || !accept.date) return '。起始日须晚于验收单（验收次日或之后）'
-  return '。起始日须晚于验收单 ' + accept.date + '（次日或之后）'
-})
 const canScan = computed(() => itemCanScanFill(item.value))
 const scanOpen = ref(false)
 const dateReview = computed(() => {
@@ -293,44 +281,11 @@ watch(item, (it) => {
   }
 }, { immediate: true })
 
-const isAward = computed(() => {
-  const it = item.value
-  return !!(it && (it.role === 'award' || it.id === 'bid_notice' || it.id === 'compare_sheet' || it.id === 'contract'))
-})
-
-const projectNameHint = computed(() => {
-  const p = project.value
-  if (!p || !isAward.value) return ''
-  if (isPlaceholderName(p.name)) {
-    return isCompare.value ? '项目名称还空着，认低价报价单后会自动填' : '项目名称还空着，认这张成交通知后会自动填'
-  }
-  return '项目：' + p.name + (p.contractor ? ' · ' + p.contractor : '')
-})
-
 const contractorLabel = computed(() => {
   const it = item.value
   if (it && it.id === 'invoices') return '销售方名称'
   if (it && it.special === 'compare') return '低价公司名称'
   return '单位名称'
-})
-const contractorHint = computed(() => {
-  const it = item.value
-  if (it && it.special === 'compare') return '须与发票销售方对齐'
-  if (it && it.id === 'invoices') return '须与比价低价公司对齐'
-  return '选填'
-})
-const amountHint = computed(() => {
-  const it = item.value
-  if (!it) return ''
-  if (it.special === 'compare' || it.id === 'compare_sheet') return '低价金额，须与发票一致'
-  if (it.role === 'award' || it.id === 'bid_notice') return '中标/成交金额'
-  if (it.role === 'invoice' || it.id === 'invoices') {
-    return getOrgType(project.value) === 'small' ? '不填则按比价低价' : '不填则按中标/成交通知'
-  }
-  if (it.role === 'contract' || it.id === 'contract') return '不填则按中标/成交通知'
-  if (it.id === 'township_letter') return '请示申请金额'
-  if (optionalAmount.value) return '选填'
-  return ''
 })
 
 const persist = () => {

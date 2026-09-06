@@ -40,3 +40,7 @@ export function getOrg(value) {
 export function fromProject(project) {
   return getOrg(project && project.orgType)
 }
+
+export function listOrgs() {
+  return [ORGS.village, ORGS.small, ORGS.township]
+}

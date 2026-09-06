@@ -106,7 +106,43 @@ function attachMeta(snapshot, creditLines) {
     missionName: c.missionName || '罗曼太空望远镜',
     creditLines: creditLines || CREDIT_LINES,
     officialUrl: c.officialUrl || 'https://science.nasa.gov/mission/roman-space-telescope/',
-    eyesUrl: c.eyesUrl || 'https://eyes.nasa.gov/apps/solar-system/'
+    eyesUrl: c.eyesUrl || 'https://eyes.nasa.gov/apps/solar-system/',
+    adoptPixelUrl: getAdoptPixelUrl()
+  })
+}
+
+function getAdoptPixelUrl() {
+  var c = getCfg()
+  var raw = c && c.adoptPixelUrl
+  var url = raw ? String(raw).trim() : ''
+  return url || 'https://science.nasa.gov/mission/roman-space-telescope/adopt-a-pixel/'
+}
+
+/** 复制 NASA 官方认领页。像素由 NASA 按邮箱分配，小程序只做入口。 */
+function copyAdoptPixelLink() {
+  var url = getAdoptPixelUrl()
+  if (typeof wx === 'undefined' || typeof wx.setClipboardData !== 'function') {
+    return Promise.resolve(false)
+  }
+  return new Promise(function (resolve) {
+    wx.setClipboardData({
+      data: url,
+      success: function () {
+        wx.showModal({
+          title: '认领链接已复制',
+          content: '这是 NASA 官方 Adopt a Pixel 活动，每邮箱限领 1 个像素，首图预计 2027 年初公布。请到系统浏览器粘贴打开，用邮箱完成认领。',
+          showCancel: false,
+          confirmText: '我知道了'
+        })
+        resolve(true)
+      },
+      fail: function () {
+        if (typeof wx.showToast === 'function') {
+          wx.showToast({ title: '复制失败，请稍后重试', icon: 'none' })
+        }
+        resolve(false)
+      }
+    })
   })
 }
 
@@ -226,6 +262,8 @@ module.exports = {
   getRomanPhaseSubtitle: function (nowMs) {
     return ephem.phaseSubtitle(ephem.getMissionPhase(getCfg(), nowMs))
   },
+  getAdoptPixelUrl: getAdoptPixelUrl,
+  copyAdoptPixelLink: copyAdoptPixelLink,
   CREDIT_LINES: CREDIT_LINES,
   CREDIT_LINES_EPHEM: CREDIT_LINES_EPHEM
 }

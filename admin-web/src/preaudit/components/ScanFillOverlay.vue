@@ -12,7 +12,6 @@
       <div class="pa-scan-mask">
         <div class="pa-scan-top">
           <div class="pa-scan-title">{{ title || '扫一扫填数据' }}</div>
-          <div class="pa-scan-sub">把纸放进 A4 框。横版点下面切换；倒着拍也能认。图不保存、也不上传。</div>
         </div>
         <div class="pa-scan-mid">
           <div ref="frameEl" class="pa-scan-frame" :class="{ 'is-landscape': landscape }" aria-hidden="true">

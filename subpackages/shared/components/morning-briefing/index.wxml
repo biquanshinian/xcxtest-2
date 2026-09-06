@@ -113,6 +113,7 @@
       >
         <image class="tweet-stat-avatar" src="{{item.avatarUrl}}" mode="aspectFill" />
         <text class="tweet-stat-name">{{item.label}}</text>
+        <image class="x-verify-badge" wx:if="{{item.verifyBadgeSrc}}" src="{{item.verifyBadgeSrc}}" mode="aspectFit" />
         <text class="tweet-stat-count">{{item.todayCount}}</text>
       </view>
     </view>

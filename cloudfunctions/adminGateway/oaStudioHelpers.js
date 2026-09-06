@@ -3,6 +3,17 @@
  * 从 oaContentStudio 拆出，降低上帝模块耦合；可独立单测。
  */
 const wechatApi = require('./oaWechatApi')
+const {
+  NEWSPIC_CONTENT_MAX_BYTES,
+  NEWSPIC_MP_LINK,
+  sanitizeNewspicContent,
+  finalizeNewspicContent,
+  newspicBodyForEditor,
+  pickNewspicTopics,
+  peelNewspicFooter,
+  formatWxTopic,
+  sliceUtf8Bytes
+} = require('./oaNewspicCaption')
 
 function coerceBool(v, defaultValue) {
   if (v === true || v === 1 || v === '1' || v === 'true') return true
@@ -336,33 +347,38 @@ function videoPosterUrls(videos) {
 }
 
 /**
- * 在成稿 markdown 里给视频封面截图补说明行（blockquote，运营可编辑/删除）。
- * 有事件 id 时引导点封面进小程序播放；否则仅在阅读原文指向该视频网页时提示文末链接。
+ * 去掉成稿里的视频封面引导（blockquote / 「点击封面即可观看」）。
+ * 旧稿重预览、重推送时也会清掉，避免再出现灰底截图式提示。
  */
-function annotateVideoPostersInMarkdown(md, videos, opts = {}) {
+function stripVideoPosterCaptions(md) {
   let s = String(md || '')
-  if (!s) return s
-  const readMoreUrl = sanitizeContentSourceUrl((opts && opts.readMoreUrl) || '')
-  const eventId = String((opts && opts.eventId) || '').trim()
-  const done = new Set()
-  for (const v of Array.isArray(videos) ? videos : []) {
-    const poster = normalizeImgSrc(v && v.posterUrl)
-    if (!poster || done.has(poster)) continue
-    done.add(poster)
-    const esc = poster.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const re = new RegExp(`(!\\[[^\\]]*\\]\\(${esc}(?:\\s+"[^"]*")?\\))(?!\\s*\\n+>\\s*▶)`)
-    if (!re.test(s)) continue
-    const label = '视频封面'
-    let tail = ''
-    if (eventId) tail = '，点击封面可在小程序查看该条动态'
-    else {
-      const matchesVideo =
-        readMoreUrl && (v.watchUrl === readMoreUrl || v.pageUrl === readMoreUrl)
-      if (matchesVideo) tail = '，完整视频点文末「阅读原文」'
-    }
-    s = s.replace(re, `$1\n\n> ▶ ${label}${tail}`)
-  }
+  s = s.replace(/^[ \t]*>[ \t]*▶?[ \t]*视频封面[^\n]*\n?/gm, '')
+  s = s.replace(/^[ \t]*▶[ \t]*视频封面[^\n]*\n?/gm, '')
+  s = s.replace(/^[ \t]*点击封面即可观看[ \t]*\n?/gm, '')
+  return s.replace(/\n{3,}/g, '\n\n')
+}
+
+function stripVideoPosterCaptionsHtml(html) {
+  let s = String(html || '')
+  s = s.replace(/<blockquote\b[^>]*>[\s\S]*?视频封面[\s\S]*?<\/blockquote>/gi, '')
+  s = s.replace(/<p\b[^>]*>\s*(?:<[^>]+>\s*)*点击封面即可观看(?:\s*<[^>]+>)*\s*<\/p>/gi, '')
+  s = s.replace(
+    /<p\b[^>]*>\s*<a\b[^>]*>\s*<span\b[^>]*>\s*▶\s*点击播放视频\s*<\/span>\s*<\/a>\s*<\/p>/gi,
+    ''
+  )
+  s = s.replace(
+    /<br\s*\/?>\s*<a\b[^>]*data-miniprogram-appid=["'][^"']+["'][^>]*>\s*<span\b[^>]*>\s*▶\s*点击播放视频\s*<\/span>\s*<\/a>/gi,
+    ''
+  )
   return s
+}
+
+/**
+ * 历史：曾给视频封面截图补「▶ 视频封面…」说明行。
+ * 现改为只清掉这类引导，封面图保留，不再插入说明。
+ */
+function annotateVideoPostersInMarkdown(md) {
+  return stripVideoPosterCaptions(md)
 }
 
 function mergeDraftImageMap(draft) {
@@ -652,6 +668,140 @@ function encodeFailEntries(failMap) {
   return Object.keys(failMap || {}).map((u) => ({ u, n: Number(failMap[u] || 0) }))
 }
 
+/** 微信图片帖（article_type=newspic）最多 20 张，文案按接口约 2KB */
+const NEWSPIC_MAX_IMAGES = 20
+
+function normalizeWxArticleType(v) {
+  const s = String(v || '')
+    .trim()
+    .toLowerCase()
+  if (
+    s === 'newspic' ||
+    s === 'pic' ||
+    s === 'image' ||
+    s === '图片帖' ||
+    s === '图片消息' ||
+    s === '贴图'
+  ) {
+    return 'newspic'
+  }
+  return 'news'
+}
+
+function isNewspicDraft(draft) {
+  if (!draft || typeof draft !== 'object') return false
+  const fromVariant =
+    draft.variants && draft.variants.wechat && draft.variants.wechat.articleType
+  return normalizeWxArticleType(draft.wxArticleType || fromVariant) === 'newspic'
+}
+
+function collectNewspicImageUrls(draft, extra) {
+  const src = draft && typeof draft === 'object' ? draft : {}
+  const out = []
+  const seen = new Set()
+  const push = (u) => {
+    const s = normalizeImgSrc(u)
+    if (!/^https?:\/\//i.test(s)) return
+    if (/\.(mp4|mov|webm|m3u8)(\?|$)/i.test(s) && !/ci-process=snapshot/i.test(s)) return
+    if (seen.has(s)) return
+    seen.add(s)
+    out.push(s)
+  }
+  push(src.coverUrl)
+  const hasExplicit = Array.isArray(src.imageUrls) && src.imageUrls.some((u) => /^https?:\/\//i.test(String(u || '').trim()))
+  if (Array.isArray(src.imageUrls)) src.imageUrls.forEach(push)
+  if (Array.isArray(src.images)) src.images.forEach(push)
+  if (Array.isArray(extra)) extra.forEach(push)
+  // 已保存过明确图序就以它为准，避免源稿 Markdown 把用户删掉的图又补回来
+  if (!hasExplicit) collectMarkdownImageUrls(src.markdown).forEach(push)
+  return out.slice(0, NEWSPIC_MAX_IMAGES)
+}
+
+function newspicImagesReady(draft) {
+  if (!draft || String(draft.imagePrepKind || '') !== 'newspic' || draft.imagesReady !== true) {
+    return false
+  }
+  const urls = collectNewspicImageUrls(draft)
+  if (!urls.length) return false
+  const ids = picMediaIdsForUrls(urls, decodePicMap(draft))
+  return ids.length === urls.length
+}
+
+function resolveNewspicContent(draft) {
+  const src = draft && typeof draft === 'object' ? draft : {}
+  const explicit = String(src.wxPicContent || '').trim()
+  let raw = explicit
+  if (!raw) {
+    const digest = String(src.digest || '').trim()
+    if (digest && !looksLikeCoverLinkDigest(digest)) raw = digest
+    else raw = markdownToDigest(src.markdown || '', 600)
+  }
+  return finalizeNewspicContent(raw, { title: src.title })
+}
+
+function decodePicMap(draft) {
+  const map = {}
+  const rows = draft && draft.wxPicEntries
+  if (Array.isArray(rows)) {
+    for (const row of rows) {
+      const u = normalizeImgSrc(row && row.u)
+      const id = String((row && (row.id || row.mediaId || row.media_id)) || '').trim()
+      if (u && id) map[u] = id
+    }
+  }
+  return map
+}
+
+function decodePicFailMap(draft) {
+  return decodeFailMap({
+    wxImageFailEntries: (draft && draft.wxPicFailEntries) || [],
+    wxImageFail: (draft && draft.wxPicFail) || {}
+  })
+}
+
+function encodePicEntries(map) {
+  return Object.keys(map || {})
+    .filter((u) => u && map[u])
+    .map((u) => ({ u, id: String(map[u]) }))
+}
+
+function picMediaIdsForUrls(urls, picMap) {
+  const map = picMap && typeof picMap === 'object' ? picMap : {}
+  const ids = []
+  for (const u of urls || []) {
+    const id = map[normalizeImgSrc(u)]
+    if (id) ids.push(String(id))
+  }
+  return ids
+}
+
+function buildNewspicArticle(opts = {}) {
+  const ids = (opts.imageMediaIds || [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean)
+    .slice(0, NEWSPIC_MAX_IMAGES)
+  if (!ids.length) throw new Error('图片帖至少需要 1 张永久素材图')
+  const article = {
+    article_type: 'newspic',
+    title: sanitizeWxTitle(opts.title),
+    content: finalizeNewspicContent(opts.content, { title: opts.title }) || ' ',
+    need_open_comment: opts.needOpenComment === false || opts.needOpenComment === 0 ? 0 : 1,
+    only_fans_can_comment: opts.onlyFansCanComment ? 1 : 0,
+    image_info: {
+      image_list: ids.map((id) => ({ image_media_id: id }))
+    }
+  }
+  const author = String(opts.author || '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .trim()
+    .slice(0, 16)
+  if (author) article.author = author
+  const thumb = String(opts.thumbMediaId || '').trim()
+  if (thumb) article.thumb_media_id = thumb
+  return article
+}
+
 function looksLikeLlmFallbackMarkdown(md) {
   return /自动生成暂不可用|自动生成未完成汉化|以下为素材整理稿|需人工改写后|待人工改写/.test(String(md || ''))
 }
@@ -832,6 +982,8 @@ module.exports = {
   pickVideoEntries,
   videoPosterUrls,
   annotateVideoPostersInMarkdown,
+  stripVideoPosterCaptions,
+  stripVideoPosterCaptionsHtml,
   videoPosterSrcPathMap,
   videoHasPlayableCos,
   normalizeImgSrc,
@@ -850,6 +1002,26 @@ module.exports = {
   decodeFailMap,
   encodeImageEntries,
   encodeFailEntries,
+  NEWSPIC_MAX_IMAGES,
+  NEWSPIC_CONTENT_MAX_BYTES,
+  NEWSPIC_MP_LINK,
+  normalizeWxArticleType,
+  isNewspicDraft,
+  collectNewspicImageUrls,
+  newspicImagesReady,
+  sanitizeNewspicContent,
+  finalizeNewspicContent,
+  newspicBodyForEditor,
+  pickNewspicTopics,
+  peelNewspicFooter,
+  formatWxTopic,
+  sliceUtf8Bytes,
+  resolveNewspicContent,
+  decodePicMap,
+  decodePicFailMap,
+  encodePicEntries,
+  picMediaIdsForUrls,
+  buildNewspicArticle,
   looksLikeLlmFallbackMarkdown,
   stripLlmFallbackNotice,
   looksLikeUnrewrittenSource,

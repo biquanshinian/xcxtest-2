@@ -205,6 +205,8 @@ module.exports = {
     sizeText: '展开约 12.7 米 × 4.4 米',
     officialUrl: 'https://science.nasa.gov/mission/roman-space-telescope/',
     eyesUrl: 'https://eyes.nasa.gov/apps/solar-system/',
+    /** NASA Adopt a Pixel：邮箱领首图像素证书。小程序无法内嵌 NASA 表单，入口复制此链到浏览器 */
+    adoptPixelUrl: 'https://science.nasa.gov/mission/roman-space-telescope/adopt-a-pixel/',
     /** NASA/JPL-Caltech PIA20060。分包内仅留压缩预览；传到 COS 同路径后监控卡走云端 */
     cardBgUrl: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E7%BD%97%E6%9B%BC%E6%9C%9B%E8%BF%9C%E9%95%9C/roman-card-bg.jpg',
     visibleAfterIso: '',

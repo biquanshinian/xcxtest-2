@@ -583,6 +583,12 @@ button.notice-card {
 .tweet-stat-chip .tweet-stat-count {
   font-size: 18rpx;
 }
+.tweet-stat-chip .x-verify-badge {
+  width: 22rpx;
+  height: 22rpx;
+  margin-right: 6rpx;
+  flex-shrink: 0;
+}
 .expand-arrow {
   font-size: 32rpx;
   font-weight: 300;

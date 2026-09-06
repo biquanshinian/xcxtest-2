@@ -5,7 +5,6 @@
         <p class="pa-title pa-grow">村委会 · 7 步</p>
         <span class="pa-tag village">材料多</span>
       </div>
-      <div class="pa-sub">上传的照片会存云端。拍照或上传后会自动认日期金额；也可扫一扫，扫拍图不保存。</div>
       <div class="pa-item" v-for="(line, i) in village" :key="'v' + i">
         <div class="pa-step on">{{ i + 1 }}</div>
         <div class="pa-grow">{{ line }}</div>
@@ -17,10 +16,9 @@
 
     <div class="pa-card" style="margin-top: 12px;">
       <div class="pa-row">
-        <p class="pa-title pa-grow">村委会小额 · 4 步</p>
+        <p class="pa-title pa-grow">村委会小额 · 6 步</p>
         <span class="pa-tag small">最简单</span>
       </div>
-      <div class="pa-sub">上传的照片会存云端。拍照或上传后会自动认日期金额；也可扫一扫，扫拍图不保存。</div>
       <div class="pa-item" v-for="(line, i) in small" :key="'s' + i">
         <div class="pa-step small">{{ i + 1 }}</div>
         <div class="pa-grow">{{ line }}</div>
@@ -35,7 +33,6 @@
         <p class="pa-title pa-grow">乡政府 · 8 步</p>
         <span class="pa-tag town">前面更简</span>
       </div>
-      <div class="pa-sub">上传的照片会存云端。拍照或上传后会自动认日期金额；也可扫一扫，扫拍图不保存。</div>
       <div class="pa-item" v-for="(line, i) in town" :key="'t' + i">
         <div class="pa-step town">{{ i + 1 }}</div>
         <div class="pa-grow">{{ line }}</div>
@@ -60,9 +57,11 @@ const village = [
   '发票：可不上传，点确认即可。单村须和合同一致；两村打包须按本村实施结果分开开票，两村金额之和等于中标总价'
 ]
 const small = [
+  '审批单：可不上传，点确认即可。有扫描件仍可传，日期可扫一扫',
   '预算金额报价',
   '三家公司比价：高价、中价、低价各一框，不核日期；低价公司名称和金额须能和发票对齐',
-  '施工前、中、后现场照片各至少 1 张，不用填日期，不要验收单。上传后会自动摆正，也可手动旋转',
+  '施工前、中、后现场照片各至少 1 张，不用填日期，不要验收照。上传后会自动摆正，也可手动旋转',
+  '验收单：可不上传，点确认即可。有扫描件仍可传，可扫一扫认日期和金额。不要验收照',
   '开对应发票：金额和销售方须与比价低价一致'
 ]
 const town = [

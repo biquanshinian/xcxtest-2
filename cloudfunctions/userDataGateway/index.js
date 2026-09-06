@@ -37,6 +37,21 @@ function todayStr() {
   return cn.toISOString().slice(0, 10)
 }
 
+function normalizeVerifyBadge(raw) {
+  const v = String(raw || '').trim().toLowerCase()
+  if (v === 'gray' || v === 'government') return 'grey'
+  if (v === 'business' || v === 'organization' || v === 'org') return 'gold'
+  if (v === 'premium' || v === 'verified') return 'blue'
+  if (v === 'blue' || v === 'gold' || v === 'grey' || v === 'none') return v
+  return 'none'
+}
+
+function verifyBadgeSrc(type) {
+  const t = normalizeVerifyBadge(type)
+  if (t === 'none') return ''
+  return '/images/x-verify/' + t + '.svg'
+}
+
 function yesterdayStr() {
   const d = new Date()
   const offset = 8 * 60 * 60 * 1000
@@ -920,20 +935,28 @@ async function handleGetTodayTweetStats() {
     })
 
     // 组装结果：优先 COS 头像；空则留给前端按约定路径兜底
+    var badgeBySource = {}
     var result = accounts.map(function (acc) {
       var avatar = acc.avatarCosUrl || acc.avatarUrl || ''
+      var verifyBadge = normalizeVerifyBadge(acc.verifyBadge)
+      if (verifyBadge !== 'none' && acc.screenName) {
+        badgeBySource[acc.screenName] = verifyBadge
+        badgeBySource[String(acc.screenName).toLowerCase()] = verifyBadge
+      }
       return {
         screenName: acc.screenName || '',
         label: acc.label || acc.screenName || '',
         avatarUrl: avatar,
-        todayCount: countMap[acc.screenName] || 0
+        todayCount: countMap[acc.screenName] || 0,
+        verifyBadge: verifyBadge,
+        verifyBadgeSrc: verifyBadgeSrc(verifyBadge)
       }
     }).filter(function (item) {
       return item.todayCount > 0
     })
 
     console.log('[TweetStats] today:', today, 'total:', tweets.length, 'accounts:', result.length)
-    return { success: true, tweetStats: result, total: tweets.length }
+    return { success: true, tweetStats: result, total: tweets.length, badgeBySource: badgeBySource }
   } catch (e) {
     console.error('[TweetStats] error:', e.message)
     return { success: false, tweetStats: [], total: 0 }
@@ -948,11 +971,14 @@ async function handleGetTweetAccounts() {
   try {
     const res = await db.collection('tweet_accounts').where({ enabled: true }).limit(50).get()
     const accounts = (res.data || []).map(function (acc) {
+      var verifyBadge = normalizeVerifyBadge(acc.verifyBadge)
       return {
         screenName: acc.screenName || '',
         label: acc.label || acc.screenName || '',
         avatarUrl: acc.avatarCosUrl || acc.avatarUrl || '',
-        cosFolder: acc.cosFolder || ''
+        cosFolder: acc.cosFolder || '',
+        verifyBadge: verifyBadge,
+        verifyBadgeSrc: verifyBadgeSrc(verifyBadge)
       }
     })
     return { success: true, accounts }

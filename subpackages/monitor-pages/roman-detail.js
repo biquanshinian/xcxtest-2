@@ -123,6 +123,10 @@ Page({
     this._fetchData(true)
   },
 
+  openAdoptPixel() {
+    romanTracker.copyAdoptPixelLink()
+  },
+
   copyOfficial() {
     const url = this.data.officialUrl || (ROMAN_CFG && ROMAN_CFG.officialUrl) ||
       'https://science.nasa.gov/mission/roman-space-telescope/'

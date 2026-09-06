@@ -108,6 +108,12 @@
   min-width: 0;
 }
 
+.event-update-author-wrap .x-verify-badge {
+  width: 24rpx;
+  height: 24rpx;
+  flex-shrink: 0;
+}
+
 .event-update-title {
   display: block;
   font-size: 30rpx;

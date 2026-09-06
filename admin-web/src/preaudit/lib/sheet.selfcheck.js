@@ -1,8 +1,10 @@
 import assert from 'assert'
 import {
+  ACCEPT_PHOTOS_PER_PAGE,
   SHEET_FOOTER,
   SHEET_SLOGAN,
   WORK_PHOTOS_PER_PAGE,
+  acceptSheetPageCount,
   buildJpegPdf,
   photoSheetCaption,
   sheetPageLabel,
@@ -42,6 +44,14 @@ assert.deepStrictEqual(workPageSlice(['a', 'b', 'c', 'd', 'e'], 0), ['a', 'b', '
 assert.deepStrictEqual(workPageSlice(['a', 'b', 'c', 'd', 'e'], 1), ['d', 'e'])
 assert.deepStrictEqual(workPageSlice(['a', 'b', 'c'], 0).length, 3)
 assert.deepStrictEqual(workPageSlice([1, 2, 3, 4, 5, 6, 7], 2), [7])
+assert.strictEqual(ACCEPT_PHOTOS_PER_PAGE, 9)
+assert.strictEqual(acceptSheetPageCount(0), 1)
+assert.strictEqual(acceptSheetPageCount(9), 1)
+assert.strictEqual(acceptSheetPageCount(10), 2)
+assert.strictEqual(acceptSheetPageCount(18), 2)
+assert.strictEqual(acceptSheetPageCount(19), 3)
+assert.deepStrictEqual(workPageSlice([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 0, ACCEPT_PHOTOS_PER_PAGE).length, 9)
+assert.deepStrictEqual(workPageSlice([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 1, ACCEPT_PHOTOS_PER_PAGE), [10])
 
 const jpeg = Uint8Array.from([0xff, 0xd8, 0xff, 0xd9, 1, 2, 3, 4])
 const pdf = buildJpegPdf([

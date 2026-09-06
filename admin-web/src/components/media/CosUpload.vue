@@ -45,7 +45,7 @@
       </div>
     </div>
 
-    <div class="adv-url-row">
+    <div v-if="showInput" class="adv-url-row">
       <el-input
         v-model="pasteUrl"
         placeholder="或粘贴文件 URL 添加"

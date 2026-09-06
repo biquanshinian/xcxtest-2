@@ -55,8 +55,15 @@
 .tweet-stat-chip .tweet-stat-name {
   font-size: 20rpx;
   color: var(--color-text-secondary, #d0d0d4);
-  margin-right: 6rpx;
+  margin-right: 4rpx;
   white-space: nowrap;
+}
+
+.tweet-stat-chip .x-verify-badge {
+  width: 22rpx;
+  height: 22rpx;
+  margin-right: 6rpx;
+  flex-shrink: 0;
 }
 
 .tweet-stat-chip .tweet-stat-count {

@@ -44,6 +44,7 @@
               <view class="event-update-author-wrap" wx:if="{{item.author}}">
                 <image class="event-author-avatar" src="{{item.authorAvatar}}" wx:if="{{item.authorAvatar && !item._avatarError}}" mode="aspectFill" binderror="emitOnAvatarError" data-id="{{item._id}}" />
                 <text class="event-update-author">{{item.author}}</text>
+                <image class="x-verify-badge" wx:if="{{item.verifyBadgeSrc}}" src="{{item.verifyBadgeSrc}}" mode="aspectFit" />
               </view>
               <text class="event-update-time">{{item.publishedAtText}}</text>
             </view>
@@ -135,6 +136,7 @@
             <view class="event-update-author-wrap" wx:if="{{item.author}}">
               <image class="event-author-avatar" src="{{item.authorAvatar}}" wx:if="{{item.authorAvatar && !item._avatarError}}" mode="aspectFill" binderror="emitOnAvatarError" data-id="{{item._id}}" />
               <text class="event-update-author">{{item.author}}</text>
+              <image class="x-verify-badge" wx:if="{{item.verifyBadgeSrc}}" src="{{item.verifyBadgeSrc}}" mode="aspectFit" />
             </view>
             <text class="event-update-time">{{item.publishedAtText}}</text>
           </view>

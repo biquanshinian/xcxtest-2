@@ -7,6 +7,7 @@ const { gateCheck } = require('../../../../utils/membership.js')
 const storageCache = require('../../../../utils/storage-sync-cache.js')
 const themeUtil = require('../../../../utils/theme.js')
 const { resolveTweetAccountAvatarUrl } = require('../../utils/event-share-image.js')
+const { normalizeVerifyBadge, verifyBadgeSrc } = require('../../utils/x-verify-badge.js')
 const {
   getEventIntelContext,
   decorateEventItem,
@@ -725,7 +726,7 @@ Component({
         return
       }
       // 当日缓存先上屏（秒开），云端结果回来后静默刷新
-      var cacheKey = '_briefing_tweet_stats_cache'
+      var cacheKey = '_briefing_tweet_stats_cache_v2'
       var todayYmd = utcToBeijingYmd(new Date().toISOString())
       try {
         var cached = storageCache.readMemOrSync(cacheKey, null)
@@ -750,11 +751,14 @@ Component({
             total = typeof result.total === 'number' ? result.total : 0
             if (result.tweetStats && result.tweetStats.length > 0) {
             stats = result.tweetStats.map(function (item) {
+              var badge = normalizeVerifyBadge(item.verifyBadge)
               return {
                 screenName: item.screenName,
                 label: item.label,
                 avatarUrl: item.avatarUrl || resolveTweetAccountAvatarUrl(item.screenName) || '',
-                todayCount: item.todayCount
+                todayCount: item.todayCount,
+                verifyBadge: badge,
+                verifyBadgeSrc: item.verifyBadgeSrc || verifyBadgeSrc(badge)
               }
             })
             }

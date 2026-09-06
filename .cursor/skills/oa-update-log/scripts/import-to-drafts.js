@@ -3,6 +3,8 @@
  *
  * 用法：
  *   node .cursor/skills/oa-update-log/scripts/import-to-drafts.js [文章目录或 article.md]
+ *   [--brand mars_space|mars_log] [--newspic] [--dry] [--batch]
+ * 文首 YAML 也可写 type: newspic / brand: mars_space
  *
  * 鉴权（任选其一）：
  *   - 环境变量 OA_ADMIN_TOKEN / ADMIN_TOKEN
@@ -106,6 +108,97 @@ function callAdmin(base, token, apiPath, body, method = 'POST') {
   })
 }
 
+function parseFrontmatter(markdown) {
+  const s = String(markdown || '').replace(/^\uFEFF/, '')
+  const m = s.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/)
+  if (!m) return { meta: {}, body: s }
+  const meta = {}
+  for (const line of m[1].split(/\r?\n/)) {
+    const kv = line.match(/^([A-Za-z][\w-]*)\s*:\s*(.*?)\s*$/)
+    if (!kv) continue
+    meta[kv[1]] = kv[2].replace(/^['"]|['"]$/g, '')
+  }
+  return { meta, body: m[2] }
+}
+
+function normalizeImportBrand(v) {
+  const s = String(v || '')
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, '_')
+  if (s === 'mars_space' || s === 'space' || s === '火星空间探索') return 'mars_space'
+  if (s === 'mars_log' || s === 'log' || s === '火星探索日志') return 'mars_log'
+  return ''
+}
+
+function inferBrandFromDir(dir) {
+  const base = path.basename(dir || '')
+  if (/^hot-/i.test(base)) return 'mars_space'
+  return ''
+}
+
+function captionFromMarkdown(markdown) {
+  let s = String(markdown || '')
+    .replace(/^\uFEFF/, '')
+    .trim()
+  s = s.replace(/^#\s+[^\n]+\n+/, '')
+  s = s.replace(/!\[[^\]]*\]\([^)]+\)/g, ' ')
+  return s
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim()
+}
+
+function resolveImportMeta(dir, meta, brandOpt, typeOpt) {
+  const brandKey =
+    normalizeImportBrand(brandOpt) ||
+    normalizeImportBrand(meta.brand || meta.brandKey) ||
+    normalizeImportBrand(process.env.OA_BRAND_KEY) ||
+    inferBrandFromDir(dir) ||
+    'mars_log'
+  const wxArticleType =
+    normalizeImportType(typeOpt) ||
+    normalizeImportType(meta.type || meta.wxArticleType) ||
+    'news'
+  return { brandKey, wxArticleType }
+}
+
+function assertExclusiveCover(dirName, markdown, files) {
+  const hasCoverFile = (files || []).some((f) => /^cover/i.test(f.name))
+  const mdHasCover = /!\[[^\]]*\]\([^)]*cover[^)]*\)/i.test(markdown)
+  if (!hasCoverFile && !mdHasCover) {
+    throw new Error(`缺专属封面（禁止默认封面）: ${dirName} 需 cover*.jpg 且文首引用`)
+  }
+}
+
+function titleFromMarkdown(markdown, wxArticleType) {
+  const m = String(markdown || '')
+    .replace(/^\uFEFF/, '')
+    .trim()
+    .match(/^#\s+(.+?)\s*$/m)
+  const max = wxArticleType === 'newspic' ? 32 : 64
+  return m ? m[1].trim().slice(0, max) : ''
+}
+
+function normalizeImportType(v) {
+  const s = String(v || '')
+    .trim()
+    .toLowerCase()
+  if (
+    s === 'newspic' ||
+    s === 'pic' ||
+    s === 'image' ||
+    s === '贴图' ||
+    s === '图片消息' ||
+    s === '图片帖'
+  ) {
+    return 'newspic'
+  }
+  if (s === 'news' || s === 'article' || s === '图文') return 'news'
+  return ''
+}
+
 function resolveArticleDir(arg) {
   const raw = arg || path.join(ROOT, 'docs', 'wechat-oa')
   let p = path.isAbsolute(raw) ? raw : path.join(ROOT, raw)
@@ -207,26 +300,26 @@ async function uploadLocal(base, token, dirName, file) {
   return cosUrl
 }
 
-async function importOneDir(dir, { dry, token, base }) {
+async function importOneDir(dir, { dry, token, base, brandKey: brandOpt, wxArticleType: typeOpt }) {
   const mdPath = path.join(dir, 'article.md')
   if (!fs.existsSync(mdPath)) throw new Error(`无 article.md: ${dir}`)
-  const markdown = fs.readFileSync(mdPath, 'utf8')
+  const rawMd = fs.readFileSync(mdPath, 'utf8')
+  const { meta, body: markdown } = parseFrontmatter(rawMd)
   const dirName = path.basename(dir)
   const files = collectLocalImages(dir, markdown)
 
+  const { brandKey, wxArticleType } = resolveImportMeta(dir, meta, brandOpt, typeOpt)
+  const mdTitle = titleFromMarkdown(markdown, wxArticleType)
+
   console.log('article', mdPath)
   console.log('images', files.map((f) => f.name).join(', ') || '(none)')
+  console.log('meta', { brandKey, wxArticleType, title: mdTitle })
+
+  assertExclusiveCover(dirName, markdown, files)
 
   if (dry) {
     console.log('DRY OK', dirName)
-    return { dry: true, dir: dirName }
-  }
-
-  // 强制专属封面：禁止无图 / 禁止只靠系统默认封面
-  const hasCoverFile = files.some((f) => /^cover/i.test(f.name))
-  const mdHasCover = /!\[[^\]]*\]\([^)]*cover[^)]*\)/i.test(markdown)
-  if (!hasCoverFile && !mdHasCover) {
-    throw new Error(`缺专属封面（禁止默认封面）: ${dirName} 需 cover*.jpg 且文首引用`)
+    return { dry: true, dir: dirName, brandKey, wxArticleType, title: mdTitle }
   }
 
   const imageMap = {}
@@ -248,8 +341,6 @@ async function importOneDir(dir, { dry, token, base }) {
     ''
 
   const themeId = process.env.OA_THEME_ID || 'bytedance'
-  // 发稿号：OA_BRAND_KEY=mars_space → 火星空间探索；默认 mars_log → 火星探索日志
-  const brandKey = String(process.env.OA_BRAND_KEY || 'mars_log').trim() || 'mars_log'
   const authorByBrand = {
     mars_log: '火星探索日志',
     mars_space: '火星空间探索'
@@ -258,8 +349,10 @@ async function importOneDir(dir, { dry, token, base }) {
     process.env.OA_AUTHOR || authorByBrand[brandKey] || '火星探索日志'
   // 显式传 digest，避免云端旧逻辑把 ![封面](url) 变成「封面https://…」
   const digest = markdownToDigest(markdown)
+  const wxPicContent =
+    wxArticleType === 'newspic' ? captionFromMarkdown(markdown) : undefined
   const res = await callAdmin(base, token, '/oa-content/drafts/import', {
-    title: undefined,
+    title: mdTitle || undefined,
     markdown,
     themeId,
     coverUrl: coverUrl || undefined,
@@ -268,6 +361,8 @@ async function importOneDir(dir, { dry, token, base }) {
     digest: digest || undefined,
     brandKey,
     author,
+    wxArticleType,
+    wxPicContent,
     miniprogramPath: 'pages/index/index'
   })
   const j = res.json || {}
@@ -279,6 +374,8 @@ async function importOneDir(dir, { dry, token, base }) {
     _id: data._id || data.id,
     title: data.title,
     themeId: data.themeId || themeId,
+    brandKey,
+    wxArticleType,
     images: imageUrls.length
   })
   return data
@@ -293,10 +390,33 @@ function listBatchDirs(rootDir) {
     .sort((a, b) => path.basename(a).localeCompare(path.basename(b), 'en'))
 }
 
+function parseCli(argv) {
+  const rest = []
+  const out = { dry: false, batch: false, newspic: false, brand: '', path: '' }
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]
+    if (a === '--dry') out.dry = true
+    else if (a === '--batch') out.batch = true
+    else if (a === '--newspic') out.newspic = true
+    else if (a === '--brand') {
+      const next = argv[i + 1]
+      if (next && !String(next).startsWith('--')) {
+        out.brand = String(next)
+        i += 1
+      }
+    } else if (!a.startsWith('--')) rest.push(a)
+  }
+  out.path = rest[0] || ''
+  return out
+}
+
 async function main() {
-  const arg = process.argv[2]
-  const dry = process.argv.includes('--dry')
-  const batch = process.argv.includes('--batch')
+  const cli = parseCli(process.argv.slice(2))
+  const arg = cli.path
+  const dry = cli.dry
+  const batch = cli.batch
+  const typeOpt = cli.newspic ? 'newspic' : ''
+  const brandOpt = cli.brand
 
   if (batch) {
     const root = path.isAbsolute(arg || '')
@@ -320,7 +440,7 @@ async function main() {
     const fails = []
     for (const d of dirs) {
       try {
-        await importOneDir(d, { dry, token, base })
+        await importOneDir(d, { dry, token, base, brandKey: brandOpt, wxArticleType: typeOpt })
         ok += 1
       } catch (e) {
         console.error('FAIL', path.basename(d), e.message || e)
@@ -333,7 +453,13 @@ async function main() {
 
   const dir = resolveArticleDir(arg)
   if (dry) {
-    await importOneDir(dir, { dry: true, token: '', base: '' })
+    await importOneDir(dir, {
+      dry: true,
+      token: '',
+      base: '',
+      brandKey: brandOpt,
+      wxArticleType: typeOpt
+    })
     process.exit(0)
   }
   const { token, base } = resolveAuth()
@@ -351,10 +477,29 @@ async function main() {
     )
     process.exit(2)
   }
-  await importOneDir(dir, { dry: false, token, base })
+  await importOneDir(dir, {
+    dry: false,
+    token,
+    base,
+    brandKey: brandOpt,
+    wxArticleType: typeOpt
+  })
 }
 
-main().catch((e) => {
-  console.error('ERR', e.message || e)
-  process.exit(1)
-})
+if (require.main === module) {
+  main().catch((e) => {
+    console.error('ERR', e.message || e)
+    process.exit(1)
+  })
+} else {
+  module.exports = {
+    parseFrontmatter,
+    normalizeImportBrand,
+    normalizeImportType,
+    inferBrandFromDir,
+    captionFromMarkdown,
+    resolveImportMeta,
+    titleFromMarkdown,
+    parseCli
+  }
+}

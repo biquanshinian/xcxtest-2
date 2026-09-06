@@ -2,6 +2,7 @@
 export const PERMISSION_MODULES = {
   dashboard: '仪表盘',
   preaudit: '一键预审',
+  tuwen_yewu: '智能业务系统',
   statistics: '数据统计',
   oa_content: '公众号内容中台',
   news_events: '事件管理',

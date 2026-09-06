@@ -41,6 +41,8 @@ const {
   pickVideoEntries,
   videoPosterUrls,
   annotateVideoPostersInMarkdown,
+  stripVideoPosterCaptions,
+  stripVideoPosterCaptionsHtml,
   videoPosterSrcPathMap,
   resolveDraftSourceUrl,
   sanitizeContentSourceUrl,
@@ -61,6 +63,18 @@ const {
   decodeFailMap,
   encodeImageEntries,
   encodeFailEntries,
+  normalizeWxArticleType,
+  isNewspicDraft,
+  collectNewspicImageUrls,
+  newspicImagesReady,
+  sanitizeNewspicContent,
+  finalizeNewspicContent,
+  resolveNewspicContent,
+  decodePicMap,
+  decodePicFailMap,
+  encodePicEntries,
+  picMediaIdsForUrls,
+  buildNewspicArticle,
   looksLikeLlmFallbackMarkdown,
   stripLlmFallbackNotice,
   looksLikeUnrewrittenSource,
@@ -1303,6 +1317,217 @@ function createOaContentStudioApi({
   }
 
   /**
+   * 图片帖：把配图做成微信永久素材（type=image），供 newspic 的 image_media_id。
+   * 与图文 uploadimg 产物不能混用。
+   */
+  async function prepareNewspicImages(id, draft, cfg, brand, slot, opts = {}) {
+    void cfg
+    void brand
+    const wxOpts = { credentialSlot: slot }
+    const forceSkip = !!(opts.forceSkip === true || opts.forceSkip === 'true' || opts.forceSkip === 1)
+    const FAIL_DROP_AFTER = forceSkip ? 1 : 2
+    const list = collectNewspicImageUrls(draft)
+    if (!list.length) {
+      const msg = '图片帖至少需要 1 张图，请先在编辑里添加配图'
+      await db
+        .collection(DRAFTS_COL)
+        .doc(id)
+        .update({
+          data: {
+            imagesReady: false,
+            imagePrepStatus: 'preparing',
+            imagePrepKind: 'newspic',
+            error: msg,
+            updatedAt: now()
+          }
+        })
+        .catch(() => null)
+      return fail(4000, msg)
+    }
+
+    const picMap = decodePicMap(draft)
+    const failMap = decodePicFailMap(draft)
+    const sameSlot =
+      !draft.wxPicUploadSlot || wechatApi.normalizeSlot(draft.wxPicUploadSlot) === slot
+    const alreadyOwned = !forceSkip && sameSlot && newspicImagesReady(draft)
+    if (alreadyOwned) {
+      return ok({
+        imagesReady: true,
+        imagePrepStatus: draft.imagePrepStatus || 'ready',
+        imagePrepKind: 'newspic',
+        total: list.length,
+        warmed: 0,
+        pending: 0,
+        dropped: 0,
+        ready: list.length,
+        skipped: true,
+        attempts: Number(draft.imagePrepAttempts || 0)
+      })
+    }
+    if (
+      String(draft.status || '') === 'pushing' &&
+      !opts.fromPush &&
+      !forceSkip &&
+      draft.pushLeaseAt &&
+      now() - Number(draft.pushLeaseAt) < 5 * 60 * 1000
+    ) {
+      return ok({
+        imagesReady: !!draft.imagesReady,
+        imagePrepStatus: draft.imagePrepStatus || 'preparing',
+        skipped: true,
+        reason: 'pushing',
+        total: list.length,
+        pending: list.length,
+        ready: 0,
+        dropped: 0,
+        warmed: 0,
+        attempts: Number(draft.imagePrepAttempts || 0)
+      })
+    }
+
+    if (!sameSlot) {
+      for (const k of Object.keys(picMap)) delete picMap[k]
+    }
+
+    const prepAttempts = Number(draft.imagePrepAttempts || 0) + 1
+    await db
+      .collection(DRAFTS_COL)
+      .doc(id)
+      .update({
+        data: {
+          imagePrepStatus: 'preparing',
+          imagePrepKind: 'newspic',
+          imagesReady: false,
+          imagePrepAttempts: prepAttempts,
+          updatedAt: now()
+        }
+      })
+      .catch(() => null)
+
+    const need = list.filter((src) => !picMap[src])
+    let warmed = 0
+    for (let i = 0; i < need.length; i += 3) {
+      const batch = need.slice(i, i + 3)
+      await Promise.all(
+        batch.map(async (src) => {
+          try {
+            const uploaded = await wechatApi.uploadPermanentImageFromUrl(src, wxOpts)
+            if (uploaded && uploaded.media_id) {
+              picMap[src] = uploaded.media_id
+              delete failMap[src]
+              warmed += 1
+            } else {
+              failMap[src] = Number(failMap[src] || 0) + 1
+            }
+          } catch (e) {
+            failMap[src] = Number(failMap[src] || 0) + 1
+            console.warn('[oaContent] prepare newspic image fail', src, e.message || e, failMap[src])
+          }
+        })
+      )
+      await db
+        .collection(DRAFTS_COL)
+        .doc(id)
+        .update({
+          data: {
+            wxPicEntries: encodePicEntries(picMap),
+            wxPicFailEntries: encodeFailEntries(failMap),
+            wxPicFail: {},
+            imagePrepStatus: 'preparing',
+            imagePrepKind: 'newspic',
+            updatedAt: now()
+          }
+        })
+        .catch(() => null)
+    }
+
+    const dropped = []
+    let pending = []
+    for (const src of list) {
+      if (picMap[src]) continue
+      if (Number(failMap[src] || 0) >= FAIL_DROP_AFTER || forceSkip) {
+        dropped.push(src)
+        continue
+      }
+      pending.push(src)
+    }
+    if (pending.length && (forceSkip || prepAttempts >= 2)) {
+      for (const src of pending) dropped.push(src)
+      pending = []
+    }
+
+    const keepUrls = list.filter((u) => picMap[u])
+    if (!keepUrls.length) {
+      const msg = '图片帖配图未能上传为永久素材，请换图后重试'
+      await db
+        .collection(DRAFTS_COL)
+        .doc(id)
+        .update({
+          data: {
+            wxPicEntries: encodePicEntries(picMap),
+            wxPicFailEntries: encodeFailEntries(failMap),
+            imagesReady: false,
+            imagePrepStatus: 'preparing',
+            imagePrepKind: 'newspic',
+            imagePrepAttempts: prepAttempts,
+            error: msg,
+            updatedAt: now()
+          }
+        })
+        .catch(() => null)
+      return fail(5000, msg)
+    }
+
+    const imagesReady = pending.length === 0
+    const imagePrepStatus = !imagesReady ? 'preparing' : dropped.length ? 'partial' : 'ready'
+    const patch = {
+      wxPicEntries: encodePicEntries(picMap),
+      wxPicFailEntries: encodeFailEntries(failMap),
+      wxPicFail: {},
+      imagesReady,
+      imagePrepStatus,
+      imagePrepKind: 'newspic',
+      imagePrepAttempts: prepAttempts,
+      imagePrepAt: now(),
+      imagePrepStats: {
+        total: list.length,
+        ready: keepUrls.length,
+        pending: pending.length,
+        dropped: dropped.length,
+        warmed
+      },
+      updatedAt: now()
+    }
+    if (imagesReady) {
+      patch.pushTimeline = appendTimeline(
+        draft,
+        dropped.length ? 'prep_partial' : 'prep_ready',
+        `newspic ok=${keepUrls.length}/${list.length}${dropped.length ? ` dropped=${dropped.length}` : ''}`
+      )
+      patch.imageUrls = keepUrls
+      patch.coverUrl = keepUrls[0] || draft.coverUrl || ''
+      if (dropped.length) {
+        patch.markdown = stripMarkdownImages(draft.markdown || '', dropped)
+      }
+      if (/配图转存中|配图尚未就绪|永久素材/i.test(String(draft.error || ''))) patch.error = ''
+    }
+    if (keepUrls.length || warmed > 0) patch.wxPicUploadSlot = slot
+
+    await db.collection(DRAFTS_COL).doc(id).update({ data: patch })
+    return ok({
+      imagesReady,
+      imagePrepStatus,
+      imagePrepKind: 'newspic',
+      total: list.length,
+      warmed,
+      pending: pending.length,
+      dropped: dropped.length,
+      ready: keepUrls.length,
+      attempts: prepAttempts
+    })
+  }
+
+  /**
    * 配图预转存到微信 CDN（与推送解耦）。
    * imagesReady=true 后，推送只做 thumb + draft/add，不再卡在下图。
    */
@@ -1318,6 +1543,9 @@ function createOaContentStudioApi({
     )
     if (!wechatApi.credentialsReady(slot)) {
       return fail(4000, credentialMissingMsg(slot))
+    }
+    if (isNewspicDraft(draft)) {
+      return prepareNewspicImages(id, draft, cfg, brand, slot, opts)
     }
     const wxOpts = { credentialSlot: slot }
     const forceSkip = !!(opts.forceSkip === true || opts.forceSkip === 'true' || opts.forceSkip === 1)
@@ -1339,6 +1567,7 @@ function createOaContentStudioApi({
           data: {
             imagesReady: true,
             imagePrepStatus: 'ready',
+            imagePrepKind: 'news',
             imagePrepStats: { total: 0, ready: 0, pending: 0, dropped: 0, coverOnly: true },
             ...(clearErr ? { error: '' } : {}),
             // 卡在 pushing 且无正文图：放回可推状态
@@ -1366,6 +1595,7 @@ function createOaContentStudioApi({
     const alreadyOwned =
       !forceSkip &&
       draft.imagesReady === true &&
+      String(draft.imagePrepKind || 'news') !== 'newspic' &&
       list.length > 0 &&
       list.every((src) => isOwnedWxImage(src, map, draft.wxImageUploadSlot, slot))
     if (alreadyOwned || (!list.length && draft.imagesReady === true && !forceSkip)) {
@@ -1501,6 +1731,7 @@ function createOaContentStudioApi({
       wxImageFail: {},
       imagesReady,
       imagePrepStatus,
+      imagePrepKind: 'news',
       imagePrepAttempts: prepAttempts,
       imagePrepAt: now(),
       imagePrepStats: {
@@ -1679,7 +1910,7 @@ function createOaContentStudioApi({
       userMsg +=
         `\n\n【视频素材】素材含 ${videos.length} 段视频${longCount ? `（其中 ${longCount} 段为长视频）` : ''}，` +
         `文中放视频封面截图${posterIdxs.length ? `，对应占位 ${posterIdxs.map((n) => `[[IMG:${n}]]`).join('、')}` : ''}。` +
-        '读者点击封面会进入小程序该条事件动态（绑定事件 ID），成稿里写成「点击封面即可观看」即可，不要说没法播。'
+        '封面图按普通配图写进叙述即可，不要写「视频封面」「点击封面即可观看」「点击封面可在小程序查看」这类说明。'
     }
     userMsg +=
       '\n\n【语言】成稿用简体中文写标题和正文；专有名词可保留英文，禁止整段照抄英文。'
@@ -1829,11 +2060,8 @@ function createOaContentStudioApi({
       bodyMd = ensureHeroImagePlacement(bodyMd, {
         coverUrl: draftDoc.coverUrl || imageUrls[0] || brand.defaultCoverUrl || cfg.defaultCoverUrl || ''
       })
-      // 视频封面截图下补「▶ …」说明行（有事件 id 时引导点封面进小程序）
-      bodyMd = annotateVideoPostersInMarkdown(bodyMd, videos, {
-        readMoreUrl: draftDoc.sourceUrl,
-        eventId: draftDoc.sourceId
-      })
+      // 清掉旧稿视频封面引导（不再插入「▶ 视频封面…」）
+      bodyMd = annotateVideoPostersInMarkdown(bodyMd)
       bodyMd = stripPromoBrandFooterMarkdown(bodyMd)
       const foot = safeBrandFooter(brand, cfg)
       const markdown =
@@ -2000,7 +2228,7 @@ function createOaContentStudioApi({
    * - 无 `#` 一级标题时用草稿 title 补上（对标 gallery，主题差异才可见）
    */
   function prepareMarkdownForTheme(md, title) {
-    let out = String(md || '').trim()
+    let out = stripVideoPosterCaptions(String(md || '').trim())
     const t = String(title || '')
       .trim()
       .replace(/\s+/g, ' ')
@@ -2028,6 +2256,7 @@ function createOaContentStudioApi({
   function renderThemeBodyHtml(markdown, themeId, { cfg, mpPath, draft } = {}) {
     const tid = resolveThemeId(themeId)
     let bodyHtml = markdownToWechatHtml(markdown || '', tid)
+    bodyHtml = stripVideoPosterCaptionsHtml(bodyHtml)
     bodyHtml = applyImageMiniprogramLinks(bodyHtml, cfg, mpPath || 'pages/index/index', draft)
     return wrapThemeArticle(bodyHtml)
   }
@@ -2154,16 +2383,28 @@ function createOaContentStudioApi({
   async function importDraft(body, user) {
     const cfg = await readConfig()
     const brand = resolveBrand(cfg, (body && body.brandKey) || cfg.defaultBrandKey)
-    let markdown = String((body && (body.markdown || body.content)) || '').trim()
-    if (!markdown) return fail(4000, 'markdown 为空')
+    const articleType = normalizeWxArticleType(body && body.wxArticleType)
+    let markdown = String((body && (body.markdown || body.content || body.wxPicContent)) || '').trim()
+    if (!markdown) {
+      if (articleType !== 'newspic') return fail(4000, 'markdown 为空')
+      markdown = String((body && body.title) || '图片帖').trim()
+    }
 
-    const imageUrls = pickImageUrls(body.imageUrls, body.images, body.coverUrl)
+    const imageUrls =
+      articleType === 'newspic'
+        ? collectNewspicImageUrls({
+            coverUrl: body && body.coverUrl,
+            imageUrls: body && body.imageUrls,
+            images: body && body.images,
+            markdown
+          })
+        : pickImageUrls(body.imageUrls, body.images, body.coverUrl)
     markdown = rewriteLocalMarkdownImages(markdown, body.imageMap, imageUrls)
 
     const parsed = stripTitleFromMarkdown(markdown)
     const title = String((body && body.title) || parsed.title || '未命名')
       .trim()
-      .slice(0, 64)
+      .slice(0, articleType === 'newspic' ? 32 : 64)
     let bodyMd = parsed.body || markdown
     if (body && body.title && parsed.title) {
       // 显式传了 title：正文用去掉首行 # 后的部分
@@ -2175,13 +2416,14 @@ function createOaContentStudioApi({
     const coverUrl =
       String((body && body.coverUrl) || '').trim() ||
       imageUrls[0] ||
-      brand.defaultCoverUrl ||
-      cfg.defaultCoverUrl ||
+      (articleType === 'newspic' ? '' : brand.defaultCoverUrl || cfg.defaultCoverUrl) ||
       ''
 
     bodyMd = stripPromoBrandFooterMarkdown(bodyMd)
-    bodyMd = ensureHeroImagePlacement(bodyMd, { coverUrl })
-    const foot = safeBrandFooter(brand, cfg)
+    if (articleType !== 'newspic') {
+      bodyMd = ensureHeroImagePlacement(bodyMd, { coverUrl })
+    }
+    const foot = articleType === 'newspic' ? '' : safeBrandFooter(brand, cfg)
     const finalMd = bodyMd + (foot ? `\n\n---\n\n${foot}` : '')
 
     const themeId = resolveThemeId((body && body.themeId) || 'bytedance')
@@ -2212,8 +2454,18 @@ function createOaContentStudioApi({
     })
 
     const mdImgs = collectMarkdownImageUrls(finalMd)
-    const allImgs = pickImageUrls(imageUrls, mdImgs, coverUrl)
-    const needPrep = allImgs.some((u) => /^https?:\/\//i.test(u) && !isWechatCdnUrl(u))
+    const allImgs =
+      articleType === 'newspic'
+        ? collectNewspicImageUrls({ coverUrl, imageUrls, markdown: finalMd })
+        : pickImageUrls(imageUrls, mdImgs, coverUrl)
+    const needPrep =
+      articleType === 'newspic'
+        ? allImgs.length > 0
+        : allImgs.some((u) => /^https?:\/\//i.test(u) && !isWechatCdnUrl(u))
+    const picCaption =
+      articleType === 'newspic'
+        ? finalizeNewspicContent((body && body.wxPicContent) || bodyMd, { title })
+        : ''
 
     const draftDoc = {
       status: 'ready',
@@ -2231,27 +2483,37 @@ function createOaContentStudioApi({
       sourceUrl: String((body && body.sourceUrl) || '').trim(),
       videos: [],
       sourceSlottedBody: '',
-      sourceImageUrls: allImgs.slice(0, 8),
+      sourceImageUrls: articleType === 'newspic' ? allImgs.slice(0, 20) : allImgs.slice(0, 8),
       coverUrl,
       imageUrls: allImgs,
+      wxArticleType: articleType,
+      wxPicContent: picCaption,
       title,
       markdown: finalMd,
       html: rendered.html,
       digest,
       author: String((body && body.author) || brand.author || cfg.author || '火星探索日志').slice(0, 16),
       miniprogramPath: mpPath,
-      error: needPrep ? '配图转存中，完成后即可推送' : '',
+      error:
+        articleType === 'newspic' && !allImgs.length
+          ? '图片帖至少需要 1 张图'
+          : needPrep
+            ? '配图转存中，完成后即可推送'
+            : '',
       wxMediaId: '',
       wxPublishId: '',
       generatedByAi: true,
       importSkipRewrite: true,
-      imagePrepStatus: needPrep ? 'preparing' : 'ready',
-      imagesReady: !needPrep,
+      imagePrepKind: articleType === 'newspic' ? 'newspic' : 'news',
+      imagePrepStatus:
+        articleType === 'newspic' && !allImgs.length ? 'preparing' : needPrep ? 'preparing' : 'ready',
+      imagesReady: articleType === 'newspic' ? false : !needPrep,
       wxImageEntries: [],
       wxImageMap: {},
       wxImageFail: {},
       wxImageUploadSlot: '',
-      pushTimeline: appendTimeline(null, 'imported', themeId),
+      wxPicEntries: [],
+      pushTimeline: appendTimeline(null, 'imported', `${themeId}${articleType === 'newspic' ? ':newspic' : ''}`),
       platforms: ['wechat'],
       variants: {
         wechat: {
@@ -2260,6 +2522,7 @@ function createOaContentStudioApi({
           markdown: finalMd,
           html: rendered.html,
           themeId,
+          articleType,
           status: 'ready'
         }
       },
@@ -2489,6 +2752,111 @@ function createOaContentStudioApi({
     })
   }
 
+  /** 图片帖：永久素材 + draft/add(article_type=newspic)，不走主题 HTML */
+  async function finishPushNewspic({ id, user, draft, prevStatus, cfg, brand, slot, wxOpts }) {
+    let row = draft
+    const picUrls = collectNewspicImageUrls(row)
+    if (!picUrls.length) throw new Error('图片帖至少需要 1 张图')
+    if (!newspicImagesReady(row)) {
+      const prep = await prepareDraftImages(id, { credentialSlot: slot, fromPush: true })
+      if (!(prep && prep.code === 0 && prep.data && prep.data.imagesReady)) {
+        const msg = String((prep && prep.message) || '')
+        const left = prep && prep.data ? prep.data.pending : '?'
+        throw new Error(msg || `配图尚未就绪（剩余 ${left} 张），请稍候再推`)
+      }
+      const again = await db.collection(DRAFTS_COL).doc(id).get().catch(() => null)
+      row = (again && again.data) || row
+    }
+
+    await db.collection(DRAFTS_COL).doc(id).update({
+      data: {
+        status: 'pushing',
+        pushPrevStatus: prevStatus,
+        pushLeaseAt: now(),
+        updatedAt: now()
+      }
+    })
+
+    const urls = collectNewspicImageUrls(row)
+    const picMap = decodePicMap(row)
+    const mediaIds = picMediaIdsForUrls(urls, picMap)
+    if (!urls.length || mediaIds.length !== urls.length) {
+      throw new Error('图片帖永久素材未就绪，请先转存配图')
+    }
+
+    let thumbMediaId = row.wxThumbMediaId || ''
+    if (!thumbMediaId) {
+      const cover = urls[0] || row.coverUrl || brand.defaultCoverUrl || cfg.defaultCoverUrl
+      const tried = new Set()
+      let lastCoverErr = null
+      for (const cand of [cover, brand.defaultCoverUrl, cfg.defaultCoverUrl]
+        .map((u) => normalizeImgSrc(u))
+        .filter((u) => /^https?:\/\//i.test(u))) {
+        if (tried.has(cand)) continue
+        tried.add(cand)
+        try {
+          thumbMediaId = await wechatApi.uploadThumbFromUrl(cand, wxOpts)
+          lastCoverErr = null
+          break
+        } catch (e) {
+          lastCoverErr = e
+        }
+      }
+      if (!thumbMediaId && lastCoverErr) {
+        console.warn('[oaContent] newspic thumb fail', lastCoverErr.message || lastCoverErr)
+      }
+    }
+
+    const content = resolveNewspicContent(row)
+    const article = buildNewspicArticle({
+      title: row.title,
+      author: row.author,
+      content,
+      imageMediaIds: mediaIds,
+      thumbMediaId,
+      needOpenComment: cfg.openComment !== false,
+      onlyFansCanComment: !!cfg.onlyFansCanComment
+    })
+    const wx = await wechatApi.addDraft(article, wxOpts)
+    await db.collection(DRAFTS_COL).doc(id).update({
+      data: {
+        status: 'pushed_to_wechat',
+        brandKey: brand.key,
+        brandName: brand.name,
+        credentialSlot: slot,
+        wxArticleType: 'newspic',
+        wxPicContent: content,
+        wxMediaId: wx.media_id,
+        wxThumbMediaId: thumbMediaId || '',
+        pushLeaseAt: 0,
+        pushPrevStatus: '',
+        updatedAt: now(),
+        error: '',
+        wxPicEntries: encodePicEntries(picMap),
+        pushTimeline: appendTimeline(row, 'push_ok', `newspic media_id=${wx.media_id}`)
+      }
+    })
+    await writeOpLog({
+      user,
+      module: 'oa_content',
+      action: 'push_wechat_newspic',
+      targetId: id,
+      after: {
+        media_id: wx.media_id,
+        brandKey: brand.key,
+        credentialSlot: slot,
+        imageCount: mediaIds.length
+      }
+    })
+    return ok({
+      media_id: wx.media_id,
+      brandKey: brand.key,
+      async: false,
+      articleType: 'newspic',
+      imageCount: mediaIds.length
+    })
+  }
+
   /** 实际上传封面并写入微信草稿箱（正文图须已 prepare 就绪） */
   async function executePushDraft(id, user) {
     await ensureCols()
@@ -2512,7 +2880,7 @@ function createOaContentStudioApi({
     if (!['ready', 'pushed_to_wechat', 'pushing', 'push_failed'].includes(String(draft.status || ''))) {
       return fail(4000, '草稿状态不可推送')
     }
-    if (!draft.html && !draft.markdown) {
+    if (!isNewspicDraft(draft) && !draft.html && !draft.markdown) {
       await db
         .collection(DRAFTS_COL)
         .doc(id)
@@ -2531,6 +2899,19 @@ function createOaContentStudioApi({
         throw new Error(credentialMissingMsg(slot))
       }
       const wxOpts = { credentialSlot: slot }
+
+      if (isNewspicDraft(draft)) {
+        return await finishPushNewspic({
+          id,
+          user,
+          draft,
+          prevStatus,
+          cfg,
+          brand,
+          slot,
+          wxOpts
+        })
+      }
 
       // 硬门槛：配图未就绪先转存，绝不带着外链去 draft/add
       if (!draft.imagesReady) {
@@ -2660,9 +3041,11 @@ function createOaContentStudioApi({
         }
         // 与后台预览同一管线：补标题 + gallery section（禁止预览专用装饰）
         html = wrapThemeArticle(
-          markdownToWechatHtml(
-            prepareMarkdownForTheme(mdForPush, draft.title),
-            resolveThemeId(draft.themeId)
+          stripVideoPosterCaptionsHtml(
+            markdownToWechatHtml(
+              prepareMarkdownForTheme(mdForPush, draft.title),
+              resolveThemeId(draft.themeId)
+            )
           )
         )
         // 同步落库 html，保证列表/编辑预览与即将推送的正文主题一致
@@ -2670,6 +3053,7 @@ function createOaContentStudioApi({
       } else {
         // 旧 html 里可能已带文首提示语，先剥掉，最终组装时统一加，避免重复
         html = wechatApi.stripLeadDisclaimer(wechatApi.stripMiniprogramCta(draft.html || ''))
+        html = stripVideoPosterCaptionsHtml(html)
       }
 
       // 头图可能是封面链：并入 fallback，避免 skipCoverFallbacks 把刚置顶的头图剥掉
@@ -2881,7 +3265,7 @@ function createOaContentStudioApi({
       })
     } catch (e) {
       const msg = e.message || String(e)
-      const notReady = /配图尚未就绪/i.test(msg)
+      const notReady = /配图尚未就绪|图片帖至少需要|永久素材未就绪|未能上传为永久素材/i.test(msg)
       const resumable = !notReady && /配图上传未完成|请再点推送续传/i.test(msg)
       await db
         .collection(DRAFTS_COL)
@@ -3968,6 +4352,11 @@ function createOaContentStudioApi({
       delete patch.wxMediaId
       delete patch.wxThumbMediaId
       delete patch.wxPublishId
+      delete patch.wxPicEntries
+      delete patch.wxPicFailEntries
+      delete patch.wxPicFail
+      delete patch.wxPicUploadSlot
+      delete patch.imagePrepKind
       const from = String(cur.status || '')
       if (from === 'published') return fail(4000, '已发布稿不可编辑')
       if (from === 'generating') return fail(4000, '生成中不可编辑')
@@ -3980,8 +4369,13 @@ function createOaContentStudioApi({
           return fail(4000, '不可直接设置为该状态，请使用推送/发稿操作')
         }
         const md = String(patch.markdown != null ? patch.markdown : cur.markdown || '')
+        const savingNewspic =
+          normalizeWxArticleType(
+            patch.wxArticleType != null ? patch.wxArticleType : cur.wxArticleType
+          ) === 'newspic'
         if (
           next === 'ready' &&
+          !savingNewspic &&
           !cur.importSkipRewrite &&
           (from === 'needs_review' || from === 'generate_failed' || cur.generatedByAi === false)
         ) {
@@ -4021,6 +4415,40 @@ function createOaContentStudioApi({
         patch.variants = next
       }
 
+      if (Object.prototype.hasOwnProperty.call(patch, 'wxArticleType')) {
+        patch.wxArticleType = normalizeWxArticleType(patch.wxArticleType)
+        const prevV =
+          (patch.variants && typeof patch.variants === 'object' && patch.variants) ||
+          (cur.variants && typeof cur.variants === 'object' && cur.variants) ||
+          {}
+        patch.variants = {
+          ...prevV,
+          wechat: { ...(prevV.wechat || {}), articleType: patch.wxArticleType }
+        }
+      }
+      const nextTypeEarly = normalizeWxArticleType(
+        patch.wxArticleType != null ? patch.wxArticleType : cur.wxArticleType
+      )
+      if (
+        nextTypeEarly === 'newspic' &&
+        (Object.prototype.hasOwnProperty.call(patch, 'wxPicContent') ||
+          Object.prototype.hasOwnProperty.call(patch, 'title'))
+      ) {
+        const captionSrc =
+          patch.wxPicContent != null ? patch.wxPicContent : cur.wxPicContent || cur.digest || ''
+        const nextTitle = patch.title != null ? patch.title : cur.title
+        patch.wxPicContent = finalizeNewspicContent(captionSrc, { title: nextTitle })
+      } else if (Object.prototype.hasOwnProperty.call(patch, 'wxPicContent')) {
+        patch.wxPicContent = sanitizeNewspicContent(patch.wxPicContent)
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'imageUrls')) {
+        const raw = Array.isArray(patch.imageUrls) ? patch.imageUrls : []
+        const nextType = normalizeWxArticleType(
+          patch.wxArticleType != null ? patch.wxArticleType : cur.wxArticleType
+        )
+        patch.imageUrls = nextType === 'newspic' ? collectNewspicImageUrls({ imageUrls: raw }) : raw
+      }
+
       const contentChanged =
         (patch.markdown != null && patch.markdown !== cur.markdown) ||
         (patch.title != null && patch.title !== cur.title) ||
@@ -4028,7 +4456,22 @@ function createOaContentStudioApi({
         (patch.brandKey != null && patch.brandKey !== cur.brandKey) ||
         (patch.html != null && patch.html !== cur.html) ||
         (patch.themeId != null && patch.themeId !== cur.themeId) ||
-        (patch.miniprogramPath != null && patch.miniprogramPath !== cur.miniprogramPath)
+        (patch.miniprogramPath != null && patch.miniprogramPath !== cur.miniprogramPath) ||
+        (patch.wxArticleType != null &&
+          normalizeWxArticleType(patch.wxArticleType) !== normalizeWxArticleType(cur.wxArticleType)) ||
+        (patch.wxPicContent != null &&
+          patch.wxPicContent !==
+            finalizeNewspicContent(cur.wxPicContent || cur.digest || '', { title: cur.title })) ||
+        (Array.isArray(patch.imageUrls) &&
+          JSON.stringify(patch.imageUrls) !== JSON.stringify(cur.imageUrls || []))
+
+      const typeChanged =
+        patch.wxArticleType != null &&
+        normalizeWxArticleType(patch.wxArticleType) !== normalizeWxArticleType(cur.wxArticleType)
+      const picSetChanged =
+        typeChanged ||
+        (Array.isArray(patch.imageUrls) &&
+          JSON.stringify(patch.imageUrls) !== JSON.stringify(cur.imageUrls || []))
 
       if (contentChanged) {
         // 内容变更后旧微信草稿失效，必须重新推送
@@ -4043,13 +4486,23 @@ function createOaContentStudioApi({
         }
         if (!Object.prototype.hasOwnProperty.call(patch, 'error')) patch.error = ''
       }
+      if (picSetChanged) {
+        patch.imagesReady = false
+        patch.imagePrepStatus = 'preparing'
+        patch.imagePrepAttempts = 0
+        patch.wxPicFailEntries = []
+      }
 
       const themeForRender = resolveThemeId(
         patch.themeId != null ? patch.themeId : cur.themeId || 'clean'
       )
+      const nextArticleType = normalizeWxArticleType(
+        patch.wxArticleType != null ? patch.wxArticleType : cur.wxArticleType
+      )
       const shouldRerender =
-        (patch.markdown != null && !patch.html) ||
-        (patch.themeId != null && patch.themeId !== cur.themeId && patch.html == null)
+        nextArticleType !== 'newspic' &&
+        ((patch.markdown != null && !patch.html) ||
+          (patch.themeId != null && patch.themeId !== cur.themeId && patch.html == null))
 
       if (shouldRerender) {
         const cfg = await readConfig()
@@ -4078,16 +4531,18 @@ function createOaContentStudioApi({
         patch.themeId = themeForRender
       } else if (patch.markdown != null) {
         let cleaned = stripPromoBrandFooterMarkdown(patch.markdown)
-        const cfg = await readConfig()
-        const brand = resolveBrand(cfg, patch.brandKey || cur.brandKey || cfg.defaultBrandKey)
-        cleaned = ensureHeroImagePlacement(cleaned, {
-          coverUrl:
-            patch.coverUrl ||
-            cur.coverUrl ||
-            brand.defaultCoverUrl ||
-            cfg.defaultCoverUrl ||
-            ''
-        })
+        if (nextArticleType !== 'newspic') {
+          const cfg = await readConfig()
+          const brand = resolveBrand(cfg, patch.brandKey || cur.brandKey || cfg.defaultBrandKey)
+          cleaned = ensureHeroImagePlacement(cleaned, {
+            coverUrl:
+              patch.coverUrl ||
+              cur.coverUrl ||
+              brand.defaultCoverUrl ||
+              cfg.defaultCoverUrl ||
+              ''
+          })
+        }
         if (cleaned !== patch.markdown) patch.markdown = cleaned
       }
 
@@ -4116,6 +4571,9 @@ function createOaContentStudioApi({
           patch.wxImageMap = {}
           patch.wxImageFailEntries = []
           patch.wxImageUploadSlot = ''
+          patch.wxPicEntries = []
+          patch.wxPicFailEntries = []
+          patch.wxPicUploadSlot = ''
           patch.imagesReady = false
           patch.imagePrepStatus = 'preparing'
         }
@@ -4149,8 +4607,15 @@ function createOaContentStudioApi({
         'wxImageUploadSlot',
         'imagesReady',
         'imagePrepStatus',
+        'imagePrepAttempts',
         'platforms',
-        'variants'
+        'variants',
+        'wxArticleType',
+        'wxPicContent',
+        'wxPicEntries',
+        'wxPicFailEntries',
+        'wxPicUploadSlot',
+        'imagePrepKind'
       ])
     },
     deleteDraft: (id, u) => deleteDoc(DRAFTS_COL, id, u),

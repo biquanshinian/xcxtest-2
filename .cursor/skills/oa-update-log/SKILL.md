@@ -35,6 +35,8 @@ description: >-
 
 ## 稿件类型
 
+热点 / 辟谣 / 贴图请走 `oa-hot-quality`（发稿号火星空间探索），不要用本技能硬写。
+
 ### A. 更新日志
 
 - 目录：`docs/wechat-oa/YYYY-MM-update/`

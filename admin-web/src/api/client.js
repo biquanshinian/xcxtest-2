@@ -1,3 +1,18 @@
+import {
+  peekList,
+  putList,
+  peekEdit,
+  putEdit,
+  peekSettings,
+  putSettings,
+  peekCustomers,
+  putCustomers,
+  peekDashboard,
+  putDashboard,
+  invalidateReads,
+  invalidateAll
+} from '../utils/tuwen-cache.js'
+
 const DEFAULT_API_BASE = 'https://cloud1-9gdqgdt5bfaa20fb-1397421562.ap-shanghai.app.tcloudbase.com/admin'
 const API_BASE = import.meta.env.VITE_ADMIN_API_BASE || DEFAULT_API_BASE
 
@@ -22,7 +37,7 @@ function hasRole(minRole) {
   return (rank[role] || 0) >= (rank[minRole] || 0)
 }
 
-async function request(path, { method = 'GET', query, body } = {}) {
+async function request(path, { method = 'GET', query, body, keepalive = false } = {}) {
   const token = localStorage.getItem('admin_token')
   if (!API_BASE) {
     throw new Error('管理端 API 地址未配置（VITE_ADMIN_API_BASE）')
@@ -37,13 +52,20 @@ async function request(path, { method = 'GET', query, body } = {}) {
     headers: token ? { Authorization: `Bearer ${token}` } : {}
   }
 
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {})
+  }
+  const encoded = JSON.stringify(payload)
+  if (keepalive) {
+    fetch(url.toString(), { method: 'POST', headers, body: encoded, keepalive: true }).catch(() => {})
+    return null
+  }
+
   const res = await fetch(url.toString(), {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
-    },
-    body: JSON.stringify(payload)
+    headers,
+    body: encoded
   })
 
   const data = await res.json()
@@ -61,6 +83,20 @@ async function request(path, { method = 'GET', query, body } = {}) {
   return data.data
 }
 
+function withSince(query, cached) {
+  const next = { ...(query || {}) }
+  if (cached && cached.version) next.sinceVersion = cached.version
+  return next
+}
+
+function resolveVersioned(data, cached, put) {
+  if (data && data.unchanged && cached && cached.data) {
+    return { ...cached.data, unchanged: true, version: data.version }
+  }
+  if (data && put) put(data)
+  return data
+}
+
 function hasPermission(mod) {
   const user = getUser()
   if (!user) return false
@@ -72,6 +108,7 @@ function hasPermission(mod) {
 const HOME_PATHS = [
   ['dashboard', '/dashboard'],
   ['preaudit', '/preaudit'],
+  ['tuwen_yewu', '/tuwen/dashboard'],
   ['statistics', '/statistics'],
   ['oa_content', '/oa-content/pipeline'],
   ['news_events', '/news/events'],
@@ -364,6 +401,190 @@ export const api = {
   getPermissionModules() {
     return request('/permissions/modules', { method: 'GET' })
   },
+  getTuwenStatus() {
+    return request('/tuwen/status', { method: 'GET' })
+  },
+  peekTuwenOrders(query) {
+    const hit = peekList(query)
+    return hit && hit.data ? hit.data : null
+  },
+  listTuwenOrders(query) {
+    const cached = peekList(query)
+    return request('/tuwen/orders', { method: 'GET', query: withSince(query, cached) }).then((data) => (
+      resolveVersioned(data, cached, (row) => putList(query, row))
+    ))
+  },
+  getTuwenOrder(id) {
+    return request(`/tuwen/orders/${encodeURIComponent(id)}`, { method: 'GET' })
+  },
+  peekTuwenOrderEdit(query) {
+    const hit = peekEdit(query)
+    return hit && hit.data ? hit.data : null
+  },
+  getTuwenOrderEdit(query) {
+    const q = query || {}
+    const cached = peekEdit(q)
+    return request('/tuwen/edit', { method: 'GET', query: withSince(q, cached) }).then((data) => (
+      resolveVersioned(data, cached, (row) => putEdit(q, row))
+    ))
+  },
+  saveTuwenOrder(order, opts) {
+    const id = order && order.id
+    const keepalive = !!(opts && opts.keepalive)
+    const req = id
+      ? request(`/tuwen/orders/${encodeURIComponent(id)}`, { method: 'PUT', body: { order }, keepalive })
+      : request('/tuwen/orders', { method: 'POST', body: { order }, keepalive })
+    if (keepalive) {
+      invalidateReads()
+      return req
+    }
+    return Promise.resolve(req).then((data) => {
+      invalidateReads()
+      if (data && data.order) {
+        const prev = peekEdit({ id: data.order.id }) || peekEdit({ id: '' })
+        if (prev && prev.data) {
+          putEdit({ id: data.order.id }, {
+            ...prev.data,
+            order: data.order,
+            version: data.version,
+            copied: false
+          })
+        }
+      }
+      return data
+    })
+  },
+  saveTuwenOrderKeepalive(order) {
+    const slim = {
+      ...order,
+      lines: (Array.isArray(order && order.lines) ? order.lines : []).map((line) => {
+        const next = { ...line }
+        delete next.sampleImageDataUrl
+        return next
+      })
+    }
+    return this.saveTuwenOrder(slim, { keepalive: true })
+  },
+  deleteTuwenOrder(id) {
+    invalidateReads()
+    invalidateAll()
+    return request(`/tuwen/orders/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  },
+  importTuwenWorkspace(body) {
+    invalidateAll()
+    return request('/tuwen/import', { method: 'POST', body })
+  },
+  getTuwenWorkspace() {
+    return request('/tuwen/workspace', { method: 'GET' })
+  },
+  peekTuwenDashboard() {
+    const hit = peekDashboard()
+    return hit && hit.data ? hit.data : null
+  },
+  getTuwenDashboard() {
+    const cached = peekDashboard()
+    return request('/tuwen/dashboard', { method: 'GET', query: withSince({}, cached) }).then((data) => (
+      resolveVersioned(data, cached, putDashboard)
+    ))
+  },
+  setTuwenOrderStatus(id, status) {
+    invalidateReads()
+    return request(`/tuwen/orders/${encodeURIComponent(id)}/status`, { method: 'POST', body: { status } })
+  },
+  batchTuwenOrderStatus(ids, status) {
+    invalidateReads()
+    return request('/tuwen/orders/batch-status', { method: 'POST', body: { ids, status } })
+  },
+  payTuwenOrder(id, body) {
+    invalidateReads()
+    return request(`/tuwen/orders/${encodeURIComponent(id)}/pay`, { method: 'POST', body })
+  },
+  copyTuwenOrder(id) {
+    invalidateReads()
+    return request(`/tuwen/orders/${encodeURIComponent(id)}/copy`, { method: 'POST' })
+  },
+  sortTuwenOrders(ids) {
+    invalidateReads()
+    return request('/tuwen/orders/sort', { method: 'POST', body: { ids } })
+  },
+  listTuwenCustomers(query) {
+    const q = query && String(query.q || '').trim()
+    const cached = !q ? peekCustomers() : null
+    return request('/tuwen/customers', { method: 'GET', query: withSince(query, cached) }).then((data) => (
+      resolveVersioned(data, cached, (row) => { if (!q) putCustomers(row) })
+    ))
+  },
+  saveTuwenCustomer(customer) {
+    invalidateReads()
+    const id = customer && customer.id
+    if (id) return request(`/tuwen/customers/${encodeURIComponent(id)}`, { method: 'PUT', body: { customer } })
+    return request('/tuwen/customers', { method: 'POST', body: { customer } })
+  },
+  deleteTuwenCustomer(id) {
+    invalidateReads()
+    return request(`/tuwen/customers/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  },
+  listTuwenSuppliers() {
+    return request('/tuwen/suppliers', { method: 'GET' })
+  },
+  saveTuwenSupplier(supplier) {
+    const id = supplier && supplier.id
+    if (id) return request(`/tuwen/suppliers/${encodeURIComponent(id)}`, { method: 'PUT', body: { supplier } })
+    return request('/tuwen/suppliers', { method: 'POST', body: { supplier } })
+  },
+  deleteTuwenSupplier(id) {
+    return request(`/tuwen/suppliers/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  },
+  listTuwenExpenses(query) {
+    return request('/tuwen/expenses', { method: 'GET', query })
+  },
+  saveTuwenExpense(expense) {
+    const id = expense && expense.id
+    if (id) return request(`/tuwen/expenses/${encodeURIComponent(id)}`, { method: 'PUT', body: { expense } })
+    return request('/tuwen/expenses', { method: 'POST', body: { expense } })
+  },
+  deleteTuwenExpense(id) {
+    return request(`/tuwen/expenses/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  },
+  listTuwenAfterSales() {
+    return request('/tuwen/after-sales', { method: 'GET' })
+  },
+  saveTuwenAfterSale(afterSale) {
+    const id = afterSale && afterSale.id
+    if (id) return request(`/tuwen/after-sales/${encodeURIComponent(id)}`, { method: 'PUT', body: { afterSale } })
+    return request('/tuwen/after-sales', { method: 'POST', body: { afterSale } })
+  },
+  deleteTuwenAfterSale(id) {
+    return request(`/tuwen/after-sales/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  },
+  getTuwenStatements(query) {
+    return request('/tuwen/statements', { method: 'GET', query })
+  },
+  collectTuwenStatement(body) {
+    return request('/tuwen/statements/collect', { method: 'POST', body })
+  },
+  proxyTuwenSampleImage(url) {
+    return request('/tuwen/sample-image', { method: 'POST', body: { url } })
+  },
+  getTuwenReports(query) {
+    return request('/tuwen/reports', { method: 'GET', query })
+  },
+  listTuwenAuditLogs(query) {
+    return request('/tuwen/audit-logs', { method: 'GET', query })
+  },
+  getTuwenSettings() {
+    const cached = peekSettings()
+    return request('/tuwen/settings', { method: 'GET', query: withSince({}, cached) }).then((data) => (
+      resolveVersioned(data, cached, putSettings)
+    ))
+  },
+  saveTuwenSettings(settings) {
+    return request('/tuwen/settings', { method: 'PUT', body: { settings } }).then((data) => {
+      invalidateReads()
+      if (data) putSettings(data)
+      return data
+    })
+  },
   listPushSubscriptions(query) {
     return request('/push/subscriptions', { method: 'GET', query })
   },
@@ -408,6 +629,9 @@ export const api = {
   },
   toggleTweetAccount(id, enabled) {
     return request(`/tweet-monitor/accounts/${id}/toggle`, { method: 'PUT', body: { enabled } })
+  },
+  updateTweetAccountBadge(id, verifyBadge) {
+    return request(`/tweet-monitor/accounts/${id}/badge`, { method: 'PUT', body: { verifyBadge } })
   },
   getStatisticsOverview() {
     return request('/statistics/overview', { method: 'GET' })

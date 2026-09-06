@@ -40,6 +40,7 @@
     bindrefresherrestore="{{navPad.onReset}}"
     bindrefresherabort="{{navPad.onReset}}"
     bindrefresherrefresh="onScrollRefresh"
+    bindscroll="onDetailScroll"
     lower-threshold="{{120}}"
     bindscrolltolower="onDetailScrollToLower"
   >
@@ -412,11 +413,12 @@
           <text class="empty-list-text">该账号暂无已发布动态，可下拉刷新重试</text>
         </view>
         <block wx:for="{{itemsView}}" wx:for-item="ev" wx:key="_id" wx:for-index="evIdx">
-          <view class="detail-card glass-card list-card-item" bindtap="onListCardTap" bindlongpress="openListEventShareSheet" data-id="{{ev._id}}" data-idx="{{evIdx}}">
+          <view class="detail-card glass-card list-card-item" bindtap="onListCardTap" bindlongpress="openListEventShareSheet" data-id="{{ev._id}}" data-idx="{{evIdx}}" data-haptic-index="{{evIdx}}">
             <view class="meta-top">
               <view class="author-tag-wrap" wx:if="{{ev.author}}">
                 <image class="author-avatar" src="{{ev.authorAvatar}}" wx:if="{{ev.authorAvatar && !ev._avatarFailed}}" mode="aspectFill" binderror="onListAvatarError" data-idx="{{evIdx}}" />
                 <text class="author-tag">{{ev.author}}</text>
+                <image class="x-verify-badge" wx:if="{{ev.verifyBadgeSrc}}" src="{{ev.verifyBadgeSrc}}" mode="aspectFit" />
               </view>
               <text class="date-text">{{ev.publishedAtText}}</text>
             </view>
@@ -499,6 +501,7 @@
           <view class="author-tag-wrap" wx:if="{{item.author}}">
             <image class="author-avatar" src="{{item.authorAvatar}}" wx:if="{{item.authorAvatar && !avatarError}}" mode="aspectFill" binderror="onAvatarError" />
             <text class="author-tag">{{item.author}}</text>
+            <image class="x-verify-badge" wx:if="{{item.verifyBadgeSrc}}" src="{{item.verifyBadgeSrc}}" mode="aspectFit" />
           </view>
           <text class="date-text">{{item.publishedAtText}}</text>
         </view>

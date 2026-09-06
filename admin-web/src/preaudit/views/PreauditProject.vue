@@ -11,7 +11,6 @@
               <span class="pa-tag" :class="org.accent">{{ org.name }}</span>
               {{ meta }}
             </div>
-            <div v-if="namePending" class="pa-sub">名称待从中标/成交通知自动认，也可点编辑手填</div>
           </div>
           <span class="pa-tag" :class="passed ? 'pass' : (errorCount ? 'risk' : 'warn')">
             {{ passed ? '可报账' : (errorCount ? '有风险' : '进行中') }}
@@ -41,6 +40,7 @@
         <button type="button" class="pa-tool" data-pa-anchor="photos" @click="goTool('photos', '/preaudit/' + project.id + '/photos')">施工照片</button>
         <button v-if="org.id !== 'small'" type="button" class="pa-tool" data-pa-anchor="contract" @click="goTool('contract', '/preaudit/' + project.id + '/contract')">合同水印</button>
         <button type="button" class="pa-tool" data-pa-anchor="edit" @click="goTool('edit', '/preaudit/' + project.id + '/edit')">编辑项目</button>
+        <button type="button" class="pa-tool" data-pa-anchor="org" @click="openOrgSwitch">换报账类型</button>
       </div>
 
       <div v-for="group in groups" :key="group.id" class="pa-card" style="margin-top: 12px;">
@@ -49,7 +49,6 @@
           <p class="pa-title pa-grow">{{ group.name }}</p>
           <span class="pa-count">{{ group.complete }}/{{ group.total }}</span>
         </div>
-        <div v-if="group.hint" class="pa-sub pa-group-hint">{{ group.hint }}</div>
         <div v-if="group.allowConfirm && !group.done" class="pa-group-confirm">
           <el-button size="small" @click.stop="confirmGroup(group)">本组全部确认</el-button>
         </div>
@@ -77,6 +76,12 @@
       <div class="pa-dock pa-actions">
         <el-button class="is-main" type="primary" data-pa-anchor="audit" @click="goTool('audit', '/preaudit/' + project.id + '/audit')">一键核验</el-button>
       </div>
+      <OrgSwitchDialog
+        :open="orgSwitchOpen"
+        :current-org="org.id"
+        @close="closeOrgSwitch"
+        @pick="pickOrg"
+      />
     </template>
   </div>
 </template>
@@ -89,9 +94,11 @@ import { ensureProjectReady, getMaterial, getProject, saveMaterial, updateProjec
 import { COMPARE_TIERS, getGroups, getItem, itemUrl, itemWritableFields } from '../lib/checklist.js'
 import { fromProject } from '../lib/org.js'
 import { isComplete, runAudit } from '../lib/audit.js'
-import { fillProjectFromCachedOcr, isPlaceholderName } from '../lib/ocr.js'
+import { fillProjectFromCachedOcr } from '../lib/ocr.js'
 import { formatMoney } from '../lib/format.js'
 import { markLeave, restoreIfPending } from '../lib/scroll-memory.js'
+import { useOrgSwitch } from '../lib/use-org-switch.js'
+import OrgSwitchDialog from '../components/OrgSwitchDialog.vue'
 import '../preaudit.css'
 
 const route = useRoute()
@@ -109,8 +116,8 @@ onMounted(async () => {
   }
 })
 const org = computed(() => fromProject(project.value))
+const { orgSwitchOpen, openOrgSwitch, closeOrgSwitch, pickOrg } = useOrgSwitch(() => project.value)
 if (project.value) fillProjectFromCachedOcr(project.value.id)
-const namePending = computed(() => project.value && isPlaceholderName(project.value.name))
 
 const result = computed(() => project.value ? runAudit(project.value) : null)
 const progress = computed(() => (result.value && result.value.progress) || { uploaded: 0, total: 0, filePercent: 0 })

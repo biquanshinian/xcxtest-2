@@ -216,6 +216,7 @@ Page({
     setTimeout(() => {
       this.loadRoadClosureNotice()
       this.loadStarshipHardware()
+      this._loadTweetAccountStats()
       this.loadEventUpdates(false, options.filterSource || '')
     }, 50)
 

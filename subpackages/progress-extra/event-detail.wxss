@@ -179,6 +179,12 @@ page {
   max-width: 360rpx;
 }
 
+.author-tag-wrap .x-verify-badge {
+  width: 24rpx;
+  height: 24rpx;
+  flex-shrink: 0;
+}
+
 .detail-title {
   display: block;
   font-size: 40rpx;

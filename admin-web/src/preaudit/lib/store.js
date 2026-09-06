@@ -282,6 +282,14 @@ export function updateProject(id, fields) {
   return saved
 }
 
+export function switchProjectOrg(id, orgType) {
+  const project = findProject(id)
+  if (!project) return null
+  const next = orgUtil.normalize(orgType)
+  if (orgUtil.normalize(project.orgType) === next) return project
+  return updateProject(id, { orgType: next })
+}
+
 export function upsertProject(fields) {
   const patch = {
     name: (fields.name || '').trim() || (fields.id && findProject(fields.id) ? findProject(fields.id).name : '') || '待认项目',

@@ -4,11 +4,11 @@
     <div v-else-if="!project" class="pa-card pa-empty">找不到这个项目</div>
     <template v-else>
       <div class="pa-card">
-        <div class="pa-row">
+        <div class="pa-row pa-detail-head">
           <p class="pa-title pa-grow">施工现场</p>
+          <el-button size="small" text @click="openOrgSwitch">换类型</el-button>
           <span class="pa-tag" :class="canExportWork ? 'ok' : 'warn'">{{ canExportWork ? '可出表' : '还差照片' }}</span>
         </div>
-        <div class="pa-sub">每阶段每页最多 3 张，多的自动下一页。编号随拖动变化，财务可按编号对照。</div>
         <div v-for="stage in workStages" :key="stage.id" class="pa-stage">
           <div class="pa-row">
             <p class="pa-stage-title pa-grow">{{ stage.title }}</p>
@@ -41,7 +41,7 @@
       <div class="pa-card" style="margin-top: 12px;" v-if="accept">
         <div class="pa-row">
           <p class="pa-title pa-grow">现场验收</p>
-          <span class="pa-count">{{ (accept.files || []).length }} 张</span>
+          <span class="pa-count">{{ stageCountText(accept.files, ACCEPT_PHOTOS_PER_PAGE) }}</span>
           <span class="pa-tag" :class="accept.ready ? 'ok' : 'warn'">{{ accept.ready ? '可出表' : '至少 1 张' }}</span>
         </div>
         <PhotoStrip
@@ -50,7 +50,7 @@
           :label-of="storeLabel"
           :class-of="thumbClass"
           index-prefix="验"
-          caption-placeholder="备注"
+          caption-placeholder=""
           @mark="mark(accept.id)"
           @dragenter="onDragEnter($event, accept.id)"
           @dragover="onDragOver($event, accept.id)"
@@ -79,18 +79,17 @@
           <span class="pa-grow pa-label" style="margin-bottom: 0;">是否有监督人员到场</span>
           <el-switch v-model="hasSupervisor" @change="savePeople" />
         </div>
-        <div v-if="isTownship" class="pa-sub">乡政府验收至少登记 1 人即可，不必确认监督员是否到场。</div>
         <div class="pa-field">
-          <label class="pa-label">到场人员备注</label>
-          <el-input v-model="peopleNote" type="textarea" :rows="2" placeholder="选填" @change="savePeople" />
+          <label class="pa-label">到场人员</label>
+          <el-input v-model="peopleNote" maxlength="80" @change="savePeople" />
         </div>
       </div>
 
       <div class="pa-dock pa-actions">
-        <el-button v-if="!isSmall" class="is-main" type="primary" :disabled="!canExportAccept || working" :loading="working" @click="exportAccept">
+        <el-button v-if="!isSmall" type="primary" :disabled="!canExportAccept || working" :loading="working" @click="exportAccept">
           生成验收 A4
         </el-button>
-        <el-button :class="{ 'is-main': isSmall }" :disabled="!canExportWork || working" :loading="working" @click="exportWork">
+        <el-button :type="isSmall ? 'primary' : 'default'" :disabled="!canExportWork || working" :loading="working" @click="exportWork">
           生成施工 A4
         </el-button>
       </div>
@@ -104,6 +103,12 @@
         @close="closeSheet"
         @mode="setSheetMode"
         @download="downloadSheet"
+      />
+      <OrgSwitchDialog
+        :open="orgSwitchOpen"
+        :current-org="getOrgType(project)"
+        @close="closeOrgSwitch"
+        @pick="pickOrg"
       />
     </template>
   </div>
@@ -122,8 +127,10 @@ import { usePhotoPreview } from '../lib/use-photo-preview.js'
 import PhotoLightbox from '../components/PhotoLightbox.vue'
 import PhotoStrip from '../components/PhotoStrip.vue'
 import SheetPreview from '../components/SheetPreview.vue'
-import { downloadUrl, packSheetPages, renderAcceptPages, renderWorkPages, revokeSheetPack, WORK_PHOTOS_PER_PAGE } from '../lib/sheet.js'
+import { ACCEPT_PHOTOS_PER_PAGE, downloadUrl, packSheetPages, renderAcceptPages, renderWorkPages, revokeSheetPack, WORK_PHOTOS_PER_PAGE } from '../lib/sheet.js'
 import { getOrgType } from '../lib/checklist.js'
+import { useOrgSwitch } from '../lib/use-org-switch.js'
+import OrgSwitchDialog from '../components/OrgSwitchDialog.vue'
 import { typingInField } from '../lib/util.js'
 import '../preaudit.css'
 
@@ -137,6 +144,7 @@ const route = useRoute()
 const working = ref(false)
 const loading = ref(true)
 const project = computed(() => getProject(route.params.id))
+const { orgSwitchOpen, openOrgSwitch, closeOrgSwitch, pickOrg } = useOrgSwitch(() => project.value)
 
 function liveFiles(itemId) {
   const p = project.value
@@ -156,10 +164,11 @@ function stageOf(spec) {
   }
 }
 
-function stageCountText(files) {
+function stageCountText(files, perPage) {
   const n = (files || []).length
-  if (n <= WORK_PHOTOS_PER_PAGE) return n + ' 张'
-  return n + ' 张 · ' + Math.ceil(n / WORK_PHOTOS_PER_PAGE) + ' 页'
+  const size = perPage || WORK_PHOTOS_PER_PAGE
+  if (n <= size) return n + ' 张'
+  return n + ' 张 · ' + Math.ceil(n / size) + ' 页'
 }
 
 const workStages = computed(() => WORK.map(stageOf))

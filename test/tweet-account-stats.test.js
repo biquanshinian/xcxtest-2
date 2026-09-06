@@ -10,6 +10,7 @@ const {
   rememberTodayTweetAccountStats,
   peekTodayTweetAccountStatsCache,
   resetTodayTweetAccountStatsCacheForTest,
+  attachVerifyBadgeToItem,
   TTL_MS
 } = require('../subpackages/progress-extra/utils/tweet-account-stats.js')
 
@@ -19,18 +20,24 @@ function testMapStats() {
   const mapped = mapTodayTweetAccountStats({
     success: true,
     total: 4,
+    badgeBySource: { NASA: 'grey', SpaceX: 'gold' },
     tweetStats: [
       { screenName: 'NASASpaceflight', label: 'NSF', avatarUrl: 'https://x/nsf.jpg', todayCount: 2 },
       { screenName: '', todayCount: 1 },
-      { screenName: 'SpaceX', todayCount: 3 }
+      { screenName: 'SpaceX', todayCount: 3, verifyBadge: 'gold' }
     ]
   })
   assert.strictEqual(mapped.total, 4)
   assert.strictEqual(mapped.stats.length, 2)
   assert.strictEqual(mapped.stats[0].label, 'NSF')
   assert.strictEqual(mapped.stats[0].todayCount, 2)
+  assert.strictEqual(mapped.stats[0].verifyBadge, 'none')
   assert.strictEqual(mapped.stats[1].screenName, 'SpaceX')
   assert.strictEqual(mapped.stats[1].label, 'SpaceX')
+  assert.strictEqual(mapped.stats[1].verifyBadge, 'gold')
+  assert.strictEqual(mapped.stats[1].verifyBadgeSrc, '/images/x-verify/gold.svg')
+  assert.strictEqual(mapped.badgeBySource.NASA, 'grey')
+  assert.strictEqual(mapped.badgeBySource.SpaceX, 'gold')
 }
 
 function testResolveChip() {
@@ -67,10 +74,27 @@ function testDetailReusesProgressChips() {
   assert.ok(detailJson.includes('tweet-account-chips'), '详情页注册胶囊组件')
   assert.ok(detailJs.includes('_enableGenericTweetAccountChips()'), '通用事件详情打开胶囊')
   assert.ok(detailJs.includes("options.mode === 'll2_event'") && detailJs.indexOf("options.mode === 'll2_event'") < detailJs.indexOf('_enableGenericTweetAccountChips()'), 'NSF/LL2 早退后再开胶囊')
+  const chips = fs.readFileSync(path.join(root, 'subpackages/progress-extra/components/tweet-account-chips/index.wxml'), 'utf8')
+  assert.ok(chips.includes('item.verifyBadgeSrc'), '账号胶囊展示认证标')
+  assert.ok(updates.includes('item.verifyBadgeSrc'), '事件更新作者条展示认证标')
+  assert.ok(detail.includes('verifyBadgeSrc'), '事件详情作者条展示认证标')
 }
 
 testMapStats()
 testResolveChip()
 testCacheTtl()
 testDetailReusesProgressChips()
+
+function testAttachVerifyBadge() {
+  const attached = attachVerifyBadgeToItem({ source: 'NASA', author: 'NASA' }, { NASA: 'grey' })
+  assert.strictEqual(attached.verifyBadge, 'grey')
+  assert.strictEqual(attached.verifyBadgeSrc, '/images/x-verify/grey.svg')
+  const none = attachVerifyBadgeToItem({ source: 'foo', author: 'Foo' }, {})
+  assert.strictEqual(none.verifyBadge, 'none')
+  assert.strictEqual(none.verifyBadgeSrc, '')
+  const ci = attachVerifyBadgeToItem({ source: 'nasagoddard', author: 'Goddard' }, { NASAGoddard: 'grey' })
+  assert.strictEqual(ci.verifyBadge, 'grey')
+}
+
+testAttachVerifyBadge()
 console.log('tweet-account-stats tests passed')

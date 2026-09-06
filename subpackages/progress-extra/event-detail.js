@@ -53,8 +53,15 @@ const { isFeatureEnabled } = require('../../utils/feature-flags.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const {
   fetchTodayTweetAccountStats,
-  resolveTweetAccountChip
+  peekTodayTweetAccountStatsCache,
+  resolveTweetAccountChip,
+  attachVerifyBadgeToItem,
+  attachVerifyBadgeToList
 } = require('./utils/tweet-account-stats.js')
+const {
+  resolveTweetCardFocusIndex,
+  buildTweetCardHapticState
+} = require('./utils/event-list-haptic.js')
 
 /** 清单/时间线/动态追踪分享兜底：SpaceX logo（禁止落到 default 火箭占位图） */
 const STARSHIP_PAGE_SHARE_FALLBACK =
@@ -1207,6 +1214,16 @@ Page({
   /** 主列表滚回顶部（enhanced 模式优先用 ScrollViewContext.scrollTo） */
   _scrollDetailToTop() {
     var self = this
+    this._detailScrollHapticMuted = true
+    this._resetTweetCardHaptics()
+    if (this._detailScrollHapticMuteTimer) {
+      clearTimeout(this._detailScrollHapticMuteTimer)
+      this._detailScrollHapticMuteTimer = null
+    }
+    this._detailScrollHapticMuteTimer = setTimeout(function () {
+      self._detailScrollHapticMuted = false
+      self._detailScrollHapticMuteTimer = null
+    }, 240)
     try {
       wx.createSelectorQuery()
         .in(this)
@@ -1227,8 +1244,67 @@ Page({
     }
   },
 
+  /** 列表对准哪条推文才震：同一张卡片内滑动不再连震 */
+  onDetailScroll(e) {
+    if (!this.data.listMode) return
+    if (this._detailScrollHapticMuted) return
+    this._scheduleTweetCardHapticMeasure()
+  },
+
+  _resetTweetCardHaptics() {
+    if (this._tweetHapticMeasureTimer) {
+      clearTimeout(this._tweetHapticMeasureTimer)
+      this._tweetHapticMeasureTimer = null
+    }
+    this._tweetHapticActiveIndex = -1
+    this._tweetHapticAt = 0
+  },
+
+  _scheduleTweetCardHapticMeasure() {
+    if (this._tweetHapticMeasureTimer) return
+    const self = this
+    this._tweetHapticMeasureTimer = setTimeout(function () {
+      self._tweetHapticMeasureTimer = null
+      self._measureTweetCardHaptic()
+    }, 32)
+  },
+
+  _measureTweetCardHaptic() {
+    if (!this.data.listMode || this._detailScrollHapticMuted) return
+    const self = this
+    try {
+      const query = wx.createSelectorQuery().in(this)
+      query.select('.detail-scroll').boundingClientRect()
+      query.selectAll('.list-card-item').boundingClientRect()
+      query.exec(function (res) {
+        if (!self.data.listMode || self._detailScrollHapticMuted) return
+        const focusIndex = resolveTweetCardFocusIndex({
+          scrollViewRect: res && res[0],
+          cardRects: (res && res[1]) || [],
+          navPlaceholderHeight: self.data.navPlaceholderHeight || 0
+        })
+        const state = buildTweetCardHapticState({
+          focusIndex,
+          activeIndex: self._tweetHapticActiveIndex,
+          lastVibrateAt: self._tweetHapticAt,
+          now: Date.now(),
+          vibrateIntervalMs: 140
+        })
+        if (state.shouldSyncActiveIndex) self._tweetHapticActiveIndex = state.nextActiveIndex
+        if (!state.shouldVibrate) return
+        self._tweetHapticAt = state.nextLastVibrateAt
+        try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
+      })
+    } catch (e) {}
+  },
+
   onUnload() {
     this.clearLl2EventCountdown()
+    if (this._detailScrollHapticMuteTimer) {
+      clearTimeout(this._detailScrollHapticMuteTimer)
+      this._detailScrollHapticMuteTimer = null
+    }
+    this._resetTweetCardHaptics()
   },
 
   onHide() {
@@ -1493,13 +1569,27 @@ Page({
   _loadDetailTweetAccountChips() {
     const self = this
     const canShowChips = canUsePaidCloudSync()
-    if (!canShowChips) {
-      if ((this.data.tweetAccountStats || []).length) this.setData({ tweetAccountStats: [] })
-      return
+    if (!canShowChips && (this.data.tweetAccountStats || []).length) {
+      this.setData({ tweetAccountStats: [] })
     }
     fetchTodayTweetAccountStats().then((cached) => {
       if (!cached || !self || typeof self.setData !== 'function') return
-      self.setData({ tweetAccountStats: cached.stats || [] })
+      const patch = {}
+      if (canShowChips) patch.tweetAccountStats = cached.stats || []
+      const badgeMap = cached.badgeBySource || {}
+      if (self.data.item) {
+        const nextItem = attachVerifyBadgeToItem(self.data.item, badgeMap)
+        if (nextItem !== self.data.item) patch.item = nextItem
+      }
+      if (Array.isArray(self.data.items) && self.data.items.length) {
+        const nextItems = attachVerifyBadgeToList(self.data.items, badgeMap)
+        if (nextItems !== self.data.items) {
+          const intel = self._applyListIntel(nextItems)
+          patch.items = intel.items
+          patch.itemsView = intel.itemsView
+        }
+      }
+      if (Object.keys(patch).length) self.setData(patch)
     }).catch(() => {})
   },
 
@@ -1582,7 +1672,7 @@ Page({
     })
     const imageCount = imageUrls.length
 
-    return decorateEventItem({
+    return decorateEventItem(attachVerifyBadgeToItem({
       ...safeItem,
       mediaList: enrichedMediaList,
       imageUrls,
@@ -1595,7 +1685,7 @@ Page({
       _liveStatus: 0,
       _liveCover: safeItem.liveCover || '',
       _liveTitle: ''
-    }, this._eventIntelCtx || getEventIntelContext())
+    }, (peekTodayTweetAccountStatsCache() || {}).badgeBySource || {}), this._eventIntelCtx || getEventIntelContext())
   },
 
   _refreshEventIntelCtx() {
@@ -1703,6 +1793,7 @@ Page({
   },
 
   async loadDetail(id, opts = {}) {
+    try { await fetchTodayTweetAccountStats() } catch (e) {}
     const parsedId = parseEventDetailIdParam(id)
     id = parsedId.eventId
     if (!(this._oaVideoIndex >= 0) && parsedId.videoIndex >= 0) {
@@ -1853,6 +1944,7 @@ Page({
   async loadListAll(refresh, opts = {}) {
     if (this._listAllLoading) return
     this._listAllLoading = true
+    const statsP = fetchTodayTweetAccountStats().catch(() => null)
     if (refresh) {
       this._listAllSkip = 0
       // silent（下拉刷新）：已有列表时不清列表、不显示加载骨架，成功后整页替换
@@ -1896,6 +1988,7 @@ Page({
         .limit(limit)
         .get()
 
+      await statsP
       const newItems = (res.data || []).map(it => this.enrichEventItem(it))
       const merged = refresh ? newItems : (this.data.items || []).concat(newItems)
       this._listAllSkip = skip + newItems.length
@@ -1993,6 +2086,7 @@ Page({
     if (!(opts.silent && (this.data.items || []).length > 0)) {
       this.setData({ loading: true, errorMessage: '' })
     }
+    const statsP = fetchTodayTweetAccountStats().catch(() => null)
     try {
       const db = wx.cloud.database()
       const day = dateYmd || todayBeijingYmd()
@@ -2015,6 +2109,7 @@ Page({
         if (oldestYmd && oldestYmd < day) break
       }
       const filtered = raw.filter(it => publishedAtToBeijingYmd(it.publishedAt) === day)
+      await statsP
       const items = filtered.map(it => this.enrichEventItem(it))
       const namePart = labelHint || source
       const shareImage = items[0]

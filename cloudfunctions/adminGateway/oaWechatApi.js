@@ -565,6 +565,29 @@ async function uploadThumbFromUrl(imageUrl, opts) {
   return res.media_id || res.thumb_media_id
 }
 
+/** 图片帖用的永久图片素材（image_media_id），不是 uploadimg 的正文 URL */
+async function uploadPermanentImageFromUrl(imageUrl, opts) {
+  if (!imageUrl) throw new Error('缺少图片 URL')
+  const slot = optsSlot(opts)
+  const buf = await fetchBuffer(imageUrl)
+  if (!buf || buf.length < 100) throw new Error('图片过小或无效')
+  const ext = sniffImageExt(buf, imageUrl)
+  const ctype = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : 'image/jpeg'
+  const res = await withTokenRetry(slot, (token) =>
+    httpUpload(
+      `https://api.weixin.qq.com/cgi-bin/material/add_material?access_token=${token}&type=image`,
+      'media',
+      `pic.${ext}`,
+      buf,
+      ctype
+    )
+  )
+  if (!res || !res.media_id || res.errcode) {
+    throw new Error('上传永久图片失败: ' + JSON.stringify(res))
+  }
+  return { media_id: res.media_id, url: res.url || '' }
+}
+
 async function uploadContentImageFromUrl(imageUrl, opts) {
   const slot = optsSlot(opts)
   const buf = await fetchBuffer(imageUrl)
@@ -657,7 +680,7 @@ function resolveImageMiniprogramLinkMode(cfg) {
 /**
  * 按模式给正文配图包小程序锚点：
  * 先拆掉包住 img 的普通/脏 <a>（含 <br>），再按 first/last/all 等包锚点，避免嵌套与孤儿标签。
- * srcPathMap：视频封面单独绑定该事件详情（可带 id=xxx__n），并附加「▶ 点击播放视频」。
+ * srcPathMap：视频封面单独绑定该事件详情（可带 id=xxx__n），不再附加「▶ 点击播放视频」文字。
  */
 function wrapImagesWithMiniprogram(html, { path, mode = 'all', srcPathMap } = {}) {
   const m = normalizeImageMiniprogramLinkMode(mode)
@@ -667,13 +690,7 @@ function wrapImagesWithMiniprogram(html, { path, mode = 'all', srcPathMap } = {}
   const defaultOpen = miniprogramAnchorOpen(path)
   const wrap = (img, mpPath) => {
     const open = mpPath ? miniprogramAnchorOpen(mpPath) : defaultOpen
-    const core = `${open}${img}</a>`
-    // 视频封面额外给一条文字链：配图锚点被 45166 剥掉后，读者仍能点进该事件页
-    if (!mpPath) return core
-    return (
-      `${core}<br/>` +
-      `${open}<span style="color:#576b95;">▶ 点击播放视频</span></a>`
-    )
+    return `${open}${img}</a>`
   }
   const posterPathOf = (img) => {
     const src = String((img.match(/\bsrc=["']([^"']+)["']/i) || [])[1] || '')
@@ -731,7 +748,7 @@ function wrapAllImagesWithMiniprogram(html, opts) {
 }
 
 /** 45166 最终回退：去掉配图上的小程序锚点，仅保留裸图 */
-/** 45166 最终回退：去掉配图上的小程序锚点，仅保留裸图（封面下的「点击播放」文字链仍保留） */
+/** 45166 最终回退：去掉配图上的小程序锚点，仅保留裸图 */
 function unwrapMiniprogramImageLinks(html) {
   return String(html || '').replace(
     /<a\b[^>]*data-miniprogram-appid=["'][^"']+["'][^>]*>\s*(<img\b[^>]*>)\s*<\/a>/gi,
@@ -851,6 +868,7 @@ module.exports = {
   credentialsStatus,
   getAccessToken,
   uploadThumbFromUrl,
+  uploadPermanentImageFromUrl,
   uploadContentImageFromUrl,
   fetchBuffer,
   imageUrlCandidates,

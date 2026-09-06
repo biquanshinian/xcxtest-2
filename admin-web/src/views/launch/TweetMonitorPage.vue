@@ -6,6 +6,7 @@
         <div class="tm-header-left">
           <span class="tm-title">追踪账号管理</span>
           <span class="tm-subtle">{{ accounts.length }} 个账号 · {{ enabledAccountCount }} 启用</span>
+          <span class="tm-subtle">认证标需手动选择（抓取无法区分灰/蓝/金）</span>
         </div>
         <el-button type="primary" size="small" @click="showAddDialog = true">添加账号</el-button>
       </div>
@@ -20,8 +21,24 @@
         <el-avatar :size="28" :src="row.avatarCosUrl || row.avatarUrl" v-if="row.avatarCosUrl || row.avatarUrl" />
         <el-avatar :size="28" v-else>{{ (row.label || '?')[0] }}</el-avatar>
         <div class="tm-account-info">
-          <div class="tm-account-name">{{ row.label || row.screenName }}</div>
+          <div class="tm-account-name">
+            {{ row.label || row.screenName }}
+            <XVerifyBadge v-if="row.verifyBadge && row.verifyBadge !== 'none'" :type="row.verifyBadge" :size="14" />
+          </div>
           <div class="tm-account-handle">@{{ row.screenName }}</div>
+        </div>
+        <div class="tm-badge-picker" title="认证标">
+          <button
+            v-for="opt in badgeOptions"
+            :key="opt.value"
+            type="button"
+            class="tm-badge-btn"
+            :class="{ 'is-active': (row.verifyBadge || 'none') === opt.value }"
+            :title="opt.title"
+            @click="onSetVerifyBadge(row, opt.value)"
+          >
+            <XVerifyBadge :type="opt.value" :size="16" />
+          </button>
         </div>
         <el-switch v-model="row.enabled" size="small" @change="onToggleAccount(row)" />
         <el-button class="tm-account-del" type="danger" size="small" link @click="onDeleteAccount(row)">删除</el-button>
@@ -36,6 +53,22 @@
         </el-form-item>
         <el-form-item label="显示名">
           <el-input v-model="newAccount.label" placeholder="可选，如 Elon Musk" />
+        </el-form-item>
+        <el-form-item label="认证标">
+          <div class="tm-badge-picker tm-badge-picker--dialog">
+            <button
+              v-for="opt in badgeOptions"
+              :key="opt.value"
+              type="button"
+              class="tm-badge-btn"
+              :class="{ 'is-active': newAccount.verifyBadge === opt.value }"
+              :title="opt.title"
+              @click="newAccount.verifyBadge = newAccount.verifyBadge === opt.value ? 'none' : opt.value"
+            >
+              <XVerifyBadge :type="opt.value" :size="18" />
+              <span>{{ opt.label }}</span>
+            </button>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -139,6 +172,13 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../../api/client'
 import MediaThumb from '../../components/media/MediaThumb.vue'
+import XVerifyBadge from '../../components/x-verify/XVerifyBadge.vue'
+
+const badgeOptions = [
+  { value: 'grey', label: '灰标', title: '灰标 · 政府 / 多边机构' },
+  { value: 'blue', label: '蓝标', title: '蓝标 · 个人 Premium 认证' },
+  { value: 'gold', label: '金标', title: '金标 · 企业 / 组织' }
+]
 
 const fmt = (t) => (t ? new Date(t).toLocaleString() : '-')
 const truncate = (str, len) => {
@@ -152,7 +192,7 @@ const accounts = ref([])
 const accountsLoading = ref(false)
 const showAddDialog = ref(false)
 const addLoading = ref(false)
-const newAccount = reactive({ screenName: '', label: '' })
+const newAccount = reactive({ screenName: '', label: '', verifyBadge: 'none' })
 
 const enabledAccountCount = computed(() => accounts.value.filter(a => a.enabled).length)
 
@@ -172,11 +212,16 @@ const onAddAccount = async () => {
   if (!newAccount.screenName.trim()) return ElMessage.warning('请输入账号')
   addLoading.value = true
   try {
-    await api.addTweetAccount({ screenName: newAccount.screenName.trim(), label: newAccount.label.trim() })
+    await api.addTweetAccount({
+      screenName: newAccount.screenName.trim(),
+      label: newAccount.label.trim(),
+      verifyBadge: newAccount.verifyBadge
+    })
     ElMessage.success('添加成功')
     showAddDialog.value = false
     newAccount.screenName = ''
     newAccount.label = ''
+    newAccount.verifyBadge = 'none'
     await loadAccounts()
   } catch (e) {
     ElMessage.error(e.message || '添加失败')
@@ -201,6 +246,18 @@ const onToggleAccount = async (row) => {
   } catch (e) {
     row.enabled = !row.enabled
     ElMessage.error('操作失败')
+  }
+}
+
+const onSetVerifyBadge = async (row, badge) => {
+  const next = (row.verifyBadge || 'none') === badge ? 'none' : badge
+  const prev = row.verifyBadge || 'none'
+  row.verifyBadge = next
+  try {
+    await api.updateTweetAccountBadge(row._id, next)
+  } catch (e) {
+    row.verifyBadge = prev
+    ElMessage.error(e.message || '设置认证标失败')
   }
 }
 
@@ -326,7 +383,7 @@ onMounted(() => {
 /* 账号 chip 网格 */
 .tm-account-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 8px;
 }
 .tm-account-chip {
@@ -356,6 +413,9 @@ onMounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 .tm-account-handle {
   font-size: 11px;
@@ -363,6 +423,46 @@ onMounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.tm-badge-picker {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.tm-badge-picker--dialog {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tm-badge-picker--dialog .tm-badge-btn {
+  height: 32px;
+  padding: 0 10px;
+}
+.tm-badge-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 5px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+  opacity: 0.42;
+  cursor: pointer;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1;
+  transition: opacity .15s, border-color .15s, background .15s;
+}
+.tm-badge-btn:hover {
+  opacity: 0.85;
+}
+.tm-badge-btn.is-active {
+  opacity: 1;
+  border-color: rgba(139,92,246,0.55);
+  background: rgba(139,92,246,0.14);
 }
 .tm-account-del {
   padding: 0 6px !important;

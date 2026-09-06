@@ -4,7 +4,7 @@
       <div class="hdr">
         <div class="hdr-left">
           <span class="hdr-title">内容中台 · 草稿箱</span>
-          <el-text type="info" size="small">一文多端：微信长文 / 小红书竖版 · 预览后选择性发布</el-text>
+          <el-text type="info" size="small">一文多端：微信文章 / 微信贴图 / 小红书竖版 · 预览后选择性发布</el-text>
         </div>
         <div class="acts">
           <el-select v-model="brandKey" clearable placeholder="全部发稿号" style="width:160px" @change="onFilter">
@@ -74,6 +74,7 @@
                 <span class="dot">·</span>
                 <span>{{ sourceLabel(row.sourceType) }}</span>
                 <span class="dot">·</span>
+                <el-tag v-if="isNewspic(row)" size="small" type="success" effect="plain">贴图</el-tag>
                 <el-tag
                   size="small"
                   effect="plain"
@@ -179,6 +180,7 @@
             <div class="draft-title" :title="row.title">{{ row.title || '未命名' }}</div>
             <div class="draft-card-tags">
               <el-tag :type="statusType(row.status)" size="small" effect="plain">{{ statusLabel(row.status) }}</el-tag>
+              <el-tag v-if="isNewspic(row)" size="small" type="success" effect="plain">贴图</el-tag>
               <el-tag size="small" effect="plain" :type="prepTagType(row)">{{ prepLabel(row) }}</el-tag>
             </div>
             <div v-if="row.error" class="draft-err" :title="row.error">{{ errorLabel(row.error) }}</div>
@@ -238,17 +240,51 @@
       destroy-on-close
       class="draft-dialog"
     >
-      <el-form :model="form" label-width="96px">
-        <el-form-item label="发稿号">
-          <el-select v-model="form.brandKey" style="width:100%">
-            <el-option v-for="b in brands" :key="b.key" :label="b.name" :value="b.key" />
-          </el-select>
+      <el-form :model="form" label-width="88px" class="draft-edit-form">
+        <el-row :gutter="12">
+          <el-col :xs="24" :sm="8" :md="7">
+            <el-form-item label="发稿号">
+              <el-select v-model="form.brandKey" style="width:100%">
+                <el-option v-for="b in brands" :key="b.key" :label="b.name" :value="b.key" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="8" :md="8">
+            <el-form-item label="微信形态" class="form-item-inline">
+              <el-radio-group v-model="form.wxArticleType" @change="onWxTypeChange">
+                <el-radio-button value="news">文章</el-radio-button>
+                <el-radio-button value="newspic">贴图</el-radio-button>
+              </el-radio-group>
+              <el-tooltip
+                content="贴图走微信图片消息：最多 20 张图 + 短文案，不排长文、没有原创声明"
+                placement="top"
+              >
+                <el-text size="small" type="info" class="field-hint-inline">说明</el-text>
+              </el-tooltip>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="8" :md="9">
+            <el-form-item label="作者">
+              <el-input v-model="form.author" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="标题">
+          <el-input
+            v-model="form.title"
+            :maxlength="form.wxArticleType === 'newspic' ? 32 : 64"
+            show-word-limit
+          />
         </el-form-item>
-        <el-form-item label="标题"><el-input v-model="form.title" /></el-form-item>
-        <el-form-item label="摘要"><el-input v-model="form.digest" /></el-form-item>
-        <el-form-item label="作者"><el-input v-model="form.author" /></el-form-item>
-        <el-form-item label="封面 URL"><el-input v-model="form.coverUrl" /></el-form-item>
-        <el-form-item v-if="form.imageUrls.length" label="配图">
+        <el-row v-if="form.wxArticleType !== 'newspic'" :gutter="12">
+          <el-col :xs="24" :md="12">
+            <el-form-item label="摘要"><el-input v-model="form.digest" /></el-form-item>
+          </el-col>
+          <el-col :xs="24" :md="12">
+            <el-form-item label="封面 URL"><el-input v-model="form.coverUrl" /></el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item v-if="form.imageUrls.length && form.wxArticleType !== 'newspic'" label="配图">
           <div class="draft-thumbs draft-thumbs--edit">
             <el-image
               v-for="(url, i) in form.imageUrls"
@@ -307,7 +343,7 @@
         <el-form-item v-if="readMoreUrl" label="阅读原文">
           <el-link :href="readMoreUrl" target="_blank" type="primary">{{ readMoreUrl }}</el-link>
         </el-form-item>
-        <el-form-item label="小程序 path">
+        <el-form-item v-if="form.wxArticleType !== 'newspic'" label="小程序 path">
           <el-input v-model="form.miniprogramPath" placeholder="按选题自动落到事件/任务/文章详情" />
           <el-text size="small" type="info">
             事件稿进事件详情（绑定该事件 ID），发射稿进任务详情，新闻稿进文章详情。视频封面也进同一事件页。留空或填首页时推送会按选题自动改写。
@@ -319,6 +355,107 @@
             <el-input v-model="form.markdown" type="textarea" :rows="20" placeholder="共用 Markdown 源稿" />
           </el-tab-pane>
           <el-tab-pane label="微信" name="wechat">
+            <div v-if="form.wxArticleType === 'newspic'" class="xhs-pane">
+              <div class="xhs-edit">
+                <el-form-item label="贴图文案">
+                  <el-input
+                    v-model="form.wxPicContent"
+                    type="textarea"
+                    :rows="5"
+                    maxlength="600"
+                    show-word-limit
+                    placeholder="纯文本说明，不要 HTML。配图占位 [[IMG:n]] 会自动去掉。"
+                  />
+                  <el-text size="small" type="info" class="field-hint-block">
+                    推送时去掉 [[IMG:n]] 和旧稿小程序短链，并按内容补微信话题（#话题#）。
+                  </el-text>
+                </el-form-item>
+                <el-form-item label="图片（最多 20）">
+                  <div class="pic-toolbar">
+                    <el-button size="small" @click="fillPicFromDraft">用当前配图</el-button>
+                    <el-button size="small" @click="fillPicFromXhs">用小红书图序</el-button>
+                  </div>
+                  <div class="pic-assets">
+                    <el-input
+                      v-model="picImagesText"
+                      type="textarea"
+                      :rows="4"
+                      placeholder="每行一个 https 图片，首张为封面"
+                    />
+                    <div class="pic-upload">
+                      <CosUpload
+                        :key="picUploadKey"
+                        model-value=""
+                        path-prefix="oa-newspic/"
+                        accept="image/*"
+                        :show-input="false"
+                        @success="onPicUploaded"
+                      />
+                    </div>
+                  </div>
+                </el-form-item>
+              </div>
+              <div class="xhs-preview-wrap">
+                <div class="preview-bar">
+                  <span>微信贴图预览</span>
+                  <el-text size="small" type="info">
+                    {{ picImageList.length || 0 }}/20 张 · 首张封面
+                  </el-text>
+                </div>
+                <div class="xhs-phone">
+                  <div class="xhs-phone-screen pic-phone">
+                    <div class="xhs-cover pic-cover">
+                      <template v-if="picImageList.length">
+                        <img :src="thumbSrc(picImageList[picSlideIndex] || picImageList[0])" alt="" />
+                        <button
+                          v-if="picImageList.length > 1"
+                          type="button"
+                          class="xhs-nav xhs-nav-prev"
+                          @click="picSlideIndex = (picSlideIndex - 1 + picImageList.length) % picImageList.length"
+                        >‹</button>
+                        <button
+                          v-if="picImageList.length > 1"
+                          type="button"
+                          class="xhs-nav xhs-nav-next"
+                          @click="picSlideIndex = (picSlideIndex + 1) % picImageList.length"
+                        >›</button>
+                        <div v-if="picImageList.length > 1" class="xhs-pager">
+                          {{ picSlideIndex + 1 }}/{{ picImageList.length }}
+                        </div>
+                      </template>
+                      <div v-else class="xhs-cover-empty">至少 1 张图</div>
+                    </div>
+                    <div v-if="picImageList.length" class="xhs-strip">
+                      <button
+                        v-for="(u, i) in picImageList"
+                        :key="`pic-strip-${i}`"
+                        type="button"
+                        class="xhs-strip-item"
+                        :class="{ 'is-on': i === picSlideIndex }"
+                        @click="picSlideIndex = i"
+                      >
+                        <img :src="thumbSrc(u)" alt="" />
+                        <span v-if="i === 0" class="xhs-strip-cover">封面</span>
+                      </button>
+                    </div>
+                    <div class="pic-actions" v-if="picImageList.length">
+                      <el-button size="small" :disabled="picSlideIndex <= 0" @click="movePic(picSlideIndex, -1)">前移</el-button>
+                      <el-button size="small" :disabled="picSlideIndex >= picImageList.length - 1" @click="movePic(picSlideIndex, 1)">后移</el-button>
+                      <el-button size="small" :disabled="picSlideIndex === 0" @click="setPicCover(picSlideIndex)">设为封面</el-button>
+                      <el-button size="small" type="danger" plain @click="removePic(picSlideIndex)">删除</el-button>
+                    </div>
+                    <div class="xhs-note">
+                      <div class="xhs-note-title">{{ form.title || '未命名贴图' }}</div>
+                      <div class="xhs-note-body">{{ picCaptionBody || '文案预览…' }}</div>
+                      <div v-if="picCaptionTopics.length" class="xhs-note-topics pic-note-topics">
+                        <span v-for="t in picCaptionTopics" :key="t">{{ t }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <template v-else>
             <el-form-item label="排版主题">
               <div class="theme-board">
                 <div v-for="cat in themeCategories" :key="`edit-${cat}`" class="theme-row">
@@ -369,6 +506,7 @@
                 </div>
               </div>
             </div>
+            </template>
           </el-tab-pane>
           <el-tab-pane label="小红书" name="xhs">
             <div class="xhs-toolbar">
@@ -488,11 +626,15 @@
             <el-timeline-item
               v-for="(ev, i) in form.timeline"
               :key="`tl-${i}`"
-              :timestamp="fmt(ev.t)"
               :type="timelineType(ev.e)"
               size="small"
             >
-              {{ timelineLabel(ev.e) }}<span v-if="ev.d" class="tl-detail">（{{ ev.d }}）</span>
+              <div class="tl-row">
+                <span class="tl-text" :title="timelineTitle(ev)">
+                  {{ timelineLabel(ev.e) }}<span v-if="ev.d" class="tl-detail">（{{ timelineDetail(ev.d) }}）</span>
+                </span>
+                <span class="tl-time">{{ fmt(ev.t) }}</span>
+              </div>
             </el-timeline-item>
           </el-timeline>
         </el-form-item>
@@ -521,23 +663,39 @@
         style="margin-bottom:12px"
         title="直接入库草稿箱，不走 AI 洗稿。配图请填可公网访问的 https 链接；保存后可转存再推微信。"
       />
-      <el-form :model="importForm" label-width="96px">
-        <el-form-item label="发稿号">
-          <el-select v-model="importForm.brandKey" style="width:240px">
-            <el-option v-for="b in brands" :key="b.key" :label="b.name" :value="b.key" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="标题"><el-input v-model="importForm.title" placeholder="可空，默认取 Markdown 首行 # 标题" /></el-form-item>
-        <el-form-item label="封面 URL"><el-input v-model="importForm.coverUrl" placeholder="https://..." /></el-form-item>
+      <el-form :model="importForm" label-width="88px" class="draft-edit-form">
+        <el-row :gutter="12">
+          <el-col :xs="24" :sm="8">
+            <el-form-item label="发稿号">
+              <el-select v-model="importForm.brandKey" style="width:100%">
+                <el-option v-for="b in brands" :key="b.key" :label="b.name" :value="b.key" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="8">
+            <el-form-item label="微信形态">
+              <el-radio-group v-model="importForm.wxArticleType">
+                <el-radio-button value="news">文章</el-radio-button>
+                <el-radio-button value="newspic">贴图</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="8">
+            <el-form-item label="标题">
+              <el-input v-model="importForm.title" placeholder="可空，取 Markdown 首行标题" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item v-if="importForm.wxArticleType !== 'newspic'" label="封面 URL"><el-input v-model="importForm.coverUrl" placeholder="https://..." /></el-form-item>
         <el-form-item label="配图 URL">
           <el-input
             v-model="importForm.imageUrlsText"
             type="textarea"
             :rows="2"
-            placeholder="每行一个 https 图片地址（可选）"
+            placeholder="每行一个 https 图片地址（贴图必填，最多 20 张）"
           />
         </el-form-item>
-        <el-form-item label="排版主题">
+        <el-form-item v-if="importForm.wxArticleType !== 'newspic'" label="排版主题">
           <div class="theme-board">
             <div v-for="cat in themeCategories" :key="`imp-${cat}`" class="theme-row">
               <span class="theme-cat">{{ cat }}</span>
@@ -557,8 +715,19 @@
             </div>
           </div>
         </el-form-item>
-        <el-form-item label="正文 / 预览">
-          <div class="split-pane">
+        <el-form-item :label="importForm.wxArticleType === 'newspic' ? '贴图文案' : '正文 / 预览'">
+          <div v-if="importForm.wxArticleType === 'newspic'">
+            <el-input
+              v-model="importForm.markdown"
+              type="textarea"
+              :rows="10"
+              placeholder="贴图说明（纯文本）。可空则用标题。"
+            />
+            <el-text size="small" type="info" style="display:block;margin-top:6px">
+              入库后会去掉 [[IMG:n]] 和旧稿小程序短链，并按内容补微信话题（#话题#）。
+            </el-text>
+          </div>
+          <div v-else class="split-pane">
             <el-input v-model="importForm.markdown" type="textarea" :rows="22" class="split-md" placeholder="粘贴成品 Markdown…" />
             <div class="split-preview">
               <div class="preview-bar">
@@ -607,6 +776,10 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../../api/client'
 import { displayOaImage, warmOaImageList } from '../../utils/oaImageProxy'
 import { previewMedia } from '../../utils/mediaPreview'
+import CosUpload from '../../components/media/CosUpload.vue'
+import newspicCaption from '../../../../cloudfunctions/adminGateway/oaNewspicCaption.js'
+const { finalizeNewspicContent, newspicBodyForEditor, peelNewspicFooter, formatWxTopic } =
+  newspicCaption
 
 const list = ref([])
 const total = ref(0)
@@ -660,7 +833,9 @@ const form = reactive({
   error: '',
   brandKey: '',
   timeline: [],
-  platforms: ['wechat']
+  platforms: ['wechat'],
+  wxArticleType: 'news',
+  wxPicContent: ''
 })
 const xhsForm = reactive({
   title: '',
@@ -675,6 +850,9 @@ const xhsForm = reactive({
 const xhsTopicsText = ref('')
 const xhsImagesText = ref('')
 const xhsSlideIndex = ref(0)
+const picImagesText = ref('')
+const picSlideIndex = ref(0)
+const picUploadKey = ref(0)
 const xhsTopicList = computed(() =>
   String(xhsTopicsText.value || '')
     .split(/[\s,，#]+/)
@@ -694,13 +872,43 @@ const xhsCoverIndex = computed(() => {
   return Math.min(Math.max(0, Number(xhsForm.coverIndex) || 0), n - 1)
 })
 const xhsCoverUrl = computed(() => xhsImageList.value[xhsCoverIndex.value] || '')
+const picImageList = computed(() =>
+  String(picImagesText.value || '')
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter((s) => /^https?:\/\//i.test(s))
+    .slice(0, 20)
+)
+const picCaptionPreview = computed(() =>
+  finalizeNewspicContent(form.wxPicContent, { title: form.title })
+)
+const picCaptionPeeled = computed(() => peelNewspicFooter(picCaptionPreview.value || ''))
+const picCaptionBody = computed(() => picCaptionPeeled.value.body)
+const picCaptionTopics = computed(() =>
+  (picCaptionPeeled.value.tags || []).map((t) => formatWxTopic(t)).filter(Boolean)
+)
+const isNewspic = (row) => {
+  const t = String(row?.wxArticleType || row?.variants?.wechat?.articleType || '')
+    .trim()
+    .toLowerCase()
+  return (
+    t === 'newspic' ||
+    t === 'pic' ||
+    t === 'image' ||
+    t === '图片帖' ||
+    t === '图片贴' ||
+    t === '图片消息' ||
+    t === '贴图'
+  )
+}
 const importForm = reactive({
   brandKey: '',
   title: '',
   coverUrl: '',
   imageUrlsText: '',
   themeId: 'bytedance',
-  markdown: ''
+  markdown: '',
+  wxArticleType: 'news'
 })
 const previewLoading = ref(false)
 const importPreviewLoading = ref(false)
@@ -773,6 +981,20 @@ const timelineLabel = (e) =>
     push_fail: '推送失败'
   }[e] || e || '事件')
 
+const timelineDetail = (d) => {
+  const s = String(d || '').replace(/\s+/g, ' ').trim()
+  if (!s) return ''
+  const mid = s.match(/^(.*?media_id=)(.{10}).+$/i)
+  if (mid) return `${mid[1]}${mid[2]}…`
+  return s.length > 42 ? `${s.slice(0, 40)}…` : s
+}
+
+const timelineTitle = (ev) => {
+  const label = timelineLabel(ev?.e)
+  const d = String(ev?.d || '').trim()
+  return d ? `${label}（${d}）` : label
+}
+
 const timelineType = (e) =>
   /fail/.test(String(e || ''))
     ? 'danger'
@@ -817,10 +1039,11 @@ const sourceLabel = (t) =>
   }[t] || t || '—')
 
 const wechatBadge = (row) => {
+  const pic = isNewspic(row)
   const s = row?.status
-  if (s === 'published') return '已发'
-  if (s === 'pushed_to_wechat') return '已推'
-  if (s === 'ready' || s === 'needs_review') return '草稿'
+  if (s === 'published') return pic ? '贴图·已发' : '已发'
+  if (s === 'pushed_to_wechat') return pic ? '贴图·已推' : '已推'
+  if (s === 'ready' || s === 'needs_review') return pic ? '贴图' : '草稿'
   return statusLabel(s).slice(0, 4)
 }
 const xhsBadge = (row) => {
@@ -869,6 +1092,107 @@ const applyXhsVariant = (xhs) => {
   syncXhsTextFields()
 }
 
+const onWxTypeChange = () => {
+  if (form.wxArticleType === 'newspic') {
+    if (!String(picImagesText.value || '').trim()) {
+      picImagesText.value = picImagesOf({
+        coverUrl: form.coverUrl,
+        imageUrls: form.imageUrls,
+        markdown: form.markdown
+      }).join('\n')
+    }
+    if (!String(form.wxPicContent || '').trim()) {
+      form.wxPicContent = newspicBodyForEditor(form.digest || form.markdown || '')
+    } else {
+      form.wxPicContent = newspicBodyForEditor(form.wxPicContent)
+    }
+    editTab.value = 'wechat'
+    return
+  }
+  schedulePreview('edit')
+}
+
+const fillPicFromDraft = () => {
+  picImagesText.value = picImagesOf({
+    coverUrl: form.coverUrl,
+    imageUrls: form.imageUrls,
+    markdown: form.markdown
+  }).join('\n')
+  picSlideIndex.value = 0
+}
+
+const fillPicFromXhs = () => {
+  if (!xhsImageList.value.length) {
+    ElMessage.warning('小红书变体还没有图')
+    return
+  }
+  picImagesText.value = xhsImageList.value.join('\n')
+  picSlideIndex.value = 0
+}
+
+const onPicUploaded = (url) => {
+  const u = String(url || '').trim()
+  if (!/^https?:\/\//i.test(u)) return
+  if (picImageList.value.includes(u)) {
+    ElMessage.info('这张图已经在列表里')
+    picUploadKey.value += 1
+    return
+  }
+  if (picImageList.value.length >= 20) {
+    ElMessage.warning('最多 20 张图')
+    picUploadKey.value += 1
+    return
+  }
+  picImagesText.value = [...picImageList.value, u].join('\n')
+  picUploadKey.value += 1
+  ElMessage.success('已加入贴图')
+}
+
+const rewritePicList = (list) => {
+  picImagesText.value = (list || []).join('\n')
+  if (picSlideIndex.value >= (list || []).length) {
+    picSlideIndex.value = Math.max(0, (list || []).length - 1)
+  }
+}
+
+const movePic = (index, dir) => {
+  const list = [...picImageList.value]
+  const j = index + dir
+  if (j < 0 || j >= list.length) return
+  const tmp = list[index]
+  list[index] = list[j]
+  list[j] = tmp
+  rewritePicList(list)
+  picSlideIndex.value = j
+}
+
+const setPicCover = (index) => {
+  const list = [...picImageList.value]
+  if (index <= 0 || index >= list.length) return
+  const [hit] = list.splice(index, 1)
+  list.unshift(hit)
+  rewritePicList(list)
+  picSlideIndex.value = 0
+}
+
+const removePic = (index) => {
+  const list = [...picImageList.value]
+  if (index < 0 || index >= list.length) return
+  list.splice(index, 1)
+  rewritePicList(list)
+}
+
+watch(
+  picImageList,
+  (list) => {
+    if (picSlideIndex.value >= list.length) {
+      picSlideIndex.value = Math.max(0, list.length - 1)
+    }
+    if (list.length) warmOaImageList(list, proxyMap).catch(() => null)
+  },
+  { immediate: true }
+)
+
 /** 把技术向失败文案改成可操作提示（不能当成功忽略） */
 const errorLabel = (err) => {
   const s = String(err || '').trim()
@@ -895,6 +1219,14 @@ const errorLabel = (err) => {
 }
 
 const prepLabel = (row) => {
+  if (isNewspic(row)) {
+    const n = imagesOf(row).length
+    if (!n) return '缺图'
+    if (row.imagesReady || row.imagePrepStatus === 'ready') return `贴图就绪（${n}）`
+    if (row.imagePrepStatus === 'partial') return '贴图部分就绪'
+    if (row.imagePrepStatus === 'preparing') return '贴图转存中'
+    return '贴图未转存'
+  }
   const bodyN = bodyImagesOf(row).length
   if (!bodyN) {
     if (row.coverUrl) return '仅封面'
@@ -915,6 +1247,13 @@ const prepLabel = (row) => {
 }
 
 const prepTagType = (row) => {
+  if (isNewspic(row)) {
+    if (!imagesOf(row).length) return 'danger'
+    if (row.imagesReady || row.imagePrepStatus === 'ready') return 'success'
+    if (row.imagePrepStatus === 'partial') return 'warning'
+    if (row.imagePrepStatus === 'preparing') return 'info'
+    return 'danger'
+  }
   if (!bodyImagesOf(row).length) return 'info'
   if (row.imagesReady || row.imagePrepStatus === 'ready') return 'success'
   if (row.imagePrepStatus === 'partial') return 'warning'
@@ -936,6 +1275,31 @@ const imagesOf = (row) => {
   if (Array.isArray(row?.imageUrls)) row.imageUrls.forEach(push)
   if (Array.isArray(row?.images)) row.images.forEach(push)
   return out
+}
+
+const markdownImagesOf = (md) => {
+  const out = []
+  const re = /!\[[^\]]*\]\((https?:\/\/[^)\s]+)/gi
+  let m
+  while ((m = re.exec(String(md || '')))) {
+    const s = String(m[1] || '').trim()
+    if (s) out.push(s)
+  }
+  return out
+}
+
+const picImagesOf = (row) => {
+  const out = []
+  const seen = new Set()
+  const push = (u) => {
+    const s = String(u || '').trim()
+    if (!/^https?:\/\//i.test(s) || seen.has(s)) return
+    seen.add(s)
+    out.push(s)
+  }
+  imagesOf(row).forEach(push)
+  markdownImagesOf(row?.markdown).forEach(push)
+  return out.slice(0, 20)
 }
 
 /** 视频素材（封面截图 + 观看链接；长视频只有截图与链接） */
@@ -1018,6 +1382,7 @@ const bodyImagesOf = (row) => {
 }
 
 const canPush = (row) => {
+  if (isNewspic(row) && !imagesOf(row).length) return false
   if (['ready', 'pushed_to_wechat', 'push_failed'].includes(row.status)) return true
   // 卡住的推送中允许强制重试
   if (row.status === 'pushing') return true
@@ -1193,13 +1558,20 @@ const openImport = () => {
   importForm.imageUrlsText = ''
   importForm.themeId = 'bytedance'
   importForm.markdown = ''
+  importForm.wxArticleType = 'news'
   clearThemeMap(importThemeHtmlMap)
   importVisible.value = true
 }
 
 const onImport = async () => {
   const md = String(importForm.markdown || '').trim()
-  if (!md) {
+  const images = parseImageUrlsText(importForm.imageUrlsText)
+  if (importForm.wxArticleType === 'newspic') {
+    if (!images.length) {
+      ElMessage.warning('贴图请至少填 1 张配图 URL')
+      return
+    }
+  } else if (!md) {
     ElMessage.warning('请粘贴 Markdown 正文')
     return
   }
@@ -1209,9 +1581,11 @@ const onImport = async () => {
       brandKey: importForm.brandKey || undefined,
       title: importForm.title || undefined,
       coverUrl: importForm.coverUrl || undefined,
-      imageUrls: parseImageUrlsText(importForm.imageUrlsText),
+      imageUrls: images,
       themeId: importForm.themeId,
-      markdown: md
+      markdown: md || importForm.title || '贴图',
+      wxArticleType: importForm.wxArticleType,
+      wxPicContent: importForm.wxArticleType === 'newspic' ? md : undefined
     })
     ElMessage.success(`已入库：${res?.title || '草稿'}（主题 ${res?.themeId || ''}）`)
     importVisible.value = false
@@ -1237,9 +1611,9 @@ watch(
 
 // 主题不进 watch：切主题瞬时；仅正文/品牌/封面变化才批量预渲染
 watch(
-  () => [form.markdown, form.brandKey, form.coverUrl, visible.value],
+  () => [form.markdown, form.brandKey, form.coverUrl, visible.value, form.wxArticleType],
   () => {
-    if (visible.value) schedulePreview('edit')
+    if (visible.value && form.wxArticleType !== 'newspic') schedulePreview('edit')
   }
 )
 watch(
@@ -1248,10 +1622,11 @@ watch(
     importForm.brandKey,
     importForm.coverUrl,
     importForm.imageUrlsText,
+    importForm.wxArticleType,
     importVisible.value
   ],
   () => {
-    if (importVisible.value) schedulePreview('import')
+    if (importVisible.value && importForm.wxArticleType !== 'newspic') schedulePreview('import')
   }
 )
 
@@ -1290,8 +1665,18 @@ const openEdit = async (row) => {
       error: d.error || '',
       brandKey: d.brandKey || '',
       timeline: Array.isArray(d.pushTimeline) ? d.pushTimeline.slice().reverse() : [],
-      platforms: Array.isArray(d.platforms) && d.platforms.length ? d.platforms : ['wechat']
+      platforms: Array.isArray(d.platforms) && d.platforms.length ? d.platforms : ['wechat'],
+      wxArticleType: isNewspic(d) ? 'newspic' : 'news',
+      wxPicContent: isNewspic(d)
+        ? newspicBodyForEditor(d.wxPicContent || d.digest || '')
+        : d.wxPicContent || d.digest || ''
     })
+    picImagesText.value = (
+      isNewspic(d) && Array.isArray(d.imageUrls) && d.imageUrls.length
+        ? imagesOf(d)
+        : picImagesOf(d)
+    ).join('\n')
+    picSlideIndex.value = 0
     applyXhsVariant(d.variants?.xhs || {})
     visible.value = true
     schedulePreview('edit')
@@ -1396,10 +1781,18 @@ const ensureHeroImage = (md, coverUrl = '') => {
 const onSave = async () => {
   saving.value = true
   try {
-    const cleaned = ensureHeroImage(
-      stripPromoFooter(stripFallbackNotice(form.markdown)),
-      form.coverUrl || ''
-    )
+    const picUrls = picImageList.value
+    if (form.wxArticleType === 'newspic' && !picUrls.length) {
+      ElMessage.warning('贴图至少需要 1 张图')
+      return
+    }
+    const cleaned =
+      form.wxArticleType === 'newspic'
+        ? stripPromoFooter(stripFallbackNotice(form.markdown))
+        : ensureHeroImage(
+            stripPromoFooter(stripFallbackNotice(form.markdown)),
+            form.coverUrl || ''
+          )
     form.markdown = cleaned
     const xhs = collectXhsFromUi()
     const platforms = Array.isArray(form.platforms) ? [...form.platforms] : ['wechat']
@@ -1408,13 +1801,16 @@ const onSave = async () => {
       title: form.title,
       digest: form.digest,
       author: form.author,
-      coverUrl: form.coverUrl,
+      coverUrl: form.wxArticleType === 'newspic' ? picUrls[0] || '' : form.coverUrl,
       miniprogramPath: form.miniprogramPath,
       markdown: cleaned,
       themeId: form.themeId,
       brandKey: form.brandKey,
       platforms,
       variants: { xhs },
+      wxArticleType: form.wxArticleType,
+      wxPicContent: form.wxPicContent,
+      ...(form.wxArticleType === 'newspic' ? { imageUrls: picUrls } : {}),
       // 是否真的改写由后端与原素材比对判定；照搬会被后端打回并提示
       status: 'ready',
       error: ''
@@ -1898,13 +2294,51 @@ onUnmounted(() => {
   gap: 8px;
 }
 .draft-timeline {
-  padding-left: 4px;
+  padding-left: 2px;
   width: 100%;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.draft-timeline :deep(.el-timeline-item) {
+  padding-bottom: 4px;
+}
+.draft-timeline :deep(.el-timeline-item__wrapper) {
+  padding-left: 16px;
+  top: 0;
+}
+.draft-timeline :deep(.el-timeline-item__tail) {
+  top: 8px;
+}
+.draft-timeline :deep(.el-timeline-item__node) {
+  top: 2px;
+}
+.draft-timeline :deep(.el-timeline-item__timestamp) {
+  display: none;
+}
+.tl-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.tl-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tl-detail {
   color: var(--el-text-color-secondary);
   font-size: 12px;
-  word-break: break-all;
+}
+.tl-time {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
 }
 
 .theme-board {
@@ -2033,6 +2467,9 @@ onUnmounted(() => {
   .xhs-pane {
     grid-template-columns: 1fr;
   }
+  .pic-assets {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 768px) {
@@ -2157,8 +2594,55 @@ onUnmounted(() => {
   gap: 4px;
   align-items: center;
 }
-.plat-tabs {
+.draft-edit-form :deep(.el-form-item) {
+  margin-bottom: 10px;
+}
+.draft-edit-form :deep(.el-form-item__label) {
+  height: 32px;
+  line-height: 32px;
+}
+.draft-edit-form :deep(.form-item-inline .el-form-item__content) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.field-hint-inline {
+  cursor: help;
+  white-space: nowrap;
+}
+.field-hint-block {
+  display: block;
   margin-top: 4px;
+  line-height: 1.4;
+}
+.pic-assets {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(160px, 0.8fr);
+  gap: 10px;
+  width: 100%;
+  align-items: stretch;
+}
+.pic-upload {
+  margin-top: 0;
+  min-width: 0;
+}
+.pic-upload :deep(.adv-drop-zone) {
+  min-height: 72px;
+  padding: 10px 8px;
+}
+.pic-upload :deep(.adv-drop-zone-content svg) {
+  width: 22px;
+  height: 22px;
+}
+.pic-upload :deep(.adv-drop-title) {
+  font-size: 12px;
+}
+.pic-upload :deep(.adv-drop-hint) {
+  font-size: 11px;
+}
+.plat-tabs {
+  margin-top: 0;
 }
 .xhs-toolbar {
   display: flex;
@@ -2174,7 +2658,10 @@ onUnmounted(() => {
   width: 100%;
 }
 .xhs-edit :deep(.el-form-item) {
-  margin-bottom: 12px;
+  margin-bottom: 8px;
+}
+.xhs-edit :deep(.el-form-item__content) {
+  display: block;
 }
 .xhs-preview-wrap {
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -2331,6 +2818,11 @@ onUnmounted(() => {
   font-size: 12px;
   color: #3d7eff;
 }
+.pic-note-topics {
+  color: #576b95;
+  font-size: 13px;
+  gap: 8px;
+}
 .xhs-pin {
   margin-top: 10px;
   padding: 8px;
@@ -2338,6 +2830,23 @@ onUnmounted(() => {
   background: #f7f7f8;
   font-size: 12px;
   color: #666;
+}
+.pic-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.pic-cover {
+  aspect-ratio: 1 / 1;
+}
+.pic-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 8px 0;
+}
+.pic-phone {
+  width: 270px;
 }
 </style>
 

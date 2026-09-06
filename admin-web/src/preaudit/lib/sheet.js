@@ -200,6 +200,7 @@ export function sheetWorkName(caption) {
 }
 
 export const WORK_PHOTOS_PER_PAGE = 3
+export const ACCEPT_PHOTOS_PER_PAGE = 9
 
 const STAGE_CODE = {
   '施工前': '前',
@@ -236,9 +237,15 @@ export function workSheetPageCount(sections) {
   return pages
 }
 
-export function workPageSlice(items, pageIndex) {
-  const start = Math.max(0, Number(pageIndex) || 0) * WORK_PHOTOS_PER_PAGE
-  return (items || []).slice(start, start + WORK_PHOTOS_PER_PAGE)
+export function workPageSlice(items, pageIndex, perPage) {
+  const size = Math.max(1, Number(perPage) || WORK_PHOTOS_PER_PAGE)
+  const start = Math.max(0, Number(pageIndex) || 0) * size
+  return (items || []).slice(start, start + size)
+}
+
+export function acceptSheetPageCount(items) {
+  const n = typeof items === 'number' ? items : sectionCount(items)
+  return Math.max(1, Math.ceil(Math.max(0, n) / ACCEPT_PHOTOS_PER_PAGE) || 1)
 }
 
 function stageRangeLabel(title, images) {
@@ -333,7 +340,7 @@ function drawPhotoGrid(ctx, photos, box, fallbackLabel) {
     ctx.font = '14px sans-serif'
     const code = item.code || (opt.codeTitle ? stagePhotoCode(opt.codeTitle, item.no) : '')
     const name = fitLabel(ctx, item.caption, cellW - 16)
-    const text = name || code
+    const text = name
     const labelH = text ? 26 : 0
     const innerW = cellW - pad * 2
     const innerH = Math.max(1, cellH - pad * 2 - labelH)
@@ -410,29 +417,37 @@ export async function renderWorkPages(spec) {
   return pages
 }
 
-export async function renderAcceptPages(spec) {
+function drawAcceptCanvas(spec, images, pageIndex, pageCount) {
   const { canvas, ctx } = makeA4()
   drawHeader(ctx, sheetMainTitle('accept'), spec)
   const box = innerBox()
   const top = headerBottom()
+  const slice = workPageSlice(images, pageIndex, ACCEPT_PHOTOS_PER_PAGE)
   ctx.fillStyle = '#c4841a'
   fillRound(ctx, box.x, top, box.w, 40, 6)
   ctx.fillStyle = '#fff'
   ctx.font = '22px sans-serif'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'alphabetic'
-  ctx.fillText('现场验收', A4_W / 2, top + 28)
+  ctx.fillText(stageRangeLabel('现场验收', slice), A4_W / 2, top + 28)
   ctx.fillStyle = '#1c2b24'
   ctx.font = '18px sans-serif'
   ctx.fillText(clip(spec.peopleText || '未登记到场人员', 48), A4_W / 2, top + 64)
-  const images = await loadPhotoEntries(spec.items || spec.paths, 9)
-  drawPhotoGrid(ctx, images, { x: box.x, y: top + 80, w: box.w, h: A4_H - top - 80 - FOOTER_H }, {
+  drawPhotoGrid(ctx, slice, { x: box.x, y: top + 80, w: box.w, h: A4_H - top - 80 - FOOTER_H }, {
     codeTitle: '现场验收',
     color: '#c4841a',
-    emptyText: '暂无照片'
+    emptyText: pageIndex ? '本页无' : '暂无照片'
   })
-  drawSheetFooter(ctx, 1, 1)
-  return [canvas]
+  drawSheetFooter(ctx, pageIndex + 1, pageCount)
+  return canvas
+}
+
+export async function renderAcceptPages(spec) {
+  const images = await loadPhotoEntries(spec.items || spec.paths)
+  const pageCount = acceptSheetPageCount(images)
+  const pages = []
+  for (let p = 0; p < pageCount; p++) pages.push(drawAcceptCanvas(spec, images, p, pageCount))
+  return pages
 }
 
 function asciiBytes(text) {
@@ -610,7 +625,12 @@ export async function exportWorkSheet(spec) {
 
 export async function exportAcceptSheet(spec) {
   const pages = await renderAcceptPages(spec)
-  return downloadCanvas(pages[0], (spec.name || '验收照片') + '-验收A4.jpg')
+  const base = (spec.name || '验收照片') + '-验收A4'
+  if (pages.length === 1) return downloadCanvas(pages[0], base + '.jpg')
+  for (let i = 0; i < pages.length; i++) {
+    await downloadCanvas(pages[i], base + '-' + (i + 1) + '.jpg')
+  }
+  return true
 }
 
 export async function makeWatermark(src, projectName, stampDate) {

@@ -34,16 +34,30 @@
 
 <script setup>
 import { reactive, ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { api, auth } from '../../api/client'
 import { flushPreauditCloud, syncAccountStore } from '../../preaudit/lib/store.js'
 
 const router = useRouter()
+const route = useRoute()
 const loading = ref(false)
 const captchaLoading = ref(false)
 const captcha = reactive({ id: '', svg: '' })
 const form = reactive({ username: '', password: '', captchaCode: '' })
+
+function loginRedirect() {
+  const raw = route.query && route.query.redirect
+  const path = String(Array.isArray(raw) ? raw[0] : raw || '').trim()
+  if (!path.startsWith('/') || path.startsWith('//')) return ''
+  if (path.includes('\\') || path.includes('://') || path.includes('//')) return ''
+  const bare = path.split(/[?#]/)[0]
+  if (bare === '/login' || bare.startsWith('/login/')) return ''
+  const resolved = router.resolve(path)
+  if (!resolved.matched.length) return ''
+  if (resolved.path === '/login' || String(resolved.path || '').startsWith('/login/')) return ''
+  return path
+}
 
 const refreshCaptcha = async () => {
   if (captchaLoading.value) return
@@ -89,7 +103,7 @@ const onLogin = async () => {
     await flushPreauditCloud()
     syncAccountStore()
     ElMessage.success('登录成功')
-    await router.replace(auth.homePath())
+    await router.replace(loginRedirect() || auth.homePath())
   } catch (e) {
     ElMessage.error(e.message || '登录失败')
     refreshCaptcha()

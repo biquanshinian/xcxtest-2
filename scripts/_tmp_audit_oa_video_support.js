@@ -106,24 +106,21 @@ check('pickVideoEntries：duration>120 判长视频；裸 mp4 字符串可收；
   assert.ok(/ci-process=snapshot/.test(list[1].posterUrl))
 })
 
-check('annotateVideoPostersInMarkdown：有事件 id 引导点封面播放；无 id 才按阅读原文', () => {
+check('annotateVideoPostersInMarkdown：不再插入说明，并清掉旧稿引导', () => {
   const poster = `${COS}/tweets/123_v0.jpg`
   const videos = [{ posterUrl: poster, watchUrl: 'https://x.com/s/123', pageUrl: 'https://x.com/s/123', isLong: true }]
   const md = `开头\n\n![配图1](${poster})\n\n结尾`
   const withEvent = helpers.annotateVideoPostersInMarkdown(md, videos, { eventId: 'ev_long' })
-  assert.ok(withEvent.includes(`![配图1](${poster})\n\n> ▶ 视频封面，点击封面可在小程序查看该条动态`), withEvent)
-  const twice = helpers.annotateVideoPostersInMarkdown(withEvent, videos, { eventId: 'ev_long' })
-  assert.strictEqual(twice, withEvent, '重复标注应幂等')
-  const noEventTwitter = helpers.annotateVideoPostersInMarkdown(md, videos, {
-    readMoreUrl: 'https://x.com/s/123'
-  })
-  assert.ok(noEventTwitter.includes('> ▶ 视频封面\n'), noEventTwitter)
-  assert.ok(!noEventTwitter.includes('阅读原文'), '推特不得提示阅读原文')
-  const nsf = 'https://www.nasaspaceflight.com/2026/08/foo/'
-  const byPage = helpers.annotateVideoPostersInMarkdown(md, [{ ...videos[0], pageUrl: nsf, watchUrl: nsf }], {
-    readMoreUrl: nsf
-  })
-  assert.ok(byPage.includes('完整视频点文末「阅读原文」'), byPage)
+  assert.strictEqual(withEvent.includes('视频封面'), false, withEvent)
+  assert.strictEqual(withEvent.includes('点击封面'), false, withEvent)
+  assert.ok(withEvent.includes(`![配图1](${poster})`), withEvent)
+  const legacy = `开头\n\n![配图1](${poster})\n\n> ▶ 视频封面，点击封面可在小程序查看该条动态\n\n点击封面即可观看\n\n结尾`
+  const cleaned = helpers.annotateVideoPostersInMarkdown(legacy)
+  assert.strictEqual(cleaned.includes('视频封面'), false, cleaned)
+  assert.strictEqual(cleaned.includes('点击封面即可观看'), false, cleaned)
+  assert.ok(cleaned.includes(`![配图1](${poster})`), cleaned)
+  const twice = helpers.annotateVideoPostersInMarkdown(cleaned)
+  assert.strictEqual(twice, cleaned, '清引导应幂等')
 })
 
 check('resolveDraftSourceUrl / sanitizeContentSourceUrl：禁裸视频与推特，视频事件走 oa-watch', () => {
@@ -252,7 +249,7 @@ check('resolveOaMiniprogramPath：按选题落到对应详情页，首页占位�
   )
 })
 
-check('wrapImagesWithMiniprogram：视频封面独立 path + 播放文字链；普通图不加点播', () => {
+check('wrapImagesWithMiniprogram：视频封面独立 path，不再附加播放文字链', () => {
   const poster = `${COS}/p.jpg`
   const other = `${COS}/a.jpg`
   const html = `<p><img src="${poster}" /></p><p><img src="${other}" /></p>`
@@ -263,14 +260,15 @@ check('wrapImagesWithMiniprogram：视频封面独立 path + 播放文字链；�
     srcPathMap: { [poster]: posterPath }
   })
   assert.ok(out.includes(`data-miniprogram-path="${posterPath}"`), out)
-  assert.ok(out.includes('▶ 点击播放视频'), out)
+  assert.ok(!out.includes('▶ 点击播放视频'), out)
   assert.ok(!/pages\/index\/index/.test(out), 'mode=none 时不应出现默认首页 path')
   const twice = wechatApi.wrapImagesWithMiniprogram(out, {
     path: 'pages/index/index',
     mode: 'none',
     srcPathMap: { [poster]: posterPath }
   })
-  assert.strictEqual((twice.match(/▶ 点击播放视频/g) || []).length, 1, '重复 wrap 不应叠加播放链')
+  assert.ok(twice.includes(`data-miniprogram-path="${posterPath}"`), twice)
+  assert.strictEqual((twice.match(/data-miniprogram-path=/g) || []).length, 1, '重复 wrap 不应叠加锚点')
 })
 
 check('wrapImagesWithMiniprogram：转存后的 mmbiz 封面仍走事件详情而不是首页', () => {

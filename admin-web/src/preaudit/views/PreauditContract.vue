@@ -1,10 +1,21 @@
 <template>
   <div class="pa">
     <div v-if="!project" class="pa-card pa-empty">找不到这个项目</div>
+    <div v-else-if="isSmall" class="pa-card pa-empty">
+      <p class="pa-title">小额不用合同水印</p>
+      <div class="pa-actions">
+        <el-button type="primary" @click="openOrgSwitch">换类型</el-button>
+        <el-button @click="goProject">回项目</el-button>
+      </div>
+    </div>
     <template v-else>
       <div class="pa-card">
-        <p class="pa-title">合同原件</p>
-        <div class="pa-sub">拍照或上传后会自动认签订日期和金额。也可扫一扫，扫拍图不保存。</div>
+        <div class="pa-row pa-detail-head">
+          <p class="pa-title pa-grow">合同原件</p>
+          <el-button size="small" :type="contractConfirmed ? 'default' : 'primary'" @click="toggleConfirm('contract')">
+            {{ contractConfirmed ? '取消确认' : '确认' }}
+          </el-button>
+        </div>
         <PhotoStrip
           :files="originals"
           :on="dropKey === 'contract'"
@@ -24,51 +35,35 @@
           @dragleave="onDragLeave($event, 'contract')"
           @drop="onDrop($event, 'contract')"
         />
-        <div class="pa-field">
-          <label class="pa-label">合同签订日期</label>
-          <el-date-picker v-model="contractDate" class="pa-date" popper-class="pa-date-popper" type="date" format="YYYY-MM-DD" value-format="YYYY-MM-DD" placeholder="选择日期" :editable="false" style="width: 100%;" @change="saveContract" />
-        </div>
-        <div class="pa-field">
-          <label class="pa-label">合同金额（元）</label>
-          <el-input v-model="contractAmount" inputmode="decimal" placeholder="可不填，不填则按中标/成交通知" @input="saveContract" @change="saveContract" />
+        <div class="pa-pair">
+          <div class="pa-field">
+            <label class="pa-label">签订日期</label>
+            <el-date-picker v-model="contractDate" class="pa-date" popper-class="pa-date-popper" type="date" format="YYYY-MM-DD" value-format="YYYY-MM-DD" placeholder="选择日期" :editable="false" style="width: 100%;" @change="saveContract" />
+          </div>
+          <div class="pa-field">
+            <label class="pa-label">金额（元）</label>
+            <el-input v-model="contractAmount" inputmode="decimal" @input="saveContract" @change="saveContract" />
+          </div>
         </div>
         <div v-if="needDateReview" class="pa-banner warn">
-          <div>合同原件认出多个日期：{{ dateReview.ocrDates.join('、') }}</div>
-          <div class="pa-sub">
-            {{ dateReview.expected.length ? ('填写的是 ' + dateReview.expected.join('、') + '。') : '还没填签订日期。' }}
-            对不上的是 {{ dateReview.unmatched.join('、') }}。对照原图后可手动通过。
-          </div>
-          <div class="pa-actions" style="margin-top: 8px;">
-            <el-button type="primary" @click="passDateReview">核对无误，通过</el-button>
+          <div class="pa-row">
+            <div class="pa-grow">日期对不上：{{ dateReview.unmatched.join('、') }}</div>
+            <el-button size="small" type="primary" @click="passDateReview">通过</el-button>
           </div>
         </div>
-        <div v-if="ocrHint" class="pa-ocr">{{ ocrHint }}</div>
         <div class="pa-actions">
-          <el-button class="is-main" type="primary" :disabled="ocrBusy" @click="openScan">扫一扫填数据</el-button>
-          <el-button :disabled="!originals.length || ocrBusy" :loading="ocrBusy" @click="runOcr(false)">识别已上传的图</el-button>
+          <el-button type="primary" :disabled="ocrBusy" @click="openScan">扫一扫</el-button>
+          <el-button :disabled="!originals.length || ocrBusy" :loading="ocrBusy" @click="runOcr(false)">识别图片</el-button>
         </div>
-        <div class="pa-field">
-          <label class="pa-label">水印日期</label>
-          <el-date-picker v-model="stampDate" class="pa-date" popper-class="pa-date-popper" type="date" format="YYYY-MM-DD" value-format="YYYY-MM-DD" placeholder="选择日期" :editable="false" style="width: 100%;" />
-        </div>
-        <div class="pa-actions">
-          <el-button class="is-main" type="primary" :loading="working" :disabled="working" @click="makeMark">生成报账水印</el-button>
-          <el-button :type="contractConfirmed ? 'default' : 'primary'" @click="toggleConfirm('contract')">
-            {{ contractConfirmed ? '取消确认原件' : '无需上传，确认原件已备齐' }}
+      </div>
+
+      <div class="pa-card" style="margin-top: 10px;">
+        <div class="pa-row pa-detail-head">
+          <p class="pa-title pa-grow">彩打后扫描件</p>
+          <el-button size="small" :type="printConfirmed ? 'default' : 'primary'" @click="toggleConfirm('contract_watermark')">
+            {{ printConfirmed ? '取消确认' : '确认' }}
           </el-button>
         </div>
-      </div>
-
-      <div v-if="previewPath" class="pa-card" style="margin-top: 12px;">
-        <p class="pa-title">水印预览</p>
-        <img :src="previewPath" alt="" style="width: 100%; border-radius: 12px; margin-top: 12px;" />
-        <div class="pa-actions">
-          <el-button @click="downloadPreview">保存到电脑</el-button>
-        </div>
-      </div>
-
-      <div class="pa-card" style="margin-top: 12px;">
-        <p class="pa-title">彩打后扫描件</p>
         <PhotoStrip
           :files="prints"
           :on="dropKey === 'contract_watermark'"
@@ -88,11 +83,6 @@
           @dragleave="onDragLeave($event, 'contract_watermark')"
           @drop="onDrop($event, 'contract_watermark')"
         />
-        <div class="pa-actions" style="margin-top: 12px;">
-          <el-button :type="printConfirmed ? 'default' : 'primary'" @click="toggleConfirm('contract_watermark')">
-            {{ printConfirmed ? '取消确认扫描件' : '无需上传，确认扫描件已备齐' }}
-          </el-button>
-        </div>
       </div>
 
       <div class="pa-dock pa-actions pa-dock--back">
@@ -108,12 +98,18 @@
         @close="scanOpen = false"
       />
     </template>
+    <OrgSwitchDialog
+      :open="orgSwitchOpen"
+      :current-org="project ? getOrgType(project) : ''"
+      @close="closeOrgSwitch"
+      @pick="pickOrg"
+    />
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getProject, getMaterial, saveMaterial, saveOcrCapture, addFiles, persistPendingPhotos, removeFile, reorderFiles, rotateStoredFile, updateFileMeta } from '../lib/store.js'
 import { photoStoreLabel } from '../lib/photo-cloud.js'
@@ -124,16 +120,24 @@ import { usePhotoPreview } from '../lib/use-photo-preview.js'
 import PhotoLightbox from '../components/PhotoLightbox.vue'
 import PhotoStrip from '../components/PhotoStrip.vue'
 import ScanFillOverlay from '../components/ScanFillOverlay.vue'
-import { today } from '../lib/date.js'
+import OrgSwitchDialog from '../components/OrgSwitchDialog.vue'
+import { getOrgType } from '../lib/checklist.js'
+import { useOrgSwitch } from '../lib/use-org-switch.js'
 import { inspectOcrDates } from '../lib/audit.js'
-import { makeWatermark, downloadUrl } from '../lib/sheet.js'
 import { applyParsed, applyProjectMeta, ocrEngineHint, recognizeBestUpload } from '../lib/ocr.js'
 import { shouldFinishScan, unlockScanFeedback } from '../lib/scan-fill.js'
 import { typingInField } from '../lib/util.js'
 import '../preaudit.css'
 
 const route = useRoute()
+const router = useRouter()
 const project = computed(() => getProject(route.params.id))
+const { orgSwitchOpen, openOrgSwitch, closeOrgSwitch, pickOrg } = useOrgSwitch(() => project.value)
+const isSmall = computed(() => getOrgType(project.value) === 'small')
+const goProject = () => {
+  if (!project.value) return
+  router.replace('/preaudit/' + project.value.id)
+}
 function liveFiles(key) {
   const p = project.value
   const list = p && p.materials && p.materials[key] && p.materials[key].files
@@ -151,9 +155,6 @@ const contractConfirmed = computed(() => !!(project.value && getMaterial(project
 const printConfirmed = computed(() => !!(project.value && getMaterial(project.value, 'contract_watermark').confirmed))
 const contractDate = ref(project.value ? getMaterial(project.value, 'contract').date : '')
 const contractAmount = ref(project.value && (getMaterial(project.value, 'contract').amount === 0 || getMaterial(project.value, 'contract').amount) ? String(getMaterial(project.value, 'contract').amount) : '')
-const stampDate = ref(today())
-const previewPath = ref(project.value ? (getMaterial(project.value, 'contract').watermarkPath || '') : '')
-const working = ref(false)
 const ocrBusy = ref(false)
 const ocrHint = ref('')
 const scanOpen = ref(false)
@@ -171,13 +172,12 @@ const saveContract = () => {
 watch(() => {
   const p = project.value
   const m = p ? getMaterial(p, 'contract') : null
-  return m ? [p.updatedAt, m.date, m.amount, m.watermarkPath].join('|') : ''
+  return m ? [p.updatedAt, m.date, m.amount].join('|') : ''
 }, () => {
   if (!project.value || typingInField()) return
   const m = getMaterial(project.value, 'contract')
   contractDate.value = m.date || ''
   contractAmount.value = (m.amount === 0 || m.amount) ? String(m.amount) : ''
-  if (m.watermarkPath) previewPath.value = m.watermarkPath
 })
 
 const passDateReview = () => {
@@ -353,28 +353,5 @@ const remove = async (key, file) => {
     if (e === 'cancel' || e === 'close') return
     if (e && e.message) ElMessage.error(e.message)
   }
-}
-
-const makeMark = async () => {
-  if (!originals.value.length) {
-    ElMessage.warning('请先上传合同')
-    return
-  }
-  working.value = true
-  try {
-    const url = await makeWatermark(originals.value[0].path, project.value.name, stampDate.value)
-    previewPath.value = url
-    saveMaterial(project.value.id, 'contract', { watermarkPath: url })
-    ElMessage.success('水印已生成')
-  } catch (e) {
-    ElMessage.error(e.message || '生成失败')
-  } finally {
-    working.value = false
-  }
-}
-
-const downloadPreview = () => {
-  if (!previewPath.value) return
-  downloadUrl(previewPath.value, (project.value.name || '合同') + '-水印.jpg')
 }
 </script>

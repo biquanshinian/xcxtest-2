@@ -15,7 +15,7 @@
           <div class="pa-tile small">小</div>
           <div class="pa-grow">
             <p class="pa-title">村委会小额</p>
-            <div class="pa-sub">4 步 · 报价 比价 施工照 发票</div>
+            <div class="pa-sub">6 步 · 审批 报价 比价 施工照 验收 发票</div>
           </div>
         </div>
       </div>
@@ -31,13 +31,24 @@
     </div>
 
     <div class="pa-actions pa-home-bar">
-      <el-button class="is-main" type="primary" @click="goNew('')">新建预审</el-button>
+      <el-button v-if="isGuest" class="is-main" type="primary" @click="goLogin">登录</el-button>
+      <el-button :class="{ 'is-main': !isGuest }" :type="isGuest ? 'default' : 'primary'" @click="goNew('')">新建预审</el-button>
       <el-button @click="$router.push('/preaudit/pack')">整包 PDF 一键审核</el-button>
       <el-button @click="$router.push('/preaudit/guide')">指南</el-button>
     </div>
 
+    <div v-if="!(loading && !rows.length)" class="pa-search">
+      <el-input
+        v-model="keyword"
+        clearable
+        :prefix-icon="Search"
+        placeholder="搜索名称、村、年度、单位…"
+      />
+    </div>
+
     <div v-if="loading && !rows.length" class="pa-card pa-empty" style="margin-top: 16px;">正在同步…</div>
-    <div v-else-if="!rows.length" class="pa-card pa-empty" style="margin-top: 16px;">没有项目</div>
+    <div v-else-if="!rows.length && !hasKeyword" class="pa-card pa-empty" style="margin-top: 16px;">没有项目</div>
+    <div v-else-if="!visibleRows.length" class="pa-card pa-empty pa-search-empty">没有匹配的项目</div>
     <div v-else>
       <section v-for="section in homeSections" :key="section.key" class="pa-home-section">
         <div class="pa-row pa-home-section-head">
@@ -107,26 +118,36 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Search } from '@element-plus/icons-vue'
 import { auth } from '../../api/client.js'
 import { deleteProject, hydrateFromCloud, listProjects } from '../lib/store.js'
 import { summarizeListItem } from '../lib/audit.js'
+import { filterProjectsByKeyword, readHomeKeyword, writeHomeKeyword } from '../lib/project-search.js'
 import { markLeave, restoreIfPending } from '../lib/scroll-memory.js'
 import '../preaudit.css'
 
 const route = useRoute()
 const router = useRouter()
 const loading = ref(true)
+const keyword = ref(readHomeKeyword())
+watch(keyword, (value) => writeHomeKeyword(value))
 const victim = ref(null)
 const password = ref('')
 const deleting = ref(false)
+const isGuest = computed(() => !localStorage.getItem('admin_token'))
 const rows = computed(() => listProjects().map((p) => summarizeListItem(p)))
-const homeSections = computed(() => [
-  { key: 'active', title: '进行中', items: rows.value.filter((item) => !item.done) },
-  { key: 'done', title: '已完成', items: rows.value.filter((item) => item.done) }
-])
+const visibleRows = computed(() => filterProjectsByKeyword(rows.value, keyword.value))
+const hasKeyword = computed(() => !!String(keyword.value || '').trim())
+const homeSections = computed(() => {
+  const sections = [
+    { key: 'active', title: '进行中', items: visibleRows.value.filter((item) => !item.done) },
+    { key: 'done', title: '已完成', items: visibleRows.value.filter((item) => item.done) }
+  ]
+  return hasKeyword.value ? sections.filter((section) => section.items.length) : sections
+})
 
 onMounted(async () => {
   try {
@@ -139,6 +160,10 @@ onMounted(async () => {
 
 const goNew = (org) => {
   router.push('/preaudit/new' + (org ? '?org=' + org : ''))
+}
+
+const goLogin = () => {
+  router.push({ path: '/login', query: { redirect: route.fullPath } })
 }
 
 const openProject = (item) => {
