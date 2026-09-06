@@ -176,6 +176,7 @@ import {
   debounce,
   formatMoney,
   formatQty,
+  isCancelled,
   lineAreaM2,
   mmToDimension,
   statusTagType,
@@ -267,6 +268,8 @@ function applyList(data) {
   list.value = (data && data.list) || []
   total.value = (data && data.total) || 0
   if (data && data.settings) settings.value = data.settings
+  const keep = new Set(list.value.filter((r) => !r.paidLocked).map((r) => r.id))
+  selectedIds.value = selectedIds.value.filter((id) => keep.has(id))
   if (expandAll.value) {
     list.value.forEach((row) => { expanded[row.id] = true })
   }
@@ -335,12 +338,12 @@ function goStatement(row) {
 }
 
 function canPay(row) {
-  return !!row && !row.paidLocked && row.status !== 'cancelled'
+  return !!row && !row.paidLocked && !isCancelled(row)
 }
 
 function payTitle(row) {
   if (!row) return ''
-  if (row.status === 'cancelled') return '已取消订单不能收款'
+  if (isCancelled(row)) return '已取消订单不能收款'
   if (row.paidLocked) return '本单已收款，无需再次收款'
   if (!(Number(row.balance) > 0)) return '预付款已结清，点此确认收款并锁单'
   return `登记收款，未结 ${formatMoney(row.balance)}`

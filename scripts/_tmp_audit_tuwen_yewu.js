@@ -99,6 +99,8 @@ check('cos', '导入合并全实体', mod.includes('incomingSuppliers') && mod.i
 check('ux', '顶栏十模块', ['仪表盘', '订单', '客户', '供应商', '对账单', '支出', '售后', '报表', '记录', '设置'].every((t) => twLayout.includes(t)))
 check('ux', '订单筛选复制批量打印', page.includes('paidLocked') && page.includes('copyTuwenOrder') && page.includes('batchTuwenOrderStatus'))
 check('ux', '列表直接收款', page.includes('payTuwenOrder') && page.includes('确认收款') && page.includes('openPay') && page.includes('canPay'))
+check('ux', '列表收款禁用已收和取消', page.includes('isCancelled') && page.includes('!row.paidLocked') && page.includes('keep.has(id)'))
+check('ux', '设置分组卡片', settingsPage.includes('tw-settings-split') && settingsPage.includes('打印与开单') && settingsPage.includes('数据备份') && settingsPage.includes('tw-settings-cover'))
 check('ux', '复制订单用今日开单', /copyOrder[\s\S]{0,500}orderDate:\s*today/.test(mod) && edit.includes('orderDate: todayDate()'))
 check('ux', '开单明细列', ['outsource', 'code', 'spec', 'material', 'widthMm', 'lineAreaM2', 'RECEIVE_METHODS'].every((k) => edit.includes(k)))
 check('ux', '返回自动保存', edit.includes('saveIfNeeded') && edit.includes('persistOnLeave') && edit.includes('onClose') && edit.includes('persistOnUnload'))

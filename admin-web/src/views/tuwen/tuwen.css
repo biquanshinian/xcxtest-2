@@ -403,7 +403,7 @@
 .orders-list-head-desktop,
 .orders-list-row-desktop {
   display: grid;
-  grid-template-columns: 28px 28px 28px 1fr 0.9fr 0.65fr 0.7fr 0.7fr 0.8fr 1.7fr;
+  grid-template-columns: 28px 28px 28px 0.95fr 0.8fr 0.55fr 0.65fr 0.65fr 0.7fr minmax(268px, 2.2fr);
   gap: 6px;
   padding: 8px 12px;
   align-items: center;

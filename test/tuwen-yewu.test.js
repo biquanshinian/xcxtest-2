@@ -425,6 +425,8 @@ function createMockApi() {
   assert.ok(page.includes('batchTuwenOrderStatus') && page.includes('copyTuwenOrder'), '列表页缺批量改状态/复制')
   assert.ok(page.includes('全部展开') && page.includes('deleteTuwenOrder') && page.includes('sortTuwenOrders'), '列表页应含展开/删除/排序')
   assert.ok(page.includes('payTuwenOrder') && page.includes('确认收款') && page.includes('openPay'), '列表页应能直接收款')
+  assert.ok(page.includes('isCancelled') && page.includes('!row.paidLocked') && page.includes('keep.has(id)'), '列表收款应禁用已收/取消，并清掉已锁勾选')
+  assert.ok(settingsPage.includes('tw-settings-split') && settingsPage.includes('打印与开单') && settingsPage.includes('数据备份'), '设置页应按打印/分类/收款码/备份分组')
   assert.ok(gw.includes("path === '/tuwen/orders/sort'"), '网关缺订单排序路由')
   assert.ok(edit.includes('saveTuwenOrder') && edit.includes('新建订单') === false, '编辑页应能保存')
   assert.ok(edit.includes('saveIfNeeded') && edit.includes('已自动保存'), '返回列表应自动保存')
