@@ -205,7 +205,11 @@ const ROCKET_IMAGE_MAP = {
   'gslv': '火箭配置图/GSLV Mk II.jpg',
   'alpha block 1': '火箭配置图/Alpha Block 1.jpg',
   'ariane 64': '火箭配置图/Ariane 64.jpg',
+  'ariane64': '火箭配置图/Ariane 64.jpg',
+  'ariane 62': '火箭配置图/Ariane 64.jpg',
+  'ariane62': '火箭配置图/Ariane 64.jpg',
   'ariane 6': '火箭配置图/Ariane 64.jpg',
+  'ariane6': '火箭配置图/Ariane 64.jpg',
 
   // 与后台 media_assets / COS 一致（Long March 7A.png）；禁止再指向任务特化图 CZ-7A_YG-45
   'cz-7a': '火箭配置图/Long March 7A.png',
@@ -300,6 +304,7 @@ function lookupRocketImageKeyByName(rocketName) {
   if (name.includes('starship')) return '火箭配置图/Starship V3 Flight 12.jpg'
   if (name.includes('falcon heavy')) return '火箭配置图/Falcon Heavy.jpg'
   if (name.includes('falcon')) return '火箭配置图/Falcon 9 Block 5.jpg'
+  if (name.includes('ariane 6') || name.includes('ariane6')) return '火箭配置图/Ariane 64.jpg'
   if (name.includes('sls') || name.includes('space launch system')) return '火箭配置图/SLS_Block_1.jpg'
   if (name.includes('vulcan')) return '火箭配置图/Vulcan VC4S.jpg'
   if (name.includes('soyuz')) {
@@ -391,6 +396,29 @@ function expandRocketNameAliasesForImage(rocketName) {
   } else if (/^猎鹰/.test(raw)) {
     push('Falcon 9 Block 5')
     push('Falcon 9')
+  }
+  // 阿丽亚娜 / 阿里安 → Ariane。后台命中预览输入英文能中，前端展示名是中文会 miss
+  const arianeZh = raw.match(/^(?:阿丽亚娜|阿里安)\s*([5-6])\s*([24])?/)
+  if (arianeZh) {
+    const series = arianeZh[1]
+    const variant = arianeZh[2] || ''
+    if (series === '6') {
+      if (variant === '2') {
+        push('Ariane 62')
+        push('Ariane 6')
+      } else if (variant === '4') {
+        push('Ariane 64')
+        push('Ariane 6')
+      } else {
+        push('Ariane 6')
+        push('Ariane 64')
+      }
+    } else {
+      push('Ariane 5')
+    }
+  } else if (/^(?:阿丽亚娜|阿里安)/.test(raw)) {
+    push('Ariane 6')
+    push('Ariane 64')
   }
   // 中文展示名兜底：长征七号改 / 长征八号甲 → Long March 7A / 8A
   const czZh = raw.match(/^长征([一二三四五六七八九十两\d]+)号([甲乙丙丁改A-Za-z]+)?/)
@@ -528,6 +556,15 @@ function isDefaultRocketSrc(u) {
   return false
 }
 
+/** 空地址、失效 wxfile：切 Tab / 回首页后不能再交给 <image>，否则白图 */
+function isBrokenRocketDisplaySrc(u) {
+  if (u == null || typeof u !== 'string') return true
+  const s = u.trim()
+  if (!s) return true
+  if (/^wxfile:\/\//i.test(s) && !isUsableWxfileRocketSrc(s)) return true
+  return false
+}
+
 /**
  * 是否应用 next 覆盖 current。
  * 禁止「非 default → default」降级（media map 二次刷新偶发 miss 时会把已正确的图盖掉）。
@@ -537,7 +574,8 @@ function shouldReplaceRocketImage(current, next) {
   if (!next || typeof next !== 'string' || !String(next).trim()) return false
   const cur = current == null ? '' : String(current).trim()
   const nxt = String(next).trim()
-  if (!cur) return true
+  if (isBrokenRocketDisplaySrc(nxt)) return false
+  if (!cur || isBrokenRocketDisplaySrc(cur)) return true
   if (cur === nxt) return false
   const stripPath = (u) => {
     const i = u.indexOf('?')
@@ -556,13 +594,15 @@ function shouldReplaceRocketImage(current, next) {
   return true
 }
 
-/** 艺术风格切换专用：允许任意重算结果覆盖（含 wxfile 机娘 → 原图 / default） */
+/** 艺术风格切换：允许换风格，但禁止好图被 default / 失效 wxfile 盖掉 */
 function shouldReplaceRocketImageForArt(current, next) {
   if (!next || typeof next !== 'string' || !String(next).trim()) return false
   const cur = current == null ? '' : String(current).trim()
   const nxt = String(next).trim()
-  if (!cur) return true
+  if (isBrokenRocketDisplaySrc(nxt)) return false
+  if (!cur || isBrokenRocketDisplaySrc(cur)) return true
   if (cur === nxt) return false
+  if (!isDefaultRocketSrc(cur) && isDefaultRocketSrc(nxt)) return false
   const strip = (u) => {
     const i = u.indexOf('?')
     return i >= 0 ? u.slice(0, i) : u
@@ -711,7 +751,9 @@ module.exports = {
   getRocketImage,
   resolveMissionRocketImage,
   resolveMissionRocketImageFresh,
+  collectRocketImageMatchNames,
   isDefaultRocketSrc,
+  isBrokenRocketDisplaySrc,
   shouldReplaceRocketImage,
   shouldReplaceRocketImageForArt
 }

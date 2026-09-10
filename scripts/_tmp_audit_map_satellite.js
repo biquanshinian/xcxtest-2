@@ -153,6 +153,15 @@ for (const page of PAGES) {
 }
 
 console.log('=== 预览地图默认卫星 ===')
+{
+  const wxml = read('subpackages/monitor-pages/components/china-notice-preview/index.wxml')
+  const js = read('subpackages/monitor-pages/components/china-notice-preview/index.js')
+  ok('china-notice-preview enable-satellite', /enable-satellite="\{\{true\}\}"/.test(wxml))
+  ok('china-notice-preview setting 卫星', /setting="\{\{mapSetting\}\}"/.test(wxml))
+  ok('china-notice-preview 无 layer-style', !/layer-style/.test(wxml))
+  ok('china-notice-preview mapSetting', /mapSetting:\s*\{\s*enableSatellite:\s*true/.test(js))
+  ok('china-notice-preview 切页重建', /_reviveNativeMap/.test(js) && /mapAlive/.test(wxml))
+}
 for (const f of PREVIEW_MAPS) {
   const wxml = read(f)
   const js = read(f.replace(/\.wxml$/, '.js'))

@@ -9,6 +9,7 @@
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           <el-button type="warning" @click="onClean" :loading="cleanLoading">清理过期缓存</el-button>
+          <el-button @click="onSyncAgencies" :loading="agencyLoading">同步发射商</el-button>
           <el-button type="primary" @click="onSync" :loading="syncLoading">同步数据</el-button>
         </div>
       </div>
@@ -67,6 +68,7 @@ const list = ref([])
 const total = ref(0)
 const loading = ref(false)
 const syncLoading = ref(false)
+const agencyLoading = ref(false)
 const cleanLoading = ref(false)
 const editDialogVisible = ref(false)
 const saving = ref(false)
@@ -123,6 +125,18 @@ const onSave = async () => {
     ElMessage.error(e.message || '保存失败')
   } finally {
     saving.value = false
+  }
+}
+
+const onSyncAgencies = async () => {
+  agencyLoading.value = true
+  try {
+    await api.syncAgencies()
+    ElMessage.success('发射商同步已触发')
+  } catch (e) {
+    ElMessage.error(e.message || '同步发射商失败')
+  } finally {
+    agencyLoading.value = false
   }
 }
 

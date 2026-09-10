@@ -2,7 +2,7 @@
   "apis": [
     {
       "name": "getUpcomingLaunches",
-      "description": "查询即将进行的火箭发射任务列表。可按未来天数、发射商关键词过滤。适用于「最近有什么发射」「今天/本周有火箭发射吗」「SpaceX 接下来发什么」等问题。不适用于查询已完成的发射（应改用 getRecentLaunches）。",
+      "description": "查询即将进行的火箭发射任务列表。可按未来天数、发射商关键词过滤。适用于「最近有什么发射」「今天/本周有火箭发射吗」「SpaceX 接下来发什么」「猎鹰9/星链/长征/朱雀/蓝箭什么时候打」「文昌/酒泉最近有发射吗」。不适用于已完成发射（应改用 getRecentLaunches）。",
       "_meta": {
         "ui": {
           "componentPath": "components/launch-list-card/index",

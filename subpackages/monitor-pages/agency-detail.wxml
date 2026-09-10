@@ -407,11 +407,11 @@
         <text class="desc-text" user-select="{{true}}">{{descI18n.agencyDesc || item.description}}</text>
       </view>
 
-      <!-- 火箭型号（有族谱档案的可点跳转） -->
+      <!-- 火箭型号（LL2 有构型 id 即可点进详情；族谱未建档时详情页按 id 兜底） -->
       <view class="vehicles-section glass-card" wx:if="{{item.launcherList && item.launcherList.length}}">
         <text class="section-title">火箭型号 ({{item.launcherCount}})</text>
         <view class="tag-grid">
-          <view class="vehicle-tag vehicle-tag--rocket {{item.hasDetail ? 'vehicle-tag--link' : ''}}" wx:for="{{item.launcherList}}" wx:key="name" bindtap="onTapLauncher" data-cid="{{item.archiveId}}">
+          <view class="vehicle-tag vehicle-tag--rocket {{item.hasDetail ? 'vehicle-tag--link' : ''}}" wx:for="{{item.launcherList}}" wx:key="archiveId" bindtap="onTapLauncher" data-cid="{{item.archiveId}}">
             <text>{{item.name}}</text>
             <text class="vehicle-tag-arrow" wx:if="{{item.hasDetail}}">›</text>
           </view>
@@ -422,7 +422,7 @@
       <view class="vehicles-section glass-card" wx:if="{{item.spacecraftList && item.spacecraftList.length}}">
         <text class="section-title">飞船型号 ({{item.spacecraftCount}})</text>
         <view class="tag-grid">
-          <view class="vehicle-tag vehicle-tag--spacecraft {{item.id != null ? 'vehicle-tag--link' : ''}}" wx:for="{{item.spacecraftList}}" wx:key="name" bindtap="onTapSpacecraft" data-cid="{{item.id}}" data-name="{{item.name}}">
+          <view class="vehicle-tag vehicle-tag--spacecraft {{item.id != null ? 'vehicle-tag--link' : ''}}" wx:for="{{item.spacecraftList}}" wx:key="id" bindtap="onTapSpacecraft" data-cid="{{item.id}}" data-name="{{item.name}}">
             <text>{{item.name}}</text>
             <text class="vehicle-tag-arrow" wx:if="{{item.id != null}}">›</text>
           </view>

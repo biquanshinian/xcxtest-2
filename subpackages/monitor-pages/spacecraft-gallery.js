@@ -11,6 +11,7 @@ const { getFeaturedAgencies } = require('./utils/agency-data.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
+const { shareOptsFromCard, syncPageShareImage, pageShareImage } = require('../../utils/share-thumb.js')
 
 Page({
   behaviors: [pageBase],
@@ -30,6 +31,7 @@ Page({
     keyword: '',
 
     cards: [],
+    shareImage: '',
     stats: { inUseCount: 0, typeCount: 0, agencyCount: 0 },
     filterEmpty: false
   },
@@ -85,6 +87,11 @@ Page({
       filterEmpty: all.length > 0 && filtered.length === 0,
       filterChips: chips
     })
+    this._syncShareImage(filtered[0])
+  },
+
+  _syncShareImage(card) {
+    syncPageShareImage(this, shareOptsFromCard(card))
   },
 
   onFilterTap(e) {
@@ -141,9 +148,7 @@ Page({
       var app = getApp && getApp()
       if (app) app._spacecraftHeroImage = { id: String(id), src: ds.img }
     }
-    var params = { id: id }
-    if (ds.name) params.name = ds.name
-    navigateTo(ROUTES.SPACECRAFT_DETAIL, params)
+    navigateTo(ROUTES.SPACECRAFT_DETAIL, { id: id })
   },
 
   onImageError(e) {
@@ -187,7 +192,11 @@ Page({
   },
 
   onShareAppMessage() {
-    return { title: '全球飞船图鉴 | 火星探索日志', path: this._sharePath() }
+    return {
+      title: '全球飞船图鉴 | 火星探索日志',
+      path: this._sharePath(),
+      imageUrl: pageShareImage(this, shareOptsFromCard(this.data.cards[0]))
+    }
   },
 
   onShareTimeline() {
@@ -195,6 +204,10 @@ Page({
     if (this.data.filter && this.data.filter !== 'all') {
       query = 'filter=' + encodeURIComponent(this.data.filter)
     }
-    return { title: '全球飞船图鉴 | 火星探索日志', query: query }
+    return {
+      title: '全球飞船图鉴 | 火星探索日志',
+      query: query,
+      imageUrl: pageShareImage(this, shareOptsFromCard(this.data.cards[0]))
+    }
   }
 })

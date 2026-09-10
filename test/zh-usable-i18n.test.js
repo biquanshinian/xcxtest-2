@@ -131,6 +131,32 @@ test('孔雀误译纠偏为朱雀，与标题对齐', () => {
   assert.equal(pickLocalized('孔雀三号着陆场', 'ZQ-3 LZ'), '朱雀三号着陆场')
 })
 
+test('中文-only 无 _langPack 回放不得洗成未知，且中文不得写进 *En', () => {
+  const { applyContentLangToMission } = require('../utils/launch-card-i18n.js')
+  const { setContentLangMem } = require('../utils/locale.js')
+  const { isPlaceholderMissionField } = require('../utils/mission-list-card.js')
+  setContentLangMem('zh')
+  const mission = applyContentLangToMission({
+    name: '猎鹰9号 | 星链组 10-19',
+    missionName: '星链组 10-19',
+    rocketName: '猎鹰9号',
+    launchSite: '肯尼迪航天中心',
+    launchAgency: '太空探索技术公司',
+    rocketConfiguration: { id: 164, name: 'Falcon 9', full_name: 'Falcon 9 Block 5' }
+  })
+  assert.equal(isPlaceholderMissionField(mission.rocketName), false)
+  assert.equal(isPlaceholderMissionField(mission.missionName), false)
+  assert.equal(isPlaceholderMissionField(mission.launchSite), false)
+  assert.equal(isPlaceholderMissionField(mission.launchAgency), false)
+  assert.match(mission.rocketName, /猎鹰/)
+  assert.match(mission.missionName, /星链/)
+  assert.equal(/[\u4e00-\u9fff]/.test(mission._langPack.rocketNameEn), false)
+  assert.equal(/[\u4e00-\u9fff]/.test(mission._langPack.missionNameEn), false)
+  assert.equal(/[\u4e00-\u9fff]/.test(mission._langPack.nameEn), false)
+  assert.equal(/[\u4e00-\u9fff]/.test(mission._langPack.launchSiteEn), false)
+  assert.equal(/[\u4e00-\u9fff]/.test(mission._langPack.launchAgencyEn), false)
+})
+
 test('hydrate 不得把中文展示字段写回 *En，污染缓存可洗干净', () => {
   const { applyContentLangToMission, takeDescSeed, buildTitlePair } = require('../utils/launch-card-i18n.js')
   const { setContentLangMem } = require('../utils/locale.js')
@@ -278,6 +304,77 @@ test('星链组号格式统一：连字符两侧无空格', () => {
   assert.match(localizeMissionTitle('Falcon 9 Block 5 | Starlink Group 10-19', 'Falcon 9', '猎鹰9号'), /星链组 10-19/)
   assert.equal(pickLocalized('星链组 10 - 19', 'Starlink Group 10-19'), '星链组 10-19')
   assert.equal(zhField({ nameZh: '星链组 10 - 19' }, 'name'), '星链组 10-19')
+})
+
+test('Yaogan 译为遥感', () => {
+  const { localizeMissionTitle } = require('../utils/mission-title-i18n.js')
+  assert.match(
+    localizeMissionTitle('Yaogan 53-01 to 03/56-01 to 03', 'Long March 4B', '长征四号乙'),
+    /遥感/
+  )
+})
+
+test('配置图 nameZh 仍是二号丁时，列表必须跟英文构型显示四号乙', () => {
+  const { buildRocketNamePair, applyContentLangToMission } = require('../utils/launch-card-i18n.js')
+  const { setContentLangMem } = require('../utils/locale.js')
+  setContentLangMem('zh')
+  const pair = buildRocketNamePair('Long March 4B', {
+    name: 'Long March 4B',
+    nameZh: '长征二号丁',
+    full_nameZh: '长征二号丁/远征三号'
+  })
+  assert.match(pair.rocketNameZh, /四号乙/)
+  assert.equal(/二号丁/.test(pair.rocketNameZh), false)
+
+  const card = applyContentLangToMission({
+    rocketName: 'Long March 4B',
+    missionName: 'Yaogan 53-01 to 03/56-01 to 03',
+    name: 'Long March 4B | Yaogan 53-01 to 03/56-01 to 03',
+    rocketConfiguration: {
+      name: 'Long March 4B',
+      nameZh: '长征二号丁'
+    },
+    _langPack: {
+      rocketNameEn: 'Long March 4B',
+      rocketNameZh: '长征二号丁',
+      missionNameEn: 'Yaogan 53-01 to 03/56-01 to 03',
+      missionNameZh: '未知有效载荷',
+      nameEn: 'Long March 4B | Yaogan 53-01 to 03/56-01 to 03',
+      nameZh: '长征二号丁/远征三号 | 未知有效载荷'
+    }
+  })
+  assert.match(card.rocketName, /四号乙/)
+  assert.equal(/二号丁/.test(card.rocketName), false)
+  assert.equal(/未知有效载荷/.test(card.missionName), false)
+  assert.match(card.missionName, /遥感/)
+})
+
+test('mission.name 仍是 Unknown Payload 时标题跟 LL2 name 任务段', () => {
+  const { buildTitlePair } = require('../utils/launch-card-i18n.js')
+  const pair = buildTitlePair(
+    {
+      name: 'Long March 4B | Yaogan 53-01 to 03/56-01 to 03',
+      mission: { name: 'Unknown Payload' }
+    },
+    'Long March 4B',
+    '长征四号乙'
+  )
+  assert.match(pair.missionNameEn, /Yaogan/)
+  assert.equal(/Unknown Payload/i.test(pair.missionNameEn), false)
+  assert.match(pair.missionNameZh, /遥感/)
+})
+
+test('即将发射 LL2 仍是 Unknown Payload 时标题保持未知', () => {
+  const { buildTitlePair } = require('../utils/launch-card-i18n.js')
+  const pair = buildTitlePair(
+    {
+      name: 'Zhuque-2E Block 2 | Unknown Payload',
+      mission: { name: 'Unknown Payload' }
+    },
+    'Zhuque-2E Block 2',
+    '朱雀二号改'
+  )
+  assert.match(pair.missionNameEn, /Unknown Payload/i)
 })
 
 test('卡片标题与详情同一条路：USSF 走 localizeMissionTitle', () => {

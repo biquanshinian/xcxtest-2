@@ -9,7 +9,7 @@ const {
   markDownloadFailed,
   markDownloadSoftFailed
 } = require('./download-fail-cache.js')
-const { isOwnCdnUrl, proxiedImageUrl } = require('./ll2-image.js')
+const { isOwnCdnUrl, isWorkerImageProxyUrl, proxiedImageUrl } = require('./ll2-image.js')
 
 /**
  * COS 静图 logo 统一用 thumb 压缩版展示/下载：logo 展示尺寸极小（几十 rpx），
@@ -171,7 +171,7 @@ function persistAgencyLogoAfterRemoteLoad(remoteUrl, onDone) {
   }
 
   // 外链经代理后仍非自有域名，或代理失败：只展示不落盘，避免 downloadFile 打 DigitalOcean
-  if (!isOwnCdnUrl(u)) {
+  if (!isOwnCdnUrl(u) || isWorkerImageProxyUrl(u)) {
     cb(null)
     return
   }

@@ -368,6 +368,39 @@ test('罗曼详情页：路由、分享免门控窗口、图片体积', () => {
   assert.ok(share.length < 80 * 1024, 'share 文件应远小于 200KB')
   assert.ok(cardBg.length < 20 * 1024, '监控卡背景仅留压缩预览，大图走 COS')
   assert.equal(craft.readUInt32BE(16) * craft.readUInt32BE(20) * 4 < 200 * 1024, true)
+  const jpgSize = (buf) => {
+    let i = 2
+    while (i < buf.length - 8) {
+      if (buf[i] !== 0xff) {
+        i += 1
+        continue
+      }
+      const m = buf[i + 1]
+      if (m === 0xc0 || m === 0xc1 || m === 0xc2) {
+        return { h: buf.readUInt16BE(i + 5), w: buf.readUInt16BE(i + 7) }
+      }
+      i += 2 + buf.readUInt16BE(i + 2)
+    }
+    return null
+  }
+  const bgDim = jpgSize(cardBg)
+  assert.ok(bgDim, 'roman-card-bg 应能读出 JPEG 尺寸')
+  assert.equal(bgDim.w * bgDim.h * 4 < 200 * 1024, true)
+})
+
+test('罗曼精简接口失败回落本地快照，不再打 /artemis-horizons', () => {
+  const tracker = fs.readFileSync(
+    path.join(__dirname, '../subpackages/monitor-pages/utils/roman-tracker.js'),
+    'utf8'
+  )
+  assert.match(tracker, /STALE_KEY = '_roman_tracker_last'/)
+  const start = tracker.indexOf('async function fetchBriefing')
+  const end = tracker.indexOf('module.exports')
+  assert.ok(start >= 0 && end > start)
+  const fn = tracker.slice(start, end)
+  assert.match(fn, /readStaleSnapshot/)
+  assert.doesNotMatch(fn, /fetchFromHorizons|artemis-horizons/)
+  assert.doesNotMatch(tracker, /function fetchFromHorizons|function buildHorizonsUrl/)
 })
 
 test('罗曼像素认领：官方入口不走会员门控，链接指向 NASA Adopt a Pixel', () => {

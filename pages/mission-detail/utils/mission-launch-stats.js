@@ -156,6 +156,28 @@ function sanitizeMissionStats(stats) {
   return out
 }
 
+/** 云端尚未写出时，用任务上的构型/徽章次数先铺一张卡 */
+function buildClientMissionStats(mission) {
+  if (!mission || typeof mission !== 'object') return null
+  const year = mission.launchTime
+    ? new Date(mission.launchTime).getUTCFullYear()
+    : new Date().getUTCFullYear()
+  const filled = applyClientRocketFallback(applyClientAgencyFallback({
+    year: Number.isFinite(year) ? year : null,
+    rocketLabel: '',
+    providerLabel: '',
+    rocketTotal: null,
+    rocketYear: null,
+    providerTotal: null,
+    providerYear: null
+  }, mission), mission)
+  const hasAny = filled.rocketTotal != null
+    || filled.rocketYear != null
+    || filled.providerTotal != null
+    || filled.providerYear != null
+  return hasAny ? localizeMissionStatsLabels(filled, mission) : null
+}
+
 async function loadMissionLaunchStats(mission, options = {}) {
   const data = (await fetchMissionLaunchStatsFromCloud(mission, options)) || {}
   const raw = applyClientRocketFallback(applyClientAgencyFallback(sanitizeMissionStats({
@@ -175,6 +197,7 @@ async function loadMissionLaunchStats(mission, options = {}) {
 
 module.exports = {
   loadMissionLaunchStats,
+  buildClientMissionStats,
   resolveAgencyAttemptHints,
   applyClientAgencyFallback,
   resolveRocketAttemptHints,

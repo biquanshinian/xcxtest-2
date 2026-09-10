@@ -25,7 +25,7 @@ function fetchStationTleFromWorker(opts) {
   const base = workerProxyUrl || 'https://api.marsx.com.cn'
   const url = `${base}/station-tle`
 
-  const req = requestJsonData({ url, timeout: 15000 })
+  const req = requestJsonData({ url, timeout: 15000, retries: 1 })
     .then((data) => {
       if (!data || data.code !== 0) {
         throw new Error('TLE 请求失败')
@@ -33,6 +33,10 @@ function fetchStationTleFromWorker(opts) {
       _mem = data
       _memTs = Date.now()
       return data
+    })
+    .catch((err) => {
+      if (!force && _mem) return _mem
+      throw err
     })
     .finally(() => {
       if (_inflight === req) _inflight = null

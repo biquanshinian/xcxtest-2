@@ -7,6 +7,7 @@
 // 小程序 require 不支持 .json（会被补成 .json.js 而整模块加载失败），轨迹副本必须是 .js
 const SITE_TRAJ = require('./flight13-trajectory.js')
 const { resolvePadCoords } = require('./pad-coords.js')
+const { pointInChina } = require('./china-filter.js')
 const { pickLocalized, isContentLangEn } = require('../../../../utils/locale.js')
 const { localizeMissionTitle } = require('../../../../utils/mission-title-i18n.js')
 const SITE_TRAJ_COLOR = (SITE_TRAJ && SITE_TRAJ.color) || '#ffcc00'
@@ -37,6 +38,9 @@ const SKIP_NOTICE_KEYS = {
   'adp-aha-starship-flight-13-demo': true
 }
 
+/** 无发射台、无几何时的中性全球视野（大西洋中部，不是中国也不是 Starbase） */
+const EMPTY_MAP_VIEW = { latitude: 18, longitude: -25, scale: 3 }
+
 /** 经度跨度过大的环 = 演示粗管/坏数据，不填色（会盖住精细多边形） */
 const MAX_RING_LON_SPAN = 55
 
@@ -63,22 +67,66 @@ function styleForType(type, opts) {
   }
 }
 
+/** 合法地理点；拒绝 Null Island（0,0）和非法纬度 */
+function isUsableLatLng(lat, lon) {
+  const a = Number(lat)
+  const b = Number(lon)
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false
+  if (Math.abs(a) > 90 || Math.abs(b) > 180) return false
+  if (a === 0 && b === 0) return false
+  return true
+}
+
 function toLonLatPair(p) {
   if (!p) return null
-  const lon = Number(Array.isArray(p) ? p[0] : p.longitude)
-  const lat = Number(Array.isArray(p) ? p[1] : p.latitude)
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null
+  if (!Array.isArray(p)) {
+    const lon = Number(p.longitude != null ? p.longitude : p.lon)
+    const lat = Number(p.latitude != null ? p.latitude : p.lat)
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90) return null
+    return { longitude: lon, latitude: lat }
+  }
+  const a = Number(p[0])
+  const b = Number(p[1])
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null
+  // GeoJSON [lon, lat]；若第一项像纬度、第二项像经度则对调
+  let lon = a
+  let lat = b
+  if (Math.abs(b) > 90 && Math.abs(a) <= 90) {
+    lon = b
+    lat = a
+  }
+  if (Math.abs(lat) > 90) return null
   return { longitude: lon, latitude: lat }
+}
+
+/** 跨日界线的环拆成不跳 180° 的折线段 */
+function splitRingToPolylines(ring) {
+  const pts = (ring || []).map(toLonLatPair).filter(Boolean)
+  if (pts.length < 2) return []
+  const segs = []
+  let cur = [pts[0]]
+  for (let i = 1; i < pts.length; i += 1) {
+    const prev = cur[cur.length - 1]
+    const p = pts[i]
+    if (Math.abs(p.longitude - prev.longitude) > 180) {
+      if (cur.length >= 2) segs.push(cur)
+      cur = [p]
+    } else {
+      cur.push(p)
+    }
+  }
+  if (cur.length >= 2) segs.push(cur)
+  return segs
 }
 
 function ringLonSpan(ring) {
   let minLon = Infinity
   let maxLon = -Infinity
   for (let i = 0; i < ring.length; i++) {
-    const lon = Number(Array.isArray(ring[i]) ? ring[i][0] : ring[i] && ring[i].longitude)
-    if (!Number.isFinite(lon)) continue
-    if (lon < minLon) minLon = lon
-    if (lon > maxLon) maxLon = lon
+    const q = toLonLatPair(ring[i])
+    if (!q) continue
+    if (q.longitude < minLon) minLon = q.longitude
+    if (q.longitude > maxLon) maxLon = q.longitude
   }
   if (!Number.isFinite(minLon) || !Number.isFinite(maxLon)) return 0
   return maxLon - minLon
@@ -113,14 +161,14 @@ function buildPolygonsFromNotices(notices, enabledTypes, opts) {
   const polygons = []
   let id = 1
   ;(notices || []).forEach((n) => {
-    if (shouldSkipNotice(n)) return
+    if (!n || shouldSkipNotice(n)) return
     const t = normalizeType(n.type)
     if (allow && allow[t] === false) return
     const isSelected = !!selectedKey && String(n.noticeKey) === selectedKey
-    const state = selectedKey ? (isSelected ? 'selected' : 'dimmed') : 'normal'
+    const ended = !!(n.cancelled || n.statusTone === 'off')
+    const state = selectedKey ? (isSelected ? 'selected' : 'dimmed') : ended ? 'dimmed' : 'normal'
     const soon = !n.cancelled && n.statusTone === 'soon'
-    const style = styleForType(t, { light: o.light, state, cancelled: !!n.cancelled, soon })
-    if (n.cancelled || n.statusTone === 'off') return
+    const style = styleForType(t, { light: o.light, state, cancelled: !!n.cancelled || n.statusTone === 'off', soon })
     drawableRings(n).forEach((ring) => {
       const points = ring.map(toLonLatPair).filter(Boolean)
       if (points.length < 3) return
@@ -141,37 +189,51 @@ function buildPolygonsFromNotices(notices, enabledTypes, opts) {
 /**
  * 优先用 notice.centerline；否则对细长走廊取 ring 前半段作为脊线近似
  */
+function pushNoticePolyline(polylines, idRef, n, t, points, ended) {
+  if (!points || points.length < 2) return
+  polylines.push({
+    id: idRef.id++,
+    points,
+    noticeKey: String((n && n.noticeKey) || ''),
+    color: ended ? CANCELLED_COLOR : n && n.statusTone === 'soon' ? SOON_COLOR : baseColorForType(t),
+    width: t === 'ADP_LINK_FILE' ? 3 : 2,
+    dottedLine: ended || !!(n && n.statusTone === 'soon'),
+    arrowLine: false
+  })
+}
+
 function buildPolylinesFromNotices(notices, enabledTypes, opts) {
   const allow = enabledTypes && typeof enabledTypes === 'object' ? enabledTypes : null
-  const o = opts || {}
   const polylines = []
-  let id = 1
+  const idRef = { id: 1 }
   ;(notices || []).forEach((n) => {
-    if (shouldSkipNotice(n)) return
-    if (n.cancelled || n.statusTone === 'off') return
+    if (!n || shouldSkipNotice(n)) return
     const t = normalizeType(n.type)
     if (allow && allow[t] === false) return
+    const ended = !!(n.cancelled || n.statusTone === 'off')
+    // 可填色面由 polygon stroke 描边，不再叠中心线（避免一条斜线穿过大洋）
+    if (drawableRings(n).length) return
+    const rawRings = Array.isArray(n.areas) ? n.areas : []
+    const overspan = rawRings.filter(
+      (ring) => Array.isArray(ring) && ring.length >= 3 && ringLonSpan(ring) > MAX_RING_LON_SPAN
+    )
+    if (overspan.length) {
+      overspan.forEach((ring) => {
+        splitRingToPolylines(ring).forEach((points) => pushNoticePolyline(polylines, idRef, n, t, points, ended))
+      })
+      return
+    }
     let points = []
     if (Array.isArray(n.centerline) && n.centerline.length >= 2) {
       points = n.centerline.map(toLonLatPair).filter(Boolean)
     } else if (t === 'ADP_LINK_FILE' && Array.isArray(n.areas) && n.areas[0] && n.areas[0].length >= 6) {
       const ring = n.areas[0]
-      // 仅对中等跨度走廊做脊线近似；全球假走廊已跳过
       if (ringLonSpan(ring) <= MAX_RING_LON_SPAN) {
         const half = Math.floor((ring.length - 1) / 2)
         points = ring.slice(0, Math.max(2, half)).map(toLonLatPair).filter(Boolean)
       }
     }
-    if (points.length < 2) return
-    polylines.push({
-      id: id++,
-      points,
-      noticeKey: String(n.noticeKey || ''),
-      color: n.statusTone === 'soon' ? SOON_COLOR : baseColorForType(t),
-      width: t === 'ADP_LINK_FILE' ? 3 : 2,
-      dottedLine: n.statusTone === 'soon',
-      arrowLine: false
-    })
+    pushNoticePolyline(polylines, idRef, n, t, points, ended)
   })
   return polylines
 }
@@ -221,10 +283,10 @@ function localizePadMarkerLabel(title, pad) {
 }
 
 function buildPadMarker(pad, title, opts) {
-  if (!pad || pad.latitude == null || pad.longitude == null) return []
+  if (!pad) return []
   const lat = Number(pad.latitude)
   const lon = Number(pad.longitude)
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return []
+  if (!isUsableLatLng(lat, lon)) return []
   const light = !!(opts && opts.light)
   const label = localizePadMarkerLabel(title, pad)
   // 不传 iconPath：微信渲染腾讯地图原生默认红钉（自带钉尖锚点，勿再拼自定义图片，
@@ -257,12 +319,16 @@ function buildPadMarker(pad, title, opts) {
 function resolveEffectivePad(entry, polygons, polylines) {
   const raw = entry && entry.pad
   const resolved = resolvePadCoords(raw || {})
-  if (Number.isFinite(Number(resolved.latitude)) && Number.isFinite(Number(resolved.longitude))) {
+  if (resolved && isUsableLatLng(resolved.latitude, resolved.longitude)) {
     return {
       name: resolved.name || (raw && raw.name) || '',
       latitude: Number(resolved.latitude),
       longitude: Number(resolved.longitude)
     }
+  }
+  // 合集不是一场发射：禁止用预警区密度中心冒充红色发射台
+  if (entry && (entry.isCollection || /^collection-/i.test(String(entry.entryKey || '')))) {
+    return resolved && resolved.name ? resolved : null
   }
   const pts = collectPoints(null, polygons || [], polylines || [])
   const origin = densestPoint(pts, 8)
@@ -276,17 +342,19 @@ function resolveEffectivePad(entry, polygons, polylines) {
 
 function collectPoints(pad, polygons, polylines) {
   const pts = []
-  if (pad && Number.isFinite(Number(pad.latitude)) && Number.isFinite(Number(pad.longitude))) {
+  if (pad && isUsableLatLng(pad.latitude, pad.longitude)) {
     pts.push({ latitude: Number(pad.latitude), longitude: Number(pad.longitude) })
   }
   ;(polygons || []).forEach((poly) => {
+    if (!poly) return
     ;(poly.points || []).forEach((p) => {
-      if (Number.isFinite(p.latitude) && Number.isFinite(p.longitude)) pts.push(p)
+      if (p && isUsableLatLng(p.latitude, p.longitude)) pts.push(p)
     })
   })
   ;(polylines || []).forEach((line) => {
+    if (!line) return
     ;(line.points || []).forEach((p) => {
-      if (Number.isFinite(p.latitude) && Number.isFinite(p.longitude)) pts.push(p)
+      if (p && isUsableLatLng(p.latitude, p.longitude)) pts.push(p)
     })
   })
   return pts
@@ -329,7 +397,7 @@ function filterPointsByRegion(pts, region, pad) {
 
   let originLat = null
   let originLon = null
-  if (pad && Number.isFinite(Number(pad.latitude)) && Number.isFinite(Number(pad.longitude))) {
+  if (pad && isUsableLatLng(pad.latitude, pad.longitude)) {
     originLat = Number(pad.latitude)
     originLon = Number(pad.longitude)
   } else {
@@ -402,12 +470,7 @@ function fitCenter(pad, polygons, polylines, opts) {
   const all = collectPoints(pad, polygons, polylines)
 
   // 发射区默认：中心钉死在红色坐标，避免危险区 bbox 把视野拽走
-  if (
-    region === 'pad' &&
-    pad &&
-    Number.isFinite(Number(pad.latitude)) &&
-    Number.isFinite(Number(pad.longitude))
-  ) {
+  if (region === 'pad' && pad && isUsableLatLng(pad.latitude, pad.longitude)) {
     const padLat = Number(pad.latitude)
     const padLon = Number(pad.longitude)
     const near = filterPointsByRegion(all, 'pad', pad)
@@ -428,7 +491,7 @@ function fitCenter(pad, polygons, polylines, opts) {
   let pts = filterPointsByRegion(all, region, pad)
   if (!pts.length && region !== 'global') {
     // 该分区无几何时回退：pad 用发射台，其余用全量点
-    if (region === 'pad' && pad && Number.isFinite(Number(pad.latitude))) {
+    if (region === 'pad' && pad && isUsableLatLng(pad.latitude, pad.longitude)) {
       return {
         latitude: Number(pad.latitude),
         longitude: Number(pad.longitude),
@@ -439,7 +502,24 @@ function fitCenter(pad, polygons, polylines, opts) {
     pts = all
   }
   if (!pts.length) {
-    return { latitude: 25.99677, longitude: -97.15799, scale: 6, includePoints: [] }
+    if (pad && isUsableLatLng(pad.latitude, pad.longitude)) {
+      const padLat = Number(pad.latitude)
+      const padLon = Number(pad.longitude)
+      return {
+        latitude: padLat,
+        longitude: padLon,
+        scale: 6,
+        includePoints: [{ latitude: padLat, longitude: padLon }]
+      }
+    }
+    // 禁止写死 Starbase / 中国：无发射台、无几何时交给页面保留当前视野
+    return {
+      empty: true,
+      latitude: EMPTY_MAP_VIEW.latitude,
+      longitude: EMPTY_MAP_VIEW.longitude,
+      scale: EMPTY_MAP_VIEW.scale,
+      includePoints: []
+    }
   }
   const b = boundsOf(pts)
   const span = Math.max(b.maxLat - b.minLat, b.maxLon - b.minLon)
@@ -503,6 +583,11 @@ function ringAbsArea(points) {
 }
 
 /** 点到哪个危险区（重叠时取更小的面） */
+function hitNoticeAt(notices, lat, lng) {
+  const polygons = buildPolygonsFromNotices(notices, null, {})
+  return hitTestPolygonNotice(lat, lng, polygons)
+}
+
 function hitTestPolygonNotice(lat, lng, polygons) {
   const hits = []
   ;(polygons || []).forEach((poly) => {
@@ -526,12 +611,11 @@ const PREVIEW_TYPES = {
 }
 
 function pointInChinaPreview(p) {
-  const lat = Number(p && p.latitude)
-  const lon = Number(p && p.longitude)
-  return lat >= 0 && lat <= 54 && lon >= 73 && lon <= 140
+  return pointInChina(p && p.latitude, p && p.longitude)
 }
 
-function noticeHasChinaGeometry(n) {
+function noticeHasChinaGeometry(n, opts) {
+  if (opts && opts.chinaCollection) return true
   if (n && n.inChina) return true
   return drawableRings(n).some((ring) =>
     ring.some((pt) => {
@@ -543,9 +627,9 @@ function noticeHasChinaGeometry(n) {
 
 function buildPreviewLayers(notices, opts) {
   const o = Object.assign({ preview: true }, opts || {})
-  const active = (notices || []).filter(
-    (n) => n && !n.cancelled && n.statusTone !== 'off' && noticeHasChinaGeometry(n)
-  )
+  const pool = (notices || []).filter((n) => n && !n.cancelled && noticeHasChinaGeometry(n, o))
+  const live = pool.filter((n) => n.statusTone !== 'off')
+  const active = live.length ? live : pool
   const polygons = buildPolygonsFromNotices(active, PREVIEW_TYPES, o).slice(0, 40)
   const outlines = []
   polygons.forEach((p, i) => {
@@ -566,6 +650,7 @@ function buildPreviewLayers(notices, opts) {
 }
 
 module.exports = {
+  isUsableLatLng,
   buildPolygonsFromNotices,
   buildPolylinesFromNotices,
   buildTrajectoryPolyline,
@@ -580,9 +665,11 @@ module.exports = {
   styleForType,
   baseColorForType,
   hasGeometry,
+  hitNoticeAt,
   hitTestPolygonNotice,
   buildPreviewLayers,
   SKIP_NOTICE_KEYS,
+  EMPTY_MAP_VIEW,
   SITE_TRAJ_VERSION,
   SITE_TRAJ_COLOR,
   SOON_COLOR,

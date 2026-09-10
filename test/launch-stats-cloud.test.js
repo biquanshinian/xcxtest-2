@@ -12,6 +12,7 @@ global.wx = {
 
 const {
   formatCloudError,
+  isStatsGeneratingError,
   isTimeoutError,
   isRetryableCloudError,
   readPersistSnapshot
@@ -22,6 +23,12 @@ test('formatCloudError 把超时 / 未就绪 / 网络转成可读文案', () => 
   assert.equal(formatCloudError(new Error('STATS_NOT_READY')), '统计数据生成中，请稍后重试')
   assert.equal(formatCloudError(new Error('network error')), '网络异常，请检查后重试')
   assert.equal(formatCloudError(new Error('LL2 接口限流（429）')), '数据源请求繁忙，请稍后再试')
+})
+
+test('生成中不是最终错误，页面应自动轮询', () => {
+  assert.equal(isStatsGeneratingError(new Error('STATS_NOT_READY')), true)
+  assert.equal(isStatsGeneratingError('统计数据生成中，请稍后重试'), true)
+  assert.equal(isStatsGeneratingError(new Error('网络异常，请检查后重试')), false)
 })
 
 test('只重试超时/网络，不连打 notReady', () => {

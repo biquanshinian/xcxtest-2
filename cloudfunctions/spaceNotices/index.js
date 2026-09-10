@@ -3,13 +3,13 @@
  *
  * actions:
  *   (timer/default) sync   — 轮转增量：抓站点 entry 索引 → 每次处理 ENTRIES_PER_RUN 个 entry 的通告
- *   listEntries            — 条目列表（含即将 / 历史分类）
+ *   listEntries            — 条目列表（默认只回即将/提前预警，upcomingOnly=false 才带历史）
  *   getEntry               — 单条 + notices（缺数据时按需补拉该 entry）
  *   lookupEntry            — 按 entryKey / ll2Id 查是否已有通告（不补拉、不写库）
  *   lookupStarshipEntry    — 取当前最合适的星舰通告条目（不补拉、不写库）
  *   lookupChinaBulletin    — 中国航警公告卡片：核对时间 / 条数（不补拉）
- *   ingestRaw              — 粘贴原文解析入库 { entryKey|ll2Id, rawText, type?, name?, reason? }
- *   parsePreview           — 仅解析 areas，不写库
+ *   ingestRaw              — 运维/控制台粘贴 NOTAM（需 SPACE_NOTICES_INGEST_SECRET，无后台页）
+ *   parsePreview           — 运维预览 areas，不写库（同上 secret）
  *
  * 数据源：space-notices.com 的 launch-* entry（历史 + 即将）以及置顶的
  * collection-chinese-unknown（中国航警桶）。该桶不只跟官网合集页：
@@ -24,7 +24,7 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 
 const { parseAreasFromRawText } = require('./parse-areas.js')
-const { fillNoticeDates } = require('./parse-dates.js')
+const { fillNoticeDates, isPlaceholderNoticeDate } = require('./parse-dates.js')
 const {
   FLIGHT13_ENTRY_KEY,
   FLIGHT13_LL2_ID,
@@ -40,6 +40,8 @@ const { extractNoticeLinks, noticeKeyFromPath, fetchNoticesByPaths, mapPool } = 
 const { discoverEntrySlugs, fetchEntryPage, BASE, isCollectionKey, isChineseCollectionKey, CHINESE_COLLECTION_KEY } = require('./discover-entries.js')
 const chinaFirs = require('./discover-china-firs.js')
 const { matchEntryToLaunch } = require('./match-ll2.js')
+const { computeEntryIsPast, launchTimeMs, parseTimeMs } = require('./entry-lifecycle.js')
+const { preferLaunchMatch, mergeEntryIdentity } = require('./entry-identity.js')
 
 const crypto = require('crypto')
 
@@ -97,6 +99,7 @@ function windowBoundsOf(notices) {
   let endMs = 0
   ;(notices || []).forEach((n) => {
     ;((n && n.dates) || []).forEach((d) => {
+      if (!d || isPlaceholderNoticeDate(d.start) || isPlaceholderNoticeDate(d.end)) return
       const s = Date.parse(String((d && d.start) || ''))
       const e = Date.parse(String((d && d.end) || ''))
       if (Number.isFinite(s) && (!startMs || s < startMs)) startMs = s
@@ -184,7 +187,23 @@ async function upsertNotice(entryKey, notice, opts) {
 }
 
 const NOTICE_READ_PAGE = 100
-const NOTICE_READ_CAP = 400
+const NOTICE_READ_CAP = 800
+const ENTRY_READ_PAGE = 100
+const ENTRY_READ_CAP = 300
+
+async function readAllEntryDocs(cap) {
+  const max = Math.min(Number(cap) || ENTRY_READ_CAP, 400)
+  const all = []
+  let skip = 0
+  while (all.length < max) {
+    const res = await db.collection(ENTRY_COL).skip(skip).limit(ENTRY_READ_PAGE).get().catch(() => ({ data: [] }))
+    const batch = res.data || []
+    all.push(...batch)
+    if (batch.length < ENTRY_READ_PAGE) break
+    skip += ENTRY_READ_PAGE
+  }
+  return all.slice(0, max)
+}
 
 async function queryNoticesWhere(where, cap) {
   const all = []
@@ -300,7 +319,9 @@ async function upsertEntry(entry) {
     const got = await db.collection(ENTRY_COL).doc(id).get()
     prev = got && got.data
   } catch (e) { /* new */ }
-  const doc = stripDocMeta(Object.assign({}, prev || {}, entry, {
+  const kept = mergeEntryIdentity(prev, entry)
+  if (prev) kept.isPast = computeEntryIsPast(kept, nowMs())
+  const doc = stripDocMeta(Object.assign({}, prev || {}, kept, {
     updatedAt: nowMs(),
     createdAt: (prev && prev.createdAt) || nowMs()
   }))
@@ -313,7 +334,6 @@ function buildEntryDoc(meta, matched, notices) {
   const bounds = windowBoundsOf(notices)
   const launch = (matched && matched.launch) || null
   const netMs = launch && launch.net ? Date.parse(launch.net) : 0
-  const refMs = bounds.endMs || (Number.isFinite(netMs) ? netMs : 0)
   return {
     entryKey: meta.entryKey,
     missionName: meta.missionName || '',
@@ -326,16 +346,31 @@ function buildEntryDoc(meta, matched, notices) {
     net: launch ? launch.net || '' : '',
     pad: launch ? resolvePadCoords(launch.pad || {}) : null,
     statusName: launch ? launch.statusName || '' : '',
+    statusAbbrev: launch ? launch.statusAbbrev || '' : '',
+    statusId: launch ? launch.statusId || 0 : 0,
     agency: launch ? launch.agency || '' : '',
     orbitName: launch ? launch.orbitName || '' : '',
     isStarship: launch ? !!launch.isStarship : /starship/i.test(meta.entryKey),
     isCollection: isCollectionKey(meta.entryKey),
     noticeKeys: (notices || []).map((n) => n.noticeKey).filter(Boolean),
     noticeCount: (notices || []).length,
-    windowStartMs: bounds.startMs,
-    windowEndMs: bounds.endMs,
-    // 合集是持续桶，不进历史；其余按危险区窗口是否过期
-    isPast: isCollectionKey(meta.entryKey) ? false : !!(refMs && refMs < nowMs()),
+    windowStart: launch ? launch.windowStart || '' : '',
+    windowEnd: launch ? launch.windowEnd || '' : '',
+    windowStartMs: parseTimeMs(launch && launch.windowStart) || (Number.isFinite(netMs) && netMs ? netMs : 0),
+    windowEndMs: parseTimeMs(launch && launch.windowEnd) || 0,
+    noticeWindowStartMs: bounds.startMs,
+    noticeWindowEndMs: bounds.endMs,
+    // 合集是持续桶；其余按发射时刻，不用航警窗口
+    isPast: computeEntryIsPast({
+      entryKey: meta.entryKey,
+      isCollection: isCollectionKey(meta.entryKey),
+      net: launch ? launch.net || '' : '',
+      windowStart: launch ? launch.windowStart || '' : '',
+      windowEnd: launch ? launch.windowEnd || '' : '',
+      statusName: launch ? launch.statusName || '' : '',
+      statusAbbrev: launch ? launch.statusAbbrev || '' : '',
+      statusId: launch ? launch.statusId || 0 : 0
+    }, nowMs()),
     syncedAt: nowMs()
   }
 }
@@ -462,7 +497,7 @@ async function writeSyncMeta(patch) {
 async function dropLegacyEntries() {
   let removed = 0
   try {
-    const res = await db.collection(ENTRY_COL).limit(100).get()
+    const res = { data: await readAllEntryDocs(ENTRY_READ_CAP) }
     for (const d of res.data || []) {
       if (!d || d._meta) continue
       if (d.entryKey) continue
@@ -734,8 +769,11 @@ async function syncOneEntry(slug, launches, deadline) {
     }
   }
 
-  const matched = isCollectionKey(slug) ? null : matchEntryToLaunch(meta, launches)
-  const ll2Id = matched ? matched.launch.ll2Id : ''
+  const prev = await loadEntryDoc(slug)
+  const matched = isCollectionKey(slug)
+    ? null
+    : preferLaunchMatch(matchEntryToLaunch(meta, launches), prev)
+  const ll2Id = matched ? matched.launch.ll2Id : ((prev && prev.ll2Id) || '')
 
   const fetchRes = await fetchNoticesByPaths(paths, { deadline })
   if (fetchRes.errors && fetchRes.errors.length) errors.push(...fetchRes.errors.slice(0, 5))
@@ -882,23 +920,73 @@ async function syncSpaceNoticesThrottled(opts) {
 
 // ───────────────────────── 查询 ─────────────────────────
 
+function isUsablePad(pad) {
+  if (!pad) return false
+  const lat = Number(pad.latitude)
+  const lon = Number(pad.longitude)
+  return Number.isFinite(lat) && Number.isFinite(lon) && !(lat === 0 && lon === 0) && Math.abs(lat) <= 90
+}
+
+/** 用 space_devs_cache 回填 NET / 状态 / 发射台，列表和详情同一套对齐 */
+function alignEntryWithLaunch(d, launch) {
+  if (!d || !launch) return d
+  return Object.assign({}, d, {
+    net: launch.net || d.net,
+    windowStart: launch.windowStart || '',
+    windowEnd: launch.windowEnd || '',
+    windowStartMs: parseTimeMs(launch.windowStart) || parseTimeMs(launch.net) || 0,
+    windowEndMs: parseTimeMs(launch.windowEnd) || 0,
+    rocketName: d.rocketName || launch.subtitle || '',
+    missionName: d.missionName || launch.title || '',
+    statusName: launch.statusName || d.statusName || '',
+    statusAbbrev: launch.statusAbbrev || d.statusAbbrev || '',
+    statusId: launch.statusId != null ? launch.statusId : d.statusId,
+    pad: isUsablePad(d.pad) ? d.pad : (launch.pad || d.pad)
+  })
+}
+
+async function launchByLl2Id() {
+  const packed = await loadLaunchesFromCache()
+  const byId = new Map()
+  ;(packed.launches || []).forEach((l) => {
+    if (l && l.ll2Id) byId.set(String(l.ll2Id), l)
+  })
+  return byId
+}
+
 function slimEntryRow(d) {
+  const isCollection = !!d.isCollection || isCollectionKey(d.entryKey)
+  const statusName = d.statusName || ''
+  const statusAbbrev = d.statusAbbrev || ''
   return {
     entryKey: d.entryKey,
     ll2Id: d.ll2Id || '',
     missionName: d.missionName || d.entryKey,
     rocketName: d.rocketName || '',
     net: d.net || '',
+    windowStart: d.windowStart || '',
+    windowEnd: d.windowEnd || '',
     windowStartMs: d.windowStartMs || 0,
     windowEndMs: d.windowEndMs || 0,
-    isPast: !!d.isPast,
+    isPast: computeEntryIsPast({
+      entryKey: d.entryKey,
+      isCollection,
+      net: d.net || '',
+      windowStart: d.windowStart || '',
+      windowEnd: d.windowEnd || '',
+      statusName,
+      statusAbbrev,
+      statusId: d.statusId
+    }, nowMs()),
     isStarship: !!d.isStarship,
-    isCollection: !!d.isCollection || isCollectionKey(d.entryKey),
-    statusName: d.statusName || '',
+    isCollection,
+    statusName,
+    statusAbbrev,
+    statusId: d.statusId || 0,
     agency: d.agency || '',
     noticeCount: Number(d.noticeCount || (Array.isArray(d.noticeKeys) ? d.noticeKeys.length : 0)),
     hasTrajectory: Array.isArray(d.trajectory) && d.trajectory.length > 1,
-    hasPad: !!(d.pad && d.pad.latitude != null),
+    hasPad: isUsablePad(d.pad),
     lastCheckedAt: Number(d.lastCheckedAt) || Number(d.syncedAt) || 0,
     lastChangedAt: Number(d.lastChangedAt) || 0,
     syncedAt: d.syncedAt || 0
@@ -907,11 +995,14 @@ function slimEntryRow(d) {
 
 async function listEntries(event) {
   const limit = Math.min(Number(event.limit) || 40, 60)
+  const upcomingOnly = event.upcomingOnly !== false
   let syncError = ''
-  let res = await db.collection(ENTRY_COL).limit(100).get().catch((e) => {
+  let res = { data: [] }
+  try {
+    res = { data: await readAllEntryDocs(ENTRY_READ_CAP) }
+  } catch (e) {
     syncError = (e && e.message) || String(e)
-    return { data: [] }
-  })
+  }
   let rows = (res.data || []).filter((d) => d && !d._meta && d.entryKey)
   // 库空时自动同步一次
   if (!rows.length) {
@@ -920,7 +1011,7 @@ async function listEntries(event) {
       if (syncRes && syncRes.success === false) {
         syncError = syncRes.error || syncError || 'sync failed'
       }
-      res = await db.collection(ENTRY_COL).limit(100).get()
+      res = { data: await readAllEntryDocs(ENTRY_READ_CAP) }
       rows = (res.data || []).filter((d) => d && !d._meta && d.entryKey)
     } catch (e) {
       syncError = (e && e.message) || String(e)
@@ -928,18 +1019,35 @@ async function listEntries(event) {
   }
 
   const meta = await readSyncMeta()
-  const list = rows
+  const slimmed = rows
     .map(slimEntryRow)
-    // 即将发射在前（时间近的靠前），历史发射按时间倒序
+    .filter((a) => a && a.entryKey && !a.isCollection)
+    .filter((a) => (upcomingOnly ? !a.isPast : true))
     .sort((a, b) => {
-      if (a.isPast !== b.isPast) return a.isPast ? 1 : -1
-      const ta = a.windowStartMs || Date.parse(a.net) || 0
-      const tb = b.windowStartMs || Date.parse(b.net) || 0
-      return a.isPast ? tb - ta : ta - tb
+      if (!upcomingOnly && a.isPast !== b.isPast) return a.isPast ? 1 : -1
+      const ta = launchTimeMs(a) || 0
+      const tb = launchTimeMs(b) || 0
+      return (!upcomingOnly && a.isPast) ? tb - ta : ta - tb
     })
     .slice(0, limit)
 
-  if (!list.length) {
+  let list = slimmed
+  try {
+    const byId = await launchByLl2Id()
+    if (byId.size) {
+      const rawByKey = {}
+      rows.forEach((d) => {
+        if (d && d.entryKey) rawByKey[d.entryKey] = d
+      })
+      list = slimmed.map((row) => {
+        const raw = rawByKey[row.entryKey]
+        const launch = raw && raw.ll2Id ? byId.get(String(raw.ll2Id)) : null
+        return launch ? slimEntryRow(alignEntryWithLaunch(raw, launch)) : row
+      }).filter((a) => a && a.entryKey && (!upcomingOnly || !a.isPast))
+    }
+  } catch (e) { /* 列表仍用库内字段 */ }
+
+  if (!list.length && !rows.length) {
     return {
       success: false,
       error: syncError
@@ -950,6 +1058,7 @@ async function listEntries(event) {
   return {
     success: true,
     results: list,
+    upcomingOnly,
     progress: {
       total: Number(meta.entrySlugs && meta.entrySlugs.length) || list.length,
       covered: Number(meta.coveredKeys && meta.coveredKeys.length) || list.length,
@@ -1017,7 +1126,7 @@ function isStarshipEntryDoc(d) {
 
 /** 进度页星舰通告卡：优先即将发射、其次最近历史；只读 */
 async function lookupStarshipEntry() {
-  const res = await db.collection(ENTRY_COL).limit(100).get().catch(() => ({ data: [] }))
+  const res = { data: await readAllEntryDocs(ENTRY_READ_CAP).catch(() => []) }
   const rows = (res.data || []).filter((d) => d && !d._meta && d.entryKey && isStarshipEntryDoc(d))
   const withNotices = rows.filter((d) => noticeCountOf(d) > 0)
   const pool = withNotices.length ? withNotices : rows
@@ -1029,13 +1138,23 @@ async function lookupStarshipEntry() {
       entryKey: FLIGHT13_ENTRY_KEY
     }
   }
-  pool.sort((a, b) => {
-    if (a.isPast !== b.isPast) return a.isPast ? 1 : -1
-    const ta = a.windowStartMs || Date.parse(a.net) || 0
-    const tb = b.windowStartMs || Date.parse(b.net) || 0
-    return a.isPast ? tb - ta : ta - tb
+  let aligned = pool
+  try {
+    const byId = await launchByLl2Id()
+    if (byId.size) {
+      aligned = pool.map((d) => alignEntryWithLaunch(d, d.ll2Id ? byId.get(String(d.ll2Id)) : null))
+    }
+  } catch (e) { /* 仍用库内字段 */ }
+  const now = nowMs()
+  aligned.sort((a, b) => {
+    const ap = computeEntryIsPast(a, now)
+    const bp = computeEntryIsPast(b, now)
+    if (ap !== bp) return ap ? 1 : -1
+    const ta = launchTimeMs(a) || 0
+    const tb = launchTimeMs(b) || 0
+    return ap ? tb - ta : ta - tb
   })
-  const entry = pool[0]
+  const entry = aligned[0]
   const noticeCount = noticeCountOf(entry)
   return {
     success: true,
@@ -1057,12 +1176,26 @@ async function findEntryDoc(entryKey, ll2Id) {
   }
   if (ll2Id) {
     try {
-      const res = await db.collection(ENTRY_COL).where({ ll2Id: String(ll2Id) }).limit(1).get()
-      const row = (res.data || []).filter((d) => d && !d._meta)[0]
+      const res = await db.collection(ENTRY_COL).where({ ll2Id: String(ll2Id) }).limit(20).get()
+      const row = pickBestEntryDoc(res.data)
       if (row) return row
     } catch (e) { /* miss */ }
   }
   return null
+}
+
+/** 同一 ll2Id 被多条误绑时，优先有通告、再取最近同步 */
+function pickBestEntryDoc(rows) {
+  const list = (Array.isArray(rows) ? rows : []).filter((d) => d && !d._meta && d.entryKey)
+  if (!list.length) return null
+  list.sort((a, b) => {
+    const ac = noticeCountOf(a)
+    const bc = noticeCountOf(b)
+    if (ac !== bc) return bc - ac
+    return (Number(b.syncedAt) || Number(b.lastCheckedAt) || 0) -
+      (Number(a.syncedAt) || Number(a.lastCheckedAt) || 0)
+  })
+  return list[0]
 }
 
 async function getEntry(event) {
@@ -1117,8 +1250,16 @@ async function getEntry(event) {
   }
   if (!entry) return { success: false, error: 'not_found' }
 
+  try {
+    if (entry.ll2Id) {
+      const byId = await launchByLl2Id()
+      entry = alignEntryWithLaunch(entry, byId.get(String(entry.ll2Id))) || entry
+    }
+  } catch (e) { /* 详情仍用库内字段 */ }
+
   // 发射台坐标：库内可能是 slim 掉 lat/lon 后的裸 name，重新 resolve
   const pad = resolvePadCoords(entry.pad || {})
+  const usablePad = isUsablePad(pad) ? pad : (isUsablePad(entry.pad) ? entry.pad : null)
 
   // Flight 13：始终用站点同源轨迹（避免库内残留旧抽稀包画成粗折线）
   let trajectory = Array.isArray(entry.trajectory) ? entry.trajectory : []
@@ -1149,13 +1290,17 @@ async function getEntry(event) {
       description: entry.description || '',
       siteUrl: entry.siteUrl || `${BASE}/entry/${entry.entryKey}`,
       net: entry.net || '',
-      pad: pad.latitude != null ? pad : entry.pad || null,
+      pad: usablePad || { name: (pad && pad.name) || '', latitude: null, longitude: null },
       statusName: entry.statusName || '',
+      statusAbbrev: entry.statusAbbrev || '',
+      statusId: entry.statusId || 0,
       agency: entry.agency || '',
       orbitName: entry.orbitName || '',
       isStarship: !!entry.isStarship,
       isCollection: !!entry.isCollection || isCollectionKey(entry.entryKey),
-      isPast: !!entry.isPast,
+      isPast: computeEntryIsPast(entry, nowMs()),
+      windowStart: entry.windowStart || '',
+      windowEnd: entry.windowEnd || '',
       windowStartMs: entry.windowStartMs || 0,
       windowEndMs: entry.windowEndMs || 0,
       noticeKeys: entry.noticeKeys || [],

@@ -18,6 +18,29 @@ test('matchRocketConfig：优先 configId', () => {
   assert.equal(hit.name, 'Falcon 9')
 })
 
+test('matchRocketConfig：有 configId 但目录未命中时不按名覆盖', () => {
+  const configs = {
+    164: { id: 164, name: 'Falcon 9', full_name: 'Falcon 9 Block 5', length: 70 }
+  }
+  const hit = matchRocketConfig(configs, { configId: '90', rocketName: 'Falcon 9', rocketNameEn: 'Falcon 9' })
+  assert.equal(hit, null)
+})
+
+test('matchRocketConfig：detailConfig 与 configId 不一致时只认 id', () => {
+  const configs = {
+    10: { id: 10, name: 'Starship', length: 50 },
+    11: { id: 11, name: 'Starship', length: 124.4 }
+  }
+  const hit = matchRocketConfig(configs, {
+    configId: '10',
+    rocketName: '星舰',
+    detailConfig: { id: 11, name: 'Starship', length: 124.4, to_thrust: 80807 }
+  })
+  assert.equal(hit.id, 10)
+  assert.equal(hit.length, 50)
+  assert.equal(hit.to_thrust, undefined)
+})
+
 test('matchRocketConfig：按中英名模糊命中', () => {
   const configs = {
     1: { id: 1, name: 'Long March 5', nameZh: '长征五号', full_name: 'Long March 5' }
@@ -131,6 +154,23 @@ test('buildExhibit：尺寸与特征只收集有值字段', () => {
   assert.equal(exhibit.intro, '可回收的中型运载火箭。')
 })
 
+test('导航标题跟正在展的模型 slug，全系列不叫星舰也不叫单型号', () => {
+  const { navFromDisplayedSlug } = require('../subpackages/rocket-3d/catalog.js')
+  const exhibit = buildExhibit(
+    {
+      full_nameZh: '长征二号丁/远征三号',
+      manufacturerNameZh: '中国航天科技集团'
+    },
+    { rocketName: '长征二号丁/远征三号', series: true }
+  )
+  const nav = navFromDisplayedSlug('long-march-series', [])
+  assert.equal(exhibit.title, '长征二号丁/远征三号')
+  assert.equal(nav.pickerTitle, '长征全系列')
+  assert.equal(nav.pickerSub, '中国航天科技集团')
+  assert.notEqual(nav.pickerTitle, '星舰')
+  assert.notEqual(nav.pickerTitle, exhibit.title)
+})
+
 test('buildExhibit：无构型时仍可用入口名', () => {
   const exhibit = buildExhibit(null, { rocketName: '星舰', credit: '模型由张三捐赠' })
   assert.equal(exhibit.title, '星舰')
@@ -148,7 +188,13 @@ test('长征成员回落到全系列底模时也不标尺寸', () => {
   try {
     const resolved = resolveRocketModel({ rocketName: '长征十二号甲' })
     assert.equal(resolved.series, true)
+    assert.equal(resolved.slug, 'long-march-series')
     assert.match(resolved.url, /long-march-series\.glb/)
+    const { navFromDisplayedSlug } = require('../subpackages/rocket-3d/catalog.js')
+    const nav = navFromDisplayedSlug(resolved.slug, [])
+    assert.equal(nav.pickerTitle, '长征全系列')
+    assert.notEqual(nav.pickerTitle, '长征十二号甲')
+    assert.notEqual(nav.pickerTitle, '星舰')
     const exhibit = buildExhibit(
       { length: 69, diameter: 3.8, launch_mass: 433 },
       { rocketName: '长征十二号甲', series: resolved.series }

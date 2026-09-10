@@ -5,7 +5,12 @@
  */
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { mergeMissionPages } = require('../utils/index-mission-services.js')
+const {
+  mergeMissionPages,
+  normalizeMissionItem,
+  stableMissionListWxkey,
+  shouldPatchSingleCompletedCardFromDetail
+} = require('../utils/index-mission-services.js')
 
 const passThroughFilter = (list) => list
 
@@ -49,4 +54,59 @@ test('completed：按时间降序，最新在前', () => {
     passThroughFilter
   )
   assert.deepEqual(merged.map((m) => m.id), ['new', 'old'])
+})
+
+test('列表 wx:key 跟 id 走，不含下标，已有 key 不改', () => {
+  assert.equal(stableMissionListWxkey('completed', { id: 88 }), 'm-1-88')
+  assert.equal(stableMissionListWxkey('upcoming', { id: 'a1' }), 'm-0-a1')
+  assert.equal(stableMissionListWxkey('completed', { id: 88 }, 'm-1-3-88'), 'm-1-3-88')
+  const item = normalizeMissionItem(
+    { id: 12, launchTime: '2026-08-11T00:00:00Z', rocketName: 'Falcon 9' },
+    { type: 'completed', index: 7, baseIndex: 10 }
+  )
+  assert.equal(item._wxkey, 'm-1-12')
+  const again = normalizeMissionItem(
+    { ...item, rocketName: '猎鹰9号' },
+    { type: 'completed', index: 0, baseIndex: 0 }
+  )
+  assert.equal(again._wxkey, 'm-1-12')
+})
+
+test('详情回写：历史卡已在列表时只补单张，落库/卸面板才整表', () => {
+  assert.equal(
+    shouldPatchSingleCompletedCardFromDetail({
+      inCompleted: true,
+      inUpcoming: false,
+      isPanel: false,
+      settled: true
+    }),
+    true
+  )
+  assert.equal(
+    shouldPatchSingleCompletedCardFromDetail({
+      inCompleted: true,
+      inUpcoming: true,
+      isPanel: false,
+      settled: true
+    }),
+    false
+  )
+  assert.equal(
+    shouldPatchSingleCompletedCardFromDetail({
+      inCompleted: true,
+      inUpcoming: false,
+      isPanel: true,
+      settled: true
+    }),
+    false
+  )
+  assert.equal(
+    shouldPatchSingleCompletedCardFromDetail({
+      inCompleted: false,
+      inUpcoming: true,
+      isPanel: true,
+      settled: false
+    }),
+    false
+  )
 })

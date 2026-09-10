@@ -17,6 +17,10 @@ const pasted = filesFromDataTransfer({ files: [png, bmp] }, { paste: true })
 assert.strictEqual(pasted.length, 1, '粘贴截图只收一张')
 assert.ok(/png/i.test(pasted[0].type || pasted[0].name))
 
+const heic = { name: '现场.HEIC', type: '', size: 40, lastModified: 4 }
+const pastedHeic = filesFromDataTransfer({ files: [heic] }, { paste: true })
+assert.strictEqual(pastedHeic.length, 1, 'HEIC 文件名应算图片')
+
 const live = { 0: named, length: 1 }
 assert.strictEqual(filesFromInput({ files: live }).length, 1)
 assert.strictEqual(filesFromInput({ files: live })[0], named)

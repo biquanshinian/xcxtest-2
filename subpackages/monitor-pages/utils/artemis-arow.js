@@ -1,13 +1,14 @@
 /**
  * Artemis II 星历简报
  *
- * 数据源（按优先级）：
+ * 数据源：
  *   1. NASA AROW 实时遥测 — Worker 从 GCS bucket 拉取，已在服务端解析为精简 JSON
  *      路径：GET /artemis-telemetry（响应 < 1KB，缓存 10 秒）
- *   2. JPL Horizons 星历 — 备用，Worker 代理转发
- *      路径：GET /artemis-horizons?...（响应较大，缓存 60 秒）
+ *   2. 失败回落本地上次成功快照，不再客户端直打 /artemis-horizons
+ *      （We分析中该备用链 100% 发起失败；app.json request 超时 10s，
+ *       Horizons 客户端 60s 实际会被掐死，冷启动无快照时会刷失败请求）
  *
- * 请求链路：小程序 → Worker → GCS / JPL
+ * 请求链路：小程序 → Worker → GCS
  *
  * 前置条件：
  *   1. cloudflare-worker/spacex-proxy.js 已部署
@@ -17,17 +18,11 @@
 var config = require('../../../utils/config.js')
 var httpRequest = require('./http-request.js')
 
-var KM_S_TO_KMH = 3600
 var REQUEST_TIMEOUT = 30000 // 遥测接口很快，30 秒足够
 
 var CREDIT_LINES = [
   '数据来源：NASA AROW 实时遥测（GCS p-2-cen1）',
   '此为猎户座飞船下行遥测数据，感谢NASA。'
-]
-
-var CREDIT_LINES_HORIZONS = [
-  '数据来源：NASA/JPL Horizons（Artemis II 星历体 -1024）',
-  '此为星历推算，非实时遥测；详情见 NASA AROW 官网。'
 ]
 
 // ==================== 配置 ====================
@@ -136,12 +131,14 @@ function friendlyError(raw) {
 
 // ==================== 网络请求 ====================
 
-function requestJson(url, timeout) {
-  return httpRequest.requestJson({
+function requestJson(url, timeout, retries) {
+  var opts = {
     url: url,
     method: 'GET',
     timeout: timeout || REQUEST_TIMEOUT
-  }).then(function (res) {
+  }
+  if (retries != null) opts.retries = retries
+  return httpRequest.requestJson(opts).then(function (res) {
     if (!res.ok) {
       var err = res.error
       var msg = (err && err.errMsg) || (err && err.message) || String(err || '')
@@ -160,6 +157,8 @@ function requestJson(url, timeout) {
 
 var _cache = { data: null, ts: 0 }
 var CACHE_TTL = 8000
+var STALE_KEY = '_artemis_briefing_last'
+var STALE_TTL = 30 * 60 * 1000
 
 // ==================== 方案 1：AROW 实时遥测（快） ====================
 
@@ -167,7 +166,7 @@ async function fetchFromTelemetry(launchMs) {
   var base = getWorkerBase()
   if (!base) throw new Error('未配置 workerProxyUrl')
   var url = base + '/artemis-telemetry'
-  var data = await requestJson(url, 20000) // 遥测接口应该很快
+  var data = await requestJson(url, 20000, 1)
 
   if (!data.ok) throw new Error(data.error || '遥测数据不可用')
 
@@ -195,101 +194,25 @@ async function fetchFromTelemetry(launchMs) {
   }
 }
 
-// ==================== 方案 2：Horizons 星历（慢，兜底） ====================
-
-var MON = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 }
-
-function parseRows(text) {
-  if (!text || typeof text !== 'string') return []
-  var m = /\$\$SOE([\s\S]*?)\$\$EOE/.exec(text)
-  if (!m) return []
-  var lines = m[1].split(/\r?\n/).map(function (l) { return l.trim() }).filter(Boolean)
-  var out = []
-  for (var i = 0; i < lines.length;) {
-    var head = lines[i]
-    if (!/^\d+\.\d+/.test(head) || head.indexOf('A.D.') < 0) { i++; continue }
-    if (!lines[i + 1] || !lines[i + 2] || !lines[i + 3]) break
-    var cm = /A\.D\.\s*(\d{4})-(\w{3})-(\d+)\s+(\d+):(\d+):(\d+)/.exec(head)
-    var tMs = NaN
-    if (cm && MON[cm[2]] !== undefined) tMs = Date.UTC(+cm[1], MON[cm[2]], +cm[3], +cm[4], +cm[5], +cm[6])
-    var xm = /X\s*=\s*([0-9.E+-]+)/.exec(lines[i + 1])
-    var ym = /Y\s*=\s*([0-9.E+-]+)/.exec(lines[i + 1])
-    var zm = /Z\s*=\s*([0-9.E+-]+)/.exec(lines[i + 1])
-    var vxm = /VX\s*=\s*([0-9.E+-]+)/.exec(lines[i + 2])
-    var vym = /VY\s*=\s*([0-9.E+-]+)/.exec(lines[i + 2])
-    var vzm = /VZ\s*=\s*([0-9.E+-]+)/.exec(lines[i + 2])
-    var rgm = /RG=\s*([0-9.E+-]+)/.exec(lines[i + 3])
-    if (xm && ym && zm && vxm && vym && vzm && rgm) {
-      var vx = parseFloat(vxm[1]), vy = parseFloat(vym[1]), vz = parseFloat(vzm[1])
-      out.push({
-        tMs: tMs,
-        pos: { x: parseFloat(xm[1]), y: parseFloat(ym[1]), z: parseFloat(zm[1]) },
-        rgKm: parseFloat(rgm[1]),
-        speedKmS: Math.sqrt(vx * vx + vy * vy + vz * vz)
-      })
-    }
-    i += 4
-  }
-  return out
-}
-
-function pickClosest(rows, nowMs) {
-  if (!rows.length) return null
-  var best = rows[0], bestDt = isFinite(rows[0].tMs) ? Math.abs(rows[0].tMs - nowMs) : Infinity
-  for (var i = 1; i < rows.length; i++) {
-    if (!isFinite(rows[i].tMs)) continue
-    var dt = Math.abs(rows[i].tMs - nowMs)
-    if (dt < bestDt) { bestDt = dt; best = rows[i] }
-  }
-  return best
-}
-
-function dist3d(a, b) {
-  var dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z
-  return Math.sqrt(dx * dx + dy * dy + dz * dz)
-}
-
-async function fetchFromHorizons(launchMs) {
-  var base = getWorkerBase()
-  if (!base) throw new Error('未配置 workerProxyUrl')
-  var e = encodeURIComponent
-  var nowMs = Date.now()
-  var startCal = fmtUtc(new Date(nowMs - 3 * 60000))
-  var stopCal = fmtUtc(new Date(nowMs + 1 * 60000))
-
-  function buildUrl(cmd) {
-    return base + '/artemis-horizons?format=json' +
-      '&COMMAND=' + e("'" + cmd + "'") +
-      '&OBJ_DATA=NO&MAKE_EPHEM=YES&EPHEM_TYPE=VECTORS' +
-      '&CENTER=' + e("'500@399'") +
-      '&START_TIME=' + e("'" + startCal + "'") +
-      '&STOP_TIME=' + e("'" + stopCal + "'") +
-      '&STEP_SIZE=' + e("'1 min'") +
-      "&QUANTITIES='1'&OUT_UNITS=KM-S"
-  }
-
-  var results = await Promise.all([requestJson(buildUrl('-1024'), 60000), requestJson(buildUrl('301'), 60000)])
-  var rawO = results[0], rawM = results[1]
-  if (rawO.error) throw new Error(String(rawO.error).slice(0, 120))
-  if (rawM.error) throw new Error(String(rawM.error).slice(0, 120))
-
-  var ro = pickClosest(parseRows(rawO.result || ''), nowMs)
-  var rm = pickClosest(parseRows(rawM.result || ''), nowMs)
-  if (!ro || !rm || !ro.pos || !rm.pos) throw new Error('无法解析星历')
-
-  return {
-    ok: true,
-    source: 'horizons',
-    missionElapsedText: fmtMet(nowMs, launchMs),
-    velocityKmh: Math.round(ro.speedKmS * KM_S_TO_KMH),
-    distanceFromEarthKm: Math.round(ro.rgKm),
-    distanceToMoonKm: Math.round(dist3d(ro.pos, rm.pos)),
-    updatedAtLabel: fmtUtc(new Date()) + ' UTC',
-    creditLines: CREDIT_LINES_HORIZONS
-  }
-}
-
 // ==================== 主入口 ====================
+
+function readStaleBriefing() {
+  if (_cache.data && _cache.data.ok) return _cache.data
+  try {
+    var stored = wx.getStorageSync(STALE_KEY)
+    if (stored && stored.data && stored.data.ok && stored.ts && (Date.now() - stored.ts) < STALE_TTL) {
+      return stored.data
+    }
+  } catch (e) {}
+  return null
+}
+
+function writeStaleBriefing(data) {
+  _cache = { data: data, ts: Date.now() }
+  try {
+    wx.setStorage({ key: STALE_KEY, data: { data: data, ts: Date.now() }, fail: function () {} })
+  } catch (e) {}
+}
 
 async function fetchBriefing() {
   var nowTs = Date.now()
@@ -306,20 +229,15 @@ async function fetchBriefing() {
   // 优先：AROW 实时遥测（快，< 1KB）
   try {
     var result = await fetchFromTelemetry(launchMs)
-    _cache = { data: result, ts: Date.now() }
+    writeStaleBriefing(result)
     return result
   } catch (e1) {
     console.warn('[Artemis] 遥测失败:', e1.message, '| Worker:', getWorkerBase() + '/artemis-telemetry')
-  }
-
-  // 兜底：Horizons 星历（慢但稳）
-  try {
-    var result2 = await fetchFromHorizons(launchMs)
-    _cache = { data: result2, ts: Date.now() }
-    return result2
-  } catch (e2) {
-    console.error('[Artemis] Horizons 也失败:', e2.message)
-    return { ok: false, error: friendlyError(e2.message), creditLines: CREDIT_LINES }
+    var stale = readStaleBriefing()
+    if (stale) {
+      return Object.assign({}, stale, { missionElapsedText: fmtMet(nowTs, launchMs), stale: true })
+    }
+    return { ok: false, error: friendlyError(e1.message), creditLines: CREDIT_LINES }
   }
 }
 

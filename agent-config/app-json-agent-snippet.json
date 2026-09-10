@@ -12,22 +12,22 @@
     "skills": [
       {
         "name": "launch-tracker",
-        "description": "全球火箭发射查询：SpaceX、中国航天（长征/蓝箭/星河动力等）及各国即将发射与历史发射、星链组网发射、任务详情、发射商信息、年度全球发射统计",
+        "description": "火星探索日志·全球火箭发射。用户问今天/本周有没有发射、倒计时、猎鹰9、星链发射、长征、朱雀、蓝箭、文昌/酒泉、SpaceX下一发、上次成功了吗、今年全球发了多少次、某发射商战绩时使用。打开本小程序首页或任务详情，禁止编造发射时间。",
         "path": "subpackages/agent-skills/launch-skill"
       },
       {
         "name": "starship-tracker",
-        "description": "SpaceX 星舰进度追踪：下一飞组合体状态、最新动态、下次试飞时间、星舰基地道路封闭",
+        "description": "火星探索日志·SpaceX星舰。用户问星舰进展、Starship、B16/S3x、下次试飞、星舰基地封路、Starbase时使用。打开本小程序进展页。星舰助推器不是猎鹰B10xx。",
         "path": "subpackages/agent-skills/starship-skill"
       },
       {
         "name": "station-tracker",
-        "description": "空间站动态：在轨空间站概览、乘组名单、停靠的载人/货运飞行器",
+        "description": "火星探索日志·空间站。用户问天宫、中国空间站、ISS、国际空间站现在有几个人、乘组是谁、停了哪些飞船时使用。打开本小程序监控中心或空间站详情，禁止凭记忆报人数。",
         "path": "subpackages/agent-skills/station-skill"
       },
       {
         "name": "booster-tracker",
-        "description": "火箭回收与可复用助推器查询：SpaceX 猎鹰及全球可回收火箭的单枚助推器战绩（按编号如 B1067）、火箭回收成功率统计与复用次数排行",
+        "description": "火星探索日志·火箭回收。用户问B1067/B10xx飞了几次、猎鹰回收、复用排行、着陆成功率时使用。打开本小程序族谱或助推器详情。不要把B16当成猎鹰助推器。",
         "path": "subpackages/agent-skills/booster-skill"
       }
     ]

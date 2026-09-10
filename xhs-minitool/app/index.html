@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>火箭观礼助手</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { min-height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                   "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-user-select: none;
+      user-select: none;
+      background: #0B0C0E;
+      color: #F4F1EA;
+    }
+  </style>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="app" class="app">
+    <main class="scroller" id="scroller">
+      <section class="view is-active" data-view="home" id="view-home">
+        <button type="button" class="btn-primary" data-action="start">开始规划观礼</button>
+        <button type="button" class="btn-ghost" data-action="open-quiz">先来 8 题航天速答</button>
+      </section>
+
+      <section class="view" data-view="site" id="view-site">
+        <div class="stepper" id="stepper-site"></div>
+        <h2 class="section-title">先选发射场</h2>
+        <div class="filter-row" id="site-filters"></div>
+        <div class="card-list" id="site-list"></div>
+      </section>
+
+      <section class="view" data-view="rocket" id="view-rocket">
+        <div class="stepper" id="stepper-rocket"></div>
+        <h2 class="section-title">这发看哪枚火箭</h2>
+        <div class="card-list" id="rocket-list"></div>
+      </section>
+
+      <section class="view" data-view="intent" id="view-intent">
+        <div class="stepper" id="stepper-intent"></div>
+        <h2 class="section-title">你更在意什么</h2>
+        <div class="card-list" id="intent-list"></div>
+      </section>
+
+      <section class="view" data-view="result" id="view-result">
+        <div class="result-hero" id="result-hero"></div>
+        <div class="panel">
+          <h3>发射倒计时</h3>
+          <label class="field-label" for="launch-at">预计发射时间</label>
+          <input id="launch-at" class="field" type="datetime-local" />
+          <div class="countdown" id="countdown">填写时间后开始倒数</div>
+        </div>
+        <div class="panel" id="guide-panel"></div>
+        <div class="panel">
+          <div class="panel-head">
+            <h3>装备清单</h3>
+            <button type="button" class="text-btn" data-action="reset-checks">重置勾选</button>
+          </div>
+          <ul class="check-list" id="check-list"></ul>
+        </div>
+        <div class="panel">
+          <h3>可复制攻略</h3>
+          <div class="selectable note-text" id="note-text"></div>
+        </div>
+        <div class="bottom-space"></div>
+      </section>
+
+      <section class="view" data-view="quiz" id="view-quiz">
+        <div class="quiz-progress" id="quiz-progress"></div>
+        <div class="panel quiz-card" id="quiz-card"></div>
+      </section>
+    </main>
+
+    <footer class="dock" id="result-dock" hidden>
+      <button type="button" class="btn-primary" data-action="save-card">保存观礼卡</button>
+      <button type="button" class="btn-ghost" data-action="post-note">发笔记</button>
+      <button type="button" class="btn-ghost" data-action="search-notes">搜相关</button>
+    </footer>
+
+    <div class="toast" id="toast" hidden></div>
+  </div>
+  <script src="./data.js"></script>
+  <script src="./main.js"></script>
+</body>
+</html>

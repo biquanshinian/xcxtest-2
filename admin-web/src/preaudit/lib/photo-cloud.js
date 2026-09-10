@@ -1,8 +1,8 @@
 import { canFallbackPhotoUpload, isPayloadTooLarge, packJpeg } from './image-pack.js'
-import { slimMaterialsForCloud } from './project-sync.js'
+import { slimCloudFile, slimMaterialsForCloud } from './project-sync.js'
 import { PHOTO_SLOTS, friendlyCloudError, pickPhotoSrc } from './photo-slots.js'
 
-export { isCloudFileSlot, isDeleteAuthError, isPhotoSlot, PHOTO_SLOTS, photoStoreLabel, pickPhotoSrc, friendlyCloudError } from './photo-slots.js'
+export { isCloudFileSlot, isDeleteAuthError, isPhotoSlot, PHOTO_SLOTS, WORK_PHOTO_SLOTS, photoStoreLabel, pickPhotoSrc, friendlyCloudError } from './photo-slots.js'
 
 const DEFAULT_API_BASE = 'https://cloud1-9gdqgdt5bfaa20fb-1397421562.ap-shanghai.app.tcloudbase.com/admin'
 const API_BASE = import.meta.env.VITE_ADMIN_API_BASE || DEFAULT_API_BASE
@@ -137,6 +137,15 @@ function photoMetaFrom(project) {
   return meta
 }
 
+function photosFromProject(project) {
+  const photos = {}
+  PHOTO_SLOTS.forEach((slot) => {
+    const files = (project.materials && project.materials[slot] && project.materials[slot].files) || []
+    photos[slot] = files.map((file) => slimCloudFile(file, 0)).filter(Boolean)
+  })
+  return photos
+}
+
 export function upsertCloudProject(project) {
   if (!project || !project.id) return Promise.resolve(null)
   return gateway('/preaudit/project', 'POST', {
@@ -157,6 +166,7 @@ export function upsertCloudProject(project) {
     bidDate: project.bidDate || '',
     awardDate: project.awardDate || '',
     photoMeta: photoMetaFrom(project),
+    photos: photosFromProject(project),
     materials: slimMaterialsForCloud(project.materials)
   })
 }

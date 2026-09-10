@@ -15,7 +15,8 @@ const {
   shouldReplaceRocketImage,
   shouldReplaceRocketImageForArt
 } = require('../../utils/util.js')
-const { loadCloudMediaMap, revalidateCloudMediaMap, resolveMediaUrl } = require('../../utils/image-config.js')
+const { loadCloudMediaMap, revalidateCloudMediaMap, resolveMediaUrl, isCloudMediaMapReady } = require('../../utils/image-config.js')
+const { preloadSubpackages } = require('../../utils/preload-subpackages.js')
 const rocketArtUtil = require('../../utils/rocket-config-art.js')
 const { isMechaRocketSrc } = rocketArtUtil
 const { isPermissionDenied, getPermissionDeniedMessage } = require('./utils/single-page.js')
@@ -41,13 +42,13 @@ const {
 const { wgs84ToGcj02 } = require('./coord.js')
 const { normalizeLl2TimelineList } = require('./utils/ll2-launch-timeline.js')
 const { computeLaunchTimelineProgress } = require('./utils/launch-timeline-progress.js')
-const { loadMissionLaunchStats, applyClientAgencyFallback, applyClientRocketFallback } = require('./utils/mission-launch-stats.js')
-const { formatCloudError, resolveMissionRocketQueryName, resolveRocketYearFromBreakdown } = require('../../utils/launch-stats-cloud.js')
-const config = require('../../utils/config.js')
+const { loadMissionLaunchStats, applyClientAgencyFallback, applyClientRocketFallback, buildClientMissionStats } = require('./utils/mission-launch-stats.js')
+const { formatCloudError, isStatsGeneratingError, resolveMissionRocketQueryName, resolveRocketYearFromBreakdown } = require('../../utils/launch-stats-cloud.js')
+const { getLiveFinderUserNameFromConfig } = require('../../utils/live-settle-helpers.js')
 const { isLiveEntryAllowed, isFeatureEnabled, isPlaybackAllowed } = require('../../utils/feature-flags.js')
 const { resolveOrbitPanoForMission, playOrbitPanoVideo } = require('./utils/orbit-pano.js')
 const { videoSnapshotUrl, optimizeImageUrl } = require('../../utils/cos-url.js')
-const { openBoosterEntityDetail, openRocketModelDetail } = require('./utils/booster-nav.js')
+const { openBoosterEntityDetail, openRocketModelDetail, openRocketCompare, openRocketScore } = require('./utils/booster-nav.js')
 const { hasReadyRocketModel, resolveReadyModelUrl } = require('./utils/rocket-3d-gate.js')
 const { applyAuthoritativeStatus, projectBadgeOntoMission } = require('../../utils/launch-status-store.js')
 const {
@@ -60,7 +61,8 @@ const {
   applyContentLangToMission,
   mergeMissionLangPack,
   formatMissionListTime,
-  formatMissionListDate
+  formatMissionListDate,
+  isGenericMissionTitle
 } = require('../../utils/launch-card-i18n.js')
 const {
   alignMissionScheduleAndStatus,
@@ -81,6 +83,8 @@ const {
 } = require('../../utils/icon-cache.js')
 
 const HERO_AGENCY_FALLBACK_LOGO = '/images/icons/ic-rocket-outline.svg'
+/** 切页 LCP：媒体映射未在内存时最多等这么久，超时先出首屏再后台纠图 */
+const MEDIA_MAP_SWITCH_PAINT_BUDGET_MS = 120
 
 /** 详情头图全宽：在首页 thumb 链上再升到 medium，避免 480w 发糊 */
 function toDetailRocketSrc(url) {
@@ -160,11 +164,6 @@ function loadChannelsLiveModule() {
       if (_channelsLiveMod) _channelsLiveLoadPromise = null
     })
   return _channelsLiveLoadPromise
-}
-
-function getLiveFinderUserNameFromConfig() {
-  const cfg = (config && config.channelsLive) || {}
-  return String(cfg.finderUserName || '').trim()
 }
 
 // 直播配置（与监控中心 pages/monitor/monitor.js 保持一致：同一个视频号 + 同一个 B 站二维码）
@@ -300,6 +299,31 @@ function buildDiscussionTopic(mission) {
   // 贴图讨论区话题只展示火箭型号，不拼接任务名
   const rocket = String((mission && mission.rocketName) || '').trim()
   return rocket || '航天任务讨论'
+}
+
+function firstNonEmptyId() {
+  for (let i = 0; i < arguments.length; i++) {
+    const v = arguments[i]
+    if (v != null && String(v).trim() !== '') return v
+  }
+  return null
+}
+
+/** 任务卡片/详情页上的 LL2 构型 id：列表快照与详情合并时都可能只在其中一侧 */
+function resolveMissionRocketConfigId(mission) {
+  if (!mission) return ''
+  const cfg = mission.rocketConfiguration
+  const id = firstNonEmptyId(mission.rocketConfigId, cfg && cfg.id)
+  return id == null ? '' : String(id)
+}
+
+function missionRocketNameOpts(page, mission) {
+  const cfg = (mission && mission.rocketConfiguration) || {}
+  const hero = (page && page.data && page.data.heroRocketName) || ''
+  return {
+    name: cfg.full_nameZh || cfg.nameZh || hero || (mission && mission.rocketName) || '',
+    nameEn: cfg.full_name || cfg.name || (mission && mission._langPack && mission._langPack.rocketNameEn) || ''
+  }
 }
 
 /** 头图区标题拆分：避免「猎鹰9号 | 载人-13」下再重复一行「猎鹰9号」 */
@@ -755,7 +779,7 @@ Page({
 
     const route = resolveMissionDetailRoute(options)
     this._entryRoute = route
-    const { detailType, id, fromSearch } = route
+    const { detailType, id, fromSearch, entryKey } = route
 
     // 会员分享的回放链接带 sst 时间戳：接收者 24h 内点回放免门控（限时查看倒计时胶囊），
     // 超时恢复原门控；有权益用户再分享写新 sst，无权益接收者转发继承原 sst（窗口不重置）。
@@ -771,22 +795,26 @@ Page({
     this.applyMomentsPreviewLayout()
     this._measureTabStickyTop()
     if (id) syncFavoriteState(this, 'mission', id)
-    // 头图与首页倒计时/卡片同源：先等 media_assets，再渲染，避免先闪 default 再纠正
-    try {
-      await Promise.race([
-        loadCloudMediaMap().catch(() => {}),
-        new Promise((r) => setTimeout(r, 2500))
-      ])
-    } catch (e) {}
 
+    // 导航/骨架先出，不再被媒体映射预算卡住切换 LCP
     this.setData({
       detailType,
       fromSearch,
       navTitle: detailType === 'completed' ? '任务复盘' : '任务详情',
       shareImage: resolveMissionRocketImage(DEFAULT_SHARE_IMAGE),
-      isFavorited: !!(id && isFavorite('mission', id))
+      isFavorited: !!(id && isFavorite('mission', id)),
+      spaceNoticeShortcut: entryKey ? { entryKey, ll2Id: id, noticeCount: 0 } : null
     })
     this.ensureShareImageHttpUrl(this.data.shareImage)
+
+    if (!isCloudMediaMapReady()) {
+      try {
+        await Promise.race([
+          loadCloudMediaMap().catch(() => {}),
+          new Promise((r) => setTimeout(r, MEDIA_MAP_SWITCH_PAINT_BUDGET_MS))
+        ])
+      } catch (e) {}
+    }
 
     if (!id) {
       this.setData({
@@ -828,6 +856,7 @@ Page({
         )
       } catch (e) {}
       this.setData({ watchPartyEntry: entry, watchPartyIcon })
+      try { preloadSubpackages(['watch-party']) } catch (e) {}
     }).catch(() => {
       if (this.data.watchPartyEntry) this.setData({ watchPartyEntry: null })
     })
@@ -858,6 +887,7 @@ Page({
 
   onUnload() {
     this.clearMissionCountdownTimer()
+    this.clearMissionLaunchStatsRetry()
     this._backfillIndexCompletedStatus()
   },
 
@@ -877,7 +907,14 @@ Page({
     const sid = mission.statusId != null ? Number(mission.statusId) : 0
     const isTerminal = sid === 3 || sid === 4 || sid === 7 || sid === 9
     const scheduleHeal = !!this._detailSchedulePreferredOverList
-    if (!isTerminal && !scheduleHeal) return
+    const listAuth = this._listAuthorityMission
+    const identityHeal =
+      !isGenericMissionTitle(mission.missionName || mission.name) &&
+      !!listAuth &&
+      (isGenericMissionTitle(listAuth.missionName || listAuth.name) ||
+        String(listAuth.rocketName || '') !== String(mission.rocketName || '') ||
+        String(listAuth.missionName || '') !== String(mission.missionName || ''))
+    if (!isTerminal && !scheduleHeal && !identityHeal) return
     try {
       const pages = getCurrentPages()
       for (let i = pages.length - 1; i >= 0; i--) {
@@ -913,7 +950,7 @@ Page({
         break
       }
     } catch (e) {}
-    if (scheduleHeal) {
+    if (scheduleHeal || identityHeal) {
       try {
         const apiReq = require('../../utils/api-request.js')
         if (apiReq && typeof apiReq.forceLaunchListCloudBgCheck === 'function') {
@@ -926,6 +963,24 @@ Page({
           listApi.invalidateListSnapshots()
         }
         if (listApi && typeof listApi.patchUpcomingLocalCacheById === 'function') {
+          const pack = mission._langPack && typeof mission._langPack === 'object' ? mission._langPack : {}
+          const nameEn = String(pack.nameEn || '').trim()
+          const missionEn = String(pack.missionNameEn || '').trim()
+          const rocketEn = String(pack.rocketNameEn || '').trim()
+          const identity = {}
+          if (nameEn && !/[\u4e00-\u9fff]/.test(nameEn)) identity.name = nameEn
+          if (missionEn && !/[\u4e00-\u9fff]/.test(missionEn)) {
+            identity.mission = { name: missionEn }
+          }
+          if (rocketEn && !/[\u4e00-\u9fff]/.test(rocketEn)) {
+            identity.rocket = {
+              configuration: {
+                ...(mission.rocketConfiguration || {}),
+                name: rocketEn,
+                full_name: rocketEn
+              }
+            }
+          }
           listApi.patchUpcomingLocalCacheById(mission.id, {
             net: mission.launchTime || mission.net || '',
             window_start: mission.windowStart || '',
@@ -934,7 +989,8 @@ Page({
               id: sid,
               name: mission.statusBadgeText || '',
               abbrev: mission.statusAbbrev || ''
-            }
+            },
+            ...identity
           })
         }
       } catch (e3) {}
@@ -1244,6 +1300,14 @@ Page({
       rocketLaunchAttemptCount: mission.rocketLaunchAttemptCount != null ? mission.rocketLaunchAttemptCount : null,
       launchSite: mission.launchSite || '',
       padLocation: mission.padLocation || '',
+      padLocationId: firstNonEmptyId(
+        mission.padLocationId,
+        mission.padDetail && mission.padDetail.locationId
+      ),
+      rocketConfigId: firstNonEmptyId(
+        mission.rocketConfigId,
+        mission.rocketConfiguration && mission.rocketConfiguration.id
+      ),
       rocketName: mission.rocketName || '未知火箭',
       _langPack: mission._langPack || null,
       rocketImage: resolveMissionRocketImage(
@@ -1293,7 +1357,11 @@ Page({
         locationDescription: (mission.padDetail && mission.padDetail.locationDescription) || '',
         wikiUrl: (mission.padDetail && mission.padDetail.wikiUrl) || '',
         mapUrl: (mission.padDetail && mission.padDetail.mapUrl) || '',
-        timezoneName: (mission.padDetail && mission.padDetail.timezoneName) || ''
+        timezoneName: (mission.padDetail && mission.padDetail.timezoneName) || '',
+        locationId: firstNonEmptyId(
+          mission.padDetail && mission.padDetail.locationId,
+          mission.padLocationId
+        )
       },
       launcherLanding: (mission.launcherLanding && typeof mission.launcherLanding === 'object')
         ? mission.launcherLanding
@@ -1410,8 +1478,20 @@ Page({
       merged.rocketConfiguration || detail.rocketConfiguration || base.rocketConfiguration || null,
       true
     )
+    const mergedCfg = merged.rocketConfiguration || detail.rocketConfiguration || base.rocketConfiguration || null
+    merged.rocketConfigId = firstNonEmptyId(
+      detail.rocketConfigId,
+      base.rocketConfigId,
+      mergedCfg && mergedCfg.id
+    )
     // 机构/统计等非标题字段仍可优先详情；标题/地点/火箭名交给末尾 applyContentLangToMission
     merged.launchAgencyId = detail.launchAgencyId != null ? detail.launchAgencyId : (base.launchAgencyId != null ? base.launchAgencyId : null)
+    merged.padLocationId = firstNonEmptyId(
+      detail.padLocationId,
+      base.padLocationId,
+      detail.padDetail && detail.padDetail.locationId,
+      base.padDetail && base.padDetail.locationId
+    )
     merged.launchAgencyAbbrev = detail.launchAgencyAbbrev || base.launchAgencyAbbrev || ''
     // logo：优先非空（列表 enrich / 详情 LSP）
     merged.launchAgencyImage = String(detail.launchAgencyImage || '').trim()
@@ -1916,13 +1996,14 @@ Page({
       if (name) q.push('name=' + encodeURIComponent(name))
       if (nameEn) q.push('nameEn=' + encodeURIComponent(nameEn))
       if (poster) q.push('poster=' + encodeURIComponent(poster))
-      if (mission.rocketConfigId) q.push('configId=' + encodeURIComponent(String(mission.rocketConfigId)))
+      const configId = resolveMissionRocketConfigId(mission)
+      if (configId) q.push('configId=' + encodeURIComponent(configId))
       q.push('modelUrl=' + encodeURIComponent(modelUrl))
       try {
         var app = getApp()
         if (app && app.globalData) {
           app.globalData.pendingRocket3dSpecs = {
-            configId: mission.rocketConfigId || '',
+            configId: configId || '',
             specs: Array.isArray(mission.rocketSpecs) ? mission.rocketSpecs : []
           }
         }
@@ -2069,11 +2150,37 @@ Page({
   },
 
   resetMissionLaunchStatsState() {
+    this.clearMissionLaunchStatsRetry()
+    this._statsWaitingGenerate = null
+    this._statsRetryAttempt = 0
     this.setData({
       missionLaunchStatsLoading: false,
       missionLaunchStatsError: '',
       missionLaunchStats: null
     })
+  },
+
+  clearMissionLaunchStatsRetry() {
+    if (this._statsRetryTimer) {
+      clearTimeout(this._statsRetryTimer)
+      this._statsRetryTimer = null
+    }
+  },
+
+  scheduleMissionLaunchStatsRetry(launchId) {
+    this.clearMissionLaunchStatsRetry()
+    const id = String(launchId || '').trim()
+    if (!id) return
+    const attempt = this._statsRetryAttempt || 0
+    const delays = [2000, 4000, 8000]
+    const delay = delays[Math.min(attempt, delays.length - 1)]
+    this._statsWaitingGenerate = id
+    this._statsRetryTimer = setTimeout(() => {
+      this._statsRetryTimer = null
+      if (String(this.data.mission && this.data.mission.id) !== id) return
+      this._statsRetryAttempt = attempt + 1
+      this.loadMissionLaunchStatsForMission(this.data.mission, { forceRefresh: true })
+    }, delay)
   },
 
   /** 详情/徽章已就绪但统计卡仍缺累计/本年时，用构型次数与徽章就地补齐（不重打云） */
@@ -2140,6 +2247,10 @@ Page({
       this.patchMissionLaunchStatsFromAgency(m)
       return
     }
+    if (!force && this._statsWaitingGenerate === launchId && this._statsRetryTimer) {
+      this.patchMissionLaunchStatsFromAgency(m)
+      return
+    }
     if (!force && this._statsInflightLaunchId === launchId) {
       // 加载中：等返回后再用最新 mission 补一次
       this._statsPatchAfterInflight = true
@@ -2147,11 +2258,18 @@ Page({
     }
     this._statsInflightLaunchId = launchId
     this._statsPatchAfterInflight = false
+    if (this._statsWaitingGenerate && this._statsWaitingGenerate !== launchId) {
+      this._statsWaitingGenerate = null
+      this._statsRetryAttempt = 0
+    }
+    this.clearMissionLaunchStatsRetry()
 
+    const keepSameLaunch = this._statsLoadedLaunchId === launchId
+      || this._statsWaitingGenerate === launchId
     this.setData({
-      missionLaunchStatsLoading: true,
+      missionLaunchStatsLoading: !keepSameLaunch || !this.data.missionLaunchStats,
       missionLaunchStatsError: '',
-      missionLaunchStats: null
+      missionLaunchStats: keepSameLaunch ? this.data.missionLaunchStats : null
     })
 
     let reloadForRocket = false
@@ -2170,6 +2288,9 @@ Page({
       })
       this._statsLoadedLaunchId = launchId
       this._statsLoadedRocketKey = rocketKey
+      this._statsWaitingGenerate = null
+      this._statsRetryAttempt = 0
+      this.clearMissionLaunchStatsRetry()
       if (this._statsPatchAfterInflight) {
         this._statsPatchAfterInflight = false
         this.patchMissionLaunchStatsFromAgency(this.data.mission)
@@ -2182,10 +2303,20 @@ Page({
     } catch (e) {
       const msg = formatCloudError(e)
       if (String(this.data.mission && this.data.mission.id) !== launchId) return
+      if (isStatsGeneratingError(e) || isStatsGeneratingError(msg)) {
+        const fallback = this.data.missionLaunchStats || buildClientMissionStats(this.data.mission || m)
+        this.setData({
+          missionLaunchStatsLoading: !fallback,
+          missionLaunchStatsError: '',
+          missionLaunchStats: fallback
+        })
+        this.scheduleMissionLaunchStatsRetry(launchId)
+        return
+      }
       this.setData({
         missionLaunchStatsLoading: false,
         missionLaunchStatsError: msg,
-        missionLaunchStats: null
+        missionLaunchStats: this.data.missionLaunchStats
       })
     } finally {
       if (this._statsInflightLaunchId === launchId) this._statsInflightLaunchId = null
@@ -2195,6 +2326,9 @@ Page({
 
   onRetryMissionLaunchStats() {
     this._statsLoadedLaunchId = null
+    this._statsWaitingGenerate = null
+    this._statsRetryAttempt = 0
+    this.clearMissionLaunchStatsRetry()
     this.loadMissionLaunchStatsForMission(this.data.mission, { forceRefresh: true })
   },
 
@@ -3629,7 +3763,7 @@ Page({
     this._spaceNoticeLookupKey = id
     lookupSpaceNoticeShortcut(id).then((hit) => {
       if (this._spaceNoticeLookupKey !== id) return
-      this.setData({ spaceNoticeShortcut: hit || null })
+      this.setData({ spaceNoticeShortcut: hit || this.data.spaceNoticeShortcut || null })
     })
   },
 
@@ -3648,24 +3782,47 @@ Page({
     if (!allowed) return
     const params = {}
     if (shortcut.entryKey) params.entryKey = shortcut.entryKey
-    else if (shortcut.ll2Id) params.ll2Id = shortcut.ll2Id
+    if (shortcut.ll2Id) params.ll2Id = shortcut.ll2Id
     if (!params.entryKey && !params.ll2Id) return
     navigateTo(ROUTES.SPACE_NOTICE_MAP, params)
   },
 
   openAgencyDetail() {
     const mission = this.data.mission || {}
-    const agencyName = String(mission.launchAgency || '').trim()
     const agencyId = mission.launchAgencyId != null ? String(mission.launchAgencyId).trim() : ''
-    const agencyAbbrev = String(mission.launchAgencyAbbrev || (mission.launchServiceProvider && mission.launchServiceProvider.abbrev) || '').trim()
-    if (!agencyName && !agencyId) return
-
-    const query = []
-    if (agencyId) query.push(`id=${encodeURIComponent(agencyId)}`)
-    if (agencyName) query.push(`name=${encodeURIComponent(agencyName)}`)
-    if (agencyAbbrev) query.push(`abbrev=${encodeURIComponent(agencyAbbrev)}`)
+    if (!agencyId) {
+      wx.showToast({ title: '暂无该发射商档案', icon: 'none' })
+      return
+    }
     wx.navigateTo({
-      url: `/subpackages/monitor-pages/agency-detail?${query.join('&')}`
+      url: `/subpackages/monitor-pages/agency-detail?id=${encodeURIComponent(agencyId)}`
+    })
+  },
+
+  openLaunchSiteDetail() {
+    const mission = this.data.mission || {}
+    const id = firstNonEmptyId(
+      mission.padDetail && mission.padDetail.locationId,
+      mission.padLocationId
+    )
+    if (!id) {
+      wx.showToast({ title: '暂无该发射场档案', icon: 'none' })
+      return
+    }
+    wx.navigateTo({
+      url: `/subpackages/monitor-pages/launch-site-detail?id=${encodeURIComponent(id)}`
+    })
+  },
+
+  openSpacecraftDetail(e) {
+    const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
+    const id = ds.id != null ? String(ds.id).trim() : ''
+    if (!id) {
+      wx.showToast({ title: '暂无该飞船档案', icon: 'none' })
+      return
+    }
+    wx.navigateTo({
+      url: `/subpackages/monitor-pages/spacecraft-detail?id=${encodeURIComponent(id)}`
     })
   },
 
@@ -3727,19 +3884,35 @@ Page({
 
   openBoosterDetail(e) {
     const mission = this.data.mission || {}
-    // 多芯火箭点击对应芯的序列号会通过 data-serial 传过来，优先用它
-    const dataSerial = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.serial
-    const serial = dataSerial || (mission.boosterInfo && mission.boosterInfo.serialNumber) || ''
-    if (!serial) return
-    // 与族谱入口统一：门控 + 预塞 booster_genealogy 档案 + booster-detail
-    return openBoosterEntityDetail(serial)
+    const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
+    const serial = ds.serial || (mission.boosterInfo && mission.boosterInfo.serialNumber) || ''
+    const launcherId = ds.launcherId || ds.ll2Id || (mission.boosterInfo && mission.boosterInfo.launcherId)
+    if (!serial && !launcherId) return
+    return openBoosterEntityDetail(serial, { ll2Id: launcherId })
   },
 
   /** 「规格」卡 → 族谱火箭型号详情页（与族谱型号卡同门控） */
   openRocketModelDetail() {
     const mission = this.data.mission || {}
-    if (mission.rocketConfigId == null) return
-    return openRocketModelDetail(mission.rocketConfigId)
+    const configId = resolveMissionRocketConfigId(mission)
+    if (!configId) return
+    return openRocketModelDetail(configId)
+  },
+
+  /** 底部悬浮 PK：带上当前任务型号，打开对比页 */
+  onTapRocketCompare() {
+    if (this.data.isMomentsPreview) return
+    const mission = this.data.mission || {}
+    try { wx.vibrateShort({ type: 'light' }) } catch (e) {}
+    return openRocketCompare(resolveMissionRocketConfigId(mission))
+  },
+
+  /** 底部悬浮档案指数：PK 右侧，打开评分详情 */
+  onTapRocketScore() {
+    if (this.data.isMomentsPreview) return
+    const mission = this.data.mission || {}
+    try { wx.vibrateShort({ type: 'light' }) } catch (e) {}
+    return openRocketScore(resolveMissionRocketConfigId(mission), missionRocketNameOpts(this, mission))
   },
 
   /**
@@ -3963,6 +4136,12 @@ Page({
     })
   },
 
+  _spaceNoticeEntryKey() {
+    const shortcut = this.data.spaceNoticeShortcut
+    const route = this._entryRoute || {}
+    return (shortcut && shortcut.entryKey) || route.entryKey || ''
+  },
+
   onShareAppMessage() {
     const mission = this.data.mission
     const route = this._entryRoute || {}
@@ -3970,6 +4149,7 @@ Page({
       ? mission.id
       : (route.id != null ? route.id : '')
     const detailType = this.data.detailType || route.detailType || 'upcoming'
+    const entryKey = this._spaceNoticeEntryKey()
 
     // 数据尚未就绪时仍用入口 id 拼详情 path，避免分享落到首页 Tab
     if (!mission) {
@@ -3982,7 +4162,7 @@ Page({
       }
       const result = {
         title: this.data.shareTitle || '发射任务详情 | 火星探索日志',
-        path: buildMissionDetailUrl({ id: missionId, detailType }),
+        path: buildMissionDetailUrl({ id: missionId, detailType, entryKey }),
         imageUrl: this.data.shareImage
       }
       result.path = withShareStampPath(result.path, this)
@@ -3995,7 +4175,8 @@ Page({
       title: this.data.shareTitle,
       imageUrl: this.data.shareImage,
       fallbackTitle: '发射任务详情 | 火星探索日志',
-      fallbackPath: buildMissionDetailUrl({ id: missionId, detailType }),
+      fallbackPath: buildMissionDetailUrl({ id: missionId, detailType, entryKey }),
+      entryKey,
       mode: 'app'
     })
     // 有权益用户分享写新 sst（接收者 24h 免门控看回放）；窗口内接收者转发继承原 sst
@@ -4018,6 +4199,7 @@ Page({
       title: this.data.shareTitle,
       imageUrl: this.data.shareImage,
       fallbackTitle: '发射任务详情 | 火星探索日志',
+      entryKey: this._spaceNoticeEntryKey(),
       mode: 'timeline'
     })
     result.query = withShareStampQuery(result.query, this)

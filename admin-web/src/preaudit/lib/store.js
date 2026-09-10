@@ -1,7 +1,7 @@
 import { reactive } from 'vue'
 import * as checklist from './checklist.js'
 import * as orgUtil from './org.js'
-import { deleteCloudPhoto, destroyCloudProject, fetchPhotoBlob, getCloudProject, isCloudFileSlot, isDeleteAuthError, isPhotoSlot, listCloudProjects, patchCloudPhotoCaption, PHOTO_SLOTS, pickPhotoSrc, uploadCloudPhoto, upsertCloudProject } from './photo-cloud.js'
+import { deleteCloudPhoto, destroyCloudProject, fetchPhotoBlob, getCloudProject, isCloudFileSlot, isDeleteAuthError, isPhotoSlot, listCloudProjects, patchCloudPhotoCaption, PHOTO_SLOTS, pickPhotoSrc, uploadCloudPhoto, upsertCloudProject, WORK_PHOTO_SLOTS } from './photo-cloud.js'
 import {
   applyCloudMaterials,
   applyCloudScalars,
@@ -12,6 +12,7 @@ import {
 } from './project-sync.js'
 import { clonePickedFile } from './upload.js'
 import { bakeUprightJpeg } from './image-pack.js'
+import { HEIF_JPEG_ERROR, nameLooksHeif, nameLooksImage } from './heif-sniff.js'
 import { uid } from './util.js'
 
 const STATE_KEY = 'preaudit_projects_v1'
@@ -404,9 +405,24 @@ export function saveMaterial(projectId, itemId, patch) {
   return next
 }
 
+function fileKeys(file) {
+  if (!file) return []
+  return [file.id, file.cosKey, file.key, file.path, file.url].filter(Boolean)
+}
+
+function collectMaterialFileKeys(project) {
+  const seen = new Set()
+  Object.keys((project && project.materials) || {}).forEach((slot) => {
+    const files = (project.materials[slot] && project.materials[slot].files) || []
+    files.forEach((file) => fileKeys(file).forEach((key) => seen.add(key)))
+  })
+  return seen
+}
+
 function applyCloudPhotos(project, photos) {
   if (!project || !photos) return project
   project.materials = project.materials || {}
+  const globalSeen = collectMaterialFileKeys(project)
   Object.keys(photos).forEach((slot) => {
     if (!isCloudFileSlot(slot)) return
     const incoming = (photos[slot] || []).map((row) => ({
@@ -423,19 +439,19 @@ function applyCloudPhotos(project, photos) {
     }))
     if (!incoming.length) return
     const current = getMaterial(project, slot)
-    const seen = new Set((current.files || []).map((f) => f.id || f.cosKey || f.path))
-    const extra = incoming.filter((row) => !seen.has(row.id) && !seen.has(row.cosKey) && !seen.has(row.path))
-    if (!extra.length && (current.files || []).some((f) => f.cosKey)) return
     const merged = (current.files || []).slice()
     incoming.forEach((row) => {
-      const idx = merged.findIndex((f) => f.id === row.id || f.cosKey === row.cosKey)
+      const idx = merged.findIndex((f) => f.id === row.id || (row.cosKey && f.cosKey === row.cosKey))
       if (idx >= 0) {
         const prev = merged[idx]
         merged[idx] = Object.assign({}, prev, row, {
           caption: prev.caption || row.caption || ''
         })
+        return
       }
-      else merged.push(row)
+      if (fileKeys(row).some((key) => globalSeen.has(key))) return
+      merged.push(row)
+      fileKeys(row).forEach((key) => globalSeen.add(key))
     })
     project.materials[slot] = Object.assign({}, current, { files: merged })
   })
@@ -642,10 +658,9 @@ function looksLikeImage(file) {
   if (!file) return false
   const type = String(file.type || (file.source && file.source.type) || '')
   if (/pdf/i.test(type)) return false
-  if (type.indexOf('image/') === 0) return true
   const name = String(file.name || '')
   if (/\.pdf$/i.test(name)) return false
-  return /\.(jpe?g|png|gif|webp|bmp|heic|heif)$/i.test(name)
+  return nameLooksImage(name, type)
 }
 
 async function orientStoreFile(file, itemId) {
@@ -679,6 +694,11 @@ async function orientStoreFile(file, itemId) {
     }
     return file
   } catch (e) {
+    const msg = String((e && e.message) || '')
+    const hinted = nameLooksHeif(file.name, file.type || (file.source && file.source.type))
+    if (hinted || msg === HEIF_JPEG_ERROR || /HEIF|HEIC|高效格式/.test(msg)) {
+      throw new Error(msg === HEIF_JPEG_ERROR || /HEIF|HEIC|高效格式/.test(msg) ? msg : HEIF_JPEG_ERROR)
+    }
     file.oriented = true
     return file
   }
@@ -739,7 +759,29 @@ export async function replaceFiles(projectId, itemId, files) {
 export function reorderFiles(projectId, itemId, files) {
   const project = findProject(projectId)
   if (!project) throw new Error('找不到这个项目。')
-  const next = (files || []).slice()
+  let next = (files || []).slice()
+  if (WORK_PHOTO_SLOTS.indexOf(itemId) >= 0) {
+    const current = (project.materials && project.materials[itemId] && project.materials[itemId].files) || []
+    const nextIds = new Set(next.map((f) => f && f.id).filter(Boolean))
+    current.forEach((file) => {
+      if (!file || !file.id || nextIds.has(file.id)) return
+      const claimed = WORK_PHOTO_SLOTS.some((slot) => {
+        if (slot === itemId) return false
+        const rows = (project.materials && project.materials[slot] && project.materials[slot].files) || []
+        return rows.some((row) => row && row.id === file.id)
+      })
+      if (!claimed) {
+        next.push(file)
+        nextIds.add(file.id)
+      }
+    })
+    WORK_PHOTO_SLOTS.forEach((slot) => {
+      if (slot === itemId) return
+      const rows = (project.materials && project.materials[slot] && project.materials[slot].files) || []
+      const kept = rows.filter((f) => !f || !nextIds.has(f.id))
+      if (kept.length !== rows.length) saveMaterial(projectId, slot, { files: kept })
+    })
+  }
   saveMaterial(projectId, itemId, { files: next })
   return next
 }
@@ -785,6 +827,49 @@ export async function removeFile(projectId, itemId, fileIdOrPath) {
   revokeFiles(removed.filter((f) => !f.cosKey && String((f && f.path) || '').startsWith('blob:')))
   const nextFiles = current.files.filter((f) => f.id !== fileIdOrPath && f.path !== fileIdOrPath)
   saveMaterial(projectId, itemId, Object.assign({ files: nextFiles }, pairedPhotoPatch(project, itemId, nextFiles)))
+}
+
+export async function clearFiles(projectId, itemId) {
+  const project = findProject(projectId)
+  if (!project) throw new Error('找不到这个项目。')
+  const current = getMaterial(project, itemId)
+  const files = Array.isArray(current.files) ? current.files.slice() : []
+  if (!files.length) return []
+  if (files.some((f) => f && f.storing)) throw new Error('有照片正在保存，请稍后再清空')
+  const kept = []
+  const removed = []
+  let lastErr = null
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i]
+    if (isCloudFileSlot(itemId) && file && file.id) {
+      try {
+        await deleteCloudPhotoRetry(projectId, file.id)
+        removed.push(file)
+      } catch (err) {
+        lastErr = err
+        kept.push(file)
+      }
+    } else {
+      removed.push(file)
+    }
+  }
+  revokeFiles(removed.filter((f) => !f.cosKey && String((f && f.path) || '').startsWith('blob:')))
+  saveMaterial(projectId, itemId, Object.assign({ files: kept }, pairedPhotoPatch(project, itemId, kept)))
+  if (lastErr) throw lastErr
+  return kept
+}
+
+export async function clearFileSlots(projectId, itemIds) {
+  const ids = (itemIds || []).map((id) => String(id || '')).filter(Boolean)
+  let lastErr = null
+  for (let i = 0; i < ids.length; i++) {
+    try {
+      await clearFiles(projectId, ids[i])
+    } catch (err) {
+      lastErr = err
+    }
+  }
+  if (lastErr) throw lastErr
 }
 
 export async function rotateStoredFile(projectId, itemId, fileId, degrees) {

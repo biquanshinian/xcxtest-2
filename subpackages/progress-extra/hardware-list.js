@@ -8,6 +8,11 @@ const { resolveMediaUrl } = require('../../utils/image-config.js')
 const { getCachedMediaImage } = require('../../utils/icon-cache.js')
 const { gateCheck } = require('../../utils/membership.js')
 const { isCollectionFavorite, toggleCollection, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
+const {
+  pickHardwareShareImageUrl,
+  pickHardwareShareSourceForDownload
+} = require('./utils/hardware-share-image.js')
+const { ensureShareImageOnPage, pageShareImage } = require('../../utils/share-thumb.js')
 
 const B19_IMAGE_KEY = '最新版星舰组合体进展一二级图/b19_spacex3.webp'
 const S39_IMAGE_KEY = '最新版星舰组合体进展一二级图/s39_spacex.webp'
@@ -64,7 +69,8 @@ Page({
     list: [],
     totalCount: 0,
     isFavorited: false,
-    favAnimate: false
+    favAnimate: false,
+    shareImage: ''
   },
 
   onLoad(options) {
@@ -120,6 +126,17 @@ Page({
       filtered = filtered.filter((v) => v.searchKey.indexOf(keyword) >= 0)
     }
     this.setData({ list: filtered, totalCount: filtered.length })
+    this._syncShareImage(filtered[0])
+  },
+
+  _syncShareImage(item) {
+    const opts = {
+      displayImage: item && item.displayImage,
+      rawImage: item && (item.image || item.displayImage)
+    }
+    const url = pickHardwareShareImageUrl(opts)
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    ensureShareImageOnPage(this, pickHardwareShareSourceForDownload(opts))
   },
 
   onCategoryTap(e) {
@@ -187,15 +204,23 @@ Page({
     return {
       title: 'SpaceX 星舰硬件设施 | 火星探索日志',
       path: '/subpackages/progress-extra/hardware-list' + (query ? '?' + query : ''),
-      imageUrl: (this.data.list[0] && this.data.list[0].displayImage) || ''
+      imageUrl: this._buildShareImage()
     }
+  },
+
+  _buildShareImage() {
+    const item = this.data.list[0]
+    return pageShareImage(this, {}) || pickHardwareShareImageUrl({
+      displayImage: item && item.displayImage,
+      rawImage: item && (item.image || item.displayImage)
+    })
   },
 
   onShareTimeline() {
     return {
       title: 'SpaceX 星舰硬件设施 | 火星探索日志',
       query: this._buildShareQuery(),
-      imageUrl: (this.data.list[0] && this.data.list[0].displayImage) || ''
+      imageUrl: this._buildShareImage()
     }
   }
 })

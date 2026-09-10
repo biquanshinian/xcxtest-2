@@ -12,6 +12,7 @@ const {
   isRemoteAgencyLogoUrl
 } = require('../../utils/agency-logo-cache.js')
 const { ensureAgencyLogoBgTone } = require('../../utils/agency-logo-bg.js')
+const { shareOptsFromCard, syncPageShareImage, pageShareImage } = require('../../utils/share-thumb.js')
 
 Page({
   behaviors: [pageBase],
@@ -25,7 +26,8 @@ Page({
     filter: 'featured',
     keyword: '',
     list: [],
-    totalCount: 0
+    totalCount: 0,
+    shareImage: ''
   },
 
   onLoad(options) {
@@ -58,10 +60,16 @@ Page({
 
   _applyFilter() {
     const filtered = filterAgencies(this._all || [], this.data.filter, this.data.keyword)
+    const list = filtered.map(toDisplayRow)
     this.setData({
-      list: filtered.map(toDisplayRow),
+      list,
       totalCount: filtered.length
     })
+    this._syncShareImage(list[0])
+  },
+
+  _syncShareImage(card) {
+    syncPageShareImage(this, shareOptsFromCard(card))
   },
 
   onFilterTap(e) {
@@ -186,7 +194,7 @@ Page({
     return {
       title: `全球发射商图鉴 - ${this.data.totalCount || ''}家航天机构全览 | 火星探索日志`,
       path: '/subpackages/monitor-pages/agency-list' + (query ? '?' + query : ''),
-      imageUrl: (this.data.list[0] && this.data.list[0].displayImage) || ''
+      imageUrl: pageShareImage(this, shareOptsFromCard(this.data.list[0]))
     }
   },
 
@@ -194,7 +202,7 @@ Page({
     return {
       title: '全球发射商图鉴 | 火星探索日志',
       query: this._buildShareQuery(),
-      imageUrl: (this.data.list[0] && this.data.list[0].displayImage) || ''
+      imageUrl: pageShareImage(this, shareOptsFromCard(this.data.list[0]))
     }
   }
 })

@@ -16,7 +16,7 @@ const CLEAN_MIN_INTERVAL = 60 * 1000
 /**
  * 单次异步扫描（wx.getStorageInfo），同时处理：
  * 1. 过期的 api_cache_* 缓存
- * 2. 旧 slim schema 版本的列表缓存（_slim / _slim_v2，缺 landing.success 等字段会误用老数据）
+ * 2. 旧 slim schema 版本的列表缓存（_slim / _slim_v2~v5，缺 reusable / orbit / 嵌套 updates）
  *
  * 全程异步分片，避免启动路径出现 getStorageInfoSync / getStorageSync 阻塞主线程。
  */
@@ -32,7 +32,7 @@ function cleanExpiredApiCache() {
       const cacheKeys = []
       allKeys.forEach((k) => {
         if (!k.startsWith(CACHE_PREFIX)) return
-        if (k.endsWith('_slim') || k.endsWith('_slim_v2')) legacyKeys.push(k)
+        if (k.endsWith('_slim') || /_slim_v[1-5]$/.test(k)) legacyKeys.push(k)
         else cacheKeys.push(k)
       })
 

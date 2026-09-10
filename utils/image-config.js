@@ -8,7 +8,9 @@ const config = require('./config.js')
 const { getCachedRocketConfig, getCachedMediaImage } = require('./icon-cache.js')
 const { toCdnUrl } = require('./cos-url.js')
 const rocket3dReady = require('./rocket-3d-ready.js')
+const ipReferenceReady = require('./ip-reference-ready.js')
 const { parseRocket3dGlbKey } = require('./rocket-3d-slug.js')
+const { parseIpRefGlbKey } = require('./ip-scale-ref.js')
 
 const folderConfig = {
   'images/monitor/news': {
@@ -33,6 +35,7 @@ const cloudMediaMap = {}
 
 let runtimeCloudMediaMap = {}
 let _pendingRocket3dCredits = {}
+let _pendingIpScaleRefs = {}
 let cloudMapLoaded = false
 /** 本地媒体映射缓存已被标记失效（异步删除尚未完成时挡住旧缓存） */
 let _localMediaMapCacheInvalid = false
@@ -149,6 +152,14 @@ function rebuildCanonicalIndex() {
   rocketStemKeyIndex = stemIdx
   _resetFuzzyRocketUrlMemo()
   rocket3dReady.ingestMediaMap(runtimeCloudMediaMap, _pendingRocket3dCredits)
+  if (_pendingIpScaleRefs && Object.keys(_pendingIpScaleRefs).length) {
+    ipReferenceReady.ingest({
+      ipScaleRefs: _pendingIpScaleRefs,
+      mediaMap: runtimeCloudMediaMap
+    })
+  } else {
+    ipReferenceReady.ingestMediaMap(runtimeCloudMediaMap)
+  }
 }
 
 /** findFuzzyRocketConfigUrl 结果 memo：列表里同名火箭（Falcon 9 等）重复解析时避免反复全量扫描打分。
@@ -275,6 +286,8 @@ async function fetchMediaMapViaCloudFunction() {
       if (key && credit) credits[key] = credit
     })
     _pendingRocket3dCredits = credits
+    const rawRefs = r.ipScaleRefs && typeof r.ipScaleRefs === 'object' ? r.ipScaleRefs : {}
+    _pendingIpScaleRefs = rawRefs
     return fetchedMap
   } catch (e) {
     console.warn('[image-config] getMediaAssetsMap:', (e && e.errMsg) || e)
@@ -291,6 +304,7 @@ async function applyNetworkMediaMap(fetchedMap) {
     await storageSetAsync(MEDIA_MAP_CACHE_KEY, {
       data: fetchedMap,
       credits: _pendingRocket3dCredits,
+      ipScaleRefs: _pendingIpScaleRefs,
       ts: Date.now()
     })
     _localMediaMapCacheInvalid = false
@@ -332,12 +346,13 @@ async function fetchMediaMapViaDbPaginated() {
   const pageSize = 20
   const fetchedMap = {}
   const credits = {}
+  const ipExtras = {}
   let pageIndex = 0
 
   while (hasMore) {
     const res = await db.collection(collectionName)
       .where({ enabled: true })
-      .field({ key: true, url: true, credit: true })
+      .field({ key: true, url: true, credit: true, highestPoint: true, lengthM: true, widthM: true })
       .orderBy('_id', 'asc')
       .skip(skip)
       .limit(pageSize)
@@ -349,6 +364,14 @@ async function fetchMediaMapViaDbPaginated() {
       const slug = parseRocket3dGlbKey(item && item.key)
       const credit = String((item && item.credit) || '').trim()
       if (slug && credit) credits[slug] = credit
+      const ipSlug = parseIpRefGlbKey(item && item.key)
+      if (ipSlug) {
+        ipExtras[ipSlug] = {
+          highestPoint: item && item.highestPoint,
+          lengthM: item && item.lengthM,
+          widthM: item && item.widthM
+        }
+      }
     })
 
     hasMore = rows.length === pageSize
@@ -359,6 +382,7 @@ async function fetchMediaMapViaDbPaginated() {
     }
   }
   _pendingRocket3dCredits = credits
+  _pendingIpScaleRefs = ipReferenceReady.extractFromMediaMap(fetchedMap, ipExtras)
   return fetchedMap
 }
 
@@ -381,6 +405,7 @@ async function loadCloudMediaMap(force = false) {
         if (cached && cached.ts && (Date.now() - cached.ts < MEDIA_MAP_CACHE_TTL)) {
           runtimeCloudMediaMap = cached.data || {}
           _pendingRocket3dCredits = cached.credits && typeof cached.credits === 'object' ? cached.credits : {}
+          _pendingIpScaleRefs = cached.ipScaleRefs && typeof cached.ipScaleRefs === 'object' ? cached.ipScaleRefs : {}
           cloudMapLoaded = true
           rebuildCanonicalIndex()
           return runtimeCloudMediaMap
@@ -501,11 +526,12 @@ function compactRocketMatchStr(s) {
   return normalizeRocketNameForFileMatch(s).replace(/\s+/g, '')
 }
 
-/** 从规范化火箭名抽出型号 token（如 10b / 3be / 12a），用于跨型号误配拦截 */
+/** 从规范化火箭名抽出型号 token（如 10b / 3be / 12a），用于跨型号误配拦截。
+ * 字母后缀限 1–3 位，避免把「64 Block 2」收成 64block 而拦掉 Ariane 64.jpg。 */
 function extractRocketModelTokens(norm) {
   if (!norm || typeof norm !== 'string') return []
   const out = []
-  const re = /(\d+)\s*([a-z]+)/gi
+  const re = /(\d+)\s*([a-z]{1,3})(?![a-z])/gi
   let m
   while ((m = re.exec(norm)) !== null) {
     out.push((m[1] + m[2]).toLowerCase())
@@ -707,11 +733,14 @@ function resolveMediaUrl(key, localFallback = '') {
       return wrapCosHttpsUrl(cloudUrl, mediaPreset)
     }
 
-    // media_assets 未命中时按 key 拼公开 URL：火箭图走 COS，其余走云开发存储 baseUrl
+    // media_assets 未命中：火箭图不再按字典文件名直拼 COS（Starship V3 / ZhuQue-3 等已改名，
+    // 猜路径会 404 并计入 We分析异常）。只允许 default.jpg 占位，等 fuzzy / 清单命中后再换真图。
     if (config.imageCDN && config.imageCDN.enabled) {
       if (isRocketConfigMediaKey(normalizedKey)) {
         const base = getRocketImageCdnRoot()
-        if (base) return wrapRocketHttpsUrl(normalizedKey, `${base}/${encodeURI(normalizedKey)}`)
+        if (!base) return ''
+        const fallbackKey = /\/default\.jpg$/i.test(normalizedKey) ? normalizedKey : '火箭配置图/default.jpg'
+        return wrapRocketHttpsUrl(fallbackKey, `${base}/${encodeURI(fallbackKey)}`)
       } else if (/^(首页轮播图|开屏动画)\//.test(normalizedKey)) {
         const base = getCloudStorageCdnRoot()
         if (base) return wrapCosHttpsUrl(`${base}/${encodeURI(normalizedKey)}`, mediaPreset)

@@ -3,6 +3,7 @@ const spaceApi = require('./space-api')
 const { beijingDateStr, beijingYear, buildAstroEvents, buildAstroEventsCovering } = require('./astro-events.js')
 
 const ASTRO_REMIND_KEY = '_astro_event_reminders'
+const { SHARE_THUMB_FALLBACK, pickShareImageUrl, pickShareDownloadSrc, ensureShareImageOnPage, pageShareImage } = require('../../utils/share-thumb.js')
 
 function loadReminders() {
   try { return wx.getStorageSync(ASTRO_REMIND_KEY) || {} } catch (e) { return {} }
@@ -24,17 +25,23 @@ Page({
     events: [],
     upcomingEvents: [],
     pastEvents: [],
-    remindedMap: {}
+    remindedMap: {},
+    shareImage: SHARE_THUMB_FALLBACK
   },
 
   onLoad() {
     this.initUiShell()
+    ensureShareImageOnPage(this, SHARE_THUMB_FALLBACK)
     const today = spaceApi.dateStr()
     this.setData({ apodDate: today, remindedMap: loadReminders() })
     this._classifyEvents()
-    this._loadAPOD(today)
-    this._checkTodayReminders()
     this._astroRemindCheckedYear = beijingYear()
+    const kick = () => {
+      this._loadAPOD(today)
+      this._checkTodayReminders()
+    }
+    if (typeof wx.nextTick === 'function') wx.nextTick(kick)
+    else setTimeout(kick, 0)
   },
 
   onShow() {
@@ -114,6 +121,7 @@ Page({
         copyright: data.copyright || ''
       }
       this.setData({ loading: false, apodDate: actualDate, apod })
+      this._syncShareImage(apod)
 
       if (!data._localUrl && data.media_type !== 'video' && data.url) {
         this._cacheImage(actualDate, data.url)
@@ -159,19 +167,30 @@ Page({
     wx.previewImage({ current: apod.hdurl || apod.url, urls: [apod.hdurl || apod.url] })
   },
 
+  _syncShareImage(apod) {
+    const url = apod && apod.mediaType !== 'video' ? (apod.url || apod.hdurl) : ''
+    const opts = { displayImage: url, rawImage: url }
+    const picked = pickShareImageUrl(opts)
+    if (this.data.shareImage !== picked) this.setData({ shareImage: picked })
+    ensureShareImageOnPage(this, pickShareDownloadSrc(opts))
+  },
+
   onShareAppMessage() {
     const apod = this.data.apod
     const title = apod ? 'NASA每日一图：' + apod.title : '天文日历 - 火星探索日志'
-    const result = { title, path: '/pages/space-explore/astro-calendar' }
-    if (apod && apod.mediaType !== 'video' && apod.url) result.imageUrl = apod.url
-    return result
+    return {
+      title,
+      path: '/pages/space-explore/astro-calendar',
+      imageUrl: pageShareImage(this)
+    }
   },
 
   onShareTimeline() {
     const apod = this.data.apod
     const title = apod ? 'NASA每日一图：' + apod.title : '天文日历 - 火星探索日志'
-    const result = { title }
-    if (apod && apod.mediaType !== 'video' && apod.url) result.imageUrl = apod.url
-    return result
+    return {
+      title,
+      imageUrl: pageShareImage(this)
+    }
   }
 })

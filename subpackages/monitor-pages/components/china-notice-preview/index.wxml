@@ -1,7 +1,25 @@
 <view class="sn-preview-card" hover-class="sn-preview-card--pressed" hover-stay-time="80" bindtap="onOpen">
   <view class="sn-preview-stage">
-    <image class="sn-preview-sat" src="/subpackages/monitor-pages/images/space-notices/china-sat-preview.jpg" mode="scaleToFill" />
-    <canvas type="2d" id="snPreviewCanvas" class="sn-preview-canvas"></canvas>
+    <image wx:if="{{!nativeMap || !mapAlive}}" class="sn-preview-sat" src="/subpackages/monitor-pages/images/space-notices/china-sat-preview.jpg" mode="scaleToFill" />
+    <map
+      wx:if="{{nativeMap && mapAlive}}"
+      id="snPreviewMap"
+      class="sn-preview-map"
+      latitude="{{mapLat}}"
+      longitude="{{mapLng}}"
+      scale="{{mapScale}}"
+      polygons="{{polygons}}"
+      polyline="{{polylines}}"
+      include-points="{{includePoints}}"
+      enable-scroll="{{false}}"
+      enable-zoom="{{false}}"
+      enable-rotate="{{false}}"
+      show-location="{{false}}"
+      enable-satellite="{{true}}"
+      setting="{{mapSetting}}"
+    />
+    <canvas wx:if="{{!nativeMap}}" type="2d" id="snPreviewCanvas" class="sn-preview-canvas"></canvas>
+    <view class="sn-preview-catcher"></view>
     <view class="sn-china-hud">
       <text class="sn-china-hud-title">{{title}}</text>
       <text class="sn-china-hud-sub">{{hint}}</text>

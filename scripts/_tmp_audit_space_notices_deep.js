@@ -45,7 +45,11 @@ const REQUIRED = [
   'subpackages/monitor-pages/space-notices/notice-map.wxss',
   'subpackages/monitor-pages/space-notices/notice-map.json',
   'subpackages/monitor-pages/space-notices/utils/api-space-notices.js',
-  'subpackages/monitor-pages/space-notices/utils/map-build.js'
+  'subpackages/monitor-pages/space-notices/utils/map-build.js',
+  'subpackages/monitor-pages/space-notices/utils/entry-cards.js',
+  'subpackages/monitor-pages/space-notices/utils/entry-lifecycle.js',
+  'cloudfunctions/spaceNotices/entry-lifecycle.js',
+  'cloudfunctions/spaceNotices/entry-identity.js'
 ]
 check(
   'required files exist',
@@ -86,9 +90,10 @@ check(
   'monitor 板块分享图标',
   /data-share-type="spaceNotices"/.test(coreWxml) && /icon-share--monitor/.test(coreWxml)
 )
-check('monitor 中国卫星预览', /sn-preview-sat/.test(coreWxml) && /发射航警地图/.test(coreWxml) && /中国航警公告/.test(coreWxml) && !/<map[\s>]/.test(coreWxml))
-check('monitor 航警卡写在主包页', /slot="space-notices"/.test(coreWxml) && /monitor-core-panel/.test(coreWxml) && /bindtap="openSpaceNotices"/.test(coreWxml))
-check('monitor 分享深链到中国航警地图', /type === 'spaceNotices'/.test(monJs) && /SPACE_NOTICE_MAP/.test(monJs) && /CHINESE_COLLECTION_KEY/.test(monJs))
+const previewWxml = read('subpackages/monitor-pages/components/china-notice-preview/index.wxml')
+check('monitor 中国卫星预览', /china-notice-preview/.test(coreWxml) && /native-map="\{\{true\}\}"/.test(coreWxml) && /title="中国航警"/.test(coreWxml) && /sn-preview-map/.test(previewWxml) && /发射航警地图/.test(coreWxml) && !/<map[\s>]/.test(coreWxml))
+check('monitor 航警卡写在主包页', /space-notices-section/.test(coreWxml) && /china-notice-preview/.test(coreWxml) && /openSpaceNotices/.test(coreWxml))
+check('监控卡点进航警列表', /type === 'spaceNotices'/.test(monJs) && /SPACE_NOTICE_LIST/.test(monJs) && /openSpaceNotices/.test(monJs))
 check('monitor 分享带 sst 时间戳', /spaceNotices[\s\S]{0,800}sst=/.test(monJs))
 
 // ── 列表/详情会员门控 ──
@@ -272,7 +277,7 @@ check('SLC-4E coords', Math.abs(p4e.latitude - 34.632) < 0.05)
 const pWen = resolvePadCoords({ name: 'Commercial LC-1', location: { name: 'Wenchang Space Launch Site' } })
 check('Wenchang location coords', Math.abs(pWen.latitude - 19.6145) < 0.05)
 const mapBuildSrc = read('subpackages/monitor-pages/space-notices/utils/map-build.js')
-check('pad marker 红色钉', /pad-marker-red\.png/.test(mapBuildSrc) && !/station-marker\.png/.test(mapBuildSrc))
+check('pad marker 原生红钉', /不传 iconPath/.test(mapBuildSrc) && !/station-marker\.png/.test(mapBuildSrc) && !/iconPath:/.test(mapBuildSrc))
 check('chip pad 红色', /sn-chip-dot--pad[^}]*#FF3B30/.test(read('subpackages/monitor-pages/space-notices/notice-map.wxss').replace(/\s+/g, '')))
 check(
   'isStarshipLaunch filter',

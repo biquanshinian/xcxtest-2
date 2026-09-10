@@ -7,6 +7,13 @@ const { resolveMediaUrl } = require('../../utils/image-config.js')
 const storageCache = require('../../utils/storage-sync-cache.js')
 
 const NEWS_SHARE_DEFAULT_KEY = 'images/share/default.jpg'
+const {
+  SHARE_THUMB_FALLBACK,
+  pickShareImageUrl,
+  pickShareDownloadSrc,
+  ensureShareImageOnPage,
+  pageShareImage
+} = require('../../utils/share-thumb.js')
 const PHOTOS_CACHE_KEY = 'news_cache_photos_v2'
 const PHOTOS_CACHE_KEYS_LEGACY = ['news_cache_photos_v1']
 
@@ -141,9 +148,10 @@ Page({
             photoTotal: (snapItem.photos || []).length,
             galleryHeightRpx: snapItem.galleryHeightRpx || 686,
             shareTitle: `${snapItem.authorName || '航天摄影'} | 火星探索日志`,
-            shareImage: snapItem.coverThumb || snapItem.coverUrl || '',
+            shareImage: this._pickPhotoShareImage(snapItem),
             navTitle: snapItem.authorName || '航天摄影'
           })
+          this._syncShareImage(snapItem)
           opts = Object.assign({}, opts, { silent: true })
         }
       }
@@ -167,9 +175,10 @@ Page({
         photoTotal: total,
         galleryHeightRpx: (item && item.galleryHeightRpx) || 686,
         shareTitle: `${(item && item.authorName) || '航天摄影'} | 火星探索日志`,
-        shareImage: (item && (item.coverThumb || item.coverUrl)) || '',
+        shareImage: this._pickPhotoShareImage(item),
         navTitle: (item && item.authorName) || '航天摄影'
       })
+      this._syncShareImage(item)
     } catch (error) {
       const msg = (error && (error.message || error.errMsg)) || '内容加载失败，请稍后重试'
       // 静默刷新 / 已有快照时不要用错误态盖住内容
@@ -304,23 +313,42 @@ Page({
     })
   },
 
+  _photoShareOpts(item) {
+    const it = item || this.data.item || {}
+    const fallback = resolveMediaUrl(NEWS_SHARE_DEFAULT_KEY, '') || SHARE_THUMB_FALLBACK
+    return {
+      displayImage: it.coverThumb || it.coverUrl || '',
+      rawImage: it.coverUrl || it.coverThumb || '',
+      safeFallback: fallback
+    }
+  },
+
+  _pickPhotoShareImage(item) {
+    return pickShareImageUrl(this._photoShareOpts(item))
+  },
+
+  _syncShareImage(item) {
+    const opts = this._photoShareOpts(item)
+    const url = pickShareImageUrl(opts)
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    ensureShareImageOnPage(this, pickShareDownloadSrc(opts))
+  },
+
   onShareAppMessage() {
     const item = this.data.item || {}
-    const shareDefault = resolveMediaUrl(NEWS_SHARE_DEFAULT_KEY, '')
     return {
       title: this.data.shareTitle || '航天摄影 | 火星探索日志',
       path: `/subpackages/news-extra/photo-detail?id=${encodeURIComponent(item.id || this._photoId || '')}`,
-      imageUrl: item.coverThumb || this.data.shareImage || item.coverUrl || shareDefault
+      imageUrl: pageShareImage(this, this._photoShareOpts(item))
     }
   },
 
   onShareTimeline() {
     const item = this.data.item || {}
-    const shareDefault = resolveMediaUrl(NEWS_SHARE_DEFAULT_KEY, '')
     return {
       title: this.data.shareTitle || '航天摄影 | 火星探索日志',
       query: `id=${encodeURIComponent(item.id || this._photoId || '')}`,
-      imageUrl: item.coverThumb || this.data.shareImage || item.coverUrl || shareDefault
+      imageUrl: pageShareImage(this, this._photoShareOpts(item))
     }
   }
 })

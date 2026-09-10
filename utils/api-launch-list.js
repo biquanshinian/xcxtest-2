@@ -15,7 +15,7 @@ const {
   emptyListResult,
   patchUpcomingLocalCacheById
 } = require('./api-request.js')
-const { pickLocalized, zhField, launchCardUiText } = require('./locale.js')
+const { pickLocalized, zhField, launchCardUiText, getContentLang } = require('./locale.js')
 const {
   applyContentLangToMission,
   buildRocketNamePair,
@@ -24,11 +24,9 @@ const {
   resolveAgencyDisplayZh
 } = require('./launch-card-i18n.js')
 const { missionHasOrbitPano } = require('./orbit-pano-list-flag.js')
+const { missionHasRocket3d } = require('./rocket-3d-list-flag.js')
 const { hydrateMissionAgencyLogo } = require('./upcoming-agency-logo-enrich.js')
-const {
-  isPlaceholderMissionField,
-  parseRocketMissionFromLaunchName
-} = require('./mission-list-card.js')
+const { pickLl2AlignedRocketName } = require('./mission-list-card.js')
 
 function getRocketDisplayNameFromConfig(configuration) {
   if (!configuration || typeof configuration !== 'object') return ''
@@ -39,10 +37,8 @@ function getRocketDisplayNameFromLaunch(launch) {
   const configuration = (launch && launch.rocket && launch.rocket.configuration)
     || (launch && launch.rocket && launch.rocket.rocket && launch.rocket.rocket.configuration)
   const fromCfg = getRocketDisplayNameFromConfig(configuration)
-  if (fromCfg && !isPlaceholderMissionField(fromCfg)) return fromCfg
-  const parsed = parseRocketMissionFromLaunchName(launch && launch.name)
-  if (parsed.rocketName && !isPlaceholderMissionField(parsed.rocketName)) return parsed.rocketName
-  return ''
+  const aligned = pickLl2AlignedRocketName(fromCfg, launch && launch.name)
+  return aligned || fromCfg || ''
 }
 
 /** 列表与详情对齐头图：保留 LL2 configuration 快照供 getRocketImage 使用（与详情 rocketConfig 同源） */
@@ -53,6 +49,7 @@ function pickRocketConfigurationSnapshot(launch) {
   if (!cfg || typeof cfg !== 'object') return null
   const totalLaunchCount = Number(cfg.total_launch_count)
   return {
+    id: cfg.id != null && cfg.id !== '' ? cfg.id : null,
     name: typeof cfg.name === 'string' ? cfg.name : '',
     nameZh: typeof cfg.nameZh === 'string' ? cfg.nameZh : '',
     full_name: typeof cfg.full_name === 'string' ? cfg.full_name : '',
@@ -184,14 +181,15 @@ function mapLaunchToListItem(launch, index, offset, type) {
   const sitePair = buildLaunchSitePair(launch)
   const titlePair = buildTitlePair(launch, rocketPair.rocketNameEn, rocketPair.rocketNameZh)
   const recoveryPair = computeRecoveryTagPair(boosterInfo, _isRecoverable)
+  const preferZh = getContentLang() !== 'en'
 
   const item = {
     id: launch.id || `${idPrefix}-${offset + index}`,
-    name: titlePair.nameEn,
-    missionName: titlePair.missionNameEn,
-    rocketName: rocketPair.rocketNameEn,
-    launchSite: sitePair.launchSiteEn,
-    padLocation: sitePair.padLocationEn,
+    name: preferZh && titlePair.nameZh ? titlePair.nameZh : titlePair.nameEn,
+    missionName: preferZh && titlePair.missionNameZh ? titlePair.missionNameZh : titlePair.missionNameEn,
+    rocketName: preferZh && rocketPair.rocketNameZh ? rocketPair.rocketNameZh : rocketPair.rocketNameEn,
+    launchSite: preferZh && sitePair.launchSiteZh ? sitePair.launchSiteZh : sitePair.launchSiteEn,
+    padLocation: preferZh && sitePair.padLocationZh ? sitePair.padLocationZh : sitePair.padLocationEn,
     launchTime: launch.net || launch.window_start,
     previousNet: launch.previousNet || launch.previous_net || '',
     windowStart: launch.window_start,
@@ -212,7 +210,9 @@ function mapLaunchToListItem(launch, index, offset, type) {
     launchAgencyAbbrev,
     // 列表 LSP 若带 logo 则直接带上；瘦列表无图时先读本地按 id 缓存，再由 enrich 补齐
     launchAgencyImage: launchAgencyImage || '',
-    rocketConfigId: (rocketConfiguration && rocketConfiguration.id != null) ? rocketConfiguration.id : null,
+    rocketConfigId: (rocketConfiguration && rocketConfiguration.id != null)
+      ? rocketConfiguration.id
+      : null,
     padLocationId: (launch.pad && launch.pad.location && launch.pad.location.id != null)
       ? launch.pad.location.id
       : null,
@@ -259,6 +259,7 @@ function mapLaunchToListItem(launch, index, offset, type) {
   }
 
   item.hasOrbitPano = missionHasOrbitPano(item)
+  item.hasRocket3d = missionHasRocket3d(item)
   const hydrated = hydrateMissionAgencyLogo(item)
   if (hydrated && hydrated.launchAgencyImage) item.launchAgencyImage = hydrated.launchAgencyImage
   return applyContentLangToMission(item)
@@ -280,6 +281,7 @@ function cloneListResult(result) {
         next._langPack = Object.assign({}, item._langPack)
       }
       next.hasOrbitPano = missionHasOrbitPano(next)
+      next.hasRocket3d = missionHasRocket3d(next)
       return applyContentLangToMission(next)
     }),
     hasMore: result.hasMore,
@@ -677,6 +679,7 @@ function peekUpcomingMissionsList() {
       next._langPack = Object.assign({}, item._langPack)
     }
     next.hasOrbitPano = missionHasOrbitPano(next)
+    next.hasRocket3d = missionHasRocket3d(next)
     return applyContentLangToMission(next)
   })
 }

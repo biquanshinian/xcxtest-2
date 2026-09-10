@@ -83,10 +83,20 @@ function refreshRocketArtOnPages() {
 
 /**
  * 页面 onShow 调用：若艺术风格版本已变且页面实现了 refreshRocketConfigArt，则补刷。
+ * 首次落页只盖章：列表已按当前风格解析，artStyleSwitch 全量重算会在 media map
+ * 未就绪时把正确配置图刷成 default / 白图（切 Tab、从详情返回最常见）。
  */
 function applyRocketConfigArtIfNeeded(page) {
   if (!page || typeof page.refreshRocketConfigArt !== 'function') return false
   if (page._rocketArtAppliedVersion === _version) return false
+  if (page._rocketArtAppliedVersion == null) {
+    page._rocketArtAppliedVersion = _version
+    return false
+  }
+  try {
+    const { isCloudMediaMapReady } = require('./image-config.js')
+    if (typeof isCloudMediaMapReady === 'function' && !isCloudMediaMapReady()) return false
+  } catch (e) {}
   return invokePageRocketArtRefresh(page)
 }
 

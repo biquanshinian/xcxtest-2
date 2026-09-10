@@ -119,7 +119,7 @@ ok(/entryKey/.test(apiSrc) && /ll2Id/.test(apiSrc), 'API 同时支持 entryKey /
 
 const mapJs = fs.readFileSync('subpackages/monitor-pages/space-notices/notice-map.js', 'utf8')
 const mapWxml = fs.readFileSync('subpackages/monitor-pages/space-notices/notice-map.wxml', 'utf8')
-ok(/hasTrajectory/.test(mapJs) && /mapScope === 'mission' && hasTrajectory/.test(mapWxml), '详情页按 hasTrajectory 显隐轨迹层')
+ok(/hasTrajectory/.test(mapJs) && /hasTrajectory \|\| hasAdp/.test(mapWxml), '详情页按轨迹或 ADP 显隐走廊层')
 ok(/mapRegion:\s*'global'/.test(mapJs), '默认视野全程')
 ok(/spaceNoticeDisplayTitle/.test(mapJs) && !/buildPadMarker\(pad,\s*this\._entry/.test(mapJs), '定位角标走统一汉化标题')
 

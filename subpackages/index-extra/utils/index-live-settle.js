@@ -25,6 +25,8 @@ const {
   resolveLaunchStatuses
 } = require('../../../utils/api-app-services.js')
 const { inferTerminalStatusFromUpdates, buildSettledRowFromUpdates } = require('./ll2-updates-outcome.js')
+const { applyOrbitPanoFlags } = require('../../../utils/orbit-pano-list-flag.js')
+const { applyRocket3dFlags } = require('../../../utils/rocket-3d-list-flag.js')
 const { computeLaunchDelayInfo } = require('./launch-delay.js')
 const {
   getStatusCategory,
@@ -161,13 +163,10 @@ function applyClientNetHysteresis(page, liveRow, nowMs) {
 const { attachMissionDetailMeta } = require('../../../utils/index-mission-nav.js')
 const { buildMissionListSetData } = require('../../../utils/index-mission-services.js')
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
-const config = require('../../../utils/config.js')
-
-/** 视频号 finderUserName（与主包 index.js 同名函数保持一致） */
-function getLiveFinderUserNameFromConfig() {
-  const cfg = (config && config.channelsLive) || {}
-  return String(cfg.finderUserName || '').trim()
-}
+const {
+  getLiveFinderUserNameFromConfig,
+  isSettleableLiveStatusId
+} = require('../../../utils/live-settle-helpers.js')
 
 // 复查节奏统一由 utils/countdown-window-machine.js 决策；此处仅留兜底默认值
 const LIVE_STATUS_RECHECK_MS = 5 * 60 * 1000
@@ -178,12 +177,6 @@ const QUIET_SETTLE_MIN_GAP_MS = windowMachine.POST_WINDOW_RECHECK_MS
 const LL2_UPDATES_MEM_TTL_MS = 5 * 60 * 1000
 const ROAD_CLOSURE_REFRESH_TTL = 5 * 60 * 1000
 const SPACEX_STATS_REFRESH_TTL = 10 * 60 * 1000
-
-/** 可落历史并切下一个：终态(3/4/7/9) 或飞行中(6)（与主包 index.js 同名函数保持一致） */
-function isSettleableLiveStatusId(id) {
-  const n = id != null ? Number(id) : 0
-  return isTerminalStatusId(n) || n === 6
-}
 
 /** 视频号直播（分包懒加载，与详情页同源） */
 const CHANNELS_LIVE_PATH = '../../shared/utils/channels-live.js'
@@ -1945,7 +1938,7 @@ const methods = {
   /**
    * DB media_assets 加载完成后，重算列表 + 倒计时区火箭图（三处同源）。
    * 允许 default → 正确图升级；禁止正确图 → default 降级（二次刷新 fuzzy miss 时）。
-   * opts.artStyleSwitch=true：忽略已盖章 URL（防 wxfile 机娘粘住），允许任意结果覆盖。
+   * opts.artStyleSwitch=true：忽略已盖章 URL（防 wxfile 机娘粘住），但仍禁止好图被 default / 失效路径盖掉。
    */
   _refreshRocketImagesFromMediaMap(opts) {
     const artSwitch = !!(opts && opts.artStyleSwitch)
@@ -1975,7 +1968,10 @@ const methods = {
     const canReplace = (cur, next) =>
       artSwitch ? shouldReplaceRocketImageForArt(cur, next) : shouldReplaceRocketImage(cur, next)
     const refreshList = (listKey) => {
-      const arr = this.data[listKey]
+      const arr =
+        this._indexParked && Object.prototype.hasOwnProperty.call(this._indexParked, listKey)
+          ? this._indexParked[listKey]
+          : this.data[listKey]
       if (!Array.isArray(arr) || !arr.length) return null
       let mutated = false
       const next = arr.map((m) => {
@@ -2014,12 +2010,24 @@ const methods = {
       }
     }
 
+    ;['upcomingMissions', 'displayedUpcomingMissions', 'completedMissions', 'calendarAllMissions'].forEach((key) => {
+      if (!Array.isArray(patch[key])) return
+      try { applyOrbitPanoFlags(patch[key]) } catch (eFlag) {}
+      try { applyRocket3dFlags(patch[key]) } catch (eFlag3d) {}
+    })
+
+    const restampCardFlags = () => {
+      try {
+        if (typeof this._restampOrbitPanoFlags === 'function') this._restampOrbitPanoFlags()
+      } catch (e4) {}
+    }
+
     if (Object.keys(patch).length) {
       this.setData(patch, () => {
         try {
           if (patch.upcomingMissions) this.updateMissionListView('upcoming', patch.upcomingMissions)
           if (patch.completedMissions) this.updateMissionListView('completed', patch.completedMissions)
-          if (patch.calendarAllMissions) {
+          if (patch.calendarAllMissions && !this._indexParked && this.data.missionType === 'calendar') {
             this.updateCalendarDerivedState({
               sourceMissions: patch.calendarAllMissions,
               allMissions: patch.calendarAllMissions,
@@ -2043,6 +2051,7 @@ const methods = {
             netChangeComp.resyncRocketImagesFromHomepage()
           }
         } catch (e3) {}
+        restampCardFlags()
       })
       try {
         const top = patch.upcomingMissions || patch.completedMissions || patch.calendarAllMissions
@@ -2052,6 +2061,7 @@ const methods = {
       try {
         this.syncLaunchPanelRocketImageWithUpcomingList()
       } catch (e) {}
+      restampCardFlags()
     }
   },
 }

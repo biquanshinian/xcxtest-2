@@ -252,6 +252,8 @@
         "booster-history",
         "booster-genealogy",
         "rocket-model-detail",
+        "rocket-compare",
+        "rocket-score",
         "artemis-detail",
         "roman-detail",
         "orbital-data-center/orbital-data-center",
@@ -263,27 +265,27 @@
   ],
   "preloadRule": {
     "pages/index/index": {
-      "network": "all",
+      "network": "wifi",
       "packages": ["shared", "index-extra"]
     },
     "pages/monitor/monitor": {
-      "network": "all",
+      "network": "wifi",
       "packages": ["shared", "monitor-pages"]
     },
     "pages/progress/progress": {
-      "network": "all",
+      "network": "wifi",
       "packages": ["shared", "progress-extra"]
     },
     "pages/news/news": {
-      "network": "all",
+      "network": "wifi",
       "packages": ["shared", "news-extra"]
     },
     "pages/profile/profile": {
-      "network": "all",
+      "network": "wifi",
       "packages": ["shared", "profile-extra"]
     },
     "pages/nasa-data/nasa-data": {
-      "network": "all",
+      "network": "wifi",
       "packages": ["shared", "monitor-pages"]
     }
   }

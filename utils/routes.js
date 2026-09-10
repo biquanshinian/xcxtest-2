@@ -63,6 +63,7 @@ const ROUTES = {
   BOOSTER_DETAIL: '/subpackages/monitor-pages/booster-detail',
   BOOSTER_GENEALOGY: '/subpackages/monitor-pages/booster-genealogy',
   ROCKET_MODEL_DETAIL: '/subpackages/monitor-pages/rocket-model-detail',
+  ROCKET_COMPARE: '/subpackages/monitor-pages/rocket-compare',
   ARTEMIS_DETAIL: '/subpackages/monitor-pages/artemis-detail',
   ROMAN_DETAIL: '/subpackages/monitor-pages/roman-detail',
   ORBITAL_DATA_CENTER: '/subpackages/monitor-pages/orbital-data-center/orbital-data-center',

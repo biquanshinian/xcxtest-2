@@ -15,7 +15,7 @@
 | **自动模式** | 微信公众平台 → 基础功能 → AI 能力 | 零代码，提审时授权平台读取源码 | 让微信 AI 直接「操作」小程序已有页面 |
 | **开发模式（beta）** | 同上，需单独申请开通 | 需封装 SKILL（原子接口 + 原子组件） | 个性化对话、结构化卡片、知识库问答 |
 
-两种模式**可同时开启**（见后台截图）。本项目当前已实现**小程序内 AI 助手「星问」**，但**尚未接入微信 AI 开发模式**（项目中暂无 `AGENTS.md`、`mcp.json`、`agent` 配置）。本文档说明现状、推荐接入方案与知识库规划。
+两种模式**可同时开启**（见后台截图）。本项目已实现小程序内 AI 助手「星问」，并在仓库落地微信 AI 开发模式 SKILL（`subpackages/agent-skills`、`agent-config/`；提审前按 [`ai-mode-switch.md`](./ai-mode-switch.md) 从 `app.json` 摘除注册）。知识库请上传 [`小程序功能导航.md`](./小程序功能导航.md) 与 [`用户常见问题.md`](./用户常见问题.md)，不要再上传本文或其它开发者手册。
 
 ---
 
@@ -32,11 +32,11 @@
 - **上下文注入**：对话时自动附带即将发射 / 已完成任务列表（UTC），引导模型基于实时数据回答
 - **系统提示词**：已内置 16 项功能导航（直播、星链过境、NASA 数据、月愿计划等）
 
-### 2.2 AI 识图（`cloudfunctions/aiImageRecognize`）
+### 2.2 AI 识图（规划中，仓库无此云函数）
 
-- OCR 提取图片文字 → `hy3-preview` 判断是否航天相关并识别型号
-- 每日限额：默认 30 次/用户（`ai_image_usage` 集合）
-- 入口：搜索页 `pages/search`（`answerQuestion` 亦用于任务问答）
+- 文档曾写 `cloudfunctions/aiImageRecognize` / `recognizeRocketImage`，**现网未实现、目录不存在**
+- 规划：OCR 提取图片文字 → 模型判断是否航天相关并识别型号
+- 入口设想：搜索页 `pages/search`（`answerQuestion` 仍只做文本问答）
 
 ### 2.3 搜索与任务问答（`pages/search`）
 
@@ -50,7 +50,7 @@
 | `streamChat` / `answerQuestion` | 知识库兜底 + 专用 SKILL 原子接口 |
 | 发射列表 API（`utils/api-launch-list.js`） | `getUpcomingLaunches` / `getLaunchDetail` 原子接口 |
 | 监控数据（`utils/api-monitor-data.js`） | 空间站、星链等 SKILL |
-| `aiImageRecognize` 云函数 | `recognizeRocketImage` 原子接口（`format: "image"`） |
+| （规划）识图云函数 | `recognizeRocketImage` 原子接口（`format: "image"`，未实现） |
 | `SYSTEM_PROMPT` 功能导航 | `AGENTS.md` 全局提示词 + 知识库文档 |
 
 ---
@@ -192,7 +192,7 @@ return {
 
 | 原子接口 | 说明 | 复用代码 |
 |----------|------|----------|
-| `recognizeRocketImage` | 识别火箭/卫星图片 | `cloudfunctions/aiImageRecognize` |
+| `recognizeRocketImage` | 识别火箭/卫星图片（规划中） | 仓库无 `aiImageRecognize` 云函数 |
 
 `inputSchema` 示例：
 
@@ -321,20 +321,17 @@ flowchart TD
 
 ### 5.3 建议上传的文档（针对本项目）
 
-在 10 个文件上限内，建议优先：
+在 10 个文件上限内，**先发这三份（仓库已写好）**：
 
-| 序号 | 建议文件名 | 内容来源 |
+| 序号 | 上传文件名 | 仓库路径 |
 |------|------------|----------|
-| 1 | `小程序功能导航.md` | `aiService.js` SYSTEM_PROMPT 中的 16 项导航 |
-| 2 | `SpaceX与星舰FAQ.md` | 星舰结构、回收流程、星链原理、常见误解 |
-| 3 | `猎鹰9与回收技术.md` | 助推器编号、ASDS/RTLS、任务类型 |
-| 4 | `NASA与阿耳忒弥斯.md` | Artemis、SLS、猎户座、近地天体 |
-| 5 | `中国航天FAQ.md` | 天宫、嫦娥、长征系列、文昌/酒泉 |
-| 6 | `天文观测指南.md` | 流星雨、日食、行星冲日、观测术语 |
-| 7 | `轨道与发射基础.md` | 轨道类型、发射窗口、时区说明（UTC→北京时间） |
-| 8 | `用户常见问题.md` | 「为什么没有数据」「如何看直播」「星链为什么要授权位置」 |
+| 1 | `小微调用本小程序.md` | [`docs/小微调用本小程序.md`](./小微调用本小程序.md) |
+| 2 | `小程序功能导航.md` | [`docs/小程序功能导航.md`](./小程序功能导航.md) |
+| 3 | `用户常见问题.md` | [`docs/用户常见问题.md`](./用户常见问题.md) |
 
-**不要**把会快速过期的发射日程整表放进知识库；实时时间应走 `launch` SKILL API。
+请**下架** 2026-06-13 误当作知识库的开发文档：`wechat-ai-capability.md`、`news-manual-articles-database-rules.md`、`scheme-test-examples.md`。`plaintext-scheme-paths.txt` 对用户问答帮助不大，应贴到公众平台明文 Scheme 白名单，不必放进知识库。
+
+仍有名额时，可再补稳定科普（星舰 FAQ、猎鹰回收、中国航天、轨道基础）。**不要**把会过期的发射日程整表放进知识库；实时时间走 `launch-tracker` SKILL。
 
 ### 5.4 知识库与星问提示词的分工
 
@@ -414,9 +411,9 @@ sequenceDiagram
 - [ ] 新建 `subpackages/ai-skills` 独立分包
 - [ ] 编写 `AGENTS.md`、`page-meta.json`
 - [ ] 按业务拆分 SKILL，编写 `SKILL.md`、`mcp.json`、`index.js`
-- [ ] 复用 `api-launch-list`、`api-monitor-data`、`aiImageRecognize` 实现原子接口
+- [ ] 复用 `api-launch-list`、`api-monitor-data` 实现原子接口（识图云函数尚未落地）
 - [ ] 为关键接口配套原子组件（发射卡片、过境卡片等）及 `relatedPage`
-- [ ] 上传知识库文档并在「调试」中验证召回
+- [ ] 知识库发布 `小程序功能导航.md` + `用户常见问题.md`，下架 2026-06 的开发文档，并在「调试」验证召回
 - [ ] 开发者工具「小程序 AI 编译」+ 体验版真机联调
 - [ ] 确认内测要求：开发模式代码暂不合并正式版分支
 
@@ -434,4 +431,4 @@ sequenceDiagram
 
 ---
 
-*文档版本：2026-06-13 · 基于当前仓库代码与微信开放文档整理*
+*文档版本：2026-09-06 · 知识库改为功能导航 + FAQ；开发模式 SKILL 已落地*

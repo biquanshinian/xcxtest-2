@@ -17,6 +17,8 @@ const METHODS = [
   'normalizeBoosterInfo',
   'onGoBoosterDetail',
   'onGoAgencyDetail',
+  'onGoRocketModelDetail',
+  'onGoLaunchSiteDetail',
   'onImageError',
   'onCountdownRocketImageError',
   'refreshLaunchPanelRocketImageUrl',

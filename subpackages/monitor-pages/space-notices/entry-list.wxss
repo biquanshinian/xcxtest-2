@@ -86,6 +86,9 @@ page {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.sn-grid-sub--link {
+  color: var(--color-brand, #3b82f6);
+}
 .sn-grid-meta {
   color: var(--color-text-tertiary, rgba(255, 255, 255, 0.5));
 }
@@ -320,6 +323,9 @@ page {
 }
 .theme-light .sn-grid-sub {
   color: var(--color-text-secondary);
+}
+.theme-light .sn-grid-sub--link {
+  color: var(--color-brand, #3b82f6);
 }
 .theme-light .sn-grid-meta {
   color: var(--color-text-tertiary);

@@ -2,12 +2,15 @@ const pageBase = require('../../utils/page-base.js')
 const { togglePageTranslation } = require('./utils/text-translate.js')
 const { getRocketConfigMeta } = require('../../utils/api-app-services.js')
 const boosterDisplay = require('./utils/booster-display.js')
-const { ROUTES, navigateTo } = require('../../utils/routes.js')
-const { gateCheck } = require('../../utils/membership.js')
-const { openRocketModelDetail } = require('./utils/booster-nav.js')
+const { openRocketModelDetail, openEncyclopediaAgency } = require('./utils/booster-nav.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
 const { pickLocalized } = require('../../utils/locale.js')
 const { advanceImageFallback } = require('../../utils/ll2-image.js')
+const {
+  isLocalSharePath,
+  pickRocketModelShareImageUrl,
+  pickRocketModelShareSourceForDownload
+} = require('./utils/rocket-model-share-image.js')
 const { isFavorite, toggleFavorite, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
 
 Page({
@@ -24,6 +27,7 @@ Page({
     descI18n: { boosterDesc: '' },
     navTitle: '助推器详情',
     shareTitle: '助推器详情 | 火星探索日志',
+    shareImage: '',
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
     tabBarReservedHeight: 0,
@@ -34,15 +38,29 @@ Page({
 
   async onLoad(options) {
     var serial = ''
+    var ll2Id = ''
     if (options && options.serial) {
       try { serial = decodeURIComponent(String(options.serial)) } catch (e) { serial = String(options.serial) }
     }
+    if (options && (options.ll2Id || options.launcherId)) {
+      try { ll2Id = decodeURIComponent(String(options.ll2Id || options.launcherId)) } catch (e) {
+        ll2Id = String(options.ll2Id || options.launcherId)
+      }
+    }
     if (!serial && options && options.id) {
-      try { serial = decodeURIComponent(String(options.id)) } catch (e) { serial = String(options.id) }
+      var rawId = ''
+      try { rawId = decodeURIComponent(String(options.id)) } catch (e) { rawId = String(options.id) }
+      rawId = String(rawId || '').trim()
+      if (/^\d+$/.test(rawId)) ll2Id = ll2Id || rawId
+      else serial = rawId
     }
     serial = String(serial || '').trim()
+    ll2Id = String(ll2Id || '').trim()
+    if (ll2Id === 'undefined' || ll2Id === 'null') ll2Id = ''
     this.initUiShell()
     this._serial = serial
+    this._ll2Id = ll2Id
+    this._entryOptions = options || {}
     if (serial) syncFavoriteState(this, 'booster', serial)
 
     // 分享卡片 24h 免门控窗口：过期后走 gateCheck（会员放行，非会员弹开通引导）
@@ -53,13 +71,13 @@ Page({
     }
     warmShareEntitlement(this, 'booster_genealogy')
 
-    if (!serial) {
+    if (!serial && !ll2Id) {
       this.setData({ loading: false, errorMessage: '缺少助推器参数，请返回重试' })
       return
     }
 
     this.setData({ loading: true, errorMessage: '', item: null, heroImageLoaded: false })
-    this.loadDetail(serial, getApp())
+    this.loadDetail(serial, getApp(), ll2Id)
   },
 
   onShow() {
@@ -67,11 +85,23 @@ Page({
     if (serial) syncFavoriteState(this, 'booster', serial)
   },
 
-  loadDetail(serial, app) {
-    // 从全局临时变量读取原始数据（族谱/任务统一预塞）
+  loadDetail(serial, app, ll2Id) {
+    serial = String(serial || '').trim()
+    ll2Id = String(ll2Id != null ? ll2Id : (this._ll2Id || '')).trim()
+    if (ll2Id === 'undefined' || ll2Id === 'null') ll2Id = ''
+
+    function matchesPrefill(item) {
+      if (!item) return false
+      if (ll2Id && String(item.ll2Id || item.launcherId || '') === ll2Id) return true
+      if (serial) {
+        var s = String(item.serialNumber || item.serial || '')
+        return s === serial || s.toUpperCase() === serial.toUpperCase()
+      }
+      return false
+    }
+
     var raw = (app && app._boosterDetailData) || null
-    if (raw && (raw.serialNumber === serial || raw.serial === serial ||
-        String(raw.serialNumber || '').toUpperCase() === String(serial).toUpperCase())) {
+    if (matchesPrefill(raw)) {
       this.processAndSetData(raw)
       if (app) app._boosterDetailData = null
       return
@@ -79,17 +109,32 @@ Page({
 
     var self = this
     var db = wx.cloud.database()
-    var docId = serial.replace(/[^a-zA-Z0-9_-]/g, '_')
 
     function failNotFound() {
-      self.setData({ loading: false, errorMessage: '未找到助推器 ' + serial + ' 的数据' })
+      var label = serial || (ll2Id ? ('#' + ll2Id) : '')
+      self.setData({ loading: false, errorMessage: '未找到助推器 ' + label + ' 的数据' })
     }
 
     function failLoad() {
       self.setData({ loading: false, errorMessage: '助推器数据加载失败，请稍后重试' })
     }
 
-    function tryWhereQuery() {
+    function findInList() {
+      return require('../../utils/api-app-services.js').getBoosterGenealogy().then(function (list) {
+        var rows = list || []
+        var hit = (ll2Id && rows.find(function (b) {
+          return String((b && (b.ll2Id || b.launcherId)) || '') === ll2Id
+        })) || (serial && rows.find(function (b) {
+          var s = String((b && (b.serialNumber || b.serial)) || '')
+          return s === serial || s.toUpperCase() === serial.toUpperCase()
+        })) || null
+        if (hit) self.processAndSetData(hit)
+        else failNotFound()
+      }).catch(failLoad)
+    }
+
+    function tryWhereSerial() {
+      if (!serial) return findInList()
       return db.collection('booster_genealogy')
         .where({ serialNumber: serial })
         .limit(1)
@@ -100,28 +145,53 @@ Page({
             self.processAndSetData(row)
             return
           }
-          // 大小写兜底：拉 preview 列表命中
-          return require('../../utils/api-app-services.js').getBoosterGenealogy().then(function (list) {
-            var hit = (list || []).find(function (b) {
-              var s = String((b && (b.serialNumber || b.serial)) || '')
-              return s === serial || s.toUpperCase() === String(serial).toUpperCase()
-            })
-            if (hit) self.processAndSetData(hit)
-            else failNotFound()
-          }).catch(failLoad)
+          return findInList()
         })
         .catch(failLoad)
     }
 
-    db.collection('booster_genealogy').doc(docId).get().then(function (res) {
-      if (res && res.data && (res.data.serialNumber || res.data.serial || res.data.flights != null)) {
-        self.processAndSetData(res.data)
-      } else {
-        tryWhereQuery()
+    function tryWhereLl2(next) {
+      if (!ll2Id) return next()
+      var attempts = []
+      var numId = Number(ll2Id)
+      if (Number.isFinite(numId) && String(numId) === ll2Id) attempts.push({ ll2Id: numId })
+      attempts.push({ ll2Id: ll2Id })
+      function run(i) {
+        if (i >= attempts.length) return next()
+        return db.collection('booster_genealogy')
+          .where(attempts[i])
+          .limit(1)
+          .get()
+          .then(function (res) {
+            var row = res && res.data && res.data[0]
+            if (row) self.processAndSetData(row)
+            else run(i + 1)
+          })
+          .catch(function () { run(i + 1) })
       }
-    }).catch(function () {
-      tryWhereQuery()
-    })
+      return run(0)
+    }
+
+    function tryDocThenWhere() {
+      if (!serial) return tryWhereLl2(tryWhereSerial)
+      var docId = serial.replace(/[^a-zA-Z0-9_-]/g, '_')
+      db.collection('booster_genealogy').doc(docId).get().then(function (res) {
+        if (res && res.data && (res.data.serialNumber || res.data.serial || res.data.flights != null)) {
+          if (ll2Id && res.data.ll2Id != null && String(res.data.ll2Id) !== ll2Id) {
+            tryWhereLl2(function () { self.processAndSetData(res.data) })
+            return
+          }
+          self.processAndSetData(res.data)
+        } else {
+          tryWhereLl2(tryWhereSerial)
+        }
+      }).catch(function () {
+        tryWhereLl2(tryWhereSerial)
+      })
+    }
+
+    if (ll2Id) tryWhereLl2(function () { tryDocThenWhere() })
+    else tryDocThenWhere()
   },
 
   processAndSetData(raw) {
@@ -263,6 +333,9 @@ Page({
       updatedAt: fmtDateTime(raw.updatedAt || raw.syncedAt)
     }
 
+    this._serial = item.serial && item.serial !== '?' ? item.serial : this._serial
+    if (item.ll2Id != null) this._ll2Id = String(item.ll2Id)
+
     this.setData({
       loading: false,
       item: item,
@@ -270,6 +343,7 @@ Page({
       navTitle: item.serial + ' 详情',
       shareTitle: item.serial + ' ' + item.rocketFamily + ' | 火星探索日志'
     })
+    this._syncShareImage(item)
 
     // 保留 raw 供头图 binderror 链耗尽后异步兜底
     this._rawForHeroFallback = raw
@@ -284,13 +358,17 @@ Page({
     var familyEn = (item && item.rocketFamilyEn) || (raw && raw.rocketFamily) || ''
     var applyCos = function () {
       var url = boosterDisplay.cosRocketImageOf(familyEn)
-      if (url) self.setData({ 'item.imageUrl': url })
+      if (url) {
+        self.setData({ 'item.imageUrl': url })
+        self._syncShareImage(Object.assign({}, self.data.item || item || {}, { imageUrl: url }))
+      }
     }
-    getRocketConfigMeta().then(function (meta) {
+    getRocketConfigMeta({ afterGate: true }).then(function (meta) {
       var url = boosterDisplay.configImageOf(raw.configId, familyEn, (meta && meta.configs) || {})
       if (url) {
         self.setData({ 'item.imageUrl': url })
-      } else {
+        self._syncShareImage(Object.assign({}, self.data.item || item || {}, { imageUrl: url }))
+      } else if (raw.configId == null || String(raw.configId).trim() === '') {
         applyCos()
       }
     }).catch(applyCos)
@@ -298,10 +376,12 @@ Page({
 
   // goBack inherited from pageBase
 
-  onRetryLoad() {
-    if (this._serial) {
+  async onRetryLoad() {
+    var shareAllowed = await checkShareEntryGate(this, this._entryOptions || {}, 'booster_genealogy', '全球可回收火箭族谱')
+    if (!shareAllowed) return
+    if (this._serial || this._ll2Id) {
       this.setData({ loading: true, errorMessage: '', item: null, heroImageLoaded: false })
-      this.loadDetail(this._serial, getApp())
+      this.loadDetail(this._serial, getApp(), this._ll2Id)
     }
   },
 
@@ -324,15 +404,15 @@ Page({
     await openRocketModelDetail(item.configId)
   },
 
-  /** 点击发射商标签 → 会员门控 → 发射商详情页（按名称解析，agency-detail 支持 name 入参） */
+  /** 点击发射商标签 → 全球发射商图鉴对应机构 */
   async onTapManufacturer() {
     var item = this.data.item || {}
-    var name = item.manufacturer || ''
-    if (!name) return
+    if (!item.manufacturerId) {
+      wx.showToast({ title: '暂无该发射商档案', icon: 'none' })
+      return
+    }
     try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
-    var allowed = await gateCheck('agency_encyclopedia', '全球发射商图鉴')
-    if (!allowed) return
-    navigateTo(ROUTES.AGENCY_DETAIL, { name: name })
+    return openEncyclopediaAgency({ agencyId: item.manufacturerId })
   },
 
   onHeroImageLoad() {
@@ -349,6 +429,10 @@ Page({
         'item.imageUrl': advanced.next,
         'item.imageFallbacks': advanced.remaining
       })
+      this._syncShareImage(Object.assign({}, item, {
+        imageUrl: advanced.next,
+        imageFallbacks: advanced.remaining
+      }))
       return
     }
     // 链耗尽：再尝试构型/COS 异步兜底（与列表卡一致）
@@ -380,31 +464,90 @@ Page({
       title: item.serial,
       subtitle: item.rocketFamily || '',
       imageUrl: item.imageUrl || '',
-      category: 'booster'
+      category: 'booster',
+      extra: {
+        ll2Id: item.ll2Id != null ? String(item.ll2Id) : (this._ll2Id || '')
+      }
     })
     pulseFavAnimate(this, favorited)
     wx.showToast({ title: favorited ? '已收藏' : '已取消收藏', icon: 'none' })
   },
 
+  _shareImageOpts(item) {
+    var it = item || this.data.item || {}
+    var fallbacks = Array.isArray(it.imageFallbacks) ? it.imageFallbacks.slice() : []
+    return {
+      displayImage: it.imageUrl || it.thumbnailUrl || '',
+      rawImage: fallbacks[0] || it.imageUrl || '',
+      fallbacks: fallbacks,
+      rocketName: it.rocketFamilyEn || it.rocketFamily || ''
+    }
+  },
+
+  _syncShareImage(item) {
+    var opts = this._shareImageOpts(item)
+    var url = pickRocketModelShareImageUrl(opts)
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    this.ensureShareImageHttpUrl(pickRocketModelShareSourceForDownload(opts))
+  },
+
+  ensureShareImageHttpUrl(imageUrl) {
+    if (!imageUrl || typeof imageUrl !== 'string') return
+    var trimmed = imageUrl.trim()
+    if (!trimmed) return
+    if (isLocalSharePath(trimmed)) {
+      if (this.data.shareImage !== trimmed) this.setData({ shareImage: trimmed })
+      return
+    }
+    if (this._shareImageSourceUrl === trimmed && this.data.shareImage && isLocalSharePath(this.data.shareImage)) {
+      return
+    }
+    this._shareImageSourceUrl = trimmed
+    var self = this
+    wx.getImageInfo({
+      src: trimmed,
+      success: function (res) {
+        if (res && res.path && self._shareImageSourceUrl === trimmed) {
+          self.setData({ shareImage: res.path })
+        }
+      },
+      fail: function () {
+        if (self._shareImageSourceUrl === trimmed) self._shareImageSourceUrl = ''
+      }
+    })
+  },
+
+  _buildShareImage() {
+    return this.data.shareImage || pickRocketModelShareImageUrl(this._shareImageOpts())
+  },
+
   onShareAppMessage() {
     var item = this.data.item
-    var serial = (item && item.serial) ? item.serial : this._serial
+    var serial = (item && item.serial && item.serial !== '?') ? item.serial : this._serial
+    var ll2Id = (item && item.ll2Id != null) ? item.ll2Id : this._ll2Id
+    var q = []
+    if (serial) q.push('serial=' + encodeURIComponent(serial))
+    if (ll2Id) q.push('ll2Id=' + encodeURIComponent(ll2Id))
     return {
       title: this.data.shareTitle,
-      path: serial
-        ? withShareStampPath('/subpackages/monitor-pages/booster-detail?serial=' + encodeURIComponent(serial), this)
+      path: q.length
+        ? withShareStampPath('/subpackages/monitor-pages/booster-detail?' + q.join('&'), this)
         : '/pages/monitor/monitor',
-      imageUrl: item && item.imageUrl ? item.imageUrl : ''
+      imageUrl: this._buildShareImage()
     }
   },
 
   onShareTimeline() {
     var item = this.data.item
-    var serial = (item && item.serial) ? item.serial : this._serial
+    var serial = (item && item.serial && item.serial !== '?') ? item.serial : this._serial
+    var ll2Id = (item && item.ll2Id != null) ? item.ll2Id : this._ll2Id
+    var q = []
+    if (serial) q.push('serial=' + encodeURIComponent(serial))
+    if (ll2Id) q.push('ll2Id=' + encodeURIComponent(ll2Id))
     return {
       title: this.data.shareTitle,
-      query: serial ? withShareStampQuery('serial=' + encodeURIComponent(serial), this) : '',
-      imageUrl: item && item.imageUrl ? item.imageUrl : ''
+      query: q.length ? withShareStampQuery(q.join('&'), this) : '',
+      imageUrl: this._buildShareImage()
     }
   }
 })

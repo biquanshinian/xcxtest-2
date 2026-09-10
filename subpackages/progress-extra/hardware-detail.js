@@ -11,6 +11,11 @@ const { getCachedMediaImage } = require('../../utils/icon-cache.js')
 const { togglePageTranslation, translateTextsSmart, isMostlyChinese } = require('./utils/text-translate.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
 const { isFavorite, toggleFavorite, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
+const {
+  isLocalSharePath,
+  pickHardwareShareImageUrl,
+  pickHardwareShareSourceForDownload
+} = require('./utils/hardware-share-image.js')
 
 const B19_IMAGE_KEY = '最新版星舰组合体进展一二级图/b19_spacex3.webp'
 const S39_IMAGE_KEY = '最新版星舰组合体进展一二级图/s39_spacex.webp'
@@ -59,7 +64,8 @@ Page({
     testsTranslating: false,
     descI18n: { testNotes: [] },
     isFavorited: false,
-    favAnimate: false
+    favAnimate: false,
+    shareImage: ''
   },
 
   /** 测试记录备注「翻译/原文」（优先云端 notesZh；未汉化时按需机翻） */
@@ -183,6 +189,7 @@ Page({
         isFavorited: isFavorite('hardware', vehicle.id),
         navTitle: vehicle.name
       })
+      this._syncShareImage(vehicle)
       await this.loadTests(id)
       await this._autoLocalizeDetail()
       this._preferChineseNotes()
@@ -237,6 +244,7 @@ Page({
     const fallback = getFallbackImage(vehicle.category)
     if (vehicle.displayImage === fallback) return
     this.setData({ 'vehicle.displayImage': fallback })
+    this._syncShareImage(Object.assign({}, vehicle, { displayImage: fallback }))
   },
 
   onCopyVideoLink(e) {
@@ -268,9 +276,50 @@ Page({
     return `SpaceX ${v.name} · ${v.statusZh} | 火星探索日志`
   },
 
+  _shareImageOpts(vehicle) {
+    const v = vehicle || this.data.vehicle || {}
+    return {
+      rawImage: v.rawImage || '',
+      displayImage: v.displayImage || ''
+    }
+  },
+
+  _syncShareImage(vehicle) {
+    const opts = this._shareImageOpts(vehicle)
+    const url = pickHardwareShareImageUrl(opts)
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    this.ensureShareImageHttpUrl(pickHardwareShareSourceForDownload(opts))
+  },
+
+  /** 网络图 / cloud:// 落到本地，规避朋友圈吃不下 fileID、webp */
+  ensureShareImageHttpUrl(imageUrl) {
+    if (!imageUrl || typeof imageUrl !== 'string') return
+    const trimmed = imageUrl.trim()
+    if (!trimmed) return
+    if (isLocalSharePath(trimmed)) {
+      if (this.data.shareImage !== trimmed) this.setData({ shareImage: trimmed })
+      return
+    }
+    if (this._shareImageSourceUrl === trimmed && this.data.shareImage && isLocalSharePath(this.data.shareImage)) {
+      return
+    }
+    this._shareImageSourceUrl = trimmed
+    const self = this
+    wx.getImageInfo({
+      src: trimmed,
+      success(res) {
+        if (res && res.path && self._shareImageSourceUrl === trimmed) {
+          self.setData({ shareImage: res.path })
+        }
+      },
+      fail() {
+        if (self._shareImageSourceUrl === trimmed) self._shareImageSourceUrl = ''
+      }
+    })
+  },
+
   _buildShareImage() {
-    const v = this.data.vehicle
-    return (v && v.displayImage) || ''
+    return this.data.shareImage || pickHardwareShareImageUrl(this._shareImageOpts())
   },
 
   onToggleFavorite() {

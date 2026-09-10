@@ -39,6 +39,12 @@ const {
 } = require('../../utils/util.js')
 const { SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL } = require('../../utils/agency-logo-overrides.js')
 const {
+  isLocalSharePath,
+  pickShareImageUrl,
+  pickShareDownloadSrc,
+  ensureShareImageOnPage
+} = require('../../utils/share-thumb.js')
+const {
   decorateEventItem,
   relatedLaunchNavFromEvent,
   toggleRelatedMissionFavorite,
@@ -817,14 +823,7 @@ Page({
   },
 
   _isLocalSharePath(path) {
-    const s = String(path || '')
-    if (!s) return false
-    if (s.indexOf('wxfile://') === 0) return true
-    if (/^http:\/\/(tmp|usr)\b/i.test(s)) return true
-    if (typeof wx !== 'undefined' && wx.env && wx.env.USER_DATA_PATH && s.indexOf(wx.env.USER_DATA_PATH) === 0) {
-      return true
-    }
-    return !/^https?:\/\//i.test(s)
+    return isLocalSharePath(path)
   },
 
   /**
@@ -833,35 +832,23 @@ Page({
    */
   _pickLl2EventShareImage(item) {
     if (!item || typeof item !== 'object') return ''
-    const hero = String(item.heroImageUrl || '').trim()
-    const urls = Array.isArray(item.imageUrls) ? item.imageUrls : []
-    const fallbacks = Array.isArray(item.imageFallbacks) ? item.imageFallbacks : []
-    const seen = {}
-    const candidates = []
-    ;[hero].concat(urls).concat(fallbacks).forEach((u) => {
-      const s = String(u || '').trim()
-      if (!s || seen[s]) return
-      seen[s] = true
-      candidates.push(s)
+    return pickShareImageUrl({
+      displayImage: item.heroImageUrl || '',
+      rawImage: item.heroImageUrl || '',
+      fallbacks: [].concat(item.imageUrls || [], item.imageFallbacks || [])
     })
-    for (let i = 0; i < candidates.length; i++) {
-      const pick = candidates[i]
-      if (this._isLocalSharePath(pick)) return pick
-      const proxied = proxiedImageUrl(pick)
-      return proxied || pick
-    }
-    return ''
   },
 
   _syncLl2EventShareImage(item) {
-    const url = this._pickLl2EventShareImage(item)
-    if (!url) {
-      if (this.data.shareImage) this.setData({ shareImage: '' })
-      this._shareImageSourceUrl = ''
-      return
+    const it = item && typeof item === 'object' ? item : {}
+    const opts = {
+      displayImage: it.heroImageUrl || '',
+      rawImage: it.heroImageUrl || '',
+      fallbacks: [].concat(it.imageUrls || [], it.imageFallbacks || [])
     }
+    const url = pickShareImageUrl(opts)
     if (this.data.shareImage !== url) this.setData({ shareImage: url })
-    this.ensureShareImageHttpUrl(url)
+    ensureShareImageOnPage(this, pickShareDownloadSrc(opts))
   },
 
   /** 网络图落到本地临时路径，规避 iOS 朋友圈远程缩略图加载失败 */
@@ -1819,6 +1806,7 @@ Page({
         shareImage: pickEventShareImageUrl(snapItem),
         selectedTweetSource: snapItem.source || ''
       })
+      this.ensureShareImageHttpUrl(this.data.shareImage)
       opts = { ...opts, silent: true }
     }
 
@@ -1877,6 +1865,7 @@ Page({
         shareImage,
         selectedTweetSource: item.source || ''
       })
+      this.ensureShareImageHttpUrl(shareImage)
 
       this._scrollDetailToTop()
       this.checkLiveStatus(item)
@@ -1912,7 +1901,7 @@ Page({
               // 原片保存仅 Pro/已购；广告解锁只放行预览播放
               canSave: canSaveOriginalVideoSync('starship_event_list_full'),
               onSaveHint: () => {},
-              share: this._buildEventVideoShareInfo(item._id)
+              share: this._buildEventVideoShareInfo(item._id, mediaIndex)
             })
           }, 300)
         }
@@ -2038,6 +2027,7 @@ Page({
         avatarError: false,
         selectedTweetSource: this._listAllSource || ''
       }, this._applyListIntel(merged)))
+      this.ensureShareImageHttpUrl(listShareImage)
       if (refresh) this._scrollDetailToTop()
     } catch (error) {
       const msg = isPermissionDenied(error)
@@ -2131,6 +2121,7 @@ Page({
         avatarError: false,
         selectedTweetSource: source
       }, this._applyListIntel(items)))
+      this.ensureShareImageHttpUrl(shareImage)
       this._scrollDetailToTop()
     } catch (error) {
       const msg = isPermissionDenied(error)
@@ -2278,7 +2269,7 @@ Page({
    * 事件视频在全站播放页的分享上下文：落地页为该事件的详情页（不暴露视频直链），
    * 接收方观看仍走事件视频门控；播放页仅对会员开启转发入口
    */
-  _buildEventVideoShareInfo(eventId) {
+  _buildEventVideoShareInfo(eventId, mediaIndex) {
     const pageItem = this.data.item
     let item = null
     if (eventId) {
@@ -2289,7 +2280,7 @@ Page({
       item = pageItem
     }
     if (!item || !item._id) return null
-    const base = this.buildListEventShareOptions(item)
+    const base = this.buildListEventShareOptions(item, { preferMediaIndex: mediaIndex })
     return {
       title: base.title,
       path: base.path,
@@ -2297,17 +2288,21 @@ Page({
     }
   },
 
-  buildListEventShareOptions(item) {
+  buildListEventShareOptions(item, opts) {
     const safeItem = item && typeof item === 'object' ? item : null
     const titleText = safeItem && (safeItem.title || safeItem.content)
       ? String(safeItem.title || safeItem.content).trim()
       : '事件更新'
     const eventId = safeItem && safeItem._id ? String(safeItem._id) : ''
 
+    const picked = pickEventShareImageUrl(safeItem, opts)
+    const imageUrl = (picked && this._shareImageSourceUrl === picked && this.data.shareImage)
+      ? this.data.shareImage
+      : picked
     return {
       title: `${titleText} | 火星探索日志`,
       path: eventId ? `/subpackages/progress-extra/event-detail?id=${encodeURIComponent(eventId)}` : '/pages/progress/progress',
-      imageUrl: pickEventShareImageUrl(safeItem)
+      imageUrl
     }
   },
 
@@ -2436,7 +2431,10 @@ Page({
       // 原片保存仅 Pro/已购；广告解锁只放行预览播放
       canSave: canSaveOriginalVideoSync('starship_event_list_full'),
       onSaveHint: () => {},
-      share: this._buildEventVideoShareInfo(dataset.eventid || (this.data.item && this.data.item._id) || '')
+      share: this._buildEventVideoShareInfo(
+        dataset.eventid || (this.data.item && this.data.item._id) || '',
+        dataset.midx
+      )
     })
   },
 

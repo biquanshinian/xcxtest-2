@@ -2,6 +2,7 @@ const pageBase = require('../../utils/page-base.js')
 const { ROUTES } = require('../../utils/routes.js')
 const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, findItemById, buildMapLayoutData, buildSelectionPatch, buildMapOverlayTopStyle, buildMapShareOptions, copyMapText, runMapRefresh, setMapSatelliteFromTap } = require('./utils/map-page-common.js')
 const { buildObservationCandidates, getPassQualityMeta } = require('./utils/map-scenes.js')
+const { bootPageShareThumb, pageShareImage } = require('../../utils/share-thumb.js')
 
 Page({
   behaviors: [pageBase],
@@ -46,6 +47,7 @@ Page({
 
   onLoad(options) {
     this.initUiShell()
+    bootPageShareThumb(this)
     const app = getApp()
     const selectedPass = this.parsePass(options)
     const passOptions = this.parsePassList(options, selectedPass)
@@ -315,7 +317,8 @@ Page({
     const detail = pass.startTimeStr || '今晚可见'
     return {
       title: `${this.data.shareTitle || '星链观测地图'} · ${detail} | 火星探索日志`,
-      query: count ? ('count=' + count) : ''
+      query: count ? ('count=' + count) : '',
+      imageUrl: pageShareImage(this)
     }
   },
 

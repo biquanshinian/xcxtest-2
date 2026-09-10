@@ -40,6 +40,17 @@ const FIR_LABEL = {
 }
 
 const CHINA_BBOX = { minLon: 73, maxLon: 140, minLat: 0, maxLat: 54 }
+/** 与 china-filter 分块盒对齐，避开种子岛 / 东方发射场 */
+const CHINA_BOXES = [
+  [18.0, 20.8, 108.0, 111.8],
+  [20.5, 41.2, 108.0, 123.6],
+  [26.0, 43.2, 97.0, 112.5],
+  [35.0, 49.0, 73.5, 97.0],
+  [27.0, 37.0, 78.0, 103.5],
+  [40.0, 50.6, 122.0, 135.0],
+  [21.8, 25.4, 119.9, 122.1],
+  [8.0, 18.2, 109.5, 120.0]
+]
 /** 初始中心；完整国土靠 include-points 四至，不靠 scale 4（会只剩中部几省） */
 const CHINA_VIEW = { latitude: 36, longitude: 104, scale: 3 }
 /** 大陆四至：南海南、北漠河、西喀什、东抚远（不含赤道溅落区） */
@@ -81,7 +92,8 @@ function isChinaFir(code) {
   if (!c) return false
   if (CHINA_FIR_SET[c]) return true
   if (/^(RC|VH|VM)/.test(c) && c.length === 4) return true
-  return c.length === 4 && c.charAt(0) === 'Z' && c.charAt(1) !== 'K' && c.charAt(1) !== 'M'
+  // 与 china-filter CHINA_ICAO_RE 对齐，不把任意 Z*** 当成中国
+  return /^(Z[BGHJLPSUWY][A-Z]{2})$/.test(c)
 }
 
 function isForeignFir(code) {
@@ -97,7 +109,14 @@ function firLabel(code) {
 }
 
 function pointInChina(lon, lat) {
-  return lon >= CHINA_BBOX.minLon && lon <= CHINA_BBOX.maxLon && lat >= CHINA_BBOX.minLat && lat <= CHINA_BBOX.maxLat
+  const y = Number(lat)
+  const x = Number(lon)
+  if (!Number.isFinite(y) || !Number.isFinite(x)) return false
+  for (let i = 0; i < CHINA_BOXES.length; i++) {
+    const b = CHINA_BOXES[i]
+    if (y >= b[0] && y <= b[1] && x >= b[2] && x <= b[3]) return true
+  }
+  return false
 }
 
 function ringHitsChina(ring) {

@@ -1043,6 +1043,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.ai-launch-row-agency--link {
+  color: var(--color-brand);
+}
+.ai-launch-row-agency--link::after {
+  content: ' ›';
+  opacity: 0.7;
+}
 
 .ai-launch-row-name {
   font-size: 26rpx;

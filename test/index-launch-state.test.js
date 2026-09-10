@@ -13,6 +13,7 @@ const {
   attachCardCountdownToMissions,
   buildMissionCardCountdownTickPatch,
   pickCountdownDisplayMission,
+  getNextUpcomingLaunch,
   sortUpcomingMissionsByNetAsc,
   shouldHoldPastNetCountdownMission,
   resolveCountdownPrecision,
@@ -202,6 +203,80 @@ test('sortUpcomingMissionsByNetAsc：严格按 NET 升序，无视 TBD/就绪', 
   assert.equal(rows[0].id, 'michibiki')
   assert.equal(rows[1].id, 'zhuque')
   assert.equal(rows[2].id, 'starlink')
+})
+
+test('getNextUpcomingLaunch：跳过 TBD/Hold/粗精度，选下一发合格任务', () => {
+  const now = Date.parse('2026-09-11T02:00:00Z')
+  const current = { id: 'current', launchTime: '2026-09-11T01:00:00Z', statusId: 3 }
+  const tbd = {
+    id: 'cz8a-tbd',
+    launchTime: '2026-09-12T00:00:00Z',
+    statusId: 2
+  }
+  const hold = {
+    id: 'cz8a-hold',
+    launchTime: '2026-09-12T06:00:00Z',
+    statusId: 5
+  }
+  const month = {
+    id: 'cz8a-month',
+    launchTime: '2026-09-13T00:00:00Z',
+    statusId: 1,
+    netPrecision: 'Month'
+  }
+  const go = {
+    id: 'falcon',
+    launchTime: '2026-09-14T08:00:00Z',
+    statusId: 1,
+    netPrecision: 'Hour'
+  }
+  const tbc = {
+    id: 'cz12',
+    launchTime: '2026-09-15T02:00:00Z',
+    statusId: 8,
+    netPrecision: 'Hour'
+  }
+  const picked = getNextUpcomingLaunch([current, tbd, hold, month, go, tbc], 'current', now)
+  assert.equal(picked && picked.id, 'falcon')
+})
+
+test('getNextUpcomingLaunch：权威记录标 Hold 时也跳过', () => {
+  const now = Date.parse('2026-09-11T02:00:00Z')
+  const near = {
+    id: 'near-go',
+    launchTime: '2026-09-12T04:00:00Z',
+    statusId: 1
+  }
+  const later = {
+    id: 'later-go',
+    launchTime: '2026-09-13T08:00:00Z',
+    statusId: 1
+  }
+  const recordsById = new Map([['near-go', { id: 'near-go', status: { id: 5 } }]])
+  const picked = getNextUpcomingLaunch([near, later], 'current', now, { recordsById })
+  assert.equal(picked && picked.id, 'later-go')
+})
+
+test('getNextUpcomingLaunch：仅剩占位任务 → 不切过去', () => {
+  const now = Date.parse('2026-09-11T02:00:00Z')
+  const tbd = { id: 'only-tbd', launchTime: '2026-09-12T00:00:00Z', statusId: 2 }
+  assert.equal(getNextUpcomingLaunch([tbd], 'current', now), null)
+})
+
+test('pickCountdownDisplayMission：最近 TBD 让位给后面 Go', () => {
+  const now = Date.parse('2026-09-11T02:00:00Z')
+  const tbd = {
+    id: 'cz8a-tbd',
+    launchTime: '2026-09-12T00:00:00Z',
+    statusId: 2
+  }
+  const go = {
+    id: 'zhuque',
+    launchTime: '2026-09-13T10:00:00Z',
+    statusId: 1
+  }
+  const picked = pickCountdownDisplayMission([tbd, go], now)
+  assert.equal(picked && picked.id, 'zhuque')
 })
 
 test('pickCountdownDisplayMission：scrub 到远窗后不传 hold → 选更近未来任务', () => {

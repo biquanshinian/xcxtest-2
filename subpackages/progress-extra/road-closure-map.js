@@ -4,6 +4,7 @@ const { ROAD_CLOSURE_SCENE } = require('./utils/map-scenes.js')
 const { resolveRoadClosureStatus } = require('../../utils/progress-road-closure.js')
 const { applyStarbaseI18n, translateMayorOrderBody } = require('./utils/starbase-i18n.js')
 const { getThemeClassSync, isLightSync, getPageBgSync } = require('../../utils/theme.js')
+const { SHARE_THUMB_FALLBACK } = require('../../utils/share-thumb.js')
 
 Page({
   data: {
@@ -183,6 +184,13 @@ Page({
       fallbackDetailText: '状态',
       path: '/subpackages/progress-extra/road-closure-map'
     })
+  },
+
+  onShareTimeline() {
+    return {
+      title: `${this.data.shareTitle || '封路地图'} · ${this.data.statusLabel || '状态'}`,
+      imageUrl: SHARE_THUMB_FALLBACK
+    }
   },
 
   /**

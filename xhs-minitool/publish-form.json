@@ -1,0 +1,8 @@
+{
+  "name": "火箭观礼助手",
+  "intro": "选发射场和火箭，生成观礼攻略、装备清单和倒计时卡片，还能发笔记。",
+  "version": "1.0.0",
+  "permissions": ["设备相册"],
+  "icon": "icon-512.png",
+  "zip": "rocket-watch-guide.zip"
+}

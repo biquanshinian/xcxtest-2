@@ -9,6 +9,7 @@ const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { fetchAgencyLaunchCards } = require('./utils/agency-launch-cards.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath } = require('./utils/share-gate.js')
+const { SHARE_THUMB_FALLBACK, bootPageShareThumb, pageShareImage } = require('../../utils/share-thumb.js')
 
 Page({
   behaviors: [pageBase],
@@ -18,6 +19,7 @@ Page({
     list: [],
     navTitle: '发射任务',
     typeLabel: '即将发射',
+    shareImage: SHARE_THUMB_FALLBACK,
     agencyName: '',
     isCompleted: false,
     scrollRefreshing: false
@@ -31,6 +33,7 @@ Page({
     const typeLabel = this._type === 'completed' ? '历史发射' : '即将发射'
 
     this.initUiShell()
+    bootPageShareThumb(this)
 
     // 分享卡片 24h 免门控窗口：过期后走 gateCheck（会员放行，非会员弹开通引导）
     const shareAllowed = await checkShareEntryGate(this, options, 'agency_encyclopedia', '全球发射商图鉴')
@@ -95,14 +98,16 @@ Page({
   onShareAppMessage() {
     return {
       title: `${this.data.navTitle} | 火星探索日志`,
-      path: this._sharePath()
+      path: this._sharePath(),
+      imageUrl: pageShareImage(this)
     }
   },
 
   onShareTimeline() {
     return {
       title: `${this.data.navTitle} | 火星探索日志`,
-      query: this._sharePath().split('?')[1] || ''
+      query: this._sharePath().split('?')[1] || '',
+      imageUrl: pageShareImage(this)
     }
   }
 })

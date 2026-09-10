@@ -53,7 +53,7 @@ const paintFn = (paintIdx >= 0 ? bootJs.slice(paintIdx, paintIdx + 1400) : '').r
 check(
   '快显同步源优先（命中不 await 异步 storage）',
   paintFn.indexOf('_resolveCountdownBootList') >= 0 &&
-    paintFn.indexOf('_resolveCountdownBootList') < paintFn.indexOf('await')
+    paintFn.indexOf('_hydrateCountdownBootFromStorage') > paintFn.indexOf('_resolveCountdownBootList')
 )
 check('引导快照跨天存活', /COUNTDOWN_BOOT_TTL_MS = 72/.test(bootJs))
 check('引导快照 storage 只读一次', /hydrateCountdownBootToApp\(\)\.then/.test(bootJs))

@@ -370,7 +370,8 @@
                     <text>{{ship.humanRated}}</text>
                   </view>
                 </view>
-                <text class="ship-agency" wx:if="{{ship.agencyName}}">{{ship.agencyName}}</text>
+                <text class="ship-agency ship-agency--link" wx:if="{{ship.agencyId}}" catchtap="onShipAgencyTap" data-id="{{ship.agencyId}}">{{ship.agencyName}}</text>
+                <text class="ship-agency" wx:elif="{{ship.agencyName}}">{{ship.agencyName}}</text>
                 <view class="ship-detail-grid">
                   <view class="ship-detail-row" wx:if="{{ship.dockingTime}}">
                     <text class="ship-detail-label">对接时间</text>
@@ -398,8 +399,8 @@
         <view class="section" wx:if="{{item.ownerAgencies && item.ownerAgencies.length}}">
           <text class="section-title">所属机构</text>
           <view class="agency-list">
-            <view class="agency-card agency-card--tappable" hover-class="card-pressed" wx:for="{{item.ownerAgencies}}" wx:for-item="agency" wx:key="id"
-                  data-id="{{agency.id}}" data-name="{{agency.name}}" data-abbrev="{{agency.abbrev}}" bindtap="onOwnerAgencyTap">
+            <view class="agency-card {{agency.id ? 'agency-card--tappable' : ''}}" hover-class="{{agency.id ? 'card-pressed' : 'none'}}" wx:for="{{item.ownerAgencies}}" wx:for-item="agency" wx:key="id"
+                  data-id="{{agency.id}}" bindtap="{{agency.id ? 'onOwnerAgencyTap' : ''}}">
               <view class="agency-card__top">
                 <text class="agency-card__name">{{agency.name}}</text>
                 <text class="agency-card__abbr" wx:if="{{agency.abbrev}}">{{agency.abbrev}}</text>

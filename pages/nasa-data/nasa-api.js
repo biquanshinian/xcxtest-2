@@ -96,9 +96,9 @@ function todayStr() {
 const AU_TO_KM = 149597870.7
 const MOON_DIST_AU = 0.00257
 
-/** 近地天体接近数据 */
+/** 近地天体接近数据：优先 Worker（境内可达、1h 边缘缓存），失败再直连 JPL */
 function getCloseApproach(options = {}) {
-  return simpleGet('https://ssd-api.jpl.nasa.gov/cad.api', {
+  const params = {
     'date-min': options.dateMin || 'now',
     'date-max': options.dateMax || '+60',
     'dist-max': options.distMax || '0.05',
@@ -106,7 +106,12 @@ function getCloseApproach(options = {}) {
     fullname: 'true',
     sort: options.sort || 'date',
     limit: options.limit || 50
-  })
+  }
+  const base = String(workerProxyUrl || 'https://api.marsx.com.cn').replace(/\/$/, '')
+  return simpleGet(base + '/nasa-cad', params, 12000, 1)
+    .catch(function () {
+      return simpleGet('https://ssd-api.jpl.nasa.gov/cad.api', params, 15000, 0)
+    })
 }
 
 /** 解析 CAD 返回的二维数组为对象数组 */

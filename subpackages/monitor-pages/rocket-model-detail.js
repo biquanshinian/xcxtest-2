@@ -9,7 +9,7 @@ const boosterDisplay = require('./utils/booster-display.js')
 const { buildLandingIcon, inferNetRecoveryFromLaunch } = require('../../utils/landing-icons.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
-const { openBoosterEntityDetail } = require('./utils/booster-nav.js')
+const { openBoosterEntityDetail, openRocketCompare, openRocketScore, openEncyclopediaAgency, pickAgencyId } = require('./utils/booster-nav.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
 const { togglePageTranslation } = require('./utils/text-translate.js')
 const { getRocketImage } = require('../../utils/util.js')
@@ -17,6 +17,12 @@ const { pickLocalized, isUsableZhText, takeDescI18nSeed } = require('../../utils
 const { translateRocketName } = require('../../utils/rocket-name-i18n.js')
 const { isFavorite, toggleFavorite, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
 const { loadCloudMediaMap } = require('../../utils/image-config.js')
+const {
+  isLocalSharePath,
+  pickRocketModelShareImageUrl,
+  pickRocketModelShareSourceForDownload,
+  rocketShareOptsFromModel
+} = require('./utils/rocket-model-share-image.js')
 const {
   alignDedicatedRocket3d,
   pickExhibitConfig,
@@ -59,6 +65,8 @@ Page({
     favAnimate: false,
     navTitle: '火箭型号详情',
     shareTitle: '火箭型号档案 | 火星探索日志',
+    shareImage: '',
+    shareGateExpireAt: 0,
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
     tabBarReservedHeight: 0,
@@ -76,6 +84,17 @@ Page({
     }
     configId = String(configId || '').trim()
     this._configId = configId
+    this._entryOptions = options || {}
+    var fromAgencyId = ''
+    if (options && options.agencyId) {
+      try { fromAgencyId = decodeURIComponent(String(options.agencyId)) } catch (e) { fromAgencyId = String(options.agencyId) }
+    }
+    this._fromAgencyId = String(fromAgencyId || '').trim()
+    var fromAgencyName = ''
+    if (options && options.agencyName) {
+      try { fromAgencyName = decodeURIComponent(String(options.agencyName)) } catch (e) { fromAgencyName = String(options.agencyName) }
+    }
+    this._fromAgencyName = String(fromAgencyName || '').trim()
     if (configId) syncFavoriteState(this, 'rocket_model', configId)
 
     // 分享卡片 24h 免门控窗口：过期后走 gateCheck（会员放行，非会员弹开通引导）
@@ -102,7 +121,7 @@ Page({
     this.setData({ loading: true, errorMessage: '' })
     try {
       var results = await Promise.all([
-        getRocketConfigMeta(),
+        getRocketConfigMeta({ afterGate: true }),
         getBoosterGenealogy(),
         loadCloudMediaMap().catch(function () {})
       ])
@@ -212,6 +231,14 @@ Page({
     var fullDict = translateRocketName(fullName) || ''
     var nameZh = pickLocalized(cfg.nameZh || '', '') || nameDict || (cfg.name || '')
     var fullNameZh = pickLocalized(cfg.full_nameZh || '', '') || fullDict || fullName
+    var mfrName = cfg.manufacturerName || ''
+    var mfrAbbrev = cfg.manufacturerAbbrev || ''
+    var mfrId = this._fromAgencyId || pickAgencyId(cfg.manufacturerId)
+    var heroCandidates = []
+    ;[cfg.cosImageUrl, cfg.thumbnail_url, cfg.image_url, getRocketImage(cfg.name || fullName)].forEach(function (u) {
+      var s = String(u || '').trim()
+      if (s && heroCandidates.indexOf(s) < 0) heroCandidates.push(s)
+    })
     var model = {
       configId: cfg.id,
       nameEn: cfg.name || '',
@@ -220,19 +247,20 @@ Page({
       fullName: fullNameZh,
       alias: cfg.alias || '',
       variant: cfg.variant || '',
-      manufacturer: cfg.manufacturerName || '',
-      manufacturerAbbrev: cfg.manufacturerAbbrev || '',
-      // 展示用中文名（与发射商详情页同源词典）；manufacturer 保留原文供跳转解析
-      manufacturerDisplay: boosterDisplay.mfrDisplayName(
-        cfg.manufacturerName || '',
-        cfg.manufacturerAbbrev || '',
+      manufacturer: mfrName,
+      manufacturerAbbrev: mfrAbbrev,
+      manufacturerId: mfrId,
+      manufacturerDisplay: this._fromAgencyName || boosterDisplay.mfrDisplayName(
+        mfrName,
+        mfrAbbrev,
         cfg.manufacturerNameZh || ''
       ),
       countryCode: countryCode,
       countryFlag: boosterDisplay.countryCodeToFlag(countryCode),
       reusable: cfg.reusable === true,
       // 构型无图时兜底 COS 火箭配置图库（与族谱列表卡兜底链一致；查图用英文原名）
-      imageUrl: cfg.cosImageUrl || cfg.image_url || cfg.thumbnail_url || getRocketImage(cfg.name || fullName) || '',
+      imageUrl: heroCandidates[0] || '',
+      imageFallbacks: heroCandidates.slice(1),
       imageCredit: cfg.imageCredit || '',
       // 默认英文原文；预翻译中文单独携带，首屏有 *Zh 则直接上中文
       description: cfg.description || '',
@@ -271,6 +299,7 @@ Page({
       isFavorited: !!(model.configId != null && isFavorite('rocket_model', model.configId)),
       favAnimate: false
     }, takeDescI18nSeed(this, { modelDesc: model.descriptionZh })))
+    this._syncShareImage(model)
   },
 
   onToggleFavorite() {
@@ -304,16 +333,35 @@ Page({
     })
   },
 
-  /** 点击发射商标签 → 会员门控 → 发射商详情页（优先缩写，回退名称） */
+  /** 底部悬浮 PK：带上当前型号，打开对比页（与任务详情同款） */
+  onTapRocketCompare() {
+    var model = this.data.model || {}
+    if (model.configId == null) return
+    try { wx.vibrateShort({ type: 'light' }) } catch (e) {}
+    return openRocketCompare(model.configId)
+  },
+
+  /** 底部悬浮档案指数：PK 右侧（任务详情已有，族谱列表不加） */
+  onTapRocketScore() {
+    var model = this.data.model || {}
+    if (model.configId == null) return
+    try { wx.vibrateShort({ type: 'light' }) } catch (e) {}
+    return openRocketScore(model.configId, {
+      name: model.fullName || model.name || '',
+      nameEn: model.fullNameEn || model.nameEn || ''
+    })
+  },
+
+  /** 点击发射商标签 → 会员门控 → 图鉴详情（只带 LL2 id） */
   async onTapManufacturer() {
     var model = this.data.model || {}
-    var abbrev = model.manufacturerAbbrev || ''
-    var name = model.manufacturer || ''
-    if (!abbrev && !name) return
+    var agencyId = this._fromAgencyId || model.manufacturerId
+    if (!agencyId) {
+      wx.showToast({ title: '暂无该发射商档案', icon: 'none' })
+      return
+    }
     try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
-    var allowed = await gateCheck('agency_encyclopedia', '全球发射商图鉴')
-    if (!allowed) return
-    navigateTo(ROUTES.AGENCY_DETAIL, abbrev ? { abbrev: abbrev } : { name: name })
+    return openEncyclopediaAgency({ agencyId: agencyId })
   },
 
   onHeroImageLoad() {
@@ -386,37 +434,83 @@ Page({
   },
 
   async onBoosterCardTap(e) {
-    var serial = e.currentTarget.dataset.serial
-    if (!serial) return
-    var raw = (this._rawBySerial && this._rawBySerial[serial]) || null
+    var ds = (e.currentTarget && e.currentTarget.dataset) || {}
+    var serial = ds.serial
+    var launcherId = ds.launcherId
     var card = (this.data.boosterCards || []).find(function (b) {
-      return b && String(b.serial) === String(serial)
+      return b && ((serial && String(b.serial) === String(serial)) ||
+        (launcherId && String(b.launcherId || '') === String(launcherId)))
     })
+    var raw = (serial && this._rawBySerial && this._rawBySerial[serial]) ||
+      (card && card.serial && this._rawBySerial && this._rawBySerial[card.serial]) || null
+    if (!serial && !launcherId && !(card && card.launcherId) && !(raw && raw.ll2Id)) return
     await openBoosterEntityDetail(serial, {
       raw: raw,
+      ll2Id: launcherId || (card && card.launcherId) || (raw && raw.ll2Id) || '',
       heroImage: (card && (card.thumbnailUrl || card.imageUrl)) || ''
     })
   },
 
-  onRetryLoad() {
+  async onRetryLoad() {
+    var shareAllowed = await checkShareEntryGate(this, this._entryOptions || {}, 'booster_genealogy', '全球可回收火箭族谱')
+    if (!shareAllowed) return
     if (this._configId) this.loadDetail(this._configId)
   },
 
+  _shareImageOpts(model) {
+    return rocketShareOptsFromModel(model || this.data.model)
+  },
+
+  _syncShareImage(model) {
+    var opts = this._shareImageOpts(model)
+    var url = pickRocketModelShareImageUrl(opts)
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    this.ensureShareImageHttpUrl(pickRocketModelShareSourceForDownload(opts))
+  },
+
+  ensureShareImageHttpUrl(imageUrl) {
+    if (!imageUrl || typeof imageUrl !== 'string') return
+    var trimmed = imageUrl.trim()
+    if (!trimmed) return
+    if (isLocalSharePath(trimmed)) {
+      if (this.data.shareImage !== trimmed) this.setData({ shareImage: trimmed })
+      return
+    }
+    if (this._shareImageSourceUrl === trimmed && this.data.shareImage && isLocalSharePath(this.data.shareImage)) {
+      return
+    }
+    this._shareImageSourceUrl = trimmed
+    var self = this
+    wx.getImageInfo({
+      src: trimmed,
+      success: function (res) {
+        if (res && res.path && self._shareImageSourceUrl === trimmed) {
+          self.setData({ shareImage: res.path })
+        }
+      },
+      fail: function () {
+        if (self._shareImageSourceUrl === trimmed) self._shareImageSourceUrl = ''
+      }
+    })
+  },
+
+  _buildShareImage() {
+    return this.data.shareImage || pickRocketModelShareImageUrl(this._shareImageOpts())
+  },
+
   onShareAppMessage() {
-    var model = this.data.model
     return {
       title: this.data.shareTitle,
       path: withShareStampPath('/subpackages/monitor-pages/rocket-model-detail?configId=' + encodeURIComponent(this._configId || ''), this),
-      imageUrl: model && model.imageUrl ? model.imageUrl : ''
+      imageUrl: this._buildShareImage()
     }
   },
 
   onShareTimeline() {
-    var model = this.data.model
     return {
       title: this.data.shareTitle,
       query: withShareStampQuery('configId=' + encodeURIComponent(this._configId || ''), this),
-      imageUrl: model && model.imageUrl ? model.imageUrl : ''
+      imageUrl: this._buildShareImage()
     }
   }
 })

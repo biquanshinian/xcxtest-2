@@ -121,7 +121,7 @@ function carouselVideoPosterUrl(videoUrl, thumbnailUrl) {
 
 /**
  * 批量优化媒体项中的所有 URL 字段
- * @param {Object} item - media_feed 数据项
+ * @param {Object} item - media_assets / shop_feed 数据项（旧名 media_feed 已废弃）
  * @param {string} imagePreset - 图片预设 'thumb' | 'medium' | 'full'
  */
 function optimizeMediaItem(item, imagePreset) {

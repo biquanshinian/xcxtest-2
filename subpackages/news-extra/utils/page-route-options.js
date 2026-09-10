@@ -109,7 +109,8 @@ function resolveMissionDetailRoute(rawOptions) {
   const detailType = opts.type === 'completed' ? 'completed' : 'upcoming'
   const id = opts.id ? String(opts.id).trim() : ''
   const fromSearch = String(opts.fromSearch || '') === '1'
-  return { detailType, id, fromSearch, options: opts }
+  const entryKey = opts.entryKey ? String(opts.entryKey).trim() : ''
+  return { detailType, id, fromSearch, entryKey, options: opts }
 }
 
 module.exports = {

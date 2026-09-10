@@ -7,7 +7,6 @@
 const pageBase = require('../../utils/page-base.js')
 const watchParty = require('./utils/api.js')
 const { getRocketImage } = require('../../utils/util.js')
-const rocketArtUtil = require('../../utils/rocket-config-art.js')
 const { guardWatchPartyPage } = require('../../utils/watch-party-feature.js')
 const { pickLocalized } = require('../../utils/locale.js')
 
@@ -152,7 +151,9 @@ Page({
 
   onShow() {
     if (typeof this.syncTheme === 'function') this.syncTheme()
-    rocketArtUtil.applyRocketConfigArtIfNeeded(this)
+    try {
+      require('../../utils/rocket-config-art.js').applyRocketConfigArtIfNeeded(this)
+    } catch (e) {}
   },
 
   refreshRocketConfigArt() {

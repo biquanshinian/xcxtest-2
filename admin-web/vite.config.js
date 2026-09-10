@@ -18,7 +18,8 @@ export default defineConfig({
     }
   },
   optimizeDeps: {
-    include: ['pdfjs-dist']
+    include: ['pdfjs-dist'],
+    exclude: ['heic-to']
   },
   server: {
     fs: { allow: ['..'] },

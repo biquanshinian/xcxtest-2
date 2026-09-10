@@ -194,7 +194,31 @@ section('10. 设计如此（白名单仍可落 Tab）')
   assert('进度 Tab 默认分享仍为本 Tab', /\/pages\/progress\/progress/.test(progress))
 }
 
-section('11. 语法可解析')
+section('11. 火箭对比 / 档案指数分享')
+{
+  const compare = read('subpackages/monitor-pages/rocket-compare.js')
+  const score = read('subpackages/monitor-pages/rocket-score.js')
+  const cShare = methodBody(compare, 'onShareAppMessage')
+  const cTl = methodBody(compare, 'onShareTimeline')
+  const sShare = methodBody(score, 'onShareAppMessage')
+  const sTl = methodBody(score, 'onShareTimeline')
+  const cOnLoad = methodBody(compare, 'onLoad')
+  const sOnLoad = methodBody(score, 'onLoad')
+  const cRetry = methodBody(compare, 'onRetryLoad')
+  const sRetry = methodBody(score, 'onRetryLoad')
+  assert('对比分享落 rocket-compare 本页', /rocket-compare/.test(cShare) && !/\/pages\/monitor\/monitor/.test(cShare))
+  assert('对比 Timeline 带 ids/sst', /_shareQuery/.test(cTl) && /withShareStampQuery/.test(cTl))
+  assert('对比加载中回落入页 ids', /_shareIds/.test(methodBody(compare, '_shareQuery')) && /resolveShareIds/.test(compare))
+  assert('对比 onLoad 走分享门控', /ensureCompareAccess/.test(cOnLoad) && /checkShareEntryGate/.test(compare))
+  assert('对比重试重跑分享门控', /ensureCompareAccess/.test(cRetry))
+  assert('指数分享落 rocket-score 本页', /rocket-score/.test(sShare) && !/\/pages\/monitor\/monitor/.test(sShare))
+  assert('指数分享带 configId 和名称', /configId=/.test(methodBody(score, '_shareQuery')) && /name=/.test(methodBody(score, '_shareQuery')))
+  assert('指数 Timeline 打 sst', /withShareStampQuery/.test(sTl))
+  assert('指数 onLoad 走分享门控', /ensureScoreAccess/.test(sOnLoad) && /checkShareEntryGate/.test(score))
+  assert('指数重试重跑分享门控', /ensureScoreAccess/.test(sRetry))
+}
+
+section('12. 语法可解析')
 {
   const acorn = require('acorn')
   const files = [
@@ -208,7 +232,9 @@ section('11. 语法可解析')
     'subpackages/monitor-pages/agency-detail.js',
     'subpackages/monitor-pages/booster-detail.js',
     'subpackages/monitor-pages/pass-map.js',
-    'subpackages/monitor-pages/vehicle-tracker/vehicle-tracker.js'
+    'subpackages/monitor-pages/vehicle-tracker/vehicle-tracker.js',
+    'subpackages/monitor-pages/rocket-compare.js',
+    'subpackages/monitor-pages/rocket-score.js'
   ]
   for (const f of files) {
     try {

@@ -1,0 +1,8 @@
+{
+  "name": "火箭体量尺",
+  "intro": "跟人楼飞机比多高",
+  "version": "1.0.0",
+  "permissions": ["相册照片与视频"],
+  "icon": "icon-512.png",
+  "zip": "rocket-scale.zip"
+}

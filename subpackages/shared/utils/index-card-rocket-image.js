@@ -32,6 +32,7 @@ function hydrateNetChangePayloadFromCard(payload, card) {
     rocketImage: card.rocketImage || card.image || base.rocketImage,
     image: card.rocketImage || card.image || base.image,
     rocketConfiguration: card.rocketConfiguration || base.rocketConfiguration || null,
+    rocketConfigId: card.rocketConfigId != null ? card.rocketConfigId : base.rocketConfigId,
     rocketName: card.rocketName || base.rocketName,
     rocketNameEn: nameEn || base.rocketNameEn,
     _langPack: card._langPack || base._langPack

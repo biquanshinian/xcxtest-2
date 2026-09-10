@@ -1,14 +1,14 @@
 /**
  * subpackages/index-extra/utils/index-splash.js
  * 首页开屏动画逻辑（从 pages/index/index.js 拆出）：
- * - 开屏配置：onLaunch 预拉（同分包 splash-prefetch.js）+ 本地缓存池，首页短等即可
+ * - 开屏配置：首页 onReady 后预拉（同分包 splash-prefetch.js）+ 本地缓存池
  * - 热启动：从后台回首页时对比云端 updatedAt，有更新则重播（切 Tab 不播）
  * - 弱网（none/2g/3g/weakNet）且无本地片：即刻跳过，不挡首页
  * - 展示 / 倒计时 / 跳过 / 关闭、媒体预下载
  * - 开屏视频对非会员开放（压缩预览片）；仅省流/紧急流量档时非 Pro 降级封面
  *
  * 主包 index.js 通过 require.async + attachTo 委托加载；
- * app.onLaunch 预下载 index-extra，首页 preloadRule 再兜底。
+ * 首屏 onReady 后 app.preloadHomeSubpackages 再拉 index-extra，WiFi 下 preloadRule 兜底。
  */
 const { isPlaybackAllowed } = require('../../../utils/feature-flags.js')
 const {
@@ -1855,6 +1855,7 @@ const methods = {
         splashVisible: false,
         splashFading: false,
         splashVideoReady: false,
+        splashConfig: null,
         splashNotice: null,
         splashMission: null,
         splashMissionCd: null

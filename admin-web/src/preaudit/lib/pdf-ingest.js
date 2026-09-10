@@ -4,6 +4,7 @@ import { applyParsed, applyProjectMeta, isPlaceholderName, ocrKindForItem, recog
 import { assignPages, isSparseText, pickSparseOcrPages } from './pdf-classify.js'
 import { isPdfFile, renderPdfFile } from './pdf.js'
 import { fileFromBlob, getMaterial, getProject, replaceFiles, saveMaterial } from './store.js'
+import { bytesLookLikeHeif, nameLooksImage } from './heif-sniff.js'
 
 const MONEY_KIND = { invoices: 'invoice', bid_notice: 'doc', compare_sheet: 'doc', contract: 'contract' }
 const MAX_CLASSIFY_OCR = 8
@@ -254,10 +255,19 @@ function pickMoneyPage(group, itemId) {
   return best
 }
 
-function isImageFile(file) {
+async function isImageFile(file) {
   if (!file) return false
-  if (file.type && file.type.startsWith('image/')) return true
-  return /\.(jpe?g|png|gif|webp|bmp)$/i.test(file.name || '')
+  if (nameLooksImage(file.name, file.type)) return true
+  if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '')) return false
+  if (!file.size || typeof file.slice !== 'function') return false
+  try {
+    const bytes = new Uint8Array(await file.slice(0, 32).arrayBuffer())
+    if (bytes[0] === 0xff && bytes[1] === 0xd8) return true
+    if (bytes[0] === 0x89 && bytes[1] === 0x50) return true
+    return bytesLookLikeHeif(bytes)
+  } catch {
+    return false
+  }
 }
 
 export async function expandUploads(fileList, onProgress) {
@@ -271,7 +281,7 @@ export async function expandUploads(fileList, onProgress) {
       pages.forEach((page) => out.push(fileFromBlob(page.blob, page.name)))
       continue
     }
-    if (isImageFile(file)) out.push(fileFromBlob(file, file.name))
+    if (await isImageFile(file)) out.push(fileFromBlob(file, file.name))
   }
   return out
 }

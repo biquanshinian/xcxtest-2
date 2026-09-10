@@ -1,64 +1,59 @@
 /**
- * SPACE_NOTICES_FEATURE — 发射通告条目列表（即将 / 历史分段）
+ * SPACE_NOTICES_FEATURE — 发射通告条目列表（只展示提前预警）
  */
 const pageBase = require('../../../utils/page-base.js')
 const { listSpaceNoticeEntries, syncSpaceNotices } = require('./utils/api-space-notices.js')
-const { decorateSpaceNoticeEntry } = require('./utils/notice-format.js')
 const { CHINESE_COLLECTION_KEY } = require('./utils/china-filter.js')
+const {
+  splitEntryCards,
+  applyConfigImages
+} = require('./utils/entry-cards.js')
 const { isSpaceNoticesEnabled, SPACE_NOTICES_PRODUCT_NAME } = require('../../../utils/space-notices-feature.js')
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
 const { gateCheck } = require('../../../utils/membership.js')
+const { getRocketConfigMeta } = require('../../../utils/api-app-services.js')
+const { cleanConfigId } = require('../../../utils/rocket-config-match.js')
+const { filterExpiredMissions } = require('../../../utils/index-page-helpers.js')
+const { openRocketModelDetail } = require('../utils/booster-nav.js')
 const {
   checkShareEntryGate,
   warmShareEntitlement,
   withShareStampPath,
   withShareStampQuery
 } = require('../utils/share-gate.js')
+const {
+  pickRocketModelShareImageUrl,
+  pickRocketModelShareSourceForDownload
+} = require('../utils/rocket-model-share-image.js')
+const { ensureShareImageOnPage, pageShareImage } = require('../../../utils/share-thumb.js')
 
 const GATE_PRODUCT_ID = 'space_notices'
 const GATE_PRODUCT_NAME = SPACE_NOTICES_PRODUCT_NAME
 
-function formatNet(net, windowStartMs) {
-  const raw = net || (windowStartMs ? new Date(windowStartMs).toISOString() : '')
-  if (!raw) return '时间待定'
+function peekHomeLaunchIndex() {
+  let upcoming = []
   try {
-    const d = new Date(raw)
-    if (Number.isNaN(d.getTime())) return String(raw)
-    const y = d.getFullYear()
-    const m = String(d.getMonth() + 1).padStart(2, '0')
-    const day = String(d.getDate()).padStart(2, '0')
-    return `${y}-${m}-${day}`
-  } catch (e) {
-    return String(raw)
-  }
-}
-
-function formatNetShort(net, windowStartMs) {
-  const raw = net || (windowStartMs ? new Date(windowStartMs).toISOString() : '')
-  if (!raw) return '时间待定'
-  try {
-    const d = new Date(raw)
-    if (Number.isNaN(d.getTime())) return '时间待定'
-    const m = String(d.getMonth() + 1).padStart(2, '0')
-    const day = String(d.getDate()).padStart(2, '0')
-    return m + '-' + day
-  } catch (e) {
-    return '时间待定'
-  }
-}
-
-function decorateEntry(e) {
-  const base = decorateSpaceNoticeEntry(e)
-  const metaBits = []
-  metaBits.push(formatNet(base.net, base.windowStartMs))
-  metaBits.push('通告 ' + (base.noticeCount || 0))
-  if (base.hasTrajectory) metaBits.push('含轨迹')
-  if (base.agencyDisplay) metaBits.push(base.agencyDisplay)
-  return Object.assign({}, base, {
-    netText: formatNet(base.net, base.windowStartMs),
-    dateShort: formatNetShort(base.net, base.windowStartMs),
-    metaText: metaBits.join(' · ')
-  })
+    const { peekCachedLaunchList } = require('../../../utils/api-request.js')
+    const { mapLaunchToListItem } = require('../../../utils/api-launch-list.js')
+    const up = peekCachedLaunchList(
+      '/launches/upcoming/',
+      {
+        format: 'json',
+        hide_recent_previous: true,
+        limit: 100,
+        mode: 'detailed',
+        offset: 0,
+        ordering: 'net'
+      },
+      true
+    )
+    if (up && Array.isArray(up.results) && up.results.length) {
+      upcoming = filterExpiredMissions(
+        up.results.map((launch, index) => mapLaunchToListItem(launch, index, 0, 'upcoming'))
+      )
+    }
+  } catch (e) { /* 无首页缓存时只靠发射时刻分类 */ }
+  return { upcoming, previous: [] }
 }
 
 Page({
@@ -69,9 +64,9 @@ Page({
     loading: true,
     errorText: '',
     upcoming: [],
-    past: [],
     totalCount: 0,
-    shareGateExpireAt: 0
+    shareGateExpireAt: 0,
+    shareImage: ''
   },
 
   async onLoad(options) {
@@ -106,74 +101,118 @@ Page({
     this.loadList()
   },
 
+  onShow() {
+    if (this._rawEntries && this._rawEntries.length) {
+      this._applyEntries(this._rawEntries)
+      this._upgradeRocketImages()
+    }
+  },
+
   async loadList() {
-    const keepList = !!(this.data.upcoming.length || this.data.past.length)
+    const keepList = !!(this.data.upcoming.length)
     this.setData({ loading: !keepList, errorText: '' })
     try {
-      const res = await listSpaceNoticeEntries(40)
+      const res = await listSpaceNoticeEntries({ limit: 40, upcomingOnly: true })
       this._refreshPreview()
       if (!res || !res.success) {
         this.setData({
           loading: false,
           errorText: (res && res.error) || '加载失败，请先部署云函数 spaceNotices'
         })
+        this._quietSync()
         return
       }
-      const rows = (res.results || []).map(decorateEntry)
-      const upcoming = rows
-        .filter((e) => !e.isPast && !e.isCollection && e.entryKey !== CHINESE_COLLECTION_KEY)
-        .map((e, i) => Object.assign({}, e, { badgeNo: i + 1 }))
-      const past = rows
-        .filter((e) => e.isPast && !e.isCollection && e.entryKey !== CHINESE_COLLECTION_KEY)
-        .map((e, i) => Object.assign({}, e, { badgeNo: i + 1 }))
-      this.setData({
-        loading: false,
-        upcoming,
-        past,
-        totalCount: rows.length
-      })
+      const rows = res.results || []
+      this._rawEntries = rows
+      this._applyEntries(rows)
+      this._upgradeRocketImages()
+      this._quietSync()
     } catch (e) {
       this.setData({
         loading: false,
         errorText: '加载失败：' + ((e && e.message) || '网络错误')
       })
+      this._quietSync()
     }
+  },
+
+  _applyEntries(rows) {
+    const home = peekHomeLaunchIndex()
+    const split = splitEntryCards(rows, {
+      upcomingLaunches: home.upcoming,
+      previousLaunches: home.previous,
+      now: Date.now()
+    })
+    this.setData({
+      loading: false,
+      upcoming: split.upcoming,
+      totalCount: split.upcoming.length
+    })
+    this._syncShareImage(split.upcoming[0])
+  },
+
+  async _upgradeRocketImages() {
+    const need = (this.data.upcoming || []).some((e) => e && !e.rocketImage)
+    if (!need) return
+    try {
+      const meta = await getRocketConfigMeta()
+      const configs = meta && meta.configs
+      if (!configs || !Object.keys(configs).length) return
+      const upcoming = applyConfigImages(this.data.upcoming, configs)
+      this.setData({ upcoming })
+      this._syncShareImage(upcoming[0])
+    } catch (e) { /* 目录未缓存时保持现图 */ }
+  },
+
+  onRocketImageError(e) {
+    const key = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.key
+    if (!key) return
+    const clear = (list) =>
+      (list || []).map((item) => (item && item.entryKey === key ? Object.assign({}, item, { rocketImage: '' }) : item))
+    this.setData({
+      upcoming: clear(this.data.upcoming)
+    })
   },
 
   retryLoad() {
+    this._autoSynced = false
     this.loadList()
   },
 
-  async onSync() {
-    wx.showLoading({ title: '同步中', mask: true })
+  async _quietSync() {
+    if (this._autoSynced) return
+    this._autoSynced = true
     try {
       const res = await syncSpaceNotices()
-      wx.hideLoading()
-      if (!res || !res.success) {
-        wx.showToast({ title: (res && res.error) || '同步失败', icon: 'none' })
-        return
-      }
-      if (res.throttled) {
-        wx.showToast({ title: '同步过于频繁，请稍后再试', icon: 'none' })
-        return
-      }
-      const processed = Number(res.entriesProcessed || 0)
-      const total = Number(res.entryTotal || 0)
-      const tip = total
-        ? `本轮 ${processed} 场 · 索引 ${total}（定时器会继续轮转）`
-        : `已处理 ${processed} 场`
-      wx.showToast({ title: tip, icon: 'none', duration: 2500 })
-      this.loadList()
-    } catch (e) {
-      wx.hideLoading()
-      wx.showToast({ title: '同步失败', icon: 'none' })
-    }
+      if (res && res.success && !res.throttled) this.loadList()
+    } catch (e) { /* 定时器会继续入库 */ }
   },
 
   openMap(e) {
     const key = e.currentTarget.dataset.key
     if (!key) return
     navigateTo(ROUTES.SPACE_NOTICE_MAP, { entryKey: key })
+  },
+
+  async onTapRocketName(e) {
+    if (this._rocketNavBusy) return
+    const ds = (e && e.currentTarget && e.currentTarget.dataset) || {}
+    const configId = cleanConfigId(ds.configId)
+    if (!configId) {
+      wx.showToast({ title: '暂无该型号档案', icon: 'none' })
+      return
+    }
+    try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
+    const allowed = await gateCheck('booster_genealogy', '全球可回收火箭族谱')
+    if (!allowed) return
+    this._rocketNavBusy = true
+    try {
+      await openRocketModelDetail(configId, { skipGate: true })
+    } catch (err) {
+      wx.showToast({ title: '暂无该型号档案', icon: 'none' })
+    } finally {
+      this._rocketNavBusy = false
+    }
   },
 
   openChinaMap() {
@@ -192,17 +231,30 @@ Page({
     return n ? `发射航警地图 · ${n} 场任务的危险区` : '发射航警地图 · 中国航警 / NOTAM'
   },
 
+  _syncShareImage(card) {
+    const opts = {
+      displayImage: card && card.rocketImage,
+      rawImage: card && card.rocketImage,
+      rocketName: card && (card.rocketNameEn || card.rocketName)
+    }
+    const url = pickRocketModelShareImageUrl(opts)
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    ensureShareImageOnPage(this, pickRocketModelShareSourceForDownload(opts))
+  },
+
   onShareAppMessage() {
     return {
       title: this._shareTitle(),
-      path: withShareStampPath(ROUTES.SPACE_NOTICE_LIST, this)
+      path: withShareStampPath(ROUTES.SPACE_NOTICE_LIST, this),
+      imageUrl: pageShareImage(this)
     }
   },
 
   onShareTimeline() {
     return {
       title: this._shareTitle(),
-      query: withShareStampQuery('', this)
+      query: withShareStampQuery('', this),
+      imageUrl: pageShareImage(this)
     }
   }
 })

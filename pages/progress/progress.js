@@ -32,6 +32,7 @@ const {
 } = require('../../utils/page-storage-boot.js')
 const storageCache = require('../../utils/storage-sync-cache.js')
 const { LIST_REVALIDATE_MS, takeForegroundResume, shouldRevalidate } = require('../../utils/foreground-resume.js')
+const { markTabOverlayReady, scheduleAfterTabOverlayReady } = require('../../utils/tab-overlay-ready.js')
 
 const PROGRESS_LAST_VIEWED_KEY = '_progress_last_viewed'
 
@@ -231,7 +232,10 @@ Page({
     try { warmProgressPageStorageSync() } catch (e) {}
   },
 
-  
+  onReady() {
+    markTabOverlayReady(this)
+  },
+
   _consumeAutoOpenStarshipIntent(options) {
     const app = getApp && getApp()
     const intent = app && app._progressAutoOpenStarship
@@ -289,9 +293,11 @@ Page({
         try { self.syncEventRelatedLaunchFavorites() } catch (eFav) {}
       }
       storageCache.persistAsync(PROGRESS_LAST_VIEWED_KEY, Date.now())
-      require.async('../../subpackages/shared/utils/popup-ad.js')
-        .then(({ tryShowPopupAd }) => tryShowPopupAd(2, self))
-        .catch(() => {})
+      scheduleAfterTabOverlayReady(self, () => {
+        require.async('../../subpackages/shared/utils/popup-ad.js')
+          .then(({ tryShowPopupAd }) => tryShowPopupAd(2, self))
+          .catch(() => {})
+      })
       self._applyBriefingProgressFilter()
       self._consumeAutoOpenStarshipIntent({})
       // 早报带筛选时 _applyBriefingProgressFilter 已经在打列表，不要再无筛选盖一层
@@ -402,6 +408,7 @@ Page({
     pageBgColor: '#000000',
     popupAdItem: null,
     popupAdVisible: false,
+    tabSubpkgUiReady: false,
     isProUser: false,
     pageDesc: 'SpaceX星舰Starship建造进度·马斯克火箭回收OpenClaw猎鹰9号航天太空追踪',
     statusBarHeight: 44,

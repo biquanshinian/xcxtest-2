@@ -14,6 +14,7 @@ var { proxiedImageUrl } = require('../../../utils/ll2-image.js')
 var { pickLocalized } = require('../../../utils/locale.js')
 var { translateRocketName } = require('../../../utils/rocket-name-i18n.js')
 var { resolveAgencyDisplayZh } = require('../../../utils/launch-card-i18n.js')
+var { pickAgencyId } = require('./booster-nav.js')
 var { SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL } = require('../../../utils/agency-logo-overrides.js')
 var { resolveAgencyLogoForDisplay } = require('../../../utils/agency-logo-cache.js')
 var gallerySearch = require('./gallery-search.js')
@@ -146,14 +147,19 @@ function countryCodeToFlag(cc) {
 }
 
 /**
- * 从 _config_meta 取构型图：优先 configId 精确匹配，缺失时按 rocketFamily 名称匹配
+ * 从 _config_meta 取构型图：有 configId 只认 id；没有 id 才按 rocketFamily 名称兜底。
  * 返回 '' 表示构型侧也无图
  */
 function configImageOf(configId, rocketFamily, configsMap) {
   var map = configsMap || {}
   var cfg = null
-  if (configId != null) cfg = map[String(configId)] || map[configId] || null
-  if (!cfg && rocketFamily) {
+  var hasId = configId != null && String(configId).trim() !== '' &&
+    String(configId).trim() !== 'undefined' && String(configId).trim() !== 'null'
+  if (hasId) {
+    cfg = map[String(configId)] || map[configId] || null
+    return cfg ? (cfg.cosImageUrl || cfg.thumbnail_url || cfg.image_url || '') : ''
+  }
+  if (rocketFamily) {
     var famLower = String(rocketFamily).toLowerCase()
     for (var key in map) {
       if (!Object.prototype.hasOwnProperty.call(map, key)) continue
@@ -209,15 +215,20 @@ function processBoosterItem(item, configsMap, options) {
   var familyCloud = item.rocketFamilyZh || (cfg && (cfg.full_nameZh || cfg.nameZh)) || ''
   var familyDict = translateRocketName(familyEn) || ''
   var familyZh = pickLocalized(familyCloud, '') || familyDict || familyEn
+  var mfrAbbrev = (cfg && cfg.manufacturerAbbrev) || item.manufacturerAbbrev || ''
+  var mfrName = (cfg && cfg.manufacturerName) || mfrEn
+  var mfrId = pickAgencyId((cfg && cfg.manufacturerId) || item.manufacturerId)
   var mfrZh = mfrDisplayName(
-    mfrEn,
-    (cfg && cfg.manufacturerAbbrev) || '',
+    mfrName,
+    mfrAbbrev,
     item.manufacturerZh || (cfg && cfg.manufacturerNameZh) || ''
   )
   var status = normalizeBoosterStatus(item.status)
   var reusable = cfg ? cfg.reusable === true : item.reusable !== false
   var cfgImage = configImageOf(item.configId, familyEn, configsMap)
-  var cosImage = cosRocketImageOf(familyEn)
+  var cosImage = item.configId != null && String(item.configId).trim() !== ''
+    ? ''
+    : cosRocketImageOf(familyEn)
   // 多级兜底链（binderror 逐级切换）：COS 镜像 → 代理缩略/原图 → LL2 缩略/原图 → 构型图 → COS 配置图库
   // LL2 缩略图会被官方重新生成导致旧链接 404，原图往往仍有效，必须纳入链条；
   // DigitalOcean 图床国内直连易失败，代理 URL 优先于原链
@@ -240,11 +251,14 @@ function processBoosterItem(item, configsMap, options) {
     statusText: STATUS_TEXT_MAP[status] || '未知',
     rocketFamilyEn: familyEn,
     rocketFamily: familyZh,
-    manufacturer: mfrEn,
+    manufacturer: mfrName,
     manufacturerZh: mfrZh,
     manufacturerDisplay: mfrZh,
-    manufacturerLogoUrl: mfrLogoUrl(mfrEn),
+    manufacturerAbbrev: mfrAbbrev,
+    manufacturerId: mfrId,
+    manufacturerLogoUrl: mfrLogoUrl(mfrName, mfrAbbrev),
     configId: item.configId != null ? item.configId : null,
+    launcherId: item.ll2Id != null ? String(item.ll2Id) : '',
     countryCode: countryCode,
     countryFlag: countryCodeToFlag(countryCode),
     reusable: reusable,
@@ -421,7 +435,9 @@ function buildModelCards(configsMap) {
     var nameEn = c.name || ''
     var fullEn = c.full_name || c.name || ''
     var mfrEn = c.manufacturerName || ''
-    var mfrZh = mfrDisplayName(mfrEn, c.manufacturerAbbrev || '', c.manufacturerNameZh || '') || mfrEn
+    var mfrAbbrev = c.manufacturerAbbrev || ''
+    var mfrId = pickAgencyId(c.manufacturerId)
+    var mfrZh = mfrDisplayName(mfrEn, mfrAbbrev, c.manufacturerNameZh || '') || mfrEn
     var nameDict = translateRocketName(nameEn) || ''
     var fullDict = translateRocketName(fullEn) || ''
     var nameZh = pickLocalized(c.nameZh || '', '') || nameDict || nameEn
@@ -445,12 +461,12 @@ function buildModelCards(configsMap) {
       fullName: fullZh,
       alias: c.alias || '',
       variant: c.variant || '',
-      // manufacturer 保留英文，供 mfr: 筛选；展示用 manufacturerDisplay
       manufacturer: mfrEn,
       manufacturerZh: mfrZh,
       manufacturerDisplay: mfrZh,
-      manufacturerAbbrev: c.manufacturerAbbrev || '',
-      manufacturerLogoUrl: mfrLogoUrl(mfrEn, c.manufacturerAbbrev || ''),
+      manufacturerAbbrev: mfrAbbrev,
+      manufacturerId: mfrId,
+      manufacturerLogoUrl: mfrLogoUrl(mfrEn, mfrAbbrev),
       countryCode: countryCode,
       countryFlag: countryCodeToFlag(countryCode),
       reusable: reusable,

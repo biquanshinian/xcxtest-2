@@ -29,21 +29,29 @@ function check(name, ok, detail) {
   }
 }
 
-// ── 1. 四份 text-translate 副本必须逐字节一致 ────────────────────
+// ── 1. 全量正本逐字节一致；其余分包只保留 require.async 薄壳 ────
 console.log('\n== 副本一致性 ==')
-const TT_COPIES = [
-  'pages/mission-detail/utils/text-translate.js',
-  'subpackages/news-extra/utils/text-translate.js',
-  'subpackages/monitor-pages/utils/text-translate.js',
+const TT_FULL = [
+  'subpackages/shared/utils/text-translate.js',
   'subpackages/progress-extra/utils/text-translate.js'
 ]
-const canonical = read(TT_COPIES[0])
-for (let i = 1; i < TT_COPIES.length; i++) {
-  check('副本一致 ' + TT_COPIES[i], read(TT_COPIES[i]) === canonical)
+const TT_SHELLS = [
+  ['pages/mission-detail/utils/text-translate.js', '../../../subpackages/shared/utils/text-translate.js'],
+  ['subpackages/news-extra/utils/text-translate.js', '../../shared/utils/text-translate.js'],
+  ['subpackages/monitor-pages/utils/text-translate.js', '../../shared/utils/text-translate.js']
+]
+const canonical = read(TT_FULL[0]).replace(/\r\n/g, '\n')
+for (let i = 1; i < TT_FULL.length; i++) {
+  check('全量正本一致 ' + TT_FULL[i], read(TT_FULL[i]).replace(/\r\n/g, '\n') === canonical)
 }
-// 四份副本都在 <root>/<pkg>/utils/ 这一层，membership / aiService 的相对路径才成立
-for (const rel of TT_COPIES) {
-  check('副本层级正确 ' + rel, rel.split('/').length === 4)
+for (const rel of TT_FULL) {
+  check('全量正本含混元主通道 ' + rel, /默认主通道/.test(read(rel)) && /function loadTranslateAiService\(/.test(read(rel)))
+  check('全量正本层级正确 ' + rel, rel.split('/').length === 4)
+}
+for (const [rel, spec] of TT_SHELLS) {
+  const src = read(rel)
+  check('薄壳走 async ' + rel, /require\.async\(/.test(src) && src.includes(spec))
+  check('薄壳不是全量副本 ' + rel, !/function loadTranslateAiService\(/.test(src))
 }
 
 // ── 2. 用到 AI 的云函数必须声明支持 cloud.ai() 的 SDK ───────────
@@ -187,7 +195,7 @@ require.cache[mockMemberPath] = {
   exports: { gateCheck: () => Promise.resolve(true) }
 }
 
-const tt = require(path.join(ROOT, TT_COPIES[0]))
+const tt = require(path.join(ROOT, TT_FULL[0]))
 
 async function runtime() {
   // 专名密集的新闻标题：译文保留 SpaceX / Falcon 9 不该被判成「没翻译」

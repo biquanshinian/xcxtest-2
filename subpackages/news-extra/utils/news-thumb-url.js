@@ -7,6 +7,7 @@
  */
 const { optimizeImageUrl, isImageUrl } = require('../../../utils/cos-url.js')
 const { getSystemInfo } = require('../../../utils/system.js')
+const { buildLl2ImageChain } = require('../../../utils/ll2-image.js')
 
 const COS_ORIGIN_PATTERN = /^https?:\/\/mars-1397421562\.cos\.ap-guangzhou\.myqcloud\.com\//
 const WP_PHOTON_HOST = /^i\d+\.wp\.com$|^c\d+\.wp\.com$|^s\d+\.wp\.com$/i
@@ -137,8 +138,37 @@ function optimizeNewsHeroUrl(url) {
   return toWpPhotonUrl(s, targetW)
 }
 
+/**
+ * 列表卡配图：缩略优化后再走与详情页同一条 Worker 代理链。
+ * 外链直连 / Photon 在微信里经常裂成灰底，详情却能出图。
+ */
+function resolveNewsListCardImage(url, displayWidthPx) {
+  const raw = String(url || '').trim()
+  if (!raw) return { cardImage: '', imageFallbacks: [] }
+  if (!/^https?:\/\//i.test(raw)) {
+    return { cardImage: raw, imageFallbacks: [] }
+  }
+  const optimized = optimizeNewsThumbUrl(raw, displayWidthPx)
+  const chain = buildLl2ImageChain(optimized, raw)
+  return {
+    cardImage: chain[0] || raw,
+    imageFallbacks: chain.slice(1)
+  }
+}
+
+/** 详情头图候选：Photon 优化 + Worker 代理 → 原链 */
+function buildNewsHeroCandidates(rawUrl) {
+  const raw = String(rawUrl || '').trim()
+  if (!raw) return []
+  if (!/^https?:\/\//i.test(raw)) return [raw]
+  const photon = optimizeNewsHeroUrl(raw)
+  return buildLl2ImageChain(photon, raw)
+}
+
 module.exports = {
   getNewsListThumbTargetWidthPx,
   optimizeNewsThumbUrl,
-  optimizeNewsHeroUrl
+  optimizeNewsHeroUrl,
+  resolveNewsListCardImage,
+  buildNewsHeroCandidates
 }

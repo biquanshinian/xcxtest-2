@@ -325,6 +325,7 @@ const PHRASE_RULES = [
   [/\bre-?entry\b/gi, '再入'],
   [/\bfairing\b/gi, '整流罩'],
   [/Starlink\s+Group\s+/gi, '星链组 '],
+  [/\bYaogan\b/gi, '遥感'],
   [/\bUnknown\s+Payloads?\b/gi, '未知有效载荷'],
   [/\bpayloads?\b/gi, '有效载荷'],
   [/\bbooster\b/gi, '助推器'],

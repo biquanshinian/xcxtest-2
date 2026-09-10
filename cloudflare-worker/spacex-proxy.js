@@ -193,17 +193,31 @@ export default {
         if (!imgUrl) {
           return new Response(JSON.stringify({ code: 400, message: 'Missing url param' }), { status: 400, headers: corsHeaders })
         }
-        const resp = await fetch(imgUrl, {
-          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SpaceXProxy/1.0)' }
-        })
-        if (!resp.ok) {
-          return new Response(JSON.stringify({ code: resp.status, message: 'Upstream error' }), { status: 502, headers: corsHeaders })
+        if (!/^https?:\/\//i.test(imgUrl)) {
+          return new Response(JSON.stringify({ code: 400, message: 'Invalid url' }), { status: 400, headers: corsHeaders })
         }
-        const imgHeaders = new Headers()
-        imgHeaders.set('Content-Type', resp.headers.get('Content-Type') || 'image/jpeg')
-        imgHeaders.set('Access-Control-Allow-Origin', '*')
-        imgHeaders.set('Cache-Control', 'public, max-age=86400')
-        return new Response(resp.body, { headers: imgHeaders })
+        const cache = caches.default
+        const cacheKey = new Request(url.origin + '/image?url=' + encodeURIComponent(imgUrl), { method: 'GET' })
+        const cached = await cache.match(cacheKey)
+        if (cached) return cached
+        try {
+          const resp = await fetch(imgUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SpaceXProxy/1.0)' },
+            signal: AbortSignal.timeout(20000)
+          })
+          if (!resp.ok) {
+            return new Response(JSON.stringify({ code: resp.status, message: 'Upstream error' }), { status: 502, headers: corsHeaders })
+          }
+          const imgHeaders = new Headers()
+          imgHeaders.set('Content-Type', resp.headers.get('Content-Type') || 'image/jpeg')
+          imgHeaders.set('Access-Control-Allow-Origin', '*')
+          imgHeaders.set('Cache-Control', 'public, max-age=86400')
+          const out = new Response(resp.body, { headers: imgHeaders })
+          try { await cache.put(cacheKey, out.clone()) } catch (e) {}
+          return out
+        } catch (e) {
+          return new Response(JSON.stringify({ code: 502, message: 'Image fetch failed' }), { status: 502, headers: corsHeaders })
+        }
       }
 
       if (url.pathname === '/translate') {
@@ -235,7 +249,7 @@ export default {
         const result = new Response(JSON.stringify({ code: 0, translated }), {
           headers: { ...corsHeaders, 'Cache-Control': 'public, max-age=86400' }
         })
-        await cache.put(cacheKey, result.clone())
+        try { await cache.put(cacheKey, result.clone()) } catch (e) {}
         return result
       }
 
@@ -771,7 +785,7 @@ export default {
           })
           // KV 兜底
           if (KV) await KV.put('artemis-telemetry-last', JSON.stringify(snapshot), { expirationTtl: 300 }).catch(() => {})
-          await cache.put(cacheKey, resp.clone())
+          try { await cache.put(cacheKey, resp.clone()) } catch (e) {}
           return resp
         } catch (e) {
           // KV 兜底
@@ -828,8 +842,7 @@ export default {
           const resp = new Response(body, { status: res.status, headers: outHeaders })
           // 写入 KV 兜底（保留 10 分钟）
           if (KV) await KV.put('artemis-horizons-last', body, { expirationTtl: 600 }).catch(() => {})
-          // 写入边缘缓存
-          await cache.put(cacheKey, resp.clone())
+          try { await cache.put(cacheKey, resp.clone()) } catch (e) {}
           return resp
         } catch (e) {
           // JPL 超时/失败：尝试 KV 兜底返回上一次成功的数据
@@ -872,7 +885,7 @@ export default {
           const resp = new Response(body, {
             headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=21600' }
           })
-          await cache.put(cacheKey, resp.clone())
+          try { await cache.put(cacheKey, resp.clone()) } catch (e) {}
           return resp
         } catch (e) {
           // 上游失败：尝试 KV 兜底
@@ -931,7 +944,7 @@ export default {
           })
           // 始终更新缓存（用不带参数的 key，这样普通请求也能命中新缓存）
           const cleanCacheKey = new Request(url.origin + url.pathname, request)
-          await cache.put(cleanCacheKey, resp.clone())
+          try { await cache.put(cleanCacheKey, resp.clone()) } catch (e) {}
           return resp
         } catch (e) {
           // 上游失败：尝试 KV 兜底
@@ -987,7 +1000,7 @@ export default {
           const resp = new Response(body, {
             headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=21600' }
           })
-          await cache.put(cacheKey, resp.clone())
+          try { await cache.put(cacheKey, resp.clone()) } catch (e) {}
           return resp
         } catch (e) {
           // KV 兜底
@@ -1039,7 +1052,7 @@ export default {
           const resp = new Response(body, {
             headers: { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=30' }
           })
-          await cache.put(cacheKey, resp.clone())
+          try { await cache.put(cacheKey, resp.clone()) } catch (e) {}
           return resp
         } catch (e) {
           if (KV) {
@@ -1129,7 +1142,7 @@ export default {
           }
         })
         if (resp.ok) {
-          await cache.put(cacheKey, result.clone())
+          try { await cache.put(cacheKey, result.clone()) } catch (e) {}
         }
         return result
       }
@@ -1167,9 +1180,52 @@ export default {
           }
         })
         if (resp.ok) {
-          await cache.put(cacheKey, result.clone())
+          try { await cache.put(cacheKey, result.clone()) } catch (e) {}
         }
         return result
+      }
+
+      /**
+       * JPL CAD 近地天体：小程序境内直连 ssd-api.jpl.nasa.gov 失败率高。
+       * 边缘缓存 1 小时；只转发白名单 query。
+       */
+      if (url.pathname === '/nasa-cad' || url.pathname === '/nasa-cad/') {
+        const cache = caches.default
+        const cacheKey = new Request(url.toString(), { method: 'GET' })
+        const cached = await cache.match(cacheKey)
+        if (cached) return cached
+        const target = new URL('https://ssd-api.jpl.nasa.gov/cad.api')
+        const allow = ['date-min', 'date-max', 'dist-max', 'diameter', 'fullname', 'sort', 'limit']
+        for (const k of allow) {
+          const v = url.searchParams.get(k)
+          if (v != null && v !== '') target.searchParams.set(k, v)
+        }
+        try {
+          const resp = await fetch(target.toString(), {
+            headers: {
+              Accept: 'application/json',
+              'User-Agent': 'Mozilla/5.0 (compatible; SpaceXProxy/1.0; NasaCad)'
+            },
+            signal: AbortSignal.timeout(15000)
+          })
+          const body = await resp.text()
+          const out = new Response(body, {
+            status: resp.status,
+            headers: {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Access-Control-Allow-Origin': '*',
+              'Cache-Control': 'public, max-age=3600'
+            }
+          })
+          if (resp.ok) {
+            try { await cache.put(cacheKey, out.clone()) } catch (e) {}
+          }
+          return out
+        } catch (e) {
+          return new Response(JSON.stringify({ code: 502, message: 'CAD upstream error', detail: e.message }), {
+            status: 502, headers: corsHeaders
+          })
+        }
       }
 
       if (url.pathname === '/nasa-apod') {

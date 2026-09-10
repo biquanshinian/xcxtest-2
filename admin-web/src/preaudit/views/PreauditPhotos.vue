@@ -6,12 +6,29 @@
       <div class="pa-card">
         <div class="pa-row pa-detail-head">
           <p class="pa-title pa-grow">施工现场</p>
+          <el-button
+            size="small"
+            text
+            type="danger"
+            :disabled="!workPhotoCount || !!clearing"
+            :loading="clearing === 'work'"
+            @click="clearAllWork"
+          >清空全部</el-button>
           <el-button size="small" text @click="openOrgSwitch">换类型</el-button>
           <span class="pa-tag" :class="canExportWork ? 'ok' : 'warn'">{{ canExportWork ? '可出表' : '还差照片' }}</span>
         </div>
+        <p class="pa-sub">施工前、中、后的照片可互相拖动换位置。OPPO 高效格式会自动转成 JPG。</p>
         <div v-for="stage in workStages" :key="stage.id" class="pa-stage">
           <div class="pa-row">
             <p class="pa-stage-title pa-grow">{{ stage.title }}</p>
+            <el-button
+              size="small"
+              text
+              type="danger"
+              :disabled="!stage.files.length || !!clearing"
+              :loading="clearing === stage.id"
+              @click="clearSlot(stage.id, stage.title)"
+            >清空</el-button>
             <span class="pa-count">{{ stageCountText(stage.files) }}</span>
             <span class="pa-tag" :class="stage.ready ? 'ok' : 'warn'">{{ stage.ready ? '已齐' : '至少 1 张' }}</span>
           </div>
@@ -21,6 +38,7 @@
             :label-of="storeLabel"
             :class-of="thumbClass"
             :index-prefix="stage.prefix"
+            group="pa-work-photos"
             caption-placeholder="工程名称"
             @mark="mark(stage.id)"
             @dragenter="onDragEnter($event, stage.id)"
@@ -41,6 +59,14 @@
       <div class="pa-card" style="margin-top: 12px;" v-if="accept">
         <div class="pa-row">
           <p class="pa-title pa-grow">现场验收</p>
+          <el-button
+            size="small"
+            text
+            type="danger"
+            :disabled="!accept.files.length || !!clearing"
+            :loading="clearing === accept.id"
+            @click="clearSlot(accept.id, '现场验收')"
+          >清空</el-button>
           <span class="pa-count">{{ stageCountText(accept.files, ACCEPT_PHOTOS_PER_PAGE) }}</span>
           <span class="pa-tag" :class="accept.ready ? 'ok' : 'warn'">{{ accept.ready ? '可出表' : '至少 1 张' }}</span>
         </div>
@@ -119,7 +145,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { photoStoreLabel } from '../lib/photo-cloud.js'
-import { addFiles, getMaterial, getProject, hydrateProject, persistPendingPhotos, removeFile, reorderFiles, rotateStoredFile, saveMaterial, updateFileMeta } from '../lib/store.js'
+import { addFiles, clearFiles, clearFileSlots, getMaterial, getProject, hydrateProject, persistPendingPhotos, removeFile, reorderFiles, rotateStoredFile, saveMaterial, updateFileMeta } from '../lib/store.js'
 import { expandUploads } from '../lib/pdf-ingest.js'
 import { filesFromInput } from '../lib/upload.js'
 import { usePhotoZone } from '../lib/use-photo-zone.js'
@@ -132,6 +158,7 @@ import { getOrgType } from '../lib/checklist.js'
 import { useOrgSwitch } from '../lib/use-org-switch.js'
 import OrgSwitchDialog from '../components/OrgSwitchDialog.vue'
 import { typingInField } from '../lib/util.js'
+import { nameLooksHeif } from '../lib/heif-sniff.js'
 import '../preaudit.css'
 
 const WORK = [
@@ -142,6 +169,7 @@ const WORK = [
 
 const route = useRoute()
 const working = ref(false)
+const clearing = ref('')
 const loading = ref(true)
 const project = computed(() => getProject(route.params.id))
 const { orgSwitchOpen, openOrgSwitch, closeOrgSwitch, pickOrg } = useOrgSwitch(() => project.value)
@@ -172,6 +200,7 @@ function stageCountText(files, perPage) {
 }
 
 const workStages = computed(() => WORK.map(stageOf))
+const workPhotoCount = computed(() => workStages.value.reduce((n, s) => n + ((s.files && s.files.length) || 0), 0))
 const isTownship = computed(() => getOrgType(project.value) === 'township')
 const isSmall = computed(() => getOrgType(project.value) === 'small')
 const accept = computed(() => isSmall.value ? null : stageOf({ id: 'photo_accept', title: '现场验收', color: '#c4841a' }))
@@ -245,6 +274,9 @@ const ingest = async (list, key) => {
       ElMessage.warning('没有可用的图片或 PDF')
       return
     }
+    if (picked.some((file) => nameLooksHeif(file.name, file.type))) {
+      ElMessage.info('正在把手机高效格式转成 JPG…')
+    }
     await addFiles(project.value.id, target, picked)
     const failed = (getMaterial(project.value, target).files || []).find((f) => f && f.storeError)
     if (failed) ElMessage.error(failed.storeError)
@@ -315,6 +347,50 @@ const remove = async (key, file) => {
   } catch (e) {
     if (e === 'cancel' || (e && e === 'close')) return
     if (e && e.message) ElMessage.error(e.message)
+  }
+}
+
+const isCancel = (e) => e === 'cancel' || e === 'close'
+
+const clearSlot = async (key, title) => {
+  const files = liveFiles(key)
+  if (!files.length || !project.value || clearing.value) return
+  try {
+    await ElMessageBox.confirm(
+      '会从云端永久删掉「' + title + '」的 ' + files.length + ' 张照片，确定？',
+      '清空照片',
+      { type: 'warning', confirmButtonText: '清空', cancelButtonText: '取消' }
+    )
+    clearing.value = key
+    await clearFiles(project.value.id, key)
+    if (previewSlot.value === key) closePreview()
+    ElMessage.success('已清空')
+  } catch (e) {
+    if (isCancel(e)) return
+    if (e && e.message) ElMessage.error(e.message)
+  } finally {
+    clearing.value = ''
+  }
+}
+
+const clearAllWork = async () => {
+  const n = workPhotoCount.value
+  if (!n || !project.value || clearing.value) return
+  try {
+    await ElMessageBox.confirm(
+      '会从云端永久删掉施工前/中/后一共 ' + n + ' 张照片，确定？',
+      '清空全部施工照片',
+      { type: 'warning', confirmButtonText: '清空全部', cancelButtonText: '取消' }
+    )
+    clearing.value = 'work'
+    await clearFileSlots(project.value.id, WORK.map((s) => s.id))
+    if (WORK.some((s) => s.id === previewSlot.value)) closePreview()
+    ElMessage.success('已清空施工照片')
+  } catch (e) {
+    if (isCancel(e)) return
+    if (e && e.message) ElMessage.error(e.message)
+  } finally {
+    clearing.value = ''
   }
 }
 

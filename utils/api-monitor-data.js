@@ -231,7 +231,9 @@ async function getStationStatus() {
       dockingDate: e.docking || '',
       dockingTime: dockingTimeStr,
       agencyName,
-      agencyAbbrev
+      agencyNameEn,
+      agencyAbbrev,
+      agencyId: agency && agency.id != null ? String(agency.id) : ''
     }
   }
 

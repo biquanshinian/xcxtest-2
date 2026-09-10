@@ -1,5 +1,5 @@
 /**
- * 开屏冷启动预拉（index-extra，onLaunch 经 require.async 启动）：
+ * 开屏预拉（index-extra，首页 onReady 后经 require.async 启动）：
  * - 探测弱网（none/2g/3g/weakNet）→ 无本地片则标记 skip，首页即刻不展示
  * - 异步读本地缓存池 + 拉 starship_splash_config（不挡首帧）
  * - 不在 onLaunch 里 downloadFile / 云函数 / 同步 storage，预览片改由首页展示时再拉

@@ -2,13 +2,13 @@
 @import "./styles/fav-btn.wxss";
 
 page {
-  background: #0B0C0E;
-  color: #fff;
+  background: var(--color-bg-page);
 }
 
 .container {
   min-height: 100vh;
   background: var(--color-bg-page);
+  color: var(--color-text-primary);
 }
 
 
@@ -136,7 +136,7 @@ page {
   min-width: 0;
   font-size: 48rpx;
   font-weight: 800;
-  color: #fff;
+  color: var(--color-text-primary);
   line-height: 1.2;
 }
 .info-tags {
@@ -203,11 +203,11 @@ page {
 .desc-title {
   font-size: 28rpx;
   font-weight: 600;
-  color: #fff;
+  color: var(--color-text-primary);
 }
 .desc-text {
   font-size: 26rpx;
-  color: rgba(255, 255, 255, 0.65);
+  color: var(--color-text-secondary);
   line-height: 1.6;
 }
 
@@ -229,12 +229,12 @@ page {
 .stats-card-value {
   font-size: 44rpx;
   font-weight: 800;
-  color: #fff;
+  color: var(--color-text-primary);
   font-variant-numeric: tabular-nums;
 }
 .stats-card-label {
   font-size: 22rpx;
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--color-text-tertiary);
   margin-top: 6rpx;
 }
 
@@ -248,7 +248,7 @@ page {
 .section-label {
   font-size: 28rpx;
   font-weight: 600;
-  color: #fff;
+  color: var(--color-text-primary);
   display: block;
   margin-bottom: 16rpx;
 }
@@ -268,12 +268,12 @@ page {
 .landing-value {
   font-size: 36rpx;
   font-weight: 700;
-  color: #fff;
+  color: var(--color-text-primary);
   font-variant-numeric: tabular-nums;
 }
 .landing-label {
   font-size: 20rpx;
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--color-text-tertiary);
   margin-top: 4rpx;
 }
 
@@ -349,12 +349,12 @@ page {
 }
 .timeline-label {
   font-size: 20rpx;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--color-text-tertiary);
 }
 .timeline-value {
   font-size: 28rpx;
   font-weight: 600;
-  color: #fff;
+  color: var(--color-text-primary);
   line-height: 1.35;
   font-variant-numeric: tabular-nums;
   word-break: break-word;
@@ -495,14 +495,14 @@ page {
 .history-mission {
   font-size: 24rpx;
   font-weight: 500;
-  color: #fff;
+  color: var(--color-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .history-date {
   font-size: 20rpx;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--color-text-tertiary);
   margin-top: 2rpx;
 }
 .history-result {
@@ -528,6 +528,9 @@ page {
 /* ========== 明亮主题（theme-light）覆盖 ========== */
 .container.theme-light {
   background: var(--color-bg-page);
+}
+.theme-light .glass-card {
+  background: var(--color-bg-card);
 }
 .theme-light .loading-text {
   color: var(--color-text-tertiary);

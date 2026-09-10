@@ -10,6 +10,7 @@ const {
   withShareStampPath,
   withShareStampQuery
 } = require('./utils/share-gate.js')
+const { SHARE_THUMB_FALLBACK, bootPageShareThumb, pageShareImage } = require('../../utils/share-thumb.js')
 
 const LAUNCH_UPDATES_PRODUCT_ID = 'launch_updates'
 const LAUNCH_UPDATES_PRODUCT_NAME = '发射动态'
@@ -46,6 +47,7 @@ Page({
     descTranslated: false,
     descTranslating: false,
     shareTitle: '发射动态 | 火星探索日志',
+    shareImage: SHARE_THUMB_FALLBACK,
     shareGateExpireAt: 0,
     isMomentsPreview: false,
     statusBarHeight: 44,
@@ -56,6 +58,7 @@ Page({
 
   async onLoad(options) {
     this.initUiShell()
+    bootPageShareThumb(this)
     this.applyMomentsPreviewLayout()
 
     const id = safeDecode(options && options.id).trim()
@@ -233,7 +236,7 @@ Page({
     return {
       title: this.data.shareTitle || '发射动态 | 火星探索日志',
       path: withShareStampPath(base, this),
-      imageUrl: ''
+      imageUrl: pageShareImage(this)
     }
   },
 
@@ -241,7 +244,7 @@ Page({
     return {
       title: this.data.shareTitle || '发射动态 | 火星探索日志',
       query: withShareStampQuery(buildShareQuery(this._launchId, this.data.missionName), this),
-      imageUrl: ''
+      imageUrl: pageShareImage(this)
     }
   }
 })

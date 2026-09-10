@@ -24,10 +24,54 @@ function parseRocketMissionFromLaunchName(name) {
   return { rocketName: '', missionName: parts[0] || '' }
 }
 
+function foldRocketKey(s) {
+  return String(s == null ? '' : s)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/g, '')
+}
+
+function sameRocketFamily(a, b) {
+  const ka = foldRocketKey(a)
+  const kb = foldRocketKey(b)
+  if (!ka || !kb) return false
+  return ka === kb || ka.indexOf(kb) === 0 || kb.indexOf(ka) === 0
+}
+
+/**
+ * 列表/详情火箭展示跟 LL2 `name` 对齐。
+ * configuration 可能仍粘着航行警告猜测构型（二号丁），而 name 已是四号乙。
+ * 同族时保留 cfg（Falcon 9 Block 5 比标题 Falcon 9 更具体）。
+ */
+function pickLl2AlignedRocketName(cfgName, launchName) {
+  const fromCfg = String(cfgName || '').trim()
+  const fromName = String(parseRocketMissionFromLaunchName(launchName).rocketName || '').trim()
+  const cfgOk = !!(fromCfg && !isPlaceholderMissionField(fromCfg))
+  const nameOk = !!(fromName && !isPlaceholderMissionField(fromName))
+  if (nameOk && cfgOk && !sameRocketFamily(fromCfg, fromName)) return fromName
+  if (cfgOk) return fromCfg
+  return nameOk ? fromName : ''
+}
+
+function scoreMissionCardIdentity(item) {
+  if (!item) return 0
+  let score = 0
+  if (!isPlaceholderMissionField(item.rocketName)) score += 2
+  const missionName = String(item.missionName || '').trim()
+  if (missionName && !isPlaceholderMissionField(missionName)) {
+    score += 3
+    return score
+  }
+  const parsed = parseRocketMissionFromLaunchName(item.name)
+  if (parsed.missionName && !isPlaceholderMissionField(parsed.missionName)) score += 3
+  return score
+}
+
 function scoreMissionCardCompleteness(item) {
   if (!item) return 0
   let score = 0
   if (!isPlaceholderMissionField(item.rocketName)) score += 4
+  if (!isPlaceholderMissionField(item.missionName)) score += 3
   if (
     !isPlaceholderMissionField(item.padLocation) ||
     !isPlaceholderMissionField(item.launchSite)
@@ -45,10 +89,13 @@ function scoreMissionCardCompleteness(item) {
   return score
 }
 
-/** 同分取 incoming（后写），避免破坏「完整 previous 覆盖旧瘦卡」 */
+/** 先比 LL2 身份，再比对完整度；同分取 incoming（后写） */
 function pickRicherMissionCard(current, incoming) {
   if (!current) return incoming
   if (!incoming) return current
+  const idA = scoreMissionCardIdentity(current)
+  const idB = scoreMissionCardIdentity(incoming)
+  if (idB !== idA) return idB > idA ? incoming : current
   const a = scoreMissionCardCompleteness(current)
   const b = scoreMissionCardCompleteness(incoming)
   if (b > a) return incoming
@@ -59,6 +106,15 @@ function pickRicherMissionCard(current, incoming) {
 function isIncompleteCompletedListCard(item) {
   if (!item) return false
   if (isPlaceholderMissionField(item.rocketName)) return true
+  const missionName = String(item.missionName || '').trim()
+  if (missionName && isPlaceholderMissionField(missionName)) return true
+  if (
+    !missionName &&
+    item.name &&
+    /[|｜]\s*(未知有效载荷|unknown\s+payloads?)\s*$/i.test(String(item.name))
+  ) {
+    return true
+  }
   if (
     isPlaceholderMissionField(item.padLocation) &&
     isPlaceholderMissionField(item.launchSite)
@@ -68,10 +124,45 @@ function isIncompleteCompletedListCard(item) {
   return false
 }
 
+function isWeakListCardIdentity(item) {
+  if (!item) return true
+  if (isPlaceholderMissionField(item.rocketName)) return true
+  const missionName = String(item.missionName || '').trim()
+  if (missionName && isPlaceholderMissionField(missionName)) return true
+  if (
+    !missionName &&
+    item.name &&
+    /[|｜]\s*(未知(有效)?载荷|unknown\s+payloads?)\s*$/i.test(String(item.name))
+  ) {
+    return true
+  }
+  if (!missionName && isPlaceholderMissionField(item.name)) return true
+  return false
+}
+
+/** 已公布列表身份不得被陈旧详情的占位火箭/载荷打回去 */
+function stripWeakerIdentityPatch(item, displayPatch, rawPatch) {
+  if (!displayPatch) return displayPatch
+  if (!isWeakListCardIdentity(item) && isWeakListCardIdentity(rawPatch || displayPatch)) {
+    const out = Object.assign({}, displayPatch)
+    delete out.rocketName
+    delete out.missionName
+    delete out.name
+    delete out.rocketConfiguration
+    return out
+  }
+  return displayPatch
+}
+
 module.exports = {
   isPlaceholderMissionField,
   parseRocketMissionFromLaunchName,
+  sameRocketFamily,
+  pickLl2AlignedRocketName,
+  scoreMissionCardIdentity,
   scoreMissionCardCompleteness,
   pickRicherMissionCard,
-  isIncompleteCompletedListCard
+  isIncompleteCompletedListCard,
+  isWeakListCardIdentity,
+  stripWeakerIdentityPatch
 }

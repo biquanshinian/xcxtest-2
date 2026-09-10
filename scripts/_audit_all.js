@@ -11,7 +11,10 @@ const MODS = [
   'subpackages/index-extra/utils/index-splash.js',
   'subpackages/index-extra/utils/index-live-settle.js',
   'subpackages/index-extra/utils/index-ux.js',
-  'pages/index/utils/index-settled-merge.js'
+  'subpackages/index-extra/utils/index-agency-sub.js',
+  'subpackages/index-extra/utils/index-interaction.js',
+  'pages/index/utils/index-settled-merge.js',
+  'pages/index/utils/index-countdown-boot.js'
 ]
 
 const main = fs.readFileSync(PAGE, 'utf8')
@@ -46,7 +49,10 @@ const INSTANCE_PROPS = new Set([
   '__carouselLoadPromise',
   '__calendarLoadPromise',
   '__voteLoadPromise',
-  '__saveImageLoadPromise'
+  '__saveImageLoadPromise',
+  '__agencySubLoadPromise',
+  '__interactionLoadPromise',
+  '_splashCountdownGateResolve'
 ])
 
 const mainMethods = pageMethods(main)
@@ -110,6 +116,8 @@ for (const name of delegated) {
   ]
   mainLines.forEach((line, i) => {
     if (line.includes('await this.' + name + '(')) return
+    if (/=>\s*this\./.test(line)) return
+    if (/\.then/.test(line + (mainLines[i + 1] || ''))) return
     if (new RegExp("'" + esc + "'").test(line)) return // 名单声明行
     for (const p of patterns) {
       if (p.test(line)) { console.log('  [同步!!] L' + (i + 1), name, '|', line.trim().slice(0, 110)); issuesB++; break }
@@ -125,8 +133,14 @@ global.getApp = () => ({ globalData: {} })
 global.getCurrentPages = () => []
 global.Page = () => {}
 global.Component = () => {}
-// require.async stub（channels-live 跨分包懒加载在模块顶层不执行，仅保险）
-require.async = (p) => Promise.resolve(require(p))
+// 注入到每个被加载模块的本地 require（薄壳顶层会立刻 require.async）
+const Module = require('module')
+const origWrap = Module.wrap
+Module.wrap = function (script) {
+  return origWrap(
+    'if(typeof require.async!=="function"){require.async=function(p){return Promise.resolve(require(p))}}\n' + script
+  )
+}
 for (const m of MODS) {
   try {
     delete require.cache[require.resolve(path.resolve(m))]

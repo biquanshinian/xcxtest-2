@@ -174,6 +174,143 @@ test('resolvePanelMission：空列表 / 非数组返回 null', () => {
   assert.equal(resolvePanelMission(null, {}), null)
 })
 
+test('resolvePanelSelection：最近 NET 为 TBD 时让位给后面的 Go', () => {
+  const now = Date.parse('2026-09-11T02:00:00Z')
+  const tbd = {
+    id: 'cz8a-tbd',
+    launchTime: '2026-09-12T00:00:00Z',
+    statusId: 2,
+    statusAbbrev: 'TBD'
+  }
+  const go = {
+    id: 'falcon',
+    launchTime: '2026-09-13T08:00:00Z',
+    statusId: 1,
+    netPrecision: 'Hour'
+  }
+  const sel = resolvePanelSelection([tbd, go], { now })
+  assert.equal(sel.mission && sel.mission.id, 'falcon')
+  assert.equal(sel.reason, 'next_future')
+})
+
+test('resolvePanelSelection：最近 NET 为 Hold 时让位给后面的 Go', () => {
+  const now = Date.parse('2026-09-11T02:00:00Z')
+  const hold = {
+    id: 'cz8a-hold',
+    launchTime: '2026-09-12T04:00:00Z',
+    statusId: 5,
+    statusAbbrev: 'Hold'
+  }
+  const go = {
+    id: 'zhuque',
+    launchTime: '2026-09-14T10:00:00Z',
+    statusId: 1
+  }
+  const sel = resolvePanelSelection([hold, go], { now })
+  assert.equal(sel.mission && sel.mission.id, 'zhuque')
+  assert.equal(sel.reason, 'next_future')
+})
+
+test('resolvePanelSelection：Month 占位即便标 Go/TBC 也让位给 Hour 任务', () => {
+  const now = Date.parse('2026-09-11T02:00:00Z')
+  const monthGo = {
+    id: 'cz8a-month',
+    launchTime: '2026-09-30T00:00:00Z',
+    statusId: 1,
+    netPrecision: 'Month'
+  }
+  const hourGo = {
+    id: 'starlink',
+    launchTime: '2026-10-02T15:30:00Z',
+    statusId: 1,
+    netPrecision: 'Hour'
+  }
+  const monthTbc = {
+    id: 'cz8a-tbc-month',
+    launchTime: '2026-09-20T00:00:00Z',
+    statusId: 8,
+    netPrecision: 'Month'
+  }
+  const selGo = resolvePanelSelection([monthGo, hourGo], { now })
+  assert.equal(selGo.mission && selGo.mission.id, 'starlink')
+  const selTbc = resolvePanelSelection([monthTbc, hourGo], { now })
+  assert.equal(selTbc.mission && selTbc.mission.id, 'starlink')
+})
+
+test('resolvePanelSelection：TBC + Hour 仍可选中（中国发射不误伤）', () => {
+  const now = Date.parse('2026-09-11T02:00:00Z')
+  const tbc = {
+    id: 'cz12',
+    launchTime: '2026-09-12T02:00:00Z',
+    statusId: 8,
+    statusAbbrev: 'TBC',
+    netPrecision: 'Hour'
+  }
+  const laterGo = {
+    id: 'falcon',
+    launchTime: '2026-09-15T08:00:00Z',
+    statusId: 1,
+    netPrecision: 'Minute'
+  }
+  const sel = resolvePanelSelection([laterGo, tbc], { now })
+  assert.equal(sel.mission && sel.mission.id, 'cz12')
+  assert.equal(sel.reason, 'next_future')
+})
+
+test('resolvePanelSelection：hold 中任务变成 Hold/TBD → 松手让位', () => {
+  const now = NET + 60 * 1000
+  const heldHold = goMission({ statusId: 5, statusAbbrev: 'Hold' })
+  const selHold = resolvePanelSelection([heldHold, futureMission], {
+    now,
+    holdMissionId: 'gravity-1'
+  })
+  assert.equal(selHold.mission && selHold.mission.id, 'cz3b')
+  assert.equal(selHold.reason, 'next_future')
+
+  const recordsById = new Map([['gravity-1', { id: 'gravity-1', status: { id: 2 } }]])
+  const selTbd = resolvePanelSelection([goMission(), futureMission], {
+    now,
+    holdMissionId: 'gravity-1',
+    recordsById
+  })
+  assert.equal(selTbd.mission && selTbd.mission.id, 'cz3b')
+  assert.equal(selTbd.reason, 'next_future')
+})
+
+test('resolvePanelSelection：仅剩不合格任务 → fallback 不空面板', () => {
+  const now = Date.parse('2026-09-11T02:00:00Z')
+  const onlyTbd = {
+    id: 'cz8a-only',
+    launchTime: '2026-09-30T00:00:00Z',
+    statusId: 2,
+    netPrecision: 'Month'
+  }
+  const sel = resolvePanelSelection([onlyTbd], { now })
+  assert.equal(sel.mission && sel.mission.id, 'cz8a-only')
+  assert.equal(sel.reason, 'unresolved_fallback')
+})
+
+test('resolveOverlapSideMission：TBD/Hold/粗精度候选不当副卡', () => {
+  const a = goMission({ id: 'a', launchTime: '2026-07-22T02:50:00Z', windowEnd: '2026-07-22T04:00:00Z' })
+  const tbd = {
+    id: 'tbd-side',
+    launchTime: '2026-07-22T03:20:00Z',
+    windowEnd: '2026-07-22T04:30:00Z',
+    statusId: 2
+  }
+  const goSide = {
+    id: 'go-side',
+    launchTime: '2026-07-22T03:30:00Z',
+    windowEnd: '2026-07-22T04:40:00Z',
+    statusId: 1
+  }
+  assert.equal(
+    resolveOverlapSideMission([a, tbd, goSide], { panelMissionId: 'a' })?.id,
+    'go-side'
+  )
+  assert.equal(resolveOverlapSideMission([a, tbd], { panelMissionId: 'a' }), null)
+})
+
 test('resolveOverlapSideMission：窗口相交时取下一条未决', () => {
   const a = goMission({ id: 'a', launchTime: '2026-07-22T02:50:00Z', windowEnd: '2026-07-22T04:00:00Z' })
   const b = {

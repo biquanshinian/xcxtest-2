@@ -14,11 +14,19 @@
         binderror="onRocketImageError"
       ></image>
       <view wx:else class="mission-rocket-image mission-rocket-image--placeholder"></view>
-      <view class="mission-card-pano" wx:if="{{item && item.hasOrbitPano}}" aria-label="环绕全景">
-        <view class="mission-card-pano-orbit"></view>
-        <view class="mission-card-pano-orbit mission-card-pano-orbit--tilt"></view>
-        <view class="mission-card-pano-core">
-          <text class="mission-card-pano-360">360</text>
+      <view class="mission-card-3d" wx:if="{{item && item.hasRocket3d}}" aria-label="3D 模型">
+        <view class="mission-card-3d-bg"></view>
+        <view class="mission-card-3d-scene">
+          <view class="mission-card-3d-pulse">
+            <view class="mission-card-3d-cube">
+              <view class="mission-card-3d-face mission-card-3d-face--front"></view>
+              <view class="mission-card-3d-face mission-card-3d-face--back"></view>
+              <view class="mission-card-3d-face mission-card-3d-face--right"></view>
+              <view class="mission-card-3d-face mission-card-3d-face--left"></view>
+              <view class="mission-card-3d-face mission-card-3d-face--top"></view>
+              <view class="mission-card-3d-face mission-card-3d-face--bottom"></view>
+            </view>
+          </view>
         </view>
       </view>
     </view>

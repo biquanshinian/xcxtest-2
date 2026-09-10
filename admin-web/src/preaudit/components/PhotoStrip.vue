@@ -17,7 +17,10 @@
       :delay="180"
       :delay-on-touch-only="true"
       :touch-start-threshold="8"
+      :empty-insert-threshold="48"
       ghost-class="pa-thumb-ghost"
+      chosen-class="pa-thumb-chosen"
+      :group="group ? { name: group } : undefined"
       :filter="'.pa-thumb-caption, .pa-thumb-del, .pa-thumb-rotate, input, textarea'"
       :prevent-on-filter="true"
       @update:model-value="$emit('reorder', $event)"
@@ -53,11 +56,12 @@ const props = defineProps({
   files: { type: Array, default: () => [] },
   on: { type: Boolean, default: false },
   addText: { type: String, default: '拍照或上传' },
-  accept: { type: String, default: 'image/*,application/pdf,.pdf' },
+  accept: { type: String, default: 'image/*,image/heic,image/heif,.heic,.heif,.hif,application/pdf,.pdf' },
   labelOf: { type: Function, default: () => '' },
   classOf: { type: Function, default: () => '' },
   captionPlaceholder: { type: String, default: '' },
-  indexPrefix: { type: String, default: '' }
+  indexPrefix: { type: String, default: '' },
+  group: { type: String, default: '' }
 })
 const emit = defineEmits(['mark', 'dragenter', 'dragover', 'dragleave', 'drop', 'reorder', 'preview', 'remove', 'caption', 'pick', 'retry', 'rotate'])
 

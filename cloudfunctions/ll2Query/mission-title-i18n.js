@@ -90,6 +90,7 @@ const MISSION_PHRASE_RULES = [
   [/\bCrew\s+Dragon\b/gi, '载人龙飞船'],
   [/\bCargo\s+Dragon\b/gi, '货运龙飞船'],
   [/\bDragon\b/gi, '龙飞船'],
+  [/\bYaogan\b/gi, '遥感'],
   [/\bUnknown\s+Payload\b/gi, '未知有效载荷'],
   [/\bUnknown\s+Payloads\b/gi, '未知有效载荷'],
   [/\bRideshare\b/gi, '拼车发射'],

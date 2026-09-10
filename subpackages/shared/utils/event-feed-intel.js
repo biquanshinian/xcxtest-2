@@ -11,6 +11,7 @@ const LAUNCH_HORIZON_MS = 7 * 24 * 60 * 60 * 1000
 const LAUNCH_LOOKBACK_MS = 12 * 60 * 60 * 1000
 
 const { isPlaceholderMissionField } = require('../../../utils/mission-list-card.js')
+const { missionHasRocket3d } = require('../../../utils/rocket-3d-list-flag.js')
 const {
   DEFAULT_EVENT_ALERT_KEYWORDS,
   EVENT_WATCH_ACCOUNT_OPTIONS,
@@ -538,6 +539,7 @@ function slimRelatedLaunch(launch) {
     recoveryIcons: Array.isArray(launch.recoveryIcons) ? launch.recoveryIcons : [],
     flightCountLabel: String(launch.flightCountLabel || '').trim(),
     hasOrbitPano: !!launch.hasOrbitPano,
+    hasRocket3d: missionHasRocket3d(launch),
     rocketConfiguration: launch.rocketConfiguration || null,
     _langPack: launch._langPack || {}
   }
@@ -811,6 +813,8 @@ function readLaunchPoolFromApp() {
       if (route === 'pages/index/index' && p.data) {
         const up = p.data.upcomingMissions
         if (Array.isArray(up) && up.length) return up
+        const parkedCal = p._indexParked && p._indexParked.calendarAllMissions
+        if (Array.isArray(parkedCal) && parkedCal.length) return parkedCal
         const cal = p.data.calendarAllMissions
         if (Array.isArray(cal) && cal.length) return cal
       }

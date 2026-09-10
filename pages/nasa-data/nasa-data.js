@@ -1,6 +1,7 @@
 const nasaApi = require('./nasa-api')
 const pageBase = require('../../utils/page-base.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
+const { SHARE_THUMB_FALLBACK, pickShareImageUrl, pickShareDownloadSrc, ensureShareImageOnPage, pageShareImage } = require('../../utils/share-thumb.js')
 
 const NASA_TABS = [
   { key: 'mars', label: '火星探索', icon: '🌕' },
@@ -28,6 +29,7 @@ Page({
     navPlaceholderHeight: 0,
     menuButtonWidth: 88,
     scrollRefreshing: false,
+    shareImage: SHARE_THUMB_FALLBACK,
     activeTab: 0,
     tabs: NASA_TABS,
 
@@ -48,6 +50,10 @@ Page({
     eonetCategories: [],
 
     // Tab: 火星探索
+    visitedMoon: false,
+    visitedUniverse: false,
+    discussReady: false,
+
     marsLoading: false,
     marsError: '',
     marsPhotos: [],
@@ -91,6 +97,7 @@ Page({
 
   onLoad(options) {
     this.initUiShell()
+    ensureShareImageOnPage(this, SHARE_THUMB_FALLBACK)
 
     let menuButtonWidth = 88
     try {
@@ -102,9 +109,16 @@ Page({
     this.setData({
       menuButtonWidth,
       marsDate: this._todayStr(),
-      activeTab
+      activeTab,
+      visitedMoon: activeTab === 1,
+      visitedUniverse: activeTab === 2
     })
-    this._ensureTabData(activeTab)
+    const kick = () => {
+      this._ensureTabData(activeTab)
+      if (!this.data.discussReady) this.setData({ discussReady: true })
+    }
+    if (typeof wx.nextTick === 'function') wx.nextTick(kick)
+    else setTimeout(kick, 0)
   },
 
   // ========== 导航 ==========
@@ -115,7 +129,10 @@ Page({
     const idx = parseInt(raw, 10)
     if (!isFinite(idx) || idx < 0 || idx >= NASA_TABS.length || idx === this.data.activeTab) return
     try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
-    this.setData({ activeTab: idx })
+    const patch = { activeTab: idx }
+    if (idx === 1) patch.visitedMoon = true
+    if (idx === 2) patch.visitedUniverse = true
+    this.setData(patch)
     this._ensureTabData(idx)
   },
 
@@ -396,16 +413,16 @@ Page({
 
   // ========== 分享 ==========
   _getShareImage() {
-    // 火星探索 Tab 用火星车封面图，通过 COS imageMogr2 裁剪为 1:1 正方形并压缩
-    // 微信朋友圈分享图要求：正方形，不超过 128KB
-    if (this._tabKey() !== 'mars') return ''
-    const info = this.data.marsRoverInfo && this.data.marsRoverInfo[this.data.marsRover]
-    const cover = info && info.cover
-    if (!cover) return ''
-    if (cover.indexOf('cos.ap-guangzhou.myqcloud.com') >= 0) {
-      return cover + '?imageMogr2/thumbnail/500x500!/gravity/center/crop/500x500/format/jpg/quality/80'
+    if (this._tabKey() === 'mars') {
+      const info = this.data.marsRoverInfo && this.data.marsRoverInfo[this.data.marsRover]
+      const cover = info && info.cover
+      if (cover) {
+        const picked = pickShareImageUrl({ displayImage: cover, rawImage: cover })
+        ensureShareImageOnPage(this, pickShareDownloadSrc({ displayImage: cover, rawImage: cover }))
+        return this.data.shareImage || picked
+      }
     }
-    return cover
+    return pageShareImage(this)
   },
 
   _shareTabName() {

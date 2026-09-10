@@ -103,6 +103,16 @@ const fixtures = [
     name: '日本 RJTG',
     notice: { noticeKey: 'notam-RJTG-A1/26', rawText: 'Q) RJTG/QWELW\nA) RJTG', areas: [[[139.7, 35.6], [140, 35.6], [140, 36], [139.7, 36]]] },
     want: false
+  },
+  {
+    name: '种子岛无 FIR 不靠粗框误收',
+    notice: { noticeKey: 'nav-tanegashima', areas: [[[130.9, 30.3], [131.1, 30.3], [131.1, 30.5], [130.9, 30.5]]] },
+    want: false
+  },
+  {
+    name: 'ZTAA 不是中国情报区',
+    notice: { noticeKey: 'notam-ZTAA-A1/26', rawText: 'Q) ZTAA/QWELW\nA) ZTAA', areas: [] },
+    want: false
   }
 ]
 
@@ -118,7 +128,8 @@ check('FIR 列表两端一致', cloud.CHINA_FIRS.join(',') === client.CHINA_FIRS
 check('bbox 两端一致', JSON.stringify(cloud.CHINA_BBOX) === JSON.stringify(client.CHINA_BBOX))
 
 console.log('\n=== 发现层不收外国页 ===')
-const sm = discover.parseSitemapChinaPaths(
+const { extractNoticeLinks } = require('../cloudfunctions/spaceNotices/fetch-external.js')
+const sm = discover.parseSitemapChinaNoticePaths(
   [
     'https://space-notices.com/notice/notam-ZLHW-A3624/26',
     'https://space-notices.com/notice/notam-RPHI-B3622/26',
@@ -129,32 +140,35 @@ const sm = discover.parseSitemapChinaPaths(
     .map((u) => `<loc>${u}</loc>`)
     .join('')
 )
-check('sitemap 含兰州+香港', sm.some((p) => /ZLHW/.test(p)) && sm.some((p) => /VHHK/.test(p)))
-check('sitemap 不含 RPHI/ZHU/KZMA', !sm.some((p) => /RPHI|ZHU-07|KZMA/.test(p)), sm.join(','))
+check('sitemap 含兰州+香港', sm.some((p) => /ZLHW/.test(p.path || p)) && sm.some((p) => /VHHK/.test(p.path || p)))
+check('sitemap 不含 RPHI/ZHU/KZMA', !sm.some((p) => /RPHI|ZHU-07|KZMA/.test(p.path || p)), sm.map((p) => p.path || p).join(','))
 
-const col = discover.parseNoticePathsFromHtml(
+const col = extractNoticeLinks(
   'href="/notice/notam-ZHWH-A3497/26" href="/notice/notam-RPHI-B3622/26" href="/notice/nav-warning-HYDROPAC 2308/26"'
 )
 check('合集 HTML 仍能抽出 RPHI 链接', col.some((p) => /RPHI/.test(p)))
-const keptCol = col.filter((p) => cloud.isChinaNoticePath(p) || /nav-warning/i.test(p))
-check('合集入库前丢掉 RPHI', !keptCol.some((p) => /RPHI/.test(p)) && keptCol.some((p) => /ZHWH/.test(p)))
+const emptyKeys = {}
+const keptCol = col.filter((p) => discover.allowChinaIngestPath(p, emptyKeys) || /nav-warning/i.test(p))
+check('合集入库前丢掉未挂名的 RPHI', !keptCol.some((p) => /RPHI/.test(p)) && keptCol.some((p) => /ZHWH/.test(p)))
+check(
+  '官网合集页已挂的 RPHI 可入库',
+  discover.allowChinaIngestKey('notam-RPHI-B3622/26', { 'notam-RPHI-B3622/26': true })
+)
+check('sitemap 扫描不收马尼拉整库', !discover.allowChinaIngestKey('notam-RPHI-B3622/26', {}))
 
 console.log('\n=== 入库 / 查询契约 ===')
 const fs = require('fs')
 const indexJs = fs.readFileSync(path.join(ROOT, 'cloudfunctions/spaceNotices/index.js'), 'utf8')
 const mapJs = fs.readFileSync(path.join(ROOT, 'subpackages/monitor-pages/space-notices/notice-map.js'), 'utf8')
 const listJs = fs.readFileSync(path.join(ROOT, 'subpackages/monitor-pages/space-notices/entry-list.js'), 'utf8')
-check('入库前 isChinaNotice 门禁', /if \(!isChinaNotice\(notice\)\)/.test(indexJs))
-check('中国桶 keepers 再过滤', /noticeStillKeep\(n, nowMs\(\)\) && isChinaNotice\(n\)/.test(indexJs))
-check('listGlobalNotams 不再用桶名洗白', /picked = filterChinaNotices\(picked\)/.test(indexJs))
-check('listGlobalNotams 不把 entry.missionName 注入过滤', !/filterChinaNotices\(\[[\s\S]{0,200}missionName: entry\.missionName/.test(indexJs))
-check('中国桶不进发射列表', /!d\.isCollection/.test(indexJs))
-check('launch- 通告不被中国桶改挂', /keepLaunch \? prev\.entryKey : CHINA_FIR_ENTRY_KEY/.test(indexJs))
-check('详情页中国区再过滤', /wantChina[\s\S]{0,180}filterChinaNotices\(rows\)/.test(mapJs))
-check('列表预览再过滤', /filterChinaNotices\(\(res && res\.notices\)/.test(listJs))
-check('监控预览再过滤', /filterChinaNotices\(\(res && res\.notices\)/.test(
-  fs.readFileSync(path.join(ROOT, 'subpackages/monitor-pages/components/monitor-core-sections/index.js'), 'utf8')
-))
+check('中国桶按 allowChinaIngest 入库', /allowChinaIngestPath/.test(indexJs) && /allowChinaIngestKey/.test(indexJs))
+check('中国桶 keepers 再过滤', /shouldKeepStoredNotice/.test(indexJs))
+check('中国合集独立桶', /collection-chinese-unknown/.test(indexJs) && /isChineseCollectionKey/.test(indexJs))
+check('中国桶不进发射网格', /isCollection/.test(indexJs) && /isCollectionKey/.test(indexJs))
+check('launch- 通告不被中国桶改挂', /resolveNoticeOwner/.test(indexJs))
+check('详情页中国合集钉大陆视野', /CHINA_VIEW/.test(mapJs) && /isChineseCollectionKey/.test(mapJs) && /noticeChinaVisible/.test(mapJs))
+check('列表中国通告入口', /CHINESE_COLLECTION_KEY/.test(listJs) && /openChinaMap/.test(listJs))
+check('列表/详情用发射时刻对齐 LL2', /alignEntryWithLaunch/.test(indexJs) && /loadLaunchesFromCache/.test(indexJs))
 
 console.log('\n=== 语法 ===')
 ;['cloudfunctions/spaceNotices/china-notices.js', 'cloudfunctions/spaceNotices/discover-china-firs.js', 'subpackages/monitor-pages/space-notices/utils/china-notices.js'].forEach((rel) => {

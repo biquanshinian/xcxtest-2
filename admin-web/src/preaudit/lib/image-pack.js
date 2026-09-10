@@ -1,3 +1,5 @@
+import { blobLooksLikeHeif, HEIF_JPEG_ERROR, nameLooksHeif } from './heif-sniff.js'
+
 function loadImage(src) {
   return new Promise((resolve, reject) => {
     const img = new Image()
@@ -90,7 +92,53 @@ function looksNeedBake(blob, orientation, extra, opts) {
   if (orientation > 1) return true
   const type = String((blob && blob.type) || '')
   const name = String((opts && opts.name) || (blob && blob.name) || '')
-  return /heic|heif|webp|tiff/i.test(type + ' ' + name)
+  if (nameLooksHeif(name, type)) return true
+  return /webp|tiff/i.test(type + ' ' + name)
+}
+
+function asJpegFile(blob, name) {
+  const raw = String(name || 'photo.jpg')
+  const base = raw.replace(/\.[^.]+$/, '') || 'photo'
+  if (typeof File === 'function') {
+    try {
+      return new File([blob], base + '.jpg', { type: 'image/jpeg', lastModified: Date.now() })
+    } catch { /* 回退 Blob */ }
+  }
+  return blob
+}
+
+async function tryNativeHeifJpeg(blob, opts) {
+  try {
+    const img = await loadDrawable(blob)
+    const w = img.naturalWidth || img.width
+    const h = img.naturalHeight || img.height
+    if (!w || !h) return null
+    const packed = encodeJpeg(img, (opts && opts.maxEdge) || 2560, (opts && opts.quality) || 0.9, 0)
+    return asJpegFile(packed.blob, (opts && opts.name) || blob.name)
+  } catch {
+    return null
+  }
+}
+
+let heicToFn = null
+async function heifToJpegBlob(blob, opts) {
+  const native = await tryNativeHeifJpeg(blob, opts)
+  if (native) return native
+  try {
+    if (!heicToFn) {
+      const mod = await import('heic-to/csp')
+      heicToFn = mod.heicTo
+    }
+    const out = await heicToFn({
+      blob,
+      type: 'image/jpeg',
+      quality: (opts && opts.quality) || 0.9
+    })
+    if (!out || !out.size) throw new Error('empty')
+    return asJpegFile(out, (opts && opts.name) || blob.name)
+  } catch {
+    throw new Error(HEIF_JPEG_ERROR)
+  }
 }
 
 async function loadDrawable(src) {
@@ -211,26 +259,28 @@ function encodeJpeg(img, maxEdge, quality, degrees) {
 
 export async function bakeUprightJpeg(src, opts) {
   const extra = normalizeDegrees(opts && opts.rotate)
-  const blob = src && typeof src.size === 'number' && typeof src.slice === 'function'
+  let blob = src && typeof src.size === 'number' && typeof src.slice === 'function'
     ? src
     : null
   if (!blob) throw new Error('读图失败')
-  const orientation = await peekJpegOrientation(blob)
-  if (!looksNeedBake(blob, orientation, extra, opts)) return blob
-  const img = await loadDrawable(blob)
-  const packed = encodeJpeg(img, (opts && opts.maxEdge) || 2560, (opts && opts.quality) || 0.9, extra)
-  const rawName = String((opts && opts.name) || blob.name || 'photo.jpg')
-  const base = rawName.replace(/\.[^.]+$/, '') || 'photo'
-  if (typeof File === 'function') {
-    try {
-      return new File([packed.blob], base + '.jpg', { type: 'image/jpeg', lastModified: Date.now() })
-    } catch (e) { /* 回退 Blob */ }
+  let bakeOpts = opts || {}
+  if (await blobLooksLikeHeif(blob, bakeOpts)) {
+    blob = await heifToJpegBlob(blob, bakeOpts)
+    bakeOpts = Object.assign({}, bakeOpts, { name: blob.name || 'photo.jpg' })
   }
-  return packed.blob
+  const orientation = await peekJpegOrientation(blob)
+  if (!looksNeedBake(blob, orientation, extra, bakeOpts)) return blob
+  const img = await loadDrawable(blob)
+  const packed = encodeJpeg(img, bakeOpts.maxEdge || 2560, bakeOpts.quality || 0.9, extra)
+  return asJpegFile(packed.blob, bakeOpts.name || blob.name || 'photo.jpg')
 }
 
 export async function packJpeg(src, opts) {
-  const img = await loadDrawable(src)
+  let input = src
+  if (input && typeof input.size === 'number' && typeof input.slice === 'function' && await blobLooksLikeHeif(input, opts)) {
+    input = await heifToJpegBlob(input, opts)
+  }
+  const img = await loadDrawable(input)
   const maxBytes = (opts && opts.maxBytes) || 100000
   const degrees = normalizeDegrees(opts && opts.rotate)
   const steps = (opts && opts.steps) || [

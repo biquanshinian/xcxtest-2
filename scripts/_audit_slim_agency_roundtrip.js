@@ -74,7 +74,7 @@ async function main() {
     const distorted = statKeys.filter((f) => raw[f] != null && slim[f] !== raw[f])
     check('统计值等值', distorted.length === 0, distorted.join(','))
 
-    // launcher_list：每条必须有 name（agency-detail 以 name 去重展示）
+    // launcher_list：每条必须有 name（agency-detail 按构型 id 展示标签）
     const rawL = Array.isArray(raw.launcher_list) ? raw.launcher_list.length : 0
     const named = (slim.launcher_list || []).filter((l) => l && l.name).length
     check('launcher_list 保留 name', rawL === 0 || (named > 0 && named === (slim.launcher_list || []).length),

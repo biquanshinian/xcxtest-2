@@ -169,7 +169,16 @@
 
             <!-- 机构 -->
             <block wx:elif="{{activeTab === 'agency'}}">
-              <view class="stat-row" wx:for="{{byAgency}}" wx:key="key" wx:if="{{listExpanded || index < 8}}">
+              <view
+                class="stat-row {{item.clickable ? 'stat-row--tap' : ''}}"
+                wx:for="{{byAgency}}"
+                wx:key="key"
+                wx:if="{{listExpanded || index < 8}}"
+                hover-class="{{item.clickable ? 'stat-row--hover' : 'none'}}"
+                hover-stay-time="80"
+                data-index="{{index}}"
+                bindtap="onTapAgencyRank"
+              >
                 <text class="stat-rank">{{index + 1}}</text>
                 <view class="stat-avatar stat-avatar--logo {{item.logoBgTone === 'dark' ? 'agency-logo-bg--dark' : ''}} {{item.logoBgTone === 'light' ? 'agency-logo-bg--light' : ''}}" wx:if="{{item.logo}}">
                   <image
@@ -198,6 +207,7 @@
                   <text class="stat-total">{{item.total}}</text>
                   <text class="stat-total-cap">次</text>
                 </view>
+                <text class="stat-chevron" wx:if="{{item.clickable}}">›</text>
               </view>
               <view class="section-empty" wx:if="{{byAgency.length === 0}}">
                 <text>暂无数据</text>
@@ -206,7 +216,16 @@
 
             <!-- 火箭型号 -->
             <block wx:else>
-              <view class="stat-row" wx:for="{{byRocket}}" wx:key="key" wx:if="{{listExpanded || index < 8}}">
+              <view
+                class="stat-row {{item.clickable ? 'stat-row--tap' : ''}}"
+                wx:for="{{byRocket}}"
+                wx:key="key"
+                wx:if="{{listExpanded || index < 8}}"
+                hover-class="{{item.clickable ? 'stat-row--hover' : 'none'}}"
+                hover-stay-time="80"
+                data-index="{{index}}"
+                bindtap="onTapRocketRank"
+              >
                 <text class="stat-rank">{{index + 1}}</text>
                 <view class="stat-avatar stat-avatar--rocket" wx:if="{{item.image}}">
                   <image
@@ -222,7 +241,7 @@
                   <text class="stat-avatar-initial">{{item.initial}}</text>
                 </view>
                 <view class="stat-name-block">
-                  <text class="stat-name">{{item.name}}</text>
+                  <text class="stat-name">{{item.displayName || item.name}}</text>
                   <view class="stat-bar">
                     <view class="stat-bar-success" style="width: {{item.successPct}}%;"></view>
                     <view class="stat-bar-failure" style="width: {{item.failurePct}}%;"></view>
@@ -233,6 +252,7 @@
                   <text class="stat-total">{{item.total}}</text>
                   <text class="stat-total-cap">次</text>
                 </view>
+                <text class="stat-chevron" wx:if="{{item.clickable}}">›</text>
               </view>
               <view class="section-empty" wx:if="{{byRocket.length === 0}}">
                 <text>暂无数据</text>

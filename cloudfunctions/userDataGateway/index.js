@@ -10,10 +10,11 @@
  *   - syncQuiz          同步问答结果
  *   - syncAll           客户端本地数据整体上传（首次云同步 / 恢复场景）
  *   - savePreferences   保存用户偏好（提醒/简报）
- *   - getPreferences    读取用户偏好
+ *   - getPreferences    读取用户偏好（小程序现走本地 prefs，云端保留）
  *   - saveIdentity      保存展示昵称 / 头像 fileID
  *   - recordMilestone   记录时间线里程碑
- *   - getTodayBriefing  获取今日简报
+ *   - getTodayBriefing  获取今日简报（优先 daily_briefing，回落 space_devs_cache）
+ *   - getRecentCompleted 运维/兼容只读，小程序主路径不调
  *   - getNewsManualForApp         公共只读：航天事件手写稿列表（服务端读 news_articles）
  *   - getNewsManualArticleById    公共只读：手写稿详情，参数 docId / id
  *   - getMediaAssetsMap             公共只读：media_assets 整表映射（单次下发，最多 500 条）
@@ -421,6 +422,24 @@ async function handleRecordMilestone(openid, milestone) {
 // ── 获取今日简报 ──
 async function handleGetTodayBriefing(date) {
   const today = date || new Date(new Date().getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10)
+  try {
+    const stored = await db.collection(BRIEFING_COLLECTION).doc(today).get()
+    const doc = stored && stored.data
+    if (doc && ((doc.todayLaunches && doc.todayLaunches.length) || (doc.yesterdayResults && doc.yesterdayResults.length))) {
+      return {
+        success: true,
+        source: 'daily_briefing',
+        briefing: {
+          _id: today,
+          date: today,
+          todayLaunches: doc.todayLaunches || [],
+          yesterdayResults: doc.yesterdayResults || [],
+          spaceFact: doc.spaceFact || null,
+          astroEvent: doc.astroEvent || null
+        }
+      }
+    }
+  } catch (eStored) {}
   const yest = (function () {
     const d = new Date(today + 'T12:00:00+08:00')
     d.setDate(d.getDate() - 1)
@@ -1091,7 +1110,40 @@ function parseRocket3dGlbKey(key) {
   return m ? m[1].toLowerCase() : ''
 }
 
-function ingestMediaAssetRow(item, map, credits, opts) {
+function parseIpRefGlbKey(key) {
+  const m = /^models\/reference\/([a-z0-9]+(?:-[a-z0-9]+)*)\.glb$/i.exec(String(key || '').split('?')[0])
+  if (!m) return ''
+  const slug = m[1].toLowerCase()
+  if (slug === 'ip-musk') return 'musk'
+  if (slug === 'ip-astro' || slug === 'astronaut') return 'astro'
+  if (slug === 'cybertruck' || slug === 'cyber-truck') return 'cyber-pickup'
+  if (slug === 'musk' || slug === 'astro' || slug === 'cyber-pickup') return slug
+  return ''
+}
+
+function defaultHighestPointMeters(slug) {
+  return slug === 'cyber-pickup' ? 1.794 : 1.88
+}
+
+function normalizeHighestPointMeters(raw, slug) {
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0) return defaultHighestPointMeters(slug)
+  return Math.round(Math.min(5, Math.max(0.3, n)) * 1000) / 1000
+}
+
+function normalizeLengthMeters(raw) {
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0) return 5.683
+  return Math.round(Math.min(15, Math.max(1, n)) * 1000) / 1000
+}
+
+function normalizeWidthMeters(raw) {
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0) return 2.032
+  return Math.round(Math.min(6, Math.max(0.5, n)) * 1000) / 1000
+}
+
+function ingestMediaAssetRow(item, map, credits, opts, ipScaleRefs) {
   const key = item && item.key != null ? String(item.key).trim() : ''
   const url = item && typeof item.url === 'string' ? item.url.trim() : (item && item.url)
   if (!key || !url) return false
@@ -1100,6 +1152,19 @@ function ingestMediaAssetRow(item, map, credits, opts) {
   const slug = parseRocket3dGlbKey(key)
   const credit = String((item && item.credit) || '').trim()
   if (slug && credit) credits[slug] = credit
+  const ipSlug = parseIpRefGlbKey(key)
+  if (ipSlug && ipScaleRefs) {
+    const rec = {
+      url,
+      highestPoint: normalizeHighestPointMeters(item && item.highestPoint, ipSlug),
+      enabled: true
+    }
+    if (ipSlug === 'cyber-pickup') {
+      rec.lengthM = normalizeLengthMeters(item && item.lengthM)
+      rec.widthM = normalizeWidthMeters(item && item.widthM)
+    }
+    ipScaleRefs[ipSlug] = rec
+  }
   return isNew
 }
 
@@ -1109,6 +1174,7 @@ async function handleGetMediaAssetsMap() {
   const PAGE = 100
   const map = {}
   const rocket3dCredits = {}
+  const ipScaleRefs = {}
   let mapSize = 0
 
   // 主扫描：与旧版一致的单趟分页；集合未超容量时这是唯一的读开销
@@ -1118,7 +1184,7 @@ async function handleGetMediaAssetsMap() {
     const limit = Math.min(PAGE, MAX_ROWS - mapSize)
     const res = await db.collection('media_assets')
       .where({ enabled: true })
-      .field({ key: true, url: true, credit: true })
+      .field({ key: true, url: true, credit: true, highestPoint: true, lengthM: true, widthM: true })
       .orderBy('_id', 'asc')
       .skip(skip)
       .limit(limit)
@@ -1126,7 +1192,7 @@ async function handleGetMediaAssetsMap() {
 
     const rows = res.data || []
     rows.forEach((item) => {
-      if (ingestMediaAssetRow(item, map, rocket3dCredits)) mapSize += 1
+      if (ingestMediaAssetRow(item, map, rocket3dCredits, null, ipScaleRefs)) mapSize += 1
     })
 
     skip += rows.length
@@ -1147,14 +1213,14 @@ async function handleGetMediaAssetsMap() {
           enabled: true,
           key: db.RegExp({ regexp: '^火箭配置图(/|-机娘/)', options: '' })
         })
-        .field({ key: true, url: true, credit: true })
+        .field({ key: true, url: true, credit: true, highestPoint: true, lengthM: true, widthM: true })
         .orderBy('_id', 'asc')
         .skip(rSkip)
         .limit(PAGE)
         .get()
       const rows = res.data || []
       rows.forEach((item) => {
-        if (ingestMediaAssetRow(item, map, rocket3dCredits)) added += 1
+        if (ingestMediaAssetRow(item, map, rocket3dCredits, null, ipScaleRefs)) added += 1
       })
       rSkip += rows.length
       if (rows.length < PAGE) break
@@ -1169,16 +1235,36 @@ async function handleGetMediaAssetsMap() {
           enabled: true,
           key: db.RegExp({ regexp: '^models/rockets/', options: 'i' })
         })
-        .field({ key: true, url: true, credit: true })
+        .field({ key: true, url: true, credit: true, highestPoint: true, lengthM: true, widthM: true })
         .orderBy('_id', 'asc')
         .skip(mSkip)
         .limit(PAGE)
         .get()
       const rows = res.data || []
       rows.forEach((item) => {
-        ingestMediaAssetRow(item, map, rocket3dCredits, { overwrite: true })
+        ingestMediaAssetRow(item, map, rocket3dCredits, { overwrite: true }, ipScaleRefs)
       })
       mSkip += rows.length
+      if (rows.length < PAGE) break
+    }
+
+    let iSkip = 0
+    while (iSkip < 80) {
+      const res = await db.collection('media_assets')
+        .where({
+          enabled: true,
+          key: db.RegExp({ regexp: '^models/reference/', options: 'i' })
+        })
+        .field({ key: true, url: true, credit: true, highestPoint: true, lengthM: true, widthM: true })
+        .orderBy('_id', 'asc')
+        .skip(iSkip)
+        .limit(PAGE)
+        .get()
+      const rows = res.data || []
+      rows.forEach((item) => {
+        ingestMediaAssetRow(item, map, rocket3dCredits, { overwrite: true }, ipScaleRefs)
+      })
+      iSkip += rows.length
       if (rows.length < PAGE) break
     }
   }
@@ -1187,6 +1273,7 @@ async function handleGetMediaAssetsMap() {
     success: true,
     map,
     rocket3dCredits,
+    ipScaleRefs,
     count: Object.keys(map).length,
     version: Date.now()
   }
@@ -1281,6 +1368,7 @@ exports.main = async (event) => {
     }
 
     case 'getPreferences': {
+      // 运维只读：小程序偏好走本地 prefs，不调此 action
       return handleGetPreferences(OPENID)
     }
 
@@ -1305,6 +1393,7 @@ exports.main = async (event) => {
     }
 
     case 'getRecentCompleted': {
+      // 运维/兼容只读，小程序主路径不调
       return handleGetRecentCompleted(event.limit || 5)
     }
 

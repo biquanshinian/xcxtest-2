@@ -8,6 +8,8 @@ const { getMissionNextOffset } = require('../../../utils/index-mission-services.
 const { CALENDAR_SITE_META } = require('../../../utils/index-page-helpers.js')
 const { getLaunchStatsFromDB } = require('../../../utils/api-app-services.js')
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
+const { applyOrbitPanoFlags } = require('../../../utils/orbit-pano-list-flag.js')
+const { applyRocket3dFlags } = require('../../../utils/rocket-3d-list-flag.js')
 const storageCache = require('../../../utils/storage-sync-cache.js')
 
 const CALENDAR_CACHE_MAX_AGE_MS = 5 * 60 * 1000
@@ -15,6 +17,13 @@ const CALENDAR_PAGE_LIMIT = 80
 const LAUNCH_STATS_REFRESH_TTL = 5 * 60 * 1000
 // 单个月份「自动补数」的最大触发次数（翻月后自动重置），防止极端情况下的死循环/过量请求
 const CALENDAR_AUTO_LOAD_MAX = 12
+
+function pageCalendarMissions(page) {
+  if (page && page._indexParked && Object.prototype.hasOwnProperty.call(page._indexParked, 'calendarAllMissions')) {
+    return page._indexParked.calendarAllMissions || []
+  }
+  return (page && page.data && page.data.calendarAllMissions) || []
+}
 
 function shouldHydrateCalendarFromMissionLists(options = {}) {
   const {
@@ -141,7 +150,11 @@ const calendarMethods = {
   _processCalendarMission(m, idx, isUpcoming) {
     const mission = attachMissionDetailMeta({
       ...withResolvedRocketImage(m),
-      _wxkey: `cal-${isUpcoming ? 'up' : 'comp'}-${idx}-${m.id || ''}`,
+      _wxkey:
+        m._wxkey ||
+        (m.id != null
+          ? `cal-${isUpcoming ? 'up' : 'comp'}-${m.id}`
+          : `cal-${isUpcoming ? 'up' : 'comp'}-${idx}`),
       _isUpcoming: isUpcoming,
       formattedTime: m.launchTime ? formatMissionListTimeOrUnknown(m.launchTime) : '时间未知'
     }, {
@@ -414,11 +427,15 @@ const calendarMethods = {
       upcomingResult,
       completedResult,
       processMission,
-      currentMissions: appendMode ? this.data.calendarAllMissions : undefined
+      currentMissions: appendMode ? pageCalendarMissions(this) : undefined
     })
   },
 
   resetCalendarLoadFailureState() {
+    if (this._indexParked || this._countdownPageHidden) {
+      this.setData({ calendarLoading: false })
+      return
+    }
     this._calendarDataLoaded = false
     this._calendarFilteredMissions = []
     this._calendarMissionsByDate = {}
@@ -443,6 +460,8 @@ const calendarMethods = {
 
   applyCalendarMissionSnapshot(allMissions, options = {}) {
     const missions = (Array.isArray(allMissions) ? allMissions : []).map((m) => withResolvedRocketImage(m))
+    try { applyOrbitPanoFlags(missions) } catch (e) {}
+    try { applyRocket3dFlags(missions) } catch (e) {}
     const keepExpanded = options.keepExpanded !== false
     const saveCache = options.saveCache !== false
     this.setData({
@@ -466,6 +485,7 @@ const calendarMethods = {
   },
 
   hydrateCalendarFromLoadedMissionLists() {
+    if (this._indexParked || this._countdownPageHidden) return false
     const upcomingSource = Array.isArray(this.data.upcomingMissions) ? this.data.upcomingMissions : []
     const completedSource = Array.isArray(this.data.completedMissions) ? this.data.completedMissions : []
     if (!upcomingSource.length && !completedSource.length) return false
@@ -487,9 +507,10 @@ const calendarMethods = {
   },
 
   syncCalendarFromMissionListsIfNeeded() {
+    if (this._indexParked || this._countdownPageHidden) return false
     const up = this.data.upcomingMissions || []
     const comp = this.data.completedMissions || []
-    const cal = this.data.calendarAllMissions || []
+    const cal = pageCalendarMissions(this)
 
     const shouldHydrate = shouldHydrateCalendarFromMissionLists({
       missionType: this.data.missionType,
@@ -558,10 +579,11 @@ const calendarMethods = {
    * @param {Boolean} useCache 是否优先使用本地缓存
    */
   async loadCalendarData(useCache) {
+    if (this._indexParked || this._countdownPageHidden) return
     if (this.data.calendarLoading) return
 
     if (useCache && this._calendarDataLoaded) {
-      if ((this.data.calendarAllMissions || []).length > 0) {
+      if (pageCalendarMissions(this).length > 0) {
         this.buildCalendarDays()
         return
       }
@@ -593,6 +615,7 @@ const calendarMethods = {
   },
 
   _continueLoadCalendarDataAfterCacheMiss() {
+    if (this._indexParked || this._countdownPageHidden) return
     if (this.hydrateCalendarFromLoadedMissionLists()) {
       return
     }
@@ -615,6 +638,7 @@ const calendarMethods = {
    * 追加加载更多日历数据（当切换到的月份无数据时自动触发）
    */
   async _loadMoreCalendarData() {
+    if (this._indexParked || this._countdownPageHidden) return
     if (this.data.calendarLoading || this._calendarExpandLoading) return
     if (!this._calendarUpHasMore && !this._calendarCompHasMore) return
 
@@ -978,7 +1002,7 @@ const calendarMethods = {
   // 组件仅回传 prevmonth / nextmonth 事件（switchCalendarMonth 自带动画期间防抖）
 
   _patchCalendarMissionRocketImage(missionId, nextImage) {
-    const allMissions = this.data.calendarAllMissions || []
+    const allMissions = pageCalendarMissions(this)
     const idx = allMissions.findIndex((m) => m && String(m.id) === String(missionId))
     if (idx < 0) return false
 

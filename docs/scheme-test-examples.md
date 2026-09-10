@@ -73,6 +73,36 @@ weixin://dl/business/?appid=wxf98b58309019771b&path=subpackages/news-extra/detai
 weixin://dl/business/?appid=wxf98b58309019771b&path=pages/mission-detail/mission-detail&query=id%3DYOUR_LAUNCH_ID&env_version=trial
 ```
 
+## 火箭型号 / 对比 / 档案指数 / 3D
+
+构型 id 来自任务详情或型号档案（LL2 `configId`），不要手编。
+
+| 页面 | path | query |
+|------|------|-------|
+| 型号详情 | `subpackages/monitor-pages/rocket-model-detail` | `configId=164` |
+| 型号对比 | `subpackages/monitor-pages/rocket-compare` | `ids=164,215`（最多 4 个，逗号分隔） |
+| 档案指数 | `subpackages/monitor-pages/rocket-score` | `configId=164`（可选 `name`） |
+| 3D 展厅 | `subpackages/rocket-3d/viewer` | `configId=164` 或 `slug=falcon-9` |
+
+```text
+weixin://dl/business/?appid=wxf98b58309019771b&path=subpackages/monitor-pages/rocket-compare&query=ids%3D164%2C215&env_version=trial
+weixin://dl/business/?appid=wxf98b58309019771b&path=subpackages/monitor-pages/rocket-score&query=configId%3D164&env_version=trial
+weixin://dl/business/?appid=wxf98b58309019771b&path=subpackages/rocket-3d/viewer&query=slug%3Dfalcon-9&env_version=trial
+```
+
+## 助推器 / 观礼
+
+| 页面 | path | query |
+|------|------|-------|
+| 助推器详情 | `subpackages/monitor-pages/booster-detail` | `serial=B1067` |
+| 观礼列表 | `subpackages/watch-party/merchant-list` | 可选 `missionId`、`channel` |
+| 观礼场次 | `subpackages/watch-party/watch-party` | 必须有 `sessionId` 或现场 `code`，否则会落到列表 |
+
+```text
+weixin://dl/business/?appid=wxf98b58309019771b&path=subpackages/monitor-pages/booster-detail&query=serial%3DB1067&env_version=trial
+weixin://dl/business/?appid=wxf98b58309019771b&path=subpackages/watch-party/merchant-list&query=channel%3Dapp&env_version=trial
+```
+
 ## 开发者工具快速验证（非真 Scheme）
 
 编译模式 → 启动页面 `subpackages/news-extra/detail` → 启动参数：`id=真实id&type=article`

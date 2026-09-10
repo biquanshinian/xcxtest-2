@@ -18,32 +18,28 @@ const {
 const { isSettledStatusId, projectBadgeOntoMission } = require('../../../utils/launch-status-store.js')
 const { resolveMissionRocketImage } = require('../../../utils/util.js')
 const { formatMissionListTimeOrUnknown } = require('../../../utils/launch-card-i18n.js')
-const { buildMissionListSetData } = require('../../../utils/index-mission-services.js')
+const { buildMissionListSetData, stableMissionListWxkey } = require('../../../utils/index-mission-services.js')
 const { filterExpiredMissions } = require('../../../utils/index-page-helpers.js')
 const { attachMissionDetailMeta } = require('../../../utils/index-mission-nav.js')
 const {
   isPlaceholderMissionField,
   parseRocketMissionFromLaunchName,
-  isIncompleteCompletedListCard
+  isIncompleteCompletedListCard,
+  pickRicherMissionCard,
+  stripWeakerIdentityPatch
 } = require('../../../utils/mission-list-card.js')
 const { applyContentLangToMission } = require('../../../utils/launch-card-i18n.js')
 const {
   fetchLaunchAsListItem,
   patchCompletedListSnapshots
 } = require('../../../utils/api-launch-list.js')
+const { isSettleableLiveStatusId } = require('../../../utils/live-settle-helpers.js')
+const { SETTLED_PLACEHOLDER_NET_MAX_AGE_MS } = require('../../../utils/settled-placeholder-core.js')
 
 const RECENT_SETTLED_MEM_TTL_MS = 10 * 60 * 1000
-/** 无完整列表卡时，仅补插「刚结束」终态，避免 getRecent(40) 把旧记录刷成历史瘦卡 */
-const SETTLED_PLACEHOLDER_NET_MAX_AGE_MS = 48 * 60 * 60 * 1000
 /** recent_settled 本地持久化：冷启动先用上次会话快照过滤，免等云函数冷启动 */
 const RECENT_SETTLED_PERSIST_KEY = '_recent_settled_persist_v1'
 const RECENT_SETTLED_PERSIST_MIN_WRITE_GAP_MS = 5 * 1000
-
-/** 可落历史并切下一个：终态(3/4/7/9) 或飞行中(6) */
-function isSettleableLiveStatusId(id) {
-  const n = id != null ? Number(id) : 0
-  return isTerminalStatusId(n) || n === 6
-}
 
 const methods = {
   
@@ -82,6 +78,10 @@ const methods = {
   _hydrateRecentSettledFromStorage() {
     if (this._recentSettledHydratePromise) return this._recentSettledHydratePromise
     this._recentSettledHydratePromise = new Promise((resolve) => {
+      const finish = () => {
+        this._recentSettledHydrateDone = true
+        resolve()
+      }
       try {
         wx.getStorage({
           key: RECENT_SETTLED_PERSIST_KEY,
@@ -105,12 +105,12 @@ const methods = {
                 this._absorbLaunchStateObservations(rows, 'live')
               }
             } catch (e) {}
-            resolve()
+            finish()
           },
-          fail: () => resolve()
+          fail: () => finish()
         })
       } catch (e2) {
-        resolve()
+        finish()
       }
     })
     return this._recentSettledHydratePromise
@@ -358,6 +358,11 @@ const methods = {
     // 冻结的非过期 cardCountdown 会在历史卡上渲染出静止倒计时
     delete card.showRocketCountdown
     delete card.cardCountdown
+    card._wxkey = stableMissionListWxkey(
+      'completed',
+      card,
+      card._wxkey || (baseMission && baseMission._wxkey) || (stashed && stashed._wxkey)
+    )
     return card
   },
 
@@ -399,10 +404,15 @@ const methods = {
       const needsRepair = this._needsSettledCardRepair(item)
       // 已落库的瘦占位卡：状态相同也要重建，否则「未知火箭」会一直粘在列表上
       if (needsRepair) {
-        changed = true
         const repaired = this._buildCompletedItemFromSettled(hit, item)
-        this._rememberSessionCompleted(repaired)
-        return repaired
+        const kept = pickRicherMissionCard(item, repaired)
+        if (kept === item) {
+          // 完整卡不能被结算瘦卡盖掉；角标仍走下面投影
+        } else {
+          changed = true
+          this._rememberSessionCompleted(kept)
+          return kept
+        }
       }
       const category = getStatusCategory(hit.status)
       const badge = getStatusBadgeText(hit.status, category, {
@@ -551,6 +561,8 @@ const methods = {
             }),
             { id: keep.id, detailType: 'completed' }
           )
+          if (keep && keep._wxkey) merged._wxkey = keep._wxkey
+          else merged._wxkey = stableMissionListWxkey('completed', merged, merged._wxkey)
           next[idx] = merged
           this._stashFullMissionCards([merged])
           try {
@@ -766,6 +778,26 @@ const methods = {
   },
 
   
+  _identityDisplayDiffers(item, displayPatch) {
+    if (!item || !displayPatch || typeof displayPatch !== 'object') return false
+    const keys = ['rocketName', 'missionName', 'name']
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i]
+      if (displayPatch[key] == null) continue
+      const a = String(item[key] || '').trim()
+      const b = String(displayPatch[key] || '').trim()
+      if (b && a !== b) return true
+    }
+    const cfg = displayPatch.rocketConfiguration
+    const cur = item.rocketConfiguration
+    if (cfg && typeof cfg === 'object') {
+      const nextName = String(cfg.full_name || cfg.name || '').trim()
+      const curName = String((cur && (cur.full_name || cur.name)) || '').trim()
+      if (nextName && nextName !== curName) return true
+    }
+    return false
+  },
+
   _pickDetailDisplayFields(patch) {
     if (!patch || typeof patch !== 'object') return {}
     const out = {}
@@ -777,6 +809,13 @@ const methods = {
     assign('launchSite')
     assign('countryDisplay')
     assign('launchAgency')
+    const assignId = (key) => {
+      const v = patch[key]
+      if (v != null && String(v).trim() !== '') out[key] = v
+    }
+    assignId('launchAgencyId')
+    assignId('rocketConfigId')
+    assignId('padLocationId')
     if (patch.rocketImage || patch.image) {
       out.rocketImage = patch.rocketImage || patch.image
       out.image = patch.rocketImage || patch.image
@@ -789,6 +828,34 @@ const methods = {
       out.missionName = patch.missionName
     }
     return out
+  },
+
+  applyUpcomingIdentityFromDetail(patch) {
+    if (!patch || patch.id == null) return false
+    const idStr = String(patch.id)
+    const list = this.data.upcomingMissions || []
+    const idx = list.findIndex((m) => m && String(m.id) === idStr)
+    if (idx < 0) return false
+    const item = list[idx]
+    const displayPatch = stripWeakerIdentityPatch(
+      item,
+      this._pickDetailDisplayFields(patch),
+      {
+        rocketName: patch.rocketName,
+        missionName: patch.missionName,
+        name: patch.name
+      }
+    )
+    if (!Object.keys(displayPatch).length) return false
+    if (!this._identityDisplayDiffers(item, displayPatch)) return false
+    const next = list.slice()
+    const nextItem = { ...item, ...displayPatch }
+    delete nextItem._langPack
+    nextItem._wxkey = stableMissionListWxkey('upcoming', nextItem, item._wxkey)
+    next[idx] = applyContentLangToMission(nextItem)
+    this.setData({ upcomingMissions: next })
+    this._stashFullMissionCards([next[idx]])
+    return true
   },
 
   applyCompletedMissionStatusFromDetail(patch) {
@@ -826,13 +893,24 @@ const methods = {
     let nextCompleted
     if (idx >= 0) {
       const item = list[idx]
-      const displayPatch = this._pickDetailDisplayFields(patch)
+      const displayPatch = stripWeakerIdentityPatch(
+        item,
+        this._pickDetailDisplayFields(patch),
+        {
+          rocketName: patch.rocketName,
+          missionName: patch.missionName,
+          name: patch.name
+        }
+      )
       const statusSame =
         item.statusCategory === category && item.statusBadgeText === badge && Number(item.statusId) === sid
-      const needDisplay = Object.keys(displayPatch).length > 0 && this._needsSettledCardRepair(item)
+      const identityDiffer = this._identityDisplayDiffers(item, displayPatch)
+      const needDisplay =
+        Object.keys(displayPatch).length > 0 &&
+        (this._needsSettledCardRepair(item) || identityDiffer)
       if (statusSame && !needDisplay) {
-        nextCompleted = list
         this._rememberSessionCompleted(item)
+        return
       } else {
         nextCompleted = list.slice()
         const nextItem = {
@@ -849,6 +927,7 @@ const methods = {
           _optimisticSettled: true
         }
         if (needDisplay) delete nextItem._langPack
+        nextItem._wxkey = stableMissionListWxkey('completed', nextItem, item._wxkey)
         nextCompleted[idx] = applyContentLangToMission(nextItem)
         this._rememberSessionCompleted(nextCompleted[idx])
         this._stashFullMissionCards([nextCompleted[idx]])

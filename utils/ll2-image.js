@@ -14,6 +14,11 @@ function isOwnCdnUrl(url) {
     s.indexOf('marsx.com.cn') !== -1
 }
 
+/** Worker 图片代理：展示走 <image>，禁止再 wx.downloadFile（We分析 /image 耗时主来源） */
+function isWorkerImageProxyUrl(url) {
+  return /\/image\?url=/i.test(String(url || ''))
+}
+
 /**
  * 外链图 → Cloudflare Worker 图片代理（GET /image?url=...）。
  * 自有 CDN / 非 http(s) 原样返回；无代理基址时返回空串（调用方用原链兜底）。
@@ -87,6 +92,7 @@ function advanceImageFallback(current, fallbacks) {
 
 module.exports = {
   isOwnCdnUrl,
+  isWorkerImageProxyUrl,
   proxiedImageUrl,
   stripImageProcess,
   buildLl2ImageChain,

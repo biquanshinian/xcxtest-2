@@ -735,6 +735,22 @@ Component({
       setTimeout(() => this._doSend(lastUserText), 100)
     },
 
+    async onLaunchRowAgencyTap(e) {
+      const ds = (e.currentTarget && e.currentTarget.dataset) || {}
+      if (!ds.id) return
+      if (this._entryGatePending) return
+      this._entryGatePending = true
+      try {
+        const allowed = await gateCheck('agency_encyclopedia', aiChatUiText('agencyGate'))
+        if (!allowed) return
+        const url = ROUTES.AGENCY_DETAIL + '?id=' + encodeURIComponent(String(ds.id))
+        wx.vibrateShort({ type: 'light' })
+        this._navigateAwayFromChat(url)
+      } finally {
+        this._entryGatePending = false
+      }
+    },
+
     /** 点击星问推送的任务卡片 → 进详情（用 id+type 拼 URL，避免 data-url 被 & 截断） */
     onMissionCardTap(e) {
       const id = e.currentTarget.dataset.id
@@ -999,9 +1015,13 @@ Component({
       if (!rule) return
       if (rule.param && !targetId) return
 
-      const url = rule.param
+      const ll2Id = ds.ll2id != null ? String(ds.ll2id).trim() : ''
+      let url = rule.param
         ? rule.route + '?' + rule.param + '=' + encodeURIComponent(targetId)
         : rule.route
+      if (kind === 'booster' && ll2Id) {
+        url += (url.indexOf('?') >= 0 ? '&' : '?') + 'll2Id=' + encodeURIComponent(ll2Id)
+      }
       const gateId = ds.gateid || rule.gateId || ''
       const gateName = ds.gatename || rule.gateName || aiChatUiText('gateGeneric')
 

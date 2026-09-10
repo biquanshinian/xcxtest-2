@@ -13,6 +13,9 @@ const { persistAgencyLogoAfterRemoteLoad } = require('../../utils/agency-logo-ca
 const { ensureAgencyLogoBgTone } = require('../../utils/agency-logo-bg.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
+const { ROUTES, navigateTo } = require('../../utils/routes.js')
+const { openRocketModelDetail } = require('./utils/booster-nav.js')
+const { SHARE_THUMB_FALLBACK, bootPageShareThumb, pageShareImage } = require('../../utils/share-thumb.js')
 // 确保首页 require.async 能加载这些分包模块（未被引用时不会打进分包）
 require('./utils/index-calendar-page.js')
 require('./utils/index-carousel.js')
@@ -100,11 +103,13 @@ Page({
     byAgency: [],
     byRocket: [],
     activeTab: 'country',
-    listExpanded: false
+    listExpanded: false,
+    shareImage: SHARE_THUMB_FALLBACK
   },
 
   async onLoad(options) {
     this.initUiShell()
+    bootPageShareThumb(this)
 
     // 分享卡片 24h 免门控窗口：过期后走 gateCheck（会员放行，非会员弹开通引导）
     const shareAllowed = await checkShareEntryGate(this, options, 'global_launch_stats', '全球发射统计')
@@ -427,17 +432,81 @@ Page({
     this.setData({ [`byRocket[${idx}].image`]: '' })
   },
 
+  onTapAgencyRank(e) {
+    if (this._rankNavBusy) return
+    const idx = Number(e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.index)
+    const row = Number.isFinite(idx) ? (this.data.byAgency || [])[idx] : null
+    if (!row || row.clickable === false) return
+    const agencyId = row.agencyId != null && String(row.agencyId).trim() !== ''
+      ? String(row.agencyId).trim()
+      : ''
+    const name = String(row.name || '').trim()
+    const abbrev = String(row.agencyAbbrev || row.abbrev || '').trim()
+    if (!agencyId && !name && !abbrev) return
+    const params = {}
+    if (agencyId) {
+      params.id = agencyId
+    } else {
+      if (name) params.name = name
+      if (abbrev) params.abbrev = abbrev
+    }
+    try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
+    this._rankNavBusy = true
+    navigateTo(ROUTES.AGENCY_DETAIL, params)
+    const that = this
+    setTimeout(function () { that._rankNavBusy = false }, 400)
+  },
+
+  async onTapRocketRank(e) {
+    if (this._rankNavBusy) return
+    const idx = Number(e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.index)
+    const row = Number.isFinite(idx) ? (this.data.byRocket || [])[idx] : null
+    if (!row || row.clickable === false) return
+    try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
+    this._rankNavBusy = true
+    try {
+      let allowed = true
+      try {
+        const { gateCheck } = require('../../utils/membership.js')
+        allowed = await gateCheck('booster_genealogy', '全球可回收火箭族谱')
+      } catch (err) {}
+      if (!allowed) return
+
+      const { cleanConfigId, pickLatestRocketConfig } = require('../../utils/rocket-config-match.js')
+      let configId = cleanConfigId(row.configId)
+      try {
+        const { getRocketConfigMeta } = require('../../utils/api-app-services.js')
+        const meta = await getRocketConfigMeta({ afterGate: true })
+        const latest = pickLatestRocketConfig(meta && meta.configs, {
+          configId: configId,
+          name: row.name
+        })
+        if (latest && latest.id != null) configId = String(latest.id)
+      } catch (err) {}
+
+      if (!configId) {
+        wx.showToast({ title: '暂无该型号档案', icon: 'none' })
+        return
+      }
+      await openRocketModelDetail(configId, { skipGate: true })
+    } finally {
+      this._rankNavBusy = false
+    }
+  },
+
   onShareAppMessage() {
     return {
       title: '全球发射统计 | 火星探索日志',
-      path: withShareStampPath('/subpackages/index-extra/global-launch-stats', this)
+      path: withShareStampPath('/subpackages/index-extra/global-launch-stats', this),
+      imageUrl: pageShareImage(this)
     }
   },
 
   onShareTimeline() {
     return {
       title: '全球发射统计 | 火星探索日志',
-      query: withShareStampQuery('', this)
+      query: withShareStampQuery('', this),
+      imageUrl: pageShareImage(this)
     }
   }
 })

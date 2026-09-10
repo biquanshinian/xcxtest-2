@@ -23,6 +23,8 @@ const { resolveAgencyLogoForDisplay } = require('../../../utils/agency-logo-cach
 const { resolveAgencyLogoBgTone } = require('../../../utils/agency-logo-bg.js')
 const { getRocketImage } = require('../../../utils/util.js')
 const { pickLocalized, zhField } = require('../../../utils/locale.js')
+const { resolveAgencyDisplayZh } = require('../../../utils/launch-card-i18n.js')
+const { translateRocketName } = require('../../../utils/rocket-name-i18n.js')
 
 /** ISO 3166-1 alpha-3 → alpha-2（用于国旗 emoji） */
 const ISO3_TO_ALPHA2 = {
@@ -129,8 +131,39 @@ function getAgencyKeyFromMission(mission) {
   return name || abbr || '未知机构'
 }
 
+function getAgencyIdFromMission(mission) {
+  const id = mission && mission.launchAgencyId
+  return id != null && String(id).trim() !== '' ? String(id).trim() : ''
+}
+
 function getRocketKeyFromMission(mission) {
   return String((mission && mission.rocketName) || '').trim() || '未知型号'
+}
+
+function getConfigIdFromMission(mission) {
+  const id = mission && (mission.rocketConfigId != null ? mission.rocketConfigId : mission.configId)
+  return id != null && String(id).trim() !== '' ? String(id).trim() : ''
+}
+
+function tallyId(prev, field, id) {
+  if (!id) return
+  prev[field] = prev[field] || {}
+  prev[field][id] = (prev[field][id] || 0) + 1
+}
+
+function pickMajorityId(counts) {
+  const map = counts && typeof counts === 'object' ? counts : null
+  if (!map) return ''
+  let best = ''
+  let n = 0
+  Object.keys(map).forEach((id) => {
+    const c = Number(map[id]) || 0
+    if (c > n) {
+      n = c
+      best = id
+    }
+  })
+  return best
 }
 
 function filterMissions(missions, year, countryKey) {
@@ -158,6 +191,8 @@ function bumpBucket(map, key, meta, mission) {
   prev.total += 1
   if (outcome.success) prev.success += 1
   if (outcome.failure) prev.failure += 1
+  if (meta && meta.agencyId) tallyId(prev, '_agencyIds', meta.agencyId)
+  if (meta && meta.configId) tallyId(prev, '_configIds', meta.configId)
   map.set(key, prev)
 }
 
@@ -168,6 +203,12 @@ function finalizeBuckets(map) {
     row.successPct = Math.round((row.success / denom) * 100)
     row.failurePct = Math.round((row.failure / denom) * 100)
     row.successFailText = `${row.success}成功 / ${row.failure}失败`
+    const agencyId = pickMajorityId(row._agencyIds)
+    const configId = pickMajorityId(row._configIds)
+    if (agencyId) row.agencyId = agencyId
+    if (configId) row.configId = configId
+    delete row._agencyIds
+    delete row._configIds
   })
   return rows.sort((a, b) => {
     if (b.total !== a.total) return b.total - a.total
@@ -189,10 +230,10 @@ function aggregateLaunchStats(missions) {
     }, m)
 
     const agencyKey = getAgencyKeyFromMission(m)
-    bumpBucket(byAgency, agencyKey, { name: agencyKey, flag: '' }, m)
+    bumpBucket(byAgency, agencyKey, { name: agencyKey, flag: '', agencyId: getAgencyIdFromMission(m) }, m)
 
     const rocketKey = getRocketKeyFromMission(m)
-    bumpBucket(byRocket, rocketKey, { name: rocketKey, flag: '' }, m)
+    bumpBucket(byRocket, rocketKey, { name: rocketKey, flag: '', configId: getConfigIdFromMission(m) }, m)
   })
 
   const total = list.length
@@ -243,7 +284,7 @@ function buildCountryOptions(missions, year) {
 
 /**
  * 首页卡片那个年度总数（本地缓存，零请求）。
- * 卡片有两条来路（getSummary 云函数 / launch_stats 集合兜底），这里把两份本地痕迹都取上，
+ * 卡片优先 getSummary，notReady 才回捞 launch_stats；这里把两份本地痕迹都取上，
  * 详情页头部据此对齐，卡片显示什么详情页就不会比它小。
  */
 function readHomeCardTotalSync(year) {
@@ -405,8 +446,52 @@ function firstGlyphOfName(name) {
 
 let _agencyLogoMapPromise = null
 
+function putAgencyLookup(map, key, rec) {
+  const k = String(key || '').trim().toLowerCase()
+  if (!k || !rec) return
+  const prev = map.get(k)
+  if (!prev) {
+    map.set(k, rec)
+    return
+  }
+  if (typeof prev === 'string') {
+    map.set(k, {
+      url: rec.url || prev,
+      id: rec.id || '',
+      abbrev: rec.abbrev || '',
+      name: rec.name || '',
+      nameZh: rec.nameZh || ''
+    })
+    return
+  }
+  map.set(k, {
+    url: rec.url || prev.url || '',
+    id: rec.id || prev.id || '',
+    abbrev: rec.abbrev || prev.abbrev || '',
+    name: rec.name || prev.name || '',
+    nameZh: rec.nameZh || prev.nameZh || ''
+  })
+}
+
+function readAgencyLookup(logoMap, row) {
+  const keys = [
+    String((row && row.name) || '').trim().toLowerCase(),
+    String((row && row.abbrev) || '').trim().toLowerCase(),
+    String((row && row.key) || '').trim().toLowerCase()
+  ]
+  if (!logoMap || typeof logoMap.get !== 'function') return null
+  for (let i = 0; i < keys.length; i++) {
+    if (!keys[i]) continue
+    const v = logoMap.get(keys[i])
+    if (!v) continue
+    if (typeof v === 'string') return { url: v, id: '', abbrev: '', name: '', nameZh: '' }
+    return v
+  }
+  return null
+}
+
 /**
- * 机构名/缩写（小写）→ logo URL 映射。
+ * 机构名/缩写（小写）→ { url, id, abbrev, nameZh }。
  * 数据来自 getAgencies（云数据库同步集合，自带本地 Storage 缓存），不打 LL2。
  */
 function loadAgencyLogoNameMap() {
@@ -417,47 +502,82 @@ function loadAgencyLogoNameMap() {
       const results = (data && data.results) || []
       for (let i = 0; i < results.length; i++) {
         const a = results[i]
-        const url = logoUrlFromAgencyRecord(a)
-        if (!url) continue
-        const name = String((a && a.name) || '').trim().toLowerCase()
-        const abbrev = String((a && a.abbrev) || '').trim().toLowerCase()
-        if (name && !map.has(name)) map.set(name, url)
-        if (abbrev && !map.has(abbrev)) map.set(abbrev, url)
+        const rec = {
+          url: logoUrlFromAgencyRecord(a) || '',
+          id: a && a.id != null ? String(a.id) : '',
+          abbrev: String((a && a.abbrev) || '').trim(),
+          name: String((a && a.name) || '').trim(),
+          nameZh: zhField(a, 'name') || ''
+        }
+        if (!rec.url && !rec.id && !rec.name) continue
+        putAgencyLookup(map, rec.name, rec)
+        putAgencyLookup(map, rec.abbrev, rec)
       }
-      map.set('spacex', SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL)
+      putAgencyLookup(map, 'spacex', {
+        url: SPACEX_LAUNCH_SERVICE_PROVIDER_LOGO_URL,
+        id: '',
+        abbrev: 'SpaceX',
+        name: 'SpaceX',
+        nameZh: ''
+      })
       return map
     })
     .catch(() => new Map())
   return _agencyLogoMapPromise
 }
 
+function isUnknownRankName(name) {
+  const s = String(name || '').trim()
+  return !s || s === '未知机构' || s === '未知型号'
+}
+
 /**
- * 机构行补 logo：resolveAgencyLogoForDisplay 命中本地磁盘缓存时直接返回 wxfile 路径，
- * 否则返回远程 URL（页面 bindload 后由 persistAgencyLogoAfterRemoteLoad 落盘，下次零流量）。
+ * 机构行：展示名走发射商图鉴同一条 resolveAgencyDisplayZh；
+ * logo 命中本地磁盘缓存时直接返回 wxfile，否则远程 URL。
+ * 有名称即可点：有 agencyId 走 id，没有则详情页按名称解析。
  */
 function decorateAgencyRows(rows, logoMap) {
   return (rows || []).map((row) => {
-    const key = String(row.name || '').trim().toLowerCase()
-    const remote = logoMap ? (logoMap.get(key) || '') : ''
+    const rec = readAgencyLookup(logoMap, row)
+    const remote = (rec && rec.url) || ''
+    const abbrev = (rec && rec.abbrev) || row.abbrev || ''
+    const displayName =
+      resolveAgencyDisplayZh(row.name, abbrev, (rec && rec.nameZh) || zhField(row, 'name')) ||
+      pickLocalized(zhField(row, 'name'), row.name) ||
+      row.name
+    const agencyId = row && row.agencyId != null && String(row.agencyId).trim() !== ''
+      ? String(row.agencyId).trim()
+      : ''
     return {
       ...row,
-      // 展示名走发射商词典（命中则中文）；row.name 保留英文供 logo 匹配
-      displayName: pickLocalized(zhField(row, 'name'), row.name) || row.name,
+      displayName,
+      agencyId: agencyId ? String(agencyId) : '',
+      agencyAbbrev: abbrev,
+      clickable: !isUnknownRankName(row.name),
       logo: remote ? resolveAgencyLogoForDisplay(remote) : '',
       logoRemote: remote,
       logoBgTone: remote ? resolveAgencyLogoBgTone(remote) : '',
-      initial: firstGlyphOfName(row.name)
+      initial: firstGlyphOfName(displayName || row.name)
     }
   })
 }
 
-/** 火箭行补配置图：getRocketImage 内置本地磁盘缓存（首次远程展示后后台落盘） */
+/** 火箭行补配置图 + 与列表卡同一套型号汉化；有名称即可点，点按后再升到最新款 */
 function decorateRocketRows(rows) {
-  return (rows || []).map((row) => ({
-    ...row,
-    image: getRocketImage(row.name) || '',
-    initial: firstGlyphOfName(row.name)
-  }))
+  return (rows || []).map((row) => {
+    const displayName = translateRocketName(row.name) || row.name
+    const configId = row && row.configId != null && String(row.configId).trim() !== ''
+      ? String(row.configId).trim()
+      : ''
+    return {
+      ...row,
+      displayName,
+      configId,
+      clickable: !isUnknownRankName(row.name),
+      image: getRocketImage(row.name) || '',
+      initial: firstGlyphOfName(displayName || row.name)
+    }
+  })
 }
 
 module.exports = {
@@ -472,5 +592,6 @@ module.exports = {
   readPersistedGlobalStats,
   loadAgencyLogoNameMap,
   decorateAgencyRows,
-  decorateRocketRows
+  decorateRocketRows,
+  isUnknownRankName
 }

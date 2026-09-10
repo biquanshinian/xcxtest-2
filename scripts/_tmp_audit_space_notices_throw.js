@@ -21,14 +21,13 @@ const mb = require('../subpackages/monitor-pages/space-notices/utils/map-build.j
 const cn = require('../subpackages/monitor-pages/space-notices/utils/china-notices.js')
 const ccn = require('../cloudfunctions/spaceNotices/china-notices.js')
 const disc = require('../cloudfunctions/spaceNotices/discover-china-firs.js')
+const { extractNoticeLinks } = require('../cloudfunctions/spaceNotices/fetch-external.js')
 const {
   decorateNotice,
   decorateSpaceNoticeEntry,
   spaceNoticeDisplayTitle,
   sortNotices,
-  buildStats,
-  toNoticeListRow,
-  toNoticeCard
+  buildStats
 } = require('../subpackages/monitor-pages/space-notices/utils/notice-format.js')
 
 const junk = [
@@ -59,7 +58,7 @@ junk.forEach((j, i) => {
   run('line ' + i, () => mb.buildPolylinesFromNotices([j], { NOTAM: true }, { preview: true }))
   run('hit ' + i, () => mb.hitNoticeAt([j], 38, 100))
   run('fit ' + i, () => mb.fitNotice(j))
-  run('marker ' + i, () => mb.buildNoticeMarker(j, 'x'))
+  run('marker ' + i, () => mb.buildPadMarker(j, 'x'))
   run('hasGeo ' + i, () => mb.hasGeometry(j))
   run('china ' + i, () => cn.filterChinaNotices([j]))
   run('cchina ' + i, () => ccn.filterChinaNotices([j]))
@@ -79,8 +78,6 @@ run('sort null', () => sortNotices(null))
 run('sort holes', () => sortNotices([null, { name: 'A', statusTone: 'live' }]))
 run('stats empty', () => buildStats([]))
 run('stats holes', () => buildStats([null, { typeTone: 'notam', statusTone: 'live' }]))
-run('row null', () => toNoticeListRow(decorateNotice(null, mb.hasGeometry)))
-run('card empty', () => toNoticeCard(decorateNotice({ noticeKey: 'k', name: 'A' }, mb.hasGeometry)))
 run('entry null', () => decorateSpaceNoticeEntry(null))
 run('display title null', () => spaceNoticeDisplayTitle(null))
 run('display title 读云端 zh', () => {
@@ -92,14 +89,14 @@ run('display title 读云端 zh', () => {
   })
   if (t !== '第13次飞行') throw new Error('zh dropped: ' + t)
 })
-run('display title 无 zh 回落英文', () => {
+run('display title 无 zh 走列表同套汉化', () => {
   const t = spaceNoticeDisplayTitle({ missionName: 'Flight 13', rocketName: 'Starship' })
-  if (t !== 'Flight 13') throw new Error('local dict leak: ' + t)
+  if (t !== '第13次飞行') throw new Error('localize miss: ' + t)
 })
-run('discover sitemap junk', () => disc.parseSitemapChinaPaths('not xml'))
-run('discover html empty', () => disc.parseNoticePathsFromHtml(''))
-run('probe empty', () => disc.buildFirProbePaths([], 0))
-run('keep no dates', () => disc.noticeStillKeep({}, Date.now()))
+run('discover sitemap junk', () => disc.parseSitemapChinaNoticePaths('not xml'))
+run('discover html empty', () => extractNoticeLinks(''))
+run('probe empty', () => disc.pickProbeTargets({ firs: [], budget: 1 }))
+run('keep no dates', () => disc.shouldKeepStoredNotice({}, {}, Date.now(), disc.KEEP_ENDED_MS))
 run('china view', () => {
   if (cn.CHINA_VIEW.scale < 3 || cn.CHINA_VIEW.latitude < 30 || cn.CHINA_FIT_POINTS.length < 4) throw new Error('view')
   const cards = cn.buildChinaPreviewCards([

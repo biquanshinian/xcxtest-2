@@ -2,9 +2,10 @@
  * SPACE_NOTICES_FEATURE — 通告展示层格式化（纯函数，便于单测）
  * 生效状态按 dates 窗口与当前时间推导：生效中 / 提前预警 / 已结束 / 已取消。
  * 缺 start 时从原文 B)/C) 回填。时间一律转本地时区展示。
- * 条目卡片：任务/火箭/机构汉化 + 火箭配置图（与列表卡同源 resolveMissionRocketImage）。
+ * 条目卡片：任务/火箭/机构汉化 + 火箭配置图（与首页 mapLaunchToListItem 同源：
+ * resolveMissionRocketImage('', rocketNameEn, rocketConfiguration, true)）。
  */
-const { formatDate, getRocketImage, resolveMissionRocketImage } = require('../../../../utils/util.js')
+const { formatDate, getRocketImage, resolveMissionRocketImage, isDefaultRocketSrc } = require('../../../../utils/util.js')
 const { pickLocalized, isContentLangEn } = require('../../../../utils/locale.js')
 const { translateRocketName } = require('../../../../utils/rocket-name-i18n.js')
 const { localizeMissionTitle } = require('../../../../utils/mission-title-i18n.js')
@@ -31,6 +32,19 @@ function humanizeEntrySlug(entryKey) {
     [/^starship[-_]/i, 'Starship'],
     [/^electron[-_]/i, 'Electron'],
     [/^new[-_]?glenn[-_]/i, 'New Glenn'],
+    [/^ariane[-_]?64[-_]/i, 'Ariane 64'],
+    [/^ariane[-_]?62[-_]/i, 'Ariane 62'],
+    [/^ariane[-_]/i, 'Ariane 6'],
+    [/^zhuque[-_]?3[-_]/i, 'Zhuque-3'],
+    [/^zq[-_]?3[-_]/i, 'Zhuque-3'],
+    [/^kinetica[-_]?1[-_]/i, 'Kinetica-1'],
+    [/^lijian[-_]?1[-_]/i, 'Kinetica-1'],
+    [/^smart[-_]?dragon[-_]?3[-_]/i, 'Smart Dragon 3'],
+    [/^jielong[-_]?3[-_]/i, 'Smart Dragon 3'],
+    [/^jl[-_]?3[-_]/i, 'Smart Dragon 3'],
+    [/^spectrum[-_]/i, 'Spectrum'],
+    [/^terran[-_]?1[-_]/i, 'Spectrum'],
+    [/^vulcan[-_]/i, 'Vulcan'],
     [/^cz[-_]?(\d+[a-z]*)[-_]?/i, function (m, n) { return 'Long March ' + String(n || '').toUpperCase() }],
     [/^long[-_]?march[-_]?(\d+[a-z]*)[-_]?/i, function (m, n) { return 'Long March ' + String(n || '').toUpperCase() }]
   ]
@@ -76,8 +90,8 @@ function decorateSpaceNoticeEntry(e) {
   }
   if (!rocketEn && row.isStarship) rocketEn = 'Starship'
 
-  let rocketZh = translateRocketName(rocketEn) || rocketEn
-  let missionZh = localizeMissionTitle(missionEn, rocketEn, rocketZh) || missionEn
+  let rocketZh = String(row.rocketNameZh || '').trim() || translateRocketName(rocketEn) || rocketEn
+  let missionZh = String(row.missionNameZh || '').trim() || localizeMissionTitle(missionEn, rocketEn, rocketZh) || missionEn
   if (isChineseCollectionKey(key) || /chinese notices/i.test(missionEn)) {
     missionZh = '中国航警公告'
     if (!rocketEn || /unknown/i.test(rocketEn)) rocketZh = '未知发射'
@@ -91,15 +105,20 @@ function decorateSpaceNoticeEntry(e) {
     (isContentLangEn() ? 'Launch' : '发射任务')
   const agencyDisplay = pickLocalized(agencyZh, agencyEn)
 
-  // 与详情/列表卡同源：空 stamp + 英文火箭名 forceRecompute
-  const rocketImage =
-    resolveMissionRocketImage('', rocketEn || rocketZh, null, true) ||
-    getRocketImage(rocketEn || rocketZh) ||
+  // 与首页 mapLaunchToListItem 同源：英文火箭名 + rocketConfiguration + forceRecompute
+  const cfg = row.rocketConfiguration && typeof row.rocketConfiguration === 'object'
+    ? row.rocketConfiguration
+    : null
+  const resolved =
+    resolveMissionRocketImage('', rocketEn, cfg, true) ||
+    getRocketImage(rocketEn) ||
     ''
+  const rocketImage = resolved && !isDefaultRocketSrc(resolved) ? resolved : ''
 
   return Object.assign({}, row, {
     missionNameEn: missionEn,
     rocketNameEn: rocketEn,
+    rocketConfiguration: cfg,
     title,
     subtitle,
     agencyDisplay,
@@ -113,7 +132,9 @@ function spaceNoticeDisplayTitle(entry) {
   return decorateSpaceNoticeEntry({
     entryKey: row.entryKey || '',
     missionName: row.missionName || row.siteTitle || '',
+    missionNameZh: row.missionNameZh || '',
     rocketName: row.rocketName || '',
+    rocketNameZh: row.rocketNameZh || '',
     isStarship: row.isStarship,
     agency: row.agency
   }).title
@@ -179,9 +200,18 @@ function parseIcaoWindow(raw) {
 /**
  * 优先用库内 dates；缺 start 时用原文 B)/C) 回填，避免「只有结束时间」被当成已生效。
  */
+function isPlaceholderNoticeDate(v) {
+  if (v == null || v === '') return false
+  const s = typeof v === 'number' && Number.isFinite(v)
+    ? new Date(v).toISOString()
+    : String(v)
+  return /2099-01-01/.test(s)
+}
+
 function datesFromNotice(notice) {
   const n = notice || {}
-  const listed = (Array.isArray(n.dates) ? n.dates : []).filter((d) => d && (d.start || d.end))
+  const listed = (Array.isArray(n.dates) ? n.dates : [])
+    .filter((d) => d && (d.start || d.end) && !isPlaceholderNoticeDate(d.start) && !isPlaceholderNoticeDate(d.end))
   const hasStart = listed.some((d) => d && d.start)
   if (listed.length && hasStart) return listed
   const w = parseIcaoWindow(n.rawText || '')
@@ -349,7 +379,7 @@ function formatChinaBulletinSync(entry, now) {
 const TONE_RANK = { live: 0, soon: 1, '': 2, off: 3 }
 
 function sortNotices(notices) {
-  return (notices || []).slice().sort((a, b) => {
+  return (notices || []).filter(Boolean).slice().sort((a, b) => {
     if (!!a.cancelled !== !!b.cancelled) return a.cancelled ? 1 : -1
     const ra = TONE_RANK[a.statusTone] != null ? TONE_RANK[a.statusTone] : 2
     const rb = TONE_RANK[b.statusTone] != null ? TONE_RANK[b.statusTone] : 2
@@ -362,6 +392,7 @@ function sortNotices(notices) {
 function buildStats(notices) {
   const stats = { notam: 0, nav: 0, adp: 0, live: 0, soon: 0, ended: 0, cancelled: 0, china: 0 }
   ;(notices || []).forEach((n) => {
+    if (!n) return
     if (stats[n.typeTone] != null) stats[n.typeTone] += 1
     if (n.inChina) stats.china += 1
     if (n.cancelled) stats.cancelled += 1

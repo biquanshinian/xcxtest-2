@@ -552,6 +552,7 @@ function createPreauditPhotosApi({ db, ok, fail, now, crypto, createCOSClient, C
     if (body && Object.prototype.hasOwnProperty.call(body, 'bidDate')) patch.bidDate = safeText(body.bidDate, 16)
     if (body && Object.prototype.hasOwnProperty.call(body, 'awardDate')) patch.awardDate = safeText(body.awardDate, 16)
     if (body && body.photoMeta) patch.photoMeta = body.photoMeta
+    if (body && body.photos) patch.photos = body.photos
     if (body && body.materials) patch.materials = body.materials
     try {
       const saved = await writeProject(id, patch)

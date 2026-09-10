@@ -1,7 +1,10 @@
 /**
- * 火箭 3D 页分享：path 只带型号名，由打开方再解析 COS。
+ * 火箭 3D 页分享：path 只带型号名 / slug，由打开方再解析 COS。
  * 不把 modelUrl / poster 写进 path，避免超过微信 1024 字限制。
  */
+var { isValidRocket3dSlug } = require('../../utils/rocket-3d-slug.js')
+var { pickShareImageUrl } = require('../../utils/share-thumb.js')
+
 function firstNonEmpty(list) {
   for (var i = 0; i < list.length; i++) {
     var s = String(list[i] || '').trim()
@@ -15,8 +18,10 @@ function buildRocket3dShareQuery(input) {
   var q = []
   var name = String(src.rocketName || '').trim()
   var nameEn = String(src.rocketNameEn || '').trim()
+  var slug = String(src.slug || '').trim().toLowerCase()
   if (name) q.push('name=' + encodeURIComponent(name))
   if (nameEn) q.push('nameEn=' + encodeURIComponent(nameEn))
+  if (isValidRocket3dSlug(slug)) q.push('slug=' + encodeURIComponent(slug))
   return q.join('&')
 }
 
@@ -30,15 +35,11 @@ function buildRocket3dShareOptions(input, mode) {
   var name = firstNonEmpty([src.rocketName, src.rocketNameEn]) || '火箭'
   var title = name + ' 3D 模型 | 火星探索日志'
   var poster = String(src.poster || '').trim()
-  var imageUrl = /^https:\/\//i.test(poster) ? poster : ''
+  var imageUrl = pickShareImageUrl({ displayImage: poster, rawImage: poster })
   if (mode === 'timeline') {
-    var timeline = { title: title, query: buildRocket3dShareQuery(src) }
-    if (imageUrl) timeline.imageUrl = imageUrl
-    return timeline
+    return { title: title, query: buildRocket3dShareQuery(src), imageUrl: imageUrl }
   }
-  var appMsg = { title: title, path: buildRocket3dSharePath(src) }
-  if (imageUrl) appMsg.imageUrl = imageUrl
-  return appMsg
+  return { title: title, path: buildRocket3dSharePath(src), imageUrl: imageUrl }
 }
 
 module.exports = {

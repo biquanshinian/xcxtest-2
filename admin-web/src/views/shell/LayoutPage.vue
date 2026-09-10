@@ -190,6 +190,8 @@
           <el-menu-item v-if="hasPerm('cos_storage')" index="/cos-storage">COS 云存储</el-menu-item>
           <el-menu-item v-if="hasPerm('cos_storage')" index="/rocket-config">火箭配置图</el-menu-item>
           <el-menu-item v-if="hasPerm('cos_storage')" index="/rocket-3d">火箭 3D 模型</el-menu-item>
+          <el-menu-item v-if="hasPerm('cos_storage')" index="/ip-reference-glb">IP 身高参照</el-menu-item>
+          <el-menu-item v-if="hasPerm('cos_storage')" index="/vehicle-reference-glb">车辆参照</el-menu-item>
           <el-menu-item v-if="hasPerm('global_config')" index="/orbital-config">太空轨道数据</el-menu-item>
         </el-sub-menu>
         <el-sub-menu
@@ -202,6 +204,7 @@
           <el-menu-item v-if="hasPerm('global_config')" index="/membership">会员管理</el-menu-item>
           <el-menu-item v-if="hasPerm('global_config')" index="/invite-stats">邀请统计</el-menu-item>
           <el-menu-item v-if="hasPerm('cloud_functions')" index="/cloud-functions">云函数</el-menu-item>
+          <el-menu-item v-if="hasPerm('global_config')" index="/ops-tools">运维工具</el-menu-item>
           <el-menu-item v-if="hasPerm('data_export')" index="/data-export">数据导出</el-menu-item>
           <el-menu-item v-if="hasPerm('users')" index="/users">用户权限</el-menu-item>
           <el-menu-item v-if="hasPerm('logs')" index="/logs">操作日志</el-menu-item>
@@ -405,6 +408,8 @@ const pageTitle = computed(() => {
     '/cos-storage': 'COS 云存储',
     '/rocket-config': '火箭配置图管理',
     '/rocket-3d': '火箭 3D 模型',
+    '/ip-reference-glb': 'IP 身高参照',
+    '/vehicle-reference-glb': '车辆参照',
     '/users': '用户权限',
     '/push-notify': '推送通知管理',
     '/launch-votes': '发射竞猜管理',

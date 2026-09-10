@@ -127,6 +127,7 @@ import { inspectOcrDates } from '../lib/audit.js'
 import { applyParsed, applyProjectMeta, ocrEngineHint, recognizeBestUpload } from '../lib/ocr.js'
 import { shouldFinishScan, unlockScanFeedback } from '../lib/scan-fill.js'
 import { typingInField } from '../lib/util.js'
+import { nameLooksHeif } from '../lib/heif-sniff.js'
 import '../preaudit.css'
 
 const route = useRoute()
@@ -273,6 +274,9 @@ const ingest = async (list, key) => {
     if (!picked.length) {
       ElMessage.warning('没有可用的图片或 PDF')
       return
+    }
+    if (picked.some((file) => nameLooksHeif(file.name, file.type))) {
+      ElMessage.info('正在把手机高效格式转成 JPG…')
     }
     await addFiles(project.value.id, target, picked)
     const failed = (liveFiles(target) || []).find((f) => f && f.storeError)

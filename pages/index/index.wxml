@@ -10,11 +10,19 @@
     <view class="mission-rocket-slot">
       <image class="mission-rocket-image" wx:if="{{item.rocketImage}}" src="{{item.rocketImage}}" mode="aspectFill" lazy-load="{{index > 1}}" binderror="onImageError" data-index="{{index}}"></image>
       <view wx:else class="mission-rocket-image mission-rocket-image--placeholder"></view>
-      <view class="mission-card-pano" wx:if="{{item && item.hasOrbitPano}}" aria-label="环绕全景">
-        <view class="mission-card-pano-orbit"></view>
-        <view class="mission-card-pano-orbit mission-card-pano-orbit--tilt"></view>
-        <view class="mission-card-pano-core">
-          <text class="mission-card-pano-360">360</text>
+      <view class="mission-card-3d" wx:if="{{item && item.hasRocket3d}}" aria-label="3D 模型">
+        <view class="mission-card-3d-bg"></view>
+        <view class="mission-card-3d-scene">
+          <view class="mission-card-3d-pulse">
+            <view class="mission-card-3d-cube">
+              <view class="mission-card-3d-face mission-card-3d-face--front"></view>
+              <view class="mission-card-3d-face mission-card-3d-face--back"></view>
+              <view class="mission-card-3d-face mission-card-3d-face--right"></view>
+              <view class="mission-card-3d-face mission-card-3d-face--left"></view>
+              <view class="mission-card-3d-face mission-card-3d-face--top"></view>
+              <view class="mission-card-3d-face mission-card-3d-face--bottom"></view>
+            </view>
+          </view>
         </view>
       </view>
       <view class="mission-rocket-countdown" wx:if="{{item.showRocketCountdown && item.cardCountdown && !item.cardCountdown.isExpired}}">
@@ -188,10 +196,11 @@
     
     <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
 <!-- 引导关注公众号（仅扫码等特定场景值展示，每页最多一个） -->
-    <official-account-bar />
+    <official-account-bar wx:if="{{homeSubpkgUiReady}}" />
 
     <!-- 系统通知：index-extra 组件 -->
     <index-announcement
+      wx:if="{{homeSubpkgUiReady}}"
       theme-class="{{themeClass}}"
       banner="{{announcementBanner}}"
       dialog-visible="{{announcementDialogVisible}}"
@@ -229,7 +238,7 @@
                 <view wx:else class="countdown-rocket-slot-inner countdown-rocket-avatar--placeholder"></view>
               </view>
               <!-- 节日帽：与星问同源日期；挂在 slot 外避免 overflow:hidden 裁切；size=132 贴合圆图 -->
-              <festival-hat hat="{{festivalHat}}" size="{{132}}" />
+              <festival-hat wx:if="{{homeSubpkgUiReady && festivalHat}}" hat="{{festivalHat}}" size="{{132}}" />
               <view wx:if="{{enableLiveEntry && isChannelsLive}}" class="cd-avatar-tag cd-avatar-tag--live">
                 <view class="cd-live-eq" aria-hidden="true">
                   <view class="cd-live-eq-bar"></view>
@@ -336,13 +345,19 @@
               </view>
               <view class="info-item">
                 <text class="info-label">发射地点</text>
-                <text class="info-value" user-select="{{true}}">{{launchData.launchSite || ''}}</text>
+                <view class="info-value info-value--with-jump">
+                  <text user-select="{{true}}">{{launchData.launchSite || ''}}</text>
+                  <view class="info-jump-btn" wx:if="{{launchData.padLocationId}}" catchtap="onGoLaunchSiteDetail">
+                    <text>详情</text>
+                    <text class="info-jump-arrow">›</text>
+                  </view>
+                </view>
               </view>
               <view class="info-item">
                 <text class="info-label">发射商</text>
                 <view class="info-value info-value--with-jump">
                   <text user-select="{{true}}">{{launchData.launchAgency || ''}}</text>
-                  <view class="info-jump-btn" wx:if="{{launchData.launchAgencyId || launchData.launchAgencyAbbrev}}" catchtap="onGoAgencyDetail">
+                  <view class="info-jump-btn" wx:if="{{launchData.launchAgencyId}}" catchtap="onGoAgencyDetail">
                     <text>详情</text>
                     <text class="info-jump-arrow">›</text>
                   </view>
@@ -358,13 +373,19 @@
               </view>
               <view class="info-item">
                 <text class="info-label">发射地点</text>
-                <text class="info-value" user-select="{{true}}">{{launchData.launchSite || ''}}</text>
+                <view class="info-value info-value--with-jump">
+                  <text user-select="{{true}}">{{launchData.launchSite || ''}}</text>
+                  <view class="info-jump-btn" wx:if="{{launchData.padLocationId}}" catchtap="onGoLaunchSiteDetail">
+                    <text>详情</text>
+                    <text class="info-jump-arrow">›</text>
+                  </view>
+                </view>
               </view>
               <view class="info-item">
                 <text class="info-label">发射商</text>
                 <view class="info-value info-value--with-jump">
                   <text user-select="{{true}}">{{launchData.launchAgency || ''}}</text>
-                  <view class="info-jump-btn" wx:if="{{launchData.launchAgencyId || launchData.launchAgencyAbbrev}}" catchtap="onGoAgencyDetail">
+                  <view class="info-jump-btn" wx:if="{{launchData.launchAgencyId}}" catchtap="onGoAgencyDetail">
                     <text>详情</text>
                     <text class="info-jump-arrow">›</text>
                   </view>
@@ -380,6 +401,7 @@
             <!-- 左：竞猜（准时 / 成败同槽切换） -->
             <!-- 竞猜：index-extra 组件 -->
             <index-vote-box
+              wx:if="{{homeSubpkgUiReady}}"
               theme-class="{{themeClass}}"
               launch-id="{{voteLaunchId}}"
               slot-visible="{{voteSlotVisible}}"
@@ -447,8 +469,13 @@
       <text class="countdown-side-chevron">›</text>
     </view>
 
-    <!-- 轮播加载前的等高骨架占位：仅「即将发射」；避免数据回来后插入 400rpx 块推挤下方列表（CLS） -->
+    <!-- 首帧用主包骨架占位，避免 index-carousel 实例化触发 index-extra 下载 -->
+    <view
+      wx:if="{{!homeSubpkgUiReady && missionType === 'upcoming'}}"
+      class="index-carousel-boot-skel"
+    ></view>
     <index-carousel
+      wx:if="{{homeSubpkgUiReady}}"
       id="indexCarousel"
       carousel-pending="{{carouselPending}}"
       carousel-items="{{carouselItems}}"
@@ -469,6 +496,7 @@
 
 
     <index-road-closure
+      wx:if="{{homeSubpkgUiReady}}"
       theme-class="{{themeClass}}"
       notice="{{roadClosureNotice}}"
       mission-type="{{missionType}}"
@@ -476,7 +504,7 @@
     />
 
     <!-- 发射日历视图 -->
-    <view class="calendar-section" wx:if="{{missionType === 'calendar'}}">
+    <view class="calendar-section" wx:if="{{homeSubpkgUiReady && missionType === 'calendar'}}">
       <!-- 月份导航 + 筛选面板 + 日历网格：launch-calendar 组件（index-extra 分包） -->
       <launch-calendar
         theme-class="{{themeClass}}"
@@ -674,16 +702,17 @@
   </scroll-view>
 
   <!-- 每日太空简报（须放在 scroll-view 外，全屏遮罩才能挡住顶栏导航与自定义 TabBar） -->
-  <morning-briefing id="morningBriefing" mode="popup" bind:sharebriefing="onShareBriefing" bind:closed="onBriefingClosed" />
+  <morning-briefing wx:if="{{homeSubpkgUiReady}}" id="morningBriefing" mode="popup" bind:sharebriefing="onShareBriefing" bind:closed="onBriefingClosed" />
 
   <!-- 会员到期续费提醒：串行在太空简报弹窗之后，避免叠层 -->
-  <renewal-reminder id="renewalReminder" bind:closed="onRenewalClosed" />
+  <renewal-reminder wx:if="{{homeSubpkgUiReady}}" id="renewalReminder" bind:closed="onRenewalClosed" />
 
   <!-- 发射时间变更：分包 shared；正式仅冷启动弹一次，未发射的改期每次冷启动都提醒 -->
-  <net-change-modal id="netChangeModal" />
+  <net-change-modal wx:if="{{homeSubpkgUiReady}}" id="netChangeModal" />
 
   <!-- 开屏动画：index-extra 组件（wxml/wxss 不占主包） -->
   <index-splash
+    wx:if="{{homeSubpkgUiReady}}"
     id="indexSplash"
     visible="{{splashVisible}}"
     fading="{{splashFading}}"
@@ -708,6 +737,7 @@
 
   <!-- 分享面板：index-extra 组件 -->
   <index-share-sheet
+    wx:if="{{homeSubpkgUiReady}}"
     theme-class="{{themeClass}}"
     visible="{{shareSheetVisible}}"
     mission="{{pendingShareMission}}"
@@ -716,8 +746,8 @@
   />
 
 
-<nasa-float id="nasaFloat" />
+<nasa-float wx:if="{{homeSubpkgUiReady}}" id="nasaFloat" />
   <privacy-modal id="globalPrivacyModal"></privacy-modal>
-  <demo-overlay id="demoOverlay" showControls="{{_isDemoLiveAccount}}" qrcodeUrl="{{demoQrcodeUrl}}" loop="{{true}}" bind:remoteStart="onDemoRemoteStart" bind:stop="onDemoStop" />
-  <share-guide />
+  <demo-overlay wx:if="{{homeSubpkgUiReady}}" id="demoOverlay" showControls="{{_isDemoLiveAccount}}" qrcodeUrl="{{demoQrcodeUrl}}" loop="{{true}}" bind:remoteStart="onDemoRemoteStart" bind:stop="onDemoStop" />
+  <share-guide wx:if="{{homeSubpkgUiReady}}" />
 </view>

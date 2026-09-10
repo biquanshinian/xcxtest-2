@@ -9,6 +9,9 @@ const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const themeUtil = require('../../utils/theme.js')
 const tabLoadPage = require('../../utils/tab-load-page.js')
 const { LIST_REVALIDATE_MS, takeForegroundResume, shouldRevalidate } = require('../../utils/foreground-resume.js')
+const { markTabOverlayReady, scheduleAfterTabOverlayReady } = require('../../utils/tab-overlay-ready.js')
+const { proxiedImageUrl, advanceImageFallback } = require('../../utils/ll2-image.js')
+const { pickShareImageUrl, SHARE_THUMB_FALLBACK } = require('../../utils/share-thumb.js')
 
 // 新闻接口已移入 news-extra 分包（仅 news tab 与详情页使用），按需异步加载以削减主包体积
 let _newsApiMod = null
@@ -84,6 +87,21 @@ function resolveArticleCardImage(item) {
     if (first) url = resolveCardMediaSrc(first)
   }
   return url
+}
+
+/** 列表卡配图：优先走与详情页同一条 Worker 代理链；thumb 未热完时至少包一层代理 */
+function resolveNewsCardImageForList(rawUrl, thumbWidthPx) {
+  const raw = String(rawUrl || '').trim()
+  if (!raw) return { cardImage: '', imageFallbacks: [] }
+  const thumb = _newsThumbMod
+  if (thumb && typeof thumb.resolveNewsListCardImage === 'function') {
+    return thumb.resolveNewsListCardImage(raw, thumbWidthPx)
+  }
+  const proxied = proxiedImageUrl(raw)
+  if (proxied && proxied !== raw) {
+    return { cardImage: proxied, imageFallbacks: [raw] }
+  }
+  return { cardImage: raw, imageFallbacks: [] }
 }
 
 /** 客户端兜底：统一按 publishedAt 毫秒降序混排（与 api.js 一致，不读 weight） */
@@ -201,7 +219,6 @@ Page({
     }
 
     try { tabLoadPage.beginPageLoad(tabLoadPage.TAB_ROUTES.news) } catch (e) {}
-    try { loadNewsThumb().catch(function () {}) } catch (e) {}
 
     // 新闻 Tab 默认落在「航天摄影」；开关关闭时由 _refreshPhotosNavFlag 回退到航天事件
     const contentType = 'photos'
@@ -251,7 +268,7 @@ Page({
     }).catch(function () {})
 
     // 先等开关，再 boot，避免摄影缓存在关入口时污染「航天事件」列表
-    // 预热摄影 helper，与 preloadRule 叠加，减少首屏委托等待
+    // 摄影列表需要 photos helper；缩略图预热改到 onReady，避免和首帧抢 news-extra
     void ensureNewsPhotos(this).catch(function () {})
     var refreshFlag = typeof this._refreshPhotosNavFlag === 'function'
       ? this._refreshPhotosNavFlag({ fromLoad: true })
@@ -278,6 +295,11 @@ Page({
           try { tabLoadPage.endPageLoad(tabLoadPage.TAB_ROUTES.news) } catch (e2) {}
         }
       })
+  },
+
+  onReady() {
+    markTabOverlayReady(this)
+    try { loadNewsThumb().catch(function () {}) } catch (e) {}
   },
 
   _clearLegacyArticleCaches() {
@@ -355,7 +377,7 @@ Page({
           })
           return
         }
-        this.setData(Object.assign({ newsList: cachedList }, pagePatch))
+        this.setData(Object.assign({ newsList: this._formatNewsListForView(contentType, cachedList) }, pagePatch))
         finish()
         // 先显旧数据，后台静默换新（手写稿排序/新事件不丢）
         try { this._silentRefreshFirstPage(contentType) } catch (e) {}
@@ -433,7 +455,7 @@ Page({
             })
             return
           }
-          self.setData(Object.assign({ newsList: cachedList }, pagePatch))
+          self.setData(Object.assign({ newsList: self._formatNewsListForView(type, cachedList) }, pagePatch))
           self._silentRefreshFirstPage(type)
           return
         }
@@ -443,9 +465,11 @@ Page({
       } else if (shouldRevalidate(self._foregroundResumeMs, LIST_REVALIDATE_MS)) {
         try { self._silentRefreshFirstPage(self.data.contentType) } catch (eSilent) {}
       }
-      require.async('../../subpackages/shared/utils/popup-ad.js')
-        .then(({ tryShowPopupAd }) => tryShowPopupAd(3, self))
-        .catch(() => {})
+      scheduleAfterTabOverlayReady(self, () => {
+        require.async('../../subpackages/shared/utils/popup-ad.js')
+          .then(({ tryShowPopupAd }) => tryShowPopupAd(3, self))
+          .catch(() => {})
+      })
     }, 0)
   },
 
@@ -477,6 +501,7 @@ Page({
     pageBgColor: '#000000',
     popupAdItem: null,
     popupAdVisible: false,
+    tabSubpkgUiReady: false,
     contentType: 'photos',
     showPhotosNav: false,
     pageDesc: 'SpaceX马斯克航天太空动态·星链星舰猎鹰9号火箭发射事件',
@@ -632,7 +657,7 @@ Page({
         this._setPhotosViewList(this._formatPhotosList(cachedList), pagePatch)
       } else {
         this.setData(Object.assign({
-          newsList: cachedList,
+          newsList: this._formatNewsListForView(type, cachedList),
           photoColLeft: [],
           photoColRight: []
         }, pagePatch))
@@ -662,36 +687,46 @@ Page({
     })
   },
 
-  /** 文章列表格式化（时间/卡片缩略图） */
-  _formatArticlesList(list) {
+  _newsThumbWidthPx() {
     const thumb = _newsThumbMod
-    const thumbWidthPx = thumb
-      ? thumb.getNewsListThumbTargetWidthPx(this.data.windowWidth || getSystemInfo().windowWidth)
-      : 640
+    if (thumb && typeof thumb.getNewsListThumbTargetWidthPx === 'function') {
+      return thumb.getNewsListThumbTargetWidthPx(this.data.windowWidth || getSystemInfo().windowWidth)
+    }
+    return 640
+  },
+
+  _formatNewsListForView(type, list) {
+    if (type === 'articles') return this._formatArticlesList(list)
+    if (type === 'events') return this._formatEventsList(list)
+    return list
+  },
+
+  /** 文章列表格式化（时间/卡片缩略图，与详情头图同一条 Worker 代理链） */
+  _formatArticlesList(list) {
+    const thumbWidthPx = this._newsThumbWidthPx()
     return (list || []).map(item => {
-      const rawImage = resolveArticleCardImage(item)
+      const resolved = resolveNewsCardImageForList(resolveArticleCardImage(item), thumbWidthPx)
       return {
         ...item,
         formattedTime: formatDate(item.publishedAt, 'MM月DD日 HH:mm'),
         formattedDate: formatDate(item.publishedAt, 'YYYY年MM月DD日 HH:mm'),
-        cardImage: rawImage && thumb ? thumb.optimizeNewsThumbUrl(rawImage, thumbWidthPx) : (rawImage || '')
+        cardImage: resolved.cardImage,
+        imageFallbacks: resolved.imageFallbacks
       }
     })
   },
 
   /** 事件列表格式化（列表优先 LL2 ~350px 缩略图，原图仅供详情页） */
   _formatEventsList(list) {
-    const thumb = _newsThumbMod
-    const eventThumbWidthPx = thumb
-      ? thumb.getNewsListThumbTargetWidthPx(this.data.windowWidth || getSystemInfo().windowWidth)
-      : 640
+    const thumbWidthPx = this._newsThumbWidthPx()
     return (list || []).map(item => {
-      const rawCardImage = item.listImage || item.image
+      const resolved = resolveNewsCardImageForList(item.listImage || item.image, thumbWidthPx)
       return {
         ...item,
         formattedTime: formatDate(item.date, 'MM月DD日 HH:mm'),
         formattedDate: formatDate(item.date, 'YYYY年MM月DD日 HH:mm'),
-        cardImage: rawCardImage && thumb ? thumb.optimizeNewsThumbUrl(rawCardImage, eventThumbWidthPx) : (rawCardImage || '')
+        cardImage: resolved.cardImage,
+        imageFallbacks: resolved.imageFallbacks
       }
     })
   },
@@ -835,7 +870,7 @@ Page({
           if (this._isStaleNewsLoad(type, loadToken)) return
           this._setPhotosViewList(this._formatPhotosList(safeCached), pagePatch)
         } else {
-          this.setData(Object.assign({ newsList: safeCached }, pagePatch))
+          this.setData(Object.assign({ newsList: this._formatNewsListForView(type, safeCached) }, pagePatch))
         }
         this._silentRefreshFirstPage(type)
         this._refreshArticlesNavDot()
@@ -1069,7 +1104,20 @@ Page({
 
   stopPropagation() {},
 
-  
+  onNewsCardImageError(e) {
+    const id = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.id : ''
+    if (!id) return
+    const list = this.data.newsList || []
+    const idx = list.findIndex((row) => String(row && row.id) === String(id))
+    if (idx < 0) return
+    const item = list[idx] || {}
+    const advanced = advanceImageFallback(item.cardImage || item.image, item.imageFallbacks)
+    this.setData({
+      [`newsList[${idx}].cardImage`]: advanced.next || '',
+      [`newsList[${idx}].imageFallbacks`]: advanced.remaining
+    })
+  },
+
   onNewsCardSnapshotTap(e) {
     const id = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.id : ''
     if (!id) return
@@ -1111,14 +1159,19 @@ Page({
 
   _resolveSharePayload(kind, item, shareDefault) {
     if (!item) return null
+    const imageUrl = pickShareImageUrl({
+      displayImage: item.cardImage || item.image || item.coverUrl || '',
+      rawImage: item.image || item.coverUrl || item.cardImage || '',
+      fallbacks: item.imageFallbacks,
+      safeFallback: shareDefault || SHARE_THUMB_FALLBACK
+    })
     if (kind === 'photo') {
       const title = ((item.authorName || '航天摄影') + (item.location ? ' · ' + item.location : '')) + ' | 火星探索日志'
       return {
         title,
         path: `/subpackages/news-extra/photo-detail?id=${encodeURIComponent(item.id)}`,
         query: `id=${encodeURIComponent(item.id)}`,
-        // 优先缩略图，避免自定义分享图体积过大
-        imageUrl: item.cardImage || item.coverUrl || shareDefault
+        imageUrl
       }
     }
     if (kind === 'event') {
@@ -1126,7 +1179,7 @@ Page({
         title: (item.title || '即将发生') + ' | 火星探索日志',
         path: `/subpackages/news-extra/detail?id=${encodeURIComponent(item.id)}&type=event`,
         query: `id=${encodeURIComponent(item.id)}&type=event`,
-        imageUrl: item.image || item.cardImage || shareDefault
+        imageUrl
       }
     }
     if (kind === 'article') {
@@ -1134,7 +1187,7 @@ Page({
         title: (item.title || '航天事件') + ' | 火星探索日志',
         path: `/subpackages/news-extra/detail?id=${encodeURIComponent(item.id)}&type=article`,
         query: `id=${encodeURIComponent(item.id)}&type=article`,
-        imageUrl: item.image || item.cardImage || shareDefault
+        imageUrl
       }
     }
     return null

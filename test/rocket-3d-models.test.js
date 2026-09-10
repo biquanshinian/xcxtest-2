@@ -32,6 +32,7 @@ const {
   isUprightExhibitSize,
   finalizeStandRotation,
   autoStandRotation,
+  isBoardSize,
   isNoseDown,
   measureEndWidths,
   rotateBoxByEuler,
@@ -44,10 +45,16 @@ const {
   meshRocketScore,
   getRenderableBox,
   getExhibitFrameBox,
+  applyBoxClip,
   applyManualStandFlip,
+  applyManualStandYaw,
   toggleManualStandFlip,
+  toggleManualStandYaw,
   isStandFlipped,
-  findStandGroup
+  isStandYawFlipped,
+  getStandFlipFlags,
+  findStandGroup,
+  findYawGroup
 } = require('../subpackages/rocket-3d/runtime.js')
 
 test('normalizeRocketKey：中文长征/猎鹰译成英文键', () => {
@@ -73,6 +80,67 @@ test('resolveSlug：常见型号命中稳定 slug', () => {
   assert.equal(resolveSlug('ZhuQue-3'), 'zhuque-3')
   assert.equal(resolveSlug('未知火箭xyz'), '')
   assert.equal(resolveSlug('Acme Heavy'), 'acme-heavy')
+})
+
+test('3D 型号目录：只列出已启用 slug，构型名覆盖底表', () => {
+  const { buildModelCatalog, pickCatalogItem, humanizeSlug } = require('../subpackages/rocket-3d/catalog.js')
+  assert.equal(humanizeSlug('falcon-9'), 'Falcon 9')
+  assert.equal(humanizeSlug('long-march-5b'), 'Long March 5B')
+  const items = buildModelCatalog(
+    { 'falcon-9': true, 'long-march-series': true, 'zhuque-3': true },
+    {
+      164: {
+        id: 164,
+        name: 'Falcon 9',
+        full_name: 'Falcon 9 Block 5',
+        nameZh: '猎鹰九号',
+        full_nameZh: '猎鹰 9 号 Block 5',
+        manufacturerName: 'SpaceX',
+        length: 70
+      }
+    }
+  )
+  assert.equal(items.length, 3)
+  const f9 = items.find((x) => x.slug === 'falcon-9')
+  assert.equal(f9.title, '猎鹰 9 号 Block 5')
+  assert.equal(f9.configId, '164')
+  assert.equal(f9.status, 'SpaceX')
+  const series = items[items.length - 1]
+  assert.equal(series.slug, 'long-march-series')
+  assert.equal(series.title, '长征全系列')
+  assert.equal(series.status, '全系列')
+  const overwritten = buildModelCatalog(
+    { 'long-march-series': true, starship: true },
+    {
+      99: {
+        id: 99,
+        name: 'Long March 2D',
+        full_name: 'Long March 2D/YZ-3',
+        nameZh: '长征二号丁',
+        full_nameZh: '长征二号丁/远征三号',
+        manufacturerNameZh: '中国航天科技集团'
+      }
+    }
+  )
+  const seriesRow = overwritten.find((x) => x.slug === 'long-march-series')
+  assert.equal(seriesRow.title, '长征全系列')
+  assert.notEqual(seriesRow.title, '长征二号丁/远征三号')
+  assert.notEqual(seriesRow.title, '星舰')
+  assert.equal(pickCatalogItem(items, 'zhuque-3').title, '朱雀三号')
+  assert.equal(pickCatalogItem(items, '', '长征全系列').slug, 'long-march-series')
+  assert.equal(pickCatalogItem(items, 'starship', '长征二号丁/远征三号'), null)
+  const { navFromDisplayedSlug } = require('../subpackages/rocket-3d/catalog.js')
+  const seriesNav = navFromDisplayedSlug('long-march-series', items)
+  assert.equal(seriesNav.pickerTitle, '长征全系列')
+  assert.equal(seriesNav.pickerSub, '中国航天科技集团')
+  assert.notEqual(seriesNav.pickerTitle, '星舰')
+  const czNameNav = navFromDisplayedSlug('long-march-series', [])
+  assert.equal(czNameNav.pickerTitle, '长征全系列')
+  assert.equal(navFromDisplayedSlug('falcon-9', items).pickerTitle, '猎鹰 9 号 Block 5')
+  assert.equal(navFromDisplayedSlug('starship', items).pickerTitle, '星舰')
+  assert.deepEqual(buildModelCatalog(null, null), [])
+  assert.equal(pickCatalogItem([], 'falcon-9'), null)
+  assert.deepEqual(require('../subpackages/rocket-3d/catalog.js').listReadySlugs({ 'falcon-9': true, 'bad slug': true }), ['falcon-9'])
 })
 
 test('未就绪型号不拼远端 URL，不显示入口', () => {
@@ -178,10 +246,21 @@ test('长征专用型号权重大于全系列，不覆盖已上传的具体模�
     assert.match(resolveReadyModelUrl({ rocketName: '长征七号改' }), /long-march-series\.glb/)
     const specific = resolveRocketModel({ rocketName: '长征五号' })
     assert.match(specific.url, /long-march-5\.glb/)
+    assert.equal(specific.slug, 'long-march-5')
     const family = resolveRocketModel({ rocketName: '长征七号改' })
     assert.match(family.url, /long-march-series\.glb/)
+    assert.equal(family.slug, 'long-march-series')
     assert.equal(family.series, true)
     assert.equal(specific.series, false)
+    const cz2d = resolveRocketModel({
+      rocketName: '长征二号丁/远征三号',
+      modelUrl: 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/models/rockets/long-march-series.glb'
+    })
+    assert.equal(cz2d.slug, 'long-march-series')
+    assert.equal(cz2d.series, true)
+    const { navFromDisplayedSlug } = require('../subpackages/rocket-3d/catalog.js')
+    assert.equal(navFromDisplayedSlug(cz2d.slug).pickerTitle, '长征全系列')
+    assert.equal(navFromDisplayedSlug(specific.slug).pickerTitle, '长征五号')
   } finally {
     ingestMediaMap({})
   }
@@ -259,26 +338,41 @@ test('pickStandRotationFromSize：任意轴向自动立起，不写死型号', (
   assert.equal(yUp.x, 0)
   assert.equal(yUp.z, 0)
   const board = pickStandRotationFromSize({ x: 80, y: 55, z: 8 })
-  assert.ok(Math.abs(board.z + Math.PI / 2) < 1e-6, '横躺展板应绕薄轴立起')
+  assert.equal(board.x, 0, '横排全系列已 Y-up 时保持底座水平')
+  assert.equal(board.z, 0)
   const uprightBoard = pickStandRotationFromSize({ x: 55, y: 80, z: 8 })
   assert.equal(uprightBoard.x, 0)
   assert.equal(uprightBoard.z, 0)
   const floorBoard = pickStandRotationFromSize({ x: 80, y: 8, z: 55 })
   assert.ok(Math.abs(floorBoard.x + Math.PI / 2) < 1e-6, '平铺展板应立起并对着镜头')
+  const wideLineup = pickStandRotationFromSize({ x: 120, y: 40, z: 12 })
+  assert.equal(wideLineup.x, 0, '更扁的横排展陈也不能当成 X-up 细长箭')
+  assert.equal(wideLineup.z, 0)
+  const veryWide = pickStandRotationFromSize({ x: 220, y: 32, z: 14 })
+  assert.equal(veryWide.x, 0, '宽高比很大的横排仍保持底座水平')
+  assert.equal(veryWide.z, 0)
 })
 
 test('isUprightExhibitSize：细长箭躺着或对着镜头都不算展陈直立', () => {
   assert.equal(isUprightExhibitSize({ x: 52.5, y: 21.6, z: 296.8 }), false)
   assert.equal(isUprightExhibitSize({ x: 52.5, y: 296.8, z: 21.6 }), true)
-  assert.equal(isUprightExhibitSize({ x: 80, y: 55, z: 8 }), false)
+  assert.equal(isUprightExhibitSize({ x: 80, y: 55, z: 8 }), true)
+  assert.equal(isUprightExhibitSize({ x: 80, y: 8, z: 55 }), false)
   assert.equal(isUprightExhibitSize({ x: 55, y: 80, z: 8 }), true)
   assert.equal(isUprightExhibitSize({ x: 4, y: 70, z: 4 }), true)
+  assert.equal(isUprightExhibitSize({ x: 120, y: 40, z: 12 }), true)
+  assert.equal(isUprightExhibitSize({ x: 220, y: 32, z: 14 }), true)
+  assert.equal(isBoardSize({ x: 90, y: 8, z: 12 }), false)
+  assert.equal(isBoardSize({ x: 220, y: 32, z: 14 }), true)
   const identity = { x: 0, y: 0, z: 0 }
   const forced = finalizeStandRotation({ x: 52.5, y: 21.6, z: 296.8 }, identity)
   assert.ok(Math.abs(forced.x + Math.PI / 2) < 1e-6, '躺平细长箭必须被纠正成立起')
   const keep = finalizeStandRotation({ x: 4, y: 70, z: 4 }, identity)
   assert.equal(keep.x, 0)
   assert.equal(keep.z, 0)
+  const keepLineup = finalizeStandRotation({ x: 220, y: 32, z: 14 }, { x: 0, y: 0, z: -Math.PI / 2 })
+  assert.equal(keepLineup.x, 0, '已直立横排不能被 90° 候选改轴')
+  assert.equal(keepLineup.z, 0)
 })
 
 test('scoreStandSize：对着镜头的细长轴要扣分，避免看不见', () => {
@@ -336,14 +430,25 @@ test('autoStandRotation：已竖直的箭和展板不被改轴', () => {
   assert.equal(boardRot.x, 0)
   assert.equal(boardRot.z, 0)
 
-  const lying = makeMesh('SeriesLie', [-40, 0, -4], [40, 55, 4])
+  const lying = makeMesh('SeriesLie', [-40, 0, -28], [40, 8, 28])
   const lyingStand = {
     rotation: { x: 0, y: 0, z: 0, set: function (x, y, z) { this.x = x; this.y = y; this.z = z } },
     updateMatrixWorld: function () {},
     traverse: function (fn) { fn(lying) }
   }
   const lyingRot = autoStandRotation(lyingStand, THREE)
-  assert.ok(Math.abs(lyingRot.z + Math.PI / 2) < 1e-6, '横躺展板仍应立起')
+  assert.ok(Math.abs(lyingRot.x + Math.PI / 2) < 1e-6, '平铺在地的展板应绕 X 立起')
+  assert.equal(lyingRot.z, 0)
+
+  const lineup = makeMesh('LongMarchSeries', [-60, 0, -6], [60, 38, 6])
+  const lineupStand = {
+    rotation: { x: 0, y: 0, z: 0, set: function (x, y, z) { this.x = x; this.y = y; this.z = z } },
+    updateMatrixWorld: function () {},
+    traverse: function (fn) { fn(lineup) }
+  }
+  const lineupRot = autoStandRotation(lineupStand, THREE)
+  assert.equal(lineupRot.x, 0, '横排全系列不应绕 X 躺倒')
+  assert.equal(lineupRot.z, 0, '横排全系列不应绕 Z 把底座立成展板')
 })
 
 test('isNoseDown：顶部更粗判定为倒立', () => {
@@ -511,6 +616,22 @@ test('autoStandRotation：三台发动机在底也足够判定正立，不要求
   assert.equal(rot.z, 0)
 })
 
+test('autoStandRotation：多箭横排+底部发动机保持底座水平，不倒立也不立成展板', () => {
+  const THREE = createBoxThree()
+  const meshes = [makeMesh('Platform', [-70, -0.8, -8], [70, 0.2, 8])]
+  for (let i = 0; i < 14; i++) {
+    const x = -63 + i * 9.5
+    const h = 28 + (i % 4) * 6
+    meshes.push(makeMesh('CZ' + i, [x - 1.1, 0.2, -1.1], [x + 1.1, h, 1.1]))
+    meshes.push(makeMesh('YF-100', [x - 0.35, -1.1, -0.35], [x + 0.35, 0.25, 0.35]))
+  }
+  const stand = makeStand(meshes)
+  assert.equal(isNoseDown(stand, THREE), false)
+  const rot = autoStandRotation(stand, THREE)
+  assert.equal(rot.x, 0, '全系列不能绕 X 倒立或侧躺')
+  assert.equal(rot.z, 0, '全系列不能绕 Z 把台面立成竖版')
+})
+
 test('rotateBoxByEuler：-90°X 把 Z-up 盒立到 Y-up', () => {
   const THREE = createBoxThree()
   const box = new THREE.Box3()
@@ -527,16 +648,17 @@ test('rotateBoxByEuler：-90°X 把 Z-up 盒立到 Y-up', () => {
   assert.ok(Math.abs(size.y - predicted.y) < 1e-6)
 })
 
-test('exhibitStandRotation：全系列展板绕薄轴立起，不按单箭倾倒', () => {
+test('exhibitStandRotation：全系列横排保持底座水平，不把台面立成竖版', () => {
   const board = exhibitStandRotation({ x: 80, y: 55, z: 8 })
   assert.equal(board.x, 0)
   assert.equal(board.y, 0)
-  assert.ok(Math.abs(board.z + Math.PI / 2) < 1e-6)
-  assert.equal(board.flip, 'z')
+  assert.equal(board.z, 0)
   const uprightBoard = exhibitStandRotation({ x: 55, y: 80, z: 8 })
   assert.equal(uprightBoard.x, 0)
   assert.equal(uprightBoard.y, 0)
   assert.equal(uprightBoard.z, 0)
+  const floorBoard = exhibitStandRotation({ x: 80, y: 8, z: 55 })
+  assert.ok(Math.abs(floorBoard.x + Math.PI / 2) < 1e-6)
 })
 
 test('adaptViewerTextures：只改采样，不改颜色金属度', () => {
@@ -665,6 +787,573 @@ test('ensureDrawableModel：纯贴图改为 Lambert，完整 PBR 不换材质', 
   )
   assert.equal(fhMesh.material.isLambert, true)
   assert.equal(fhMesh.material.map, map)
+})
+
+test('ensureDrawableModel：非脆弱模型不改视锥和材质', () => {
+  const mesh = {
+    isMesh: true,
+    frustumCulled: true,
+    material: { needsUpdate: false, metalness: 0.2 },
+    geometry: { index: null, attributes: {} }
+  }
+  ensureDrawableModel(
+    {
+      traverse: function (fn) {
+        fn(mesh)
+      }
+    },
+    { DoubleSide: 2 }
+  )
+  assert.equal(mesh.frustumCulled, true)
+  assert.equal(mesh.material.side, undefined)
+  assert.equal(mesh.material.metalness, 0.2)
+})
+
+test('ensureDrawableModel：iOS 全系列展板收成 Basic，贴图和纯色箭体都画', () => {
+  const prevWx = global.wx
+  global.wx = {
+    getDeviceInfo: function () {
+      return { platform: 'ios' }
+    }
+  }
+  try {
+    const readyMap = { image: { width: 64, height: 64, complete: true } }
+    const meshes = []
+    for (let i = 0; i < 12; i++) {
+      meshes.push({
+        isMesh: true,
+        visible: true,
+        name: 'CZ' + i,
+        frustumCulled: true,
+        geometry: {
+          boundingBox: {
+            min: { x: -60 + i * 10, y: 0, z: -2 },
+            max: { x: -50 + i * 10, y: 38, z: 2 }
+          },
+          index: null,
+          attributes: {}
+        },
+        material: {
+          type: 'MeshStandardMaterial',
+          map: i % 3 === 0 ? readyMap : null,
+          normalMap: readyMap,
+          color: makeColor(0.82, 0.84, 0.86),
+          metalness: 0.4,
+          roughness: 0.5
+        }
+      })
+    }
+    function Basic(opts) {
+      this.isBasic = true
+      this.isMeshBasicMaterial = true
+      this.map = opts.map
+      this.color = opts.color
+    }
+    function Color(r, g, b) {
+      this.r = r
+      this.g = g
+      this.b = b
+    }
+    const THREE = Object.assign(createBoxThree(), {
+      Color,
+      DoubleSide: 2,
+      MeshBasicMaterial: Basic,
+      MeshPhongMaterial: function () { this.isPhong = true },
+      MeshLambertMaterial: function () { this.isLambert = true }
+    })
+    meshes[1].material.color = makeColor(0.12, 0.12, 0.14)
+    ensureDrawableModel(
+      {
+        traverse: function (fn) {
+          meshes.forEach(fn)
+        }
+      },
+      THREE
+    )
+    assert.equal(meshes[0].frustumCulled, false)
+    assert.equal(meshes[0].material.isBasic, true)
+    assert.equal(meshes[0].material.map, readyMap)
+    assert.equal(meshes[1].material.isBasic, true)
+    assert.equal(meshes[1].material.map, null)
+    assert.ok(meshes[1].material.color.r >= 0.7, '无贴图深色箭体应收亮，避免 Basic 发黑')
+    assert.equal(meshes[11].material.isBasic, true)
+  } finally {
+    global.wx = prevWx
+  }
+})
+
+test('ensureDrawableModel：iOS 普通细长箭保持 PBR，不跟全系列一起改材质', () => {
+  const prevWx = global.wx
+  global.wx = {
+    getDeviceInfo: function () {
+      return { platform: 'ios' }
+    }
+  }
+  try {
+    const body = {
+      isMesh: true,
+      visible: true,
+      name: 'Falcon9',
+      frustumCulled: true,
+      geometry: {
+        boundingBox: {
+          min: { x: -2, y: 0, z: -2 },
+          max: { x: 2, y: 70, z: 2 }
+        },
+        index: null,
+        attributes: {}
+      },
+      material: {
+        type: 'MeshStandardMaterial',
+        color: makeColor(0.9, 0.9, 0.92),
+        metalness: 0.25,
+        roughness: 0.55,
+        normalMap: { image: { width: 64, height: 64, complete: true } }
+      }
+    }
+    ensureDrawableModel(
+      {
+        traverse: function (fn) {
+          fn(body)
+        }
+      },
+      Object.assign(createBoxThree(), {
+        DoubleSide: 2,
+        MeshBasicMaterial: function () { this.isBasic = true },
+        MeshPhongMaterial: function () { this.isPhong = true },
+        MeshLambertMaterial: function () { this.isLambert = true }
+      })
+    )
+    assert.equal(body.frustumCulled, true)
+    assert.equal(body.material.isBasic, undefined)
+    assert.equal(body.material.isPhong, undefined)
+    assert.equal(body.material.type, 'MeshStandardMaterial')
+    assert.ok(body.material.normalMap)
+    assert.equal(body.material.metalness, 0.25)
+  } finally {
+    global.wx = prevWx
+  }
+})
+
+test('ensureDrawableModel：iOS 细长箭带地坪不按全系列收 Basic', () => {
+  const prevWx = global.wx
+  global.wx = {
+    getDeviceInfo: function () {
+      return { platform: 'ios' }
+    }
+  }
+  try {
+    const meshes = [
+      {
+        isMesh: true,
+        visible: true,
+        name: 'Falcon9',
+        frustumCulled: true,
+        geometry: {
+          boundingBox: { min: { x: -2, y: 0, z: -2 }, max: { x: 2, y: 70, z: 2 } },
+          index: null,
+          attributes: {}
+        },
+        material: {
+          type: 'MeshStandardMaterial',
+          color: makeColor(0.9, 0.9, 0.92),
+          metalness: 0.25,
+          roughness: 0.55,
+          normalMap: { image: { width: 64, height: 64, complete: true } }
+        }
+      },
+      {
+        isMesh: true,
+        visible: true,
+        name: 'Hangar',
+        geometry: {
+          boundingBox: { min: { x: -100, y: 0, z: -10 }, max: { x: 100, y: 8, z: 10 } },
+          index: null,
+          attributes: {}
+        },
+        material: { type: 'MeshStandardMaterial', color: makeColor(0.4, 0.4, 0.42), metalness: 0.1, roughness: 0.8 }
+      }
+    ]
+    for (let i = 0; i < 5; i++) {
+      meshes.push({
+        isMesh: true,
+        visible: true,
+        name: 'Crate' + i,
+        geometry: {
+          boundingBox: { min: { x: i * 10, y: 0, z: 12 }, max: { x: i * 10 + 8, y: 8, z: 20 } },
+          index: null,
+          attributes: {}
+        },
+        material: { type: 'MeshStandardMaterial', color: makeColor(0.5, 0.5, 0.5), metalness: 0.2, roughness: 0.7 }
+      })
+    }
+    ensureDrawableModel(
+      {
+        traverse: function (fn) {
+          meshes.forEach(fn)
+        }
+      },
+      Object.assign(createBoxThree(), {
+        DoubleSide: 2,
+        MeshBasicMaterial: function () { this.isBasic = true },
+        MeshLambertMaterial: function () { this.isLambert = true }
+      })
+    )
+    assert.equal(meshes[0].material.isBasic, undefined)
+    assert.equal(meshes[0].material.type, 'MeshStandardMaterial')
+    assert.equal(meshes[0].material.metalness, 0.25)
+    assert.equal(meshes[1].material.isBasic, undefined)
+  } finally {
+    global.wx = prevWx
+  }
+})
+
+test('ensureDrawableModel：iOS 星舰保持 git 仓库 PBR，不剥金属度贴图', () => {
+  const prevWx = global.wx
+  global.wx = {
+    getDeviceInfo: function () {
+      return { platform: 'ios' }
+    }
+  }
+  try {
+    const mr = { image: { width: 64, height: 64, complete: true } }
+    const body = {
+      isMesh: true,
+      visible: true,
+      name: 'Starship',
+      frustumCulled: true,
+      geometry: {
+        boundingBox: { min: { x: -4.5, y: 0, z: -4.5 }, max: { x: 4.5, y: 50, z: 4.5 } },
+        index: null,
+        attributes: {}
+      },
+      material: {
+        type: 'MeshStandardMaterial',
+        color: makeColor(0.72, 0.74, 0.76),
+        metalness: 0.92,
+        roughness: 0.18,
+        metalnessMap: mr,
+        roughnessMap: mr,
+        normalMap: mr,
+        side: 2
+      }
+    }
+    ensureDrawableModel(
+      {
+        traverse: function (fn) {
+          fn(body)
+        }
+      },
+      Object.assign(createBoxThree(), {
+        DoubleSide: 2,
+        MeshBasicMaterial: function () { this.isBasic = true },
+        MeshLambertMaterial: function () { this.isLambert = true }
+      })
+    )
+    assert.equal(body.material.isBasic, undefined)
+    assert.equal(body.material.type, 'MeshStandardMaterial')
+    assert.equal(body.material.metalnessMap, mr)
+    assert.equal(body.material.roughnessMap, mr)
+    assert.equal(body.material.metalness, 0.92)
+    assert.equal(body.material.roughness, 0.18)
+    assert.equal(body.material.side, 2)
+    assert.equal(body.frustumCulled, true)
+  } finally {
+    global.wx = prevWx
+  }
+})
+
+test('ensureDrawableModel：iOS 圆柱全系列也收 Basic，深色底提亮', () => {
+  const prevWx = global.wx
+  global.wx = {
+    getDeviceInfo: function () {
+      return { platform: 'ios' }
+    }
+  }
+  try {
+    function Color(r, g, b) {
+      this.r = r
+      this.g = g
+      this.b = b
+    }
+    function Basic(opts) {
+      this.isBasic = true
+      this.isMeshBasicMaterial = true
+      this.map = opts.map
+      this.color = opts.color
+    }
+    const meshes = []
+    for (let i = 0; i < 12; i++) {
+      const x = -63 + i * 9.5
+      meshes.push({
+        isMesh: true,
+        visible: true,
+        name: 'CZ' + i,
+        geometry: {
+          boundingBox: {
+            min: { x: x - 1.1, y: 0.2, z: -1.1 },
+            max: { x: x + 1.1, y: 38, z: 1.1 }
+          },
+          index: null,
+          attributes: {}
+        },
+        material: {
+          type: 'MeshStandardMaterial',
+          metalness: 0.4,
+          roughness: 0.5,
+          color: makeColor(0.12, 0.12, 0.14)
+        }
+      })
+    }
+    ensureDrawableModel(
+      {
+        traverse: function (fn) {
+          meshes.forEach(fn)
+        }
+      },
+      Object.assign(createBoxThree(), {
+        Color,
+        DoubleSide: 2,
+        MeshBasicMaterial: Basic,
+        MeshLambertMaterial: function () { this.isLambert = true }
+      })
+    )
+    assert.equal(meshes[0].material.isBasic, true)
+    assert.ok(meshes[0].material.color.r >= 0.7)
+    assert.equal(meshes[11].material.isBasic, true)
+  } finally {
+    global.wx = prevWx
+  }
+})
+
+test('ensureDrawableModel：iOS 猎鹰9加九台发动机和地坪不收 Basic', () => {
+  const prevWx = global.wx
+  global.wx = {
+    getDeviceInfo: function () {
+      return { platform: 'ios' }
+    }
+  }
+  try {
+    const meshes = [
+      {
+        isMesh: true,
+        visible: true,
+        name: 'F9',
+        geometry: {
+          boundingBox: { min: { x: -1.85, y: 3, z: -1.85 }, max: { x: 1.85, y: 70, z: 1.85 } },
+          index: null,
+          attributes: {}
+        },
+        material: {
+          type: 'MeshStandardMaterial',
+          metalness: 0,
+          roughness: 0.99,
+          color: makeColor(0.015, 0.015, 0.015)
+        }
+      },
+      {
+        isMesh: true,
+        visible: true,
+        name: 'Hangar',
+        geometry: {
+          boundingBox: { min: { x: -100, y: 0, z: -10 }, max: { x: 100, y: 8, z: 10 } },
+          index: null,
+          attributes: {}
+        },
+        material: { type: 'MeshStandardMaterial', metalness: 0.1, roughness: 0.8, color: makeColor(0.4, 0.4, 0.42) }
+      }
+    ]
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2
+      const cx = Math.cos(a) * 1.2
+      const cz = Math.sin(a) * 1.2
+      meshes.push({
+        isMesh: true,
+        visible: true,
+        name: 'Merlin' + i,
+        geometry: {
+          boundingBox: {
+            min: { x: cx - 0.45, y: 0, z: cz - 0.45 },
+            max: { x: cx + 0.45, y: 3.1, z: cz + 0.45 }
+          },
+          index: null,
+          attributes: {}
+        },
+        material: {
+          type: 'MeshStandardMaterial',
+          metalness: 0.55,
+          roughness: 0.35,
+          color: makeColor(0.55, 0.56, 0.58)
+        }
+      })
+    }
+    ensureDrawableModel(
+      {
+        traverse: function (fn) {
+          meshes.forEach(fn)
+        }
+      },
+      Object.assign(createBoxThree(), {
+        DoubleSide: 2,
+        MeshBasicMaterial: function () { this.isBasic = true },
+        MeshLambertMaterial: function () { this.isLambert = true }
+      })
+    )
+    assert.equal(meshes[0].material.isBasic, undefined)
+    assert.equal(meshes[0].material.color.r, 0.015)
+    assert.equal(meshes[0].material.type, 'MeshStandardMaterial')
+    assert.equal(meshes[2].material.isBasic, undefined)
+  } finally {
+    global.wx = prevWx
+  }
+})
+
+test('ensureDrawableModel：iOS 全系列标记单网格也收 Basic，MASK 无贴图不带 alphaTest', () => {
+  const prevWx = global.wx
+  global.wx = {
+    getDeviceInfo: function () {
+      return { platform: 'ios' }
+    }
+  }
+  try {
+    function Basic(opts) {
+      this.isBasic = true
+      this.isMeshBasicMaterial = true
+      this.map = opts.map
+      this.color = opts.color
+      this.alphaTest = opts.alphaTest
+      this.transparent = opts.transparent
+    }
+    const body = {
+      isMesh: true,
+      visible: true,
+      name: 'Lineup',
+      geometry: {
+        boundingBox: { min: { x: -70, y: 0, z: -2 }, max: { x: 70, y: 38, z: 2 } },
+        index: null,
+        attributes: {}
+      },
+      material: {
+        type: 'MeshStandardMaterial',
+        metalness: 0.5,
+        roughness: 0.5,
+        alphaTest: 0.5,
+        transparent: false,
+        color: makeColor(0.96, 0.69, 0.27)
+      }
+    }
+    const flag = {
+      isMesh: true,
+      visible: true,
+      name: 'Flag',
+      geometry: {
+        boundingBox: { min: { x: 0, y: 20, z: -0.1 }, max: { x: 4, y: 28, z: 0.1 } },
+        index: null,
+        attributes: {}
+      },
+      material: {
+        type: 'MeshStandardMaterial',
+        metalness: 0.5,
+        roughness: 0.5,
+        alphaTest: 0.5,
+        map: { image: { width: 64, height: 64, complete: true } },
+        color: makeColor(1, 1, 1)
+      }
+    }
+    ensureDrawableModel(
+      {
+        traverse: function (fn) {
+          fn(body)
+          fn(flag)
+        }
+      },
+      Object.assign(createBoxThree(), {
+        Color: function (r, g, b) { this.r = r; this.g = g; this.b = b },
+        DoubleSide: 2,
+        MeshBasicMaterial: Basic,
+        MeshLambertMaterial: function () { this.isLambert = true }
+      }),
+      { series: true }
+    )
+    assert.equal(body.material.isBasic, true)
+    assert.equal(body.material.alphaTest, undefined)
+    assert.equal(body.material.transparent, false)
+    assert.ok(body.material.color.r >= 0.9)
+    assert.equal(flag.material.isBasic, true)
+    assert.equal(flag.material.alphaTest, 0.5)
+    assert.equal(flag.material.map.image.width, 64)
+  } finally {
+    global.wx = prevWx
+  }
+})
+
+test('ensureDrawableModel：安卓全系列标记不改材质', () => {
+  const prevWx = global.wx
+  global.wx = {
+    getDeviceInfo: function () {
+      return { platform: 'android' }
+    }
+  }
+  try {
+    const body = {
+      isMesh: true,
+      visible: true,
+      name: 'Lineup',
+      geometry: {
+        boundingBox: { min: { x: -70, y: 0, z: -2 }, max: { x: 70, y: 38, z: 2 } },
+        index: null,
+        attributes: {}
+      },
+      material: {
+        type: 'MeshStandardMaterial',
+        metalness: 0.5,
+        roughness: 0.5,
+        color: makeColor(0.96, 0.69, 0.27)
+      }
+    }
+    ensureDrawableModel(
+      {
+        traverse: function (fn) {
+          fn(body)
+        }
+      },
+      Object.assign(createBoxThree(), {
+        MeshBasicMaterial: function () { this.isBasic = true },
+        MeshLambertMaterial: function () { this.isLambert = true }
+      }),
+      { series: true }
+    )
+    assert.equal(body.material.isBasic, undefined)
+    assert.equal(body.material.type, 'MeshStandardMaterial')
+    assert.equal(body.material.metalness, 0.5)
+  } finally {
+    global.wx = prevWx
+  }
+})
+
+test('applyBoxClip：近远裁剪比收紧，避免深度缓冲把箭体切成环', () => {
+  const THREE = createBoxThree()
+  THREE.Vector3.prototype.distanceTo = function (other) {
+    const dx = this.x - other.x
+    const dy = this.y - other.y
+    const dz = this.z - other.z
+    return Math.sqrt(dx * dx + dy * dy + dz * dz)
+  }
+  const box = new THREE.Box3()
+  box.min.x = -60
+  box.min.y = 0
+  box.min.z = -8
+  box.max.x = 60
+  box.max.y = 40
+  box.max.z = 8
+  const camera = {
+    position: new THREE.Vector3(0, 20, 180),
+    updateProjectionMatrix: function () {}
+  }
+  applyBoxClip(camera, box, THREE)
+  assert.ok(camera.far / camera.near <= 2500)
+  assert.ok(camera.near > 0)
+  assert.ok(camera.far > camera.near)
 })
 
 test('ensureDrawableModel：猎鹰9式喷漆深色保持原样', () => {
@@ -952,6 +1641,11 @@ test('3D 页分享 path 只带型号名，不带 modelUrl', () => {
   assert.equal(buildRocket3dSharePath(input), '/subpackages/rocket-3d/viewer?' + query)
   assert.doesNotMatch(query, /modelUrl/)
   assert.doesNotMatch(query, /poster/)
+  assert.match(
+    buildRocket3dShareQuery({ rocketName: '星舰', slug: 'starship' }),
+    /slug=starship/
+  )
+  assert.doesNotMatch(buildRocket3dShareQuery({ rocketName: '星舰', slug: 'bad slug' }), /slug=/)
   const appMsg = buildRocket3dShareOptions(input, 'app')
   assert.equal(appMsg.title, '星舰 3D 模型 | 火星探索日志')
   assert.equal(appMsg.path, '/subpackages/rocket-3d/viewer?' + query)
@@ -967,7 +1661,8 @@ function makeFlipSession(base, axis) {
     _r3dStand: {
       base: base || { x: 0, y: 0, z: 0 },
       axis: axis || 'x',
-      flipped: false
+      flipped: false,
+      flippedLeft: false
     },
     rotation: {
       x: (base && base.x) || 0,
@@ -982,16 +1677,33 @@ function makeFlipSession(base, axis) {
     updateMatrixWorld: function () {},
     children: []
   }
+  const yaw = {
+    name: 'r3d-yaw',
+    rotation: {
+      x: 0,
+      y: 0,
+      z: 0,
+      set: function (x, y, z) {
+        this.x = x
+        this.y = y
+        this.z = z
+      }
+    },
+    updateMatrixWorld: function () {},
+    children: [stand]
+  }
   return {
     modelRoot: {
       name: 'r3d-exhibit-root',
-      children: [stand],
+      children: [yaw],
       traverse: function (fn) {
         fn(this)
+        fn(yaw)
         fn(stand)
       }
     },
-    _stand: stand
+    _stand: stand,
+    _yaw: yaw
   }
 }
 
@@ -1018,7 +1730,29 @@ test('applyManualStandFlip：展板类 Z 轴翻转，空输入不炸', () => {
   assert.equal(isStandFlipped(null), false)
 })
 
-test('stand-flip-pref：按 slug 记住手动翻转', () => {
+test('applyManualStandYaw：左右翻转绕竖直轴 180°，与上下翻转互不覆盖', () => {
+  const session = makeFlipSession({ x: 0, y: 0, z: 0 }, 'x')
+  assert.equal(findYawGroup(session.modelRoot).name, 'r3d-yaw')
+  assert.equal(isStandYawFlipped(session), false)
+  assert.equal(applyManualStandYaw(session, true), true)
+  assert.equal(isStandYawFlipped(session), true)
+  assert.deepEqual(getStandFlipFlags(session), { up: false, left: true })
+  assert.ok(Math.abs(session._yaw.rotation.y - Math.PI) < 1e-6)
+  assert.equal(session._stand.rotation.x, 0)
+  assert.equal(applyManualStandFlip(session, true), true)
+  assert.ok(Math.abs(session._stand.rotation.x - Math.PI) < 1e-6)
+  assert.ok(Math.abs(session._yaw.rotation.y - Math.PI) < 1e-6)
+  assert.deepEqual(getStandFlipFlags(session), { up: true, left: true })
+  assert.equal(toggleManualStandYaw(session), false)
+  assert.equal(isStandYawFlipped(session), false)
+  assert.equal(isStandFlipped(session), true)
+  assert.deepEqual(getStandFlipFlags(session), { up: true, left: false })
+  assert.equal(applyManualStandYaw(null, true), false)
+  assert.equal(toggleManualStandYaw(null), false)
+  assert.equal(isStandYawFlipped(null), false)
+})
+
+test('stand-flip-pref：按 slug 记住上下和左右翻转', () => {
   const prevWx = global.wx
   const store = {}
   global.wx = {
@@ -1031,10 +1765,17 @@ test('stand-flip-pref：按 slug 记住手动翻转', () => {
     assert.equal(pref.getStandFlipPref('starship'), false)
     assert.equal(pref.setStandFlipPref('Starship', true), true)
     assert.equal(pref.getStandFlipPref('starship'), true)
-    assert.equal(store[pref.STORE_KEY].starship, 1)
+    assert.equal(store[pref.STORE_KEY].starship.up, 1)
+    assert.equal(pref.setStandFlipState('starship', { up: true, left: true }).left, true)
+    assert.equal(pref.getStandFlipState('STARSHIP').up, true)
+    assert.equal(pref.getStandFlipState('starship').left, true)
     assert.equal(pref.setStandFlipPref('starship', false), false)
     assert.equal(pref.getStandFlipPref('STARSHIP'), false)
-    assert.equal(store[pref.STORE_KEY].starship, undefined)
+    assert.equal(pref.getStandFlipState('starship').left, true)
+    store[pref.STORE_KEY_LEGACY] = { falcon: 1 }
+    delete store[pref.STORE_KEY]
+    assert.equal(pref.getStandFlipPref('falcon'), true)
+    assert.equal(pref.getStandFlipState('falcon').left, false)
   } finally {
     global.wx = prevWx
   }

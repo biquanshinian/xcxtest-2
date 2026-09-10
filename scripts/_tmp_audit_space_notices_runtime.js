@@ -47,7 +47,8 @@ const FILES = [
   'subpackages/monitor-pages/space-notices/utils/map-build.js',
   'subpackages/monitor-pages/space-notices/utils/api-space-notices.js',
   'subpackages/monitor-pages/space-notices/utils/notam-meta.js',
-  'utils/space-notices-feature.js'
+  'utils/space-notices-feature.js',
+  'subpackages/monitor-pages/components/china-notice-preview/index.js'
 ]
 check('required files', FILES.every(exists), FILES.filter((f) => !exists(f)).join(',') || 'ok')
 check('main package api removed', !exists('utils/api-space-notices.js'))
@@ -63,6 +64,8 @@ const listBal = mustacheBalance('subpackages/monitor-pages/space-notices/entry-l
 const mapBal = mustacheBalance('subpackages/monitor-pages/space-notices/notice-map.wxml')
 check('entry-list wxml mustache', listBal.ok, `${listBal.a}/${listBal.b}`)
 check('notice-map wxml mustache', mapBal.ok, `${mapBal.a}/${mapBal.b}`)
+const previewBal = mustacheBalance('subpackages/monitor-pages/components/china-notice-preview/index.wxml')
+check('china-notice-preview wxml mustache', previewBal.ok, `${previewBal.a}/${previewBal.b}`)
 
 // ── 2) 契约 ──
 const cfIndex = read('cloudfunctions/spaceNotices/index.js')
@@ -82,7 +85,7 @@ const mapJs = read('subpackages/monitor-pages/space-notices/notice-map.js')
 const mapWxml = read('subpackages/monitor-pages/space-notices/notice-map.wxml')
 check('pageBase both pages', /behaviors:\s*\[\s*pageBase\s*\]/.test(listJs) && /behaviors:\s*\[\s*pageBase\s*\]/.test(mapJs))
 check('polyline + corridor UI', /polyline="\{\{polylines\}\}"/.test(mapWxml) && /showCorridor/.test(mapJs))
-check('sync toast shows rotate progress', /entriesProcessed/.test(listJs) && /entryTotal/.test(listJs))
+check('列表静默自动同步', /_quietSync/.test(listJs) && /syncSpaceNotices/.test(listJs) && !/entriesProcessed/.test(listJs))
 
 // ── 3) 解析器运行时 ──
 const {
@@ -93,6 +96,8 @@ const { DEMO_NOTICES, E2700_RAW, FLIGHT13_LL2_ID } = require('../cloudfunctions/
 const {
   buildPolygonsFromNotices,
   buildPolylinesFromNotices,
+  buildTrajectoryPolyline,
+  resolveTrajectory,
   fitCenter
 } = require('../subpackages/monitor-pages/space-notices/utils/map-build.js')
 const {
@@ -121,7 +126,9 @@ const polys = buildPolygonsFromNotices(DEMO_NOTICES, {
 })
 // 假走廊已下线：ADP 图层不再产生折线，黄线由 trajectory 包单独成层
 const lines = buildPolylinesFromNotices(DEMO_NOTICES, { NOTAM: true, NAVWARNING: true, ADP_LINK_FILE: true })
-check('demo map layers', polys.length >= 3 && lines.length >= 2, `poly=${polys.length} line=${lines.length}`)
+const traj = buildTrajectoryPolyline(resolveTrajectory({ entryKey: 'launch-starship-flight-13' }))
+check('demo map layers', polys.length >= 3, `poly=${polys.length} line=${lines.length}`)
+check('flight13 trajectory layer', !!(traj && traj.points && traj.points.length >= 200), traj && traj.points && traj.points.length)
 check(
   'stale corridor polyline skipped',
   buildPolylinesFromNotices(

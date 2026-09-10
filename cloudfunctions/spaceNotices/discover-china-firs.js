@@ -191,7 +191,7 @@ function parseSitemapChinaNoticePaths(xml) {
   const out = []
   const seen = {}
   const re =
-    /<loc>(https:\/\/space-notices\.com\/notice\/[^<]+)<\/loc>(?:\s*<image:image>[\s\S]*?<\/image:image>)?\s*<lastmod>([^<]*)<\/lastmod>/gi
+    /<loc>(https:\/\/space-notices\.com\/notice\/[^<]+)<\/loc>(?:\s*<image:image>[\s\S]*?<\/image:image>)?(?:\s*<lastmod>([^<]*)<\/lastmod>)?/gi
   let m
   while ((m = re.exec(String(xml || '')))) {
     const pathName = locToNoticePath(m[1])

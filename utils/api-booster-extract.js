@@ -186,10 +186,16 @@ function extractBoosterInfoForList(launch, rocketName, finalImage) {
       const flightsFromTextMatch = textPool.match(FLIGHTS_FROM_TEXT_REGEX)
       const flightsFromText = flightsFromTextMatch ? Number(flightsFromTextMatch[1]) : null
 
+      const innerLauncher = launcher.launcher && typeof launcher.launcher === 'object' ? launcher.launcher : null
+      const launcherId = (innerLauncher && innerLauncher.id != null)
+        ? innerLauncher.id
+        : (launcher.launcher_id != null ? launcher.launcher_id : null)
       boosterInfo = {
         serialNumber: normalizeBoosterSerial(
-          launcher.serial_number || (serialFromText ? serialFromText[0].toUpperCase() : null)
+          launcher.serial_number || (innerLauncher && innerLauncher.serial_number) ||
+          (serialFromText ? serialFromText[0].toUpperCase() : null)
         ),
+        launcherId: launcherId || null,
         status: launcher.status || 'active',
         flightProven: launcher.flight_proven || false,
         flights: launcher.flights !== undefined && launcher.flights !== null
@@ -239,8 +245,13 @@ function extractBoosterInfoSimple(launch, rocketName, finalImage) {
 
     if (hasStage || hasLanding || hasDirect || hasReused) {
       const { landingType, landingLocation, landingDescription } = resolveLandingType(launcher)
+      const innerLauncher = launcher.launcher && typeof launcher.launcher === 'object' ? launcher.launcher : null
+      const launcherId = (innerLauncher && innerLauncher.id != null)
+        ? innerLauncher.id
+        : (launcher.launcher_id != null ? launcher.launcher_id : null)
       boosterInfo = {
-        serialNumber: normalizeBoosterSerial(launcher.serial_number),
+        serialNumber: normalizeBoosterSerial(launcher.serial_number || (innerLauncher && innerLauncher.serial_number)),
+        launcherId: launcherId || null,
         flights: launcher.flights !== undefined && launcher.flights !== null
           ? launcher.flights
           : (launcher.launcher_flight_number != null ? launcher.launcher_flight_number : null),

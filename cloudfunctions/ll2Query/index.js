@@ -16,6 +16,13 @@ const launchStatusStore = createLaunchStatusStore(db)
 const { createUpcomingCachePatcher } = require('./upcoming-cache-patch.js')
 const upcomingCachePatcher = createUpcomingCachePatcher(db)
 const { listRecentNetChangesAction } = require('./recent-net-changes.js')
+const {
+  applyLaunchIdentityUpgrade,
+  hasWeakLaunchIdentity,
+  alignLaunchIdentityFromTitle,
+  detailCacheTtlMs,
+  shouldRefreshCachedLaunchIdentity
+} = require('./launch-identity-upgrade.js')
 
 const httpsRequire = require('https')
 const httpRequire = require('http')
@@ -31,63 +38,21 @@ const UPDATES_CACHE_TTL_HOT = 10 * 60 * 1000
 const UPDATES_CACHE_TTL_COLD = 48 * 60 * 60 * 1000
 const STARSHIP_DB_CACHE_TTL = 60 * 60 * 1000
 
-const LL2_USAGE_DOC = '_ll2_usage_hourly'
-let _ll2UsageBucket = ''
-let _ll2UsageCount = 0
-let _ll2UsageFlushAt = 0
-
+const { ll2BudgetHourBucket, recordLl2Request } = require('./ll2-budget.js')
 function ll2HourBucket(nowMs) {
-  const d = new Date(nowMs || Date.now())
-  const y = d.getUTCFullYear()
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(d.getUTCDate()).padStart(2, '0')
-  const h = String(d.getUTCHours()).padStart(2, '0')
-  return `${y}${m}${day}T${h}`
-}
-
-function isLl2TokenConfigured() {
-  const token = typeof process.env.LL2_API_TOKEN === 'string' ? process.env.LL2_API_TOKEN.trim() : ''
-  return !!(token && token !== 'FILL_ME')
+  return ll2BudgetHourBucket(nowMs)
 }
 
 function noteLl2Request(source) {
   try {
-    // 精确账本：跨函数共享的小时配额计数（软预算；syncSpaceDevsData 附加任务据此让路）
-    require('./ll2-budget.js').recordLl2Request(db, source || 'll2Query').catch(() => {})
+    // 唯一账本：launch_timeline_cache/_ll2_budget_hourly（与 syncSpaceDevsData / getLaunchStats 共用）
+    recordLl2Request(db, source || 'll2Query').catch(() => {})
   } catch (eBudget) {}
-  try {
-    const now = Date.now()
-    const bucket = ll2HourBucket(now)
-    if (_ll2UsageBucket !== bucket) {
-      _ll2UsageBucket = bucket
-      _ll2UsageCount = 0
-    }
-    _ll2UsageCount += 1
-    if (_ll2UsageCount % 5 !== 0 && now - _ll2UsageFlushAt < 60 * 1000) return
-    _ll2UsageFlushAt = now
-    const authed = isLl2TokenConfigured()
-    db.collection(TIMELINE_CACHE_COL)
-      .doc(LL2_USAGE_DOC)
-      .set({
-        data: {
-          hourUtc: bucket,
-          count: _ll2UsageCount,
-          authed,
-          source: source || 'll2Query',
-          updatedAtMs: now
-        }
-      })
-      .catch(() => {})
-    if (!authed && _ll2UsageCount >= 10) {
-      console.warn(
-        '[LL2] anonymous hour usage high:',
-        _ll2UsageCount,
-        'bucket=',
-        bucket,
-        '— set LL2_API_TOKEN in cloud env'
-      )
-    }
-  } catch (e) {}
+}
+
+/** slim upcoming 只允许 sync 6h 全量 + 小时探针写；本函数只写 launch_status / 本地结果 */
+function patchUpcomingSlimFromQuery() {
+  return Promise.resolve({ skipped: true, reason: 'll2Query_no_slim_write' })
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -626,7 +591,9 @@ async function healUpcomingFromDetail(detail) {
       id: detail.status.id,
       name: detail.status.name || '',
       abbrev: detail.status.abbrev || ''
-    }
+    },
+    mission: detail.mission || undefined,
+    rocket: detail.rocket || undefined
   }
   try {
     // 同步治愈 launch_status：否则首页下拉 3s 后的 getLaunchStatusSnapshot
@@ -646,7 +613,7 @@ async function healUpcomingFromDetail(detail) {
     console.warn('[healUpcomingFromDetail] launch_status', eUpsert.message || eUpsert)
   }
   try {
-    return await upcomingCachePatcher.patchUpcomingCacheWithLiveRows([liveRow])
+    return await patchUpcomingSlimFromQuery([liveRow])
   } catch (e) {
     console.warn('[healUpcomingFromDetail]', e.message || e)
     return null
@@ -685,6 +652,7 @@ async function overlayDetailStatusFromLaunchStore(detail, launchId) {
 
 async function fetchLaunchDetailAction(event) {
   const startTime = Date.now()
+  let staleIdentityFallback = null
   try {
     const launchId = event && event.launchId
     if (!launchId || typeof launchId !== 'string') {
@@ -741,6 +709,20 @@ async function fetchLaunchDetailAction(event) {
                 })
             } catch (e) {}
           }
+
+          const cacheAge = now - (Number((doc.data && doc.data.updatedAtMs) || 0) || 0)
+          const wantIdentityRefresh = shouldRefreshCachedLaunchIdentity(detail, { cacheAge }, now)
+          let bypassStaleIdentity = false
+          if (wantIdentityRefresh) {
+            try {
+              const granted = await acquireResolveBudget(1)
+              if (granted > 0) bypassStaleIdentity = true
+            } catch (e) {}
+          }
+          if (bypassStaleIdentity) {
+            // 占位/近窗终态：不信 7 天 TTL，落到下方 LL2 详情；失败再退回这份缓存
+            staleIdentityFallback = detail
+          } else {
           // 缓存命中：仅终态 settle 写库（同实例一次）。飞行中只靠 overlay 对齐角标，
           // 禁止用可能陈旧的「飞行中」详情缓存反复 upsert，否则会刷新 observedAtMs、压住后续终态。
           if (isTerminalLaunchDetail(detail) && !_detailSettleDone.has(String(launchId))) {
@@ -784,10 +766,7 @@ async function fetchLaunchDetailAction(event) {
                     } catch (e) {}
                     if (TERMINAL_STATUS_IDS[liveSid]) markDetailSettled(launchId)
                   }
-                  // 写回 status；非终态 TTL 压到 2 分钟，避免继续吐旧 Go
-                  const nextExpire = TERMINAL_STATUS_IDS[liveSid]
-                    ? now + 7 * 24 * 60 * 60 * 1000
-                    : now + 2 * 60 * 1000
+                  const nextExpire = now + detailCacheTtlMs(detail, now, {})
                   try {
                     await db
                       .collection('space_devs_cache')
@@ -807,6 +786,7 @@ async function fetchLaunchDetailAction(event) {
           }
 
           return { success: true, cached: true, data: detail, timestamp: now, elapsed: Date.now() - startTime }
+          }
         }
       } catch (_) {}
     }
@@ -818,6 +798,16 @@ async function fetchLaunchDetailAction(event) {
       new Promise((_, reject) => setTimeout(() => reject(new Error('LL2 详情接口超时')), 18000))
     ])
     if (!apiData || !apiData.id) {
+      if (staleIdentityFallback) {
+        return {
+          success: true,
+          cached: true,
+          staleFallback: true,
+          data: staleIdentityFallback,
+          timestamp: Date.now(),
+          elapsed: Date.now() - startTime
+        }
+      }
       return {
         success: false,
         error: 'LL2 详情接口未返回有效数据',
@@ -932,11 +922,9 @@ async function fetchLaunchDetailAction(event) {
     } catch (e) {}
     })()
 
-    // 3) 写入缓存。终态任务（成功/失败/部分失败）数据基本不再变化，
-    // TTL 拉长到 7 天，避免历史发射每 3.5 小时就重走一遍冷路径（LL2 + 翻译 + 回写）；
+    // 3) 写入缓存。旧终态可 7 天；占位载荷 / 近 48h 终态缩短 TTL，避免航行警告猜测冻死。
     // 翻译超时的缓存只给 10 分钟，尽快重试补齐中文字段
-    let CACHE_DURATION = isTerminalLaunchDetail(apiData) ? 7 * 24 * 60 * 60 * 1000 : 3.5 * 60 * 60 * 1000
-    if (translateTimedOut) CACHE_DURATION = 10 * 60 * 1000
+    const CACHE_DURATION = detailCacheTtlMs(apiData, now, { translateTimedOut })
     const cacheWritePromise = db
       .collection('space_devs_cache')
       .doc(detailCacheKey)
@@ -961,6 +949,16 @@ async function fetchLaunchDetailAction(event) {
 
     return { success: true, cached: false, data: apiData, timestamp: Date.now(), elapsed: Date.now() - startTime }
   } catch (e) {
+    if (staleIdentityFallback) {
+      return {
+        success: true,
+        cached: true,
+        staleFallback: true,
+        data: staleIdentityFallback,
+        timestamp: Date.now(),
+        elapsed: Date.now() - startTime
+      }
+    }
     return {
       success: false,
       error: e.message || 'fetch_launch_detail_failed',
@@ -1100,6 +1098,10 @@ function isThinPreviousLaunchRow(row) {
 function fillThinPreviousRow(row, stub) {
   if (!row || !stub) return false
   let changed = false
+  const ident = applyLaunchIdentityUpgrade(row, stub, {
+    trustIncoming: !hasWeakLaunchIdentity(stub)
+  })
+  if (ident.changed) changed = true
   const rowThinRocket = isThinPreviousLaunchRow(row)
   if (rowThinRocket && stub.rocket && stub.rocket.configuration && (stub.rocket.configuration.name || stub.rocket.configuration.full_name)) {
     row.rocket = { ...(row.rocket || {}), ...stub.rocket }
@@ -1117,6 +1119,7 @@ function fillThinPreviousRow(row, stub) {
     row.mission = stub.mission
     changed = true
   }
+  if (alignLaunchIdentityFromTitle(row).changed) changed = true
   return changed
 }
 
@@ -1145,7 +1148,16 @@ function buildPreviousStubFromLaunch(launch) {
           abbrev: launch.status.abbrev || ''
         }
       : null,
-    mission: launch.mission ? { name: launch.mission.name || '', description: launch.mission.description || '' } : null,
+    mission: launch.mission
+      ? {
+          name: launch.mission.name || '',
+          nameZh: launch.mission.nameZh || undefined,
+          description: launch.mission.description || '',
+          descriptionZh: launch.mission.descriptionZh || undefined,
+          type: launch.mission.type || undefined,
+          orbit: launch.mission.orbit || undefined
+        }
+      : null,
     rocket: cfg
       ? {
           configuration: {
@@ -1245,7 +1257,10 @@ function stubFromTerminalEntry(term) {
       mission: stub.mission
         ? {
             name: stub.mission.name || '',
+            nameZh: stub.mission.nameZh || undefined,
             description: stub.mission.description || '',
+            descriptionZh: stub.mission.descriptionZh || undefined,
+            type: stub.mission.type || undefined,
             orbit: stub.mission.orbit || undefined
           }
         : null,
@@ -1373,9 +1388,11 @@ async function patchPreviousCacheStatusFromTerminal(entries) {
       if (term.net) row.net = term.net
       changed = true
     }
-    if (isThinPreviousLaunchRow(row)) {
-      const stub = stubFromTerminalEntry(term)
+    const stub = stubFromTerminalEntry(term)
+    if (stub) {
       if (fillThinPreviousRow(row, stub)) changed = true
+    } else if (isThinPreviousLaunchRow(row)) {
+      if (fillThinPreviousRow(row, stubFromTerminalEntry(term))) changed = true
     }
     return changed
   }
@@ -1672,7 +1689,7 @@ async function fetchLaunchStatusesAction() {
     // 顺带把最新 NET/status 就地 patch 进 upcoming 列表缓存（0 额外 LL2）：
     // 改期不用等小时探针，全体用户下次拉列表即可看到新时间
     try {
-      await upcomingCachePatcher.patchUpcomingCacheWithLiveRows(apiData.results)
+      await patchUpcomingSlimFromQuery(apiData.results)
     } catch (e) {}
     // 探针式 live 终态同步 previous，避免只改 upcoming、历史仍空窗
     try {
@@ -2007,7 +2024,7 @@ async function resolveLaunchStatusesAction(event) {
   const freshRows = fetched.filter(Boolean)
   if (freshRows.length) {
     try {
-      cachePatch = await upcomingCachePatcher.patchUpcomingCacheWithLiveRows(freshRows)
+      cachePatch = await patchUpcomingSlimFromQuery(freshRows)
     } catch (e) {
       cachePatch = { patched: 0, docsWritten: 0, error: e.message || String(e) }
     }
@@ -2089,10 +2106,12 @@ exports.main = async (event = {}) => {
     case 'listRecentNetChanges':
       return listRecentNetChangesAction(db)
     case 'backfillLaunchStatusPriorities':
+      // 运维补种，小程序不调用
       return backfillLaunchStatusPrioritiesAction()
     case 'translateTexts':
       return translateTextsAction(event)
     case 'translateDiag': {
+      // 运维诊断，小程序不调用
       const diag = await runTranslateDiag()
       return { success: true, ...diag, timestamp: Date.now() }
     }

@@ -2,6 +2,8 @@
  * 首页倒计时冷启动快显：
  * - 上次会话即将发射头部快照（异步 hydrate，不挡首帧）
  * - 本会话内存列表 peek（开屏预拉 / 在飞请求）
+ * - 面板选型与云 apply 同一套 pickCountdownDisplayMission，不用 list[0]
+ * - 落库快照回灌有短等待，避免先画出已进历史的任务
  * 完整云列表回来后仍走 applyInitialUpcomingLaunchState 覆盖。
  */
 
@@ -12,6 +14,41 @@ const COUNTDOWN_BOOT_TTL_MS = 72 * 60 * 60 * 1000
 const COUNTDOWN_BOOT_LIST_MAX = 8
 const COUNTDOWN_BOOT_MIN_WRITE_GAP_MS = 5 * 1000
 const COUNTDOWN_BOOT_HYDRATE_WAIT_MS = 80
+const COUNTDOWN_BOOT_SETTLED_WAIT_MS = 80
+const COUNTDOWN_BOOT_LANG_KEYS = [
+  'rocketNameEn',
+  'rocketNameZh',
+  'missionNameEn',
+  'missionNameZh',
+  'nameEn',
+  'nameZh',
+  'launchSiteEn',
+  'launchSiteZh',
+  'padLocationEn',
+  'padLocationZh',
+  'launchAgencyEn',
+  'launchAgencyZh',
+  'countryDisplayEn',
+  'countryDisplayZh',
+  'statusBadgeTextEn',
+  'statusBadgeTextZh'
+]
+
+function slimLangPackForCountdownBoot(pack) {
+  if (!pack || typeof pack !== 'object') return null
+  const out = {}
+  let n = 0
+  for (let i = 0; i < COUNTDOWN_BOOT_LANG_KEYS.length; i++) {
+    const key = COUNTDOWN_BOOT_LANG_KEYS[i]
+    const val = pack[key]
+    if (typeof val !== 'string') continue
+    const trimmed = val.trim()
+    if (!trimmed) continue
+    out[key] = trimmed
+    n += 1
+  }
+  return n ? out : null
+}
 
 function slimMissionForCountdownBoot(mission) {
   if (!mission || mission.id == null) return null
@@ -23,7 +60,7 @@ function slimMissionForCountdownBoot(mission) {
       if (remote) image = remote
     } catch (e) {}
   }
-  return {
+  const row = {
     id: mission.id,
     name: mission.name || '',
     missionName: mission.missionName || '',
@@ -43,11 +80,25 @@ function slimMissionForCountdownBoot(mission) {
     statusBadgeText: mission.statusBadgeText || '',
     statusTextZh: mission.statusTextZh || '',
     launchAgency: mission.launchAgency || '',
-    launchAgencyId: mission.launchAgencyId || '',
+    launchAgencyId: mission.launchAgencyId != null ? mission.launchAgencyId : '',
     launchAgencyImage: mission.launchAgencyImage || '',
+    rocketConfigId: mission.rocketConfigId != null
+      ? mission.rocketConfigId
+      : (mission.rocketConfiguration && mission.rocketConfiguration.id != null
+        ? mission.rocketConfiguration.id
+        : null),
+    padLocationId: mission.padLocationId != null
+      ? mission.padLocationId
+      : (mission.padDetail && mission.padDetail.locationId != null
+        ? mission.padDetail.locationId
+        : null),
+    launchSite: mission.launchSite || '',
     countryDisplay: mission.countryDisplay || '',
     probability: mission.probability
   }
+  const langPack = slimLangPackForCountdownBoot(mission._langPack)
+  if (langPack) row._langPack = langPack
+  return row
 }
 
 function parseCountdownBootPayload(data, now) {
@@ -56,6 +107,83 @@ function parseCountdownBootPayload(data, now) {
   const at = Number(data.at)
   if (!Number.isFinite(at) || ts - at > COUNTDOWN_BOOT_TTL_MS || at > ts + 60 * 1000) return null
   return data.list.filter((row) => row && row.id != null)
+}
+
+function waitRecentSettledHydrateForBoot(page) {
+  if (!page) return null
+  if (page._recentSettledHydrateDone) return null
+  if (page._launchRecordsById && page._launchRecordsById.size) return null
+  const pending = page._recentSettledHydratePromise
+  if (!pending || typeof pending.then !== 'function') return null
+  return Promise.race([
+    Promise.resolve(pending).then(() => {}, () => {}),
+    new Promise((resolve) => setTimeout(resolve, COUNTDOWN_BOOT_SETTLED_WAIT_MS))
+  ])
+}
+
+/** 与云 apply / _resolveCountdownPanelMission 同一套选型，已落库任务不会入选 */
+function pickCountdownBootPanelMission(list, page) {
+  if (!Array.isArray(list) || !list.length) return null
+  try {
+    if (page && typeof page._resolveCountdownPanelMission === 'function') {
+      return page._resolveCountdownPanelMission(list).panelMission || null
+    }
+    const { pickCountdownDisplayMission } = require('../../../utils/index-launch-state.js')
+    const { getServerNow } = require('../../../utils/server-clock.js')
+    return pickCountdownDisplayMission(list, getServerNow(), {
+      recordsById: (page && page._launchRecordsById) || null
+    }) || null
+  } catch (e) {
+    return list[0] || null
+  }
+}
+
+async function paintCountdownFromBootCacheWork(page, stateGeneration, options) {
+  if (!page || !page.data || page.data.missionType !== 'upcoming') return false
+  if (page.data.launchData && page.data.launchData.id) return false
+  // 落库快照未回灌时最多等 80ms，让 filter / 状态机能跳过已进历史的任务。
+  // 已回灌或没有 hydrate 承诺时不 await，同步源仍可同帧出卡。
+  const settledWait = waitRecentSettledHydrateForBoot(page)
+  if (settledWait) {
+    await settledWait
+    if (!page._isLaunchStateGenerationCurrent(stateGeneration)) return false
+    if (page.data.launchData && page.data.launchData.id) return false
+  }
+  // 同步源（内存快照 / app 引导缓存 / 本地列表缓存）优先：命中就整条链路不 await，
+  // 首帧同帧出卡。只有全都空时才值得为异步 storage 花那 80ms
+  let list = page._resolveCountdownBootList(options)
+  if (!list.length) {
+    await Promise.race([
+      page._hydrateCountdownBootFromStorage(),
+      new Promise((resolve) => setTimeout(resolve, COUNTDOWN_BOOT_HYDRATE_WAIT_MS))
+    ])
+    if (!page._isLaunchStateGenerationCurrent(stateGeneration)) return false
+    if (page.data.launchData && page.data.launchData.id) return false
+    list = page._resolveCountdownBootList(options)
+  }
+  if (!list.length) return false
+  const first = pickCountdownBootPanelMission(list, page)
+  if (!first) return false
+  page._countdownBootPainting = true
+  try {
+    const head = list.slice(0, COUNTDOWN_BOOT_LIST_MAX)
+    if (typeof page._applyInitialUpcomingLaunchStateSync === 'function') {
+      page._applyInitialUpcomingLaunchStateSync(first, head, {
+        hasMore: true,
+        nextOffset: head.length
+      }, { countdownFirst: true, deferSecondary: true })
+    } else {
+      page.applyInitialUpcomingLaunchState(first, head, {
+        hasMore: true,
+        nextOffset: head.length
+      })
+    }
+    return true
+  } catch (e) {
+    return false
+  } finally {
+    page._countdownBootPainting = false
+  }
 }
 
 function normalizeBootMissionList(list) {
@@ -226,39 +354,13 @@ const methods = {
   async _paintCountdownFromBootCache(stateGeneration, options) {
     if (this.data.missionType !== 'upcoming') return false
     if (this.data.launchData && this.data.launchData.id) return false
-    // 同步源（内存快照 / app 引导缓存 / 本地列表缓存）优先：命中就整条链路不 await，
-    // 首帧同帧出卡。只有全都空时才值得为异步 storage 花那 80ms
-    let list = this._resolveCountdownBootList(options)
-    if (!list.length) {
-      await Promise.race([
-        this._hydrateCountdownBootFromStorage(),
-        new Promise((resolve) => setTimeout(resolve, COUNTDOWN_BOOT_HYDRATE_WAIT_MS))
-      ])
-      if (!this._isLaunchStateGenerationCurrent(stateGeneration)) return false
-      list = this._resolveCountdownBootList(options)
-    }
-    if (!list.length) return false
-    const first = list[0]
-    if (!first) return false
-    this._countdownBootPainting = true
+    if (this._countdownBootPaintPromise) return this._countdownBootPaintPromise
+    const pending = paintCountdownFromBootCacheWork(this, stateGeneration, options)
+    this._countdownBootPaintPromise = pending
     try {
-      const head = list.slice(0, COUNTDOWN_BOOT_LIST_MAX)
-      if (typeof this._applyInitialUpcomingLaunchStateSync === 'function') {
-        this._applyInitialUpcomingLaunchStateSync(first, head, {
-          hasMore: true,
-          nextOffset: head.length
-        }, { countdownFirst: true, deferSecondary: true })
-      } else {
-        this.applyInitialUpcomingLaunchState(first, head, {
-          hasMore: true,
-          nextOffset: head.length
-        })
-      }
-      return true
-    } catch (e) {
-      return false
+      return await pending
     } finally {
-      this._countdownBootPainting = false
+      if (this._countdownBootPaintPromise === pending) this._countdownBootPaintPromise = null
     }
   }
 }
@@ -268,8 +370,12 @@ module.exports = {
   COUNTDOWN_BOOT_TTL_MS,
   COUNTDOWN_BOOT_LIST_MAX,
   slimMissionForCountdownBoot,
+  slimLangPackForCountdownBoot,
   parseCountdownBootPayload,
   normalizeBootMissionList,
+  pickCountdownBootPanelMission,
+  waitRecentSettledHydrateForBoot,
   hydrateCountdownBootToApp,
+  COUNTDOWN_BOOT_SETTLED_WAIT_MS,
   methods
 }

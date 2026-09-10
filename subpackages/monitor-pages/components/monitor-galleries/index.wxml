@@ -90,7 +90,7 @@
     </view>
   </view>
   <view class="agency-grid" wx:if="{{boosterList.length > 0}}">
-    <view class="booster-card glass-card" wx:for="{{boosterList}}" wx:key="serial" data-serial="{{item.serial}}" bindtap="emitOnBoosterCardTap">
+    <view class="booster-card glass-card" wx:for="{{boosterList}}" wx:key="serial" data-serial="{{item.serial}}" data-launcher-id="{{item.launcherId}}" bindtap="emitOnBoosterCardTap">
       <!-- 助推器图片 -->
       <view class="booster-img-wrap">
         <image class="booster-img {{boosterImageLoadedMap[index] ? 'booster-img--loaded' : ''}}"
@@ -113,8 +113,8 @@
           <text class="booster-country-flag" wx:if="{{item.countryFlag}}">{{item.countryFlag}}</text>
         </view>
         <view class="booster-tag-row">
-          <text class="booster-family-tag">{{item.rocketFamily}}</text>
-          <view class="booster-mfr-tag" wx:if="{{item.manufacturerDisplay || item.manufacturer}}">
+          <text class="booster-family-tag {{item.configId != null && item.configId !== '' ? 'booster-family-tag--link' : ''}}" catchtap="emitOnBoosterFamilyTap" data-config-id="{{item.configId}}">{{item.rocketFamily}}</text>
+          <view class="booster-mfr-tag {{item.manufacturerId ? 'booster-mfr-tag--link' : ''}}" wx:if="{{item.manufacturerDisplay || item.manufacturer}}" catchtap="{{item.manufacturerId ? 'emitOnBoosterManufacturerTap' : ''}}" data-id="{{item.manufacturerId}}">
             <image class="booster-mfr-logo" wx:if="{{item.manufacturerLogoUrl}}" src="{{item.manufacturerLogoUrl}}" mode="aspectFit" lazy-load />
             <text class="booster-mfr-name">{{item.manufacturerDisplay || item.manufacturer}}</text>
           </view>

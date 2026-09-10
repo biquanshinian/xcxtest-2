@@ -5,19 +5,36 @@ function normalizeMissionType(type) {
   return type === 'completed' ? 'completed' : 'upcoming'
 }
 
+/**
+ * 列表 wx:key 必须跟 id 走，不能带下标。
+ * 带 index 时，详情回写 / 结算补插会改序，整表拆掉重建，出现空卡再回填。
+ */
+function stableMissionListWxkey(type, mission, fallbackKey) {
+  if (fallbackKey) return fallbackKey
+  const id = mission && mission.id != null ? String(mission.id) : ''
+  const prefix = type === 'completed' ? 'm-1' : 'm-0'
+  return id ? `${prefix}-${id}` : `${prefix}-x`
+}
+
+/** 历史卡已在列表且不必从即将发射挪走 / 卸倒计时面板：只补这一张，禁止整表投影 */
+function shouldPatchSingleCompletedCardFromDetail(options) {
+  const opts = options && typeof options === 'object' ? options : {}
+  if (!opts.inCompleted) return false
+  if (opts.inUpcoming && opts.settled) return false
+  if (opts.isPanel && opts.settled) return false
+  return true
+}
+
 function normalizeMissionItem(mission, options) {
   const {
-    type,
-    index = 0,
-    baseIndex = 0
+    type
   } = options || {}
 
   const normalizedType = normalizeMissionType(type)
-  const isCompleted = normalizedType === 'completed'
 
   const next = attachMissionDetailMeta({
     ...mission,
-    _wxkey: `${isCompleted ? 'm-1' : 'm-0'}-${baseIndex + index}-${(mission.id != null ? mission.id : '')}`,
+    _wxkey: stableMissionListWxkey(normalizedType, mission, mission && mission._wxkey),
     formattedTime: formatMissionListTimeOrUnknown(mission.launchTime)
   }, {
     id: mission.id,
@@ -116,6 +133,8 @@ function mergeMissionPages(type, currentList, incomingList, filterExpiredMission
 
 module.exports = {
   normalizeMissionItem,
+  stableMissionListWxkey,
+  shouldPatchSingleCompletedCardFromDetail,
   fetchMissionListData,
   buildMissionListSetData,
   getMissionNextOffset,

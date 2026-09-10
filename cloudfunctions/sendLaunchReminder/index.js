@@ -1062,7 +1062,9 @@ exports.main = async (event) => {
   if (ev.data && typeof ev.data === 'object' && (ev.data.action || ev.data.maxRemove != null)) {
     ev = Object.assign({}, ev, ev.data)
   }
-  const action = String((ev && ev.action) || 'sendPending')
+  let action = String((ev && ev.action) || 'sendPending')
+  // 后台「手动推送」与定时器同源：立刻跑一轮待发链路（不是自定义广播）
+  if (action === 'manual') action = 'sendPending'
 
   // 清理 / 探活：放在最前，不跑 ensureCollection / 发送链路，避免「改成 10 条也失败」
   if (action === 'purgePing') {

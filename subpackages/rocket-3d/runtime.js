@@ -4,6 +4,10 @@
  */
 
 var PIXEL_RATIO_CAP = 2
+var ipScaleRef = require('../../utils/ip-scale-ref.js')
+var ipIntro = require('./ip-intro.js')
+var ipChat3d = require('./ip-chat-3d.js')
+var ipAnim = require('./ip-anim.js')
 
 // 视口清屏色与组件 wxss 的 .r3d-stage 背景一一对应（深 / 浅主题）
 var CLEAR_COLOR_DARK = 0x07080c
@@ -85,12 +89,12 @@ function meshWorldBox(child, THREE) {
     }
     if (child.geometry.boundingBox) {
       box.copy(child.geometry.boundingBox)
-      child.updateWorldMatrix(true, false)
-      box.applyMatrix4(child.matrixWorld)
+      if (typeof child.updateWorldMatrix === 'function') child.updateWorldMatrix(true, false)
+      if (child.matrixWorld && typeof box.applyMatrix4 === 'function') box.applyMatrix4(child.matrixWorld)
       if (!box.isEmpty()) return box
     }
   }
-  box.setFromObject(child)
+  if (typeof box.setFromObject === 'function') box.setFromObject(child)
   return box
 }
 
@@ -109,6 +113,44 @@ function meshNameHay(child) {
 
 function isEnvMeshName(child) {
   return ENV_NAME_RE.test(meshNameHay(child))
+}
+
+function isIpRefObject(obj) {
+  var o = obj
+  while (o) {
+    if (o.userData && o.userData.r3dIpRef) return true
+    if (o.name && String(o.name).indexOf('r3d-ip') === 0) return true
+    o = o.parent
+  }
+  return false
+}
+
+/** 参照人碰撞用整船水平盒，含助推器/外壳；取景盒只认细长箭体会把人摆进体积里。 */
+function getIpCollisionBox(object, THREE) {
+  if (!THREE || !THREE.Box3) return null
+  var box = new THREE.Box3()
+  if (!object) return box
+  var has = false
+  if (object.updateWorldMatrix) object.updateWorldMatrix(true, true)
+  if (typeof object.traverse === 'function') {
+    object.traverse(function (child) {
+      if (!child || !child.isMesh || !child.geometry) return
+      if (child.visible === false) return
+      if (isEnvMeshName(child)) return
+      if (isIpRefObject(child)) return
+      var part = meshWorldBox(child, THREE)
+      if (!part || part.isEmpty()) return
+      if (!has) {
+        box.copy(part)
+        has = true
+      } else box.union(part)
+    })
+  }
+  if (!has && typeof box.setFromObject === 'function') {
+    box.setFromObject(object)
+    has = !box.isEmpty()
+  }
+  return box
 }
 
 /** 偏爱细高箭体；体积不参与，避免机库/广场把箭体比下去 */
@@ -212,6 +254,7 @@ function getRenderableBox(object, THREE) {
     if (!child.isMesh || !child.geometry) return
     if (child.visible === false) return
     if (isEnvMeshName(child)) return
+    if (isIpRefObject(child)) return
     var box = meshWorldBox(child, THREE)
     if (!box || box.isEmpty()) return
     var size = box.getSize(new THREE.Vector3())
@@ -506,7 +549,7 @@ function makeStageLogo(THREE) {
     })
   )
   mesh.name = 'r3d-stage-logo'
-  return layFlat(mesh, 0.012)
+  return layFlat(mesh, 0)
 }
 
 function addExhibitStage(session) {
@@ -517,7 +560,10 @@ function addExhibitStage(session) {
     new THREE.MeshStandardMaterial({
       color: 0x10141c,
       roughness: 0.92,
-      metalness: 0.08
+      metalness: 0.08,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1
     })
   )
   layFlat(disc, 0)
@@ -571,6 +617,11 @@ function addExhibitStage(session) {
   session.scene.add(group)
 }
 
+/** 火箭/参照相对圆形地板的净空（米，已按模型单位换算后仍为 0）。 */
+function exhibitStageClearance() {
+  return 0
+}
+
 function layoutExhibitStage(session, object) {
   if (!session || !session.exhibitStage || !object) return
   var THREE = session.THREE
@@ -579,8 +630,7 @@ function layoutExhibitStage(session, object) {
   var size = box.getSize(new THREE.Vector3())
   var center = box.getCenter(new THREE.Vector3())
   var radius = Math.max(size.x, size.z, size.y * 0.28) * 0.78
-  var gap = Math.max(size.y * 0.02, Math.max(size.x, size.z) * 0.1, 0.03)
-  session.exhibitStage.position.set(center.x, box.min.y - gap, center.z)
+  session.exhibitStage.position.set(center.x, box.min.y - exhibitStageClearance(size), center.z)
   session.exhibitStage.scale.setScalar(Math.max(radius, 0.4))
 }
 
@@ -644,6 +694,205 @@ function updateDimensionGrow(session, t) {
   meta.hExtB.visible = hk > 0.88
   meta.wExtA.visible = wk > 0.02
   meta.wExtB.visible = wk > 0.88
+  if (meta.ipHeight && meta.ipHFrom && meta.ipHTo) {
+    var ipTo = lerp3(meta.ipHFrom, meta.ipHTo, hk)
+    writeSeg(meta.ipHeight, meta.ipHFrom[0], meta.ipHFrom[1], meta.ipHFrom[2], ipTo[0], ipTo[1], ipTo[2])
+    writeSeg(meta.ipHTickA, meta.ipHTickA0[0], meta.ipHTickA0[1], meta.ipHTickA0[2], meta.ipHTickA1[0], meta.ipHTickA1[1], meta.ipHTickA1[2])
+    writeSeg(meta.ipHTickB, meta.ipHTickB0[0], meta.ipHTickB0[1], meta.ipHTickB0[2], meta.ipHTickB1[0], meta.ipHTickB1[1], meta.ipHTickB1[2])
+    writeSeg(meta.ipHExtA, meta.ipHExtA0[0], meta.ipHExtA0[1], meta.ipHExtA0[2], meta.ipHExtA1[0], meta.ipHExtA1[1], meta.ipHExtA1[2])
+    writeSeg(meta.ipHExtB, meta.ipHExtB0[0], meta.ipHExtB0[1], meta.ipHExtB0[2], meta.ipHExtB1[0], meta.ipHExtB1[1], meta.ipHExtB1[2])
+    meta.ipHeight.visible = hk > 0.01
+    meta.ipHTickA.visible = hk > 0.04
+    meta.ipHTickB.visible = hk > 0.92
+    meta.ipHExtA.visible = hk > 0.02
+    meta.ipHExtB.visible = hk > 0.88
+  }
+  if (meta.vehLen && meta.vehLenFrom && meta.vehLenTo) {
+    var vehLenTo = lerp3(meta.vehLenFrom, meta.vehLenTo, hk)
+    writeSeg(meta.vehLen, meta.vehLenFrom[0], meta.vehLenFrom[1], meta.vehLenFrom[2], vehLenTo[0], vehLenTo[1], vehLenTo[2])
+    writeSeg(meta.vehLenTickA, meta.vehLenTickA0[0], meta.vehLenTickA0[1], meta.vehLenTickA0[2], meta.vehLenTickA1[0], meta.vehLenTickA1[1], meta.vehLenTickA1[2])
+    writeSeg(meta.vehLenTickB, meta.vehLenTickB0[0], meta.vehLenTickB0[1], meta.vehLenTickB0[2], meta.vehLenTickB1[0], meta.vehLenTickB1[1], meta.vehLenTickB1[2])
+    writeSeg(meta.vehLenExtA, meta.vehLenExtA0[0], meta.vehLenExtA0[1], meta.vehLenExtA0[2], meta.vehLenExtA1[0], meta.vehLenExtA1[1], meta.vehLenExtA1[2])
+    writeSeg(meta.vehLenExtB, meta.vehLenExtB0[0], meta.vehLenExtB0[1], meta.vehLenExtB0[2], meta.vehLenExtB1[0], meta.vehLenExtB1[1], meta.vehLenExtB1[2])
+    meta.vehLen.visible = hk > 0.01
+    meta.vehLenTickA.visible = hk > 0.04
+    meta.vehLenTickB.visible = hk > 0.92
+    meta.vehLenExtA.visible = hk > 0.02
+    meta.vehLenExtB.visible = hk > 0.88
+  }
+  if (meta.vehH && meta.vehHFrom && meta.vehHTo) {
+    var vehHTo = lerp3(meta.vehHFrom, meta.vehHTo, hk)
+    writeSeg(meta.vehH, meta.vehHFrom[0], meta.vehHFrom[1], meta.vehHFrom[2], vehHTo[0], vehHTo[1], vehHTo[2])
+    writeSeg(meta.vehHTickA, meta.vehHTickA0[0], meta.vehHTickA0[1], meta.vehHTickA0[2], meta.vehHTickA1[0], meta.vehHTickA1[1], meta.vehHTickA1[2])
+    writeSeg(meta.vehHTickB, meta.vehHTickB0[0], meta.vehHTickB0[1], meta.vehHTickB0[2], meta.vehHTickB1[0], meta.vehHTickB1[1], meta.vehHTickB1[2])
+    writeSeg(meta.vehHExtA, meta.vehHExtA0[0], meta.vehHExtA0[1], meta.vehHExtA0[2], meta.vehHExtA1[0], meta.vehHExtA1[1], meta.vehHExtA1[2])
+    writeSeg(meta.vehHExtB, meta.vehHExtB0[0], meta.vehHExtB0[1], meta.vehHExtB0[2], meta.vehHExtB1[0], meta.vehHExtB1[1], meta.vehHExtB1[2])
+    meta.vehH.visible = hk > 0.01
+    meta.vehHTickA.visible = hk > 0.04
+    meta.vehHTickB.visible = hk > 0.92
+    meta.vehHExtA.visible = hk > 0.02
+    meta.vehHExtB.visible = hk > 0.88
+  }
+}
+
+function pickIpDimFigure(session) {
+  var list = session && session.ipRefLoaded
+  if (!list || !list.length) return null
+  var i
+  for (i = 0; i < list.length; i++) {
+    if (list[i] && list[i].object && list[i].slug === 'musk') return list[i]
+  }
+  for (i = 0; i < list.length; i++) {
+    if (list[i] && list[i].object && !ipScaleRef.isVehicleRef(list[i].slug)) return list[i]
+  }
+  return null
+}
+
+function peopleRefWorldBox(session, THREE, fallback) {
+  var list = session && session.ipRefLoaded
+  var box = null
+  var i
+  var fig
+  var next
+  if (!list || !THREE) return fallback || null
+  for (i = 0; i < list.length; i++) {
+    fig = list[i]
+    if (!fig || !fig.object || ipScaleRef.isVehicleRef(fig.slug)) continue
+    if (fig.object.updateWorldMatrix) fig.object.updateWorldMatrix(true, true)
+    next = new THREE.Box3().setFromObject(fig.object)
+    if (!next || next.isEmpty()) continue
+    if (!box) box = next.clone()
+    else box.union(next)
+  }
+  return box && !box.isEmpty() ? box : fallback || null
+}
+
+function appendIpHeightGuides(session, THREE, group, main, ext) {
+  var fig = pickIpDimFigure(session)
+  if (!fig || !fig.object || !session.dimMeta || !THREE) return
+  if (fig.object.updateWorldMatrix) fig.object.updateWorldMatrix(true, true)
+  var rulerBox = new THREE.Box3().setFromObject(fig.object)
+  if (!rulerBox || rulerBox.isEmpty()) return
+  var peopleBox = peopleRefWorldBox(session, THREE, rulerBox)
+  if (!peopleBox || peopleBox.isEmpty()) peopleBox = rulerBox
+  var gSize = peopleBox.getSize(new THREE.Vector3())
+  var rSize = rulerBox.getSize(new THREE.Vector3())
+  var pad = Math.max(gSize.x * 0.35, rSize.y * 0.08, rSize.x * 0.4)
+  var tick = Math.max(rSize.y * 0.06, rSize.x * 0.16)
+  var hx = peopleBox.max.x + pad
+  var hz = (rulerBox.min.z + rulerBox.max.z) * 0.5
+  var y0 = rulerBox.min.y
+  var y1 = rulerBox.max.y
+  var ipHeight = makeSegLine(THREE, main)
+  var ipHTickA = makeSegLine(THREE, main)
+  var ipHTickB = makeSegLine(THREE, main)
+  var ipHExtA = makeSegLine(THREE, ext)
+  var ipHExtB = makeSegLine(THREE, ext)
+  group.add(ipHExtA, ipHExtB, ipHeight, ipHTickA, ipHTickB)
+  var meta = session.dimMeta
+  meta.ipHeight = ipHeight
+  meta.ipHTickA = ipHTickA
+  meta.ipHTickB = ipHTickB
+  meta.ipHExtA = ipHExtA
+  meta.ipHExtB = ipHExtB
+  meta.ipHFrom = [hx, y0, hz]
+  meta.ipHTo = [hx, y1, hz]
+  meta.ipHTickA0 = [hx - tick * 0.5, y0, hz]
+  meta.ipHTickA1 = [hx + tick * 0.5, y0, hz]
+  meta.ipHTickB0 = [hx - tick * 0.5, y1, hz]
+  meta.ipHTickB1 = [hx + tick * 0.5, y1, hz]
+  meta.ipHExtA0 = [peopleBox.max.x, y0, hz]
+  meta.ipHExtA1 = [hx, y0, hz]
+  meta.ipHExtB0 = [peopleBox.max.x, y1, hz]
+  meta.ipHExtB1 = [hx, y1, hz]
+  meta.captions.ipHeight = ipScaleRef.formatHeightCaption(fig.highestPointM)
+}
+
+function pickVehicleDimFigure(session) {
+  var list = session && session.ipRefLoaded
+  if (!list || !list.length) return null
+  var i
+  for (i = 0; i < list.length; i++) {
+    if (list[i] && list[i].object && ipScaleRef.isVehicleRef(list[i].slug)) return list[i]
+  }
+  return null
+}
+
+function appendVehicleDimGuides(session, THREE, group, main, ext) {
+  var fig = pickVehicleDimFigure(session)
+  if (!fig || !fig.object || !session.dimMeta || !THREE) return
+  if (fig.object.updateWorldMatrix) fig.object.updateWorldMatrix(true, true)
+  var box = new THREE.Box3().setFromObject(fig.object)
+  if (!box || box.isEmpty()) return
+  var size = box.getSize(new THREE.Vector3())
+  var alongX = size.x >= size.z
+  var dims = ipScaleRef.resolveVehicleDims(fig)
+  var pad = Math.max(size.y * 0.12, Math.min(size.x, size.z) * 0.18, 0.08)
+  var tick = Math.max(size.y * 0.05, Math.min(size.x, size.z) * 0.08)
+  var midZ = (box.min.z + box.max.z) * 0.5
+  var ly = box.min.y + Math.max(size.y * 0.04, 0.02)
+  var vehLen = makeSegLine(THREE, main)
+  var vehLenTickA = makeSegLine(THREE, main)
+  var vehLenTickB = makeSegLine(THREE, main)
+  var vehLenExtA = makeSegLine(THREE, ext)
+  var vehLenExtB = makeSegLine(THREE, ext)
+  var vehH = makeSegLine(THREE, main)
+  var vehHTickA = makeSegLine(THREE, main)
+  var vehHTickB = makeSegLine(THREE, main)
+  var vehHExtA = makeSegLine(THREE, ext)
+  var vehHExtB = makeSegLine(THREE, ext)
+  group.add(vehLenExtA, vehLenExtB, vehLen, vehLenTickA, vehLenTickB, vehHExtA, vehHExtB, vehH, vehHTickA, vehHTickB)
+  var meta = session.dimMeta
+  meta.vehLen = vehLen
+  meta.vehLenTickA = vehLenTickA
+  meta.vehLenTickB = vehLenTickB
+  meta.vehLenExtA = vehLenExtA
+  meta.vehLenExtB = vehLenExtB
+  meta.vehH = vehH
+  meta.vehHTickA = vehHTickA
+  meta.vehHTickB = vehHTickB
+  meta.vehHExtA = vehHExtA
+  meta.vehHExtB = vehHExtB
+  if (alongX) {
+    var lz = box.min.z - pad
+    meta.vehLenFrom = [box.min.x, ly, lz]
+    meta.vehLenTo = [box.max.x, ly, lz]
+    meta.vehLenTickA0 = [box.min.x, ly, lz - tick * 0.5]
+    meta.vehLenTickA1 = [box.min.x, ly, lz + tick * 0.5]
+    meta.vehLenTickB0 = [box.max.x, ly, lz - tick * 0.5]
+    meta.vehLenTickB1 = [box.max.x, ly, lz + tick * 0.5]
+    meta.vehLenExtA0 = [box.min.x, ly, box.min.z]
+    meta.vehLenExtA1 = [box.min.x, ly, lz]
+    meta.vehLenExtB0 = [box.max.x, ly, box.min.z]
+    meta.vehLenExtB1 = [box.max.x, ly, lz]
+  } else {
+    var lx = box.max.x + pad
+    meta.vehLenFrom = [lx, ly, box.min.z]
+    meta.vehLenTo = [lx, ly, box.max.z]
+    meta.vehLenTickA0 = [lx - tick * 0.5, ly, box.min.z]
+    meta.vehLenTickA1 = [lx + tick * 0.5, ly, box.min.z]
+    meta.vehLenTickB0 = [lx - tick * 0.5, ly, box.max.z]
+    meta.vehLenTickB1 = [lx + tick * 0.5, ly, box.max.z]
+    meta.vehLenExtA0 = [box.max.x, ly, box.min.z]
+    meta.vehLenExtA1 = [lx, ly, box.min.z]
+    meta.vehLenExtB0 = [box.max.x, ly, box.max.z]
+    meta.vehLenExtB1 = [lx, ly, box.max.z]
+  }
+  var hx = box.max.x + pad
+  meta.vehHFrom = [hx, box.min.y, midZ]
+  meta.vehHTo = [hx, box.max.y, midZ]
+  meta.vehHTickA0 = [hx - tick * 0.5, box.min.y, midZ]
+  meta.vehHTickA1 = [hx + tick * 0.5, box.min.y, midZ]
+  meta.vehHTickB0 = [hx - tick * 0.5, box.max.y, midZ]
+  meta.vehHTickB1 = [hx + tick * 0.5, box.max.y, midZ]
+  meta.vehHExtA0 = [box.max.x, box.min.y, midZ]
+  meta.vehHExtA1 = [hx, box.min.y, midZ]
+  meta.vehHExtB0 = [box.max.x, box.max.y, midZ]
+  meta.vehHExtB1 = [hx, box.max.y, midZ]
+  if (!meta.captions) meta.captions = {}
+  meta.captions.vehLength = ipScaleRef.formatMetersCaption(dims.lengthM)
+  meta.captions.vehHeight = ipScaleRef.formatMetersCaption(dims.heightM)
+  meta.captions.vehWidth = ipScaleRef.formatMetersCaption(dims.widthM)
 }
 
 function setDimensionGuides(session, visible, captions) {
@@ -728,6 +977,8 @@ function setDimensionGuides(session, visible, captions) {
       diameter: captions && captions.diameter ? String(captions.diameter) : ''
     }
   }
+  appendIpHeightGuides(session, THREE, group, main, ext)
+  appendVehicleDimGuides(session, THREE, group, main, ext)
   session.dimGrow = 0
   group.renderOrder = 12
   session.scene.add(group)
@@ -794,24 +1045,46 @@ function poseForExhibit(session, mode) {
 }
 
 function applyBoxClip(camera, box, THREE) {
-  if (!camera || !box || box.isEmpty()) return
+  if (!camera || !box || box.isEmpty() || !THREE) return
   var size = box.getSize(new THREE.Vector3())
+  var center = box.getCenter(new THREE.Vector3())
   var maxDim = Math.max(size.x, size.y, size.z) || 1
-  camera.near = Math.max(maxDim / 500, 0.01)
-  camera.far = Math.max(maxDim * 200, 800)
-  camera.updateProjectionMatrix()
+  var dist = maxDim * 2
+  if (camera.position && typeof camera.position.distanceTo === 'function') {
+    dist = Math.max(camera.position.distanceTo(center), maxDim * 0.2)
+  }
+  var near = Math.max(Math.min(dist / 60, maxDim / 40), maxDim / 200, 0.001)
+  var far = Math.max(dist + maxDim * 8, maxDim * 16, 80)
+  var ratioCap = isWxIOS() ? 800 : 2500
+  if (near > 0 && far / near > ratioCap) near = far / ratioCap
+  camera.near = near
+  camera.far = far
+  if (typeof camera.updateProjectionMatrix === 'function') camera.updateProjectionMatrix()
 }
 
 function projectToCss(session, x, y, z) {
-  if (!session || !session.camera || !session.THREE) return { x: 0, y: 0, visible: false }
-  var v = new session.THREE.Vector3(x, y, z)
-  v.project(session.camera)
+  if (!session || !session.camera || !session.THREE) return { x: 0, y: 0, visible: false, inFront: false }
+  var THREE = session.THREE
+  var v = new THREE.Vector3(x, y, z)
+  var cam = session.camera
+  var inFront = true
+  if (cam && THREE.Vector3) {
+    var view = new THREE.Vector3(x, y, z)
+    if (cam.matrixWorldInverse && typeof view.applyMatrix4 === 'function') {
+      view.applyMatrix4(cam.matrixWorldInverse)
+      inFront = view.z < 0
+    }
+  }
+  v.project(cam)
   var w = session.cssW || 1
   var h = session.cssH || 1
+  var inClip = v.z >= -1 && v.z <= 1
+  if (!inClip) inFront = false
   return {
     x: Math.round((v.x * 0.5 + 0.5) * w),
     y: Math.round((-v.y * 0.5 + 0.5) * h),
-    visible: v.z >= -1 && v.z <= 1 && v.x >= -1.15 && v.x <= 1.15 && v.y >= -1.15 && v.y <= 1.15
+    visible: inFront && inClip && v.x >= -1.15 && v.x <= 1.15 && v.y >= -1.15 && v.y <= 1.15,
+    inFront: inFront && inClip && Math.abs(v.x) < 8 && Math.abs(v.y) < 8
   }
 }
 
@@ -829,6 +1102,13 @@ function dimLabelsChanged(prev, next) {
 
 function emitDimLabels(session, forced) {
   if (!session || typeof session.onDimLabels !== 'function') return
+  if (session.ipIntroSlug) {
+    if (session._dimLabelCache && session._dimLabelCache.length) {
+      session._dimLabelCache = []
+      session.onDimLabels([])
+    }
+    return
+  }
   if (forced != null) {
     session._dimLabelCache = forced
     session.onDimLabels(forced)
@@ -874,6 +1154,51 @@ function emitDimLabels(session, forced) {
       visible: wp.visible && k > 0.58
     })
   }
+  if (meta.captions.ipHeight && meta.ipHFrom && meta.ipHTo) {
+    var iphp = projectToCss(
+      session,
+      (meta.ipHFrom[0] + meta.ipHTo[0]) / 2,
+      (meta.ipHFrom[1] + meta.ipHTo[1]) / 2,
+      (meta.ipHFrom[2] + meta.ipHTo[2]) / 2
+    )
+    items.push({
+      key: 'iph',
+      text: meta.captions.ipHeight,
+      x: iphp.x + 8,
+      y: iphp.y - 12,
+      visible: iphp.visible && k > 0.42
+    })
+  }
+  if (meta.captions.vehLength && meta.vehLenFrom && meta.vehLenTo) {
+    var vlp = projectToCss(
+      session,
+      (meta.vehLenFrom[0] + meta.vehLenTo[0]) / 2,
+      (meta.vehLenFrom[1] + meta.vehLenTo[1]) / 2,
+      (meta.vehLenFrom[2] + meta.vehLenTo[2]) / 2
+    )
+    items.push({
+      key: 'vehl',
+      text: meta.captions.vehLength,
+      x: vlp.x - 28,
+      y: vlp.y - 12,
+      visible: vlp.visible && k > 0.42
+    })
+  }
+  if (meta.captions.vehHeight && meta.vehHFrom && meta.vehHTo) {
+    var vhp = projectToCss(
+      session,
+      (meta.vehHFrom[0] + meta.vehHTo[0]) / 2,
+      (meta.vehHFrom[1] + meta.vehHTo[1]) / 2,
+      (meta.vehHFrom[2] + meta.vehHTo[2]) / 2
+    )
+    items.push({
+      key: 'vehh',
+      text: meta.captions.vehHeight,
+      x: vhp.x + 8,
+      y: vhp.y - 12,
+      visible: vhp.visible && k > 0.42
+    })
+  }
   if (!dimLabelsChanged(session._dimLabelCache, items)) return
   session._dimLabelCache = items
   session.onDimLabels(items)
@@ -902,14 +1227,19 @@ function prepareModel(object) {
 }
 
 function isBoardSize(size) {
+  if (!size) return false
   var x = Number(size.x) || 0
   var y = Number(size.y) || 0
   var z = Number(size.z) || 0
   var max = Math.max(x, y, z)
   var min = Math.min(x, y, z)
   var mid = x + y + z - max - min
-  if (max <= 0) return false
-  return mid / max > 0.42 && min / max < 0.32
+  if (max <= 0 || min <= 0) return false
+  // 薄片展陈（含横排全系列）：最短边薄、另外两边构成面。
+  // 不要求接近正方形，避免把宽台面误判成细长箭再绕 Z 立起。
+  if (mid / max > 0.22 && min / max < 0.32 && mid / min > 1.6) return true
+  // 更扁的横排：X 最长、箭已立在 Y、Z 最薄。躺着的细长箭 Y≈Z（截面），不会进这里。
+  return x >= max * 0.92 && z <= min * 1.12 && y >= min * 1.8 && y / max >= 0.12
 }
 
 var STAND_CANDIDATES = [
@@ -969,7 +1299,7 @@ function exhibitShape(size) {
   return 'compact'
 }
 
-/** 展陈验收：细长箭必须 Y 向最长，展板必须立着且别侧对镜头。 */
+/** 展陈验收：细长箭必须 Y 向最长；展板薄轴朝 Z（对着镜头），允许横向比竖向更长。 */
 function isUprightExhibitSize(size) {
   var x = Number(size && size.x) || 0
   var y = Number(size && size.y) || 0
@@ -980,7 +1310,7 @@ function isUprightExhibitSize(size) {
   if (max <= 0) return false
   if (z / max > 0.8 && Math.max(x, y) / max < 0.38) return false
   var shape = exhibitShape(size)
-  if (shape === 'board') return y >= max * 0.92 && x > min * 1.12
+  if (shape === 'board') return z <= min * 1.12 && y > min * 1.35 && x > min * 1.12
   if (shape === 'slender') return y >= max * 0.85
   return y >= mid * 0.9
 }
@@ -988,6 +1318,14 @@ function isUprightExhibitSize(size) {
 function finalizeStandRotation(rawSize, chosen) {
   var rot = withStandFlip(chosen || { x: 0, y: 0, z: 0 })
   if (!rawSize) return rot
+  if (isUprightExhibitSize(rawSize)) {
+    var rx = quarterTurn(rot.x)
+    var rz = quarterTurn(rot.z)
+    if (rx === 90 || rx === -90 || rz === 90 || rz === -90) {
+      return withStandFlip({ x: 0, y: 0, z: 0 })
+    }
+    return rot
+  }
   var predicted = rotateSizeByEuler(rawSize, rot)
   if (isUprightExhibitSize(predicted)) return rot
   var forced = pickStandRotationFromSize(rawSize)
@@ -1003,17 +1341,21 @@ function scoreStandSize(size) {
   var min = Math.min(x, y, z)
   var mid = x + y + z - max - min
   if (max <= 0) return -1e9
+  if (isBoardSize(size)) {
+    var board = 0
+    if (z <= min * 1.12) board += 16
+    if (y <= min * 1.18) board -= 24
+    if (x <= min * 1.12) board -= 16
+    board += (y / max) * 3 + (x / max) * 3
+    if (z / max > 0.8 && Math.max(x, y) / max < 0.38) board -= 20
+    return board
+  }
   var yRatio = y / max
   var face = Math.max(x, y) / max
   var score = yRatio * 10 + face * 8 + (x / max) * 5
   if (z / max > 0.8 && Math.max(x, y) / max < 0.38) score -= 20
   if (y <= min * 1.08 && mid / max > 0.4) score -= 16
   if (mid > 0 && max / mid >= 2) score += yRatio * 8
-  if (isBoardSize(size)) {
-    if (y >= mid * 0.95) score += 10
-    if (z <= min * 1.12) score += 4
-    if (x <= min * 1.12) score -= 12
-  }
   return score
 }
 
@@ -1050,6 +1392,7 @@ function pickStandRotationFromSize(size) {
   var y = Number(size.y) || 0
   var z = Number(size.z) || 0
   if (Math.max(x, y, z) <= 0) return withStandFlip({ x: 0, y: 0, z: 0 })
+  if (isUprightExhibitSize(size)) return withStandFlip({ x: 0, y: 0, z: 0 })
   var best = STAND_CANDIDATES[0]
   var bestScore = -1e12
   for (var i = 0; i < STAND_CANDIDATES.length; i++) {
@@ -1338,7 +1681,8 @@ function scoreStandWorld(object, THREE, rot) {
 }
 
 /**
- * 尺寸先选定立起轴（猎鹰重型 Z-up → -90°X，展板 → 绕薄轴）。
+ * 尺寸先选定立起轴（猎鹰重型 Z-up → -90°X；平铺展板绕薄轴立起并对着镜头）。
+ * 已 Y-up 的横排全系列保持底座水平，不把台面立成竖版展板。
  * 朝向用软件旋转量两端，不依赖 matrixWorld 是否跟上包装节点。
  */
 function autoStandRotation(object, THREE) {
@@ -1376,13 +1720,35 @@ function wrapStandingModel(object, THREE) {
   stand._r3dStand = {
     base: { x: rot.x, y: rot.y, z: rot.z },
     axis: rot.flip || 'x',
-    flipped: false
+    flipped: false,
+    flippedLeft: false
   }
+  var yaw = new THREE.Group()
+  yaw.name = 'r3d-yaw'
+  yaw.add(stand)
   var spin = new THREE.Group()
   spin.name = 'r3d-exhibit-root'
-  spin.add(stand)
+  spin.add(yaw)
   spin.updateMatrixWorld(true)
   return spin
+}
+
+function findNamedGroup(root, name) {
+  if (!root || !name) return null
+  if (root.name === name) return root
+  if (typeof root.traverse === 'function') {
+    var found = null
+    root.traverse(function (child) {
+      if (!found && child && child.name === name) found = child
+    })
+    if (found) return found
+  }
+  var kids = root.children || []
+  for (var i = 0; i < kids.length; i++) {
+    var hit = findNamedGroup(kids[i], name)
+    if (hit) return hit
+  }
+  return null
 }
 
 function findStandGroup(root) {
@@ -1403,20 +1769,1955 @@ function findStandGroup(root) {
   return null
 }
 
+function findYawGroup(root) {
+  return findNamedGroup(root, 'r3d-yaw')
+}
+
+function markIpRefTree(object, slug) {
+  if (!object) return
+  object.name = 'r3d-ip-' + String(slug || 'fig')
+  if (!object.userData) object.userData = {}
+  object.userData.r3dIpRef = true
+  object.userData.r3dIpSlug = slug
+  if (typeof object.traverse === 'function') {
+    object.traverse(function (child) {
+      if (!child.userData) child.userData = {}
+      child.userData.r3dIpRef = true
+    })
+  }
+}
+
+function isMeshNode(child) {
+  return !!(
+    child &&
+    child.geometry &&
+    (child.isMesh || child.isSkinnedMesh || child.type === 'Mesh' || child.type === 'SkinnedMesh')
+  )
+}
+
+function collectSkeletonCore(object, THREE) {
+  if (!object || !THREE || typeof object.traverse !== 'function') return null
+  var items = []
+  var tmp = THREE.Vector3 ? new THREE.Vector3() : null
+  object.traverse(function (child) {
+    var bones = child && child.skeleton && child.skeleton.bones
+    if (!bones || !bones.length) return
+    if (child.skeleton.update) child.skeleton.update()
+    for (var i = 0; i < bones.length; i++) {
+      var bone = bones[i]
+      if (!bone) continue
+      if (typeof bone.getWorldPosition === 'function' && tmp) {
+        bone.getWorldPosition(tmp)
+        items.push({ name: bone.name, x: tmp.x, y: tmp.y, z: tmp.z })
+      } else if (bone.matrixWorld && tmp && typeof tmp.setFromMatrixPosition === 'function') {
+        tmp.setFromMatrixPosition(bone.matrixWorld)
+        items.push({ name: bone.name, x: tmp.x, y: tmp.y, z: tmp.z })
+      }
+    }
+  })
+  var named = ipScaleRef.ipCoreFromNamedPoints(items)
+  if (!named) return null
+  return {
+    x: named.x,
+    y: named.y,
+    z: named.z,
+    bodyW: 0,
+    bodyD: 0,
+    minY: named.y,
+    maxY: named.y
+  }
+}
+
+function collectObjectWorldPoints(object, THREE, maxSamples) {
+  var raw = []
+  if (!object || !THREE) return raw
+  if (object.updateWorldMatrix) object.updateWorldMatrix(true, true)
+  if (typeof object.traverse !== 'function') return raw
+  object.traverse(function (child) {
+    if (!isMeshNode(child)) return
+    if (child.visible === false) return
+    if (child.userData && child.userData.r3dIpProp) return
+    forEachWorldVertex(child, THREE, function (pos) {
+      raw.push({ x: pos.x, y: pos.y, z: pos.z })
+    })
+  })
+  var cap = maxSamples > 0 ? maxSamples : 5000
+  if (raw.length <= cap) return raw
+  var step = Math.ceil(raw.length / cap)
+  var out = []
+  for (var i = 0; i < raw.length; i += step) out.push(raw[i])
+  return out
+}
+
+function measureIpFigureCore(object, THREE) {
+  var bone = collectSkeletonCore(object, THREE)
+  if (bone) return bone
+  var core = ipScaleRef.ipCoreCenterFromPoints(collectObjectWorldPoints(object, THREE, 5000))
+  if (core) return core
+  if (!object || !THREE) return null
+  if (object.updateWorldMatrix) object.updateWorldMatrix(true, true)
+  var box = new THREE.Box3().setFromObject(object)
+  if (!box || box.isEmpty()) return null
+  return {
+    x: (box.min.x + box.max.x) * 0.5,
+    y: (box.min.y + box.max.y) * 0.5,
+    z: (box.min.z + box.max.z) * 0.5,
+    bodyW: Math.max(box.max.x - box.min.x, box.max.z - box.min.z, 0.01) * 0.5,
+    bodyD: Math.max(box.max.z - box.min.z, 0.01),
+    minY: box.min.y,
+    maxY: box.max.y
+  }
+}
+
+function measureVehicleCore(object, THREE) {
+  if (!object || !THREE) return null
+  if (object.updateWorldMatrix) object.updateWorldMatrix(true, true)
+  var box = new THREE.Box3().setFromObject(object)
+  if (!box || box.isEmpty()) return null
+  return {
+    x: (box.min.x + box.max.x) * 0.5,
+    y: (box.min.y + box.max.y) * 0.5,
+    z: (box.min.z + box.max.z) * 0.5,
+    bodyW: Math.max(box.max.x - box.min.x, 0.01),
+    bodyD: Math.max(box.max.z - box.min.z, 0.01),
+    minY: box.min.y,
+    maxY: box.max.y
+  }
+}
+
+function rememberIpFigureCore(fig, THREE) {
+  if (!fig || !fig.object || !THREE) return null
+  var core = ipScaleRef.isVehicleRef(fig.slug)
+    ? measureVehicleCore(fig.object, THREE)
+    : measureIpFigureCore(fig.object, THREE)
+  if (!core) {
+    fig.coreLocal = null
+    return null
+  }
+  var local = toMeshLocal(fig.object, THREE, core)
+  fig.coreLocal = local ? { x: local.x, y: local.y, z: local.z } : null
+  return core
+}
+
+function ipFigureCoreWorld(fig, THREE) {
+  if (!fig || !fig.object || !THREE) return null
+  if (fig.coreLocal) {
+    var w = fromMeshLocal(fig.object, THREE, fig.coreLocal)
+    return { x: w.x, y: w.y, z: w.z }
+  }
+  return measureIpFigureCore(fig.object, THREE)
+}
+
+function measureObjectSize(object, THREE) {
+  if (!object || !THREE) return { x: 0, y: 0, z: 0 }
+  if (object.updateWorldMatrix) object.updateWorldMatrix(true, true)
+  var box = new THREE.Box3().setFromObject(object)
+  if (!box || box.isEmpty()) return { x: 0, y: 0, z: 0 }
+  var size = box.getSize(new THREE.Vector3())
+  return { x: size.x, y: size.y, z: size.z }
+}
+
+function measureStandingHeight(object, THREE, slug) {
+  var size = measureObjectSize(object, THREE)
+  if (ipScaleRef.isVehicleRef(slug)) return size.y
+  return Math.max(size.y, size.z)
+}
+
+function rocketUpHeight(session) {
+  if (!session || !session.modelRoot || !session.THREE) return 0
+  var box = getExhibitFrameBox(session.modelRoot, session.THREE)
+  if (!box || box.isEmpty()) return 0
+  return box.max.y - box.min.y
+}
+
+function detachIpScaleRoot(session) {
+  if (!session || !session.ipRefRoot) return
+  var kids = (session.ipRefRoot.children || []).slice()
+  for (var i = 0; i < kids.length; i++) session.ipRefRoot.remove(kids[i])
+  if (session.ipRefRoot.parent) session.ipRefRoot.parent.remove(session.ipRefRoot)
+  session.ipRefRoot = null
+}
+
+function stopIpFigureMixers(session) {
+  if (!session || !session.ipRefLoaded) return
+  for (var i = 0; i < session.ipRefLoaded.length; i++) {
+    var fig = session.ipRefLoaded[i]
+    if (!fig) continue
+    if (fig.mixer && typeof fig.mixer.stopAllAction === 'function') {
+      try {
+        fig.mixer.stopAllAction()
+      } catch (e) {}
+    }
+    fig.mixer = null
+  }
+}
+
+function playIpFigureClips(session) {
+  if (!session || !session.ipRefLoaded || !session.ipRefLoaded.length) return 0
+  var THREE = session.THREE
+  if (!THREE || typeof THREE.AnimationMixer !== 'function') return 0
+  stopIpFigureMixers(session)
+  var n = 0
+  for (var i = 0; i < session.ipRefLoaded.length; i++) {
+    var fig = session.ipRefLoaded[i]
+    var obj = fig && fig.object
+    if (!obj) continue
+    var clips = fig.animations
+    if (!clips || !clips.length) {
+      clips = obj.userData && obj.userData.gltfAnimations
+    }
+    var clip = ipAnim.pickIpIdleClip(clips)
+    if (!clip) continue
+    try {
+      var mixer = new THREE.AnimationMixer(obj)
+      var action = mixer.clipAction(clip)
+      if (action) {
+        if (THREE.LoopRepeat != null) action.loop = THREE.LoopRepeat
+        if (action.clampWhenFinished != null) action.clampWhenFinished = false
+        if (typeof action.play === 'function') action.play()
+      }
+      fig.mixer = mixer
+      n += 1
+    } catch (e) {
+      fig.mixer = null
+    }
+  }
+  return n
+}
+
+function updateIpFigureMixers(session, dt) {
+  if (!session || !session.ipRefLoaded) return
+  var step = Number(dt)
+  if (!(step > 0) || !isFinite(step)) return
+  for (var i = 0; i < session.ipRefLoaded.length; i++) {
+    var mixer = session.ipRefLoaded[i] && session.ipRefLoaded[i].mixer
+    if (mixer && typeof mixer.update === 'function') mixer.update(step)
+  }
+}
+
+function clearIpScaleRefs(session) {
+  stopIpFigureMixers(session)
+  clearIpChatPanel(session)
+  clearMuskIntroPanel(session)
+  clearXingwenHalo(session)
+  detachIpScaleRoot(session)
+  if (session && session.ipRefLoaded) {
+    for (var i = 0; i < session.ipRefLoaded.length; i++) {
+      var fig = session.ipRefLoaded[i]
+      if (fig && fig.object) disposeObject3D(fig.object)
+    }
+  }
+  if (session) session.ipRefLoaded = null
+}
+
+function placeIpScaleRefs(session, rocketLengthM) {
+  if (!session || !session.ipRefLoaded || !session.ipRefLoaded.length) return false
+  var THREE = session.THREE
+  if (!session.scene || !session.modelRoot || !THREE) return false
+  var lengthM = ipScaleRef.parseLengthMeters(rocketLengthM != null ? rocketLengthM : session.rocketLengthM)
+  var rocketH = rocketUpHeight(session)
+  session.rocketLengthM = lengthM
+  if (!(lengthM > 0) || !(rocketH > 0)) return false
+  session.ipRefLoaded = ipScaleRef.sortIpFiguresForStand(session.ipRefLoaded)
+  detachIpScaleRoot(session)
+  var rocketBox = getExhibitFrameBox(session.modelRoot, THREE)
+  var groundY = rocketBox.min.y
+  var root = new THREE.Group()
+  root.name = 'r3d-ip-refs'
+  if (!root.userData) root.userData = {}
+  root.userData.r3dIpRef = true
+  session.scene.add(root)
+  session.ipRefRoot = root
+  var ruler = null
+  for (var r = 0; r < session.ipRefLoaded.length; r++) {
+    if (session.ipRefLoaded[r] && session.ipRefLoaded[r].slug === 'musk') {
+      ruler = session.ipRefLoaded[r]
+      break
+    }
+  }
+  if (!ruler) ruler = session.ipRefLoaded[0]
+  if (ruler && !ruler.modelHeight && ruler.object) {
+    ruler.modelHeight = measureStandingHeight(ruler.object, THREE)
+  }
+  var rulerOpts = {
+    rocketLengthM: lengthM,
+    rocketModelHeight: rocketH,
+    rulerModelHeight: ruler && ruler.modelHeight,
+    rulerHighestPointM: ruler && ruler.highestPointM
+  }
+  var prepared = []
+  for (var i = 0; i < session.ipRefLoaded.length; i++) {
+    var fig = session.ipRefLoaded[i]
+    var obj = fig && fig.object
+    if (!obj) continue
+    obj.position.set(0, 0, 0)
+    obj.scale.set(1, 1, 1)
+    if (obj.rotation) {
+      if (typeof obj.rotation.set === 'function') obj.rotation.set(0, 0, 0)
+      else obj.rotation.y = 0
+    }
+    session.scene.add(obj)
+    if (obj.updateWorldMatrix) obj.updateWorldMatrix(true, true)
+    var modelSize = measureObjectSize(obj, THREE)
+    fig.modelSize = modelSize
+    var modelH = ipScaleRef.isVehicleRef(fig.slug) ? modelSize.y : fig.modelHeight || measureStandingHeight(obj, THREE, fig.slug)
+    fig.modelHeight = modelH
+    var scale = ipScaleRef.resolveFigureSceneScale(
+      {
+        slug: fig.slug,
+        ipModelHeight: modelH,
+        modelSize: modelSize,
+        highestPointM: fig.highestPointM,
+        lengthM: fig.lengthM,
+        widthM: fig.widthM
+      },
+      rulerOpts
+    )
+    if (!(scale > 0)) continue
+    obj.scale.set(scale, scale, scale)
+    if (obj.updateWorldMatrix) obj.updateWorldMatrix(true, true)
+    var box = new THREE.Box3().setFromObject(obj)
+    var size = box.getSize(new THREE.Vector3())
+    var stride = ipScaleRef.ipStandingStride(size, fig.slug)
+    if (!(stride.step > 0) && !ipScaleRef.isVehicleRef(fig.slug)) continue
+    var core = rememberIpFigureCore(fig, THREE)
+    prepared.push({
+      fig: fig,
+      obj: obj,
+      box: box,
+      size: size,
+      stride: stride,
+      isVehicle: ipScaleRef.isVehicleRef(fig.slug),
+      midX: core ? core.x : (box.min.x + box.max.x) * 0.5,
+      midZ: core ? core.z : (box.min.z + box.max.z) * 0.5
+    })
+  }
+  if (!prepared.length) {
+    detachIpScaleRoot(session)
+    return false
+  }
+  var people = []
+  var vehicles = []
+  for (var s = 0; s < prepared.length; s++) {
+    if (prepared[s].isVehicle) vehicles.push(prepared[s])
+    else people.push(prepared[s])
+  }
+  if (!people.length) people = prepared
+  var pairW = 0
+  var pairD = 0
+  var bodyW = people[0].stride.bodyW
+  for (var p = 0; p < people.length; p++) {
+    pairW += p === 0 ? people[p].stride.bodyW : people[p].stride.step
+    pairD = Math.max(pairD, people[p].size.z, people[p].stride.bodyW * 0.72)
+  }
+  var hull = getIpCollisionBox(session.modelRoot, THREE)
+  if (!hull || hull.isEmpty()) hull = rocketBox
+  var cam = session.camera && session.camera.position
+  var camXZ = cam && isFinite(cam.x) && isFinite(cam.z) ? { x: cam.x, z: cam.z } : null
+  var rocketXZ = {
+    minX: hull.min.x,
+    maxX: hull.max.x,
+    minZ: hull.min.z,
+    maxZ: hull.max.z
+  }
+  var stand = ipScaleRef.pickIpStandBesideRocket({
+    rocket: rocketXZ,
+    pairW: pairW,
+    pairD: pairD,
+    bodyW: bodyW,
+    camera: camXZ
+  })
+  var cursorX = stand.x
+  var standZ = stand.z
+  function attachRef(item, x, z) {
+    item.obj.position.x += x - item.midX
+    item.obj.position.y += groundY - item.box.min.y
+    item.obj.position.z += z - item.midZ
+    if (typeof root.attach === 'function') root.attach(item.obj)
+    else {
+      session.scene.remove(item.obj)
+      root.add(item.obj)
+    }
+  }
+  for (var j = 0; j < people.length; j++) {
+    attachRef(people[j], cursorX, standZ)
+    cursorX += people[j].stride.step
+  }
+  if (vehicles.length && people.length && people !== prepared) {
+    var peopleWorld = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity, midX: 0, midZ: 0 }
+    for (var u = 0; u < people.length; u++) {
+      var person = people[u]
+      var dx = person.obj.position.x
+      var dz = person.obj.position.z
+      peopleWorld.minX = Math.min(peopleWorld.minX, person.box.min.x + dx)
+      peopleWorld.maxX = Math.max(peopleWorld.maxX, person.box.max.x + dx)
+      peopleWorld.minZ = Math.min(peopleWorld.minZ, person.box.min.z + dz)
+      peopleWorld.maxZ = Math.max(peopleWorld.maxZ, person.box.max.z + dz)
+      peopleWorld.midX += person.midX + dx
+      peopleWorld.midZ += person.midZ + dz
+    }
+    peopleWorld.midX /= people.length
+    peopleWorld.midZ /= people.length
+    var metersPerUnit = lengthM / rocketH
+    for (var v = 0; v < vehicles.length; v++) {
+      var truck = vehicles[v]
+      if (truck.obj.updateWorldMatrix) truck.obj.updateWorldMatrix(true, true)
+      var behind = ipScaleRef.pickVehicleBehindPeople({
+        people: peopleWorld,
+        truck: { x: truck.size.x, z: truck.size.z },
+        gapM: ipScaleRef.VEHICLE_BEHIND_M,
+        metersPerUnit: metersPerUnit,
+        camera: camXZ,
+        rocket: rocketXZ
+      })
+      attachRef(truck, behind.x, behind.z)
+    }
+  } else {
+    for (var w = 0; w < vehicles.length; w++) {
+      attachRef(vehicles[w], cursorX, standZ)
+      cursorX += vehicles[w].stride.step || vehicles[w].size.x
+    }
+  }
+  clearXingwenHalo(session)
+  playIpFigureClips(session)
+  ensureXingwenHalo(session)
+  layoutIpChatPanel(session)
+  return true
+}
+
+function faceIpFiguresToCamera(session) {
+  if (!session || !session.ipRefLoaded || !session.ipRefLoaded.length) return false
+  var n = 0
+  for (var i = 0; i < session.ipRefLoaded.length; i++) {
+    var obj = session.ipRefLoaded[i] && session.ipRefLoaded[i].object
+    if (!obj || !obj.rotation) continue
+    if (typeof obj.rotation.set === 'function') obj.rotation.set(0, 0, 0)
+    else obj.rotation.y = 0
+    n += 1
+  }
+  return n > 0
+}
+
+function disposeIpFigureList(list) {
+  if (!list || !list.length) return
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] && list[i].object) disposeObject3D(list[i].object)
+  }
+}
+
+function attachIpScaleRefs(session, opts) {
+  var src = opts && typeof opts === 'object' ? opts : {}
+  if (session) session.ipRefToken = (session.ipRefToken || 0) + 1
+  var token = session ? session.ipRefToken : 0
+  clearIpScaleRefs(session)
+  var figures = src.figures || []
+  var lengthM = ipScaleRef.parseLengthMeters(src.rocketLengthM)
+  if (session) session.rocketLengthM = lengthM
+  if (!session || !figures.length || !(lengthM > 0)) return Promise.resolve(false)
+  if (!ipScaleRef.shouldShowIpScaleRef(src)) return Promise.resolve(false)
+  return Promise.all(
+    figures.map(function (fig) {
+      if (!fig || !fig.url) return Promise.resolve(null)
+      return loadGlb(src.lib, fig.url, src.nativeCanvas, null, { series: false })
+        .then(function (object) {
+          markIpRefTree(object, fig.slug)
+          return {
+            object: object,
+            slug: fig.slug,
+            highestPointM: fig.highestPoint,
+            lengthM: fig.lengthM,
+            widthM: fig.widthM,
+            modelSize: measureObjectSize(object, session.THREE),
+            modelHeight: measureStandingHeight(object, session.THREE, fig.slug),
+            animations: (object.userData && object.userData.gltfAnimations) || []
+          }
+        })
+        .catch(function () {
+          return null
+        })
+    })
+  ).then(function (loaded) {
+    var ok = []
+    for (var i = 0; i < loaded.length; i++) {
+      if (loaded[i] && loaded[i].object) ok.push(loaded[i])
+    }
+    if (!session || session.ipRefToken !== token || !session.modelRoot || !session.scene) {
+      disposeIpFigureList(ok)
+      return false
+    }
+    if (!ok.length) return false
+    session.ipRefLoaded = ipScaleRef.sortIpFiguresForStand(ok)
+    return placeIpScaleRefs(session, lengthM)
+  })
+}
+
+function findIpFigure(session, slug) {
+  var list = session && session.ipRefLoaded
+  var key = String(slug || '')
+  if (!list || !key) return null
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] && list[i].object && list[i].slug === key) return list[i]
+  }
+  return null
+}
+
+function ipFigureWorldBox(fig, THREE) {
+  if (!fig || !fig.object || !THREE) return null
+  if (fig.object.updateWorldMatrix) fig.object.updateWorldMatrix(true, true)
+  var box = new THREE.Box3().setFromObject(fig.object)
+  if (!box || box.isEmpty()) return null
+  return box
+}
+
+var HIT_WORLD_PAD_RATIO = 0.06
+
+function cloneWorldBox(box, THREE) {
+  if (!box) return null
+  if (typeof box.clone === 'function') return box.clone()
+  if (!THREE || !THREE.Box3) return box
+  var out = new THREE.Box3()
+  if (typeof out.copy === 'function') return out.copy(box)
+  out.min.x = box.min.x
+  out.min.y = box.min.y
+  out.min.z = box.min.z
+  out.max.x = box.max.x
+  out.max.y = box.max.y
+  out.max.z = box.max.z
+  return out
+}
+
+function inflateWorldBox(box, THREE, ratio) {
+  var r = Number(ratio)
+  if (!box || !(r > 0)) return box
+  var out = cloneWorldBox(box, THREE)
+  var sx = Math.max(0, out.max.x - out.min.x)
+  var sy = Math.max(0, out.max.y - out.min.y)
+  var sz = Math.max(0, out.max.z - out.min.z)
+  out.min.x -= sx * r
+  out.max.x += sx * r
+  out.min.y -= sy * r
+  out.max.y += sy * r
+  out.min.z -= sz * r
+  out.max.z += sz * r
+  return out
+}
+
+function fitBoxAxis(out, axis, center, need, shrinkRatio) {
+  if (!(need > 0) || !out || !out.min || !out.max) return
+  var cur = out.max[axis] - out.min[axis]
+  var limit = Number(shrinkRatio) > 1 ? need * Number(shrinkRatio) : 0
+  if (cur >= need && !(limit > 0 && cur > limit)) return
+  out.min[axis] = center - need * 0.5
+  out.max[axis] = center + need * 0.5
+}
+
+function alignVehicleBoxToModel(box, fig, THREE, session) {
+  var dims = ipScaleRef.resolveVehicleDims(fig)
+  var rocketH = rocketUpHeight(session)
+  var lengthM = ipScaleRef.parseLengthMeters(session && session.rocketLengthM)
+  if (!(rocketH > 0) || !(lengthM > 0)) return box
+  var mpu = lengthM / rocketH
+  if (!(mpu > 0)) return box
+  var needL = dims.lengthM / mpu
+  var needW = dims.widthM / mpu
+  var needH = dims.heightM / mpu
+  var sx = box.max.x - box.min.x
+  var sy = box.max.y - box.min.y
+  var sz = box.max.z - box.min.z
+  var out = cloneWorldBox(box, THREE)
+  var cx = (box.min.x + box.max.x) * 0.5
+  var cz = (box.min.z + box.max.z) * 0.5
+  if (sx >= sz) {
+    fitBoxAxis(out, 'x', cx, needL, 1.25)
+    fitBoxAxis(out, 'z', cz, needW, 1.25)
+  } else {
+    fitBoxAxis(out, 'z', cz, needL, 1.25)
+    fitBoxAxis(out, 'x', cx, needW, 1.25)
+  }
+  if (sy < needH || sy > needH * 1.25) out.max.y = box.min.y + needH
+  return out
+}
+
+function ipFigurePersonHitBox(fig, THREE) {
+  var box = ipFigureWorldBox(fig, THREE)
+  if (!box) return null
+  var core = ipFigureCoreWorld(fig, THREE)
+  if (!core || !THREE.Box3 || !THREE.Vector3) return box
+  var h = Math.max(box.max.y - box.min.y, 0.2)
+  var r = Math.max(Number(core.bodyW) > 0 ? core.bodyW * 0.55 : h * 0.22, h * 0.18)
+  var out = new THREE.Box3()
+  if (out.min.set && out.max.set) {
+    out.min.set(core.x - r, box.min.y, core.z - r)
+    out.max.set(core.x + r, box.max.y, core.z + r)
+  } else {
+    out.min.x = core.x - r
+    out.min.y = box.min.y
+    out.min.z = core.z - r
+    out.max.x = core.x + r
+    out.max.y = box.max.y
+    out.max.z = core.z + r
+  }
+  return out
+}
+
+function ipFigureHitWorldBox(fig, THREE, session) {
+  var box = ipFigureWorldBox(fig, THREE)
+  if (!box) return null
+  var modelBox = ipScaleRef.isVehicleRef(fig && fig.slug)
+    ? alignVehicleBoxToModel(box, fig, THREE, session)
+    : ipFigurePersonHitBox(fig, THREE) || box
+  return inflateWorldBox(modelBox || box, THREE, HIT_WORLD_PAD_RATIO)
+}
+
+function ipFigureFocusBox(fig, THREE) {
+  var box = ipFigureWorldBox(fig, THREE)
+  if (!box) return null
+  if (ipScaleRef.isVehicleRef(fig && fig.slug)) return box
+  var core = ipFigureCoreWorld(fig, THREE)
+  if (!core || !THREE.Box3 || !THREE.Vector3) return box
+  var h = Math.max(box.max.y - box.min.y, 0.2)
+  var r = Math.max(Number(core.bodyW) > 0 ? core.bodyW * 0.55 : h * 0.22, h * 0.18)
+  var yTop = Math.min(box.max.y, Math.max(core.y + r * 1.05, box.min.y + h * 0.58))
+  var out = new THREE.Box3()
+  out.min.set(core.x - r, box.min.y, core.z - r)
+  out.max.set(core.x + r, yTop, core.z + r)
+  return out
+}
+
+function projectBoxToCssRect(session, box, forHit) {
+  if (!session || !box) return null
+  var min = box.min
+  var max = box.max
+  var cx = (min.x + max.x) * 0.5
+  var cy = (min.y + max.y) * 0.5
+  var cz = (min.z + max.z) * 0.5
+  var pts = [
+    [min.x, min.y, min.z],
+    [min.x, min.y, max.z],
+    [min.x, max.y, min.z],
+    [min.x, max.y, max.z],
+    [max.x, min.y, min.z],
+    [max.x, min.y, max.z],
+    [max.x, max.y, min.z],
+    [max.x, max.y, max.z]
+  ]
+  if (forHit) {
+    pts.push(
+      [cx, cy, cz],
+      [min.x, cy, cz],
+      [max.x, cy, cz],
+      [cx, min.y, cz],
+      [cx, max.y, cz],
+      [cx, cy, min.z],
+      [cx, cy, max.z]
+    )
+  }
+  var left = Infinity
+  var top = Infinity
+  var right = -Infinity
+  var bottom = -Infinity
+  var any = false
+  for (var i = 0; i < pts.length; i++) {
+    var p = projectToCss(session, pts[i][0], pts[i][1], pts[i][2])
+    if (!p) continue
+    if (forHit) {
+      if (!p.inFront) continue
+    } else if (!p.visible) {
+      continue
+    }
+    any = true
+    left = Math.min(left, p.x)
+    top = Math.min(top, p.y)
+    right = Math.max(right, p.x)
+    bottom = Math.max(bottom, p.y)
+  }
+  if (!any) return null
+  return { left: left, top: top, right: right, bottom: bottom }
+}
+
+function pickIpRefAt(session, cssX, cssY) {
+  if (!session || !session.ipRefLoaded || !session.ipRefLoaded.length) return ''
+  var hits = []
+  for (var i = 0; i < session.ipRefLoaded.length; i++) {
+    var fig = session.ipRefLoaded[i]
+    var box = ipFigureHitWorldBox(fig, session.THREE, session)
+    var rect = projectBoxToCssRect(session, box, true)
+    if (!rect) continue
+    hits.push({
+      slug: fig.slug,
+      left: rect.left,
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom
+    })
+  }
+  return ipIntro.pickHitSlug(hits, cssX, cssY)
+}
+
+function ipIntroClipBox(figBox, rocketBox) {
+  if (!figBox) return rocketBox
+  if (!rocketBox || (typeof rocketBox.isEmpty === 'function' && rocketBox.isEmpty())) return figBox
+  if (typeof figBox.clone === 'function') {
+    var u = figBox.clone()
+    if (typeof u.union === 'function') {
+      u.union(rocketBox)
+      return u
+    }
+  }
+  return rocketBox
+}
+
+function ipIntroCameraPose(figBox, rocketBox, THREE, focusBox) {
+  var lookBox = focusBox && !(typeof focusBox.isEmpty === 'function' && focusBox.isEmpty()) ? focusBox : figBox
+  var size = figBox.getSize(new THREE.Vector3())
+  var lookSize = lookBox.getSize(new THREE.Vector3())
+  var lookCenter = lookBox.getCenter(new THREE.Vector3())
+  var focus = new THREE.Vector3(lookCenter.x, lookBox.min.y + lookSize.y * 0.76, lookCenter.z)
+  var dist = Math.max(size.y * 1.72, size.x * 2.05, size.z * 2.05, 0.4)
+  var rocketSpan = 0
+  if (rocketBox && !(typeof rocketBox.isEmpty === 'function' && rocketBox.isEmpty())) {
+    var rs = rocketBox.getSize(new THREE.Vector3())
+    rocketSpan = Math.max(rs.x, rs.y, rs.z)
+  }
+  return {
+    pos: new THREE.Vector3(focus.x + dist * 0.12, focus.y + dist * 0.16, focus.z + dist * 0.98),
+    target: focus,
+    near: Math.max(dist / 80, 0.01),
+    far: Math.max(dist * 40, rocketSpan * 12, 200),
+    minDistance: dist * 0.42,
+    maxDistance: dist * 8,
+    ms: 640
+  }
+}
+
+function lockIpIntroControls(session) {
+  if (!session) return
+  session.autoRotate = false
+  clearAutoRotateTimer(session)
+}
+
+function unlockIpIntroControls(session, mode) {
+  if (!session) return
+  applyExhibitControls(session, mode || 'show')
+  session.autoRotate = false
+}
+
+function playIpIntroView(session, slug) {
+  if (!session || !session.camera || !session.controls || !session.THREE) return false
+  var fig = findIpFigure(session, slug)
+  var box = ipFigureWorldBox(fig, session.THREE)
+  if (!box) return false
+  var rocketBox = getExhibitFrameBox(session.modelRoot, session.THREE)
+  var pose = ipIntroCameraPose(box, rocketBox, session.THREE, ipFigureFocusBox(fig, session.THREE))
+  applyBoxClip(session.camera, ipIntroClipBox(box, rocketBox), session.THREE)
+  session.ipIntroSlug = fig.slug
+  session.autoRotate = false
+  clearAutoRotateTimer(session)
+  session.camTween = {
+    fromPos: session.camera.position.clone(),
+    toPos: pose.pos,
+    fromTarget: session.controls.target.clone(),
+    toTarget: pose.target,
+    start: Date.now(),
+    duration: pose.ms
+  }
+  if (session._dimLabelCache && session._dimLabelCache.length && typeof session.onDimLabels === 'function') {
+    session._dimLabelCache = []
+    session.onDimLabels([])
+  }
+  emitIpIntroAnchor(session)
+  return true
+}
+
+function clearIpIntroView(session, resumeMode) {
+  if (!session) return
+  session.ipIntroSlug = ''
+  if (resumeMode) {
+    applyExhibitControls(session, resumeMode)
+    playExhibitView(session, resumeMode)
+  } else {
+    applyExhibitControls(session, 'show')
+  }
+}
+
+function panelFacingCamera(session, root) {
+  if (!session || !root || !session.camera || !session.camera.position) return false
+  var dx = session.camera.position.x - root.position.x
+  var dz = session.camera.position.z - root.position.z
+  var len = Math.sqrt(dx * dx + dz * dz) || 1
+  var yaw = (root.rotation && root.rotation.y) || 0
+  var fwdX = Math.sin(yaw)
+  var fwdZ = Math.cos(yaw)
+  return fwdX * (dx / len) + fwdZ * (dz / len) > 0.12
+}
+
+function measureHeadLockLayout(session, slug) {
+  var hidden = { visible: false, x: 0, y: 0, w: 0, h: 0, scale: 1, fs: 13, slug: String(slug || '') }
+  if (!session || !session.THREE) return hidden
+  var key = String(slug || '')
+  var kind = key === 'astro' ? 'astro' : 'musk'
+  var fig = findIpFigure(session, key)
+  var box = ipFigureWorldBox(fig, session.THREE)
+  if (!box) return hidden
+  var h = Math.max(box.max.y - box.min.y, 0.2)
+  var spec = ipChat3d.headLockWorldSize(kind, h)
+  var core = ipFigureCoreWorld(fig, session.THREE)
+  var cx = core ? core.x : (box.min.x + box.max.x) * 0.5
+  var cz = core ? core.z : (box.min.z + box.max.z) * 0.5
+  var headY = (core ? Math.min(box.max.y, core.y + Math.max(core.bodyW || 0, h * 0.4) * 0.72) : box.max.y) + spec.lift
+  var head = projectToCss(session, cx, headY, cz)
+  var extra = null
+  if (kind !== 'astro') {
+    extra = {
+      text: ipIntro.joinIntroLines(ipIntro.getIpIntro(key)),
+      hint: true
+    }
+  }
+  var next = ipChat3d.layoutHeadLockOverlay(
+    {
+      headX: head.x,
+      headY: head.y,
+      visible: !!head.visible
+    },
+    session.cssW,
+    session.cssH,
+    kind,
+    extra
+  )
+  next.slug = key
+  return next
+}
+
+function emitIpIntroAnchor(session) {
+  if (!session || typeof session.onIpIntroAnchor !== 'function' || !session.ipIntroSlug) return
+  var next = measureHeadLockLayout(session, session.ipIntroSlug)
+  var prev = session._ipIntroAnchor
+  if (
+    prev &&
+    prev.slug === next.slug &&
+    !!prev.visible === !!next.visible &&
+    Math.abs(prev.x - next.x) < 1.5 &&
+    Math.abs(prev.y - next.y) < 1.5 &&
+    Math.abs((prev.w || 0) - (next.w || 0)) < 2 &&
+    Math.abs((prev.h || 0) - (next.h || 0)) < 2
+  ) {
+    return
+  }
+  session._ipIntroAnchor = next
+  session.onIpIntroAnchor(next)
+}
+
+function emitIpNameTags(session) {
+  if (!session || typeof session.onIpTags !== 'function') return
+  if (session.ipIntroSlug || !session.ipRefLoaded || !session.ipRefLoaded.length) {
+    if (session._ipTagCache && session._ipTagCache.length) {
+      session._ipTagCache = []
+      session.onIpTags([])
+    }
+    return
+  }
+  var items = []
+  for (var i = 0; i < session.ipRefLoaded.length; i++) {
+    var fig = session.ipRefLoaded[i]
+    var box = ipFigureWorldBox(fig, session.THREE)
+    if (!box) continue
+    var meta = ipIntro.getIpIntro(fig.slug)
+    if (!meta) continue
+    if (session.xwPanel && fig.slug === 'astro') continue
+    var core = ipFigureCoreWorld(fig, session.THREE)
+    var p = projectToCss(
+      session,
+      core ? core.x : (box.min.x + box.max.x) * 0.5,
+      core ? Math.min(box.max.y, core.y + Math.max(core.bodyW || 0, box.max.y - box.min.y) * 0.36) : box.max.y,
+      core ? core.z : (box.min.z + box.max.z) * 0.5
+    )
+    items.push({
+      key: 'tag-' + fig.slug,
+      text: meta.name,
+      x: p.x - 16,
+      y: p.y - 22,
+      visible: p.visible
+    })
+  }
+  if (!dimLabelsChanged(session._ipTagCache, items)) return
+  session._ipTagCache = items
+  session.onIpTags(items)
+}
+
+var XW_TEX_W = 512
+var XW_TEX_H = 384
+
+function markIpProp(obj, name) {
+  if (!obj) return
+  obj.name = name
+  if (!obj.userData) obj.userData = {}
+  obj.userData.r3dIpRef = true
+}
+
+function makeBoxGeo(THREE, w, h, d) {
+  var Ctor = THREE && (THREE.BoxGeometry || THREE.BoxBufferGeometry)
+  if (typeof Ctor !== 'function') return null
+  return new Ctor(w, h, d)
+}
+
+function makeSphereGeo(THREE, r, seg) {
+  var Ctor = THREE && (THREE.SphereGeometry || THREE.SphereBufferGeometry)
+  if (typeof Ctor !== 'function') return null
+  return new Ctor(r, seg || 16, seg || 12)
+}
+
+function makePlaneGeo(THREE, w, h) {
+  var Ctor = THREE && (THREE.PlaneGeometry || THREE.PlaneBufferGeometry)
+  if (typeof Ctor !== 'function') return null
+  return new Ctor(w, h)
+}
+
+function makeDrawCanvas(w, h) {
+  try {
+    if (typeof wx !== 'undefined' && typeof wx.createOffscreenCanvas === 'function') {
+      var canvas = wx.createOffscreenCanvas({ type: '2d', width: w, height: h })
+      if (canvas) {
+        canvas.width = w
+        canvas.height = h
+        return canvas
+      }
+    }
+  } catch (e) {}
+  return null
+}
+
+function makeCanvasTexture(THREE, canvas) {
+  if (!THREE || !canvas) return null
+  var tex = null
+  if (typeof THREE.CanvasTexture === 'function') tex = new THREE.CanvasTexture(canvas)
+  else if (typeof THREE.Texture === 'function') tex = new THREE.Texture(canvas)
+  if (tex) tex.needsUpdate = true
+  return tex
+}
+
+function detachNamed(session, key) {
+  if (!session || !session[key]) return
+  var obj = session[key]
+  if (obj.parent) obj.parent.remove(obj)
+  disposeObject3D(obj)
+  session[key] = null
+}
+
+function colorRgb(c) {
+  if (!c) return null
+  if (isFinite(c.r) && isFinite(c.g) && isFinite(c.b)) {
+    return { r: c.r, g: c.g, b: c.b }
+  }
+  if (typeof c.getHex === 'function') {
+    var hex = c.getHex()
+    return {
+      r: ((hex >> 16) & 255) / 255,
+      g: ((hex >> 8) & 255) / 255,
+      b: (hex & 255) / 255
+    }
+  }
+  return null
+}
+
+function isYellowishRgb(rgb) {
+  if (!rgb) return false
+  return rgb.r > 0.52 && rgb.g > 0.36 && rgb.b < 0.48 && rgb.r + rgb.g > rgb.b * 2.6
+}
+
+function meshLooksLikeHeadLamp(child, mat) {
+  var hay = String((child && (child.name || child.parent && child.parent.name)) || '')
+  if (/lamp|light|halo|led|bulb|glow|yellow|gold|amber|灯|黄/i.test(hay)) return true
+  if (!mat) return false
+  return isYellowishRgb(colorRgb(mat.color)) || isYellowishRgb(colorRgb(mat.emissive))
+}
+
+function collectXingwenGlowMats(session) {
+  var found = collectXingwenLampParts(session)
+  return found.mats
+}
+
+function threeBoxToPlain(mb) {
+  if (!mb || !mb.min || !mb.max) return null
+  return {
+    minX: mb.min.x,
+    maxX: mb.max.x,
+    minY: mb.min.y,
+    maxY: mb.max.y,
+    minZ: mb.min.z,
+    maxZ: mb.max.z
+  }
+}
+
+function plainBoxOverlaps(a, b, pad) {
+  if (!a || !b) return false
+  var p = isFinite(pad) ? pad : 1
+  var ax = (a.minX + a.maxX) * 0.5
+  var az = (a.minZ + a.maxZ) * 0.5
+  var hx = Math.max((a.maxX - a.minX) * 0.5 * p, 0.01)
+  var hz = Math.max((a.maxZ - a.minZ) * 0.5 * p, 0.01)
+  var bx = (b.minX + b.maxX) * 0.5
+  var bz = (b.minZ + b.maxZ) * 0.5
+  return Math.abs(bx - ax) <= hx && Math.abs(bz - az) <= hz
+}
+
+function readAttrVertex(attr, index, target) {
+  if (!attr || !target) return false
+  if (typeof attr.getX === 'function') {
+    target.x = attr.getX(index)
+    target.y = attr.getY(index)
+    target.z = attr.getZ(index)
+    return isFinite(target.x) && isFinite(target.y) && isFinite(target.z)
+  }
+  var arr = attr.array
+  var size = Number(attr.itemSize) > 0 ? attr.itemSize : 3
+  if (!arr) return false
+  var i = index * size
+  if (i + 2 >= arr.length) return false
+  target.x = arr[i]
+  target.y = arr[i + 1]
+  target.z = arr[i + 2]
+  return isFinite(target.x) && isFinite(target.y) && isFinite(target.z)
+}
+
+function forEachWorldVertex(child, THREE, fn) {
+  if (!child || !child.geometry || !THREE || typeof fn !== 'function') return
+  var g = child.geometry
+  if (typeof child.updateWorldMatrix === 'function') child.updateWorldMatrix(true, false)
+  var mw = child.matrixWorld
+  var pos = new THREE.Vector3()
+  var attr = (g.attributes && g.attributes.position) || (typeof g.getAttribute === 'function' ? g.getAttribute('position') : null)
+  var count = attr && isFinite(attr.count) ? attr.count : attr && attr.array ? Math.floor(attr.array.length / (attr.itemSize || 3)) : 0
+  if (attr && count > 0) {
+    for (var i = 0; i < count; i++) {
+      if (!readAttrVertex(attr, i, pos)) continue
+      if (mw && typeof pos.applyMatrix4 === 'function') pos.applyMatrix4(mw)
+      fn(pos)
+    }
+    return
+  }
+  var verts = g.vertices
+  if (!verts || !verts.length) return
+  for (var j = 0; j < verts.length; j++) {
+    var v = verts[j]
+    if (!v) continue
+    pos.set(v.x, v.y, v.z)
+    if (mw && typeof pos.applyMatrix4 === 'function') pos.applyMatrix4(mw)
+    fn(pos)
+  }
+}
+
+function measureXingwenCrownBox(session, fig) {
+  if (!fig || !fig.object || !session || !session.THREE) return null
+  var THREE = session.THREE
+  var box = ipFigureWorldBox(fig, THREE)
+  if (!box) return null
+  var spanY = Math.max(box.max.y - box.min.y, 0.2)
+  var band = spanY * 0.012
+  var pts = []
+  fig.object.traverse(function (child) {
+    if (!isMeshNode(child)) return
+    if (child.userData && child.userData.r3dIpProp) return
+    forEachWorldVertex(child, THREE, function (pos) {
+      pts.push({ x: pos.x, y: pos.y, z: pos.z })
+    })
+  })
+  var apex = ipChat3d.pickApexFromPoints(pts, band)
+  if (!apex || !apex.from) return null
+  var pad = Math.max(band, 0.006)
+  return {
+    minX: apex.x - pad,
+    maxX: apex.x + pad,
+    minY: apex.y - band,
+    maxY: apex.y,
+    minZ: apex.z - pad,
+    maxZ: apex.z + pad
+  }
+}
+
+function meshLocalTopCenter(mesh, THREE) {
+  if (!mesh || !THREE) return null
+  var g = mesh.geometry
+  if (g && !g.boundingBox && g.computeBoundingBox) g.computeBoundingBox()
+  var bb = g && g.boundingBox
+  if (!bb || (bb.isEmpty && bb.isEmpty())) return null
+  var dx = bb.max.x - bb.min.x
+  var dy = bb.max.y - bb.min.y
+  var dz = bb.max.z - bb.min.z
+  var p = new THREE.Vector3(
+    (bb.min.x + bb.max.x) * 0.5,
+    (bb.min.y + bb.max.y) * 0.5,
+    (bb.min.z + bb.max.z) * 0.5
+  )
+  if (dy >= dx && dy >= dz) p.y = bb.max.y
+  return p
+}
+
+function pickXingwenHelmetMesh(session, fig) {
+  if (!fig || !fig.object || !session || !session.THREE) return null
+  var box = ipFigureWorldBox(fig, session.THREE)
+  if (!box) return null
+  var topY = box.max.y
+  var spanY = Math.max(box.max.y - box.min.y, 0.2)
+  var best = null
+  var bestScore = -1
+  fig.object.traverse(function (child) {
+    if (!child.isMesh || !child.geometry) return
+    if (isIpRefObject(child)) return
+    var mb = meshWorldBox(child, session.THREE)
+    if (!mb || mb.isEmpty()) return
+    if (topY - mb.max.y > spanY * 0.08) return
+    var dx = mb.max.x - mb.min.x
+    var dy = mb.max.y - mb.min.y
+    var dz = mb.max.z - mb.min.z
+    var area = Math.max(dx, 0) * Math.max(dz, 0)
+    var name = String(child.name || (child.parent && child.parent.name) || '')
+    var score = area
+    if (/helm|head|hat|helmet|盔|头/i.test(name)) score *= 4
+    if (Math.min(dx, dz) < Math.max(dx, dz) * 0.28 && dy > Math.max(dx, dz)) score *= 0.12
+    if (score > bestScore) {
+      bestScore = score
+      best = child
+    }
+  })
+  return best
+}
+
+function meshIsFullBody(mesh, figBox, THREE) {
+  if (!mesh || !figBox) return false
+  var mb = meshWorldBox(mesh, THREE)
+  if (!mb || mb.isEmpty()) return false
+  var h = Math.max(figBox.max.y - figBox.min.y, 0.2)
+  return mb.max.y - mb.min.y > h * 0.55
+}
+
+function toMeshLocal(mesh, THREE, world) {
+  var p = new THREE.Vector3(world.x, world.y, world.z)
+  if (typeof mesh.worldToLocal === 'function') {
+    mesh.worldToLocal(p)
+    return p
+  }
+  if (mesh.updateWorldMatrix) mesh.updateWorldMatrix(true, false)
+  if (mesh.matrixWorld && typeof mesh.matrixWorld.clone === 'function') {
+    var inv = mesh.matrixWorld.clone()
+    if (inv.invert) inv.invert()
+    else if (inv.getInverse) inv.getInverse(mesh.matrixWorld)
+    if (p.applyMatrix4) p.applyMatrix4(inv)
+  }
+  return p
+}
+
+function fromMeshLocal(mesh, THREE, local) {
+  var p = new THREE.Vector3(local.x, local.y, local.z)
+  if (typeof mesh.localToWorld === 'function') {
+    mesh.localToWorld(p)
+    return p
+  }
+  if (mesh.updateWorldMatrix) mesh.updateWorldMatrix(true, false)
+  if (mesh.matrixWorld && p.applyMatrix4) p.applyMatrix4(mesh.matrixWorld)
+  return p
+}
+
+function meshMaterials(child) {
+  if (!child || !child.material) return []
+  return Array.isArray(child.material) ? child.material : [child.material]
+}
+
+function meshHasYellowMat(child) {
+  var list = meshMaterials(child)
+  for (var i = 0; i < list.length; i++) {
+    if (meshLooksLikeHeadLamp(child, list[i])) return true
+  }
+  return false
+}
+
+function readLocalVertex(attr, index, target) {
+  return readAttrVertex(attr, index, target)
+}
+
+function measureLocalIsland(attr, idx, start, count, collect) {
+  var minX = Infinity
+  var maxX = -Infinity
+  var minY = Infinity
+  var maxY = -Infinity
+  var minZ = Infinity
+  var maxZ = -Infinity
+  var xs = collect ? [] : null
+  var zs = collect ? [] : null
+  var n = 0
+  var tmp = { x: 0, y: 0, z: 0 }
+  var end = start + count
+  for (var i = start; i < end; i++) {
+    var vi = idx && typeof idx.getX === 'function' ? idx.getX(i) : i
+    if (!readLocalVertex(attr, vi, tmp)) continue
+    n += 1
+    if (tmp.x < minX) minX = tmp.x
+    if (tmp.x > maxX) maxX = tmp.x
+    if (tmp.y < minY) minY = tmp.y
+    if (tmp.y > maxY) maxY = tmp.y
+    if (tmp.z < minZ) minZ = tmp.z
+    if (tmp.z > maxZ) maxZ = tmp.z
+    if (collect) {
+      xs.push(tmp.x)
+      zs.push(tmp.z)
+    }
+  }
+  if (!n) return null
+  return { minX: minX, maxX: maxX, minY: minY, maxY: maxY, minZ: minZ, maxZ: maxZ, xs: xs, zs: zs, n: n }
+}
+
+function finishYellowIsland(ext) {
+  if (!ext) return null
+  var midX = (ext.minX + ext.maxX) * 0.5
+  var midZ = (ext.minZ + ext.maxZ) * 0.5
+  var medX = ipChat3d.medianNumber(ext.xs)
+  var medZ = ipChat3d.medianNumber(ext.zs)
+  if (isFinite(medX)) midX = medX
+  if (isFinite(medZ)) midZ = medZ
+  return {
+    x: midX,
+    y: ext.maxY,
+    z: midZ,
+    size: { x: ext.maxX - ext.minX, y: ext.maxY - ext.minY, z: ext.maxZ - ext.minZ },
+    center: { x: midX, y: (ext.minY + ext.maxY) * 0.5, z: midZ }
+  }
+}
+
+function yellowIslandLocal(mesh) {
+  if (!mesh || !mesh.geometry) return null
+  var g = mesh.geometry
+  var attr = (g.attributes && g.attributes.position) || (typeof g.getAttribute === 'function' ? g.getAttribute('position') : null)
+  if (!attr || !attr.count) return null
+  var mats = meshMaterials(mesh)
+  var groups = g.groups || []
+  var idx = g.index
+  var useGroups = groups.length > 1 && mats.length > 1
+  var cache = mesh.userData && mesh.userData._xwYellowIsland
+  var sig = String(g.uuid || '') + ':' + attr.count + ':' + groups.length + ':' + mats.length
+  if (cache && cache.sig === sig) return cache.island
+  var best = null
+  var bestScore = 0
+  var fullCount = idx && idx.count ? idx.count : attr.count
+  if (useGroups) {
+    for (var gI = 0; gI < groups.length; gI++) {
+      var grp = groups[gI]
+      if (!grp) continue
+      var mat = mats[grp.materialIndex]
+      if (!meshLooksLikeHeadLamp(mesh, mat)) continue
+      var ext = measureLocalIsland(attr, idx, grp.start || 0, grp.count || 0, false)
+      if (!ext) continue
+      var sx = ext.maxX - ext.minX
+      var sy = ext.maxY - ext.minY
+      var sz = ext.maxZ - ext.minZ
+      var thin = Math.min(sx, sz)
+      var wide = Math.max(sx, sz)
+      if (sy < wide * 0.85) continue
+      var score = sy / Math.max(thin, 0.001)
+      if (score > bestScore) {
+        bestScore = score
+        best = grp
+      }
+    }
+  }
+  var raw = null
+  if (best) raw = measureLocalIsland(attr, idx, best.start || 0, best.count || 0, true)
+  if (!raw && meshHasYellowMat(mesh)) raw = measureLocalIsland(attr, idx, 0, fullCount, true)
+  var island = finishYellowIsland(raw)
+  if (!mesh.userData) mesh.userData = {}
+  mesh.userData._xwYellowIsland = { sig: sig, island: island }
+  return island
+}
+
+function pickXingwenStripeMesh(session, fig) {
+  if (!fig || !fig.object || !session || !session.THREE) return null
+  var box = ipFigureWorldBox(fig, session.THREE)
+  if (!box) return null
+  var core = ipFigureCoreWorld(fig, session.THREE)
+  var cx = core ? core.x : (box.min.x + box.max.x) * 0.5
+  var cz = core ? core.z : (box.min.z + box.max.z) * 0.5
+  var h = Math.max(box.max.y - box.min.y, 0.2)
+  var half = core && core.bodyW > 0 ? core.bodyW * 0.5 : Math.max(box.max.x - box.min.x, box.max.z - box.min.z) * 0.5
+  var best = null
+  var bestScore = 0
+  fig.object.traverse(function (child) {
+    if (!child.isMesh || !child.geometry) return
+    if (isIpRefObject(child)) return
+    if (!meshHasYellowMat(child)) return
+    var island = yellowIslandLocal(child)
+    if (!island || !island.size) return
+    var sy = island.size.y
+    if (sy < h * 0.16) return
+    var sx = island.size.x
+    var sz = island.size.z
+    var thin = Math.min(sx, sz)
+    var wide = Math.max(sx, sz)
+    if (!(wide > 0)) return
+    if (sy < wide * 0.9 && thin > wide * 0.82) return
+    var w = fromMeshLocal(child, session.THREE, { x: island.x, y: island.y, z: island.z })
+    var radial = Math.hypot(w.x - cx, w.z - cz)
+    if (radial < half * 0.12) return
+    var score = sy / Math.max(thin, 0.001)
+    if (score > bestScore) {
+      bestScore = score
+      best = child
+    }
+  })
+  return best
+}
+
+function xingwenBodyCenterWorld(session, fig) {
+  if (!fig || !session || !session.THREE) return null
+  var core = ipFigureCoreWorld(fig, session.THREE)
+  if (core) return { x: core.x, y: core.y, z: core.z }
+  var box = ipFigureWorldBox(fig, session.THREE)
+  if (!box) return null
+  return {
+    x: (box.min.x + box.max.x) * 0.5,
+    y: (box.min.y + box.max.y) * 0.5,
+    z: (box.min.z + box.max.z) * 0.5
+  }
+}
+
+function xingwenStripeFrontXZ(session, fig, body) {
+  var stripe = pickXingwenStripeMesh(session, fig)
+  if (!stripe || !body || !session.THREE) return null
+  var island = yellowIslandLocal(stripe)
+  var local = island
+    ? { x: island.center.x, y: island.center.y, z: island.center.z }
+    : meshLocalTopCenter(stripe, session.THREE)
+  if (!local) return null
+  var w = fromMeshLocal(stripe, session.THREE, local)
+  var fx = w.x - body.x
+  var fz = w.z - body.z
+  if (!(Math.hypot(fx, fz) > 1e-5)) return null
+  return { x: fx, z: fz }
+}
+
+function bindXingwenHalo(session, fig) {
+  if (!session) return null
+  session.xwHaloBind = null
+  if (!fig || !fig.object || !session.THREE) return null
+  var THREE = session.THREE
+  var box = ipFigureWorldBox(fig, THREE)
+  var helmet = pickXingwenHelmetMesh(session, fig)
+  var stripe = pickXingwenStripeMesh(session, fig)
+  var mesh = stripe || helmet || fig.object
+  var local = null
+  var from = 'helmet'
+  if (stripe) {
+    var island = yellowIslandLocal(stripe)
+    local = island
+      ? new THREE.Vector3(island.x, island.y, island.z)
+      : meshLocalTopCenter(stripe, THREE)
+    if (local && island) {
+      var snapped = ipChat3d.snapLocalToStripeMid(local, island)
+      local.set(snapped.x, snapped.y, snapped.z)
+    }
+    mesh = stripe
+    from = 'stripe'
+  } else if (helmet && helmet.isMesh) {
+    var paint = yellowIslandLocal(helmet)
+    if (paint && paint.size && paint.size.y > Math.max(paint.size.x, paint.size.z) * 0.85) {
+      local = new THREE.Vector3(paint.x, paint.y, paint.z)
+      var paintSnap = ipChat3d.snapLocalToStripeMid(local, paint)
+      local.set(paintSnap.x, paintSnap.y, paintSnap.z)
+      mesh = helmet
+      from = 'stripe'
+    } else if (!meshIsFullBody(helmet, box, THREE)) {
+      local = meshLocalTopCenter(helmet, THREE)
+    }
+  }
+  if (!local) {
+    var crown = measureXingwenCrownBox(session, fig)
+    var apex = crown
+      ? {
+          x: (crown.minX + crown.maxX) * 0.5,
+          y: crown.maxY,
+          z: (crown.minZ + crown.maxZ) * 0.5
+        }
+      : null
+    if (!apex) return null
+    local = toMeshLocal(mesh, THREE, apex)
+    from = 'apex'
+  }
+  session.xwHaloBind = { mesh: mesh, x: local.x, y: local.y, z: local.z, from: from }
+  return session.xwHaloBind
+}
+
+function resolveXingwenHaloWorld(session) {
+  var b = session && session.xwHaloBind
+  if (!b || !b.mesh || !session.THREE) return null
+  var p = fromMeshLocal(b.mesh, session.THREE, b)
+  return { x: p.x, y: p.y, z: p.z, from: b.from || 'helmet' }
+}
+
+function collectXingwenLampParts(session) {
+  var mats = []
+  var hits = []
+  var crown = []
+  var fig = findIpFigure(session, 'astro')
+  if (!fig || !fig.object || typeof fig.object.traverse !== 'function' || !session.THREE) {
+    return { mats: mats, hits: hits, crown: crown, body: null, helmet: null, stripe: null }
+  }
+  var box = ipFigureWorldBox(fig, session.THREE)
+  var body = box
+    ? {
+        minX: box.min.x,
+        maxX: box.max.x,
+        minY: box.min.y,
+        maxY: box.max.y,
+        minZ: box.min.z,
+        maxZ: box.max.z
+      }
+    : null
+  var topY = box ? box.max.y : 0
+  var spanY = box ? Math.max(box.max.y - box.min.y, 0.001) : 1
+  var headItems = []
+  fig.object.traverse(function (child) {
+    if (!child.isMesh || !child.material) return
+    if (isIpRefObject(child)) return
+    var mb = meshWorldBox(child, session.THREE)
+    if (!mb || mb.isEmpty()) return
+    var cy = (mb.min.y + mb.max.y) * 0.5
+    var dx = mb.max.x - mb.min.x
+    var dy = mb.max.y - mb.min.y
+    var dz = mb.max.z - mb.min.z
+    var area = Math.max(dx, 0) * Math.max(dz, 0)
+    if (box && topY - cy <= spanY * 0.16) {
+      crown.push({
+        x: (mb.min.x + mb.max.x) * 0.5,
+        y: (mb.min.y + mb.max.y) * 0.5,
+        z: (mb.min.z + mb.max.z) * 0.5
+      })
+    }
+    if (box && topY - cy > spanY * 0.26) return
+    var list = Array.isArray(child.material) ? child.material : [child.material]
+    var lamp = false
+    for (var i = 0; i < list.length; i++) {
+      var m = list[i]
+      if (!m) continue
+      if (meshLooksLikeHeadLamp(child, m)) {
+        lamp = true
+        if (mats.indexOf(m) < 0) mats.push(m)
+      }
+    }
+    if (lamp) {
+      hits.push({
+        x: (mb.min.x + mb.max.x) * 0.5,
+        y: mb.max.y,
+        z: (mb.min.z + mb.max.z) * 0.5
+      })
+    }
+    headItems.push({ mb: mb, lamp: lamp, area: area, dx: dx, dy: dy, dz: dz })
+  })
+  var helmet = measureXingwenCrownBox(session, fig)
+  if (!helmet) {
+    var bestArea = 0
+    for (var h = 0; h < headItems.length; h++) {
+      var it = headItems[h]
+      var thin = Math.min(it.dx, it.dz)
+      var wide = Math.max(it.dx, it.dz)
+      if (it.lamp && wide > 0.0001 && thin <= wide * 0.5) continue
+      if (it.area > bestArea) {
+        bestArea = it.area
+        helmet = threeBoxToPlain(it.mb)
+      }
+    }
+  }
+  var stripe = null
+  var bestScore = 0
+  if (helmet) {
+    for (var s = 0; s < headItems.length; s++) {
+      var st = headItems[s]
+      if (!st.lamp) continue
+      var plain = threeBoxToPlain(st.mb)
+      if (!plainBoxOverlaps(helmet, plain, 2.4)) continue
+      var thinS = Math.min(st.dx, st.dz)
+      var wideS = Math.max(st.dx, st.dz)
+      if (!(wideS > 0) || thinS > wideS * 0.62) continue
+      var score = st.dy / Math.max(thinS, 0.001)
+      if (score > bestScore) {
+        bestScore = score
+        stripe = plain
+      }
+    }
+  }
+  return { mats: mats, hits: hits, crown: crown, body: body, helmet: helmet, stripe: stripe }
+}
+
+function measureXingwenLampAnchor(session) {
+  var fig = findIpFigure(session, 'astro')
+  if (!session.xwHaloBind || !session.xwHaloBind.mesh) bindXingwenHalo(session, fig)
+  var world = resolveXingwenHaloWorld(session)
+  if (world) return world
+  var parts = collectXingwenLampParts(session)
+  return ipChat3d.pickCrownAnchor(parts.body, parts.hits, parts.helmet)
+}
+
+function xingwenLightReach(session, pos) {
+  if (!session || !session.THREE || !pos) return 4
+  var hull = getIpCollisionBox(session.modelRoot, session.THREE)
+  if (!hull || hull.isEmpty()) hull = session.modelRoot ? getExhibitFrameBox(session.modelRoot, session.THREE) : null
+  if (!hull || hull.isEmpty()) return 6
+  var nx = Math.max(hull.min.x, Math.min(hull.max.x, pos.x))
+  var ny = Math.max(hull.min.y, Math.min(hull.max.y, pos.y))
+  var nz = Math.max(hull.min.z, Math.min(hull.max.z, pos.z))
+  var dx = pos.x - nx
+  var dy = pos.y - ny
+  var dz = pos.z - nz
+  var near = Math.sqrt(dx * dx + dy * dy + dz * dz)
+  var span = Math.max(hull.max.x - hull.min.x, hull.max.z - hull.min.z, (hull.max.y - hull.min.y) * 0.28, 1)
+  return Math.max(near + span * 0.7, 3.5)
+}
+
+function makeHaloGlowTexture(THREE) {
+  var size = 128
+  var canvas = makeDrawCanvas(size, size)
+  if (!canvas || typeof canvas.getContext !== 'function') return null
+  var ctx = canvas.getContext('2d')
+  if (!ctx || typeof ctx.createRadialGradient !== 'function') return null
+  var g = ctx.createRadialGradient(size / 2, size / 2, 2, size / 2, size / 2, size / 2)
+  g.addColorStop(0, 'rgba(255,247,180,1)')
+  g.addColorStop(0.2, 'rgba(250,204,21,0.88)')
+  g.addColorStop(0.52, 'rgba(250,204,21,0.32)')
+  g.addColorStop(1, 'rgba(250,204,21,0)')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, size, size)
+  var tex = makeCanvasTexture(THREE, canvas)
+  if (tex) {
+    tex.needsUpdate = true
+    if (tex.minFilter != null && THREE && THREE.LinearFilter) tex.minFilter = THREE.LinearFilter
+  }
+  return tex
+}
+
+function makeHaloMat(THREE, opts) {
+  var src = opts || {}
+  var mat = new THREE.MeshBasicMaterial({
+    color: src.color != null ? src.color : 0xfacc15,
+    transparent: true,
+    opacity: src.opacity != null ? src.opacity : 0.9,
+    depthWrite: false,
+    depthTest: src.depthTest !== false,
+    blending: THREE.AdditiveBlending || 2,
+    side: THREE.DoubleSide || 2,
+    map: src.map || null
+  })
+  if (src.map) mat.toneMapped = false
+  return mat
+}
+
+function clearXingwenHalo(session) {
+  if (!session) return
+  restoreXingwenGlowMats(session)
+  detachNamed(session, 'xwHalo')
+  session.xwHaloMat = null
+  session.xwHaloCoreMat = null
+  session.xwHaloBloomMat = null
+  session.xwHaloLight = null
+  session.xwHaloDisc = null
+  session.xwHaloCore = null
+  session.xwHaloBloom = null
+  session.xwHaloMats = null
+  session.xwHaloBind = null
+  session.xwTalking = false
+}
+
+function restoreXingwenGlowMats(session) {
+  var mats = session && session.xwHaloMats
+  if (!mats) return
+  for (var i = 0; i < mats.length; i++) {
+    var m = mats[i]
+    if (!m) continue
+    if (m._xwEmi != null && m.emissive && typeof m.emissive.setHex === 'function') {
+      m.emissive.setHex(m._xwEmi)
+    }
+    if (m._xwEmiInt != null && m.emissiveIntensity != null) m.emissiveIntensity = m._xwEmiInt
+    if (m._xwBaseOp != null) m.opacity = m._xwBaseOp
+    m.needsUpdate = true
+  }
+}
+
+function layoutXingwenHalo(session) {
+  if (!session || !session.xwHalo || !session.THREE) return false
+  var fig = findIpFigure(session, 'astro')
+  var box = ipFigureWorldBox(fig, session.THREE)
+  if (!box) return false
+  var h = Math.max(box.max.y - box.min.y, 0.2)
+  bindXingwenHalo(session, fig)
+  var anchor = measureXingwenLampAnchor(session)
+  var body = xingwenBodyCenterWorld(session, fig)
+  var front = xingwenStripeFrontXZ(session, fig, body)
+  if (body && front) {
+    var locked = ipChat3d.snapToMeridian(anchor, body, front)
+    anchor.x = locked.x
+    anchor.z = locked.z
+  }
+  session.xwHalo.scale.set(1, 1, 1)
+  var bead = Math.max(h * 0.014, 0.009)
+  session.xwHalo.position.set(anchor.x, anchor.y + bead * 0.2, anchor.z)
+  if (session.xwHaloCore) session.xwHaloCore.scale.setScalar(bead)
+  if (session.xwHaloBloom) session.xwHaloBloom.scale.setScalar(bead * 2.2)
+  if (session.xwHaloDisc) session.xwHaloDisc.scale.setScalar(bead * 4.2)
+  var light = session.xwHaloLight
+  if (light) {
+    light.distance = xingwenLightReach(session, anchor) * 1.35
+    light.decay = 1
+  }
+  return true
+}
+
+function ensureXingwenHalo(session) {
+  if (!session || !session.scene || !session.THREE) return false
+  var fig = findIpFigure(session, 'astro')
+  if (!fig) {
+    clearXingwenHalo(session)
+    return false
+  }
+  var THREE = session.THREE
+  if (session.xwHalo) {
+    session.xwHaloMats = collectXingwenGlowMats(session)
+    layoutXingwenHalo(session)
+    updateXingwenHalo(session, Date.now())
+    return true
+  }
+  var coreGeo = makeSphereGeo(THREE, 1, 12) || makeBoxGeo(THREE, 1.6, 0.7, 1.6)
+  var bloomGeo = makeSphereGeo(THREE, 1, 14) || makeBoxGeo(THREE, 2.2, 1.4, 2.2)
+  var planeGeo = makePlaneGeo(THREE, 2, 2)
+  if (!coreGeo) return false
+  var root = new THREE.Group()
+  markIpProp(root, 'r3d-ip-xw-halo')
+  var coreMat = new THREE.MeshBasicMaterial({
+    color: 0xfff7c2,
+    transparent: true,
+    opacity: 0.85,
+    depthWrite: false
+  })
+  var core = new THREE.Mesh(coreGeo, coreMat)
+  markIpProp(core, 'r3d-ip-xw-lamp')
+  root.add(core)
+  var bloomMat = makeHaloMat(THREE, { color: 0xfacc15, opacity: 0.28, depthTest: false })
+  var bloom = null
+  if (bloomGeo) {
+    bloom = new THREE.Mesh(bloomGeo, bloomMat)
+    markIpProp(bloom, 'r3d-ip-xw-bloom')
+    root.add(bloom)
+  }
+  var glowTex = makeHaloGlowTexture(THREE)
+  var haloMat = makeHaloMat(THREE, {
+    color: 0xffffff,
+    opacity: 0.4,
+    depthTest: false,
+    map: glowTex
+  })
+  var disc = null
+  if (planeGeo) {
+    disc = new THREE.Mesh(planeGeo, haloMat)
+    markIpProp(disc, 'r3d-ip-xw-glow')
+    disc.renderOrder = 12
+    root.add(disc)
+  }
+  var light = null
+  if (typeof THREE.PointLight === 'function') {
+    light = new THREE.PointLight(0xffe082, 6, 8, 1)
+    markIpProp(light, 'r3d-ip-xw-light')
+    root.add(light)
+  }
+  root.renderOrder = 10
+  session.scene.add(root)
+  session.xwHalo = root
+  session.xwHaloMat = haloMat
+  session.xwHaloCoreMat = coreMat
+  session.xwHaloBloomMat = bloomMat
+  session.xwHaloLight = light
+  session.xwHaloCore = core
+  session.xwHaloBloom = bloom
+  session.xwHaloDisc = disc
+  session.xwHaloMats = collectXingwenGlowMats(session)
+  layoutXingwenHalo(session)
+  updateXingwenHalo(session, Date.now())
+  return true
+}
+
+function setXingwenHaloTalking(session) {
+  if (!session) return
+  session.xwTalking = false
+  ensureXingwenHalo(session)
+}
+
+function updateXingwenHalo(session, now) {
+  if (!session) return
+  if (session.xwHalo) layoutXingwenHalo(session)
+  var pulse = ipChat3d.haloPulse(now)
+  var core = session.xwHaloCoreMat
+  if (core) {
+    core.transparent = true
+    core.opacity = 0.28 + pulse * 0.72
+    if (core.color && typeof core.color.setHex === 'function') {
+      core.color.setHex(pulse > 0.4 ? 0xfff7c2 : 0xfacc15)
+    }
+    core.needsUpdate = true
+  }
+  var bloom = session.xwHaloBloomMat
+  if (bloom) {
+    bloom.transparent = true
+    bloom.opacity = 0.06 + pulse * 0.42
+    bloom.needsUpdate = true
+  }
+  var halo = session.xwHaloMat
+  if (halo) {
+    halo.transparent = true
+    halo.opacity = 0.1 + pulse * 0.7
+    halo.needsUpdate = true
+  }
+  var light = session.xwHaloLight
+  var reach = light && isFinite(light.distance) ? light.distance : 6
+  if (light) {
+    light.color && light.color.setHex && light.color.setHex(0xffe082)
+    light.decay = 1
+    light.intensity = (0.35 + pulse * 2.4) * Math.max(reach, 3)
+    if (!(light.distance > 0)) light.distance = reach
+  }
+  var disc = session.xwHaloDisc
+  var cam = session.camera
+  if (disc && cam && typeof disc.lookAt === 'function') {
+    disc.lookAt(cam.position)
+  }
+  var mats = session.xwHaloMats
+  if (!mats || !mats.length) return
+  for (var i = 0; i < mats.length; i++) {
+    var m = mats[i]
+    if (!m) continue
+    if (m._xwBaseOp == null && m.opacity != null) m._xwBaseOp = m.opacity
+    if (m.emissive && typeof m.emissive.getHex === 'function' && m._xwEmi == null) {
+      m._xwEmi = m.emissive.getHex()
+    }
+    if (m.emissiveIntensity != null && m._xwEmiInt == null) m._xwEmiInt = m.emissiveIntensity
+    if (m.emissive && typeof m.emissive.setHex === 'function') m.emissive.setHex(0xfacc15)
+    if (m.emissiveIntensity != null) m.emissiveIntensity = (m._xwEmiInt || 0.2) + pulse * 1.8
+    if (m.opacity != null) {
+      m.transparent = true
+      m.opacity = Math.max(m._xwBaseOp || 0.7, 0.55 + pulse * 0.45)
+    }
+    m.needsUpdate = true
+  }
+}
+
+function layoutIpChatPanel(session) {
+  if (!session || !session.xwPanel || !session.THREE) return false
+  var fig = findIpFigure(session, 'astro')
+  var box = ipFigureWorldBox(fig, session.THREE)
+  if (!box) return false
+  var h = Math.max(box.max.y - box.min.y, 0.2)
+  var spec = ipChat3d.headLockWorldSize('astro', h)
+  var core = ipFigureCoreWorld(fig, session.THREE)
+  var cx = core ? core.x : (box.min.x + box.max.x) * 0.5
+  var cz = core ? core.z : (box.min.z + box.max.z) * 0.5
+  var topY = core ? Math.min(box.max.y, core.y + Math.max(core.bodyW || 0, h * 0.4) * 0.72) : box.max.y
+  session.xwPanel.scale.set(spec.w, spec.h, Math.max(h * 0.02, 0.01))
+  session.xwPanel.position.set(cx, topY + spec.lift + spec.h * 0.5, cz)
+  return true
+}
+
+function faceIpChatPanel(session) {
+  var root = session && session.xwPanel
+  var cam = session && session.camera
+  if (!root || !cam || !cam.position) return
+  var dx = cam.position.x - root.position.x
+  var dz = cam.position.z - root.position.z
+  if (dx * dx + dz * dz < 1e-8) return
+  root.rotation.y = Math.atan2(dx, dz)
+}
+
+function attachIpChatPanel(session) {
+  if (!session || !session.scene || !session.THREE) return false
+  if (session.xwPanel) {
+    layoutIpChatPanel(session)
+    return true
+  }
+  var THREE = session.THREE
+  var bodyGeo = makeBoxGeo(THREE, 0.56, 1, 0.02)
+  var faceGeo = makePlaneGeo(THREE, 0.52, 0.96)
+  if (!bodyGeo || !faceGeo) return false
+  var root = new THREE.Group()
+  markIpProp(root, 'r3d-ip-xw-panel')
+  var body = new THREE.Mesh(
+    bodyGeo,
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false
+    })
+  )
+  markIpProp(body, 'r3d-ip-xw-body')
+  body.visible = false
+  var face = new THREE.Mesh(
+    faceGeo,
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false
+    })
+  )
+  markIpProp(face, 'r3d-ip-xw-face')
+  face.visible = false
+  face.position.z = 0.011
+  root.add(body)
+  root.add(face)
+  root.renderOrder = 8
+  session.scene.add(root)
+  session.xwPanel = root
+  session.xwFaceMat = face.material
+  layoutIpChatPanel(session)
+  faceIpChatPanel(session)
+  return true
+}
+
+function updateIpChatPanelTexture(session, state) {
+  if (!session || !session.xwCanvas || typeof session.xwCanvas.getContext !== 'function') return false
+  var ctx = session.xwCanvas.getContext('2d')
+  if (!ctx) return false
+  ipChat3d.paintChatCanvas(ctx, XW_TEX_W, XW_TEX_H, state || {})
+  if (session.xwTex) session.xwTex.needsUpdate = true
+  return true
+}
+
+function pickIpChatPanelAt(session, cssX, cssY) {
+  if (!session || !session.THREE) return false
+  var page = measureHeadLockLayout(session, 'astro')
+  if (!page || !page.visible) return false
+  return ipIntro.hitTestPoint(cssX, cssY, {
+    left: page.x,
+    top: page.y,
+    right: page.x + page.w,
+    bottom: page.y + page.h
+  })
+}
+
+function emitXwScreenRect(session) {
+  if (!session || typeof session.onXwScreen !== 'function') return
+  if (!session.xwPanel || !session.THREE) {
+    if (session._xwScreenOn) {
+      session._xwScreenOn = false
+      session.onXwScreen({ visible: false, x: 0, y: 0, w: 0, h: 0, scale: 1, fs: 13 })
+    }
+    return
+  }
+  var next = measureHeadLockLayout(session, 'astro')
+  if (!next.visible) {
+    if (session._xwScreenOn) {
+      session._xwScreenOn = false
+      session.onXwScreen(next)
+    }
+    return
+  }
+  var prev = session._xwScreenLayout
+  if (
+    prev &&
+    !!prev.visible === !!next.visible &&
+    Math.abs(prev.x - next.x) < 2 &&
+    Math.abs(prev.y - next.y) < 2 &&
+    Math.abs(prev.w - next.w) < 2 &&
+    Math.abs(prev.h - next.h) < 2
+  ) {
+    return
+  }
+  session._xwScreenLayout = next
+  session._xwScreenOn = !!next.visible
+  session.onXwScreen(next)
+}
+
+function layoutMuskIntroPanel(session) {
+  if (!session || !session.muskPanel || !session.THREE) return false
+  var fig = findIpFigure(session, 'musk')
+  var box = ipFigureWorldBox(fig, session.THREE)
+  if (!box) return false
+  var size = box.getSize(new session.THREE.Vector3())
+  var h = Math.max(size.y, 0.2)
+  var s = Math.max(h * 0.42, 0.22)
+  session.muskPanel.scale.set(s, s, s)
+  session.muskPanel.position.set(
+    (box.min.x + box.max.x) * 0.5,
+    box.max.y + s * 0.28,
+    (box.min.z + box.max.z) * 0.5
+  )
+  var yaw = fig.object && fig.object.rotation ? fig.object.rotation.y : 0
+  session.muskPanel.rotation.y = yaw
+  return true
+}
+
+function attachMuskIntroPanel(session) {
+  if (!session || !session.scene || !session.THREE) return false
+  if (session.muskPanel) {
+    layoutMuskIntroPanel(session)
+    return true
+  }
+  var THREE = session.THREE
+  var bodyGeo = makeBoxGeo(THREE, 1, 0.46, 0.03)
+  if (!bodyGeo) return false
+  var root = new THREE.Group()
+  markIpProp(root, 'r3d-ip-musk-panel')
+  var body = new THREE.Mesh(
+    bodyGeo,
+    new THREE.MeshBasicMaterial({
+      color: 0x12151c,
+      transparent: true,
+      opacity: 0.06,
+      depthWrite: false
+    })
+  )
+  markIpProp(body, 'r3d-ip-musk-body')
+  root.add(body)
+  root.renderOrder = 8
+  session.scene.add(root)
+  session.muskPanel = root
+  layoutMuskIntroPanel(session)
+  return true
+}
+
+function clearMuskIntroPanel(session) {
+  if (!session) return
+  detachNamed(session, 'muskPanel')
+}
+
+function clearIpChatPanel(session) {
+  if (!session) return
+  detachNamed(session, 'xwPanel')
+  session.xwFaceMat = null
+  session.xwCanvas = null
+  session.xwTex = null
+  session._xwScreenLayout = null
+  if (session._xwScreenOn && typeof session.onXwScreen === 'function') {
+    session._xwScreenOn = false
+    session.onXwScreen({ visible: false, x: 0, y: 0, w: 0, h: 0 })
+  }
+}
+
 function isStandFlipped(session) {
   var stand = findStandGroup(session && session.modelRoot)
   return !!(stand && stand._r3dStand && stand._r3dStand.flipped)
 }
 
-function relayoutAfterStandChange(session) {
-  if (!session || !session.modelRoot || !session.THREE) return
-  var box = getExhibitFrameBox(session.modelRoot, session.THREE)
-  layoutLights(session, box)
-  layoutExhibitStage(session, session.modelRoot)
-  if (session.camera && session.controls) {
-    applyBoxToCamera(session.camera, session.controls, box, session.THREE, 2.15)
-    applyBoxClip(session.camera, box, session.THREE)
+function isStandYawFlipped(session) {
+  var stand = findStandGroup(session && session.modelRoot)
+  return !!(stand && stand._r3dStand && stand._r3dStand.flippedLeft)
+}
+
+function getStandFlipFlags(session) {
+  return {
+    up: isStandFlipped(session),
+    left: isStandYawFlipped(session)
   }
+}
+
+function setEulerY(obj, y) {
+  if (!obj || !obj.rotation) return
+  if (typeof obj.rotation.set === 'function') {
+    obj.rotation.set(obj.rotation.x || 0, y, obj.rotation.z || 0)
+    return
+  }
+  obj.rotation.y = y
 }
 
 function applyManualStandFlip(session, flipped) {
@@ -1438,8 +3739,35 @@ function applyManualStandFlip(session, flipped) {
   return !!flipped
 }
 
+function applyManualStandYaw(session, flipped) {
+  if (!session || !session.modelRoot) return false
+  var stand = findStandGroup(session.modelRoot)
+  var yaw = findYawGroup(session.modelRoot)
+  if (!stand || !stand._r3dStand || !yaw) return isStandYawFlipped(session)
+  setEulerY(yaw, flipped ? Math.PI : 0)
+  if (yaw.updateMatrixWorld) yaw.updateMatrixWorld(true)
+  stand._r3dStand.flippedLeft = !!flipped
+  relayoutAfterStandChange(session)
+  return !!flipped
+}
+
 function toggleManualStandFlip(session) {
   return applyManualStandFlip(session, !isStandFlipped(session))
+}
+
+function toggleManualStandYaw(session) {
+  return applyManualStandYaw(session, !isStandYawFlipped(session))
+}
+
+function relayoutAfterStandChange(session) {
+  if (!session || !session.modelRoot || !session.THREE) return
+  var box = getExhibitFrameBox(session.modelRoot, session.THREE)
+  layoutLights(session, box)
+  layoutExhibitStage(session, session.modelRoot)
+  if (session.camera && session.controls) {
+    applyBoxToCamera(session.camera, session.controls, box, session.THREE, 2.15)
+    applyBoxClip(session.camera, box, session.THREE)
+  }
 }
 
 function eachMaterial(object, fn) {
@@ -1459,9 +3787,9 @@ var TEXTURE_SLOTS = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap'
 function isWxIOS() {
   try {
     if (typeof wx === 'undefined') return false
-    var info = wx.getDeviceInfo ? wx.getDeviceInfo() : wx.getSystemInfoSync && wx.getSystemInfoSync()
-    var plat = String((info && (info.platform || info.system)) || '')
-    return /ios/i.test(plat)
+    var info = (wx.getDeviceInfo && wx.getDeviceInfo()) || (wx.getSystemInfoSync && wx.getSystemInfoSync()) || {}
+    var blob = [info.platform, info.system, info.model].join(' ')
+    return /ios|iphone|ipad/i.test(blob)
   } catch (e) {
     return false
   }
@@ -1600,28 +3928,179 @@ function downgradeUint32Index(object, THREE) {
 
 /**
  * 展陈可见性：只改运行时网格/材质，不写回 GLB。
- * 纯贴图 PBR 在小程序上常发黑；32 位索引常整箭不画。
+ * 纯贴图 PBR 在 iOS WebGL 上着色器过重会整网格不画；Lambert 与官方示例一致。
  */
-/** 纯贴图 PBR 在 iOS WebGL 上着色器过重会整网格不画；Lambert 与官方示例一致。 */
 function useLambertIfTextureOnly(object, THREE) {
   if (!object || !THREE || !THREE.MeshLambertMaterial) return object
   object.traverse(function (child) {
-    if (!child.isMesh || !child.material || Array.isArray(child.material)) return
-    var m = child.material
-    if (!isTextureOnlyAlbedo(m)) return
-    var map = m.map && textureReady(m.map) ? m.map : null
-    child.material = new THREE.MeshLambertMaterial({
-      map: map,
-      color: 0xffffff,
-      side: THREE.DoubleSide != null ? THREE.DoubleSide : m.side
-    })
+    if (!child.isMesh || !child.material) return
+    var list = Array.isArray(child.material) ? child.material : [child.material]
+    var changed = false
+    var next = []
+    for (var i = 0; i < list.length; i++) {
+      var m = list[i]
+      if (!m || !isTextureOnlyAlbedo(m)) {
+        next.push(m)
+        continue
+      }
+      var map = m.map && textureReady(m.map) ? m.map : null
+      next.push(
+        new THREE.MeshLambertMaterial({
+          map: map,
+          color: 0xffffff,
+          side: THREE.DoubleSide != null ? THREE.DoubleSide : m.side
+        })
+      )
+      changed = true
+    }
+    if (changed) child.material = Array.isArray(child.material) ? next : next[0]
   })
   return object
 }
 
-function ensureDrawableModel(object, THREE) {
+function exhibitObjectSize(object, THREE) {
+  if (!object || !THREE || !THREE.Box3 || !THREE.Vector3) return null
+  try {
+    var box = new THREE.Box3()
+    if (typeof box.setFromObject === 'function') box.setFromObject(object)
+    if (!box || box.isEmpty()) return null
+    return box.getSize(new THREE.Vector3())
+  } catch (e) {
+    return null
+  }
+}
+
+function meshTallRatio(size) {
+  if (!size) return 0
+  var height = size.y >= size.z ? size.y : size.z
+  var width = size.y >= size.z ? Math.max(size.x, size.z, 0.0001) : Math.max(size.x, size.y, 0.0001)
+  return height / width
+}
+
+function countMeshes(object) {
+  var n = 0
+  if (!object || !object.traverse) return 0
+  object.traverse(function (child) {
+    if (child && child.isMesh) n++
+  })
+  return n
+}
+
+function slenderLineupSpread(object, THREE) {
+  var xs = []
+  var heights = []
+  if (!object || !object.traverse || !THREE || !THREE.Vector3) {
+    return { slender: 0, span: 0, maxHeight: 0 }
+  }
+  object.traverse(function (child) {
+    if (!child || !child.isMesh || !child.geometry) return
+    if (child.visible === false) return
+    try {
+      var box = meshWorldBox(child, THREE)
+      if (!box || box.isEmpty()) return
+      var size = box.getSize(new THREE.Vector3())
+      if (meshRocketScore(size) <= 0) return
+      if (meshTallRatio(size) < 1.35) return
+      xs.push((box.min.x + box.max.x) / 2)
+      heights.push(size.y >= size.z ? size.y : size.z)
+    } catch (e) {}
+  })
+  if (!xs.length) return { slender: 0, span: 0, maxHeight: 0 }
+  xs.sort(function (a, b) {
+    return a - b
+  })
+  var maxH = 0
+  for (var i = 0; i < heights.length; i++) if (heights[i] > maxH) maxH = heights[i]
+  return { slender: xs.length, span: xs[xs.length - 1] - xs[0], maxHeight: maxH }
+}
+
+/**
+ * 仅横排多箭展陈（长征全系列）在 iOS 上收 Basic。
+ * 其它型号保持 git 仓库写法：不改 PBR。
+ */
+function isIosSeriesBoard(object, THREE, opts) {
+  if (!isWxIOS() || !object || !THREE) return false
+  if (opts && opts.series) return true
+  if (countMeshes(object) >= 400) return true
+  var spread = slenderLineupSpread(object, THREE)
+  return spread.slender >= 6 && spread.span >= spread.maxHeight * 1.4
+}
+
+function cloneMatColor(src, THREE) {
+  if (src && typeof src.clone === 'function') return src.clone()
+  if (src && typeof src.r === 'number' && THREE && THREE.Color) {
+    return new THREE.Color(src.r, src.g, src.b)
+  }
+  return src || 0xffffff
+}
+
+function basicFromStandard(m, THREE) {
+  var map = m.map && textureReady(m.map) ? m.map : null
+  var transparent = false
+  if (typeof m.opacity === 'number' && m.opacity < 0.98) transparent = true
+  else if (map && m.transparent && !(m.alphaTest > 0)) transparent = true
+  var color = 0xffffff
+  if (!map && m.color && colorSum(m.color) >= 0.9) color = cloneMatColor(m.color, THREE)
+  else if (!map) color = THREE.Color ? new THREE.Color(0.78, 0.8, 0.84) : 0xc8ccd6
+  var basic = new THREE.MeshBasicMaterial({
+    map: map,
+    color: color,
+    side: THREE.DoubleSide != null ? THREE.DoubleSide : m.side,
+    transparent: transparent,
+    opacity: m.opacity == null ? 1 : m.opacity,
+    vertexColors: false,
+    depthWrite: !transparent,
+    fog: false
+  })
+  if (map && typeof m.alphaTest === 'number' && m.alphaTest > 0) basic.alphaTest = m.alphaTest
+  return basic
+}
+
+/**
+ * 只处理 iOS 横排全系列：PBR 编不过会只剩国旗字标。
+ * 猎鹰 9 / 星舰等细长箭保持原材质。
+ */
+function simplifyIosBoardMaterials(object, THREE) {
+  if (!isWxIOS() || !object || !THREE || !THREE.MeshBasicMaterial) return object
+  object.traverse(function (child) {
+    if (!child.isMesh || !child.material) return
+    var list = Array.isArray(child.material) ? child.material : [child.material]
+    var next = []
+    for (var i = 0; i < list.length; i++) {
+      var m = list[i]
+      if (!m) {
+        next.push(m)
+        continue
+      }
+      var type = String(m.type || '')
+      if (m.isMeshBasicMaterial || type === 'MeshBasicMaterial') {
+        next.push(m)
+        continue
+      }
+      next.push(basicFromStandard(m, THREE))
+    }
+    child.material = Array.isArray(child.material) ? next : next[0]
+  })
+  return object
+}
+
+function ensureDrawableModel(object, THREE, opts) {
   if (!object) return object
   downgradeUint32Index(object, THREE)
+  var iosBoard = isIosSeriesBoard(object, THREE, opts)
+  if (iosBoard) {
+    if (object.traverse) {
+      object.traverse(function (child) {
+        if (child && child.isMesh) child.frustumCulled = false
+      })
+    }
+    dropBrokenMaps(object)
+    eachMaterial(object, function (m, child) {
+      autoFixExhibitShading(m, child, THREE)
+    })
+    simplifyIosBoardMaterials(object, THREE)
+    return object
+  }
   if (!isFragileTextureOnlyModel(object)) return object
   dropBrokenMaps(object)
   eachMaterial(object, function (m, child) {
@@ -1751,10 +4230,15 @@ function createSession(lib, nativeCanvas, adaptedCanvas, rect, handlers) {
     exhibitStage: null,
     dimGuides: null,
     exhibit: exhibit,
+    series: !!(handlers && handlers.series),
     lights: lights,
     cssW: cssW,
     cssH: cssH,
     onDimLabels: handlers && handlers.onDimLabels,
+    onIpIntroAnchor: handlers && handlers.onIpIntroAnchor,
+    onIpTags: handlers && handlers.onIpTags,
+    onXwScreen: handlers && handlers.onXwScreen,
+    ipIntroSlug: '',
     orbiting: false,
     raf: 0,
     running: false,
@@ -1777,11 +4261,14 @@ function createSession(lib, nativeCanvas, adaptedCanvas, rect, handlers) {
 
 function setModel(session, object) {
   if (!session || !session.scene || !object) return
+  session.ipRefToken = (session.ipRefToken || 0) + 1
+  session.ipIntroSlug = ''
+  clearIpScaleRefs(session)
   if (session.modelRoot) {
     session.scene.remove(session.modelRoot)
     disposeObject3D(session.modelRoot)
   }
-  ensureDrawableModel(object, session.THREE)
+  ensureDrawableModel(object, session.THREE, { series: !!session.series })
   var root = wrapStandingModel(object, session.THREE)
   session.modelRoot = root
   session.scene.add(root)
@@ -1867,7 +4354,7 @@ function bindTextureImageFactory(THREE, nativeCanvas) {
   }
 }
 
-function loadGlb(lib, url, nativeCanvas, onProgress) {
+function loadGlb(lib, url, nativeCanvas, onProgress, opts) {
   bindTextureImageFactory(lib && lib.THREE, nativeCanvas)
   return downloadGlbBuffer(url, onProgress).then(function (buffer) {
     if (typeof onProgress === 'function') onProgress(92)
@@ -1878,18 +4365,18 @@ function loadGlb(lib, url, nativeCanvas, onProgress) {
         '',
         function (gltf) {
           var root = gltf && gltf.scene ? gltf.scene : gltf
-          if (isFragileTextureOnlyModel(root)) {
-            adaptViewerTextures(root, lib.THREE)
-            waitForModelTextures(root).then(function () {
-              ensureDrawableModel(root, lib.THREE)
-              if (typeof onProgress === 'function') onProgress(100)
-              resolve(prepareModel(root))
-            })
-            return
+          if (root) {
+            if (!root.userData) root.userData = {}
+            if (gltf && Array.isArray(gltf.animations) && gltf.animations.length) {
+              root.userData.gltfAnimations = gltf.animations
+            }
           }
-          ensureDrawableModel(root, lib.THREE)
-          if (typeof onProgress === 'function') onProgress(100)
-          resolve(prepareModel(root))
+          adaptViewerTextures(root, lib.THREE)
+          waitForModelTextures(root).then(function () {
+            ensureDrawableModel(root, lib.THREE, opts)
+            if (typeof onProgress === 'function') onProgress(100)
+            resolve(prepareModel(root))
+          })
         },
         function (err) {
           reject(err || new Error('模型解析失败'))
@@ -1915,6 +4402,8 @@ function startLoop(session) {
       session.dimGrow = Math.min(1, session.dimGrow + dt / 0.78)
       updateDimensionGrow(session, session.dimGrow)
     }
+    if (session.xwHalo) updateXingwenHalo(session, now)
+    updateIpFigureMixers(session, dt)
     if (session.camTween && !session.orbiting) {
       var tw = session.camTween
       var t = Math.min(1, (Date.now() - tw.start) / tw.duration)
@@ -1928,6 +4417,9 @@ function startLoop(session) {
     session.controls.update()
     session.renderer.render(session.scene, session.camera)
     if (session.dimMeta) emitDimLabels(session)
+    emitIpNameTags(session)
+    if (session.ipIntroSlug) emitIpIntroAnchor(session)
+    if (session.xwPanel || session._xwScreenOn) emitXwScreenRect(session)
   }
   tick()
 }
@@ -1970,6 +4462,11 @@ function safeDispose(fn) {
 
 function disposeSession(session) {
   if (!session) return
+  session.ipRefToken = (session.ipRefToken || 0) + 1
+  session.ipIntroSlug = ''
+  safeDispose(function () {
+    clearIpScaleRefs(session)
+  })
   safeDispose(function () {
     clearAutoRotateTimer(session)
   })
@@ -2041,13 +4538,19 @@ module.exports = {
   finalizeStandRotation,
   autoStandRotation,
   isBoardSize,
+  applyBoxClip,
   isNoseDown,
   measureEndWidths,
   wrapStandingModel,
   findStandGroup,
+  findYawGroup,
   isStandFlipped,
+  isStandYawFlipped,
+  getStandFlipFlags,
   applyManualStandFlip,
+  applyManualStandYaw,
   toggleManualStandFlip,
+  toggleManualStandYaw,
   adaptViewerTextures,
   dropBrokenColorMaps,
   dropBrokenMaps,
@@ -2057,6 +4560,30 @@ module.exports = {
   ensureDrawableModel,
   downgradeUint32Index,
   loadGlb,
+  exhibitStageClearance,
+  attachIpScaleRefs,
+  placeIpScaleRefs,
+  playIpFigureClips,
+  getIpCollisionBox,
+  faceIpFiguresToCamera,
+  clearIpScaleRefs,
+  pickIpRefAt,
+  ipFigureHitWorldBox,
+  pickIpChatPanelAt,
+  playIpIntroView,
+  clearIpIntroView,
+  unlockIpIntroControls,
+  attachIpChatPanel,
+  layoutIpChatPanel,
+  measureHeadLockLayout,
+  updateIpChatPanelTexture,
+  clearIpChatPanel,
+  attachMuskIntroPanel,
+  layoutMuskIntroPanel,
+  clearMuskIntroPanel,
+  setXingwenHaloTalking,
+  updateXingwenHalo,
+  ensureXingwenHalo,
   friendlyGlbError,
   errorDetail,
   startLoop,

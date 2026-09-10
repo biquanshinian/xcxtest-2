@@ -161,12 +161,18 @@ page {
 .section-block {
   margin-top: 20rpx;
 }
+.block-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 0 var(--space-lg) var(--space-xs);
+}
 .block-title {
   display: block;
   font-size: 30rpx;
   font-weight: 700;
   color: #fff;
-  padding: 0 var(--space-lg) var(--space-xs);
 }
 
 /* 型号卡片区（两列固定网格，与箭实体网格视觉一致） */
@@ -260,6 +266,10 @@ page {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.model-mfr--link::after {
+  content: ' ›';
+  opacity: 0.7;
 }
 .model-stats-row {
   margin-top: 6rpx;
@@ -479,4 +489,44 @@ page {
 }
 .theme-light .flight-unknown {
   background: rgba(0, 0, 0, 0.12);
+}
+
+/* 底部 PK：与任务详情 / 型号详情 mission-pk-fab 同款 */
+.mission-pk-fab {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 72rpx;
+  padding: 0 40rpx;
+  border-radius: 999rpx;
+  background: var(--bg-glass, rgba(22, 24, 28, 0.72));
+  backdrop-filter: blur(32rpx) saturate(160%);
+  -webkit-backdrop-filter: blur(32rpx) saturate(160%);
+  border: 1px solid var(--color-border-glass, rgba(255, 255, 255, 0.1));
+  box-shadow: var(--shadow-tabbar, 0 4rpx 20rpx rgba(0, 0, 0, 0.2));
+  pointer-events: auto;
+}
+
+.mission-pk-fab--pressed {
+  opacity: 0.86;
+  transform: translateX(-50%) scale(0.98);
+}
+
+.mission-pk-fab-mark {
+  width: 72rpx;
+  height: 34rpx;
+  display: block;
+}
+
+.theme-light .mission-pk-fab {
+  background: var(--bg-glass, rgba(255, 255, 255, 0.78));
+  box-shadow: 0 8rpx 20rpx rgba(0, 0, 0, 0.08);
+}
+
+.theme-light .mission-pk-fab-mark {
+  filter: invert(1);
 }

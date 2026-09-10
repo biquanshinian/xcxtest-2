@@ -4,9 +4,13 @@ var rocket3dReady = require('../../utils/rocket-3d-ready.js')
 var { resolveRocketModel } = require('./models.js')
 var { SERIES_SLUG } = require('../../utils/rocket-3d-slug.js')
 var { buildRocket3dShareOptions } = require('./share.js')
+var { ensureShareImageOnPage, pickShareDownloadSrc, SHARE_THUMB_FALLBACK } = require('../../utils/share-thumb.js')
 var { matchRocketConfig, buildExhibit } = require('./exhibit.js')
+var { buildModelCatalog, navFromDisplayedSlug, pickCatalogItem } = require('./catalog.js')
 var { getRocketConfigMeta } = require('../../utils/api-app-services.js')
 var { gateCheck, canUsePaidCloudSync } = require('../../utils/membership.js')
+var { ROUTES, navigateTo } = require('../../utils/routes.js')
+var { cleanConfigId } = require('../../utils/rocket-config-match.js')
 var {
   SHARE_GATE_TTL_MS,
   parseShareStamp,
@@ -83,6 +87,7 @@ Page({
     exhibitTab: 'show',
     introOpen: false,
     standFlipped: false,
+    standYawFlipped: false,
     exhibit: {
       title: '',
       subtitle: '三维展陈',
@@ -96,7 +101,13 @@ Page({
       series: false,
       length: '',
       diameter: ''
-    }
+    },
+    catalog: [],
+    currentSlug: '',
+    pickerOpen: false,
+    pickerTitle: '',
+    pickerSub: '',
+    ipIntroOpen: false
   },
 
   onLoad: function (query) {
@@ -111,7 +122,9 @@ Page({
     this._hintUrl = safeQuery(q.modelUrl)
     this._hintSlug = safeQuery(q.slug)
     this._detailSpecs = takePendingRocket3dSpecs()
-    this.setData({
+    var hintSlug = safeQuery(q.slug)
+    var bootExhibit = buildExhibit(null, { rocketName: rocketName, rocketNameEn: rocketNameEn })
+    this.setData(Object.assign({
       rocketName: rocketName,
       rocketNameEn: rocketNameEn,
       poster: poster,
@@ -120,9 +133,12 @@ Page({
       memberLocked: false,
       viewerLoading: true,
       loadPercent: 0,
-      exhibit: buildExhibit(null, { rocketName: rocketName, rocketNameEn: rocketNameEn }),
-      navTitle: rocketName || '3D 展陈'
-    })
+      exhibit: bootExhibit,
+      pickerOpen: false,
+      catalog: [],
+      currentSlug: hintSlug
+    }, navFromDisplayedSlug(hintSlug)))
+    ensureShareImageOnPage(this, pickShareDownloadSrc({ displayImage: poster, rawImage: poster }) || SHARE_THUMB_FALLBACK)
     this._ensureMemberAndLoad()
   },
 
@@ -143,8 +159,17 @@ Page({
     return {
       rocketName: this.data.rocketName,
       rocketNameEn: this.data.rocketNameEn,
-      poster: this.data.poster
+      poster: this.data.poster,
+      slug: this.data.currentSlug || this._modelSlug || ''
     }
+  },
+
+  onNavBack: function () {
+    if (this.data.pickerOpen) {
+      this.setData({ pickerOpen: false })
+      return
+    }
+    this.goBack()
   },
 
   onShareAppMessage: function () {
@@ -173,6 +198,7 @@ Page({
   _ensureMemberAndLoad: function () {
     if (this._gateBusy) return
     this._gateBusy = true
+    this._catalogAllowed = false
     var that = this
     this.setData({
       memberLocked: false,
@@ -180,12 +206,14 @@ Page({
       viewerError: '',
       viewerErrorDetail: '',
       modelUrl: '',
-      standFlipped: false
+      standFlipped: false,
+      standYawFlipped: false
     })
     this._checkEntryAllowed()
       .then(function (allowed) {
         warmShareEntitlement(that, ROCKET_3D_GATE_ID)
         if (!allowed) {
+          that._catalogAllowed = false
           that.setData({
             memberLocked: true,
             viewerLoading: false,
@@ -195,6 +223,7 @@ Page({
           })
           return
         }
+        that._catalogAllowed = true
         return that._resolveAndBindModel()
       })
       .catch(function () {
@@ -212,11 +241,13 @@ Page({
 
   _resolveAndBindModel: function () {
     var that = this
+    var gen = (this._bindGen = (this._bindGen || 0) + 1)
     var rocketName = this.data.rocketName
     var rocketNameEn = this.data.rocketNameEn
     var hintUrl = this._hintUrl
     return loadCloudMediaMap()
       .then(function () {
+        if (gen !== that._bindGen) return
         var resolved = resolveRocketModel({
           rocketName: rocketName,
           rocketNameEn: rocketNameEn,
@@ -224,6 +255,7 @@ Page({
           slug: that._hintSlug
         })
         if (!resolved.url) {
+          if (gen !== that._bindGen) return
           that.setData({
             memberLocked: false,
             viewerLoading: false,
@@ -231,29 +263,36 @@ Page({
             modelUrl: '',
             credit: ''
           })
+          that._refreshCatalog()
           return
         }
         var credit = rocket3dReady.getReadyCredit(resolved.slug)
         var series = !!(resolved.series || String(resolved.slug || '') === SERIES_SLUG)
         that._modelSlug = resolved.slug || ''
-        that.setData({
+        var catalog = buildModelCatalog(rocket3dReady.getReadySlugs(), that._catalogConfigs || {})
+        var exhibit = buildExhibit(null, {
+          rocketName: rocketName,
+          rocketNameEn: rocketNameEn,
+          credit: credit,
+          series: series
+        })
+        that.setData(Object.assign({
           memberLocked: false,
           viewerLoading: true,
           viewerError: '',
           standFlipped: false,
+          standYawFlipped: false,
           modelUrl: resolved.url,
           credit: credit,
-          exhibit: buildExhibit(null, {
-            rocketName: rocketName,
-            rocketNameEn: rocketNameEn,
-            credit: credit,
-            series: series
-          })
-        })
+          catalog: catalog,
+          exhibit: exhibit
+        }, navFromDisplayedSlug(resolved.slug, catalog)))
         that._loadExhibitMeta(credit, series)
+        that._refreshCatalog()
         if (!credit) that._loadCredit(resolved.slug)
       })
       .catch(function () {
+        if (gen !== that._bindGen) return
         that.setData({
           memberLocked: false,
           viewerLoading: false,
@@ -262,6 +301,148 @@ Page({
           credit: ''
         })
       })
+  },
+
+  _refreshCatalog: function () {
+    if (!this._catalogAllowed) return Promise.resolve(this.data.catalog || [])
+    var that = this
+    return loadCloudMediaMap()
+      .then(function () {
+        return getRocketConfigMeta({ afterGate: true })
+      })
+      .then(function (meta) {
+        that._catalogConfigs = (meta && meta.configs) || {}
+        var catalog = buildModelCatalog(rocket3dReady.getReadySlugs(), that._catalogConfigs)
+        var patch = Object.assign({
+          catalog: catalog
+        }, navFromDisplayedSlug(that._modelSlug, catalog))
+        if (!cleanConfigId(that.data.configId)) {
+          var picked = pickCatalogItem(
+            catalog,
+            that._modelSlug || that.data.currentSlug,
+            that.data.rocketName,
+            that.data.rocketNameEn
+          )
+          if (picked && !picked.series) {
+            var fromCatalog = cleanConfigId(picked.configId)
+            if (fromCatalog) patch.configId = fromCatalog
+          }
+        }
+        that.setData(patch)
+        return catalog
+      })
+      .catch(function () {
+        return that.data.catalog || []
+      })
+  },
+
+  onTogglePicker: function () {
+    if (this.data.isMomentsPreview) return
+    if (typeof this._dismissIpWindows === 'function') this._dismissIpWindows()
+    if (this.data.pickerOpen) {
+      this.setData({ pickerOpen: false })
+      return
+    }
+    if (this.data.memberLocked || !this._catalogAllowed) return
+    var that = this
+    var open = function (catalog) {
+      var list = catalog || that.data.catalog || []
+      if (!list.length) {
+        wx.showToast({ title: '暂无可切换型号', icon: 'none' })
+        return
+      }
+      try { wx.vibrateShort({ type: 'light' }) } catch (e) {}
+      that.setData({ pickerOpen: true, catalog: list })
+    }
+    if ((this.data.catalog || []).length) {
+      open(this.data.catalog)
+      return
+    }
+    this._refreshCatalog().then(open)
+  },
+
+  onClosePicker: function () {
+    if (this.data.pickerOpen) this.setData({ pickerOpen: false })
+  },
+
+  _resolveExhibitConfigId: function () {
+    if (this.data.exhibit && this.data.exhibit.series) return ''
+    var id = cleanConfigId(this.data.configId)
+    if (id) return id
+    var picked = pickCatalogItem(
+      this.data.catalog || [],
+      this._modelSlug || this.data.currentSlug,
+      this.data.rocketName,
+      this.data.rocketNameEn
+    )
+    if (picked && !picked.series) return cleanConfigId(picked.configId)
+    return ''
+  },
+
+  onTapExhibitTitle: async function () {
+    if (typeof this._dismissIpWindows === 'function') this._dismissIpWindows()
+    if (this.data.exhibit && this.data.exhibit.series) {
+      wx.showToast({ title: '全系列没有单独档案', icon: 'none' })
+      return
+    }
+    var configId = this._resolveExhibitConfigId()
+    try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
+    var allowed = await gateCheck('booster_genealogy', '全球可回收火箭族谱')
+    if (!allowed) return
+    if (!configId) {
+      wx.showToast({ title: '暂无型号档案', icon: 'none' })
+      return
+    }
+    if (configId !== this.data.configId) this.setData({ configId: configId })
+    navigateTo(ROUTES.ROCKET_MODEL_DETAIL, { configId: configId })
+  },
+
+  onPickModel: function (e) {
+    var slug = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.slug : ''
+    var key = String(slug || '').toLowerCase()
+    if (!key) return
+    var items = this.data.catalog || []
+    var item = null
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].slug === key) {
+        item = items[i]
+        break
+      }
+    }
+    if (!item) return
+    if (item.slug === this._modelSlug && this.data.modelUrl) {
+      this.setData({ pickerOpen: false })
+      return
+    }
+    try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
+    this._hintSlug = item.slug
+    this._hintUrl = ''
+    this._detailSpecs = item.configId ? { configId: item.configId, specs: [], detailConfig: null } : null
+    this._modelSlug = item.slug
+    var that = this
+    this.setData({
+      pickerOpen: false,
+      rocketName: item.title,
+      rocketNameEn: item.nameEn,
+      configId: item.configId || '',
+      poster: '',
+      modelUrl: '',
+      credit: '',
+      viewerLoading: true,
+      viewerReady: false,
+      viewerError: '',
+      viewerErrorDetail: '',
+      introOpen: false,
+      standFlipped: false,
+      standYawFlipped: false,
+      exhibitTab: 'show',
+      currentSlug: item.slug,
+      pickerTitle: item.title,
+      pickerSub: item.subtitle,
+      navTitle: item.title
+    }, function () {
+      that._resolveAndBindModel()
+    })
   },
 
   _loadCredit: function (slug) {
@@ -275,6 +456,7 @@ Page({
         .limit(1)
         .get()
         .then(function (res) {
+          if (that._modelSlug && key !== String(that._modelSlug || '').toLowerCase()) return
           var row = ((res && res.data) || [])[0]
           var credit = String((row && row.credit) || '').trim()
           if (credit) {
@@ -314,11 +496,14 @@ Page({
   },
 
   _loadExhibitMeta: function (credit, series) {
+    if (!this._catalogAllowed) return
     var that = this
+    var slugAtStart = this._modelSlug
     var seriesModel =
       series == null ? rocket3dReady.isSeriesModel(this._modelSlug) : !!series
-    getRocketConfigMeta()
+    getRocketConfigMeta({ afterGate: true })
       .then(function (meta) {
+        if (slugAtStart && that._modelSlug && slugAtStart !== that._modelSlug) return
         var pending = that._detailSpecs || {}
         var cfg = matchRocketConfig((meta && meta.configs) || {}, {
           configId: pending.configId || that.data.configId,
@@ -329,14 +514,17 @@ Page({
         })
         var nextTab = that.data.exhibitTab
         if (seriesModel && (nextTab === 'size' || nextTab === 'feat')) nextTab = 'show'
+        var exhibit = buildExhibit(cfg, {
+          rocketName: that.data.rocketName,
+          rocketNameEn: that.data.rocketNameEn,
+          credit: credit || that.data.credit || '',
+          series: seriesModel
+        })
+        var matchedId = seriesModel ? '' : cleanConfigId(cfg && (cfg.id != null ? cfg.id : cfg.configId))
         that.setData({
           exhibitTab: nextTab,
-          exhibit: buildExhibit(cfg, {
-            rocketName: that.data.rocketName,
-            rocketNameEn: that.data.rocketNameEn,
-            credit: credit || that.data.credit || '',
-            series: seriesModel
-          })
+          exhibit: exhibit,
+          configId: seriesModel ? '' : (matchedId || that.data.configId || '')
         }, function () {
           if (that.data.exhibitTab === 'size' && that.data.exhibit.hasSize) {
             that._playExhibitView('size')
@@ -350,6 +538,11 @@ Page({
     var c = this.selectComponent('#rocket3dViewer')
     if (!c || typeof c.playExhibitView !== 'function') return
     c.playExhibitView(tab)
+  },
+
+  _dismissIpWindows: function () {
+    var c = this.selectComponent('#rocket3dViewer')
+    if (c && typeof c.dismissIpWindows === 'function') c.dismissIpWindows()
   },
 
   onExhibitTab: function (e) {
@@ -387,16 +580,31 @@ Page({
     this._playExhibitView('show')
   },
 
+  onIpIntro: function (e) {
+    var open = !!(e && e.detail && e.detail.open)
+    if (this.data.ipIntroOpen !== open) this.setData({ ipIntroOpen: open })
+  },
+
   onFlipChange: function (e) {
-    var flipped = !!(e && e.detail && e.detail.flipped)
-    if (this.data.standFlipped !== flipped) this.setData({ standFlipped: flipped })
+    var d = (e && e.detail) || {}
+    var up = !!d.flipped
+    var left = !!d.flippedLeft
+    var patch = {}
+    if (this.data.standFlipped !== up) patch.standFlipped = up
+    if (this.data.standYawFlipped !== left) patch.standYawFlipped = left
+    if (Object.keys(patch).length) this.setData(patch)
   },
 
   onFlipStand: function () {
     var c = this.selectComponent('#rocket3dViewer')
     if (!c || typeof c.flipStand !== 'function') return
-    var flipped = !!c.flipStand()
-    this.setData({ standFlipped: flipped })
+    c.flipStand()
+  },
+
+  onFlipYaw: function () {
+    var c = this.selectComponent('#rocket3dViewer')
+    if (!c || typeof c.flipYaw !== 'function') return
+    c.flipYaw()
   },
 
   onRetryViewer: function () {
@@ -409,7 +617,7 @@ Page({
       this._ensureMemberAndLoad()
       return
     }
-    this.setData({ viewerLoading: true, viewerError: '', viewerErrorDetail: '', standFlipped: false })
+    this.setData({ viewerLoading: true, viewerError: '', viewerErrorDetail: '', standFlipped: false, standYawFlipped: false })
     var c = this.selectComponent('#rocket3dViewer')
     if (c && typeof c.startViewer === 'function') c.startViewer()
   }

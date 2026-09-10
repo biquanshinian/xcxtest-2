@@ -1,0 +1,373 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
+<view class="container {{themeClass}}">
+  <!-- 与型号/助推器详情同一骨架：顶栏始终在，进度条不随选型卸掉 -->
+  <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
+    <view class="top-nav top-nav--page-grid">
+      <view class="top-nav-slot--back {{pickerOpen ? (pickerBackHome ? 'top-nav-slot--home' : '') : (isDirectEntry ? 'top-nav-slot--home' : '')}}" bindtap="onNavBack">
+        <text class="icon-back icon-back--nav">‹</text>
+      </view>
+      <view class="nav-tabs" wx:if="{{!pickerOpen}}">
+        <view class="nav-tab {{mainTab === 'overview' ? 'nav-tab--on' : ''}}" data-tab="overview" bindtap="onMainTab">综合</view>
+        <view class="nav-tab {{mainTab === 'params' ? 'nav-tab--on' : ''}}" data-tab="params" bindtap="onMainTab">参数</view>
+      </view>
+      <text class="nav-title nav-title--page-grid" wx:else>{{pickerMode === 'replace' ? '更换型号' : '火箭对比'}}</text>
+      <view class="top-nav-slot--spacer"></view>
+    </view>
+    <page-progress active="{{loading}}" />
+  </view>
+
+  <scroll-view scroll-y class="detail-scroll" wx:if="{{!pickerOpen}}">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+
+    <!-- 加载中：与 rocket-model-detail / booster-detail 同一套骨架 markup -->
+    <view class="detail-skeleton detail-skeleton--pad" wx:if="{{loading}}" aria-hidden="{{true}}">
+      <view class="skeleton-card skeleton-card--hero">
+        <view class="skeleton-hero skeleton-shimmer"></view>
+        <view class="skeleton-card-body">
+          <view class="skeleton-line skeleton-line--title skeleton-shimmer"></view>
+          <view class="skeleton-line skeleton-line--sub skeleton-shimmer"></view>
+        </view>
+      </view>
+      <view class="skeleton-card" wx:for="{{[1, 2, 3]}}" wx:key="*this">
+        <view class="skeleton-line skeleton-line--label skeleton-shimmer"></view>
+        <view class="skeleton-line skeleton-shimmer"></view>
+        <view class="skeleton-line skeleton-line--short skeleton-shimmer"></view>
+      </view>
+    </view>
+
+    <view class="error-wrap" wx:elif="{{errorMessage}}">
+      <text class="error-icon">⚠️</text>
+      <text class="error-text">{{errorMessage}}</text>
+      <view class="error-btn" bindtap="onRetryLoad">重试</view>
+    </view>
+
+    <block wx:else>
+      <view class="pk-head {{pk.pair ? '' : 'pk-head--multi'}}">
+        <block wx:if="{{pk.pair}}">
+          <view class="pk-slot pk-slot--orange glass-card" wx:if="{{!pk.left.empty}}" data-config-id="{{pk.left.configId}}" bindtap="onTapPkName">
+            <image
+              class="pk-thumb"
+              wx:if="{{pk.left.imageUrl}}"
+              src="{{pk.left.imageUrl}}"
+              mode="aspectFill"
+              data-slot="0"
+              binderror="onSlotImageError"
+            />
+            <view class="pk-thumb pk-thumb--ph" wx:else></view>
+            <view class="pk-meta">
+              <text class="pk-name">{{pk.left.name}}</text>
+              <text class="pk-sub" wx:if="{{pk.left.costText}}">发射成本 {{pk.left.costText}}</text>
+              <text class="pk-sub" wx:else>{{pk.left.sub}}</text>
+              <view class="pk-change" data-slot="0" catchtap="onChangeSlot">更换 ▾</view>
+            </view>
+          </view>
+          <view class="pk-slot pk-slot--empty glass-card" wx:else data-slot="0" bindtap="onChangeSlot">
+            <text class="pk-empty-plus">+</text>
+            <text class="pk-empty-text">选择型号</text>
+          </view>
+          <view class="pk-badge" aria-role="text" aria-label="PK">
+            <image class="pk-mark" src="/pages/mission-detail/images/ic-pk.svg" mode="aspectFit" />
+          </view>
+          <view class="pk-slot pk-slot--blue glass-card" wx:if="{{!pk.right.empty}}" data-config-id="{{pk.right.configId}}" bindtap="onTapPkName">
+            <image
+              class="pk-thumb"
+              wx:if="{{pk.right.imageUrl}}"
+              src="{{pk.right.imageUrl}}"
+              mode="aspectFill"
+              data-slot="1"
+              binderror="onSlotImageError"
+            />
+            <view class="pk-thumb pk-thumb--ph" wx:else></view>
+            <view class="pk-meta">
+              <text class="pk-name">{{pk.right.name}}</text>
+              <text class="pk-sub" wx:if="{{pk.right.costText}}">发射成本 {{pk.right.costText}}</text>
+              <text class="pk-sub" wx:else>{{pk.right.sub}}</text>
+              <view class="pk-change" data-slot="1" catchtap="onChangeSlot">更换 ▾</view>
+            </view>
+          </view>
+          <view class="pk-slot pk-slot--empty glass-card" wx:else data-slot="1" bindtap="onChangeSlot">
+            <text class="pk-empty-plus">+</text>
+            <text class="pk-empty-text">选择型号</text>
+          </view>
+        </block>
+        <block wx:else>
+          <view
+            class="pk-slot pk-slot--{{item.tone}} glass-card"
+            wx:for="{{pk.slots}}"
+            wx:key="configId"
+            data-config-id="{{item.configId}}"
+            bindtap="onTapPkName"
+          >
+            <image
+              class="pk-thumb"
+              wx:if="{{item.imageUrl}}"
+              src="{{item.imageUrl}}"
+              mode="aspectFill"
+              data-slot="{{index}}"
+              binderror="onSlotImageError"
+            />
+            <view class="pk-thumb pk-thumb--ph" wx:else></view>
+            <view class="pk-meta">
+              <text class="pk-name">{{item.name}}</text>
+              <text class="pk-sub" wx:if="{{item.costText}}">发射成本 {{item.costText}}</text>
+              <text class="pk-sub" wx:else>{{item.sub}}</text>
+              <view class="pk-change" data-slot="{{index}}" catchtap="onChangeSlot">更换 ▾</view>
+            </view>
+          </view>
+          <view class="pk-slot pk-slot--empty glass-card" wx:if="{{pk.slots.length < 4}}" bindtap="onOpenPicker">
+            <text class="pk-empty-plus">+</text>
+            <text class="pk-empty-text">添加型号</text>
+          </view>
+        </block>
+      </view>
+
+      <view class="empty-wrap glass-card" wx:if="{{selected.length < 2}}">
+        <text class="empty-icon">⇄</text>
+        <text class="empty-text">再选一款即可开始 PK</text>
+        <text class="empty-hint">尺寸、运力、推力、战绩会按车型对比的方式并排打分</text>
+        <view class="error-btn" bindtap="onOpenPicker">添加型号</view>
+      </view>
+
+      <block wx:else>
+        <view class="sub-pills" wx:if="{{mainTab === 'overview'}}">
+          <view class="sub-pill {{subTab === 'perf' ? 'sub-pill--on' : ''}}" data-tab="perf" bindtap="onSubTab">性能对比</view>
+          <view class="sub-pill {{subTab === 'photo' ? 'sub-pill--on' : ''}}" data-tab="photo" bindtap="onSubTab">外形对比</view>
+          <view class="sub-pill {{subTab === 'record' ? 'sub-pill--on' : ''}}" data-tab="record" bindtap="onSubTab">战绩对比</view>
+        </view>
+
+        <block wx:if="{{mainTab === 'overview' && subTab === 'perf'}}">
+          <view class="sec-title">综合对比</view>
+          <view class="fact-grid glass-card" wx:if="{{pk.pair}}">
+            <view class="fact-row" wx:for="{{pk.overview}}" wx:key="key">
+              <text class="fact-val fact-val--orange {{item.leftWin ? 'fact-val--win' : ''}}">{{item.leftText}}</text>
+              <text class="fact-label">{{item.label}}</text>
+              <text class="fact-val fact-val--blue {{item.rightWin ? 'fact-val--win' : ''}}">{{item.rightText}}</text>
+            </view>
+          </view>
+          <view class="fact-multi glass-card" wx:else>
+            <view class="fact-multi-row" wx:for="{{pk.overview}}" wx:key="key">
+              <text class="fact-multi-label">{{item.label}}</text>
+              <view class="fact-multi-vals">
+                <text
+                  class="fact-val fact-val--{{v.tone}} {{v.win ? 'fact-val--win' : ''}} {{v.weak ? 'fact-val--weak' : ''}}"
+                  wx:for="{{item.values}}"
+                  wx:for-item="v"
+                  wx:key="i"
+                >{{v.text}}</text>
+              </view>
+            </view>
+          </view>
+          <block wx:for="{{pk.sections}}" wx:for-item="sec" wx:key="id">
+            <view class="bar-sec glass-card" wx:if="{{sec.id !== 'record'}}">
+              <view class="bar-sec-head">
+                <text class="bar-sec-title">{{sec.title}}</text>
+                <image
+                  class="win-stamp win-stamp--{{sec.winner}}"
+                  wx:if="{{pk.pair && sec.winner}}"
+                  src="/subpackages/monitor-pages/images/ic-win-{{sec.winner}}.svg"
+                  mode="aspectFit"
+                  aria-label="胜出"
+                />
+              </view>
+              <view class="bar-row" wx:for="{{sec.rows}}" wx:for-item="row" wx:for-index="ri" wx:key="key">
+                <block wx:if="{{pk.pair}}">
+                  <view class="bar-duel">
+                    <text class="bar-num bar-num--left {{row.leftWin ? 'bar-num--win' : ''}} {{row.leftWeak ? 'bar-num--weak' : ''}}">{{row.leftText}}</text>
+                    <view class="bar-pair">
+                      <view class="bar-track bar-track--left">
+                        <view class="bar-fill bar-fill--orange {{row.leftWeak ? 'bar-fill--weak' : ''}} {{barAnimOn ? 'bar-fill--run' : ''}}" style="width: {{row.leftPct}}%;animation-delay: {{ri * 50}}ms;"></view>
+                      </view>
+                      <view class="bar-track bar-track--right">
+                        <view class="bar-fill bar-fill--blue {{row.rightWeak ? 'bar-fill--weak' : ''}} {{barAnimOn ? 'bar-fill--run' : ''}}" style="width: {{row.rightPct}}%;animation-delay: {{ri * 50}}ms;"></view>
+                      </view>
+                    </view>
+                    <text class="bar-num bar-num--right {{row.rightWin ? 'bar-num--win' : ''}} {{row.rightWeak ? 'bar-num--weak' : ''}}">{{row.rightText}}</text>
+                  </view>
+                  <text class="bar-label">{{row.label}}<text wx:if="{{row.unit}}">({{row.unit}})</text></text>
+                </block>
+                <block wx:else>
+                  <text class="bar-label">{{row.label}}<text wx:if="{{row.unit}}">({{row.unit}})</text></text>
+                  <view class="bar-stack" wx:for="{{row.values}}" wx:for-item="v" wx:key="i">
+                    <text class="bar-num bar-num--{{v.tone}} {{v.win ? 'bar-num--win' : ''}} {{v.weak ? 'bar-num--weak' : ''}}">{{v.text}}</text>
+                    <view class="bar-track">
+                      <view class="bar-fill bar-fill--{{v.tone}} {{v.weak ? 'bar-fill--weak' : ''}} {{barAnimOn ? 'bar-fill--run' : ''}}" style="width: {{v.pct}}%;animation-delay: {{ri * 50}}ms;"></view>
+                    </view>
+                  </view>
+                </block>
+              </view>
+            </view>
+          </block>
+        </block>
+
+        <block wx:elif="{{mainTab === 'overview' && subTab === 'photo'}}">
+          <view class="sec-title">外形对比</view>
+          <view class="hero-float" wx:for="{{pk.slots}}" wx:key="configId">
+            <view class="hero-section hero-float-card" data-url="{{item.imageUrl}}" bindtap="onPhotoTap">
+              <image
+                class="hero-img hero-img--loaded"
+                wx:if="{{item.imageUrl}}"
+                src="{{item.imageUrl}}"
+                mode="aspectFill"
+                data-slot="{{index}}"
+                binderror="onSlotImageError"
+              />
+              <view class="hero-img hero-placeholder" wx:else>
+                <text class="hero-placeholder-icon">🚀</text>
+              </view>
+              <view class="hero-gradient"></view>
+              <view class="hero-credit-btn">
+                <text class="hero-credit-text photo-name--{{item.tone}}">{{item.name}}</text>
+              </view>
+            </view>
+          </view>
+        </block>
+
+        <block wx:elif="{{mainTab === 'overview' && subTab === 'record'}}">
+          <block wx:for="{{pk.sections}}" wx:for-item="sec" wx:key="id">
+            <view class="bar-sec glass-card" wx:if="{{sec.id === 'record' || sec.id === 'cost'}}">
+              <view class="bar-sec-head">
+                <text class="bar-sec-title">{{sec.title}}</text>
+                <image
+                  class="win-stamp win-stamp--{{sec.winner}}"
+                  wx:if="{{pk.pair && sec.winner}}"
+                  src="/subpackages/monitor-pages/images/ic-win-{{sec.winner}}.svg"
+                  mode="aspectFit"
+                  aria-label="胜出"
+                />
+              </view>
+              <view class="bar-row" wx:for="{{sec.rows}}" wx:for-item="row" wx:for-index="ri" wx:key="key">
+                <block wx:if="{{pk.pair}}">
+                  <view class="bar-duel">
+                    <text class="bar-num bar-num--left {{row.leftWin ? 'bar-num--win' : ''}} {{row.leftWeak ? 'bar-num--weak' : ''}}">{{row.leftText}}</text>
+                    <view class="bar-pair">
+                      <view class="bar-track bar-track--left">
+                        <view class="bar-fill bar-fill--orange {{row.leftWeak ? 'bar-fill--weak' : ''}} {{barAnimOn ? 'bar-fill--run' : ''}}" style="width: {{row.leftPct}}%;animation-delay: {{ri * 50}}ms;"></view>
+                      </view>
+                      <view class="bar-track bar-track--right">
+                        <view class="bar-fill bar-fill--blue {{row.rightWeak ? 'bar-fill--weak' : ''}} {{barAnimOn ? 'bar-fill--run' : ''}}" style="width: {{row.rightPct}}%;animation-delay: {{ri * 50}}ms;"></view>
+                      </view>
+                    </view>
+                    <text class="bar-num bar-num--right {{row.rightWin ? 'bar-num--win' : ''}} {{row.rightWeak ? 'bar-num--weak' : ''}}">{{row.rightText}}</text>
+                  </view>
+                  <text class="bar-label">{{row.label}}<text wx:if="{{row.unit}}">({{row.unit}})</text></text>
+                </block>
+                <block wx:else>
+                  <text class="bar-label">{{row.label}}<text wx:if="{{row.unit}}">({{row.unit}})</text></text>
+                  <view class="bar-stack" wx:for="{{row.values}}" wx:for-item="v" wx:key="i">
+                    <text class="bar-num bar-num--{{v.tone}} {{v.win ? 'bar-num--win' : ''}} {{v.weak ? 'bar-num--weak' : ''}}">{{v.text}}</text>
+                    <view class="bar-track">
+                      <view class="bar-fill bar-fill--{{v.tone}} {{v.weak ? 'bar-fill--weak' : ''}} {{barAnimOn ? 'bar-fill--run' : ''}}" style="width: {{v.pct}}%;animation-delay: {{ri * 50}}ms;"></view>
+                    </view>
+                  </view>
+                </block>
+              </view>
+            </view>
+          </block>
+        </block>
+
+        <block wx:else>
+          <view class="param-toolbar">
+            <text class="param-count">共{{selected.length}}款火箭</text>
+            <view class="diff-toggle {{onlyDiff ? 'diff-toggle--on' : ''}}" bindtap="onToggleOnlyDiff">
+              <text>{{onlyDiff ? '只看差异' : '全部参数'}}</text>
+            </view>
+          </view>
+          <view class="table-card glass-card">
+            <scroll-view class="table-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+              <view class="table">
+                <view class="table-head">
+                  <view class="th th--label">参数</view>
+                  <view class="th" wx:for="{{selected}}" wx:key="configId">{{item.name}}</view>
+                </view>
+                <block wx:for="{{specGroups}}" wx:for-item="group" wx:key="id">
+                  <view class="table-group">{{group.title}}</view>
+                  <view class="table-row {{row.differs ? 'table-row--diff' : ''}}" wx:for="{{group.rows}}" wx:for-item="row" wx:key="key">
+                    <view class="td td--label">{{row.label}}</view>
+                    <view
+                      class="td {{cell.win ? 'td--win' : ''}} {{cell.empty ? 'td--empty' : ''}}"
+                      wx:for="{{row.cells}}"
+                      wx:for-item="cell"
+                      wx:key="i"
+                    >{{cell.text}}</view>
+                  </view>
+                </block>
+              </view>
+            </scroll-view>
+          </view>
+        </block>
+        <text class="pk-disclaimer">对比结果仅供娱乐参考，不具备任何意义。</text>
+      </block>
+      <view style="height: {{tabBarReservedHeight + 40}}px;"></view>
+    </block>
+  </scroll-view>
+
+  <view class="picker-layer" wx:if="{{pickerOpen}}">
+    <view style="height: {{navPlaceholderHeight}}px;"></view>
+    <view class="add-btn">
+      <text class="add-btn-plus">+</text>
+      <text>添加型号 · 已选 {{selected.length}}/4</text>
+    </view>
+    <view class="gal-search">
+      <text class="gal-search-icon">⌕</text>
+      <input
+        class="gal-search-input"
+        type="text"
+        confirm-type="search"
+        placeholder="搜索型号 / 发射商 / 国家"
+        placeholder-class="gal-search-placeholder"
+        value="{{keyword}}"
+        bindinput="onSearchInput"
+      />
+      <view class="gal-search-clear" wx:if="{{keyword}}" bindtap="onSearchClear">
+        <text>×</text>
+      </view>
+    </view>
+    <scroll-view scroll-y class="picker-scroll">
+      <text class="pick-cap" wx:if="{{pickerTruncated}}">已显示 {{pickerShown}}/{{pickerTotal}}，搜索型号或发射商查看更多</text>
+      <view class="empty-wrap" wx:if="{{!loading && !pickerGroups.length}}">
+        <text class="empty-icon">⇄</text>
+        <text class="empty-text">暂无型号</text>
+        <text class="empty-hint">型号档案加载后会出现在这里</text>
+      </view>
+      <view class="pick-group" wx:for="{{pickerGroups}}" wx:for-item="g" wx:key="id">
+        <view class="pick-group-title">{{g.title}}</view>
+        <view
+          class="pick-row {{m.picked ? 'pick-row--on' : ''}}"
+          wx:for="{{g.items}}"
+          wx:for-item="m"
+          wx:key="configId"
+          data-config-id="{{m.configId}}"
+          bindtap="onTogglePick"
+        >
+          <view class="pick-check {{m.picked ? 'pick-check--on' : ''}}">
+            <text wx:if="{{m.picked}}">✓</text>
+          </view>
+          <image
+            class="pick-thumb"
+            wx:if="{{m.thumbnailUrl}}"
+            src="{{m.thumbnailUrl}}"
+            mode="aspectFill"
+            lazy-load
+            data-id="{{m.configId}}"
+            binderror="onImageError"
+          />
+          <view class="pick-thumb pick-thumb--ph" wx:else></view>
+          <view class="pick-meta">
+            <text class="pick-name">{{m.fullName}}</text>
+            <text class="pick-sub pick-sub--link" wx:if="{{m.manufacturerId}}" catchtap="onTapPickerManufacturer" data-id="{{m.manufacturerId}}">{{m.manufacturerDisplay || m.manufacturer}}</text>
+            <text class="pick-sub" wx:elif="{{m.manufacturerDisplay || m.manufacturer}}">{{m.manufacturerDisplay || m.manufacturer}}</text>
+          </view>
+          <text class="pick-stat">{{m.statRight}}</text>
+        </view>
+      </view>
+      <view style="height: 128px;"></view>
+    </scroll-view>
+    <view class="picker-fab" style="padding-bottom: calc(16px + env(safe-area-inset-bottom));">
+      <view class="dock-del" bindtap="onClearSelected">删除</view>
+      <view class="dock-go {{canStart ? 'dock-go--on' : ''}}" bindtap="onStartCompare">开始对比({{selected.length}})</view>
+    </view>
+  </view>
+
+  <share-guide />
+  <share-gate-countdown expire-at="{{shareGateExpireAt}}" />
+</view>

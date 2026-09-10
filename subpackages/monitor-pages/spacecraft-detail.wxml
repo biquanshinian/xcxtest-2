@@ -65,10 +65,11 @@
             </view>
           </view>
           <view class="hero-badge-row">
-            <view class="hero-agency-btn" wx:if="{{item.agencyName}}" catchtap="onTapAgency">
+            <view class="hero-agency-btn" wx:if="{{item.agencyId}}" catchtap="onTapAgency">
               <text>{{item.agencyName}}</text>
               <text class="hero-agency-arrow">›</text>
             </view>
+            <text class="hero-badge" wx:elif="{{item.agencyName}}">{{item.agencyName}}</text>
             <text class="hero-badge" wx:if="{{item.typeName}}">{{item.typeName}}</text>
             <text class="hero-badge" wx:if="{{item.familyName}}">{{item.familyName}} 系列</text>
           </view>

@@ -10,7 +10,7 @@ const {
   shouldSkipDownload,
   markDownloadFailed
 } = require('./download-fail-cache.js')
-const { isOwnCdnUrl, proxiedImageUrl } = require('./ll2-image.js')
+const { isOwnCdnUrl, isWorkerImageProxyUrl, proxiedImageUrl } = require('./ll2-image.js')
 
 const CACHE_DIR = `${wx.env.USER_DATA_PATH}/icon_cache`
 const INDEX_KEY = '_icon_cache_index'
@@ -321,7 +321,15 @@ function getCachedRocketConfig(url, preset) {
   if (!url) return url
 
   const memo = _rocketUrlMemo[url]
-  if (memo) return memo
+  if (memo) {
+    if (/^https?:\/\//i.test(memo)) return memo
+    try {
+      wx.getFileSystemManager().accessSync(memo)
+      return memo
+    } catch (e) {
+      delete _rocketUrlMemo[url]
+    }
+  }
 
   const idx = _getRocketIndex()
   const cached = idx[url]
@@ -486,8 +494,18 @@ function isRemoteCacheableImageUrl(url) {
   if (!/^https?:\/\//i.test(u)) return false
   if (/^wxfile:\/\//i.test(u)) return false
   if (/\.(mp4|m3u8|mov|webm)(\?|[&#]|$)/i.test(u)) return false
-  // 仅自有 COS/CDN/Worker 域名允许 downloadFile 落盘；DigitalOcean 等外链不落盘（降错误率）
+  // 仅自有 COS/CDN 允许 downloadFile 落盘；Worker /image 代理与外链只展示
+  if (isWorkerImageProxyUrl(u)) return false
+  if (_isHomeCarouselUrl(u)) return false
   return isOwnCdnUrl(u)
+}
+
+function _isHomeCarouselUrl(url) {
+  const u = String(url || '')
+  try {
+    if (decodeURIComponent(u).indexOf('首页轮播图') !== -1) return true
+  } catch (e) {}
+  return u.indexOf('%E9%A6%96%E9%A1%B5%E8%BD%AE%E6%92%AD%E5%9B%BE') !== -1
 }
 
 function _ensureMediaDir() {
@@ -550,6 +568,9 @@ function getCachedMediaImage(url, preset) {
   if (!isOwnCdnUrl(raw)) {
     return proxiedImageUrl(raw) || raw
   }
+  // 已是代理链 / 首页轮播大图：只给 <image> 压缩地址，避免再 downloadFile 一跳
+  if (isWorkerImageProxyUrl(raw)) return raw
+  if (_isHomeCarouselUrl(raw)) return _mediaDownloadUrl(raw, preset)
 
   if (!isRemoteCacheableImageUrl(raw)) return raw
   url = toCdnUrl(raw)
@@ -666,7 +687,7 @@ function preloadMediaImages(urls, preset) {
 function persistMediaImageAfterRemoteLoad(remoteUrl, onDone, preset) {
   const cb = typeof onDone === 'function' ? onDone : function () {}
   const raw = typeof remoteUrl === 'string' ? remoteUrl.trim() : ''
-  if (!raw || !/^https?:\/\//i.test(raw) || !isOwnCdnUrl(raw)) {
+  if (!raw || !/^https?:\/\//i.test(raw) || !isOwnCdnUrl(raw) || !isRemoteCacheableImageUrl(raw)) {
     cb(null)
     return
   }

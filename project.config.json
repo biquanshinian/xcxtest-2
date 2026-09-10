@@ -131,6 +131,10 @@
         "type": "glob"
       },
       {
+        "value": "tmp-glb-fix/**",
+        "type": "glob"
+      },
+      {
         "value": "scripts/**",
         "type": "glob"
       },
@@ -235,7 +239,27 @@
         "type": "glob"
       },
       {
+        "value": ".claude/**",
+        "type": "glob"
+      },
+      {
+        "value": "xhs-minitool",
+        "type": "folder"
+      },
+      {
+        "value": "xhs-minitool",
+        "type": "prefix"
+      },
+      {
+        "value": "xhs-minitool/**",
+        "type": "glob"
+      },
+      {
         "value": ".tmp*/**",
+        "type": "glob"
+      },
+      {
+        "value": "tmp-*/**",
         "type": "glob"
       },
       {
@@ -244,6 +268,10 @@
       },
       {
         "value": ".tmp-r3d-ref",
+        "type": "folder"
+      },
+      {
+        "value": "tmp-glb-fix",
         "type": "folder"
       },
       {
@@ -280,6 +308,49 @@
         "value": "subpackages/monitor-pages/utils/monitor-weather.js",
         "type": "file"
       }
+    ]
+  },
+  "watchOptions": {
+    "ignore": [
+      "xhs-minitool",
+      "xhs-minitool/**",
+      "xhs-minitool/**/**",
+      "docs",
+      "docs/**",
+      "docs/**/**",
+      ".cursor",
+      ".cursor/**",
+      ".cursor/**/**",
+      ".claude",
+      ".claude/**",
+      ".claude/**/**",
+      "admin-web",
+      "admin-web/**",
+      "admin-web/**/**",
+      "assets",
+      "assets/**",
+      "tmp-glb-fix",
+      "tmp-glb-fix/**",
+      ".tmp-r3d-glb",
+      ".tmp-r3d-glb/**",
+      ".tmp-r3d-ref",
+      ".tmp-r3d-ref/**",
+      ".tmp*/**",
+      "tmp-*/**",
+      "cloudfunctions",
+      "cloudfunctions/**",
+      "cloudflare-worker",
+      "cloudflare-worker/**",
+      "scripts",
+      "scripts/**",
+      "tools",
+      "tools/**",
+      "workers",
+      "workers/**",
+      "test",
+      "test/**",
+      "agent-config",
+      "agent-config/**"
     ]
   },
   "appid": "wxf98b58309019771b",

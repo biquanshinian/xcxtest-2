@@ -101,6 +101,12 @@ function normKey(s) {
     .toLowerCase()
 }
 
+function isAgencyNameResolved(name, abbrev) {
+  const n = normKey(name)
+  const a = normKey(abbrev)
+  return !!(AGENCY_KEEP[n] || AGENCY_KEEP[a] || (n && AGENCY_ZH[n]) || (a && AGENCY_ZH[a]))
+}
+
 function translateAgencyName(name, abbrev) {
   const n = normKey(name)
   const a = normKey(abbrev)
@@ -132,4 +138,4 @@ function inferAgencyFromRocket(rocketEn, rocketZh) {
   return ''
 }
 
-module.exports = { translateAgencyName, inferAgencyFromRocket }
+module.exports = { translateAgencyName, inferAgencyFromRocket, isAgencyNameResolved }

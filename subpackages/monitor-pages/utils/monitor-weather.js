@@ -1,18 +1,37 @@
 /**
  * subpackages/monitor-pages/utils/monitor-weather.js
  * 博卡奇卡（Starbase）实况天气整块逻辑（从 pages/monitor/monitor.js 拆出）：
- * 本地持久缓存回填（stale-while-revalidate）+ open-meteo 请求 + 天气码映射。
+ * 本地持久缓存回填（stale-while-revalidate）+ Worker /starbase/weather（失败再直连 open-meteo）。
  *
  * 主包 monitor.js 通过 require.async + attachTo 委托加载，
  * 与 monitor-pass / monitor-galleries / monitor-orbital 模式一致；
  * monitor 页在 preloadRule 中预下载 monitor-pages 分包，几乎无加载等待。
  */
+const { workerProxyUrl } = require('../../../utils/config.js')
+
+const OPEN_METEO_URL = 'https://api.open-meteo.com/v1/forecast?latitude=25.9971&longitude=-97.1564&current=temperature_2m,weather_code,wind_speed_10m&timezone=Asia/Shanghai&wind_speed_unit=kmh'
+
+function requestGet(url, timeout) {
+  return new Promise((resolve, reject) => {
+    wx.request({
+      url,
+      method: 'GET',
+      timeout: timeout || 12000,
+      success: (res) => {
+        if (res.statusCode >= 200 && res.statusCode < 300) resolve(res.data)
+        else reject(new Error('HTTP ' + res.statusCode))
+      },
+      fail: (err) => reject(err || new Error('request:fail'))
+    })
+  })
+}
+
 const methods = {
   /** 进页面先用上次成功的天气数据渲染（stale-while-revalidate），网络刷新随后进行 */
   _hydrateStarbaseWeatherFromCache() {
     if (this.data.starbaseWeather && this.data.starbaseWeather.loaded) return
     const MAX_STALE_MS = 3 * 60 * 60 * 1000
-    const FRESH_MS = 10 * 60 * 1000
+    const FRESH_MS = 30 * 60 * 1000
     wx.getStorage({
       key: '_starbase_weather_cache',
       success: (res) => {
@@ -35,7 +54,7 @@ const methods = {
    * @param {boolean} forceRefresh 为 true 时下拉刷新跳过短期缓存
    */
   loadStarbaseWeather(forceRefresh) {
-    const CACHE_MS = 10 * 60 * 1000
+    const CACHE_MS = 30 * 60 * 1000
     const now = Date.now()
     if (this._starbaseWeatherInFlight) return Promise.resolve()
     if (
@@ -57,57 +76,14 @@ const methods = {
       }
     })
 
-    const weatherUrl = 'https://api.open-meteo.com/v1/forecast?latitude=25.9971&longitude=-97.1564&current=temperature_2m,weather_code,wind_speed_10m&timezone=Asia/Shanghai&wind_speed_unit=kmh'
+    const workerBase = String(workerProxyUrl || 'https://api.marsx.com.cn').replace(/\/$/, '')
 
-    return new Promise((resolve, reject) => {
-      wx.request({
-        url: weatherUrl,
-        method: 'GET',
-        timeout: 15000,
-        success: (res) => {
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            resolve(res.data)
-          } else {
-            reject(new Error('HTTP ' + res.statusCode))
-          }
-        },
-        fail: (err) => reject(err || new Error('request:fail'))
-      })
-    })
-      .then((data) => {
-        const cur = data && data.current
-        if (!cur || typeof cur !== 'object') throw new Error('invalid current')
-        const units = data.current_units || {}
-        const tempUnit = units.temperature_2m || '°C'
-        const windUnit = units.wind_speed_10m || ''
-        const code = Number(cur.weather_code)
-        const wxMap = this._mapWeatherCode(code)
-        const tempVal = cur.temperature_2m
-        const tempLine = tempVal != null && tempVal !== ''
-          ? `${Number(tempVal).toFixed(1).replace(/\.0$/, '')}${tempUnit}`
-          : '—'
-        const ws = cur.wind_speed_10m
-        const windLine = ws != null && ws !== ''
-          ? `${Number(ws).toFixed(1).replace(/\.0$/, '')}${windUnit ? ` ${windUnit}` : ''}`
-          : '—'
-        const timeLine = cur.time ? `${cur.time.replace('T', ' ').trim()} CST` : ''
-        // 紧凑排版用：仅时分（如 14:30），完整时间保留在 timeLine
-        const timeShort = cur.time ? String(cur.time).slice(11, 16) : ''
-        const payload = {
-          loaded: true,
-          loading: false,
-          error: '',
-          timeLine,
-          timeShort,
-          conditionText: wxMap.text,
-          tempLine,
-          windLine,
-          weatherIcon: wxMap.icon,
-          windIcon: '/subpackages/monitor-pages/images/starbase-weather/wind-lines.svg'
-        }
+    return requestGet(workerBase + '/starbase/weather', 10000)
+      .then((data) => this._payloadFromWorkerWeather(data) || Promise.reject(new Error('invalid worker weather')))
+      .catch(() => requestGet(OPEN_METEO_URL, 15000).then((data) => this._payloadFromOpenMeteo(data)))
+      .then((payload) => {
         this._starbaseWeatherCacheAt = Date.now()
         this.setData({ starbaseWeather: payload })
-        // 持久化：下次进页面先展示上次数据，避免等待跨境请求
         try {
           wx.setStorage({ key: '_starbase_weather_cache', data: { payload, ts: Date.now() }, fail: () => {} })
         } catch (e) {}
@@ -133,6 +109,57 @@ const methods = {
       .finally(() => {
         this._starbaseWeatherInFlight = false
       })
+  },
+
+  _payloadFromWorkerWeather(data) {
+    const d = data && data.data
+    if (!data || data.code !== 0 || !d || typeof d !== 'object') return null
+    const wxMap = this._mapWeatherCode(d.weatherCode)
+    const timeLine = d.timeLine || ''
+    const timeShort = timeLine ? String(timeLine).replace(/\s*CST\s*$/, '').slice(-5) : ''
+    return {
+      loaded: true,
+      loading: false,
+      error: '',
+      timeLine,
+      timeShort,
+      conditionText: d.text || wxMap.text,
+      tempLine: d.tempC != null && d.tempC !== '' ? `${Math.round(Number(d.tempC))}°C` : '—',
+      windLine: d.windKmh != null && d.windKmh !== '' ? `${Math.round(Number(d.windKmh))} km/h` : '—',
+      weatherIcon: wxMap.icon,
+      windIcon: '/subpackages/monitor-pages/images/starbase-weather/wind-lines.svg'
+    }
+  },
+
+  _payloadFromOpenMeteo(data) {
+    const cur = data && data.current
+    if (!cur || typeof cur !== 'object') throw new Error('invalid current')
+    const units = data.current_units || {}
+    const tempUnit = units.temperature_2m || '°C'
+    const windUnit = units.wind_speed_10m || ''
+    const wxMap = this._mapWeatherCode(Number(cur.weather_code))
+    const tempVal = cur.temperature_2m
+    const tempLine = tempVal != null && tempVal !== ''
+      ? `${Number(tempVal).toFixed(1).replace(/\.0$/, '')}${tempUnit}`
+      : '—'
+    const ws = cur.wind_speed_10m
+    const windLine = ws != null && ws !== ''
+      ? `${Number(ws).toFixed(1).replace(/\.0$/, '')}${windUnit ? ` ${windUnit}` : ''}`
+      : '—'
+    const timeLine = cur.time ? `${cur.time.replace('T', ' ').trim()} CST` : ''
+    const timeShort = cur.time ? String(cur.time).slice(11, 16) : ''
+    return {
+      loaded: true,
+      loading: false,
+      error: '',
+      timeLine,
+      timeShort,
+      conditionText: wxMap.text,
+      tempLine,
+      windLine,
+      weatherIcon: wxMap.icon,
+      windIcon: '/subpackages/monitor-pages/images/starbase-weather/wind-lines.svg'
+    }
   },
 
   _mapWeatherCode(code) {

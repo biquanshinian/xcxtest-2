@@ -39,6 +39,7 @@ const {
   shouldSkipSimpleRefresh,
   setMissionDetailCacheEntry
 } = require('../../utils/index-page-helpers.js')
+const { SHARE_THUMB_FALLBACK } = require('../../utils/share-thumb.js')
 
 const {
   formatDate,
@@ -53,7 +54,8 @@ const {
   fetchMissionListData,
   buildMissionListSetData,
   getMissionNextOffset,
-  mergeMissionPages
+  mergeMissionPages,
+  shouldPatchSingleCompletedCardFromDetail
 } = require('../../utils/index-mission-services.js')
 const {
   buildMissionListViewUpdateData,
@@ -89,7 +91,8 @@ const {
   attachCardCountdownToMissions,
   buildUpcomingLaunchEmptyState,
   buildUpcomingLaunchErrorState,
-  mergePreservedRocketImages
+  mergePreservedRocketImages,
+  shouldRebuildSameIdCountdownPanel
 } = require('../../utils/index-launch-state.js')
 const { nextProbeAction } = require('../../utils/countdown-window-machine.js')
 // NET 相关判定统一走校准时钟；纯本地节拍（节流/去抖/震动间隔）仍用 Date.now()
@@ -102,7 +105,7 @@ const {
   isNearLaunchWindow,
   planIndexForegroundRevalidate
 } = require('../../utils/foreground-resume.js')
-const { mergeObservationList, projectLaunchRecords } = require('../../utils/launch-status-store.js')
+const { mergeObservationList, projectLaunchRecords, isSettledStatusId } = require('../../utils/launch-status-store.js')
 const {
   resolveMissionDetailSourceData,
   buildMissionDetailNavigation,
@@ -111,14 +114,12 @@ const {
   collectMissionShareCandidates
 } = require('../../utils/index-mission-nav.js')
 const { loadMoreInteraction, missionCardCountdown } = require('../../utils/config.js')
-const config = require('../../utils/config.js')
 const { loadCloudMediaMap, isCloudMediaMapReady } = require('../../utils/image-config.js')
-
-
-function getLiveFinderUserNameFromConfig() {
-  const cfg = (config && config.channelsLive) || {}
-  return String(cfg.finderUserName || '').trim()
-}
+const { createAsyncDelegates } = require('../../utils/create-async-delegate.js')
+const {
+  getLiveFinderUserNameFromConfig,
+  isSettleableLiveStatusId
+} = require('../../utils/live-settle-helpers.js')
 const { toCdnUrl } = require('../../utils/cos-url.js')
 const { markDownloadFailed } = require('../../utils/download-fail-cache.js')
 const { getUiShellLayout } = require('../../utils/layout.js')
@@ -145,6 +146,7 @@ const {
 const { getMemberPolicy, getMemberPolicySync } = require('../../utils/member-policy.js')
 const { fetchMainConfig } = require('../../utils/feature-flags.js')
 const { applyOrbitPanoFlags, buildOrbitPanoFlagPatch } = require('../../utils/orbit-pano-list-flag.js')
+const { applyRocket3dFlags, buildRocket3dFlagPatch } = require('../../utils/rocket-3d-list-flag.js')
 const { warmUserPreferencesAsync, warmBriefingPopupShownAsync } = require('../../utils/user-growth.js')
 const { persistAgencyLogoAfterRemoteLoad, isRemoteAgencyLogoUrl } = require('../../utils/agency-logo-cache.js')
 const { ensureAgencyLogoBgTone } = require('../../utils/agency-logo-bg.js')
@@ -155,19 +157,22 @@ const { buildUpcomingAgencyFilterState, getAgencyKeyFromMission } = require('../
 // bestEffort、未决 15m 慢探）统一由 utils/countdown-window-machine.js 决策。
 const LIVE_STATUS_MIN_ROUND_GAP_MS = 30 * 1000
 // 结算→历史列表合并域：必须主包同步加载（_filterUpcomingAgainstSettled 等大量同步返回值调用点）
-const {
-  methods: settledMergeMethods,
-  isSettleableLiveStatusId
-} = require('./utils/index-settled-merge.js')
+const { methods: settledMergeMethods } = require('./utils/index-settled-merge.js')
 const { methods: countdownBootMethods } = require('./utils/index-countdown-boot.js')
 const splashHomeDefer = require('./utils/index-splash-home-defer.js')
+const {
+  installIndexSetDataGuard,
+  parkIndexHeavyData,
+  unparkIndexHeavyData,
+  readParkedOrData,
+  hintIndexGC
+} = require('./utils/index-memory-park.js')
 
 
 // 非会员任务列表免费可见条数（即将发射 / 历史发射各自计）；
 // 会员功能未开启、Pro 用户或广告解锁期内不限制
 const FREE_MISSION_LIST_LIMIT = 10
 
-const CALENDAR_PKG = '../../subpackages/index-extra/utils/index-calendar-page.js'
 const CALENDAR_METHODS = [
   '_processCalendarMission',
   'getMissionTypeCategory',
@@ -219,59 +224,41 @@ const CALENDAR_METHODS = [
   'loadLaunchStats',
   'goGlobalLaunchStats'
 ]
-function delegateCalendar(name) {
-  return function (...args) {
-    const page = this
-    const run = () => {
-      const fnImpl = page.__calendarMethods && page.__calendarMethods[name]
-      if (typeof fnImpl === 'function') return fnImpl.apply(page, args)
-      return page[name](...args)
+const calendarDelegates = createAsyncDelegates({
+  methods: CALENDAR_METHODS,
+  attachedKey: '__calendarAttached',
+  methodsKey: '__calendarMethods',
+  promiseKey: '__calendarLoadPromise',
+  resetPromiseOnError: false,
+  load: () => require.async('../../subpackages/index-extra/utils/index-calendar-page.js'),
+  // 未打开日历 Tab、或首页已停泊时不要为 sync/hydrate 拉起整包日历模块。
+  // 停泊后 data.calendarAllMissions 是 []，回填会用即将发射+历史盖掉完整日历。
+  guard(name, page) {
+    if (
+      (name === 'syncCalendarFromMissionListsIfNeeded' ||
+        name === 'hydrateCalendarFromLoadedMissionLists') &&
+      (page._indexParked ||
+        page._countdownPageHidden ||
+        !page.data ||
+        page.data.missionType !== 'calendar')
+    ) {
+      return false
     }
-    if (page.__calendarAttached && page.__calendarMethods) return run()
-    if (!page.__calendarLoadPromise) {
-      page.__calendarLoadPromise = require.async(CALENDAR_PKG).then((mod) => {
-        mod.attachTo(page)
-        page.__calendarMethods = (mod && mod.methods) || page.__calendarMethods
-        return mod
-      })
-    }
-    return page.__calendarLoadPromise.then(() => run())
   }
-}
-const calendarDelegates = {}
-CALENDAR_METHODS.forEach((name) => {
-  calendarDelegates[name] = delegateCalendar(name)
 })
 
 // 长按保存轮播图（纯用户触发路径）走分包异步加载
-const SAVE_IMAGE_PKG = '../../subpackages/index-extra/utils/index-save-image.js'
 const SAVE_IMAGE_METHODS = ['saveCarouselImage', 'saveImageToAlbum', 'handleSaveImageError']
-function delegateSaveImage(name) {
-  return function (...args) {
-    const page = this
-    const run = () => {
-      const fnImpl = page.__saveImageMethods && page.__saveImageMethods[name]
-      if (typeof fnImpl === 'function') return fnImpl.apply(page, args)
-      return page[name](...args)
-    }
-    if (page.__saveImageAttached && page.__saveImageMethods) return run()
-    if (!page.__saveImageLoadPromise) {
-      page.__saveImageLoadPromise = require.async(SAVE_IMAGE_PKG).then((mod) => {
-        mod.attachTo(page)
-        page.__saveImageMethods = (mod && mod.methods) || page.__saveImageMethods
-        return mod
-      })
-    }
-    return page.__saveImageLoadPromise.then(() => run())
-  }
-}
-const saveImageDelegates = {}
-SAVE_IMAGE_METHODS.forEach((name) => {
-  saveImageDelegates[name] = delegateSaveImage(name)
+const saveImageDelegates = createAsyncDelegates({
+  methods: SAVE_IMAGE_METHODS,
+  attachedKey: '__saveImageAttached',
+  methodsKey: '__saveImageMethods',
+  promiseKey: '__saveImageLoadPromise',
+  resetPromiseOnError: false,
+  load: () => require.async('../../subpackages/index-extra/utils/index-save-image.js')
 })
 
 // 发射竞猜逻辑同样走分包异步加载（竞猜框在倒计时数据就绪后才出现，可延迟）
-const VOTE_PKG = '../../subpackages/index-extra/utils/index-vote.js'
 const VOTE_METHODS = [
   'resetVoteData',
   '_scheduleVoteRecheck',
@@ -281,28 +268,13 @@ const VOTE_METHODS = [
   'loadVoteData',
   'onVote'
 ]
-function delegateVote(name) {
-  return function (...args) {
-    const page = this
-    const run = () => {
-      const fnImpl = page.__voteMethods && page.__voteMethods[name]
-      if (typeof fnImpl === 'function') return fnImpl.apply(page, args)
-      return page[name](...args)
-    }
-    if (page.__voteAttached && page.__voteMethods) return run()
-    if (!page.__voteLoadPromise) {
-      page.__voteLoadPromise = require.async(VOTE_PKG).then((mod) => {
-        mod.attachTo(page)
-        page.__voteMethods = (mod && mod.methods) || page.__voteMethods
-        return mod
-      })
-    }
-    return page.__voteLoadPromise.then(() => run())
-  }
-}
-const voteDelegates = {}
-VOTE_METHODS.forEach((name) => {
-  voteDelegates[name] = delegateVote(name)
+const voteDelegates = createAsyncDelegates({
+  methods: VOTE_METHODS,
+  attachedKey: '__voteAttached',
+  methodsKey: '__voteMethods',
+  promiseKey: '__voteLoadPromise',
+  resetPromiseOnError: false,
+  load: () => require.async('../../subpackages/index-extra/utils/index-vote.js')
 })
 
 const PINNED_UPCOMING_MISSION_STORAGE_KEY = '_idx_pinned_upcoming_mission_id'
@@ -326,7 +298,6 @@ function sortPinnedMissionFirst(list, pinnedId) {
 /** 首屏等待云媒体映射的最大时间，超时后继续拉列表，避免长时间白屏 */
 const LOAD_CLOUD_MEDIA_MAP_FIRST_PAINT_BUDGET_MS = 2500
 
-const CAROUSEL_PKG = '../../subpackages/index-extra/utils/index-carousel.js'
 const CAROUSEL_METHODS = [
   'getDefaultCarouselImages',
   'loadCarouselImages',
@@ -350,34 +321,14 @@ const CAROUSEL_METHODS = [
   'onCarouselImageError',
   'previewCarouselImage'
 ]
-function delegateCarousel(name) {
-  return function (...args) {
-    const page = this
-    const run = () => {
-      const fnImpl = page.__carouselMethods && page.__carouselMethods[name]
-      if (typeof fnImpl === 'function') return fnImpl.apply(page, args)
-      return page[name](...args)
-    }
-    if (page.__carouselAttached && page.__carouselMethods) return run()
-    if (!page.__carouselLoadPromise) {
-      page.__carouselLoadPromise = require.async(CAROUSEL_PKG).then((mod) => {
-        mod.attachTo(page)
-        page.__carouselMethods = (mod && mod.methods) || page.__carouselMethods
-        return mod
-      }).catch((err) => {
-        page.__carouselLoadPromise = null
-        throw err
-      })
-    }
-    return page.__carouselLoadPromise.then(() => run())
-  }
-}
-const carouselDelegates = {}
-CAROUSEL_METHODS.forEach((name) => {
-  carouselDelegates[name] = delegateCarousel(name)
+const carouselDelegates = createAsyncDelegates({
+  methods: CAROUSEL_METHODS,
+  attachedKey: '__carouselAttached',
+  methodsKey: '__carouselMethods',
+  promiseKey: '__carouselLoadPromise',
+  load: () => require.async('../../subpackages/index-extra/utils/index-carousel.js')
 })
 
-const SPLASH_PKG = '../../subpackages/index-extra/utils/index-splash.js'
 const SPLASH_METHODS = [
   'loadSplashScreen',
   'maybeReplaySplashOnResume',
@@ -396,39 +347,19 @@ const SPLASH_METHODS = [
   'onSplashAgencyLogoError',
   'closeSplash'
 ]
-function delegateSplash(name) {
-  return function (...args) {
-    const page = this
-    const run = () => {
-      const fnImpl = page.__splashMethods && page.__splashMethods[name]
-      if (typeof fnImpl === 'function') return fnImpl.apply(page, args)
-      return page[name](...args)
-    }
-    if (page.__splashAttached && page.__splashMethods) return run()
-    if (!page.__splashLoadPromise) {
-      page.__splashLoadPromise = require.async(SPLASH_PKG).then((mod) => {
-        mod.attachTo(page)
-        page.__splashMethods = (mod && mod.methods) || page.__splashMethods
-        return mod
-      }).catch((err) => {
-        page.__splashLoadPromise = null
-        throw err
-      })
-    }
-    return page.__splashLoadPromise.then(() => run())
-  }
-}
-const splashDelegates = {}
-SPLASH_METHODS.forEach((name) => {
-  splashDelegates[name] = delegateSplash(name)
+const splashDelegates = createAsyncDelegates({
+  methods: SPLASH_METHODS,
+  attachedKey: '__splashAttached',
+  methodsKey: '__splashMethods',
+  promiseKey: '__splashLoadPromise',
+  load: () => require.async('../../subpackages/index-extra/utils/index-splash.js')
 })
 
 
 // ========== 结算/实况/直播/低频加载：在 index-extra 分包（index-live-settle.js） ==========
-// 全部调用点均为语句式（无同步返回值依赖）；首页 preloadRule 预下载分包，几乎无等待。
+// 全部调用点均为语句式（无同步返回值依赖）。WiFi 下 preloadRule 会预下载 index-extra；蜂窝等首帧后再拉。
 // 注意：_onCountdownExpired / onHide / _clearLiveStatusPolling / _clearCountdownChannelsLivePoll
 // 因需同步操作定时器锁保留在主包，与模块共享 page 实例属性（见模块头注释）。
-const LIVE_SETTLE_PKG = '../../subpackages/index-extra/utils/index-live-settle.js'
 const LIVE_SETTLE_METHODS = [
   '_scrubKnownSettleableCountdown',
   '_refilterUpcomingAgainstSettled',
@@ -463,183 +394,106 @@ const LIVE_SETTLE_METHODS = [
   'onContactCallback',
   '_refreshRocketImagesFromMediaMap'
 ]
-function delegateLiveSettle(name) {
-  return function (...args) {
-    const page = this
-    const run = () => {
-      const fnImpl = page.__liveSettleMethods && page.__liveSettleMethods[name]
-      if (typeof fnImpl === 'function') return fnImpl.apply(page, args)
-      return page[name](...args)
-    }
-    if (page.__liveSettleAttached && page.__liveSettleMethods) return run()
-    if (!page.__liveSettleLoadPromise) {
-      page.__liveSettleLoadPromise = require.async(LIVE_SETTLE_PKG).then((mod) => {
-        mod.attachTo(page)
-        page.__liveSettleMethods = (mod && mod.methods) || page.__liveSettleMethods
-        return mod
-      }).catch((err) => {
-        page.__liveSettleLoadPromise = null
-        throw err
-      })
-    }
-    return page.__liveSettleLoadPromise.then(() => run())
-  }
-}
-const liveSettleDelegates = {}
-LIVE_SETTLE_METHODS.forEach((name) => {
-  liveSettleDelegates[name] = delegateLiveSettle(name)
+const liveSettleDelegates = createAsyncDelegates({
+  methods: LIVE_SETTLE_METHODS,
+  attachedKey: '__liveSettleAttached',
+  methodsKey: '__liveSettleMethods',
+  promiseKey: '__liveSettleLoadPromise',
+  load: () => require.async('../../subpackages/index-extra/utils/index-live-settle.js')
 })
 
 // ========== 低频 UX（演示/隐私/分享面板/公告关闭）：index-extra ==========
-const UX_PKG = '../../subpackages/index-extra/utils/index-ux.js'
 const UX_METHODS = [
-  "closeAnnouncementBanner",
-  "closeAnnouncementDetail",
-  "openAISearch",
-  "openShop",
-  "_initDemoMode",
-  "onDemoRemoteStart",
-  "onDemoStop",
-  "_maybePromptPrivacy",
-  "_resumeDeferredPopups",
-  "onMissionShareTap",
-  "onMissionLongPress",
-  "onShareSheetClose",
-  "onShareSheetItemTap",
-  "onShareBriefing",
-  "onBriefingClosed",
-  "onRenewalClosed",
-  "_tryShowRenewalReminder",
-  "_tryShowNetChangeModal",
-  "_prewarmNetChangeScan",
-  "ensureShareImageHttpUrl"
+  'closeAnnouncementBanner',
+  'closeAnnouncementDetail',
+  'openAISearch',
+  'openShop',
+  '_initDemoMode',
+  'onDemoRemoteStart',
+  'onDemoStop',
+  '_maybePromptPrivacy',
+  '_resumeDeferredPopups',
+  'onMissionShareTap',
+  'onMissionLongPress',
+  'onShareSheetClose',
+  'onShareSheetItemTap',
+  'onShareBriefing',
+  'onBriefingClosed',
+  'onRenewalClosed',
+  '_tryShowRenewalReminder',
+  '_tryShowNetChangeModal',
+  '_prewarmNetChangeScan',
+  'ensureShareImageHttpUrl'
 ]
-function delegateUx(name) {
-  return function (...args) {
-    const page = this
-    const run = () => {
-      const fnImpl = page.__uxMethods && page.__uxMethods[name]
-      if (typeof fnImpl === 'function') return fnImpl.apply(page, args)
-      return page[name](...args)
-    }
-    if (page.__uxAttached && page.__uxMethods) return run()
-    if (!page.__uxLoadPromise) {
-      page.__uxLoadPromise = require.async(UX_PKG).then((mod) => {
-        mod.attachTo(page)
-        page.__uxMethods = (mod && mod.methods) || page.__uxMethods
-        return mod
-      }).catch((err) => {
-        page.__uxLoadPromise = null
-        throw err
-      })
-    }
-    return page.__uxLoadPromise.then(() => run())
-  }
-}
-const uxDelegates = {}
-UX_METHODS.forEach((name) => {
-  uxDelegates[name] = delegateUx(name)
+const uxDelegates = createAsyncDelegates({
+  methods: UX_METHODS,
+  attachedKey: '__uxAttached',
+  methodsKey: '__uxMethods',
+  promiseKey: '__uxLoadPromise',
+  load: () => require.async('../../subpackages/index-extra/utils/index-ux.js')
 })
 
 
 // ========== 发射商筛选 / 提醒订阅（用户触发）：index-extra ==========
-const AGENCY_SUB_PKG = '../../subpackages/index-extra/utils/index-agency-sub.js'
 const AGENCY_SUB_METHODS = [
-  "subscribeReminderForMission",
-  "unsubscribeReminderForMission",
-  "onMissionSwipeSubscribeTap",
-  "onCountdownRemind",
-  "onUpcomingAgencyChipsScroll",
-  "onUpcomingAgencyChipTap",
-  "_selectUpcomingAgencyKey",
-  "onAgencyChipLogoLoad",
-  "onAgencyChipLogoError",
-  "_applyAgencyChipLocalLogo",
-  "_applyAgencyChipLogoBgTone",
-  "scheduleUpcomingAgencyChipsOverflowHint",
-  "updateUpcomingAgencyChipsOverflowHint",
-  "_syncUpcomingAgencyScrollHapticBaseline"
+  'subscribeReminderForMission',
+  'unsubscribeReminderForMission',
+  'onMissionSwipeSubscribeTap',
+  'onCountdownRemind',
+  'onUpcomingAgencyChipsScroll',
+  'onUpcomingAgencyChipTap',
+  '_selectUpcomingAgencyKey',
+  'onAgencyChipLogoLoad',
+  'onAgencyChipLogoError',
+  '_applyAgencyChipLocalLogo',
+  '_applyAgencyChipLogoBgTone',
+  'scheduleUpcomingAgencyChipsOverflowHint',
+  'updateUpcomingAgencyChipsOverflowHint',
+  '_syncUpcomingAgencyScrollHapticBaseline'
 ]
-function delegateAgencySub(name) {
-  return function (...args) {
-    const page = this
-    const run = () => {
-      const fn = page.__agencySubMethods && page.__agencySubMethods[name]
-      if (typeof fn === 'function') return fn.apply(page, args)
-      return page[name](...args)
-    }
-    if (page.__agencySubAttached && page.__agencySubMethods) return run()
-    if (!page.__agencySubLoadPromise) {
-      page.__agencySubLoadPromise = require.async(AGENCY_SUB_PKG).then((mod) => {
-        mod.attachTo(page)
-        page.__agencySubMethods = (mod && mod.methods) || page.__agencySubMethods
-        return mod
-      }).catch((err) => {
-        page.__agencySubLoadPromise = null
-        throw err
-      })
-    }
-    return page.__agencySubLoadPromise.then(() => run())
-  }
-}
-const agencySubDelegates = {}
-AGENCY_SUB_METHODS.forEach((name) => {
-  agencySubDelegates[name] = delegateAgencySub(name)
+const agencySubDelegates = createAsyncDelegates({
+  methods: AGENCY_SUB_METHODS,
+  attachedKey: '__agencySubAttached',
+  methodsKey: '__agencySubMethods',
+  promiseKey: '__agencySubLoadPromise',
+  load: () => require.async('../../subpackages/index-extra/utils/index-agency-sub.js')
 })
 
 // ========== 用户触发交互（详情/图片错误/助推器）：index-extra ==========
-const INTERACTION_PKG = '../../subpackages/index-extra/utils/index-interaction.js'
 const INTERACTION_METHODS = [
-  "viewMissionDetail",
-  "getMissionDetailCacheStore",
-  "setMissionDetailCacheStore",
-  "updateMissionDetailCacheEntries",
-  "sanitizeMissionDetailCacheStore",
-  "buildMissionDetailViewContext",
-  "persistMissionDetailListSnapshot",
-  "buildPrefetchedMissionDetail",
-  "buildDetailPrefetchCacheEntries",
-  "normalizeBoosterInfo",
-  "onGoBoosterDetail",
-  "onGoAgencyDetail",
-  "onGoRocketModelDetail",
-  "onImageError",
-  "onCountdownRocketImageError",
-  "refreshLaunchPanelRocketImageUrl",
-  "syncLaunchPanelRocketImageWithUpcomingList",
-  "syncLaunchDataRocketImageFromListByMissionId",
-  "_patchUpcomingListsRocketImage",
-  "_preloadVisibleRocketImages",
-  "_withResolvedRocketImage",
-  "shareMission",
-  "onCountdownCardTap",
-  "onOverlapSideCardTap"
+  'viewMissionDetail',
+  'getMissionDetailCacheStore',
+  'setMissionDetailCacheStore',
+  'updateMissionDetailCacheEntries',
+  'sanitizeMissionDetailCacheStore',
+  'buildMissionDetailViewContext',
+  'persistMissionDetailListSnapshot',
+  'buildPrefetchedMissionDetail',
+  'buildDetailPrefetchCacheEntries',
+  'normalizeBoosterInfo',
+  'onGoBoosterDetail',
+  'onGoAgencyDetail',
+  'onGoRocketModelDetail',
+  'onGoLaunchSiteDetail',
+  'onImageError',
+  'onCountdownRocketImageError',
+  'refreshLaunchPanelRocketImageUrl',
+  'syncLaunchPanelRocketImageWithUpcomingList',
+  'syncLaunchDataRocketImageFromListByMissionId',
+  '_patchUpcomingListsRocketImage',
+  '_preloadVisibleRocketImages',
+  '_repairVisibleRocketImages',
+  '_withResolvedRocketImage',
+  'shareMission',
+  'onCountdownCardTap',
+  'onOverlapSideCardTap'
 ]
-function delegateInteraction(name) {
-  return function (...args) {
-    const page = this
-    const run = () => {
-      const fn = page.__interactionMethods && page.__interactionMethods[name]
-      if (typeof fn === 'function') return fn.apply(page, args)
-      return page[name](...args)
-    }
-    if (page.__interactionAttached && page.__interactionMethods) return run()
-    if (!page.__interactionLoadPromise) {
-      page.__interactionLoadPromise = require.async(INTERACTION_PKG).then((mod) => {
-        mod.attachTo(page)
-        page.__interactionMethods = (mod && mod.methods) || page.__interactionMethods
-        return mod
-      }).catch((err) => {
-        page.__interactionLoadPromise = null
-        throw err
-      })
-    }
-    return page.__interactionLoadPromise.then(() => run())
-  }
-}
-const interactionDelegates = {}
-INTERACTION_METHODS.forEach((name) => {
-  interactionDelegates[name] = delegateInteraction(name)
+const interactionDelegates = createAsyncDelegates({
+  methods: INTERACTION_METHODS,
+  attachedKey: '__interactionAttached',
+  methodsKey: '__interactionMethods',
+  promiseKey: '__interactionLoadPromise',
+  load: () => require.async('../../subpackages/index-extra/utils/index-interaction.js')
 })
 
 Page({
@@ -653,6 +507,7 @@ Page({
   ...voteDelegates,
   ...saveImageDelegates,
   onLoad(options) {
+    installIndexSetDataGuard(this)
     this._pageLoadAt = Date.now()
     this._launchRecordsById = new Map()
     this._launchStateGeneration = 1
@@ -761,10 +616,18 @@ Page({
   onReady() {
     if (this._indexFirstPaintFollowup) return
     this._indexFirstPaintFollowup = true
-    this._runIndexFirstPaintFollowup()
+    this.setData({ homeSubpkgUiReady: true }, () => {
+      this._runIndexFirstPaintFollowup()
+    })
   },
 
   _runIndexFirstPaintFollowup() {
+    try {
+      const app = getApp()
+      if (app && typeof app.preloadHomeSubpackages === 'function') {
+        app.preloadHomeSubpackages()
+      }
+    } catch (e) {}
     syncServerClock().catch(() => {})
     try {
       warmSubscribedStoreAsync()
@@ -818,6 +681,10 @@ Page({
       })
       .catch(() => {})
     try { this._syncFestivalHat() } catch (e) {}
+    try {
+      const repaired = this._repairVisibleRocketImages()
+      if (repaired && typeof repaired.then === 'function') repaired.catch(() => {})
+    } catch (e) {}
 
     setTimeout(() => {
       try {
@@ -851,9 +718,177 @@ Page({
 
     setTimeout(() => {
       try {
-        this.loadCalendarData(true)
+        storageCache.warmAsync('calendar_missions_cache', null)
       } catch (e) {}
     }, 300)
+
+    setTimeout(() => {
+      try {
+        require('../../utils/preload-subpackages.js').preloadSubpackages(['mission-detail'])
+      } catch (e) {}
+    }, 600)
+
+    this._indexShowDeferredReady = true
+    if (this._indexShowDeferredPending) {
+      this._indexShowDeferredPending = false
+      this._runIndexShowDeferred()
+    }
+  },
+
+  _scheduleIndexShowDeferred() {
+    const run = () => {
+      if (!this._indexShowDeferredReady) {
+        this._indexShowDeferredPending = true
+        return
+      }
+      this._runIndexShowDeferred()
+    }
+    setTimeout(run, 0)
+  },
+
+  _runIndexShowDeferred() {
+    try {
+      rocketArtUtil.applyRocketConfigArtIfNeeded(this)
+    } catch (e) {}
+    try {
+      const repaired = this._repairVisibleRocketImages()
+      if (repaired && typeof repaired.then === 'function') repaired.catch(() => {})
+    } catch (e) {}
+    try {
+      this._syncFestivalHat()
+    } catch (e) {}
+    try {
+      const appInst = getApp && getApp()
+      if (appInst && appInst._splashNeedResumeCheck) this.maybeReplaySplashOnResume()
+    } catch (e) {}
+
+    syncServerClock().catch(() => {})
+    const app = getApp && getApp()
+    try {
+      if (app && typeof app.syncAllTabBarsDesktopStrip === 'function') app.syncAllTabBarsDesktopStrip()
+    } catch (e) {}
+
+    wx.getStorage({
+      key: 'profile_open_search',
+      success: (res) => {
+        if (res.data) {
+          wx.removeStorage({ key: 'profile_open_search' })
+          navigateTo(ROUTES.AI_CHAT)
+        }
+      }
+    })
+
+    if (!this._demoInited) {
+      try {
+        this._initDemoMode()
+      } catch (e) {}
+    }
+
+    if (this._renewalCheckTimer) clearTimeout(this._renewalCheckTimer)
+    this._renewalCheckTimer = setTimeout(() => {
+      this._tryShowRenewalReminder()
+    }, 6000)
+
+    if (
+      this.data.missionType === 'upcoming' &&
+      this.data.carouselItems &&
+      this.data.carouselItems.length > 0
+    ) {
+      this._activateCarouselVideos(this.data.carouselCurrent || 0)
+      this._startCarouselTimer()
+    }
+
+    if (this.data.channelsLiveAnimPaused) {
+      this.setData({ channelsLiveAnimPaused: false })
+    }
+    this.refreshCountdownChannelsLive({ schedule: true })
+
+    if (this.data.launchData && this.data.launchData.id) {
+      const launchId = this.data.launchData.id
+      const subPatch = buildCountdownSubscriptionState(this.data.launchData, null, this._getPageSubscribedIdSet())
+      if (subPatch._countdownSubscribed !== this.data._countdownSubscribed) {
+        this.setData(subPatch)
+      }
+      if (this._voteDeferTimer) clearTimeout(this._voteDeferTimer)
+      this._voteDeferTimer = setTimeout(() => {
+        this._voteDeferTimer = null
+        if (this.data.launchData && String(this.data.launchData.id) === String(launchId)) {
+          const skipVoteCache = shouldRevalidate(this._foregroundResumeMs, VOTE_REVALIDATE_MS)
+          this.loadVoteData(launchId, skipVoteCache)
+        }
+      }, 800)
+      syncSubscriptionState(this.data.launchData.id).then((subscribed) => {
+        this._invalidatePageSubscribedIdSet()
+        const next = !!subscribed
+        if (this.data._countdownSubscribed !== next) {
+          this.setData({ _countdownSubscribed: next })
+        }
+        this._syncDisplayedUpcomingSwipeRowFlags()
+      })
+    } else {
+      this._syncDisplayedUpcomingSwipeRowFlags()
+    }
+    this._refreshOaAlertReady(false)
+
+    if (this.data.missionType === 'calendar' && typeof this.loadLaunchStats === 'function') {
+      this.loadLaunchStats()
+    }
+
+    const sinceLoad = Date.now() - (this._pageLoadAt || 0)
+    if (sinceLoad >= 3000) {
+      this._refreshMembershipAndAgencyFilter()
+      if (!this._membershipWarmAt || Date.now() - this._membershipWarmAt >= 60 * 1000) {
+        this._membershipWarmAt = Date.now()
+        const memberReady = hasFreshMembershipState()
+          ? Promise.resolve()
+          : getMembershipState()
+        Promise.all([isMembershipEnabled(), memberReady])
+          .then(() => {
+            try {
+              this._refreshMembershipAndAgencyFilter()
+            } catch (e) {}
+            try {
+              this._updateCarouselAutoplayGate()
+            } catch (e) {}
+            try {
+              this._updateMissionListGate()
+            } catch (e) {}
+          })
+          .catch(() => {})
+      }
+    }
+
+    const settledForce = !this._settledOnShowForceAt || Date.now() - this._settledOnShowForceAt >= 60 * 1000
+    if (settledForce) this._settledOnShowForceAt = Date.now()
+    const fromSubpage = !!this._indexReturningFromSubpage
+    this._indexReturningFromSubpage = false
+    // onShow 可能排队两次 deferred（ready 前 pending + setTimeout）。第一次清掉标记后，
+    // 第二次会再整表 merge。短窗内都按「刚从详情回来」处理。
+    if (fromSubpage) this._indexSkipSettledRewriteUntil = Date.now() + 2500
+    const skipCompletedRewrite =
+      fromSubpage ||
+      (this._indexSkipSettledRewriteUntil && Date.now() < this._indexSkipSettledRewriteUntil)
+    this._ensureRecentSettledCache(settledForce)
+      .then(() => {
+        try {
+          this._scrubKnownSettleableCountdown()
+        } catch (e) {}
+        // 从详情返回：倒计时仍 scrub；历史列表禁止再整表 merge/补水，否则完整卡会被瘦卡盖掉再闪回
+        if (skipCompletedRewrite) return
+        return this._applyRecentSettledToCompletedList(settledForce)
+      })
+      .then(() => {
+        try {
+          this._refilterUpcomingAgainstSettled()
+        } catch (e2) {}
+      })
+      .catch(() => {
+        try {
+          this._scrubKnownSettleableCountdown()
+        } catch (e3) {}
+      })
+
+    this._silentRevalidateOnForeground(this._foregroundResumeMs)
   },
 
   _buildContentLangUiPatch() {
@@ -881,11 +916,23 @@ Page({
   _restampOrbitPanoFlags() {
     try {
       if (!this || typeof this.setData !== 'function' || !this.data) return
+      const listOf = (key) => {
+        try {
+          return readParkedOrData(this, key)
+        } catch (e) {
+          return this.data[key]
+        }
+      }
       const patch = Object.assign(
         {},
-        buildOrbitPanoFlagPatch(this.data.upcomingMissions, 'upcomingMissions'),
-        buildOrbitPanoFlagPatch(this.data.completedMissions, 'completedMissions'),
-        buildOrbitPanoFlagPatch(this.data.displayedUpcomingMissions, 'displayedUpcomingMissions')
+        buildOrbitPanoFlagPatch(listOf('upcomingMissions'), 'upcomingMissions'),
+        buildOrbitPanoFlagPatch(listOf('completedMissions'), 'completedMissions'),
+        buildOrbitPanoFlagPatch(listOf('displayedUpcomingMissions'), 'displayedUpcomingMissions'),
+        buildOrbitPanoFlagPatch(listOf('calendarAllMissions'), 'calendarAllMissions'),
+        buildRocket3dFlagPatch(listOf('upcomingMissions'), 'upcomingMissions'),
+        buildRocket3dFlagPatch(listOf('completedMissions'), 'completedMissions'),
+        buildRocket3dFlagPatch(listOf('displayedUpcomingMissions'), 'displayedUpcomingMissions'),
+        buildRocket3dFlagPatch(listOf('calendarAllMissions'), 'calendarAllMissions')
       )
       if (Object.keys(patch).length) this.setData(patch)
     } catch (e) {}
@@ -920,23 +967,17 @@ Page({
 
   onShow() {
     this._countdownPageHidden = false
+    this._indexReturningFromSubpage = !!this._indexLeftToSubpage
+    this._indexLeftToSubpage = false
+    try { unparkIndexHeavyData(this) } catch (e) {}
+    try {
+      if (typeof this._restampOrbitPanoFlags === 'function') this._restampOrbitPanoFlags()
+    } catch (eRestamp) {}
     const resume = takeForegroundResume(this)
     this._foregroundResumeMs = resume.resumeMs
     // 主题兜底同步：在其他 Tab 切了主题后回到本 Tab（getCurrentPages 只含当前栈，切主题时刷不到本页）
     themeUtil.applyThemeToPage(this)
-    // 火箭配置图艺术风格 / 节日帽 / 开屏重播：不挡首帧
-    setTimeout(() => {
-      try {
-        rocketArtUtil.applyRocketConfigArtIfNeeded(this)
-      } catch (e) {}
-      try {
-        this._syncFestivalHat()
-      } catch (e) {}
-      try {
-        const appInst = getApp && getApp()
-        if (appInst && appInst._splashNeedResumeCheck) this.maybeReplaySplashOnResume()
-      } catch (e) {}
-    }, 0)
+    this._scheduleIndexShowDeferred()
     // 提醒偏好里切换了中/英文：回首页立即套用
     this._applyContentLangIfNeeded(false)
 
@@ -963,137 +1004,6 @@ Page({
         } catch (e) {}
       }, 1200)
     }
-
-    // 非首屏必需：排到首帧后，避免 onShow 生命周期长任务告警
-    setTimeout(() => {
-      syncServerClock().catch(() => {})
-      const app = getApp && getApp()
-      try {
-        if (app && typeof app.syncAllTabBarsDesktopStrip === 'function') app.syncAllTabBarsDesktopStrip()
-      } catch (e) {}
-
-      wx.getStorage({
-        key: 'profile_open_search',
-        success: (res) => {
-          if (res.data) {
-            wx.removeStorage({ key: 'profile_open_search' })
-            navigateTo(ROUTES.AI_CHAT)
-          }
-        }
-      })
-
-      if (!this._demoInited) {
-        try {
-          this._initDemoMode()
-        } catch (e) {}
-      }
-
-      // 续费提醒兜底入口：给太空简报约 6s 决定是否弹窗；
-      // 简报若弹出则此次跳过，由简报的 closed 事件接力触发
-      if (this._renewalCheckTimer) clearTimeout(this._renewalCheckTimer)
-      this._renewalCheckTimer = setTimeout(() => {
-        this._tryShowRenewalReminder()
-      }, 6000)
-
-      // 轮播仅「即将发射」Tab 展示与播控
-      if (
-        this.data.missionType === 'upcoming' &&
-        this.data.carouselItems &&
-        this.data.carouselItems.length > 0
-      ) {
-        this._activateCarouselVideos(this.data.carouselCurrent || 0)
-        this._startCarouselTimer()
-      }
-
-      // 回前台：恢复直播动效并复查视频号状态
-      if (this.data.channelsLiveAnimPaused) {
-        this.setData({ channelsLiveAnimPaused: false })
-      }
-      this.refreshCountdownChannelsLive({ schedule: true })
-
-      if (this.data.launchData && this.data.launchData.id) {
-        const launchId = this.data.launchData.id
-        const subPatch = buildCountdownSubscriptionState(this.data.launchData, null, this._getPageSubscribedIdSet())
-        // 不再因 OA 就绪强行点亮铃铛：结果改由服务号推送
-        if (subPatch._countdownSubscribed !== this.data._countdownSubscribed) {
-          this.setData(subPatch)
-        }
-        if (this._voteDeferTimer) clearTimeout(this._voteDeferTimer)
-        this._voteDeferTimer = setTimeout(() => {
-          this._voteDeferTimer = null
-          if (this.data.launchData && String(this.data.launchData.id) === String(launchId)) {
-            // 切 Tab 走 5 分钟投票缓存；长时间挂后台再回前台跳过缓存，避免票数停在旧值
-            const skipVoteCache = shouldRevalidate(this._foregroundResumeMs, VOTE_REVALIDATE_MS)
-            this.loadVoteData(launchId, skipVoteCache)
-          }
-        }, 800)
-        syncSubscriptionState(this.data.launchData.id).then((subscribed) => {
-          this._invalidatePageSubscribedIdSet()
-          const next = !!subscribed
-          if (this.data._countdownSubscribed !== next) {
-            this.setData({ _countdownSubscribed: next })
-          }
-          this._syncDisplayedUpcomingSwipeRowFlags()
-        })
-      } else {
-        this._syncDisplayedUpcomingSwipeRowFlags()
-      }
-      this._refreshOaAlertReady(false)
-
-      // 日历 Tab：回前台按 TTL/年份校验刷新全球统计（跨年时 isLaunchStatsFreshForCurrentYear 会强制重拉）
-      if (this.data.missionType === 'calendar' && typeof this.loadLaunchStats === 'function') {
-        this.loadLaunchStats()
-      }
-
-      // 冷启动 3s 内 onLoad 已调度会员/筛选刷新，避免 onShow 重复 setData
-      const sinceLoad = Date.now() - (this._pageLoadAt || 0)
-      if (sinceLoad >= 3000) {
-        this._refreshMembershipAndAgencyFilter()
-        if (!this._membershipWarmAt || Date.now() - this._membershipWarmAt >= 60 * 1000) {
-          this._membershipWarmAt = Date.now()
-          const memberReady = hasFreshMembershipState()
-            ? Promise.resolve()
-            : getMembershipState()
-          Promise.all([isMembershipEnabled(), memberReady])
-            .then(() => {
-              try {
-                this._refreshMembershipAndAgencyFilter()
-              } catch (e) {}
-              try {
-                this._updateCarouselAutoplayGate()
-              } catch (e) {}
-              try {
-                this._updateMissionListGate()
-              } catch (e) {}
-            })
-            .catch(() => {})
-        }
-      }
-
-      // 从详情返回：强制拉 recent_settled；已可落库的立刻移出倒计时（与历史同拍）
-      // 60 秒内重复 onShow 降级为读内存缓存（force=false），避免频繁切页触发云端强刷
-      const settledForce = !this._settledOnShowForceAt || Date.now() - this._settledOnShowForceAt >= 60 * 1000
-      if (settledForce) this._settledOnShowForceAt = Date.now()
-      this._ensureRecentSettledCache(settledForce)
-        .then(() => {
-          try {
-            this._scrubKnownSettleableCountdown()
-          } catch (e) {}
-          return this._applyRecentSettledToCompletedList(settledForce)
-        })
-        .then(() => {
-          try {
-            this._refilterUpcomingAgainstSettled()
-          } catch (e2) {}
-        })
-        .catch(() => {
-          try {
-            this._scrubKnownSettleableCountdown()
-          } catch (e3) {}
-        })
-
-      this._silentRevalidateOnForeground(this._foregroundResumeMs)
-    }, 0)
   },
 
   /**
@@ -1269,11 +1179,46 @@ Page({
       ],
       'detail'
     )
+    const idStr = String(observation.id)
+    const sid = observation.statusId != null ? Number(observation.statusId) : 0
+    const upcoming = this.data.upcomingMissions || []
+    const completed = this.data.completedMissions || []
+    const upIdx = upcoming.findIndex((m) => m && String(m.id) === idStr)
+    const cpIdx = completed.findIndex((m) => m && String(m.id) === idStr)
+    const isPanel = !!(
+      this.data.launchData &&
+      this.data.launchData.id != null &&
+      String(this.data.launchData.id) === idStr
+    )
+    const settled = isSettledStatusId(sid)
+    const shouldMoveToCompleted = upIdx >= 0 && settled
+
+    // 历史卡已在列表：只回写这一张。整表 project + 用全部观测 merge 会把完整卡打成瘦卡再补水。
+    if (
+      shouldPatchSingleCompletedCardFromDetail({
+        inCompleted: cpIdx >= 0,
+        inUpcoming: upIdx >= 0,
+        isPanel,
+        settled
+      })
+    ) {
+      if (typeof this.applyCompletedMissionStatusFromDetail === 'function') {
+        this.applyCompletedMissionStatusFromDetail(observation)
+      }
+      return
+    }
+    // 即将发射未落库、也不是倒计时面板：不要整表重写；仍允许身份回写（航行警告占位）
+    if (upIdx >= 0 && cpIdx < 0 && !settled && !isPanel) {
+      if (typeof this.applyUpcomingIdentityFromDetail === 'function') {
+        this.applyUpcomingIdentityFromDetail(observation)
+      }
+      return
+    }
+
     const displayPatch =
       typeof this._pickDetailDisplayFields === 'function' ? this._pickDetailDisplayFields(observation) : {}
     const overlayDisplay = (list) => {
       if (!observation || observation.id == null || !Object.keys(displayPatch).length) return list
-      const idStr = String(observation.id)
       return (Array.isArray(list) ? list : []).map((item) => {
         if (!item || String(item.id) !== idStr) return item
         const next = { ...item, ...displayPatch }
@@ -1282,33 +1227,33 @@ Page({
       })
     }
     const projected = this._projectAuthoritativeLaunchState(
-      overlayDisplay(this.data.upcomingMissions),
-      overlayDisplay(this.data.completedMissions)
+      overlayDisplay(upcoming),
+      overlayDisplay(completed)
     )
-    const completed = this._mergeRecentSettledIntoCompletedList(
+    const nextCompleted = this._mergeRecentSettledIntoCompletedList(
       projected.completed,
-      Array.from(this._launchRecordsById.values())
+      this._recentSettledCache
     )
     const patch = {
       upcomingMissions: projected.upcoming,
-      completedMissions: completed
+      completedMissions: nextCompleted
     }
     this.applyUpcomingAgencyFilterToPatch(patch, projected.upcoming)
     this.setData(patch, () => {
-      this.updateMissionListView('completed', completed)
-      // 详情治愈 NET/状态后重选型：按最近未来 NET 对齐倒计时面板
+      this.updateMissionListView('completed', nextCompleted)
+      if (!isPanel && !shouldMoveToCompleted) return
       try {
         const now = getServerNow()
         const { panelMission } = this._resolveCountdownPanelMission(projected.upcoming, now)
-        if (panelMission) {
+        if (panelMission && (isPanel || shouldMoveToCompleted)) {
           this._applyInitialUpcomingLaunchStateSync(panelMission, projected.upcoming, null, {
-            completedMissions: completed
+            completedMissions: nextCompleted
           })
-        } else if (this.data.launchData && String(this.data.launchData.id) === String(observation.id)) {
+        } else if (isPanel) {
           this._scrubKnownSettleableCountdown()
         }
       } catch (e) {
-        if (this.data.launchData && String(this.data.launchData.id) === String(observation.id)) {
+        if (isPanel) {
           this._scrubKnownSettleableCountdown()
         }
       }
@@ -1411,6 +1356,8 @@ Page({
     launchData: {},
     /** 倒计时圆图节日帽（与星问同源日期解析） */
     festivalHat: '',
+    /** 首帧后再挂分包组件，避免 placeholder 实例化触发 shared / index-extra 下载 */
+    homeSubpkgUiReady: false,
     formattedLaunchTime: '',
     formattedLaunchDate: '',
     formattedLaunchWeekTime: '',
@@ -2291,7 +2238,15 @@ Page({
     const panelId = panelMission.id != null ? String(panelMission.id) : ''
     // 倒计时已停在已可落库任务上 → 禁止 early-return 保旧面板
     const curSettleable = curId && this._isKnownSettleableId(curId)
-    if (!curSettleable && curId && panelId && curId === panelId && this.data.launchData.launchTime) {
+    const keepSamePanel = !shouldRebuildSameIdCountdownPanel(this.data.launchData, panelMission)
+    if (
+      !curSettleable &&
+      curId &&
+      panelId &&
+      curId === panelId &&
+      this.data.launchData.launchTime &&
+      keepSamePanel
+    ) {
       const listPatch = {
         ...buildMissionListSetData('upcoming', list, upcomingRes, filterExpiredMissions),
         showMissionsEmpty: this.data.missionType === 'upcoming' ? list.length === 0 : this.data.showMissionsEmpty
@@ -2545,6 +2500,7 @@ Page({
             this.refreshLaunchPanelRocketImageUrl()
             this.syncLaunchPanelRocketImageWithUpcomingList()
             this._syncCountdownOverlapSideCard()
+            try { this._restampOrbitPanoFlags() } catch (e) {}
           })
       }
     }
@@ -2827,10 +2783,12 @@ Page({
     const commit = () => {
       if (payload && Object.prototype.hasOwnProperty.call(payload, 'upcomingMissions')) {
         try { applyOrbitPanoFlags(payload.upcomingMissions) } catch (e) {}
+        try { applyRocket3dFlags(payload.upcomingMissions) } catch (e) {}
         this.applyUpcomingAgencyFilterToPatch(payload)
       }
       if (payload && Array.isArray(payload.completedMissions)) {
         try { applyOrbitPanoFlags(payload.completedMissions) } catch (e) {}
+        try { applyRocket3dFlags(payload.completedMissions) } catch (e) {}
       }
       this.setData(payload, () => {
         this.syncCalendarFromMissionListsIfNeeded()
@@ -3165,6 +3123,9 @@ Page({
               .catch(() => {})
             Promise.resolve(mediaPromise)
               .then(() => Promise.resolve(this._refreshRocketImagesFromMediaMap()))
+              .then(() => {
+                try { this._restampOrbitPanoFlags() } catch (e) {}
+              })
               .catch(() => {})
             const later = (ms, fn) => {
               setTimeout(() => {
@@ -3657,7 +3618,9 @@ Page({
       this.setData(patch, () => this.scheduleUpcomingAgencyChipsOverflowHint())
     }
 
-    const next = getNextUpcomingLaunch(filtered, currentId, now)
+    const next = getNextUpcomingLaunch(filtered, currentId, now, {
+      recordsById: this._launchRecordsById
+    })
 
     if (next) {
       this.setData(
@@ -3675,6 +3638,7 @@ Page({
               this.refreshLaunchPanelRocketImageUrl()
               this.syncLaunchPanelRocketImageWithUpcomingList()
               this._syncCountdownOverlapSideCard()
+              try { this._restampOrbitPanoFlags() } catch (e) {}
             })
         }
       )
@@ -4294,6 +4258,16 @@ Page({
     this._launchStatusPolling = false
     this._lastExpiredRoundAt = 0
     this._countdownPageHidden = true
+    try {
+      const pages = typeof getCurrentPages === 'function' ? getCurrentPages() : []
+      const top = pages && pages.length ? pages[pages.length - 1] : null
+      const route = top && (top.route || top.__route__ || '')
+      if (route && String(route).indexOf('mission-detail') !== -1) {
+        this._indexLeftToSubpage = true
+      }
+    } catch (e) {}
+    try { parkIndexHeavyData(this) } catch (e) {}
+    hintIndexGC()
   },
 
 
@@ -4458,7 +4432,7 @@ Page({
           title: '每日太空简报 — 今天太空发生了什么？',
           // 接收方点开直接进入简报详情页
           path: ROUTES.BRIEFING,
-          imageUrl: ''
+          imageUrl: SHARE_THUMB_FALLBACK
         }
       }
       if (ds.shareType === 'roadClosure') {
@@ -4473,7 +4447,8 @@ Page({
         if (notice && notice.sourceLabel) parts.push('source=' + encodeURIComponent(notice.sourceLabel))
         return {
           title: lines.join(' | '),
-          path: ROUTES.ROAD_CLOSURE_DETAIL + (parts.length ? '?' + parts.join('&') : '')
+          path: ROUTES.ROAD_CLOSURE_DETAIL + (parts.length ? '?' + parts.join('&') : ''),
+          imageUrl: SHARE_THUMB_FALLBACK
         }
       }
       if (ds.shareType === 'mission' && ds.id) {

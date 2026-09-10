@@ -1,9 +1,9 @@
 /**
  * 罗曼太空望远镜追踪
  *
- * 数据源（按优先级）：
- *   1. Worker GET /roman-tracker — 服务端解析 Horizons -211 + DSN Now RST，精简 JSON
- *   2. 已有 Horizons 代理 GET /artemis-horizons — 客户端解析星历（DSN 不可用）
+ * 数据源：Worker GET /roman-tracker（服务端解析 Horizons -211 + DSN Now RST）
+ * 精简接口失败时回落本地上次成功快照，不再客户端直打 /artemis-horizons
+ *（该备用链在 We分析中 100% 发起失败，且 60s 超时会拖垮监控页）。
  *
  * 请求链路：小程序 → Worker → NASA/JPL Horizons、NASA DSN Now
  */
@@ -13,7 +13,9 @@ var httpRequest = require('./http-request.js')
 var ephem = require('./roman-ephem.js')
 
 var REQUEST_TIMEOUT = 30000
-var CACHE_TTL = 20000
+var CACHE_TTL = 60000
+var STALE_KEY = '_roman_tracker_last'
+var STALE_TTL = 6 * 60 * 60 * 1000
 var CREDIT_LINES = [
   '数据来源：NASA/JPL Horizons（星历体 -211）',
   '深空网状态来自 NASA DSN Now。'
@@ -149,7 +151,7 @@ function copyAdoptPixelLink() {
 async function fetchFromCompact(launchMs, nowMs) {
   var base = getWorkerBase()
   if (!base) throw new Error('未配置 workerProxyUrl')
-  var data = await requestJson(base + '/roman-tracker', 25000, 0)
+  var data = await requestJson(base + '/roman-tracker', 25000, 1)
   if (!data || !data.ok) throw new Error((data && data.error) || '罗曼追踪暂不可用')
   var phase = ephem.getMissionPhase(getCfg(), nowMs)
   var dsn = data.dsn || null
@@ -173,56 +175,22 @@ async function fetchFromCompact(launchMs, nowMs) {
   return attachMeta(snapshot, (dsn && dsn.tracking) ? CREDIT_LINES : CREDIT_LINES_EPHEM)
 }
 
-function buildHorizonsUrl(cmd, startCal, stopCal) {
-  var base = getWorkerBase()
-  var e = encodeURIComponent
-  return base + '/artemis-horizons?format=json' +
-    '&COMMAND=' + e("'" + cmd + "'") +
-    '&OBJ_DATA=NO&MAKE_EPHEM=YES&EPHEM_TYPE=VECTORS' +
-    '&CENTER=' + e("'500@399'") +
-    '&START_TIME=' + e("'" + startCal + "'") +
-    '&STOP_TIME=' + e("'" + stopCal + "'") +
-    '&STEP_SIZE=' + e("'1 min'") +
-    "&QUANTITIES='1'&OUT_UNITS=KM-S"
+function readStaleSnapshot() {
+  if (_cache.data && _cache.data.ok) return _cache.data
+  try {
+    var stored = wx.getStorageSync(STALE_KEY)
+    if (stored && stored.data && stored.data.ok && stored.ts && (Date.now() - stored.ts) < STALE_TTL) {
+      return stored.data
+    }
+  } catch (e) {}
+  return null
 }
 
-function fmtUtc(d) {
-  return d.getUTCFullYear() + '-' + ephem.pad2(d.getUTCMonth() + 1) + '-' + ephem.pad2(d.getUTCDate()) +
-    ' ' + ephem.pad2(d.getUTCHours()) + ':' + ephem.pad2(d.getUTCMinutes()) + ':' + ephem.pad2(d.getUTCSeconds())
-}
-
-async function fetchFromHorizons(launchMs, nowMs) {
-  var base = getWorkerBase()
-  if (!base) throw new Error('未配置 workerProxyUrl')
-  var c = getCfg()
-  var startCal = fmtUtc(new Date(nowMs - 3 * 60000))
-  var stopCal = fmtUtc(new Date(nowMs + 1 * 60000))
-  var cmd = c.command || '-211'
-  var l2Cmd = c.l2Command || 'SEMB-L2'
-  var results = await Promise.all([
-    requestJson(buildHorizonsUrl(cmd, startCal, stopCal), 60000),
-    requestJson(buildHorizonsUrl(l2Cmd, startCal, stopCal), 60000).catch(function () { return null })
-  ])
-  var rawR = results[0]
-  var rawL = results[1]
-  if (rawR && rawR.error) throw new Error(String(rawR.error).slice(0, 120))
-  var roman = ephem.pickClosest(ephem.parseHorizonsVectors((rawR && rawR.result) || ''), nowMs)
-  var l2 = null
-  if (rawL && !rawL.error) {
-    l2 = ephem.pickClosest(ephem.parseHorizonsVectors(rawL.result || ''), nowMs)
-  }
-  var phase = ephem.getMissionPhase(c, nowMs)
-  var snapshot = ephem.buildSnapshot({
-    nowMs: nowMs,
-    launchMs: launchMs,
-    roman: roman,
-    l2: l2,
-    dsn: null,
-    phase: phase,
-    source: 'horizons'
-  })
-  if (!snapshot) throw new Error('无法解析星历')
-  return attachMeta(snapshot, CREDIT_LINES_EPHEM)
+function writeStaleSnapshot(data) {
+  _cache = { data: data, ts: Date.now() }
+  try {
+    wx.setStorage({ key: STALE_KEY, data: { data: data, ts: Date.now() }, fail: function () {} })
+  } catch (e) {}
 }
 
 async function fetchBriefing() {
@@ -235,18 +203,18 @@ async function fetchBriefing() {
   var launchMs = getLaunchMs()
   try {
     var compact = await fetchFromCompact(launchMs, nowTs)
-    _cache = { data: compact, ts: Date.now() }
+    writeStaleSnapshot(compact)
     return compact
   } catch (e1) {
     console.warn('[Roman] 精简接口失败:', e1.message)
-  }
-  try {
-    var horizons = await fetchFromHorizons(launchMs, nowTs)
-    _cache = { data: horizons, ts: Date.now() }
-    return horizons
-  } catch (e2) {
-    console.error('[Roman] Horizons 也失败:', e2.message)
-    return { ok: false, error: friendlyError(e2.message), creditLines: CREDIT_LINES }
+    var stale = readStaleSnapshot()
+    if (stale) {
+      return Object.assign({}, stale, {
+        missionElapsedText: ephem.fmtMet(nowTs, launchMs),
+        stale: true
+      })
+    }
+    return { ok: false, error: friendlyError(e1.message), creditLines: CREDIT_LINES }
   }
 }
 

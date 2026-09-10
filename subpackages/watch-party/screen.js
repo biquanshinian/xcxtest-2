@@ -798,17 +798,13 @@ Page({
     const info = this._explain || {}
 
     if (key === 'agency') {
-      if (!info.agencyId && !info.agencyName && !info.agencyAbbrev) {
+      if (!info.agencyId) {
         wx.showToast({ title: '暂无发射商信息，请确认场次已关联任务', icon: 'none' })
         return
       }
       const allowed = await gateCheck('agency_encyclopedia', '全球发射商图鉴')
       if (this._unloaded || !allowed) return
-      const params = {}
-      if (info.agencyId) params.id = info.agencyId
-      if (info.agencyName) params.name = info.agencyName
-      if (info.agencyAbbrev) params.abbrev = info.agencyAbbrev
-      navigateTo(ROUTES.AGENCY_DETAIL, params)
+      navigateTo(ROUTES.AGENCY_DETAIL, { id: info.agencyId })
       return
     }
 

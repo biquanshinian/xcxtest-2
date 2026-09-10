@@ -16,6 +16,8 @@ const tabLoadPage = require('../../utils/tab-load-page.js')
 const { LIST_REVALIDATE_MS, takeForegroundResume, shouldRevalidate } = require('../../utils/foreground-resume.js')
 const { optimizeImageUrl, videoSnapshotUrl } = require('../../utils/cos-url.js')
 const { advanceImageFallback } = require('../../utils/ll2-image.js')
+const { markTabOverlayReady, scheduleAfterTabOverlayReady } = require('../../utils/tab-overlay-ready.js')
+const { SHARE_THUMB_FALLBACK, bootPageShareThumb, pageShareImage } = require('../../utils/share-thumb.js')
 
 let _starlinkRenderer = null
 let _starlinkLoadPromise = null
@@ -103,6 +105,7 @@ const GALLERIES_METHODS = [
   'loadBoosterGenealogy', 'onViewAllBoosters',
   'onRetryBoosterLoad',
   'onBoosterImageLoad', 'onBoosterImageError', 'onBoosterCardTap',
+  'onBoosterFamilyTap', 'onBoosterManufacturerTap',
   'loadSpacecraftGallery', 'onViewAllSpacecraft',
   'onRetrySpacecraftLoad', 'onSpacecraftImageError', 'onSpacecraftCardTap',
   'loadLaunchSiteGallery', 'onViewAllLaunchSites',
@@ -170,7 +173,7 @@ ORBITAL_METHODS.forEach((name) => {
 })
 
 // ========== 博卡奇卡实况天气：整块逻辑在 monitor-pages 分包（monitor-weather.js） ==========
-// onLoad 中本就延迟 1.5s 才发起网络请求，委托加载不改变时序；分包已在 preloadRule 预下载。
+// onLoad 中本就延迟 1.5s 才发起网络请求，委托加载不改变时序。WiFi 下 preloadRule 会预下载 monitor-pages。
 const WEATHER_METHODS = ['_hydrateStarbaseWeatherFromCache', 'loadStarbaseWeather', '_mapWeatherCode']
 function delegateWeather(name) {
   return function (...args) {
@@ -255,6 +258,7 @@ Page({
       navPlaceholderHeight: uiShellLayout.navPlaceholderHeight,
       tabBarReservedHeight: uiShellLayout.tabBarReservedHeight
     })
+    bootPageShareThumb(this)
 
     // 媒体映射不阻塞后续加载（其他模块可能仍依赖云端媒体映射）
     loadCloudMediaMap().catch(() => {})
@@ -338,7 +342,7 @@ Page({
       this.loadOrbitalConfig()
     }, 0)
 
-    // 博卡奇卡天气（open-meteo）：先用本地持久缓存立即展示，
+    // 博卡奇卡天气：先用本地持久缓存立即展示，再打 Worker /starbase/weather
     // 网络请求延后到首屏渲染完成后（跨境 RTT 慢，避免计入页面打开阶段）
     setTimeout(() => {
       this._hydrateStarbaseWeatherFromCache()
@@ -347,6 +351,16 @@ Page({
       this.loadStarbaseWeather(false)
     }, 1500)
 
+    setTimeout(() => {
+      try {
+        require('../../utils/preload-subpackages.js').preloadSubpackages(['nasa-data'])
+      } catch (e) {}
+    }, 800)
+
+  },
+
+  onReady() {
+    markTabOverlayReady(this)
   },
 
   onShow() {
@@ -354,6 +368,8 @@ Page({
     this._foregroundResumeMs = resume.resumeMs
     // 主题兜底同步：在其他 Tab 切了主题后回到本 Tab
     themeUtil.applyThemeToPage(this)
+    if (this._chinaMapShown) this._reviveChinaNoticePreview()
+    this._chinaMapShown = true
     try {
       const app = getApp && getApp()
       if (app && typeof app.syncAllTabBarsDesktopStrip === 'function') app.syncAllTabBarsDesktopStrip()
@@ -388,10 +404,12 @@ Page({
     }
     this.tryOpenPendingAgencyDetail()
 
-    // 弹窗广告（shared 分包，preloadRule 预下载）
-    require.async('../../subpackages/shared/utils/popup-ad.js')
-      .then(({ tryShowPopupAd }) => tryShowPopupAd(1, this))
-      .catch(() => {})
+    // 弹窗广告：等首帧浮层挂上再拉 shared，避免冷启动抢资源加载
+    scheduleAfterTabOverlayReady(this, () => {
+      require.async('../../subpackages/shared/utils/popup-ad.js')
+        .then(({ tryShowPopupAd }) => tryShowPopupAd(1, this))
+        .catch(() => {})
+    })
 
     // 进入监控页走缓存刷新推荐引导（30 分钟 TTL）；打开引导弹窗时才强制拉最新二维码
     this.loadChannelsFallbackGuide()
@@ -451,10 +469,12 @@ Page({
     scrollRefreshing: false,
     popupAdItem: null,
     popupAdVisible: false,
+    tabSubpkgUiReady: false,
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
     tabBarReservedHeight: 0,
     isProUser: false,
+    shareImage: SHARE_THUMB_FALLBACK,
     orbitalLiveStats: {
       activeNodes: '128',
       bandwidth: '4.8 Tbps',
@@ -687,6 +707,15 @@ Page({
     if (type) this._pendingShareType = type
   },
 
+  _shareThumb() {
+    return pageShareImage(this) || SHARE_THUMB_FALLBACK
+  },
+
+  _withShareThumb(result) {
+    result.imageUrl = this._shareThumb()
+    return result
+  },
+
   /** 分享：分区深链到对应功能详情页，避免好友点开只落到监控 Tab */
   onShareAppMessage(e) {
     const ds = (e && e.target && e.target.dataset) || {}
@@ -703,12 +732,12 @@ Page({
         ? '即将进行的在轨任务 - ' + count + '个事件待执行 | 火星探索日志'
         : '即将进行的在轨任务追踪 | 火星探索日志'
       if (first && first.id != null) {
-        return {
+        return this._withShareThumb({
           title,
           path: `${ROUTES.EVENT_DETAIL}?mode=ll2_event&id=${encodeURIComponent(first.id)}`
-        }
+        })
       }
-      return { title, path: monitorPath }
+      return this._withShareThumb({ title, path: monitorPath })
     }
     if (type === 'station') {
       const list = this.data.stationList || []
@@ -718,30 +747,30 @@ Page({
         ? '国际空间站 / 天宫空间站实时状态 - 当前收录' + count + '个空间站 | 火星探索日志'
         : '国际空间站 / 天宫空间站实时状态 | 火星探索日志'
       if (first && first.id != null) {
-        return {
+        return this._withShareThumb({
           title,
           path: `${ROUTES.STATION_DETAIL}?id=${encodeURIComponent(first.id)}`
-        }
+        })
       }
-      return { title, path: monitorPath }
+      return this._withShareThumb({ title, path: monitorPath })
     }
     if (type === 'starlink') {
-      return {
+      return this._withShareThumb({
         title: 'Starlink卫星实时分布 - ' + this.data.starlinkCount + '颗在轨 | 火星探索日志',
         path: ROUTES.STARLINK_FULLSCREEN
-      }
+      })
     }
     if (type === 'pass') {
       const count = (this.data.passList || []).length
       const title = count
         ? '星链过境预报 - 未来24小时共' + count + '次可见过境 | 火星探索日志'
         : '星链过境预报 | 火星探索日志'
-      return {
+      return this._withShareThumb({
         title,
         path: count
           ? `${ROUTES.STARLINK_PASS_DETAIL}?count=${count}`
           : ROUTES.STARLINK_PASS_DETAIL
-      }
+      })
     }
     // SPACE_NOTICES_FEATURE
     if (type === 'spaceNotices') {
@@ -753,16 +782,16 @@ Page({
           path += (path.indexOf('?') >= 0 ? '&' : '?') + 'sst=' + Date.now().toString(36)
         }
       } catch (e) { /* ignore */ }
-      return {
+      return this._withShareThumb({
         title: '发射航警地图 - 中国区航警危险区 | 火星探索日志',
         path
-      }
+      })
     }
-    return { path: monitorPath, title: '监控中心 - SpaceX星舰基地实时监控 | 火星探索日志' }
+    return this._withShareThumb({ path: monitorPath, title: '监控中心 - SpaceX星舰基地实时监控 | 火星探索日志' })
   },
 
   onShareTimeline() {
-    return { title: '监控中心 - SpaceX星舰基地实时监控 | 火星探索日志' }
+    return this._withShareThumb({ title: '监控中心 - SpaceX星舰基地实时监控 | 火星探索日志' })
   },
 
   /** 打开小程序专用落地页（星舰监控中心） */
@@ -795,6 +824,14 @@ Page({
     try {
       const card = this.selectComponent('#chinaNoticePreview')
       if (card && typeof card.refresh === 'function') card.refresh()
+    } catch (e) {}
+  },
+
+  _reviveChinaNoticePreview() {
+    if (!this.data.enableSpaceNotices) return
+    try {
+      const card = this.selectComponent('#chinaNoticePreview')
+      if (card && typeof card.revive === 'function') card.revive()
     } catch (e) {}
   },
 

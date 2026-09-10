@@ -36,11 +36,16 @@ function isRetryableCloudError(msg) {
     || /502|503|504003/i.test(text)
 }
 
+function isStatsGeneratingError(err) {
+  const msg = (err && (err.message || err.errMsg)) ? String(err.message || err.errMsg) : String(err || '')
+  return /STATS_NOT_READY|生成中/i.test(msg)
+}
+
 function formatCloudError(err) {
   const msg = (err && (err.message || err.errMsg)) ? String(err.message || err.errMsg) : String(err || '')
   if (isTimeoutError(msg)) return '统计加载超时，请稍后重试'
-  // notReady：后台尚未预生成该统计（只读模式不打 LL2），显示“生成中”占位而非“繁忙”错误
-  if (/STATS_NOT_READY|生成中/i.test(msg)) return '统计数据生成中，请稍后重试'
+  // notReady：后台尚未预生成该统计（只读模式不打 LL2），页面应自动轮询，不要当最终错误
+  if (isStatsGeneratingError(msg)) return '统计数据生成中，请稍后重试'
   if (/LL2|rate.?limit|配额|rateLimited/i.test(msg)) return '数据源请求繁忙，请稍后再试'
   if (/network|网络|fail to connect|ERR_NETWORK/i.test(msg)) return '网络异常，请检查后重试'
   const cleaned = msg.replace(/^cloud\.callFunction:fail\s*/i, '').trim()
@@ -465,6 +470,7 @@ async function resolveRocketYearFromBreakdown(mission) {
 
 module.exports = {
   formatCloudError,
+  isStatsGeneratingError,
   isTimeoutError,
   isRetryableCloudError,
   readPersistSnapshot,

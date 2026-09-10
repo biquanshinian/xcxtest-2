@@ -1,4 +1,5 @@
 export const PHOTO_SLOTS = ['photo_before', 'photo_during', 'photo_after', 'photo_accept']
+export const WORK_PHOTO_SLOTS = ['photo_before', 'photo_during', 'photo_after']
 
 export function isPhotoSlot(itemId) {
   return PHOTO_SLOTS.indexOf(itemId) >= 0

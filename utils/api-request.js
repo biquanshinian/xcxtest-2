@@ -806,16 +806,14 @@ function _buildCandidateKeys(url, params, exactKey) {
   const isUpcomingList = url.includes('/launches/upcoming/')
 
   // 当前 slim schema 版本号对应的列表后缀（与 getCacheKey 保持一致）
-  // 旧版后缀做兜底：新缓存没来时，先让用户看到"不一定有颜色但能展示"的老数据，别白屏；
-  // 云函数后台刷新后会自动覆盖为新版带颜色的缓存。
-  // 注意：旧版后缀 key 只参与本地零成本扫描，云端查询会被 _isLegacySlimKey 过滤掉。
+  // 本地不再扫 _slim_v5 及更旧：旧卡缺 *Zh / reusable / orbit，会先英后中并和现网 v6 打架。
+  // 无后缀 root key 仍作兜底；云端查询继续被 _isLegacySlimKey 过滤。
   const SLIM_SUFFIX = '_slim_v6'
 
   function addSlimListCandidates(fullKey) {
     add(fullKey, true)
     if (isLaunchList && fullKey.endsWith(SLIM_SUFFIX)) {
       const rootKey = fullKey.slice(0, -SLIM_SUFFIX.length)
-      LEGACY_SLIM_SUFFIXES.forEach((sfx) => add(rootKey + sfx, true))
       add(rootKey, true)
     }
   }
@@ -1398,6 +1396,35 @@ function patchUpcomingLocalCacheById(launchId, liveFields) {
       }
       if (liveFields.status && typeof liveFields.status === 'object') {
         next.status = { ...(row.status || {}), ...liveFields.status }
+      }
+      const noCjk = (s) => {
+        const t = String(s || '').trim()
+        return t && !/[\u4e00-\u9fff]/.test(t) ? t : ''
+      }
+      const nextName = noCjk(liveFields.name)
+      if (nextName) next.name = nextName
+      if (liveFields.mission && typeof liveFields.mission === 'object') {
+        const missionName = noCjk(liveFields.mission.name)
+        if (missionName) {
+          next.mission = { ...(row.mission || {}), name: missionName }
+        }
+      }
+      const liveCfg =
+        liveFields.rocket && liveFields.rocket.configuration
+          ? liveFields.rocket.configuration
+          : null
+      const cfgName = liveCfg ? noCjk(liveCfg.name || liveCfg.full_name) : ''
+      if (liveCfg && cfgName) {
+        const prevCfg = (row.rocket && row.rocket.configuration) || {}
+        next.rocket = {
+          ...(row.rocket || {}),
+          configuration: {
+            ...prevCfg,
+            ...liveCfg,
+            name: liveCfg.name || cfgName,
+            full_name: liveCfg.full_name || liveCfg.name || cfgName
+          }
+        }
       }
       return next
     })

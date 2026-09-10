@@ -141,6 +141,7 @@ function testMatching() {
     { meta: { entryKey: 'launch-f9-starlink-17-51', missionName: 'Starlink Group 17-51', rocketName: 'Falcon 9', siteDates: ['2026-07-25T18:23'] }, want: 'uuid-1751' },
     { meta: { entryKey: 'launch-f9-starlink-17-52', missionName: 'Starlink Group 17-52', rocketName: 'Falcon 9', siteDates: ['2026-07-28T18:00'] }, want: 'uuid-1752' },
     { meta: { entryKey: 'launch-long-march-3be-tianlian-2-06', missionName: 'Tianlian 2-06', rocketName: 'Long March 3B/E', siteDates: ['2026-07-23T12:54'] }, want: 'uuid-tl' },
+    { meta: { entryKey: 'launch-long-march-3be-tianlian-2-06', missionName: 'Tianlian 2-06', rocketName: 'CZ-3B', siteDates: ['2026-07-23T12:54'] }, want: 'uuid-tl' },
     { meta: { entryKey: 'launch-f9-nrol-95', missionName: 'NROL-95', rocketName: 'Falcon 9', siteDates: ['2026-07-30T08:04'] }, want: 'uuid-nrol' },
     { meta: { entryKey: 'launch-starship-flight-13', missionName: 'Flight 13', rocketName: 'Starship', siteDates: ['2026-07-24T22:45'] }, want: 'uuid-f13' }
   ]

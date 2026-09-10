@@ -10,6 +10,7 @@ var flightTick = require('./flight-tick.js')
 var featureFlags = require('../../utils/feature-flags.js')
 var pageBase = require('../../utils/page-base.js')
 var shareGate = require('./utils/share-gate.js')
+var { SHARE_THUMB_FALLBACK, bootPageShareThumb, pageShareImage } = require('../../utils/share-thumb.js')
 
 var GATE_PRODUCT_ID = 'mission_sim'
 var GATE_PRODUCT_NAME = '星舰任务指挥室'
@@ -35,7 +36,8 @@ Page({
     debriefHidden: false,
     rate: 1,
     missionName: '',
-    missionTlCount: 0
+    missionTlCount: 0,
+    shareImage: SHARE_THUMB_FALLBACK
   },
 
   _missionCtx: null,
@@ -48,6 +50,7 @@ Page({
   _viz: null,
 
   onLoad: async function (options) {
+    bootPageShareThumb(this)
     var that = this
     that._viz = flightViz.createFlightViz({
       scope: that,
@@ -293,14 +296,16 @@ Page({
     return {
       title: o ? ('星舰任务指挥室：' + o.title + '（SEED ' + this.data.seed + '，同种子同结果）') : '星舰任务指挥室：来做一次发射 GO/NO-GO 决策',
       // 有权益用户分享带新 sst 时间戳（接收者 24h 内免门控）；无权益接收者转发继承原时间戳
-      path: shareGate.withShareStampPath('/subpackages/mission-sim/mission-sim?seed=' + this.data.seed, this)
+      path: shareGate.withShareStampPath('/subpackages/mission-sim/mission-sim?seed=' + this.data.seed, this),
+      imageUrl: pageShareImage(this)
     }
   },
 
   onShareTimeline: function () {
     return {
       title: '星舰任务指挥室：发射流程互动模拟',
-      query: shareGate.withShareStampQuery('seed=' + this.data.seed, this)
+      query: shareGate.withShareStampQuery('seed=' + this.data.seed, this),
+      imageUrl: pageShareImage(this)
     }
   },
 

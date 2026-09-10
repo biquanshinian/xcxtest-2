@@ -157,8 +157,21 @@
                 </view>
                 <view
                   class="hero-agency-chip"
-                  wx:if="{{mission.launchAgency}}"
+                  wx:if="{{mission.launchAgency && mission.launchAgencyId}}"
                   catchtap="openAgencyDetail"
+                >
+                  <image
+                    class="hero-agency-logo {{mission.heroAgencyLogoBgTone === 'dark' ? 'agency-logo-bg--dark' : ''}} {{mission.heroAgencyLogoBgTone === 'light' ? 'agency-logo-bg--light' : ''}}"
+                    src="{{mission.heroAgencyLogo || '/images/icons/ic-rocket-outline.svg'}}"
+                    mode="aspectFit"
+                    bindload="onHeroAgencyLogoLoad"
+                    binderror="onHeroAgencyLogoError"
+                  />
+                  <text class="hero-agency-name">{{mission.launchAgency}}</text>
+                </view>
+                <view
+                  class="hero-agency-chip"
+                  wx:elif="{{mission.launchAgency}}"
                 >
                   <image
                     class="hero-agency-logo {{mission.heroAgencyLogoBgTone === 'dark' ? 'agency-logo-bg--dark' : ''}} {{mission.heroAgencyLogoBgTone === 'light' ? 'agency-logo-bg--light' : ''}}"
@@ -557,7 +570,7 @@
             <view class="detail-row" wx:if="{{mission.missionName && mission.missionName !== mission.name}}"><text class="detail-label">任务名称</text><text class="detail-value">{{mission.missionName}}</text></view>
             <view class="detail-row" wx:if="{{mission.rocketName}}">
               <text class="detail-label">火箭型号</text>
-              <view class="detail-value detail-value--row" wx:if="{{mission.rocketConfigId}}">
+              <view class="detail-value detail-value--row" wx:if="{{mission.rocketConfigId || mission.rocketConfiguration.id}}">
                 <view class="detail-link-chip" bindtap="openRocketModelDetail">
                   <text class="detail-link-chip-text">{{mission.rocketName}}</text>
                   <text class="detail-link-chip-arrow">›</text>
@@ -569,15 +582,25 @@
             <view class="detail-row" wx:if="{{mission.netPrecisionLabel}}"><text class="detail-label">时间精度</text><text class="detail-value">{{mission.netPrecisionLabel}}</text></view>
             <view class="detail-row" wx:if="{{mission.windowStartCST && mission.windowEndCST}}"><text class="detail-label">窗口期</text><text class="detail-value">{{mission.windowStartCST}} — {{mission.windowEndCST}}</text></view>
             <view class="detail-row" wx:if="{{mission.padLocation}}"><text class="detail-label">发射台</text><text class="detail-value">{{mission.padLocation}}</text></view>
-            <view class="detail-row" wx:if="{{mission.launchSite}}"><text class="detail-label">发射地点</text><text class="detail-value">{{mission.launchSite}}</text></view>
+            <view class="detail-row" wx:if="{{mission.launchSite}}">
+              <text class="detail-label">发射地点</text>
+              <view class="detail-value detail-value--row" wx:if="{{mission.padDetail.locationId || mission.padLocationId}}">
+                <view class="detail-link-chip" bindtap="openLaunchSiteDetail">
+                  <text class="detail-link-chip-text">{{mission.launchSite}}</text>
+                  <text class="detail-link-chip-arrow">›</text>
+                </view>
+              </view>
+              <text class="detail-value" wx:else>{{mission.launchSite}}</text>
+            </view>
             <view class="detail-row" wx:if="{{mission.launchAgency}}">
               <text class="detail-label">发射商</text>
-              <view class="detail-value detail-value--row">
+              <view class="detail-value detail-value--row" wx:if="{{mission.launchAgencyId}}">
                 <view class="detail-link-chip" bindtap="openAgencyDetail">
                   <text class="detail-link-chip-text">{{mission.launchAgency}}</text>
                   <text class="detail-link-chip-arrow">›</text>
                 </view>
               </view>
+              <text class="detail-value" wx:else>{{mission.launchAgency}}</text>
             </view>
             <view class="detail-row" wx:if="{{mission.probability != null && mission.probability !== ''}}"><text class="detail-label">发射概率</text><text class="detail-value">{{mission.probability}}%</text></view>
             <view class="detail-row" wx:if="{{mission.payloadAmount > 0}}"><text class="detail-label">载荷数量</text><text class="detail-value">{{mission.payloadAmount}}</text></view>
@@ -608,8 +631,17 @@
                       <text class="detail-link-chip-text">{{stage.serialNumber}}</text>
                       <text class="detail-link-chip-arrow">›</text>
                     </view>
-                    <view wx:else class="detail-link-chip detail-link-chip--booster" bindtap="openBoosterDetail" data-serial="{{stage.serialNumber}}">
+                    <view wx:else class="detail-link-chip detail-link-chip--booster" bindtap="openBoosterDetail" data-serial="{{stage.serialNumber}}" data-launcher-id="{{stage.launcherId}}">
                       <text class="detail-link-chip-text">{{stage.serialNumber}}</text>
+                      <text class="detail-link-chip-arrow">›</text>
+                    </view>
+                  </view>
+                </view>
+                <view class="detail-row" wx:if="{{stage.spacecraftConfigId}}">
+                  <text class="detail-label">飞船档案</text>
+                  <view class="detail-value detail-value--row">
+                    <view class="detail-link-chip" bindtap="openSpacecraftDetail" data-id="{{stage.spacecraftConfigId}}">
+                      <text class="detail-link-chip-text">{{stage.role || '飞船'}}</text>
                       <text class="detail-link-chip-arrow">›</text>
                     </view>
                   </view>
@@ -715,7 +747,7 @@
           <view class="detail-section-title-row rocket-spec-title-row">
             <text class="detail-section-title">规格</text>
             <!-- 本场任务型号档案（单场免门控；族谱大类仍门控） -->
-            <view class="detail-link-chip detail-link-chip--booster" wx:if="{{mission.rocketConfigId}}" bindtap="openRocketModelDetail">
+            <view class="detail-link-chip detail-link-chip--booster" wx:if="{{mission.rocketConfigId || mission.rocketConfiguration.id}}" bindtap="openRocketModelDetail">
               <text class="detail-link-chip-text">型号档案</text>
               <text class="detail-link-chip-arrow">›</text>
             </view>
@@ -815,7 +847,16 @@
           </view>
           <view class="detail-block-body" wx:if="{{detailBlocks.pad}}">
             <view class="detail-row" wx:if="{{mission.padDetail.padName}}"><text class="detail-label">发射台</text><text class="detail-value">{{mission.padDetail.padName}}</text></view>
-            <view class="detail-row" wx:if="{{mission.padDetail.locationName}}"><text class="detail-label">发射场</text><text class="detail-value">{{mission.padDetail.locationName}}</text></view>
+            <view class="detail-row" wx:if="{{mission.padDetail.locationName}}">
+              <text class="detail-label">发射场</text>
+              <view class="detail-value detail-value--row" wx:if="{{mission.padDetail.locationId}}">
+                <view class="detail-link-chip" bindtap="openLaunchSiteDetail">
+                  <text class="detail-link-chip-text">{{mission.padDetail.locationName}}</text>
+                  <text class="detail-link-chip-arrow">›</text>
+                </view>
+              </view>
+              <text class="detail-value" wx:else>{{mission.padDetail.locationName}}</text>
+            </view>
             <view class="detail-row" wx:if="{{mission.padDetail.country}}"><text class="detail-label">国家/地区</text><text class="detail-value">{{mission.padDetail.country}}</text></view>
             <view class="detail-row" wx:if="{{mission.padDetail.latitude != null && mission.padDetail.longitude != null}}"><text class="detail-label">经纬度</text><text class="detail-value">{{mission.padDetail.latitude}}, {{mission.padDetail.longitude}}</text></view>
             <view class="detail-row"><text class="detail-label">发射场类型</text><text class="detail-value">{{mission.padDetail.padType || '陆上'}}</text></view>
@@ -998,7 +1039,7 @@
         <official-account-publish-panel topic="{{mission.discussionTopic || mission.rocketName || '航天任务讨论'}}" />
       </view>
 
-      <view style="height: {{tabBarReservedHeight}}px;"></view>
+      <view style="height: {{tabBarReservedHeight + 72}}px;"></view>
     </view>
   </scroll-view>
 
@@ -1038,6 +1079,33 @@
           <text>复制公众号名称</text>
         </view>
       </view>
+    </view>
+  </view>
+
+  <view
+    class="mission-fab-dock"
+    wx:if="{{mission && !loading && !isMomentsPreview}}"
+    style="bottom: calc(env(safe-area-inset-bottom) + {{shareGateExpireAt ? 96 : 36}}rpx);"
+  >
+    <view
+      class="mission-pk-fab"
+      bindtap="onTapRocketCompare"
+      hover-class="mission-pk-fab--pressed"
+      hover-stay-time="80"
+      aria-role="button"
+      aria-label="火箭型号对比"
+    >
+      <image class="pk-mark mission-pk-fab-mark" src="/pages/mission-detail/images/ic-pk.svg" mode="aspectFit" />
+    </view>
+    <view
+      class="mission-score-fab"
+      bindtap="onTapRocketScore"
+      hover-class="mission-score-fab--pressed"
+      hover-stay-time="80"
+      aria-role="button"
+      aria-label="火箭档案指数"
+    >
+      <image class="mission-score-fab-mark" src="/pages/mission-detail/images/ic-score.svg" mode="aspectFit" />
     </view>
   </view>
 

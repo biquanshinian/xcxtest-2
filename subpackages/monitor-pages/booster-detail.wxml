@@ -1,3 +1,4 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
 <view class="container {{themeClass}}">
   <!-- 自定义导航栏 -->
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
@@ -82,7 +83,8 @@
         <!-- 有构型 id 时型号标签可点 → 族谱型号详情页；否则保持纯文本 -->
         <text class="info-tag info-tag--family info-tag--link" wx:if="{{item.configId != null}}" bindtap="onTapRocketFamily">{{item.rocketFamily}}<text class="info-tag-arrow">›</text></text>
         <text class="info-tag info-tag--family" wx:else>{{item.rocketFamily}}</text>
-        <text class="info-tag info-tag--mfr info-tag--link" wx:if="{{item.manufacturer}}" bindtap="onTapManufacturer">{{item.manufacturerDisplay || item.manufacturer}}<text class="info-tag-arrow">›</text></text>
+        <text class="info-tag info-tag--mfr info-tag--link" wx:if="{{item.manufacturerId}}" bindtap="onTapManufacturer">{{item.manufacturerDisplay || item.manufacturer}}<text class="info-tag-arrow">›</text></text>
+        <text class="info-tag info-tag--mfr" wx:elif="{{item.manufacturerDisplay || item.manufacturer}}">{{item.manufacturerDisplay || item.manufacturer}}</text>
         <text class="info-tag info-tag--block" wx:if="{{item.block}}">Block {{item.block}}</text>
       </view>
     </view>

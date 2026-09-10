@@ -2,6 +2,7 @@ const cloud = require('wx-server-sdk')
 const crypto = require('crypto')
 const outcomeVoteSettle = require('./outcome-vote-settle.js')
 const voteRecordHelpers = require('./vote-record-helpers.js')
+const { createAdminToken, parseAdminToken } = require('./auth-token.js')
 
 // COS SDK / bcryptjs 体积大，顶层同步 require 会拖慢冷启动数秒；
 // 竞猜等高频用户请求用不到它们，改为使用处懒加载 + 模块级缓存
@@ -42,7 +43,6 @@ const COLLECTIONS = {
   STARSHIP: 'starshipStatus',
   ROAD_CLOSURE: 'road_closure_notice',
   SPACEX_STATS: 'spacex_launch_stats',
-  CAROUSEL: 'carousel_config',
   MEDIA_ASSETS: 'media_assets',
   /** 火箭配置图等媒体删除墓碑：阻止 COS 同步把已删记录重新 add */
   MEDIA_ASSET_TOMBSTONES: 'media_asset_tombstones',
@@ -152,8 +152,6 @@ const TOKEN_SECRET = (function resolveTokenSecret() {
   }
   return v
 })()
-
-const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 const LOGIN_RATE_COLLECTION = 'security_rate_limits'
 const LOGIN_FAIL_WINDOW_MS = 15 * 60 * 1000
@@ -320,26 +318,11 @@ function pickClientIp(headers = {}) {
 }
 
 function createToken(payload) {
-  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
-  const content = { ...payload, iat: now(), exp: now() + TOKEN_TTL_MS }
-  const body = Buffer.from(JSON.stringify(content)).toString('base64url')
-  const signature = crypto.createHmac('sha256', TOKEN_SECRET).update(`${header}.${body}`).digest('base64url')
-  return `${header}.${body}.${signature}`
+  return createAdminToken(payload, TOKEN_SECRET, now())
 }
 
 function parseToken(token) {
-  try {
-    const parts = String(token).split('.')
-    if (parts.length !== 3) return null
-    const [header, body, signature] = parts
-    const expected = crypto.createHmac('sha256', TOKEN_SECRET).update(`${header}.${body}`).digest('base64url')
-    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null
-    const data = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'))
-    if (!data || !data.exp || data.exp < now()) return null
-    return data
-  } catch (e) {
-    return null
-  }
+  return parseAdminToken(token, TOKEN_SECRET)
 }
 
 function asDoc(res) {
@@ -530,7 +513,7 @@ async function verifyPassword(user, plain) {
   if (user.passwordHash && user.passwordHash === sha256(password)) {
     const newHash = getBcrypt().hashSync(password, 10)
     await db.collection(COLLECTIONS.USERS).doc(user._id).update({
-      data: { passwordHash: newHash, pwdUpdatedAt: now(), updatedAt: now() }
+      data: { passwordHash: newHash, updatedAt: now() }
     })
     return true
   }
@@ -588,6 +571,7 @@ async function login(body, ctx = {}) {
 
   const tokenVersion = Number(user.tokenVersion || 0)
   const pwdUpdatedAt = Number(user.pwdUpdatedAt || 0)
+  // 同一账号可多端同时在线；token 不过期。改密 / 停用 / 删除才会作废已发 token。
   const token = createToken({
     id: user._id,
     username: user.username,
@@ -1488,6 +1472,7 @@ async function updateOrbitalConfig(body, user) {
   return ok(data)
 }
 
+/** 运维/探针保留。小程序与后台以 global_config.main.enableBriefing 为准。 */
 async function getBriefingConfig() {
   try {
     const res = await db.collection(COLLECTIONS.GLOBAL_CONFIG).doc(BRIEFING_CONFIG_ID).get()
@@ -1501,6 +1486,7 @@ async function getBriefingConfig() {
   }
 }
 
+/** 运维保留：请优先走 GlobalConfig.enableBriefing。本路由会同步回写 main.enableBriefing。 */
 async function updateBriefingConfig(body, user) {
   const enabled = body && body.briefingEnabled !== undefined ? !!body.briefingEnabled : true
   const data = { briefingEnabled: enabled, updatedAt: now() }
@@ -1512,6 +1498,9 @@ async function updateBriefingConfig(body, user) {
     } else {
       await db.collection(COLLECTIONS.GLOBAL_CONFIG).add({ data: { _id: BRIEFING_CONFIG_ID, ...data } })
     }
+    await db.collection(COLLECTIONS.GLOBAL_CONFIG).doc('main').update({
+      data: { enableBriefing: enabled, updatedAt: now() }
+    }).catch(() => {})
   } catch (e) {
     return fail(5000, '保存失败: ' + e.message)
   }
@@ -3573,6 +3562,24 @@ async function deleteCarousel(id, user) {
   return ok(true)
 }
 
+async function getUserById(id, query = {}) {
+  if (!id) return fail(4001, 'id不能为空')
+  const res = await db.collection(COLLECTIONS.USERS).doc(id).get().catch(() => null)
+  const u = res && res.data
+  if (!u) return fail(4040, '用户不存在')
+  if (!query.includeDeleted && u.status === 'deleted') return fail(4040, '用户不存在')
+  return ok({
+    _id: u._id || id,
+    username: u.username,
+    role: u.role,
+    status: u.status,
+    permissions: u.permissions || [],
+    lastLoginAt: u.lastLoginAt || 0,
+    createdAt: u.createdAt || 0,
+    updatedAt: u.updatedAt || 0
+  })
+}
+
 async function listUsers(query = {}) {
   const page = Math.max(1, Number(query.page || 1))
   const pageSize = Math.min(50, Math.max(1, Number(query.pageSize || 20)))
@@ -4040,9 +4047,24 @@ async function updateMediaAsset(id, body, user) {
   const before = beforeRes?.data || null
   if (!before) return fail(4040, '数据不存在')
 
-  const patch = pick(body, ['enabled', 'key', 'url', 'sourceTag', 'credit'])
+  const patch = pick(body, ['enabled', 'key', 'url', 'sourceTag', 'credit', 'highestPoint', 'lengthM', 'widthM'])
   if (Object.prototype.hasOwnProperty.call(patch, 'credit')) {
     patch.credit = normalizeMediaCredit(patch.credit)
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'highestPoint')) {
+    const hp = Number(patch.highestPoint)
+    if (!Number.isFinite(hp) || hp <= 0) delete patch.highestPoint
+    else patch.highestPoint = Math.round(Math.min(5, Math.max(0.3, hp)) * 1000) / 1000
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'lengthM')) {
+    const ln = Number(patch.lengthM)
+    if (!Number.isFinite(ln) || ln <= 0) delete patch.lengthM
+    else patch.lengthM = Math.round(Math.min(15, Math.max(1, ln)) * 1000) / 1000
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'widthM')) {
+    const wd = Number(patch.widthM)
+    if (!Number.isFinite(wd) || wd <= 0) delete patch.widthM
+    else patch.widthM = Math.round(Math.min(6, Math.max(0.5, wd)) * 1000) / 1000
   }
   patch.updatedAt = now()
 
@@ -4346,6 +4368,27 @@ async function createMediaAsset(body, user) {
     createdBy: user.username
   }
   if (credit) payload.credit = credit
+  const hp = Number(body.highestPoint)
+  const isCyberPickup = /(?:cyber-pickup|cybertruck|cyber-truck)\.glb$/i.test(key)
+  if (Number.isFinite(hp) && hp > 0) {
+    payload.highestPoint = Math.round(Math.min(5, Math.max(0.3, hp)) * 1000) / 1000
+  } else if (isCyberPickup) {
+    payload.highestPoint = 1.794
+  } else if (/^models\/reference\//i.test(key)) {
+    payload.highestPoint = 1.88
+  }
+  const ln = Number(body.lengthM)
+  const wd = Number(body.widthM)
+  if (Number.isFinite(ln) && ln > 0) {
+    payload.lengthM = Math.round(Math.min(15, Math.max(1, ln)) * 1000) / 1000
+  } else if (isCyberPickup) {
+    payload.lengthM = 5.683
+  }
+  if (Number.isFinite(wd) && wd > 0) {
+    payload.widthM = Math.round(Math.min(6, Math.max(0.5, wd)) * 1000) / 1000
+  } else if (isCyberPickup) {
+    payload.widthM = 2.032
+  }
 
   // 重新上传/入库同一 key 时清除删除墓碑，允许出现在 COS 同步结果中
   if (key.startsWith('火箭配置图/')) {
@@ -4431,13 +4474,32 @@ async function listPushHistory(query = {}) {
 
 async function triggerPushNotification(body, user) {
   try {
-    const res = await cloud.callFunction({ name: 'sendLaunchReminder', data: { action: 'manual', ...body } })
+    const kind = String((body && body.kind) || 'pending').trim()
+    const actionMap = {
+      pending: 'sendPending',
+      manual: 'sendPending',
+      net: 'pushNetChangeNow',
+      road: 'pushRoadClosureNow',
+      result: 'sendResultOnly'
+    }
+    const action = actionMap[kind] || 'sendPending'
+    const payload = Object.assign({}, body || {})
+    delete payload.kind
+    delete payload.action
+    const res = await cloud.callFunction({
+      name: 'sendLaunchReminder',
+      data: Object.assign({ action }, payload)
+    })
     const ts = now()
     await db.collection(COLLECTIONS.PUSH_HISTORY).add({
       data: { type: 'manual', triggeredBy: user.username, payload: body, result: res.result || null, createdAt: ts }
     }).catch(() => {})
     await writeOpLog({ user, module: 'push_notify', action: 'trigger', after: body })
-    return ok(res.result || { message: '推送已触发' })
+    const remote = res.result || {}
+    if (remote.success === false) {
+      return fail(5001, remote.message || remote.error || '推送触发失败')
+    }
+    return ok(remote)
   } catch (e) {
     return fail(5001, '推送触发失败: ' + (e.message || String(e)))
   }
@@ -4978,19 +5040,17 @@ async function updateDemoAudioUrls(body, user) {
 }
 
 // ========== 云函数管理 ==========
+const {
+  listCloudFunctionCatalog,
+  isCloudFunctionTriggerAllowed
+} = require('./cloud-fn-catalog')
+
 async function listCloudFunctions() {
-  const functions = [
-    { name: 'adminGateway', desc: '后台管理网关', type: 'http' },
-    { name: 'syncSpaceDevsData', desc: '发射数据同步', type: 'timer' },
-    { name: 'syncSpaceXTweets', desc: 'SpaceX推文同步', type: 'timer' },
-    { name: 'sendLaunchReminder', desc: '发射提醒推送', type: 'timer' },
-  ]
-  return ok(functions)
+  return ok(listCloudFunctionCatalog())
 }
 
 async function triggerCloudFunction(name, user, body) {
-  const allowed = ['syncSpaceDevsData', 'syncSpaceXTweets', 'sendLaunchReminder']
-  if (!allowed.includes(name)) return fail(4001, '不允许手动触发该云函数')
+  if (!isCloudFunctionTriggerAllowed(name)) return fail(4001, '不允许手动触发该云函数')
 
   // 云函数互调 = 服务端身份，可绕开 syncSpaceDevsData 对 wx_client 控制台测试的拦截
   const action =
@@ -5005,6 +5065,7 @@ async function triggerCloudFunction(name, user, body) {
   const LONG_RUNNING_ACTIONS = new Set([
     'syncAgencies',
     'syncBoosters',
+    'syncConfigMeta',
     'syncStarshipHardware',
     'syncImageMirror',
     'syncFeaturedAgencyDetails',
@@ -5284,6 +5345,15 @@ async function updateGlobalConfig(body, user) {
     await ref.set({ data: { ...patch, createdAt: now() } })
   }
 
+  if (Object.prototype.hasOwnProperty.call(body, 'enableBriefing')) {
+    const enabled = body.enableBriefing !== false
+    patch.enableBriefing = enabled
+    try {
+      await db.collection(COLLECTIONS.GLOBAL_CONFIG).doc(BRIEFING_CONFIG_ID).set({
+        data: { briefingEnabled: enabled, updatedAt: now(), updatedBy: user.username }
+      })
+    } catch (eBrief) {}
+  }
   if (Object.prototype.hasOwnProperty.call(body, 'enableCarousel')) {
     await syncCarouselSwitchFromGlobalConfig(body.enableCarousel, user)
   }
@@ -8411,77 +8481,18 @@ async function getMyMilestoneClaims(openid) {
 
 // ========== 会员管理 ==========
 
-// 公共：把已支付订单应用到会员状态（与 cloudfunctions/membership/index.js 中的 applyPaidOrder 保持同源逻辑）
-function resolveMembershipGrantSource(order) {
-  if (!order) return ''
-  if (Number(order.amount) > 0) return 'paid'
-  const explicit = String(order.grantSource || '').trim()
-  if (explicit) return explicit
-  if (order.milestoneId || String(order.grantReason || '').indexOf('milestone') === 0) return 'milestone'
-  if (order.grantReason === 'invite_reward') return 'invite'
-  if (order.grantBy && order.grantBy !== 'system') return 'admin'
-  if (order.grantBy === 'system') return 'milestone'
-  return 'paid'
-}
-
+// 发货只走 membership.applyPaidOrder，避免后台本地副本漂移
 async function applyPaidOrderLocal(order) {
   if (!order || !order.openid) return
-  const openid = order.openid
-
-  // 确保会员文档存在
-  let memberDoc = null
-  try {
-    const r = await db.collection('user_membership').doc(openid).get()
-    memberDoc = r.data
-  } catch (e) {
-    try {
-      await db.collection('user_membership').add({
-        data: {
-          _id: openid,
-          type: 'free',
-          expireAt: null,
-          purchases: [],
-          aiChatUsed: {},
-          aiImageUsed: {},
-          trialUsed: false,
-          createdAt: db.serverDate(),
-          updatedAt: db.serverDate()
-        }
-      })
-      memberDoc = { _id: openid, type: 'free', expireAt: null, purchases: [] }
-    } catch (e2) {}
+  const res = await cloud.callFunction({
+    name: 'membership',
+    data: { action: 'applyPaidOrder', fromAdminGateway: true, order }
+  })
+  const remote = res && res.result
+  if (remote && remote.error) {
+    throw new Error(remote.error)
   }
-
-  if (order.orderType === 'subscription' && order.days) {
-    const nowDate = new Date()
-    const cur = memberDoc && memberDoc.expireAt ? new Date(memberDoc.expireAt) : nowDate
-    const baseDate = cur > nowDate ? cur : nowDate
-    const newExpire = new Date(baseDate.getTime() + Number(order.days) * 86400000)
-    try {
-      await db.collection('user_membership').doc(openid).update({
-        data: {
-          type: 'pro',
-          planId: order.planId || '',
-          grantSource: resolveMembershipGrantSource(order),
-          expireAt: newExpire,
-          updatedAt: db.serverDate()
-        }
-      })
-    } catch (e) {}
-    return { kind: 'subscription', expireAt: newExpire }
-  }
-
-  if (order.orderType === 'product' && order.productId) {
-    try {
-      await db.collection('user_membership').doc(openid).update({
-        data: {
-          purchases: _.addToSet(order.productId),
-          updatedAt: db.serverDate()
-        }
-      })
-    } catch (e) {}
-    return { kind: 'product', productId: order.productId }
-  }
+  return remote
 }
 
 // ── 一次性静默订正（幂等，可安全重复执行）──
@@ -9405,113 +9416,13 @@ async function listInviteRecords(query = {}) {
   }
 }
 
-async function listKnowledgeCards(query = {}) {
-  const page = Math.max(1, Number(query.page || 1))
-  const pageSize = Math.min(100, Math.max(1, Number(query.pageSize || 50)))
-  const keyword = (query.keyword || '').trim()
-
-  let dbQuery
-  if (keyword) {
-    dbQuery = db.collection(COLLECTIONS.KNOWLEDGE_CARDS).where(
-      _.or([
-        { fact: db.RegExp({ regexp: keyword, options: 'i' }) },
-        { category: db.RegExp({ regexp: keyword, options: 'i' }) }
-      ])
-    )
-  } else {
-    dbQuery = db.collection(COLLECTIONS.KNOWLEDGE_CARDS)
+const { createKnowledgeCardsApi } = require('./knowledgeCards')
+let _knowledgeCardsApi = null
+function knowledgeCardsApi() {
+  if (!_knowledgeCardsApi) {
+    _knowledgeCardsApi = createKnowledgeCardsApi({ db, _, ok, fail, now, writeOpLog, COLLECTIONS })
   }
-
-  const [countRes, listRes] = await Promise.all([
-    dbQuery.count(),
-    dbQuery.orderBy('cardId', 'asc').skip((page - 1) * pageSize).limit(pageSize).get()
-  ])
-  return ok({ list: listRes.data || [], total: countRes.total, page, pageSize })
-}
-
-async function createKnowledgeCard(body, user) {
-  const payload = {
-    cardId: Number(body.cardId || 0),
-    category: body.category || '',
-    fact: body.fact || '',
-    source: body.source || '',
-    enabled: body.enabled !== false,
-    createdAt: now(),
-    updatedAt: now(),
-    createdBy: user.username,
-    updatedBy: user.username
-  }
-  const res = await db.collection(COLLECTIONS.KNOWLEDGE_CARDS).add({ data: payload })
-  await writeOpLog({ user, module: 'knowledge_cards', action: 'create', targetId: res._id, after: payload })
-  return ok({ id: res._id })
-}
-
-async function updateKnowledgeCard(id, body, user) {
-  if (!id) return fail(4001, 'id不能为空')
-  const ref = db.collection(COLLECTIONS.KNOWLEDGE_CARDS).doc(id)
-  const beforeRes = await ref.get().catch(() => null)
-  if (!beforeRes?.data) return fail(4040, '数据不存在')
-
-  const patch = {}
-  const fields = ['cardId', 'category', 'fact', 'source', 'enabled']
-  fields.forEach(f => { if (body[f] !== undefined) patch[f] = body[f] })
-  if (patch.cardId !== undefined) patch.cardId = Number(patch.cardId)
-  patch.updatedAt = now()
-  patch.updatedBy = user.username
-
-  await ref.update({ data: patch })
-  await writeOpLog({ user, module: 'knowledge_cards', action: 'update', targetId: id, before: beforeRes.data, after: { ...beforeRes.data, ...patch } })
-  return ok(true)
-}
-
-async function deleteKnowledgeCard(id, user) {
-  if (!id) return fail(4001, 'id不能为空')
-  const ref = db.collection(COLLECTIONS.KNOWLEDGE_CARDS).doc(id)
-  const beforeRes = await ref.get().catch(() => null)
-  if (!beforeRes?.data) return fail(4040, '数据不存在')
-
-  await ref.remove()
-  await writeOpLog({ user, module: 'knowledge_cards', action: 'delete', targetId: id, before: beforeRes.data, after: null })
-  return ok(true)
-}
-
-async function getPublicKnowledgeCards() {
-  const allCards = []
-  let lastId = ''
-  while (true) {
-    let q = db.collection(COLLECTIONS.KNOWLEDGE_CARDS).where({ enabled: true }).orderBy('cardId', 'asc').limit(100)
-    if (lastId) q = q.where({ _id: _.gt(lastId) })
-    const res = await q.get()
-    if (!res.data || res.data.length === 0) break
-    allCards.push(...res.data)
-    lastId = res.data[res.data.length - 1]._id
-    if (res.data.length < 100) break
-  }
-  return ok(allCards)
-}
-
-async function batchImportKnowledgeCards(body, user) {
-  const cards = body.cards
-  if (!Array.isArray(cards) || cards.length === 0) return fail(4001, '无有效卡片数据')
-  let imported = 0
-  for (const card of cards) {
-    await db.collection(COLLECTIONS.KNOWLEDGE_CARDS).add({
-      data: {
-        cardId: Number(card.id || card.cardId || 0),
-        category: card.category || '',
-        fact: card.fact || '',
-        source: card.source || '',
-        enabled: true,
-        createdAt: now(),
-        updatedAt: now(),
-        createdBy: user.username,
-        updatedBy: user.username
-      }
-    })
-    imported++
-  }
-  await writeOpLog({ user, module: 'knowledge_cards', action: 'batch_import', targetId: 'batch', after: { count: imported } })
-  return ok({ imported })
+  return _knowledgeCardsApi
 }
 
 const { createOaContentStudioApi } = require('./oaContentStudio')
@@ -9717,7 +9628,7 @@ async function route(event, user) {
   // ===== 推荐视频号引导（GET 公开供小程序读取） =====
   if (path === '/channels-live-fallback-guide' && method === 'GET') return getChannelsLiveFallbackGuide()
 
-  // ===== 太空简报开关（GET 公开供小程序读取；PUT 在鉴权块之后） =====
+  // ===== 太空简报开关（运维探针；业务请读 main.enableBriefing） =====
   if (path === '/briefing-config' && method === 'GET') return getBriefingConfig()
 
   // ===== 发射提醒订阅（小程序端，无需管理员权限） =====
@@ -9737,7 +9648,7 @@ async function route(event, user) {
   if (path === '/milestone-claim/my' && method === 'GET') return getMyMilestoneClaims(event._openid)
 
   // ===== 知识卡公开接口（小程序端） =====
-  if (path === '/knowledge-cards/public' && method === 'GET') return getPublicKnowledgeCards()
+  if (path === '/knowledge-cards/public' && method === 'GET') return knowledgeCardsApi().getPublicKnowledgeCards()
 
   // ===== 火箭观礼服务（小程序端/大屏，无需管理员权限） =====
   if (path === '/watch-party/config' && method === 'GET') return watchPartyApi().getPublicConfig()
@@ -10031,7 +9942,7 @@ async function route(event, user) {
   // ===== 太空轨道数据中心（PUT 管理端编辑） =====
   if (path === '/orbital-config' && method === 'PUT') return updateOrbitalConfig(body, user)
 
-  // ===== 太空简报开关（PUT 管理端编辑） =====
+  // ===== 太空简报开关（运维保留；后台请走 GlobalConfig enableBriefing） =====
   if (path === '/briefing-config' && method === 'PUT') return updateBriefingConfig(body, user)
 
   if (path === '/news/events' && method === 'GET') return listNews(COLLECTIONS.EVENTS, query)
@@ -10072,7 +9983,9 @@ async function route(event, user) {
     return syncSpaceXStatsFromAPI(user)
   }
   if (path === '/agencies/sync' && method === 'POST') {
-    const deny = checkPerm(user, 'launch_data'); if (deny) return deny
+    if (!hasPermission(user, 'launch_data') && !hasPermission(user, 'global_config')) {
+      return fail(4030, '无权限访问该模块')
+    }
     return syncAgenciesFromAPI(user)
   }
   if (path.startsWith('/spacex-stats/') && path !== '/spacex-stats/sync' && method === 'DELETE') {
@@ -10124,6 +10037,10 @@ async function route(event, user) {
   if (path === '/users' && method === 'GET') {
     if (!mustRole(user, 'super_admin')) return fail(4030, '无权限')
     return listUsers(query)
+  }
+  if (path.startsWith('/users/') && method === 'GET') {
+    if (!mustRole(user, 'super_admin')) return fail(4030, '无权限')
+    return getUserById(path.split('/').pop(), query)
   }
   if (path === '/users' && method === 'POST') {
     if (!mustRole(user, 'super_admin')) return fail(4030, '无权限')
@@ -10450,6 +10367,7 @@ async function route(event, user) {
     }
   }
 
+  // 与「推文监控 → 触发同步」等价，后台不必重复按钮
   if (path === '/system/sync-spacex' && method === 'POST') {
     if (!mustRole(user, 'editor')) return fail(4030, '无权限')
     try {
@@ -10583,19 +10501,19 @@ async function route(event, user) {
   // ===== 知识卡管理（后台） =====
   if (path === '/knowledge-cards' && method === 'GET') {
     const deny = checkPerm(user, 'knowledge_cards'); if (deny) return deny
-    return listKnowledgeCards(query)
+    return knowledgeCardsApi().listKnowledgeCards(query)
   }
   if (path === '/knowledge-cards' && method === 'POST') {
     const deny = checkPerm(user, 'knowledge_cards'); if (deny) return deny
-    return createKnowledgeCard(body, user)
+    return knowledgeCardsApi().createKnowledgeCard(body, user)
   }
   if (path.startsWith('/knowledge-cards/') && path !== '/knowledge-cards/public' && path !== '/knowledge-cards/batch-import' && method === 'PUT') {
     const deny = checkPerm(user, 'knowledge_cards'); if (deny) return deny
-    return updateKnowledgeCard(path.split('/').pop(), body, user)
+    return knowledgeCardsApi().updateKnowledgeCard(path.split('/').pop(), body, user)
   }
   if (path.startsWith('/knowledge-cards/') && path !== '/knowledge-cards/public' && path !== '/knowledge-cards/batch-import' && method === 'DELETE') {
     const deny = checkPerm(user, 'knowledge_cards'); if (deny) return deny
-    return deleteKnowledgeCard(path.split('/').pop(), user)
+    return knowledgeCardsApi().deleteKnowledgeCard(path.split('/').pop(), user)
   }
 
   // ===== 会员管理 =====
@@ -10651,7 +10569,7 @@ async function route(event, user) {
   }
   if (path === '/knowledge-cards/batch-import' && method === 'POST') {
     const deny = checkPerm(user, 'knowledge_cards'); if (deny) return deny
-    return batchImportKnowledgeCards(body, user)
+    return knowledgeCardsApi().batchImportKnowledgeCards(body, user)
   }
 
   // ===== 火箭观礼服务管理（后台） =====

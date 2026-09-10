@@ -8,6 +8,12 @@ const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
 const { isFavorite, toggleFavorite, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
+const {
+  SHARE_THUMB_FALLBACK,
+  pickShareImageUrl,
+  pickShareDownloadSrc,
+  ensureShareImageOnPage
+} = require('../../utils/share-thumb.js')
 
 const CACHE_TTL = 24 * 60 * 60 * 1000
 
@@ -147,7 +153,7 @@ Page({
     navTitle: '飞船详情',
     shareTitle: '飞船档案 | 火星探索日志',
     /** 分享缩略图：对应飞船图（本地预下载），避免朋友圈落到默认图/截图 */
-    shareImage: '',
+    shareImage: SHARE_THUMB_FALLBACK,
     isFavorited: false,
     favAnimate: false,
     statusBarHeight: 44,
@@ -312,15 +318,14 @@ Page({
   /** 点击发射商胶囊按钮 → 会员门控 → 发射商详情页（优先 id，回退缩写/名称） */
   async onTapAgency() {
     const item = this.data.item || {}
-    if (!item.agencyId && !item.agencyAbbrev && !item.agencyNameEn) return
+    if (!item.agencyId) {
+      wx.showToast({ title: '暂无该发射商档案', icon: 'none' })
+      return
+    }
     try { wx.vibrateShort({ type: 'medium' }) } catch (e) {}
     const allowed = await gateCheck('agency_encyclopedia', '全球发射商图鉴')
     if (!allowed) return
-    let params
-    if (item.agencyId) params = { id: item.agencyId }
-    else if (item.agencyAbbrev) params = { abbrev: item.agencyAbbrev }
-    else params = { name: item.agencyNameEn }
-    navigateTo(ROUTES.AGENCY_DETAIL, params)
+    navigateTo(ROUTES.AGENCY_DETAIL, { id: item.agencyId })
   },
 
   onHeroImageTap() {
@@ -355,74 +360,32 @@ Page({
     })
   },
 
-  _isLocalSharePath(path) {
-    const s = String(path || '')
-    if (!s) return false
-    if (s.indexOf('wxfile://') === 0) return true
-    if (/^http:\/\/(tmp|usr)\b/i.test(s)) return true
-    if (typeof wx !== 'undefined' && wx.env && wx.env.USER_DATA_PATH && s.indexOf(wx.env.USER_DATA_PATH) === 0) {
-      return true
-    }
-    return !/^https?:\/\//i.test(s)
-  },
-
   /**
-   * 分享缩略图：用当前飞船对应配图（优先较小缩略图，降低朋友圈 128KB 失败）。
-   * 本地缓存命中优先；外链走 Worker 代理。
+   * 分享缩略图：用当前飞船配图。webp / 外链直连朋友圈会裂成默认图标。
    */
   _pickSpacecraftShareImage(item) {
-    if (!item || typeof item !== 'object') return ''
-    const full = String(item.fullImageUrl || '').trim()
-    const current = String(item.imageUrl || '').trim()
-    const fallbacks = Array.isArray(item.imageFallbacks) ? item.imageFallbacks : []
-    // 优先非原图大图的候选（缩略图/代理缩略图），再回退当前展示图
-    const preferThumb = fallbacks
-      .map((u) => String(u || '').trim())
-      .filter((u) => u && u !== full)
-    const candidates = preferThumb.concat([current, full]).filter(Boolean)
-    for (let i = 0; i < candidates.length; i++) {
-      const pick = candidates[i]
-      if (this._isLocalSharePath(pick)) return pick
-      const proxied = proxiedImageUrl(pick)
-      return proxied || pick
-    }
-    return ''
+    const it = item && typeof item === 'object' ? item : {}
+    const fallbacks = Array.isArray(it.imageFallbacks) ? it.imageFallbacks.slice() : []
+    if (it.fullImageUrl) fallbacks.push(it.fullImageUrl)
+    return pickShareImageUrl({
+      displayImage: it.imageUrl || '',
+      rawImage: it.fullImageUrl || fallbacks[0] || it.imageUrl || '',
+      fallbacks
+    })
   },
 
   _syncShareImage(item) {
-    const url = this._pickSpacecraftShareImage(item)
-    if (!url) {
-      if (this.data.shareImage) this.setData({ shareImage: '' })
-      this._shareImageSourceUrl = ''
-      return
+    const it = item && typeof item === 'object' ? item : {}
+    const fallbacks = Array.isArray(it.imageFallbacks) ? it.imageFallbacks.slice() : []
+    if (it.fullImageUrl) fallbacks.push(it.fullImageUrl)
+    const opts = {
+      displayImage: it.imageUrl || '',
+      rawImage: it.fullImageUrl || fallbacks[0] || it.imageUrl || '',
+      fallbacks
     }
+    const url = pickShareImageUrl(opts)
     if (this.data.shareImage !== url) this.setData({ shareImage: url })
-    this.ensureShareImageHttpUrl(url)
-  },
-
-  /** 网络图落到本地临时路径，规避 iOS 朋友圈远程缩略图加载失败 */
-  ensureShareImageHttpUrl(imageUrl) {
-    if (!imageUrl || typeof imageUrl !== 'string') return
-    const trimmed = imageUrl.trim()
-    if (!trimmed) return
-    if (this._isLocalSharePath(trimmed)) {
-      if (this.data.shareImage !== trimmed) this.setData({ shareImage: trimmed })
-      return
-    }
-    if (this._shareImageSourceUrl === trimmed && this.data.shareImage) return
-    this._shareImageSourceUrl = trimmed
-    const self = this
-    wx.getImageInfo({
-      src: trimmed,
-      success(res) {
-        if (res && res.path && self._shareImageSourceUrl === trimmed) {
-          self.setData({ shareImage: res.path })
-        }
-      },
-      fail() {
-        if (self._shareImageSourceUrl === trimmed) self._shareImageSourceUrl = ''
-      }
-    })
+    ensureShareImageOnPage(this, pickShareDownloadSrc(opts))
   },
 
   onShareAppMessage() {
@@ -440,7 +403,7 @@ Page({
       title: this.data.shareTitle,
       path
     }
-    if (imageUrl) result.imageUrl = imageUrl
+    result.imageUrl = imageUrl || this._pickSpacecraftShareImage(item)
     return result
   },
 
@@ -459,7 +422,7 @@ Page({
       title: this.data.shareTitle,
       query
     }
-    if (imageUrl) result.imageUrl = imageUrl
+    result.imageUrl = imageUrl || this._pickSpacecraftShareImage(item)
     return result
   }
 })

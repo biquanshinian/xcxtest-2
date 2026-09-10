@@ -2002,12 +2002,13 @@ function pickStation(list, text) {
   const rows = Array.isArray(list) ? list.filter((s) => s && s.id != null) : []
   if (!rows.length) return null
   const q = String(text || '')
+  const byId = (id) => rows.find((s) => String(s.id) === String(id))
   const byName = (re) => rows.find((s) => re.test(String(s.name || s.stationName || '')))
   if (/天宫|tiangong|中国空间站|\bCSS\b/i.test(q)) {
-    return byName(/天宫|tiangong/i) || rows.find((s) => String(s.id) === '18') || null
+    return byId(18) || byName(/天宫|tiangong/i) || null
   }
   if (/\bISS\b|国际空间站/i.test(q)) {
-    return byName(/ISS|国际/i) || rows.find((s) => String(s.id) === '4') || null
+    return byId(4) || byName(/ISS|国际/i) || null
   }
   return rows[0]
 }

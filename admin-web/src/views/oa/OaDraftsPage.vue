@@ -36,14 +36,15 @@
     <!-- 桌面：表格 -->
     <el-table
       v-if="!isMobile"
+      ref="tableRef"
       :data="list"
       stripe
       v-loading="loading"
       class="draft-table"
-      row-key="_id"
+      :row-key="draftRowKey"
       @selection-change="onSelectionChange"
     >
-      <el-table-column type="selection" width="46" />
+      <el-table-column type="selection" width="46" reserve-selection />
       <el-table-column label="发稿号" width="120" class-name="col-desktop">
         <template #default="{ row }">
           <el-tag size="small" effect="plain">{{ row.brandName || row.brandKey || '—' }}</el-tag>
@@ -161,8 +162,8 @@
       <div v-for="row in list" :key="row._id" class="draft-card">
         <div class="draft-card-top">
           <el-checkbox
-            :model-value="selectedIds.includes(row._id)"
-            @change="(v) => toggleSelect(row._id, v)"
+            :model-value="selectedIds.includes(draftRowKey(row))"
+            @change="(v) => toggleSelect(draftRowKey(row), v)"
           />
           <div class="draft-card-cover">
             <el-image
@@ -770,7 +771,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../../api/client'
@@ -796,6 +797,7 @@ const editingId = ref('')
 const busyId = ref('')
 const selectedIds = ref([])
 const batchDeleting = ref(false)
+const tableRef = ref(null)
 const isMobile = ref(
   typeof window !== 'undefined' && window.matchMedia
     ? window.matchMedia('(max-width: 768px)').matches
@@ -805,6 +807,14 @@ let mobileMq = null
 const onMobileMq = () => {
   isMobile.value = !!(mobileMq && mobileMq.matches)
 }
+const draftRowKey = (row) => String((row && (row._id || row.id)) || '')
+let selectionLock = 0
+const lockSelection = () => {
+  selectionLock += 1
+}
+const unlockSelection = () => {
+  selectionLock = Math.max(0, selectionLock - 1)
+}
 const toggleSelect = (id, checked) => {
   const sid = String(id || '')
   if (!sid) return
@@ -812,6 +822,30 @@ const toggleSelect = (id, checked) => {
   if (checked) set.add(sid)
   else set.delete(sid)
   selectedIds.value = [...set]
+}
+const applyTableSelection = async (ids) => {
+  const keep = new Set((ids || []).map((id) => String(id || '')).filter(Boolean))
+  const visible = (list.value || []).map(draftRowKey).filter(Boolean)
+  selectedIds.value = visible.filter((id) => keep.has(id))
+  const table = tableRef.value
+  if (!table || isMobile.value) return
+  for (const row of list.value || []) {
+    table.toggleRowSelection(row, keep.has(draftRowKey(row)))
+  }
+}
+const mergeDraftRows = (prev, next) => {
+  const prevMap = new Map((prev || []).map((row) => [draftRowKey(row), row]))
+  return (next || []).map((row) => {
+    const id = draftRowKey(row)
+    const cur = { ...row, _id: id }
+    const old = id ? prevMap.get(id) : null
+    if (!old) return cur
+    for (const key of Object.keys(old)) {
+      if (!Object.prototype.hasOwnProperty.call(cur, key)) delete old[key]
+    }
+    Object.assign(old, cur)
+    return old
+  })
 }
 const editTab = ref('wechat')
 const xhsDeriving = ref(false)
@@ -1414,7 +1448,12 @@ const ensurePushPoll = () => {
   }, 3000)
 }
 
+let loadGen = 0
+let loadInFlight = false
 const load = async (opts = {}) => {
+  if (opts.silent && loadInFlight) return
+  const gen = ++loadGen
+  loadInFlight = true
   if (!opts.silent) loading.value = true
   try {
     const res = await api.listOaDrafts({
@@ -1423,9 +1462,33 @@ const load = async (opts = {}) => {
       status: status.value || undefined,
       brandKey: brandKey.value || undefined
     })
-    list.value = res?.list || []
-    total.value = res?.total || 0
-    if (!opts.silent) selectedIds.value = []
+    if (gen !== loadGen) return
+    // 请求返回后再取选中，避免轮询途中用户全选被旧 keepIds 冲掉
+    const keepIds = opts.silent ? selectedIds.value.slice() : []
+    lockSelection()
+    try {
+      list.value = opts.silent
+        ? mergeDraftRows(list.value, res?.list || [])
+        : (res?.list || []).map((row) => ({
+            ...row,
+            _id: draftRowKey(row)
+          }))
+      total.value = res?.total || 0
+      selectedIds.value = keepIds
+      await nextTick()
+      if (gen !== loadGen) return
+      if (opts.silent) {
+        await applyTableSelection(keepIds)
+      } else if (tableRef.value && !isMobile.value) {
+        tableRef.value.clearSelection()
+        selectedIds.value = []
+      } else {
+        selectedIds.value = []
+      }
+      await nextTick()
+    } finally {
+      unlockSelection()
+    }
     ensurePushPoll()
     const urls = []
     for (const row of list.value) urls.push(...imagesOf(row))
@@ -1433,6 +1496,7 @@ const load = async (opts = {}) => {
   } catch (e) {
     if (!opts.silent) ElMessage.error(e.message || '加载失败')
   } finally {
+    if (gen === loadGen) loadInFlight = false
     if (!opts.silent) loading.value = false
   }
 }
@@ -1631,7 +1695,8 @@ watch(
 )
 
 const onSelectionChange = (rows) => {
-  selectedIds.value = (rows || []).map((r) => r._id).filter(Boolean)
+  if (selectionLock) return
+  selectedIds.value = (rows || []).map(draftRowKey).filter(Boolean)
 }
 
 const onFilter = () => {

@@ -18,12 +18,34 @@ global.wx = global.wx || {
   }
 }
 
-const { isDefaultRocketSrc } = require('../utils/util.js')
+const { isDefaultRocketSrc, collectRocketImageMatchNames } = require('../utils/util.js')
 const {
   resolveIndexCardRocketImage,
   hydrateNetChangePayloadFromCard,
   findHomepageCardForNetChange
 } = require('../subpackages/shared/utils/index-card-rocket-image.js')
+
+test('配图候选始终包含火箭名，构型名只作补充，不因 id 丢掉名称', () => {
+  const names = collectRocketImageMatchNames('Falcon 9', {
+    id: 90,
+    name: 'Falcon 9',
+    full_name: 'Falcon 9 v1.0'
+  })
+  assert.ok(names.some((n) => /^falcon 9$/i.test(n)))
+  assert.ok(names.some((n) => /v1\.0/i.test(n)))
+  const noId = collectRocketImageMatchNames('Falcon Heavy', { name: 'Falcon 9' })
+  assert.ok(noId.some((n) => /heavy/i.test(n)))
+})
+
+test('阿丽亚娜中文展示名要展开成 Ariane，避免前端配图 miss', () => {
+  const a6 = collectRocketImageMatchNames('阿丽亚娜6')
+  assert.ok(a6.some((n) => /^ariane 6$/i.test(n)))
+  assert.ok(a6.some((n) => /^ariane 64$/i.test(n)))
+  const a62 = collectRocketImageMatchNames('阿丽亚娜62')
+  assert.ok(a62.some((n) => /^ariane 62$/i.test(n)))
+  const a64 = collectRocketImageMatchNames('阿里安 6')
+  assert.ok(a64.some((n) => /^ariane 6$/i.test(n)))
+})
 
 test('hydrateNetChangePayloadFromCard：用首页任务卡字段覆盖 default 盖章', () => {
   const out = hydrateNetChangePayloadFromCard(
@@ -45,6 +67,14 @@ test('hydrateNetChangePayloadFromCard：无任务卡时保持原 payload', () =>
   const out = hydrateNetChangePayloadFromCard(src, null)
   assert.equal(out.rocketImage, src.rocketImage)
   assert.equal(out.missionId, 'x')
+})
+
+test('resolveIndexCardRocketImage：只有构型 id 时仍按火箭名配图', () => {
+  const src = resolveIndexCardRocketImage({
+    rocketName: 'Falcon 9',
+    rocketConfigId: 164
+  })
+  assert.equal(typeof src, 'string')
 })
 
 test('resolveIndexCardRocketImage：已有非 default 配置图时不降级成占位图', () => {

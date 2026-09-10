@@ -107,8 +107,8 @@ const leftover = {
 const leftoverLines = buildPolylinesFromNotices([leftover], { NOTAM: true })
 check(
   '有面时不叠中心线',
-  leftoverLines.length === 1 && leftoverLines[0].points.length >= 4,
-  'n=' + leftoverLines.length + ' pts=' + (leftoverLines[0] && leftoverLines[0].points.length)
+  leftoverLines.length === 0,
+  'n=' + leftoverLines.length
 )
 
 const latFirst = buildPolygonsFromNotices(
@@ -143,16 +143,17 @@ check('抽稀仍覆盖矩形四角', slim.length >= 5, 'slim=' + slim.length)
 
 const ePolys = buildPolygonsFromNotices([{ noticeKey: 'e', type: 'NOTAM', areas: e2700 }], { NOTAM: true })
 const eLines = buildPolylinesFromNotices([{ noticeKey: 'e', type: 'NOTAM', areas: e2700 }], { NOTAM: true })
-check('E2700 可填可描', ePolys.length === 1 && eLines.length === 1)
+check('E2700 可填', ePolys.length === 1)
+check('E2700 有面不再叠折线', eLines.length === 0, 'line=' + eLines.length)
 check(
-  '描边顶点数对齐原文',
-  eLines[0] && eLines[0].points.length >= 18,
-  'pts=' + (eLines[0] && eLines[0].points.length)
+  '填色顶点数对齐原文',
+  ePolys[0] && ePolys[0].points.length >= 18,
+  'pts=' + (ePolys[0] && ePolys[0].points.length)
 )
 check(
-  '描边首点经度=75',
-  !!(eLines[0] && Math.abs(eLines[0].points[0].longitude - 75) < 0.05),
-  JSON.stringify(eLines[0] && eLines[0].points[0])
+  '填色首点经度=75',
+  !!(ePolys[0] && Math.abs(ePolys[0].points[0].longitude - 75) < 0.05),
+  JSON.stringify(ePolys[0] && ePolys[0].points[0])
 )
 
 const fake = buildPolygonsFromNotices(

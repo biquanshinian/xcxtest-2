@@ -24,8 +24,10 @@ test('NASA 数据中心 Tab 顺序：火星 → 月球 → 宇宙 → 地球 →
   assert.match(js, /key: 'mars'[\s\S]*key: 'moon'[\s\S]*key: 'universe'[\s\S]*key: 'eonet'[\s\S]*key: 'cad'/)
   assert.match(js, /label: '月球探索'/)
   assert.match(js, /label: '宇宙探索'/)
-  assert.match(wxml, /hidden="\{\{activeTab !== 1\}\}"[\s\S]{0,280}monitor-artemis-card/)
-  assert.match(wxml, /hidden="\{\{activeTab !== 2\}\}"[\s\S]{0,280}monitor-roman-card/)
+  assert.match(wxml, /wx:if="\{\{visitedMoon\}\}"[\s\S]{0,80}hidden="\{\{activeTab !== 1\}\}"[\s\S]{0,280}monitor-artemis-card/)
+  assert.match(wxml, /wx:if="\{\{visitedUniverse\}\}"[\s\S]{0,80}hidden="\{\{activeTab !== 2\}\}"[\s\S]{0,280}monitor-roman-card/)
+  assert.match(js, /visitedMoon:\s*false/)
+  assert.match(js, /visitedUniverse:\s*false/)
   assert.match(wxml, /activeTab === 3/)
   assert.match(wxml, /activeTab === 4/)
   const moonBlock = wxml.split('nasaArtemisCard')[0]
@@ -64,6 +66,15 @@ test('阿尔忒弥斯/罗曼卡片：进详情均走会员门控，广告解锁�
   assert.doesNotMatch(roman, /allowAd:\s*false/)
   assert.match(roman, /scene === 'nasa'/)
   assert.match(read('pages/nasa-data/nasa-data.wxml'), /scene="nasa"/)
+})
+
+test('近地天体 CAD 优先走 Worker /nasa-cad，失败再直连 JPL', () => {
+  const api = read('pages/nasa-data/nasa-api.js')
+  assert.match(api, /\/nasa-cad/)
+  assert.match(api, /ssd-api\.jpl\.nasa\.gov\/cad\.api/)
+  const worker = read('cloudflare-worker/spacex-proxy.js')
+  assert.match(worker, /pathname === '\/nasa-cad'/)
+  assert.match(worker, /ssd-api\.jpl\.nasa\.gov\/cad\.api/)
 })
 
 test('进入 NASA 数据中心会预下载 monitor-pages 分包', () => {

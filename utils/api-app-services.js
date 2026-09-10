@@ -264,31 +264,36 @@ async function getLaunchStatsFromDB(options = {}) {
     _writeCached(cacheKey, stats)
     return stats
   } catch (cloudErr) {
-    if (!wx.cloud || !wx.cloud.database) {
+    // getSummary 只读缓存未预热时会 notReady；6h sync 仍写 launch_stats.stats_${year}。
+    // 只在云函数失败时回捞，避免首页卡空白。
+    if (!wx.cloud || !wx.cloud.database) throw cloudErr
+    try {
+      const db = wx.cloud.database()
+      const res = await db.collection('launch_stats').doc(`stats_${year}`).get()
+      const stats = (res && res.data && (res.data.data || res.data)) || null
+      if (!stats || stats.globalThisYear == null) throw cloudErr
+      if (stats.year != null && Number(stats.year) !== year) throw cloudErr
+      const n = Number(stats.globalThisYear)
+      if (!Number.isFinite(n) || (n === 0 && year >= new Date().getUTCFullYear() - 1)) throw cloudErr
+      const fallback = {
+        year,
+        globalThisYear: n,
+        spacexThisYear: stats.spacexThisYear != null ? stats.spacexThisYear : null,
+        source: stats.source || 'launch_stats',
+        updatedAt: stats.updatedAt || new Date().toISOString()
+      }
+      _writeCached(cacheKey, fallback)
+      return fallback
+    } catch (dbErr) {
+      if (dbErr === cloudErr) throw cloudErr
       throw cloudErr
     }
-
-    const db = wx.cloud.database()
-    const docId = `stats_${year}`
-    const res = await db.collection('launch_stats').doc(docId).get()
-
-    if (!res.data) {
-      throw cloudErr
-    }
-
-    const stats = res.data.data || res.data
-    if (stats && stats.year != null && Number(stats.year) !== year) {
-      throw new Error('统计数据年份不匹配')
-    }
-    _writeCached(cacheKey, stats)
-    return stats
   }
 }
 
 /**
  * 首页卡片此刻展示的年度总数（内存/本地缓存，零请求，忽略 TTL）。
- * 卡片可能来自 getSummary，也可能来自 launch_stats 集合兜底；
- * 统计详情页拿这个「实际展示值」对齐，才不会出现两页数字打架。
+ * 卡片优先 getSummary；云函数 notReady 时才回捞 launch_stats（6h sync 产物）。
  */
 function readCardGlobalTotalSync(year) {
   const y = Number(year) || getLaunchStatsYear()
@@ -580,12 +585,23 @@ async function getBoosterGenealogy(options) {
   }
 }
 
-const ROCKET_CONFIG_META_CACHE_KEY = '_rocket_config_meta_v2'
+const ROCKET_CONFIG_META_CACHE_KEY = '_rocket_config_meta_v4'
 const ROCKET_CONFIG_META_CACHE_TTL = 30 * 60 * 1000
 
-async function getRocketConfigMeta() {
+async function getRocketConfigMeta(options) {
+  options = options || {}
   const cachedData = await _readCachedAsync(ROCKET_CONFIG_META_CACHE_KEY, ROCKET_CONFIG_META_CACHE_TTL)
   if (cachedData) return cachedData
+
+  // 未进门控功能：免费用户禁止为胖档案探云（监控 Tab 预览不得走这里）
+  if (!options.afterGate) {
+    try {
+      const { canUsePaidCloudSync } = require('./membership.js')
+      if (typeof canUsePaidCloudSync === 'function' && !canUsePaidCloudSync()) {
+        return { configs: {}, updatedAt: 0 }
+      }
+    } catch (e) {}
+  }
 
   try {
     const db = wx.cloud.database()

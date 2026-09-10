@@ -5,9 +5,22 @@ const { isContentLangEn } = require('../../../../utils/locale.js')
 
 function toLonLatPair(p) {
   if (!p) return null
-  const lon = Number(Array.isArray(p) ? p[0] : p.longitude)
-  const lat = Number(Array.isArray(p) ? p[1] : p.latitude)
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null
+  if (!Array.isArray(p)) {
+    const lon = Number(p.longitude != null ? p.longitude : p.lon)
+    const lat = Number(p.latitude != null ? p.latitude : p.lat)
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90) return null
+    return { longitude: lon, latitude: lat }
+  }
+  const a = Number(p[0])
+  const b = Number(p[1])
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null
+  let lon = a
+  let lat = b
+  if (Math.abs(b) > 90 && Math.abs(a) <= 90) {
+    lon = b
+    lat = a
+  }
+  if (Math.abs(lat) > 90) return null
   return { longitude: lon, latitude: lat }
 }
 
@@ -101,7 +114,11 @@ function parseIcaoWindow(raw) {
 
 function datesFromNotice(notice) {
   const n = notice || {}
-  const listed = (Array.isArray(n.dates) ? n.dates : []).filter((d) => d && (d.start || d.end))
+  const listed = (Array.isArray(n.dates) ? n.dates : []).filter((d) => {
+    if (!d || !(d.start || d.end)) return false
+    const blob = String(d.start || '') + String(d.end || '')
+    return !/2099-01-01/.test(blob)
+  })
   const hasStart = listed.some((d) => d && d.start)
   if (listed.length && hasStart) return listed
   const w = parseIcaoWindow(n.rawText || '')

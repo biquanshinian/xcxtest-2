@@ -1,6 +1,7 @@
 const pageBase = require('../../utils/page-base.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck, isProSync } = require('../../utils/membership.js')
+const { SHARE_THUMB_FALLBACK, bootPageShareThumb, pageShareImage } = require('../../utils/share-thumb.js')
 
 const PASS_DETAIL_STORAGE_KEY = '_starlink_pass_detail_payload'
 const BRIGHTNESS_LABEL = {
@@ -46,11 +47,13 @@ Page({
     menuButtonWidth: 88,
     momentsHint: false,
     shareLandingEmpty: false,
-    sharePreviewCount: 0
+    sharePreviewCount: 0,
+    shareImage: SHARE_THUMB_FALLBACK
   },
 
   onLoad(options) {
     this.initUiShell()
+    bootPageShareThumb(this)
     this._syncProState()
 
     if (isMomentsSinglePage()) {
@@ -182,7 +185,8 @@ Page({
     return {
       title: this._shareTitle(),
       // 直达本页；接收方无本地过境数据时展示空态，引导去监控中心按位置加载
-      path
+      path,
+      imageUrl: pageShareImage(this)
     }
   },
 
@@ -191,7 +195,8 @@ Page({
     return {
       title: this._shareTitle(),
       // 朋友圈只能落本页；带 count 供单页预览展示
-      query: count ? ('count=' + count) : ''
+      query: count ? ('count=' + count) : '',
+      imageUrl: pageShareImage(this)
     }
   }
 })

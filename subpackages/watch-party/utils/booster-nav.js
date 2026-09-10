@@ -19,10 +19,26 @@ function serialMatch(item, serial) {
   return a === serial || a.toUpperCase() === serial.toUpperCase()
 }
 
+function pickLauncherId(value) {
+  if (value == null) return ''
+  const id = String(value).trim()
+  return id && id !== 'undefined' && id !== 'null' ? id : ''
+}
+
+function launcherIdMatch(item, launcherId) {
+  const id = pickLauncherId(launcherId)
+  if (!item || !id) return false
+  return pickLauncherId(item.ll2Id || item.launcherId) === id
+}
+
 async function openBoosterEntityDetail(serial, options) {
   options = options || {}
   serial = normalizeSerial(serial)
-  if (!serial || serial === '未披露') {
+  const launcherId = pickLauncherId(
+    options.ll2Id || options.launcherId ||
+    (options.raw && (options.raw.ll2Id || options.raw.launcherId))
+  )
+  if ((!serial || serial === '未披露') && !launcherId) {
     wx.showToast({ title: '暂无该助推器档案', icon: 'none' })
     return false
   }
@@ -40,22 +56,28 @@ async function openBoosterEntityDetail(serial, options) {
     try {
       const { getBoosterGenealogy } = require('../../../utils/api-app-services.js')
       const list = await getBoosterGenealogy()
-      raw = (list || []).find(function (b) { return serialMatch(b, serial) }) || null
+      raw = (list || []).find(function (b) { return launcherIdMatch(b, launcherId) }) ||
+        (list || []).find(function (b) { return serialMatch(b, serial) }) || null
     } catch (e) {
       raw = null
     }
   }
+  if (raw && !serial) serial = normalizeSerial(raw.serialNumber || raw.serial)
+  const resolvedId = launcherId || pickLauncherId(raw && (raw.ll2Id || raw.launcherId))
 
   try {
     const app = typeof getApp === 'function' ? getApp() : null
     if (app && raw) app._boosterDetailData = raw
-    if (app && options.heroImage) {
+    if (app && options.heroImage && serial) {
       app._boosterHeroImage = { serial: serial, src: String(options.heroImage) }
     }
   } catch (e) {}
 
   const { ROUTES, navigateTo } = require('../../../utils/routes.js')
-  navigateTo(ROUTES.BOOSTER_DETAIL, { serial: serial })
+  const params = {}
+  if (serial) params.serial = serial
+  if (resolvedId) params.ll2Id = resolvedId
+  navigateTo(ROUTES.BOOSTER_DETAIL, params)
   return true
 }
 

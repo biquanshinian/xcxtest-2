@@ -4,6 +4,9 @@
 require('./utils/demo-engine.js')
 require('./utils/demo-scripts.js')
 require('./utils/popup-ad.js')
+require('./utils/event-video.js')
+require('./utils/video-cache.js')
+require('./utils/text-translate.js')
 Page({
   onLoad() {}
 })

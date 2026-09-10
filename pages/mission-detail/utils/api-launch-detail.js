@@ -40,6 +40,7 @@ const { optimizeImageUrl, isCosOriginUrl } = require('../../../utils/cos-url.js'
 const { proxiedImageUrl, isOwnCdnUrl } = require('../../../utils/ll2-image.js')
 const { applyLaunchAgencyLogoOverridesToMission } = require('../../../utils/agency-logo-overrides.js')
 const { resolveFalconHeavyRoleLabel, sortFalconHeavyStagesForDisplay } = require('./falcon-heavy-roles.js')
+const { pickLl2AlignedRocketName } = require('../../../utils/mission-list-card.js')
 
 function getRocketDisplayNameFromConfig(configuration) {
   if (!configuration || typeof configuration !== 'object') return '未知火箭'
@@ -49,7 +50,11 @@ function getRocketDisplayNameFromConfig(configuration) {
 function getRocketDisplayNameFromLaunch(launch) {
   const configuration = (launch && launch.rocket && launch.rocket.configuration)
     || (launch && launch.rocket && launch.rocket.rocket && launch.rocket.rocket.configuration)
-  return getRocketDisplayNameFromConfig(configuration)
+  const fromCfg = configuration
+    ? String(configuration.name || configuration.full_name || '').trim()
+    : ''
+  const aligned = pickLl2AlignedRocketName(fromCfg, launch && launch.name)
+  return aligned || fromCfg || '未知火箭'
 }
 
 /** 列表与详情对齐头图：保留 LL2 configuration 快照供 getRocketImage 使用（与详情 rocketConfig 同源） */
@@ -60,6 +65,7 @@ function pickRocketConfigurationSnapshot(launch) {
   if (!cfg || typeof cfg !== 'object') return null
   const totalLaunchCount = Number(cfg.total_launch_count)
   return {
+    id: cfg.id != null && cfg.id !== '' ? cfg.id : null,
     name: typeof cfg.name === 'string' ? cfg.name : '',
     nameZh: typeof cfg.nameZh === 'string' ? cfg.nameZh : '',
     full_name: typeof cfg.full_name === 'string' ? cfg.full_name : '',
@@ -468,14 +474,15 @@ function _fetchLaunchDetailViaCloud(launchId, forceRefresh = false) {
   })
 }
 
-function getLaunchDetail(launchId, type = 'upcoming') {
+function getLaunchDetail(launchId, type = 'upcoming', options) {
   if (!launchId) {
     return Promise.reject(new Error('发射任务ID不能为空'))
   }
+  const forceRefresh = !!(options && options.forceRefresh)
 
   // 多芯火箭/星舰常常因为 list 缓存被 slim 而拿不到完整 launcher_stage / spacecraft_stage
   // → 优先走云函数 fetchLaunchDetail 直接拉 LL2 单条详情（云端带 cache，不会重复打 LL2）
-  return _fetchLaunchDetailViaCloud(launchId).then(async data => {
+  return _fetchLaunchDetailViaCloud(launchId, forceRefresh).then(async data => {
     if (!data) throw new Error('云函数未返回详情')
     return await processLaunchDetail(data)
   }).catch(async (cloudErr) => {
@@ -968,6 +975,7 @@ async function processLaunchDetail(launch) {
           const turnaround = resolveLauncherTurnaround(launcher, launch.net)
           boosterInfo = {
             serialNumber: serialNumber || null,
+            launcherId: launcherId || null,
             flights: flights,
             successfulLandings: successfulLandings,
             attemptedLandings: attemptedLandings,
@@ -1204,6 +1212,9 @@ async function processLaunchDetail(launch) {
         // 而是一枚独立组合体硬件——它的详情收在「星舰硬件设施」库里，不走 booster-detail。
         // 给它打上 stageKind，由 mission-detail.openShipDetail 分发
         const isSuperHeavy = isStarshipRocket
+        const stageLauncherId = (innerLauncher && innerLauncher.id != null)
+          ? innerLauncher.id
+          : (item.launcher_id != null ? item.launcher_id : null)
         return {
           // stageKind 用于序列号 chip 跳转分发：
           //   'ship'                → 跳 progress 页并打开 Ship 硬件详情
@@ -1212,6 +1223,7 @@ async function processLaunchDetail(launch) {
           stageKind: isSuperHeavy ? 'super_heavy_booster' : undefined,
           role: roleLabel,
           serialNumber: sn || null,
+          launcherId: stageLauncherId || null,
           flights: fl,
           successfulLandings: (innerLauncher.successful_landings != null)
             ? innerLauncher.successful_landings
@@ -1353,6 +1365,7 @@ async function processLaunchDetail(launch) {
         return {
           stageKind: 'ship',
           isPayloadReturn: true,
+          spacecraftConfigId: (scCfg && scCfg.id != null) ? scCfg.id : null,
           role: shipRoleLabel,
           serialNumber: sn || null,
           flights: fl,
@@ -1770,7 +1783,12 @@ async function processLaunchDetail(launch) {
       rocketImage,
       rocketConfiguration,
       // LL2 构型 id：族谱型号详情页（rocket-model-detail）入口用
-      rocketConfigId: (rocketConfig && rocketConfig.id != null) ? rocketConfig.id : null,
+      rocketConfigId: (rocketConfig && rocketConfig.id != null)
+        ? rocketConfig.id
+        : ((rocketConfiguration && rocketConfiguration.id != null) ? rocketConfiguration.id : null),
+      padLocationId: (loc && loc.id != null)
+        ? loc.id
+        : ((padDetail && padDetail.locationId != null) ? padDetail.locationId : null),
       rocketSpecsVisible,
       rocketSpecs,
       // ——以下为 LL2 详情端点独有字段（列表快照没有）——

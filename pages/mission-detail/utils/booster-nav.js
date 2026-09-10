@@ -19,10 +19,26 @@ function serialMatch(item, serial) {
   return a === serial || a.toUpperCase() === serial.toUpperCase()
 }
 
+function pickLauncherId(value) {
+  if (value == null) return ''
+  const id = String(value).trim()
+  return id && id !== 'undefined' && id !== 'null' ? id : ''
+}
+
+function launcherIdMatch(item, launcherId) {
+  const id = pickLauncherId(launcherId)
+  if (!item || !id) return false
+  return pickLauncherId(item.ll2Id || item.launcherId) === id
+}
+
 async function openBoosterEntityDetail(serial, options) {
   options = options || {}
   serial = normalizeSerial(serial)
-  if (!serial || serial === '未披露') {
+  const launcherId = pickLauncherId(
+    options.ll2Id || options.launcherId ||
+    (options.raw && (options.raw.ll2Id || options.raw.launcherId))
+  )
+  if ((!serial || serial === '未披露') && !launcherId) {
     wx.showToast({ title: '暂无该助推器档案', icon: 'none' })
     return false
   }
@@ -40,29 +56,34 @@ async function openBoosterEntityDetail(serial, options) {
     try {
       const { getBoosterGenealogy } = require('../../../utils/api-app-services.js')
       const list = await getBoosterGenealogy()
-      raw = (list || []).find(function (b) { return serialMatch(b, serial) }) || null
+      raw = (list || []).find(function (b) { return launcherIdMatch(b, launcherId) }) ||
+        (list || []).find(function (b) { return serialMatch(b, serial) }) || null
     } catch (e) {
       raw = null
     }
   }
+  if (raw && !serial) serial = normalizeSerial(raw.serialNumber || raw.serial)
+  const resolvedId = launcherId || pickLauncherId(raw && (raw.ll2Id || raw.launcherId))
 
   try {
     const app = typeof getApp === 'function' ? getApp() : null
     if (app && raw) app._boosterDetailData = raw
-    if (app && options.heroImage) {
+    if (app && options.heroImage && serial) {
       app._boosterHeroImage = { serial: serial, src: String(options.heroImage) }
     }
   } catch (e) {}
 
   const { ROUTES, navigateTo } = require('../../../utils/routes.js')
-  navigateTo(ROUTES.BOOSTER_DETAIL, { serial: serial })
+  const params = {}
+  if (serial) params.serial = serial
+  if (resolvedId) params.ll2Id = resolvedId
+  navigateTo(ROUTES.BOOSTER_DETAIL, params)
   return true
 }
 
 async function openRocketModelDetail(configId, options) {
   options = options || {}
   if (configId == null || configId === '') {
-    wx.showToast({ title: '暂无该型号档案', icon: 'none' })
     return false
   }
 
@@ -79,9 +100,87 @@ async function openRocketModelDetail(configId, options) {
   return true
 }
 
+async function openRocketCompare(configId, options) {
+  options = options || {}
+  if (!options.skipGate) {
+    try {
+      const { gateCheck } = require('../../../utils/membership.js')
+      const allowed = await gateCheck('rocket_compare', '火箭型号对比')
+      if (!allowed) return false
+    } catch (e) {}
+  }
+
+  const { ROUTES, navigateTo } = require('../../../utils/routes.js')
+  const params = {}
+  if (configId != null && configId !== '') params.configId = String(configId)
+  navigateTo(ROUTES.ROCKET_COMPARE, params)
+  return true
+}
+
+async function openRocketScore(configId, options) {
+  options = options || {}
+  if (!options.skipGate) {
+    try {
+      const { gateCheck } = require('../../../utils/membership.js')
+      const allowed = await gateCheck('rocket_compare', '火箭型号对比')
+      if (!allowed) return false
+    } catch (e) {}
+  }
+
+  const params = {}
+  if (configId != null && configId !== '') params.configId = String(configId)
+  if (options.name) params.name = String(options.name)
+  if (options.nameEn) params.nameEn = String(options.nameEn)
+
+  const { navigateTo } = require('../../../utils/routes.js')
+  navigateTo('/subpackages/monitor-pages/rocket-score', params)
+  return true
+}
+
+function pickAgencyId(value) {
+  return pickLauncherId(value)
+}
+
+/** 入口 agencyId / 构型 manufacturer.id 收成图鉴详情参数。有 id 只带 id，没有 id 不编造。 */
+function buildEncyclopediaAgencyParams(input) {
+  const opts = input && typeof input === 'object' ? input : {}
+  const fromAgencyId = pickAgencyId(opts.agencyId)
+  if (fromAgencyId) return { id: fromAgencyId }
+  const manufacturerId = pickAgencyId(opts.id)
+  if (manufacturerId) return { id: manufacturerId }
+  return null
+}
+
+/** 型号/族谱发射商标签 → 全球发射商图鉴详情（只带 LL2 id） */
+async function openEncyclopediaAgency(options) {
+  options = options || {}
+  const params = buildEncyclopediaAgencyParams(options)
+  if (!params) {
+    wx.showToast({ title: '暂无该发射商档案', icon: 'none' })
+    return false
+  }
+
+  if (!options.skipGate) {
+    try {
+      const { gateCheck } = require('../../../utils/membership.js')
+      const allowed = await gateCheck('agency_encyclopedia', '全球发射商图鉴')
+      if (!allowed) return false
+    } catch (e) {}
+  }
+
+  const { ROUTES, navigateTo } = require('../../../utils/routes.js')
+  navigateTo(ROUTES.AGENCY_DETAIL, params)
+  return true
+}
+
 module.exports = {
   openBoosterEntityDetail,
   openRocketModelDetail,
+  openRocketCompare,
+  openRocketScore,
+  openEncyclopediaAgency,
+  pickAgencyId,
+  buildEncyclopediaAgencyParams,
   normalizeSerial,
   serialMatch
 }

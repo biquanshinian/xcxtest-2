@@ -11,12 +11,13 @@ subpkg = (
 exclude_dirs = {
     'node_modules', 'cloudfunctions', 'admin-web', '.git', '_error_report_extract',
     'scripts', 'scf-cos-trigger', 'cloudfunctionTemplate', '.github', 'workers', 'test', 'docs',
-    '.cursor', 'agent-config', 'tools',
+    '.cursor', 'agent-config', 'tools', 'xhs-minitool',
 }
 ignore_globs = [
     'admin-web.zip', '**/*.zip', '_weanalysis*', '_sourcemap*', '_sourcemap_*/**',
     '_analyze_size*', 'workers/**', 'test/**',
     'docs/**', 'utils/.api-full.backup.js', 'cloudflare-worker/**', 'admin-web/**',
+    'xhs-minitool/**',
     '_error_report_extract/**', '**/*.md', '*.md', 'scf-cos-trigger/**', 'scripts/**',
     'cloudfunctions/**', 'cloudfunctionTemplate/**', 'project.miniapp.json',
     'code_obfuscation_config.json', 'project.private.config.json', 'package-lock.json',

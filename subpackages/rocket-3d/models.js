@@ -34,6 +34,14 @@ function firstNonEmpty(list) {
   return ''
 }
 
+/** 导航/高亮跟实际播的 GLB：成员回落到全系列底模时用全系列 slug */
+function displayedSlug(slug) {
+  const key = String(slug || '').toLowerCase()
+  if (!key) return ''
+  if (ready.isSeriesModel(key)) return SERIES_SLUG
+  return key
+}
+
 function resolveRocketModel(input) {
   const src = input && typeof input === 'object' ? input : {}
   const label = firstNonEmpty([src.rocketNameEn, src.rocketName, src.configuration])
@@ -62,7 +70,7 @@ function resolveRocketModel(input) {
     const own = buildGlbUrl(pinned)
     if (!own) return { slug: pinned, url: '', source: 'none', label, series: false }
     return {
-      slug: pinned,
+      slug: displayedSlug(pinned),
       url: own,
       source: 'glb',
       label,
@@ -70,16 +78,17 @@ function resolveRocketModel(input) {
     }
   }
   if (/^https:\/\//i.test(explicit)) {
+    const playSlug = urlSlug || slug
     return {
-      slug,
+      slug: displayedSlug(playSlug),
       url: resolveCosHttpsUrl(explicit) || explicit,
       source: 'glb',
       label,
-      series: ready.isSeriesModel(slug) || /long-march-series\.glb/i.test(explicit)
+      series: ready.isSeriesModel(playSlug) || playSlug === SERIES_SLUG || /long-march-series\.glb/i.test(explicit)
     }
   }
   return {
-    slug,
+    slug: displayedSlug(slug),
     url: buildGlbUrl(slug),
     source: 'glb',
     label,

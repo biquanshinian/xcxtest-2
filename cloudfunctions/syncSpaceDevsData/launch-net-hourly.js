@@ -1,21 +1,35 @@
 /**
  * 小时级 NET 时间基准探针（独立于 6h detailed 全量同步）
  *
+ * 两层不能打架（展示对齐 LL2 hide=true；探针 hide=关只为结局）：
+ *
+ *   展示面 = LL2 /launches/upcoming/?hide_recent_previous=true&ordering=net
+ *     小程序即将发射、6h slim 缓存、客户端请求，都是这张表。
+ *     匿名档每小时次数有限，客户端不直打 LL2，靠缓存 + 本探针刷新。
+ *
+ *   结局面 = 同一 upcoming 不带 hide（LL2 默认把刚结束的任务留约 24h 方便收 Success）
+ *     本探针只打 1 次 hide=关 list/30，才能在无人打开小程序时仍看到终态/飞行中，
+ *     写入 launch_status + previous stub，堵住 hide 后双边空窗。
+ *
+ *   写回规则：结局面 live 先分流，禁止用 hide=关全集覆盖 hide=开缓存。
+ *     - 终态/飞行中 → 只进 launch_status / previous，upcoming prune
+ *     - 展示面投影（非终态、非飞行中、NET 仍在未来）→ patch 已有行 / 插入缺失 stub
+ *     - 过点仍 Go/TBD = hide=关 24h 占位，不得当新 upcoming 插入
+ *     - 本轮已 prune 的 id 不得复活
+ *     - 已有 detailed 行只改 NET/身份，不覆盖工位；探针窗外的缓存行不删
+ *
  * 设计约束（匿名档 LL2 ≈ 15 次/小时/出口 IP）：
- *   - 固定只打 1 次：GET /launches/upcoming/?mode=list&limit=30&ordering=net
+ *   - 固定只打 1 次：GET /launches/upcoming/?mode=list&limit=30&ordering=net（无 hide）
  *   - 不翻页、不拉 detailed、不碰 previous/events/stations（previous 仅就地 patch status，不另打 LL2）
  *   - 与 6h 全量错开：触发器跑在每小时 :30；UTC 整点落在每 6 小时整点窗默认跳过
  *     （全量在 :00 已可能打光当小时额度，:30 再打易 429）
  *     例外：upcoming 缓存显示近窗发射（未来 48h / 过去 2h）时仍跑探针，保证 NET/scrub 及时
- *   - 有变化才 patch 已有 slim_v5 缓存的 net/window/status，并刷新 timestamp
- *     让客户端 2 分钟后台云库比对能吃到新时间；无变化则零写库
- *   - 探针结果里若出现终态(3/4/7/9)：写入 recent_settled + 就地修正/插入 previous 缓存
- *     （0 额外 LL2；插入时优先复用 upcoming slim 完整行，避免历史列表空窗）
- *   - 飞行中(6) 同样写入 recent_settled + previous stub（供倒计时跨会话 settle，
- *     并堵住 hide_recent_previous 后 upcoming/previous 双边空窗）；合并时终态不可被飞行中降级
+ *   - 有变化才 patch 已有 slim 缓存的 net/window/status，并刷新 timestamp
+ *     航行警告占位按 live name 升级身份；NET 迟滞与 6h / resolve 同一套（挡 TBD 假近窗）
+ *   - 近 48h previous 先用行内 LL2 name 纠偏；仍弱身份时额外 1 次 previous mode=list
  *   - live status 缓存按 id merge 写入，避免被到点查询覆盖掉探针 30 条
  *
- * 不替代 syncLaunches：新任务入库、图片/助推器等仍靠 6h detailed。
+ * 不替代 syncLaunches：探针头以外的新任务、图片/助推器等仍靠 6h detailed。
  */
 const { db, LAUNCH_LIBRARY_API, fetchAPI, cloud } = require('./shared.js')
 const { enrichLaunchNetRecovery } = require('./ll2-net-recovery-enrich.js')
@@ -24,8 +38,17 @@ const {
   pruneStaleUpcomingResults: projectUpcomingWithoutSettled,
   collectTerminalFromCachedUpcoming: collectCachedTerminalBeforePrune,
   stubFromTerminalEntry,
-  attachLaunchStubsToTerminalEntries
+  attachLaunchStubsToTerminalEntries,
+  buildPreviousListStub
 } = require('./launch-net-state.js')
+const {
+  applyLaunchIdentityUpgrade,
+  hasWeakLaunchIdentity,
+  isRecentLaunchNet,
+  alignLaunchIdentityFromTitle,
+  rowNeedsIdentityProbe,
+  IDENTITY_RECENT_NET_MS
+} = require('./launch-identity-upgrade.js')
 const {
   shouldRejectNetAdvance,
   sortResultsByNetAsc: sortResultsByNetPolicy,
@@ -360,7 +383,8 @@ async function loadAllUpcomingResults(cacheKey, payload) {
 
 /**
  * 按 id 把 live 行 patch 进 results；返回变更明细。
- * 只更新已存在于缓存中的任务，不插入新任务（新任务等 6h detailed）。
+ * 只更新已存在于缓存中的任务。新 id 由 insertMissingUpcomingFromProbe 单独处理，
+ * 避免 list 行覆盖已有 detailed 工位/助推器。
  */
 function patchResultsInPlace(results, liveById) {
   const changes = []
@@ -371,14 +395,19 @@ function patchResultsInPlace(results, liveById) {
     const id = String(row.id)
     const live = liveById.get(id)
     if (!live) continue
-    if (!netFieldsChanged(row, live)) continue
+    const ident = applyLaunchIdentityUpgrade(row, live, {
+      trustIncoming: !hasWeakLaunchIdentity(live)
+    })
+    const local = alignLaunchIdentityFromTitle(row)
+    const netChanged = netFieldsChanged(row, live)
+    if (!netChanged && !ident.changed && !local.changed) continue
     const before = {
       net: row.net || '',
       window_start: row.window_start || '',
       window_end: row.window_end || '',
       statusAbbrev: (row.status && row.status.abbrev) || ''
     }
-    applyNetPatch(row, live)
+    if (netChanged) applyNetPatch(row, live)
     changes.push({
       id,
       name: String(row.name || live.name || ''),
@@ -392,10 +421,105 @@ function patchResultsInPlace(results, liveById) {
       net: row.net || '',
       window_start: row.window_start || '',
       statusName: (row.status && row.status.name) || '',
-      statusId: row.status && row.status.id != null ? Number(row.status.id) : null
+      statusId: row.status && row.status.id != null ? Number(row.status.id) : null,
+      identityFields: ident.changed ? ident.fields : undefined
     })
   }
   return changes
+}
+
+function buildUpcomingProbeStub(live) {
+  if (!live || live.id == null) return null
+  const stub = buildPreviousListStub(live)
+  if (!stub) return null
+  applyLaunchIdentityUpgrade(stub, live, {
+    trustIncoming: !hasWeakLaunchIdentity(live)
+  })
+  alignLaunchIdentityFromTitle(stub)
+  return stub
+}
+
+function netMsOfLive(row) {
+  const raw = row && (row.net || row.window_start || '')
+  if (!raw) return NaN
+  const t = new Date(raw).getTime()
+  return Number.isFinite(t) ? t : NaN
+}
+
+function netIsUsable(row) {
+  return Number.isFinite(netMsOfLive(row))
+}
+
+/**
+ * 展示面投影：等价 LL2 upcoming?hide_recent_previous=true。
+ * 探针请求 hide=关（结局面）；写回即将发射缓存前必须过此关，两层才不打架。
+ */
+function isLl2DisplayUpcomingLiveRow(live, nowMs) {
+  if (!live || live.id == null) return false
+  if (isTerminalStatus(live.status) || isInflightStatus(live.status)) return false
+  const t = netMsOfLive(live)
+  if (!Number.isFinite(t)) return false
+  return t >= (Number(nowMs) || Date.now())
+}
+
+/** 过点仍非终态：hide=关 24h 占位，不得当新展示行插入 */
+function isPastNetProbeGhost(live, nowMs) {
+  if (!live || isTerminalStatus(live.status) || isInflightStatus(live.status)) return false
+  const t = netMsOfLive(live)
+  if (!Number.isFinite(t)) return false
+  return t < (Number(nowMs) || Date.now())
+}
+
+/**
+ * 探针里有、缓存没有、且属于展示面的任务：插入 list stub。
+ * 不覆盖已有 detailed 行；不删探针窗外的缓存行；skip 集 / 结局面-only 行不进表。
+ * 新行随后由 sortResultsByNetAsc 按 NET 就位，与 LL2 hide=true 头同构。
+ */
+function insertMissingUpcomingFromProbe(results, liveRows, extraSkipIds, nowMs) {
+  const inserted = []
+  if (!Array.isArray(results) || !Array.isArray(liveRows) || !liveRows.length) return inserted
+  const now = Number(nowMs) || Date.now()
+  const have = new Set()
+  for (let i = 0; i < results.length; i++) {
+    const row = results[i]
+    if (row && row.id != null) have.add(String(row.id))
+  }
+  const skip = extraSkipIds instanceof Set ? extraSkipIds : null
+  for (let i = 0; i < liveRows.length; i++) {
+    const live = liveRows[i]
+    if (!live || live.id == null) continue
+    const id = String(live.id)
+    if (have.has(id) || (skip && skip.has(id))) continue
+    if (!isLl2DisplayUpcomingLiveRow(live, now)) continue
+    const stub = buildUpcomingProbeStub(live)
+    if (!stub) continue
+    results.push(stub)
+    have.add(id)
+    inserted.push({
+      id,
+      name: stub.name || '',
+      net: stub.net || '',
+      reason: 'probe_missing'
+    })
+  }
+  return inserted
+}
+
+function upcomingSkipIds(statusTerminalIds, terminalIds, pruned) {
+  const skip = new Set()
+  if (statusTerminalIds instanceof Set) {
+    statusTerminalIds.forEach((id) => skip.add(String(id)))
+  }
+  if (terminalIds instanceof Set) {
+    terminalIds.forEach((id) => skip.add(String(id)))
+  }
+  if (Array.isArray(pruned)) {
+    for (let i = 0; i < pruned.length; i++) {
+      const id = pruned[i] && pruned[i].id
+      if (id != null) skip.add(String(id))
+    }
+  }
+  return skip
 }
 
 /**
@@ -715,8 +839,8 @@ async function loadAllPreviousResults(cacheKey, payload) {
 }
 
 /**
- * 用 settled status 就地修正 previous 缓存中已有条目（不插入新任务，0 额外 LL2）。
- * 终态不可被飞行中/Go 降级。
+ * 用 settled status + 更好身份就地修正 previous 缓存中已有条目（不插入新任务，0 额外 LL2）。
+ * 终态不可被飞行中/Go 降级；占位火箭/载荷可被 live stub 升级。
  */
 function patchPreviousStatusInPlace(results, terminalById) {
   let patched = 0
@@ -726,20 +850,35 @@ function patchPreviousStatusInPlace(results, terminalById) {
     if (!row || row.id == null) continue
     const term = terminalById.get(String(row.id))
     if (!term || !term.status) continue
+    let changed = false
     const curId = row.status && row.status.id != null ? Number(row.status.id) : 0
     const nextId = Number(term.status.id)
-    if (curId === nextId && statusEqual(row.status, term.status)) continue
-    // 已是终态则禁止降级为飞行中/非终态
-    if (isTerminalStatus(row.status) && !isTerminalStatus(term.status)) continue
-    row.status = {
-      id: term.status.id,
-      name: term.status.name || '',
-      abbrev: term.status.abbrev || ''
+    const canUpgradeStatus =
+      !(curId === nextId && statusEqual(row.status, term.status)) &&
+      !(isTerminalStatus(row.status) && !isTerminalStatus(term.status))
+    if (canUpgradeStatus) {
+      row.status = {
+        id: term.status.id,
+        name: term.status.name || '',
+        abbrev: term.status.abbrev || ''
+      }
+      if (term.net) row.net = term.net
+      if (term.windowStart) row.window_start = term.windowStart
+      if (term.windowEnd) row.window_end = term.windowEnd
+      changed = true
     }
-    if (term.net) row.net = term.net
-    if (term.windowStart) row.window_start = term.windowStart
-    if (term.windowEnd) row.window_end = term.windowEnd
-    patched++
+    const stub = stubFromTerminalEntry(term)
+    if (stub) {
+      const up = applyLaunchIdentityUpgrade(row, stub, {
+        trustIncoming: !hasWeakLaunchIdentity(stub)
+      })
+      if (up.changed) changed = true
+    } else if (term.name && !hasWeakLaunchIdentity({ name: term.name })) {
+      const up = applyLaunchIdentityUpgrade(row, { id: term.id, name: term.name }, { trustIncoming: true })
+      if (up.changed) changed = true
+    }
+    if (alignLaunchIdentityFromTitle(row).changed) changed = true
+    if (changed) patched++
   }
   return patched
 }
@@ -996,6 +1135,201 @@ async function expireLaunchDetailCaches(entries) {
 }
 
 /**
+ * hide_recent 后 upcoming 探针看不到刚成功任务；若 previous 近窗仍是航行警告占位，
+ * 打 1 次 previous mode=list 把火箭/载荷回写到 slim，并失效对应详情缓存。
+ */
+async function refreshRecentPreviousIdentityFromLl2(nowMs) {
+  const now = nowMs || Date.now()
+  const cached = await loadPreviousCacheDoc()
+  if (!cached) return { skipped: 'previous_cache_miss' }
+  const loaded = await loadAllPreviousResults(cached.cacheKey, cached.payload)
+  const rows = loaded.results || []
+  const scan = Math.min(rows.length, 20)
+
+  const alignRecentRow = (row) => {
+    if (!row || row.id == null) return false
+    if (!isRecentLaunchNet(row, now, IDENTITY_RECENT_NET_MS)) return false
+    return !!alignLaunchIdentityFromTitle(row).changed
+  }
+  let localAligned = 0
+  if (loaded.batched && loaded.batches) {
+    for (let b = 0; b < loaded.batches.length; b++) {
+      const batch = loaded.batches[b]
+      for (let r = 0; r < (batch.results || []).length; r++) {
+        if (alignRecentRow(batch.results[r])) localAligned++
+      }
+    }
+  } else {
+    for (let i = 0; i < scan; i++) {
+      if (alignRecentRow(rows[i])) localAligned++
+    }
+  }
+
+  const weakRecent = []
+  for (let i = 0; i < scan; i++) {
+    const row = rows[i]
+    if (!row || row.id == null) continue
+    if (!rowNeedsIdentityProbe(row, now)) continue
+    weakRecent.push(row)
+  }
+
+  const persistAllLoaded = async () => {
+    let docsWritten = 0
+    if (loaded.batched && loaded.batches) {
+      for (let b = 0; b < loaded.batches.length; b++) {
+        const batch = loaded.batches[b]
+        batch.payload.results = batch.results
+        await writeCacheWrapper(batch.batchKey, {
+          ...batch.wrapper,
+          data: batch.payload
+        })
+        docsWritten++
+      }
+      await writeCacheWrapper(cached.cacheKey, cached.wrapper)
+      docsWritten++
+    } else if (Array.isArray(loaded.results)) {
+      await writeCacheWrapper(cached.cacheKey, {
+        ...cached.wrapper,
+        data: { ...cached.payload, results: loaded.results }
+      })
+      docsWritten++
+    }
+    return docsWritten
+  }
+
+  if (!weakRecent.length) {
+    if (!localAligned) return { skipped: 'no_weak_recent', scanned: scan }
+    const docsWritten = await persistAllLoaded()
+    return {
+      upgraded: localAligned,
+      localAligned,
+      docsWritten,
+      skipped: 'local_title_only',
+      scanned: scan
+    }
+  }
+
+  let remaining = 15
+  try {
+    remaining = await require('./ll2-budget.js').getLl2BudgetRemaining(db)
+  } catch (e) {}
+  if (remaining < 4) {
+    if (localAligned) {
+      const docsWritten = await persistAllLoaded()
+      return {
+        skipped: 'low_budget',
+        remaining,
+        pending: weakRecent.length,
+        upgraded: localAligned,
+        localAligned,
+        docsWritten
+      }
+    }
+    return { skipped: 'low_budget', remaining, pending: weakRecent.length }
+  }
+
+  const qs = [
+    'format=json',
+    'mode=list',
+    'limit=20',
+    'ordering=' + encodeURIComponent('-net')
+  ].join('&')
+  const url = `${LAUNCH_LIBRARY_API}/launches/previous/?${qs}`
+  let apiData
+  try {
+    apiData = await Promise.race([
+      fetchAPI(url),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('previous identity probe timeout')), 15000))
+    ])
+  } catch (e) {
+    if (localAligned) {
+      const docsWritten = await persistAllLoaded()
+      return {
+        skipped: 'probe_failed',
+        error: e.message || String(e),
+        pending: weakRecent.length,
+        upgraded: localAligned,
+        localAligned,
+        docsWritten
+      }
+    }
+    return { skipped: 'probe_failed', error: e.message || String(e), pending: weakRecent.length }
+  }
+  const liveRows = apiData && Array.isArray(apiData.results) ? apiData.results : []
+  const liveById = new Map()
+  for (let i = 0; i < liveRows.length; i++) {
+    const r = liveRows[i]
+    if (r && r.id != null) liveById.set(String(r.id), r)
+  }
+
+  let upgraded = 0
+  const upgradedIds = []
+  const patchRow = (row) => {
+    if (!row || row.id == null) return false
+    const live = liveById.get(String(row.id))
+    if (!live) return false
+    const res = applyLaunchIdentityUpgrade(row, live, {
+      trustIncoming: !hasWeakLaunchIdentity(live)
+    })
+    if (!res.changed) return false
+    upgraded += 1
+    upgradedIds.push(String(row.id))
+    return true
+  }
+
+  if (loaded.batched && loaded.batches) {
+    for (let b = 0; b < loaded.batches.length; b++) {
+      const batch = loaded.batches[b]
+      for (let r = 0; r < (batch.results || []).length; r++) {
+        patchRow(batch.results[r])
+      }
+    }
+  } else if (Array.isArray(loaded.results)) {
+    for (let r = 0; r < loaded.results.length; r++) {
+      patchRow(loaded.results[r])
+    }
+  }
+
+  const docsWritten = localAligned || upgraded ? await persistAllLoaded() : 0
+
+  if (upgradedIds.length) {
+    try {
+      await expireLaunchDetailCaches(upgradedIds.map((id) => ({ id })))
+    } catch (e) {}
+    try {
+      await invalidateMissionStatsForTerminals(
+        upgradedIds.map((id) => {
+          const live = liveById.get(id)
+          return {
+            id,
+            net: (live && live.net) || '',
+            status: (live && live.status) || { id: 3, abbrev: 'Success' }
+          }
+        }),
+        loaded.results
+      )
+    } catch (e) {}
+  }
+
+  return {
+    upgraded: upgraded + localAligned,
+    localAligned,
+    docsWritten,
+    ids: upgradedIds.slice(0, 10),
+    live: liveRows.length,
+    pending: weakRecent.length
+  }
+}
+
+async function maybeRefreshPreviousIdentity(nowMs) {
+  try {
+    return await refreshRecentPreviousIdentityFromLl2(nowMs)
+  } catch (e) {
+    return { skipped: 'error', error: e.message || String(e) }
+  }
+}
+
+/**
  * 本轮探针终态/飞行中写 previous；再从 launch_status 补漏（写库失败或 hide_recent 后空 entries）。
  */
 async function syncPreviousAfterProbe(terminalEntries, nowMs) {
@@ -1225,6 +1559,7 @@ async function runLaunchNetHourly(options) {
     attachLaunchStubsToTerminalEntries(settledForPrevious(), null, liveById)
     const settledRes = await mergeRecentSettled(settledForPrevious())
     const previousPatch = await syncPreviousAfterProbe(settledForPrevious(), startTime)
+    const identityRefresh = await maybeRefreshPreviousIdentity(startTime)
     let splashMissionPrune = { skipped: true }
     if (terminalEntries.length || inflightEntries.length) {
       splashMissionPrune = await triggerSplashMissionPrune(
@@ -1234,6 +1569,7 @@ async function runLaunchNetHourly(options) {
     return {
       success: false,
       error: 'upcoming_cache_unhealthy',
+      identityRefresh,
       message: 'upcoming 缓存自愈失败，跳过 upcoming 写回以免扩大损伤',
       probed: liveRows.length,
       patched: 0,
@@ -1252,6 +1588,7 @@ async function runLaunchNetHourly(options) {
     attachLaunchStubsToTerminalEntries(settledForPrevious(), null, liveById)
     const settledRes = await mergeRecentSettled(settledForPrevious())
     const previousPatch = await syncPreviousAfterProbe(settledForPrevious(), startTime)
+    const identityRefresh = await maybeRefreshPreviousIdentity(startTime)
     let detailCacheExpire = { expired: 0 }
     try {
       detailCacheExpire = await expireLaunchDetailCaches(settledForPrevious())
@@ -1278,6 +1615,7 @@ async function runLaunchNetHourly(options) {
       patched: 0,
       changes: [],
       warning: 'upcoming_cache_miss',
+      identityRefresh,
       message: '无 slim upcoming 缓存可 patch，等待下次 6h syncLaunches',
       liveStatusCacheUpdated: true,
       recentSettled: settledRes,
@@ -1297,6 +1635,7 @@ async function runLaunchNetHourly(options) {
     attachLaunchStubsToTerminalEntries(settledForPrevious(), null, liveById)
     const settledRes = await mergeRecentSettled(settledForPrevious())
     const previousPatch = await syncPreviousAfterProbe(settledForPrevious(), startTime)
+    const identityRefresh = await maybeRefreshPreviousIdentity(startTime)
     let splashMissionPrune = { skipped: true }
     if (terminalEntries.length || inflightEntries.length) {
       splashMissionPrune = await triggerSplashMissionPrune(
@@ -1306,6 +1645,7 @@ async function runLaunchNetHourly(options) {
     return {
       success: false,
       error: 'upcoming_batch_missing',
+      identityRefresh,
       missingKey: loaded.missingKey || '',
       message: 'upcoming 声明分片缺失，跳过写回；等待 syncLaunches 重建',
       cacheKey: cached.cacheKey,
@@ -1322,6 +1662,7 @@ async function runLaunchNetHourly(options) {
     attachLaunchStubsToTerminalEntries(settledForPrevious(), null, liveById)
     const settledRes = await mergeRecentSettled(settledForPrevious())
     const previousPatch = await syncPreviousAfterProbe(settledForPrevious(), startTime)
+    const identityRefresh = await maybeRefreshPreviousIdentity(startTime)
     let detailCacheExpire = { expired: 0 }
     try {
       detailCacheExpire = await expireLaunchDetailCaches(settledForPrevious())
@@ -1349,6 +1690,7 @@ async function runLaunchNetHourly(options) {
       changes: [],
       cacheKey: cached.cacheKey,
       warning: 'upcoming_cache_empty',
+      identityRefresh,
       liveStatusCacheUpdated: true,
       recentSettled: settledRes,
       previousStatusPatch: previousPatch,
@@ -1365,6 +1707,7 @@ async function runLaunchNetHourly(options) {
   let docsWritten = 0
   let netRecoveryPatched = 0
   let upcomingPruned = []
+  let upcomingInserted = []
 
   // 网系回收：列表缓存里 Ocean/ASDS → NET（0 额外 LL2，小时探针顺带修图标）
   const enrichResultsNetRecovery = (results) => {
@@ -1398,9 +1741,14 @@ async function runLaunchNetHourly(options) {
     const pruneRes = pruneStaleUpcomingResults(mergedResults, liveById, statusTerminalIds)
     upcomingPruned = pruneRes.pruned
     mergedResults = pruneRes.results
+    upcomingInserted = insertMissingUpcomingFromProbe(
+      mergedResults,
+      liveRows,
+      upcomingSkipIds(statusTerminalIds, terminalIds, upcomingPruned)
+    )
     loaded.results = mergedResults
     const sortRepair = needsUncertainSortRepair(mergedResults)
-    if (changes.length || netRecoveryPatched || upcomingPruned.length || sortRepair) {
+    if (changes.length || netRecoveryPatched || upcomingPruned.length || sortRepair || upcomingInserted.length) {
       // 有变更/剔除/待定队首乱序时跨批整体重排，再压缩空批写回
       sortResultsByNetAsc(mergedResults)
       const { removeOrphanBatchDocs } = require('./cache-write-guard.js')
@@ -1503,8 +1851,13 @@ async function runLaunchNetHourly(options) {
     const pruneRes = pruneStaleUpcomingResults(loaded.results, liveById, statusTerminalIds)
     upcomingPruned = pruneRes.pruned
     loaded.results = pruneRes.results
+    upcomingInserted = insertMissingUpcomingFromProbe(
+      loaded.results,
+      liveRows,
+      upcomingSkipIds(statusTerminalIds, terminalIds, upcomingPruned)
+    )
     const sortRepair = needsUncertainSortRepair(loaded.results)
-    if (changes.length || netRecoveryPatched || upcomingPruned.length || sortRepair) {
+    if (changes.length || netRecoveryPatched || upcomingPruned.length || sortRepair || upcomingInserted.length) {
       sortResultsByNetAsc(loaded.results)
       const { removeOrphanBatchDocs } = require('./cache-write-guard.js')
       const prevKeys = Array.isArray(cached.payload.batchKeys)
@@ -1573,6 +1926,7 @@ async function runLaunchNetHourly(options) {
 
   const settledRes = await mergeRecentSettled(settledForPrevious())
   const previousPatch = await syncPreviousAfterProbe(settledForPrevious(), startTime)
+  const identityRefresh = await maybeRefreshPreviousIdentity(startTime)
   let detailCacheExpire = { expired: 0 }
   try {
     detailCacheExpire = await expireLaunchDetailCaches(settledForPrevious())
@@ -1627,8 +1981,11 @@ async function runLaunchNetHourly(options) {
     netRecoveryPatched,
     upcomingPruned: upcomingPruned.length,
     upcomingPrunedIds: upcomingPruned.slice(0, 20).map((p) => p.id),
+    upcomingInserted: upcomingInserted.length,
+    upcomingInsertedIds: upcomingInserted.slice(0, 20).map((p) => p.id),
     recentSettled: settledRes,
     previousStatusPatch: previousPatch,
+    identityRefresh,
     detailCacheExpire,
     missionStatsInvalidate,
     terminalCount: terminalEntries.length,
@@ -1654,6 +2011,12 @@ module.exports = {
   backfillPreviousFromRecentLaunchStatus,
   syncPreviousAfterProbe,
   expireLaunchDetailCaches,
+  refreshRecentPreviousIdentityFromLl2,
+  patchResultsInPlace,
+  insertMissingUpcomingFromProbe,
+  isLl2DisplayUpcomingLiveRow,
+  isPastNetProbeGhost,
+  upcomingSkipIds,
   PREVIOUS_BACKFILL_MAX_AGE_MS,
   PROBE_LIMIT
 }

@@ -25,6 +25,7 @@ const {
 } = require('../../utils/event-feed-keywords.js')
 const { normalizeContentLang } = require('../../utils/locale.js')
 const { invalidateListSnapshots } = require('../../utils/api-launch-list.js')
+const { markTabOverlayReady, scheduleAfterTabOverlayReady } = require('../../utils/tab-overlay-ready.js')
 
 function prefsArrayToMap(arr) {
   const map = {}
@@ -45,7 +46,7 @@ const { getUiShellLayout } = require('../../utils/layout.js')
 const { getSystemInfo } = require('../../utils/system.js')
 // ========== 低频非首屏逻辑：在 profile-extra 分包（profile-lazy.js） ==========
 // 竞猜战绩、里程碑彩蛋、服务号提醒、奖品、年鉴、客服区块均为 onShow 后异步触发或用户点击触发，
-// require.async + attachTo 委托加载；profile 页在 preloadRule 中预下载 profile-extra 分包，实际几乎无加载等待
+// require.async + attachTo 委托加载。WiFi 下 preloadRule 会预下载 profile-extra；蜂窝等首帧后再拉。
 const PROFILE_LAZY_PKG = '../../subpackages/profile-extra/utils/profile-lazy.js'
 const PROFILE_LAZY_METHODS = [
   'bootCheckinAndQuiz',
@@ -260,6 +261,7 @@ Page({
     /** 我的页微信小店店铺卡 store-home（enableProfileShop，failClosed / defaultOff） */
     showProfileShop: false,
     profileShopAppid: '',
+    tabSubpkgUiReady: false,
   },
 
   onLoad() {
@@ -650,15 +652,19 @@ Page({
     this._refreshWatchPartyEntryFlag()
     this._loadProfileShop()
     if (!isBoot) {
-      require.async('../../subpackages/shared/utils/popup-ad.js')
-        .then(({ tryShowPopupAd }) => tryShowPopupAd(4, this))
-        .catch(() => {})
+      scheduleAfterTabOverlayReady(this, () => {
+        require.async('../../subpackages/shared/utils/popup-ad.js')
+          .then(({ tryShowPopupAd }) => tryShowPopupAd(4, this))
+          .catch(() => {})
+      })
     } else {
       setTimeout(function () {
         self.checkMilestones()
-        require.async('../../subpackages/shared/utils/popup-ad.js')
-          .then(({ tryShowPopupAd }) => tryShowPopupAd(4, self))
-          .catch(() => {})
+        scheduleAfterTabOverlayReady(self, () => {
+          require.async('../../subpackages/shared/utils/popup-ad.js')
+            .then(({ tryShowPopupAd }) => tryShowPopupAd(4, self))
+            .catch(() => {})
+        })
       }, 100)
     }
 
@@ -668,10 +674,16 @@ Page({
   },
 
   onReady() {
+    markTabOverlayReady(this)
     var self = this
     setTimeout(function () {
       self._loadGrowthIcons()
     }, 0)
+    setTimeout(function () {
+      try {
+        require('../../utils/preload-subpackages.js').preloadSubpackages(['collect'])
+      } catch (e) {}
+    }, 600)
   },
 
   onShow() {

@@ -107,17 +107,17 @@
 
       <!-- 贴图讨论区：火星探索 Tab 最底部；topic 固定，组件内已截断至 20 字 -->
       <view class="mars-discuss-wrap">
-        <official-account-publish-panel topic="火星探索" />
+        <official-account-publish-panel wx:if="{{discussReady}}" topic="火星探索" />
       </view>
     </view>
 
     <!-- ========== Tab: 月球探索（复用 Artemis 遥测卡） ========== -->
-    <view class="nasa-embed" hidden="{{activeTab !== 1}}">
+    <view class="nasa-embed" wx:if="{{visitedMoon}}" hidden="{{activeTab !== 1}}">
       <monitor-artemis-card id="nasaArtemisCard" scene="nasa" />
     </view>
 
     <!-- ========== Tab: 宇宙探索（复用罗曼太空望远镜追踪卡） ========== -->
-    <view class="nasa-embed nasa-embed--roman" hidden="{{activeTab !== 2}}">
+    <view class="nasa-embed nasa-embed--roman" wx:if="{{visitedUniverse}}" hidden="{{activeTab !== 2}}">
       <monitor-roman-card id="nasaRomanCard" scene="nasa" />
     </view>
 

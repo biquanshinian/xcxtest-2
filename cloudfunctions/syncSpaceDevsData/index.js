@@ -13,6 +13,7 @@
  *   'syncStats'               — 仅同步统计数据
  *   'syncRoadClosure'         — 仅同步封路通知
  *   'syncBoosters'            — 仅同步助推器族谱
+ *   'syncConfigMeta'          — 仅补构型档案（不足下限才翻全表，已有常驻）
  *   'syncAgencies'            — 仅同步发射机构
  *   'syncFeaturedAgencyDetails' — 机构详情自愈同步（覆盖全部 350+ 机构，featured 26h / 非 featured 10d
  *                               分层 TTL；6h 全量轮附带 maxSync 12，小时级 NET 探针轮附带 maxSync 5，
@@ -124,7 +125,8 @@ const DEVTOOLS_TESTABLE_ACTIONS = new Set([
   'syncSpaceXStats',
   'syncStations',
   'syncFeaturedAgencyDetails',
-  'syncLaunches'
+  'syncLaunches',
+  'syncConfigMeta'
 ])
 
 function getInvocationSourceTail() {
@@ -336,6 +338,7 @@ exports.main = async (event) => {
       case 'syncRoadClosure':
       case 'syncRoadClosureThrottled':
       case 'syncBoosters':
+      case 'syncConfigMeta':
       case 'syncAgencies':
       case 'syncAgencyDetail':
       case 'syncFeaturedAgencyDetails':
@@ -346,7 +349,7 @@ exports.main = async (event) => {
       case 'rebuildVoteSettle':
       case 'batchRecalculateVotes':
       case 'version':
-        // 透传给 legacy 处理
+        // 运维保留：仍走 _legacy.js。新业务不要往这里加，应模块化后在上方显式 case。
         return getLegacy().main(event)
 
       case 'fillFlightHistory':

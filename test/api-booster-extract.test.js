@@ -78,9 +78,25 @@ test('extractBoosterInfoForList：从 launcher_stage 解析 ASDS 着陆', () => 
   }
   const info = extractBoosterInfoForList(launch, 'Falcon 9', 'img.png')
   assert.equal(info.serialNumber, 'B1062')
+  assert.equal(info.launcherId, null)
   assert.equal(info.landingType, 'ASDS')
   assert.equal(info.landingLocation, 'OCISLY')
   assert.equal(isRecoverable(info), true)
+})
+
+test('extractBoosterInfoForList：嵌套 launcher.id 落到 launcherId', () => {
+  const info = extractBoosterInfoForList({
+    name: 'Starlink',
+    rocket: {
+      launcher_stage: [{
+        serial_number: 'B1062',
+        launcher: { id: 4034, serial_number: 'B1062' },
+        landing: { landing_location: { abbrev: 'OCISLY' } }
+      }]
+    }
+  }, 'Falcon 9', 'img.png')
+  assert.equal(info.serialNumber, 'B1062')
+  assert.equal(info.launcherId, 4034)
 })
 
 test('extractBoosterInfoSimple：可回收火箭名 → 推断 RTLS', () => {

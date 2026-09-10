@@ -470,6 +470,12 @@ function testExtractAndPick() {
   ]
   assert.strictEqual(pickStation(stations, '天宫乘组').id, 18)
   assert.strictEqual(pickStation(stations, 'ISS 怎么样').id, 4)
+  const renamed = [
+    { id: 4, name: 'Station Alpha' },
+    { id: 18, name: 'Station Beta' }
+  ]
+  assert.strictEqual(pickStation(renamed, '天宫乘组').id, 18)
+  assert.strictEqual(pickStation(renamed, '国际空间站').id, 4)
 }
 
 function testEnrich() {

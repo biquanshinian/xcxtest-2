@@ -33,6 +33,7 @@ function slimAgencyCountries(list) {
   })
 }
 const { slimLaunchUpdates, splitLaunchUpdatesIntoTimelineCache } = require('./split-launch-updates-cache.js')
+const configMetaCatalog = require('./config-meta-catalog.js')
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV
@@ -1622,7 +1623,7 @@ async function syncAgencies() {
  * 裁剪巨型 launcher_list / spacecraft_list 嵌套，保证单文档可直写入库（<800KB）。
  *
  * 字段白名单以前端消费方为准（改动时需同步核对）：
- * - agency-detail.js formatAgencyDetail：launcher_list[].name 去重展示型号标签、
+ * - agency-detail.js formatAgencyDetail：launcher_list[] 按构型 id 展示型号标签、
  *   social_logo、social_media_links[].{id,social_media.name,url,priority}、
  *   consecutive_successful_landings / failed_landings / *_spacecraft / *_payload 全套着陆统计
  * - spacecraft-detail.js normalizeLl2Spacecraft：spacecraft_list 条目直传秒开，
@@ -2276,6 +2277,7 @@ function slimLauncherConfigMeta(cfg) {
     variant: cfg.variant || '',
     reusable: cfg.reusable === true,
     active: cfg.active !== false,
+    manufacturerId: m.id != null ? m.id : null,
     manufacturerName: m.name || '',
     manufacturerNameZh: resolveAgencyNameZh(m.name, m.abbrev, m.nameZh),
     manufacturerAbbrev: m.abbrev || '',
@@ -2283,7 +2285,7 @@ function slimLauncherConfigMeta(cfg) {
     image_url: (cfg.image && cfg.image.image_url) || '',
     thumbnail_url: (cfg.image && cfg.image.thumbnail_url) || '',
     imageCredit: (cfg.image && cfg.image.credit) || '',
-    description: cfg.description || '',
+    description: configMetaCatalog.truncateConfigDescription(cfg.description || ''),
     wiki_url: cfg.wiki_url || '',
     maiden_flight: cfg.maiden_flight || '',
     length: cfg.length != null ? cfg.length : null,
@@ -2312,14 +2314,15 @@ function slimLauncherConfigMeta(cfg) {
 /**
  * 同步构型元数据到 booster_genealogy/_config_meta
  * 需要的构型来源：
- *   1) LL2 launcher_configurations/?reusable=true 全量清单（数据驱动主源）
- *      —— LL2 新增可回收型号（哪怕尚无箭实体、也未上榜 upcoming）自动建档，前端零改动
+ *   1) LL2 launcher_configurations/?is_placeholder=false 全量清单（数据驱动主源）
+ *      —— LL2 的 reusable 筛选无效，必须翻完全量；Spectrum 等后半段才能进档
  *   2) 箭实体携带的 configId（LL2 launchers 的 launcher_config.id）
- *   3) upcoming 发射缓存（_slim_v5）里 configuration.reusable === true 的构型
- *      —— 让长十乙这类「官宣可回收但未首飞」的型号提前建档
- * 带 24h TTL 与单轮拉取预算，返回 configs 映射（id 字符串 → 精简记录）
+ *   3) upcoming / previous 发射缓存里的 configuration.id（含一次性型号）
+ * 档案常驻：已入库的不删。全量清单只在条数不足下限（或 fillCatalog）时翻一次；
+ * 之后只补缺失 id，或刷新近期发射里过期的那几条。无实质字段变化不写库。
  */
-async function syncLauncherConfigMeta(boosterList, forceRefresh) {
+async function syncLauncherConfigMeta(boosterList, options) {
+  const opts = options && typeof options === 'object' ? options : {}
   const collection = db.collection('booster_genealogy')
   const now = Date.now()
 
@@ -2328,17 +2331,23 @@ async function syncLauncherConfigMeta(boosterList, forceRefresh) {
   for (const b of boosterList) {
     if (b && b.configId != null) neededIds.add(Number(b.configId))
   }
+  const spaceDevsCol = db.collection('space_devs_cache')
   try {
     const upcomingResults = await _readLaunchResultsFromSpaceDevsDoc(
-      db.collection('space_devs_cache'),
+      spaceDevsCol,
       '/launches/upcoming/',
       { limit: 100, offset: 0, ordering: 'net', mode: 'detailed', format: 'json', hide_recent_previous: true }
     )
-    for (const launch of upcomingResults || []) {
-      const cfg = launch && launch.rocket && launch.rocket.configuration
-      if (cfg && cfg.reusable === true && cfg.id != null) neededIds.add(Number(cfg.id))
-    }
+    configMetaCatalog.collectConfigIdsFromLaunches(upcomingResults).forEach((id) => neededIds.add(id))
   } catch (_) { /* upcoming 缓存不可用不影响主流程 */ }
+  try {
+    const previousResults = await _readLaunchResultsFromSpaceDevsDoc(
+      spaceDevsCol,
+      '/launches/previous/',
+      { limit: 100, offset: 0, ordering: '-net', mode: 'detailed', format: 'json' }
+    )
+    configMetaCatalog.collectConfigIdsFromLaunches(previousResults).forEach((id) => neededIds.add(id))
+  } catch (_) { /* previous 缓存不可用不影响主流程 */ }
 
   // 2) 读取现有元数据
   let existing = {}
@@ -2351,16 +2360,17 @@ async function syncLauncherConfigMeta(boosterList, forceRefresh) {
     }
   } catch (_) {}
 
-  const isFresh = !forceRefresh && (now - existingUpdatedAt < CONFIG_META_TTL)
+  const needsList = configMetaCatalog.catalogNeedsFullRefresh(existing, {
+    fillCatalog: !!opts.fillCatalog
+  })
   const fetched = {}
 
-  // 2.5) 全量可回收构型清单（TTL 到期才拉，detailed 列表模式 1~3 次请求覆盖全部字段，
-  //      比逐 id 拉详情省配额）：LL2 侧新增可回收型号自动进档，无需改代码
-  if (!isFresh) {
+  // 2.5) 全量构型清单：只在档案不足下限时补齐，不按 TTL / 助推器强刷重拉全表
+  if (needsList) {
     try {
-      let listUrl = `${LL2_LAUNCHER_CONFIGS_API}?reusable=true&is_placeholder=false&mode=detailed&limit=100&format=json`
+      let listUrl = configMetaCatalog.configListUrl()
       let listPage = 0
-      while (listUrl && listPage < 3) {
+      while (listUrl && listPage < configMetaCatalog.CONFIG_LIST_PAGE_LIMIT) {
         const data = await httpsGetJson(listUrl, 25000)
         const rows = data && Array.isArray(data.results) ? data.results : []
         for (const cfg of rows) {
@@ -2374,13 +2384,18 @@ async function syncLauncherConfigMeta(boosterList, forceRefresh) {
         listPage++
       }
     } catch (e) {
-      console.warn('[ConfigMeta] reusable list fetch failed:', e.message)
+      console.warn('[ConfigMeta] launcher list fetch failed:', e.message)
     }
   }
 
-  // 3) 计算剩余待拉取列表（全量清单已覆盖的跳过；TTL 内且已存在的跳过），带单轮预算防超时/配额
-  const toFetch = [...neededIds].filter(id => !fetched[String(id)] && !(isFresh && existing[String(id)]))
-  // 预算内优先补齐缺失的构型，已有的（仅刷新）排后，避免强刷时反复拉同一批
+  // 3) 只拉缺失，或近期发射里已过期的那几条；全量补页后不再逐条重打已覆盖的 id
+  const toFetch = [...neededIds].filter((id) => {
+    if (fetched[String(id)]) return false
+    const row = existing[String(id)]
+    if (!row) return true
+    if (needsList) return false
+    return configMetaCatalog.shouldFetchExistingConfig(row, now, CONFIG_META_TTL)
+  })
   toFetch.sort((a, b) => (existing[String(a)] ? 1 : 0) - (existing[String(b)] ? 1 : 0))
 
   const MAX_CONFIG_FETCH_PER_RUN = 12
@@ -2410,18 +2425,31 @@ async function syncLauncherConfigMeta(boosterList, forceRefresh) {
     if (old.descriptionZh && old.description === fetched[id].description) {
       fetched[id].descriptionZh = old.descriptionZh
     }
+    // 全量补页时截断新简介，已入库的长文保留
+    if (old.description && old.description.length > (fetched[id].description || '').length) {
+      fetched[id].description = old.description
+      if (old.descriptionZh) fetched[id].descriptionZh = old.descriptionZh
+    }
   }
-  const merged = Object.assign({}, existing, fetched)
+  const changed = {}
+  for (const id of Object.keys(fetched)) {
+    if (configMetaCatalog.configRecordChanged(existing[id], fetched[id])) changed[id] = fetched[id]
+  }
+  const merged = Object.assign({}, existing, changed)
 
   // 5) 补齐中文简介（Worker 机翻，带单轮预算；失败留空下轮再试）
   const translatedCount = await translateConfigDescriptions(merged)
 
-  // 6) 有新拉取或新译文才写库
-  if (Object.keys(fetched).length === 0 && translatedCount === 0) return merged
+  // 6) 有新增 / 实质变更 / 新译文才写库，避免无变化全量覆盖
+  if (Object.keys(changed).length === 0 && translatedCount === 0) {
+    console.log('[ConfigMeta] unchanged, keep resident catalog', Object.keys(merged).length)
+    return merged
+  }
   try {
     await collection.doc(CONFIG_META_DOC_ID).set({
       data: { configs: merged, updatedAt: now, count: Object.keys(merged).length }
     })
+    console.log('[ConfigMeta] wrote', Object.keys(changed).length, 'changed /', Object.keys(merged).length, 'resident')
   } catch (e) {
     console.warn('[ConfigMeta] write failed:', e.message)
   }
@@ -3061,17 +3089,8 @@ async function syncBoosterGenealogy(forceRefresh = false) {
     let configMetaCount = 0
     let configMetaMap = {}
     try {
-      configMetaMap = await syncLauncherConfigMeta(boosterList, forceRefresh)
+      configMetaMap = await syncLauncherConfigMeta(boosterList)
       configMetaCount = Object.keys(configMetaMap).length
-
-      // 名称 → configId 反查表（SpaceX v4 来源的箭没有 LL2 launcher_config 关联，用 rocketFamily 名称兜底）
-      const nameToConfigId = {}
-      for (const cid of Object.keys(configMetaMap)) {
-        const c = configMetaMap[cid]
-        if (!c) continue
-        if (c.full_name) nameToConfigId[String(c.full_name).toLowerCase()] = c.id
-        if (c.name) nameToConfigId[String(c.name).toLowerCase()] = c.id
-      }
 
       // 厂商 → 国家兜底映射（仅在构型元数据缺失时使用）
       const FALLBACK_COUNTRY = {
@@ -3081,13 +3100,10 @@ async function syncBoosterGenealogy(forceRefresh = false) {
       }
 
       for (const b of boosterList) {
-        if (b.configId == null && b.rocketFamily) {
-          const cid = nameToConfigId[String(b.rocketFamily).toLowerCase()]
-          if (cid != null) b.configId = cid
-        }
         const cfgMeta = b.configId != null ? configMetaMap[String(b.configId)] : null
         if (cfgMeta) {
           if (cfgMeta.countryCode) b.countryCode = cfgMeta.countryCode
+          if (cfgMeta.manufacturerId != null && b.manufacturerId == null) b.manufacturerId = cfgMeta.manufacturerId
           if (cfgMeta.manufacturerName && !b.manufacturer) b.manufacturer = cfgMeta.manufacturerName
           if (!b.rocketFamilyZh) {
             b.rocketFamilyZh = cfgMeta.full_nameZh || cfgMeta.nameZh || translateRocketName(b.rocketFamily || '') || ''
@@ -5235,7 +5251,7 @@ async function initAppCollectionsAndSeed(payload = {}) {
     .map((item) => ({ ...item, createdAt: item.createdAt || now, updatedAt: now }))
   const shopFeed = shopFeedSource.map((item) => ({ ...item, createdAt: item.createdAt || now, updatedAt: now }))
 
-  // 顺序固定：先同步 media_assets，再导入 media_feed（shop_feed 改为手动维护，不自动写入）
+  // 顺序固定：先同步 media_assets。media_feed 仅 initCollections 运维导入，现网小程序不读该集合。
   const mediaResult = await syncMediaAssetsMappings(mediaAssets, {
     sourceTag,
     pruneMissing: pruneMissingAssets,
@@ -6233,7 +6249,7 @@ exports.main = async (event, context) => {
   const { action, url, params } = event
 
   // 用于确认云端是否已部署到最新代码（每次改动可更新此标识）
-  const BUILD_TAG = 'syncSpaceDevsData_2026-07-20_v6_agency_detail_content_check'
+  const BUILD_TAG = 'syncSpaceDevsData_2026-09-06_config_meta_incremental'
 
   try {
     if (action === 'sync') {
@@ -6284,6 +6300,16 @@ exports.main = async (event, context) => {
       return {
         success: true,
         boosters: boosterResult,
+        timestamp: Date.now()
+      }
+    } else if (action === 'syncConfigMeta') {
+      // 只补构型档案：不足下限才翻全表，已有的常驻，不重拉助推器族谱
+      const map = await syncLauncherConfigMeta([], { fillCatalog: !!event.fillCatalog })
+      const count = Object.keys(map || {}).length
+      return {
+        success: true,
+        configMetaCount: count,
+        count,
         timestamp: Date.now()
       }
     } else if (action === 'syncRoadClosure') {
@@ -6448,7 +6474,7 @@ exports.main = async (event, context) => {
         timestamp: Date.now()
       }
     } else if (action === 'initCollections') {
-      // 初始化 media_assets / media_feed（shop_feed 手动维护，不自动写入）
+      // 运维保留：初始化 media_assets；media_feed 现网不读，shop_feed 手动维护
       const initResult = await initAppCollectionsAndSeed({
         assets: event.assets,
         mediaFeed: event.mediaFeed,

@@ -3,9 +3,10 @@ import * as checklist from './checklist.js'
 import { canFallbackPhotoUpload, isPayloadTooLarge } from './image-pack.js'
 import { fileOcrSource, ocrUploadBatch } from './ocr-files.js'
 import { slimMaterialsForCloud } from './project-sync.js'
-import { isCloudFileSlot, isDeleteAuthError, isPhotoSlot, PHOTO_SLOTS, photoStoreLabel, pickPhotoSrc, friendlyCloudError } from './photo-slots.js'
+import { isCloudFileSlot, isDeleteAuthError, isPhotoSlot, PHOTO_SLOTS, WORK_PHOTO_SLOTS, photoStoreLabel, pickPhotoSrc, friendlyCloudError } from './photo-slots.js'
 
 assert.deepStrictEqual(PHOTO_SLOTS, ['photo_before', 'photo_during', 'photo_after', 'photo_accept'])
+assert.deepStrictEqual(WORK_PHOTO_SLOTS, ['photo_before', 'photo_during', 'photo_after'])
 assert.strictEqual(isPhotoSlot('photo_before'), true)
 assert.strictEqual(isPhotoSlot('invoices'), false)
 assert.strictEqual(isCloudFileSlot('photo_before'), true)

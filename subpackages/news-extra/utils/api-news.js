@@ -432,6 +432,11 @@ function formatArticleItem(article) {
     ? article.authors[0].name
     : '未知作者'
 
+  const extraImages = Array.isArray(article.images)
+    ? article.images.map((u) => String(u || '').trim()).filter(Boolean)
+    : []
+  const image = article.image_url || extraImages[0] || ''
+
   return {
     id: article.id,
     // 默认展示英文原文，预翻译中文随数据带下去，由页面"翻译"按钮本地切换
@@ -442,7 +447,8 @@ function formatArticleItem(article) {
     author: authorName,
     newsSite: article.news_site || '',
     publishedAt: article.published_at,
-    image: article.image_url || '',
+    image,
+    images: extraImages.length ? extraImages : (image ? [image] : []),
     url: article.url || '',
     type: 'article'
   }

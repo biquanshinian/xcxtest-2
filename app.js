@@ -1,6 +1,7 @@
 // app.js
-// 分包详情页共用 Behavior；主包入口引用以满足「主包 JS 文件」静态扫描（分包 require 主包模块不计入主包使用）
+// 分包共用主包模块：静态扫描不计「分包 require 主包」，须在入口挂上
 require('./utils/page-base.js')
+require('./utils/rocket-config-match.js')
 const { getSystemInfo } = require('./utils/system.js')
 const { getUiShellLayout } = require('./utils/layout.js')
 const { cloudEnv } = require('./utils/config.js')
@@ -108,16 +109,10 @@ App({
           traceUser: true
         })
 
-        // 开屏：启动即预拉配置/预览片（逻辑在 index-extra），并预下载该分包
+        // 倒计时引导快照只读主包 storage，不拉 index-extra，避免和首屏抢带宽。
+        // 开屏预拉 / 分包预下载改到首页 onReady（preloadHomeSubpackages）。
         try {
-          require.async('./subpackages/index-extra/utils/splash-prefetch.js').then((m) => {
-            try { m.startSplashPrefetch(this) } catch (e) {}
-          }).catch(() => {})
-        } catch (e) {}
-        try {
-          if (typeof wx.preloadSubpackage === 'function') {
-            wx.preloadSubpackage({ name: 'index-extra', fail() {} })
-          }
+          require('./pages/index/utils/index-countdown-boot.js').hydrateCountdownBootToApp(this)
         } catch (e) {}
 
         // 已移除冷启动 /ping 预热：当前日活下 adminGateway 实例常驻为热，
@@ -125,9 +120,6 @@ App({
 
         setTimeout(() => {
           try { require('./utils/user-growth.js').recordMilestone('FIRST_OPEN', null, true) } catch (e) {}
-        }, 0)
-
-        setTimeout(() => {
           try { require('./utils/api-cache-clean.js').cleanExpiredApiCache() } catch (e) {}
           try { require('./utils/icon-cache.js').preloadStaticMediaUrls() } catch (e) {}
           const membership = require('./utils/membership.js')
@@ -151,7 +143,23 @@ App({
     }
   },
 
-  
+  /**
+   * 首屏 onReady 后再预下载首页分包并启动开屏预拉。
+   * 冷启动阶段若同时拉 shared + index-extra，会和资源加载抢带宽（Android 打开率尤其差）。
+   */
+  preloadHomeSubpackages() {
+    if (this._homeSubpackagesPreloaded) return
+    this._homeSubpackagesPreloaded = true
+    try {
+      require('./utils/preload-subpackages.js').preloadSubpackages(['index-extra', 'shared'])
+    } catch (e) {}
+    try {
+      require.async('./subpackages/index-extra/utils/splash-prefetch.js').then((m) => {
+        try { m.startSplashPrefetch(this) } catch (e2) {}
+      }).catch(() => {})
+    } catch (e) {}
+  },
+
   initAgentHandoff() {
     if (typeof wx.onAgentHandoff !== 'function') return
     try {

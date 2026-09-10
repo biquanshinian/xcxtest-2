@@ -11,6 +11,7 @@ var pageBase = require('../../utils/page-base.js')
 var shareGate = require('./utils/share-gate.js')
 var { fetchLl2LaunchTimeline } = require('../../utils/api-app-services.js')
 var { normalizeLl2TimelineList } = require('./utils/ll2-launch-timeline.js')
+var { SHARE_THUMB_FALLBACK, bootPageShareThumb, pageShareImage } = require('../../utils/share-thumb.js')
 
 var GATE_PRODUCT_ID = 'mission_sim'
 var GATE_PRODUCT_NAME = '飞行剖面演示'
@@ -54,7 +55,8 @@ Page({
     missionName: '',
     timeline: [],
     hasMissionEntry: false,
-    loadError: ''
+    loadError: '',
+    shareImage: SHARE_THUMB_FALLBACK
   },
 
   /** 覆盖 pageBase：本页固定深色 HUD，不跟随全局浅色主题 */
@@ -120,6 +122,7 @@ Page({
   },
 
   onLoad: async function (options) {
+    bootPageShareThumb(this)
     var that = this
     that.initUiShell()
     that.syncTheme()
@@ -216,7 +219,8 @@ Page({
       title: this.data.missionName
         ? ('飞行剖面演示 · ' + this.data.missionName + ' | 火星探索日志')
         : '飞行剖面演示：按星舰任务时间线自动循环',
-      path: this._sharePath()
+      path: this._sharePath(),
+      imageUrl: pageShareImage(this)
     }
   },
 
@@ -226,7 +230,8 @@ Page({
       title: this.data.missionName
         ? ('飞行剖面演示 · ' + this.data.missionName + ' | 火星探索日志')
         : '飞行剖面演示：按星舰任务时间线自动循环',
-      query: shareGate.withShareStampQuery(q, this)
+      query: shareGate.withShareStampQuery(q, this),
+      imageUrl: pageShareImage(this)
     }
   }
 })

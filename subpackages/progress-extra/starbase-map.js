@@ -4,6 +4,7 @@ const { STARBASE_CENTER, STARBASE_FACILITIES, toMarker } = require('./utils/map-
 const { getThemeClassSync, isLightSync, getPageBgSync } = require('../../utils/theme.js')
 const { isPlaybackAllowed } = require('../../utils/feature-flags.js')
 const { playOrbitPanoVideo, resolveOrbitPanoForStarbase } = require('./utils/orbit-pano.js')
+const { SHARE_THUMB_FALLBACK, bootPageShareThumb, pageShareImage } = require('../../utils/share-thumb.js')
 
 const STARSHIP_SHARED_TTL = 10 * 60 * 1000
 
@@ -29,6 +30,7 @@ Page({
     capsuleHeight: 32,
     menuButtonWidth: 88,
     isDirectEntry: false,
+    shareImage: SHARE_THUMB_FALLBACK,
     mapActionTop: 0,
     latitude: STARBASE_CENTER.latitude,
     longitude: STARBASE_CENTER.longitude,
@@ -51,6 +53,7 @@ Page({
   },
 
   onLoad(options = {}) {
+    bootPageShareThumb(this)
     const app = getApp()
     const markers = STARBASE_FACILITIES.map((item) => toMarker(item, { color: '#34C759', display: 'BYCLICK' }))
     this._focusFacilityId = Number(options.focusId || 0)
@@ -282,14 +285,16 @@ Page({
     const query = this._shareQuery()
     return {
       title: this._shareTitle(),
-      path: '/subpackages/progress-extra/starbase-map' + (query ? '?' + query : '')
+      path: '/subpackages/progress-extra/starbase-map' + (query ? '?' + query : ''),
+      imageUrl: pageShareImage(this)
     }
   },
 
   onShareTimeline() {
     return {
       title: this._shareTitle(),
-      query: this._shareQuery()
+      query: this._shareQuery(),
+      imageUrl: pageShareImage(this)
     }
   },
 

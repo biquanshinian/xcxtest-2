@@ -27,7 +27,7 @@
 
     <div class="cloud-info">
       <el-text type="info" size="small">
-        类型说明：timer = 定时触发；http = HTTP 接口；callable = 可调用；adminGateway 为管理网关，不支持手动触发。
+        类型说明：timer = 定时触发；http = HTTP 接口；callFunction = 可调用。仅 syncSpaceDevsData / syncSpaceXTweets / sendLaunchReminder 允许手动触发。
       </el-text>
     </div>
   </div>
@@ -45,13 +45,18 @@ const triggering = reactive({})
 function getTagType(type) {
   if (type === 'timer') return 'warning'
   if (type === 'http') return 'primary'
-  if (type === 'callable') return 'success'
+  if (type === 'callable' || type === 'callFunction') return 'success'
   return 'info'
 }
 
+const LEGACY_TRIGGER_ALLOW = ['syncSpaceDevsData', 'syncSpaceXTweets', 'sendLaunchReminder']
+
 function canTrigger(row) {
-  if (row.name === 'adminGateway') return false
-  return row.type === 'timer' || row.type === 'callable'
+  if (!row) return false
+  if (row.canTrigger === true) return true
+  if (row.canTrigger === false) return false
+  // 旧网关清单没有 canTrigger：只开放原白名单，避免全灰或误点 4001
+  return LEGACY_TRIGGER_ALLOW.includes(row.name)
 }
 
 async function loadFunctions() {

@@ -768,6 +768,7 @@ module.exports = function createAgentActions({ db, cloud, fetchJSON, getCache, s
   function slimBoosterRow(b) {
     return {
       serial: b.serialNumber,
+      ll2Id: b.ll2Id != null ? b.ll2Id : (b.launcherId != null ? b.launcherId : null),
       statusZh: BOOSTER_STATUS_ZH[b.status] || b.status || '未知',
       flights: b.flights != null ? b.flights : 0,
       successfulLandings: b.successfulLandings != null ? b.successfulLandings : 0,

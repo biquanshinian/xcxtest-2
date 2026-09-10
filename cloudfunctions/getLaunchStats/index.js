@@ -31,6 +31,7 @@ const {
   packBreakdownAggPayload,
   reconcileSummaryCounts
 } = require('./breakdown-agg.js')
+const { launchMatchesAgencyFilter } = require('./launch-match.js')
 
 const LAUNCH_LIBRARY_API = 'https://ll.thespacedevs.com/2.3.0'
 const SPACEX_LSP_ID = 121
@@ -528,6 +529,11 @@ function getAgencyName(launch) {
   return (lsp && (lsp.name || lsp.abbrev)) || '未知机构'
 }
 
+function getAgencyId(launch) {
+  const lsp = launch && launch.launch_service_provider
+  return lsp && lsp.id != null && String(lsp.id).trim() !== '' ? String(lsp.id).trim() : ''
+}
+
 function getRocketName(launch) {
   const cfg = launch && launch.rocket && launch.rocket.configuration
   if (!cfg) return '未知型号'
@@ -536,6 +542,32 @@ function getRocketName(launch) {
   const name = String(cfg.name || '').trim()
   if (name) return name
   return String(cfg.full_name || '').trim() || '未知型号'
+}
+
+function getConfigId(launch) {
+  const cfg = launch && launch.rocket && launch.rocket.configuration
+  return cfg && cfg.id != null && String(cfg.id).trim() !== '' ? String(cfg.id).trim() : ''
+}
+
+function tallyId(prev, field, id) {
+  if (!id) return
+  prev[field] = prev[field] || {}
+  prev[field][id] = (prev[field][id] || 0) + 1
+}
+
+function pickMajorityId(counts) {
+  const map = counts && typeof counts === 'object' ? counts : null
+  if (!map) return ''
+  let best = ''
+  let n = 0
+  Object.keys(map).forEach((id) => {
+    const c = Number(map[id]) || 0
+    if (c > n) {
+      n = c
+      best = id
+    }
+  })
+  return best
 }
 
 /**
@@ -570,17 +602,6 @@ function launchMatchesRocketFilter(launch, rocketName) {
   return full.toLowerCase().startsWith(target.toLowerCase())
 }
 
-function launchMatchesAgencyFilter(launch, mission) {
-  const agencyName = getAgencyName(launch)
-  const targetName = String((mission && mission.launchAgency) || (mission && mission.launchAgencyAbbrev) || '').trim()
-  if (targetName && agencyName.toLowerCase() === targetName.toLowerCase()) return true
-  const lsp = launch && launch.launch_service_provider
-  const targetId = mission && mission.launchAgencyId != null && mission.launchAgencyId !== ''
-    ? Number(mission.launchAgencyId) : null
-  if (targetId != null && lsp && Number(lsp.id) === targetId) return true
-  return false
-}
-
 /**
  * 把 LL2 launch 对象压成 slim 投影：只保留聚合所需字段，约 150 字节/条。
  * 解决 detailed 全量对象（~44KB/条）整存超过 CloudBase 1MB 文档上限、
@@ -602,6 +623,7 @@ function toSlimLaunch(launch) {
     },
     rocket: {
       configuration: {
+        id: cfg && cfg.id != null ? cfg.id : null,
         name: (cfg && cfg.name) || '',
         full_name: (cfg && (cfg.full_name || cfg.name)) || ''
       }
@@ -624,6 +646,8 @@ function bumpBucket(map, key, meta, launch) {
   prev.total += 1
   if (outcome.success) prev.success += 1
   if (outcome.failure) prev.failure += 1
+  if (meta && meta.agencyId) tallyId(prev, '_agencyIds', meta.agencyId)
+  if (meta && meta.configId) tallyId(prev, '_configIds', meta.configId)
   map.set(key, prev)
 }
 
@@ -634,6 +658,12 @@ function finalizeBuckets(map) {
     row.successPct = Math.round((row.success / denom) * 100)
     row.failurePct = Math.round((row.failure / denom) * 100)
     row.successFailText = `${row.success}成功 / ${row.failure}失败`
+    const agencyId = pickMajorityId(row._agencyIds)
+    const configId = pickMajorityId(row._configIds)
+    if (agencyId) row.agencyId = agencyId
+    if (configId) row.configId = configId
+    delete row._agencyIds
+    delete row._configIds
   })
   return rows.sort((a, b) => {
     if (b.total !== a.total) return b.total - a.total
@@ -656,10 +686,10 @@ function aggregateLaunches(launches) {
     }, launch)
 
     const agencyKey = getAgencyName(launch)
-    bumpBucket(byAgency, agencyKey, { name: agencyKey, flag: '' }, launch)
+    bumpBucket(byAgency, agencyKey, { name: agencyKey, flag: '', agencyId: getAgencyId(launch) }, launch)
 
     const rocketKey = getRocketName(launch)
-    bumpBucket(byRocket, rocketKey, { name: rocketKey, flag: '' }, launch)
+    bumpBucket(byRocket, rocketKey, { name: rocketKey, flag: '', configId: getConfigId(launch) }, launch)
 
     const o = classifyOutcome(launch)
     if (o.success) success += 1
@@ -1182,6 +1212,24 @@ async function getGlobalSummaryAction(event) {
         elapsed: Date.now() - startTime
       }
     }
+    const fromSync = await readLaunchStatsCollectionFallback(year)
+    if (fromSync) {
+      return {
+        success: true,
+        fromCache: true,
+        staleCache: true,
+        year,
+        countryKey,
+        summary: {
+          total: Number(fromSync.globalThisYear),
+          success: 0,
+          failure: 0
+        },
+        summaryPartial: true,
+        source: fromSync.source || 'launch_stats',
+        elapsed: Date.now() - startTime
+      }
+    }
   }
 
   return {
@@ -1479,11 +1527,15 @@ async function getSummaryAction(event) {
     }
   }
 
-  // readOnly：只读 DB（含陈旧兜底），不打 LL2；未命中返回 notReady 由定时任务预生成
+  // readOnly：只读 DB（含陈旧兜底），不打 LL2；未命中再回捞 launch_stats，仍空才 notReady
   if (readOnly) {
     const stale = await readCache(cacheKey, { allowStale: true })
     if (stale && isHomeSummaryPayloadValid(stale.payload, year)) {
       return { success: true, fromCache: true, staleCache: true, ...stale.payload, elapsed: Date.now() - startTime }
+    }
+    const fromSync = await readLaunchStatsCollectionFallback(year)
+    if (fromSync) {
+      return { success: true, fromCache: true, staleCache: true, ...fromSync, elapsed: Date.now() - startTime }
     }
     return { success: false, error: '统计数据生成中，请稍后再试', notReady: true, year, elapsed: Date.now() - startTime }
   }
@@ -1635,6 +1687,27 @@ async function getMissionStatsAction(event) {
   }
 
   return await recomputeMissionStats(mission, year, yearParams, cacheKey, startTime, false)
+}
+
+/** 6h sync 写入的 launch_stats.stats_${year}，getSummary 缓存未预热时回捞 */
+async function readLaunchStatsCollectionFallback(year) {
+  try {
+    const res = await db.collection('launch_stats').doc(`stats_${year}`).get()
+    const row = res && res.data
+    const stats = (row && row.data) || row
+    if (!stats) return null
+    const payload = {
+      year: Number(stats.year) || year,
+      globalThisYear: stats.globalThisYear,
+      spacexThisYear: stats.spacexThisYear != null ? stats.spacexThisYear : null,
+      source: stats.source || 'launch_stats',
+      updatedAt: stats.updatedAt || ''
+    }
+    if (!isHomeSummaryPayloadValid(payload, year)) return null
+    return payload
+  } catch (e) {
+    return null
+  }
 }
 
 /** 首页/日历 summary_<year> 缓存是否可用（排除旧 bug 把 null 写成 0 的脏文档） */
@@ -2227,7 +2300,7 @@ const UPCOMING_CACHE_PARAMS = {
   offset: 0,
   ordering: 'net'
 }
-const UPCOMING_CACHE_SUFFIXES = ['_slim_v5', '_slim_v4', '_slim_v3', '_slim_v2', '_slim', '']
+const UPCOMING_CACHE_SUFFIXES = ['_slim_v6', '_slim_v5', '_slim_v4', '_slim_v3', '_slim_v2', '_slim', '']
 
 function sortedCacheParamsString(params) {
   const sorted = Object.keys(params).sort().reduce((acc, k) => {

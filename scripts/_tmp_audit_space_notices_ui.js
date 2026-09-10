@@ -29,7 +29,7 @@ const tokens = read('styles/tokens.wxss')
 
 // ── 1) class 闭环：wxml 里出现的 class 必须在页面 wxss 或 app.wxss 有定义 ──
 console.log('\n[1] class 定义闭环')
-const KNOWN_GLOBAL = /^(theme-light|glass-card|skeleton|detail-skeleton)/
+const KNOWN_GLOBAL = /^(theme-light|glass-card|skeleton|detail-skeleton|top-nav|top-nav-wrapper|top-nav--page-grid|nav-left|nav-title-wrap|nav-title-wrap--page-grid|nav-title|nav-title--page-grid|nav-right-space|top-nav-slot--back|top-nav-slot--home|top-nav-slot--spacer|icon-back|icon-back--nav)/
 const classAttrs = wxml.match(/class="([^"]*)"/g) || []
 const used = new Set()
 classAttrs.forEach((a) => {
@@ -48,7 +48,7 @@ dynamic.forEach((d) => {
 // 后缀拼接类：sn-item-bar--{{item.typeTone}} / sn-tag--{{item.statusTone}}
 const SUFFIX_SETS = {
   'sn-item-bar': ['notam', 'nav', 'adp'],
-  'sn-chip-dot': ['notam', 'nav', 'adp', 'pad', 'live', 'soon', 'china'],
+  'sn-chip-dot': ['notam', 'nav', 'adp', 'pad', 'live', 'soon', 'ended', 'china'],
   'sn-tag': ['live', 'soon', 'off', 'plain']
 }
 Object.keys(SUFFIX_SETS).forEach((base) => {
@@ -111,7 +111,7 @@ function rulesOf(source) {
 }
 const rules = rulesOf(wxss)
 // 可点击的容器：必须 flex + 居中；其 text 必须 line-height:1 + text-align:center 或 width:100%
-const TAPPABLE = ['.sn-btn', '.sn-seg-item', '.sn-chip', '.sn-sheet-close', '.panel-toggle-btn']
+const TAPPABLE = ['.sn-btn', '.sn-seg-item', '.sn-chip', '.sn-card-head-close', '.panel-toggle-btn']
 const notCentered = []
 TAPPABLE.forEach((sel) => {
   const appRules = rulesOf(appWxss)
@@ -122,7 +122,7 @@ TAPPABLE.forEach((sel) => {
 check('可点击容器 flex 居中', notCentered.length === 0, notCentered.join(',') || TAPPABLE.join(','))
 
 const textNotCentered = []
-;['.sn-btn text', '.sn-seg-item text', '.sn-sheet-close text'].forEach((sel) => {
+;['.sn-btn text', '.sn-seg-item text', '.sn-card-head-close text'].forEach((sel) => {
   const body = rules[sel] || ''
   if (!(/line-height:\s*1\b/.test(body) && /text-align:\s*center/.test(body))) textNotCentered.push(sel)
 })
@@ -156,8 +156,8 @@ Object.keys(rules).forEach((sel) => {
 check('文字色走 token / 语义色', badTextColor.length === 0, badTextColor.join(' | ') || 'ok')
 
 check('玻璃底有浅色覆盖', /\.theme-light\s+\.glass-card/.test(wxss))
-check('遮罩有浅色覆盖', /\.theme-light\s+\.sn-mask/.test(wxss))
-check('分段/chip/win 有浅色覆盖', /\.theme-light\s+\.sn-seg/.test(wxss) && /\.theme-light\s+\.sn-chip/.test(wxss) && /\.theme-light\s+\.sn-win/.test(wxss))
+check('详情卡有浅色覆盖', /\.theme-light\s+\.sn-card-head/.test(wxss) && /\.theme-light\s+\.glass-card/.test(wxss))
+check('分段/chip 有浅色覆盖', /\.theme-light\s+\.sn-seg/.test(wxss) && /\.theme-light\s+\.sn-chip/.test(wxss))
 check('绿色状态字浅色降饱和', /\.theme-light\s+\.sn-tag--live\s+text/.test(wxss))
 check('themeLight 参与地图重画', /light:\s*!!this\.data\.themeLight/.test(js))
 check('onShow 主题兜底', /onShow\(\)/.test(js) && /this\.syncTheme\(\)/.test(js))
@@ -346,8 +346,8 @@ check('fitNotice 无几何返回 null', fitNotice({ areas: [] }) === null)
 // ── 9) 交互契约 ──
 console.log('\n[9] 交互契约')
 check('列表项可点选高亮', /bindtap="selectNotice"/.test(wxml) && /selectNotice\(e\)/.test(js))
-check('详情弹层与遮罩', /sn-mask/.test(wxml) && /sn-sheet/.test(wxml) && /selectedNotice/.test(js))
-check('遮罩点击收起但留高亮', /minimizeDetail/.test(js) && /selectedNotice: null \}\)/.test(js))
+check('详情弹层与遮罩', /sn-card-float/.test(wxml) && /selectedNotice/.test(js) && /closeDetail/.test(js))
+check('遮罩点击收起但留高亮', /minimizeDetail/.test(js) && /selectedNotice:\s*null/.test(js))
 check('关闭按钮清除高亮', /closeDetail\(\)/.test(js) && /selectedKey: ''/.test(js))
 check('复制原文/来源', /copyRawText/.test(js) && /copySourceLink/.test(js) && /setClipboardData/.test(js))
 check('面板可折叠', /togglePanel/.test(js) && /panelCollapsed/.test(wxml))
@@ -362,7 +362,7 @@ check('中国航警核对条', /sn-sync/.test(wxml) && /cadenceText/.test(js) &&
 check('中国空态文案', /没有中国相关通告/.test(wxml))
 check('四态状态筛选', /showLive/.test(js) && /showEnded/.test(js) && /showCancelled/.test(js) && /refreshVisible/.test(js))
 check('详情卡提前预警文案', /selectedNotice\.leadText/.test(wxml))
-check('生效窗口本地时间标注', /生效窗口（本地时间）/.test(wxml))
+check('生效窗口本地时间标注', /时间按你手机时区/.test(wxml) && /时间计划/.test(wxml))
 // map 是原生组件，数值属性写成字面量会以字符串下发；scale 区间已由 scaleFromSpan 兜住（3~20）
 const mapTag = (wxml.match(/<map[\s\S]*?\/>/) || [''])[0]
 check(
@@ -403,10 +403,10 @@ check('分享 path 可还原 entryKey', parsedQuery.entryKey === ENTRY_KEY, pars
 check('onLoad 解码 entryKey', /normalizeEntryKey\(/.test(js) && /options\.entryKey/.test(js) && /decodeURIComponent/.test(read(`${DIR}/utils/china-filter.js`)))
 check('兼容旧 ll2Id 分享', /normalizeEntryKey\(/.test(js) && /options\.ll2Id/.test(js))
 check('无 id 时回落列表页', /ROUTES\.SPACE_NOTICE_LIST/.test(js))
-check('无轨迹时隐藏轨迹 chip', /hasTrajectory/.test(js) && /wx:if="\{\{hasTrajectory\}\}"/.test(wxml))
+check('无轨迹且无 ADP 时隐藏走廊 chip', /hasAdp/.test(js) && /hasTrajectory \|\| hasAdp/.test(wxml))
 check('列表用 entryKey 打开详情', /entryKey/.test(listJs) && /data-key="\{\{item\.entryKey\}\}"/.test(listWxml))
-check('列表即将/历史分段', /upcoming/.test(listJs) && /past/.test(listJs) && /即将/.test(listWxml) && /历史发射/.test(listWxml))
-check('列表中国通告入口', /中国航警公告/.test(listJs) && /openChinaMap/.test(listJs) && /CHINESE_COLLECTION_KEY/.test(listJs))
+check('列表只显示提前预警', /upcomingOnly:\s*true/.test(listJs) && /提前预警/.test(listWxml) && !/历史发射/.test(listWxml))
+check('列表中国通告入口', /china-notice-preview/.test(listWxml) && /openChinaMap/.test(listJs) && /CHINESE_COLLECTION_KEY/.test(listJs))
 check('列表页标题发射航警地图', /发射航警地图/.test(listWxml))
 check('中国航警可回全部任务', /openAllMissions/.test(js) && /全部任务/.test(wxml))
 check('中国加载态标题', /正在读取中国航警公告/.test(wxml))
@@ -416,7 +416,7 @@ check('无参默认进中国合集', /if \(!entryKey && !ll2Id\) entryKey = CHIN
 const flag = read('utils/space-notices-feature.js')
 check('功能开关 fail-open', /failClosed:\s*false/.test(flag) && /defaultOff:\s*false/.test(flag))
 // 直接进入（栈深 1）时返回键变主页图标，否则分享进来点返回是死键
-check('详情页直进返回兜底', /isDirectEntry \? 'nav-back--home'/.test(wxml) && /_fallbackTab/.test(js))
+check('详情页直进返回兜底', /isDirectEntry \? 'top-nav-slot--home'/.test(wxml) && /_fallbackTab/.test(js))
 check('列表页直进返回兜底', /isDirectEntry \? 'top-nav-slot--home'/.test(listWxml) && /_fallbackTab/.test(listJs))
 
 const failed = results.filter((r) => !r.ok)

@@ -18,12 +18,31 @@
     {
       "path": "pages/news/news",
       "name": "航天事件",
-      "description": "航天事件与新闻：即将发生的航天事件、行业新闻资讯"
+      "description": "事件页：航天摄影、航天事件资讯、即将发生的航天事件；手写稿只在航天事件子页"
+    },
+    {
+      "path": "pages/profile/profile",
+      "name": "我的",
+      "description": "个人中心：签到、成就徽章、发射竞猜、每日挑战、收藏、年度回顾、星际通行证、火箭发射观礼入口"
+    },
+    {
+      "path": "pages/search/search",
+      "name": "搜索",
+      "description": "搜索发射任务、航天机构与火箭型号",
+      "query": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "搜索关键词，如任务名、猎鹰9、SpaceX"
+          }
+        }
+      }
     },
     {
       "path": "pages/mission-detail/mission-detail",
       "name": "发射任务详情",
-      "description": "单次火箭发射任务的完整详情：倒计时、任务说明、火箭信息、发射场、直播与回放",
+      "description": "单次火箭发射任务的完整详情：倒计时、任务说明、火箭信息、发射场、直播与回放；可进入型号对比、档案指数与 3D",
       "query": {
         "type": "object",
         "properties": {
@@ -37,6 +56,25 @@
           }
         },
         "required": ["id"]
+      }
+    },
+    {
+      "path": "subpackages/news-extra/detail",
+      "name": "航天文章/事件详情",
+      "description": "航天新闻文章或即将发生的航天事件详情",
+      "query": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "文章或事件 id；手写稿为 manual_ 加云文档 id"
+          },
+          "type": {
+            "type": "string",
+            "description": "article 表示文章，event 表示航天事件"
+          }
+        },
+        "required": ["id", "type"]
       }
     },
     {
@@ -73,6 +111,143 @@
       "path": "subpackages/monitor-pages/booster-genealogy",
       "name": "全球可回收火箭族谱",
       "description": "火箭回收数据中心：SpaceX 猎鹰及全球可回收火箭助推器族谱，飞行次数、复用记录、着陆回收历史与成功率"
+    },
+    {
+      "path": "subpackages/monitor-pages/booster-detail",
+      "name": "助推器详情",
+      "description": "单枚可回收助推器战绩：飞行次数、着陆回收、最近任务。猎鹰编号形如 B1067",
+      "query": {
+        "type": "object",
+        "properties": {
+          "serial": {
+            "type": "string",
+            "description": "助推器编号，如 B1067"
+          }
+        },
+        "required": ["serial"]
+      }
+    },
+    {
+      "path": "subpackages/monitor-pages/rocket-model-detail",
+      "name": "火箭型号详情",
+      "description": "单款火箭构型档案：尺寸、运力、推力、复用、发射战绩，可进入对比、3D 展厅",
+      "query": {
+        "type": "object",
+        "properties": {
+          "configId": {
+            "type": "string",
+            "description": "LL2 火箭构型 id"
+          }
+        },
+        "required": ["configId"]
+      }
+    },
+    {
+      "path": "subpackages/monitor-pages/rocket-compare",
+      "name": "火箭型号对比",
+      "description": "并排对比火箭型号差异：全长、直径、运力、推力、复用、发射与回收战绩，支持搜索添加 2–4 款型号",
+      "query": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "string",
+            "description": "要对比的 LL2 构型 id，逗号分隔，最多 4 个，如 164,215"
+          }
+        }
+      }
+    },
+    {
+      "path": "subpackages/monitor-pages/rocket-score",
+      "name": "火箭档案指数",
+      "description": "按同量级公开参数折算的参考分（运力/动力/经济/可靠/复用/成熟），不是投票也不是权威排名",
+      "query": {
+        "type": "object",
+        "properties": {
+          "configId": {
+            "type": "string",
+            "description": "LL2 火箭构型 id"
+          },
+          "name": {
+            "type": "string",
+            "description": "型号中文名，可选"
+          }
+        },
+        "required": ["configId"]
+      }
+    },
+    {
+      "path": "subpackages/rocket-3d/viewer",
+      "name": "3D 火箭展厅",
+      "description": "部分火箭型号的可旋转 3D 模型展厅；不是每型都有模型，可能需星际通行证",
+      "query": {
+        "type": "object",
+        "properties": {
+          "configId": {
+            "type": "string",
+            "description": "LL2 火箭构型 id"
+          },
+          "slug": {
+            "type": "string",
+            "description": "3D 模型短名，如 falcon-9"
+          },
+          "name": {
+            "type": "string",
+            "description": "型号名称，可选"
+          }
+        }
+      }
+    },
+    {
+      "path": "subpackages/monitor-pages/station-detail",
+      "name": "空间站详情",
+      "description": "在轨空间站档案：状态、乘组、停靠飞行器（ISS / 天宫等）",
+      "query": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "空间站唯一标识"
+          },
+          "name": {
+            "type": "string",
+            "description": "空间站名称，可选，用于标题预览"
+          }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "path": "subpackages/watch-party/merchant-list",
+      "name": "火箭观礼",
+      "description": "发射现场观礼商家与场次列表：文昌等发射场看发射、预约入场。无具体场次 id 时用本页，不要编造票价或坐标",
+      "query": {
+        "type": "object",
+        "properties": {
+          "missionId": {
+            "type": "string",
+            "description": "关联的发射任务 id，可选"
+          },
+          "channel": {
+            "type": "string",
+            "description": "来源渠道，如 profile、app"
+          }
+        }
+      }
+    },
+    {
+      "path": "subpackages/monitor-pages/starlink-fullscreen",
+      "name": "星链过境",
+      "description": "星链卫星过境预报与观测：需用户授权模糊位置后查看过境时刻、方位与仰角。不要在对话里直接报时刻"
+    },
+    {
+      "path": "subpackages/monitor-pages/space-notices/entry-list",
+      "name": "空间航警",
+      "description": "中国空间航警告示列表，可查看相关火箭与空域提示"
+    },
+    {
+      "path": "subpackages/mission-sim/mission-sim",
+      "name": "飞行剖面",
+      "description": "火箭飞行剖面与任务演示，从任务详情或相关入口进入"
     },
     {
       "path": "pages/space-explore/astro-calendar",

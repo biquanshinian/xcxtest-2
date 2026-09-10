@@ -18,8 +18,9 @@ function read(p) {
 
 // ---- syntax ----
 const jsFiles = [
+  'subpackages/shared/utils/text-translate.js',
   'pages/mission-detail/utils/text-translate.js',
-  'utils/booster-nav.js',
+  'pages/mission-detail/utils/booster-nav.js',
   'pages/nasa-data/nasa-api.js',
   'pages/nasa-data/nasa-data.js',
   'cloudfunctions/ll2Query/translate.js',
@@ -39,12 +40,12 @@ for (const f of jsFiles) {
 }
 // legacy too large for new Function sometimes — node --check via spawn avoided; regex only
 
-const tt = read('pages/mission-detail/utils/text-translate.js')
+const tt = read('subpackages/shared/utils/text-translate.js')
 const tr = read('cloudfunctions/ll2Query/translate.js')
 const idx = read('cloudfunctions/ll2Query/index.js')
 const nasa = read('pages/nasa-data/nasa-api.js')
 const nd = read('pages/nasa-data/nasa-data.js')
-const bn = read('utils/booster-nav.js')
+const bn = read('pages/mission-detail/utils/booster-nav.js')
 const bd = read('subpackages/monitor-pages/booster-detail.js')
 const md = read('pages/mission-detail/mission-detail.js')
 const routes = read('utils/routes.js')
@@ -72,7 +73,7 @@ assert('AI: loadTranslateAiService shared path', /function loadTranslateAiServic
 const aiShellSrc = read('utils/aiService.js')
 assert('AI: shell isAIAvailable createModel', /extend\.AI\.createModel/.test(aiShellSrc) && !/typeof wx\.cloud\.extend === ['"]function['"]/.test(aiShellSrc))
 
-assert('cloud: pending-empty withMeta', /if\s*\(!pending\.length\)\s*\{[\s\S]*?withMeta[\s\S]*?list:\s*results/.test(tr))
+assert('cloud: pending-empty withMeta', /if\s*\(!pending\.length\)\s*return results/.test(tr) && /withMeta:\s*true/.test(idx))
 assert('cloud: action Array.isArray', /Array\.isArray\(out\)/.test(idx))
 assert('cloud: fail tmtNeeded&&empty', /tmtNeeded\s*>\s*0\s*&&\s*translated\s*===\s*0/.test(idx))
 assert('cloud: skipTmt not false-fail', /!skipTmt\s*&&\s*tmtNeeded/.test(idx))
@@ -81,7 +82,7 @@ assert('cloud: action raised item cap', /TRANSLATE_MAX_ITEM_CHARS\s*=\s*20000/.t
 assert('cloud: hunyuan primary getAIEntry', /function getAIEntry\(/.test(tr) && /hy3-preview/.test(tr))
 assert('cloud: hunyuan before TMT', /translatePendingViaAI[\s\S]*aiOut\.remaining/.test(tr))
 assert('cloud: FreeAmount no retry cascade', /tmtQuotaExhausted/.test(tr) && /isTmtPermanentError/.test(tr))
-assert('cloud: AI hit clears tmtNeeded', /tmtNeeded:\s*results\.some\(Boolean\)\s*\?\s*0/.test(tr))
+assert('cloud: AI hit clears tmtNeeded', /const toTmt = aiOut\.remaining/.test(tr) && /if\s*\(!toTmt\.length\)\s*return results/.test(tr))
 assert('cloud: action comment hunyuan', /混元 AI/.test(idx))
 
 // ---- mars ----
@@ -100,7 +101,7 @@ assert('booster: detail fallbacks', /serialNumber:\s*serial/.test(bd) && /getBoo
 assert('booster: share non-sst pass', /if\s*\(!sst\)\s*return true/.test(shareGate))
 assert('booster: genealogy wired', /openBoosterEntityDetail/.test(read('subpackages/monitor-pages/booster-genealogy.js')))
 assert('booster: galleries wired', /openBoosterEntityDetail/.test(read('subpackages/monitor-pages/utils/monitor-galleries.js')))
-assert('booster: index wired', /openBoosterEntityDetail/.test(read('pages/index/index.js')))
+assert('booster: index wired', /openBoosterEntityDetail/.test(read('subpackages/index-extra/utils/index-interaction.js')))
 
 // ---- agency ----
 assert('agency: reject hollow batch', /without results\[\] for batching/.test(sh))

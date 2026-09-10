@@ -266,8 +266,14 @@ function resolveFavoriteUrl(item) {
       const t = (item.extra && item.extra.missionType) || 'upcoming'
       return ROUTES.MISSION_DETAIL + '?id=' + id + '&type=' + encodeURIComponent(t)
     }
-    case 'booster':
-      return ROUTES.BOOSTER_DETAIL + '?serial=' + id
+    case 'booster': {
+      const ll2Id = item.extra && (item.extra.ll2Id || item.extra.launcherId)
+      const q = ['serial=' + id]
+      if (ll2Id != null && String(ll2Id).trim() !== '') {
+        q.push('ll2Id=' + encodeURIComponent(String(ll2Id).trim()))
+      }
+      return ROUTES.BOOSTER_DETAIL + '?' + q.join('&')
+    }
     case 'rocket_model':
       return ROUTES.ROCKET_MODEL_DETAIL + '?configId=' + id
     case 'spacecraft':

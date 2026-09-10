@@ -25,7 +25,15 @@ const LIST_WXSS = 'subpackages/monitor-pages/space-notices/entry-list.wxss'
 const LIST_JSON = 'subpackages/monitor-pages/space-notices/entry-list.json'
 
 // ── 1) 语法 / JSON ──
-;[LIST_JS, 'subpackages/monitor-pages/space-notices/utils/notice-format.js', 'subpackages/monitor-pages/space-notices/utils/api-space-notices.js'].forEach((f) => {
+;[
+  LIST_JS,
+  'subpackages/monitor-pages/space-notices/utils/notice-format.js',
+  'subpackages/monitor-pages/space-notices/utils/api-space-notices.js',
+  'subpackages/monitor-pages/space-notices/utils/entry-cards.js',
+  'subpackages/monitor-pages/space-notices/utils/entry-lifecycle.js',
+  'cloudfunctions/spaceNotices/entry-lifecycle.js',
+  'cloudfunctions/spaceNotices/entry-identity.js'
+].forEach((f) => {
   const r = spawnSync(process.execPath, ['--check', path.join(ROOT, f)], { encoding: 'utf8' })
   check('syntax ' + path.basename(f), r.status === 0, r.stderr || 'ok')
 })
@@ -53,16 +61,10 @@ global.wx = {
 }
 
 const { decorateSpaceNoticeEntry } = require('../subpackages/monitor-pages/space-notices/utils/notice-format.js')
-const listSrc = read(LIST_JS)
-const fnBlock = listSrc.slice(listSrc.indexOf('function formatNet'), listSrc.indexOf('Page({'))
-const sandbox = {
-  decorateSpaceNoticeEntry,
-  module: { exports: {} },
-  exports: {},
-  console
+const { formatNet, formatNetShort, decorateEntryCard, splitEntryCards } = require('../subpackages/monitor-pages/space-notices/utils/entry-cards.js')
+function decorateEntry(e) {
+  return decorateEntryCard(e, { now: Date.parse('2026-09-07T00:00:00+08:00') })
 }
-vm.runInNewContext(fnBlock + '\nmodule.exports = { formatNet, formatNetShort, decorateEntry }\n', sandbox)
-const { formatNet, formatNetShort, decorateEntry } = sandbox.module.exports
 check('抽出 formatNet/decorateEntry', typeof formatNet === 'function' && typeof decorateEntry === 'function')
 
 const slimFixtures = [
@@ -137,9 +139,10 @@ check('decorateEntry 全部不抛', decorateThrows.length === 0, decorateThrows.
 const starlink = decorated[0]
 check('星链标题读云端 zh', starlink && starlink.title === '星链组 10-49', starlink && starlink.title)
 check('星链副标题读云端 zh', starlink && starlink.subtitle === '猎鹰9号', starlink && starlink.subtitle)
-check('短日期 MM-DD', starlink && /^\d{2}-\d{2}$/.test(starlink.netShort), starlink && starlink.netShort)
+check('短日期 MM-DD', starlink && /^\d{2}-\d{2}$/.test(starlink.dateShort || starlink.netShort), starlink && (starlink.dateShort || starlink.netShort))
 check('noticeCount 为数字', starlink && starlink.noticeCount === 7, String(starlink && starlink.noticeCount))
 check('无轨迹不标 hasTrajectory', starlink && !starlink.hasTrajectory)
+check('7月星链按发射时刻进历史', starlink && starlink.isPast === true, starlink && String(starlink.isPast))
 
 const flight = decorated[1]
 check('星舰标题读云端 zh', flight && flight.title === '第13次飞行', flight && flight.title)
@@ -188,7 +191,7 @@ const wxss = read(LIST_WXSS)
 const appWxss = read('app.wxss')
 const pageBase = read('utils/page-base.js')
 
-const handlers = [...new Set((wxml.match(/(?:bind|catch)(?:tap|touchmove)="([a-zA-Z]+)"/g) || []).map((s) => s.replace(/.*="|"/g, '')))]
+const handlers = [...new Set((wxml.match(/(?:bind|catch)(?:tap|touchmove|error)="([a-zA-Z]+)"/g) || []).map((s) => s.replace(/.*="|"/g, '')))]
 const missingHandlers = handlers.filter(
   (h) => !new RegExp('(^|\\s)' + h + '\\s*\\(').test(js) && !new RegExp('(^|\\s)' + h + '\\s*\\(').test(pageBase)
 )
@@ -225,7 +228,15 @@ check('wxml class 都有样式', missingClass.length === 0, missingClass.join(',
 
 check('三列网格', /\.sn-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3/.test(wxss.replace(/\s+/g, ' ')))
 check('列表用 entryKey 打开详情', /data-key="\{\{item\.entryKey\}\}"/.test(wxml) && /openMap\(/.test(js))
-check('wx:elif 链闭合', (wxml.match(/wx:if=/g) || []).length >= 3 && /wx:elif/.test(wxml) && /wx:else/.test(wxml))
+check(
+  '列表状态链闭合',
+  /wx:if="\{\{loading\}\}"/.test(wxml) &&
+    /<block wx:else>/.test(wxml) &&
+    /wx:if="\{\{errorText\}\}"/.test(wxml) &&
+    /wx:if="\{\{upcoming\.length\}\}"/.test(wxml) &&
+    !/暂无提前预警/.test(wxml) &&
+    !/同步条目/.test(wxml)
+)
 
 const failed = results.filter((r) => !r.ok)
 console.log(`\n=== list audit: ${results.length - failed.length} passed, ${failed.length} failed ===`)

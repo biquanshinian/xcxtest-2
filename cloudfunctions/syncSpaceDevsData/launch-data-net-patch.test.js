@@ -8,7 +8,8 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const {
   buildLaunchDataNetPatch,
-  NET_CHANGE_DELAY_MS
+  NET_CHANGE_DELAY_MS,
+  patchResultsInPlace
 } = require('./launch-net-hourly.js')
 
 const NOW = Date.parse('2026-08-12T12:00:00Z')
@@ -110,6 +111,38 @@ test('attachNetChangeMeta：探针已打标后 5 分钟 tick 重写不丢标记'
   attachNetChangeMeta(existing, payload)
   assert.equal(payload.netChangePending, true, '未消费 pending 必须保留')
   assert.equal(payload.previousNet, OLD_ISO)
+})
+
+test('小时探针 upcoming 就地补丁升级航行警告占位身份', () => {
+  const id = '898f7df0-b6ce-4a5c-80b4-67e81842124e'
+  const results = [
+    {
+      id,
+      name: 'Long March 12 | Unknown Payload',
+      net: '2026-09-17T00:30:00Z',
+      window_start: '2026-09-17T00:30:00Z',
+      status: { id: 1, name: 'Go', abbrev: 'Go' },
+      mission: { name: 'Unknown Payload' },
+      rocket: { configuration: { name: 'Long March 12' } }
+    }
+  ]
+  const liveById = new Map([
+    [
+      id,
+      {
+        id,
+        name: 'Long March 12 | SatNet LEO Group 12',
+        net: '2026-09-17T00:30:00Z',
+        window_start: '2026-09-17T00:30:00Z',
+        status: { id: 1, name: 'Go', abbrev: 'Go' }
+      }
+    ]
+  ])
+  const changes = patchResultsInPlace(results, liveById)
+  assert.equal(changes.length, 1)
+  assert.ok(changes[0].identityFields && changes[0].identityFields.length)
+  assert.equal(results[0].name, 'Long March 12 | SatNet LEO Group 12')
+  assert.equal(results[0].mission.name, 'SatNet LEO Group 12')
 })
 
 console.log('launch-data-net-patch.test.js: all assertions queued (node:test will report)')

@@ -40,6 +40,17 @@ const FIR_LABEL = {
 }
 
 const CHINA_BBOX = { minLon: 73, maxLon: 140, minLat: 0, maxLat: 54 }
+/** 与客户端 china-filter 分块盒对齐，避开种子岛 / 东方发射场 */
+const CHINA_BOXES = [
+  [18.0, 20.8, 108.0, 111.8],
+  [20.5, 41.2, 108.0, 123.6],
+  [26.0, 43.2, 97.0, 112.5],
+  [35.0, 49.0, 73.5, 97.0],
+  [27.0, 37.0, 78.0, 103.5],
+  [40.0, 50.6, 122.0, 135.0],
+  [21.8, 25.4, 119.9, 122.1],
+  [8.0, 18.2, 109.5, 120.0]
+]
 const CHINA_HINT = /文昌|酒泉|太原|西昌|黄海|武汉|兰州|长征|Wenchang|Jiuquan|Xichang|Taiyuan|Long March|CZ[-_ ]?\d/i
 const CHINA_SLUG_RE = /cz-|long-march|wenchang|jiuquan|taiyuan|xichang|haiyang|cangzhou|zhuhai|lanzhou|wuhan/i
 const FOREIGN_FIR_RE = /^(RP|VV|VT|WB|WM|WS|RJ|RK|KZ|PA|PH|EG|ED|LF|LI|LE|UH|UE|UL)/i
@@ -61,7 +72,8 @@ function isChinaFir(code) {
   if (!c) return false
   if (CHINA_FIR_SET[c]) return true
   if (/^(RC|VH|VM)/.test(c) && c.length === 4) return true
-  return c.length === 4 && c.charAt(0) === 'Z' && c.charAt(1) !== 'K' && c.charAt(1) !== 'M'
+  // 与 china-filter CHINA_ICAO_RE 对齐，不把任意 Z*** 当成中国
+  return /^(Z[BGHJLPSUWY][A-Z]{2})$/.test(c)
 }
 
 function isForeignFir(code) {
@@ -84,7 +96,14 @@ function isChinaNoticePath(path) {
 }
 
 function pointInChina(lon, lat) {
-  return lon >= CHINA_BBOX.minLon && lon <= CHINA_BBOX.maxLon && lat >= CHINA_BBOX.minLat && lat <= CHINA_BBOX.maxLat
+  const y = Number(lat)
+  const x = Number(lon)
+  if (!Number.isFinite(y) || !Number.isFinite(x)) return false
+  for (let i = 0; i < CHINA_BOXES.length; i++) {
+    const b = CHINA_BOXES[i]
+    if (y >= b[0] && y <= b[1] && x >= b[2] && x <= b[3]) return true
+  }
+  return false
 }
 
 function ringHitsChina(ring) {

@@ -60,3 +60,41 @@ test('新闻红点网关失败不串行读库', () => {
   assert.match(fn, /finish\(undefined\)/)
   assert.doesNotMatch(fn, /\.catch\(\(\)\s*=>\s*tryDbOrderByUpdated\(\)\)/)
 })
+
+test('任务详情切页不等 2.5s 媒体映射', () => {
+  const src = read('pages/mission-detail/mission-detail.js')
+  const onLoad = src.slice(src.indexOf('async onLoad(options)'), src.indexOf('async loadMissionDetail'))
+  assert.match(onLoad, /isCloudMediaMapReady\(\)/)
+  assert.match(onLoad, /MEDIA_MAP_SWITCH_PAINT_BUDGET_MS/)
+  assert.doesNotMatch(onLoad, /setTimeout\(r,\s*2500\)/)
+  assert.match(src, /MEDIA_MAP_SWITCH_PAINT_BUDGET_MS = 120/)
+})
+
+test('任务详情 / 探索分包不塞进首页 preloadRule，改为首帧后或意图预下载', () => {
+  const app = JSON.parse(read('app.json'))
+  const indexRule = app.preloadRule && app.preloadRule['pages/index/index']
+  assert.equal(indexRule.network, 'wifi')
+  assert.ok(!indexRule.packages.includes('mission-detail'))
+  const monitorRule = app.preloadRule && app.preloadRule['pages/monitor/monitor']
+  assert.equal(monitorRule.network, 'wifi')
+  assert.ok(!monitorRule.packages.includes('nasa-data'))
+  const profileRule = app.preloadRule && app.preloadRule['pages/profile/profile']
+  assert.ok(!profileRule.packages.includes('collect'))
+  const index = read('pages/index/index.js')
+  assert.match(index, /preloadSubpackages\(\['mission-detail'\]\)/)
+  assert.match(read('pages/monitor/monitor.js'), /preloadSubpackages\(\['nasa-data'\]\)/)
+  assert.match(read('pages/profile/profile.js'), /preloadSubpackages\(\['collect'\]\)/)
+  const float = read('subpackages/shared/components/nasa-float/index.js')
+  assert.match(float, /_preloadExplorePackages/)
+  assert.match(float, /nasa-data/)
+  assert.match(read('utils/preload-subpackages.js'), /function preloadSubpackages/)
+})
+
+test('月愿页配置已缓存时立刻开页，音频不抢首屏', () => {
+  const src = read('pages/collect/collect.js')
+  assert.match(src, /getCachedMainConfig\(\)/)
+  const boot = src.slice(src.indexOf('_bootLunarPage()'), src.indexOf('onUnload()'))
+  assert.match(boot, /nextTick/)
+  assert.match(boot, /createInnerAudioContext/)
+  assert.ok(boot.indexOf('_restoreOrCheckWish') < boot.indexOf('createInnerAudioContext'))
+})

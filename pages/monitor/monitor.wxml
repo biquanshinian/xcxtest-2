@@ -44,7 +44,7 @@
     <nav-scroll-pad id="navScrollPad" class="nav-scroll-pad" height="{{navPlaceholderHeight}}" />
 
     <!-- 直播观看：视频号 channel-live + B站入口（后台 enableLiveWatch 开关控制） -->
-    <view class="monitor-livestream-section monitor-block" wx:if="{{enableLiveWatch}}">
+    <view class="monitor-livestream-section monitor-block" wx:if="{{tabSubpkgUiReady && enableLiveWatch}}">
         <view class="section-title monitor-livestream-section-title">
           <view class="monitor-livestream-title-left">
             <text class="monitor-livestream-heading-text">直播观看</text>
@@ -90,7 +90,7 @@
       bind:bgerror="onOrbitalBgError"
     />
 
-    <!-- 航警预览：画布组件（不进原生 map，避免 Tab 遮罩被戳穿、滑动黑块抖动） -->
+    <!-- 航警预览：与详情页同一套腾讯卫星图（catcher 挡住拖动手势） -->
     <view class="space-notices-section monitor-block" wx:if="{{enableSpaceNotices}}">
       <view class="section-title">
         <text>发射航警地图</text>
@@ -101,7 +101,7 @@
           </view>
         </view>
       </view>
-      <china-notice-preview id="chinaNoticePreview" bind:open="openSpaceNotices" />
+      <china-notice-preview id="chinaNoticePreview" title="中国航警" native-map="{{true}}" bind:open="openSpaceNotices" />
     </view>
 
     <monitor-core-panel
@@ -219,9 +219,9 @@
       </view>
     </view>
   </view>
-<nasa-float id="nasaFloat" />
+<nasa-float wx:if="{{tabSubpkgUiReady}}" id="nasaFloat" />
   <privacy-modal id="globalPrivacyModal"></privacy-modal>
-  <popup-ad visible="{{popupAdVisible}}" shop-item="{{popupAdItem}}" bind:close="onPopupAdClose"></popup-ad>
-  <demo-overlay id="demoOverlay" showControls="{{false}}" qrcodeUrl="https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%B0%8F%E7%A8%8B%E5%BA%8F%E4%BA%8C%E7%BB%B4%E7%A0%81/1775323336594_jkl6zv.png" loop="{{true}}" />
-  <share-guide />
+  <popup-ad wx:if="{{tabSubpkgUiReady}}" visible="{{popupAdVisible}}" shop-item="{{popupAdItem}}" bind:close="onPopupAdClose"></popup-ad>
+  <demo-overlay wx:if="{{tabSubpkgUiReady}}" id="demoOverlay" showControls="{{false}}" qrcodeUrl="https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/%E5%B0%8F%E7%A8%8B%E5%BA%8F%E4%BA%8C%E7%BB%B4%E7%A0%81/1775323336594_jkl6zv.png" loop="{{true}}" />
+  <share-guide wx:if="{{tabSubpkgUiReady}}" />
 </view>

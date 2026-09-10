@@ -106,6 +106,17 @@ function splitTitle(rawTitle) {
  * @param {string} slug
  * @returns {{ entryKey: string, missionName: string, rocketName: string, siteTitle: string, description: string, siteDates: string[] }}
  */
+/** 标题缺失时从 slug 抽任务名，并剥掉火箭段，避免 launch-long-march-3be-tianlian-2-06 带上 3-2-6 */
+function missionFromSlug(slug) {
+  const key = String(slug || '').trim()
+  if (!/^launch[-_]/i.test(key)) return ''
+  return key
+    .replace(/^launch[-_]/i, '')
+    .replace(/^(?:f9|fh|falcon-?9|falcon-?heavy|starship|electron|new-?glenn|ariane-?\d*|zhuque-?3|zq-?3|cz-?\d+[a-z]*|long-?march-?\d+[a-z]*)[-_]*/i, '')
+    .replace(/[-_]+/g, ' ')
+    .trim()
+}
+
 function parseEntryMeta(html, slug) {
   const rawTitle = (String(html || '').match(/<title>([^<]*)<\/title>/i) || [, ''])[1]
   const { missionName, rocketName } = splitTitle(rawTitle)
@@ -118,7 +129,7 @@ function parseEntryMeta(html, slug) {
     .sort()
   return {
     entryKey: slug,
-    missionName: missionName || ogTitle || slug,
+    missionName: missionName || ogTitle || missionFromSlug(slug),
     rocketName,
     siteTitle: decodeEntities(rawTitle).replace(/\s*\|\s*Space Notices\s*$/i, '').trim(),
     description,
@@ -155,6 +166,7 @@ module.exports = {
   isCollectionKey,
   isChineseCollectionKey,
   splitTitle,
+  missionFromSlug,
   parseEntryMeta,
   discoverEntrySlugs,
   fetchEntryPage

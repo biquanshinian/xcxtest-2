@@ -8,6 +8,7 @@
 const {
   resolveMissionRocketImage,
   isDefaultRocketSrc,
+  isBrokenRocketDisplaySrc,
   shouldReplaceRocketImage
 } = require('../../../utils/util.js')
 const { rocketNameForImage } = require('../../../utils/launch-card-i18n.js')
@@ -16,6 +17,8 @@ const {
   setMissionDetailCacheEntry
 } = require('../../../utils/index-page-helpers.js')
 const { loadCloudMediaMap } = require('../../../utils/image-config.js')
+const { applyOrbitPanoFlags } = require('../../../utils/orbit-pano-list-flag.js')
+const { applyRocket3dFlags } = require('../../../utils/rocket-3d-list-flag.js')
 const { preloadRocketConfigMedia } = require('../../../utils/icon-cache.js')
 const { markDownloadFailed } = require('../../../utils/download-fail-cache.js')
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
@@ -35,6 +38,7 @@ const interactionMethods = {
     if (!context) return
 
     this.persistMissionDetailListSnapshot(context)
+    this._indexLeftToSubpage = true
 
     wx.navigateTo({
       url: context.navigation.url,
@@ -294,9 +298,10 @@ const interactionMethods = {
       wx.vibrateShort({ type: 'medium' })
     } catch (e) {}
     const launch = this.data.launchData || {}
-    const serial = String((launch.boosterInfo && launch.boosterInfo.serialNumber) || '').trim()
+    const info = launch.boosterInfo || {}
+    const serial = String(info.serialNumber || '').trim()
     const { openBoosterEntityDetail } = require('./booster-nav.js')
-    await openBoosterEntityDetail(serial, { skipGate: true })
+    await openBoosterEntityDetail(serial, { skipGate: true, ll2Id: info.launcherId })
   },
 
   async onGoAgencyDetail() {
@@ -305,13 +310,9 @@ const interactionMethods = {
     } catch (e) {}
     const launch = this.data.launchData || {}
     const id = launch.launchAgencyId
-    const abbrev = launch.launchAgencyAbbrev || ''
-    if (id == null && !abbrev) return
+    if (id == null || id === '') return
     // 单场任务发射商详情对免费用户开放；图鉴大类（监控页/列表）仍走门控
-    const params = {}
-    if (id != null) params.id = id
-    else params.abbrev = abbrev
-    navigateTo(ROUTES.AGENCY_DETAIL, params)
+    navigateTo(ROUTES.AGENCY_DETAIL, { id: id })
   },
 
   async onGoRocketModelDetail() {
@@ -323,6 +324,17 @@ const interactionMethods = {
     if (configId == null || configId === '') return
     const { openRocketModelDetail } = require('./booster-nav.js')
     await openRocketModelDetail(configId, { skipGate: true })
+  },
+
+  async onGoLaunchSiteDetail() {
+    try {
+      wx.vibrateShort({ type: 'medium' })
+    } catch (e) {}
+    const launch = this.data.launchData || {}
+    const id = launch.padLocationId
+    if (id == null || id === '') return
+    // 单场任务发射场详情对免费用户开放；图鉴大类仍走门控
+    navigateTo(ROUTES.LAUNCH_SITE_DETAIL, { id: id })
   },
 
   async onImageError(e) {
@@ -346,6 +358,7 @@ const interactionMethods = {
       markDownloadFailed(String(failedImage).trim(), 404)
     }
 
+    const stamp = isBrokenRocketDisplaySrc(failedImage) ? '' : failedImage
     const fallbackDefault = resolveMissionRocketImage(DEFAULT_ROCKET_IMAGE, rocketName, mission.rocketConfiguration)
     const applyImage = (nextImage) => {
       if (isCalendar) {
@@ -376,7 +389,7 @@ const interactionMethods = {
     } catch (err) {}
 
     // 即使当前已是 default，也强制重算：default 能加载成功不会触发 error，但 map 晚到时需主动升级
-    const fuzzyMatchImage = resolveMissionRocketImage(failedImage, rocketName, mission.rocketConfiguration, true)
+    const fuzzyMatchImage = resolveMissionRocketImage(stamp, rocketName, mission.rocketConfiguration, true)
 
     if (fuzzyMatchImage && fuzzyMatchImage !== failedImage) {
       applyImage(fuzzyMatchImage)
@@ -405,6 +418,7 @@ const interactionMethods = {
     if (this._countdownRocketImageErrorPasses > 5) return
 
     const failedImage = ld.rocketImage || ld.image || ''
+    const stamp = isBrokenRocketDisplaySrc(failedImage) ? '' : failedImage
     const rocketName = rocketNameForImage(ld)
 
     // 与列表卡片一致：记录失败 URL，后续 resolve 不再返回同一个坏链接
@@ -428,7 +442,7 @@ const interactionMethods = {
       await loadCloudMediaMap()
     } catch (err) {}
 
-    const nextImage = resolveMissionRocketImage(failedImage, rocketName, ld.rocketConfiguration, true)
+    const nextImage = resolveMissionRocketImage(stamp, rocketName, ld.rocketConfiguration, true)
     if (nextImage && nextImage !== failedImage) {
       applyImage(nextImage)
       return
@@ -454,8 +468,9 @@ const interactionMethods = {
     } catch (e) {}
 
     const curImg = ld.image || ld.rocketImage || ''
+    const stamp = isBrokenRocketDisplaySrc(curImg) ? '' : curImg
     // 按火箭名重算；已有正确图时传入 stamped，避免 fuzzy miss 降级成 default
-    const url = resolveMissionRocketImage(curImg, rocketNameForImage(ld), ld.rocketConfiguration, true)
+    const url = resolveMissionRocketImage(stamp, rocketNameForImage(ld), ld.rocketConfiguration, true)
     if (!shouldReplaceRocketImage(curImg, url)) return
 
     this.setData({
@@ -511,6 +526,102 @@ const interactionMethods = {
     if (Object.keys(patch).length) this.setData(patch)
   },
 
+  async _repairVisibleRocketImages() {
+    try {
+      await loadCloudMediaMap()
+    } catch (e) {}
+    const hasRocketMatchInput = (m) => {
+      if (!m) return false
+      if (m.rocketName && String(m.rocketName).trim()) return true
+      const cfg = m.rocketConfiguration
+      if (!cfg || typeof cfg !== 'object') return false
+      return !!(
+        (typeof cfg.name === 'string' && cfg.name.trim()) ||
+        (typeof cfg.full_name === 'string' && cfg.full_name.trim())
+      )
+    }
+    const resolveOne = (m) => {
+      if (!hasRocketMatchInput(m)) return null
+      const cur = m.rocketImage || m.image || ''
+      const broken = isBrokenRocketDisplaySrc(cur)
+      const isDefault = isDefaultRocketSrc(cur)
+      if (!broken && !isDefault) return null
+      const next = resolveMissionRocketImage(
+        broken ? '' : cur,
+        rocketNameForImage(m) || m.rocketName,
+        m.rocketConfiguration,
+        true
+      )
+      if (!next || !shouldReplaceRocketImage(cur, next)) return null
+      return next
+    }
+    const refreshList = (listKey) => {
+      const arr =
+        this._indexParked && Object.prototype.hasOwnProperty.call(this._indexParked, listKey)
+          ? this._indexParked[listKey]
+          : this.data[listKey]
+      if (!Array.isArray(arr) || !arr.length) return null
+      let mutated = false
+      const next = arr.map((m) => {
+        const rebuilt = resolveOne(m)
+        if (!rebuilt) return m
+        mutated = true
+        return { ...m, rocketImage: rebuilt, image: rebuilt }
+      })
+      return mutated ? next : null
+    }
+    const patch = {}
+    const upNext = refreshList('upcomingMissions')
+    if (upNext) patch.upcomingMissions = upNext
+    const dispNext = refreshList('displayedUpcomingMissions')
+    if (dispNext) patch.displayedUpcomingMissions = dispNext
+    const cpNext = refreshList('completedMissions')
+    if (cpNext) patch.completedMissions = cpNext
+    const calNext = refreshList('calendarAllMissions')
+    if (calNext) patch.calendarAllMissions = calNext
+
+    const ld = this.data.launchData
+    if (ld && ld.id && hasRocketMatchInput(ld)) {
+      const rebuiltLd = resolveOne(ld)
+      if (rebuiltLd) {
+        patch['launchData.image'] = rebuiltLd
+        patch['launchData.rocketImage'] = rebuiltLd
+      }
+    }
+    const side = this.data.overlapSideCard
+    if (side && hasRocketMatchInput(side)) {
+      const rebuiltSide = resolveOne(side)
+      if (rebuiltSide) {
+        patch['overlapSideCard.rocketImage'] = rebuiltSide
+        patch['overlapSideCard.image'] = rebuiltSide
+      }
+    }
+
+    if (!Object.keys(patch).length) {
+      try {
+        if (typeof this._restampOrbitPanoFlags === 'function') this._restampOrbitPanoFlags()
+      } catch (e3) {}
+      return
+    }
+    ;['upcomingMissions', 'displayedUpcomingMissions', 'completedMissions', 'calendarAllMissions'].forEach((key) => {
+      if (!Array.isArray(patch[key])) return
+      try { applyOrbitPanoFlags(patch[key]) } catch (eFlag) {}
+      try { applyRocket3dFlags(patch[key]) } catch (eFlag3d) {}
+    })
+    this.setData(patch, () => {
+      try {
+        if (patch.upcomingMissions) this.updateMissionListView('upcoming', patch.upcomingMissions)
+        if (patch.completedMissions) this.updateMissionListView('completed', patch.completedMissions)
+      } catch (e) {}
+      try {
+        this.syncLaunchPanelRocketImageWithUpcomingList()
+      } catch (e2) {}
+      try {
+        if (typeof this._restampOrbitPanoFlags === 'function') this._restampOrbitPanoFlags()
+      } catch (e3) {}
+    })
+  },
+
   _preloadVisibleRocketImages(list, n) {
     if (!Array.isArray(list) || !list.length) return
     const max = Math.max(0, Math.min(Number(n) || 0, list.length))
@@ -532,14 +643,16 @@ const interactionMethods = {
 
   _withResolvedRocketImage(mission) {
     if (!mission || typeof mission !== 'object') return mission
-    // 与详情头图同源：始终 forceRecompute；保留 stamped 仅用于防 default 降级
+    // 与详情头图同源：始终 forceRecompute；失效 wxfile 不能当盖章，否则会白图
     const stamped = mission.rocketImage || mission.image || ''
+    const stamp = isBrokenRocketDisplaySrc(stamped) ? '' : stamped
     const resolved = resolveMissionRocketImage(
-      stamped,
+      stamp,
       rocketNameForImage(mission),
       mission.rocketConfiguration,
       true
     )
+    if (!resolved || !shouldReplaceRocketImage(stamped, resolved)) return mission
     if (resolved === mission.rocketImage && resolved === mission.image) return mission
     return { ...mission, rocketImage: resolved, image: resolved }
   },

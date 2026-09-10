@@ -1,3 +1,5 @@
+import { nameLooksImage } from './heif-sniff.js'
+
 export function isFileDrag(dt) {
   if (!dt || !dt.types) return false
   const types = Array.from(dt.types)
@@ -68,7 +70,7 @@ function uniqueFiles(list) {
 }
 
 function pickPasteImages(list) {
-  const images = list.filter((file) => (file.type && file.type.startsWith('image/')) || /\.(jpe?g|png|gif|webp|bmp)$/i.test(file.name || ''))
+  const images = list.filter((file) => nameLooksImage(file.name, file.type))
   if (!images.length) return list
   const png = images.find((file) => /png/i.test(file.type || file.name || ''))
   return [png || images[0]]

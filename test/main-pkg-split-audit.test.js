@@ -92,6 +92,9 @@ test('仅被主包 require.async 的分包模块有同分包同步锚点', () =>
   assert.match(orbital, /require\('\.\/upcoming-orbital-events\.js'\)/)
   assert.match(splash, /require\('\.\/splash-prefetch\.js'\)/)
   assert.match(placeholder, /require\('\.\/utils\/popup-ad\.js'\)/)
+  assert.match(placeholder, /require\('\.\/utils\/event-video\.js'\)/)
+  assert.match(placeholder, /require\('\.\/utils\/video-cache\.js'\)/)
+  assert.match(placeholder, /require\('\.\/utils\/text-translate\.js'\)/)
   assert.match(starlink, /require\('\.\/utils\/monitor-weather\.js'\)/)
   assert.match(newsDetail, /require\('\.\/utils\/news-thumb-url\.js'\)/)
 })
@@ -231,27 +234,59 @@ test('核心面板不再泄漏航警预览样式（apply-shared 会打到页面�
   assert.doesNotMatch(wxss, /\.sn-china-hud\b/)
 })
 
-test('代码包图音总量不超过 200KB（质量扫描「图片和音频资源」）', () => {
-  const skipDir = new Set([
-    '.git', 'node_modules', 'admin-web', 'cloudfunctions', 'cloudfunctionTemplate',
-    'docs', 'scripts', 'test', 'workers', 'tools', 'scf-cos-trigger', 'agent-config',
-    'assets', 'cloudflare-worker'
-  ])
+function packedMediaTotal() {
+  // 与微信上传包一致：应用 project.config.json packOptions.ignore。
+  // 官方质量扫描「图片和音频资源大小不超过 200K」统计的是代码包内合计，不是整个仓库。
+  // https://developers.weixin.qq.com/miniprogram/dev/framework/performance/tips/start_optimizeA.html
+  const cfg = JSON.parse(read('project.config.json'))
+  const globs = ((cfg.packOptions && cfg.packOptions.ignore) || []).map((r) => String(r.value || '').replace(/^\//, ''))
+  const globToRe = (g) => {
+    const s = g
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+      .replace(/\*\*\//g, '(?:.*/)?')
+      .replace(/\*\*/g, '.*')
+      .replace(/\*/g, '[^/]*')
+    return new RegExp('^' + s + '$')
+  }
+  const res = globs.map(globToRe)
+  const folderRules = ((cfg.packOptions && cfg.packOptions.ignore) || [])
+    .filter((r) => r.type === 'folder' || r.type === 'prefix')
+    .map((r) => String(r.value || '').replace(/^\//, ''))
+  const ignored = (f) => res.some((re) => re.test(f)) || folderRules.some((d) => f === d || f.startsWith(d + '/'))
+  const autoSkip = /(^|\/)(node_modules|\.git|\.github|\.cursor|\.vscode|\.idea)(\/|$)|(^|\/)\./
   const media = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.mp3', '.m4a', '.wav', '.aac', '.ogg'])
   let total = 0
-  const walk = (dir) => {
-    for (const name of fs.readdirSync(dir)) {
-      if (name.startsWith('.')) continue
+  const walk = (dir, rel) => {
+    let names
+    try {
+      names = fs.readdirSync(dir)
+    } catch (e) {
+      return
+    }
+    for (const name of names) {
       const full = path.join(dir, name)
-      const st = fs.statSync(full)
-      if (st.isDirectory()) {
-        if (!skipDir.has(name)) walk(full)
+      const r = (rel ? rel + '/' + name : name).replace(/\\/g, '/')
+      let st
+      try {
+        st = fs.statSync(full)
+      } catch (e) {
         continue
       }
+      if (st.isDirectory()) {
+        if (autoSkip.test(r + '/') || ignored(r)) continue
+        walk(full, r)
+        continue
+      }
+      if (autoSkip.test(r) || ignored(r)) continue
       if (media.has(path.extname(name).toLowerCase())) total += st.size
     }
   }
-  walk(ROOT)
+  walk(ROOT, '')
+  return total
+}
+
+test('代码包图音总量不超过 200KB（质量扫描「图片和音频资源」）', () => {
+  const total = packedMediaTotal()
   assert.ok(total < 200 * 1024, `图音合计 ${(total / 1024).toFixed(1)} KB，应 < 200 KB`)
 })
 

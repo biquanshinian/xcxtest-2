@@ -312,7 +312,9 @@ Component({
       }
 
       this._vibrateMedium()
-      this.setData({ expanded: !this.data.expanded })
+      const next = !this.data.expanded
+      this.setData({ expanded: next })
+      if (next) this._preloadExplorePackages()
     },
 
     onTouchCancel() {
@@ -361,6 +363,18 @@ Component({
         this._particleList = []
         this.setData({ particles: [] })
       }, 1600)
+    },
+
+    _preloadExplorePackages() {
+      if (this._explorePreloaded) return
+      this._explorePreloaded = true
+      try {
+        require('../../../../utils/preload-subpackages.js').preloadSubpackages([
+          'nasa-data',
+          'collect',
+          'space-explore'
+        ])
+      } catch (e) {}
     },
 
     onMenuTap(e) {

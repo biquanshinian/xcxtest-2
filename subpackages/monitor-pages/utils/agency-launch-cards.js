@@ -28,11 +28,11 @@ function formatAgencyLaunchCard(m) {
   }
 }
 
-/** 按发射商匹配任务：优先 LL2 机构 id，兜底缩写（老缓存可能缺 id） */
+/** 按发射商匹配任务：有机构 id 只认 launchAgencyId；无 id 的旧入口才用缩写 */
 function matchLaunchAgency(m, agency) {
   if (!m || !agency) return false
-  if (agency.id != null && m.launchAgencyId != null) {
-    return String(m.launchAgencyId) === String(agency.id)
+  if (agency.id != null && String(agency.id).trim() !== '') {
+    return m.launchAgencyId != null && String(m.launchAgencyId) === String(agency.id)
   }
   if (agency.abbrev && m.launchAgencyAbbrev) {
     return m.launchAgencyAbbrev === agency.abbrev

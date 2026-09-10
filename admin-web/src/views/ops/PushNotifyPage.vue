@@ -67,12 +67,27 @@
   </el-card>
 
   <el-dialog v-model="pushDialogVisible" title="手动推送" width="520px">
+    <el-alert
+      type="info"
+      :closable="false"
+      show-icon
+      style="margin-bottom:16px;"
+      title="立即跑一轮与定时器相同的待发链路（小程序订阅 / 服务号 T-30 / 改期 / 封路），不是自定义群发。"
+    />
     <el-form :model="pushForm" label-width="80px">
-      <el-form-item label="标题">
-        <el-input v-model="pushForm.title" placeholder="请输入推送标题" />
+      <el-form-item label="通道">
+        <el-select v-model="pushForm.kind" style="width:100%;">
+          <el-option label="待发全链路（与 5 分钟定时器相同）" value="pending" />
+          <el-option label="仅改期推送" value="net" />
+          <el-option label="仅封路推送" value="road" />
+          <el-option label="仅任务结果" value="result" />
+        </el-select>
       </el-form-item>
-      <el-form-item label="内容">
-        <el-input v-model="pushForm.content" type="textarea" :rows="5" placeholder="请输入推送内容" />
+      <el-form-item label="备注标题">
+        <el-input v-model="pushForm.title" placeholder="写入推送历史，不发到用户模板" />
+      </el-form-item>
+      <el-form-item label="备注">
+        <el-input v-model="pushForm.content" type="textarea" :rows="4" placeholder="操作备注，可选" />
       </el-form-item>
     </el-form>
     <template #footer>
@@ -148,7 +163,7 @@ const pushSaving = ref(false)
 
 const subQuery = reactive({ page: 1, pageSize: 20 })
 const histQuery = reactive({ page: 1, pageSize: 20 })
-const pushForm = reactive({ title: '', content: '' })
+const pushForm = reactive({ kind: 'pending', title: '', content: '' })
 
 const loadSubscriptions = async () => {
   subLoading.value = true
@@ -187,19 +202,20 @@ const onHistPageChange = (page) => {
 }
 
 const openManualPush = () => {
+  pushForm.kind = 'pending'
   pushForm.title = ''
   pushForm.content = ''
   pushDialogVisible.value = true
 }
 
 const onSubmitPush = async () => {
-  if (!pushForm.title?.trim() && !pushForm.content?.trim()) {
-    ElMessage.warning('请至少填写标题或内容')
-    return
-  }
   pushSaving.value = true
   try {
-    await api.triggerPush({ title: pushForm.title, content: pushForm.content })
+    await api.triggerPush({
+      kind: pushForm.kind || 'pending',
+      title: pushForm.title,
+      content: pushForm.content
+    })
     ElMessage.success('推送已触发')
     pushDialogVisible.value = false
     loadHistory()

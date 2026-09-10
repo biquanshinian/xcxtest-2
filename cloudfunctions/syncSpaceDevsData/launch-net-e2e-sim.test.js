@@ -11,6 +11,7 @@ const {
   attachLaunchStubsToTerminalEntries,
   isTerminalStatus
 } = require('./launch-net-state.js')
+const { applyLaunchIdentityUpgrade, hasWeakLaunchIdentity } = require('./launch-identity-upgrade.js')
 
 const ID_1739 = 'e1079d3a-c0a6-4b42-bc1d-92e48a5a78fc'
 
@@ -32,17 +33,30 @@ function patchPreviousStatusInPlace(results, terminalById) {
     if (!term || !term.status) continue
     const curId = row.status && row.status.id != null ? Number(row.status.id) : 0
     const nextId = Number(term.status.id)
-    if (curId === nextId && statusEqual(row.status, term.status)) continue
-    if (isTerminalStatus(row.status) && !isTerminalStatus(term.status)) continue
-    row.status = {
-      id: term.status.id,
-      name: term.status.name || '',
-      abbrev: term.status.abbrev || ''
+    let changed = false
+    if (!(curId === nextId && statusEqual(row.status, term.status)) &&
+        !(isTerminalStatus(row.status) && !isTerminalStatus(term.status))) {
+      row.status = {
+        id: term.status.id,
+        name: term.status.name || '',
+        abbrev: term.status.abbrev || ''
+      }
+      if (term.net) row.net = term.net
+      if (term.windowStart) row.window_start = term.windowStart
+      if (term.windowEnd) row.window_end = term.windowEnd
+      changed = true
     }
-    if (term.net) row.net = term.net
-    if (term.windowStart) row.window_start = term.windowStart
-    if (term.windowEnd) row.window_end = term.windowEnd
-    patched++
+    const stub = stubFromTerminalEntry(term)
+    if (stub) {
+      const up = applyLaunchIdentityUpgrade(row, stub, {
+        trustIncoming: !hasWeakLaunchIdentity(stub)
+      })
+      if (up.changed) changed = true
+    } else if (term.name && !hasWeakLaunchIdentity({ name: term.name })) {
+      const up = applyLaunchIdentityUpgrade(row, { id: term.id, name: term.name }, { trustIncoming: true })
+      if (up.changed) changed = true
+    }
+    if (changed) patched++
   }
   return patched
 }

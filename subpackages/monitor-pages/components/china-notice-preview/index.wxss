@@ -19,13 +19,16 @@
   left: 16rpx;
   right: 16rpx;
   bottom: 16rpx;
+  z-index: 3;
   padding: 16rpx 20rpx;
   border-radius: 14rpx;
   background-color: rgba(8, 10, 14, 0.72);
   pointer-events: none;
 }
 .sn-preview-sat,
-.sn-preview-canvas {
+.sn-preview-canvas,
+.sn-preview-map,
+.sn-preview-catcher {
   position: absolute;
   left: 0;
   top: 0;
@@ -34,8 +37,13 @@
   display: block;
   border-radius: 24rpx;
 }
-.sn-preview-canvas {
+.sn-preview-canvas,
+.sn-preview-map {
   pointer-events: none;
+}
+.sn-preview-catcher {
+  z-index: 2;
+  background: transparent;
 }
 .sn-china-hud-title {
   display: block;

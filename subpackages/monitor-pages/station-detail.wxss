@@ -661,6 +661,10 @@ page {
   color: #8ebdff;
   margin-top: 4rpx;
 }
+.ship-agency--link::after {
+  content: ' ›';
+  opacity: 0.7;
+}
 
 .ship-detail-grid {
   margin-top: 10rpx;

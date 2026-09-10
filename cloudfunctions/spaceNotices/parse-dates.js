@@ -34,8 +34,27 @@ function toIso(ms) {
   return Number.isFinite(d.getTime()) ? d.toISOString() : undefined
 }
 
+function isPlaceholderNoticeDate(v) {
+  if (v == null || v === '') return false
+  const s = typeof v === 'number' && Number.isFinite(v)
+    ? new Date(v).toISOString()
+    : String(v)
+  return /2099-01-01/.test(s)
+}
+
+function sanitizeNoticeDates(dates) {
+  return (Array.isArray(dates) ? dates : [])
+    .map((d) => {
+      if (!d) return null
+      if (isPlaceholderNoticeDate(d.start) || isPlaceholderNoticeDate(d.end)) return null
+      if (!d.start && !d.end) return null
+      return d
+    })
+    .filter(Boolean)
+}
+
 function fillNoticeDates(dates, rawText) {
-  const listed = (Array.isArray(dates) ? dates : []).filter((d) => d && (d.start || d.end))
+  const listed = sanitizeNoticeDates(dates)
   const hasStart = listed.some((d) => d && d.start)
   if (listed.length && hasStart) return listed
   const w = parseIcaoWindow(rawText || '')
@@ -47,5 +66,7 @@ function fillNoticeDates(dates, rawText) {
 
 module.exports = {
   parseIcaoWindow,
-  fillNoticeDates
+  fillNoticeDates,
+  isPlaceholderNoticeDate,
+  sanitizeNoticeDates
 }

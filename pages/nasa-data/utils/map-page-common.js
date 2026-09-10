@@ -1,5 +1,6 @@
 const { getUiShellLayout } = require('../../../utils/layout.js')
 const { getSystemInfo } = require('../../../utils/system.js')
+const { SHARE_THUMB_FALLBACK } = require('../../../utils/share-thumb.js')
 
 function formatMapUpdateTime(date, fallback = '待更新') {
   const d = date instanceof Date ? date : new Date(date)
@@ -10,7 +11,8 @@ function formatMapUpdateTime(date, fallback = '待更新') {
 function buildMapSharePayload(shareTitle, detailText, path) {
   return {
     title: `${shareTitle || '地图页'} · ${detailText || '查看详情'}`,
-    path: path || '/pages/index/index'
+    path: path || '/pages/index/index',
+    imageUrl: SHARE_THUMB_FALLBACK
   }
 }
 

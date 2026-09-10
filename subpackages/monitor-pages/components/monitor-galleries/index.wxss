@@ -127,6 +127,11 @@
   color: var(--color-brand);
   text-align: center;
 }
+.booster-family-tag--link::after,
+.booster-mfr-tag--link .booster-mfr-name::after {
+  content: ' ›';
+  opacity: 0.7;
+}
 .booster-mfr-tag {
   display: inline-flex;
   align-items: center;

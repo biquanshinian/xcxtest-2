@@ -243,7 +243,8 @@
 
                         <text class="mission-status-badge status-{{row.statusCategory || 'pending'}}">{{row.statusText}}</text>
 
-                        <text class="ai-launch-row-agency" wx:if="{{row.launchAgency}}">{{row.launchAgency}}</text>
+                        <text class="ai-launch-row-agency ai-launch-row-agency--link" wx:if="{{row.launchAgency && row.launchAgencyId}}" catchtap="onLaunchRowAgencyTap" data-id="{{row.launchAgencyId}}">{{row.launchAgency}}</text>
+                        <text class="ai-launch-row-agency" wx:elif="{{row.launchAgency}}">{{row.launchAgency}}</text>
 
                       </view>
 
@@ -675,6 +676,8 @@
                   data-kind="{{card.specKind}}"
 
                   data-targetid="{{card.targetId}}"
+
+                  data-ll2id="{{card.targetLl2Id}}"
 
                   data-name="{{card.targetName}}"
 

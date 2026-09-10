@@ -87,6 +87,22 @@ if (wxml.includes('summaryPending') && page.includes('function pendingCount')) {
 if (page.includes('index-ux.js')) ok('分包锚点 index-ux 仍在')
 else fail('缺 index-ux 锚点')
 
+if (statsUtil.includes('resolveAgencyDisplayZh') && statsUtil.includes('translateRocketName')) {
+  ok('机构/型号展示走统一汉化')
+} else fail('统计排行未复用 resolveAgencyDisplayZh / translateRocketName')
+
+if (page.includes('onTapAgencyRank') && page.includes('ROUTES.AGENCY_DETAIL') && wxml.includes('onTapAgencyRank')) {
+  ok('机构行跳出发射商详情')
+} else fail('机构行未接到 AGENCY_DETAIL')
+
+if (page.includes('onTapRocketRank') && page.includes('openRocketModelDetail') && wxml.includes('onTapRocketRank')) {
+  ok('型号行跳到火箭型号详情')
+} else fail('型号行未接到 rocket-model-detail')
+
+if (!/rocket-score|ROCKET_SCORE/.test(page) && !/rocket-score|ROCKET_SCORE/.test(statsUtil)) {
+  ok('统计页不引入档案指数')
+} else fail('统计页误引入了评分逻辑')
+
 console.log('\n==== 汇总 ====')
 console.log('失败', issues.length)
 issues.forEach((i) => console.log(' -', i))

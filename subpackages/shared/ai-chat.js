@@ -9,6 +9,7 @@ const { ROUTES } = require('../../utils/routes.js')
 const { isAIAvailable, fetchAIChatEnabled } = require('./utils/aiService.js')
 const { isFeatureEnabled } = require('../../utils/feature-flags.js')
 const { aiChatUiText } = require('./utils/ai-chat-i18n.js')
+const { SHARE_THUMB_FALLBACK, bootPageShareThumb, pageShareImage } = require('../../utils/share-thumb.js')
 
 Page({
   behaviors: [pageBase],
@@ -18,11 +19,13 @@ Page({
     keyboardHeight: 0,
     navTitle: '星问',
     /** 未通过开关前不挂载对话组件，避免审核员看到星问 UI */
-    pageAllowed: false
+    pageAllowed: false,
+    shareImage: SHARE_THUMB_FALLBACK
   },
 
   onLoad() {
     this.initUiShell()
+    bootPageShareThumb(this)
     try {
       this.setData({ navTitle: aiChatUiText('pageNavTitle') })
     } catch (e) {}
@@ -108,14 +111,15 @@ Page({
     return {
       title: this._buildShareTitle(),
       path: ROUTES.AI_CHAT,
-      imageUrl: ''
+      imageUrl: pageShareImage(this)
     }
   },
 
   onShareTimeline() {
     return {
       title: this._buildShareTitle(),
-      query: ''
+      query: '',
+      imageUrl: pageShareImage(this)
     }
   }
 })

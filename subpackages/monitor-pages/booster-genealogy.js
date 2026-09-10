@@ -9,8 +9,15 @@ const boosterDisplay = require('./utils/booster-display.js')
 const gallerySearch = require('./utils/gallery-search.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
-const { openBoosterEntityDetail } = require('./utils/booster-nav.js')
+const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
+const { openBoosterEntityDetail, openRocketCompare, openEncyclopediaAgency } = require('./utils/booster-nav.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
+const {
+  pickRocketModelShareImageUrl,
+  pickRocketModelShareSourceForDownload,
+  rocketShareOptsFromModel
+} = require('./utils/rocket-model-share-image.js')
+const { ensureShareImageOnPage, pageShareImage } = require('../../utils/share-thumb.js')
 
 const STATUS_FILTERS = [
   { id: 'all', label: '全部状态' },
@@ -31,6 +38,9 @@ Page({
   data: {
     loading: true,
     loadError: false,
+    errorMessage: '',
+    shareGateExpireAt: 0,
+    shareImage: '',
     navTitle: '全球可回收火箭族谱',
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
@@ -58,15 +68,47 @@ Page({
     var filter = options && options.filter ? decodeURIComponent(options.filter) : 'all'
     if (/^[A-Za-z]{2}$/.test(filter)) filter = 'country:' + filter.toUpperCase()
     this._pendingFilter = filter
-    this.loadData()
+    this._entryOptions = options || {}
+    this.ensureCatalogAccess(this._entryOptions).then((allowed) => {
+      if (allowed) this.loadData()
+    })
+  },
+
+  async ensureCatalogAccess(options) {
+    var shareAllowed = await checkShareEntryGate(this, options, 'booster_genealogy', '全球可回收火箭族谱')
+    if (!shareAllowed) {
+      this._catalogAllowed = false
+      this.setData({
+        loading: false,
+        loadError: true,
+        errorMessage: '分享链接已过期，开通星际通行证后可继续查看'
+      })
+      return false
+    }
+    warmShareEntitlement(this, 'booster_genealogy')
+    if (!this.data.shareGateExpireAt) {
+      var allowed = await gateCheck('booster_genealogy', '全球可回收火箭族谱')
+      if (!allowed) {
+        this._catalogAllowed = false
+        this.setData({
+          loading: false,
+          loadError: true,
+          errorMessage: '开通星际通行证后可查看族谱'
+        })
+        return false
+      }
+    }
+    this._catalogAllowed = true
+    return true
   },
 
   async loadData(options) {
+    if (!this._catalogAllowed) return
     // silent：下拉刷新时不显示整页骨架（避免 scroll-view 被 wx:if 卸载打断回弹）
     var silent = !!(options && options.silent)
-    this.setData(silent ? { loadError: false } : { loading: true, loadError: false })
+    this.setData(silent ? { loadError: false } : { loading: true, loadError: false, errorMessage: '' })
     try {
-      var results = await Promise.all([getBoosterGenealogy(), getRocketConfigMeta()])
+      var results = await Promise.all([getBoosterGenealogy(), getRocketConfigMeta({ afterGate: true })])
       var list = results[0] || []
       var configMeta = results[1] || { configs: {} }
 
@@ -74,7 +116,9 @@ Page({
       var processed = boosterDisplay.processBoosterList(list, configMeta.configs)
       this._allBoosters = processed.processed
       this._rawBySerial = processed.rawBySerial
-      this._allModels = boosterDisplay.buildModelCards(configMeta.configs)
+      this._allModels = boosterDisplay.buildModelCards(configMeta.configs).filter(function (m) {
+        return m.reusable === true
+      })
 
       // chip 由箭实体 + 型号两侧数据合并；控制数量，单排横滑
       var chipSource = this._allBoosters.concat(this._allModels.map(function (m) {
@@ -143,6 +187,19 @@ Page({
       filterEmpty: boosters.length === 0 && models.length === 0,
       filterChips: chips
     })
+    this._syncShareImage(models[0] || boosters[0])
+  },
+
+  _syncShareImage(card) {
+    const opts = rocketShareOptsFromModel(card)
+    const url = pickRocketModelShareImageUrl(opts)
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    ensureShareImageOnPage(this, pickRocketModelShareSourceForDownload(opts))
+  },
+
+  _buildShareImage() {
+    const card = (this.data.modelCards && this.data.modelCards[0]) || (this.data.boosterCards && this.data.boosterCards[0])
+    return pageShareImage(this) || pickRocketModelShareImageUrl(rocketShareOptsFromModel(card))
   },
 
   onFilterTap(e) {
@@ -186,6 +243,11 @@ Page({
     this.applyFilters({ sortBy: id })
   },
 
+  onTapRocketCompare() {
+    try { wx.vibrateShort({ type: 'light' }) } catch (e) {}
+    return openRocketCompare()
+  },
+
   async onModelCardTap(e) {
     var configId = e.currentTarget.dataset.configId
     if (configId == null) return
@@ -195,14 +257,32 @@ Page({
     navigateTo(ROUTES.ROCKET_MODEL_DETAIL, { configId: configId })
   },
 
+  async onTapModelManufacturer(e) {
+    var ds = (e.currentTarget && e.currentTarget.dataset) || {}
+    var id = ds.id || ds.agencyId || ''
+    if (!id) {
+      wx.showToast({ title: '暂无该发射商档案', icon: 'none' })
+      return
+    }
+    try { wx.vibrateShort({ type: 'medium' }) } catch (err) {}
+    return openEncyclopediaAgency({ agencyId: id })
+  },
+
   async onBoosterCardTap(e) {
-    var serial = e.currentTarget.dataset.serial
-    if (!serial) return
-    var raw = (this._rawBySerial && this._rawBySerial[serial]) || null
+    var ds = (e.currentTarget && e.currentTarget.dataset) || {}
+    var serial = ds.serial
+    var launcherId = ds.launcherId
     var list = this.data.boosterCards || []
-    var card = list.find(function (b) { return b && String(b.serial) === String(serial) })
+    var card = list.find(function (b) {
+      return b && ((serial && String(b.serial) === String(serial)) ||
+        (launcherId && String(b.launcherId || '') === String(launcherId)))
+    })
+    var raw = (serial && this._rawBySerial && this._rawBySerial[serial]) ||
+      (card && card.serial && this._rawBySerial && this._rawBySerial[card.serial]) || null
+    if (!serial && !launcherId && !(card && card.launcherId) && !(raw && raw.ll2Id)) return
     await openBoosterEntityDetail(serial, {
       raw: raw,
+      ll2Id: launcherId || (card && card.launcherId) || (raw && raw.ll2Id) || '',
       heroImage: (card && (card.thumbnailUrl || card.imageUrl)) || ''
     })
   },
@@ -223,7 +303,9 @@ Page({
     this.setData(kv)
   },
 
-  onRetryLoad() {
+  async onRetryLoad() {
+    var allowed = await this.ensureCatalogAccess(this._entryOptions || {})
+    if (!allowed) return
     this.loadData()
   },
 
@@ -262,7 +344,11 @@ Page({
   },
 
   onShareAppMessage() {
-    return { title: this._shareTitle(), path: this._sharePath() }
+    return {
+      title: this._shareTitle(),
+      path: withShareStampPath(this._sharePath(), this),
+      imageUrl: this._buildShareImage()
+    }
   },
 
   onShareTimeline() {
@@ -270,6 +356,10 @@ Page({
     if (this.data.filter && this.data.filter !== 'all') {
       query = 'filter=' + encodeURIComponent(this.data.filter)
     }
-    return { title: this._shareTitle(), query: query }
+    return {
+      title: this._shareTitle(),
+      query: withShareStampQuery(query, this),
+      imageUrl: this._buildShareImage()
+    }
   }
 })

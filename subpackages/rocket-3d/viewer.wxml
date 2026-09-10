@@ -2,11 +2,22 @@
 <view class="detail-page r3d-exhibit">
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;" wx:if="{{!isMomentsPreview}}">
     <view class="top-nav top-nav--page-grid">
-      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="goBack" style="width: {{menuButtonWidth}}px;">
+      <view class="nav-left top-nav-slot--back {{isDirectEntry ? 'top-nav-slot--home' : ''}}" bindtap="onNavBack" style="width: {{menuButtonWidth}}px;">
         <text class="icon-back icon-back--nav">‹</text>
       </view>
-      <view class="nav-title-wrap nav-title-wrap--page-grid">
-        <text class="nav-title nav-title--page-grid">{{rocketName || '3D 展陈'}}</text>
+      <view
+        class="r3d-nav-pick"
+        catchtap="onTogglePicker"
+        hover-class="r3d-nav-pick--pressed"
+        hover-stay-time="80"
+        aria-role="button"
+        aria-label="选择型号"
+      >
+        <view class="r3d-nav-pick-row">
+          <text class="nav-title nav-title--page-grid">{{pickerTitle || '3D 展陈'}}</text>
+          <text class="r3d-nav-caret" wx:if="{{catalog.length}}">▾</text>
+        </view>
+        <text class="r3d-nav-sub" wx:if="{{pickerSub}}">{{pickerSub}}</text>
       </view>
       <view class="nav-right-space top-nav-slot--spacer" style="width: {{menuButtonWidth}}px;"></view>
     </view>
@@ -31,12 +42,14 @@
         config-id="{{configId}}"
         dim-length="{{exhibit.length}}"
         dim-diameter="{{exhibit.diameter}}"
+        exhibit-intro="{{exhibit.intro}}"
         auto-load="{{true}}"
         allow-expand="{{false}}"
         active="{{pageVisible}}"
         mode="page"
         bind:statuschange="onViewerStatus"
         bind:flipchange="onFlipChange"
+        bind:ipintro="onIpIntro"
       />
       <view class="r3d-exhibit-wash"></view>
     </view>
@@ -52,7 +65,16 @@
               <view class="r3d-ico-flip-arrow r3d-ico-flip-arrow--down"></view>
             </view>
           </view>
-          <text class="r3d-exhibit-intro-lab">{{standFlipped ? '已翻转' : '翻转'}}</text>
+          <text class="r3d-exhibit-intro-lab">{{standFlipped ? '已上下' : '上下'}}</text>
+        </view>
+        <view class="r3d-exhibit-intro-btn {{standYawFlipped ? 'r3d-exhibit-intro-btn--on' : ''}}" wx:if="{{viewerReady}}" hover-class="r3d-exhibit-intro-btn--pressed" hover-stay-time="80" catchtap="onFlipYaw">
+          <view class="r3d-ico-intro">
+            <view class="r3d-ico-flip r3d-ico-flip--yaw">
+              <view class="r3d-ico-flip-arrow r3d-ico-flip-arrow--up"></view>
+              <view class="r3d-ico-flip-arrow r3d-ico-flip-arrow--down"></view>
+            </view>
+          </view>
+          <text class="r3d-exhibit-intro-lab">{{standYawFlipped ? '已左右' : '左右'}}</text>
         </view>
         <view class="r3d-exhibit-intro-btn" wx:if="{{exhibit.hasIntro}}" hover-class="r3d-exhibit-intro-btn--pressed" hover-stay-time="80" catchtap="toggleIntro">
           <view class="r3d-ico-intro">
@@ -67,9 +89,18 @@
       </view>
     </view>
 
-    <view class="r3d-exhibit-dock" wx:if="{{!memberLocked && !viewerError}}">
+    <view class="r3d-exhibit-dock {{ipIntroOpen ? 'r3d-exhibit-dock--dim' : ''}}" wx:if="{{!memberLocked && !viewerError}}">
       <view class="r3d-exhibit-copy">
-        <text class="r3d-exhibit-title">{{exhibit.title}}</text>
+        <view
+          class="r3d-exhibit-title {{configId && !exhibit.series ? 'r3d-exhibit-title--link' : ''}}"
+          hover-class="r3d-exhibit-title--pressed"
+          hover-stay-time="80"
+          catchtap="onTapExhibitTitle"
+          aria-role="button"
+          aria-label="查看型号档案"
+        >
+          <text>{{exhibit.title}}</text>
+        </view>
         <text class="r3d-exhibit-sub" wx:if="{{exhibitTab === 'show' && !introOpen}}">{{exhibit.subtitle}}</text>
         <text class="r3d-exhibit-sub" wx:if="{{exhibitTab === 'size' && exhibit.sizeSummary}}">{{exhibit.sizeSummary}}</text>
         <text class="r3d-exhibit-sub" wx:if="{{exhibitTab === 'feat' && exhibit.featureSummary}}">{{exhibit.featureSummary}}</text>
@@ -122,6 +153,28 @@
       <text class="r3d-exhibit-err" wx:if="{{viewerError}}">{{viewerError}}</text>
       <text class="r3d-exhibit-load-sub" wx:if="{{viewerError && viewerErrorDetail}}">{{viewerErrorDetail}}</text>
       <view class="r3d-exhibit-retry" wx:if="{{viewerError}}" catchtap="onRetryViewer">点此重试</view>
+    </view>
+
+    <view class="r3d-picker" wx:if="{{pickerOpen && !isMomentsPreview}}">
+      <view class="r3d-picker-mask" catchtap="onClosePicker"></view>
+      <view class="r3d-picker-sheet" style="top: {{navPlaceholderHeight + 8}}px;">
+        <view class="r3d-picker-head" catchtap="onClosePicker">
+          <text class="r3d-picker-head-title">选择型号</text>
+          <text class="r3d-picker-head-caret">▾</text>
+        </view>
+        <scroll-view scroll-y class="r3d-picker-list" show-scrollbar="{{false}}">
+          <view
+            class="r3d-picker-row {{item.slug === currentSlug ? 'r3d-picker-row--on' : ''}}"
+            wx:for="{{catalog}}"
+            wx:key="slug"
+            data-slug="{{item.slug}}"
+            catchtap="onPickModel"
+          >
+            <text class="r3d-picker-name">{{item.title}}</text>
+            <text class="r3d-picker-meta">{{item.status}}</text>
+          </view>
+        </scroll-view>
+      </view>
     </view>
   </view>
 </view>

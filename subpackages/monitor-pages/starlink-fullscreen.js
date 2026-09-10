@@ -6,6 +6,7 @@ require('./utils/monitor-pass.js')
 require('./utils/monitor-galleries.js')
 require('./utils/monitor-orbital.js')
 require('./utils/monitor-weather.js')
+const { SHARE_THUMB_FALLBACK, bootPageShareThumb, pageShareImage } = require('../../utils/share-thumb.js')
 
 function fmtLat(lat) {
   if (lat == null || !isFinite(lat)) return '—'
@@ -55,7 +56,8 @@ Page({
     selectedLat: '—',
     selectedLng: '—',
     selectedAlt: '—',
-    selectedVel: '—'
+    selectedVel: '—',
+    shareImage: SHARE_THUMB_FALLBACK
   },
 
   _renderer: null,
@@ -63,6 +65,7 @@ Page({
 
   onLoad() {
     this.initUiShell()
+    bootPageShareThumb(this)
     this._initStarlink()
   },
 
@@ -218,13 +221,15 @@ Page({
   onShareAppMessage() {
     return {
       title: 'Starlink 卫星实时追踪 - ' + this.data.satCount + '颗在轨 | 火星探索日志',
-      path: '/subpackages/monitor-pages/starlink-fullscreen'
+      path: '/subpackages/monitor-pages/starlink-fullscreen',
+      imageUrl: pageShareImage(this)
     }
   },
 
   onShareTimeline() {
     return {
-      title: 'Starlink 卫星实时追踪 - ' + this.data.satCount + '颗在轨 | 火星探索日志'
+      title: 'Starlink 卫星实时追踪 - ' + this.data.satCount + '颗在轨 | 火星探索日志',
+      imageUrl: pageShareImage(this)
     }
   }
 })

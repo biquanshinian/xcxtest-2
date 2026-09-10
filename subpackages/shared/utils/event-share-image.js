@@ -2,10 +2,11 @@
  * 事件更新「分享给好友 / 朋友圈」卡片缩略图
  * imageUrl 若为空或非法，微信会用当前页截图，易把分享弹窗截进去，故须尽量返回可拉取的 HTTPS 图。
  *
- * 优先级：事件首图 → 视频封面 → 账号头像（含 source 约定路径）→ 中性默认图
+ * 优先级：事件图片 / 视频封面（mediaList 顺序，可指定下标）→ 无媒体才用博主头像 → 中性默认图
+ * 朋友圈卡片不稳吃 webp / imageMogr2，分享图保持 jpg/png 原链。
  * 注意：enrich 后 url/thumbnailUrl/authorAvatar 可能是 wxfile://，须优先读 remote* 字段。
  */
-const { isVideoUrl, videoSnapshotUrl, optimizeImageUrl, toCdnUrl } = require('../../../utils/cos-url.js')
+const { isVideoUrl, videoSnapshotUrl, toCdnUrl } = require('../../../utils/cos-url.js')
 
 const AVATAR_COS_BASE = 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/avatars/'
 const FALLBACK_COS_DEFAULT =
@@ -26,12 +27,11 @@ function normalizeShareHttps(url) {
 
 function maybeOptimizeForShare(httpsUrl) {
   if (!httpsUrl) return ''
-  try {
-    const o = optimizeImageUrl(httpsUrl, 'medium')
-    return o || httpsUrl
-  } catch (e) {
-    return httpsUrl
-  }
+  // 万象截帧本身就是 jpg，query 必须保留
+  if (/ci-process=snapshot/i.test(httpsUrl)) return httpsUrl
+  // 朋友圈缩略图对 webp / imageMogr2 经常裂成默认链接图标
+  const bare = String(httpsUrl).split('#')[0].split('?')[0]
+  return bare || httpsUrl
 }
 
 /**
@@ -101,44 +101,70 @@ function pickHttpsFromCandidates() {
   return ''
 }
 
-/**
- * @param {Object|null|undefined} item - enrich 后的 starship_event_updates 项
- * @returns {string} 始终非空（否则微信截图会带上弹窗等 UI）
- */
-function pickEventShareImageUrl(item) {
-  const safe = item && typeof item === 'object' ? item : null
-  if (!safe) return getNeutralDefaultShareImage()
-
-  if (Array.isArray(safe.mediaList)) {
-    for (let i = 0; i < safe.mediaList.length; i++) {
-      const m = safe.mediaList[i]
-      if (!m || m.type !== 'image') continue
-      const picked = pickHttpsFromCandidates(m.remoteUrl, m.url)
-      if (picked) return picked
-    }
-    for (let i = 0; i < safe.mediaList.length; i++) {
-      const m = safe.mediaList[i]
-      if (!m || m.type !== 'video') continue
-      let snapshot = ''
-      const videoRemote = m.originalUrl || m.url || ''
-      if (videoRemote && isVideoUrl(videoRemote)) {
-        try {
-          snapshot = videoSnapshotUrl(videoRemote, 1) || ''
-        } catch (e) {
-          snapshot = ''
-        }
-      }
-      const picked = pickHttpsFromCandidates(m.thumbnailRemoteUrl, m.thumbnailUrl, snapshot)
-      if (picked) return picked
-    }
+function pickFromMediaItem(m) {
+  if (!m || typeof m !== 'object') return ''
+  if (m.type === 'image') {
+    return pickHttpsFromCandidates(m.remoteUrl, m.url)
   }
+  if (m.type === 'video') {
+    let snapshot = ''
+    const videoRemote = m.originalUrl || m.url || ''
+    if (videoRemote && isVideoUrl(videoRemote)) {
+      try {
+        snapshot = videoSnapshotUrl(videoRemote, 1) || ''
+      } catch (e) {
+        snapshot = ''
+      }
+    }
+    return pickHttpsFromCandidates(m.thumbnailRemoteUrl, m.thumbnailUrl, snapshot)
+  }
+  if (isVideoUrl(m.url || m.originalUrl || '')) {
+    return pickFromMediaItem(Object.assign({}, m, { type: 'video' }))
+  }
+  return pickHttpsFromCandidates(m.remoteUrl, m.url, m.thumbnailRemoteUrl, m.thumbnailUrl)
+}
 
-  const avatarPicked = pickHttpsFromCandidates(
+function pickEventMediaShareImageUrl(safe, preferMediaIndex) {
+  const list = Array.isArray(safe.mediaList) ? safe.mediaList : []
+  const idx = Number(preferMediaIndex)
+  if (Number.isFinite(idx) && idx >= 0 && idx < list.length) {
+    const preferred = pickFromMediaItem(list[idx])
+    if (preferred) return preferred
+  }
+  for (let i = 0; i < list.length; i++) {
+    const picked = pickFromMediaItem(list[i])
+    if (picked) return picked
+  }
+  const extras = [].concat(safe.imageOriginalUrls || [], safe.imageUrls || [])
+  for (let i = 0; i < extras.length; i++) {
+    const picked = pickHttpsFromCandidates(extras[i])
+    if (picked) return picked
+  }
+  return ''
+}
+
+function pickEventAvatarShareImageUrl(safe) {
+  return pickHttpsFromCandidates(
     resolveEventAuthorAvatarUrl(safe),
     safe.authorAvatarRemote,
     safe.authorAvatar,
     resolveTweetAccountAvatarUrl(safe.source)
   )
+}
+
+/**
+ * @param {Object|null|undefined} item - enrich 后的 starship_event_updates 项
+ * @param {{ preferMediaIndex?: number }} [opts] 播放页分享指定媒体下标（视频封面）
+ * @returns {string} 始终非空（否则微信截图会带上弹窗等 UI）
+ */
+function pickEventShareImageUrl(item, opts) {
+  const safe = item && typeof item === 'object' ? item : null
+  if (!safe) return getNeutralDefaultShareImage()
+
+  const mediaPicked = pickEventMediaShareImageUrl(safe, opts && opts.preferMediaIndex)
+  if (mediaPicked) return mediaPicked
+
+  const avatarPicked = pickEventAvatarShareImageUrl(safe)
   if (avatarPicked) return avatarPicked
 
   return getNeutralDefaultShareImage()

@@ -54,7 +54,8 @@ test('全是中文时仍原样上报，交给云端按 id 回查', () => {
 const { pickRocketYearFromBreakdown } = require('../utils/launch-stats-cloud.js')
 const {
   resolveRocketAttemptHints,
-  applyClientRocketFallback
+  applyClientRocketFallback,
+  buildClientMissionStats
 } = require('../pages/mission-detail/utils/mission-launch-stats.js')
 
 test('待发任务用构型累计 +1 作为型号累计（含本次）', () => {
@@ -94,6 +95,32 @@ test('本年发射可从全球排行 byRocket 回填，待发含本次', () => {
     }
   )
   assert.equal(year, 101)
+})
+
+test('云端未就绪时可用任务徽章先铺统计卡', () => {
+  const stats = buildClientMissionStats({
+    launchTime: '2020-01-01T00:00:00Z',
+    rocketConfiguration: { name: 'Falcon 9', total_launch_count: 610 },
+    agencyLaunchAttemptCount: 720,
+    agencyLaunchAttemptCountYear: 80,
+    _langPack: { rocketNameZh: '猎鹰9号' }
+  })
+  assert.ok(stats)
+  assert.equal(stats.rocketTotal, 610)
+  assert.equal(stats.providerTotal, 720)
+  assert.equal(stats.providerYear, 80)
+  assert.equal(buildClientMissionStats({ rocketName: 'Falcon 9' }), null)
+})
+
+test('任务详情对生成中自动轮询，不把占位当最终错误', () => {
+  const fs = require('fs')
+  const path = require('path')
+  const js = fs.readFileSync(path.join(__dirname, '../pages/mission-detail/mission-detail.js'), 'utf8')
+  const wxml = fs.readFileSync(path.join(__dirname, '../pages/mission-detail/mission-detail.wxml'), 'utf8')
+  assert.match(js, /isStatsGeneratingError/)
+  assert.match(js, /scheduleMissionLaunchStatsRetry/)
+  assert.match(js, /buildClientMissionStats/)
+  assert.match(wxml, /正在统计发射数据/)
 })
 
 test('byRocket 的 Falcon 9 Block 5 能对上 Falcon 9', () => {

@@ -18,6 +18,7 @@
  */
 
 const { isSettledStatusId, statusIdOf } = require('./launch-status-store.js')
+const { isCountdownPanelEligible } = require('./countdown-panel-gate.js')
 // 阶段推导必须与倒计时显示同一个「现在」，否则会出现「面板还在倒数但状态机已判过点」
 const { getServerNow } = require('./server-clock.js')
 
@@ -116,11 +117,11 @@ function isPanelHoldActive(mission, record, now = getServerNow()) {
 /**
  * 面板选型唯一入口。
  * 优先级：
- *   1. 当前面板任务（holdMissionId）处于 IN_WINDOW → 继续挂住
- *   2. 所有 IN_WINDOW 未决里取 NET 最近者挂住（窗口内不让位）
- *   3. 所有 PRE_WINDOW 未决里取 NET 最近者（只认最近时间，无视状态/列表顺序；
- *      推迟到更晚的任务自然让位给更近的一发）
- *   4. 无未来任务时：未决里 NET 最近者继续展示（状态确认中），不空面板
+ *   1. 当前面板任务（holdMissionId）处于 IN_WINDOW 且门控合格 → 继续挂住
+ *   2. 所有 IN_WINDOW 合格未决里取 NET 最近者挂住（窗口内不让位）
+ *   3. 所有 PRE_WINDOW 合格未决里取 NET 最近者（TBD/Hold/粗精度占位跳过，
+ *      改选下一发 Go/TBC 且时钟精度可信的任务）
+ *   4. 无合格未来任务时：未决里 NET 最近者继续展示（状态确认中），不空面板
  *   5. 全部落库/空列表 → null
  *
  * @param {Array} missions upcoming 列表（应已 peel 已落库任务；此处仍防御过滤）
@@ -137,8 +138,11 @@ function resolvePanelSelection(missions, options = {}) {
   if (holdId) {
     const held = safeList.find((m) => m && String(m.id) === holdId)
     if (held) {
-      const phase = derivePhase(held, recordOf(records, holdId), now)
-      if (phase === PHASE.IN_WINDOW) return { mission: held, phase, reason: 'hold_current' }
+      const heldRecord = recordOf(records, holdId)
+      const phase = derivePhase(held, heldRecord, now)
+      if (phase === PHASE.IN_WINDOW && isCountdownPanelEligible(held, heldRecord)) {
+        return { mission: held, phase, reason: 'hold_current' }
+      }
     }
   }
 
@@ -158,12 +162,14 @@ function resolvePanelSelection(missions, options = {}) {
     if (phase === PHASE.SETTLED) continue
     const net = getEffectiveNetMs(mission, record)
     const netKey = Number.isFinite(net) ? net : Number.MAX_SAFE_INTEGER
+    const eligible = isCountdownPanelEligible(mission, record)
 
     if (netKey < soonestUnresolvedNet) {
       soonestUnresolved = mission
       soonestUnresolvedNet = netKey
       soonestUnresolvedPhase = phase
     }
+    if (!eligible) continue
     if (phase === PHASE.IN_WINDOW && netKey < soonestInWindowNet) {
       soonestInWindow = mission
       soonestInWindowNet = netKey
@@ -274,7 +280,9 @@ function resolveOverlapSideMission(missions, options = {}) {
     const mission = safeList[i]
     if (!mission || mission.id == null) continue
     if (String(mission.id) === panelId) continue
-    if (isMissionSettled(mission, recordOf(records, mission.id))) continue
+    const record = recordOf(records, mission.id)
+    if (isMissionSettled(mission, record)) continue
+    if (!isCountdownPanelEligible(mission, record)) continue
     candidates.push(mission)
   }
   if (!candidates.length) return null

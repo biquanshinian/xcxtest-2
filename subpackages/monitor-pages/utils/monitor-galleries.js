@@ -13,7 +13,6 @@
  * 中预下载 monitor-pages 分包，冷启动首次进 Tab 时至多几百毫秒等待，
  * 各板块自带 loading 骨架，感知一致。
  */
-const { getRocketConfigMeta } = require('../../../utils/api-app-services.js')
 const { getBoosterGenealogy } = require('../../../utils/api-monitor-data.js')
 const boosterDisplay = require('./booster-display.js')
 const spacecraftDisplay = require('./spacecraft-display.js')
@@ -21,7 +20,8 @@ const launchSiteDisplay = require('./launch-site-display.js')
 const { getFeaturedAgencies, filterAgencies, toDisplayRow } = require('./agency-data.js')
 const { ROUTES, navigateTo } = require('../../../utils/routes.js')
 const { gateCheck } = require('../../../utils/membership.js')
-const { openBoosterEntityDetail } = require('./booster-nav.js')
+const { cleanConfigId } = require('../../../utils/rocket-config-match.js')
+const { openBoosterEntityDetail, openRocketModelDetail, openEncyclopediaAgency } = require('./booster-nav.js')
 const {
   persistAgencyLogoAfterRemoteLoad,
   isRemoteAgencyLogoUrl
@@ -34,17 +34,13 @@ const methods = {
     this.setData({ boosterLoading: true, boosterLoadError: false })
     try {
       var previewLimit = boosterDisplay.TAB_PREVIEW_COUNT || 2
-      var results = await Promise.all([
-        getBoosterGenealogy({ previewOnly: true, previewLimit: previewLimit }),
-        getRocketConfigMeta().catch(function () { return { configs: {} } })
-      ])
-      var list = results[0]
-      var configMeta = results[1] || { configs: {} }
+      var list = await getBoosterGenealogy({ previewOnly: true, previewLimit: previewLimit })
       if (!list || list.length === 0) {
         this.setData({ boosterLoading: false, boosterList: [] })
         return
       }
-      var result = boosterDisplay.processBoosterList(list, configMeta.configs, {
+      // Tab 只预览 2 张，不预拉全量 _config_meta（免费用户尤其不能探云）
+      var result = boosterDisplay.processBoosterList(list, {}, {
         imageCacheLimit: previewLimit
       })
       var preview = (result.processed || []).slice(0, previewLimit)
@@ -104,16 +100,39 @@ const methods = {
 
   /** 点击助推器卡片 → 与族谱详情统一入口（门控 + 预塞档案 + 卡面图） */
   async onBoosterCardTap(e) {
-    var serial = e.currentTarget.dataset.serial
-    if (!serial) return
-    var raw = (this._boosterRawBySerial && this._boosterRawBySerial[serial]) || null
+    var ds = (e.currentTarget && e.currentTarget.dataset) || {}
+    var serial = ds.serial
+    var launcherId = ds.launcherId
     var card = (this.data.boosterList || []).find(function (b) {
-      return b && String(b.serial) === String(serial)
+      return b && ((serial && String(b.serial) === String(serial)) ||
+        (launcherId && String(b.launcherId || '') === String(launcherId)))
     })
+    var raw = (serial && this._boosterRawBySerial && this._boosterRawBySerial[serial]) ||
+      (card && card.serial && this._boosterRawBySerial && this._boosterRawBySerial[card.serial]) || null
+    if (!serial && !launcherId && !(card && card.launcherId) && !(raw && raw.ll2Id)) return
     await openBoosterEntityDetail(serial, {
       raw: raw,
+      ll2Id: launcherId || (card && card.launcherId) || (raw && raw.ll2Id) || '',
       heroImage: (card && (card.thumbnailUrl || card.imageUrl)) || ''
     })
+  },
+
+  async onBoosterFamilyTap(e) {
+    var configId = cleanConfigId(e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.configId : '')
+    if (!configId) return
+    try { wx.vibrateShort({ type: 'light' }) } catch (err) {}
+    await openRocketModelDetail(configId)
+  },
+
+  async onBoosterManufacturerTap(e) {
+    var ds = (e.currentTarget && e.currentTarget.dataset) || {}
+    var id = ds.id || ds.agencyId || ''
+    if (!id) {
+      wx.showToast({ title: '暂无该发射商档案', icon: 'none' })
+      return
+    }
+    try { wx.vibrateShort({ type: 'medium' }) } catch (err) {}
+    return openEncyclopediaAgency({ agencyId: id })
   },
 
   // ========== 全球飞船图鉴（Tab 仅预览 2 张） ==========
@@ -183,9 +202,7 @@ const methods = {
       var app = getApp && getApp()
       if (app) app._spacecraftHeroImage = { id: String(id), src: ds.img }
     }
-    var params = { id: id }
-    if (ds.name) params.name = ds.name
-    navigateTo(ROUTES.SPACECRAFT_DETAIL, params)
+    navigateTo(ROUTES.SPACECRAFT_DETAIL, { id: id })
   },
 
   // ========== 全球发射场分布（Tab 仅预览 2 张） ==========

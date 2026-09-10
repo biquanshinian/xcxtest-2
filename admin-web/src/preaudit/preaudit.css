@@ -916,7 +916,7 @@ html[data-pa-theme="dark"] .pa-date-popper.el-picker__popper {
 .pa-thumbs {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 8px;
   margin-top: 8px;
   padding: 4px;
@@ -934,6 +934,9 @@ html[data-pa-theme="dark"] .pa-date-popper.el-picker__popper {
   flex-wrap: wrap;
   align-items: flex-start;
   gap: 8px;
+  flex: 1 1 auto;
+  min-width: 96px;
+  min-height: 88px;
 }
 
 .pa-thumb-card {
@@ -976,6 +979,10 @@ html[data-pa-theme="dark"] .pa-date-popper.el-picker__popper {
 
 .pa-thumb-ghost {
   opacity: 0.45;
+}
+
+.pa-thumb-chosen .pa-thumb {
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.18);
 }
 
 .pa-thumb-caption {

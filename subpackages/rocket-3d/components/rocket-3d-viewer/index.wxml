@@ -47,11 +47,148 @@
         <text>{{item.text}}</text>
       </view>
     </view>
+
+    <view class="r3d-ip-tag-layer" wx:if="{{live && ipTags.length && !ipIntro.open}}">
+      <view
+        wx:for="{{ipTags}}"
+        wx:key="key"
+        class="r3d-ip-tag"
+        style="left: {{item.x}}px; top: {{item.y}}px;"
+      >
+        <text>{{item.text}}</text>
+      </view>
+    </view>
+
+    <view
+      wx:if="{{live && ipIntro.open && ipIntro.slug !== 'astro' && ipIntro.visible}}"
+      class="r3d-ip-bubble r3d-ip-bubble--{{ipIntro.slug}}"
+      style="left: {{ipIntro.x}}px; top: {{ipIntro.y}}px; width: {{ipIntro.w}}px; height: {{ipIntro.h}}px; font-size: {{ipIntro.fs}}px;"
+      catchtap="onIpIntroBubble"
+    >
+      <view class="r3d-ip-bubble-head">
+        <text class="r3d-ip-bubble-name">{{ipIntro.name}}</text>
+        <text class="r3d-ip-bubble-title" wx:if="{{ipIntro.title}}">{{ipIntro.title}}</text>
+      </view>
+      <text class="r3d-ip-bubble-text">{{ipIntro.typed}}<text class="r3d-ip-caret" wx:if="{{ipIntro.typing}}">▍</text></text>
+      <text class="r3d-ip-hint" wx:if="{{ipIntro.hint}}">轻点空白处返回</text>
+    </view>
+
+    <view
+      wx:if="{{live && xwChat.open && xwScreen.visible}}"
+      class="r3d-xw-wrap"
+      style="left: {{xwScreen.x}}px; top: {{xwScreen.y}}px; width: {{xwScreen.w}}px; height: {{xwScreen.h}}px;"
+      catchtap="onXwScreenTap"
+    >
+      <view class="r3d-xw-screen {{themeLight ? 'r3d-xw-screen--light' : ''}}">
+      <view class="r3d-xw-nav" catchtap="onXwScreenTap" catchtouchstart="onXwScreenTouch" catchtouchmove="onXwScreenTouch">
+        <text class="r3d-xw-nav-title">星问</text>
+        <text class="r3d-xw-nav-sub">AI太空助手</text>
+      </view>
+      <scroll-view
+        class="r3d-xw-messages"
+        scroll-y
+        enhanced
+        show-scrollbar="{{false}}"
+        scroll-into-view="{{xwChat.scrollTarget}}"
+        scroll-with-animation
+        catchtap="onXwScreenTap"
+      >
+        <view
+          wx:for="{{xwChat.messages}}"
+          wx:key="id"
+          id="{{item.id}}"
+          class="r3d-xw-msg r3d-xw-msg--{{item.role}}"
+        >
+          <view class="r3d-xw-avatar" wx:if="{{item.role !== 'user'}}">
+            <text class="r3d-xw-star">✦</text>
+          </view>
+          <view class="r3d-xw-col" wx:if="{{item.role !== 'user'}}">
+            <view class="r3d-xw-bubble r3d-xw-bubble--bot {{item.error ? 'r3d-xw-bubble--error' : ''}}">
+              <text class="r3d-xw-text">{{item.content}}</text>
+              <text class="r3d-xw-caret" wx:if="{{item.streaming}}">▍</text>
+            </view>
+            <view class="r3d-xw-cards" wx:if="{{item.cards && item.cards.length}}" id="{{item.id}}-cards">
+              <block wx:for="{{item.cards}}" wx:for-item="card" wx:for-index="ci" wx:key="id">
+                <view class="r3d-xw-card" catchtap="onXingwenCardTap" data-mi="{{index}}" data-ci="{{ci}}">
+                  <image wx:if="{{card.image}}" class="r3d-xw-card-img" src="{{card.image}}" mode="aspectFill" />
+                  <text class="r3d-xw-card-title">{{card.title}}</text>
+                  <text class="r3d-xw-card-sub" wx:if="{{card.sub}}">{{card.sub}}</text>
+                  <view class="r3d-xw-card-rows" wx:if="{{card.cardType === 'spec' && card.rows.length}}">
+                    <view class="r3d-xw-card-row" wx:for="{{card.rows}}" wx:for-item="spec" wx:key="label">
+                      <text class="r3d-xw-card-k">{{spec.label}}</text>
+                      <text class="r3d-xw-card-v">{{spec.value}}</text>
+                    </view>
+                  </view>
+                  <view class="r3d-xw-card-list" wx:if="{{card.cardType === 'launch_list' && card.items.length}}">
+                    <view
+                      class="r3d-xw-card-item"
+                      wx:for="{{card.items}}"
+                      wx:for-item="row"
+                      wx:for-index="ri"
+                      wx:key="id"
+                      catchtap="onXingwenCardTap"
+                      data-mi="{{index}}"
+                      data-ci="{{ci}}"
+                      data-ri="{{ri}}"
+                    >
+                      <text class="r3d-xw-card-item-name">{{row.name}}</text>
+                      <text class="r3d-xw-card-item-time" wx:if="{{row.formattedTime}}">{{row.formattedTime}}</text>
+                    </view>
+                    <text
+                      class="r3d-xw-card-more"
+                      catchtap="onXingwenCardTap"
+                      data-mi="{{index}}"
+                      data-ci="{{ci}}"
+                      data-more="1"
+                    >查看更多</text>
+                  </view>
+                  <view class="r3d-xw-card-ss" wx:if="{{card.cardType === 'starship_status'}}">
+                    <text wx:if="{{card.boosterId}}">助推 {{card.boosterId}} {{card.boosterStatus}}</text>
+                    <text wx:if="{{card.shipId}}">飞船 {{card.shipId}} {{card.shipStatus}}</text>
+                  </view>
+                  <text class="r3d-xw-card-cta">{{card.cta}}</text>
+                </view>
+              </block>
+            </view>
+          </view>
+          <view class="r3d-xw-bubble r3d-xw-bubble--user" wx:else>
+            <text class="r3d-xw-text">{{item.content}}</text>
+          </view>
+        </view>
+      </scroll-view>
+      </view>
+      <view wx:if="{{xwChat.armed}}" class="r3d-xw-bar" catchtap="onXingwenComposerTap">
+        <input
+          class="r3d-xw-field"
+          value="{{xwChat.draft}}"
+          placeholder="{{xwChat.sending ? '星问正在思考...' : '问问星问'}}"
+          placeholder-class="r3d-xw-ph"
+          confirm-type="send"
+          focus="{{xwChat.inputFocus}}"
+          adjust-position="{{false}}"
+          hold-keyboard="{{true}}"
+          cursor-spacing="12"
+          bindinput="onXingwenInput"
+          bindconfirm="onXingwenSend"
+          bindfocus="onXingwenFocus"
+          bindblur="onXingwenBlur"
+          bindkeyboardheightchange="onXingwenKeyboard"
+        />
+        <view
+          class="r3d-xw-go {{xwChat.draft && !xwChat.sending ? 'r3d-xw-go--on' : ''}} {{xwChat.sending ? 'r3d-xw-go--busy' : ''}}"
+          catchtap="onXingwenSend"
+        >
+          <text class="r3d-xw-go-icon" wx:if="{{!xwChat.sending}}">↑</text>
+          <view class="r3d-xw-spin" wx:else></view>
+        </view>
+      </view>
+    </view>
   </view>
 
   <!-- 操作条在画布外，避免与同层 canvas 叠层 -->
   <view class="r3d-toolbar" wx:if="{{started && !loading && mode !== 'page'}}">
-    <view class="r3d-chip {{standFlipped ? 'r3d-chip--on' : ''}}" hover-class="r3d-chip--pressed" hover-stay-time="80" catchtap="onFlipStand">{{standFlipped ? '已翻转' : '翻转方向'}}</view>
+    <view class="r3d-chip {{standFlipped ? 'r3d-chip--on' : ''}}" hover-class="r3d-chip--pressed" hover-stay-time="80" catchtap="onFlipStand">{{standFlipped ? '已上下翻转' : '上下翻转'}}</view>
+    <view class="r3d-chip {{standYawFlipped ? 'r3d-chip--on' : ''}}" hover-class="r3d-chip--pressed" hover-stay-time="80" catchtap="onFlipYaw">{{standYawFlipped ? '已左右翻转' : '左右翻转'}}</view>
     <view class="r3d-chip" wx:if="{{allowExpand}}" hover-class="r3d-chip--pressed" hover-stay-time="80" catchtap="onExpand">全屏查看</view>
   </view>
 </view>

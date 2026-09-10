@@ -63,8 +63,8 @@
   background: var(--color-divider-faint);
 }
 
-/* 复用详情头图 360 环绕图标，缩小放在任务卡左侧图槽左上角 */
-.mission-card-pano {
+/* 复用详情头图 3D 立方体图标，缩小放在任务卡左侧图槽左上角 */
+.mission-card-3d {
   position: absolute;
   left: 10rpx;
   top: 10rpx;
@@ -74,60 +74,102 @@
   pointer-events: none;
 }
 
-.mission-card-pano-orbit {
+.mission-card-3d-bg {
   position: absolute;
-  left: 2rpx;
-  top: 2rpx;
-  right: 2rpx;
-  bottom: 2rpx;
+  left: 4rpx;
+  top: 4rpx;
+  right: 4rpx;
+  bottom: 4rpx;
   border-radius: 50%;
-  border: 2rpx solid rgba(255, 255, 255, 0.22);
-  border-top-color: #ffffff;
-  border-right-color: rgba(255, 255, 255, 0.55);
-  box-sizing: border-box;
-  animation: mission-card-pano-spin 1.8s linear infinite;
+  background: rgba(0, 0, 0, 0.42);
 }
 
-.mission-card-pano-orbit--tilt {
-  left: -2rpx;
-  right: -2rpx;
-  top: 14rpx;
-  bottom: 14rpx;
-  border-top-color: rgba(255, 255, 255, 0.95);
-  border-bottom-color: rgba(255, 255, 255, 0.28);
-  border-left-color: rgba(255, 255, 255, 0.12);
-  border-right-color: rgba(255, 255, 255, 0.12);
-  animation-duration: 2.8s;
-  animation-direction: reverse;
-}
-
-.mission-card-pano-core {
+.mission-card-3d-scene {
   position: absolute;
-  left: 12rpx;
-  top: 12rpx;
-  right: 12rpx;
-  bottom: 12rpx;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.58);
-  border: 2rpx solid rgba(255, 255, 255, 0.88);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  left: 0;
+  top: 0;
+  width: 52rpx;
+  height: 52rpx;
+  perspective: 140rpx;
+  -webkit-perspective: 140rpx;
+  perspective-origin: 50% 50%;
+}
+
+.mission-card-3d-pulse {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 22rpx;
+  height: 22rpx;
+  margin: -11rpx 0 0 -11rpx;
+  transform-origin: center center;
+  animation: mission-card-3d-pulse 5.6s ease-in-out infinite;
+}
+
+.mission-card-3d-cube {
+  width: 22rpx;
+  height: 22rpx;
+  transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
+  transform-origin: center center;
+  transform: rotateX(-20deg) rotateY(24deg);
+  animation: mission-card-3d-flip 5.6s ease-in-out infinite;
+}
+
+.mission-card-3d-face {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 22rpx;
+  height: 22rpx;
   box-sizing: border-box;
+  border: 2rpx solid rgba(255, 255, 255, 0.94);
+  background: rgba(15, 23, 42, 0.14);
 }
 
-.mission-card-pano-360 {
-  font-size: 14rpx;
-  font-weight: 800;
-  color: #ffffff;
-  line-height: 1;
-  letter-spacing: -1rpx;
-  transform: scale(0.8);
+.mission-card-3d-face--front {
+  transform: translateZ(11rpx);
+  border-color: #ffffff;
 }
 
-@keyframes mission-card-pano-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+.mission-card-3d-face--back {
+  transform: rotateY(180deg) translateZ(11rpx);
+  border-color: rgba(226, 232, 240, 0.72);
+}
+
+.mission-card-3d-face--right {
+  transform: rotateY(90deg) translateZ(11rpx);
+  border-color: rgba(241, 245, 249, 0.88);
+}
+
+.mission-card-3d-face--left {
+  transform: rotateY(-90deg) translateZ(11rpx);
+  border-color: rgba(226, 232, 240, 0.78);
+}
+
+.mission-card-3d-face--top {
+  transform: rotateX(90deg) translateZ(11rpx);
+  border-color: #ffffff;
+}
+
+.mission-card-3d-face--bottom {
+  transform: rotateX(-90deg) translateZ(11rpx);
+  border-color: rgba(203, 213, 225, 0.7);
+}
+
+@keyframes mission-card-3d-flip {
+  0% { transform: rotateX(-20deg) rotateY(24deg); }
+  22% { transform: rotateX(-20deg) rotateY(204deg); }
+  44% { transform: rotateX(-20deg) rotateY(204deg); }
+  66% { transform: rotateX(-20deg) rotateY(384deg); }
+  100% { transform: rotateX(-20deg) rotateY(384deg); }
+}
+
+@keyframes mission-card-3d-pulse {
+  0%, 22% { transform: scale(1); }
+  30% { transform: scale(0.72); }
+  40%, 66% { transform: scale(1); }
+  100% { transform: scale(1); }
 }
 
 .mission-info-content {

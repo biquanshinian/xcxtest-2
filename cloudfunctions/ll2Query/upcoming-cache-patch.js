@@ -45,6 +45,12 @@ const {
   sortResultsByNetAsc: sortResultsByNetPolicy,
   mergeLiveRowNetHysteresis
 } = require('./net-patch-policy.js')
+const {
+  applyLaunchIdentityUpgrade,
+  hasWeakLaunchIdentity,
+  shouldUpgradeLaunchIdentity,
+  alignLaunchIdentityFromTitle
+} = require('./launch-identity-upgrade.js')
 
 function sortedParamsString(params) {
   const sorted = Object.keys(params)
@@ -127,6 +133,18 @@ function rowPatchSnapshot(row) {
  */
 function wouldChangeRow(row, live) {
   if (!row || !live) return false
+  if (
+    shouldUpgradeLaunchIdentity(row, live, {
+      trustIncoming: !hasWeakLaunchIdentity(live)
+    })
+  ) {
+    return true
+  }
+  if (
+    shouldUpgradeLaunchIdentity(row, { id: row.id, name: row.name }, { trustIncoming: true })
+  ) {
+    return true
+  }
   if (!netFieldsChanged(row, live)) return false
   const clone = {
     net: row.net,
@@ -159,7 +177,11 @@ function patchResultsInPlace(results, liveById) {
       net: row.net || '',
       statusAbbrev: (row.status && row.status.abbrev) || ''
     }
-    applyNetPatch(row, live)
+    applyLaunchIdentityUpgrade(row, live, {
+      trustIncoming: !hasWeakLaunchIdentity(live)
+    })
+    alignLaunchIdentityFromTitle(row)
+    if (netFieldsChanged(row, live)) applyNetPatch(row, live)
     changes.push({
       id,
       name: String(row.name || live.name || ''),

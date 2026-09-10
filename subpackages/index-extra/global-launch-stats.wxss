@@ -484,6 +484,23 @@ page {
   border-bottom: none;
 }
 
+.stat-row--tap {
+  cursor: pointer;
+}
+
+.stat-row--hover {
+  opacity: 0.72;
+}
+
+.stat-chevron {
+  flex-shrink: 0;
+  width: 28rpx;
+  text-align: right;
+  font-size: 32rpx;
+  color: #636366;
+  line-height: 1;
+}
+
 .stat-rank {
   width: 40rpx;
   flex-shrink: 0;
@@ -838,6 +855,10 @@ page {
 }
 
 .theme-light .stat-total-cap {
+  color: var(--color-text-tertiary);
+}
+
+.theme-light .stat-chevron {
   color: var(--color-text-tertiary);
 }
 

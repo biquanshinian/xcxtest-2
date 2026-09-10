@@ -44,7 +44,9 @@ function buildMissionDetailQuery(params) {
   var id = safeParams.id == null ? '' : String(safeParams.id).trim()
   var detailType = safeParams.detailType === 'completed' ? 'completed' : 'upcoming'
   var fromSearch = !!safeParams.fromSearch
+  var entryKey = safeParams.entryKey == null ? '' : String(safeParams.entryKey).trim()
   var query = 'id=' + encodeURIComponent(id) + '&type=' + detailType
+  if (entryKey) query += '&entryKey=' + encodeURIComponent(entryKey)
   return fromSearch ? query + '&fromSearch=1' : query
 }
 
@@ -72,7 +74,8 @@ function attachMissionDetailMeta(mission, params) {
     _detailUrl: buildMissionDetailUrl({
       id: safeParams.id != null ? safeParams.id : safeMission.id,
       detailType: detailType,
-      fromSearch: !!safeParams.fromSearch
+      fromSearch: !!safeParams.fromSearch,
+      entryKey: safeParams.entryKey || safeMission.spaceNoticeEntryKey || ''
     })
   }
 }
@@ -163,13 +166,14 @@ function buildMissionShareOptions(options) {
     imageUrl: display.imageUrl
   }
 
+  var entryKey = safeOptions.entryKey || (mission && mission.spaceNoticeEntryKey) || ''
   if (mode === 'timeline') {
     result.query = mission && mission.id != null
-      ? buildMissionDetailQuery({ id: mission.id, detailType: detailType })
+      ? buildMissionDetailQuery({ id: mission.id, detailType: detailType, entryKey: entryKey })
       : ''
   } else {
     result.path = mission && mission.id != null
-      ? buildMissionDetailUrl({ id: mission.id, detailType: detailType })
+      ? buildMissionDetailUrl({ id: mission.id, detailType: detailType, entryKey: entryKey })
       : (safeOptions.fallbackPath || '/pages/index/index')
   }
 

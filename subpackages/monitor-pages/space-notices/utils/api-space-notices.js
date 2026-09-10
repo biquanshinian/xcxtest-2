@@ -31,8 +31,12 @@ function callSpaceNotices(action, data) {
     })
 }
 
-function listSpaceNoticeEntries(limit) {
-  return callSpaceNotices('listEntries', { limit: limit || 40 })
+function listSpaceNoticeEntries(limitOrOpts) {
+  const opts = limitOrOpts && typeof limitOrOpts === 'object' ? limitOrOpts : { limit: limitOrOpts }
+  return callSpaceNotices('listEntries', {
+    limit: Number(opts.limit) || 40,
+    upcomingOnly: opts.upcomingOnly !== false
+  })
 }
 
 /**

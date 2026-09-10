@@ -60,6 +60,44 @@ test('attachLaunchStubs 会用 upcoming 完整行替换瘦 launchStub', () => {
   assert.equal(entries[0].launchStub.pad.name, 'SLC-4E')
 })
 
+test('attachLaunchStubs 用 live 更好身份覆盖 upcoming 占位，保留工位', () => {
+  const entries = [
+    {
+      id: '95eb9265-bdbe-43ad-b08c-6be7eb4e58f4',
+      name: 'Long March 2D | Unknown Payload',
+      net: '2026-09-10T09:00:00Z',
+      status: { id: 3, name: 'Launch Successful', abbrev: 'Success' }
+    }
+  ]
+  const upcoming = [
+    {
+      id: '95eb9265-bdbe-43ad-b08c-6be7eb4e58f4',
+      name: 'Long March 2D | Unknown Payload',
+      rocket: { configuration: { name: 'Long March 2D', full_name: 'Long March 2D/Yuanzheng-3' } },
+      pad: { name: 'Launch Area 94', location: { name: 'Jiuquan' } },
+      mission: { name: 'Unknown Payload' },
+      status: { id: 1, abbrev: 'Go' }
+    }
+  ]
+  const liveById = new Map([
+    [
+      '95eb9265-bdbe-43ad-b08c-6be7eb4e58f4',
+      {
+        id: '95eb9265-bdbe-43ad-b08c-6be7eb4e58f4',
+        name: 'Long March 4B | Yaogan 53-01 to 03/56-01 to 03',
+        rocket: { configuration: { name: 'Long March 4B', full_name: 'Long March 4B' } },
+        mission: { name: 'Yaogan 53-01 to 03/56-01 to 03' },
+        status: { id: 3, abbrev: 'Success' }
+      }
+    ]
+  ])
+  assert.equal(attachLaunchStubsToTerminalEntries(entries, upcoming, liveById), 1)
+  assert.equal(entries[0].launchStub.rocket.configuration.name, 'Long March 4B')
+  assert.equal(entries[0].launchStub.mission.name, 'Yaogan 53-01 to 03/56-01 to 03')
+  assert.equal(entries[0].launchStub.pad.name, 'Launch Area 94')
+  assert.equal(entries[0].launchStub.status.id, 3)
+})
+
 test('attachLaunchStubsToTerminalEntries prefers upcoming row over live list row', () => {
   const entries = [
     {

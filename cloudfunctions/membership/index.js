@@ -1422,7 +1422,12 @@ exports.main = async (event, context) => {
       console.log('[vpayRefund] case: fromAdmin=', fromAdmin, 'caller=', caller, 'adminUsername=', event.adminUsername || '', 'adminId=', event.adminId || '')
       return await vpayRefund(caller, event.outTradeNo, event.refundFee, event.reason, fromAdmin)
     }
+    case 'applyPaidOrder': {
+      if (!isServerSideInvocation()) return { error: '无权操作' }
+      return await applyPaidOrder(event.order)
+    }
     case 'createOrder':
+      // 已停用：客户端请走 createVPayOrder
       return { error: '已停用：请使用虚拟支付（createVPayOrder）' }
     default:
       return { error: '未知操作: ' + action }

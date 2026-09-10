@@ -32,7 +32,8 @@ if (argv.includes('--help') || argv.includes('-h')) {
 
 环境：${ENV}
 托管：${HOST}
-禁止：git push、上传 node_modules、交互式 tcb fn、并行两个 tcb、仓库里留 cloudbaserc.json`)
+禁止：git push、上传 node_modules、交互式 tcb fn、并行两个 tcb、仓库里留 cloudbaserc.json
+注意：fn 更新在临时目录写 cloudbaserc，避免 CLI 弹「请选择操作」`)
   process.exit(0)
 }
 
@@ -66,14 +67,37 @@ function run(cmd, cmdArgs, cwd, timeoutMs) {
   if (r.status !== 0) fail(`${cmd} 退出码 ${r.status}`)
 }
 
-function runCapture(cmd, cmdArgs, cwd, timeoutMs) {
+function runCapture(cmd, cmdArgs, cwd, timeoutMs, extraEnv) {
   const r = spawnSync(cmd, cmdArgs, {
-    cwd, encoding: 'utf8', shell: true, env: process.env, timeout: timeoutMs || 0, windowsHide: true
+    cwd,
+    encoding: 'utf8',
+    shell: true,
+    env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
+    timeout: timeoutMs || 0,
+    windowsHide: true
   })
   if (r.error && r.error.code === 'ETIMEDOUT') {
     return { status: 1, out: '命令超时（可能卡在 tcb 登录/交互）。不要并行再开一个 tcb。' }
   }
   return { status: r.status, out: `${r.stdout || ''}${r.stderr || ''}` }
+}
+
+function writeSlimConfig(slim) {
+  // 只写在临时目录：无配置时 CLI 会 inquirer「请选择操作」，--json/--yes 都跳不过
+  fs.writeFileSync(
+    path.join(slim, 'cloudbaserc.json'),
+    JSON.stringify({
+      envId: ENV,
+      functionRoot: '.',
+      functions: [{ name: 'adminGateway', handler: 'index.main' }]
+    })
+  )
+}
+
+function fnUpdateFailed(out, status) {
+  if (status !== 0) return true
+  if (/Please select an action|请选择操作|已取消更新/i.test(out)) return true
+  return !/更新成功|Code updated/i.test(out)
 }
 
 function copySlim(src, dst) {
@@ -149,13 +173,16 @@ if (needFn) {
   const files = fs.readdirSync(slim)
   if (!files.includes('index.js') || !files.includes('package.json')) fail('精简目录缺 index.js / package.json')
   if (files.includes('node_modules')) fail('精简目录里出现了 node_modules，已中止')
-  const fnArgs = ['fn', 'code', 'update', 'adminGateway', '-e', ENV, '--dir', slim, '--json', '--deployMode', 'zip']
-  const zip = runCapture(TCB, fnArgs, ROOT, 5 * 60 * 1000)
+  writeSlimConfig(slim)
+  const fnEnv = { CLOUDBASE_CI: '1' }
+  // cwd=slim 才能读到临时 cloudbaserc，从而走「有配置」路径、跳过 inquirer
+  const fnArgs = ['--yes', '--json', 'fn', 'code', 'update', 'adminGateway', '-e', ENV, '--dir', '.', '--deployMode', 'zip']
+  const zip = runCapture(TCB, fnArgs, slim, 5 * 60 * 1000, fnEnv)
   process.stdout.write(zip.out)
-  if (zip.status !== 0) {
+  if (fnUpdateFailed(zip.out, zip.status)) {
     if (/1\.5MB|ZipFile/i.test(zip.out)) {
       console.log('[admin-web-deploy] ZIP 超限，改 COS 上传')
-      run(TCB, ['fn', 'code', 'update', 'adminGateway', '-e', ENV, '--dir', slim, '--json', '--deployMode', 'cos'], ROOT, 5 * 60 * 1000)
+      run(TCB, ['--yes', '--json', 'fn', 'code', 'update', 'adminGateway', '-e', ENV, '--dir', '.', '--deployMode', 'cos'], slim, 5 * 60 * 1000)
     } else {
       fail('adminGateway 更新失败')
     }

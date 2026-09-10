@@ -41,7 +41,7 @@ node .cursor/skills/admin-web-deploy/scripts/deploy.js
 1. **不是 git push**，也不是微信开发者工具上传小程序。未要求提交就不要 `git commit`。
 2. PowerShell 不要用 `&&`；用脚本即可。
 3. 两个 `tcb` **不要并行**（会各要一次登录，卡死）。
-4. `tcb fn code update` 必须 `--json`，否则会停在 `Please select an action`。
+4. `tcb fn code update` 无配置文件时会 `inquirer`「请选择操作」，`--json` / `--yes` 都跳不过。脚本在临时目录写 `cloudbaserc.json` 并以该目录为 cwd 更新；仓库根目录禁止留这份文件。
 5. **禁止**把 `cloudfunctions/adminGateway/node_modules` 打进去：COS 会 60 秒超时；ZIP 会超 1.5MB。脚本只拷源码到临时目录再传。
 6. **禁止**把 `cloudbaserc.json` 留在仓库根目录。
 7. 登录失效时脚本会打出授权链接；等用户在浏览器授权后 **再跑一遍同一条命令**，不要另开一套流程。

@@ -278,7 +278,7 @@ export async function handleRomanTrackerRequest(request, env, corsHeaders) {
       }
     })
     if (KV) await KV.put('roman-tracker-last', body, { expirationTtl: KV_TTL }).catch(() => {})
-    await cache.put(cacheKey, resp.clone())
+    try { await cache.put(cacheKey, resp.clone()) } catch (e) {}
     return resp
   } catch (e) {
     if (KV) {

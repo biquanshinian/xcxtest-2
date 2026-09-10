@@ -31,7 +31,13 @@ global.wx = global.wx || {
 }
 
 const { getCachedRocketConfig } = require('../utils/icon-cache.js')
-const { shouldReplaceRocketImage, isDefaultRocketSrc } = require('../utils/util.js')
+const {
+  shouldReplaceRocketImage,
+  shouldReplaceRocketImageForArt,
+  isDefaultRocketSrc,
+  isBrokenRocketDisplaySrc
+} = require('../utils/util.js')
+const rocketArtUtil = require('../utils/rocket-config-art.js')
 
 test('首页火箭配置图默认走 thumb 480，而不是 960 medium', () => {
   const src = getCachedRocketConfig('https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/x.jpg')
@@ -74,6 +80,65 @@ test('shouldReplaceRocketImage：禁止非 default 被 default 盖掉', () => {
   assert.equal(shouldReplaceRocketImage(real, '火箭配置图/default.jpg'), false)
 })
 
+test('失效 wxfile 必须被换掉，且不能盖住好图', () => {
+  const dead = 'wxfile://tmp/dead-rocket.jpg'
+  const https = 'https://cdn.example/f9.jpg?imageMogr2/thumbnail/480x/format/webp/quality/70'
+  assert.equal(isBrokenRocketDisplaySrc(''), true)
+  assert.equal(isBrokenRocketDisplaySrc(dead), true)
+  assert.equal(isBrokenRocketDisplaySrc(https), false)
+  assert.equal(shouldReplaceRocketImage(dead, https), true)
+  assert.equal(shouldReplaceRocketImage(https, dead), false)
+  assert.equal(shouldReplaceRocketImage(https, '火箭配置图/default.jpg'), false)
+  assert.equal(shouldReplaceRocketImageForArt(https, '火箭配置图/default.jpg'), false)
+  assert.equal(shouldReplaceRocketImageForArt(https, dead), false)
+  assert.equal(shouldReplaceRocketImageForArt(dead, https), true)
+})
+
+test('getCachedRocketConfig：memo 命中 wxfile 必须先 accessSync', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'utils/icon-cache.js'), 'utf8')
+  const start = src.indexOf('function getCachedRocketConfig')
+  const end = src.indexOf('function _downloadRocketInBackground')
+  assert.ok(start >= 0 && end > start)
+  const fn = src.slice(start, end)
+  assert.match(fn, /accessSync\(memo\)/)
+  assert.match(fn, /delete _rocketUrlMemo\[url\]/)
+})
+
+test('回首页修补失效/default 配置图，首次 onShow 不 art 重刷', () => {
+  const indexJs = fs.readFileSync(path.join(ROOT, 'pages/index/index.js'), 'utf8')
+  const interaction = fs.readFileSync(
+    path.join(ROOT, 'subpackages/index-extra/utils/index-interaction.js'),
+    'utf8'
+  )
+  assert.match(indexJs, /"_repairVisibleRocketImages"/)
+  assert.match(indexJs, /this\._repairVisibleRocketImages\(\)/)
+  assert.match(interaction, /_repairVisibleRocketImages\s*\(/)
+  assert.match(interaction, /isBrokenRocketDisplaySrc/)
+  assert.match(interaction, /loadCloudMediaMap\(\)/)
+
+  let calls = 0
+  const page = {
+    refreshRocketConfigArt() {
+      calls += 1
+    }
+  }
+  assert.equal(rocketArtUtil.applyRocketConfigArtIfNeeded(page), false)
+  assert.equal(calls, 0)
+  assert.equal(page._rocketArtAppliedVersion, rocketArtUtil.getRocketConfigArtVersion())
+  assert.equal(rocketArtUtil.applyRocketConfigArtIfNeeded(page), false)
+  assert.equal(calls, 0)
+
+  const stale = {
+    _rocketArtAppliedVersion: 0,
+    refreshRocketConfigArt() {
+      calls += 1
+    }
+  }
+  rocketArtUtil.applyRocketConfigArtIfNeeded(stale)
+  assert.equal(calls, 0, 'media map 未就绪时不得 art 重刷')
+  assert.equal(stale._rocketArtAppliedVersion, 0)
+})
+
 test('media map 冷启动不再调 COS 列举云函数', () => {
   const src = fs.readFileSync(path.join(ROOT, 'utils/image-config.js'), 'utf8')
   assert.doesNotMatch(src, /maybeInvokeRocketCosSync/)
@@ -87,6 +152,33 @@ test('media map 冷启动不再调 COS 列举云函数', () => {
 test('开屏预拉不在 onLaunch 打 media map 云函数', () => {
   const src = fs.readFileSync(path.join(ROOT, 'subpackages/index-extra/utils/splash-prefetch.js'), 'utf8')
   assert.doesNotMatch(src, /loadCloudMediaMap/)
+})
+
+test('未登记火箭配置图不猜 COS 文件名，避免 ZhuQue/Starship 404', () => {
+  const { resolveMediaUrl } = require('../utils/image-config.js')
+  const zhuque = String(resolveMediaUrl('火箭配置图/ZhuQue-3.jpg', ''))
+  const starship = String(resolveMediaUrl('火箭配置图/Starship V3 Flight 12.jpg', ''))
+  assert.doesNotMatch(zhuque, /ZhuQue-3\.jpg/)
+  assert.doesNotMatch(starship, /Starship V3 Flight 12/)
+  assert.match(zhuque, /default\.jpg/)
+  assert.match(starship, /default\.jpg/)
+})
+
+test('Worker /image 代理与首页轮播不走 downloadFile', () => {
+  let downloads = 0
+  const orig = wx.downloadFile
+  wx.downloadFile = function (o) {
+    downloads += 1
+    o && o.fail && o.fail(new Error('mock'))
+  }
+  const { getCachedMediaImage } = require('../utils/icon-cache.js')
+  const proxy = 'https://api.marsx.com.cn/image?url=' + encodeURIComponent('https://thespacedevs-prod.nyc3.digitaloceanspaces.com/x.jpg')
+  assert.equal(getCachedMediaImage(proxy, 'thumb'), proxy)
+  const banner = 'https://mars-1397421562.cos.ap-guangzhou.myqcloud.com/' + encodeURI('首页轮播图/preview/a.jpg')
+  const bannerOut = String(getCachedMediaImage(banner, 'medium'))
+  assert.match(bannerOut, /imageMogr2\/thumbnail\/960x/)
+  assert.equal(downloads, 0)
+  wx.downloadFile = orig
 })
 
 test('详情页头图升 medium，避免 thumb 发糊', () => {

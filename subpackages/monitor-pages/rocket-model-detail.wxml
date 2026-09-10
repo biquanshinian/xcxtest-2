@@ -1,3 +1,4 @@
+<page-meta background-color="{{pageBgColor}}" background-color-top="{{pageBgColor}}" background-color-bottom="{{pageBgColor}}" />
 <view class="container {{themeClass}}">
   <!-- 自定义导航栏 -->
   <view class="top-nav-wrapper" style="padding-top: {{statusBarHeight}}px;">
@@ -28,6 +29,7 @@
         <view class="skeleton-line skeleton-shimmer"></view>
         <view class="skeleton-line skeleton-line--short skeleton-shimmer"></view>
       </view>
+      <text class="score-loading-hint">正在拉取型号档案…</text>
     </view>
 
     <!-- 错误 -->
@@ -100,7 +102,8 @@
       </view>
       <text class="info-alias" wx:if="{{model.alias}}">{{model.alias}}</text>
       <view class="info-tags">
-        <text class="info-tag info-tag--mfr info-tag--link" wx:if="{{model.manufacturer}}" bindtap="onTapManufacturer">{{model.manufacturerDisplay || model.manufacturer}}<text class="info-tag-arrow">›</text></text>
+        <text class="info-tag info-tag--mfr info-tag--link" wx:if="{{model.manufacturerId}}" bindtap="onTapManufacturer">{{model.manufacturerDisplay || model.manufacturer}}<text class="info-tag-arrow">›</text></text>
+        <text class="info-tag info-tag--mfr" wx:elif="{{model.manufacturerDisplay || model.manufacturer}}">{{model.manufacturerDisplay || model.manufacturer}}</text>
         <text class="info-tag info-tag--reusable" wx:if="{{model.reusable}}">可复用</text>
         <text class="info-tag info-tag--variant" wx:if="{{model.variant}}">{{model.variant}}</text>
         <text class="info-tag info-tag--pending" wx:if="{{!model.hasFlown}}">首飞待定</text>
@@ -175,7 +178,7 @@
       <text class="section-label section-label--fleet">旗下箭实体<text class="fleet-count" wx:if="{{boosterCards.length}}"> · {{boosterCards.length}}</text></text>
       <view class="fleet-list" wx:if="{{boosterCards.length > 0}}">
         <view class="fleet-card glass-card" wx:for="{{boosterCards}}" wx:key="serial"
-              data-serial="{{item.serial}}" bindtap="onBoosterCardTap">
+              data-serial="{{item.serial}}" data-launcher-id="{{item.launcherId}}" bindtap="onBoosterCardTap">
           <view class="fleet-img-wrap">
             <image class="fleet-img {{imageLoadedMap['f' + index] ? 'fleet-img--loaded' : ''}}"
                    wx:if="{{item.thumbnailUrl}}" src="{{item.thumbnailUrl}}" mode="aspectFill" lazy-load
@@ -211,9 +214,35 @@
       <official-account-publish-panel topic="{{model.name || model.fullName || '火箭族谱讨论'}}" />
     </view>
 
-    <view style="height: {{tabBarReservedHeight + 40}}px;"></view>
+    <view style="height: {{tabBarReservedHeight + 72}}px;"></view>
     </block>
   </scroll-view>
+  <view
+    class="mission-fab-dock"
+    wx:if="{{model && !loading}}"
+    style="bottom: calc(env(safe-area-inset-bottom) + {{shareGateExpireAt ? 96 : 36}}rpx);"
+  >
+    <view
+      class="mission-pk-fab"
+      bindtap="onTapRocketCompare"
+      hover-class="mission-pk-fab--pressed"
+      hover-stay-time="80"
+      aria-role="button"
+      aria-label="火箭型号对比"
+    >
+      <image class="pk-mark mission-pk-fab-mark" src="/pages/mission-detail/images/ic-pk.svg" mode="aspectFit" />
+    </view>
+    <view
+      class="mission-score-fab"
+      bindtap="onTapRocketScore"
+      hover-class="mission-score-fab--pressed"
+      hover-stay-time="80"
+      aria-role="button"
+      aria-label="火箭档案指数"
+    >
+      <image class="mission-score-fab-mark" src="/pages/mission-detail/images/ic-score.svg" mode="aspectFit" />
+    </view>
+  </view>
   <share-guide />
   <share-gate-countdown expire-at="{{shareGateExpireAt}}" />
 </view>

@@ -63,6 +63,101 @@ test('改期：patch NET 并按新时间重排，主文档时间戳刷新', asyn
   assert.equal(results[1].net, '2026-07-22T10:00:00Z')
 })
 
+test('即将发射占位身份可被 live 标题升级', async () => {
+  const id = 'de446468-057f-4c9d-a6a1-af99c93b541e'
+  const { db, docs } = createFakeDb({
+    [`space_devs_cache:${KEY}`]: wrapperOf([
+      {
+        id,
+        name: 'Zhuque-2E Block 2 | Unknown Payload',
+        net: '2026-09-15T06:25:00Z',
+        window_start: '2026-09-15T06:25:00Z',
+        window_end: '',
+        status: { id: 1, name: 'Go', abbrev: 'Go' },
+        mission: { name: 'Unknown Payload' },
+        rocket: { configuration: { name: 'Zhuque-2E Block 2' } }
+      }
+    ])
+  })
+  const patcher = createUpcomingCachePatcher(db)
+  const res = await patcher.patchUpcomingCacheWithLiveRows([
+    {
+      id,
+      name: 'Zhuque-2E Block 2 | Tianyi 33 / others',
+      net: '2026-09-15T06:25:00Z',
+      window_start: '2026-09-15T06:25:00Z',
+      status: { id: 1, name: 'Go', abbrev: 'Go' }
+    }
+  ])
+  assert.equal(res.patched, 1)
+  const row = docs.get(`space_devs_cache:${KEY}`).data.results[0]
+  assert.equal(row.name, 'Zhuque-2E Block 2 | Tianyi 33 / others')
+  assert.equal(row.mission.name, 'Tianyi 33 / others')
+})
+
+test('即将发射 name 已更正但 cfg 仍错时按标题就地对齐', async () => {
+  const id = '95eb9265-bdbe-43ad-b08c-6be7eb4e58f4'
+  const { db, docs } = createFakeDb({
+    [`space_devs_cache:${KEY}`]: wrapperOf([
+      {
+        id,
+        name: 'Long March 4B | Yaogan 53-01 to 03/56-01 to 03',
+        net: '2026-09-10T09:00:00Z',
+        window_start: '2026-09-10T09:00:00Z',
+        window_end: '',
+        status: { id: 1, name: 'Go', abbrev: 'Go' },
+        mission: { name: 'Unknown Payload' },
+        rocket: { configuration: { name: 'Long March 2D', full_name: 'Long March 2D/Yuanzheng-3' } }
+      }
+    ])
+  })
+  const patcher = createUpcomingCachePatcher(db)
+  const res = await patcher.patchUpcomingCacheWithLiveRows([
+    {
+      id,
+      name: 'Long March 4B | Yaogan 53-01 to 03/56-01 to 03',
+      net: '2026-09-10T09:00:00Z',
+      window_start: '2026-09-10T09:00:00Z',
+      status: { id: 1, name: 'Go', abbrev: 'Go' },
+      mission: { name: 'Unknown Payload' },
+      rocket: { configuration: { name: 'Long March 2D' } }
+    }
+  ])
+  assert.equal(res.patched, 1)
+  const row = docs.get(`space_devs_cache:${KEY}`).data.results[0]
+  assert.equal(row.rocket.configuration.name, 'Long March 4B')
+  assert.match(row.mission.name, /Yaogan/)
+})
+
+test('未信任的弱 live 不得把即将发射已公布身份打回未知', async () => {
+  const { db, docs, getWrites } = createFakeDb({
+    [`space_devs_cache:${KEY}`]: wrapperOf([
+      {
+        id: 'a',
+        name: 'Long March 12 | SatNet LEO Group 12',
+        net: '2026-09-17T00:30:00Z',
+        window_start: '2026-09-17T00:30:00Z',
+        status: { id: 1, name: 'Go', abbrev: 'Go' },
+        mission: { name: 'SatNet LEO Group 12' },
+        rocket: { configuration: { name: 'Long March 12' } }
+      }
+    ])
+  })
+  const patcher = createUpcomingCachePatcher(db)
+  const res = await patcher.patchUpcomingCacheWithLiveRows([
+    {
+      id: 'a',
+      name: 'Long March 12 | Unknown Payload',
+      net: '2026-09-17T00:30:00Z',
+      window_start: '2026-09-17T00:30:00Z',
+      status: { id: 1, name: 'Go', abbrev: 'Go' }
+    }
+  ])
+  assert.equal(res.skipped, 'no_change')
+  assert.equal(getWrites(), 0)
+  assert.equal(docs.get(`space_devs_cache:${KEY}`).data.results[0].mission.name, 'SatNet LEO Group 12')
+})
+
 test('无变化：零写库退出', async () => {
   const { db, getWrites } = createFakeDb({
     [`space_devs_cache:${KEY}`]: wrapperOf([cacheRow('a', '2026-07-20T14:49:00Z', 1)])

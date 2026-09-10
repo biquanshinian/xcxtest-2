@@ -1,5 +1,6 @@
 // 与 getCountdown / 窗口状态机共用同一个「现在」，避免显示与判定用两套时钟
 const { getServerNow } = require('./server-clock.js')
+const { isCountdownPanelEligible } = require('./countdown-panel-gate.js')
 
 let _imageHelpers = null
 function getImageHelpers() {
@@ -49,6 +50,9 @@ function buildRecoveryDisplay(boosterInfo) {
 function buildLaunchDataFromMission(mission, getStatusTextZh) {
   const source = mission || {}
   const boosterInfo = source.boosterInfo || null
+  const langPack = source._langPack && typeof source._langPack === 'object'
+    ? Object.assign({}, source._langPack)
+    : null
   return {
     id: source.id,
     launchTime: source.launchTime,
@@ -66,6 +70,11 @@ function buildLaunchDataFromMission(mission, getStatusTextZh) {
       ? source.rocketConfigId
       : (source.rocketConfiguration && source.rocketConfiguration.id != null
         ? source.rocketConfiguration.id
+        : null),
+    padLocationId: source.padLocationId != null && source.padLocationId !== ''
+      ? source.padLocationId
+      : (source.padDetail && source.padDetail.locationId != null
+        ? source.padDetail.locationId
         : null),
     boosterInfo,
     isRecoverableThisMission: !!source.isRecoverableThisMission,
@@ -91,6 +100,7 @@ function buildLaunchDataFromMission(mission, getStatusTextZh) {
     countryDisplay: source.countryDisplay || '',
     probability: source.probability,
     rocketConfiguration: source.rocketConfiguration || null,
+    ...(langPack ? { _langPack: langPack } : {}),
     // 与详情头图同源：按火箭名 forceRecompute，禁止整包 setData 把已正确的图降级回列表里的 default 快照
     ...(() => {
       const { resolveMissionRocketImage } = getImageHelpers()
@@ -105,6 +115,42 @@ function buildLaunchDataFromMission(mission, getStatusTextZh) {
     })(),
     missionType: 'upcoming'
   }
+}
+
+function isDefaultRocketPanelSrc(u) {
+  if (u == null || typeof u !== 'string') return true
+  const s = u.trim()
+  if (!s) return true
+  if (/火箭配置图\/default\.jpg/i.test(s)) return true
+  if (/\/default\.jpg(\?|#|$)/i.test(s)) return true
+  return false
+}
+
+/**
+ * 同 id 早退：仅当当前面板身份不弱于新数据时才保旧面板。
+ * 冷启动 boot 洗成「未知*」/ 默认配置图后，完整云列表必须重画。
+ */
+function shouldRebuildSameIdCountdownPanel(current, incoming) {
+  if (!incoming) return false
+  if (!current) return true
+  const {
+    isWeakListCardIdentity,
+    isPlaceholderMissionField,
+    scoreMissionCardIdentity,
+    scoreMissionCardCompleteness
+  } = require('./mission-list-card.js')
+  if (isWeakListCardIdentity(current) && !isWeakListCardIdentity(incoming)) return true
+  if (
+    isPlaceholderMissionField(current.launchSite) &&
+    !isPlaceholderMissionField(incoming.launchSite)
+  ) {
+    return true
+  }
+  const curImg = current.rocketImage || current.image || ''
+  const nextImg = incoming.rocketImage || incoming.image || ''
+  if (isDefaultRocketPanelSrc(curImg) && nextImg && !isDefaultRocketPanelSrc(nextImg)) return true
+  if (scoreMissionCardIdentity(incoming) > scoreMissionCardIdentity(current)) return true
+  return scoreMissionCardCompleteness(incoming) > scoreMissionCardCompleteness(current)
 }
 
 /** 合并列表时保留已升级的火箭图，避免 enrich 快照把正确图盖回 default */
@@ -202,14 +248,17 @@ function buildCurrentLaunchPanelState(options = {}) {
   })
 }
 
-function getNextUpcomingLaunch(missions, currentId, now = getServerNow()) {
+function getNextUpcomingLaunch(missions, currentId, now = getServerNow(), options = {}) {
   const safeList = Array.isArray(missions) ? missions : []
+  const records = options && options.recordsById instanceof Map ? options.recordsById : null
   let best = null
   let bestNet = Infinity
   for (let i = 0; i < safeList.length; i++) {
     const mission = safeList[i]
     if (!mission || !mission.launchTime) continue
     if (currentId != null && String(mission.id) === String(currentId)) continue
+    const record = records ? records.get(String(mission.id)) || null : null
+    if (!isCountdownPanelEligible(mission, record)) continue
     const t = new Date(mission.launchTime).getTime()
     if (!Number.isFinite(t) || t <= now) continue
     if (t < bestNet) {
@@ -315,9 +364,9 @@ function shouldHoldPastNetCountdownMission(mission, now = getServerNow(), record
 
 /**
  * 倒计时面板应展示的任务（委托状态机 resolvePanelMission）：
- * 1) 当前面板任务 / 列表头处于窗口内未决 → 挂住不让位
- * 2) 否则取 NET 仍在未来的首条
- * 3) 无未来任务时头条未决继续展示；已落库任务绝不入选
+ * 1) 当前面板任务 / 列表头处于窗口内未决且门控合格 → 挂住不让位
+ * 2) 否则取合格任务里 NET 仍在未来的首条（跳过 TBD/Hold/粗精度占位）
+ * 3) 无合格未来任务时头条未决继续展示；已落库任务绝不入选
  * @param {Array} missions
  * @param {number} [now]
  * @param {{ holdMissionId?: string|number, recordsById?: Map }} [options]
@@ -730,5 +779,6 @@ module.exports = {
   buildMissionCardCountdownTickPatch,
   buildUpcomingLaunchEmptyState,
   buildUpcomingLaunchErrorState,
-  mergePreservedRocketImages
+  mergePreservedRocketImages,
+  shouldRebuildSameIdCountdownPanel
 }

@@ -121,8 +121,12 @@ function getCalendarMissionsForBriefing() {
     var pages = getCurrentPages()
     for (var i = pages.length - 1; i >= 0; i--) {
       var p = pages[i]
-      if (isIndexPage(p) && p.data && Array.isArray(p.data.calendarAllMissions) && p.data.calendarAllMissions.length > 0) {
-        return p.data.calendarAllMissions
+      if (isIndexPage(p)) {
+        var parkedCal = p._indexParked && p._indexParked.calendarAllMissions
+        if (Array.isArray(parkedCal) && parkedCal.length > 0) return parkedCal
+        if (p.data && Array.isArray(p.data.calendarAllMissions) && p.data.calendarAllMissions.length > 0) {
+          return p.data.calendarAllMissions
+        }
       }
     }
   } catch (e) {}
@@ -191,6 +195,7 @@ Component({
     attached() {
       this._userClosedThisSession = false
       this._tweetStatsLoaded = false
+      this._cloudBriefingStarted = false
       this._detached = false
       var self = this
       try { this.setData({ themeClass: themeUtil.getThemeClassSync() }) } catch (eTheme) {}
@@ -396,7 +401,8 @@ Component({
           var p = pages[i]
           if (isIndexPage(p) && p.data) {
             var up = (p.data.upcomingMissions || []).length
-            var cal = (p.data.calendarAllMissions || []).length
+            var parkedCal = p._indexParked && p._indexParked.calendarAllMissions
+            var cal = (Array.isArray(parkedCal) && parkedCal.length) || (p.data.calendarAllMissions || []).length
             return up > 0 || cal > 0
           }
         }
@@ -410,7 +416,41 @@ Component({
 
     _buildAndRender: function () {
       var briefing = this._buildBriefingFromCache()
-      this._renderBriefing(briefing)
+      var hasContent = briefing && (
+        (briefing.todayLaunches && briefing.todayLaunches.length > 0) ||
+        (briefing.yesterdayResults && briefing.yesterdayResults.length > 0)
+      )
+      if (hasContent) {
+        this._renderBriefing(briefing)
+        return
+      }
+      this._fetchCloudBriefing(briefing)
+    },
+
+    _fetchCloudBriefing: function (fallback) {
+      var self = this
+      if (self._cloudBriefingStarted) {
+        if (fallback) self._renderBriefing(fallback)
+        return
+      }
+      self._cloudBriefingStarted = true
+      if (!wx.cloud || !wx.cloud.callFunction) {
+        self._renderBriefing(fallback || { todayLaunches: [], yesterdayResults: [] })
+        return
+      }
+      wx.cloud.callFunction({
+        name: 'userDataGateway',
+        data: { action: 'getTodayBriefing' }
+      }).then(function (res) {
+        var remote = res && res.result && res.result.briefing
+        var hasRemote = remote && (
+          (remote.todayLaunches && remote.todayLaunches.length > 0) ||
+          (remote.yesterdayResults && remote.yesterdayResults.length > 0)
+        )
+        self._renderBriefing(hasRemote ? remote : (fallback || { todayLaunches: [], yesterdayResults: [] }))
+      }).catch(function () {
+        self._renderBriefing(fallback || { todayLaunches: [], yesterdayResults: [] })
+      })
     },
 
     _renderBriefing: function (briefing) {

@@ -7,6 +7,8 @@ const {
   hasCJK
 } = require('./search-pinyin.js')
 const { getAgencySearchExtraRaw } = require('./agency-search-aliases.js')
+const { cleanConfigId } = require('../../utils/rocket-config-match.js')
+const { translateRocketName } = require('../../utils/rocket-name-i18n.js')
 
 function levenshtein(a, b) {
   if (a === b) return 0
@@ -75,6 +77,15 @@ const SEARCH_FIELD_LABELS = {
   launchAgency: '机构',
   launchSite: '发射场',
   padLocation: '发射台',
+  combined: '组合'
+}
+
+const SEARCH_FIELD_LABELS_ROCKET_MODEL = {
+  missionName: '型号',
+  rocketName: '火箭',
+  launchAgency: '厂商',
+  launchSite: '缩写',
+  padLocation: '别名',
   combined: '组合'
 }
 
@@ -171,6 +182,133 @@ function getAgencySearchDocument(agency) {
   }
 }
 
+function getRocketModelSearchDocument(model) {
+  if (!model) return null
+  const rawNameZh = model.name || model.nameZh || ''
+  const rawNameEn = model.nameEn || model.full_name || ''
+  const rawFull = model.fullName || model.full_name || ''
+  const rawAlias = model.alias || ''
+  const rawMfr = model.manufacturerDisplay || model.manufacturer || ''
+  const rawAbbrev = model.manufacturerAbbrev || ''
+  const displayName = rawNameZh || translateRocketName(rawNameEn) || rawFull || rawNameEn
+  if (!displayName && !rawNameEn) return null
+
+  const fields = {
+    missionName: normalizeSearchText(displayName),
+    rocketName: normalizeSearchText([rawNameEn, rawFull, rawAlias].filter(Boolean).join(' ')),
+    launchAgency: normalizeSearchText(rawMfr),
+    launchSite: normalizeSearchText(rawAbbrev),
+    padLocation: normalizeSearchText(rawAlias)
+  }
+
+  const rawCombined = [displayName, rawNameEn, rawFull, rawAlias, rawMfr, rawAbbrev].filter(Boolean).join(' ')
+  const pinyinFull = toPinyinCompact(rawCombined)
+  const pinyinInitials = toPinyinInitialsCompact(rawCombined)
+  const configId = cleanConfigId(model.configId)
+
+  return {
+    mission: {
+      id: configId || displayName || rawNameEn,
+      configId,
+      name: displayName,
+      missionName: displayName,
+      rocketName: rawNameEn || rawAlias,
+      launchAgency: rawMfr,
+      manufacturer: rawMfr,
+      manufacturerAbbrev: rawAbbrev,
+      formattedTime: '火箭型号',
+      _isRocketModel: true
+    },
+    type: 'rocket_model',
+    fields,
+    rawFields: {
+      missionName: displayName,
+      rocketName: rawNameEn,
+      launchAgency: rawMfr,
+      launchSite: rawAbbrev,
+      padLocation: rawAlias
+    },
+    pinyinFull,
+    pinyinInitials,
+    combined: normalizeSearchText(Object.values(fields).join(' ')),
+    launchTime: 0,
+    isUpcoming: false
+  }
+}
+
+function collectRocketModelsFromMissions(upcoming, completed) {
+  const seen = Object.create(null)
+  const out = []
+  const lists = [upcoming, completed]
+  for (let i = 0; i < lists.length; i++) {
+    const list = lists[i] || []
+    for (let j = 0; j < list.length; j++) {
+      const m = list[j]
+      if (!m) continue
+      const configId = cleanConfigId(m.rocketConfigId)
+      if (!configId) continue
+      const nameEn = String(m.rocketNameEn || (m._langPack && m._langPack.rocketNameEn) || '').trim()
+      const name = String(m.rocketName || '').trim()
+      if (!name && !nameEn && !configId) continue
+      if (/未知|unknown/i.test(nameEn || name)) continue
+      const key = 'id:' + configId
+      if (seen[key]) continue
+      seen[key] = true
+      out.push({
+        id: configId,
+        configId,
+        name: translateRocketName(nameEn || name) || name,
+        nameEn: nameEn || name,
+        manufacturer: m.launchAgency || '',
+        manufacturerAbbrev: m.launchAgencyAbbrev || ''
+      })
+    }
+  }
+  return out
+}
+
+function collectRocketModelsFromConfigs(configs) {
+  const src = configs && typeof configs === 'object' ? configs : {}
+  const out = []
+  const ids = Object.keys(src)
+  for (let i = 0; i < ids.length; i++) {
+    const cfg = src[ids[i]]
+    const configId = cleanConfigId(cfg && cfg.id)
+    if (!cfg || !configId) continue
+    const nameEn = cfg.name || cfg.full_name || ''
+    const nameZh = cfg.nameZh || cfg.full_nameZh || translateRocketName(nameEn) || ''
+    out.push({
+      id: configId,
+      configId,
+      name: nameZh || nameEn,
+      nameEn,
+      fullName: cfg.full_nameZh || cfg.full_name || '',
+      alias: cfg.alias || '',
+      manufacturer: cfg.manufacturerName || '',
+      manufacturerDisplay: cfg.manufacturerNameZh || cfg.manufacturerName || '',
+      manufacturerAbbrev: cfg.manufacturerAbbrev || ''
+    })
+  }
+  return out
+}
+
+function mergeRocketModels(primary, secondary) {
+  const seen = Object.create(null)
+  const out = []
+  const add = (list) => {
+    (list || []).forEach((m) => {
+      if (!m || !m.configId) return
+      const idKey = 'id:' + String(m.configId)
+      if (seen[idKey]) return
+      seen[idKey] = true
+      out.push(m)
+    })
+  }
+  add(primary)
+  add(secondary)
+  return out
+}
+
 function scoreSearchDocument(queryInfo, doc) {
   const expandedTerms = (queryInfo && queryInfo.expandedTerms) || []
   const tokens = (queryInfo && queryInfo.tokens) || []
@@ -182,7 +320,8 @@ function scoreSearchDocument(queryInfo, doc) {
 
   const registerMatch = (label, reason, weight) => {
     score += weight
-    const displayLabel = SEARCH_FIELD_LABELS[label] || label
+    const labels = (doc && doc.type === 'rocket_model') ? SEARCH_FIELD_LABELS_ROCKET_MODEL : SEARCH_FIELD_LABELS
+    const displayLabel = labels[label] || label
     if (matchedTags.indexOf(displayLabel) === -1) matchedTags.push(displayLabel)
     if (reason && matchedReasons.indexOf(reason) === -1) matchedReasons.push(reason)
   }
@@ -350,9 +489,12 @@ function buildHighlightedSegments(text, queryInfo) {
 
 function decorateSearchResultItem(item, queryInfo) {
   const title = item.missionName || item.name || '未知任务'
-  const meta = `${item.rocketName || '未知火箭'} · ${item.formattedTime || '时间未知'}`
+  const meta = item._type === 'rocket_model'
+    ? `${item.launchAgency || item.manufacturer || '火箭型号'} · 型号档案`
+    : `${item.rocketName || '未知火箭'} · ${item.formattedTime || '时间未知'}`
   return {
     ...item,
+    _wxkey: `${item._type || 'item'}_${item.id || item.missionName || ''}`,
     _titleSegments: buildHighlightedSegments(title, queryInfo),
     _metaSegments: buildHighlightedSegments(meta, queryInfo)
   }
@@ -363,6 +505,7 @@ function groupSearchResults(results, queryInfo) {
   const upcoming = results.filter((item) => item._type === 'upcoming')
   const completed = results.filter((item) => item._type === 'completed')
   const agencies = results.filter((item) => item._type === 'agency')
+  const rocketModels = results.filter((item) => item._type === 'rocket_model')
   const groups = []
 
   if (agencies.length) {
@@ -371,6 +514,15 @@ function groupSearchResults(results, queryInfo) {
       title: '发射商/机构',
       subtitle: `${agencies.length} 条结果`,
       items: decorate(agencies)
+    })
+  }
+
+  if (rocketModels.length) {
+    groups.push({
+      key: 'rocket_model',
+      title: '火箭型号',
+      subtitle: `${rocketModels.length} 条结果`,
+      items: decorate(rocketModels)
     })
   }
 
@@ -415,11 +567,13 @@ function buildSearchResults(params = {}) {
   const upcomingMissions = Array.isArray(params.upcomingMissions) ? params.upcomingMissions : []
   const completedMissions = Array.isArray(params.completedMissions) ? params.completedMissions : []
   const agenciesList = Array.isArray(params.agencies) ? params.agencies : []
+  const rocketModels = Array.isArray(params.rocketModels) ? params.rocketModels : []
   const queryInfo = params.queryInfo || {}
   const docs = upcomingMissions
     .map((mission) => getMissionSearchDocument(mission, 'upcoming'))
     .concat(completedMissions.map((mission) => getMissionSearchDocument(mission, 'completed')))
     .concat(agenciesList.map((agency) => getAgencySearchDocument(agency)).filter(Boolean))
+    .concat(rocketModels.map((model) => getRocketModelSearchDocument(model)).filter(Boolean))
 
   const flat = docs.map((doc) => {
     const scored = scoreSearchDocument(queryInfo, doc)
@@ -430,7 +584,7 @@ function buildSearchResults(params = {}) {
       _searchScore: scored.score,
       _searchTags: scored.matchedTags,
       _matchReason: scored.matchedReasons[0] || '相关匹配',
-      _searchHint: doc.type === 'agency' ? '发射商' : (doc.isUpcoming ? '即将发射' : '历史发射')
+      _searchHint: doc.type === 'agency' ? '发射商' : (doc.type === 'rocket_model' ? '火箭型号' : (doc.isUpcoming ? '即将发射' : '历史发射'))
     }
   }).filter(Boolean).sort(sortSearchResults)
 
@@ -483,5 +637,9 @@ module.exports = {
   buildSearchResults,
   buildSearchPrefetchPlan,
   getAgencySearchDocument,
+  getRocketModelSearchDocument,
+  collectRocketModelsFromMissions,
+  collectRocketModelsFromConfigs,
+  mergeRocketModels,
   scoreSearchDocument
 }

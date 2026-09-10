@@ -7,6 +7,11 @@ const { takeDescI18nSeed } = require('../../utils/locale.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { advanceImageFallback } = require('../../utils/ll2-image.js')
 const {
+  isLocalSharePath,
+  pickRocketModelShareImageUrl,
+  pickRocketModelShareSourceForDownload
+} = require('./utils/rocket-model-share-image.js')
+const {
   STATION_MARKER_ICON, resolveNoradId, pickStationTle,
   createSatrec, getCurrentPosition, computeOrbitPath,
   computePastOrbitPath, getOrbitalParams, getLookAngles,
@@ -30,6 +35,7 @@ Page({
     descI18n: { stationDesc: '' },
     navTitle: '空间站详情',
     shareTitle: '空间站详情 | 火星探索日志',
+    shareImage: '',
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
     scrollRefreshing: false,
@@ -98,10 +104,12 @@ Page({
       }
     } catch (e) {}
     if (preloadImage) {
+      const preloadItem = { image: preloadImage, imageFallbacks: preloadFallbacks }
       this.setData({
-        item: { image: preloadImage, imageFallbacks: preloadFallbacks },
+        item: preloadItem,
         isTiangong: Number(id) === 18
       })
+      this._syncShareImage(preloadItem)
     } else if (id) {
       this.setData({ isTiangong: Number(id) === 18 })
     }
@@ -162,6 +170,7 @@ Page({
         navTitle: merged.name || '空间站详情',
         shareTitle: `${merged.name || '空间站详情'} | 火星探索日志`
       }, takeDescI18nSeed(this, { stationDesc: merged.descriptionZh })))
+      this._syncShareImage(merged)
 
       // 轨道数据在后台继续处理
       this._applyOrbitData(numId, noradId, tlePromise)
@@ -270,24 +279,12 @@ Page({
   },
 
   _silentRefreshFromWorker() {
-    // 后台静默请求 Worker，成功后写入云数据库供下次使用
+    // 只刷新本地缓存；云库 station_tle 由 syncTLE 定时写，客户端不再抢写
     this.fetchFromWorker().then(workerData => {
       if (!workerData || !workerData.tle) return
-      const db = wx.cloud.database()
-      const record = {
-        tle: workerData.tle,
-        source: 'Worker-silent',
-        fetchedAt: workerData.ts || Date.now(),
-        updatedAtMs: Date.now(),
-        stationCount: Object.keys(workerData.tle).filter(k => workerData.tle[k]).length
-      }
-      db.collection('station_tle').where({ recordId: 'latest' }).limit(1).get().then(res => {
-        if (res.data && res.data.length > 0) {
-          db.collection('station_tle').doc(res.data[0]._id).update({ data: record }).catch(() => {})
-        } else {
-          db.collection('station_tle').add({ data: { recordId: 'latest', ...record } }).catch(() => {})
-        }
-      }).catch(() => {})
+      try {
+        wx.setStorageSync('_station_tle_cache', { data: workerData, ts: Date.now() })
+      } catch (e) {}
     }).catch(() => {})
   },
 
@@ -561,21 +558,32 @@ Page({
     const ds = (e.currentTarget && e.currentTarget.dataset) || {}
     if (ds.cid == null || ds.cid === '') return
     try { wx.vibrateShort({ type: 'medium' }) } catch (err) {}
-    navigateTo(ROUTES.SPACECRAFT_DETAIL, { id: ds.cid, name: ds.name || '' })
+    navigateTo(ROUTES.SPACECRAFT_DETAIL, { id: ds.cid })
   },
 
-  /** 所属机构卡片点击 → 会员门控 → 发射商详情页（优先 id，回退缩写/名称） */
-  async onOwnerAgencyTap(e) {
+  async onShipAgencyTap(e) {
     const ds = (e.currentTarget && e.currentTarget.dataset) || {}
-    if (!ds.id && !ds.abbrev && !ds.name) return
+    if (!ds.id) {
+      wx.showToast({ title: '暂无该发射商档案', icon: 'none' })
+      return
+    }
     try { wx.vibrateShort({ type: 'medium' }) } catch (err) {}
     const allowed = await gateCheck('agency_encyclopedia', '全球发射商图鉴')
     if (!allowed) return
-    let params
-    if (ds.id) params = { id: ds.id }
-    else if (ds.abbrev) params = { abbrev: ds.abbrev }
-    else params = { name: ds.name }
-    navigateTo(ROUTES.AGENCY_DETAIL, params)
+    navigateTo(ROUTES.AGENCY_DETAIL, { id: ds.id })
+  },
+
+  /** 所属机构卡片点击 → 会员门控 → 发射商详情页（只带 LL2 id） */
+  async onOwnerAgencyTap(e) {
+    const ds = (e.currentTarget && e.currentTarget.dataset) || {}
+    if (!ds.id) {
+      wx.showToast({ title: '暂无该发射商档案', icon: 'none' })
+      return
+    }
+    try { wx.vibrateShort({ type: 'medium' }) } catch (err) {}
+    const allowed = await gateCheck('agency_encyclopedia', '全球发射商图鉴')
+    if (!allowed) return
+    navigateTo(ROUTES.AGENCY_DETAIL, { id: ds.id })
   },
 
   onHeroImageLoad() {
@@ -592,6 +600,10 @@ Page({
         'item.image': advanced.next,
         'item.imageFallbacks': advanced.remaining
       })
+      this._syncShareImage(Object.assign({}, item, {
+        image: advanced.next,
+        imageFallbacks: advanced.remaining
+      }))
       return
     }
     // 链耗尽才启用 CSS 视觉兜底（与卡片「清空」不同：详情仍有视觉层）
@@ -634,6 +646,53 @@ Page({
     })
   },
 
+  _shareImageOpts(item) {
+    const it = item || this.data.item || {}
+    const fallbacks = Array.isArray(it.imageFallbacks) ? it.imageFallbacks.slice() : []
+    return {
+      displayImage: it.image || '',
+      rawImage: it.rawImage || fallbacks[0] || it.image || '',
+      fallbacks: fallbacks
+    }
+  },
+
+  _syncShareImage(item) {
+    const opts = this._shareImageOpts(item)
+    const url = pickRocketModelShareImageUrl(opts)
+    if (this.data.shareImage !== url) this.setData({ shareImage: url })
+    this.ensureShareImageHttpUrl(pickRocketModelShareSourceForDownload(opts))
+  },
+
+  ensureShareImageHttpUrl(imageUrl) {
+    if (!imageUrl || typeof imageUrl !== 'string') return
+    const trimmed = imageUrl.trim()
+    if (!trimmed) return
+    if (isLocalSharePath(trimmed)) {
+      if (this.data.shareImage !== trimmed) this.setData({ shareImage: trimmed })
+      return
+    }
+    if (this._shareImageSourceUrl === trimmed && this.data.shareImage && isLocalSharePath(this.data.shareImage)) {
+      return
+    }
+    this._shareImageSourceUrl = trimmed
+    const self = this
+    wx.getImageInfo({
+      src: trimmed,
+      success(res) {
+        if (res && res.path && self._shareImageSourceUrl === trimmed) {
+          self.setData({ shareImage: res.path })
+        }
+      },
+      fail() {
+        if (self._shareImageSourceUrl === trimmed) self._shareImageSourceUrl = ''
+      }
+    })
+  },
+
+  _buildShareImage() {
+    return this.data.shareImage || pickRocketModelShareImageUrl(this._shareImageOpts())
+  },
+
   onShareAppMessage() {
     const item = this.data.item
     const stationId = (item && item.id != null) ? item.id : this._stationId
@@ -647,7 +706,7 @@ Page({
     return {
       title: this.data.shareTitle,
       path,
-      imageUrl: item && item.image ? item.image : ''
+      imageUrl: this._buildShareImage()
     }
   },
 
@@ -664,7 +723,7 @@ Page({
     return {
       title: this.data.shareTitle,
       query,
-      imageUrl: item && item.image ? item.image : ''
+      imageUrl: this._buildShareImage()
     }
   }
 })

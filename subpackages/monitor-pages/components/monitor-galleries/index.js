@@ -51,6 +51,8 @@ Component({
     emitRetryLoadAgencies(e) { this._emit('retryLoadAgencies', e) },
     emitOnViewAllBoosters(e) { this._emit('onViewAllBoosters', e) },
     emitOnBoosterCardTap(e) { this._emit('onBoosterCardTap', e) },
+    emitOnBoosterFamilyTap(e) { this._emit('onBoosterFamilyTap', e) },
+    emitOnBoosterManufacturerTap(e) { this._emit('onBoosterManufacturerTap', e) },
     emitOnBoosterImageLoad(e) { this._emit('onBoosterImageLoad', e) },
     emitOnBoosterImageError(e) { this._emit('onBoosterImageError', e) },
     emitOnRetryBoosterLoad(e) { this._emit('onRetryBoosterLoad', e) },

@@ -9,6 +9,7 @@ const gallerySearch = require('./utils/gallery-search.js')
 const { runPullRefresh } = require('../../utils/pull-refresh.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { gateCheck } = require('../../utils/membership.js')
+const { SHARE_THUMB_FALLBACK, shareOptsFromCard, syncPageShareImage, pageShareImage, ensureShareImageOnPage } = require('../../utils/share-thumb.js')
 
 Page({
   behaviors: [pageBase],
@@ -28,12 +29,14 @@ Page({
     siteKeyword: '',
 
     cards: [],
+    shareImage: SHARE_THUMB_FALLBACK,
     stats: { siteCount: 0, activeCount: 0, countryCount: 0, totalLaunches: 0 },
     filterEmpty: false
   },
 
   onLoad(options) {
     this.initUiShell()
+    ensureShareImageOnPage(this, SHARE_THUMB_FALLBACK)
     // 分享/入口可带 filter 参数：active / country:China
     var filter = options && options.filter ? decodeURIComponent(options.filter) : 'all'
     this._pendingFilter = filter
@@ -81,6 +84,11 @@ Page({
       filterEmpty: all.length > 0 && filtered.length === 0,
       filterChips: chips
     })
+    this._syncShareImage(filtered[0])
+  },
+
+  _syncShareImage(card) {
+    syncPageShareImage(this, shareOptsFromCard(card))
   },
 
   onFilterTap(e) {
@@ -173,7 +181,11 @@ Page({
   },
 
   onShareAppMessage() {
-    return { title: '全球发射场分布 | 火星探索日志', path: this._sharePath() }
+    return {
+      title: '全球发射场分布 | 火星探索日志',
+      path: this._sharePath(),
+      imageUrl: pageShareImage(this, shareOptsFromCard(this.data.cards[0]))
+    }
   },
 
   onShareTimeline() {
@@ -181,6 +193,10 @@ Page({
     if (this.data.filter && this.data.filter !== 'all') {
       query = 'filter=' + encodeURIComponent(this.data.filter)
     }
-    return { title: '全球发射场分布 | 火星探索日志', query: query }
+    return {
+      title: '全球发射场分布 | 火星探索日志',
+      query: query,
+      imageUrl: pageShareImage(this, shareOptsFromCard(this.data.cards[0]))
+    }
   }
 })

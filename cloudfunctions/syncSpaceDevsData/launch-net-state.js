@@ -1,3 +1,5 @@
+const { mergeLaunchSourcesForStub } = require('./launch-identity-upgrade.js')
+
 const TERMINAL_STATUS_IDS = new Set([3, 4, 7, 9])
 
 function isTerminalStatus(status) {
@@ -119,7 +121,10 @@ function buildPreviousListStub(src, statusOverride, fallbacks) {
     mission: mission
       ? {
           name: mission.name || '',
+          nameZh: mission.nameZh || undefined,
           description: mission.description || '',
+          descriptionZh: mission.descriptionZh || undefined,
+          type: mission.type || undefined,
           orbit: mission.orbit || undefined
         }
       : null,
@@ -205,9 +210,8 @@ function attachLaunchStubsToTerminalEntries(terminalEntries, upcomingRows, liveB
     const id = String(entry.id)
     const cached = upcomingById.get(id)
     const live = liveById && liveById.get ? liveById.get(id) : null
-    const src = cached || live
+    const src = mergeLaunchSourcesForStub(cached, live)
     if (!src) continue
-    if (entry.launchStub && !isThinLaunchStub(entry.launchStub) && !cached) continue
     entry.launchStub = buildPreviousListStub(src, entry.status, {
       name: entry.name || '',
       net: entry.net || '',

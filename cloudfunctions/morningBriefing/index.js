@@ -112,8 +112,43 @@ function matchByBeijingDate(list, dateStr) {
   })
 }
 
+async function readLatestLaunchList(kind) {
+  const needle = kind === 'previous' ? '/launches/previous/' : '/launches/upcoming/'
+  const legacy = kind === 'previous' ? 'launches_previous_' : 'launches_upcoming_'
+  try {
+    const res = await db.collection('space_devs_cache').orderBy('updatedAt', 'desc').limit(80).get()
+    const docs = (res && res.data) || []
+    const matched = docs.filter(function (doc) {
+      const id = String((doc && doc._id) || '')
+      const key = String((doc && doc.cacheKey) || '')
+      return id.indexOf(needle) !== -1 || key.indexOf(legacy) !== -1 || key.indexOf(needle) !== -1
+    })
+    const seen = Object.create(null)
+    const all = []
+    for (let i = 0; i < matched.length; i++) {
+      const list = readResultsFromCacheDoc(matched[i])
+      for (let j = 0; j < list.length; j++) {
+        const row = list[j]
+        const id = (row && (row.id || row.slug)) || ''
+        if (!id || seen[id]) continue
+        seen[id] = true
+        all.push(row)
+      }
+    }
+    if (all.length) return all
+  } catch (e) {}
+  return readSpaceDevsCache(legacy)
+}
+
+function readResultsFromCacheDoc(doc) {
+  if (!doc) return []
+  if (doc.data && Array.isArray(doc.data.results)) return doc.data.results
+  if (Array.isArray(doc.results)) return doc.results
+  return []
+}
+
 async function getTodayLaunches(today) {
-  const results = await readSpaceDevsCache('launches_upcoming_')
+  const results = await readLatestLaunchList('upcoming')
   const matched = matchByBeijingDate(results, today)
   return matched.slice(0, 10).map((l) => ({
     id: l.id || l.slug || '',
@@ -126,7 +161,7 @@ async function getTodayLaunches(today) {
 }
 
 async function getYesterdayResults(yesterday) {
-  const results = await readSpaceDevsCache('launches_previous_')
+  const results = await readLatestLaunchList('previous')
   const matched = matchByBeijingDate(results, yesterday)
   return matched.slice(0, 10).map((l) => {
     const abbrev = (l.status && l.status.abbrev) || ''
@@ -174,14 +209,19 @@ exports.main = async (event) => {
   await ensureBriefingCollections()
   const startTime = Date.now()
 
-  // 检查后台管理开关
+  // 与后台 GlobalConfig / 小程序弹窗同一开关：global_config.main.enableBriefing
   try {
-    const configRes = await db.collection('global_config').doc('briefing_config').get()
-    if (configRes.data && configRes.data.briefingEnabled === false) {
+    const mainRes = await db.collection('global_config').doc('main').get()
+    if (mainRes.data && mainRes.data.enableBriefing === false) {
       return { success: false, message: 'briefing disabled by admin' }
     }
-  } catch (e) {
-    // 文档不存在时默认开启
+  } catch (eMain) {
+    try {
+      const configRes = await db.collection('global_config').doc('briefing_config').get()
+      if (configRes.data && configRes.data.briefingEnabled === false) {
+        return { success: false, message: 'briefing disabled by admin' }
+      }
+    } catch (e) {}
   }
 
   const today = todayStr()

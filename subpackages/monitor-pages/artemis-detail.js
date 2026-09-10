@@ -12,6 +12,7 @@ const {
 const {
   artemisArow: ARTEMIS_CFG
 } = require('../../utils/config.js')
+const { SHARE_THUMB_FALLBACK, bootPageShareThumb, pageShareImage } = require('../../utils/share-thumb.js')
 
 // stub — filled below
 const pad2 = (n) => String(n).padStart(2, '0')
@@ -48,6 +49,7 @@ Page({
   data: {
     loading: true,
     errorMsg: '',
+    shareImage: SHARE_THUMB_FALLBACK,
     navTitle: 'Artemis II 实时遥测',
     missionPhase: 'active',
     missionSummary: null,
@@ -81,6 +83,7 @@ Page({
 
   onLoad() {
     this.initUiShell()
+    bootPageShareThumb(this)
     const phase = getArtemisMissionPhase()
     this.setData({
       missionPhase: phase
@@ -540,13 +543,15 @@ Page({
   onShareAppMessage() {
     return {
       title: 'Artemis II 实时遥测 | 火星探索日志',
-      path: '/subpackages/monitor-pages/artemis-detail'
+      path: '/subpackages/monitor-pages/artemis-detail',
+      imageUrl: pageShareImage(this)
     }
   },
 
   onShareTimeline() {
     return {
-      title: 'Artemis II 实时遥测 | 火星探索日志'
+      title: 'Artemis II 实时遥测 | 火星探索日志',
+      imageUrl: pageShareImage(this)
     }
   }
 })

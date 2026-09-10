@@ -522,10 +522,11 @@ exports.main = async (event = {}) => {
       case 'myWish': return await getMyWish(openid)
       case 'myWishes': return await getMyWishes(openid)
       case 'getByPassId': return await getByPassId(payload)
-      case 'like': return await likeWish(payload, openid)
-      case 'admin': return await adminAction(payload, openid)
+      case 'like': return await likeWish(payload, openid) // 小程序未接线，后台/兼容保留
+      case 'admin': return await adminAction(payload, openid) // 运维保留
       case 'ping':
       case 'health':
+        // 运维健康检查，小程序不调
         return { code: 0, message: 'ok', data: { service: 'lunarWishes', openid: !!openid } }
       default:
         return {

@@ -69,7 +69,7 @@ require.cache[mockMemberPath] = {
   exports: { gateCheck: () => Promise.resolve(true) }
 }
 
-const tt = require(path.join(__dirname, '../pages/mission-detail/utils/text-translate.js'))
+const tt = require(path.join(__dirname, '../subpackages/shared/utils/text-translate.js'))
 
 const failures = []
 let passCount = 0
@@ -152,7 +152,7 @@ async function main() {
   const fs = require('fs')
   const cloudSrc = fs.readFileSync(path.join(__dirname, '../cloudfunctions/ll2Query/translate.js'), 'utf8')
   const actionSrc = fs.readFileSync(path.join(__dirname, '../cloudfunctions/ll2Query/index.js'), 'utf8')
-  const clientSrc = fs.readFileSync(path.join(__dirname, '../pages/mission-detail/utils/text-translate.js'), 'utf8')
+  const clientSrc = fs.readFileSync(path.join(__dirname, '../subpackages/shared/utils/text-translate.js'), 'utf8')
   check('S8 云端含 splitLongText', /function splitLongText\(/.test(cloudSrc))
   check('S8 云端含 ITEM_MAX_CHARS', /ITEM_MAX_CHARS\s*=\s*4000/.test(cloudSrc))
   check('S8 客户端 AI 为主通道注释', /默认主通道/.test(clientSrc) && /TMT 仅/.test(clientSrc))
@@ -165,7 +165,7 @@ async function main() {
   check('S8 薄壳 isAIAvailable 查 createModel', /extend\.AI\.createModel/.test(aiShell) && !/typeof wx\.cloud\.extend === 'function'/.test(aiShell))
   check('S8 客户端 loadTranslateAiService', /function loadTranslateAiService\(/.test(clientSrc) && /\/subpackages\/shared\/utils\/aiService\.js/.test(clientSrc))
   const newsTt = fs.readFileSync(path.join(__dirname, '../subpackages/news-extra/utils/text-translate.js'), 'utf8')
-  check('S8 news-extra 副本已同步', /function loadTranslateAiService\(/.test(newsTt))
+  check('S8 news-extra 薄壳指向 shared', /require\.async\(/.test(newsTt) && newsTt.includes('../../shared/utils/text-translate.js'))
 
   console.log('\n==== 结果: ' + passCount + ' PASS, ' + failures.length + ' FAIL ====')
   if (failures.length) { console.log(failures.join('\n')); process.exit(1) }

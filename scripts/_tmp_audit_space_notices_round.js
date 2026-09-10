@@ -47,6 +47,10 @@ console.log('[1] files')
   'subpackages/monitor-pages/space-notices/notice-map.wxml',
   'subpackages/monitor-pages/space-notices/utils/map-build.js',
   'subpackages/monitor-pages/space-notices/utils/api-space-notices.js',
+  'subpackages/monitor-pages/space-notices/utils/entry-cards.js',
+  'subpackages/monitor-pages/space-notices/utils/entry-lifecycle.js',
+  'cloudfunctions/spaceNotices/entry-lifecycle.js',
+  'cloudfunctions/spaceNotices/entry-identity.js',
   'subpackages/monitor-pages/space-notices/utils/flight13-trajectory.js',
   'cloudfunctions/spaceNotices/discover-china-firs.js',
   'utils/space-notices-feature.js'
@@ -99,7 +103,8 @@ const listWxml = read('subpackages/monitor-pages/space-notices/entry-list.wxml')
 const mapJs = read('subpackages/monitor-pages/space-notices/notice-map.js')
 const mapWxml = read('subpackages/monitor-pages/space-notices/notice-map.wxml')
 check('pageBase list+map', /behaviors:\s*\[\s*pageBase\s*\]/.test(listJs) && /behaviors:\s*\[\s*pageBase\s*\]/.test(mapJs))
-check('立即同步 button', /立即同步/.test(listWxml) && /onSync/.test(listJs))
+check('列表自动同步无按钮', /_quietSync/.test(listJs) && !/同步条目/.test(listWxml) && !/暂无提前预警/.test(listWxml))
+check('重试可再静默同步', /retryLoad\(\) \{[\s\S]*?this\._autoSynced = false/.test(listJs))
 check('polyline binding', /polyline="\{\{polylines\}\}"/.test(mapWxml))
 check('region toggles', /mapRegion/.test(mapJs) && /发射区/.test(mapWxml) && /溅落/.test(mapWxml) && /全程/.test(mapWxml))
 check('轨迹 toggle', /轨迹/.test(mapWxml) && /showCorridor/.test(mapJs) && /hasTrajectory/.test(mapJs))
@@ -109,9 +114,11 @@ check('trajectory joins fit', /fitCenter\(/.test(mapJs) && /polygons, polylines/
 check('api -504003 mapping', /-504003/.test(read('subpackages/monitor-pages/space-notices/utils/api-space-notices.js')))
 check('提前预警状态', /提前预警/.test(mapJs) && /statusTone === 'soon'/.test(read('subpackages/monitor-pages/space-notices/utils/notice-format.js')))
 check('预警状态筛选 chip', /showSoon/.test(mapJs) && /预警/.test(mapWxml))
+check('已结束状态筛选 chip', /showEnded/.test(mapJs) && /data-key="showEnded"/.test(mapWxml) && /已结束/.test(mapWxml))
+check('历史任务默认打开已结束层', /showEnded:\s*past/.test(mapJs) && /launchTimeMs/.test(mapJs))
 check('中国筛选按钮', /chinaOnly/.test(mapJs) && /data-key="chinaOnly"/.test(mapWxml) && /toggleChinaView/.test(mapJs) && /isChinaNotice/.test(read('subpackages/monitor-pages/space-notices/utils/china-filter.js')))
 check('中国按钮在地图工具栏', /map-action-china-wrap/.test(mapWxml) && /bindtap="toggleChinaView"/.test(mapWxml) && /中国/.test(mapWxml))
-check('列表中国通告入口', /openChinaMap/.test(listJs) && /中国航警公告/.test(listJs) && /CHINESE_COLLECTION_KEY/.test(listJs) && /lookupChinaBulletin/.test(listJs))
+check('列表中国通告入口', /openChinaMap/.test(listJs) && /china-notice-preview/.test(listWxml) && /CHINESE_COLLECTION_KEY/.test(listJs))
 check('云函数置顶中国合集', /collection-chinese-unknown/.test(read('cloudfunctions/spaceNotices/discover-entries.js')) && /withPinnedEntries/.test(read('cloudfunctions/spaceNotices/discover-entries.js')) && /isCollectionKey/.test(cfIndex))
 check('中国航警每轮核对', /CHINESE_COLLECTION_KEY/.test(cfIndex) && /lastCheckedAt/.test(cfIndex) && /bulletinFingerprint/.test(cfIndex) && /lookupChinaBulletin/.test(cfIndex))
 check('中国航警超时补拉', /CHINA_BULLETIN_STALE_MS/.test(cfIndex) && /chinaStale/.test(cfIndex))
@@ -119,18 +126,18 @@ check('中国情报区 sitemap+FIR 扫描', /discover-china-firs/.test(cfIndex) 
 check('中国桶保留未上合集的未来窗口', /pruneExpiredChinaNotices/.test(cfIndex) && /shouldKeepStoredNotice/.test(cfIndex))
 check('通告归属不互抢', /resolveNoticeOwner/.test(read('cloudfunctions/spaceNotices/discover-china-firs.js')) && /chinaBulletin/.test(cfIndex) && /readChinaBulletinNotices/.test(cfIndex))
 check('解析拒收串页 id', /noticeKeysAlign/.test(cfFetch) && /allowChinaIngest/.test(cfIndex))
-check('列表中国卡写明核对节奏', /15 分钟核对一次/.test(listJs) && /chinaBulletin\.syncLine/.test(listWxml))
+check('中国卡核对节奏文案', /约 15 分钟核对一次/.test(read('subpackages/monitor-pages/space-notices/utils/notice-format.js')))
 check('监控卡改名发射航警地图', /发射航警地图/.test(read('pages/monitor/monitor.wxml')))
 check(
   '监控卡中国卫星预览',
-  /sn-preview-sat/.test(read('pages/monitor/monitor.wxml')) &&
-    /中国航警公告/.test(read('pages/monitor/monitor.wxml')) &&
-    /sn-preview-hit/.test(read('pages/monitor/monitor.wxml')) &&
-    /catchtap="openSpaceNotices"/.test(read('pages/monitor/monitor.wxml')) &&
-    /slot="space-notices"/.test(read('pages/monitor/monitor.wxml')) &&
+  /china-notice-preview/.test(read('pages/monitor/monitor.wxml')) &&
+    /sn-preview-sat/.test(read('subpackages/monitor-pages/components/china-notice-preview/index.wxml')) &&
+    /发射航警地图/.test(read('pages/monitor/monitor.wxml')) &&
+    /bind:open="openSpaceNotices"/.test(read('pages/monitor/monitor.wxml')) &&
+    /native-map="\{\{true\}\}"/.test(read('pages/monitor/monitor.wxml')) &&
     !/<map[\s>]/.test(read('pages/monitor/monitor.wxml'))
 )
-check('点监控卡进中国航警', /SPACE_NOTICE_MAP/.test(read('pages/monitor/monitor.js')) && /CHINESE_COLLECTION_KEY/.test(read('pages/monitor/monitor.js')))
+check('点监控卡进航警列表', /SPACE_NOTICE_LIST/.test(read('pages/monitor/monitor.js')) && /openSpaceNotices/.test(read('pages/monitor/monitor.js')))
 check('产品名常量对齐', /SPACE_NOTICES_PRODUCT_NAME/.test(read('utils/space-notices-feature.js')) && /发射航警地图/.test(listJs) && /发射航警地图/.test(mapJs))
 check('云函数 B\/C 日期回填', /fillNoticeDates/.test(read('cloudfunctions/spaceNotices/index.js')) && exists('cloudfunctions/spaceNotices/parse-dates.js'))
 

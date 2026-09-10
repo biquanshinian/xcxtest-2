@@ -20,6 +20,12 @@ const { togglePageTranslation } = require('./utils/text-translate.js')
 const { checkShareEntryGate, warmShareEntitlement, withShareStampPath, withShareStampQuery } = require('./utils/share-gate.js')
 const pageBase = require('../../utils/page-base.js')
 const { isFavorite, toggleFavorite, pulseFavAnimate, syncFavoriteState } = require('../../utils/favorites.js')
+const {
+  SHARE_THUMB_FALLBACK,
+  pickShareImageUrl,
+  pickShareDownloadSrc,
+  ensureShareImageOnPage
+} = require('../../utils/share-thumb.js')
 
 /** 地图 marker id 约定：0 = 发射场主标记；>0 = 工位（pad.id） */
 const SITE_MARKER_ID = 0
@@ -102,7 +108,7 @@ Page({
     /* 分享免门控 24h 剩余时间倒计时胶囊（share-gate.js 写入） */
     shareGateExpireAt: 0,
     /** 分享缩略图：对应发射场卫星/配图（本地预下载），避免朋友圈落到默认图/截图 */
-    shareImage: '',
+    shareImage: SHARE_THUMB_FALLBACK,
     isMomentsPreview: false,
     previewName: '',
     isFavorited: false,
@@ -138,6 +144,7 @@ Page({
       isMomentsPreview,
       previewName
     })
+    ensureShareImageOnPage(this, SHARE_THUMB_FALLBACK)
     if (previewName) {
       try { wx.setNavigationBarTitle({ title: previewName, fail() {} }) } catch (_) {}
     }
@@ -341,71 +348,29 @@ Page({
     wx.previewImage({ urls: [url], fail: () => {} })
   },
 
-  _isLocalSharePath(path) {
-    const s = String(path || '')
-    if (!s) return false
-    if (s.indexOf('wxfile://') === 0) return true
-    if (/^http:\/\/(tmp|usr)\b/i.test(s)) return true
-    if (typeof wx !== 'undefined' && wx.env && wx.env.USER_DATA_PATH && s.indexOf(wx.env.USER_DATA_PATH) === 0) {
-      return true
+  /**
+   * 分享缩略图：用当前发射场卫星/场地图。
+   * 卡片 imageUrl 常是 imageMogr2 webp 或 LL2 外链，微信 imageUrl 直接用会落到默认图标。
+   */
+  _shareImageOpts(site) {
+    const it = site && typeof site === 'object' ? site : {}
+    const fallbacks = Array.isArray(it.imageFallbacks) ? it.imageFallbacks : []
+    return {
+      displayImage: it.imageUrl || '',
+      rawImage: fallbacks[0] || it.imageUrl || '',
+      fallbacks: fallbacks
     }
-    return !/^https?:\/\//i.test(s)
   },
 
-  /**
-   * 分享缩略图：用当前发射场对应配图（卫星图/场地图）。
-   * 本地缓存命中优先；外链走 Worker 代理。
-   */
   _pickLaunchSiteShareImage(site) {
-    if (!site || typeof site !== 'object') return ''
-    const current = String(site.imageUrl || '').trim()
-    const fallbacks = Array.isArray(site.imageFallbacks) ? site.imageFallbacks : []
-    const candidates = [current].concat(
-      fallbacks.map((u) => String(u || '').trim()).filter(Boolean)
-    ).filter(Boolean)
-    for (let i = 0; i < candidates.length; i++) {
-      const pick = candidates[i]
-      if (this._isLocalSharePath(pick)) return pick
-      const proxied = launchSiteDisplay.proxiedImageUrl(pick)
-      return proxied || pick
-    }
-    return ''
+    return pickShareImageUrl(this._shareImageOpts(site))
   },
 
   _syncShareImage(site) {
-    const url = this._pickLaunchSiteShareImage(site)
-    if (!url) {
-      if (this.data.shareImage) this.setData({ shareImage: '' })
-      this._shareImageSourceUrl = ''
-      return
-    }
+    const opts = this._shareImageOpts(site)
+    const url = pickShareImageUrl(opts)
     if (this.data.shareImage !== url) this.setData({ shareImage: url })
-    this.ensureShareImageHttpUrl(url)
-  },
-
-  /** 网络图落到本地临时路径，规避 iOS 朋友圈远程缩略图加载失败 */
-  ensureShareImageHttpUrl(imageUrl) {
-    if (!imageUrl || typeof imageUrl !== 'string') return
-    const trimmed = imageUrl.trim()
-    if (!trimmed) return
-    if (this._isLocalSharePath(trimmed)) {
-      if (this.data.shareImage !== trimmed) this.setData({ shareImage: trimmed })
-      return
-    }
-    if (this._shareImageSourceUrl === trimmed && this.data.shareImage) return
-    this._shareImageSourceUrl = trimmed
-    const self = this
-    wx.getImageInfo({
-      src: trimmed,
-      success(res) {
-        if (res && res.path && self._shareImageSourceUrl === trimmed) {
-          self.setData({ shareImage: res.path })
-        }
-      },
-      fail() {
-        if (self._shareImageSourceUrl === trimmed) self._shareImageSourceUrl = ''
-      }
-    })
+    ensureShareImageOnPage(this, pickShareDownloadSrc(opts))
   },
 
   onToggleFavorite() {
@@ -438,7 +403,6 @@ Page({
 
   onShareAppMessage() {
     const site = this.data.site
-    const imageUrl = this.data.shareImage || this._pickLaunchSiteShareImage(site)
     const hasId = this._siteId != null && Number(this._siteId) > 0
     const path = hasId
       ? withShareStampPath(`/subpackages/monitor-pages/launch-site-detail?${this._shareSiteQuery()}`, this)
@@ -448,18 +412,16 @@ Page({
       detailText: site ? `${site.countryLabel || ''} · 累计发射 ${site.totalLaunchCount} 次` : '全球发射场分布',
       path
     })
-    if (imageUrl) result.imageUrl = imageUrl
+    result.imageUrl = this.data.shareImage || this._pickLaunchSiteShareImage(site)
     return result
   },
 
   onShareTimeline() {
     const site = this.data.site
-    const imageUrl = this.data.shareImage || this._pickLaunchSiteShareImage(site)
-    const result = {
+    return {
       title: this.data.shareTitle,
-      query: Number(this._siteId) > 0 ? withShareStampQuery(this._shareSiteQuery(), this) : ''
+      query: Number(this._siteId) > 0 ? withShareStampQuery(this._shareSiteQuery(), this) : '',
+      imageUrl: this.data.shareImage || this._pickLaunchSiteShareImage(site)
     }
-    if (imageUrl) result.imageUrl = imageUrl
-    return result
   }
 })

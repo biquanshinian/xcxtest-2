@@ -119,12 +119,13 @@ module.exports = {
   /**
    * Artemis II 星历简报 — 参见 subpackages/monitor-pages/utils/artemis-arow.js
    *
-   * 请求链路：小程序 → Worker(/artemis-horizons) → JPL Horizons
+   * 请求链路：小程序 → Worker(/artemis-telemetry) → NASA AROW
+   * 失败回落本地上次快照，不再客户端直打 /artemis-horizons
    * 前置条件：
-   *   1. cloudflare-worker/spacex-proxy.js 已部署（含 /artemis-horizons 路由）
+   *   1. cloudflare-worker/spacex-proxy.js 已部署（含 /artemis-telemetry 路由）
    *   2. 微信公众平台 request 合法域名已添加 workerProxyUrl 的域名
    *
-   * horizonsProxyUrl 可选：填完整代理地址则优先使用，否则自动拼 workerProxyUrl + '/artemis-horizons'
+   * horizonsProxyUrl 可选：填完整 Worker 根地址则优先使用，否则用 workerProxyUrl
    */
   /**
    * request / downloadFile / uploadFile 合法域名清单（须在公众平台配置，代码无法代配）
@@ -162,7 +163,7 @@ module.exports = {
 
   artemisArow: {
     enabled: true,
-    /** 完整代理地址（不含 query），留空则用 workerProxyUrl + '/artemis-horizons' */
+    /** 完整 Worker 根地址（不含 query），留空则用 workerProxyUrl */
     horizonsProxyUrl: '',
     /** 轮询间隔（毫秒） */
     pollIntervalMs: 15000,
@@ -183,7 +184,7 @@ module.exports = {
    * 罗曼太空望远镜追踪 — 参见 subpackages/monitor-pages/utils/roman-tracker.js
    *
    * 请求链路：小程序 → Worker(/roman-tracker) → NASA/JPL Horizons + DSN Now
-   * 精简接口未部署时回退 Worker(/artemis-horizons) 仅拉星历
+   * 精简接口失败时回落本地上次快照，不再客户端直打 /artemis-horizons
    */
   romanTracker: {
     enabled: true,

@@ -333,21 +333,6 @@ export const api = {
   batchUpdateMediaAssets(body) {
     return request('/media-assets/batch', { method: 'POST', body })
   },
-  listMediaFeed(query) {
-    return request('/media-feed', { method: 'GET', query })
-  },
-  createMediaFeed(body) {
-    return request('/media-feed', { method: 'POST', body })
-  },
-  updateMediaFeed(id, body) {
-    return request(`/media-feed/${id}`, { method: 'PUT', body })
-  },
-  deleteMediaFeed(id) {
-    return request(`/media-feed/${id}`, { method: 'DELETE' })
-  },
-  batchUpdateMediaFeed(body) {
-    return request('/media-feed/batch', { method: 'POST', body })
-  },
   listShopFeed(query) {
     return request('/shop-feed', { method: 'GET', query })
   },
@@ -606,6 +591,18 @@ export const api = {
   syncLaunchData() {
     return request('/launch-data/sync', { method: 'POST' })
   },
+  syncAgencies() {
+    return request('/agencies/sync', { method: 'POST' })
+  },
+  listMissionReplays(query) {
+    return request('/mission-replays', { method: 'GET', query })
+  },
+  deleteMissionReplay(id) {
+    return request(`/mission-replays/${id}`, { method: 'DELETE' })
+  },
+  decommissionBilibiliPublish(body = {}) {
+    return request('/ops/decommission-bilibili-publish', { method: 'POST', body })
+  },
   cleanLaunchDataCache() {
     return request('/launch-data/clean', { method: 'POST' })
   },
@@ -680,12 +677,6 @@ export const api = {
   },
   updateGlobalConfig(body) {
     return request('/global-config', { method: 'PUT', body })
-  },
-  getOrbitalConfig() {
-    return request('/orbital-config', { method: 'GET' })
-  },
-  updateOrbitalConfig(body) {
-    return request('/orbital-config', { method: 'PUT', body })
   },
   getOrbitalConfig() {
     return request('/orbital-config', { method: 'GET' })

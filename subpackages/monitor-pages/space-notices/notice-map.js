@@ -14,7 +14,9 @@ const {
   withShareStampPath,
   withShareStampQuery
 } = require('../utils/share-gate.js')
+const { SHARE_THUMB_FALLBACK, bootPageShareThumb, pageShareImage } = require('../../../utils/share-thumb.js')
 const { decorateNotice, decorateSpaceNoticeEntry, spaceNoticeDisplayTitle, sortNotices, buildStats, noticeStatusVisible, noticeChinaVisible, formatChinaBulletinSync } = require('./utils/notice-format.js')
+const { computeEntryIsPast, launchTimeMs } = require('./utils/entry-lifecycle.js')
 const {
   buildPolygonsFromNotices,
   buildPolylinesFromNotices,
@@ -25,7 +27,9 @@ const {
   fitCenter,
   fitNotice,
   hasGeometry,
-  hitTestPolygonNotice
+  hitTestPolygonNotice,
+  isUsableLatLng,
+  EMPTY_MAP_VIEW
 } = require('./utils/map-build.js')
 const { buildMapLayoutData, setMapSatelliteFromTap } = require('../utils/map-page-common.js')
 const { isChinaPad, isChineseCollectionKey, CHINESE_COLLECTION_KEY, normalizeEntryKey } = require('./utils/china-filter.js')
@@ -60,17 +64,18 @@ Page({
     subtitle: '',
     padName: '',
     netText: '',
-    latitude: CHINA_VIEW.latitude,
-    longitude: CHINA_VIEW.longitude,
-    scale: CHINA_VIEW.scale,
+    latitude: EMPTY_MAP_VIEW.latitude,
+    longitude: EMPTY_MAP_VIEW.longitude,
+    scale: EMPTY_MAP_VIEW.scale,
     markers: [],
     polygons: [],
     polylines: [],
-    includePoints: CHINA_FIT_POINTS.slice(),
+    includePoints: [],
     notices: [],
     stats: { notam: 0, nav: 0, adp: 0, live: 0, soon: 0, ended: 0, cancelled: 0, china: 0 },
     loading: true,
     errorText: '',
+    shareImage: SHARE_THUMB_FALLBACK,
     showNotam: true,
     showNav: true,
     showCorridor: true,
@@ -79,6 +84,7 @@ Page({
     showSoon: true,
     showEnded: false,
     showCancelled: false,
+    isPast: false,
     /** 官网中国合集视图（collection-chinese-unknown），与底部图层 chip 无关 */
     chinaView: false,
     /** 仅显示中国相关通告；进入官网合集时为 true */
@@ -90,8 +96,9 @@ Page({
     cadenceText: '',
     syncLine: '',
     syncUnchanged: true,
-    /** 仅当本任务有轨迹数据时才显示「轨迹」chip */
+    /** 有站点轨迹或 ADP 走廊时才显示对应 chip */
     hasTrajectory: false,
+    hasAdp: false,
     showPad: true,
     /** 默认「全程」：首屏一眼看到所有通告几何/轨迹，再按需切发射区/溅落区 */
     mapRegion: 'global',
@@ -115,6 +122,7 @@ Page({
 
   async onLoad(options) {
     this.initUiShell()
+    bootPageShareThumb(this)
     let entryKey = normalizeEntryKey((options && (options.entryKey || options.entrykey)) || '')
     const ll2Id = normalizeEntryKey((options && options.ll2Id) || '')
     if (!entryKey && !ll2Id) entryKey = CHINESE_COLLECTION_KEY
@@ -228,9 +236,14 @@ Page({
       this._display = display
       const traj = resolveTrajectory(entry)
       const hasTrajectory = !!(traj && traj.length >= 2)
+      const hasAdp = (this._decorated || []).some((n) => /ADP/i.test(String((n && n.type) || '')))
       const sync = formatChinaBulletinSync(entry)
       const firChips = chinaCollection ? buildFirChips(this._decorated) : []
       const firFilter = firChips.some((c) => c.code === this.data.firFilter) ? this.data.firFilter : ''
+      const stats = buildStats(this._decorated)
+      const past = !chinaCollection && computeEntryIsPast(entry)
+      const netMs = launchTimeMs(entry)
+      const noActive = !stats.live && !stats.soon && stats.ended > 0
       this.setData({
         loading: false,
         errorText: '',
@@ -239,9 +252,12 @@ Page({
         title: chinaCollection ? '中国航警公告' : (display.title || '通告地图'),
         subtitle: chinaCollection ? (sync.syncLine || '临时危险区') : (display.subtitle || entry.rocketName || ''),
         padName: (entry.pad && entry.pad.name) || '',
-        netText: entry.net ? formatDate(new Date(entry.net), 'MM-DD HH:mm') : '',
-        stats: buildStats(this._decorated),
+        netText: netMs ? formatDate(new Date(netMs), 'MM-DD HH:mm') : '',
+        stats,
+        isPast: past,
+        showEnded: past || noActive,
         hasTrajectory,
+        hasAdp,
         chinaView: chinaCollection,
         chinaOnly: chinaCollection,
         firChips,
@@ -251,8 +267,8 @@ Page({
         cadenceText: sync.cadenceText || '',
         syncLine: sync.syncLine,
         syncUnchanged: !!sync.unchanged,
-        // 无轨迹时强制关掉，避免空 chip 被点开
-        showCorridor: hasTrajectory ? this.data.showCorridor : false
+        // 无轨迹且无 ADP 时关掉，避免空 chip；有 ADP 走廊时仍要能画
+        showCorridor: (hasTrajectory || hasAdp) ? this.data.showCorridor : false
       })
       this._loadedAt = Date.now()
       this.refreshVisible({ refit: true })
@@ -321,7 +337,11 @@ Page({
     }
     // 与星舰同链路：先建图层，再解析有效红色坐标（缺 pad 时用通告密度中心兜底）
     const pad = resolveEffectivePad(this._entry, polygons, polylines)
-    const padOk = !!(pad && (!chinaOnly || isChinaPad(pad)))
+    const padOk = !!(
+      pad &&
+      isUsableLatLng(pad.latitude, pad.longitude) &&
+      (!chinaOnly || isChinaPad(pad))
+    )
     const markerTitle =
       (this._display && this._display.title) || spaceNoticeDisplayTitle(this._entry)
     const markers = this.data.showPad && padOk
@@ -342,10 +362,17 @@ Page({
         const center = fitCenter(pad, polygons, polylines, {
           region: this.data.mapRegion || 'global'
         })
-        next.includePoints = center.includePoints || []
-        next.latitude = center.latitude
-        next.longitude = center.longitude
-        next.scale = center.scale
+        if (center && !center.empty) {
+          next.includePoints = center.includePoints || []
+          next.latitude = center.latitude
+          next.longitude = center.longitude
+          next.scale = center.scale
+        } else if (padOk) {
+          next.includePoints = [{ latitude: pad.latitude, longitude: pad.longitude }]
+          next.latitude = pad.latitude
+          next.longitude = pad.longitude
+          next.scale = 6
+        }
       }
     }
     this.setData(next)
@@ -354,7 +381,7 @@ Page({
   toggleLayer(e) {
     const key = e.currentTarget.dataset.key
     if (!key) return
-    if (key === 'showCorridor' && !this.data.hasTrajectory) return
+    if (key === 'showCorridor' && !this.data.hasTrajectory && !this.data.hasAdp) return
     const statusKey = key === 'showLive' || key === 'showSoon' || key === 'showEnded' || key === 'showCancelled'
     if (key === 'chinaOnly') {
       this.toggleChinaView()
@@ -538,7 +565,8 @@ Page({
         : ROUTES.SPACE_NOTICE_LIST
     return {
       title: this._shareTitle(),
-      path: withShareStampPath(base, this)
+      path: withShareStampPath(base, this),
+      imageUrl: pageShareImage(this)
     }
   },
 
@@ -551,7 +579,8 @@ Page({
         : ''
     return {
       title: this._shareTitle(),
-      query: withShareStampQuery(query, this)
+      query: withShareStampQuery(query, this),
+      imageUrl: pageShareImage(this)
     }
   }
 })

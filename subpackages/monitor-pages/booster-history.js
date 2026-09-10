@@ -1,4 +1,5 @@
 const pageBase = require('../../utils/page-base.js')
+const { SHARE_THUMB_FALLBACK, bootPageShareThumb, pageShareImage } = require('../../utils/share-thumb.js')
 
 Page({
   behaviors: [pageBase],
@@ -10,6 +11,7 @@ Page({
     missions: [],
     discussionTopic: '',
     navTitle: '历史任务',
+    shareImage: SHARE_THUMB_FALLBACK,
     statusBarHeight: 44,
     navPlaceholderHeight: 0,
     menuButtonWidth: 88
@@ -17,6 +19,7 @@ Page({
 
   onLoad(options) {
     this.initUiShell()
+    bootPageShareThumb(this)
     var serial = options.serial ? decodeURIComponent(options.serial) : ''
     var currentLaunchId = options.currentLaunchId ? decodeURIComponent(options.currentLaunchId) : ''
 
@@ -99,14 +102,16 @@ Page({
   onShareAppMessage() {
     return {
       title: this.data.serial + ' 历史任务 | 火星探索日志',
-      path: '/subpackages/monitor-pages/booster-history?serial=' + encodeURIComponent(this.data.serial)
+      path: '/subpackages/monitor-pages/booster-history?serial=' + encodeURIComponent(this.data.serial),
+      imageUrl: pageShareImage(this)
     }
   },
 
   onShareTimeline() {
     return {
       title: this.data.serial + ' 历史任务 | 火星探索日志',
-      query: 'serial=' + encodeURIComponent(this.data.serial)
+      query: 'serial=' + encodeURIComponent(this.data.serial),
+      imageUrl: pageShareImage(this)
     }
   }
 })

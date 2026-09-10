@@ -17,7 +17,7 @@
     <view style="height: {{navPlaceholderHeight}}px;"></view>
 
     <view class="list-body">
-      <china-notice-preview id="chinaNoticePreview" title="中国航警" bind:open="openChinaMap" />
+      <china-notice-preview id="chinaNoticePreview" title="中国航警" native-map="{{true}}" bind:open="openChinaMap" />
 
       <view class="detail-skeleton" wx:if="{{loading}}" aria-hidden="{{true}}">
         <view class="skeleton-card" wx:for="{{[1, 2, 3, 4]}}" wx:key="*this">
@@ -32,66 +32,33 @@
           <text class="sn-state-title">加载失败</text>
           <text class="sn-state-desc">{{errorText}}</text>
           <view class="sn-btn" bindtap="retryLoad"><text>重试</text></view>
-          <view class="sn-btn sn-btn--ghost" bindtap="onSync"><text>同步条目</text></view>
         </view>
 
-        <view class="sn-state glass-card" wx:elif="{{!upcoming.length && !past.length}}">
-          <text class="sn-state-title">暂无条目</text>
-          <text class="sn-state-desc">云函数每 15 分钟会自动入库。若刚部署，等一轮或点下方「同步条目」。</text>
-          <view class="sn-btn" bindtap="onSync"><text>同步条目</text></view>
+        <view class="sn-section" wx:if="{{upcoming.length}}">
+          <view class="sn-section-head">
+            <text class="sn-section-title">提前预警</text>
+            <text class="sn-section-count">{{upcoming.length}}</text>
+          </view>
+          <view class="sn-grid">
+            <view
+              class="sn-grid-card"
+              wx:for="{{upcoming}}"
+              wx:key="entryKey"
+              data-key="{{item.entryKey}}"
+              bindtap="openMap"
+            >
+              <view class="sn-grid-photo">
+                <image wx:if="{{item.rocketImage}}" class="sn-grid-img" src="{{item.rocketImage}}" mode="aspectFill" data-key="{{item.entryKey}}" binderror="onRocketImageError" />
+                <view wx:else class="sn-grid-img sn-grid-img--ph"></view>
+                <text class="sn-grid-badge">{{item.badgeNo}}</text>
+              </view>
+              <text class="sn-grid-title">{{item.title}}</text>
+              <text class="sn-grid-sub sn-grid-sub--link" wx:if="{{item.rocketClickable}}" catchtap="onTapRocketName" data-config-id="{{item.rocketConfigId}}" data-name="{{item.rocketNameEn}}" data-display="{{item.subtitle}}">{{item.subtitle}}</text>
+              <text class="sn-grid-sub" wx:else>{{item.subtitle}}</text>
+              <text class="sn-grid-meta">{{item.dateShort}}</text>
+            </view>
+          </view>
         </view>
-
-        <block wx:else>
-          <view class="sn-section" wx:if="{{upcoming.length}}">
-            <view class="sn-section-head">
-              <text class="sn-section-title">即将 / 进行中</text>
-              <text class="sn-section-count">{{upcoming.length}}</text>
-            </view>
-            <view class="sn-grid">
-              <view
-                class="sn-grid-card"
-                wx:for="{{upcoming}}"
-                wx:key="entryKey"
-                data-key="{{item.entryKey}}"
-                bindtap="openMap"
-              >
-                <view class="sn-grid-photo">
-                  <image wx:if="{{item.rocketImage}}" class="sn-grid-img" src="{{item.rocketImage}}" mode="aspectFill" />
-                  <view wx:else class="sn-grid-img sn-grid-img--ph"></view>
-                  <text class="sn-grid-badge">{{item.badgeNo}}</text>
-                </view>
-                <text class="sn-grid-title">{{item.title}}</text>
-                <text class="sn-grid-sub">{{item.subtitle}}</text>
-                <text class="sn-grid-meta">{{item.dateShort}}</text>
-              </view>
-            </view>
-          </view>
-
-          <view class="sn-section" wx:if="{{past.length}}">
-            <view class="sn-section-head">
-              <text class="sn-section-title">历史发射</text>
-              <text class="sn-section-count">{{past.length}}</text>
-            </view>
-            <view class="sn-grid">
-              <view
-                class="sn-grid-card sn-grid-card--past"
-                wx:for="{{past}}"
-                wx:key="entryKey"
-                data-key="{{item.entryKey}}"
-                bindtap="openMap"
-              >
-                <view class="sn-grid-photo">
-                  <image wx:if="{{item.rocketImage}}" class="sn-grid-img" src="{{item.rocketImage}}" mode="aspectFill" />
-                  <view wx:else class="sn-grid-img sn-grid-img--ph"></view>
-                  <text class="sn-grid-badge">{{item.badgeNo}}</text>
-                </view>
-                <text class="sn-grid-title">{{item.title}}</text>
-                <text class="sn-grid-sub">{{item.subtitle}}</text>
-                <text class="sn-grid-meta">{{item.dateShort}}</text>
-              </view>
-            </view>
-          </view>
-        </block>
       </block>
     </view>
   </scroll-view>

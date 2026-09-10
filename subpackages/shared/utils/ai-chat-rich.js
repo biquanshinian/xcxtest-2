@@ -186,6 +186,8 @@ async function toChatMissionCard(mission, detailType, options) {
     statusCategory: localized.statusCategory || 'pending',
     padLocation: localized.padLocation || localized.launchSite || '',
     launchAgency: localized.launchAgency || '',
+    launchAgencyId: localized.launchAgencyId != null ? localized.launchAgencyId : '',
+    launchAgencyAbbrev: localized.launchAgencyAbbrev || '',
     detailType: type,
     detailUrl: buildMissionDetailUrl({ id: localized.id, detailType: type })
   }
@@ -1259,7 +1261,7 @@ async function resolveAgencyLookupCard(options) {
     let configs = opts.rocketConfigsHint || null
     if (!configs) {
       try {
-        const meta = await getRocketConfigMeta()
+        const meta = await getRocketConfigMeta({ afterGate: true })
         configs = (meta && meta.configs) || {}
       } catch (e) {
         configs = {}
@@ -1406,6 +1408,9 @@ function buildSpecCard(spec) {
     specKind: s.specKind || '',
     id: 'spec_' + (s.specKind || 'x') + '_' + (s.targetId != null ? s.targetId : '0'),
     targetId: s.targetId != null ? String(s.targetId) : '',
+    targetLl2Id: s.targetLl2Id != null && String(s.targetLl2Id).trim() !== ''
+      ? String(s.targetLl2Id)
+      : '',
     targetName: s.targetName || '',
     tag: s.tag || '',
     title: s.title || '',
@@ -1527,7 +1532,7 @@ async function resolveRocketModelCard(options) {
   let configs = opts.rocketConfigsHint || null
   if (!configs) {
     try {
-      const meta = await getRocketConfigMeta()
+      const meta = await getRocketConfigMeta({ afterGate: true })
       configs = (meta && meta.configs) || {}
     } catch (e) {
       configs = {}
@@ -1710,6 +1715,7 @@ async function resolveBoosterCard(options) {
       const card = buildSpecCard({
         specKind: 'booster',
         targetId: item.serial,
+        targetLl2Id: item.ll2Id != null ? item.ll2Id : '',
         targetName: item.serial,
         tag: aiChatUiText('tagBooster'),
         title: item.serial || serial,

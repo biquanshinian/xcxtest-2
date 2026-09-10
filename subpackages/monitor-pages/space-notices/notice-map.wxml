@@ -111,9 +111,9 @@
       </view>
 
       <view class="sn-chips">
-        <view class="sn-chip {{showCorridor ? 'sn-chip--on' : ''}}" data-key="showCorridor" bindtap="toggleLayer" wx:if="{{hasTrajectory}}">
+        <view class="sn-chip {{showCorridor ? 'sn-chip--on' : ''}}" data-key="showCorridor" bindtap="toggleLayer" wx:if="{{hasTrajectory || hasAdp}}">
           <view class="sn-chip-dot sn-chip-dot--adp"></view>
-          <text>轨迹</text>
+          <text>{{hasTrajectory ? '轨迹' : '走廊'}}</text>
         </view>
         <view class="sn-chip {{showNotam ? 'sn-chip--on' : ''}}" data-key="showNotam" bindtap="toggleLayer">
           <view class="sn-chip-dot sn-chip-dot--notam"></view>
@@ -143,6 +143,10 @@
         <view class="sn-chip {{showSoon ? 'sn-chip--on' : ''}}" data-key="showSoon" bindtap="toggleLayer">
           <view class="sn-chip-dot sn-chip-dot--soon"></view>
           <text>预警{{stats.soon ? ' ' + stats.soon : ''}}</text>
+        </view>
+        <view class="sn-chip {{showEnded ? 'sn-chip--on' : ''}}" data-key="showEnded" bindtap="toggleLayer" wx:if="{{stats.ended}}">
+          <view class="sn-chip-dot sn-chip-dot--ended"></view>
+          <text>已结束{{stats.ended ? ' ' + stats.ended : ''}}</text>
         </view>
       </view>
 

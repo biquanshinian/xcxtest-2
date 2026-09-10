@@ -137,31 +137,19 @@ function nameMatchScore(cfg, needles) {
   return score
 }
 
-function matchRocketConfig(configs, input) {
-  var map = configs && typeof configs === 'object' ? configs : {}
-  var src = input && typeof input === 'object' ? input : {}
-  if (src.detailConfig && typeof src.detailConfig === 'object') {
-    return src.detailConfig
+function lookupConfigById(map, configId) {
+  var id = String(configId == null ? '' : configId).trim()
+  if (!id || id === 'undefined' || id === 'null') return null
+  if (map[id]) return map[id]
+  var ids = Object.keys(map)
+  for (var i = 0; i < ids.length; i++) {
+    var row = map[ids[i]]
+    if (row && String(row.id) === id) return row
   }
-  var detailCfg = configFromDetailSpecs(src.detailSpecs)
-  if (detailCfg) {
-    var named = matchRocketConfig(map, {
-      configId: src.configId,
-      rocketName: src.rocketName,
-      rocketNameEn: src.rocketNameEn
-    })
-    if (!named) return detailCfg
-    return Object.assign({}, named, detailCfg)
-  }
-  var configId = String(src.configId || '').trim()
-  if (configId) {
-    if (map[configId]) return map[configId]
-    var ids = Object.keys(map)
-    for (var i = 0; i < ids.length; i++) {
-      var row = map[ids[i]]
-      if (row && String(row.id) === configId) return row
-    }
-  }
+  return null
+}
+
+function matchRocketConfigByNameOnly(map, src) {
   var needles = [src.rocketNameEn, src.rocketName]
     .map(compactKey)
     .filter(Boolean)
@@ -178,6 +166,36 @@ function matchRocketConfig(configs, input) {
     return specRank(b.cfg) - specRank(a.cfg) || b.score - a.score
   })
   return pool[0].cfg
+}
+
+function matchRocketConfig(configs, input) {
+  var map = configs && typeof configs === 'object' ? configs : {}
+  var src = input && typeof input === 'object' ? input : {}
+  var configId = String(src.configId == null ? '' : src.configId).trim()
+  if (configId === 'undefined' || configId === 'null') configId = ''
+  var fromMap = lookupConfigById(map, configId)
+  var detailCfg = configFromDetailSpecs(src.detailSpecs)
+
+  if (src.detailConfig && typeof src.detailConfig === 'object') {
+    var dcId = src.detailConfig.id != null ? String(src.detailConfig.id).trim() : ''
+    if (!configId || !dcId || dcId === configId) {
+      return detailCfg ? Object.assign({}, src.detailConfig, detailCfg) : src.detailConfig
+    }
+  }
+
+  if (configId) {
+    if (fromMap && detailCfg) return Object.assign({}, fromMap, detailCfg)
+    if (fromMap) return fromMap
+    if (detailCfg) return Object.assign({ id: fromMap ? fromMap.id : configId }, detailCfg)
+    return null
+  }
+
+  if (detailCfg) {
+    var named = matchRocketConfigByNameOnly(map, src)
+    if (!named) return detailCfg
+    return Object.assign({}, named, detailCfg)
+  }
+  return matchRocketConfigByNameOnly(map, src)
 }
 
 function pushFeat(list, label, value) {
@@ -250,12 +268,25 @@ function buildExhibit(cfg, extra) {
   }
 }
 
+function navFromExhibit(exhibit, fallback) {
+  var ex = exhibit && typeof exhibit === 'object' ? exhibit : {}
+  var fb = fallback && typeof fallback === 'object' ? fallback : {}
+  var title = firstText([ex.title, fb.pickerTitle, fb.rocketName, '3D 展陈'])
+  var subtitle = firstText([ex.subtitle, fb.pickerSub, fb.rocketNameEn])
+  return {
+    pickerTitle: title,
+    pickerSub: subtitle,
+    navTitle: title
+  }
+}
+
 module.exports = {
   compactKey,
   matchRocketConfig,
   configFromDetailSpecs,
   specRank,
   buildExhibit,
+  navFromExhibit,
   fmtNum,
   formatSpecScalar,
   fmtDate

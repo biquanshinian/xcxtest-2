@@ -4,7 +4,7 @@ const pageBase = require('../../utils/page-base.js')
 const { pickLocalized, zhField, takeDescI18nSeed } = require('../../utils/locale.js')
 const { resolveAgencyDisplayZh } = require('../../utils/launch-card-i18n.js')
 const { togglePageTranslation } = require('./utils/text-translate.js')
-const { getRocketConfigMeta, getSpaceXLaunchStats } = require('../../utils/api-app-services.js')
+const { getSpaceXLaunchStats } = require('../../utils/api-app-services.js')
 const { ROUTES, navigateTo } = require('../../utils/routes.js')
 const { overrideAgencyLogoUrl } = require('../../utils/agency-logo-overrides.js')
 const { gateCheck } = require('../../utils/membership.js')
@@ -24,7 +24,6 @@ const { resolveSocialLinkMeta } = require('./utils/agency-data.js')
 // 必须走主包薄壳（内部 require.async 拉 shared 分包）：直接同步 require ../shared/**
 // 在分享卡片 / 朋友圈单页直达本页时 shared 分包尚未下载，模块加载即报错导致整页黑屏
 const { resolveEventAuthorAvatarUrl, warmEventShareImage } = require('../../utils/event-share-image.js')
-try { warmEventShareImage() } catch (e) {}
 
 /**
  * 机构 LL2 id → 事件更新推文账号（starship_event_updates.source）映射；
@@ -37,12 +36,9 @@ const AGENCY_TWEET_SOURCES = {
 
 /** 页内只预览最新 2 条，更多经标题右侧「查看更多」进事件更新列表页 */
 const AGENCY_TWEETS_PREVIEW_COUNT = 2
-// Artemis 遥测模块与本页同分包，可直接同步 require（监控中心是跨分包才用 require.async）
-const artemisArow = require('./utils/artemis-arow.js')
-const romanTracker = require('./utils/roman-tracker.js')
 
 function isNasaAgency(item) {
-  return !!(item && (Number(item.id) === 44 || String(item.abbrev || '').toUpperCase() === 'NASA'))
+  return !!(item && Number(item.id) === 44)
 }
 
 function formatAgencyDetail(agency) {
@@ -56,44 +52,44 @@ function formatAgencyDetail(agency) {
   const countryList = Array.isArray(agency.country) ? agency.country : []
   const countryNames = countryList.map((item) => pickLocalized(zhField(item, 'name'), item && item.name)).filter(Boolean)
   const countryCodes = countryList.map(item => item && item.alpha_2_code).filter(Boolean)
-  // 保留 LL2 构型 id：火箭标签匹配族谱档案跳 rocket-model-detail，飞船标签跳 spacecraft-detail
-  // LL2 按构型 id 返回，同名型号（如 Falcon 9 的多个 Block）会出现多条 → 按名称去重、合并 id
+  // 保留 LL2 构型 id：一条 id 一张标签。同名多 Block 不再合并，避免点进错误构型。
   const launcherList = []
+  const seenLauncherIds = {}
   if (Array.isArray(agency.launcher_list)) {
-    const byName = {}
     agency.launcher_list.forEach((entry) => {
-      if (!entry || !entry.name) return
-      const nameEn = String(entry.name || '').trim()
-      if (byName[nameEn]) {
-        if (entry.id != null) byName[nameEn].ids.push(entry.id)
-        return
-      }
-      const rec = {
-        name: pickLocalized(zhField(entry, 'name') || entry.nameZh, nameEn),
+      if (!entry || entry.id == null) return
+      const idKey = String(entry.id)
+      if (seenLauncherIds[idKey]) return
+      seenLauncherIds[idKey] = true
+      const nameEn = String(entry.full_name || entry.name || '').trim()
+      if (!nameEn) return
+      launcherList.push({
+        name: pickLocalized(
+          entry.full_nameZh || zhField(entry, 'full_name') || entry.nameZh || zhField(entry, 'name'),
+          nameEn
+        ),
         nameEn,
-        ids: entry.id != null ? [entry.id] : [],
-        hasDetail: false,
-        archiveId: null
-      }
-      byName[nameEn] = rec
-      launcherList.push(rec)
+        ids: [entry.id],
+        hasDetail: entry.id != null,
+        archiveId: entry.id != null ? entry.id : null
+      })
     })
   }
   const spacecraftList = []
   const spacecraftRawById = {}
   if (Array.isArray(agency.spacecraft_list)) {
-    const seen = {}
     agency.spacecraft_list.forEach((entry) => {
-      if (!entry || !entry.name || seen[entry.name]) return
-      seen[entry.name] = true
+      if (!entry || entry.id == null) return
+      const idKey = String(entry.id)
+      if (spacecraftRawById[idKey]) return
       const nameEn = String(entry.name || '').trim()
+      if (!nameEn) return
       spacecraftList.push({
         id: entry.id != null ? entry.id : null,
         name: pickLocalized(zhField(entry, 'name') || entry.nameZh, nameEn),
         nameEn
       })
-      // 内嵌对象已含全量详情字段，点击跳转时直传飞船详情页秒开
-      if (entry.id != null) spacecraftRawById[String(entry.id)] = entry
+      spacecraftRawById[idKey] = entry
     })
   }
   const socialLinks = []
@@ -433,7 +429,6 @@ Page({
       }, takeDescI18nSeed(this, { agencyDesc: item && item.descriptionZh })))
       this._syncShareImage(item)
       this._ensureAgencyLogoBg(item)
-      this._markLauncherArchives()
       this._loadSpacexRecoveryStats(item)
       this._initRomanSection(item, { silent: silentRefresh })
       this._initArtemisSection(item)
@@ -676,7 +671,7 @@ Page({
 
   /** SpaceX 专属：加载回收方式统计 + 手机直连星链 D2C（复用监控中心预计算数据，零额外云调用） */
   async _loadSpacexRecoveryStats(item) {
-    const isSpaceX = item && (item.id === 121 || item.abbrev === 'SpX' || item.nameEn === 'SpaceX')
+    const isSpaceX = item && Number(item.id) === 121
     if (!isSpaceX) return
     try {
       const stats = await getSpaceXLaunchStats()
@@ -711,7 +706,10 @@ Page({
   // ========== NASA 专属：罗曼太空望远镜（卡片组件与监控页共用） ==========
 
   _initRomanSection(item) {
-    const visible = isNasaAgency(item) && romanTracker.shouldShowRomanSection()
+    let visible = false
+    if (isNasaAgency(item)) {
+      try { visible = require('./utils/roman-tracker.js').shouldShowRomanSection() } catch (e) {}
+    }
     if (this.data.romanSectionVisible !== visible) {
       this.setData({ romanSectionVisible: visible })
     }
@@ -720,7 +718,10 @@ Page({
   // ========== NASA 专属：Artemis II 实时遥测（卡片组件自管拉取） ==========
 
   _initArtemisSection(item) {
-    const visible = isNasaAgency(item) && artemisArow.shouldShowArtemisArowSection()
+    let visible = false
+    if (isNasaAgency(item)) {
+      try { visible = require('./utils/artemis-arow.js').shouldShowArtemisArowSection() } catch (e) {}
+    }
     if (this.data.artemisSectionVisible !== visible) {
       this.setData({ artemisSectionVisible: visible })
     }
@@ -731,30 +732,17 @@ Page({
     if (favId != null && String(favId) !== '') syncFavoriteState(this, 'agency', favId)
   },
 
-  /** 火箭型号标签：同名标签的多个构型 id 逐个匹配族谱 _config_meta，命中的标记为可跳转 */
-  async _markLauncherArchives() {
-    const list = (this.data.item && this.data.item.launcherList) || []
-    if (!list.length) return
-    try {
-      const meta = await getRocketConfigMeta()
-      const configs = (meta && meta.configs) || {}
-      const kv = {}
-      list.forEach((entry, i) => {
-        const hit = (entry.ids || []).find(id => configs[String(id)])
-        if (hit != null) {
-          kv[`item.launcherList[${i}].hasDetail`] = true
-          kv[`item.launcherList[${i}].archiveId`] = hit
-        }
-      })
-      if (Object.keys(kv).length) this.setData(kv)
-    } catch (e) {}
-  },
-
   /** 火箭型号标签点击：有族谱档案时跳火箭型号详情页 */
   onTapLauncher(e) {
     const ds = e.currentTarget.dataset
     if (ds.cid == null || ds.cid === '') return
-    navigateTo(ROUTES.ROCKET_MODEL_DETAIL, { configId: ds.cid })
+    const params = { configId: ds.cid }
+    if (this._agencyId) {
+      params.agencyId = this._agencyId
+      const item = this.data.item || {}
+      if (item.name) params.agencyName = item.name
+    }
+    navigateTo(ROUTES.ROCKET_MODEL_DETAIL, params)
   },
 
   /** 飞船型号标签点击：跳飞船详情页（内嵌详情对象直传，免请求秒开） */
@@ -766,7 +754,7 @@ Page({
       const app = getApp && getApp()
       if (app) app._spacecraftDetailData = raw
     }
-    navigateTo(ROUTES.SPACECRAFT_DETAIL, { id: ds.cid, name: ds.name || '' })
+    navigateTo(ROUTES.SPACECRAFT_DETAIL, { id: ds.cid })
   },
 
   retryLoad() {

@@ -2,6 +2,7 @@ const { formatMapUpdateTime, buildMapStatePatch, createMapBaseState, buildMapLay
 const { getUpcomingMissions, getCompletedMissions } = require('../../utils/api-launch-list.js')
 const { LAUNCH_SITES, toMarker } = require('./utils/map-scenes.js')
 const pageBase = require('../../utils/page-base.js')
+const { SHARE_THUMB_FALLBACK, bootPageShareThumb, pageShareImage } = require('../../utils/share-thumb.js')
 
 Page({
   behaviors: [pageBase],
@@ -10,6 +11,7 @@ Page({
     statusBarHeight: 44,
     menuButtonWidth: 88,
     isDirectEntry: false,
+    shareImage: SHARE_THUMB_FALLBACK,
     capsuleTop: 0,
     capsuleHeight: 32,
     mapActionTop: 0,
@@ -40,6 +42,7 @@ Page({
   },
 
   onLoad(options = {}) {
+    bootPageShareThumb(this)
     this.initUiShell()
     const app = getApp()
     const markers = LAUNCH_SITES.map((item) => toMarker(item, { color: item.accentColor || '#0A84FF' }))
@@ -322,14 +325,16 @@ Page({
     const query = this._shareQuery()
     return {
       title: this._shareTitle(),
-      path: '/subpackages/monitor-pages/launch-site-map' + (query ? '?' + query : '')
+      path: '/subpackages/monitor-pages/launch-site-map' + (query ? '?' + query : ''),
+      imageUrl: pageShareImage(this)
     }
   },
 
   onShareTimeline() {
     return {
       title: this._shareTitle(),
-      query: this._shareQuery()
+      query: this._shareQuery(),
+      imageUrl: pageShareImage(this)
     }
   },
 
